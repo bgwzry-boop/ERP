@@ -1,10 +1,9 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import {
   AccountBookOutlined,
   AppstoreOutlined,
   BellOutlined,
   CheckCircleOutlined,
-  ClockCircleOutlined,
   DashboardOutlined,
   DatabaseOutlined,
   DownOutlined,
@@ -19,8 +18,20 @@ import {
   SyncOutlined,
   UnorderedListOutlined,
   UserOutlined,
-  WarningOutlined,
 } from "@ant-design/icons";
+import {
+  customers,
+  initialFulfillments,
+  initialInventories,
+  initialOrderLines,
+  initialStatements,
+  initialTodos,
+  makeFulfillment,
+  makeOrderLine,
+  makeTodo,
+  sampleText,
+} from "./data/fixtures.js";
+import { enrichDraftRow, parseOrderText } from "./lib/orderParser.js";
 
 const pages = [
   { key: "todos", label: "公共待办", icon: DashboardOutlined },
@@ -40,190 +51,61 @@ const laterPages = [
   { label: "司机端", icon: CheckCircleOutlined },
 ];
 
-const customers = [
-  customer("C001", "张三服饰", "7天一结", "张三", "138****1234", "虎门镇人民路 8 号", 18650, 2400, "06-26", ["自提多", "常用30*38"]),
-  customer("C002", "李四电商", "15天一结", "李四", "139****6221", "厚街仓库 A 区", 32860, 8800, "06-20", ["送货", "欠款关注"]),
-  customer("C003", "王五包装", "现结", "王五", "136****7709", "本村市场南门", 0, 0, "06-28", ["现场付款"]),
-  customer("C004", "美的空调网店", "月结", "陈会计", "137****5510", "广州白云快运点", 51200, 12600, "06-01", ["快运", "定制多"]),
-  customer("C005", "小熊童装", "5天一结", "赵姐", "135****9901", "虎门服装城", 8700, 0, "06-25", ["加长提"]),
-  customer("C006", "喜铺礼品", "现结", "刘先生", "132****4468", "长安镇", 1260, 0, "06-28", ["印刷通货"]),
-  customer("C007", "福袋批发", "7天一结", "周会计", "188****2034", "本村北口", 11340, 1200, "06-23", ["印刷通货"]),
-  customer("C008", "同行加工A", "15天一结", "林厂", "189****7300", "隔壁村工业区", 9200, 0, "06-24", ["外加工"]),
-  customer("C009", "红叶电商", "现结", "叶小姐", "131****8234", "沙田快递站", 540, 0, "06-28", ["小单"]),
-  customer("C010", "黑马服装", "月结", "马老板", "150****5532", "虎门大道 36 号", 27600, 5300, "06-12", ["送货", "大客户"]),
-  customer("C011", "白鲸自营店", "7天一结", "店铺客服", "177****1160", "自营店仓", 4420, 0, "06-27", ["自营网店"]),
-  customer("C012", "宏尚布业", "现结", "张师傅", "139****4088", "河北到货自提", 0, 0, "06-29", ["原料供应"]),
-];
-
-function customer(id, name, cycle, contact, phone, address, receivable, debt, lastStatement, tags) {
-  return { id, name, cycle, contact, phone, address, receivable, debt, lastStatement, tags };
-}
-
-const orderLines = [
-  line("ORD-0629-001", "01", "C001", "空白袋", "30*38*10", "红色", "普通提", "空白袋", "否", 500, "现货有货", "待出库", "自提", "今天 15:00", 180, [], "有货"),
-  line("ORD-0629-001", "02", "C001", "空白袋", "30*38*10", "黑色", "普通提", "空白袋", "否", 100, "现货缺货", "缺货待处理", "自提", "今天 15:00", 36, ["库存不足"], "缺货"),
-  line("ORD-0629-002", "01", "C002", "服装店白袋", "25*32*10", "白色", "加长提", "空白袋", "否", 1200, "现货有货", "已备货", "送货", "今天 16:30", 408, [], "已占用"),
-  line("ORD-0629-003", "01", "C004", "美的空调", "30*38*10", "白色", "普通提", "空白袋", "是", 1000, "定制印刷", "制袋中", "快递快运", "明天 18:00", 480, ["待打印标签"], "生产中"),
-  line("ORD-0629-004", "01", "C005", "小熊袋", "25*23*8", "红色", "普通提", "小熊袋", "是", 800, "印刷通货", "待出库", "自提", "今天 17:00", 376, [], "有货"),
-  line("ORD-0629-005", "01", "C006", "喜字袋", "30*37*10", "红色", "普通提", "喜", "是", 300, "印刷通货", "已交付", "自提", "昨天 11:00", 174, [], "已完成"),
-  line("ORD-0629-006", "01", "C007", "福字袋", "35*41*12", "红色", "普通提", "福", "是", 500, "印刷通货", "待对账", "送货", "今天 14:00", 390, [], "已交付"),
-  line("ORD-0629-007", "01", "C008", "同行来料印刷", "40*32*10", "牛仔蓝", "普通提", "外加工", "是", 2600, "外加工印刷", "丝印中", "送货", "明天 10:00", 234, [], "不入库存"),
-  line("ORD-0629-008", "01", "C009", "空白袋", "30*38*10", "红色", "普通提", "空白袋", "否", 50, "现货有货", "待收款确认", "自提", "今天 12:00", 18, ["现场现结"], "已交付"),
-  line("ORD-0629-009", "01", "C010", "黑马服装", "40*32*10", "黑色", "加长提", "空白袋", "是", 2000, "定制印刷", "待打包", "送货", "明天 17:00", 980, ["数量差异"], "生产完成"),
-  line("ORD-0629-010", "01", "C011", "白鲸活动袋", "35*27*10", "白色", "普通提", "空白袋", "是", 1500, "定制印刷", "待快运拉走", "快递快运", "今天 19:00", 600, ["待确认拉走"], "待提货锁定"),
-  line("ORD-0629-011", "01", "C003", "空白袋", "40*30*10", "蓝色", "普通提", "空白袋", "否", 600, "现货有货", "已交付", "送货", "今天 10:30", 228, [], "已完成"),
-  line("ORD-0629-012", "01", "C002", "空白袋", "30*36*8", "绿色", "普通提", "空白袋", "否", 700, "现货缺货", "缺货待处理", "送货", "明天 12:00", 245, ["库存不足"], "缺货"),
-  line("ORD-0629-013", "01", "C004", "美的空调", "30*38*10", "红色", "普通提", "空白袋", "是", 1005, "定制印刷", "数量差异待处理", "快递快运", "今天 18:30", 480, ["多 5 个赠送"], "待处理"),
-  line("ORD-0629-014", "01", "C005", "加长提空白", "30*38*10", "米白", "加长提", "空白袋", "否", 900, "现货有货", "待出库", "自提", "明天 09:30", 351, [], "有货"),
-  line("ORD-0629-015", "01", "C001", "空白袋", "25*32*10", "红色", "普通提", "空白袋", "否", 300, "现货有货", "待对账", "自提", "昨天 16:00", 93, [], "已交付"),
-  line("ORD-0629-016", "01", "C010", "黑马二批", "45*37*10", "黑色", "普通提", "空白袋", "是", 1800, "定制印刷", "待排产", "送货", "后天 18:00", 990, [], "未生产"),
-  line("ORD-0629-017", "01", "C011", "自营补单", "30*38*10", "红色", "普通提", "空白袋", "是", 980, "定制印刷", "待补印", "快递快运", "明天 16:00", 468, ["少发补印"], "待处理"),
-  line("ORD-0629-018", "01", "C006", "喜字袋", "25*30*10", "红色", "普通提", "喜", "是", 200, "印刷通货", "待出库", "自提", "今天 18:00", 106, [], "有货"),
-  line("ORD-0629-019", "01", "C007", "福字袋", "30*37*10", "红色", "普通提", "福", "是", 400, "印刷通货", "待对账", "送货", "昨天 18:30", 232, [], "已交付"),
-  line("ORD-0629-020", "01", "C012", "原料入库演示", "78*90*1500", "大红", "布料", "原材料", "否", 2, "原材料", "资料占位", "其他", "后续", 0, [], "占位"),
-  line("ORD-0629-021", "01", "C003", "空白袋", "50*40*12", "白色", "普通提", "空白袋", "否", 200, "现货缺货", "缺货待处理", "自提", "明天 11:30", 124, ["建议排产"], "缺货"),
-  line("ORD-0629-022", "01", "C002", "外卖活动袋", "40*30*10", "黄色", "普通提", "空白袋", "是", 3000, "定制印刷", "丝印中", "送货", "明天 19:00", 1380, [], "生产中"),
-  line("ORD-0629-023", "01", "C004", "空白袋", "35*41*12", "白色", "普通提", "空白袋", "否", 600, "现货有货", "待出库", "快递快运", "今天 17:40", 300, ["待打印标签"], "已占用"),
-  line("ORD-0629-024", "01", "C009", "空白袋", "25*32*10", "蓝色", "普通提", "空白袋", "否", 100, "现货有货", "已交付", "自提", "今天 09:10", 31, [], "已完成"),
-  line("ORD-0629-025", "01", "C001", "空白袋", "30*38*10", "红色", "普通提", "空白袋", "否", 700, "现货有货", "待出库", "送货", "今天 16:00", 252, [], "有货"),
-  line("ORD-0629-026", "01", "C005", "服装长提", "40*32*10", "粉色", "加长提", "空白袋", "否", 1000, "现货有货", "待备货", "自提", "明天 14:00", 420, [], "有货"),
-  line("ORD-0629-027", "01", "C008", "同行来料蓝印", "35*27*10", "浅蓝", "普通提", "外加工", "是", 1800, "外加工印刷", "待交付", "自提", "今天 17:20", 162, [], "服务单"),
-  line("ORD-0629-028", "01", "C010", "黑马三批", "40*32*10", "黑色", "加长提", "空白袋", "是", 1000, "定制印刷", "待对账", "送货", "昨天 13:00", 520, [], "已交付"),
-  line("ORD-0629-029", "01", "C011", "白鲸小单", "30*38*10", "红色", "普通提", "空白袋", "否", 120, "现货有货", "待收款确认", "快递快运", "今天 18:20", 43.2, ["收款截图"], "已交付"),
-  line("ORD-0629-030", "01", "C006", "喜字袋", "35*41*12", "红色", "普通提", "喜", "是", 100, "印刷通货", "待出库", "自提", "明天 10:00", 78, [], "有货"),
-];
-
-function line(orderNo, lineNo, customerId, product, size, color, handle, style, print, qty, orderType, status, fulfillment, latest, amount, exceptions, inventory) {
-  return { id: `${orderNo}-${lineNo}`, orderNo, lineNo, customerId, product, size, color, handle, style, print, qty, orderType, status, fulfillment, latest, amount, exceptions, inventory };
-}
-
-const inventories = [
-  stock("30*38*10", "红色", "普通提", "空白袋", "A区-30*38", "仓库已清点", 2480, 1320, 120, 0, false),
-  stock("30*38*10", "黑色", "普通提", "空白袋", "A区-30*38", "仓库已清点", 80, 40, 0, 0, false),
-  stock("25*32*10", "白色", "加长提", "空白袋", "B区-服装", "仓库已清点", 2100, 1200, 0, 0, false),
-  stock("25*32*10", "红色", "普通提", "空白袋", "A区-25*32", "车间报数/散装", 650, 300, 0, 0, true),
-  stock("30*38*10", "白色", "普通提", "空白袋", "待快运区", "待提货锁定", 1005, 0, 1005, 0, false),
-  stock("25*23*8", "红色", "普通提", "小熊袋", "印刷通货区", "仓库已清点", 1100, 800, 0, 0, false),
-  stock("30*37*10", "红色", "普通提", "喜", "印刷通货区", "仓库已清点", 900, 600, 0, 0, false),
-  stock("35*41*12", "红色", "普通提", "福", "印刷通货区", "仓库已清点", 500, 500, 0, 0, false),
-  stock("40*32*10", "黑色", "加长提", "空白袋", "B区-服装", "仓库已清点", 1600, 1000, 0, 0, false),
-  stock("30*36*8", "绿色", "普通提", "空白袋", "A区-30*36", "估算/待复核", 180, 0, 0, 0, true),
-  stock("50*40*12", "白色", "普通提", "空白袋", "C区-大号", "仓库已清点", 0, 0, 0, 0, false),
-  stock("35*41*12", "白色", "普通提", "空白袋", "C区-大号", "仓库已清点", 720, 600, 0, 0, false),
-  stock("40*30*10", "蓝色", "普通提", "空白袋", "B区-横款", "仓库已清点", 950, 600, 0, 0, false),
-  stock("35*27*10", "白色", "普通提", "空白袋", "B区-横款", "待处理/报废", 0, 0, 0, 260, false),
-];
-
-function stock(size, color, handle, style, zone, state, inStock, reserved, locked, pending, estimated) {
-  return { id: `${size}-${color}-${handle}-${style}-${zone}`, size, color, handle, style, zone, state, inStock, reserved, locked, pending, estimated };
-}
-
-const initialTodos = [
-  todo("T001", "订单草稿待确认", "C001", "ORD-0629-001", "30*38 红500、黑100，黑色库存不足需确认", "12分钟", "今天 15:00", "急", "库存影响"),
-  todo("T002", "缺货待处理", "C002", "ORD-0629-012", "30*36*8 绿色 700 个缺货，建议生成补货建议", "38分钟", "明天 12:00", "异常", "可能影响送货"),
-  todo("T003", "数量差异待处理", "C004", "ORD-0629-013", "实际打包 1005 个，计费 1000，需标记赠送", "28分钟", "今天 18:30", "异常", "影响对账"),
-  todo("T004", "待打印标签", "C011", "ORD-0629-010", "快运 3 包，打包工已提交包裹明细", "46分钟", "今天 19:00", "今天", "快运可能傍晚拉走"),
-  todo("T005", "快递/快运待确认拉走", "C004", "ORD-0629-023", "昨晚待快运区 2 包，需要确认是否已拉走", "2小时", "今天", "今天", "影响对账日期"),
-  todo("T006", "待生成对账", "C007", "ORD-0629-019", "福字袋 400 个已送货，进入本期待对账", "1天", "本期", "普通", "应收 232"),
-  todo("T007", "收款差额待确认", "C002", "ST-0629-002", "应收 108000，客户实付 80000，差额需处理", "20分钟", "本期", "异常", "形成欠款"),
-  todo("T008", "老板/管理待查看", "C010", "ORD-0629-028", "月结客户欠款超过阈值，接单不阻塞但需查看", "3小时", "本周", "关注", "欠款 5300"),
-];
-
-function todo(id, type, customerId, ref, summary, wait, latest, urgency, impact) {
-  return { id, type, customerId, ref, summary, wait, latest, urgency, impact, handled: false };
-}
-
-const initialFulfillments = [
-  fulfill("F001", "自提", "C001", "ORD-0629-001-01", "30*38 红色空白袋", 500, "1件散装", "待出库", "今天 15:00", "A区-30*38", "仓库已清点"),
-  fulfill("F002", "送货", "C002", "ORD-0629-002-01", "25*32 白色加长提", 1200, "3包", "已备货", "今天 16:30", "B区-服装", "仓库已清点"),
-  fulfill("F003", "快递快运", "C011", "ORD-0629-010-01", "白鲸活动袋 35*27 白印", 1500, "3包", "待打印标签", "今天 19:00", "待快运区", "待提货锁定"),
-  fulfill("F004", "快递快运", "C004", "ORD-0629-023-01", "35*41 白色空白袋", 600, "2包", "待确认拉走", "今天", "待快运区", "待提货锁定"),
-  fulfill("F005", "自提", "C005", "ORD-0629-004-01", "25*23 红色小熊袋", 800, "2包", "待出库", "今天 17:00", "印刷通货区", "仓库已清点"),
-  fulfill("F006", "送货", "C010", "ORD-0629-009-01", "40*32 黑色加长提 黑印", 2000, "4包", "数量不符", "明天 17:00", "打包区", "打包清点库存"),
-  fulfill("F007", "自提", "C009", "ORD-0629-008-01", "30*38 红色空白袋", 50, "1件散装", "已交付", "今天 12:00", "A区-30*38", "仓库已清点"),
-];
-
-function fulfill(id, method, customerId, lineId, goods, qty, packages, status, latest, zone, source) {
-  return { id, method, customerId, lineId, goods, qty, packages, status, latest, zone, source, printed: status === "已交付" };
-}
-
-const statements = [
-  statement("ST-0629-001", "C001", "待生成", 273, 0, 0, "06-22 至 06-29", ["ORD-0629-015-01", "ORD-0629-001-01"]),
-  statement("ST-0629-002", "C002", "差额待确认", 108000, 80000, 28000, "06-15 至 06-29", ["ORD-0629-002-01", "ORD-0629-011-01", "ORD-0629-022-01"]),
-  statement("ST-0629-003", "C004", "待发送", 1480, 0, 0, "06-01 至 06-29", ["ORD-0629-003-01", "ORD-0629-013-01", "ORD-0629-023-01"]),
-  statement("ST-0629-004", "C007", "待生成", 622, 0, 0, "06-22 至 06-29", ["ORD-0629-006-01", "ORD-0629-019-01"]),
-  statement("ST-0629-005", "C010", "有欠款", 1510, 0, 5300, "06-01 至 06-29", ["ORD-0629-028-01"]),
-  statement("ST-0629-006", "C011", "收款待确认", 643.2, 43.2, 0, "06-22 至 06-29", ["ORD-0629-010-01", "ORD-0629-029-01"]),
-];
-
-function statement(id, customerId, status, receivable, received, variance, period, lineIds) {
-  return { id, customerId, status, receivable, received, variance, period, lineIds, sent: status !== "待生成" };
-}
-
-const sampleText = "张三服饰，30*38红500个明天下午自提，30*38黑100个；美的空调 30*38 白袋 黄印 双面 1000个 周五快运；小熊童装 25*32 白色加长提 1200个送货";
-
 const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { minimumFractionDigits: value % 1 ? 1 : 0, maximumFractionDigits: 1 })}`;
 
-function getCustomer(id) {
+function findCustomer(id) {
   return customers.find((item) => item.id === id) ?? customers[0];
 }
 
-function getOrderLine(id) {
+function findCustomerByName(name) {
+  return customers.find((item) => item.name === name);
+}
+
+function findOrderLine(orderLines, id) {
   return orderLines.find((item) => item.id === id);
 }
 
+function availableQty(stock) {
+  return stock.inStock - stock.reserved - stock.locked - stock.pending;
+}
+
 function statusTone(status) {
-  if (status.includes("缺货") || status.includes("异常") || status.includes("差异") || status.includes("不足")) return "danger";
+  if (status.includes("缺货") || status.includes("异常") || status.includes("差异") || status.includes("不足") || status.includes("无法")) return "danger";
   if (status.includes("待") || status.includes("确认") || status.includes("备货") || status.includes("打印")) return "warning";
-  if (status.includes("已") || status.includes("有货")) return "success";
+  if (status.includes("已") || status.includes("有货") || status.includes("可用")) return "success";
   return "neutral";
 }
 
-function parseOrderText(text) {
-  const normalized = text || sampleText;
-  const customerName = customers.find((item) => normalized.includes(item.name.slice(0, 2)))?.name ?? "待确认客户";
-  const chunks = normalized
-    .replace(/\s+/g, " ")
-    .split(/[；;\n]+/)
-    .map((item) => item.trim())
-    .filter(Boolean);
+function nextId(prefix, length) {
+  return `${prefix}${String(length + 1).padStart(3, "0")}`;
+}
 
-  const rows = [];
-  chunks.forEach((chunk, index) => {
-    const size = chunk.match(/(\d{2})\s*[*xX×]\s*(\d{2})(?:\s*[*xX×]\s*(\d{1,2}))?/);
-    const qtyMatches = [...chunk.matchAll(/(红|黑|白|蓝|绿|黄|粉|米白|浅蓝)?色?\s*(\d{2,5})\s*个/g)];
-    const colorHint = chunk.match(/红|黑|白|蓝|绿|黄|粉|米白|浅蓝/)?.[0] ?? "待确认";
-    const product = chunk.includes("小熊") ? "小熊袋" : chunk.includes("美的") ? "美的空调" : chunk.includes("喜") ? "喜字袋" : "空白袋";
-    const fulfillment = chunk.includes("快运") || chunk.includes("快递") ? "快递快运" : chunk.includes("送货") ? "送货" : "自提";
-    const print = chunk.includes("印") || chunk.includes("美的") ? "是" : "否";
-    const handle = chunk.includes("长提") || chunk.includes("加长") ? "加长提" : "普通提";
-    const latest = chunk.includes("明天") ? "明天" : chunk.includes("周五") ? "周五" : chunk.includes("下午") ? "今天下午" : "待确认";
-    const sizeText = size ? `${size[1]}*${size[2]}*${size[3] ?? "10"}` : "待确认";
-    const quantities = qtyMatches.length ? qtyMatches : [[null, colorHint, chunk.match(/(\d{2,5})\s*个/)?.[1] ?? "0"]];
+function findStockForDraft(row, inventoryRecords) {
+  return inventoryRecords.find(
+    (item) =>
+      item.size === row.size &&
+      item.color === row.color &&
+      item.handle === row.handle &&
+      item.style === row.style &&
+      !item.state.includes("待处理"),
+  );
+}
 
-    quantities.forEach((match, qtyIndex) => {
-      const color = match[1] || colorHint;
-      const qty = Number(match[2] ?? match[1] ?? 0);
-      rows.push({
-        id: `DRAFT-${index + 1}-${qtyIndex + 1}`,
-        customer: customerName,
-        product,
-        size: sizeText,
-        color,
-        handle,
-        style: product === "小熊袋" ? "小熊袋" : "空白袋",
-        print,
-        qty,
-        fulfillment,
-        latest,
-        inventory: sizeText === "待确认" || color === "待确认" ? "待确认" : qty > 900 && !chunk.includes("美的") ? "需复核" : "可用",
-        amount: qty ? Math.round(qty * (print === "是" ? 0.48 : 0.36) * 10) / 10 : 0,
-        confidence: sizeText === "待确认" || color === "待确认" ? "low" : latest === "待确认" ? "medium" : "high",
-        source: chunk,
-      });
-    });
-  });
-  return rows;
+function getDraftBlockingRows(rows) {
+  return rows.filter((row) => !row.customerId || row.size === "待确认" || row.color === "待确认" || !row.qty);
+}
+
+function getDraftOrderType(row) {
+  if (row.product.includes("同行")) return "外加工印刷";
+  if (row.print === "是") return row.product.includes("喜") || row.product.includes("福") ? "印刷通货" : "定制印刷";
+  return row.inventory.startsWith("缺货") ? "现货缺货" : "现货有货";
+}
+
+function getDraftStatus(row) {
+  if (row.inventory.startsWith("缺货")) return "缺货待处理";
+  if (row.print === "是" && !row.product.includes("喜") && !row.product.includes("福")) return "待排产";
+  if (row.inventory === "需复核" || row.latest === "待确认") return "待确认";
+  return "待出库";
 }
 
 export function App() {
@@ -231,57 +113,193 @@ export function App() {
   const [toast, setToast] = useState("P0 原型已载入：6 个办公室核心页使用本地假数据模拟。");
   const [todos, setTodos] = useState(initialTodos);
   const [selectedTodoId, setSelectedTodoId] = useState(initialTodos[0].id);
+  const [orderLines, setOrderLines] = useState(initialOrderLines);
+  const [inventoryRecords, setInventoryRecords] = useState(initialInventories);
   const [entryText, setEntryText] = useState(sampleText);
-  const [draftRows, setDraftRows] = useState(() => parseOrderText(sampleText));
+  const [draftRows, setDraftRows] = useState(() => parseOrderText(sampleText, { customers, inventories: initialInventories }));
   const [selectedDraftId, setSelectedDraftId] = useState("DRAFT-1-1");
   const [orderFilter, setOrderFilter] = useState("全部");
-  const [selectedOrderId, setSelectedOrderId] = useState(orderLines[0].id);
-  const [selectedStockId, setSelectedStockId] = useState(inventories[0].id);
+  const [selectedOrderId, setSelectedOrderId] = useState(initialOrderLines[0].id);
+  const [selectedStockId, setSelectedStockId] = useState(initialInventories[0].id);
   const [fulfillmentTab, setFulfillmentTab] = useState("全部");
   const [fulfillments, setFulfillments] = useState(initialFulfillments);
   const [selectedFulfillmentId, setSelectedFulfillmentId] = useState(initialFulfillments[0].id);
-  const [selectedStatementId, setSelectedStatementId] = useState(statements[0].id);
+  const [statements, setStatements] = useState(initialStatements);
+  const [selectedStatementId, setSelectedStatementId] = useState(initialStatements[0].id);
   const [modal, setModal] = useState(null);
 
   const activeMeta = pages.find((item) => item.key === activePage) ?? pages[0];
+  const unhandledTodos = todos.filter((item) => !item.handled).length;
+
+  function addTodo(input) {
+    const id = input.id ?? `T-P0-${Date.now().toString(36)}-${Math.floor(Math.random() * 1000)}`;
+    const todo = makeTodo({ id, wait: "刚刚", ...input });
+    setTodos((current) => [todo, ...current]);
+    setSelectedTodoId(id);
+  }
 
   function handleTodo(action) {
-    setTodos((current) => current.map((item) => (item.id === selectedTodoId ? { ...item, handled: action === "handled" ? true : item.handled } : item)));
-    setToast(action === "handled" ? "已记录实际处理人：办公室A，事项进入今日已处理。" : "已生成稍后提醒，不影响订单继续流转。");
+    if (action === "handled") {
+      setTodos((current) => current.map((item) => (item.id === selectedTodoId ? { ...item, handled: true, handledBy: "办公室A" } : item)));
+      const nextOpen = todos.find((item) => item.id !== selectedTodoId && !item.handled);
+      if (nextOpen) setSelectedTodoId(nextOpen.id);
+      setToast("已记录实际处理人：办公室A，事项进入今日已处理。");
+      return;
+    }
+    setToast(action === "snooze" ? "已生成稍后提醒，不影响订单继续流转。" : `${action} 已模拟执行。`);
   }
 
   function recognize() {
-    const rows = parseOrderText(entryText);
+    const rows = parseOrderText(entryText, { customers, inventories: inventoryRecords });
     setDraftRows(rows);
     setSelectedDraftId(rows[0]?.id ?? "");
     setToast(`已识别 ${rows.length} 行明细；库存与价格为识别时快照，保存正式订单前会重新校验。`);
   }
 
+  function updateDraftField(id, field, value) {
+    setDraftRows((current) =>
+      current.map((row) => {
+        if (row.id !== id) return row;
+        const next = { ...row, [field]: field === "qty" ? Number(value || 0) : value };
+        if (field === "customerId") {
+          const customer = findCustomer(value);
+          next.customer = customer.name;
+        }
+        return enrichDraftRow(next, inventoryRecords);
+      }),
+    );
+  }
+
   function entryAction(label) {
-    if (label === "保存并确认") {
-      setToast("已模拟生成正式订单，并重新查库存/价格；可在订单池查看。");
-      setActivePage("orders");
+    if (label === "保存草稿") {
+      const first = draftRows[0];
+      const customerId = first?.customerId || "C001";
+      addTodo({
+        type: "订单草稿待确认",
+        customerId,
+        ref: "DRAFT-P0",
+        summary: `${draftRows.length} 行识别结果待人工确认`,
+        latest: first?.latest ?? "待确认",
+        urgency: "普通",
+        impact: "草稿未生成正式订单",
+      });
+      setToast("草稿已进入公共待办池，未占用库存。");
       return;
     }
-    setToast(`${label} 已模拟完成，本地原型不会写入真实数据库。`);
+
+    if (label !== "保存并确认") {
+      setToast(`${label} 已模拟完成，本地原型不会写入真实数据库。`);
+      return;
+    }
+
+    const blockingRows = getDraftBlockingRows(draftRows);
+    if (!draftRows.length) {
+      setToast("没有可保存的识别明细，请先输入订单并点击识别。");
+      return;
+    }
+    if (blockingRows.length) {
+      setToast(`有 ${blockingRows.length} 行缺客户、尺寸、颜色或数量，需补齐后才能生成正式订单。`);
+      setSelectedDraftId(blockingRows[0].id);
+      return;
+    }
+
+    const orderNo = `ORD-P0-${String(orderLines.length + 1).padStart(3, "0")}`;
+    const newLines = draftRows.map((row, index) =>
+      makeOrderLine({
+        orderNo,
+        lineNo: String(index + 1).padStart(2, "0"),
+        customerId: row.customerId || findCustomerByName(row.customer)?.id || "C001",
+        product: row.product,
+        size: row.size,
+        color: row.color,
+        handle: row.handle,
+        style: row.style,
+        print: row.print,
+        qty: row.qty,
+        orderType: getDraftOrderType(row),
+        status: getDraftStatus(row),
+        fulfillment: row.fulfillment,
+        latest: row.latest,
+        amount: row.amount,
+        exceptions: row.inventory.startsWith("缺货") ? ["库存不足"] : row.inventory === "需复核" ? ["库存需复核"] : [],
+        inventory: row.inventory,
+      }),
+    );
+
+    const newFulfillments = newLines
+      .filter((line) => line.print === "否" && !line.status.includes("缺货") && line.fulfillment !== "待确认")
+      .map((line, index) =>
+        makeFulfillment({
+          id: nextId("F", fulfillments.length + index),
+          method: line.fulfillment,
+          customerId: line.customerId,
+          lineId: line.id,
+          goods: `${line.size} ${line.color} ${line.product}`,
+          qty: line.qty,
+          packages: line.qty >= 1000 ? "3包" : line.qty >= 500 ? "2包" : "1件散装",
+          status: line.fulfillment === "快递快运" ? "待打印标签" : "待出库",
+          latest: line.latest,
+          zone: "按库存推荐",
+          source: "正式订单占用",
+        }),
+      );
+
+    setOrderLines((current) => [...newLines, ...current]);
+    setFulfillments((current) => [...newFulfillments, ...current]);
+    setInventoryRecords((current) =>
+      current.map((stock) => {
+        const reservedQty = draftRows
+          .filter((row) => row.inventory === "可用")
+          .filter((row) => findStockForDraft(row, current)?.id === stock.id)
+          .reduce((sum, row) => sum + row.qty, 0);
+        return reservedQty ? { ...stock, reserved: stock.reserved + reservedQty } : stock;
+      }),
+    );
+
+    draftRows
+      .filter((row) => row.inventory.startsWith("缺货"))
+      .forEach((row) =>
+        addTodo({
+          type: "缺货待处理",
+          customerId: row.customerId,
+          ref: orderNo,
+          summary: `${row.size} ${row.color} ${row.qty} 个缺货，需客户确认等待或改量`,
+          latest: row.latest,
+          urgency: "异常",
+          impact: "影响出库承诺",
+        }),
+      );
+
+    setSelectedOrderId(newLines[0].id);
+    setActivePage("orders");
+    setToast(`已生成正式订单 ${orderNo}，新增 ${newLines.length} 行；可用库存行已模拟占用，缺货行进入公共待办。`);
   }
 
   function updateFulfillment(action) {
+    const selected = fulfillments.find((item) => item.id === selectedFulfillmentId) ?? fulfillments[0];
     if (action === "数量不符") {
-      setModal({ type: "mismatch" });
+      setModal({ type: "mismatch", fulfillmentId: selected.id });
+      return;
+    }
+    if (action === "无法出库") {
+      setModal({ type: "unable", fulfillmentId: selected.id });
       return;
     }
     if (action === "打印预览") {
-      setModal({ type: "print" });
+      setModal({ type: "print", fulfillmentId: selected.id });
       return;
     }
+    if (action === "确认已拉走" && selected.method !== "快递快运") {
+      setToast("确认已拉走只用于快递/快运；自提和送货用完成出库/交付。");
+      return;
+    }
+
     setFulfillments((current) =>
       current.map((item) => {
         if (item.id !== selectedFulfillmentId) return item;
         if (action === "标记已备货") return { ...item, status: "已备货" };
-        if (action === "完成出库/交付") return { ...item, status: "已交付" };
-        if (action === "确认已拉走") return { ...item, status: "已交快递/快运" };
-        if (action === "无法出库") return { ...item, status: "无法出库" };
+        if (action === "完成出库/交付") return { ...item, status: "已交付", printed: true };
+        if (action === "确认已拉走") return { ...item, status: "已交付", pickedAt: "可回填昨晚", printed: true };
         return item;
       }),
     );
@@ -289,11 +307,117 @@ export function App() {
   }
 
   function statementAction(action) {
-    if (action === "登记实收") {
-      setModal({ type: "payment" });
+    const selected = statements.find((item) => item.id === selectedStatementId) ?? statements[0];
+    if (action === "生成对账单预览") {
+      setModal({ type: "statementPreview", statementId: selected.id });
       return;
     }
-    setToast(`${action} 已模拟完成；客户版展示汇总，内部保留交付证据。`);
+    if (action === "登记实收") {
+      setModal({ type: "payment", statementId: selected.id });
+      return;
+    }
+    if (action === "标记已发送") {
+      setStatements((current) => current.map((item) => (item.id === selected.id ? { ...item, sent: true, status: "已发送待回款", sentAt: "今天 10:30" } : item)));
+      setToast("已记录对账发送渠道、发送人和发送时间。");
+      return;
+    }
+    if (action === "差额待确认") {
+      setStatements((current) => current.map((item) => (item.id === selected.id ? { ...item, status: "差额待确认" } : item)));
+      addTodo({
+        type: "收款差额待确认",
+        customerId: selected.customerId,
+        ref: selected.id,
+        summary: `${findCustomer(selected.customerId).name} 对账差额 ${money(selected.variance || findCustomer(selected.customerId).debt)}`,
+        latest: "本期",
+        urgency: "异常",
+        impact: "影响核销和欠款",
+      });
+      setToast("已进入差额待确认，不能自动抹零。");
+      return;
+    }
+    if (action === "确认核销") {
+      if (selected.receivable > selected.received && selected.variance > 0) {
+        setToast("当前仍有差额，需先选择未收差额、抹零、账单有误或多笔付款待齐。");
+        return;
+      }
+      setStatements((current) => current.map((item) => (item.id === selected.id ? { ...item, status: "已核销", variance: 0 } : item)));
+      setToast("已确认核销，记录收款确认权限账号：办公室A。");
+      return;
+    }
+    setToast(`${action} 已模拟完成；正式 Excel 样式等拿到模板后适配。`);
+  }
+
+  function confirmModal(payload) {
+    const activeModal = modal;
+    setModal(null);
+    if (!activeModal) return;
+
+    if (activeModal.type === "mismatch" || activeModal.type === "unable") {
+      const selected = fulfillments.find((item) => item.id === activeModal.fulfillmentId);
+      if (!selected) return;
+      const nextStatus = activeModal.type === "mismatch" ? "数量差异待处理" : "无法出库";
+      setFulfillments((current) => current.map((item) => (item.id === selected.id ? { ...item, status: nextStatus, exceptionReason: payload.reason, actualQty: payload.actualQty } : item)));
+      addTodo({
+        type: activeModal.type === "mismatch" ? "数量差异待处理" : "无法出库待处理",
+        customerId: selected.customerId,
+        ref: selected.lineId,
+        summary: `${selected.goods} 应出 ${selected.qty}，实际 ${payload.actualQty || 0}；${payload.reason}`,
+        latest: selected.latest,
+        urgency: "异常",
+        impact: "需办公室决定客户沟通、改单或重打单据",
+      });
+      setToast(`${nextStatus} 已提交，生成办公室公共待办并保留原因。`);
+      return;
+    }
+
+    if (activeModal.type === "print") {
+      setFulfillments((current) =>
+        current.map((item) => {
+          if (item.id !== activeModal.fulfillmentId) return item;
+          const nextStatus = item.status === "待打印标签" && item.method === "快递快运" ? "待确认拉走" : item.status;
+          return { ...item, printed: true, status: nextStatus, printBatch: "PB-P0-001" };
+        }),
+      );
+      setToast("已模拟打印成功；若包裹数变更，旧标签需作废重打。");
+      return;
+    }
+
+    if (activeModal.type === "payment") {
+      const amount = Number(payload.amount || 0);
+      const selected = statements.find((item) => item.id === activeModal.statementId);
+      if (!selected) return;
+      const variance = Math.max(0, selected.receivable - amount);
+      setStatements((current) =>
+        current.map((item) =>
+          item.id === selected.id
+            ? {
+                ...item,
+                received: amount,
+                variance,
+                status: variance > 0 ? "差额待确认" : "收款待确认",
+                paymentNote: payload.reason,
+              }
+            : item,
+        ),
+      );
+      if (variance > 0) {
+        addTodo({
+          type: "收款差额待确认",
+          customerId: selected.customerId,
+          ref: selected.id,
+          summary: `应收 ${money(selected.receivable)}，实收 ${money(amount)}，差额 ${money(variance)}`,
+          latest: "本期",
+          urgency: "异常",
+          impact: "需确认未收差额、抹零、账单有误或多笔付款待齐",
+        });
+      }
+      setToast(variance > 0 ? "已登记实收金额，少付进入差额待确认。" : "已登记实收金额，等待有收款确认权限账号核销。");
+      return;
+    }
+
+    if (activeModal.type === "statementPreview") {
+      setToast("对账单预览已确认；导出仍是 P0 占位。");
+    }
   }
 
   return (
@@ -311,7 +435,7 @@ export function App() {
             <button className={activePage === key ? "nav-item active" : "nav-item"} key={key} onClick={() => setActivePage(key)}>
               <Icon />
               <span>{label}</span>
-              {key === "todos" && <b className="nav-badge">8</b>}
+              {key === "todos" && <b className="nav-badge">{unhandledTodos}</b>}
             </button>
           ))}
           <div className="nav-divider">后续模块</div>
@@ -330,7 +454,7 @@ export function App() {
       </aside>
 
       <div className="workspace">
-        <Topbar onNavigate={setActivePage} />
+        <Topbar onNavigate={setActivePage} todoCount={unhandledTodos} />
         <main className="content">
           <PageHead page={activeMeta} onRefresh={() => setToast(`${activeMeta.label} 已刷新本地假数据。`)} />
           {activePage === "todos" && <TodoPage todos={todos} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} onAction={handleTodo} />}
@@ -342,11 +466,21 @@ export function App() {
               selectedDraftId={selectedDraftId}
               setSelectedDraftId={setSelectedDraftId}
               onRecognize={recognize}
+              onDraftFieldChange={updateDraftField}
               onAction={entryAction}
             />
           )}
-          {activePage === "orders" && <OrderPoolPage selectedOrderId={selectedOrderId} setSelectedOrderId={setSelectedOrderId} filter={orderFilter} setFilter={setOrderFilter} setToast={setToast} />}
-          {activePage === "inventory" && <InventoryPage selectedStockId={selectedStockId} setSelectedStockId={setSelectedStockId} setToast={setToast} />}
+          {activePage === "orders" && (
+            <OrderPoolPage
+              orderLines={orderLines}
+              selectedOrderId={selectedOrderId}
+              setSelectedOrderId={setSelectedOrderId}
+              filter={orderFilter}
+              setFilter={setOrderFilter}
+              setToast={setToast}
+            />
+          )}
+          {activePage === "inventory" && <InventoryPage inventoryRecords={inventoryRecords} selectedStockId={selectedStockId} setSelectedStockId={setSelectedStockId} setToast={setToast} />}
           {activePage === "fulfillment" && (
             <FulfillmentPage
               tab={fulfillmentTab}
@@ -357,17 +491,25 @@ export function App() {
               onAction={updateFulfillment}
             />
           )}
-          {activePage === "statements" && <StatementPage selectedId={selectedStatementId} setSelectedId={setSelectedStatementId} onAction={statementAction} />}
+          {activePage === "statements" && (
+            <StatementPage
+              statements={statements}
+              orderLines={orderLines}
+              selectedId={selectedStatementId}
+              setSelectedId={setSelectedStatementId}
+              onAction={statementAction}
+            />
+          )}
           <div className="toast" role="status">{toast}</div>
         </main>
       </div>
 
-      {modal && <ActionModal modal={modal} onClose={() => setModal(null)} setToast={setToast} />}
+      {modal && <ActionModal modal={modal} fulfillments={fulfillments} statements={statements} orderLines={orderLines} onClose={() => setModal(null)} onConfirm={confirmModal} />}
     </div>
   );
 }
 
-function Topbar({ onNavigate }) {
+function Topbar({ onNavigate, todoCount }) {
   return (
     <header className="topbar">
       <div className="factory-switcher">
@@ -387,7 +529,7 @@ function Topbar({ onNavigate }) {
         <PlusOutlined />
         新建订单
       </button>
-      <button className="icon-button has-badge" aria-label="通知">
+      <button className="icon-button has-badge" aria-label={`通知 ${todoCount}`} data-count={todoCount}>
         <BellOutlined />
       </button>
       <button className="icon-button" aria-label="用户">
@@ -433,8 +575,8 @@ function PageHead({ page, onRefresh }) {
 
 function TodoPage({ todos, selectedTodoId, onSelect, onAction }) {
   const openTodos = todos.filter((item) => !item.handled);
-  const selected = todos.find((item) => item.id === selectedTodoId) ?? todos[0];
-  const customerInfo = getCustomer(selected.customerId);
+  const selected = todos.find((item) => item.id === selectedTodoId) ?? openTodos[0] ?? todos[0];
+  const customerInfo = findCustomer(selected.customerId);
   const stats = [
     ["未处理", openTodos.length, "warning"],
     ["今天要发", openTodos.filter((item) => item.latest.includes("今天")).length, "blue"],
@@ -452,17 +594,19 @@ function TodoPage({ todos, selectedTodoId, onSelect, onAction }) {
         </div>
         <div className="todo-list">
           {todos.map((item) => {
-            const customerInfo = getCustomer(item.customerId);
+            const customer = findCustomer(item.customerId);
             return (
-              <button className={item.id === selected.id ? "todo-row active" : "todo-row"} key={item.id} onClick={() => onSelect(item.id)}>
+              <button className={`${item.id === selected.id ? "todo-row active" : "todo-row"} ${item.handled ? "handled" : ""}`} key={item.id} onClick={() => onSelect(item.id)}>
                 <div className="todo-main">
                   <strong>{item.type}</strong>
-                  <span>{customerInfo.name} · {item.ref}</span>
+                  <span>{customer.name} · {item.ref}</span>
                   <small>{item.summary}</small>
                 </div>
                 <div className="todo-side">
-                  <StatusPill tone={item.urgency === "异常" ? "danger" : item.urgency === "急" || item.urgency === "今天" ? "warning" : "neutral"}>{item.urgency}</StatusPill>
-                  <em>{item.wait}</em>
+                  <StatusPill tone={item.handled ? "success" : item.urgency === "异常" ? "danger" : item.urgency === "急" || item.urgency === "今天" ? "warning" : "neutral"}>
+                    {item.handled ? "已处理" : item.urgency}
+                  </StatusPill>
+                  <em>{item.handledBy ? item.handledBy : item.wait}</em>
                 </div>
               </button>
             );
@@ -489,17 +633,17 @@ function TodoPage({ todos, selectedTodoId, onSelect, onAction }) {
           <div className="action-row">
             <button className="primary-action" onClick={() => onAction("handled")}>处理完成</button>
             <button onClick={() => onAction("snooze")}>稍后提醒</button>
-            <button>打开订单</button>
-            <button>打印预览</button>
+            <button onClick={() => onAction("打开订单")}>打开订单</button>
+            <button onClick={() => onAction("打印预览")}>打印预览</button>
           </div>
         </section>
-        <Timeline items={["系统创建待办", "办公室A 查看详情", "等待人工处理"]} />
+        <Timeline items={["系统创建待办", "办公室A 查看详情", selected.handled ? "已处理" : "等待人工处理"]} />
       </DetailPane>
     </section>
   );
 }
 
-function EntryPage({ entryText, setEntryText, draftRows, selectedDraftId, setSelectedDraftId, onRecognize, onAction }) {
+function EntryPage({ entryText, setEntryText, draftRows, selectedDraftId, setSelectedDraftId, onRecognize, onDraftFieldChange, onAction }) {
   const selected = draftRows.find((item) => item.id === selectedDraftId) ?? draftRows[0];
   return (
     <section className="page-stack">
@@ -513,16 +657,7 @@ function EntryPage({ entryText, setEntryText, draftRows, selectedDraftId, setSel
       </div>
       <section className="page-grid split-detail">
         <div className="table-pane">
-          <DataTable
-            columns={["客户", "品名/印刷内容", "尺寸", "颜色", "提手", "款式", "印刷", "数量", "交付", "库存", "预估金额"]}
-            rows={draftRows.map((row) => ({
-              id: row.id,
-              active: row.id === selected?.id,
-              tone: row.confidence,
-              onClick: () => setSelectedDraftId(row.id),
-              cells: [row.customer, row.product, row.size, row.color, row.handle, row.style, row.print, row.qty, row.fulfillment, row.inventory, money(row.amount)],
-            }))}
-          />
+          <EntryDraftTable rows={draftRows} selectedId={selected?.id} onSelect={setSelectedDraftId} onChange={onDraftFieldChange} />
           <div className="footer-actions">
             {["保存草稿", "保存并确认", "拆分订单", "作废草稿"].map((item) => (
               <button className={item === "保存并确认" ? "primary-action" : ""} key={item} onClick={() => onAction(item)}>{item}</button>
@@ -544,7 +679,7 @@ function EntryPage({ entryText, setEntryText, draftRows, selectedDraftId, setSel
               <section className="detail-section">
                 <h3>缺字段检查</h3>
                 <StatusPill tone={selected.confidence === "low" ? "danger" : selected.confidence === "medium" ? "warning" : "success"}>
-                  {selected.confidence === "low" ? "缺少尺寸/颜色" : selected.confidence === "medium" ? "缺最晚要货时间" : "可保存确认"}
+                  {selected.confidence === "low" ? "缺少客户/尺寸/颜色/数量" : selected.confidence === "medium" ? "需确认库存/时间/缺货" : "可保存确认"}
                 </StatusPill>
               </section>
             </>
@@ -555,15 +690,75 @@ function EntryPage({ entryText, setEntryText, draftRows, selectedDraftId, setSel
   );
 }
 
-function OrderPoolPage({ selectedOrderId, setSelectedOrderId, filter, setFilter, setToast }) {
-  const filtered = orderLines.filter((item) => filter === "全部" || item.status.includes(filter) || item.orderType.includes(filter) || item.fulfillment === filter);
-  const selected = getOrderLine(selectedOrderId) ?? filtered[0];
-  const customerInfo = getCustomer(selected.customerId);
+function EntryDraftTable({ rows, selectedId, onSelect, onChange }) {
+  const columns = ["客户", "品名/印刷", "尺寸", "颜色", "提手", "款式", "印刷", "数量", "交付", "最晚", "库存", "预估"];
+  return (
+    <div className="data-table entry-table" style={{ "--cols": columns.length }}>
+      <div className="data-row head">
+        {columns.map((column) => <span key={column}>{column}</span>)}
+      </div>
+      {rows.map((row) => (
+        <div className={`data-row entry-edit-row ${row.id === selectedId ? "active" : ""} ${row.confidence}`} key={row.id} onClick={() => onSelect(row.id)}>
+          <span>
+            <select value={row.customerId} onChange={(event) => onChange(row.id, "customerId", event.target.value)}>
+              <option value="">待确认</option>
+              {customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}
+            </select>
+          </span>
+          <span><input value={row.product} onChange={(event) => onChange(row.id, "product", event.target.value)} /></span>
+          <span><input value={row.size} onChange={(event) => onChange(row.id, "size", event.target.value)} /></span>
+          <span><input value={row.color} onChange={(event) => onChange(row.id, "color", event.target.value)} /></span>
+          <span>
+            <select value={row.handle} onChange={(event) => onChange(row.id, "handle", event.target.value)}>
+              <option>普通提</option>
+              <option>加长提</option>
+            </select>
+          </span>
+          <span>
+            <select value={row.style} onChange={(event) => onChange(row.id, "style", event.target.value)}>
+              <option>空白袋</option>
+              <option>小熊袋</option>
+              <option>喜</option>
+              <option>福</option>
+              <option>外加工</option>
+            </select>
+          </span>
+          <span>
+            <select value={row.print} onChange={(event) => onChange(row.id, "print", event.target.value)}>
+              <option>否</option>
+              <option>是</option>
+            </select>
+          </span>
+          <span><input type="number" min="0" value={row.qty} onChange={(event) => onChange(row.id, "qty", event.target.value)} /></span>
+          <span>
+            <select value={row.fulfillment} onChange={(event) => onChange(row.id, "fulfillment", event.target.value)}>
+              <option>自提</option>
+              <option>送货</option>
+              <option>快递快运</option>
+            </select>
+          </span>
+          <span><input value={row.latest} onChange={(event) => onChange(row.id, "latest", event.target.value)} /></span>
+          <span><StatusPill tone={statusTone(row.inventory)}>{row.inventory}</StatusPill></span>
+          <span>{money(row.amount)}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function OrderPoolPage({ orderLines, selectedOrderId, setSelectedOrderId, filter, setFilter, setToast }) {
+  const filtered = orderLines.filter((item) => {
+    if (filter === "全部") return true;
+    if (filter === "异常") return item.exceptions.length > 0 || statusTone(item.status) === "danger";
+    return item.status.includes(filter) || item.orderType.includes(filter) || item.fulfillment === filter;
+  });
+  const selected = findOrderLine(orderLines, selectedOrderId) ?? filtered[0] ?? orderLines[0];
+  const customerInfo = findCustomer(selected.customerId);
   return (
     <section className="page-grid split-detail">
       <div className="table-pane">
         <div className="toolbar-line">
-          <Segmented value={filter} onChange={setFilter} items={["全部", "待", "缺货", "定制印刷", "自提", "送货", "快递快运"]} />
+          <Segmented value={filter} onChange={setFilter} items={["全部", "待", "缺货", "异常", "定制印刷", "自提", "送货", "快递快运"]} />
           <span>默认：近30天未完成 + 今日完成</span>
         </div>
         <DataTable
@@ -573,7 +768,7 @@ function OrderPoolPage({ selectedOrderId, setSelectedOrderId, filter, setFilter,
             active: row.id === selected.id,
             tone: statusTone(row.status),
             onClick: () => setSelectedOrderId(row.id),
-            cells: [`${row.orderNo}-${row.lineNo}`, getCustomer(row.customerId).name, row.product, row.size, row.color, row.handle, row.qty, row.orderType, row.status, row.fulfillment, money(row.amount)],
+            cells: [`${row.orderNo}-${row.lineNo}`, findCustomer(row.customerId).name, row.product, row.size, row.color, row.handle, row.qty, row.orderType, row.status, row.fulfillment, money(row.amount)],
           }))}
         />
       </div>
@@ -590,7 +785,7 @@ function OrderPoolPage({ selectedOrderId, setSelectedOrderId, filter, setFilter,
         />
         <section className="detail-section">
           <h3>流转摘要</h3>
-          <Timeline items={["订单确认", selected.print === "是" ? "丝印/制袋" : "查库存", selected.status, "等待下一动作"]} />
+          <Timeline items={["订单确认", selected.print === "是" ? "丝印/制袋" : "查库存", selected.status, "关键修改需留痕"]} />
         </section>
         <div className="action-row">
           <button onClick={() => setToast("已复制订单摘要。")}>复制</button>
@@ -602,10 +797,12 @@ function OrderPoolPage({ selectedOrderId, setSelectedOrderId, filter, setFilter,
   );
 }
 
-function InventoryPage({ selectedStockId, setSelectedStockId, setToast }) {
-  const visible = inventories.filter((item) => !item.state.includes("待处理"));
-  const selected = inventories.find((item) => item.id === selectedStockId) ?? visible[0];
-  const available = selected.inStock - selected.reserved - selected.locked - selected.pending;
+function InventoryPage({ inventoryRecords, selectedStockId, setSelectedStockId, setToast }) {
+  const [query, setQuery] = useState("");
+  const [showPending, setShowPending] = useState(false);
+  const visible = inventoryRecords.filter((item) => (showPending || !item.state.includes("待处理")) && `${item.size} ${item.color} ${item.handle} ${item.style} ${item.zone}`.includes(query.trim()));
+  const selected = inventoryRecords.find((item) => item.id === selectedStockId) ?? visible[0] ?? inventoryRecords[0];
+  const available = availableQty(selected);
   const shortage = Math.max(0, 500 - available);
   return (
     <section className="page-grid split-detail">
@@ -613,14 +810,14 @@ function InventoryPage({ selectedStockId, setSelectedStockId, setToast }) {
         <div className="toolbar-line">
           <label className="search small">
             <SearchOutlined />
-            <input placeholder="尺寸 / 颜色 / 款式" />
+            <input placeholder="尺寸 / 颜色 / 款式" value={query} onChange={(event) => setQuery(event.target.value)} />
           </label>
-          <span>待处理/报废库存默认折叠</span>
+          <button className="ghost-button" onClick={() => setShowPending((value) => !value)}>{showPending ? "隐藏待处理" : "展开待处理"}</button>
         </div>
         <DataTable
           columns={["尺寸", "颜色", "提手", "款式", "库区/状态", "在库", "占用", "锁定", "可用", "可信度"]}
           rows={visible.map((row) => {
-            const available = row.inStock - row.reserved - row.locked - row.pending;
+            const available = availableQty(row);
             return {
               id: row.id,
               active: row.id === selected.id,
@@ -649,7 +846,7 @@ function InventoryPage({ selectedStockId, setSelectedStockId, setToast }) {
         )}
         <section className="detail-section">
           <h3>参考提示</h3>
-          <p>近似颜色/尺寸只作参考：30*38 红色普通提空白袋有货；不能一键替代，也不能自动生成有货话术。</p>
+          <p>近似颜色/尺寸只作参考；不能一键替代，也不能自动生成有货话术。</p>
         </section>
         <div className="action-row">
           <button className="primary-action" onClick={() => setToast("已生成库存修正草稿，需有权限账号确认后生效。")}>发起库存修正</button>
@@ -663,11 +860,14 @@ function InventoryPage({ selectedStockId, setSelectedStockId, setToast }) {
 function FulfillmentPage({ tab, setTab, fulfillments, selectedId, setSelectedId, onAction }) {
   const filtered = fulfillments.filter((item) => tab === "全部" || item.method === tab);
   const selected = fulfillments.find((item) => item.id === selectedId) ?? filtered[0] ?? fulfillments[0];
-  const customerInfo = getCustomer(selected.customerId);
+  const customerInfo = findCustomer(selected.customerId);
   return (
     <section className="page-grid split-detail">
       <div className="table-pane">
-        <Segmented value={tab} onChange={setTab} items={["全部", "自提", "送货", "快递快运"]} />
+        <div className="toolbar-line">
+          <Segmented value={tab} onChange={setTab} items={["全部", "自提", "送货", "快递快运"]} />
+          <span>今日要交付、未完成、异常优先</span>
+        </div>
         <DataTable
           columns={["交付方式", "客户", "订单尾号", "货品摘要", "数量", "包裹", "最晚", "状态", "备注"]}
           rows={filtered.map((row) => ({
@@ -675,7 +875,7 @@ function FulfillmentPage({ tab, setTab, fulfillments, selectedId, setSelectedId,
             active: row.id === selected.id,
             tone: statusTone(row.status),
             onClick: () => setSelectedId(row.id),
-            cells: [row.method, getCustomer(row.customerId).name, row.lineId.slice(-5), row.goods, row.qty, row.packages, row.latest, row.status, row.status.includes("数量") ? "需办公室处理" : "正常"],
+            cells: [row.method, findCustomer(row.customerId).name, row.lineId.slice(-5), row.goods, row.qty, row.packages, row.latest, row.status, row.status.includes("数量") || row.status.includes("无法") ? "需办公室处理" : "正常"],
           }))}
         />
       </div>
@@ -704,10 +904,10 @@ function FulfillmentPage({ tab, setTab, fulfillments, selectedId, setSelectedId,
   );
 }
 
-function StatementPage({ selectedId, setSelectedId, onAction }) {
+function StatementPage({ statements, orderLines, selectedId, setSelectedId, onAction }) {
   const selected = statements.find((item) => item.id === selectedId) ?? statements[0];
-  const customerInfo = getCustomer(selected.customerId);
-  const lines = selected.lineIds.map(getOrderLine).filter(Boolean);
+  const customerInfo = findCustomer(selected.customerId);
+  const lines = selected.lineIds.map((id) => findOrderLine(orderLines, id)).filter(Boolean);
   return (
     <section className="page-grid statement-layout">
       <div className="customer-list">
@@ -716,11 +916,11 @@ function StatementPage({ selectedId, setSelectedId, onAction }) {
           <span>默认：本期待对账 / 欠款 / 收款待确认</span>
         </div>
         {statements.map((item) => {
-          const customerInfo = getCustomer(item.customerId);
+          const customer = findCustomer(item.customerId);
           return (
             <button className={item.id === selected.id ? "customer-row active" : "customer-row"} key={item.id} onClick={() => setSelectedId(item.id)}>
-              <strong>{customerInfo.name}</strong>
-              <span>{customerInfo.cycle} · 上次 {customerInfo.lastStatement}</span>
+              <strong>{customer.name}</strong>
+              <span>{customer.cycle} · 上次 {customer.lastStatement}</span>
               <small>{money(item.receivable)} · {item.status}</small>
             </button>
           );
@@ -763,43 +963,67 @@ function StatementPage({ selectedId, setSelectedId, onAction }) {
   );
 }
 
-function ActionModal({ modal, onClose, setToast }) {
-  const title = modal.type === "mismatch" ? "数量不符" : modal.type === "payment" ? "登记实收金额" : "单据 / 标签预览";
+function ActionModal({ modal, fulfillments, statements, orderLines, onClose, onConfirm }) {
+  const fulfillment = fulfillments.find((item) => item.id === modal.fulfillmentId);
+  const statement = statements.find((item) => item.id === modal.statementId);
+  const statementLines = statement ? statement.lineIds.map((id) => findOrderLine(orderLines, id)).filter(Boolean) : [];
+  const [numberValue, setNumberValue] = useState(modal.type === "payment" ? String(statement?.received || statement?.receivable || 0) : String(fulfillment?.qty || 0));
+  const [reason, setReason] = useState(modal.type === "payment" ? "客户少付，差额待确认" : "库存不足");
+  const titleMap = {
+    mismatch: "数量不符",
+    unable: "无法出库",
+    payment: "登记实收金额",
+    print: "单据 / 标签预览",
+    statementPreview: "对账单预览",
+  };
+
   function confirm() {
-    if (modal.type === "mismatch") setToast("已提交数量不符：实际 430，原因库存不足，进入办公室待办。");
-    if (modal.type === "payment") setToast("已登记实收金额，少付自动进入差额待确认。");
-    if (modal.type === "print") setToast("已模拟打印成功；真实打印机后续接入。");
-    onClose();
+    onConfirm({
+      actualQty: Number(numberValue),
+      amount: Number(numberValue),
+      reason,
+    });
   }
+
   return (
     <div className="modal-backdrop" role="presentation">
-      <section className="modal" role="dialog" aria-modal="true" aria-label={title}>
+      <section className="modal" role="dialog" aria-modal="true" aria-label={titleMap[modal.type]}>
         <div className="modal-title">
           <div>
             <span>P0 模拟动作</span>
-            <h2>{title}</h2>
+            <h2>{titleMap[modal.type]}</h2>
           </div>
           <button className="icon-button" onClick={onClose}>×</button>
         </div>
         {modal.type === "print" ? (
           <div className="print-sheet">
             <h3>设计中心小工厂</h3>
-            <p>客户：张三服饰　货品：30*38 红色空白袋　数量：500 个</p>
-            <p>此处为浏览器预览，后续对接针式打印机 / 标签机。</p>
+            <p>客户：{fulfillment ? findCustomer(fulfillment.customerId).name : "-"}　货品：{fulfillment?.goods}　数量：{fulfillment?.qty} 个</p>
+            <p>此处为浏览器预览，后续对接针式打印机 / 标签机；系统记录打印批次、作废和重打。</p>
+          </div>
+        ) : modal.type === "statementPreview" ? (
+          <div className="print-sheet">
+            <h3>{statement ? findCustomer(statement.customerId).name : ""} 对账单</h3>
+            <p>账期：{statement?.period}　应收：{money(statement?.receivable || 0)}　已收：{money(statement?.received || 0)}</p>
+            {statementLines.map((line) => (
+              <p key={line.id}>{line.orderNo}-{line.lineNo}　{line.product}　{line.qty} 个　{money(line.amount)}</p>
+            ))}
           </div>
         ) : (
           <div className="form-grid">
             <label>
               {modal.type === "payment" ? "实收金额" : "实际数量"}
-              <input defaultValue={modal.type === "payment" ? "80000" : "430"} />
+              <input value={numberValue} onChange={(event) => setNumberValue(event.target.value)} />
             </label>
             <label>
               原因
-              <select defaultValue={modal.type === "payment" ? "客户少付，差额待确认" : "库存不足"}>
+              <select value={reason} onChange={(event) => setReason(event.target.value)}>
                 <option>库存不足</option>
                 <option>找不到货</option>
                 <option>颜色/尺寸不符</option>
+                <option>包装/标签问题</option>
                 <option>客户少付，差额待确认</option>
+                <option>多笔付款待齐</option>
                 <option>其他</option>
               </select>
             </label>
@@ -833,11 +1057,15 @@ function DataTable({ columns, rows }) {
       <div className="data-row head">
         {columns.map((column) => <span key={column}>{column}</span>)}
       </div>
-      {rows.map((row) => (
-        <button className={`data-row ${row.active ? "active" : ""} ${row.tone ?? ""}`} key={row.id} onClick={row.onClick}>
-          {row.cells.map((cell, index) => <span key={`${row.id}-${index}`}>{cell}</span>)}
-        </button>
-      ))}
+      {rows.length ? (
+        rows.map((row) => (
+          <button className={`data-row ${row.active ? "active" : ""} ${row.tone ?? ""}`} key={row.id} onClick={row.onClick}>
+            {row.cells.map((cell, index) => <span key={`${row.id}-${index}`}>{cell}</span>)}
+          </button>
+        ))
+      ) : (
+        <div className="empty-row">没有匹配记录</div>
+      )}
     </div>
   );
 }

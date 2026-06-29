@@ -4,6 +4,10 @@
 
 The migrated project remains a frontend-only prototype until the production workflow is stable. This keeps the design and interaction model easy to revise before introducing backend contracts.
 
+## 2026-06-29 - Keep P0 Fixture Data And Parsing Outside App.jsx
+
+The P0 office prototype should keep large fixture datasets and rule-based order parsing outside `src/App.jsx`. Business sample records live in `src/data/fixtures.js`, and local recognition logic lives in `src/lib/orderParser.js`. `App.jsx` should stay focused on page composition and local interaction state so later API contracts can replace fixtures without rewriting the UI surface.
+
 ## 2026-06-25 - Preserve Visual QA Evidence
 
 The `audit/` and `screenshots/` folders are kept in the repository because they document the visual target, responsive checks, and known product-design tradeoffs from the previous conversation.

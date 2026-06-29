@@ -382,7 +382,7 @@ body {
   border-radius: 999px;
   background: #e04444;
   color: #fff;
-  content: "8";
+  content: attr(data-count);
   font-size: 10px;
   font-weight: 800;
   line-height: 16px;
@@ -679,11 +679,63 @@ body {
   white-space: nowrap;
 }
 
+.entry-table .data-row {
+  grid-template-columns:
+    minmax(100px, 1.1fr)
+    minmax(84px, 0.92fr)
+    minmax(76px, 0.82fr)
+    minmax(58px, 0.68fr)
+    minmax(66px, 0.72fr)
+    minmax(66px, 0.72fr)
+    minmax(52px, 0.56fr)
+    minmax(60px, 0.62fr)
+    minmax(74px, 0.78fr)
+    minmax(64px, 0.68fr)
+    minmax(74px, 0.8fr)
+    minmax(60px, 0.64fr);
+}
+
+.entry-edit-row {
+  min-height: 42px;
+}
+
+.entry-edit-row input,
+.entry-edit-row select {
+  width: 100%;
+  min-width: 0;
+  height: 28px;
+  border: 1px solid #d8e1ec;
+  border-radius: 4px;
+  background: #fff;
+  color: #172033;
+  font-size: 12px;
+  padding: 0 5px;
+}
+
+.entry-edit-row .status {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .data-row.warning { background: #fffdf7; }
 .data-row.danger { background: #fff7f7; }
 .data-row.success { background: #f8fffb; }
 .data-row.medium { background: #fffdf3; }
 .data-row.low { background: #fff6f6; }
+
+.todo-row.handled {
+  opacity: 0.74;
+}
+
+.empty-row {
+  display: grid;
+  min-height: 88px;
+  place-items: center;
+  color: #7b8798;
+  font-size: 13px;
+}
 
 .footer-actions {
   justify-content: flex-end;
