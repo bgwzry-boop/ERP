@@ -38,7 +38,7 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
     };
   }
 
-  const orderNo = `ORD-P0-${String(orderLines.length + 1).padStart(3, "0")}`;
+  const orderNo = nextId("ORD-P0-", orderLines);
   const newLines = checkedRows.map((row, index) =>
     makeOrderLine({
       orderNo,
@@ -69,7 +69,7 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
     .filter((line) => line.print === "否" && !line.status.includes("缺货") && line.fulfillment !== "待确认")
     .map((line, index) =>
       makeFulfillment({
-        id: nextId("F", fulfillments.length + index),
+        id: nextId("F", fulfillments, index),
         method: line.fulfillment,
         customerId: line.customerId,
         lineId: line.id,

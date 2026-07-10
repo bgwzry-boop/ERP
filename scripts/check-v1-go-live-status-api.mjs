@@ -3050,7 +3050,7 @@ try {
   assert.equal(persistencePrecheckJson.summary.repositoryCount, expectedPersistenceRepositoryCount);
   assert.equal(persistencePrecheckJson.summary.productionReadyRepositoryCount, 0);
   assert.equal(persistencePrecheckJson.summary.localRepositoryCount, expectedPersistenceRepositoryCount);
-  assert.equal(persistencePrecheckJson.summary.localMemoryCount, 20);
+  assert.equal(persistencePrecheckJson.summary.localMemoryCount, 21);
   assert.equal(persistencePrecheckJson.summary.localJsonCount, 10);
   assert.equal(persistencePrecheckJson.summary.localFsCount, 2);
   assert.equal(persistencePrecheckJson.summary.currentRuntime, true);

@@ -132,6 +132,7 @@ async function checkHealthProfile(apiBaseUrl) {
   assert.equal(seed.rawMaterialSupplierStatementReviewRepository, "postgres");
   assert.equal(seed.attachmentObjectStorage, "object_storage");
   assert.equal(seed.statementExportObjectStorage, "object_storage");
+  assert.equal(seed.coreWorkspaceReadRepository, "postgres");
   assert.equal(seed.orderDraftRepository, "postgres");
   assertNoSensitiveOutput(JSON.stringify(health));
 }
@@ -170,6 +171,11 @@ async function checkSystemPersistenceReadiness(apiBaseUrl) {
   );
   assert.equal(orderDraftRepository?.kind, "postgres");
   assert.equal(orderDraftRepository?.productionReady, true);
+  const coreWorkspaceReadRepository = readiness.repositories?.find(
+    (repository) => repository.key === "coreWorkspaceReadRepository",
+  );
+  assert.equal(coreWorkspaceReadRepository?.kind, "postgres");
+  assert.equal(coreWorkspaceReadRepository?.productionReady, true);
   const runtimeIdentityRepository = readiness.repositories?.find(
     (repository) => repository.key === "runtimeIdentityRepository",
   );

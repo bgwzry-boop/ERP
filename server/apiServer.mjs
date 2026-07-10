@@ -100,6 +100,10 @@ import { createStatementSettlementTransactionRepository } from "./statementSettl
 import { createStatementSendTransactionRepository } from "./statementSendTransactionRepository.mjs";
 import { createStatementExportRepository } from "./statementExportRepository.mjs";
 import { createStatementExportObjectStorage } from "./statementExportObjectStorage.mjs";
+import {
+  coreWorkspaceCollectionKeys,
+  createCoreWorkspaceReadRepository,
+} from "./coreWorkspaceReadRepository.mjs";
 import { createOrderDraftRepository } from "./orderDraftRepository.mjs";
 import { createOrderConfirmationTransactionRepository } from "./orderConfirmationTransactionRepository.mjs";
 import { createOrderPoolReadRepository } from "./orderPoolReadRepository.mjs";
@@ -315,6 +319,9 @@ export function createApiServer(options = {}) {
   const statementExportObjectStorage =
     effectiveOptions.statementExportObjectStorage ??
     createStatementExportObjectStorage(effectiveOptions.statementExportObjectStorageOptions);
+  const coreWorkspaceReadRepository =
+    effectiveOptions.coreWorkspaceReadRepository ??
+    createCoreWorkspaceReadRepository(effectiveOptions.coreWorkspaceReadRepositoryOptions);
   const orderDraftRepository =
     effectiveOptions.orderDraftRepository ?? createOrderDraftRepository(effectiveOptions.orderDraftRepositoryOptions);
   const orderConfirmationTransactionRepository =
@@ -393,6 +400,7 @@ export function createApiServer(options = {}) {
       statementSettlementTransactionRepository,
       statementSendTransactionRepository,
       statementExportRepository,
+      coreWorkspaceReadRepository,
       orderDraftRepository,
       orderConfirmationTransactionRepository,
       orderPoolReadRepository,
@@ -472,6 +480,7 @@ export function createApiServer(options = {}) {
   workspace.statementSendTransactionRepository = statementSendTransactionRepository;
   workspace.statementExportRepository = statementExportRepository;
   workspace.statementExportObjectStorage = statementExportObjectStorage;
+  workspace.coreWorkspaceReadRepository = coreWorkspaceReadRepository;
   workspace.orderDraftRepository = orderDraftRepository;
   workspace.orderConfirmationTransactionRepository = orderConfirmationTransactionRepository;
   workspace.orderPoolReadRepository = orderPoolReadRepository;
@@ -502,6 +511,7 @@ export function createApiServer(options = {}) {
     attachmentAccessAuditRepository,
     paymentRecordRepository,
     statementExportRepository,
+    coreWorkspaceReadRepository,
     orderDraftRepository,
     driverDeliveryDispatchRepository,
     driverDeviceFieldTestRepository,
@@ -570,6 +580,7 @@ async function loadPersistentWorkspaceState({
   attachmentAccessAuditRepository,
   paymentRecordRepository,
   statementExportRepository,
+  coreWorkspaceReadRepository,
   orderDraftRepository,
   driverDeliveryDispatchRepository,
   driverDeviceFieldTestRepository,
@@ -583,6 +594,10 @@ async function loadPersistentWorkspaceState({
   printDeviceRepository,
   printJobRepository,
 }) {
+  const persistedCoreWorkspaceState = (await coreWorkspaceReadRepository.loadState?.()) ?? {};
+  for (const key of coreWorkspaceCollectionKeys) {
+    if (Array.isArray(persistedCoreWorkspaceState[key])) workspace[key] = persistedCoreWorkspaceState[key];
+  }
   const persistedOrderDraftState = (await orderDraftRepository.loadState?.()) ?? {};
   workspace.orderDrafts = persistedOrderDraftState.orderDrafts ?? [];
   const persistedDriverDeliveryDispatchState = (await driverDeliveryDispatchRepository.loadState?.()) ?? {};
@@ -598,7 +613,9 @@ async function loadPersistentWorkspaceState({
   workspace.masterDataImportReviewDrafts = persistedMasterDataImportReviewState.masterDataImportReviewDrafts ?? [];
   workspace.masterDataImportConfirmationPlans = persistedMasterDataImportReviewState.masterDataImportConfirmationPlans ?? [];
   workspace.masterDataImportExecutions = persistedMasterDataImportReviewState.masterDataImportExecutions ?? [];
-  workspace.operationLogs = [...workspace.operationLogs, ...(persistedMasterDataImportReviewState.operationLogs ?? [])];
+  for (const operationLog of persistedMasterDataImportReviewState.operationLogs ?? []) {
+    workspace.operationLogs = upsertByKey(workspace.operationLogs, operationLog, "id");
+  }
   const persistedRawMaterialInboundState =
     (await rawMaterialInboundRepository.loadState?.({ seedInbounds: workspace.initialRawMaterialInbounds })) ?? {};
   workspace.rawMaterialInbounds = persistedRawMaterialInboundState.rawMaterialInbounds ?? workspace.initialRawMaterialInbounds ?? [];
@@ -653,6 +670,7 @@ async function routeGet(context) {
         statementSendTransactionRepository: workspace.statementSendTransactionRepository.kind,
         statementExportRepository: workspace.statementExportRepository.kind,
         statementExportObjectStorage: workspace.statementExportObjectStorage.kind,
+        coreWorkspaceReadRepository: workspace.coreWorkspaceReadRepository.kind,
         orderDraftRepository: workspace.orderDraftRepository.kind,
         orderConfirmationTransactionRepository: workspace.orderConfirmationTransactionRepository.kind,
         orderPoolReadRepository: workspace.orderPoolReadRepository.kind,
@@ -2939,6 +2957,8 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
     workspace,
     idempotencyKey: body.idempotencyKey,
     idempotencyPayload: body,
+    orderDraft: confirmedDraft,
+    expectedDraftRevision: expectedRevision,
     order: buildConfirmedOrderRecord(workspace, draftId, result, body),
     orderLines: result.newLines.map((line) => ({ ...line, createdBy: body.operatorId ?? "U-OFFICE-A" })),
     priceSnapshots,
@@ -2952,15 +2972,6 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
     inventoryLedgerEntries,
     todos,
     operationLog,
-  });
-  await workspace.orderDraftRepository.saveOrderDraft({
-    workspace,
-    draft: confirmedDraft,
-    expectedRevision,
-    todos: [],
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
   });
 
   return sendJson(response, 200, {
@@ -4410,6 +4421,7 @@ const v1SystemPersistenceGroups = [
     key: "order-inventory-fulfillment",
     label: "订单 / 库存 / 出库交易仓储",
     repositories: [
+      ["coreWorkspaceReadRepository", "核心工作区启动快照"],
       ["orderDraftRepository", "订单草稿"],
       ["orderConfirmationTransactionRepository", "订单确认交易"],
       ["orderPoolReadRepository", "订单池读取"],
@@ -20449,33 +20461,47 @@ function getMissingDraftFields(row) {
 }
 
 function buildStatementPreviewLines(workspace, statement) {
+  const persistedLines = (workspace.statementLines ?? []).filter(
+    (item) => (item.statementId ?? item.statement_id) === statement.id,
+  );
+  if (persistedLines.length > 0) {
+    return persistedLines.map((statementLine, index) => {
+      const lineId = statementLine.orderLineId ?? statementLine.order_line_id;
+      const line = workspace.orderLines.find((item) => item.id === lineId);
+      return toStatementPreviewLine(workspace, statement, lineId, line, index, statementLine);
+    });
+  }
   return (statement.lineIds ?? []).map((lineId, index) => {
     const line = workspace.orderLines.find((item) => item.id === lineId);
     return toStatementPreviewLine(workspace, statement, lineId, line, index);
   });
 }
 
-function toStatementPreviewLine(workspace, statement, lineId, line, index) {
-  const amount = Number(line?.amount ?? 0);
-  const qty = Number(line?.qty ?? 0);
+function toStatementPreviewLine(workspace, statement, lineId, line, index, persistedLine = null) {
+  const deliveredQty = Number(persistedLine?.deliveredQty ?? line?.qty ?? 0);
+  const chargeableQty = Number(persistedLine?.chargeableQty ?? deliveredQty);
+  const freeQty = Number(persistedLine?.freeQty ?? Math.max(0, deliveredQty - chargeableQty));
+  const amount = Number(persistedLine?.amount ?? line?.amount ?? 0);
+  const adjustmentAmount = Number(persistedLine?.adjustmentAmount ?? 0);
+  const finalAmount = Number(persistedLine?.finalAmount ?? amount + adjustmentAmount);
   const fulfillment = workspace.fulfillments.find((item) => item.lineId === (line?.id ?? lineId));
   return {
-    statementLineId: `${statement.id}-${String(index + 1).padStart(3, "0")}`,
+    statementLineId: persistedLine?.statementLineId ?? persistedLine?.id ?? `${statement.id}-${String(index + 1).padStart(3, "0")}`,
     statementId: statement.id,
     orderLineId: line?.id ?? lineId,
-    fulfillmentId: fulfillment?.id ?? "",
+    fulfillmentId: persistedLine?.fulfillmentId ?? fulfillment?.id ?? "",
     orderNo: line?.orderNo ?? lineId,
     productName: line?.product ?? "未找到明细",
     goodsSpec: buildStatementGoodsSpec(workspace, line),
     remark: getLineRemark(line),
-    deliveredQty: qty,
-    chargeableQty: qty,
-    freeQty: 0,
-    billQty: qty,
-    unitPrice: qty > 0 ? roundMoney(amount / qty) : 0,
+    deliveredQty,
+    chargeableQty,
+    freeQty,
+    billQty: chargeableQty,
+    unitPrice: chargeableQty > 0 ? roundMoney(amount / chargeableQty) : 0,
     amount,
-    adjustmentAmount: 0,
-    finalAmount: amount,
+    adjustmentAmount,
+    finalAmount,
   };
 }
 
@@ -20937,6 +20963,7 @@ function buildPrintJobRecord(workspace, { printRecord, printTemplate, body, oper
 }
 
 async function ensureOfficePrintJobDemoSeeds(workspace) {
+  if (workspace.runtimeConfig?.production) return;
   const existingIds = new Set((workspace.printJobs ?? []).map((item) => item.printJobId));
   const labelDevice =
     (await findPrintDevice(workspace, "PRN-LABEL-A")) ??
@@ -22797,7 +22824,7 @@ function buildConfirmedOrderRecord(workspace, draftId, result, body) {
   return {
     orderId: result.orderNo,
     bizNo: result.orderNo,
-    sourceDraftId: "",
+    sourceDraftId: draftId,
     draftId,
     customerId,
     customerSnapshot: buildCustomerSnapshot(workspace, customerId),

@@ -16,6 +16,7 @@ console.log(
 async function checkLocalOrderConfirmationTransactionRepository() {
   const repository = createLocalOrderConfirmationTransactionRepository();
   const workspace = {
+    orderDrafts: [buildOrderDraft()],
     originalOrders: [],
     orderLines: [],
     fulfillments: [],
@@ -23,6 +24,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
     operationLogs: [],
   };
   const order = buildOrder();
+  const orderDraft = buildOrderDraft({ status: "已生成正式订单" });
   const orderLines = buildOrderLines();
   const priceSnapshots = buildPriceSnapshots();
   const fulfillmentRecords = buildFulfillmentRecords();
@@ -34,6 +36,8 @@ async function checkLocalOrderConfirmationTransactionRepository() {
   const transaction = await repository.confirmOrder({
     idempotencyKey: "idem-order-confirm-001",
     workspace,
+    orderDraft,
+    expectedDraftRevision: 1,
     order,
     orderLines,
     priceSnapshots,
@@ -44,6 +48,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
     operationLog,
   });
 
+  assert.equal(transaction.orderDraft.revision, 2);
   assert.equal(transaction.order.orderId, "ORD-CONFIRM-001");
   assert.equal(transaction.orderLines.length, 2);
   assert.equal(transaction.priceSnapshots.length, 2);
@@ -53,6 +58,8 @@ async function checkLocalOrderConfirmationTransactionRepository() {
   assert.equal(transaction.todos.length, 1);
   assert.equal(transaction.operationLogId, "LOG-ORDER-CONFIRM-001");
   assert.equal(workspace.originalOrders.length, 1);
+  assert.equal(workspace.orderDrafts[0].status, "已生成正式订单");
+  assert.equal(workspace.orderDrafts[0].revision, 2);
   assert.equal(workspace.orderLines.length, 2);
   assert.equal(workspace.orderLines[0].amount, 180);
   assert.equal(workspace.fulfillments.length, 1);
@@ -66,6 +73,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
 async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   const calls = [];
   const order = buildOrder({ sourceText: "O'Brien 30*38 红色 500个" });
+  const orderDraft = buildOrderDraft({ sourceText: "O'Brien 30*38 红色 500个", status: "已生成正式订单" });
   const orderLines = buildOrderLines();
   const priceSnapshots = buildPriceSnapshots();
   const fulfillmentRecords = buildFulfillmentRecords();
@@ -78,6 +86,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
       async idempotentTransactionJson(request) {
         calls.push(request);
         return {
+          orderDraft: { ...orderDraft, revision: 2, clientRevision: 2 },
           order,
           orderLines,
           priceSnapshots,
@@ -90,11 +99,13 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
       },
     },
   });
-  const workspace = { originalOrders: [], orderLines: [], fulfillments: [], operationLogs: [] };
+  const workspace = { orderDrafts: [buildOrderDraft()], originalOrders: [], orderLines: [], fulfillments: [], operationLogs: [] };
 
   const transaction = await repository.confirmOrder({
     idempotencyKey: "idem-order-confirm-001",
     workspace,
+    orderDraft,
+    expectedDraftRevision: 1,
     order,
     orderLines,
     priceSnapshots,
@@ -105,7 +116,9 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
     operationLog,
   });
 
+  assert.equal(transaction.orderDraft.revision, 2);
   assert.equal(transaction.orderLines[0].orderId, "ORD-CONFIRM-001");
+  assert.equal(workspace.orderDrafts[0].revision, 2);
   assert.equal(workspace.orderLines.length, 2);
   assert.equal(workspace.fulfillments.length, 1);
 
@@ -113,8 +126,17 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   const sql = text;
   assert.equal(calls[0].scope, "order.confirm");
   assert.equal(calls[0].idempotencyKey, "idem-order-confirm-001");
+  assert.ok(calls[0].resourceLocks.includes("order-draft:DRAFT-CONFIRM-001"));
   assert.ok(calls[0].resourceLocks.includes("inventory:INV-RED-3038"));
   assert.match(sql, /^BEGIN;/);
+  assert.match(sql, /FROM order_drafts[\s\S]*FOR UPDATE/);
+  assert.match(sql, /ERP_ORDER_DRAFT_CONCURRENCY_CONFLICT/);
+  assert.match(sql, /ERP_ORDER_CONFIRMATION_ID_CONCURRENCY_CONFLICT/);
+  assert.match(sql, /business_id_write_guard/);
+  assert.match(sql, /ON CONFLICT \(id\) DO NOTHING/);
+  assert.match(sql, /UPDATE order_drafts AS draft/);
+  assert.match(sql, /DELETE FROM order_draft_lines/);
+  assert.match(sql, /INSERT INTO order_draft_lines/);
   assert.match(sql, /INSERT INTO original_orders/);
   assert.match(sql, /INSERT INTO order_lines/);
   assert.match(sql, /INSERT INTO price_snapshots/);
@@ -133,6 +155,8 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   assert.ok(values.some((value) => Array.isArray(value) && value.includes("库存不足")));
 
   const directSql = buildConfirmOrderTransactionSql({
+    orderDraft,
+    expectedDraftRevision: 1,
     order,
     orderLines,
     priceSnapshots,
@@ -142,6 +166,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
     todos,
     operationLog,
   });
+  assert.match(directSql, /'orderDraft'/);
   assert.match(directSql, /'orderLines'/);
   assert.match(directSql, /'priceSnapshots'/);
   assert.match(directSql, /'fulfillmentRecords'/);
@@ -150,6 +175,8 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   assert.match(directSql, /'todos'/);
 
   const directQuery = buildConfirmOrderTransactionQuery({
+    orderDraft,
+    expectedDraftRevision: 1,
     order,
     orderLines,
     priceSnapshots,
@@ -168,13 +195,65 @@ function buildOrder(overrides = {}) {
   return {
     orderId: "ORD-CONFIRM-001",
     bizNo: "ORD-CONFIRM-001",
-    sourceDraftId: "",
+    sourceDraftId: "DRAFT-CONFIRM-001",
     customerId: "C001",
     customerSnapshot: { name: "张三服饰" },
     sourceText: overrides.sourceText ?? "张三服饰 30*38 红色 500个",
     summaryStatus: "处理中",
     createdBy: "U-OFFICE-A",
     createdAt: "2026-07-02T10:30:00.000Z",
+  };
+}
+
+function buildOrderDraft(overrides = {}) {
+  return {
+    id: "DRAFT-CONFIRM-001",
+    draftId: "DRAFT-CONFIRM-001",
+    bizNo: "DRAFT-CONFIRM-001",
+    sourceText: "张三服饰 30*38 红色 500个",
+    sourceChannel: "manual",
+    sourceMessageId: "MSG-CONFIRM-001",
+    customerId: "C001",
+    customerName: "张三服饰",
+    status: "待审核",
+    revision: 1,
+    clientRevision: 1,
+    createdBy: "U-OFFICE-A",
+    createdAt: "2026-07-02T10:20:00.000Z",
+    updatedAt: "2026-07-02T10:20:00.000Z",
+    lines: [
+      {
+        id: "DRAFT-CONFIRM-001-01",
+        customerId: "C001",
+        customer: "张三服饰",
+        product: "空白袋",
+        size: "30*38*10",
+        color: "红色",
+        handle: "普通提",
+        style: "空白袋",
+        print: "否",
+        qty: 500,
+        fulfillment: "自提",
+        latest: "待确认",
+        inventory: "可用",
+      },
+      {
+        id: "DRAFT-CONFIRM-001-02",
+        customerId: "C001",
+        customer: "张三服饰",
+        product: "空白袋",
+        size: "30*38*10",
+        color: "黑色",
+        handle: "普通提",
+        style: "空白袋",
+        print: "否",
+        qty: 100,
+        fulfillment: "自提",
+        latest: "待确认",
+        inventory: "缺货",
+      },
+    ],
+    ...overrides,
   };
 }
 

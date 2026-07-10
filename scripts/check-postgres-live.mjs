@@ -218,6 +218,19 @@ ON CONFLICT (id) DO UPDATE SET
   trust_level = EXCLUDED.trust_level,
   updated_at = now();
 
+INSERT INTO order_drafts (
+  id, biz_no, source_text, source_channel, customer_id, status, recognition_summary, revision, created_by
+) VALUES
+  ('DRAFT-LIVE-CONFIRM-001', 'DRAFT-LIVE-CONFIRM-001', 'Postgres live order confirmation', 'manual', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A'),
+  ('DRAFT-LIVE-QTY-001', 'DRAFT-LIVE-QTY-001', 'Postgres live quantity order confirmation', 'manual', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A')
+ON CONFLICT (id) DO UPDATE SET
+  source_text = EXCLUDED.source_text,
+  customer_id = EXCLUDED.customer_id,
+  status = EXCLUDED.status,
+  recognition_summary = EXCLUDED.recognition_summary,
+  revision = EXCLUDED.revision,
+  updated_at = now();
+
 INSERT INTO original_orders (id, biz_no, customer_id, customer_snapshot, summary_status, created_by)
 VALUES
   ('ORD-0629-001', 'ORD-0629-001', 'C001', '{"name":"张三服饰"}'::jsonb, '待出库', 'U-OFFICE-A'),
@@ -417,6 +430,31 @@ ON CONFLICT (id) DO UPDATE SET
   received_amount = EXCLUDED.received_amount,
   variance_amount = EXCLUDED.variance_amount,
   updated_at = now();
+
+INSERT INTO statement_lines (
+  id,
+  statement_id,
+  order_line_id,
+  fulfillment_id,
+  delivered_qty,
+  chargeable_qty,
+  free_qty,
+  amount,
+  adjustment_amount,
+  final_amount
+) VALUES
+  ('ST-0629-001-001', 'ST-0629-001', 'ORD-0629-001-01', 'F001', 500, 500, 0, 180, 0, 180),
+  ('ST-0629-001-002', 'ST-0629-001', 'ORD-0629-015-01', NULL, 300, 300, 0, 93, 0, 93)
+ON CONFLICT (id) DO UPDATE SET
+  statement_id = EXCLUDED.statement_id,
+  order_line_id = EXCLUDED.order_line_id,
+  fulfillment_id = EXCLUDED.fulfillment_id,
+  delivered_qty = EXCLUDED.delivered_qty,
+  chargeable_qty = EXCLUDED.chargeable_qty,
+  free_qty = EXCLUDED.free_qty,
+  amount = EXCLUDED.amount,
+  adjustment_amount = EXCLUDED.adjustment_amount,
+  final_amount = EXCLUDED.final_amount;
 `);
 }
 
@@ -743,11 +781,25 @@ async function checkPostgresRepositories() {
   assert.equal(queryJson("SELECT json_build_object('status', status, 'variance', variance_amount) AS result FROM statements WHERE id = 'ST-LIVE-VAR-001';").status, "已确认欠款");
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-WRITE-TXN-001';", { capture: true }).trim()), 1);
 
-  const orderConfirmationWorkspace = { originalOrders: [], orderLines: [], fulfillments: [], operationLogs: [] };
+  const orderConfirmationDraft = buildConfirmedOrderDraft({
+    draftId: "DRAFT-LIVE-CONFIRM-001",
+    customerId: "C-LIVE-REPO",
+    createdBy: "U-FINANCE-A",
+  });
+  const orderConfirmationWorkspace = {
+    orderDrafts: [orderConfirmationDraft],
+    originalOrders: [],
+    orderLines: [],
+    fulfillments: [],
+    operationLogs: [],
+  };
   const orderConfirmation = await orderConfirmationRepository.confirmOrder({
     workspace: orderConfirmationWorkspace,
+    orderDraft: { ...orderConfirmationDraft, status: "已生成正式订单" },
+    expectedDraftRevision: 1,
     order: buildConfirmedOrder({
       orderId: "ORD-LIVE-CONFIRM-001",
+      sourceDraftId: "DRAFT-LIVE-CONFIRM-001",
       customerId: "C-LIVE-REPO",
       createdBy: "U-FINANCE-A",
     }),
@@ -793,6 +845,8 @@ async function checkPostgresRepositories() {
       after: { id: "ORD-LIVE-CONFIRM-001", orderNo: "ORD-LIVE-CONFIRM-001" },
     }),
   });
+  assert.equal(orderConfirmation.orderDraft.revision, 2);
+  assert.equal(orderConfirmation.orderDraft.status, "已生成正式订单");
   assert.equal(orderConfirmation.order.orderId, "ORD-LIVE-CONFIRM-001");
   assert.equal(orderConfirmation.orderLines.length, 1);
   assert.equal(orderConfirmation.priceSnapshots.length, 1);
@@ -811,6 +865,227 @@ async function checkPostgresRepositories() {
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_id = 'OL-LIVE-CONFIRM-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM todos WHERE id = 'T-LIVE-CONFIRM-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim()), 35);
+  assert.deepEqual(
+    queryJson("SELECT json_build_object('status', status, 'revision', revision) AS result FROM order_drafts WHERE id = 'DRAFT-LIVE-CONFIRM-001';"),
+    { status: "已生成正式订单", revision: 2 },
+  );
+
+  const reservedBeforeStaleConfirmation = Number(
+    runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim(),
+  );
+  await assert.rejects(
+    () =>
+      orderConfirmationRepository.confirmOrder({
+        workspace: {
+          orderDrafts: [orderConfirmation.orderDraft],
+          originalOrders: [],
+          orderLines: [],
+          fulfillments: [],
+          operationLogs: [],
+        },
+        idempotencyKey: "idem-live-order-confirm-stale-001",
+        orderDraft: orderConfirmation.orderDraft,
+        expectedDraftRevision: 1,
+        order: buildConfirmedOrder({
+          orderId: "ORD-LIVE-CONFIRM-STALE-001",
+          sourceDraftId: "DRAFT-LIVE-CONFIRM-001",
+          customerId: "C-LIVE-REPO",
+          createdBy: "U-FINANCE-A",
+        }),
+        orderLines: buildConfirmedOrderLines({
+          orderId: "ORD-LIVE-CONFIRM-STALE-001",
+          customerId: "C-LIVE-REPO",
+          orderLineId: "OL-LIVE-CONFIRM-STALE-001",
+          createdBy: "U-FINANCE-A",
+        }),
+        priceSnapshots: buildConfirmedPriceSnapshots({
+          orderLineId: "OL-LIVE-CONFIRM-STALE-001",
+          createdBy: "U-FINANCE-A",
+        }),
+        fulfillmentRecords: buildConfirmedFulfillments({
+          fulfillmentId: "F-LIVE-CONFIRM-STALE-001",
+          orderLineId: "OL-LIVE-CONFIRM-STALE-001",
+          customerId: "C-LIVE-REPO",
+          createdBy: "U-FINANCE-A",
+        }),
+        inventoryReservations: buildConfirmedInventoryReservations({
+          reservationId: "RSV-LIVE-CONFIRM-STALE-001",
+          orderLineId: "OL-LIVE-CONFIRM-STALE-001",
+          inventoryItemId: "INV-LIVE-CONFIRM-001",
+          reservedQty: 5,
+          createdBy: "U-FINANCE-A",
+        }),
+        inventoryLedgerEntries: buildConfirmedInventoryLedgerEntries({
+          ledgerId: "LEDGER-LIVE-CONFIRM-STALE-001",
+          inventoryItemId: "INV-LIVE-CONFIRM-001",
+          sourceId: "OL-LIVE-CONFIRM-STALE-001",
+          qtyBefore: reservedBeforeStaleConfirmation,
+          qtyChange: 5,
+          qtyAfter: reservedBeforeStaleConfirmation + 5,
+          operatorId: "U-FINANCE-A",
+        }),
+        todos: buildConfirmedTodos({
+          todoId: "T-LIVE-CONFIRM-STALE-001",
+          refId: "ORD-LIVE-CONFIRM-STALE-001",
+          customerId: "C-LIVE-REPO",
+          createdBy: "U-FINANCE-A",
+        }),
+        operationLog: buildOperationLog({
+          logId: "LOG-LIVE-ORDER-CONFIRM-STALE-001",
+          action: "confirm_order_draft",
+          before: null,
+          after: { id: "ORD-LIVE-CONFIRM-STALE-001", orderNo: "ORD-LIVE-CONFIRM-STALE-001" },
+        }),
+      }),
+    (error) =>
+      (error?.statusCode === 409 && error?.code === "BUSINESS_WRITE_CONFLICT") ||
+      /ERP_ORDER_DRAFT_CONCURRENCY_CONFLICT/.test(String(error?.message ?? "")),
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM original_orders WHERE id = 'ORD-LIVE-CONFIRM-STALE-001';", { capture: true }).trim()),
+    0,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM order_lines WHERE id = 'OL-LIVE-CONFIRM-STALE-001';", { capture: true }).trim()),
+    0,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM fulfillment_records WHERE id = 'F-LIVE-CONFIRM-STALE-001';", { capture: true }).trim()),
+    0,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM inventory_reservations WHERE id = 'RSV-LIVE-CONFIRM-STALE-001';", { capture: true }).trim()),
+    0,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM inventory_ledger_entries WHERE id = 'LEDGER-LIVE-CONFIRM-STALE-001';", { capture: true }).trim()),
+    0,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM todos WHERE id = 'T-LIVE-CONFIRM-STALE-001';", { capture: true }).trim()),
+    0,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-ORDER-CONFIRM-STALE-001';", { capture: true }).trim()),
+    0,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM operation_idempotency_keys WHERE scope = 'order.confirm' AND idempotency_key = 'idem-live-order-confirm-stale-001';",
+        { capture: true },
+      ).trim(),
+    ),
+    0,
+  );
+  assert.equal(
+    Number(runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim()),
+    reservedBeforeStaleConfirmation,
+  );
+  assert.deepEqual(
+    queryJson("SELECT json_build_object('status', status, 'revision', revision) AS result FROM order_drafts WHERE id = 'DRAFT-LIVE-CONFIRM-001';"),
+    { status: "已生成正式订单", revision: 2 },
+  );
+
+  runPsql(`
+INSERT INTO order_drafts (
+  id, biz_no, source_text, source_channel, customer_id, status, recognition_summary, revision, created_by
+) VALUES
+  ('DRAFT-LIVE-CONCURRENT-A', 'DRAFT-LIVE-CONCURRENT-A', 'Concurrent order A', 'manual', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A'),
+  ('DRAFT-LIVE-CONCURRENT-B', 'DRAFT-LIVE-CONCURRENT-B', 'Concurrent order B', 'manual', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A')
+ON CONFLICT (id) DO UPDATE SET
+  status = EXCLUDED.status,
+  revision = EXCLUDED.revision,
+  recognition_summary = EXCLUDED.recognition_summary,
+  updated_at = now();
+`);
+  const concurrentConfirmationPool = new Pool({
+    connectionString: resolveLiveDatabaseUrl(),
+    max: 4,
+    connectionTimeoutMillis: 5_000,
+  });
+  try {
+    const concurrentConfirmationRepository = createPostgresOrderConfirmationTransactionRepository({
+      postgresClient: createPostgresPoolClient({ pool: concurrentConfirmationPool }),
+    });
+    const buildConcurrentConfirmationInput = (draftId, suffix) => {
+      const draft = buildConfirmedOrderDraft({ draftId, customerId: "C-LIVE-REPO", createdBy: "U-FINANCE-A" });
+      return {
+        workspace: { orderDrafts: [draft], originalOrders: [], orderLines: [], fulfillments: [], operationLogs: [] },
+        idempotencyKey: `idem-live-order-confirm-concurrent-${suffix}`,
+        orderDraft: { ...draft, status: "已生成正式订单" },
+        expectedDraftRevision: 1,
+        order: buildConfirmedOrder({
+          orderId: "ORD-LIVE-CONCURRENT-ID-001",
+          sourceDraftId: draftId,
+          customerId: "C-LIVE-REPO",
+          createdBy: "U-FINANCE-A",
+        }),
+        orderLines: buildConfirmedOrderLines({
+          orderId: "ORD-LIVE-CONCURRENT-ID-001",
+          customerId: "C-LIVE-REPO",
+          orderLineId: "OL-LIVE-CONCURRENT-ID-001",
+          createdBy: "U-FINANCE-A",
+        }),
+        priceSnapshots: [],
+        fulfillmentRecords: [],
+        inventoryReservations: [],
+        inventoryLedgerEntries: [],
+        todos: [],
+        operationLog: buildOperationLog({
+          logId: `LOG-LIVE-ORDER-CONCURRENT-${suffix}`,
+          action: "confirm_order_draft",
+          before: null,
+          after: { id: "ORD-LIVE-CONCURRENT-ID-001", sourceDraftId: draftId },
+        }),
+      };
+    };
+    const concurrentConfirmations = await Promise.allSettled([
+      concurrentConfirmationRepository.confirmOrder(buildConcurrentConfirmationInput("DRAFT-LIVE-CONCURRENT-A", "A")),
+      concurrentConfirmationRepository.confirmOrder(buildConcurrentConfirmationInput("DRAFT-LIVE-CONCURRENT-B", "B")),
+    ]);
+    assert.equal(concurrentConfirmations.filter((result) => result.status === "fulfilled").length, 1);
+    assert.equal(concurrentConfirmations.filter((result) => result.status === "rejected").length, 1);
+    const rejectedConcurrentConfirmation = concurrentConfirmations.find((result) => result.status === "rejected");
+    assert.equal(rejectedConcurrentConfirmation.reason?.statusCode, 409);
+    assert.equal(rejectedConcurrentConfirmation.reason?.code, "BUSINESS_WRITE_CONFLICT");
+  } finally {
+    await concurrentConfirmationPool.end();
+  }
+  const concurrentOrderWinner = queryJson(
+    "SELECT json_build_object('sourceDraftId', source_draft_id) AS result FROM original_orders WHERE id = 'ORD-LIVE-CONCURRENT-ID-001';",
+  );
+  assert.ok(["DRAFT-LIVE-CONCURRENT-A", "DRAFT-LIVE-CONCURRENT-B"].includes(concurrentOrderWinner.sourceDraftId));
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM original_orders WHERE id = 'ORD-LIVE-CONCURRENT-ID-001';", { capture: true }).trim()),
+    1,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM order_lines WHERE id = 'OL-LIVE-CONCURRENT-ID-001';", { capture: true }).trim()),
+    1,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id LIKE 'LOG-LIVE-ORDER-CONCURRENT-%';", { capture: true }).trim()),
+    1,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM order_drafts WHERE id IN ('DRAFT-LIVE-CONCURRENT-A', 'DRAFT-LIVE-CONCURRENT-B') AND revision = 2 AND status = '已生成正式订单';",
+        { capture: true },
+      ).trim(),
+    ),
+    1,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM order_drafts WHERE id IN ('DRAFT-LIVE-CONCURRENT-A', 'DRAFT-LIVE-CONCURRENT-B') AND revision = 1 AND status = '待审核';",
+        { capture: true },
+      ).trim(),
+    ),
+    1,
+  );
 
   const releasedReservation = await inventoryReservationReleaseRepository.releaseReservation({
     workspace: {
@@ -956,10 +1231,18 @@ async function checkPostgresRepositories() {
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM order_line_change_records WHERE id = 'OLCR-LIVE-VOID-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-VOID-001';", { capture: true }).trim()), 1);
 
+  const quantityDraft = buildConfirmedOrderDraft({
+    draftId: "DRAFT-LIVE-QTY-001",
+    customerId: "C-LIVE-REPO",
+    createdBy: "U-FINANCE-A",
+  });
   const quantityAdjustmentOrder = await orderConfirmationRepository.confirmOrder({
-    workspace: { originalOrders: [], orderLines: [], fulfillments: [], operationLogs: [] },
+    workspace: { orderDrafts: [quantityDraft], originalOrders: [], orderLines: [], fulfillments: [], operationLogs: [] },
+    orderDraft: { ...quantityDraft, status: "已生成正式订单" },
+    expectedDraftRevision: 1,
     order: buildConfirmedOrder({
       orderId: "ORD-LIVE-QTY-001",
+      sourceDraftId: "DRAFT-LIVE-QTY-001",
       customerId: "C-LIVE-REPO",
       createdBy: "U-FINANCE-A",
     }),
@@ -1915,7 +2198,7 @@ async function checkApiWithPostgresRepositories() {
   });
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
-  server = createApiServer({
+  const apiServerOptions = {
     v1PersistenceProfile: { repositoryMode: "postgres", queryJson },
     orderDraftRepository,
     printDriverAdapter: {
@@ -1926,9 +2209,10 @@ async function checkApiWithPostgresRepositories() {
     },
     attachmentObjectStorageOptions: { storageRoot },
     statementExportObjectStorageOptions: { storageRoot },
-  });
+  };
+  server = createApiServer(apiServerOptions);
   await listen(server);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  let baseUrl = `http://127.0.0.1:${server.address().port}`;
   const headers = { "x-erp-user-id": "U-OFFICE-A" };
   const driverHeaders = { "x-erp-user-id": "U-DRIVER-A" };
   const printDriverHeaders = { "x-erp-user-id": "U-PRINT-DRIVER-A" };
@@ -1960,6 +2244,11 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.v1PersistenceProfile.connectionStringExposed, false);
   assert.equal(health.seed.statementExportObjectStorage, "local_fs");
   assert.equal(health.seed.printDriverAdapter, "guarded_adapter");
+  const startupOperationLogs = await getJson(baseUrl, "/api/operation-logs?limit=200", { headers });
+  assert.equal(
+    startupOperationLogs.total,
+    Number(runPsql("SELECT COUNT(*) FROM operation_logs;", { capture: true }).trim()),
+  );
   const printDriverConfig = await getJson(baseUrl, "/api/print-driver/config", { headers });
   assert.equal(printDriverConfig.printDriverAdapter.kind, "guarded_adapter");
   assert.equal(printDriverConfig.printDriverAdapter.systemPrinterCommandConfigured, false);
@@ -2588,6 +2877,11 @@ async function checkApiWithPostgresRepositories() {
 SET status = '已备货', actual_qty = 1200, revision = 1, updated_at = now()
 WHERE id = 'F002';`,
   );
+  await closeServer(server);
+  server = null;
+  server = createApiServer(apiServerOptions);
+  await listen(server);
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
   const completedLegacyFulfillment = await postJson(
     baseUrl,
     "/api/fulfillments/F002/complete",
@@ -2674,7 +2968,9 @@ WHERE id = 'F002';`,
   assert.equal(
     Number(
       runPsql(
-        "SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_type IN ('production_report', 'production_report_reservation') AND source_id = 'WR-PT-ORD-0629-003-01-1';",
+        `SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_type IN ('production_report', 'production_report_reservation') AND source_id = ${sqlLiteral(
+          apiProductionReport.reportId,
+        )};`,
         { capture: true },
       ).trim(),
     ),
@@ -3575,6 +3871,84 @@ WHERE id = 'F002';`,
     ),
     1,
   );
+
+  const concurrentDraftId = "DRAFT-LIVE-CONCURRENT-001";
+  const concurrentRecognition = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: concurrentDraftId,
+      sourceText: "张三服饰 30*38白色20个 明天自提",
+      operatorId: "U-OFFICE-A",
+    },
+    { headers: { ...headers, "idempotency-key": "live-concurrent-recognize-001" } },
+  );
+  assert.equal(concurrentRecognition.draft.clientRevision, 1);
+  const concurrentLine = {
+    draftLineId: `${concurrentDraftId}-01`,
+    customerId: "C001",
+    customer: "张三服饰",
+    productName: "空白袋",
+    size: "30*38*10",
+    bagColor: "白色",
+    handleType: "普通提",
+    style: "空白袋",
+    qty: 20,
+    fulfillmentMethod: "自提",
+    latestNeededAt: "明天",
+    printFlag: false,
+  };
+  const concurrentBody = {
+    sourceText: "张三服饰 30*38白色20个 明天自提",
+    customerId: "C001",
+    operatorId: "U-OFFICE-A",
+    clientRevision: 1,
+    draftStatus: "待审核",
+    lines: [concurrentLine],
+  };
+  const concurrentResponses = await Promise.all(
+    ["live-concurrent-save-a-001", "live-concurrent-save-b-001"].map((idempotencyKey) =>
+      fetch(`${baseUrl}/api/order-drafts/${concurrentDraftId}`, {
+        method: "PATCH",
+        headers: {
+          ...headers,
+          "content-type": "application/json",
+          "idempotency-key": idempotencyKey,
+        },
+        body: JSON.stringify(concurrentBody),
+      }),
+    ),
+  );
+  assert.deepEqual(
+    concurrentResponses.map((response) => response.status).sort((left, right) => left - right),
+    [200, 409],
+  );
+  const concurrentPayloads = await Promise.all(concurrentResponses.map((response) => response.json()));
+  assert.equal(concurrentPayloads.find((payload) => payload.draft)?.draft.clientRevision, 2);
+  assert.equal(concurrentPayloads.find((payload) => payload.code)?.code, "BUSINESS_WRITE_CONFLICT");
+  assert.equal(
+    queryJson(`SELECT json_build_object('revision', revision) AS result FROM order_drafts WHERE id = ${sqlLiteral(concurrentDraftId)};`).revision,
+    2,
+  );
+
+  await closeServer(server);
+  server = null;
+  server = createApiServer(apiServerOptions);
+  await listen(server);
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const restartedHealth = await getJson(baseUrl, "/api/health", { headers });
+  assert.equal(restartedHealth.seed.customers, Number(runPsql("SELECT COUNT(*) FROM customers;", { capture: true }).trim()));
+  assert.equal(restartedHealth.seed.orderLines, Number(runPsql("SELECT COUNT(*) FROM order_lines;", { capture: true }).trim()));
+  assert.equal(restartedHealth.seed.inventories, Number(runPsql("SELECT COUNT(*) FROM inventory_items;", { capture: true }).trim()));
+  assert.equal(restartedHealth.seed.fulfillments, Number(runPsql("SELECT COUNT(*) FROM fulfillment_records;", { capture: true }).trim()));
+  assert.equal(restartedHealth.seed.statements, Number(runPsql("SELECT COUNT(*) FROM statements;", { capture: true }).trim()));
+  const resumedDraft = await patchJson(
+    baseUrl,
+    `/api/order-drafts/${concurrentDraftId}`,
+    { ...concurrentBody, clientRevision: 2, sourceText: "API 重启后继续保存草稿" },
+    { headers: { ...headers, "idempotency-key": "live-restart-save-001" } },
+  );
+  assert.equal(resumedDraft.draft.clientRevision, 3);
 }
 
 function buildAttachment({ attachmentId, ownerId, uploadedBy }) {
@@ -3712,17 +4086,55 @@ function buildStatementExportLines({ statementId, orderLineId, fulfillmentId }) 
   ];
 }
 
-function buildConfirmedOrder({ orderId, customerId, createdBy }) {
+function buildConfirmedOrder({ orderId, sourceDraftId, customerId, createdBy }) {
   return {
     orderId,
     bizNo: orderId,
-    sourceDraftId: "",
+    sourceDraftId,
     customerId,
     customerSnapshot: { name: "Postgres 仓储测试客户" },
     sourceText: "Postgres live order confirmation",
     summaryStatus: "处理中",
     createdBy,
     createdAt: "2026-07-02T10:30:00.000Z",
+  };
+}
+
+function buildConfirmedOrderDraft({ draftId, customerId, createdBy }) {
+  return {
+    id: draftId,
+    draftId,
+    bizNo: draftId,
+    sourceText: "Postgres live order confirmation",
+    sourceChannel: "manual",
+    sourceMessageId: "",
+    customerId,
+    customerName: "Postgres 仓储测试客户",
+    status: "待审核",
+    revision: 1,
+    clientRevision: 1,
+    createdBy,
+    createdAt: "2026-07-02T10:20:00.000Z",
+    updatedAt: "2026-07-02T10:20:00.000Z",
+    lines: [
+      {
+        id: `${draftId}-01`,
+        customerId,
+        customer: "Postgres 仓储测试客户",
+        product: "Postgres 确认订单",
+        size: "30*38*10",
+        color: "白色",
+        handle: "普通提",
+        style: "空白袋",
+        print: "否",
+        qty: 273,
+        fulfillment: "自提",
+        latest: "待确认",
+        inventory: "可用",
+        confidence: "high",
+        missingFields: [],
+      },
+    ],
   };
 }
 

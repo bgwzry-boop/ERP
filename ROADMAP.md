@@ -12,10 +12,10 @@ Status: complete.
 
 ## P0.5 - V1 Production Hardening
 
-Status: Batch A complete in code; Batch B is next.
+Status: Batch A and the local code side of Batch B are complete; real infrastructure recovery is next.
 
 - Batch A: explicit runtime modes, local data partitioning, production fail-closed persistence, formal production login, and shared role permissions.
-- Batch B: controlled remote recovery, real production env, PostgreSQL migration/backup/restore, object storage, deployment, logging, alerting, and rollback.
+- Batch B: core PostgreSQL facts, atomic confirmation, startup snapshots, restart recovery, and stale-session concurrency are complete in the local PostgreSQL 16 suite; real production env, migration/backup/restore, object storage, remote recovery, deployment, logging, alerting, and rollback evidence are next.
 - Batch C: physical printers / CUPS and driver-phone native capability verification.
 - Batch D: desensitized real business pilot across office, warehouse, workshop, driver, finance, and raw materials.
 - Batch E: continue splitting large frontend/API composition roots and unify operational UI states without changing business state machines.

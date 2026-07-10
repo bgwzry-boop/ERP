@@ -143,6 +143,13 @@ try {
   assert.equal(healthJson.seed.attachmentRepository, "postgres");
   assert.equal(healthJson.seed.attachmentObjectStorage, "object_storage");
   assert.equal(healthJson.seed.statementExportObjectStorage, "object_storage");
+  assert.equal(healthJson.seed.coreWorkspaceReadRepository, "postgres");
+  assert.equal(healthJson.seed.customers, 0);
+  assert.equal(healthJson.seed.orderLines, 0);
+  assert.equal(healthJson.seed.inventories, 0);
+  assert.equal(healthJson.seed.todos, 0);
+  assert.equal(healthJson.seed.fulfillments, 0);
+  assert.equal(healthJson.seed.statements, 0);
 
   const legacyIdentityResponse = await fetch(`http://127.0.0.1:${port}/api/permissions/effective`, {
     headers: { "x-erp-user-id": "U-OFFICE-A" },

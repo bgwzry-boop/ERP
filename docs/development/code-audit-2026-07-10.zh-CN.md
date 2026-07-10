@@ -12,9 +12,9 @@
 
 ## 本轮已修复
 
-批次 B3 R1.1-R1.2 已补订单草稿生产事实源：新增 PostgreSQL 草稿仓储，草稿、替换明细、待办和操作日志同事务写入；识别、保存和阻断确认在数据库提交后才更新工作区，保存 / 确认要求 `clientRevision`，不存在返回 `404`，旧版本返回 `409`。仓储已进入 production profile、启动加载、health 和系统持久化 readiness，当前为 30 个 PostgreSQL 仓储默认项、2 个对象存储和 32 个持久化对象。新增仓储 / API 专项，PostgreSQL 16 live 实际覆盖幂等重放、冷加载、revision 递增和旧版本拒绝；全量 `npm test`、批次 B 和 production profile live 通过。B3 尚未完成：正式订单确认与草稿状态仍是两个连续事务，核心订单 / 库存 / 交付 / 对账启动快照仍需移除 seed / 旧投影。
+批次 B3 R1.1-R1.5 已完成：订单草稿、替换明细、待办和日志同事务写入 PostgreSQL；正式订单、草稿状态、库存占用、库存流水和操作日志合并到同一确认事务。新增核心启动快照读取 26 个客户 / 订单 / 库存 / 交付 / 对账 / 生产集合，production 空库清除 seed，非空库从 PostgreSQL 恢复。重启续编、双会话旧版本竞争和旧草稿确认整单回滚已在 PostgreSQL 16 live 验证。稀疏订单 / 交付 ID 改为按最大序号递增；对账预览优先使用持久化 `statement_lines` 金额。production profile 当前为 31 个 PostgreSQL 仓储默认项、2 个对象存储和 33 个持久化对象。全量 `npm test`、批次 B、PostgreSQL live、production profile live、OpenAPI 和差异检查通过。剩余是 R2 真实生产基础设施、恢复、设备和现场验收，不是 B3 代码事实源缺口。
 
-批次 B1-B2 已补齐首轮生产写安全边界：production 业务写必须携带 `Idempotency-Key`，PostgreSQL 记录规范请求摘要和提交响应；同键同请求重放原结果，同键不同请求返回 `409`。订单确认 / 库存占用、出库交付、收款 / 差额 / 核销、原材料动作、打印任务 / 设备和司机派单已接入 advisory lock、行锁或 `revision` 乐观锁，旧版本写入和库存冲突不再用数量归零掩盖。司机派单可从 PostgreSQL 重载，交付 / 对账投影使用数据库提交版本，打印批次会规范演示时间再持久化。完整 `npm test` 和 PostgreSQL 16 容器 live 通过；live 实际覆盖迁移、幂等重放、同键冲突、并发重复抑制、仓储及 API 路由。该结果不等于 B3 完成：订单草稿及部分核心工作区仍有 seed / 启动快照依赖，真实生产 PostgreSQL、对象存储、设备和现场证据也未验收。
+批次 B1-B2 已补齐首轮生产写安全边界：production 业务写必须携带 `Idempotency-Key`，PostgreSQL 记录规范请求摘要和提交响应；同键同请求重放原结果，同键不同请求返回 `409`。订单确认 / 库存占用、出库交付、收款 / 差额 / 核销、原材料动作、打印任务 / 设备和司机派单已接入 advisory lock、行锁或 `revision` 乐观锁。B3 已继续关闭草稿和核心启动快照缺口；真实生产 PostgreSQL、对象存储、设备和现场证据仍需独立验收。
 
 批次 A 已补齐明确运行环境和生产失败关闭边界：API 统一解析 `demo`、`test`、`production`，默认本地数据按模式隔离，并提供只允许清理 demo 的重置命令。production 强制严格认证、PostgreSQL 和对象存储，且在仓储装配后检查实际实现；缺配置或仍为本地仓储会拒绝启动。生产健康摘要只返回模式和分区标签，不暴露路径。
 

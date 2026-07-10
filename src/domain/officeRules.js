@@ -67,8 +67,26 @@ export function statusTone(status) {
   return "neutral";
 }
 
-export function nextId(prefix, length) {
-  return `${prefix}${String(length + 1).padStart(3, "0")}`;
+export function nextId(prefix, rowsOrLength, offset = 0) {
+  if (Number.isInteger(rowsOrLength)) {
+    return `${prefix}${String(rowsOrLength + offset + 1).padStart(3, "0")}`;
+  }
+
+  const rows = Array.isArray(rowsOrLength) ? rowsOrLength : [];
+  const escapedPrefix = String(prefix).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^${escapedPrefix}(\\d+)$`);
+  const maxSequence = rows.reduce((max, row) => {
+    const values =
+      row && typeof row === "object"
+        ? [row.id, row.bizNo, row.orderId, row.orderNo, row.fulfillmentId]
+        : [row];
+    for (const value of values) {
+      const match = String(value ?? "").match(pattern);
+      if (match) max = Math.max(max, Number(match[1]));
+    }
+    return max;
+  }, 0);
+  return `${prefix}${String(maxSequence + offset + 1).padStart(3, "0")}`;
 }
 
 export function findStockForDraft(row, inventoryRecords) {

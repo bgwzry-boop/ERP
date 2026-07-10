@@ -1,6 +1,7 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { normalizeOrderDraft } from "./orderDraftRepository.mjs";
 
 export function createOrderConfirmationTransactionRepository(options = {}) {
   const mode =
@@ -26,7 +27,15 @@ export function createLocalOrderConfirmationTransactionRepository() {
     kind: "local_memory",
 
     confirmOrder(input) {
+      const expectedDraftRevision = toFiniteInteger(input.expectedDraftRevision);
+      const currentDraft = (input.workspace?.orderDrafts ?? []).find((item) => item.id === input.orderDraft?.id);
+      const currentRevision = toFiniteInteger(currentDraft?.revision ?? currentDraft?.clientRevision);
+      if (!currentDraft || expectedDraftRevision < 1 || currentRevision !== expectedDraftRevision) {
+        throw orderDraftConcurrencyError();
+      }
+      const orderDraft = buildCommittedOrderDraft(input.orderDraft, input.expectedDraftRevision);
       const transaction = normalizeOrderConfirmationTransactionResult({
+        orderDraft,
         order: input.order,
         orderLines: input.orderLines,
         priceSnapshots: input.priceSnapshots,
@@ -38,6 +47,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
       });
       applyOrderConfirmationWorkspaceMutation({
         workspace: input.workspace,
+        orderDraft: transaction.orderDraft,
         order: transaction.order,
         orderLines: transaction.orderLines,
         priceSnapshots: transaction.priceSnapshots,
@@ -68,17 +78,18 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
         targetType: "original_order",
         targetId: input.order?.orderId ?? input.order?.id,
         resourceLocks: [
-          `order-draft:${input.order?.sourceDraftId ?? ""}`,
+          `order-draft:${input.orderDraft?.id ?? input.order?.sourceDraftId ?? ""}`,
           ...(input.inventoryReservations ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
         ],
         query,
       });
       const saved = normalizeOrderConfirmationTransactionResult(await idempotentTransactionJson(idempotencyRequest));
-      if (!saved.order || saved.orderLines.length === 0) {
+      if (!saved.orderDraft || !saved.order || saved.orderLines.length === 0) {
         throw new Error("PostgreSQL order confirmation transaction returned an invalid result");
       }
       applyOrderConfirmationWorkspaceMutation({
         workspace: input.workspace,
+        orderDraft: saved.orderDraft,
         order: saved.order,
         orderLines: saved.orderLines,
         priceSnapshots: saved.priceSnapshots,
@@ -95,6 +106,8 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
 
 function buildOrderConfirmationIdempotencyPayload(input = {}) {
   return {
+    orderDraft: input.orderDraft,
+    expectedDraftRevision: input.expectedDraftRevision,
     order: input.order,
     orderLines: input.orderLines,
     priceSnapshots: input.priceSnapshots,
@@ -118,6 +131,8 @@ export function buildConfirmOrderTransactionQuery(input) {
 }
 
 function buildConfirmOrderTransactionText(input, parameters) {
+  const orderDraft = normalizeOrderDraft(input.orderDraft);
+  const expectedDraftRevision = toFiniteInteger(input.expectedDraftRevision);
   const order = normalizeOriginalOrder(input.order);
   const orderLines = normalizeOrderLines(input.orderLines ?? [], order?.orderId);
   const priceSnapshots = normalizePriceSnapshots(input.priceSnapshots ?? [], orderLines);
@@ -126,12 +141,61 @@ function buildConfirmOrderTransactionText(input, parameters) {
   const inventoryLedgerEntries = normalizeInventoryLedgerEntries(input.inventoryLedgerEntries ?? []);
   const todos = normalizeTodos(input.todos ?? []);
   const operationLog = normalizeOperationLogForPersistence(input.operationLog);
-  if (!order || orderLines.length === 0 || !operationLog) {
-    throw new Error("Order, order lines, and operation log are required for order confirmation transaction");
+  if (!orderDraft || expectedDraftRevision < 1 || !order || orderLines.length === 0 || !operationLog) {
+    throw new Error("Order draft, expected draft revision, order, order lines, and operation log are required for order confirmation transaction");
+  }
+  if (order.sourceDraftId !== orderDraft.id) {
+    throw new Error("The formal order source draft must match the confirmed order draft");
   }
   return `
 BEGIN;
-WITH inventory_deltas AS MATERIALIZED (
+WITH locked_order_draft AS MATERIALIZED (
+  SELECT id, revision
+  FROM order_drafts
+  WHERE id = ${parameters.text(orderDraft.id)}
+  FOR UPDATE
+),
+order_draft_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    EXISTS (
+      SELECT 1
+      FROM locked_order_draft
+      WHERE revision = ${parameters.integer(expectedDraftRevision)}
+    ),
+    'ERP_ORDER_DRAFT_CONCURRENCY_CONFLICT'
+  ) AS ok
+),
+updated_order_draft AS (
+  UPDATE order_drafts AS draft
+  SET source_text = ${parameters.text(orderDraft.sourceText)},
+      source_channel = ${parameters.text(orderDraft.sourceChannel)},
+      source_message_id = ${parameters.nullableText(orderDraft.sourceMessageId)},
+      customer_id = ${parameters.nullableText(orderDraft.customerId)},
+      status = ${parameters.text(orderDraft.status)},
+      recognition_summary = draft.recognition_summary || ${parameters.json({
+        customerName: orderDraft.customerName,
+        generatedOrderNo: order.orderId,
+      })},
+      revision = draft.revision + 1,
+      updated_at = now()
+  FROM order_draft_write_guard AS guard
+  WHERE draft.id = ${parameters.text(orderDraft.id)}
+    AND guard.ok
+  RETURNING draft.id, ${orderDraftJsonExpression("draft")} AS result
+),
+deleted_order_draft_lines AS (
+  DELETE FROM order_draft_lines
+  WHERE order_draft_id = (SELECT id FROM updated_order_draft)
+  RETURNING id
+),
+order_draft_line_replace_guard AS MATERIALIZED (
+  SELECT COUNT(*) AS deleted_count
+  FROM deleted_order_draft_lines
+),
+inserted_order_draft_lines AS (
+  ${buildInsertOrderDraftLinesSql(orderDraft, parameters)}
+),
+inventory_deltas AS MATERIALIZED (
   ${buildInventoryReservationDeltasSql(inventoryReservations, parameters)}
 ),
 locked_inventory_items AS MATERIALIZED (
@@ -176,13 +240,7 @@ inserted_order AS (
     ${parameters.timestamp(order.createdAt)},
     now()
   )
-  ON CONFLICT (id) DO UPDATE SET
-    biz_no = EXCLUDED.biz_no,
-    customer_id = EXCLUDED.customer_id,
-    customer_snapshot = EXCLUDED.customer_snapshot,
-    source_text = EXCLUDED.source_text,
-    summary_status = EXCLUDED.summary_status,
-    updated_at = now()
+  ON CONFLICT (id) DO NOTHING
   RETURNING ${orderJsonExpression("original_orders")} AS result
 ),
 inserted_order_lines AS (
@@ -208,8 +266,25 @@ inserted_todos AS (
 ),
 inserted_operation_log AS (
   ${buildInsertOperationLogSql(operationLog, parameters)}
+),
+business_id_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM inserted_order) = 1
+      AND (SELECT COUNT(*) FROM inserted_order_draft_lines) = ${parameters.integer(orderDraft.lines.length)}
+      AND (SELECT COUNT(*) FROM inserted_order_lines) = ${parameters.integer(orderLines.length)}
+      AND (SELECT COUNT(*) FROM inserted_price_snapshots) = ${parameters.integer(priceSnapshots.length)}
+      AND (SELECT COUNT(*) FROM inserted_fulfillment_records) = ${parameters.integer(fulfillmentRecords.length)}
+      AND (SELECT COUNT(*) FROM inserted_inventory_reservations) = ${parameters.integer(inventoryReservations.length)}
+      AND (SELECT COUNT(*) FROM inserted_inventory_ledger_entries) = ${parameters.integer(inventoryLedgerEntries.length)}
+      AND (SELECT COUNT(*) FROM inserted_todos) = ${parameters.integer(todos.length)}
+      AND (SELECT COUNT(*) FROM inserted_operation_log) = 1,
+    'ERP_ORDER_CONFIRMATION_ID_CONCURRENCY_CONFLICT'
+  ) AS ok
 )
 SELECT json_build_object(
+  'orderDraft', (SELECT result::jsonb || jsonb_build_object(
+    'lines', (SELECT COALESCE(json_agg(result ORDER BY result->>'id'), '[]'::json) FROM inserted_order_draft_lines)
+  ) FROM updated_order_draft),
   'order', (SELECT result FROM inserted_order),
   'orderLines', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM inserted_order_lines),
   'priceSnapshots', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM inserted_price_snapshots),
@@ -218,7 +293,9 @@ SELECT json_build_object(
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'todos', (SELECT COALESCE(json_agg(result ORDER BY result->>'id'), '[]'::json) FROM inserted_todos),
   'operationLogId', (SELECT id FROM inserted_operation_log),
-  'writeGuard', (SELECT ok FROM inventory_write_guard)
+  'writeGuard', (SELECT ok FROM inventory_write_guard),
+  'draftWriteGuard', (SELECT ok FROM order_draft_write_guard),
+  'businessIdWriteGuard', (SELECT ok FROM business_id_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -227,6 +304,7 @@ COMMIT;
 export function normalizeOrderConfirmationTransactionResult(value) {
   if (!value || typeof value !== "object") {
     return {
+      orderDraft: null,
       order: null,
       orderLines: [],
       priceSnapshots: [],
@@ -240,6 +318,7 @@ export function normalizeOrderConfirmationTransactionResult(value) {
   const order = normalizeOriginalOrder(value.order);
   const orderLines = normalizeOrderLines(value.orderLines ?? value.order_lines ?? [], order?.orderId);
   return {
+    orderDraft: normalizeOrderDraft(value.orderDraft ?? value.order_draft),
     order,
     orderLines,
     priceSnapshots: normalizePriceSnapshots(value.priceSnapshots ?? value.price_snapshots ?? [], orderLines),
@@ -464,6 +543,7 @@ function normalizeTodo(record) {
 
 function applyOrderConfirmationWorkspaceMutation({
   workspace,
+  orderDraft,
   order,
   orderLines,
   priceSnapshots = [],
@@ -473,6 +553,12 @@ function applyOrderConfirmationWorkspaceMutation({
   todos,
   operationLog,
 }) {
+  if (orderDraft) {
+    workspace.orderDrafts = [
+      orderDraft,
+      ...(workspace.orderDrafts ?? []).filter((item) => item.id !== orderDraft.id),
+    ];
+  }
   workspace.originalOrders = workspace.originalOrders ?? [];
   if (order) {
     workspace.originalOrders = [order, ...workspace.originalOrders.filter((item) => item.orderId !== order.orderId)];
@@ -700,26 +786,95 @@ function buildInsertOrderLinesSql(orderLines, parameters) {
   updated_at
 ) VALUES
 ${values}
-ON CONFLICT (id) DO UPDATE SET
-  order_id = EXCLUDED.order_id,
-  customer_id = EXCLUDED.customer_id,
-  product_name = EXCLUDED.product_name,
-  order_type = EXCLUDED.order_type,
-  size = EXCLUDED.size,
-  bag_color = EXCLUDED.bag_color,
-  handle_type = EXCLUDED.handle_type,
-  style = EXCLUDED.style,
-  print_flag = EXCLUDED.print_flag,
-  print_color = EXCLUDED.print_color,
-  print_side = EXCLUDED.print_side,
-  handle_color = EXCLUDED.handle_color,
-  original_qty = EXCLUDED.original_qty,
-  latest_needed_at = EXCLUDED.latest_needed_at,
-  fulfillment_method = EXCLUDED.fulfillment_method,
-  line_status = EXCLUDED.line_status,
-  exception_tags = EXCLUDED.exception_tags,
-  updated_at = now()
+ON CONFLICT (id) DO NOTHING
 RETURNING ${orderLineJsonExpression("order_lines")} AS result`;
+}
+
+function buildInsertOrderDraftLinesSql(orderDraft, parameters) {
+  if (orderDraft.lines.length === 0) return "SELECT NULL::jsonb AS result WHERE false";
+  const values = orderDraft.lines
+    .map(
+      (line, index) => `(
+    ${parameters.text(line.id)},
+    ${parameters.integer(index + 1)},
+    ${parameters.nullableText(line.product)},
+    ${parameters.nullableText(line.print === "是" ? "custom_print" : "stock")},
+    ${parameters.nullableText(line.size)},
+    ${parameters.nullableText(line.color)},
+    ${parameters.nullableText(line.handle)},
+    ${parameters.nullableText(line.style)},
+    ${parameters.boolean(line.print === "是")},
+    ${parameters.nullableText(line.printColor)},
+    ${parameters.nullableText(line.printSide)},
+    ${parameters.nullableText(line.handleColor)},
+    ${parameters.nullableInteger(line.qty)},
+    ${parameters.nullableText(line.fulfillment)},
+    ${parameters.nullableTimestamp(normalizeOptionalTimestamp(line.latest))}::timestamptz,
+    ${parameters.nullableText(line.note)},
+    ${parameters.nullableText(line.confidence)},
+    ${parameters.textArray(line.missingFields)},
+    ${parameters.json(line)}
+  )`,
+    )
+    .join(",\n");
+  return `INSERT INTO order_draft_lines (
+  id,
+  order_draft_id,
+  line_seq,
+  product_name,
+  order_type,
+  size,
+  bag_color,
+  handle_type,
+  style,
+  print_flag,
+  print_color,
+  print_side,
+  handle_color,
+  qty,
+  fulfillment_method,
+  latest_needed_at,
+  remark,
+  confidence,
+  missing_fields,
+  evidence_json,
+  created_at,
+  updated_at
+)
+SELECT
+  lines.id,
+  draft.id,
+  lines.line_seq,
+  lines.product_name,
+  lines.order_type,
+  lines.size,
+  lines.bag_color,
+  lines.handle_type,
+  lines.style,
+  lines.print_flag,
+  lines.print_color,
+  lines.print_side,
+  lines.handle_color,
+  lines.qty,
+  lines.fulfillment_method,
+  lines.latest_needed_at,
+  lines.remark,
+  lines.confidence,
+  lines.missing_fields,
+  lines.evidence_json,
+  now(),
+  now()
+FROM (VALUES
+${values}
+) AS lines(
+  id, line_seq, product_name, order_type, size, bag_color, handle_type, style, print_flag,
+  print_color, print_side, handle_color, qty, fulfillment_method, latest_needed_at, remark,
+  confidence, missing_fields, evidence_json
+)
+CROSS JOIN (SELECT id FROM updated_order_draft) AS draft
+CROSS JOIN order_draft_line_replace_guard AS replace_guard
+ON CONFLICT (id) DO NOTHING
+RETURNING evidence_json || jsonb_build_object('id', id, 'draftLineId', id) AS result`;
 }
 
 function buildInsertPriceSnapshotsSql(priceSnapshots, parameters) {
@@ -759,14 +914,7 @@ function buildInsertPriceSnapshotsSql(priceSnapshots, parameters) {
   created_at
 ) VALUES
 ${values}
-ON CONFLICT (id) DO UPDATE SET
-  bag_price = EXCLUDED.bag_price,
-  print_price = EXCLUDED.print_price,
-  other_fee = EXCLUDED.other_fee,
-  adjustment_amount = EXCLUDED.adjustment_amount,
-  chargeable_qty = EXCLUDED.chargeable_qty,
-  final_amount = EXCLUDED.final_amount,
-  override_reason = EXCLUDED.override_reason
+ON CONFLICT (id) DO NOTHING
 RETURNING ${priceSnapshotJsonExpression("price_snapshots")} AS result`;
 }
 
@@ -807,16 +955,7 @@ function buildInsertFulfillmentRecordsSql(records, parameters) {
   updated_at
 ) VALUES
 ${values}
-ON CONFLICT (id) DO UPDATE SET
-  order_line_id = EXCLUDED.order_line_id,
-  customer_id = EXCLUDED.customer_id,
-  customer_snapshot = EXCLUDED.customer_snapshot,
-  method = EXCLUDED.method,
-  expected_qty = EXCLUDED.expected_qty,
-  actual_qty = EXCLUDED.actual_qty,
-  status = EXCLUDED.status,
-  latest_needed_at = EXCLUDED.latest_needed_at,
-  updated_at = now()
+ON CONFLICT (id) DO NOTHING
 RETURNING ${fulfillmentRecordJsonExpression("fulfillment_records")} AS result`;
 }
 
@@ -851,14 +990,7 @@ function buildInsertInventoryReservationsSql(records, parameters) {
   updated_at
 ) VALUES
 ${values}
-ON CONFLICT (id) DO UPDATE SET
-  order_line_id = EXCLUDED.order_line_id,
-  inventory_item_id = EXCLUDED.inventory_item_id,
-  reserved_qty = EXCLUDED.reserved_qty,
-  reservation_type = EXCLUDED.reservation_type,
-  status = EXCLUDED.status,
-  expires_at = EXCLUDED.expires_at,
-  updated_at = now()
+ON CONFLICT (id) DO NOTHING
 RETURNING ${inventoryReservationJsonExpression("inventory_reservations")} AS result`;
 }
 
@@ -931,16 +1063,7 @@ function buildInsertInventoryLedgerEntriesSql(records, parameters) {
   remark
 ) VALUES
 ${values}
-ON CONFLICT (id) DO UPDATE SET
-  inventory_item_id = EXCLUDED.inventory_item_id,
-  change_type = EXCLUDED.change_type,
-  qty_before = EXCLUDED.qty_before,
-  qty_change = EXCLUDED.qty_change,
-  qty_after = EXCLUDED.qty_after,
-  source_type = EXCLUDED.source_type,
-  source_id = EXCLUDED.source_id,
-  reason = EXCLUDED.reason,
-  remark = EXCLUDED.remark
+ON CONFLICT (id) DO NOTHING
 RETURNING ${inventoryLedgerJsonExpression("inventory_ledger_entries")} AS result`;
 }
 
@@ -987,19 +1110,7 @@ function buildInsertTodosSql(records, parameters) {
   updated_at
 ) VALUES
 ${values}
-ON CONFLICT (id) DO UPDATE SET
-  type = EXCLUDED.type,
-  ref_type = EXCLUDED.ref_type,
-  ref_id = EXCLUDED.ref_id,
-  priority = EXCLUDED.priority,
-  status = EXCLUDED.status,
-  summary = EXCLUDED.summary,
-  due_at = EXCLUDED.due_at,
-  remind_at = EXCLUDED.remind_at,
-  handled_by = EXCLUDED.handled_by,
-  handled_at = EXCLUDED.handled_at,
-  handling_result = EXCLUDED.handling_result,
-  updated_at = now()
+ON CONFLICT (id) DO NOTHING
 RETURNING ${todoJsonExpression("todos")} AS result`;
 }
 
@@ -1029,15 +1140,7 @@ function buildInsertOperationLogSql(operationLog, parameters) {
   ${parameters.timestamp(operationLog.occurredAt)},
   ${parameters.timestamp(operationLog.createdAt)}
 )
-ON CONFLICT (id) DO UPDATE SET
-  target_type = EXCLUDED.target_type,
-  target_id = EXCLUDED.target_id,
-  action = EXCLUDED.action,
-  before_json = EXCLUDED.before_json,
-  after_json = EXCLUDED.after_json,
-  reason = EXCLUDED.reason,
-  operator_id = EXCLUDED.operator_id,
-  page_key = EXCLUDED.page_key
+ON CONFLICT (id) DO NOTHING
 RETURNING id`;
 }
 
@@ -1058,6 +1161,44 @@ function normalizeOperationLogForPersistence(operationLog) {
     occurredAt: operationLog.occurredAt ?? new Date().toISOString(),
     createdAt: operationLog.createdAt ?? new Date().toISOString(),
   };
+}
+
+function buildCommittedOrderDraft(value, expectedRevision) {
+  const draft = normalizeOrderDraft(value);
+  const revision = toFiniteInteger(expectedRevision);
+  if (!draft || revision < 1) throw orderDraftConcurrencyError();
+  return normalizeOrderDraft({
+    ...draft,
+    revision: revision + 1,
+    clientRevision: revision + 1,
+  });
+}
+
+function orderDraftConcurrencyError() {
+  const error = new Error("The order draft changed before confirmation could be committed.");
+  error.statusCode = 409;
+  error.code = "BUSINESS_WRITE_CONFLICT";
+  return error;
+}
+
+function orderDraftJsonExpression(alias) {
+  return `json_build_object(
+    'id', ${alias}.id,
+    'draftId', ${alias}.id,
+    'bizNo', ${alias}.biz_no,
+    'sourceText', ${alias}.source_text,
+    'sourceChannel', ${alias}.source_channel,
+    'sourceMessageId', COALESCE(${alias}.source_message_id, ''),
+    'customerId', COALESCE(${alias}.customer_id, ''),
+    'customerName', COALESCE(${alias}.recognition_summary->>'customerName', ''),
+    'generatedOrderNo', COALESCE(${alias}.recognition_summary->>'generatedOrderNo', ''),
+    'status', ${alias}.status,
+    'revision', ${alias}.revision,
+    'clientRevision', ${alias}.revision,
+    'createdBy', COALESCE(${alias}.created_by, ''),
+    'createdAt', ${alias}.created_at,
+    'updatedAt', ${alias}.updated_at
+  )`;
 }
 
 function orderJsonExpression(alias) {
@@ -1191,6 +1332,12 @@ function todoJsonExpression(alias) {
 function normalizeObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
   return value;
+}
+
+function normalizeOptionalTimestamp(value) {
+  const text = String(value ?? "").trim();
+  if (!text || Number.isNaN(Date.parse(text))) return "";
+  return new Date(text).toISOString();
 }
 
 function mapTodoPriority(value) {

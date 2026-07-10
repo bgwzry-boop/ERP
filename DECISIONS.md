@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-07-11 - Order Confirmation Business-ID Conflicts Fail Closed
+
+Formal order confirmation must never use `ON CONFLICT DO UPDATE` to overwrite an existing order, order line, price snapshot, fulfillment, reservation, inventory ledger, todo, or audit log. Idempotent replay is handled by the operation idempotency record; a new request that collides with an existing business ID must return a business-write conflict and roll back the draft transition plus every related insert and inventory change.
+
+Readable IDs may still be allocated from the highest matching sequence, but database uniqueness and transaction write-count guards remain authoritative. Concurrent confirmations for different drafts may therefore require one operator to refresh and retry; they must never merge or overwrite the other order.
+
+## 2026-07-11 - Production Core Workspace Starts From PostgreSQL Only
+
+In production mode, the core workspace startup snapshot must replace the seed collections for customers, orders, order lines, pricing, inventory, reservations, ledgers, fulfillment, statements, todos, production, packing, and audit logs with PostgreSQL results. An empty production database means an empty business workspace; production startup must not recreate demo print jobs or retain seed customers, orders, inventory, fulfillment, or statements.
+
+Specialized repositories may load additional domain collections after the core snapshot, but they must not restore demo data or overwrite PostgreSQL truth with local defaults. Business writes update the in-process projection only from committed repository results. This decision does not prove that real production PostgreSQL, object storage, backup/restore, printers, phones, field evidence, or owner signoff is complete.
+
 ## 2026-07-11 - Order Drafts Are Revisioned PostgreSQL Records
 
 Production order recognition, draft save, and blocked confirmation must persist the draft, replacement lines, related todo records, and audit log before the in-process workspace projection changes. Draft save and confirmation require a positive client revision; missing drafts return 404 and stale revisions return 409. PostgreSQL is authoritative across API instances, so the route reads the current draft through the repository rather than trusting the process-local array. Recognition may derive a deterministic draft ID from the production idempotency key.
