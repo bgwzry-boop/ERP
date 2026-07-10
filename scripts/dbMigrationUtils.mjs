@@ -65,6 +65,7 @@ export const requiredTables = [
   "todo_events",
   "attachments",
   "attachment_links",
+  "attachment_content_dedup_keys",
   "attachment_access_logs",
   "operation_logs",
   "operation_idempotency_keys",
@@ -133,6 +134,14 @@ export const requiredTableColumns = {
     "updated_at",
   ],
   attachment_links: ["id", "attachment_id", "owner_type", "owner_id", "purpose", "created_at"],
+  attachment_content_dedup_keys: [
+    "owner_type",
+    "owner_id",
+    "purpose",
+    "content_digest",
+    "attachment_id",
+    "created_at",
+  ],
   attachment_access_logs: [
     "id",
     "attachment_id",

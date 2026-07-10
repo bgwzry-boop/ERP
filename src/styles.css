@@ -6741,7 +6741,7 @@ button.route-nav-button {
 
 .statement-summary {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   gap: 8px;
   padding: 10px;
 }
@@ -6764,6 +6764,18 @@ button.route-nav-button {
   margin-top: 4px;
   font-size: 18px;
   line-height: 22px;
+}
+
+.statement-summary .warning strong {
+  color: #a15c00;
+}
+
+.statement-summary .danger strong {
+  color: #c63737;
+}
+
+.statement-summary .settled strong {
+  color: #237a4b;
 }
 
 .toast {
@@ -8553,6 +8565,10 @@ button.route-nav-button {
   .page-grid.workshop-mobile-layout,
   .page-grid.statement-layout {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .statement-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .v1-status-banner {

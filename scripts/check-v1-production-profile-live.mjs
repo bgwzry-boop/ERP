@@ -222,9 +222,13 @@ async function checkAttachmentObjectStorageReadiness(apiBaseUrl, objectStorageEn
     fileSize: Buffer.byteLength(attachmentText),
     contentDataUrl: `data:image/png;base64,${Buffer.from(attachmentText, "utf8").toString("base64")}`,
   });
+  const expectedDigest = createHash("sha256").update(attachmentText).digest("hex");
   assert.equal(attachment.storageProvider, "object_storage");
-  assert.match(attachment.storageKey, new RegExp(`^${escapeRegExp(objectStorageKeyPrefix)}/ATT-?\\d+/`));
-  assert.equal(attachment.contentDigest, createHash("sha256").update(attachmentText).digest("hex"));
+  assert.equal(
+    attachment.storageKey,
+    `${objectStorageKeyPrefix}/sha256/${expectedDigest.slice(0, 2)}/${expectedDigest}`,
+  );
+  assert.equal(attachment.contentDigest, expectedDigest);
 
   const permissionRead = await getText(apiBaseUrl, `/attachments/${attachment.attachmentId}/content`);
   assert.equal(permissionRead.status, 200);

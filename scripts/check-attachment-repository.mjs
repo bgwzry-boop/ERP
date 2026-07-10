@@ -5,6 +5,8 @@ import { join } from "node:path";
 import {
   buildFindAttachmentQuery,
   buildFindAttachmentSql,
+  buildFindAttachmentByDigestQuery,
+  buildFindAttachmentByDigestSql,
   buildInsertAttachmentQuery,
   buildInsertAttachmentSql,
   buildListAttachmentsQuery,
@@ -48,11 +50,35 @@ function checkLocalRepository() {
     attachmentId: attachment.attachmentId,
     ownerId: attachment.ownerId,
   });
+  const operationLog = buildAttachmentOperationLog({ id: "LOG-ATT-LOCAL-001", targetId: attachment.ownerId });
 
-  const saved = repository.createAttachment({ workspace, attachment, link });
-  assert.equal(saved.attachmentId, attachment.attachmentId);
+  const saved = repository.createAttachment({ workspace, attachment, link, operationLog });
+  assert.equal(saved.attachment.attachmentId, attachment.attachmentId);
+  assert.equal(saved.deduplicated, false);
+  assert.equal(saved.operationLogId, operationLog.id);
   assert.equal(workspace.attachments.length, 1);
   assert.equal(workspace.attachmentLinks.length, 1);
+  assert.equal(workspace.operationLogs.length, 1);
+
+  const duplicate = repository.createAttachment({
+    workspace,
+    attachment: buildAttachment({
+      attachmentId: "ATT-LOCAL-002",
+      ownerId: attachment.ownerId,
+      storageKey: "attachments/ATT-LOCAL-002/payment-proof-copy.png",
+    }),
+    link: buildAttachmentLink({
+      id: "ALINK-LOCAL-002",
+      attachmentId: "ATT-LOCAL-002",
+      ownerId: attachment.ownerId,
+    }),
+    operationLog: buildAttachmentOperationLog({ id: "LOG-ATT-LOCAL-002", targetId: attachment.ownerId }),
+  });
+  assert.equal(duplicate.deduplicated, true);
+  assert.equal(duplicate.attachment.attachmentId, attachment.attachmentId);
+  assert.equal(workspace.attachments.length, 1);
+  assert.equal(workspace.attachmentLinks.length, 1);
+  assert.equal(workspace.operationLogs.at(0).action, "reuse_attachment_digest");
 
   const indexPath = join(tempRoot, "metadata", "attachment-records.json");
   assert.equal(existsSync(indexPath), true, "local repository should persist the attachment JSON index");
@@ -77,8 +103,37 @@ function checkLocalRepository() {
   assert.equal(listed.length, 1);
   assert.equal(listed[0].attachmentId, attachment.attachmentId);
 
+  workspace.attachments.push({
+    ...attachment,
+    attachmentId: "ATT-LOCAL-LEGACY-DUPLICATE",
+    uploadedAt: "2026-07-02T10:30:00.000Z",
+  });
+  assert.equal(
+    repository.listAttachments({ workspace, filters: { ownerId: attachment.ownerId } }).length,
+    1,
+    "legacy duplicate metadata should remain stored but collapse in business lists",
+  );
+  assert.equal(
+    repository.findAttachmentByDigest({
+      workspace,
+      ownerType: attachment.ownerType,
+      ownerId: attachment.ownerId,
+      purpose: attachment.purpose,
+      contentDigest: attachment.contentDigest,
+    }).attachmentId,
+    attachment.attachmentId,
+  );
+
   const found = repository.findAttachmentById({ workspace, attachmentId: attachment.attachmentId });
   assert.equal(found.fileName, attachment.fileName);
+  const digestMatch = repository.findAttachmentByDigest({
+    workspace,
+    ownerType: attachment.ownerType,
+    ownerId: attachment.ownerId,
+    purpose: attachment.purpose,
+    contentDigest: attachment.contentDigest,
+  });
+  assert.equal(digestMatch.attachmentId, attachment.attachmentId);
 }
 
 async function checkPostgresRepositorySqlBoundary() {
@@ -93,32 +148,53 @@ async function checkPostgresRepositorySqlBoundary() {
     attachmentId: pgAttachment.attachmentId,
     ownerId: pgAttachment.ownerId,
   });
+  const operationLog = buildAttachmentOperationLog({ id: "LOG-ATT-PG-001", targetId: pgAttachment.ownerId });
   const repository = createPostgresAttachmentRepository({
     postgresClient: {
       queryJson(text, values) {
         calls.push({ kind: "query", text, values });
         if (text.includes("json_agg")) return [pgAttachment];
+        if (text.includes("attachment_content_dedup_keys")) return pgAttachment;
         if (text.includes("WHERE a.id")) return pgAttachment;
         throw new Error(`Unexpected PostgreSQL repository SQL:\n${text}`);
       },
       transactionJson(text, values) {
         calls.push({ kind: "transaction", text, values });
-        return pgAttachment;
+        return { attachment: pgAttachment, deduplicated: false, operationLogId: operationLog.id };
+      },
+      idempotentTransactionJson(request) {
+        calls.push({ kind: "idempotent", ...request });
+        return { attachment: pgAttachment, deduplicated: false, operationLogId: operationLog.id };
       },
     },
   });
 
-  const workspace = { attachments: [], attachmentLinks: [] };
-  const saved = await repository.createAttachment({ workspace, attachment: pgAttachment, link: pgLink });
-  assert.equal(saved.attachmentId, "ATT-PG-001");
-  assert.equal(calls[0].kind, "transaction");
+  const workspace = { attachments: [], attachmentLinks: [], operationLogs: [] };
+  const saved = await repository.createAttachment({
+    workspace,
+    attachment: pgAttachment,
+    link: pgLink,
+    operationLog,
+    idempotencyKey: "attachment-create-key-001",
+    idempotencyPayload: { ownerId: pgAttachment.ownerId, contentDigest: pgAttachment.contentDigest },
+  });
+  assert.equal(saved.attachment.attachmentId, "ATT-PG-001");
+  assert.equal(saved.deduplicated, false);
+  assert.equal(calls[0].kind, "idempotent");
+  assert.equal(calls[0].scope, "attachment.create");
+  assert.ok(calls[0].resourceLocks.some((value) => value.includes("attachment-digest:")));
   assert.match(calls[0].text, /INSERT INTO attachments/);
   assert.match(calls[0].text, /INSERT INTO attachment_links/);
+  assert.match(calls[0].text, /INSERT INTO attachment_content_dedup_keys/);
+  assert.match(calls[0].text, /INSERT INTO operation_logs/);
+  assert.match(calls[0].text, /selected_attachment_record AS MATERIALIZED/);
+  assert.match(calls[0].text, /ERP_ATTACHMENT_ID_CONCURRENCY_CONFLICT/);
   assert.match(calls[0].text, /storage_provider/);
   assert.match(calls[0].text, /content_digest/);
   assert.match(calls[0].text, /metadata_json/);
   assert.match(calls[0].text, /\$\d+::jsonb/);
   assert.ok(calls[0].values.includes(pgAttachment.storageKey));
+  assert.equal(workspace.operationLogs[0].id, operationLog.id);
 
   const listed = await repository.listAttachments({
     filters: {
@@ -144,8 +220,24 @@ async function checkPostgresRepositorySqlBoundary() {
   assert.match(calls[2].text, /WHERE a\.id = \$1::text/);
   assert.deepEqual(calls[2].values, ["ATT-PG-001"]);
 
-  const insertQuery = buildInsertAttachmentQuery(pgAttachment, pgLink);
-  const insertSql = buildInsertAttachmentSql(pgAttachment, pgLink);
+  const digestMatch = await repository.findAttachmentByDigest({
+    ownerType: pgAttachment.ownerType,
+    ownerId: pgAttachment.ownerId,
+    purpose: pgAttachment.purpose,
+    contentDigest: pgAttachment.contentDigest,
+  });
+  assert.equal(digestMatch.attachmentId, pgAttachment.attachmentId);
+  assert.equal(calls[3].kind, "query");
+  assert.match(calls[3].text, /FROM attachment_content_dedup_keys AS dedup/);
+  assert.deepEqual(calls[3].values, [
+    pgAttachment.ownerType,
+    pgAttachment.ownerId,
+    pgAttachment.purpose,
+    pgAttachment.contentDigest,
+  ]);
+
+  const insertQuery = buildInsertAttachmentQuery(pgAttachment, pgLink, operationLog);
+  const insertSql = buildInsertAttachmentSql(pgAttachment, pgLink, operationLog);
   assert.match(insertSql, /file_size_bytes/);
   assert.match(insertSql, /thumbnail_storage_key/);
   assert.match(insertSql, /signed_url_expires_at|metadata_json/);
@@ -156,6 +248,8 @@ async function checkPostgresRepositorySqlBoundary() {
   const listQuery = buildListAttachmentsQuery({ ownerType: "statement" });
   const listSql = buildListAttachmentsSql({ ownerType: "statement" });
   assert.match(listSql, /LEFT JOIN attachment_links/);
+  assert.match(listSql, /LEFT JOIN attachment_content_dedup_keys dedup/);
+  assert.match(listSql, /dedup\.attachment_id IS NULL OR dedup\.attachment_id = a\.id/);
   assert.match(listSql, /json_agg/);
   assert.equal(listQuery.text, listSql);
   assert.deepEqual(listQuery.values, ["statement"]);
@@ -165,6 +259,17 @@ async function checkPostgresRepositorySqlBoundary() {
   assert.match(findSql, /LIMIT 1/);
   assert.equal(findQuery.text, findSql);
   assert.deepEqual(findQuery.values, ["ATT-PG-001"]);
+
+  const digestQuery = buildFindAttachmentByDigestQuery(pgAttachment);
+  const digestSql = buildFindAttachmentByDigestSql(pgAttachment);
+  assert.equal(digestQuery.text, digestSql);
+  assert.match(digestSql, /dedup\.content_digest/);
+  assert.deepEqual(digestQuery.values, [
+    pgAttachment.ownerType,
+    pgAttachment.ownerId,
+    pgAttachment.purpose,
+    pgAttachment.contentDigest,
+  ]);
 }
 
 async function checkLocalAccessAuditRepository() {
@@ -268,7 +373,7 @@ function buildAttachment(overrides = {}) {
     contentDataUrl: "",
     storageProvider: "local_fs",
     storageKey: overrides.storageKey,
-    contentDigest: "sha256-check",
+    contentDigest: "a".repeat(64),
     hasContent: true,
     remark: "repository check",
   };
@@ -303,5 +408,21 @@ function buildAttachmentLink(overrides = {}) {
     ownerId: overrides.ownerId,
     purpose: "payment_screenshot",
     createdAt: "2026-07-01T10:30:00.000Z",
+  };
+}
+
+function buildAttachmentOperationLog(overrides = {}) {
+  return {
+    id: overrides.id,
+    targetType: "statement",
+    targetId: overrides.targetId,
+    action: "create_attachment",
+    before: null,
+    after: null,
+    reason: "payment proof",
+    operatorId: "U-FINANCE-A",
+    pageKey: "api",
+    occurredAt: "2026-07-11T10:00:00.000Z",
+    createdAt: "2026-07-11T10:00:00.000Z",
   };
 }

@@ -355,6 +355,7 @@ import {
   getStatementBlockingAmount as getStatementBlockingAmountRecord,
   getStatementBucket as getStatementBucketRecord,
   getStatementDisplayDebt as getStatementDisplayDebtRecord,
+  getStatementFinancialSummary as getStatementFinancialSummaryRecord,
   getStatementForLine,
   getStockStateGroup,
   getStockStateTone,
@@ -428,6 +429,7 @@ const findCustomer = (id) => findCustomerRecord(customers, id);
 const getOrderFinanceState = (row, statements) => getOrderFinanceStateRecord(row, statements, customers);
 const getStatementBlockingAmount = (statement) => getStatementBlockingAmountRecord(statement, customers);
 const getStatementDisplayDebt = (statement) => getStatementDisplayDebtRecord(statement, customers);
+const getStatementFinancialSummary = (statement) => getStatementFinancialSummaryRecord(statement, customers);
 const getStatementBucket = (statement) => getStatementBucketRecord(statement, customers);
 const orderMatchesFilters = (row, filters, statements) => orderMatchesFiltersRecord(row, filters, statements, customers);
 const statementMatchesFilters = (statement, filters) => statementMatchesFiltersRecord(statement, filters, customers);
@@ -3911,6 +3913,7 @@ export function App() {
     getStatementBlockingAmount,
     getStatementBucket,
     getStatementDisplayDebt,
+    getStatementFinancialSummary,
     getStatementForLine,
     getStockStateGroup,
     getStockStateTone,

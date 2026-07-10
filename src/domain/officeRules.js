@@ -1,4 +1,4 @@
-export const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { minimumFractionDigits: value % 1 ? 1 : 0, maximumFractionDigits: 1 })}`;
+export const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 
 export const editableColors = ["黄色", "红色", "黑色", "白色", "蓝色", "绿色", "米白", "浅蓝", "牛仔蓝", "大红", "粉色"];
 
@@ -417,7 +417,7 @@ export function getOrderFinanceState(row, statements, customers) {
 
 export function getStatementBlockingAmount(statement, customers) {
   if (!statement) return 0;
-  const customer = findCustomer(customers, statement.customerId);
+  const customer = findStatementCustomer(customers, statement.customerId);
   const currentGap = Math.max(0, Number(statement.receivable || 0) - Number(statement.received || 0));
   const hasPaymentProgress =
     Number(statement.received || 0) > 0 ||
@@ -431,8 +431,32 @@ export function getStatementBlockingAmount(statement, customers) {
 
 export function getStatementDisplayDebt(statement, customers) {
   if (!statement) return 0;
-  const customer = findCustomer(customers, statement.customerId);
+  const customer = findStatementCustomer(customers, statement.customerId);
   return Math.max(getStatementBlockingAmount(statement, customers), Number(customer?.debt || 0));
+}
+
+export function getStatementFinancialSummary(statement, customers) {
+  if (!statement) {
+    return {
+      currentReceivable: 0,
+      currentReceived: 0,
+      currentUnpaid: 0,
+      historicalDebt: 0,
+      cumulativeDebt: 0,
+    };
+  }
+  const customer = findStatementCustomer(customers, statement.customerId);
+  const currentReceivable = nonNegativeFinancialAmount(statement.receivable);
+  const currentReceived = nonNegativeFinancialAmount(statement.received);
+  const currentUnpaid = Math.max(0, currentReceivable - currentReceived);
+  const historicalDebt = nonNegativeFinancialAmount(customer?.debtAmountSnapshot ?? customer?.debt);
+  return {
+    currentReceivable,
+    currentReceived,
+    currentUnpaid,
+    historicalDebt,
+    cumulativeDebt: currentUnpaid + historicalDebt,
+  };
 }
 
 export function getStatementBucket(statement, customers) {
@@ -443,6 +467,15 @@ export function getStatementBucket(statement, customers) {
   if (statement.status.includes("差额") || statement.status.includes("欠款") || blockingAmount > 0) return "欠款/差额";
   if (statement.status.includes("待生成") || statement.status.includes("待发送") || statement.status.includes("已发送")) return "本期待对账";
   return "本期待对账";
+}
+
+function nonNegativeFinancialAmount(value) {
+  const amount = Number(value);
+  return Number.isFinite(amount) ? Math.max(0, amount) : 0;
+}
+
+function findStatementCustomer(customers, customerId) {
+  return (Array.isArray(customers) ? customers : []).find((item) => item.id === customerId);
 }
 
 export function getStatementNextStatusForVariance(reason) {

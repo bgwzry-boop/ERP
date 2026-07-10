@@ -1,5 +1,17 @@
 # Decisions
 
+## 2026-07-11 - Evidence Attachments Use Content-Addressed Idempotent Storage
+
+Payment proofs and other evidence uploads are deduplicated by `ownerType + ownerId + purpose + SHA-256 contentDigest`. Storage keys are content-addressed as `sha256/<prefix>/<digest>` under the configured namespace, so retries and same-content uploads do not create extra objects. Production uploads require database-backed idempotency; the same key and payload replay one result, while a changed payload returns `409`. Each first create or later digest reuse writes an operation log.
+
+Legacy duplicate metadata is not deleted because it may be referenced by audit history. The migration records one canonical digest key and business attachment lists suppress noncanonical duplicates; direct ID reads and historical audit records remain available. PostgreSQL advisory locks serialize concurrent uploads of the same owner, purpose, and digest.
+
+## 2026-07-11 - Statement Summaries Separate Current And Historical Debt
+
+The statement workbench displays current-period receivable, current-period received, current-period unpaid, historical debt, and cumulative debt as separate values. Current-period unpaid is `max(receivable - received, 0)`. Historical debt comes from the customer debt snapshot. Cumulative debt is current-period unpaid plus historical debt. Overpayment does not make unpaid negative, and a statement variance field must not replace or merge these five display amounts.
+
+Existing payment, variance, settlement, and write-off state machines keep their server-authoritative blocking rules. This decision changes financial presentation and removes an ambiguous combined debt display; it does not itself post payments, carry debt, or write off a statement.
+
 ## 2026-07-11 - Production Releases Use Immutable Commits And Atomic Symlink Switching
 
 Production deployment must target a full 40-character Git commit in a new release directory. Recovery evidence must include env-file audit, clone, detached checkout, commit verification, locked dependency installation, production frontend build, migration dry-run, deployment-manifest verification, and production runtime smoke. Reports may include an abbreviated commit but must not include the repository URL, checkout path, env-file path, command output, or secret values. Failed recovery directories are retained for review and are never automatically deleted or overwritten.

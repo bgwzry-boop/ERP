@@ -42,6 +42,7 @@ const containerName = `erp-postgres-live-${process.pid}-${Date.now()}`;
 const storageRoot = mkdtempSync(join(tmpdir(), "erp-postgres-live-storage-"));
 let server = null;
 let orderDraftPool = null;
+let attachmentPool = null;
 
 try {
   assertDockerAvailable();
@@ -58,6 +59,7 @@ try {
 } finally {
   if (server) await closeServer(server);
   if (orderDraftPool) await orderDraftPool.end();
+  if (attachmentPool) await attachmentPool.end();
   stopPostgresContainer();
   rmSync(storageRoot, { recursive: true, force: true });
 }
@@ -552,7 +554,10 @@ COMMIT;
 }
 
 async function checkPostgresRepositories() {
-  const attachmentRepository = createPostgresAttachmentRepository({ queryJson });
+  attachmentPool = new Pool({ connectionString: resolveLiveDatabaseUrl(), max: 4, connectionTimeoutMillis: 5_000 });
+  const attachmentRepository = createPostgresAttachmentRepository({
+    postgresClient: createPostgresPoolClient({ pool: attachmentPool }),
+  });
   const auditRepository = createPostgresAttachmentAccessAuditRepository({ queryJson });
   const paymentRepository = createPostgresPaymentRecordRepository({ queryJson });
   const paymentTransactionRepository = createPostgresStatementPaymentTransactionRepository({ queryJson });
@@ -575,7 +580,7 @@ async function checkPostgresRepositories() {
   const printJobRepository = createPostgresPrintJobRepository({ queryJson });
   const masterDataImportReviewRepository = createPostgresMasterDataImportReviewRepository({ queryJson });
   const masterDataImportTransactionRepository = createPostgresMasterDataImportTransactionRepository({ queryJson });
-  const workspace = { attachments: [], attachmentLinks: [], attachmentAccessLogs: [] };
+  const workspace = { attachments: [], attachmentLinks: [], attachmentAccessLogs: [], operationLogs: [] };
 
   assert.equal((await attachmentRepository.loadState()).attachments.length, 0);
 
@@ -593,9 +598,150 @@ async function checkPostgresRepositories() {
     createdAt: "2026-07-01T10:30:00.000Z",
   };
 
-  const saved = await attachmentRepository.createAttachment({ workspace, attachment, link });
-  assert.equal(saved.attachmentId, attachment.attachmentId);
-  assert.equal(saved.ownerId, "ST-LIVE-REPO-001");
+  const attachmentOperationLog = buildOperationLog({
+    logId: "LOG-LIVE-ATTACHMENT-001",
+    action: "create_attachment",
+    before: null,
+    after: attachment,
+  });
+  attachmentOperationLog.targetType = "statement";
+  attachmentOperationLog.targetId = attachment.ownerId;
+  const saved = await attachmentRepository.createAttachment({
+    workspace,
+    attachment,
+    link,
+    operationLog: attachmentOperationLog,
+    idempotencyKey: "attachment-live-repo-001",
+    idempotencyPayload: { ownerId: attachment.ownerId, contentDigest: attachment.contentDigest },
+  });
+  assert.equal(saved.attachment.attachmentId, attachment.attachmentId);
+  assert.equal(saved.attachment.ownerId, "ST-LIVE-REPO-001");
+  assert.equal(saved.deduplicated, false);
+  assert.equal(saved.operationLogId, attachmentOperationLog.id);
+
+  const replayed = await attachmentRepository.createAttachment({
+    workspace,
+    attachment,
+    link,
+    operationLog: attachmentOperationLog,
+    idempotencyKey: "attachment-live-repo-001",
+    idempotencyPayload: { ownerId: attachment.ownerId, contentDigest: attachment.contentDigest },
+  });
+  assert.deepEqual(replayed, saved);
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-ATTACHMENT-001';", { capture: true }).trim()),
+    1,
+  );
+
+  await assert.rejects(
+    () =>
+      attachmentRepository.createAttachment({
+        workspace,
+        attachment,
+        link,
+        operationLog: attachmentOperationLog,
+        idempotencyKey: "attachment-live-repo-001",
+        idempotencyPayload: { ownerId: attachment.ownerId, contentDigest: "b".repeat(64) },
+      }),
+    (error) => error?.statusCode === 409 && error?.code === "IDEMPOTENCY_KEY_REUSED",
+  );
+
+  const duplicateAttachment = buildAttachment({
+    attachmentId: "ATT-LIVE-REPO-002",
+    ownerId: attachment.ownerId,
+    uploadedBy: "U-FINANCE-A",
+  });
+  duplicateAttachment.fileName = "payment-proof-postgres-live-copy.png";
+  const duplicateOperationLog = buildOperationLog({
+    logId: "LOG-LIVE-ATTACHMENT-002",
+    action: "create_attachment",
+    before: null,
+    after: duplicateAttachment,
+  });
+  duplicateOperationLog.targetType = "statement";
+  duplicateOperationLog.targetId = attachment.ownerId;
+  const duplicateSaved = await attachmentRepository.createAttachment({
+    workspace,
+    attachment: duplicateAttachment,
+    link: {
+      ...link,
+      id: "ALINK-LIVE-REPO-002",
+      attachmentId: duplicateAttachment.attachmentId,
+    },
+    operationLog: duplicateOperationLog,
+    idempotencyKey: "attachment-live-repo-002",
+    idempotencyPayload: { ownerId: duplicateAttachment.ownerId, contentDigest: duplicateAttachment.contentDigest },
+  });
+  assert.equal(duplicateSaved.deduplicated, true);
+  assert.equal(duplicateSaved.attachment.attachmentId, attachment.attachmentId);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM attachments WHERE id LIKE 'ATT-LIVE-REPO-%';", { capture: true }).trim()), 1);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM attachment_content_dedup_keys WHERE owner_id = 'ST-LIVE-REPO-001';", { capture: true }).trim()), 1);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id LIKE 'LOG-LIVE-ATTACHMENT-%';", { capture: true }).trim()), 2);
+  assert.equal(
+    Number(
+      runPsql("SELECT COUNT(*) FROM operation_idempotency_keys WHERE scope = 'attachment.create';", { capture: true }).trim(),
+    ),
+    2,
+  );
+
+  const concurrentOwnerId = "ST-LIVE-REPO-CONCURRENT";
+  const concurrentInputs = ["LEFT", "RIGHT"].map((side, index) => {
+    const concurrentAttachment = buildAttachment({
+      attachmentId: `ATT-LIVE-CONCURRENT-${side}`,
+      ownerId: concurrentOwnerId,
+      uploadedBy: "U-FINANCE-A",
+    });
+    concurrentAttachment.contentDigest = "c".repeat(64);
+    const operationLog = buildOperationLog({
+      logId: `LOG-LIVE-ATTACHMENT-CONCURRENT-${side}`,
+      action: "create_attachment",
+      before: null,
+      after: concurrentAttachment,
+    });
+    operationLog.targetType = "statement";
+    operationLog.targetId = concurrentOwnerId;
+    return {
+      workspace,
+      attachment: concurrentAttachment,
+      link: {
+        ...link,
+        id: `ALINK-LIVE-CONCURRENT-${side}`,
+        attachmentId: concurrentAttachment.attachmentId,
+        ownerId: concurrentOwnerId,
+      },
+      operationLog,
+      idempotencyKey: `attachment-live-concurrent-00${index + 1}`,
+      idempotencyPayload: {
+        ownerId: concurrentOwnerId,
+        contentDigest: concurrentAttachment.contentDigest,
+        side,
+      },
+    };
+  });
+  const concurrentResults = await Promise.all(concurrentInputs.map((input) => attachmentRepository.createAttachment(input)));
+  assert.equal(concurrentResults[0].attachment.attachmentId, concurrentResults[1].attachment.attachmentId);
+  assert.equal(concurrentResults.filter((result) => result.deduplicated).length, 1);
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM attachments WHERE id LIKE 'ATT-LIVE-CONCURRENT-%';", { capture: true }).trim()),
+    1,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM attachment_content_dedup_keys WHERE owner_id = 'ST-LIVE-REPO-CONCURRENT';",
+        { capture: true },
+      ).trim(),
+    ),
+    1,
+  );
+  assert.equal(
+    Number(
+      runPsql("SELECT COUNT(*) FROM operation_logs WHERE id LIKE 'LOG-LIVE-ATTACHMENT-CONCURRENT-%';", {
+        capture: true,
+      }).trim(),
+    ),
+    2,
+  );
 
   const listed = await attachmentRepository.listAttachments({
     filters: {
@@ -611,6 +757,13 @@ async function checkPostgresRepositories() {
 
   const found = await attachmentRepository.findAttachmentById({ attachmentId: attachment.attachmentId });
   assert.equal(found.fileName, attachment.fileName);
+  const foundByDigest = await attachmentRepository.findAttachmentByDigest({
+    ownerType: attachment.ownerType,
+    ownerId: attachment.ownerId,
+    purpose: attachment.purpose,
+    contentDigest: attachment.contentDigest,
+  });
+  assert.equal(foundByDigest.attachmentId, attachment.attachmentId);
 
   const savedLog = await auditRepository.recordAccessLog({
     workspace,
@@ -2586,26 +2739,35 @@ async function checkApiWithPostgresRepositories() {
   assert.ok(databaseOnlyOrderLineDetail.fulfillment.length >= 1);
   assert.ok(Array.isArray(databaseOnlyOrderLineDetail.operationLogs));
 
-  const created = await postJson(
-    baseUrl,
-    "/api/attachments",
-    {
-      ownerType: "statement",
-      ownerId: "ST-LIVE-API-001",
-      purpose: "payment_screenshot",
-      fileType: "image",
-      fileName: "payment-proof-postgres-live.svg",
-      mimeType: "image/svg+xml",
-      uploadedBy: "U-OFFICE-A",
-      contentRef: "p0://payment-screenshot/ST-LIVE-API-001/postgres-live",
-      contentDataUrl:
-        "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTIwIj48dGV4dCB4PSIxMCIgeT0iNjAiPlBvc3RncmVzIExpdmU8L3RleHQ+PC9zdmc+",
-    },
-    { headers },
-  );
+  const attachmentUploadBody = {
+    ownerType: "statement",
+    ownerId: "ST-LIVE-API-001",
+    purpose: "payment_screenshot",
+    fileType: "image",
+    fileName: "payment-proof-postgres-live.svg",
+    mimeType: "image/svg+xml",
+    uploadedBy: "U-OFFICE-A",
+    contentRef: "p0://payment-screenshot/ST-LIVE-API-001/postgres-live",
+    contentDataUrl:
+      "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTIwIj48dGV4dCB4PSIxMCIgeT0iNjAiPlBvc3RncmVzIExpdmU8L3RleHQ+PC9zdmc+",
+  };
+  const created = await postJson(baseUrl, "/api/attachments", attachmentUploadBody, { headers });
   assert.equal(created.ownerId, "ST-LIVE-API-001");
   assert.equal(created.storageProvider, "local_fs");
-  assert.ok(created.storageKey.startsWith("attachments/"));
+  assert.match(created.storageKey, /^attachments\/sha256\/[a-f0-9]{2}\/[a-f0-9]{64}$/);
+  assert.equal(created.deduplicated, false);
+  assert.ok(created.operationLogId);
+
+  const duplicateCreated = await postJson(
+    baseUrl,
+    "/api/attachments",
+    { ...attachmentUploadBody, fileName: "payment-proof-postgres-live-copy.svg" },
+    { headers },
+  );
+  assert.equal(duplicateCreated.attachmentId, created.attachmentId);
+  assert.equal(duplicateCreated.duplicateOfAttachmentId, created.attachmentId);
+  assert.equal(duplicateCreated.deduplicated, true);
+  assert.notEqual(duplicateCreated.operationLogId, created.operationLogId);
 
   const listed = await getJson(
     baseUrl,
@@ -3969,7 +4131,7 @@ function buildAttachment({ attachmentId, ownerId, uploadedBy }) {
     contentDataUrl: "",
     storageProvider: "local_fs",
     storageKey: `attachments/${attachmentId}/payment-proof-postgres-live.png`,
-    contentDigest: "sha256-postgres-live",
+    contentDigest: "a".repeat(64),
     thumbnailStorageKey: "",
     thumbnailUrl: "",
     signedUrlExpiresAt: "",

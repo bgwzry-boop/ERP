@@ -3997,9 +3997,18 @@ paths:
       description: >
         用于印刷图、成品图、付款截图、送货水印照片等。上传后附件进入
         统一附件记录，并通过 ownerType / ownerId / purpose 关联业务对象。
-        P0 最小骨架把内容写入本地文件，并把附件摘要写入本地 JSON 索引；
-        正式环境应替换为数据库附件表和对象存储。
+        正式环境把元数据和关联写入 PostgreSQL，把文件写入对象存储；相同
+        ownerType / ownerId / purpose / contentDigest 的内容复用已有附件。
       operationId: createAttachment
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          description: 生产业务写入必填；同一请求重试必须复用相同键。
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
       requestBody:
         required: true
         content:
@@ -4012,11 +4021,13 @@ paths:
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AttachmentSummary"
+                $ref: "#/components/schemas/CreateAttachmentResponse"
         "400":
           $ref: "#/components/responses/BusinessError"
         "422":
           $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/BusinessError"
 
   /attachments/storage-diagnostics:
     get:
@@ -20669,7 +20680,7 @@ components:
           type: integer
         contentDataUrl:
           type: string
-          description: P0 本地文件存储 skeleton 的临时 data URL 输入；正式环境改为对象存储上传引用。
+          description: 上传文件内容；后端校验后写入当前运行模式配置的文件存储，生产不持久化原始 data URL。
         metadata:
           type: object
           additionalProperties: true
@@ -20693,6 +20704,22 @@ components:
           type: integer
         total:
           type: integer
+
+    CreateAttachmentResponse:
+      allOf:
+        - $ref: "#/components/schemas/AttachmentSummary"
+        - type: object
+          required: [deduplicated, duplicateOfAttachmentId, operationLogId]
+          properties:
+            deduplicated:
+              type: boolean
+              description: true 表示相同业务对象、用途和内容摘要已存在，本次复用已有附件。
+            duplicateOfAttachmentId:
+              type: string
+              description: 去重时返回被复用的附件 ID；首次创建时为空字符串。
+            operationLogId:
+              type: string
+              description: 本次创建或复用动作对应的审计日志 ID。
 
     AttachmentStorageDiagnosticsResponse:
       type: object
@@ -21061,10 +21088,10 @@ components:
         storageProvider:
           type: string
           enum: [local_fs, object_storage, local_fallback, ""]
-          description: P0 使用 local_fs；正式环境可替换为对象存储。
+          description: 演示/测试可使用 local_fs；正式环境必须使用 object_storage。
         storageKey:
           type: string
-          description: 后端生成的存储键；P0 为本地文件相对路径，正式环境为对象存储 key。
+          description: 后端按内容摘要生成的存储键；本地和对象存储均不使用用户文件名作为可信路径。
         contentDigest:
           type: string
           description: 文件内容 sha256 摘要，用于校验和后续迁移。

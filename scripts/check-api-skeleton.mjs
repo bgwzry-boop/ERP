@@ -2852,13 +2852,41 @@ try {
     paymentAttachment.mimeType !== "image/png" ||
     paymentAttachment.hasContent !== true ||
     paymentAttachment.storageProvider !== "local_fs" ||
-    !paymentAttachment.storageKey?.startsWith(`attachments/${paymentAttachment.attachmentId}/`) ||
+    !paymentAttachment.storageKey?.startsWith(`attachments/sha256/${paymentAttachment.contentDigest?.slice(0, 2)}/`) ||
     !paymentAttachment.contentDigest ||
     !paymentAttachment.url?.endsWith(`/api/attachments/${paymentAttachment.attachmentId}/content`) ||
     paymentAttachment.status !== "uploaded" ||
     !paymentAttachment.url
   ) {
     throw new Error("/api/attachments returned an unexpected payload");
+  }
+  const duplicatePaymentAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "statement",
+      ownerId: statementId,
+      fileType: "image",
+      purpose: "payment_screenshot",
+      fileName: "payment-proof-api-check-copy.png",
+      contentRef: `p0://payment-screenshot/${statementId}/api-check-copy`,
+      mimeType: "image/png",
+      fileSize: 17,
+      contentDataUrl: "data:image/png;base64,cGF5bWVudC1wcm9vZg==",
+      uploadedBy: "U-FINANCE-A",
+      remark: "API skeleton duplicate payment screenshot check",
+    },
+    {
+      headers: { "x-erp-user-id": "U-FINANCE-A" },
+    },
+  );
+  if (
+    duplicatePaymentAttachment.attachmentId !== paymentAttachment.attachmentId ||
+    duplicatePaymentAttachment.deduplicated !== true ||
+    duplicatePaymentAttachment.duplicateOfAttachmentId !== paymentAttachment.attachmentId ||
+    !duplicatePaymentAttachment.operationLogId
+  ) {
+    throw new Error("/api/attachments did not reuse an existing owner/purpose/content digest record");
   }
   const paymentAttachmentFilePath = join(checkStorageRoot, paymentAttachment.storageKey);
   if (!existsSync(paymentAttachmentFilePath)) {

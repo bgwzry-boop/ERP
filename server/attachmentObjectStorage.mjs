@@ -26,16 +26,17 @@ export function createLocalAttachmentObjectStorage(options = {}) {
   return {
     kind: "local_fs",
 
-    putObject({ attachmentId, fileName, contentPayload }) {
+    putObject({ attachmentId, fileName, contentPayload, contentDigest }) {
       const safeFileName = sanitizeStorageFileName(fileName || `${attachmentId}.bin`);
-      const storageKey = [localKeyPrefix, attachmentId, safeFileName].filter(Boolean).join("/");
+      const verifiedDigest = resolveAttachmentContentDigest(contentPayload.buffer, contentDigest);
+      const storageKey = buildAttachmentStorageKey(localKeyPrefix, attachmentId, safeFileName, verifiedDigest, contentDigest);
       const filePath = resolveLocalStoragePath(storageRootPath, storageKey);
       mkdirSync(dirname(filePath), { recursive: true });
       writeFileSync(filePath, contentPayload.buffer);
       return {
         storageProvider: "local_fs",
         storageKey,
-        contentDigest: createHash("sha256").update(contentPayload.buffer).digest("hex"),
+        contentDigest: verifiedDigest,
       };
     },
 
@@ -113,15 +114,21 @@ export function createS3CompatibleAttachmentObjectStorage(options = {}) {
     kind: "object_storage",
     provider: config.provider,
 
-    async putObject({ attachmentId, fileName, contentPayload }) {
+    async putObject({ attachmentId, fileName, contentPayload, contentDigest }) {
       const safeFileName = sanitizeStorageFileName(fileName || `${attachmentId}.bin`);
-      const storageKey = buildObjectStorageKey(config.keyPrefix, attachmentId, safeFileName);
-      const contentDigest = createHash("sha256").update(contentPayload.buffer).digest("hex");
+      const verifiedDigest = resolveAttachmentContentDigest(contentPayload.buffer, contentDigest);
+      const storageKey = buildAttachmentStorageKey(
+        config.keyPrefix,
+        attachmentId,
+        safeFileName,
+        verifiedDigest,
+        contentDigest,
+      );
       const request = createS3SignedRequest({
         config,
         method: "PUT",
         storageKey,
-        payloadHash: contentDigest,
+        payloadHash: verifiedDigest,
         contentType: contentPayload.contentType || "application/octet-stream",
         now: nowProvider(),
       });
@@ -137,7 +144,7 @@ export function createS3CompatibleAttachmentObjectStorage(options = {}) {
       return {
         storageProvider: "object_storage",
         storageKey,
-        contentDigest,
+        contentDigest: verifiedDigest,
       };
     },
 
@@ -528,6 +535,22 @@ function buildObjectStorageUrl(config, storageKey) {
 
 function buildObjectStorageKey(prefix, attachmentId, safeFileName) {
   return [prefix, attachmentId, safeFileName].filter(Boolean).join("/");
+}
+
+function buildAttachmentStorageKey(prefix, attachmentId, safeFileName, verifiedDigest, requestedDigest) {
+  if (String(requestedDigest ?? "").trim()) {
+    return [prefix, "sha256", verifiedDigest.slice(0, 2), verifiedDigest].filter(Boolean).join("/");
+  }
+  return buildObjectStorageKey(prefix, attachmentId, safeFileName);
+}
+
+function resolveAttachmentContentDigest(buffer, requestedDigest) {
+  const digest = createHash("sha256").update(buffer).digest("hex");
+  const expected = String(requestedDigest ?? "").trim().toLowerCase();
+  if (expected && (!/^[0-9a-f]{64}$/.test(expected) || expected !== digest)) {
+    throw new Error("Attachment content digest does not match the uploaded content.");
+  }
+  return digest;
 }
 
 function encodeObjectKeyPath(storageKey) {

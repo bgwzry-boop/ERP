@@ -19250,20 +19250,31 @@ async function createAttachmentRoute({ response, workspace, body }) {
     );
   }
 
-  const attachmentId = nextId("ATT", workspace.attachments);
+  const attachmentId = buildAttachmentRecordId(workspace, body.idempotencyKey);
   const uploadedAt = new Date().toISOString();
   const contentUrl = `/api/attachments/${encodeURIComponent(attachmentId)}/content`;
+  const contentDigest = contentPayload ? createHash("sha256").update(contentPayload.buffer).digest("hex") : "";
   const effectiveMimeType = normalizeAttachmentText(body.mimeType || contentPayload?.contentType);
   const effectiveFileType = inferServerAttachmentFileType({
     mimeType: effectiveMimeType,
     fileName: body.fileName,
     fallbackFileType: body.fileType,
   });
-  const storedContent = contentPayload
+  const existingAttachment = contentDigest
+    ? await workspace.attachmentRepository.findAttachmentByDigest({
+        workspace,
+        ownerType: body.ownerType,
+        ownerId: body.ownerId,
+        purpose: body.purpose,
+        contentDigest,
+      })
+    : null;
+  const storedContent = contentPayload && !existingAttachment
     ? await workspace.attachmentObjectStorage.putObject({
         attachmentId,
         fileName: body.fileName,
         contentPayload,
+        contentDigest,
       })
     : null;
   const attachment = {
@@ -19283,25 +19294,21 @@ async function createAttachmentRoute({ response, workspace, body }) {
     contentDataUrl: storedContent ? "" : contentDataUrl,
     storageProvider: storedContent?.storageProvider ?? "",
     storageKey: storedContent?.storageKey ?? "",
-    contentDigest: storedContent?.contentDigest ?? "",
+    contentDigest: storedContent?.contentDigest ?? contentDigest,
     hasContent: Boolean(contentPayload),
     metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
     remark: body.remark ?? "",
   };
   const attachmentLink = {
-    id: nextId("ALINK", workspace.attachmentLinks),
+    id: `ALINK-${attachmentId}`,
     attachmentId,
     ownerType: body.ownerType,
     ownerId: body.ownerId,
     purpose: body.purpose,
     createdAt: uploadedAt,
   };
-  const savedAttachment = await workspace.attachmentRepository.createAttachment({
-    workspace,
-    attachment,
-    link: attachmentLink,
-  });
-  addOperationLog(workspace, {
+  const operationLog = buildOperationLog(workspace, {
+    id: buildAttachmentOperationLogId(workspace, body.idempotencyKey, attachmentId),
     targetType: body.ownerType,
     targetId: body.ownerId,
     action: "create_attachment",
@@ -19310,11 +19317,25 @@ async function createAttachmentRoute({ response, workspace, body }) {
       attachmentId,
       purpose: body.purpose,
       fileName: body.fileName,
+      contentDigest,
     },
     reason: body.remark,
   });
+  const transaction = await workspace.attachmentRepository.createAttachment({
+    workspace,
+    attachment,
+    link: attachmentLink,
+    operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
+  });
 
-  return sendJson(response, 200, toAttachmentSummary(savedAttachment));
+  return sendJson(response, 200, {
+    ...toAttachmentSummary(transaction.attachment),
+    deduplicated: transaction.deduplicated,
+    duplicateOfAttachmentId: transaction.deduplicated ? transaction.attachment.attachmentId : "",
+    operationLogId: transaction.operationLogId,
+  });
 }
 
 function validateAttachmentUploadBody(body = {}, contentPayload = null) {
@@ -22588,6 +22609,16 @@ function buildOperationLog(workspace, input) {
     occurredAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
   };
+}
+
+function buildAttachmentRecordId(workspace, idempotencyKey) {
+  const key = cleanServerText(idempotencyKey);
+  if (!key) return nextId("ATT", workspace.attachments);
+  return `ATT-${createHash("sha256").update(key).digest("hex").slice(0, 24).toUpperCase()}`;
+}
+
+function buildAttachmentOperationLogId(workspace, idempotencyKey, attachmentId) {
+  return cleanServerText(idempotencyKey) ? `LOG-${attachmentId}` : nextId("LOG", workspace.operationLogs);
 }
 
 function addOperationLog(workspace, input) {

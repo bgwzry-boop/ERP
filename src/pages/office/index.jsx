@@ -12748,6 +12748,7 @@ export function StatementPage({ statements, orderLines, selectedId, setSelectedI
     getStatementBlockingAmount,
     getStatementBucket,
     getStatementDisplayDebt,
+    getStatementFinancialSummary,
     getUiActionState,
     money,
     statementFilterOptions,
@@ -12760,7 +12761,7 @@ export function StatementPage({ statements, orderLines, selectedId, setSelectedI
   const lines = selected.lineIds.map((id) => findOrderLine(orderLines, id)).filter(Boolean);
   const adjustment = Number(selected.adjustment || 0);
   const blockingAmount = getStatementBlockingAmount(selected);
-  const displayDebt = getStatementDisplayDebt(selected);
+  const financialSummary = getStatementFinancialSummary(selected);
   const bucket = getStatementBucket(selected);
   const exportRecords = Array.isArray(selected.exportRecords) ? selected.exportRecords : [];
   const paymentAttachments = Array.isArray(selected.paymentAttachmentFiles) ? selected.paymentAttachmentFiles : [];
@@ -12817,7 +12818,7 @@ export function StatementPage({ statements, orderLines, selectedId, setSelectedI
         <div className="statement-customer-scroll">
           {filtered.map((item) => {
             const customer = findCustomer(item.customerId);
-            const debtAmount = getStatementDisplayDebt(item);
+            const debtAmount = getStatementFinancialSummary(item).cumulativeDebt;
             return (
               <button className={item.id === selected.id ? "customer-row active" : "customer-row"} key={item.id} onClick={() => setSelectedId(item.id)}>
                 <strong>{customer.name}</strong>
@@ -12837,15 +12838,23 @@ export function StatementPage({ statements, orderLines, selectedId, setSelectedI
           </div>
           <div>
             <span>本期应收</span>
-            <strong>{money(selected.receivable)}</strong>
+            <strong>{money(financialSummary.currentReceivable)}</strong>
           </div>
           <div>
-            <span>已登记实收</span>
-            <strong>{money(selected.received)}</strong>
+            <span>本期实收</span>
+            <strong>{money(financialSummary.currentReceived)}</strong>
           </div>
-          <div>
-            <span>差额 / 欠款</span>
-            <strong>{money(displayDebt)}</strong>
+          <div className={financialSummary.currentUnpaid > 0 ? "warning" : "settled"}>
+            <span>本期未收</span>
+            <strong>{money(financialSummary.currentUnpaid)}</strong>
+          </div>
+          <div className={financialSummary.historicalDebt > 0 ? "warning" : "settled"}>
+            <span>历史欠款</span>
+            <strong>{money(financialSummary.historicalDebt)}</strong>
+          </div>
+          <div className={financialSummary.cumulativeDebt > 0 ? "danger" : "settled"}>
+            <span>累计欠款</span>
+            <strong>{money(financialSummary.cumulativeDebt)}</strong>
           </div>
         </div>
         <section className="detail-section">

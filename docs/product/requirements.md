@@ -194,6 +194,8 @@ The P0 statements / payments left customer list should show customer name, settl
 
 The P0 statements / payments right-side detail should be divided into customer summary, current-period orders / line table, totals, adjustments, received amount, variance handling, and operation history.
 
+The customer summary must show `current-period receivable`, `current-period received`, `current-period unpaid`, `historical debt`, and `cumulative debt` separately. Current-period unpaid is receivable minus received with a floor of zero; historical debt comes from the customer debt snapshot; cumulative debt is current-period unpaid plus historical debt. These amounts must not be collapsed into one ambiguous variance / debt value.
+
 P0 customer-facing statement details should summarize by order line. Internal detail can drill down to delivery batches, packages, driver delivery, self-pickup, express / LTL, and evidence records.
 
 P0 statements / payments actions should cover `generate statement preview`, `mark sent`, `mark read receipt`, `record customer confirmation`, `record received amount`, `variance pending confirmation`, `confirm write-off`, and `export Excel`. Statement send records should retain receipt state such as pending, delivered, read, confirmed, or no response.
@@ -559,6 +561,8 @@ Key actions include formal order creation, production-critical order edits, sche
 Photos and files use one attachment table. Signature images, watermarked delivery photos, silk-screen photos, finished-goods photos, payment screenshots, customer screenshots, raw-material inbound photos, and similar files link back to orders, order lines, production tasks, workshop reports, packages, delivery records, payments, after-sales records, or raw-material inbound records through business type and business ID.
 
 Attachment records should include file type, business purpose, original file / processed file, uploader, photographer when different, upload time, capture time, source device / source method, watermark data when available, OCR result when available, and voided / replaced state.
+
+Evidence attachments such as payment proofs are deduplicated by `business type + business ID + purpose + SHA-256 content digest`. Retrying one upload must replay its idempotent result. Uploading the same content again should add a reuse audit action without storing the file or creating a second business proof. Historical duplicate metadata remains available for audit, while business lists show only the canonical attachment.
 
 V1 attachment uploads should be constrained by business purpose. Payment screenshots must be images up to 8 MB. Delivery watermark photos, signature photos, and custom printed finished-goods photos must be images up to 12 MB. Statement customer-confirmation attachments may be images or PDFs up to 12 MB. Other generic attachments default to images, PDFs, spreadsheets, or documents up to 15 MB. Attachment storage should have a pre-launch runtime preflight that confirms the active storage adapter is configured, writable, readable, digest-consistent, and able to clean up its diagnostic object without exposing access keys, secrets, authorization headers, or session tokens. Virus scanning, automatic image-quality checks, resumable uploads, and real object-storage acceptance can be added on top of these baseline rules.
 

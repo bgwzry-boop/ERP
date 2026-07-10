@@ -78,6 +78,7 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
         targetType: "original_order",
         targetId: input.order?.orderId ?? input.order?.id,
         resourceLocks: [
+          `order:${input.order?.orderId ?? input.order?.id ?? ""}`,
           `order-draft:${input.orderDraft?.id ?? input.order?.sourceDraftId ?? ""}`,
           ...(input.inventoryReservations ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
         ],

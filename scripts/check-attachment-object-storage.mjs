@@ -45,6 +45,28 @@ async function checkLocalObjectStorage() {
   assert.equal(existsSync(objectPath), true, "local object storage should write the file");
   assert.equal(readFileSync(objectPath, "utf8"), "payment-proof");
 
+  const contentAddressed = await storage.putObject({
+    attachmentId: "ATT-STORAGE-002",
+    fileName: "payment proof copy.png",
+    contentPayload,
+    contentDigest: stored.contentDigest,
+  });
+  assert.equal(
+    contentAddressed.storageKey,
+    `attachments/sha256/${stored.contentDigest.slice(0, 2)}/${stored.contentDigest}`,
+  );
+  assert.equal(readFileSync(join(tempRoot, contentAddressed.storageKey), "utf8"), "payment-proof");
+  await assert.rejects(
+    async () =>
+      storage.putObject({
+        attachmentId: "ATT-STORAGE-003",
+        fileName: "tampered.png",
+        contentPayload,
+        contentDigest: "0".repeat(64),
+      }),
+    /digest does not match/,
+  );
+
   const attachment = {
     attachmentId: "ATT-STORAGE-001",
     storageProvider: stored.storageProvider,
@@ -70,6 +92,7 @@ async function checkLocalObjectStorage() {
   assert.equal(deleted.storageProvider, "local_fs");
   assert.equal(deleted.deleted, true);
   assert.equal(existsSync(objectPath), false, "local object storage should clean up the diagnostic file");
+  await storage.deleteObject({ storageKey: contentAddressed.storageKey });
 
   const fallbackRead = await storage.readObject({
     attachment: {
@@ -151,15 +174,20 @@ async function checkS3CompatibleObjectStorage() {
     },
   });
   const contentPayload = parseDataUrl("data:image/png;base64,cmVtb3RlLXByb29m");
+  const expectedDigest = createHash("sha256").update("remote-proof").digest("hex");
   const stored = await storage.putObject({
     attachmentId: "ATT-OBJECT-001",
     fileName: "remote proof.png",
     contentPayload,
+    contentDigest: expectedDigest,
   });
   assert.equal(stored.storageProvider, "object_storage");
-  assert.equal(stored.storageKey, "erp-attachments/ATT-OBJECT-001/remote_proof.png");
-  assert.equal(stored.contentDigest, createHash("sha256").update("remote-proof").digest("hex"));
-  assert.equal(fetchCalls[0].url, "https://storage.example.test/erp-bucket/erp-attachments/ATT-OBJECT-001/remote_proof.png");
+  assert.equal(stored.storageKey, `erp-attachments/sha256/${expectedDigest.slice(0, 2)}/${expectedDigest}`);
+  assert.equal(stored.contentDigest, expectedDigest);
+  assert.equal(
+    fetchCalls[0].url,
+    `https://storage.example.test/erp-bucket/erp-attachments/sha256/${expectedDigest.slice(0, 2)}/${expectedDigest}`,
+  );
   assert.equal(fetchCalls[0].init.method, "PUT");
   assert.equal(fetchCalls[0].init.headers["x-amz-content-sha256"], stored.contentDigest);
   assert.match(fetchCalls[0].init.headers.authorization, /^AWS4-HMAC-SHA256 Credential=AKIDEXAMPLE\/20260701\/cn-east-1\/s3\/aws4_request/);

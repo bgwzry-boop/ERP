@@ -127,6 +127,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   assert.equal(calls[0].scope, "order.confirm");
   assert.equal(calls[0].idempotencyKey, "idem-order-confirm-001");
   assert.ok(calls[0].resourceLocks.includes("order-draft:DRAFT-CONFIRM-001"));
+  assert.ok(calls[0].resourceLocks.includes("order:ORD-CONFIRM-001"));
   assert.ok(calls[0].resourceLocks.includes("inventory:INV-RED-3038"));
   assert.match(sql, /^BEGIN;/);
   assert.match(sql, /FROM order_drafts[\s\S]*FOR UPDATE/);
