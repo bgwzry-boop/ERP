@@ -1,5 +1,6 @@
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
 import { requestOfficeApi as requestOrderPoolApi } from "./officeApiClientCore.js";
+import { getFulfillmentMethodLabel, getFulfillmentMethodValue } from "../shared/labels.js";
 
 const defaultOrderPoolPageSize = 200;
 
@@ -300,8 +301,8 @@ export function mapApiOrderLineToLocal(value = {}) {
     orderType,
     lineStatus: cleanText(value.lineStatus ?? value.line_status ?? value.status) || "待确认",
     status: cleanText(value.status ?? value.lineStatus ?? value.line_status) || "待确认",
-    fulfillmentMethod: cleanText(value.fulfillmentMethod ?? value.fulfillment_method ?? value.fulfillment) || "待确认",
-    fulfillment: cleanText(value.fulfillment ?? value.fulfillmentMethod ?? value.fulfillment_method) || "待确认",
+    fulfillmentMethod: getFulfillmentMethodLabel(value.fulfillmentMethod ?? value.fulfillment_method ?? value.fulfillment),
+    fulfillment: getFulfillmentMethodLabel(value.fulfillment ?? value.fulfillmentMethod ?? value.fulfillment_method),
     latestNeededAt: cleanText(value.latestNeededAt ?? value.latest_needed_at),
     latest: cleanText(value.latest ?? value.latestNeededAt ?? value.latest_needed_at) || "待确认",
     amount: toNumber(value.amount ?? value.finalAmount ?? value.final_amount, 0),
@@ -401,7 +402,12 @@ export function buildOrderLineQuery(input = {}) {
   setQueryParam(params, "customerId", filters.customerId, (value) => value !== "全部");
   setQueryParam(params, "status", filters.status, (value) => value !== "全部");
   setQueryParam(params, "orderType", mapOrderTypeToApi(filters.orderType), Boolean);
-  setQueryParam(params, "fulfillmentMethod", filters.fulfillment, (value) => value !== "全部");
+  setQueryParam(
+    params,
+    "fulfillmentMethod",
+    getFulfillmentMethodValue(filters.fulfillment, filters.fulfillment),
+    (value) => value !== "全部",
+  );
   if (filters.exception === "仅异常") params.set("exceptionOnly", "true");
   setQueryParam(params, "financeState", mapFinanceStateToApi(filters.finance), Boolean);
   setQueryParam(params, "keyword", filters.keyword, Boolean);
@@ -621,7 +627,7 @@ function mapFulfillmentTrace(value) {
   return {
     fulfillmentId,
     orderLineId: cleanText(value.orderLineId ?? value.order_line_id ?? value.lineId),
-    method: cleanText(value.method),
+    method: getFulfillmentMethodLabel(value.method),
     status: cleanText(value.status),
     expectedQty: toNumber(value.expectedQty ?? value.expected_qty ?? value.qty, 0),
     actualQty: value.actualQty ?? value.actual_qty,

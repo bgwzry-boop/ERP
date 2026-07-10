@@ -38,7 +38,7 @@ const apiOrderLine = {
   qty: 1500,
   orderType: "custom_print",
   lineStatus: "待出库",
-  fulfillmentMethod: "快递快运",
+  fulfillmentMethod: "express_ltl",
   latestNeededAt: "今天 19:00",
   amount: 600,
   financeState: "pending_statement",
@@ -54,6 +54,7 @@ assert.equal(mappedLine.printSide, "单面");
 assert.equal(mappedLine.color, "白色");
 assert.equal(mappedLine.printColor, "黑色");
 assert.equal(mappedLine.handleColor, "黑色");
+assert.equal(mappedLine.fulfillment, "快递快运");
 assert.deepEqual(mappedLine.exceptions, ["待打印标签"]);
 assert.equal(mappedLine.financeState, "待对账");
 
@@ -82,7 +83,7 @@ const query = buildOrderLineQuery({
 });
 assert.equal(
   query,
-  "?page=2&pageSize=200&includeHistory=true&customerId=C011&orderType=custom_print&fulfillmentMethod=%E5%BF%AB%E9%80%92%E5%BF%AB%E8%BF%90&exceptionOnly=true&financeState=variance",
+  "?page=2&pageSize=200&includeHistory=true&customerId=C011&orderType=custom_print&fulfillmentMethod=express_ltl&exceptionOnly=true&financeState=variance",
 );
 
 const detailPayload = {
@@ -116,7 +117,7 @@ const detailPayload = {
     {
       fulfillmentId: "F-001",
       orderLineId: "ORD-0630-001-01",
-      method: "快递快运",
+      method: "express_ltl",
       status: "待打印标签",
       expectedQty: 1500,
     },
@@ -141,6 +142,7 @@ assert.equal(mappedDetail.originalOrder.sourceText.includes("白印黑"), true);
 assert.equal(mappedDetail.priceSnapshot.amount, 600);
 assert.equal(mappedDetail.inventory[0].reservedQty, 1500);
 assert.equal(mappedDetail.fulfillment[0].status, "待打印标签");
+assert.equal(mappedDetail.fulfillment[0].method, "快递快运");
 assert.equal(mappedDetail.statement[0].statementId, "ST-001");
 
 const listCalls = [];
