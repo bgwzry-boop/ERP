@@ -1,0 +1,389 @@
+# 后端最小骨架说明
+
+最后更新：2026-07-08
+
+## 定位
+
+这是从前端本地 mock 过渡到真实后端前的最小 Node.js API 骨架。当前目标不是替代正式后端；大多数写入仍不写正式数据库。附件是第一条过渡边界：默认通过 `local_fs` 对象存储接口写本地文件，通过本地 JSON 索引保存摘要，也可以通过显式配置切到 PostgreSQL 附件元数据仓储和 S3 兼容对象存储签名边界；`npm run attachment-storage-live:check` 现在会启动本地 S3 兼容 HTTP 端点和 `object_storage` 模式 ERP API，验证附件上传、读取、签名 URL、storage diagnostics、V1 留档门禁、清理和脱敏。`npm run v1-production-env-template:check` 现在覆盖 V1 生产环境模板和发布前执行清单，确保模板包含预检变量、发布候选命令和 V1/V2 边界，且不包含真实敏感值。`npm run v1-field-evidence:check` 现在覆盖 V1 现场证据清单模板、填写校验器、默认 blocked、完整证据 ready、缺分组 invalid 和 evidenceRef 脱敏；真实运行时可用 `scripts/validate-v1-field-evidence-manifest.mjs --manifest <filled-manifest>` 校验生产持久化、对象存储、打印硬件、司机真机、业务试运行、运维、签字和 V1/V2 边界证据。`npm run v1-production-env-preflight:check` 现在覆盖生产环境变量预检，确保 PostgreSQL profile、对象存储、打印命令桥、CUPS 预检和验收报告配置在启动前就能被发现缺漏，并会把未替换的 `<REPLACE_WITH_...>` / `<OPTIONAL_...>` 模板占位值按未配置处理。`npm run v1-release-candidate:check` 现在覆盖 V1 发布候选聚合检查：它把生产环境预检、现场证据 manifest、运行时 readiness、现场验收报告和 V1/V2 差异合成一份脱敏 Markdown / JSON 报告，用于判断当前是 READY 还是 BLOCKED；没有填满证据的 manifest 时，发布候选不会通过。`npm run v1-production-profile-live:check` 进一步把 PostgreSQL repository profile 和 object-storage file profile 放在同一个临时 API 环境中验证：第一阶段确认系统持久化和附件 V1 留档能通过，且无现场证据时顶层 runner 正确停在 `7/11`；第二阶段用 non-printing command_bridge / fake CUPS、最小 PostgreSQL 送货任务、打印设备 QA 和司机原生真机 QA 自动化证据验证顶层 runner 可达 `11/11`，并检查证据写入 PostgreSQL。该 `11/11` 仍是自动化兼容证据，不是真实硬件 / 真机验收。`npm run v1-field-acceptance-report:check` 现在覆盖 V1 现场验收报告留档工具；真实运行时可用 `scripts/run-v1-field-acceptance-report.mjs` 把当前总门禁写成脱敏 Markdown / JSON 报告，但生成报告不代表验收通过。订单确认已进入第一条订单事务边界：保存并确认会在 PostgreSQL 模式下同步写 `original_orders`、`order_lines`、`price_snapshots`、`fulfillment_records`、`inventory_reservations`、`inventory_ledger_entries`、缺货 `todos` 和 `operation_logs`，并更新 `inventory_items.reserved_qty`。订单池读取已有第一轮仓储边界：本地模式保持 workspace 投影，PostgreSQL 模式从正式订单、明细、最新价格、出库、库存占用和对账状态组合列表 / 详情读模型。订单明细作废已有第一轮事务边界：未生产、未交付的正式明细作废时，会关闭 `order_lines`、取消未交付 `fulfillment_records`、释放该明细生效中的库存占用、写库存释放流水、写 `order_line_change_records` 和操作日志。订单明细改量已有第一轮事务边界：未生产、未交付的正式明细减量时释放多余占用，增量时重查可用库存并补占用，同时同步未交付出库任务数量、写库存流水、订单变更记录和操作日志。库存占用释放已有独立事务边界：释放全部或部分 reservation 会更新 `inventory_reservations.reserved_qty/status`、扣减 `inventory_items.reserved_qty`、写释放流水和操作日志。出库 / 交付动作也已有第一轮事务边界：打印、完成、确认快运拉走、取消出库和异常上报会更新 `fulfillment_records`，并按动作写 `print_records`、`fulfillment_exceptions`、`todos` 和 `operation_logs`；完成自提 / 送货或确认快运拉走且存在生效库存占用时，还会在同一事务内更新 `inventory_reservations`、扣减 `inventory_items.on_hand_qty`、释放 `inventory_items.reserved_qty` 并写 `inventory_ledger_entries` 出库流水；取消未交付出库任务时会释放该明细仍生效的库存占用、扣减 `inventory_items.reserved_qty` 并写 `source_type=fulfillment_cancel` 的库存流水。对账付款记录是另一条窄边界：付款登记可写入 `payment_records`，并且当前付款登记路由已能通过 PostgreSQL 事务同步更新 `statements`、写付款记录、差额待办和操作日志；差额处理、核销、标记已发送、发送回执和客户确认也已有独立的 PostgreSQL 事务边界。对账预览生成时已能在同一事务内写 `statement_lines`、`statement_export_files` 和 `operation_logs`。它用于验证 API 合同、固定基础路由形态，并让后续迁移脚本、真实种子数据和写入动作有落点。
+
+V1 现场交接现在还有七个本地执行辅助边界：`npm run v1-go-live-suite:check` 覆盖 `scripts/run-v1-go-live-suite.mjs`，该脚本读取 release-candidate 和现场证据 manifest，一次性生成 `.erp-local-storage/v1-go-live-suite/` 下的现场任务、完成度快照、V1/V2 差异摘要、负责人摘要、现场证据采集包和上线交接包；如果现场负责人已经填写 `evidence-items.csv` 和 `signoff-boundary.csv`，suite 可先用 `--field-evidence-intake-csv` 与 `--field-evidence-signoff-boundary-csv` 生成新的 draft manifest，并基于 draft 生成下游材料，但不会覆盖源 manifest，未刷新 release-candidate 时也会提示旧门禁口径风险；suite 还可显式传入生产第一阶段执行、真实打印链路 closeout、司机真机 closeout JSON / Markdown，并把它们透传给上线交接包；最终发布判断需同时传 `--refresh-release-candidate`，让 release-candidate 门禁重新读取 draft manifest。`npm run v1-completion-snapshot:check` 覆盖 `scripts/run-v1-completion-snapshot.mjs`，该脚本把当前 release-candidate、现场任务板、模块完成度和 V1/V2 范围差异合成 `.erp-local-storage/v1-completion-snapshot/` 下的脱敏完成度快照；`npm run v1-v2-scope-brief:check` 覆盖 `scripts/run-v1-v2-scope-brief.mjs`，该脚本把 V1/V2 范围文档和完成度快照整理成 `.erp-local-storage/v1-v2-scope-brief/` 下的负责人差异摘要；`npm run v1-owner-decision-brief:check` 覆盖 `scripts/run-v1-owner-decision-brief.mjs`，该脚本把完成度快照整理成 `.erp-local-storage/v1-owner-decision-brief/` 下的负责人决策摘要，直接回答是否可以宣布 V1 完成、已完成 / 未完成项、下一步和 V2 差异；`npm run v1-onsite-task-board:check` 覆盖 `scripts/run-v1-onsite-task-board.mjs`，该脚本把当前 release blocker、现场证据、签字和 V1/V2 边界确认拆成技术/管理、办公室、仓库/出库、车间、司机、财务的脱敏任务清单，输出到 `.erp-local-storage/v1-onsite-task-board/`，并额外生成 `.erp-local-storage/v1-onsite-task-board/roles/*.latest.md` 岗位独立文件；`npm run v1-field-evidence-intake:check` 覆盖 `scripts/run-v1-field-evidence-intake-pack.mjs`，该脚本把现场证据 manifest 拆成 `.erp-local-storage/v1-field-evidence-intake/` 下的 6 个证据组采集单、`evidence-items.csv`、`signoff-boundary.csv`、签字和 V1/V2 边界确认单；`npm run v1-go-live-handoff:check` 覆盖 `scripts/run-v1-go-live-handoff-pack.mjs`，该脚本把当前发布候选、完成度快照、负责人决策摘要、生成后的 V1/V2 差异摘要、现场证据采集包、现场证据 manifest、生产 env 模板、发布前 runbook、现场证据填写说明、V1/V2 源范围文档、生产第一阶段执行、打印 closeout 和司机真机 closeout 打到 `.erp-local-storage/v1-go-live-handoff/`，并在存在岗位清单、负责人摘要、V1/V2 差异摘要、证据采集包或阶段 closeout 时复制到交接包子目录，其中证据采集包会包含 `signoff-boundary.csv`。它们默认不复制真实 env 文件，不输出原始 `evidenceRef`、签字人或真实 env 值；它们用于现场执行和负责人复核，不代表发布候选已经 READY。
+
+司机送货任务已有第一轮 API 边界：`GET /api/driver/delivery-tasks` 和详情路由从出库 / 交付记录生成司机任务读模型，装车确认、送达完成和异常上报复用出库动作事务更新 fulfillment 状态、操作日志和异常待办。司机任务读取已有第一轮仓储边界：本地模式保持 workspace 投影，PostgreSQL 模式从送货类 `fulfillment_records`、订单明细、客户、默认联系人 / 地址、包裹、有效打印记录、库存来源、送达证据和办公室复核字段组合列表 / 详情。司机派单 / 路线顺序已有表、读取和办公室写入边界：`driver_delivery_dispatches` 保存 fulfillment、司机、路线日期、趟次、站点顺序、派单状态、计划发车、派单人和备注；司机任务读取会 join 最新有效派单记录，列表优先按 `route_date / route_batch_no / stop_sequence` 排序，没有派单顺序时回退到状态 / 最晚时间；`POST /api/fulfillments/{fulfillmentId}/dispatch` 通过 `server/driverDeliveryDispatchRepository.mjs` upsert 派单记录并写操作日志，只允许有 `fulfillment.dispatch.update` 的办公室 / 管理账号编辑。送达完成要求水印照片证据，且现在可传 `watermarkedPhotoAttachmentId`；签收照片可选传 `signaturePhotoAttachmentId`。司机端证据上传复用附件 API，owner 为 fulfillment，purpose 为 `delivery_watermark_photo` / `signature_photo`，司机角色只持有窄权限 `attachment.delivery_evidence.create`。送达完成还会保存 `watermarkId`、水印文字、拍摄时间、地址、定位备注 / 可选 GPS 坐标和司机信息；同一份水印元数据会写入水印照片附件 `metadata` 和司机任务 read model。前端当前会在提交前生成带底部水印条的 JPEG 并作为普通附件上传，后端合同不依赖 Canvas 细节，只保存附件和 metadata。办公室证据复核已有第一轮 API：`POST /api/fulfillments/{fulfillmentId}/delivery-evidence-review` 要求 `delivery.evidence.review`，支持 `已复核` 和 `需重拍`，并写操作日志 / 退回待办。交付证据 / 复核扩展字段已进入 `fulfillment_records` PostgreSQL 迁移和 fulfillment action 事务边界，并由 live PostgreSQL 校验覆盖。当前仍未接真实内置拍照、导航和路线优化。
+
+生产排产队列已有第一版正式记录边界：`production_schedule_records` 保存同机台队列调序记录和跨机台移动历史，`server/productionScheduleRecordRepository.mjs` 支持本地 / PostgreSQL 模式，`POST /api/production-schedules/machine-queue/resequence` 通过该仓储 upsert 同机台队列顺序并写操作日志；`POST /api/production-schedules/machine-queue/move` 会更新 `production_tasks.machine_id`，把源机台记录标为 `moved`，在目标机台写入 `active` 队列记录，并写 `machine_reassignment` 操作日志。两个动作都继续不创建库存、占用、打包任务、报工或计费数量。该边界只覆盖队列顺序和第一版换机台记录持久化，不等同完整插单策略、换模工单、班次或产能排程引擎。
+
+打印驱动已有第一版 non-printing 诊断边界：`GET /api/print-driver/spool-diagnostics` 复用 `fulfillment.print` 权限，通过 `server/printDriverAdapter.mjs` 的 `runSpoolDiagnostics(...)` 写入诊断 spool 状态文件、验证 `queued -> sent` 和 `completed -> printed` 回读、并清理诊断文件；`GET /api/print-driver/cups-diagnostics` 通过 `runCupsDiagnostics(...)` 运行 CUPS 队列状态预检，例如 `lpstat -p {cupsPrinterName}`，检查队列命令是否可运行。两条诊断都不创建业务打印作业、不触发真实打印机，不暴露命令路径、参数、stdout/stderr 内容、spool 路径或 payload；spool 诊断只证明 ERP 侧 command_bridge 状态回读链路可用，CUPS 队列预检只证明队列状态命令可访问，二者都不等同真实 CUPS / 标签机 / 针式机现场验收。打印链路同时新增 `GET /api/print-driver/v1-readiness`，把配置、预检、spool 回读、标签机 / 针式机资料、驱动模式和现场 QA 记录聚合为 V1 上线就绪门禁；默认本地环境返回 `blocked / ready=false`，只有配置完整、设备切到 `system_printer` 且最新现场 QA 全通过时才返回 `ready=true`。
+
+相关文件：
+
+- `server/apiServer.mjs`：Node HTTP API server，包含 seed 认证、只读 seed 路由和第一批内存写入路由。
+- `server/attachmentRepository.mjs`：附件摘要仓储边界，默认本地 JSON，显式配置时可生成 PostgreSQL 附件表写入 / 查询 SQL。
+- `server/attachmentObjectStorage.mjs`：附件内容对象存储边界，默认 `local_fs` 写入 `.erp-local-storage/attachments/`；`object_storage` 配置完整时走 S3 兼容 AWS Signature V4 PUT / GET / DELETE 和直连签名 URL。
+- `server/orderConfirmationTransactionRepository.mjs`：订单确认事务边界，默认写当前 API workspace，显式 PostgreSQL 模式在一个事务内写正式原始订单、订单明细、价格快照、出库任务、库存占用、库存流水、缺货待办和操作日志，并更新库存 reserved 数量。
+- `server/orderPoolReadRepository.mjs`：订单池读取仓储边界，默认读当前 API workspace，显式 PostgreSQL 模式从 `original_orders`、`order_lines`、最新 `price_snapshots`、`fulfillment_records`、`inventory_reservations` 和对账状态生成订单池列表 / 详情读模型。
+- `server/orderLineVoidTransactionRepository.mjs`：订单明细作废事务边界，默认写当前 API workspace，显式 PostgreSQL 模式在一个事务内关闭订单明细、取消未交付出库任务、释放库存占用、写库存流水、订单变更记录和操作日志。
+- `server/orderLineQuantityAdjustmentTransactionRepository.mjs`：订单明细改量事务边界，默认写当前 API workspace，显式 PostgreSQL 模式在一个事务内更新订单数量、未交付出库任务数量、库存占用增减、库存流水、订单变更记录和操作日志。
+- `server/fulfillmentActionTransactionRepository.mjs`：出库 / 交付动作事务边界，默认写当前 API workspace，显式 PostgreSQL 模式在一个事务内更新出库记录，并按动作写打印记录、异常记录、公共待办、操作日志、完成出库库存扣减、占用释放、出库库存流水和取消出库释放流水。
+- `server/printDriverAdapter.mjs`：打印驱动适配器边界，默认 guarded，不触发真实系统打印；显式配置 `command_bridge` 后可调用受控本地命令，并提供 non-printing spool 状态回读诊断和 CUPS 队列状态预检。
+- `server/printDeviceRepository.mjs`：打印设备资料仓储边界，保存标签机 / 针式机等设备能力、支持单据类型和驱动模式。
+- `server/printerDeviceFieldTestRepository.mjs`：打印设备现场 QA 记录仓储边界，保存样张、对位、扫码、驱动回调、清晰度和作废重打等验收结果。
+- `src/domain/printTemplates.js`：出库 / 交付打印模板数据生成，当前覆盖快递快运标签、自提针式单和送货针式单。
+- `scripts/print-command-bridge.mjs`：`command_bridge` 本地命令 wrapper，默认 `spool_only`，把打印作业写入 `.erp-local-storage/print-command-bridge/queued/`；可选 `cups_lp` 会在显式配置 CUPS 命令和白名单后提交到 `lp`，但成功仍只代表 `sent`；`--action cups-preflight` 只运行 CUPS 队列状态预检，不读取 payload、不生成打印文件。
+- `server/inventoryReservationReleaseTransactionRepository.mjs`：库存占用释放事务边界，默认写当前 API workspace，显式 PostgreSQL 模式在一个事务内更新占用记录、库存 reserved 数量、释放流水和操作日志。
+- `server/paymentRecordRepository.mjs`：对账付款记录仓储边界，默认写当前 API workspace，显式 PostgreSQL 模式写入 / 查询 `payment_records`。
+- `server/statementPaymentTransactionRepository.mjs`：收款登记事务边界，默认写当前 API workspace，显式 PostgreSQL 模式在一个事务内更新 `statements`、写 `payment_records`、可选写 `todos`，并写 `operation_logs`。
+- `server/statementSettlementTransactionRepository.mjs`：差额处理 / 核销事务边界，默认写当前 API workspace，显式 PostgreSQL 模式在一个事务内更新 `statements`、写 `variance_records`、可选写 `todos`，并写 `operation_logs`。
+- `server/statementSendTransactionRepository.mjs`：标记已发送 / 发送回执 / 客户确认事务边界，默认写当前 API workspace，显式 PostgreSQL 模式在一个事务内更新 `statements`、写或更新 `statement_send_records`、写 `statement_confirmation_records`，并写 `operation_logs`。
+- `server/statementExportRepository.mjs`：对账预览 / 导出仓储边界，默认写当前 API workspace，显式 PostgreSQL 模式同事务替换 `statement_lines`、写 `statement_export_files` 元数据和 `.xlsx` base64 兜底内容，并写 `operation_logs`。
+- `server/statementExportObjectStorage.mjs`：对账导出文件对象存储边界，默认 `local_fs` 写入 `.erp-local-storage/statement-exports/`；显式对象存储模式复用 S3 兼容 PUT / GET 签名，并保留数据库内容作为下载兜底。
+- `server/authSeed.mjs`：办公室、库房、财务、管理、司机等 seed 账号的登录、签名 token、角色和有效权限合成。
+- `server/driverDeliveryTaskReadRepository.mjs`：司机送货任务读取仓储边界，默认读当前 workspace，显式 PostgreSQL 模式从送货出库记录、订单、客户、包裹、打印记录、库存来源、送达证据和 `driver_delivery_dispatches` 组合任务列表 / 详情，并按路线日期 / 趟次 / 站点顺序排序。
+- `server/driverDeliveryDispatchRepository.mjs`：司机派单写入仓储边界，默认写当前 API workspace，显式 PostgreSQL 模式 upsert `driver_delivery_dispatches` 并写 `operation_logs`。
+- `server/productionScheduleRecordRepository.mjs`：生产排产记录仓储边界，默认写当前 API workspace，显式 PostgreSQL 模式 upsert `production_schedule_records`、移动生产任务机台并写 `operation_logs`。
+- `src/services/driverMobileApiClient.js`：司机手机端送货任务 API client，覆盖任务列表、装车确认、送达完成和异常上报。
+- `src/services/driverWatermarkImageClient.js`：司机送达照片前端水印工具，生成水印文字行、导出带水印 JPEG，并提供 metadata-only 兜底。
+- `server/seedData.mjs`：后端 seed 入口。
+- `server/seeds/syntheticOfficeSeed.mjs`：把现有 P0 fixtures 适配为后端种子响应。
+- `server/seeds/README.zh-CN.md`：seed 数据目录说明。
+- `server/openapiValidation.mjs`：复用 Ruby YAML 解析校验 OpenAPI `$ref`。
+- `scripts/check-api-skeleton.mjs`：启动临时 server 并校验核心路由。
+- `scripts/validate-openapi.mjs`：单独校验 OpenAPI 草案。
+- `scripts/check-db-migrations.mjs`：校验第一批迁移草案是否覆盖核心表。
+- `scripts/check-attachment-repository.mjs`：校验附件本地 JSON 仓储和 PostgreSQL SQL 边界。
+- `scripts/check-attachment-object-storage.mjs`：校验附件 `local_fs` 对象存储接口、data URL 兼容读取、诊断对象清理、S3 兼容 PUT / GET / DELETE 签名、签名 URL 和 token 校验。
+- `scripts/check-attachment-object-storage-live.mjs`：启动本地 S3 兼容 HTTP 端点和 `object_storage` 模式 ERP API，校验业务附件上传 / 读取、对象存储签名 URL、附件 storage diagnostics、V1 留档门禁、诊断对象清理、SigV4 请求头和密钥脱敏。
+- `scripts/check-v1-production-profile-live.mjs`：启动临时 PostgreSQL、应用迁移、启动本地 S3 兼容 HTTP 端点，并用统一 V1 profile 启动 ERP API，校验系统持久化门禁、附件 V1 留档门禁、无现场证据时顶层 V1 runner `7/11` 阻塞边界，以及自动化打印 / 司机 QA 证据下 `11/11` 正向边界。
+- `scripts/run-v1-production-env-file-audit.mjs`：在预检前审计真实 env 文件是否安全未跟踪、不是模板、没有未替换占位值，并保持不输出任何 env 值。
+- `scripts/check-v1-production-env-file-audit.mjs`：校验 env 文件安全审计的通过、模板拒绝、占位符拒绝、warning、退出码和脱敏。
+- `scripts/run-v1-production-env-preflight.mjs`：部署前检查 V1 生产环境变量是否齐全，输出脱敏文本 / JSON，blocked 默认退出 2。
+- `scripts/check-v1-production-env-preflight.mjs`：校验生产环境变量预检的 blocked / ready / env-file / invalid JSON / warning / 退出码和脱敏。
+- `scripts/generate-v1-production-env-template.mjs`：生成 V1 生产环境变量模板和发布前执行清单，默认输出模板，可写入 `docs/development/v1-production.env.example` 与 `docs/development/v1-go-live-runbook.zh-CN.md`。
+- `scripts/check-v1-production-env-template.mjs`：校验 V1 生产环境模板与生成器同步、必需变量覆盖、runbook 命令和脱敏。
+- `scripts/generate-v1-field-evidence-manifest.mjs`：生成 V1 现场证据 JSON 模板和中文填写清单，默认所有必填证据 pending。
+- `scripts/validate-v1-field-evidence-manifest.mjs`：校验已填写 V1 现场证据 manifest，blocked 默认退出 2，invalid 退出 1，ready 退出 0。
+- `scripts/check-v1-field-evidence-manifest.mjs`：校验现场证据模板 / 清单与生成器同步、默认 blocked、完整证据 ready、缺分组 invalid 和 evidenceRef 脱敏。
+- `scripts/run-v1-release-candidate-check.mjs`：运行生产 env 文件安全审计、生产环境变量预检、现场证据 manifest、运行时 V1 readiness 和现场验收报告，生成 release-candidate Markdown / JSON，包含 V1 范围和计划 V2 差异；blocked 默认退出 2。
+- `scripts/check-v1-release-candidate-check.mjs`：校验发布候选检查的 blocked / ready / env-file / unsafe env-file 阻塞 / blocked 留档、现场证据 manifest、V1/V2 范围、报告文件和脱敏。
+- `scripts/run-v1-go-live-suite.mjs`：读取 release-candidate JSON 和现场证据 manifest，一次性生成现场任务、完成度快照、V1/V2 差异摘要、负责人摘要、现场证据采集包和上线交接包，并写入 `.erp-local-storage/v1-go-live-suite/`；可选读取现场 `evidence-items.csv`，先生成 draft manifest 再基于 draft 生成下游材料。
+- `scripts/check-v1-go-live-suite.mjs`：校验 go-live suite 的 blocked 编排、V1/V2 差异摘要、现场 CSV 草稿回填、刷新发布候选、下游产物生成、负责人摘要复制进交接包、缺发布候选报错和脱敏。
+- `scripts/run-v1-v2-scope-brief.mjs`：读取 V1/V2 范围文档和可选 V1 完成度快照，生成负责人可读的 V1/V2 差异摘要，明确 V2 延后项不等于 V1 阻塞项后移。
+- `scripts/check-v1-v2-scope-brief.mjs`：校验 V1/V2 差异摘要的 blocked / ready、缺源文档、文本输出、V2 分类、文件生成和脱敏。
+- `scripts/run-v1-owner-decision-brief.mjs`：读取 V1 完成度快照，生成负责人决策摘要，直接回答是否可以宣布 V1 完成、已完成 / 未完成项、下一步和 V2 差异；默认不输出原始 evidenceRef、签字人、真实 env 值或密钥。
+- `scripts/check-v1-owner-decision-brief.mjs`：校验负责人决策摘要的 blocked / ready 场景、文件生成、缺快照报错、V2 差异和脱敏。
+- `scripts/run-v1-onsite-task-board.mjs`：读取 release-candidate JSON 和现场证据 manifest，生成按角色分组的 V1 现场任务清单，默认脱敏 evidenceRef、签字人和真实 env 值。
+- `scripts/check-v1-onsite-task-board.mjs`：校验现场任务清单的角色分组、release blocker、现场证据任务、签字任务、V1/V2 边界任务、文件生成、缺发布候选报错和脱敏。
+- `scripts/run-v1-field-evidence-intake-pack.mjs`：读取现场证据 manifest，生成现场证据采集包，包含总览、机器索引、CSV、签字 / V1-V2 边界确认单和 6 个证据组采集单；默认不输出原始 evidenceRef。
+- `scripts/check-v1-field-evidence-intake-pack.mjs`：校验证据采集包的 blocked / ready 场景、分组文件、CSV、可选报告、缺输入报错和脱敏。
+- `scripts/run-v1-go-live-handoff-pack.mjs`：生成 V1 上线交接包，汇总发布候选、完成度快照、负责人决策摘要、生成后的 V1/V2 差异摘要、现场证据、env 模板、runbook、现场证据清单和 V1/V2 源范围文档；默认写脱敏现场证据 manifest。
+- `scripts/check-v1-go-live-handoff-pack.mjs`：校验交接包 blocked 场景、负责人摘要复制、V1/V2 差异摘要复制、默认脱敏、可选原始证据、必需文档和缺发布候选报错。
+- `scripts/run-v1-field-acceptance-report.mjs`：读取运行中 ERP API 的 V1 总 readiness 结果，生成脱敏 Markdown / JSON 现场验收报告；blocked 默认退出 2，可显式留档。
+- `scripts/check-v1-field-acceptance-report.mjs`：校验现场验收报告的 blocked / ready / blocked 留档、文件生成、退出码和脱敏。
+- `scripts/check-payment-record-repository.mjs`：校验付款记录本地仓储和 PostgreSQL `payment_records` SQL 边界。
+- `scripts/check-statement-payment-transaction-repository.mjs`：校验收款登记本地 workspace 变更和 PostgreSQL 事务 SQL 边界。
+- `scripts/check-statement-settlement-transaction-repository.mjs`：校验差额处理 / 核销本地 workspace 变更和 PostgreSQL 事务 SQL 边界。
+- `scripts/check-statement-send-transaction-repository.mjs`：校验标记已发送、登记发送回执和客户确认的本地 workspace 变更和 PostgreSQL 事务 SQL 边界。
+- `scripts/check-order-confirmation-transaction-repository.mjs`：校验订单确认本地 workspace 变更和 PostgreSQL `original_orders + order_lines + price_snapshots + fulfillment_records + inventory_reservations + inventory_ledger_entries + todos + operation_logs` 事务 SQL 边界。
+- `scripts/check-order-pool-read-repository.mjs`：校验订单池本地列表 / 详情标准化和 PostgreSQL `original_orders + order_lines + price_snapshots + fulfillment_records + inventory_reservations + statements` 读取 SQL 边界。
+- `scripts/check-order-line-void-transaction-repository.mjs`：校验订单明细作废本地 workspace 变更和 PostgreSQL `order_lines + fulfillment_records + inventory_reservations + inventory_items + inventory_ledger_entries + order_line_change_records + operation_logs` 事务 SQL 边界。
+- `scripts/check-order-line-quantity-adjustment-transaction-repository.mjs`：校验订单明细改量本地 workspace 变更和 PostgreSQL `order_lines + fulfillment_records + inventory_reservations + inventory_items + inventory_ledger_entries + order_line_change_records + operation_logs` 事务 SQL 边界。
+- `scripts/check-fulfillment-action-transaction-repository.mjs`：校验出库动作本地 workspace 变更和 PostgreSQL `fulfillment_records + print_records + fulfillment_exceptions + todos + operation_logs + inventory_reservations + inventory_items + inventory_ledger_entries` 事务 SQL 边界。
+- `scripts/check-driver-delivery-dispatch-repository.mjs`：校验司机派单本地 upsert 和 PostgreSQL `driver_delivery_dispatches + operation_logs` SQL 边界。
+- `scripts/check-production-schedule-record-repository.mjs`：校验生产排产记录本地 upsert / 筛选，以及 PostgreSQL `production_schedule_records + production_tasks + operation_logs` 调序 / 跨机台移动事务边界。
+- `scripts/check-fulfillment-print-template.mjs`：校验快递快运标签隐藏金额，以及自提 / 送货针式单显示明细、金额、联次和工厂短写。
+- `scripts/check-print-command-bridge.mjs`：校验本地打印命令 wrapper 的 spool 写入、ID 防串单、路径限制、非法 JSON 拒绝、适配器调用和响应脱敏。
+- `scripts/check-frontend-driver-mobile-api-client.mjs`：校验司机端 API client、司机任务本地 fallback、工厂短写、水印照片拦截、水印元数据、前端像素水印工具兜底、权限拒绝和异常上报映射。
+- `scripts/check-inventory-reservation-release-transaction-repository.mjs`：校验库存占用释放本地 workspace 变更和 PostgreSQL `inventory_reservations + inventory_items + inventory_ledger_entries + operation_logs` 事务 SQL 边界。
+- `scripts/run-db-migrations.mjs`：迁移 dry-run / apply runner，支持从安全 env 文件读取 `ERP_V1_DATABASE_URL` / `DATABASE_URL` / `PGURL`。
+- `scripts/check-db-migration-runner.mjs`：校验迁移 runner 的安全 env 文件读取、连接串来源优先级、dry-run 隔离和输出脱敏。
+- `scripts/check-postgres-live.mjs`：Docker 临时 PostgreSQL live 检查，覆盖迁移、附件仓储、访问审计仓储、订单确认事务仓储、订单池读取仓储、司机任务读取仓储、司机派单路线查回、订单确认库存占用 / 流水、库存占用释放事务、订单明细作废事务、订单明细改量事务、出库动作事务仓储、完成出库库存扣减 / 占用释放 / 出库流水、出库取消 / 回滚释放、付款记录仓储、收款登记事务仓储、差额 / 核销事务仓储、发送 / 回执 / 客户确认事务仓储、导出文件仓储、API 附件路径、API 订单确认路径、API 订单池列表 / 详情读取、API 司机任务列表 / 详情读取、API 库存占用释放路径、API 订单明细作废路径、API 订单明细改量路径、API 出库完成路径、API 出库取消路径、API 对账预览 / 导出下载 / 导出列表路径、API 付款登记路径、API 差额 / 核销路径、API 标记发送路径、API 发送回执路径和 API 客户确认路径真实写入查询。
+- `scripts/run-v1-production-postgres-preflight.mjs`：生产 PostgreSQL 只读预检，用安全 env 连接真实库，检查迁移记录、核心表、关键列、核心权限和临时表写入回滚探针；不打印连接串、密码、host 或原始 psql 错误。
+- `scripts/run-v1-production-object-storage-preflight.mjs`：生产对象存储 live 预检，用安全 env 对附件对象存储和对账导出对象存储执行诊断对象写入、读回、签名 URL 读回和删除；不打印 endpoint、bucket、access key、secret、对象 key、签名 URL 或 payload。
+- `scripts/run-v1-production-persistence-evidence.mjs`：生产持久化首阶段留证汇总，用安全 env 汇总 env 文件安全审计、生产持久化 env 子集、迁移计划、PostgreSQL 预检和对象存储 live 预检；默认写 `.erp-local-storage/v1-production-persistence-evidence/` 脱敏 JSON / Markdown，且不执行迁移 `--apply`。
+- `scripts/run-v1-production-runtime-smoke.mjs`：生产 API 运行态 smoke，用同一份安全 env 临时启动 API，读回 `/api/health` 和 `/api/system/v1-readiness`，确认当前运行态显示 PostgreSQL repository profile、附件对象存储、对账导出对象存储和系统 V1 持久化门禁；默认写 `.erp-local-storage/v1-production-runtime-smoke/` 脱敏 JSON / Markdown，检查结束会停止该 API。
+- `scripts/run-v1-production-first-stage-closeout.mjs`：生产环境 / 持久化第一阶段 closeout，读取持久化留证、runtime smoke 和已填写的现场证据 manifest，检查自动化证据 ready、时效、安全护栏，以及 `production_persistence` / `object_storage` 两组必填证据；默认写 `.erp-local-storage/v1-production-first-stage-closeout/` 脱敏 JSON / Markdown；不连接外部服务，也不声明 V1 全部完成。
+- `scripts/run-v1-production-first-stage-execution.mjs`：生产环境 / 持久化第一阶段执行器，按顺序串联可选生产 env 真实值白名单合并、env 文件审计、生产 env 真实值 intake 校验、生产 env 变量预检、数据库迁移 dry-run 或显式 `--apply-migrations`、持久化留证、runtime smoke、第一阶段现场证据建议和 closeout；支持 `--production-env-values-file <secure-values-env-fragment>` 先把独立真实值片段按 intake 白名单合并到目标安全 env，支持 `--production-env-values-dry-run` 只做真实值片段白名单合并 dry-run 且不写目标 env / 不继续后续阶段，dry-run 会输出预计生产 env 变量预检、全量 intake 覆盖、最小 blocking 补值覆盖和建议 / 可选补值覆盖；setup / handoff 会生成只含当前最小 blocking 路径的 `production-env-minimum-values-fragment.template.env.example` 和全量 `production-env-values-fragment.template.env.example`，支持 `--field-evidence-manifest <filled-manifest>` 传给 closeout，默认写 `.erp-local-storage/v1-production-first-stage-execution/` 脱敏 JSON / Markdown，默认不执行生产迁移。
+- `scripts/run-v1-print-chain-closeout.mjs`：打印链路阶段 closeout，读取已保存的打印 readiness JSON 和已填写的 `print_hardware` 现场证据组，检查 CUPS 非打印预检、标签 / 针式样张、纸张对位、条码扫码、spool / 驱动回写、作废重打和安全护栏；默认写 `.erp-local-storage/v1-print-chain-closeout/` 脱敏 JSON / Markdown，不调用 API、CUPS 或打印机。
+- `scripts/run-v1-driver-real-device-closeout.mjs`：司机真机阶段 closeout，读取已保存的司机 readiness JSON 或完整 V1 readiness JSON 中的 `driverReadiness`，以及已填写的 `driver_native_device` 现场证据组，检查真实手机登录、水印拍照、纸质标签原生扫码、定位 / 导航、弱网上传兜底和只读护栏；默认写 `.erp-local-storage/v1-driver-real-device-closeout/` 脱敏 JSON / Markdown，不请求摄像头或定位、不打开导航、不改司机送货状态。
+- `scripts/check-v1-production-object-storage-preflight.mjs`：校验生产对象存储 live 预检的空 env blocked、fake S3 探针、对账导出 fallback、CLI JSON、诊断清理和脱敏。
+- `scripts/check-v1-production-first-stage-execution.mjs`：校验第一阶段执行器的计划模式、ready 执行、首个阻塞停止、显式迁移执行、文件输出、CLI 和脱敏。
+- `scripts/check-v1-print-chain-closeout.mjs`：校验打印链路阶段 closeout 的缺证据 blocked、ready closeout、现场证据缺项、过期 readiness、护栏失败、文件输出、CLI 和脱敏。
+- `scripts/check-v1-driver-real-device-closeout.mjs`：校验司机真机阶段 closeout 的缺证据 blocked、ready closeout、完整 readiness 嵌套读取、现场证据缺项、过期 readiness、普通浏览器 / 护栏失败、文件输出、CLI 和脱敏。
+- `scripts/dbMigrationUtils.mjs`：迁移读取、校验和 checksum 共用工具。
+- `scripts/check-seed-data.mjs`：校验 synthetic seed 是否能生成后端 workspace。
+- `db/migrations/`：第一批 PostgreSQL 迁移草案。
+- `docs/development/database-migration-runner.zh-CN.md`：迁移 runner 说明。
+
+## 命令
+
+| 命令 | 说明 |
+|---|---|
+| `npm run api:dev` | 启动本地 API 骨架，默认 `http://127.0.0.1:8787` |
+| `npm run api:check` | 临时启动 server，检查健康检查、OpenAPI 状态、seed 登录 / 当前会话、工作台、订单、库存、出库、对账、待办、权限路由，以及第一批内存写入接口 |
+| `npm run api:validate-openapi` | 校验 `docs/development/erp-api-openapi-draft.yaml` 的路径、schema、tag 和 `$ref` |
+| `npm run attachment-repository:check` | 校验附件本地 JSON 仓储持久化和 PostgreSQL `attachments` / `attachment_links` SQL 边界 |
+| `npm run attachment-storage:check` | 校验附件对象存储接口的本地写入 / 读取 / 删除、内容摘要、S3 兼容 PUT / GET / DELETE 签名、签名 URL、token 过期 / 无效拒绝和 provider factory 默认值 |
+| `npm run attachment-storage-live:check` | 启动本地 S3 兼容 HTTP 端点和 ERP API `object_storage` 模式，校验附件上传 / 读取、签名 URL、storage diagnostics、V1 留档门禁、清理和脱敏 |
+| `npm run v1-production-env-template:check` | 校验 V1 生产环境变量模板和发布前执行清单：生成器同步、预检变量覆盖、release-candidate 命令、V1/V2 边界和敏感值脱敏 |
+| `npm run v1-production-env-file-audit:check` | 校验 V1 生产 env 文件安全审计：安全未跟踪 env 文件通过、模板文件拒绝、未替换占位符拒绝、重复变量 / 权限 warning、退出码和敏感值脱敏 |
+| `npm run v1-field-evidence:check` | 校验 V1 现场证据 manifest 模板 / 清单、填写校验器、默认 blocked、完整证据 ready、缺分组 invalid 和 evidenceRef 脱敏 |
+| `npm run v1-production-env-preflight:check` | 校验 V1 生产环境变量预检：空环境 blocked、完整环境 ready、env-file、非法 JSON、warning、退出码和敏感值脱敏 |
+| `npm run v1-production-postgres-preflight:check` | 校验 V1 生产 PostgreSQL 只读预检：空 env blocked、fake PostgreSQL ready、迁移 / 核心表 / 关键列 / 权限 / 临时写入探针和敏感值脱敏 |
+| `npm run v1-production-persistence-evidence:check` | 校验 V1 生产持久化首阶段留证：env 文件门禁、生产持久化 env 子集、迁移计划、fake PostgreSQL、fake 对象存储、文件输出、CLI 和脱敏 |
+| `npm run v1-production-runtime-smoke:check` | 校验 V1 生产 API 运行态 smoke：env 文件门禁、安全 env 启动 API、生产 profile 读回、本地运行态 blocked、文件输出、CLI、进程停止和脱敏 |
+| `npm run v1-production-first-stage-closeout:check` | 校验 V1 生产环境 / 持久化第一阶段 closeout：缺证据 blocked、自动化 + 现场证据 ready closeout、过期证据、护栏失败、文件输出、CLI 和脱敏 |
+| `npm run v1-production-first-stage-execution:check` | 校验 V1 生产环境 / 持久化第一阶段执行器：计划模式、可选真实值白名单合并、ready 执行、首个阻塞停止、显式迁移执行、文件输出、CLI 和脱敏 |
+| `npm run v1-print-chain-closeout:check` | 校验 V1 打印链路阶段 closeout：缺 readiness / 现场证据 blocked、ready closeout、过期 readiness、非打印护栏、敏感值脱敏和文件输出 |
+| `npm run v1-release-candidate:check` | 校验 V1 发布候选聚合检查：生产环境预检、现场证据 manifest、运行时 readiness、现场验收报告、V1/V2 差异、blocked 留档和脱敏 |
+| `npm run v1-go-live-suite:check` | 校验 V1 go-live suite：从发布候选和现场证据 manifest 编排现场任务、完成度、V1/V2 差异摘要、负责人摘要、证据采集包和交接包，覆盖现场 CSV 草稿回填、阶段 closeout 透传、刷新发布候选、缺发布候选报错和脱敏 |
+| `npm run v1-onsite-task-board:check` | 校验 V1 现场角色任务清单：角色分组、发布阻塞项、现场证据任务、签字任务、V1/V2 边界任务、文件生成、缺发布候选报错和脱敏 |
+| `npm run v1-completion-snapshot:check` | 校验 V1 完成度快照：完成度解析、发布门禁、岗位阻塞、V2 差异、文件生成、缺发布候选报错和脱敏 |
+| `npm run v1-v2-scope-brief:check` | 校验 V1/V2 差异摘要：blocked / ready、缺源文档、文本输出、V2 分类、文件生成和脱敏 |
+| `npm run v1-owner-decision-brief:check` | 校验 V1 负责人决策摘要：blocked / ready 摘要、文件生成、缺完成度快照报错、V2 差异和脱敏 |
+| `npm run v1-field-evidence-intake:check` | 校验 V1 现场证据采集包：blocked / ready 采集包、分组采集单、CSV、可选报告、缺输入报错和脱敏 |
+| `npm run v1-go-live-handoff:check` | 校验 V1 上线交接包：blocked 交接包、生产第一阶段 / 打印 / 司机阶段 closeout 复制、负责人摘要和 V1/V2 差异摘要复制、默认脱敏、可选原始现场证据、必需文档和缺发布候选报错 |
+| `npm run v1-production-profile-live:check` | 启动临时 PostgreSQL + S3 兼容对象存储 + 统一 V1 profile API，校验生产 profile 下系统持久化与附件留档 ready、无现场证据时顶层门禁 `7/11` 阻塞、自动化打印 / 司机 QA 证据下顶层门禁 `11/11` 正向通过 |
+| `npm run v1-field-acceptance-report:check` | 校验 V1 现场验收报告在 blocked、ready 和 blocked 留档场景下都能生成脱敏 Markdown / JSON，并保持退出码语义 |
+| `npm run payment-repository:check` | 校验付款记录本地仓储和 PostgreSQL `payment_records` SQL 边界 |
+| `npm run statement-payment-transaction:check` | 校验收款登记本地 workspace 变更和 PostgreSQL `statements + payment_records + todos + operation_logs` 事务 SQL 边界 |
+| `npm run statement-settlement-transaction:check` | 校验差额处理 / 核销本地 workspace 变更和 PostgreSQL `statements + variance_records + todos + operation_logs` 事务 SQL 边界 |
+| `npm run statement-send-transaction:check` | 校验标记已发送、登记发送回执、客户确认的本地 workspace 变更和 PostgreSQL `statements + statement_send_records + statement_confirmation_records + operation_logs` 事务 SQL 边界 |
+| `npm run statement-export-repository:check` | 校验对账预览本地 workspace 变更和 PostgreSQL `statement_lines + statement_export_files + operation_logs` SQL 边界 |
+| `npm run statement-export-storage:check` | 校验对账导出文件本地留档、S3 兼容 PUT / GET 签名和对象存储缺配置失败 |
+| `npm run order-confirmation-transaction:check` | 校验订单确认本地 workspace 变更和 PostgreSQL `original_orders + order_lines + price_snapshots + fulfillment_records + inventory_reservations + inventory_ledger_entries + todos + operation_logs` 事务 SQL 边界 |
+| `npm run order-pool-read:check` | 校验订单池本地列表 / 详情标准化和 PostgreSQL `original_orders + order_lines + price_snapshots + fulfillment_records + inventory_reservations + statements` 读取 SQL 边界 |
+| `npm run order-line-void-transaction:check` | 校验订单明细作废本地 workspace 变更和 PostgreSQL `order_lines + fulfillment_records + inventory_reservations + inventory_items + inventory_ledger_entries + order_line_change_records + operation_logs` 事务 SQL 边界 |
+| `npm run order-line-quantity-adjustment-transaction:check` | 校验订单明细改量本地 workspace 变更和 PostgreSQL `order_lines + fulfillment_records + inventory_reservations + inventory_items + inventory_ledger_entries + order_line_change_records + operation_logs` 事务 SQL 边界 |
+| `npm run fulfillment-action-transaction:check` | 校验出库动作本地 workspace 变更和 PostgreSQL `fulfillment_records + print_records + fulfillment_exceptions + todos + operation_logs + inventory_reservations + inventory_items + inventory_ledger_entries` 事务 SQL 边界 |
+| `npm run print-template:check` | 校验快递快运标签、自提单、送货单模板字段和金额显示 / 隐藏规则 |
+| `npm run print-command-bridge:check` | 校验本地 `spool_only` / `cups_lp` 打印命令 wrapper、CUPS 队列预检、`command_bridge` 适配器调用和敏感信息不外泄 |
+| `npm run driver-delivery-dispatch:check` | 校验司机派单本地 upsert 和 PostgreSQL `driver_delivery_dispatches + operation_logs` 写入 SQL 边界 |
+| `npm run production-schedule-record:check` | 校验生产排产记录本地 upsert / 筛选和 PostgreSQL `production_schedule_records + production_tasks + operation_logs` 调序 / 跨机台移动事务边界 |
+| `npm run driver-delivery-task-read:check` | 校验司机送货任务本地投影和 PostgreSQL `fulfillment_records + order_lines + customers + packages + print_records + inventory_reservations + driver_delivery_dispatches` 读取 SQL 边界，以及路线日期 / 趟次 / 站点顺序排序 |
+| `npm run driver-mobile-api:check` | 校验司机送货任务 API client、司机本地 fallback、装车 / 送达 / 异常动作、水印照片必填拦截、水印元数据透传和前端像素水印工具兜底 |
+| `npm run inventory-reservation-release:check` | 校验库存占用释放本地 workspace 变更和 PostgreSQL `inventory_reservations + inventory_items + inventory_ledger_entries + operation_logs` 事务 SQL 边界 |
+| `npm run db:check` | 校验 `db/migrations/` 文件顺序、核心表覆盖和无破坏性 `DROP TABLE` |
+| `npm run db:migrate-runner:check` | 校验迁移 runner 支持安全 env 文件、`ERP_V1_DATABASE_URL` 优先级、dry-run 隔离和连接错误脱敏 |
+| `npm run db:migrate:dry` | 输出迁移计划和 checksum，不连接数据库 |
+| `npm run db:postgres-live:check` | 启动 Docker 临时 PostgreSQL，执行迁移并验证附件仓储 / 访问审计仓储 / 订单确认事务仓储 / 订单池读取仓储 / 司机任务读取仓储 / 司机派单路线查回 / 订单确认库存占用和流水 / 库存占用释放事务 / 订单明细作废事务 / 订单明细改量事务 / 出库动作事务仓储 / 完成出库库存扣减 / 占用释放 / 出库流水 / 出库取消 / 回滚释放 / 付款记录仓储 / 收款登记事务仓储 / 差额核销事务仓储 / 发送 / 回执事务仓储 / 对账预览导出仓储 / API 附件、订单确认、订单池列表与详情读取、司机任务列表与详情读取、库存占用释放、订单明细作废、订单明细改量、出库完成、出库取消、对账预览明细、导出下载、导出列表、付款登记、差额处理、核销、标记发送和发送回执路径真实写入查询 |
+| `node -- scripts/run-v1-production-first-stage-execution.mjs --use-production-env-setup-env-file --field-evidence-manifest <filled-field-evidence-manifest>` | 串联第一阶段生产 env / 持久化执行顺序；默认复用 production env setup 报告中的安全 env 文件，做安全审计、真实值 intake 校验、变量预检、迁移计划、live 留证、runtime smoke 和 closeout，不执行迁移 `--apply`，并要求生产持久化 / 对象存储现场证据组已填；需要绕开 setup 报告时才显式传 `--env-file <secure-env-file>` |
+| `node -- scripts/run-v1-production-first-stage-execution.mjs --use-production-env-setup-env-file --production-env-values-file <secure-values-env-fragment> --production-env-values-dry-run --field-evidence-manifest <filled-field-evidence-manifest>` | 只对独立真实值 env 片段执行白名单合并 dry-run，输出预计生产 env 变量预检、全量 intake 覆盖、最小 blocking 补值覆盖和建议 / 可选补值覆盖结果；不写目标 env，不继续 env 审计、迁移、持久化留证、runtime smoke 或 closeout |
+| `node -- scripts/run-v1-production-first-stage-execution.mjs --use-production-env-setup-env-file --production-env-values-file <secure-values-env-fragment> --field-evidence-manifest <filled-field-evidence-manifest>` | 先把独立真实值 env 片段按 `production-env-real-value-intake.csv` 白名单合并到 production env setup 安全草稿，再继续第一阶段审计、校验、预检和留证；该片段可先由 `production-env-minimum-values-fragment.template.env.example` 复制填写最小 blocking 路径，也可由全量 `production-env-values-fragment.template.env.example` 复制填写，要求 setup 报告只解析到一个目标 env 文件 |
+| `node -- scripts/run-v1-production-first-stage-execution.mjs --use-production-env-setup-env-file --field-evidence-manifest <filled-field-evidence-manifest> --apply-migrations` | 在确认备份窗口和负责人后，显式执行生产迁移，再继续持久化留证、runtime smoke 和 closeout；生产迁移前仍必须保留备份 / 恢复验证证据 |
+| `node -- scripts/run-db-migrations.mjs --env-file <secure-env-file> --apply` | 从安全 env 文件读取 `ERP_V1_DATABASE_URL` / `DATABASE_URL` / `PGURL`，通过本机 `psql` 执行未应用迁移，并写入 `schema_migrations` |
+| `node -- scripts/run-v1-production-postgres-preflight.mjs --use-production-env-setup-env-file` | 复用 production env setup 安全 env 文件，连接真实生产 PostgreSQL 做只读结构 / 权限预检和临时表写入回滚探针，输出可留档的脱敏报告；需要绕开 setup 报告时才显式传 `--env-file <secure-env-file>` |
+| `node -- scripts/run-v1-production-object-storage-preflight.mjs --use-production-env-setup-env-file` | 复用 production env setup 安全 env 文件，连接真实对象存储做附件写入 / 读回 / 签名 URL / 删除和对账导出写入 / 读回 / 删除 live 预检，输出可留档的脱敏报告；需要绕开 setup 报告时才显式传 `--env-file <secure-env-file>` |
+| `node -- scripts/run-v1-production-persistence-evidence.mjs --use-production-env-setup-env-file` | 汇总生产 env 文件安全、生产持久化 env 子集、迁移计划、PostgreSQL 预检和对象存储 live 预检，写出首阶段脱敏留证包；不执行迁移 `--apply`；需要绕开 setup 报告时才显式传 `--env-file <secure-env-file>` |
+| `node -- scripts/run-v1-production-runtime-smoke.mjs --use-production-env-setup-env-file` | 用 production env setup 安全 env 临时启动 API，或配合 `--api-base-url` 检查长驻 API，读回 health / 系统持久化 readiness，确认当前运行态进入 PostgreSQL / 对象存储 profile；只执行 GET 探针，临时模式结束后停止 API；需要绕开 setup 报告时才显式传 `--env-file <secure-env-file>` |
+| `node scripts/run-v1-production-first-stage-closeout.mjs --field-evidence-manifest <filled-field-evidence-manifest>` | 读取持久化留证、runtime smoke 和现场证据 manifest，检查第一阶段是否 ready、证据是否过期、护栏是否完整，以及生产持久化 / 对象存储现场证据是否完整，并写出负责人签收用的脱敏 closeout |
+| `node scripts/run-v1-print-chain-closeout.mjs --print-readiness-json .erp-local-storage/v1-print-readiness/latest.json --field-evidence-manifest <filled-field-evidence-manifest>` | 汇总打印 readiness 和 `print_hardware` 现场证据，检查真实打印链路是否可签收；不调用 API、CUPS 或打印机 |
+| `node scripts/run-v1-driver-real-device-closeout.mjs --driver-readiness-json .erp-local-storage/v1-driver-readiness/latest.json --field-evidence-manifest <filled-field-evidence-manifest>` | 汇总司机 readiness 和 `driver_native_device` 现场证据，检查真实司机手机是否可签收；不请求摄像头 / 定位、不打开导航、不改送货状态 |
+| `npm run v1-production-object-storage-preflight:check` | 校验生产对象存储 live 预检脚本的 blocked / ready、fake S3 读写删、对账导出 fallback、CLI JSON、诊断对象清理和敏感值脱敏 |
+| `npm run seed:check` | 校验 synthetic seed 的客户、订单、库存、待办、出库、对账、克隆隔离和 seed 权限矩阵 |
+| `npm run attachment-repository:check` | 校验附件摘要本地 JSON / PostgreSQL SQL 边界，以及附件访问审计本地 JSON / PostgreSQL SQL 边界 |
+
+## 打印命令桥配置
+
+`scripts/print-command-bridge.mjs` 是当前 `command_bridge` 的本地命令目标。默认 `spool_only` 只把作业写入 `.erp-local-storage/print-command-bridge/queued/*.json` 并返回 `externalJobId`；这表示本地桥接已收单，不表示真实打印机已经出纸。显式 `cups_lp` 会调用 CUPS `lp` 或指定命令，CUPS 接收成功仍只把作业推进到 `sent`，不直接标记 `printed`。
+
+最小本地配置示例：
+
+```bash
+ERP_SYSTEM_PRINTER_ENABLED=true
+ERP_SYSTEM_PRINTER_ADAPTER=command_bridge
+ERP_SYSTEM_PRINTER_COMMAND=node
+ERP_SYSTEM_PRINTER_COMMAND_ARGS_JSON='["scripts/print-command-bridge.mjs","--print-job-id","{printJobId}","--print-device-id","{printDeviceId}","--print-device-name","{printDeviceName}"]'
+ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
+```
+
+后续如要接 CUPS、标签机、针式机或厂商 SDK，应新增明确模式和状态回读 / 回调，不要把 `spool_only` 的成功当成 `printed`。
+
+## 出库单据模板
+
+`POST /api/fulfillments/{fulfillmentId}/print` 当前按出库交付方式推导单据类型：快递快运为 `express_ltl_label`，自提为 `pickup_note`，送货为 `delivery_note`。快递快运标签继续隐藏金额；自提 / 送货针式单模板使用 241mm 连续二联纸结构，返回明细行、数量 / 包裹、价格快照、合计金额、联次和签收标签。
+
+当前模板仍是浏览器预览和打印作业 payload，不是已经通过真实针式机出纸。正式上线前还需要现场纸张宽高、二联位置、字体密度、撕纸位置和物理重打 QA。
+
+## 附件对象存储配置
+
+默认不需要配置对象存储，系统使用 `ERP_ATTACHMENT_OBJECT_STORAGE=local_fs` 或默认值，把附件内容写到 `.erp-local-storage/attachments/`。
+
+如需启用 S3 兼容对象存储，至少需要：
+
+| 变量 | 说明 |
+|---|---|
+| `ERP_ATTACHMENT_OBJECT_STORAGE=object_storage` | 启用对象存储模式 |
+| `ERP_ATTACHMENT_OBJECT_STORAGE_ENDPOINT` | S3 兼容 endpoint，例如 MinIO / OSS / COS / S3 endpoint |
+| `ERP_ATTACHMENT_OBJECT_STORAGE_BUCKET` | bucket 名 |
+| `ERP_ATTACHMENT_OBJECT_STORAGE_REGION` | region，未填时默认为 `us-east-1` |
+| `ERP_ATTACHMENT_OBJECT_STORAGE_ACCESS_KEY_ID` | access key |
+| `ERP_ATTACHMENT_OBJECT_STORAGE_SECRET_ACCESS_KEY` | secret key |
+| `ERP_ATTACHMENT_OBJECT_STORAGE_SESSION_TOKEN` | 可选临时凭证 token |
+| `ERP_ATTACHMENT_OBJECT_STORAGE_KEY_PREFIX` | 可选 key 前缀，默认 `attachments` |
+| `ERP_ATTACHMENT_OBJECT_STORAGE_FORCE_PATH_STYLE` | 可选，默认 `true`，适合多数 S3 兼容 endpoint / MinIO |
+
+配置完整时，附件上传会生成 `storageProvider=object_storage`、`storageKey` 和 `contentDigest`；`GET /api/attachments/{attachmentId}/access-url` 会返回直连对象存储的短期签名 GET URL。配置缺失时，对象存储模式会显式返回未配置占位，不会假装写入成功。
+
+附件上传会先按业务用途做基础 V1 校验：付款截图只允许图片且不超过 8MB；送达水印、签收照片和定制成品图只允许图片且不超过 12MB；客户确认附件允许图片或 PDF 且不超过 12MB；其它附件默认限制为图片、PDF、表格或文档且不超过 15MB。该校验不替代真实对象存储 live 验证、病毒扫描、图片质量算法或断点续传。
+
+附件对象存储可通过 `GET /api/attachments/storage-diagnostics` 做 V1 运行时基础预检。接口复用 `attachment.view` 权限，会写入小型诊断对象、读回内容、校验 sha256 摘要并尝试清理；响应包含 `storageKind`、`configured`、`missingConfigFields`、`writeOk`、`readOk`、`digestOk`、`cleanupOk` 和 `secretFieldsExposed=false`。`GET /api/attachments/v1-readiness` 是更高一层的 V1 留档上线门禁：默认本地 `local_fs` 只能证明读写可用，不自动算生产留档 ready；只有真实 `object_storage` 诊断通过，或服务端显式配置本地文件留档已被 V1 接受，门禁才会通过。两个接口都不会登记业务附件，也不暴露 access key、secret、authorization 或 session token；它们仍不替代真实 OSS/S3/COS bucket 凭证管理、网络策略、生命周期规则、病毒扫描、断点续传、备份巡检和现场附件验收。
+
+## 对账导出文件存储配置
+
+默认不需要配置对象存储，系统使用 `ERP_STATEMENT_EXPORT_OBJECT_STORAGE=local_fs` 或默认值，把对账导出 Excel 写到 `.erp-local-storage/statement-exports/`。下载路由会优先读取该文件存储；数据库 `content_text` 仍作为兼容兜底。
+
+如需启用 S3 兼容对象存储，至少需要：
+
+| 变量 | 说明 |
+|---|---|
+| `ERP_STATEMENT_EXPORT_OBJECT_STORAGE=object_storage` | 启用对账导出对象存储模式 |
+| `ERP_STATEMENT_EXPORT_OBJECT_STORAGE_ENDPOINT` | S3 兼容 endpoint；未填时可继续使用附件对象存储的 endpoint 配置 |
+| `ERP_STATEMENT_EXPORT_OBJECT_STORAGE_BUCKET` | bucket 名；未填时可继续使用附件对象存储的 bucket 配置 |
+| `ERP_STATEMENT_EXPORT_OBJECT_STORAGE_REGION` | region，未填时默认为底层对象存储默认值 |
+| `ERP_STATEMENT_EXPORT_OBJECT_STORAGE_ACCESS_KEY_ID` | access key |
+| `ERP_STATEMENT_EXPORT_OBJECT_STORAGE_SECRET_ACCESS_KEY` | secret key |
+| `ERP_STATEMENT_EXPORT_OBJECT_STORAGE_SESSION_TOKEN` | 可选临时凭证 token |
+| `ERP_STATEMENT_EXPORT_OBJECT_STORAGE_KEY_PREFIX` | 可选 key 前缀，默认 `statement-exports` |
+| `ERP_STATEMENT_EXPORT_OBJECT_STORAGE_FORCE_PATH_STYLE` | 可选，默认沿用底层对象存储默认值 |
+
+导出记录列表只返回 `storageProvider`、是否已保存对象 key、`contentDigest` 和 `contentLength`，不返回底层 `storageKey` 或文件内容。
+
+## V1 持久化 profile 配置
+
+生产或现场联调可以用统一 profile 给已支持的核心仓储设置默认持久化模式，避免逐个遗漏 `*_STORE=postgres`：
+
+| 变量 / 选项 | 说明 |
+|---|---|
+| `ERP_V1_PERSISTENCE_PROFILE=postgres` | 对未显式配置的已支持仓储默认使用 PostgreSQL |
+| `ERP_V1_DATABASE_URL` | 统一 PostgreSQL 连接串；仍可用各业务域专用 database URL 覆盖 |
+| `ERP_V1_FILE_STORAGE_PROFILE=object_storage` | 对附件和对账导出文件留档默认使用对象存储 |
+| `v1PersistenceProfile` / `persistenceProfile` | `createApiServer(...)` 的代码级配置入口，可传 `repositoryMode`、`fileStorageMode`、`databaseUrl`、`queryJson` 和共享对象存储选项 |
+
+显式传入的仓储对象或单仓储 `mode` 不会被 profile 覆盖，便于测试、灰度和单项回退。`GET /api/health` 与 `GET /api/system/v1-readiness` 只输出脱敏 profile 摘要，例如启用模式、默认应用 / 跳过数量、是否配置数据库，不输出连接串、本地路径、endpoint、bucket 密钥或 token。
+
+该 profile 只是降低部署配置遗漏风险，不是 readiness 绕过。当前已支持的仓储包括主数据导入复核仓储；启用 `ERP_V1_PERSISTENCE_PROFILE=postgres` 后，未被显式覆盖的 26 个仓储会默认使用 PostgreSQL。系统持久化门禁仍会按运行时实际仓储类型判断，如果当前实例没有真实启用 PostgreSQL / 对象存储，仍会显示为未完成。
+
+## 当前认证路由
+
+| 路由 | 说明 |
+|---|---|
+| `POST /api/auth/login` | 使用 seed 登录名 / 密码生成签名 bearer token |
+| `GET /api/auth/me` | 校验 bearer token，并返回当前会话和有效权限 |
+| `POST /api/auth/logout` | 退出占位；当前 seed token 无状态，前端丢弃 token 即可 |
+
+## 当前只读路由
+
+| 路由 | 说明 |
+|---|---|
+| `GET /api/health` | 健康检查，返回 OpenAPI 和种子数据计数 |
+| `GET /api/openapi/status` | OpenAPI 校验状态 |
+| `GET /api/auth/me` | 当前 seed 登录会话和权限 |
+| `GET /api/office/workspace` | P0 办公室端完整种子工作台 |
+| `GET /api/order-lines` | 订单池明细列表，默认读 workspace；PostgreSQL 模式读正式订单表并返回兼容字段和 OpenAPI 字段 |
+| `GET /api/order-lines/{id}` | 单条订单明细详情，返回订单、价格、库存、出库、对账、附件和操作日志摘要 |
+| `GET /api/inventory/items` | 库存种子列表 |
+| `GET /api/fulfillments` | 出库 / 交付种子列表 |
+| `GET /api/fulfillments/{id}` | 单条出库 / 交付种子 |
+| `GET /api/driver/delivery-tasks` | 司机送货任务列表，按权限返回待送货 / 配送中 / 已完成 / 异常统计 |
+| `GET /api/driver/delivery-tasks/{fulfillmentId}` | 单条司机送货任务详情 |
+| `GET /api/statements/customers` | 对账客户种子列表 |
+| `GET /api/statements/{id}` | 单条对账种子 |
+| `GET /api/attachments` | 按 ownerType / ownerId / purpose / fileType 查询附件摘要，默认从本地 JSON 仓储返回，可显式切 PostgreSQL 仓储 |
+| `GET /api/attachments/{attachmentId}/access-url` | 生成短期附件访问地址，P0 为 API proxy token，正式环境可替换为对象存储签名 URL |
+| `GET /api/attachments/{attachmentId}/access-logs` | 查询该附件访问地址签发和内容读取审计摘要，默认来自本地 JSON 访问审计仓储，可显式切 PostgreSQL 仓储 |
+| `GET /api/attachments/{attachmentId}/content` | 按附件 ID 读取内容，当前优先从本地文件返回 |
+| `GET /api/todos` | 公共待办种子列表 |
+| `GET /api/permissions/effective` | 当前 seed 账号有效权限 |
+| `GET /api/operation-logs` | 查询当前 server 进程内的关键操作日志 |
+
+## 当前内存写入路由
+
+| 路由 | 动作权限 | 说明 |
+|---|---|---|
+| `POST /api/order-drafts/recognize` | `order.draft.recognize` | 识别客户原文并保存进内存草稿 |
+| `PATCH /api/order-drafts/{draftId}` | `order.draft.save` | 保存草稿编辑结果，必要时生成草稿待办 |
+| `POST /api/order-drafts/{draftId}/confirm` | `order.confirm` | 重校验后生成正式订单明细、出库任务、库存占用和缺货待办；PostgreSQL 模式通过订单确认事务仓储同步写原始订单、明细、价格快照、出库任务、库存占用、库存流水、缺货待办和操作日志，并更新库存 reserved 数量 |
+| `POST /api/order-lines/{orderLineId}/void` | `order.void` | 作废未生产 / 未交付正式明细；PostgreSQL 模式通过订单明细作废事务仓储同步关闭明细、取消未交付出库任务、释放占用、写库存流水、订单变更记录和操作日志 |
+| `POST /api/order-lines/{orderLineId}/quantity-adjustment` | `order.quantity.adjust` | 调整未生产 / 未交付正式明细数量；减量释放多余占用，增量检查可用库存并补占用，PostgreSQL 模式通过订单明细改量事务仓储同步订单数量、出库任务数量、占用、库存流水、订单变更记录和操作日志 |
+| `POST /api/inventory/reservations/{reservationId}/release` | `inventory.reservation.release` | 释放全部或部分库存占用；PostgreSQL 模式通过库存占用释放事务仓储同步更新 reservation、库存 reserved 数量、释放流水和操作日志 |
+| `POST /api/fulfillments/{fulfillmentId}/exception` | `fulfillment.exception.create` | 上报数量不符 / 无法出库，并生成办公室待办；PostgreSQL 模式通过出库动作事务仓储同步更新出库记录、保存异常记录、待办和操作日志 |
+| `POST /api/fulfillments/{fulfillmentId}/print` | `fulfillment.print` | 模拟打印并更新快递快运待拉走状态；PostgreSQL 模式通过出库动作事务仓储同步更新出库记录、保存打印记录和操作日志 |
+| `POST /api/fulfillments/{fulfillmentId}/complete` | `fulfillment.complete` | 模拟自提 / 送货完成；PostgreSQL 模式通过出库动作事务仓储同步更新出库记录和操作日志，有生效库存占用时同步扣减在库、释放占用并写出库流水 |
+| `POST /api/fulfillments/{fulfillmentId}/pickup-confirm` | `fulfillment.pickup.confirm` | 模拟快递 / 快运已拉走；PostgreSQL 模式通过出库动作事务仓储同步更新出库记录和操作日志，有生效库存占用时同步扣减在库、释放占用并写出库流水 |
+| `POST /api/fulfillments/{fulfillmentId}/cancel` | `fulfillment.cancel` | 取消未交付出库任务；PostgreSQL 模式通过出库动作事务仓储同步更新出库记录、释放该明细仍生效的库存占用、写 `fulfillment_cancel` 库存流水和操作日志；不关闭订单明细 |
+| `POST /api/driver/delivery-tasks/{fulfillmentId}/load-confirm` | `delivery.load_confirm` | 司机确认已装车，把待送货任务推进到配送中并记录司机操作 |
+| `POST /api/driver/delivery-tasks/{fulfillmentId}/complete` | `delivery.complete` | 司机提交送达，要求水印照片证据，并保存水印编号、时间、地址、定位和司机快照；完成后复用出库动作事务进入已交付和对账候选 |
+| `POST /api/driver/delivery-tasks/{fulfillmentId}/exception` | `delivery.exception.create` | 司机上报装车 / 送货异常，生成办公室送货异常待办 |
+| `POST /api/statements/{statementId}/mark-sent` | `statement.send` | 标记对账单已发送；PostgreSQL 模式通过发送事务仓储同步更新对账单、保存 send record 和操作日志 |
+| `POST /api/statements/{statementId}/send-receipt` | `statement.send` | 登记发送记录的客户回执状态，例如已送达、已读、已确认或未回复；PostgreSQL 模式通过发送事务仓储更新 `statement_send_records.receipt_*` 字段并写操作日志 |
+| `POST /api/statements/{statementId}/payments` | `statement.payment.record` | 登记实收；PostgreSQL 模式通过收款登记事务仓储同步更新对账单、保存 payment record、少付生成差额待办和操作日志 |
+| `POST /api/statements/{statementId}/variance` | `statement.variance.handle` | 记录差额处理结果；PostgreSQL 模式通过结算事务仓储同步更新对账单、保存 variance record、按需生成后续待办和操作日志 |
+| `POST /api/statements/{statementId}/write-off` | `statement.write_off` | 按现有差额规则确认欠款 / 核销；PostgreSQL 模式通过结算事务仓储同步更新对账单和操作日志 |
+| `POST /api/attachments` | `attachment.create` | 登记附件摘要，P0 默认写入本地文件和本地 JSON 仓储；显式 PostgreSQL 仓储时写入附件元数据表 |
+| `POST /api/todos/{todoId}/handle` | `todo.handle` | 处理、稍后提醒、重新打开或标记查看待办 |
+
+## 当前响应适配边界
+
+- 订单确认在生产 Web 运行模式（`VITE_ERP_RUNTIME_MODE=production`、`strict` 或 `server_required`）下只接受后端事务结果；确认成功后前端刷新订单池、库存、交付和待办读投影，失败时不得本地创建订单、占用、交付或待办。非严格原型模式才保留离线本地确认降级。
+- `GET /api/fulfillments` 列表已返回 `customerId`、`orderLineId`、`package/packageCount`、`inventorySource/zone`，供确认后的交付投影刷新；不返回客户地址、价格、附件内容或敏感仓储信息。
+- 第一批写入接口已做一层 OpenAPI 响应字段适配，避免直接暴露前端 fixture 的内部字段名。
+- 当前已适配订单确认摘要、价格快照、库存校验、占用摘要、出库任务摘要、打印记录、出库动作结果、对账核销金额字段和待办返回结构。
+- `GET /api/fulfillments` 现在返回合同中的 `metrics` 和高密度列表字段。
+- `GET /api/driver/delivery-tasks` 现在走司机任务读取仓储，返回司机端合同中的 `metrics`、任务行摘要、工厂货品短写、联系人 / 地址 / 单据状态、送达证据 / 复核字段和下一步提示。
+- `scripts/check-api-skeleton.mjs` 已断言这些响应字段，并覆盖打印、快运拉走确认、对账核销、附件本地文件写入、附件摘要仓储写入、按业务 owner 查询附件、短期 access-url 签发、访问日志写入和查询、无权限头 token 读取内容、过期 token 拒绝，以及 API server 重启后的附件内容读取 / 列表 / 访问日志查询。
+- `scripts/check-postgres-live.mjs` 已用真实 Docker PostgreSQL 覆盖迁移执行、附件元数据仓储、附件访问审计仓储、订单确认事务仓储、订单确认库存占用 / 流水、司机任务读取仓储、司机派单路线查回、库存占用释放事务仓储、订单明细作废事务仓储、订单明细改量事务仓储、出库动作事务仓储、完成出库库存扣减 / 占用释放 / 出库流水、付款记录仓储、收款登记事务仓储、差额 / 核销事务仓储、发送 / 回执事务仓储，以及 API server 切到 PostgreSQL 仓储后的附件创建 / 查询 / 读取 / 访问审计路径、订单确认路径、司机任务列表 / 详情读取、库存占用释放路径、订单明细作废路径、订单明细改量路径、出库完成路径、付款登记路径、差额处理路径、核销路径、标记发送路径和发送回执路径。
+- 这仍不是完整 schema validator；深层字段格式、所有读接口详情、附件 / 打印独立接口和真实数据库错误仍需后续补齐。
+
+## 当前权限边界
+
+- 浏览器端会话 token 仅存 `sessionStorage`，不再写入 `localStorage`；认证初始化会清理旧 `erp.seedAuthSession.v1` 本地持久化键。该措施不替代 HttpOnly Cookie、refresh token、服务端会话撤销或生产身份提供方。
+- 生产启动必须使用 `ERP_AUTH_MODE=strict`（或 `NODE_ENV=production`）和非空 `ERP_AUTH_SECRET`；缺少密钥时 API 拒绝启动。严格模式下，除 `GET /api/health` 和 `POST /api/auth/login` 外，业务接口必须携带已验签的 Bearer session。
+- 严格模式禁用 seed 账号登录、`Authorization: Bearer seed:<userId>`、`x-erp-user-id`、`x-erp-action-permissions` 和未传身份时默认 `U-OFFICE-A` 的兼容行为。前述机制仅能在非严格的本地原型 / 回归模式使用。
+- 严格模式只对 `ERP_CORS_ALLOWED_ORIGINS` 中的来源返回 CORS 许可；JSON body 默认最多 `24 MiB`，可用 `ERP_API_MAX_JSON_BODY_BYTES` 调整。附件用途本身的大小校验仍是第二道业务限制。
+- `scripts/check-api-security-boundary.mjs` 覆盖严格模式密钥必填、伪造 Header 拒绝、seed 身份禁用、CORS 白名单和 JSON 超限返回 `413 REQUEST_BODY_TOO_LARGE`。
+- `POST /api/auth/login` 已提供 seed 登录入口，当前 seed 登录名包括 `office.a`、`warehouse.a`、`finance.a`、`manager.a`、`driver.a`；签名 token 默认 8 小时有效。
+- `GET /api/auth/me` 只接受 `Authorization: Bearer <seed-session token>`，未登录、错误密码或无效 token 会返回 `401`。
+- `GET /api/permissions/effective` 返回当前 seed 账号的有效权限；未传账号时默认 `U-OFFICE-A`。
+- 当前支持通过签名 seed token 指定账号；`x-erp-user-id` 和 `Authorization: Bearer seed:<userId>` 仍保留为本地骨架开发兼容方式。
+- `server/authSeed.mjs` 目前提供办公室、库房 / 出库、财务 / 对账、管理和司机 seed 账号，并按角色合成 `buttonPermissions`、`actionPermissions` 和 `grants`。
+- 司机 seed 账号只具备司机送货任务相关权限：`delivery.view`、`delivery.load_confirm`、`delivery.complete`、`delivery.exception.create`；默认不具备打印、改订单、改库存、改价格或对账权限。
+- 第一批内存写入路由已按 `actionPermissions` 做动作级拦截；缺权限时返回 `403 PERMISSION_DENIED` 和 `requiredPermission`。
+- `scripts/check-api-skeleton.mjs` 已校验默认办公室账号正向流程、未登录查当前会话失败、错误密码失败、财务账号 seed token 登录、财务账号不能录单、库房账号不能登记收款、未知账号为空权限。
+- 当前还没有正式数据库账号、密码哈希迁移、服务端 session 存储、token 撤销、角色继承数据库读取或权限落库；严格模式已经消除匿名 / Header 伪造入口，但身份和授权数据仍不是生产级持久化实现。
+- `x-erp-action-permissions` 请求头只用于非严格模式的本地骨架校验和负向测试。例如传 `none` 可模拟当前账号没有任何写入动作权限。
+
+## 当前边界
+
+- 订单确认 PostgreSQL 事务仓储已使用共享 `pg` pool client，不再调用同步 `psql`。事务在一个借用连接中执行并在失败时回滚；当前 SQL 生成仍是过渡实现，后续仓储迁移必须同时改为参数化 `text + values` 查询。
+- 系统 V1 持久化当前已有只读 readiness 门禁：`GET /api/system/v1-readiness` 汇总 28 个核心仓储的运行时模式，按订单/库存/出库、对账/收款、生产/司机、证据/审计/打印/主数据和文件留档分组判断。默认 `local_memory` / `local_json` / `local_fs` 会阻塞 V1 生产上线，除非通过服务端配置显式接受本地持久化。该接口只输出仓储类型和计数，不输出业务数据、连接串、本地路径或密钥；现在还会输出脱敏 `persistenceProfile`，方便确认是否用统一 `postgres` / `object_storage` profile 启动。`scripts/run-v1-readiness-check.mjs` 已把它纳入 11 项总门禁，当前本地实时总门禁为 `5/11 通过`。
+- 大多数写入路由只修改当前 Node 进程内存，不持久化，server 重启后恢复 seed。
+- 附件是当前例外：文件内容已通过 `workspace.attachmentObjectStorage` 写入 `.erp-local-storage/attachments/`，附件摘要和 owner 关联默认写入 `.erp-local-storage/metadata/attachment-records.json`，server 重启后同一个 `attachmentId` 可继续通过内容接口读取文件。设置 `ERP_ATTACHMENT_STORE=postgres` 并提供 `DATABASE_URL` 或 `ERP_ATTACHMENT_DATABASE_URL` 时，附件摘要和 owner 关联会走 PostgreSQL `attachments` / `attachment_links` 仓储。当前没有 live PostgreSQL 连接时只校验 SQL 边界。
+- 附件上传已有第一版用途级类型 / 大小校验；前端用于提前提示操作员，后端仍是最终拦截点并会按 MIME / 文件名重新推断 `fileType`。
+- 附件内容对象存储当前默认 `ERP_ATTACHMENT_OBJECT_STORAGE=local_fs`，统一处理 `putObject`、`readObject`、内容摘要、安全 storage key、data URL fallback、短期 access URL 和 token 校验。`ERP_ATTACHMENT_OBJECT_STORAGE=object_storage` 配置完整时会使用 S3 兼容 AWS Signature V4 签发 PUT / GET 请求和直连签名 URL；配置缺失时显式返回未配置占位。
+- 附件访问 URL 也是本地过渡能力：`GET /api/attachments/{attachmentId}/access-url` 会在 `attachment.view` 权限通过后通过对象存储接口签发短期访问地址。`local_fs` 下返回 API proxy token；`object_storage` 下返回对象存储直连签名 GET URL。
+- 附件访问审计当前已有独立仓储边界：默认写入 `.erp-local-storage/metadata/attachment-access-logs.json`，server 重启后仍可通过 `GET /api/attachments/{attachmentId}/access-logs` 查询；设置 `ERP_ATTACHMENT_ACCESS_AUDIT_STORE=postgres` 或 `ERP_ATTACHMENT_STORE=postgres` 时会生成 PostgreSQL `attachment_access_logs` 写入和查询 SQL。当前没有 live PostgreSQL 连接时只校验 SQL 边界。
+- 订单确认当前已有第一条核心事务边界：设置 `ERP_ORDER_CONFIRMATION_TRANSACTION_STORE=postgres` 或 `ERP_ORDER_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_ORDER_DATABASE_URL` 时，`POST /api/order-drafts/{draftId}/confirm` 会在同一个 PostgreSQL 事务内写入 `original_orders`、`order_lines`、`price_snapshots`、`fulfillment_records`、`inventory_reservations`、`inventory_ledger_entries`、缺货 `todos` 和 `operation_logs`，并更新 `inventory_items.reserved_qty`。生产和打包库存流转仍是后续事务边界。
+- 订单池读取当前已有第一轮仓储边界：设置 `ERP_ORDER_POOL_READ_STORE=postgres` 或 `ERP_ORDER_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_ORDER_DATABASE_URL` 时，`GET /api/order-lines` 和 `GET /api/order-lines/{id}` 会从正式订单表、最新价格快照、出库记录、库存占用和对账状态生成读模型。本地模式继续读 workspace，保证 P0 原型无需数据库也可运行。
+- 订单明细作废当前已有第一轮事务边界：设置 `ERP_ORDER_LINE_VOID_TRANSACTION_STORE=postgres` 或 `ERP_ORDER_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_ORDER_DATABASE_URL` 时，`POST /api/order-lines/{orderLineId}/void` 会在同一个 PostgreSQL 事务内关闭 `order_lines`、取消未交付 `fulfillment_records`、释放该明细仍生效的 `inventory_reservations`、扣减 `inventory_items.reserved_qty`、写 `inventory_ledger_entries` 释放流水、写 `order_line_change_records` 和 `operation_logs`。
+- 订单明细改量当前已有第一轮事务边界：设置 `ERP_ORDER_LINE_QUANTITY_ADJUSTMENT_TRANSACTION_STORE=postgres` 或 `ERP_ORDER_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_ORDER_DATABASE_URL` 时，`POST /api/order-lines/{orderLineId}/quantity-adjustment` 会在同一个 PostgreSQL 事务内更新 `order_lines.original_qty`、同步未交付 `fulfillment_records.expected_qty`、更新 `inventory_reservations.reserved_qty/status`、调整 `inventory_items.reserved_qty`、写 `inventory_ledger_entries` 改量流水、写 `order_line_change_records` 和 `operation_logs`。
+- 库存占用释放当前已有第一轮事务边界：设置 `ERP_INVENTORY_RESERVATION_RELEASE_TRANSACTION_STORE=postgres` 或 `ERP_INVENTORY_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_INVENTORY_DATABASE_URL` 时，`POST /api/inventory/reservations/{reservationId}/release` 会在同一个 PostgreSQL 事务内更新 `inventory_reservations.reserved_qty/status`、扣减 `inventory_items.reserved_qty`、写 `inventory_ledger_entries` 释放流水并写 `operation_logs`。部分释放后的 reservation 会继续被完成出库按剩余占用处理。
+- 出库动作当前已有第一轮事务边界：设置 `ERP_FULFILLMENT_ACTION_TRANSACTION_STORE=postgres` 或 `ERP_FULFILLMENT_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_FULFILLMENT_DATABASE_URL` 时，`POST /api/fulfillments/{fulfillmentId}/print`、`/complete`、`/pickup-confirm`、`/cancel` 和 `/exception` 会在同一个 PostgreSQL 事务内更新 `fulfillment_records`，并按动作写 `print_records`、`fulfillment_exceptions`、`todos`、`operation_logs`、`inventory_reservations`、`inventory_items` 和 `inventory_ledger_entries`。`/complete` 与 `/pickup-confirm` 在最终状态为 `已交付` 且订单明细存在生效 `inventory_reservations` 时，会同步把 reservation 标记 `已出库`、扣减 `inventory_items.on_hand_qty`、释放 `inventory_items.reserved_qty` 并写出库扣减流水；`/cancel` 只允许未交付任务，取消后不关闭订单明细，但会把仍生效的 reservation 释放为 0、扣减 `inventory_items.reserved_qty` 并写 `fulfillment_cancel` 流水。送达证据复核 API 复用该事务边界写 workspace 投影、待办和操作日志；PostgreSQL 表已保存水印 / 签收证据、复核状态、复核人和退回原因字段。无 reservation 旧单扣减策略、生产和打包库存流转仍是后续事务边界。
+- 付款记录当前已有独立仓储边界：默认写当前 API workspace；设置 `ERP_PAYMENT_RECORD_STORE=postgres` 或 `ERP_STATEMENT_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_PAYMENT_DATABASE_URL` 时，可写入 PostgreSQL `payment_records`。
+- 收款登记当前已有第一条事务边界：设置 `ERP_STATEMENT_PAYMENT_TRANSACTION_STORE=postgres` 或 `ERP_STATEMENT_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_STATEMENT_DATABASE_URL` 时，`POST /api/statements/{statementId}/payments` 会在同一个 PostgreSQL 事务内更新 `statements`、写 `payment_records`、少付时写 `todos`，并写 `operation_logs`。
+- 差额处理 / 核销当前已有结算事务边界：设置 `ERP_STATEMENT_SETTLEMENT_TRANSACTION_STORE=postgres` 或 `ERP_STATEMENT_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_STATEMENT_DATABASE_URL` 时，`POST /api/statements/{statementId}/variance` 会在同一个 PostgreSQL 事务内更新 `statements`、写 `variance_records`、按需写 `todos`，并写 `operation_logs`；`POST /api/statements/{statementId}/write-off` 会同步更新 `statements` 和 `operation_logs`。
+- 标记已发送 / 发送回执 / 客户确认当前已有发送事务边界：设置 `ERP_STATEMENT_SEND_TRANSACTION_STORE=postgres` 或 `ERP_STATEMENT_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_STATEMENT_DATABASE_URL` 时，`POST /api/statements/{statementId}/mark-sent` 会在同一个 PostgreSQL 事务内更新 `statements` 状态 / `last_sent_at`、写 `statement_send_records`，并写 `operation_logs`；如果已有客户发送版导出 token，会写入 `statement_send_records.export_file_id`。`POST /api/statements/{statementId}/send-receipt` 会更新发送记录 `receipt_status / receipt_at / receipt_by / receipt_note` 并写操作日志；`POST /api/statements/{statementId}/customer-confirmation` 会更新对账单状态、把发送回执升级为 `confirmed`，写 `statement_confirmation_records` 和操作日志。
+- 对账预览 / 导出文件当前已有仓储边界：设置 `ERP_STATEMENT_EXPORT_STORE=postgres` 或 `ERP_STATEMENT_STORE=postgres` 并提供 `DATABASE_URL` / `ERP_STATEMENT_DATABASE_URL` 时，`POST /api/statements/{statementId}/preview` 会把生成的对账明细写入 `statement_lines`，把导出元数据和 `.xlsx` base64 兜底内容写入 `statement_export_files`，并写入 `operation_logs`；`GET /api/statements/{statementId}/exports` 返回不含内容的元数据列表，`GET /api/statements/{statementId}/exports/{downloadToken}` 优先从对象存储读取文件，必要时从数据库兜底内容下载。
+- 写入路由当前只做轻量业务校验、seed 登录 / 多账号动作权限拦截和第一轮响应字段适配；订单确认、订单确认库存占用、订单池读取、订单明细作废、订单明细改量、库存占用释放、出库动作、完成出库库存扣减、出库取消 / 回滚释放和对账关键动作已有第一批数据库边界，无 reservation 旧单扣减策略、生产 / 打包库存流转等剩余数据库事务、正式登录鉴权和权限落库仍待接入。
+- 大部分业务路由仍不接正式数据库；`db/migrations/` 是 PostgreSQL 第一批迁移草案，当前已支持 dry-run，真实执行需要 `DATABASE_URL` 和本机 `psql`。
+- 数据经 `server/seeds/syntheticOfficeSeed.mjs` 来自 `src/data/fixtures.js`，仍是 P0 synthetic fixtures。
+- OpenAPI 校验依赖本地 Ruby 的 YAML 标准库，和前几轮校验口径一致。
+- 后续真实后端应复用 `docs/development/erp-erd-draft.zh-CN.md` 的表结构和 `docs/development/erp-api-openapi-draft.yaml` 的接口合同。
+
+## 下一步
+
+1. 先处理系统 V1 持久化门禁：切换核心仓储到 PostgreSQL / 对象存储，或形成明确的本地持久化 V1 风险接受配置和业务确认记录。
+2. 确认正式后端技术栈和数据库，建议从 Node.js + PostgreSQL 方向评估。
+3. 准备 PostgreSQL 连接，把 `ERP_V1_DATABASE_URL` 写入安全未跟踪 env 文件，执行 `node -- scripts/run-db-migrations.mjs --env-file <secure-env-file> --apply`，确认空库建表。
+4. 用 `ERP_ATTACHMENT_STORE=postgres DATABASE_URL=... npm run api:dev` 做附件创建、列表、短期访问 URL、内容读取和访问审计的 live database 检查。
+5. 用真实 OSS/S3/COS bucket 做对象存储 live PUT / GET / 签名 URL 验证，再接持久缩略图、对象生命周期规则和对象存储事件回写。
+6. 增加 real-sample fixtures 入口，支持 synthetic / real-sample 切换。
+7. 基于现有 OpenAPI 草案继续补正式账号表、密码哈希、服务端会话撤销、权限落库，以及无 reservation 旧单扣减策略、生产 / 打包库存流转等剩余数据库事务和操作日志落库。

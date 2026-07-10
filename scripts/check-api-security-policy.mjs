@@ -1,0 +1,49 @@
+import assert from "node:assert/strict";
+import {
+  buildApiSecurityPolicy,
+  defaultMaxJsonBodyBytes,
+  getWorkspaceSecurityPolicy,
+  isCorsRequestAllowed,
+  isPublicApiRoute,
+} from "../server/apiSecurityPolicy.mjs";
+
+assert.throws(
+  () => buildApiSecurityPolicy({ strictAuth: true }, {}),
+  /ERP_AUTH_SECRET/,
+);
+
+const strictPolicy = buildApiSecurityPolicy(
+  {
+    authMode: "strict",
+    authSecret: "test-secret",
+    allowSeedUsers: true,
+    allowLegacyIdentityHeaders: true,
+    allowActionPermissionOverride: true,
+    allowDefaultSeedUser: true,
+    corsAllowedOrigins: "https://erp.example.test, https://office.example.test",
+    maxJsonBodyBytes: 321.8,
+  },
+  {},
+);
+assert.equal(strictPolicy.strictAuth, true);
+assert.equal(strictPolicy.allowSeedUsers, false);
+assert.equal(strictPolicy.allowLegacyIdentityHeaders, false);
+assert.equal(strictPolicy.allowActionPermissionOverride, false);
+assert.equal(strictPolicy.allowDefaultSeedUser, false);
+assert.equal(strictPolicy.maxJsonBodyBytes, 321);
+assert.equal(isCorsRequestAllowed(strictPolicy, "https://erp.example.test"), true);
+assert.equal(isCorsRequestAllowed(strictPolicy, "https://untrusted.example.test"), false);
+
+const localPolicy = buildApiSecurityPolicy({}, { ERP_API_MAX_JSON_BODY_BYTES: "invalid" });
+assert.equal(localPolicy.strictAuth, false);
+assert.equal(localPolicy.allowSeedUsers, true);
+assert.equal(localPolicy.maxJsonBodyBytes, defaultMaxJsonBodyBytes);
+assert.equal(isCorsRequestAllowed(localPolicy, "https://untrusted.example.test"), true);
+assert.equal(isPublicApiRoute("GET", "/api/health"), true);
+assert.equal(isPublicApiRoute("POST", "/api/auth/login"), true);
+assert.equal(isPublicApiRoute("POST", "/api/auth/prototype-login", strictPolicy), false);
+assert.equal(isPublicApiRoute("POST", "/api/auth/prototype-login", localPolicy), true);
+assert.equal(isPublicApiRoute("GET", "/api/permissions/effective"), false);
+assert.equal(getWorkspaceSecurityPolicy({}).maxJsonBodyBytes, defaultMaxJsonBodyBytes);
+
+console.log("API security policy checks passed");

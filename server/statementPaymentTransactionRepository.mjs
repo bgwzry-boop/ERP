@@ -1,0 +1,395 @@
+import { normalizePaymentRecord } from "./paymentRecordRepository.mjs";
+import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+
+export function createStatementPaymentTransactionRepository(options = {}) {
+  const mode =
+    options.mode ??
+    process.env.ERP_STATEMENT_PAYMENT_TRANSACTION_STORE ??
+    process.env.ERP_STATEMENT_STORE ??
+    process.env.ERP_PAYMENT_RECORD_STORE ??
+    "local";
+  if (mode === "postgres") {
+    return createPostgresStatementPaymentTransactionRepository({
+      databaseUrl:
+        options.databaseUrl ?? process.env.ERP_STATEMENT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
+      queryJson: options.queryJson,
+      transactionJson: options.transactionJson,
+      postgresClient: options.postgresClient,
+    });
+  }
+  if (mode === "local") return createLocalStatementPaymentTransactionRepository();
+  throw new Error(`Unsupported statement payment transaction repository mode: ${mode}`);
+}
+
+export function createLocalStatementPaymentTransactionRepository() {
+  return {
+    kind: "local_memory",
+
+    recordStatementPayment(input) {
+      applyStatementPaymentWorkspaceMutation(input);
+      return normalizeStatementPaymentTransactionResult({
+        statement: input.statement,
+        payment: input.paymentRecord,
+        todo: input.todo ?? null,
+        operationLogId: input.operationLog?.id ?? "",
+      });
+    },
+  };
+}
+
+export function createPostgresStatementPaymentTransactionRepository(options = {}) {
+  const { transactionJson } = createPostgresTransactionExecutor(options);
+
+  return {
+    kind: "postgres",
+
+    async recordStatementPayment(input) {
+      const query = buildRecordStatementPaymentTransactionQuery(input);
+      const saved = normalizeStatementPaymentTransactionResult(
+        await transactionJson(query.text, query.values),
+      );
+      if (!saved.statement || !saved.payment) {
+        throw new Error("PostgreSQL statement payment transaction returned an invalid result");
+      }
+      applyStatementPaymentWorkspaceMutation({
+        ...input,
+        statement: saved.statement,
+        paymentRecord: saved.payment,
+        todo: saved.todo ?? input.todo,
+      });
+      return saved;
+    },
+  };
+}
+
+export function buildRecordStatementPaymentTransactionSql(input) {
+  return buildRecordStatementPaymentTransactionQuery(input).text;
+}
+
+export function buildRecordStatementPaymentTransactionQuery(input) {
+  const parameters = createPostgresParameterBinder();
+  return {
+    text: buildRecordStatementPaymentTransactionText(input, parameters),
+    values: parameters.values,
+  };
+}
+
+function buildRecordStatementPaymentTransactionText(input, parameters) {
+  const statement = normalizeStatementForPersistence(input.statement);
+  const paymentRecord = normalizePaymentRecord(input.paymentRecord);
+  const todo = normalizeTodoForPersistence(input.todo, input.operationLog?.operatorId);
+  const operationLog = normalizeOperationLogForPersistence(input.operationLog);
+  if (!statement || !paymentRecord || !operationLog) {
+    throw new Error("Statement, payment record, and operation log are required for statement payment transaction");
+  }
+  const insertedTodoCte = todo
+    ? `INSERT INTO todos (
+  id,
+  biz_no,
+  type,
+  ref_type,
+  ref_id,
+  priority,
+  status,
+  summary,
+  due_at,
+  remind_at,
+  created_by,
+  created_at,
+  updated_at
+) VALUES (
+  ${parameters.text(todo.id)},
+  ${parameters.text(todo.bizNo)},
+  ${parameters.text(todo.type)},
+  ${parameters.text(todo.refType)},
+  ${parameters.text(todo.refId)},
+  ${parameters.text(todo.priority)},
+  ${parameters.text(todo.status)},
+  ${parameters.text(todo.summary)},
+  ${parameters.nullableTimestamp(todo.dueAt)},
+  ${parameters.nullableTimestamp(todo.remindAt)},
+  ${parameters.nullableText(todo.createdBy)},
+  now(),
+  now()
+)
+ON CONFLICT (id) DO UPDATE SET
+  type = EXCLUDED.type,
+  ref_type = EXCLUDED.ref_type,
+  ref_id = EXCLUDED.ref_id,
+  priority = EXCLUDED.priority,
+  status = EXCLUDED.status,
+  summary = EXCLUDED.summary,
+  due_at = EXCLUDED.due_at,
+  remind_at = EXCLUDED.remind_at,
+  updated_at = now()
+RETURNING ${todoJsonExpression("todos")} AS result`
+    : "SELECT NULL::json AS result WHERE false";
+
+  return `
+BEGIN;
+WITH updated_statement AS (
+  UPDATE statements
+  SET
+    status = ${parameters.text(statement.status)},
+    received_amount = ${parameters.number(statement.received)},
+    variance_amount = ${parameters.number(statement.variance)},
+    receivable_amount = ${parameters.number(statement.receivable)},
+    updated_at = now()
+  WHERE id = ${parameters.text(statement.id)}
+  RETURNING ${statementJsonExpression("statements")} AS result
+),
+inserted_payment AS (
+  INSERT INTO payment_records (
+    id,
+    biz_no,
+    statement_id,
+    customer_id,
+    amount,
+    payment_method,
+    payment_at,
+    status,
+    registered_by,
+    evidence_attachment_id,
+    remark,
+    created_at,
+    updated_at
+  ) VALUES (
+    ${parameters.text(paymentRecord.paymentRecordId)},
+    ${parameters.text(paymentRecord.bizNo ?? paymentRecord.paymentRecordId)},
+    ${parameters.text(paymentRecord.statementId)},
+    ${parameters.text(paymentRecord.customerId)},
+    ${parameters.number(paymentRecord.amount)},
+    ${parameters.text(paymentRecord.method ?? "other")},
+    ${parameters.timestamp(paymentRecord.paidAt)},
+    ${parameters.text(paymentRecord.status ?? "recorded")},
+    ${parameters.nullableText(paymentRecord.operatorId)},
+    ${parameters.nullableText(paymentRecord.attachmentIds[0])},
+    ${parameters.text(paymentRecord.remark ?? "")},
+    now(),
+    now()
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    biz_no = EXCLUDED.biz_no,
+    statement_id = EXCLUDED.statement_id,
+    customer_id = EXCLUDED.customer_id,
+    amount = EXCLUDED.amount,
+    payment_method = EXCLUDED.payment_method,
+    payment_at = EXCLUDED.payment_at,
+    status = EXCLUDED.status,
+    registered_by = EXCLUDED.registered_by,
+    evidence_attachment_id = EXCLUDED.evidence_attachment_id,
+    remark = EXCLUDED.remark,
+    updated_at = now()
+  RETURNING ${paymentRecordJsonExpression("payment_records")} AS result
+),
+inserted_todo AS (
+  ${insertedTodoCte}
+),
+inserted_operation_log AS (
+  INSERT INTO operation_logs (
+    id,
+    target_type,
+    target_id,
+    action,
+    before_json,
+    after_json,
+    reason,
+    operator_id,
+    page_key,
+    occurred_at,
+    created_at
+  ) VALUES (
+    ${parameters.text(operationLog.id)},
+    ${parameters.text(operationLog.targetType)},
+    ${parameters.text(operationLog.targetId)},
+    ${parameters.text(operationLog.action)},
+    ${parameters.json(operationLog.before)},
+    ${parameters.json(operationLog.after)},
+    ${parameters.text(operationLog.reason)},
+    ${parameters.nullableText(operationLog.operatorId)},
+    ${parameters.text(operationLog.pageKey)},
+    ${parameters.timestamp(operationLog.occurredAt)},
+    ${parameters.timestamp(operationLog.createdAt)}
+  )
+  ON CONFLICT (id) DO UPDATE SET
+    target_type = EXCLUDED.target_type,
+    target_id = EXCLUDED.target_id,
+    action = EXCLUDED.action,
+    before_json = EXCLUDED.before_json,
+    after_json = EXCLUDED.after_json,
+    reason = EXCLUDED.reason,
+    operator_id = EXCLUDED.operator_id,
+    page_key = EXCLUDED.page_key
+  RETURNING id
+)
+SELECT json_build_object(
+  'statement', (SELECT result FROM updated_statement),
+  'payment', (SELECT result FROM inserted_payment),
+  'todo', (SELECT result FROM inserted_todo LIMIT 1),
+  'operationLogId', (SELECT id FROM inserted_operation_log)
+) AS result;
+COMMIT;
+`.trim();
+}
+
+export function normalizeStatementPaymentTransactionResult(value) {
+  if (!value || typeof value !== "object") {
+    return { statement: null, payment: null, todo: null, operationLogId: "" };
+  }
+  return {
+    statement: normalizeStatementForApi(value.statement),
+    payment: normalizePaymentRecord(value.payment),
+    todo: normalizeTodoForApi(value.todo),
+    operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
+  };
+}
+
+function applyStatementPaymentWorkspaceMutation({ workspace, statements, statement, paymentRecord, todo, operationLog }) {
+  if (Array.isArray(statements)) {
+    workspace.statements = statements;
+  } else if (statement?.id) {
+    workspace.statements = workspace.statements.map((item) => (item.id === statement.id ? { ...item, ...statement } : item));
+  }
+  const payment = normalizePaymentRecord(paymentRecord);
+  if (payment) workspace.paymentRecords.unshift(payment);
+  if (todo) workspace.todos.unshift(todo);
+  if (operationLog) workspace.operationLogs.unshift(operationLog);
+}
+
+function normalizeStatementForPersistence(statement) {
+  if (!statement || typeof statement !== "object") return null;
+  const id = String(statement.id ?? statement.statementId ?? "").trim();
+  if (!id) return null;
+  return {
+    id,
+    status: String(statement.status ?? "").trim(),
+    receivable: Number(statement.receivable ?? statement.receivableAmount ?? 0),
+    received: Number(statement.received ?? statement.receivedAmount ?? 0),
+    variance: Number(statement.variance ?? statement.varianceAmount ?? 0),
+  };
+}
+
+function normalizeStatementForApi(statement) {
+  if (!statement || typeof statement !== "object") return null;
+  const id = String(statement.id ?? statement.statementId ?? "").trim();
+  if (!id) return null;
+  return {
+    id,
+    customerId: String(statement.customerId ?? statement.customer_id ?? "").trim(),
+    status: String(statement.status ?? "").trim(),
+    receivable: Number(statement.receivable ?? statement.receivableAmount ?? statement.receivable_amount ?? 0),
+    received: Number(statement.received ?? statement.receivedAmount ?? statement.received_amount ?? 0),
+    variance: Number(statement.variance ?? statement.varianceAmount ?? statement.variance_amount ?? 0),
+  };
+}
+
+function normalizeTodoForPersistence(todo, operatorId) {
+  if (!todo || typeof todo !== "object") return null;
+  const id = String(todo.id ?? todo.todoId ?? "").trim();
+  if (!id) return null;
+  return {
+    id,
+    bizNo: String(todo.bizNo ?? todo.biz_no ?? id).trim(),
+    type: String(todo.type ?? "").trim(),
+    refType: String(todo.refType ?? todo.ref_type ?? inferTodoRefType(todo.ref ?? todo.refId ?? "")).trim(),
+    refId: String(todo.refId ?? todo.ref_id ?? todo.ref ?? "").trim(),
+    priority: mapTodoPriorityForSql(todo.urgency ?? todo.priority),
+    status: todo.handled ? "已处理" : "未处理",
+    summary: String(todo.summary ?? "").trim(),
+    dueAt: todo.dueAt ?? null,
+    remindAt: todo.remindAt ?? todo.snoozeUntil ?? null,
+    createdBy: String(todo.createdBy ?? todo.created_by ?? operatorId ?? "").trim(),
+  };
+}
+
+function normalizeTodoForApi(todo) {
+  if (!todo || typeof todo !== "object") return null;
+  const id = String(todo.id ?? todo.todoId ?? "").trim();
+  if (!id) return null;
+  return {
+    id,
+    type: String(todo.type ?? "").trim(),
+    ref: String(todo.ref ?? todo.refId ?? todo.ref_id ?? "").trim(),
+    summary: String(todo.summary ?? "").trim(),
+    urgency: String(todo.urgency ?? todo.priority ?? "").trim(),
+  };
+}
+
+function normalizeOperationLogForPersistence(operationLog) {
+  if (!operationLog || typeof operationLog !== "object") return null;
+  const id = String(operationLog.id ?? "").trim();
+  if (!id) return null;
+  return {
+    id,
+    targetType: String(operationLog.targetType ?? operationLog.target_type ?? "").trim(),
+    targetId: String(operationLog.targetId ?? operationLog.target_id ?? "").trim(),
+    action: String(operationLog.action ?? "").trim(),
+    before: operationLog.before ?? null,
+    after: operationLog.after ?? null,
+    reason: String(operationLog.reason ?? "").trim(),
+    operatorId: String(operationLog.operatorId ?? operationLog.operator_id ?? "").trim(),
+    pageKey: String(operationLog.pageKey ?? operationLog.page_key ?? "api").trim() || "api",
+    occurredAt: operationLog.occurredAt ?? new Date().toISOString(),
+    createdAt: operationLog.createdAt ?? new Date().toISOString(),
+  };
+}
+
+function statementJsonExpression(alias) {
+  return `json_build_object(
+    'id', ${alias}.id,
+    'customerId', ${alias}.customer_id,
+    'status', ${alias}.status,
+    'receivable', ${alias}.receivable_amount,
+    'received', ${alias}.received_amount,
+    'variance', ${alias}.variance_amount
+  )`;
+}
+
+function paymentRecordJsonExpression(alias) {
+  return `json_build_object(
+    'paymentRecordId', ${alias}.id,
+    'bizNo', ${alias}.biz_no,
+    'statementId', ${alias}.statement_id,
+    'customerId', ${alias}.customer_id,
+    'amount', ${alias}.amount,
+    'paidAt', ${alias}.payment_at,
+    'method', ${alias}.payment_method,
+    'status', ${alias}.status,
+    'attachmentIds', CASE
+      WHEN ${alias}.evidence_attachment_id IS NULL OR ${alias}.evidence_attachment_id = '' THEN '[]'::json
+      ELSE json_build_array(${alias}.evidence_attachment_id)
+    END,
+    'operatorId', ${alias}.registered_by,
+    'remark', ${alias}.remark
+  )`;
+}
+
+function todoJsonExpression(alias) {
+  return `json_build_object(
+    'id', ${alias}.id,
+    'type', ${alias}.type,
+    'ref', ${alias}.ref_id,
+    'summary', ${alias}.summary,
+    'urgency', ${alias}.priority
+  )`;
+}
+
+function inferTodoRefType(refId) {
+  const value = String(refId ?? "");
+  if (value.startsWith("ST-")) return "statement";
+  if (value.startsWith("DRAFT")) return "order_draft";
+  if (value.startsWith("F")) return "fulfillment";
+  return "order_line";
+}
+
+function mapTodoPriorityForSql(value) {
+  const map = {
+    急: "urgent",
+    今天: "urgent",
+    异常: "exception",
+    关注: "management_watch",
+    普通: "normal",
+  };
+  return map[value] ?? (String(value ?? "normal").trim() || "normal");
+}

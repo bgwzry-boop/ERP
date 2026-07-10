@@ -1,6 +1,6 @@
 # ERP Product Requirements
 
-Last updated: 2026-06-29
+Last updated: 2026-07-05
 
 This is the actionable product truth migrated from the old `设计中小工厂ERP系统` thread.
 
@@ -9,6 +9,8 @@ This is the actionable product truth migrated from the old `设计中小工厂ER
 Build a factory ERP for small fragmented packaging orders. The system must connect order entry, inventory, scheduling, workshop reporting, packing, delivery/pickup, customer reconciliation, and price-table-aware billing.
 
 The first usable surface is the production board, because scheduling is the clearest differentiator from ordinary inventory or e-commerce ERP.
+
+V1 should prioritize a single-factory, human-controlled, auditable core loop. Customer-group auto-reading / auto-reply, expanded AI/OCR recognition, route / scheduling optimization, deep cost and gross-margin analysis, full payroll, and BI belong to V2 or later versions.
 
 ## V1 Product Surfaces
 
@@ -104,11 +106,15 @@ Driver task lists should first follow the manual delivery sequence set by office
 
 Each driver task list row should use two compact lines: first line `[delivery] customer #order-tail`; second line `address area / package count / quantity / urgent-or-note mark`.
 
-Driver task detail should show customer, contact, phone, full address, navigation action, delivery note number, customer notes, and office notes. It should also show package count, package details, order-line summary, and the paper / electronic delivery-note number. Drivers only check whether goods and documents match.
+Driver task detail should show customer, contact, phone, full address, navigation action, delivery note number, customer notes, and office notes. It should also show package count, package details, order-line summary, and the paper / electronic delivery-note number. Drivers only check whether goods, packages, and documents match.
+
+Before loading, drivers must check the package-level loading checklist. The system should show package ID / sequence / quantity from real package records when available; when real package rows are not connected yet, it can generate temporary checklist rows from package count and quantity. Drivers cannot confirm loaded until all checklist rows are checked.
 
 Before loading, drivers get a lightweight `confirm loaded` action. If goods, packages, or the note do not match, they tap `loading exception`; the issue returns to warehouse / office handling. Drivers do not change the order or delivery document on the driver screen.
 
 Delivery completion requires a watermark photo, with signature photo optional. The system records driver, completion time, and location automatically; receiver name and notes are optional.
+
+Driver delivery completion and office evidence review are separate states. After the driver submits watermarked evidence, the delivery evidence waits for office review; office / management users can mark it `reviewed` or `retake required` after checking the watermark photo, optional signature photo, location, and paper-note context. Driver users must not have evidence-review permission.
 
 V1 delivery exception reasons are `customer absent`, `cannot reach by phone`, `unclear address`, `customer refused delivery`, `package / quantity mismatch`, `temporary delivery change`, and `other`.
 
@@ -138,7 +144,7 @@ P0 inventory lookup should use fake inventory and local reservation simulation, 
 
 P0 outbound / fulfillment should support self-pickup, driver delivery, and express / less-than-truckload state flows plus document / label previews, but it should not connect to the real dot-matrix printer or label printer yet.
 
-P0 statements / payments should first provide an in-browser statement table, totals, adjustment amount, actual received, debt status, and export placeholder or simple download. Final Excel styling should wait until the current factory template is supplied.
+P0 statements / payments should first provide an in-browser statement table, totals, adjustment amount, actual received, debt status, and Excel export. Excel should use the first system-default template, then adapt column order, styling, print settings, and sending habits after the current factory template is supplied.
 
 P0 acceptance should use the 20-50 desensitized sample orders to validate the main process and exception handling, not a complete backend or real APIs.
 
@@ -148,7 +154,7 @@ The P0 synthetic dataset should include 12 customers covering cash settlement, 5
 
 P0 sample orders should cover at least eight categories: in-stock stock/common goods, out-of-stock stock/common goods, custom printed orders, printed stock/common goods, external-processing print orders, self-pickup, driver delivery, and express / less-than-truckload.
 
-Order-recognition test strings should intentionally include non-standard customer wording, such as `3038 red 500 pickup tomorrow afternoon`, `medium horizontal black 1000`, or `30*38 red 500 black 100`, so the team can validate whether office correction is efficient.
+Order-recognition test strings should intentionally include non-standard customer wording, such as `3038 red 500 pickup tomorrow afternoon`, `medium horizontal black 1000`, `30*38 red 500 black 100`, and custom-print factory shorthand such as `白印黑`, `白袋黑提`, and `黄袋红提`, so the team can validate whether office correction is efficient.
 
 P0 fake stock must use the real inventory key: size / model + color + handle type + finished-goods style + warehouse zone / state. It must not simplify stock to size and color only.
 
@@ -170,7 +176,9 @@ The P0 outbound / fulfillment page should use tabs for `all`, `self-pickup`, `dr
 
 The P0 outbound / fulfillment page should default to items due today, incomplete outbound / fulfillment records, and pending exceptions. Historical completed records should be available through filters rather than occupying the default work view.
 
-P0 outbound / fulfillment list columns should include customer, order / line tail number, fulfillment method, goods summary, quantity / package count, latest needed time, current status, and customer-note / office-note markers.
+P0 outbound / fulfillment list columns should include customer, order / line tail number, fulfillment method, goods / spec shorthand, quantity / package count, latest needed time, current status, and customer-note / office-note markers.
+
+For custom products, outbound / fulfillment goods specs should use the factory's compact wording: product name + size + compact color spec + print side + quantity + notes. Compact color spec combines bag color with print color, e.g. `白印黑` for white bag printed black, and bag color with handle color, e.g. `白袋黑提` for white bag with black handles or `黄袋红提` for yellow bag with red handles. When both print color and handle color apply, show both, e.g. `白印黑 / 白袋黑提`. Detail views and backend fields should still preserve structured bag color, print color, and handle color values.
 
 The P0 outbound / fulfillment right-side detail drawer should show customer / contact / phone / address, order-line details, inventory source, package / label / document preview, customer notes, office notes, and operation history.
 
@@ -188,13 +196,15 @@ The P0 statements / payments right-side detail should be divided into customer s
 
 P0 customer-facing statement details should summarize by order line. Internal detail can drill down to delivery batches, packages, driver delivery, self-pickup, express / LTL, and evidence records.
 
-P0 statements / payments actions should cover `generate statement preview`, `mark sent`, `record received amount`, `variance pending confirmation`, `confirm write-off`, and `export placeholder`.
+P0 statements / payments actions should cover `generate statement preview`, `mark sent`, `mark read receipt`, `record customer confirmation`, `record received amount`, `variance pending confirmation`, `confirm write-off`, and `export Excel`. Statement send records should retain receipt state such as pending, delivered, read, confirmed, or no response.
 
 When a customer pays less than the receivable amount, P0 should default to `variance pending confirmation`. It must not automatically treat the variance as rounding / write-off. Staff should choose unpaid balance, rounding / write-off, statement error, waiting for multiple payments, or other.
 
-P0 export should start with a browser statement table and a simplified Excel download placeholder. The final Excel styling should be adapted after the factory's current template is provided.
+When unpaid variance is confirmed as debt carry-forward, the write-off action must not clear that amount. The statement should remain visible in debt / variance filters and be brought into the next statement cycle by default. Only no-variance statements, or statements with a clearing result such as approved rounding / allowance, can move to the settled / written-off state.
 
-P0 price fixtures should use the confirmed bag size price table and the confirmed silk-screen step prices. Bag prices come from the confirmed size table, and silk-screen tiers use `0.12 / 0.09 / 0.08 / 0.06` yuan per piece.
+P0 export should start with a browser statement table and the first system-default Excel download. The final styling, column order, print settings, and customer-sending habits should be adapted after the factory's current template is provided.
+
+P0 price fixtures should use the confirmed bag size price table and the confirmed silk-screen step prices. Bag prices come from the confirmed size table. The 2026-07-03 silk-screen table uses manual-printing prices of `0.09` yuan per piece for single-sided content and `0.13` yuan per piece for double-sided content, plus machine-printing tiers of `0.09 / 0.08 / 0.06` yuan per piece at 3000 / 5000 / 10000 pieces.
 
 P0 account fixtures should initially include Office A, Office B, boss / management, production supervisor, warehouse, driver, silk-screen worker, bag-making worker, and packing worker, so permissions, task pools, operation logs, and responsibility clues can be tested.
 
@@ -206,7 +216,7 @@ P0 left navigation should make only the six desktop office core pages clickable.
 
 P0 fake data should start with about 30 orders, 12 customers, and enough inventory, todo, package, and statement records to cover in-stock stock orders, out-of-stock stock orders, custom print, express / LTL, driver delivery, self-pickup, quantity variance, and payment variance scenarios.
 
-P0 print and export buttons should open previews or mutate simulated states only. Excel remains a placeholder / simplified download until the real template is supplied.
+P0 print and export buttons should open previews or mutate simulated states first. Excel uses the system-default template before the real factory template is supplied, and does not call real devices or external sending channels.
 
 P0 acceptance should be scenario-based. Each core page should cover at least 2-3 business scenarios, such as in-stock stock order, shortage, custom print, express label, and underpayment variance.
 
@@ -265,7 +275,13 @@ The system must retain history for every key-field change: before value, after v
 
 V1 master data should start with Excel import plus backend editing, so customers, colors, specs, inventory, employees, machines, and suppliers do not need to be entered entirely by hand.
 
+The first V1 backend-editing surface should use the independent `master data` page to create non-writing maintenance drafts. Customer, price, inventory/spec, and employee / machine records can be searched, reviewed, and submitted as proposed changes, but high-risk data such as prices, inventory, permissions, and employee account state must still become effective only through the confirmation-plan / formal-import path or an equivalent permission-gated review chain.
+
 Each import should retain import batch, operator, import time, source file, and row-level error feedback for correction.
+
+Failed-row correction must not write formal master data directly. The system should allow failed rows to become a new non-writing correction draft that preserves the source execution, source confirmation plan, failure reasons, and correction summary before re-entering the confirmation-plan and formal-import flow.
+
+When failed rows are corrected inline, only rows the user actually edits should count as corrected. Unedited failed rows remain unresolved and must not be treated as fixed merely because a correction draft was generated.
 
 Initial master-data imports should first run in a test tenant or test environment. After fields, error rows, and duplicate handling are confirmed, the same import can be applied to the formal database.
 
@@ -278,6 +294,16 @@ If initial inventory, sample orders, or size/spec imports contain a model outsid
 Initial finished-goods inventory may be imported as either `counted inventory` or `estimated / pending review inventory`. Inventory lookup, outbound tasks, and replenishment suggestions must visibly show this trust level so estimated stock is not treated like counted stock.
 
 Imported employee accounts default to `disabled`. An admin or account-management permission user enables accounts in bulk only after checking position, machine, role, and special permissions.
+
+After an imported employee receives a temporary password, the employee must change it on first login before receiving business action permissions.
+
+V1 imported-employee password changes require at least 10 characters, at least one letter, at least one number, no whitespace, and no login name / user ID / employee ID substring.
+
+V1 imported-employee accounts lock for 15 minutes after 5 consecutive failed login attempts. The account remains locked even if the next attempt uses the correct password; an admin temporary-password reissue may clear the lock while invalidating old sessions.
+
+V1 imported-employee active passwords expire after 90 days. After expiry, login returns identity and password-change capability only, with no business action permissions until password change succeeds.
+
+Admins can reissue temporary passwords or revoke employee passwords from the master-data employee account review area. Reissue and revoke both invalidate old passwords and old login sessions; after revoke, the employee cannot continue logging in.
 
 Before the later production-summary sheet is imported, machine capacity may be manually entered as rough daily / hourly output and marked `manual estimate`. The user's later machine summary sheet can then calibrate those baselines.
 
@@ -329,6 +355,10 @@ These four outputs cover current physical handoff and customer collection workfl
 
 Outbound / self-pickup notes and delivery notes should use the factory's existing dot-matrix printer and current paper stock. V1 should not force A4/A5 or inkjet / laser-printer-style layouts for these formal notes.
 
+The current formal-note dot-matrix printer model is confirmed as `EPSON LQ-615KII`. Per Epson's public specs, record it as a 24-pin impact dot-matrix, 82-column-at-10cpi, flatbed-style printer that supports `ESC/P-K`, `IBM2390+`, and `OKI5530SC` control codes, with USB 2.0 full-speed and IEEE-1284 bidirectional parallel interfaces. Official paper ranges are 101.6-254mm for continuous paper, 90-257mm for single sheets, 0.065-0.32mm thickness, and 1+3 copy capability. V1 outbound / self-pickup note and delivery-note templates, printer-device records, and field QA should test against this model, the current two-part / two-up continuous dot-matrix paper, and real paper alignment. The internal ERP device ID defaults to `PRN-DOT-A`, and the recommended CUPS queue name is `epson_lq_615kii_notes`; neither the model nor the recommended queue name is proof of the actual system-printer queue. Field setup still needs the real queue / printer name, driver name, connection method, paper size, tractor-hole pitch, top-of-form, left margin, and alignment parameters.
+
+As of 2026-07-09, the field print host is Windows 11. The current paper is `two-part, two-up continuous dot-matrix paper`, and a current finished-goods customer delivery-note photo sample has been provided. The sample includes at least customer name/address/phone, contact person, date, document number, line items, specification, color, unit, quantity, bag unit price, print unit price, extended-handle unit price, amount, notes, total, delivery handler, and receiver signature. No alignment issue is known yet, but the exact Windows printer name, driver name, port / connection method, and measured paper dimensions are still pending. This sample is a finished-goods customer delivery note, not a raw-material supplier delivery/sales note.
+
 Dot-matrix templates should prioritize continuous paper / two-copy note usage and high-density tables. They should avoid decorative layouts, oversized type, or card-like blocks that waste space.
 
 The system generates the electronic note number. If the current duplicate paper note has its own paper number, keep a `paper note number` field that can be manually entered or later printed from the template.
@@ -350,6 +380,10 @@ Line items should show handle type, such as normal handle or long handle. Even w
 Self-pickup, outbound, and delivery paper notes default to two copies: one for the customer and one retained by the factory. Signature / signed-photo evidence is optional by default and can become required later only for high-risk cases.
 
 Formal print actions should provide a print preview first. The preview should help office staff catch missing fields, overly long text, too many rows, dot-matrix paper-position issues, or layout problems before wasting paper.
+
+The V1 print driver should provide a non-printing diagnostic that checks whether the command-bridge status directory is writable, whether `queued` / `completed` statuses can be read back by ERP, and whether diagnostic files can be cleaned up. This diagnostic must not call the real print command, expose command paths, expose arguments, expose spool paths, expose print payloads, or replace physical print field QA.
+
+Before V1 print go-live, the system should provide one aggregated readiness gate that combines system-printer configuration, environment preflight, spool readback, label-printer and dot-matrix device records, device driver mode, and latest field QA records. Preview-only mode, missing spool readback, devices still set to `preview_only`, missing QA, or failed QA must explicitly report not ready. The gate can show V1 print readiness only when configuration is complete, required devices are in real system-printer mode, and field QA has passed. It still does not replace real output, paper alignment, barcode scanning, vendor SDKs, physical status protocols, or operator acceptance.
 
 If quantity, price, customer, fulfillment method, or other key information changes after printing, the old note must be voided and a new note printed. Voided history must be retained rather than overwritten, including voiding operator, time, reason, and linked replacement note.
 
@@ -431,7 +465,19 @@ Temporary position changes in V1 should not automatically split payroll by daily
 
 Performance should be manually entered or imported by HR / authorized accounts in V1. It should not be automatically generated from production quantity, responsibility tracing, or exception records.
 
-The existing Deli punch-clock device should be treated as a future ERP attendance source. Integration should be phased by the actual device capability: first support importing attendance-detail Excel or CSV exports from Deli attendance software, USB export, or the device/backend; if the current model is confirmed to use Deli cloud attendance and open-platform access is available, add automatic API synchronization later.
+The existing Deli punch-clock device must become the direct attendance source for ERP payroll. The final target is not long-term manual export / upload. A field screenshot has confirmed the device as `Deli face attendance machine D5FN`; long-lived docs should store only a masked SN such as `DL-D5FN_25907934****18F3`, and the device currently appears online in Deli e+. Deli's official cloud open documentation lists `DL-D5FN` in the supported comprehensive sign-in API device models, so cloud attendance API integration is feasible in principle. Automatic synchronization requires the factory's Deli account to have open-platform permission and App-Key / App-Secret credentials.
+
+The intended ERP experience is: workers keep punching on the existing physical device; ERP automatically syncs, or HR clicks `sync attendance`, to pull Deli punch records; ERP pages directly show latest punches, exceptions, make-up-punch items, hour summaries, and payroll drafts. HR should not need to log in to Deli routinely, export a file, and upload it into ERP.
+
+The factory already uses Enterprise WeChat. Attendance integration can therefore prioritize the Enterprise WeChat ecosystem: employees still punch on physical attendance devices, and ERP pulls raw device punch records through Enterprise WeChat check-in / hardware check-in APIs. Enterprise WeChat can be used for employee identity, address-book matching, and reminder notifications, but employees should view attendance in this ERP / mobile app, not be required to use the Enterprise WeChat attendance page as the main viewing surface.
+
+The employee mobile side should provide a `My attendance` page. An employee can see only their own punch records, today's and current-month hours, missing-punch / make-up-punch / temporary-leave / late-arrival / early-leave states, submitted make-up or exception notes, and their attendance summary plus payroll-draft summary during payroll review. Employees must not see other employees' attendance and must not be able to edit raw punch records. Make-up-punch or exception notes submitted by employees enter HR review.
+
+The attendance device / platform should be treated as a replaceable vendor integration, not hard-coded into the payroll and attendance model. Try the existing Deli D5FN first. If Deli cannot provide open API access, has unsuitable pricing / contract terms, provides incomplete data, syncs unreliably, or cannot meet employee and punch-record automatic sync needs, switch to another attendance platform with an open API. ERP should still use one internal attendance-record, employee-matching, exception-handling, and payroll-calculation model.
+
+When selecting or replacing the attendance platform, verify first that the platform can provide raw punch records, employee or employee-number identity, device / site / organization information, punch timestamp, punch source, device online status, historical backfill, incremental sync or scheduled pull, failure retry, and credential management. Excel / CSV export support is useful only as a fallback and must not replace the open API requirement.
+
+Deli Excel / CSV import is only a transition and emergency fallback, for cases such as API permission not yet opened, API outage, historical backfill, or reconciliation. It must not be designed as the final primary workflow. The system should retain sync source, sync batch, last sync time, sync failure reason, and retry state.
 
 ERP should retain raw punch records, import batch, source file or API source, employee matching result, exception notes, and manual correction records instead of overwriting raw attendance data.
 
@@ -496,6 +542,10 @@ The UI may summarize these quantities for progress display, but later-stage quan
 
 Example: original ordered quantity is `1000`, silk-screen reports `1020`, bag-making reports `1005`, packing submits `1005`, actual delivery is `1005`, and chargeable quantity is `1000`. All values must remain traceable.
 
+When a production report is completed, only the manually confirmed qualified quantity may increase finished-goods inventory and create the order-line reservation. Machine count / cycle count is evidence and production telemetry only; it must not directly create inventory, fulfillment quantity, chargeable quantity, or payroll quantity.
+
+When packing is completed, the system records the packing task completion, package IDs, and package details, and may move the order toward label printing or express/LTL pickup confirmation. Packing completion itself must not deduct inventory or enter reconciliation; inventory deduction still happens only at fulfillment completion or express/LTL pickup confirmation.
+
 Inventory current totals must not be directly edited. Every increase, reservation, release, outbound, return, stocktake correction, pending handling, or scrap action creates an inventory-ledger entry, and current inventory is derived from or synchronized with that ledger.
 
 Inventory-ledger entries should include inventory item, quantity change, direction, source type, source document / line ID, operator, confirmer when applicable, timestamp, reason, and notes.
@@ -508,9 +558,13 @@ Photos and files use one attachment table. Signature images, watermarked deliver
 
 Attachment records should include file type, business purpose, original file / processed file, uploader, photographer when different, upload time, capture time, source device / source method, watermark data when available, OCR result when available, and voided / replaced state.
 
+V1 attachment uploads should be constrained by business purpose. Payment screenshots must be images up to 8 MB. Delivery watermark photos, signature photos, and custom printed finished-goods photos must be images up to 12 MB. Statement customer-confirmation attachments may be images or PDFs up to 12 MB. Other generic attachments default to images, PDFs, spreadsheets, or documents up to 15 MB. Attachment storage should have a pre-launch runtime preflight that confirms the active storage adapter is configured, writable, readable, digest-consistent, and able to clean up its diagnostic object without exposing access keys, secrets, authorization headers, or session tokens. Virus scanning, automatic image-quality checks, resumable uploads, and real object-storage acceptance can be added on top of these baseline rules.
+
 Order lines preserve bag price snapshot, print price snapshot, other fees, manual override reason, adjustment amount, and final receivable. Later price-table changes must not modify historical order prices.
 
 Price snapshots should link to the matched price version, customer price table, order time / price effective time, and manual override record, so future statement checks can explain why that price was used.
+
+Formal order quantity adjustment must not overwrite the original price snapshot created at formal-order confirmation. The system should create a `quantity adjustment price snapshot` or equivalent amount-calculation record, preserve the original unit-price basis, recalculate final receivable from the new chargeable quantity, and record previous quantity, new quantity, reason, operator, and time. If statement lines or a statement already exist for that order line, the adjustment transaction should update the affected statement-line amount and statement receivable / variance so the order pool, printed documents, and reconciliation stay consistent.
 
 Outbound notes, delivery notes, self-pickup notes, and express / less-than-truckload package labels need electronic document records with version, print batch, print state, and void / reprint history.
 
@@ -538,7 +592,7 @@ Formal business documents should not be hard-deleted by default. They can be voi
 
 Key business records should store both `business occurred time` and `system recorded time`. For example, an express / less-than-truckload pickup confirmed the next day can backfill the actual pickup date to the previous evening while preserving the next-day system confirmation time.
 
-Excel imports should run a pre-check first and return error rows and duplicate prompts. Imports must not automatically overwrite existing master data. Duplicates should be skipped, merged, or inserted only after office staff or an authorized account chooses the action.
+Excel imports should run a pre-check first and return error rows and duplicate prompts. Master-data date fields such as effective date and stocktake date should be normalized to `YYYY-MM-DD` before staging, including common Excel / WPS serial-number date cells, while quantities, unit prices, inventory counts, and machine counts must never be reinterpreted as dates. Imports must not automatically overwrite existing master data. Duplicates should be skipped, merged, or inserted only after office staff or an authorized account chooses the action.
 
 Operation logs focus on actions that affect money, inventory, production, fulfillment, customer confirmation, responsibility, or auditability: key order-field edits, inventory ledger entries, price / override changes, payment confirmation, note or label void-and-reprint, inventory adjustment, after-sales handling, and responsibility confirmation. Ordinary view-only actions do not need operation logs.
 
@@ -725,7 +779,7 @@ The desktop office shared-todo workbench should use a `left todo list + right de
 
 The P0 right detail panel should show at least customer, order tail number, source, summary, key quantities, amount impact, customer notes / office notes, and recommended current actions. Full order details open through a linked order detail view rather than being packed into the todo panel.
 
-Each todo list item should stay compact and show only type, customer name, order tail number, goods summary, waiting duration / latest needed time, and required marks such as urgent, exception, or approval. Full details belong in the detail panel.
+Each todo list item should stay compact and show only type, customer name, order tail number, goods / spec shorthand, waiting duration / latest needed time, and required marks such as urgent, exception, or approval. Full details belong in the detail panel.
 
 Todo actions should be type-specific rather than one generic button set. For example, `waiting label print` shows `print` / `snooze`; `quantity difference` shows `handle difference` / `contact customer` / `snooze`; `waiting customer notification` shows `copy message` / `customer notified` / `snooze`.
 
@@ -942,9 +996,9 @@ The P0 recognition entry should use a large top input area with only three prima
 
 When one P0 input text contains multiple sizes, colors, print contents, or fulfillment methods, recognition should automatically split the result into multiple editable order lines. Office staff can still merge, split, or delete rows manually.
 
-The P0 parsed-result table should directly show customer, product / print content, size, color, handle type, finished-goods style, print flag, quantity, fulfillment method, latest needed time, inventory status, and estimated amount.
+The P0 parsed-result table should directly show customer, product / print content, size, color, handle type, style / type, print flag, quantity, fulfillment method, latest needed time, inventory status, and estimated amount. Custom printed lines should show the visible style / type as `定制印刷` instead of looking like ordinary `空白袋` rows; `空白袋` remains the base bag / inventory style in detail data.
 
-Complex fields should live in the right-side detail panel in P0: print image / artwork, print side, print color, customer notes, office notes, price snapshot, and source / recognition evidence.
+Complex fields should live in the right-side detail panel in P0: business type, base bag style, compact color spec, print image / artwork, print side, print color, handle color, notes, customer notes, office notes, price snapshot, and source / recognition evidence. Recognition should split customer shorthand such as `白印黑`, `黄印黑`, `白袋黑提`, `黄袋红提`, `white bag printed black`, and `black handles` into structured bag color, print color, handle color, print side, and notes where possible.
 
 P0 missing-field blocking should depend on order type. Stock/common-goods orders only require customer or source customer, size / model, color, and quantity. Custom printed orders require production-critical print content, print image / artwork, print color, print side, and similar fields.
 
@@ -1587,6 +1641,8 @@ If an order is cancelled, rejected, quantity-changed, moved to all-production, o
 
 On normal `complete outbound`, the system should default this outbound quantity to the expected / reserved quantity, deduct inventory, and clear the matching reservation.
 
+Legacy or imported records that lack per-order reservation rows must not silently deduct inventory by default. They may use an explicit `legacy unreserved deduction` path only when a human or migration flow enables it, the system can uniquely match the exact inventory item by size, color, handle type, and finished-goods style, inventory is sufficient, and the order is stock/common-goods or printed stock. Custom printed orders, outsourced work, or records that cannot match a unique inventory item should go to manual handling / inventory correction instead of automatic deduction.
+
 If the actual found or delivered quantity differs from the expected / reserved quantity, staff must not directly change the quantity and force `complete outbound`. They must use the `quantity mismatch` exception flow first. Office staff or another permitted account then decides whether the customer accepts the actual quantity, staff continues searching, waits for replenishment, cancels the remainder, changes quantity, or creates an inventory adjustment; only after that confirmation should the system deduct inventory, release the difference, or add reservation according to the confirmed result.
 
 Only order lines that enter `waiting for outbound`, formal orders in `fulfillment pending confirmation`, or manually confirmed holds should reserve inventory. A parsed preview alone should not reserve inventory.
@@ -1985,6 +2041,9 @@ V1 should not force helpers or bag-making workers to distinguish `delivered to m
 
 `Machine-side material pickup` is the single required helper confirmation action. It means the material has reached the machine side or is ready to be mounted, and the system moves that roll/batch from warehouse-available raw material to machine-side material / machine-held material.
 
+The current implementation has the first V1 `machine-side material pickup` boundary: only physically labeled, phone-scanned / signed, and available raw-material rolls or pieces can create `RMI-ISS-*` issue records. The action records machine, optional production task, purpose, operator, and time, and is allowed for warehouse / packing-helper / management permissions rather than ordinary office users. Full-roll / full-piece issue moves the roll / piece to `machine-side issued`. Measured split-roll issue by weight creates an `RMI-SPLIT-*` record, keeps the source roll available with the remaining weight, creates a machine-side child roll such as `RM-...-S01`, and links the issue record back to the source roll and split record. Partial-piece splitting is still blocked until real piece-splitting rules are confirmed. The action does not create finished-goods output, does not treat machine counters as qualified quantity, and does not allocate cost or margin.
+The current implementation also has the first V1 production-task matching rule for raw-material issue. Empty `productionTaskId` is allowed but the issue must be marked `unlinked to production task`, and cost allocation must not proceed until the task is filled. When `productionTaskId` is provided, the backend requires the production task to exist, the issue machine to match the task machine, and bag-body material color to match the order-line bag color; obvious mismatches are rejected with stable business errors. Handle-material matching is marked for manual review until real handle-color / handle-type rules are expanded.
+
 `Machine-side material pickup` does not mean the whole roll has been consumed or that it is final order cost. Actual consumption and gross-margin estimates should be calculated after production reporting, end-of-roll, leftover return, or inventory adjustment.
 
 V1 leftover registration should also stay lightweight. It should not require staff to record every small remainder.
@@ -2150,7 +2209,8 @@ When reporting completed quantity, the current logged-in actual bag-making worke
 - defective bags, printing-problem bags, and unresolved problem material must not be counted as available inventory or deliverable quantity
 - 1 bundle usually equals 50 bags, but bundle count is only an auxiliary input/display
 - the UI may allow direct piece input or `bundle count + loose pieces`, then convert to pieces, for example `2 bundles + 3 pieces = 103 pieces`
-- the bag-making machine counter cannot distinguish production quantity by individual order, so V1 should not use machine counter values as the direct basis for per-order reporting
+- the Ounuo bag-making machine counter is confirmed as a machine action / cycle count, not qualified finished-goods output
+- the bag-making machine counter cannot distinguish qualified production quantity by individual order and may include setup, trial bags, defective bags, semi-finished goods, or repeated actions, so V1 should not use machine counter values as the direct basis for per-order reporting
 - the reporting form should use `prefill + editable`: prefill from the planned/order quantity, then let the worker confirm or edit the actual completed piece count
 - the worker can edit the prefilled value before submitting the actual completed piece count; the system should retain the prefilled value, final submitted value, modified flag, and modification reason/note
 - the system should retain quantity source: planned-quantity prefill, bundle/loose-piece conversion, manual input, or manual correction
@@ -2160,10 +2220,10 @@ When reporting completed quantity, the current logged-in actual bag-making worke
 - the system should track reporting quality by worker and machine, including unchanged-default confirmation rate, always-equals-order rate, later inventory variance rate, and exception rate
 - normal in-tolerance quantity edits should not require a reason; shortage, excessive overrun, meaningful prefill variance, or system-flagged exceptions should require a reason/note
 - per-order reporting should not require machine-counter photos, because that would add too much workshop friction
-- at end of day, each bag-making machine can have one total machine-counter snapshot photo or manually entered total count
-- the daily machine total count is not finished-goods quantity and must not directly create inventory; it is production telemetry used later to compare against actual reported quantity, inbound quantity, and abnormal loss records to estimate process variance/loss and detect anomalies
-- the daily machine total should record machine, date/shift, submitter, counter value, photo, counter reading type, whether the counter was reset, and notes
-- the bag-making machine may expose both lifetime cumulative quantity and daily quantity; this requires on-site verification, so V1 design should not assume the counter is reset every day
+- at end of day, each bag-making machine can have one machine-cycle counter snapshot photo, machine daily-report value, cumulative-reading difference, or manually entered counter value
+- the daily machine cycle count is not finished-goods quantity and must not directly create inventory, fulfillment quantity, chargeable quantity, payroll piece count, or deductions; it is production telemetry used later to compare against actual qualified reporting, packing counts, inbound quantity, and abnormal loss records to estimate process variance/loss and detect anomalies
+- the daily machine counter record should include machine, date/shift, submitter, counter value, photo/evidence, counter reading type, whether the counter was reset, data source, and notes
+- each bag-making machine may expose both lifetime cumulative count and daily machine count; this requires per-machine verification, so V1 design should not assume the counter is reset every day
 
 For printed orders:
 
@@ -2303,8 +2363,10 @@ V1 should only capture lightweight `abnormal loss records` so real operational i
 - responsibility clues should be generated only for issues that affect customers, amount handling, inventory, or performance judgment, such as wrong shipment, short shipment, printing error, bag-making error, packing error, customer complaint, or major inventory variance
 - responsibility clues should record responsible stage, possible responsible person, machine, order, quantity, reference loss, reason, and handling outcome. The responsible person can be filled later, and the shop floor should not be forced to assign responsibility immediately
 - photos are optional for ordinary exceptions. Customer complaints, compensation / allowance, whole-order scrap, repeated same-type issues, or estimated loss above 300 CNY should require photos, notes, or other evidence
-- the difference between daily machine total count and actual reported/inbound quantity should be called `process variance`, not automatic scrap quantity, because it may include setup/testing, semi-finished goods, tail quantities, counter error, or delayed reporting
-- V1 should reserve optional daily machine-counter reading fields. Until the machine counter reset / daily-count rule is confirmed on site, these readings do not affect inventory, payroll, or deductions; they are only used later to compare reporting and estimate loss rate
+- the Ounuo bag-making machine's built-in counter / daily report is a machine action or cycle count, not qualified finished-goods output. ERP fields and UI should label it as `machine count`, `cycle count`, or process telemetry rather than finished quantity
+- the difference between daily machine cycle count and actual reported/inbound quantity should be called `process variance`, not automatic scrap quantity, because it may include setup/testing, semi-finished goods, tail quantities, counter error, repeated actions, or delayed reporting
+- V1 should reserve optional daily machine-counter reading fields. These readings do not affect inventory, fulfillment, chargeable quantity, payroll, or deductions; they are only used later to compare qualified reporting, packing counts, inbound records, and abnormal loss records
+- if a future machine exposes a reliable cycle-to-piece multiplier, the derived value should be marked as a theoretical estimate and still must not replace qualified reporting, packing counts, inventory inbound, delivered quantity, or chargeable quantity
 - quantity differences should resolve into fixed outcomes: customer accepts actual quantity, allowance / amount adjustment, supplemental shipment / supplemental printing, pending handling / pending scrap, inventory correction, or responsibility record. This keeps orders from staying indefinitely in an abnormal state
 - later reports can aggregate process variance and abnormal loss by machine, size, color, worker, order type, discovery step, and responsible/source step to support a future formal scrap/loss process
 
@@ -2713,15 +2775,19 @@ Exceptions add actions only when needed:
 - goods cannot be found: tap `unable to outbound`
 - pickup person cannot identify the order: send them back to the office for confirmation
 
-Driver pre-loading check should be a recorded system step, including driver, check time, and check result. If package or quantity differs from the note, the flow should return to warehouse handling or create an exception record instead of silently loading.
+Driver pre-loading check should be a recorded system step, including driver, check time, check result, and package-check summary. If package or quantity differs from the note, the flow should return to warehouse handling or create an exception record instead of silently loading.
 
 The delivery flow should hand the driver packed goods plus the matching document. The driver checks whether goods/packages match the document before loading; if not, the issue returns to warehouse / office, and the driver does not change the order or document.
+
+Before loading, the driver must check each package in the loading checklist. The checklist uses real package records when available and generated temporary rows from package count / quantity when the package records are not connected yet. The driver cannot tap `confirm loaded` until all checklist rows are checked.
 
 After a passed loading check, the driver taps `confirm loaded` and the task moves from `waiting delivery` to `in delivery`. If goods, package quantity, or the document do not match, the driver taps `loading exception`, and the task enters `delivery exception` or returns to warehouse / office handling.
 
 Driver task states in V1 are `waiting delivery`, `in delivery`, `completed`, and `delivery exception`.
 
 The driver task list should follow the office / outbound manual delivery sequence when available. Without a manual sequence, it sorts by latest needed time, urgent mark, and creation time. V1 does not do automatic route optimization.
+
+Delivery sequence / dispatch routes are maintained by office or management users. Warehouse and driver users execute preparation, handoff, loading checks, delivery, and exception feedback; they must not directly edit the driver dispatch plan.
 
 Each list row should show two lines: first line `[delivery] customer #order-tail`; second line `address area / package count / quantity / urgent-or-note mark`.
 
@@ -2732,6 +2798,8 @@ The watermarked delivery photo is the primary required V1 delivery-completion ev
 When completing a delivery task, the driver must upload a watermarked photo and may optionally upload a signature photo.
 
 The completion page should automatically record driver account, completion time, and location. Receiver name and notes are optional.
+
+After driver completion, delivery evidence should enter an office `pending review` state. Office / management users review the watermark photo, optional signature photo, watermark ID, capture time, location, and duplicate paper-note status before marking evidence as `reviewed` or `retake required`. `Retake required` should create a todo and preserve the original photo, reviewer, review time, and reason; it should not silently change inventory, delivered quantity, or statement amount.
 
 Receiver signature / returned paper note is not mandatory because some customers resist signing. If obtained, the driver should preferably upload the signature photo from the mobile side, then bring back the duplicate paper note for office filing.
 
@@ -3219,6 +3287,8 @@ The statement send package or exported file should include these two fixed colle
 The system should record statement send channel / customer group or other send method, send recipient, sent timestamp, sender, exported file for this send, and whether collection QR codes were included.
 
 Customer replies such as `no problem`, `confirmed`, payment screenshots, or other confirmation content should be linkable to the statement as customer confirmation / payment evidence.
+
+In V1, office staff can upload WeChat / Enterprise WeChat confirmation screenshots, chat screenshots, PDFs, spreadsheets, documents, or other common file attachments while recording customer confirmation. The attachment links to both the statement and the customer-confirmation record; normal confirmations do not require the customer to return the Excel file. Images can be previewed inline. PDFs, spreadsheets, and documents should first show file metadata and allow downloading the original file, without inline PDF rendering, online Office preview, OCR, or table parsing in V1.
 
 - choose customer
 - choose date range, filtered by delivery date
@@ -3748,56 +3818,51 @@ Bag handle pricing:
 
 Current price/size table:
 
-- image asset: `docs/product/assets/price-size-table-2026-04-19.png`
-- table date: 2026-04-19
+- image asset: `docs/product/assets/price-size-table-2026-07-03.png`
+- table date: 2026-07-03
+- the 2026-07-03 image lists base prices for plain, laminated, gift, and bear/dog styles, plus metallic laminated prices; it does not list a separate extended-handle table
+- P0 keeps the current default extended-handle rule for plain blank bags: extended handle = base price + 0.03 CNY, until a separate extended-handle table is provided
 
-| Size | Normal price | Extended handle |
-| --- | ---: | ---: |
-| 25*32*10 | 0.31 | 0.34 |
-| 30*36*8 | 0.35 | 0.38 |
-| 30*38*10 / 30*37*10 | 0.36 | 0.39 |
-| 35*41*12 | 0.50 | 0.53 |
-| 25*23*8 | 0.32 | 0.35 |
-| 26*27*10 | 0.30 | 0.33 |
-| 35*27*10 | 0.32 | 0.35 |
-| 40*30*10 | 0.38 | 0.41 |
-| 40*32*10 | 0.39 | 0.42 |
-| 45*37*10 | 0.49 | 0.52 |
-| 50*40*12 | 0.62 | 0.65 |
-| 小熊25*23*8 | 0.47 |  |
-| 小熊30*27*10 | 0.53 |  |
-| 小熊35*32*10 | 0.59 |  |
-| 小熊40*36*12 | 0.71 |  |
-| 小熊50*40*12 | 0.82 |  |
-| 覆膜30*37*10 | 0.63 |  |
-| 覆膜金银30*37*10 | 0.66 |  |
-| 覆膜32*25*10 | 0.46 |  |
-| 覆膜金银32*25*10 | 0.49 |  |
-| 覆膜40*30*10 | 0.59 |  |
-| 覆膜金银40*30*10 | 0.62 |  |
-| 覆膜45*35*10 | 0.73 |  |
-| 覆膜金银45*35*10 | 0.76 |  |
-| 覆膜50*40*12 | 1.05 |  |
-| 覆膜金银50*40*12 | 1.08 |  |
-| 喜25*30*10 | 0.53 |  |
-| 喜30*37*10 | 0.58 |  |
-| 喜35*41*12 | 0.78 |  |
-| 福25*30*10 | 0.53 |  |
-| 福30*37*10 | 0.58 |  |
-| 福35*41*12 | 0.78 |  |
+| Size / style | Base price | Extended / metallic / rule |
+| --- | ---: | --- |
+| Plain 25*32*10 | 0.29 | extended handle 0.32 |
+| Plain 30*36*8 | 0.35 | not listed in the new image; temporarily keep old price, extended handle 0.38 |
+| Plain 30*38*10 / 30*37*10 | 0.34 | extended handle 0.37 |
+| Plain 35*41*12 | 0.48 | extended handle 0.51 |
+| Special 25*23*8 | 0.29 | extended handle 0.32 |
+| Special 26*27*10 | 0.28 | extended handle 0.31 |
+| Plain 35*27*10 | 0.30 | extended handle 0.33 |
+| Plain 40*30*10 | 0.36 | extended handle 0.39 |
+| Plain 40*32*10 | 0.37 | extended handle 0.40 |
+| Plain 45*37*10 | 0.47 | extended handle 0.50 |
+| Plain 50*40*12 | 0.60 | extended handle 0.63 |
+| Laminated 30*27*10 | 0.60 | metallic 0.63 |
+| Laminated 32*25*10 | 0.45 | metallic 0.49 |
+| Laminated 40*30*10 | 0.58 | metallic 0.62 |
+| Laminated 45*35*10 | 0.72 | metallic 0.76 |
+| Laminated 50*40*12 | 1.00 | metallic 1.03 |
+| Bear/dog 25*23*8 | 0.45 | snap/button style |
+| Bear/dog 30*27*10 | 0.51 | snap/button style |
+| Bear/dog 35*32*10 | 0.57 | snap/button style |
+| Bear/dog 40*35*12 | 0.69 | snap/button style |
+| Bear/dog 50*40*12 | 0.80 | snap/button style |
+| 喜/福 25*30*10 | 0.51 | reduce 0.05 for 1000+ pieces |
+| 喜/福 30*37*10 | 0.56 | reduce 0.05 for 1000+ pieces |
+| 喜/福 35*41*12 | 0.76 | reduce 0.05 for 1000+ pieces |
+| 福 30*30 | 0.53 | Fu only |
 
 Special finished-goods style notes:
 
-- `小熊`, `喜`, and `福` are printed stock/common-goods bags.
+- `小熊小狗`, `喜`, and `福` are printed stock/common-goods bags.
 - `覆膜` is another product category, more often sold in clothing-related use cases, but the factory currently does not do much of this style.
-- `小熊`, `喜`, `福`, and `覆膜` currently use normal/default handle length.
+- `小熊小狗`, `喜`, `福`, and `覆膜` currently use normal/default handle length.
 - These prefixes are not ordinary colors or sizes; the system should recognize them as finished-goods style / process type.
 - V1 can offer these as stock finished-goods style candidates during order entry instead of requiring customers to restate print content.
 - Each finished-goods style has its own allowed size range, and order entry / inventory setup must validate it.
-- Current 小熊 sizes: `25*23*8`, `30*27*10`, `35*32*10`, `40*36*12`, `50*40*12`.
+- Current 小熊小狗 sizes: `25*23*8`, `30*27*10`, `35*32*10`, `40*35*12`, `50*40*12`.
 - Current 喜 sizes: `25*30*10`, `30*37*10`, `35*41*12`.
-- Current 福 sizes: `25*30*10`, `30*37*10`, `35*41*12`.
-- Current 覆膜 price-table sizes: `30*37*10`, `32*25*10`, `40*30*10`, `45*35*10`, `50*40*12`, with ordinary 覆膜 and 覆膜金银 variants.
+- Current 福 sizes: `25*30*10`, `30*37*10`, `35*41*12`, plus `30*30` for Fu only.
+- Current 覆膜 price-table sizes: `30*27*10`, `32*25*10`, `40*30*10`, `45*35*10`, `50*40*12`, with ordinary 覆膜 and 覆膜金银 variants.
 
 ## Bag Cost And Gross-Margin Estimate
 
@@ -3881,10 +3946,10 @@ Current size-to-body-fabric-width table. Actual size is recorded as `width*heigh
 | 小熊25*23*8 | 25*23*8 | 60cm | 35cm |
 | 小熊30*27*10 | 30*27*10 | 70cm | 42cm |
 | 小熊35*32*10 | 35*32*10 | 80cm | 47cm |
-| 小熊40*36*12 | 40*36*12 | 90cm | 54cm |
+| 小熊小狗40*35*12 | 40*35*12 | 88cm | 54cm |
 | 小熊50*40*12 | 50*40*12 | 98cm | 64cm |
-| 覆膜30*37*10 | 30*37*10 | 90cm | 42cm |
-| 覆膜金银30*37*10 | 30*37*10 | 90cm | 42cm |
+| 覆膜30*27*10 | 30*27*10 | 70cm | 42cm |
+| 覆膜金银30*27*10 | 30*27*10 | 70cm | 42cm |
 | 覆膜32*25*10 | 32*25*10 | 66cm | 44cm |
 | 覆膜金银32*25*10 | 32*25*10 | 66cm | 44cm |
 | 覆膜40*30*10 | 40*30*10 | 76cm | 52cm |
@@ -3902,6 +3967,8 @@ Current size-to-body-fabric-width table. Actual size is recorded as `width*heigh
 
 Printing step-price grouping:
 
+- manual printing: single-sided content 0.09 CNY/piece, double-sided content 0.13 CNY/piece
+- machine printing: 3000 pieces 0.09 CNY/piece, 5000 pieces 0.08 CNY/piece, 10000 pieces and above 0.06 CNY/piece
 - split by different print content
 - split by different size
 - combine only when content and size are the same
@@ -3940,13 +4007,14 @@ Add-on order merge:
 - Express / less-than-truckload package labels should use small waterproof, tear-resistant label / wash-label-like material where practical, with stapling / hanging as the preferred attachment method.
 - Outbound / prepared-goods cards can be used for `pending preparation`, `prepared`, waiting express / less-than-truckload pickup areas, delivery handoff, and pickup handoff.
 - During raw-material inbound, fabric rolls, handles, ink, and auxiliary materials can receive batch / roll-number labels.
-- Fabric rolls should preferably use one label per roll. Handles should also be labeled by roll/piece when they arrive by roll or piece. If one delivery-note line contains multiple rolls/pieces, the system should split that inbound line into multiple roll/piece IDs, with one unique QR/barcode per roll/piece.
+- Fabric rolls should preferably use one label per roll. Handles should also be labeled by roll/piece when they arrive by roll or piece. If one raw-material supplier delivery-note line contains multiple rolls/pieces, the system should split that inbound line into multiple roll/piece IDs, with one unique QR/barcode per roll/piece.
 - Ink and other auxiliary materials can be labeled by barrel, box, package, or batch. V1 should keep them as basic inventory / notes and lightweight labels only; it should not automatically deduct them, allocate them to order-level cost, or build detailed auxiliary-material costing.
 - The raw-material label template should show at least: material type, color/specification, supplier, inbound date, roll/batch number, expected meters/weight, warehouse/location, notes, and QR/barcode.
+- The raw-material label printer has not been purchased yet. Because raw materials may currently be stored in the yard, raw-material roll/piece labels must be planned as waterproof, moisture-resistant, dirt-resistant, and readable after short outdoor storage. Do not lock the first implementation to ordinary non-waterproof thermal paper. The exact printer model, label size, label material, and attachment method remain pending and should be chosen after physical sample testing on real rolls.
 - Raw-material labels should not show purchase unit price, amount, supplier arrears, or other cost/finance data by default. Those fields should be visible only in permission-controlled backend inbound, purchasing-cost, and gross-margin views. The label code must still link to the backend inbound cost snapshot, so material issue scanning can automatically retrieve the batch price.
 - In V1, raw-material labels should also be printed by office staff or accounts with print permission after the raw-material inbound document is entered/confirmed. Warehouse staff are responsible for attaching labels, scanning for inbound checks, and later use.
 - Raw-material locations should stay coarse in V1, not shelf/layer/bin precise. Recommended locations are `raw-material warehouse`, `workshop temporary storage`, `machine-side`, and `leftover area`, with a note field.
-- After raw materials arrive, V1 can first let office staff or a designated person check the supplier delivery note and physical material information, such as meters, fabric weight/GSM, total kg, color, width, supplier, roll/batch count, and notes.
+- After raw materials arrive, V1 can first let office staff or a designated person check the raw-material supplier delivery/sales note that arrived with the goods and the physical material information, such as meters, fabric weight/GSM, total kg, color, width, supplier, roll/batch count, and notes.
 - Supplier color names on raw-material delivery notes may differ from the factory's standard color names, so the system must not store only one color field.
 - Raw-material inbound should store both `supplier original color name` and `factory standard color`. For example, supplier names such as `deep red` or `bright red` can map to the factory standard color `red`. The supplier original name is kept for traceability and supplier reconciliation, while inventory, material preparation, and scheduling matching use the factory standard color by default.
 - The system should maintain source-scoped color-alias mappings, not only supplier aliases. It should support factory-internal, customer, customer-group, supplier, and global color names. Suggested fields: source type (factory internal / customer / customer group / supplier / global), source object ID, material/product type, original color name, factory standard color, confidence / confirmed flag, inactive flag, and notes.
@@ -3967,25 +4035,52 @@ Add-on order merge:
 - Common aliases in the standard color catalog should support customer order recognition and office order entry. For example, if a customer says `deep red`, `bright red`, or `red`, the system can suggest the standard color `red`, but customer-specific aliases should take priority over global common aliases, and low-confidence or ambiguous colors still require manual confirmation.
 - Inactive colors should not appear as preferred choices in normal dropdowns, but historical orders, historical inventory, and historical raw-material records must keep them queryable.
 - Raw-material purchase cost excludes freight. Freight should not be allocated into the raw-material cost snapshot; if freight needs to be tracked later, it should be recorded as a separate fee item or note.
-- The current fabric and handle delivery-note structure should support photo recognition and manual entry for supplier, delivery-note number/date, goods name/color, specification model, piece/roll count, total weight in kg, unit price, amount, per-piece/per-roll weight, notes, handler, and receiver.
+- The current fabric and handle raw-material supplier delivery/sales-note structure should support photo recognition and manual entry for supplier, raw-material delivery-note number/date, goods name/color, specification model, piece/roll count, total weight in kg, unit price, amount, per-piece/per-roll weight, notes, handler, and receiver.
+- The real fabric / nonwoven raw-material delivery/sales-note samples received on 2026-07-04 show common fields such as customer/receiver, document number, document date, goods name or full product name, color, specification model such as `78*70*1500`, `78*90*1300`, and `70*82*2000`, piece/roll count, total weight in kg, unit price, amount, per-roll weight columns, notes, delivery handler, receiver signature, and supplier terms. Recognition and monthly reconciliation should tolerate narrow table layouts, portrait or landscape photos, fingers covering the paper, skewed paper, and supplier template differences.
+- In this raw-material section, `delivery note` means the supplier document sent with incoming raw materials. It must not be linked to this factory's finished-goods outbound notes, customer delivery notes, pickup notes, express labels, or less-than-truckload documents.
+- Raw-material inbound numbering should have two layers: `supplier original document number` and `ERP internal inbound number`. The supplier number is an external reconciliation clue and source-document reference; if it exists, OCR should prefill it or staff should enter it. If the supplier does not provide one, it must stay blank and be marked as `supplier did not provide a number`; staff should not invent a supplier number just to fill the field. The ERP internal inbound ID, line ID, and roll/piece IDs are mandatory system-owned identifiers for internal search, labeling, scanning, inventory ledger, material issue, and cost traceability.
+- When the supplier provides no original document number, reconciliation should not be auto-confirmed by time and quantity alone. Received date/time and piece/roll count are candidate clues only; matching should also use supplier, source photo attachment, specification, color, total weight, per-roll weight, roll sequence, unit price, and amount. Same-day similar deliveries from the same supplier should become low-confidence / manual-review candidates.
+- The Baihou supplier Excel statement samples received on 2026-07-04, covering the first and second halves of June, use a single sheet named `对账单` with columns `制单日期`, `单号`, `客户名称`, `商品名称`, `颜色`, `数量`, `重1` to `重5`, `总重`, `单价`, and `金额`. The document date may be text, and amount is a `total weight * unit price` formula. `数量` is roll/piece count, while `重1` to `重5` are per-roll weights, so the importer should split each row into roll-level rows for one-label-per-roll matching. Footer rows may include blank rows, total roll count / amount, `减退货减纸管合计`, historical arrears, and total arrears; these must not be treated as purchase detail rows.
+- The Baihou samples show that payable subtotal is not always just detail amount. They include a tube/core deduction such as `116 pieces -> 406` and `99 pieces -> 346.5`, which equals `pieces * 3.5`. The importer should classify this as a supplier-specific reconciliation adjustment and keep the rate configurable instead of applying it to all suppliers. The first V1 rule enables a default Baihou `3.5 CNY / piece` tube/core deduction and should preserve adjustment type, rule, piece count, unit rate, calculated amount, supplier-reported footer amount, and manual-review status. If a footer combines returns and tube/core deduction and the supplier-reported amount differs from the rule amount, the system must flag it for manual split review.
+- The Beichen supplier Excel statement sample received on 2026-07-04 contains `每日发货明细` and `每日发货统计` sheets. The first section of `每日发货明细` has columns such as document ID, date, business type, document number, warehouse, customer, invoice type, material code, material name, specification, batch number, unit, piece count, quantity, unit price, and amount. The `批号` column can be used as a supplier roll/batch number for ERP label matching. The same sheet may include a returns section near the bottom with a shifted header layout and no batch number, so the importer should parse by detected section headers rather than fixed column positions. `每日发货统计` is a daily validation summary, not a replacement for line-level reconciliation.
 - Fabric and handle raw materials are purchased primarily by `kg/weight`. The delivery note's `quantity` can be treated as total kg, `unit price` as price per kg, and `amount = total kg x unit price`. Width, GSM/fabric weight, and meters in the specification model should feed production material estimates, labels, and later gross-margin calculations.
 - Handle width is usually `5cm`, while main fabric roll widths are usually two-digit centimeter widths, such as `78cm`. Specification parsing must distinguish `material type = handle` from `material type = fabric`, so a small width value is not incorrectly treated as an abnormal fabric specification.
 - Handle labels and issue details should explicitly show `handle`, color, `5cm` width, GSM/specification, weight, and roll/batch number to avoid confusion with main fabric rolls.
 - Example: a line such as `red 78*90g*1500`, `2 pieces`, `212.4kg`, `9 yuan/kg`, `1911.6 yuan` should allow the system to also keep the two per-piece weights, such as `105.4kg` and `107kg`, for roll/piece labeling and later material issue.
-- The raw-material inbound document should save a cost snapshot: supplier, document number, document date, line number, material type, supplier original color name, factory standard color, specification model, piece/roll count, per-roll/per-piece weight, total kg, pricing unit, purchase unit price, line amount, freight-included flag, original photo/OCR result, manual confirmer, and confirmation time.
+- The raw-material inbound document should save a cost snapshot: ERP raw-material inbound number, supplier, optional supplier original document number (enter it when present; do not invent one when absent), document date, line number, material type, supplier original color name, factory standard color, specification model, piece/roll count, per-roll/per-piece weight, total kg, pricing unit, purchase unit price, line amount, freight-included flag, original photo/OCR result, manual confirmer, and confirmation time.
+- The first raw-material inbound workflow is fixed as: receive the raw-material supplier delivery/sales note that arrives with the goods, upload a phone photo, let OCR/recognition create a raw-material inbound draft, have customer-service / office receiving staff compare the raw-material note, recognition result, and physical supplier label, split the line into one system roll/piece ID per roll/piece, print one label per roll/piece, attach each label to the matching material roll, then use a phone scan / confirmation upload of signed-note information before the inbound document or roll is considered fully registered.
+- Label printing is only a `pending label attachment` state. It does not complete inbound. After the physical label is attached, the label must be scanned by phone or scanner, or confirmed with a photo/signed-note upload, recording attachment confirmer, confirmation time, warehouse or temporary location, and signing evidence before the roll can become `labeled inbound / available`.
+- If a raw-material supplier delivery-note line provides roll/piece count and per-roll weight columns, the system should prefer those per-roll weights when generating labels. If per-roll weights are missing, the system may generate estimated labels from total weight divided by roll count, but the labels and records should be marked `per-roll weight pending review` and must not treat estimated weight as actual weighed weight.
+- Suggested raw-material inbound states are: `photo uploaded pending recognition`, `recognized pending review`, `pending completion / pending confirmation`, `reviewed pending label print`, `printed pending attachment`, `partially attached`, `labeled inbound / available`, `inbound exception / pending confirmation`, and `voided / rebuilt`.
 - Office staff can enter raw-material inbound documents. After confirmation, kg unit price, purchase unit price, amount, and cost-snapshot fields can be changed only by accounts with purchasing / cost / raw-material-price permission or through a correction workflow.
 - Ordinary label-attachment, inbound-scan, and helper material-issue accounts cannot change confirmed inbound prices.
 - Once an inbound cost snapshot is referenced by material issue, costing, or reconciliation, it should not be silently overwritten. If price or quantity was entered incorrectly, the system should use an inbound correction/adjustment record that preserves old value, new value, reason, operator, and time.
-- The system can support photo recognition of the delivery note or material packaging/label to prefill a raw-material inbound draft. OCR/recognition results are only prefill data; an authorized account must manually verify and confirm them before the system creates an official raw-material batch / roll number.
+- At the beginning of the following month, when the raw-material supplier sends a fabric / handle monthly statement, the system should support uploading an Excel / table file and matching it against ERP-confirmed raw-material inbound records by supplier, month, ERP raw-material inbound ID, optional supplier raw-material delivery-note number, document date, line number, color, specification, piece/roll count, total kg, unit price, and amount.
+- Monthly supplier statement import should first normalize each supplier template into a common structure: supplier, reconciliation period, source file, sheet, source row number, document date, optional supplier original document number, matched ERP inbound ID, customer/receiver, material name, supplier original color, factory standard color, specification model, material type, roll/piece count, roll sequence, supplier batch/roll number, per-roll weight, total kg, unit price, amount, adjustment type, and raw-row JSON.
+- Baihou-style sheets should split `重1` to `重5` into roll-level statement rows. Beichen-style sheets should prefer `批号` as the roll-level match key. The system should retain source row and split roll sequence for manual audit back to the supplier workbook.
+- Recommended automatic matching priority is: supplier + supplier batch/roll number; then supplier + supplier original document number + line/roll sequence; if the supplier did not provide a document number, use ERP inbound ID / source photo attachment plus supplier + received date/time + specification + color + piece/roll count + per-roll weight + roll sequence as a candidate; then supplier + document date + specification + color + total/per-roll weight + unit price/amount; lastly total weight / amount as low-confidence candidates. Low-confidence candidates may be suggested but must not be auto-confirmed.
+- Supplier monthly reconciliation results should distinguish: fully matched, ERP inbound exists but supplier omitted it, supplier row exists but ERP has no confirmed inbound, specification/color/GSM/width/meter mismatch, weight/quantity mismatch, unit-price mismatch, amount mismatch, and possible duplicate rows. Difference rows should be highlighted in red or yellow and require manual handling notes.
+- Reconciliation adjustments should be shown separately, such as returns, tube/core deductions, supplier historical arrears, current-period payable subtotal, and total arrears. Only current-period purchases, returns, and deduction items participate in the current-period reconciliation; historical arrears and total arrears are reference balances and should not overwrite current inbound cost. Adjustment records should preserve structured fields such as `adjustmentType`, `isCurrentPeriod`, `amount`, `supplierReportedAmount`, `calculatedAmount`, and `calculationBasis`; historical arrears / balances must be marked `isCurrentPeriod=false`.
+- Supplier reconciliation confirmation is not payment. The first V1 formal confirmation should only allow a manually reviewed consistent supplier statement draft to receive an `RMSRC-*` reconciliation confirmation id, move to `statement confirmed / pending payment`, and set payment status to `pending finance payment confirmation`. This confirmation may act as purchasing reconciliation evidence and later cost-basis input, but it must not create usable inventory, must not directly create payment, and must not bypass supplier deduction / tube-core rules or finance review.
+- The first V1 supplier payable draft must be generated separately by a finance / management account from an already confirmed reconciliation record. It receives an `RMSP-*` payable draft id and status `pending finance review`. The draft amount is current-period statement line subtotal plus current-period adjustments; historical arrears, total balances, and opening balances remain reference adjustments and must not be silently included in the current-period payable draft. Payable draft generation should prefer structured `isCurrentPeriod=false` / `reference_balance` markers over footer-text guessing when excluding historical balances.
+- The first V1 supplier payment confirmation must be a separate finance / management action based on an existing `RMSP-*` payable draft. It receives an `RMSPAY-*` payment confirmation id and records paid amount, method, bank reference / voucher, confirmer, and confirmation time. V1 requires the paid amount to equal the payable draft amount; partial payments, multiple payments, prepayments, payable aging, and complex variance carry-forward stay out of this first version. Payment confirmation updates supplier statement / payable payment status and operation logs only; it must not write raw-material inventory or customer statement payment records.
+- Payment entry, payment confirmation, variance handling, and management watch must use separate permissions and operation logs. Excel upload, manual review, reconciliation confirmation, or payable-draft generation must never implicitly create payment records.
+- The system can support photo recognition of the raw-material supplier delivery/sales note or material packaging/label to prefill a raw-material inbound draft. OCR/recognition results are only prefill data; an authorized account must manually verify and confirm them before the system creates an official raw-material batch / roll number.
 - If OCR fails, is unclear, or misses key fields, the inbound draft enters `pending completion / pending confirmation` and must not create available raw-material inventory.
 - After manual confirmation, the system generates the raw-material batch / roll number and label template. Office staff or an account with print permission prints the sticker and attaches it to the corresponding raw material.
 - After the sticker is attached, scanning the label with a scanner or phone records label-confirmation operator, time, warehouse/location or temporary position, and marks that roll/batch as `labeled inbound / available`.
-- If the delivery note, recognition result, and physical material do not match, such as color, width, GSM, meters, or total kg mismatch, the item should enter `inbound exception / pending confirmation` and must not become available material directly.
+- If the raw-material supplier delivery note, recognition result, and physical material do not match, such as color, width, GSM, meters, or total kg mismatch, the item should enter `inbound exception / pending confirmation` and must not become available material directly.
 - Scanning during inbound should quickly open the inbound document / raw-material batch and help confirm quantity, location, supplier, and specification.
 - Raw-material inventory should have its own ledger, including at least `inbound`, `machine-side material pickup / material issue`, `return / leftover registration`, and `stock adjustment`. `Machine-side material pickup / material issue` means issuing material to a production machine, not customer shipment.
 - Scanning during material issue/outbound should record which roll/batch is issued to which machine, production task group, or purpose, including receiver, issuer, time, quantity / full-roll or partial issue, and notes.
 - After material issue/outbound scanning succeeds, the system should bring that raw-material batch's inbound cost snapshot into the related machine, task, order, or replenishment material-cost calculation. For full-roll issue, the full roll cost first enters the machine/task material pool; for partial issue, record issued weight/meters/ratio and calculate cost from the batch unit price.
 - V1 should default raw-material issue to full-roll / full-piece movement to machine-side. Partial issue quantity is required only when the roll is actually split, weighed, metered, or a remaining ratio is clearly known.
+- The current implementation has first V1 follow-up actions for `confirm consumption`, `return leftover`, and `review leftover`. Only machine-side issued rolls / pieces can be consumed or returned, and only pending-leftover rolls / pieces can be reviewed. Full-roll / full-piece consumption creates an `RMI-CONS-*` record and moves the roll / piece to consumed; measured partial consumption by weight records the consumed weight, keeps the child roll at machine side with the remaining weight, and marks it as `partial consumption / machine-side` until the rest is consumed or returned; leftover return creates an `RMI-RET-*` record and moves the roll / piece to pending leftover review; leftover review creates an `RMI-LREV-*` record and moves the roll / piece back to available raw-material inventory. These actions are traceability and inventory-state transitions only: they do not create finished-goods output, do not treat machine counters as qualified quantity, and do not allocate cost / margin.
+- The current implementation also has the first V1 `generate cost draft` action. Only finance / management permissions may create `RMCA-*` raw-material cost-allocation drafts, and only from confirmed consumption records whose issue record is already matched to a production task. Unlinked production tasks, missing inbound unit price, missing consumption, and duplicate draft generation are blocking cases. The draft uses the inbound unit-price snapshot and consumed weight / quantity, links back to the issue and consumption records, and remains `draft_only`: it does not confirm final order cost, does not calibrate loss, and does not update order margin reports.
+- The current implementation also has the first V1 `confirm cost draft` action. Only finance / management permissions may confirm existing `RMCA-*` drafts; missing drafts and duplicate confirmations are blocking cases. Confirmation creates an `RMCC-*` raw-material cost confirmation record, updates the inbound, issue records, consumption records, and drafts to reviewed / pending loss calibration, and records `confirmed_material_cost_snapshot` as the material-cost effect. It still does not calibrate loss, does not update order margin reports, and does not treat machine cycle counts as qualified output.
+- The current implementation also has the first V1 `calibrate loss` action. Only finance / management permissions may calibrate existing `RMCC-*` confirmations; missing confirmations and duplicate calibration are blocking cases. Calibration creates an `RMCL-*` raw-material loss-calibration record, records expected output, actual qualified output, loss quantity, loss rate, related drafts / issue / consumption / production tasks, and moves the inbound, drafts, confirmations, issue records, and consumption records to loss-calibrated / pending margin confirmation. It records `loss_calibrated_material_cost_snapshot` as the material-cost effect and `pending_margin_snapshot` as the margin effect, but still does not update final order margin reports and does not treat machine cycle counts as qualified output.
+- The current implementation also has the first V1 `generate margin snapshot` action. Only finance / management permissions may generate `RMMG-*` raw-material order-margin snapshots, and only after an `RMCL-*` loss calibration exists. Missing loss calibration, missing order-line links, and duplicate snapshot generation are blocking cases. The snapshot summarizes linked order-line sales amount, loss-calibrated material cost, gross profit amount, and gross margin rate, then moves the inbound, drafts, confirmations, loss calibrations, issue records, and consumption records to margin-snapshot pending finance review. If order sales amount is missing, the system records a warning instead of fabricating revenue. This snapshot does not write customer statements, does not confirm final financial settlement, and does not treat machine cycle counts as qualified output.
+- The current implementation also has the first V1 `review margin snapshot` action. Only finance / management permissions may review existing `RMMG-*` snapshots, and only when linked order revenue is complete. Missing margin snapshots, missing order revenue, and duplicate reviews are blocking cases. Review creates an `RMMR-*` internal margin report, moves the inbound, drafts, confirmations, loss calibrations, issue records, consumption records, and margin snapshots to margin-report-ready status, and records `reviewed_margin_report_snapshot` as the margin effect. This report is an internal finance margin report only: it does not write customer statements, does not register collection or final customer settlement, and does not treat machine cycle counts as qualified output.
 - Scanning any raw-material label must not automatically mean material issue/outbound. The scanner or phone must be in `material issue/outbound mode`, or a production task / material issue document / machine issue page must already be open, before scanning can create a material issue record.
 - Recommended issue scanning flow is completed by the helper: first select machine, that machine's daily task group, or issue purpose; then scan the raw-material roll/batch code; the system validates color, specification, width, and other matching fields; it defaults to moving the full roll to machine-side material, asks for partial issue quantity when needed, and then the helper confirms `machine-side material pickup`.
 - Bag-making workers do not need to scan-confirm material issue again. The system can show issued raw materials in their task detail for review and exception discovery.
@@ -4016,15 +4111,18 @@ V1 must pass at least the following acceptance scenarios before launch. These sc
 - Pickup / delivery note change and reprint: test quantity shortage found before pickup or driver loading, office confirms the customer accepts actual quantity, old outbound / pickup / delivery note is voided, the new dot-matrix note is reprinted, and order, inventory, delivery, and statement records stay unambiguous.
 - Express / less-than-truckload labels: test packing into multiple packages, package label printing, movement into waiting pickup area, next-day confirmation of partial or full carrier pickup, and only picked-up packages deducting inventory and entering delivery / statement records.
 - Statement and payment variance: test statement generation by actual delivery date, customer underpayment entering `variance pending confirmation`, office choosing rounding/write-off or unpaid balance, and unpaid balance becoming customer debt that can be carried into the next statement.
+- Raw-material inbound labeling: test supplier delivery-note phone photo upload, OCR prefill, customer-service / office review, one-label-per-roll printing, physical label attachment, phone scan / signed-note upload, and only confirmed attached rolls becoming available raw-material inventory.
+- Supplier monthly reconciliation: test uploading a fabric supplier statement Excel at the start of the following month, matching it against ERP-confirmed inbound records by delivery note, date, color, specification, weight, unit price, and amount, and highlighting missing ERP inbound, supplier omissions, specification differences, weight differences, unit-price differences, and amount differences.
 
 Acceptance tests should keep test data, operator account, expected result, and actual result. Failed scenarios should enter a fix list instead of being treated as launch-ready.
 
 ## Open On-Site Verification
 
-- Verify whether bag-making machines expose both daily quantity and lifetime cumulative quantity.
-- Verify whether counters are reset daily or remain cumulative.
-- If counters are cumulative, daily process output should be calculated as `current end-of-day reading - previous end-of-day reading`.
-- If machines provide a daily quantity reading, record that value directly while retaining photo/manual-entry evidence.
+- Ounuo bag-making counter semantics are confirmed: the machine screen's output / count is a machine action or cycle count, not final qualified finished-goods quantity.
+- Still verify per machine whether it exposes both daily machine count and lifetime cumulative count.
+- Still verify per machine whether counters are reset daily or remain cumulative.
+- If counters are cumulative, daily process count should be calculated as `current end-of-day reading - previous end-of-day reading`.
+- If machines provide a daily machine count, record that value directly while retaining photo/manual-entry evidence.
 - The first bag cost formula has been provided in `docs/product/assets/bag-cost-calculation-2026-06-28.xlsx`; implementation should model it as configurable rules rather than hard-coding hidden constants.
 - Fold = 3cm and seam = 2cm are confirmed for stock/common-goods bags, laminated bags, printed stock/common-goods bags, and non-special custom silk-screen orders. Normal/default handle length is fixed at 38cm and handle raw-material width is fixed at 5cm.
 - Body fabric roll width must exactly match the calculated body required width; V1 cost estimates should be marked `excluding loss`; special models should use the machine-capability table's `other special models` or a manual flag to require constant confirmation. Still verify whether special models or new processes use different constants.
@@ -4035,3 +4133,4 @@ Acceptance tests should keep test data, operator account, expected result, and a
 - Gross-profit estimation should at least separate revenue and cost sources: bag / print revenue comes from the order price snapshot, while material cost comes from size-based material usage, roll-length estimate, material unit cost, and actual or estimated material usage.
 - Fabric and handle raw-material purchasing is confirmed to be primarily priced by `kg/weight`, with inbound cost snapshots saved by yuan/kg. Production material estimates and replenishment still need to combine that cost with material type, width, GSM/fabric weight, meters in the specification model, and later size-based usage formulas.
 - Ink and other auxiliary materials should not have automatic deduction or order-level cost allocation in V1. If they later need detailed management, confirm their purchasing units separately; the system fields should support kg, meter, roll/piece, box/barrel, or batch pricing bases.
+- Still collect real label-paper / label-printer dimensions, phone label-attachment confirmation habits, supplier monthly statement Excel samples, and variance-tolerance thresholds before implementation is treated as field-ready.

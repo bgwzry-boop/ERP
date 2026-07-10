@@ -1,0 +1,395 @@
+{
+  "schema": "erp-v1-field-evidence-manifest-v1",
+  "updatedAt": "2026-07-04T00:00:00.000+08:00",
+  "environment": {
+    "releaseCandidateReport": ".erp-local-storage/v1-release-candidate/latest.md",
+    "apiBaseUrl": "",
+    "productionEnvPreflightReport": "",
+    "runtimeReadinessReport": "",
+    "fieldAcceptanceReport": ""
+  },
+  "evidenceGroups": [
+    {
+      "key": "production_persistence",
+      "label": "生产持久化",
+      "ownerRole": "技术 / 管理",
+      "blockingForV1": true,
+      "items": [
+        {
+          "key": "postgres_migration_applied",
+          "label": "PostgreSQL 迁移已在生产库执行",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "postgres_backup_configured",
+          "label": "生产库备份策略和负责人已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "postgres_restore_sample_checked",
+          "label": "恢复演练或恢复样本已留档",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "postgres_roles_checked",
+          "label": "生产库账号、最小权限和连接池配置已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "production_env_preflight_10_of_10",
+          "label": "V1 生产环境变量预检已达到 10/10",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "key": "object_storage",
+      "label": "对象存储 / 附件留档",
+      "ownerRole": "技术 / 财务",
+      "blockingForV1": true,
+      "items": [
+        {
+          "key": "attachment_bucket_policy_checked",
+          "label": "附件 bucket 权限、生命周期和备份策略已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "attachment_upload_readback_checked",
+          "label": "附件上传、读回和内容摘要一致性已通过",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "attachment_signed_url_checked",
+          "label": "附件短期访问地址可读取且过期策略已验证",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "attachment_access_audit_checked",
+          "label": "附件访问审计已写入并可查询",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "statement_export_storage_checked",
+          "label": "对账导出文件已写入对象存储并可重新下载",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "key": "print_hardware",
+      "label": "打印硬件 / CUPS / 标签",
+      "ownerRole": "办公室 / 仓库",
+      "blockingForV1": true,
+      "items": [
+        {
+          "key": "cups_lpstat_checked",
+          "label": "真实 CUPS 队列 non-printing 预检已通过",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "label_sample_printed",
+          "label": "标签机真实样张已出纸并留档",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "dot_matrix_sample_printed",
+          "label": "针式单据真实样张已出纸并留档",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "paper_alignment_checked",
+          "label": "标签纸 / 针式纸对位和尺寸已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "barcode_scan_checked",
+          "label": "打印条码可被扫码设备读取并匹配包裹",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "spool_or_driver_callback_checked",
+          "label": "spool 状态或驱动回写已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "void_reprint_checked",
+          "label": "作废重打流程已用真实设备验证",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "key": "driver_native_device",
+      "label": "司机真机 / 原生壳",
+      "ownerRole": "司机 / 技术",
+      "blockingForV1": true,
+      "items": [
+        {
+          "key": "driver_real_phone_checked",
+          "label": "真实 Android / iOS 手机已安装并登录",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "camera_permission_checked",
+          "label": "相机权限、拍照和水印信息已通过",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "native_package_scan_checked",
+          "label": "纸质包裹标签原生扫码已匹配任务",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "geo_location_checked",
+          "label": "定位权限和送达位置记录已通过",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "map_navigation_checked",
+          "label": "地图导航桥接可打开并到达正确地址",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "offline_upload_fallback_checked",
+          "label": "弱网或失败上传兜底流程已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "key": "business_workflow_pilot",
+      "label": "真实业务试运行",
+      "ownerRole": "办公室 / 仓库 / 财务",
+      "blockingForV1": true,
+      "items": [
+        {
+          "key": "real_order_entry_checked",
+          "label": "真实客户订单录入、识别和确认已通过",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "real_inventory_reservation_checked",
+          "label": "真实库存占用、释放和缺货提示已通过",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "real_fulfillment_checked",
+          "label": "真实出库、交付、异常和重打流程已通过",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "real_production_packing_checked",
+          "label": "真实生产 / 打包任务和成品图复核已通过",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "real_statement_payment_checked",
+          "label": "真实对账、收款、差额和核销流程已通过",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "exception_todo_checked",
+          "label": "异常待办责任人、提醒和处理闭环已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        }
+      ]
+    },
+    {
+      "key": "security_operations",
+      "label": "账号 / 权限 / 运维",
+      "ownerRole": "技术 / 管理",
+      "blockingForV1": true,
+      "items": [
+        {
+          "key": "production_users_checked",
+          "label": "生产用户、岗位、角色和禁用名单已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "password_reset_plan_checked",
+          "label": "初始密码、强制改密、重置和撤销流程已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "audit_log_retention_checked",
+          "label": "操作日志和访问审计留存策略已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "backup_monitoring_checked",
+          "label": "备份巡检、容量监控和告警负责人已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        },
+        {
+          "key": "rollback_owner_checked",
+          "label": "回滚窗口、回滚负责人和沟通路径已确认",
+          "required": true,
+          "status": "pending",
+          "evidenceRef": "",
+          "notes": ""
+        }
+      ]
+    }
+  ],
+  "signoffs": [
+    {
+      "role": "办公室",
+      "required": true,
+      "signer": "",
+      "signedAt": "",
+      "status": "pending",
+      "notes": ""
+    },
+    {
+      "role": "仓库/出库",
+      "required": true,
+      "signer": "",
+      "signedAt": "",
+      "status": "pending",
+      "notes": ""
+    },
+    {
+      "role": "车间",
+      "required": true,
+      "signer": "",
+      "signedAt": "",
+      "status": "pending",
+      "notes": ""
+    },
+    {
+      "role": "司机",
+      "required": true,
+      "signer": "",
+      "signedAt": "",
+      "status": "pending",
+      "notes": ""
+    },
+    {
+      "role": "财务",
+      "required": true,
+      "signer": "",
+      "signedAt": "",
+      "status": "pending",
+      "notes": ""
+    },
+    {
+      "role": "技术/管理",
+      "required": true,
+      "signer": "",
+      "signedAt": "",
+      "status": "pending",
+      "notes": ""
+    }
+  ],
+  "v1V2BoundaryConfirmed": {
+    "v1": [
+      "核心 ERP 闭环、人工确认、生产级持久化、真实打印、司机真机、对象存储和现场 QA。",
+      "客户通知、成品图确认、异常处理和对账发送仍以人工确认闭环为主。"
+    ],
+    "v2": [
+      "企业微信自动发送、自动回执抓取、AI/OCR、路线优化、自动排产、原材料成本毛利、售后工资和 BI 深化。"
+    ],
+    "confirmedBy": "",
+    "confirmedAt": "",
+    "status": "pending"
+  }
+}

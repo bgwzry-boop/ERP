@@ -1,0 +1,232 @@
+import assert from "node:assert/strict";
+import http from "node:http";
+import { rmSync } from "node:fs";
+import { join } from "node:path";
+import { createSeedSession } from "../server/authSeed.mjs";
+import { createApiServer } from "../server/apiServer.mjs";
+
+const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "api-security-boundary");
+const authSecret = "api-security-boundary-test-secret";
+const runtimeUsers = [
+  {
+    userId: "U-RUNTIME-OFFICE",
+    loginName: "runtime.office",
+    displayName: "运行时办公室测试账号",
+    defaultRole: "office",
+    department: "office",
+    enabled: true,
+    roles: ["office"],
+    loginEnabled: true,
+    passwordHash: "runtime-password-test",
+    sessionVersion: 1,
+  },
+  {
+    userId: "U-RUNTIME-FINANCE",
+    loginName: "runtime.finance",
+    displayName: "运行时财务测试账号",
+    defaultRole: "finance",
+    department: "finance",
+    enabled: true,
+    roles: ["finance"],
+    loginEnabled: true,
+    passwordHash: "runtime-password-test",
+    sessionVersion: 1,
+  },
+];
+const runtimeIdentityRepository = {
+  kind: "test_memory",
+  loadState: async () => ({ users: runtimeUsers, revokedSeedSessions: [] }),
+  saveState: async () => ({ savedUserCount: runtimeUsers.length, revokedSessionCount: 0 }),
+};
+process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
+rmSync(checkStorageRoot, { recursive: true, force: true });
+
+assert.throws(
+  () => createApiServer({ strictAuth: true, authSecret: "", applyProductionEnvFile: false }),
+  /ERP_AUTH_SECRET/,
+  "strict mode must refuse to start without an authentication secret",
+);
+
+let strictRuntimeServer = null;
+let strictServer = null;
+
+try {
+  strictRuntimeServer = createApiServer({
+    strictAuth: true,
+    authSecret,
+    allowSeedUsers: true,
+    allowLegacyIdentityHeaders: true,
+    allowActionPermissionOverride: true,
+    allowDefaultSeedUser: true,
+    corsAllowedOrigins: ["https://erp.example.test"],
+    maxJsonBodyBytes: 256,
+    runtimeIdentityRepository,
+    applyProductionEnvFile: false,
+  });
+  await listen(strictRuntimeServer);
+  const baseUrl = serverUrl(strictRuntimeServer);
+  const runtimeOfficeSession = createSeedSession("U-RUNTIME-OFFICE", { authSecret, sessionVersion: 1 });
+  const authorization = { authorization: `Bearer ${runtimeOfficeSession.accessToken}` };
+
+  const health = await requestJson(baseUrl, "/api/health");
+  assert.equal(health.status, 200);
+
+  const anonymous = await requestJson(baseUrl, "/api/permissions/effective");
+  assert.equal(anonymous.status, 401);
+  assert.equal(anonymous.body.code, "AUTH_SESSION_REQUIRED");
+
+  const forgedHeaders = await requestJson(baseUrl, "/api/permissions/effective", {
+    headers: {
+      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-action-permissions": "system.v1_go_live",
+    },
+  });
+  assert.equal(forgedHeaders.status, 401);
+
+  const seedSession = createSeedSession("U-OFFICE-A", { authSecret });
+  const explicitSeed = await requestJson(baseUrl, "/api/permissions/effective", {
+    headers: { authorization: `Bearer ${seedSession.accessToken}` },
+  });
+  assert.equal(explicitSeed.status, 401);
+  assert.equal(explicitSeed.body.code, "AUTH_SEED_USER_DISABLED");
+
+  const allowedPreflight = await requestJson(baseUrl, "/api/permissions/effective", {
+    method: "OPTIONS",
+    headers: {
+      origin: "https://erp.example.test",
+      "access-control-request-method": "GET",
+      "access-control-request-headers": "authorization, content-type",
+    },
+  });
+  assert.equal(allowedPreflight.status, 204);
+  assert.equal(allowedPreflight.headers.get("access-control-allow-origin"), "https://erp.example.test");
+  assert.equal(allowedPreflight.headers.get("access-control-allow-headers"), "content-type, authorization");
+
+  const deniedPreflight = await requestJson(baseUrl, "/api/permissions/effective", {
+    method: "OPTIONS",
+    headers: { origin: "https://untrusted.example.test", "access-control-request-method": "GET" },
+  });
+  assert.equal(deniedPreflight.status, 403);
+  assert.equal(deniedPreflight.headers.get("access-control-allow-origin"), null);
+
+  const authenticated = await requestJson(baseUrl, "/api/permissions/effective", { headers: authorization });
+  assert.equal(authenticated.status, 200);
+  assert.equal(authenticated.body.user?.userId, "U-RUNTIME-OFFICE");
+
+  const financeSession = createSeedSession("U-RUNTIME-FINANCE", { authSecret, sessionVersion: 1 });
+  const forgedPermission = await requestJson(baseUrl, "/api/order-drafts/recognize", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${financeSession.accessToken}`,
+      "content-type": "application/json",
+      "x-erp-action-permissions": "order.draft.recognize",
+    },
+    body: JSON.stringify({ sourceText: "测试客户 30*40 100个" }),
+  });
+  assert.equal(forgedPermission.status, 403);
+  assert.equal(forgedPermission.body.code, "PERMISSION_DENIED");
+
+  const tooLarge = await requestChunkedJson(baseUrl, "/api/order-drafts/recognize", {
+    headers: { ...authorization, "content-type": "application/json" },
+    chunks: ['{"sourceText":"', "x".repeat(512), '"}'],
+  });
+  assert.equal(tooLarge.status, 413);
+  assert.equal(tooLarge.body.code, "REQUEST_BODY_TOO_LARGE");
+
+  strictServer = createApiServer({
+    strictAuth: true,
+    authSecret,
+    corsAllowedOrigins: ["https://erp.example.test"],
+    applyProductionEnvFile: false,
+  });
+  await listen(strictServer);
+  const strictBaseUrl = serverUrl(strictServer);
+  const seedLogin = await requestJson(strictBaseUrl, "/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userId: "U-OFFICE-A", password: "office123" }),
+  });
+  assert.equal(seedLogin.status, 403);
+  assert.equal(seedLogin.body.code, "AUTH_SEED_LOGIN_DISABLED");
+
+  const prototypeSeedLogin = await requestJson(strictBaseUrl, "/api/auth/prototype-login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ userId: "U-OFFICE-A" }),
+  });
+  assert.equal(prototypeSeedLogin.status, 401);
+  assert.equal(prototypeSeedLogin.body.code, "AUTH_SESSION_REQUIRED");
+
+  const strictSeedRequest = await requestJson(strictBaseUrl, "/api/permissions/effective", {
+    headers: { authorization: `Bearer ${seedSession.accessToken}` },
+  });
+  assert.equal(strictSeedRequest.status, 401);
+  assert.equal(strictSeedRequest.body.code, "AUTH_SEED_USER_DISABLED");
+
+  process.stdout.write("API security-boundary checks passed.\n");
+} finally {
+  await close(strictServer);
+  await close(strictRuntimeServer);
+  rmSync(checkStorageRoot, { recursive: true, force: true });
+}
+
+function listen(server) {
+  return new Promise((resolvePromise, reject) => {
+    server.once("error", reject);
+    server.listen(0, "127.0.0.1", () => {
+      server.off("error", reject);
+      resolvePromise();
+    });
+  });
+}
+
+function close(server) {
+  if (!server?.listening) return Promise.resolve();
+  return new Promise((resolvePromise, reject) => server.close((error) => (error ? reject(error) : resolvePromise())));
+}
+
+function serverUrl(server) {
+  const address = server.address();
+  return `http://127.0.0.1:${address.port}`;
+}
+
+async function requestJson(baseUrl, pathname, options = {}) {
+  const response = await fetch(`${baseUrl}${pathname}`, options);
+  const text = await response.text();
+  return {
+    status: response.status,
+    headers: response.headers,
+    body: text ? JSON.parse(text) : {},
+  };
+}
+
+function requestChunkedJson(baseUrl, pathname, options = {}) {
+  const url = new URL(`${baseUrl}${pathname}`);
+  return new Promise((resolvePromise, reject) => {
+    const request = http.request(
+      {
+        method: "POST",
+        hostname: url.hostname,
+        port: url.port,
+        path: url.pathname,
+        headers: options.headers,
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("error", reject);
+        response.on("end", () => {
+          const text = Buffer.concat(chunks).toString("utf8");
+          resolvePromise({
+            status: response.statusCode,
+            headers: new Headers(response.headers),
+            body: text ? JSON.parse(text) : {},
+          });
+        });
+      },
+    );
+    request.on("error", reject);
+    for (const chunk of options.chunks ?? []) request.write(chunk);
+    request.end();
+  });
+}

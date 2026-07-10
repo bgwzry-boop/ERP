@@ -1,6 +1,8 @@
 import { sampleText } from "../data/fixtures.js";
+import { calculateLinePricing } from "../domain/priceTable.js";
 
 const colorWords = ["米白", "浅蓝", "牛仔蓝", "大红", "红", "黑", "白", "蓝", "绿", "黄", "粉"];
+const colorPattern = colorWords.join("|");
 const sizeAliases = [
   { words: ["中号横款", "中号横版"], size: "40*30*10" },
   { words: ["小号横款", "小号横版"], size: "35*27*10" },
@@ -43,10 +45,15 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
     const size = detectSize(chunk);
     const quantities = detectQuantities(chunk);
     const product = detectProduct(chunk);
-    const fulfillment = chunk.includes("快运") || chunk.includes("快递") ? "快递快运" : chunk.includes("送货") ? "送货" : "自提";
+    const fulfillment = detectFulfillment(chunk);
     const print = chunk.includes("印") || chunk.includes("美的") || chunk.includes("图") || chunk.includes("logo") ? "是" : "否";
     const handle = chunk.includes("长提") || chunk.includes("加长") ? "加长提" : "普通提";
     const latest = detectLatest(chunk);
+    const printColor = print === "是" ? detectPrintColor(chunk) : "非印刷";
+    const printSide = print === "是" ? detectPrintSide(chunk) : "非印刷";
+    const artworkStatus = print === "是" ? "待上传" : "非印刷";
+    const handleColor = detectHandleColor(chunk);
+    const note = detectNote(chunk, { handle });
 
     quantities.forEach((item, qtyIndex) => {
       const color = item.color || detectColor(chunk);
@@ -64,6 +71,11 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
         qty,
         fulfillment,
         latest,
+        printColor,
+        printSide,
+        artworkStatus,
+        handleColor,
+        note,
         source: chunk,
       };
       rows.push(enrichDraftRow(baseRow, inventories));
@@ -74,15 +86,15 @@ export function parseOrderText(text, { customers = [], inventories = [] } = {}) 
 }
 
 export function enrichDraftRow(row, inventories = []) {
-  const amount = estimateAmount(row.qty, row.print);
+  const amount = estimateAmount(row);
   const inventory = estimateInventory(row, inventories);
   const confidence = getConfidence(row, inventory);
   return { ...row, amount, inventory, confidence };
 }
 
-export function estimateAmount(qty, print) {
-  const unitPrice = print === "是" ? 0.48 : 0.36;
-  return Math.round(Number(qty || 0) * unitPrice * 10) / 10;
+export function estimateAmount(rowOrQty, print = "否") {
+  const row = typeof rowOrQty === "object" && rowOrQty !== null ? rowOrQty : { qty: rowOrQty, print };
+  return calculateLinePricing(row).amount;
 }
 
 function detectCustomer(chunk, customers, fallback) {
@@ -109,9 +121,10 @@ function detectSize(chunk) {
 
 function detectQuantities(chunk) {
   const matches = [];
-  const colorPattern = colorWords.join("|");
   const colorQtyRegExp = new RegExp(`(${colorPattern})色?\\s*(\\d{2,5})(?:\\s*个)?`, "g");
   for (const match of chunk.matchAll(colorQtyRegExp)) {
+    const before = chunk.slice(Math.max(0, match.index - 3), match.index);
+    if (before.includes("印")) continue;
     matches.push({ color: normalizeColor(match[1]), qty: Number(match[2]) });
   }
 
@@ -122,6 +135,9 @@ function detectQuantities(chunk) {
 }
 
 function detectColor(chunk) {
+  const bagColor = detectBagColor(chunk);
+  if (bagColor) return bagColor;
+
   const color = colorWords.find((item) => chunk.includes(item));
   return color ? normalizeColor(color) : "待确认";
 }
@@ -132,11 +148,20 @@ function normalizeColor(color) {
 
 function detectProduct(chunk) {
   if (chunk.includes("同行") || chunk.includes("来料")) return "同行来料印刷";
+  if (chunk.includes("外卖")) return "外卖活动袋";
+  if (chunk.includes("白鲸") || chunk.includes("活动袋")) return "白鲸活动袋";
   if (chunk.includes("美的")) return "美的空调";
-  if (chunk.includes("小熊")) return "小熊袋";
+  if (chunk.includes("小熊袋") || chunk.includes("小熊小狗") || chunk.includes("小狗")) return "小熊袋";
   if (chunk.includes("喜")) return "喜字袋";
   if (chunk.includes("福")) return "福字袋";
   return "空白袋";
+}
+
+function detectFulfillment(chunk) {
+  if (chunk.includes("快运") || chunk.includes("快递")) return "快递快运";
+  if (chunk.includes("送货") || chunk.includes("送到")) return "送货";
+  if (chunk.includes("自提") || chunk.includes("来取") || chunk.includes("拿货")) return "自提";
+  return "待确认";
 }
 
 function detectLatest(chunk) {
@@ -145,6 +170,65 @@ function detectLatest(chunk) {
   if (chunk.includes("明天")) return "明天";
   if (chunk.includes("后天")) return "后天";
   if (chunk.includes("周五")) return "周五";
+  return "待确认";
+}
+
+function detectPrintColor(chunk) {
+  const compactColorPrint = chunk.match(new RegExp(`(${colorPattern})色?印(${colorPattern})色?`));
+  if (compactColorPrint) return normalizeColor(compactColorPrint[2]);
+
+  const printColorField = chunk.match(new RegExp(`印色\\s*[:：]?\\s*(${colorPattern})色?`));
+  if (printColorField) return normalizeColor(printColorField[1]);
+
+  const colorAfterPrint = chunk.match(new RegExp(`印(?:刷)?\\s*(${colorPattern})色?`));
+  if (colorAfterPrint) return normalizeColor(colorAfterPrint[1]);
+
+  const colorBeforePrint = chunk.match(new RegExp(`(${colorPattern})色?\\s*印`));
+  if (colorBeforePrint) return normalizeColor(colorBeforePrint[1]);
+
+  return "待确认";
+}
+
+function detectBagColor(chunk) {
+  const compactColorPrint = chunk.match(new RegExp(`(${colorPattern})色?印(${colorPattern})色?`));
+  if (compactColorPrint) return normalizeColor(compactColorPrint[1]);
+
+  const compactBagHandle = chunk.match(new RegExp(`(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
+  if (compactBagHandle) return normalizeColor(compactBagHandle[1]);
+
+  const explicitBag = chunk.match(new RegExp(`(${colorPattern})色?\\s*(?:底袋|袋子|袋)`));
+  if (explicitBag) return normalizeColor(explicitBag[1]);
+
+  return "";
+}
+
+function detectHandleColor(chunk) {
+  const compactBagHandle = chunk.match(new RegExp(`(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
+  if (compactBagHandle) return normalizeColor(compactBagHandle[2]);
+
+  const colorBeforeHandle = chunk.match(new RegExp(`(${colorPattern})色?\\s*(?:提手|手提|提)(?!货|醒|示)`));
+  if (colorBeforeHandle) return normalizeColor(colorBeforeHandle[1]);
+
+  const colorAfterHandle = chunk.match(new RegExp(`(?:提手|手提)\\s*(${colorPattern})色?`));
+  if (colorAfterHandle) return normalizeColor(colorAfterHandle[1]);
+
+  return "";
+}
+
+function detectNote(chunk, { handle }) {
+  const notes = [];
+  if (handle === "加长提") notes.push("加长提");
+  if (/提手颜色更换|提手更换|换.*提/.test(chunk)) notes.push("提手颜色更换");
+
+  const explicitNote = chunk.match(/备注[:：]?\s*([^；;，,]+)/);
+  if (explicitNote) notes.push(explicitNote[1].trim());
+
+  return [...new Set(notes.filter(Boolean))].join("、");
+}
+
+function detectPrintSide(chunk) {
+  if (chunk.includes("双面") || chunk.includes("两面")) return "双面";
+  if (chunk.includes("单面") || chunk.includes("一面")) return "单面";
   return "待确认";
 }
 

@@ -1,5 +1,12 @@
 node_modules/
 dist/
+.erp-local-storage/
+screenshots/
+.env
+.env.*
+*.local.env
+*.prod.env
+*.production.env
 .npm-cache/
 .DS_Store
 npm-debug.log*
