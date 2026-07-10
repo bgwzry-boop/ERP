@@ -20,6 +20,8 @@
 
 ## 最新代码审查修复
 
+本轮完成 R2 的本地代码准备：生产部署已锁定 Node 24，新增 systemd API / health timer、nginx TLS 和同源 API 配置、`SIGTERM/SIGINT` 优雅停机、共享 PostgreSQL pool 关闭、8 项服务健康探针、15 项部署清单、按完整 commit 的 9 阶段全新目录恢复检查，以及启停/日志/告警/备份/回滚手册。全量 `npm test`、批次 B PostgreSQL 16 live 和 production profile live 通过。代码 / 原型百分比和 V1 `80-83%` 暂不提高：当前实际部署清单仍因没有受控 Git 远端停在 `14/15`，真实 PostgreSQL、恢复验证库、对象存储、另一台主机恢复、告警、回滚、设备、现场证据和签字均未完成。
+
 本轮完成批次 B3 R1.1-R1.5：正式订单确认与草稿状态、库存占用、库存流水和日志已在单一 PostgreSQL 事务提交；核心启动快照覆盖 26 个业务集合，production 空库无 seed，重启可续编，双会话旧版本只允许一个成功，旧草稿确认整单回滚。稀疏订单 / 交付编号和持久化对账金额也已补回归。当前统一 profile 为 31 个 PostgreSQL 仓储默认项、2 个对象存储、33 个持久化对象。`npm test`、批次 B、PostgreSQL 16 live、production profile live 和 OpenAPI 通过。代码 / 原型百分比暂不提高，V1 真实上线仍为 `80-83%`，因为真实生产资源、恢复、打印 / 手机、业务试跑、证据 `0/34`、签字 `0/6` 和发布门禁 `0/4` 尚未完成。
 
 本轮完成批次 B1-B2 首轮写安全整改：production 业务写统一要求 `Idempotency-Key`，PostgreSQL 持久化请求摘要与提交响应；订单 / 库存、交付、收款核销、原材料、打印和司机派单增加事务锁与版本冲突控制。`npm test` 和 PostgreSQL 16 容器 live 通过，live 实际验证同键重放、同键不同请求拒绝和并发重复抑制。该阶段当时遗留的 B3 事实源缺口已由上条 R1.1-R1.5 关闭；真实生产基础设施、设备、业务试跑、证据和签字仍未完成。

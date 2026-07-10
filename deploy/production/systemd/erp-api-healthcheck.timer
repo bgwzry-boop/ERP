@@ -1,0 +1,12 @@
+[Unit]
+Description=Run ERP V1 API production health check every minute
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Persistent=true
+Unit=erp-api-healthcheck.service
+
+[Install]
+WantedBy=timers.target

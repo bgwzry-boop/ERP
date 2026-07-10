@@ -12,6 +12,7 @@
 
 - Git 初始基线已提交到 `main`。
 - 当前开发分支：`codex/p0-office-hardening`。
+- 本轮补充：R2 本地部署恢复能力已落地。Node 24、systemd API / 周期 health、nginx TLS / 同源 API、API 优雅停机、共享 PostgreSQL pool 关闭、生产服务 health、部署清单、按完整 commit 的全新目录恢复检查和部署/备份/回滚手册均已接入专项及 `npm test`。批次 B PostgreSQL 16 live 和 production profile live 通过。当前真实部署清单为 `14/15`，唯一清单阻塞是没有受控 Git 远端；真实基础设施和另一台主机恢复仍需技术运维执行，完成度不提高。
 - 本轮补充：上线状态页的 `执行第一阶段` live-run 已把 runtime smoke 来源对齐到当前 API。服务端现在把当前请求推导出的 API 地址传给第一阶段执行器，但仍忽略请求体，不接受前端 env 路径、真实值片段、API 地址或 env 值；页面 `最近第一阶段执行` 显示 `runtime smoke 当前 API`、`API 地址输入 不接受`，服务端配置提示显示 `runtime smoke API 当前请求`。当前 API 读回仍 `blocked / 1/8`，首个阻塞仍是 `生产 env 真实值 intake 校验`；这只补当前 API runtime smoke 证明链路，不提高完成度百分比。
 - 本轮补充：上线状态页的 `真实值 dry-run` live-precheck 已补正式合并所需的 dry-run proof 可见性。`POST /api/system/v1-production-first-stage-values-dry-run/live-precheck` 现在返回脱敏 `dryRunProofStatus`、`dryRunProofReady`、最小 blocking 补值进度和缺项数；页面 `最近真实值 dry-run` 和服务端配置提示同步显示 `dry-run 证明`、`dry-run 最小补值`、`dry-run 缺`。当前 API 读回仍 `not_configured / not_included / 0/0`，不会写目标 env；这只减少 dry-run 后是否可进入正式合并的判断误差，不提高完成度百分比。
 - 本轮补充：上线状态页和正式合并真实值入口已补最近真实值 dry-run 证明门禁。`productionEnvValuesApplyGateStatus` 和 `POST /api/system/v1-production-first-stage-values-apply/live-run` 现在都会显示 / 返回脱敏 `dryRunProofStatus`、`dryRunProofReady`、最小 blocking 补值进度和缺项数；正式合并必须同时满足服务端开关、唯一片段来源、片段审计、目标 setup ready 和最近 dry-run 证明 ready。缺少证明时 `targetEnvFileMayBeMutated=false`，不会调用合并器或写目标 env。该补充只提高生产 env 正式合并前的执行证明门禁，不提高完成度百分比。

@@ -4,6 +4,8 @@ import { createHash } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createGracefulShutdownController } from "./gracefulShutdown.mjs";
+import { closeSharedPostgresPools } from "./postgresPoolClient.mjs";
 import { makeTodo } from "../src/data/fixtures.js";
 import { parseOrderText } from "../src/lib/orderParser.js";
 import {
@@ -22941,6 +22943,16 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     const server = createApiServer(runtimeMode ? { runtimeMode } : {});
     await server.ready;
     const port = Number(process.env.ERP_API_PORT ?? 8787);
+    const shutdownController = createGracefulShutdownController({
+      server,
+      closeResources: closeSharedPostgresPools,
+      timeoutMs: process.env.ERP_API_SHUTDOWN_TIMEOUT_MS,
+    });
+    shutdownController.install();
+    server.once("error", (error) => {
+      console.error(`ERP API server error (${error?.code || "unknown"}).`);
+      void shutdownController.shutdown("SERVER_ERROR");
+    });
     server.listen(port, "127.0.0.1", () => {
       console.log(`ERP API (${runtimeMode || "auto"}) listening on http://127.0.0.1:${port}`);
     });

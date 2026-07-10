@@ -4,6 +4,12 @@ import { buildIdempotencyConflictError } from "./idempotency.mjs";
 const { Pool } = pg;
 const sharedPools = new Map();
 
+export async function closeSharedPostgresPools() {
+  const pools = [...sharedPools.values()];
+  sharedPools.clear();
+  await Promise.all(pools.map((pool) => pool.end()));
+}
+
 export function createPostgresPoolClient(options = {}) {
   const pool = options.pool ?? getSharedPostgresPool(options);
   return {

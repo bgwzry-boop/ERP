@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-11 - Production Releases Use Immutable Commits And Atomic Symlink Switching
+
+Production deployment must target a full 40-character Git commit in a new release directory. Recovery evidence must include env-file audit, clone, detached checkout, commit verification, locked dependency installation, production frontend build, migration dry-run, deployment-manifest verification, and production runtime smoke. Reports may include an abbreviated commit but must not include the repository URL, checkout path, env-file path, command output, or secret values. Failed recovery directories are retained for review and are never automatically deleted or overwritten.
+
+The active version is `/opt/erp/current`, atomically switched to a verified `/opt/erp/releases/<commit>` directory. systemd sends SIGTERM; the API stops accepting work, drains HTTP requests, and closes shared PostgreSQL pools before exit. Application rollback switches to a previously verified release and does not automatically execute a database down migration. Real remote configuration, another-host recovery, backup/restore, monitoring alerts, and rollback rehearsal remain required evidence rather than inferred from local tests.
+
 ## 2026-07-11 - Order Confirmation Business-ID Conflicts Fail Closed
 
 Formal order confirmation must never use `ON CONFLICT DO UPDATE` to overwrite an existing order, order line, price snapshot, fulfillment, reservation, inventory ledger, todo, or audit log. Idempotent replay is handled by the operation idempotency record; a new request that collides with an existing business ID must return a business-write conflict and roll back the draft transition plus every related insert and inventory change.

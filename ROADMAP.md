@@ -16,6 +16,7 @@ Status: Batch A and the local code side of Batch B are complete; real infrastruc
 
 - Batch A: explicit runtime modes, local data partitioning, production fail-closed persistence, formal production login, and shared role permissions.
 - Batch B: core PostgreSQL facts, atomic confirmation, startup snapshots, restart recovery, and stale-session concurrency are complete in the local PostgreSQL 16 suite; real production env, migration/backup/restore, object storage, remote recovery, deployment, logging, alerting, and rollback evidence are next.
+- R2 code preparation: Node 24, systemd/nginx deployment manifests, graceful shutdown, periodic production health checks, an immutable-commit fresh-directory recovery runner, and a deployment/recovery runbook are complete. The actual controlled Git remote, another-host recovery, live infrastructure, alert test, and rollback evidence remain external blockers.
 - Batch C: physical printers / CUPS and driver-phone native capability verification.
 - Batch D: desensitized real business pilot across office, warehouse, workshop, driver, finance, and raw materials.
 - Batch E: continue splitting large frontend/API composition roots and unify operational UI states without changing business state machines.
