@@ -3,7 +3,10 @@ import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import pg from "pg";
 import { createApiServer } from "../server/apiServer.mjs";
+import { buildPostgresIdempotencyRequest } from "../server/idempotency.mjs";
+import { createPostgresPoolClient } from "../server/postgresPoolClient.mjs";
 import { createPostgresAttachmentRepository } from "../server/attachmentRepository.mjs";
 import { createPostgresAttachmentAccessAuditRepository } from "../server/attachmentAccessAuditRepository.mjs";
 import { createPostgresPaymentRecordRepository } from "../server/paymentRecordRepository.mjs";
@@ -28,10 +31,12 @@ import { createPostgresPrintJobRepository } from "../server/printJobRepository.m
 import { createPostgresMasterDataImportReviewRepository } from "../server/masterDataImportReviewRepository.mjs";
 import { createPostgresMasterDataImportTransactionRepository } from "../server/masterDataImportTransactionRepository.mjs";
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
+import { v1PersistencePostgresRepositoryOptionKeys } from "../server/v1PersistenceProfile.mjs";
 import { loadMigrationFiles, validateMigrationSet } from "./dbMigrationUtils.mjs";
 import { assertStatementXlsxWorkbook } from "./xlsxTestUtils.mjs";
 
 const dockerImage = process.env.ERP_POSTGRES_DOCKER_IMAGE || "postgres:16-alpine";
+const { Pool } = pg;
 const containerName = `erp-postgres-live-${process.pid}-${Date.now()}`;
 const storageRoot = mkdtempSync(join(tmpdir(), "erp-postgres-live-storage-"));
 let server = null;
@@ -42,6 +47,7 @@ try {
   await waitForPostgres();
   applyMigrations();
   seedRequiredBusinessRows();
+  await checkPostgresIdempotencyAndConcurrency();
   await checkPostgresRepositories();
   await checkApiWithPostgresRepositories();
   console.log(
@@ -67,6 +73,8 @@ function startPostgresContainer() {
     "--detach",
     "--name",
     containerName,
+    "--publish",
+    "127.0.0.1::5432",
     "--env",
     "POSTGRES_DB=erp",
     "--env",
@@ -409,6 +417,105 @@ ON CONFLICT (id) DO UPDATE SET
 `);
 }
 
+async function checkPostgresIdempotencyAndConcurrency() {
+  const portResult = spawnSync("docker", ["port", containerName, "5432/tcp"], { encoding: "utf8" });
+  const portMatch = String(portResult.stdout ?? "").trim().match(/:(\d+)$/);
+  if (portResult.status !== 0 || !portMatch) {
+    throw new Error(portResult.stderr || "Unable to resolve the PostgreSQL live-check host port.");
+  }
+
+  const pool = new Pool({
+    connectionString: `postgres://erp:erp@127.0.0.1:${portMatch[1]}/erp`,
+    max: 4,
+    connectionTimeoutMillis: 5_000,
+  });
+  const client = createPostgresPoolClient({ pool });
+  try {
+    const firstRequest = buildPostgresIdempotencyRequest({
+      scope: "test.live.idempotency",
+      idempotencyKey: "idem-postgres-live-001",
+      payload: { todoId: "T-LIVE-IDEMPOTENCY-001", summary: "first request" },
+      targetType: "todo",
+      targetId: "T-LIVE-IDEMPOTENCY-001",
+      resourceLocks: ["todo:T-LIVE-IDEMPOTENCY-001"],
+      query: buildLiveIdempotencyTodoQuery("T-LIVE-IDEMPOTENCY-001", "first request"),
+    });
+    const first = await client.idempotentTransactionJson(firstRequest);
+    const replay = await client.idempotentTransactionJson(firstRequest);
+    assert.deepEqual(replay, first, "same-key same-payload requests must replay the stored response");
+    await assert.rejects(
+      () =>
+        client.idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            ...firstRequest,
+            payload: { todoId: "T-LIVE-IDEMPOTENCY-001", summary: "different request" },
+            query: buildLiveIdempotencyTodoQuery("T-LIVE-IDEMPOTENCY-001", "different request"),
+          }),
+        ),
+      (error) => error?.statusCode === 409 && error?.code === "IDEMPOTENCY_KEY_REUSED",
+    );
+
+    const concurrentRequest = buildPostgresIdempotencyRequest({
+      scope: "test.live.concurrency",
+      idempotencyKey: "idem-postgres-live-concurrent-001",
+      payload: { todoId: "T-LIVE-IDEMPOTENCY-002", summary: "concurrent request" },
+      targetType: "todo",
+      targetId: "T-LIVE-IDEMPOTENCY-002",
+      resourceLocks: ["todo:T-LIVE-IDEMPOTENCY-002"],
+      query: buildLiveIdempotencyTodoQuery("T-LIVE-IDEMPOTENCY-002", "concurrent request", true),
+    });
+    const [concurrentLeft, concurrentRight] = await Promise.all([
+      client.idempotentTransactionJson(concurrentRequest),
+      client.idempotentTransactionJson(concurrentRequest),
+    ]);
+    assert.deepEqual(concurrentRight, concurrentLeft, "concurrent retries must converge on one stored response");
+  } finally {
+    await pool.end();
+  }
+
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM todos WHERE id IN ('T-LIVE-IDEMPOTENCY-001', 'T-LIVE-IDEMPOTENCY-002');",
+        { capture: true },
+      ).trim(),
+    ),
+    2,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM operation_idempotency_keys WHERE scope IN ('test.live.idempotency', 'test.live.concurrency');",
+        { capture: true },
+      ).trim(),
+    ),
+    2,
+  );
+}
+
+function buildLiveIdempotencyTodoQuery(todoId, summary, delay = false) {
+  const delayCte = delay ? "delay AS MATERIALIZED (SELECT pg_sleep(0.15))," : "";
+  const delayFrom = delay ? "FROM delay" : "";
+  return {
+    text: `
+BEGIN;
+WITH ${delayCte}
+inserted_todo AS (
+  INSERT INTO todos (id, biz_no, type, ref_type, ref_id, priority, status, summary, created_at, updated_at)
+  SELECT '${todoId}', '${todoId}', '幂等验收', 'system', '${todoId}', '普通', '未处理', '${summary}', now(), now()
+  ${delayFrom}
+  RETURNING id
+)
+SELECT json_build_object(
+  'todoId', (SELECT id FROM inserted_todo),
+  'summary', '${summary}'
+) AS result;
+COMMIT;
+`.trim(),
+    values: [],
+  };
+}
+
 async function checkPostgresRepositories() {
   const attachmentRepository = createPostgresAttachmentRepository({ queryJson });
   const auditRepository = createPostgresAttachmentAccessAuditRepository({ queryJson });
@@ -521,7 +628,7 @@ async function checkPostgresRepositories() {
   const masterDataReviewDraft = buildLiveMasterDataImportReviewDraft();
   const masterDataReviewPlan = buildLiveMasterDataImportConfirmationPlan(masterDataReviewDraft);
   const masterDataReviewPlanLog = buildLiveMasterDataImportReviewPlanOperationLog(masterDataReviewPlan.planId);
-  const savedMasterDataReviewPlan = masterDataImportReviewRepository.saveConfirmationPlan({
+  const savedMasterDataReviewPlan = await masterDataImportReviewRepository.saveConfirmationPlan({
     workspace: masterDataReviewWorkspace,
     reviewDraft: masterDataReviewDraft,
     confirmationPlan: masterDataReviewPlan,
@@ -529,11 +636,11 @@ async function checkPostgresRepositories() {
   });
   assert.equal(savedMasterDataReviewPlan.confirmationPlan.planId, masterDataReviewPlan.planId);
   assert.equal(savedMasterDataReviewPlan.confirmationPlan.operationLogId, masterDataReviewPlanLog.id);
-  assert.equal(masterDataImportReviewRepository.listConfirmationPlans({ filters: { draftId: masterDataReviewDraft.draftId } }).length, 1);
+  assert.equal((await masterDataImportReviewRepository.listConfirmationPlans({ filters: { draftId: masterDataReviewDraft.draftId } })).length, 1);
 
   const masterDataReviewExecution = buildLiveMasterDataImportReviewExecution(masterDataReviewPlan);
   const masterDataReviewExecutionLog = buildLiveMasterDataImportReviewExecutionOperationLog(masterDataReviewExecution.executionId);
-  const savedMasterDataReviewExecution = masterDataImportReviewRepository.saveImportExecution({
+  const savedMasterDataReviewExecution = await masterDataImportReviewRepository.saveImportExecution({
     workspace: masterDataReviewWorkspace,
     confirmationPlan: savedMasterDataReviewPlan.confirmationPlan,
     importExecution: masterDataReviewExecution,
@@ -541,8 +648,8 @@ async function checkPostgresRepositories() {
   });
   assert.equal(savedMasterDataReviewExecution.importExecution.executionId, masterDataReviewExecution.executionId);
   assert.equal(savedMasterDataReviewExecution.confirmationPlan.lastExecutionId, masterDataReviewExecution.executionId);
-  assert.equal(masterDataImportReviewRepository.listImportExecutions({ filters: { status: "committed" } }).length, 1);
-  assert.equal(masterDataImportReviewRepository.loadState().masterDataImportConfirmationPlans.length, 1);
+  assert.equal((await masterDataImportReviewRepository.listImportExecutions({ filters: { status: "committed" } })).length, 1);
+  assert.equal((await masterDataImportReviewRepository.loadState()).masterDataImportConfirmationPlans.length, 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM master_data_import_review_drafts WHERE id = 'MDR-MD-LIVE-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM master_data_import_confirmation_plans WHERE id = 'MDP-MD-REVIEW-LIVE-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM master_data_import_executions WHERE id = 'MDE-MD-REVIEW-LIVE-001';", { capture: true }).trim()), 1);
@@ -619,18 +726,21 @@ async function checkPostgresRepositories() {
   assert.equal(queryJson("SELECT json_build_object('status', status, 'variance', variance_amount) AS result FROM statements WHERE id = 'ST-LIVE-VAR-001';").status, "有欠款");
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM variance_records WHERE id = 'VAR-LIVE-TXN-001';", { capture: true }).trim()), 1);
 
-  const writtenOff = buildStatement({
-    id: "ST-LIVE-VAR-001",
-    customerId: "C-LIVE-REPO",
+  const varianceCommitted = varianceTransaction.statement;
+  const writtenOff = {
+    ...varianceCommitted,
     status: "已确认欠款",
-    received: 200,
-    variance: 73,
-  });
+  };
   const writeOffTransaction = await settlementTransactionRepository.writeOffStatement({
-    workspace: { statements: [varianceAfter], varianceRecords: [], todos: [], operationLogs: [] },
+    workspace: { statements: [varianceCommitted], varianceRecords: [], todos: [], operationLogs: [] },
     statements: [writtenOff],
     statement: writtenOff,
-    operationLog: buildOperationLog({ logId: "LOG-LIVE-WRITE-TXN-001", action: "write_off_statement", before: varianceAfter, after: writtenOff }),
+    operationLog: buildOperationLog({
+      logId: "LOG-LIVE-WRITE-TXN-001",
+      action: "write_off_statement",
+      before: varianceCommitted,
+      after: writtenOff,
+    }),
   });
   assert.equal(writeOffTransaction.statement.status, "已确认欠款");
   assert.equal(queryJson("SELECT json_build_object('status', status, 'variance', variance_amount) AS result FROM statements WHERE id = 'ST-LIVE-VAR-001';").status, "已确认欠款");
@@ -1838,7 +1948,10 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.masterDataImportTransactionRepository, "postgres");
   assert.equal(health.seed.runtimeIdentityRepository, "postgres");
   assert.equal(health.seed.v1PersistenceProfile.repositoryProfile, "postgres");
-  assert.equal(health.seed.v1PersistenceProfile.postgresRepositoryDefaultsApplied, 27);
+  assert.equal(
+    health.seed.v1PersistenceProfile.postgresRepositoryDefaultsApplied,
+    v1PersistencePostgresRepositoryOptionKeys.length,
+  );
   assert.equal(health.seed.v1PersistenceProfile.unsupportedRepositoryCount, 0);
   assert.equal(health.seed.v1PersistenceProfile.connectionStringExposed, false);
   assert.equal(health.seed.statementExportObjectStorage, "local_fs");
@@ -1919,7 +2032,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(persistedDriverException.actualQtyException, 0);
   assert.equal(persistedDriverException.todoId, apiDriverException.todoId);
   assert.equal(new Date(persistedDriverException.occurredAt).toISOString(), driverExceptionOccurredAt);
-  const coldStartAfterDriverException = createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
+  const coldStartAfterDriverException = await createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
     fulfillmentId: "F006",
     operatorId: "U-DRIVER-A",
   });
@@ -1964,7 +2077,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(new Date(persistedDriverLoad.loadedAt).toISOString(), driverLoadAt);
   assert.equal(persistedDriverLoad.loadedBy, "U-DRIVER-A");
   assert.equal(persistedDriverLoad.driverRemark, driverLoadRemark);
-  const coldStartAfterDriverLoad = createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
+  const coldStartAfterDriverLoad = await createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
     fulfillmentId: "F008",
     operatorId: "U-DRIVER-A",
   });
@@ -2016,7 +2129,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(persistedDriverComplete.receiverName, "客户仓管");
   assert.equal(persistedDriverComplete.paperNoteStatus, "已交回");
   assert.equal(persistedDriverComplete.watermarkId, "WM-LIVE-DRIVER-F008");
-  const coldStartAfterDriverComplete = createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
+  const coldStartAfterDriverComplete = await createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
     fulfillmentId: "F008",
     operatorId: "U-DRIVER-A",
   });
@@ -2101,7 +2214,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(persistedDriverEvidenceResubmission.todoHandledBy, "U-DRIVER-A");
   assert.equal(new Date(persistedDriverEvidenceResubmission.todoHandledAt).toISOString(), driverRetakeSubmittedAt);
   assert.equal(persistedDriverEvidenceResubmission.todoHandlingResult, "司机已补拍送达水印照片，待办公室复核");
-  const coldStartAfterDriverEvidenceResubmission = createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
+  const coldStartAfterDriverEvidenceResubmission = await createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
     fulfillmentId: "F008",
     operatorId: "U-DRIVER-A",
   });
@@ -2163,7 +2276,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(apiPersistedDeviceFieldTest.sampleResult, "not_found");
   assert.equal(apiPersistedDeviceFieldTest.operationLogId, apiDeviceFieldTest.operationLogId);
   const coldStartDriverTaskReadRepository = createPostgresDriverDeliveryTaskReadRepository({ queryJson });
-  const coldStartDeviceFieldTask = coldStartDriverTaskReadRepository.getDriverDeliveryTask({
+  const coldStartDeviceFieldTask = await coldStartDriverTaskReadRepository.getDriverDeliveryTask({
     fulfillmentId: "F002",
     operatorId: "U-DRIVER-A",
   });
@@ -2403,6 +2516,11 @@ async function checkApiWithPostgresRepositories() {
     1,
   );
 
+  runPsql(
+    `UPDATE fulfillment_records
+SET status = '已备货', actual_qty = 1200, revision = 1, updated_at = now()
+WHERE id = 'F002';`,
+  );
   const completedLegacyFulfillment = await postJson(
     baseUrl,
     "/api/fulfillments/F002/complete",

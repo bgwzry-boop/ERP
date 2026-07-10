@@ -91,67 +91,72 @@ assert.equal(normalizedResult.dispatch.fulfillmentId, "F-PG-001");
 assert.equal(normalizedResult.operationLogId, "LOG-PG-001");
 
 const postgresCalls = [];
+const persistedDispatch = { ...normalized, revision: 1 };
 const postgresRepository = createPostgresDriverDeliveryDispatchRepository({
-  queryJson(text, values) {
-    postgresCalls.push({ text, values });
-    return {
-      dispatch: normalized,
-      operationLogId: "LOG-PG-001",
-    };
+  postgresClient: {
+    queryJson(text, values) {
+      postgresCalls.push({ kind: "query", text, values });
+      return [persistedDispatch];
+    },
+    idempotentTransactionJson(request) {
+      postgresCalls.push({ kind: "idempotent", ...request });
+      return {
+        dispatch: { ...persistedDispatch, revision: 2 },
+        operationLogId: "LOG-PG-001",
+      };
+    },
   },
 });
+const loadedPostgresState = await postgresRepository.loadState();
+assert.equal(loadedPostgresState.driverDeliveryDispatches[0].revision, 1);
 const postgresResult = await postgresRepository.upsertDriverDeliveryDispatch({
   workspace,
-  dispatch: normalized,
+  dispatch: persistedDispatch,
   operationLog: {
     ...operationLog,
     id: "LOG-PG-001",
     targetId: "F-PG-001",
   },
+  idempotencyKey: "idem-driver-dispatch-upsert-001",
 });
 assert.equal(postgresRepository.kind, "postgres");
 assert.equal(postgresResult.dispatch.routeNo, "南山线-B");
-assert.equal(postgresCalls.length, 1);
+assert.equal(postgresResult.dispatch.revision, 2);
+assert.equal(postgresCalls.length, 2);
+const postgresWrite = postgresCalls[1];
+assert.equal(postgresWrite.kind, "idempotent");
+assert.equal(postgresWrite.scope, "driver.dispatch.upsert.ddis-pg-001");
+assert.equal(postgresWrite.idempotencyKey, "idem-driver-dispatch-upsert-001");
+assert.ok(postgresWrite.resourceLocks.includes("driver-dispatch:DDIS-PG-001"));
+assert.ok(postgresWrite.resourceLocks.includes("fulfillment:F-PG-001"));
 
 const sql = buildUpsertDriverDeliveryDispatchTransactionSql({ dispatch, operationLog });
 assert.match(sql, /INSERT INTO driver_delivery_dispatches/);
 assert.match(sql, /ON CONFLICT \(id\) DO UPDATE SET/);
+assert.match(sql, /FOR UPDATE/);
+assert.match(sql, /revision = driver_delivery_dispatches\.revision \+ 1/);
+assert.match(sql, /ERP_DRIVER_DISPATCH_CONCURRENCY_CONFLICT/);
 assert.match(sql, /INSERT INTO operation_logs/);
-assert.match(sql, /\$5::text::date/);
-assert.match(sql, /\$9::timestamptz/);
-assert.match(sql, /\$19::jsonb/);
+assert.match(sql, /::date/);
+assert.match(sql, /::timestamptz/);
+assert.match(sql, /::jsonb/);
 assert.ok(!sql.includes("O'Brien 先送客户仓"));
 assert.match(sql, /COMMIT;/);
 const builtQuery = buildUpsertDriverDeliveryDispatchTransactionQuery({ dispatch, operationLog });
-assert.deepEqual(builtQuery.values.slice(0, 12), [
-  "DDIS-F010",
+for (const expectedValue of [
   "DDIS-F010",
   "F010",
   "U-DRIVER-A",
   "2026-07-02",
   "虎门线-A",
-  3,
   "已派单",
-  "2026-07-02T08:30:00.000Z",
-  "U-OFFICE-A",
-  "2026-07-02T08:00:00.000Z",
-  "O'Brien 先送客户仓",
-]);
-assert.equal(typeof builtQuery.values[12], "string");
-assert.equal(typeof builtQuery.values[13], "string");
-assert.deepEqual(builtQuery.values.slice(14), [
   "LOG-DISPATCH-001",
-  "fulfillment",
-  "F010",
   "update_driver_dispatch",
-  "{}",
-  JSON.stringify({ dispatch }),
   "O'Brien 先送客户仓",
-  "U-OFFICE-A",
-  "api",
-  "2026-07-02T08:00:01.000Z",
-  "2026-07-02T08:00:01.000Z",
-]);
-assert.deepEqual(postgresCalls[0].values.slice(0, 3), ["DDIS-PG-001", "DDIS-PG-001", "F-PG-001"]);
+]) {
+  assert.ok(builtQuery.values.includes(expectedValue), `bound transaction values should include ${expectedValue}`);
+}
+assert.equal(postgresCalls[0].kind, "query");
+assert.match(postgresCalls[0].text, /FROM driver_delivery_dispatches/);
 
 console.log("Driver delivery dispatch repository check passed.");

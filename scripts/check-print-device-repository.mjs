@@ -75,17 +75,22 @@ async function checkPostgresPrintDeviceSqlBoundary() {
     postgresClient: {
       queryJson(text, values) {
         calls.push({ kind: "query", text, values });
-        return [printDevice];
+        return [{ ...printDevice, revision: 1 }];
       },
-      transactionJson(text, values) {
-        calls.push({ kind: "transaction", text, values });
-        return { printDevice, operationLogId: operationLog.id };
+      idempotentTransactionJson(request) {
+        calls.push({ kind: "idempotent", ...request });
+        return { printDevice: { ...printDevice, revision: 1 }, operationLogId: operationLog.id };
       },
     },
   });
   const workspace = { printDevices: [], operationLogs: [] };
 
-  const transaction = await repository.upsertPrintDevice({ workspace, printDevice, operationLog });
+  const transaction = await repository.upsertPrintDevice({
+    workspace,
+    printDevice,
+    operationLog,
+    idempotencyKey: "idem-print-device-upsert-001",
+  });
   const listed = await repository.listPrintDevices({ filters: { documentType: "express_ltl_label", status: "active" } });
 
   assert.equal(transaction.printDevice.printDeviceId, "PRN-CHECK-1");
@@ -95,12 +100,18 @@ async function checkPostgresPrintDeviceSqlBoundary() {
   assert.equal(workspace.operationLogs.length, 1);
 
   const createCall = calls[0];
-  assert.equal(createCall.kind, "transaction");
+  assert.equal(createCall.kind, "idempotent");
+  assert.equal(createCall.scope, "print.device.upsert.prn-check-1");
+  assert.equal(createCall.idempotencyKey, "idem-print-device-upsert-001");
+  assert.ok(createCall.resourceLocks.includes("print-device:PRN-CHECK-1"));
   assert.match(createCall.text, /^BEGIN;/);
   assert.match(createCall.text, /INSERT INTO printer_devices/);
   assert.match(createCall.text, /supported_document_types/);
   assert.match(createCall.text, /default_document_types/);
   assert.match(createCall.text, /settings_json/);
+  assert.match(createCall.text, /FOR UPDATE/);
+  assert.match(createCall.text, /revision = printer_devices\.revision \+ 1/);
+  assert.match(createCall.text, /ERP_PRINT_DEVICE_CONCURRENCY_CONFLICT/);
   assert.match(createCall.text, /INSERT INTO operation_logs/);
   assert.match(createCall.text, /COMMIT;/);
   assert.match(createCall.text, /\$\d+::text\[\]/);

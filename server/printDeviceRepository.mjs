@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export const printDeviceStoreKey = "metadata/print-devices.json";
 
@@ -13,6 +14,7 @@ export function createPrintDeviceRepository(options = {}) {
       databaseUrl: options.databaseUrl ?? process.env.ERP_PRINT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -61,7 +63,7 @@ export function createPostgresPrintDeviceRepository(options = {}) {
   const queryJson =
     options.queryJson ??
     ((text, values) => postgresClient.queryJson(text, values));
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
@@ -73,13 +75,28 @@ export function createPostgresPrintDeviceRepository(options = {}) {
       };
     },
 
-    async upsertPrintDevice({ workspace, printDevice, operationLog }) {
+    async upsertPrintDevice({ workspace, printDevice, operationLog, idempotencyKey, idempotencyPayload }) {
       const query = buildUpsertPrintDeviceTransactionQuery({ printDevice, operationLog });
       const saved = normalizePrintDeviceTransactionResult(
-        await transactionJson(query.text, query.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: `print.device.upsert.${printDevice?.printDeviceId ?? printDevice?.id ?? "unknown"}`,
+            idempotencyKey: resolveRepositoryIdempotencyKey(idempotencyKey, operationLog?.id),
+            payload: idempotencyPayload ?? { printDevice, action: operationLog?.action },
+            operatorId: operationLog?.operatorId,
+            targetType: "print_device",
+            targetId: printDevice?.printDeviceId ?? printDevice?.id,
+            resourceLocks: [`print-device:${printDevice?.printDeviceId ?? printDevice?.id ?? ""}`],
+            query,
+          }),
+        ),
       );
       if (!saved.printDevice) throw new Error("PostgreSQL print device upsert returned an invalid record");
-      applyPrintDeviceWorkspaceMutation({ workspace, printDevice: saved.printDevice, operationLog });
+      applyPrintDeviceWorkspaceMutation({
+        workspace,
+        printDevice: saved.printDevice,
+        operationLog: saved.operationLogId === operationLog?.id ? operationLog : null,
+      });
       return saved;
     },
 
@@ -112,9 +129,16 @@ function buildUpsertPrintDeviceTransactionText(input, parameters) {
   const device = normalizePrintDeviceRecord(input.printDevice);
   if (!device) throw new Error("Print device is required for persistence");
   const operationLog = normalizeOperationLogForPersistence(input.operationLog);
+  const expectedRevision = Math.max(0, Number(device.revision) || 0);
   return `
 BEGIN;
-WITH upserted_device AS (
+WITH locked_device AS MATERIALIZED (
+  SELECT id, revision
+  FROM printer_devices
+  WHERE id = ${parameters.text(device.printDeviceId)}
+  FOR UPDATE
+),
+upserted_device AS (
   INSERT INTO printer_devices (
     id,
     biz_no,
@@ -138,9 +162,11 @@ WITH upserted_device AS (
     settings_json,
     created_by,
     updated_by,
+    revision,
     created_at,
     updated_at
-  ) VALUES (
+  )
+  SELECT
     ${parameters.text(device.printDeviceId)},
     ${parameters.text(device.bizNo)},
     ${parameters.text(device.name)},
@@ -163,9 +189,11 @@ WITH upserted_device AS (
     ${parameters.json(device.settings)},
     ${parameters.nullableText(device.createdBy)},
     ${parameters.nullableText(device.updatedBy)},
+    1,
     ${parameters.timestamp(device.createdAt)},
     ${parameters.timestamp(device.updatedAt)}
-  )
+  WHERE ${parameters.integer(expectedRevision)} = 0
+    OR EXISTS (SELECT 1 FROM locked_device WHERE revision = ${parameters.integer(expectedRevision)})
   ON CONFLICT (id) DO UPDATE SET
     name = EXCLUDED.name,
     device_type = EXCLUDED.device_type,
@@ -186,15 +214,24 @@ WITH upserted_device AS (
     cutter_enabled = EXCLUDED.cutter_enabled,
     settings_json = EXCLUDED.settings_json,
     updated_by = EXCLUDED.updated_by,
+    revision = printer_devices.revision + 1,
     updated_at = EXCLUDED.updated_at
+  WHERE printer_devices.revision = ${parameters.integer(expectedRevision)}
   RETURNING ${printDeviceJsonExpression("printer_devices")} AS result
 ),
 inserted_operation_log AS (
   ${buildInsertOperationLogSql(operationLog, parameters)}
+),
+print_device_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM upserted_device) = 1,
+    'ERP_PRINT_DEVICE_CONCURRENCY_CONFLICT'
+  ) AS ok
 )
 SELECT json_build_object(
   'printDevice', (SELECT result FROM upserted_device),
-  'operationLogId', COALESCE((SELECT id FROM inserted_operation_log), '')
+  'operationLogId', COALESCE((SELECT id FROM inserted_operation_log), ''),
+  'writeGuard', (SELECT ok FROM print_device_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -272,6 +309,7 @@ export function normalizePrintDeviceRecord(device) {
     settings: normalizeObject(device.settings ?? device.settings_json),
     createdBy: String(device.createdBy ?? device.created_by ?? "").trim(),
     updatedBy: String(device.updatedBy ?? device.updated_by ?? "").trim(),
+    revision: Math.max(0, normalizeInteger(device.revision, 0)),
     createdAt: String(createdAt).trim(),
     updatedAt: String(updatedAt).trim(),
   };
@@ -482,6 +520,7 @@ function printDeviceJsonExpression(alias) {
     'settings', ${alias}.settings_json,
     'createdBy', ${alias}.created_by,
     'updatedBy', ${alias}.updated_by,
+    'revision', ${alias}.revision,
     'createdAt', ${alias}.created_at,
     'updatedAt', ${alias}.updated_at
   )`;

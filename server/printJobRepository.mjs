@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export const printJobStoreKey = "metadata/print-jobs.json";
 
@@ -13,6 +14,7 @@ export function createPrintJobRepository(options = {}) {
       databaseUrl: options.databaseUrl ?? process.env.ERP_PRINT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -74,7 +76,7 @@ export function createPostgresPrintJobRepository(options = {}) {
   const queryJson =
     options.queryJson ??
     ((text, values) => postgresClient.queryJson(text, values));
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
@@ -86,23 +88,53 @@ export function createPostgresPrintJobRepository(options = {}) {
       };
     },
 
-    async createPrintJob({ workspace, printJob, operationLog }) {
+    async createPrintJob({ workspace, printJob, operationLog, idempotencyKey, idempotencyPayload }) {
       const query = buildCreatePrintJobTransactionQuery({ printJob, operationLog });
       const saved = normalizePrintJobTransactionResult(
-        await transactionJson(query.text, query.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: `print.job.create.${printJob?.printJobId ?? printJob?.id ?? "unknown"}`,
+            idempotencyKey: resolveRepositoryIdempotencyKey(idempotencyKey, operationLog?.id),
+            payload: idempotencyPayload ?? { printJob, action: operationLog?.action },
+            operatorId: operationLog?.operatorId,
+            targetType: "print_job",
+            targetId: printJob?.printJobId ?? printJob?.id,
+            resourceLocks: [`print-job:${printJob?.printJobId ?? printJob?.id ?? ""}`],
+            query,
+          }),
+        ),
       );
       if (!saved.printJob) throw new Error("PostgreSQL print job insert returned an invalid record");
-      applyPrintJobWorkspaceMutation({ workspace, printJob: saved.printJob, operationLog });
+      applyPrintJobWorkspaceMutation({
+        workspace,
+        printJob: saved.printJob,
+        operationLog: saved.operationLogId === operationLog?.id ? operationLog : null,
+      });
       return saved;
     },
 
-    async updatePrintJob({ workspace, printJob, operationLog }) {
+    async updatePrintJob({ workspace, printJob, operationLog, idempotencyKey, idempotencyPayload }) {
       const query = buildUpdatePrintJobTransactionQuery({ printJob, operationLog });
       const saved = normalizePrintJobTransactionResult(
-        await transactionJson(query.text, query.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: `print.job.update.${printJob?.printJobId ?? printJob?.id ?? "unknown"}`,
+            idempotencyKey: resolveRepositoryIdempotencyKey(idempotencyKey, operationLog?.id),
+            payload: idempotencyPayload ?? { printJob, action: operationLog?.action },
+            operatorId: operationLog?.operatorId,
+            targetType: "print_job",
+            targetId: printJob?.printJobId ?? printJob?.id,
+            resourceLocks: [`print-job:${printJob?.printJobId ?? printJob?.id ?? ""}`],
+            query,
+          }),
+        ),
       );
       if (!saved.printJob) throw new Error("PostgreSQL print job update returned an invalid record");
-      applyPrintJobWorkspaceMutation({ workspace, printJob: saved.printJob, operationLog });
+      applyPrintJobWorkspaceMutation({
+        workspace,
+        printJob: saved.printJob,
+        operationLog: saved.operationLogId === operationLog?.id ? operationLog : null,
+      });
       return saved;
     },
 
@@ -162,6 +194,7 @@ inserted_print_job AS (
     payload_json,
     metadata_json,
     operation_log_id,
+    revision,
     created_at,
     updated_at
   ) VALUES (
@@ -187,36 +220,23 @@ inserted_print_job AS (
     ${parameters.json(recordWithLog.payload)},
     ${parameters.json(recordWithLog.metadata)},
     COALESCE((SELECT id FROM inserted_operation_log), ${parameters.nullableText(recordWithLog.operationLogId)}),
+    1,
     ${parameters.timestamp(recordWithLog.createdAt)},
     ${parameters.timestamp(recordWithLog.updatedAt)}
   )
-  ON CONFLICT (id) DO UPDATE SET
-    print_record_id = EXCLUDED.print_record_id,
-    target_type = EXCLUDED.target_type,
-    target_id = EXCLUDED.target_id,
-    document_type = EXCLUDED.document_type,
-    template_id = EXCLUDED.template_id,
-    printer_device_id = EXCLUDED.printer_device_id,
-    printer_device_snapshot = EXCLUDED.printer_device_snapshot,
-    driver_mode = EXCLUDED.driver_mode,
-    job_status = EXCLUDED.job_status,
-    attempt_no = EXCLUDED.attempt_no,
-    source_print_job_id = EXCLUDED.source_print_job_id,
-    requested_by = EXCLUDED.requested_by,
-    queued_at = EXCLUDED.queued_at,
-    sent_at = EXCLUDED.sent_at,
-    finished_at = EXCLUDED.finished_at,
-    error_code = EXCLUDED.error_code,
-    error_message = EXCLUDED.error_message,
-    payload_json = EXCLUDED.payload_json,
-    metadata_json = EXCLUDED.metadata_json,
-    operation_log_id = EXCLUDED.operation_log_id,
-    updated_at = EXCLUDED.updated_at
+  ON CONFLICT (id) DO NOTHING
   RETURNING ${printJobJsonExpression("print_jobs")} AS result
+),
+print_job_create_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM inserted_print_job) = 1,
+    'ERP_PRINT_JOB_CREATE_CONCURRENCY_CONFLICT'
+  ) AS ok
 )
 SELECT json_build_object(
   'printJob', (SELECT result FROM inserted_print_job),
-  'operationLogId', COALESCE((SELECT id FROM inserted_operation_log), '')
+  'operationLogId', COALESCE((SELECT id FROM inserted_operation_log), ''),
+  'writeGuard', (SELECT ok FROM print_job_create_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -242,10 +262,17 @@ function buildUpdatePrintJobTransactionText(input, parameters) {
     ...record,
     operationLogId: operationLog?.id ?? record.operationLogId,
   };
+  const expectedRevision = Math.max(1, Number(recordWithLog.revision) || 1);
   return `
 BEGIN;
 WITH inserted_operation_log AS (
   ${buildInsertOperationLogSql(operationLog, parameters)}
+),
+locked_print_job AS MATERIALIZED (
+  SELECT id, revision
+  FROM print_jobs
+  WHERE id = ${parameters.text(recordWithLog.printJobId)}
+  FOR UPDATE
 ),
 updated_print_job AS (
   UPDATE print_jobs
@@ -259,13 +286,23 @@ updated_print_job AS (
     operation_log_id = COALESCE((SELECT id FROM inserted_operation_log), ${parameters.nullableText(
       recordWithLog.operationLogId,
     )}),
+    revision = print_jobs.revision + 1,
     updated_at = ${parameters.timestamp(recordWithLog.updatedAt)}
-  WHERE id = ${parameters.text(recordWithLog.printJobId)}
+  FROM locked_print_job AS locked
+  WHERE print_jobs.id = locked.id
+    AND locked.revision = ${parameters.integer(expectedRevision)}
   RETURNING ${printJobJsonExpression("print_jobs")} AS result
+),
+print_job_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM updated_print_job) = 1,
+    'ERP_PRINT_JOB_CONCURRENCY_CONFLICT'
+  ) AS ok
 )
 SELECT json_build_object(
   'printJob', (SELECT result FROM updated_print_job),
-  'operationLogId', COALESCE((SELECT id FROM inserted_operation_log), '')
+  'operationLogId', COALESCE((SELECT id FROM inserted_operation_log), ''),
+  'writeGuard', (SELECT ok FROM print_job_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -339,6 +376,7 @@ export function normalizePrintJobRecord(record) {
     payload: normalizeObject(record.payload ?? record.payload_json),
     metadata: normalizeObject(record.metadata ?? record.metadata_json),
     operationLogId: String(record.operationLogId ?? record.operation_log_id ?? "").trim(),
+    revision: Math.max(0, normalizeInteger(record.revision, 0)),
     createdAt,
     updatedAt,
   };
@@ -428,6 +466,7 @@ function printJobJsonExpression(alias) {
     'payload', ${alias}.payload_json,
     'metadata', ${alias}.metadata_json,
     'operationLogId', ${alias}.operation_log_id,
+    'revision', ${alias}.revision,
     'createdAt', ${alias}.created_at,
     'updatedAt', ${alias}.updated_at
   )`;

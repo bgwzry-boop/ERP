@@ -1,5 +1,9 @@
 # Decisions
 
+## 2026-07-11 - Production Business Writes Require Database-Backed Idempotency And Revisions
+
+Every production business POST/PATCH request must carry a valid `Idempotency-Key`. The backend stores a canonical request hash and committed JSON response in PostgreSQL; the same key and payload replay the original response, while the same key with a different payload returns `409`. Internal server jobs without an HTTP request derive a deterministic key from their operation-log ID. High-risk resources use sorted PostgreSQL advisory transaction locks plus row locks or integer `revision` checks. Inventory shortages and stale writes must fail explicitly and roll back; arithmetic clamping must not hide over-deduction. Browser/workspace projections must use committed database records and revisions rather than the attempted input. Idempotency records may retain hashes, target metadata, operator IDs, responses, and expiry, but not raw sensitive request payloads.
+
 ## 2026-07-10 - Runtime Mode Must Be Explicit And Local Data Must Be Partitioned
 
 The API supports exactly `demo`, `test`, and `production` runtime modes. Default local data belongs under a mode-specific partition; an explicitly supplied test storage root remains authoritative for isolated harnesses. The reset command may remove only the demo partition and must reject test or production targets. Runtime health summaries may expose mode and partition labels, but not local paths.

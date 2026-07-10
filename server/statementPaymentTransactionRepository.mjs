@@ -1,6 +1,7 @@
 import { normalizePaymentRecord } from "./paymentRecordRepository.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createStatementPaymentTransactionRepository(options = {}) {
   const mode =
@@ -15,6 +16,7 @@ export function createStatementPaymentTransactionRepository(options = {}) {
         options.databaseUrl ?? process.env.ERP_STATEMENT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -39,15 +41,31 @@ export function createLocalStatementPaymentTransactionRepository() {
 }
 
 export function createPostgresStatementPaymentTransactionRepository(options = {}) {
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
 
     async recordStatementPayment(input) {
       const query = buildRecordStatementPaymentTransactionQuery(input);
+      const statementId = input.statement?.id ?? input.statement?.statementId ?? "";
       const saved = normalizeStatementPaymentTransactionResult(
-        await transactionJson(query.text, query.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "statement.payment.record",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? {
+              statementId,
+              paymentRecord: input.paymentRecord,
+              todo: input.todo,
+            },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "statement",
+            targetId: statementId,
+            resourceLocks: [`statement:${statementId}`],
+            query,
+          }),
+        ),
       );
       if (!saved.statement || !saved.payment) {
         throw new Error("PostgreSQL statement payment transaction returned an invalid result");
@@ -128,16 +146,30 @@ RETURNING ${todoJsonExpression("todos")} AS result`
 
   return `
 BEGIN;
-WITH updated_statement AS (
+WITH locked_statement AS MATERIALIZED (
+  SELECT id, revision
+  FROM statements
+  WHERE id = ${parameters.text(statement.id)}
+  FOR UPDATE
+),
+updated_statement AS (
   UPDATE statements
   SET
     status = ${parameters.text(statement.status)},
     received_amount = ${parameters.number(statement.received)},
     variance_amount = ${parameters.number(statement.variance)},
     receivable_amount = ${parameters.number(statement.receivable)},
+    revision = statements.revision + 1,
     updated_at = now()
-  WHERE id = ${parameters.text(statement.id)}
+  FROM locked_statement AS locked
+  WHERE statements.id = locked.id AND locked.revision = ${parameters.integer(statement.revision)}
   RETURNING ${statementJsonExpression("statements")} AS result
+),
+statement_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM updated_statement) = 1,
+    'ERP_STATEMENT_CONCURRENCY_CONFLICT'
+  ) AS ok
 ),
 inserted_payment AS (
   INSERT INTO payment_records (
@@ -227,7 +259,8 @@ SELECT json_build_object(
   'statement', (SELECT result FROM updated_statement),
   'payment', (SELECT result FROM inserted_payment),
   'todo', (SELECT result FROM inserted_todo LIMIT 1),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'writeGuard', (SELECT ok FROM statement_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -247,7 +280,7 @@ export function normalizeStatementPaymentTransactionResult(value) {
 
 function applyStatementPaymentWorkspaceMutation({ workspace, statements, statement, paymentRecord, todo, operationLog }) {
   if (Array.isArray(statements)) {
-    workspace.statements = statements;
+    workspace.statements = statements.map((item) => (item.id === statement?.id ? { ...item, ...statement } : item));
   } else if (statement?.id) {
     workspace.statements = workspace.statements.map((item) => (item.id === statement.id ? { ...item, ...statement } : item));
   }
@@ -267,6 +300,7 @@ function normalizeStatementForPersistence(statement) {
     receivable: Number(statement.receivable ?? statement.receivableAmount ?? 0),
     received: Number(statement.received ?? statement.receivedAmount ?? 0),
     variance: Number(statement.variance ?? statement.varianceAmount ?? 0),
+    revision: Math.max(1, Number(statement.revision ?? 1) || 1),
   };
 }
 
@@ -281,6 +315,7 @@ function normalizeStatementForApi(statement) {
     receivable: Number(statement.receivable ?? statement.receivableAmount ?? statement.receivable_amount ?? 0),
     received: Number(statement.received ?? statement.receivedAmount ?? statement.received_amount ?? 0),
     variance: Number(statement.variance ?? statement.varianceAmount ?? statement.variance_amount ?? 0),
+    revision: Math.max(1, Number(statement.revision ?? 1) || 1),
   };
 }
 
@@ -342,7 +377,8 @@ function statementJsonExpression(alias) {
     'status', ${alias}.status,
     'receivable', ${alias}.receivable_amount,
     'received', ${alias}.received_amount,
-    'variance', ${alias}.variance_amount
+    'variance', ${alias}.variance_amount,
+    'revision', ${alias}.revision
   )`;
 }
 

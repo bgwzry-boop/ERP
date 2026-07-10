@@ -27,6 +27,7 @@ async function checkLocalStatementSettlementTransactionRepository() {
   };
 
   const varianceTransaction = await repository.handleStatementVariance({
+    idempotencyKey: "idem-statement-variance-001",
     workspace,
     statements: [after],
     statement: after,
@@ -44,6 +45,7 @@ async function checkLocalStatementSettlementTransactionRepository() {
 
   const writtenOff = buildStatement({ status: "已确认欠款", received: 80000, variance: 28000 });
   const writeOffTransaction = await repository.writeOffStatement({
+    idempotencyKey: "idem-statement-writeoff-001",
     workspace,
     statements: [writtenOff],
     statement: writtenOff,
@@ -64,9 +66,9 @@ async function checkPostgresStatementSettlementTransactionSqlBoundary() {
   const varianceLog = buildOperationLog({ action: "handle_statement_variance", before, after });
   const repository = createPostgresStatementSettlementTransactionRepository({
     postgresClient: {
-      transactionJson(text, values) {
-        calls.push({ text, values });
-        if (text.includes("INSERT INTO variance_records")) {
+      idempotentTransactionJson(request) {
+        calls.push(request);
+        if (request.text.includes("INSERT INTO variance_records")) {
           return {
             statement: after,
             varianceRecord,
@@ -89,6 +91,7 @@ async function checkPostgresStatementSettlementTransactionSqlBoundary() {
     operationLogs: [],
   };
   const varianceTransaction = await repository.handleStatementVariance({
+    idempotencyKey: "idem-statement-variance-001",
     workspace,
     statements: [after],
     statement: after,
@@ -98,6 +101,9 @@ async function checkPostgresStatementSettlementTransactionSqlBoundary() {
   });
 
   assert.equal(varianceTransaction.varianceRecord.reason, "O'Brien difference to debt");
+  assert.equal(calls[0].scope, "statement.variance.handle");
+  assert.equal(calls[0].idempotencyKey, "idem-statement-variance-001");
+  assert.ok(calls[0].resourceLocks.includes("statement:ST-TXN-002"));
   assert.match(calls[0].text, /^BEGIN;/);
   assert.match(calls[0].text, /UPDATE statements/);
   assert.match(calls[0].text, /INSERT INTO variance_records/);
@@ -139,12 +145,15 @@ async function checkPostgresStatementSettlementTransactionSqlBoundary() {
   assert.match(noTodoSql, /SELECT NULL::json AS result WHERE false/);
 
   const writeOffTransaction = await repository.writeOffStatement({
+    idempotencyKey: "idem-statement-writeoff-001",
     workspace,
     statements: [buildStatement({ status: "已确认欠款", received: 80000, variance: 28000 })],
     statement: buildStatement({ status: "已确认欠款", received: 80000, variance: 28000 }),
     operationLog: buildOperationLog({ action: "write_off_statement", before: after, after }),
   });
   assert.equal(writeOffTransaction.operationLogId, "LOG-WRITE-TXN-001");
+  assert.equal(calls[1].scope, "statement.write_off");
+  assert.equal(calls[1].idempotencyKey, "idem-statement-writeoff-001");
   assert.match(calls[1].text, /UPDATE statements/);
   assert.match(calls[1].text, /INSERT INTO operation_logs/);
 

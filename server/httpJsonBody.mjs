@@ -20,11 +20,19 @@ export async function readJsonRequestBody(request, maxBytes) {
   const text = Buffer.concat(chunks).toString("utf8").trim();
   if (!text) return {};
   try {
-    return JSON.parse(text);
-  } catch {
-    const error = new Error("Request body must be valid JSON");
-    error.statusCode = 400;
-    throw error;
+    const parsed = JSON.parse(text);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      const error = new Error("Request body must be a JSON object");
+      error.statusCode = 400;
+      error.code = "JSON_OBJECT_REQUIRED";
+      throw error;
+    }
+    return parsed;
+  } catch (error) {
+    if (error?.code === "JSON_OBJECT_REQUIRED") throw error;
+    const invalidJsonError = new Error("Request body must be valid JSON");
+    invalidJsonError.statusCode = 400;
+    throw invalidJsonError;
   }
 }
 

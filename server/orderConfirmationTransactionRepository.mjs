@@ -1,5 +1,6 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createOrderConfirmationTransactionRepository(options = {}) {
   const mode =
@@ -12,6 +13,7 @@ export function createOrderConfirmationTransactionRepository(options = {}) {
       databaseUrl: options.databaseUrl ?? process.env.ERP_ORDER_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -51,14 +53,27 @@ export function createLocalOrderConfirmationTransactionRepository() {
 }
 
 export function createPostgresOrderConfirmationTransactionRepository(options = {}) {
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
 
     async confirmOrder(input) {
       const query = buildConfirmOrderTransactionQuery(input);
-      const saved = normalizeOrderConfirmationTransactionResult(await transactionJson(query.text, query.values));
+      const idempotencyRequest = buildPostgresIdempotencyRequest({
+        scope: "order.confirm",
+        idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+        payload: input.idempotencyPayload ?? buildOrderConfirmationIdempotencyPayload(input),
+        operatorId: input.operationLog?.operatorId,
+        targetType: "original_order",
+        targetId: input.order?.orderId ?? input.order?.id,
+        resourceLocks: [
+          `order-draft:${input.order?.sourceDraftId ?? ""}`,
+          ...(input.inventoryReservations ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
+        ],
+        query,
+      });
+      const saved = normalizeOrderConfirmationTransactionResult(await idempotentTransactionJson(idempotencyRequest));
       if (!saved.order || saved.orderLines.length === 0) {
         throw new Error("PostgreSQL order confirmation transaction returned an invalid result");
       }
@@ -75,6 +90,18 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
       });
       return saved;
     },
+  };
+}
+
+function buildOrderConfirmationIdempotencyPayload(input = {}) {
+  return {
+    order: input.order,
+    orderLines: input.orderLines,
+    priceSnapshots: input.priceSnapshots,
+    fulfillmentRecords: input.fulfillmentRecords,
+    inventoryReservations: input.inventoryReservations,
+    inventoryLedgerEntries: input.inventoryLedgerEntries,
+    todos: input.todos,
   };
 }
 
@@ -104,7 +131,28 @@ function buildConfirmOrderTransactionText(input, parameters) {
   }
   return `
 BEGIN;
-WITH inserted_order AS (
+WITH inventory_deltas AS MATERIALIZED (
+  ${buildInventoryReservationDeltasSql(inventoryReservations, parameters)}
+),
+locked_inventory_items AS MATERIALIZED (
+  SELECT item.id, item.on_hand_qty, item.reserved_qty, delta.reserved_qty AS requested_qty
+  FROM inventory_items AS item
+  JOIN inventory_deltas AS delta ON delta.inventory_item_id = item.id
+  ORDER BY item.id
+  FOR UPDATE OF item
+),
+inventory_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM locked_inventory_items) = (SELECT COUNT(*) FROM inventory_deltas)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM locked_inventory_items
+        WHERE on_hand_qty - reserved_qty < requested_qty
+      ),
+    'ERP_INVENTORY_CONCURRENCY_CONFLICT'
+  ) AS ok
+),
+inserted_order AS (
   INSERT INTO original_orders (
     id,
     biz_no,
@@ -150,7 +198,7 @@ inserted_inventory_reservations AS (
   ${buildInsertInventoryReservationsSql(inventoryReservations, parameters)}
 ),
 updated_inventory_items AS (
-  ${buildUpdateInventoryItemsSql(inventoryReservations, parameters)}
+  ${buildUpdateInventoryItemsSql(inventoryReservations)}
 ),
 inserted_inventory_ledger_entries AS (
   ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters)}
@@ -169,7 +217,8 @@ SELECT json_build_object(
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM inserted_inventory_reservations),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'todos', (SELECT COALESCE(json_agg(result ORDER BY result->>'id'), '[]'::json) FROM inserted_todos),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'writeGuard', (SELECT ok FROM inventory_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -813,27 +862,34 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING ${inventoryReservationJsonExpression("inventory_reservations")} AS result`;
 }
 
-function buildUpdateInventoryItemsSql(records, parameters) {
+function buildUpdateInventoryItemsSql(records) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map((record) => `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.reservedQty)})`)
-    .join(",\n");
   return `UPDATE inventory_items AS item
 SET
   reserved_qty = item.reserved_qty + delta.reserved_qty,
+  revision = item.revision + 1,
   updated_at = now()
-FROM (
-  SELECT inventory_item_id, SUM(reserved_qty)::INTEGER AS reserved_qty
-  FROM (VALUES
-${values}
-  ) AS raw(inventory_item_id, reserved_qty)
-  GROUP BY inventory_item_id
-) AS delta
-WHERE item.id = delta.inventory_item_id
+FROM inventory_deltas AS delta, inventory_write_guard AS guard
+WHERE item.id = delta.inventory_item_id AND guard.ok
 RETURNING json_build_object(
   'inventoryItemId', item.id,
-  'reservedQty', item.reserved_qty
+  'reservedQty', item.reserved_qty,
+  'revision', item.revision
 ) AS result`;
+}
+
+function buildInventoryReservationDeltasSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS inventory_item_id, 0::integer AS reserved_qty WHERE false";
+  }
+  const values = records
+    .map((record) => `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.reservedQty)})`)
+    .join(",\n");
+  return `SELECT inventory_item_id, SUM(reserved_qty)::integer AS reserved_qty
+FROM (VALUES
+${values}
+) AS raw(inventory_item_id, reserved_qty)
+GROUP BY inventory_item_id`;
 }
 
 function buildInsertInventoryLedgerEntriesSql(records, parameters) {

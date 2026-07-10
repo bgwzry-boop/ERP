@@ -21,6 +21,13 @@ await assert.rejects(
   (error) => error?.statusCode === 400,
 );
 
+for (const primitiveBody of ["null", "[]", '"text"', "42"]) {
+  await assert.rejects(
+    () => readJsonRequestBody(createRequest([primitiveBody], {}), 128),
+    (error) => error?.statusCode === 400 && error?.code === "JSON_OBJECT_REQUIRED",
+  );
+}
+
 console.log("HTTP JSON body checks passed");
 
 function createRequest(chunks, headers) {

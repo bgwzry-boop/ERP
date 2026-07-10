@@ -25,6 +25,7 @@ const calls = [];
 await requestOfficeApi("/inventory/items", {
   apiBaseUrl: "http://127.0.0.1:8787/api/",
   authState: { session: { accessToken: "session-core-check" } },
+  idempotencyKey: "idem-client-core-001",
   method: "POST",
   body: { remark: "O'Reilly" },
   fetchImpl: async (url, init) => {
@@ -35,6 +36,7 @@ await requestOfficeApi("/inventory/items", {
 assert.equal(calls[0].url, "http://127.0.0.1:8787/api/inventory/items");
 assert.equal(calls[0].init.method, "POST");
 assert.equal(calls[0].init.headers.authorization, "Bearer session-core-check");
+assert.equal(calls[0].init.headers["idempotency-key"], "idem-client-core-001");
 assert.equal(calls[0].init.body, JSON.stringify({ remark: "O'Reilly" }));
 
 await requestOfficeApi("/health", {
@@ -45,6 +47,7 @@ await requestOfficeApi("/health", {
   },
 });
 assert.equal("body" in calls[1].init, false);
+assert.equal(calls[1].init.headers["idempotency-key"], undefined);
 
 assert.deepEqual(await readOfficeApiJson({ json: async () => ({ ok: true }) }), { ok: true });
 assert.equal(await readOfficeApiJson({ json: async () => Promise.reject(new Error("invalid json")) }), null);

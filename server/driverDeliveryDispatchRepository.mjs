@@ -1,5 +1,7 @@
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createDriverDeliveryDispatchRepository(options = {}) {
   const mode =
@@ -13,6 +15,8 @@ export function createDriverDeliveryDispatchRepository(options = {}) {
       databaseUrl:
         options.databaseUrl ?? process.env.ERP_DRIVER_DISPATCH_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
+      transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -49,29 +53,71 @@ export function createPostgresDriverDeliveryDispatchRepository(options = {}) {
   const postgresClient = options.postgresClient ?? (options.queryJson ? null : createPostgresPoolClient({ databaseUrl }));
   const queryJson =
     options.queryJson ??
-    ((text, values) => postgresClient.transactionJson(text, values));
+    ((text, values) => postgresClient.queryJson(text, values));
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor({
+    ...options,
+    postgresClient,
+  });
 
   return {
     kind: "postgres",
 
     async loadState() {
-      return { driverDeliveryDispatches: [] };
+      const builtQuery = buildListDriverDeliveryDispatchesQuery();
+      return {
+        driverDeliveryDispatches: normalizeDriverDeliveryDispatchRecords(
+          await queryJson(builtQuery.text, builtQuery.values),
+        ),
+      };
     },
 
     async upsertDriverDeliveryDispatch(input) {
       const builtQuery = buildUpsertDriverDeliveryDispatchTransactionQuery(input);
       const result = normalizeDriverDeliveryDispatchTransactionResult(
-        await queryJson(builtQuery.text, builtQuery.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: `driver.dispatch.upsert.${input.dispatch?.dispatchId ?? input.dispatch?.id ?? "unknown"}`,
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? { dispatch: input.dispatch, action: input.operationLog?.action },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "driver_delivery_dispatch",
+            targetId: input.dispatch?.dispatchId ?? input.dispatch?.id,
+            resourceLocks: [
+              `driver-dispatch:${input.dispatch?.dispatchId ?? input.dispatch?.id ?? ""}`,
+              `fulfillment:${input.dispatch?.fulfillmentId ?? ""}`,
+            ],
+            query: builtQuery,
+          }),
+        ),
       );
       if (!result.dispatch) throw new Error("PostgreSQL driver delivery dispatch upsert returned an invalid record");
       applyDriverDeliveryDispatchWorkspaceMutation({
         workspace: input.workspace,
         dispatch: result.dispatch,
-        operationLog: input.operationLog,
+        operationLog: result.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return result;
     },
   };
+}
+
+export function buildListDriverDeliveryDispatchesQuery() {
+  return {
+    text: `
+SELECT COALESCE(
+  json_agg(${driverDeliveryDispatchJsonExpression("driver_delivery_dispatches")} ORDER BY updated_at DESC, id DESC),
+  '[]'::json
+) AS result
+FROM driver_delivery_dispatches;
+`.trim(),
+    values: [],
+  };
+}
+
+export function normalizeDriverDeliveryDispatchRecords(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => normalizeDriverDeliveryDispatchRecord(item))
+    .filter(Boolean);
 }
 
 export function buildUpsertDriverDeliveryDispatchTransactionSql(input = {}) {
@@ -87,10 +133,17 @@ export function buildUpsertDriverDeliveryDispatchTransactionQuery(input = {}) {
 
   const parameters = createPostgresParameterBinder();
   const routeDate = cleanText(dispatch.routeDate);
+  const expectedRevision = Math.max(0, Number(dispatch.revision) || 0);
   return {
     text: `
 BEGIN;
-WITH upserted_dispatch AS (
+WITH locked_dispatch AS MATERIALIZED (
+  SELECT id, revision
+  FROM driver_delivery_dispatches
+  WHERE id = ${parameters.text(dispatch.dispatchId)}
+  FOR UPDATE
+),
+upserted_dispatch AS (
   INSERT INTO driver_delivery_dispatches (
     id,
     biz_no,
@@ -104,9 +157,11 @@ WITH upserted_dispatch AS (
     assigned_by,
     assigned_at,
     remark,
+    revision,
     created_at,
     updated_at
-  ) VALUES (
+  )
+  SELECT
     ${parameters.text(dispatch.dispatchId)},
     ${parameters.text(dispatch.bizNo)},
     ${parameters.text(dispatch.fulfillmentId)},
@@ -119,9 +174,11 @@ WITH upserted_dispatch AS (
     ${parameters.nullableText(dispatch.assignedBy)},
     ${parameters.nullableTimestamp(dispatch.assignedAt)},
     ${parameters.text(dispatch.remark)},
+    1,
     ${parameters.timestamp(dispatch.createdAt)},
     ${parameters.timestamp(dispatch.updatedAt)}
-  )
+  WHERE ${parameters.integer(expectedRevision)} = 0
+    OR EXISTS (SELECT 1 FROM locked_dispatch WHERE revision = ${parameters.integer(expectedRevision)})
   ON CONFLICT (id) DO UPDATE SET
     biz_no = EXCLUDED.biz_no,
     fulfillment_id = EXCLUDED.fulfillment_id,
@@ -134,7 +191,9 @@ WITH upserted_dispatch AS (
     assigned_by = EXCLUDED.assigned_by,
     assigned_at = EXCLUDED.assigned_at,
     remark = EXCLUDED.remark,
+    revision = driver_delivery_dispatches.revision + 1,
     updated_at = now()
+  WHERE driver_delivery_dispatches.revision = ${parameters.integer(expectedRevision)}
   RETURNING ${driverDeliveryDispatchJsonExpression("driver_delivery_dispatches")} AS result
 ),
 inserted_operation_log AS (
@@ -173,10 +232,17 @@ inserted_operation_log AS (
     operator_id = EXCLUDED.operator_id,
     page_key = EXCLUDED.page_key
   RETURNING id
+),
+driver_dispatch_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM upserted_dispatch) = 1,
+    'ERP_DRIVER_DISPATCH_CONCURRENCY_CONFLICT'
+  ) AS ok
 )
 SELECT json_build_object(
   'dispatch', (SELECT result FROM upserted_dispatch),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'writeGuard', (SELECT ok FROM driver_dispatch_write_guard)
 ) AS result;
 COMMIT;
 `.trim(),
@@ -216,6 +282,7 @@ export function normalizeDriverDeliveryDispatchRecord(value = {}) {
     assignedBy: cleanText(value.assignedBy ?? value.assigned_by),
     assignedAt: cleanText(value.assignedAt ?? value.assigned_at),
     remark: cleanText(value.remark),
+    revision: Math.max(0, toFiniteInteger(value.revision, 0)),
     createdAt: createdAt || new Date().toISOString(),
     updatedAt: updatedAt || createdAt || new Date().toISOString(),
   };
@@ -282,6 +349,7 @@ function driverDeliveryDispatchJsonExpression(alias) {
     'assignedBy', COALESCE(${alias}.assigned_by, ''),
     'assignedAt', COALESCE(${alias}.assigned_at::TEXT, ''),
     'remark', ${alias}.remark,
+    'revision', ${alias}.revision,
     'createdAt', COALESCE(${alias}.created_at::TEXT, ''),
     'updatedAt', COALESCE(${alias}.updated_at::TEXT, '')
   )`;

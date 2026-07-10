@@ -36,6 +36,61 @@ assert.equal(calls[3], "RELEASE");
 const queryResult = await client.queryJson("SELECT json_build_object('total', 1) AS result");
 assert.deepEqual(queryResult, { total: 1 });
 
+const idempotentCalls = [];
+let storedIdempotency = null;
+let businessExecutionCount = 0;
+const idempotentClient = {
+  async query(input) {
+    idempotentCalls.push(input);
+    if (input === "BEGIN" || input === "COMMIT" || input === "ROLLBACK") return { rows: [] };
+    if (input.text.includes("pg_advisory_xact_lock")) return { rows: [{ pg_advisory_xact_lock: null }] };
+    if (input.text.includes("FROM operation_idempotency_keys")) {
+      return { rows: storedIdempotency ? [storedIdempotency] : [] };
+    }
+    if (input.text.includes("INSERT INTO operation_idempotency_keys")) {
+      storedIdempotency = {
+        request_hash: input.values[2],
+        response_json: JSON.parse(input.values[3]),
+      };
+      return { rows: [] };
+    }
+    businessExecutionCount += 1;
+    return { rows: [{ result: { paymentId: "PAY-IDEMPOTENT-001" } }] };
+  },
+  release() {
+    idempotentCalls.push("RELEASE");
+  },
+};
+const idempotentPool = { async connect() { return idempotentClient; } };
+const idempotentDbClient = createPostgresPoolClient({ pool: idempotentPool });
+const idempotentRequest = {
+  scope: "statement.payment.record",
+  idempotencyKey: "idem-payment-001",
+  requestHash: "a".repeat(64),
+  operatorId: "U-FINANCE-A",
+  targetType: "statement",
+  targetId: "ST-001",
+  resourceLocks: ["statement:ST-001", "statement:ST-001"],
+  text: "BEGIN; SELECT json_build_object('paymentId', 'PAY-IDEMPOTENT-001') AS result; COMMIT;",
+  values: [],
+};
+assert.deepEqual(await idempotentDbClient.idempotentTransactionJson(idempotentRequest), {
+  paymentId: "PAY-IDEMPOTENT-001",
+});
+assert.deepEqual(await idempotentDbClient.idempotentTransactionJson(idempotentRequest), {
+  paymentId: "PAY-IDEMPOTENT-001",
+});
+assert.equal(businessExecutionCount, 1, "a replay must return the retained response without executing business SQL twice");
+assert.equal(
+  idempotentCalls.filter((input) => typeof input === "object" && input.text.includes("pg_advisory_xact_lock")).length,
+  2,
+  "duplicate resource locks should be normalized before each transaction",
+);
+await assert.rejects(
+  () => idempotentDbClient.idempotentTransactionJson({ ...idempotentRequest, requestHash: "b".repeat(64) }),
+  (error) => error?.code === "IDEMPOTENCY_KEY_REUSED" && error?.statusCode === 409,
+);
+
 const failingCalls = [];
 const failingClient = {
   async query(input) {
@@ -65,5 +120,5 @@ assert.deepEqual(
 );
 
 console.log(
-  "PostgreSQL pool client check passed: pooled query, transaction wrapping, rollback, JSON decoding, and no synchronous repository psql helpers are covered.",
+  "PostgreSQL pool client check passed: pooled queries, rollback, idempotent replay/conflict handling, resource locks, and async repository boundaries are covered.",
 );

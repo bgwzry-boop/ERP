@@ -25,6 +25,7 @@ async function checkLocalStatementPaymentTransactionRepository() {
   };
 
   const transaction = await repository.recordStatementPayment({
+    idempotencyKey: "idem-statement-payment-001",
     workspace,
     statements: [after],
     statement: after,
@@ -52,8 +53,8 @@ async function checkPostgresStatementPaymentTransactionSqlBoundary() {
   const operationLog = buildOperationLog({ before, after });
   const repository = createPostgresStatementPaymentTransactionRepository({
     postgresClient: {
-      transactionJson(text, values) {
-        calls.push({ text, values });
+      idempotentTransactionJson(request) {
+        calls.push(request);
         return {
           statement: after,
           payment: paymentRecord,
@@ -71,6 +72,7 @@ async function checkPostgresStatementPaymentTransactionSqlBoundary() {
     operationLogs: [],
   };
   const transaction = await repository.recordStatementPayment({
+    idempotencyKey: "idem-statement-payment-001",
     workspace,
     statements: [after],
     statement: after,
@@ -80,6 +82,9 @@ async function checkPostgresStatementPaymentTransactionSqlBoundary() {
   });
 
   assert.equal(transaction.payment.attachmentIds[0], "ATT-TXN-001");
+  assert.equal(calls[0].scope, "statement.payment.record");
+  assert.equal(calls[0].idempotencyKey, "idem-statement-payment-001");
+  assert.ok(calls[0].resourceLocks.includes("statement:ST-TXN-001"));
   assert.match(calls[0].text, /^BEGIN;/);
   assert.match(calls[0].text, /UPDATE statements/);
   assert.match(calls[0].text, /INSERT INTO payment_records/);

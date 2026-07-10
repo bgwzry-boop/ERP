@@ -149,6 +149,11 @@ import {
 import { loadV1ProductionEnvFilesIntoProcess } from "./productionEnvFileLoader.mjs";
 import { readJsonRequestBody } from "./httpJsonBody.mjs";
 import {
+  isProductionBusinessWritePath,
+  readHttpIdempotencyKey,
+  requireHttpIdempotencyKey,
+} from "./idempotency.mjs";
+import {
   buildApiSecurityPolicy,
   getWorkspaceSecurityPolicy,
   isCorsRequestAllowed,
@@ -874,6 +879,11 @@ async function routeGet(context) {
 
 async function routeWrite(context) {
   const { method, request, url, response, workspace, body, permissionContext, authContext } = context;
+  const idempotencyKey =
+    workspace.runtimeConfig?.production && isProductionBusinessWritePath(url.pathname)
+      ? requireHttpIdempotencyKey(request, body)
+      : readHttpIdempotencyKey(request, body);
+  if (idempotencyKey) body.idempotencyKey = idempotencyKey;
 
   if (
     await handleAuthWriteRoutes({
@@ -1180,6 +1190,8 @@ async function rawMaterialInboundActionRoute({ response, workspace, inboundId, a
       inboundId,
       action: actionSlug,
       body,
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: body,
       operatorId,
       operatorName: getUserDisplayName(new Map((workspace.users ?? []).map((user) => [user.id ?? user.userId, user])), operatorId),
     });
@@ -1194,7 +1206,7 @@ async function rawMaterialInboundActionRoute({ response, workspace, inboundId, a
   }
   return sendJson(response, 200, {
     inbound: result.inbound,
-    operationLogId: result.operationLog?.id ?? "",
+    operationLogId: result.operationLogId ?? result.operationLog?.id ?? "",
   });
 }
 
@@ -2841,6 +2853,8 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
   const todos = buildOrderConfirmationTodos(workspace, result.shortageTodoInputs, operatorId);
   const transaction = await workspace.orderConfirmationTransactionRepository.confirmOrder({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     order: buildConfirmedOrderRecord(workspace, draftId, result, body),
     orderLines: result.newLines.map((line) => ({ ...line, createdBy: body.operatorId ?? "U-OFFICE-A" })),
     priceSnapshots,
@@ -16136,6 +16150,8 @@ async function upsertFulfillmentDispatchRoute({ response, workspace, fulfillment
     workspace,
     dispatch,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
   });
   const savedDispatch = transaction.dispatch ?? dispatch;
   const savedFulfillment = applyFulfillmentDispatchProjection(workspace, fulfillmentId, savedDispatch) ?? projectedFulfillment;
@@ -16189,6 +16205,8 @@ async function confirmDriverDeliveryLoadedRoute({ response, workspace, fulfillme
   });
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty: after.actualQty ?? after.qty,
@@ -16352,6 +16370,8 @@ async function completeDriverDeliveryTaskRoute({ response, workspace, fulfillmen
   }
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty,
@@ -16438,6 +16458,8 @@ async function reportDriverDeliveryExceptionRoute({ response, workspace, fulfill
   });
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty: after.actualQty,
@@ -16518,6 +16540,8 @@ async function reviewDeliveryEvidenceRoute({ response, workspace, fulfillmentId,
   });
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty: after.actualQty ?? after.qty ?? 0,
@@ -16573,6 +16597,8 @@ async function createFulfillmentExceptionRoute({ response, workspace, fulfillmen
   });
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty: payload.actualQty,
@@ -16641,6 +16667,8 @@ async function printFulfillmentRoute({ response, workspace, fulfillmentId, body 
   });
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty: after.actualQty ?? after.qty,
@@ -16675,6 +16703,8 @@ async function printFulfillmentRoute({ response, workspace, fulfillmentId, body 
     workspace,
     printJob,
     operationLog: printJobOperationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
   });
   const savedPrintJob = printJobTransaction.printJob ?? printJob;
   return sendJson(response, 200, {
@@ -16691,13 +16721,16 @@ async function printFulfillmentRoute({ response, workspace, fulfillmentId, body 
 
 async function upsertPrintDeviceRoute({ response, workspace, body }) {
   const now = new Date().toISOString();
+  const printDeviceId = body.printDeviceId ?? body.id ?? nextPlainId("PRN", body.name ?? "PRINT-DEVICE");
+  const existing = await findPrintDevice(workspace, printDeviceId);
   const printDevice = {
+    ...(existing ?? {}),
     ...body,
-    printDeviceId: body.printDeviceId ?? body.id ?? nextPlainId("PRN", body.name ?? "PRINT-DEVICE"),
+    printDeviceId,
     updatedBy: body.updatedBy ?? body.operatorId ?? "U-OFFICE-A",
-    createdBy: body.createdBy ?? body.operatorId ?? "U-OFFICE-A",
+    createdBy: body.createdBy ?? existing?.createdBy ?? body.operatorId ?? "U-OFFICE-A",
     updatedAt: body.updatedAt ?? now,
-    createdAt: body.createdAt ?? now,
+    createdAt: body.createdAt ?? existing?.createdAt ?? now,
   };
   const operationLog = buildOperationLog(workspace, {
     targetType: "print_device",
@@ -16711,6 +16744,8 @@ async function upsertPrintDeviceRoute({ response, workspace, body }) {
     workspace,
     printDevice,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
   });
   return sendJson(response, 200, {
     printDevice: transaction.printDevice,
@@ -16762,6 +16797,8 @@ async function updatePrintDeviceDriverModeRoute({ response, workspace, printDevi
     workspace,
     printDevice,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
   });
   return sendJson(response, 200, {
     printDevice: transaction.printDevice,
@@ -16888,6 +16925,8 @@ async function updatePrintJobStatusRoute({ response, workspace, printJobId, body
     workspace,
     printJob: after,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
   });
   return sendJson(response, 200, {
     printJob: transaction.printJob,
@@ -16934,6 +16973,8 @@ async function dispatchPrintJobRoute({ response, workspace, printJobId, body }) 
     workspace,
     printJob: after,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
   });
   return sendJson(response, 200, {
     printJob: transaction.printJob,
@@ -17005,7 +17046,7 @@ async function pollPrintJobDriverStatus({ workspace, printJob, body, operatorId 
   const driverStatusResult = await recordPrintJobDriverStatus({
     workspace,
     printJobId: printJob.printJobId,
-    body: pollResult,
+    body: { ...pollResult, idempotencyKey: body.idempotencyKey },
     operatorId,
   });
   if (driverStatusResult.error) {
@@ -17075,6 +17116,8 @@ async function recordPrintJobDriverStatus({ workspace, printJobId, body, operato
     workspace,
     printJob: after,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
   });
   return {
     printJob: transaction.printJob,
@@ -17109,6 +17152,8 @@ async function retryPrintJobRoute({ response, workspace, printJobId, body }) {
     workspace,
     printJob: retryJob,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
   });
   return sendJson(response, 200, {
     sourcePrintJob: before,
@@ -17151,6 +17196,8 @@ async function voidPrintRecordRoute({ response, workspace, printRecordId, body }
   if (fulfillment) {
     const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
       workspace,
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: body,
       fulfillment: buildFulfillmentActionRecord(workspace, fulfillment, {
         operatorId,
         actualQty: fulfillment.actualQty ?? fulfillment.qty,
@@ -17200,6 +17247,8 @@ async function updateFulfillmentStatusRoute({ response, workspace, fulfillmentId
   }
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty,
@@ -17270,6 +17319,8 @@ async function cancelFulfillmentRoute({ response, workspace, fulfillmentId, body
   });
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty: 0,
@@ -18968,6 +19019,8 @@ async function recordStatementPaymentRoute({ response, workspace, statementId, b
   });
   const transaction = await workspace.statementPaymentTransactionRepository.recordStatementPayment({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     statements: result.statements,
     statement: nextStatement,
     paymentRecord,
@@ -19014,6 +19067,8 @@ async function handleStatementVarianceRoute({ response, workspace, statementId, 
   });
   const transaction = await workspace.statementSettlementTransactionRepository.handleStatementVariance({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     statements: result.statements,
     statement: nextStatement,
     varianceRecord,
@@ -19048,6 +19103,8 @@ async function writeOffStatementRoute({ response, workspace, statementId, body }
   });
   const transaction = await workspace.statementSettlementTransactionRepository.writeOffStatement({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
     statements: result.statements,
     statement: nextStatement,
     operationLog,

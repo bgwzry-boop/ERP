@@ -67,11 +67,24 @@ export const requiredTables = [
   "attachment_links",
   "attachment_access_logs",
   "operation_logs",
+  "operation_idempotency_keys",
   "after_sales_records",
   "responsibility_clues",
 ];
 
 export const requiredTableColumns = {
+  operation_idempotency_keys: [
+    "scope",
+    "idempotency_key",
+    "request_hash",
+    "response_json",
+    "operator_id",
+    "target_type",
+    "target_id",
+    "created_at",
+    "completed_at",
+    "expires_at",
+  ],
   users: [
     "id",
     "login_name",
@@ -408,6 +421,7 @@ export const requiredTableColumns = {
     "created_by",
     "created_at",
     "updated_at",
+    "revision",
   ],
   driver_delivery_dispatches: [
     "id",
@@ -424,7 +438,11 @@ export const requiredTableColumns = {
     "remark",
     "created_at",
     "updated_at",
+    "revision",
   ],
+  inventory_items: ["id", "inventory_key", "on_hand_qty", "reserved_qty", "updated_at", "revision"],
+  statements: ["id", "customer_id", "receivable_amount", "received_amount", "variance_amount", "updated_at", "revision"],
+  raw_material_inbounds: ["id", "status", "payload_json", "updated_at", "revision"],
   driver_device_field_tests: [
     "id",
     "biz_no",
@@ -524,6 +542,7 @@ export const requiredTableColumns = {
     "operation_log_id",
     "created_at",
     "updated_at",
+    "revision",
   ],
   printer_devices: [
     "id",
@@ -550,6 +569,7 @@ export const requiredTableColumns = {
     "updated_by",
     "created_at",
     "updated_at",
+    "revision",
   ],
   fulfillment_exceptions: [
     "id",

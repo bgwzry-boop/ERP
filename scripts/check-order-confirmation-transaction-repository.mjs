@@ -32,6 +32,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
   const operationLog = buildOperationLog();
 
   const transaction = await repository.confirmOrder({
+    idempotencyKey: "idem-order-confirm-001",
     workspace,
     order,
     orderLines,
@@ -74,8 +75,8 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   const operationLog = buildOperationLog();
   const repository = createPostgresOrderConfirmationTransactionRepository({
     postgresClient: {
-      async transactionJson(text, values) {
-        calls.push({ text, values });
+      async idempotentTransactionJson(request) {
+        calls.push(request);
         return {
           order,
           orderLines,
@@ -92,6 +93,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   const workspace = { originalOrders: [], orderLines: [], fulfillments: [], operationLogs: [] };
 
   const transaction = await repository.confirmOrder({
+    idempotencyKey: "idem-order-confirm-001",
     workspace,
     order,
     orderLines,
@@ -109,6 +111,9 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
 
   const { text, values } = calls[0];
   const sql = text;
+  assert.equal(calls[0].scope, "order.confirm");
+  assert.equal(calls[0].idempotencyKey, "idem-order-confirm-001");
+  assert.ok(calls[0].resourceLocks.includes("inventory:INV-RED-3038"));
   assert.match(sql, /^BEGIN;/);
   assert.match(sql, /INSERT INTO original_orders/);
   assert.match(sql, /INSERT INTO order_lines/);

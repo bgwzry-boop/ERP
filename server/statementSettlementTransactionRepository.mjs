@@ -1,5 +1,6 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createStatementSettlementTransactionRepository(options = {}) {
   const mode =
@@ -13,6 +14,7 @@ export function createStatementSettlementTransactionRepository(options = {}) {
         options.databaseUrl ?? process.env.ERP_STATEMENT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -45,28 +47,70 @@ export function createLocalStatementSettlementTransactionRepository() {
 }
 
 export function createPostgresStatementSettlementTransactionRepository(options = {}) {
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
 
     async handleStatementVariance(input) {
       const query = buildHandleStatementVarianceTransactionQuery(input);
-      const saved = normalizeVarianceTransactionResult(await transactionJson(query.text, query.values));
+      const statementId = input.statement?.id ?? input.statement?.statementId ?? "";
+      const saved = normalizeVarianceTransactionResult(
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "statement.variance.handle",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? {
+              statementId,
+              varianceRecord: input.varianceRecord,
+              todo: input.todo,
+            },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "statement",
+            targetId: statementId,
+            resourceLocks: [`statement:${statementId}`],
+            query,
+          }),
+        ),
+      );
       if (!saved.statement || !saved.varianceRecord) {
         throw new Error("PostgreSQL statement variance transaction returned an invalid result");
       }
-      applySettlementWorkspaceMutation(input);
+      applySettlementWorkspaceMutation({
+        ...input,
+        statement: { ...input.statement, ...saved.statement },
+        varianceRecord: saved.varianceRecord,
+        todo: saved.todo ? { ...input.todo, ...saved.todo } : null,
+        operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
+      });
       return saved;
     },
 
     async writeOffStatement(input) {
       const query = buildWriteOffStatementTransactionQuery(input);
-      const saved = normalizeWriteOffTransactionResult(await transactionJson(query.text, query.values));
+      const statementId = input.statement?.id ?? input.statement?.statementId ?? "";
+      const saved = normalizeWriteOffTransactionResult(
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "statement.write_off",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? { statementId, statement: input.statement },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "statement",
+            targetId: statementId,
+            resourceLocks: [`statement:${statementId}`],
+            query,
+          }),
+        ),
+      );
       if (!saved.statement) {
         throw new Error("PostgreSQL statement write-off transaction returned an invalid result");
       }
-      applySettlementWorkspaceMutation(input);
+      applySettlementWorkspaceMutation({
+        ...input,
+        statement: { ...input.statement, ...saved.statement },
+        operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
+      });
       return saved;
     },
   };
@@ -95,16 +139,30 @@ function buildHandleStatementVarianceTransactionText(input, parameters) {
   const insertedTodoCte = todo ? buildInsertTodoSql(todo, parameters) : "SELECT NULL::json AS result WHERE false";
   return `
 BEGIN;
-WITH updated_statement AS (
+WITH locked_statement AS MATERIALIZED (
+  SELECT id, revision
+  FROM statements
+  WHERE id = ${parameters.text(statement.id)}
+  FOR UPDATE
+),
+updated_statement AS (
   UPDATE statements
   SET
     status = ${parameters.text(statement.status)},
     received_amount = ${parameters.number(statement.received)},
     variance_amount = ${parameters.number(statement.variance)},
     receivable_amount = ${parameters.number(statement.receivable)},
+    revision = statements.revision + 1,
     updated_at = now()
-  WHERE id = ${parameters.text(statement.id)}
+  FROM locked_statement AS locked
+  WHERE statements.id = locked.id AND locked.revision = ${parameters.integer(statement.revision)}
   RETURNING ${statementJsonExpression("statements")} AS result
+),
+statement_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM updated_statement) = 1,
+    'ERP_STATEMENT_CONCURRENCY_CONFLICT'
+  ) AS ok
 ),
 inserted_variance AS (
   INSERT INTO variance_records (
@@ -153,7 +211,8 @@ SELECT json_build_object(
   'statement', (SELECT result FROM updated_statement),
   'varianceRecord', (SELECT result FROM inserted_variance),
   'todo', (SELECT result FROM inserted_todo LIMIT 1),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'writeGuard', (SELECT ok FROM statement_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -180,7 +239,13 @@ function buildWriteOffStatementTransactionText(input, parameters) {
   const settledAtAssignment = statement.status === "已核销" ? "now()" : "settled_at";
   return `
 BEGIN;
-WITH updated_statement AS (
+WITH locked_statement AS MATERIALIZED (
+  SELECT id, revision
+  FROM statements
+  WHERE id = ${parameters.text(statement.id)}
+  FOR UPDATE
+),
+updated_statement AS (
   UPDATE statements
   SET
     status = ${parameters.text(statement.status)},
@@ -188,16 +253,25 @@ WITH updated_statement AS (
     variance_amount = ${parameters.number(statement.variance)},
     receivable_amount = ${parameters.number(statement.receivable)},
     settled_at = ${settledAtAssignment},
+    revision = statements.revision + 1,
     updated_at = now()
-  WHERE id = ${parameters.text(statement.id)}
+  FROM locked_statement AS locked
+  WHERE statements.id = locked.id AND locked.revision = ${parameters.integer(statement.revision)}
   RETURNING ${statementJsonExpression("statements")} AS result
+),
+statement_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM updated_statement) = 1,
+    'ERP_STATEMENT_CONCURRENCY_CONFLICT'
+  ) AS ok
 ),
 inserted_operation_log AS (
   ${buildInsertOperationLogSql(operationLog, parameters)}
 )
 SELECT json_build_object(
   'statement', (SELECT result FROM updated_statement),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'writeGuard', (SELECT ok FROM statement_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -308,14 +382,26 @@ export function normalizeWriteOffTransactionResult(value) {
 
 function applySettlementWorkspaceMutation({ workspace, statements, statement, varianceRecord, todo, operationLog }) {
   if (Array.isArray(statements)) {
-    workspace.statements = statements;
+    workspace.statements = statements.map((item) => (item.id === statement?.id ? { ...item, ...statement } : item));
   } else if (statement?.id) {
     workspace.statements = workspace.statements.map((item) => (item.id === statement.id ? { ...item, ...statement } : item));
   }
   const normalizedVariance = normalizeVarianceRecord(varianceRecord);
-  if (normalizedVariance) workspace.varianceRecords.unshift(normalizedVariance);
-  if (todo) workspace.todos.unshift(todo);
-  if (operationLog) workspace.operationLogs.unshift(operationLog);
+  if (normalizedVariance) {
+    workspace.varianceRecords = [
+      normalizedVariance,
+      ...(workspace.varianceRecords ?? []).filter(
+        (item) => (item.varianceRecordId ?? item.id) !== normalizedVariance.varianceRecordId,
+      ),
+    ];
+  }
+  if (todo) workspace.todos = [todo, ...(workspace.todos ?? []).filter((item) => item.id !== todo.id)];
+  if (operationLog) {
+    workspace.operationLogs = [
+      operationLog,
+      ...(workspace.operationLogs ?? []).filter((item) => item.id !== operationLog.id),
+    ];
+  }
 }
 
 function normalizeStatementForPersistence(statement) {
@@ -328,6 +414,7 @@ function normalizeStatementForPersistence(statement) {
     receivable: Number(statement.receivable ?? statement.receivableAmount ?? 0),
     received: Number(statement.received ?? statement.receivedAmount ?? 0),
     variance: Number(statement.variance ?? statement.varianceAmount ?? 0),
+    revision: Math.max(1, Number(statement.revision ?? 1) || 1),
   };
 }
 
@@ -342,6 +429,7 @@ function normalizeStatementForApi(statement) {
     receivable: Number(statement.receivable ?? statement.receivableAmount ?? statement.receivable_amount ?? 0),
     received: Number(statement.received ?? statement.receivedAmount ?? statement.received_amount ?? 0),
     variance: Number(statement.variance ?? statement.varianceAmount ?? statement.variance_amount ?? 0),
+    revision: Math.max(1, Number(statement.revision ?? 1) || 1),
   };
 }
 
@@ -422,7 +510,8 @@ function statementJsonExpression(alias) {
     'status', ${alias}.status,
     'receivable', ${alias}.receivable_amount,
     'received', ${alias}.received_amount,
-    'variance', ${alias}.variance_amount
+    'variance', ${alias}.variance_amount,
+    'revision', ${alias}.revision
   )`;
 }
 

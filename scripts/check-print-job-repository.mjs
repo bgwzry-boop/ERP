@@ -129,19 +129,31 @@ async function checkPostgresPrintJobSqlBoundary() {
     postgresClient: {
       queryJson(text, values) {
         calls.push({ kind: "query", text, values });
-        return [failedJob];
+        return [{ ...failedJob, revision: 2 }];
       },
-      transactionJson(text, values) {
-        calls.push({ kind: "transaction", text, values });
-        if (text.includes("INSERT INTO print_jobs")) return { printJob, operationLogId: createLog.id };
-        return { printJob: failedJob, operationLogId: updateLog.id };
+      idempotentTransactionJson(request) {
+        calls.push({ kind: "idempotent", ...request });
+        if (request.text.includes("INSERT INTO print_jobs")) {
+          return { printJob: { ...printJob, revision: 1 }, operationLogId: createLog.id };
+        }
+        return { printJob: { ...failedJob, revision: 2 }, operationLogId: updateLog.id };
       },
     },
   });
   const workspace = { printJobs: [], operationLogs: [] };
 
-  const created = await repository.createPrintJob({ workspace, printJob, operationLog: createLog });
-  const updated = await repository.updatePrintJob({ workspace, printJob: failedJob, operationLog: updateLog });
+  const created = await repository.createPrintJob({
+    workspace,
+    printJob,
+    operationLog: createLog,
+    idempotencyKey: "idem-print-job-create-001",
+  });
+  const updated = await repository.updatePrintJob({
+    workspace,
+    printJob: failedJob,
+    operationLog: updateLog,
+    idempotencyKey: "idem-print-job-update-001",
+  });
   const listed = await repository.listPrintJobs({ filters: { status: "failed", printRecordId: "PR-CHECK-1" } });
 
   assert.equal(created.printJob.printJobId, "PJ-CHECK-1");
@@ -151,18 +163,28 @@ async function checkPostgresPrintJobSqlBoundary() {
   assert.equal(workspace.operationLogs.length, 2);
 
   const createCall = calls[0];
-  assert.equal(createCall.kind, "transaction");
+  assert.equal(createCall.kind, "idempotent");
+  assert.equal(createCall.scope, "print.job.create.pj-check-1");
+  assert.equal(createCall.idempotencyKey, "idem-print-job-create-001");
+  assert.ok(createCall.resourceLocks.includes("print-job:PJ-CHECK-1"));
   assert.match(createCall.text, /^BEGIN;/);
   assert.match(createCall.text, /INSERT INTO operation_logs/);
   assert.match(createCall.text, /INSERT INTO print_jobs/);
   assert.match(createCall.text, /printer_device_snapshot/);
   assert.match(createCall.text, /payload_json/);
+  assert.match(createCall.text, /ON CONFLICT \(id\) DO NOTHING/);
+  assert.match(createCall.text, /ERP_PRINT_JOB_CREATE_CONCURRENCY_CONFLICT/);
   assert.match(createCall.text, /COMMIT;/);
   assert.match(createCall.text, /\$\d+::jsonb/);
 
   const updateCall = calls[1];
-  assert.equal(updateCall.kind, "transaction");
+  assert.equal(updateCall.kind, "idempotent");
+  assert.equal(updateCall.scope, "print.job.update.pj-check-1");
+  assert.equal(updateCall.idempotencyKey, "idem-print-job-update-001");
   assert.match(updateCall.text, /UPDATE print_jobs/);
+  assert.match(updateCall.text, /FOR UPDATE/);
+  assert.match(updateCall.text, /revision = print_jobs\.revision \+ 1/);
+  assert.match(updateCall.text, /ERP_PRINT_JOB_CONCURRENCY_CONFLICT/);
   assert.match(updateCall.text, /job_status = \$\d+::text/);
   assert.doesNotMatch(updateCall.text, /Driver O''Brien timeout/);
   assert.ok(updateCall.values.includes("Driver O'Brien timeout"));

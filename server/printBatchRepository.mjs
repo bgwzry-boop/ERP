@@ -114,6 +114,7 @@ function buildCreatePrintBatchRecordTransactionText(input, parameters) {
   const recordWithLog = {
     ...record,
     operationLogId: operationLog.id,
+    createdAt: normalizePersistedTimestamp(record.createdAt, operationLog.occurredAt),
   };
   return `
 BEGIN;
@@ -461,6 +462,14 @@ function normalizePrintBatchLimit(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 100;
   return Math.min(500, Math.max(1, Math.trunc(number)));
+}
+
+function normalizePersistedTimestamp(value, fallback) {
+  for (const candidate of [value, fallback]) {
+    const date = new Date(candidate ?? "");
+    if (!Number.isNaN(date.getTime())) return date.toISOString();
+  }
+  return new Date().toISOString();
 }
 
 function getLocalStorageRoot() {

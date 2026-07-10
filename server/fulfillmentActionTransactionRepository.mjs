@@ -1,5 +1,6 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createFulfillmentActionTransactionRepository(options = {}) {
   const mode =
@@ -13,6 +14,7 @@ export function createFulfillmentActionTransactionRepository(options = {}) {
         options.databaseUrl ?? process.env.ERP_FULFILLMENT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -51,30 +53,60 @@ export function createLocalFulfillmentActionTransactionRepository() {
 }
 
 export function createPostgresFulfillmentActionTransactionRepository(options = {}) {
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
 
     async recordFulfillmentAction(input) {
       const query = buildRecordFulfillmentActionTransactionQuery(input);
-      const saved = normalizeFulfillmentActionTransactionResult(await transactionJson(query.text, query.values));
+      const fulfillmentId = input.fulfillment?.fulfillmentId ?? input.fulfillment?.id ?? "";
+      const idempotencyRequest = buildPostgresIdempotencyRequest({
+        scope: `fulfillment.${input.operationLog?.action || "action"}`,
+        idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+        payload: input.idempotencyPayload ?? buildFulfillmentActionIdempotencyPayload(input),
+        operatorId: input.operationLog?.operatorId,
+        targetType: "fulfillment",
+        targetId: fulfillmentId,
+        resourceLocks: [
+          `fulfillment:${fulfillmentId}`,
+          ...(input.inventoryReservations ?? []).map((item) => `reservation:${item.reservationId ?? item.id ?? ""}`),
+          ...(input.inventoryAdjustments ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
+        ],
+        query,
+      });
+      const saved = normalizeFulfillmentActionTransactionResult(await idempotentTransactionJson(idempotencyRequest));
       if (!saved.fulfillment) {
         throw new Error("PostgreSQL fulfillment action transaction returned an invalid result");
       }
       applyFulfillmentActionWorkspaceMutation({
         workspace: input.workspace,
-        fulfillment: input.fulfillment,
-        printRecord: input.printRecord ?? null,
-        fulfillmentException: input.fulfillmentException ?? null,
-        inventoryReservations: input.inventoryReservations ?? [],
-        inventoryLedgerEntries: input.inventoryLedgerEntries ?? [],
-        inventoryAdjustments: input.inventoryAdjustments ?? [],
-        todo: input.todo ?? null,
-        operationLog: input.operationLog,
+        fulfillment: { ...input.fulfillment, ...saved.fulfillment },
+        printRecord: saved.printRecord ? { ...input.printRecord, ...saved.printRecord } : null,
+        fulfillmentException: saved.fulfillmentException
+          ? { ...input.fulfillmentException, ...saved.fulfillmentException }
+          : null,
+        inventoryReservations: saved.inventoryReservations,
+        inventoryLedgerEntries: saved.inventoryLedgerEntries,
+        inventoryItems: saved.inventoryItems,
+        todo: saved.todo ? { ...input.todo, ...saved.todo } : null,
+        operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return saved;
     },
+  };
+}
+
+function buildFulfillmentActionIdempotencyPayload(input = {}) {
+  return {
+    action: input.operationLog?.action,
+    fulfillment: input.fulfillment,
+    printRecord: input.printRecord,
+    fulfillmentException: input.fulfillmentException,
+    inventoryReservations: input.inventoryReservations,
+    inventoryLedgerEntries: input.inventoryLedgerEntries,
+    inventoryAdjustments: input.inventoryAdjustments,
+    todo: input.todo,
   };
 }
 
@@ -105,7 +137,62 @@ function buildRecordFulfillmentActionTransactionText(input, parameters) {
 
   return `
 BEGIN;
-WITH updated_fulfillment AS (
+WITH locked_fulfillment AS MATERIALIZED (
+  SELECT id, revision
+  FROM fulfillment_records
+  WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
+  FOR UPDATE
+),
+reservation_updates AS MATERIALIZED (
+  ${buildInventoryReservationUpdatesSql(inventoryReservations, parameters)}
+),
+locked_inventory_reservations AS MATERIALIZED (
+  SELECT reservation.id
+  FROM inventory_reservations AS reservation
+  JOIN reservation_updates AS updates ON updates.id = reservation.id
+  ORDER BY reservation.id
+  FOR UPDATE OF reservation
+),
+inventory_deltas AS MATERIALIZED (
+  ${buildInventoryAdjustmentDeltasSql(inventoryAdjustments, parameters)}
+),
+locked_inventory_items AS MATERIALIZED (
+  SELECT
+    item.id,
+    item.on_hand_qty,
+    item.reserved_qty,
+    delta.on_hand_qty_change,
+    delta.reserved_qty_change
+  FROM inventory_items AS item
+  JOIN inventory_deltas AS delta ON delta.inventory_item_id = item.id
+  ORDER BY item.id
+  FOR UPDATE OF item
+),
+fulfillment_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision)}) = 1,
+    'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
+  ) AS ok
+),
+reservation_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM locked_inventory_reservations) = (SELECT COUNT(*) FROM reservation_updates),
+    'ERP_RESERVATION_CONCURRENCY_CONFLICT'
+  ) AS ok
+),
+inventory_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM locked_inventory_items) = (SELECT COUNT(*) FROM inventory_deltas)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM locked_inventory_items
+        WHERE on_hand_qty + on_hand_qty_change < 0
+           OR reserved_qty + reserved_qty_change < 0
+      ),
+    'ERP_INVENTORY_CONCURRENCY_CONFLICT'
+  ) AS ok
+),
+updated_fulfillment AS (
   UPDATE fulfillment_records
   SET
     biz_no = ${parameters.text(fulfillment.bizNo)},
@@ -143,8 +230,10 @@ WITH updated_fulfillment AS (
     delivery_evidence_issue_reason = ${parameters.text(fulfillment.deliveryEvidenceIssueReason)},
     delivery_evidence_review_remark = ${parameters.text(fulfillment.deliveryEvidenceReviewRemark)},
     delivery_evidence_review_updated_at = ${parameters.nullableTimestamp(fulfillment.deliveryEvidenceReviewUpdatedAt)},
+    revision = fulfillment_records.revision + 1,
     updated_at = now()
-  WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
+  FROM locked_fulfillment AS locked, fulfillment_write_guard AS guard
+  WHERE fulfillment_records.id = locked.id AND guard.ok
   RETURNING ${fulfillmentJsonExpression("fulfillment_records")} AS result
 ),
 inserted_print_record AS (
@@ -157,10 +246,10 @@ inserted_fulfillment_exception AS (
   ${buildInsertFulfillmentExceptionSql(fulfillmentException, parameters)}
 ),
 updated_inventory_reservations AS (
-  ${buildUpdateInventoryReservationsSql(inventoryReservations, parameters)}
+  ${buildUpdateInventoryReservationsSql(inventoryReservations)}
 ),
 updated_inventory_items AS (
-  ${buildUpdateInventoryItemsSql(inventoryAdjustments, parameters)}
+  ${buildUpdateInventoryItemsSql(inventoryAdjustments)}
 ),
 inserted_inventory_ledger_entries AS (
   ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters)}
@@ -173,9 +262,16 @@ SELECT json_build_object(
   'printRecord', (SELECT result FROM inserted_print_record),
   'fulfillmentException', (SELECT result FROM inserted_fulfillment_exception),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM updated_inventory_reservations),
+  'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'todo', (SELECT result FROM inserted_todo),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'writeGuard', (
+    SELECT fulfillment_guard.ok AND reservation_guard.ok AND inventory_guard.ok
+    FROM fulfillment_write_guard AS fulfillment_guard,
+         reservation_write_guard AS reservation_guard,
+         inventory_write_guard AS inventory_guard
+  )
 ) AS result;
 COMMIT;
 `.trim();
@@ -188,6 +284,7 @@ export function normalizeFulfillmentActionTransactionResult(value) {
       printRecord: null,
       fulfillmentException: null,
       inventoryReservations: [],
+      inventoryItems: [],
       inventoryLedgerEntries: [],
       todo: null,
       operationLogId: "",
@@ -198,6 +295,7 @@ export function normalizeFulfillmentActionTransactionResult(value) {
     printRecord: value.printRecord ? normalizePrintRecord(value.printRecord) : null,
     fulfillmentException: value.fulfillmentException ? normalizeFulfillmentException(value.fulfillmentException) : null,
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
+    inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),
     inventoryLedgerEntries: normalizeInventoryLedgerEntries(value.inventoryLedgerEntries ?? value.inventory_ledger_entries ?? []),
     todo: value.todo ? normalizeTodoForPersistence(value.todo) : null,
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? ""),
@@ -217,7 +315,11 @@ function applyFulfillmentActionWorkspaceMutation(input) {
       toWorkspaceFulfillmentException(input.fulfillmentException),
     );
   }
-  applyWorkspaceInventoryAdjustments(workspace, input.inventoryAdjustments ?? []);
+  if (Array.isArray(input.inventoryItems)) {
+    applyWorkspaceInventoryItems(workspace, input.inventoryItems);
+  } else {
+    applyWorkspaceInventoryAdjustments(workspace, input.inventoryAdjustments ?? []);
+  }
   for (const reservation of normalizeInventoryReservations(input.inventoryReservations ?? [])) {
     workspace.inventoryReservations = upsertById(
       workspace.inventoryReservations ?? [],
@@ -285,6 +387,7 @@ function toWorkspaceFulfillment(fulfillment) {
     deliveryEvidenceIssueReason: normalized.deliveryEvidenceIssueReason,
     deliveryEvidenceReviewRemark: normalized.deliveryEvidenceReviewRemark,
     deliveryEvidenceReviewUpdatedAt: normalized.deliveryEvidenceReviewUpdatedAt,
+    revision: normalized.revision,
   };
 }
 
@@ -366,6 +469,21 @@ function applyWorkspaceInventoryAdjustments(workspace, inventoryAdjustments) {
   });
 }
 
+function applyWorkspaceInventoryItems(workspace, inventoryItems) {
+  const committedItems = new Map(normalizeInventoryItems(inventoryItems).map((item) => [item.inventoryItemId, item]));
+  if (!Array.isArray(workspace.inventories) || committedItems.size === 0) return;
+  workspace.inventories = workspace.inventories.map((inventory) => {
+    const committed = committedItems.get(inventory.id ?? inventory.inventoryItemId);
+    if (!committed) return inventory;
+    return {
+      ...inventory,
+      inStock: committed.onHandQty,
+      reserved: committed.reservedQty,
+      revision: committed.revision,
+    };
+  });
+}
+
 function normalizeFulfillmentRecord(record) {
   if (!record || typeof record !== "object") return null;
   const fulfillmentId = String(record.fulfillmentId ?? record.id ?? "").trim();
@@ -411,6 +529,7 @@ function normalizeFulfillmentRecord(record) {
     deliveryEvidenceIssueReason: String(record.deliveryEvidenceIssueReason ?? record.delivery_evidence_issue_reason ?? "").trim(),
     deliveryEvidenceReviewRemark: String(record.deliveryEvidenceReviewRemark ?? record.delivery_evidence_review_remark ?? "").trim(),
     deliveryEvidenceReviewUpdatedAt: record.deliveryEvidenceReviewUpdatedAt ?? record.delivery_evidence_review_updated_at ?? "",
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
     createdAt: record.createdAt ?? record.created_at ?? "",
   };
@@ -471,6 +590,22 @@ function normalizeInventoryLedgerEntry(record) {
 function normalizeInventoryAdjustments(records) {
   if (!Array.isArray(records)) return [];
   return records.map((record) => normalizeInventoryAdjustment(record)).filter(Boolean);
+}
+
+function normalizeInventoryItems(records) {
+  if (!Array.isArray(records)) return [];
+  return records
+    .map((record) => {
+      const inventoryItemId = String(record?.inventoryItemId ?? record?.inventory_item_id ?? record?.id ?? "").trim();
+      if (!inventoryItemId) return null;
+      return {
+        inventoryItemId,
+        onHandQty: toFiniteInteger(record.onHandQty ?? record.on_hand_qty ?? record.inStock ?? 0),
+        reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty ?? record.reserved ?? 0),
+        revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
+      };
+    })
+    .filter(Boolean);
 }
 
 function normalizeInventoryAdjustment(record) {
@@ -583,55 +718,69 @@ function normalizeOperationLogForPersistence(operationLog) {
   };
 }
 
-function buildUpdateInventoryReservationsSql(records, parameters) {
+function buildUpdateInventoryReservationsSql(records) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map(
-      (record) => `(${parameters.text(record.reservationId)}, ${parameters.integer(record.reservedQty)}, ${parameters.text(record.status)})`,
-    )
-    .join(",\n");
   return `UPDATE inventory_reservations AS reservation
 SET
   reserved_qty = updates.reserved_qty,
   status = updates.status,
   updated_at = now()
-FROM (
-  VALUES
-${values}
-) AS updates(id, reserved_qty, status)
-WHERE reservation.id = updates.id
+FROM reservation_updates AS updates, reservation_write_guard AS guard
+WHERE reservation.id = updates.id AND guard.ok
 RETURNING ${inventoryReservationJsonExpression("reservation")} AS result`;
 }
 
-function buildUpdateInventoryItemsSql(records, parameters) {
+function buildUpdateInventoryItemsSql(records) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
+  return `UPDATE inventory_items AS item
+SET
+  on_hand_qty = item.on_hand_qty + delta.on_hand_qty_change,
+  reserved_qty = item.reserved_qty + delta.reserved_qty_change,
+  revision = item.revision + 1,
+  updated_at = now()
+FROM inventory_deltas AS delta, inventory_write_guard AS guard
+WHERE item.id = delta.inventory_item_id AND guard.ok
+RETURNING json_build_object(
+  'inventoryItemId', item.id,
+  'onHandQty', item.on_hand_qty,
+  'reservedQty', item.reserved_qty,
+  'revision', item.revision
+) AS result`;
+}
+
+function buildInventoryReservationUpdatesSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS id, 0::integer AS reserved_qty, NULL::text AS status WHERE false";
+  }
+  const values = records
+    .map(
+      (record) => `(${parameters.text(record.reservationId)}, ${parameters.integer(record.reservedQty)}, ${parameters.text(record.status)})`,
+    )
+    .join(",\n");
+  return `SELECT id, reserved_qty, status
+FROM (VALUES
+${values}
+) AS updates(id, reserved_qty, status)`;
+}
+
+function buildInventoryAdjustmentDeltasSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS inventory_item_id, 0::integer AS on_hand_qty_change, 0::integer AS reserved_qty_change WHERE false";
+  }
   const values = records
     .map(
       (record) =>
         `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.onHandQtyChange)}, ${parameters.integer(record.reservedQtyChange)})`,
     )
     .join(",\n");
-  return `UPDATE inventory_items AS item
-SET
-  on_hand_qty = GREATEST(0, item.on_hand_qty + delta.on_hand_qty_change),
-  reserved_qty = GREATEST(0, item.reserved_qty + delta.reserved_qty_change),
-  updated_at = now()
-FROM (
-  SELECT
-    inventory_item_id,
-    SUM(on_hand_qty_change)::INTEGER AS on_hand_qty_change,
-    SUM(reserved_qty_change)::INTEGER AS reserved_qty_change
-  FROM (VALUES
+  return `SELECT
+  inventory_item_id,
+  SUM(on_hand_qty_change)::integer AS on_hand_qty_change,
+  SUM(reserved_qty_change)::integer AS reserved_qty_change
+FROM (VALUES
 ${values}
-  ) AS raw(inventory_item_id, on_hand_qty_change, reserved_qty_change)
-  GROUP BY inventory_item_id
-) AS delta
-WHERE item.id = delta.inventory_item_id
-RETURNING json_build_object(
-  'inventoryItemId', item.id,
-  'onHandQty', item.on_hand_qty,
-  'reservedQty', item.reserved_qty
-) AS result`;
+) AS raw(inventory_item_id, on_hand_qty_change, reserved_qty_change)
+GROUP BY inventory_item_id`;
 }
 
 function buildInsertInventoryLedgerEntriesSql(records, parameters) {
@@ -913,6 +1062,7 @@ function fulfillmentJsonExpression(alias) {
     'deliveryEvidenceIssueReason', ${alias}.delivery_evidence_issue_reason,
     'deliveryEvidenceReviewRemark', ${alias}.delivery_evidence_review_remark,
     'deliveryEvidenceReviewUpdatedAt', ${alias}.delivery_evidence_review_updated_at,
+    'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at
   )`;

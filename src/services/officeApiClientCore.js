@@ -17,12 +17,23 @@ export function buildOfficeApiHeaders(authState, operatorId, extraHeaders = {}, 
 
 export async function requestOfficeApi(path, options = {}) {
   const fetchImpl = options.fetchImpl ?? fetch;
+  const method = String(options.method ?? "GET").toUpperCase();
+  const headers = buildOfficeApiHeaders(options.authState, options.operatorId, options.headers, options);
+  if (method !== "GET" && method !== "HEAD" && !headers["idempotency-key"] && !headers["Idempotency-Key"]) {
+    headers["idempotency-key"] = options.idempotencyKey ?? createOfficeIdempotencyKey();
+  }
   const init = {
-    method: options.method ?? "GET",
-    headers: buildOfficeApiHeaders(options.authState, options.operatorId, options.headers, options),
+    method,
+    headers,
   };
   if (options.body) init.body = JSON.stringify(options.body);
   return fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, init);
+}
+
+export function createOfficeIdempotencyKey() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `erp-${uuid}`;
+  return `erp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 14)}`;
 }
 
 export async function readOfficeApiJson(response) {

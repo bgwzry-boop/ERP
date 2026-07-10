@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createApiServer } from "../server/apiServer.mjs";
+import { createSeedSession } from "../server/authSeed.mjs";
 import {
   applyRuntimeConfigOptions,
   parseRuntimeModeArg,
@@ -108,6 +109,26 @@ const productionServer = createApiServer({
     queryJson: async () => [],
     objectStorageOptions,
   },
+  runtimeIdentityRepository: {
+    kind: "postgres",
+    loadState: async () => ({
+      users: [
+        {
+          userId: "U-RUNTIME-OFFICE",
+          loginName: "runtime.office",
+          displayName: "运行时办公室测试账号",
+          defaultRole: "office",
+          department: "office",
+          enabled: true,
+          roles: ["office"],
+          loginEnabled: true,
+          passwordHash: "runtime-password-test",
+          sessionVersion: 1,
+        },
+      ],
+      revokedSeedSessions: [],
+    }),
+  },
 });
 await productionServer.ready;
 await listen(productionServer);
@@ -127,6 +148,32 @@ try {
     headers: { "x-erp-user-id": "U-OFFICE-A" },
   });
   assert.equal(legacyIdentityResponse.status, 401);
+
+  const runtimeSession = createSeedSession("U-RUNTIME-OFFICE", {
+    authSecret: "runtime-config-check-secret",
+    sessionVersion: 1,
+  });
+  const missingIdempotencyKey = await fetch(`http://127.0.0.1:${port}/api/nonexistent-business-write`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${runtimeSession.accessToken}`,
+      "content-type": "application/json",
+    },
+    body: "{}",
+  });
+  assert.equal(missingIdempotencyKey.status, 400);
+  assert.equal((await missingIdempotencyKey.json()).code, "IDEMPOTENCY_KEY_REQUIRED");
+
+  const validIdempotencyKey = await fetch(`http://127.0.0.1:${port}/api/nonexistent-business-write`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${runtimeSession.accessToken}`,
+      "content-type": "application/json",
+      "idempotency-key": "runtime-config-idem-001",
+    },
+    body: "{}",
+  });
+  assert.equal(validIdempotencyKey.status, 404);
 } finally {
   await close(productionServer);
 }

@@ -28,6 +28,7 @@ async function checkLocalFulfillmentActionTransactionRepository() {
   const printRecord = buildPrintRecord();
   const printLog = buildOperationLog({ logId: "LOG-FULFILLMENT-PRINT-001", action: "print_fulfillment" });
   const printTransaction = await repository.recordFulfillmentAction({
+    idempotencyKey: "idem-fulfillment-action-001",
     workspace,
     fulfillment: buildFulfillment({ status: "待确认拉走", printed: true }),
     printRecord,
@@ -46,6 +47,7 @@ async function checkLocalFulfillmentActionTransactionRepository() {
     action: "complete_fulfillment",
   });
   const completionTransaction = await repository.recordFulfillmentAction({
+    idempotencyKey: "idem-fulfillment-action-001",
     workspace,
     fulfillment: buildFulfillment({ status: "已交付", actualQty: 1500 }),
     inventoryReservations: [buildInventoryReservation({ status: "已出库" })],
@@ -78,6 +80,7 @@ async function checkLocalFulfillmentActionTransactionRepository() {
     action: "complete_fulfillment",
   });
   const legacyCompletionTransaction = await repository.recordFulfillmentAction({
+    idempotencyKey: "idem-fulfillment-action-001",
     workspace: legacyWorkspace,
     fulfillment: buildFulfillment({
       fulfillmentId: "F-LEGACY-001",
@@ -124,6 +127,7 @@ async function checkLocalFulfillmentActionTransactionRepository() {
     reason: "办公室修正取消出库",
   });
   const cancellationTransaction = await repository.recordFulfillmentAction({
+    idempotencyKey: "idem-fulfillment-action-001",
     workspace: cancellationWorkspace,
     fulfillment: buildFulfillment({ status: "已取消", actualQty: 0 }),
     inventoryReservations: [buildInventoryReservation({ status: "已释放", reservedQty: 0 })],
@@ -158,6 +162,7 @@ async function checkLocalFulfillmentActionTransactionRepository() {
     reason: "stock_shortage",
   });
   const exceptionTransaction = await repository.recordFulfillmentAction({
+    idempotencyKey: "idem-fulfillment-action-001",
     workspace,
     fulfillment: buildFulfillment({ status: "数量差异待处理", actualQty: 1400 }),
     fulfillmentException,
@@ -216,13 +221,14 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   const operationLog = buildOperationLog({ logId: "LOG-FULFILLMENT-ACTION-SQL-001", action: "print_fulfillment" });
   const repository = createPostgresFulfillmentActionTransactionRepository({
     postgresClient: {
-      async transactionJson(text, values) {
-        calls.push({ text, values });
+      async idempotentTransactionJson(request) {
+        calls.push(request);
         return {
           fulfillment,
           printRecord,
           fulfillmentException,
           inventoryReservations,
+          inventoryItems: [{ inventoryItemId: "INV-F003", onHandQty: 500, reservedQty: 0, revision: 2 }],
           inventoryLedgerEntries,
           todo,
           operationLogId: operationLog.id,
@@ -242,6 +248,7 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
     operationLogs: [],
   };
   const transaction = await repository.recordFulfillmentAction({
+    idempotencyKey: "idem-fulfillment-action-001",
     workspace,
     fulfillment,
     printRecord,
@@ -270,9 +277,13 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   assert.equal(workspace.inventoryLedgers.length, 1);
   assert.equal(workspace.inventories[0].inStock, 500);
   assert.equal(workspace.inventories[0].reserved, 0);
+  assert.equal(workspace.inventories[0].revision, 2);
   assert.equal(workspace.todos.length, 1);
 
   const { text: sql, values } = calls[0];
+  assert.equal(calls[0].scope, "fulfillment.print_fulfillment");
+  assert.equal(calls[0].idempotencyKey, "idem-fulfillment-action-001");
+  assert.ok(calls[0].resourceLocks.includes("fulfillment:F003"));
   assert.match(sql, /^BEGIN;/);
   assert.match(sql, /UPDATE fulfillment_records/);
   assert.match(sql, /watermarked_photo_attachment_id = \$\d+::text/);
@@ -292,6 +303,7 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   assert.match(sql, /UPDATE inventory_reservations/);
   assert.match(sql, /reserved_qty = updates\.reserved_qty/);
   assert.match(sql, /UPDATE inventory_items AS item/);
+  assert.match(sql, /'inventoryItems'/);
   assert.match(sql, /INSERT INTO inventory_ledger_entries/);
   assert.match(sql, /INSERT INTO todos/);
   assert.match(sql, /INSERT INTO operation_logs/);

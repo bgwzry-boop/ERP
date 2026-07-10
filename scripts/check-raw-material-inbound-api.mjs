@@ -388,19 +388,21 @@ async function checkPostgresRepositoryBoundary() {
   const calls = [];
   const repository = createPostgresRawMaterialInboundRepository({
     queryJson(text, values) {
-      calls.push({ text, values });
-      if (text.includes("json_build_object")) {
-        return {
-          inbound: {
-            ...initialRawMaterialInbounds[0],
-            status: "已复核待打印标签",
-            rolls: initialRawMaterialInbounds[0].rolls.map((roll) => ({ ...roll, labelStatus: "待打印标签" })),
-          },
-          operationLogId: "RMI-LOG-PG-001",
-        };
-      }
+      calls.push({ kind: "query", text, values });
       if (text.includes("WHERE id =")) return initialRawMaterialInbounds[0];
       return [initialRawMaterialInbounds[0]];
+    },
+    idempotentTransactionJson(request) {
+      calls.push({ kind: "idempotent", ...request });
+      return {
+        inbound: {
+          ...initialRawMaterialInbounds[0],
+          revision: 2,
+          status: "已复核待打印标签",
+          rolls: initialRawMaterialInbounds[0].rolls.map((roll) => ({ ...roll, labelStatus: "待打印标签" })),
+        },
+        operationLogId: "RMI-LOG-PG-001",
+      };
     },
   });
 
@@ -425,15 +427,24 @@ async function checkPostgresRepositoryBoundary() {
     action: "review",
     operatorId: "U-OFFICE-A",
     operatorName: "办公室A",
+    idempotencyKey: "idem-raw-material-review-001",
     body: { now: "2026-07-04T01:00:00.000Z" },
   });
-  const transactionQuery = calls.find((call) => call.text.includes("json_build_object"));
+  const transactionQuery = calls.find((call) => call.kind === "idempotent");
   assert.equal(saved.inbound.status, "已复核待打印标签", "postgres action should return saved inbound payload");
-  assert.match(transactionQuery.text, /INSERT INTO raw_material_inbounds/, "postgres action should upsert raw-material payload");
+  assert.equal(saved.inbound.revision, 2, "postgres action should return the committed inbound revision");
+  assert.equal(transactionQuery.scope, "raw-material.review.rmi-0704-001");
+  assert.equal(transactionQuery.idempotencyKey, "idem-raw-material-review-001");
+  assert.ok(transactionQuery.resourceLocks.includes("raw-material:RMI-0704-001"));
+  assert.match(transactionQuery.text, /UPDATE raw_material_inbounds/, "postgres action should update the locked raw-material payload");
+  assert.match(transactionQuery.text, /FOR UPDATE/);
+  assert.match(transactionQuery.text, /ERP_RAW_MATERIAL_INBOUND_CONCURRENCY_CONFLICT/);
+  assert.match(transactionQuery.text, /revision = raw_material_inbounds\.revision \+ 1/);
   assert.match(transactionQuery.text, /INSERT INTO operation_logs/, "postgres action should write operation log");
   assert.ok(!transactionQuery.text.includes("已复核待打印标签"));
   assert.equal(transactionQuery.values.includes("已复核待打印标签"), true);
   assert.equal(workspace.rawMaterialInbounds[0].status, "已复核待打印标签", "postgres action should update workspace projection");
+  assert.equal(workspace.rawMaterialInbounds[0].revision, 2, "workspace projection should use the committed revision");
 }
 
 async function checkApi() {

@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export const rawMaterialInboundStoreKey = "metadata/raw-material-inbounds.json";
 
@@ -26,6 +28,7 @@ export function createRawMaterialInboundRepository(options = {}) {
         process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -80,10 +83,10 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
   const queryJson =
     options.queryJson ??
     ((text, values) => postgresClient.queryJson(text, values));
-  const transactionJson =
-    options.transactionJson ??
-    options.queryJson ??
-    ((text, values) => postgresClient.transactionJson(text, values));
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor({
+    ...options,
+    postgresClient,
+  });
 
   return {
     kind: "postgres",
@@ -120,12 +123,27 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
       }
       const builtQuery = buildUpsertRawMaterialInboundPayloadTransactionQuery(result.inbound, result.operationLog);
       const saved = normalizeRawMaterialInboundActionResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: `raw-material.${normalizeAction(input.action)}.${cleanText(input.inboundId)}`,
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, result.operationLog?.id),
+            payload: input.idempotencyPayload ?? input.body ?? {},
+            operatorId: input.operatorId,
+            targetType: "raw_material_inbound",
+            targetId: input.inboundId,
+            resourceLocks: [`raw-material:${input.inboundId}`],
+            query: builtQuery,
+          }),
+        ),
       );
-      input.workspace.rawMaterialInbounds = result.inbounds;
+      const savedInbound = saved.inbound ?? result.inbound;
+      input.workspace.rawMaterialInbounds = result.inbounds.map((item) =>
+        item.id === savedInbound.id ? savedInbound : item,
+      );
       return {
-        inbound: saved.inbound ?? result.inbound,
-        operationLog: result.operationLog,
+        inbound: savedInbound,
+        operationLog: saved.operationLogId === result.operationLog?.id ? result.operationLog : null,
+        operationLogId: saved.operationLogId,
       };
     },
   };
@@ -147,7 +165,10 @@ export function buildListRawMaterialInboundPayloadsQuery({ query } = {}) {
   }
   return {
     text: `
-SELECT COALESCE(json_agg(payload_json ORDER BY updated_at DESC, id DESC), '[]'::json) AS result
+SELECT COALESCE(
+  json_agg(payload_json || jsonb_build_object('revision', revision) ORDER BY updated_at DESC, id DESC),
+  '[]'::json
+) AS result
 FROM raw_material_inbounds
 ${where.length ? `WHERE ${where.join(" AND ")}` : ""};
 `.trim(),
@@ -165,7 +186,7 @@ export function buildFindRawMaterialInboundPayloadQuery(inboundId) {
   const parameters = createPostgresParameterBinder();
   return {
     text: `
-SELECT payload_json AS result
+SELECT payload_json || jsonb_build_object('revision', revision) AS result
 FROM raw_material_inbounds
 WHERE id = ${parameters.text(safeInboundId)}
 LIMIT 1;
@@ -182,41 +203,44 @@ export function buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, op
   const safeInbound = normalizeRawMaterialInbound(inbound);
   if (!safeInbound?.id) throw new Error("raw material inbound id is required");
   const safeOperationLog = normalizeOperationLog(operationLog);
+  const expectedRevision = Math.max(1, Number(safeInbound.revision) || 1);
+  const nextInbound = { ...safeInbound, revision: expectedRevision + 1 };
   const parameters = createPostgresParameterBinder();
   const operationLogSql = safeOperationLog ? buildInsertOperationLogSql(safeOperationLog, parameters) : "";
   return {
     text: `
 BEGIN;
-WITH upserted_inbound AS (
-  INSERT INTO raw_material_inbounds (
-    id,
-    delivery_note_no,
-    supplier_name,
-    status,
-    payload_json,
-    created_at,
-    updated_at
-  ) VALUES (
-    ${parameters.text(safeInbound.id)},
-    ${parameters.text(safeInbound.deliveryNoteNo)},
-    ${parameters.text(safeInbound.supplierName)},
-    ${parameters.text(safeInbound.status)},
-    ${parameters.json(safeInbound)},
-    now(),
-    now()
-  )
-  ON CONFLICT (id) DO UPDATE SET
-    delivery_note_no = EXCLUDED.delivery_note_no,
-    supplier_name = EXCLUDED.supplier_name,
-    status = EXCLUDED.status,
-    payload_json = EXCLUDED.payload_json,
+WITH locked_inbound AS MATERIALIZED (
+  SELECT id, revision
+  FROM raw_material_inbounds
+  WHERE id = ${parameters.text(safeInbound.id)}
+  FOR UPDATE
+),
+updated_inbound AS (
+  UPDATE raw_material_inbounds
+  SET
+    delivery_note_no = ${parameters.text(safeInbound.deliveryNoteNo)},
+    supplier_name = ${parameters.text(safeInbound.supplierName)},
+    status = ${parameters.text(safeInbound.status)},
+    payload_json = ${parameters.json(nextInbound)},
+    revision = raw_material_inbounds.revision + 1,
     updated_at = now()
-  RETURNING payload_json AS result
+  FROM locked_inbound AS locked
+  WHERE raw_material_inbounds.id = locked.id
+    AND locked.revision = ${parameters.integer(expectedRevision)}
+  RETURNING payload_json || jsonb_build_object('revision', revision) AS result
+),
+inbound_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM updated_inbound) = 1,
+    'ERP_RAW_MATERIAL_INBOUND_CONCURRENCY_CONFLICT'
+  ) AS ok
 )
 ${safeOperationLog ? `, inserted_operation_log AS (${operationLogSql})` : ""}
 SELECT json_build_object(
-  'inbound', (SELECT result FROM upserted_inbound),
-  'operationLogId', ${safeOperationLog ? "(SELECT id FROM inserted_operation_log)" : "NULL"}
+  'inbound', (SELECT result FROM updated_inbound),
+  'operationLogId', ${safeOperationLog ? "(SELECT id FROM inserted_operation_log)" : "NULL"},
+  'writeGuard', (SELECT ok FROM inbound_write_guard)
 ) AS result;
 COMMIT;
 `.trim(),
@@ -2167,6 +2191,7 @@ function normalizeRawMaterialInbound(input = {}) {
   if (!input || typeof input !== "object") return null;
   const item = { ...input };
   item.id = cleanText(item.id);
+  item.revision = Math.max(1, Number(item.revision) || 1);
   item.supplierName = cleanText(item.supplierName);
   item.deliveryNoteNo = cleanText(item.deliveryNoteNo);
   item.status = cleanText(item.status) || "已识别待复核";
