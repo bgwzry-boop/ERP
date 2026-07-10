@@ -22,6 +22,8 @@
 
 严格认证策略已消除构造参数绕过：`strictAuth` 为真时，`allowSeedUsers`、`allowLegacyIdentityHeaders`、`allowActionPermissionOverride` 和 `allowDefaultSeedUser` 一律为 false，调用方不能通过显式宽松选项恢复原型身份来源。严格模式的原型登录不再是公开路由；标准登录仍可供正式运行时账号建立会话。安全回归使用运行时账号签名会话验证正常访问，同时验证 seed 会话、伪造身份 / 权限 Header、CORS 非白名单来源和流式超限请求均被拒绝。安全专项、全量 `npm test`、lint 和构建通过。该修复不提供真实生产 IdP、密钥轮换、正式 CORS 域名或现场账号验收。
 
+生产 env 文件审计留档已补齐路径脱敏：runner 内部仍使用真实路径完成文件、模板、Git、权限、占位符和重复变量检查，外部 JSON、文本、finding 与错误只返回 `env 文件 N` 标签，且显式声明 `envFilePathExposed=false`。专项覆盖安全文件、多文件、模板、占位符、warning 与文件不存在分支；Node 24 子进程统一增加 `node --` 参数分隔，避免脚本启动前由 Node 自身解析 `--env-file` 并打印路径。工作区外临时安全草稿实跑确认权限 `0600`、文件审计通过、缺真实生产值时仍保持 blocked；setup、intake verify、go-live precheck 和 release candidate 回归通过。该项只消除留档路径泄露，不提供任何真实生产值或外部服务验收。
+
 Git 基线已从“核心源码未跟踪”推进到“本地可按提交回滚”：运行/数据层、前端领域、文档和 CI 共 `367` 个文件已按分组复核并提交为 `72f25c4`。`.gitignore` 持续排除 `.erp-local-storage/`、截图、构建输出、依赖目录和真实 `.env*`；敏感模式预检、差异格式检查、`npm ci`、全量 `npm test` 与 OpenAPI 校验通过，依赖审计为 `0` 个漏洞。此项解决了本机代码基线未固化的问题，但仓库未配置远端，仍不能作为本机外备份或远端恢复证明，也不改变生产环境、现场设备或签字门禁。
 
 V1 真实值 dry-run 的文件绑定检查继续从 API 主入口下沉到 `server/v1ProductionEnvDryRunProofCore.mjs`：配置来源校验、proof 报告状态映射、指纹/新鲜度结果投影、文案、阻塞状态分类和脱敏护栏均可独立测试。`apiServer.mjs` 只注入实际的服务器 proof 报告读取，核心不访问文件系统，也不输出真实片段路径、指纹摘要、原始报告或配置值。专项覆盖嵌入状态、匹配、指纹不匹配、阻塞分类与路径不暴露；V1 状态 API、lint、全量 `npm test`、构建和差异检查通过，`apiServer.mjs` 降至 `22,703` 行。该重构不解除真实生产 env、PostgreSQL、对象存储、实体打印、司机真机、现场证据或签字门禁。

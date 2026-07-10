@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-10 - Production Env Audit Artifacts Must Not Expose File Paths
+
+Production env file audit runners may use the operator-supplied path internally to read the file and evaluate workspace, Git, template, and permission rules. Machine-readable reports, text output, findings, and errors must expose only deterministic ordered labels such as `env 文件 1`; they must include an explicit `envFilePathExposed=false` safeguard and must not retain an absolute path, workspace-relative path, basename, or storage-root fragment.
+
+Subprocess tests that pass `--env-file` must invoke Node with the `--` option separator because Node 24 otherwise consumes the application flag before the script starts. Direct checks must cover successful, blocked, warning, multi-file, and missing-file outputs for both value and path redaction. Downstream release artifacts may relabel an already-redacted source, but they must not depend on a raw path being present.
+
 ## 2026-07-10 - Raw-Material Inbound List Rules Must Stay Pure
 
 Raw-material list metrics, review/source labels, delivery-note fallback text, list filtering, visual tones, and the review / label-print / label-attachment eligibility rules belong in `src/domain/rawMaterialInboundListState.js` when they do not require React lifecycle, browser APIs, or network access. The office page remains responsible for rendering, user interaction, permissions, API calls, machine-side issue, and cost workflows.

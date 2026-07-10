@@ -8,6 +8,8 @@ const safeEnvPath = join(storageRoot, "secure-prod.env");
 const safeOverlayEnvPath = join(storageRoot, "secure-prod-overlay.env");
 const placeholderEnvPath = join(storageRoot, "placeholder-prod.env");
 const duplicateEnvPath = join(storageRoot, "duplicate-prod.env");
+const missingEnvPath = join(storageRoot, "missing-prod.env");
+const nonFileEnvPath = join(storageRoot, "non-file-prod.env");
 const runnerScript = join(process.cwd(), "scripts", "run-v1-production-env-file-audit.mjs");
 const templatePath = join(process.cwd(), "docs", "development", "v1-production.env.example");
 const sensitiveValues = [
@@ -22,6 +24,7 @@ const sensitiveValues = [
 
 rmSync(storageRoot, { recursive: true, force: true });
 mkdirSync(storageRoot, { recursive: true });
+mkdirSync(nonFileEnvPath, { recursive: true });
 
 writeFileSync(
   safeEnvPath,
@@ -55,14 +58,20 @@ assert.ok(safeReport.summary.uncommentedAssignmentCount >= 10);
 assert.equal(safeReport.files[0].git.tracked, false);
 assert.equal(safeReport.files[0].git.ignored, true);
 assert.equal(safeReport.files[0].fileMode, "600");
+assert.equal(safeReport.files[0].path, "env 文件 1");
+assert.equal(safeReport.files[0].pathRedacted, true);
+assert.equal(safeReport.files[0].sourceIndex, 1);
+assert.equal(safeReport.safeguards.envFilePathExposed, false);
 assert.ok(safeReport.files[0].variableNames.includes("ERP_V1_DATABASE_URL"));
 assertNoSensitiveOutput(safeRun.stdout + safeRun.stderr);
+assertNoEnvFilePathOutput(safeRun.stdout + safeRun.stderr);
 
 const textRun = await runAudit(["--env-file", safeEnvPath]);
 assert.equal(textRun.status, 0, runFailureMessage("secure ignored env file text output should pass", textRun));
 assert.match(textRun.stdout, /V1 production env file audit: PASSED/);
-assert.match(textRun.stdout, /secure-prod\.env/);
+assert.match(textRun.stdout, /env 文件 1/);
 assertNoSensitiveOutput(textRun.stdout + textRun.stderr);
+assertNoEnvFilePathOutput(textRun.stdout + textRun.stderr);
 
 writeFileSync(
   safeOverlayEnvPath,
@@ -81,6 +90,10 @@ const multiFileReport = JSON.parse(multiFileRun.stdout);
 assert.equal(multiFileReport.status, "passed");
 assert.equal(multiFileReport.ready, true);
 assert.equal(multiFileReport.envFileCount, 2);
+assert.deepEqual(
+  multiFileReport.files.map((file) => file.path),
+  ["env 文件 1", "env 文件 2"],
+);
 assert.equal(multiFileReport.summary.crossFileDuplicateVariableCount, 1);
 assert.ok(
   multiFileReport.warningFindings.some(
@@ -91,12 +104,14 @@ assert.ok(
   "cross-file duplicate variable should be reported as a warning",
 );
 assertNoSensitiveOutput(multiFileRun.stdout + multiFileRun.stderr);
+assertNoEnvFilePathOutput(multiFileRun.stdout + multiFileRun.stderr);
 assert.doesNotMatch(multiFileRun.stdout, /overlay-pass/);
 
 const multiFileTextRun = await runAudit(["--env-file", safeEnvPath, "--env-file", safeOverlayEnvPath]);
 assert.equal(multiFileTextRun.status, 0, runFailureMessage("cross-file duplicate env variables text output should warn but not block", multiFileTextRun));
 assert.match(multiFileTextRun.stdout, /跨多个 env 文件重复变量/);
 assertNoSensitiveOutput(multiFileTextRun.stdout + multiFileTextRun.stderr);
+assertNoEnvFilePathOutput(multiFileTextRun.stdout + multiFileTextRun.stderr);
 assert.doesNotMatch(multiFileTextRun.stdout, /overlay-pass/);
 
 const templateRun = await runAudit(["--env-file", templatePath, "--json"]);
@@ -113,6 +128,7 @@ assert.ok(
   "docs template path should be blocked because it is not ignored",
 );
 assertNoSensitiveOutput(templateRun.stdout + templateRun.stderr);
+assertNoEnvFilePathOutput(templateRun.stdout + templateRun.stderr);
 
 writeFileSync(
   placeholderEnvPath,
@@ -140,6 +156,7 @@ assert.ok(
   "placeholder finding should be blocking",
 );
 assertNoSensitiveOutput(placeholderRun.stdout + placeholderRun.stderr);
+assertNoEnvFilePathOutput(placeholderRun.stdout + placeholderRun.stderr);
 assert.doesNotMatch(placeholderRun.stdout, /REPLACE_WITH_POSTGRES_CONNECTION_URL|REPLACE_WITH_SECRET_ACCESS_KEY/);
 
 writeFileSync(
@@ -168,13 +185,30 @@ assert.ok(
   "group/other readable env file should be a warning",
 );
 assertNoSensitiveOutput(duplicateRun.stdout + duplicateRun.stderr);
+assertNoEnvFilePathOutput(duplicateRun.stdout + duplicateRun.stderr);
 assert.doesNotMatch(duplicateRun.stdout, /pass2@prod-db/);
 
-console.log("V1 production env file audit check passed: safe file, cross-file duplicate warnings, template rejection, placeholder rejection, warnings, exit codes, and redaction are covered.");
+const missingRun = await runAudit(["--env-file", missingEnvPath, "--json"]);
+assert.equal(missingRun.status, 1, runFailureMessage("missing env file should fail without exposing its path", missingRun));
+const missingReport = JSON.parse(missingRun.stdout);
+assert.equal(missingReport.status, "error");
+assert.equal(missingReport.ready, false);
+assert.match(missingReport.error.message, /env 文件 1 not found/);
+assertNoEnvFilePathOutput(missingRun.stdout + missingRun.stderr);
+
+const nonFileRun = await runAudit(["--env-file", nonFileEnvPath, "--json"]);
+assert.equal(nonFileRun.status, 1, runFailureMessage("directory env input should fail without exposing its path", nonFileRun));
+const nonFileReport = JSON.parse(nonFileRun.stdout);
+assert.equal(nonFileReport.status, "error");
+assert.equal(nonFileReport.ready, false);
+assert.match(nonFileReport.error.message, /env 文件 1 is not a file/);
+assertNoEnvFilePathOutput(nonFileRun.stdout + nonFileRun.stderr);
+
+console.log("V1 production env file audit check passed: safe file, cross-file duplicate warnings, template rejection, placeholder rejection, warnings, exit codes, value redaction, and path redaction are covered.");
 
 function runAudit(args) {
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [runnerScript, ...args], {
+    const child = spawn(process.execPath, ["--", runnerScript, ...args], {
       cwd: process.cwd(),
       env: { PATH: process.env.PATH ?? "" },
       stdio: ["ignore", "pipe", "pipe"],
@@ -215,6 +249,13 @@ function assertNoSensitiveOutput(output) {
   }
   assert.doesNotMatch(output, /pass@prod-db|pass2@prod-db/, "output leaked database credentials");
   assert.doesNotMatch(output, /SUPER_SECRET_VALUE/, "output leaked object-storage secret");
+}
+
+function assertNoEnvFilePathOutput(output) {
+  for (const path of [safeEnvPath, safeOverlayEnvPath, placeholderEnvPath, duplicateEnvPath, missingEnvPath, nonFileEnvPath, templatePath]) {
+    assert.doesNotMatch(output, new RegExp(escapeRegExp(path)), `output leaked env file path: ${path}`);
+  }
+  assert.doesNotMatch(output, new RegExp(escapeRegExp(storageRoot)), "output leaked env storage root");
 }
 
 function escapeRegExp(value) {

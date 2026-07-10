@@ -84,12 +84,12 @@ function helpText() {
     "  1  Env file / runner error",
     "  2  Env file is readable but unsafe for V1 production handoff",
     "",
-    "This audit never prints env values; it reports paths, variable names, counts, and statuses only.",
+    "This audit never prints env values or env file paths; it reports safe file labels, variable names, counts, and statuses only.",
   ].join("\n");
 }
 
 function buildAuditReport({ envFiles }) {
-  const files = envFiles.map((envFile) => auditEnvFile(envFile));
+  const files = envFiles.map((envFile, index) => auditEnvFile(envFile, index));
   const crossFileDuplicateVariables = findCrossFileDuplicateVariables(files);
   const findings = [
     ...files.flatMap((file) => file.findings),
@@ -138,6 +138,7 @@ function buildAuditReport({ envFiles }) {
       connectionStringExposed: false,
       secretFieldsExposed: false,
       commandValueExposed: false,
+      envFilePathExposed: false,
       commentsCopied: false,
       rawLineContentCopied: false,
     },
@@ -145,15 +146,25 @@ function buildAuditReport({ envFiles }) {
   };
 }
 
-function auditEnvFile(envFile) {
+function auditEnvFile(envFile, index) {
+  const displayPath = `env 文件 ${index + 1}`;
   const fullPath = resolve(envFile);
-  if (!existsSync(fullPath)) throw new Error(`Env file not found: ${envFile}`);
-  const stats = statSync(fullPath);
-  if (!stats.isFile()) throw new Error(`Env file is not a file: ${envFile}`);
+  if (!existsSync(fullPath)) throw new Error(`${displayPath} not found.`);
+  let stats;
+  try {
+    stats = statSync(fullPath);
+  } catch {
+    throw new Error(`${displayPath} could not be inspected.`);
+  }
+  if (!stats.isFile()) throw new Error(`${displayPath} is not a file.`);
   const relativePath = relative(workspaceRoot, fullPath);
   const insideWorkspace = Boolean(relativePath && !relativePath.startsWith("..") && !isAbsolute(relativePath));
-  const displayPath = insideWorkspace ? relativePath : fullPath;
-  const content = readFileSync(fullPath, "utf8");
+  let content;
+  try {
+    content = readFileSync(fullPath, "utf8");
+  } catch {
+    throw new Error(`${displayPath} could not be read.`);
+  }
   const parsed = parseEnvAssignments(content);
   const git = inspectGitPath({ relativePath, insideWorkspace });
   const placeholderVariables = unique(
@@ -168,9 +179,9 @@ function auditEnvFile(envFile) {
   const mode = stats.mode & 0o777;
   const groupOrOtherReadable = Boolean(mode & 0o044);
   const templateLikePath =
-    /(^|\/)docs\/development\//.test(displayPath) ||
-    /\.env\.example$/i.test(displayPath) ||
-    /\.example$/i.test(displayPath);
+    /(^|\/)docs\/development\//.test(fullPath) ||
+    /\.env\.example$/i.test(fullPath) ||
+    /\.example$/i.test(fullPath);
   const findings = [
     finding({
       key: "env-file-exists",
@@ -252,6 +263,8 @@ function auditEnvFile(envFile) {
   }
   return {
     path: displayPath,
+    pathRedacted: true,
+    sourceIndex: index + 1,
     insideWorkspace,
     git,
     fileMode: mode.toString(8).padStart(3, "0"),
@@ -427,6 +440,6 @@ function formatReport(report) {
   }
   lines.push("", "Next actions:");
   for (const action of report.nextActions) lines.push(`- ${action}`);
-  lines.push("", "Safeguards: env values, comments, raw lines, command paths, and secrets are not printed.");
+  lines.push("", "Safeguards: env values, env file paths, comments, raw lines, command paths, and secrets are not printed.");
   return `${lines.join("\n")}\n`;
 }
