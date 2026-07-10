@@ -10,6 +10,7 @@ const tempRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-product
 const tempEnvPath = join(tempRoot, "v1-production.env.example");
 const tempRunbookPath = join(tempRoot, "v1-go-live-runbook.zh-CN.md");
 const requiredVariables = [
+  "ERP_RUNTIME_MODE",
   "ERP_V1_PERSISTENCE_PROFILE",
   "ERP_V1_DATABASE_URL",
   "ERP_V1_FILE_STORAGE_PROFILE",

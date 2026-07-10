@@ -37,6 +37,7 @@ const baseEnv = {
   PATH: process.env.PATH ?? "",
 };
 const productionEnv = {
+  ERP_RUNTIME_MODE: "production",
   ERP_V1_PERSISTENCE_PROFILE: "postgres",
   ERP_V1_DATABASE_URL: sensitiveValues[0],
   ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL: sensitiveValues[1],
@@ -201,7 +202,7 @@ try {
   assert.equal(envFileResult.envFileAudit?.safeguards?.envFilePathExposed, false);
   assert.equal(envFileResult.envFileAudit?.files?.[0]?.path, "env 文件 1");
   assert.equal(envFileResult.envFileAudit?.files?.[0]?.pathRedacted, true);
-  assert.equal(envFileResult.summary.envPreflight, "10/10 通过");
+  assert.equal(envFileResult.summary.envPreflight, "11/11 通过");
   const envFileMarkdown = readGeneratedFile(envFileResult.files.markdown);
   assert.match(envFileMarkdown, /生产 env 文件安全审计/);
   assert.doesNotMatch(envFileRun.stdout + envFileRun.stderr + envFileMarkdown, new RegExp(escapeRegExp(envFilePath)));
@@ -282,7 +283,7 @@ try {
   assert.equal(unsafeEnvFileResult.status, "blocked");
   assert.equal(unsafeEnvFileResult.ready, false);
   assert.equal(unsafeEnvFileResult.summary.label, "3/4 发布门禁通过");
-  assert.equal(unsafeEnvFileResult.summary.envPreflight, "10/10 通过");
+  assert.equal(unsafeEnvFileResult.summary.envPreflight, "11/11 通过");
   assert.equal(unsafeEnvFileResult.envPreflight?.ready, true);
   assert.equal(unsafeEnvFileResult.envFileAudit?.included, true);
   assert.equal(unsafeEnvFileResult.envFileAudit?.ready, false);

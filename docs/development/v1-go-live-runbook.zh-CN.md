@@ -11,7 +11,7 @@
 5. 准备器会把真实值字段留空、保留少量安全默认值，并把文件权限收窄到 `0600`；导入模式只复制到安全 target，报告仍不输出真实值；同时输出 `production-env-fix-checklist.zh-CN.md`、`production-env-fix-checklist.csv`、`production-env-real-value-intake.csv`、`production-env-minimum-values-fragment.template.env.example`、`production-env-values-fragment.template.env.example` 和 `production-env-fill-template.env.example` 供现场按变量名填写；最小片段只含当前 blocking 最短补值路径，全量片段保留 warning / optional fallback 和全部白名单变量；它只代表 env 文件已可安全填写，不代表生产变量已通过。
 6. 预检会把未替换的 `<REPLACE_WITH_...>` / `<OPTIONAL_...>` 占位值按未配置处理；不要只取消注释模板行。
 7. 先跑生产 env 文件安全审计，确认真实 env 文件未被 git 跟踪、不是模板文件、没有未替换占位值；再跑生产环境变量预检，按输出里的 `fixChecklist` / `Fix checklist` 分派修正项；发布候选检查在传入 `--env-file` 时也会重新执行 env 文件安全审计，审计不通过时即使变量预检全项通过也仍然 blocked。
-8. API 启动时如需真正应用该安全 env 文件，配置 `ERP_V1_PRODUCTION_ENV_FILE=<secure-env-file>` 后重启 API；安全 env 必须含 `ERP_AUTH_MODE=strict` 和非空 `ERP_AUTH_SECRET`。Web 构建环境必须设置 `VITE_ERP_RUNTIME_MODE=production`，使浏览器禁用本地业务写入降级。API 会先执行 env 文件安全审计，审计通过才把变量应用到当前进程。`ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS` 只用于页面 / 接口只读审计和应用预览，不会被启动加载器自动应用。
+8. API 启动时如需真正应用该安全 env 文件，配置 `ERP_V1_PRODUCTION_ENV_FILE=<secure-env-file>` 后通过 `npm run api:production` 启动；安全 env 必须含 `ERP_RUNTIME_MODE=production`、`ERP_AUTH_MODE=strict` 和非空 `ERP_AUTH_SECRET`。生产 Web 构建会强制后端模式，`VITE_ERP_RUNTIME_MODE=production` 继续作为显式部署标记。API 会先执行 env 文件安全审计，审计通过才把变量应用到当前进程。`ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS` 只用于页面 / 接口只读审计和应用预览，不会被启动加载器自动应用。
 9. 生产上线组合预检会合并 env 文件审计、env 变量预检、当前 API V1 readiness 和当前 API 生产 profile 确认；即使实验室配置能让底层 readiness 到 `11/11`，只要当前 API 仍靠本地持久化 / 本地文件留档接受旁路通过，组合预检仍必须 blocked。
 10. 本地 Node 24 会把 `--env-file` 识别为 Node 自身参数；现场执行带 `--env-file` 的脚本时统一使用 `node -- scripts/... --env-file <secure-env-file>`。
 

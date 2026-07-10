@@ -43,9 +43,11 @@ import {
   seedUserOptions,
 } from "./auth/seedPermissions.js";
 import {
+  createInitialAuthState,
   createLocalSeedAuthState,
   initializeSeedAuth,
   isOfficeApiServerRequired,
+  loginRuntimeUser,
   loginSeedUser,
 } from "./services/officeAuthService.js";
 import {
@@ -778,9 +780,12 @@ function downloadTextFile(content, options = {}) {
 }
 
 export function App() {
+  const runtimeServerRequired = isOfficeApiServerRequired();
   const [activePage, setActivePage] = useState("todos");
   const [toast, setToast] = useState(`P0 原型已载入：${activeScenario.name}。`);
-  const [authState, setAuthState] = useState(() => createLocalSeedAuthState(defaultSeedUserId, "initial_load"));
+  const [authState, setAuthState] = useState(() => createInitialAuthState());
+  const [runtimeLoginForm, setRuntimeLoginForm] = useState({ loginName: "", password: "" });
+  const [runtimeLoginLoading, setRuntimeLoginLoading] = useState(false);
   const [todos, setTodos] = useState(initialTodos);
   const [todoMeta, setTodoMeta] = useState({
     source: "local",
@@ -1120,7 +1125,7 @@ export function App() {
   const permissionContext = authState.permissions;
   const currentUser = permissionContext.user;
   const currentUserId = currentUser.userId ?? defaultSeedUserId;
-  const authSourceLabel = authState.source === "api_seed" ? "后端认证" : "本地权限";
+  const authSourceLabel = authState.authenticated ? "后端认证" : runtimeServerRequired ? "等待登录" : "本地权限";
   const unhandledTodos = todos.filter((item) => !item.handled).length;
 
   async function refreshV1GoLiveStatus(options = {}) {
@@ -5215,17 +5220,17 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    initializeSeedAuth().then((nextAuthState) => {
+    initializeSeedAuth({ serverRequired: runtimeServerRequired }).then((nextAuthState) => {
       if (cancelled) return;
       setAuthState(nextAuthState);
-      if (nextAuthState.source === "api_seed") {
-        setToast(`已恢复后端 seed 会话：${nextAuthState.permissions.user.displayName}。`);
+      if (nextAuthState.authenticated) {
+        setToast(`已恢复后端登录会话：${nextAuthState.permissions.user.displayName}。`);
       }
     });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [runtimeServerRequired]);
 
   useEffect(() => {
     let cancelled = false;
@@ -5505,6 +5510,7 @@ export function App() {
   }, [activePage, authState, currentUserId, selectedStatementId]);
 
   async function switchSeedUser(userId) {
+    if (runtimeServerRequired) return;
     const localState = createLocalSeedAuthState(userId, "optimistic_switch");
     setAuthState(localState);
     setToast(`正在切换当前账号：${localState.permissions.user.displayName}。`);
@@ -5517,6 +5523,19 @@ export function App() {
       return;
     }
     setToast(`已切换当前账号：${displayName}。后端 API 未连接时使用本地 seed 权限降级。`);
+  }
+
+  async function submitRuntimeLogin(event) {
+    event.preventDefault();
+    if (runtimeLoginLoading) return;
+    setRuntimeLoginLoading(true);
+    const nextAuthState = await loginRuntimeUser(runtimeLoginForm, { serverRequired: true });
+    setAuthState(nextAuthState);
+    setRuntimeLoginLoading(false);
+    if (nextAuthState.authenticated) {
+      setRuntimeLoginForm((current) => ({ ...current, password: "" }));
+      setToast(`已登录：${nextAuthState.permissions.user.displayName}。权限由后端正式账号返回。`);
+    }
   }
 
   function refreshActivePage() {
@@ -8836,6 +8855,18 @@ export function App() {
     if (result.toast) setToast(result.toast);
   }
 
+  if (runtimeServerRequired && !authState.authenticated) {
+    return (
+      <RuntimeLoginScreen
+        error={authState.error?.message ?? ""}
+        form={runtimeLoginForm}
+        loading={runtimeLoginLoading}
+        onChange={(field, value) => setRuntimeLoginForm((current) => ({ ...current, [field]: value }))}
+        onSubmit={submitRuntimeLogin}
+      />
+    );
+  }
+
   return (
     <div className="app-shell">
       <aside className="sidebar">
@@ -8877,7 +8908,7 @@ export function App() {
           onCreateOrder={createOrderFromTopbar}
           onUserChange={switchSeedUser}
           todoCount={unhandledTodos}
-          userOptions={seedUserOptions}
+          userOptions={runtimeServerRequired ? [currentUser] : seedUserOptions}
           getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
         />
         <main className="content">
@@ -9150,6 +9181,53 @@ export function App() {
   );
 }
 
+function RuntimeLoginScreen({ error, form, loading, onChange, onSubmit }) {
+  return (
+    <main className="runtime-login-shell">
+      <form className="runtime-login-panel" onSubmit={onSubmit}>
+        <div className="runtime-login-brand">
+          <div className="brand-mark">ERP</div>
+          <div>
+            <strong>设计中心小工厂</strong>
+            <span>生产系统</span>
+          </div>
+        </div>
+        <div className="runtime-login-heading">
+          <h1>账号登录</h1>
+          <p>使用已启用的正式员工账号。</p>
+        </div>
+        <label className="runtime-login-field">
+          <span>登录名</span>
+          <input
+            autoComplete="username"
+            autoFocus
+            name="loginName"
+            onChange={(event) => onChange("loginName", event.target.value)}
+            placeholder="请输入登录名"
+            value={form.loginName}
+          />
+        </label>
+        <label className="runtime-login-field">
+          <span>密码</span>
+          <input
+            autoComplete="current-password"
+            name="password"
+            onChange={(event) => onChange("password", event.target.value)}
+            placeholder="请输入密码"
+            type="password"
+            value={form.password}
+          />
+        </label>
+        {error ? <p className="runtime-login-error" role="alert">{error}</p> : null}
+        <button className="primary-button runtime-login-submit" disabled={loading} type="submit">
+          <UserOutlined />
+          {loading ? "登录中" : "登录"}
+        </button>
+      </form>
+    </main>
+  );
+}
+
 function Topbar({ authSourceLabel, currentUserId, currentUser, onCreateOrder, onUserChange, todoCount, userOptions, getUiActionState }) {
   const createOrderState = getUiActionState("topbar", "新建订单");
   return (
@@ -9179,11 +9257,15 @@ function Topbar({ authSourceLabel, currentUserId, currentUser, onCreateOrder, on
       </button>
       <div className="user-block">
         <strong>{currentUser.displayName}</strong>
-        <select aria-label="切换当前账号" value={currentUserId} onChange={(event) => onUserChange(event.target.value)}>
-          {userOptions.map((item) => (
-            <option key={item.userId} value={item.userId}>{item.displayName} · {item.roleLabel}</option>
-          ))}
-        </select>
+        {userOptions.length > 1 ? (
+          <select aria-label="切换当前账号" value={currentUserId} onChange={(event) => onUserChange(event.target.value)}>
+            {userOptions.map((item) => (
+              <option key={item.userId} value={item.userId}>{item.displayName} · {item.roleLabel}</option>
+            ))}
+          </select>
+        ) : (
+          <span>{currentUser.defaultRole || "正式账号"}</span>
+        )}
       </div>
     </header>
   );

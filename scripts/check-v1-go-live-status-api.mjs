@@ -41,7 +41,7 @@ try {
   const baseUrl = `http://127.0.0.1:${port}`;
   const response = await fetch(`${baseUrl}/api/system/v1-go-live-status`, {
     headers: {
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
   });
   assert.equal(response.status, 200, "/api/system/v1-go-live-status should return 200");
@@ -242,28 +242,28 @@ try {
   assert.equal(json.productionEnvIntakeVerification.available, true);
   assert.equal(json.productionEnvIntakeVerification.status, "blocked");
   assert.equal(json.productionEnvIntakeVerification.ready, false);
-  assert.equal(json.productionEnvIntakeVerification.summary.intakeRowCount, 22);
+  assert.equal(json.productionEnvIntakeVerification.summary.intakeRowCount, 23);
   assert.equal(json.productionEnvIntakeVerification.summary.configuredRowCount, 0);
-  assert.equal(json.productionEnvIntakeVerification.summary.missingRowCount, 22);
-  assert.equal(json.productionEnvIntakeVerification.summary.configuredLabel, "0/22");
-  assert.equal(json.productionEnvIntakeVerification.summary.fullIntakeConfiguredLabel, "0/22");
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingLabel, "0/11");
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingTargetCount, 11);
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingMissingCount, 11);
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingVariableRowCount, 10);
+  assert.equal(json.productionEnvIntakeVerification.summary.missingRowCount, 23);
+  assert.equal(json.productionEnvIntakeVerification.summary.configuredLabel, "0/23");
+  assert.equal(json.productionEnvIntakeVerification.summary.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingLabel, "0/12");
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingTargetCount, 12);
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingMissingCount, 12);
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingVariableRowCount, 11);
   assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingAlternativeGroupCount, 1);
   assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningLabel, "0/8");
   assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningTargetCount, 8);
   assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningVariableRowCount, 7);
   assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningAlternativeGroupCount, 1);
-  assert.equal(json.productionEnvIntakeVerification.summary.blockingCount, 11);
+  assert.equal(json.productionEnvIntakeVerification.summary.blockingCount, 12);
   assert.equal(json.productionEnvIntakeVerification.summary.warningCount, 8);
   assert.equal(json.productionEnvIntakeVerification.summary.alternativeGroupCount, 2);
   assert.equal(json.productionEnvIntakeVerification.summary.alternativeGroupBlockingCount, 1);
   assert.equal(json.productionEnvIntakeVerification.summary.auditReady, true);
   assert.equal(json.productionEnvIntakeVerification.summary.intakeCsvReady, true);
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingItemCount, 11);
-  assert.equal(json.productionEnvIntakeVerification.minimumBlockingItems.length, 11);
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingItemCount, 12);
+  assert.equal(json.productionEnvIntakeVerification.minimumBlockingItems.length, 12);
   assert.ok(
     json.productionEnvIntakeVerification.minimumBlockingItems.some((item) =>
       item.label === "任选其一变量组" &&
@@ -339,9 +339,9 @@ try {
   assert.equal(json.productionFirstStageExecution.intakeCoverage.included, true);
   assert.equal(json.productionFirstStageExecution.intakeCoverage.status, "blocked");
   assert.equal(json.productionFirstStageExecution.intakeCoverage.statusLabel, "阻塞");
-  assert.equal(json.productionFirstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, "0/22");
-  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumBlockingLabel, "0/11");
-  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumBlockingMissingCount, 11);
+  assert.equal(json.productionFirstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumBlockingLabel, "0/12");
+  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumBlockingMissingCount, 12);
   assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumWarningLabel, "0/8");
   assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumWarningMissingCount, 8);
   assert.equal(json.productionFirstStageExecution.intakeCoverage.auditReady, true);
@@ -354,7 +354,7 @@ try {
   assert.ok(
     json.productionFirstStageExecution.blockingStages.some((stage) =>
       stage.key === "production-env-intake-verify" &&
-      stage.evidence.blockingCount === 11 &&
+      stage.evidence.blockingCount === 12 &&
       stage.commandIncluded === false
     ),
   );
@@ -679,7 +679,7 @@ try {
   assert.equal(json.productionEnvMinimumValuesFragmentTemplate.status, "available");
   assert.equal(json.productionEnvMinimumValuesFragmentTemplate.ready, false);
   assert.equal(json.productionEnvMinimumValuesFragmentTemplate.summary.variableCount, 11);
-  assert.equal(json.productionEnvMinimumValuesFragmentTemplate.summary.targetLabel, "0/11");
+  assert.equal(json.productionEnvMinimumValuesFragmentTemplate.summary.targetLabel, "0/12");
   assert.equal(json.productionEnvMinimumValuesFragmentTemplate.summary.templateKind, "minimum_values_fragment");
   assert.equal(
     json.productionEnvMinimumValuesFragmentTemplate.summary.fileName,
@@ -736,15 +736,15 @@ try {
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.intakeVerificationReady, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.intakeVerificationAvailable, true);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingReady, false);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingLabel, "0/11");
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingTargetCount, 11);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingLabel, "0/12");
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingTargetCount, 12);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingSatisfiedCount, 0);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingMissingCount, 11);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingVariableRowCount, 10);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingMissingCount, 12);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingVariableRowCount, 11);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingAlternativeGroupCount, 1);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumWarningLabel, "0/8");
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumWarningMissingCount, 8);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.fullIntakeConfiguredLabel, "0/22");
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.fullIntakeConfiguredLabel, "0/23");
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.dryRunExecuted, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.productionEnvFileMutated, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.primaryEnvVariable, "ERP_V1_PRODUCTION_ENV_VALUES_FILE");
@@ -757,8 +757,8 @@ try {
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.valuesFileAuditReady, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.valuesFileAuditPathExposed, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.valuesFileAuditValuesIncluded, false);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.minimumBlockingLabel, "0/11");
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.minimumBlockingMissingCount, 11);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.minimumBlockingLabel, "0/12");
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.minimumBlockingMissingCount, 12);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.targetEnvFilePathExposed, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.targetSetupStatus.available, true);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.targetSetupStatus.summary.targetEnvFilePathExposed, false);
@@ -834,15 +834,15 @@ try {
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.intakeVerificationReady, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.intakeVerificationAvailable, true);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingReady, false);
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingLabel, "0/11");
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingTargetCount, 11);
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingLabel, "0/12");
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingTargetCount, 12);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingSatisfiedCount, 0);
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingMissingCount, 11);
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingVariableRowCount, 10);
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingMissingCount, 12);
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingVariableRowCount, 11);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingAlternativeGroupCount, 1);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumWarningLabel, "0/8");
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumWarningMissingCount, 8);
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.fullIntakeConfiguredLabel, "0/22");
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.fullIntakeConfiguredLabel, "0/23");
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.targetEnvFileMayBeMutated, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.applyExecuted, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.productionEnvFileMutated, false);
@@ -872,8 +872,8 @@ try {
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.dryRunProofValuesFingerprintDigestExposed, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.dryRunProofValuesFingerprintValuesExposed, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.dryRunProofMinimumBlockingLabel, "0/0");
-  assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.minimumBlockingLabel, "0/11");
-  assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.minimumBlockingMissingCount, 11);
+  assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.minimumBlockingLabel, "0/12");
+  assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.minimumBlockingMissingCount, 12);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.targetEnvFilePathExposed, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.acceptsFrontendPath, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.pathValueExposed, false);
@@ -924,7 +924,7 @@ try {
 
   const unsafeValuesStatusResponse = await fetch(`${baseUrl}/api/system/v1-go-live-status`, {
     headers: {
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
   });
   assert.equal(unsafeValuesStatusResponse.status, 200);
@@ -948,7 +948,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       valuesFilePath: "/Users/should-not-be-read/values.env",
@@ -1304,11 +1304,11 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: "{}",
   });
-  assert.equal(draftResponse.status, 200, "/api/system/v1-field-evidence-intake/draft-manifest should return 200 for office");
+  assert.equal(draftResponse.status, 200, "/api/system/v1-field-evidence-intake/draft-manifest should return 200 for management");
   const draftJson = await draftResponse.json();
   assert.equal(draftJson.version, "p0-v1-field-evidence-intake-draft-v1");
   assert.equal(draftJson.scope, "v1_field_evidence_intake_draft_manifest");
@@ -1347,7 +1347,7 @@ try {
   assert.doesNotMatch(serializedDraft, /SUPER_SECRET|SECRET_VALUE|pass@prod-db/i);
 
   const clientDraftResult = await generateOfficeV1FieldEvidenceDraftManifest(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientDraftResult.source, "api");
@@ -1365,11 +1365,11 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: "{}",
   });
-  assert.equal(validationResponse.status, 200, "/api/system/v1-field-evidence-intake/validate-draft-manifest should return 200 for office");
+  assert.equal(validationResponse.status, 200, "/api/system/v1-field-evidence-intake/validate-draft-manifest should return 200 for management");
   const validationJson = await validationResponse.json();
   assert.equal(validationJson.version, "p0-v1-field-evidence-draft-validation-v1");
   assert.equal(validationJson.scope, "v1_field_evidence_draft_manifest_validation");
@@ -1407,7 +1407,7 @@ try {
   assert.doesNotMatch(serializedValidation, /SUPER_SECRET|SECRET_VALUE|pass@prod-db/i);
 
   const clientValidationResult = await validateOfficeV1FieldEvidenceDraftManifest(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientValidationResult.source, "api");
@@ -1427,7 +1427,7 @@ try {
   try {
     const staleStatusResponse = await fetch(`${baseUrl}/api/system/v1-go-live-status`, {
       headers: {
-        "x-erp-user-id": "U-OFFICE-A",
+        "x-erp-user-id": "U-MANAGER-A",
       },
     });
     assert.equal(staleStatusResponse.status, 200, "V1 go-live status should return stale draft freshness after CSV changes");
@@ -1444,7 +1444,7 @@ try {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-erp-user-id": "U-OFFICE-A",
+        "x-erp-user-id": "U-MANAGER-A",
       },
       body: "{}",
     });
@@ -1460,7 +1460,7 @@ try {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-erp-user-id": "U-OFFICE-A",
+        "x-erp-user-id": "U-MANAGER-A",
       },
       body: "{}",
     });
@@ -1479,27 +1479,27 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", ERP_V1_DATABASE_URL: "SUPER_SECRET" }),
   });
-  assert.equal(productionEnvPrecheckResponse.status, 200, "/api/system/v1-production-env/live-precheck should return 200 for office");
+  assert.equal(productionEnvPrecheckResponse.status, 200, "/api/system/v1-production-env/live-precheck should return 200 for management");
   const productionEnvPrecheckJson = await productionEnvPrecheckResponse.json();
   assert.equal(productionEnvPrecheckJson.version, "p0-v1-production-env-live-precheck-v1");
   assert.equal(productionEnvPrecheckJson.scope, "v1_production_env_live_precheck");
   assert.equal(productionEnvPrecheckJson.status, "blocked");
   assert.equal(productionEnvPrecheckJson.ready, false);
-  assert.equal(productionEnvPrecheckJson.summary.readinessLabel, "2/10");
+  assert.equal(productionEnvPrecheckJson.summary.readinessLabel, "2/11");
   assert.equal(productionEnvPrecheckJson.summary.passedCount, 2);
-  assert.equal(productionEnvPrecheckJson.summary.totalCount, 10);
-  assert.equal(productionEnvPrecheckJson.summary.blockingCount, 6);
+  assert.equal(productionEnvPrecheckJson.summary.totalCount, 11);
+  assert.equal(productionEnvPrecheckJson.summary.blockingCount, 7);
   assert.equal(productionEnvPrecheckJson.summary.warningCount, 2);
   assert.equal(productionEnvPrecheckJson.summary.currentRuntime, true);
   assert.equal(productionEnvPrecheckJson.summary.envFilePathAccepted, false);
   assert.equal(productionEnvPrecheckJson.summary.releaseCandidateRefreshed, false);
   assert.equal(productionEnvPrecheckJson.summary.goLiveSuiteRefreshed, false);
-  assert.equal(productionEnvPrecheckJson.checks.length, 10);
-  assert.equal(productionEnvPrecheckJson.blockingChecks.length, 6);
+  assert.equal(productionEnvPrecheckJson.checks.length, 11);
+  assert.equal(productionEnvPrecheckJson.blockingChecks.length, 7);
   assert.equal(productionEnvPrecheckJson.warningChecks.length, 2);
   assert.ok(
     productionEnvPrecheckJson.blockingChecks.some((item) =>
@@ -1538,23 +1538,23 @@ try {
   assert.doesNotMatch(serializedProductionEnvPrecheck, /SUPER_SECRET|SECRET_VALUE|pass@prod-db/i);
 
   const clientProductionEnvPrecheckResult = await precheckOfficeV1ProductionEnv(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionEnvPrecheckResult.source, "api");
   assert.equal(clientProductionEnvPrecheckResult.blocked, false);
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.statusLabel, "仍未通过");
-  assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.readinessLabel, "2/10");
+  assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.readinessLabel, "2/11");
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.currentRuntime, true);
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.envFilePathAccepted, false);
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.releaseCandidateRefreshed, false);
-  assert.equal(clientProductionEnvPrecheckResult.precheckResult.blockingChecks.length, 6);
+  assert.equal(clientProductionEnvPrecheckResult.precheckResult.blockingChecks.length, 7);
 
   const productionEnvSetupResponse = await fetch(`${baseUrl}/api/system/v1-production-env-setup/live-run`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       targetEnvFilePath: "/Users/should-not-be-read/secure-prod.env",
@@ -1566,7 +1566,7 @@ try {
   assert.equal(
     productionEnvSetupResponse.status,
     200,
-    "/api/system/v1-production-env-setup/live-run should return 200 for office",
+    "/api/system/v1-production-env-setup/live-run should return 200 for management",
   );
   const productionEnvSetupJson = await productionEnvSetupResponse.json();
   assert.equal(productionEnvSetupJson.version, "p0-v1-production-env-setup-live-run-v1");
@@ -1619,7 +1619,7 @@ try {
   assert.doesNotMatch(serializedProductionEnvSetup, /SUPER_SECRET_SETUP|prod-db\.internal|should-not-be-read|\/Users\/|\/private|\.erp-local-storage|secure-prod\.env/);
 
   const clientProductionEnvSetupResult = await runOfficeV1ProductionEnvSetup(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionEnvSetupResult.source, "api");
@@ -1639,7 +1639,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       envFilePath: "/Users/should-not-be-read/production.env",
@@ -1650,18 +1650,18 @@ try {
   assert.equal(
     productionEnvIntakePrecheckResponse.status,
     200,
-    "/api/system/v1-production-env-intake/live-precheck should return 200 for office",
+    "/api/system/v1-production-env-intake/live-precheck should return 200 for management",
   );
   const productionEnvIntakePrecheckJson = await productionEnvIntakePrecheckResponse.json();
   assert.equal(productionEnvIntakePrecheckJson.version, "p0-v1-production-env-intake-live-precheck-v1");
   assert.equal(productionEnvIntakePrecheckJson.scope, "v1_production_env_intake_live_precheck");
   assert.equal(productionEnvIntakePrecheckJson.status, "blocked");
   assert.equal(productionEnvIntakePrecheckJson.ready, false);
-  assert.equal(productionEnvIntakePrecheckJson.summary.configuredLabel, "0/22");
-  assert.equal(productionEnvIntakePrecheckJson.summary.fullIntakeConfiguredLabel, "0/22");
-  assert.equal(productionEnvIntakePrecheckJson.summary.minimumBlockingLabel, "0/11");
+  assert.equal(productionEnvIntakePrecheckJson.summary.configuredLabel, "0/23");
+  assert.equal(productionEnvIntakePrecheckJson.summary.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(productionEnvIntakePrecheckJson.summary.minimumBlockingLabel, "0/12");
   assert.equal(productionEnvIntakePrecheckJson.summary.minimumWarningLabel, "0/8");
-  assert.equal(productionEnvIntakePrecheckJson.summary.blockingCount, 11);
+  assert.equal(productionEnvIntakePrecheckJson.summary.blockingCount, 12);
   assert.equal(productionEnvIntakePrecheckJson.summary.warningCount, 8);
   assert.equal(productionEnvIntakePrecheckJson.summary.auditReady, true);
   assert.equal(productionEnvIntakePrecheckJson.summary.intakeCsvReady, true);
@@ -1679,7 +1679,7 @@ try {
   assert.equal(productionEnvIntakePrecheckJson.summary.releaseCandidateRefreshed, false);
   assert.equal(productionEnvIntakePrecheckJson.summary.goLiveSuiteRefreshed, false);
   assert.equal(productionEnvIntakePrecheckJson.verification.available, true);
-  assert.equal(productionEnvIntakePrecheckJson.verification.summary.minimumBlockingLabel, "0/11");
+  assert.equal(productionEnvIntakePrecheckJson.verification.summary.minimumBlockingLabel, "0/12");
   assert.ok(
     productionEnvIntakePrecheckJson.blockingFindings.some((item) =>
       item.alternativeGroup === "ERP_V1_DATABASE_URL / DATABASE_URL / PGURL"
@@ -1717,14 +1717,14 @@ try {
   assert.doesNotMatch(serializedProductionEnvIntakePrecheck, /SUPER_SECRET_ENV_INTAKE|postgres:\/\/user:pass|should-not-be-read|\/Users\/|\/private\//);
 
   const clientProductionEnvIntakePrecheckResult = await precheckOfficeV1ProductionEnvIntake(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionEnvIntakePrecheckResult.source, "api");
   assert.equal(clientProductionEnvIntakePrecheckResult.blocked, true);
   assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.statusLabel, "仍未通过");
-  assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.configuredLabel, "0/22");
-  assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.minimumBlockingLabel, "0/11");
+  assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.configuredLabel, "0/23");
+  assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.minimumBlockingLabel, "0/12");
   assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.requestBodyIgnored, true);
   assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.envFilePathAccepted, false);
   assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.productionEnvFileMutated, false);
@@ -1736,14 +1736,14 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", token: "SUPER_SECRET_ENV_FILE_PATH" }),
   });
   assert.equal(
     productionEnvFileAuditPrecheckResponse.status,
     200,
-    "/api/system/v1-production-env-file-audit/live-precheck should return 200 for office when audit path is not configured",
+    "/api/system/v1-production-env-file-audit/live-precheck should return 200 for management when audit path is not configured",
   );
   const productionEnvFileAuditPrecheckJson = await productionEnvFileAuditPrecheckResponse.json();
   assert.equal(productionEnvFileAuditPrecheckJson.version, "p0-v1-production-env-file-audit-live-precheck-v1");
@@ -1817,7 +1817,7 @@ try {
   assert.doesNotMatch(serializedProductionEnvFileAuditPrecheck, /SUPER_SECRET_ENV_FILE_PATH|\/Users\/|\/private\//);
 
   const clientProductionEnvFileAuditPrecheckResult = await precheckOfficeV1ProductionEnvFileAudit(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionEnvFileAuditPrecheckResult.source, "api");
@@ -1838,14 +1838,14 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", ERP_V1_DATABASE_URL: "SUPER_SECRET_FILE_PREVIEW" }),
   });
   assert.equal(
     productionEnvFilePreviewPrecheckResponse.status,
     200,
-    "/api/system/v1-production-env-file-preview/live-precheck should return 200 for office when env file path is not configured",
+    "/api/system/v1-production-env-file-preview/live-precheck should return 200 for management when env file path is not configured",
   );
   const productionEnvFilePreviewPrecheckJson = await productionEnvFilePreviewPrecheckResponse.json();
   assert.equal(productionEnvFilePreviewPrecheckJson.version, "p0-v1-production-env-file-preview-live-precheck-v1");
@@ -1897,7 +1897,7 @@ try {
   assert.doesNotMatch(serializedProductionEnvFilePreviewPrecheck, /SUPER_SECRET_FILE_PREVIEW|\/Users\/|\/private\//);
 
   const clientProductionEnvFilePreviewPrecheckResult = await precheckOfficeV1ProductionEnvFilePreview(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionEnvFilePreviewPrecheckResult.source, "api");
@@ -1914,14 +1914,14 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", token: "SUPER_SECRET_GO_LIVE" }),
   });
   assert.equal(
     productionGoLivePrecheckResponse.status,
     200,
-    "/api/system/v1-production-go-live/live-precheck should return 200 for office when env file path is not configured",
+    "/api/system/v1-production-go-live/live-precheck should return 200 for management when env file path is not configured",
   );
   const productionGoLivePrecheckJson = await productionGoLivePrecheckResponse.json();
   assert.equal(productionGoLivePrecheckJson.version, "p0-v1-production-go-live-live-precheck-v1");
@@ -1987,7 +1987,7 @@ try {
   assert.doesNotMatch(serializedProductionGoLivePrecheck, /SUPER_SECRET_GO_LIVE|\/Users\/|\/private\//);
 
   const clientProductionGoLivePrecheckResult = await precheckOfficeV1ProductionGoLive(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionGoLivePrecheckResult.source, "api");
@@ -2022,7 +2022,7 @@ try {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-erp-user-id": "U-OFFICE-A",
+        "x-erp-user-id": "U-MANAGER-A",
       },
       body: JSON.stringify({
         envFilePath: "/Users/should-not-be-read/.env",
@@ -2035,7 +2035,7 @@ try {
   assert.equal(
     productionPersistenceEvidenceResponse.status,
     200,
-    "/api/system/v1-production-persistence-evidence/live-run should return 200 for office with current blocked env",
+    "/api/system/v1-production-persistence-evidence/live-run should return 200 for management with current blocked env",
   );
   const productionPersistenceEvidenceJson = await productionPersistenceEvidenceResponse.json();
   assert.equal(productionPersistenceEvidenceJson.version, "p0-v1-production-persistence-evidence-live-run-v1");
@@ -2082,7 +2082,7 @@ try {
   assert.doesNotMatch(serializedProductionPersistenceEvidence, /SUPER_SECRET_PERSISTENCE_EVIDENCE|SUPER_SECRET_PERSISTENCE_EVIDENCE_API|\/Users\/|\/private|values\.env|\.erp-local-storage/);
 
   const clientProductionPersistenceEvidenceResult = await runOfficeV1ProductionPersistenceEvidence(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionPersistenceEvidenceResult.source, "api");
@@ -2103,7 +2103,7 @@ try {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-erp-user-id": "U-OFFICE-A",
+        "x-erp-user-id": "U-MANAGER-A",
       },
       body: JSON.stringify({
         envFilePath: "/Users/should-not-be-read/.env",
@@ -2116,7 +2116,7 @@ try {
   assert.equal(
     productionFirstStageExecutionResponse.status,
     200,
-    "/api/system/v1-production-first-stage-execution/live-run should return 200 for office with current blocked env",
+    "/api/system/v1-production-first-stage-execution/live-run should return 200 for management with current blocked env",
   );
   const productionFirstStageExecutionJson = await productionFirstStageExecutionResponse.json();
   assert.equal(productionFirstStageExecutionJson.version, "p0-v1-production-first-stage-execution-live-run-v1");
@@ -2144,9 +2144,9 @@ try {
   assert.equal(productionFirstStageExecutionJson.firstStageExecution.execution.applyMigrations, false);
   assert.equal(productionFirstStageExecutionJson.firstStageExecution.execution.restoreResetExplicitlyAllowed, false);
   assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.included, true);
-  assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, "0/22");
-  assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.minimumBlockingLabel, "0/11");
-  assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.minimumBlockingMissingCount, 11);
+  assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.minimumBlockingLabel, "0/12");
+  assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.minimumBlockingMissingCount, 12);
   assert.equal(productionFirstStageExecutionJson.serverConfigGuidance.acceptsFrontendPath, false);
   assert.equal(productionFirstStageExecutionJson.serverConfigGuidance.applyMigrationsByDefault, false);
   assert.equal(productionFirstStageExecutionJson.serverConfigGuidance.restoreResetAllowedByDefault, false);
@@ -2180,7 +2180,7 @@ try {
   assert.doesNotMatch(serializedProductionFirstStageExecution, /SUPER_SECRET_FIRST_STAGE|SUPER_SECRET_FIRST_STAGE_API|\/Users\/|\/private|values\.env/);
 
   const clientProductionFirstStageExecutionResult = await runOfficeV1ProductionFirstStageExecution(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionFirstStageExecutionResult.source, "api");
@@ -2202,7 +2202,7 @@ try {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-erp-user-id": "U-OFFICE-A",
+        "x-erp-user-id": "U-MANAGER-A",
       },
       body: JSON.stringify({
         valuesFilePath: "/Users/should-not-be-read/.env",
@@ -2213,7 +2213,7 @@ try {
   assert.equal(
     productionFirstStageValuesDryRunPrecheckResponse.status,
     200,
-    "/api/system/v1-production-first-stage-values-dry-run/live-precheck should return 200 for office when values file is not configured",
+    "/api/system/v1-production-first-stage-values-dry-run/live-precheck should return 200 for management when values file is not configured",
   );
   const productionFirstStageValuesDryRunPrecheckJson = await productionFirstStageValuesDryRunPrecheckResponse.json();
   assert.equal(productionFirstStageValuesDryRunPrecheckJson.version, "p0-v1-production-first-stage-values-dry-run-live-precheck-v1");
@@ -2343,7 +2343,7 @@ try {
   assert.doesNotMatch(serializedProductionFirstStageValuesDryRunPrecheck, /SUPER_SECRET_VALUES|\/Users\/|\/private|\.erp-local-storage/);
 
   const clientProductionFirstStageValuesDryRunPrecheckResult = await precheckOfficeV1ProductionFirstStageValuesDryRun(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionFirstStageValuesDryRunPrecheckResult.source, "api");
@@ -2378,7 +2378,7 @@ try {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-erp-user-id": "U-OFFICE-A",
+        "x-erp-user-id": "U-MANAGER-A",
       },
       body: JSON.stringify({
         valuesFilePath: "/Users/should-not-be-read/.env",
@@ -2484,7 +2484,7 @@ try {
   assert.doesNotMatch(serializedProductionFirstStageValuesApplyDisabled, /SUPER_SECRET_VALUES_APPLY|\/Users\/|\/private|\.erp-local-storage/);
 
   const clientProductionFirstStageValuesApplyDisabledResult = await applyOfficeV1ProductionFirstStageValues(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientProductionFirstStageValuesApplyDisabledResult.source, "api");
@@ -2509,7 +2509,7 @@ try {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-erp-user-id": "U-OFFICE-A",
+        "x-erp-user-id": "U-MANAGER-A",
       },
       body: JSON.stringify({
         valuesFilePath: "/Users/should-not-be-read/.env",
@@ -2552,7 +2552,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", token: "SUPER_SECRET_AUDIT_BLOCKED_PREVIEW" }),
   });
@@ -2599,7 +2599,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", token: "SUPER_SECRET_ENV_BLOCKED_PREVIEW" }),
   });
@@ -2635,7 +2635,7 @@ try {
   assert.doesNotMatch(serializedEnvBlockedProductionEnvFilePreviewPrecheck, /SUPER_SECRET_ENV_BLOCKED_PREVIEW|partial-live\.env|\/Users\/|\/private\//);
 
   const envBlockedClientProductionEnvFilePreviewPrecheckResult = await precheckOfficeV1ProductionEnvFilePreview(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(envBlockedClientProductionEnvFilePreviewPrecheckResult.source, "api");
@@ -2648,7 +2648,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", token: "SUPER_SECRET_AUDIT_ONLY_GO_LIVE" }),
   });
@@ -2684,6 +2684,7 @@ try {
   writeFileSync(
     safeAuditEnvPath,
     [
+      "ERP_RUNTIME_MODE=production",
       "ERP_V1_PERSISTENCE_PROFILE=postgres",
       "ERP_V1_DATABASE_URL=postgres://v1_user:SUPER_SECRET_LIVE@prod-db.internal:5432/erp",
       "ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL=postgres://v1_restore:SUPER_SECRET_LIVE@restore-db.internal:5432/erp_restore",
@@ -2709,7 +2710,7 @@ try {
       "ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_COMMAND=/usr/bin/lpstat-live-secret",
       "ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_ARGS_JSON=[\"-p\",\"{printer}\"]",
       "ERP_V1_READINESS_API_BASE_URL=http://127.0.0.1:8787/api",
-      "ERP_V1_READINESS_OPERATOR_ID=U-OFFICE-A",
+      "ERP_V1_READINESS_OPERATOR_ID=U-MANAGER-A",
       "ERP_V1_READINESS_DRIVER_OPERATOR_ID=U-DRIVER-A",
       "ERP_V1_FIELD_ACCEPTANCE_OUTPUT_DIR=.erp-local-storage/v1-field-acceptance-live-secret",
       "ERP_V1_FIELD_ACCEPTANCE_API_BASE_URL=http://127.0.0.1:8787/api",
@@ -2726,7 +2727,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", token: "SUPER_SECRET_CONFIGURED_ENV_FILE_PATH" }),
   });
@@ -2794,7 +2795,7 @@ try {
   assert.doesNotMatch(serializedConfiguredProductionEnvFileAuditPrecheck, /SUPER_SECRET|oss-live-secret|lp-live-secret|print-spool-live-secret/i);
 
   const configuredClientProductionEnvFileAuditPrecheckResult = await precheckOfficeV1ProductionEnvFileAudit(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(configuredClientProductionEnvFileAuditPrecheckResult.source, "api");
@@ -2816,7 +2817,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", token: "SUPER_SECRET_CONFIGURED_ENV_FILE_PREVIEW" }),
   });
@@ -2830,9 +2831,9 @@ try {
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.scope, "v1_production_env_file_preview_live_precheck");
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.status, "ready");
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.ready, true);
-  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.readinessLabel, "10/10");
-  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.passedCount, 10);
-  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.totalCount, 10);
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.readinessLabel, "11/11");
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.passedCount, 11);
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.totalCount, 11);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.blockingCount, 0);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.warningCount, 0);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.configuredEnvFileCount, 1);
@@ -2874,7 +2875,7 @@ try {
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.stageDiagnosis.ignoredConfiguredFallbackVariableCount, 1);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.stageDiagnosis.sourceStatuses.length, 3);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.stageDiagnosis.pathValueExposed, false);
-  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.checks.length, 10);
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.checks.length, 11);
   assert.deepEqual(configuredProductionEnvFilePreviewPrecheckJson.blockingChecks, []);
   assert.deepEqual(configuredProductionEnvFilePreviewPrecheckJson.warningChecks, []);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.safeguards.nonMutating, true);
@@ -2896,13 +2897,13 @@ try {
   assert.doesNotMatch(serializedConfiguredProductionEnvFilePreviewPrecheck, /SUPER_SECRET|oss-live-secret|lp-live-secret|print-spool-live-secret|field-acceptance-live-secret/i);
 
   const configuredClientProductionEnvFilePreviewPrecheckResult = await precheckOfficeV1ProductionEnvFilePreview(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.source, "api");
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.blocked, false);
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.statusLabel, "已通过");
-  assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.readinessLabel, "10/10");
+  assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.readinessLabel, "11/11");
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.envFilePathConfigured, true);
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.selectedSourceKind, "primary");
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.appliedInMemory, true);
@@ -2917,7 +2918,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ envFilePath: "/Users/should-not-be-read/.env", token: "SUPER_SECRET_CONFIGURED_GO_LIVE" }),
   });
@@ -2991,7 +2992,7 @@ try {
   assert.doesNotMatch(serializedConfiguredProductionGoLivePrecheck, /SUPER_SECRET|oss-live-secret|lp-live-secret|print-spool-live-secret/i);
 
   const configuredClientProductionGoLivePrecheckResult = await precheckOfficeV1ProductionGoLive(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(configuredClientProductionGoLivePrecheckResult.source, "api");
@@ -3025,11 +3026,11 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ connectionString: "postgres://SUPER_SECRET@127.0.0.1/db", localPath: "/Users/should-not-leak" }),
   });
-  assert.equal(persistencePrecheckResponse.status, 200, "/api/system/v1-persistence/live-precheck should return 200 for office");
+  assert.equal(persistencePrecheckResponse.status, 200, "/api/system/v1-persistence/live-precheck should return 200 for management");
   const persistencePrecheckJson = await persistencePrecheckResponse.json();
   assert.equal(persistencePrecheckJson.version, "p0-v1-persistence-live-precheck-v1");
   assert.equal(persistencePrecheckJson.scope, "v1_persistence_live_precheck");
@@ -3082,7 +3083,7 @@ try {
   assert.doesNotMatch(serializedPersistencePrecheck, /SUPER_SECRET|postgres:\/\/|pass@prod-db/i);
 
   const clientPersistencePrecheckResult = await precheckOfficeV1Persistence(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientPersistencePrecheckResult.source, "api");
@@ -3098,7 +3099,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       storageKey: "attachments/storage-diagnostics/SUPER_SECRET_OBJECT",
@@ -3109,7 +3110,7 @@ try {
   assert.equal(
     attachmentRetentionPrecheckResponse.status,
     200,
-    "/api/system/v1-attachment-retention/live-precheck should return 200 for office",
+    "/api/system/v1-attachment-retention/live-precheck should return 200 for management",
   );
   const attachmentRetentionPrecheckJson = await attachmentRetentionPrecheckResponse.json();
   assert.equal(attachmentRetentionPrecheckJson.version, "p0-v1-attachment-retention-live-precheck-v1");
@@ -3173,7 +3174,7 @@ try {
   );
 
   const clientAttachmentRetentionPrecheckResult = await precheckOfficeV1AttachmentRetention(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientAttachmentRetentionPrecheckResult.source, "api");
@@ -3191,7 +3192,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       driverOperatorId: "SHOULD_BE_IGNORED",
@@ -3205,7 +3206,7 @@ try {
   assert.equal(
     driverReadinessPrecheckResponse.status,
     200,
-    "/api/system/v1-driver-readiness/live-precheck should return 200 for office",
+    "/api/system/v1-driver-readiness/live-precheck should return 200 for management",
   );
   const driverReadinessPrecheckJson = await driverReadinessPrecheckResponse.json();
   assert.equal(driverReadinessPrecheckJson.version, "p0-v1-driver-readiness-live-precheck-v1");
@@ -3269,7 +3270,7 @@ try {
   assert.equal(deniedDriverReadinessPrecheckJson.requiredPermission, "system.v1_driver_readiness.precheck");
 
   const clientDriverReadinessPrecheckResult = await precheckOfficeV1DriverReadiness(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientDriverReadinessPrecheckResult.source, "api");
@@ -3286,14 +3287,14 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({ apiBaseUrl: "http://SUPER_SECRET.invalid/api", bearerToken: "SECRET_VALUE" }),
   });
   assert.equal(
     runtimeReadinessPrecheckResponse.status,
     200,
-    "/api/system/v1-runtime-readiness/live-precheck should return 200 for office",
+    "/api/system/v1-runtime-readiness/live-precheck should return 200 for management",
   );
   const runtimeReadinessPrecheckJson = await runtimeReadinessPrecheckResponse.json();
   assert.equal(runtimeReadinessPrecheckJson.version, "p0-v1-runtime-readiness-live-precheck-v1");
@@ -3345,7 +3346,7 @@ try {
   assert.doesNotMatch(serializedRuntimeReadinessPrecheck, /127\.0\.0\.1:\d+\/api/);
 
   const clientRuntimeReadinessPrecheckResult = await precheckOfficeV1RuntimeReadiness(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientRuntimeReadinessPrecheckResult.source, "api");
@@ -3361,14 +3362,14 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       confirmedBy: "SHOULD_BE_IGNORED",
       token: "SUPER_SECRET_BOUNDARY_TOKEN",
     }),
   });
-  assert.equal(v1V2BoundaryPrecheckResponse.status, 200, "/api/system/v1-v2-boundary/precheck should return 200 for office");
+  assert.equal(v1V2BoundaryPrecheckResponse.status, 200, "/api/system/v1-v2-boundary/precheck should return 200 for management");
   const v1V2BoundaryPrecheckJson = await v1V2BoundaryPrecheckResponse.json();
   assert.equal(v1V2BoundaryPrecheckJson.version, "p0-v1-v2-boundary-precheck-v1");
   assert.equal(v1V2BoundaryPrecheckJson.scope, "v1_v2_boundary_precheck");
@@ -3408,7 +3409,7 @@ try {
   assert.doesNotMatch(serializedV1V2BoundaryPrecheck, /onsiteEvidenceRef|onsiteSigner|onsiteConfirmedBy|confirmedBy/);
 
   const clientV1V2BoundaryPrecheckResult = await precheckOfficeV1V2Boundary(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientV1V2BoundaryPrecheckResult.source, "api");
@@ -3424,7 +3425,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       v2Differences: ["SHOULD_BE_IGNORED"],
@@ -3432,7 +3433,7 @@ try {
       outputDir: "/Users/fake/v1-v2",
     }),
   });
-  assert.equal(v1V2ScopeBriefRefreshResponse.status, 200, "/api/system/v1-v2-scope-brief/refresh should return 200 for office");
+  assert.equal(v1V2ScopeBriefRefreshResponse.status, 200, "/api/system/v1-v2-scope-brief/refresh should return 200 for management");
   const v1V2ScopeBriefRefreshJson = await v1V2ScopeBriefRefreshResponse.json();
   assert.equal(v1V2ScopeBriefRefreshJson.version, "p0-v1-v2-scope-brief-refresh-v1");
   assert.equal(v1V2ScopeBriefRefreshJson.scope, "v1_v2_scope_brief_refresh");
@@ -3471,7 +3472,7 @@ try {
   assert.doesNotMatch(serializedV1V2ScopeBriefRefresh, /SHOULD_BE_IGNORED|SUPER_SECRET_SCOPE_TOKEN/);
 
   const clientV1V2ScopeBriefRefreshResult = await refreshOfficeV1V2ScopeBrief(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientV1V2ScopeBriefRefreshResult.source, "api");
@@ -3487,11 +3488,11 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: "{}",
   });
-  assert.equal(refreshPrecheckResponse.status, 200, "/api/system/v1-release-candidate/refresh-precheck should return 200 for office");
+  assert.equal(refreshPrecheckResponse.status, 200, "/api/system/v1-release-candidate/refresh-precheck should return 200 for management");
   const refreshPrecheckJson = await refreshPrecheckResponse.json();
   assert.equal(refreshPrecheckJson.version, "p0-v1-release-candidate-refresh-precheck-v1");
   assert.equal(refreshPrecheckJson.scope, "v1_release_candidate_refresh_precheck");
@@ -3561,7 +3562,7 @@ try {
   assert.doesNotMatch(serializedRefreshPrecheck, /SUPER_SECRET|SECRET_VALUE|pass@prod-db/i);
 
   const clientRefreshPrecheckResult = await precheckOfficeV1ReleaseCandidateRefresh(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientRefreshPrecheckResult.source, "api");
@@ -3593,7 +3594,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       envFilePath: "/Users/should-not-be-read/.env",
@@ -3651,7 +3652,7 @@ try {
   assert.doesNotMatch(serializedRefreshCandidate, /SUPER_SECRET|SECRET_VALUE|pass@prod-db/i);
 
   const clientRefreshCandidateResult = await refreshOfficeV1ReleaseCandidate(
-    { operatorId: "U-OFFICE-A" },
+    { operatorId: "U-MANAGER-A" },
     { apiBaseUrl: `${baseUrl}/api` },
   );
   assert.equal(clientRefreshCandidateResult.source, "api_error");
@@ -3664,7 +3665,7 @@ try {
 
   const refreshedResponse = await fetch(`${baseUrl}/api/system/v1-go-live-status`, {
     headers: {
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
   });
   assert.equal(refreshedResponse.status, 200, "V1 go-live status should refresh after draft generation");
@@ -3731,19 +3732,19 @@ try {
   assert.ok(clientStatus.productionEnvGate.blockingChecks.some((item) => item.label === "CUPS 队列预检环境变量"));
   assert.equal(clientStatus.productionEnvIntakeVerification.available, true);
   assert.equal(clientStatus.productionEnvIntakeVerification.statusLabel, "阻塞");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.configuredLabel, "0/22");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.fullIntakeConfiguredLabel, "0/22");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingLabel, "0/11");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingTargetCount, 11);
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingMissingCount, 11);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.configuredLabel, "0/23");
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingLabel, "0/12");
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingTargetCount, 12);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingMissingCount, 12);
   assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumWarningLabel, "0/8");
   assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumWarningTargetCount, 8);
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.blockingLabel, "11 项");
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.blockingLabel, "12 项");
   assert.equal(clientStatus.productionEnvIntakeVerification.summary.warningLabel, "8 项");
   assert.equal(clientStatus.productionEnvIntakeVerification.summary.auditReady, true);
   assert.equal(clientStatus.productionEnvIntakeVerification.summary.intakeCsvReady, true);
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingItemCount, 11);
-  assert.equal(clientStatus.productionEnvIntakeVerification.minimumBlockingItems.length, 11);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingItemCount, 12);
+  assert.equal(clientStatus.productionEnvIntakeVerification.minimumBlockingItems.length, 12);
   assert.ok(
     clientStatus.productionEnvIntakeVerification.minimumBlockingItems.some((item) =>
       item.label === "任选其一变量组" &&
@@ -3783,9 +3784,9 @@ try {
   assert.equal(clientStatus.productionFirstStageExecution.statusLabel, "阻塞");
   assert.equal(clientStatus.productionFirstStageExecution.summary.passedLabel, "1/8");
   assert.equal(clientStatus.productionFirstStageExecution.summary.blockingLabel, "1 项");
-  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, "0/22");
-  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumBlockingLabel, "0/11");
-  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumBlockingMissingCount, 11);
+  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumBlockingLabel, "0/12");
+  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumBlockingMissingCount, 12);
   assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumWarningLabel, "0/8");
   assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.intakeCsvReady, true);
   assert.equal(clientStatus.productionFirstStageExecution.dryRunCoverage.statusLabel, "未纳入");
@@ -3793,7 +3794,7 @@ try {
   assert.ok(
     clientStatus.productionFirstStageExecution.blockingStages.some((stage) =>
       stage.label === "生产 env 真实值 intake 校验" &&
-      stage.evidence.blockingCount === 11
+      stage.evidence.blockingCount === 12
     ),
   );
   assert.equal(clientStatus.productionFirstStageExecution.safeguards.rawStageCommandsIncluded, false);
@@ -3903,7 +3904,7 @@ try {
   assert.ok(clientStatus.productionEnvFillTemplate.previewLines.some((line) => line.includes("统一 V1 持久化 profile")));
   assert.equal(clientStatus.productionEnvMinimumValuesFragmentTemplate.available, true);
   assert.equal(clientStatus.productionEnvMinimumValuesFragmentTemplate.summary.variableCount, 11);
-  assert.equal(clientStatus.productionEnvMinimumValuesFragmentTemplate.summary.targetLabel, "0/11");
+  assert.equal(clientStatus.productionEnvMinimumValuesFragmentTemplate.summary.targetLabel, "0/12");
   assert.equal(
     clientStatus.productionEnvMinimumValuesFragmentTemplate.summary.fileName,
     "production-env-minimum-values-fragment.template.env.example",
@@ -3923,9 +3924,9 @@ try {
   assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.valuesFileAuditStatus, "not_run");
   assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.valuesFileAuditReady, false);
   assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.valuesFileAuditBlockingCount, 0);
-  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingLabel, "0/11");
-  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingMissingCount, 11);
-  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.fullIntakeConfiguredLabel, "0/22");
+  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingLabel, "0/12");
+  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingMissingCount, 12);
+  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.fullIntakeConfiguredLabel, "0/23");
   assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.targetSetupStatus.summary.targetEnvFilePathExposed, false);
   assert.deepEqual(
     clientStatus.productionEnvValuesFragmentSourceStatus.summary.sourceStatuses.map((item) => item.envVariable),
@@ -3952,9 +3953,9 @@ try {
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.valuesFileAuditStatus, "not_run");
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.valuesFileAuditReady, false);
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.valuesFileAuditBlockingCount, 0);
-  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.minimumBlockingLabel, "0/11");
-  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.minimumBlockingMissingCount, 11);
-  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.fullIntakeConfiguredLabel, "0/22");
+  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.minimumBlockingLabel, "0/12");
+  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.minimumBlockingMissingCount, 12);
+  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.fullIntakeConfiguredLabel, "0/23");
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.dryRunProofStatus, "not_included");
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.dryRunProofReady, false);
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.dryRunProofIncluded, false);

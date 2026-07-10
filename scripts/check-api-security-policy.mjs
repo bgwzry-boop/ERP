@@ -34,6 +34,20 @@ assert.equal(strictPolicy.maxJsonBodyBytes, 321);
 assert.equal(isCorsRequestAllowed(strictPolicy, "https://erp.example.test"), true);
 assert.equal(isCorsRequestAllowed(strictPolicy, "https://untrusted.example.test"), false);
 
+const productionRuntimePolicy = buildApiSecurityPolicy(
+  {
+    runtimeMode: "production",
+    strictAuth: false,
+    authSecret: "production-runtime-secret",
+    allowSeedUsers: true,
+    allowLegacyIdentityHeaders: true,
+  },
+  {},
+);
+assert.equal(productionRuntimePolicy.strictAuth, true);
+assert.equal(productionRuntimePolicy.allowSeedUsers, false);
+assert.equal(productionRuntimePolicy.allowLegacyIdentityHeaders, false);
+
 const localPolicy = buildApiSecurityPolicy({}, { ERP_API_MAX_JSON_BODY_BYTES: "invalid" });
 assert.equal(localPolicy.strictAuth, false);
 assert.equal(localPolicy.allowSeedUsers, true);

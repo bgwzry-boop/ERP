@@ -49,8 +49,12 @@ assert.equal(setupReport.audit.ready, true);
 assert.equal(setupReport.envPreflight.ready, false);
 assert.ok(setupReport.envPreflight.remainingFixItems.some((item) => item.key === "v1-persistence-profile"));
 assert.equal(setupReport.productionEnvFixChecklist.included, true);
-assert.equal(setupReport.productionEnvFixChecklist.fixItemCount, 10);
+assert.equal(setupReport.productionEnvFixChecklist.fixItemCount, 11);
 assert.equal(setupReport.productionEnvFixChecklist.blockingItemCount, 6);
+assert.equal(
+  setupReport.productionEnvFixChecklist.items.find((item) => item.key === "runtime-mode")?.status,
+  "passed",
+);
 assert.equal(setupReport.productionEnvValueIntakeChecklist.included, true);
 assert.ok(setupReport.productionEnvValueIntakeChecklist.rowCount > 0);
 assert.equal(setupReport.productionEnvMinimumValueIntakeChecklist.included, true);
@@ -376,6 +380,7 @@ console.log("V1 production env setup check passed: secure draft creation, no ove
 
 function buildReadyEnv() {
   return [
+    "ERP_RUNTIME_MODE=production",
     "ERP_V1_PERSISTENCE_PROFILE=postgres",
     `ERP_V1_DATABASE_URL=${sensitiveValues[0]}`,
     "ERP_V1_FILE_STORAGE_PROFILE=object_storage",
@@ -429,6 +434,7 @@ function buildReadyEnv() {
 
 function buildInvalidShapeEnv() {
   return [
+    "ERP_RUNTIME_MODE=production",
     "ERP_V1_PERSISTENCE_PROFILE=postgres",
     `ERP_V1_DATABASE_URL=${sensitiveValues[9]}`,
     "ERP_V1_FILE_STORAGE_PROFILE=object_storage",

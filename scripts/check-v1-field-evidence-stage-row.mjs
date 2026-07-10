@@ -71,7 +71,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       rowType: "evidence",
@@ -91,7 +91,7 @@ try {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      "x-erp-user-id": "U-MANAGER-A",
     },
     body: JSON.stringify({
       rowType: "evidence",
@@ -102,7 +102,7 @@ try {
       onsiteNotes: "migration screenshot archived",
     }),
   });
-  assert.equal(evidenceResponse.status, 200, "office can stage one V1 field evidence row");
+  assert.equal(evidenceResponse.status, 200, "management can stage one V1 field evidence row");
   const evidenceJson = await evidenceResponse.json();
   assert.equal(evidenceJson.version, "p0-v1-field-evidence-intake-stage-row-v1");
   assert.equal(evidenceJson.scope, "v1_field_evidence_intake_stage_row");
@@ -166,7 +166,7 @@ try {
       label: "PostgreSQL 迁移已在生产库执行",
       ownerRole: "技术 / 管理",
     },
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-MANAGER-A",
     remark: "migration PDF proof",
     file: {
       name: "postgres-migration-proof.pdf",
@@ -183,7 +183,7 @@ try {
       groupKey: "production_persistence",
       key: "postgres_migration_applied",
     },
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-MANAGER-A",
   });
   assert.equal(attachmentListInput.ownerType, "v1_field_evidence");
   assert.equal(attachmentListInput.ownerId, attachmentInput.ownerId);
@@ -220,7 +220,7 @@ try {
 
   const attachmentStageResult = await stageOfficeV1FieldEvidenceIntakeRow(
     {
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-MANAGER-A",
       row: {
         rowType: "evidence",
         groupKey: "production_persistence",
@@ -252,7 +252,7 @@ try {
       label: "办公室",
       status: "pending",
     },
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-MANAGER-A",
     remark: "office signed scan",
     file: {
       name: "office-signoff.pdf",
@@ -269,7 +269,7 @@ try {
       type: "signoff",
       key: "办公室",
     },
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-MANAGER-A",
   });
   assert.equal(signoffAttachmentListInput.ownerType, "v1_signoff_boundary");
   assert.equal(signoffAttachmentListInput.ownerId, signoffAttachmentInput.ownerId);
@@ -304,7 +304,7 @@ try {
 
   const clientSignoffResult = await stageOfficeV1FieldEvidenceIntakeRow(
     {
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-MANAGER-A",
       row: {
         rowType: "signoff",
         role: "办公室",

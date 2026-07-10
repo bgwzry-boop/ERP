@@ -10,6 +10,7 @@ const envSections = [
   {
     title: "V1 production profile",
     lines: [
+      "ERP_RUNTIME_MODE=production",
       "ERP_V1_PERSISTENCE_PROFILE=postgres",
       "ERP_V1_DATABASE_URL=<REPLACE_WITH_POSTGRES_CONNECTION_URL>",
       "ERP_V1_FILE_STORAGE_PROFILE=object_storage",
@@ -111,6 +112,7 @@ const envSections = [
 ];
 
 const requiredPreflightVariables = [
+  "ERP_RUNTIME_MODE",
   "ERP_V1_PERSISTENCE_PROFILE",
   "ERP_V1_DATABASE_URL",
   "ERP_V1_FILE_STORAGE_PROFILE",
@@ -219,7 +221,7 @@ function helpText() {
 function buildEnvTemplate() {
   const lines = [
     "# ERP V1 production environment template",
-    "# Last generated: 2026-07-04",
+    "# Last generated: 2026-07-10",
     "#",
     "# Copy this file to a secure, untracked env file before editing.",
     "# You can create that secure draft with:",
@@ -258,7 +260,7 @@ function buildRunbook() {
     "5. 准备器会把真实值字段留空、保留少量安全默认值，并把文件权限收窄到 `0600`；导入模式只复制到安全 target，报告仍不输出真实值；同时输出 `production-env-fix-checklist.zh-CN.md`、`production-env-fix-checklist.csv`、`production-env-real-value-intake.csv`、`production-env-minimum-values-fragment.template.env.example`、`production-env-values-fragment.template.env.example` 和 `production-env-fill-template.env.example` 供现场按变量名填写；最小片段只含当前 blocking 最短补值路径，全量片段保留 warning / optional fallback 和全部白名单变量；它只代表 env 文件已可安全填写，不代表生产变量已通过。",
     "6. 预检会把未替换的 `<REPLACE_WITH_...>` / `<OPTIONAL_...>` 占位值按未配置处理；不要只取消注释模板行。",
     "7. 先跑生产 env 文件安全审计，确认真实 env 文件未被 git 跟踪、不是模板文件、没有未替换占位值；再跑生产环境变量预检，按输出里的 `fixChecklist` / `Fix checklist` 分派修正项；发布候选检查在传入 `--env-file` 时也会重新执行 env 文件安全审计，审计不通过时即使变量预检全项通过也仍然 blocked。",
-    "8. API 启动时如需真正应用该安全 env 文件，配置 `ERP_V1_PRODUCTION_ENV_FILE=<secure-env-file>` 后重启 API；安全 env 必须含 `ERP_AUTH_MODE=strict` 和非空 `ERP_AUTH_SECRET`。Web 构建环境必须设置 `VITE_ERP_RUNTIME_MODE=production`，使浏览器禁用本地业务写入降级。API 会先执行 env 文件安全审计，审计通过才把变量应用到当前进程。`ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS` 只用于页面 / 接口只读审计和应用预览，不会被启动加载器自动应用。",
+    "8. API 启动时如需真正应用该安全 env 文件，配置 `ERP_V1_PRODUCTION_ENV_FILE=<secure-env-file>` 后通过 `npm run api:production` 启动；安全 env 必须含 `ERP_RUNTIME_MODE=production`、`ERP_AUTH_MODE=strict` 和非空 `ERP_AUTH_SECRET`。生产 Web 构建会强制后端模式，`VITE_ERP_RUNTIME_MODE=production` 继续作为显式部署标记。API 会先执行 env 文件安全审计，审计通过才把变量应用到当前进程。`ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS` 只用于页面 / 接口只读审计和应用预览，不会被启动加载器自动应用。",
     "9. 生产上线组合预检会合并 env 文件审计、env 变量预检、当前 API V1 readiness 和当前 API 生产 profile 确认；即使实验室配置能让底层 readiness 到 `11/11`，只要当前 API 仍靠本地持久化 / 本地文件留档接受旁路通过，组合预检仍必须 blocked。",
     "10. 本地 Node 24 会把 `--env-file` 识别为 Node 自身参数；现场执行带 `--env-file` 的脚本时统一使用 `node -- scripts/... --env-file <secure-env-file>`。",
     "",
@@ -353,7 +355,7 @@ function buildRunbook() {
     "",
     "- PostgreSQL：`run-v1-production-postgres-preflight --use-production-env-setup-env-file` 脱敏预检输出、`run-v1-production-postgres-backup-restore-check --use-production-env-setup-env-file --allow-restore-reset` 恢复验证输出、连接池 / 备份 / 恢复 / 权限负责人确认；`run-db-migrations --env-file <secure-env-file> --apply` 仍作为明确写入生产库的迁移执行记录保留显式安全 env 文件。恢复验证必须使用专用可重置验证库，不得和生产源库指向同一 host/port/database；安全生产 env 中 `ERP_V1_POSTGRES_RESTORE_RESET_ALLOWED` 常态保持 `false`，只在计划内恢复验证命令上显式授权。",
     "- 生产 env 准备报告：`run-v1-production-env-setup` 生成、复核或从另一份已填写安全 env 导入统一安全 env 草稿，确认目标路径被 git 忽略或在工作区外、文件权限为 `0600`、来源 env 审计通过、真实值字段未写入报告；该报告不代表 PostgreSQL / 对象存储已连通。",
-    "- 生产 env 文件：保留 env 文件安全审计 JSON / Markdown 摘要；真实值只在安全未跟踪 env 文件内，不进入交接包、截图或 git。",
+    "- 生产 env 文件：保留 env 文件安全审计 JSON / Markdown 摘要；审计输出只使用 `env 文件 1/2` 标签，不保留绝对路径、工作区相对路径、文件名或存储根目录；真实值只在安全未跟踪 env 文件内，不进入交接包、截图或 git。",
     "- 生产环境修正清单 / env 填写草稿：优先读取 `.erp-local-storage/v1-production-env-setup/production-env-fix-checklist.zh-CN.md`、`.csv`、`production-env-real-value-intake.csv`、`production-env-minimum-values-fragment.template.env.example`、`production-env-values-fragment.template.env.example` 和 `production-env-fill-template.env.example`；同步 handoff 后也可读取 `.erp-local-storage/v1-go-live-handoff/production-env-fix-checklist.zh-CN.md`、`.csv`、`production-env-real-value-intake.csv`、`production-env-minimum-values-fragment.template.env.example`、`production-env-values-fragment.template.env.example` 和 `production-env-fill-template.env.example`。先把 `production-env-minimum-values-fragment.template.env.example` 复制成安全未跟踪片段，填当前最小 blocking 补值路径；站点使用别名或要补 warning / optional fallback 时再用完整 `production-env-values-fragment.template.env.example`。片段先用 `run-v1-production-env-intake-apply --dry-run` 或第一阶段执行器 `--production-env-values-dry-run` 预检，不写目标 env；dry-run 报告会给出预计生产 env 变量预检、全量 intake 覆盖、最小 blocking 补值覆盖和建议 / 可选补值覆盖结果，但不输出真实值、不输出路径、不写含真实值副本；正式合并前第一阶段执行器会先检查 dry-run 证明是否仍在默认 24 小时有效期内、是否与当前目标来源一致、真实值片段指纹是否一致、真实值片段和目标 env 是否在 dry-run 后未修改，全部通过后才会调用白名单合并；只把真实值填入安全 env 文件或安全真实值片段。",
     "- 对象存储：`run-v1-production-object-storage-preflight --use-production-env-setup-env-file` 脱敏 live 输出、附件上传 / 读回 / 签名 URL、对账导出写入 / 重下载 / 清理诊断；`run-v1-production-object-storage-governance-check --use-production-env-setup-env-file` 脱敏 bucket 治理输出、bucket 版本控制 / 生命周期 / 服务端加密读回、bucket policy 可读性 warning、访问审计、控制台截图和备份策略负责人确认。",
     "- 生产 env 真实值 intake 校验：`run-v1-production-env-intake-verify` 优先用 `--use-production-env-setup-env-file` 复用 production env setup 报告中的安全 env 文件，并对照 `production-env-real-value-intake.csv` 确认真实值变量、任选别名组、安全固定值以及 `filled` / `verified` / `evidenceRef` 回填状态；只有绕开 setup 报告时才显式传入 `--env-file <secure-env-file>`。它只输出变量名、计数、状态和下一步，不输出真实 env 值、路径、连接串、bucket、secret、spool 路径或证据原文。",

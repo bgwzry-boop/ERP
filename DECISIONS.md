@@ -1,5 +1,23 @@
 # Decisions
 
+## 2026-07-10 - Runtime Mode Must Be Explicit And Local Data Must Be Partitioned
+
+The API supports exactly `demo`, `test`, and `production` runtime modes. Default local data belongs under a mode-specific partition; an explicitly supplied test storage root remains authoritative for isolated harnesses. The reset command may remove only the demo partition and must reject test or production targets. Runtime health summaries may expose mode and partition labels, but not local paths.
+
+Production mode is not a label-only setting. It forces strict identity and production persistence checks and cannot be relaxed by constructor options. Production may not continue with local memory, local JSON, or local filesystem business persistence.
+
+## 2026-07-10 - Production Startup Must Validate Actual Persistence Implementations
+
+Production startup must force the V1 PostgreSQL and object-storage profiles and then inspect the repositories and storage adapters actually constructed. Missing database configuration, unconfigured object storage, or any local implementation causes startup to fail with `ERP_PRODUCTION_PERSISTENCE_REQUIRED`. Environment-variable presence alone is not sufficient proof.
+
+This startup gate does not prove that real PostgreSQL, backup/restore, object-storage governance, printers, driver devices, or onsite evidence have passed. Those remain separate release gates.
+
+## 2026-07-10 - Role Permissions Must Have One Shared Catalog
+
+Frontend prototype presentation and server authorization must derive role defaults from `shared/auth/roleCatalog.js`. Office users do not receive any `system.v1_*` action. System V1 production configuration, persistence evidence, field-evidence mutation, and release-candidate actions belong only to management or technical-operations roles unless a later audited permission design explicitly changes them.
+
+Production browser sessions must use formal runtime login. Prototype seed login, legacy identity headers, browser-local permission fallback, and local business-write fallback remain demo/test-only behavior.
+
 ## 2026-07-10 - Production Env Audit Artifacts Must Not Expose File Paths
 
 Production env file audit runners may use the operator-supplied path internally to read the file and evaluate workspace, Git, template, and permission rules. Machine-readable reports, text output, findings, and errors must expose only deterministic ordered labels such as `env 文件 1`; they must include an explicit `envFilePathExposed=false` safeguard and must not retain an absolute path, workspace-relative path, basename, or storage-root fragment.

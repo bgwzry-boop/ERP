@@ -1,8 +1,11 @@
 import assert from "node:assert/strict";
 import {
   applyV1PersistenceProfileOptions,
+  assertV1ProductionPersistenceRuntime,
   v1PersistenceObjectStorageOptionKeys,
   v1PersistencePostgresRepositoryOptionKeys,
+  v1PersistenceRepositoryObjectKeys,
+  v1PersistenceStorageObjectKeys,
 } from "../server/v1PersistenceProfile.mjs";
 
 const emptyEnv = {};
@@ -91,4 +94,49 @@ assert.equal(
   v1PersistencePostgresRepositoryOptionKeys.length - 2,
 );
 
-console.log("V1 persistence profile check passed: defaults, overrides, object storage, and redaction are covered.");
+assert.throws(
+  () => applyV1PersistenceProfileOptions({ runtimeMode: "production" }, emptyEnv),
+  (error) => error?.code === "ERP_PRODUCTION_PERSISTENCE_REQUIRED",
+);
+
+const productionProfile = applyV1PersistenceProfileOptions(
+  {
+    runtimeMode: "production",
+    v1PersistenceProfile: {
+      databaseUrl: "postgres://erp:secret@example.invalid/erp",
+      objectStorageOptions: { provider: "s3_compatible" },
+    },
+  },
+  emptyEnv,
+);
+assert.equal(productionProfile.summary.productionEnforced, true);
+assert.equal(productionProfile.summary.repositoryProfile, "postgres");
+assert.equal(productionProfile.summary.fileStorageProfile, "object_storage");
+
+const productionRepositories = Object.fromEntries(
+  v1PersistenceRepositoryObjectKeys.map((objectKey) => [objectKey, { kind: "postgres" }]),
+);
+const productionFileStorages = Object.fromEntries(
+  v1PersistenceStorageObjectKeys.map((objectKey) => [objectKey, { kind: "object_storage", configured: true }]),
+);
+assert.equal(
+  assertV1ProductionPersistenceRuntime({
+    runtimeMode: "production",
+    repositories: productionRepositories,
+    fileStorages: productionFileStorages,
+  }).ready,
+  true,
+);
+assert.throws(
+  () =>
+    assertV1ProductionPersistenceRuntime({
+      runtimeMode: "production",
+      repositories: { ...productionRepositories, attachmentRepository: { kind: "local_json" } },
+      fileStorages: productionFileStorages,
+    }),
+  (error) =>
+    error?.code === "ERP_PRODUCTION_PERSISTENCE_REQUIRED" &&
+    error?.details?.invalidRepositories?.includes("attachmentRepository"),
+);
+
+console.log("V1 persistence profile check passed: defaults, overrides, production enforcement, object storage, and redaction are covered.");

@@ -2,6 +2,7 @@ import {
   defaultSeedUserId,
   getSeedPermissionContext,
 } from "../auth/seedPermissions.js";
+import { createDisabledPermissionContext } from "../../shared/auth/roleCatalog.js";
 
 export const seedAuthStorageKey = "erp.authSession.v1";
 const legacySeedAuthStorageKey = "erp.seedAuthSession.v1";
@@ -9,14 +10,39 @@ const legacySeedAuthStorageKey = "erp.seedAuthSession.v1";
 const defaultApiBaseUrl = "http://127.0.0.1:8787/api";
 
 export function isOfficeApiServerRequired(options = {}) {
-  if (options.serverRequired === true) return true;
-  if (options.serverRequired === false) return false;
   const runtimeMode = String(
     options.runtimeMode ?? import.meta.env?.VITE_ERP_RUNTIME_MODE ?? import.meta.env?.VITE_ERP_OPERATION_MODE ?? "",
   )
     .trim()
     .toLowerCase();
-  return ["production", "strict", "server_required"].includes(runtimeMode);
+  if (import.meta.env?.PROD === true || ["production", "strict", "server_required"].includes(runtimeMode)) return true;
+  if (options.serverRequired === true) return true;
+  if (options.serverRequired === false) return false;
+  return false;
+}
+
+export function createInitialAuthState(options = {}) {
+  return isOfficeApiServerRequired(options)
+    ? createServerRequiredAuthState("initial_login_required")
+    : createLocalSeedAuthState(options.defaultUserId ?? defaultSeedUserId, "initial_load");
+}
+
+export function createServerRequiredAuthState(reason = "login_required", error = null) {
+  return {
+    source: "server_required",
+    authenticated: false,
+    session: null,
+    permissions: createDisabledPermissionContext(),
+    reason,
+    ...(error
+      ? {
+          error: {
+            code: error?.code ?? "AUTH_CLIENT_ERROR",
+            message: error?.message ?? String(error),
+          },
+        }
+      : {}),
+  };
 }
 
 export function createLocalSeedAuthState(userId = defaultSeedUserId, reason = "local_seed") {
@@ -33,7 +59,9 @@ export async function initializeSeedAuth(options = {}) {
   const storage = options.storage ?? getBrowserStorage();
   const storedSession = readStoredSeedSession(storage);
   if (!storedSession?.accessToken) {
-    return createLocalSeedAuthState(options.defaultUserId ?? defaultSeedUserId, "no_stored_session");
+    return isOfficeApiServerRequired(options)
+      ? createServerRequiredAuthState("no_stored_session")
+      : createLocalSeedAuthState(options.defaultUserId ?? defaultSeedUserId, "no_stored_session");
   }
 
   try {
@@ -46,6 +74,9 @@ export async function initializeSeedAuth(options = {}) {
     const json = await readJson(response);
     if (!response.ok) {
       clearStoredSeedSession(storage);
+      if (isOfficeApiServerRequired(options)) {
+        return createServerRequiredAuthState(json?.code ?? "stored_session_invalid", json);
+      }
       return withAuthError(
         createLocalSeedAuthState(storedSession.userId ?? defaultSeedUserId, json?.code ?? "stored_session_invalid"),
         json,
@@ -55,6 +86,9 @@ export async function initializeSeedAuth(options = {}) {
     writeStoredSeedSession(json.session, storage);
     return createApiSeedAuthState(json, "restored_seed_session");
   } catch (error) {
+    if (isOfficeApiServerRequired(options)) {
+      return createServerRequiredAuthState("api_unavailable", error);
+    }
     return withAuthError(
       createLocalSeedAuthState(storedSession.userId ?? defaultSeedUserId, "api_unavailable"),
       error,
@@ -64,6 +98,13 @@ export async function initializeSeedAuth(options = {}) {
 
 export async function loginSeedUser(userId = defaultSeedUserId, options = {}) {
   const storage = options.storage ?? getBrowserStorage();
+  if (isOfficeApiServerRequired(options)) {
+    clearStoredSeedSession(storage);
+    return createServerRequiredAuthState("prototype_login_disabled", {
+      code: "AUTH_PROTOTYPE_LOGIN_DISABLED",
+      message: "生产模式只能使用正式账号登录。",
+    });
+  }
   const normalizedUserId = String(userId ?? "").trim();
   if (!normalizedUserId) {
     clearStoredSeedSession(storage);
@@ -89,6 +130,45 @@ export async function loginSeedUser(userId = defaultSeedUserId, options = {}) {
   } catch (error) {
     clearStoredSeedSession(storage);
     return withAuthError(createLocalSeedAuthState(userId, "api_unavailable"), error);
+  }
+}
+
+export async function loginRuntimeUser({ loginName, userId, password } = {}, options = {}) {
+  const storage = options.storage ?? getBrowserStorage();
+  const normalizedLoginName = String(loginName ?? "").trim();
+  const normalizedUserId = String(userId ?? "").trim();
+  if ((!normalizedLoginName && !normalizedUserId) || !String(password ?? "")) {
+    clearStoredSeedSession(storage);
+    return createServerRequiredAuthState("missing_credentials", {
+      code: "AUTH_CREDENTIALS_REQUIRED",
+      message: "请输入登录名或用户编号，以及密码。",
+    });
+  }
+
+  try {
+    const response = await requestAuthApi("/auth/login", {
+      ...options,
+      method: "POST",
+      body: {
+        loginName: normalizedLoginName,
+        userId: normalizedUserId,
+        password,
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      clearStoredSeedSession(storage);
+      return createServerRequiredAuthState(json?.code ?? "login_failed", json);
+    }
+
+    writeStoredSeedSession(json.session, storage);
+    return {
+      ...createApiSeedAuthState(json, "login_runtime_session"),
+      source: "api_runtime",
+    };
+  } catch (error) {
+    clearStoredSeedSession(storage);
+    return createServerRequiredAuthState("api_unavailable", error);
   }
 }
 

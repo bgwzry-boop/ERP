@@ -35,6 +35,7 @@ rmSync(storageRoot, { recursive: true, force: true });
 mkdirSync(spoolRoot, { recursive: true });
 
 const productionEnv = {
+  ERP_RUNTIME_MODE: "production",
   ERP_V1_PERSISTENCE_PROFILE: "postgres",
   ERP_V1_DATABASE_URL: sensitiveValues[0],
   ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL: "postgres://v1_restore:pass@restore-db.internal:5432/erp_restore",

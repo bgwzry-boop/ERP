@@ -71,23 +71,29 @@ const storageObjectKeysByOptionKey = {
 
 export const v1PersistencePostgresRepositoryOptionKeys = [...postgresRepositoryOptionKeys];
 export const v1PersistenceObjectStorageOptionKeys = [...objectStorageOptionKeys];
+export const v1PersistenceRepositoryObjectKeys = Object.freeze(Object.values(repositoryObjectKeysByOptionKey));
+export const v1PersistenceStorageObjectKeys = Object.freeze(Object.values(storageObjectKeysByOptionKey));
 
 export function applyV1PersistenceProfileOptions(options = {}, env = process.env) {
   const profile = normalizeProfileInput(options.v1PersistenceProfile ?? options.persistenceProfile);
-  const repositoryMode = normalizeMode(
+  const runtimeMode = normalizeRuntimeMode(options.runtimeMode ?? env.ERP_RUNTIME_MODE);
+  const configuredRepositoryMode = normalizeMode(
     profile.repositoryMode ??
       profile.mode ??
       options.v1PersistenceRepositoryMode ??
       env.ERP_V1_PERSISTENCE_PROFILE ??
       env.ERP_V1_REPOSITORY_STORE,
   );
-  const fileStorageMode = normalizeMode(
+  const configuredFileStorageMode = normalizeMode(
     profile.fileStorageMode ??
       profile.objectStorageMode ??
       options.v1PersistenceFileStorageMode ??
       env.ERP_V1_FILE_STORAGE_PROFILE ??
       env.ERP_V1_OBJECT_STORAGE_PROFILE,
   );
+  const productionEnforced = runtimeMode === "production";
+  const repositoryMode = productionEnforced ? "postgres" : configuredRepositoryMode;
+  const fileStorageMode = productionEnforced ? "object_storage" : configuredFileStorageMode;
   const databaseUrl =
     profile.databaseUrl ?? options.v1PersistenceDatabaseUrl ?? env.ERP_V1_DATABASE_URL ?? env.DATABASE_URL ?? env.PGURL;
   const queryJson = profile.queryJson ?? options.v1PersistenceQueryJson;
@@ -97,6 +103,12 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
   const skippedRepositoryOptionKeys = [];
   const appliedObjectStorageOptionKeys = [];
   const skippedObjectStorageOptionKeys = [];
+
+  if (productionEnforced && !String(databaseUrl ?? "").trim()) {
+    throw productionPersistenceError("Production runtime requires a PostgreSQL connection URL.", {
+      missing: ["ERP_V1_DATABASE_URL or DATABASE_URL or PGURL"],
+    });
+  }
 
   if (repositoryMode === "postgres") {
     for (const optionKey of postgresRepositoryOptionKeys) {
@@ -152,6 +164,8 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
     objectStorageDefaultsSkipped: skippedObjectStorageOptionKeys.length,
     databaseUrlConfigured: Boolean(databaseUrl),
     queryJsonConfigured: typeof queryJson === "function",
+    runtimeMode,
+    productionEnforced,
     unsupportedRepositoryCount: 0,
     unsupportedRepositories: [],
     connectionStringExposed: false,
@@ -166,6 +180,46 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
     skippedRepositoryOptionKeys,
     appliedObjectStorageOptionKeys,
     skippedObjectStorageOptionKeys,
+  };
+}
+
+export function assertV1ProductionPersistenceRuntime({
+  runtimeMode,
+  repositories = {},
+  fileStorages = {},
+} = {}) {
+  if (normalizeRuntimeMode(runtimeMode) !== "production") {
+    return {
+      ready: true,
+      productionEnforced: false,
+      invalidRepositories: [],
+      invalidFileStorages: [],
+    };
+  }
+
+  const invalidRepositories = v1PersistenceRepositoryObjectKeys.filter(
+    (objectKey) => String(repositories[objectKey]?.kind ?? "").trim() !== "postgres",
+  );
+  const invalidFileStorages = v1PersistenceStorageObjectKeys.filter((objectKey) => {
+    const storage = fileStorages[objectKey];
+    return String(storage?.kind ?? "").trim() !== "object_storage" || storage?.configured === false;
+  });
+
+  if (invalidRepositories.length || invalidFileStorages.length) {
+    throw productionPersistenceError(
+      "Production runtime prohibits local or in-memory repositories and requires configured object storage.",
+      {
+        invalidRepositories,
+        invalidFileStorages,
+      },
+    );
+  }
+
+  return {
+    ready: true,
+    productionEnforced: true,
+    invalidRepositories: [],
+    invalidFileStorages: [],
   };
 }
 
@@ -184,4 +238,16 @@ function normalizeMode(value) {
   const mode = String(value ?? "").trim();
   if (!mode || mode === "none" || mode === "off" || mode === "disabled" || mode === "local") return "";
   return mode;
+}
+
+function normalizeRuntimeMode(value) {
+  const mode = String(value ?? "").trim().toLowerCase();
+  return mode === "strict" ? "production" : mode;
+}
+
+function productionPersistenceError(message, details = {}) {
+  const error = new Error(message);
+  error.code = "ERP_PRODUCTION_PERSISTENCE_REQUIRED";
+  error.details = details;
+  return error;
 }

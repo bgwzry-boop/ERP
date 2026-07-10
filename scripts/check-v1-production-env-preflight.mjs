@@ -32,6 +32,7 @@ const baseEnv = {
   PATH: process.env.PATH ?? "",
 };
 const productionEnv = {
+  ERP_RUNTIME_MODE: "production",
   ERP_V1_PERSISTENCE_PROFILE: "postgres",
   ERP_V1_DATABASE_URL: sensitiveValues[0],
   ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL: sensitiveValues[1],
@@ -100,6 +101,7 @@ const readyReport = JSON.parse(readyRun.stdout);
 assert.equal(readyReport.status, "ready");
 assert.equal(readyReport.ready, true);
 assert.equal(readyReport.summary.blockingCount, 0);
+assert.equal(readyReport.criteria.find((item) => item.key === "runtime-mode")?.status, "passed");
 assert.equal(readyReport.criteria.find((item) => item.key === "v1-persistence-profile")?.status, "passed");
 assert.equal(readyReport.criteria.find((item) => item.key === "postgres-restore-validation-env")?.status, "passed");
 assert.equal(

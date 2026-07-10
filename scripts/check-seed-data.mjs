@@ -1,5 +1,6 @@
 import { loadSyntheticOfficeSeed } from "../server/seeds/syntheticOfficeSeed.mjs";
 import { getEffectivePermissionsForUser } from "../server/authSeed.mjs";
+import { systemV1ActionPermissions } from "../shared/auth/roleCatalog.js";
 import { calculateLinePricing, p0BagPriceRows } from "../src/domain/priceTable.js";
 
 const workspace = loadSyntheticOfficeSeed();
@@ -8,6 +9,7 @@ const officePermissions = getEffectivePermissionsForUser("U-OFFICE-A");
 const warehousePermissions = getEffectivePermissionsForUser("U-WAREHOUSE-A");
 const financePermissions = getEffectivePermissionsForUser("U-FINANCE-A");
 const managementPermissions = getEffectivePermissionsForUser("U-MANAGER-A");
+const technicalPermissions = getEffectivePermissionsForUser("U-TECH-A");
 const workshopPermissions = getEffectivePermissionsForUser("U-WORKSHOP-A");
 const packingPermissions = getEffectivePermissionsForUser("U-PACKING-A");
 const driverPermissions = getEffectivePermissionsForUser("U-DRIVER-A");
@@ -35,15 +37,14 @@ const checks = [
       officePermissions.actionPermissions.includes("fulfillment.cancel") &&
       officePermissions.actionPermissions.includes("delivery.evidence.review") &&
       officePermissions.actionPermissions.includes("inventory.correction.create") &&
-      officePermissions.actionPermissions.includes("system.v1_field_evidence_intake.apply") &&
-      officePermissions.actionPermissions.includes("system.v1_field_evidence.validate") &&
-      officePermissions.actionPermissions.includes("system.v1_production_env.precheck") &&
-      officePermissions.actionPermissions.includes("system.v1_production_env_file_preview.precheck") &&
-      officePermissions.actionPermissions.includes("system.v1_persistence.precheck") &&
-      officePermissions.actionPermissions.includes("system.v1_attachment_retention.precheck") &&
-      officePermissions.actionPermissions.includes("system.v1_runtime_readiness.precheck") &&
-      officePermissions.actionPermissions.includes("system.v1_v2_boundary.precheck") &&
-      officePermissions.actionPermissions.includes("system.v1_release_candidate.refresh_precheck"),
+      !officePermissions.actionPermissions.some((permission) => permission.startsWith("system.v1_")),
+  ],
+  [
+    "technicalPermissions",
+    technicalPermissions.roles.includes("technical_operations") &&
+      systemV1ActionPermissions.every((permission) => technicalPermissions.actionPermissions.includes(permission)) &&
+      !technicalPermissions.actionPermissions.includes("order.confirm") &&
+      !technicalPermissions.actionPermissions.includes("statement.payment.record"),
   ],
   [
     "warehousePermissions",

@@ -10,6 +10,17 @@ Status: complete.
 - Copy the old thread's usable conversation context into project docs.
 - Verify dependency install and production build in the new repository.
 
+## P0.5 - V1 Production Hardening
+
+Status: Batch A complete in code; Batch B is next.
+
+- Batch A: explicit runtime modes, local data partitioning, production fail-closed persistence, formal production login, and shared role permissions.
+- Batch B: controlled remote recovery, real production env, PostgreSQL migration/backup/restore, object storage, deployment, logging, alerting, and rollback.
+- Batch C: physical printers / CUPS and driver-phone native capability verification.
+- Batch D: desensitized real business pilot across office, warehouse, workshop, driver, finance, and raw materials.
+- Batch E: continue splitting large frontend/API composition roots and unify operational UI states without changing business state machines.
+- Batch F: complete field evidence, role signoff, release candidate, and rollback rehearsal.
+
 ## P1 - Production Board Usability
 
 - Convert the six KPI cards into a compact status strip so queues get more first-screen space.

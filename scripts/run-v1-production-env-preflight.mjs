@@ -18,6 +18,7 @@ const objectStorageRequiredNames = [
   "ERP_ATTACHMENT_OBJECT_STORAGE_SECRET_ACCESS_KEY",
 ];
 const preflightRelevantEnvNames = [
+  "ERP_RUNTIME_MODE",
   "ERP_V1_PERSISTENCE_PROFILE",
   "ERP_V1_REPOSITORY_STORE",
   "ERP_V1_DATABASE_URL",
@@ -65,6 +66,18 @@ const preflightRelevantEnvNames = [
 ];
 
 const fixGuidanceByKey = {
+  "runtime-mode": {
+    valueGuidance: [
+      "生产 API 必须显式使用 ERP_RUNTIME_MODE=production。",
+      "demo / test / production 使用独立数据分区；生产模式不读取本地业务数据。",
+      "不要通过 NODE_ENV 或启动参数把生产实例降级为 demo。",
+    ],
+    verificationSteps: [
+      "npm run runtime-config:check",
+      "npm run batch-a:check",
+      "确认 /api/health 的 runtimeConfig.mode 为 production。",
+    ],
+  },
   "v1-persistence-profile": {
     valueGuidance: [
       "生产必须显式使用 postgres 仓储 profile；不要沿用 local_json 或 memory。",
@@ -326,6 +339,7 @@ function buildProductionEnvPreflight({
   envFileFromProductionSetup = false,
 }) {
   const criteria = [
+    buildRuntimeModeCriterion(env),
     buildPersistenceCriterion(env),
     buildPostgresRestoreValidationCriterion(env),
     buildObjectStorageCriterion(env),
@@ -383,6 +397,23 @@ function buildProductionEnvPreflight({
     },
     nextActions: buildNextActions({ blockingCriteria, warningCriteria }),
   };
+}
+
+function buildRuntimeModeCriterion(env) {
+  const mode = cleanValue(env.ERP_RUNTIME_MODE);
+  return criterion({
+    key: "runtime-mode",
+    label: "生产运行模式",
+    status: mode === "production" ? "passed" : "pending",
+    detail:
+      mode === "production"
+        ? "ERP runtime mode is explicitly production."
+        : "缺少或未启用：ERP_RUNTIME_MODE=production",
+    evidence: {
+      productionMode: mode === "production",
+      configured: Boolean(mode),
+    },
+  });
 }
 
 function buildPersistenceCriterion(env) {
@@ -781,6 +812,7 @@ function buildNextActions({ blockingCriteria, warningCriteria }) {
 function buildFixChecklist({ env, criteria }) {
   const byKey = new Map(criteria.map((item) => [item.key, item]));
   return [
+    buildRuntimeModeFixItem({ env, criterion: byKey.get("runtime-mode") }),
     buildPersistenceFixItem({ env, criterion: byKey.get("v1-persistence-profile") }),
     buildPostgresRestoreValidationFixItem({ env, criterion: byKey.get("postgres-restore-validation-env") }),
     buildObjectStorageFixItem({ env, criterion: byKey.get("attachment-object-storage-env") }),
@@ -792,6 +824,23 @@ function buildFixChecklist({ env, criteria }) {
     buildLocalBypassFixItem({ env, criterion: byKey.get("local-v1-acceptance-bypass-env") }),
     buildRedactionFixItem({ criterion: byKey.get("preflight-redaction-safeguard") }),
   ].filter(Boolean);
+}
+
+function buildRuntimeModeFixItem({ env, criterion }) {
+  const mode = cleanValue(env.ERP_RUNTIME_MODE);
+  const ready = mode === "production";
+  return fixItem({
+    criterion,
+    ownerRole: "技术/管理",
+    requiredVariables: ["ERP_RUNTIME_MODE=production"],
+    configuredVariableCount: ready ? 1 : 0,
+    totalVariableCount: 1,
+    missingVariables: ready ? [] : ["ERP_RUNTIME_MODE=production"],
+    placeholderVariables: placeholderNames(env, ["ERP_RUNTIME_MODE"]),
+    nextAction: ready
+      ? "保持 production 运行模式，并继续复核仓储和对象存储实例。"
+      : "将 ERP_RUNTIME_MODE 设置为 production；不要使用 demo/test 模式启动生产 API。",
+  });
 }
 
 function buildPersistenceFixItem({ env, criterion }) {

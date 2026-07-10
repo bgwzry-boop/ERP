@@ -14,6 +14,7 @@ const defaultOutputDir = ".erp-local-storage/v1-production-env-setup";
 const workspaceRoot = process.cwd();
 
 const literalDefaultKeys = new Set([
+  "ERP_RUNTIME_MODE",
   "ERP_V1_PERSISTENCE_PROFILE",
   "ERP_V1_FILE_STORAGE_PROFILE",
   "ERP_AUTH_MODE",

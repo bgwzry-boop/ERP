@@ -1,7 +1,10 @@
 import {
+  createInitialAuthState,
   createLocalSeedAuthState,
   changeSeedUserPassword,
   initializeSeedAuth,
+  isOfficeApiServerRequired,
+  loginRuntimeUser,
   loginSeedUser,
   readStoredSeedSession,
   seedAuthStorageKey,
@@ -9,6 +12,11 @@ import {
 
 const storage = createMemoryStorage();
 const apiBaseUrl = "http://127.0.0.1:8787/api";
+
+assert(isOfficeApiServerRequired({ runtimeMode: "production", serverRequired: false }) === true, "production mode must not allow callers to disable the server requirement");
+const productionInitialState = createInitialAuthState({ runtimeMode: "production" });
+assert(productionInitialState.source === "server_required", "production initial auth state must require formal login");
+assert(productionInitialState.permissions.actionPermissions.length === 0, "production initial auth state must not expose seed permissions");
 
 const financeLocal = createLocalSeedAuthState("U-FINANCE-A");
 assert(
@@ -42,6 +50,61 @@ assert(loginCalls[0]?.url === `${apiBaseUrl}/auth/prototype-login`, "frontend au
 assert(loginCalls[0]?.body.userId === "U-FINANCE-A", "frontend auth service did not request the selected prototype user");
 assert(loginCalls[0]?.body.password === undefined, "frontend auth service must not send a seed password");
 assert(readStoredSeedSession(storage)?.userId === "U-FINANCE-A", "frontend auth service did not persist the seed session");
+
+let productionSeedFetchCalled = false;
+const productionStorage = createMemoryStorage();
+const blockedProductionSeedLogin = await loginSeedUser("U-OFFICE-A", {
+  runtimeMode: "production",
+  storage: productionStorage,
+  fetchImpl: async () => {
+    productionSeedFetchCalled = true;
+    throw new Error("prototype endpoint must not be called");
+  },
+});
+assert(blockedProductionSeedLogin.source === "server_required", "production seed login should remain blocked");
+assert(blockedProductionSeedLogin.error.code === "AUTH_PROTOTYPE_LOGIN_DISABLED", "production seed login returned the wrong error");
+assert(productionSeedFetchCalled === false, "production seed login called the prototype endpoint");
+
+const runtimeLoginCalls = [];
+const runtimeLogin = await loginRuntimeUser(
+  { loginName: "employee.001", password: "formal-password-001" },
+  {
+    apiBaseUrl,
+    runtimeMode: "production",
+    storage: productionStorage,
+    fetchImpl: async (url, init) => {
+      runtimeLoginCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        session: {
+          accessToken: "seed-session.runtime-check",
+          tokenType: "Bearer",
+          userId: "U-EMP-001",
+          issuedAt: "2026-07-01T00:00:00.000Z",
+          expiresAt: "2026-07-01T08:00:00.000Z",
+          expiresInSeconds: 28800,
+        },
+        permissions: {
+          ...financeLocal.permissions,
+          user: {
+            ...financeLocal.permissions.user,
+            userId: "U-EMP-001",
+            loginName: "employee.001",
+          },
+        },
+      });
+    },
+  },
+);
+assert(runtimeLogin.source === "api_runtime", "formal runtime login did not return an API runtime session");
+assert(runtimeLoginCalls[0]?.url === `${apiBaseUrl}/auth/login`, "formal runtime login called the wrong endpoint");
+assert(runtimeLoginCalls[0]?.body.loginName === "employee.001", "formal runtime login omitted the login name");
+assert(runtimeLoginCalls[0]?.body.password === "formal-password-001", "formal runtime login omitted the password");
+assert(readStoredSeedSession(productionStorage)?.userId === "U-EMP-001", "formal runtime login did not persist the session");
+
+productionStorage.removeItem(seedAuthStorageKey);
+const productionNoSession = await initializeSeedAuth({ runtimeMode: "production", storage: productionStorage });
+assert(productionNoSession.source === "server_required", "production without a session must stay on the login boundary");
+assert(productionNoSession.permissions.actionPermissions.length === 0, "production without a session exposed local permissions");
 
 const originalWindow = globalThis.window;
 const legacyLocalStorage = createMemoryStorage();
@@ -190,7 +253,7 @@ assert(
 );
 assert(!storage.getItem(seedAuthStorageKey), "failed seed login fallback should clear the old stored token");
 
-console.log("Frontend auth service check passed: API login, session restore, and local fallback are covered.");
+console.log("Frontend auth service check passed: formal production login, seed-login blocking, session restore, and demo fallback are covered.");
 
 function createJsonResponse(status, body) {
   return {

@@ -2,7 +2,9 @@ export const defaultMaxJsonBodyBytes = 24 * 1024 * 1024;
 
 export function buildApiSecurityPolicy(options = {}, env = process.env) {
   const authMode = String(options.authMode ?? env.ERP_AUTH_MODE ?? "").trim().toLowerCase();
+  const runtimeMode = String(options.runtimeMode ?? env.ERP_RUNTIME_MODE ?? "").trim().toLowerCase();
   const strictAuth =
+    runtimeMode === "production" ||
     options.strictAuth === true ||
     ["strict", "production", "required"].includes(authMode) ||
     String(env.NODE_ENV ?? "").trim().toLowerCase() === "production";
@@ -12,6 +14,7 @@ export function buildApiSecurityPolicy(options = {}, env = process.env) {
   }
 
   return {
+    runtimeMode: runtimeMode || "demo",
     strictAuth,
     authSecret,
     // Strict mode never accepts prototype identity sources, even if a caller passes
@@ -28,6 +31,7 @@ export function buildApiSecurityPolicy(options = {}, env = process.env) {
 export function getWorkspaceSecurityPolicy(workspace = {}) {
   return (
     workspace.securityPolicy ?? {
+      runtimeMode: "demo",
       strictAuth: false,
       authSecret: "",
       allowSeedUsers: true,

@@ -18,6 +18,8 @@ assert.equal(bearerHeaders["x-request-id"], "REQ-CORE-1");
 
 const operatorHeaders = buildOfficeApiHeaders(null, "U-WAREHOUSE-A");
 assert.equal(operatorHeaders["x-erp-user-id"], "U-WAREHOUSE-A");
+const productionOperatorHeaders = buildOfficeApiHeaders(null, "U-WAREHOUSE-A", {}, { runtimeMode: "production" });
+assert.equal(productionOperatorHeaders["x-erp-user-id"], undefined);
 
 const calls = [];
 await requestOfficeApi("/inventory/items", {

@@ -136,7 +136,16 @@ import {
   createRuntimeIdentityRepository,
   mergeRuntimeIdentityStateIntoWorkspace,
 } from "./runtimeIdentityRepository.mjs";
-import { applyV1PersistenceProfileOptions } from "./v1PersistenceProfile.mjs";
+import {
+  applyV1PersistenceProfileOptions,
+  assertV1ProductionPersistenceRuntime,
+} from "./v1PersistenceProfile.mjs";
+import {
+  applyRuntimeConfigOptions,
+  buildRuntimeConfigSummary,
+  parseRuntimeModeArg,
+  resolveRuntimeConfig,
+} from "./runtimeConfig.mjs";
 import { loadV1ProductionEnvFilesIntoProcess } from "./productionEnvFileLoader.mjs";
 import { readJsonRequestBody } from "./httpJsonBody.mjs";
 import {
@@ -181,7 +190,8 @@ import { createMasterDataImportConfirmationPlan } from "../src/domain/masterData
 import { createMasterDataImportExecution } from "../src/domain/masterDataImportExecution.js";
 import { createMasterDataImportCorrectionDraftFromFailedRows } from "../src/domain/masterDataImportReviewQueue.js";
 
-const defaultPort = Number(process.env.ERP_API_PORT ?? 8787);
+const API_DEFAULT_PORT = 8787;
+
 const writeActionPermissions = {
   recognizeOrderDraft: "order.draft.recognize",
   saveOrderDraft: "order.draft.save",
@@ -268,7 +278,9 @@ export function createApiServer(options = {}) {
     (options.applyProductionEnvFile === false
       ? loadV1ProductionEnvFilesIntoProcess({ env: {}, targetEnv: {}, throwOnBlocked: false })
       : loadV1ProductionEnvFilesIntoProcess());
-  const v1PersistenceProfile = applyV1PersistenceProfileOptions(options);
+  const runtimeConfig = resolveRuntimeConfig(options);
+  const runtimeOptions = applyRuntimeConfigOptions(options, runtimeConfig);
+  const v1PersistenceProfile = applyV1PersistenceProfileOptions(runtimeOptions);
   const effectiveOptions = v1PersistenceProfile.options;
   const securityPolicy = buildApiSecurityPolicy(effectiveOptions);
   const scenarioId = options.scenarioId ?? process.env.ERP_SCENARIO_ID;
@@ -363,6 +375,44 @@ export function createApiServer(options = {}) {
     createRuntimeIdentityRepository(effectiveOptions.runtimeIdentityRepositoryOptions);
   const printDriverAdapter =
     effectiveOptions.printDriverAdapter ?? createPrintDriverAdapter(effectiveOptions.printDriverAdapterOptions);
+  const productionPersistenceValidation = assertV1ProductionPersistenceRuntime({
+    runtimeMode: runtimeConfig.mode,
+    repositories: {
+      attachmentRepository,
+      attachmentAccessAuditRepository,
+      paymentRecordRepository,
+      statementPaymentTransactionRepository,
+      statementSettlementTransactionRepository,
+      statementSendTransactionRepository,
+      statementExportRepository,
+      orderConfirmationTransactionRepository,
+      orderPoolReadRepository,
+      fulfillmentActionTransactionRepository,
+      driverDeliveryDispatchRepository,
+      driverDeviceFieldTestRepository,
+      driverDeliveryTaskReadRepository,
+      inventoryLedgerReadRepository,
+      inventoryReservationReleaseTransactionRepository,
+      orderLineVoidTransactionRepository,
+      orderLineQuantityAdjustmentTransactionRepository,
+      productionPackingTransactionRepository,
+      productionPackingReadRepository,
+      productionScheduleRecordRepository,
+      printBatchRepository,
+      printDeviceRepository,
+      printJobRepository,
+      printerDeviceFieldTestRepository,
+      masterDataImportReviewRepository,
+      masterDataImportTransactionRepository,
+      rawMaterialInboundRepository,
+      rawMaterialSupplierStatementReviewRepository,
+      runtimeIdentityRepository,
+    },
+    fileStorages: {
+      attachmentObjectStorage,
+      statementExportObjectStorage,
+    },
+  });
   workspace.orderDrafts = [];
   workspace.originalOrders = [];
   workspace.operationLogs = [];
@@ -404,6 +454,8 @@ export function createApiServer(options = {}) {
   workspace.statementExportV1ReadinessOptions = options.statementExportV1ReadinessOptions ?? {};
   workspace.systemV1ReadinessOptions = options.systemV1ReadinessOptions ?? {};
   workspace.productionEnvFileApplication = productionEnvFileApplication;
+  workspace.runtimeConfig = buildRuntimeConfigSummary(runtimeConfig);
+  workspace.productionPersistenceValidation = productionPersistenceValidation;
   workspace.v1PersistenceProfile = v1PersistenceProfile.summary;
   workspace.paymentRecordRepository = paymentRecordRepository;
   workspace.statementPaymentTransactionRepository = statementPaymentTransactionRepository;
@@ -569,6 +621,8 @@ async function routeGet(context) {
         refCount: openapi.refCount,
       },
       seed: {
+        runtimeConfig: workspace.runtimeConfig,
+        productionPersistenceValidation: workspace.productionPersistenceValidation,
         scenarioId: workspace.scenario.id,
         customers: workspace.customers.length,
         orderLines: workspace.orderLines.length,
@@ -10096,7 +10150,7 @@ async function precheckSystemV1RuntimeReadiness({ request, operatorId }) {
 }
 
 function buildCurrentApiBaseUrl(request) {
-  const host = cleanServerText(request?.headers?.host) || `127.0.0.1:${defaultPort}`;
+  const host = cleanServerText(request?.headers?.host) || `127.0.0.1:${API_DEFAULT_PORT}`;
   const protocol = cleanServerText(request?.headers?.["x-forwarded-proto"]).split(",")[0] || "http";
   return `${protocol}://${host}/api`;
 }
@@ -22690,14 +22744,16 @@ function sendBusinessError(response, statusCode, code, message, details = {}) {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const server = createApiServer();
   try {
+    const runtimeMode = parseRuntimeModeArg(process.argv.slice(2));
+    const server = createApiServer(runtimeMode ? { runtimeMode } : {});
     await server.ready;
-    server.listen(defaultPort, "127.0.0.1", () => {
-      console.log(`ERP P0 API skeleton listening on http://127.0.0.1:${defaultPort}`);
+    const port = Number(process.env.ERP_API_PORT ?? 8787);
+    server.listen(port, "127.0.0.1", () => {
+      console.log(`ERP API (${runtimeMode || "auto"}) listening on http://127.0.0.1:${port}`);
     });
   } catch (error) {
-    console.error(`ERP P0 API startup failed: ${error.message}`);
+    console.error(`ERP API startup failed: ${error.message}`);
     process.exitCode = 1;
   }
 }
