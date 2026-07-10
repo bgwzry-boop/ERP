@@ -100,6 +100,7 @@ import { createStatementSettlementTransactionRepository } from "./statementSettl
 import { createStatementSendTransactionRepository } from "./statementSendTransactionRepository.mjs";
 import { createStatementExportRepository } from "./statementExportRepository.mjs";
 import { createStatementExportObjectStorage } from "./statementExportObjectStorage.mjs";
+import { createOrderDraftRepository } from "./orderDraftRepository.mjs";
 import { createOrderConfirmationTransactionRepository } from "./orderConfirmationTransactionRepository.mjs";
 import { createOrderPoolReadRepository } from "./orderPoolReadRepository.mjs";
 import { createFulfillmentActionTransactionRepository } from "./fulfillmentActionTransactionRepository.mjs";
@@ -314,6 +315,8 @@ export function createApiServer(options = {}) {
   const statementExportObjectStorage =
     effectiveOptions.statementExportObjectStorage ??
     createStatementExportObjectStorage(effectiveOptions.statementExportObjectStorageOptions);
+  const orderDraftRepository =
+    effectiveOptions.orderDraftRepository ?? createOrderDraftRepository(effectiveOptions.orderDraftRepositoryOptions);
   const orderConfirmationTransactionRepository =
     effectiveOptions.orderConfirmationTransactionRepository ??
     createOrderConfirmationTransactionRepository(effectiveOptions.orderConfirmationTransactionRepositoryOptions);
@@ -390,6 +393,7 @@ export function createApiServer(options = {}) {
       statementSettlementTransactionRepository,
       statementSendTransactionRepository,
       statementExportRepository,
+      orderDraftRepository,
       orderConfirmationTransactionRepository,
       orderPoolReadRepository,
       fulfillmentActionTransactionRepository,
@@ -468,6 +472,7 @@ export function createApiServer(options = {}) {
   workspace.statementSendTransactionRepository = statementSendTransactionRepository;
   workspace.statementExportRepository = statementExportRepository;
   workspace.statementExportObjectStorage = statementExportObjectStorage;
+  workspace.orderDraftRepository = orderDraftRepository;
   workspace.orderConfirmationTransactionRepository = orderConfirmationTransactionRepository;
   workspace.orderPoolReadRepository = orderPoolReadRepository;
   workspace.fulfillmentActionTransactionRepository = fulfillmentActionTransactionRepository;
@@ -497,6 +502,7 @@ export function createApiServer(options = {}) {
     attachmentAccessAuditRepository,
     paymentRecordRepository,
     statementExportRepository,
+    orderDraftRepository,
     driverDeliveryDispatchRepository,
     driverDeviceFieldTestRepository,
     printerDeviceFieldTestRepository,
@@ -564,6 +570,7 @@ async function loadPersistentWorkspaceState({
   attachmentAccessAuditRepository,
   paymentRecordRepository,
   statementExportRepository,
+  orderDraftRepository,
   driverDeliveryDispatchRepository,
   driverDeviceFieldTestRepository,
   printerDeviceFieldTestRepository,
@@ -576,6 +583,8 @@ async function loadPersistentWorkspaceState({
   printDeviceRepository,
   printJobRepository,
 }) {
+  const persistedOrderDraftState = (await orderDraftRepository.loadState?.()) ?? {};
+  workspace.orderDrafts = persistedOrderDraftState.orderDrafts ?? [];
   const persistedDriverDeliveryDispatchState = (await driverDeliveryDispatchRepository.loadState?.()) ?? {};
   workspace.driverDeliveryDispatches = persistedDriverDeliveryDispatchState.driverDeliveryDispatches ?? [];
   const persistedDriverDeviceFieldTestState = (await driverDeviceFieldTestRepository.loadState?.()) ?? {};
@@ -644,6 +653,7 @@ async function routeGet(context) {
         statementSendTransactionRepository: workspace.statementSendTransactionRepository.kind,
         statementExportRepository: workspace.statementExportRepository.kind,
         statementExportObjectStorage: workspace.statementExportObjectStorage.kind,
+        orderDraftRepository: workspace.orderDraftRepository.kind,
         orderConfirmationTransactionRepository: workspace.orderConfirmationTransactionRepository.kind,
         orderPoolReadRepository: workspace.orderPoolReadRepository.kind,
         fulfillmentActionTransactionRepository: workspace.fulfillmentActionTransactionRepository.kind,
@@ -2716,12 +2726,16 @@ function normalizeDateInput(value) {
   return new Date(text).toISOString().slice(0, 10);
 }
 
-function recognizeOrderDraft({ response, workspace, body }) {
+async function recognizeOrderDraft({ response, workspace, body }) {
   const sourceText = body.sourceText ?? body.text ?? workspace.sampleText;
   const lines = parseOrderText(sourceText, { customers: workspace.customers, inventories: workspace.inventories });
-  const draftId = body.draftId ?? nextId("DRAFT-API", workspace.orderDrafts);
+  const draftId =
+    body.draftId ??
+    (body.idempotencyKey
+      ? `DRAFT-API-${createHash("sha256").update(body.idempotencyKey).digest("hex").slice(0, 16).toUpperCase()}`
+      : nextId("DRAFT-API", workspace.orderDrafts));
   const customerId = body.customerId ?? lines[0]?.customerId ?? "";
-  const draft = upsertDraft(workspace, {
+  const draft = buildDraftProjection(null, {
     id: draftId,
     draftId,
     sourceText,
@@ -2731,31 +2745,49 @@ function recognizeOrderDraft({ response, workspace, body }) {
     customerName: findCustomerName(workspace, customerId),
     status: "待审核",
     lines,
-    clientRevision: 1,
+    revision: 0,
+    clientRevision: 0,
+    createdBy: body.operatorId ?? "U-OFFICE-A",
   });
-  const operationLogId = addOperationLog(workspace, {
+  const operationLog = buildOperationLog(workspace, {
+    id: buildDraftOperationLogId("recognize", draftId, 1, body.idempotencyKey),
     targetType: "order_draft",
     targetId: draftId,
     action: "recognize_order_draft",
     operatorId: body.operatorId ?? "U-OFFICE-A",
     after: { lineCount: lines.length, sourceText },
   });
+  const transaction = await workspace.orderDraftRepository.saveOrderDraft({
+    workspace,
+    draft,
+    expectedRevision: 0,
+    todos: [],
+    operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
+  });
+  const savedLines = transaction.draft.lines;
 
   return sendJson(response, 200, {
-    draft: summarizeDraft(draft),
-    lines: lines.map(toRecognizedDraftLine),
-    riskHints: buildDraftRiskHints(lines),
-    operationLogId,
+    draft: summarizeDraft(transaction.draft),
+    lines: savedLines.map(toRecognizedDraftLine),
+    riskHints: buildDraftRiskHints(savedLines),
+    operationLogId: transaction.operationLogId,
   });
 }
 
-function saveOrderDraft({ response, workspace, draftId, body }) {
+async function saveOrderDraft({ response, workspace, draftId, body }) {
   const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
   if (!lines.length) {
     return sendBusinessError(response, 422, "VALIDATION_ERROR", "lines must contain at least one draft line");
   }
-  const previous = workspace.orderDrafts.find((draft) => draft.id === draftId);
-  const draft = upsertDraft(workspace, {
+  const expectedRevision = parseDraftExpectedRevision(body.clientRevision);
+  if (!expectedRevision) {
+    return sendBusinessError(response, 422, "VALIDATION_ERROR", "clientRevision must be a positive integer");
+  }
+  const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
+  if (!previous) return sendNotFound(response, "ORDER_DRAFT_NOT_FOUND");
+  const draft = buildDraftProjection(previous, {
     id: draftId,
     draftId,
     sourceText: body.sourceText ?? previous?.sourceText ?? "",
@@ -2765,18 +2797,29 @@ function saveOrderDraft({ response, workspace, draftId, body }) {
     customerName: findCustomerName(workspace, body.customerId ?? previous?.customerId ?? lines[0]?.customerId),
     status: body.draftStatus ?? "待审核",
     lines,
-    clientRevision: Number(body.clientRevision ?? previous?.clientRevision ?? 0) + 1,
+    revision: expectedRevision,
+    clientRevision: expectedRevision,
   });
-  const todos = draft.status === "待补充信息" ? [createTodo(workspace, {
-    type: "订单草稿待确认",
-    customerId: draft.customerId || "C001",
-    ref: draftId,
-    summary: `${lines.length} 行草稿需要补充信息`,
-    latest: lines[0]?.latest ?? "待确认",
-    urgency: "普通",
-    impact: "草稿未生成正式订单",
-  })] : [];
-  const operationLogId = addOperationLog(workspace, {
+  const todos =
+    draft.status === "待补充信息"
+      ? [
+          buildTodo(workspace, {
+            id: nextPlainId("T-DRAFT", draftId),
+            type: "订单草稿待确认",
+            customerId: draft.customerId || "C001",
+            ref: draftId,
+            refType: "order_draft",
+            refId: draftId,
+            summary: `${lines.length} 行草稿需要补充信息`,
+            latest: lines[0]?.latest ?? "待确认",
+            urgency: "普通",
+            impact: "草稿未生成正式订单",
+            createdBy: body.operatorId ?? "U-OFFICE-A",
+          }),
+        ]
+      : [];
+  const operationLog = buildOperationLog(workspace, {
+    id: buildDraftOperationLogId("save", draftId, expectedRevision + 1, body.idempotencyKey),
     targetType: "order_draft",
     targetId: draftId,
     action: "save_order_draft",
@@ -2785,8 +2828,21 @@ function saveOrderDraft({ response, workspace, draftId, body }) {
     after: summarizeDraft(draft),
     reason: body.saveReason,
   });
+  const transaction = await workspace.orderDraftRepository.saveOrderDraft({
+    workspace,
+    draft,
+    expectedRevision,
+    todos,
+    operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
+  });
 
-  return sendJson(response, 200, { draft: summarizeDraft(draft), todos: todos.map(toTodoSummary), operationLogId });
+  return sendJson(response, 200, {
+    draft: summarizeDraft(transaction.draft),
+    todos: transaction.todos.map(toTodoSummary),
+    operationLogId: transaction.operationLogId,
+  });
 }
 
 async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
@@ -2794,6 +2850,12 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
   if (!lines.length) {
     return sendBusinessError(response, 422, "VALIDATION_ERROR", "lines must contain at least one draft line");
   }
+  const expectedRevision = parseDraftExpectedRevision(body.clientRevision);
+  if (!expectedRevision) {
+    return sendBusinessError(response, 422, "VALIDATION_ERROR", "clientRevision must be a positive integer");
+  }
+  const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
+  if (!previous) return sendNotFound(response, "ORDER_DRAFT_NOT_FOUND");
   const result = confirmDraftOrder({
     draftRows: lines,
     inventoryRecords: workspace.inventories,
@@ -2802,31 +2864,53 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
     customers: workspace.customers,
   });
   if (result.blocked) {
-    upsertDraft(workspace, {
+    const blockedDraft = buildDraftProjection(previous, {
       id: draftId,
       draftId,
-      sourceText: body.sourceText ?? "",
-      customerId: body.customerId ?? lines[0]?.customerId ?? "",
-      customerName: findCustomerName(workspace, body.customerId ?? lines[0]?.customerId),
+      sourceText: body.sourceText ?? previous.sourceText ?? "",
+      customerId: body.customerId ?? previous.customerId ?? lines[0]?.customerId ?? "",
+      customerName: findCustomerName(workspace, body.customerId ?? previous.customerId ?? lines[0]?.customerId),
       status: result.draftStatus,
       lines: result.checkedRows,
-      clientRevision: Number(body.clientRevision ?? 0) + 1,
+      revision: expectedRevision,
+      clientRevision: expectedRevision,
+    });
+    const operationLog = buildOperationLog(workspace, {
+      id: buildDraftOperationLogId("blocked", draftId, expectedRevision + 1, body.idempotencyKey),
+      targetType: "order_draft",
+      targetId: draftId,
+      action: "block_order_draft_confirmation",
+      operatorId: body.operatorId ?? "U-OFFICE-A",
+      before: summarizeDraft(previous),
+      after: summarizeDraft(blockedDraft),
+      reason: result.toast,
+    });
+    await workspace.orderDraftRepository.saveOrderDraft({
+      workspace,
+      draft: blockedDraft,
+      expectedRevision,
+      todos: [],
+      operationLog,
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: body,
     });
     return sendBusinessError(response, 409, "ORDER_DRAFT_BLOCKED", result.toast);
   }
 
-  upsertDraft(workspace, {
+  const confirmedDraft = buildDraftProjection(previous, {
     id: draftId,
     draftId,
-    sourceText: body.sourceText ?? "",
-    customerId: body.customerId ?? lines[0]?.customerId ?? "",
-    customerName: findCustomerName(workspace, body.customerId ?? lines[0]?.customerId),
+    sourceText: body.sourceText ?? previous.sourceText ?? "",
+    customerId: body.customerId ?? previous.customerId ?? lines[0]?.customerId ?? "",
+    customerName: findCustomerName(workspace, body.customerId ?? previous.customerId ?? lines[0]?.customerId),
     status: result.draftStatus,
     lines: result.checkedRows,
     generatedOrderNo: result.orderNo,
-    clientRevision: Number(body.clientRevision ?? 0) + 1,
+    revision: expectedRevision,
+    clientRevision: expectedRevision,
   });
   const operationLog = buildOperationLog(workspace, {
+    id: buildDraftOperationLogId("confirm", draftId, expectedRevision + 1, body.idempotencyKey),
     targetType: "order_draft",
     targetId: draftId,
     action: "confirm_order_draft",
@@ -2868,6 +2952,15 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
     inventoryLedgerEntries,
     todos,
     operationLog,
+  });
+  await workspace.orderDraftRepository.saveOrderDraft({
+    workspace,
+    draft: confirmedDraft,
+    expectedRevision,
+    todos: [],
+    operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: body,
   });
 
   return sendJson(response, 200, {
@@ -4317,6 +4410,7 @@ const v1SystemPersistenceGroups = [
     key: "order-inventory-fulfillment",
     label: "订单 / 库存 / 出库交易仓储",
     repositories: [
+      ["orderDraftRepository", "订单草稿"],
       ["orderConfirmationTransactionRepository", "订单确认交易"],
       ["orderPoolReadRepository", "订单池读取"],
       ["inventoryLedgerReadRepository", "库存流水读取"],
@@ -20237,15 +20331,29 @@ function markTodoPrintResultPending(todos, todoId, body) {
   });
 }
 
-function upsertDraft(workspace, draft) {
-  const index = workspace.orderDrafts.findIndex((item) => item.id === draft.id);
-  const nextDraft = { ...draft, updatedAt: new Date().toISOString(), createdAt: draft.createdAt ?? new Date().toISOString() };
-  if (index >= 0) {
-    workspace.orderDrafts[index] = { ...workspace.orderDrafts[index], ...nextDraft };
-    return workspace.orderDrafts[index];
-  }
-  workspace.orderDrafts.unshift(nextDraft);
-  return nextDraft;
+function buildDraftProjection(previous, draft) {
+  const timestamp = new Date().toISOString();
+  return {
+    ...(previous ?? {}),
+    ...draft,
+    createdAt: previous?.createdAt ?? draft.createdAt ?? timestamp,
+    updatedAt: timestamp,
+  };
+}
+
+function parseDraftExpectedRevision(value) {
+  const revision = Number(value);
+  if (!Number.isInteger(revision) || revision < 1) return 0;
+  return revision;
+}
+
+function buildDraftOperationLogId(action, draftId, revision, idempotencyKey = "") {
+  const digest = createHash("sha256")
+    .update([action, draftId, revision, idempotencyKey].join(":"))
+    .digest("hex")
+    .slice(0, 20)
+    .toUpperCase();
+  return `LOG-DRAFT-${digest}`;
 }
 
 function normalizeDraftRows(lines, workspace, body) {

@@ -6,6 +6,11 @@ import { createServer } from "node:http";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
 import { buildDefaultPrintDevices } from "../server/printDeviceRepository.mjs";
+import {
+  v1PersistencePostgresRepositoryOptionKeys,
+  v1PersistenceRepositoryObjectKeys,
+  v1PersistenceStorageObjectKeys,
+} from "../server/v1PersistenceProfile.mjs";
 import { loadMigrationFiles, validateMigrationSet } from "./dbMigrationUtils.mjs";
 
 const dockerImage = process.env.ERP_POSTGRES_DOCKER_IMAGE || "postgres:16-alpine";
@@ -108,7 +113,10 @@ async function checkHealthProfile(apiBaseUrl) {
   assert.equal(health.status, "ok");
   assert.equal(seed.v1PersistenceProfile?.repositoryProfile, "postgres");
   assert.equal(seed.v1PersistenceProfile?.fileStorageProfile, "object_storage");
-  assert.equal(seed.v1PersistenceProfile?.postgresRepositoryDefaultsApplied, 29);
+  assert.equal(
+    seed.v1PersistenceProfile?.postgresRepositoryDefaultsApplied,
+    v1PersistencePostgresRepositoryOptionKeys.length,
+  );
   assert.equal(seed.v1PersistenceProfile?.objectStorageDefaultsApplied, 2);
   assert.equal(seed.v1PersistenceProfile?.unsupportedRepositoryCount, 0);
   assert.equal(seed.v1PersistenceProfile?.connectionStringExposed, false);
@@ -124,6 +132,7 @@ async function checkHealthProfile(apiBaseUrl) {
   assert.equal(seed.rawMaterialSupplierStatementReviewRepository, "postgres");
   assert.equal(seed.attachmentObjectStorage, "object_storage");
   assert.equal(seed.statementExportObjectStorage, "object_storage");
+  assert.equal(seed.orderDraftRepository, "postgres");
   assertNoSensitiveOutput(JSON.stringify(health));
 }
 
@@ -152,7 +161,15 @@ async function checkSystemPersistenceReadiness(apiBaseUrl) {
   assert.equal(readiness.safeguards?.localPathExposed, false);
   assert.equal(readiness.persistenceProfile?.repositoryProfile, "postgres");
   assert.equal(readiness.persistenceProfile?.fileStorageProfile, "object_storage");
-  assert.equal(readiness.repositories?.length, 31);
+  assert.equal(
+    readiness.repositories?.length,
+    v1PersistenceRepositoryObjectKeys.length + v1PersistenceStorageObjectKeys.length,
+  );
+  const orderDraftRepository = readiness.repositories?.find(
+    (repository) => repository.key === "orderDraftRepository",
+  );
+  assert.equal(orderDraftRepository?.kind, "postgres");
+  assert.equal(orderDraftRepository?.productionReady, true);
   const runtimeIdentityRepository = readiness.repositories?.find(
     (repository) => repository.key === "runtimeIdentityRepository",
   );
@@ -739,14 +756,37 @@ function prepareFieldGateLocalStorage() {
   mkdirSync(fieldGateSpoolRoot, { recursive: true });
 }
 
-function queryJson(sql) {
-  const stdout = runPsql(sql, { capture: true });
+function queryJson(sql, values = []) {
+  const stdout = runPsql(renderPsqlQuery(sql, values), { capture: true });
   const jsonLine = stdout
     .split("\n")
     .map((line) => line.trim())
     .find((line) => line.startsWith("{") || line.startsWith("[") || line === "null");
   if (!jsonLine || jsonLine === "null") return null;
   return JSON.parse(jsonLine);
+}
+
+function renderPsqlQuery(sql, values) {
+  let rendered = String(sql ?? "");
+  for (let index = values.length; index >= 1; index -= 1) {
+    rendered = rendered.replace(
+      new RegExp(`\\$${index}(?!\\d)`, "g"),
+      sqlParameterLiteral(values[index - 1]),
+    );
+  }
+  if (/\$\d+/.test(rendered)) throw new Error("The production-profile live query has unbound SQL parameters.");
+  return rendered;
+}
+
+function sqlParameterLiteral(value) {
+  if (value === null || value === undefined) return "NULL";
+  if (Array.isArray(value)) {
+    if (!value.length) return "ARRAY[]::text[]";
+    return `ARRAY[${value.map((item) => sqlLiteral(item)).join(", ")}]`;
+  }
+  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return sqlLiteral(value);
 }
 
 function runPsql(sql, options = {}) {

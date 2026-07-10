@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-11 - Order Drafts Are Revisioned PostgreSQL Records
+
+Production order recognition, draft save, and blocked confirmation must persist the draft, replacement lines, related todo records, and audit log before the in-process workspace projection changes. Draft save and confirmation require a positive client revision; missing drafts return 404 and stale revisions return 409. PostgreSQL is authoritative across API instances, so the route reads the current draft through the repository rather than trusting the process-local array. Recognition may derive a deterministic draft ID from the production idempotency key.
+
+Formal order confirmation must ultimately update the source draft in the same database transaction as the formal order, lines, inventory reservations, inventory ledger entries, todos, and audit log. The current R1.1-R1.2 two-transaction confirmation bridge is temporary and remains an explicit B3 blocker until R1.3 removes it.
+
 ## 2026-07-11 - Production Business Writes Require Database-Backed Idempotency And Revisions
 
 Every production business POST/PATCH request must carry a valid `Idempotency-Key`. The backend stores a canonical request hash and committed JSON response in PostgreSQL; the same key and payload replay the original response, while the same key with a different payload returns `409`. Internal server jobs without an HTTP request derive a deterministic key from their operation-log ID. High-risk resources use sorted PostgreSQL advisory transaction locks plus row locks or integer `revision` checks. Inventory shortages and stale writes must fail explicitly and roll back; arithmetic clamping must not hide over-deduction. Browser/workspace projections must use committed database records and revisions rather than the attempted input. Idempotency records may retain hashes, target metadata, operator IDs, responses, and expiry, but not raw sensitive request payloads.

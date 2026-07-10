@@ -1600,7 +1600,7 @@ export function App() {
     if (result.precheckResult) {
       const statusLabel = result.precheckResult.statusLabel || "预检完成";
       const readinessLabel = result.precheckResult.summary?.readinessLabel || "0/7";
-      const repositoryLabel = result.precheckResult.summary?.repositoryLabel || "0/31";
+      const repositoryLabel = result.precheckResult.summary?.repositoryLabel || "0/0";
       const localLabel = result.precheckResult.summary?.localRepositoryLabel || "0 个";
       setToast(`系统持久化预检：${statusLabel}；通过 ${readinessLabel}，生产仓储 ${repositoryLabel}，本地 ${localLabel}。`);
     } else {

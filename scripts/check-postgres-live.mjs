@@ -14,6 +14,7 @@ import { createPostgresStatementPaymentTransactionRepository } from "../server/s
 import { createPostgresStatementSettlementTransactionRepository } from "../server/statementSettlementTransactionRepository.mjs";
 import { createPostgresStatementSendTransactionRepository } from "../server/statementSendTransactionRepository.mjs";
 import { createPostgresStatementExportRepository } from "../server/statementExportRepository.mjs";
+import { createPostgresOrderDraftRepository } from "../server/orderDraftRepository.mjs";
 import { createPostgresOrderConfirmationTransactionRepository } from "../server/orderConfirmationTransactionRepository.mjs";
 import { createPostgresFulfillmentActionTransactionRepository } from "../server/fulfillmentActionTransactionRepository.mjs";
 import { createPostgresDriverDeviceFieldTestRepository } from "../server/driverDeviceFieldTestRepository.mjs";
@@ -40,6 +41,7 @@ const { Pool } = pg;
 const containerName = `erp-postgres-live-${process.pid}-${Date.now()}`;
 const storageRoot = mkdtempSync(join(tmpdir(), "erp-postgres-live-storage-"));
 let server = null;
+let orderDraftPool = null;
 
 try {
   assertDockerAvailable();
@@ -51,10 +53,11 @@ try {
   await checkPostgresRepositories();
   await checkApiWithPostgresRepositories();
   console.log(
-    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction repository, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
+    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction repository, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
   );
 } finally {
   if (server) await closeServer(server);
+  if (orderDraftPool) await orderDraftPool.end();
   stopPostgresContainer();
   rmSync(storageRoot, { recursive: true, force: true });
 }
@@ -418,14 +421,8 @@ ON CONFLICT (id) DO UPDATE SET
 }
 
 async function checkPostgresIdempotencyAndConcurrency() {
-  const portResult = spawnSync("docker", ["port", containerName, "5432/tcp"], { encoding: "utf8" });
-  const portMatch = String(portResult.stdout ?? "").trim().match(/:(\d+)$/);
-  if (portResult.status !== 0 || !portMatch) {
-    throw new Error(portResult.stderr || "Unable to resolve the PostgreSQL live-check host port.");
-  }
-
   const pool = new Pool({
-    connectionString: `postgres://erp:erp@127.0.0.1:${portMatch[1]}/erp`,
+    connectionString: resolveLiveDatabaseUrl(),
     max: 4,
     connectionTimeoutMillis: 5_000,
   });
@@ -1912,10 +1909,15 @@ async function checkPostgresRepositories() {
 
 async function checkApiWithPostgresRepositories() {
   const printJobRepository = createPostgresPrintJobRepository({ queryJson });
+  orderDraftPool = new Pool({ connectionString: resolveLiveDatabaseUrl(), max: 4, connectionTimeoutMillis: 5_000 });
+  const orderDraftRepository = createPostgresOrderDraftRepository({
+    postgresClient: createPostgresPoolClient({ pool: orderDraftPool }),
+  });
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   server = createApiServer({
     v1PersistenceProfile: { repositoryMode: "postgres", queryJson },
+    orderDraftRepository,
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
@@ -1949,9 +1951,11 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.runtimeIdentityRepository, "postgres");
   assert.equal(health.seed.v1PersistenceProfile.repositoryProfile, "postgres");
   assert.equal(
-    health.seed.v1PersistenceProfile.postgresRepositoryDefaultsApplied,
+    health.seed.v1PersistenceProfile.postgresRepositoryDefaultsApplied +
+      health.seed.v1PersistenceProfile.postgresRepositoryDefaultsSkipped,
     v1PersistencePostgresRepositoryOptionKeys.length,
   );
+  assert.equal(health.seed.orderDraftRepository, "postgres");
   assert.equal(health.seed.v1PersistenceProfile.unsupportedRepositoryCount, 0);
   assert.equal(health.seed.v1PersistenceProfile.connectionStringExposed, false);
   assert.equal(health.seed.statementExportObjectStorage, "local_fs");
@@ -2343,6 +2347,33 @@ async function checkApiWithPostgresRepositories() {
     ["attachment_access_url_created", "attachment_content_read"],
   );
 
+  const confirmedOrderDraft = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: "DRAFT-LIVE-ORDER-001",
+      sourceText: "张三服饰 30*38红10个 明天自提",
+      operatorId: "U-OFFICE-A",
+    },
+    { headers },
+  );
+  assert.equal(confirmedOrderDraft.draft.clientRevision, 1);
+  const replayedConfirmedOrderDraft = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: "DRAFT-LIVE-ORDER-001",
+      sourceText: "张三服饰 30*38红10个 明天自提",
+      operatorId: "U-OFFICE-A",
+    },
+    { headers },
+  );
+  assert.equal(replayedConfirmedOrderDraft.draft.clientRevision, 1);
+  assert.equal(replayedConfirmedOrderDraft.operationLogId, confirmedOrderDraft.operationLogId);
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM order_drafts WHERE id = 'DRAFT-LIVE-ORDER-001';", { capture: true }).trim()),
+    1,
+  );
   const confirmedOrder = await postJson(
     baseUrl,
     "/api/order-drafts/DRAFT-LIVE-ORDER-001/confirm",
@@ -2352,7 +2383,7 @@ async function checkApiWithPostgresRepositories() {
       customerId: "C001",
       operatorId: "U-OFFICE-A",
       confirmMode: "confirm_now",
-      clientRevision: 1,
+      clientRevision: confirmedOrderDraft.draft.clientRevision,
       lines: [
         {
           draftLineId: "DRAFT-LIVE-ORDER-001-01",
@@ -2376,6 +2407,42 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(confirmedOrder.orderLines.length, 1);
   assert.equal(confirmedOrder.reservations.length, 1);
   assert.equal(confirmedOrder.fulfillmentTasks.length, 1);
+  const coldOrderDraftRepository = createPostgresOrderDraftRepository({ queryJson });
+  const coldOrderDraftState = await coldOrderDraftRepository.loadState();
+  const coldConfirmedDraft = coldOrderDraftState.orderDrafts.find((draft) => draft.id === "DRAFT-LIVE-ORDER-001");
+  assert.equal(coldConfirmedDraft.status, "已生成正式订单");
+  assert.equal(coldConfirmedDraft.revision, 2);
+  assert.equal(coldConfirmedDraft.lines.length, 1);
+  const staleConfirmedDraftSave = await patchJson(
+    baseUrl,
+    "/api/order-drafts/DRAFT-LIVE-ORDER-001",
+    {
+      sourceText: "旧页面不能覆盖已确认草稿",
+      customerId: "C001",
+      operatorId: "U-OFFICE-A",
+      clientRevision: 1,
+      draftStatus: "待审核",
+      lines: [
+        {
+          draftLineId: "DRAFT-LIVE-ORDER-001-01",
+          customerId: "C001",
+          customer: "张三服饰",
+          productName: "空白袋",
+          size: "30*38*10",
+          bagColor: "红色",
+          handleType: "普通提",
+          style: "空白袋",
+          qty: 10,
+          fulfillmentMethod: "自提",
+          latestNeededAt: "明天",
+          printFlag: false,
+        },
+      ],
+    },
+    { headers, expectedStatus: 409 },
+  );
+  assert.equal(staleConfirmedDraftSave.code, "BUSINESS_WRITE_CONFLICT");
+  assert.equal((await coldOrderDraftRepository.getOrderDraft({ draftId: "DRAFT-LIVE-ORDER-001" })).revision, 2);
   assert.equal(
     queryJson(
       `SELECT json_build_object('orderId', id, 'customerId', customer_id) AS result FROM original_orders WHERE id = ${sqlLiteral(
@@ -2967,6 +3034,17 @@ WHERE id = 'F002';`,
   assert.equal(apiPrintBatchList.total, 1);
   assert.equal(apiPrintBatchList.items[0].printBatchId, "PB-LIVE-API-001");
 
+  const voidCandidateDraft = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: "DRAFT-LIVE-VOID-001",
+      sourceText: "张三服饰 30*38红5个 明天自提后取消",
+      operatorId: "U-OFFICE-A",
+    },
+    { headers },
+  );
+  assert.equal(voidCandidateDraft.draft.clientRevision, 1);
   const voidCandidateOrder = await postJson(
     baseUrl,
     "/api/order-drafts/DRAFT-LIVE-VOID-001/confirm",
@@ -2976,7 +3054,7 @@ WHERE id = 'F002';`,
       customerId: "C001",
       operatorId: "U-OFFICE-A",
       confirmMode: "confirm_now",
-      clientRevision: 1,
+      clientRevision: voidCandidateDraft.draft.clientRevision,
       lines: [
         {
           draftLineId: "DRAFT-LIVE-VOID-001-01",
@@ -3065,6 +3143,17 @@ WHERE id = 'F002';`,
     1,
   );
 
+  const quantityCandidateDraft = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: "DRAFT-LIVE-QTY-API-001",
+      sourceText: "张三服饰 30*38红10个 明天自提改量",
+      operatorId: "U-OFFICE-A",
+    },
+    { headers },
+  );
+  assert.equal(quantityCandidateDraft.draft.clientRevision, 1);
   const quantityCandidateOrder = await postJson(
     baseUrl,
     "/api/order-drafts/DRAFT-LIVE-QTY-API-001/confirm",
@@ -3074,7 +3163,7 @@ WHERE id = 'F002';`,
       customerId: "C001",
       operatorId: "U-OFFICE-A",
       confirmMode: "confirm_now",
-      clientRevision: 1,
+      clientRevision: quantityCandidateDraft.draft.clientRevision,
       lines: [
         {
           draftLineId: "DRAFT-LIVE-QTY-API-001-01",
@@ -4692,6 +4781,15 @@ function runDocker(args) {
   return result.stdout.trim();
 }
 
+function resolveLiveDatabaseUrl() {
+  const portResult = spawnSync("docker", ["port", containerName, "5432/tcp"], { encoding: "utf8" });
+  const portMatch = String(portResult.stdout ?? "").trim().match(/:(\d+)$/);
+  if (portResult.status !== 0 || !portMatch) {
+    throw new Error(portResult.stderr || "Unable to resolve the PostgreSQL live-check host port.");
+  }
+  return `postgres://erp:erp@127.0.0.1:${portMatch[1]}/erp`;
+}
+
 function stopPostgresContainer() {
   spawnSync("docker", ["rm", "--force", containerName], { encoding: "utf8" });
 }
@@ -4716,6 +4814,20 @@ async function getJson(baseUrl, route, options = {}) {
 async function postJson(baseUrl, route, body, options = {}) {
   const response = await fetch(`${baseUrl}${route}`, {
     method: "POST",
+    headers: {
+      "content-type": "application/json",
+      ...(options.headers ?? {}),
+    },
+    body: JSON.stringify(body),
+  });
+  const json = await response.json();
+  assert.equal(response.status, options.expectedStatus ?? 200, `${route} returned ${response.status}: ${JSON.stringify(json)}`);
+  return json;
+}
+
+async function patchJson(baseUrl, route, body, options = {}) {
+  const response = await fetch(`${baseUrl}${route}`, {
+    method: "PATCH",
     headers: {
       "content-type": "application/json",
       ...(options.headers ?? {}),

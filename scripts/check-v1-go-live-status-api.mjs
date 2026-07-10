@@ -3,6 +3,10 @@ import { createApiServer } from "../server/apiServer.mjs";
 import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  v1PersistenceRepositoryObjectKeys,
+  v1PersistenceStorageObjectKeys,
+} from "../server/v1PersistenceProfile.mjs";
+import {
   applyOfficeV1ProductionFirstStageValues,
   generateOfficeV1FieldEvidenceDraftManifest,
   normalizeV1GoLiveStatusForClient,
@@ -33,6 +37,8 @@ const originalProductionEnvValuesFile = process.env.ERP_V1_PRODUCTION_ENV_VALUES
 const originalProductionEnvMinimumValuesFile = process.env.ERP_V1_PRODUCTION_ENV_MINIMUM_VALUES_FILE;
 const originalProductionEnvValuesFragmentFile = process.env.ERP_V1_PRODUCTION_ENV_VALUES_FRAGMENT_FILE;
 const originalProductionEnvValuesApplyEnabled = process.env.ERP_V1_PRODUCTION_ENV_VALUES_APPLY_ENABLED;
+const expectedPersistenceRepositoryCount =
+  v1PersistenceRepositoryObjectKeys.length + v1PersistenceStorageObjectKeys.length;
 const server = createApiServer();
 
 try {
@@ -3041,10 +3047,10 @@ try {
   assert.equal(persistencePrecheckJson.summary.totalCount, 7);
   assert.equal(persistencePrecheckJson.summary.blockingCount, 6);
   assert.equal(persistencePrecheckJson.summary.repositoryGroupCount, 5);
-  assert.equal(persistencePrecheckJson.summary.repositoryCount, 31);
+  assert.equal(persistencePrecheckJson.summary.repositoryCount, expectedPersistenceRepositoryCount);
   assert.equal(persistencePrecheckJson.summary.productionReadyRepositoryCount, 0);
-  assert.equal(persistencePrecheckJson.summary.localRepositoryCount, 31);
-  assert.equal(persistencePrecheckJson.summary.localMemoryCount, 19);
+  assert.equal(persistencePrecheckJson.summary.localRepositoryCount, expectedPersistenceRepositoryCount);
+  assert.equal(persistencePrecheckJson.summary.localMemoryCount, 20);
   assert.equal(persistencePrecheckJson.summary.localJsonCount, 10);
   assert.equal(persistencePrecheckJson.summary.localFsCount, 2);
   assert.equal(persistencePrecheckJson.summary.currentRuntime, true);
@@ -3091,8 +3097,14 @@ try {
   assert.equal(clientPersistencePrecheckResult.precheckResult.statusLabel, "仍未通过");
   assert.equal(clientPersistencePrecheckResult.precheckResult.summary.readinessLabel, "1/7");
   assert.equal(clientPersistencePrecheckResult.precheckResult.summary.repositoryGroupLabel, "5 组");
-  assert.equal(clientPersistencePrecheckResult.precheckResult.summary.repositoryLabel, "0/31");
-  assert.equal(clientPersistencePrecheckResult.precheckResult.summary.localRepositoryLabel, "31 个");
+  assert.equal(
+    clientPersistencePrecheckResult.precheckResult.summary.repositoryLabel,
+    `0/${expectedPersistenceRepositoryCount}`,
+  );
+  assert.equal(
+    clientPersistencePrecheckResult.precheckResult.summary.localRepositoryLabel,
+    `${expectedPersistenceRepositoryCount} 个`,
+  );
   assert.equal(clientPersistencePrecheckResult.precheckResult.repositoryGroups.length, 5);
 
   const attachmentRetentionPrecheckResponse = await fetch(`${baseUrl}/api/system/v1-attachment-retention/live-precheck`, {
