@@ -26,7 +26,7 @@ Each new extracted projection must have a direct Node check and be added to the 
 
 ## 2026-07-10 - Git Baseline Must Exclude Runtime Evidence And Real Configuration
 
-The repository baseline is staged in four reviewable groups: runtime/data, frontend domain code, documentation, and CI. `.erp-local-storage/`, screenshots, build output, dependencies, and real environment files must remain ignored and must not enter the index through later blanket adds. Staging is not a release, a backup, or a production-validation claim; each group still requires review before a commit and remote push.
+The repository baseline was reviewed in four groups (runtime/data, frontend domain code, documentation, and CI) and committed locally as `72f25c4`. `.erp-local-storage/`, screenshots, build output, dependencies, and real environment files must remain ignored and must not enter the index through later blanket adds. A local commit is not a release, an off-machine backup, or a production-validation claim; remote recovery remains incomplete until a controlled Git remote is configured and the reviewed baseline is pushed.
 
 New source, migration, test, documentation, and CI files belong in the baseline unless they contain real credentials or runtime evidence. Any exception must be explicit and documented rather than silently left untracked.
 
