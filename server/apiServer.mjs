@@ -96,6 +96,7 @@ import { validateV1FieldEvidenceManifest } from "../scripts/v1FieldEvidenceManif
 import { createAttachmentRepository } from "./attachmentRepository.mjs";
 import { createAttachmentAccessAuditRepository } from "./attachmentAccessAuditRepository.mjs";
 import { createAttachmentObjectStorage, parseDataUrl } from "./attachmentObjectStorage.mjs";
+import { createAttachmentRecord } from "./services/attachmentCreateService.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
 import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
 import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
@@ -19230,254 +19231,27 @@ async function writeOffStatementRoute({ response, workspace, statementId, body }
 }
 
 async function createAttachmentRoute({ response, workspace, body }) {
-  const requiredFields = ["ownerType", "ownerId", "fileType", "purpose", "fileName", "contentRef", "uploadedBy"];
-  const missingFields = requiredFields.filter((field) => !String(body[field] ?? "").trim());
-  if (missingFields.length) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", `Missing attachment fields: ${missingFields.join(", ")}`);
-  }
-  const contentDataUrl = typeof body.contentDataUrl === "string" ? body.contentDataUrl.trim() : "";
-  const contentPayload = contentDataUrl ? parseDataUrl(contentDataUrl) : null;
-  if (contentDataUrl && !contentPayload) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "contentDataUrl must be a valid data URL");
-  }
-  const attachmentValidationError = validateAttachmentUploadBody(body, contentPayload);
-  if (attachmentValidationError) {
-    return sendBusinessError(
-      response,
-      422,
-      attachmentValidationError.code,
-      attachmentValidationError.message,
-    );
-  }
-
-  const attachmentId = buildAttachmentRecordId(workspace, body.idempotencyKey);
-  const uploadedAt = new Date().toISOString();
-  const contentUrl = `/api/attachments/${encodeURIComponent(attachmentId)}/content`;
-  const contentDigest = contentPayload ? createHash("sha256").update(contentPayload.buffer).digest("hex") : "";
-  const effectiveMimeType = normalizeAttachmentText(body.mimeType || contentPayload?.contentType);
-  const effectiveFileType = inferServerAttachmentFileType({
-    mimeType: effectiveMimeType,
-    fileName: body.fileName,
-    fallbackFileType: body.fileType,
-  });
-  const existingAttachment = contentDigest
-    ? await workspace.attachmentRepository.findAttachmentByDigest({
-        workspace,
-        ownerType: body.ownerType,
-        ownerId: body.ownerId,
-        purpose: body.purpose,
-        contentDigest,
-      })
-    : null;
-  const storedContent = contentPayload && !existingAttachment
-    ? await workspace.attachmentObjectStorage.putObject({
-        attachmentId,
-        fileName: body.fileName,
-        contentPayload,
-        contentDigest,
-      })
-    : null;
-  const attachment = {
-    attachmentId,
-    ownerType: body.ownerType,
-    ownerId: body.ownerId,
-    fileType: effectiveFileType || body.fileType,
-    purpose: body.purpose,
-    url: contentPayload ? contentUrl : `local://attachments/${attachmentId}/${encodeURIComponent(body.fileName)}`,
-    status: "uploaded",
-    uploadedBy: body.uploadedBy,
-    uploadedAt,
-    fileName: body.fileName,
-    contentRef: body.contentRef,
-    mimeType: effectiveMimeType,
-    fileSize: Number.isFinite(Number(body.fileSize)) ? Number(body.fileSize) : contentPayload?.buffer.length,
-    contentDataUrl: storedContent ? "" : contentDataUrl,
-    storageProvider: storedContent?.storageProvider ?? "",
-    storageKey: storedContent?.storageKey ?? "",
-    contentDigest: storedContent?.contentDigest ?? contentDigest,
-    hasContent: Boolean(contentPayload),
-    metadata: body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {},
-    remark: body.remark ?? "",
-  };
-  const attachmentLink = {
-    id: `ALINK-${attachmentId}`,
-    attachmentId,
-    ownerType: body.ownerType,
-    ownerId: body.ownerId,
-    purpose: body.purpose,
-    createdAt: uploadedAt,
-  };
-  const operationLog = buildOperationLog(workspace, {
-    id: buildAttachmentOperationLogId(workspace, body.idempotencyKey, attachmentId),
-    targetType: body.ownerType,
-    targetId: body.ownerId,
-    action: "create_attachment",
-    operatorId: body.uploadedBy,
-    after: {
-      attachmentId,
-      purpose: body.purpose,
-      fileName: body.fileName,
-      contentDigest,
-    },
-    reason: body.remark,
-  });
-  const transaction = await workspace.attachmentRepository.createAttachment({
+  const result = await createAttachmentRecord({
     workspace,
-    attachment,
-    link: attachmentLink,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    body,
+    parseDataUrl,
+    buildOperationLog,
+    nextId,
   });
-
+  if (!result.ok) {
+    return sendBusinessError(response, result.statusCode, result.errorCode, result.message);
+  }
   return sendJson(response, 200, {
-    ...toAttachmentSummary(transaction.attachment),
-    deduplicated: transaction.deduplicated,
-    duplicateOfAttachmentId: transaction.deduplicated ? transaction.attachment.attachmentId : "",
-    operationLogId: transaction.operationLogId,
+    ...toAttachmentSummary(result.attachment),
+    deduplicated: result.deduplicated,
+    duplicateOfAttachmentId: result.duplicateOfAttachmentId,
+    operationLogId: result.operationLogId,
   });
 }
 
-function validateAttachmentUploadBody(body = {}, contentPayload = null) {
-  const purpose = normalizeAttachmentText(body.purpose);
-  const mimeType = normalizeAttachmentText(body.mimeType || contentPayload?.contentType).toLowerCase();
-  const fileName = normalizeAttachmentText(body.fileName);
-  const fileType = inferServerAttachmentFileType({
-    mimeType,
-    fileName,
-    fallbackFileType: body.fileType,
-  });
-  const declaredSize = Number(body.fileSize);
-  const actualSize = Buffer.isBuffer(contentPayload?.buffer) ? contentPayload.buffer.length : undefined;
-  const effectiveSize = Number.isFinite(actualSize)
-    ? actualSize
-    : Number.isFinite(declaredSize)
-      ? declaredSize
-      : 0;
-  if (contentPayload && effectiveSize <= 0) {
-    return {
-      code: "ATTACHMENT_CONTENT_EMPTY",
-      message: "附件内容为空，请重新选择文件后上传。",
-    };
-  }
-
-  const rule = getServerAttachmentPurposeRule(purpose);
-  if (rule.allowedFileTypes.length && !rule.allowedFileTypes.includes(fileType)) {
-    return {
-      code: "ATTACHMENT_FILE_TYPE_NOT_ALLOWED",
-      message: `${rule.label}只允许上传${rule.allowedLabel}，当前文件类型为${fileType || "未知"}。`,
-    };
-  }
-
-  if ((rule.allowedMimePrefixes.length || rule.allowedMimeTypes.length) && mimeType) {
-    const allowedMime =
-      rule.allowedMimeTypes.includes(mimeType) ||
-      rule.allowedMimePrefixes.some((prefix) => mimeType.startsWith(prefix));
-    if (!allowedMime) {
-      return {
-        code: "ATTACHMENT_MIME_TYPE_NOT_ALLOWED",
-        message: `${rule.label}只允许上传${rule.allowedLabel}，当前文件类型为${mimeType}。`,
-      };
-    }
-  }
-
-  if (Number.isFinite(effectiveSize) && effectiveSize > rule.maxBytes) {
-    return {
-      code: "ATTACHMENT_FILE_TOO_LARGE",
-      message: `${rule.label}不能超过 ${formatAttachmentSize(rule.maxBytes)}，当前约 ${formatAttachmentSize(effectiveSize)}。`,
-    };
-  }
-
-  return null;
-}
-
-function getServerAttachmentPurposeRule(purpose) {
-  const commonPhotoRule = {
-    allowedFileTypes: ["image"],
-    allowedMimePrefixes: ["image/"],
-    allowedMimeTypes: [],
-    allowedLabel: "图片",
-    maxBytes: 12 * 1024 * 1024,
-  };
-  const rules = {
-    payment_screenshot: {
-      ...commonPhotoRule,
-      label: "付款截图",
-      maxBytes: 8 * 1024 * 1024,
-    },
-    delivery_watermark_photo: {
-      ...commonPhotoRule,
-      label: "送达水印照片",
-    },
-    signature_photo: {
-      ...commonPhotoRule,
-      label: "签收照片",
-    },
-    finished_goods_photo: {
-      ...commonPhotoRule,
-      label: "定制成品图",
-    },
-    statement_customer_confirmation: {
-      allowedFileTypes: ["image", "pdf"],
-      allowedMimePrefixes: ["image/"],
-      allowedMimeTypes: ["application/pdf"],
-      allowedLabel: "图片或 PDF",
-      label: "客户确认附件",
-      maxBytes: 12 * 1024 * 1024,
-    },
-  };
-  return (
-    rules[purpose] ?? {
-      allowedFileTypes: ["image", "pdf", "spreadsheet", "document"],
-      allowedMimePrefixes: ["image/", "text/"],
-      allowedMimeTypes: [
-        "application/pdf",
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      ],
-      allowedLabel: "图片、PDF、表格或文档",
-      label: "附件",
-      maxBytes: 15 * 1024 * 1024,
-    }
-  );
-}
-
-function inferServerAttachmentFileType({ mimeType = "", fileName = "", fallbackFileType = "" } = {}) {
-  const type = normalizeAttachmentText(mimeType).toLowerCase();
-  const name = normalizeAttachmentText(fileName).toLowerCase();
-  if (type.startsWith("image/")) return "image";
-  if (type === "application/pdf" || name.endsWith(".pdf")) return "pdf";
-  if (
-    type.includes("spreadsheet") ||
-    type.includes("excel") ||
-    type === "text/csv" ||
-    /\.(xlsx|xls|csv)$/i.test(name)
-  ) {
-    return "spreadsheet";
-  }
-  if (
-    type.includes("wordprocessingml") ||
-    type.includes("msword") ||
-    type.startsWith("text/") ||
-    /\.(docx|doc|txt|rtf)$/i.test(name)
-  ) {
-    return "document";
-  }
-  return normalizeAttachmentText(fallbackFileType) || "other";
-}
 
 function normalizeAttachmentText(value) {
   return String(value ?? "").trim();
-}
-
-function formatAttachmentSize(bytes) {
-  const value = Number(bytes);
-  if (!Number.isFinite(value)) return "未知大小";
-  if (value >= 1024 * 1024) return `${Math.round((value / 1024 / 1024) * 10) / 10}MB`;
-  if (value >= 1024) return `${Math.round((value / 1024) * 10) / 10}KB`;
-  return `${value}B`;
 }
 
 async function listAttachmentsRoute({ response, workspace, searchParams }) {
@@ -22609,16 +22383,6 @@ function buildOperationLog(workspace, input) {
     occurredAt: new Date().toISOString(),
     createdAt: new Date().toISOString(),
   };
-}
-
-function buildAttachmentRecordId(workspace, idempotencyKey) {
-  const key = cleanServerText(idempotencyKey);
-  if (!key) return nextId("ATT", workspace.attachments);
-  return `ATT-${createHash("sha256").update(key).digest("hex").slice(0, 24).toUpperCase()}`;
-}
-
-function buildAttachmentOperationLogId(workspace, idempotencyKey, attachmentId) {
-  return cleanServerText(idempotencyKey) ? `LOG-${attachmentId}` : nextId("LOG", workspace.operationLogs);
 }
 
 function addOperationLog(workspace, input) {
