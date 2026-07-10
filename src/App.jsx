@@ -1,23 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  AccountBookOutlined,
-  AppstoreOutlined,
   BellOutlined,
-  CheckCircleOutlined,
-  DashboardOutlined,
-  DatabaseOutlined,
   DownloadOutlined,
   DownOutlined,
-  InboxOutlined,
   MenuFoldOutlined,
   PlusOutlined,
   ReloadOutlined,
-  RightOutlined,
   SearchOutlined,
-  SettingOutlined,
-  ShoppingCartOutlined,
   SyncOutlined,
-  UnorderedListOutlined,
   UploadOutlined,
   UserOutlined,
 } from "@ant-design/icons";
@@ -35,6 +25,12 @@ import {
   DriverMobilePage,
   WorkshopMobilePage,
 } from "./pages/office/index.jsx";
+import {
+  allNavigationItems,
+  isNavigationPageVisible,
+  primaryNavigationItems,
+} from "./app/navigation.js";
+import { AppNavigation } from "./app/AppNavigation.jsx";
 import {
   canUseUiAction,
   defaultSeedUserId,
@@ -378,25 +374,6 @@ import {
   uniqueStockOptions,
   varianceHandlingOptions,
 } from "./domain/officeRules.js";
-
-const pages = [
-  { key: "todos", label: "公共待办", icon: DashboardOutlined },
-  { key: "entry", label: "订单录入", icon: PlusOutlined },
-  { key: "orders", label: "订单池", icon: ShoppingCartOutlined },
-  { key: "inventory", label: "库存查询", icon: DatabaseOutlined },
-  { key: "fulfillment", label: "出库交付", icon: InboxOutlined },
-  { key: "packing", label: "打包/标签", icon: UnorderedListOutlined },
-  { key: "rawMaterials", label: "原材料", icon: UploadOutlined },
-  { key: "statements", label: "对账收款", icon: AccountBookOutlined },
-  { key: "masterData", label: "基础资料", icon: SettingOutlined },
-  { key: "v1Status", label: "上线状态", icon: CheckCircleOutlined },
-  { key: "workshopMobile", label: "车间/打包手机端", icon: AppstoreOutlined },
-  { key: "driverMobile", label: "司机端", icon: CheckCircleOutlined },
-];
-
-const laterPages = [
-  { label: "排产", icon: AppstoreOutlined },
-];
 
 const orderQuantityReasonOptions = ["客户改量", "识别数量修正", "库存复核后改量", "办公室修正数量", "管理批准改量", "其他原因改量"];
 const orderVoidReasonOptions = ["客户取消订单", "重复订单作废", "识别错误作废", "库存不足取消", "管理拒绝接单", "订单改量作废重建", "客户拒绝等待取消", "其他原因作废"];
@@ -1123,12 +1100,18 @@ export function App() {
   const paymentAttachmentSyncKeysRef = useRef(new Set());
   const customerConfirmationAttachmentSyncKeysRef = useRef(new Set());
 
-  const activeMeta = pages.find((item) => item.key === activePage) ?? pages[0];
   const permissionContext = authState.permissions;
   const currentUser = permissionContext.user;
   const currentUserId = currentUser.userId ?? defaultSeedUserId;
+  const activeMeta = allNavigationItems.find((item) => item.key === activePage) ?? primaryNavigationItems[0];
   const authSourceLabel = authState.authenticated ? "后端认证" : runtimeServerRequired ? "等待登录" : "本地权限";
   const unhandledTodos = todos.filter((item) => !item.handled).length;
+
+  useEffect(() => {
+    if (!isNavigationPageVisible(activePage, permissionContext)) {
+      setActivePage(primaryNavigationItems[0].key);
+    }
+  }, [activePage, permissionContext]);
 
   async function refreshV1GoLiveStatus(options = {}) {
     setV1GoLiveStatusState((current) => ({
@@ -8880,23 +8863,13 @@ export function App() {
             <span>P0 办公室端</span>
           </div>
         </div>
-        <nav className="nav-list" aria-label="主导航">
-          {pages.map(({ key, label, icon: Icon }) => (
-            <button className={activePage === key ? "nav-item active" : "nav-item"} key={key} onClick={() => setActivePage(key)}>
-              <Icon />
-              <span>{label}</span>
-              {key === "todos" && <b className="nav-badge">{unhandledTodos}</b>}
-            </button>
-          ))}
-          <div className="nav-divider">后续模块</div>
-          {laterPages.map(({ label, icon: Icon }) => (
-            <button className="nav-item disabled" key={label} onClick={() => openMasterDataTemplatePanel(label)}>
-              <Icon />
-              <span>{label}</span>
-              <RightOutlined className="nav-caret" />
-            </button>
-          ))}
-        </nav>
+        <AppNavigation
+          activePage={activePage}
+          permissionContext={permissionContext}
+          todoCount={unhandledTodos}
+          onNavigate={setActivePage}
+          onOpenLater={openMasterDataTemplatePanel}
+        />
         <button className="collapse-menu">
           <MenuFoldOutlined />
           收起菜单

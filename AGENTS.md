@@ -11,6 +11,7 @@ Prototype-specific design decisions:
 - P0 ERP pages use a narrow left navigation rail plus a top page title / action bar.
 - The visual density should be high-density SaaS ERP / operational-table style, closer to Jushuitan-like workbenches than large-card dashboards. Avoid oversized cards and large whitespace.
 - P0 navigation should expose the six usable office pages first and keep later modules as gray placeholders.
+- V1 role tools that are already implemented must appear after the six P0 office pages in a permission-scoped secondary navigation group; internal enum values such as `pickup`, `delivery`, and `express_ltl` must be converted to Chinese labels at the API/UI boundary and must not appear in visible operational tables.
 - Order entry uses a large pasted-text input above editable parsed table rows. Common fields edit inline; complex print details open in a side panel.
 - Order entry recognition should parse custom-print shorthand into structured bag color, print color, handle color, print side, and notes when possible; examples include `白印黑`, `白袋黑提`, and `黄袋红提`.
 - In order-entry tables, custom printed orders should not appear as plain `空白袋` in the visible style/type column. Show the visible type as `定制印刷` while keeping the base bag / inventory style such as `空白袋` available in detail data for stock and production matching.

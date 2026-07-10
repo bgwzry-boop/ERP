@@ -232,6 +232,14 @@ body:has(.runtime-login-shell) {
   font-weight: 700;
 }
 
+.nav-item.secondary {
+  padding-left: 24px;
+}
+
+.nav-divider.role-tools {
+  margin-top: 8px;
+}
+
 .nav-item.active svg {
   color: #fff;
 }

@@ -1,3 +1,5 @@
+import { getFulfillmentMethodLabel } from "../shared/labels.js";
+
 export const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 
 export const editableColors = ["黄色", "红色", "黑色", "白色", "蓝色", "绿色", "米白", "浅蓝", "牛仔蓝", "大红", "粉色"];
@@ -199,6 +201,7 @@ export function isFulfillmentDone(status) {
 }
 
 export function getFulfillmentActions(item) {
+  const method = getFulfillmentMethodLabel(item.method);
   const hasTrackablePrintRecord = Boolean(
     item.activePrintRecordId || item.printRecordId || ["printed", "reprinted"].includes(item.printRecordStatus),
   );
@@ -224,7 +227,7 @@ export function getFulfillmentActions(item) {
     ];
   }
 
-  if (item.method === "快递快运") {
+  if (method === "快递快运") {
     if (item.printRecordStatus === "voided") {
       return [
         { label: "重打标签", variant: "primary" },
@@ -250,7 +253,7 @@ export function getFulfillmentActions(item) {
     ];
   }
 
-  if (item.method === "送货") {
+  if (method === "送货") {
     if (item.printRecordStatus === "voided") {
       return [
         { label: "重打送货单", variant: "primary" },
@@ -288,11 +291,12 @@ export function getFulfillmentActions(item) {
 }
 
 export function getFulfillmentNextStep(item) {
+  const method = getFulfillmentMethodLabel(item.method);
   const evidenceReviewStatus = getDeliveryEvidenceReviewStatus(item);
-  if (item.method === "送货" && item.status === "已交付" && evidenceReviewStatus === "待复核") {
+  if (method === "送货" && item.status === "已交付" && evidenceReviewStatus === "待复核") {
     return "送货已完成，等待办公室复核水印照片、签收照片和定位信息。";
   }
-  if (item.method === "送货" && evidenceReviewStatus === "需重拍") {
+  if (method === "送货" && evidenceReviewStatus === "需重拍") {
     return "送达证据被退回，需通知司机补拍或补充说明后再复核。";
   }
   if (item.status === "已交付") return "已完成交付；后续进入对账或收款确认。";
@@ -300,17 +304,17 @@ export function getFulfillmentNextStep(item) {
   if (item.status.includes("无法")) return "等待办公室处理无法出库原因，决定客户沟通、改单或补货。";
   if (item.printRecordStatus === "voided") {
     const documentLabel = getFulfillmentDocumentLabel(item);
-    const nextAction = item.method === "快递快运" ? "确认快递/快运拉走" : "完成交付";
+    const nextAction = method === "快递快运" ? "确认快递/快运拉走" : "完成交付";
     return `旧${documentLabel}已作废，需要先重打${documentLabel}；生成新有效${documentLabel}后才能${nextAction}。`;
   }
-  if (item.method === "快递快运" && item.status === "待确认拉走") return "等待确认快递/快运已拉走；确认后才扣交付并进入对账。";
-  if (item.method === "快递快运" && !item.printed) return "先打印包裹标签，包裹进入待提货区后再确认拉走。";
-  if (item.method === "送货") return "送货完成后记录交付凭证；数量不一致必须走数量不符。";
+  if (method === "快递快运" && item.status === "待确认拉走") return "等待确认快递/快运已拉走；确认后才扣交付并进入对账。";
+  if (method === "快递快运" && !item.printed) return "先打印包裹标签，包裹进入待提货区后再确认拉走。";
+  if (method === "送货") return "送货完成后记录交付凭证；数量不一致必须走数量不符。";
   return "客户自提完成后记录交付；数量不一致必须走数量不符。";
 }
 
 export function getDeliveryEvidenceReviewStatus(item) {
-  if (item?.method !== "送货") return "不适用";
+  if (getFulfillmentMethodLabel(item?.method) !== "送货") return "不适用";
   if (item.deliveryEvidenceReviewStatus) return item.deliveryEvidenceReviewStatus;
   if (item.watermarkedPhotoAttachmentId || item.watermarkedPhotoAttached || item.watermarkedPhotoUrl) return "待复核";
   return "待提交";
@@ -325,8 +329,9 @@ export function getDeliveryEvidenceReviewTone(status) {
 }
 
 export function getFulfillmentDocumentLabel(item) {
-  if (item.method === "快递快运") return "包裹标签";
-  if (item.method === "送货") return "送货单";
+  const method = getFulfillmentMethodLabel(item.method);
+  if (method === "快递快运") return "包裹标签";
+  if (method === "送货") return "送货单";
   return "出库/自提单";
 }
 

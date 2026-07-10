@@ -128,7 +128,7 @@ const mappedFulfillment = mapApiFulfillmentToLocal({
   fulfillmentId: "F-API-LIST-1",
   customerId: "C001",
   orderLineId: "ORD-API-01",
-  method: "快递快运",
+  method: "express_ltl",
   goodsSpec: "白鲸活动袋 35*27 白印黑",
   expectedQty: 1500,
   actualQty: 1500,
@@ -139,6 +139,7 @@ const mappedFulfillment = mapApiFulfillmentToLocal({
 });
 assert(mappedFulfillment?.id === "F-API-LIST-1", "fulfillment list did not map the API id");
 assert(mappedFulfillment?.customerId === "C001" && mappedFulfillment?.lineId === "ORD-API-01", "fulfillment list lost trace IDs");
+assert(mappedFulfillment?.method === "快递快运", "fulfillment list exposed the internal method value");
 assert(mappedFulfillment?.packages === "3包", "fulfillment list did not map package count");
 
 const fulfillmentListCalls = [];

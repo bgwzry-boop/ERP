@@ -1,5 +1,6 @@
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
 import { requestOfficeApi as requestFulfillmentApi } from "./officeApiClientCore.js";
+import { getFulfillmentMethodLabel, getFulfillmentMethodValue } from "../shared/labels.js";
 
 const defaultFulfillmentPageSize = 200;
 
@@ -528,7 +529,7 @@ export function mapApiFulfillmentToLocal(value = {}) {
     customerId: cleanText(value.customerId ?? value.customer_id),
     lineId: cleanText(value.orderLineId ?? value.order_line_id),
     orderLineId: cleanText(value.orderLineId ?? value.order_line_id),
-    method: cleanText(value.method),
+    method: getFulfillmentMethodLabel(value.method),
     goods: cleanText(value.goodsSpec ?? value.goods),
     qty: toNumber(value.expectedQty ?? value.qty, 0),
     actualQty: value.actualQty === undefined || value.actualQty === null ? null : toNumber(value.actualQty, 0),
@@ -557,7 +558,9 @@ function buildFulfillmentListQuery({ page, pageSize, filters = {} }) {
   const params = new URLSearchParams();
   params.set("page", String(Math.max(1, toNumber(page, 1))));
   params.set("pageSize", String(Math.max(1, Math.min(defaultFulfillmentPageSize, toNumber(pageSize, defaultFulfillmentPageSize)))));
-  if (cleanText(filters.method) && cleanText(filters.method) !== "全部") params.set("method", cleanText(filters.method));
+  if (cleanText(filters.method) && cleanText(filters.method) !== "全部") {
+    params.set("method", getFulfillmentMethodValue(filters.method, cleanText(filters.method)));
+  }
   if (cleanText(filters.status) && cleanText(filters.status) !== "全部") params.set("status", cleanText(filters.status));
   if (cleanText(filters.keyword)) params.set("keyword", cleanText(filters.keyword));
   const query = params.toString();

@@ -1,12 +1,15 @@
 import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 const clientSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusApiClient.js", import.meta.url), "utf8");
 const attachmentClientSource = readFileSync(new URL("../src/services/officeAttachmentApiClient.js", import.meta.url), "utf8");
 const styleSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
-assertIncludes(appSource, '{ key: "v1Status", label: "上线状态"', "navigation should expose V1 status page");
+assertIncludes(navigationSource, 'key: "v1Status"', "navigation should expose V1 status page");
+assertIncludes(navigationSource, 'label: "上线状态"', "navigation should label V1 status page");
+assertIncludes(navigationSource, 'permissionPrefixes: ["system.v1_"]', "V1 status navigation should require system permissions");
 assertIncludes(appSource, "<V1StatusPage", "App should render V1 status page");
 assertIncludes(appSource, "当前仍以发布门禁、现场证据和签字作为完成标准", "refresh toast should keep V1 completion boundary explicit");
 assertIncludes(appSource, "getOfficeV1GoLiveStatus", "App should refresh V1 go-live status from API artifacts");

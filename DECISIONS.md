@@ -2057,3 +2057,7 @@ P0 implementation should now move from requirements refinement to a frontend-loc
 ## 2026-07-11 - Feature Pages And Create Workflows Use Explicit Ownership Boundaries
 
 Large office pages should move into `src/features/<domain>` while their former barrel modules preserve public re-exports until callers can migrate safely. Cross-page display-only helpers belong to the relevant shared feature instead of remaining hidden at the bottom of a page file. Backend create workflows that combine validation, digesting, deduplication, storage, audit input, and repository transactions belong in `server/services`; HTTP routes should retain authentication, permission, error, and response mapping only. Each extraction must preserve URLs, permissions, API contracts, and business rules and must add a direct behavior check before joining `check:core`.
+
+## 2026-07-11 - Core Navigation Is Stable And Role Tools Are Permission-Scoped
+
+The left navigation always presents the six office core pages first: todos, entry, orders, inventory, fulfillment, and statements. Implemented V1 operational surfaces outside that P0 core belong in a secondary `role tools` group and appear only when the current permission set matches; losing access while a secondary page is active returns the user to the todo page. Stable English API/database enums remain valid internal contracts, but API clients must convert them to Chinese operator labels and reverse-map Chinese filters before requests. Internal enum values must not appear in operational tables, details, labels, or action text.

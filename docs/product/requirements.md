@@ -178,6 +178,8 @@ The P0 outbound / fulfillment page should default to items due today, incomplete
 
 P0 outbound / fulfillment list columns should include customer, order / line tail number, fulfillment method, goods / spec shorthand, quantity / package count, latest needed time, current status, and customer-note / office-note markers.
 
+Fulfillment methods may use stable internal API/database values such as `pickup`, `delivery`, and `express_ltl`, but every operator-facing page must show `自提`, `送货`, and `快递快运`. Chinese filters map back to internal values at the request boundary; internal English values must not leak into operational tables.
+
 For custom products, outbound / fulfillment goods specs should use the factory's compact wording: product name + size + compact color spec + print side + quantity + notes. Compact color spec combines bag color with print color, e.g. `白印黑` for white bag printed black, and bag color with handle color, e.g. `白袋黑提` for white bag with black handles or `黄袋红提` for yellow bag with red handles. When both print color and handle color apply, show both, e.g. `白印黑 / 白袋黑提`. Detail views and backend fields should still preserve structured bag color, print color, and handle color values.
 
 The P0 outbound / fulfillment right-side detail drawer should show customer / contact / phone / address, order-line details, inventory source, package / label / document preview, customer notes, office notes, and operation history.
@@ -215,6 +217,8 @@ P0 implementation should now shift from requirements questioning to building the
 P0 should use frontend-local state and fake data first. React local state should simulate recognition, inventory, reservations, outbound, statement, printing, and payment states. It should not connect to a database, real API, AI service, payment interface, real printer, or final Excel template yet.
 
 P0 left navigation should make only the six desktop office core pages clickable. Other modules should appear as disabled / gray placeholders so users do not mistake them for ready functionality.
+
+As V1 role tools become implemented, packing / labels, raw materials, master data, go-live status, workshop / packing mobile, and driver mobile should not be flattened beside the six office core pages. They belong in a permission-scoped `role tools` secondary group after the core pages; unimplemented modules remain disabled placeholders.
 
 P0 fake data should start with about 30 orders, 12 customers, and enough inventory, todo, package, and statement records to cover in-stock stock orders, out-of-stock stock orders, custom print, express / LTL, driver delivery, self-pickup, quantity variance, and payment variance scenarios.
 
