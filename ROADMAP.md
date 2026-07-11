@@ -19,7 +19,7 @@ Status: Batch A and the local code side of Batch B are complete; real infrastruc
 - R2 code preparation: Node 24, systemd/nginx deployment manifests, graceful shutdown, periodic production health checks, an immutable-commit fresh-directory recovery runner, and a deployment/recovery runbook are complete. The actual controlled Git remote, another-host recovery, live infrastructure, alert test, and rollback evidence remain external blockers.
 - Batch C: physical printers / CUPS and driver-phone native capability verification.
 - Batch D: desensitized real business pilot across office, warehouse, workshop, driver, finance, and raw materials.
-- Batch E: continue splitting large frontend/API composition roots and unify operational UI states without changing business state machines.
+- Batch E: execute rectification plan V7.0 in reviewable rounds: finish print-write extraction, reduce `App.jsx` to an application shell, establish shared dense-ERP UI primitives, refactor the six office pages before role tools, then split V1-status/API/CSS monoliths without changing business state machines.
 - Batch F: complete field evidence, role signoff, release candidate, and rollback rehearsal.
 
 ## P1 - Production Board Usability
