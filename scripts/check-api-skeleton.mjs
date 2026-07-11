@@ -2737,7 +2737,7 @@ try {
   const preview = await postJson(baseUrl, `/api/statements/${statementId}/preview`, {
     templateId: "tpl-p0-statement-customer-send",
     previewType: "customer_send",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     preview.statementId !== statementId ||
@@ -2835,7 +2835,8 @@ try {
     channel: "wechat",
     sentTo: "API skeleton check customer",
     sentAt: new Date().toISOString(),
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
+    operatorName: "伪造人员",
     remark: "API skeleton check mark sent",
   });
   if (!markedSent.sendRecordId || markedSent.status !== "已发送" || !markedSent.operationLogId) {
@@ -2846,7 +2847,7 @@ try {
     sendRecordId: markedSent.sendRecordId,
     receiptStatus: "read",
     receiptAt: "2026-07-01T11:00:00.000Z",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     remark: "API skeleton check customer read receipt",
   });
   if (
@@ -2970,7 +2971,8 @@ try {
     confirmedAt: "2026-07-01T11:10:00.000Z",
     content: "客户回复确认无误",
     attachmentIds: [customerConfirmationAttachment.attachmentId],
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
+    operatorName: "伪造人员",
     remark: "API skeleton check customer confirmation",
   });
   if (
@@ -2983,6 +2985,29 @@ try {
     !customerConfirmation.operationLogId
   ) {
     throw new Error("/api/statements/{statementId}/customer-confirmation returned an unexpected payload");
+  }
+  const statementCommunicationWorkspace = await getJson(baseUrl, "/api/office/workspace");
+  const persistedSendRecord = statementCommunicationWorkspace.statementSendRecords?.find(
+    (record) => record.sendRecordId === markedSent.sendRecordId,
+  );
+  const persistedConfirmation = statementCommunicationWorkspace.statementConfirmationRecords?.find(
+    (record) => record.confirmationRecordId === customerConfirmation.confirmationRecordId,
+  );
+  const communicationLogIds = new Set([
+    preview.operationLogId,
+    markedSent.operationLogId,
+    receiptResult.operationLogId,
+    customerConfirmation.operationLogId,
+  ]);
+  if (
+    persistedSendRecord?.sentBy !== "U-OFFICE-A" ||
+    persistedSendRecord?.receiptBy !== "U-OFFICE-A" ||
+    persistedConfirmation?.recordedBy !== "U-OFFICE-A" ||
+    !statementCommunicationWorkspace.operationLogs
+      ?.filter((log) => communicationLogIds.has(log.id))
+      .every((log) => log.operatorId === "U-OFFICE-A")
+  ) {
+    throw new Error("statement communication routes accepted spoofed request-body identity");
   }
 
   const paymentAttachment = await postJson(
@@ -3361,12 +3386,13 @@ try {
     amount: 1,
     paidAt: new Date().toISOString(),
     method: "cash",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     attachmentIds: [paymentAttachment.attachmentId],
     remark: "API skeleton check",
   });
   if (
     !payment.payment?.paymentRecordId ||
+    payment.payment.operatorId !== "U-OFFICE-A" ||
     payment.payment.attachmentIds?.[0] !== paymentAttachment.attachmentId ||
     payment.varianceAmount <= 0 ||
     !payment.operationLogId
@@ -3379,9 +3405,13 @@ try {
     varianceAmount: payment.varianceAmount,
     handlingResult: "carry_to_debt",
     reason: "API skeleton check",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
-  if (!variance.varianceRecord?.varianceRecordId || !variance.operationLogId) {
+  if (
+    !variance.varianceRecord?.varianceRecordId ||
+    variance.varianceRecord.operatorId !== "U-OFFICE-A" ||
+    !variance.operationLogId
+  ) {
     throw new Error("/api/statements/{statementId}/variance returned an unexpected payload");
   }
 

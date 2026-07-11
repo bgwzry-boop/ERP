@@ -565,11 +565,12 @@ async function checkPostgresRepositories() {
     postgresClient: createPostgresPoolClient({ pool: attachmentPool }),
   });
   const auditRepository = createPostgresAttachmentAccessAuditRepository({ queryJson });
+  const statementPostgresClient = createPostgresPoolClient({ pool: attachmentPool });
   const paymentRepository = createPostgresPaymentRecordRepository({ queryJson });
   const paymentTransactionRepository = createPostgresStatementPaymentTransactionRepository({ queryJson });
   const settlementTransactionRepository = createPostgresStatementSettlementTransactionRepository({ queryJson });
-  const sendTransactionRepository = createPostgresStatementSendTransactionRepository({ queryJson });
-  const exportRepository = createPostgresStatementExportRepository({ queryJson });
+  const sendTransactionRepository = createPostgresStatementSendTransactionRepository({ postgresClient: statementPostgresClient });
+  const exportRepository = createPostgresStatementExportRepository({ postgresClient: statementPostgresClient });
   const orderConfirmationRepository = createPostgresOrderConfirmationTransactionRepository({ queryJson });
   const fulfillmentActionRepository = createPostgresFulfillmentActionTransactionRepository({ queryJson });
   const driverDeviceFieldTestRepository = createPostgresDriverDeviceFieldTestRepository({ queryJson });
@@ -2335,7 +2336,24 @@ ON CONFLICT (id) DO UPDATE SET
       operatorId: "U-FINANCE-A",
     }),
     operationLog: buildOperationLog({ logId: "LOG-LIVE-SEND-TXN-001", action: "mark_statement_sent", before: sendBefore, after: sendAfter }),
+    idempotencyKey: "statement-send-repository-live-001",
+    idempotencyPayload: { statementId: "ST-LIVE-SEND-001", channel: "wechat", operatorId: "U-FINANCE-A" },
   });
+  const replayedSendTransaction = await sendTransactionRepository.markStatementSent({
+    workspace: sendWorkspace,
+    statements: [sendAfter],
+    statement: sendAfter,
+    sendRecord: buildSendRecord({
+      sendRecordId: "SEND-LIVE-TXN-001",
+      statementId: "ST-LIVE-SEND-001",
+      exportFileId: "DL-LIVE-SEND-001",
+      operatorId: "U-FINANCE-A",
+    }),
+    operationLog: buildOperationLog({ logId: "LOG-LIVE-SEND-TXN-001", action: "mark_statement_sent", before: sendBefore, after: sendAfter }),
+    idempotencyKey: "statement-send-repository-live-001",
+    idempotencyPayload: { statementId: "ST-LIVE-SEND-001", channel: "wechat", operatorId: "U-FINANCE-A" },
+  });
+  assert.equal(replayedSendTransaction.sendRecord.sendRecordId, sendTransaction.sendRecord.sendRecordId);
   assert.equal(sendTransaction.statement.status, "已发送待回款");
   assert.equal(sendTransaction.sendRecord.exportFileId, "DL-LIVE-SEND-001");
   assert.equal(queryJson("SELECT json_build_object('status', status, 'lastSentAt', last_sent_at) AS result FROM statements WHERE id = 'ST-LIVE-SEND-001';").status, "已发送待回款");
@@ -2365,6 +2383,8 @@ ON CONFLICT (id) DO UPDATE SET
       occurredAt: "2026-07-01T11:00:00.000Z",
       createdAt: "2026-07-01T11:00:00.000Z",
     },
+    idempotencyKey: "statement-receipt-repository-live-001",
+    idempotencyPayload: { sendRecordId: "SEND-LIVE-TXN-001", receiptStatus: "read", operatorId: "U-FINANCE-A" },
   });
   assert.equal(receiptTransaction.sendRecord.receiptStatus, "read");
   assert.equal(
@@ -2379,6 +2399,7 @@ ON CONFLICT (id) DO UPDATE SET
     status: "客户已确认",
     received: 0,
     variance: 273,
+    revision: sendTransaction.statement.revision,
   });
   const confirmationSendRecord = {
     ...receiptTransaction.sendRecord,
@@ -2418,6 +2439,13 @@ ON CONFLICT (id) DO UPDATE SET
       occurredAt: "2026-07-01T11:20:00.000Z",
       createdAt: "2026-07-01T11:20:00.000Z",
     },
+    idempotencyKey: "statement-confirmation-repository-live-001",
+    idempotencyPayload: {
+      statementId: "ST-LIVE-SEND-001",
+      sendRecordId: "SEND-LIVE-TXN-001",
+      content: "postgres live customer confirmed statement",
+      operatorId: "U-FINANCE-A",
+    },
   });
   assert.equal(confirmationTransaction.statement.status, "客户已确认");
   assert.equal(confirmationTransaction.sendRecord.receiptStatus, "confirmed");
@@ -2432,6 +2460,33 @@ ON CONFLICT (id) DO UPDATE SET
     "ATT-LIVE-CONFIRM-001",
   );
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-SEND-CONFIRM-TXN-001';", { capture: true }).trim()), 1);
+  await assert.rejects(
+    () =>
+      sendTransactionRepository.markStatementSendReceipt({
+        workspace: sendWorkspace,
+        sendRecord: { ...receiptRecord, receiptStatus: "no_response", receiptNote: "stale receipt must roll back" },
+        operationLog: {
+          id: "LOG-LIVE-SEND-STALE-TXN-001",
+          targetType: "statement_send_record",
+          targetId: "SEND-LIVE-TXN-001",
+          action: "mark_statement_send_receipt",
+          before: receiptTransaction.sendRecord,
+          after: receiptRecord,
+          reason: "stale receipt must roll back",
+          operatorId: "U-FINANCE-A",
+          pageKey: "api",
+          occurredAt: "2026-07-01T11:30:00.000Z",
+          createdAt: "2026-07-01T11:30:00.000Z",
+        },
+        idempotencyKey: "statement-receipt-stale-live-001",
+        idempotencyPayload: { sendRecordId: "SEND-LIVE-TXN-001", receiptStatus: "no_response" },
+      }),
+    (error) => error?.statusCode === 409 && error?.code === "BUSINESS_WRITE_CONFLICT",
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-SEND-STALE-TXN-001';", { capture: true }).trim()),
+    0,
+  );
 }
 
 async function checkApiWithPostgresRepositories() {
@@ -2455,6 +2510,12 @@ async function checkApiWithPostgresRepositories() {
   const productionScheduleRecordRepository = createPostgresProductionScheduleRecordRepository({
     postgresClient: apiPostgresClient,
   });
+  const statementSendTransactionRepository = createPostgresStatementSendTransactionRepository({
+    postgresClient: apiPostgresClient,
+  });
+  const statementExportRepository = createPostgresStatementExportRepository({
+    postgresClient: apiPostgresClient,
+  });
   runPsql(
     `INSERT INTO production_tasks (
       id, biz_no, order_line_id, task_type, machine_id, planned_qty, task_status, published_schedule_id, created_by
@@ -2474,6 +2535,8 @@ async function checkApiWithPostgresRepositories() {
     productionFinishedGoodsPhotoTransactionRepository,
     productionPackingTransactionRepository,
     productionScheduleRecordRepository,
+    statementSendTransactionRepository,
+    statementExportRepository,
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
@@ -4436,16 +4499,26 @@ WHERE id = 'F002';`,
     1,
   );
 
+  const statementPreviewBody = {
+    templateId: "tpl-p0-statement-customer-send",
+    previewType: "customer_send",
+    operatorId: "U-SPOOFED",
+  };
+  const statementPreviewHeaders = { ...headers, "idempotency-key": "statement-preview-api-live-001" };
   const preview = await postJson(
     baseUrl,
     "/api/statements/ST-0629-001/preview",
-    {
-      templateId: "tpl-p0-statement-customer-send",
-      previewType: "customer_send",
-      operatorId: "U-OFFICE-A",
-    },
-    { headers },
+    statementPreviewBody,
+    { headers: statementPreviewHeaders },
   );
+  const replayedPreview = await postJson(
+    baseUrl,
+    "/api/statements/ST-0629-001/preview",
+    statementPreviewBody,
+    { headers: statementPreviewHeaders },
+  );
+  assert.equal(replayedPreview.downloadToken, preview.downloadToken);
+  assert.equal(replayedPreview.operationLogId, preview.operationLogId);
   assert.equal(preview.statementId, "ST-0629-001");
   assert.ok(preview.downloadToken);
   assert.ok(preview.lines.length >= 1);
@@ -4460,6 +4533,23 @@ WHERE id = 'F002';`,
   assert.equal(
     Number(runPsql("SELECT COUNT(*) FROM statement_lines WHERE statement_id = 'ST-0629-001';", { capture: true }).trim()),
     preview.lines.length,
+  );
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('createdBy', created_by) AS result FROM statement_export_files WHERE download_token = ${sqlLiteral(
+        preview.downloadToken,
+      )};`,
+    ).createdBy,
+    "U-OFFICE-A",
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        `SELECT COUNT(*) FROM statement_export_files WHERE download_token = ${sqlLiteral(preview.downloadToken)};`,
+        { capture: true },
+      ).trim(),
+    ),
+    1,
   );
   assert.equal(
     queryJson(
@@ -4479,18 +4569,29 @@ WHERE id = 'F002';`,
   assert.equal(exportList.items[0].storageKeyStored, true);
   assert.equal(exportList.items[0].content, undefined);
 
+  const statementSendBody = {
+    channel: "wechat",
+    sentTo: "张三服饰财务",
+    sentAt: "2026-07-01T10:35:00.000Z",
+    operatorId: "U-SPOOFED",
+    operatorName: "伪造人员",
+    remark: "postgres live statement send route",
+  };
+  const statementSendHeaders = { ...headers, "idempotency-key": "statement-send-api-live-001" };
   const markedSent = await postJson(
     baseUrl,
     "/api/statements/ST-0629-001/mark-sent",
-    {
-      channel: "wechat",
-      sentTo: "张三服饰财务",
-      sentAt: "2026-07-01T10:35:00.000Z",
-      operatorId: "U-OFFICE-A",
-      remark: "postgres live statement send route",
-    },
-    { headers },
+    statementSendBody,
+    { headers: statementSendHeaders },
   );
+  const replayedMarkedSent = await postJson(
+    baseUrl,
+    "/api/statements/ST-0629-001/mark-sent",
+    statementSendBody,
+    { headers: statementSendHeaders },
+  );
+  assert.equal(replayedMarkedSent.sendRecordId, markedSent.sendRecordId);
+  assert.equal(replayedMarkedSent.operationLogId, markedSent.operationLogId);
   assert.equal(markedSent.status, "已发送");
   assert.ok(markedSent.sendRecordId);
   const sentStatement = queryJson(
@@ -4498,8 +4599,12 @@ WHERE id = 'F002';`,
   );
   assert.equal(sentStatement.status, "已发送待回款");
   assert.equal(
-    queryJson("SELECT json_build_object('exportFileId', export_file_id, 'sentTo', sent_to) AS result FROM statement_send_records WHERE statement_id = 'ST-0629-001' ORDER BY sent_at DESC LIMIT 1;").exportFileId,
+    queryJson("SELECT json_build_object('exportFileId', export_file_id, 'sentTo', sent_to, 'sentBy', sent_by) AS result FROM statement_send_records WHERE statement_id = 'ST-0629-001' ORDER BY sent_at DESC LIMIT 1;").exportFileId,
     preview.downloadToken,
+  );
+  assert.equal(
+    queryJson(`SELECT json_build_object('sentBy', sent_by) AS result FROM statement_send_records WHERE id = ${sqlLiteral(markedSent.sendRecordId)};`).sentBy,
+    "U-OFFICE-A",
   );
   assert.equal(
     Number(
@@ -4510,18 +4615,27 @@ WHERE id = 'F002';`,
     1,
   );
 
+  const statementReceiptBody = {
+    sendRecordId: markedSent.sendRecordId,
+    receiptStatus: "read",
+    receiptAt: "2026-07-01T11:05:00.000Z",
+    operatorId: "U-SPOOFED",
+    remark: "postgres live customer read receipt route",
+  };
+  const statementReceiptHeaders = { ...headers, "idempotency-key": "statement-receipt-api-live-001" };
   const sendReceipt = await postJson(
     baseUrl,
     "/api/statements/ST-0629-001/send-receipt",
-    {
-      sendRecordId: markedSent.sendRecordId,
-      receiptStatus: "read",
-      receiptAt: "2026-07-01T11:05:00.000Z",
-      operatorId: "U-OFFICE-A",
-      remark: "postgres live customer read receipt route",
-    },
-    { headers },
+    statementReceiptBody,
+    { headers: statementReceiptHeaders },
   );
+  const replayedSendReceipt = await postJson(
+    baseUrl,
+    "/api/statements/ST-0629-001/send-receipt",
+    statementReceiptBody,
+    { headers: statementReceiptHeaders },
+  );
+  assert.equal(replayedSendReceipt.operationLogId, sendReceipt.operationLogId);
   assert.equal(sendReceipt.sendRecordId, markedSent.sendRecordId);
   assert.equal(sendReceipt.receiptStatus, "read");
   assert.ok(sendReceipt.operationLogId);
@@ -4529,23 +4643,38 @@ WHERE id = 'F002';`,
     queryJson("SELECT json_build_object('receiptStatus', receipt_status, 'receiptBy', receipt_by) AS result FROM statement_send_records WHERE id = " + sqlLiteral(markedSent.sendRecordId) + ";").receiptStatus,
     "read",
   );
+  assert.equal(
+    queryJson("SELECT json_build_object('receiptBy', receipt_by) AS result FROM statement_send_records WHERE id = " + sqlLiteral(markedSent.sendRecordId) + ";").receiptBy,
+    "U-OFFICE-A",
+  );
 
+  const statementConfirmationBody = {
+    sendRecordId: markedSent.sendRecordId,
+    confirmationType: "customer_reply",
+    channel: "wechat",
+    confirmedByCustomer: "张三服饰财务",
+    confirmedAt: "2026-07-01T11:15:00.000Z",
+    content: "postgres live customer confirmed statement route",
+    attachmentIds: ["ATT-LIVE-CONFIRM-ROUTE-001"],
+    operatorId: "U-SPOOFED",
+    operatorName: "伪造人员",
+    remark: "postgres live customer confirmation route",
+  };
+  const statementConfirmationHeaders = { ...headers, "idempotency-key": "statement-confirmation-api-live-001" };
   const customerConfirmation = await postJson(
     baseUrl,
     "/api/statements/ST-0629-001/customer-confirmation",
-    {
-      sendRecordId: markedSent.sendRecordId,
-      confirmationType: "customer_reply",
-      channel: "wechat",
-      confirmedByCustomer: "张三服饰财务",
-      confirmedAt: "2026-07-01T11:15:00.000Z",
-      content: "postgres live customer confirmed statement route",
-      attachmentIds: ["ATT-LIVE-CONFIRM-ROUTE-001"],
-      operatorId: "U-OFFICE-A",
-      remark: "postgres live customer confirmation route",
-    },
-    { headers },
+    statementConfirmationBody,
+    { headers: statementConfirmationHeaders },
   );
+  const replayedCustomerConfirmation = await postJson(
+    baseUrl,
+    "/api/statements/ST-0629-001/customer-confirmation",
+    statementConfirmationBody,
+    { headers: statementConfirmationHeaders },
+  );
+  assert.equal(replayedCustomerConfirmation.confirmationRecordId, customerConfirmation.confirmationRecordId);
+  assert.equal(replayedCustomerConfirmation.operationLogId, customerConfirmation.operationLogId);
   assert.equal(customerConfirmation.status, "客户已确认");
   assert.equal(customerConfirmation.sendRecordId, markedSent.sendRecordId);
   assert.equal(customerConfirmation.receiptStatus, "confirmed");
@@ -4563,6 +4692,14 @@ WHERE id = 'F002';`,
         ";",
     ).attachmentIds[0],
     "ATT-LIVE-CONFIRM-ROUTE-001",
+  );
+  assert.equal(
+    queryJson(
+      "SELECT json_build_object('recordedBy', recorded_by) AS result FROM statement_confirmation_records WHERE id = " +
+        sqlLiteral(customerConfirmation.confirmationRecordId) +
+        ";",
+    ).recordedBy,
+    "U-OFFICE-A",
   );
 
   const payment = await postJson(
@@ -4855,6 +4992,7 @@ function buildSendRecord({ sendRecordId, statementId, exportFileId, operatorId }
     receiptAt: "",
     receiptBy: "",
     receiptNote: "",
+    revision: 1,
   };
 }
 
@@ -5539,7 +5677,7 @@ function buildFulfillmentOperationLog({ logId, action, fulfillmentId }) {
   };
 }
 
-function buildStatement({ id, customerId, status, received = 0, variance = 273 }) {
+function buildStatement({ id, customerId, status, received = 0, variance = 273, revision = 1 }) {
   return {
     id,
     customerId,
@@ -5547,6 +5685,7 @@ function buildStatement({ id, customerId, status, received = 0, variance = 273 }
     receivable: 273,
     received,
     variance,
+    revision,
   };
 }
 

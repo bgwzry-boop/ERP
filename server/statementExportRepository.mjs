@@ -1,6 +1,8 @@
 import crypto from "node:crypto";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createStatementExportRepository(options = {}) {
   const mode = options.mode ?? process.env.ERP_STATEMENT_EXPORT_STORE ?? process.env.ERP_STATEMENT_STORE ?? "local";
@@ -68,6 +70,11 @@ export function createPostgresStatementExportRepository(options = {}) {
   const transactionJson =
     options.queryJson ??
     ((text, values) => postgresClient.transactionJson(text, values));
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor({
+    ...options,
+    postgresClient,
+    transactionJson,
+  });
 
   return {
     kind: "postgres",
@@ -83,13 +90,31 @@ export function createPostgresStatementExportRepository(options = {}) {
 
     async createExportFile(input) {
       const builtQuery = buildCreateStatementExportTransactionQuery(input);
-      const saved = normalizeStatementExportTransactionResult(await transactionJson(builtQuery.text, builtQuery.values));
+      const statementId = input.exportFile?.statementId ?? input.exportFile?.statement_id ?? "";
+      const saved = normalizeStatementExportTransactionResult(
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "statement.export.create",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? {
+              statementId,
+              previewType: input.exportFile?.previewType,
+              downloadToken: input.exportFile?.downloadToken,
+            },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "statement",
+            targetId: statementId,
+            resourceLocks: [`statement:${statementId}`],
+            query: builtQuery,
+          }),
+        ),
+      );
       if (!saved.exportFile) throw new Error("PostgreSQL statement export insert returned an invalid export file");
       applyStatementExportWorkspaceMutation({
         workspace: input.workspace,
         exportFile: saved.exportFile,
         statementLines: saved.statementLines,
-        operationLog: input.operationLog,
+        operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return saved;
     },
@@ -362,7 +387,7 @@ function applyStatementExportWorkspaceMutation({ workspace, exportFile, statemen
   }
   if (operationLog) {
     workspace.operationLogs = workspace.operationLogs ?? [];
-    workspace.operationLogs.unshift(operationLog);
+    workspace.operationLogs = [operationLog, ...workspace.operationLogs.filter((item) => item.id !== operationLog.id)];
   }
 }
 

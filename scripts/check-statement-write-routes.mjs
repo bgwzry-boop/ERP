@@ -7,6 +7,11 @@ const dependencies = {
   workspace: {},
   body: { operatorId: "U-OFFICE-A" },
   permissionContext: { actionPermissions: [] },
+  authContext: { userId: "U-AUTHENTICATED" },
+  getPermissionOperatorId(permissionContext, authContext) {
+    assert.equal(permissionContext, dependencies.permissionContext);
+    return authContext.userId;
+  },
   writeActionPermissions: {
     previewStatement: "statement.preview",
     markStatementSent: "statement.send",
@@ -77,6 +82,13 @@ async function expectHandled(action, permission, kind) {
       permissionContext: dependencies.permissionContext,
       permission,
     },
-    { kind, response: dependencies.response, workspace: dependencies.workspace, statementId: "ST-1", body: dependencies.body },
+    {
+      kind,
+      response: dependencies.response,
+      workspace: dependencies.workspace,
+      statementId: "ST-1",
+      body: dependencies.body,
+      operatorId: "U-AUTHENTICATED",
+    },
   ]);
 }

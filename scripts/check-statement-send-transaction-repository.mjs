@@ -16,6 +16,7 @@ await checkLocalStatementSendReceiptTransactionRepository();
 await checkPostgresStatementSendReceiptTransactionSqlBoundary();
 await checkLocalStatementCustomerConfirmationTransactionRepository();
 await checkPostgresStatementCustomerConfirmationTransactionSqlBoundary();
+await checkPostgresStatementCommunicationIdempotencyBoundary();
 
 console.log(
   "Statement send transaction repository check passed: local workspace mutation, customer confirmation, and PostgreSQL transaction SQL are covered.",
@@ -57,7 +58,7 @@ async function checkPostgresStatementSendTransactionSqlBoundary() {
       transactionJson(text, values) {
         calls.push({ text, values });
         return {
-          statement: after,
+          statement: { ...after, revision: 2 },
           sendRecord,
           operationLogId: operationLog.id,
         };
@@ -79,8 +80,12 @@ async function checkPostgresStatementSendTransactionSqlBoundary() {
   });
 
   assert.equal(transaction.sendRecord.exportFileId, "DL-ST-TXN-001-CUSTOMER");
+  assert.equal(workspace.statements[0].revision, 2);
   assert.match(calls[0].text, /^BEGIN;/);
   assert.match(calls[0].text, /UPDATE statements/);
+  assert.match(calls[0].text, /locked_statement AS MATERIALIZED/);
+  assert.match(calls[0].text, /revision = statements\.revision \+ 1/);
+  assert.match(calls[0].text, /ERP_STATEMENT_CONCURRENCY_CONFLICT/);
   assert.match(calls[0].text, /last_sent_at/);
   assert.match(calls[0].text, /INSERT INTO statement_send_records/);
   assert.match(calls[0].text, /INSERT INTO operation_logs/);
@@ -155,6 +160,9 @@ async function checkPostgresStatementSendReceiptTransactionSqlBoundary() {
   assert.equal(transaction.sendRecord.receiptStatus, "confirmed");
   assert.match(calls[0].text, /^BEGIN;/);
   assert.match(calls[0].text, /UPDATE statement_send_records/);
+  assert.match(calls[0].text, /locked_send_record AS MATERIALIZED/);
+  assert.match(calls[0].text, /revision = statement_send_records\.revision \+ 1/);
+  assert.match(calls[0].text, /ERP_STATEMENT_SEND_RECORD_CONCURRENCY_CONFLICT/);
   assert.match(calls[0].text, /receipt_status/);
   assert.match(calls[0].text, /receipt_note/);
   assert.match(calls[0].text, /INSERT INTO operation_logs/);
@@ -263,6 +271,9 @@ async function checkPostgresStatementCustomerConfirmationTransactionSqlBoundary(
   assert.match(calls[0].text, /^BEGIN;/);
   assert.match(calls[0].text, /UPDATE statements/);
   assert.match(calls[0].text, /UPDATE statement_send_records/);
+  assert.match(calls[0].text, /locked_statement AS MATERIALIZED/);
+  assert.match(calls[0].text, /locked_send_record AS MATERIALIZED/);
+  assert.match(calls[0].text, /communication_write_guard AS MATERIALIZED/);
   assert.match(calls[0].text, /INSERT INTO statement_confirmation_records/);
   assert.match(calls[0].text, /attachment_ids_json/);
   assert.ok(calls[0].values.includes("record_statement_customer_confirmation"));
@@ -283,6 +294,87 @@ async function checkPostgresStatementCustomerConfirmationTransactionSqlBoundary(
   );
 }
 
+async function checkPostgresStatementCommunicationIdempotencyBoundary() {
+  const requests = [];
+  const before = buildStatement({ status: "待生成" });
+  const after = buildStatement({ status: "已发送待回款", lastSentAt: "2026-07-01T10:30:00.000Z" });
+  const sendRecord = buildSendRecord();
+  const receiptRecord = {
+    ...sendRecord,
+    receiptStatus: "read",
+    receiptAt: "2026-07-01T11:00:00.000Z",
+    receiptBy: "U-OFFICE-A",
+  };
+  const confirmationStatement = buildStatement({ status: "客户已确认", lastSentAt: "2026-07-01T10:30:00.000Z" });
+  const confirmationRecord = buildConfirmationRecord();
+  const repository = createPostgresStatementSendTransactionRepository({
+    transactionJson() {
+      throw new Error("plain transaction path must not be used");
+    },
+    async idempotentTransactionJson(request) {
+      requests.push(request);
+      if (request.scope === "statement.send.mark") {
+        return { statement: after, sendRecord, operationLogId: "LOG-SEND-TXN-001" };
+      }
+      if (request.scope === "statement.send.receipt") {
+        return { sendRecord: receiptRecord, operationLogId: "LOG-SEND-RECEIPT-TXN-001" };
+      }
+      return {
+        statement: confirmationStatement,
+        sendRecord: { ...receiptRecord, receiptStatus: "confirmed" },
+        confirmationRecord,
+        operationLogId: "LOG-SEND-CONFIRM-TXN-001",
+      };
+    },
+  });
+  const workspace = {
+    statements: [before],
+    statementSendRecords: [sendRecord],
+    statementConfirmationRecords: [],
+    operationLogs: [],
+  };
+
+  await repository.markStatementSent({
+    workspace,
+    statements: [after],
+    statement: after,
+    sendRecord,
+    operationLog: buildOperationLog({ before, after }),
+    idempotencyKey: "statement-send-idempotency-001",
+    idempotencyPayload: { statementId: before.id, channel: "wechat" },
+  });
+  await repository.markStatementSendReceipt({
+    workspace,
+    sendRecord: receiptRecord,
+    operationLog: buildReceiptOperationLog({ before: sendRecord, after: receiptRecord }),
+    idempotencyKey: "statement-receipt-idempotency-001",
+    idempotencyPayload: { sendRecordId: sendRecord.sendRecordId, receiptStatus: "read" },
+  });
+  await repository.recordStatementCustomerConfirmation({
+    workspace,
+    statements: [confirmationStatement],
+    statement: confirmationStatement,
+    sendRecord: { ...receiptRecord, receiptStatus: "confirmed" },
+    confirmationRecord,
+    operationLog: buildConfirmationOperationLog({
+      before: { statement: after, sendRecord: receiptRecord },
+      after: { statement: confirmationStatement, sendRecord: receiptRecord, confirmationRecord },
+    }),
+    idempotencyKey: "statement-confirmation-idempotency-001",
+    idempotencyPayload: { statementId: before.id, sendRecordId: sendRecord.sendRecordId },
+  });
+
+  assert.deepEqual(requests.map((request) => request.scope), [
+    "statement.send.mark",
+    "statement.send.receipt",
+    "statement.customer_confirmation.record",
+  ]);
+  assert.ok(requests[0].resourceLocks.includes(`statement:${before.id}`));
+  assert.ok(requests[1].resourceLocks.includes(`statement-send-record:${sendRecord.sendRecordId}`));
+  assert.ok(requests[2].resourceLocks.includes(`statement:${before.id}`));
+  assert.ok(requests[2].resourceLocks.includes(`statement-send-record:${sendRecord.sendRecordId}`));
+}
+
 function buildStatement(overrides = {}) {
   return {
     id: "ST-TXN-003",
@@ -292,6 +384,7 @@ function buildStatement(overrides = {}) {
     received: 0,
     variance: 1200,
     lastSentAt: overrides.lastSentAt ?? "",
+    revision: 1,
   };
 }
 
@@ -310,6 +403,7 @@ function buildSendRecord() {
     receiptAt: "",
     receiptBy: "",
     receiptNote: "",
+    revision: 1,
   };
 }
 

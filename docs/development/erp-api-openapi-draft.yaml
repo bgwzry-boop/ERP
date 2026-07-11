@@ -3088,10 +3088,12 @@ paths:
       summary: 生成对账单预览 / Excel 导出文件
       description: >
         返回浏览器预览数据，并生成客户发送版 / 内部留档版 Excel XML 文件供下载。
-        预览不等于已发送。
+        预览不等于已发送。正式环境使用认证会话作为创建人与审计操作人，并按
+        Idempotency-Key 原子保存导出元数据、明细和操作日志。
       operationId: previewStatement
       parameters:
         - $ref: "#/components/parameters/StatementId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: false
         content:
@@ -3162,9 +3164,11 @@ paths:
       summary: 标记对账单已发送
       description: >
         记录发送渠道、发送对象、发送人和时间。发送记录不自动确认收款。
+        正式环境使用认证会话作为发送人，并以幂等事务、资源锁和对账单 revision 防止重复或陈旧写入。
       operationId: markStatementSent
       parameters:
         - $ref: "#/components/parameters/StatementId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -3191,9 +3195,11 @@ paths:
       summary: 登记对账发送回执
       description: >
         在已有发送记录上登记客户已送达、已读、已确认或未回复等回执状态。该动作只更新发送归档，不自动确认收款。
+        回执人取认证会话，并以发送记录 revision 和 Idempotency-Key 防止重复或陈旧写入。
       operationId: recordStatementSendReceipt
       parameters:
         - $ref: "#/components/parameters/StatementId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -3221,9 +3227,11 @@ paths:
       description: >
         在已有发送记录上登记客户回复“没问题 / 确认”等确认内容，可关联聊天截图或其他附件 ID。
         该动作会把发送回执升级为 confirmed，并保留独立客户确认证据记录，但不自动确认收款。
+        记录人取认证会话；对账单、发送记录、确认记录和操作日志以幂等事务原子提交。
       operationId: recordStatementCustomerConfirmation
       parameters:
         - $ref: "#/components/parameters/StatementId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -3253,6 +3261,7 @@ paths:
       operationId: recordStatementPayment
       parameters:
         - $ref: "#/components/parameters/StatementId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -3283,6 +3292,7 @@ paths:
       operationId: handleStatementVariance
       parameters:
         - $ref: "#/components/parameters/StatementId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -3313,6 +3323,7 @@ paths:
       operationId: writeOffStatement
       parameters:
         - $ref: "#/components/parameters/StatementId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -4795,6 +4806,15 @@ components:
       bearerFormat: session-or-jwt
 
   parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: 生产业务写入必填；同一请求重试必须复用相同键。
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
     DraftId:
       name: draftId
       in: path
@@ -18632,6 +18652,8 @@ components:
           default: customer_send
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略该值并使用认证会话操作人。
 
     PreviewStatementResponse:
       type: object
@@ -18754,7 +18776,6 @@ components:
       required:
         - channel
         - sentAt
-        - operatorId
       properties:
         channel:
           type: string
@@ -18766,6 +18787,8 @@ components:
           format: date-time
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略该值并使用认证会话发送人。
         remark:
           type: string
         attachmentIds:
@@ -18777,7 +18800,6 @@ components:
       type: object
       required:
         - receiptStatus
-        - operatorId
       properties:
         sendRecordId:
           type: string
@@ -18790,6 +18812,8 @@ components:
           format: date-time
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略该值并使用认证会话回执人。
         remark:
           type: string
 
@@ -18838,7 +18862,6 @@ components:
     StatementCustomerConfirmationRequest:
       type: object
       required:
-        - operatorId
         - content
       properties:
         sendRecordId:
@@ -18867,6 +18890,8 @@ components:
             type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略该值并使用认证会话记录人。
         remark:
           type: string
 
@@ -18940,7 +18965,6 @@ components:
         - amount
         - paidAt
         - method
-        - operatorId
       properties:
         amount:
           type: number
@@ -18953,6 +18977,8 @@ components:
           enum: [cash, wechat, alipay, bank_transfer, other]
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略该值并使用认证会话财务操作人。
         attachmentIds:
           type: array
           items:
@@ -18987,7 +19013,6 @@ components:
         - varianceAmount
         - handlingResult
         - reason
-        - operatorId
       properties:
         statementId:
           type: string
@@ -19014,6 +19039,8 @@ components:
             type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略该值并使用认证会话财务操作人。
         confirmedBy:
           type: string
 
@@ -19042,13 +19069,14 @@ components:
       type: object
       required:
         - confirmReason
-        - operatorId
         - confirmedAt
       properties:
         confirmReason:
           type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略该值并使用认证会话财务操作人。
         confirmedAt:
           type: string
           format: date-time

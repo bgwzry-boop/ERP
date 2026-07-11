@@ -38,7 +38,6 @@ import { buildFulfillmentPrintTemplate, getDocumentType, getTemplateId } from ".
 import {
   STATEMENT_EXCEL_CONTENT_TYPE,
   STATEMENT_EXCEL_FILE_EXTENSION,
-  STATEMENT_EXCEL_TEMPLATE_VERSION,
   buildStatementExcelMetadata,
   buildStatementExcelWorkbookBase64,
   getStatementExcelTemplateId,
@@ -97,6 +96,7 @@ import { createProductionFinishedGoodsPhotoCommandService } from "./services/pro
 import { createProductionSchedulingCommandService } from "./services/productionSchedulingCommandService.mjs";
 import { createProductionReportingCommandService } from "./services/productionReportingCommandService.mjs";
 import { createPackingCommandService } from "./services/packingCommandService.mjs";
+import { createStatementCommunicationCommandService } from "./services/statementCommunicationCommandService.mjs";
 import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
 import { createProductionFinishedGoodsPhotoTransactionRepository } from "./productionFinishedGoodsPhotoTransactionRepository.mjs";
@@ -1111,8 +1111,10 @@ async function routeWrite(context) {
       workspace,
       body,
       permissionContext,
+      authContext,
       writeActionPermissions,
       requireActionPermission,
+      getPermissionOperatorId,
       previewStatementRoute,
       markStatementSentRoute,
       markStatementSendReceiptRoute,
@@ -16768,6 +16770,21 @@ const packingCommandService = createPackingCommandService({
   isReleasableInventoryReservation,
   resolvePersistableCreatedBy,
 });
+const statementCommunicationCommandService = createStatementCommunicationCommandService({
+  buildOperationLog,
+  buildStatementExportFile,
+  buildStatementPreviewLines,
+  findStatement,
+  getStatementExcelTemplateId,
+  mapStatementApiStatus,
+  markStatementSent,
+  nextId,
+  nextPlainId,
+  normalizeStatementSendReceiptStatus,
+  recordStatementCustomerConfirmation,
+  storeStatementExportFile,
+  toStatementExportSummary,
+});
 
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
   const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
@@ -17273,64 +17290,11 @@ async function completePackingTaskRoute({ response, workspace, packingTaskId, bo
   return sendJson(response, 200, result.response);
 }
 
-async function previewStatementRoute({ response, workspace, statementId, body }) {
-  const statement = findStatement(workspace, statementId);
-  if (!statement) return sendNotFound(response, "STATEMENT_NOT_FOUND");
-  const previewType = body.previewType === "internal_archive" ? "internal_archive" : "customer_send";
-  const templateId = getStatementExcelTemplateId(previewType);
-  const lines = buildStatementPreviewLines(workspace, statement);
-  const summary = {
-    receivable: Number(statement.receivable ?? 0),
-    received: Number(statement.received ?? 0),
-    variance: Number(statement.variance ?? Math.max(0, Number(statement.receivable ?? 0) - Number(statement.received ?? 0))),
-    lineCount: lines.length,
-  };
-  const downloadToken = nextPlainId(
-    "DL",
-    `${statementId}-${previewType}-${workspace.operationLogs.length + workspace.statementExportFiles.length + 1}`,
-  );
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "statement",
-    targetId: statementId,
-    action: "preview_statement",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
-    after: {
-      previewType,
-      templateId,
-      templateVersion: STATEMENT_EXCEL_TEMPLATE_VERSION,
-      lineCount: lines.length,
-      downloadToken,
-    },
-  });
-  const exportFile = await storeStatementExportFile(
-    workspace,
-    buildStatementExportFile(workspace, statement, {
-      previewType,
-      summary,
-      lines,
-      downloadToken,
-      operationLogId: operationLog.id,
-      createdBy: body.operatorId ?? "U-OFFICE-A",
-      templateId,
-    }),
-  );
-  const transaction = await workspace.statementExportRepository.createExportFile({
-    workspace,
-    exportFile,
-    statementLines: lines,
-    operationLog,
-  });
-
-  return sendJson(response, 200, {
-    statementId,
-    previewType,
-    templateId,
-    templateVersion: STATEMENT_EXCEL_TEMPLATE_VERSION,
-    summary,
-    lines,
-    downloadToken: transaction.exportFile.downloadToken,
-    operationLogId: transaction.operationLogId,
-  });
+async function previewStatementRoute({ response, workspace, statementId, body, operatorId }) {
+  const result = await statementCommunicationCommandService.previewStatement({ workspace, statementId, body, operatorId });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 async function downloadStatementExportRoute({ response, workspace, statementId, downloadToken }) {
@@ -17359,103 +17323,23 @@ async function listStatementExportsRoute({ response, workspace, statementId }) {
   });
 }
 
-async function markStatementSentRoute({ response, workspace, statementId, body }) {
-  const before = findStatement(workspace, statementId);
-  if (!before) return sendNotFound(response, "STATEMENT_NOT_FOUND");
-  const latestCustomerExport =
-    await workspace.statementExportRepository.findLatestExportFile({
-      workspace,
-      statementId,
-      previewType: "customer_send",
-    }) ?? null;
-  const sendRecord = {
-    sendRecordId: nextId("SEND", workspace.statementSendRecords),
-    statementId,
-    channel: body.channel ?? "wechat",
-    sentTo: body.sentTo ?? "",
-    exportFileId: body.exportFileId ?? latestCustomerExport?.downloadToken ?? "",
-    includePaymentQr: Boolean(body.includePaymentQr ?? false),
-    sentBy: body.operatorId ?? "U-OFFICE-A",
-    sentAt: body.sentAt ?? new Date().toISOString(),
-    remark: body.remark ?? "",
-  };
-  const nextStatements = markStatementSent(workspace.statements, statementId, {
-    sendRecordId: sendRecord.sendRecordId,
-    channel: body.channel ?? "wechat",
-    sentTo: sendRecord.sentTo,
-    sentAt: sendRecord.sentAt,
-    operatorName: body.operatorName ?? body.operatorId ?? "U-OFFICE-A",
-    remark: sendRecord.remark,
-    exportRecord: latestCustomerExport ? toStatementExportSummary(latestCustomerExport) : null,
-  });
-  const after = nextStatements.find((item) => item.id === statementId);
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "statement",
-    targetId: statementId,
-    action: "mark_statement_sent",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
-    before,
-    after,
-    reason: sendRecord.remark,
-  });
-  const transaction = await workspace.statementSendTransactionRepository.markStatementSent({
-    workspace,
-    statements: nextStatements,
-    statement: after,
-    sendRecord,
-    operationLog,
-  });
-  return sendJson(response, 200, {
-    statementId,
-    status: mapStatementApiStatus(transaction.statement.status),
-    sendRecordId: transaction.sendRecord.sendRecordId,
-    operationLogId: transaction.operationLogId,
-  });
+async function markStatementSentRoute({ response, workspace, statementId, body, operatorId }) {
+  const result = await statementCommunicationCommandService.markStatementSent({ workspace, statementId, body, operatorId });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
-async function markStatementSendReceiptRoute({ response, workspace, statementId, body }) {
-  const statement = findStatement(workspace, statementId);
-  if (!statement) return sendNotFound(response, "STATEMENT_NOT_FOUND");
-  const requestedSendRecordId = String(body.sendRecordId ?? "").trim();
-  const before =
-    (workspace.statementSendRecords ?? []).find((record) => record.sendRecordId === requestedSendRecordId) ??
-    (workspace.statementSendRecords ?? []).find((record) => record.statementId === statementId) ??
-    null;
-  if (!before) return sendBusinessError(response, 409, "STATEMENT_SEND_RECORD_NOT_FOUND", "当前对账单还没有可登记回执的发送记录。");
-
-  const receiptStatus = normalizeStatementSendReceiptStatus(body.receiptStatus ?? "read");
-  const receiptAt = body.receiptAt ?? new Date().toISOString();
-  const receiptBy = body.operatorId ?? "U-OFFICE-A";
-  const receiptNote = body.remark ?? "";
-  const after = {
-    ...before,
-    receiptStatus,
-    receiptAt,
-    receiptBy,
-    receiptNote,
-  };
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "statement_send_record",
-    targetId: before.sendRecordId,
-    action: "mark_statement_send_receipt",
-    operatorId: receiptBy,
-    before,
-    after,
-    reason: receiptNote,
-  });
-  const transaction = await workspace.statementSendTransactionRepository.markStatementSendReceipt({
+async function markStatementSendReceiptRoute({ response, workspace, statementId, body, operatorId }) {
+  const result = await statementCommunicationCommandService.markStatementSendReceipt({
     workspace,
-    sendRecord: after,
-    operationLog,
-  });
-  return sendJson(response, 200, {
     statementId,
-    status: mapStatementApiStatus(statement.status),
-    sendRecordId: transaction.sendRecord.sendRecordId,
-    receiptStatus: transaction.sendRecord.receiptStatus,
-    receiptAt: transaction.sendRecord.receiptAt,
-    operationLogId: transaction.operationLogId,
+    body,
+    operatorId,
   });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 function normalizeStatementSendReceiptStatus(value) {
@@ -17464,83 +17348,19 @@ function normalizeStatementSendReceiptStatus(value) {
   return "read";
 }
 
-async function recordStatementCustomerConfirmationRoute({ response, workspace, statementId, body }) {
-  const beforeStatement = findStatement(workspace, statementId);
-  if (!beforeStatement) return sendNotFound(response, "STATEMENT_NOT_FOUND");
-  const requestedSendRecordId = String(body.sendRecordId ?? "").trim();
-  const beforeSendRecord =
-    (workspace.statementSendRecords ?? []).find((record) => record.sendRecordId === requestedSendRecordId) ??
-    (workspace.statementSendRecords ?? []).find((record) => record.statementId === statementId) ??
-    null;
-  if (!beforeSendRecord) {
-    return sendBusinessError(response, 409, "STATEMENT_SEND_RECORD_NOT_FOUND", "当前对账单还没有可登记客户确认的发送记录。");
-  }
-
-  const confirmedAt = body.confirmedAt ?? new Date().toISOString();
-  const recordedBy = body.operatorId ?? "U-OFFICE-A";
-  const confirmationContent =
-    String(body.content ?? "").trim() || String(body.remark ?? "").trim() || "客户回复确认无误";
-  const attachmentIds = Array.isArray(body.attachmentIds)
-    ? body.attachmentIds.map((attachmentId) => String(attachmentId ?? "").trim()).filter(Boolean)
-    : [];
-  const confirmationRecord = {
-    confirmationRecordId: nextId("SCONF", workspace.statementConfirmationRecords ?? []),
-    statementId,
-    sendRecordId: beforeSendRecord.sendRecordId,
-    confirmationType: body.confirmationType ?? "customer_reply",
-    channel: body.channel ?? beforeSendRecord.channel ?? "wechat",
-    confirmedByCustomer: body.confirmedByCustomer ?? body.confirmedBy ?? beforeSendRecord.sentTo ?? "",
-    confirmedAt,
-    content: confirmationContent,
-    attachmentIds,
-    recordedBy,
-  };
-  const afterSendRecord = {
-    ...beforeSendRecord,
-    receiptStatus: "confirmed",
-    receiptAt: confirmedAt,
-    receiptBy: recordedBy,
-    receiptNote: confirmationContent,
-  };
-  const nextStatements = recordStatementCustomerConfirmation(workspace.statements, statementId, {
-    confirmationRecordId: confirmationRecord.confirmationRecordId,
-    channel: confirmationRecord.channel,
-    confirmedByCustomer: confirmationRecord.confirmedByCustomer,
-    confirmedAt,
-    content: confirmationContent,
-    attachmentIds,
-    operatorName: body.operatorName ?? recordedBy,
-  });
-  const afterStatement = nextStatements.find((item) => item.id === statementId);
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "statement",
-    targetId: statementId,
-    action: "record_statement_customer_confirmation",
-    operatorId: recordedBy,
-    before: { statement: beforeStatement, sendRecord: beforeSendRecord },
-    after: { statement: afterStatement, sendRecord: afterSendRecord, confirmationRecord },
-    reason: confirmationContent,
-  });
-  const transaction = await workspace.statementSendTransactionRepository.recordStatementCustomerConfirmation({
+async function recordStatementCustomerConfirmationRoute({ response, workspace, statementId, body, operatorId }) {
+  const result = await statementCommunicationCommandService.recordStatementCustomerConfirmation({
     workspace,
-    statements: nextStatements,
-    statement: afterStatement,
-    sendRecord: afterSendRecord,
-    confirmationRecord,
-    operationLog,
-  });
-  return sendJson(response, 200, {
     statementId,
-    status: mapStatementApiStatus(transaction.statement.status),
-    sendRecordId: transaction.sendRecord.sendRecordId,
-    receiptStatus: transaction.sendRecord.receiptStatus,
-    confirmationRecord: transaction.confirmationRecord,
-    confirmationRecordId: transaction.confirmationRecord.confirmationRecordId,
-    operationLogId: transaction.operationLogId,
+    body,
+    operatorId,
   });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
-async function recordStatementPaymentRoute({ response, workspace, statementId, body }) {
+async function recordStatementPaymentRoute({ response, workspace, statementId, body, operatorId }) {
   const statement = findStatement(workspace, statementId);
   if (!statement) return sendNotFound(response, "STATEMENT_NOT_FOUND");
   const result = confirmStatementPayment(workspace.statements, statement, { amount: body.amount, reason: body.remark ?? body.method });
@@ -17556,21 +17376,21 @@ async function recordStatementPaymentRoute({ response, workspace, statementId, b
     method: body.method ?? "other",
     status: "recorded",
     attachmentIds: body.attachmentIds ?? [],
-    operatorId: body.operatorId ?? "U-OFFICE-A",
+    operatorId,
     remark: body.remark ?? "",
   };
   const operationLog = buildOperationLog(workspace, {
     targetType: "statement",
     targetId: statementId,
     action: "record_statement_payment",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
+    operatorId,
     before: statement,
     after: nextStatement,
   });
   const transaction = await workspace.statementPaymentTransactionRepository.recordStatementPayment({
     workspace,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    idempotencyPayload: { ...body, operatorId },
     statements: result.statements,
     statement: nextStatement,
     paymentRecord,
@@ -17586,7 +17406,7 @@ async function recordStatementPaymentRoute({ response, workspace, statementId, b
   });
 }
 
-async function handleStatementVarianceRoute({ response, workspace, statementId, body }) {
+async function handleStatementVarianceRoute({ response, workspace, statementId, body, operatorId }) {
   const statement = findStatement(workspace, statementId);
   if (!statement) return sendNotFound(response, "STATEMENT_NOT_FOUND");
   const reason = mapVarianceHandlingResult(body.handlingResult, body.reason);
@@ -17604,13 +17424,13 @@ async function handleStatementVarianceRoute({ response, workspace, statementId, 
     reason,
     status: "recorded",
     attachmentId: Array.isArray(body.attachmentIds) ? body.attachmentIds[0] ?? "" : "",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
+    operatorId,
   };
   const operationLog = buildOperationLog(workspace, {
     targetType: "statement",
     targetId: statementId,
     action: "handle_statement_variance",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
+    operatorId,
     before: statement,
     after: nextStatement,
     reason,
@@ -17618,7 +17438,7 @@ async function handleStatementVarianceRoute({ response, workspace, statementId, 
   const transaction = await workspace.statementSettlementTransactionRepository.handleStatementVariance({
     workspace,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    idempotencyPayload: { ...body, operatorId },
     statements: result.statements,
     statement: nextStatement,
     varianceRecord,
@@ -17634,7 +17454,7 @@ async function handleStatementVarianceRoute({ response, workspace, statementId, 
   });
 }
 
-async function writeOffStatementRoute({ response, workspace, statementId, body }) {
+async function writeOffStatementRoute({ response, workspace, statementId, body, operatorId }) {
   const statement = findStatement(workspace, statementId);
   if (!statement) return sendNotFound(response, "STATEMENT_NOT_FOUND");
   const blockingAmount = Number(statement.variance ?? Math.max(0, statement.receivable - statement.received));
@@ -17646,7 +17466,7 @@ async function writeOffStatementRoute({ response, workspace, statementId, body }
     targetType: "statement",
     targetId: statementId,
     action: "write_off_statement",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
+    operatorId,
     before: statement,
     after: nextStatement,
     reason: body.confirmReason,
@@ -17654,7 +17474,7 @@ async function writeOffStatementRoute({ response, workspace, statementId, body }
   const transaction = await workspace.statementSettlementTransactionRepository.writeOffStatement({
     workspace,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    idempotencyPayload: { ...body, operatorId },
     statements: result.statements,
     statement: nextStatement,
     operationLog,
@@ -18663,7 +18483,7 @@ function buildStatementExportFile(workspace, statement, options = {}) {
   };
   const safeCustomerName = sanitizeDownloadFileName(customer.name ?? "customer");
   const fileName = `statement-${statement.id}-${safeCustomerName}${STATEMENT_EXCEL_FILE_EXTENSION}`;
-  const createdAt = new Date().toISOString();
+  const createdAt = options.createdAt ?? new Date().toISOString();
   const preview = {
     statementId: statement.id,
     previewType,

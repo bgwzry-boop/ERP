@@ -1,5 +1,6 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createStatementSendTransactionRepository(options = {}) {
   const mode =
@@ -13,6 +14,7 @@ export function createStatementSendTransactionRepository(options = {}) {
         options.databaseUrl ?? process.env.ERP_STATEMENT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -54,14 +56,28 @@ export function createLocalStatementSendTransactionRepository() {
 }
 
 export function createPostgresStatementSendTransactionRepository(options = {}) {
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
 
     async markStatementSent(input) {
       const query = buildMarkStatementSentTransactionQuery(input);
-      const saved = normalizeStatementSendTransactionResult(await transactionJson(query.text, query.values));
+      const statementId = input.statement?.id ?? input.statement?.statementId ?? "";
+      const saved = normalizeStatementSendTransactionResult(
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "statement.send.mark",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? { statementId, sendRecord: input.sendRecord },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "statement",
+            targetId: statementId,
+            resourceLocks: [`statement:${statementId}`],
+            query,
+          }),
+        ),
+      );
       if (!saved.statement || !saved.sendRecord) {
         throw new Error("PostgreSQL statement send transaction returned an invalid result");
       }
@@ -69,14 +85,27 @@ export function createPostgresStatementSendTransactionRepository(options = {}) {
         ...input,
         statement: saved.statement,
         sendRecord: saved.sendRecord,
+        operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return saved;
     },
 
     async markStatementSendReceipt(input) {
       const query = buildMarkStatementSendReceiptTransactionQuery(input);
+      const sendRecordId = input.sendRecord?.sendRecordId ?? input.sendRecord?.id ?? "";
       const saved = normalizeStatementSendReceiptTransactionResult(
-        await transactionJson(query.text, query.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "statement.send.receipt",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? { sendRecordId, sendRecord: input.sendRecord },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "statement_send_record",
+            targetId: sendRecordId,
+            resourceLocks: [`statement-send-record:${sendRecordId}`],
+            query,
+          }),
+        ),
       );
       if (!saved.sendRecord) {
         throw new Error("PostgreSQL statement send receipt transaction returned an invalid result");
@@ -84,14 +113,32 @@ export function createPostgresStatementSendTransactionRepository(options = {}) {
       applyStatementSendReceiptWorkspaceMutation({
         ...input,
         sendRecord: saved.sendRecord,
+        operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return saved;
     },
 
     async recordStatementCustomerConfirmation(input) {
       const query = buildRecordStatementCustomerConfirmationTransactionQuery(input);
+      const statementId = input.statement?.id ?? input.statement?.statementId ?? "";
+      const sendRecordId = input.sendRecord?.sendRecordId ?? input.sendRecord?.id ?? "";
       const saved = normalizeStatementCustomerConfirmationTransactionResult(
-        await transactionJson(query.text, query.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "statement.customer_confirmation.record",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? {
+              statementId,
+              sendRecordId,
+              confirmationRecord: input.confirmationRecord,
+            },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "statement",
+            targetId: statementId,
+            resourceLocks: [`statement:${statementId}`, `statement-send-record:${sendRecordId}`],
+            query,
+          }),
+        ),
       );
       if (!saved.statement || !saved.sendRecord || !saved.confirmationRecord) {
         throw new Error("PostgreSQL statement customer confirmation transaction returned an invalid result");
@@ -101,6 +148,7 @@ export function createPostgresStatementSendTransactionRepository(options = {}) {
         statement: saved.statement,
         sendRecord: saved.sendRecord,
         confirmationRecord: saved.confirmationRecord,
+        operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return saved;
     },
@@ -128,7 +176,13 @@ function buildMarkStatementSentTransactionText(input, parameters) {
   }
   return `
 BEGIN;
-WITH updated_statement AS (
+WITH locked_statement AS MATERIALIZED (
+  SELECT id, revision
+  FROM statements
+  WHERE id = ${parameters.text(statement.id)}
+  FOR UPDATE
+),
+updated_statement AS (
   UPDATE statements
   SET
     status = ${parameters.text(statement.status)},
@@ -136,9 +190,18 @@ WITH updated_statement AS (
     received_amount = ${parameters.number(statement.received)},
     variance_amount = ${parameters.number(statement.variance)},
     last_sent_at = ${parameters.timestamp(sendRecord.sentAt)},
+    revision = statements.revision + 1,
     updated_at = now()
-  WHERE id = ${parameters.text(statement.id)}
+  FROM locked_statement AS locked
+  WHERE statements.id = locked.id
+    AND locked.revision = ${parameters.integer(statement.revision)}
   RETURNING ${statementJsonExpression("statements")} AS result
+),
+statement_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM updated_statement) = 1,
+    'ERP_STATEMENT_CONCURRENCY_CONFLICT'
+  ) AS ok
 ),
 inserted_send_record AS (
   INSERT INTO statement_send_records (
@@ -150,8 +213,9 @@ inserted_send_record AS (
     include_payment_qr,
     sent_by,
     sent_at,
-    remark
-  ) VALUES (
+    remark,
+    revision
+  ) SELECT
     ${parameters.text(sendRecord.sendRecordId)},
     ${parameters.text(sendRecord.statementId)},
     ${parameters.text(sendRecord.channel)},
@@ -160,8 +224,10 @@ inserted_send_record AS (
     ${parameters.boolean(sendRecord.includePaymentQr)},
     ${parameters.nullableText(sendRecord.sentBy)},
     ${parameters.timestamp(sendRecord.sentAt)},
-    ${parameters.text(sendRecord.remark)}
-  )
+    ${parameters.text(sendRecord.remark)},
+    ${parameters.integer(sendRecord.revision)}
+  FROM statement_write_guard
+  WHERE ok
   ON CONFLICT (id) DO UPDATE SET
     statement_id = EXCLUDED.statement_id,
     channel = EXCLUDED.channel,
@@ -170,16 +236,18 @@ inserted_send_record AS (
     include_payment_qr = EXCLUDED.include_payment_qr,
     sent_by = EXCLUDED.sent_by,
     sent_at = EXCLUDED.sent_at,
-    remark = EXCLUDED.remark
+    remark = EXCLUDED.remark,
+    revision = statement_send_records.revision + 1
   RETURNING ${sendRecordJsonExpression("statement_send_records")} AS result
 ),
 inserted_operation_log AS (
-  ${buildInsertOperationLogSql(operationLog, parameters)}
+  ${buildInsertOperationLogSql(operationLog, parameters, "statement_write_guard")}
 )
 SELECT json_build_object(
   'statement', (SELECT result FROM updated_statement),
   'sendRecord', (SELECT result FROM inserted_send_record),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'writeGuard', (SELECT ok FROM statement_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -205,22 +273,38 @@ function buildMarkStatementSendReceiptTransactionText(input, parameters) {
   }
   return `
 BEGIN;
-WITH updated_send_record AS (
+WITH locked_send_record AS MATERIALIZED (
+  SELECT id, revision
+  FROM statement_send_records
+  WHERE id = ${parameters.text(sendRecord.sendRecordId)}
+  FOR UPDATE
+),
+updated_send_record AS (
   UPDATE statement_send_records
   SET
     receipt_status = ${parameters.text(sendRecord.receiptStatus)},
     receipt_at = ${parameters.timestamp(sendRecord.receiptAt)},
     receipt_by = ${parameters.nullableText(sendRecord.receiptBy)},
-    receipt_note = ${parameters.text(sendRecord.receiptNote)}
-  WHERE id = ${parameters.text(sendRecord.sendRecordId)}
+    receipt_note = ${parameters.text(sendRecord.receiptNote)},
+    revision = statement_send_records.revision + 1
+  FROM locked_send_record AS locked
+  WHERE statement_send_records.id = locked.id
+    AND locked.revision = ${parameters.integer(sendRecord.revision)}
   RETURNING ${sendRecordJsonExpression("statement_send_records")} AS result
 ),
+send_record_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM updated_send_record) = 1,
+    'ERP_STATEMENT_SEND_RECORD_CONCURRENCY_CONFLICT'
+  ) AS ok
+),
 inserted_operation_log AS (
-  ${buildInsertOperationLogSql(operationLog, parameters)}
+  ${buildInsertOperationLogSql(operationLog, parameters, "send_record_write_guard")}
 )
 SELECT json_build_object(
   'sendRecord', (SELECT result FROM updated_send_record),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'writeGuard', (SELECT ok FROM send_record_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
@@ -248,15 +332,30 @@ function buildRecordStatementCustomerConfirmationTransactionText(input, paramete
   }
   return `
 BEGIN;
-WITH updated_statement AS (
+WITH locked_statement AS MATERIALIZED (
+  SELECT id, revision
+  FROM statements
+  WHERE id = ${parameters.text(statement.id)}
+  FOR UPDATE
+),
+locked_send_record AS MATERIALIZED (
+  SELECT id, revision
+  FROM statement_send_records
+  WHERE id = ${parameters.text(sendRecord.sendRecordId)}
+  FOR UPDATE
+),
+updated_statement AS (
   UPDATE statements
   SET
     status = ${parameters.text(statement.status)},
     receivable_amount = ${parameters.number(statement.receivable)},
     received_amount = ${parameters.number(statement.received)},
     variance_amount = ${parameters.number(statement.variance)},
+    revision = statements.revision + 1,
     updated_at = now()
-  WHERE id = ${parameters.text(statement.id)}
+  FROM locked_statement AS locked
+  WHERE statements.id = locked.id
+    AND locked.revision = ${parameters.integer(statement.revision)}
   RETURNING ${statementJsonExpression("statements")} AS result
 ),
 updated_send_record AS (
@@ -265,9 +364,22 @@ updated_send_record AS (
     receipt_status = ${parameters.text(sendRecord.receiptStatus)},
     receipt_at = ${parameters.timestamp(sendRecord.receiptAt)},
     receipt_by = ${parameters.nullableText(sendRecord.receiptBy)},
-    receipt_note = ${parameters.text(sendRecord.receiptNote)}
-  WHERE id = ${parameters.text(sendRecord.sendRecordId)}
+    receipt_note = ${parameters.text(sendRecord.receiptNote)},
+    revision = statement_send_records.revision + 1
+  FROM locked_send_record AS locked
+  WHERE statement_send_records.id = locked.id
+    AND locked.revision = ${parameters.integer(sendRecord.revision)}
   RETURNING ${sendRecordJsonExpression("statement_send_records")} AS result
+),
+communication_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM updated_statement) = 1,
+    'ERP_STATEMENT_CONCURRENCY_CONFLICT'
+  )
+  AND erp_require(
+    (SELECT COUNT(*) FROM updated_send_record) = 1,
+    'ERP_STATEMENT_SEND_RECORD_CONCURRENCY_CONFLICT'
+  ) AS ok
 ),
 inserted_confirmation AS (
   INSERT INTO statement_confirmation_records (
@@ -283,7 +395,7 @@ inserted_confirmation AS (
     recorded_by,
     operation_log_id,
     created_at
-  ) VALUES (
+  ) SELECT
     ${parameters.text(confirmationRecord.confirmationRecordId)},
     ${parameters.text(confirmationRecord.statementId)},
     ${parameters.nullableText(confirmationRecord.sendRecordId)},
@@ -296,7 +408,8 @@ inserted_confirmation AS (
     ${parameters.nullableText(confirmationRecord.recordedBy)},
     ${parameters.text(operationLog.id)},
     now()
-  )
+  FROM communication_write_guard
+  WHERE ok
   ON CONFLICT (id) DO UPDATE SET
     statement_id = EXCLUDED.statement_id,
     send_record_id = EXCLUDED.send_record_id,
@@ -311,19 +424,33 @@ inserted_confirmation AS (
   RETURNING ${confirmationRecordJsonExpression("statement_confirmation_records")} AS result
 ),
 inserted_operation_log AS (
-  ${buildInsertOperationLogSql(operationLog, parameters)}
+  ${buildInsertOperationLogSql(operationLog, parameters, "communication_write_guard")}
 )
 SELECT json_build_object(
   'statement', (SELECT result FROM updated_statement),
   'sendRecord', (SELECT result FROM updated_send_record),
   'confirmationRecord', (SELECT result FROM inserted_confirmation),
-  'operationLogId', (SELECT id FROM inserted_operation_log)
+  'operationLogId', (SELECT id FROM inserted_operation_log),
+  'writeGuard', (SELECT ok FROM communication_write_guard)
 ) AS result;
 COMMIT;
 `.trim();
 }
 
-function buildInsertOperationLogSql(operationLog, parameters) {
+function buildInsertOperationLogSql(operationLog, parameters, guardCte = "") {
+  const values = `
+    ${parameters.text(operationLog.id)},
+    ${parameters.text(operationLog.targetType)},
+    ${parameters.text(operationLog.targetId)},
+    ${parameters.text(operationLog.action)},
+    ${parameters.json(operationLog.before)},
+    ${parameters.json(operationLog.after)},
+    ${parameters.text(operationLog.reason)},
+    ${parameters.nullableText(operationLog.operatorId)},
+    ${parameters.text(operationLog.pageKey)},
+    ${parameters.timestamp(operationLog.occurredAt)},
+    ${parameters.timestamp(operationLog.createdAt)}`;
+  const guardedValues = guardCte ? `SELECT${values}\n  FROM ${guardCte}\n  WHERE ok` : `VALUES (${values}\n  )`;
   return `INSERT INTO operation_logs (
   id,
   target_type,
@@ -336,19 +463,7 @@ function buildInsertOperationLogSql(operationLog, parameters) {
   page_key,
   occurred_at,
   created_at
-) VALUES (
-  ${parameters.text(operationLog.id)},
-  ${parameters.text(operationLog.targetType)},
-  ${parameters.text(operationLog.targetId)},
-  ${parameters.text(operationLog.action)},
-  ${parameters.json(operationLog.before)},
-  ${parameters.json(operationLog.after)},
-  ${parameters.text(operationLog.reason)},
-  ${parameters.nullableText(operationLog.operatorId)},
-  ${parameters.text(operationLog.pageKey)},
-  ${parameters.timestamp(operationLog.occurredAt)},
-  ${parameters.timestamp(operationLog.createdAt)}
-)
+) ${guardedValues}
 ON CONFLICT (id) DO UPDATE SET
   target_type = EXCLUDED.target_type,
   target_id = EXCLUDED.target_id,
@@ -396,16 +511,21 @@ export function normalizeStatementCustomerConfirmationTransactionResult(value) {
 
 function applyStatementSendWorkspaceMutation({ workspace, statements, statement, sendRecord, operationLog }) {
   if (Array.isArray(statements)) {
-    workspace.statements = statements;
+    workspace.statements = statements.map((item) =>
+      item.id === statement?.id ? { ...item, ...statement } : item,
+    );
   } else if (statement?.id) {
     workspace.statements = workspace.statements.map((item) => (item.id === statement.id ? { ...item, ...statement } : item));
   }
   const normalizedSendRecord = normalizeStatementSendRecord(sendRecord);
   if (normalizedSendRecord) {
     workspace.statementSendRecords = workspace.statementSendRecords ?? [];
-    workspace.statementSendRecords.unshift(normalizedSendRecord);
+    workspace.statementSendRecords = [
+      normalizedSendRecord,
+      ...workspace.statementSendRecords.filter((item) => item.sendRecordId !== normalizedSendRecord.sendRecordId),
+    ];
   }
-  if (operationLog) workspace.operationLogs.unshift(operationLog);
+  upsertOperationLog(workspace, operationLog);
 }
 
 function applyStatementSendReceiptWorkspaceMutation({ workspace, sendRecord, operationLog }) {
@@ -415,7 +535,7 @@ function applyStatementSendReceiptWorkspaceMutation({ workspace, sendRecord, ope
       item.sendRecordId === normalizedSendRecord.sendRecordId ? { ...item, ...normalizedSendRecord } : item,
     );
   }
-  if (operationLog) workspace.operationLogs.unshift(operationLog);
+  upsertOperationLog(workspace, operationLog);
 }
 
 function applyStatementCustomerConfirmationWorkspaceMutation({
@@ -427,7 +547,9 @@ function applyStatementCustomerConfirmationWorkspaceMutation({
   operationLog,
 }) {
   if (Array.isArray(statements)) {
-    workspace.statements = statements;
+    workspace.statements = statements.map((item) =>
+      item.id === statement?.id ? { ...item, ...statement } : item,
+    );
   } else if (statement?.id) {
     workspace.statements = workspace.statements.map((item) => (item.id === statement.id ? { ...item, ...statement } : item));
   }
@@ -440,9 +562,20 @@ function applyStatementCustomerConfirmationWorkspaceMutation({
   const normalizedConfirmationRecord = normalizeStatementConfirmationRecord(confirmationRecord);
   if (normalizedConfirmationRecord) {
     workspace.statementConfirmationRecords = workspace.statementConfirmationRecords ?? [];
-    workspace.statementConfirmationRecords.unshift(normalizedConfirmationRecord);
+    workspace.statementConfirmationRecords = [
+      normalizedConfirmationRecord,
+      ...workspace.statementConfirmationRecords.filter(
+        (item) => item.confirmationRecordId !== normalizedConfirmationRecord.confirmationRecordId,
+      ),
+    ];
   }
-  if (operationLog) workspace.operationLogs.unshift(operationLog);
+  upsertOperationLog(workspace, operationLog);
+}
+
+function upsertOperationLog(workspace, operationLog) {
+  if (!operationLog) return;
+  workspace.operationLogs = workspace.operationLogs ?? [];
+  workspace.operationLogs = [operationLog, ...workspace.operationLogs.filter((item) => item.id !== operationLog.id)];
 }
 
 function normalizeStatementForPersistence(statement) {
@@ -457,6 +590,7 @@ function normalizeStatementForPersistence(statement) {
     received: Number(statement.received ?? statement.receivedAmount ?? 0),
     variance: Number(statement.variance ?? statement.varianceAmount ?? 0),
     lastSentAt: statement.lastSentAt ?? statement.last_sent_at ?? statement.sentAt ?? "",
+    revision: Math.max(1, Number(statement.revision ?? 1) || 1),
   };
 }
 
@@ -472,6 +606,7 @@ function normalizeStatementForApi(statement) {
     received: Number(statement.received ?? statement.receivedAmount ?? statement.received_amount ?? 0),
     variance: Number(statement.variance ?? statement.varianceAmount ?? statement.variance_amount ?? 0),
     lastSentAt: String(statement.lastSentAt ?? statement.last_sent_at ?? "").trim(),
+    revision: Math.max(1, Number(statement.revision ?? 1) || 1),
   };
 }
 
@@ -494,6 +629,7 @@ function normalizeStatementSendRecord(record) {
     receiptAt: String(record.receiptAt ?? record.receipt_at ?? "").trim(),
     receiptBy: String(record.receiptBy ?? record.receipt_by ?? "").trim(),
     receiptNote: String(record.receiptNote ?? record.receipt_note ?? "").trim(),
+    revision: Math.max(1, Number(record.revision ?? 1) || 1),
   };
 }
 
@@ -554,7 +690,8 @@ function statementJsonExpression(alias) {
     'receivable', ${alias}.receivable_amount,
     'received', ${alias}.received_amount,
     'variance', ${alias}.variance_amount,
-    'lastSentAt', ${alias}.last_sent_at
+    'lastSentAt', ${alias}.last_sent_at,
+    'revision', ${alias}.revision
   )`;
 }
 
@@ -572,7 +709,8 @@ function sendRecordJsonExpression(alias) {
     'receiptStatus', ${alias}.receipt_status,
     'receiptAt', ${alias}.receipt_at,
     'receiptBy', ${alias}.receipt_by,
-    'receiptNote', ${alias}.receipt_note
+    'receiptNote', ${alias}.receipt_note,
+    'revision', ${alias}.revision
   )`;
 }
 

@@ -14,6 +14,7 @@ import {
 
 await checkLocalStatementExportRepository();
 await checkPostgresStatementExportSqlBoundary();
+await checkPostgresStatementExportIdempotencyBoundary();
 
 console.log(
   "Statement export repository check passed: local workspace mutation and PostgreSQL statement lines + metadata/content SQL are covered.",
@@ -144,6 +145,35 @@ async function checkPostgresStatementExportSqlBoundary() {
     statementId: exportFile.statementId,
     previewType: "customer_send",
   }).values, ["customer_send", exportFile.statementId]);
+}
+
+async function checkPostgresStatementExportIdempotencyBoundary() {
+  const requests = [];
+  const exportFile = buildExportFile();
+  const statementLines = buildStatementLines();
+  const operationLog = buildOperationLog();
+  const repository = createPostgresStatementExportRepository({
+    queryJson() {
+      return null;
+    },
+    async idempotentTransactionJson(request) {
+      requests.push(request);
+      return { exportFile, statementLines, operationLogId: operationLog.id };
+    },
+  });
+  const workspace = { statementExportFiles: [], statementLines: [], operationLogs: [] };
+  await repository.createExportFile({
+    workspace,
+    exportFile,
+    statementLines,
+    operationLog,
+    idempotencyKey: "statement-export-idempotency-001",
+    idempotencyPayload: { statementId: exportFile.statementId, previewType: exportFile.previewType },
+  });
+
+  assert.equal(requests[0].scope, "statement.export.create");
+  assert.ok(requests[0].resourceLocks.includes(`statement:${exportFile.statementId}`));
+  assert.equal(requests[0].operatorId, operationLog.operatorId);
 }
 
 function buildExportFile(overrides = {}) {

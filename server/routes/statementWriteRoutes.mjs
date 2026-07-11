@@ -5,8 +5,10 @@ export async function handleStatementWriteRoutes({
   workspace,
   body,
   permissionContext,
+  authContext,
   writeActionPermissions,
   requireActionPermission,
+  getPermissionOperatorId,
   previewStatementRoute,
   markStatementSentRoute,
   markStatementSendReceiptRoute,
@@ -22,17 +24,22 @@ export async function handleStatementWriteRoutes({
 
   const statementId = decodeURIComponent(match[1]);
   const action = match[2];
+  const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A");
+  const routeInput = { response, workspace, statementId, body, operatorId };
   const routes = {
-    preview: { permission: writeActionPermissions.previewStatement, run: previewStatementRoute },
-    "mark-sent": { permission: writeActionPermissions.markStatementSent, run: markStatementSentRoute },
-    "send-receipt": { permission: writeActionPermissions.markStatementSent, run: markStatementSendReceiptRoute },
-    "customer-confirmation": { permission: writeActionPermissions.markStatementSent, run: recordStatementCustomerConfirmationRoute },
-    payments: { permission: writeActionPermissions.recordStatementPayment, run: recordStatementPaymentRoute },
-    variance: { permission: writeActionPermissions.handleStatementVariance, run: handleStatementVarianceRoute },
-    "write-off": { permission: writeActionPermissions.writeOffStatement, run: writeOffStatementRoute },
+    preview: { permission: writeActionPermissions.previewStatement, run: () => previewStatementRoute(routeInput) },
+    "mark-sent": { permission: writeActionPermissions.markStatementSent, run: () => markStatementSentRoute(routeInput) },
+    "send-receipt": { permission: writeActionPermissions.markStatementSent, run: () => markStatementSendReceiptRoute(routeInput) },
+    "customer-confirmation": {
+      permission: writeActionPermissions.markStatementSent,
+      run: () => recordStatementCustomerConfirmationRoute(routeInput),
+    },
+    payments: { permission: writeActionPermissions.recordStatementPayment, run: () => recordStatementPaymentRoute(routeInput) },
+    variance: { permission: writeActionPermissions.handleStatementVariance, run: () => handleStatementVarianceRoute(routeInput) },
+    "write-off": { permission: writeActionPermissions.writeOffStatement, run: () => writeOffStatementRoute(routeInput) },
   };
   const route = routes[action];
   if (!requireActionPermission(response, permissionContext, route.permission)) return true;
-  await route.run({ response, workspace, statementId, body });
+  await route.run();
   return true;
 }

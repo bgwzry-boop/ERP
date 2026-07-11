@@ -77,7 +77,7 @@
     "raw-material-inbound-list-state:check": "node scripts/check-raw-material-inbound-list-state.mjs",
     "workshop-mobile-api:check": "node scripts/check-workshop-mobile-production-packing.mjs",
     "driver-mobile-api:check": "node scripts/check-driver-read-routes.mjs && node scripts/check-driver-write-routes.mjs && node scripts/check-frontend-driver-mobile-api-client.mjs",
-    "statement-api:check": "node scripts/check-statement-read-routes.mjs && node scripts/check-statement-write-routes.mjs && node scripts/check-frontend-statement-api-client.mjs",
+    "statement-api:check": "node scripts/check-statement-read-routes.mjs && node scripts/check-statement-write-routes.mjs && node scripts/check-statement-communication-command-service.mjs && node scripts/check-frontend-statement-api-client.mjs",
     "attachment-api:check": "node scripts/check-attachment-read-routes.mjs && node scripts/check-attachment-write-routes.mjs && node scripts/check-frontend-attachment-api-client.mjs",
     "payment-repository:check": "node scripts/check-payment-record-repository.mjs",
     "statement-payment-transaction:check": "node scripts/check-statement-payment-transaction-repository.mjs",
