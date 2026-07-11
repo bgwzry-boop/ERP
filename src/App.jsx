@@ -100,9 +100,6 @@ import {
   findProductionInventoryItem,
   getOfficePackingTaskDetail,
   getOfficeProductionTaskDetail,
-  listOfficePackingTasks,
-  listOfficeProductionMachineQueue,
-  listOfficeProductionTasks,
   moveOfficeProductionMachineQueueItem,
   publishOfficeProductionSchedule,
   resequenceOfficeProductionMachineQueue,
@@ -235,12 +232,9 @@ import {
 import {
   applyPrintRecordProjection,
   buildFulfillmentFromPacking,
-  buildProductionTaskListQueryForPage,
   cleanProductionPackingText,
   findFulfillmentForPrintTodo,
   inferPackageCountFromQty,
-  mapPackingTaskListItemToTask,
-  mapProductionTaskListItemToLine,
   toProductionPackingNumber,
   upsertPackingTask,
   upsertProductionTaskLine,
@@ -754,6 +748,7 @@ export function App() {
   const {
     refreshTodos, refreshOrderPool, refreshInventoryRecords, refreshFulfillments,
     refreshDriverDeliveryTasks, refreshRawMaterialInbounds, refreshRawMaterialSupplierStatementReviews,
+    refreshProductionPackingTaskLists,
     todos, setTodos, todoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
@@ -824,8 +819,10 @@ export function App() {
     selectedStockIdRef, inventoryLedgerFiltersRef, printerDeviceQaSelectedIdRef,
     printJobQueueItemsRef, paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
   } = useOfficeWorkspace({
+    activePage,
     authState,
     customers,
+    currentUser,
     currentUserId,
     defaultSelections,
     initialFulfillments,
@@ -3940,95 +3937,6 @@ export function App() {
     return result;
   }, [authState, currentUserId]);
 
-  const refreshProductionPackingTaskLists = useCallback(async ({ showToast = false } = {}) => {
-    setProductionPacking((current) => ({
-      ...current,
-      taskListLoading: true,
-      taskListError: "",
-      scheduleQueueError: "",
-    }));
-
-    const productionTaskQuery = buildProductionTaskListQueryForPage(activePage, currentUser, currentUserId);
-    const scheduleQueueQuery = {
-      status: "open",
-      pageSize: 200,
-      ...(productionTaskQuery.machineId ? { machineId: productionTaskQuery.machineId } : {}),
-    };
-
-    const [productionResult, packingResult, scheduleQueueResult] = await Promise.all([
-      listOfficeProductionTasks({
-        authState,
-        operatorId: currentUserId,
-        query: productionTaskQuery,
-      }),
-      listOfficePackingTasks({
-        authState,
-        operatorId: currentUserId,
-        query: { pageSize: 200 },
-      }),
-      listOfficeProductionMachineQueue({
-        authState,
-        operatorId: currentUserId,
-        query: scheduleQueueQuery,
-      }),
-    ]);
-
-    const lastSyncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-    const errorMessages = [productionResult, packingResult, scheduleQueueResult]
-      .map((result) => {
-        if (!result?.error) return "";
-        if (result.error.requiredPermission) return `缺少权限 ${result.error.requiredPermission}`;
-        return result.error.message ?? "";
-      })
-      .filter(Boolean);
-    const taskListSource =
-      productionResult.source === "api" || packingResult.source === "api"
-        ? "api"
-        : productionResult.source === "api_error" || packingResult.source === "api_error"
-          ? "api_error"
-          : "local_fallback";
-
-    setProductionPacking((current) => ({
-      ...current,
-      productionTasks:
-        productionResult.source === "api"
-          ? productionResult.items.map((item) => mapProductionTaskListItemToLine(item, orderLinesRef.current)).filter((item) => item.id)
-          : current.productionTasks ?? [],
-      packingTasks:
-        packingResult.source === "api"
-          ? packingResult.items.map((item) => mapPackingTaskListItemToTask(item, orderLinesRef.current)).filter((item) => item.packingTaskId)
-          : current.packingTasks ?? [],
-      taskListSource,
-      taskListLoading: false,
-      taskListError: errorMessages.join("；"),
-      taskListLastSyncedAt: lastSyncedAt,
-      productionTaskTotal: productionResult.source === "api" ? productionResult.total : current.productionTaskTotal ?? 0,
-      packingTaskTotal: packingResult.source === "api" ? packingResult.total : current.packingTaskTotal ?? current.packingTasks?.length ?? 0,
-      scheduleQueueItems: scheduleQueueResult.source === "api" ? scheduleQueueResult.items : current.scheduleQueueItems ?? [],
-      scheduleQueueMachines: scheduleQueueResult.source === "api" ? scheduleQueueResult.machines : current.scheduleQueueMachines ?? [],
-      scheduleQueueTotal: scheduleQueueResult.source === "api" ? scheduleQueueResult.total : current.scheduleQueueTotal ?? 0,
-      scheduleQueueSource: scheduleQueueResult.source ?? "local_fallback",
-      scheduleQueueError: scheduleQueueResult.error ? scheduleQueueResult.error.message ?? "" : "",
-      scheduleQueueLastSyncedAt: scheduleQueueResult.source === "api" ? lastSyncedAt : current.scheduleQueueLastSyncedAt ?? "",
-      scheduleQueueNote: scheduleQueueResult.source === "api" ? scheduleQueueResult.note : current.scheduleQueueNote ?? "",
-    }));
-
-    if (showToast) {
-      if (productionResult.blocked || packingResult.blocked || scheduleQueueResult.blocked) {
-        setToast(`后端拒绝刷新生产 / 打包任务池：${errorMessages.join("；") || "未知错误"}。`);
-      } else {
-        const sourceLabel = taskListSource === "api" ? "后端 API" : "本地规则降级";
-        const scopeLabel =
-          activePage === "workshopMobile" && productionTaskQuery.machineId
-            ? `，车间机台 ${productionTaskQuery.machineId}`
-            : "";
-        setToast(`生产 / 打包任务池已通过${sourceLabel}刷新${scopeLabel}：生产 ${productionResult.total} 条，打包 ${packingResult.total} 条，排产队列 ${scheduleQueueResult.total} 条。`);
-      }
-    }
-
-    return { production: productionResult, packing: packingResult, scheduleQueue: scheduleQueueResult, source: taskListSource };
-  }, [activePage, authState, currentUser, currentUserId]);
-
   const refreshPrintDriverConfig = useCallback(async ({ showToast = false } = {}) => {
     setPrintDriverConfig((current) => ({
       ...current,
@@ -4974,7 +4882,9 @@ export function App() {
         });
         return;
       }
-      void refreshProductionPackingTaskLists({ showToast: true });
+      void refreshProductionPackingTaskLists({ showToast: true }).then((result) => {
+        if (result?.feedback) setToast(result.feedback);
+      });
       return;
     }
     setToast(`${activeMeta.label} 已刷新本地假数据。`);

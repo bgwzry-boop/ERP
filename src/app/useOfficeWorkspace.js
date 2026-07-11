@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useOfficeCoreReads } from "./useOfficeCoreReads.js";
+import { useOfficeProductionReads } from "./useOfficeProductionReads.js";
 import { useOfficeRoleToolReads } from "./useOfficeRoleToolReads.js";
 import { buildPackingTaskId } from "../services/officeProductionPackingApiClient.js";
 import {
@@ -57,8 +58,10 @@ function createGoLiveStatusState() {
 }
 
 export function useOfficeWorkspace({
+  activePage,
   authState,
   customers,
+  currentUser,
   currentUserId,
   defaultSelections,
   initialFulfillments,
@@ -368,10 +371,19 @@ export function useOfficeWorkspace({
     setRawMaterialSupplierStatementReviews,
     setRawMaterialSupplierStatementReviewMeta,
   });
+  const productionReads = useOfficeProductionReads({
+    activePage,
+    authState,
+    currentUser,
+    currentUserId,
+    orderLinesRef,
+    setProductionPacking,
+  });
 
   return {
     ...coreReads,
     ...roleToolReads,
+    ...productionReads,
     todos, setTodos, todoMeta, setTodoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
