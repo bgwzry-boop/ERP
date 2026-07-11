@@ -68,11 +68,6 @@ import {
 } from "./services/officeTodoApiClient.js";
 import { createOfficePrintBatchRecord } from "./services/officePrintBatchApiClient.js";
 import {
-  confirmOfficeInventoryCorrectionDraft,
-  createOfficeInventoryCorrectionDraft,
-  getOfficeInventoryCorrectionDetail,
-} from "./services/officeInventoryApiClient.js";
-import {
   completeOfficeFulfillment,
   confirmOfficeFulfillmentPickup,
   createOfficeFulfillmentException,
@@ -689,6 +684,7 @@ export function App() {
     refreshOfficePrintJobQueue, refreshPrintDriverConfig, refreshPrintDriverCupsDiagnostics,
     refreshPrintDriverReadiness, refreshPrinterDeviceQa,
     refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries,
+    loadInventoryCorrectionDetail, createInventoryCorrectionDraft, confirmInventoryCorrectionDraft,
     refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
     refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
     executeOrderEntryAction, executeOrderLineAction, recognizeOrderDraft,
@@ -702,9 +698,8 @@ export function App() {
     selectedOrderId, setSelectedOrderId,
     inventoryRecords, setInventoryRecords, inventoryMeta,
     inventoryLedgerState, inventoryLedgerFilters, setInventoryLedgerFilters,
-    inventoryCorrectionDetailState, setInventoryCorrectionDetailState,
-    setInventoryCorrectionDrafts,
-    inventoryCorrectionQueueState, setInventoryCorrectionQueueState,
+    inventoryCorrectionDetailState,
+    inventoryCorrectionQueueState,
     selectedStockId, setSelectedStockId,
     fulfillmentTab, setFulfillmentTab, fulfillments, setFulfillments,
     selectedFulfillmentId, setSelectedFulfillmentId,
@@ -758,7 +753,7 @@ export function App() {
     v1ReleaseCandidateRefreshPrecheckAction, setV1ReleaseCandidateRefreshPrecheckAction,
     v1ReleaseCandidateRefreshAction, setV1ReleaseCandidateRefreshAction,
     orderLinesRef, rawMaterialInboundsRef,
-    rawMaterialSupplierStatementReviewsRef, inventoryCorrectionDraftsRef,
+    rawMaterialSupplierStatementReviewsRef,
     selectedStockIdRef, printerDeviceQaSelectedIdRef,
     paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
   } = useOfficeWorkspace({
@@ -4447,54 +4442,10 @@ export function App() {
   }
 
   async function openInventoryCorrectionDetail(correctionDraftId, sourceEntry = null) {
-    const safeCorrectionDraftId = String(correctionDraftId ?? "").trim();
-    if (!safeCorrectionDraftId) {
-      setToast("库存流水缺少修正草稿 ID，无法查看修正详情。");
-      return null;
-    }
     setActivePage("inventory");
-    setInventoryCorrectionDetailState((current) => ({
-      ...current,
-      requestedId: safeCorrectionDraftId,
-      loading: true,
-      error: "",
-    }));
-
-    const result = await getOfficeInventoryCorrectionDetail({
-      authState,
-      operatorId: currentUserId,
-      correctionDraftId: safeCorrectionDraftId,
-      sourceEntry,
-      localLedgerEntries: inventoryLedgerState.items,
-    });
-
-    if (result.blocked) {
-      const message = result.error?.requiredPermission
-        ? `后端拒绝读取库存修正详情：缺少权限 ${result.error.requiredPermission}。`
-        : `后端拒绝读取库存修正详情：${result.error?.message ?? "未知错误"}`;
-      setInventoryCorrectionDetailState({
-        source: result.source,
-        detail: null,
-        requestedId: safeCorrectionDraftId,
-        loading: false,
-        error: message,
-        lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-      });
-      setToast(message);
-      return null;
-    }
-
-    setInventoryCorrectionDetailState({
-      source: result.source,
-      detail: result.detail,
-      requestedId: safeCorrectionDraftId,
-      loading: false,
-      error: "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    });
-    const sourceLabel = result.source === "api" ? "后端 API" : "本地降级";
-    setToast(`已通过${sourceLabel}打开库存修正 ${safeCorrectionDraftId}。`);
-    return result.detail;
+    const result = await loadInventoryCorrectionDetail(correctionDraftId, sourceEntry, { showToast: true });
+    if (result?.feedback) setToast(result.feedback);
+    return result?.detail ?? null;
   }
 
   async function loadProductionPackingSourceDetail(focusTarget) {
@@ -4971,98 +4922,16 @@ export function App() {
 
   async function handleInventoryCorrectionDraft({ stock, actualQty, reason }) {
     if (!guardUiAction("inventory", "生成修正草稿")) return null;
-    const apiResult = await createOfficeInventoryCorrectionDraft({
-      authState,
-      stock,
-      expectedQty: stock.inStock,
-      actualQty,
-      reason,
-      operatorId: currentUserId,
-      remark: `${currentUser.displayName} 在库存查询页发起：${reason}`,
-    });
-    if (apiResult.blocked) {
-      setToast(
-        apiResult.error?.requiredPermission
-          ? `后端拒绝生成库存修正草稿：缺少权限 ${apiResult.error.requiredPermission}。`
-          : `后端拒绝生成库存修正草稿：${apiResult.error?.message ?? "未知错误"}`,
-      );
-      return null;
-    }
-    const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-    const nextDrafts = [
-      apiResult.draft,
-      ...inventoryCorrectionDraftsRef.current.filter((item) => item.id !== apiResult.draft.id && item.correctionDraftId !== apiResult.draft.id),
-    ];
-    inventoryCorrectionDraftsRef.current = nextDrafts;
-    setInventoryCorrectionDrafts(nextDrafts);
-    setInventoryCorrectionQueueState((current) => ({
-      ...current,
-      items: nextDrafts.filter((item) => item.status === "待确认生效"),
-      total: nextDrafts.filter((item) => item.status === "待确认生效").length,
-      source: apiResult.source === "api" ? current.source : "local_fallback",
-    }));
-    void refreshInventoryCorrectionQueue({ showToast: false });
-    setToast(`已通过${sourceLabel}生成库存修正草稿 ${apiResult.draft.id}，未修改库存总数，需有库存调整确认权限账号确认后生效。`);
-    return apiResult.draft;
+    const result = await createInventoryCorrectionDraft({ stock, actualQty, reason });
+    if (result?.feedback) setToast(result.feedback);
+    return result?.blocked ? null : result?.draft ?? null;
   }
 
   async function handleInventoryCorrectionConfirm(draft) {
     if (!guardUiAction("inventory", "确认修正生效")) return null;
-    const correctionDraftId = String(draft?.correctionDraftId ?? draft?.id ?? "").trim();
-    if (!correctionDraftId) {
-      setToast("缺少库存修正草稿 ID，无法确认。");
-      return null;
-    }
-    setInventoryCorrectionQueueState((current) => ({ ...current, confirmingId: correctionDraftId, error: "" }));
-    const result = await confirmOfficeInventoryCorrectionDraft({
-      authState,
-      operatorId: currentUserId,
-      correctionDraftId,
-      approvalReason: `${currentUser.displayName} 在库存查询页确认库存修正生效`,
-    });
-
-    if (result.blocked) {
-      const message = result.error?.requiredPermission
-        ? `后端拒绝确认库存修正：缺少权限 ${result.error.requiredPermission}。`
-        : `后端拒绝确认库存修正：${result.error?.message ?? "未知错误"}`;
-      setInventoryCorrectionQueueState((current) => ({
-        ...current,
-        confirmingId: "",
-        error: message,
-      }));
-      setToast(message);
-      return null;
-    }
-
-    const confirmation = result.confirmation;
-    const targetStockId = confirmation?.inventoryItemId || draft?.inventoryItemId || selectedStockIdRef.current;
-    const nextDrafts = inventoryCorrectionDraftsRef.current.map((item) =>
-      (item.id === correctionDraftId || item.correctionDraftId === correctionDraftId)
-        ? { ...item, status: "已确认生效", confirmedBy: currentUserId, confirmedByName: currentUser.displayName }
-        : item,
-    );
-    inventoryCorrectionDraftsRef.current = nextDrafts;
-    setInventoryCorrectionDrafts(nextDrafts);
-    setInventoryCorrectionQueueState((current) => ({
-      ...current,
-      items: current.items.filter((item) => item.id !== correctionDraftId && item.correctionDraftId !== correctionDraftId),
-      total: Math.max(0, current.total - 1),
-      confirmingId: "",
-      error: "",
-    }));
-    if (targetStockId) {
-      selectedStockIdRef.current = targetStockId;
-      setSelectedStockId(targetStockId);
-    }
-    await refreshInventoryRecords({ showToast: false });
-    if (targetStockId) {
-      await refreshInventoryLedgerEntries({ stockId: targetStockId, showToast: false });
-    }
-    await refreshInventoryCorrectionQueue({ showToast: false });
-    await openInventoryCorrectionDetail(correctionDraftId, confirmation?.ledger);
-    const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-    setToast(`已通过${sourceLabel}确认库存修正 ${correctionDraftId}，库存数量、流水和公共待办已同步。`);
-    return confirmation;
+    const result = await confirmInventoryCorrectionDraft(draft);
+    if (result?.feedback) setToast(result.feedback);
+    return result?.blocked ? null : result?.confirmation ?? null;
   }
 
   async function updateFulfillment(action, fulfillmentId = selectedFulfillmentId, actionPayload = {}) {

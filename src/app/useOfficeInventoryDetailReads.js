@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import {
+  getOfficeInventoryCorrectionDetail,
   listOfficeInventoryCorrectionDrafts,
   listOfficeInventoryLedgerEntries,
 } from "../services/officeInventoryApiClient.js";
@@ -52,6 +53,7 @@ export function buildInventoryLedgerApiFilters(stockId, filters = {}) {
 }
 
 const defaultApi = {
+  getOfficeInventoryCorrectionDetail,
   listOfficeInventoryCorrectionDrafts,
   listOfficeInventoryLedgerEntries,
 };
@@ -61,13 +63,76 @@ export function createOfficeInventoryDetailReadActions({
   authState,
   currentUserId,
   inventoryCorrectionDraftsRef,
+  inventoryLedgerEntriesRef,
   inventoryLedgerFiltersRef,
   selectedStockIdRef,
   serverRequired = isOfficeApiServerRequired,
   setInventoryCorrectionDrafts,
+  setInventoryCorrectionDetailState,
   setInventoryCorrectionQueueState,
   setInventoryLedgerState,
 }) {
+  async function loadInventoryCorrectionDetail(correctionDraftId, sourceEntry = null, { showToast = false } = {}) {
+    const safeCorrectionDraftId = String(correctionDraftId ?? "").trim();
+    if (!safeCorrectionDraftId) {
+      const feedback = "库存流水缺少修正草稿 ID，无法查看修正详情。";
+      setInventoryCorrectionDetailState((current) => ({
+        ...current,
+        detail: null,
+        requestedId: "",
+        loading: false,
+        error: feedback,
+      }));
+      return withFeedback(
+        { source: "ui_error", blocked: true, detail: null, error: { code: "INVENTORY_CORRECTION_DRAFT_ID_REQUIRED", message: feedback } },
+        showToast,
+        feedback,
+      );
+    }
+
+    setInventoryCorrectionDetailState((current) => ({
+      ...current,
+      requestedId: safeCorrectionDraftId,
+      loading: true,
+      error: "",
+    }));
+    const result = normalizeReadResultForRuntime(
+      await api.getOfficeInventoryCorrectionDetail({
+        authState,
+        operatorId: currentUserId,
+        correctionDraftId: safeCorrectionDraftId,
+        sourceEntry,
+        localCorrectionDrafts: inventoryCorrectionDraftsRef.current,
+        localLedgerEntries: inventoryLedgerEntriesRef.current,
+      }),
+      { label: "库存修正详情", serverRequired },
+    );
+    const lastSyncedAt = formatSyncTime();
+    if (result.blocked || !result.detail) {
+      const errorMessage = getErrorMessage(result, "库存修正详情 API 返回错误。");
+      setInventoryCorrectionDetailState({
+        source: result.source,
+        detail: null,
+        requestedId: safeCorrectionDraftId,
+        loading: false,
+        error: errorMessage,
+        lastSyncedAt,
+      });
+      return withFeedback(result, showToast, `后端拒绝读取库存修正详情：${errorMessage || "未知错误"}。`);
+    }
+
+    setInventoryCorrectionDetailState({
+      source: result.source,
+      detail: result.detail,
+      requestedId: safeCorrectionDraftId,
+      loading: false,
+      error: result.error?.message ?? "",
+      lastSyncedAt,
+    });
+    const sourceLabel = result.source === "api" ? "后端 API" : "本地降级";
+    return withFeedback(result, showToast, `已通过${sourceLabel}打开库存修正 ${safeCorrectionDraftId}。`);
+  }
+
   async function refreshInventoryLedgerEntries({
     stockId = selectedStockIdRef.current,
     filters = inventoryLedgerFiltersRef.current,
@@ -175,7 +240,7 @@ export function createOfficeInventoryDetailReadActions({
     );
   }
 
-  return { refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries };
+  return { loadInventoryCorrectionDetail, refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries };
 }
 
 export function useOfficeInventoryDetailReads(options) {
@@ -184,11 +249,19 @@ export function useOfficeInventoryDetailReads(options) {
     authState,
     currentUserId,
     inventoryCorrectionDraftsRef,
+    inventoryLedgerEntriesRef,
     inventoryLedgerFiltersRef,
     selectedStockIdRef,
     serverRequired,
   } = options;
   return {
+    loadInventoryCorrectionDetail: useCallback(actions.loadInventoryCorrectionDetail, [
+      authState,
+      currentUserId,
+      inventoryCorrectionDraftsRef,
+      inventoryLedgerEntriesRef,
+      serverRequired,
+    ]),
     refreshInventoryLedgerEntries: useCallback(actions.refreshInventoryLedgerEntries, [
       authState,
       currentUserId,

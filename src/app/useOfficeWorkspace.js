@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useOfficeCoreReads } from "./useOfficeCoreReads.js";
 import { useOfficeInventoryDetailReads } from "./useOfficeInventoryDetailReads.js";
+import { useOfficeInventoryWrites } from "./useOfficeInventoryWrites.js";
 import { useOfficeMasterDataReads } from "./useOfficeMasterDataReads.js";
 import { useOfficeOrderWrites } from "./useOfficeOrderWrites.js";
 import { useOfficePrintReads } from "./useOfficePrintReads.js";
@@ -309,6 +310,7 @@ export function useOfficeWorkspace({
   const statementsRef = useRef(initialStatements);
   const selectedStatementIdRef = useRef(defaultSelections.statementId);
   const inventoryCorrectionDraftsRef = useRef([]);
+  const inventoryLedgerEntriesRef = useRef([]);
   const masterDataImportReviewDraftsRef = useRef([]);
   const masterDataEmployeeAccountReviewsRef = useRef([]);
   const selectedStockIdRef = useRef(defaultSelections.stockId);
@@ -348,6 +350,9 @@ export function useOfficeWorkspace({
   useEffect(() => {
     inventoryCorrectionDraftsRef.current = inventoryCorrectionDrafts;
   }, [inventoryCorrectionDrafts]);
+  useEffect(() => {
+    inventoryLedgerEntriesRef.current = inventoryLedgerState.items;
+  }, [inventoryLedgerState.items]);
   useEffect(() => {
     masterDataImportReviewDraftsRef.current = masterDataImportReviewDrafts;
   }, [masterDataImportReviewDrafts]);
@@ -427,11 +432,28 @@ export function useOfficeWorkspace({
     authState,
     currentUserId,
     inventoryCorrectionDraftsRef,
+    inventoryLedgerEntriesRef,
     inventoryLedgerFiltersRef,
     selectedStockIdRef,
     setInventoryCorrectionDrafts,
+    setInventoryCorrectionDetailState,
     setInventoryCorrectionQueueState,
     setInventoryLedgerState,
+  });
+  const inventoryWrites = useOfficeInventoryWrites({
+    authState,
+    currentUserDisplayName: currentUser?.displayName ?? currentUserId,
+    currentUserId,
+    inventoryCorrectionDraftsRef,
+    loadInventoryCorrectionDetail: inventoryDetailReads.loadInventoryCorrectionDetail,
+    refreshInventoryCorrectionQueue: inventoryDetailReads.refreshInventoryCorrectionQueue,
+    refreshInventoryLedgerEntries: inventoryDetailReads.refreshInventoryLedgerEntries,
+    refreshInventoryRecords: coreReads.refreshInventoryRecords,
+    refreshTodos: coreReads.refreshTodos,
+    selectedStockIdRef,
+    setInventoryCorrectionDrafts,
+    setInventoryCorrectionQueueState,
+    setSelectedStockId,
   });
   const masterDataReads = useOfficeMasterDataReads({
     authState,
@@ -490,6 +512,7 @@ export function useOfficeWorkspace({
     ...productionReads,
     ...printReads,
     ...inventoryDetailReads,
+    ...inventoryWrites,
     ...masterDataReads,
     ...statementReads,
     ...v1StatusReads,
@@ -561,7 +584,7 @@ export function useOfficeWorkspace({
     v1ReleaseCandidateRefreshPrecheckAction, setV1ReleaseCandidateRefreshPrecheckAction,
     v1ReleaseCandidateRefreshAction, setV1ReleaseCandidateRefreshAction,
     todosRef, orderLinesRef, inventoryRecordsRef, fulfillmentsRef, rawMaterialInboundsRef,
-    rawMaterialSupplierStatementReviewsRef, inventoryCorrectionDraftsRef,
+    rawMaterialSupplierStatementReviewsRef, inventoryCorrectionDraftsRef, inventoryLedgerEntriesRef,
     selectedStockIdRef, inventoryLedgerFiltersRef, printerDeviceQaSelectedIdRef,
     printJobQueueItemsRef, paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
   };
