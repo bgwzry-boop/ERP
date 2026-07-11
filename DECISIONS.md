@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-11 - Browser Business Writes Require The Idempotency Header In CORS
+
+Every browser business POST/PATCH already carries `Idempotency-Key`; API CORS policy must therefore allow `idempotency-key` in both prototype and strict modes or the browser will block the request before server authorization and transaction handling. Strict mode allows only `content-type`, `authorization`, and `idempotency-key`. Prototype mode may additionally allow `x-erp-user-id` and `x-erp-action-permissions`; these prototype identity headers remain forbidden by strict authentication.
+
+Allowing the header does not weaken origin, identity, permission, or database idempotency enforcement. Strict mode still requires an approved origin and formal bearer session, while the server still validates the key and persists idempotent results through the configured repository. Direct CORS tests and a real cross-origin browser write must remain part of the regression evidence.
+
 ## 2026-07-11 - Evidence Attachments Use Content-Addressed Idempotent Storage
 
 Payment proofs and other evidence uploads are deduplicated by `ownerType + ownerId + purpose + SHA-256 contentDigest`. Storage keys are content-addressed as `sha256/<prefix>/<digest>` under the configured namespace, so retries and same-content uploads do not create extra objects. Production uploads require database-backed idempotency; the same key and payload replay one result, while a changed payload returns `409`. Each first create or later digest reuse writes an operation log.

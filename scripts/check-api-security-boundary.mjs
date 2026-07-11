@@ -95,12 +95,15 @@ try {
     headers: {
       origin: "https://erp.example.test",
       "access-control-request-method": "GET",
-      "access-control-request-headers": "authorization, content-type",
+      "access-control-request-headers": "authorization, content-type, idempotency-key",
     },
   });
   assert.equal(allowedPreflight.status, 204);
   assert.equal(allowedPreflight.headers.get("access-control-allow-origin"), "https://erp.example.test");
-  assert.equal(allowedPreflight.headers.get("access-control-allow-headers"), "content-type, authorization");
+  assert.equal(
+    allowedPreflight.headers.get("access-control-allow-headers"),
+    "content-type, authorization, idempotency-key",
+  );
 
   const deniedPreflight = await requestJson(baseUrl, "/api/permissions/effective", {
     method: "OPTIONS",

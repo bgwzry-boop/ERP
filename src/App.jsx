@@ -61,17 +61,7 @@ import {
   listOfficeAttachmentAccessLogs,
   listOfficeAttachments,
 } from "./services/officeAttachmentApiClient.js";
-import {
-  confirmOfficeDraftViaApi,
-  recognizeOfficeDraft,
-  resolveOfficeOrderConfirmationStrategy,
-  saveOfficeDraft,
-} from "./services/officeOrderApiClient.js";
-import {
-  adjustOfficeOrderLineQuantity,
-  getOfficeOrderLineDetail,
-  voidOfficeOrderLine,
-} from "./services/officeOrderPoolApiClient.js";
+import { getOfficeOrderLineDetail } from "./services/officeOrderPoolApiClient.js";
 import {
   handleOfficeTodoAction,
   handleOfficeTodoBatch,
@@ -181,21 +171,13 @@ import {
   writeOffOfficeStatement,
 } from "./services/officeStatementApiClient.js";
 import {
-  confirmOfficeDraftOrder,
   confirmOfficeStatementWriteOff,
-  createDraftSaveTodo,
   createOfficeFulfillmentExceptionTodo,
   createOfficeTodo,
   loadOfficeWorkspace,
   markOfficeStatementSent,
   updateOfficeFulfillmentAction,
 } from "./services/officeMockService.js";
-import {
-  deleteDraftRow,
-  mergeDraftRowWithNext,
-  splitDraftRow,
-  updateDraftRowsField,
-} from "./state/officeDraftActions.js";
 import {
   batchPrintResultOptions,
   confirmOfficeModal,
@@ -205,7 +187,6 @@ import {
   officeModalTitles,
   printVoidReasonOptions,
 } from "./state/officeModalActions.js";
-import { applyDraftInventoryReservations } from "./state/officeOrderActions.js";
 import {
   canRevokeEmployeePassword,
   formatCompactDateTime,
@@ -408,26 +389,6 @@ function getAttachmentAccessModeLabel(record) {
   if (record?.accessMode === "permission") return "权限读取";
   if (record?.deliveryMode === "object_storage_signed_url") return "对象存储直连";
   return record?.deliveryMode || "访问方式未记录";
-}
-
-function updateOrderLineQuantityProjection(orderLines, orderLineId, newQty, finalAmount) {
-  return orderLines.map((line) => {
-    if (line.id !== orderLineId) return line;
-    const previousQty = Number(line.qty || line.originalQty || 0);
-    const nextQty = Number(newQty || 0);
-    const apiAmount = Number(finalAmount);
-    const nextAmount = Number.isFinite(apiAmount)
-      ? apiAmount
-      : previousQty > 0
-        ? Number(((Number(line.amount || 0) / previousQty) * nextQty).toFixed(2))
-        : line.amount;
-    return {
-      ...line,
-      qty: nextQty,
-      originalQty: nextQty,
-      amount: nextAmount,
-    };
-  });
 }
 
 function uniqueText(values) {
@@ -730,11 +691,13 @@ export function App() {
     refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries,
     refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
     refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
+    executeOrderEntryAction, executeOrderLineAction, recognizeOrderDraft,
+    runOrderDraftCommand, updateOrderDraftField,
     todos, setTodos, todoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
     selectedOrderDetail, setSelectedOrderDetail, entryText, setEntryText,
-    draftRows, setDraftRows, draftStatus, setDraftStatus, draftApiMeta, setDraftApiMeta,
+    draftRows, draftStatus,
     selectedDraftId, setSelectedDraftId, orderFilters, setOrderFilters,
     selectedOrderId, setSelectedOrderId,
     inventoryRecords, setInventoryRecords, inventoryMeta,
@@ -3561,21 +3524,6 @@ export function App() {
     setSelectedTodoId(todo.id);
   }
 
-  function addTodos(inputs) {
-    const nextTodos = inputs.map((input) => createOfficeTodo(input));
-    if (!nextTodos.length) return;
-    setTodos((current) => [...nextTodos, ...current]);
-    setSelectedTodoId(nextTodos[0].id);
-  }
-
-  function rememberDraftApiMeta(result) {
-    setDraftApiMeta((current) => ({
-      draftId: result.draft?.draftId ?? result.draftId ?? current.draftId,
-      clientRevision: Number(result.draft?.clientRevision ?? current.clientRevision ?? 0),
-      source: result.source ?? current.source,
-    }));
-  }
-
   function guardUiAction(surface, action) {
     if (canUseUiAction(permissionContext, surface, action)) return true;
     setToast(getPermissionDeniedText(permissionContext, surface, action));
@@ -4757,103 +4705,13 @@ export function App() {
   async function confirmOrderLineAction(payload) {
     if (!orderActionModal) return;
     const orderLine = orderLines.find((item) => item.id === orderActionModal.orderLineId) ?? orderActionModal.orderLine;
-    if (!orderLine) {
-      setToast("未找到对应订单明细，无法提交动作。");
-      return;
-    }
-
-    if (orderActionModal.type === "quantity") {
-      const apiResult = await adjustOfficeOrderLineQuantity({
-        authState,
-        orderLine,
-        newQty: payload.newQty,
-        reason: payload.reason,
-        operatorId: currentUserId,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝订单改量：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝订单改量：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      applyOrderLineQuantityProjection(apiResult.orderLineId, apiResult.newQty, apiResult.finalAmount);
-      applyStatementProjection(apiResult.adjustedStatements);
-      setOrderActionModal(null);
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}把 ${apiResult.orderLineId} 数量从 ${apiResult.previousQty} 调整为 ${apiResult.newQty}，金额和相关出库数量同步刷新。`);
-      if (apiResult.source === "api") void refreshOrderPool({ showToast: false });
-      return;
-    }
-
-    const apiResult = await voidOfficeOrderLine({
-      authState,
+    const result = await executeOrderLineAction({
+      action: orderActionModal.type,
       orderLine,
-      reason: payload.reason,
-      operatorId: currentUserId,
+      payload,
     });
-    if (apiResult.blocked) {
-      setToast(
-        apiResult.error?.requiredPermission
-          ? `后端拒绝作废订单：缺少权限 ${apiResult.error.requiredPermission}。`
-          : `后端拒绝作废订单：${apiResult.error?.message ?? "未知错误"}`,
-      );
-      return;
-    }
-    applyOrderLineVoidProjection(apiResult.orderLineId, apiResult.canceledFulfillmentIds);
-    setOrderActionModal(null);
-    const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-    setToast(`已通过${sourceLabel}作废 ${apiResult.orderLineId}，未交付出库任务已取消，库存占用按后端结果释放。`);
-    if (apiResult.source === "api") void refreshOrderPool({ showToast: false });
-  }
-
-  function applyOrderLineQuantityProjection(orderLineId, newQty, finalAmount) {
-    setOrderLines((current) => updateOrderLineQuantityProjection(current, orderLineId, newQty, finalAmount));
-    setFulfillments((current) =>
-      current.map((item) => (item.lineId === orderLineId || item.orderLineId === orderLineId ? { ...item, qty: Number(newQty) } : item)),
-    );
-  }
-
-  function applyStatementProjection(statementRecords = []) {
-    if (!Array.isArray(statementRecords) || !statementRecords.length) return;
-    setStatements((current) =>
-      current.map((statement) => {
-        const updated = statementRecords.find((item) => item.statementId === statement.id || item.id === statement.id);
-        if (!updated) return statement;
-        return {
-          ...statement,
-          status: updated.status || statement.status,
-          receivable: Number(updated.receivable ?? statement.receivable),
-          received: Number(updated.received ?? statement.received),
-          variance: Number(updated.variance ?? statement.variance),
-        };
-      }),
-    );
-  }
-
-  function applyOrderLineVoidProjection(orderLineId, canceledFulfillmentIds = []) {
-    setOrderLines((current) =>
-      current.map((item) =>
-        item.id === orderLineId
-          ? {
-              ...item,
-              status: "已关闭",
-              lineStatus: "已关闭",
-              exceptions: uniqueText([...(item.exceptions ?? []), "订单已作废"]),
-              exceptionTags: uniqueText([...(item.exceptionTags ?? item.exceptions ?? []), "订单已作废"]),
-              inventory: item.inventory || "已释放",
-            }
-          : item,
-      ),
-    );
-    setFulfillments((current) =>
-      current.map((item) =>
-        item.lineId === orderLineId || item.orderLineId === orderLineId || canceledFulfillmentIds.includes(item.id)
-          ? { ...item, status: "已取消" }
-          : item,
-      ),
-    );
+    if (result?.closeModal) setOrderActionModal(null);
+    if (result?.feedback) setToast(result.feedback);
   }
 
   async function handleTodo(action, todoId = selectedTodoId) {
@@ -5091,207 +4949,24 @@ export function App() {
 
   async function recognize() {
     if (!guardUiAction("entry", "识别")) return;
-    setDraftStatus("识别中");
-    const result = await recognizeOfficeDraft({
-      authState,
-      customers,
-      inventories: inventoryRecords,
-      operatorId: currentUserId,
-      sourceText: entryText,
-    });
-
-    if (result.blocked) {
-      setDraftStatus("识别失败");
-      setToast(
-        result.error?.requiredPermission
-          ? `后端拒绝识别：缺少权限 ${result.error.requiredPermission}。`
-          : `后端拒绝识别：${result.error?.message ?? "未知错误"}`,
-      );
-      return;
-    }
-
-    const rows = result.rows;
-    setDraftRows(rows);
-    setDraftStatus(rows.length ? "已识别待确认" : "空草稿");
-    setSelectedDraftId(rows[0]?.id ?? "");
-    setDraftApiMeta({
-      draftId: result.draft?.draftId ?? "",
-      clientRevision: Number(result.draft?.clientRevision ?? 0),
-      source: result.source,
-    });
-    const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-    setToast(`已通过${sourceLabel} 识别 ${rows.length} 行明细；库存与价格为识别时快照，保存正式订单前会重新校验。`);
+    const result = await recognizeOrderDraft();
+    if (result?.feedback) setToast(result.feedback);
   }
 
   function updateDraftField(id, field, value) {
-    setDraftStatus("已调整待确认");
-    setDraftRows((current) => updateDraftRowsField(current, { id, field, value, customers, inventoryRecords }));
+    updateOrderDraftField(id, field, value);
   }
 
   function handleDraftCommand(action) {
-    const selectedIndex = draftRows.findIndex((row) => row.id === selectedDraftId);
-    if (selectedIndex < 0) {
-      setToast("请先选择一行识别明细。");
-      return;
-    }
-
-    if (action === "删除当前行") {
-      const result = deleteDraftRow(draftRows, selectedDraftId);
-      if (!result) return;
-      setDraftRows(result.rows);
-      setSelectedDraftId(result.selectedId);
-      setDraftStatus(result.status);
-      setToast(result.toast);
-      return;
-    }
-
-    if (action === "拆分当前行") {
-      const result = splitDraftRow(draftRows, selectedDraftId, inventoryRecords, `DRAFT-SPLIT-${Date.now().toString(36)}`);
-      if (!result) return;
-      if (result.blocked) {
-        setToast(result.toast);
-        return;
-      }
-      setDraftRows(result.rows);
-      setSelectedDraftId(result.selectedId);
-      setDraftStatus(result.status);
-      setToast(result.toast);
-      return;
-    }
-
-    if (action === "合并下一行") {
-      const result = mergeDraftRowWithNext(draftRows, selectedDraftId, inventoryRecords);
-      if (!result) return;
-      if (result.blocked) {
-        setToast(result.toast);
-        return;
-      }
-      setDraftRows(result.rows);
-      setSelectedDraftId(result.selectedId);
-      setDraftStatus(result.status);
-      setToast(result.toast);
-    }
+    const result = runOrderDraftCommand(action);
+    if (result?.feedback) setToast(result.feedback);
   }
 
   async function entryAction(label) {
     if (!guardUiAction("entry", label)) return;
-    if (label === "拆分订单") {
-      handleDraftCommand("拆分当前行");
-      return;
-    }
-
-    if (label === "作废草稿") {
-      setDraftStatus("已作废");
-      setToast("草稿已作废，仅保留当前页面数据用于本地演示；正式系统会记录作废原因和操作人。");
-      return;
-    }
-
-    if (label === "保存草稿") {
-      if (!draftRows.length) {
-        setDraftStatus("空草稿");
-        setToast("草稿为空，无法保存。");
-        return;
-      }
-      setDraftStatus("保存中");
-      const apiResult = await saveOfficeDraft({
-        authState,
-        draftRows,
-        draftId: draftApiMeta.draftId,
-        clientRevision: draftApiMeta.clientRevision,
-        operatorId: currentUserId,
-        sourceText: entryText,
-      });
-      if (apiResult.blocked) {
-        setDraftStatus("保存失败");
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝保存草稿：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝保存草稿：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      rememberDraftApiMeta(apiResult);
-      if (apiResult.source === "api" && apiResult.todos?.length) {
-        addTodos(apiResult.todos);
-      } else {
-        const todo = createDraftSaveTodo(draftRows);
-        setTodos((current) => [todo, ...current]);
-        setSelectedTodoId(todo.id);
-      }
-      setDraftStatus("已保存草稿");
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`草稿已通过${sourceLabel}保存并进入公共待办池，未占用库存。`);
-      return;
-    }
-
-    if (label !== "保存并确认") {
-      setToast(`${label} 已模拟完成，本地原型不会写入真实数据库。`);
-      return;
-    }
-
-    if (!draftRows.length) {
-      setDraftStatus("空草稿");
-      setToast("没有可保存的识别明细，请先输入订单并点击识别。");
-      return;
-    }
-
-    setDraftStatus("确认中");
-    const apiResult = await confirmOfficeDraftViaApi({
-      authState,
-      draftRows,
-      draftId: draftApiMeta.draftId,
-      clientRevision: draftApiMeta.clientRevision,
-      operatorId: currentUserId,
-      sourceText: entryText,
-    });
-    const confirmationStrategy = resolveOfficeOrderConfirmationStrategy(apiResult);
-    if (confirmationStrategy.kind === "blocked") {
-      setDraftStatus("确认失败");
-      setToast(
-        confirmationStrategy.error?.requiredPermission
-          ? `后端拒绝确认订单：缺少权限 ${confirmationStrategy.error.requiredPermission}。`
-          : `后端拒绝确认订单：${confirmationStrategy.error?.message ?? "未知错误"}`,
-      );
-      return;
-    }
-
-    if (confirmationStrategy.kind === "server") {
-      rememberDraftApiMeta(apiResult);
-      const confirmedOrderLineId = confirmationStrategy.confirmation?.orderLines?.[0]?.id ?? "";
-      if (confirmedOrderLineId) setSelectedOrderId(confirmedOrderLineId);
-      setDraftStatus("已确认");
-      setActivePage("orders");
-      const projectionResults = await Promise.all([
-        refreshOrderPool({ showToast: false }),
-        refreshInventoryRecords({ showToast: false }),
-        refreshFulfillments({ showToast: false }),
-        refreshTodos({ showToast: false }),
-      ]);
-      const refreshFailed = projectionResults.some((result) => result?.blocked || result?.source !== "api");
-      setToast(
-        refreshFailed
-          ? `订单已由后端确认；订单、库存、交付或待办投影刷新失败，请刷新页面后重试。`
-          : `订单已由后端确认，订单、库存、交付和待办投影已刷新。`,
-      );
-      return;
-    }
-
-    const result = confirmOfficeDraftOrder({ draftRows, inventoryRecords, orderLines, fulfillments, customers });
-    setDraftRows(result.checkedRows);
-    if (result.blocked) {
-      setDraftStatus(result.draftStatus);
-      setToast(result.toast);
-      setSelectedDraftId(result.selectedDraftId);
-      return;
-    }
-    setOrderLines((current) => [...result.newLines, ...current]);
-    setFulfillments((current) => [...result.newFulfillments, ...current]);
-    setInventoryRecords((current) => applyDraftInventoryReservations(current, result.checkedRows));
-    result.shortageTodoInputs.forEach(addTodo);
-    setSelectedOrderId(result.selectedOrderId);
-    setDraftStatus(result.draftStatus);
-    setActivePage("orders");
-    setToast(`已通过本地规则降级确认；${result.toast}`);
+    const result = await executeOrderEntryAction(label);
+    if (result?.navigateTo) setActivePage(result.navigateTo);
+    if (result?.feedback) setToast(result.feedback);
   }
 
   async function handleInventoryCorrectionDraft({ stock, actualQty, reason }) {

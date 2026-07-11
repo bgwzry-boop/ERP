@@ -163,6 +163,7 @@ import {
 } from "./idempotency.mjs";
 import {
   buildApiSecurityPolicy,
+  getCorsAllowedRequestHeaders,
   getWorkspaceSecurityPolicy,
   isCorsRequestAllowed,
   isPublicApiRoute,
@@ -22661,7 +22662,7 @@ function buildCorsHeaders(response, options = {}) {
     return {
       "access-control-allow-origin": "*",
       "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
-      "access-control-allow-headers": "content-type, authorization, x-erp-user-id, x-erp-action-permissions",
+      "access-control-allow-headers": getCorsAllowedRequestHeaders(securityPolicy),
       ...(options.exposeHeaders ? { "access-control-expose-headers": options.exposeHeaders } : {}),
     };
   }
@@ -22672,7 +22673,7 @@ function buildCorsHeaders(response, options = {}) {
     "access-control-allow-origin": origin,
     vary: "Origin",
     "access-control-allow-methods": "GET, POST, PATCH, OPTIONS",
-    "access-control-allow-headers": "content-type, authorization",
+    "access-control-allow-headers": getCorsAllowedRequestHeaders(securityPolicy),
     ...(options.exposeHeaders ? { "access-control-expose-headers": options.exposeHeaders } : {}),
   };
 }

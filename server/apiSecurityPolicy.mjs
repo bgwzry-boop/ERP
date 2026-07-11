@@ -1,4 +1,10 @@
 export const defaultMaxJsonBodyBytes = 24 * 1024 * 1024;
+const strictCorsRequestHeaders = ["content-type", "authorization", "idempotency-key"];
+const prototypeCorsRequestHeaders = [
+  ...strictCorsRequestHeaders,
+  "x-erp-user-id",
+  "x-erp-action-permissions",
+];
 
 export function buildApiSecurityPolicy(options = {}, env = process.env) {
   const authMode = String(options.authMode ?? env.ERP_AUTH_MODE ?? "").trim().toLowerCase();
@@ -47,6 +53,10 @@ export function getWorkspaceSecurityPolicy(workspace = {}) {
 export function isCorsRequestAllowed(securityPolicy, origin) {
   if (!securityPolicy.strictAuth || !origin) return true;
   return securityPolicy.corsAllowedOrigins.includes(origin);
+}
+
+export function getCorsAllowedRequestHeaders(securityPolicy = {}) {
+  return (securityPolicy.strictAuth ? strictCorsRequestHeaders : prototypeCorsRequestHeaders).join(", ");
 }
 
 export function isPublicApiRoute(method, pathname, securityPolicy = {}) {

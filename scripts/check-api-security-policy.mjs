@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   buildApiSecurityPolicy,
   defaultMaxJsonBodyBytes,
+  getCorsAllowedRequestHeaders,
   getWorkspaceSecurityPolicy,
   isCorsRequestAllowed,
   isPublicApiRoute,
@@ -33,6 +34,7 @@ assert.equal(strictPolicy.allowDefaultSeedUser, false);
 assert.equal(strictPolicy.maxJsonBodyBytes, 321);
 assert.equal(isCorsRequestAllowed(strictPolicy, "https://erp.example.test"), true);
 assert.equal(isCorsRequestAllowed(strictPolicy, "https://untrusted.example.test"), false);
+assert.equal(getCorsAllowedRequestHeaders(strictPolicy), "content-type, authorization, idempotency-key");
 
 const productionRuntimePolicy = buildApiSecurityPolicy(
   {
@@ -53,6 +55,10 @@ assert.equal(localPolicy.strictAuth, false);
 assert.equal(localPolicy.allowSeedUsers, true);
 assert.equal(localPolicy.maxJsonBodyBytes, defaultMaxJsonBodyBytes);
 assert.equal(isCorsRequestAllowed(localPolicy, "https://untrusted.example.test"), true);
+assert.equal(
+  getCorsAllowedRequestHeaders(localPolicy),
+  "content-type, authorization, idempotency-key, x-erp-user-id, x-erp-action-permissions",
+);
 assert.equal(isPublicApiRoute("GET", "/api/health"), true);
 assert.equal(isPublicApiRoute("POST", "/api/auth/login"), true);
 assert.equal(isPublicApiRoute("POST", "/api/auth/prototype-login", strictPolicy), false);
