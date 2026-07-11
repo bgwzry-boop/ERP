@@ -35,6 +35,7 @@ const productionLine = {
   printColor: "黄色",
   printSide: "双面",
   status: "制袋中",
+  machineId: "BAG-02",
   fulfillment: "快递快运",
 };
 const productionInventory = {
@@ -55,7 +56,8 @@ const packingTask = {
 assert(buildProductionTaskId(productionLine) === "PT-ORD-0629-003-01", "production task ID was not derived from order line");
 assert(buildPackingTaskId(productionLine) === "PKT-ORD-0629-003-01", "packing task ID was not derived from order line");
 assert(getProductionProcessType(productionLine) === "制袋", "bag-making process type was not mapped");
-assert(getProductionMachineId(productionLine) === "BAG-01", "bag-making machine ID was not mapped");
+assert(getProductionMachineId({ ...productionLine, machineId: "" }) === "BAG-01", "default bag-making machine ID was not mapped");
+assert(getProductionMachineId(productionLine) === "BAG-02", "assigned bag-making machine ID was not preserved");
 assert(getProductionProcessType({ ...productionLine, status: "丝印中" }) === "丝印", "printing process type was not mapped");
 assert(findProductionInventoryItem(productionLine, [productionInventory])?.id === productionInventory.id, "production inventory item was not matched");
 
@@ -598,6 +600,7 @@ assert(dailyProgressCalls[0]?.url === "http://127.0.0.1:8787/api/production-task
 assert(dailyProgressCalls[0]?.init.method === "POST", "production daily progress method is incorrect");
 assert(dailyProgressCalls[0]?.body.dailyQualifiedQty === 420, "production daily progress quantity is incorrect");
 assert(dailyProgressCalls[0]?.body.machineCount === 820, "production daily progress machine count is incorrect");
+assert(dailyProgressCalls[0]?.body.machineId === "BAG-02", "production daily progress lost the assigned machine");
 assert(!("inventoryItemId" in dailyProgressCalls[0].body), "production daily progress must not send inventory item");
 assert(dailyProgressResult.inventoryCreated === false, "production daily progress must not create inventory");
 assert(dailyProgressResult.reservationCreated === false, "production daily progress must not reserve inventory");
@@ -770,6 +773,7 @@ assert(reportCalls[0]?.init.method === "POST", "production report method is inco
 assert(reportCalls[0]?.init.headers.authorization === "Bearer seed-session.production-check", "production report did not send bearer auth");
 assert(reportCalls[0]?.body.qualifiedQty === 1000, "production report qualified quantity is incorrect");
 assert(reportCalls[0]?.body.machineCount === 1888, "production report machine count is incorrect");
+assert(reportCalls[0]?.body.machineId === "BAG-02", "production report lost the assigned machine");
 assert(reportCalls[0]?.body.inventoryItemId === productionInventory.id, "production report inventory item is incorrect");
 assert(reportCalls[0]?.body.createPackingTask === true, "production report should create a packing task by default");
 assert(reportResult.machineCountAffectsInventory === false, "machine count must not affect inventory");

@@ -18222,12 +18222,13 @@ async function recordProductionDailyProgressRoute({ response, workspace, product
     : previousQualifiedQty + dailyQualifiedQty;
   const remainingQty = Math.max(0, plannedQty - cumulativeQualifiedQty);
   const nextWorkDate = body.nextWorkDate ?? (remainingQty > 0 ? getNextDateText(reportDate) : "");
+  const effectiveMachineId = cleanServerText(beforeTask.machineId ?? body.machineId);
   const afterTask = {
     ...beforeTask,
     productionTaskId,
     orderLineId,
     taskType: body.processType ?? beforeTask.taskType ?? "制袋",
-    machineId: body.machineId ?? beforeTask.machineId ?? "",
+    machineId: effectiveMachineId,
     plannedQty,
     taskStatus: remainingQty > 0 ? "跨日继续" : "待完工确认",
     createdBy: beforeTask.createdBy ?? operatorId,
@@ -18238,7 +18239,7 @@ async function recordProductionDailyProgressRoute({ response, workspace, product
     productionTaskId,
     orderLineId,
     processType: body.processType ?? afterTask.taskType,
-    machineId: body.machineId ?? afterTask.machineId,
+    machineId: effectiveMachineId,
     operatorId,
     qualifiedQty: dailyQualifiedQty,
     exceptionQty: Math.max(0, Math.trunc(Number(body.exceptionQty ?? 0))),
@@ -18510,12 +18511,13 @@ async function reportProductionCompleteRoute({ response, workspace, productionTa
   const operatorId = body.operatorId ?? "U-OFFICE-A";
   const completedAt = body.completedAt ?? new Date().toISOString();
   const machineCount = body.machineCount === undefined || body.machineCount === null ? undefined : Math.trunc(Number(body.machineCount));
+  const effectiveMachineId = cleanServerText(beforeTask.machineId ?? body.machineId);
   const afterTask = {
     ...beforeTask,
     productionTaskId,
     orderLineId,
     taskType: body.processType ?? beforeTask.taskType ?? "制袋",
-    machineId: body.machineId ?? beforeTask.machineId ?? "",
+    machineId: effectiveMachineId,
     plannedQty: Number(beforeTask.plannedQty ?? beforeTask.qty ?? beforeOrderLine.qty ?? qualifiedQty),
     taskStatus: "已完成",
     createdBy: beforeTask.createdBy ?? operatorId,
@@ -18533,7 +18535,7 @@ async function reportProductionCompleteRoute({ response, workspace, productionTa
     productionTaskId,
     orderLineId,
     processType: body.processType ?? afterTask.taskType,
-    machineId: body.machineId ?? afterTask.machineId,
+    machineId: effectiveMachineId,
     operatorId,
     qualifiedQty,
     exceptionQty: Math.max(0, Math.trunc(Number(body.exceptionQty ?? 0))),

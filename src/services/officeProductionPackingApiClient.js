@@ -948,6 +948,8 @@ export function getProductionProcessType(orderLine) {
 }
 
 export function getProductionMachineId(orderLine) {
+  const assignedMachineId = cleanText(orderLine?.machineId ?? orderLine?.productionTask?.machineId);
+  if (assignedMachineId) return assignedMachineId;
   return getProductionProcessType(orderLine) === "丝印" ? "PRINT-01" : "BAG-01";
 }
 

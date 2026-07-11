@@ -2071,3 +2071,7 @@ The left navigation always presents the six office core pages first: todos, entr
 ## 2026-07-11 - Fulfillment Prepared State Is Audited But Non-Financial
 
 Marking a fulfillment as prepared is a real backend state transition with permission, idempotency, and operation-log coverage. It must not deduct finished-goods inventory, release reservations, create a statement candidate, or imply customer handover; only fulfillment completion or pickup confirmation performs those downstream effects. Delivery dispatch is also server-authoritative, and the fulfillment list projection must return the active driver, route date, route number, stop sequence, dispatch status, planned departure, assignment metadata, and remark so a committed dispatch cannot disappear after refresh.
+
+## 2026-07-11 - Production Machine Assignment Changes Only Through Scheduling
+
+An existing production task's machine assignment is server-authoritative and can change only through the permissioned machine-queue move workflow. Daily progress and production-completion reporting may record the assigned machine as evidence, but a stale or default client machine value must not overwrite the current assignment. Machine action/cycle counts remain evidence only and never select a machine, create finished-goods inventory, reserve stock, or create a packing task by themselves.

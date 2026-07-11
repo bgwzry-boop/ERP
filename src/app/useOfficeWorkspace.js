@@ -7,6 +7,7 @@ import { useOfficeMasterDataReads } from "./useOfficeMasterDataReads.js";
 import { useOfficeOrderWrites } from "./useOfficeOrderWrites.js";
 import { useOfficePrintReads } from "./useOfficePrintReads.js";
 import { useOfficeProductionReads } from "./useOfficeProductionReads.js";
+import { useOfficeProductionWrites } from "./useOfficeProductionWrites.js";
 import { useOfficeRoleToolReads } from "./useOfficeRoleToolReads.js";
 import { useOfficeStatementReads } from "./useOfficeStatementReads.js";
 import { useOfficeV1StatusReads } from "./useOfficeV1StatusReads.js";
@@ -305,6 +306,7 @@ export function useOfficeWorkspace({
   const orderLinesRef = useRef(initialOrderLines);
   const inventoryRecordsRef = useRef(initialInventories);
   const fulfillmentsRef = useRef(initialFulfillments);
+  const productionPackingRef = useRef(productionPacking);
   const rawMaterialInboundsRef = useRef(initialRawMaterialInbounds);
   const selectedRawMaterialInboundIdRef = useRef(defaultSelections.rawMaterialInboundId);
   const rawMaterialSupplierStatementReviewsRef = useRef([]);
@@ -333,6 +335,9 @@ export function useOfficeWorkspace({
   useEffect(() => {
     fulfillmentsRef.current = fulfillments;
   }, [fulfillments]);
+  useEffect(() => {
+    productionPackingRef.current = productionPacking;
+  }, [productionPacking]);
   useEffect(() => {
     rawMaterialInboundsRef.current = rawMaterialInbounds;
   }, [rawMaterialInbounds]);
@@ -493,6 +498,27 @@ export function useOfficeWorkspace({
     setTodos,
     todosRef,
   });
+  const productionWrites = useOfficeProductionWrites({
+    authState,
+    currentUserDisplayName: currentUser?.displayName ?? currentUserId,
+    currentUserId,
+    customers,
+    inventoryRecordsRef,
+    orderLinesRef,
+    productionPackingRef,
+    refreshFulfillments: coreReads.refreshFulfillments,
+    refreshInventoryRecords: coreReads.refreshInventoryRecords,
+    refreshOrderPool: coreReads.refreshOrderPool,
+    refreshProductionPackingTaskLists: productionReads.refreshProductionPackingTaskLists,
+    refreshTodos: coreReads.refreshTodos,
+    setFulfillments,
+    setInventoryRecords,
+    setOrderLines,
+    setProductionPacking,
+    setSelectedTodoId,
+    setTodos,
+    todosRef,
+  });
   const orderWrites = useOfficeOrderWrites({
     authState,
     currentUserId,
@@ -532,6 +558,7 @@ export function useOfficeWorkspace({
     ...statementReads,
     ...v1StatusReads,
     ...fulfillmentWrites,
+    ...productionWrites,
     ...orderWrites,
     todos, setTodos, todoMeta, setTodoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
@@ -599,7 +626,7 @@ export function useOfficeWorkspace({
     v1V2ScopeBriefRefreshAction, setV1V2ScopeBriefRefreshAction,
     v1ReleaseCandidateRefreshPrecheckAction, setV1ReleaseCandidateRefreshPrecheckAction,
     v1ReleaseCandidateRefreshAction, setV1ReleaseCandidateRefreshAction,
-    todosRef, orderLinesRef, inventoryRecordsRef, fulfillmentsRef, rawMaterialInboundsRef,
+    todosRef, orderLinesRef, inventoryRecordsRef, fulfillmentsRef, productionPackingRef, rawMaterialInboundsRef,
     rawMaterialSupplierStatementReviewsRef, inventoryCorrectionDraftsRef, inventoryLedgerEntriesRef,
     selectedStockIdRef, inventoryLedgerFiltersRef, printerDeviceQaSelectedIdRef,
     printJobQueueItemsRef, paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,

@@ -49,7 +49,6 @@ import {
 } from "./services/officeAuthService.js";
 import {
   createDeliveryEvidenceAttachmentInput,
-  createFinishedGoodsPhotoAttachmentInput,
   createOfficeAttachment,
   createPaymentScreenshotAttachmentInput,
   createStatementCustomerConfirmationAttachmentInput,
@@ -74,17 +73,9 @@ import {
 import {
   buildPackingTaskId,
   buildProductionTaskId,
-  completeOfficePackingTask,
   findProductionInventoryItem,
   getOfficePackingTaskDetail,
   getOfficeProductionTaskDetail,
-  moveOfficeProductionMachineQueueItem,
-  publishOfficeProductionSchedule,
-  resequenceOfficeProductionMachineQueue,
-  reviewOfficeProductionFinishedGoodsPhoto,
-  reportOfficeProductionDailyProgress,
-  reportOfficeProductionComplete,
-  uploadOfficeProductionFinishedGoodsPhoto,
 } from "./services/officeProductionPackingApiClient.js";
 import {
   recordOfficePrinterDeviceFieldTest,
@@ -193,13 +184,7 @@ import {
 } from "./state/officeMasterDataState.js";
 import {
   applyPrintRecordProjection,
-  buildFulfillmentFromPacking,
-  cleanProductionPackingText,
   findFulfillmentForPrintTodo,
-  inferPackageCountFromQty,
-  toProductionPackingNumber,
-  upsertPackingTask,
-  upsertProductionTaskLine,
 } from "./state/officeProductionPackingState.js";
 import {
   getPrintJobStatusLabel,
@@ -379,10 +364,6 @@ function getAttachmentAccessModeLabel(record) {
   return record?.deliveryMode || "访问方式未记录";
 }
 
-function uniqueText(values) {
-  return [...new Set(values.map((value) => String(value ?? "").trim()).filter(Boolean))];
-}
-
 function readFileAsDataUrl(file) {
   if (!file || typeof FileReader === "undefined") return Promise.resolve("");
   if (typeof file.contentDataUrl === "string") return Promise.resolve(file.contentDataUrl);
@@ -392,50 +373,6 @@ function readFileAsDataUrl(file) {
     reader.onerror = () => resolve("");
     reader.readAsDataURL(file);
   });
-}
-
-function createFinishedGoodsPhotoSampleFile({ line, productionTaskId, operatorName }) {
-  const stamp = new Date().toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
-  const orderLineId = cleanProductionPackingText(line?.id ?? line?.orderLineId);
-  const title = escapeSvgText(line?.product || line?.productName || "成品图");
-  const spec = escapeSvgText([line?.size, line?.color || line?.bagColor, line?.handle || line?.handleType].filter(Boolean).join(" "));
-  const operator = escapeSvgText(operatorName || "办公室");
-  const svg = [
-    `<svg xmlns="http://www.w3.org/2000/svg" width="960" height="640" viewBox="0 0 960 640">`,
-    `<rect width="960" height="640" fill="#f8fafc"/>`,
-    `<rect x="80" y="72" width="800" height="496" rx="18" fill="#ffffff" stroke="#cbd5e1" stroke-width="3"/>`,
-    `<rect x="220" y="138" width="520" height="330" rx="22" fill="#fefefe" stroke="#94a3b8" stroke-width="2"/>`,
-    `<path d="M350 138 C355 96 605 96 610 138" fill="none" stroke="#475569" stroke-width="10" stroke-linecap="round"/>`,
-    `<text x="480" y="240" text-anchor="middle" font-family="Arial, sans-serif" font-size="52" font-weight="700" fill="#0f172a">${title}</text>`,
-    `<text x="480" y="310" text-anchor="middle" font-family="Arial, sans-serif" font-size="30" fill="#334155">${spec}</text>`,
-    `<text x="480" y="378" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" fill="#2563eb">Finished goods sample</text>`,
-    `<text x="120" y="532" font-family="Arial, sans-serif" font-size="24" fill="#475569">Task: ${escapeSvgText(productionTaskId || orderLineId)}</text>`,
-    `<text x="120" y="566" font-family="Arial, sans-serif" font-size="24" fill="#475569">Operator: ${operator}</text>`,
-    `</svg>`,
-  ].join("");
-  const contentDataUrl = `data:image/svg+xml;base64,${encodeTextBase64(svg)}`;
-  return {
-    name: `finished-goods-${productionTaskId || orderLineId}-${stamp}.svg`,
-    type: "image/svg+xml",
-    size: estimateDataUrlByteSize(contentDataUrl) ?? svg.length,
-    contentDataUrl,
-  };
-}
-
-function encodeTextBase64(value) {
-  const text = String(value ?? "");
-  if (typeof btoa === "function") {
-    return btoa(unescape(encodeURIComponent(text)));
-  }
-  return "";
-}
-
-function escapeSvgText(value) {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;");
 }
 
 async function copyTextToClipboard(text) {
@@ -466,32 +403,6 @@ async function copyTextToClipboard(text) {
     document.body.removeChild(textarea);
   }
   return copied;
-}
-
-function buildCustomerFinishedGoodsNotificationCopyText(line, customer) {
-  const contact = customer?.contact || "您好";
-  const lineId = cleanProductionPackingText(line?.id ?? line?.orderLineId);
-  const qty = Number(line?.qty ?? line?.plannedQty ?? 0);
-  const quantityText = Number.isFinite(qty) && qty > 0 ? `${Math.trunc(qty)}个` : "";
-  const goods = [
-    line?.product || line?.productName,
-    line?.size,
-    getLineColorSpecLabel(line),
-    getLinePrintSide(line),
-    quantityText,
-    getLineRemark(line),
-  ]
-    .map((item) => cleanProductionPackingText(item))
-    .filter(Boolean)
-    .join(" / ");
-  const fulfillment = cleanProductionPackingText(line?.fulfillment ?? line?.fulfillmentMethod);
-  const deliveryText = fulfillment ? `我们按原来的${fulfillment}方式继续安排。` : "我们按原交付方式继续安排。";
-  return `${contact}，您这单${lineId ? ` ${lineId}` : ""}${goods ? `（${goods}）` : ""}成品已经做好，成品图发您确认。确认可以的话，${deliveryText}`;
-}
-
-function buildCustomerFinishedGoodsPhotoPrompt(finishedGoodsPhoto) {
-  const fileName = cleanProductionPackingText(finishedGoodsPhoto?.fileName) || cleanProductionPackingText(finishedGoodsPhoto?.attachmentId);
-  return fileName ? `发送客户通知时请附上已复核成品图：${fileName}。` : "发送客户通知时请附上已复核成品图。";
 }
 
 function buildDriverDeliveryWatermarkMetadata({ task, operatorId, operatorName, locationLabel = "", geoPoint = "", capturedAt = new Date() }) {
@@ -680,25 +591,26 @@ export function App() {
     loadInventoryCorrectionDetail, createInventoryCorrectionDraft, confirmInventoryCorrectionDraft,
     completeFulfillmentAction, markFulfillmentPrepared, reviewFulfillmentDeliveryEvidence,
     saveFulfillmentDispatch, submitFulfillmentException,
+    executeProductionPackingAction,
     refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
     refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
     executeOrderEntryAction, executeOrderLineAction, recognizeOrderDraft,
     runOrderDraftCommand, updateOrderDraftField,
     todos, setTodos, todoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
-    orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
+    orderLines, orderPoolMeta, setOrderPoolMeta,
     selectedOrderDetail, setSelectedOrderDetail, entryText, setEntryText,
     draftRows, draftStatus,
     selectedDraftId, setSelectedDraftId, orderFilters, setOrderFilters,
     selectedOrderId, setSelectedOrderId,
-    inventoryRecords, setInventoryRecords, inventoryMeta,
+    inventoryRecords, inventoryMeta,
     inventoryLedgerState, inventoryLedgerFilters, setInventoryLedgerFilters,
     inventoryCorrectionDetailState,
     inventoryCorrectionQueueState,
     selectedStockId, setSelectedStockId,
     fulfillmentTab, setFulfillmentTab, fulfillments, setFulfillments,
     selectedFulfillmentId, setSelectedFulfillmentId,
-    productionPacking, setProductionPacking, productionPackingFocus, setProductionPackingFocus,
+    productionPacking, productionPackingFocus, setProductionPackingFocus,
     productionPackingDetailState, setProductionPackingDetailState,
     printerDeviceQa, setPrinterDeviceQa, printJobQueue, setPrintJobQueue,
     printDriverConfig, printDriverReadiness, printDriverCupsDiagnostics,
@@ -5143,638 +5055,10 @@ export function App() {
   }
 
   async function handleProductionPackingAction(action, payload = {}) {
-    if (!guardUiAction("productionPacking", action)) return;
-
-    if (action === "移动排产任务" || action === "移动排产机台") {
-      const apiResult = await moveOfficeProductionMachineQueueItem({
-        authState,
-        productionTaskId: payload.productionTaskId,
-        targetMachineId: payload.targetMachineId,
-        targetQueueSeq: payload.targetQueueSeq,
-        operatorId: currentUserId,
-        remark: payload.remark || `${currentUser.displayName} 在打包/标签页移动机台排产任务`,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝移动排产任务：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝移动排产任务：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-
-      const movedProductionTask = apiResult.productionTask ?? {};
-      const movedProductionTaskId = cleanProductionPackingText(apiResult.productionTaskId ?? payload.productionTaskId);
-      const movedOrderLineId = cleanProductionPackingText(movedProductionTask.orderLineId ?? payload.orderLineId);
-      const targetMachineId = cleanProductionPackingText(apiResult.targetMachineId ?? payload.targetMachineId);
-      const targetQueueSeq = toProductionPackingNumber(apiResult.targetQueueSeq ?? payload.targetQueueSeq, 0);
-      const matchesMovedLine = (item) => {
-        const itemOrderLineId = cleanProductionPackingText(item?.id ?? item?.orderLineId);
-        const itemProductionTaskId = cleanProductionPackingText(item?.productionTaskId ?? item?.productionTask?.productionTaskId);
-        return (
-          (movedOrderLineId && itemOrderLineId === movedOrderLineId) ||
-          (movedProductionTaskId && itemProductionTaskId === movedProductionTaskId)
-        );
-      };
-      const buildMovedLine = (line) => {
-        if (!line) return null;
-        return {
-          ...line,
-          machineId: targetMachineId,
-          productionTaskId: movedProductionTaskId || line.productionTaskId,
-          productionTask: {
-            ...(line.productionTask ?? {}),
-            ...movedProductionTask,
-            productionTaskId: movedProductionTaskId || movedProductionTask.productionTaskId || line.productionTask?.productionTaskId,
-            orderLineId: movedOrderLineId || movedProductionTask.orderLineId || line.orderLineId || line.id,
-            machineId: targetMachineId,
-          },
-        };
-      };
-
-      const fallbackLine = orderLinesRef.current.find(matchesMovedLine);
-      setOrderLines((current) => current.map((item) => (matchesMovedLine(item) ? buildMovedLine(item) : item)));
-      const lastSyncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-      setProductionPacking((current) => {
-        const currentLine = current.productionTasks?.find(matchesMovedLine) ?? fallbackLine;
-        const nextLine = buildMovedLine(currentLine);
-        return {
-          ...current,
-          lastSource: apiResult.source,
-          scheduleQueueItems: apiResult.items ?? current.scheduleQueueItems ?? [],
-          scheduleQueueMachines: apiResult.machines ?? current.scheduleQueueMachines ?? [],
-          scheduleQueueTotal: apiResult.total ?? current.scheduleQueueTotal ?? 0,
-          scheduleQueueSource: apiResult.source,
-          scheduleQueueError: "",
-          scheduleQueueLastSyncedAt: lastSyncedAt,
-          scheduleQueueNote: apiResult.note ?? current.scheduleQueueNote ?? "",
-          productionTasks: nextLine
-            ? upsertProductionTaskLine(current.productionTasks ?? [], nextLine)
-            : current.productionTasks ?? [],
-        };
-      });
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      const reasonLabel = cleanProductionPackingText(payload.reasonLabel);
-      const reasonText = reasonLabel ? `原因：${reasonLabel}；` : "";
-      setToast(
-        `已通过${sourceLabel}移动排产任务：${movedProductionTaskId} 到 ${targetMachineId} #${targetQueueSeq || "-"}；${reasonText}只更新机台队列，不入库、不占用、不生成打包任务。`,
-      );
-      if (apiResult.source === "api") {
-        void refreshProductionPackingTaskLists({ showToast: false });
-      }
-      return;
-    }
-
-    if (action === "调整排产顺序" || action === "上移排产" || action === "下移排产") {
-      const apiResult = await resequenceOfficeProductionMachineQueue({
-        authState,
-        machineId: payload.machineId,
-        orderedProductionTaskIds: payload.orderedProductionTaskIds,
-        operatorId: currentUserId,
-        remark: payload.remark || `${currentUser.displayName} 在打包/标签页调整机台排产队列顺序`,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝调整排产顺序：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝调整排产顺序：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const lastSyncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-      setProductionPacking((current) => ({
-        ...current,
-        scheduleQueueItems: apiResult.items ?? current.scheduleQueueItems ?? [],
-        scheduleQueueMachines: apiResult.machines ?? current.scheduleQueueMachines ?? [],
-        scheduleQueueTotal: apiResult.total ?? current.scheduleQueueTotal ?? 0,
-        scheduleQueueSource: apiResult.source,
-        scheduleQueueError: "",
-        scheduleQueueLastSyncedAt: lastSyncedAt,
-        scheduleQueueNote: apiResult.note ?? current.scheduleQueueNote ?? "",
-      }));
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(
-        `已通过${sourceLabel}调整${apiResult.machineId}排产顺序：${apiResult.updatedCount} 条；只更新队列顺序，不入库、不占用、不生成打包任务。`,
-      );
-      return;
-    }
-
-    if (action === "发布排产") {
-      const line = orderLines.find((item) => item.id === payload.orderLineId) ?? payload.orderLine;
-      if (!line) {
-        setToast("未找到对应订单明细，无法发布排产。");
-        return;
-      }
-      const apiResult = await publishOfficeProductionSchedule({
-        authState,
-        orderLine: line,
-        productionTaskId: payload.productionTaskId,
-        machineId: payload.machineId,
-        processType: payload.processType,
-        plannedQty: payload.plannedQty,
-        operatorId: currentUserId,
-        remark: payload.remark || `${currentUser.displayName} 在打包/标签页发布排产到车间任务池`,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝发布排产：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝发布排产：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-
-      const nextStatus = apiResult.orderLineStatus || apiResult.status || line.status;
-      const nextLine = {
-        ...line,
-        status: nextStatus,
-        lineStatus: nextStatus,
-        machineId: apiResult.machineId,
-        taskType: apiResult.taskType,
-        publishedScheduleId: apiResult.publishedScheduleId,
-        productionTaskId: apiResult.productionTaskId,
-        productionTask: apiResult.productionTask,
-      };
-      setOrderLines((current) =>
-        current.map((item) =>
-          item.id === apiResult.orderLineId
-            ? {
-                ...item,
-                status: nextStatus,
-                lineStatus: nextStatus,
-                machineId: apiResult.machineId,
-                taskType: apiResult.taskType,
-                publishedScheduleId: apiResult.publishedScheduleId,
-                productionTaskId: apiResult.productionTaskId,
-              }
-            : item,
-        ),
-      );
-      setProductionPacking((current) => ({
-        ...current,
-        lastSource: apiResult.source,
-        productionTasks: upsertProductionTaskLine(current.productionTasks ?? [], nextLine),
-      }));
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(
-        `已通过${sourceLabel}发布排产：${apiResult.machineId} / ${apiResult.publishedScheduleId}；只下发车间任务，不入库、不占用、不生成打包任务。`,
-      );
-      if (apiResult.source === "api") {
-        void refreshProductionPackingTaskLists({ showToast: false });
-      }
-      return;
-    }
-
-    if (action === "报当日数量") {
-      const line = orderLines.find((item) => item.id === payload.orderLineId) ?? payload.orderLine;
-      if (!line) {
-        setToast("未找到对应订单明细，无法提交生产当日报数。");
-        return;
-      }
-      const apiResult = await reportOfficeProductionDailyProgress({
-        authState,
-        orderLine: line,
-        dailyQualifiedQty: payload.dailyQualifiedQty ?? payload.qualifiedQty,
-        exceptionQty: payload.exceptionQty,
-        machineCount: payload.machineCount,
-        operatorId: currentUserId,
-        remark: payload.remark || `${currentUser.displayName} 在${payload.entryLabel || "车间手机端"}提交跨日当日报数`,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝生产当日报数：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝生产当日报数：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-
-      const dailyProgress = {
-        latestReportId: apiResult.reportId,
-        progressDate: apiResult.progressDate,
-        latestDailyQualifiedQty: apiResult.dailyQualifiedQty,
-        previousQualifiedQty: apiResult.previousQualifiedQty,
-        cumulativeQualifiedQty: apiResult.cumulativeQualifiedQty,
-        remainingQty: apiResult.remainingQty,
-        plannedQty: apiResult.plannedQty || line.qty,
-        carryOver: apiResult.carryOver,
-        nextWorkDate: apiResult.nextWorkDate,
-        machineCount: apiResult.machineCount,
-        machineCountAffectsInventory: false,
-        inventoryCreated: false,
-        reservationCreated: false,
-        packingTaskCreated: false,
-      };
-      setOrderLines((current) =>
-        current.map((item) =>
-          item.id === apiResult.orderLineId
-            ? {
-                ...item,
-                status: apiResult.taskStatus || apiResult.status,
-                lineStatus: apiResult.taskStatus || apiResult.status,
-                dailyProgress,
-              }
-            : item,
-        ),
-      );
-      setProductionPacking((current) => ({
-        ...current,
-        lastSource: apiResult.source,
-        productionTasks: (current.productionTasks ?? []).map((item) =>
-          item.id === apiResult.orderLineId
-            ? {
-                ...item,
-                status: apiResult.taskStatus || apiResult.status,
-                lineStatus: apiResult.taskStatus || apiResult.status,
-                dailyProgress,
-              }
-            : item,
-        ),
-        dailyProgressByLineId: {
-          ...(current.dailyProgressByLineId ?? {}),
-          [apiResult.orderLineId]: apiResult,
-        },
-      }));
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(
-        `已通过${sourceLabel}记录当日报数：今日合格 ${apiResult.dailyQualifiedQty} 个，累计 ${apiResult.cumulativeQualifiedQty} 个，剩余 ${apiResult.remainingQty} 个；未入库、未占用、未生成打包任务。`,
-      );
-      if (apiResult.source === "api") {
-        void refreshProductionPackingTaskLists({ showToast: false });
-      }
-      return;
-    }
-
-    if (action === "上传成品图") {
-      const line =
-        orderLines.find((item) => item.id === payload.orderLineId) ??
-        (productionPacking.productionTasks ?? []).find((item) => item.id === payload.orderLineId || item.orderLineId === payload.orderLineId) ??
-        payload.orderLine;
-      if (!line) {
-        setToast("未找到对应订单明细，无法上传成品图。");
-        return;
-      }
-      const productionTaskId = payload.productionTaskId || line.productionTaskId || buildProductionTaskId(line);
-      const payloadFile = payload.photoFile || payload.file || null;
-      const sampleFile = payloadFile
-        ? {
-            name: payloadFile.name || `finished-goods-${productionTaskId}.jpg`,
-            type: payloadFile.type || "image/jpeg",
-            size: Number.isFinite(payloadFile.size) ? payloadFile.size : undefined,
-            contentDataUrl: await readFileAsDataUrl(payloadFile),
-          }
-        : createFinishedGoodsPhotoSampleFile({
-            line,
-            productionTaskId,
-            operatorName: currentUser.displayName,
-          });
-      const uploadRemark =
-        payload.remark ||
-        `${currentUser.displayName} 在${payload.entryLabel || "打包/标签页"}上传定制印刷成品图${payloadFile ? "" : "样张"}`;
-      const attachmentInput = createFinishedGoodsPhotoAttachmentInput({
-        productionTaskId,
-        orderLine: line,
-        operatorId: currentUserId,
-        remark: uploadRemark,
-        file: sampleFile,
-      });
-      const attachmentResult = await createOfficeAttachment({
-        authState,
-        ...attachmentInput,
-      });
-      if (attachmentResult.blocked) {
-        setToast(
-          attachmentResult.error?.requiredPermission
-            ? `后端拒绝上传成品图附件：缺少权限 ${attachmentResult.error.requiredPermission}。`
-            : `后端拒绝上传成品图附件：${attachmentResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const attachmentId = attachmentResult.attachment?.attachmentId || "";
-      const apiResult = await uploadOfficeProductionFinishedGoodsPhoto({
-        authState,
-        orderLine: line,
-        productionTaskId,
-        attachmentId,
-        fileName: attachmentResult.attachment?.fileName || sampleFile.name,
-        operatorId: currentUserId,
-        remark: uploadRemark,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝登记成品图：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝登记成品图：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const finishedGoodsPhoto = apiResult.finishedGoodsPhoto ?? {
-        status: "待确认",
-        attachmentId,
-        fileName: attachmentResult.attachment?.fileName || sampleFile.name,
-      };
-      const updateLinePhoto = (item) =>
-        item.id === apiResult.orderLineId || item.orderLineId === apiResult.orderLineId
-          ? {
-              ...item,
-              finishedGoodsPhoto,
-              productionTask: {
-                ...(item.productionTask ?? {}),
-                ...(apiResult.productionTask ?? {}),
-                finishedGoodsPhoto,
-              },
-            }
-          : item;
-      setOrderLines((current) => current.map(updateLinePhoto));
-      setProductionPacking((current) => ({
-        ...current,
-        lastSource: apiResult.source,
-        productionTasks: (current.productionTasks ?? []).map(updateLinePhoto),
-      }));
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      const attachmentSourceLabel = attachmentResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${attachmentSourceLabel}上传成品图附件，并通过${sourceLabel}登记为待确认；待办公室复核后才进入待通知客户。`);
-      if (apiResult.source === "api") {
-        void refreshProductionPackingTaskLists({ showToast: false });
-      }
-      return;
-    }
-
-    if (action === "确认成品图" || action === "退回成品图") {
-      const line =
-        orderLines.find((item) => item.id === payload.orderLineId) ??
-        (productionPacking.productionTasks ?? []).find((item) => item.id === payload.orderLineId || item.orderLineId === payload.orderLineId) ??
-        payload.orderLine;
-      if (!line) {
-        setToast("未找到对应订单明细，无法复核成品图。");
-        return;
-      }
-      const reviewStatus = action === "确认成品图" ? "已接受" : "需重拍";
-      const productionTaskId = payload.productionTaskId || line.productionTaskId || buildProductionTaskId(line);
-      const reason = payload.reason || (reviewStatus === "已接受" ? "办公室确认成品图合格" : "成品图不清晰或角度不完整，需重拍");
-      const apiResult = await reviewOfficeProductionFinishedGoodsPhoto({
-        authState,
-        orderLine: line,
-        productionTaskId,
-        reviewStatus,
-        reason,
-        operatorId: currentUserId,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝复核成品图：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝复核成品图：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const finishedGoodsPhoto = apiResult.finishedGoodsPhoto ?? {
-        ...(line.finishedGoodsPhoto ?? {}),
-        status: reviewStatus,
-        rejectedReason: reviewStatus === "需重拍" ? reason : "",
-      };
-      const updateLinePhoto = (item) =>
-        item.id === apiResult.orderLineId || item.orderLineId === apiResult.orderLineId
-          ? {
-              ...item,
-              finishedGoodsPhoto,
-              productionTask: {
-                ...(item.productionTask ?? {}),
-                ...(apiResult.productionTask ?? {}),
-                finishedGoodsPhoto,
-              },
-            }
-          : item;
-      setOrderLines((current) => current.map(updateLinePhoto));
-      setProductionPacking((current) => ({
-        ...current,
-        lastSource: apiResult.source,
-        productionTasks: (current.productionTasks ?? []).map(updateLinePhoto),
-      }));
-      if (reviewStatus === "已接受") {
-        const hasTodo = todos.some((item) => item.ref === apiResult.orderLineId && item.type === "待通知客户" && !item.handled);
-        if (!hasTodo) {
-          const customer = findCustomer(line.customerId);
-          const notificationCopyText =
-            apiResult.todo?.notificationCopyText ??
-            buildCustomerFinishedGoodsNotificationCopyText(line, customer);
-          const photoPrompt =
-            apiResult.todo?.photoPrompt ??
-            buildCustomerFinishedGoodsPhotoPrompt(finishedGoodsPhoto);
-          addTodo({
-            ...(apiResult.todo?.todoId ? { id: apiResult.todo.todoId } : {}),
-            type: "待通知客户",
-            customerId: line.customerId,
-            ref: apiResult.orderLineId,
-            summary: `${line.product} ${line.size} 成品图已确认，可通知客户可发货/可安排快递。`,
-            wait: "刚刚",
-            latest: line.latest,
-            urgency: "待处理",
-            impact: "V1 人工发送客户通知",
-            notificationCopyText,
-            notificationChannel: apiResult.todo?.notificationChannel ?? "微信 / 企业微信人工发送",
-            notificationStatus: "待人工发送",
-            photoPrompt,
-          });
-        }
-      } else {
-        const hasTodo = todos.some((item) => item.ref === apiResult.orderLineId && item.type === "成品图需重拍" && !item.handled);
-        if (!hasTodo) {
-          addTodo({
-            ...(apiResult.todo?.todoId ? { id: apiResult.todo.todoId } : {}),
-            type: "成品图需重拍",
-            customerId: line.customerId,
-            ref: apiResult.orderLineId,
-            summary: `${line.product} ${line.size}：${reason}`,
-            wait: "刚刚",
-            latest: line.latest,
-            urgency: "异常",
-            impact: "未确认前不能进入待通知客户池",
-          });
-        }
-      }
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(
-        reviewStatus === "已接受"
-          ? `已通过${sourceLabel}确认成品图，并进入待通知客户池；客户消息仍由办公室人工发送。`
-          : `已通过${sourceLabel}退回成品图并生成重拍待办；未进入待通知客户池。`,
-      );
-      if (apiResult.source === "api") {
-        void refreshProductionPackingTaskLists({ showToast: false });
-      }
-      return;
-    }
-
-    if (action === "报工完成") {
-      const line = orderLines.find((item) => item.id === payload.orderLineId) ?? payload.orderLine;
-      if (!line) {
-        setToast("未找到对应订单明细，无法提交生产报工。");
-        return;
-      }
-      const inventoryItem = findProductionInventoryItem(line, inventoryRecords);
-      if (!inventoryItem) {
-        setToast("未找到匹配的成品库存键，不能把报工数量直接入库；需先补库存主数据。");
-        return;
-      }
-      const apiResult = await reportOfficeProductionComplete({
-        authState,
-        orderLine: line,
-        inventoryItem,
-        qualifiedQty: payload.qualifiedQty,
-        exceptionQty: payload.exceptionQty,
-        machineCount: payload.machineCount,
-        operatorId: currentUserId,
-        remark: payload.remark || `${currentUser.displayName} 在${payload.entryLabel || "打包/标签页"}提交生产报工完成`,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝生产报工：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝生产报工：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-
-      setOrderLines((current) =>
-        current.map((item) =>
-          item.id === apiResult.orderLineId
-            ? {
-                ...item,
-                status: apiResult.orderLineStatus,
-                lineStatus: apiResult.orderLineStatus,
-                inventory: "生产完成待打包",
-              }
-            : item,
-        ),
-      );
-      setInventoryRecords((current) =>
-        current.map((item) =>
-          item.id === apiResult.inventoryItemId
-            ? {
-                ...item,
-                inStock: Number(item.inStock || 0) + apiResult.qualifiedQty,
-                reserved: Number(item.reserved || 0) + apiResult.qualifiedQty,
-              }
-            : item,
-        ),
-      );
-      setProductionPacking((current) => ({
-        ...current,
-        lastSource: apiResult.source,
-        reportResultsByLineId: {
-          ...current.reportResultsByLineId,
-          [apiResult.orderLineId]: apiResult,
-        },
-        packingTasks: upsertPackingTask(current.packingTasks, {
-          packingTaskId: apiResult.packingTaskId,
-          orderLineId: apiResult.orderLineId,
-          plannedQty: apiResult.qualifiedQty,
-          actualPackedQty: 0,
-          packageCount: inferPackageCountFromQty(apiResult.qualifiedQty),
-          status: "待打包",
-          source: apiResult.source,
-        }),
-      }));
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}完成生产报工：合格 ${apiResult.qualifiedQty} 个入库并占用给订单；机器计数只作为凭证，不参与库存。`);
-      if (apiResult.source === "api") {
-        void refreshOrderPool({ showToast: false });
-        void refreshProductionPackingTaskLists({ showToast: false });
-      }
-      return;
-    }
-
-    if (action === "提交打包完成") {
-      const packingTask = productionPacking.packingTasks.find((item) => item.packingTaskId === payload.packingTaskId) ?? payload.packingTask;
-      const line = orderLines.find((item) => item.id === (packingTask?.orderLineId ?? payload.orderLineId)) ?? payload.orderLine;
-      if (!packingTask || !line) {
-        setToast("未找到对应打包任务或订单明细，无法提交打包完成。");
-        return;
-      }
-      const inventoryItem = findProductionInventoryItem(line, inventoryRecords);
-      const apiResult = await completeOfficePackingTask({
-        authState,
-        packingTask,
-        orderLine: line,
-        inventoryItem,
-        actualPackedQty: payload.actualPackedQty,
-        packageCount: payload.packageCount,
-        labelsPrinted: payload.labelsPrinted,
-        operatorId: currentUserId,
-        remark: payload.remark || `${currentUser.displayName} 在${payload.entryLabel || "打包/标签页"}提交打包完成`,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝打包完成：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝打包完成：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-
-      const packageCount = apiResult.packageCount || payload.packageCount || packingTask.packageCount || 1;
-      setProductionPacking((current) => ({
-        ...current,
-        lastSource: apiResult.source,
-        packingTasks: upsertPackingTask(current.packingTasks, {
-          ...packingTask,
-          status: apiResult.status,
-          actualPackedQty: apiResult.actualPackedQty,
-          packageCount,
-          packageIds: apiResult.packageIds,
-          source: apiResult.source,
-        }),
-      }));
-      setOrderLines((current) =>
-        current.map((item) =>
-          item.id === apiResult.orderLineId
-            ? {
-                ...item,
-                status: apiResult.orderLineStatus,
-                lineStatus: apiResult.orderLineStatus,
-                inventory: apiResult.orderLineStatus === "待打印标签" || apiResult.orderLineStatus === "待快运拉走" ? "待提货锁定" : item.inventory,
-                exceptions: apiResult.orderLineStatus === "待打印标签" ? uniqueText([...(item.exceptions ?? []), "待打印标签"]) : item.exceptions,
-              }
-            : item,
-        ),
-      );
-      setFulfillments((current) => {
-        const existing = current.find((item) => item.lineId === apiResult.orderLineId || item.orderLineId === apiResult.orderLineId);
-        const nextFulfillment = existing
-          ? {
-              ...existing,
-              status: apiResult.fulfillmentStatus || existing.status,
-              actualQty: apiResult.actualPackedQty,
-              packages: `${packageCount}包`,
-              source: "打包完成",
-            }
-          : buildFulfillmentFromPacking({ orderLine: line, packingResult: apiResult, packageCount });
-        return existing
-          ? current.map((item) => (item.id === existing.id ? nextFulfillment : item))
-          : [nextFulfillment, ...current];
-      });
-      if (apiResult.orderLineStatus === "待打印标签") {
-        const hasTodo = todos.some((item) => item.ref === apiResult.orderLineId && item.type === "待打印标签" && !item.handled);
-        if (!hasTodo) {
-          addTodo({
-            type: "待打印标签",
-            customerId: line.customerId,
-            ref: apiResult.orderLineId,
-            summary: `${line.product} ${line.size} 已打包 ${apiResult.actualPackedQty} 个 / ${packageCount} 包，等待打印快递快运标签。`,
-            wait: "刚刚",
-            latest: line.latest,
-            urgency: String(line.latest ?? "").includes("今天") ? "今天" : "普通",
-            impact: "等待标签打印",
-          });
-        }
-      }
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}提交打包完成：${apiResult.actualPackedQty} 个 / ${packageCount} 包；打包完成不扣库存，后续出库或拉走确认再扣减。`);
-      if (apiResult.source === "api") {
-        void refreshOrderPool({ showToast: false });
-        void refreshProductionPackingTaskLists({ showToast: false });
-      }
-    }
+    if (!guardUiAction("productionPacking", action)) return null;
+    const result = await executeProductionPackingAction({ action, payload });
+    if (result?.feedback) setToast(result.feedback);
+    return result;
   }
 
   async function handleDriverDeliveryAction(action, payload = {}) {

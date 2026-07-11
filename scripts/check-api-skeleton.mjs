@@ -1167,12 +1167,21 @@ try {
   ) {
     throw new Error("/api/production-tasks/{id}/daily-progress did not deny the warehouse seed user");
   }
+  const dailyProgressTaskBefore = await getJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01",
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  const dailyProgressMachineId = dailyProgressTaskBefore.productionTask?.machineId;
+  if (!dailyProgressMachineId) {
+    throw new Error("/api/production-tasks/{id} did not expose the assigned machine before daily progress");
+  }
   const dailyProgress = await postJson(baseUrl, "/api/production-tasks/PT-ORD-0629-003-01/daily-progress", {
     orderLineId: "ORD-0629-003-01",
     dailyQualifiedQty: 420,
     exceptionQty: 3,
     machineCount: 820,
-    machineId: "BAG-03",
+    machineId: "STALE-MACHINE-MUST-NOT-OVERRIDE",
     operatorId: "U-OFFICE-A",
     reportedAt: new Date().toISOString(),
     remark: "API skeleton production daily progress check",
@@ -1190,6 +1199,14 @@ try {
     !dailyProgress.operationLogId
   ) {
     throw new Error("/api/production-tasks/{id}/daily-progress returned an unexpected payload");
+  }
+  const dailyProgressTaskAfter = await getJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01",
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (dailyProgressTaskAfter.productionTask?.machineId !== dailyProgressMachineId) {
+    throw new Error("/api/production-tasks/{id}/daily-progress changed the assigned machine outside the schedule move workflow");
   }
   const productionInventoryAfterDailyProgress = await getJson(
     baseUrl,
@@ -1354,7 +1371,7 @@ try {
   }
   const workshopVisibleProductionList = await getJson(
     baseUrl,
-    `/api/production-tasks?visibility=${encodeURIComponent("workshop_mobile")}&machineId=${encodeURIComponent("BAG-03")}&status=${encodeURIComponent("open")}&pageSize=5`,
+    `/api/production-tasks?visibility=${encodeURIComponent("workshop_mobile")}&machineId=${encodeURIComponent(dailyProgressMachineId)}&status=${encodeURIComponent("open")}&pageSize=5`,
     { headers: { "x-erp-user-id": "U-WORKSHOP-A" } },
   );
   if (
@@ -1362,7 +1379,7 @@ try {
     !workshopVisibleProductionList.items?.some(
       (item) =>
         item.productionTaskId === dailyProgress.productionTaskId &&
-        item.productionTask?.machineId === "BAG-03" &&
+        item.productionTask?.machineId === dailyProgressMachineId &&
         item.dailyProgress?.carryOver === true &&
         item.dailyProgress?.remainingQty === 580,
     )
@@ -1374,7 +1391,7 @@ try {
     qualifiedQty: 1000,
     exceptionQty: 0,
     machineCount: 1888,
-    machineId: "BAG-03",
+    machineId: "STALE-MACHINE-MUST-NOT-OVERRIDE",
     inventoryItemId: productionInventoryItemId,
     operatorId: "U-OFFICE-A",
     completedAt: new Date().toISOString(),
@@ -1411,6 +1428,7 @@ try {
   const productionTaskDetail = await getJson(baseUrl, `/api/production-tasks/${productionReport.productionTaskId}`);
   if (
     productionTaskDetail.productionTaskId !== productionReport.productionTaskId ||
+    productionTaskDetail.productionTask?.machineId !== dailyProgressMachineId ||
     productionTaskDetail.latestReport?.reportId !== productionReport.reportId ||
     productionTaskDetail.latestReport?.machineCountAffectsInventory !== false ||
     productionTaskDetail.dailyProgress?.cumulativeQualifiedQty !== 420 ||
