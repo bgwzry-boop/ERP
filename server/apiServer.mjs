@@ -97,6 +97,7 @@ import { createAttachmentAccessAuditRepository } from "./attachmentAccessAuditRe
 import { createAttachmentObjectStorage, parseDataUrl } from "./attachmentObjectStorage.mjs";
 import { createAttachmentRecord } from "./services/attachmentCreateService.mjs";
 import { createPrintJobBusinessProjectionService } from "./services/printJobBusinessProjectionService.mjs";
+import { createPrintJobLifecycleService } from "./services/printJobLifecycleService.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
 import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
 import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
@@ -17005,317 +17006,51 @@ const printJobBusinessProjectionService = createPrintJobBusinessProjectionServic
   buildFulfillmentActionRecord,
   buildOperationLog,
 });
+const printJobLifecycleService = createPrintJobLifecycleService({
+  buildOperationLog,
+  printJobBusinessProjectionService,
+});
 
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
-  const before = await findPrintJob(workspace, printJobId);
-  if (!before) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
-  const status = String(body.status ?? body.jobStatus ?? "").trim();
-  if (!isAllowedPrintJobStatusUpdate(status)) {
-    return sendBusinessError(
-      response,
-      422,
-      "INVALID_PRINT_JOB_STATUS",
-      "Print job status must be queued, sent, printed, failed, or canceled.",
-    );
-  }
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
-  const now = new Date().toISOString();
-  const terminal = ["printed", "failed", "canceled"].includes(status);
-  const after = {
-    ...before,
-    jobStatus: status,
-    sentAt: body.sentAt ?? (status === "sent" ? now : before.sentAt),
-    finishedAt: body.finishedAt ?? (terminal ? now : before.finishedAt),
-    errorCode: status === "failed" ? String(body.errorCode ?? before.errorCode ?? "").trim() : "",
-    errorMessage: status === "failed" ? String(body.errorMessage ?? before.errorMessage ?? "").trim() : "",
-    metadata: {
-      ...before.metadata,
-      ...(body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {}),
-      statusUpdatedBy: operatorId,
-      statusUpdateReason: String(body.reason ?? "").trim(),
-    },
-    updatedAt: now,
-  };
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "print_job",
-    targetId: printJobId,
-    action: "update_print_job_status",
-    operatorId,
-    before,
-    after,
-    reason: body.reason ?? body.errorMessage ?? "",
-  });
-  const transaction = await workspace.printJobRepository.updatePrintJob({
-    workspace,
-    printJob: after,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
-  });
-  const printProjection = await printJobBusinessProjectionService.syncPrintJobBusinessProjection({
-    workspace,
-    printJob: transaction.printJob,
-    operatorId,
-    reason: body.reason ?? body.errorMessage ?? "",
-    idempotencyKey: body.idempotencyKey,
-  });
-  return sendJson(response, 200, {
-    printJob: transaction.printJob,
-    operationLogId: transaction.operationLogId,
-    ...printProjection,
-  });
+  const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
+  if (result.notFound) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result);
 }
 
 async function dispatchPrintJobRoute({ response, workspace, printJobId, body }) {
-  const before = await findPrintJob(workspace, printJobId);
-  if (!before) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
-  if (["sent", "printed"].includes(before.jobStatus)) {
-    return sendBusinessError(
-      response,
-      409,
-      "PRINT_JOB_ALREADY_DISPATCHED",
-      "This print job has already been dispatched or printed.",
-    );
-  }
-  if (["failed", "canceled"].includes(before.jobStatus)) {
-    return sendBusinessError(
-      response,
-      409,
-      "PRINT_JOB_DISPATCH_REQUIRES_RETRY",
-      "Failed or canceled print jobs must be retried before dispatch.",
-    );
-  }
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
-  const dispatchResult = workspace.printDriverAdapter.dispatchPrintJob({
-    printJob: before,
-    operatorId,
-    reason: body.reason ?? "",
-  });
-  const after = buildDispatchedPrintJobRecord(before, dispatchResult);
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "print_job",
-    targetId: printJobId,
-    action: "dispatch_print_job",
-    operatorId,
-    before,
-    after,
-    reason: body.reason ?? dispatchResult.message ?? "",
-  });
-  const transaction = await workspace.printJobRepository.updatePrintJob({
-    workspace,
-    printJob: after,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
-  });
-  const printProjection = await printJobBusinessProjectionService.syncPrintJobBusinessProjection({
-    workspace,
-    printJob: transaction.printJob,
-    operatorId,
-    reason: body.reason ?? dispatchResult.message ?? "",
-    idempotencyKey: body.idempotencyKey,
-  });
-  return sendJson(response, 200, {
-    printJob: transaction.printJob,
-    dispatchResult,
-    operationLogId: transaction.operationLogId,
-    ...printProjection,
-  });
+  const result = await printJobLifecycleService.dispatchPrintJob({ workspace, printJobId, body });
+  if (result.notFound) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result);
 }
 
 async function pollPrintJobsRoute({ response, workspace, body, operatorId }) {
-  const statuses = normalizePrintJobPollStatuses(body.statuses ?? body.status);
-  const limit = normalizePositiveInteger(body.limit, 50, 200);
-  const candidates = (await workspace.printJobRepository.listPrintJobs({ workspace, filters: {} }))
-    .filter((printJob) => statuses.includes(printJob.jobStatus))
-    .slice(0, limit);
-  const items = [];
-  for (const printJob of candidates) {
-    items.push(
-      await pollPrintJobDriverStatus({
-        workspace,
-        printJob,
-        body,
-        operatorId,
-      }),
-    );
-  }
-  return sendJson(response, 200, {
-    polledAt: new Date().toISOString(),
-    requestedStatuses: statuses,
-    totalCandidates: candidates.length,
-    updatedCount: items.filter((item) => item.updated).length,
-    unchangedCount: items.filter((item) => !item.updated && !item.error).length,
-    errorCount: items.filter((item) => item.error).length,
-    items,
-  });
+  const result = await printJobLifecycleService.pollPrintJobs({ workspace, body, operatorId });
+  return sendJson(response, 200, result);
 }
 
 async function pollPrintJobDriverStatusRoute({ response, workspace, printJobId, body, operatorId }) {
-  const before = await findPrintJob(workspace, printJobId);
-  if (!before) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
-  const result = await pollPrintJobDriverStatus({
-    workspace,
-    printJob: before,
-    body,
-    operatorId,
-  });
+  const result = await printJobLifecycleService.pollPrintJobById({ workspace, printJobId, body, operatorId });
+  if (result.notFound) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
   if (result.error) {
     return sendBusinessError(response, result.statusCode, result.code, result.message);
   }
   return sendJson(response, 200, result);
 }
 
-async function pollPrintJobDriverStatus({ workspace, printJob, body, operatorId }) {
-  const pollResult = workspace.printDriverAdapter.pollPrintJobStatus({
-    printJob,
-    operatorId,
-    reason: body.reason ?? "",
-  });
-  if (!pollResult.status) {
-    return {
-      printJobId: printJob.printJobId,
-      beforeStatus: printJob.jobStatus,
-      afterStatus: printJob.jobStatus,
-      updated: false,
-      printJob,
-      pollResult,
-      operationLogId: "",
-    };
-  }
-  const driverStatusResult = await recordPrintJobDriverStatus({
-    workspace,
-    printJobId: printJob.printJobId,
-    body: { ...pollResult, idempotencyKey: body.idempotencyKey },
-    operatorId,
-  });
-  if (driverStatusResult.error) {
-    return {
-      printJobId: printJob.printJobId,
-      beforeStatus: printJob.jobStatus,
-      afterStatus: printJob.jobStatus,
-      updated: false,
-      error: true,
-      statusCode: driverStatusResult.statusCode,
-      code: driverStatusResult.code,
-      message: driverStatusResult.message,
-      pollResult,
-    };
-  }
-  return {
-    printJobId: printJob.printJobId,
-    beforeStatus: printJob.jobStatus,
-    afterStatus: driverStatusResult.printJob.jobStatus,
-    updated: driverStatusResult.printJob.jobStatus !== printJob.jobStatus,
-    printJob: driverStatusResult.printJob,
-    pollResult,
-    driverStatusEvent: driverStatusResult.driverStatusEvent,
-    operationLogId: driverStatusResult.operationLogId,
-  };
-}
-
 async function recordPrintJobDriverStatusRoute({ response, workspace, printJobId, body, operatorId }) {
-  const result = await recordPrintJobDriverStatus({ workspace, printJobId, body, operatorId });
+  const result = await printJobLifecycleService.recordPrintJobDriverStatus({ workspace, printJobId, body, operatorId });
   if (result.notFound) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
   if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
   return sendJson(response, 200, result);
 }
 
-async function recordPrintJobDriverStatus({ workspace, printJobId, body, operatorId }) {
-  const before = await findPrintJob(workspace, printJobId);
-  if (!before) return { notFound: true };
-  const driverStatusEvent = buildPrintJobDriverStatusEvent(body, operatorId);
-  if (!isAllowedPrintJobStatusUpdate(driverStatusEvent.status)) {
-    return {
-      error: true,
-      statusCode: 422,
-      code: "INVALID_PRINT_JOB_DRIVER_STATUS",
-      message: "Driver status must be queued, sent, printed, failed, or canceled.",
-    };
-  }
-  const transitionError = getPrintJobDriverStatusTransitionError(before, driverStatusEvent);
-  if (transitionError) {
-    return {
-      error: true,
-      statusCode: transitionError.statusCode,
-      code: transitionError.code,
-      message: transitionError.message,
-    };
-  }
-  const after = buildDriverStatusPrintJobRecord(before, driverStatusEvent);
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "print_job",
-    targetId: printJobId,
-    action: "record_print_job_driver_status",
-    operatorId: driverStatusEvent.operatorId,
-    before,
-    after,
-    reason: body.reason ?? driverStatusEvent.message ?? driverStatusEvent.errorMessage ?? driverStatusEvent.driverStatus,
-  });
-  const transaction = await workspace.printJobRepository.updatePrintJob({
-    workspace,
-    printJob: after,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
-  });
-  const printProjection = await printJobBusinessProjectionService.syncPrintJobBusinessProjection({
-    workspace,
-    printJob: transaction.printJob,
-    operatorId: driverStatusEvent.operatorId,
-    reason: body.reason ?? driverStatusEvent.message ?? driverStatusEvent.errorMessage ?? driverStatusEvent.driverStatus,
-    idempotencyKey: body.idempotencyKey,
-  });
-  return {
-    printJob: transaction.printJob,
-    driverStatusEvent,
-    operationLogId: transaction.operationLogId,
-    ...printProjection,
-  };
-}
-
 async function retryPrintJobRoute({ response, workspace, printJobId, body }) {
-  const before = await findPrintJob(workspace, printJobId);
-  if (!before) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
-  if (!["failed", "canceled"].includes(before.jobStatus)) {
-    return sendBusinessError(
-      response,
-      409,
-      "PRINT_JOB_RETRY_REQUIRES_FAILED_JOB",
-      "Only failed or canceled print jobs can be retried.",
-    );
-  }
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
-  const retryJob = buildRetryPrintJobRecord(workspace, before, body, operatorId);
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "print_job",
-    targetId: retryJob.printJobId,
-    action: "retry_print_job",
-    operatorId,
-    before,
-    after: retryJob,
-    reason: body.retryReason ?? body.reason ?? "",
-  });
-  const transaction = await workspace.printJobRepository.createPrintJob({
-    workspace,
-    printJob: retryJob,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
-  });
-  const printProjection = await printJobBusinessProjectionService.syncPrintJobBusinessProjection({
-    workspace,
-    printJob: transaction.printJob,
-    operatorId,
-    reason: body.retryReason ?? body.reason ?? "",
-    idempotencyKey: body.idempotencyKey,
-  });
-  return sendJson(response, 200, {
-    sourcePrintJob: before,
-    printJob: transaction.printJob,
-    operationLogId: transaction.operationLogId,
-    ...printProjection,
-  });
+  const result = await printJobLifecycleService.retryPrintJob({ workspace, printJobId, body });
+  if (result.notFound) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result);
 }
 
 async function voidPrintRecordRoute({ response, workspace, printRecordId, body }) {
@@ -20959,89 +20694,6 @@ function buildDemoPrintDeviceSnapshot(printDevice, driverMode) {
   };
 }
 
-function buildRetryPrintJobRecord(workspace, sourcePrintJob, body, operatorId) {
-  const createdAt = new Date().toISOString();
-  const attemptNo = Number(sourcePrintJob.attemptNo ?? 1) + 1;
-  const jobStatus = sourcePrintJob.driverMode === "preview_only" ? "preview_only" : "queued";
-  const printJobId =
-    body.printJobId ??
-    nextPlainId("PJ", `${sourcePrintJob.printJobId}-retry-${attemptNo}-${(workspace.printJobs ?? []).length + 1}`);
-  return {
-    ...sourcePrintJob,
-    printJobId,
-    bizNo: printJobId,
-    jobStatus,
-    attemptNo,
-    sourcePrintJobId: sourcePrintJob.printJobId,
-    requestedBy: operatorId,
-    queuedAt: jobStatus === "queued" ? createdAt : "",
-    sentAt: "",
-    finishedAt: "",
-    errorCode: "",
-    errorMessage: "",
-    metadata: {
-      ...sourcePrintJob.metadata,
-      retryOfPrintJobId: sourcePrintJob.printJobId,
-      retryReason: String(body.retryReason ?? body.reason ?? "").trim(),
-      retryRequestedBy: operatorId,
-    },
-    operationLogId: "",
-    createdAt,
-    updatedAt: createdAt,
-  };
-}
-
-function buildDispatchedPrintJobRecord(printJob, dispatchResult) {
-  const now = dispatchResult.dispatchedAt ?? new Date().toISOString();
-  const jobStatus = dispatchResult.jobStatus ?? printJob.jobStatus;
-  return {
-    ...printJob,
-    jobStatus,
-    queuedAt: jobStatus === "queued" && !printJob.queuedAt ? now : printJob.queuedAt,
-    sentAt: jobStatus === "sent" ? now : printJob.sentAt,
-    finishedAt: ["failed", "canceled", "printed"].includes(jobStatus) ? now : printJob.finishedAt,
-    errorCode: jobStatus === "failed" ? dispatchResult.errorCode ?? "" : "",
-    errorMessage: jobStatus === "failed" ? dispatchResult.errorMessage ?? dispatchResult.message ?? "" : "",
-    metadata: {
-      ...printJob.metadata,
-      lastDispatch: dispatchResult,
-      lastDispatchedAt: now,
-      lastDispatchAdapterStatus: dispatchResult.adapterStatus,
-    },
-    updatedAt: now,
-  };
-}
-
-function buildPrintJobDriverStatusEvent(body = {}, operatorId = "U-PRINT-DRIVER-A") {
-  const now = new Date().toISOString();
-  const eventAt = normalizeDriverEventTimestamp(body.eventAt ?? body.polledAt ?? body.callbackAt, now);
-  const status = String(body.status ?? body.jobStatus ?? "").trim();
-  const reportedBy = String(body.operatorId ?? body.reportedBy ?? "").trim();
-  const normalizedOperatorId = String(operatorId ?? "U-PRINT-DRIVER-A").trim() || "U-PRINT-DRIVER-A";
-  const metadata = body.metadata && typeof body.metadata === "object" && !Array.isArray(body.metadata) ? body.metadata : {};
-  return {
-    adapterName: String(body.adapterName ?? body.adapter ?? "print-driver").trim() || "print-driver",
-    eventSource: normalizePrintJobDriverEventSource(body.eventSource ?? body.source),
-    status,
-    externalJobId: String(body.externalJobId ?? body.external_job_id ?? "").trim(),
-    driverStatus: String(body.driverStatus ?? body.rawStatus ?? status).trim() || status,
-    eventAt,
-    operatorId: normalizedOperatorId,
-    errorCode: String(body.errorCode ?? body.error_code ?? "").trim(),
-    errorMessage: String(body.errorMessage ?? body.error_message ?? "").trim(),
-    message: String(body.message ?? body.reason ?? "").trim(),
-    metadata: reportedBy && reportedBy !== normalizedOperatorId ? { ...metadata, reportedBy } : metadata,
-  };
-}
-
-function normalizePrintJobPollStatuses(value) {
-  const raw = Array.isArray(value) ? value : String(value ?? "").split(",");
-  const statuses = raw
-    .map((status) => String(status ?? "").trim())
-    .filter((status) => ["queued", "sent"].includes(status));
-  return statuses.length > 0 ? [...new Set(statuses)] : ["queued", "sent"];
-}
-
 function getPrintDriverConfigurationResponse(workspace) {
   const adapter = workspace.printDriverAdapter ?? {};
   const configuration =
@@ -21489,111 +21141,6 @@ function buildPrintReadinessRemainingRisks({ summary, deviceReadiness, spoolDiag
     risks.push("仍需保留现场抽检、纸张耗材更换后复验和异常重打演练");
   }
   return [...new Set(risks)];
-}
-
-function normalizePositiveInteger(value, fallback, max) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
-  return Math.min(Math.floor(parsed), max);
-}
-
-function getPrintJobDriverStatusTransitionError(printJob, driverStatusEvent) {
-  if (printJob.jobStatus === "preview_only") {
-    return {
-      statusCode: 409,
-      code: "PRINT_JOB_DRIVER_CALLBACK_NOT_EXPECTED",
-      message: "Preview-only print jobs cannot receive driver callbacks.",
-    };
-  }
-  const expectedExternalJobId = getExpectedPrintJobExternalJobId(printJob);
-  if (
-    expectedExternalJobId &&
-    driverStatusEvent.externalJobId &&
-    expectedExternalJobId !== driverStatusEvent.externalJobId
-  ) {
-    return {
-      statusCode: 409,
-      code: "PRINT_JOB_EXTERNAL_ID_MISMATCH",
-      message: "Driver callback externalJobId does not match the dispatched print job.",
-    };
-  }
-  if (["printed", "failed", "canceled"].includes(printJob.jobStatus) && driverStatusEvent.status !== printJob.jobStatus) {
-    return {
-      statusCode: 409,
-      code: "PRINT_JOB_TERMINAL_STATUS_LOCKED",
-      message: "Terminal print jobs cannot be changed by a later driver callback.",
-    };
-  }
-  const allowedNextStatuses = {
-    queued: ["queued", "sent", "printed", "failed", "canceled"],
-    sent: ["sent", "printed", "failed", "canceled"],
-    printed: ["printed"],
-    failed: ["failed"],
-    canceled: ["canceled"],
-  };
-  if (!(allowedNextStatuses[printJob.jobStatus] ?? []).includes(driverStatusEvent.status)) {
-    return {
-      statusCode: 409,
-      code: "PRINT_JOB_STATUS_REGRESSION",
-      message: `Cannot move print job from ${printJob.jobStatus} to ${driverStatusEvent.status}.`,
-    };
-  }
-  return null;
-}
-
-function buildDriverStatusPrintJobRecord(printJob, driverStatusEvent) {
-  const now = driverStatusEvent.eventAt ?? new Date().toISOString();
-  const jobStatus = driverStatusEvent.status;
-  const terminal = ["printed", "failed", "canceled"].includes(jobStatus);
-  const errorCode =
-    jobStatus === "failed" ? driverStatusEvent.errorCode || "DRIVER_REPORTED_FAILED" : "";
-  const errorMessage =
-    jobStatus === "failed"
-      ? driverStatusEvent.errorMessage || driverStatusEvent.message || "Print driver reported failure."
-      : "";
-  const metadata = printJob.metadata && typeof printJob.metadata === "object" ? printJob.metadata : {};
-  const driverStatusEvents = Array.isArray(metadata.driverStatusEvents) ? metadata.driverStatusEvents : [];
-  const externalJobId =
-    driverStatusEvent.externalJobId || metadata.externalJobId || metadata.lastDispatch?.externalJobId || "";
-  return {
-    ...printJob,
-    jobStatus,
-    queuedAt: jobStatus === "queued" && !printJob.queuedAt ? now : printJob.queuedAt,
-    sentAt: ["sent", "printed"].includes(jobStatus) && !printJob.sentAt ? now : printJob.sentAt,
-    finishedAt: terminal ? now : printJob.finishedAt,
-    errorCode,
-    errorMessage,
-    metadata: {
-      ...metadata,
-      externalJobId,
-      lastDriverStatusEvent: driverStatusEvent,
-      lastDriverStatusAt: now,
-      driverStatusEvents: [...driverStatusEvents, driverStatusEvent].slice(-10),
-    },
-    updatedAt: now,
-  };
-}
-
-function getExpectedPrintJobExternalJobId(printJob) {
-  const metadata = printJob.metadata && typeof printJob.metadata === "object" ? printJob.metadata : {};
-  return String(
-    metadata.externalJobId ??
-      metadata.lastDriverStatusEvent?.externalJobId ??
-      metadata.lastDispatch?.externalJobId ??
-      "",
-  ).trim();
-}
-
-function normalizePrintJobDriverEventSource(value) {
-  const source = String(value ?? "").trim();
-  if (["driver_callback", "driver_poll", "operator_confirmation", "dry_run_check"].includes(source)) return source;
-  return "driver_callback";
-}
-
-function normalizeDriverEventTimestamp(value, fallback) {
-  const timestamp = String(value ?? "").trim();
-  if (timestamp && Number.isFinite(Date.parse(timestamp))) return new Date(timestamp).toISOString();
-  return fallback;
 }
 
 function buildFulfillmentExceptionRecord(workspace, selected, body, modalType, todo, operatorId) {
@@ -22582,10 +22129,6 @@ function getPrintDriverMode(printDeviceSnapshot = {}) {
 function resolveInitialPrintJobStatus(printRecord, driverMode) {
   if (printRecord.status === "previewed" || driverMode === "preview_only") return "preview_only";
   return "queued";
-}
-
-function isAllowedPrintJobStatusUpdate(status) {
-  return ["queued", "sent", "printed", "failed", "canceled"].includes(status);
 }
 
 function findActivePrintRecordForFulfillment(workspace, fulfillmentId) {

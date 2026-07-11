@@ -6,6 +6,8 @@ The mapping from print-job status to print-record and fulfillment state belongs 
 
 This boundary does not change the physical-print trust rule: `queued` and `sent` may update a print record but never advance fulfillment, while only trusted `printed` may set physical print confirmation and move eligible express/LTL work to `待确认拉走`. Preview-only work remains non-advancing. Future dispatch, callback, polling, and retry extraction must call this service instead of duplicating transition rules.
 
+Print-job status updates, dispatch, callback/polling, terminal-state validation, and retry use one lifecycle service with transport-neutral result objects. HTTP routes map those outcomes to status codes but do not own transition rules. The authenticated print-driver service account remains the audit operator; a driver payload's free-form operator value is retained only as reported metadata and cannot replace authenticated identity.
+
 ## 2026-07-11 - V1 Status Separates Transport, Normalization, And Presentation
 
 The V1 status feature keeps three explicit layers: HTTP actions issue authenticated/idempotent requests and fail closed, normalizers map backend artifacts into stable client DTOs, and presentation modules own fallback display models plus rendering. The existing public client import path remains compatible, but the normalization file must not issue HTTP requests directly and the page component must not redefine fallback completion data.

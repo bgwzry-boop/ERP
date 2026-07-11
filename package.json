@@ -50,7 +50,7 @@
     "auth:check": "node scripts/check-auth-routes.mjs && node scripts/check-frontend-auth-service.mjs",
     "print-batch-api:check": "node scripts/check-frontend-print-batch-api-client.mjs",
     "print-read-routes:check": "node scripts/check-print-read-routes.mjs",
-    "print-write-routes:check": "node scripts/check-print-write-routes.mjs && node scripts/check-print-job-business-projection-service.mjs",
+    "print-write-routes:check": "node scripts/check-print-write-routes.mjs && node scripts/check-print-job-business-projection-service.mjs && node scripts/check-print-job-lifecycle-service.mjs",
     "office-api-client-core:check": "node scripts/check-office-api-client-core.mjs",
     "order-api:check": "node scripts/check-order-write-routes.mjs && node scripts/check-frontend-order-api-client.mjs",
     "office-order-actions:check": "node scripts/check-office-order-actions.mjs",
