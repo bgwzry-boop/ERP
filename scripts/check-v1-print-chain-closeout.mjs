@@ -140,7 +140,7 @@ function checkSafeguardBlocked() {
 }
 
 async function checkCliAndRedaction() {
-  writeJson(readinessPath, buildPrintReadinessReport({ checkedAt: "2026-07-08T08:00:00.000Z" }));
+  writeJson(readinessPath, buildPrintReadinessReport({ checkedAt: new Date().toISOString() }));
   writeJson(manifestPath, buildPrintManifest({ completePrintGroup: true }));
   const run = await runNodeCli([
     runnerScript,
