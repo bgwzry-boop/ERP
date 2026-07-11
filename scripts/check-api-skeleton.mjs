@@ -3431,17 +3431,19 @@ try {
       { packageId: "PKG-API-1", packageSeq: 1, packageCount: 2, status: "printed" },
       { packageId: "PKG-API-2", packageSeq: 2, packageCount: 2, status: "not_printed" },
     ],
-    operatorId: "U-OFFICE-A",
-    operatorName: "办公室A",
+    operatorId: "U-SPOOFED",
+    operatorName: "伪造操作人",
     createdAt: "今天 10:30",
   });
   if (
     printBatchRecord.printBatchRecord?.printBatchId !== "PB-API-CHECK-1" ||
     printBatchRecord.printBatchRecord?.pendingPackageIds?.[0] !== "PKG-API-2" ||
     printBatchRecord.printBatchRecord?.status !== "partial" ||
+    printBatchRecord.printBatchRecord?.operatorId !== "U-OFFICE-A" ||
+    printBatchRecord.printBatchRecord?.operatorName !== "办公室A" ||
     !printBatchRecord.operationLogId
   ) {
-    throw new Error("/api/print-batches did not create a traceable print batch record");
+    throw new Error(`/api/print-batches did not create a traceable print batch record: ${JSON.stringify(printBatchRecord)}`);
   }
   const printBatchList = await getJson(baseUrl, `/api/print-batches?todoId=${encodeURIComponent(todoId)}`);
   if (

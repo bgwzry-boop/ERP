@@ -3927,7 +3927,8 @@ paths:
       summary: 创建批量打印批次记录
       description: >
         批量打印标签后，办公室必须确认全部打出、部分打出、没打出或结果不确定。
-        该接口记录批次号、待办、包裹标签、已打 / 待打数量和操作人，后续可用于重打追溯。
+        该接口记录批次号、待办、包裹标签、已打 / 待打数量和认证操作人，后续可用于重打追溯。
+        请求体中的操作人字段不能覆盖当前认证身份；该人工确认记录不替代可信 spool printed 回读。
       operationId: createPrintBatch
       requestBody:
         required: true

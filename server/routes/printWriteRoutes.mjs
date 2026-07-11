@@ -25,7 +25,16 @@ export async function handlePrintWriteRoutes({
   const directRoutes = {
     "/api/print-batches": {
       permission: writeActionPermissions.printFulfillment,
-      run: () => createPrintBatchRoute({ response, workspace, body }),
+      run: () => {
+        const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A");
+        return createPrintBatchRoute({
+          response,
+          workspace,
+          body,
+          operatorId,
+          operatorName: permissionContext?.user?.displayName ?? operatorId,
+        });
+      },
     },
     "/api/print-devices": {
       permission: writeActionPermissions.printFulfillment,

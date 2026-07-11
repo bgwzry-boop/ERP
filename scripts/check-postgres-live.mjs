@@ -575,7 +575,9 @@ async function checkPostgresRepositories() {
   const productionPackingRepository = createPostgresProductionPackingTransactionRepository({ queryJson });
   const productionPackingReadRepository = createPostgresProductionPackingReadRepository({ queryJson });
   const productionScheduleRecordRepository = createPostgresProductionScheduleRecordRepository({ queryJson });
-  const printBatchRepository = createPostgresPrintBatchRepository({ queryJson });
+  const printBatchRepository = createPostgresPrintBatchRepository({
+    postgresClient: createPostgresPoolClient({ pool: attachmentPool }),
+  });
   const printDeviceRepository = createPostgresPrintDeviceRepository({ queryJson });
   const printJobRepository = createPostgresPrintJobRepository({ queryJson });
   const masterDataImportReviewRepository = createPostgresMasterDataImportReviewRepository({ queryJson });
@@ -2346,14 +2348,17 @@ ON CONFLICT (id) DO UPDATE SET
 async function checkApiWithPostgresRepositories() {
   const printJobRepository = createPostgresPrintJobRepository({ queryJson });
   orderDraftPool = new Pool({ connectionString: resolveLiveDatabaseUrl(), max: 4, connectionTimeoutMillis: 5_000 });
+  const apiPostgresClient = createPostgresPoolClient({ pool: orderDraftPool });
   const orderDraftRepository = createPostgresOrderDraftRepository({
-    postgresClient: createPostgresPoolClient({ pool: orderDraftPool }),
+    postgresClient: apiPostgresClient,
   });
+  const printBatchRepository = createPostgresPrintBatchRepository({ postgresClient: apiPostgresClient });
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   const apiServerOptions = {
     v1PersistenceProfile: { repositoryMode: "postgres", queryJson },
     orderDraftRepository,
+    printBatchRepository,
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
@@ -3538,36 +3543,42 @@ WHERE id = 'F002';`,
   assert.equal(apiDriverStatusOperationLog.operatorId, "U-PRINT-DRIVER-A");
   assert.equal(apiDriverStatusOperationLog.action, "record_print_job_driver_status");
 
+  const apiPrintBatchBody = {
+    printBatchId: "PB-LIVE-API-001",
+    idempotencyKey: "print-batch-live-api-001",
+    action: "批量打印标签",
+    resultLabel: "部分打出",
+    status: "partial",
+    todoIds: ["T-LIVE-API-PRINT-001"],
+    todoRefs: ["ORD-LIVE-API-PRINT-001"],
+    totalTaskCount: 1,
+    totalLabelCount: 3,
+    printedLabelCount: 2,
+    pendingLabelCount: 1,
+    printedPackageIds: ["PKG-LIVE-API-PRINT-001", "PKG-LIVE-API-PRINT-002"],
+    pendingPackageIds: ["PKG-LIVE-API-PRINT-003"],
+    printPackages: [
+      { packageId: "PKG-LIVE-API-PRINT-001", packageSeq: 1, packageCount: 3, status: "printed" },
+      { packageId: "PKG-LIVE-API-PRINT-002", packageSeq: 2, packageCount: 3, status: "printed" },
+      { packageId: "PKG-LIVE-API-PRINT-003", packageSeq: 3, packageCount: 3, status: "not_printed" },
+    ],
+    operatorId: "U-SPOOFED",
+    operatorName: "伪造操作人",
+    createdAt: "今天 10:30",
+  };
   const apiPrintBatch = await postJson(
     baseUrl,
     "/api/print-batches",
-    {
-      printBatchId: "PB-LIVE-API-001",
-      action: "批量打印标签",
-      resultLabel: "部分打出",
-      status: "partial",
-      todoIds: ["T-LIVE-API-PRINT-001"],
-      todoRefs: ["ORD-LIVE-API-PRINT-001"],
-      totalTaskCount: 1,
-      totalLabelCount: 3,
-      printedLabelCount: 2,
-      pendingLabelCount: 1,
-      printedPackageIds: ["PKG-LIVE-API-PRINT-001", "PKG-LIVE-API-PRINT-002"],
-      pendingPackageIds: ["PKG-LIVE-API-PRINT-003"],
-      printPackages: [
-        { packageId: "PKG-LIVE-API-PRINT-001", packageSeq: 1, packageCount: 3, status: "printed" },
-        { packageId: "PKG-LIVE-API-PRINT-002", packageSeq: 2, packageCount: 3, status: "printed" },
-        { packageId: "PKG-LIVE-API-PRINT-003", packageSeq: 3, packageCount: 3, status: "not_printed" },
-      ],
-      operatorId: "U-OFFICE-A",
-      operatorName: "办公室A",
-      createdAt: "今天 10:30",
-    },
+    apiPrintBatchBody,
     { headers },
   );
   assert.equal(apiPrintBatch.printBatchRecord.printBatchId, "PB-LIVE-API-001");
   assert.equal(apiPrintBatch.printBatchRecord.pendingPackageIds[0], "PKG-LIVE-API-PRINT-003");
+  assert.equal(apiPrintBatch.printBatchRecord.operatorId, "U-OFFICE-A");
+  assert.equal(apiPrintBatch.printBatchRecord.operatorName, "办公室A");
   assert.ok(apiPrintBatch.operationLogId);
+  const replayedApiPrintBatch = await postJson(baseUrl, "/api/print-batches", apiPrintBatchBody, { headers });
+  assert.equal(replayedApiPrintBatch.operationLogId, apiPrintBatch.operationLogId);
   assert.equal(
     queryJson(
       "SELECT json_build_object('status', status, 'pending', pending_package_ids[1]) AS result FROM print_batch_records WHERE id = 'PB-LIVE-API-001';",

@@ -3,6 +3,7 @@ import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export const printBatchRecordStoreKey = "metadata/print-batch-records.json";
 
@@ -13,6 +14,7 @@ export function createPrintBatchRepository(options = {}) {
       databaseUrl: options.databaseUrl ?? process.env.ERP_PRINT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -60,7 +62,7 @@ export function createPostgresPrintBatchRepository(options = {}) {
   const queryJson =
     options.queryJson ??
     ((text, values) => postgresClient.queryJson(text, values));
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
@@ -72,16 +74,28 @@ export function createPostgresPrintBatchRepository(options = {}) {
       };
     },
 
-    async createPrintBatchRecord({ workspace, printBatchRecord, operationLog }) {
+    async createPrintBatchRecord(input = {}) {
+      const { workspace, printBatchRecord, operationLog } = input;
       const query = buildCreatePrintBatchRecordTransactionQuery({ printBatchRecord, operationLog });
       const saved = normalizePrintBatchTransactionResult(
-        await transactionJson(query.text, query.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "print.batch.create",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, operationLog?.id),
+            payload: input.idempotencyPayload ?? { action: operationLog?.action, printBatchRecord },
+            operatorId: operationLog?.operatorId,
+            targetType: "print_batch",
+            targetId: printBatchRecord?.printBatchId,
+            resourceLocks: [`print-batch:${printBatchRecord?.printBatchId ?? ""}`],
+            query,
+          }),
+        ),
       );
       if (!saved.printBatchRecord) throw new Error("PostgreSQL print batch insert returned an invalid record");
       applyPrintBatchWorkspaceMutation({
         workspace,
         printBatchRecord: saved.printBatchRecord,
-        operationLog,
+        operationLog: saved.operationLogId === operationLog?.id ? operationLog : null,
       });
       return saved;
     },

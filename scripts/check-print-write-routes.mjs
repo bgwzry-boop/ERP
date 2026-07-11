@@ -6,7 +6,7 @@ const dependencies = {
   response: {},
   workspace: {},
   body: { operatorId: "U-OFFICE-A" },
-  permissionContext: { actionPermissions: ["fulfillment.print"] },
+  permissionContext: { actionPermissions: ["fulfillment.print"], user: { displayName: "认证操作人" } },
   authContext: { userId: "U-AUTH" },
   writeActionPermissions: {
     printFulfillment: "fulfillment.print",
@@ -17,8 +17,8 @@ const dependencies = {
     calls.push({ kind: "permission", response, permissionContext, permission });
     return true;
   },
-  async createPrintBatchRoute({ response, workspace, body }) {
-    calls.push({ kind: "batch", response, workspace, body });
+  async createPrintBatchRoute(input) {
+    calls.push({ kind: "batch", ...input });
   },
   async upsertPrintDeviceRoute({ response, workspace, body }) {
     calls.push({ kind: "device", response, workspace, body });
@@ -42,7 +42,7 @@ for (const [routeName, kind] of [
   dependencies[routeName] = async (input) => calls.push({ kind, ...input });
 }
 
-await expectHandled("/api/print-batches", "batch");
+await expectHandled("/api/print-batches", "batch", "fulfillment.print", {}, "U-OFFICE-A");
 await expectHandled("/api/print-devices", "device");
 await expectHandled("/api/print-devices/PRN-1/driver-mode", "driverMode", "fulfillment.print", { printDeviceId: "PRN-1" }, "U-OFFICE-A");
 await expectHandled("/api/print-devices/PRN-1/field-tests", "fieldTest", "print.device_qa.record", { printDeviceId: "PRN-1" }, "U-OFFICE-A");
@@ -97,6 +97,6 @@ async function expectHandled(pathname, expectedKind, permission = "fulfillment.p
     });
   }
   assert.deepEqual(calls, [
-    { kind: expectedKind, response: dependencies.response, workspace: dependencies.workspace, body: dependencies.body, ...identifiers, ...(fallback ? { operatorId: "U-RESOLVED" } : {}) },
+    { kind: expectedKind, response: dependencies.response, workspace: dependencies.workspace, body: dependencies.body, ...identifiers, ...(fallback ? { operatorId: "U-RESOLVED", ...(expectedKind === "batch" ? { operatorName: "认证操作人" } : {}) } : {}) },
   ]);
 }

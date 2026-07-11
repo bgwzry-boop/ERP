@@ -62,7 +62,6 @@ import {
   recordStatementCustomerConfirmation,
 } from "../src/state/officeStatementActions.js";
 import {
-  createPrintBatchRecord,
   markTodoHandled,
   markTodoManagementViewed,
   reopenTodo,
@@ -97,6 +96,7 @@ import { createPrintJobBusinessProjectionService } from "./services/printJobBusi
 import { createPrintJobLifecycleService } from "./services/printJobLifecycleService.mjs";
 import { createFulfillmentPrintCommandService } from "./services/fulfillmentPrintCommandService.mjs";
 import { createPrintDeviceCommandService } from "./services/printDeviceCommandService.mjs";
+import { createPrintBatchCommandService } from "./services/printBatchCommandService.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
 import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
 import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
@@ -16779,6 +16779,7 @@ const fulfillmentPrintCommandService = createFulfillmentPrintCommandService({
   getTemplateId,
 });
 const printDeviceCommandService = createPrintDeviceCommandService({ buildOperationLog });
+const printBatchCommandService = createPrintBatchCommandService({ buildOperationLog });
 
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
   const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
@@ -19605,37 +19606,9 @@ function markTodoCustomerNotificationSent(todos, todoId, body = {}) {
   );
 }
 
-async function createPrintBatchRoute({ response, workspace, body }) {
-  const printBatchRecord = createPrintBatchRecord({
-    ...body,
-    printBatchId: body.printBatchId ?? nextPlainId("PB", `PRINT-BATCH-${(workspace.printBatchRecords ?? []).length + 1}`),
-    sequence: (workspace.printBatchRecords ?? []).length + 1,
-    operatorId: body.operatorId ?? "U-OFFICE-A",
-    operatorName: body.operatorName ?? body.operatorId ?? "办公室A",
-  });
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "print_batch",
-    targetId: printBatchRecord.printBatchId,
-    action: "create_print_batch",
-    operatorId: printBatchRecord.operatorId,
-    reason: printBatchRecord.summary,
-  });
-  const recordWithLog = {
-    ...printBatchRecord,
-    operationLogId: operationLog.id,
-  };
-  const transaction = await workspace.printBatchRepository.createPrintBatchRecord({
-    workspace,
-    printBatchRecord: recordWithLog,
-    operationLog: {
-      ...operationLog,
-      after: recordWithLog,
-    },
-  });
-  return sendJson(response, 200, {
-    printBatchRecord: transaction.printBatchRecord,
-    operationLogId: transaction.operationLogId,
-  });
+async function createPrintBatchRoute({ response, workspace, body, operatorId, operatorName }) {
+  const result = await printBatchCommandService.createPrintBatch({ workspace, body, operatorId, operatorName });
+  return sendJson(response, 200, result);
 }
 
 function markTodoPrintResultPending(todos, todoId, body) {

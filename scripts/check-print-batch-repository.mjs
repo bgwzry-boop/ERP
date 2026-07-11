@@ -52,6 +52,7 @@ async function checkLocalPrintBatchRepository() {
 
 async function checkPostgresPrintBatchSqlBoundary() {
   const calls = [];
+  const idempotentCalls = [];
   const printBatchRecord = buildPrintBatchRecord({ operatorName: "O'Brien" });
   const operationLog = buildOperationLog();
   const repository = createPostgresPrintBatchRepository({
@@ -60,15 +61,21 @@ async function checkPostgresPrintBatchSqlBoundary() {
         calls.push({ kind: "query", text, values });
         return [printBatchRecord];
       },
-      transactionJson(text, values) {
-        calls.push({ kind: "transaction", text, values });
+      idempotentTransactionJson(request) {
+        idempotentCalls.push(request);
         return { printBatchRecord, operationLogId: operationLog.id };
       },
     },
   });
   const workspace = { printBatchRecords: [], operationLogs: [] };
 
-  const transaction = await repository.createPrintBatchRecord({ workspace, printBatchRecord, operationLog });
+  const transaction = await repository.createPrintBatchRecord({
+    workspace,
+    printBatchRecord,
+    operationLog,
+    idempotencyKey: "print-batch-check-001",
+    idempotencyPayload: { printBatchId: printBatchRecord.printBatchId, status: printBatchRecord.status },
+  });
   const listed = await repository.listPrintBatchRecords({ filters: { todoId: "T-PRINT-A", status: "partial" } });
 
   assert.equal(transaction.printBatchRecord.printBatchId, "PB-CHECK-1");
@@ -77,8 +84,23 @@ async function checkPostgresPrintBatchSqlBoundary() {
   assert.equal(workspace.printBatchRecords.length, 1);
   assert.equal(workspace.operationLogs.length, 1);
 
-  const createCall = calls[0];
-  assert.equal(createCall.kind, "transaction");
+  await repository.createPrintBatchRecord({
+    workspace,
+    printBatchRecord,
+    operationLog: { ...operationLog, id: "LOG-PB-CHECK-REPLAY" },
+    idempotencyKey: "print-batch-check-001",
+    idempotencyPayload: { printBatchId: printBatchRecord.printBatchId, status: printBatchRecord.status },
+  });
+  assert.equal(workspace.operationLogs.length, 1);
+  assert.equal(workspace.operationLogs[0].id, "LOG-PB-CHECK-1");
+
+  assert.equal(idempotentCalls.length, 2);
+  const createCall = idempotentCalls[0];
+  assert.equal(createCall.scope, "print.batch.create");
+  assert.equal(createCall.idempotencyKey, "print-batch-check-001");
+  assert.equal(createCall.targetType, "print_batch");
+  assert.equal(createCall.targetId, "PB-CHECK-1");
+  assert.ok(createCall.resourceLocks.includes("print-batch:PB-CHECK-1"));
   assert.match(createCall.text, /^BEGIN;/);
   assert.match(createCall.text, /INSERT INTO print_batch_records/);
   assert.match(createCall.text, /todo_ids/);
@@ -90,7 +112,7 @@ async function checkPostgresPrintBatchSqlBoundary() {
   assert.doesNotMatch(createCall.text, /O''Brien/);
   assert.ok(createCall.values.includes("O'Brien"));
 
-  const listCall = calls[1];
+  const listCall = calls[0];
   assert.equal(listCall.kind, "query");
   assert.match(listCall.text, /FROM print_batch_records/);
   assert.match(listCall.text, /status = \$1::text/);
