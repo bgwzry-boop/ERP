@@ -95,6 +95,8 @@ import { createTodoCommandService } from "./services/todoCommandService.mjs";
 import { createInventoryCorrectionCommandService } from "./services/inventoryCorrectionCommandService.mjs";
 import { createProductionFinishedGoodsPhotoCommandService } from "./services/productionFinishedGoodsPhotoCommandService.mjs";
 import { createProductionSchedulingCommandService } from "./services/productionSchedulingCommandService.mjs";
+import { createProductionReportingCommandService } from "./services/productionReportingCommandService.mjs";
+import { createPackingCommandService } from "./services/packingCommandService.mjs";
 import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
 import { createProductionFinishedGoodsPhotoTransactionRepository } from "./productionFinishedGoodsPhotoTransactionRepository.mjs";
@@ -16749,6 +16751,23 @@ const productionSchedulingCommandService = createProductionSchedulingCommandServ
   resolvePublishedProductionTaskStatus,
   summarizeOrderLineForChange,
 });
+const productionReportingCommandService = createProductionReportingCommandService({
+  buildOperationLog,
+  buildProductionTaskFromBody,
+  findInventoryItem,
+  findOrderLine,
+  findProductionTask,
+  isProductionTaskCompletedStatus,
+  resolvePersistableCreatedBy,
+  summarizeOrderLineForChange,
+});
+const packingCommandService = createPackingCommandService({
+  buildOperationLog,
+  distributeIntegerQty,
+  findInventoryItem,
+  isReleasableInventoryReservation,
+  resolvePersistableCreatedBy,
+});
 
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
   const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
@@ -17176,142 +17195,15 @@ function findProductionScheduleRecord(workspace, input = {}) {
 }
 
 async function recordProductionDailyProgressRoute({ response, workspace, productionTaskId, body, operatorId }) {
-  const beforeTask = findProductionTask(workspace, productionTaskId) ?? buildProductionTaskFromBody(workspace, productionTaskId, body);
-  if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
-  if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
-  }
-  if (isProductionTaskCompletedStatus(beforeTask.taskStatus ?? beforeTask.status)) {
-    return sendBusinessError(response, 409, "PRODUCTION_TASK_ALREADY_COMPLETED", "Completed production tasks cannot record daily progress.");
-  }
-
-  const orderLineId = body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId;
-  const beforeOrderLine = findOrderLine(workspace, orderLineId);
-  if (!beforeOrderLine) return sendNotFound(response, "ORDER_LINE_NOT_FOUND");
-  if (String(beforeOrderLine.orderType ?? "").includes("外加工")) {
-    return sendBusinessError(
-      response,
-      409,
-      "PRODUCTION_PROGRESS_EXTERNAL_PROCESSING_NOT_SUPPORTED",
-      "External-processing print service tasks do not use workshop daily progress.",
-    );
-  }
-
-  const dailyQualifiedQty = Math.trunc(Number(body.dailyQualifiedQty ?? body.qualifiedQty ?? 0));
-  if (!Number.isFinite(dailyQualifiedQty) || dailyQualifiedQty <= 0) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "dailyQualifiedQty must be greater than 0.");
-  }
-  const reportedAt = body.reportedAt ?? body.completedAt ?? new Date().toISOString();
-  const reportDate = normalizeDateInput(body.progressDate ?? reportedAt);
-  const machineCount = body.machineCount === undefined || body.machineCount === null ? undefined : Math.trunc(Number(body.machineCount));
-  const plannedQty = Math.trunc(Number(beforeTask.plannedQty ?? beforeTask.qty ?? beforeOrderLine.qty ?? beforeOrderLine.originalQty ?? dailyQualifiedQty));
-  const previousQualifiedQty = sumProductionDailyProgressQty(workspace, {
-    productionTaskId,
-    orderLineId,
-    excludeReportId: body.reportId,
-  });
-  const cumulativeQualifiedQty = Number.isFinite(Math.trunc(Number(body.cumulativeQualifiedQty)))
-    ? Math.max(0, Math.trunc(Number(body.cumulativeQualifiedQty)))
-    : previousQualifiedQty + dailyQualifiedQty;
-  const remainingQty = Math.max(0, plannedQty - cumulativeQualifiedQty);
-  const nextWorkDate = body.nextWorkDate ?? (remainingQty > 0 ? getNextDateText(reportDate) : "");
-  const effectiveMachineId = cleanServerText(beforeTask.machineId ?? body.machineId);
-  const afterTask = {
-    ...beforeTask,
-    productionTaskId,
-    orderLineId,
-    taskType: body.processType ?? beforeTask.taskType ?? "制袋",
-    machineId: effectiveMachineId,
-    plannedQty,
-    taskStatus: remainingQty > 0 ? "跨日继续" : "待完工确认",
-    createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
-  };
-  const reportId = body.reportId ?? nextPlainId("WDP", `${productionTaskId}-${workspace.workshopReports.length + 1}`);
-  const workshopReport = {
-    reportId,
-    productionTaskId,
-    orderLineId,
-    processType: body.processType ?? afterTask.taskType,
-    machineId: effectiveMachineId,
-    operatorId,
-    qualifiedQty: dailyQualifiedQty,
-    exceptionQty: Math.max(0, Math.trunc(Number(body.exceptionQty ?? 0))),
-    machineCount,
-    startedAt: body.startedAt ?? "",
-    completedAt: reportedAt,
-    remark: body.remark ?? "",
-    evidence: {
-      ...(body.evidence ?? {}),
-      reportKind: "daily_progress",
-      progressDate: reportDate,
-      plannedQty,
-      dailyQualifiedQty,
-      previousQualifiedQty,
-      cumulativeQualifiedQty,
-      remainingQty,
-      carryOver: remainingQty > 0,
-      nextWorkDate,
-      inventoryCreated: false,
-      reservationCreated: false,
-      packingTaskCreated: false,
-      machineCountAffectsInventory: false,
-      machineCountLabel: machineCount === undefined ? "" : "机器计数/动作次数，非合格成品数量",
-    },
-    createdAt: reportedAt,
-  };
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "production_task",
-    targetId: productionTaskId,
-    action: "record_production_daily_progress",
-    operatorId,
-    before: beforeTask,
-    after: {
-      productionTask: afterTask,
-      workshopReport,
-      orderLine: summarizeOrderLineForChange(beforeOrderLine),
-      dailyQualifiedQty,
-      previousQualifiedQty,
-      cumulativeQualifiedQty,
-      remainingQty,
-      inventoryCreated: false,
-      reservationCreated: false,
-      packingTaskCreated: false,
-      machineCount: machineCount ?? null,
-    },
-    reason: body.remark ?? "生产跨日当日报数",
-  });
-  const transaction = await workspace.productionPackingTransactionRepository.recordProductionDailyProgress({
+  const result = await productionReportingCommandService.recordDailyProgress({
     workspace,
-    productionTask: afterTask,
-    workshopReport,
-    orderLine: beforeOrderLine,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
-  });
-  const savedEvidence = transaction.workshopReport.evidence ?? {};
-
-  return sendJson(response, 200, {
     productionTaskId,
-    reportId: transaction.workshopReport.reportId,
-    orderLineId,
-    status: transaction.productionTask.taskStatus,
-    taskStatus: transaction.productionTask.taskStatus,
-    plannedQty: Number(savedEvidence.plannedQty ?? plannedQty),
-    progressDate: savedEvidence.progressDate ?? reportDate,
-    dailyQualifiedQty: transaction.workshopReport.qualifiedQty,
-    previousQualifiedQty: Number(savedEvidence.previousQualifiedQty ?? previousQualifiedQty),
-    cumulativeQualifiedQty: Number(savedEvidence.cumulativeQualifiedQty ?? cumulativeQualifiedQty),
-    remainingQty: Number(savedEvidence.remainingQty ?? remainingQty),
-    carryOver: savedEvidence.carryOver ?? remainingQty > 0,
-    nextWorkDate: savedEvidence.nextWorkDate ?? nextWorkDate,
-    machineCount: transaction.workshopReport.machineCount ?? null,
-    machineCountAffectsInventory: false,
-    inventoryCreated: false,
-    reservationCreated: false,
-    packingTaskCreated: false,
-    operationLogId: transaction.operationLogId,
+    body,
+    operatorId,
   });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 async function uploadProductionFinishedGoodsPhotoRoute({ response, workspace, productionTaskId, body, operatorId }) {
@@ -17358,244 +17250,15 @@ async function reviewProductionFinishedGoodsPhotoRoute({ response, workspace, pr
 }
 
 async function reportProductionCompleteRoute({ response, workspace, productionTaskId, body, operatorId }) {
-  const beforeTask = findProductionTask(workspace, productionTaskId) ?? buildProductionTaskFromBody(workspace, productionTaskId, body);
-  if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
-  if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
-  }
-  const orderLineId = body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId;
-  const beforeOrderLine = findOrderLine(workspace, orderLineId);
-  if (!beforeOrderLine) return sendNotFound(response, "ORDER_LINE_NOT_FOUND");
-  if (String(beforeOrderLine.orderType ?? "").includes("外加工")) {
-    return sendBusinessError(
-      response,
-      409,
-      "PRODUCTION_REPORT_EXTERNAL_PROCESSING_NOT_INVENTORY",
-      "External-processing print service reports do not create finished-goods inventory.",
-    );
-  }
-  const qualifiedQty = Math.trunc(Number(body.qualifiedQty ?? 0));
-  if (!Number.isFinite(qualifiedQty) || qualifiedQty <= 0) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "qualifiedQty must be greater than 0.");
-  }
-  const inventoryItem = body.inventoryItemId
-    ? findInventoryItem(workspace, body.inventoryItemId)
-    : findUniqueMatchingInventory(workspace, beforeOrderLine);
-  if (!inventoryItem) return sendNotFound(response, "INVENTORY_ITEM_NOT_FOUND");
-
-  const completedAt = body.completedAt ?? new Date().toISOString();
-  const machineCount = body.machineCount === undefined || body.machineCount === null ? undefined : Math.trunc(Number(body.machineCount));
-  const effectiveMachineId = cleanServerText(beforeTask.machineId ?? body.machineId);
-  const afterTask = {
-    ...beforeTask,
-    productionTaskId,
-    orderLineId,
-    taskType: body.processType ?? beforeTask.taskType ?? "制袋",
-    machineId: effectiveMachineId,
-    plannedQty: Number(beforeTask.plannedQty ?? beforeTask.qty ?? beforeOrderLine.qty ?? qualifiedQty),
-    taskStatus: "已完成",
-    createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
-  };
-  const afterOrderLine = {
-    ...beforeOrderLine,
-    orderLineId: beforeOrderLine.orderLineId ?? beforeOrderLine.id,
-    lineStatus: body.createPackingTask === false ? "待出库" : "待打包",
-    status: body.createPackingTask === false ? "待出库" : "待打包",
-    exceptionTags: beforeOrderLine.exceptionTags ?? beforeOrderLine.exceptions ?? [],
-  };
-  const reportId = body.reportId ?? nextPlainId("WR", `${productionTaskId}-${workspace.workshopReports.length + 1}`);
-  const workshopReport = {
-    reportId,
-    productionTaskId,
-    orderLineId,
-    processType: body.processType ?? afterTask.taskType,
-    machineId: effectiveMachineId,
-    operatorId,
-    qualifiedQty,
-    exceptionQty: Math.max(0, Math.trunc(Number(body.exceptionQty ?? 0))),
-    machineCount,
-    startedAt: body.startedAt ?? "",
-    completedAt,
-    remark: body.remark ?? "",
-    evidence: {
-      ...(body.evidence ?? {}),
-      machineCountLabel: machineCount === undefined ? "" : "机器计数/动作次数，非合格成品数量",
-    },
-    createdAt: completedAt,
-  };
-  const machineCapacityBaseline = buildProductionMachineCapacityBaseline({
-    productionTask: afterTask,
-    workshopReport,
-    orderLine: beforeOrderLine,
-    inventoryItem,
-    operatorId,
-    completedAt,
-  });
-  const packingTask =
-    body.createPackingTask === false
-      ? null
-      : {
-          packingTaskId: body.packingTaskId ?? nextPlainId("PKT", orderLineId),
-          bizNo: body.packingTaskBizNo ?? body.packingTaskId ?? nextPlainId("PKT", orderLineId),
-          orderLineId,
-          plannedQty: qualifiedQty,
-          actualPackedQty: 0,
-          status: "待打包",
-          createdBy: operatorId,
-          createdAt: completedAt,
-        };
-  const onHandBefore = Number(inventoryItem.inStock ?? inventoryItem.onHand ?? 0);
-  const reservedBefore = Number(inventoryItem.reserved ?? 0);
-  const reservation = {
-    reservationId: body.reservationId ?? nextPlainId("RSV", `${productionTaskId}-PROD`),
-    orderLineId,
-    inventoryItemId: inventoryItem.id,
-    reservedQty: qualifiedQty,
-    reservationType: "生产完成待出库占用",
-    status: "生效",
-    createdBy: operatorId,
-    createdAt: completedAt,
-  };
-  const inventoryLedgerEntries = [
-    {
-      ledgerId: body.inboundLedgerId ?? nextPlainId("LEDGER", `${reportId}-IN`),
-      inventoryItemId: inventoryItem.id,
-      changeType: "生产入库",
-      qtyBefore: onHandBefore,
-      qtyChange: qualifiedQty,
-      qtyAfter: onHandBefore + qualifiedQty,
-      sourceType: "production_report",
-      sourceId: reportId,
-      operatorId,
-      confirmedBy: operatorId,
-      occurredAt: completedAt,
-      createdAt: completedAt,
-      reason: "车间合格报工入库",
-      remark: `合格数量 ${qualifiedQty}；机器计数 ${machineCount ?? "未填"} 不参与库存`,
-    },
-    {
-      ledgerId: body.reserveLedgerId ?? nextPlainId("LEDGER", `${reportId}-RESERVE`),
-      inventoryItemId: inventoryItem.id,
-      changeType: "生产完成占用",
-      qtyBefore: reservedBefore,
-      qtyChange: qualifiedQty,
-      qtyAfter: reservedBefore + qualifiedQty,
-      sourceType: "production_report_reservation",
-      sourceId: reportId,
-      operatorId,
-      confirmedBy: operatorId,
-      occurredAt: completedAt,
-      createdAt: completedAt,
-      reason: "生产完成后锁定给订单明细",
-      remark: `订单明细 ${orderLineId} 生产完成占用 ${qualifiedQty}`,
-    },
-  ];
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "production_task",
-    targetId: productionTaskId,
-    action: "complete_production_report",
-    operatorId,
-    before: beforeTask,
-    after: {
-      productionTask: afterTask,
-      workshopReport,
-      orderLine: summarizeOrderLineForChange(afterOrderLine),
-      packingTaskId: packingTask?.packingTaskId ?? "",
-      inventoryItemId: inventoryItem.id,
-      qualifiedQty,
-      machineCount: machineCount ?? null,
-      capacityBaselineId: machineCapacityBaseline?.capacityBaselineId ?? "",
-    },
-    reason: body.remark ?? "生产报工完成",
-  });
-  const transaction = await workspace.productionPackingTransactionRepository.recordProductionReport({
+  const result = await productionReportingCommandService.completeProductionReport({
     workspace,
-    productionTask: afterTask,
-    workshopReport,
-    orderLine: afterOrderLine,
-    packingTask,
-    machineCapacityBaseline,
-    inventoryReservations: [reservation],
-    inventoryAdjustments: [
-      {
-        inventoryItemId: inventoryItem.id,
-        onHandQtyChange: qualifiedQty,
-        reservedQtyChange: qualifiedQty,
-        expectedRevision: Number(inventoryItem.revision ?? 1),
-        expectedOnHandQty: onHandBefore,
-        expectedReservedQty: reservedBefore,
-      },
-    ],
-    inventoryLedgerEntries,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
-  });
-
-  return sendJson(response, 200, {
     productionTaskId,
-    reportId: transaction.workshopReport.reportId,
-    orderLineId,
-    status: transaction.productionTask.taskStatus,
-    orderLineStatus: transaction.orderLine?.lineStatus ?? afterOrderLine.status,
-    qualifiedQty: transaction.workshopReport.qualifiedQty,
-    machineCount: transaction.workshopReport.machineCount ?? null,
-    machineCountAffectsInventory: false,
-    capacityCalibrationCreated: Boolean(transaction.machineCapacityBaseline?.capacityBaselineId),
-    capacityBaselineId: transaction.machineCapacityBaseline?.capacityBaselineId ?? "",
-    capacityCalibration: transaction.machineCapacityBaseline
-      ? {
-          capacityBaselineId: transaction.machineCapacityBaseline.capacityBaselineId,
-          machineId: transaction.machineCapacityBaseline.machineId,
-          sizeKey: transaction.machineCapacityBaseline.sizeKey,
-          dailyCapacityQty: transaction.machineCapacityBaseline.dailyCapacityQty,
-          sourceKind: transaction.machineCapacityBaseline.sourceKind,
-          confidence: transaction.machineCapacityBaseline.confidence,
-          effectiveFrom: transaction.machineCapacityBaseline.effectiveFrom,
-        }
-      : null,
-    inventoryItemId: inventoryItem.id,
-    reservationId: transaction.inventoryReservations[0]?.reservationId ?? reservation.reservationId,
-    packingTaskId: transaction.packingTask?.packingTaskId ?? "",
-    inventoryLedgerIds: transaction.inventoryLedgerEntries.map((entry) => entry.ledgerId),
-    operationLogId: transaction.operationLogId,
+    body,
+    operatorId,
   });
-}
-
-function buildProductionMachineCapacityBaseline({ productionTask, workshopReport, orderLine, inventoryItem, operatorId, completedAt }) {
-  const machineId = cleanServerText(workshopReport?.machineId ?? productionTask?.machineId);
-  const sizeKey = buildProductionCapacitySizeKey(orderLine, inventoryItem);
-  const qualifiedQty = Math.trunc(Number(workshopReport?.qualifiedQty ?? 0));
-  const effectiveFrom = normalizeDateInput(completedAt);
-  if (!machineId || !sizeKey || !Number.isFinite(qualifiedQty) || qualifiedQty <= 0 || !effectiveFrom) return null;
-  return {
-    capacityBaselineId: nextPlainId("MCB", `${machineId}-${sizeKey}-production-report-${effectiveFrom}`),
-    machineId,
-    sizeKey,
-    dailyCapacityQty: qualifiedQty,
-    hourlyCapacityQty: null,
-    sourceKind: "production_report",
-    confidence: "medium",
-    effectiveFrom,
-    remark: `生产报工 ${workshopReport.reportId} 合格 ${qualifiedQty}；机器计数仅作动作证据，不参与产能数量`,
-    createdBy: operatorId,
-    createdAt: completedAt,
-  };
-}
-
-function sumProductionDailyProgressQty(workspace, input = {}) {
-  const productionTaskId = cleanServerText(input.productionTaskId);
-  const orderLineId = cleanServerText(input.orderLineId);
-  const excludeReportId = cleanServerText(input.excludeReportId);
-  return (workspace.workshopReports ?? []).reduce((total, report) => {
-    const reportId = cleanServerText(report?.reportId ?? report?.id);
-    if (excludeReportId && reportId === excludeReportId) return total;
-    const matchesTask = productionTaskId && cleanServerText(report?.productionTaskId ?? report?.production_task_id) === productionTaskId;
-    const matchesLine = orderLineId && cleanServerText(report?.orderLineId ?? report?.order_line_id) === orderLineId;
-    const evidence = report?.evidence ?? report?.evidence_json ?? {};
-    if (!(matchesTask || matchesLine) || evidence?.reportKind !== "daily_progress") return total;
-    return total + Math.max(0, Math.trunc(Number(report.qualifiedQty ?? report.qualified_qty ?? 0)));
-  }, 0);
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 function isProductionTaskCompletedStatus(status) {
@@ -17603,130 +17266,11 @@ function isProductionTaskCompletedStatus(status) {
   return text === "已完成" || text.toLowerCase() === "completed" || text.toLowerCase() === "done";
 }
 
-function getNextDateText(value) {
-  const dateText = normalizeDateInput(value);
-  if (!dateText) return "";
-  const [year, month, day] = dateText.split("-").map((item) => Number(item));
-  if (!year || !month || !day) return "";
-  const date = new Date(Date.UTC(year, month - 1, day + 1));
-  return date.toISOString().slice(0, 10);
-}
-
-function buildProductionCapacitySizeKey(orderLine, inventoryItem) {
-  const sizeText = cleanServerText(
-    orderLine?.size ??
-      orderLine?.productSize ??
-      orderLine?.specSize ??
-      orderLine?.standardSize ??
-      inventoryItem?.size ??
-      inventoryItem?.model,
-  );
-  return sizeText.replace(/\s+/g, "");
-}
-
 async function completePackingTaskRoute({ response, workspace, packingTaskId, body, operatorId }) {
-  const beforeTask = findPackingTask(workspace, packingTaskId);
-  if (!beforeTask) return sendNotFound(response, "PACKING_TASK_NOT_FOUND");
-  if (body.packingTaskId && body.packingTaskId !== packingTaskId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "packingTaskId in path and body must match");
-  }
-  const orderLineId = body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId;
-  const beforeOrderLine = findOrderLine(workspace, orderLineId);
-  if (!beforeOrderLine) return sendNotFound(response, "ORDER_LINE_NOT_FOUND");
-  const fulfillment = findFulfillmentByOrderLineId(workspace, orderLineId);
-  const actualPackedQty = Math.trunc(Number(body.actualPackedQty ?? beforeTask.plannedQty ?? beforeOrderLine.qty ?? 0));
-  if (!Number.isFinite(actualPackedQty) || actualPackedQty <= 0) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "actualPackedQty must be greater than 0.");
-  }
-  const completedAt = body.completedAt ?? new Date().toISOString();
-  const packageRecords = buildPackageRecordsForPacking(workspace, {
-    body,
-    packingTaskId,
-    orderLineId,
-    fulfillmentId: fulfillment?.id ?? fulfillment?.fulfillmentId ?? "",
-    actualPackedQty,
-    operatorId,
-    createdAt: completedAt,
-  });
-  const nextStatus = getPackingCompletionStatus({
-    fulfillment,
-    orderLine: beforeOrderLine,
-    labelsPrinted: body.labelsPrinted === true,
-  });
-  const afterPackingTask = {
-    ...beforeTask,
-    packingTaskId,
-    orderLineId,
-    plannedQty: Number(beforeTask.plannedQty ?? beforeTask.qty ?? actualPackedQty),
-    actualPackedQty,
-    status: "已完成",
-    createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
-  };
-  const afterOrderLine = {
-    ...beforeOrderLine,
-    orderLineId: beforeOrderLine.orderLineId ?? beforeOrderLine.id,
-    lineStatus: nextStatus.orderLineStatus,
-    status: nextStatus.orderLineStatus,
-    exceptionTags: beforeOrderLine.exceptionTags ?? beforeOrderLine.exceptions ?? [],
-  };
-  const afterFulfillment = fulfillment
-    ? {
-        ...fulfillment,
-        fulfillmentId: fulfillment.id ?? fulfillment.fulfillmentId,
-        orderLineId,
-        expectedQty: Number(fulfillment.expectedQty ?? fulfillment.qty ?? actualPackedQty),
-        actualQty: actualPackedQty,
-        status: nextStatus.fulfillmentStatus,
-        confirmedBy: operatorId,
-      }
-    : null;
-  const inventoryTrace = buildPackingInventoryTrace(workspace, {
-    orderLineId,
-    inventoryItemId: body.inventoryItemId,
-    packingTaskId,
-    actualPackedQty,
-    operatorId,
-    completedAt,
-  });
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "packing_task",
-    targetId: packingTaskId,
-    action: "complete_packing_task",
-    operatorId,
-    before: beforeTask,
-    after: {
-      packingTask: afterPackingTask,
-      packageIds: packageRecords.map((record) => record.packageId),
-      fulfillment: afterFulfillment,
-      inventoryDeducted: false,
-    },
-    reason: body.remark ?? "打包完成",
-  });
-  const transaction = await workspace.productionPackingTransactionRepository.completePackingTask({
-    workspace,
-    packingTask: afterPackingTask,
-    packages: packageRecords,
-    fulfillment: afterFulfillment,
-    orderLine: afterOrderLine,
-    inventoryLedgerEntries: inventoryTrace.inventoryLedgerEntries,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
-  });
-
-  return sendJson(response, 200, {
-    packingTaskId,
-    orderLineId,
-    status: transaction.packingTask.status,
-    actualPackedQty: transaction.packingTask.actualPackedQty,
-    packageIds: transaction.packages.map((record) => record.packageId),
-    fulfillmentId: transaction.fulfillment?.fulfillmentId ?? afterFulfillment?.fulfillmentId ?? "",
-    fulfillmentStatus: transaction.fulfillment?.status ?? afterFulfillment?.status ?? "",
-    orderLineStatus: transaction.orderLine?.lineStatus ?? afterOrderLine.status,
-    inventoryDeducted: false,
-    inventoryLedgerIds: transaction.inventoryLedgerEntries.map((entry) => entry.ledgerId),
-    operationLogId: transaction.operationLogId,
-  });
+  const result = await packingCommandService.completePackingTask({ workspace, packingTaskId, body, operatorId });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 async function previewStatementRoute({ response, workspace, statementId, body }) {
@@ -20305,14 +19849,6 @@ function findProductionTask(workspace, id) {
   return (workspace.productionTasks ?? []).find((item) => item.id === id || item.productionTaskId === id);
 }
 
-function findPackingTask(workspace, id) {
-  return (workspace.packingTasks ?? []).find((item) => item.id === id || item.packingTaskId === id);
-}
-
-function findFulfillmentByOrderLineId(workspace, orderLineId) {
-  return (workspace.fulfillments ?? []).find((item) => (item.orderLineId ?? item.lineId) === orderLineId) ?? null;
-}
-
 function buildProductionTaskFromBody(workspace, productionTaskId, body) {
   const orderLineId = body.orderLineId ?? body.lineId ?? "";
   const orderLine = findOrderLine(workspace, orderLineId);
@@ -20359,92 +19895,12 @@ function resolvePublishedProductionLineStatus({ taskType, beforeOrderLine, taskS
   return cleanServerText(taskStatus) || currentStatus;
 }
 
-function buildPackageRecordsForPacking(workspace, input) {
-  const rawPackages = Array.isArray(input.body.packages) ? input.body.packages : [];
-  const requestedPackageCount = input.body.packageCount ?? input.body.packagesCount ?? rawPackages.length;
-  const packageCount = Math.max(
-    1,
-    Math.trunc(Number(requestedPackageCount || 1)),
-  );
-  const quantities = rawPackages.length
-    ? rawPackages.map((item) => Math.max(0, Math.trunc(Number(item.packedQty ?? item.qty ?? 0))))
-    : distributeIntegerQty(input.actualPackedQty, packageCount);
-  const normalizedQuantities =
-    quantities.reduce((sum, qty) => sum + qty, 0) > 0 ? quantities : distributeIntegerQty(input.actualPackedQty, packageCount);
-  const recordCount = Math.max(packageCount, normalizedQuantities.length);
-  return Array.from({ length: recordCount }, (_, index) => {
-    const source = rawPackages[index] ?? {};
-    const packageSeq = Math.trunc(Number(source.packageSeq ?? index + 1));
-    const packageId = source.packageId ?? nextPlainId("PKG", `${input.packingTaskId}-${packageSeq}`);
-    return {
-      packageId,
-      bizNo: source.bizNo ?? packageId,
-      orderLineId: source.orderLineId ?? input.orderLineId,
-      fulfillmentId: source.fulfillmentId ?? input.fulfillmentId,
-      packageSeq,
-      packageCount: recordCount,
-      packedQty: Math.max(0, Math.trunc(Number(source.packedQty ?? source.qty ?? normalizedQuantities[index] ?? 0))),
-      labelPrintRecordId: source.labelPrintRecordId ?? input.body.labelPrintRecordId ?? "",
-      status: source.status ?? (input.body.labelsPrinted === true ? "待提货" : "待打印标签"),
-      createdBy: source.createdBy ?? input.operatorId,
-      createdAt: source.createdAt ?? input.createdAt,
-    };
-  });
-}
-
 function distributeIntegerQty(totalQty, packageCount) {
   const count = Math.max(1, Math.trunc(Number(packageCount)));
   const total = Math.max(0, Math.trunc(Number(totalQty)));
   const base = Math.floor(total / count);
   const remainder = total % count;
   return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
-}
-
-function getPackingCompletionStatus({ fulfillment, orderLine, labelsPrinted }) {
-  const method = String(
-    fulfillment?.method ?? fulfillment?.fulfillmentMethod ?? orderLine?.fulfillmentMethod ?? orderLine?.fulfillment ?? "",
-  ).trim();
-  if (method === "快递快运" || method === "express_ltl") {
-    return labelsPrinted
-      ? { orderLineStatus: "待快运拉走", fulfillmentStatus: "待确认拉走" }
-      : { orderLineStatus: "待打印标签", fulfillmentStatus: "待打印标签" };
-  }
-  return { orderLineStatus: "待出库", fulfillmentStatus: "已备货" };
-}
-
-function buildPackingInventoryTrace(workspace, input) {
-  const activeReservations = (workspace.inventoryReservations ?? []).filter(
-    (reservation) => reservation.orderLineId === input.orderLineId && isReleasableInventoryReservation(reservation),
-  );
-  const reservation = activeReservations[0] ?? null;
-  const inventoryItem = input.inventoryItemId
-    ? findInventoryItem(workspace, input.inventoryItemId)
-    : reservation
-      ? findInventoryItem(workspace, reservation.inventoryItemId)
-      : null;
-  if (!inventoryItem) return { inventoryLedgerEntries: [] };
-
-  const reservedBefore = Number(reservation?.reservedQty ?? reservation?.qty ?? inventoryItem.reserved ?? 0);
-  return {
-    inventoryLedgerEntries: [
-      {
-        ledgerId: input.ledgerId ?? nextPlainId("LEDGER", `${input.packingTaskId}-PACK`),
-        inventoryItemId: inventoryItem.id,
-        changeType: "打包完成确认",
-        qtyBefore: reservedBefore,
-        qtyChange: 0,
-        qtyAfter: reservedBefore,
-        sourceType: "packing_complete",
-        sourceId: input.packingTaskId,
-        operatorId: input.operatorId,
-        confirmedBy: input.operatorId,
-        occurredAt: input.completedAt,
-        createdAt: input.completedAt,
-        reason: "打包完成不扣减库存",
-        remark: `打包 ${input.actualPackedQty}，仍保留库存占用，出库/拉走确认时再扣减`,
-      },
-    ],
-  };
 }
 
 function buildFulfillmentCancelInventoryRelease(workspace, fulfillment, input = {}) {

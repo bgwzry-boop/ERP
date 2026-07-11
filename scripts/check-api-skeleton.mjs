@@ -1505,6 +1505,11 @@ try {
       orderLineId: "ORD-0629-003-01",
       actualPackedQty: 1000,
       packageCount: 3,
+      packages: [
+        { packedQty: 334, createdBy: "U-SPOOFED" },
+        { packedQty: 333, createdBy: "U-SPOOFED" },
+        { packedQty: 333, createdBy: "U-SPOOFED" },
+      ],
       labelsPrinted: false,
       inventoryItemId: productionInventoryItemId,
       operatorId: "U-SPOOFED",
@@ -1541,6 +1546,7 @@ try {
     packingTaskDetail.packingTaskId !== packingComplete.packingTaskId ||
     packingTaskDetail.packingTask?.status !== "已完成" ||
     packingTaskDetail.packages?.length !== 3 ||
+    !packingTaskDetail.packages.every((item) => item.createdBy === "U-WAREHOUSE-A") ||
     packingTaskDetail.inventoryDeducted !== false ||
     packingTaskDetail.inventoryLedgerEntries?.length !== 1 ||
     !packingTaskDetail.operationLogs?.some(
