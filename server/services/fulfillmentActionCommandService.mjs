@@ -1,3 +1,5 @@
+import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
+
 export function createFulfillmentActionCommandService(dependencies = {}) {
   const {
     buildFulfillmentActionRecord,
@@ -746,62 +748,26 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     purpose,
     label,
   }) {
-    const attachment = findAttachmentRecord(workspace, attachmentId);
-    if (!attachment) {
-      return {
-        errorResult: businessError(
-          422,
-          "DELIVERY_EVIDENCE_ATTACHMENT_NOT_FOUND",
-          `The ${label} attachment does not exist.`,
-        ),
-      };
-    }
-    if (
-      String(attachment.ownerType ?? "").trim() !== "fulfillment" ||
-      String(attachment.ownerId ?? "").trim() !== fulfillmentId
-    ) {
-      return {
-        errorResult: businessError(
-          422,
-          "DELIVERY_EVIDENCE_ATTACHMENT_OWNER_MISMATCH",
-          `The ${label} attachment does not belong to this fulfillment.`,
-        ),
-      };
-    }
-    if (String(attachment.purpose ?? "").trim() !== purpose) {
-      return {
-        errorResult: businessError(
-          422,
-          "DELIVERY_EVIDENCE_ATTACHMENT_PURPOSE_MISMATCH",
-          `The ${label} attachment purpose is invalid.`,
-        ),
-      };
-    }
-    if (String(attachment.uploadedBy ?? "").trim() !== String(operatorId ?? "").trim()) {
-      return {
-        errorResult: businessError(
-          422,
-          "DELIVERY_EVIDENCE_ATTACHMENT_UPLOADER_MISMATCH",
-          `The ${label} attachment was not uploaded by the authenticated driver.`,
-        ),
-      };
-    }
-    const fileType = String(attachment.fileType ?? "").trim().toLowerCase();
-    const mimeType = String(attachment.mimeType ?? "").trim().toLowerCase();
-    if (
-      String(attachment.status ?? "uploaded").trim() !== "uploaded" ||
-      (fileType && fileType !== "image") ||
-      (mimeType && !mimeType.startsWith("image/"))
-    ) {
-      return {
-        errorResult: businessError(
-          422,
-          "DELIVERY_EVIDENCE_ATTACHMENT_INVALID",
-          `The ${label} attachment is not an active image upload.`,
-        ),
-      };
-    }
-    return { attachment };
+    const validation = validateBusinessAttachment({
+      workspace,
+      attachmentId,
+      findAttachment: findAttachmentRecord,
+      expectedOwnerType: "fulfillment",
+      expectedOwnerId: fulfillmentId,
+      expectedPurpose: purpose,
+      expectedUploaderId: operatorId,
+      errorCodePrefix: "DELIVERY_EVIDENCE_ATTACHMENT",
+      label: `${label} attachment`,
+    });
+    return validation.ok
+      ? { attachment: validation.attachment }
+      : {
+          errorResult: businessError(
+            validation.statusCode,
+            validation.errorCode,
+            validation.message,
+          ),
+        };
   }
 
   async function reportDriverDeliveryException({ workspace, fulfillmentId, body = {}, operatorId }) {

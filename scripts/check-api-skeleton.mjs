@@ -1279,6 +1279,68 @@ try {
   ) {
     throw new Error("/api/production-tasks/{id}/finished-goods-photo did not deny the warehouse seed user");
   }
+  const wrongOwnerFinishedGoodsPhotoAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "production_task",
+      ownerId: "PT-OTHER",
+      fileType: "image",
+      purpose: "finished_goods_photo",
+      fileName: "finished-goods-wrong-owner.png",
+      contentRef: "p0://production-finished-goods/PT-OTHER/wrong-owner.png",
+      mimeType: "image/png",
+      contentDataUrl: "data:image/png;base64,d3Jvbmctb3duZXI=",
+      uploadedBy: "U-SPOOFED",
+    },
+    { headers: { "x-erp-user-id": "U-WORKSHOP-A" } },
+  );
+  const blockedWrongOwnerFinishedGoodsPhoto = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/finished-goods-photo",
+    {
+      orderLineId: "ORD-0629-003-01",
+      attachmentId: wrongOwnerFinishedGoodsPhotoAttachment.attachmentId,
+    },
+    {
+      expectedStatus: 422,
+      headers: { "x-erp-user-id": "U-WORKSHOP-A" },
+    },
+  );
+  if (blockedWrongOwnerFinishedGoodsPhoto.code !== "FINISHED_GOODS_PHOTO_ATTACHMENT_OWNER_MISMATCH") {
+    throw new Error("finished-goods photo upload accepted an attachment owned by another production task");
+  }
+  const wrongUploaderFinishedGoodsPhotoAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "production_task",
+      ownerId: "PT-ORD-0629-003-01",
+      fileType: "image",
+      purpose: "finished_goods_photo",
+      fileName: "finished-goods-wrong-uploader.png",
+      contentRef: "p0://production-finished-goods/PT-ORD-0629-003-01/wrong-uploader.png",
+      mimeType: "image/png",
+      contentDataUrl: "data:image/png;base64,d3JvbmctdXBsb2FkZXI=",
+      uploadedBy: "U-SPOOFED",
+    },
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  const blockedWrongUploaderFinishedGoodsPhoto = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/finished-goods-photo",
+    {
+      orderLineId: "ORD-0629-003-01",
+      attachmentId: wrongUploaderFinishedGoodsPhotoAttachment.attachmentId,
+    },
+    {
+      expectedStatus: 422,
+      headers: { "x-erp-user-id": "U-WORKSHOP-A" },
+    },
+  );
+  if (blockedWrongUploaderFinishedGoodsPhoto.code !== "FINISHED_GOODS_PHOTO_ATTACHMENT_UPLOADER_MISMATCH") {
+    throw new Error("finished-goods photo upload accepted an attachment uploaded by another account");
+  }
   const finishedGoodsPhotoAttachment = await postJson(baseUrl, "/api/attachments", {
     ownerType: "production_task",
     ownerId: "PT-ORD-0629-003-01",
@@ -1289,7 +1351,7 @@ try {
     mimeType: "image/png",
     fileSize: 68,
     contentDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
-    uploadedBy: "U-WORKSHOP-A",
+    uploadedBy: "U-SPOOFED",
     remark: "API skeleton workshop finished-goods photo attachment check",
   }, { headers: { "x-erp-user-id": "U-WORKSHOP-A" } });
   if (!finishedGoodsPhotoAttachment.attachmentId || finishedGoodsPhotoAttachment.purpose !== "finished_goods_photo") {
@@ -1301,7 +1363,7 @@ try {
     {
       orderLineId: "ORD-0629-003-01",
       attachmentId: finishedGoodsPhotoAttachment.attachmentId,
-      fileName: finishedGoodsPhotoAttachment.fileName,
+      fileName: "spoofed-finished-goods-name.png",
       operatorId: "U-SPOOFED",
       uploadedAt: new Date().toISOString(),
       remark: "API skeleton workshop finished goods photo upload check",
@@ -1311,6 +1373,7 @@ try {
   if (
     finishedGoodsPhotoUpload.finishedGoodsPhoto?.status !== "待确认" ||
     finishedGoodsPhotoUpload.finishedGoodsPhoto?.attachmentId !== finishedGoodsPhotoAttachment.attachmentId ||
+    finishedGoodsPhotoUpload.finishedGoodsPhoto?.fileName !== finishedGoodsPhotoAttachment.fileName ||
     finishedGoodsPhotoUpload.finishedGoodsPhoto?.uploadedBy !== "U-WORKSHOP-A" ||
     finishedGoodsPhotoUpload.customerNotificationTodoCreated !== false ||
     finishedGoodsPhotoUpload.inventoryCreated !== false ||

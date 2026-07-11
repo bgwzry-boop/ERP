@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 
 export function createProductionFinishedGoodsPhotoCommandService({
   buildOperationLog,
@@ -24,8 +25,15 @@ export function createProductionFinishedGoodsPhotoCommandService({
       if (!orderLine) return notFound("ORDER_LINE_NOT_FOUND");
       const attachmentId = text(body.attachmentId);
       if (!attachmentId) return error(422, "VALIDATION_ERROR", "attachmentId is required when uploading a finished-goods photo.");
-      const attachment = findAttachment(workspace, attachmentId);
-      if (!attachment) return notFound("ATTACHMENT_NOT_FOUND");
+      const attachmentValidation = validateFinishedGoodsPhotoAttachment({
+        workspace,
+        attachmentId,
+        productionTaskId,
+        operatorId,
+        findAttachment,
+      });
+      if (!attachmentValidation.ok) return attachmentValidation;
+      const attachment = attachmentValidation.attachment;
 
       const timestamp = validTimestamp(body.uploadedAt) || nowIso(now);
       const previousPhoto = buildPhotoSummary(workspace, beforeTask, orderLine);
@@ -33,7 +41,7 @@ export function createProductionFinishedGoodsPhotoCommandService({
         status: "待确认",
         required: previousPhoto.required,
         attachmentId,
-        fileName: text(body.fileName) || attachment.fileName || attachmentId,
+        fileName: text(attachment.fileName) || attachmentId,
         uploadedAt: timestamp,
         uploadedBy: operatorId,
         reviewedAt: "",
@@ -44,7 +52,7 @@ export function createProductionFinishedGoodsPhotoCommandService({
           {
             status: "待确认",
             attachmentId,
-            fileName: text(body.fileName) || attachment.fileName || attachmentId,
+            fileName: text(attachment.fileName) || attachmentId,
             uploadedAt: timestamp,
             uploadedBy: operatorId,
             remark: text(body.remark),
@@ -87,6 +95,13 @@ export function createProductionFinishedGoodsPhotoCommandService({
       if (!beforePhoto.attachmentId) {
         return error(409, "FINISHED_GOODS_PHOTO_REQUIRED", "A finished-goods photo must be uploaded before review.");
       }
+      const attachmentValidation = validateFinishedGoodsPhotoAttachment({
+        workspace,
+        attachmentId: beforePhoto.attachmentId,
+        productionTaskId,
+        findAttachment,
+      });
+      if (!attachmentValidation.ok) return attachmentValidation;
       const reviewStatus = normalizeReviewStatus(body.reviewStatus ?? body.status);
       if (!reviewStatus) return error(422, "VALIDATION_ERROR", "reviewStatus must be accepted or retake_required.");
 
@@ -158,6 +173,29 @@ export function createProductionFinishedGoodsPhotoCommandService({
       return { ...result, todo: result.todos.find((todo) => todo.id === primaryTodo.id) ?? primaryTodo, reviewStatus };
     },
   };
+}
+
+function validateFinishedGoodsPhotoAttachment({
+  workspace,
+  attachmentId,
+  productionTaskId,
+  operatorId,
+  findAttachment,
+}) {
+  const validation = validateBusinessAttachment({
+    workspace,
+    attachmentId,
+    findAttachment,
+    expectedOwnerType: "production_task",
+    expectedOwnerId: productionTaskId,
+    expectedPurpose: "finished_goods_photo",
+    expectedUploaderId: operatorId,
+    errorCodePrefix: "FINISHED_GOODS_PHOTO_ATTACHMENT",
+    label: "finished-goods photo attachment",
+  });
+  return validation.ok
+    ? validation
+    : error(validation.statusCode, validation.errorCode, validation.message);
 }
 
 function taskWithPhoto(beforeTask, productionTaskId, orderLineId, photo, timestamp) {

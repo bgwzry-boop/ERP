@@ -2348,7 +2348,8 @@ paths:
       tags: [ProductionPacking]
       summary: 上传并登记定制印刷成品图
       description: >
-        车间或办公室为生产任务登记成品图附件。上传后状态为待确认，不进入待通知客户池，
+        车间为生产任务登记成品图附件。附件必须归属当前生产任务、用途为 finished_goods_photo、
+        是有效图片且由当前认证操作人上传。上传后状态为待确认，不进入待通知客户池，
         任务成品图状态和操作日志同一事务保存；操作者取认证会话。接口不写库存、
         不锁定订单库存、不生成打包任务。
       operationId: uploadProductionTaskFinishedGoodsPhoto
@@ -18245,9 +18246,11 @@ components:
           type: string
         attachmentId:
           type: string
-          description: 已通过附件 API 创建的成品图附件 ID。
+          description: 归属当前生产任务、用途为 finished_goods_photo、由当前认证操作人上传的正式图片附件 ID。
         fileName:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略并使用附件记录中的权威文件名。
         uploadedAt:
           type: string
           format: date-time

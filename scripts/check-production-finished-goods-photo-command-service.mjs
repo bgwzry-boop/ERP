@@ -6,7 +6,13 @@ const now = new Date("2026-07-11T04:00:00.000Z");
 const workspace = {
   productionTasks: [{ id: "PT-1", productionTaskId: "PT-1", orderLineId: "OL-1", revision: 1 }],
   orderLines: [{ id: "OL-1", customerId: "C-1", productName: "定制袋", size: "30*38", orderType: "定制印刷" }],
-  attachments: [{ attachmentId: "ATT-1", fileName: "finished.png" }],
+  attachments: [
+    buildAttachment("ATT-1"),
+    buildAttachment("ATT-WRONG-OWNER", { ownerId: "PT-OTHER" }),
+    buildAttachment("ATT-WRONG-PURPOSE", { purpose: "delivery_watermark_photo" }),
+    buildAttachment("ATT-WRONG-UPLOADER", { uploadedBy: "U-WORKSHOP-OTHER" }),
+    buildAttachment("ATT-INVALID", { fileType: "document", mimeType: "text/plain" }),
+  ],
   todos: [],
   todoEvents: [],
   operationLogs: [],
@@ -52,16 +58,48 @@ const service = createProductionFinishedGoodsPhotoCommandService({
   },
 });
 
+for (const [attachmentId, expectedCode] of [
+  ["ATT-NOT-FOUND", "FINISHED_GOODS_PHOTO_ATTACHMENT_NOT_FOUND"],
+  ["ATT-WRONG-OWNER", "FINISHED_GOODS_PHOTO_ATTACHMENT_OWNER_MISMATCH"],
+  ["ATT-WRONG-PURPOSE", "FINISHED_GOODS_PHOTO_ATTACHMENT_PURPOSE_MISMATCH"],
+  ["ATT-WRONG-UPLOADER", "FINISHED_GOODS_PHOTO_ATTACHMENT_UPLOADER_MISMATCH"],
+  ["ATT-INVALID", "FINISHED_GOODS_PHOTO_ATTACHMENT_INVALID"],
+]) {
+  const blocked = await service.uploadPhoto({
+    workspace,
+    productionTaskId: "PT-1",
+    body: { attachmentId },
+    operatorId: "U-WORKSHOP",
+  });
+  assert.equal(blocked.code, expectedCode);
+}
+
 const uploaded = await service.uploadPhoto({
   workspace,
   productionTaskId: "PT-1",
-  body: { attachmentId: "ATT-1", operatorId: "U-SPOOFED", idempotencyKey: "photo-upload-test-001" },
+  body: {
+    attachmentId: "ATT-1",
+    fileName: "spoofed-file-name.png",
+    operatorId: "U-SPOOFED",
+    idempotencyKey: "photo-upload-test-001",
+  },
   operatorId: "U-WORKSHOP",
 });
 assert.equal(uploaded.productionTask.finishedGoodsPhoto.status, "待确认");
 assert.equal(uploaded.productionTask.finishedGoodsPhoto.uploadedBy, "U-WORKSHOP");
+assert.equal(uploaded.productionTask.finishedGoodsPhoto.fileName, "finished.png");
 assert.equal(uploaded.productionTask.revision, 2);
 assert.equal(workspace.operationLogs[0].operatorId, "U-WORKSHOP");
+
+workspace.attachments[0].purpose = "other";
+const blockedReview = await service.reviewPhoto({
+  workspace,
+  productionTaskId: "PT-1",
+  body: { reviewStatus: "已接受" },
+  operatorId: "U-OFFICE",
+});
+assert.equal(blockedReview.code, "FINISHED_GOODS_PHOTO_ATTACHMENT_PURPOSE_MISMATCH");
+workspace.attachments[0].purpose = "finished_goods_photo";
 
 const reviewed = await service.reviewPhoto({
   workspace,
@@ -77,3 +115,18 @@ assert.equal(workspace.todoEvents[0].eventType, "todo_source:finished_goods_phot
 assert.equal(workspace.operationLogs[0].action, "accept_finished_goods_photo");
 
 console.log("production finished-goods photo command service checks passed");
+
+function buildAttachment(attachmentId, overrides = {}) {
+  return {
+    attachmentId,
+    ownerType: "production_task",
+    ownerId: "PT-1",
+    purpose: "finished_goods_photo",
+    fileType: "image",
+    mimeType: "image/png",
+    status: "uploaded",
+    uploadedBy: "U-WORKSHOP",
+    fileName: "finished.png",
+    ...overrides,
+  };
+}

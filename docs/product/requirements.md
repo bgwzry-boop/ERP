@@ -604,6 +604,8 @@ Finished-goods inventory summary uniqueness is based on `standard size / model +
 
 Attachments use one attachment table linked by `business type + business ID + purpose`, such as artwork, finished-goods photo, payment screenshot, watermarked delivery photo, signature photo, or raw-material inbound photo. In normal use an attachment has one primary business object; if a file must be reused by multiple objects, an attachment-link table can preserve those references.
 
+Business commands must not trust an attachment ID merely because it exists. Finished-goods photo registration requires an active image attachment owned by the current production task, with purpose `finished_goods_photo`, uploaded by the authenticated workshop operator; review revalidates task ownership, purpose, and image state. The authoritative attachment file name cannot be overridden by the registration request. Delivery evidence follows the same contract. Payment, variance, customer-confirmation, and inventory-correction consumers should be migrated to owner- and purpose-specific validation in the following hardening rounds.
+
 Formal business documents should not be hard-deleted by default. They can be voided, closed, or replaced, with reason, operator, timestamp, and replacement link retained. Recognition-error drafts and test drafts can be voided without entering formal business statistics.
 
 Key business records should store both `business occurred time` and `system recorded time`. For example, an express / less-than-truckload pickup confirmed the next day can backfill the actual pickup date to the previous evening while preserving the next-day system confirmation time.

@@ -2163,3 +2163,7 @@ Voiding or quantity-adjusting a formal order line is one idempotent transaction 
 ## 2026-07-11 - Delivery Completion Trusts Persisted Evidence, Not Client Flags
 
 Driver completion and evidence retake must reference persisted attachment records. A watermarked delivery photo is accepted only when it belongs to the current fulfillment, has purpose `delivery_watermark_photo`, is an active image, and was uploaded by the authenticated assigned driver. Optional signature evidence uses the same contract with purpose `signature_photo`; a boolean declaration without an attachment ID is invalid. Attachment creation records the authenticated user regardless of body `uploadedBy`, and completion prefers watermark metadata already stored with the validated attachment over duplicate request fields.
+
+## 2026-07-11 - Business Commands Revalidate Attachment Ownership And Purpose
+
+An attachment ID is not sufficient evidence by itself. Business commands use one shared validator for attachment existence, owner type and ID, purpose, authenticated uploader when applicable, active status, file type, and MIME family. Finished-goods photo registration requires a `production_task` attachment owned by the current task, purpose `finished_goods_photo`, active image state, and the authenticated workshop uploader. Review revalidates the persisted attachment before approval, and request-body file names cannot override attachment metadata. Financial, customer-confirmation, and inventory-correction consumers follow in the next hardening round.

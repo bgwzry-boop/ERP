@@ -2980,6 +2980,35 @@ async function checkApiWithPostgresRepositories() {
   );
 
   const workshopHeaders = { "x-erp-user-id": "U-WORKSHOP-A" };
+  const wrongOwnerPhotoAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "production_task",
+      ownerId: "PT-LIVE-PROD-OTHER",
+      fileType: "image",
+      purpose: "finished_goods_photo",
+      fileName: "postgres-live-finished-goods-wrong-owner.png",
+      contentRef: "p0://postgres-live/production/PT-LIVE-PROD-OTHER/finished-goods.png",
+      mimeType: "image/png",
+      contentDataUrl: "data:image/png;base64,cG9zdGdyZXMtbGl2ZS13cm9uZy1vd25lcg==",
+      uploadedBy: "U-SPOOFED",
+      idempotencyKey: "production-photo-wrong-owner-live-001",
+    },
+    { headers: workshopHeaders },
+  );
+  const blockedWrongOwnerPhoto = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo",
+    {
+      productionTaskId: "PT-LIVE-PROD-001",
+      orderLineId: "OL-LIVE-PROD-001",
+      attachmentId: wrongOwnerPhotoAttachment.attachmentId,
+      idempotencyKey: "production-photo-wrong-owner-upload-live-001",
+    },
+    { expectedStatus: 422, headers: workshopHeaders },
+  );
+  assert.equal(blockedWrongOwnerPhoto.code, "FINISHED_GOODS_PHOTO_ATTACHMENT_OWNER_MISMATCH");
   const photoAttachment = await postJson(
     baseUrl,
     "/api/attachments",
@@ -2993,17 +3022,18 @@ async function checkApiWithPostgresRepositories() {
       mimeType: "image/png",
       fileSize: 68,
       contentDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
-      uploadedBy: "U-WORKSHOP-A",
+      uploadedBy: "U-SPOOFED",
       operatorId: "U-SPOOFED",
       idempotencyKey: "production-photo-attachment-live-001",
     },
     { headers: workshopHeaders },
   );
+  assert.equal(photoAttachment.uploadedBy, "U-WORKSHOP-A");
   const photoUploadBody = {
     productionTaskId: "PT-LIVE-PROD-001",
     orderLineId: "OL-LIVE-PROD-001",
     attachmentId: photoAttachment.attachmentId,
-    fileName: photoAttachment.fileName,
+    fileName: "spoofed-postgres-live-finished-goods.png",
     operatorId: "U-SPOOFED",
     idempotencyKey: "production-photo-upload-live-001",
   };
@@ -3015,6 +3045,7 @@ async function checkApiWithPostgresRepositories() {
   );
   assert.equal(uploadedPhoto.finishedGoodsPhoto.status, "待确认");
   assert.equal(uploadedPhoto.finishedGoodsPhoto.uploadedBy, "U-WORKSHOP-A");
+  assert.equal(uploadedPhoto.finishedGoodsPhoto.fileName, photoAttachment.fileName);
   const replayedPhotoUpload = await postJson(
     baseUrl,
     "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo",
