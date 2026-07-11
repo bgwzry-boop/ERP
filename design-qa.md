@@ -14,6 +14,14 @@ viewport: desktop `1024x768`; responsive overflow check `390x844`.
 
 state: local demo data, office account, order-entry recognized-draft state, packing/label production-task tab with one selected task.
 
+## C4.3 operational workbench evidence
+
+- Before: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c43/01-order-pool-before.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c43/02-inventory-before.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c43/03-fulfillment-before.png`.
+- Desktop after: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c43/04-order-pool-after.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c43/05-inventory-after.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c43/06-fulfillment-after.png`.
+- Mobile after: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c43/07-order-pool-mobile-after.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c43/08-inventory-mobile-after.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c43/09-fulfillment-mobile-after.png`.
+
+At `1024x768`, all three main regions now report `scrollWidth === clientWidth === 884` with a `580px / 270px` list-detail split; the old `640px / 330px` minimum no longer clips the detail pane. At `390x844`, all three pages report body and main `scrollWidth === clientWidth === 390` and a single `374px` content column. Order, inventory, and fulfillment tables use merged business-summary columns; inventory exposes overview / ledger / correction views, order exposes order / fulfillment / finance views, and fulfillment exposes task / document-evidence / timeline views. Fulfillment priority controls perform real sorting, filter-empty states retain their filters and clear stale details, and a fresh browser session produced no application warning or error.
+
 ## Full-view comparison evidence
 
 The source composite and both final desktop implementation captures were opened together at original resolution. The shell width, 140px navigation rail, top action bar, page-title hierarchy, order-entry three-step strip, source-recognition panel, dense table/validation split, bottom summary actions, packing task-list/detail split, three workbench tabs, machine-count evidence block, qualified-output block, and task-history placement align with the selected hybrid direction.

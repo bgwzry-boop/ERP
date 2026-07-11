@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { ClockCircleOutlined, WarningOutlined } from "@ant-design/icons";
 import {
   DataState,
   DataTable,
@@ -12,7 +14,11 @@ import {
 } from "../../shared/ui/operational.jsx";
 import { formatAttachmentSize } from "../attachments/attachmentPresentation.js";
 
+const FULFILLMENT_DETAIL_TABS = ["任务处理", "单据/证据", "流转记录"];
+
 export function FulfillmentPage({ tab, setTab, fulfillments, orderLines, selectedId, setSelectedId, onAction, helpers }) {
+  const [priorityMode, setPriorityMode] = useState("attention");
+  const [detailTab, setDetailTab] = useState("任务处理");
   const {
     findCustomer,
     findOrderLine,
@@ -30,7 +36,11 @@ export function FulfillmentPage({ tab, setTab, fulfillments, orderLines, selecte
     statusTone,
   } = helpers;
   const filtered = fulfillments.filter((item) => tab === "全部" || item.method === tab);
-  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
+  const visibleFulfillments = [...filtered].sort((left, right) => {
+    if (priorityMode !== "attention") return 0;
+    return getFulfillmentAttentionScore(right) - getFulfillmentAttentionScore(left);
+  });
+  const selected = visibleFulfillments.find((item) => item.id === selectedId) ?? visibleFulfillments[0] ?? null;
   const stats = [
     ["未完成", fulfillments.filter((item) => item.status !== "已交付").length, "warning"],
     ["今天/急", fulfillments.filter((item) => item.latest.includes("今天")).length, "blue"],
@@ -40,14 +50,14 @@ export function FulfillmentPage({ tab, setTab, fulfillments, orderLines, selecte
   const listHeader = (
     <PanelHeader
       title="交付任务"
-      summary={`当前 ${filtered.length} / ${fulfillments.length} 条 · 今日要交付、未完成、异常优先`}
+      summary={`当前 ${visibleFulfillments.length} / ${fulfillments.length} 条 · ${priorityMode === "attention" ? "异常与急单优先" : "按原始顺序"}`}
       actions={<Segmented ariaLabel="交付方式" value={tab} onChange={setTab} items={["全部", "自提", "送货", "快递快运"]} />}
     />
   );
 
   if (!selected) {
     return (
-      <section className="page-grid split-detail fulfillment-workbench">
+      <section className="page-grid split-detail operational-split-workbench fulfillment-workbench">
         <OperationalPanel className="table-pane fulfillment-list-panel" ariaLabel="交付任务列表">
           {listHeader}
           <MetricStrip items={stats} ariaLabel="交付状态摘要" />
@@ -90,47 +100,78 @@ export function FulfillmentPage({ tab, setTab, fulfillments, orderLines, selecte
       ]
     : [["货品/规格", selectedGoods]];
   return (
-    <section className="page-grid split-detail fulfillment-workbench">
+    <section className="page-grid split-detail operational-split-workbench fulfillment-workbench">
       <OperationalPanel className="table-pane fulfillment-list-panel" ariaLabel="交付任务列表">
         {listHeader}
         <MetricStrip items={stats} ariaLabel="交付状态摘要" />
+        <div className="fulfillment-priority-toolbar" aria-label="交付任务排序">
+          <button
+            type="button"
+            className={priorityMode === "attention" ? "active attention" : ""}
+            aria-pressed={priorityMode === "attention"}
+            onClick={() => setPriorityMode("attention")}
+          >
+            <WarningOutlined /> 异常/急单优先
+          </button>
+          <button
+            type="button"
+            className={priorityMode === "original" ? "active" : ""}
+            aria-pressed={priorityMode === "original"}
+            onClick={() => setPriorityMode("original")}
+          >
+            <ClockCircleOutlined /> 原始顺序
+          </button>
+        </div>
         <DataTable
           className="fulfillment-table"
-          columns={["交付方式", "客户", "订单尾号", "货品/规格", "数量", "包裹", "最晚", "状态", "备注"]}
-          rows={filtered.map((row) => ({
+          columns={["方式", "客户/订单", "货品摘要", "数量/包裹", "最晚", "状态", "备注"]}
+          rows={visibleFulfillments.map((row) => ({
             id: row.id,
             active: row.id === selected.id,
             tone: statusTone(row.status),
             onClick: () => setSelectedId(row.id),
-            cells: [row.method, findCustomer(row.customerId).name, row.lineId.slice(-5), getFulfillmentGoodsDisplay(row, findOrderLine(orderLines, row.lineId)), row.qty, row.packages, row.latest, row.status, formatFulfillmentTableRemark(row)],
+            cells: [
+              row.method,
+              `${findCustomer(row.customerId).name} / ${row.lineId.slice(-5)}`,
+              getFulfillmentGoodsDisplay(row, findOrderLine(orderLines, row.lineId)),
+              `${row.qty} / ${row.packages}`,
+              row.latest,
+              <StatusPill tone={statusTone(row.status)}>{row.status}</StatusPill>,
+              formatFulfillmentTableRemark(row),
+            ],
           }))}
         />
       </OperationalPanel>
       <DetailPane className="fulfillment-detail-pane" title={`${selected.method} · ${selected.status}`} subtitle={`${customerInfo.name} · ${selected.lineId}`}>
-        <InfoGrid
-          rows={[
-            ["联系人", `${customerInfo.contact} ${customerInfo.phone}`],
-            ["地址", customerInfo.address],
-            ...goodsRows,
-            ["数量/包裹", `${selected.qty} 个 / ${selected.packages}`],
-            ...(selected.method === "送货"
-              ? [
-                  ["派单路线", formatFulfillmentDispatchSummary(selected)],
-                  ["计划发车", selected.plannedDepartureAt || "未排"],
-                ]
-              : []),
-            ["库存来源", `${selected.zone} / ${selected.source}`],
-            ["单据状态", selectedPrintStatus],
-            ["下一步", getFulfillmentNextStep(selected)],
-            ["实际数量", selected.actualQty == null ? "未填" : `${selected.actualQty} 个`],
-          ]}
-        />
-        <section className="detail-section document-preview">
+        <div className="operational-detail-tabs">
+          <Segmented ariaLabel="交付详情视图" value={detailTab} onChange={setDetailTab} items={FULFILLMENT_DETAIL_TABS} />
+        </div>
+        <div hidden={detailTab !== "任务处理"}>
+          <InfoGrid
+            rows={[
+              ["联系人", `${customerInfo.contact} ${customerInfo.phone}`],
+              ["地址", customerInfo.address],
+              ...goodsRows,
+              ["数量/包裹", `${selected.qty} 个 / ${selected.packages}`],
+              ...(selected.method === "送货"
+                ? [
+                    ["派单路线", formatFulfillmentDispatchSummary(selected)],
+                    ["计划发车", selected.plannedDepartureAt || "未排"],
+                  ]
+                : []),
+              ["库存来源", `${selected.zone} / ${selected.source}`],
+              ["单据状态", selectedPrintStatus],
+              ["下一步", getFulfillmentNextStep(selected)],
+              ["实际数量", selected.actualQty == null ? "未填" : `${selected.actualQty} 个`],
+            ]}
+          />
+        </div>
+        <section className="detail-section document-preview operational-detail-section-first" hidden={detailTab !== "单据/证据"}>
           <h3>{getFulfillmentDocumentLabel(selected)}预览</h3>
           <p>{customerInfo.name} / {selectedGoods} / {selected.packages}</p>
         </section>
         {selected.method === "送货" && (
-          <section className={`detail-section delivery-evidence-review ${evidenceReviewStatus === "需重拍" ? "alert" : ""}`}>
+          <section hidden={detailTab !== "单据/证据"} className={`detail-section delivery-evidence-review ${evidenceReviewStatus === "需重拍" ? "alert" : ""}`}>
             <div className="section-head-row">
               <h3>送达证据复核</h3>
               <StatusPill tone={getDeliveryEvidenceReviewTone(evidenceReviewStatus)}>{evidenceReviewStatus}</StatusPill>
@@ -181,30 +222,32 @@ export function FulfillmentPage({ tab, setTab, fulfillments, orderLines, selecte
             </div>
           </section>
         )}
-        <section className="detail-section">
+        <section className="detail-section" hidden={detailTab !== "任务处理"}>
           <h3>场景规则</h3>
           <p>{getFulfillmentNextStep(selected)}</p>
         </section>
         {(selected.exceptionReason || selected.status.includes("数量") || selected.status.includes("无法")) && (
-          <section className="detail-section alert">
+          <section className="detail-section alert" hidden={detailTab !== "任务处理"}>
             <h3>异常处理</h3>
             <p>{selected.exceptionReason ? `${selected.exceptionReason}；` : ""}需办公室确认客户沟通、改单、补货或重打单据。</p>
           </section>
         )}
-        <div className="action-row">
+        <div className="action-row operational-detail-actions" hidden={detailTab !== "任务处理"}>
           {actions.map((item) => {
             const actionState = getUiActionState("fulfillment", item.label);
             return <button className={item.variant === "primary" ? "primary-action" : ""} disabled={actionState.disabled} key={item.label} title={actionState.title} onClick={() => onAction(item.label, selected.id)}>{item.label}</button>;
           })}
         </div>
-        <Timeline
-          items={[
-            "办公室创建交付任务",
-            selected.printed ? `${getFulfillmentDocumentLabel(selected)}已打印` : `${getFulfillmentDocumentLabel(selected)}待打印/预览`,
-            selected.status,
-            selected.status === "已交付" ? "进入对账/收款" : "等待下一步操作",
-          ]}
-        />
+        <div className="operational-detail-timeline" hidden={detailTab !== "流转记录"}>
+          <Timeline
+            items={[
+              "办公室创建交付任务",
+              selected.printed ? `${getFulfillmentDocumentLabel(selected)}已打印` : `${getFulfillmentDocumentLabel(selected)}待打印/预览`,
+              selected.status,
+              selected.status === "已交付" ? "进入对账/收款" : "等待下一步操作",
+            ]}
+          />
+        </div>
       </DetailPane>
     </section>
   );
@@ -217,6 +260,17 @@ function formatFulfillmentDispatchSummary(item) {
   const sequenceText = sequence > 0 ? `第 ${sequence} 站` : "未排站序";
   const status = item.dispatchStatus || "未派单";
   return [routeDate, routeNo, sequenceText, status].filter(Boolean).join(" / ");
+}
+
+function getFulfillmentAttentionScore(item) {
+  const status = String(item?.status ?? "");
+  const latest = String(item?.latest ?? "");
+  let score = 0;
+  if (status.includes("数量") || status.includes("无法")) score += 100;
+  if (status === "待确认拉走") score += 60;
+  if (status !== "已交付") score += 20;
+  if (latest.includes("今天") || latest.includes("急")) score += 40;
+  return score;
 }
 
 function formatFulfillmentTableRemark(item) {

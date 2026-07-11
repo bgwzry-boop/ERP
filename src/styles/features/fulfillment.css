@@ -12,6 +12,61 @@
   flex: 1;
 }
 
+.fulfillment-priority-toolbar {
+  display: flex;
+  align-items: center;
+  min-height: 34px;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  gap: 6px;
+  padding: 4px 8px;
+}
+
+.fulfillment-priority-toolbar button {
+  display: inline-flex;
+  align-items: center;
+  min-height: 26px;
+  border: 1px solid var(--erp-border);
+  border-radius: 4px;
+  gap: 5px;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
+  padding: 0 8px;
+}
+
+.fulfillment-priority-toolbar button.active {
+  border-color: #8bbcff;
+  background: #eef6ff;
+  color: #155fb8;
+  font-weight: 700;
+}
+
+.fulfillment-priority-toolbar button.active.attention {
+  border-color: #f0a5a5;
+  background: #fff2f2;
+  color: #b4232d;
+}
+
+.fulfillment-list-panel .fulfillment-table .data-row {
+  grid-template-columns:
+    minmax(62px, 0.68fr)
+    minmax(98px, 1.08fr)
+    minmax(152px, 1.8fr)
+    minmax(70px, 0.76fr)
+    minmax(70px, 0.76fr)
+    minmax(82px, 0.9fr)
+    minmax(76px, 0.82fr);
+  min-height: 46px;
+}
+
+.fulfillment-list-panel .fulfillment-table .data-row span:nth-child(3) {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.35;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
 .fulfillment-detail-pane .detail-head {
   min-height: var(--erp-panel-header-height);
   padding: 7px 10px;
@@ -23,14 +78,13 @@
   }
 
   .fulfillment-list-panel .fulfillment-table .data-row {
-    grid-template-columns: 60px minmax(62px, 0.8fr) minmax(92px, 1.6fr) 46px 66px;
+    grid-template-columns: 58px minmax(96px, 0.95fr) minmax(132px, 1.45fr) minmax(78px, 0.82fr);
     min-height: 46px;
   }
 
-  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(3),
-  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(6),
-  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(7),
-  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(9) {
+  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(4),
+  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(5),
+  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(7) {
     display: none;
   }
 }

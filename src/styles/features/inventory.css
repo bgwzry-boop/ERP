@@ -22,7 +22,7 @@
 }
 
 .inventory-filter-bar .inventory-filter-grid {
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
 .inventory-filter-bar .data-state {
@@ -31,6 +31,23 @@
 
 .inventory-list-panel .data-table {
   flex: 1;
+}
+
+.inventory-list-panel .inventory-table .data-row {
+  grid-template-columns:
+    minmax(106px, 1.18fr)
+    minmax(104px, 1.12fr)
+    minmax(82px, 0.92fr)
+    minmax(76px, 0.86fr)
+    minmax(48px, 0.54fr)
+    minmax(72px, 0.76fr)
+    minmax(48px, 0.54fr)
+    minmax(84px, 0.92fr);
+}
+
+.inventory-list-panel .inventory-table .data-row span:nth-child(n + 5):nth-child(-n + 7) {
+  padding: 0 5px;
+  text-align: right;
 }
 
 .inventory-detail-pane .detail-head {
@@ -56,15 +73,12 @@
   }
 
   .inventory-list-panel .inventory-table .data-row {
-    grid-template-columns: minmax(64px, 1fr) 50px minmax(60px, 1fr) 70px 50px 62px;
+    grid-template-columns: minmax(104px, 1.2fr) minmax(100px, 1.1fr) minmax(74px, 0.86fr) minmax(54px, 0.62fr) minmax(74px, 0.82fr);
   }
 
-  .inventory-list-panel .inventory-table .data-row span:nth-child(3),
   .inventory-list-panel .inventory-table .data-row span:nth-child(5),
-  .inventory-list-panel .inventory-table .data-row span:nth-child(7),
-  .inventory-list-panel .inventory-table .data-row span:nth-child(8),
-  .inventory-list-panel .inventory-table .data-row span:nth-child(9),
-  .inventory-list-panel .inventory-table .data-row span:nth-child(10) {
+  .inventory-list-panel .inventory-table .data-row span:nth-child(6),
+  .inventory-list-panel .inventory-table .data-row span:nth-child(8) {
     display: none;
   }
 }

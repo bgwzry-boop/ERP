@@ -1,14 +1,22 @@
+import { useState } from "react";
+import { ReloadOutlined } from "@ant-design/icons";
 import {
   DataState,
   DataTable,
   DetailPane,
   FilterBar,
   InfoGrid,
+  MetricStrip,
   OperationalPanel,
+  Segmented,
+  StatusPill,
   Timeline,
 } from "../../shared/ui/operational.jsx";
 
+const ORDER_DETAIL_TABS = ["订单", "交付", "财务"];
+
 export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOrderId, setSelectedOrderId, filters, setFilters, orderPoolMeta, selectedOrderDetail, onLocateFulfillment, onLocateStatement, onOrderAction, setToast, helpers }) {
+  const [detailTab, setDetailTab] = useState("订单");
   const {
     customers,
     defaultOrderFilters,
@@ -25,7 +33,13 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
     statusTone,
   } = helpers;
   const filtered = orderLines.filter((item) => orderMatchesFilters(item, filters, statements));
-  const selected = filtered.find((item) => item.id === selectedOrderId) ?? filtered[0] ?? orderLines[0];
+  const selected = filtered.find((item) => item.id === selectedOrderId) ?? filtered[0] ?? null;
+  const stats = [
+    ["待处理", orderLines.filter((item) => !isOrderTerminal(item.status)).length, "blue"],
+    ["生产中", orderLines.filter((item) => isOrderInProduction(item.status)).length, "warning"],
+    ["异常", orderLines.filter((item) => getOrderExceptionState(item) !== "正常").length, "danger"],
+    ["待对账", orderLines.filter((item) => isOrderFinancePending(getOrderFinanceState(item, statements))).length, "warning"],
+  ];
   const filterOptions = {
     status: ["全部", "待处理", "生产中", "待出库", "缺货", "已交付", "待对账"],
     orderType: ["全部", "现货有货", "现货缺货", "定制印刷", "印刷通货", "外加工印刷"],
@@ -48,7 +62,7 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
       className="order-pool-filter-bar"
       ariaLabel="订单池筛选"
       summary={`命中 ${filtered.length} / ${orderLines.length} 行；${getOrderPoolSourceLabel(orderPoolMeta)}。`}
-      actions={<button onClick={resetFilters}>重置筛选</button>}
+      actions={<button onClick={resetFilters}><ReloadOutlined /> 重置</button>}
     >
       <div className="filter-grid order-filter-grid">
         <label>
@@ -94,9 +108,10 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
 
   if (!selected) {
     return (
-      <section className="page-grid split-detail order-pool-workbench">
+      <section className="page-grid split-detail operational-split-workbench order-pool-workbench">
         <OperationalPanel className="table-pane order-pool-list-panel" ariaLabel="订单明细列表">
           {filterBar}
+          <MetricStrip items={stats} ariaLabel="订单池状态摘要" />
           <DataState title="暂无订单明细" detail="请检查筛选条件或确认订单数据是否已同步。" />
         </OperationalPanel>
         <DetailPane className="order-pool-detail-pane" title="订单池" subtitle="暂无可显示明细">
@@ -118,76 +133,97 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
   const quantityActionState = getOrderActionState(getUiActionState, "调整正式单数量", orderActionBlocker);
   const voidActionState = getOrderActionState(getUiActionState, "作废正式单", orderActionBlocker);
   return (
-    <section className="page-grid split-detail order-pool-workbench">
+    <section className="page-grid split-detail operational-split-workbench order-pool-workbench">
       <OperationalPanel className="table-pane order-pool-list-panel" ariaLabel="订单明细列表">
         {filterBar}
+        <MetricStrip items={stats} ariaLabel="订单池状态摘要" />
         <DataTable
           className="order-table"
-          columns={["订单/明细", "客户", "品名", "尺寸", "颜色", "提手", "数量", "类型", "状态", "交付", "异常", "对账"]}
+          columns={["订单/明细", "客户", "货品摘要", "数量", "状态", "交付", "异常", "对账"]}
           rows={filtered.map((row) => ({
             id: row.id,
             active: row.id === selected.id,
             tone: statusTone(row.status),
             onClick: () => setSelectedOrderId(row.id),
-            cells: [getOrderLineShortNo(row), findCustomer(row.customerId).name, row.product, row.size, row.color, row.handle, row.qty, row.orderType, row.status, row.fulfillment, getOrderExceptionState(row), getOrderFinanceState(row, statements)],
+            cells: [
+              getOrderLineShortNo(row),
+              findCustomer(row.customerId).name,
+              formatOrderGoodsSummary(row, getLineColorSpecLabel),
+              row.qty,
+              <StatusPill tone={statusTone(row.status)}>{row.status}</StatusPill>,
+              row.fulfillment,
+              <StatusPill tone={getOrderExceptionState(row) === "正常" ? "success" : "danger"}>{getOrderExceptionState(row)}</StatusPill>,
+              getOrderFinanceState(row, statements),
+            ],
           }))}
         />
       </OperationalPanel>
       <DetailPane className="order-pool-detail-pane" title={`${selected.orderNo}-${selected.lineNo}`} subtitle={`${customerInfo.name} · ${selected.status}`}>
-        <InfoGrid
-          rows={[
-            ["产品", `${selected.product} / ${selected.size} / ${getLineColorSpecLabel(selected)}`],
-            ["数量", `${selected.qty} 个`],
-            ["交付", `${selected.fulfillment} · ${selected.latest}`],
-            ["库存", getOrderDetailInventoryLabel(apiDetail, selected.inventory)],
-            ["金额", money(selected.amount)],
-            ["异常", selected.exceptions.length ? selected.exceptions.join("、") : exceptionState],
-            ["对账", selectedStatement ? `${selectedStatement.status} · ${selectedStatement.period}` : apiStatement ? `${apiStatement.status} · ${apiStatement.period}` : financeState],
-            ["客户欠款", customerInfo.debt ? money(customerInfo.debt) : "无"],
-          ]}
-        />
-        <section className="detail-section">
-          <h3>生产 / 库存</h3>
-          <InfoGrid
-            rows={[
-              ["订单类型", selected.orderType],
-              ["印刷", selected.print === "是" ? "需要印刷" : "非印刷"],
-              ["印刷颜色", selected.print === "是" ? selected.printColor || "待确认" : "非印刷"],
-              ["印刷面", selected.print === "是" ? selected.printSide || "待确认" : "非印刷"],
-              ["提手颜色", selected.handleColor || "同袋色/未特殊"],
-              ["备注", getLineRemark(selected) || "无"],
-              ["生产状态", selected.print === "是" ? selected.status : "不进生产"],
-              ["库存状态", `${selected.inventory}；正式动作前需重校验`],
-            ]}
-          />
-        </section>
-        <section className="detail-section">
-          <h3>打包 / 交付</h3>
-          <InfoGrid
-            rows={[
-              ["交付方式", selected.fulfillment],
-              ["交付状态", selectedFulfillment?.status ?? apiFulfillment?.status ?? selected.status],
-              ["包裹/单据", selectedFulfillment ? `${selectedFulfillment.packages} / ${selectedFulfillment.printed ? "已打印" : "未打印"}` : apiFulfillment ? `${apiFulfillment.expectedQty} 个 / ${apiFulfillment.status}` : "未生成出库记录"],
-              ["交付定位", selectedFulfillment ? selectedFulfillment.lineId : apiFulfillment?.orderLineId ?? "无对应出库记录"],
-            ]}
-          />
-        </section>
-        <section className="detail-section">
-          <h3>对账 / 收款</h3>
-          <InfoGrid
-            rows={[
-              ["财务状态", financeState],
-              ["对账单", selectedStatement?.id ?? apiStatement?.statementId ?? "未生成"],
-              ["应收/已收", selectedStatement ? `${money(selectedStatement.receivable)} / ${money(selectedStatement.received)}` : apiStatement ? `${money(apiStatement.receivable)} / ${money(apiStatement.received)}` : `${money(selected.amount)} / 未登记`],
-              ["差额", selectedStatement ? money(selectedStatement.variance || 0) : apiStatement ? money(apiStatement.variance || 0) : customerInfo.debt ? money(customerInfo.debt) : "无"],
-            ]}
-          />
-        </section>
-        <section className="detail-section">
-          <h3>流转摘要</h3>
-          <Timeline items={["订单确认", selected.print === "是" ? "丝印/制袋" : "查库存", selectedFulfillment ? `交付：${selectedFulfillment.status}` : apiFulfillment ? `交付：${apiFulfillment.status}` : selected.status, selectedStatement ? `对账：${selectedStatement.status}` : apiStatement ? `对账：${apiStatement.status}` : "待进入对账", orderPoolMeta?.detailLoading ? "详情读取中" : apiDetail ? "详情已同步" : "关键修改需留痕"]} />
-        </section>
-        <div className="action-row">
+        <div className="operational-detail-tabs">
+          <Segmented ariaLabel="订单详情视图" value={detailTab} onChange={setDetailTab} items={ORDER_DETAIL_TABS} />
+        </div>
+        {detailTab === "订单" ? (
+          <>
+            <InfoGrid
+              rows={[
+                ["产品", `${selected.product} / ${selected.size} / ${getLineColorSpecLabel(selected)}`],
+                ["数量", `${selected.qty} 个`],
+                ["交付", `${selected.fulfillment} · ${selected.latest}`],
+                ["库存", getOrderDetailInventoryLabel(apiDetail, selected.inventory)],
+                ["金额", money(selected.amount)],
+                ["异常", selected.exceptions.length ? selected.exceptions.join("、") : exceptionState],
+              ]}
+            />
+            <section className="detail-section">
+              <h3>生产 / 库存</h3>
+              <InfoGrid
+                rows={[
+                  ["订单类型", selected.orderType],
+                  ["印刷", selected.print === "是" ? "需要印刷" : "非印刷"],
+                  ["印刷颜色", selected.print === "是" ? selected.printColor || "待确认" : "非印刷"],
+                  ["印刷面", selected.print === "是" ? selected.printSide || "待确认" : "非印刷"],
+                  ["提手颜色", selected.handleColor || "同袋色/未特殊"],
+                  ["备注", getLineRemark(selected) || "无"],
+                  ["生产状态", selected.print === "是" ? selected.status : "不进生产"],
+                  ["库存状态", `${selected.inventory}；正式动作前需重校验`],
+                ]}
+              />
+            </section>
+            <section className="detail-section">
+              <h3>流转摘要</h3>
+              <Timeline items={["订单确认", selected.print === "是" ? "丝印/制袋" : "查库存", selectedFulfillment ? `交付：${selectedFulfillment.status}` : apiFulfillment ? `交付：${apiFulfillment.status}` : selected.status, selectedStatement ? `对账：${selectedStatement.status}` : apiStatement ? `对账：${apiStatement.status}` : "待进入对账", orderPoolMeta?.detailLoading ? "详情读取中" : apiDetail ? "详情已同步" : "关键修改需留痕"]} />
+            </section>
+          </>
+        ) : detailTab === "交付" ? (
+          <section className="detail-section operational-detail-section-first">
+            <h3>打包 / 交付</h3>
+            <InfoGrid
+              rows={[
+                ["交付方式", selected.fulfillment],
+                ["交付状态", selectedFulfillment?.status ?? apiFulfillment?.status ?? selected.status],
+                ["包裹/单据", selectedFulfillment ? `${selectedFulfillment.packages} / ${selectedFulfillment.printed ? "已打印" : "未打印"}` : apiFulfillment ? `${apiFulfillment.expectedQty} 个 / ${apiFulfillment.status}` : "未生成出库记录"],
+                ["交付定位", selectedFulfillment ? selectedFulfillment.lineId : apiFulfillment?.orderLineId ?? "无对应出库记录"],
+                ["最晚时间", selected.latest],
+                ["库存来源", getOrderDetailInventoryLabel(apiDetail, selected.inventory)],
+              ]}
+            />
+          </section>
+        ) : (
+          <section className="detail-section operational-detail-section-first">
+            <h3>对账 / 收款</h3>
+            <InfoGrid
+              rows={[
+                ["财务状态", financeState],
+                ["对账单", selectedStatement?.id ?? apiStatement?.statementId ?? "未生成"],
+                ["应收/已收", selectedStatement ? `${money(selectedStatement.receivable)} / ${money(selectedStatement.received)}` : apiStatement ? `${money(apiStatement.receivable)} / ${money(apiStatement.received)}` : `${money(selected.amount)} / 未登记`],
+                ["差额", selectedStatement ? money(selectedStatement.variance || 0) : apiStatement ? money(apiStatement.variance || 0) : customerInfo.debt ? money(customerInfo.debt) : "无"],
+                ["客户欠款", customerInfo.debt ? money(customerInfo.debt) : "无"],
+                ["账期", selectedStatement?.period ?? apiStatement?.period ?? "待生成"],
+              ]}
+            />
+          </section>
+        )}
+        <div className="action-row operational-detail-actions">
           <button onClick={() => setToast("已复制订单摘要。")}>复制</button>
           <button onClick={() => selectedFulfillment ? onLocateFulfillment(selected.id) : setToast("当前明细没有对应出库记录。")}>定位出库</button>
           <button onClick={() => selectedStatement ? onLocateStatement(selected.id) : setToast("当前明细没有对应对账记录。")}>定位对账</button>
@@ -198,6 +234,22 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
       </DetailPane>
     </section>
   );
+}
+
+function formatOrderGoodsSummary(line, getLineColorSpecLabel) {
+  return [line.product, line.size, getLineColorSpecLabel(line)].filter(Boolean).join(" / ");
+}
+
+function isOrderTerminal(status = "") {
+  return ["已交付", "已关闭", "已取消"].some((value) => String(status).includes(value));
+}
+
+function isOrderInProduction(status = "") {
+  return ["排产", "丝印", "制袋", "补印"].some((value) => String(status).includes(value));
+}
+
+function isOrderFinancePending(state = "") {
+  return ["待对账", "未入账", "收款待确认"].some((value) => String(state).includes(value));
 }
 
 function getOrderActionState(getUiActionState, action, blocker) {

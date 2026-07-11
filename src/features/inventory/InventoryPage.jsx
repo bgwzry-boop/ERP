@@ -8,8 +8,11 @@ import {
   InfoGrid,
   MetricStrip,
   OperationalPanel,
+  Segmented,
   StatusPill,
 } from "../../shared/ui/operational.jsx";
+
+const INVENTORY_DETAIL_TABS = ["概览", "流水", "修正"];
 
 const defaultInventoryLedgerPanelFilters = {
   keyword: "",
@@ -72,6 +75,7 @@ export function InventoryPage({
   const { availableQty, formatStockKey, getStockStateGroup, getStockStateTone, getStockTone, getStockTrustLabel, getUiActionState, isPendingStock, uniqueStockOptions } = helpers;
   const [filters, setFilters] = useState({ query: "", size: "全部", color: "全部", handle: "全部", style: "全部", state: "默认可用", trust: "全部" });
   const [showPending, setShowPending] = useState(false);
+  const [detailTab, setDetailTab] = useState("概览");
   const [requestQty, setRequestQty] = useState(500);
   const [correctionActual, setCorrectionActual] = useState("");
   const [correctionReason, setCorrectionReason] = useState("盘点差异");
@@ -92,10 +96,11 @@ export function InventoryPage({
     if (filters.trust !== "全部" && (filters.trust === "估算/待复核") !== item.estimated) return false;
     return true;
   });
+  const hasVisibleInventory = visible.length > 0;
   const selected = visible.find((item) => item.id === selectedStockId) ?? visible[0] ?? inventoryRecords[0];
-  if (!selected) {
+  if (!inventoryRecords.length) {
     return (
-      <section className="page-grid split-detail inventory-workbench">
+      <section className="page-grid split-detail operational-split-workbench inventory-workbench">
         <OperationalPanel className="table-pane inventory-list-panel" ariaLabel="库存记录列表">
           <DataState title="暂无库存记录" detail="请先导入并审核库存基础数据。" />
         </OperationalPanel>
@@ -207,7 +212,7 @@ export function InventoryPage({
   }
 
   return (
-    <section className="page-grid split-detail inventory-workbench">
+    <section className="page-grid split-detail operational-split-workbench inventory-workbench">
       <OperationalPanel className="table-pane inventory-list-panel" ariaLabel="库存记录列表">
         <FilterBar
           className="inventory-filter-bar"
@@ -254,23 +259,42 @@ export function InventoryPage({
           {inventoryMeta.error && <DataState title="库存列表同步失败" detail={inventoryMeta.error} tone="danger" compact />}
         </FilterBar>
         <MetricStrip items={stats} ariaLabel="库存状态摘要" />
-        <DataTable
-          className="inventory-table"
-          columns={["尺寸", "颜色", "提手", "款式", "库区", "状态", "在库", "占用", "锁定", "待处", "可用", "可信"]}
-          rows={visible.map((row) => {
-            const available = availableQty(row);
-            return {
-              id: row.id,
-              active: row.id === selected.id,
-              tone: getStockTone(row),
-              onClick: () => setSelectedStockId(row.id),
-              cells: [row.size, row.color, row.handle, row.style, row.zone, <StatusPill tone={getStockStateTone(getStockStateGroup(row))}>{getStockStateGroup(row)}</StatusPill>, row.inStock, row.reserved, row.locked, row.pending, available, getStockTrustLabel(row)],
-            };
-          })}
-        />
+        {hasVisibleInventory ? (
+          <DataTable
+            className="inventory-table"
+            columns={["库存键", "规格/款式", "库区", "状态", "在库", "占用/锁定", "可用", "可信"]}
+            rows={visible.map((row) => {
+              const available = availableQty(row);
+              return {
+                id: row.id,
+                active: row.id === selected.id,
+                tone: getStockTone(row),
+                onClick: () => setSelectedStockId(row.id),
+                cells: [
+                  `${row.size} / ${row.color}`,
+                  `${row.handle} / ${row.style}`,
+                  row.zone,
+                  <StatusPill tone={getStockStateTone(getStockStateGroup(row))}>{getStockStateGroup(row)}</StatusPill>,
+                  row.inStock,
+                  `${row.reserved} / ${row.locked}`,
+                  available,
+                  getStockTrustLabel(row),
+                ],
+              };
+            })}
+          />
+        ) : (
+          <DataState title="没有匹配的库存键" detail="调整筛选条件或重置筛选后重试。" />
+        )}
       </OperationalPanel>
-      <DetailPane className="inventory-detail-pane" title="库存明细" subtitle={`${selected.size} ${selected.color} ${selected.handle} ${selected.style}`}>
-        <InfoGrid
+      <DetailPane className="inventory-detail-pane" title="库存明细" subtitle={hasVisibleInventory ? `${selected.size} ${selected.color} ${selected.handle} ${selected.style}` : "当前筛选无结果"}>
+        {hasVisibleInventory ? (
+          <>
+        <div className="operational-detail-tabs">
+          <Segmented ariaLabel="库存详情视图" value={detailTab} onChange={setDetailTab} items={INVENTORY_DETAIL_TABS} />
+        </div>
+        <div hidden={detailTab !== "概览"}>
+          <InfoGrid
           rows={[
             ["精确库存键", `${formatStockKey(selected)} / ${selected.zone}`],
             ["状态/可信度", `${getStockStateGroup(selected)} / ${getStockTrustLabel(selected)}`],
@@ -279,8 +303,9 @@ export function InventoryPage({
             ["来源摘要", selected.estimated ? "估算库存 / 待复核" : selected.state],
             ["待处理", `${selected.pending} 个`],
           ]}
-        />
-        <section className="detail-section inventory-ledger-section">
+          />
+        </div>
+        <section className="detail-section inventory-ledger-section operational-detail-section-first" hidden={detailTab !== "流水"}>
           <div className="inventory-ledger-head">
             <div>
               <h3>库存流水</h3>
@@ -372,7 +397,7 @@ export function InventoryPage({
           )}
         </section>
         {(inventoryCorrectionDetailState.loading || inventoryCorrectionDetailState.error || inventoryCorrectionDetailState.detail) && (
-          <section className="detail-section inventory-correction-detail-section">
+          <section className="detail-section inventory-correction-detail-section" hidden={detailTab === "概览"}>
             <div className="inventory-correction-detail-head">
               <div>
                 <h3>库存修正详情</h3>
@@ -399,7 +424,7 @@ export function InventoryPage({
             ) : null}
           </section>
         )}
-        <section className="detail-section inventory-correction-queue-section">
+        <section className="detail-section inventory-correction-queue-section operational-detail-section-first" hidden={detailTab !== "修正"}>
           <div className="inventory-correction-detail-head">
             <div>
               <h3>库存修正确认队列</h3>
@@ -446,7 +471,7 @@ export function InventoryPage({
                     </p>
                     <small>{item.operatorName || item.operatorId || "发起人待确认"} · {formatInventoryCorrectionTime(item.createdAt)}</small>
                     <div className="inventory-correction-queue-actions">
-                      <button type="button" onClick={() => onOpenCorrectionDraft?.(draftId)}>查看详情</button>
+                      <button type="button" onClick={() => { setDetailTab("修正"); onOpenCorrectionDraft?.(draftId); }}>查看详情</button>
                       <button
                         type="button"
                         disabled={Boolean(disabledReason) || confirming}
@@ -464,7 +489,7 @@ export function InventoryPage({
             <p className="ledger-message">暂无待确认库存修正草稿。</p>
           )}
         </section>
-        <section className={shortage > 0 ? "detail-section alert" : "detail-section"}>
+        <section hidden={detailTab !== "概览"} className={shortage > 0 ? "detail-section alert" : "detail-section"}>
           <h3>缺货判断</h3>
           <div className="inline-form-row">
             <label>
@@ -474,7 +499,7 @@ export function InventoryPage({
           </div>
           <p>{shortage > 0 ? `当前缺口 ${shortage} 个；建议先确认客户是否等生产、先发可用数量，或改数量/颜色/款式。` : `当前可用 ${available} 个，可满足本次查询数量。正式承诺客户前仍需重新校验。`}</p>
         </section>
-        <section className="detail-section">
+        <section className="detail-section" hidden={detailTab !== "概览"}>
           <h3>参考提示</h3>
           {similarStocks.length ? (
             <ul className="reference-list">
@@ -487,11 +512,11 @@ export function InventoryPage({
           )}
           <p>近似颜色/尺寸只作参考；不能一键替代，也不能自动生成有货话术。</p>
         </section>
-        <section className="detail-section">
+        <section className="detail-section" hidden={detailTab !== "概览"}>
           <h3>客户话术</h3>
           <p>{customerText}</p>
         </section>
-        <section className="detail-section">
+        <section className="detail-section operational-detail-section-first" hidden={detailTab !== "修正"}>
           <h3>库存修正草稿</h3>
           <div className="detail-form">
             <label>
@@ -526,7 +551,7 @@ export function InventoryPage({
             </div>
           )}
         </section>
-        <div className="action-row">
+        <div className="action-row operational-detail-actions" hidden={detailTab !== "修正"}>
           <button className="primary-action" disabled={correctionState.disabled} title={correctionState.title} onClick={createCorrectionDraft}>生成修正草稿</button>
           <button
             type="button"
@@ -537,6 +562,10 @@ export function InventoryPage({
           </button>
           <button onClick={() => setToast(`已复制客户话术：${customerText}`)}>复制客户话术</button>
         </div>
+          </>
+        ) : (
+          <DataState title="没有可显示的库存详情" detail="当前筛选没有命中库存键，可重置筛选继续查询。" compact />
+        )}
       </DetailPane>
     </section>
   );

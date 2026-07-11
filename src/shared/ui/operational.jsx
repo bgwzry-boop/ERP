@@ -109,6 +109,7 @@ export function DataTable({ columns, rows, className = "" }) {
             <RowElement
               className={`data-row ${row.active ? "active" : ""} ${row.tone ?? ""}`}
               aria-pressed={row.onClick ? Boolean(row.active) : undefined}
+              data-row-id={row.id}
               key={row.id}
               onClick={row.onClick}
               type={row.onClick ? "button" : undefined}

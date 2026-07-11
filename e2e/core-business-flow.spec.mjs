@@ -53,7 +53,7 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   const createdFulfillment = await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
     item.lineId === createdLine.id || item.orderLineId === createdLine.id,
   );
-  await page.getByRole("button", { name: /自提 张三服饰 .* 10个 10 1包/ }).click();
+  await page.locator(`.fulfillment-table [data-row-id="${createdFulfillment.fulfillmentId}"]`).click();
   await expect(page.getByText(createdLine.id, { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "完成自提", exact: true }).click();
   await expect(page.getByText("已通过后端 API记录完成自提", { exact: false })).toBeVisible();
@@ -277,7 +277,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
 
   await mainNavigation.getByRole("button", { name: /出库交付/ }).click();
   await page.getByRole("tab", { name: "快递快运", exact: true }).click();
-  await page.getByText(createdLine.id, { exact: false }).click();
+  await page.locator(`.fulfillment-table [data-row-id="${fulfillment.fulfillmentId}"]`).click();
   await page.getByRole("button", { name: "打印标签", exact: true }).click();
   const printDialog = page.getByRole("dialog", { name: "单据 / 标签预览" });
   await expect(printDialog).toBeVisible();
@@ -339,7 +339,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   const refreshedNavigation = page.getByRole("navigation", { name: "主导航" });
   await refreshedNavigation.getByRole("button", { name: /出库交付/ }).click();
   await page.getByRole("tab", { name: "快递快运", exact: true }).click();
-  await page.getByText(createdLine.id, { exact: false }).click();
+  await page.locator(`.fulfillment-table [data-row-id="${fulfillment.fulfillmentId}"]`).click();
   await page.getByRole("button", { name: "确认已拉走", exact: true }).click();
   await expect(page.getByText("已通过后端 API记录确认已拉走", { exact: false })).toBeVisible();
 
