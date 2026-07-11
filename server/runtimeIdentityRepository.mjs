@@ -159,14 +159,16 @@ export function buildSaveRuntimeIdentityStateQuery(state = {}) {
   const revokedRows = normalized.revokedSeedSessions.map((record) => revokedSeedSessionSqlRow(record, parameters)).filter(Boolean);
   return {
     text: `
-BEGIN;
-${userRows.length > 0 ? buildUpsertRuntimeUsersSql(userRows) : ""}
-${revokedRows.length > 0 ? buildUpsertRevokedSeedSessionsSql(revokedRows) : ""}
+WITH saved_users AS (
+  ${userRows.length > 0 ? buildUpsertRuntimeUsersSql(userRows) : "SELECT NULL::TEXT AS id WHERE FALSE"}
+),
+saved_revoked_sessions AS (
+  ${revokedRows.length > 0 ? buildUpsertRevokedSeedSessionsSql(revokedRows) : "SELECT NULL::TEXT AS jti WHERE FALSE"}
+)
 SELECT json_build_object(
-  'savedUserCount', ${userRows.length},
-  'revokedSessionCount', ${revokedRows.length}
+  'savedUserCount', (SELECT COUNT(*) FROM saved_users),
+  'revokedSessionCount', (SELECT COUNT(*) FROM saved_revoked_sessions)
 ) AS result;
-COMMIT;
 `,
     values: parameters.values,
   };
@@ -221,7 +223,8 @@ ON CONFLICT (id) DO UPDATE SET
   session_valid_after = EXCLUDED.session_valid_after,
   session_version = EXCLUDED.session_version,
   metadata_json = EXCLUDED.metadata_json,
-  updated_at = EXCLUDED.updated_at;
+  updated_at = EXCLUDED.updated_at
+RETURNING id
 `;
 }
 
@@ -243,7 +246,8 @@ ON CONFLICT (jti) DO UPDATE SET
   revoked_at = EXCLUDED.revoked_at,
   expires_at = EXCLUDED.expires_at,
   reason = EXCLUDED.reason,
-  source = EXCLUDED.source;
+  source = EXCLUDED.source
+RETURNING jti
 `;
 }
 

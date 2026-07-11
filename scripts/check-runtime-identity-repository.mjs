@@ -99,6 +99,8 @@ try {
   assert.equal(temporaryLogin.permissions.user.mustChangePassword, true);
   assert.equal(temporaryLogin.permissions.actionPermissions.length, 0);
   assert.equal(temporaryLogin.session.sessionVersion, 1);
+  assert.equal(temporaryLogin.session.sessionType, "runtime");
+  assert(temporaryLogin.session.accessToken.startsWith("erp-runtime-session-v1."));
 
   const changedPassword = await postJson(
     baseUrl,
@@ -141,6 +143,7 @@ try {
   assert.equal(changedLoginAfterRestart.permissions.user.userId, userId);
   assert.equal(changedLoginAfterRestart.permissions.user.mustChangePassword, false);
   assert(changedLoginAfterRestart.permissions.actionPermissions.includes("production.report.complete"));
+  assert.equal(changedLoginAfterRestart.session.sessionType, "runtime");
 
   for (let attempt = 1; attempt <= 4; attempt += 1) {
     const failedLogin = await postJson(
@@ -287,8 +290,10 @@ assert.equal(postgresSaved.savedUserCount, reloaded.users.length);
 assert.equal(postgresSaved.revokedSessionCount, reloaded.revokedSeedSessions.length);
 assert.equal(postgresCalls[0].kind, "query");
 assert.equal(postgresCalls[1].kind, "transaction");
-assert.match(postgresCalls[1].text, /^\s*BEGIN;/);
-assert.match(postgresCalls[1].text, /AS result;\s*COMMIT;\s*$/);
+assert.match(postgresCalls[1].text, /^\s*WITH saved_users AS/);
+assert.match(postgresCalls[1].text, /saved_revoked_sessions AS/);
+assert.match(postgresCalls[1].text, /AS result;\s*$/);
+assert.doesNotMatch(postgresCalls[1].text, /\bBEGIN\b|\bCOMMIT\b/);
 assert.ok(postgresCalls[1].values.length > 30);
 } finally {
   if (server?.listening) await closeServer(server);

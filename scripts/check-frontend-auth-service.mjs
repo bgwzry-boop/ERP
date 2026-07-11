@@ -76,7 +76,7 @@ const runtimeLogin = await loginRuntimeUser(
       runtimeLoginCalls.push({ url, init, body: JSON.parse(init.body) });
       return createJsonResponse(200, {
         session: {
-          accessToken: "seed-session.runtime-check",
+          accessToken: "erp-runtime-session-v1.runtime-check",
           tokenType: "Bearer",
           userId: "U-EMP-001",
           issuedAt: "2026-07-01T00:00:00.000Z",

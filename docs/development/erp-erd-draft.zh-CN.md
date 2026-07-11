@@ -123,7 +123,7 @@ erDiagram
 
 ### `seed_session_revocations`
 
-seed-session token 黑名单，用于 logout 和管理员触发的 session 失效边界。
+session token 撤销表（历史表名仍为 `seed_session_revocations`），同时承载正式 runtime session 与本地 seed session 的 logout / 管理员失效边界。
 
 | 字段 | 说明 |
 |---|---|

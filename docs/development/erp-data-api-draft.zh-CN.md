@@ -206,9 +206,9 @@ erDiagram
 
 | API | 请求 | 响应 | 说明 |
 |---|---|---|---|
-| `POST /api/auth/login` | `loginName/userId`, `password` | `session`, `permissions` | seed 登录入口，后续替换为正式账号表和密码策略 |
+| `POST /api/auth/login` | `loginName/userId`, `password` | `session`, `permissions` | production 使用正式导入员工账号并签发独立 runtime session；seed 仅限非严格 demo/test |
 | `GET /api/auth/me` | bearer token | 当前会话、账号、角色、按钮权限、动作权限 | 前端初始化当前登录态 |
-| `POST /api/auth/logout` | bearer token | `loggedOut`, `tokenRevoked` | P0 seed token 暂无状态撤销 |
+| `POST /api/auth/logout` | bearer token | `loggedOut`, `tokenRevoked` | runtime / seed session 按 jti 撤销；production 撤销状态持久化到 PostgreSQL |
 | `POST /api/attachments` | `ownerType`, `ownerId`, `file`, `fileType`, `metadata?` | `attachmentId`, `url`, `status`, `metadata` | 印刷图、成品图、付款截图、送货水印照；送货水印照可上传前端已叠加水印的 JPEG |
 | `GET /api/todos` | `status`, `type`, `priority`, `keyword` | 公共待办列表 | 默认未处理，按急单/异常/今天/最晚时间排序 |
 | `POST /api/todos/{id}/handle` | `action`, `reason?`, `snoozeUntil?` | `todo`, `operationLogId` | 只处理待办状态，业务动作仍走对应接口 |

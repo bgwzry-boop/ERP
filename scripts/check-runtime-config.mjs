@@ -4,7 +4,7 @@ import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { createApiServer } from "../server/apiServer.mjs";
-import { createSeedSession } from "../server/authSeed.mjs";
+import { createRuntimeSession } from "../server/authSeed.mjs";
 import {
   applyRuntimeConfigOptions,
   parseRuntimeModeArg,
@@ -159,7 +159,7 @@ try {
   });
   assert.equal(legacyIdentityResponse.status, 401);
 
-  const runtimeSession = createSeedSession("U-RUNTIME-OFFICE", {
+  const runtimeSession = createRuntimeSession("U-RUNTIME-OFFICE", {
     authSecret: "runtime-config-check-secret",
     sessionVersion: 1,
   });

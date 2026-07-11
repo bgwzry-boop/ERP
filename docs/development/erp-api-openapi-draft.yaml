@@ -692,11 +692,12 @@ paths:
     post:
       tags: [Authentication]
       security: []
-      summary: Seed 登录并生成会话 token
+      summary: 正式员工登录并生成运行时会话
       description: >
-        当前用于后端骨架和本地开发验证。真实系统应替换为数据库账号、
-        密码策略、会话存储、撤销和审计日志。
-      operationId: loginSeedSession
+        production 只接受已启用的正式导入员工账号，并签发独立
+        `erp-runtime-session-v1` token。非严格 demo/test 模式仍兼容 seed
+        账号登录，但 seed token 不得代表运行时员工。
+      operationId: loginErpSession
       requestBody:
         required: true
         content:
@@ -796,9 +797,9 @@ paths:
       tags: [Authentication]
       summary: 退出当前会话
       description: >
-        P0 seed token 仍是本地签名 token，但当前 API 进程会记录本次 session jti
-        的吊销状态；后续生产登录仍需要持久化会话表或 token 黑名单。
-      operationId: logoutSeedSession
+        正式 runtime session 和本地原型 seed session 均按 jti 撤销；
+        production 通过 PostgreSQL 运行期身份仓储持久化撤销记录。
+      operationId: logoutErpSession
       responses:
         "200":
           description: 退出处理结果
@@ -12764,10 +12765,10 @@ components:
       properties:
         loginName:
           type: string
-          description: 登录名，seed 骨架示例为 office.a、finance.a 等；导入员工账号发放临时密码后也可使用员工登录名。
+          description: 正式导入员工登录名；非严格 demo/test 模式兼容 seed 登录名。
         userId:
           type: string
-          description: 开发期可直接用 seed 用户 ID 登录。
+          description: 正式运行时用户 ID；非严格 demo/test 模式兼容 seed 用户 ID。
         password:
           type: string
           format: password
@@ -12782,13 +12783,17 @@ components:
 
     AuthSessionSummary:
       type: object
-      required: [accessToken, tokenType, userId, issuedAt, expiresAt, expiresInSeconds]
+      required: [accessToken, tokenType, sessionType, userId, issuedAt, expiresAt, expiresInSeconds]
       properties:
         accessToken:
           type: string
         tokenType:
           type: string
           enum: [Bearer]
+        sessionType:
+          type: string
+          enum: [runtime, seed]
+          description: production 正式员工固定为 runtime；seed 仅限非严格 demo/test。
         userId:
           type: string
         issuedAt:
@@ -12801,7 +12806,7 @@ components:
           type: integer
         jti:
           type: string
-          description: 当前 API 进程可用于 logout 吊销的 session 标识。
+          description: logout 和管理员失效旧会话使用的 session 标识；production 持久化到 PostgreSQL。
         sessionVersion:
           type: integer
           description: 导入员工运行期账号的 session 版本；重发或撤销密码后旧版本 token 失效。
@@ -12868,7 +12873,7 @@ components:
           type: boolean
         tokenRevoked:
           type: boolean
-          description: 当前 API 进程是否已记录本次 session jti 为吊销。
+          description: 是否已记录本次 session jti 为吊销；production 通过运行期身份仓储持久化。
         sessionUserId:
           type:
             - string

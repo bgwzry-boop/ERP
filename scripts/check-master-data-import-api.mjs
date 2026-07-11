@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
+import {
+  getEmployeeAccountDepartment,
+  getEmployeeAccountRoleLabel,
+  normalizeEmployeeAccountRoleKey,
+  validateEmployeeAccountIdentity,
+  validateEnabledEmployeeAccountReview,
+} from "../server/services/runtimeEmployeeAccountPolicy.mjs";
 import { buildMasterDataImportTemplateWorkbook } from "../src/domain/masterDataImportTemplate.js";
 import { precheckMasterDataImportWorkbook } from "../src/domain/masterDataImportPrecheck.js";
 import { createMasterDataImportReviewDraft } from "../src/domain/masterDataImportReviewQueue.js";
@@ -22,6 +29,28 @@ import {
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "master-data-import-api");
 rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
+
+assert.equal(normalizeEmployeeAccountRoleKey("", "技术运维"), "technical_operations");
+assert.equal(getEmployeeAccountRoleLabel("technical_operations"), "技术运维");
+assert.equal(getEmployeeAccountDepartment("technical_operations"), "system");
+assert.equal(
+  validateEmployeeAccountIdentity({}, { employeeId: "EMP-TECH", userId: "U-OFFICE-A", loginName: "tech.ops" })?.code,
+  "MASTER_DATA_EMPLOYEE_ACCOUNT_SEED_IDENTITY_CONFLICT",
+);
+assert.equal(
+  validateEmployeeAccountIdentity(
+    { users: [{ userId: "U-OTHER", loginName: "Existing.Login", employeeId: "EMP-OTHER" }] },
+    { employeeId: "EMP-TECH", userId: "U-TECH-RUNTIME", loginName: "existing.login" },
+  )?.code,
+  "MASTER_DATA_EMPLOYEE_ACCOUNT_IDENTITY_CONFLICT",
+);
+assert.equal(
+  validateEnabledEmployeeAccountReview(
+    { accountEnabled: true, userId: "U-EMP-1", loginName: "emp.1", reviewedRoleKey: "office" },
+    { userId: "U-EMP-2", loginName: "emp.1", roleKey: "office" },
+  )?.code,
+  "MASTER_DATA_EMPLOYEE_ACCOUNT_REVIEW_LOCKED",
+);
 
 const generatedAt = "2026-07-03T10:30:00.000Z";
 const workbook = buildMasterDataImportTemplateWorkbook({
@@ -275,6 +304,22 @@ try {
   assert.equal(pendingEmployeeReview.status, "pending_admin_review");
   assert.equal(pendingEmployeeReview.recommendedRoleKey, "workshop");
 
+  const seedIdentityConflict = await postJson(
+    baseUrl,
+    `/api/master-data/employee-account-reviews/${encodeURIComponent(pendingEmployeeReview.employeeId)}/enable`,
+    { userId: "U-OFFICE-A", loginName: "employee.office.conflict", roleKey: "workshop" },
+    { expectedStatus: 409, headers: { "x-erp-user-id": "U-MANAGER-A" } },
+  );
+  assert.equal(seedIdentityConflict.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_SEED_IDENTITY_CONFLICT");
+
+  const seedLoginConflict = await postJson(
+    baseUrl,
+    `/api/master-data/employee-account-reviews/${encodeURIComponent(pendingEmployeeReview.employeeId)}/enable`,
+    { userId: "U-EMP-UNIQUE-CHECK", loginName: "OFFICE.A", roleKey: "workshop" },
+    { expectedStatus: 409, headers: { "x-erp-user-id": "U-MANAGER-A" } },
+  );
+  assert.equal(seedLoginConflict.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_SEED_IDENTITY_CONFLICT");
+
   const employeePasswordBeforeEnable = await postJson(
     baseUrl,
     `/api/master-data/employee-account-reviews/${encodeURIComponent(pendingEmployeeReview.employeeId)}/password`,
@@ -310,6 +355,18 @@ try {
   assert.equal(enabledEmployeeReview.user.enabled, true);
   assert.equal(enabledEmployeeReview.user.defaultRole, "workshop");
   assert(enabledEmployeeReview.operationLogId);
+
+  const enabledIdentityMutation = await postJson(
+    baseUrl,
+    `/api/master-data/employee-account-reviews/${encodeURIComponent(pendingEmployeeReview.employeeId)}/password`,
+    {
+      userId: `${enabledEmployeeReview.employeeAccountReview.userId}-CHANGED`,
+      loginName: enabledEmployeeReview.employeeAccountReview.loginName,
+      roleKey: "workshop",
+    },
+    { expectedStatus: 409, headers: { "x-erp-user-id": "U-MANAGER-A" } },
+  );
+  assert.equal(enabledIdentityMutation.code, "MASTER_DATA_EMPLOYEE_ACCOUNT_REVIEW_LOCKED");
 
   const employeePasswordIssueDenied = await postJson(
     baseUrl,
@@ -363,7 +420,8 @@ try {
   assert.equal(dynamicLogin.permissions.passwordChangeRequired, true);
   assert.equal(dynamicLogin.permissions.actionPermissions.length, 0);
   assert(!dynamicLogin.permissions.actionPermissions.includes("master_data.employee_account.review"));
-  assert(dynamicLogin.session.accessToken.startsWith("seed-session."));
+  assert(dynamicLogin.session.accessToken.startsWith("erp-runtime-session-v1."));
+  assert.equal(dynamicLogin.session.sessionType, "runtime");
 
   const dynamicSession = await getJson(baseUrl, "/api/auth/me", {
     headers: { authorization: `Bearer ${dynamicLogin.session.accessToken}` },

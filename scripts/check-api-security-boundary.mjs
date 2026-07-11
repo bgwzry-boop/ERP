@@ -2,11 +2,12 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { createSeedSession } from "../server/authSeed.mjs";
+import { createRuntimeSession, createSeedSession, hashRuntimeUserPassword } from "../server/authSeed.mjs";
 import { createApiServer } from "../server/apiServer.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "api-security-boundary");
 const authSecret = "api-security-boundary-test-secret";
+const runtimeOfficePassword = "runtime-office-password-001";
 const runtimeUsers = [
   {
     userId: "U-RUNTIME-OFFICE",
@@ -17,7 +18,7 @@ const runtimeUsers = [
     enabled: true,
     roles: ["office"],
     loginEnabled: true,
-    passwordHash: "runtime-password-test",
+    passwordHash: hashRuntimeUserPassword(runtimeOfficePassword, { userId: "U-RUNTIME-OFFICE", authSecret }),
     sessionVersion: 1,
   },
   {
@@ -65,8 +66,10 @@ try {
   });
   await listen(strictRuntimeServer);
   const baseUrl = serverUrl(strictRuntimeServer);
-  const runtimeOfficeSession = createSeedSession("U-RUNTIME-OFFICE", { authSecret, sessionVersion: 1 });
+  const runtimeOfficeSession = createRuntimeSession("U-RUNTIME-OFFICE", { authSecret, sessionVersion: 1 });
   const authorization = { authorization: `Bearer ${runtimeOfficeSession.accessToken}` };
+  assert(runtimeOfficeSession.accessToken.startsWith("erp-runtime-session-v1."));
+  assert.equal(runtimeOfficeSession.sessionType, "runtime");
 
   const health = await requestJson(baseUrl, "/api/health");
   assert.equal(health.status, 200);
@@ -74,6 +77,21 @@ try {
   const anonymous = await requestJson(baseUrl, "/api/permissions/effective");
   assert.equal(anonymous.status, 401);
   assert.equal(anonymous.body.code, "AUTH_SESSION_REQUIRED");
+
+  const formalLogin = await requestJson(baseUrl, "/api/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ loginName: "runtime.office", password: runtimeOfficePassword }),
+  });
+  assert.equal(formalLogin.status, 200);
+  assert(formalLogin.body.session.accessToken.startsWith("erp-runtime-session-v1."));
+  assert.equal(formalLogin.body.session.sessionType, "runtime");
+  assert.equal(formalLogin.body.permissions.user.userId, "U-RUNTIME-OFFICE");
+  const formalSessionRead = await requestJson(baseUrl, "/api/auth/me", {
+    headers: { authorization: `Bearer ${formalLogin.body.session.accessToken}` },
+  });
+  assert.equal(formalSessionRead.status, 200);
+  assert.equal(formalSessionRead.body.permissions.user.userId, "U-RUNTIME-OFFICE");
 
   const forgedHeaders = await requestJson(baseUrl, "/api/permissions/effective", {
     headers: {
@@ -89,6 +107,13 @@ try {
   });
   assert.equal(explicitSeed.status, 401);
   assert.equal(explicitSeed.body.code, "AUTH_SEED_USER_DISABLED");
+
+  const legacyRuntimeSeedSession = createSeedSession("U-RUNTIME-OFFICE", { authSecret, sessionVersion: 1 });
+  const rejectedLegacyRuntimeSeedSession = await requestJson(baseUrl, "/api/permissions/effective", {
+    headers: { authorization: `Bearer ${legacyRuntimeSeedSession.accessToken}` },
+  });
+  assert.equal(rejectedLegacyRuntimeSeedSession.status, 401);
+  assert.equal(rejectedLegacyRuntimeSeedSession.body.code, "AUTH_USER_DISABLED");
 
   const allowedPreflight = await requestJson(baseUrl, "/api/permissions/effective", {
     method: "OPTIONS",
@@ -116,7 +141,7 @@ try {
   assert.equal(authenticated.status, 200);
   assert.equal(authenticated.body.user?.userId, "U-RUNTIME-OFFICE");
 
-  const financeSession = createSeedSession("U-RUNTIME-FINANCE", { authSecret, sessionVersion: 1 });
+  const financeSession = createRuntimeSession("U-RUNTIME-FINANCE", { authSecret, sessionVersion: 1 });
   const forgedPermission = await requestJson(baseUrl, "/api/order-drafts/recognize", {
     method: "POST",
     headers: {

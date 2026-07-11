@@ -6,7 +6,8 @@ import {
 } from "../shared/auth/roleCatalog.js";
 
 const defaultSeedUserId = "U-OFFICE-A";
-const seedTokenPrefix = "seed-session";
+export const seedSessionTokenPrefix = "seed-session";
+export const runtimeSessionTokenPrefix = "erp-runtime-session-v1";
 const runtimePasswordHashPrefix = "runtime-password-v1";
 const seedSessionTtlMs = 8 * 60 * 60 * 1000;
 // The fallback exists only for the local prototype. Production callers must pass
@@ -176,10 +177,18 @@ export function authenticateSeedUser({ loginName, userId, password }, options = 
 }
 
 export function createSeedSession(userId, options = {}) {
+  return createSignedSession(userId, seedSessionTokenPrefix, options);
+}
+
+export function createRuntimeSession(userId, options = {}) {
+  return createSignedSession(userId, runtimeSessionTokenPrefix, options);
+}
+
+function createSignedSession(userId, tokenPrefix, options = {}) {
   const issuedAtMs = Number(options.nowMs ?? Date.now());
   const expiresAtMs = issuedAtMs + seedSessionTtlMs;
   const payload = {
-    type: seedTokenPrefix,
+    type: tokenPrefix,
     userId,
     issuedAt: new Date(issuedAtMs).toISOString(),
     expiresAt: new Date(expiresAtMs).toISOString(),
@@ -192,8 +201,9 @@ export function createSeedSession(userId, options = {}) {
   const signature = signSeedPayload(encodedPayload, options);
 
   return {
-    accessToken: `${seedTokenPrefix}.${encodedPayload}.${signature}`,
+    accessToken: `${tokenPrefix}.${encodedPayload}.${signature}`,
     tokenType: "Bearer",
+    sessionType: tokenPrefix === runtimeSessionTokenPrefix ? "runtime" : "seed",
     userId,
     issuedAt: payload.issuedAt,
     expiresAt: payload.expiresAt,
@@ -204,8 +214,16 @@ export function createSeedSession(userId, options = {}) {
 }
 
 export function verifySeedSessionToken(token, options = {}) {
+  return verifySignedSessionToken(token, seedSessionTokenPrefix, "seed", options);
+}
+
+export function verifyRuntimeSessionToken(token, options = {}) {
+  return verifySignedSessionToken(token, runtimeSessionTokenPrefix, "runtime", options);
+}
+
+function verifySignedSessionToken(token, tokenPrefix, userKind, options = {}) {
   const parts = String(token ?? "").split(".");
-  if (parts.length !== 3 || parts[0] !== seedTokenPrefix) {
+  if (parts.length !== 3 || parts[0] !== tokenPrefix) {
     return { valid: false, reason: "AUTH_TOKEN_INVALID" };
   }
 
@@ -221,10 +239,14 @@ export function verifySeedSessionToken(token, options = {}) {
   } catch {
     return { valid: false, reason: "AUTH_TOKEN_INVALID" };
   }
+  if (payload.type !== tokenPrefix) return { valid: false, reason: "AUTH_TOKEN_INVALID" };
 
-  const user = getSeedUser(payload.userId);
-  const runtimeUser = user ? null : findRuntimeUser(options.runtimeUsers, { userId: payload.userId });
-  if ((!user || user.enabled === false) && (!runtimeUser || !isRuntimeUserLoginEnabled(runtimeUser))) {
+  const seedUser = getSeedUser(payload.userId);
+  const runtimeUser = findRuntimeUser(options.runtimeUsers, { userId: payload.userId });
+  const userAvailable = userKind === "runtime"
+    ? !seedUser && runtimeUser && isRuntimeUserLoginEnabled(runtimeUser)
+    : seedUser && seedUser.enabled !== false;
+  if (!userAvailable) {
     return { valid: false, reason: "AUTH_USER_DISABLED" };
   }
 
@@ -268,6 +290,7 @@ export function verifySeedSessionToken(token, options = {}) {
       expiresInSeconds: Math.max(0, Math.floor((expiresAtMs - nowMs) / 1000)),
       jti: payload.jti,
       sessionVersion: payload.sessionVersion,
+      sessionType: userKind,
     },
   };
 }
@@ -427,7 +450,7 @@ function buildAuthenticationFailedResult() {
     authenticated: false,
     error: {
       code: "AUTHENTICATION_FAILED",
-      message: "Login name, user ID, or password is invalid for the seed auth context.",
+      message: "Login name, user ID, or password is invalid.",
     },
   };
 }

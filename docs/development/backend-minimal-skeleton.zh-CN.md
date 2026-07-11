@@ -340,15 +340,15 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 - 严格模式禁用 seed 账号登录、`Authorization: Bearer seed:<userId>`、`x-erp-user-id`、`x-erp-action-permissions` 和未传身份时默认 `U-OFFICE-A` 的兼容行为。前述机制仅能在非严格的本地原型 / 回归模式使用。
 - 严格模式只对 `ERP_CORS_ALLOWED_ORIGINS` 中的来源返回 CORS 许可；JSON body 默认最多 `24 MiB`，可用 `ERP_API_MAX_JSON_BODY_BYTES` 调整。附件用途本身的大小校验仍是第二道业务限制。
 - `scripts/check-api-security-boundary.mjs` 覆盖严格模式密钥必填、伪造 Header 拒绝、seed 身份禁用、CORS 白名单和 JSON 超限返回 `413 REQUEST_BODY_TOO_LARGE`。
-- `POST /api/auth/login` 已提供 seed 登录入口，当前 seed 登录名包括 `office.a`、`warehouse.a`、`finance.a`、`manager.a`、`driver.a`；签名 token 默认 8 小时有效。
-- `GET /api/auth/me` 只接受 `Authorization: Bearer <seed-session token>`，未登录、错误密码或无效 token 会返回 `401`。
+- `POST /api/auth/login` 在 production 只接受已启用的正式导入员工账号，返回独立 `erp-runtime-session-v1`；非严格 demo/test 仍兼容 `office.a`、`warehouse.a` 等 seed 登录。签名 token 默认 8 小时有效。
+- `GET /api/auth/me` 接受已验签的 runtime session；非严格 demo/test 也接受 seed session。未登录、错误密码、类型与账号不匹配或无效 token 返回 `401`。
 - `GET /api/permissions/effective` 返回当前 seed 账号的有效权限；未传账号时默认 `U-OFFICE-A`。
-- 当前支持通过签名 seed token 指定账号；`x-erp-user-id` 和 `Authorization: Bearer seed:<userId>` 仍保留为本地骨架开发兼容方式。
+- 正式运行时员工与 seed token 已分离，运行时员工不能再用 `seed-session` 代表；`x-erp-user-id` 和 `Authorization: Bearer seed:<userId>` 只保留为非严格本地骨架兼容方式。
 - `server/authSeed.mjs` 目前提供办公室、库房 / 出库、财务 / 对账、管理和司机 seed 账号，并按角色合成 `buttonPermissions`、`actionPermissions` 和 `grants`。
 - 司机 seed 账号只具备司机送货任务相关权限：`delivery.view`、`delivery.load_confirm`、`delivery.complete`、`delivery.exception.create`；默认不具备打印、改订单、改库存、改价格或对账权限。
 - 第一批内存写入路由已按 `actionPermissions` 做动作级拦截；缺权限时返回 `403 PERMISSION_DENIED` 和 `requiredPermission`。
 - `scripts/check-api-skeleton.mjs` 已校验默认办公室账号正向流程、未登录查当前会话失败、错误密码失败、财务账号 seed token 登录、财务账号不能录单、库房账号不能登记收款、未知账号为空权限。
-- 当前还没有正式数据库账号、密码哈希迁移、服务端 session 存储、token 撤销、角色继承数据库读取或权限落库；严格模式已经消除匿名 / Header 伪造入口，但身份和授权数据仍不是生产级持久化实现。
+- 正式导入员工账号、密码状态、session 版本和 token 撤销已可通过 `runtimeIdentityRepository` 持久化到 PostgreSQL；角色权限仍由共享角色目录合成。真实生产账号导入、密钥轮换和现场账号验收仍未完成。
 - `x-erp-action-permissions` 请求头只用于非严格模式的本地骨架校验和负向测试。例如传 `none` 可模拟当前账号没有任何写入动作权限。
 
 ## 当前边界

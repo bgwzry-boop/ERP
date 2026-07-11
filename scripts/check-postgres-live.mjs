@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
 import { createApiServer } from "../server/apiServer.mjs";
+import { hashRuntimeUserPassword } from "../server/authSeed.mjs";
 import { buildPostgresIdempotencyRequest } from "../server/idempotency.mjs";
 import { createPostgresPoolClient } from "../server/postgresPoolClient.mjs";
 import { createPostgresAttachmentRepository } from "../server/attachmentRepository.mjs";
@@ -34,6 +35,7 @@ import { createPostgresInventoryCorrectionTransactionRepository } from "../serve
 import { createPostgresProductionFinishedGoodsPhotoTransactionRepository } from "../server/productionFinishedGoodsPhotoTransactionRepository.mjs";
 import { createPostgresMasterDataImportReviewRepository } from "../server/masterDataImportReviewRepository.mjs";
 import { createPostgresMasterDataImportTransactionRepository } from "../server/masterDataImportTransactionRepository.mjs";
+import { createPostgresRuntimeIdentityRepository } from "../server/runtimeIdentityRepository.mjs";
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
 import { v1PersistencePostgresRepositoryOptionKeys } from "../server/v1PersistenceProfile.mjs";
 import { loadMigrationFiles, validateMigrationSet } from "./dbMigrationUtils.mjs";
@@ -43,6 +45,10 @@ const dockerImage = process.env.ERP_POSTGRES_DOCKER_IMAGE || "postgres:16-alpine
 const { Pool } = pg;
 const containerName = `erp-postgres-live-${process.pid}-${Date.now()}`;
 const storageRoot = mkdtempSync(join(tmpdir(), "erp-postgres-live-storage-"));
+const liveRuntimeAuthSecret = "postgres-live-runtime-auth-secret";
+const liveRuntimeUserId = "U-EMP-LIVE-IDENTITY-001";
+const liveRuntimeLoginName = "employee.live.identity";
+const liveRuntimePassword = "employee-live-password-001";
 let server = null;
 let orderDraftPool = null;
 let attachmentPool = null;
@@ -57,7 +63,7 @@ try {
   await checkPostgresRepositories();
   await checkApiWithPostgresRepositories();
   console.log(
-    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, inventory correction transaction repository, production finished-goods photo transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction repository, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
+    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, inventory correction transaction repository, production finished-goods photo transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, runtime identity repository/formal login/logout revocation, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
   );
 } finally {
   if (server) await closeServer(server);
@@ -589,7 +595,42 @@ async function checkPostgresRepositories() {
   const printJobRepository = createPostgresPrintJobRepository({ queryJson });
   const masterDataImportReviewRepository = createPostgresMasterDataImportReviewRepository({ queryJson });
   const masterDataImportTransactionRepository = createPostgresMasterDataImportTransactionRepository({ queryJson });
+  const runtimeIdentityRepository = createPostgresRuntimeIdentityRepository({ postgresClient: statementPostgresClient });
   const workspace = { attachments: [], attachmentLinks: [], attachmentAccessLogs: [], operationLogs: [] };
+
+  const runtimeIdentitySave = await runtimeIdentityRepository.saveState({
+    workspace: {
+      users: [{
+        userId: liveRuntimeUserId,
+        loginName: liveRuntimeLoginName,
+        displayName: "PostgreSQL 正式员工账号",
+        defaultRole: "technical_operations",
+        department: "system",
+        enabled: true,
+        roles: ["technical_operations"],
+        employeeId: "EMP-LIVE-IDENTITY-001",
+        source: "master_data_import_review",
+        loginEnabled: true,
+        passwordHash: hashRuntimeUserPassword(liveRuntimePassword, {
+          userId: liveRuntimeUserId,
+          authSecret: liveRuntimeAuthSecret,
+        }),
+        passwordStatus: "active",
+        mustChangePassword: false,
+        passwordChangedAt: "2026-07-12T00:00:00.000Z",
+        sessionVersion: 1,
+        updatedAt: "2026-07-12T00:00:00.000Z",
+      }],
+      revokedSeedSessions: [],
+    },
+  });
+  assert.equal(runtimeIdentitySave.savedUserCount, 1);
+  const runtimeIdentityState = await runtimeIdentityRepository.loadState();
+  const persistedRuntimeUser = runtimeIdentityState.users.find((user) => user.userId === liveRuntimeUserId);
+  assert(persistedRuntimeUser, "runtime employee should persist in PostgreSQL users");
+  assert.deepEqual(persistedRuntimeUser.roles, ["technical_operations"]);
+  assert.equal(persistedRuntimeUser.loginEnabled, true);
+  assert.notEqual(persistedRuntimeUser.passwordHash, liveRuntimePassword);
 
   assert.equal((await attachmentRepository.loadState()).attachments.length, 0);
 
@@ -2742,6 +2783,7 @@ async function checkApiWithPostgresRepositories() {
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   const apiServerOptions = {
+    authSecret: liveRuntimeAuthSecret,
     v1PersistenceProfile: { repositoryMode: "postgres", queryJson },
     orderDraftRepository,
     printBatchRepository,
@@ -2800,6 +2842,29 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.v1PersistenceProfile.connectionStringExposed, false);
   assert.equal(health.seed.statementExportObjectStorage, "local_fs");
   assert.equal(health.seed.printDriverAdapter, "guarded_adapter");
+  const formalRuntimeLogin = await postJson(baseUrl, "/api/auth/login", {
+    loginName: liveRuntimeLoginName,
+    password: liveRuntimePassword,
+  });
+  assert(formalRuntimeLogin.session.accessToken.startsWith("erp-runtime-session-v1."));
+  assert.equal(formalRuntimeLogin.session.sessionType, "runtime");
+  assert.deepEqual(formalRuntimeLogin.permissions.roles, ["technical_operations"]);
+  assert(formalRuntimeLogin.permissions.actionPermissions.includes("system.v1_production_env.precheck"));
+  const formalRuntimeSession = await getJson(baseUrl, "/api/auth/me", {
+    headers: { authorization: `Bearer ${formalRuntimeLogin.session.accessToken}` },
+  });
+  assert.equal(formalRuntimeSession.permissions.user.userId, liveRuntimeUserId);
+  const formalRuntimeLogout = await postJson(
+    baseUrl,
+    "/api/auth/logout",
+    {},
+    { headers: { authorization: `Bearer ${formalRuntimeLogin.session.accessToken}` } },
+  );
+  assert.equal(formalRuntimeLogout.tokenRevoked, true);
+  assert.equal(
+    Number(runPsql(`SELECT COUNT(*) FROM seed_session_revocations WHERE jti = ${sqlLiteral(formalRuntimeLogin.session.jti)};`, { capture: true }).trim()),
+    1,
+  );
   const apiScheduleTaskId = "PT-LIVE-API-SCHEDULE-001";
   const apiSchedulePublishBody = {
     orderLineId: "OL-LIVE-PROD-001",

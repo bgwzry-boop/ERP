@@ -11,6 +11,7 @@ import { parseOrderText } from "../src/lib/orderParser.js";
 import {
   authenticatePrototypeSeedUser,
   authenticateSeedUser,
+  createRuntimeSession,
   createSeedSession,
   getSeedUser,
   getRuntimeAccountSecurityPolicyResponse,
@@ -19,7 +20,10 @@ import {
   hashRuntimeUserPassword,
   issueRuntimeUserTemporaryPassword,
   verifyRuntimeUserPassword,
+  verifyRuntimeSessionToken,
   verifySeedSessionToken,
+  runtimeSessionTokenPrefix,
+  seedSessionTokenPrefix,
 } from "./authSeed.mjs";
 import { confirmDraftOrder } from "../src/state/officeOrderActions.js";
 import {
@@ -93,6 +97,13 @@ import { createPrintBatchCommandService } from "./services/printBatchCommandServ
 import { createTodoCommandService } from "./services/todoCommandService.mjs";
 import { createInventoryCorrectionCommandService } from "./services/inventoryCorrectionCommandService.mjs";
 import { createProductionFinishedGoodsPhotoCommandService } from "./services/productionFinishedGoodsPhotoCommandService.mjs";
+import {
+  getEmployeeAccountDepartment,
+  getEmployeeAccountRoleLabel,
+  normalizeEmployeeAccountRoleKey,
+  validateEmployeeAccountIdentity,
+  validateEnabledEmployeeAccountReview,
+} from "./services/runtimeEmployeeAccountPolicy.mjs";
 import { createProductionSchedulingCommandService } from "./services/productionSchedulingCommandService.mjs";
 import { createProductionReportingCommandService } from "./services/productionReportingCommandService.mjs";
 import { createPackingCommandService } from "./services/packingCommandService.mjs";
@@ -1417,7 +1428,29 @@ function getRequestPermissionContext(request, authContext = getRequestAuthContex
 function getRequestAuthContext(request, workspace = {}) {
   const securityPolicy = getWorkspaceSecurityPolicy(workspace);
   const bearerToken = getBearerToken(request);
-  if (bearerToken?.startsWith("seed-session.")) {
+  if (bearerToken?.startsWith(`${runtimeSessionTokenPrefix}.`)) {
+    const verifiedSession = verifyRuntimeSessionToken(bearerToken, {
+      runtimeUsers: workspace.users,
+      revokedSessionIds: workspace.revokedSeedSessionJtis,
+      authSecret: securityPolicy.authSecret,
+    });
+    if (verifiedSession.valid) {
+      return {
+        authenticated: true,
+        source: "runtime_session",
+        userId: verifiedSession.userId,
+        session: verifiedSession.session,
+      };
+    }
+    return {
+      authenticated: false,
+      source: "invalid_runtime_session",
+      userId: "INVALID-RUNTIME-SESSION",
+      authError: verifiedSession.reason,
+    };
+  }
+
+  if (bearerToken?.startsWith(`${seedSessionTokenPrefix}.`)) {
     const verifiedSession = verifySeedSessionToken(bearerToken, {
       runtimeUsers: workspace.users,
       revokedSessionIds: workspace.revokedSeedSessionJtis,
@@ -1640,7 +1673,7 @@ async function loginRuntimeUserAuth({ response, workspace, body, runtimeUser, se
     }
     return sendJson(response, 401, {
       code: "AUTHENTICATION_FAILED",
-      message: "Login name, user ID, or password is invalid for the seed auth context.",
+      message: "Login name, user ID, or password is invalid.",
       securityPolicy: getRuntimeAccountSecurityPolicyResponse(),
     });
   }
@@ -1656,7 +1689,7 @@ async function loginRuntimeUserAuth({ response, workspace, body, runtimeUser, se
   await persistRuntimeIdentityState(workspace);
 
   const permissions = getEffectivePermissions(authenticatedUser.userId, { runtimeUsers: workspace.users });
-  const session = createSeedSession(authenticatedUser.userId, {
+  const session = createRuntimeSession(authenticatedUser.userId, {
     sessionVersion: authenticatedUser.sessionVersion,
     authSecret: securityPolicy.authSecret,
   });
@@ -1684,10 +1717,10 @@ function getAuthEventNowMs(body = {}) {
 }
 
 async function changeRuntimeUserPasswordRoute({ response, workspace, body, authContext }) {
-  if (!authContext.authenticated || authContext.source !== "seed_session") {
+  if (!authContext.authenticated || authContext.source !== "runtime_session") {
     return sendJson(response, 401, {
       code: authContext.authError ?? "AUTH_SESSION_REQUIRED",
-      message: "A valid seed session bearer token is required before changing password.",
+      message: "A valid formal employee session bearer token is required before changing password.",
     });
   }
 
@@ -1952,10 +1985,10 @@ function syncEmployeePasswordExpired(workspace, user, { expiredAt, passwordExpir
 }
 
 function getCurrentAuthSession({ response, permissionContext, authContext }) {
-  if (!authContext.authenticated || authContext.source !== "seed_session") {
+  if (!authContext.authenticated || !["runtime_session", "seed_session"].includes(authContext.source)) {
     return sendJson(response, 401, {
       code: authContext.authError ?? "AUTH_SESSION_REQUIRED",
-      message: "A valid seed session bearer token is required.",
+      message: "A valid signed ERP session bearer token is required.",
     });
   }
 
@@ -1981,7 +2014,7 @@ async function logoutSeedAuth({ response, workspace, authContext }) {
         revokedAt: new Date().toISOString(),
         expiresAt: cleanServerText(authContext.session?.expiresAt),
         reason: "logout",
-        source: "seed_session_logout",
+        source: `${authContext.source || "erp_session"}_logout`,
       });
     }
     await persistRuntimeIdentityState(workspace);
@@ -1991,8 +2024,8 @@ async function logoutSeedAuth({ response, workspace, authContext }) {
     tokenRevoked: Boolean(sessionJti),
     sessionUserId: authContext.authenticated ? authContext.userId : null,
     message: sessionJti
-      ? "Seed session token has been revoked for the current API process."
-      : "No valid seed session token was provided; discard the token on the client.",
+      ? "ERP session token has been revoked."
+      : "No valid ERP session token was provided; discard the token on the client.",
   });
 }
 
@@ -3162,6 +3195,14 @@ async function enableMasterDataEmployeeAccountRoute({ response, workspace, emplo
   const userId = cleanServerText(body.userId) || cleanServerText(before.userId) || buildEmployeeAccountUserId(before);
   const loginName = cleanServerText(body.loginName) || cleanServerText(before.loginName) || buildEmployeeAccountLoginName(before);
   const reviewNote = cleanServerText(body.reviewNote ?? body.note) || "管理员复核启用导入员工账号";
+  const reviewLockError = validateEnabledEmployeeAccountReview(before, { userId, loginName, roleKey });
+  if (reviewLockError) return sendBusinessError(response, 409, reviewLockError.code, reviewLockError.message);
+  const identityError = validateEmployeeAccountIdentity(workspace, {
+    employeeId: safeEmployeeId,
+    userId,
+    loginName,
+  });
+  if (identityError) return sendBusinessError(response, 409, identityError.code, identityError.message);
   const updatedEmployee = {
     ...before,
     userId,
@@ -3239,9 +3280,21 @@ async function issueMasterDataEmployeeAccountPasswordRoute({ response, workspace
   }
 
   const issuedAt = cleanServerText(body.issuedAt) || new Date().toISOString();
-  const roleKey = normalizeEmployeeAccountRoleKey(body.roleKey, before.reviewedRoleKey || before.roleName);
-  const userId = cleanServerText(body.userId) || cleanServerText(before.userId) || buildEmployeeAccountUserId(before);
-  const loginName = cleanServerText(body.loginName) || cleanServerText(before.loginName) || buildEmployeeAccountLoginName(before);
+  const roleKey = normalizeEmployeeAccountRoleKey("", before.reviewedRoleKey || before.roleName);
+  const userId = cleanServerText(before.userId) || buildEmployeeAccountUserId(before);
+  const loginName = cleanServerText(before.loginName) || buildEmployeeAccountLoginName(before);
+  const reviewLockError = validateEnabledEmployeeAccountReview(before, {
+    userId: cleanServerText(body.userId) || userId,
+    loginName: cleanServerText(body.loginName) || loginName,
+    roleKey: cleanServerText(body.roleKey) || roleKey,
+  });
+  if (reviewLockError) return sendBusinessError(response, 409, reviewLockError.code, reviewLockError.message);
+  const identityError = validateEmployeeAccountIdentity(workspace, {
+    employeeId: safeEmployeeId,
+    userId,
+    loginName,
+  });
+  if (identityError) return sendBusinessError(response, 409, identityError.code, identityError.message);
   const issueNote = cleanServerText(body.issueNote ?? body.note) || "管理员发放员工临时登录密码";
   const existingRuntimeUser = findRuntimeUserById(workspace, userId);
   const issuedPassword = issueRuntimeUserTemporaryPassword(
@@ -3574,46 +3627,6 @@ function buildEmployeeAccountUserId(employee = {}) {
 function buildEmployeeAccountLoginName(employee = {}) {
   const source = cleanServerText(employee.bizNo) || cleanServerText(employee.name) || cleanServerText(employee.id);
   return `emp.${source.toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "") || safeRecordPart(employee.id).toLowerCase()}`;
-}
-
-function normalizeEmployeeAccountRoleKey(roleKey, roleName = "") {
-  const normalized = cleanServerText(roleKey);
-  const allowed = new Set(["office", "warehouse", "finance", "management", "driver", "workshop", "packing"]);
-  if (allowed.has(normalized)) return normalized;
-  const text = cleanServerText(roleName);
-  if (/管理|主管|负责人/.test(text)) return "management";
-  if (/办公室|文员|录单|客服/.test(text)) return "office";
-  if (/财务|对账|收款/.test(text)) return "finance";
-  if (/库房|出库|仓库/.test(text)) return "warehouse";
-  if (/司机|送货/.test(text)) return "driver";
-  if (/打包|杂工/.test(text)) return "packing";
-  return "workshop";
-}
-
-function getEmployeeAccountRoleLabel(roleKey) {
-  const labels = {
-    office: "办公室",
-    warehouse: "库房 / 出库",
-    finance: "财务 / 对账",
-    management: "管理",
-    driver: "司机",
-    workshop: "车间报工",
-    packing: "打包",
-  };
-  return labels[roleKey] ?? "车间报工";
-}
-
-function getEmployeeAccountDepartment(roleKey) {
-  const departments = {
-    office: "office",
-    warehouse: "warehouse",
-    finance: "finance",
-    management: "management",
-    driver: "delivery",
-    workshop: "workshop",
-    packing: "packing",
-  };
-  return departments[roleKey] ?? "workshop";
 }
 
 async function createInventoryCorrectionDraftRoute({ response, workspace, body, operatorId }) {
