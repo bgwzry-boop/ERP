@@ -158,6 +158,16 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       return businessError(409, inventoryMovements.error.code, inventoryMovements.error.message);
     }
     const completedAt = body.completedAt ?? body.pickedAt ?? (after.status === "已交付" ? nowIso(now) : "");
+    const statementCandidate = after.status === "已交付"
+      ? buildFulfillmentStatementCandidate({
+          workspace,
+          fulfillment: after,
+          orderLine: findOrderLine(workspace, after.orderLineId ?? after.lineId),
+          actualQty,
+          operatorId,
+          completedAt,
+        })
+      : null;
     const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
       workspace,
       idempotencyKey: body.idempotencyKey,
@@ -171,6 +181,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       inventoryReservations: inventoryMovements.inventoryReservations,
       inventoryLedgerEntries: inventoryMovements.inventoryLedgerEntries,
       inventoryAdjustments: inventoryMovements.inventoryAdjustments,
+      statementCandidate,
       operationLog,
     });
     return success({
@@ -178,7 +189,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       status: after.status,
       actualQty,
       statementCandidate: after.status === "已交付",
-      statementId: after.status === "已交付" ? "" : undefined,
+      statementId: after.status === "已交付" ? transaction.statement?.id ?? statementCandidate?.statement?.id ?? "" : undefined,
       inventoryDeductionMode: inventoryMovements.inventoryDeductionMode,
       inventoryLedgerIds: transaction.inventoryLedgerEntries.map((entry) => entry.ledgerId),
       operationLogId: transaction.operationLogId,
@@ -657,6 +668,14 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     if (inventoryMovements.error) {
       return businessError(409, inventoryMovements.error.code, inventoryMovements.error.message);
     }
+    const statementCandidate = buildFulfillmentStatementCandidate({
+      workspace,
+      fulfillment: after,
+      orderLine: findOrderLine(workspace, after.orderLineId ?? after.lineId),
+      actualQty,
+      operatorId,
+      completedAt,
+    });
     const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
       workspace,
       idempotencyKey: body.idempotencyKey,
@@ -670,6 +689,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       inventoryReservations: inventoryMovements.inventoryReservations,
       inventoryLedgerEntries: inventoryMovements.inventoryLedgerEntries,
       inventoryAdjustments: inventoryMovements.inventoryAdjustments,
+      statementCandidate,
       todo: resolvedRetakeTodo,
       operationLog,
     });
@@ -679,6 +699,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       status: "已完成",
       actualQty,
       statementCandidate: true,
+      statementId: transaction.statement?.id ?? statementCandidate?.statement?.id ?? "",
       evidenceResubmission: isDeliveryEvidenceRetake,
       retakeTodoId: transaction.todo?.id ?? resolvedRetakeTodo?.id ?? "",
       inventoryDeductionMode: inventoryMovements.inventoryDeductionMode,
@@ -1182,6 +1203,82 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     );
     return matches.length === 1 ? matches[0] : null;
   }
+}
+
+function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine, actualQty, operatorId, completedAt }) {
+  if (!orderLine || !fulfillment) return null;
+  const orderLineId = String(orderLine.id ?? orderLine.orderLineId ?? fulfillment.lineId ?? fulfillment.orderLineId ?? "").trim();
+  const customerId = String(orderLine.customerId ?? fulfillment.customerId ?? "").trim();
+  if (!orderLineId || !customerId) return null;
+
+  const statements = Array.isArray(workspace.statements) ? workspace.statements : [];
+  const alreadyLinked = statements.find((statement) => (statement.lineIds ?? []).includes(orderLineId));
+  if (alreadyLinked) {
+    return { statement: alreadyLinked, statementLine: null, alreadyLinked: true };
+  }
+
+  const eligibleStatement = statements.find((statement) =>
+    statement.customerId === customerId &&
+    statement.sent !== true &&
+    ["待生成", "待发送", "本期待对账"].includes(String(statement.status ?? "").trim()),
+  );
+  const completedDate = normalizeDateInput(completedAt) || new Date().toISOString().slice(0, 10);
+  const amount = calculateDeliveredAmount(orderLine, actualQty);
+  const statementId = eligibleStatement?.id ?? createStatementCandidateId(statements, customerId, completedDate);
+  const statement = eligibleStatement
+    ? {
+        ...eligibleStatement,
+        receivable: roundMoney(Number(eligibleStatement.receivable ?? 0) + amount),
+        lineIds: [...new Set([...(eligibleStatement.lineIds ?? []), orderLineId])],
+      }
+    : {
+        id: statementId,
+        customerId,
+        status: "待生成",
+        receivable: amount,
+        received: 0,
+        variance: 0,
+        period: `${completedDate} 至 ${completedDate}`,
+        lineIds: [orderLineId],
+        sent: false,
+        createdBy: operatorId,
+        createdAt: completedAt,
+      };
+  return {
+    statement,
+    statementLine: {
+      id: `STL-${String(fulfillment.id ?? fulfillment.fulfillmentId).replace(/[^a-z0-9-]+/gi, "-")}`,
+      statementId,
+      orderLineId,
+      fulfillmentId: String(fulfillment.id ?? fulfillment.fulfillmentId ?? "").trim(),
+      deliveredQty: Math.max(0, Math.trunc(Number(actualQty ?? fulfillment.qty ?? 0))),
+      chargeableQty: Math.max(0, Math.trunc(Number(actualQty ?? fulfillment.qty ?? 0))),
+      freeQty: 0,
+      amount,
+      adjustmentAmount: 0,
+      finalAmount: amount,
+      createdAt: completedAt,
+    },
+  };
+}
+
+function calculateDeliveredAmount(orderLine, actualQty) {
+  const orderedQty = Number(orderLine.qty ?? orderLine.originalQty ?? 0);
+  const deliveredQty = Number(actualQty ?? orderedQty);
+  const orderAmount = Number(orderLine.amount ?? orderLine.finalAmount ?? 0);
+  if (!Number.isFinite(orderAmount) || orderAmount <= 0) return 0;
+  if (!Number.isFinite(orderedQty) || orderedQty <= 0 || !Number.isFinite(deliveredQty)) return roundMoney(orderAmount);
+  return roundMoney(orderAmount * Math.max(0, deliveredQty) / orderedQty);
+}
+
+function createStatementCandidateId(statements, customerId, completedDate) {
+  const datePart = completedDate.replaceAll("-", "");
+  const sequence = String(statements.length + 1).padStart(3, "0");
+  return `ST-${datePart}-${customerId}-${sequence}`;
+}
+
+function roundMoney(value) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
 function isLegacyStockDeductionEligible(orderLine) {

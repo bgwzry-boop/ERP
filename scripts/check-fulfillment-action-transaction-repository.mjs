@@ -24,6 +24,8 @@ async function checkLocalFulfillmentActionTransactionRepository() {
     fulfillmentExceptions: [],
     todos: [],
     operationLogs: [],
+    statements: [{ id: "ST-C011-OPEN", customerId: "C011", status: "待生成", receivable: 100, lineIds: [] }],
+    statementLines: [],
   };
   const printRecord = buildPrintRecord();
   const printLog = buildOperationLog({ logId: "LOG-FULFILLMENT-PRINT-001", action: "print_fulfillment" });
@@ -53,6 +55,7 @@ async function checkLocalFulfillmentActionTransactionRepository() {
     inventoryReservations: [buildInventoryReservation({ status: "已出库" })],
     inventoryLedgerEntries: [buildInventoryLedgerEntry()],
     inventoryAdjustments: [{ inventoryItemId: "INV-F003", onHandQtyChange: -1500, reservedQtyChange: -1500 }],
+    statementCandidate: buildStatementCandidate(),
     operationLog: completionLog,
   });
 
@@ -63,6 +66,10 @@ async function checkLocalFulfillmentActionTransactionRepository() {
   assert.equal(workspace.inventories[0].reserved, 0);
   assert.equal(workspace.inventoryReservations[0].status, "已出库");
   assert.equal(workspace.inventoryLedgers.length, 1);
+  assert.equal(completionTransaction.statement.receivable, 700);
+  assert.equal(completionTransaction.statementLine.orderLineId, "ORD-0629-010-01");
+  assert.deepEqual(workspace.statements[0].lineIds, ["ORD-0629-010-01"]);
+  assert.equal(workspace.statementLines.length, 1);
 
   const legacyWorkspace = {
     fulfillments: [buildFulfillment({ fulfillmentId: "F-LEGACY-001", id: "F-LEGACY-001", status: "待出库" })],
@@ -219,6 +226,7 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   const inventoryAdjustments = [{ inventoryItemId: "INV-F003", onHandQtyChange: -1500, reservedQtyChange: -1500 }];
   const todo = buildTodo({ summary: "O'Brien 快运数量差异待确认" });
   const operationLog = buildOperationLog({ logId: "LOG-FULFILLMENT-ACTION-SQL-001", action: "print_fulfillment" });
+  const statementCandidate = buildStatementCandidate();
   const repository = createPostgresFulfillmentActionTransactionRepository({
     postgresClient: {
       async idempotentTransactionJson(request) {
@@ -230,6 +238,8 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
           inventoryReservations,
           inventoryItems: [{ inventoryItemId: "INV-F003", onHandQty: 500, reservedQty: 0, revision: 2 }],
           inventoryLedgerEntries,
+          statement: statementCandidate.statement,
+          statementLine: statementCandidate.statementLine,
           todo,
           operationLogId: operationLog.id,
         };
@@ -246,6 +256,8 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
     fulfillmentExceptions: [],
     todos: [],
     operationLogs: [],
+    statements: [],
+    statementLines: [],
   };
   const transaction = await repository.recordFulfillmentAction({
     idempotencyKey: "idem-fulfillment-action-001",
@@ -256,6 +268,7 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
     inventoryReservations,
     inventoryLedgerEntries,
     inventoryAdjustments,
+    statementCandidate,
     todo,
     operationLog,
   });
@@ -279,6 +292,8 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   assert.equal(workspace.inventories[0].reserved, 0);
   assert.equal(workspace.inventories[0].revision, 2);
   assert.equal(workspace.todos.length, 1);
+  assert.equal(workspace.statements[0].id, "ST-C011-OPEN");
+  assert.equal(workspace.statementLines[0].orderLineId, "ORD-0629-010-01");
 
   const { text: sql, values } = calls[0];
   assert.equal(calls[0].scope, "fulfillment.print_fulfillment");
@@ -305,6 +320,9 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   assert.match(sql, /UPDATE inventory_items AS item/);
   assert.match(sql, /'inventoryItems'/);
   assert.match(sql, /INSERT INTO inventory_ledger_entries/);
+  assert.match(sql, /INSERT INTO statements/);
+  assert.match(sql, /INSERT INTO statement_lines/);
+  assert.match(sql, /receivable_amount = statements\.receivable_amount \+ EXCLUDED\.receivable_amount/);
   assert.match(sql, /INSERT INTO todos/);
   assert.match(sql, /INSERT INTO operation_logs/);
   assert.match(sql, /COMMIT;/);
@@ -320,6 +338,7 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
     inventoryReservations,
     inventoryLedgerEntries,
     inventoryAdjustments,
+    statementCandidate,
     todo,
     operationLog,
   });
@@ -328,6 +347,7 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   assert.match(directSql, /'fulfillmentException'/);
   assert.match(directSql, /'inventoryReservations'/);
   assert.match(directSql, /'inventoryLedgerEntries'/);
+  assert.match(directSql, /'statementLine'/);
   assert.match(directSql, /'todo'/);
   assert.match(directSql, /'deliveryEvidenceReviewStatus'/);
   assert.match(directSql, /'loadedAt'/);
@@ -341,6 +361,7 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
     inventoryReservations,
     inventoryLedgerEntries,
     inventoryAdjustments,
+    statementCandidate,
     todo,
     operationLog,
   });
@@ -439,6 +460,37 @@ function buildInventoryLedgerEntry(overrides = {}) {
     reason: "完成出库扣减库存",
     remark: "释放占用 1500",
     ...overrides,
+  };
+}
+
+function buildStatementCandidate() {
+  return {
+    statement: {
+      id: "ST-C011-OPEN",
+      customerId: "C011",
+      status: "待生成",
+      receivable: 700,
+      received: 0,
+      variance: 0,
+      period: "2026-07-01 至 2026-07-11",
+      lineIds: ["ORD-0629-010-01"],
+      sent: false,
+      createdBy: "U-OFFICE-A",
+      createdAt: "2026-07-11T10:45:00.000Z",
+    },
+    statementLine: {
+      id: "STL-F003",
+      statementId: "ST-C011-OPEN",
+      orderLineId: "ORD-0629-010-01",
+      fulfillmentId: "F003",
+      deliveredQty: 1500,
+      chargeableQty: 1500,
+      freeQty: 0,
+      amount: 600,
+      adjustmentAmount: 0,
+      finalAmount: 600,
+      createdAt: "2026-07-11T10:45:00.000Z",
+    },
   };
 }
 

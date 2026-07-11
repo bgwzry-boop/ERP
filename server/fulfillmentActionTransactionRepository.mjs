@@ -33,6 +33,8 @@ export function createLocalFulfillmentActionTransactionRepository() {
         fulfillmentException: input.fulfillmentException ?? null,
         inventoryReservations: input.inventoryReservations ?? [],
         inventoryLedgerEntries: input.inventoryLedgerEntries ?? [],
+        statement: input.statementCandidate?.statement ?? null,
+        statementLine: input.statementCandidate?.statementLine ?? null,
         todo: input.todo ?? null,
         operationLogId: input.operationLog?.id ?? "",
       });
@@ -44,6 +46,8 @@ export function createLocalFulfillmentActionTransactionRepository() {
         inventoryReservations: input.inventoryReservations ?? [],
         inventoryLedgerEntries: input.inventoryLedgerEntries ?? [],
         inventoryAdjustments: input.inventoryAdjustments ?? [],
+        statement: input.statementCandidate?.statement ?? null,
+        statementLine: input.statementCandidate?.statementLine ?? null,
         todo: input.todo ?? null,
         operationLog: input.operationLog,
       });
@@ -72,6 +76,7 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
           `fulfillment:${fulfillmentId}`,
           ...(input.inventoryReservations ?? []).map((item) => `reservation:${item.reservationId ?? item.id ?? ""}`),
           ...(input.inventoryAdjustments ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
+          ...(input.statementCandidate?.statement?.id ? [`statement:${input.statementCandidate.statement.id}`] : []),
         ],
         query,
       });
@@ -89,6 +94,19 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
         inventoryReservations: saved.inventoryReservations,
         inventoryLedgerEntries: saved.inventoryLedgerEntries,
         inventoryItems: saved.inventoryItems,
+        statement: saved.statement
+          ? {
+              ...input.statementCandidate?.statement,
+              ...saved.statement,
+              lineIds: [
+                ...new Set([
+                  ...(input.statementCandidate?.statement?.lineIds ?? []),
+                  ...(saved.statement.lineIds ?? []),
+                ]),
+              ],
+            }
+          : null,
+        statementLine: saved.statementLine ? { ...input.statementCandidate?.statementLine, ...saved.statementLine } : null,
         todo: saved.todo ? { ...input.todo, ...saved.todo } : null,
         operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
@@ -106,6 +124,7 @@ function buildFulfillmentActionIdempotencyPayload(input = {}) {
     inventoryReservations: input.inventoryReservations,
     inventoryLedgerEntries: input.inventoryLedgerEntries,
     inventoryAdjustments: input.inventoryAdjustments,
+    statementCandidate: input.statementCandidate,
     todo: input.todo,
   };
 }
@@ -129,6 +148,7 @@ function buildRecordFulfillmentActionTransactionText(input, parameters) {
   const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations ?? []);
   const inventoryLedgerEntries = normalizeInventoryLedgerEntries(input.inventoryLedgerEntries ?? []);
   const inventoryAdjustments = normalizeInventoryAdjustments(input.inventoryAdjustments ?? []);
+  const statementCandidate = normalizeStatementCandidate(input.statementCandidate);
   const todo = normalizeTodoForPersistence(input.todo, input.operationLog?.operatorId);
   const operationLog = normalizeOperationLogForPersistence(input.operationLog);
   if (!fulfillment || !operationLog) {
@@ -254,6 +274,12 @@ updated_inventory_items AS (
 inserted_inventory_ledger_entries AS (
   ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters)}
 ),
+upserted_statement AS (
+  ${buildUpsertStatementSql(statementCandidate?.statement, statementCandidate?.statementLine, parameters)}
+),
+inserted_statement_line AS (
+  ${buildInsertStatementLineSql(statementCandidate?.statementLine, parameters)}
+),
 inserted_operation_log AS (
   ${buildInsertOperationLogSql(operationLog, parameters)}
 )
@@ -264,6 +290,8 @@ SELECT json_build_object(
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM updated_inventory_reservations),
   'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
+  'statement', (SELECT result FROM upserted_statement),
+  'statementLine', (SELECT result FROM inserted_statement_line),
   'todo', (SELECT result FROM inserted_todo),
   'operationLogId', (SELECT id FROM inserted_operation_log),
   'writeGuard', (
@@ -286,6 +314,8 @@ export function normalizeFulfillmentActionTransactionResult(value) {
       inventoryReservations: [],
       inventoryItems: [],
       inventoryLedgerEntries: [],
+      statement: null,
+      statementLine: null,
       todo: null,
       operationLogId: "",
     };
@@ -297,6 +327,8 @@ export function normalizeFulfillmentActionTransactionResult(value) {
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
     inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),
     inventoryLedgerEntries: normalizeInventoryLedgerEntries(value.inventoryLedgerEntries ?? value.inventory_ledger_entries ?? []),
+    statement: normalizeStatement(value.statement),
+    statementLine: normalizeStatementLine(value.statementLine ?? value.statement_line),
     todo: value.todo ? normalizeTodoForPersistence(value.todo) : null,
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? ""),
   };
@@ -328,6 +360,12 @@ function applyFulfillmentActionWorkspaceMutation(input) {
   }
   for (const ledgerEntry of normalizeInventoryLedgerEntries(input.inventoryLedgerEntries ?? [])) {
     workspace.inventoryLedgers = upsertById(workspace.inventoryLedgers ?? [], toWorkspaceInventoryLedgerEntry(ledgerEntry));
+  }
+  if (input.statement) {
+    workspace.statements = upsertById(workspace.statements ?? [], input.statement);
+  }
+  if (input.statementLine) {
+    workspace.statementLines = upsertById(workspace.statementLines ?? [], input.statementLine);
   }
   if (input.todo) {
     workspace.todos = upsertById(workspace.todos ?? [], input.todo);
@@ -676,6 +714,78 @@ function normalizeFulfillmentException(record, fallbackOperatorId = "") {
   };
 }
 
+function normalizeStatementCandidate(candidate) {
+  if (!candidate || typeof candidate !== "object") return null;
+  const statement = normalizeStatement(candidate.statement);
+  if (!statement) return null;
+  return {
+    statement,
+    statementLine: normalizeStatementLine(candidate.statementLine),
+    alreadyLinked: candidate.alreadyLinked === true,
+  };
+}
+
+function normalizeStatement(record) {
+  if (!record || typeof record !== "object") return null;
+  const id = String(record.id ?? record.statementId ?? record.statement_id ?? "").trim();
+  const customerId = String(record.customerId ?? record.customer_id ?? "").trim();
+  if (!id || !customerId) return null;
+  const period = String(record.period ?? "").trim();
+  const periodDates = period.match(/(\d{4}-\d{2}-\d{2}|\d{2}-\d{2}).*?(\d{4}-\d{2}-\d{2}|\d{2}-\d{2})/);
+  const createdAtMs = Date.parse(String(record.createdAt ?? record.created_at ?? ""));
+  const fallbackYear = Number.isFinite(createdAtMs) ? new Date(createdAtMs).getUTCFullYear() : new Date().getUTCFullYear();
+  const periodStart = normalizeStatementDate(record.periodStart ?? record.period_start ?? periodDates?.[1], fallbackYear);
+  const periodEnd = normalizeStatementDate(record.periodEnd ?? record.period_end ?? periodDates?.[2], fallbackYear);
+  return {
+    ...record,
+    id,
+    statementId: id,
+    bizNo: String(record.bizNo ?? record.biz_no ?? id).trim() || id,
+    customerId,
+    periodStart,
+    periodEnd,
+    period: period || `${periodStart} 至 ${periodEnd}`,
+    status: String(record.status ?? "待生成").trim() || "待生成",
+    receivable: toFiniteNumber(record.receivable ?? record.receivableAmount ?? record.receivable_amount, 0),
+    received: toFiniteNumber(record.received ?? record.receivedAmount ?? record.received_amount, 0),
+    variance: toFiniteNumber(record.variance ?? record.varianceAmount ?? record.variance_amount, 0),
+    lineIds: Array.isArray(record.lineIds) ? [...record.lineIds] : [],
+    sent: record.sent === true,
+    createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
+    createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
+  };
+}
+
+function normalizeStatementLine(record) {
+  if (!record || typeof record !== "object") return null;
+  const id = String(record.id ?? record.statementLineId ?? record.statement_line_id ?? "").trim();
+  const statementId = String(record.statementId ?? record.statement_id ?? "").trim();
+  const orderLineId = String(record.orderLineId ?? record.order_line_id ?? "").trim();
+  if (!id || !statementId || !orderLineId) return null;
+  return {
+    ...record,
+    id,
+    statementLineId: id,
+    statementId,
+    orderLineId,
+    fulfillmentId: String(record.fulfillmentId ?? record.fulfillment_id ?? "").trim(),
+    deliveredQty: toFiniteInteger(record.deliveredQty ?? record.delivered_qty, 0),
+    chargeableQty: toFiniteInteger(record.chargeableQty ?? record.chargeable_qty, 0),
+    freeQty: toFiniteInteger(record.freeQty ?? record.free_qty, 0),
+    amount: toFiniteNumber(record.amount, 0),
+    adjustmentAmount: toFiniteNumber(record.adjustmentAmount ?? record.adjustment_amount, 0),
+    finalAmount: toFiniteNumber(record.finalAmount ?? record.final_amount ?? record.amount, 0),
+    createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
+  };
+}
+
+function normalizeStatementDate(value, fallbackYear) {
+  const text = String(value ?? "").trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (/^\d{2}-\d{2}$/.test(text)) return `${fallbackYear}-${text}`;
+  return `${fallbackYear}-01-01`;
+}
+
 function normalizeTodoForPersistence(todo, fallbackOperatorId = "") {
   if (!todo || typeof todo !== "object") return null;
   const id = String(todo.id ?? "").trim();
@@ -984,6 +1094,80 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING ${todoJsonExpression("todos")} AS result`;
 }
 
+function buildUpsertStatementSql(statement, statementLine, parameters) {
+  if (!statement) return "SELECT NULL::text AS id, NULL::json AS result WHERE false";
+  const receivableIncrement = statementLine
+    ? `CASE WHEN EXISTS (
+      SELECT 1 FROM statement_lines WHERE order_line_id = ${parameters.text(statementLine.orderLineId)}
+    ) THEN 0 ELSE ${parameters.number(statementLine.finalAmount)} END`
+    : "0";
+  return `INSERT INTO statements (
+  id,
+  biz_no,
+  customer_id,
+  period_start,
+  period_end,
+  status,
+  receivable_amount,
+  received_amount,
+  variance_amount,
+  created_by,
+  created_at,
+  updated_at
+) VALUES (
+  ${parameters.text(statement.id)},
+  ${parameters.text(statement.bizNo)},
+  ${parameters.text(statement.customerId)},
+  ${parameters.text(statement.periodStart)}::date,
+  ${parameters.text(statement.periodEnd)}::date,
+  ${parameters.text(statement.status)},
+  ${receivableIncrement},
+  ${parameters.number(statement.received)},
+  ${parameters.number(statement.variance)},
+  ${parameters.nullableText(statement.createdBy)},
+  ${parameters.timestamp(statement.createdAt)},
+  now()
+)
+ON CONFLICT (id) DO UPDATE SET
+  receivable_amount = statements.receivable_amount + EXCLUDED.receivable_amount,
+  updated_at = CASE WHEN EXCLUDED.receivable_amount <> 0 THEN now() ELSE statements.updated_at END
+RETURNING id, ${statementJsonExpression("statements")} AS result`;
+}
+
+function buildInsertStatementLineSql(statementLine, parameters) {
+  if (!statementLine) return "SELECT NULL::json AS result WHERE false";
+  return `INSERT INTO statement_lines (
+  id,
+  statement_id,
+  order_line_id,
+  fulfillment_id,
+  delivered_qty,
+  chargeable_qty,
+  free_qty,
+  amount,
+  adjustment_amount,
+  final_amount,
+  created_at
+)
+SELECT
+  ${parameters.text(statementLine.id)},
+  upserted_statement.id,
+  ${parameters.text(statementLine.orderLineId)},
+  ${parameters.nullableText(statementLine.fulfillmentId)},
+  ${parameters.integer(statementLine.deliveredQty)},
+  ${parameters.integer(statementLine.chargeableQty)},
+  ${parameters.integer(statementLine.freeQty)},
+  ${parameters.number(statementLine.amount)},
+  ${parameters.number(statementLine.adjustmentAmount)},
+  ${parameters.number(statementLine.finalAmount)},
+  ${parameters.timestamp(statementLine.createdAt)}
+FROM upserted_statement
+WHERE NOT EXISTS (
+  SELECT 1 FROM statement_lines WHERE order_line_id = ${parameters.text(statementLine.orderLineId)}
+)
+RETURNING ${statementLineJsonExpression("statement_lines")} AS result`;
+}
+
 function buildInsertOperationLogSql(operationLog, parameters) {
   return `INSERT INTO operation_logs (
   id,
@@ -1158,6 +1342,41 @@ function todoJsonExpression(alias) {
   )`;
 }
 
+function statementJsonExpression(alias) {
+  return `json_build_object(
+    'id', ${alias}.id,
+    'statementId', ${alias}.id,
+    'customerId', ${alias}.customer_id,
+    'periodStart', ${alias}.period_start,
+    'periodEnd', ${alias}.period_end,
+    'period', CONCAT(${alias}.period_start::text, ' 至 ', ${alias}.period_end::text),
+    'status', ${alias}.status,
+    'receivable', ${alias}.receivable_amount,
+    'received', ${alias}.received_amount,
+    'variance', ${alias}.variance_amount,
+    'lineIds', (SELECT COALESCE(json_agg(line.order_line_id ORDER BY line.created_at, line.id), '[]'::json) FROM statement_lines AS line WHERE line.statement_id = ${alias}.id),
+    'createdBy', ${alias}.created_by,
+    'createdAt', ${alias}.created_at
+  )`;
+}
+
+function statementLineJsonExpression(alias) {
+  return `json_build_object(
+    'id', ${alias}.id,
+    'statementLineId', ${alias}.id,
+    'statementId', ${alias}.statement_id,
+    'orderLineId', ${alias}.order_line_id,
+    'fulfillmentId', ${alias}.fulfillment_id,
+    'deliveredQty', ${alias}.delivered_qty,
+    'chargeableQty', ${alias}.chargeable_qty,
+    'freeQty', ${alias}.free_qty,
+    'amount', ${alias}.amount,
+    'adjustmentAmount', ${alias}.adjustment_amount,
+    'finalAmount', ${alias}.final_amount,
+    'createdAt', ${alias}.created_at
+  )`;
+}
+
 
 function normalizeObject(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {};
@@ -1196,4 +1415,9 @@ function toFiniteInteger(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
   return Math.trunc(number);
+}
+
+function toFiniteNumber(value, fallback = 0) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : fallback;
 }

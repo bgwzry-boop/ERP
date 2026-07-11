@@ -138,7 +138,8 @@ function detectColor(chunk) {
   const bagColor = detectBagColor(chunk);
   if (bagColor) return bagColor;
 
-  const color = colorWords.find((item) => chunk.includes(item));
+  const colorSource = chunk.replace(/空白袋|白鲸|红叶|黑马/g, "");
+  const color = colorWords.find((item) => colorSource.includes(item));
   return color ? normalizeColor(color) : "待确认";
 }
 
@@ -193,17 +194,20 @@ function detectBagColor(chunk) {
   const compactColorPrint = chunk.match(new RegExp(`(${colorPattern})色?印(${colorPattern})色?`));
   if (compactColorPrint) return normalizeColor(compactColorPrint[1]);
 
-  const compactBagHandle = chunk.match(new RegExp(`(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
+  const explicitBlankBag = chunk.match(new RegExp(`(${colorPattern})色?\\s*空白袋`));
+  if (explicitBlankBag) return normalizeColor(explicitBlankBag[1]);
+
+  const compactBagHandle = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
   if (compactBagHandle) return normalizeColor(compactBagHandle[1]);
 
-  const explicitBag = chunk.match(new RegExp(`(${colorPattern})色?\\s*(?:底袋|袋子|袋)`));
+  const explicitBag = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?\\s*(?:底袋|袋子|袋)`));
   if (explicitBag) return normalizeColor(explicitBag[1]);
 
   return "";
 }
 
 function detectHandleColor(chunk) {
-  const compactBagHandle = chunk.match(new RegExp(`(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
+  const compactBagHandle = chunk.match(new RegExp(`(?<!空)(${colorPattern})色?袋\\s*(${colorPattern})色?提`));
   if (compactBagHandle) return normalizeColor(compactBagHandle[2]);
 
   const colorBeforeHandle = chunk.match(new RegExp(`(${colorPattern})色?\\s*(?:提手|手提|提)(?!货|醒|示)`));

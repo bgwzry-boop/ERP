@@ -2071,6 +2071,76 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM todos WHERE id = 'T-LIVE-FULFILLMENT-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-FULFILLMENT-ACTION-001';", { capture: true }).trim()), 1);
 
+  const liveStatementCandidate = {
+    statement: {
+      id: "ST-LIVE-FULFILLMENT-CANDIDATE-001",
+      customerId: "C-LIVE-REPO",
+      status: "待生成",
+      receivable: 273,
+      received: 0,
+      variance: 0,
+      period: "2026-07-02 至 2026-07-02",
+      lineIds: ["OL-LIVE-CONFIRM-001"],
+      sent: false,
+      createdBy: "U-FINANCE-A",
+      createdAt: "2026-07-02T15:00:00.000Z",
+    },
+    statementLine: {
+      id: "STL-LIVE-FULFILLMENT-CANDIDATE-001",
+      statementId: "ST-LIVE-FULFILLMENT-CANDIDATE-001",
+      orderLineId: "OL-LIVE-CONFIRM-001",
+      fulfillmentId: "F-LIVE-CONFIRM-001",
+      deliveredQty: 273,
+      chargeableQty: 273,
+      freeQty: 0,
+      amount: 273,
+      adjustmentAmount: 0,
+      finalAmount: 273,
+      createdAt: "2026-07-02T15:00:00.000Z",
+    },
+  };
+  const fulfillmentStatementWorkspace = {
+    fulfillments: [],
+    statements: [],
+    statementLines: [],
+    operationLogs: [],
+  };
+  const liveFulfillmentStatementSnapshot = queryJson(
+    "SELECT json_build_object('revision', revision) AS result FROM fulfillment_records WHERE id = 'F-LIVE-CONFIRM-001';",
+  );
+  const fulfillmentStatementAction = await fulfillmentActionRepository.recordFulfillmentAction({
+    workspace: fulfillmentStatementWorkspace,
+    fulfillment: buildFulfillmentActionRecord({
+      fulfillmentId: "F-LIVE-CONFIRM-001",
+      orderLineId: "OL-LIVE-CONFIRM-001",
+      customerId: "C-LIVE-REPO",
+      expectedQty: 273,
+      actualQty: 273,
+      status: "已交付",
+      revision: liveFulfillmentStatementSnapshot.revision,
+      deliveredAt: "2026-07-02T15:00:00.000Z",
+      confirmedAt: "2026-07-02T15:00:00.000Z",
+    }),
+    statementCandidate: liveStatementCandidate,
+    operationLog: buildFulfillmentOperationLog({
+      logId: "LOG-LIVE-FULFILLMENT-STATEMENT-001",
+      action: "complete_fulfillment",
+      fulfillmentId: "F-LIVE-CONFIRM-001",
+    }),
+  });
+  assert.equal(fulfillmentStatementAction.statement.id, "ST-LIVE-FULFILLMENT-CANDIDATE-001");
+  assert.equal(fulfillmentStatementAction.statement.receivable, 273);
+  assert.equal(fulfillmentStatementAction.statementLine.orderLineId, "OL-LIVE-CONFIRM-001");
+  assert.equal(fulfillmentStatementWorkspace.statements[0].lineIds[0], "OL-LIVE-CONFIRM-001");
+  assert.equal(
+    Number(runPsql("SELECT receivable_amount FROM statements WHERE id = 'ST-LIVE-FULFILLMENT-CANDIDATE-001';", { capture: true }).trim()),
+    273,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM statement_lines WHERE id = 'STL-LIVE-FULFILLMENT-CANDIDATE-001';", { capture: true }).trim()),
+    1,
+  );
+
   const deliveryEvidenceAfter = buildFulfillmentActionRecord({
     fulfillmentId: "F002",
     orderLineId: "ORD-0629-002-01",

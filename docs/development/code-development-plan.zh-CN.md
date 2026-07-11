@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D43 隔离数据核心浏览器 E2E 已完成。Playwright 使用独立 test API / Vite 端口和每次清理的 E2E 数据根，真实操作订单识别 / 确认、库存占用、完成自提、对账应收、登记实收与付款凭证上传，并通过 API 读回核对业务事实；CI 安装 Chromium 并阻断失败。执行中修复 `红色空白袋` 被误判为白袋，以及交付完成未持久化对账明细 / 应收的漏账问题；交付、库存、对账候选和审计现进入同一本地 / PostgreSQL 幂等事务。解析专项、全量 `npm test`、PostgreSQL 16 live、生产构建和浏览器闭环通过。整改方案版本更新为 V7.30；下一轮 D44 扩展定制印刷生产 / 打包 / 快运浏览器链路。
 - 本轮补充：D42 库存修正凭证持久化关联已完成。库存修正保持“先建草稿且不改库存 → 上传当前草稿名下 `inventory_correction_evidence` 图片 / PDF → 独立幂等命令事务关联 → 管理确认前再次校验”的顺序；最多 10 个附件，终态草稿拒绝补传。仓库获得库存修正专用上传权限，不获得通用附件权限；前端支持上传失败后对同一草稿重试。共享文件读取工具同时消除生产成品图的重复 FileReader 实现。直接 service / route / repository、前端 action、实际 HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live、production profile live、依赖审计和桌面 / `390x844` 浏览器回归通过。整改方案版本更新为 V7.29；下一轮 D43 建立隔离数据的核心浏览器 E2E 闭环。
 - 本轮补充：D41 对账附件与财务命令服务已完成。新增 `statementFinancialCommandService.mjs`，收款 / 差额 / 核销移出 API 主文件；付款 / 差额和客户确认附件按对账单 owner、purpose、文件类型与认证上传人校验，客户确认允许图片 / PDF。核销和库存修正创建不再静默接受无法持久化的附件。直接 service、HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.28；下一轮 D42 实现库存修正草稿建成后的附件上传 / 关联事务。
 - 本轮补充：D40 业务附件消费校验已完成。新增共享 `businessAttachmentValidationService.mjs`，司机送达凭证复用后删除重复校验；定制成品图上传 / 复核增加生产任务归属、`finished_goods_photo` 用途、有效图片和认证上传人门禁，请求体不能伪造文件名。直接 service、HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.27；下一轮 D41 收口付款、差额、客户确认和库存修正附件。

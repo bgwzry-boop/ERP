@@ -162,6 +162,7 @@ async function checkCompletedReservationDeduction() {
   });
   assert.equal(result.response.status, "已交付");
   assert.equal(result.response.statementCandidate, true);
+  assert.equal(result.response.statementId, "ST-C001-OPEN");
   assert.equal(result.response.inventoryDeductionMode, "reservation");
   const input = calls.at(-1);
   assert.equal(input.fulfillment.deliveredAt, fixedNow.toISOString());
@@ -174,6 +175,9 @@ async function checkCompletedReservationDeduction() {
   });
   assert.equal(input.inventoryLedgerEntries[0].operatorId, "U-OFFICE-A");
   assert.equal(input.inventoryLedgerEntries[0].qtyAfter, 120);
+  assert.equal(input.statementCandidate.statement.id, "ST-C001-OPEN");
+  assert.equal(input.statementCandidate.statement.receivable, 38.8);
+  assert.equal(input.statementCandidate.statementLine.finalAmount, 28.8);
 }
 
 async function checkExpressPickupGuard() {
@@ -531,14 +535,31 @@ function buildWorkspace(overrides = {}) {
     orderLines: [
       {
         id: "OL-001",
+        customerId: "C001",
         orderType: "现货",
         print: "否",
+        qty: 100,
+        amount: 36,
         size: "30*38",
         color: "白色",
         handle: "普通提",
         style: "空白袋",
       },
     ],
+    statements: [
+      {
+        id: "ST-C001-OPEN",
+        customerId: "C001",
+        status: "待生成",
+        receivable: 10,
+        received: 0,
+        variance: 0,
+        period: "2026-07-01 至 2026-07-11",
+        lineIds: [],
+        sent: false,
+      },
+    ],
+    statementLines: [],
     attachments: [
       buildDeliveryEvidenceAttachment("ATT-WM-001", "delivery_watermark_photo"),
       buildDeliveryEvidenceAttachment("ATT-WM-002", "delivery_watermark_photo"),
@@ -558,12 +579,20 @@ function buildWorkspace(overrides = {}) {
       calls.push({ ...input, kind: "fulfillment_action" });
       const index = workspace.fulfillments.findIndex((item) => item.id === input.fulfillment.fulfillmentId);
       if (index >= 0) workspace.fulfillments[index] = { ...workspace.fulfillments[index], ...input.fulfillment };
+      if (input.statementCandidate?.statement) {
+        workspace.statements = workspace.statements.map((item) =>
+          item.id === input.statementCandidate.statement.id ? input.statementCandidate.statement : item,
+        );
+      }
+      if (input.statementCandidate?.statementLine) workspace.statementLines.push(input.statementCandidate.statementLine);
       return {
         fulfillment: input.fulfillment,
         fulfillmentException: input.fulfillmentException ?? null,
         todo: input.todo ?? null,
         inventoryReservations: input.inventoryReservations ?? [],
         inventoryLedgerEntries: input.inventoryLedgerEntries ?? [],
+        statement: input.statementCandidate?.statement ?? null,
+        statementLine: input.statementCandidate?.statementLine ?? null,
         operationLogId: input.operationLog.id,
       };
     },
