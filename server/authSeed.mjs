@@ -1,4 +1,4 @@
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import {
   createDisabledPermissionContext,
   getRolePermissionSet,
@@ -8,7 +8,16 @@ import {
 const defaultSeedUserId = "U-OFFICE-A";
 export const seedSessionTokenPrefix = "seed-session";
 export const runtimeSessionTokenPrefix = "erp-runtime-session-v1";
-const runtimePasswordHashPrefix = "runtime-password-v1";
+const legacyRuntimePasswordHashPrefix = "runtime-password-v1";
+const runtimePasswordHashPrefix = "runtime-password-v2";
+const runtimePasswordSaltBytes = 16;
+const runtimePasswordDigestBytes = 32;
+const runtimePasswordScryptOptions = Object.freeze({
+  N: 16_384,
+  r: 8,
+  p: 1,
+  maxmem: 64 * 1024 * 1024,
+});
 const seedSessionTtlMs = 8 * 60 * 60 * 1000;
 // The fallback exists only for the local prototype. Production callers must pass
 // an explicit secret through the API server's strict security policy.
@@ -402,18 +411,93 @@ export function getRuntimePasswordExpiresAt(user = {}, options = {}) {
 
 export function hashRuntimeUserPassword(password, options = {}) {
   const userId = String(options.userId ?? "").trim();
+  if (!userId) throw new Error("A runtime user ID is required before hashing a password.");
   const encodedUserId = encodeBase64Url(userId);
-  const digest = createHmac("sha256", resolveAuthSecret(options))
+  const salt = resolveRuntimePasswordSalt(options.salt);
+  const passwordInput = createHmac("sha256", resolveAuthSecret(options))
     .update(`${runtimePasswordHashPrefix}:${userId}:${String(password ?? "")}`)
-    .digest("base64url");
-  return `${runtimePasswordHashPrefix}.${encodedUserId}.${digest}`;
+    .digest();
+  const digest = scryptSync(passwordInput, salt, runtimePasswordDigestBytes, runtimePasswordScryptOptions);
+  return `${runtimePasswordHashPrefix}.${encodedUserId}.${salt.toString("base64url")}.${digest.toString("base64url")}`;
 }
 
 export function verifyRuntimeUserPassword(user = {}, password, options = {}) {
   const passwordHash = String(user.passwordHash ?? "").trim();
   const userId = String(user.userId ?? user.id ?? "").trim();
-  if (!passwordHash.startsWith(`${runtimePasswordHashPrefix}.`) || !userId) return false;
-  return timingSafeEqualString(passwordHash, hashRuntimeUserPassword(password, { userId, authSecret: options.authSecret }));
+  if (!passwordHash || !userId) return false;
+
+  if (passwordHash.startsWith(`${legacyRuntimePasswordHashPrefix}.`)) {
+    return timingSafeEqualString(
+      passwordHash,
+      hashLegacyRuntimeUserPassword(password, { userId, authSecret: options.authSecret }),
+    );
+  }
+
+  const parts = passwordHash.split(".");
+  if (parts.length !== 4 || parts[0] !== runtimePasswordHashPrefix || parts[1] !== encodeBase64Url(userId)) {
+    return false;
+  }
+  const salt = decodeCanonicalBase64UrlBuffer(parts[2], runtimePasswordSaltBytes);
+  const expectedDigest = decodeCanonicalBase64UrlBuffer(parts[3], runtimePasswordDigestBytes);
+  if (!salt || !expectedDigest) return false;
+
+  const passwordInput = createHmac("sha256", resolveAuthSecret(options))
+    .update(`${runtimePasswordHashPrefix}:${userId}:${String(password ?? "")}`)
+    .digest();
+  const actualDigest = scryptSync(passwordInput, salt, runtimePasswordDigestBytes, runtimePasswordScryptOptions);
+  return timingSafeEqual(actualDigest, expectedDigest);
+}
+
+export function isRuntimeUserPasswordHashUpgradeRequired(userOrHash = {}) {
+  const passwordHash = String(
+    typeof userOrHash === "string" ? userOrHash : userOrHash?.passwordHash ?? "",
+  ).trim();
+  return passwordHash.startsWith(`${legacyRuntimePasswordHashPrefix}.`);
+}
+
+export function isRuntimeUserPasswordHashCurrent(user = {}) {
+  const passwordHash = String(user?.passwordHash ?? "").trim();
+  const userId = String(user?.userId ?? user?.id ?? "").trim();
+  const parts = passwordHash.split(".");
+  return Boolean(
+    userId &&
+      parts.length === 4 &&
+      parts[0] === runtimePasswordHashPrefix &&
+      parts[1] === encodeBase64Url(userId) &&
+      decodeCanonicalBase64UrlBuffer(parts[2], runtimePasswordSaltBytes) &&
+      decodeCanonicalBase64UrlBuffer(parts[3], runtimePasswordDigestBytes),
+  );
+}
+
+function hashLegacyRuntimeUserPassword(password, options = {}) {
+  const userId = String(options.userId ?? "").trim();
+  const encodedUserId = encodeBase64Url(userId);
+  const digest = createHmac("sha256", resolveAuthSecret(options))
+    .update(`${legacyRuntimePasswordHashPrefix}:${userId}:${String(password ?? "")}`)
+    .digest("base64url");
+  return `${legacyRuntimePasswordHashPrefix}.${encodedUserId}.${digest}`;
+}
+
+function resolveRuntimePasswordSalt(value) {
+  if (Buffer.isBuffer(value)) {
+    if (value.length !== runtimePasswordSaltBytes) {
+      throw new Error(`Runtime password salt must be ${runtimePasswordSaltBytes} bytes.`);
+    }
+    return Buffer.from(value);
+  }
+  return randomBytes(runtimePasswordSaltBytes);
+}
+
+function decodeCanonicalBase64UrlBuffer(value, expectedLength) {
+  try {
+    const encoded = String(value ?? "");
+    if (encoded.length !== Buffer.alloc(expectedLength).toString("base64url").length) return null;
+    const decoded = Buffer.from(encoded, "base64url");
+    if (decoded.length !== expectedLength || decoded.toString("base64url") !== encoded) return null;
+    return decoded;
+  } catch {
+    return null;
+  }
 }
 
 function buildEffectivePermissionContext(user) {

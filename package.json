@@ -102,7 +102,7 @@
     "raw-material-inbound-api:check": "node scripts/check-raw-material-read-routes.mjs && node scripts/check-raw-material-write-routes.mjs && node scripts/check-raw-material-inbound-api.mjs",
     "raw-material-supplier-statement-import:check": "node scripts/check-raw-material-supplier-statement-import.mjs",
     "raw-material-supplier-statement-review:check": "node scripts/check-raw-material-supplier-statement-review-api.mjs",
-    "runtime-identity:check": "node scripts/check-runtime-identity-repository.mjs",
+    "runtime-identity:check": "node scripts/check-runtime-identity-repository.mjs && node scripts/check-runtime-employee-account-readiness.mjs",
     "print-batch-repository:check": "node scripts/check-print-batch-repository.mjs",
     "print-device-repository:check": "node scripts/check-print-device-repository.mjs",
     "printer-device-field-test:check": "node scripts/check-printer-device-field-test-repository.mjs",

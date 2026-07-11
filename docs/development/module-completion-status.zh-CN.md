@@ -56,7 +56,7 @@
 
 本轮开始迁移 PostgreSQL 同步 CLI 仓储：订单确认主事务已改用共享 `pg` pool，并有事务回滚/连接释放回归；其余 28 个仓储和既有字符串 SQL 仍是后续技术债。该变化改善生产后端可用性和安全性，不改变完成度：P0 / 代码仍 `97-98%`，V1 真实上线就绪仍 `80-83%`；真实 PostgreSQL、对象存储、设备、现场证据和签字仍未完成。
 
-浏览器 bearer token 已从长期 `localStorage` 改为当前标签页 `sessionStorage`，并清理旧 seed token 本地键；正式导入员工现使用独立 runtime session，账号 / 撤销可写 PostgreSQL，seed token 不再能代表运行时员工。这仍不是 HttpOnly Cookie、refresh token 或外部身份提供方。完成度不变：P0 / 代码仍 `97-98%`，V1 真实上线就绪仍 `80-83%`；真实员工导入、密码哈希升级、设备、现场证据和签字仍未完成。
+浏览器 bearer token 已从长期 `localStorage` 改为当前标签页 `sessionStorage`，并清理旧 seed token 本地键；正式导入员工现使用独立 runtime session，账号 / 撤销可写 PostgreSQL，seed token 不再能代表运行时员工。正式密码已升级为随机盐 scrypt v2，旧摘要成功登录后自动迁移，production readiness 已增加 8 岗位正式账号覆盖门禁。这仍不是 HttpOnly Cookie、refresh token 或外部身份提供方。完成度不变：P0 / 代码仍 `97-98%`，V1 真实上线就绪仍 `80-83%`；真实员工导入、首次改密、设备、现场证据和签字仍未完成。
 
 本轮把订单确认从“API 成功后仍本地再确认”收口为生产模式后端单一事实来源：严格运行模式下 API 失败不创建本地订单、库存占用、出库任务或待办；成功后刷新订单、库存、交付和待办投影。交付列表合同已补客户、订单明细、包裹和库存来源字段。该变化降低订单主链路分叉风险，不改变完成度：P0 / 代码仍 `97-98%`，V1 真实上线就绪仍 `80-83%`；其他写操作的生产降级收口、真实身份、PostgreSQL、对象存储、打印 / CUPS、司机真机、真实业务试跑、现场证据和负责人签字仍未完成。
 

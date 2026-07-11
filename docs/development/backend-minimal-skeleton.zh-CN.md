@@ -349,12 +349,13 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 - 第一批内存写入路由已按 `actionPermissions` 做动作级拦截；缺权限时返回 `403 PERMISSION_DENIED` 和 `requiredPermission`。
 - `scripts/check-api-skeleton.mjs` 已校验默认办公室账号正向流程、未登录查当前会话失败、错误密码失败、财务账号 seed token 登录、财务账号不能录单、库房账号不能登记收款、未知账号为空权限。
 - 正式导入员工账号、密码状态、session 版本和 token 撤销已可通过 `runtimeIdentityRepository` 持久化到 PostgreSQL；角色权限仍由共享角色目录合成。真实生产账号导入、密钥轮换和现场账号验收仍未完成。
+- 正式员工新发 / 改密密码使用 `runtime-password-v2`：16-byte 随机盐、Node `scrypt` 32-byte 摘要，并以服务端认证 secret 作为 pepper。旧 `runtime-password-v1` 只用于兼容校验，成功登录后自动替换为 v2；API、readiness 和操作日志均不返回 passwordHash。
 - `x-erp-action-permissions` 请求头只用于非严格模式的本地骨架校验和负向测试。例如传 `none` 可模拟当前账号没有任何写入动作权限。
 
 ## 当前边界
 
 - 订单确认 PostgreSQL 事务仓储已使用共享 `pg` pool client，不再调用同步 `psql`。事务在一个借用连接中执行并在失败时回滚；当前 SQL 生成仍是过渡实现，后续仓储迁移必须同时改为参数化 `text + values` 查询。
-- 系统 V1 持久化当前已有只读 readiness 门禁：`GET /api/system/v1-readiness` 汇总 28 个核心仓储的运行时模式，按订单/库存/出库、对账/收款、生产/司机、证据/审计/打印/主数据和文件留档分组判断。默认 `local_memory` / `local_json` / `local_fs` 会阻塞 V1 生产上线，除非通过服务端配置显式接受本地持久化。该接口只输出仓储类型和计数，不输出业务数据、连接串、本地路径或密钥；现在还会输出脱敏 `persistenceProfile`，方便确认是否用统一 `postgres` / `object_storage` profile 启动。`scripts/run-v1-readiness-check.mjs` 已把它纳入 11 项总门禁，当前本地实时总门禁为 `5/11 通过`。
+- 系统 V1 当前已有只读 readiness 门禁：`GET /api/system/v1-readiness` 汇总 31 个持久化对象的运行时模式，并报告 8 类正式人员岗位账号覆盖。默认 `local_memory` / `local_json` / `local_fs` 会阻塞 V1 生产上线；production 还要求办公室、库房、财务、车间、打包、司机、管理、技术运维各有已复核、已完成首次改密、未锁定、未过期的 v2 正式账号，车间账号必须绑定默认机器。接口只输出仓储类型、计数和阻塞类别，不输出业务数据、账号 ID、密码摘要、连接串、本地路径或密钥。
 - 大多数写入路由只修改当前 Node 进程内存，不持久化，server 重启后恢复 seed。
 - 附件是当前例外：文件内容已通过 `workspace.attachmentObjectStorage` 写入 `.erp-local-storage/attachments/`，附件摘要和 owner 关联默认写入 `.erp-local-storage/metadata/attachment-records.json`，server 重启后同一个 `attachmentId` 可继续通过内容接口读取文件。设置 `ERP_ATTACHMENT_STORE=postgres` 并提供 `DATABASE_URL` 或 `ERP_ATTACHMENT_DATABASE_URL` 时，附件摘要和 owner 关联会走 PostgreSQL `attachments` / `attachment_links` 仓储。当前没有 live PostgreSQL 连接时只校验 SQL 边界。
 - 附件上传已有第一版用途级类型 / 大小校验；前端用于提前提示操作员，后端仍是最终拦截点并会按 MIME / 文件名重新推断 `fileType`。
@@ -386,4 +387,4 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 4. 用 `ERP_ATTACHMENT_STORE=postgres DATABASE_URL=... npm run api:dev` 做附件创建、列表、短期访问 URL、内容读取和访问审计的 live database 检查。
 5. 用真实 OSS/S3/COS bucket 做对象存储 live PUT / GET / 签名 URL 验证，再接持久缩略图、对象生命周期规则和对象存储事件回写。
 6. 增加 real-sample fixtures 入口，支持 synthetic / real-sample 切换。
-7. 基于现有 OpenAPI 草案继续补正式账号表、密码哈希、服务端会话撤销、权限落库，以及无 reservation 旧单扣减策略、生产 / 打包库存流转等剩余数据库事务和操作日志落库。
+7. 按 8 岗位导入真实员工账号，完成首次改密、车间机器绑定、密钥轮换和现场账号验收；权限额外授权仍需继续落库和审计。

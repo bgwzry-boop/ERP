@@ -95,7 +95,7 @@ writeFileSync(
   )}\n`,
 );
 
-const syntheticReady = buildProductionGoLivePrecheckReport({
+const syntheticInput = {
   envFileCount: 1,
   envFileAudit: {
     status: "passed",
@@ -133,12 +133,35 @@ const syntheticReady = buildProductionGoLivePrecheckReport({
     ],
   },
   runtimeReadiness: buildSyntheticProductionRuntimeReadiness(),
-});
+};
+const syntheticReady = buildProductionGoLivePrecheckReport(syntheticInput);
 assert.equal(syntheticReady.status, "ready");
 assert.equal(syntheticReady.ready, true);
 assert.equal(syntheticReady.summary.label, "5/5 通过");
 assert.equal(syntheticReady.stages.find((item) => item.key === "runtime-production-profile")?.status, "passed");
-assert.equal(syntheticReady.stages.find((item) => item.key === "runtime-production-profile")?.summary.label, "5/5 通过");
+assert.equal(syntheticReady.stages.find((item) => item.key === "runtime-production-profile")?.summary.label, "6/6 通过");
+const missingRoleAccountRuntime = structuredClone(syntheticInput.runtimeReadiness);
+missingRoleAccountRuntime.systemPersistence.runtimeEmployeeAccountReadiness = {
+  ready: false,
+  requiredRoleCount: 8,
+  coveredRoleCount: 7,
+  missingRoleCount: 1,
+  formalAccountCount: 7,
+  readyFormalAccountCount: 7,
+  roles: [],
+};
+const syntheticMissingRoleAccount = buildProductionGoLivePrecheckReport({
+  ...syntheticInput,
+  runtimeReadiness: missingRoleAccountRuntime,
+});
+assert.equal(syntheticMissingRoleAccount.ready, false);
+assert.equal(syntheticMissingRoleAccount.stages.find((item) => item.key === "runtime-production-profile")?.status, "pending");
+assert.ok(
+  syntheticMissingRoleAccount.stages
+    .find((item) => item.key === "runtime-production-profile")
+    ?.blockingItems.some((item) => item.key === "runtime-formal-role-account-coverage"),
+  "production profile stage should block when a required formal role account is missing",
+);
 assert.ok(
   syntheticReady.stages
     .find((item) => item.key === "runtime-production-profile")
@@ -359,9 +382,18 @@ function buildSyntheticProductionRuntimeReadiness() {
     systemPersistence: {
       status: "ready",
       ready: true,
-      summary: { label: "7/7 通过", passedCount: 7, totalCount: 7, blockingCount: 0 },
+      summary: { label: "8/8 通过", passedCount: 8, totalCount: 8, blockingCount: 0 },
       localPersistenceAcceptance: { accepted: false },
       safeguards: { localPersistenceAcceptedForV1: false },
+      runtimeEmployeeAccountReadiness: {
+        ready: true,
+        requiredRoleCount: 8,
+        coveredRoleCount: 8,
+        missingRoleCount: 0,
+        formalAccountCount: 8,
+        readyFormalAccountCount: 8,
+        roles: [],
+      },
       repositories: [
         { key: "orderRepository", kind: "postgres", productionReady: true, localKind: false },
         { key: "attachmentStorage", kind: "object_storage", productionReady: true, localKind: false },

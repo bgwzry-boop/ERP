@@ -618,6 +618,7 @@ async function checkPostgresRepositories() {
         passwordStatus: "active",
         mustChangePassword: false,
         passwordChangedAt: "2026-07-12T00:00:00.000Z",
+        passwordExpiresAt: "2026-10-10T00:00:00.000Z",
         sessionVersion: 1,
         updatedAt: "2026-07-12T00:00:00.000Z",
       }],
@@ -631,6 +632,8 @@ async function checkPostgresRepositories() {
   assert.deepEqual(persistedRuntimeUser.roles, ["technical_operations"]);
   assert.equal(persistedRuntimeUser.loginEnabled, true);
   assert.notEqual(persistedRuntimeUser.passwordHash, liveRuntimePassword);
+  assert.match(persistedRuntimeUser.passwordHash, /^runtime-password-v2\./);
+  assert.equal(persistedRuntimeUser.passwordExpiresAt, "2026-10-10T00:00:00.000Z");
 
   assert.equal((await attachmentRepository.loadState()).attachments.length, 0);
 

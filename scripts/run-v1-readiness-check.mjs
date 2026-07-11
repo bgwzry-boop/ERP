@@ -490,6 +490,7 @@ function normalizeSystemPersistenceReadiness(value) {
         accepted: false,
         reference: "",
       },
+      runtimeEmployeeAccountReadiness: normalizeRuntimeEmployeeAccountReadiness(),
       remainingV1Risks: [],
       safeguards: {
         nonMutating: true,
@@ -530,6 +531,9 @@ function normalizeSystemPersistenceReadiness(value) {
       accepted: Boolean(localPersistenceAcceptance.accepted),
       reference: stringValue(localPersistenceAcceptance.reference),
     },
+    runtimeEmployeeAccountReadiness: normalizeRuntimeEmployeeAccountReadiness(
+      value.runtimeEmployeeAccountReadiness,
+    ),
     remainingV1Risks: stringList(value.remainingV1Risks),
     safeguards: {
       nonMutating: safeguards.nonMutating !== false,
@@ -539,6 +543,33 @@ function normalizeSystemPersistenceReadiness(value) {
       requiresPostgresPersistence: safeguards.requiresPostgresPersistence !== false,
       localPersistenceAcceptedForV1: Boolean(safeguards.localPersistenceAcceptedForV1),
     },
+  };
+}
+
+function normalizeRuntimeEmployeeAccountReadiness(value = {}) {
+  return {
+    ready: value.ready === true,
+    requiredRoleCount: numberOrZero(value.requiredRoleCount),
+    coveredRoleCount: numberOrZero(value.coveredRoleCount),
+    missingRoleCount: numberOrZero(value.missingRoleCount),
+    formalAccountCount: numberOrZero(value.formalAccountCount),
+    readyFormalAccountCount: numberOrZero(value.readyFormalAccountCount),
+    roles: Array.isArray(value.roles)
+      ? value.roles.map((role) => ({
+          roleKey: stringValue(role.roleKey),
+          roleLabel: stringValue(role.roleLabel),
+          ready: role.ready === true,
+          accountCount: numberOrZero(role.accountCount),
+          readyAccountCount: numberOrZero(role.readyAccountCount),
+          blockers: Array.isArray(role.blockers)
+            ? role.blockers.map((blocker) => ({
+                code: stringValue(blocker.code),
+                label: stringValue(blocker.label),
+                count: numberOrZero(blocker.count),
+              }))
+            : [],
+        }))
+      : [],
   };
 }
 

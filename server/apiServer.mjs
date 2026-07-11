@@ -18,6 +18,7 @@ import {
   getRuntimePasswordExpiresAt,
   getRuntimeUserSecurityState,
   hashRuntimeUserPassword,
+  isRuntimeUserPasswordHashUpgradeRequired,
   issueRuntimeUserTemporaryPassword,
   verifyRuntimeUserPassword,
   verifyRuntimeSessionToken,
@@ -97,6 +98,7 @@ import { createPrintBatchCommandService } from "./services/printBatchCommandServ
 import { createTodoCommandService } from "./services/todoCommandService.mjs";
 import { createInventoryCorrectionCommandService } from "./services/inventoryCorrectionCommandService.mjs";
 import { createProductionFinishedGoodsPhotoCommandService } from "./services/productionFinishedGoodsPhotoCommandService.mjs";
+import { buildRuntimeEmployeeAccountReadiness } from "./services/runtimeEmployeeAccountReadiness.mjs";
 import {
   getEmployeeAccountDepartment,
   getEmployeeAccountRoleLabel,
@@ -1679,6 +1681,16 @@ async function loginRuntimeUserAuth({ response, workspace, body, runtimeUser, se
   }
 
   let authenticatedUser = resetRuntimeUserLoginFailures(workspace, runtimeUser, { updatedAt: nowIso });
+  if (isRuntimeUserPasswordHashUpgradeRequired(authenticatedUser)) {
+    authenticatedUser = upsertRuntimeUser(workspace, {
+      ...authenticatedUser,
+      passwordHash: hashRuntimeUserPassword(body.password, {
+        userId: authenticatedUser.userId ?? authenticatedUser.id,
+        authSecret: securityPolicy.authSecret,
+      }),
+      updatedAt: nowIso,
+    });
+  }
   const postLoginSecurityState = getRuntimeUserSecurityState(authenticatedUser, { nowMs });
   if (postLoginSecurityState.passwordExpired) {
     authenticatedUser = markRuntimeUserPasswordExpired(workspace, authenticatedUser, {
@@ -3877,6 +3889,11 @@ const v1SystemPersistenceGroups = [
 
 function getSystemV1ReadinessResponse({ workspace, operatorId }) {
   const checkedAt = new Date().toISOString();
+  const productionRuntime = workspace.runtimeConfig?.mode === "production";
+  const runtimeEmployeeAccountReadiness = buildRuntimeEmployeeAccountReadiness({
+    users: workspace.users,
+    nowMs: Date.parse(checkedAt),
+  });
   const localPersistenceAcceptance = getSystemLocalPersistenceAcceptance(workspace);
   const repositoryGroups = v1SystemPersistenceGroups.map((group) =>
     buildSystemPersistenceGroupReadiness({ workspace, group, localPersistenceAcceptance }),
@@ -3937,6 +3954,26 @@ function getSystemV1ReadinessResponse({ workspace, operatorId }) {
         localPathExposed: false,
       },
     }),
+    buildReadinessCriterion({
+      key: "system-runtime-employee-role-coverage",
+      label: "V1 正式岗位账号覆盖",
+      passed: !productionRuntime || runtimeEmployeeAccountReadiness.ready,
+      detail: productionRuntime
+        ? runtimeEmployeeAccountReadiness.ready
+          ? `${runtimeEmployeeAccountReadiness.coveredRoleCount}/${runtimeEmployeeAccountReadiness.requiredRoleCount} 个岗位已有可用正式账号`
+          : `${runtimeEmployeeAccountReadiness.missingRoleCount} 个岗位仍没有可用正式账号`
+        : `当前为 ${workspace.runtimeConfig?.mode ?? "demo"} 环境，正式岗位账号覆盖只报告、不阻塞`,
+      blocking: productionRuntime,
+      evidence: {
+        productionRuntime,
+        formalAccountCount: runtimeEmployeeAccountReadiness.formalAccountCount,
+        readyFormalAccountCount: runtimeEmployeeAccountReadiness.readyFormalAccountCount,
+        requiredRoleCount: runtimeEmployeeAccountReadiness.requiredRoleCount,
+        coveredRoleCount: runtimeEmployeeAccountReadiness.coveredRoleCount,
+        missingRoleCount: runtimeEmployeeAccountReadiness.missingRoleCount,
+        roles: runtimeEmployeeAccountReadiness.roles,
+      },
+    }),
   ];
   const summary = buildReadinessSummary(criteria);
   return {
@@ -3951,6 +3988,7 @@ function getSystemV1ReadinessResponse({ workspace, operatorId }) {
     repositoryGroups,
     repositories: allRepositories,
     localPersistenceAcceptance,
+    runtimeEmployeeAccountReadiness,
     persistenceProfile: workspace.v1PersistenceProfile,
     remainingV1Risks: buildSystemPersistenceRemainingRisks({
       criteria,

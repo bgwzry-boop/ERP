@@ -1,8 +1,14 @@
 import assert from "node:assert/strict";
+import { createHmac } from "node:crypto";
 import { readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
-import { hashRuntimeUserPassword } from "../server/authSeed.mjs";
+import {
+  hashRuntimeUserPassword,
+  isRuntimeUserPasswordHashCurrent,
+  isRuntimeUserPasswordHashUpgradeRequired,
+  verifyRuntimeUserPassword,
+} from "../server/authSeed.mjs";
 import {
   buildLoadRuntimeIdentityStateQuery,
   buildLoadRuntimeIdentityStateSql,
@@ -27,6 +33,16 @@ const expiredChangedAt = "2026-01-01T00:00:00.000Z";
 const expiredLoginAt = "2026-07-04T00:00:00.000Z";
 const expiredChangedPasswordValue = "runtime-expired-new-password-001";
 const issuedAt = "2026-01-01T00:00:00.000Z";
+const authSecret = "runtime-identity-check-auth-secret";
+const temporaryPasswordHash = hashRuntimeUserPassword(temporaryPassword, { userId, authSecret });
+const secondTemporaryPasswordHash = hashRuntimeUserPassword(temporaryPassword, { userId, authSecret });
+const expiredLegacyPasswordHash = buildLegacyRuntimePasswordHash(expiredUserId, expiredPassword, authSecret);
+
+assert.notEqual(temporaryPasswordHash, secondTemporaryPasswordHash, "scrypt hashes must use random salts");
+assert.equal(isRuntimeUserPasswordHashCurrent({ userId, passwordHash: temporaryPasswordHash }), true);
+assert.equal(verifyRuntimeUserPassword({ userId, passwordHash: temporaryPasswordHash }, temporaryPassword, { authSecret }), true);
+assert.equal(verifyRuntimeUserPassword({ userId, passwordHash: temporaryPasswordHash }, "wrong-password", { authSecret }), false);
+assert.equal(isRuntimeUserPasswordHashUpgradeRequired(expiredLegacyPasswordHash), true);
 
 const repository = createRuntimeIdentityRepository({ storageRoot });
 assert.equal(repository.kind, "local_json");
@@ -46,7 +62,7 @@ repository.saveState({
         employeeId: "EMP-RUNTIME-CHECK",
         source: "master_data_import_review",
         loginEnabled: true,
-        passwordHash: hashRuntimeUserPassword(temporaryPassword, { userId }),
+        passwordHash: temporaryPasswordHash,
         passwordStatus: "temporary_password_issued",
         mustChangePassword: true,
         passwordIssuedAt: issuedAt,
@@ -67,7 +83,7 @@ repository.saveState({
         employeeId: "EMP-RUNTIME-EXPIRED-CHECK",
         source: "master_data_import_review",
         loginEnabled: true,
-        passwordHash: hashRuntimeUserPassword(expiredPassword, { userId: expiredUserId }),
+        passwordHash: expiredLegacyPasswordHash,
         passwordStatus: "active",
         mustChangePassword: false,
         passwordChangedAt: expiredChangedAt,
@@ -85,7 +101,7 @@ let restartedServer = null;
 let revokedCheckServer = null;
 
 try {
-  server = createApiServer({ runtimeIdentityRepositoryOptions: { storageRoot } });
+  server = createApiServer({ authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
   await listen(server);
   const baseUrl = `http://127.0.0.1:${server.address().port}`;
   const health = await getJson(baseUrl, "/api/health");
@@ -121,7 +137,7 @@ try {
   await closeServer(server);
   server = null;
 
-  restartedServer = createApiServer({ runtimeIdentityRepositoryOptions: { storageRoot } });
+  restartedServer = createApiServer({ authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
   await listen(restartedServer);
   const restartedBaseUrl = `http://127.0.0.1:${restartedServer.address().port}`;
 
@@ -189,6 +205,11 @@ try {
   assert.equal(expiredLogin.permissions.passwordChangeRequired, true);
   assert.equal(expiredLogin.permissions.user.passwordStatus, "password_expired");
   assert.equal(expiredLogin.permissions.actionPermissions.length, 0);
+  const migratedExpiredUser = createRuntimeIdentityRepository({ storageRoot })
+    .loadState()
+    .users.find((item) => item.userId === expiredUserId);
+  assert.equal(isRuntimeUserPasswordHashCurrent(migratedExpiredUser), true);
+  assert.equal(isRuntimeUserPasswordHashUpgradeRequired(migratedExpiredUser), false);
   const expiredPasswordChange = await postJson(
     restartedBaseUrl,
     "/api/auth/change-password",
@@ -218,7 +239,7 @@ try {
   await closeServer(restartedServer);
   restartedServer = null;
 
-  revokedCheckServer = createApiServer({ runtimeIdentityRepositoryOptions: { storageRoot } });
+  revokedCheckServer = createApiServer({ authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
   await listen(revokedCheckServer);
   const revokedCheckBaseUrl = `http://127.0.0.1:${revokedCheckServer.address().port}`;
   const revokedSessionAfterRestart = await getJson(revokedCheckBaseUrl, "/api/auth/me", {
@@ -302,6 +323,14 @@ assert.ok(postgresCalls[1].values.length > 30);
 }
 
 console.log("runtime identity repository check passed");
+
+function buildLegacyRuntimePasswordHash(targetUserId, password, secret) {
+  const encodedUserId = Buffer.from(targetUserId, "utf8").toString("base64url");
+  const digest = createHmac("sha256", secret)
+    .update(`runtime-password-v1:${targetUserId}:${password}`)
+    .digest("base64url");
+  return `runtime-password-v1.${encodedUserId}.${digest}`;
+}
 
 function listen(targetServer) {
   return new Promise((resolve, reject) => {

@@ -61,8 +61,10 @@ try {
         json.status === "blocked" &&
         json.ready === false &&
         json.scope === "v1_system_persistence_readiness" &&
-        json.summary?.totalCount === 7 &&
+        json.summary?.totalCount === 8 &&
         json.summary?.blockingCount === 6 &&
+        json.runtimeEmployeeAccountReadiness?.requiredRoleCount === 8 &&
+        json.runtimeEmployeeAccountReadiness?.coveredRoleCount === 0 &&
         json.localPersistenceAcceptance?.accepted === false &&
         json.persistenceProfile?.repositoryProfile === "disabled" &&
         json.persistenceProfile?.connectionStringExposed === false &&

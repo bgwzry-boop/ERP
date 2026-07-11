@@ -49,12 +49,13 @@ paths:
   /system/v1-readiness:
     get:
       tags: [System]
-      summary: 查询 V1 系统核心持久化门禁
+      summary: 查询 V1 系统持久化与正式账号门禁
       description: >
         汇总订单、库存、出库、对账、生产、司机、附件、打印和主数据等核心仓储的运行时
         持久化模式，判断当前是否达到 V1 生产持久化要求。接口只读，只输出仓储类型和计数，
         不输出业务数据、连接串、本地文件路径或密钥。默认 local_memory / local_json / local_fs
         会阻塞 V1；如现场明确接受本地持久化作为 V1 方案，必须由服务端显式配置。
+        production 运行模式还要求 8 类 V1 人员岗位均已有可用正式账号，演示 seed 账号不计入覆盖。
       operationId: getSystemV1Readiness
       responses:
         "200":
@@ -5195,6 +5196,7 @@ components:
         - repositoryGroups
         - repositories
         - localPersistenceAcceptance
+        - runtimeEmployeeAccountReadiness
         - persistenceProfile
         - remainingV1Risks
         - safeguards
@@ -5232,6 +5234,8 @@ components:
             $ref: "#/components/schemas/SystemPersistenceRepositorySummary"
         localPersistenceAcceptance:
           $ref: "#/components/schemas/SystemLocalPersistenceAcceptance"
+        runtimeEmployeeAccountReadiness:
+          $ref: "#/components/schemas/RuntimeEmployeeAccountReadiness"
         persistenceProfile:
           $ref: "#/components/schemas/SystemV1PersistenceProfileSummary"
         remainingV1Risks:
@@ -5240,6 +5244,65 @@ components:
             type: string
         safeguards:
           $ref: "#/components/schemas/SystemPersistenceReadinessSafeguards"
+
+    RuntimeEmployeeAccountReadiness:
+      type: object
+      required:
+        - ready
+        - requiredRoleCount
+        - coveredRoleCount
+        - missingRoleCount
+        - formalAccountCount
+        - readyFormalAccountCount
+        - roles
+      properties:
+        ready:
+          type: boolean
+        requiredRoleCount:
+          type: integer
+        coveredRoleCount:
+          type: integer
+        missingRoleCount:
+          type: integer
+        formalAccountCount:
+          type: integer
+        readyFormalAccountCount:
+          type: integer
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeEmployeeRoleAccountReadiness"
+
+    RuntimeEmployeeRoleAccountReadiness:
+      type: object
+      required: [roleKey, roleLabel, ready, accountCount, readyAccountCount, blockers]
+      properties:
+        roleKey:
+          type: string
+          enum: [office, warehouse, finance, workshop, packing, driver, management, technical_operations]
+        roleLabel:
+          type: string
+        ready:
+          type: boolean
+        accountCount:
+          type: integer
+        readyAccountCount:
+          type: integer
+        blockers:
+          type: array
+          items:
+            $ref: "#/components/schemas/RuntimeEmployeeAccountBlocker"
+
+    RuntimeEmployeeAccountBlocker:
+      type: object
+      required: [code, label, count]
+      properties:
+        code:
+          type: string
+        label:
+          type: string
+        count:
+          type: integer
 
     SystemV1FieldEvidenceDraftManifestResponse:
       type: object

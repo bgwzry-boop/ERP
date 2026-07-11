@@ -466,6 +466,7 @@ function buildRuntimeProductionProfileStage(runtimeReadiness = {}) {
 function buildRuntimeProductionProfileChecks(runtimeReadiness = {}) {
   const productionEnvFileApplication = runtimeReadiness?.productionEnvFileApplication || {};
   const systemPersistence = runtimeReadiness?.systemPersistence || {};
+  const runtimeEmployeeAccounts = systemPersistence.runtimeEmployeeAccountReadiness || {};
   const attachmentReadiness = runtimeReadiness?.attachmentReadiness || {};
   const attachmentStorage = runtimeReadiness?.attachmentStorage || {};
   const repositories = Array.isArray(systemPersistence.repositories) ? systemPersistence.repositories : [];
@@ -529,6 +530,26 @@ function buildRuntimeProductionProfileChecks(runtimeReadiness = {}) {
       },
     }),
     criterion({
+      key: "runtime-formal-role-account-coverage",
+      label: "V1 正式岗位账号覆盖",
+      passed:
+        runtimeEmployeeAccounts.ready === true &&
+        numberOrZero(runtimeEmployeeAccounts.requiredRoleCount) > 0 &&
+        numberOrZero(runtimeEmployeeAccounts.coveredRoleCount) ===
+          numberOrZero(runtimeEmployeeAccounts.requiredRoleCount),
+      detail:
+        runtimeEmployeeAccounts.ready === true
+          ? `${numberOrZero(runtimeEmployeeAccounts.coveredRoleCount)}/${numberOrZero(runtimeEmployeeAccounts.requiredRoleCount)} 个岗位已有可用正式账号。`
+          : `${numberOrZero(runtimeEmployeeAccounts.missingRoleCount)} 个岗位仍缺少可用正式账号；请完成账号启用、首次改密、解锁、密码续期和车间机器绑定。`,
+      evidence: {
+        formalAccountCount: numberOrZero(runtimeEmployeeAccounts.formalAccountCount),
+        readyFormalAccountCount: numberOrZero(runtimeEmployeeAccounts.readyFormalAccountCount),
+        requiredRoleCount: numberOrZero(runtimeEmployeeAccounts.requiredRoleCount),
+        coveredRoleCount: numberOrZero(runtimeEmployeeAccounts.coveredRoleCount),
+        missingRoleCount: numberOrZero(runtimeEmployeeAccounts.missingRoleCount),
+      },
+    }),
+    criterion({
       key: "attachment-object-storage-live",
       label: "附件留档为真实对象存储 live",
       passed: attachmentReadiness.ready === true && objectStorageLive && storageKind === "object_storage",
@@ -578,6 +599,9 @@ function sanitizeRuntimeReadiness(report = {}) {
       localRepositoryCount: numberOrZero(report.systemPersistence?.localRepositoryCount),
       localMemoryCount: numberOrZero(report.systemPersistence?.localMemoryCount),
       localPersistenceAcceptedForV1: report.systemPersistence?.localPersistenceAcceptance?.accepted === true,
+      runtimeEmployeeAccountReadiness: sanitizeRuntimeEmployeeAccountReadiness(
+        report.systemPersistence?.runtimeEmployeeAccountReadiness,
+      ),
     },
     attachmentReadiness: {
       status: cleanString(report.attachmentReadiness?.status || "unknown"),
@@ -601,6 +625,17 @@ function sanitizeRuntimeReadiness(report = {}) {
       secretFieldsExposed: report.safeguards?.secretFieldsExposed === true,
     },
     remainingV1Risks: stringList(report.remainingV1Risks).slice(0, 12),
+  };
+}
+
+function sanitizeRuntimeEmployeeAccountReadiness(value = {}) {
+  return {
+    ready: value.ready === true,
+    requiredRoleCount: numberOrZero(value.requiredRoleCount),
+    coveredRoleCount: numberOrZero(value.coveredRoleCount),
+    missingRoleCount: numberOrZero(value.missingRoleCount),
+    formalAccountCount: numberOrZero(value.formalAccountCount),
+    readyFormalAccountCount: numberOrZero(value.readyFormalAccountCount),
   };
 }
 

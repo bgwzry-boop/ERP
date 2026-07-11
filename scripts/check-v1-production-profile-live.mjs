@@ -5,6 +5,7 @@ import { mkdirSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
+import { hashRuntimeUserPassword } from "../server/authSeed.mjs";
 import { buildDefaultPrintDevices } from "../server/printDeviceRepository.mjs";
 import {
   v1PersistencePostgresRepositoryOptionKeys,
@@ -19,6 +20,9 @@ const bucketName = "erp-v1-production-profile-live";
 const objectStorageKeyPrefix = "v1-production-profile-live";
 const objectStorageAccessKeyId = "ERP_V1_PROFILE_LIVE_AKID";
 const objectStorageSecretAccessKey = "ERP_V1_PROFILE_LIVE_SECRET_SHOULD_NOT_LEAK";
+const runtimeAuthSecret = "ERP_V1_PROFILE_LIVE_RUNTIME_AUTH_SECRET_SHOULD_NOT_LEAK";
+const officeRuntimePassword = "V1-profile-office-password";
+const driverRuntimePassword = "V1-profile-driver-password";
 const runnerScript = new URL("./run-v1-readiness-check.mjs", import.meta.url).pathname;
 const printCommandBridgeScript = new URL("./print-command-bridge.mjs", import.meta.url).pathname;
 const fakeCupsStatusScript = new URL("./fake-cups-lpstat.mjs", import.meta.url).pathname;
@@ -26,6 +30,9 @@ const fieldGateStorageRoot = join(process.cwd(), ".erp-local-storage", "checks",
 const fieldGateSpoolRoot = join(fieldGateStorageRoot, "spool");
 
 let apiServer = null;
+let officeSessionToken = "";
+let driverSessionToken = "";
+let idempotencySequence = 0;
 const objectStorageServer = createFakeS3CompatibleServer({ bucketName });
 
 try {
@@ -49,15 +56,19 @@ try {
   };
 
   apiServer = createApiServer({
+    runtimeMode: "production",
+    authSecret: runtimeAuthSecret,
     v1PersistenceProfile: {
       repositoryMode: "postgres",
       fileStorageMode: "object_storage",
+      databaseUrl: `postgres://erp:erp@${containerName}:5432/erp`,
       queryJson,
       objectStorageOptions,
     },
   });
   await listen(apiServer);
   const apiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/api`;
+  await authenticateFormalActors(apiBaseUrl);
 
   await checkHealthProfile(apiBaseUrl);
   await checkPostgresBackedReadRoutes(apiBaseUrl);
@@ -71,9 +82,12 @@ try {
   prepareFieldGateLocalStorage();
 
   apiServer = createApiServer({
+    runtimeMode: "production",
+    authSecret: runtimeAuthSecret,
     v1PersistenceProfile: {
       repositoryMode: "postgres",
       fileStorageMode: "object_storage",
+      databaseUrl: `postgres://erp:erp@${containerName}:5432/erp`,
       queryJson,
       objectStorageOptions,
     },
@@ -96,10 +110,11 @@ try {
   });
   await listen(apiServer);
   const fieldGateApiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/api`;
+  await authenticateFormalActors(fieldGateApiBaseUrl);
   await checkAutomatedFieldGateReadiness(fieldGateApiBaseUrl);
 
   console.log(
-    "V1 production profile live check passed: PostgreSQL repository profile, object-storage file profile, system persistence readiness, attachment V1 readiness, baseline 7/11 field-gate blocking, and automated 11/11 readiness evidence boundaries are covered.",
+    "V1 production profile live check passed: strict runtime sessions, 8-role formal-account coverage, PostgreSQL repository profile, object-storage file profile, attachment readiness, baseline 7/11 field-gate blocking, and automated 11/11 readiness evidence boundaries are covered.",
   );
 } finally {
   if (apiServer) await closeServer(apiServer);
@@ -156,7 +171,7 @@ async function checkSystemPersistenceReadiness(apiBaseUrl) {
   const readiness = await getJson(apiBaseUrl, "/system/v1-readiness");
   assert.equal(readiness.status, "ready");
   assert.equal(readiness.ready, true);
-  assert.equal(readiness.summary?.label, "7/7 通过");
+  assert.equal(readiness.summary?.label, "8/8 通过");
   assert.equal(readiness.summary?.blockingCount, 0);
   assert.equal(readiness.localPersistenceAcceptance?.accepted, false);
   assert.equal(readiness.safeguards?.requiresPostgresPersistence, true);
@@ -223,6 +238,11 @@ async function checkSystemPersistenceReadiness(apiBaseUrl) {
   );
   assert.equal(readiness.repositories?.some((item) => item.localKind), false);
   assert.equal(readiness.repositoryGroups?.every((group) => group.ready === true), true);
+  assert.equal(readiness.runtimeEmployeeAccountReadiness?.ready, true);
+  assert.equal(readiness.runtimeEmployeeAccountReadiness?.requiredRoleCount, 8);
+  assert.equal(readiness.runtimeEmployeeAccountReadiness?.coveredRoleCount, 8);
+  assert.equal(readiness.runtimeEmployeeAccountReadiness?.missingRoleCount, 0);
+  assert.equal(readiness.runtimeEmployeeAccountReadiness?.roles?.every((role) => role.ready), true);
   assertNoSensitiveOutput(JSON.stringify(readiness));
 }
 
@@ -473,8 +493,8 @@ function buildPassedDriverDeviceFieldTest({ recordId, fulfillmentId, orderLineId
     recordId,
     fulfillmentId,
     orderLineId,
-    driverId: "U-DRIVER-A",
-    operatorId: "U-DRIVER-A",
+    driverId: "U-V1-DRIVER-A",
+    operatorId: "U-V1-DRIVER-A",
     operatorName: "司机A",
     checkedAt: "2026-07-04T10:10:00.000Z",
     deviceLabel: "Android field shell",
@@ -608,18 +628,104 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 }
 
 function seedMinimalRuntimeUsers() {
+  const changedAt = new Date().toISOString();
+  const passwordExpiresAt = new Date(Date.now() + 89 * 24 * 60 * 60 * 1000).toISOString();
+  const roleAccounts = [
+    ["office", "U-V1-OFFICE-A", "v1.office.a", "正式办公室A", "office", ""],
+    ["warehouse", "U-V1-WAREHOUSE-A", "v1.warehouse.a", "正式库房A", "warehouse", ""],
+    ["finance", "U-V1-FINANCE-A", "v1.finance.a", "正式财务A", "finance", ""],
+    ["workshop", "U-V1-WORKSHOP-A", "v1.workshop.a", "正式车间A", "workshop", "BAG-01"],
+    ["packing", "U-V1-PACKING-A", "v1.packing.a", "正式打包A", "packing", ""],
+    ["driver", "U-V1-DRIVER-A", "v1.driver.a", "正式司机A", "delivery", ""],
+    ["management", "U-V1-MANAGER-A", "v1.manager.a", "正式管理A", "management", ""],
+    ["technical_operations", "U-V1-TECH-A", "v1.tech.a", "正式技术运维A", "system", ""],
+  ];
+  const values = roleAccounts.map(([roleKey, userId, loginName, displayName, department, defaultMachineId]) => {
+    const password = roleKey === "driver" ? driverRuntimePassword : officeRuntimePassword;
+    const passwordHash = hashRuntimeUserPassword(password, { userId, authSecret: runtimeAuthSecret });
+    const metadata = {
+      defaultRole: roleKey,
+      roles: [roleKey],
+      source: "master_data_import_review",
+      failedLoginCount: 0,
+      lastFailedLoginAt: "",
+      lockedUntil: "",
+      passwordExpiresAt,
+      passwordExpiredAt: "",
+    };
+    return `(${[
+      sqlLiteral(userId),
+      sqlLiteral(loginName),
+      sqlLiteral(displayName),
+      sqlLiteral(department),
+      "TRUE",
+      sqlLiteral("master_data_import_review"),
+      sqlLiteral(`EMP-${roleKey.toUpperCase()}`),
+      defaultMachineId ? sqlLiteral(defaultMachineId) : "NULL",
+      "TRUE",
+      sqlLiteral(passwordHash),
+      sqlLiteral("active"),
+      "FALSE",
+      sqlLiteral(changedAt),
+      "1",
+      `${sqlLiteral(JSON.stringify(metadata))}::jsonb`,
+    ].join(", ")})`;
+  });
   runPsql(`
-INSERT INTO users (id, login_name, display_name, department)
+INSERT INTO users (
+  id, login_name, display_name, department, enabled, source, employee_id,
+  default_machine_id, login_enabled, password_hash, password_status,
+  must_change_password, password_changed_at, session_version, metadata_json
+)
 VALUES
-  ('U-OFFICE-A', 'office.a', '办公室A', 'office'),
-  ('U-DRIVER-A', 'driver.a', '司机A', 'driver'),
-  ('U-PRINT-DRIVER-A', 'print.driver.a', '打印驱动服务账号A', 'system')
+  ${values.join(",\n  ")}
 ON CONFLICT (id) DO UPDATE SET
   login_name = EXCLUDED.login_name,
   display_name = EXCLUDED.display_name,
   department = EXCLUDED.department,
+  enabled = EXCLUDED.enabled,
+  source = EXCLUDED.source,
+  employee_id = EXCLUDED.employee_id,
+  default_machine_id = EXCLUDED.default_machine_id,
+  login_enabled = EXCLUDED.login_enabled,
+  password_hash = EXCLUDED.password_hash,
+  password_status = EXCLUDED.password_status,
+  must_change_password = EXCLUDED.must_change_password,
+  password_changed_at = EXCLUDED.password_changed_at,
+  session_version = EXCLUDED.session_version,
+  metadata_json = EXCLUDED.metadata_json,
+  updated_at = now();
+
+INSERT INTO users (id, login_name, display_name, department, enabled, source)
+VALUES
+  ('U-OFFICE-A', 'seed.office.a', '演示办公室外键', 'office', false, 'seed'),
+  ('U-DRIVER-A', 'seed.driver.a', '演示司机外键', 'delivery', false, 'seed'),
+  ('U-PRINT-DRIVER-A', 'seed.print.driver.a', '演示打印服务外键', 'system', false, 'seed')
+ON CONFLICT (id) DO UPDATE SET
+  login_name = EXCLUDED.login_name,
+  display_name = EXCLUDED.display_name,
+  department = EXCLUDED.department,
+  enabled = EXCLUDED.enabled,
+  source = EXCLUDED.source,
   updated_at = now();
 `);
+}
+
+async function authenticateFormalActors(apiBaseUrl) {
+  const officeLogin = await fetchJson(`${apiBaseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json", connection: "close" },
+    body: JSON.stringify({ loginName: "v1.office.a", password: officeRuntimePassword }),
+  });
+  const driverLogin = await fetchJson(`${apiBaseUrl}/auth/login`, {
+    method: "POST",
+    headers: { "content-type": "application/json", connection: "close" },
+    body: JSON.stringify({ loginName: "v1.driver.a", password: driverRuntimePassword }),
+  });
+  officeSessionToken = officeLogin.session?.accessToken ?? "";
+  driverSessionToken = driverLogin.session?.accessToken ?? "";
+  assert.match(officeSessionToken, /^erp-runtime-session-v1\./);
+  assert.match(driverSessionToken, /^erp-runtime-session-v1\./);
 }
 
 function seedMinimalFieldGateBusinessRows() {
@@ -731,7 +837,7 @@ INSERT INTO driver_delivery_dispatches (
   'DDIS-V1-PROFILE-F002',
   'DDIS-V1-PROFILE-F002',
   'F002',
-  'U-DRIVER-A',
+  'U-V1-DRIVER-A',
   '2026-07-04',
   '虎门线-A',
   1,
@@ -954,7 +1060,20 @@ function runReadinessRunner(apiBaseUrl) {
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      [runnerScript, "--api-base-url", apiBaseUrl, "--operator-id", "U-OFFICE-A", "--driver-operator-id", "U-DRIVER-A", "--json"],
+      [
+        runnerScript,
+        "--api-base-url",
+        apiBaseUrl,
+        "--operator-id",
+        "U-V1-OFFICE-A",
+        "--driver-operator-id",
+        "U-V1-DRIVER-A",
+        "--bearer-token",
+        officeSessionToken,
+        "--driver-bearer-token",
+        driverSessionToken,
+        "--json",
+      ],
       {
         cwd: process.cwd(),
         stdio: ["ignore", "pipe", "pipe"],
@@ -989,7 +1108,7 @@ function runReadinessRunner(apiBaseUrl) {
 function getJson(apiBaseUrl, path) {
   return fetchJson(`${apiBaseUrl}${path}`, {
     headers: {
-      "x-erp-user-id": "U-OFFICE-A",
+      authorization: `Bearer ${officeSessionToken}`,
       connection: "close",
     },
   });
@@ -998,7 +1117,7 @@ function getJson(apiBaseUrl, path) {
 function getDriverJson(apiBaseUrl, path) {
   return fetchJson(`${apiBaseUrl}${path}`, {
     headers: {
-      "x-erp-user-id": "U-DRIVER-A",
+      authorization: `Bearer ${driverSessionToken}`,
       connection: "close",
     },
   });
@@ -1009,7 +1128,8 @@ function postJson(apiBaseUrl, path, body) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-OFFICE-A",
+      authorization: `Bearer ${officeSessionToken}`,
+      "idempotency-key": `v1-profile-live-office-${++idempotencySequence}`,
       connection: "close",
     },
     body: JSON.stringify(body),
@@ -1021,7 +1141,8 @@ function postDriverJson(apiBaseUrl, path, body) {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-erp-user-id": "U-DRIVER-A",
+      authorization: `Bearer ${driverSessionToken}`,
+      "idempotency-key": `v1-profile-live-driver-${++idempotencySequence}`,
       connection: "close",
     },
     body: JSON.stringify(body),
@@ -1039,7 +1160,7 @@ async function fetchJson(url, options = {}) {
 async function getText(apiBaseUrl, path) {
   return fetchText(`${apiBaseUrl}${path}`, {
     headers: {
-      "x-erp-user-id": "U-OFFICE-A",
+      authorization: `Bearer ${officeSessionToken}`,
       connection: "close",
     },
   });

@@ -3094,9 +3094,9 @@ try {
   assert.equal(persistencePrecheckJson.scope, "v1_persistence_live_precheck");
   assert.equal(persistencePrecheckJson.status, "blocked");
   assert.equal(persistencePrecheckJson.ready, false);
-  assert.equal(persistencePrecheckJson.summary.readinessLabel, "1/7");
-  assert.equal(persistencePrecheckJson.summary.passedCount, 1);
-  assert.equal(persistencePrecheckJson.summary.totalCount, 7);
+  assert.equal(persistencePrecheckJson.summary.readinessLabel, "2/8");
+  assert.equal(persistencePrecheckJson.summary.passedCount, 2);
+  assert.equal(persistencePrecheckJson.summary.totalCount, 8);
   assert.equal(persistencePrecheckJson.summary.blockingCount, 6);
   assert.equal(persistencePrecheckJson.summary.repositoryGroupCount, 5);
   assert.equal(persistencePrecheckJson.summary.repositoryCount, expectedPersistenceRepositoryCount);
@@ -3113,7 +3113,7 @@ try {
   assert.equal(persistencePrecheckJson.summary.localPersistenceAcceptedForV1, false);
   assert.equal(persistencePrecheckJson.summary.releaseCandidateRefreshed, false);
   assert.equal(persistencePrecheckJson.summary.goLiveSuiteRefreshed, false);
-  assert.equal(persistencePrecheckJson.criteria.length, 7);
+  assert.equal(persistencePrecheckJson.criteria.length, 8);
   assert.equal(persistencePrecheckJson.blockingCriteria.length, 6);
   assert.equal(persistencePrecheckJson.repositoryGroups.length, 5);
   assert.ok(
@@ -3150,7 +3150,7 @@ try {
   assert.equal(clientPersistencePrecheckResult.source, "api");
   assert.equal(clientPersistencePrecheckResult.blocked, false);
   assert.equal(clientPersistencePrecheckResult.precheckResult.statusLabel, "仍未通过");
-  assert.equal(clientPersistencePrecheckResult.precheckResult.summary.readinessLabel, "1/7");
+  assert.equal(clientPersistencePrecheckResult.precheckResult.summary.readinessLabel, "2/8");
   assert.equal(clientPersistencePrecheckResult.precheckResult.summary.repositoryGroupLabel, "5 组");
   assert.equal(
     clientPersistencePrecheckResult.precheckResult.summary.repositoryLabel,
