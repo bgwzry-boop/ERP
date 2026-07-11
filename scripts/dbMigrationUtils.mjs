@@ -74,6 +74,17 @@ export const requiredTables = [
 ];
 
 export const requiredTableColumns = {
+  packing_tasks: [
+    "id",
+    "order_line_id",
+    "planned_qty",
+    "actual_packed_qty",
+    "status",
+    "revision",
+    "created_by",
+    "created_at",
+    "updated_at",
+  ],
   production_tasks: [
     "id",
     "order_line_id",

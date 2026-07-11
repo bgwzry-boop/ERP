@@ -1385,6 +1385,7 @@ function packingTaskJsonExpression(alias) {
     'actualPackedQty', ${alias}.actual_packed_qty,
     'packageCount', 0,
     'status', ${alias}.status,
+    'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at
   )`;

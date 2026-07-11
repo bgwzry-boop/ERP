@@ -27,13 +27,13 @@ const dependencies = {
 
 for (const [pathname, permission, routeName, expected] of [
   ["/api/production-tasks/PT-1/publish-schedule", "production.schedule.publish", "publishProductionScheduleRoute", { productionTaskId: "PT-1" }],
-  ["/api/production-tasks/PT-1/report-complete", "production.report.complete", "reportProductionCompleteRoute", { productionTaskId: "PT-1" }],
-  ["/api/production-tasks/PT-1/daily-progress", "production.report.complete", "recordProductionDailyProgressRoute", { productionTaskId: "PT-1" }],
+  ["/api/production-tasks/PT-1/report-complete", "production.report.complete", "reportProductionCompleteRoute", { productionTaskId: "PT-1", operatorId: "U-RESOLVED" }],
+  ["/api/production-tasks/PT-1/daily-progress", "production.report.complete", "recordProductionDailyProgressRoute", { productionTaskId: "PT-1", operatorId: "U-RESOLVED" }],
   ["/api/production-tasks/PT-1/finished-goods-photo", "production.report.complete", "uploadProductionFinishedGoodsPhotoRoute", { productionTaskId: "PT-1", operatorId: "U-RESOLVED" }],
   ["/api/production-tasks/PT-1/finished-goods-photo-review", "production.schedule.publish", "reviewProductionFinishedGoodsPhotoRoute", { productionTaskId: "PT-1", operatorId: "U-RESOLVED" }],
   ["/api/production-schedules/machine-queue/resequence", "production.schedule.sequence.update", "resequenceProductionMachineQueueRoute", { operatorId: "U-RESOLVED" }],
   ["/api/production-schedules/machine-queue/move", "production.schedule.sequence.update", "moveProductionMachineQueueItemRoute", { operatorId: "U-RESOLVED" }],
-  ["/api/packing-tasks/PKT-1/complete", "packing.complete", "completePackingTaskRoute", { packingTaskId: "PKT-1" }],
+  ["/api/packing-tasks/PKT-1/complete", "packing.complete", "completePackingTaskRoute", { packingTaskId: "PKT-1", operatorId: "U-RESOLVED" }],
 ]) {
   dependencies[routeName] = async (input) => calls.push({ kind: routeName, ...input });
   await expectHandled(pathname, permission, routeName, expected);

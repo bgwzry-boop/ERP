@@ -1,5 +1,7 @@
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createProductionPackingTransactionRepository(options = {}) {
   const mode =
@@ -9,11 +11,9 @@ export function createProductionPackingTransactionRepository(options = {}) {
     "local";
   if (mode === "postgres") {
     return createPostgresProductionPackingTransactionRepository({
+      ...options,
       databaseUrl:
         options.databaseUrl ?? process.env.ERP_PRODUCTION_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
-      queryJson: options.queryJson,
-      transactionJson: options.transactionJson,
-      postgresClient: options.postgresClient,
     });
   }
   if (mode === "local") return createLocalProductionPackingTransactionRepository();
@@ -106,23 +106,34 @@ export function createLocalProductionPackingTransactionRepository() {
 
 export function createPostgresProductionPackingTransactionRepository(options = {}) {
   const databaseUrl = options.databaseUrl;
-  const postgresClient = options.postgresClient ?? (options.queryJson ? null : createPostgresPoolClient({ databaseUrl }));
-  const transactionJson =
-    options.transactionJson ??
-    options.queryJson ??
-    ((text, values) => postgresClient.transactionJson(text, values));
+  const postgresClient =
+    options.postgresClient ?? (options.queryJson || options.transactionJson ? null : createPostgresPoolClient({ databaseUrl }));
+  const { transactionJson, idempotentTransactionJson } = createPostgresTransactionExecutor({
+    ...options,
+    databaseUrl,
+    postgresClient,
+  });
 
   return {
     kind: "postgres",
 
     async recordProductionReport(input) {
       const builtQuery = buildRecordProductionReportTransactionQuery(input);
-      const saved = normalizeProductionReportTransactionResult(await transactionJson(builtQuery.text, builtQuery.values));
+      const saved = normalizeProductionReportTransactionResult(
+        await executeIdempotentProductionTransaction({
+          input,
+          scope: "production.report.complete",
+          query: builtQuery,
+          idempotentTransactionJson,
+          resourceLocks: buildProductionResourceLocks(input),
+        }),
+      );
       if (!saved.productionTask || !saved.workshopReport) {
         throw new Error("PostgreSQL production report transaction returned an invalid result");
       }
       applyProductionPackingWorkspaceMutation({
         workspace: input.workspace,
+        authoritative: true,
         productionTask: saved.productionTask,
         workshopReport: saved.workshopReport,
         orderLine: saved.orderLine,
@@ -130,8 +141,9 @@ export function createPostgresProductionPackingTransactionRepository(options = {
         machineCapacityBaseline: saved.machineCapacityBaseline,
         inventoryReservations: saved.inventoryReservations,
         inventoryLedgerEntries: saved.inventoryLedgerEntries,
+        inventoryItems: saved.inventoryItems,
         inventoryAdjustments: input.inventoryAdjustments ?? [],
-        operationLog: input.operationLog,
+        operationLog: toSavedOperationLog(input.operationLog, saved.operationLogId),
       });
       return saved;
     },
@@ -139,16 +151,23 @@ export function createPostgresProductionPackingTransactionRepository(options = {
     async recordProductionDailyProgress(input) {
       const builtQuery = buildRecordProductionDailyProgressTransactionQuery(input);
       const saved = normalizeProductionDailyProgressTransactionResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await executeIdempotentProductionTransaction({
+          input,
+          scope: "production.daily_progress.record",
+          query: builtQuery,
+          idempotentTransactionJson,
+          resourceLocks: buildProductionResourceLocks(input),
+        }),
       );
       if (!saved.productionTask || !saved.workshopReport) {
         throw new Error("PostgreSQL production daily progress transaction returned an invalid result");
       }
       applyProductionPackingWorkspaceMutation({
         workspace: input.workspace,
+        authoritative: true,
         productionTask: saved.productionTask,
         workshopReport: saved.workshopReport,
-        operationLog: input.operationLog,
+        operationLog: toSavedOperationLog(input.operationLog, saved.operationLogId),
       });
       return saved;
     },
@@ -163,32 +182,80 @@ export function createPostgresProductionPackingTransactionRepository(options = {
       }
       applyProductionPackingWorkspaceMutation({
         workspace: input.workspace,
+        authoritative: true,
         productionTask: saved.productionTask,
         orderLine: saved.orderLine,
-        operationLog: input.operationLog,
+        operationLog: toSavedOperationLog(input.operationLog, saved.operationLogId),
       });
       return saved;
     },
 
     async completePackingTask(input) {
       const builtQuery = buildCompletePackingTaskTransactionQuery(input);
-      const saved = normalizePackingCompletionTransactionResult(await transactionJson(builtQuery.text, builtQuery.values));
+      const saved = normalizePackingCompletionTransactionResult(
+        await executeIdempotentProductionTransaction({
+          input,
+          scope: "packing.complete",
+          query: builtQuery,
+          idempotentTransactionJson,
+          resourceLocks: buildPackingResourceLocks(input),
+        }),
+      );
       if (!saved.packingTask) {
         throw new Error("PostgreSQL packing completion transaction returned an invalid result");
       }
       applyProductionPackingWorkspaceMutation({
         workspace: input.workspace,
+        authoritative: true,
         packingTask: saved.packingTask,
         packages: saved.packages,
         fulfillment: saved.fulfillment,
         orderLine: saved.orderLine,
         inventoryLedgerEntries: saved.inventoryLedgerEntries,
+        inventoryItems: saved.inventoryItems,
         inventoryAdjustments: input.inventoryAdjustments ?? [],
-        operationLog: input.operationLog,
+        operationLog: toSavedOperationLog(input.operationLog, saved.operationLogId),
       });
       return saved;
     },
   };
+}
+
+function executeIdempotentProductionTransaction({ input, scope, query, idempotentTransactionJson, resourceLocks }) {
+  return idempotentTransactionJson(
+    buildPostgresIdempotencyRequest({
+      scope,
+      idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+      payload: input.idempotencyPayload ?? {},
+      operatorId: input.operationLog?.operatorId,
+      targetType: input.operationLog?.targetType,
+      targetId: input.operationLog?.targetId,
+      resourceLocks,
+      query,
+    }),
+  );
+}
+
+function toSavedOperationLog(operationLog, operationLogId) {
+  const id = String(operationLogId ?? "").trim();
+  return operationLog && id ? { ...operationLog, id } : null;
+}
+
+function buildProductionResourceLocks(input) {
+  return [
+    `production-task:${input.productionTask?.productionTaskId ?? input.productionTask?.id ?? ""}`,
+    `order-line:${input.orderLine?.orderLineId ?? input.productionTask?.orderLineId ?? ""}`,
+    ...(input.inventoryAdjustments ?? []).map((item) => `inventory-item:${item.inventoryItemId ?? ""}`),
+    ...(input.inventoryReservations ?? []).map((item) => `inventory-reservation:${item.reservationId ?? ""}`),
+  ];
+}
+
+function buildPackingResourceLocks(input) {
+  return [
+    `packing-task:${input.packingTask?.packingTaskId ?? input.packingTask?.id ?? ""}`,
+    `order-line:${input.orderLine?.orderLineId ?? input.packingTask?.orderLineId ?? ""}`,
+    ...(input.fulfillment ? [`fulfillment:${input.fulfillment.fulfillmentId ?? input.fulfillment.id ?? ""}`] : []),
+  ];
 }
 
 export function buildRecordProductionReportTransactionSql(input) {
@@ -210,35 +277,42 @@ export function buildRecordProductionReportTransactionQuery(input) {
   }
 
   const parameters = createPostgresParameterBinder();
+  const writeGuardCtes = buildProductionWriteGuardCtes({
+    productionTask,
+    orderLine,
+    inventoryAdjustments,
+    disallowedStatuses: ["已完成"],
+  }, parameters);
   return {
     text: `
 BEGIN;
-WITH upserted_production_task AS (
-  ${buildUpsertProductionTaskSql(productionTask, parameters)}
+WITH ${writeGuardCtes}
+upserted_production_task AS (
+  ${buildUpsertProductionTaskSql(productionTask, parameters, "write_guard")}
 ),
 inserted_workshop_report AS (
-  ${buildInsertWorkshopReportSql(workshopReport, parameters)}
+  ${buildInsertWorkshopReportSql(workshopReport, parameters, "write_guard")}
 ),
 updated_order_line AS (
-  ${buildUpdateOrderLineSql(orderLine, parameters)}
+  ${buildUpdateOrderLineSql(orderLine, parameters, "write_guard")}
 ),
 upserted_packing_task AS (
-  ${buildUpsertPackingTaskSql(packingTask, parameters)}
+  ${buildUpsertPackingTaskSql(packingTask, parameters, "write_guard")}
 ),
 upserted_machine_capacity_baseline AS (
-  ${buildUpsertMachineCapacityBaselineSql(machineCapacityBaseline, parameters)}
+  ${buildUpsertMachineCapacityBaselineSql(machineCapacityBaseline, parameters, "write_guard")}
 ),
 inserted_inventory_reservations AS (
-  ${buildInsertInventoryReservationsSql(inventoryReservations, parameters)}
+  ${buildInsertInventoryReservationsSql(inventoryReservations, parameters, "write_guard")}
 ),
 updated_inventory_items AS (
-  ${buildUpdateInventoryItemsSql(inventoryAdjustments, parameters)}
+  ${buildUpdateInventoryItemsSql(inventoryAdjustments, parameters, "write_guard")}
 ),
 inserted_inventory_ledger_entries AS (
-  ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters)}
+  ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters, "write_guard")}
 ),
 inserted_operation_log AS (
-  ${buildInsertOperationLogSql(operationLog, parameters)}
+  ${buildInsertOperationLogSql(operationLog, parameters, "write_guard")}
 )
 SELECT json_build_object(
   'productionTask', (SELECT result FROM upserted_production_task),
@@ -247,6 +321,7 @@ SELECT json_build_object(
   'packingTask', (SELECT result FROM upserted_packing_task),
   'machineCapacityBaseline', (SELECT result FROM upserted_machine_capacity_baseline),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM inserted_inventory_reservations),
+  'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'operationLogId', (SELECT id FROM inserted_operation_log)
 ) AS result;
@@ -263,23 +338,31 @@ export function buildRecordProductionDailyProgressTransactionSql(input) {
 export function buildRecordProductionDailyProgressTransactionQuery(input) {
   const productionTask = normalizeProductionTask(input.productionTask);
   const workshopReport = normalizeWorkshopReport(input.workshopReport);
+  const orderLine = normalizeOrderLine(input.orderLine);
   const operationLog = normalizeOperationLog(input.operationLog);
   if (!productionTask || !workshopReport || !operationLog) {
     throw new Error("Production task, workshop daily progress report, and operation log are required");
   }
 
   const parameters = createPostgresParameterBinder();
+  const writeGuardCtes = buildProductionWriteGuardCtes({
+    productionTask,
+    orderLine,
+    inventoryAdjustments: [],
+    disallowedStatuses: ["已完成", "待完工确认"],
+  }, parameters);
   return {
     text: `
 BEGIN;
-WITH upserted_production_task AS (
-  ${buildUpsertProductionTaskSql(productionTask, parameters)}
+WITH ${writeGuardCtes}
+upserted_production_task AS (
+  ${buildUpsertProductionTaskSql(productionTask, parameters, "write_guard")}
 ),
 inserted_workshop_report AS (
-  ${buildInsertWorkshopReportSql(workshopReport, parameters)}
+  ${buildInsertWorkshopReportSql(workshopReport, parameters, "write_guard")}
 ),
 inserted_operation_log AS (
-  ${buildInsertOperationLogSql(operationLog, parameters)}
+  ${buildInsertOperationLogSql(operationLog, parameters, "write_guard")}
 )
 SELECT json_build_object(
   'productionTask', (SELECT result FROM upserted_production_task),
@@ -345,35 +428,38 @@ export function buildCompletePackingTaskTransactionQuery(input) {
   }
 
   const parameters = createPostgresParameterBinder();
+  const writeGuardCtes = buildPackingWriteGuardCtes({ packingTask, orderLine, fulfillment }, parameters);
   return {
     text: `
 BEGIN;
-WITH upserted_packing_task AS (
-  ${buildUpsertPackingTaskSql(packingTask, parameters)}
+WITH ${writeGuardCtes}
+upserted_packing_task AS (
+  ${buildUpsertPackingTaskSql(packingTask, parameters, "write_guard")}
 ),
 inserted_packages AS (
-  ${buildInsertPackagesSql(packages, parameters)}
+  ${buildInsertPackagesSql(packages, parameters, "write_guard")}
 ),
 updated_fulfillment AS (
-  ${buildUpdateFulfillmentSql(fulfillment, parameters)}
+  ${buildUpdateFulfillmentSql(fulfillment, parameters, "write_guard")}
 ),
 updated_order_line AS (
-  ${buildUpdateOrderLineSql(orderLine, parameters)}
+  ${buildUpdateOrderLineSql(orderLine, parameters, "write_guard")}
 ),
 updated_inventory_items AS (
-  ${buildUpdateInventoryItemsSql(inventoryAdjustments, parameters)}
+  ${buildUpdateInventoryItemsSql(inventoryAdjustments, parameters, "write_guard")}
 ),
 inserted_inventory_ledger_entries AS (
-  ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters)}
+  ${buildInsertInventoryLedgerEntriesSql(inventoryLedgerEntries, parameters, "write_guard")}
 ),
 inserted_operation_log AS (
-  ${buildInsertOperationLogSql(operationLog, parameters)}
+  ${buildInsertOperationLogSql(operationLog, parameters, "write_guard")}
 )
 SELECT json_build_object(
   'packingTask', (SELECT result FROM upserted_packing_task),
   'packages', (SELECT COALESCE(json_agg(result ORDER BY (result->>'packageSeq')::int), '[]'::json) FROM inserted_packages),
   'fulfillment', (SELECT result FROM updated_fulfillment),
   'orderLine', (SELECT result FROM updated_order_line),
+  'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'operationLogId', (SELECT id FROM inserted_operation_log)
 ) AS result;
@@ -392,6 +478,7 @@ export function normalizeProductionReportTransactionResult(value) {
       packingTask: null,
       machineCapacityBaseline: null,
       inventoryReservations: [],
+      inventoryItems: [],
       inventoryLedgerEntries: [],
       operationLogId: "",
     };
@@ -403,6 +490,7 @@ export function normalizeProductionReportTransactionResult(value) {
     packingTask: normalizePackingTask(value.packingTask ?? value.packing_task),
     machineCapacityBaseline: normalizeMachineCapacityBaseline(value.machineCapacityBaseline ?? value.machine_capacity_baseline),
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
+    inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),
     inventoryLedgerEntries: normalizeInventoryLedgerEntries(value.inventoryLedgerEntries ?? value.inventory_ledger_entries ?? []),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
   };
@@ -445,6 +533,7 @@ export function normalizePackingCompletionTransactionResult(value) {
       packages: [],
       fulfillment: null,
       orderLine: null,
+      inventoryItems: [],
       inventoryLedgerEntries: [],
       operationLogId: "",
     };
@@ -454,6 +543,7 @@ export function normalizePackingCompletionTransactionResult(value) {
     packages: normalizePackages(value.packages ?? []),
     fulfillment: normalizeFulfillment(value.fulfillment),
     orderLine: normalizeOrderLine(value.orderLine ?? value.order_line),
+    inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),
     inventoryLedgerEntries: normalizeInventoryLedgerEntries(value.inventoryLedgerEntries ?? value.inventory_ledger_entries ?? []),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
   };
@@ -472,10 +562,10 @@ function applyProductionPackingWorkspaceMutation(input) {
     workspace.packingTasks = upsertById(workspace.packingTasks ?? [], toWorkspacePackingTask(input.packingTask));
   }
   if (input.machineCapacityBaseline) {
-    workspace.machineCapacityBaselines = upsertMachineCapacityBaseline(
-      workspace.machineCapacityBaselines ?? [],
-      toWorkspaceMachineCapacityBaseline(input.machineCapacityBaseline),
-    );
+    const record = toWorkspaceMachineCapacityBaseline(input.machineCapacityBaseline);
+    workspace.machineCapacityBaselines = input.authoritative
+      ? upsertAuthoritativeMachineCapacityBaseline(workspace.machineCapacityBaselines ?? [], record)
+      : upsertMachineCapacityBaseline(workspace.machineCapacityBaselines ?? [], record);
   }
   for (const packageRecord of normalizePackages(input.packages ?? [])) {
     workspace.packages = upsertById(workspace.packages ?? [], toWorkspacePackage(packageRecord));
@@ -486,7 +576,11 @@ function applyProductionPackingWorkspaceMutation(input) {
   if (input.orderLine) {
     workspace.orderLines = upsertById(workspace.orderLines ?? [], toWorkspaceOrderLine(input.orderLine));
   }
-  applyWorkspaceInventoryAdjustments(workspace, input.inventoryAdjustments ?? []);
+  if (input.authoritative && input.inventoryItems?.length) {
+    applyAuthoritativeWorkspaceInventoryItems(workspace, input.inventoryItems);
+  } else {
+    applyWorkspaceInventoryAdjustments(workspace, input.inventoryAdjustments ?? []);
+  }
   for (const reservation of normalizeInventoryReservations(input.inventoryReservations ?? [])) {
     workspace.inventoryReservations = upsertById(
       workspace.inventoryReservations ?? [],
@@ -501,8 +595,113 @@ function applyProductionPackingWorkspaceMutation(input) {
   }
 }
 
-function buildUpsertProductionTaskSql(productionTask, parameters) {
+function buildProductionWriteGuardCtes({ productionTask, orderLine, inventoryAdjustments, disallowedStatuses }, parameters) {
+  const inventoryIds = inventoryAdjustments.map((item) => item.inventoryItemId);
+  const taskStatusGuard = disallowedStatuses.length
+    ? `AND task_status <> ALL(${parameters.textArray(disallowedStatuses)})`
+    : "";
+  const orderLineCondition = orderLine
+    ? `EXISTS (
+      SELECT 1 FROM locked_order_line
+      WHERE revision = ${parameters.integer(orderLine.revision ?? 1)}
+    )`
+    : "TRUE";
+  const inventoryConditions = inventoryAdjustments
+    .filter((item) => item.expectedRevision !== null)
+    .map(
+      (item) => `erp_require(EXISTS (
+      SELECT 1 FROM locked_inventory_items
+      WHERE id = ${parameters.text(item.inventoryItemId)}
+        AND revision = ${parameters.integer(item.expectedRevision)}
+        ${item.expectedOnHandQty === null ? "" : `AND on_hand_qty = ${parameters.integer(item.expectedOnHandQty)}`}
+        ${item.expectedReservedQty === null ? "" : `AND reserved_qty = ${parameters.integer(item.expectedReservedQty)}`}
+    ), 'ERP_INVENTORY_CONCURRENCY_CONFLICT')`,
+    )
+    .join("\n    AND ");
+  return `locked_production_task AS MATERIALIZED (
+  SELECT id, revision, task_status FROM production_tasks
+  WHERE id = ${parameters.text(productionTask.productionTaskId)}
+  FOR UPDATE
+),
+locked_order_line AS MATERIALIZED (
+  SELECT id, revision FROM order_lines
+  WHERE id = ${parameters.text(orderLine?.orderLineId ?? productionTask.orderLineId)}
+  FOR UPDATE
+),
+locked_inventory_items AS MATERIALIZED (
+  SELECT id, revision, on_hand_qty, reserved_qty FROM inventory_items
+  WHERE id = ANY(${parameters.textArray(inventoryIds)})
+  FOR UPDATE
+),
+write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (
+      NOT EXISTS (SELECT 1 FROM locked_production_task)
+      OR EXISTS (
+        SELECT 1 FROM locked_production_task
+        WHERE revision = ${parameters.integer(productionTask.revision ?? 1)}
+        ${taskStatusGuard}
+      )
+    ),
+    'ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT'
+  )
+  AND erp_require(${orderLineCondition}, 'ERP_ORDER_LINE_CONCURRENCY_CONFLICT')
+  ${inventoryConditions ? `AND ${inventoryConditions}` : ""} AS ok
+),`;
+}
+
+function buildPackingWriteGuardCtes({ packingTask, orderLine, fulfillment }, parameters) {
+  const orderLineCondition = orderLine
+    ? `EXISTS (SELECT 1 FROM locked_order_line WHERE revision = ${parameters.integer(orderLine.revision ?? 1)})`
+    : "TRUE";
+  const fulfillmentCondition = fulfillment
+    ? `EXISTS (SELECT 1 FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision ?? 1)})`
+    : "TRUE";
+  return `locked_packing_task AS MATERIALIZED (
+  SELECT id, revision, status FROM packing_tasks
+  WHERE id = ${parameters.text(packingTask.packingTaskId)}
+  FOR UPDATE
+),
+locked_order_line AS MATERIALIZED (
+  SELECT id, revision FROM order_lines
+  WHERE id = ${parameters.text(orderLine?.orderLineId ?? packingTask.orderLineId)}
+  FOR UPDATE
+),
+locked_fulfillment AS MATERIALIZED (
+  SELECT id, revision FROM fulfillment_records
+  WHERE id = ${parameters.text(fulfillment?.fulfillmentId ?? "")}
+  FOR UPDATE
+),
+write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    EXISTS (
+      SELECT 1 FROM locked_packing_task
+      WHERE revision = ${parameters.integer(packingTask.revision ?? 1)}
+        AND status <> '已完成'
+    ),
+    'ERP_PACKING_TASK_CONCURRENCY_CONFLICT'
+  )
+  AND erp_require(${orderLineCondition}, 'ERP_ORDER_LINE_CONCURRENCY_CONFLICT')
+  AND erp_require(${fulfillmentCondition}, 'ERP_FULFILLMENT_CONCURRENCY_CONFLICT') AS ok
+),`;
+}
+
+function buildUpsertProductionTaskSql(productionTask, parameters, dependency = "") {
   if (!productionTask) return "SELECT NULL::json AS result WHERE false";
+  const values = `(
+  ${parameters.text(productionTask.productionTaskId)},
+  ${parameters.text(productionTask.bizNo)},
+  ${parameters.text(productionTask.orderLineId)},
+  ${parameters.text(productionTask.taskType)},
+  ${parameters.nullableText(productionTask.machineId)},
+  ${parameters.integer(productionTask.plannedQty)},
+  ${parameters.text(productionTask.taskStatus)},
+  ${parameters.nullableText(productionTask.publishedScheduleId)},
+  1,
+  ${parameters.nullableText(productionTask.createdBy)},
+  ${timestampParameter(productionTask.createdAt, parameters)},
+  now()
+)`;
   return `INSERT INTO production_tasks (
   id,
   biz_no,
@@ -512,33 +711,39 @@ function buildUpsertProductionTaskSql(productionTask, parameters) {
   planned_qty,
   task_status,
   published_schedule_id,
+  revision,
   created_by,
   created_at,
   updated_at
-) VALUES (
-  ${parameters.text(productionTask.productionTaskId)},
-  ${parameters.text(productionTask.bizNo)},
-  ${parameters.text(productionTask.orderLineId)},
-  ${parameters.text(productionTask.taskType)},
-  ${parameters.nullableText(productionTask.machineId)},
-  ${parameters.integer(productionTask.plannedQty)},
-  ${parameters.text(productionTask.taskStatus)},
-  ${parameters.nullableText(productionTask.publishedScheduleId)},
-  ${parameters.nullableText(productionTask.createdBy)},
-  ${timestampParameter(productionTask.createdAt, parameters)},
-  now()
-)
+) ${buildInsertValuesSource(values, ["id", "biz_no", "order_line_id", "task_type", "machine_id", "planned_qty", "task_status", "published_schedule_id", "revision", "created_by", "created_at", "updated_at"], dependency)}
 ON CONFLICT (id) DO UPDATE SET
   task_type = EXCLUDED.task_type,
   machine_id = EXCLUDED.machine_id,
   planned_qty = EXCLUDED.planned_qty,
   task_status = EXCLUDED.task_status,
   published_schedule_id = EXCLUDED.published_schedule_id,
+  revision = production_tasks.revision + 1,
   updated_at = now()
 RETURNING ${productionTaskJsonExpression("production_tasks")} AS result`;
 }
 
-function buildInsertWorkshopReportSql(report, parameters) {
+function buildInsertWorkshopReportSql(report, parameters, dependency = "") {
+  const values = `(
+  ${parameters.text(report.reportId)},
+  ${parameters.nullableText(report.productionTaskId)},
+  ${parameters.text(report.orderLineId)},
+  ${parameters.text(report.processType)},
+  ${parameters.nullableText(report.machineId)},
+  ${parameters.nullableText(report.operatorId)},
+  ${parameters.integer(report.qualifiedQty)},
+  ${parameters.integer(report.exceptionQty)},
+  ${parameters.nullableInteger(report.machineCount)},
+  ${parameters.nullableTimestamp(report.startedAt)},
+  ${parameters.nullableTimestamp(report.completedAt)},
+  ${parameters.nullableText(report.remark)},
+  ${parameters.json(report.evidence)},
+  ${timestampParameter(report.createdAt, parameters)}
+)`;
   return `INSERT INTO workshop_reports (
   id,
   production_task_id,
@@ -554,22 +759,7 @@ function buildInsertWorkshopReportSql(report, parameters) {
   remark,
   evidence_json,
   created_at
-) VALUES (
-  ${parameters.text(report.reportId)},
-  ${parameters.nullableText(report.productionTaskId)},
-  ${parameters.text(report.orderLineId)},
-  ${parameters.text(report.processType)},
-  ${parameters.nullableText(report.machineId)},
-  ${parameters.nullableText(report.operatorId)},
-  ${parameters.integer(report.qualifiedQty)},
-  ${parameters.integer(report.exceptionQty)},
-  ${parameters.nullableInteger(report.machineCount)},
-  ${parameters.nullableTimestamp(report.startedAt)},
-  ${parameters.nullableTimestamp(report.completedAt)},
-  ${parameters.nullableText(report.remark)},
-  ${parameters.json(report.evidence)},
-  ${timestampParameter(report.createdAt, parameters)}
-)
+) ${buildInsertValuesSource(values, ["id", "production_task_id", "order_line_id", "process_type", "machine_id", "operator_id", "qualified_qty", "exception_qty", "machine_count", "started_at", "completed_at", "remark", "evidence_json", "created_at"], dependency)}
 ON CONFLICT (id) DO UPDATE SET
   qualified_qty = EXCLUDED.qualified_qty,
   exception_qty = EXCLUDED.exception_qty,
@@ -580,19 +770,33 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING ${workshopReportJsonExpression("workshop_reports")} AS result`;
 }
 
-function buildUpdateOrderLineSql(orderLine, parameters) {
+function buildUpdateOrderLineSql(orderLine, parameters, dependency = "") {
   if (!orderLine) return "SELECT NULL::json AS result WHERE false";
   return `UPDATE order_lines
 SET
   line_status = ${parameters.text(orderLine.lineStatus)},
   exception_tags = ${parameters.textArray(orderLine.exceptionTags)},
+  revision = order_lines.revision + 1,
   updated_at = now()
 WHERE id = ${parameters.text(orderLine.orderLineId)}
+${buildWriteGuardCondition(dependency)}
 RETURNING ${orderLineJsonExpression("order_lines")} AS result`;
 }
 
-function buildUpsertPackingTaskSql(packingTask, parameters) {
+function buildUpsertPackingTaskSql(packingTask, parameters, dependency = "") {
   if (!packingTask) return "SELECT NULL::json AS result WHERE false";
+  const values = `(
+  ${parameters.text(packingTask.packingTaskId)},
+  ${parameters.text(packingTask.bizNo)},
+  ${parameters.text(packingTask.orderLineId)},
+  ${parameters.integer(packingTask.plannedQty)},
+  ${parameters.integer(packingTask.actualPackedQty)},
+  ${parameters.text(packingTask.status)},
+  1,
+  ${parameters.nullableText(packingTask.createdBy)},
+  ${timestampParameter(packingTask.createdAt, parameters)},
+  now()
+)`;
   return `INSERT INTO packing_tasks (
   id,
   biz_no,
@@ -600,29 +804,21 @@ function buildUpsertPackingTaskSql(packingTask, parameters) {
   planned_qty,
   actual_packed_qty,
   status,
+  revision,
   created_by,
   created_at,
   updated_at
-) VALUES (
-  ${parameters.text(packingTask.packingTaskId)},
-  ${parameters.text(packingTask.bizNo)},
-  ${parameters.text(packingTask.orderLineId)},
-  ${parameters.integer(packingTask.plannedQty)},
-  ${parameters.integer(packingTask.actualPackedQty)},
-  ${parameters.text(packingTask.status)},
-  ${parameters.nullableText(packingTask.createdBy)},
-  ${timestampParameter(packingTask.createdAt, parameters)},
-  now()
-)
+) ${buildInsertValuesSource(values, ["id", "biz_no", "order_line_id", "planned_qty", "actual_packed_qty", "status", "revision", "created_by", "created_at", "updated_at"], dependency)}
 ON CONFLICT (id) DO UPDATE SET
   planned_qty = EXCLUDED.planned_qty,
   actual_packed_qty = EXCLUDED.actual_packed_qty,
   status = EXCLUDED.status,
+  revision = packing_tasks.revision + 1,
   updated_at = now()
 RETURNING ${packingTaskJsonExpression("packing_tasks")} AS result`;
 }
 
-function buildUpsertMachineCapacityBaselineSql(record, parameters) {
+function buildUpsertMachineCapacityBaselineSql(record, parameters, dependency = "") {
   if (!record) return "SELECT NULL::json AS result WHERE false";
   return `INSERT INTO machine_capacity_baselines (
   id,
@@ -652,6 +848,7 @@ SELECT
   ${timestampParameter(record.createdAt, parameters)},
   now()
 WHERE EXISTS (SELECT 1 FROM machines WHERE id = ${parameters.text(record.machineId)})
+${buildWriteGuardCondition(dependency)}
 ON CONFLICT (machine_id, size_key, source_kind, effective_from) DO UPDATE SET
   daily_capacity_qty = machine_capacity_baselines.daily_capacity_qty + EXCLUDED.daily_capacity_qty,
   hourly_capacity_qty = EXCLUDED.hourly_capacity_qty,
@@ -661,7 +858,7 @@ ON CONFLICT (machine_id, size_key, source_kind, effective_from) DO UPDATE SET
 RETURNING ${machineCapacityBaselineJsonExpression("machine_capacity_baselines")} AS result`;
 }
 
-function buildInsertPackagesSql(packages, parameters) {
+function buildInsertPackagesSql(packages, parameters, dependency = "") {
   if (packages.length === 0) return "SELECT NULL::json AS result WHERE false";
   const values = packages
     .map(
@@ -694,8 +891,7 @@ function buildInsertPackagesSql(packages, parameters) {
   created_by,
   created_at,
   updated_at
-) VALUES
-${values}
+) ${buildInsertValuesSource(values, ["id", "biz_no", "order_line_id", "fulfillment_id", "package_seq", "package_count", "packed_qty", "label_print_record_id", "status", "created_by", "created_at", "updated_at"], dependency)}
 ON CONFLICT (id) DO UPDATE SET
   fulfillment_id = EXCLUDED.fulfillment_id,
   package_seq = EXCLUDED.package_seq,
@@ -707,7 +903,7 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING ${packageJsonExpression("packages")} AS result`;
 }
 
-function buildUpdateFulfillmentSql(fulfillment, parameters) {
+function buildUpdateFulfillmentSql(fulfillment, parameters, dependency = "") {
   if (!fulfillment) return "SELECT NULL::json AS result WHERE false";
   return `UPDATE fulfillment_records
 SET
@@ -715,12 +911,14 @@ SET
   actual_qty = ${parameters.nullableInteger(fulfillment.actualQty)},
   status = ${parameters.text(fulfillment.status)},
   confirmed_by = COALESCE(${parameters.nullableText(fulfillment.confirmedBy)}, confirmed_by),
+  revision = fulfillment_records.revision + 1,
   updated_at = now()
 WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
+${buildWriteGuardCondition(dependency)}
 RETURNING ${fulfillmentJsonExpression("fulfillment_records")} AS result`;
 }
 
-function buildInsertInventoryReservationsSql(records, parameters) {
+function buildInsertInventoryReservationsSql(records, parameters, dependency = "") {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
   const values = records
     .map(
@@ -749,8 +947,7 @@ function buildInsertInventoryReservationsSql(records, parameters) {
   created_by,
   created_at,
   updated_at
-) VALUES
-${values}
+) ${buildInsertValuesSource(values, ["id", "order_line_id", "inventory_item_id", "reserved_qty", "reservation_type", "status", "expires_at", "created_by", "created_at", "updated_at"], dependency)}
 ON CONFLICT (id) DO UPDATE SET
   reserved_qty = EXCLUDED.reserved_qty,
   reservation_type = EXCLUDED.reservation_type,
@@ -759,7 +956,7 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING ${inventoryReservationJsonExpression("inventory_reservations")} AS result`;
 }
 
-function buildUpdateInventoryItemsSql(records, parameters) {
+function buildUpdateInventoryItemsSql(records, parameters, dependency = "") {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
   const values = records
     .map(
@@ -774,6 +971,7 @@ SET
   on_hand_qty = GREATEST(0, item.on_hand_qty + delta.on_hand_qty_change),
   reserved_qty = GREATEST(0, item.reserved_qty + delta.reserved_qty_change),
   waiting_pickup_locked_qty = GREATEST(0, item.waiting_pickup_locked_qty + delta.waiting_pickup_locked_qty_change),
+  revision = item.revision + 1,
   updated_at = now()
 FROM (
   SELECT
@@ -787,15 +985,17 @@ ${values}
   GROUP BY inventory_item_id
 ) AS delta
 WHERE item.id = delta.inventory_item_id
+${buildWriteGuardCondition(dependency)}
 RETURNING json_build_object(
   'inventoryItemId', item.id,
   'onHandQty', item.on_hand_qty,
   'reservedQty', item.reserved_qty,
-  'waitingPickupLockedQty', item.waiting_pickup_locked_qty
+  'waitingPickupLockedQty', item.waiting_pickup_locked_qty,
+  'revision', item.revision
 ) AS result`;
 }
 
-function buildInsertInventoryLedgerEntriesSql(records, parameters) {
+function buildInsertInventoryLedgerEntriesSql(records, parameters, dependency = "") {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
   const values = records
     .map(
@@ -832,8 +1032,7 @@ function buildInsertInventoryLedgerEntriesSql(records, parameters) {
   created_at,
   reason,
   remark
-) VALUES
-${values}
+) ${buildInsertValuesSource(values, ["id", "inventory_item_id", "change_type", "qty_before", "qty_change", "qty_after", "source_type", "source_id", "operator_id", "confirmed_by", "occurred_at", "created_at", "reason", "remark"], dependency)}
 ON CONFLICT (id) DO UPDATE SET
   inventory_item_id = EXCLUDED.inventory_item_id,
   change_type = EXCLUDED.change_type,
@@ -847,7 +1046,29 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING ${inventoryLedgerJsonExpression("inventory_ledger_entries")} AS result`;
 }
 
-function buildInsertOperationLogSql(operationLog, parameters) {
+function buildInsertValuesSource(values, columns, dependency) {
+  if (!dependency) return `VALUES\n${values}`;
+  return `SELECT payload.*
+FROM (VALUES\n${values}) AS payload(${columns.join(", ")})
+JOIN ${dependency} ON ${dependency}.ok`;
+}
+
+function buildWriteGuardCondition(dependency) {
+  return dependency ? `AND EXISTS (SELECT 1 FROM ${dependency} WHERE ok)` : "";
+}
+
+function buildInsertOperationLogSql(operationLog, parameters, dependency = "") {
+  const values = `${parameters.text(operationLog.id)},
+  ${parameters.text(operationLog.targetType)},
+  ${parameters.text(operationLog.targetId)},
+  ${parameters.text(operationLog.action)},
+  ${parameters.json(operationLog.before)},
+  ${parameters.json(operationLog.after)},
+  ${parameters.nullableText(operationLog.reason)},
+  ${parameters.nullableText(operationLog.operatorId)},
+  ${parameters.text(operationLog.pageKey)},
+  ${timestampParameter(operationLog.occurredAt, parameters)},
+  ${timestampParameter(operationLog.createdAt, parameters)}`;
   return `INSERT INTO operation_logs (
   id,
   target_type,
@@ -860,19 +1081,7 @@ function buildInsertOperationLogSql(operationLog, parameters) {
   page_key,
   occurred_at,
   created_at
-) VALUES (
-  ${parameters.text(operationLog.id)},
-  ${parameters.text(operationLog.targetType)},
-  ${parameters.text(operationLog.targetId)},
-  ${parameters.text(operationLog.action)},
-  ${parameters.json(operationLog.before)},
-  ${parameters.json(operationLog.after)},
-  ${parameters.nullableText(operationLog.reason)},
-  ${parameters.nullableText(operationLog.operatorId)},
-  ${parameters.text(operationLog.pageKey)},
-  ${timestampParameter(operationLog.occurredAt, parameters)},
-  ${timestampParameter(operationLog.createdAt, parameters)}
-)
+) ${dependency ? `SELECT ${values} FROM ${dependency} WHERE ok` : `VALUES (${values})`}
 ON CONFLICT (id) DO UPDATE SET
   target_type = EXCLUDED.target_type,
   target_id = EXCLUDED.target_id,
@@ -891,6 +1100,7 @@ function normalizeProductionTask(record) {
   const orderLineId = String(record.orderLineId ?? record.order_line_id ?? record.lineId ?? "").trim();
   if (!productionTaskId || !orderLineId) return null;
   return {
+    ...record,
     productionTaskId,
     bizNo: String(record.bizNo ?? record.biz_no ?? productionTaskId).trim() || productionTaskId,
     orderLineId,
@@ -899,6 +1109,7 @@ function normalizeProductionTask(record) {
     plannedQty: toFiniteInteger(record.plannedQty ?? record.planned_qty ?? record.qty),
     taskStatus: String(record.taskStatus ?? record.task_status ?? record.status ?? "待开始").trim() || "待开始",
     publishedScheduleId: String(record.publishedScheduleId ?? record.published_schedule_id ?? "").trim(),
+    revision: positiveRevision(record.revision),
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
     createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
   };
@@ -933,12 +1144,14 @@ function normalizePackingTask(record) {
   const orderLineId = String(record.orderLineId ?? record.order_line_id ?? record.lineId ?? "").trim();
   if (!packingTaskId || !orderLineId) return null;
   return {
+    ...record,
     packingTaskId,
     bizNo: String(record.bizNo ?? record.biz_no ?? packingTaskId).trim() || packingTaskId,
     orderLineId,
     plannedQty: toFiniteInteger(record.plannedQty ?? record.planned_qty ?? record.qty),
     actualPackedQty: toFiniteInteger(record.actualPackedQty ?? record.actual_packed_qty ?? 0),
     status: String(record.status ?? "待打包").trim() || "待打包",
+    revision: positiveRevision(record.revision),
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
     createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
   };
@@ -996,12 +1209,14 @@ function normalizeFulfillment(record) {
   const orderLineId = String(record.orderLineId ?? record.order_line_id ?? record.lineId ?? "").trim();
   if (!fulfillmentId || !orderLineId) return null;
   return {
+    ...record,
     fulfillmentId,
     orderLineId,
     expectedQty: toFiniteInteger(record.expectedQty ?? record.expected_qty ?? record.qty),
     actualQty: optionalInteger(record.actualQty ?? record.actual_qty),
     status: String(record.status ?? "").trim(),
     confirmedBy: String(record.confirmedBy ?? record.confirmed_by ?? "").trim(),
+    revision: positiveRevision(record.revision),
   };
 }
 
@@ -1013,6 +1228,7 @@ function normalizeOrderLine(record) {
     ...record,
     orderLineId,
     lineStatus: String(record.lineStatus ?? record.line_status ?? record.status ?? "").trim(),
+    revision: positiveRevision(record.revision),
     exceptionTags: Array.isArray(record.exceptionTags)
       ? record.exceptionTags
       : Array.isArray(record.exception_tags)
@@ -1063,6 +1279,29 @@ function normalizeInventoryAdjustment(record) {
     waitingPickupLockedQtyChange: toFiniteInteger(
       record.waitingPickupLockedQtyChange ?? record.waiting_pickup_locked_qty_change ?? 0,
     ),
+    expectedRevision: optionalInteger(record.expectedRevision ?? record.expected_revision),
+    expectedOnHandQty: optionalInteger(record.expectedOnHandQty ?? record.expected_on_hand_qty),
+    expectedReservedQty: optionalInteger(record.expectedReservedQty ?? record.expected_reserved_qty),
+  };
+}
+
+function normalizeInventoryItems(records) {
+  if (!Array.isArray(records)) return [];
+  return records.map((record) => normalizeInventoryItem(record)).filter(Boolean);
+}
+
+function normalizeInventoryItem(record) {
+  if (!record || typeof record !== "object") return null;
+  const inventoryItemId = String(record.inventoryItemId ?? record.inventory_item_id ?? record.id ?? "").trim();
+  if (!inventoryItemId) return null;
+  return {
+    inventoryItemId,
+    onHandQty: toFiniteInteger(record.onHandQty ?? record.on_hand_qty ?? record.inStock),
+    reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty ?? record.reserved),
+    waitingPickupLockedQty: toFiniteInteger(
+      record.waitingPickupLockedQty ?? record.waiting_pickup_locked_qty ?? record.locked,
+    ),
+    revision: positiveRevision(record.revision),
   };
 }
 
@@ -1123,6 +1362,7 @@ function productionTaskJsonExpression(alias) {
     'plannedQty', ${alias}.planned_qty,
     'taskStatus', ${alias}.task_status,
     'publishedScheduleId', ${alias}.published_schedule_id,
+    'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at
   )`;
@@ -1155,6 +1395,7 @@ function packingTaskJsonExpression(alias) {
     'plannedQty', ${alias}.planned_qty,
     'actualPackedQty', ${alias}.actual_packed_qty,
     'status', ${alias}.status,
+    'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at
   )`;
@@ -1199,7 +1440,8 @@ function fulfillmentJsonExpression(alias) {
     'expectedQty', ${alias}.expected_qty,
     'actualQty', ${alias}.actual_qty,
     'status', ${alias}.status,
-    'confirmedBy', ${alias}.confirmed_by
+    'confirmedBy', ${alias}.confirmed_by,
+    'revision', ${alias}.revision
   )`;
 }
 
@@ -1207,7 +1449,8 @@ function orderLineJsonExpression(alias) {
   return `json_build_object(
     'orderLineId', ${alias}.id,
     'lineStatus', ${alias}.line_status,
-    'exceptionTags', ${alias}.exception_tags
+    'exceptionTags', ${alias}.exception_tags,
+    'revision', ${alias}.revision
   )`;
 }
 
@@ -1331,6 +1574,14 @@ function upsertMachineCapacityBaseline(rows, record) {
   );
 }
 
+function upsertAuthoritativeMachineCapacityBaseline(rows, record) {
+  if (!record?.id) return rows;
+  const recordKey = buildMachineCapacityBaselineKey(record);
+  const index = rows.findIndex((item) => item.id === record.id || buildMachineCapacityBaselineKey(item) === recordKey);
+  if (index < 0) return [record, ...rows];
+  return rows.map((item, itemIndex) => (itemIndex === index ? { ...item, ...record } : item));
+}
+
 function buildMachineCapacityBaselineKey(record) {
   return [
     String(record?.machineId ?? record?.machine_id ?? "").trim(),
@@ -1352,10 +1603,46 @@ function applyWorkspaceInventoryAdjustments(workspace, inventoryAdjustments) {
         inStock: Math.max(0, Number(next.inStock ?? next.onHand ?? 0) + adjustment.onHandQtyChange),
         reserved: Math.max(0, Number(next.reserved ?? 0) + adjustment.reservedQtyChange),
         locked: Math.max(0, Number(next.locked ?? next.waitingPickupLocked ?? 0) + adjustment.waitingPickupLockedQtyChange),
+        revision: positiveRevision(next.revision) + 1,
       }),
       inventory,
     );
   });
+}
+
+function applyAuthoritativeWorkspaceInventoryItems(workspace, inventoryItems) {
+  const normalizedItems = normalizeInventoryItems(inventoryItems);
+  if (normalizedItems.length === 0) return;
+  const itemsById = new Map(normalizedItems.map((item) => [item.inventoryItemId, item]));
+  const existingItems = Array.isArray(workspace.inventories) ? workspace.inventories : [];
+  const existingIds = new Set(existingItems.map((item) => String(item.id ?? item.inventoryItemId ?? "")));
+  workspace.inventories = existingItems.map((inventory) => {
+    const id = String(inventory.id ?? inventory.inventoryItemId ?? "");
+    const saved = itemsById.get(id);
+    if (!saved) return inventory;
+    return {
+      ...inventory,
+      inStock: saved.onHandQty,
+      onHand: saved.onHandQty,
+      reserved: saved.reservedQty,
+      locked: saved.waitingPickupLockedQty,
+      waitingPickupLocked: saved.waitingPickupLockedQty,
+      revision: saved.revision,
+    };
+  });
+  for (const saved of normalizedItems) {
+    if (existingIds.has(saved.inventoryItemId)) continue;
+    workspace.inventories.push({
+      id: saved.inventoryItemId,
+      inventoryItemId: saved.inventoryItemId,
+      inStock: saved.onHandQty,
+      onHand: saved.onHandQty,
+      reserved: saved.reservedQty,
+      locked: saved.waitingPickupLockedQty,
+      waitingPickupLocked: saved.waitingPickupLockedQty,
+      revision: saved.revision,
+    });
+  }
 }
 
 function normalizeObject(value) {
@@ -1381,6 +1668,11 @@ function toFiniteInteger(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;
   return Math.trunc(number);
+}
+
+function positiveRevision(value) {
+  const revision = Number(value);
+  return Number.isInteger(revision) && revision >= 1 ? revision : 1;
 }
 
 function timestampParameter(value, parameters) {

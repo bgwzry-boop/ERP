@@ -1,5 +1,7 @@
 # Decisions
 
+- 2026-07-11: Production completion, cross-day progress, and packing completion are high-risk production writes. In production they must derive the operator from the authenticated session, use one stable idempotency key per user action, acquire deterministic business-resource locks, validate row revisions and relevant inventory quantity snapshots before mutation, reject terminal re-execution, and commit task/order/inventory/package/ledger/audit changes atomically. PostgreSQL transaction responses must carry authoritative post-write values for any in-memory projection that would otherwise apply deltas, so idempotent replay cannot double visible stock or capacity. Legacy request-body `operatorId` remains compatibility-only and is never an audit identity.
+
 ## 2026-07-11 - Finished-Goods Photo Review Owns Its Todo Transaction
 
 A finished-goods photo is production-task state, not an in-memory UI annotation. Upload persists the photo snapshot and audit log atomically. Review persists the task state, the customer-notification or retake todo, any automatically resolved prior retake todo, full todo events, and the operation log as one idempotent transaction. The workflow never creates inventory, reservations, or packing output.

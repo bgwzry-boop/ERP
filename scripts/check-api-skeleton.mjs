@@ -1186,7 +1186,7 @@ try {
     exceptionQty: 3,
     machineCount: 820,
     machineId: "STALE-MACHINE-MUST-NOT-OVERRIDE",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     reportedAt: new Date().toISOString(),
     remark: "API skeleton production daily progress check",
   });
@@ -1399,7 +1399,7 @@ try {
     machineCount: 1888,
     machineId: "STALE-MACHINE-MUST-NOT-OVERRIDE",
     inventoryItemId: productionInventoryItemId,
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     completedAt: new Date().toISOString(),
     remark: "API skeleton production report check",
   });
@@ -1446,7 +1446,12 @@ try {
     productionTaskDetail.inventoryLedgerEntries?.length !== 2 ||
     !productionTaskDetail.operationLogs?.some((log) => log.action === "upload_finished_goods_photo") ||
     !productionTaskDetail.operationLogs?.some((log) => log.action === "accept_finished_goods_photo") ||
-    !productionTaskDetail.operationLogs?.some((log) => log.action === "complete_production_report")
+    !productionTaskDetail.operationLogs?.some(
+      (log) => log.action === "record_production_daily_progress" && log.operatorId === "U-OFFICE-A",
+    ) ||
+    !productionTaskDetail.operationLogs?.some(
+      (log) => log.action === "complete_production_report" && log.operatorId === "U-OFFICE-A",
+    )
   ) {
     throw new Error("/api/production-tasks/{id} did not return the production report detail chain");
   }
@@ -1494,7 +1499,7 @@ try {
       packageCount: 3,
       labelsPrinted: false,
       inventoryItemId: productionInventoryItemId,
-      operatorId: "U-WAREHOUSE-A",
+      operatorId: "U-SPOOFED",
       completedAt: new Date().toISOString(),
       remark: "API skeleton packing complete check",
     },
@@ -1530,7 +1535,9 @@ try {
     packingTaskDetail.packages?.length !== 3 ||
     packingTaskDetail.inventoryDeducted !== false ||
     packingTaskDetail.inventoryLedgerEntries?.length !== 1 ||
-    !packingTaskDetail.operationLogs?.some((log) => log.action === "complete_packing_task")
+    !packingTaskDetail.operationLogs?.some(
+      (log) => log.action === "complete_packing_task" && log.operatorId === "U-WAREHOUSE-A",
+    )
   ) {
     throw new Error("/api/packing-tasks/{id} did not return the packing detail chain");
   }

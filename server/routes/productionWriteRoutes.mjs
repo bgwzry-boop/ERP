@@ -33,11 +33,25 @@ export async function handleProductionWriteRoutes({
       },
       "report-complete": {
         permission: writeActionPermissions.reportProduction,
-        run: () => reportProductionCompleteRoute({ response, workspace, productionTaskId, body }),
+        run: () =>
+          reportProductionCompleteRoute({
+            response,
+            workspace,
+            productionTaskId,
+            body,
+            operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+          }),
       },
       "daily-progress": {
         permission: writeActionPermissions.reportProduction,
-        run: () => recordProductionDailyProgressRoute({ response, workspace, productionTaskId, body }),
+        run: () =>
+          recordProductionDailyProgressRoute({
+            response,
+            workspace,
+            productionTaskId,
+            body,
+            operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+          }),
       },
       "finished-goods-photo": {
         permission: writeActionPermissions.reportProduction,
@@ -105,6 +119,7 @@ export async function handleProductionWriteRoutes({
     workspace,
     packingTaskId: decodeURIComponent(packingCompleteMatch[1]),
     body,
+    operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
   });
   return true;
 }

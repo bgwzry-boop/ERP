@@ -2280,7 +2280,8 @@ paths:
         机器计数 / 动作次数只作为报工凭证保存，不参与库存、出库、对账或计费数量。
         当机台主数据已存在时，接口会按机台 + 规格 + 日期累加一条 production_report
         产能校准样本；样本数量来自合格报工数量，不来自机器计数。
-        外加工印刷服务单不应调用本接口入库。
+        外加工印刷服务单不应调用本接口入库。生产任务、订单行、库存、占用、流水、打包任务和日志在同一事务内提交；
+        idempotencyKey 相同且请求内容相同时返回首次结果，不会重复入库或占用。
       operationId: reportProductionTaskComplete
       parameters:
         - $ref: "#/components/parameters/ProductionTaskId"
@@ -2313,7 +2314,7 @@ paths:
       description: >
         车间当天结束时记录当日合格数量、异常数量和机器计数，用于次日自动带出昨日完成和剩余数量。
         本接口只沉淀跨日进度，不写入成品库存、不锁定订单库存、不生成打包任务，也不生成机台产能校准样本。
-        真正完工入库仍必须调用 report-complete。
+        真正完工入库仍必须调用 report-complete。任务、日报和日志在同一事务内提交，并支持 idempotencyKey 重放。
       operationId: recordProductionTaskDailyProgress
       parameters:
         - $ref: "#/components/parameters/ProductionTaskId"
@@ -2475,7 +2476,8 @@ paths:
       description: >
         打包完成只确认包裹和下一步交付状态，不扣减成品库存。
         库存扣减仍发生在出库完成或快递 / 快运确认拉走时。接口会写零数量库存追踪流水，
-        方便审计“已打包但未交付”的状态。
+        方便审计“已打包但未交付”的状态。打包任务、包裹、订单行、交付记录、流水和日志在同一事务内提交，
+        并支持 idempotencyKey 重放，避免重复生成包裹。
       operationId: completePackingTask
       parameters:
         - $ref: "#/components/parameters/PackingTaskId"
@@ -17758,6 +17760,9 @@ components:
           minimum: 0
         status:
           type: string
+        revision:
+          type: integer
+          minimum: 1
         createdBy:
           type: string
         createdAt:
@@ -17837,7 +17842,6 @@ components:
       type: object
       required:
         - qualifiedQty
-        - operatorId
       properties:
         productionTaskId:
           type: string
@@ -17885,8 +17889,15 @@ components:
         evidence:
           type: object
           additionalProperties: true
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: 客户端重试键；同一业务动作重试必须复用相同值。
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略此值，操作人取当前认证会话。
 
     ProductionReportCompleteResponse:
       type: object
@@ -18006,7 +18017,6 @@ components:
       type: object
       required:
         - dailyQualifiedQty
-        - operatorId
       properties:
         productionTaskId:
           type: string
@@ -18048,8 +18058,15 @@ components:
         evidence:
           type: object
           additionalProperties: true
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: 客户端重试键；同一业务动作重试必须复用相同值。
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略此值，操作人取当前认证会话。
 
     ProductionDailyProgressResponse:
       allOf:
@@ -18246,7 +18263,6 @@ components:
       type: object
       required:
         - actualPackedQty
-        - operatorId
       properties:
         packingTaskId:
           type: string
@@ -18277,8 +18293,15 @@ components:
           format: date-time
         remark:
           type: string
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: 客户端重试键；同一业务动作重试必须复用相同值。
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略此值，操作人取当前认证会话。
 
     PackingPackageInput:
       type: object

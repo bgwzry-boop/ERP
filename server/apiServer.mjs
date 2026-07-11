@@ -16920,6 +16920,14 @@ async function cancelFulfillmentRoute({ response, workspace, fulfillmentId, body
   });
 }
 
+function resolvePersistableCreatedBy(workspace, candidateUserId, fallbackUserId) {
+  const candidate = cleanServerText(candidateUserId);
+  const knownUserIds = new Set(
+    (Array.isArray(workspace.users) ? workspace.users : []).map((user) => cleanServerText(user?.userId ?? user?.id)),
+  );
+  return candidate && knownUserIds.has(candidate) ? candidate : cleanServerText(fallbackUserId);
+}
+
 async function publishProductionScheduleRoute({ response, workspace, productionTaskId, body }) {
   const beforeTask = findProductionTask(workspace, productionTaskId) ?? buildProductionTaskFromBody(workspace, productionTaskId, body);
   if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
@@ -16975,7 +16983,7 @@ async function publishProductionScheduleRoute({ response, workspace, productionT
     taskStatus,
     status: taskStatus,
     publishedScheduleId,
-    createdBy: beforeTask.createdBy ?? operatorId,
+    createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
     createdAt: beforeTask.createdAt ?? publishedAt,
   };
   const lineStatus = body.lineStatus ?? resolvePublishedProductionLineStatus({ taskType, beforeOrderLine, taskStatus });
@@ -17635,7 +17643,7 @@ function cloneJson(value) {
   return JSON.parse(JSON.stringify(value ?? null));
 }
 
-async function recordProductionDailyProgressRoute({ response, workspace, productionTaskId, body }) {
+async function recordProductionDailyProgressRoute({ response, workspace, productionTaskId, body, operatorId }) {
   const beforeTask = findProductionTask(workspace, productionTaskId) ?? buildProductionTaskFromBody(workspace, productionTaskId, body);
   if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
   if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
@@ -17661,7 +17669,6 @@ async function recordProductionDailyProgressRoute({ response, workspace, product
   if (!Number.isFinite(dailyQualifiedQty) || dailyQualifiedQty <= 0) {
     return sendBusinessError(response, 422, "VALIDATION_ERROR", "dailyQualifiedQty must be greater than 0.");
   }
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const reportedAt = body.reportedAt ?? body.completedAt ?? new Date().toISOString();
   const reportDate = normalizeDateInput(body.progressDate ?? reportedAt);
   const machineCount = body.machineCount === undefined || body.machineCount === null ? undefined : Math.trunc(Number(body.machineCount));
@@ -17685,7 +17692,7 @@ async function recordProductionDailyProgressRoute({ response, workspace, product
     machineId: effectiveMachineId,
     plannedQty,
     taskStatus: remainingQty > 0 ? "跨日继续" : "待完工确认",
-    createdBy: beforeTask.createdBy ?? operatorId,
+    createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
   };
   const reportId = body.reportId ?? nextPlainId("WDP", `${productionTaskId}-${workspace.workshopReports.length + 1}`);
   const workshopReport = {
@@ -17745,8 +17752,12 @@ async function recordProductionDailyProgressRoute({ response, workspace, product
     workspace,
     productionTask: afterTask,
     workshopReport,
+    orderLine: beforeOrderLine,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: { ...body, operatorId },
   });
+  const savedEvidence = transaction.workshopReport.evidence ?? {};
 
   return sendJson(response, 200, {
     productionTaskId,
@@ -17754,14 +17765,14 @@ async function recordProductionDailyProgressRoute({ response, workspace, product
     orderLineId,
     status: transaction.productionTask.taskStatus,
     taskStatus: transaction.productionTask.taskStatus,
-    plannedQty,
-    progressDate: reportDate,
+    plannedQty: Number(savedEvidence.plannedQty ?? plannedQty),
+    progressDate: savedEvidence.progressDate ?? reportDate,
     dailyQualifiedQty: transaction.workshopReport.qualifiedQty,
-    previousQualifiedQty,
-    cumulativeQualifiedQty,
-    remainingQty,
-    carryOver: remainingQty > 0,
-    nextWorkDate,
+    previousQualifiedQty: Number(savedEvidence.previousQualifiedQty ?? previousQualifiedQty),
+    cumulativeQualifiedQty: Number(savedEvidence.cumulativeQualifiedQty ?? cumulativeQualifiedQty),
+    remainingQty: Number(savedEvidence.remainingQty ?? remainingQty),
+    carryOver: savedEvidence.carryOver ?? remainingQty > 0,
+    nextWorkDate: savedEvidence.nextWorkDate ?? nextWorkDate,
     machineCount: transaction.workshopReport.machineCount ?? null,
     machineCountAffectsInventory: false,
     inventoryCreated: false,
@@ -17814,7 +17825,7 @@ async function reviewProductionFinishedGoodsPhotoRoute({ response, workspace, pr
   });
 }
 
-async function reportProductionCompleteRoute({ response, workspace, productionTaskId, body }) {
+async function reportProductionCompleteRoute({ response, workspace, productionTaskId, body, operatorId }) {
   const beforeTask = findProductionTask(workspace, productionTaskId) ?? buildProductionTaskFromBody(workspace, productionTaskId, body);
   if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
   if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
@@ -17840,7 +17851,6 @@ async function reportProductionCompleteRoute({ response, workspace, productionTa
     : findUniqueMatchingInventory(workspace, beforeOrderLine);
   if (!inventoryItem) return sendNotFound(response, "INVENTORY_ITEM_NOT_FOUND");
 
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const completedAt = body.completedAt ?? new Date().toISOString();
   const machineCount = body.machineCount === undefined || body.machineCount === null ? undefined : Math.trunc(Number(body.machineCount));
   const effectiveMachineId = cleanServerText(beforeTask.machineId ?? body.machineId);
@@ -17852,7 +17862,7 @@ async function reportProductionCompleteRoute({ response, workspace, productionTa
     machineId: effectiveMachineId,
     plannedQty: Number(beforeTask.plannedQty ?? beforeTask.qty ?? beforeOrderLine.qty ?? qualifiedQty),
     taskStatus: "已完成",
-    createdBy: beforeTask.createdBy ?? operatorId,
+    createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
   };
   const afterOrderLine = {
     ...beforeOrderLine,
@@ -17979,10 +17989,15 @@ async function reportProductionCompleteRoute({ response, workspace, productionTa
         inventoryItemId: inventoryItem.id,
         onHandQtyChange: qualifiedQty,
         reservedQtyChange: qualifiedQty,
+        expectedRevision: Number(inventoryItem.revision ?? 1),
+        expectedOnHandQty: onHandBefore,
+        expectedReservedQty: reservedBefore,
       },
     ],
     inventoryLedgerEntries,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: { ...body, operatorId },
   });
 
   return sendJson(response, 200, {
@@ -18077,7 +18092,7 @@ function buildProductionCapacitySizeKey(orderLine, inventoryItem) {
   return sizeText.replace(/\s+/g, "");
 }
 
-async function completePackingTaskRoute({ response, workspace, packingTaskId, body }) {
+async function completePackingTaskRoute({ response, workspace, packingTaskId, body, operatorId }) {
   const beforeTask = findPackingTask(workspace, packingTaskId);
   if (!beforeTask) return sendNotFound(response, "PACKING_TASK_NOT_FOUND");
   if (body.packingTaskId && body.packingTaskId !== packingTaskId) {
@@ -18091,7 +18106,6 @@ async function completePackingTaskRoute({ response, workspace, packingTaskId, bo
   if (!Number.isFinite(actualPackedQty) || actualPackedQty <= 0) {
     return sendBusinessError(response, 422, "VALIDATION_ERROR", "actualPackedQty must be greater than 0.");
   }
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const completedAt = body.completedAt ?? new Date().toISOString();
   const packageRecords = buildPackageRecordsForPacking(workspace, {
     body,
@@ -18114,7 +18128,7 @@ async function completePackingTaskRoute({ response, workspace, packingTaskId, bo
     plannedQty: Number(beforeTask.plannedQty ?? beforeTask.qty ?? actualPackedQty),
     actualPackedQty,
     status: "已完成",
-    createdBy: beforeTask.createdBy ?? operatorId,
+    createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
   };
   const afterOrderLine = {
     ...beforeOrderLine,
@@ -18164,6 +18178,8 @@ async function completePackingTaskRoute({ response, workspace, packingTaskId, bo
     orderLine: afterOrderLine,
     inventoryLedgerEntries: inventoryTrace.inventoryLedgerEntries,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: { ...body, operatorId },
   });
 
   return sendJson(response, 200, {

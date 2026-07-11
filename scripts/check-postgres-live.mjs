@@ -1637,15 +1637,38 @@ ON CONFLICT (id) DO UPDATE SET
     machineCapacityBaselines: [],
     operationLogs: [],
   };
+  const productionWriteSnapshot = queryJson(
+    `SELECT json_build_object(
+      'orderLineRevision', ol.revision,
+      'inventoryRevision', ii.revision,
+      'onHandQty', ii.on_hand_qty,
+      'reservedQty', ii.reserved_qty
+    ) AS result
+    FROM order_lines ol
+    JOIN inventory_items ii ON ii.id = 'INV-LIVE-PROD-001'
+    WHERE ol.id = 'OL-LIVE-PROD-001';`,
+  );
   const productionReport = await productionPackingRepository.recordProductionReport({
     workspace: productionWorkspace,
     productionTask: buildProductionTaskRecord({ taskStatus: "已完成" }),
     workshopReport: buildWorkshopReportRecord({ remark: "Postgres live O'Brien production report" }),
-    orderLine: buildProductionOrderLineRecord({ lineStatus: "待打包" }),
+    orderLine: buildProductionOrderLineRecord({
+      lineStatus: "待打包",
+      revision: productionWriteSnapshot.orderLineRevision,
+    }),
     packingTask: buildPackingTaskRecord({ status: "待打包" }),
     machineCapacityBaseline: buildMachineCapacityBaselineRecord(),
     inventoryReservations: [buildProductionReservationRecord()],
-    inventoryAdjustments: [{ inventoryItemId: "INV-LIVE-PROD-001", onHandQtyChange: 80, reservedQtyChange: 80 }],
+    inventoryAdjustments: [
+      {
+        inventoryItemId: "INV-LIVE-PROD-001",
+        onHandQtyChange: 80,
+        reservedQtyChange: 80,
+        expectedRevision: productionWriteSnapshot.inventoryRevision,
+        expectedOnHandQty: productionWriteSnapshot.onHandQty,
+        expectedReservedQty: productionWriteSnapshot.reservedQty,
+      },
+    ],
     inventoryLedgerEntries: [
       buildProductionInventoryLedgerRecord({ ledgerId: "LEDGER-LIVE-PROD-IN-001", qtyBefore: 20, qtyChange: 80, qtyAfter: 100 }),
       buildProductionInventoryLedgerRecord({
@@ -1767,15 +1790,31 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(movedTargetScheduleRecords[0].sourceKind, "machine_reassignment");
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-SCHEDULE-MOVE-001';", { capture: true }).trim()), 1);
 
+  const packingWriteSnapshot = queryJson(
+    `SELECT json_build_object(
+      'packingTaskRevision', pt.revision,
+      'orderLineRevision', ol.revision
+    ) AS result
+    FROM packing_tasks pt
+    JOIN order_lines ol ON ol.id = pt.order_line_id
+    WHERE pt.id = 'PKT-LIVE-PROD-001';`,
+  );
   const packingCompletion = await productionPackingRepository.completePackingTask({
     workspace: productionWorkspace,
-    packingTask: buildPackingTaskRecord({ status: "已完成", actualPackedQty: 80 }),
+    packingTask: buildPackingTaskRecord({
+      status: "已完成",
+      actualPackedQty: 80,
+      revision: packingWriteSnapshot.packingTaskRevision,
+    }),
     packages: [
       buildPackageRecord({ packageId: "PKG-LIVE-PROD-001-1", packageSeq: 1, packageCount: 2, packedQty: 40 }),
       buildPackageRecord({ packageId: "PKG-LIVE-PROD-001-2", packageSeq: 2, packageCount: 2, packedQty: 40 }),
     ],
     fulfillment: null,
-    orderLine: buildProductionOrderLineRecord({ lineStatus: "待打印标签" }),
+    orderLine: buildProductionOrderLineRecord({
+      lineStatus: "待打印标签",
+      revision: packingWriteSnapshot.orderLineRevision,
+    }),
     inventoryLedgerEntries: [
       buildProductionInventoryLedgerRecord({
         ledgerId: "LEDGER-LIVE-PROD-PACK-001",
@@ -2366,6 +2405,9 @@ async function checkApiWithPostgresRepositories() {
   const productionFinishedGoodsPhotoTransactionRepository = createPostgresProductionFinishedGoodsPhotoTransactionRepository({
     postgresClient: apiPostgresClient,
   });
+  const productionPackingTransactionRepository = createPostgresProductionPackingTransactionRepository({
+    postgresClient: apiPostgresClient,
+  });
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   const apiServerOptions = {
@@ -2375,6 +2417,7 @@ async function checkApiWithPostgresRepositories() {
     todoActionRepository,
     inventoryCorrectionTransactionRepository,
     productionFinishedGoodsPhotoTransactionRepository,
+    productionPackingTransactionRepository,
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
@@ -3322,20 +3365,64 @@ WHERE id = 'F002';`,
      VALUES ('BAG-03', 'BAG-03', 'API live 制袋机', 'bag_making', '1号车间', 'active', true, 'U-OFFICE-A')
      ON CONFLICT (id) DO NOTHING;`,
   );
+  const apiDailyProgressBody = {
+    orderLineId: "ORD-0629-003-01",
+    dailyQualifiedQty: 400,
+    exceptionQty: 2,
+    machineCount: 900,
+    machineId: "BAG-03",
+    operatorId: "U-SPOOFED",
+    reportedAt: "2026-07-02T12:30:00.000Z",
+    remark: "postgres live daily progress route",
+    idempotencyKey: "production-daily-progress-live-001",
+  };
+  const apiDailyProgress = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/daily-progress",
+    apiDailyProgressBody,
+    { headers },
+  );
+  const replayedApiDailyProgress = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/daily-progress",
+    apiDailyProgressBody,
+    { headers },
+  );
+  assert.equal(replayedApiDailyProgress.reportId, apiDailyProgress.reportId);
+  assert.equal(replayedApiDailyProgress.operationLogId, apiDailyProgress.operationLogId);
+  assert.equal(replayedApiDailyProgress.cumulativeQualifiedQty, apiDailyProgress.cumulativeQualifiedQty);
+  assert.equal(replayedApiDailyProgress.remainingQty, apiDailyProgress.remainingQty);
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM workshop_reports WHERE production_task_id = 'PT-ORD-0629-003-01' AND evidence_json->>'reportKind' = 'daily_progress';",
+        { capture: true },
+      ).trim(),
+    ),
+    1,
+  );
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('operatorId', operator_id) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiDailyProgress.operationLogId)};`,
+    ).operatorId,
+    "U-OFFICE-A",
+  );
+  const apiProductionReportBody = {
+    orderLineId: "ORD-0629-003-01",
+    qualifiedQty: 1000,
+    exceptionQty: 0,
+    machineCount: 1888,
+    machineId: "BAG-03",
+    inventoryItemId: "30*38*10-白色-普通提-空白袋-待快运区",
+    operatorId: "U-SPOOFED",
+    completedAt: "2026-07-02T13:00:00.000Z",
+    remark: "postgres live production report route",
+    idempotencyKey: "production-report-complete-live-001",
+  };
   const apiProductionReport = await postJson(
     baseUrl,
     "/api/production-tasks/PT-ORD-0629-003-01/report-complete",
-    {
-      orderLineId: "ORD-0629-003-01",
-      qualifiedQty: 1000,
-      exceptionQty: 0,
-      machineCount: 1888,
-      machineId: "BAG-03",
-      inventoryItemId: "30*38*10-白色-普通提-空白袋-待快运区",
-      operatorId: "U-OFFICE-A",
-      completedAt: "2026-07-02T13:00:00.000Z",
-      remark: "postgres live production report route",
-    },
+    apiProductionReportBody,
     { headers },
   );
   assert.equal(apiProductionReport.status, "已完成");
@@ -3353,8 +3440,28 @@ WHERE id = 'F002';`,
   );
   assert.equal(Number(apiProductionInventoryAfterReport.onHand), Number(apiProductionInventoryBefore.onHand) + 1000);
   assert.equal(Number(apiProductionInventoryAfterReport.reserved), Number(apiProductionInventoryBefore.reserved) + 1000);
+  const replayedApiProductionReport = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/report-complete",
+    apiProductionReportBody,
+    { headers },
+  );
+  assert.equal(replayedApiProductionReport.reportId, apiProductionReport.reportId);
+  assert.equal(replayedApiProductionReport.operationLogId, apiProductionReport.operationLogId);
+  const apiProductionInventoryAfterReplay = queryJson(
+    "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';",
+  );
+  assert.deepEqual(apiProductionInventoryAfterReplay, apiProductionInventoryAfterReport);
   assert.equal(
-    queryJson("SELECT json_build_object('machineCount', machine_count) AS result FROM workshop_reports WHERE order_line_id = 'ORD-0629-003-01';").machineCount,
+    queryJson(
+      `SELECT json_build_object('operatorId', operator_id) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiProductionReport.operationLogId)};`,
+    ).operatorId,
+    "U-OFFICE-A",
+  );
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('machineCount', machine_count) AS result FROM workshop_reports WHERE id = ${sqlLiteral(apiProductionReport.reportId)};`,
+    ).machineCount,
     1888,
   );
   assert.equal(
@@ -3376,19 +3483,21 @@ WHERE id = 'F002';`,
   );
 
   const warehouseHeaders = { "x-erp-user-id": "U-WAREHOUSE-A" };
+  const apiPackingCompleteBody = {
+    orderLineId: "ORD-0629-003-01",
+    actualPackedQty: 1000,
+    packageCount: 3,
+    labelsPrinted: false,
+    inventoryItemId: "30*38*10-白色-普通提-空白袋-待快运区",
+    operatorId: "U-SPOOFED",
+    completedAt: "2026-07-02T13:20:00.000Z",
+    remark: "postgres live packing complete route",
+    idempotencyKey: "packing-complete-live-001",
+  };
   const apiPackingComplete = await postJson(
     baseUrl,
     `/api/packing-tasks/${apiProductionReport.packingTaskId}/complete`,
-    {
-      orderLineId: "ORD-0629-003-01",
-      actualPackedQty: 1000,
-      packageCount: 3,
-      labelsPrinted: false,
-      inventoryItemId: "30*38*10-白色-普通提-空白袋-待快运区",
-      operatorId: "U-WAREHOUSE-A",
-      completedAt: "2026-07-02T13:20:00.000Z",
-      remark: "postgres live packing complete route",
-    },
+    apiPackingCompleteBody,
     { headers: warehouseHeaders },
   );
   assert.equal(apiPackingComplete.status, "已完成");
@@ -3402,6 +3511,20 @@ WHERE id = 'F002';`,
   );
   assert.equal(Number(apiProductionInventoryAfterPacking.onHand), Number(apiProductionInventoryAfterReport.onHand));
   assert.equal(Number(apiProductionInventoryAfterPacking.reserved), Number(apiProductionInventoryAfterReport.reserved));
+  const replayedApiPackingComplete = await postJson(
+    baseUrl,
+    `/api/packing-tasks/${apiProductionReport.packingTaskId}/complete`,
+    apiPackingCompleteBody,
+    { headers: warehouseHeaders },
+  );
+  assert.equal(replayedApiPackingComplete.operationLogId, apiPackingComplete.operationLogId);
+  assert.deepEqual(replayedApiPackingComplete.packageIds, apiPackingComplete.packageIds);
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('operatorId', operator_id) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiPackingComplete.operationLogId)};`,
+    ).operatorId,
+    "U-WAREHOUSE-A",
+  );
   assert.equal(
     Number(runPsql("SELECT COUNT(*) FROM packages WHERE order_line_id = 'ORD-0629-003-01';", { capture: true }).trim()),
     3,

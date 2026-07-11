@@ -66,7 +66,16 @@ function checkLocalWorkspaceMutation() {
     packingTask: buildPackingTask({ status: "待打包" }),
     machineCapacityBaseline: buildMachineCapacityBaseline({ dailyCapacityQty: 80 }),
     inventoryReservations: [buildReservation()],
-    inventoryAdjustments: [{ inventoryItemId: "INV-PROD-001", onHandQtyChange: 80, reservedQtyChange: 80 }],
+    inventoryAdjustments: [
+      {
+        inventoryItemId: "INV-PROD-001",
+        onHandQtyChange: 80,
+        reservedQtyChange: 80,
+        expectedRevision: 1,
+        expectedOnHandQty: 100,
+        expectedReservedQty: 0,
+      },
+    ],
     inventoryLedgerEntries: [
       buildLedger({ ledgerId: "LEDGER-WR-PROD-001-IN", qtyBefore: 100, qtyChange: 80, qtyAfter: 180 }),
       buildLedger({
@@ -227,7 +236,16 @@ async function checkPostgresSqlBoundary() {
     packingTask: buildPackingTask(),
     machineCapacityBaseline: buildMachineCapacityBaseline(),
     inventoryReservations: [buildReservation()],
-    inventoryAdjustments: [{ inventoryItemId: "INV-PROD-001", onHandQtyChange: 80, reservedQtyChange: 80 }],
+    inventoryAdjustments: [
+      {
+        inventoryItemId: "INV-PROD-001",
+        onHandQtyChange: 80,
+        reservedQtyChange: 80,
+        expectedRevision: 1,
+        expectedOnHandQty: 100,
+        expectedReservedQty: 0,
+      },
+    ],
     inventoryLedgerEntries: [buildLedger()],
     operationLog: buildOperationLog({ id: "LOG-PROD-SQL-001", action: "complete_production_report" }),
   });
@@ -245,6 +263,12 @@ async function checkPostgresSqlBoundary() {
   assert.match(capturedProductionQuery.text, /INSERT INTO inventory_ledger_entries/);
   assert.match(capturedProductionQuery.text, /INSERT INTO operation_logs/);
   assert.match(capturedProductionQuery.text, /INSERT INTO machine_capacity_baselines/);
+  assert.match(capturedProductionQuery.text, /FOR UPDATE/);
+  assert.match(capturedProductionQuery.text, /write_guard AS MATERIALIZED/);
+  assert.match(capturedProductionQuery.text, /ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT/);
+  assert.match(capturedProductionQuery.text, /ERP_ORDER_LINE_CONCURRENCY_CONFLICT/);
+  assert.match(capturedProductionQuery.text, /ERP_INVENTORY_CONCURRENCY_CONFLICT/);
+  assert.match(capturedProductionQuery.text, /JOIN write_guard ON write_guard\.ok/);
   assert.match(capturedProductionQuery.text, /WHERE EXISTS \(SELECT 1 FROM machines/);
   assert.match(capturedProductionQuery.text, /ON CONFLICT \(machine_id, size_key, source_kind, effective_from\) DO UPDATE SET/);
   assert.match(capturedProductionQuery.text, /daily_capacity_qty = machine_capacity_baselines\.daily_capacity_qty \+ EXCLUDED\.daily_capacity_qty/);
@@ -292,6 +316,7 @@ async function checkPostgresSqlBoundary() {
   assert.match(capturedDailyProgressQuery.text, /INSERT INTO production_tasks/);
   assert.match(capturedDailyProgressQuery.text, /INSERT INTO workshop_reports/);
   assert.match(capturedDailyProgressQuery.text, /INSERT INTO operation_logs/);
+  assert.match(capturedDailyProgressQuery.text, /write_guard AS MATERIALIZED/);
   assert.ok(!capturedDailyProgressQuery.text.includes("daily_progress"));
   assert.ok(!capturedDailyProgressQuery.text.includes("cross-day O'Brien progress"));
   assert.match(capturedDailyProgressQuery.values.map(String).join("\n"), /daily_progress/);
@@ -376,6 +401,10 @@ async function checkPostgresSqlBoundary() {
   assert.match(capturedPackingQuery.text, /UPDATE order_lines/);
   assert.match(capturedPackingQuery.text, /INSERT INTO inventory_ledger_entries/);
   assert.match(capturedPackingQuery.text, /INSERT INTO operation_logs/);
+  assert.match(capturedPackingQuery.text, /FOR UPDATE/);
+  assert.match(capturedPackingQuery.text, /ERP_PACKING_TASK_CONCURRENCY_CONFLICT/);
+  assert.match(capturedPackingQuery.text, /ERP_FULFILLMENT_CONCURRENCY_CONFLICT/);
+  assert.match(capturedPackingQuery.text, /JOIN write_guard ON write_guard\.ok/);
   assert.ok(!capturedPackingQuery.text.includes("packing_complete"));
   assert.equal(capturedPackingQuery.values.includes("packing_complete"), true);
   assert.match(capturedPackingQuery.text, /COMMIT/);

@@ -40,7 +40,7 @@ export function createPostgresParameterBinder() {
     },
     nullableTimestamp(value) {
       const text = String(value ?? "").trim();
-      return !text || Number.isNaN(Date.parse(text)) ? "NULL" : bind(text, "timestamptz");
+      return !text || Number.isNaN(Date.parse(text)) ? "NULL::timestamptz" : bind(text, "timestamptz");
     },
     textArray(value) {
       const items = Array.isArray(value) ? value.map((item) => String(item ?? "").trim()).filter(Boolean) : [];
