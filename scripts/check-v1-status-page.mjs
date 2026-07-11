@@ -8,9 +8,11 @@ const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", i
 const v1StatusPageEntrySource = readFileSync(new URL("../src/features/v1-status/V1StatusPage.jsx", import.meta.url), "utf8");
 const v1StatusOverviewSource = readFileSync(new URL("../src/features/v1-status/V1StatusOverview.jsx", import.meta.url), "utf8");
 const v1StatusDecisionSource = readFileSync(new URL("../src/features/v1-status/V1StatusDecisionWorkspace.jsx", import.meta.url), "utf8");
+const v1StatusRuntimeSource = readFileSync(new URL("../src/features/v1-status/V1StatusRuntimeWorkspace.jsx", import.meta.url), "utf8");
+const v1StatusFieldAcceptanceSource = readFileSync(new URL("../src/features/v1-status/V1StatusFieldAcceptanceWorkspace.jsx", import.meta.url), "utf8");
 const v1StatusModuleSource = readFileSync(new URL("../src/features/v1-status/V1StatusModuleWorkspace.jsx", import.meta.url), "utf8");
 const v1StatusPresentationSource = readFileSync(new URL("../src/features/v1-status/v1StatusPresentation.js", import.meta.url), "utf8");
-const v1StatusPageSource = [v1StatusPageEntrySource, v1StatusOverviewSource, v1StatusDecisionSource, v1StatusModuleSource, v1StatusPresentationSource].join("\n");
+const v1StatusPageSource = [v1StatusPageEntrySource, v1StatusOverviewSource, v1StatusDecisionSource, v1StatusRuntimeSource, v1StatusFieldAcceptanceSource, v1StatusModuleSource, v1StatusPresentationSource].join("\n");
 const clientEntrySource = readFileSync(new URL("../src/services/officeV1GoLiveStatusApiClient.js", import.meta.url), "utf8");
 const clientActionsSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusActions.js", import.meta.url), "utf8");
 const clientSource = [clientEntrySource, clientActionsSource].join("\n");
@@ -114,6 +116,12 @@ assertIncludes(v1StatusPageEntrySource, "<V1StatusDecisionWorkspace", "V1 status
 assertExcludes(v1StatusPageEntrySource, "<h3>负责人决策摘要</h3>", "V1 status page should not retain owner-decision markup");
 assertExcludes(v1StatusPageEntrySource, "<h3>V1 完成审计</h3>", "V1 status page should not retain completion-audit markup");
 assertExcludes(v1StatusPageEntrySource, "<h3>当前解除阻塞阶段</h3>", "V1 status page should not retain current-phase markup");
+assertIncludes(v1StatusRuntimeSource, "export function V1StatusRuntimeWorkspace", "V1 runtime workspace should own runtime-gate rendering");
+assertIncludes(v1StatusPageEntrySource, "<V1StatusRuntimeWorkspace", "V1 status page should compose the extracted runtime workspace");
+assertExcludes(v1StatusPageEntrySource, "<h3>运行时门禁阻塞</h3>", "V1 status page should not retain runtime-gate markup");
+assertIncludes(v1StatusFieldAcceptanceSource, "export function V1StatusFieldAcceptanceWorkspace", "V1 field-acceptance workspace should own field report rendering");
+assertIncludes(v1StatusPageEntrySource, "<V1StatusFieldAcceptanceWorkspace", "V1 status page should compose the extracted field-acceptance workspace");
+assertExcludes(v1StatusPageEntrySource, "<h3>现场验收报告</h3>", "V1 status page should not retain field-acceptance markup");
 assertIncludes(v1StatusModuleSource, "export function V1StatusModuleWorkspace", "V1 module workspace should own module summary and detail rendering");
 assertIncludes(v1StatusPageEntrySource, "<V1StatusModuleWorkspace", "V1 status page should compose the extracted module workspace");
 assertExcludes(v1StatusPageEntrySource, "<h3>角色压力</h3>", "V1 status page should not retain module-pressure markup");
