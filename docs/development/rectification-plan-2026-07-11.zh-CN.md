@@ -178,6 +178,8 @@
 
 批次 D5 已完成：原材料入库、供应商对账和卷料状态 / 操作展示迁入 `src/features/raw-materials`，基础资料独立维护页迁入 `src/features/master-data`；浏览器回归修复原材料详情卷料操作网格内部横向溢出。`office/index.jsx` 降至 `9,836` 行，新增角色工具页面检查并完成原材料 / 主数据 API、领域状态、全量和桌面 / 手机浏览器回归。R5 后续重点转为上线状态、生产 / 打包、车间 / 司机页面及 `useOfficeWorkspace`。
 
+批次 D6 已完成：上线状态页及完成度、阶段、生产 env、持久化、设备、证据、签字和脱敏展示工具整体迁入 `src/features/v1-status`；现有状态页专项把新 feature 作为页面权威，并检查旧入口只重导出。`office/index.jsx` 降至 `3,882` 行，管理 / 技术运维可见、办公室拒绝和缺后端快照不显示固定门禁数字均完成浏览器回归。R5 后续重点转为生产 / 打包、车间 / 司机页面和 `useOfficeWorkspace`。
+
 1. 先提取纯函数、状态映射和 DTO，不同时改业务规则。
 2. `apiServer.mjs` 按订单、库存、交付、对账、生产、原材料、打印、司机、系统拆 service。
 3. `office/index.jsx` 按页面拆分，URL、权限和 API 调用保持不变。
