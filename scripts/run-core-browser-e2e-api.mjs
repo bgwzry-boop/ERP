@@ -15,6 +15,7 @@ const child = spawn(process.execPath, ["server/apiServer.mjs", "--mode", "test"]
     ERP_API_PORT: apiPort,
     ERP_RUNTIME_MODE: "test",
     ERP_RUNTIME_STORAGE_ROOT: storageRoot,
+    ERP_PRINT_DRIVER_DRY_RUN: "true",
   },
   stdio: "inherit",
 });

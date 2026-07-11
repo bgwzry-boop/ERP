@@ -172,6 +172,28 @@ async function checkDraftSave() {
   assert.equal(input.todos[0].createdBy, "U-OFFICE-A");
   assert.equal(input.idempotencyPayload.operatorId, "U-OFFICE-A");
   assert.equal(input.operationLog.operatorId, "U-OFFICE-A");
+
+  await service.saveOrderDraft({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      clientRevision: 1,
+      draftStatus: "待补充信息",
+      lines: [{
+        ...buildRequestLine(),
+        productName: "美的空调",
+        bagColor: "白色",
+        printFlag: true,
+        printColor: "黑色",
+        printSide: "single",
+        artworkStatus: "uploaded",
+      }],
+    },
+  });
+  const customDraftInput = calls.draftSaves.at(-1);
+  assert.equal(customDraftInput.draft.lines[0].printSide, "单面");
+  assert.equal(customDraftInput.draft.lines[0].artworkStatus, "已上传");
 }
 
 async function checkConfirmation() {

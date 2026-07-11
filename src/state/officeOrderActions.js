@@ -66,7 +66,7 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
   );
 
   const newFulfillments = newLines
-    .filter((line) => line.print === "否" && !line.status.includes("缺货") && line.fulfillment !== "待确认")
+    .filter((line) => !line.status.includes("缺货") && line.fulfillment !== "待确认")
     .map((line, index) =>
       makeFulfillment({
         id: nextId("F", fulfillments, index),
@@ -76,7 +76,7 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
         goods: getFulfillmentGoodsDisplay({ goods: `${line.size} ${line.color} ${line.product}`, qty: line.qty }, line),
         qty: line.qty,
         packages: line.qty >= 1000 ? "3包" : line.qty >= 500 ? "2包" : "1件散装",
-        status: line.fulfillment === "快递快运" ? "待打印标签" : "待出库",
+        status: line.print === "是" ? line.status : line.fulfillment === "快递快运" ? "待打印标签" : "待出库",
         latest: line.latest,
         zone: "按库存推荐",
         source: "正式订单占用",

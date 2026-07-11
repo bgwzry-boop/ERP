@@ -246,6 +246,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       finalAmount: Number(line.amount ?? 0),
       createdBy: operatorId,
     }));
+    const productionTasks = buildProductionTasks(confirmation.newLines, operatorId);
     const inventoryReservations = buildInventoryReservations(
       workspace,
       confirmation.checkedRows,
@@ -266,6 +267,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       expectedDraftRevision: expectedRevision,
       order: buildConfirmedOrderRecord(workspace, draftId, confirmation, body, operatorId),
       orderLines: confirmation.newLines.map((line) => ({ ...line, createdBy: operatorId })),
+      productionTasks,
       priceSnapshots,
       fulfillmentRecords: confirmation.newFulfillments.map((fulfillment) => ({
         ...fulfillment,
@@ -283,6 +285,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       orderId: transaction.order.orderId,
       orderSummaryStatus: "处理中",
       orderLines: confirmation.newLines.map(toOrderLineSummary),
+      productionTasks: transaction.productionTasks,
       priceSnapshots: confirmation.newLines.map(toPriceSnapshot),
       inventoryChecks: confirmation.checkedRows.map((line, index) =>
         toInventoryCheckResult(workspace, line, confirmation.newLines[index]),
@@ -323,7 +326,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         latest: line.latestNeededAt ?? line.latest ?? "待确认",
         printColor: line.printColor ?? (printFlag ? "待确认" : "非印刷"),
         printSide: mapPrintSide(line.printSide),
-        artworkStatus: line.artworkStatus ?? (printFlag ? "待上传" : "非印刷"),
+        artworkStatus: mapArtworkStatus(line.artworkStatus, printFlag),
         handleColor: line.handleColor ?? "",
         note: line.officeNote ?? line.customerNote ?? line.note ?? "",
         source: body.sourceText ?? line.source ?? "",
@@ -414,6 +417,27 @@ export function createOrderDraftCommandService(dependencies = {}) {
       .filter(Boolean);
   }
 
+  function buildProductionTasks(orderLines, operatorId) {
+    return orderLines
+      .filter((line) => line.print === "是" || /制袋|丝印|待排产|补印/.test(String(line.status ?? "")))
+      .map((line) => {
+        const productionTaskId = nextPlainId("PT", line.id);
+        const taskType = line.print === "是" || /丝印|补印/.test(String(line.status ?? "")) ? "丝印" : "制袋";
+        return {
+          productionTaskId,
+          bizNo: productionTaskId,
+          orderLineId: line.id,
+          taskType,
+          machineId: taskType === "丝印" ? "PRINT-01" : "BAG-01",
+          plannedQty: Number(line.qty ?? 0),
+          taskStatus: line.status || "待开始",
+          publishedScheduleId: "",
+          revision: 1,
+          createdBy: operatorId,
+        };
+      });
+  }
+
   function buildInventoryLedgerEntries(workspace, reservations, operatorId) {
     return reservations.map((reservation) => {
       const inventoryItem = findInventoryItem(workspace, reservation.inventoryItemId);
@@ -502,6 +526,15 @@ function getMissingDraftFields(row) {
   if (!row.color || row.color === "待确认") missing.push("bagColor");
   if (!row.qty) missing.push("qty");
   return missing;
+}
+
+function mapArtworkStatus(value, printFlag) {
+  if (!printFlag) return "非印刷";
+  if (value === "uploaded" || value === "已上传") return "已上传";
+  if (value === "existing_artwork" || value === "已有稿件") return "已有稿件";
+  if (value === "customer_pending" || value === "客户待补") return "客户待补";
+  if (value === "pending" || value === "待上传") return "待上传";
+  return "客户待补";
 }
 
 function nowIso(now) {

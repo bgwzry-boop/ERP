@@ -971,6 +971,15 @@ async function checkPostgresRepositories() {
       orderLineId: "OL-LIVE-CONFIRM-001",
       createdBy: "U-FINANCE-A",
     }),
+    productionTasks: [{
+      productionTaskId: "PT-OL-LIVE-CONFIRM-001",
+      orderLineId: "OL-LIVE-CONFIRM-001",
+      taskType: "丝印",
+      machineId: "PRINT-01",
+      plannedQty: 25,
+      taskStatus: "待排产",
+      createdBy: "U-FINANCE-A",
+    }],
     priceSnapshots: buildConfirmedPriceSnapshots({ orderLineId: "OL-LIVE-CONFIRM-001", createdBy: "U-FINANCE-A" }),
     fulfillmentRecords: buildConfirmedFulfillments({
       fulfillmentId: "F-LIVE-CONFIRM-001",
@@ -1011,6 +1020,7 @@ async function checkPostgresRepositories() {
   assert.equal(orderConfirmation.orderDraft.status, "已生成正式订单");
   assert.equal(orderConfirmation.order.orderId, "ORD-LIVE-CONFIRM-001");
   assert.equal(orderConfirmation.orderLines.length, 1);
+  assert.equal(orderConfirmation.productionTasks[0].productionTaskId, "PT-OL-LIVE-CONFIRM-001");
   assert.equal(orderConfirmation.priceSnapshots.length, 1);
   assert.equal(orderConfirmation.fulfillmentRecords.length, 1);
   assert.equal(orderConfirmation.inventoryReservations.length, 1);
@@ -1021,6 +1031,7 @@ async function checkPostgresRepositories() {
     "C-LIVE-REPO",
   );
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM order_lines WHERE order_id = 'ORD-LIVE-CONFIRM-001';", { capture: true }).trim()), 1);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM production_tasks WHERE order_line_id = 'OL-LIVE-CONFIRM-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM price_snapshots WHERE order_line_id = 'OL-LIVE-CONFIRM-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM fulfillment_records WHERE order_line_id = 'OL-LIVE-CONFIRM-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM inventory_reservations WHERE order_line_id = 'OL-LIVE-CONFIRM-001';", { capture: true }).trim()), 1);

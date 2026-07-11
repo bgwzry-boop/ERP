@@ -69,4 +69,34 @@ assert.equal(result.orderNo, "ORD-P0-010");
 assert.equal(result.newLines[0].id, "ORD-P0-010-01");
 assert.equal(result.newFulfillments[0].id, "F009");
 
+const customPrintResult = confirmDraftOrder({
+  draftRows: [{
+    id: "DRAFT-CUSTOM-01",
+    customerId: "C004",
+    customer: "美的空调网店",
+    product: "美的空调",
+    size: "30*38*10",
+    color: "白色",
+    handle: "普通提",
+    handleColor: "黑色",
+    style: "空白袋",
+    print: "是",
+    printColor: "黑色",
+    printSide: "单面",
+    artworkStatus: "已上传",
+    qty: 12,
+    fulfillment: "快递快运",
+    latest: "明天",
+    note: "",
+  }],
+  inventoryRecords: [],
+  orderLines: [],
+  fulfillments: [],
+  customers: [{ id: "C004", name: "美的空调网店" }],
+});
+assert.equal(customPrintResult.blocked, false);
+assert.equal(customPrintResult.newLines[0].status, "待排产");
+assert.equal(customPrintResult.newFulfillments[0].lineId, customPrintResult.newLines[0].id);
+assert.equal(customPrintResult.newFulfillments[0].status, "待排产");
+
 console.log("Office order action checks passed.");

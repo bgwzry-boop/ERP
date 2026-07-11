@@ -38,6 +38,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
         orderDraft,
         order: input.order,
         orderLines: input.orderLines,
+        productionTasks: input.productionTasks,
         priceSnapshots: input.priceSnapshots,
         fulfillmentRecords: input.fulfillmentRecords,
         inventoryReservations: input.inventoryReservations,
@@ -50,6 +51,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
         orderDraft: transaction.orderDraft,
         order: transaction.order,
         orderLines: transaction.orderLines,
+        productionTasks: transaction.productionTasks,
         priceSnapshots: transaction.priceSnapshots,
         fulfillmentRecords: transaction.fulfillmentRecords,
         inventoryReservations: transaction.inventoryReservations,
@@ -94,6 +96,7 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
         orderDraft: saved.orderDraft,
         order: saved.order,
         orderLines: saved.orderLines,
+        productionTasks: saved.productionTasks,
         priceSnapshots: saved.priceSnapshots,
         fulfillmentRecords: saved.fulfillmentRecords,
         inventoryReservations: saved.inventoryReservations,
@@ -113,6 +116,7 @@ function buildOrderConfirmationIdempotencyPayload(input = {}) {
     expectedDraftRevision: input.expectedDraftRevision,
     order: input.order,
     orderLines: input.orderLines,
+    productionTasks: input.productionTasks,
     priceSnapshots: input.priceSnapshots,
     fulfillmentRecords: input.fulfillmentRecords,
     inventoryReservations: input.inventoryReservations,
@@ -138,6 +142,7 @@ function buildConfirmOrderTransactionText(input, parameters) {
   const expectedDraftRevision = toFiniteInteger(input.expectedDraftRevision);
   const order = normalizeOriginalOrder(input.order);
   const orderLines = normalizeOrderLines(input.orderLines ?? [], order?.orderId);
+  const productionTasks = normalizeProductionTasks(input.productionTasks ?? [], orderLines);
   const priceSnapshots = normalizePriceSnapshots(input.priceSnapshots ?? [], orderLines);
   const fulfillmentRecords = normalizeFulfillmentRecords(input.fulfillmentRecords ?? []);
   const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations ?? []);
@@ -249,6 +254,9 @@ inserted_order AS (
 inserted_order_lines AS (
   ${buildInsertOrderLinesSql(orderLines, parameters)}
 ),
+inserted_production_tasks AS (
+  ${buildInsertProductionTasksSql(productionTasks, parameters)}
+),
 inserted_price_snapshots AS (
   ${buildInsertPriceSnapshotsSql(priceSnapshots, parameters)}
 ),
@@ -275,6 +283,7 @@ business_id_write_guard AS MATERIALIZED (
     (SELECT COUNT(*) FROM inserted_order) = 1
       AND (SELECT COUNT(*) FROM inserted_order_draft_lines) = ${parameters.integer(orderDraft.lines.length)}
       AND (SELECT COUNT(*) FROM inserted_order_lines) = ${parameters.integer(orderLines.length)}
+      AND (SELECT COUNT(*) FROM inserted_production_tasks) = ${parameters.integer(productionTasks.length)}
       AND (SELECT COUNT(*) FROM inserted_price_snapshots) = ${parameters.integer(priceSnapshots.length)}
       AND (SELECT COUNT(*) FROM inserted_fulfillment_records) = ${parameters.integer(fulfillmentRecords.length)}
       AND (SELECT COUNT(*) FROM inserted_inventory_reservations) = ${parameters.integer(inventoryReservations.length)}
@@ -290,6 +299,7 @@ SELECT json_build_object(
   ) FROM updated_order_draft),
   'order', (SELECT result FROM inserted_order),
   'orderLines', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM inserted_order_lines),
+  'productionTasks', (SELECT COALESCE(json_agg(result ORDER BY result->>'productionTaskId'), '[]'::json) FROM inserted_production_tasks),
   'priceSnapshots', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM inserted_price_snapshots),
   'fulfillmentRecords', (SELECT COALESCE(json_agg(result ORDER BY result->>'fulfillmentId'), '[]'::json) FROM inserted_fulfillment_records),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM inserted_inventory_reservations),
@@ -311,6 +321,7 @@ export function normalizeOrderConfirmationTransactionResult(value) {
       orderDraft: null,
       order: null,
       orderLines: [],
+      productionTasks: [],
       priceSnapshots: [],
       fulfillmentRecords: [],
       inventoryReservations: [],
@@ -326,6 +337,7 @@ export function normalizeOrderConfirmationTransactionResult(value) {
     orderDraft: normalizeOrderDraft(value.orderDraft ?? value.order_draft),
     order,
     orderLines,
+    productionTasks: normalizeProductionTasks(value.productionTasks ?? value.production_tasks ?? [], orderLines),
     priceSnapshots: normalizePriceSnapshots(value.priceSnapshots ?? value.price_snapshots ?? [], orderLines),
     fulfillmentRecords: normalizeFulfillmentRecords(value.fulfillmentRecords ?? value.fulfillment_records ?? []),
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
@@ -357,6 +369,30 @@ export function normalizeOriginalOrder(order) {
 export function normalizeOrderLines(lines, fallbackOrderId = "") {
   if (!Array.isArray(lines)) return [];
   return lines.map((line) => normalizeOrderLine(line, fallbackOrderId)).filter(Boolean);
+}
+
+function normalizeProductionTasks(tasks, orderLines = []) {
+  if (!Array.isArray(tasks)) return [];
+  return tasks.map((task) => {
+    if (!task || typeof task !== "object") return null;
+    const productionTaskId = String(task.productionTaskId ?? task.id ?? "").trim();
+    const orderLineId = String(task.orderLineId ?? task.order_line_id ?? task.lineId ?? "").trim();
+    const orderLine = orderLines.find((line) => line.orderLineId === orderLineId);
+    if (!productionTaskId || !orderLineId || !orderLine) return null;
+    return {
+      productionTaskId,
+      bizNo: String(task.bizNo ?? task.biz_no ?? productionTaskId).trim() || productionTaskId,
+      orderLineId,
+      taskType: String(task.taskType ?? task.task_type ?? "制袋").trim() || "制袋",
+      machineId: String(task.machineId ?? task.machine_id ?? "").trim(),
+      plannedQty: toFiniteInteger(task.plannedQty ?? task.planned_qty ?? orderLine.originalQty),
+      taskStatus: String(task.taskStatus ?? task.task_status ?? task.status ?? "待开始").trim() || "待开始",
+      publishedScheduleId: String(task.publishedScheduleId ?? task.published_schedule_id ?? "").trim(),
+      revision: Math.max(1, toFiniteInteger(task.revision ?? 1)),
+      createdBy: String(task.createdBy ?? task.created_by ?? orderLine.createdBy ?? "").trim(),
+      createdAt: String(task.createdAt ?? task.created_at ?? new Date().toISOString()).trim(),
+    };
+  }).filter(Boolean);
 }
 
 function normalizeOrderLine(line, fallbackOrderId = "") {
@@ -552,6 +588,7 @@ function applyOrderConfirmationWorkspaceMutation({
   orderDraft,
   order,
   orderLines,
+  productionTasks = [],
   priceSnapshots = [],
   fulfillmentRecords,
   inventoryReservations,
@@ -573,6 +610,12 @@ function applyOrderConfirmationWorkspaceMutation({
   workspace.orderLines = [
     ...orderLines.map(toWorkspaceOrderLine),
     ...(workspace.orderLines ?? []).filter((item) => !orderLines.some((line) => line.orderLineId === item.id)),
+  ];
+  workspace.productionTasks = [
+    ...productionTasks.map(toWorkspaceProductionTask),
+    ...(workspace.productionTasks ?? []).filter(
+      (item) => !productionTasks.some((task) => task.productionTaskId === (item.productionTaskId ?? item.id)),
+    ),
   ];
   workspace.priceSnapshots = [
     ...priceSnapshots.map(toWorkspacePriceSnapshot),
@@ -637,6 +680,26 @@ function toWorkspaceOrderLine(line) {
     printColor: line.printColor,
     note: line.note,
     handleColor: line.handleColor,
+  };
+}
+
+function toWorkspaceProductionTask(task) {
+  return {
+    id: task.productionTaskId,
+    productionTaskId: task.productionTaskId,
+    bizNo: task.bizNo,
+    orderLineId: task.orderLineId,
+    lineId: task.orderLineId,
+    taskType: task.taskType,
+    machineId: task.machineId,
+    plannedQty: task.plannedQty,
+    qty: task.plannedQty,
+    taskStatus: task.taskStatus,
+    status: task.taskStatus,
+    publishedScheduleId: task.publishedScheduleId,
+    revision: task.revision,
+    createdBy: task.createdBy,
+    createdAt: task.createdAt,
   };
 }
 
@@ -830,6 +893,61 @@ function buildInsertOrderLinesSql(orderLines, parameters) {
 ${values}
 ON CONFLICT (id) DO NOTHING
 RETURNING ${orderLineJsonExpression("order_lines")} AS result`;
+}
+
+function buildInsertProductionTasksSql(tasks, parameters) {
+  if (tasks.length === 0) return "SELECT NULL::json AS result WHERE false";
+  const values = tasks
+    .map(
+      (task) => `(
+    ${parameters.text(task.productionTaskId)},
+    ${parameters.text(task.bizNo)},
+    ${parameters.text(task.orderLineId)},
+    ${parameters.text(task.taskType)},
+    ${parameters.nullableText(task.machineId)},
+    ${parameters.integer(task.plannedQty)},
+    ${parameters.text(task.taskStatus)},
+    ${parameters.nullableText(task.publishedScheduleId)},
+    ${parameters.integer(task.revision)},
+    ${parameters.nullableText(task.createdBy)},
+    ${parameters.timestamp(task.createdAt)},
+    now()
+  )`,
+    )
+    .join(",\n");
+  return `INSERT INTO production_tasks (
+  id,
+  biz_no,
+  order_line_id,
+  task_type,
+  machine_id,
+  planned_qty,
+  task_status,
+  published_schedule_id,
+  revision,
+  created_by,
+  created_at,
+  updated_at
+) SELECT task_values.*
+FROM (VALUES
+${values}
+) AS task_values(
+  id,
+  biz_no,
+  order_line_id,
+  task_type,
+  machine_id,
+  planned_qty,
+  task_status,
+  published_schedule_id,
+  revision,
+  created_by,
+  created_at,
+  updated_at
+)
+CROSS JOIN (SELECT COUNT(*) AS inserted_count FROM inserted_order_lines) AS order_line_dependency
+ON CONFLICT (id) DO NOTHING
+RETURNING ${productionTaskJsonExpression("production_tasks")} AS result`;
 }
 
 function buildInsertOrderDraftLinesSql(orderDraft, parameters) {
@@ -1279,6 +1397,22 @@ function orderLineJsonExpression(alias) {
     'lineStatus', ${alias}.line_status,
     'exceptionTags', ${alias}.exception_tags,
     'createdBy', ${alias}.created_by,
+    'createdAt', ${alias}.created_at
+  )`;
+}
+
+function productionTaskJsonExpression(alias) {
+  return `json_build_object(
+    'productionTaskId', ${alias}.id,
+    'bizNo', ${alias}.biz_no,
+    'orderLineId', ${alias}.order_line_id,
+    'taskType', ${alias}.task_type,
+    'machineId', COALESCE(${alias}.machine_id, ''),
+    'plannedQty', ${alias}.planned_qty,
+    'taskStatus', ${alias}.task_status,
+    'publishedScheduleId', COALESCE(${alias}.published_schedule_id, ''),
+    'revision', ${alias}.revision,
+    'createdBy', COALESCE(${alias}.created_by, ''),
     'createdAt', ${alias}.created_at
   )`;
 }

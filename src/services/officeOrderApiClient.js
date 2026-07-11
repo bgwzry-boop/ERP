@@ -234,7 +234,7 @@ export function mapRecognizedDraftRows(response, { inventories = [], sourceText 
         latest: line.latestNeededAt ?? "待确认",
         printColor: line.printColor ?? (print === "是" ? "待确认" : "非印刷"),
         printSide: mapApiPrintSide(line.printSide, print),
-        artworkStatus: line.artworkStatus ?? (print === "是" ? "待上传" : "非印刷"),
+        artworkStatus: mapApiArtworkStatus(line.artworkStatus, print),
         handleColor: line.handleColor ?? "",
         note,
         source: line.recognitionEvidence?.sourceText ?? draft.sourceText ?? sourceText,
@@ -314,8 +314,8 @@ function mapApiTodosToLocalTodoInputs(todos = [], { draftRows = [], draftId = ""
 
 function mapApiPrintSide(value, print) {
   if (print !== "是") return "非印刷";
-  if (value === "single") return "单面";
-  if (value === "double") return "双面";
+  if (value === "single" || value === "单面") return "单面";
+  if (value === "double" || value === "双面") return "双面";
   return "待确认";
 }
 
@@ -327,8 +327,19 @@ function mapDraftPrintSideToApi(value) {
 
 function mapDraftArtworkStatusToApi(value) {
   if (value === "已上传" || value === "uploaded") return "uploaded";
+  if (value === "已有稿件" || value === "existing_artwork") return "existing_artwork";
+  if (value === "客户待补" || value === "customer_pending") return "customer_pending";
   if (value === "待上传" || value === "pending") return "pending";
   return "side_panel_required";
+}
+
+function mapApiArtworkStatus(value, print) {
+  if (print !== "是") return "非印刷";
+  if (value === "uploaded" || value === "已上传") return "已上传";
+  if (value === "existing_artwork" || value === "已有稿件") return "已有稿件";
+  if (value === "customer_pending" || value === "客户待补") return "客户待补";
+  if (value === "pending" || value === "待上传") return "待上传";
+  return "客户待补";
 }
 
 function removeUndefinedFields(value) {

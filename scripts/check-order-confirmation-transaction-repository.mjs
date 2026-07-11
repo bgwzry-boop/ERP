@@ -26,6 +26,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
   const order = buildOrder();
   const orderDraft = buildOrderDraft({ status: "已生成正式订单" });
   const orderLines = buildOrderLines();
+  const productionTasks = buildProductionTasks();
   const priceSnapshots = buildPriceSnapshots();
   const fulfillmentRecords = buildFulfillmentRecords();
   const inventoryReservations = buildInventoryReservations();
@@ -40,6 +41,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
     expectedDraftRevision: 1,
     order,
     orderLines,
+    productionTasks,
     priceSnapshots,
     fulfillmentRecords,
     inventoryReservations,
@@ -51,6 +53,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
   assert.equal(transaction.orderDraft.revision, 2);
   assert.equal(transaction.order.orderId, "ORD-CONFIRM-001");
   assert.equal(transaction.orderLines.length, 2);
+  assert.equal(transaction.productionTasks.length, 1);
   assert.equal(transaction.priceSnapshots.length, 2);
   assert.equal(transaction.fulfillmentRecords.length, 1);
   assert.equal(transaction.inventoryReservations.length, 1);
@@ -61,6 +64,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
   assert.equal(workspace.orderDrafts[0].status, "已生成正式订单");
   assert.equal(workspace.orderDrafts[0].revision, 2);
   assert.equal(workspace.orderLines.length, 2);
+  assert.equal(workspace.productionTasks[0].productionTaskId, "PT-ORD-CONFIRM-001-02");
   assert.equal(workspace.orderLines[0].amount, 180);
   assert.equal(workspace.fulfillments.length, 1);
   assert.equal(workspace.inventoryReservations.length, 1);
@@ -75,6 +79,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   const order = buildOrder({ sourceText: "O'Brien 30*38 红色 500个" });
   const orderDraft = buildOrderDraft({ sourceText: "O'Brien 30*38 红色 500个", status: "已生成正式订单" });
   const orderLines = buildOrderLines();
+  const productionTasks = buildProductionTasks();
   const priceSnapshots = buildPriceSnapshots();
   const fulfillmentRecords = buildFulfillmentRecords();
   const inventoryReservations = buildInventoryReservations();
@@ -89,6 +94,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
           orderDraft: { ...orderDraft, revision: 2, clientRevision: 2 },
           order,
           orderLines,
+          productionTasks,
           priceSnapshots,
           fulfillmentRecords,
           inventoryReservations,
@@ -108,6 +114,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
     expectedDraftRevision: 1,
     order,
     orderLines,
+    productionTasks,
     priceSnapshots,
     fulfillmentRecords,
     inventoryReservations,
@@ -120,6 +127,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   assert.equal(transaction.orderLines[0].orderId, "ORD-CONFIRM-001");
   assert.equal(workspace.orderDrafts[0].revision, 2);
   assert.equal(workspace.orderLines.length, 2);
+  assert.equal(workspace.productionTasks.length, 1);
   assert.equal(workspace.fulfillments.length, 1);
 
   const { text, values } = calls[0];
@@ -140,6 +148,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   assert.match(sql, /INSERT INTO order_draft_lines/);
   assert.match(sql, /INSERT INTO original_orders/);
   assert.match(sql, /INSERT INTO order_lines/);
+  assert.match(sql, /INSERT INTO production_tasks/);
   assert.match(sql, /INSERT INTO price_snapshots/);
   assert.match(sql, /INSERT INTO fulfillment_records/);
   assert.match(sql, /INSERT INTO inventory_reservations/);
@@ -160,6 +169,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
     expectedDraftRevision: 1,
     order,
     orderLines,
+    productionTasks,
     priceSnapshots,
     fulfillmentRecords,
     inventoryReservations,
@@ -169,6 +179,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   });
   assert.match(directSql, /'orderDraft'/);
   assert.match(directSql, /'orderLines'/);
+  assert.match(directSql, /'productionTasks'/);
   assert.match(directSql, /'priceSnapshots'/);
   assert.match(directSql, /'fulfillmentRecords'/);
   assert.match(directSql, /'inventoryReservations'/);
@@ -180,6 +191,7 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
     expectedDraftRevision: 1,
     order,
     orderLines,
+    productionTasks,
     priceSnapshots,
     fulfillmentRecords,
     inventoryReservations,
@@ -296,6 +308,20 @@ function buildOrderLines() {
       amount: 36,
       inventory: "缺货",
       exceptions: ["库存不足"],
+      createdBy: "U-OFFICE-A",
+    },
+  ];
+}
+
+function buildProductionTasks() {
+  return [
+    {
+      productionTaskId: "PT-ORD-CONFIRM-001-02",
+      orderLineId: "ORD-CONFIRM-001-02",
+      taskType: "制袋",
+      machineId: "BAG-01",
+      plannedQty: 100,
+      taskStatus: "待排产",
       createdBy: "U-OFFICE-A",
     },
   ];

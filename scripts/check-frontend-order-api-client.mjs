@@ -70,6 +70,25 @@ assert(mappedRows[0].print === "否" && mappedRows[0].printSide === "非印刷",
 assert(mappedRows[0].inventory === "可用", "mapped row was not enriched with local inventory snapshot");
 assert(mappedRows[0].amount === 170, "mapped row amount snapshot is incorrect");
 
+const mappedChinesePrintSideRows = mapRecognizedDraftRows({
+  draft: { ...apiResponse.draft, customerId: "C004", customerName: "美的空调网店" },
+  lines: [{
+    ...apiResponse.lines[0],
+    draftLineId: "DRAFT-LINE-CUSTOM-SIDE",
+    customerId: "C004",
+    customerName: "美的空调网店",
+    orderType: "custom_print",
+    bagColor: "白色",
+    printFlag: true,
+    printColor: "黑色",
+    printSide: "单面",
+  }],
+}, { inventories: [] });
+assert(
+  mappedChinesePrintSideRows[0].printSide === "单面",
+  "recognized Chinese print-side value should remain a valid custom-print field",
+);
+
 const apiLineInputs = mapDraftRowsToApiLines(mappedRows, apiResponse.draft.sourceText);
 assert(apiLineInputs[0].draftLineId === "DRAFT-LINE-CHECK-1", "draft row id was not mapped to API line input");
 assert(apiLineInputs[0].customerId === "C001", "draft row customerId was not mapped to API line input");
@@ -93,13 +112,14 @@ const customLineInputs = mapDraftRowsToApiLines([
     qty: 1000,
     fulfillment: "快递快运",
     latest: "周五",
-    artworkStatus: "待上传",
+    artworkStatus: "已上传",
     note: "白袋黑提",
   },
 ]);
 assert(customLineInputs[0].orderType === "custom_print", "custom print line orderType was not mapped");
 assert(customLineInputs[0].printSide === "double", "custom print side was not mapped to API enum");
 assert(customLineInputs[0].handleColor === "黑色", "custom handle color was not mapped");
+assert(customLineInputs[0].artworkStatus === "uploaded", "ready artwork status was not mapped to API enum");
 
 const apiCalls = [];
 const apiResult = await recognizeOfficeDraft(
