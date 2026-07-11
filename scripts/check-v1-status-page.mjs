@@ -5,8 +5,13 @@ const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js",
 const v1StatusReadSource = readFileSync(new URL("../src/app/useOfficeV1StatusReads.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const v1StatusPageSource = readFileSync(new URL("../src/features/v1-status/V1StatusPage.jsx", import.meta.url), "utf8");
-const clientSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusApiClient.js", import.meta.url), "utf8");
+const v1StatusPageEntrySource = readFileSync(new URL("../src/features/v1-status/V1StatusPage.jsx", import.meta.url), "utf8");
+const v1StatusOverviewSource = readFileSync(new URL("../src/features/v1-status/V1StatusOverview.jsx", import.meta.url), "utf8");
+const v1StatusPresentationSource = readFileSync(new URL("../src/features/v1-status/v1StatusPresentation.js", import.meta.url), "utf8");
+const v1StatusPageSource = [v1StatusPageEntrySource, v1StatusOverviewSource, v1StatusPresentationSource].join("\n");
+const clientEntrySource = readFileSync(new URL("../src/services/officeV1GoLiveStatusApiClient.js", import.meta.url), "utf8");
+const clientActionsSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusActions.js", import.meta.url), "utf8");
+const clientSource = [clientEntrySource, clientActionsSource].join("\n");
 const attachmentClientSource = readFileSync(new URL("../src/services/officeAttachmentApiClient.js", import.meta.url), "utf8");
 const styleSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 
@@ -93,6 +98,11 @@ assertIncludes(appSource, "onPrecheckReleaseCandidateRefresh={precheckV1ReleaseC
 assertIncludes(appSource, "onRefreshReleaseCandidate={refreshV1ReleaseCandidate}", "V1 status page should receive controlled refresh action");
 
 assertIncludes(v1StatusPageSource, "export function V1StatusPage", "office pages should export V1StatusPage");
+assertIncludes(v1StatusPageEntrySource, 'from "./V1StatusOverview.jsx"', "V1 status page should compose the extracted overview");
+assertIncludes(v1StatusPageEntrySource, 'from "./v1StatusPresentation.js"', "V1 status page should consume the extracted presentation model");
+assertIncludes(v1StatusOverviewSource, "export function V1StatusGateModulePanel", "V1 status overview should own gate and module rendering");
+assertIncludes(v1StatusPresentationSource, "export function buildV1StatusSummaryForPage", "V1 status presentation should own summary fallback rules");
+assertExcludes(v1StatusPageEntrySource, "const v1StatusSummary =", "V1 status page should not redefine the fallback summary");
 assertIncludes(v1StatusPageSource, "goLiveStatus", "V1 status page should accept API status data");
 assertIncludes(v1StatusPageSource, "后端 go-live 产物", "page should show backend artifact source when API data is available");
 assertIncludes(v1StatusPageSource, "状态未读取", "page should clearly identify a missing backend V1 status instead of showing static gates");
@@ -682,6 +692,10 @@ assertIncludes(v1StatusPageSource, "v1-field-acceptance-blocker-row", "page shou
 assertIncludes(v1StatusPageSource, "现场必须留档", "page should show required field evidence from acceptance report");
 
 assertIncludes(clientSource, "/system/v1-go-live-status", "client should call V1 go-live status API");
+assertIncludes(clientEntrySource, 'from "./officeV1GoLiveStatusActions.js"', "V1 status client should compose extracted HTTP actions");
+assertIncludes(clientActionsSource, "export function createOfficeV1GoLiveStatusActions", "V1 status actions should expose an injectable factory");
+assertIncludes(clientActionsSource, "blockedWhenNotReady", "V1 status actions should preserve readiness-based blocking");
+assertExcludes(clientEntrySource, "requestOfficeApi", "V1 status normalizer client should not issue HTTP requests directly");
 assertIncludes(clientSource, "/system/v1-field-evidence-intake/stage-row", "client should call field evidence staging API");
 assertIncludes(clientSource, "/system/v1-field-evidence-intake/validate-draft-manifest", "client should call field evidence draft validation API");
 assertIncludes(attachmentClientSource, "createV1FieldEvidenceAttachmentInput", "attachment client should build V1 field evidence upload input");

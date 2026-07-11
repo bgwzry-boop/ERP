@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-11 - V1 Status Separates Transport, Normalization, And Presentation
+
+The V1 status feature keeps three explicit layers: HTTP actions issue authenticated/idempotent requests and fail closed, normalizers map backend artifacts into stable client DTOs, and presentation modules own fallback display models plus rendering. The existing public client import path remains compatible, but the normalization file must not issue HTTP requests directly and the page component must not redefine fallback completion data.
+
+An HTTP 2xx response does not imply a V1 action succeeded: actions configured as readiness-gated remain `blocked` unless their normalized result has `ready === true`. Missing backend snapshots never display fixed release-gate, evidence, or signoff numbers. Management and technical-operations retain V1 access; office remains denied by the shared role catalog.
+
 ## 2026-07-11 - Filtered Workbenches Clear Out-Of-Scope Detail
 
 When a search, status tab, delivery method, or other workbench filter has no matching record, both the list and detail pane must show an explicit empty state. The UI must not retain or fall back to a record from another filter, tab, or status because that can make an operator act on the wrong customer, material inbound, fulfillment, or driver task.

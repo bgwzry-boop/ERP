@@ -148,7 +148,7 @@
     "v1-owner-decision-brief:check": "node scripts/check-v1-owner-decision-brief.mjs",
     "v1-v2-scope-brief:check": "node scripts/check-v1-v2-scope-brief.mjs",
     "v1-go-live-status-api:check": "node scripts/check-v1-production-env-dry-run-proof-core.mjs && node scripts/check-system-read-routes.mjs && node scripts/check-system-write-routes.mjs && node scripts/check-v1-go-live-status-api.mjs",
-    "v1-status-page:check": "node scripts/check-v1-status-page.mjs",
+    "v1-status-page:check": "node scripts/check-v1-status-actions.mjs && node scripts/check-v1-status-presentation.mjs && node scripts/check-v1-status-page.mjs",
     "v1-persistence-profile:check": "node scripts/check-v1-persistence-profile.mjs",
     "v1-production-profile-live:check": "node scripts/check-v1-production-profile-live.mjs",
     "print-job-driver-status:check": "node scripts/check-print-job-driver-status.mjs",
