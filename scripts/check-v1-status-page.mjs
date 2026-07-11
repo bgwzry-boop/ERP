@@ -12,10 +12,14 @@ const v1StatusRuntimeSource = readFileSync(new URL("../src/features/v1-status/V1
 const v1StatusFieldAcceptanceSource = readFileSync(new URL("../src/features/v1-status/V1StatusFieldAcceptanceWorkspace.jsx", import.meta.url), "utf8");
 const v1StatusRoleTaskSource = readFileSync(new URL("../src/features/v1-status/V1StatusRoleTaskWorkspace.jsx", import.meta.url), "utf8");
 const v1StatusFieldEvidenceSource = readFileSync(new URL("../src/features/v1-status/V1StatusFieldEvidenceWorkspace.jsx", import.meta.url), "utf8");
+const v1StatusFieldProgressSource = readFileSync(new URL("../src/features/v1-status/V1StatusFieldProgressStage.jsx", import.meta.url), "utf8");
+const v1StatusEvidenceEntrySource = readFileSync(new URL("../src/features/v1-status/V1StatusEvidenceEntryStage.jsx", import.meta.url), "utf8");
+const v1StatusSignoffEntrySource = readFileSync(new URL("../src/features/v1-status/V1StatusSignoffEntryStage.jsx", import.meta.url), "utf8");
+const v1StatusFieldCloseoutSource = readFileSync(new URL("../src/features/v1-status/V1StatusFieldCloseoutStage.jsx", import.meta.url), "utf8");
 const v1StatusBoundarySource = readFileSync(new URL("../src/features/v1-status/V1StatusBoundaryWorkspace.jsx", import.meta.url), "utf8");
 const v1StatusModuleSource = readFileSync(new URL("../src/features/v1-status/V1StatusModuleWorkspace.jsx", import.meta.url), "utf8");
 const v1StatusPresentationSource = readFileSync(new URL("../src/features/v1-status/v1StatusPresentation.js", import.meta.url), "utf8");
-const v1StatusPageSource = [v1StatusPageEntrySource, v1StatusOverviewSource, v1StatusDecisionSource, v1StatusRuntimeSource, v1StatusFieldAcceptanceSource, v1StatusRoleTaskSource, v1StatusFieldEvidenceSource, v1StatusBoundarySource, v1StatusModuleSource, v1StatusPresentationSource].join("\n");
+const v1StatusPageSource = [v1StatusPageEntrySource, v1StatusOverviewSource, v1StatusDecisionSource, v1StatusRuntimeSource, v1StatusFieldAcceptanceSource, v1StatusRoleTaskSource, v1StatusFieldEvidenceSource, v1StatusFieldProgressSource, v1StatusEvidenceEntrySource, v1StatusSignoffEntrySource, v1StatusFieldCloseoutSource, v1StatusBoundarySource, v1StatusModuleSource, v1StatusPresentationSource].join("\n");
 const clientEntrySource = readFileSync(new URL("../src/services/officeV1GoLiveStatusApiClient.js", import.meta.url), "utf8");
 const clientActionsSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusActions.js", import.meta.url), "utf8");
 const clientSource = [clientEntrySource, clientActionsSource].join("\n");
@@ -131,6 +135,11 @@ assertExcludes(v1StatusPageEntrySource, "<h3>角色现场任务</h3>", "V1 statu
 assertIncludes(v1StatusFieldEvidenceSource, "export function V1StatusFieldEvidenceWorkspace", "V1 field-evidence workspace should own evidence and signoff rendering");
 assertIncludes(v1StatusPageEntrySource, "<V1StatusFieldEvidenceWorkspace", "V1 status page should compose the extracted field-evidence workspace");
 assertExcludes(v1StatusPageEntrySource, "<h3>现场证据 / 签字进度</h3>", "V1 status page should not retain field-evidence markup");
+assertIncludes(v1StatusFieldEvidenceSource, 'aria-label="现场证据工作阶段"', "V1 field-evidence workspace should expose four stage tabs");
+assertIncludes(v1StatusFieldProgressSource, "export function V1StatusFieldProgressStage", "V1 field progress should have a dedicated stage component");
+assertIncludes(v1StatusEvidenceEntrySource, "export function V1StatusEvidenceEntryStage", "V1 evidence entry should have a dedicated stage component");
+assertIncludes(v1StatusSignoffEntrySource, "export function V1StatusSignoffEntryStage", "V1 signoff entry should have a dedicated stage component");
+assertIncludes(v1StatusFieldCloseoutSource, "export function V1StatusFieldCloseoutStage", "V1 field closeout should have a dedicated stage component");
 assertIncludes(v1StatusBoundarySource, "export function V1StatusBoundaryWorkspace", "V1 boundary workspace should own V1/V2 rendering");
 assertIncludes(v1StatusPageEntrySource, "<V1StatusBoundaryWorkspace", "V1 status page should compose the extracted boundary workspace");
 assertExcludes(v1StatusPageEntrySource, "<h3>V1/V2 边界</h3>", "V1 status page should not retain boundary markup");

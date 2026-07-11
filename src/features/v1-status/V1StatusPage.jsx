@@ -134,6 +134,7 @@ export function V1StatusPage({
   const [selectedPhaseKey, setSelectedPhaseKey] = useState("production_environment");
   const [workspaceView, setWorkspaceView] = useState("overview");
   const [workspaceSection, setWorkspaceSection] = useState("owner");
+  const [fieldEvidenceWorkspaceStage, setFieldEvidenceWorkspaceStage] = useState("progress");
   const [evidenceStageDraft, setEvidenceStageDraft] = useState({
     selectionKey: "",
     onsiteStatus: "passed",
@@ -405,7 +406,7 @@ export function V1StatusPage({
     !releaseCandidateRefreshPrecheckAction.loading &&
     !releaseCandidateRefreshAction.loading;
   const missingEvidenceOptions = fieldEvidenceProgress?.missingItems || [];
-  const missingEvidenceDisplayLimit = 12;
+  const missingEvidenceDisplayLimit = 6;
   const fieldEvidenceGroupSummaries = fieldEvidenceProgress?.groupSummaries?.length
     ? fieldEvidenceProgress.groupSummaries
     : buildFieldEvidenceGroupSummaries(
@@ -627,6 +628,8 @@ export function V1StatusPage({
 
   function selectMissingEvidenceForStage(item) {
     if (!item?.groupKey || !item?.key) return;
+    selectWorkspace("field", "evidence");
+    setFieldEvidenceWorkspaceStage("evidence");
     setEvidenceStageDraft((current) => ({
       ...current,
       selectionKey: `${item.groupKey}:${item.key}`,
@@ -644,6 +647,8 @@ export function V1StatusPage({
 
   function selectSignoffBoundaryForStage(item) {
     if (!item?.type || !item?.key) return;
+    selectWorkspace("field", "evidence");
+    setFieldEvidenceWorkspaceStage("signoff");
     setSignoffStageDraft({
       selectionKey: `${item.type}:${item.key}`,
       onsiteStatus: item.type === "boundary" ? "confirmed" : "signed",
@@ -802,6 +807,10 @@ export function V1StatusPage({
 
   function scrollV1StatusRefIntoView(targetRef) {
     if (typeof window === "undefined") return;
+    if (targetRef === fieldEvidenceProgressRef) setFieldEvidenceWorkspaceStage("progress");
+    if (targetRef === evidenceStageCardRef) setFieldEvidenceWorkspaceStage("evidence");
+    if (targetRef === signoffStageCardRef) setFieldEvidenceWorkspaceStage("signoff");
+    if (targetRef === fieldEvidenceIntakeQualityRef) setFieldEvidenceWorkspaceStage("closeout");
     const target = getWorkspaceTargetForRef(targetRef);
     selectWorkspace(target.view, target.section);
     window.setTimeout(() => {
@@ -3537,6 +3546,8 @@ export function V1StatusPage({
             buildRoleTaskQuickActions={buildRoleTaskQuickActions}
           />
           <V1StatusFieldEvidenceWorkspace
+            activeStage={fieldEvidenceWorkspaceStage}
+            onStageChange={setFieldEvidenceWorkspaceStage}
             data={{
               fieldEvidenceGroupSummaries,
               fieldEvidenceIntakeGuidance,
