@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useOfficeCoreReads } from "./useOfficeCoreReads.js";
+import { useOfficeInventoryDetailReads } from "./useOfficeInventoryDetailReads.js";
+import { useOfficeMasterDataReads } from "./useOfficeMasterDataReads.js";
 import { useOfficePrintReads } from "./useOfficePrintReads.js";
 import { useOfficeProductionReads } from "./useOfficeProductionReads.js";
 import { useOfficeRoleToolReads } from "./useOfficeRoleToolReads.js";
@@ -291,6 +293,8 @@ export function useOfficeWorkspace({
   const selectedRawMaterialInboundIdRef = useRef(defaultSelections.rawMaterialInboundId);
   const rawMaterialSupplierStatementReviewsRef = useRef([]);
   const inventoryCorrectionDraftsRef = useRef([]);
+  const masterDataImportReviewDraftsRef = useRef([]);
+  const masterDataEmployeeAccountReviewsRef = useRef([]);
   const selectedStockIdRef = useRef(defaultSelections.stockId);
   const inventoryLedgerFiltersRef = useRef(defaultInventoryLedgerFilters);
   const printerDeviceQaSelectedIdRef = useRef("");
@@ -322,6 +326,12 @@ export function useOfficeWorkspace({
   useEffect(() => {
     inventoryCorrectionDraftsRef.current = inventoryCorrectionDrafts;
   }, [inventoryCorrectionDrafts]);
+  useEffect(() => {
+    masterDataImportReviewDraftsRef.current = masterDataImportReviewDrafts;
+  }, [masterDataImportReviewDrafts]);
+  useEffect(() => {
+    masterDataEmployeeAccountReviewsRef.current = masterDataEmployeeAccountReviews;
+  }, [masterDataEmployeeAccountReviews]);
   useEffect(() => {
     selectedStockIdRef.current = selectedStockId;
   }, [selectedStockId]);
@@ -391,12 +401,33 @@ export function useOfficeWorkspace({
     setPrinterDeviceQa,
     setPrintJobQueue,
   });
+  const inventoryDetailReads = useOfficeInventoryDetailReads({
+    authState,
+    currentUserId,
+    inventoryCorrectionDraftsRef,
+    inventoryLedgerFiltersRef,
+    selectedStockIdRef,
+    setInventoryCorrectionDrafts,
+    setInventoryCorrectionQueueState,
+    setInventoryLedgerState,
+  });
+  const masterDataReads = useOfficeMasterDataReads({
+    authState,
+    currentUserId,
+    masterDataEmployeeAccountReviewsRef,
+    masterDataImportReviewDraftsRef,
+    permissionContext: authState?.permissions ?? {},
+    setMasterDataEmployeeAccountReviews,
+    setMasterDataImportReviewDrafts,
+  });
 
   return {
     ...coreReads,
     ...roleToolReads,
     ...productionReads,
     ...printReads,
+    ...inventoryDetailReads,
+    ...masterDataReads,
     todos, setTodos, todoMeta, setTodoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,

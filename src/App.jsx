@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BellOutlined,
   DownloadOutlined,
@@ -81,8 +81,6 @@ import {
   confirmOfficeInventoryCorrectionDraft,
   createOfficeInventoryCorrectionDraft,
   getOfficeInventoryCorrectionDetail,
-  listOfficeInventoryCorrectionDrafts,
-  listOfficeInventoryLedgerEntries,
 } from "./services/officeInventoryApiClient.js";
 import {
   completeOfficeFulfillment,
@@ -280,8 +278,6 @@ import {
   downloadOfficeMasterDataImportFailedRows,
   enableOfficeMasterDataEmployeeAccount,
   issueOfficeMasterDataEmployeeAccountPassword,
-  listOfficeMasterDataEmployeeAccountReviews,
-  listOfficeMasterDataImportReviewDrafts,
   revokeOfficeMasterDataEmployeeAccountPassword,
 } from "./services/officeMasterDataImportApiClient.js";
 import {
@@ -398,21 +394,6 @@ function formatAttachmentAccessTime(value) {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function buildInventoryLedgerApiFilters(stockId, filters = {}) {
-  const next = { inventoryItemId: String(stockId ?? "").trim() };
-  const keyword = String(filters.keyword ?? "").trim();
-  const changeType = String(filters.changeType ?? "").trim();
-  const sourceType = String(filters.sourceType ?? "").trim();
-  const dateFrom = String(filters.dateFrom ?? "").trim();
-  const dateTo = String(filters.dateTo ?? "").trim();
-  if (keyword) next.keyword = keyword;
-  if (changeType && changeType !== "全部") next.changeType = changeType;
-  if (sourceType && sourceType !== "全部") next.sourceType = sourceType;
-  if (dateFrom) next.dateFrom = dateFrom;
-  if (dateTo) next.dateTo = dateTo;
-  return next;
 }
 
 function getAttachmentAccessActionLabel(action) {
@@ -747,6 +728,8 @@ export function App() {
     refreshProductionPackingTaskLists,
     refreshOfficePrintJobQueue, refreshPrintDriverConfig, refreshPrintDriverCupsDiagnostics,
     refreshPrintDriverReadiness, refreshPrinterDeviceQa,
+    refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries,
+    refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
     todos, setTodos, todoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
@@ -755,7 +738,7 @@ export function App() {
     selectedDraftId, setSelectedDraftId, orderFilters, setOrderFilters,
     selectedOrderId, setSelectedOrderId,
     inventoryRecords, setInventoryRecords, inventoryMeta,
-    inventoryLedgerState, setInventoryLedgerState, inventoryLedgerFilters, setInventoryLedgerFilters,
+    inventoryLedgerState, inventoryLedgerFilters, setInventoryLedgerFilters,
     inventoryCorrectionDetailState, setInventoryCorrectionDetailState,
     setInventoryCorrectionDrafts,
     inventoryCorrectionQueueState, setInventoryCorrectionQueueState,
@@ -813,7 +796,7 @@ export function App() {
     v1ReleaseCandidateRefreshAction, setV1ReleaseCandidateRefreshAction,
     orderLinesRef, rawMaterialInboundsRef,
     rawMaterialSupplierStatementReviewsRef, inventoryCorrectionDraftsRef,
-    selectedStockIdRef, inventoryLedgerFiltersRef, printerDeviceQaSelectedIdRef,
+    selectedStockIdRef, printerDeviceQaSelectedIdRef,
     paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
   } = useOfficeWorkspace({
     activePage,
@@ -1918,24 +1901,6 @@ export function App() {
     setToast(`已加入导入确认队列：${draft.draftId}（${draft.statusLabel}）。`);
   }
 
-  async function refreshMasterDataImportReviewDrafts(options = {}) {
-    const result = await listOfficeMasterDataImportReviewDrafts({
-      authState,
-      operatorId: currentUserId,
-      localDrafts: masterDataImportReviewDrafts,
-    });
-    if (result.blocked) {
-      if (!options.silent) setToast(`刷新导入确认草稿失败：${result.error?.message || "权限或接口错误"}`);
-      return result;
-    }
-    setMasterDataImportReviewDrafts(result.items);
-    if (!options.silent) {
-      const sourceLabel = result.source === "api" ? "后端" : "本地";
-      setToast(`已从${sourceLabel}刷新导入确认草稿，共 ${result.total} 条。`);
-    }
-    return result;
-  }
-
   async function createMasterDataImportConfirmationPlanFromDraft(draft) {
     if (!canCreateMasterDataImportConfirmationPlan(draft)) {
       setToast("该导入草稿存在阻断项，不能生成正式导入确认计划。");
@@ -2093,28 +2058,6 @@ export function App() {
     setToast(unresolved > 0
       ? `已生成失败行修正草稿：${draft.draftId}，共 ${rowCount} 行，需先核对修正后再生成计划。`
       : `已生成失败行修正草稿：${draft.draftId}，共 ${rowCount} 行，可继续生成确认计划。`);
-  }
-
-  async function refreshMasterDataEmployeeAccountReviews(options = {}) {
-    const actionState = getUiActionState(permissionContext, "masterData", "刷新员工复核");
-    if (actionState.disabled) {
-      if (!options.silent) setToast(actionState.title);
-      return null;
-    }
-    const result = await listOfficeMasterDataEmployeeAccountReviews({
-      authState,
-      operatorId: currentUserId,
-    });
-    if (result.blocked) {
-      if (!options.silent) setToast(`刷新员工账号复核失败：${result.error?.message || "权限或接口错误"}`);
-      return result;
-    }
-    setMasterDataEmployeeAccountReviews(result.items ?? []);
-    if (!options.silent) {
-      const sourceLabel = result.source === "api" ? "API" : "本地";
-      setToast(`已刷新员工账号复核：${result.total ?? result.items?.length ?? 0} 条（${sourceLabel}）。`);
-    }
-    return result;
   }
 
   async function enableMasterDataEmployeeAccount(review) {
@@ -3824,115 +3767,6 @@ export function App() {
     setToast(`已确认供应商付款 ${paymentId}，金额 ¥${amount}；该动作只记录付款，不写原材料库存。`);
     return result.review;
   }
-
-  const refreshInventoryLedgerEntries = useCallback(async ({ stockId = selectedStockId, filters = inventoryLedgerFiltersRef.current, showToast = false } = {}) => {
-    const safeStockId = String(stockId ?? "").trim();
-    if (!safeStockId) {
-      setInventoryLedgerState((current) => ({
-        ...current,
-        items: [],
-        total: 0,
-        loading: false,
-        error: "未选择库存键。",
-      }));
-      return null;
-    }
-
-    const apiFilters = buildInventoryLedgerApiFilters(safeStockId, filters);
-    setInventoryLedgerState((current) => ({ ...current, loading: true, error: "" }));
-    const result = await listOfficeInventoryLedgerEntries({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 20,
-      filters: apiFilters,
-      localLedgerEntries: [],
-    });
-
-    if (result.blocked) {
-      setInventoryLedgerState((current) => ({
-        ...current,
-        source: result.source,
-        items: [],
-        total: 0,
-        loading: false,
-        error: result.error?.message ?? "库存流水 API 返回错误。",
-        filters,
-      }));
-      if (showToast) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新库存流水：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新库存流水：${result.error?.message ?? "未知错误"}`,
-        );
-      }
-      return result;
-    }
-
-    setInventoryLedgerState({
-      source: result.source,
-      items: result.items,
-      total: result.total,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-      filters,
-    });
-    if (showToast) {
-      const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`库存流水已通过${sourceLabel}刷新，共 ${result.total} 条。`);
-    }
-    return result;
-  }, [authState, currentUserId, selectedStockId]);
-
-  const refreshInventoryCorrectionQueue = useCallback(async ({ filters = { status: "待确认生效" }, showToast = false } = {}) => {
-    setInventoryCorrectionQueueState((current) => ({ ...current, loading: true, error: "" }));
-    const result = await listOfficeInventoryCorrectionDrafts({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 20,
-      filters,
-      localCorrectionDrafts: inventoryCorrectionDraftsRef.current,
-    });
-
-    if (result.blocked) {
-      setInventoryCorrectionQueueState((current) => ({
-        ...current,
-        source: result.source,
-        items: [],
-        total: 0,
-        loading: false,
-        error: result.error?.message ?? "库存修正确认队列 API 返回错误。",
-        filters,
-      }));
-      if (showToast) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新库存修正确认队列：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新库存修正确认队列：${result.error?.message ?? "未知错误"}`,
-        );
-      }
-      return result;
-    }
-
-    setInventoryCorrectionQueueState((current) => ({
-      ...current,
-      source: result.source,
-      items: result.items,
-      total: result.total,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-      filters,
-    }));
-    if (result.source === "api") {
-      setInventoryCorrectionDrafts(result.items);
-    }
-    if (showToast) {
-      const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`库存修正确认队列已通过${sourceLabel}刷新，共 ${result.total} 条。`);
-    }
-    return result;
-  }, [authState, currentUserId]);
 
   function upsertPrintJobQueueItems(printJobs = []) {
     const safePrintJobs = (Array.isArray(printJobs) ? printJobs : [printJobs]).filter((item) => item?.printJobId);
@@ -7979,8 +7813,14 @@ export function App() {
               onCreateCorrectionDraft={handleInventoryCorrectionDraft}
               onConfirmCorrectionDraft={handleInventoryCorrectionConfirm}
               onOpenCorrectionDraft={openInventoryCorrectionDetail}
-              onRefreshCorrectionQueue={refreshInventoryCorrectionQueue}
-              onRefreshInventoryLedger={refreshInventoryLedgerEntries}
+              onRefreshCorrectionQueue={(options) => refreshInventoryCorrectionQueue(options).then((result) => {
+                if (result?.feedback) setToast(result.feedback);
+                return result;
+              })}
+              onRefreshInventoryLedger={(options) => refreshInventoryLedgerEntries(options).then((result) => {
+                if (result?.feedback) setToast(result.feedback);
+                return result;
+              })}
               onLocateInventoryLedgerSource={focusInventoryLedgerSource}
               helpers={pageHelpers}
             />
@@ -8186,7 +8026,10 @@ export function App() {
           onCommitImportExecution={commitMasterDataImportExecutionFromPlan}
           onDownloadFailedRows={downloadMasterDataImportFailedRows}
           onCreateFailedRowsCorrectionDraft={createMasterDataFailedRowsCorrectionDraft}
-          onRefreshEmployeeAccountReviews={refreshMasterDataEmployeeAccountReviews}
+          onRefreshEmployeeAccountReviews={(options) => refreshMasterDataEmployeeAccountReviews(options).then((result) => {
+            if (result?.feedback) setToast(result.feedback);
+            return result;
+          })}
           onEnableEmployeeAccount={enableMasterDataEmployeeAccount}
           onIssueEmployeePassword={issueMasterDataEmployeeAccountPassword}
           onRevokeEmployeePassword={revokeMasterDataEmployeeAccountPassword}

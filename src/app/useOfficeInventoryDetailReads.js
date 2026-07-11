@@ -1,0 +1,206 @@
+import { useCallback } from "react";
+import {
+  listOfficeInventoryCorrectionDrafts,
+  listOfficeInventoryLedgerEntries,
+} from "../services/officeInventoryApiClient.js";
+import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
+
+function formatSyncTime() {
+  return new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+}
+
+function withFeedback(result, showToast, feedback) {
+  return showToast ? { ...result, feedback } : result;
+}
+
+function normalizeReadResultForRuntime(result, { label, serverRequired }) {
+  const safeResult = result ?? {};
+  if (!serverRequired() || safeResult.source === "api") return safeResult;
+  return {
+    ...safeResult,
+    blocked: true,
+    upstreamSource: safeResult.source,
+    source: "api_error",
+    error: {
+      code: safeResult.error?.code ?? "INVENTORY_READ_SERVER_REQUIRED",
+      message: safeResult.error?.message ?? `生产模式要求从后端读取${label}。`,
+      ...(safeResult.error?.requiredPermission
+        ? { requiredPermission: safeResult.error.requiredPermission }
+        : {}),
+    },
+  };
+}
+
+function getErrorMessage(result, fallbackMessage) {
+  if (result?.error?.requiredPermission) return `缺少权限 ${result.error.requiredPermission}`;
+  return result?.error?.message ?? fallbackMessage;
+}
+
+export function buildInventoryLedgerApiFilters(stockId, filters = {}) {
+  const next = { inventoryItemId: String(stockId ?? "").trim() };
+  const keyword = String(filters.keyword ?? "").trim();
+  const changeType = String(filters.changeType ?? "").trim();
+  const sourceType = String(filters.sourceType ?? "").trim();
+  const dateFrom = String(filters.dateFrom ?? "").trim();
+  const dateTo = String(filters.dateTo ?? "").trim();
+  if (keyword) next.keyword = keyword;
+  if (changeType && changeType !== "全部") next.changeType = changeType;
+  if (sourceType && sourceType !== "全部") next.sourceType = sourceType;
+  if (dateFrom) next.dateFrom = dateFrom;
+  if (dateTo) next.dateTo = dateTo;
+  return next;
+}
+
+const defaultApi = {
+  listOfficeInventoryCorrectionDrafts,
+  listOfficeInventoryLedgerEntries,
+};
+
+export function createOfficeInventoryDetailReadActions({
+  api = defaultApi,
+  authState,
+  currentUserId,
+  inventoryCorrectionDraftsRef,
+  inventoryLedgerFiltersRef,
+  selectedStockIdRef,
+  serverRequired = isOfficeApiServerRequired,
+  setInventoryCorrectionDrafts,
+  setInventoryCorrectionQueueState,
+  setInventoryLedgerState,
+}) {
+  async function refreshInventoryLedgerEntries({
+    stockId = selectedStockIdRef.current,
+    filters = inventoryLedgerFiltersRef.current,
+    showToast = false,
+  } = {}) {
+    const safeStockId = String(stockId ?? "").trim();
+    if (!safeStockId) {
+      setInventoryLedgerState((current) => ({
+        ...current,
+        items: [],
+        total: 0,
+        loading: false,
+        error: "未选择库存键。",
+      }));
+      return null;
+    }
+
+    setInventoryLedgerState((current) => ({ ...current, loading: true, error: "" }));
+    const result = normalizeReadResultForRuntime(
+      await api.listOfficeInventoryLedgerEntries({
+        authState,
+        operatorId: currentUserId,
+        pageSize: 20,
+        filters: buildInventoryLedgerApiFilters(safeStockId, filters),
+        localLedgerEntries: [],
+      }),
+      { label: "库存流水", serverRequired },
+    );
+
+    if (result.blocked) {
+      const errorMessage = getErrorMessage(result, "库存流水 API 返回错误。");
+      setInventoryLedgerState((current) => ({
+        ...current,
+        source: result.source,
+        items: [],
+        total: 0,
+        loading: false,
+        error: errorMessage,
+        filters,
+      }));
+      return withFeedback(result, showToast, `后端拒绝刷新库存流水：${errorMessage || "未知错误"}。`);
+    }
+
+    setInventoryLedgerState({
+      source: result.source,
+      items: result.items ?? [],
+      total: result.total ?? result.items?.length ?? 0,
+      loading: false,
+      error: result.error?.message ?? "",
+      lastSyncedAt: formatSyncTime(),
+      filters,
+    });
+    const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
+    return withFeedback(
+      result,
+      showToast,
+      `库存流水已通过${sourceLabel}刷新，共 ${result.total ?? result.items?.length ?? 0} 条。`,
+    );
+  }
+
+  async function refreshInventoryCorrectionQueue({ filters = { status: "待确认生效" }, showToast = false } = {}) {
+    setInventoryCorrectionQueueState((current) => ({ ...current, loading: true, error: "" }));
+    const result = normalizeReadResultForRuntime(
+      await api.listOfficeInventoryCorrectionDrafts({
+        authState,
+        operatorId: currentUserId,
+        pageSize: 20,
+        filters,
+        localCorrectionDrafts: inventoryCorrectionDraftsRef.current,
+      }),
+      { label: "库存修正确认队列", serverRequired },
+    );
+
+    if (result.blocked) {
+      const errorMessage = getErrorMessage(result, "库存修正确认队列 API 返回错误。");
+      setInventoryCorrectionQueueState((current) => ({
+        ...current,
+        source: result.source,
+        items: [],
+        total: 0,
+        loading: false,
+        error: errorMessage,
+        filters,
+      }));
+      return withFeedback(result, showToast, `后端拒绝刷新库存修正确认队列：${errorMessage || "未知错误"}。`);
+    }
+
+    const items = result.items ?? [];
+    setInventoryCorrectionQueueState((current) => ({
+      ...current,
+      source: result.source,
+      items,
+      total: result.total ?? items.length,
+      loading: false,
+      error: result.error?.message ?? "",
+      lastSyncedAt: formatSyncTime(),
+      filters,
+    }));
+    if (result.source === "api") setInventoryCorrectionDrafts(items);
+    const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
+    return withFeedback(
+      result,
+      showToast,
+      `库存修正确认队列已通过${sourceLabel}刷新，共 ${result.total ?? items.length} 条。`,
+    );
+  }
+
+  return { refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries };
+}
+
+export function useOfficeInventoryDetailReads(options) {
+  const actions = createOfficeInventoryDetailReadActions(options);
+  const {
+    authState,
+    currentUserId,
+    inventoryCorrectionDraftsRef,
+    inventoryLedgerFiltersRef,
+    selectedStockIdRef,
+    serverRequired,
+  } = options;
+  return {
+    refreshInventoryLedgerEntries: useCallback(actions.refreshInventoryLedgerEntries, [
+      authState,
+      currentUserId,
+      inventoryLedgerFiltersRef,
+      selectedStockIdRef,
+      serverRequired,
+    ]),
+    refreshInventoryCorrectionQueue: useCallback(actions.refreshInventoryCorrectionQueue, [
+      authState,
+      currentUserId,
+      inventoryCorrectionDraftsRef,
+      serverRequired,
+    ]),
+  };
+}
