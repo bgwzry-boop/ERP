@@ -22,6 +22,7 @@ for (const componentName of [
   "MetricStrip",
   "DataTable",
   "DetailPane",
+  "FilterBar",
   "Segmented",
 ]) {
   assert.match(sharedUiSource, new RegExp(`export function ${componentName}\\(`));

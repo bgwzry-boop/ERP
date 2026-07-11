@@ -53,6 +53,23 @@ export function PanelHeader({ title, summary, eyebrow, actions }) {
   );
 }
 
+export function FilterBar({ children, summary, secondarySummary = "", actions, className = "", ariaLabel = "筛选条件" }) {
+  return (
+    <section className={`operational-filter-bar ${className}`.trim()} aria-label={ariaLabel}>
+      <div className="operational-filter-fields">{children}</div>
+      {(summary || secondarySummary || actions) ? (
+        <div className="operational-filter-footer">
+          <div className="operational-filter-summary">
+            {summary ? <span>{summary}</span> : null}
+            {secondarySummary ? <span>{secondarySummary}</span> : null}
+          </div>
+          {actions ? <div className="operational-filter-actions">{actions}</div> : null}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
 export function DataState({ title, detail = "", tone = "empty", compact = false }) {
   const role = tone === "danger" ? "alert" : "status";
   return (

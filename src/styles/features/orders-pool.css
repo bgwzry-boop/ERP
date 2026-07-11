@@ -1,0 +1,42 @@
+.order-pool-workbench {
+  gap: 10px;
+}
+
+.order-pool-list-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.order-pool-filter-bar .order-filter-grid {
+  grid-template-columns: 1.2fr repeat(5, minmax(0, 1fr));
+}
+
+.order-pool-list-panel .data-table {
+  flex: 1;
+}
+
+.order-pool-detail-pane .detail-head {
+  min-height: var(--erp-panel-header-height);
+  padding: 7px 10px;
+}
+
+@media (max-width: 720px) {
+  .order-pool-filter-bar .order-filter-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .order-pool-list-panel .order-table .data-row {
+    grid-template-columns: 64px minmax(72px, 1fr) minmax(72px, 1fr) 72px 62px;
+  }
+
+  .order-pool-list-panel .order-table .data-row span:nth-child(4),
+  .order-pool-list-panel .order-table .data-row span:nth-child(5),
+  .order-pool-list-panel .order-table .data-row span:nth-child(6),
+  .order-pool-list-panel .order-table .data-row span:nth-child(7),
+  .order-pool-list-panel .order-table .data-row span:nth-child(8),
+  .order-pool-list-panel .order-table .data-row span:nth-child(10),
+  .order-pool-list-panel .order-table .data-row span:nth-child(12) {
+    display: none;
+  }
+}

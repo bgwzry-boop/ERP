@@ -1,0 +1,36 @@
+.fulfillment-workbench {
+  gap: 10px;
+}
+
+.fulfillment-list-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.fulfillment-list-panel .data-table {
+  flex: 1;
+}
+
+.fulfillment-detail-pane .detail-head {
+  min-height: var(--erp-panel-header-height);
+  padding: 7px 10px;
+}
+
+@media (max-width: 720px) {
+  .fulfillment-list-panel .operational-panel-actions {
+    overflow-x: auto;
+  }
+
+  .fulfillment-list-panel .fulfillment-table .data-row {
+    grid-template-columns: 60px minmax(62px, 0.8fr) minmax(92px, 1.6fr) 46px 66px;
+    min-height: 46px;
+  }
+
+  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(3),
+  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(6),
+  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(7),
+  .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(9) {
+    display: none;
+  }
+}

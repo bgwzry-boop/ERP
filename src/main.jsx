@@ -7,6 +7,9 @@ import "./styles/shell.css";
 import "./styles/components.css";
 import "./styles/features/todos.css";
 import "./styles/features/orders-entry.css";
+import "./styles/features/orders-pool.css";
+import "./styles/features/inventory.css";
+import "./styles/features/fulfillment.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

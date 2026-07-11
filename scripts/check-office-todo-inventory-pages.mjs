@@ -12,7 +12,8 @@ assert.match(todoPageSource, /批量打印标签/);
 assert.match(todoPageSource, /getPrintBatchRecordsForTodo/);
 
 assert.match(inventoryPageSource, /export function InventoryPage/);
-assert.match(inventoryPageSource, /暂无库存记录，请先导入并审核库存基础数据/);
+assert.match(inventoryPageSource, /title="暂无库存记录"/);
+assert.match(inventoryPageSource, /detail="请先导入并审核库存基础数据。"/);
 assert.match(inventoryPageSource, /库存流水/);
 assert.match(inventoryPageSource, /库存修正确认队列/);
 assert.match(inventoryPageSource, /近似颜色\/尺寸只作参考；不能一键替代/);

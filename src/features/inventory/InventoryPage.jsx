@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { SearchOutlined } from "@ant-design/icons";
-import { DataTable, DetailPane, InfoGrid, MetricStrip, StatusPill } from "../../components/ui.jsx";
+import {
+  DataState,
+  DataTable,
+  DetailPane,
+  FilterBar,
+  InfoGrid,
+  MetricStrip,
+  OperationalPanel,
+  StatusPill,
+} from "../../shared/ui/operational.jsx";
 
 const defaultInventoryLedgerPanelFilters = {
   keyword: "",
@@ -83,12 +92,13 @@ export function InventoryPage({
   const selected = visible.find((item) => item.id === selectedStockId) ?? visible[0] ?? inventoryRecords[0];
   if (!selected) {
     return (
-      <section className="page-grid split-detail">
-        <div className="table-pane">
-          <div className="empty-state">暂无库存记录，请先导入并审核库存基础数据。</div>
-        </div>
-        <DetailPane title="库存查询" subtitle="暂无可显示库存">
+      <section className="page-grid split-detail inventory-workbench">
+        <OperationalPanel className="table-pane inventory-list-panel" ariaLabel="库存记录列表">
+          <DataState title="暂无库存记录" detail="请先导入并审核库存基础数据。" />
+        </OperationalPanel>
+        <DetailPane className="inventory-detail-pane" title="库存查询" subtitle="暂无可显示库存">
           <InfoGrid rows={[["列表", getInventoryListSourceLabel(inventoryMeta)]]} />
+          <DataState title="没有可显示的库存详情" compact />
         </DetailPane>
       </section>
     );
@@ -169,10 +179,15 @@ export function InventoryPage({
   }
 
   return (
-    <section className="page-grid split-detail">
-      <div className="table-pane">
-        <div className="inventory-filter-panel">
-          <div className="toolbar-line">
+    <section className="page-grid split-detail inventory-workbench">
+      <OperationalPanel className="table-pane inventory-list-panel" ariaLabel="库存记录列表">
+        <FilterBar
+          className="inventory-filter-bar"
+          ariaLabel="库存查询筛选"
+          summary={`命中 ${visible.length} / ${inventoryRecords.length} 个库存键；${getInventoryListSourceLabel(inventoryMeta)}。`}
+          secondarySummary={includePending ? "已包含待处理库存，仅供查看" : "待处理库存已折叠"}
+        >
+          <div className="inventory-filter-toolbar">
             <label className="search small">
               <SearchOutlined />
               <input placeholder="尺寸 / 颜色 / 提手 / 款式 / 库区" value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} />
@@ -208,15 +223,9 @@ export function InventoryPage({
               </select>
             </label>
           </div>
-          <div className="filter-summary">
-            <span>
-              命中 {visible.length} / {inventoryRecords.length} 个库存键；{getInventoryListSourceLabel(inventoryMeta)}。
-            </span>
-            <span>{includePending ? "已包含待处理库存，仅供查看" : "待处理库存已折叠"}</span>
-          </div>
-          {inventoryMeta.error && <p className="panel-warning">{inventoryMeta.error}</p>}
-        </div>
-        <MetricStrip items={stats} />
+          {inventoryMeta.error && <DataState title="库存列表同步失败" detail={inventoryMeta.error} tone="danger" compact />}
+        </FilterBar>
+        <MetricStrip items={stats} ariaLabel="库存状态摘要" />
         <DataTable
           className="inventory-table"
           columns={["尺寸", "颜色", "提手", "款式", "库区", "状态", "在库", "占用", "锁定", "待处", "可用", "可信"]}
@@ -231,8 +240,8 @@ export function InventoryPage({
             };
           })}
         />
-      </div>
-      <DetailPane title="库存明细" subtitle={`${selected.size} ${selected.color} ${selected.handle} ${selected.style}`}>
+      </OperationalPanel>
+      <DetailPane className="inventory-detail-pane" title="库存明细" subtitle={`${selected.size} ${selected.color} ${selected.handle} ${selected.style}`}>
         <InfoGrid
           rows={[
             ["精确库存键", `${formatStockKey(selected)} / ${selected.zone}`],

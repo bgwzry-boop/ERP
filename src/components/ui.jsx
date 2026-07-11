@@ -2,6 +2,7 @@ export {
   DataState,
   DataTable,
   DetailPane,
+  FilterBar,
   InfoGrid,
   MetricStrip,
   OperationalPanel,

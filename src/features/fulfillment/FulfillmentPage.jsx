@@ -1,4 +1,15 @@
-import { DataTable, DetailPane, InfoGrid, MetricStrip, Segmented, StatusPill, Timeline } from "../../components/ui.jsx";
+import {
+  DataState,
+  DataTable,
+  DetailPane,
+  InfoGrid,
+  MetricStrip,
+  OperationalPanel,
+  PanelHeader,
+  Segmented,
+  StatusPill,
+  Timeline,
+} from "../../shared/ui/operational.jsx";
 import { formatAttachmentSize } from "../attachments/attachmentPresentation.js";
 
 export function FulfillmentPage({ tab, setTab, fulfillments, orderLines, selectedId, setSelectedId, onAction, helpers }) {
@@ -19,7 +30,36 @@ export function FulfillmentPage({ tab, setTab, fulfillments, orderLines, selecte
     statusTone,
   } = helpers;
   const filtered = fulfillments.filter((item) => tab === "全部" || item.method === tab);
-  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? fulfillments[0];
+  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
+  const stats = [
+    ["未完成", fulfillments.filter((item) => item.status !== "已交付").length, "warning"],
+    ["今天/急", fulfillments.filter((item) => item.latest.includes("今天")).length, "blue"],
+    ["异常", fulfillments.filter((item) => item.status.includes("数量") || item.status.includes("无法")).length, "danger"],
+    ["待拉走", fulfillments.filter((item) => item.status === "待确认拉走").length, "success"],
+  ];
+  const listHeader = (
+    <PanelHeader
+      title="交付任务"
+      summary={`当前 ${filtered.length} / ${fulfillments.length} 条 · 今日要交付、未完成、异常优先`}
+      actions={<Segmented ariaLabel="交付方式" value={tab} onChange={setTab} items={["全部", "自提", "送货", "快递快运"]} />}
+    />
+  );
+
+  if (!selected) {
+    return (
+      <section className="page-grid split-detail fulfillment-workbench">
+        <OperationalPanel className="table-pane fulfillment-list-panel" ariaLabel="交付任务列表">
+          {listHeader}
+          <MetricStrip items={stats} ariaLabel="交付状态摘要" />
+          <DataState title="当前交付方式没有任务" detail="切换交付方式或刷新列表后重试。" />
+        </OperationalPanel>
+        <DetailPane className="fulfillment-detail-pane" title="出库交付" subtitle="暂无可显示任务">
+          <DataState title="没有可显示的交付详情" compact />
+        </DetailPane>
+      </section>
+    );
+  }
+
   const selectedLine = findOrderLine(orderLines, selected.lineId);
   const customerInfo = findCustomer(selected.customerId);
   const actions = getFulfillmentActions(selected);
@@ -49,20 +89,11 @@ export function FulfillmentPage({ tab, setTab, fulfillments, orderLines, selecte
         ["备注", selectedLineRemark || "无"],
       ]
     : [["货品/规格", selectedGoods]];
-  const stats = [
-    ["未完成", fulfillments.filter((item) => item.status !== "已交付").length, "warning"],
-    ["今天/急", fulfillments.filter((item) => item.latest.includes("今天")).length, "blue"],
-    ["异常", fulfillments.filter((item) => item.status.includes("数量") || item.status.includes("无法")).length, "danger"],
-    ["待拉走", fulfillments.filter((item) => item.status === "待确认拉走").length, "success"],
-  ];
   return (
-    <section className="page-grid split-detail">
-      <div className="table-pane">
-        <div className="toolbar-line">
-          <Segmented value={tab} onChange={setTab} items={["全部", "自提", "送货", "快递快运"]} />
-          <span>今日要交付、未完成、异常优先</span>
-        </div>
-        <MetricStrip items={stats} />
+    <section className="page-grid split-detail fulfillment-workbench">
+      <OperationalPanel className="table-pane fulfillment-list-panel" ariaLabel="交付任务列表">
+        {listHeader}
+        <MetricStrip items={stats} ariaLabel="交付状态摘要" />
         <DataTable
           className="fulfillment-table"
           columns={["交付方式", "客户", "订单尾号", "货品/规格", "数量", "包裹", "最晚", "状态", "备注"]}
@@ -74,8 +105,8 @@ export function FulfillmentPage({ tab, setTab, fulfillments, orderLines, selecte
             cells: [row.method, findCustomer(row.customerId).name, row.lineId.slice(-5), getFulfillmentGoodsDisplay(row, findOrderLine(orderLines, row.lineId)), row.qty, row.packages, row.latest, row.status, formatFulfillmentTableRemark(row)],
           }))}
         />
-      </div>
-      <DetailPane title={`${selected.method} · ${selected.status}`} subtitle={`${customerInfo.name} · ${selected.lineId}`}>
+      </OperationalPanel>
+      <DetailPane className="fulfillment-detail-pane" title={`${selected.method} · ${selected.status}`} subtitle={`${customerInfo.name} · ${selected.lineId}`}>
         <InfoGrid
           rows={[
             ["联系人", `${customerInfo.contact} ${customerInfo.phone}`],

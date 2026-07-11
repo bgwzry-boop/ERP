@@ -2089,3 +2089,7 @@ Global toast and overlay state, permission action guards, and cross-domain modal
 ## 2026-07-11 - Shared Operational UI Uses a Compatibility Layer
 
 Shared office UI carries structure, accessibility, and visual rules only; feature modules continue to own business fields, permissions, and action eligibility. The legacy `styles.css` remains loaded during staged migration, while tokens, shell, shared components, and feature styles load afterward. Page descriptions belong to navigation metadata, and the workspace header shows a read-only runtime context plus one real refresh action; a no-op “local demo” command is not shown. Public Todo and Order Entry are the first adopters, followed by Order Pool, Inventory, and Fulfillment without changing business state machines or API contracts.
+
+## 2026-07-11 - Mobile Operational Tables Show Key Columns
+
+At the office mobile breakpoint, wide operational tables show a page-specific key-column subset for scanning instead of compressing every desktop column into unreadable cells. Order Pool keeps order, customer, product, status, and exception; Inventory keeps size, color, style, state, available quantity, and trust; Fulfillment keeps method, customer, goods, quantity, and status. The selected record's full fields and actions remain available in the detail pane below, and business filtering is unchanged.

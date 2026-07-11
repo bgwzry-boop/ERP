@@ -1,4 +1,12 @@
-import { DataTable, DetailPane, InfoGrid, Timeline } from "../../components/ui.jsx";
+import {
+  DataState,
+  DataTable,
+  DetailPane,
+  FilterBar,
+  InfoGrid,
+  OperationalPanel,
+  Timeline,
+} from "../../shared/ui/operational.jsx";
 
 export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOrderId, setSelectedOrderId, filters, setFilters, orderPoolMeta, selectedOrderDetail, onLocateFulfillment, onLocateStatement, onOrderAction, setToast, helpers }) {
   const {
@@ -18,35 +26,6 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
   } = helpers;
   const filtered = orderLines.filter((item) => orderMatchesFilters(item, filters, statements));
   const selected = filtered.find((item) => item.id === selectedOrderId) ?? filtered[0] ?? orderLines[0];
-  if (!selected) {
-    return (
-      <section className="page-grid split-detail">
-        <div className="table-pane">
-          <div className="order-filter-panel">
-            <div className="filter-summary">
-              <span>{getOrderPoolSourceLabel(orderPoolMeta)}</span>
-              <button onClick={() => setFilters(defaultOrderFilters)}>重置筛选</button>
-            </div>
-          </div>
-          <div className="empty-state">暂无订单明细。</div>
-        </div>
-        <DetailPane title="订单池" subtitle="暂无可显示明细">
-          <InfoGrid rows={[["列表", getOrderPoolSourceLabel(orderPoolMeta)]]} />
-        </DetailPane>
-      </section>
-    );
-  }
-  const apiDetail = selectedOrderDetail?.orderLine?.id === selected.id ? selectedOrderDetail : null;
-  const customerInfo = findCustomer(selected.customerId);
-  const selectedFulfillment = fulfillments.find((item) => item.lineId === selected.id);
-  const apiFulfillment = apiDetail?.fulfillment?.[0];
-  const selectedStatement = getStatementForLine(statements, selected.id);
-  const apiStatement = apiDetail?.statement?.[0];
-  const financeState = getOrderFinanceState(selected, statements);
-  const exceptionState = getOrderExceptionState(selected);
-  const orderActionBlocker = getOrderLineMutationBlocker(selected);
-  const quantityActionState = getOrderActionState(getUiActionState, "调整正式单数量", orderActionBlocker);
-  const voidActionState = getOrderActionState(getUiActionState, "作废正式单", orderActionBlocker);
   const filterOptions = {
     status: ["全部", "待处理", "生产中", "待出库", "缺货", "已交付", "待对账"],
     orderType: ["全部", "现货有货", "现货缺货", "定制印刷", "印刷通货", "外加工印刷"],
@@ -64,54 +43,84 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
     setToast("订单池筛选已重置。");
   }
 
+  const filterBar = (
+    <FilterBar
+      className="order-pool-filter-bar"
+      ariaLabel="订单池筛选"
+      summary={`命中 ${filtered.length} / ${orderLines.length} 行；${getOrderPoolSourceLabel(orderPoolMeta)}。`}
+      actions={<button onClick={resetFilters}>重置筛选</button>}
+    >
+      <div className="filter-grid order-filter-grid">
+        <label>
+          <span>客户</span>
+          <select value={filters.customerId} onChange={(event) => updateFilter("customerId", event.target.value)}>
+            <option value="全部">全部客户</option>
+            {customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>状态</span>
+          <select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+            {filterOptions.status.map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>类型</span>
+          <select value={filters.orderType} onChange={(event) => updateFilter("orderType", event.target.value)}>
+            {filterOptions.orderType.map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>交付</span>
+          <select value={filters.fulfillment} onChange={(event) => updateFilter("fulfillment", event.target.value)}>
+            {filterOptions.fulfillment.map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>异常</span>
+          <select value={filters.exception} onChange={(event) => updateFilter("exception", event.target.value)}>
+            {filterOptions.exception.map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+        <label>
+          <span>对账/欠款</span>
+          <select value={filters.finance} onChange={(event) => updateFilter("finance", event.target.value)}>
+            {filterOptions.finance.map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+      </div>
+    </FilterBar>
+  );
+
+  if (!selected) {
+    return (
+      <section className="page-grid split-detail order-pool-workbench">
+        <OperationalPanel className="table-pane order-pool-list-panel" ariaLabel="订单明细列表">
+          {filterBar}
+          <DataState title="暂无订单明细" detail="请检查筛选条件或确认订单数据是否已同步。" />
+        </OperationalPanel>
+        <DetailPane className="order-pool-detail-pane" title="订单池" subtitle="暂无可显示明细">
+          <InfoGrid rows={[["列表", getOrderPoolSourceLabel(orderPoolMeta)]]} />
+          <DataState title="没有可显示的订单详情" compact />
+        </DetailPane>
+      </section>
+    );
+  }
+  const apiDetail = selectedOrderDetail?.orderLine?.id === selected.id ? selectedOrderDetail : null;
+  const customerInfo = findCustomer(selected.customerId);
+  const selectedFulfillment = fulfillments.find((item) => item.lineId === selected.id);
+  const apiFulfillment = apiDetail?.fulfillment?.[0];
+  const selectedStatement = getStatementForLine(statements, selected.id);
+  const apiStatement = apiDetail?.statement?.[0];
+  const financeState = getOrderFinanceState(selected, statements);
+  const exceptionState = getOrderExceptionState(selected);
+  const orderActionBlocker = getOrderLineMutationBlocker(selected);
+  const quantityActionState = getOrderActionState(getUiActionState, "调整正式单数量", orderActionBlocker);
+  const voidActionState = getOrderActionState(getUiActionState, "作废正式单", orderActionBlocker);
   return (
-    <section className="page-grid split-detail">
-      <div className="table-pane">
-        <div className="order-filter-panel">
-          <div className="filter-grid">
-            <label>
-              <span>客户</span>
-              <select value={filters.customerId} onChange={(event) => updateFilter("customerId", event.target.value)}>
-                <option value="全部">全部客户</option>
-                {customers.map((customer) => <option value={customer.id} key={customer.id}>{customer.name}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>状态</span>
-              <select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
-                {filterOptions.status.map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>类型</span>
-              <select value={filters.orderType} onChange={(event) => updateFilter("orderType", event.target.value)}>
-                {filterOptions.orderType.map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>交付</span>
-              <select value={filters.fulfillment} onChange={(event) => updateFilter("fulfillment", event.target.value)}>
-                {filterOptions.fulfillment.map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>异常</span>
-              <select value={filters.exception} onChange={(event) => updateFilter("exception", event.target.value)}>
-                {filterOptions.exception.map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-            <label>
-              <span>对账/欠款</span>
-              <select value={filters.finance} onChange={(event) => updateFilter("finance", event.target.value)}>
-                {filterOptions.finance.map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-          </div>
-          <div className="filter-summary">
-            <span>命中 {filtered.length} / {orderLines.length} 行；{getOrderPoolSourceLabel(orderPoolMeta)}。</span>
-            <button onClick={resetFilters}>重置筛选</button>
-          </div>
-        </div>
+    <section className="page-grid split-detail order-pool-workbench">
+      <OperationalPanel className="table-pane order-pool-list-panel" ariaLabel="订单明细列表">
+        {filterBar}
         <DataTable
           className="order-table"
           columns={["订单/明细", "客户", "品名", "尺寸", "颜色", "提手", "数量", "类型", "状态", "交付", "异常", "对账"]}
@@ -123,8 +132,8 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
             cells: [getOrderLineShortNo(row), findCustomer(row.customerId).name, row.product, row.size, row.color, row.handle, row.qty, row.orderType, row.status, row.fulfillment, getOrderExceptionState(row), getOrderFinanceState(row, statements)],
           }))}
         />
-      </div>
-      <DetailPane title={`${selected.orderNo}-${selected.lineNo}`} subtitle={`${customerInfo.name} · ${selected.status}`}>
+      </OperationalPanel>
+      <DetailPane className="order-pool-detail-pane" title={`${selected.orderNo}-${selected.lineNo}`} subtitle={`${customerInfo.name} · ${selected.status}`}>
         <InfoGrid
           rows={[
             ["产品", `${selected.product} / ${selected.size} / ${getLineColorSpecLabel(selected)}`],
