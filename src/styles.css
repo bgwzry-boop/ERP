@@ -3881,7 +3881,7 @@ button:disabled,
 
 .raw-material-roll-row {
   display: grid;
-  grid-template-columns: minmax(0, 1.15fr) auto minmax(0, 0.75fr) minmax(0, 0.9fr) repeat(7, auto);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   align-items: center;
   gap: 8px;
   border: 1px solid #e5ecf5;
@@ -3890,9 +3890,12 @@ button:disabled,
   padding: 7px 8px;
 }
 
+.raw-material-roll-row > * {
+  min-width: 0;
+}
+
 .raw-material-roll-row > div {
   display: grid;
-  min-width: 0;
   gap: 2px;
 }
 
