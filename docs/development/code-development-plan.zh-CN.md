@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D42 库存修正凭证持久化关联已完成。库存修正保持“先建草稿且不改库存 → 上传当前草稿名下 `inventory_correction_evidence` 图片 / PDF → 独立幂等命令事务关联 → 管理确认前再次校验”的顺序；最多 10 个附件，终态草稿拒绝补传。仓库获得库存修正专用上传权限，不获得通用附件权限；前端支持上传失败后对同一草稿重试。共享文件读取工具同时消除生产成品图的重复 FileReader 实现。直接 service / route / repository、前端 action、实际 HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live、production profile live、依赖审计和桌面 / `390x844` 浏览器回归通过。整改方案版本更新为 V7.29；下一轮 D43 建立隔离数据的核心浏览器 E2E 闭环。
 - 本轮补充：D41 对账附件与财务命令服务已完成。新增 `statementFinancialCommandService.mjs`，收款 / 差额 / 核销移出 API 主文件；付款 / 差额和客户确认附件按对账单 owner、purpose、文件类型与认证上传人校验，客户确认允许图片 / PDF。核销和库存修正创建不再静默接受无法持久化的附件。直接 service、HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.28；下一轮 D42 实现库存修正草稿建成后的附件上传 / 关联事务。
 - 本轮补充：D40 业务附件消费校验已完成。新增共享 `businessAttachmentValidationService.mjs`，司机送达凭证复用后删除重复校验；定制成品图上传 / 复核增加生产任务归属、`finished_goods_photo` 用途、有效图片和认证上传人门禁，请求体不能伪造文件名。直接 service、HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.27；下一轮 D41 收口付款、差额、客户确认和库存修正附件。
 - 本轮补充：D39 送达凭证附件可信校验已完成。司机首次送达和证据补拍必须引用真实持久化附件，水印照 / 签字照分别校验当前交付归属、`delivery_watermark_photo` / `signature_photo` 用途、有效图片和当前认证司机上传身份；签字声明没有附件会拒绝。附件创建统一使用认证用户，不再信任 body `uploadedBy`；已保存水印 metadata 优先于重复请求字段。直接 service、HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.26；下一轮 D40 将相同合同扩展到定制成品图等高价值附件消费链。

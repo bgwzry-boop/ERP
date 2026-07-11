@@ -18,6 +18,7 @@ import {
 } from "../services/officeProductionPackingApiClient.js";
 import { createOfficeTodo } from "../services/officeMockService.js";
 import { estimateDataUrlByteSize } from "../services/driverWatermarkImageClient.js";
+import { readAttachmentFileAsDataUrl } from "../features/attachments/readAttachmentFile.js";
 import {
   getLineColorSpecLabel,
   getLinePrintSide,
@@ -95,14 +96,7 @@ function escapeSvgText(value) {
 }
 
 export function readProductionPhotoFileAsDataUrl(file) {
-  if (!file || typeof FileReader === "undefined") return Promise.resolve("");
-  if (typeof file.contentDataUrl === "string") return Promise.resolve(file.contentDataUrl);
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => resolve("");
-    reader.readAsDataURL(file);
-  });
+  return readAttachmentFileAsDataUrl(file).catch(() => "");
 }
 
 export function createFinishedGoodsPhotoSampleFile({ line, productionTaskId, operatorName }) {

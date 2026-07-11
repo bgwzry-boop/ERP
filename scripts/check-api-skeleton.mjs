@@ -361,6 +361,7 @@ try {
     warehouseContext.user?.userId !== "U-WAREHOUSE-A" ||
     !warehouseContext.roles?.includes("warehouse") ||
     !warehouseContext.actionPermissions?.includes("inventory.correction.create") ||
+    !warehouseContext.actionPermissions?.includes("attachment.inventory_correction.create") ||
     !warehouseContext.actionPermissions?.includes("fulfillment.print") ||
     warehouseContext.actionPermissions?.includes("fulfillment.dispatch.update") ||
     warehouseContext.actionPermissions?.includes("statement.payment.record")
@@ -441,6 +442,75 @@ try {
     throw new Error("/api/inventory/correction-drafts returned an unexpected correction draft payload");
   }
 
+  const wrongOwnerCorrectionAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "inventory_correction",
+      ownerId: "ADJ-WRONG-OWNER",
+      fileType: "image",
+      purpose: "inventory_correction_evidence",
+      fileName: "wrong-owner-count.jpg",
+      contentRef: "api-skeleton://inventory-correction/wrong-owner-count.jpg",
+      mimeType: "image/jpeg",
+      contentDataUrl: "data:image/jpeg;base64,d3Jvbmctb3duZXItY291bnQ=",
+      uploadedBy: "U-SPOOFED",
+    },
+    { headers: { "x-erp-user-id": "U-WAREHOUSE-A" } },
+  );
+  const blockedCorrectionAttachmentLink = await postJson(
+    baseUrl,
+    `/api/inventory/correction-drafts/${correctionDraft.correctionDraftId}/attachments`,
+    {
+      correctionDraftId: correctionDraft.correctionDraftId,
+      attachmentIds: [wrongOwnerCorrectionAttachment.attachmentId],
+      idempotencyKey: "api-skeleton-correction-attachment-wrong-owner",
+    },
+    { expectedStatus: 422, headers: { "x-erp-user-id": "U-WAREHOUSE-A" } },
+  );
+  if (blockedCorrectionAttachmentLink.code !== "INVENTORY_CORRECTION_ATTACHMENT_OWNER_MISMATCH") {
+    throw new Error("/api/inventory/correction-drafts/{id}/attachments accepted another draft's evidence");
+  }
+
+  const correctionAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "inventory_correction",
+      ownerId: correctionDraft.correctionDraftId,
+      fileType: "image",
+      purpose: "inventory_correction_evidence",
+      fileName: "inventory-count.jpg",
+      contentRef: `api-skeleton://inventory-correction/${correctionDraft.correctionDraftId}/inventory-count.jpg`,
+      mimeType: "image/jpeg",
+      contentDataUrl: "data:image/jpeg;base64,aW52ZW50b3J5LWNvdW50",
+      uploadedBy: "U-SPOOFED",
+    },
+    { headers: { "x-erp-user-id": "U-WAREHOUSE-A" } },
+  );
+  if (correctionAttachment.uploadedBy !== "U-WAREHOUSE-A") {
+    throw new Error("/api/attachments did not use the authenticated warehouse user for correction evidence");
+  }
+  const correctionAttachmentLink = await postJson(
+    baseUrl,
+    `/api/inventory/correction-drafts/${correctionDraft.correctionDraftId}/attachments`,
+    {
+      correctionDraftId: correctionDraft.correctionDraftId,
+      attachmentIds: [correctionAttachment.attachmentId],
+      remark: "API skeleton inventory count evidence",
+      idempotencyKey: "api-skeleton-correction-attachment-link",
+    },
+    { headers: { "x-erp-user-id": "U-WAREHOUSE-A" } },
+  );
+  if (
+    correctionAttachmentLink.correctionDraftId !== correctionDraft.correctionDraftId ||
+    correctionAttachmentLink.attachmentIds?.[0] !== correctionAttachment.attachmentId ||
+    correctionAttachmentLink.revision !== 2 ||
+    !correctionAttachmentLink.operationLogId
+  ) {
+    throw new Error("/api/inventory/correction-drafts/{id}/attachments returned an unexpected payload");
+  }
+
   const inventoryAfterDraftList = await getJson(baseUrl, `/api/inventory/items?keyword=${encodeURIComponent(inventoryBefore.id)}&pageSize=1`);
   if (inventoryAfterDraftList.items?.[0]?.inStock !== inventoryBefore.inStock) {
     throw new Error("/api/inventory/correction-drafts changed inventory before confirmation");
@@ -471,8 +541,10 @@ try {
     correctionDraftDetailBeforeConfirm.status !== "待确认生效" ||
     correctionDraftDetailBeforeConfirm.qtyBefore?.onHand !== inventoryBefore.inStock ||
     correctionDraftDetailBeforeConfirm.requestedQtyAfter?.onHand !== inventoryBefore.inStock + 5 ||
+    correctionDraftDetailBeforeConfirm.attachmentIds?.[0] !== correctionAttachment.attachmentId ||
     correctionDraftDetailBeforeConfirm.ledger !== null ||
-    !correctionDraftDetailBeforeConfirm.operationLogs?.some((log) => log.action === "create_inventory_correction_draft")
+    !correctionDraftDetailBeforeConfirm.operationLogs?.some((log) => log.action === "create_inventory_correction_draft") ||
+    !correctionDraftDetailBeforeConfirm.operationLogs?.some((log) => log.action === "link_inventory_correction_attachments")
   ) {
     throw new Error("/api/inventory/correction-drafts/{id} did not return the open correction detail");
   }

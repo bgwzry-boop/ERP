@@ -220,6 +220,7 @@ const writeActionPermissions = {
   voidOrderLine: "order.void",
   adjustOrderLineQuantity: "order.quantity.adjust",
   createInventoryCorrectionDraft: "inventory.correction.create",
+  linkInventoryCorrectionAttachments: "inventory.correction.create",
   confirmInventoryCorrectionDraft: "inventory.correction.confirm",
   releaseInventoryReservation: "inventory.reservation.release",
   createFulfillmentException: "fulfillment.exception.create",
@@ -1081,6 +1082,7 @@ async function routeWrite(context) {
       requireActionPermission,
       getPermissionOperatorId,
       createInventoryCorrectionDraftRoute,
+      linkInventoryCorrectionAttachmentsRoute,
       confirmInventoryCorrectionDraftRoute,
       releaseInventoryReservationRoute,
     })
@@ -1523,6 +1525,16 @@ function requireAnyActionPermission(response, permissionContext, permissionKeys)
 }
 
 function requireAttachmentCreatePermission(response, permissionContext, body = {}) {
+  const isInventoryCorrectionEvidence =
+    String(body.ownerType ?? "").trim() === "inventory_correction" &&
+    String(body.purpose ?? "").trim() === "inventory_correction_evidence";
+  if (isInventoryCorrectionEvidence) {
+    return requireAnyActionPermission(response, permissionContext, [
+      "attachment.inventory_correction.create",
+      writeActionPermissions.createAttachment,
+    ]);
+  }
+
   const isFinishedGoodsPhoto =
     String(body.ownerType ?? "").trim() === "production_task" &&
     String(body.purpose ?? "").trim() === "finished_goods_photo";
@@ -3613,9 +3625,29 @@ async function createInventoryCorrectionDraftRoute({ response, workspace, body, 
     correctionDraftId: draft.correctionDraftId,
     inventoryItemId: draft.inventoryItemId,
     status: draft.status,
+    revision: draft.revision,
+    attachmentIds: draft.attachmentIds ?? [],
     qtyBefore: draft.qtyBefore,
     requestedQtyAfter: draft.requestedQtyAfter,
     todoId: result.todo.id,
+    operationLogId: result.operationLogId,
+  });
+}
+
+async function linkInventoryCorrectionAttachmentsRoute({ response, workspace, correctionDraftId, body, operatorId }) {
+  const result = await inventoryCorrectionCommandService.linkCorrectionAttachments({
+    workspace,
+    correctionDraftId,
+    body,
+    operatorId,
+  });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, {
+    correctionDraftId: result.correctionDraft.correctionDraftId,
+    attachmentIds: result.attachmentIds ?? result.correctionDraft.attachmentIds ?? [],
+    revision: result.correctionDraft.revision,
+    unchanged: Boolean(result.unchanged),
     operationLogId: result.operationLogId,
   });
 }
@@ -15735,6 +15767,7 @@ const todoCommandService = createTodoCommandService({ buildOperationLog });
 const inventoryCorrectionCommandService = createInventoryCorrectionCommandService({
   buildOperationLog,
   buildTodo,
+  findAttachment: findAttachmentRecord,
   findInventoryItem,
   toInventoryQuantitySnapshot,
 });

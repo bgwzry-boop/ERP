@@ -6,6 +6,7 @@ import {
   listOfficeInventoryCorrectionDrafts,
   listOfficeInventoryItems,
   listOfficeInventoryLedgerEntries,
+  linkOfficeInventoryCorrectionAttachments,
   mapApiInventoryCorrectionConfirmToLocal,
   mapApiInventoryCorrectionDetailToLocal,
   mapApiInventoryCorrectionDraftSummaryToLocal,
@@ -304,6 +305,49 @@ const mappedCorrectionConfirm = mapApiInventoryCorrectionConfirmToLocal({
 assert(mappedCorrectionConfirm.status === "已确认生效", "inventory correction confirm mapper missed status");
 assert(mappedCorrectionConfirm.ledger.ledgerId === "LEDGER-API-CONFIRM-1", "inventory correction confirm mapper missed ledger");
 assert(mappedCorrectionConfirm.diff === 9, "inventory correction confirm mapper missed quantity diff");
+
+const correctionAttachmentLinkCalls = [];
+const correctionAttachmentLinkResult = await linkOfficeInventoryCorrectionAttachments(
+  {
+    authState: {
+      ...authState,
+      session: { accessToken: "seed-session.inventory-correction-attachment-check" },
+    },
+    operatorId: "U-WAREHOUSE-A",
+    correctionDraftId: "ADJ-API-QUEUE-1",
+    attachmentIds: ["ATT-CORRECTION-1", "ATT-CORRECTION-1"],
+    remark: "盘点照片",
+  },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url, init) => {
+      correctionAttachmentLinkCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        correctionDraftId: "ADJ-API-QUEUE-1",
+        attachmentIds: ["ATT-CORRECTION-1"],
+        revision: 2,
+        unchanged: false,
+        operationLogId: "LOG-CORRECTION-ATTACHMENT-1",
+      });
+    },
+  },
+);
+assert(correctionAttachmentLinkResult.source === "api", "inventory correction attachment link did not use API");
+assert(
+  JSON.stringify(correctionAttachmentLinkResult.linkage.attachmentIds) === JSON.stringify(["ATT-CORRECTION-1"]),
+  "inventory correction attachment IDs were not mapped",
+);
+assert(correctionAttachmentLinkResult.linkage.revision === 2, "inventory correction attachment revision was not mapped");
+assert(
+  correctionAttachmentLinkCalls[0]?.url ===
+    "http://127.0.0.1:8787/api/inventory/correction-drafts/ADJ-API-QUEUE-1/attachments",
+  "inventory correction attachment link URL is incorrect",
+);
+assert(correctionAttachmentLinkCalls[0]?.body.operatorId === "U-WAREHOUSE-A", "attachment link operator was not sent");
+assert(
+  JSON.stringify(correctionAttachmentLinkCalls[0]?.body.attachmentIds) === JSON.stringify(["ATT-CORRECTION-1"]),
+  "inventory correction attachment IDs were not sent",
+);
 
 const correctionConfirmCalls = [];
 const correctionConfirmResult = await confirmOfficeInventoryCorrectionDraft(

@@ -1318,6 +1318,38 @@ paths:
         "404":
           $ref: "#/components/responses/BusinessError"
 
+  /inventory/correction-drafts/{correctionDraftId}/attachments:
+    post:
+      tags: [Inventory]
+      summary: 关联库存修正凭证
+      description: >
+        库存修正草稿创建成功后，先使用附件接口上传 ownerType=inventory_correction、
+        ownerId=当前草稿 ID、purpose=inventory_correction_evidence 的图片或 PDF，
+        再调用本接口把附件 ID 原子关联到仍处于待确认状态的草稿。最多 10 个附件；
+        服务端会复核附件归属、用途、内容、类型和认证上传人，并以草稿 revision 防止并发覆盖。
+      operationId: linkInventoryCorrectionAttachments
+      parameters:
+        - $ref: "#/components/parameters/CorrectionDraftId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkInventoryCorrectionAttachmentsRequest"
+      responses:
+        "200":
+          description: 库存修正凭证已关联
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkInventoryCorrectionAttachmentsResponse"
+        "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /inventory/correction-drafts/{correctionDraftId}/confirm:
     post:
       tags: [Inventory]
@@ -13562,7 +13594,7 @@ components:
         attachmentIds:
           type: array
           deprecated: true
-          description: 当前草稿创建阶段不支持附件；传入非空数组会返回 422，待后续“先建草稿再上传关联”接口完成后启用。
+          description: 草稿创建阶段不接收附件；传入非空数组会返回 422。请先创建草稿，再上传附件并调用 /attachments 关联子资源。
           items:
             type: string
         operatorId:
@@ -13587,12 +13619,58 @@ components:
         status:
           type: string
           enum: [待确认生效, 已确认生效, 已作废]
+        revision:
+          type: integer
+          minimum: 1
+        attachmentIds:
+          type: array
+          items:
+            type: string
         qtyBefore:
           $ref: "#/components/schemas/InventoryQuantitySnapshot"
         requestedQtyAfter:
           $ref: "#/components/schemas/InventoryQuantitySnapshot"
         todoId:
           type: string
+        operationLogId:
+          type: string
+
+    LinkInventoryCorrectionAttachmentsRequest:
+      type: object
+      required: [correctionDraftId, attachmentIds]
+      properties:
+        correctionDraftId:
+          type: string
+        attachmentIds:
+          type: array
+          minItems: 1
+          maxItems: 10
+          uniqueItems: true
+          description: 当前库存修正草稿名下、用途为 inventory_correction_evidence 的有效图片或 PDF 附件 ID。
+          items:
+            type: string
+        remark:
+          type: string
+        operatorId:
+          type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
+
+    LinkInventoryCorrectionAttachmentsResponse:
+      type: object
+      required: [correctionDraftId, attachmentIds, revision, unchanged, operationLogId]
+      properties:
+        correctionDraftId:
+          type: string
+        attachmentIds:
+          type: array
+          items:
+            type: string
+        revision:
+          type: integer
+          minimum: 1
+        unchanged:
+          type: boolean
         operationLogId:
           type: string
 

@@ -10,6 +10,7 @@ const dependencies = {
   permissionContext: { actionPermissions: ["inventory.correction.create"] },
   writeActionPermissions: {
     createInventoryCorrectionDraft: "inventory.correction.create",
+    linkInventoryCorrectionAttachments: "inventory.correction.create",
     confirmInventoryCorrectionDraft: "inventory.correction.confirm",
     releaseInventoryReservation: "inventory.reservation.release",
   },
@@ -24,6 +25,9 @@ const dependencies = {
   async createInventoryCorrectionDraftRoute({ response, workspace, body, operatorId }) {
     calls.push({ kind: "create", response, workspace, body, operatorId });
   },
+  async linkInventoryCorrectionAttachmentsRoute({ response, workspace, correctionDraftId, body, operatorId }) {
+    calls.push({ kind: "link", response, workspace, correctionDraftId, body, operatorId });
+  },
   async confirmInventoryCorrectionDraftRoute({ response, workspace, correctionDraftId, body, operatorId }) {
     calls.push({ kind: "confirm", response, workspace, correctionDraftId, body, operatorId });
   },
@@ -33,6 +37,7 @@ const dependencies = {
 };
 
 await expectHandled("/api/inventory/correction-drafts", "inventory.correction.create", { kind: "create" });
+await expectHandled("/api/inventory/correction-drafts/ICD-1/attachments", "inventory.correction.create", { kind: "link", correctionDraftId: "ICD-1" });
 await expectHandled("/api/inventory/correction-drafts/ICD-1/confirm", "inventory.correction.confirm", { kind: "confirm", correctionDraftId: "ICD-1" });
 await expectHandled("/api/inventory/reservations/RSV-1/release", "inventory.reservation.release", { kind: "release", reservationId: "RSV-1" });
 

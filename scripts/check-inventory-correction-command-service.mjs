@@ -27,6 +27,7 @@ const workspace = {
   todos: [],
   todoEvents: [],
   operationLogs: [],
+  attachments: [],
   inventoryCorrectionTransactionRepository: createLocalInventoryCorrectionTransactionRepository(),
 };
 
@@ -49,6 +50,9 @@ const service = createInventoryCorrectionCommandService({
   },
   buildTodo(currentWorkspace, input) {
     return { wait: "刚刚", handled: false, ...input };
+  },
+  findAttachment(currentWorkspace, attachmentId) {
+    return currentWorkspace.attachments.find((item) => item.attachmentId === attachmentId) ?? null;
   },
   findInventoryItem(currentWorkspace, id) {
     return currentWorkspace.inventories.find((item) => item.id === id);
@@ -97,6 +101,45 @@ assert.equal(workspace.todos.length, 1);
 assert.equal(workspace.todoEvents[0].eventType, "todo_source:inventory_correction_created");
 assert.equal(workspace.operationLogs[0].operatorId, "U-AUTH");
 
+workspace.attachments.push(
+  correctionAttachment("ATT-VALID", created.correctionDraft.correctionDraftId),
+  correctionAttachment("ATT-WRONG-OWNER", "ADJ-OTHER"),
+);
+const blockedLink = await service.linkCorrectionAttachments({
+  workspace,
+  correctionDraftId: created.correctionDraft.correctionDraftId,
+  body: { attachmentIds: ["ATT-WRONG-OWNER"], idempotencyKey: "inventory-link-invalid-0001" },
+  operatorId: "U-WAREHOUSE",
+});
+assert.equal(blockedLink.code, "INVENTORY_CORRECTION_ATTACHMENT_OWNER_MISMATCH");
+
+const linkBody = {
+  correctionDraftId: created.correctionDraft.correctionDraftId,
+  attachmentIds: ["ATT-VALID", "ATT-VALID"],
+  remark: "盘点照片",
+  idempotencyKey: "inventory-link-0001",
+};
+const linked = await service.linkCorrectionAttachments({
+  workspace,
+  correctionDraftId: created.correctionDraft.correctionDraftId,
+  body: linkBody,
+  operatorId: "U-WAREHOUSE",
+});
+assert.deepEqual(linked.attachmentIds, ["ATT-VALID"]);
+assert.equal(linked.correctionDraft.revision, 2);
+assert.deepEqual(workspace.inventoryCorrectionDrafts[0].attachmentIds, ["ATT-VALID"]);
+assert.equal(workspace.operationLogs[0].action, "link_inventory_correction_attachments");
+assert.equal(workspace.operationLogs[0].operatorId, "U-WAREHOUSE");
+
+const replayedLink = await service.linkCorrectionAttachments({
+  workspace,
+  correctionDraftId: created.correctionDraft.correctionDraftId,
+  body: linkBody,
+  operatorId: "U-WAREHOUSE",
+});
+assert.deepEqual(replayedLink.attachmentIds, ["ATT-VALID"]);
+assert.equal(workspace.operationLogs.filter((item) => item.action === "link_inventory_correction_attachments").length, 1);
+
 const replayedCreate = await service.createCorrectionDraft({ workspace, body: createBody, operatorId: "U-AUTH" });
 assert.equal(replayedCreate.correctionDraft.correctionDraftId, created.correctionDraft.correctionDraftId);
 assert.equal(workspace.inventoryCorrectionDrafts.length, 1);
@@ -125,7 +168,7 @@ assert.equal(confirmed.inventoryLedger.operatorId, "U-MANAGER");
 assert.equal(confirmed.todo.handledBy, "U-MANAGER");
 assert.equal(workspace.inventoryLedgers.length, 1);
 assert.equal(workspace.todoEvents.length, 2);
-assert.equal(workspace.operationLogs.length, 2);
+assert.equal(workspace.operationLogs.length, 3);
 
 const replayedConfirm = await service.confirmCorrectionDraft({
   workspace,
@@ -137,6 +180,14 @@ assert.equal(replayedConfirm.inventoryLedger.ledgerId, confirmed.inventoryLedger
 assert.equal(workspace.inventoryLedgers.length, 1);
 assert.equal(workspace.inventories[0].revision, 4);
 
+const blockedClosedDraftLink = await service.linkCorrectionAttachments({
+  workspace,
+  correctionDraftId: created.correctionDraft.correctionDraftId,
+  body: { attachmentIds: ["ATT-VALID"], idempotencyKey: "inventory-link-closed-0001" },
+  operatorId: "U-WAREHOUSE",
+});
+assert.equal(blockedClosedDraftLink.code, "INVENTORY_CORRECTION_ATTACHMENT_DRAFT_NOT_OPEN");
+
 const invalid = await service.createCorrectionDraft({
   workspace,
   body: { inventoryItemId: "INV-1", expectedQty: 480, actualQty: 1.5 },
@@ -145,3 +196,18 @@ const invalid = await service.createCorrectionDraft({
 assert.equal(invalid.code, "VALIDATION_ERROR");
 
 console.log("inventory correction command service checks passed");
+
+function correctionAttachment(attachmentId, ownerId, overrides = {}) {
+  return {
+    attachmentId,
+    ownerType: "inventory_correction",
+    ownerId,
+    purpose: "inventory_correction_evidence",
+    uploadedBy: "U-WAREHOUSE",
+    status: "uploaded",
+    hasContent: true,
+    fileType: "image",
+    mimeType: "image/jpeg",
+    ...overrides,
+  };
+}

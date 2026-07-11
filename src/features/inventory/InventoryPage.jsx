@@ -61,6 +61,7 @@ export function InventoryPage({
   setSelectedStockId,
   setToast,
   onCreateCorrectionDraft,
+  onLinkCorrectionAttachment,
   onConfirmCorrectionDraft,
   onOpenCorrectionDraft,
   onRefreshCorrectionQueue,
@@ -75,6 +76,8 @@ export function InventoryPage({
   const [correctionActual, setCorrectionActual] = useState("");
   const [correctionReason, setCorrectionReason] = useState("盘点差异");
   const [correctionDraft, setCorrectionDraft] = useState(null);
+  const [correctionEvidenceFile, setCorrectionEvidenceFile] = useState(null);
+  const [correctionEvidenceUploading, setCorrectionEvidenceUploading] = useState(false);
   const ledgerFilters = { ...defaultInventoryLedgerPanelFilters, ...inventoryLedgerFilters };
   const includePending = showPending || filters.state === "待处理";
   const visible = inventoryRecords.filter((item) => {
@@ -176,6 +179,31 @@ export function InventoryPage({
     }
     const draft = await onCreateCorrectionDraft?.({ stock: selected, actualQty, reason: correctionReason });
     if (draft) setCorrectionDraft(draft);
+  }
+
+  async function uploadCorrectionEvidence() {
+    if (!correctionDraft?.id && !correctionDraft?.correctionDraftId) {
+      setToast("请先生成库存修正草稿。");
+      return;
+    }
+    if (!correctionEvidenceFile) {
+      setToast("请先选择库存修正凭证图片或 PDF。");
+      return;
+    }
+    setCorrectionEvidenceUploading(true);
+    try {
+      const result = await onLinkCorrectionAttachment?.({ draft: correctionDraft, file: correctionEvidenceFile });
+      if (!result?.blocked && result?.attachmentIds) {
+        setCorrectionDraft((current) => ({
+          ...current,
+          attachmentIds: result.attachmentIds,
+          revision: result.linkage?.revision ?? current?.revision,
+        }));
+        setCorrectionEvidenceFile(null);
+      }
+    } finally {
+      setCorrectionEvidenceUploading(false);
+    }
   }
 
   return (
@@ -480,17 +508,33 @@ export function InventoryPage({
                 {["盘点差异", "找不到货", "包装/标签问题", "车间报数需复核", "待处理转报废", "其他"].map((item) => <option key={item}>{item}</option>)}
               </select>
             </label>
+            <label>
+              <span>修正凭证</span>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                onChange={(event) => setCorrectionEvidenceFile(event.target.files?.[0] ?? null)}
+              />
+            </label>
           </div>
           {correctionDraft && (
             <div className="correction-draft">
               <StatusPill tone="warning">{correctionDraft.status}</StatusPill>
               <strong>{correctionDraft.id}</strong>
               <p>{correctionDraft.stockKey} / {correctionDraft.zone}：系统 {correctionDraft.systemQty}，实盘 {correctionDraft.actualQty}，差异 {correctionDraft.diff}；{correctionDraft.reason}</p>
+              <small>凭证 {correctionDraft.attachmentIds?.length ?? 0} 个</small>
             </div>
           )}
         </section>
         <div className="action-row">
           <button className="primary-action" disabled={correctionState.disabled} title={correctionState.title} onClick={createCorrectionDraft}>生成修正草稿</button>
+          <button
+            type="button"
+            disabled={!correctionDraft || !correctionEvidenceFile || correctionEvidenceUploading}
+            onClick={uploadCorrectionEvidence}
+          >
+            {correctionEvidenceUploading ? "上传中" : "上传修正凭证"}
+          </button>
           <button onClick={() => setToast(`已复制客户话术：${customerText}`)}>复制客户话术</button>
         </div>
       </DetailPane>
@@ -536,6 +580,7 @@ function InventoryCorrectionDetail({ detail }) {
           ["库存键", `${detail.stockKey || detail.inventoryItemId || "库存键待确认"}${detail.zone ? ` / ${detail.zone}` : ""}`],
           ["修正数量", `系统 ${detail.systemQty} → 实盘 ${detail.actualQty}，差异 ${formatInventoryLedgerQty(detail.diff)}`],
           ["原因/备注", [detail.reason, detail.remark].filter(Boolean).join("；") || "未填写"],
+          ["关联凭证", `${detail.attachmentIds?.length ?? 0} 个`],
           ["发起/确认", `${operatorText} / ${confirmedText}`],
           ["时间", `${formatInventoryCorrectionTime(detail.createdAt)} / ${formatInventoryCorrectionTime(detail.confirmedAt || detail.updatedAt)}`],
         ]}
@@ -680,6 +725,7 @@ function getInventoryCorrectionStatusTone(status) {
 function getInventoryCorrectionOperationLabel(action) {
   const labels = {
     create_inventory_correction_draft: "发起修正",
+    link_inventory_correction_attachments: "关联修正凭证",
     confirm_inventory_correction_draft: "确认生效",
   };
   return labels[action] || action || "操作记录";

@@ -109,6 +109,7 @@ const definitions = {
     ],
     actionPermissions: [
       "inventory.correction.create",
+      "attachment.inventory_correction.create",
       "inventory.reservation.release",
       "packing.complete",
       "fulfillment.exception.create",

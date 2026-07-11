@@ -2,12 +2,22 @@ import { useCallback } from "react";
 import {
   confirmOfficeInventoryCorrectionDraft,
   createOfficeInventoryCorrectionDraft,
+  linkOfficeInventoryCorrectionAttachments,
 } from "../services/officeInventoryApiClient.js";
+import {
+  createInventoryCorrectionEvidenceAttachmentInput,
+  createOfficeAttachment,
+} from "../services/officeAttachmentApiClient.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
+import { readAttachmentFileAsDataUrl } from "../features/attachments/readAttachmentFile.js";
 
 const defaultApi = {
   confirmOfficeInventoryCorrectionDraft,
   createOfficeInventoryCorrectionDraft,
+  createInventoryCorrectionEvidenceAttachmentInput,
+  createOfficeAttachment,
+  linkOfficeInventoryCorrectionAttachments,
+  readAttachmentFileAsDataUrl,
 };
 
 function withFeedback(result, feedback, extra = {}) {
@@ -186,7 +196,110 @@ export function createOfficeInventoryWriteActions({
     );
   }
 
-  return { confirmInventoryCorrectionDraft, createInventoryCorrectionDraft };
+  async function linkInventoryCorrectionAttachment({ draft, file }) {
+    const correctionDraftId = String(draft?.correctionDraftId ?? draft?.id ?? "").trim();
+    if (!correctionDraftId || !file) {
+      const feedback = !correctionDraftId ? "请先生成库存修正草稿。" : "请先选择库存修正凭证图片或 PDF。";
+      return withFeedback(
+        {
+          source: "client_validation",
+          blocked: true,
+          error: {
+            code: !correctionDraftId
+              ? "INVENTORY_CORRECTION_DRAFT_ID_REQUIRED"
+              : "INVENTORY_CORRECTION_ATTACHMENT_REQUIRED",
+            message: feedback,
+          },
+        },
+        feedback,
+      );
+    }
+
+    let contentDataUrl;
+    try {
+      contentDataUrl = await inventoryApi.readAttachmentFileAsDataUrl(file);
+    } catch (error) {
+      return withFeedback(
+        {
+          source: "client_validation",
+          blocked: true,
+          error: { code: "INVENTORY_CORRECTION_ATTACHMENT_READ_FAILED", message: error?.message ?? String(error) },
+        },
+        `库存修正凭证读取失败：${error?.message ?? String(error)}`,
+      );
+    }
+
+    const attachmentInput = inventoryApi.createInventoryCorrectionEvidenceAttachmentInput({
+      correctionDraftId,
+      operatorId: currentUserId,
+      remark: `${currentUserDisplayName} 上传库存修正凭证`,
+      file: {
+        name: file.name,
+        type: file.type,
+        size: file.size,
+        contentDataUrl,
+      },
+    });
+    const uploadResult = normalizeWriteResultForRuntime(
+      await inventoryApi.createOfficeAttachment({ authState, ...attachmentInput }),
+      { label: "库存修正凭证上传", serverRequired },
+    );
+    const attachmentId = String(uploadResult.attachment?.attachmentId ?? "").trim();
+    if (uploadResult.blocked || !attachmentId) {
+      return withFeedback(
+        { ...uploadResult, blocked: true },
+        formatBlockedFeedback("库存修正草稿已保留，但凭证上传失败", uploadResult),
+      );
+    }
+
+    const linkResult = normalizeWriteResultForRuntime(
+      await inventoryApi.linkOfficeInventoryCorrectionAttachments({
+        authState,
+        operatorId: currentUserId,
+        correctionDraftId,
+        attachmentIds: [attachmentId],
+        remark: `${currentUserDisplayName} 关联库存修正凭证`,
+      }),
+      { label: "库存修正凭证关联", serverRequired },
+    );
+    if (linkResult.blocked || !linkResult.linkage) {
+      return withFeedback(
+        { ...linkResult, blocked: true, attachment: uploadResult.attachment },
+        formatBlockedFeedback("凭证已上传，但关联库存修正草稿失败，可对同一草稿重试", linkResult),
+      );
+    }
+
+    const attachmentIds = linkResult.linkage.attachmentIds;
+    const nextDrafts = inventoryCorrectionDraftsRef.current.map((item) =>
+      item.id === correctionDraftId || item.correctionDraftId === correctionDraftId
+        ? { ...item, attachmentIds, revision: linkResult.linkage.revision }
+        : item,
+    );
+    inventoryCorrectionDraftsRef.current = nextDrafts;
+    setInventoryCorrectionDrafts(nextDrafts);
+    setInventoryCorrectionQueueState((current) => ({
+      ...current,
+      items: current.items.map((item) =>
+        item.id === correctionDraftId || item.correctionDraftId === correctionDraftId
+          ? { ...item, attachmentIds, revision: linkResult.linkage.revision }
+          : item,
+      ),
+    }));
+    const refreshResults = await Promise.all([
+      refreshInventoryCorrectionQueue({ showToast: false }),
+      loadInventoryCorrectionDetail(correctionDraftId),
+    ]);
+    const projectionRefreshFailed = hasProjectionRefreshFailure(refreshResults);
+    return withFeedback(
+      linkResult,
+      projectionRefreshFailed
+        ? `凭证 ${attachmentId} 已关联库存修正 ${correctionDraftId}，但详情或队列刷新失败，请手动刷新。`
+        : `凭证 ${attachmentId} 已上传并关联库存修正 ${correctionDraftId}，确认生效前仍不会修改库存。`,
+      { attachment: uploadResult.attachment, attachmentIds, projectionRefreshFailed },
+    );
+  }
+
+  return { confirmInventoryCorrectionDraft, createInventoryCorrectionDraft, linkInventoryCorrectionAttachment };
 }
 
 export function useOfficeInventoryWrites(options) {
@@ -202,5 +315,6 @@ export function useOfficeInventoryWrites(options) {
   return {
     confirmInventoryCorrectionDraft: useCallback(actions.confirmInventoryCorrectionDraft, dependencies),
     createInventoryCorrectionDraft: useCallback(actions.createInventoryCorrectionDraft, dependencies),
+    linkInventoryCorrectionAttachment: useCallback(actions.linkInventoryCorrectionAttachment, dependencies),
   };
 }

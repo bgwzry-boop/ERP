@@ -1,14 +1,17 @@
 import { createHash, randomUUID } from "node:crypto";
+import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 
 export function createInventoryCorrectionCommandService({
   buildOperationLog,
   buildTodo,
+  findAttachment,
   findInventoryItem,
   toInventoryQuantitySnapshot,
   now = () => new Date(),
 } = {}) {
   requireFunction(buildOperationLog, "buildOperationLog");
   requireFunction(buildTodo, "buildTodo");
+  requireFunction(findAttachment, "findAttachment");
   requireFunction(findInventoryItem, "findInventoryItem");
   requireFunction(toInventoryQuantitySnapshot, "toInventoryQuantitySnapshot");
 
@@ -116,6 +119,82 @@ export function createInventoryCorrectionCommandService({
       });
     },
 
+    async linkCorrectionAttachments({ workspace, correctionDraftId, body = {}, operatorId }) {
+      if (body.correctionDraftId && cleanText(body.correctionDraftId) !== correctionDraftId) {
+        return businessError(422, "VALIDATION_ERROR", "correctionDraftId in path and body must match");
+      }
+      const beforeDraft = await workspace.inventoryCorrectionTransactionRepository.getCorrectionDraft({
+        workspace,
+        correctionDraftId,
+      });
+      if (!beforeDraft) return notFound("INVENTORY_CORRECTION_DRAFT_NOT_FOUND");
+      if (beforeDraft.status !== "待确认生效") {
+        return businessError(
+          409,
+          "INVENTORY_CORRECTION_ATTACHMENT_DRAFT_NOT_OPEN",
+          "Attachments can only be linked to an open correction draft.",
+        );
+      }
+
+      const requestedAttachmentIds = stringList(body.attachmentIds);
+      if (!requestedAttachmentIds.length) {
+        return businessError(422, "INVENTORY_CORRECTION_ATTACHMENT_REQUIRED", "At least one attachment ID is required.");
+      }
+      const existingAttachmentIds = stringList(beforeDraft.attachmentIds);
+      const attachmentIds = [...new Set([...existingAttachmentIds, ...requestedAttachmentIds])];
+      if (attachmentIds.length > 10) {
+        return businessError(
+          422,
+          "INVENTORY_CORRECTION_ATTACHMENT_LIMIT",
+          "An inventory correction draft supports at most 10 attachments.",
+        );
+      }
+      const attachmentValidation = validateCorrectionAttachments({ workspace, correctionDraftId, attachmentIds });
+      if (attachmentValidation.error) return attachmentValidation;
+      if (attachmentIds.length === existingAttachmentIds.length) {
+        const replayOperationLogId = buildRecordId(
+          "LOG-ADJ",
+          body.idempotencyKey,
+          `attachments:${correctionDraftId}`,
+        );
+        const replayOperationLog = findById(workspace.operationLogs, replayOperationLogId);
+        return {
+          correctionDraft: beforeDraft,
+          attachmentIds,
+          operationLogId: replayOperationLog?.id ?? "",
+          unchanged: true,
+        };
+      }
+
+      const timestamp = nowIso(now);
+      const linkedDraft = {
+        ...beforeDraft,
+        id: correctionDraftId,
+        correctionDraftId,
+        attachmentIds,
+        revision: positiveRevision(beforeDraft.revision) + 1,
+        updatedAt: timestamp,
+      };
+      const operationLog = buildOperationLog(workspace, {
+        id: buildRecordId("LOG-ADJ", body.idempotencyKey, `attachments:${correctionDraftId}`),
+        targetType: "inventory_correction",
+        targetId: correctionDraftId,
+        action: "link_inventory_correction_attachments",
+        operatorId,
+        before: { attachmentIds: existingAttachmentIds, revision: positiveRevision(beforeDraft.revision) },
+        after: { attachmentIds, revision: linkedDraft.revision },
+        reason: cleanText(body.remark) || "关联库存修正凭证",
+      });
+      return workspace.inventoryCorrectionTransactionRepository.linkCorrectionAttachments({
+        workspace,
+        correctionDraft: linkedDraft,
+        attachmentIds,
+        operationLog,
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: sanitizeIdempotencyPayload(body, { correctionDraftId, attachmentIds, operatorId }),
+      });
+    },
+
     async confirmCorrectionDraft({ workspace, correctionDraftId, body = {}, operatorId }) {
       if (body.correctionDraftId && cleanText(body.correctionDraftId) !== correctionDraftId) {
         return businessError(422, "VALIDATION_ERROR", "correctionDraftId in path and body must match");
@@ -132,6 +211,12 @@ export function createInventoryCorrectionCommandService({
           "Only open correction drafts can be confirmed.",
         );
       }
+      const attachmentValidation = validateCorrectionAttachments({
+        workspace,
+        correctionDraftId,
+        attachmentIds: beforeDraft.attachmentIds,
+      });
+      if (attachmentValidation.error) return attachmentValidation;
 
       const inventoryItem = findInventoryItem(workspace, beforeDraft.inventoryItemId);
       if (!inventoryItem) return notFound("INVENTORY_ITEM_NOT_FOUND");
@@ -236,6 +321,29 @@ export function createInventoryCorrectionCommandService({
       });
     },
   };
+
+  function validateCorrectionAttachments({ workspace, correctionDraftId, attachmentIds }) {
+    for (const attachmentId of stringList(attachmentIds)) {
+      const validation = validateBusinessAttachment({
+        workspace,
+        attachmentId,
+        findAttachment,
+        expectedOwnerType: "inventory_correction",
+        expectedOwnerId: correctionDraftId,
+        expectedPurpose: "inventory_correction_evidence",
+        requireUploader: true,
+        allowedFileTypes: ["image", "pdf"],
+        allowedMimePrefixes: ["image/"],
+        allowedMimeTypes: ["application/pdf"],
+        errorCodePrefix: "INVENTORY_CORRECTION_ATTACHMENT",
+        label: "inventory correction attachment",
+      });
+      if (!validation.ok) {
+        return businessError(validation.statusCode, validation.errorCode, validation.message);
+      }
+    }
+    return { attachmentIds: stringList(attachmentIds) };
+  }
 }
 
 function buildTodoEvent({ operationLog, todoId, eventType, eventPayload, operatorId, timestamp }) {

@@ -380,6 +380,32 @@ export function createStatementCustomerConfirmationAttachmentInput({ statement, 
   };
 }
 
+export function createInventoryCorrectionEvidenceAttachmentInput({ correctionDraftId, operatorId, remark = "", file = null }) {
+  const ownerId = normalizeAttachmentText(correctionDraftId);
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+  const selectedFileName = typeof file?.name === "string" && file.name.trim() ? file.name.trim() : "";
+  const fileName = selectedFileName || `inventory-correction-${ownerId || "draft"}-${stamp}.jpg`;
+  const mimeType = typeof file?.type === "string" && file.type.trim() ? file.type.trim() : "image/jpeg";
+  const fileType = inferAttachmentFileType({ mimeType, fileName });
+  return {
+    ownerType: "inventory_correction",
+    ownerId,
+    fileType,
+    purpose: "inventory_correction_evidence",
+    fileName,
+    contentRef: selectedFileName
+      ? `p0://inventory-correction/${ownerId}/${stamp}/${encodeURIComponent(fileName)}`
+      : `p0://inventory-correction/${ownerId}/${stamp}`,
+    mimeType,
+    fileSize: Number.isFinite(file?.size) ? file.size : undefined,
+    contentDataUrl: typeof file?.contentDataUrl === "string" ? file.contentDataUrl : undefined,
+    metadata: { correctionDraftId: ownerId, evidencePurpose: "inventory_correction_evidence" },
+    uploadedBy: operatorId,
+    remark,
+  };
+}
+
 export function createDeliveryEvidenceAttachmentInput({ task, fulfillmentId, operatorId, evidenceType = "watermark", remark = "", metadata = {}, file = null }) {
   const ownerId = fulfillmentId || task?.fulfillmentId || "";
   const now = new Date();
@@ -601,6 +627,14 @@ function getAttachmentPurposeRule(purpose) {
       allowedMimeTypes: ["application/pdf"],
       allowedLabel: "图片或 PDF",
       label: "客户确认附件",
+      maxBytes: 12 * 1024 * 1024,
+    },
+    inventory_correction_evidence: {
+      allowedFileTypes: ["image", "pdf"],
+      allowedMimePrefixes: ["image/"],
+      allowedMimeTypes: ["application/pdf"],
+      allowedLabel: "图片或 PDF",
+      label: "库存修正凭证",
       maxBytes: 12 * 1024 * 1024,
     },
   };

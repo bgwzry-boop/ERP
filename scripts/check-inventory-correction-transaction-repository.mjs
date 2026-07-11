@@ -3,6 +3,7 @@ import {
   buildConfirmInventoryCorrectionDraftTransactionQuery,
   buildCreateInventoryCorrectionDraftTransactionQuery,
   buildGetInventoryCorrectionDraftQuery,
+  buildLinkInventoryCorrectionAttachmentsTransactionQuery,
   createPostgresInventoryCorrectionTransactionRepository,
 } from "../server/inventoryCorrectionTransactionRepository.mjs";
 
@@ -36,6 +37,19 @@ const getQuery = buildGetInventoryCorrectionDraftQuery("ADJ-1");
 assert.match(getQuery.text, /FROM inventory_correction_drafts/);
 assert.deepEqual(getQuery.values, ["ADJ-1"]);
 
+const linkInput = {
+  ...input,
+  correctionDraft: { ...input.correctionDraft, attachmentIds: ["ATT-1"], revision: 2 },
+  attachmentIds: ["ATT-1"],
+  operationLog: { ...input.operationLog, id: "LOG-LINK-1", action: "link_inventory_correction_attachments" },
+};
+const linkQuery = buildLinkInventoryCorrectionAttachmentsTransactionQuery(linkInput);
+assert.match(linkQuery.text, /jsonb_array_elements_text/);
+assert.match(linkQuery.text, /JOIN attachment_links/);
+assert.match(linkQuery.text, /attachment\.has_content = true/);
+assert.match(linkQuery.text, /UPDATE inventory_correction_drafts/);
+assert.match(linkQuery.text, /ERP_INVENTORY_CORRECTION_ATTACHMENT_LINK_CONFLICT/);
+
 const requests = [];
 const repository = createPostgresInventoryCorrectionTransactionRepository({
   async queryJson() {
@@ -43,6 +57,13 @@ const repository = createPostgresInventoryCorrectionTransactionRepository({
   },
   async idempotentTransactionJson(request) {
     requests.push(request);
+    if (request.scope === "inventory.correction.attachments.link") {
+      return {
+        correctionDraft: linkInput.correctionDraft,
+        attachmentIds: linkInput.attachmentIds,
+        operationLogId: linkInput.operationLog.id,
+      };
+    }
     return {
       correctionDraft: input.correctionDraft,
       todo: input.todo,
@@ -66,6 +87,21 @@ assert.deepEqual(requests[0].resourceLocks, [
   "inventory-correction:ADJ-1",
   "inventory-item:INV-1",
   "todo:T-1",
+]);
+
+const linked = await repository.linkCorrectionAttachments({
+  ...linkInput,
+  workspace,
+  idempotencyKey: "inventory-link-0001",
+  idempotencyPayload: { correctionDraftId: "ADJ-1", attachmentIds: ["ATT-1"] },
+});
+assert.deepEqual(linked.attachmentIds, ["ATT-1"]);
+assert.equal(workspace.inventoryCorrectionDrafts[0].revision, 2);
+assert.equal(workspace.operationLogs[0].id, "LOG-LINK-1");
+assert.deepEqual(requests[1].resourceLocks, [
+  "attachment:ATT-1",
+  "idempotency:inventory.correction.attachments.link:inventory-link-0001",
+  "inventory-correction:ADJ-1",
 ]);
 
 console.log("inventory correction transaction repository checks passed");

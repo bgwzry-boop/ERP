@@ -2932,6 +2932,52 @@ async function checkApiWithPostgresRepositories() {
     600,
   );
 
+  const correctionAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "inventory_correction",
+      ownerId: createdCorrection.correctionDraftId,
+      fileType: "image",
+      purpose: "inventory_correction_evidence",
+      fileName: "postgres-live-inventory-count.jpg",
+      contentRef: `p0://postgres-live/inventory-correction/${createdCorrection.correctionDraftId}/count.jpg`,
+      mimeType: "image/jpeg",
+      contentDataUrl: "data:image/jpeg;base64,cG9zdGdyZXMtbGl2ZS1pbnZlbnRvcnktY291bnQ=",
+      uploadedBy: "U-SPOOFED",
+      idempotencyKey: "inventory-correction-attachment-live-001",
+    },
+    { headers: correctionWarehouseHeaders },
+  );
+  assert.equal(correctionAttachment.uploadedBy, "U-WAREHOUSE-A");
+  const correctionAttachmentLinkBody = {
+    correctionDraftId: createdCorrection.correctionDraftId,
+    attachmentIds: [correctionAttachment.attachmentId],
+    remark: "PostgreSQL live inventory count evidence",
+    idempotencyKey: "inventory-correction-attachment-link-live-001",
+  };
+  const linkedCorrectionAttachment = await postJson(
+    baseUrl,
+    `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}/attachments`,
+    correctionAttachmentLinkBody,
+    { headers: correctionWarehouseHeaders },
+  );
+  assert.deepEqual(linkedCorrectionAttachment.attachmentIds, [correctionAttachment.attachmentId]);
+  assert.equal(linkedCorrectionAttachment.revision, 2);
+  assert.ok(linkedCorrectionAttachment.operationLogId);
+  const replayedCorrectionAttachmentLink = await postJson(
+    baseUrl,
+    `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}/attachments`,
+    correctionAttachmentLinkBody,
+    { headers: correctionWarehouseHeaders },
+  );
+  assert.equal(replayedCorrectionAttachmentLink.operationLogId, linkedCorrectionAttachment.operationLogId);
+  const persistedCorrectionAttachment = queryJson(
+    `SELECT json_build_object('attachmentIds', attachment_ids, 'revision', revision) AS result FROM inventory_correction_drafts WHERE id = ${sqlLiteral(createdCorrection.correctionDraftId)};`,
+  );
+  assert.deepEqual(persistedCorrectionAttachment.attachmentIds, [correctionAttachment.attachmentId]);
+  assert.equal(persistedCorrectionAttachment.revision, 2);
+
   const correctionConfirmBody = {
     correctionDraftId: createdCorrection.correctionDraftId,
     approvalReason: "PostgreSQL live manager approval",
@@ -3098,7 +3144,7 @@ async function checkApiWithPostgresRepositories() {
         { capture: true },
       ).trim(),
     ),
-    2,
+    4,
   );
 
   const databaseDriverTasks = await getJson(

@@ -35,6 +35,18 @@ export function createLocalInventoryCorrectionTransactionRepository() {
       saveLocalIdempotencyResult(idempotencyResults, "inventory.correction.create", input, result);
       return result;
     },
+    async linkCorrectionAttachments(input = {}) {
+      const replay = readLocalIdempotencyResult(idempotencyResults, "inventory.correction.attachments.link", input);
+      if (replay) return replay;
+      applyLinkMutation(input);
+      const result = {
+        correctionDraft: input.correctionDraft,
+        attachmentIds: textList(input.attachmentIds),
+        operationLogId: input.operationLog?.id ?? "",
+      };
+      saveLocalIdempotencyResult(idempotencyResults, "inventory.correction.attachments.link", input, result);
+      return result;
+    },
     async confirmCorrectionDraft(input = {}) {
       const replay = readLocalIdempotencyResult(idempotencyResults, "inventory.correction.confirm", input);
       if (replay) return replay;
@@ -111,6 +123,37 @@ export function createPostgresInventoryCorrectionTransactionRepository(options =
         correctionDraft: result.correctionDraft,
         todo: result.todo,
         todoEvent: result.todoEventId === input.todoEvent?.eventId ? input.todoEvent : null,
+        operationLog: result.operationLogId === input.operationLog?.id ? input.operationLog : null,
+      });
+      return result;
+    },
+    async linkCorrectionAttachments(input = {}) {
+      const query = buildLinkInventoryCorrectionAttachmentsTransactionQuery(input);
+      const result = normalizeLinkResult(
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "inventory.correction.attachments.link",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? {
+              correctionDraft: input.correctionDraft,
+              attachmentIds: input.attachmentIds,
+            },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "inventory_correction",
+            targetId: input.correctionDraft?.correctionDraftId ?? input.correctionDraft?.id,
+            resourceLocks: [
+              `inventory-correction:${input.correctionDraft?.correctionDraftId ?? input.correctionDraft?.id ?? ""}`,
+              ...textList(input.attachmentIds).map((attachmentId) => `attachment:${attachmentId}`),
+            ],
+            query,
+          }),
+        ),
+        input,
+      );
+      if (!result.correctionDraft) throw new Error("PostgreSQL correction attachment link returned invalid data");
+      applyLinkMutation({
+        ...input,
+        correctionDraft: result.correctionDraft,
         operationLog: result.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return result;
@@ -221,6 +264,78 @@ SELECT json_build_object(
   'correctionDraft', (SELECT result FROM inserted_draft),
   'todo', (SELECT result FROM inserted_todo),
   'todoEventId', (SELECT id FROM inserted_todo_event),
+  'operationLogId', (SELECT id FROM inserted_operation_log)
+) AS result;
+COMMIT;
+`.trim(),
+    values: parameters.values,
+  };
+}
+
+export function buildLinkInventoryCorrectionAttachmentsTransactionQuery(input = {}) {
+  const draft = normalizeCorrectionDraft(input.correctionDraft);
+  const attachmentIds = textList(input.attachmentIds);
+  const operationLog = normalizeOperationLog(input.operationLog);
+  if (!draft || !attachmentIds.length || !operationLog) {
+    throw new Error("Inventory correction draft, attachment IDs, and operation log are required");
+  }
+  const parameters = createPostgresParameterBinder();
+  const expectedDraftRevision = Math.max(1, draft.revision - 1);
+  return {
+    text: `
+BEGIN;
+WITH requested_attachment_ids AS MATERIALIZED (
+  SELECT DISTINCT value AS attachment_id
+  FROM jsonb_array_elements_text(${parameters.json(attachmentIds)}::jsonb)
+),
+locked_draft AS MATERIALIZED (
+  SELECT id, status, revision, attachment_ids
+  FROM inventory_correction_drafts
+  WHERE id = ${parameters.text(draft.id)}
+  FOR UPDATE
+),
+valid_attachment_ids AS MATERIALIZED (
+  SELECT requested.attachment_id
+  FROM requested_attachment_ids AS requested
+  JOIN attachments AS attachment ON attachment.id = requested.attachment_id
+  JOIN attachment_links AS link
+    ON link.attachment_id = attachment.id
+   AND link.owner_type = 'inventory_correction'
+   AND link.owner_id = ${parameters.text(draft.id)}
+   AND link.purpose = 'inventory_correction_evidence'
+  WHERE attachment.purpose = 'inventory_correction_evidence'
+    AND attachment.status = 'uploaded'
+    AND attachment.has_content = true
+    AND attachment.uploaded_by IS NOT NULL
+    AND attachment.file_type IN ('image', 'pdf')
+    AND (attachment.mime_type LIKE 'image/%' OR attachment.mime_type = 'application/pdf')
+),
+write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    EXISTS (
+      SELECT 1 FROM locked_draft
+      WHERE status = '待确认生效' AND revision = ${parameters.integer(expectedDraftRevision)}
+    )
+    AND (SELECT COUNT(*) FROM requested_attachment_ids) = ${parameters.integer(attachmentIds.length)}
+    AND (SELECT COUNT(*) FROM valid_attachment_ids) = ${parameters.integer(attachmentIds.length)},
+    'ERP_INVENTORY_CORRECTION_ATTACHMENT_LINK_CONFLICT'
+  ) AS ok
+),
+updated_draft AS (
+  UPDATE inventory_correction_drafts
+  SET attachment_ids = ${parameters.json(attachmentIds)}::jsonb,
+      revision = inventory_correction_drafts.revision + 1,
+      updated_at = ${parameters.timestamp(draft.updatedAt)}
+  FROM locked_draft, write_guard AS guard
+  WHERE inventory_correction_drafts.id = locked_draft.id AND guard.ok
+  RETURNING ${correctionDraftJsonExpression("inventory_correction_drafts")} AS result
+),
+inserted_operation_log AS (
+  ${buildInsertOperationLogSql(operationLog, "updated_draft", parameters)}
+)
+SELECT json_build_object(
+  'correctionDraft', (SELECT result FROM updated_draft),
+  'attachmentIds', ${parameters.json(attachmentIds)}::jsonb,
   'operationLogId', (SELECT id FROM inserted_operation_log)
 ) AS result;
 COMMIT;
@@ -392,6 +507,15 @@ function normalizeConfirmResult(value, input) {
   };
 }
 
+function normalizeLinkResult(value, input) {
+  const correctionDraft = mergeRecord(input.correctionDraft, normalizeCorrectionDraft(value?.correctionDraft));
+  return {
+    correctionDraft,
+    attachmentIds: textList(value?.attachmentIds ?? correctionDraft?.attachmentIds ?? input.attachmentIds),
+    operationLogId: text(value?.operationLogId),
+  };
+}
+
 function normalizeCorrectionDraft(value) {
   if (!value || typeof value !== "object") return null;
   const id = text(value.correctionDraftId ?? value.id);
@@ -409,7 +533,7 @@ function normalizeCorrectionDraft(value) {
     deltaQty: integer(value.deltaQty ?? value.delta_qty, actualQty - expectedQty),
     reason: text(value.reason),
     remark: text(value.remark),
-    attachmentIds: array(value.attachmentIds ?? value.attachment_ids),
+    attachmentIds: textList(value.attachmentIds ?? value.attachment_ids),
     status: text(value.status) || "待确认生效",
     revision: Math.max(1, integer(value.revision, 1)),
     todoId: text(value.todoId ?? value.todo_id),
@@ -544,6 +668,11 @@ function applyCreateMutation({ workspace, correctionDraft, todo, todoEvent, oper
   if (operationLog) workspace.operationLogs = upsert(workspace.operationLogs, operationLog, "id");
 }
 
+function applyLinkMutation({ workspace, correctionDraft, operationLog }) {
+  workspace.inventoryCorrectionDrafts = upsert(workspace.inventoryCorrectionDrafts, correctionDraft, "correctionDraftId");
+  if (operationLog) workspace.operationLogs = upsert(workspace.operationLogs, operationLog, "id");
+}
+
 function applyConfirmMutation({ workspace, correctionDraft, inventoryItem, inventoryLedger, todo, todoEvent, operationLog }) {
   workspace.inventoryCorrectionDrafts = upsert(workspace.inventoryCorrectionDrafts, correctionDraft, "correctionDraftId");
   workspace.inventories = upsert(workspace.inventories, inventoryItem, "id");
@@ -573,6 +702,10 @@ function mergeRecord(projected, canonical) {
 
 function array(value) {
   return Array.isArray(value) ? value : [];
+}
+
+function textList(value) {
+  return [...new Set(array(value).map(text).filter(Boolean))];
 }
 
 function integer(value, fallback = 0) {

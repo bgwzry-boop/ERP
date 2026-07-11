@@ -556,7 +556,7 @@ export function App() {
     savePrinterDeviceQaRecord: executeSavePrinterDeviceQaRecord,
     voidFulfillmentPrintRecord,
     refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries,
-    loadInventoryCorrectionDetail, createInventoryCorrectionDraft, confirmInventoryCorrectionDraft,
+    loadInventoryCorrectionDetail, createInventoryCorrectionDraft, linkInventoryCorrectionAttachment, confirmInventoryCorrectionDraft,
     completeFulfillmentAction, markFulfillmentPrepared, reviewFulfillmentDeliveryEvidence,
     saveFulfillmentDispatch, submitFulfillmentException,
     executeProductionPackingAction,
@@ -4625,6 +4625,13 @@ export function App() {
     return result?.blocked ? null : result?.draft ?? null;
   }
 
+  async function handleInventoryCorrectionAttachment(payload) {
+    if (!guardUiAction("inventory", "生成修正草稿")) return null;
+    const result = await linkInventoryCorrectionAttachment(payload);
+    if (result?.feedback) setToast(result.feedback);
+    return result;
+  }
+
   async function handleInventoryCorrectionConfirm(draft) {
     if (!guardUiAction("inventory", "确认修正生效")) return null;
     const result = await confirmInventoryCorrectionDraft(draft);
@@ -5738,6 +5745,7 @@ export function App() {
               setSelectedStockId={setSelectedStockId}
               setToast={setToast}
               onCreateCorrectionDraft={handleInventoryCorrectionDraft}
+              onLinkCorrectionAttachment={handleInventoryCorrectionAttachment}
               onConfirmCorrectionDraft={handleInventoryCorrectionConfirm}
               onOpenCorrectionDraft={openInventoryCorrectionDetail}
               onRefreshCorrectionQueue={(options) => refreshInventoryCorrectionQueue(options).then((result) => {

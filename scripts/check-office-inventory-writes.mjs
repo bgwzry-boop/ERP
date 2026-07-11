@@ -85,6 +85,57 @@ assert.deepEqual(createCase.refreshCalls.map((item) => item.name).sort(), ["queu
 assert.equal(createResult.projectionRefreshFailed, false);
 assert.match(createResult.feedback, /未修改库存总数/);
 
+const attachmentCase = createInventoryWriteCase({
+  initialDrafts: [pendingDraft],
+  api: {
+    async readAttachmentFileAsDataUrl(file) {
+      assert.equal(file.name, "count.jpg");
+      return "data:image/jpeg;base64,Y291bnQ=";
+    },
+    createInventoryCorrectionEvidenceAttachmentInput(input) {
+      assert.equal(input.correctionDraftId, "ICD-1");
+      return {
+        ownerType: "inventory_correction",
+        ownerId: "ICD-1",
+        purpose: "inventory_correction_evidence",
+        fileType: "image",
+        fileName: input.file.name,
+        contentRef: "p0://inventory-correction/ICD-1/count.jpg",
+        mimeType: input.file.type,
+        fileSize: input.file.size,
+        contentDataUrl: input.file.contentDataUrl,
+        uploadedBy: input.operatorId,
+      };
+    },
+    async createOfficeAttachment(input) {
+      assert.equal(input.ownerId, "ICD-1");
+      assert.equal(input.uploadedBy, "U-OFFICE-A");
+      return { source: "api", attachment: { attachmentId: "ATT-COUNT-1", ...input } };
+    },
+    async linkOfficeInventoryCorrectionAttachments(input) {
+      assert.equal(input.correctionDraftId, "ICD-1");
+      assert.deepEqual(input.attachmentIds, ["ATT-COUNT-1"]);
+      return {
+        source: "api",
+        linkage: {
+          correctionDraftId: "ICD-1",
+          attachmentIds: ["ATT-COUNT-1"],
+          revision: 2,
+          operationLogId: "LOG-LINK-1",
+        },
+      };
+    },
+  },
+});
+const attachmentResult = await attachmentCase.actions.linkInventoryCorrectionAttachment({
+  draft: pendingDraft,
+  file: { name: "count.jpg", type: "image/jpeg", size: 5 },
+});
+assert.deepEqual(attachmentResult.attachmentIds, ["ATT-COUNT-1"]);
+assert.deepEqual(attachmentCase.states.drafts.value[0].attachmentIds, ["ATT-COUNT-1"]);
+assert.deepEqual(attachmentCase.refreshCalls.map((item) => item.name).sort(), ["detail", "queue"]);
+assert.match(attachmentResult.feedback, /不会修改库存/);
+
 const deniedCreateCase = createInventoryWriteCase({
   api: {
     async createOfficeInventoryCorrectionDraft() {
@@ -226,7 +277,11 @@ assert.equal(blockedDetail.blocked, true);
 assert.equal(blockedDetailState.value.detail, null);
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-for (const directWrite of ["createOfficeInventoryCorrectionDraft", "confirmOfficeInventoryCorrectionDraft"]) {
+for (const directWrite of [
+  "createOfficeInventoryCorrectionDraft",
+  "linkOfficeInventoryCorrectionAttachments",
+  "confirmOfficeInventoryCorrectionDraft",
+]) {
   assert.equal(appSource.includes(directWrite), false, `App must not own ${directWrite}`);
 }
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");

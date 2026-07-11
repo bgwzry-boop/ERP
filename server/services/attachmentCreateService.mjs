@@ -239,6 +239,14 @@ function getAttachmentPurposeRule(purpose) {
       label: "客户确认附件",
       maxBytes: 12 * 1024 * 1024,
     },
+    inventory_correction_evidence: {
+      allowedFileTypes: ["image", "pdf"],
+      allowedMimePrefixes: ["image/"],
+      allowedMimeTypes: ["application/pdf"],
+      allowedLabel: "图片或 PDF",
+      label: "库存修正凭证",
+      maxBytes: 12 * 1024 * 1024,
+    },
   };
   return rules[purpose] ?? {
     allowedFileTypes: ["image", "pdf", "spreadsheet", "document"],

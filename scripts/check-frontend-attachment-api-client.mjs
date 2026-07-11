@@ -2,6 +2,7 @@ import { createLocalSeedAuthState } from "../src/services/officeAuthService.js";
 import {
   createOfficeAttachment,
   createOfficeAttachmentAccessUrl,
+  createInventoryCorrectionEvidenceAttachmentInput,
   createPaymentScreenshotAttachmentInput,
   downloadOfficeAttachmentContent,
   listOfficeAttachmentAccessLogs,
@@ -40,6 +41,36 @@ assert(paymentInput.fileSize === selectedFile.size, "payment screenshot file siz
 assert(paymentInput.contentDataUrl === selectedFile.contentDataUrl, "payment screenshot content data URL was not stored");
 assert(paymentInput.contentRef.includes(encodeURIComponent(selectedFile.name)), "payment screenshot contentRef should include the selected filename");
 assert(validateAttachmentUploadInput(paymentInput) === null, "valid payment screenshot should pass frontend attachment validation");
+
+const correctionEvidenceInput = createInventoryCorrectionEvidenceAttachmentInput({
+  correctionDraftId: "ADJ-ATTACHMENT-1",
+  operatorId: "U-WAREHOUSE-A",
+  remark: "盘点照片",
+  file: { ...selectedFile, name: "inventory-count.png" },
+});
+assert(correctionEvidenceInput.ownerType === "inventory_correction", "correction evidence owner type is incorrect");
+assert(correctionEvidenceInput.ownerId === "ADJ-ATTACHMENT-1", "correction evidence owner ID is incorrect");
+assert(correctionEvidenceInput.purpose === "inventory_correction_evidence", "correction evidence purpose is incorrect");
+assert(validateAttachmentUploadInput(correctionEvidenceInput) === null, "correction image evidence should pass validation");
+assert(
+  validateAttachmentUploadInput({
+    ...correctionEvidenceInput,
+    fileName: "inventory-count.pdf",
+    mimeType: "application/pdf",
+    fileType: "pdf",
+    contentDataUrl: "data:application/pdf;base64,JVBERi0xLjQ=",
+  }) === null,
+  "correction PDF evidence should pass validation",
+);
+assert(
+  validateAttachmentUploadInput({
+    ...correctionEvidenceInput,
+    fileName: "inventory-count.xlsx",
+    mimeType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    fileType: "spreadsheet",
+  })?.code === "ATTACHMENT_FILE_TYPE_NOT_ALLOWED",
+  "correction spreadsheet evidence should be rejected",
+);
 
 const invalidPaymentAttachmentInput = {
   ...paymentInput,

@@ -10,6 +10,7 @@ export async function handleInventoryWriteRoutes({
   requireActionPermission,
   getPermissionOperatorId,
   createInventoryCorrectionDraftRoute,
+  linkInventoryCorrectionAttachmentsRoute,
   confirmInventoryCorrectionDraftRoute,
   releaseInventoryReservationRoute,
 }) {
@@ -20,6 +21,19 @@ export async function handleInventoryWriteRoutes({
     await createInventoryCorrectionDraftRoute({
       response,
       workspace,
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    return true;
+  }
+
+  const correctionAttachmentMatch = url.pathname.match(/^\/api\/inventory\/correction-drafts\/([^/]+)\/attachments$/);
+  if (correctionAttachmentMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.linkInventoryCorrectionAttachments)) return true;
+    await linkInventoryCorrectionAttachmentsRoute({
+      response,
+      workspace,
+      correctionDraftId: decodeURIComponent(correctionAttachmentMatch[1]),
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
     });

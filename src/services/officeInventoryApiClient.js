@@ -307,6 +307,67 @@ export async function confirmOfficeInventoryCorrectionDraft(input = {}, options 
   }
 }
 
+export async function linkOfficeInventoryCorrectionAttachments(input = {}, options = {}) {
+  const { authState, operatorId, correctionDraftId, attachmentIds = [], remark = "" } = input;
+  const safeCorrectionDraftId = cleanText(correctionDraftId);
+  const safeAttachmentIds = [...new Set(attachmentIds.map(cleanText).filter(Boolean))];
+  if (!safeCorrectionDraftId || !safeAttachmentIds.length) {
+    return {
+      source: "client_validation",
+      blocked: true,
+      error: {
+        code: !safeCorrectionDraftId
+          ? "INVENTORY_CORRECTION_DRAFT_ID_REQUIRED"
+          : "INVENTORY_CORRECTION_ATTACHMENT_REQUIRED",
+        message: !safeCorrectionDraftId ? "缺少库存修正草稿 ID。" : "请先上传库存修正凭证。",
+      },
+      linkage: null,
+    };
+  }
+
+  try {
+    const response = await requestInventoryApi(
+      `/inventory/correction-drafts/${encodeURIComponent(safeCorrectionDraftId)}/attachments`,
+      {
+        ...options,
+        authState,
+        method: "POST",
+        operatorId,
+        body: {
+          correctionDraftId: safeCorrectionDraftId,
+          attachmentIds: safeAttachmentIds,
+          remark,
+          operatorId,
+        },
+      },
+    );
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "库存修正凭证关联 API 返回错误。"),
+        linkage: null,
+      };
+    }
+    return {
+      source: "api",
+      linkage: {
+        correctionDraftId: cleanText(json.correctionDraftId) || safeCorrectionDraftId,
+        attachmentIds: Array.isArray(json.attachmentIds) ? json.attachmentIds.map(cleanText).filter(Boolean) : safeAttachmentIds,
+        revision: toNumber(json.revision, 1),
+        unchanged: Boolean(json.unchanged),
+        operationLogId: cleanText(json.operationLogId),
+      },
+      response: json,
+    };
+  } catch (error) {
+    return buildServerRequiredWriteError("INVENTORY_CORRECTION_ATTACHMENT_LINK_API_UNAVAILABLE", error, {
+      linkage: null,
+    });
+  }
+}
+
 export async function createOfficeInventoryCorrectionDraft(input, options = {}) {
   const {
     authState,
@@ -534,6 +595,8 @@ export function mapApiCorrectionDraftToLocalDraft(response, { stock, reason } = 
     reason: reason ?? response?.reason ?? "",
     remark: response?.remark ?? "",
     status: response?.status ?? "待确认生效",
+    revision: toNumber(response?.revision, 1),
+    attachmentIds: Array.isArray(response?.attachmentIds) ? response.attachmentIds.map(cleanText).filter(Boolean) : [],
     source: "api",
     todoId: response?.todoId,
     operationLogId: response?.operationLogId,
