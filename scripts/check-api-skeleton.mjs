@@ -3207,6 +3207,31 @@ try {
     throw new Error("/api/attachments did not reject an oversized finished-goods photo");
   }
 
+  const wrongOwnerCustomerConfirmationAttachment = await postJson(baseUrl, "/api/attachments", {
+    ownerType: "statement",
+    ownerId: "ST-OTHER",
+    fileType: "image",
+    purpose: "statement_customer_confirmation",
+    fileName: "customer-confirmation-wrong-owner.png",
+    contentRef: "p0://statement-customer-confirmation/ST-OTHER/wrong-owner",
+    mimeType: "image/png",
+    contentDataUrl: "data:image/png;base64,d3Jvbmctb3duZXI=",
+    uploadedBy: "U-SPOOFED",
+  });
+  const blockedWrongOwnerCustomerConfirmation = await postJson(
+    baseUrl,
+    `/api/statements/${statementId}/customer-confirmation`,
+    {
+      sendRecordId: markedSent.sendRecordId,
+      content: "错误归属附件不应被接受",
+      attachmentIds: [wrongOwnerCustomerConfirmationAttachment.attachmentId],
+    },
+    { expectedStatus: 422 },
+  );
+  if (blockedWrongOwnerCustomerConfirmation.code !== "STATEMENT_CONFIRMATION_ATTACHMENT_OWNER_MISMATCH") {
+    throw new Error("statement customer confirmation accepted an attachment owned by another statement");
+  }
+
   const customerConfirmation = await postJson(baseUrl, `/api/statements/${statementId}/customer-confirmation`, {
     sendRecordId: markedSent.sendRecordId,
     confirmationType: "customer_reply",
@@ -3214,7 +3239,7 @@ try {
     confirmedByCustomer: "API skeleton check customer",
     confirmedAt: "2026-07-01T11:10:00.000Z",
     content: "客户回复确认无误",
-    attachmentIds: [customerConfirmationAttachment.attachmentId],
+    attachmentIds: [customerConfirmationAttachment.attachmentId, customerConfirmationPdfAttachment.attachmentId],
     operatorId: "U-SPOOFED",
     operatorName: "伪造人员",
     remark: "API skeleton check customer confirmation",
@@ -3225,6 +3250,7 @@ try {
     customerConfirmation.status !== "客户已确认" ||
     customerConfirmation.confirmationRecord?.content !== "客户回复确认无误" ||
     customerConfirmation.confirmationRecord?.attachmentIds?.[0] !== customerConfirmationAttachment.attachmentId ||
+    customerConfirmation.confirmationRecord?.attachmentIds?.[1] !== customerConfirmationPdfAttachment.attachmentId ||
     !customerConfirmation.confirmationRecordId ||
     !customerConfirmation.operationLogId
   ) {
@@ -3318,6 +3344,37 @@ try {
     !duplicatePaymentAttachment.operationLogId
   ) {
     throw new Error("/api/attachments did not reuse an existing owner/purpose/content digest record");
+  }
+  const wrongOwnerPaymentAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "statement",
+      ownerId: "ST-OTHER",
+      fileType: "image",
+      purpose: "payment_screenshot",
+      fileName: "payment-proof-wrong-owner.png",
+      contentRef: "p0://payment-screenshot/ST-OTHER/wrong-owner",
+      mimeType: "image/png",
+      contentDataUrl: "data:image/png;base64,d3Jvbmctb3duZXI=",
+      uploadedBy: "U-SPOOFED",
+    },
+    { headers: { "x-erp-user-id": "U-FINANCE-A" } },
+  );
+  const blockedWrongOwnerPayment = await postJson(
+    baseUrl,
+    `/api/statements/${statementId}/payments`,
+    {
+      amount: 1,
+      attachmentIds: [wrongOwnerPaymentAttachment.attachmentId],
+    },
+    {
+      expectedStatus: 422,
+      headers: { "x-erp-user-id": "U-FINANCE-A" },
+    },
+  );
+  if (blockedWrongOwnerPayment.code !== "STATEMENT_PAYMENT_ATTACHMENT_OWNER_MISMATCH") {
+    throw new Error("statement payment accepted an attachment owned by another statement");
   }
   const paymentAttachmentFilePath = join(checkStorageRoot, paymentAttachment.storageKey);
   if (!existsSync(paymentAttachmentFilePath)) {
@@ -3626,17 +3683,22 @@ try {
     throw new Error("/api/statements/{statementId}/payments did not deny the warehouse seed user");
   }
 
-  const payment = await postJson(baseUrl, `/api/statements/${statementId}/payments`, {
-    amount: 1,
-    paidAt: new Date().toISOString(),
-    method: "cash",
-    operatorId: "U-SPOOFED",
-    attachmentIds: [paymentAttachment.attachmentId],
-    remark: "API skeleton check",
-  });
+  const payment = await postJson(
+    baseUrl,
+    `/api/statements/${statementId}/payments`,
+    {
+      amount: 1,
+      paidAt: new Date().toISOString(),
+      method: "cash",
+      operatorId: "U-SPOOFED",
+      attachmentIds: [paymentAttachment.attachmentId],
+      remark: "API skeleton check",
+    },
+    { headers: { "x-erp-user-id": "U-FINANCE-A" } },
+  );
   if (
     !payment.payment?.paymentRecordId ||
-    payment.payment.operatorId !== "U-OFFICE-A" ||
+    payment.payment.operatorId !== "U-FINANCE-A" ||
     payment.payment.attachmentIds?.[0] !== paymentAttachment.attachmentId ||
     payment.varianceAmount <= 0 ||
     !payment.operationLogId
@@ -3644,16 +3706,39 @@ try {
     throw new Error("/api/statements/{statementId}/payments returned an unexpected payload");
   }
 
-  const variance = await postJson(baseUrl, `/api/statements/${statementId}/variance`, {
-    statementId,
-    varianceAmount: payment.varianceAmount,
-    handlingResult: "carry_to_debt",
-    reason: "API skeleton check",
-    operatorId: "U-SPOOFED",
-  });
+  const blockedVarianceAttachments = await postJson(
+    baseUrl,
+    `/api/statements/${statementId}/variance`,
+    {
+      statementId,
+      varianceAmount: payment.varianceAmount,
+      handlingResult: "carry_to_debt",
+      reason: "API skeleton attachment limit check",
+      attachmentIds: [paymentAttachment.attachmentId, "ATT-SECOND-VARIANCE"],
+    },
+    { expectedStatus: 422, headers: { "x-erp-user-id": "U-FINANCE-A" } },
+  );
+  if (blockedVarianceAttachments.code !== "STATEMENT_VARIANCE_ATTACHMENT_LIMIT") {
+    throw new Error("/api/statements/{statementId}/variance did not enforce the single-attachment contract");
+  }
+
+  const variance = await postJson(
+    baseUrl,
+    `/api/statements/${statementId}/variance`,
+    {
+      statementId,
+      varianceAmount: payment.varianceAmount,
+      handlingResult: "carry_to_debt",
+      reason: "API skeleton check",
+      attachmentIds: [paymentAttachment.attachmentId],
+      operatorId: "U-SPOOFED",
+    },
+    { headers: { "x-erp-user-id": "U-FINANCE-A" } },
+  );
   if (
     !variance.varianceRecord?.varianceRecordId ||
-    variance.varianceRecord.operatorId !== "U-OFFICE-A" ||
+    variance.varianceRecord.operatorId !== "U-FINANCE-A" ||
+    variance.varianceRecord.attachmentId !== paymentAttachment.attachmentId ||
     !variance.operationLogId
   ) {
     throw new Error("/api/statements/{statementId}/variance returned an unexpected payload");

@@ -3237,7 +3237,8 @@ paths:
       tags: [Statements]
       summary: 登记客户确认对账无误
       description: >
-        在已有发送记录上登记客户回复“没问题 / 确认”等确认内容，可关联聊天截图或其他附件 ID。
+        在已有发送记录上登记客户回复“没问题 / 确认”等确认内容。附件必须归属当前对账单、用途为
+        statement_customer_confirmation、是有效图片或 PDF，且具有认证上传人；上传人可与当前登记人不同。
         该动作会把发送回执升级为 confirmed，并保留独立客户确认证据记录，但不自动确认收款。
         记录人取认证会话；对账单、发送记录、确认记录和操作日志以幂等事务原子提交。
       operationId: recordStatementCustomerConfirmation
@@ -3269,7 +3270,8 @@ paths:
       tags: [Statements]
       summary: 登记实收金额
       description: >
-        收款登记和收款确认分权限。少付默认进入差额待确认，不能自动抹零。
+        收款登记和收款确认分权限。少付默认进入差额待确认，不能自动抹零。可选付款附件必须归属
+        当前对账单、用途为 payment_screenshot、是有效图片且具有认证上传人；上传人可与当前登记人不同。
       operationId: recordStatementPayment
       parameters:
         - $ref: "#/components/parameters/StatementId"
@@ -3300,7 +3302,7 @@ paths:
       summary: 处理对账 / 收款差额
       description: >
         客户少付不能自动抹掉。必须先记录差额处理结果，再决定确认欠款、
-        继续等待收款、重算账单或按权限核销。
+        继续等待收款、重算账单或按权限核销。可选差额附件沿用当前对账单的 payment_screenshot 合同。
       operationId: handleStatementVariance
       parameters:
         - $ref: "#/components/parameters/StatementId"
@@ -3331,7 +3333,7 @@ paths:
       summary: 确认核销 / 结清对账单
       description: >
         核销需要收款确认权限。存在未处理差额、未确认收款、未发送或未生成
-        明细时不能直接核销。
+        明细时不能直接核销。核销本身不接收附件，证据必须先关联到付款或差额记录。
       operationId: writeOffStatement
       parameters:
         - $ref: "#/components/parameters/StatementId"
@@ -13559,6 +13561,8 @@ components:
           type: string
         attachmentIds:
           type: array
+          deprecated: true
+          description: 当前草稿创建阶段不支持附件；传入非空数组会返回 422，待后续“先建草稿再上传关联”接口完成后启用。
           items:
             type: string
         operatorId:
@@ -18931,6 +18935,7 @@ components:
           description: 客户确认原文或办公室整理后的确认内容。
         attachmentIds:
           type: array
+          description: 当前对账单名下、用途为 statement_customer_confirmation、具有认证上传人的有效图片或 PDF 附件 ID。
           items:
             type: string
         operatorId:
@@ -19026,6 +19031,7 @@ components:
           description: 兼容旧客户端；服务端忽略该值并使用认证会话财务操作人。
         attachmentIds:
           type: array
+          description: 当前对账单名下、用途为 payment_screenshot、具有认证上传人的有效图片附件 ID。
           items:
             type: string
         remark:
@@ -19080,6 +19086,8 @@ components:
           type: boolean
         attachmentIds:
           type: array
+          maxItems: 1
+          description: 最多 1 个；必须是当前对账单名下、用途为 payment_screenshot、具有认证上传人的有效图片附件 ID。
           items:
             type: string
         operatorId:
@@ -19131,6 +19139,8 @@ components:
             type: string
         attachmentIds:
           type: array
+          deprecated: true
+          description: 核销命令不持久化附件；传入非空数组会返回 422，应先关联到付款或差额记录。
           items:
             type: string
 

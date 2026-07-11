@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
+import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 
 export function createStatementCommunicationCommandService(dependencies = {}) {
   const {
     buildOperationLog,
     buildStatementExportFile,
     buildStatementPreviewLines,
+    findAttachment,
     findStatement,
     getStatementExcelTemplateId,
     mapStatementApiStatus,
@@ -265,9 +267,13 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     const confirmedAt = body.confirmedAt ?? existingConfirmation?.confirmedAt ?? now();
     const confirmationContent =
       String(body.content ?? "").trim() || String(body.remark ?? "").trim() || "客户回复确认无误";
-    const attachmentIds = Array.isArray(body.attachmentIds)
-      ? body.attachmentIds.map((attachmentId) => String(attachmentId ?? "").trim()).filter(Boolean)
-      : [];
+    const attachmentValidation = validateCustomerConfirmationAttachments({
+      workspace,
+      statementId,
+      attachmentIds: body.attachmentIds,
+    });
+    if (attachmentValidation.error) return attachmentValidation;
+    const attachmentIds = attachmentValidation.attachmentIds;
     const confirmationRecord = {
       confirmationRecordId,
       statementId,
@@ -342,6 +348,36 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
       operationLogId: transaction.operationLogId,
     });
   }
+
+  function validateCustomerConfirmationAttachments({ workspace, statementId, attachmentIds }) {
+    const normalizedAttachmentIds = [
+      ...new Set(
+        (Array.isArray(attachmentIds) ? attachmentIds : [])
+          .map((attachmentId) => String(attachmentId ?? "").trim())
+          .filter(Boolean),
+      ),
+    ];
+    for (const attachmentId of normalizedAttachmentIds) {
+      const validation = validateBusinessAttachment({
+        workspace,
+        attachmentId,
+        findAttachment,
+        expectedOwnerType: "statement",
+        expectedOwnerId: statementId,
+        expectedPurpose: "statement_customer_confirmation",
+        requireUploader: true,
+        allowedFileTypes: ["image", "pdf"],
+        allowedMimePrefixes: ["image/"],
+        allowedMimeTypes: ["application/pdf"],
+        errorCodePrefix: "STATEMENT_CONFIRMATION_ATTACHMENT",
+        label: "statement customer-confirmation attachment",
+      });
+      if (!validation.ok) {
+        return businessError(validation.statusCode, validation.errorCode, validation.message);
+      }
+    }
+    return { attachmentIds: normalizedAttachmentIds };
+  }
 }
 
 function buildStableCommandId({ prefix, scope, idempotencyKey, fallback }) {
@@ -397,4 +433,8 @@ function notFound(code) {
 
 function conflict(code, message) {
   return { error: true, statusCode: 409, code, message };
+}
+
+function businessError(statusCode, code, message) {
+  return { error: true, statusCode, code, message };
 }

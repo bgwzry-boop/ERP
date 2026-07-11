@@ -124,6 +124,7 @@ function buildAttachment(attachmentId, overrides = {}) {
     purpose: "finished_goods_photo",
     fileType: "image",
     mimeType: "image/png",
+    hasContent: true,
     status: "uploaded",
     uploadedBy: "U-WORKSHOP",
     fileName: "finished.png",

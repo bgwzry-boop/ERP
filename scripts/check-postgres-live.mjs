@@ -4932,6 +4932,24 @@ WHERE id = 'F002';`,
     "U-OFFICE-A",
   );
 
+  const statementConfirmationAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "statement",
+      ownerId: "ST-0629-001",
+      purpose: "statement_customer_confirmation",
+      fileType: "image",
+      fileName: "statement-confirmation-live-route.png",
+      mimeType: "image/png",
+      contentRef: "p0://statement-customer-confirmation/ST-0629-001/live-route",
+      contentDataUrl: "data:image/png;base64,c3RhdGVtZW50LWNvbmZpcm1hdGlvbi1saXZl",
+      uploadedBy: "U-SPOOFED",
+      idempotencyKey: "statement-confirmation-attachment-api-live-001",
+    },
+    { headers },
+  );
+  assert.equal(statementConfirmationAttachment.uploadedBy, "U-OFFICE-A");
   const statementConfirmationBody = {
     sendRecordId: markedSent.sendRecordId,
     confirmationType: "customer_reply",
@@ -4939,7 +4957,7 @@ WHERE id = 'F002';`,
     confirmedByCustomer: "张三服饰财务",
     confirmedAt: "2026-07-01T11:15:00.000Z",
     content: "postgres live customer confirmed statement route",
-    attachmentIds: ["ATT-LIVE-CONFIRM-ROUTE-001"],
+    attachmentIds: [statementConfirmationAttachment.attachmentId],
     operatorId: "U-SPOOFED",
     operatorName: "伪造人员",
     remark: "postgres live customer confirmation route",
@@ -4963,7 +4981,7 @@ WHERE id = 'F002';`,
   assert.equal(customerConfirmation.sendRecordId, markedSent.sendRecordId);
   assert.equal(customerConfirmation.receiptStatus, "confirmed");
   assert.equal(customerConfirmation.confirmationRecord.content, "postgres live customer confirmed statement route");
-  assert.equal(customerConfirmation.confirmationRecord.attachmentIds[0], "ATT-LIVE-CONFIRM-ROUTE-001");
+  assert.equal(customerConfirmation.confirmationRecord.attachmentIds[0], statementConfirmationAttachment.attachmentId);
   assert.ok(customerConfirmation.operationLogId);
   assert.equal(
     queryJson("SELECT json_build_object('status', status) AS result FROM statements WHERE id = 'ST-0629-001';").status,
@@ -4975,7 +4993,7 @@ WHERE id = 'F002';`,
         sqlLiteral(customerConfirmation.confirmationRecordId) +
         ";",
     ).attachmentIds[0],
-    "ATT-LIVE-CONFIRM-ROUTE-001",
+    statementConfirmationAttachment.attachmentId,
   );
   assert.equal(
     queryJson(
@@ -4986,6 +5004,24 @@ WHERE id = 'F002';`,
     "U-OFFICE-A",
   );
 
+  const statementPaymentAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "statement",
+      ownerId: "ST-0629-001",
+      purpose: "payment_screenshot",
+      fileType: "image",
+      fileName: "statement-payment-live-route.png",
+      mimeType: "image/png",
+      contentRef: "p0://payment-screenshot/ST-0629-001/live-route",
+      contentDataUrl: "data:image/png;base64,c3RhdGVtZW50LXBheW1lbnQtbGl2ZQ==",
+      uploadedBy: "U-SPOOFED",
+      idempotencyKey: "statement-payment-attachment-api-live-001",
+    },
+    { headers },
+  );
+  assert.equal(statementPaymentAttachment.uploadedBy, "U-OFFICE-A");
   const payment = await postJson(
     baseUrl,
     "/api/statements/ST-0629-001/payments",
@@ -4994,14 +5030,14 @@ WHERE id = 'F002';`,
       paidAt: "2026-07-01T10:30:00.000Z",
       method: "wechat",
       operatorId: "U-OFFICE-A",
-      attachmentIds: [created.attachmentId],
+      attachmentIds: [statementPaymentAttachment.attachmentId],
       remark: "postgres live payment route",
     },
     { headers },
   );
   assert.equal(payment.payment.statementId, "ST-0629-001");
   assert.equal(payment.payment.customerId, "C001");
-  assert.equal(payment.payment.attachmentIds[0], created.attachmentId);
+  assert.equal(payment.payment.attachmentIds[0], statementPaymentAttachment.attachmentId);
   assert.equal(payment.statementStatus, "收款待确认");
 
   const paymentCount = Number(

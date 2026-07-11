@@ -97,6 +97,7 @@ import { createProductionSchedulingCommandService } from "./services/productionS
 import { createProductionReportingCommandService } from "./services/productionReportingCommandService.mjs";
 import { createPackingCommandService } from "./services/packingCommandService.mjs";
 import { createStatementCommunicationCommandService } from "./services/statementCommunicationCommandService.mjs";
+import { createStatementFinancialCommandService } from "./services/statementFinancialCommandService.mjs";
 import { createOrderLineMutationCommandService } from "./services/orderLineMutationCommandService.mjs";
 import { createOrderDraftCommandService } from "./services/orderDraftCommandService.mjs";
 import { createFulfillmentActionCommandService } from "./services/fulfillmentActionCommandService.mjs";
@@ -15782,6 +15783,7 @@ const statementCommunicationCommandService = createStatementCommunicationCommand
   buildOperationLog,
   buildStatementExportFile,
   buildStatementPreviewLines,
+  findAttachment: findAttachmentRecord,
   findStatement,
   getStatementExcelTemplateId,
   mapStatementApiStatus,
@@ -15792,6 +15794,19 @@ const statementCommunicationCommandService = createStatementCommunicationCommand
   recordStatementCustomerConfirmation,
   storeStatementExportFile,
   toStatementExportSummary,
+});
+const statementFinancialCommandService = createStatementFinancialCommandService({
+  buildOperationLog,
+  buildTodo,
+  confirmStatementPayment,
+  confirmStatementVariance,
+  confirmStatementWriteOff,
+  findAttachment: findAttachmentRecord,
+  findStatement,
+  getStatementWriteOffBlocker,
+  mapStatementApiStatus,
+  mapVarianceHandlingResult,
+  nextId,
 });
 const orderLineMutationCommandService = createOrderLineMutationCommandService({
   buildOperationLog,
@@ -16310,134 +16325,39 @@ async function recordStatementCustomerConfirmationRoute({ response, workspace, s
 }
 
 async function recordStatementPaymentRoute({ response, workspace, statementId, body, operatorId }) {
-  const statement = findStatement(workspace, statementId);
-  if (!statement) return sendNotFound(response, "STATEMENT_NOT_FOUND");
-  const result = confirmStatementPayment(workspace.statements, statement, { amount: body.amount, reason: body.remark ?? body.method });
-  const nextStatement = result.statements.find((item) => item.id === statementId);
-  const todo = result.todoInput ? buildTodo(workspace, result.todoInput) : null;
-  const paymentRecord = {
-    paymentRecordId: nextId("PAY", workspace.paymentRecords),
-    bizNo: nextId("PAY", workspace.paymentRecords),
-    statementId,
-    customerId: statement.customerId,
-    amount: Number(body.amount ?? 0),
-    paidAt: body.paidAt ?? new Date().toISOString(),
-    method: body.method ?? "other",
-    status: "recorded",
-    attachmentIds: body.attachmentIds ?? [],
-    operatorId,
-    remark: body.remark ?? "",
-  };
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "statement",
-    targetId: statementId,
-    action: "record_statement_payment",
-    operatorId,
-    before: statement,
-    after: nextStatement,
-  });
-  const transaction = await workspace.statementPaymentTransactionRepository.recordStatementPayment({
+  const result = await statementFinancialCommandService.recordPayment({
     workspace,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
-    statements: result.statements,
-    statement: nextStatement,
-    paymentRecord,
-    todo,
-    operationLog,
+    statementId,
+    body,
+    operatorId,
   });
-  return sendJson(response, 200, {
-    payment: transaction.payment,
-    statementStatus: mapStatementApiStatus(nextStatement.status),
-    varianceAmount: nextStatement.variance,
-    todoId: transaction.todo?.id ?? todo?.id,
-    operationLogId: transaction.operationLogId,
-  });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 async function handleStatementVarianceRoute({ response, workspace, statementId, body, operatorId }) {
-  const statement = findStatement(workspace, statementId);
-  if (!statement) return sendNotFound(response, "STATEMENT_NOT_FOUND");
-  const reason = mapVarianceHandlingResult(body.handlingResult, body.reason);
-  const varianceAmount = Number(body.varianceAmount ?? statement.variance ?? Math.max(0, statement.receivable - statement.received));
-  const hasOpenVarianceTodo = workspace.todos.some((todo) => todo.ref === statementId && todo.type === "收款差额待确认" && !todo.handled);
-  const result = confirmStatementVariance(workspace.statements, statement, varianceAmount, { reason }, hasOpenVarianceTodo);
-  const nextStatement = result.statements.find((item) => item.id === statementId);
-  const todo = result.todoInput ? buildTodo(workspace, result.todoInput) : null;
-  const varianceRecord = {
-    varianceRecordId: nextId("VAR", workspace.varianceRecords),
-    statementId,
-    paymentRecordId: body.paymentRecordId ?? "",
-    amount: varianceAmount,
-    handlingResult: body.handlingResult ?? reason,
-    reason,
-    status: "recorded",
-    attachmentId: Array.isArray(body.attachmentIds) ? body.attachmentIds[0] ?? "" : "",
-    operatorId,
-  };
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "statement",
-    targetId: statementId,
-    action: "handle_statement_variance",
-    operatorId,
-    before: statement,
-    after: nextStatement,
-    reason,
-  });
-  const transaction = await workspace.statementSettlementTransactionRepository.handleStatementVariance({
+  const result = await statementFinancialCommandService.handleVariance({
     workspace,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
-    statements: result.statements,
-    statement: nextStatement,
-    varianceRecord,
-    todo,
-    operationLog,
+    statementId,
+    body,
+    operatorId,
   });
-  return sendJson(response, 200, {
-    varianceRecord: transaction.varianceRecord,
-    statementStatus: mapStatementApiStatus(nextStatement.status),
-    debtAmount: nextStatement.status.includes("欠款") ? varianceAmount : 0,
-    todoId: transaction.todo?.id ?? todo?.id,
-    operationLogId: transaction.operationLogId,
-  });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 async function writeOffStatementRoute({ response, workspace, statementId, body, operatorId }) {
-  const statement = findStatement(workspace, statementId);
-  if (!statement) return sendNotFound(response, "STATEMENT_NOT_FOUND");
-  const blockingAmount = Number(statement.variance ?? Math.max(0, statement.receivable - statement.received));
-  const blocker = getStatementWriteOffBlocker(statement, blockingAmount);
-  if (blocker) return sendBusinessError(response, 409, "STATEMENT_WRITE_OFF_BLOCKED", blocker);
-  const result = confirmStatementWriteOff(workspace.statements, statement, blockingAmount);
-  const nextStatement = result.statements.find((item) => item.id === statementId);
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "statement",
-    targetId: statementId,
-    action: "write_off_statement",
-    operatorId,
-    before: statement,
-    after: nextStatement,
-    reason: body.confirmReason,
-  });
-  const transaction = await workspace.statementSettlementTransactionRepository.writeOffStatement({
+  const result = await statementFinancialCommandService.writeOffStatement({
     workspace,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
-    statements: result.statements,
-    statement: nextStatement,
-    operationLog,
-  });
-  const variance = Number(nextStatement.variance ?? Math.max(0, nextStatement.receivable - nextStatement.received));
-  return sendJson(response, 200, {
     statementId,
-    status: mapStatementApiStatus(nextStatement.status),
-    receivable: Number(nextStatement.receivable ?? 0),
-    received: Number(nextStatement.received ?? 0),
-    variance,
-    debtAmount: nextStatement.status.includes("欠款") ? variance : 0,
-    operationLogId: transaction.operationLogId,
+    body,
+    operatorId,
   });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 async function createAttachmentRoute({ response, workspace, body, operatorId }) {

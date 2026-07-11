@@ -71,10 +71,16 @@ const createBody = {
   actualQty: 480,
   reason: "盘点差异",
   remark: "复盘后确认",
-  attachmentIds: ["ATT-1", "ATT-1"],
+  attachmentIds: [],
   operatorId: "U-SPOOFED",
   idempotencyKey: "inventory-create-0001",
 };
+const blockedAttachmentDraft = await service.createCorrectionDraft({
+  workspace,
+  body: { ...createBody, attachmentIds: ["ATT-1"] },
+  operatorId: "U-AUTH",
+});
+assert.equal(blockedAttachmentDraft.code, "INVENTORY_CORRECTION_ATTACHMENT_FLOW_UNAVAILABLE");
 const created = await service.createCorrectionDraft({
   workspace,
   body: createBody,
@@ -84,7 +90,7 @@ assert.equal(created.correctionDraft.createdBy, "U-AUTH");
 assert.equal(created.correctionDraft.expectedQty, 500);
 assert.equal(created.correctionDraft.actualQty, 480);
 assert.equal(created.correctionDraft.deltaQty, -20);
-assert.deepEqual(created.correctionDraft.attachmentIds, ["ATT-1"]);
+assert.deepEqual(created.correctionDraft.attachmentIds, []);
 assert.equal(created.todo.createdBy, "U-AUTH");
 assert.equal(workspace.inventories[0].inStock, 500, "draft creation must not change stock");
 assert.equal(workspace.todos.length, 1);

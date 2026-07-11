@@ -607,6 +607,7 @@ function buildDeliveryEvidenceAttachment(attachmentId, purpose, overrides = {}) 
     purpose,
     fileType: "image",
     mimeType: "image/png",
+    hasContent: true,
     status: "uploaded",
     uploadedBy: "U-DRIVER-A",
     url: `/api/attachments/${attachmentId}/content`,

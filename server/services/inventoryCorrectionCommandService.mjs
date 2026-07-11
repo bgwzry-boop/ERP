@@ -30,6 +30,14 @@ export function createInventoryCorrectionCommandService({
           "Inventory quantity changed before the correction draft was created.",
         );
       }
+      const attachmentIds = stringList(body.attachmentIds);
+      if (attachmentIds.length) {
+        return businessError(
+          422,
+          "INVENTORY_CORRECTION_ATTACHMENT_FLOW_UNAVAILABLE",
+          "Inventory correction attachments require a persisted correction draft and cannot be linked during draft creation yet.",
+        );
+      }
 
       const timestamp = nowIso(now);
       const correctionDraftId = buildRecordId("ADJ-API", body.idempotencyKey);
@@ -70,7 +78,7 @@ export function createInventoryCorrectionCommandService({
         requestedQtyAfter,
         reason,
         remark: cleanText(body.remark),
-        attachmentIds: stringList(body.attachmentIds),
+        attachmentIds,
         operatorId,
         createdBy: operatorId,
         todoId,

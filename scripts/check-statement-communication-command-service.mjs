@@ -5,6 +5,9 @@ const calls = { exports: [], sends: [], receipts: [], confirmations: [] };
 const workspace = createWorkspace();
 const service = createStatementCommunicationCommandService({
   now: () => "2026-07-11T15:00:00.000Z",
+  findAttachment(currentWorkspace, attachmentId) {
+    return currentWorkspace.attachments.find((item) => item.attachmentId === attachmentId) ?? null;
+  },
   findStatement(currentWorkspace, statementId) {
     return currentWorkspace.statements.find((item) => item.id === statementId);
   },
@@ -129,6 +132,17 @@ assert.equal(receipt.response.receiptStatus, "read");
 assert.equal(calls.receipts[0].sendRecord.receiptBy, "U-FINANCE");
 assert.equal(calls.receipts[0].operationLog.operatorId, "U-FINANCE");
 
+const blockedConfirmation = await service.recordStatementCustomerConfirmation({
+  workspace,
+  statementId: "ST-1",
+  operatorId: "U-FINANCE",
+  body: {
+    sendRecordId: "SEND-EXISTING",
+    attachmentIds: ["ATT-WRONG-OWNER"],
+  },
+});
+assert.equal(blockedConfirmation.code, "STATEMENT_CONFIRMATION_ATTACHMENT_OWNER_MISMATCH");
+
 const confirmation = await service.recordStatementCustomerConfirmation({
   workspace,
   statementId: "ST-1",
@@ -171,6 +185,30 @@ function createWorkspace() {
       { sendRecordId: "SEND-OTHER", statementId: "ST-OTHER", sentAt: "2026-07-11T14:30:00.000Z", revision: 1 },
     ],
     statementConfirmationRecords: [],
+    attachments: [
+      {
+        attachmentId: "ATT-1",
+        ownerType: "statement",
+        ownerId: "ST-1",
+        purpose: "statement_customer_confirmation",
+        uploadedBy: "U-OFFICE",
+        status: "uploaded",
+        hasContent: true,
+        fileType: "image",
+        mimeType: "image/png",
+      },
+      {
+        attachmentId: "ATT-WRONG-OWNER",
+        ownerType: "statement",
+        ownerId: "ST-OTHER",
+        purpose: "statement_customer_confirmation",
+        uploadedBy: "U-FINANCE",
+        status: "uploaded",
+        hasContent: true,
+        fileType: "image",
+        mimeType: "image/png",
+      },
+    ],
     operationLogs: [],
   };
   currentWorkspace.statementExportRepository = {

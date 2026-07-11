@@ -6,8 +6,13 @@ export function validateBusinessAttachment({
   expectedOwnerId,
   expectedPurpose,
   expectedUploaderId,
+  requireUploader = false,
   expectedFileType = "image",
   expectedMimePrefix = "image/",
+  allowedFileTypes,
+  allowedMimePrefixes,
+  allowedMimeTypes = [],
+  requireContent = true,
   errorCodePrefix = "BUSINESS_ATTACHMENT",
   label = "business attachment",
 } = {}) {
@@ -30,16 +35,29 @@ export function validateBusinessAttachment({
       `The ${label} was not uploaded by the authenticated operator.`,
     );
   }
+  if (expectedUploaderId === undefined && requireUploader && !text(attachment.uploadedBy)) {
+    return failure(`${errorCodePrefix}_UPLOADER_REQUIRED`, `The ${label} has no authenticated uploader.`);
+  }
 
   const status = text(attachment.status || "uploaded");
   const fileType = text(attachment.fileType).toLowerCase();
   const mimeType = text(attachment.mimeType).toLowerCase();
+  const fileTypes = normalizedList(allowedFileTypes ?? [expectedFileType]);
+  const mimePrefixes = normalizedList(allowedMimePrefixes ?? [expectedMimePrefix]);
+  const mimeTypes = normalizedList(allowedMimeTypes);
+  const mimeAllowed =
+    (!mimePrefixes.length && !mimeTypes.length) ||
+    Boolean(
+      mimeType &&
+        (mimeTypes.includes(mimeType) || mimePrefixes.some((prefix) => mimeType.startsWith(prefix))),
+    );
   if (
     status !== "uploaded" ||
-    (expectedFileType && fileType && fileType !== expectedFileType) ||
-    (expectedMimePrefix && mimeType && !mimeType.startsWith(expectedMimePrefix))
+    (requireContent && attachment.hasContent !== true) ||
+    (fileTypes.length && !fileTypes.includes(fileType)) ||
+    !mimeAllowed
   ) {
-    return failure(`${errorCodePrefix}_INVALID`, `The ${label} is not an active ${expectedFileType} upload.`);
+    return failure(`${errorCodePrefix}_INVALID`, `The ${label} is not an active allowed file upload.`);
   }
 
   return { ok: true, attachment };
@@ -51,4 +69,8 @@ function failure(errorCode, message) {
 
 function text(value) {
   return String(value ?? "").trim();
+}
+
+function normalizedList(value) {
+  return [...new Set((Array.isArray(value) ? value : []).map((item) => text(item).toLowerCase()).filter(Boolean))];
 }

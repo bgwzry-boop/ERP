@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D41 对账附件与财务命令服务已完成。新增 `statementFinancialCommandService.mjs`，收款 / 差额 / 核销移出 API 主文件；付款 / 差额和客户确认附件按对账单 owner、purpose、文件类型与认证上传人校验，客户确认允许图片 / PDF。核销和库存修正创建不再静默接受无法持久化的附件。直接 service、HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.28；下一轮 D42 实现库存修正草稿建成后的附件上传 / 关联事务。
 - 本轮补充：D40 业务附件消费校验已完成。新增共享 `businessAttachmentValidationService.mjs`，司机送达凭证复用后删除重复校验；定制成品图上传 / 复核增加生产任务归属、`finished_goods_photo` 用途、有效图片和认证上传人门禁，请求体不能伪造文件名。直接 service、HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.27；下一轮 D41 收口付款、差额、客户确认和库存修正附件。
 - 本轮补充：D39 送达凭证附件可信校验已完成。司机首次送达和证据补拍必须引用真实持久化附件，水印照 / 签字照分别校验当前交付归属、`delivery_watermark_photo` / `signature_photo` 用途、有效图片和当前认证司机上传身份；签字声明没有附件会拒绝。附件创建统一使用认证用户，不再信任 body `uploadedBy`；已保存水印 metadata 优先于重复请求字段。直接 service、HTTP、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.26；下一轮 D40 将相同合同扩展到定制成品图等高价值附件消费链。
 - 本轮补充：D38 派单与司机交付 command service 已完成。派单、司机装车、首次送达、证据补拍和异常编排进入 `fulfillmentActionCommandService.mjs`，API handler 只映射结果，主文件从 `18,921` 行降至 `18,573` 行。同步修复派单 revision / 重复有效 ID、query 身份覆盖、跨司机 / 未派单任务读写、包裹核对不完整、未装车完成和水印操作人伪造；demo / test 使用显式派单种子，production 只认 PostgreSQL 有效派单。OpenAPI 和产品 brief 已同步。直接 service、HTTP、司机 / 出库专项、全量、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.25；下一轮 D39 校验送达附件归属、用途和上传身份。
