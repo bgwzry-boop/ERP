@@ -13,6 +13,7 @@ const requiredChunkPrefixes = [
   "erp-domain-",
   "erp-data-",
 ];
+const requiredLazyChunkPrefixes = ["erp-v1-status-"];
 
 const assetNames = await readdir(assetRoot);
 const javaScriptAssets = assetNames.filter((name) => name.endsWith(".js")).sort();
@@ -33,6 +34,21 @@ for (const prefix of requiredChunkPrefixes) {
   const matches = javaScriptAssets.filter((name) => name.startsWith(prefix));
   assert.equal(matches.length, 1, `production build should emit exactly one ${prefix}*.js chunk`);
   assert.match(indexHtml, new RegExp(`/assets/${escapeRegExp(matches[0])}`), `${matches[0]} should be linked from index.html`);
+}
+
+for (const prefix of requiredLazyChunkPrefixes) {
+  const matches = javaScriptAssets.filter((name) => name.startsWith(prefix));
+  assert.equal(matches.length, 1, `production build should emit exactly one ${prefix}*.js chunk`);
+  assert.doesNotMatch(indexHtml, new RegExp(`/assets/${escapeRegExp(matches[0])}`), `${matches[0]} should remain lazy and stay out of index.html`);
+  const referencingChunks = await Promise.all(
+    javaScriptAssets
+      .filter((name) => name !== matches[0])
+      .map(async (name) => ({ name, source: await readFile(resolve(assetRoot, name), "utf8") })),
+  );
+  assert.ok(
+    referencingChunks.some(({ source }) => source.includes(matches[0])),
+    `${matches[0]} should be referenced by a JavaScript dynamic import`,
+  );
 }
 
 const largest = [...chunks].sort((left, right) => right.bytes - left.bytes)[0];

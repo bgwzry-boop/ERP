@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import {
   BellOutlined,
   DownloadOutlined,
@@ -20,7 +20,6 @@ import {
   RawMaterialInboundPage,
   StatementPage,
   TodoPage,
-  V1StatusPage,
   DriverMobilePage,
   WorkshopMobilePage,
 } from "./pages/office/index.jsx";
@@ -32,7 +31,7 @@ import {
 import { AppNavigation } from "./app/AppNavigation.jsx";
 import { useOfficeInteractionController } from "./app/useOfficeInteractionController.js";
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
-import { WorkspaceNotice, WorkspacePageHeader } from "./shared/ui/operational.jsx";
+import { DataState, WorkspaceNotice, WorkspacePageHeader } from "./shared/ui/operational.jsx";
 import {
   defaultSeedUserId,
   getUiActionState,
@@ -267,6 +266,10 @@ import {
   uniqueStockOptions,
   varianceHandlingOptions,
 } from "./domain/officeRules.js";
+
+const V1StatusPage = lazy(() =>
+  import("./features/v1-status/V1StatusPage.jsx").then((module) => ({ default: module.V1StatusPage })),
+);
 
 const orderQuantityReasonOptions = ["客户改量", "识别数量修正", "库存复核后改量", "办公室修正数量", "管理批准改量", "其他原因改量"];
 const orderVoidReasonOptions = ["客户取消订单", "重复订单作废", "识别错误作废", "库存不足取消", "管理拒绝接单", "订单改量作废重建", "客户拒绝等待取消", "其他原因作废"];
@@ -5881,66 +5884,68 @@ export function App() {
             />
           )}
           {activePage === "v1Status" && (
-            <V1StatusPage
-              fieldEvidenceDraftAction={v1FieldEvidenceDraftAction}
-              fieldEvidenceValidationAction={v1FieldEvidenceValidationAction}
-              fieldEvidenceStageRowAction={v1FieldEvidenceStageRowAction}
-              fieldEvidenceAttachmentAction={v1FieldEvidenceAttachmentAction}
-              fieldEvidenceAttachmentListAction={v1FieldEvidenceAttachmentListAction}
-              signoffBoundaryAttachmentAction={v1SignoffBoundaryAttachmentAction}
-              signoffBoundaryAttachmentListAction={v1SignoffBoundaryAttachmentListAction}
-              productionEnvPrecheckAction={v1ProductionEnvPrecheckAction}
-              productionEnvSetupAction={v1ProductionEnvSetupAction}
-              productionEnvIntakePrecheckAction={v1ProductionEnvIntakePrecheckAction}
-              productionEnvFileAuditPrecheckAction={v1ProductionEnvFileAuditPrecheckAction}
-              productionEnvFilePreviewPrecheckAction={v1ProductionEnvFilePreviewPrecheckAction}
-              productionGoLivePrecheckAction={v1ProductionGoLivePrecheckAction}
-              productionPersistenceEvidenceAction={v1ProductionPersistenceEvidenceAction}
-              productionFirstStageExecutionAction={v1ProductionFirstStageExecutionAction}
-              productionFirstStageValuesDryRunAction={v1ProductionFirstStageValuesDryRunAction}
-              productionFirstStageValuesApplyAction={v1ProductionFirstStageValuesApplyAction}
-              persistencePrecheckAction={v1PersistencePrecheckAction}
-              attachmentRetentionPrecheckAction={v1AttachmentRetentionPrecheckAction}
-              printSpoolPrecheckAction={v1PrintSpoolPrecheckAction}
-              printCupsPrecheckAction={v1PrintCupsPrecheckAction}
-              printReadinessPrecheckAction={v1PrintReadinessPrecheckAction}
-              driverReadinessPrecheckAction={v1DriverReadinessPrecheckAction}
-              runtimeReadinessPrecheckAction={v1RuntimeReadinessPrecheckAction}
-              v1V2BoundaryPrecheckAction={v1V2BoundaryPrecheckAction}
-              v1V2ScopeBriefRefreshAction={v1V2ScopeBriefRefreshAction}
-              releaseCandidateRefreshPrecheckAction={v1ReleaseCandidateRefreshPrecheckAction}
-              releaseCandidateRefreshAction={v1ReleaseCandidateRefreshAction}
-              goLiveMeta={v1GoLiveStatusState}
-              goLiveStatus={v1GoLiveStatusState.statusData}
-              onGenerateFieldEvidenceDraft={generateV1FieldEvidenceDraftManifest}
-              onStageFieldEvidenceRow={stageV1FieldEvidenceIntakeRow}
-              onUploadFieldEvidenceAttachment={uploadV1FieldEvidenceAttachment}
-              onListFieldEvidenceAttachments={listV1FieldEvidenceAttachments}
-              onUploadSignoffBoundaryAttachment={uploadV1SignoffBoundaryAttachment}
-              onListSignoffBoundaryAttachments={listV1SignoffBoundaryAttachments}
-              onPrecheckProductionEnv={precheckV1ProductionEnv}
-              onRunProductionEnvSetup={runV1ProductionEnvSetup}
-              onPrecheckProductionEnvIntake={precheckV1ProductionEnvIntake}
-              onPrecheckProductionEnvFileAudit={precheckV1ProductionEnvFileAudit}
-              onPrecheckProductionEnvFilePreview={precheckV1ProductionEnvFilePreview}
-              onPrecheckProductionGoLive={precheckV1ProductionGoLive}
-              onRunProductionPersistenceEvidence={runV1ProductionPersistenceEvidence}
-              onRunProductionFirstStageExecution={runV1ProductionFirstStageExecution}
-              onPrecheckProductionFirstStageValuesDryRun={precheckV1ProductionFirstStageValuesDryRun}
-              onApplyProductionFirstStageValues={applyV1ProductionFirstStageValues}
-              onPrecheckV1Persistence={precheckV1Persistence}
-              onPrecheckV1AttachmentRetention={precheckV1AttachmentRetention}
-              onPrecheckV1PrintSpool={precheckV1PrintSpool}
-              onPrecheckV1PrintCups={precheckV1PrintCups}
-              onPrecheckV1PrintReadiness={precheckV1PrintReadiness}
-              onPrecheckV1DriverReadiness={precheckV1DriverReadiness}
-              onPrecheckRuntimeReadiness={precheckV1RuntimeReadiness}
-              onPrecheckV1V2Boundary={precheckV1V2Boundary}
-              onRefreshV1V2ScopeBrief={refreshV1V2ScopeBrief}
-              onPrecheckReleaseCandidateRefresh={precheckV1ReleaseCandidateRefresh}
-              onRefreshReleaseCandidate={refreshV1ReleaseCandidate}
-              onValidateFieldEvidenceDraft={validateV1FieldEvidenceDraftManifest}
-            />
+            <Suspense fallback={<DataState title="上线状态加载中" />}>
+              <V1StatusPage
+                fieldEvidenceDraftAction={v1FieldEvidenceDraftAction}
+                fieldEvidenceValidationAction={v1FieldEvidenceValidationAction}
+                fieldEvidenceStageRowAction={v1FieldEvidenceStageRowAction}
+                fieldEvidenceAttachmentAction={v1FieldEvidenceAttachmentAction}
+                fieldEvidenceAttachmentListAction={v1FieldEvidenceAttachmentListAction}
+                signoffBoundaryAttachmentAction={v1SignoffBoundaryAttachmentAction}
+                signoffBoundaryAttachmentListAction={v1SignoffBoundaryAttachmentListAction}
+                productionEnvPrecheckAction={v1ProductionEnvPrecheckAction}
+                productionEnvSetupAction={v1ProductionEnvSetupAction}
+                productionEnvIntakePrecheckAction={v1ProductionEnvIntakePrecheckAction}
+                productionEnvFileAuditPrecheckAction={v1ProductionEnvFileAuditPrecheckAction}
+                productionEnvFilePreviewPrecheckAction={v1ProductionEnvFilePreviewPrecheckAction}
+                productionGoLivePrecheckAction={v1ProductionGoLivePrecheckAction}
+                productionPersistenceEvidenceAction={v1ProductionPersistenceEvidenceAction}
+                productionFirstStageExecutionAction={v1ProductionFirstStageExecutionAction}
+                productionFirstStageValuesDryRunAction={v1ProductionFirstStageValuesDryRunAction}
+                productionFirstStageValuesApplyAction={v1ProductionFirstStageValuesApplyAction}
+                persistencePrecheckAction={v1PersistencePrecheckAction}
+                attachmentRetentionPrecheckAction={v1AttachmentRetentionPrecheckAction}
+                printSpoolPrecheckAction={v1PrintSpoolPrecheckAction}
+                printCupsPrecheckAction={v1PrintCupsPrecheckAction}
+                printReadinessPrecheckAction={v1PrintReadinessPrecheckAction}
+                driverReadinessPrecheckAction={v1DriverReadinessPrecheckAction}
+                runtimeReadinessPrecheckAction={v1RuntimeReadinessPrecheckAction}
+                v1V2BoundaryPrecheckAction={v1V2BoundaryPrecheckAction}
+                v1V2ScopeBriefRefreshAction={v1V2ScopeBriefRefreshAction}
+                releaseCandidateRefreshPrecheckAction={v1ReleaseCandidateRefreshPrecheckAction}
+                releaseCandidateRefreshAction={v1ReleaseCandidateRefreshAction}
+                goLiveMeta={v1GoLiveStatusState}
+                goLiveStatus={v1GoLiveStatusState.statusData}
+                onGenerateFieldEvidenceDraft={generateV1FieldEvidenceDraftManifest}
+                onStageFieldEvidenceRow={stageV1FieldEvidenceIntakeRow}
+                onUploadFieldEvidenceAttachment={uploadV1FieldEvidenceAttachment}
+                onListFieldEvidenceAttachments={listV1FieldEvidenceAttachments}
+                onUploadSignoffBoundaryAttachment={uploadV1SignoffBoundaryAttachment}
+                onListSignoffBoundaryAttachments={listV1SignoffBoundaryAttachments}
+                onPrecheckProductionEnv={precheckV1ProductionEnv}
+                onRunProductionEnvSetup={runV1ProductionEnvSetup}
+                onPrecheckProductionEnvIntake={precheckV1ProductionEnvIntake}
+                onPrecheckProductionEnvFileAudit={precheckV1ProductionEnvFileAudit}
+                onPrecheckProductionEnvFilePreview={precheckV1ProductionEnvFilePreview}
+                onPrecheckProductionGoLive={precheckV1ProductionGoLive}
+                onRunProductionPersistenceEvidence={runV1ProductionPersistenceEvidence}
+                onRunProductionFirstStageExecution={runV1ProductionFirstStageExecution}
+                onPrecheckProductionFirstStageValuesDryRun={precheckV1ProductionFirstStageValuesDryRun}
+                onApplyProductionFirstStageValues={applyV1ProductionFirstStageValues}
+                onPrecheckV1Persistence={precheckV1Persistence}
+                onPrecheckV1AttachmentRetention={precheckV1AttachmentRetention}
+                onPrecheckV1PrintSpool={precheckV1PrintSpool}
+                onPrecheckV1PrintCups={precheckV1PrintCups}
+                onPrecheckV1PrintReadiness={precheckV1PrintReadiness}
+                onPrecheckV1DriverReadiness={precheckV1DriverReadiness}
+                onPrecheckRuntimeReadiness={precheckV1RuntimeReadiness}
+                onPrecheckV1V2Boundary={precheckV1V2Boundary}
+                onRefreshV1V2ScopeBrief={refreshV1V2ScopeBrief}
+                onPrecheckReleaseCandidateRefresh={precheckV1ReleaseCandidateRefresh}
+                onRefreshReleaseCandidate={refreshV1ReleaseCandidate}
+                onValidateFieldEvidenceDraft={validateV1FieldEvidenceDraftManifest}
+              />
+            </Suspense>
           )}
         </main>
       </div>

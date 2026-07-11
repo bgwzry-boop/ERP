@@ -7,6 +7,7 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (!id.includes("node_modules")) {
+            if (id.includes("/src/features/v1-status/")) return "erp-v1-status";
             if (id.includes("/src/pages/")) return "erp-pages";
             if (id.includes("/src/services/officeV1GoLiveStatus")) return "erp-v1-runtime";
             if (id.includes("/src/services/")) return "erp-runtime";

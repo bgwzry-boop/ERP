@@ -1,5 +1,4 @@
 export { TodoPage } from "../../features/todos/TodoPage.jsx";
-export { V1StatusPage } from "../../features/v1-status/V1StatusPage.jsx";
 export { EntryPage } from "../../features/orders/EntryPage.jsx";
 export { OrderPoolPage } from "../../features/orders/OrderPoolPage.jsx";
 export { InventoryPage } from "../../features/inventory/InventoryPage.jsx";
