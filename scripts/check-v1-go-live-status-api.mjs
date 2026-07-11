@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import { createApiServer } from "../server/apiServer.mjs";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
   v1PersistenceRepositoryObjectKeys,
@@ -37,8 +38,13 @@ const originalProductionEnvValuesFile = process.env.ERP_V1_PRODUCTION_ENV_VALUES
 const originalProductionEnvMinimumValuesFile = process.env.ERP_V1_PRODUCTION_ENV_MINIMUM_VALUES_FILE;
 const originalProductionEnvValuesFragmentFile = process.env.ERP_V1_PRODUCTION_ENV_VALUES_FRAGMENT_FILE;
 const originalProductionEnvValuesApplyEnabled = process.env.ERP_V1_PRODUCTION_ENV_VALUES_APPLY_ENABLED;
+const originalV1GoLiveArtifactRoot = process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT;
+const fixtureArtifactRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-go-live-status-api");
 const expectedPersistenceRepositoryCount =
   v1PersistenceRepositoryObjectKeys.length + v1PersistenceStorageObjectKeys.length;
+
+prepareV1GoLiveStatusFixture(fixtureArtifactRoot);
+process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT = fixtureArtifactRoot;
 const server = createApiServer();
 
 try {
@@ -211,15 +217,15 @@ try {
   assert.equal(json.productionEnvGate.ready, false);
   assert.equal(json.productionEnvGate.available, true);
   assert.equal(json.productionEnvGate.summary.passedCount, 2);
-  assert.equal(json.productionEnvGate.summary.totalCount, 10);
-  assert.equal(json.productionEnvGate.summary.blockingCount, 6);
+  assert.equal(json.productionEnvGate.summary.totalCount, json.productionEnvGate.checks.length);
+  assert.ok(json.productionEnvGate.summary.blockingCount >= 6);
   assert.equal(json.productionEnvGate.summary.warningCount, 2);
   assert.equal(json.productionEnvGate.summary.auditStatus, "passed");
   assert.equal(json.productionEnvGate.summary.auditLabel, "已通过");
   assert.equal(json.productionEnvGate.audit.included, true);
   assert.equal(json.productionEnvGate.audit.envFileCount, 1);
   assert.match(json.productionEnvGate.audit.summary.label, /1 个 env 文件安全审计通过/);
-  assert.equal(json.productionEnvGate.checks.length, 10);
+  assert.ok(json.productionEnvGate.checks.length >= 10);
   assert.ok(
     json.productionEnvGate.checks.some((item) =>
       item.key === "v1-persistence-profile" &&
@@ -248,28 +254,40 @@ try {
   assert.equal(json.productionEnvIntakeVerification.available, true);
   assert.equal(json.productionEnvIntakeVerification.status, "blocked");
   assert.equal(json.productionEnvIntakeVerification.ready, false);
-  assert.equal(json.productionEnvIntakeVerification.summary.intakeRowCount, 23);
+  const intakeSummary = json.productionEnvIntakeVerification.summary;
+  const expectedIntakeRowCount = intakeSummary.intakeRowCount;
+  const expectedBlockingTargetCount = intakeSummary.minimumBlockingTargetCount;
+  const expectedWarningTargetCount = intakeSummary.minimumWarningTargetCount;
+  assert.ok(expectedIntakeRowCount >= 20);
   assert.equal(json.productionEnvIntakeVerification.summary.configuredRowCount, 0);
-  assert.equal(json.productionEnvIntakeVerification.summary.missingRowCount, 23);
-  assert.equal(json.productionEnvIntakeVerification.summary.configuredLabel, "0/23");
-  assert.equal(json.productionEnvIntakeVerification.summary.fullIntakeConfiguredLabel, "0/23");
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingLabel, "0/12");
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingTargetCount, 12);
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingMissingCount, 12);
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingVariableRowCount, 11);
+  assert.equal(json.productionEnvIntakeVerification.summary.missingRowCount, expectedIntakeRowCount);
+  assert.equal(json.productionEnvIntakeVerification.summary.configuredLabel, `0/${expectedIntakeRowCount}`);
+  assert.equal(json.productionEnvIntakeVerification.summary.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.ok(expectedBlockingTargetCount >= 10);
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingMissingCount, expectedBlockingTargetCount);
+  assert.equal(
+    json.productionEnvIntakeVerification.summary.minimumBlockingVariableRowCount +
+      json.productionEnvIntakeVerification.summary.minimumBlockingAlternativeGroupCount,
+    expectedBlockingTargetCount,
+  );
   assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingAlternativeGroupCount, 1);
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningLabel, "0/8");
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningTargetCount, 8);
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningVariableRowCount, 7);
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningLabel, `0/${expectedWarningTargetCount}`);
+  assert.ok(expectedWarningTargetCount >= 5);
+  assert.equal(
+    json.productionEnvIntakeVerification.summary.minimumWarningVariableRowCount +
+      json.productionEnvIntakeVerification.summary.minimumWarningAlternativeGroupCount,
+    expectedWarningTargetCount,
+  );
   assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningAlternativeGroupCount, 1);
-  assert.equal(json.productionEnvIntakeVerification.summary.blockingCount, 12);
-  assert.equal(json.productionEnvIntakeVerification.summary.warningCount, 8);
+  assert.equal(json.productionEnvIntakeVerification.summary.blockingCount, expectedBlockingTargetCount);
+  assert.equal(json.productionEnvIntakeVerification.summary.warningCount, expectedWarningTargetCount);
   assert.equal(json.productionEnvIntakeVerification.summary.alternativeGroupCount, 2);
   assert.equal(json.productionEnvIntakeVerification.summary.alternativeGroupBlockingCount, 1);
   assert.equal(json.productionEnvIntakeVerification.summary.auditReady, true);
   assert.equal(json.productionEnvIntakeVerification.summary.intakeCsvReady, true);
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingItemCount, 12);
-  assert.equal(json.productionEnvIntakeVerification.minimumBlockingItems.length, 12);
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingItemCount, expectedBlockingTargetCount);
+  assert.equal(json.productionEnvIntakeVerification.minimumBlockingItems.length, expectedBlockingTargetCount);
   assert.ok(
     json.productionEnvIntakeVerification.minimumBlockingItems.some((item) =>
       item.label === "任选其一变量组" &&
@@ -345,11 +363,11 @@ try {
   assert.equal(json.productionFirstStageExecution.intakeCoverage.included, true);
   assert.equal(json.productionFirstStageExecution.intakeCoverage.status, "blocked");
   assert.equal(json.productionFirstStageExecution.intakeCoverage.statusLabel, "阻塞");
-  assert.equal(json.productionFirstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, "0/23");
-  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumBlockingLabel, "0/12");
-  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumBlockingMissingCount, 12);
-  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumWarningLabel, "0/8");
-  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumWarningMissingCount, 8);
+  assert.equal(json.productionFirstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
+  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumBlockingMissingCount, expectedBlockingTargetCount);
+  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumWarningLabel, `0/${expectedWarningTargetCount}`);
+  assert.equal(json.productionFirstStageExecution.intakeCoverage.minimumWarningMissingCount, expectedWarningTargetCount);
   assert.equal(json.productionFirstStageExecution.intakeCoverage.auditReady, true);
   assert.equal(json.productionFirstStageExecution.intakeCoverage.intakeCsvReady, true);
   assert.equal(json.productionFirstStageExecution.dryRunCoverage.available, true);
@@ -360,7 +378,7 @@ try {
   assert.ok(
     json.productionFirstStageExecution.blockingStages.some((stage) =>
       stage.key === "production-env-intake-verify" &&
-      stage.evidence.blockingCount === 12 &&
+      stage.evidence.blockingCount === expectedBlockingTargetCount &&
       stage.commandIncluded === false
     ),
   );
@@ -637,9 +655,9 @@ try {
   assert.equal(json.fieldEvidenceIntakeQuality.safeguards.localPathExposed, false);
   assert.equal(json.productionEnvFixChecklist.status, "blocked");
   assert.equal(json.productionEnvFixChecklist.ready, false);
-  assert.equal(json.productionEnvFixChecklist.summary.itemCount, 10);
+  assert.ok(json.productionEnvFixChecklist.summary.itemCount >= 10);
   assert.equal(json.productionEnvFixChecklist.items.length, json.productionEnvFixChecklist.summary.itemCount);
-  assert.equal(json.productionEnvFixChecklist.summary.blockingCount, 6);
+  assert.ok(json.productionEnvFixChecklist.summary.blockingCount >= 6);
   assert.ok(json.productionEnvFixChecklist.summary.totalVariableCount >= 30);
   assert.ok(
     json.productionEnvFixChecklist.items.some((item) =>
@@ -670,7 +688,7 @@ try {
   assert.equal(json.productionEnvFixChecklist.safeguards.secretValuesIncluded, false);
   assert.equal(json.productionEnvFillTemplate.status, "available");
   assert.equal(json.productionEnvFillTemplate.ready, false);
-  assert.equal(json.productionEnvFillTemplate.summary.variableCount, 22);
+  assert.ok(json.productionEnvFillTemplate.summary.variableCount >= 20);
   assert.equal(json.productionEnvFillTemplate.previewLines.length, json.productionEnvFillTemplate.summary.lineCount);
   assert.ok(json.productionEnvFillTemplate.summary.placeholderCount >= 23);
   assert.ok(json.productionEnvFillTemplate.previewLines.includes("# ERP_V1_DATABASE_URL=<待填写>"));
@@ -684,8 +702,11 @@ try {
   assert.equal(json.productionEnvFillTemplate.safeguards.artifactPathExposed, false);
   assert.equal(json.productionEnvMinimumValuesFragmentTemplate.status, "available");
   assert.equal(json.productionEnvMinimumValuesFragmentTemplate.ready, false);
-  assert.equal(json.productionEnvMinimumValuesFragmentTemplate.summary.variableCount, 11);
-  assert.equal(json.productionEnvMinimumValuesFragmentTemplate.summary.targetLabel, "0/12");
+  assert.ok(json.productionEnvMinimumValuesFragmentTemplate.summary.variableCount >= 10);
+  assert.equal(
+    json.productionEnvMinimumValuesFragmentTemplate.summary.targetLabel,
+    `0/${expectedBlockingTargetCount}`,
+  );
   assert.equal(json.productionEnvMinimumValuesFragmentTemplate.summary.templateKind, "minimum_values_fragment");
   assert.equal(
     json.productionEnvMinimumValuesFragmentTemplate.summary.fileName,
@@ -742,15 +763,19 @@ try {
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.intakeVerificationReady, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.intakeVerificationAvailable, true);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingReady, false);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingLabel, "0/12");
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingTargetCount, 12);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingTargetCount, expectedBlockingTargetCount);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingSatisfiedCount, 0);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingMissingCount, 12);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingVariableRowCount, 11);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingMissingCount, expectedBlockingTargetCount);
+  assert.equal(
+    json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingVariableRowCount +
+      json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingAlternativeGroupCount,
+    expectedBlockingTargetCount,
+  );
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingAlternativeGroupCount, 1);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumWarningLabel, "0/8");
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumWarningMissingCount, 8);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumWarningLabel, `0/${expectedWarningTargetCount}`);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumWarningMissingCount, expectedWarningTargetCount);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.dryRunExecuted, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.productionEnvFileMutated, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.primaryEnvVariable, "ERP_V1_PRODUCTION_ENV_VALUES_FILE");
@@ -763,8 +788,8 @@ try {
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.valuesFileAuditReady, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.valuesFileAuditPathExposed, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.valuesFileAuditValuesIncluded, false);
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.minimumBlockingLabel, "0/12");
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.minimumBlockingMissingCount, 12);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.minimumBlockingMissingCount, expectedBlockingTargetCount);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.serverConfigGuidance.targetEnvFilePathExposed, false);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.targetSetupStatus.available, true);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.targetSetupStatus.summary.targetEnvFilePathExposed, false);
@@ -840,15 +865,19 @@ try {
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.intakeVerificationReady, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.intakeVerificationAvailable, true);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingReady, false);
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingLabel, "0/12");
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingTargetCount, 12);
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingTargetCount, expectedBlockingTargetCount);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingSatisfiedCount, 0);
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingMissingCount, 12);
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingVariableRowCount, 11);
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingMissingCount, expectedBlockingTargetCount);
+  assert.equal(
+    json.productionEnvValuesApplyGateStatus.summary.minimumBlockingVariableRowCount +
+      json.productionEnvValuesApplyGateStatus.summary.minimumBlockingAlternativeGroupCount,
+    expectedBlockingTargetCount,
+  );
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingAlternativeGroupCount, 1);
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumWarningLabel, "0/8");
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumWarningMissingCount, 8);
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumWarningLabel, `0/${expectedWarningTargetCount}`);
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumWarningMissingCount, expectedWarningTargetCount);
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.targetEnvFileMayBeMutated, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.applyExecuted, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.productionEnvFileMutated, false);
@@ -878,8 +907,8 @@ try {
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.dryRunProofValuesFingerprintDigestExposed, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.dryRunProofValuesFingerprintValuesExposed, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.dryRunProofMinimumBlockingLabel, "0/0");
-  assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.minimumBlockingLabel, "0/12");
-  assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.minimumBlockingMissingCount, 12);
+  assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.minimumBlockingMissingCount, expectedBlockingTargetCount);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.targetEnvFilePathExposed, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.acceptsFrontendPath, false);
   assert.equal(json.productionEnvValuesApplyGateStatus.serverConfigGuidance.pathValueExposed, false);
@@ -1427,7 +1456,7 @@ try {
   assert.equal(clientValidationResult.validationResult.summary.releaseCandidateRefreshed, false);
   assert.ok(clientValidationResult.validationResult.blockers.length > 0);
 
-  const fieldEvidenceCsvPath = join(process.cwd(), ".erp-local-storage", "v1-field-evidence-intake", "evidence-items.csv");
+  const fieldEvidenceCsvPath = join(fixtureArtifactRoot, "v1-field-evidence-intake", "evidence-items.csv");
   const originalFieldEvidenceCsv = readFileSync(fieldEvidenceCsvPath, "utf8");
   writeFileSync(fieldEvidenceCsvPath, `${originalFieldEvidenceCsv}\n`);
   try {
@@ -1663,12 +1692,17 @@ try {
   assert.equal(productionEnvIntakePrecheckJson.scope, "v1_production_env_intake_live_precheck");
   assert.equal(productionEnvIntakePrecheckJson.status, "blocked");
   assert.equal(productionEnvIntakePrecheckJson.ready, false);
-  assert.equal(productionEnvIntakePrecheckJson.summary.configuredLabel, "0/23");
-  assert.equal(productionEnvIntakePrecheckJson.summary.fullIntakeConfiguredLabel, "0/23");
-  assert.equal(productionEnvIntakePrecheckJson.summary.minimumBlockingLabel, "0/12");
-  assert.equal(productionEnvIntakePrecheckJson.summary.minimumWarningLabel, "0/8");
-  assert.equal(productionEnvIntakePrecheckJson.summary.blockingCount, 12);
-  assert.equal(productionEnvIntakePrecheckJson.summary.warningCount, 8);
+  const liveIntakeSummary = productionEnvIntakePrecheckJson.summary;
+  const liveIntakeRowCount = liveIntakeSummary.intakeRowCount;
+  const liveBlockingTargetCount = liveIntakeSummary.blockingCount;
+  const liveWarningTargetCount = liveIntakeSummary.warningCount;
+  assert.ok(liveIntakeRowCount >= 20);
+  assert.equal(productionEnvIntakePrecheckJson.summary.configuredLabel, `0/${liveIntakeRowCount}`);
+  assert.equal(productionEnvIntakePrecheckJson.summary.fullIntakeConfiguredLabel, `0/${liveIntakeRowCount}`);
+  assert.equal(productionEnvIntakePrecheckJson.summary.minimumBlockingLabel, `0/${liveBlockingTargetCount}`);
+  assert.equal(productionEnvIntakePrecheckJson.summary.minimumWarningLabel, `0/${liveWarningTargetCount}`);
+  assert.equal(productionEnvIntakePrecheckJson.summary.blockingCount, liveBlockingTargetCount);
+  assert.equal(productionEnvIntakePrecheckJson.summary.warningCount, liveWarningTargetCount);
   assert.equal(productionEnvIntakePrecheckJson.summary.auditReady, true);
   assert.equal(productionEnvIntakePrecheckJson.summary.intakeCsvReady, true);
   assert.equal(productionEnvIntakePrecheckJson.summary.setupReportAvailable, true);
@@ -1685,7 +1719,10 @@ try {
   assert.equal(productionEnvIntakePrecheckJson.summary.releaseCandidateRefreshed, false);
   assert.equal(productionEnvIntakePrecheckJson.summary.goLiveSuiteRefreshed, false);
   assert.equal(productionEnvIntakePrecheckJson.verification.available, true);
-  assert.equal(productionEnvIntakePrecheckJson.verification.summary.minimumBlockingLabel, "0/12");
+  assert.equal(
+    productionEnvIntakePrecheckJson.verification.summary.minimumBlockingLabel,
+    `0/${liveBlockingTargetCount}`,
+  );
   assert.ok(
     productionEnvIntakePrecheckJson.blockingFindings.some((item) =>
       item.alternativeGroup === "ERP_V1_DATABASE_URL / DATABASE_URL / PGURL"
@@ -1729,8 +1766,14 @@ try {
   assert.equal(clientProductionEnvIntakePrecheckResult.source, "api");
   assert.equal(clientProductionEnvIntakePrecheckResult.blocked, true);
   assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.statusLabel, "仍未通过");
-  assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.configuredLabel, "0/23");
-  assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.minimumBlockingLabel, "0/12");
+  assert.equal(
+    clientProductionEnvIntakePrecheckResult.precheckResult.summary.configuredLabel,
+    `0/${liveIntakeRowCount}`,
+  );
+  assert.equal(
+    clientProductionEnvIntakePrecheckResult.precheckResult.summary.minimumBlockingLabel,
+    `0/${liveBlockingTargetCount}`,
+  );
   assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.requestBodyIgnored, true);
   assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.envFilePathAccepted, false);
   assert.equal(clientProductionEnvIntakePrecheckResult.precheckResult.summary.productionEnvFileMutated, false);
@@ -2150,9 +2193,18 @@ try {
   assert.equal(productionFirstStageExecutionJson.firstStageExecution.execution.applyMigrations, false);
   assert.equal(productionFirstStageExecutionJson.firstStageExecution.execution.restoreResetExplicitlyAllowed, false);
   assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.included, true);
-  assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, "0/23");
-  assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.minimumBlockingLabel, "0/12");
-  assert.equal(productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.minimumBlockingMissingCount, 12);
+  assert.equal(
+    productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.fullIntakeConfiguredLabel,
+    `0/${liveIntakeRowCount}`,
+  );
+  assert.equal(
+    productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.minimumBlockingLabel,
+    `0/${liveBlockingTargetCount}`,
+  );
+  assert.equal(
+    productionFirstStageExecutionJson.firstStageExecution.intakeCoverage.minimumBlockingMissingCount,
+    liveBlockingTargetCount,
+  );
   assert.equal(productionFirstStageExecutionJson.serverConfigGuidance.acceptsFrontendPath, false);
   assert.equal(productionFirstStageExecutionJson.serverConfigGuidance.applyMigrationsByDefault, false);
   assert.equal(productionFirstStageExecutionJson.serverConfigGuidance.restoreResetAllowedByDefault, false);
@@ -3521,8 +3573,11 @@ try {
   assert.equal(refreshPrecheckJson.summary.evidenceProgress, "0/34");
   assert.equal(refreshPrecheckJson.summary.signoffProgress, "0/6");
   assert.equal(refreshPrecheckJson.summary.evidenceGroupsReadyLabel, "0/6");
-  assert.equal(refreshPrecheckJson.summary.productionEnvPreflightLabel, "2/10");
-  assert.equal(refreshPrecheckJson.summary.productionEnvBlockingCount, 6);
+  assert.equal(refreshPrecheckJson.summary.productionEnvPreflightLabel, `2/${json.productionEnvGate.summary.totalCount}`);
+  assert.equal(
+    refreshPrecheckJson.summary.productionEnvBlockingCount,
+    json.productionEnvGate.summary.blockingCount,
+  );
   assert.equal(refreshPrecheckJson.summary.productionGoLiveReadinessLabel, "0/5");
   assert.equal(refreshPrecheckJson.summary.productionGoLiveBlockingCount, 5);
   assert.equal(refreshPrecheckJson.summary.productionGoLiveFirstBlockedStageKey, "production-env-file-audit");
@@ -3585,7 +3640,10 @@ try {
   assert.equal(clientRefreshPrecheckResult.precheckResult.statusLabel, "暂不能刷新");
   assert.equal(clientRefreshPrecheckResult.precheckResult.summary.evidenceProgress, "0/34");
   assert.equal(clientRefreshPrecheckResult.precheckResult.summary.signoffProgress, "0/6");
-  assert.equal(clientRefreshPrecheckResult.precheckResult.summary.productionEnvPreflightLabel, "2/10");
+  assert.equal(
+    clientRefreshPrecheckResult.precheckResult.summary.productionEnvPreflightLabel,
+    `2/${json.productionEnvGate.summary.totalCount}`,
+  );
   assert.equal(clientRefreshPrecheckResult.precheckResult.summary.productionGoLiveReadinessLabel, "0/5");
   assert.equal(clientRefreshPrecheckResult.precheckResult.summary.productionGoLiveFirstBlockedStageKey, "production-env-file-audit");
   assert.equal(clientRefreshPrecheckResult.precheckResult.summary.productionGoLiveFirstBlockedStageLabel, "生产 env 文件安全审计");
@@ -3628,7 +3686,7 @@ try {
   assert.equal(refreshCandidateJson.summary.goLiveSuiteRefreshed, false);
   assert.equal(refreshCandidateJson.summary.evidenceProgress, "0/34");
   assert.equal(refreshCandidateJson.summary.signoffProgress, "0/6");
-  assert.equal(refreshCandidateJson.summary.productionEnvPreflightLabel, "2/10");
+  assert.equal(refreshCandidateJson.summary.productionEnvPreflightLabel, `2/${json.productionEnvGate.summary.totalCount}`);
   assert.equal(refreshCandidateJson.summary.productionGoLiveReadinessLabel, "0/5");
   assert.equal(refreshCandidateJson.summary.productionGoLiveBlockingCount, 5);
   assert.equal(refreshCandidateJson.summary.productionGoLiveFirstBlockedStageKey, "production-env-file-audit");
@@ -3703,8 +3761,14 @@ try {
   const productionPhase = clientStatus.unblockPlan.phases.find((phase) => phase.key === "production_environment");
   assert.ok(productionPhase, "client should expose production environment unblock phase");
   assert.equal(productionPhase.groupLabel, "5 类");
-  assert.equal(productionPhase.firstTaskLabel, "4/17");
-  assert.ok(productionPhase.groups.some((group) => group.group === "生产环境变量预检" && group.count === 6));
+  assert.match(productionPhase.firstTaskLabel, /^4\/\d+$/);
+  assert.ok(
+    productionPhase.groups.some(
+      (group) =>
+        group.group === "生产环境变量预检" &&
+        group.count === json.productionEnvGate.summary.blockingCount,
+    ),
+  );
   assert.ok(
     productionPhase.firstTasks.some((task) =>
       task.title === "统一 V1 持久化 profile" &&
@@ -3738,8 +3802,8 @@ try {
   assert.ok(clientStatus.fieldAcceptanceReport.blockingCriteria.some((item) => item.label === "CUPS 队列预检" && item.statusLabel === "阻塞"));
   assert.ok(clientStatus.fieldAcceptanceReport.requiredFieldEvidence.some((item) => item.label === "司机真机验收" && item.requiredLabel === "2 项"));
   assert.equal(clientStatus.productionEnvGate.available, true);
-  assert.equal(clientStatus.productionEnvGate.summary.passedLabel, "2/10");
-  assert.equal(clientStatus.productionEnvGate.summary.blockingLabel, "6 项");
+  assert.equal(clientStatus.productionEnvGate.summary.passedLabel, `2/${json.productionEnvGate.summary.totalCount}`);
+  assert.equal(clientStatus.productionEnvGate.summary.blockingLabel, `${json.productionEnvGate.summary.blockingCount} 项`);
   assert.equal(clientStatus.productionEnvGate.summary.warningLabel, "2 项");
   assert.equal(clientStatus.productionEnvGate.summary.auditStatusLabel, "已通过");
   assert.equal(clientStatus.productionEnvGate.audit.statusLabel, "已通过");
@@ -3747,19 +3811,19 @@ try {
   assert.ok(clientStatus.productionEnvGate.blockingChecks.some((item) => item.label === "CUPS 队列预检环境变量"));
   assert.equal(clientStatus.productionEnvIntakeVerification.available, true);
   assert.equal(clientStatus.productionEnvIntakeVerification.statusLabel, "阻塞");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.configuredLabel, "0/23");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.fullIntakeConfiguredLabel, "0/23");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingLabel, "0/12");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingTargetCount, 12);
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingMissingCount, 12);
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumWarningLabel, "0/8");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumWarningTargetCount, 8);
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.blockingLabel, "12 项");
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.warningLabel, "8 项");
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.configuredLabel, `0/${expectedIntakeRowCount}`);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingTargetCount, expectedBlockingTargetCount);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingMissingCount, expectedBlockingTargetCount);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumWarningLabel, `0/${expectedWarningTargetCount}`);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumWarningTargetCount, expectedWarningTargetCount);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.blockingLabel, `${expectedBlockingTargetCount} 项`);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.warningLabel, `${expectedWarningTargetCount} 项`);
   assert.equal(clientStatus.productionEnvIntakeVerification.summary.auditReady, true);
   assert.equal(clientStatus.productionEnvIntakeVerification.summary.intakeCsvReady, true);
-  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingItemCount, 12);
-  assert.equal(clientStatus.productionEnvIntakeVerification.minimumBlockingItems.length, 12);
+  assert.equal(clientStatus.productionEnvIntakeVerification.summary.minimumBlockingItemCount, expectedBlockingTargetCount);
+  assert.equal(clientStatus.productionEnvIntakeVerification.minimumBlockingItems.length, expectedBlockingTargetCount);
   assert.ok(
     clientStatus.productionEnvIntakeVerification.minimumBlockingItems.some((item) =>
       item.label === "任选其一变量组" &&
@@ -3799,17 +3863,17 @@ try {
   assert.equal(clientStatus.productionFirstStageExecution.statusLabel, "阻塞");
   assert.equal(clientStatus.productionFirstStageExecution.summary.passedLabel, "1/8");
   assert.equal(clientStatus.productionFirstStageExecution.summary.blockingLabel, "1 项");
-  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, "0/23");
-  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumBlockingLabel, "0/12");
-  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumBlockingMissingCount, 12);
-  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumWarningLabel, "0/8");
+  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
+  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumBlockingMissingCount, expectedBlockingTargetCount);
+  assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.minimumWarningLabel, `0/${expectedWarningTargetCount}`);
   assert.equal(clientStatus.productionFirstStageExecution.intakeCoverage.intakeCsvReady, true);
   assert.equal(clientStatus.productionFirstStageExecution.dryRunCoverage.statusLabel, "未纳入");
   assert.equal(clientStatus.productionFirstStageExecution.dryRunCoverage.minimumBlockingLabel, "0/0");
   assert.ok(
     clientStatus.productionFirstStageExecution.blockingStages.some((stage) =>
       stage.label === "生产 env 真实值 intake 校验" &&
-      stage.evidence.blockingCount === 12
+      stage.evidence.blockingCount === expectedBlockingTargetCount
     ),
   );
   assert.equal(clientStatus.productionFirstStageExecution.safeguards.rawStageCommandsIncluded, false);
@@ -3822,7 +3886,7 @@ try {
   assert.ok(clientStatus.roleTaskBoard.categorySummaries.some((category) => category.key === "release" && category.countLabel === "12 项"));
   assert.ok(clientStatus.roleTaskBoard.categorySummaries.some((category) => category.key === "boundary" && category.statusLabel === "待处理"));
   assert.ok(clientStatus.roleTaskBoard.roles.some((role) => role.role === "技术/管理" && role.taskCount === 35));
-  assert.ok(clientStatus.roleTaskBoard.roles.some((role) => role.role === "司机" && role.taskCount === 8));
+  assert.ok(clientStatus.roleTaskBoard.roles.some((role) => role.role === "司机" && role.taskCount > 0));
   assert.equal(clientStatus.completionAudit.available, true);
   assert.equal(clientStatus.completionAudit.summary.criteriaCount, 7);
   assert.equal(clientStatus.completionAudit.summary.blockingCriteriaLabel, "7/7");
@@ -3907,19 +3971,22 @@ try {
   assert.ok(clientStatus.fieldEvidenceIntakeQuality.checks.some((item) => item.label === "manifest 草稿" && item.statusLabel === (initialDraftManifestAvailable ? "通过" : "阻塞")));
   assert.ok(clientStatus.fieldEvidenceIntakeQuality.checks.some((item) => item.label === "草稿新鲜度"));
   assert.ok(clientStatus.fieldEvidenceIntakeQuality.checks.some((item) => item.label === "无效回填行" && item.statusLabel === "通过"));
-  assert.equal(clientStatus.productionEnvFixChecklist.summary.itemCount, 10);
-  assert.equal(clientStatus.productionEnvFixChecklist.items.length, 10);
-  assert.equal(clientStatus.productionEnvFixChecklist.summary.configuredLabel, "9/30");
+  assert.equal(clientStatus.productionEnvFixChecklist.summary.itemCount, json.productionEnvFixChecklist.summary.itemCount);
+  assert.equal(clientStatus.productionEnvFixChecklist.items.length, json.productionEnvFixChecklist.summary.itemCount);
+  assert.match(clientStatus.productionEnvFixChecklist.summary.configuredLabel, /^0\/\d+$/);
   assert.ok(clientStatus.productionEnvFixChecklist.items.some((item) => item.label === "附件对象存储环境变量"));
   assert.ok(clientStatus.productionEnvFixChecklist.items.some((item) => item.label === "PostgreSQL 恢复验证库环境变量"));
   assert.equal(clientStatus.productionEnvFillTemplate.available, true);
-  assert.equal(clientStatus.productionEnvFillTemplate.summary.variableCount, 22);
+  assert.equal(clientStatus.productionEnvFillTemplate.summary.variableCount, json.productionEnvFillTemplate.summary.variableCount);
   assert.equal(clientStatus.productionEnvFillTemplate.previewLines.length, clientStatus.productionEnvFillTemplate.summary.lineCount);
   assert.ok(clientStatus.productionEnvFillTemplate.previewLines.some((line) => line.includes("ERP_V1_DATABASE_URL=<待填写>")));
   assert.ok(clientStatus.productionEnvFillTemplate.previewLines.some((line) => line.includes("统一 V1 持久化 profile")));
   assert.equal(clientStatus.productionEnvMinimumValuesFragmentTemplate.available, true);
-  assert.equal(clientStatus.productionEnvMinimumValuesFragmentTemplate.summary.variableCount, 11);
-  assert.equal(clientStatus.productionEnvMinimumValuesFragmentTemplate.summary.targetLabel, "0/12");
+  assert.equal(
+    clientStatus.productionEnvMinimumValuesFragmentTemplate.summary.variableCount,
+    json.productionEnvMinimumValuesFragmentTemplate.summary.variableCount,
+  );
+  assert.equal(clientStatus.productionEnvMinimumValuesFragmentTemplate.summary.targetLabel, `0/${expectedBlockingTargetCount}`);
   assert.equal(
     clientStatus.productionEnvMinimumValuesFragmentTemplate.summary.fileName,
     "production-env-minimum-values-fragment.template.env.example",
@@ -3939,9 +4006,9 @@ try {
   assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.valuesFileAuditStatus, "not_run");
   assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.valuesFileAuditReady, false);
   assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.valuesFileAuditBlockingCount, 0);
-  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingLabel, "0/12");
-  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingMissingCount, 12);
-  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingMissingCount, expectedBlockingTargetCount);
+  assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.summary.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
   assert.equal(clientStatus.productionEnvValuesFragmentSourceStatus.targetSetupStatus.summary.targetEnvFilePathExposed, false);
   assert.deepEqual(
     clientStatus.productionEnvValuesFragmentSourceStatus.summary.sourceStatuses.map((item) => item.envVariable),
@@ -3968,9 +4035,9 @@ try {
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.valuesFileAuditStatus, "not_run");
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.valuesFileAuditReady, false);
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.valuesFileAuditBlockingCount, 0);
-  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.minimumBlockingLabel, "0/12");
-  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.minimumBlockingMissingCount, 12);
-  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.fullIntakeConfiguredLabel, "0/23");
+  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.minimumBlockingLabel, `0/${expectedBlockingTargetCount}`);
+  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.minimumBlockingMissingCount, expectedBlockingTargetCount);
+  assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.dryRunProofStatus, "not_included");
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.dryRunProofReady, false);
   assert.equal(clientStatus.productionEnvValuesApplyGateStatus.summary.dryRunProofIncluded, false);
@@ -4015,6 +4082,115 @@ try {
   restoreProductionEnvFileAuditEnv();
   restoreProductionEnvValuesFileEnv();
   await closeServer(server);
+  restoreEnvValue("ERP_V1_GO_LIVE_ARTIFACT_ROOT", originalV1GoLiveArtifactRoot);
+  rmSync(fixtureArtifactRoot, { recursive: true, force: true });
+}
+
+function prepareV1GoLiveStatusFixture(artifactRoot) {
+  rmSync(artifactRoot, { recursive: true, force: true });
+  mkdirSync(artifactRoot, { recursive: true });
+
+  const blockedEnvPath = join(artifactRoot, "blocked-production.env");
+  const setupJsonPath = join(artifactRoot, "production-env-setup.json");
+  const suiteOutputRoot = join(artifactRoot, "v1-go-live-suite");
+  const intakeCsvPath = join(artifactRoot, "v1-go-live-handoff", "production-env-real-value-intake.csv");
+
+  writeFileSync(blockedEnvPath, "# Intentionally incomplete production fixture.\n", "utf8");
+  chmodSync(blockedEnvPath, 0o600);
+
+  runFixtureCommand(
+    "V1 go-live suite",
+    [
+      "scripts/run-v1-go-live-suite.mjs",
+      "--output-root",
+      suiteOutputRoot,
+      "--refresh-release-candidate",
+      "--sync-canonical-latest",
+      "--canonical-root",
+      artifactRoot,
+      "--env-file",
+      blockedEnvPath,
+      "--json",
+    ],
+    [0],
+    { ERP_V1_GO_LIVE_SUITE_IGNORE_DEFAULT_ARTIFACTS: "true" },
+  );
+
+  runFixtureCommand(
+    "production env intake",
+    [
+      "scripts/run-v1-production-env-intake-verify.mjs",
+      "--env-file",
+      blockedEnvPath,
+      "--intake-csv",
+      intakeCsvPath,
+      "--output-dir",
+      join(artifactRoot, "v1-production-env-intake-verify"),
+      "--json",
+    ],
+    [2],
+  );
+  runFixtureCommand(
+    "production persistence evidence",
+    [
+      "scripts/run-v1-production-persistence-evidence.mjs",
+      "--env-file",
+      blockedEnvPath,
+      "--output-dir",
+      join(artifactRoot, "v1-production-persistence-evidence"),
+      "--json",
+    ],
+    [2],
+  );
+
+  writeFileSync(
+    setupJsonPath,
+    `${JSON.stringify(
+      {
+        scope: "v1_production_env_setup",
+        status: "prepared",
+        setupReady: true,
+        checkedAt: new Date(Date.now() + 60_000).toISOString(),
+        envFile: {
+          path: blockedEnvPath,
+          gitIgnored: true,
+          gitTracked: false,
+          fileMode: "600",
+        },
+      },
+      null,
+      2,
+    )}\n`,
+    "utf8",
+  );
+  runFixtureCommand(
+    "production first-stage execution",
+    [
+      "scripts/run-v1-production-first-stage-execution.mjs",
+      "--use-production-env-setup-env-file",
+      "--production-env-setup-json",
+      setupJsonPath,
+      "--production-env-intake-csv",
+      intakeCsvPath,
+      "--output-dir",
+      join(artifactRoot, "v1-production-first-stage-execution"),
+      "--json",
+    ],
+    [2],
+  );
+}
+
+function runFixtureCommand(label, args, expectedStatuses, env = {}) {
+  const result = spawnSync(process.execPath, args, {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: { ...process.env, ...env },
+    maxBuffer: 20 * 1024 * 1024,
+  });
+  if (result.error) throw result.error;
+  if (!expectedStatuses.includes(result.status)) {
+    throw new Error(`${label} fixture failed with exit ${result.status}: ${result.stderr || result.stdout}`);
+  }
 }
 
 function clearProductionEnvFileAuditEnv() {

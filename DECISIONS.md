@@ -2177,3 +2177,7 @@ Payment and variance evidence must be active `payment_screenshot` images owned b
 ## 2026-07-11 - Inventory Correction Evidence Is Linked After Draft Creation
 
 Inventory-correction evidence follows a create-draft-then-upload-and-link sequence. Draft creation never changes stock and rejects attachment IDs. Evidence must be an active image or PDF owned by the current correction draft with purpose `inventory_correction_evidence` and an authenticated uploader. A separate idempotent transaction locks the draft and attachments, validates the database linkage and draft revision, updates at most ten attachment IDs, and writes the audit log. Finalized drafts cannot accept more evidence, and confirmation revalidates all linked attachments. Warehouse users receive only the scoped correction-evidence upload permission, not generic attachment creation.
+
+## 2026-07-11 - Go-Live Status Tests Own Their Artifacts
+
+Automated go-live status checks must generate and clean a dedicated blocked artifact root. They must not read or mutate canonical developer or production-like `.erp-local-storage` reports. Optional historical suite inputs are disabled explicitly in this test mode. Assertions use exact values for contracts, permissions, security safeguards, and fixed business rules; growing configuration/task lists use structural relationships plus minimum safety thresholds so valid additions do not turn the check into a stale machine snapshot.

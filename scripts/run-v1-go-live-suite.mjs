@@ -2145,6 +2145,13 @@ function resolveOptionalPath(path) {
 }
 
 function resolveOptionalInputPath({ explicitPath, envPath, defaultPath, label }) {
+  if (
+    !explicitPath &&
+    !envPath &&
+    process.env.ERP_V1_GO_LIVE_SUITE_IGNORE_DEFAULT_ARTIFACTS === "true"
+  ) {
+    return "";
+  }
   const selected = explicitPath || envPath || defaultPath;
   const resolved = resolve(selected);
   if (existsSync(resolved)) return resolved;

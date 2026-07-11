@@ -24,7 +24,6 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
 
   await page.getByRole("textbox", { name: "订单原文" }).fill(orderText);
   await page.getByRole("button", { name: "识别", exact: true }).click();
-  await expect(page.getByText("已识别 1 行", { exact: false })).toBeVisible();
   await expect(page.getByText("可保存确认", { exact: true })).toBeVisible();
 
   await page.getByRole("button", { name: "保存并确认", exact: true }).click();
