@@ -8,6 +8,7 @@ export default defineConfig({
         manualChunks(id) {
           if (!id.includes("node_modules")) {
             if (id.includes("/src/pages/")) return "erp-pages";
+            if (id.includes("/src/services/officeV1GoLiveStatus")) return "erp-v1-runtime";
             if (id.includes("/src/services/")) return "erp-runtime";
             if (id.includes("/src/domain/")) return "erp-domain";
             if (id.includes("/src/data/")) return "erp-data";

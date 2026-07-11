@@ -1,7 +1,7 @@
 # ERP 代码、上线与 UI 整改执行方案
 
 制定日期：2026-07-12
-版本：V8.6
+版本：V8.7
 适用范围：V1 小范围真实上线、代码精简、UI 重构、现场验收
 
 ## 一、整改结论
@@ -204,6 +204,7 @@ src/styles/
 | B5（第八轮已完成） | API 目标安全策略 | 新增 `v1ApiTargetPolicy`，统一 runtime、第一阶段执行和 release refresh：显式服务器配置优先，否则固定 loopback + socket；拒绝 URL 凭据、query/hash、非 HTTP(S) 和非 `/api` 路径 | 直接策略、伪造 Host HTTP、第一阶段、全量、OpenAPI、production profile、PostgreSQL live、MinIO、核心 E2E 已通过；API 组合根为 `16,397` 行。 |
 | F1（已完成） | 真实基础设施集成与 CI 门禁 | 临时 PostgreSQL、临时 MinIO、全依赖高危审计和核心 E2E 纳入 CI | MinIO 双 bucket 真实读写删、签名 URL、生产留档 readiness 通过；CI 任一项失败即阻断。 |
 | F2（代码已完成，待配置生产 runner） | 生产放行工作流 | 受保护 Environment、自托管 runner、真实 env / 现场 manifest secrets、最终 attestation | 只接受不可变 commit；`4/4`、`34/34`、`6/6`、V1/V2 边界和 go-live suite 全部 ready 才通过。 |
+| C4.1（已完成） | 前端生产分包与体积门禁 | V1 状态运行时独立 chunk、构建产物预算检查 | `erp-runtime` 从 `500.59 kB` 降至 `347.61 kB`；最大 `erp-pages` 为 `406,648` 字节，低于 `450,000` 字节硬预算；全量、实库、对象存储、production profile 和核心 E2E 通过。 |
 | C4 | CSS 分层和六页 UI 精修 | 分层样式、共享组件、桌面 / 手机截图 | `1280x720`、`390x844` 无溢出、无控制台错误。 |
 
 A 轨按 D48 -> D53 顺序执行；B4、B5、C4 可以与 D49-D52 并行，但不能拖延现场输入和放行门禁。
