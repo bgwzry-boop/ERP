@@ -1,3 +1,5 @@
+import { useState } from "react";
+import { PrinterOutlined } from "@ant-design/icons";
 import {
   DataState,
   DetailPane,
@@ -14,13 +16,16 @@ import {
   getPrintBatchRecordsForTodo,
 } from "../../state/officeTodoActions.js";
 
+const TODO_DETAIL_TABS = ["处理", "通知/打印", "记录"];
+
 export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selectedTodoId, onSelect, view, setView, onAction, helpers }) {
+  const [detailTab, setDetailTab] = useState("处理");
   const { currentUser, findCustomer, getTodoActions, getTodoCustomerNotificationDraft, getTodoHandlingRule, getTodoTone, getUiActionState, isPrintTodo, sortTodos } = helpers;
   const sortedTodos = sortTodos(todos);
   const openTodos = sortedTodos.filter((item) => !item.handled);
   const handledTodos = sortedTodos.filter((item) => item.handled);
   const visibleTodos = view === "已处理" ? handledTodos : view === "全部" ? sortedTodos : openTodos;
-  const selected = visibleTodos.find((item) => item.id === selectedTodoId) ?? visibleTodos[0];
+  const selected = visibleTodos.find((item) => item.id === selectedTodoId) ?? visibleTodos[0] ?? null;
   const customerInfo = selected ? findCustomer(selected.customerId) : null;
   const actions = selected ? getTodoActions(selected) : [];
   const customerNotificationDraft = selected && customerInfo ? getTodoCustomerNotificationDraft?.(selected, customerInfo) : null;
@@ -34,7 +39,7 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
   ];
 
   return (
-    <section className="page-grid two-col todo-workbench">
+    <section className="page-grid split-detail operational-split-workbench todo-workbench">
       <OperationalPanel className="list-pane todo-list-panel" ariaLabel="公共待办池">
         <MetricStrip items={stats} ariaLabel="待办状态摘要" />
         <PanelHeader
@@ -50,7 +55,7 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
               title={getUiActionState("todo", "批量打印标签").title}
               onClick={() => onAction("批量打印标签")}
             >
-              批量打印标签
+              <PrinterOutlined /> 批量打印标签
             </button>
           </div>
         ) : null}
@@ -78,24 +83,29 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
       </OperationalPanel>
       {selected && customerInfo ? (
         <DetailPane className="todo-detail-pane" title={selected.type} subtitle={`${customerInfo.name} · ${selected.ref}`}>
-        <InfoGrid
-          rows={[
-            ["客户", customerInfo.name],
-            ["联系人", `${customerInfo.contact} ${customerInfo.phone}`],
-            ["最晚时间", selected.latest],
-            ["等待时长", selected.wait],
-            ["处理方式", getTodoHandlingRule(selected)],
-            ["提醒状态", selected.reminder ?? "未设置"],
-            ["影响", selected.impact],
-            ["最后动作", selected.lastAction ?? selected.handledAt ?? "未处理"],
-          ]}
-        />
-        <section className="detail-section">
+        <div className="operational-detail-tabs">
+          <Segmented ariaLabel="待办详情视图" value={detailTab} onChange={setDetailTab} items={TODO_DETAIL_TABS} />
+        </div>
+        <div hidden={detailTab !== "处理"}>
+          <InfoGrid
+            rows={[
+              ["客户", customerInfo.name],
+              ["联系人", `${customerInfo.contact} ${customerInfo.phone}`],
+              ["最晚时间", selected.latest],
+              ["等待时长", selected.wait],
+              ["处理方式", getTodoHandlingRule(selected)],
+              ["提醒状态", selected.reminder ?? "未设置"],
+              ["影响", selected.impact],
+              ["最后动作", selected.lastAction ?? selected.handledAt ?? "未处理"],
+            ]}
+          />
+        </div>
+        <section className="detail-section" hidden={detailTab !== "处理"}>
           <h3>摘要</h3>
           <p>{selected.summary}</p>
         </section>
         {customerNotificationDraft ? (
-          <section className="detail-section">
+          <section className="detail-section operational-detail-section-first" hidden={detailTab !== "通知/打印"}>
             <h3>客户通知</h3>
             <div className="todo-notification-card">
               <InfoGrid
@@ -110,7 +120,7 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
           </section>
         ) : null}
         {selectedPrintBatchRecords.length ? (
-          <section className="detail-section">
+          <section className="detail-section" hidden={detailTab !== "通知/打印"}>
             <h3>打印批次</h3>
             <div className="print-batch-records">
               {selectedPrintBatchRecords.map((record) => (
@@ -130,7 +140,12 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
             </div>
           </section>
         ) : null}
-        <section className="detail-section">
+        {!customerNotificationDraft && !selectedPrintBatchRecords.length ? (
+          <div hidden={detailTab !== "通知/打印"}>
+            <DataState title="当前待办没有通知或打印记录" detail="需要客户通知或执行打印后，相关记录会显示在这里。" compact />
+          </div>
+        ) : null}
+        <section className="detail-section" hidden={detailTab !== "处理"}>
           <h3>建议动作</h3>
           <div className="action-row">
             {actions.map((item) => {
@@ -142,7 +157,7 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
           </div>
         </section>
         {!selected.handled && (
-          <section className="detail-section">
+          <section className="detail-section" hidden={detailTab !== "处理"}>
             <h3>稍后提醒</h3>
             <div className="action-row">
               {[
@@ -157,7 +172,9 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
             </div>
           </section>
         )}
-        <Timeline items={["系统创建待办", selected.lastAction ?? `${currentUser.displayName} 查看详情`, selected.handled ? "已处理" : selected.reminder ? `已设提醒 ${selected.reminder}` : "等待人工处理"]} />
+        <div className="operational-detail-timeline" hidden={detailTab !== "记录"}>
+          <Timeline items={["系统创建待办", selected.lastAction ?? `${currentUser.displayName} 查看详情`, selected.handled ? "已处理" : selected.reminder ? `已设提醒 ${selected.reminder}` : "等待人工处理"]} />
+        </div>
         </DetailPane>
       ) : (
         <DetailPane className="todo-detail-pane" title="公共待办" subtitle="未选择">

@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { ReloadOutlined } from "@ant-design/icons";
 import {
   DataState,
   DataTable,
@@ -6,8 +7,11 @@ import {
   InfoGrid,
   OperationalPanel,
   PanelHeader,
+  Segmented,
 } from "../../shared/ui/operational.jsx";
 import { formatAttachmentSize, isInlineImageAttachment } from "../attachments/attachmentPresentation.js";
+
+const STATEMENT_DETAIL_TABS = ["本期明细", "凭证/确认", "导出/归档"];
 
 export function StatementPage({ statements, orderLines, readMeta, selectedId, setSelectedId, onAction, helpers }) {
   const {
@@ -26,6 +30,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
     statementMatchesFilters,
   } = helpers;
   const [filters, setFilters] = useState(defaultStatementFilters);
+  const [detailTab, setDetailTab] = useState("本期明细");
   const filtered = statements.filter((item) => statementMatchesFilters(item, filters));
   const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
   const statementMetrics = [
@@ -43,7 +48,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
       className="statement-filter-bar"
       ariaLabel="客户对账筛选"
       summary={`${statementMetrics.map(([label, value]) => `${label} ${value}`).join(" · ")}；命中 ${filtered.length}`}
-      actions={<button onClick={() => setFilters(defaultStatementFilters)}>重置</button>}
+      actions={<button onClick={() => setFilters(defaultStatementFilters)}><ReloadOutlined /> 重置</button>}
     >
       <div className="statement-filter-fields">
         <label>
@@ -62,7 +67,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
 
   if (!selected) {
     return (
-      <section className="page-grid statement-layout statement-workbench">
+      <section className="page-grid statement-layout operational-statement-layout statement-workbench">
         <OperationalPanel className="customer-list statement-customer-panel" ariaLabel="客户对账列表">
           <PanelHeader title="客户对账" summary={readMeta?.loading ? "正在读取后端对账数据" : "暂无匹配对账数据"} />
           {statementFilter}
@@ -104,7 +109,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
   const previewPaymentProofState = getUiActionState("statements", "查看付款凭证");
   const previewCustomerConfirmationAttachmentState = getUiActionState("statements", "查看客户确认附件");
   return (
-    <section className="page-grid statement-layout statement-workbench">
+    <section className="page-grid statement-layout operational-statement-layout statement-workbench">
       <OperationalPanel className="customer-list statement-customer-panel" ariaLabel="客户对账列表">
         <PanelHeader
           title="客户对账"
@@ -153,7 +158,10 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
             <strong>{money(financialSummary.cumulativeDebt)}</strong>
           </div>
         </div>
-        <section className="detail-section">
+        <div className="operational-detail-tabs statement-detail-tabs">
+          <Segmented ariaLabel="对账详情视图" value={detailTab} onChange={setDetailTab} items={STATEMENT_DETAIL_TABS} />
+        </div>
+        <section className="detail-section operational-detail-section-first" hidden={detailTab !== "本期明细"}>
           <InfoGrid
             rows={[
               ["对账状态", `${selected.status} · ${bucket}`],
@@ -166,7 +174,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
             ]}
           />
         </section>
-        <section className="detail-section">
+        <section className="detail-section operational-detail-section-first" hidden={detailTab !== "凭证/确认"}>
           <div className="section-head-row">
             <h3>付款凭证预览</h3>
             <span className="section-count">{paymentAttachments.length ? `${paymentAttachments.length} 张` : "未登记"}</span>
@@ -200,7 +208,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
             <p>暂无付款截图；登记实收时可选择截图，保存后在这里预览。</p>
           )}
         </section>
-        <section className="detail-section">
+        <section className="detail-section" hidden={detailTab !== "凭证/确认"}>
           <h3>发送归档</h3>
           {selected.sent ? (
             <InfoGrid
@@ -216,7 +224,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
             <p>未发送；生成客户发送版预览后再标记已发送，可关联发送文件。</p>
           )}
         </section>
-        <section className="detail-section">
+        <section className="detail-section" hidden={detailTab !== "凭证/确认"}>
           <h3>客户确认</h3>
           {selected.customerConfirmationStatus ? (
             <InfoGrid
@@ -261,7 +269,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
             </div>
           ) : null}
         </section>
-        <section className="detail-section">
+        <section className="detail-section operational-detail-section-first" hidden={detailTab !== "导出/归档"}>
           <div className="section-head-row">
             <h3>导出历史</h3>
             <button disabled={refreshExportState.disabled} title={refreshExportState.title} onClick={() => onAction("刷新导出记录", selected.id)}>刷新</button>
@@ -287,16 +295,18 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
             <p>暂无导出记录；生成预览或导出 Excel 后会显示客户发送版 / 内部留档版。</p>
           )}
         </section>
-        <DataTable
-          className="statement-table"
-          columns={["明细", "产品", "尺寸/颜色", "交付", "计费数", "原金额", "调整", "应收", "备注"]}
-          rows={lines.map((row) => ({
-            id: row.id,
-            tone: row.exceptions.length ? "warning" : "neutral",
-            cells: [getOrderLineShortNo(row), row.product, `${row.size} ${getLineColorSpecLabel(row)}`, row.fulfillment, row.qty, money(row.amount), row.exceptions.length ? "赠送/差异" : money(0), money(row.amount), row.exceptions.join("、") || "正常"],
-          }))}
-        />
-        <section className={blockingAmount > 0 ? "detail-section alert" : "detail-section"}>
+        <div hidden={detailTab !== "本期明细"}>
+          <DataTable
+            className="statement-table"
+            columns={["明细/产品", "规格", "交付", "计费数", "应收", "备注"]}
+            rows={lines.map((row) => ({
+              id: row.id,
+              tone: row.exceptions.length ? "warning" : "neutral",
+              cells: [`${getOrderLineShortNo(row)} / ${row.product}`, `${row.size} ${getLineColorSpecLabel(row)}`, row.fulfillment, row.qty, money(row.amount), row.exceptions.join("、") || "正常"],
+            }))}
+          />
+        </div>
+        <section hidden={detailTab !== "本期明细"} className={blockingAmount > 0 ? "detail-section alert" : "detail-section"}>
           <h3>差额处理</h3>
           <p>
             {blockingAmount > 0
@@ -306,7 +316,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
           </p>
           {selected.paymentNote && <p>收款备注：{selected.paymentNote}</p>}
         </section>
-        <div className="statement-actions">
+        <div className="statement-actions operational-detail-actions">
           {["生成对账单预览", "标记已发送", "标记已读回执", "登记客户确认", "登记实收", "差额待确认", "确认核销", "导出Excel"].map((item) => {
             const actionState = getUiActionState("statements", item);
             return <button className={item === "确认核销" ? "primary-action" : ""} disabled={actionState.disabled} key={item} title={actionState.title} onClick={() => onAction(item, selected.id)}>{item}</button>;

@@ -312,12 +312,18 @@
   }
 }
 .operational-detail-pane [hidden],
-.detail-pane [hidden] {
+.detail-pane [hidden],
+.statement-detail-panel [hidden] {
   display: none !important;
 }
 
 .page-grid.operational-split-workbench {
   grid-template-columns: minmax(0, 1fr) clamp(270px, 31%, 380px);
+  overflow: hidden;
+}
+
+.page-grid.operational-statement-layout {
+  grid-template-columns: clamp(250px, 28%, 320px) minmax(0, 1fr);
   overflow: hidden;
 }
 
@@ -359,6 +365,11 @@
 
 @media (max-width: 720px) {
   .page-grid.operational-split-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .page-grid.operational-statement-layout {
     grid-template-columns: minmax(0, 1fr);
     overflow: visible;
   }

@@ -79,6 +79,7 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   });
   await paymentDialog.getByRole("button", { name: "确认提交", exact: true }).click();
   await expect(page.getByText("付款截图已通过后端 API登记", { exact: false })).toBeVisible();
+  await page.getByRole("tab", { name: "凭证/确认", exact: true }).click();
   await expect(page.getByText("e2e-payment-proof.png", { exact: true })).toBeVisible();
 
   const statementCustomers = await apiGet(request, "/statements/customers?page=1&pageSize=200");

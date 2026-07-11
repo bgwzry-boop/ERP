@@ -12,6 +12,7 @@ const rawMaterialSource = read("src/features/raw-materials/RawMaterialInboundPag
 const workshopSource = read("src/features/workshop/WorkshopMobilePage.jsx");
 const driverSource = read("src/features/driver/DriverMobilePage.jsx");
 const mainSource = read("src/main.jsx");
+const componentStyles = read("src/styles/components.css");
 const statementStyles = read("src/styles/features/statements.css");
 const roleStyles = read("src/styles/features/role-tools.css");
 
@@ -35,6 +36,9 @@ for (const label of ["本期应收", "本期实收", "本期未收", "历史欠�
 }
 assert.match(statementSource, /\?\? filtered\[0\] \?\? null/);
 assert.match(statementSource, /客户对账筛选/);
+assert.match(statementSource, /STATEMENT_DETAIL_TABS/);
+assert.match(statementSource, /operational-statement-layout/);
+assert.match(statementSource, /columns=\{\["明细\/产品", "规格", "交付", "计费数", "应收", "备注"\]\}/);
 
 assert.match(productionSource, /机器计数只做凭证/);
 assert.match(productionSource, /打包完成不扣库存/);
@@ -53,7 +57,8 @@ assert.match(driverSource, /司机任务状态/);
 
 assert.match(mainSource, /\.\/styles\/features\/statements\.css/);
 assert.match(mainSource, /\.\/styles\/features\/role-tools\.css/);
-assert.match(statementStyles, /statement-table \.data-row span:nth-child\(7\)/);
+assert.match(statementStyles, /statement-table \.data-row span:nth-child\(6\)/);
+assert.match(componentStyles, /\.page-grid\.operational-statement-layout/);
 assert.match(roleStyles, /production-schedule-queue-table/);
 assert.match(roleStyles, /raw-material-inbound-table/);
 

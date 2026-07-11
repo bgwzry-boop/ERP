@@ -22,6 +22,14 @@ state: local demo data, office account, order-entry recognized-draft state, pack
 
 At `1024x768`, all three main regions now report `scrollWidth === clientWidth === 884` with a `580px / 270px` list-detail split; the old `640px / 330px` minimum no longer clips the detail pane. At `390x844`, all three pages report body and main `scrollWidth === clientWidth === 390` and a single `374px` content column. Order, inventory, and fulfillment tables use merged business-summary columns; inventory exposes overview / ledger / correction views, order exposes order / fulfillment / finance views, and fulfillment exposes task / document-evidence / timeline views. Fulfillment priority controls perform real sorting, filter-empty states retain their filters and clear stale details, and a fresh browser session produced no application warning or error.
 
+## C4.4 todo and statement workbench evidence
+
+- Before: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c44/01-todo-before.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c44/02-statement-before.png`.
+- Desktop after: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c44/03-todo-after.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c44/04-statement-after.png`.
+- Mobile after: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c44/05-todo-mobile-after.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c44/06-statement-mobile-after.png`.
+
+At `1024x768`, both pages fit the `884px` main region without horizontal overflow. Todo uses a `580px / 270px` split and separates processing, notification/printing, and history into semantic tabs. Statement uses a `250px / 600px` customer/detail split, keeps the customer plus all five financial trust amounts visible above the tabs, and reduces the detail table from nine technical columns to six business columns. At `390x844`, both pages report body and main `scrollWidth === clientWidth === 390` with a `374px` single-column work area. Tab visibility, empty notification state, payment-proof placement, export-history isolation, and persistent action controls were exercised; the browser produced no application warning or error.
+
 ## Full-view comparison evidence
 
 The source composite and both final desktop implementation captures were opened together at original resolution. The shell width, 140px navigation rail, top action bar, page-title hierarchy, order-entry three-step strip, source-recognition panel, dense table/validation split, bottom summary actions, packing task-list/detail split, three workbench tabs, machine-count evidence block, qualified-output block, and task-history placement align with the selected hybrid direction.

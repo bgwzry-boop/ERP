@@ -4137,25 +4137,6 @@ button:disabled,
   -webkit-line-clamp: 2;
 }
 
-.statement-table .data-row {
-  grid-template-columns:
-    minmax(0, 0.62fr)
-    minmax(0, 0.88fr)
-    minmax(0, 1.2fr)
-    minmax(0, 0.62fr)
-    minmax(0, 0.48fr)
-    minmax(0, 0.58fr)
-    minmax(0, 0.66fr)
-    minmax(0, 0.58fr)
-    minmax(0, 1.06fr);
-  min-height: 42px;
-}
-
-.statement-table .data-row span:nth-child(n+5):nth-child(-n+8) {
-  padding: 0 5px;
-  text-align: right;
-}
-
 .entry-edit-row {
   min-height: 42px;
 }

@@ -19,6 +19,12 @@
   background: #f8fbff;
 }
 
+.todo-list-panel .todo-bulk-row button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
 .todo-list-panel .todo-row {
   min-height: 72px;
   padding: 8px 10px;
