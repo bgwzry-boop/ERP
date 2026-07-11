@@ -4,6 +4,15 @@ import { createFulfillmentActionCommandService } from "../server/services/fulfil
 const calls = [];
 const fixedNow = new Date("2026-07-11T14:00:00.000Z");
 const service = createFulfillmentActionCommandService({
+  buildDriverDeliveryTask(_workspace, fulfillment, input = {}) {
+    return {
+      fulfillmentId: fulfillment.id,
+      driverId: input.driverId,
+      status: fulfillment.status,
+      routeNo: fulfillment.routeNo ?? "",
+      packageChecklist: [{ packageId: "PKG-001" }, { packageId: "PKG-002" }],
+    };
+  },
   buildFulfillmentActionRecord(_workspace, fulfillment, input = {}) {
     return {
       ...fulfillment,
@@ -39,6 +48,16 @@ const service = createFulfillmentActionCommandService({
   findCustomerName(_workspace, customerId) {
     return customerId === "C001" ? "张三服饰" : customerId;
   },
+  findActiveDriverDeliveryDispatch(workspace, fulfillmentId) {
+    return (
+      workspace.driverDeliveryDispatches.find(
+        (item) => item.fulfillmentId === fulfillmentId && item.dispatchStatus !== "已取消",
+      ) ?? {}
+    );
+  },
+  findDriverDeliveryFulfillment(workspace, fulfillmentId) {
+    return workspace.fulfillments.find((item) => item.id === fulfillmentId && item.method === "送货") ?? null;
+  },
   findFulfillment(workspace, fulfillmentId) {
     return workspace.fulfillments.find((item) => item.id === fulfillmentId) ?? null;
   },
@@ -49,7 +68,15 @@ const service = createFulfillmentActionCommandService({
     return workspace.orderLines.find((item) => item.id === orderLineId) ?? null;
   },
   async getDriverDeliveryTaskResponseProjection(_workspace, input) {
-    return { fulfillmentId: input.fulfillmentId, driverId: input.operatorId };
+    return {
+      ...input.fallbackFulfillment,
+      fulfillmentId: input.fulfillmentId,
+      driverId: input.operatorId,
+      packageChecklist: [{ packageId: "PKG-001" }, { packageId: "PKG-002" }],
+    };
+  },
+  getFulfillmentSortSequence() {
+    return 1;
   },
   hasDriverWatermarkEvidence(value) {
     return Boolean(value.watermarkedPhotoAttached || value.watermarkedPhotoAttachmentId);
@@ -95,9 +122,13 @@ await checkExceptionCreation();
 await checkCancellationRelease();
 await checkEvidenceReview();
 await checkValidationAndLegacyGuard();
+await checkDispatchCommand();
+await checkDriverAssignmentAndLoad();
+await checkDriverCompletionAndRetake();
+await checkDriverException();
 
 console.log(
-  "Fulfillment action command service checks passed: prepared/complete/pickup, reservation deduction/release, exceptions, evidence review, validation, and authenticated identity are covered.",
+  "Fulfillment action command service checks passed: office actions, dispatch, driver assignment/load/complete/retake/exception, inventory movements, evidence review, and authenticated identity are covered.",
 );
 
 async function checkPreparedWithoutInventoryDeduction() {
@@ -254,6 +285,153 @@ async function checkValidationAndLegacyGuard() {
   assert.equal(movements.error.code, "LEGACY_FULFILLMENT_NOT_STOCK_LINE");
 }
 
+async function checkDispatchCommand() {
+  const workspace = buildWorkspace({ method: "送货" });
+  workspace.driverDeliveryDispatches[0].revision = 3;
+  const result = await service.upsertDriverDispatch({
+    workspace,
+    fulfillmentId: "FUL-001",
+    body: {
+      driverId: "U-DRIVER-A",
+      routeDate: "2026-07-12",
+      routeNo: "虎门线-A",
+      routeSequence: 2,
+      plannedDepartureAt: "2026-07-12T08:30:00.000Z",
+      operatorId: "U-SPOOFED",
+    },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(result.response.dispatch.revision, 3);
+  assert.equal(result.response.task.driverId, "U-DRIVER-A");
+  const input = calls.at(-1);
+  assert.equal(input.kind, "driver_dispatch");
+  assert.equal(input.dispatch.assignedBy, "U-OFFICE-A");
+  assert.equal(input.idempotencyPayload.operatorId, "U-OFFICE-A");
+
+  const conflictingId = await service.upsertDriverDispatch({
+    workspace,
+    fulfillmentId: "FUL-001",
+    body: {
+      dispatchId: "DDIS-OTHER",
+      driverId: "U-DRIVER-A",
+      routeDate: "2026-07-12",
+      routeNo: "虎门线-A",
+      routeSequence: 2,
+    },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(conflictingId.code, "DRIVER_DISPATCH_ID_CONFLICT");
+}
+
+async function checkDriverAssignmentAndLoad() {
+  const workspace = buildWorkspace({ method: "送货", status: "待出库" });
+  const denied = await service.confirmDriverDeliveryLoaded({
+    workspace,
+    fulfillmentId: "FUL-001",
+    body: { checkedPackageIds: ["PKG-001", "PKG-002"] },
+    operatorId: "U-DRIVER-B",
+  });
+  assert.equal(denied.notFound, true);
+
+  const incomplete = await service.confirmDriverDeliveryLoaded({
+    workspace,
+    fulfillmentId: "FUL-001",
+    body: { checkedPackageIds: ["PKG-001"] },
+    operatorId: "U-DRIVER-A",
+  });
+  assert.equal(incomplete.code, "DRIVER_PACKAGE_CHECK_INCOMPLETE");
+
+  const loaded = await service.confirmDriverDeliveryLoaded({
+    workspace,
+    fulfillmentId: "FUL-001",
+    body: {
+      checkedPackageIds: ["PKG-001", "PKG-002"],
+      operatorId: "U-SPOOFED",
+      remark: "装车核对完成",
+    },
+    operatorId: "U-DRIVER-A",
+  });
+  assert.equal(loaded.response.status, "配送中");
+  const input = calls.at(-1);
+  assert.equal(input.fulfillment.loadedBy, "U-DRIVER-A");
+  assert.equal(input.idempotencyPayload.operatorId, "U-DRIVER-A");
+  assert.deepEqual(input.operationLog.after.checkedPackageIds, ["PKG-001", "PKG-002"]);
+}
+
+async function checkDriverCompletionAndRetake() {
+  const workspace = buildWorkspace({ method: "送货", status: "配送中" });
+  const completed = await service.completeDriverDelivery({
+    workspace,
+    fulfillmentId: "FUL-001",
+    body: {
+      actualQty: 100,
+      watermarkedPhotoAttachmentId: "ATT-WM-001",
+      watermarkOperatorId: "U-SPOOFED",
+      receiverName: "客户仓管",
+      operatorId: "U-SPOOFED",
+    },
+    operatorId: "U-DRIVER-A",
+  });
+  assert.equal(completed.response.status, "已完成");
+  const input = calls.at(-1);
+  assert.equal(input.fulfillment.watermarkOperatorId, "U-DRIVER-A");
+  assert.equal(input.idempotencyPayload.operatorId, "U-DRIVER-A");
+  assert.equal(input.inventoryLedgerEntries[0].operatorId, "U-DRIVER-A");
+
+  const notLoadedWorkspace = buildWorkspace({ method: "送货", status: "待出库" });
+  const notLoaded = await service.completeDriverDelivery({
+    workspace: notLoadedWorkspace,
+    fulfillmentId: "FUL-001",
+    body: { watermarkedPhotoAttachmentId: "ATT-WM-002" },
+    operatorId: "U-DRIVER-A",
+  });
+  assert.equal(notLoaded.code, "DRIVER_DELIVERY_NOT_LOADED");
+
+  const retakeWorkspace = buildWorkspace({
+    method: "送货",
+    status: "已交付",
+    deliveryEvidenceReviewStatus: "需重拍",
+    deliveredAt: "2026-07-11T13:00:00.000Z",
+  });
+  retakeWorkspace.todos.push({
+    id: "TODO-RETAKE-001",
+    type: "照片待重拍",
+    ref: "OL-001",
+    handled: false,
+  });
+  const retake = await service.completeDriverDelivery({
+    workspace: retakeWorkspace,
+    fulfillmentId: "FUL-001",
+    body: { watermarkedPhotoAttachmentId: "ATT-WM-RETAKE" },
+    operatorId: "U-DRIVER-A",
+  });
+  assert.equal(retake.response.evidenceResubmission, true);
+  assert.equal(retake.response.inventoryDeductionMode, "skipped_delivery_evidence_resubmission");
+  assert.deepEqual(calls.at(-1).inventoryLedgerEntries, []);
+  assert.equal(calls.at(-1).todo.handledBy, "U-DRIVER-A");
+}
+
+async function checkDriverException() {
+  const workspace = buildWorkspace({ method: "送货", status: "配送中" });
+  const result = await service.reportDriverDeliveryException({
+    workspace,
+    fulfillmentId: "FUL-001",
+    body: {
+      reasonCode: "customer_unavailable",
+      reasonText: "客户不在",
+      actualQty: 0,
+      operatorId: "U-SPOOFED",
+    },
+    operatorId: "U-DRIVER-A",
+  });
+  assert.equal(result.response.status, "送货异常");
+  assert.equal(result.response.todoType, "送货异常待处理");
+  const input = calls.at(-1);
+  assert.equal(input.fulfillmentException.reportedBy, "U-DRIVER-A");
+  assert.equal(input.todo.createdBy, "U-DRIVER-A");
+  assert.equal(input.idempotencyPayload.operatorId, "U-DRIVER-A");
+}
+
 function buildWorkspace(overrides = {}) {
   const fulfillment = {
     id: "FUL-001",
@@ -270,6 +448,21 @@ function buildWorkspace(overrides = {}) {
   };
   const workspace = {
     fulfillments: [fulfillment],
+    driverDeliveryDispatches: [
+      {
+        id: "DDIS-001",
+        dispatchId: "DDIS-001",
+        fulfillmentId: "FUL-001",
+        driverId: "U-DRIVER-A",
+        routeDate: "2026-07-11",
+        routeNo: "虎门线-A",
+        routeSequence: 1,
+        stopSequence: 1,
+        dispatchStatus: "已派单",
+        revision: 1,
+        createdAt: "2026-07-11T08:00:00.000Z",
+      },
+    ],
     fulfillmentExceptions: [],
     todos: [],
     operationLogs: [],
@@ -310,7 +503,7 @@ function buildWorkspace(overrides = {}) {
   };
   workspace.fulfillmentActionTransactionRepository = {
     async recordFulfillmentAction(input) {
-      calls.push(input);
+      calls.push({ ...input, kind: "fulfillment_action" });
       const index = workspace.fulfillments.findIndex((item) => item.id === input.fulfillment.fulfillmentId);
       if (index >= 0) workspace.fulfillments[index] = { ...workspace.fulfillments[index], ...input.fulfillment };
       return {
@@ -320,6 +513,34 @@ function buildWorkspace(overrides = {}) {
         inventoryReservations: input.inventoryReservations ?? [],
         inventoryLedgerEntries: input.inventoryLedgerEntries ?? [],
         operationLogId: input.operationLog.id,
+      };
+    },
+  };
+  workspace.driverDeliveryDispatchRepository = {
+    async upsertDriverDeliveryDispatch(input) {
+      calls.push({ ...input, kind: "driver_dispatch" });
+      const index = workspace.driverDeliveryDispatches.findIndex(
+        (item) => item.dispatchId === input.dispatch.dispatchId,
+      );
+      if (index >= 0) workspace.driverDeliveryDispatches[index] = input.dispatch;
+      else workspace.driverDeliveryDispatches.unshift(input.dispatch);
+      return { dispatch: input.dispatch, operationLogId: input.operationLog.id };
+    },
+  };
+  workspace.driverDeliveryTaskReadRepository = {
+    async getDriverDeliveryTask({ fulfillmentId, operatorId }) {
+      const current = workspace.fulfillments.find((item) => item.id === fulfillmentId);
+      const dispatch = workspace.driverDeliveryDispatches.find(
+        (item) => item.fulfillmentId === fulfillmentId && item.dispatchStatus !== "已取消",
+      );
+      if (!current || dispatch?.driverId !== operatorId) return null;
+      return {
+        ...current,
+        fulfillmentId,
+        driverId: operatorId,
+        routeNo: dispatch.routeNo,
+        routeSequence: dispatch.routeSequence,
+        packageChecklist: [{ packageId: "PKG-001" }, { packageId: "PKG-002" }],
       };
     },
   };

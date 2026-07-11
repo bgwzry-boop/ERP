@@ -147,6 +147,16 @@ const workspace = {
       dispatchStatus: "已取消",
       assignedAt: "2026-07-02T08:10:00.000Z",
     },
+    {
+      id: "DDIS-F023-DRIVER-B",
+      fulfillmentId: "F023",
+      driverId: "U-DRIVER-B",
+      routeDate: "2026-07-02",
+      routeNo: "番禺线-B",
+      stopSequence: 1,
+      dispatchStatus: "已派单",
+      assignedAt: "2026-07-02T08:20:00.000Z",
+    },
   ],
   packages: [
     {
@@ -201,11 +211,18 @@ const localList = localRepository.listDriverDeliveryTasks({
   query: { driverId: "U-DRIVER-A", page: 1, pageSize: 20 },
   operatorId: "U-DRIVER-A",
 });
+const spoofedDriverList = localRepository.listDriverDeliveryTasks({
+  workspace,
+  query: { driverId: "U-DRIVER-B" },
+  operatorId: "U-DRIVER-A",
+});
+assert.equal(spoofedDriverList.total, 1);
+assert.equal(spoofedDriverList.items[0].driverId, "U-DRIVER-A", "query driverId must not override authenticated driver");
 
 assert.equal(localRepository.kind, "local_memory");
-assert.equal(localList.total, 2);
+assert.equal(localList.total, 1);
 assert.equal(localList.metrics.pendingCount, 1);
-assert.equal(localList.metrics.deliveringCount, 1);
+assert.equal(localList.metrics.deliveringCount, 0);
 assert.equal(localList.items[0].fulfillmentId, "F010", "route sequence should sort ahead of the generic status rank");
 assert.equal(localList.items[0].driverId, "U-DRIVER-A");
 assert.equal(localList.items[0].routeDate, "2026-07-02");
@@ -232,14 +249,13 @@ assert.equal(localList.items[0].receiverName, "门店仓管");
 assert.equal(localList.items[0].paperNoteStatus, "已交回");
 assert.equal(localList.items[0].deviceFieldTestRecord.recordId, "DQA-F010-LOCAL");
 assert.equal(localList.items[0].deviceFieldTestSummary.label, "通过 2/6，异常 1");
-assert.equal(localList.items[1].status, "配送中");
 
 const filteredLocalList = localRepository.listDriverDeliveryTasks({
   workspace,
   query: { status: "配送中" },
   operatorId: "U-DRIVER-A",
 });
-assert.equal(filteredLocalList.total, 1);
+assert.equal(filteredLocalList.total, 0);
 assert.equal(filteredLocalList.metrics.pendingCount, 1, "metrics should describe all driver tasks, not only the active tab");
 
 const localDetail = localRepository.getDriverDeliveryTask({
@@ -250,6 +266,15 @@ const localDetail = localRepository.getDriverDeliveryTask({
 assert.equal(localDetail.orderTail, "#010-01");
 assert.equal(localDetail.packageCount, 3);
 assert.equal(localDetail.packageChecklist[2].packageId, "PKG-F010-3");
+assert.equal(
+  localRepository.getDriverDeliveryTask({ workspace, fulfillmentId: "F023", operatorId: "U-DRIVER-A" }),
+  null,
+  "a driver must not read another driver's assigned delivery",
+);
+assert.equal(
+  localRepository.getDriverDeliveryTask({ workspace, fulfillmentId: "F023", operatorId: "U-DRIVER-B" })?.driverId,
+  "U-DRIVER-B",
+);
 
 const normalized = normalizeDriverDeliveryTask({
   fulfillmentId: "F-PG-001",
@@ -349,7 +374,12 @@ const postgresRepository = createPostgresDriverDeliveryTaskReadRepository({
 });
 assert.equal(postgresRepository.kind, "postgres");
 assert.equal(
-  (await postgresRepository.listDriverDeliveryTasks({ query: { status: "待送货", driverId: "U-DRIVER-A" } })).items[0].fulfillmentId,
+  (
+    await postgresRepository.listDriverDeliveryTasks({
+      query: { status: "待送货", driverId: "U-DRIVER-B" },
+      operatorId: "U-DRIVER-A",
+    })
+  ).items[0].fulfillmentId,
   "F-PG-001",
 );
 assert.equal((await postgresRepository.getDriverDeliveryTask({ fulfillmentId: "F-PG-001" })).fulfillmentId, "F-PG-001");
@@ -370,6 +400,8 @@ assert.match(listSql, /package_item\.fulfillment_id IS NULL AND package_item\.or
 assert.match(listSql, /package_row\.packed_qty/);
 assert.match(listSql, /label_print_record_id/);
 assert.match(listSql, /driver_delivery_dispatches/);
+assert.match(listSql, /JOIN LATERAL/);
+assert.match(listSql, /driver_id = \$1::text/);
 assert.match(listSql, /driver_device_field_tests/);
 assert.match(listSql, /deviceFieldTestRecord/);
 assert.match(listSql, /deviceFieldTestSummary/);
@@ -392,7 +424,7 @@ assert.match(listSql, /LIMIT \$3::integer/);
 assert.match(listSql, /OFFSET \$4::integer/);
 assert.ok(!listSql.includes("需'转义"));
 assert.deepEqual(buildListDriverDeliveryTasksQuery({
-  query: { status: "需'转义", driverId: "U-DRIVER-A", page: 2, pageSize: 10 },
+  query: { status: "需'转义", driverId: "U-DRIVER-B", page: 2, pageSize: 10 },
   operatorId: "U-DRIVER-A",
 }).values, ["U-DRIVER-A", "需'转义", 10, 10, 2, 10]);
 

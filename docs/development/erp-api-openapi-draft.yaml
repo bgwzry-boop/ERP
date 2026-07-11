@@ -2820,12 +2820,15 @@ paths:
       tags: [Driver]
       summary: 查询司机手机端送货任务
       description: >
-        只返回送货类交付任务。司机端只能查看任务、确认装车、提交送达凭证
-        或上报异常，不能修改订单、价格、库存主数据或对账。
+        只返回当前认证司机已有有效派单的送货任务；driverId 查询参数仅保留旧客户端兼容，
+        不能覆盖认证身份。司机端只能查看任务、确认装车、提交送达凭证或上报异常，
+        不能修改订单、价格、库存主数据或对账。
       operationId: listDriverDeliveryTasks
       parameters:
         - name: driverId
           in: query
+          deprecated: true
+          description: 旧客户端兼容参数；服务端忽略该值并使用认证会话司机。
           schema:
             type: string
         - name: status
@@ -2880,6 +2883,7 @@ paths:
     get:
       tags: [Driver]
       summary: 查询司机送货任务详情
+      description: 仅当前认证司机有效派单范围内的任务可见；其他司机或未派单任务按不存在处理。
       operationId: getDriverDeliveryTask
       parameters:
         - $ref: "#/components/parameters/FulfillmentId"
@@ -2903,6 +2907,7 @@ paths:
     post:
       tags: [Driver]
       summary: 司机确认已装车
+      description: 仅任务当前指派司机可执行；所有任务包裹完成核对后才能进入配送中。
       operationId: confirmDriverDeliveryLoaded
       parameters:
         - $ref: "#/components/parameters/FulfillmentId"
@@ -2933,7 +2938,8 @@ paths:
       description: >
         记录真实司机手机 / 浏览器的现场验收结果，包括相机权限、水印拍照、
         包裹扫码、定位读取、上传兜底和外部导航。该接口写入操作日志，
-        但不自动触发相机、定位、文件选择或外部导航权限动作。
+        但不自动触发相机、定位、文件选择或外部导航权限动作。记录只能写入
+        当前认证司机的有效派单任务，driverId / operatorId 请求字段不作为身份来源。
       operationId: recordDriverDeviceFieldTest
       parameters:
         - $ref: "#/components/parameters/FulfillmentId"
@@ -2962,7 +2968,8 @@ paths:
       tags: [Driver]
       summary: 司机提交送达和回单凭证
       description: >
-        首次完成送货必须有水印照片凭证。若办公室已将送达证据退回为需重拍，
+        首次完成送货必须先确认装车并提交水印照片凭证，且仅当前指派司机可执行。
+        水印操作人固定为认证司机，不能由请求体覆盖。若办公室已将送达证据退回为需重拍，
         同一接口可用于司机补拍后重新提交证据；补拍提交只更新证据并回到待复核，
         不重复扣减库存。签收照片、收货人、纸质联状态和备注可选补充。
       operationId: completeDriverDeliveryTask
@@ -16685,7 +16692,7 @@ components:
 
     DriverDeliveryLoadConfirmRequest:
       type: object
-      required: [fulfillmentId, operatorId]
+      required: [fulfillmentId, checkedPackageIds]
       properties:
         fulfillmentId:
           type: string
@@ -16694,11 +16701,14 @@ components:
           format: date-time
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略并使用认证司机。
         remark:
           type: string
         checkedPackageIds:
           type: array
-          description: 司机端已核对装车的包裹 ID 列表。
+          minItems: 1
+          description: 司机端已核对装车的包裹 ID 列表；必须覆盖任务当前全部包裹。
           items:
             type: string
         packageCheckSummary:
@@ -16707,7 +16717,7 @@ components:
 
     DriverDeviceFieldTestRecord:
       type: object
-      required: [recordId, fulfillmentId, operatorId, checkedAt, deviceLabel, browserLabel, summary, checks]
+      required: [recordId, fulfillmentId, checkedAt, deviceLabel, browserLabel, checks]
       properties:
         recordId:
           type: string
@@ -16718,8 +16728,12 @@ components:
           type: string
         driverId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端固定使用认证司机。
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端固定使用认证司机。
         operatorName:
           type: string
         checkedAt:
@@ -16937,7 +16951,7 @@ components:
 
     DriverDeliveryCompleteRequest:
       type: object
-      required: [fulfillmentId, actualQty, operatorId, watermarkedPhotoAttached]
+      required: [fulfillmentId]
       properties:
         fulfillmentId:
           type: string
@@ -16946,6 +16960,8 @@ components:
           minimum: 0
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略并使用认证司机。
         completedAt:
           type: string
           format: date-time
@@ -16972,6 +16988,8 @@ components:
           type: string
         watermarkOperatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略并将水印操作人固定为认证司机。
         watermarkOperatorName:
           type: string
         signaturePhotoAttached:
@@ -16996,7 +17014,7 @@ components:
 
     DriverDeliveryExceptionRequest:
       type: object
-      required: [fulfillmentId, reasonCode, operatorId, occurredAt]
+      required: [fulfillmentId, reasonCode]
       properties:
         fulfillmentId:
           type: string
@@ -17010,6 +17028,8 @@ components:
           minimum: 0
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略并使用认证司机。
         occurredAt:
           type: string
           format: date-time

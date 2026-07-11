@@ -2329,6 +2329,15 @@ try {
   const driverTaskList = await getJson(baseUrl, "/api/driver/delivery-tasks?driverId=U-DRIVER-A", {
     headers: { "x-erp-user-id": "U-DRIVER-A" },
   });
+  const spoofedDriverTaskList = await getJson(baseUrl, "/api/driver/delivery-tasks?driverId=U-OFFICE-A", {
+    headers: { "x-erp-user-id": "U-DRIVER-A" },
+  });
+  if (
+    spoofedDriverTaskList.total !== driverTaskList.total ||
+    spoofedDriverTaskList.items?.some((item) => item.driverId !== "U-DRIVER-A")
+  ) {
+    throw new Error("/api/driver/delivery-tasks allowed query driverId to override authenticated driver scope");
+  }
   const driverPendingTask = driverTaskList.items?.find(
     (item) => item.status === "待送货" && item.fulfillmentId !== deliveryFulfillment.fulfillmentId,
   );
@@ -2379,7 +2388,7 @@ try {
       routeNo: "虎门线-A",
       routeSequence: 1,
       plannedDepartureAt: "2026-07-02T08:30:00.000Z",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       remark: "API skeleton dispatch check",
     },
     {
@@ -2390,6 +2399,7 @@ try {
     officeDispatch.dispatch?.fulfillmentId !== driverPendingTask.fulfillmentId ||
     officeDispatch.dispatch?.routeNo !== "虎门线-A" ||
     officeDispatch.dispatch?.routeSequence !== 1 ||
+    officeDispatch.dispatch?.assignedBy !== "U-OFFICE-A" ||
     officeDispatch.task?.routeNo !== "虎门线-A" ||
     officeDispatch.task?.routeSequence !== 1 ||
     !officeDispatch.operationLogId
@@ -2399,6 +2409,22 @@ try {
 
   const driverLoadedAt = "2026-07-02T09:05:00.000Z";
   const driverLoadRemark = `API skeleton driver load check；装车核对：${driverPendingTask.packageChecklist.length}/${driverPendingTask.packageChecklist.length}包`;
+  const incompleteDriverLoad = await postJson(
+    baseUrl,
+    `/api/driver/delivery-tasks/${driverPendingTask.fulfillmentId}/load-confirm`,
+    {
+      fulfillmentId: driverPendingTask.fulfillmentId,
+      checkedPackageIds: driverPendingTask.packageChecklist.slice(0, -1).map((item) => item.packageId),
+      operatorId: "U-SPOOFED",
+    },
+    {
+      expectedStatus: 422,
+      headers: { "x-erp-user-id": "U-DRIVER-A" },
+    },
+  );
+  if (incompleteDriverLoad.code !== "DRIVER_PACKAGE_CHECK_INCOMPLETE") {
+    throw new Error("/api/driver/delivery-tasks/{id}/load-confirm did not require the full package checklist");
+  }
   const driverLoadConfirm = await postJson(
     baseUrl,
     `/api/driver/delivery-tasks/${driverPendingTask.fulfillmentId}/load-confirm`,
@@ -2643,7 +2669,7 @@ try {
       watermarkLocationLabel: "厚街仓库门岗",
       watermarkGeoPoint: "22.920000,113.680000",
       watermarkAddress: "厚街仓库 A 区",
-      watermarkOperatorId: "U-DRIVER-A",
+      watermarkOperatorId: "U-SPOOFED",
       watermarkOperatorName: "司机A",
       signaturePhotoAttached: true,
       receiverName: "API 客户签收",
@@ -2663,6 +2689,7 @@ try {
     driverComplete.task?.watermarkId !== "WM-API-SMOKE-1" ||
     driverComplete.task?.watermarkLocationLabel !== "厚街仓库门岗" ||
     driverComplete.task?.watermarkGeoPoint !== "22.920000,113.680000" ||
+    driverComplete.task?.watermarkOperatorId !== "U-DRIVER-A" ||
     driverComplete.task?.loadedAt !== driverLoadedAt ||
     driverComplete.task?.receiverName !== "API 客户签收" ||
     driverComplete.task?.paperNoteStatus !== "已交回" ||

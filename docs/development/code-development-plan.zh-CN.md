@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D38 派单与司机交付 command service 已完成。派单、司机装车、首次送达、证据补拍和异常编排进入 `fulfillmentActionCommandService.mjs`，API handler 只映射结果，主文件从 `18,921` 行降至 `18,573` 行。同步修复派单 revision / 重复有效 ID、query 身份覆盖、跨司机 / 未派单任务读写、包裹核对不完整、未装车完成和水印操作人伪造；demo / test 使用显式派单种子，production 只认 PostgreSQL 有效派单。OpenAPI 和产品 brief 已同步。直接 service、HTTP、司机 / 出库专项、全量、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.25；下一轮 D39 校验送达附件归属、用途和上传身份。
 - 本轮补充：D37 出库交付主动作 command service 已完成。新增 `fulfillmentActionCommandService.mjs`，异常、备货、完成 / 拉走、取消、证据复核以及共用库存 / 异常投影可脱离 HTTP 直接测试；办公室 handler 只映射 service 结果，司机送达继续复用同一投影。`apiServer.mjs` 从 `19,439` 行降至 `18,921` 行。直接测试覆盖备货不扣库存、预留扣减 / 释放、可信打印前置、异常 / 重拍待办、旧单无预留限制和认证身份，并纳入出库 API 检查。专项、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。整改方案版本更新为 V7.24；下一轮 D38 抽取派单、司机装车 / 送达 / 异常编排。
 - 本轮补充：D36 订单草稿与确认 command service 已完成。新增 `orderDraftCommandService.mjs`，识别、revision 保存、风险 / 待办、确认阻断、库存 / 价格复核和正式记录事务输入可直接测试；三个 handler 只映射结果，`apiServer.mjs` 从 `19,831` 行降至 `19,439` 行。直接测试覆盖稳定草稿 ID、revision、阻断确认、认证身份和事务输入，并纳入订单草稿 API 检查。全量、PostgreSQL 16 live 和 production profile live 通过。下一轮 D37 抽取出库交付主动作。
 - 本轮补充：D35 订单明细变更 command service 已完成。新增 `orderLineMutationCommandService.mjs`，作废 / 改量资格、幂等回放顺序、价格 / 对账重算、库存预留变化、记录 / 审计和 repository 编排可直接测试；两个 handler 只映射结果，`apiServer.mjs` 从 `20,449` 行降至 `19,831` 行。下一轮 D36 抽取订单草稿识别、保存和确认。

@@ -32,7 +32,11 @@ export function createLocalDriverDeliveryTaskReadRepository() {
     kind: "local_memory",
 
     listDriverDeliveryTasks({ workspace, query = {}, operatorId = "" } = {}) {
-      const filters = normalizeDriverDeliveryTaskQuery({ ...toQueryObject(query), operatorId });
+      const filters = normalizeDriverDeliveryTaskQuery({
+        ...toQueryObject(query),
+        driverId: operatorId,
+        operatorId,
+      });
       let items = buildLocalDriverDeliveryTasks(workspace, { driverId: filters.driverId || operatorId });
       const metrics = buildDriverDeliveryMetrics(items);
       if (filters.status) items = items.filter((item) => item.status === filters.status);
@@ -41,9 +45,9 @@ export function createLocalDriverDeliveryTaskReadRepository() {
 
     getDriverDeliveryTask({ workspace, fulfillmentId, operatorId = "" } = {}) {
       const fulfillment = findDriverDeliveryFulfillment(workspace, fulfillmentId);
-      if (!fulfillment) return null;
+      if (!fulfillment || !isFulfillmentAssignedToDriver(workspace, fulfillment, operatorId)) return null;
       return buildLocalDriverDeliveryTask(workspace, fulfillment, {
-        driverId: fulfillment.driverId ?? operatorId,
+        driverId: operatorId,
         sortSequence: getFulfillmentSortSequence(workspace, fulfillment.id ?? fulfillment.fulfillmentId),
       });
     },
@@ -77,7 +81,11 @@ export function buildListDriverDeliveryTasksSql({ query = {}, operatorId = "" } 
 }
 
 export function buildListDriverDeliveryTasksQuery({ query = {}, operatorId = "" } = {}) {
-  const filters = normalizeDriverDeliveryTaskQuery({ ...toQueryObject(query), operatorId });
+  const filters = normalizeDriverDeliveryTaskQuery({
+    ...toQueryObject(query),
+    driverId: operatorId,
+    operatorId,
+  });
   const parameters = createPostgresParameterBinder();
   const driverId = parameters.text(filters.driverId || operatorId);
   const statusWhere = filters.status ? `WHERE source.status = ${parameters.text(filters.status)}` : "";
@@ -169,7 +177,7 @@ function driverDeliveryTaskProjectionSql(driverId) {
 SELECT
   fulfillment.id AS fulfillment_id,
   fulfillment.id AS driver_task_id,
-  COALESCE(NULLIF(active_dispatch.driver_id, ''), ${driverId}) AS driver_id,
+  active_dispatch.driver_id AS driver_id,
   fulfillment.order_line_id,
   line.biz_no AS order_line_no,
   original_order.biz_no AS order_no,
@@ -291,7 +299,7 @@ LEFT JOIN LATERAL (
   ORDER BY created_at DESC, id DESC
   LIMIT 1
 ) AS latest_exception ON true
-LEFT JOIN LATERAL (
+JOIN LATERAL (
   SELECT
     driver_id,
     route_date,
@@ -302,6 +310,7 @@ LEFT JOIN LATERAL (
     assigned_at
   FROM driver_delivery_dispatches
   WHERE fulfillment_id = fulfillment.id
+    AND driver_id = ${driverId}
     AND dispatch_status NOT IN ('已取消', 'canceled', 'voided')
   ORDER BY route_date ASC NULLS LAST, stop_sequence ASC NULLS LAST, assigned_at DESC NULLS LAST, created_at DESC, id DESC
   LIMIT 1
@@ -594,7 +603,10 @@ export function normalizeDriverDeliveryTask(value = {}) {
 function buildLocalDriverDeliveryTasks(workspace, options = {}) {
   const driverId = cleanText(options.driverId);
   return (workspace.fulfillments ?? [])
-    .filter((fulfillment) => fulfillment.method === "送货")
+    .filter(
+      (fulfillment) =>
+        fulfillment.method === "送货" && isFulfillmentAssignedToDriver(workspace, fulfillment, driverId),
+    )
     .map((fulfillment, index) =>
       buildLocalDriverDeliveryTask(workspace, fulfillment, {
         driverId: fulfillment.driverId ?? driverId,
@@ -759,6 +771,13 @@ function findActiveDriverDeliveryDispatch(workspace, fulfillmentId) {
       if (sequenceDiff) return sequenceDiff;
       return cleanText(b.assignedAt ?? b.assigned_at ?? b.createdAt).localeCompare(cleanText(a.assignedAt ?? a.assigned_at ?? a.createdAt));
     })[0] ?? {};
+}
+
+function isFulfillmentAssignedToDriver(workspace, fulfillment, driverId) {
+  const safeDriverId = cleanText(driverId);
+  if (!safeDriverId) return false;
+  const dispatch = findActiveDriverDeliveryDispatch(workspace, fulfillment.id ?? fulfillment.fulfillmentId);
+  return Boolean(cleanText(dispatch.dispatchId ?? dispatch.id)) && cleanText(dispatch.driverId) === safeDriverId;
 }
 
 function getFulfillmentSortSequence(workspace, fulfillmentId) {

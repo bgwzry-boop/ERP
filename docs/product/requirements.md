@@ -100,6 +100,8 @@ Warehouse / outbound mobile is a separate outbound task pool with a short home f
 
 Driver mobile is only for delivery tasks. It must not let drivers edit orders, documents, prices, inventory, or statements. Its home page should contain today's delivery tasks, task detail, watermark photo upload, optional signed-note photo upload, and complete delivery.
 
+Driver list/detail/load/device-QA/complete/exception actions are scoped to active dispatches assigned to the authenticated driver. Query/body `driverId`, `operatorId`, and `watermarkOperatorId` remain compatibility-only and cannot override authenticated identity. Unassigned tasks and tasks assigned to another driver are not visible.
+
 Driver task states in V1 are `waiting delivery`, `in delivery`, `completed`, and `delivery exception`.
 
 Driver task lists should first follow the manual delivery sequence set by office / outbound handoff. If no manual sequence exists, sort by latest needed time, urgent mark, and creation time. V1 does not do automatic route optimization.
@@ -113,6 +115,8 @@ Before loading, drivers must check the package-level loading checklist. The syst
 Before loading, drivers get a lightweight `confirm loaded` action. If goods, packages, or the note do not match, they tap `loading exception`; the issue returns to warehouse / office handling. Drivers do not change the order or delivery document on the driver screen.
 
 Delivery completion requires a watermark photo, with signature photo optional. The system records driver, completion time, and location automatically; receiver name and notes are optional.
+
+Initial delivery completion requires a prior `confirm loaded` transition. The watermark operator is always the authenticated driver. Evidence retake after office rejection updates evidence and returns it to pending review without deducting inventory again or replacing the original delivery time.
 
 Driver delivery completion and office evidence review are separate states. After the driver submits watermarked evidence, the delivery evidence waits for office review; office / management users can mark it `reviewed` or `retake required` after checking the watermark photo, optional signature photo, location, and paper-note context. Driver users must not have evidence-review permission.
 
