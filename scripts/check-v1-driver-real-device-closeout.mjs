@@ -175,7 +175,7 @@ function checkSafeguardBlocked() {
 }
 
 async function checkCliAndRedaction() {
-  writeJson(readinessPath, buildDriverReadinessReport({ checkedAt: "2026-07-08T08:00:00.000Z" }));
+  writeJson(readinessPath, buildDriverReadinessReport({ checkedAt: new Date().toISOString() }));
   writeJson(manifestPath, buildDriverManifest({ completeDriverGroup: true }));
   const run = await runNodeCli([
     runnerScript,
