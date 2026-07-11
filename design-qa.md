@@ -30,6 +30,14 @@ At `1024x768`, all three main regions now report `scrollWidth === clientWidth ==
 
 At `1024x768`, both pages fit the `884px` main region without horizontal overflow. Todo uses a `580px / 270px` split and separates processing, notification/printing, and history into semantic tabs. Statement uses a `250px / 600px` customer/detail split, keeps the customer plus all five financial trust amounts visible above the tabs, and reduces the detail table from nine technical columns to six business columns. At `390x844`, both pages report body and main `scrollWidth === clientWidth === 390` with a `374px` single-column work area. Tab visibility, empty notification state, payment-proof placement, export-history isolation, and persistent action controls were exercised; the browser produced no application warning or error.
 
+## C4.5 raw-material and master-data evidence
+
+- Before: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c45/01-raw-material-before.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c45/02-master-data-before.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c45/03-master-data-1024-before.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c45/04-raw-material-1024-before.png`.
+- Desktop after: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c45/05-raw-material-1024-after.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c45/06-master-data-1024-after.png`.
+- Mobile after: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c45/07-master-data-mobile-after.png`, `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c45/08-raw-material-mobile-after.png`.
+
+Before the change, master data forced a `640px / 330px` split inside an `884px` main region (`scrollWidth=994`), while raw material collapsed to one column at the same viewport and its fourteen metrics consumed the list panel so the data table was not visible. After the change, both pages use a `580px / 270px` split at `1024x768` with main `scrollWidth === clientWidth === 884`. Raw material shows four stage-relevant metrics and five business-summary columns; master data clears stale detail on an empty filter. At `390x844`, both pages report body and main `scrollWidth === clientWidth === 390` and a `374px` single column. Detail tabs, raw-material per-roll action separation, master-data empty state, and fresh-session console output were checked; no application warning or error remained.
+
 ## Full-view comparison evidence
 
 The source composite and both final desktop implementation captures were opened together at original resolution. The shell width, 140px navigation rail, top action bar, page-title hierarchy, order-entry three-step strip, source-recognition panel, dense table/validation split, bottom summary actions, packing task-list/detail split, three workbench tabs, machine-count evidence block, qualified-output block, and task-history placement align with the selected hybrid direction.

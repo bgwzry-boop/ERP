@@ -1,5 +1,6 @@
 .production-packing-workbench,
 .raw-material-workbench,
+.master-data-workbench,
 .workshop-mobile-workbench,
 .driver-mobile-workbench {
   gap: 10px;
@@ -317,6 +318,7 @@
 
 .production-packing-list-panel,
 .raw-material-list-panel,
+.master-data-list-panel,
 .mobile-role-task-panel {
   display: flex;
   min-height: 0;
@@ -339,6 +341,7 @@
 
 .production-packing-detail-pane .detail-head,
 .raw-material-detail-pane .detail-head,
+.master-data-detail-pane .detail-head,
 .mobile-role-detail-pane .detail-head {
   min-height: var(--erp-panel-header-height);
   padding: 7px 10px;
@@ -349,9 +352,150 @@
   max-width: none;
 }
 
+.master-data-filter-bar .search.small {
+  width: 100%;
+  max-width: none;
+}
+
 .raw-material-panel-actions .segmented {
   max-width: 100%;
   overflow-x: auto;
+}
+
+.master-data-panel-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.master-data-panel-actions .segmented {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.master-data-panel-actions .ghost-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.master-data-maintenance-table .data-row {
+  min-height: 42px;
+}
+
+.master-data-maintenance-table.customer .data-row {
+  grid-template-columns:
+    minmax(92px, 1fr)
+    minmax(68px, 0.7fr)
+    minmax(66px, 0.68fr)
+    minmax(92px, 0.85fr)
+    minmax(70px, 0.6fr)
+    minmax(104px, 1fr);
+}
+
+.master-data-maintenance-table.price .data-row,
+.master-data-maintenance-table.stock .data-row {
+  grid-template-columns:
+    minmax(82px, 0.88fr)
+    minmax(76px, 0.76fr)
+    minmax(96px, 1fr)
+    minmax(70px, 0.74fr)
+    minmax(78px, 0.82fr)
+    minmax(82px, 0.86fr)
+    minmax(68px, 0.68fr);
+}
+
+.master-data-maintenance-table.employee .data-row {
+  grid-template-columns:
+    minmax(82px, 0.86fr)
+    minmax(92px, 0.98fr)
+    minmax(96px, 1fr)
+    minmax(72px, 0.76fr)
+    minmax(72px, 0.76fr)
+    minmax(96px, 1fr);
+}
+
+.master-data-detail-pane .detail-form {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.master-data-maintenance-actions {
+  margin-top: 10px;
+}
+
+.master-data-maintenance-drafts {
+  display: grid;
+  gap: 7px;
+}
+
+.master-data-maintenance-draft {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 4px 8px;
+  border: 1px solid #f5d79d;
+  border-radius: var(--erp-radius-md);
+  background: #fffaf0;
+  padding: 7px 8px;
+}
+
+.master-data-maintenance-draft strong,
+.master-data-maintenance-draft span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.master-data-maintenance-draft strong {
+  color: var(--erp-text);
+  font-size: 12px;
+}
+
+.master-data-maintenance-draft span {
+  grid-column: 1 / -1;
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.raw-material-inbound-table .data-row {
+  grid-template-columns:
+    minmax(132px, 1.24fr)
+    minmax(146px, 1.36fr)
+    minmax(86px, 0.8fr)
+    minmax(96px, 0.9fr)
+    minmax(148px, 1.4fr);
+  min-height: 42px;
+}
+
+.raw-material-inbound-table .data-row span:nth-child(1),
+.raw-material-inbound-table .data-row span:nth-child(2),
+.raw-material-inbound-table .data-row span:nth-child(5) {
+  white-space: normal;
+}
+
+.raw-material-actions {
+  margin-top: 10px;
+}
+
+.raw-material-stage-actions {
+  order: 1;
+}
+
+.raw-material-roll-section {
+  order: 2;
+}
+
+.raw-material-machine-section {
+  order: 3;
+}
+
+.raw-material-detail-tabs .segmented button {
+  font-size: 11px;
 }
 
 .mobile-role-task-panel .mobile-task-list {
@@ -373,7 +517,8 @@
   }
 
   .production-status-hints,
-  .raw-material-panel-actions {
+  .raw-material-panel-actions,
+  .master-data-panel-actions {
     width: 100%;
     justify-content: flex-start;
   }
@@ -416,10 +561,30 @@
   }
 
   .raw-material-inbound-table .data-row {
-    grid-template-columns: minmax(68px, 0.9fr) minmax(82px, 1.1fr) minmax(72px, 1fr) 62px 68px 76px;
+    grid-template-columns: minmax(92px, 1.15fr) minmax(106px, 1.25fr) 66px 72px;
   }
 
-  .raw-material-inbound-table .data-row span:nth-child(4) {
+  .raw-material-inbound-table .data-row span:nth-child(5) {
+    display: none;
+  }
+
+  .master-data-maintenance-table.customer .data-row,
+  .master-data-maintenance-table.price .data-row,
+  .master-data-maintenance-table.stock .data-row,
+  .master-data-maintenance-table.employee .data-row {
+    grid-template-columns: minmax(96px, 1.2fr) minmax(82px, 1fr) minmax(96px, 1.15fr) minmax(92px, 1.1fr);
+  }
+
+  .master-data-maintenance-table.customer .data-row span:nth-child(3),
+  .master-data-maintenance-table.customer .data-row span:nth-child(6),
+  .master-data-maintenance-table.price .data-row span:nth-child(4),
+  .master-data-maintenance-table.price .data-row span:nth-child(6),
+  .master-data-maintenance-table.price .data-row span:nth-child(7),
+  .master-data-maintenance-table.stock .data-row span:nth-child(4),
+  .master-data-maintenance-table.stock .data-row span:nth-child(6),
+  .master-data-maintenance-table.stock .data-row span:nth-child(7),
+  .master-data-maintenance-table.employee .data-row span:nth-child(4),
+  .master-data-maintenance-table.employee .data-row span:nth-child(6) {
     display: none;
   }
 

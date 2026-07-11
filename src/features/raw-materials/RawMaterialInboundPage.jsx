@@ -36,6 +36,20 @@ import {
 } from "../../domain/rawMaterialInboundListState.js";
 
 const rawMaterialInboundTabs = ["入库单", "待贴标", "机边领料", "供应商对账"];
+const RAW_MATERIAL_DETAIL_TABS = ["入库标签", "领料成本", "供应商账", "记录"];
+const RAW_MATERIAL_METRIC_LABELS = {
+  入库单: ["待复核", "待打印", "待贴标", "可用卷/件"],
+  待贴标: ["待打印", "待贴标", "可用卷/件", "余料待复核"],
+  机边领料: ["机边领料", "已消耗", "余料待复核", "余料已复核"],
+  供应商对账: ["成本草稿", "成本确认", "损耗校准", "毛利报表"],
+};
+
+function selectRawMaterialInboundMetrics(metrics, activeTab) {
+  const metricByLabel = new Map(metrics.map((metric) => [metric[0], metric]));
+  return (RAW_MATERIAL_METRIC_LABELS[activeTab] ?? RAW_MATERIAL_METRIC_LABELS.入库单)
+    .map((label) => metricByLabel.get(label))
+    .filter(Boolean);
+}
 
 export function RawMaterialInboundPage({
   inbounds = [],
@@ -55,6 +69,7 @@ export function RawMaterialInboundPage({
 }) {
   const { getUiActionState = () => ({ disabled: false, title: "" }), money = (value) => `¥${value}` } = helpers;
   const [activeTab, setActiveTab] = useState(rawMaterialInboundTabs[0]);
+  const [detailTab, setDetailTab] = useState("入库标签");
   const [keyword, setKeyword] = useState("");
   const [statementImport, setStatementImport] = useState(null);
   const [statementImportLoading, setStatementImportLoading] = useState(false);
@@ -79,7 +94,7 @@ export function RawMaterialInboundPage({
   const marginReviewState = getUiActionState("rawMaterial", "复核毛利快照");
   const payableState = getUiActionState("rawMaterial", "生成应付");
   const paymentState = getUiActionState("rawMaterial", "确认付款");
-  const metrics = buildRawMaterialInboundMetrics(inbounds);
+  const metrics = selectRawMaterialInboundMetrics(buildRawMaterialInboundMetrics(inbounds), activeTab);
 
   useEffect(() => {
     if (!selected) return;
@@ -89,6 +104,7 @@ export function RawMaterialInboundPage({
   function changeTab(tab) {
     setActiveTab(tab);
     setKeyword("");
+    setDetailTab(tab === "供应商对账" ? "供应商账" : tab === "机边领料" ? "领料成本" : "入库标签");
   }
 
   async function handleSupplierStatementImport(event) {
@@ -182,7 +198,7 @@ export function RawMaterialInboundPage({
   }
 
   return (
-    <section className="page-grid split-detail raw-material-inbound-page raw-material-workbench">
+    <section className="page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench">
       <OperationalPanel className="table-pane raw-material-list-panel" ariaLabel="原材料入库列表">
         <PanelHeader
           title="原材料工作台"
@@ -208,17 +224,15 @@ export function RawMaterialInboundPage({
         <MetricStrip items={metrics} ariaLabel="原材料状态摘要" />
         <DataTable
           className="raw-material-inbound-table"
-          columns={["供应商", "外部/内部单号", "原料", "规格/颜色", "卷/重量", "状态", "下一步"]}
+          columns={["供应商/单号", "原料/规格", "卷/重量", "状态", "下一步"]}
           rows={visibleRecords.map((item) => ({
             id: item.id,
             active: item.id === selected?.id,
             tone: getRawMaterialInboundTone(item.status),
             onClick: () => setSelectedId(item.id),
             cells: [
-              item.supplierName,
-              formatRawMaterialDeliveryNoteNo(item),
-              item.productName || item.materialType,
-              `${item.spec} / ${item.factoryColor || item.supplierColor}`,
+              `${item.supplierName} / ${formatRawMaterialDeliveryNoteNo(item)}`,
+              `${item.productName || item.materialType} / ${item.spec} / ${item.factoryColor || item.supplierColor}`,
               `${item.rollCount || item.rolls?.length || 0}${item.materialType === "提手" ? "件" : "卷"} / ${formatRawMaterialWeight(item)}`,
               item.status,
               item.nextStep,
@@ -228,7 +242,7 @@ export function RawMaterialInboundPage({
       </OperationalPanel>
       <DetailPane
         className="raw-material-detail-pane"
-        title={selected ? `${selected.supplierName} · ${formatRawMaterialDeliveryNoteNo(selected)}` : "原材料入库"}
+        title={selected?.supplierName ?? "原材料入库"}
         subtitle={selected ? `${selected.status} · ${selected.source}` : "原材料送货单 OCR / 一卷一标"}
       >
         {selected ? (
@@ -246,7 +260,10 @@ export function RawMaterialInboundPage({
                 ["签单", selected.signedNoteStatus || "待上传"],
               ]}
             />
-            <section className="detail-section">
+            <div className="operational-detail-tabs raw-material-detail-tabs">
+              <Segmented ariaLabel="原材料详情视图" value={detailTab} onChange={setDetailTab} items={RAW_MATERIAL_DETAIL_TABS} />
+            </div>
+            <section className="detail-section operational-detail-section-first" hidden={detailTab !== "入库标签"}>
               <h3>入库动作</h3>
               <p>OCR 仅预填字段；供应商原始单号有则录、没有就留空，内部统一用 ERP 入库单号和卷号追踪；人工复核、打印卷标和贴标扫码是三个独立状态，不能跳过贴标扫码直接形成可用原材料库存。</p>
               <div className="action-row raw-material-actions">
@@ -273,18 +290,106 @@ export function RawMaterialInboundPage({
                   确认全部贴标
                 </button>
                 <button
-                  disabled={issueState.disabled || !canIssueRawMaterialToMachine(selected)}
-                  title={issueState.title || (!canIssueRawMaterialToMachine(selected) ? "只有已贴标扫码可用的卷/件才能机边领料" : "")}
-                  onClick={() => onAction?.("机边领料", selected.id, buildRawMaterialIssueOptions(selected, null, productionTasks))}
-                >
-                  全部机边领料
-                </button>
-                <button
                   disabled={exceptionState.disabled || selected.status === "入库异常/待确认"}
                   title={exceptionState.title || ""}
                   onClick={() => onAction?.("标记异常", selected.id, { reason: "页面手工标记异常。" })}
                 >
                   标记异常
+                </button>
+              </div>
+            </section>
+            <section className="detail-section raw-material-roll-section" hidden={!(["入库标签", "领料成本"].includes(detailTab))}>
+              <h3>{detailTab === "入库标签" ? "卷/件标签" : "卷/件领料与消耗"}</h3>
+              <div className="raw-material-roll-list">
+                {(selected.rolls ?? []).map((roll) => {
+                  const canAttachRoll = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用";
+                  const canIssueRoll = canIssueRawMaterialRoll(roll);
+                  const canPartialIssueRoll = canIssueRoll && Number(roll.weightKg || 0) > 0;
+                  const canConfirmConsumption = canConfirmRawMaterialConsumptionRoll(roll);
+                  const canPartialConsumeRoll = canConfirmConsumption && Number(roll.weightKg || 0) > 0;
+                  const canReturnLeftover = canReturnRawMaterialLeftoverRoll(roll);
+                  const canReviewLeftover = canReviewRawMaterialLeftoverRoll(roll);
+                  return (
+                    <div className="raw-material-roll-row" key={roll.id}>
+                      <div>
+                        <strong>{roll.id}</strong>
+                        <span>{roll.supplierRollNo} / {roll.weightKg ? `${roll.weightKg}kg` : selected.unit || "件"}</span>
+                      </div>
+                      <StatusPill tone={getRawMaterialRollTone(roll)}>{roll.labelStatus} / {roll.inventoryStatus || "不可用"}</StatusPill>
+                      <span>{roll.location || "待分配"}</span>
+                      <span>{roll.consumptionStatus || roll.signedNoteStatus || "待扫码/签单"}</span>
+                      <button
+                        hidden={detailTab !== "入库标签"}
+                        disabled={attachState.disabled || !canAttachRoll}
+                        title={attachState.title || (!canAttachRoll ? "该卷/件还未到可贴标确认状态" : "")}
+                        onClick={() => onAction?.("确认贴标入库", selected.id, { rollId: roll.id })}
+                      >
+                        贴标确认
+                      </button>
+                      <button
+                        hidden={detailTab !== "领料成本"}
+                        disabled={issueState.disabled || !canIssueRoll}
+                        title={issueState.title || (!canIssueRoll ? "该卷/件还不是可用库存，或已经领到机边" : "")}
+                        onClick={() => onAction?.("机边领料", selected.id, buildRawMaterialIssueOptions(selected, roll, productionTasks))}
+                      >
+                        机边领料
+                      </button>
+                      <button
+                        hidden={detailTab !== "领料成本"}
+                        disabled={issueState.disabled || !canPartialIssueRoll}
+                        title={issueState.title || (!canPartialIssueRoll ? "只有有重量的可用卷料才能拆卷部分领料" : "")}
+                        onClick={() => onAction?.("机边领料", selected.id, buildRawMaterialPartialIssueOptions(selected, roll, productionTasks))}
+                      >
+                        部分领料
+                      </button>
+                      <button
+                        hidden={detailTab !== "领料成本"}
+                        disabled={consumptionState.disabled || !canConfirmConsumption}
+                        title={consumptionState.title || (!canConfirmConsumption ? "只有机边领用且待消耗确认的卷/件才能确认消耗" : "")}
+                        onClick={() => onAction?.("确认消耗", selected.id, buildRawMaterialConsumptionOptions(selected, roll))}
+                      >
+                        确认消耗
+                      </button>
+                      <button
+                        hidden={detailTab !== "领料成本"}
+                        disabled={consumptionState.disabled || !canPartialConsumeRoll}
+                        title={consumptionState.title || (!canPartialConsumeRoll ? "只有有重量的机边卷料才能登记部分消耗" : "")}
+                        onClick={() => onAction?.("确认消耗", selected.id, buildRawMaterialPartialConsumptionOptions(selected, roll))}
+                      >
+                        部分消耗
+                      </button>
+                      <button
+                        hidden={detailTab !== "领料成本"}
+                        disabled={leftoverState.disabled || !canReturnLeftover}
+                        title={leftoverState.title || (!canReturnLeftover ? "只有机边领用的卷/件才能退回余料" : "")}
+                        onClick={() => onAction?.("余料退回", selected.id, buildRawMaterialLeftoverReturnOptions(selected, roll))}
+                      >
+                        余料退回
+                      </button>
+                      <button
+                        hidden={detailTab !== "领料成本"}
+                        disabled={leftoverReviewState.disabled || !canReviewLeftover}
+                        title={leftoverReviewState.title || (!canReviewLeftover ? "只有余料待复核的卷/件才能复核转可用" : "")}
+                        onClick={() => onAction?.("复核余料可用", selected.id, buildRawMaterialLeftoverReviewOptions(selected, roll))}
+                      >
+                        复核余料
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+            <section className="detail-section operational-detail-section-first raw-material-stage-actions" hidden={detailTab !== "领料成本"}>
+              <h3>领料与成本动作</h3>
+              <p>机边领料只移动原材料状态；成本、损耗和毛利按独立复核步骤推进，不把机器计数或领料记录当成合格产量。</p>
+              <div className="action-row raw-material-actions">
+                <button
+                  className="primary-action"
+                  disabled={issueState.disabled || !canIssueRawMaterialToMachine(selected)}
+                  title={issueState.title || (!canIssueRawMaterialToMachine(selected) ? "只有已贴标扫码可用的卷/件才能机边领料" : "")}
+                  onClick={() => onAction?.("机边领料", selected.id, buildRawMaterialIssueOptions(selected, null, productionTasks))}
+                >
+                  全部机边领料
                 </button>
                 <button
                   disabled={costDraftState.disabled || !canGenerateRawMaterialCostDraft(selected)}
@@ -323,81 +428,7 @@ export function RawMaterialInboundPage({
                 </button>
               </div>
             </section>
-            <section className="detail-section">
-              <h3>卷/件标签</h3>
-              <div className="raw-material-roll-list">
-                {(selected.rolls ?? []).map((roll) => {
-                  const canAttachRoll = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用";
-                  const canIssueRoll = canIssueRawMaterialRoll(roll);
-                  const canPartialIssueRoll = canIssueRoll && Number(roll.weightKg || 0) > 0;
-                  const canConfirmConsumption = canConfirmRawMaterialConsumptionRoll(roll);
-                  const canPartialConsumeRoll = canConfirmConsumption && Number(roll.weightKg || 0) > 0;
-                  const canReturnLeftover = canReturnRawMaterialLeftoverRoll(roll);
-                  const canReviewLeftover = canReviewRawMaterialLeftoverRoll(roll);
-                  return (
-                    <div className="raw-material-roll-row" key={roll.id}>
-                      <div>
-                        <strong>{roll.id}</strong>
-                        <span>{roll.supplierRollNo} / {roll.weightKg ? `${roll.weightKg}kg` : selected.unit || "件"}</span>
-                      </div>
-                      <StatusPill tone={getRawMaterialRollTone(roll)}>{roll.labelStatus} / {roll.inventoryStatus || "不可用"}</StatusPill>
-                      <span>{roll.location || "待分配"}</span>
-                      <span>{roll.consumptionStatus || roll.signedNoteStatus || "待扫码/签单"}</span>
-                      <button
-                        disabled={attachState.disabled || !canAttachRoll}
-                        title={attachState.title || (!canAttachRoll ? "该卷/件还未到可贴标确认状态" : "")}
-                        onClick={() => onAction?.("确认贴标入库", selected.id, { rollId: roll.id })}
-                      >
-                        贴标确认
-                      </button>
-                      <button
-                        disabled={issueState.disabled || !canIssueRoll}
-                        title={issueState.title || (!canIssueRoll ? "该卷/件还不是可用库存，或已经领到机边" : "")}
-                        onClick={() => onAction?.("机边领料", selected.id, buildRawMaterialIssueOptions(selected, roll, productionTasks))}
-                      >
-                        机边领料
-                      </button>
-                      <button
-                        disabled={issueState.disabled || !canPartialIssueRoll}
-                        title={issueState.title || (!canPartialIssueRoll ? "只有有重量的可用卷料才能拆卷部分领料" : "")}
-                        onClick={() => onAction?.("机边领料", selected.id, buildRawMaterialPartialIssueOptions(selected, roll, productionTasks))}
-                      >
-                        部分领料
-                      </button>
-                      <button
-                        disabled={consumptionState.disabled || !canConfirmConsumption}
-                        title={consumptionState.title || (!canConfirmConsumption ? "只有机边领用且待消耗确认的卷/件才能确认消耗" : "")}
-                        onClick={() => onAction?.("确认消耗", selected.id, buildRawMaterialConsumptionOptions(selected, roll))}
-                      >
-                        确认消耗
-                      </button>
-                      <button
-                        disabled={consumptionState.disabled || !canPartialConsumeRoll}
-                        title={consumptionState.title || (!canPartialConsumeRoll ? "只有有重量的机边卷料才能登记部分消耗" : "")}
-                        onClick={() => onAction?.("确认消耗", selected.id, buildRawMaterialPartialConsumptionOptions(selected, roll))}
-                      >
-                        部分消耗
-                      </button>
-                      <button
-                        disabled={leftoverState.disabled || !canReturnLeftover}
-                        title={leftoverState.title || (!canReturnLeftover ? "只有机边领用的卷/件才能退回余料" : "")}
-                        onClick={() => onAction?.("余料退回", selected.id, buildRawMaterialLeftoverReturnOptions(selected, roll))}
-                      >
-                        余料退回
-                      </button>
-                      <button
-                        disabled={leftoverReviewState.disabled || !canReviewLeftover}
-                        title={leftoverReviewState.title || (!canReviewLeftover ? "只有余料待复核的卷/件才能复核转可用" : "")}
-                        onClick={() => onAction?.("复核余料可用", selected.id, buildRawMaterialLeftoverReviewOptions(selected, roll))}
-                      >
-                        复核余料
-                      </button>
-                    </div>
-                  );
-                })}
-              </div>
-            </section>
-            <section className="detail-section">
+            <section className="detail-section raw-material-machine-section" hidden={detailTab !== "领料成本"}>
               <h3>机边领料 / 消耗</h3>
               <InfoGrid
                 rows={[
@@ -464,7 +495,7 @@ export function RawMaterialInboundPage({
                 ) ? <span>暂无机边领料 / 消耗 / 余料记录。</span> : null}
               </div>
             </section>
-            <section className="detail-section">
+            <section className="detail-section operational-detail-section-first" hidden={detailTab !== "供应商账"}>
               <h3>供应商对账</h3>
               <InfoGrid
                 rows={[
@@ -502,7 +533,7 @@ export function RawMaterialInboundPage({
                 />
               </div>
             </section>
-            <section className="detail-section">
+            <section className="detail-section operational-detail-section-first" hidden={detailTab !== "记录"}>
               <h3>流程记录</h3>
               <Timeline items={buildRawMaterialInboundTimeline(selected)} />
             </section>

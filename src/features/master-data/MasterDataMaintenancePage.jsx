@@ -1,8 +1,20 @@
 import { useEffect, useState } from "react";
-import { SearchOutlined } from "@ant-design/icons";
-import { DataTable, DetailPane, InfoGrid, MetricStrip, Segmented, StatusPill } from "../../components/ui.jsx";
+import { SearchOutlined, UploadOutlined } from "@ant-design/icons";
+import {
+  DataState,
+  DataTable,
+  DetailPane,
+  FilterBar,
+  InfoGrid,
+  MetricStrip,
+  OperationalPanel,
+  PanelHeader,
+  Segmented,
+  StatusPill,
+} from "../../shared/ui/operational.jsx";
 
 const masterDataMaintenanceTabs = ["客户档案", "价格表", "规格库存", "员工机台"];
+const MASTER_DATA_DETAIL_TABS = ["维护", "关联草稿", "复核规则"];
 
 export function MasterDataMaintenancePage({
   customers = [],
@@ -35,6 +47,7 @@ export function MasterDataMaintenancePage({
     seedUserOptions = [],
   } = helpers;
   const [keyword, setKeyword] = useState("");
+  const [detailTab, setDetailTab] = useState("维护");
   const [draftField, setDraftField] = useState("");
   const [draftValue, setDraftValue] = useState("");
   const [draftReason, setDraftReason] = useState("日常维护，待管理复核后通过导入确认流程写入。");
@@ -50,7 +63,7 @@ export function MasterDataMaintenancePage({
     helpers: { availableQty, formatStockKey, getLineColorSpecLabel, getLinePrintSide, getLineRemark, getStockStateGroup, getStockStateTone, getStockTrustLabel, money },
   });
   const visibleRecords = filterMasterDataMaintenanceRecords(records, keyword);
-  const selected = visibleRecords.find((item) => item.id === selectedId) ?? records.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? records[0] ?? null;
+  const selected = visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
   const selectedField = selected?.fields.find((field) => field.key === draftField) ?? selected?.fields[0] ?? null;
   const draftState = getUiActionState("masterData", "生成维护草稿");
   const relatedDrafts = maintenanceDrafts
@@ -81,6 +94,7 @@ export function MasterDataMaintenancePage({
   function changeTab(tab) {
     setSelectedTab(tab);
     setKeyword("");
+    setDetailTab("维护");
   }
 
   function changeDraftField(fieldKey) {
@@ -103,29 +117,33 @@ export function MasterDataMaintenancePage({
   }
 
   return (
-    <section className="page-grid split-detail master-data-maintenance-page">
-      <div className="table-pane">
-        <div className="master-data-maintenance-head">
-          <div>
-            <Segmented value={activeTab} onChange={changeTab} items={masterDataMaintenanceTabs} />
-            <span>维护草稿不直接写库，复核后继续走导入确认计划和正式导入。</span>
-          </div>
-          <button className="ghost-button" onClick={() => onOpenImportTemplate?.(activeTab)}>导入模板</button>
-        </div>
-        <div className="inventory-filter-panel">
-          <div className="toolbar-line">
-            <label className="search small">
-              <SearchOutlined />
-              <input placeholder="搜索名称 / 尺寸 / 颜色 / 手机 / 单号" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-            </label>
-            <button className="ghost-button" onClick={() => setKeyword("")}>重置</button>
-          </div>
-          <div className="filter-summary">
-            <span>命中 {visibleRecords.length} / {records.length} 条；最近导入草稿 {importReviewDrafts.length} 条，执行记录 {importExecutions.length} 条。</span>
-            <span>{activeTab} · 独立维护入口</span>
-          </div>
-        </div>
-        <MetricStrip items={stats} />
+    <section className="page-grid split-detail operational-split-workbench master-data-maintenance-page master-data-workbench">
+      <OperationalPanel className="table-pane master-data-list-panel" ariaLabel="基础资料列表">
+        <PanelHeader
+          title="基础资料维护"
+          summary="维护草稿不直接写库，复核后继续走导入确认计划和正式导入。"
+          actions={(
+            <div className="master-data-panel-actions">
+              <Segmented ariaLabel="基础资料类型" value={activeTab} onChange={changeTab} items={masterDataMaintenanceTabs} />
+              <button className="ghost-button" onClick={() => onOpenImportTemplate?.(activeTab)}>
+                <UploadOutlined /> 导入模板
+              </button>
+            </div>
+          )}
+        />
+        <FilterBar
+          className="master-data-filter-bar"
+          ariaLabel="基础资料搜索"
+          summary={`命中 ${visibleRecords.length} / ${records.length} 条；最近导入草稿 ${importReviewDrafts.length} 条，执行记录 ${importExecutions.length} 条。`}
+          secondarySummary={`${activeTab} · 独立维护入口`}
+          actions={<button className="ghost-button" onClick={() => setKeyword("")}>重置</button>}
+        >
+          <label className="search small">
+            <SearchOutlined />
+            <input placeholder="搜索名称 / 尺寸 / 颜色 / 手机 / 单号" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          </label>
+        </FilterBar>
+        <MetricStrip items={stats} ariaLabel="基础资料状态摘要" />
         <DataTable
           className={`master-data-maintenance-table ${getMasterDataMaintenanceTableClass(activeTab)}`}
           columns={getMasterDataMaintenanceColumns(activeTab)}
@@ -137,12 +155,15 @@ export function MasterDataMaintenancePage({
             cells: record.cells,
           }))}
         />
-      </div>
-      <DetailPane title={selected?.label ?? "基础资料"} subtitle={selected ? `${activeTab} · ${selected.statusLabel}` : activeTab}>
+      </OperationalPanel>
+      <DetailPane className="master-data-detail-pane" title={selected?.label ?? "基础资料"} subtitle={selected ? `${activeTab} · ${selected.statusLabel}` : "未选择"}>
         {selected ? (
           <>
             <InfoGrid rows={selected.detailRows} />
-            <section className="detail-section">
+            <div className="operational-detail-tabs">
+              <Segmented ariaLabel="基础资料详情视图" value={detailTab} onChange={setDetailTab} items={MASTER_DATA_DETAIL_TABS} />
+            </div>
+            <section className="detail-section operational-detail-section-first" hidden={detailTab !== "维护"}>
               <h3>维护草稿</h3>
               <div className="detail-form">
                 <label>
@@ -166,12 +187,12 @@ export function MasterDataMaintenancePage({
                   <textarea rows={3} value={draftReason} onChange={(event) => setDraftReason(event.target.value)} />
                 </label>
               </div>
-              <div className="action-row master-data-maintenance-actions">
+              <div className="action-row master-data-maintenance-actions operational-detail-actions">
                 <button className="primary-action" disabled={draftState.disabled} title={draftState.title} onClick={saveDraft}>保存维护草稿</button>
                 <button onClick={() => onOpenImportTemplate?.(activeTab)}>打开导入模板</button>
               </div>
             </section>
-            <section className="detail-section">
+            <section className="detail-section operational-detail-section-first" hidden={detailTab !== "关联草稿"}>
               <h3>关联草稿</h3>
               {relatedDrafts.length ? (
                 <div className="master-data-maintenance-drafts">
@@ -184,16 +205,16 @@ export function MasterDataMaintenancePage({
                   ))}
                 </div>
               ) : (
-                <p>该记录暂无维护草稿；需要批量更新时优先使用导入模板。</p>
+                <DataState title="该记录暂无维护草稿" detail="需要批量更新时优先使用导入模板。" compact />
               )}
             </section>
-            <section className="detail-section">
+            <section className="detail-section operational-detail-section-first" hidden={detailTab !== "复核规则"}>
               <h3>复核边界</h3>
               <p>{selected.reviewRule}</p>
             </section>
           </>
         ) : (
-          <div className="empty-row">当前没有可维护的基础资料。</div>
+          <DataState title="当前没有匹配的基础资料" detail="保留当前筛选条件，调整关键字后重试。" compact />
         )}
       </DetailPane>
     </section>

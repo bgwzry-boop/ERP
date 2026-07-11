@@ -3683,162 +3683,6 @@ button:disabled,
   -webkit-appearance: none;
 }
 
-.master-data-maintenance-page .table-pane {
-  min-width: 0;
-}
-
-.master-data-maintenance-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 56px;
-  border-bottom: 1px solid #edf1f7;
-  gap: 10px;
-  padding: 8px 10px;
-}
-
-.master-data-maintenance-head > div {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-}
-
-.master-data-maintenance-head span {
-  overflow: hidden;
-  color: #68758a;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.master-data-maintenance-head button {
-  flex-shrink: 0;
-}
-
-.master-data-maintenance-table .data-row {
-  min-height: 42px;
-}
-
-.master-data-maintenance-table.customer .data-row {
-  grid-template-columns:
-    minmax(0, 1fr)
-    minmax(0, 0.7fr)
-    minmax(0, 0.68fr)
-    minmax(0, 0.85fr)
-    minmax(0, 0.6fr)
-    minmax(0, 1fr);
-}
-
-.master-data-maintenance-table.price .data-row,
-.master-data-maintenance-table.stock .data-row {
-  grid-template-columns:
-    minmax(0, 0.88fr)
-    minmax(0, 0.76fr)
-    minmax(0, 1fr)
-    minmax(0, 0.74fr)
-    minmax(0, 0.82fr)
-    minmax(0, 0.86fr)
-    minmax(0, 0.68fr);
-}
-
-.master-data-maintenance-table.employee .data-row {
-  grid-template-columns:
-    minmax(0, 0.86fr)
-    minmax(0, 0.98fr)
-    minmax(0, 1fr)
-    minmax(0, 0.76fr)
-    minmax(0, 0.76fr)
-    minmax(0, 1fr);
-}
-
-.master-data-maintenance-actions {
-  margin-top: 10px;
-}
-
-.master-data-maintenance-drafts {
-  display: grid;
-  gap: 7px;
-}
-
-.master-data-maintenance-draft {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: 4px 8px;
-  border: 1px solid #f5d79d;
-  border-radius: 6px;
-  background: #fffaf0;
-  padding: 7px 8px;
-}
-
-.master-data-maintenance-draft strong,
-.master-data-maintenance-draft span {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.master-data-maintenance-draft strong {
-  color: #172033;
-  font-size: 12px;
-}
-
-.master-data-maintenance-draft span {
-  grid-column: 1 / -1;
-  color: #68758a;
-  font-size: 12px;
-  line-height: 18px;
-}
-
-.raw-material-inbound-page .table-pane {
-  min-width: 0;
-}
-
-.page-grid.raw-material-inbound-page {
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 330px);
-}
-
-.raw-material-inbound-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  min-height: 56px;
-  border-bottom: 1px solid #edf1f7;
-  gap: 10px;
-  padding: 8px 10px;
-}
-
-.raw-material-inbound-head > div {
-  display: grid;
-  min-width: 0;
-  gap: 4px;
-}
-
-.raw-material-inbound-head span {
-  overflow: hidden;
-  color: #68758a;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.raw-material-inbound-table .data-row {
-  grid-template-columns:
-    minmax(0, 0.82fr)
-    minmax(0, 0.8fr)
-    minmax(0, 0.82fr)
-    minmax(0, 1.1fr)
-    minmax(0, 0.72fr)
-    minmax(0, 0.78fr)
-    minmax(0, 1.28fr);
-  min-height: 42px;
-}
-
-.raw-material-actions {
-  margin-top: 10px;
-}
-
 .raw-material-roll-list {
   display: grid;
   gap: 7px;
@@ -8396,10 +8240,6 @@ button.route-nav-button {
     grid-template-columns: minmax(0, 1fr) 184px;
   }
 
-  .page-grid.raw-material-inbound-page {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
   .page-grid.workshop-mobile-layout {
     grid-template-columns: minmax(0, 1fr) minmax(320px, 330px);
   }
@@ -8665,9 +8505,7 @@ button.route-nav-button {
 
   .master-data-precheck-stats,
   .master-data-precheck-issue,
-  .master-data-maintenance-head,
   .master-data-maintenance-draft,
-  .raw-material-inbound-head,
   .raw-material-roll-row,
   .supplier-statement-preview-head,
   .supplier-statement-review-actions,
@@ -8694,21 +8532,6 @@ button.route-nav-button {
   .master-data-employee-review-head button,
   .master-data-employee-review-row button {
     width: 100%;
-  }
-
-  .master-data-maintenance-head {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .master-data-maintenance-head span,
-  .raw-material-inbound-head span {
-    white-space: normal;
-  }
-
-  .raw-material-inbound-head {
-    align-items: stretch;
-    flex-direction: column;
   }
 
   .raw-material-roll-row button {
