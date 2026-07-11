@@ -1,0 +1,183 @@
+.v1-status-workspace-tabs {
+  display: grid;
+  min-height: 38px;
+  overflow-x: auto;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-md);
+  background: var(--erp-surface);
+  grid-template-columns: repeat(6, minmax(92px, 1fr));
+}
+
+.v1-status-workspace-tabs button,
+.v1-status-section-tabs button,
+.v1-status-control-tabs button {
+  border: 0;
+  border-right: 1px solid var(--erp-border);
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.v1-status-workspace-tabs button:last-child,
+.v1-status-section-tabs button:last-child,
+.v1-status-control-tabs button:last-child {
+  border-right: 0;
+}
+
+.v1-status-workspace-tabs button.active,
+.v1-status-section-tabs button.active,
+.v1-status-control-tabs button.active {
+  background: var(--erp-accent);
+  color: #fff;
+  font-weight: 700;
+}
+
+.page-grid.two-col.v1-status-workbench {
+  grid-template-columns: minmax(330px, 0.82fr) minmax(0, 1.18fr);
+  gap: 10px;
+}
+
+.v1-status-workbench > .list-pane,
+.v1-status-workbench > .detail-pane {
+  min-width: 0;
+}
+
+.v1-status-control-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.v1-status-control-tabs {
+  display: grid;
+  min-height: 36px;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  background: #f8fafc;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 6px 8px;
+}
+
+.v1-status-control-tabs button {
+  min-height: 28px;
+  border-top: 1px solid var(--erp-border);
+  border-bottom: 1px solid var(--erp-border);
+}
+
+.v1-status-control-tabs button:first-child {
+  border-left: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-sm) 0 0 var(--erp-radius-sm);
+}
+
+.v1-status-control-tabs button:last-child {
+  border-right: 1px solid var(--erp-border);
+  border-radius: 0 var(--erp-radius-sm) var(--erp-radius-sm) 0;
+}
+
+.v1-status-control-stage {
+  min-height: 0;
+  overflow: auto;
+}
+
+.v1-status-section-tabs {
+  display: flex;
+  min-height: 34px;
+  overflow-x: auto;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  background: #f8fafc;
+  padding: 5px 8px;
+}
+
+.v1-status-section-tabs button {
+  min-width: 78px;
+  min-height: 26px;
+  border-top: 1px solid var(--erp-border);
+  border-bottom: 1px solid var(--erp-border);
+  flex: 1 0 auto;
+}
+
+.v1-status-section-tabs button:first-child {
+  border-left: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-sm) 0 0 var(--erp-radius-sm);
+}
+
+.v1-status-section-tabs button:last-child {
+  border-right: 1px solid var(--erp-border);
+  border-radius: 0 var(--erp-radius-sm) var(--erp-radius-sm) 0;
+}
+
+.v1-status-page .v1-workspace-panel,
+.v1-status-page .v1-module-summary {
+  display: none;
+}
+
+.v1-status-page.v1-status-view-module .v1-module-summary {
+  display: block;
+}
+
+.v1-status-page.v1-status-section-owner .v1-section-owner,
+.v1-status-page.v1-status-section-audit .v1-section-audit,
+.v1-status-page.v1-status-section-phase .v1-section-phase,
+.v1-status-page.v1-status-section-env_gate .v1-section-env_gate,
+.v1-status-page.v1-status-section-env_intake .v1-section-env_intake,
+.v1-status-page.v1-status-section-first_stage .v1-section-first_stage,
+.v1-status-page.v1-status-section-env_fix .v1-section-env_fix,
+.v1-status-page.v1-status-section-env_minimum .v1-section-env_minimum,
+.v1-status-page.v1-status-section-env_draft .v1-section-env_draft,
+.v1-status-page.v1-status-section-runtime_gate .v1-section-runtime_gate,
+.v1-status-page.v1-status-section-acceptance .v1-section-acceptance,
+.v1-status-page.v1-status-section-role_tasks .v1-section-role_tasks,
+.v1-status-page.v1-status-section-evidence .v1-section-evidence,
+.v1-status-page.v1-status-section-boundary .v1-section-boundary,
+.v1-status-page.v1-status-section-module_pressure .v1-section-module_pressure,
+.v1-status-page.v1-status-section-module_gaps .v1-section-module_gaps,
+.v1-status-page.v1-status-section-module_blockers .v1-section-module_blockers,
+.v1-status-page.v1-status-section-module_v2 .v1-section-module_v2 {
+  display: block;
+}
+
+.v1-status-workbench .detail-pane > .detail-head {
+  min-height: var(--erp-panel-header-height);
+  padding: 7px 10px;
+}
+
+.v1-status-workbench .detail-pane > .detail-section:first-of-type {
+  border-top: 0;
+}
+
+@media (max-width: 1240px) {
+  .page-grid.two-col.v1-status-workbench {
+    grid-template-columns: minmax(310px, 0.78fr) minmax(0, 1.22fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .v1-status-workspace-tabs {
+    grid-template-columns: repeat(6, minmax(88px, 1fr));
+  }
+
+  .page-grid.two-col.v1-status-workbench {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .v1-status-workbench > .list-pane,
+  .v1-status-workbench > .detail-pane,
+  .v1-status-control-stage {
+    max-height: none;
+    overflow: visible;
+  }
+
+  .v1-status-workbench > .detail-pane {
+    order: 1;
+  }
+
+  .v1-status-workbench > .list-pane {
+    order: 2;
+  }
+
+  .v1-status-control-tabs {
+    position: sticky;
+    z-index: 2;
+    top: 0;
+  }
+}

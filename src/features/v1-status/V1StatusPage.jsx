@@ -3,7 +3,9 @@ import { DetailPane, InfoGrid, StatusPill } from "../../components/ui.jsx";
 import {
   V1StatusGateModulePanel,
   V1StatusHeader,
+  V1StatusSectionTabs,
   V1StatusUnavailable,
+  V1StatusWorkspaceTabs,
   renderV1ProductionEnvFileSourceStatusList,
 } from "./V1StatusOverview.jsx";
 import {
@@ -25,6 +27,41 @@ import {
   v1UnblockPlan,
   v2DifferenceItems,
 } from "./v1StatusPresentation.js";
+
+const v1StatusWorkspaceSections = {
+  overview: [
+    { key: "owner", label: "负责人结论" },
+    { key: "audit", label: "完成审计" },
+    { key: "phase", label: "当前阶段" },
+  ],
+  production: [
+    { key: "env_gate", label: "配置门禁" },
+    { key: "env_intake", label: "真实值校验" },
+    { key: "first_stage", label: "第一阶段" },
+    { key: "env_fix", label: "修正清单" },
+    { key: "env_minimum", label: "最小模板" },
+    { key: "env_draft", label: "安全草稿" },
+  ],
+  runtime: [
+    { key: "runtime_gate", label: "运行门禁" },
+    { key: "acceptance", label: "验收报告" },
+  ],
+  field: [
+    { key: "role_tasks", label: "角色任务" },
+    { key: "evidence", label: "证据与签字" },
+  ],
+  boundary: [{ key: "boundary", label: "V1/V2 边界" }],
+  module: [
+    { key: "module_pressure", label: "角色压力" },
+    { key: "module_gaps", label: "主要未完成" },
+    { key: "module_blockers", label: "当前阻塞" },
+    { key: "module_v2", label: "V2 差异" },
+  ],
+};
+
+function getDefaultV1StatusSection(view) {
+  return v1StatusWorkspaceSections[view]?.[0]?.key ?? "owner";
+}
 
 
 export function V1StatusPage({
@@ -89,6 +126,8 @@ export function V1StatusPage({
 }) {
   const [selectedModuleName, setSelectedModuleName] = useState("原材料 / 成本 / 毛利");
   const [selectedPhaseKey, setSelectedPhaseKey] = useState("production_environment");
+  const [workspaceView, setWorkspaceView] = useState("overview");
+  const [workspaceSection, setWorkspaceSection] = useState("owner");
   const [evidenceStageDraft, setEvidenceStageDraft] = useState({
     selectionKey: "",
     onsiteStatus: "passed",
@@ -255,6 +294,15 @@ export function V1StatusPage({
   };
   const selectedModule = moduleCompletionRows.find((item) => item.module === selectedModuleName) ?? moduleCompletionRows[0];
   const selectedPhase = unblockPlan.phases.find((item) => item.key === selectedPhaseKey) ?? unblockPlan.phases[0];
+  const workspaceTitle = {
+    overview: "V1 决策总览",
+    production: "生产配置与持久化",
+    runtime: "运行门禁与验收报告",
+    field: "现场任务、证据与签字",
+    boundary: "V1/V2 边界",
+    module: selectedModule.module,
+  }[workspaceView] ?? "V1 上线工作台";
+  const workspaceSections = v1StatusWorkspaceSections[workspaceView] ?? [];
   const lastSuccessfulTimestamp = Date.parse(String(goLiveMeta.lastSuccessfulAt ?? ""));
   const hasV1StatusSnapshot = Boolean(goLiveStatus);
   const v1StatusSnapshotExpired =
@@ -718,11 +766,43 @@ export function V1StatusPage({
     await onPrecheckV1V2Boundary();
   }
 
+  function selectWorkspace(nextView, nextSection = getDefaultV1StatusSection(nextView)) {
+    setWorkspaceView(nextView);
+    setWorkspaceSection(nextSection);
+  }
+
+  function getWorkspaceTargetForRef(targetRef) {
+    if (
+      targetRef === productionEnvGateRef
+    ) return { view: "production", section: "env_gate" };
+    if (targetRef === productionEnvIntakeVerificationRef) return { view: "production", section: "env_intake" };
+    if (targetRef === productionFirstStageExecutionRef) return { view: "production", section: "first_stage" };
+    if (
+      targetRef === productionEnvFixChecklistRef
+    ) return { view: "production", section: "env_fix" };
+    if (targetRef === productionEnvMinimumValuesFragmentTemplateRef) return { view: "production", section: "env_minimum" };
+    if (targetRef === productionEnvFillTemplateRef) return { view: "production", section: "env_draft" };
+    if (targetRef === runtimeReadinessSectionRef) return { view: "runtime", section: "runtime_gate" };
+    if (targetRef === fieldAcceptanceReportRef) return { view: "runtime", section: "acceptance" };
+    if (
+      targetRef === fieldEvidenceProgressRef ||
+      targetRef === fieldEvidenceIntakeQualityRef ||
+      targetRef === evidenceStageCardRef ||
+      targetRef === signoffStageCardRef
+    ) return { view: "field", section: "evidence" };
+    if (targetRef === v1V2BoundaryBriefRef) return { view: "boundary", section: "boundary" };
+    return { view: "overview", section: "owner" };
+  }
+
   function scrollV1StatusRefIntoView(targetRef) {
     if (typeof window === "undefined") return;
-    window.requestAnimationFrame(() => {
-      targetRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
-    });
+    const target = getWorkspaceTargetForRef(targetRef);
+    selectWorkspace(target.view, target.section);
+    window.setTimeout(() => {
+      window.requestAnimationFrame(() => {
+        targetRef.current?.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
+    }, 0);
   }
 
   function focusProductionEnvFixChecklistFromBlocker() {
@@ -2155,7 +2235,7 @@ export function V1StatusPage({
   }
 
   return (
-    <section className="v1-status-page">
+    <section className={`v1-status-page v1-status-view-${workspaceView} v1-status-section-${workspaceSection}`}>
       <V1StatusHeader
         ready={goLiveStatus?.ready}
         statusSummary={statusSummary}
@@ -2164,29 +2244,40 @@ export function V1StatusPage({
         statusSourceDetail={statusSourceDetail}
       />
 
-      <section className="page-grid two-col">
+      <V1StatusWorkspaceTabs value={workspaceView} onChange={(view) => selectWorkspace(view)} />
+
+      <section className="page-grid two-col v1-status-workbench">
         <V1StatusGateModulePanel
           statusSummary={statusSummary}
           unblockPlan={unblockPlan}
           selectedPhase={selectedPhase}
-          setSelectedPhaseKey={setSelectedPhaseKey}
+          setSelectedPhaseKey={(key) => {
+            setSelectedPhaseKey(key);
+            selectWorkspace("overview", "phase");
+          }}
           moduleCompletionRows={moduleCompletionRows}
           selectedModule={selectedModule}
-          setSelectedModuleName={setSelectedModuleName}
+          setSelectedModuleName={(name) => {
+            setSelectedModuleName(name);
+            selectWorkspace("module", "module_pressure");
+          }}
         />
 
-        <DetailPane title={selectedModule.module} subtitle="模块完成度详情">
-          <InfoGrid
-            rows={[
-              ["需求确认", selectedModule.requirements],
-              ["P0/代码", selectedModule.p0Code],
-              ["V1 上线就绪", selectedModule.v1Readiness],
-              ["完成标准", "发布门禁 + 现场证据 + 签字"],
-              ["当前阶段", `${selectedPhase.label} / ${selectedPhase.taskCount} 项`],
-            ]}
-          />
+        <DetailPane title={workspaceTitle} subtitle="V1 上线工作台">
+          <V1StatusSectionTabs items={workspaceSections} value={workspaceSection} onChange={setWorkspaceSection} />
+          <div className="v1-module-summary">
+            <InfoGrid
+              rows={[
+                ["需求确认", selectedModule.requirements],
+                ["P0/代码", selectedModule.p0Code],
+                ["V1 上线就绪", selectedModule.v1Readiness],
+                ["完成标准", "发布门禁 + 现场证据 + 签字"],
+                ["当前阶段", `${selectedPhase.label} / ${selectedPhase.taskCount} 项`],
+              ]}
+            />
+          </div>
           {ownerDecisionBrief ? (
-            <section className="detail-section">
+            <section className="detail-section v1-workspace-panel v1-workspace-overview v1-section-owner">
               <h3>负责人决策摘要</h3>
               <div className="v1-owner-decision-head">
                 <StatusPill tone={ownerDecisionBrief.canDeclareV1Complete ? "success" : "danger"}>
@@ -2271,7 +2362,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {completionAudit ? (
-            <section className="detail-section">
+            <section className="detail-section v1-workspace-panel v1-workspace-overview v1-section-audit">
               <h3>V1 完成审计</h3>
               <div className="v1-owner-decision-head">
                 <StatusPill tone={completionAudit.canDeclareV1Complete ? "success" : "danger"}>
@@ -2338,7 +2429,7 @@ export function V1StatusPage({
               </div>
             </section>
           ) : null}
-          <section className="detail-section">
+          <section className="detail-section v1-workspace-panel v1-workspace-overview v1-section-phase">
             <h3>当前解除阻塞阶段</h3>
             <div className="v1-phase-detail">
               <p>{selectedPhase.nextStep}</p>
@@ -2393,7 +2484,7 @@ export function V1StatusPage({
             </div>
           </section>
           {productionEnvGate ? (
-            <section className="detail-section" ref={productionEnvGateRef}>
+            <section className="detail-section v1-workspace-panel v1-workspace-production v1-section-env_gate" ref={productionEnvGateRef}>
               <div className="v1-section-title-row">
                 <h3>生产配置门禁</h3>
                 <div className="v1-section-title-actions">
@@ -2825,7 +2916,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {productionEnvIntakeVerification ? (
-            <section className="detail-section" ref={productionEnvIntakeVerificationRef}>
+            <section className="detail-section v1-workspace-panel v1-workspace-production v1-section-env_intake" ref={productionEnvIntakeVerificationRef}>
               <div className="v1-section-title-row">
                 <h3>生产 env 真实值校验</h3>
                 <div className="v1-section-title-actions">
@@ -3009,7 +3100,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {productionFirstStageExecution ? (
-            <section className="detail-section" ref={productionFirstStageExecutionRef}>
+            <section className="detail-section v1-workspace-panel v1-workspace-production v1-section-first_stage" ref={productionFirstStageExecutionRef}>
               <div className="v1-section-title-row">
                 <h3>生产环境 / 持久化第一阶段</h3>
                 <div className="v1-section-title-actions">
@@ -3613,7 +3704,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {runtimeReadinessBlockers ? (
-            <section className="detail-section" ref={runtimeReadinessSectionRef}>
+            <section className="detail-section v1-workspace-panel v1-workspace-runtime v1-section-runtime_gate" ref={runtimeReadinessSectionRef}>
               <div className="v1-section-title-row">
                 <h3>运行时门禁阻塞</h3>
                 <div className="v1-section-title-actions">
@@ -3986,7 +4077,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {fieldAcceptanceReport ? (
-            <section className="detail-section" ref={fieldAcceptanceReportRef}>
+            <section className="detail-section v1-workspace-panel v1-workspace-runtime v1-section-acceptance" ref={fieldAcceptanceReportRef}>
               <h3>现场验收报告</h3>
               <div className="v1-field-acceptance-summary">
                 <span>通过 <strong>{fieldAcceptanceReport.summary.passedLabel}</strong></span>
@@ -4040,7 +4131,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {roleTaskBoard ? (
-            <section className="detail-section">
+            <section className="detail-section v1-workspace-panel v1-workspace-field v1-section-role_tasks">
               <h3>角色现场任务</h3>
               <div className="v1-role-task-summary">
                 <span>任务 <strong>{roleTaskBoard.summary.taskCountLabel}</strong></span>
@@ -4168,7 +4259,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {fieldEvidenceProgress ? (
-            <section className="detail-section" ref={fieldEvidenceProgressRef}>
+            <section className="detail-section v1-workspace-panel v1-workspace-field v1-section-evidence" ref={fieldEvidenceProgressRef}>
               <h3>现场证据 / 签字进度</h3>
               <div className="v1-field-evidence-summary">
                 <span>证据组 <strong>{fieldEvidenceProgress.summary.evidenceGroupsLabel}</strong></span>
@@ -5139,7 +5230,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {v1V2BoundaryBrief ? (
-            <section className="detail-section" ref={v1V2BoundaryBriefRef}>
+            <section className="detail-section v1-workspace-panel v1-workspace-boundary v1-section-boundary" ref={v1V2BoundaryBriefRef}>
               <div className="v1-section-title-row">
                 <h3>V1/V2 边界</h3>
                 <div className="v1-section-title-actions">
@@ -5291,7 +5382,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {productionEnvFixChecklist ? (
-            <section className="detail-section" ref={productionEnvFixChecklistRef}>
+            <section className="detail-section v1-workspace-panel v1-workspace-production v1-section-env_fix" ref={productionEnvFixChecklistRef}>
               <h3>生产环境修正清单</h3>
               <div className="v1-env-fix-summary">
                 <span>清单 <strong>{productionEnvFixChecklist.summary.itemCount} 项</strong></span>
@@ -5362,7 +5453,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {productionEnvMinimumValuesFragmentTemplate ? (
-            <section className="detail-section v1-production-env-minimum-values-template" ref={productionEnvMinimumValuesFragmentTemplateRef}>
+            <section className="detail-section v1-production-env-minimum-values-template v1-workspace-panel v1-workspace-production v1-section-env_minimum" ref={productionEnvMinimumValuesFragmentTemplateRef}>
               <h3>最小真实值片段模板</h3>
               <div className="v1-env-template-summary">
                 <span>变量 <strong>{productionEnvMinimumValuesFragmentTemplate.summary.variableCount}</strong></span>
@@ -5403,7 +5494,7 @@ export function V1StatusPage({
             </section>
           ) : null}
           {productionEnvFillTemplate ? (
-            <section className="detail-section" ref={productionEnvFillTemplateRef}>
+            <section className="detail-section v1-workspace-panel v1-workspace-production v1-section-env_draft" ref={productionEnvFillTemplateRef}>
               <h3>安全 env 填写草稿</h3>
               <div className="v1-env-template-summary">
                 <span>变量 <strong>{productionEnvFillTemplate.summary.variableCount}</strong></span>
@@ -5442,7 +5533,7 @@ export function V1StatusPage({
               ) : null}
             </section>
           ) : null}
-          <section className="detail-section">
+          <section className="detail-section v1-workspace-panel v1-workspace-module v1-section-module_pressure">
             <h3>角色压力</h3>
             <div className="v1-role-buckets">
               {unblockPlan.roleBuckets.map(([role, count]) => (
@@ -5450,17 +5541,17 @@ export function V1StatusPage({
               ))}
             </div>
           </section>
-          <section className="detail-section">
+          <section className="detail-section v1-workspace-panel v1-workspace-module v1-section-module_gaps">
             <h3>主要未完成</h3>
             <p>{selectedModule.remaining}</p>
           </section>
-          <section className="detail-section">
+          <section className="detail-section v1-workspace-panel v1-workspace-module v1-section-module_blockers">
             <h3>当前最小阻塞</h3>
             <ul className="v1-blocker-list">
               {statusSummary.blockers.map((item) => <li key={item}>{item}</li>)}
             </ul>
           </section>
-          <section className="detail-section">
+          <section className="detail-section v1-workspace-panel v1-workspace-module v1-section-module_v2">
             <h3>计划 V2 差异</h3>
             <div className="v2-difference-list">
               {v2DifferenceItemsForPage.map(([label, text]) => (

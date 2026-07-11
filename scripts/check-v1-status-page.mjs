@@ -14,6 +14,7 @@ const clientActionsSource = readFileSync(new URL("../src/services/officeV1GoLive
 const clientSource = [clientEntrySource, clientActionsSource].join("\n");
 const attachmentClientSource = readFileSync(new URL("../src/services/officeAttachmentApiClient.js", import.meta.url), "utf8");
 const styleSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const featureStyleSource = readFileSync(new URL("../src/styles/features/v1-status.css", import.meta.url), "utf8");
 
 assertIncludes(navigationSource, 'key: "v1Status"', "navigation should expose V1 status page");
 assertIncludes(navigationSource, 'label: "上线状态"', "navigation should label V1 status page");
@@ -101,6 +102,14 @@ assertIncludes(v1StatusPageSource, "export function V1StatusPage", "office pages
 assertIncludes(v1StatusPageEntrySource, 'from "./V1StatusOverview.jsx"', "V1 status page should compose the extracted overview");
 assertIncludes(v1StatusPageEntrySource, 'from "./v1StatusPresentation.js"', "V1 status page should consume the extracted presentation model");
 assertIncludes(v1StatusOverviewSource, "export function V1StatusGateModulePanel", "V1 status overview should own gate and module rendering");
+assertIncludes(v1StatusOverviewSource, "export function V1StatusWorkspaceTabs", "V1 status overview should own the top-level operational views");
+assertIncludes(v1StatusOverviewSource, "export function V1StatusSectionTabs", "V1 status overview should own current-view stage navigation");
+assertIncludes(v1StatusOverviewSource, 'aria-label="V1 上线工作视图"', "V1 status workbench views should expose tab semantics");
+assertIncludes(v1StatusOverviewSource, 'aria-label="V1 状态控制面板"', "V1 status left panel should expose gate/phase/module tabs");
+assertIncludes(v1StatusPageEntrySource, "v1StatusWorkspaceSections", "V1 status page should explicitly group long workflows by business stage");
+assertIncludes(v1StatusPageEntrySource, "v1-status-section-${workspaceSection}", "V1 status page should expose only the selected business section");
+assertIncludes(featureStyleSource, ".page-grid.two-col.v1-status-workbench", "V1 status feature styles should own the responsive split");
+assertIncludes(featureStyleSource, ".v1-status-page .v1-workspace-panel", "V1 status feature styles should hide inactive workflow sections");
 assertIncludes(v1StatusPresentationSource, "export function buildV1StatusSummaryForPage", "V1 status presentation should own summary fallback rules");
 assertExcludes(v1StatusPageEntrySource, "const v1StatusSummary =", "V1 status page should not redefine the fallback summary");
 assertIncludes(v1StatusPageSource, "goLiveStatus", "V1 status page should accept API status data");

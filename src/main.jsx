@@ -12,6 +12,7 @@ import "./styles/features/inventory.css";
 import "./styles/features/fulfillment.css";
 import "./styles/features/statements.css";
 import "./styles/features/role-tools.css";
+import "./styles/features/v1-status.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>
