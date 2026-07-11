@@ -63,9 +63,6 @@ import {
 } from "../src/state/officeStatementActions.js";
 import {
   markTodoHandled,
-  markTodoManagementViewed,
-  reopenTodo,
-  snoozeTodo,
 } from "../src/state/officeTodoActions.js";
 import {
   filterByKeyword,
@@ -97,6 +94,8 @@ import { createPrintJobLifecycleService } from "./services/printJobLifecycleServ
 import { createFulfillmentPrintCommandService } from "./services/fulfillmentPrintCommandService.mjs";
 import { createPrintDeviceCommandService } from "./services/printDeviceCommandService.mjs";
 import { createPrintBatchCommandService } from "./services/printBatchCommandService.mjs";
+import { createTodoCommandService } from "./services/todoCommandService.mjs";
+import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
 import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
 import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
@@ -326,6 +325,8 @@ export function createApiServer(options = {}) {
   const coreWorkspaceReadRepository =
     effectiveOptions.coreWorkspaceReadRepository ??
     createCoreWorkspaceReadRepository(effectiveOptions.coreWorkspaceReadRepositoryOptions);
+  const todoActionRepository =
+    effectiveOptions.todoActionRepository ?? createTodoActionRepository(effectiveOptions.todoActionRepositoryOptions);
   const orderDraftRepository =
     effectiveOptions.orderDraftRepository ?? createOrderDraftRepository(effectiveOptions.orderDraftRepositoryOptions);
   const orderConfirmationTransactionRepository =
@@ -405,6 +406,7 @@ export function createApiServer(options = {}) {
       statementSendTransactionRepository,
       statementExportRepository,
       coreWorkspaceReadRepository,
+      todoActionRepository,
       orderDraftRepository,
       orderConfirmationTransactionRepository,
       orderPoolReadRepository,
@@ -463,6 +465,7 @@ export function createApiServer(options = {}) {
   workspace.varianceRecords = [];
   workspace.statementSendRecords = [];
   workspace.statementConfirmationRecords = [];
+  workspace.todoEvents = [];
   workspace.statementExportFiles = [];
   workspace.statementLines = [];
   workspace.attachments = [];
@@ -485,6 +488,7 @@ export function createApiServer(options = {}) {
   workspace.statementExportRepository = statementExportRepository;
   workspace.statementExportObjectStorage = statementExportObjectStorage;
   workspace.coreWorkspaceReadRepository = coreWorkspaceReadRepository;
+  workspace.todoActionRepository = todoActionRepository;
   workspace.orderDraftRepository = orderDraftRepository;
   workspace.orderConfirmationTransactionRepository = orderConfirmationTransactionRepository;
   workspace.orderPoolReadRepository = orderPoolReadRepository;
@@ -675,6 +679,7 @@ async function routeGet(context) {
         statementExportRepository: workspace.statementExportRepository.kind,
         statementExportObjectStorage: workspace.statementExportObjectStorage.kind,
         coreWorkspaceReadRepository: workspace.coreWorkspaceReadRepository.kind,
+        todoActionRepository: workspace.todoActionRepository.kind,
         orderDraftRepository: workspace.orderDraftRepository.kind,
         orderConfirmationTransactionRepository: workspace.orderConfirmationTransactionRepository.kind,
         orderPoolReadRepository: workspace.orderPoolReadRepository.kind,
@@ -999,8 +1004,10 @@ async function routeWrite(context) {
       workspace,
       body,
       permissionContext,
+      authContext,
       writeActionPermissions,
       requireActionPermission,
+      getPermissionOperatorId,
       handleTodoRoute,
     })
   ) {
@@ -4404,6 +4411,7 @@ const v1SystemPersistenceGroups = [
     label: "订单 / 库存 / 出库交易仓储",
     repositories: [
       ["coreWorkspaceReadRepository", "核心工作区启动快照"],
+      ["todoActionRepository", "公共待办处理交易"],
       ["orderDraftRepository", "订单草稿"],
       ["orderConfirmationTransactionRepository", "订单确认交易"],
       ["orderPoolReadRepository", "订单池读取"],
@@ -16780,6 +16788,7 @@ const fulfillmentPrintCommandService = createFulfillmentPrintCommandService({
 });
 const printDeviceCommandService = createPrintDeviceCommandService({ buildOperationLog });
 const printBatchCommandService = createPrintBatchCommandService({ buildOperationLog });
+const todoCommandService = createTodoCommandService({ buildOperationLog });
 
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
   const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
@@ -19534,102 +19543,19 @@ function toAttachmentSummary(attachment) {
   };
 }
 
-function handleTodoRoute({ response, workspace, todoId, body }) {
-  const before = findTodo(workspace, todoId);
-  if (!before) return sendNotFound(response, "TODO_NOT_FOUND");
-  if (body.action === "mark_handled" || body.action === "batch_print_confirm") {
-    workspace.todos = markTodoHandled(workspace.todos, todoId, body.handlingResult ?? body.action);
-  } else if (body.action === "batch_print_result_pending") {
-    workspace.todos = markTodoPrintResultPending(workspace.todos, todoId, body);
-  } else if (body.action === "snooze") {
-    workspace.todos = snoozeTodo(workspace.todos, todoId, body.reason ?? "稍后30分钟").todos;
-  } else if (body.action === "reopen") {
-    workspace.todos = reopenTodo(workspace.todos, todoId);
-  } else if (body.action === "mark_viewed") {
-    workspace.todos = markTodoManagementViewed(workspace.todos, todoId);
-  } else if (body.action === "customer_notification_copied") {
-    workspace.todos = markTodoCustomerNotificationCopied(workspace.todos, todoId, body);
-  } else if (body.action === "customer_notification_sent") {
-    workspace.todos = markTodoCustomerNotificationSent(workspace.todos, todoId, body);
-  } else {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", `Unsupported todo action: ${body.action}`);
-  }
-  const after = findTodo(workspace, todoId);
-  const operationLogId = addOperationLog(workspace, {
-    targetType: "todo",
-    targetId: todoId,
-    action: `handle_todo:${body.action}`,
-    operatorId: body.operatorId ?? "U-OFFICE-A",
-    before,
-    after,
-    reason: body.reason,
+async function handleTodoRoute({ response, workspace, todoId, body, operatorId, operatorName }) {
+  const result = await todoCommandService.handleTodo({ workspace, todoId, body, operatorId, operatorName });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, {
+    todo: toTodoListItem(workspace, result.todo),
+    operationLogId: result.operationLogId,
   });
-  return sendJson(response, 200, { todo: toTodoListItem(workspace, after), operationLogId });
-}
-
-function markTodoCustomerNotificationCopied(todos, todoId, body = {}) {
-  const now = new Date().toISOString();
-  return todos.map((todo) =>
-    todo.id === todoId
-      ? {
-          ...todo,
-          notificationCopyText: cleanServerText(body.notificationContent) || todo.notificationCopyText || "",
-          notificationChannel: cleanServerText(body.notificationChannel) || todo.notificationChannel || "微信 / 企业微信人工发送",
-          notificationStatus: "话术已复制",
-          notificationCopiedBy: cleanServerText(body.operatorId) || todo.notificationCopiedBy || "",
-          notificationCopiedAt: now,
-          lastAction: cleanServerText(body.handlingResult) || "已复制客户通知话术",
-        }
-      : todo,
-  );
-}
-
-function markTodoCustomerNotificationSent(todos, todoId, body = {}) {
-  const now = new Date().toISOString();
-  const operatorId = cleanServerText(body.operatorId) || "U-OFFICE-A";
-  return todos.map((todo) =>
-    todo.id === todoId
-      ? {
-          ...todo,
-          handled: true,
-          handledBy: operatorId,
-          handledAt: now,
-          notificationCopyText: cleanServerText(body.notificationContent) || todo.notificationCopyText || "",
-          notificationChannel: cleanServerText(body.notificationChannel) || todo.notificationChannel || "微信 / 企业微信人工发送",
-          notificationStatus: "已通知客户",
-          notifiedBy: operatorId,
-          notifiedAt: now,
-          handlingResult: cleanServerText(body.handlingResult) || "已人工通知客户",
-          lastAction: cleanServerText(body.handlingResult) || "已人工通知客户",
-        }
-      : todo,
-  );
 }
 
 async function createPrintBatchRoute({ response, workspace, body, operatorId, operatorName }) {
   const result = await printBatchCommandService.createPrintBatch({ workspace, body, operatorId, operatorName });
   return sendJson(response, 200, result);
-}
-
-function markTodoPrintResultPending(todos, todoId, body) {
-  return todos.map((item) => {
-    if (item.id !== todoId) return item;
-    const printResultStatus = body.printResultStatus ?? (body.reason === "不确定" ? "unknown" : "not_printed");
-    return {
-      ...item,
-      handled: false,
-      urgency: printResultStatus === "unknown" ? "异常" : item.urgency,
-      reminder: printResultStatus === "unknown" ? "打印异常待核对" : "未打出，待重打",
-      lastAction: body.handlingResult ?? "批量打印结果待处理",
-      printResultStatus,
-      printedLabelCount: Number(body.printedLabelCount ?? 0),
-      pendingLabelCount: Number(body.pendingLabelCount ?? body.totalLabelCount ?? 0),
-      totalLabelCount: Number(body.totalLabelCount ?? 0),
-      printedPackageIds: Array.isArray(body.printedPackageIds) ? body.printedPackageIds : [],
-      pendingPackageIds: Array.isArray(body.pendingPackageIds) ? body.pendingPackageIds : [],
-      printPackages: Array.isArray(body.printPackages) ? body.printPackages : item.printPackages,
-    };
-  });
 }
 
 function buildDraftProjection(previous, draft) {

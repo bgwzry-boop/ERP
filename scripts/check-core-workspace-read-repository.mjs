@@ -38,6 +38,9 @@ assert.equal(state.fulfillments[0].zone, "A区");
 assert.equal(state.statements[0].lineIds[0], "OL-CORE-001");
 assert.equal(state.statementLines[0].finalAmount, 100);
 assert.equal(state.todos[0].ref, "DRAFT-CORE-001");
+assert.equal(state.todos[0].notificationStatus, "话术已复制");
+assert.equal(state.todos[0].lastAction, "已复制客户通知话术");
+assert.equal(state.todoEvents[0].eventId, "TE-CORE-001");
 assert.equal(state.operationLogs[0].targetType, "order_draft");
 
 const query = buildCoreWorkspaceSnapshotQuery();
@@ -50,6 +53,7 @@ for (const table of [
   "fulfillment_records",
   "statements",
   "todos",
+  "todo_events",
   "operation_logs",
 ]) {
   assert.match(query.text, new RegExp(`FROM ${table} AS row_data`));
@@ -136,6 +140,22 @@ function buildDatabaseSnapshot() {
     ],
     todos: [
       { id: "T-CORE-001", biz_no: "T-CORE-001", type: "订单草稿待确认", ref_type: "order_draft", ref_id: "DRAFT-CORE-001", priority: "普通", status: "未处理", summary: "待确认" },
+    ],
+    todoEvents: [
+      {
+        id: "TE-CORE-001",
+        todo_id: "T-CORE-001",
+        event_type: "handle_todo:customer_notification_copied",
+        event_payload: {
+          todo: {
+            notificationStatus: "话术已复制",
+            lastAction: "已复制客户通知话术",
+          },
+        },
+        operator_id: "U-OFFICE-A",
+        occurred_at: "2026-07-11T08:30:00.000Z",
+        created_at: "2026-07-11T08:30:00.000Z",
+      },
     ],
     varianceRecords: [],
     statementSendRecords: [],

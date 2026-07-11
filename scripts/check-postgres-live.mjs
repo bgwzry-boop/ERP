@@ -29,6 +29,7 @@ import { createPostgresProductionScheduleRecordRepository } from "../server/prod
 import { createPostgresPrintBatchRepository } from "../server/printBatchRepository.mjs";
 import { createPostgresPrintDeviceRepository } from "../server/printDeviceRepository.mjs";
 import { createPostgresPrintJobRepository } from "../server/printJobRepository.mjs";
+import { createPostgresTodoActionRepository } from "../server/todoActionRepository.mjs";
 import { createPostgresMasterDataImportReviewRepository } from "../server/masterDataImportReviewRepository.mjs";
 import { createPostgresMasterDataImportTransactionRepository } from "../server/masterDataImportTransactionRepository.mjs";
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
@@ -54,7 +55,7 @@ try {
   await checkPostgresRepositories();
   await checkApiWithPostgresRepositories();
   console.log(
-    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction repository, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
+    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction repository, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
   );
 } finally {
   if (server) await closeServer(server);
@@ -2353,12 +2354,14 @@ async function checkApiWithPostgresRepositories() {
     postgresClient: apiPostgresClient,
   });
   const printBatchRepository = createPostgresPrintBatchRepository({ postgresClient: apiPostgresClient });
+  const todoActionRepository = createPostgresTodoActionRepository({ postgresClient: apiPostgresClient });
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   const apiServerOptions = {
     v1PersistenceProfile: { repositoryMode: "postgres", queryJson },
     orderDraftRepository,
     printBatchRepository,
+    todoActionRepository,
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
@@ -2385,6 +2388,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.productionPackingReadRepository, "postgres");
   assert.equal(health.seed.productionScheduleRecordRepository, "postgres");
   assert.equal(health.seed.printBatchRepository, "postgres");
+  assert.equal(health.seed.todoActionRepository, "postgres");
   assert.equal(health.seed.printDeviceRepository, "postgres");
   assert.equal(health.seed.printJobRepository, "postgres");
   assert.equal(health.seed.printerDeviceFieldTestRepository, "postgres");
@@ -2402,6 +2406,40 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.v1PersistenceProfile.connectionStringExposed, false);
   assert.equal(health.seed.statementExportObjectStorage, "local_fs");
   assert.equal(health.seed.printDriverAdapter, "guarded_adapter");
+  const todoActionBody = {
+    action: "customer_notification_sent",
+    operatorId: "U-SPOOFED",
+    operatorName: "伪造操作人",
+    notificationContent: "PostgreSQL 待办持久化验证",
+    handlingResult: "已人工通知客户",
+    idempotencyKey: "todo-action-live-api-001",
+  };
+  const todoAction = await postJson(
+    baseUrl,
+    "/api/todos/T-LIVE-IDEMPOTENCY-001/handle",
+    todoActionBody,
+    { headers },
+  );
+  assert.equal(todoAction.todo.handled, true);
+  assert.equal(todoAction.todo.handledBy, "U-OFFICE-A");
+  assert.equal(todoAction.todo.notifiedBy, "U-OFFICE-A");
+  assert.equal(todoAction.todo.notificationStatus, "已通知客户");
+  const replayedTodoAction = await postJson(
+    baseUrl,
+    "/api/todos/T-LIVE-IDEMPOTENCY-001/handle",
+    todoActionBody,
+    { headers },
+  );
+  assert.equal(replayedTodoAction.operationLogId, todoAction.operationLogId);
+  const persistedTodoAction = queryJson(
+    "SELECT json_build_object('status', status, 'handledBy', handled_by) AS result FROM todos WHERE id = 'T-LIVE-IDEMPOTENCY-001';",
+  );
+  assert.equal(persistedTodoAction.status, "已处理");
+  assert.equal(persistedTodoAction.handledBy, "U-OFFICE-A");
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM todo_events WHERE todo_id = 'T-LIVE-IDEMPOTENCY-001';", { capture: true }).trim()),
+    1,
+  );
   const startupOperationLogs = await getJson(baseUrl, "/api/operation-logs?limit=200", { headers });
   assert.equal(
     startupOperationLogs.total,
@@ -4201,6 +4239,12 @@ WHERE id = 'F002';`,
   assert.equal(restartedHealth.seed.inventories, Number(runPsql("SELECT COUNT(*) FROM inventory_items;", { capture: true }).trim()));
   assert.equal(restartedHealth.seed.fulfillments, Number(runPsql("SELECT COUNT(*) FROM fulfillment_records;", { capture: true }).trim()));
   assert.equal(restartedHealth.seed.statements, Number(runPsql("SELECT COUNT(*) FROM statements;", { capture: true }).trim()));
+  const restartedHandledTodos = await getJson(baseUrl, "/api/todos?status=handled&pageSize=200", { headers });
+  const restartedTodoAction = restartedHandledTodos.items.find((item) => item.todoId === "T-LIVE-IDEMPOTENCY-001");
+  assert.equal(restartedTodoAction?.handledBy, "U-OFFICE-A");
+  assert.equal(restartedTodoAction?.notifiedBy, "U-OFFICE-A");
+  assert.equal(restartedTodoAction?.notificationStatus, "已通知客户");
+  assert.equal(restartedTodoAction?.notificationCopyText, "PostgreSQL 待办持久化验证");
   const resumedDraft = await patchJson(
     baseUrl,
     `/api/order-drafts/${concurrentDraftId}`,

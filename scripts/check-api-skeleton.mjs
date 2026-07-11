@@ -3361,14 +3361,14 @@ try {
   const todoId = payment.todoId ?? fulfillmentException.todoId;
   const todoHandle = await postJson(baseUrl, `/api/todos/${todoId}/handle`, {
     action: "mark_handled",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     handlingResult: "API skeleton check handled",
   });
-  if (!todoHandle.todo?.handled || !todoHandle.operationLogId) {
+  if (!todoHandle.todo?.handled || todoHandle.todo?.handledBy !== "U-OFFICE-A" || !todoHandle.operationLogId) {
     throw new Error("/api/todos/{todoId}/handle returned an unexpected payload");
   }
   if (!todoHandle.todo.todoId || !todoHandle.todo.refType || !todoHandle.todo.createdAt) {
-    throw new Error("/api/todos/{todoId}/handle did not return an OpenAPI-shaped todo");
+    throw new Error(`/api/todos/{todoId}/handle did not return an OpenAPI-shaped todo: ${JSON.stringify(todoHandle)}`);
   }
 
   const todoReopen = await postJson(baseUrl, `/api/todos/${todoId}/handle`, {

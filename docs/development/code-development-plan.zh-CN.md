@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D26 公共待办命令持久化已完成。八类处理动作进入 `todoCommandService.mjs`，`todoActionRepository.mjs` 在 production 同一幂等事务内更新主表、写完整事件和操作日志，并增加待办资源锁、陈旧时间门禁和认证操作人。核心启动读模型合并最新事件，通知 / 打印核对 / 提醒细节可跨重启恢复；repository 已纳入 production PostgreSQL profile 与 readiness。直接 service / repository、HTTP、全量、构建和 PostgreSQL 16 重放 / 重启 live 通过。下一轮 D27 迁移仍直接创建 / 解决待办的业务来源路径。
 - 本轮补充：D25-6 打印批次命令 service 迁移已完成。批次创建进入 `printBatchCommandService.mjs`，认证操作人覆盖请求体身份，无显式 ID 时按幂等键生成稳定批次号，无效相对时间改用服务端 ISO 时间。PostgreSQL repository 已接共享幂等执行器和批次资源锁，重放返回首个操作日志且不生成伪内存日志。直接 service、HTTP、全量、构建和 PostgreSQL 16 重放 live 通过。下一轮 D26 修复公共待办动作仅写内存和身份可伪造问题。
 - 本轮补充：D25-5 打印设备命令 service 迁移已完成。设备维护、驱动模式和打印现场 QA 记录进入 `printDeviceCommandService.mjs`；中文设备名默认 ID 由冲突的 `PRN--` 改为稳定短摘要。PostgreSQL QA 写入改用共享幂等执行器，按设备与 QA 记录加资源锁；记录操作人始终取认证上下文。专项、全量、构建和 PostgreSQL 16 live 通过。下一轮 D25-6 迁移打印批次命令。
 - 本轮补充：D25-4 交付打印命令 service 迁移已完成。首次打印 / 重打门禁、设备选择与文档兼容校验、打印记录事务、模板和打印作业创建、打印记录作废已迁入 `fulfillmentPrintCommandService.mjs`。production 对无正式事务目标的打印记录作废改为 fail-closed，不允许只写内存。直接 service、HTTP、OpenAPI、全量和 PostgreSQL 16 live 通过。下一轮 D25-5 迁移打印设备、驱动模式和现场 QA 命令。

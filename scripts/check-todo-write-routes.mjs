@@ -6,14 +6,19 @@ const dependencies = {
   response: {},
   workspace: {},
   body: { action: "mark_handled" },
-  permissionContext: { actionPermissions: ["todo.handle"] },
+  permissionContext: { actionPermissions: ["todo.handle"], user: { displayName: "认证办公室" } },
+  authContext: { userId: "U-AUTH" },
   writeActionPermissions: { handleTodo: "todo.handle" },
   requireActionPermission(response, permissionContext, permission) {
     calls.push({ kind: "permission", response, permissionContext, permission });
     return true;
   },
-  handleTodoRoute({ response, workspace, todoId, body }) {
-    calls.push({ kind: "handle", response, workspace, todoId, body });
+  getPermissionOperatorId(permissionContext, authContext, fallback) {
+    calls.push({ kind: "operator", permissionContext, authContext, fallback });
+    return "U-AUTH";
+  },
+  handleTodoRoute(input) {
+    calls.push({ kind: "handle", ...input });
   },
 };
 
@@ -28,7 +33,21 @@ assert.deepEqual(calls, [
     permissionContext: dependencies.permissionContext,
     permission: "todo.handle",
   },
-  { kind: "handle", response: dependencies.response, workspace: dependencies.workspace, todoId: "T-1", body: dependencies.body },
+  {
+    kind: "operator",
+    permissionContext: dependencies.permissionContext,
+    authContext: dependencies.authContext,
+    fallback: "U-OFFICE-A",
+  },
+  {
+    kind: "handle",
+    response: dependencies.response,
+    workspace: dependencies.workspace,
+    todoId: "T-1",
+    body: dependencies.body,
+    operatorId: "U-AUTH",
+    operatorName: "认证办公室",
+  },
 ]);
 
 calls.length = 0;

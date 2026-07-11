@@ -23,6 +23,7 @@ export const coreWorkspaceCollectionKeys = Object.freeze([
   "statements",
   "statementLines",
   "todos",
+  "todoEvents",
   "varianceRecords",
   "statementSendRecords",
   "statementConfirmationRecords",
@@ -52,6 +53,7 @@ const sourceTables = Object.freeze({
   statements: "statements",
   statementLines: "statement_lines",
   todos: "todos",
+  todoEvents: "todo_events",
   varianceRecords: "variance_records",
   statementSendRecords: "statement_send_records",
   statementConfirmationRecords: "statement_confirmation_records",
@@ -120,6 +122,7 @@ export function normalizeCoreWorkspaceState(value) {
   const inventoryById = new Map(rows.inventories.map((row) => [clean(row.id), row]));
   const orderLinesById = new Map(rows.orderLines.map((row) => [clean(row.id), row]));
   const statementsByCustomer = groupBy(rows.statements, (row) => row.customer_id);
+  const todoEventsByTodo = groupBy(rows.todoEvents, (row) => row.todo_id);
 
   return {
     customers: rows.customers.map((row) =>
@@ -166,7 +169,8 @@ export function normalizeCoreWorkspaceState(value) {
       toStatement(row, statementLinesByStatement.get(clean(row.id)) ?? []),
     ),
     statementLines: rows.statementLines.map(toStatementLine),
-    todos: rows.todos.map(toTodo),
+    todos: rows.todos.map((row) => toTodo(row, latestRow(todoEventsByTodo.get(clean(row.id)) ?? []))),
+    todoEvents: rows.todoEvents.map(toTodoEvent),
     varianceRecords: rows.varianceRecords.map(toVarianceRecord),
     statementSendRecords: rows.statementSendRecords.map(toStatementSendRecord),
     statementConfirmationRecords: rows.statementConfirmationRecords.map(toStatementConfirmationRecord),
@@ -617,9 +621,12 @@ function toStatementLine(row) {
   };
 }
 
-function toTodo(row) {
+function toTodo(row, latestEvent) {
+  const eventPayload = object(latestEvent?.event_payload);
+  const projectedTodo = object(eventPayload.todo ?? eventPayload.after);
   const status = clean(row.status) || "未处理";
   return {
+    ...projectedTodo,
     id: clean(row.id),
     todoId: clean(row.id),
     bizNo: clean(row.biz_no),
@@ -641,6 +648,18 @@ function toTodo(row) {
     createdBy: clean(row.created_by),
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toTodoEvent(row) {
+  return {
+    eventId: clean(row.id),
+    todoId: clean(row.todo_id),
+    eventType: clean(row.event_type),
+    eventPayload: object(row.event_payload),
+    operatorId: clean(row.operator_id),
+    occurredAt: timestamp(row.occurred_at),
+    createdAt: timestamp(row.created_at),
   };
 }
 

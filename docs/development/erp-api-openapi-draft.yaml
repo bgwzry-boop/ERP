@@ -4270,7 +4270,8 @@ paths:
       summary: 处理、稍后提醒或重新打开待办
       description: >
         处理待办只记录待办处理结果和实际处理人。影响库存、金额、订单、
-        交付状态的动作仍必须调用对应业务接口，不能只改待办状态。
+        交付状态的动作仍必须调用对应业务接口，不能只改待办状态。待办主状态、
+        完整处理事件和操作日志在同一 PostgreSQL 幂等事务中提交；实际处理人以认证身份为准。
       operationId: handleTodo
       parameters:
         - $ref: "#/components/parameters/TodoId"
@@ -21324,13 +21325,14 @@ components:
       type: object
       required:
         - action
-        - operatorId
       properties:
         action:
           type: string
           enum: [mark_handled, snooze, reopen, mark_viewed, batch_print_confirm, batch_print_result_pending, customer_notification_copied, customer_notification_sent]
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略该值并使用当前认证身份。
         reason:
           type: string
         handlingResult:
