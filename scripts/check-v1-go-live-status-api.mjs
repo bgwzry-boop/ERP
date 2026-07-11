@@ -988,6 +988,8 @@ try {
     headers: {
       "content-type": "application/json",
       "x-erp-user-id": "U-MANAGER-A",
+      host: "attacker.invalid:9443",
+      "x-forwarded-proto": "https",
     },
     body: JSON.stringify({
       valuesFilePath: "/Users/should-not-be-read/values.env",
@@ -3399,6 +3401,9 @@ try {
   assert.equal(runtimeReadinessPrecheckJson.safeguards.liveApiReadback, true);
   assert.equal(runtimeReadinessPrecheckJson.safeguards.requestBodyIgnored, true);
   assert.equal(runtimeReadinessPrecheckJson.safeguards.apiBaseUrlAccepted, false);
+  assert.equal(runtimeReadinessPrecheckJson.safeguards.requestHostAccepted, false);
+  assert.equal(runtimeReadinessPrecheckJson.safeguards.forwardedProtocolAccepted, false);
+  assert.equal(runtimeReadinessPrecheckJson.safeguards.loopbackTargetOnly, true);
   assert.equal(runtimeReadinessPrecheckJson.safeguards.bearerTokenAccepted, false);
   assert.equal(runtimeReadinessPrecheckJson.safeguards.releaseCandidateRefreshed, false);
   assert.equal(runtimeReadinessPrecheckJson.safeguards.goLiveSuiteRefreshed, false);

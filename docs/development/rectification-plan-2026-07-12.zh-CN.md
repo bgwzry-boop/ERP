@@ -1,7 +1,7 @@
 # ERP 代码、上线与 UI 整改执行方案
 
 制定日期：2026-07-12
-版本：V8.4
+版本：V8.5
 适用范围：V1 小范围真实上线、代码精简、UI 重构、现场验收
 
 ## 一、整改结论
@@ -22,7 +22,7 @@
 | 文件 | 当前规模 | 整改目标 |
 | --- | ---: | --- |
 | `src/App.jsx` | `7,231` 行 | 只保留会话、导航、路由、全局反馈和依赖装配；领域状态和动作迁入 feature/controller。 |
-| `server/apiServer.mjs` | `16,614` 行 | 只保留启动、依赖注入和路由装配；业务规则迁入 service，SQL 和事务留在 repository。 |
+| `server/apiServer.mjs` | `16,399` 行 | 只保留启动、依赖注入和路由装配；业务规则迁入 service，SQL 和事务留在 repository。 |
 | `src/styles.css` | `9,002` 行 | 降为兼容入口或删除；样式按 token、壳层、控件、表格、面板、状态、移动端和 feature 分层。 |
 
 ## 二、整改原则
@@ -201,7 +201,7 @@ src/styles/
 | D52 | 真实业务试跑 | 各岗位正常 / 异常流程记录 | 34 项证据完整且可追溯。 |
 | D53 | 发布收口 | release candidate、suite、handoff、签字和边界确认 | `34/34`、`6/6`、`4/4`。 |
 | B4 | `App.jsx` 继续拆分 | feature controller 和更薄的 App 壳 | 前端专项、全量测试和 E2E 通过。 |
-| B5（第六轮已完成） | `apiServer.mjs` 继续拆分 | 司机真机 live precheck 的账号选择、摘要、扫码样本裁剪、错误映射和护栏迁入 `v1DriverLivePrecheckService`；API 只保留 handler 装配 | 专项、全量、OpenAPI、production profile、PostgreSQL live、MinIO、核心 E2E 已通过；API 组合根降至 `16,614` 行。 |
+| B5（第七轮已完成） | `apiServer.mjs` 继续拆分 | 当前运行时 11 项总门禁的本机 API 探测、正式身份、来源聚合、投影和错误脱敏迁入 `v1RuntimeLivePrecheckService`；自调用固定 loopback + socket 端口，不再信任请求 Host / 转发协议 | 专项、全量、OpenAPI、production profile、PostgreSQL live、MinIO、核心 E2E 已通过；API 组合根降至 `16,399` 行。 |
 | F1（已完成） | 真实基础设施集成与 CI 门禁 | 临时 PostgreSQL、临时 MinIO、全依赖高危审计和核心 E2E 纳入 CI | MinIO 双 bucket 真实读写删、签名 URL、生产留档 readiness 通过；CI 任一项失败即阻断。 |
 | F2（代码已完成，待配置生产 runner） | 生产放行工作流 | 受保护 Environment、自托管 runner、真实 env / 现场 manifest secrets、最终 attestation | 只接受不可变 commit；`4/4`、`34/34`、`6/6`、V1/V2 边界和 go-live suite 全部 ready 才通过。 |
 | C4 | CSS 分层和六页 UI 精修 | 分层样式、共享组件、桌面 / 手机截图 | `1280x720`、`390x844` 无溢出、无控制台错误。 |

@@ -75,14 +75,6 @@ import { buildProductionEnvPreflight, parseEnvFile } from "../scripts/run-v1-pro
 import { buildProductionEnvFileAuditReport } from "../scripts/run-v1-production-env-file-audit.mjs";
 import { buildProductionEnvIntakeVerifyReport } from "../scripts/run-v1-production-env-intake-verify.mjs";
 import { buildProductionEnvValuesDryRunProofReport } from "../scripts/run-v1-production-env-values-dry-run-proof-check.mjs";
-import {
-  buildV1ReadinessReport,
-  readV1ReadinessSources,
-} from "../scripts/run-v1-readiness-check.mjs";
-import {
-  authenticateV1ReadinessRole,
-  buildV1ReadinessAuthInput,
-} from "../scripts/v1ReadinessRuntimeAuth.mjs";
 import { buildProductionGoLivePrecheckReport } from "../scripts/run-v1-production-go-live-precheck.mjs";
 import { validateV1FieldEvidenceManifest } from "../scripts/v1FieldEvidenceManifest.mjs";
 import { createAttachmentRepository } from "./attachmentRepository.mjs";
@@ -108,9 +100,12 @@ import { buildDriverV1Readiness as getDriverV1ReadinessResponse } from "./servic
 import { buildPrintDriverV1Readiness } from "./services/printDriverV1ReadinessService.mjs";
 import { precheckV1DriverReadiness } from "./services/v1DriverLivePrecheckService.mjs";
 import {
+  buildCurrentV1RuntimeReadinessReport,
+  precheckV1RuntimeReadiness,
+} from "./services/v1RuntimeLivePrecheckService.mjs";
+import {
   precheckV1AttachmentRetention,
   precheckV1Persistence,
-  sanitizeV1LivePrecheckCriterion,
 } from "./services/v1StorageLivePrecheckService.mjs";
 import {
   getEmployeeAccountDepartment,
@@ -229,8 +224,6 @@ import {
 import { createMasterDataImportConfirmationPlan } from "../src/domain/masterDataImportConfirmationPlan.js";
 import { createMasterDataImportExecution } from "../src/domain/masterDataImportExecution.js";
 import { createMasterDataImportCorrectionDraftFromFailedRows } from "../src/domain/masterDataImportReviewQueue.js";
-
-const API_DEFAULT_PORT = 8787;
 
 const writeActionPermissions = {
   recognizeOrderDraft: "order.draft.recognize",
@@ -1032,7 +1025,7 @@ async function routeWrite(context) {
         precheckPersistence: precheckV1Persistence,
         precheckAttachmentRetention: precheckV1AttachmentRetention,
         precheckDriverReadiness: precheckV1DriverReadiness,
-        precheckRuntimeReadiness: precheckSystemV1RuntimeReadiness,
+        precheckRuntimeReadiness: precheckV1RuntimeReadiness,
         precheckV1V2Boundary: precheckSystemV1V2Boundary,
         refreshV1V2ScopeBrief: refreshSystemV1V2ScopeBrief,
         precheckV1ReleaseCandidateRefresh: precheckSystemV1ReleaseCandidateRefresh,
@@ -5546,24 +5539,6 @@ async function runSystemV1ProductionPersistenceEvidence({ operatorId }) {
   }
 }
 
-async function buildCurrentV1RuntimeReadinessReport({ request, operatorId }) {
-  const { apiBaseUrl, driverOperatorId, health, operatorAuth, driverAuth } =
-    await buildCurrentV1ReadinessProbeContext({ request, operatorId });
-  const responses = await readV1ReadinessSources({
-    apiBaseUrl,
-    health,
-    headers: operatorAuth.headers,
-    driverHeaders: driverAuth.headers,
-  });
-  responses.authentication = buildCurrentV1ReadinessAuthenticationSummary({ operatorAuth, driverAuth });
-  return buildV1ReadinessReport({
-    apiBaseUrl,
-    operatorId,
-    driverOperatorId,
-    responses,
-  });
-}
-
 function buildV1ProductionGoLiveMissingEnvFileAudit({ checkedAt }) {
   return {
     scope: "v1_production_env_file_audit",
@@ -9085,201 +9060,10 @@ function sanitizeV1ProductionEnvFileAuditFinding(value = {}) {
   };
 }
 
-async function precheckSystemV1RuntimeReadiness({ request, operatorId }) {
-  const checkedAt = new Date().toISOString();
-  try {
-    const { apiBaseUrl, driverOperatorId, health, operatorAuth, driverAuth } =
-      await buildCurrentV1ReadinessProbeContext({ request, operatorId });
-    const responses = await readV1ReadinessSources({
-      apiBaseUrl,
-      health,
-      headers: operatorAuth.headers,
-      driverHeaders: driverAuth.headers,
-    });
-    responses.authentication = buildCurrentV1ReadinessAuthenticationSummary({ operatorAuth, driverAuth });
-    const report = buildV1ReadinessReport({
-      apiBaseUrl,
-      operatorId,
-      driverOperatorId,
-      responses,
-    });
-    return {
-      httpStatus: 200,
-      body: sanitizeV1RuntimeReadinessLivePrecheck(report, {
-        checkedAt,
-        operatorId,
-        driverOperatorId,
-      }),
-    };
-  } catch (error) {
-    return {
-      httpStatus: 500,
-      body: {
-        version: "p0-v1-runtime-readiness-live-precheck-v1",
-        scope: "v1_runtime_readiness_live_precheck",
-        status: "error",
-        ready: false,
-        checkedAt,
-        operatorId,
-        summary: {
-          label: "当前运行时 V1 总门禁预检失败",
-          readinessLabel: "0/11",
-          passedCount: 0,
-          totalCount: 0,
-          blockingCount: 0,
-          blockerCount: 0,
-          currentRuntime: true,
-          requestBodyIgnored: true,
-          apiBaseUrlAccepted: false,
-          releaseCandidateRefreshed: false,
-          goLiveSuiteRefreshed: false,
-        },
-        criteria: [],
-        blockingCriteria: [],
-        nextActions: [],
-        nextAction: "检查当前 API 是否可访问、权限账号是否存在，以及 readiness 端点是否能正常返回。",
-        error: {
-          code: "V1_RUNTIME_READINESS_LIVE_PRECHECK_FAILED",
-          message: "当前运行时 V1 总门禁预检失败。",
-        },
-        safeguards: buildV1RuntimeReadinessLiveSafeguards({ report: null }),
-      },
-    };
-  }
-}
-
-function buildCurrentApiBaseUrl(request) {
-  const host = cleanServerText(request?.headers?.host) || `127.0.0.1:${API_DEFAULT_PORT}`;
-  const protocol = cleanServerText(request?.headers?.["x-forwarded-proto"]).split(",")[0] || "http";
-  return `${protocol}://${host}/api`;
-}
-
-async function buildCurrentV1ReadinessProbeContext({ request, operatorId }) {
-  const apiBaseUrl = buildCurrentApiBaseUrl(request);
-  const healthResponse = await fetch(`${apiBaseUrl}/health`, {
-    headers: { connection: "close" },
-  });
-  if (!healthResponse.ok) throw new Error(`Current API health returned HTTP ${healthResponse.status}.`);
-  const health = await healthResponse.json();
-  const driverOperatorId = cleanServerText(process.env.ERP_V1_READINESS_DRIVER_OPERATOR_ID) || "U-DRIVER-A";
-  const operatorAuth = await authenticateV1ReadinessRole({
-    apiBaseUrl,
-    health,
-    authInput: buildV1ReadinessAuthInput({
-      role: "operator",
-      env: process.env,
-      overrides: {
-        operatorId,
-        bearerToken: getBearerToken(request) || process.env.ERP_V1_READINESS_TOKEN,
-      },
-    }),
-  });
-  const driverAuth = await authenticateV1ReadinessRole({
-    apiBaseUrl,
-    health,
-    authInput: buildV1ReadinessAuthInput({ role: "driver", env: process.env }),
-  });
-  return { apiBaseUrl, driverOperatorId, health, operatorAuth, driverAuth };
-}
-
-function buildCurrentV1ReadinessAuthenticationSummary({ operatorAuth, driverAuth }) {
-  return {
-    operator: sanitizeCurrentV1ReadinessAuthentication(operatorAuth),
-    driver: sanitizeCurrentV1ReadinessAuthentication(driverAuth),
-  };
-}
-
-function sanitizeCurrentV1ReadinessAuthentication(value = {}) {
-  return {
-    source: cleanServerText(value.source),
-    operatorId: cleanServerText(value.operatorId),
-    formalRuntimeSession: value.formalRuntimeSession === true,
-    legacyIdentityHeaderUsed: value.legacyIdentityHeaderUsed === true,
-    production: value.production === true,
-  };
-}
-
-function sanitizeV1RuntimeReadinessLivePrecheck(report = {}, { checkedAt, operatorId, driverOperatorId } = {}) {
-  const criteria = Array.isArray(report.criteria) ? report.criteria.map(sanitizeV1LivePrecheckCriterion) : [];
-  const blockingCriteria = criteria.filter((item) => item.blocking && !item.ready);
-  const passedCount = toNonNegativeInteger(report.summary?.passedCount || criteria.filter((item) => item.ready).length);
-  const totalCount = toNonNegativeInteger(report.summary?.totalCount || criteria.length);
-  const blockingCount = toNonNegativeInteger(report.summary?.blockingCount || blockingCriteria.length);
-  const ready = report.ready === true && blockingCount === 0;
-  const readinessLabel = totalCount ? `${passedCount}/${totalCount}` : cleanServerText(report.summary?.label || "0/11");
-  const nextActions = sanitizeStringList(report.nextActions).slice(0, 5);
-  return {
-    version: "p0-v1-runtime-readiness-live-precheck-v1",
-    scope: "v1_runtime_readiness_live_precheck",
-    status: ready ? "ready" : "blocked",
-    ready,
-    checkedAt: cleanServerText(report.checkedAt) || checkedAt || new Date().toISOString(),
-    operatorId,
-    driverOperatorId: cleanServerText(driverOperatorId),
-    summary: {
-      label: ready ? "当前运行时 V1 总门禁已通过" : "当前运行时 V1 总门禁仍未通过",
-      readinessLabel,
-      passedCount,
-      totalCount,
-      blockingCount,
-      blockerCount: blockingCriteria.length,
-      passedLabel: readinessLabel,
-      blockerLabel: `${blockingCriteria.length} 项`,
-      currentRuntime: true,
-      requestBodyIgnored: true,
-      apiBaseUrlAccepted: false,
-      releaseCandidateRefreshed: false,
-      goLiveSuiteRefreshed: false,
-      physicalPrinterCalled: Boolean(report.safeguards?.physicalPrinterCalled),
-      nonPrinting: report.safeguards?.nonPrinting !== false,
-      driverStatusChanged: Boolean(report.safeguards?.driverDeliveryStatusChanged),
-    },
-    criteria,
-    blockingCriteria,
-    nextActions,
-    nextAction: ready
-      ? "当前 API 运行时总门禁已通过；仍需结合现场证据、签字、V1/V2 边界和 release candidate 复核。"
-      : nextActions[0] || "先处理当前运行时总门禁阻塞，再重新跑 release candidate。",
-    safeguards: buildV1RuntimeReadinessLiveSafeguards({ report }),
-  };
-}
-
 function toNonNegativeInteger(value) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return 0;
   return Math.trunc(parsed);
-}
-
-function buildV1RuntimeReadinessLiveSafeguards({ report }) {
-  const safeguards = report?.safeguards && typeof report.safeguards === "object" ? report.safeguards : {};
-  return {
-    nonMutating: true,
-    liveApiReadback: true,
-    requestBodyIgnored: true,
-    apiBaseUrlAccepted: false,
-    bearerTokenAccepted: false,
-    releaseCandidateRefreshed: false,
-    goLiveSuiteRefreshed: false,
-    rawRuntimeReadinessReportIncluded: false,
-    rawReadinessSourcesIncluded: false,
-    rawPermissionsIncluded: false,
-    apiBaseUrlExposed: false,
-    environmentValuesIncluded: false,
-    envValuesIncluded: false,
-    commandValuesIncluded: Boolean(safeguards.commandValueExposed),
-    commandArgsIncluded: Boolean(safeguards.commandArgsExposed),
-    secretValuesIncluded: Boolean(safeguards.secretFieldsExposed),
-    payloadIncluded: Boolean(safeguards.payloadExposed || safeguards.attachmentPayloadExposed || safeguards.driverPayloadExposed),
-    spoolPathExposed: Boolean(safeguards.spoolPathExposed),
-    localPathExposed: Boolean(safeguards.systemLocalPathExposed),
-    physicalPrinterCalled: Boolean(safeguards.physicalPrinterCalled),
-    printFileCreated: Boolean(safeguards.printFileCreated),
-    driverDeliveryStatusChanged: Boolean(safeguards.driverDeliveryStatusChanged),
-    nonPrinting: safeguards.nonPrinting !== false,
-    attachmentReadOnly: safeguards.attachmentReadOnly !== false,
-    driverReadOnly: safeguards.driverReadOnly !== false,
-    systemReadOnly: safeguards.systemReadOnly !== false,
-  };
 }
 
 function precheckSystemV1V2Boundary({ operatorId }) {

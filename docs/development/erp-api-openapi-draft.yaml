@@ -8311,6 +8311,9 @@ components:
             - liveApiReadback
             - requestBodyIgnored
             - apiBaseUrlAccepted
+            - requestHostAccepted
+            - forwardedProtocolAccepted
+            - loopbackTargetOnly
             - bearerTokenAccepted
             - releaseCandidateRefreshed
             - goLiveSuiteRefreshed
@@ -8340,6 +8343,15 @@ components:
             apiBaseUrlAccepted:
               type: boolean
               const: false
+            requestHostAccepted:
+              type: boolean
+              const: false
+            forwardedProtocolAccepted:
+              type: boolean
+              const: false
+            loopbackTargetOnly:
+              type: boolean
+              const: true
             bearerTokenAccepted:
               type: boolean
               const: false
