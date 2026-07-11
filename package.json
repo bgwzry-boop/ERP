@@ -183,6 +183,7 @@
     "attachment-repository:check": "node scripts/check-attachment-repository.mjs",
     "attachment-storage:check": "node scripts/check-attachment-object-storage.mjs",
     "attachment-storage-live:check": "node scripts/check-attachment-object-storage-live.mjs",
+    "object-storage:minio-live:check": "node scripts/check-object-storage-minio-live.mjs",
     "todo-api:check": "node scripts/check-todo-read-routes.mjs && node scripts/check-todo-write-routes.mjs && node scripts/check-todo-command-service.mjs && node scripts/check-todo-action-repository.mjs && node scripts/check-frontend-todo-api-client.mjs",
     "db:check": "node scripts/check-db-migrations.mjs",
     "db-client:check": "node scripts/check-postgres-pool-client.mjs",
