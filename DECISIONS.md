@@ -2081,3 +2081,7 @@ Marking a fulfillment as prepared is a real backend state transition with permis
 ## 2026-07-11 - Production Machine Assignment Changes Only Through Scheduling
 
 An existing production task's machine assignment is server-authoritative and can change only through the permissioned machine-queue move workflow. Daily progress and production-completion reporting may record the assigned machine as evidence, but a stale or default client machine value must not overwrite the current assignment. Machine action/cycle counts remain evidence only and never select a machine, create finished-goods inventory, reserve stock, or create a packing task by themselves.
+
+## 2026-07-11 - Global Interaction State Uses One Controller Boundary
+
+Global toast and overlay state, permission action guards, and cross-domain modal routing belong in an application interaction controller rather than `App.jsx` or individual pages. The controller may coordinate existing domain write hooks and API clients, but it must not duplicate permissions, URLs, transaction rules, or business state machines. Permission denials, version/lock conflicts, and blocked results without feature-specific feedback must produce a visible normalized message; committed business writes remain server-authoritative and feature hooks remain responsible for projection refresh behavior.

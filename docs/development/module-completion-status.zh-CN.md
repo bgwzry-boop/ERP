@@ -20,6 +20,8 @@
 
 ## 最新代码审查修复
 
+本轮完成 D21 全局交互控制器整改：`useOfficeInteractionController.js` 统一管理 toast、业务弹窗、订单动作弹窗、附件预览、基础资料模板面板、权限动作守卫和领域弹窗提交分发；`App.jsx` 从 `7,504` 行降至 `7,248` 行，不再包含领域 `confirmModal`、订单动作提交和权限守卫实现，也不再直接执行实收 / 差额弹窗写 API。冲突提示统一要求刷新重试，权限拒绝和无反馈 blocked 结果不会静默。新增专项并纳入 `npm test`；全量、构建、桌面弹窗、`1280px / 390px` 无溢出和干净会话零控制台错误通过。B1.5 尚未完成，真实基础设施、设备、业务试跑、证据 `0/34`、签字 `0/6` 和门禁 `0/4` 均未变化。
+
 本轮完成 D20 打印写动作和打印状态可信度整改：打印作业派发 / 重试、设备模式 / QA、单张 / 批量结果和作废重打已迁入 `useOfficePrintWrites.js`，`App.jsx` 降至 `7,504` 行且不再直接调用打印写 API。打印记录新增 `submitted / reprint_submitted`，预览、queued、sent 均不推进交付；只有可信 driver / spool `printed` 回读才同步打印记录和快递交付，提前确认拉走固定返回 `409`。PostgreSQL live 同时修复并覆盖打印作业日志与交付投影日志 ID 碰撞。全量 `npm test`、批次 B、PostgreSQL 16 live、API/OpenAPI、构建和桌面 / 390px 浏览器回归通过。该变化不提高 V1 真实上线完成度：真实打印机、CUPS、标签扫码、司机真机、生产基础设施、证据 `0/34`、签字 `0/6` 和门禁 `0/4` 仍未完成。
 
 本轮完成 R2 的本地代码准备：生产部署已锁定 Node 24，新增 systemd API / health timer、nginx TLS 和同源 API 配置、`SIGTERM/SIGINT` 优雅停机、共享 PostgreSQL pool 关闭、8 项服务健康探针、15 项部署清单、按完整 commit 的 9 阶段全新目录恢复检查，以及启停/日志/告警/备份/回滚手册。全量 `npm test`、批次 B PostgreSQL 16 live 和 production profile live 通过。代码 / 原型百分比和 V1 `80-83%` 暂不提高：当前实际部署清单仍因没有受控 Git 远端停在 `14/15`，真实 PostgreSQL、恢复验证库、对象存储、另一台主机恢复、告警、回滚、设备、现场证据和签字均未完成。

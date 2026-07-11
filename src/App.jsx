@@ -31,11 +31,10 @@ import {
   primaryNavigationItems,
 } from "./app/navigation.js";
 import { AppNavigation } from "./app/AppNavigation.jsx";
+import { useOfficeInteractionController } from "./app/useOfficeInteractionController.js";
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
 import {
-  canUseUiAction,
   defaultSeedUserId,
-  getPermissionDeniedText,
   getUiActionState,
   seedUserOptions,
 } from "./auth/seedPermissions.js";
@@ -50,8 +49,6 @@ import {
 import {
   createDeliveryEvidenceAttachmentInput,
   createOfficeAttachment,
-  createPaymentScreenshotAttachmentInput,
-  createStatementCustomerConfirmationAttachmentInput,
   createV1FieldEvidenceAttachmentInput,
   createV1FieldEvidenceAttachmentListInput,
   createV1SignoffBoundaryAttachmentInput,
@@ -126,13 +123,10 @@ import {
 import {
   buildStatementExcelWorkbook,
   downloadOfficeStatementExport,
-  handleOfficeStatementVariance,
   listOfficeStatementExports,
   markOfficeStatementSentViaApi,
   previewOfficeStatement,
-  recordOfficeStatementCustomerConfirmation,
   recordOfficeStatementSendReceipt,
-  recordOfficeStatementPayment,
   writeOffOfficeStatement,
 } from "./services/officeStatementApiClient.js";
 import {
@@ -143,7 +137,6 @@ import {
 } from "./services/officeMockService.js";
 import {
   batchPrintResultOptions,
-  confirmOfficeModal,
   getOfficeModalInitialNumberValue,
   getOfficeModalInitialReason,
   officeModalReasonOptions,
@@ -173,7 +166,6 @@ import {
 } from "./state/officePrintState.js";
 import {
   getStatementWriteOffBlocker,
-  recordStatementCustomerConfirmation,
   recordStatementSendReceipt,
   recordStatementExport,
   syncStatementCustomerConfirmationAttachments,
@@ -546,14 +538,9 @@ function downloadTextFile(content, options = {}) {
 export function App() {
   const runtimeServerRequired = isOfficeApiServerRequired();
   const [activePage, setActivePage] = useState("todos");
-  const [toast, setToast] = useState(`P0 原型已载入：${activeScenario.name}。`);
   const [authState, setAuthState] = useState(() => createInitialAuthState());
   const [runtimeLoginForm, setRuntimeLoginForm] = useState({ loginName: "", password: "" });
   const [runtimeLoginLoading, setRuntimeLoginLoading] = useState(false);
-  const [modal, setModal] = useState(null);
-  const [orderActionModal, setOrderActionModal] = useState(null);
-  const [attachmentViewer, setAttachmentViewer] = useState(null);
-  const [masterDataTemplatePanel, setMasterDataTemplatePanel] = useState(null);
   const permissionContext = authState.permissions;
   const currentUser = permissionContext.user;
   const currentUserId = currentUser.userId ?? defaultSeedUserId;
@@ -658,6 +645,48 @@ export function App() {
     initialStatements,
     initialTodos,
     sampleText,
+  });
+
+  const {
+    attachmentViewer,
+    closeAttachmentViewer,
+    closeMasterDataTemplatePanel,
+    closeModal,
+    closeOrderActionModal,
+    confirmModal,
+    confirmOrderLineAction,
+    guardUiAction,
+    masterDataTemplatePanel,
+    modal,
+    openAttachmentViewer,
+    openMasterDataTemplatePanel: showMasterDataTemplatePanel,
+    openModal,
+    openOrderActionModal,
+    orderActionModal,
+    setToast,
+    toast,
+  } = useOfficeInteractionController({
+    addTodo,
+    authState,
+    confirmBatchPrintResult,
+    currentUser,
+    currentUserId,
+    executeOrderLineAction,
+    findCustomer,
+    fulfillments,
+    getStatementBlockingAmount,
+    initialToast: `P0 原型已载入：${activeScenario.name}。`,
+    orderLines,
+    permissionContext,
+    printFulfillmentDocument,
+    readFileAsDataUrl,
+    saveFulfillmentDispatch,
+    setFulfillments,
+    setStatements,
+    statements,
+    submitFulfillmentException,
+    todos,
+    voidFulfillmentPrintRecord,
   });
 
   const activeMeta = allNavigationItems.find((item) => item.key === activePage) ?? primaryNavigationItems[0];
@@ -1638,7 +1667,7 @@ export function App() {
   }
 
   function openMasterDataTemplatePanel(sourceLabel) {
-    setMasterDataTemplatePanel({
+    showMasterDataTemplatePanel({
       sourceLabel,
       openedAt: new Date().toISOString(),
     });
@@ -3407,12 +3436,6 @@ export function App() {
     setSelectedTodoId(todo.id);
   }
 
-  function guardUiAction(surface, action) {
-    if (canUseUiAction(permissionContext, surface, action)) return true;
-    setToast(getPermissionDeniedText(permissionContext, surface, action));
-    return false;
-  }
-
   useEffect(() => {
     if (activePage !== "v1Status") return;
     void refreshV1GoLiveStatus();
@@ -4333,23 +4356,11 @@ export function App() {
     }
     const label = action === "quantity" ? "调整正式单数量" : "作废正式单";
     if (!guardUiAction("orders", label)) return;
-    setOrderActionModal({
+    openOrderActionModal({
       type: action,
       orderLineId: orderLine.id,
       orderLine,
     });
-  }
-
-  async function confirmOrderLineAction(payload) {
-    if (!orderActionModal) return;
-    const orderLine = orderLines.find((item) => item.id === orderActionModal.orderLineId) ?? orderActionModal.orderLine;
-    const result = await executeOrderLineAction({
-      action: orderActionModal.type,
-      orderLine,
-      payload,
-    });
-    if (result?.closeModal) setOrderActionModal(null);
-    if (result?.feedback) setToast(result.feedback);
   }
 
   async function handleTodo(action, todoId = selectedTodoId) {
@@ -4363,7 +4374,7 @@ export function App() {
         return;
       }
       const stats = getBatchPrintStats([selected]);
-      setModal({
+      openModal({
         type: "batchPrintResult",
         action,
         todoIds: [selected.id],
@@ -4427,7 +4438,7 @@ export function App() {
         return;
       }
       const stats = getBatchPrintStats(printTodos);
-      setModal({
+      openModal({
         type: "batchPrintResult",
         action,
         todoIds: printTodos.map((item) => item.id),
@@ -4640,7 +4651,7 @@ export function App() {
       }
       if (attachmentFile?.previewDataUrl) {
         const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-        setAttachmentViewer({
+        openAttachmentViewer({
           ...attachmentFile,
           attachmentId,
           viewerTitle,
@@ -4707,7 +4718,7 @@ export function App() {
             : item,
         ),
       );
-      if (previewDataUrl) setAttachmentViewer(nextPreview);
+      if (previewDataUrl) openAttachmentViewer(nextPreview);
       setToast(
         previewDataUrl
           ? isImagePreview
@@ -4774,15 +4785,15 @@ export function App() {
         setToast("编辑派单只用于送货交付记录。");
         return;
       }
-      setModal({ type: "dispatch", fulfillmentId: targetFulfillmentId });
+      openModal({ type: "dispatch", fulfillmentId: targetFulfillmentId });
       return;
     }
     if (action === "数量不符") {
-      setModal({ type: "mismatch", fulfillmentId: targetFulfillmentId });
+      openModal({ type: "mismatch", fulfillmentId: targetFulfillmentId });
       return;
     }
     if (action === "无法出库") {
-      setModal({ type: "unable", fulfillmentId: targetFulfillmentId });
+      openModal({ type: "unable", fulfillmentId: targetFulfillmentId });
       return;
     }
     if (action === "作废旧标签" || action === "作废旧单据") {
@@ -4791,11 +4802,11 @@ export function App() {
         setToast("当前只有本地已打印状态，缺少可作废的打印记录 ID；请先重新打开最新 API 数据后再作废。");
         return;
       }
-      setModal({ type: "printVoid", fulfillmentId: targetFulfillmentId, printRecordId, action });
+      openModal({ type: "printVoid", fulfillmentId: targetFulfillmentId, printRecordId, action });
       return;
     }
     if (action === "打印预览" || action.includes("打印") || action.includes("重打")) {
-      setModal({ type: "print", fulfillmentId: targetFulfillmentId, action });
+      openModal({ type: "print", fulfillmentId: targetFulfillmentId, action });
       return;
     }
     if (action === "标记已备货") {
@@ -5192,7 +5203,7 @@ export function App() {
       }
       if (attachmentFile?.previewDataUrl) {
         const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-        setAttachmentViewer({
+        openAttachmentViewer({
           ...attachmentFile,
           accessAudit,
           statementId: selected.id,
@@ -5256,7 +5267,7 @@ export function App() {
         }),
       );
       if (previewDataUrl) {
-        setAttachmentViewer(nextPreview);
+        openAttachmentViewer(nextPreview);
       }
       setToast(
         previewDataUrl
@@ -5277,7 +5288,7 @@ export function App() {
       }
       if (attachmentFile?.previewDataUrl) {
         const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-        setAttachmentViewer({
+        openAttachmentViewer({
           ...attachmentFile,
           accessAudit,
           statementId: selected.id,
@@ -5343,7 +5354,7 @@ export function App() {
         }),
       );
       if (previewDataUrl) {
-        setAttachmentViewer(nextPreview);
+        openAttachmentViewer(nextPreview);
       }
       setToast(
         previewDataUrl
@@ -5372,7 +5383,7 @@ export function App() {
         );
         return;
       }
-      setModal({ type: "statementPreview", statementId: selected.id, preview: apiResult.preview, previewSource: apiResult.source });
+      openModal({ type: "statementPreview", statementId: selected.id, preview: apiResult.preview, previewSource: apiResult.source });
       if (apiResult.source === "api" && apiResult.preview?.downloadToken) {
         await refreshStatementExportRecords(selected);
       }
@@ -5489,7 +5500,7 @@ export function App() {
     }
 
     if (action === "登记实收") {
-      setModal({ type: "payment", statementId: selected.id });
+      openModal({ type: "payment", statementId: selected.id });
       return;
     }
 
@@ -5568,7 +5579,7 @@ export function App() {
         setToast("当前对账单还没有发送记录，不能登记客户确认。");
         return;
       }
-      setModal({ type: "customerConfirmation", statementId: selected.id });
+      openModal({ type: "customerConfirmation", statementId: selected.id });
       return;
     }
 
@@ -5577,7 +5588,7 @@ export function App() {
         setToast("当前没有差额，无需进入差额处理。");
         return;
       }
-      setModal({ type: "variance", statementId: selected.id });
+      openModal({ type: "variance", statementId: selected.id });
       return;
     }
 
@@ -5623,273 +5634,6 @@ export function App() {
       }));
     }
     return listResult;
-  }
-
-  async function confirmModal(payload) {
-    const activeModal = modal;
-    setModal(null);
-    if (!activeModal) return;
-    if (activeModal.type === "batchPrintResult") {
-      const result = await confirmBatchPrintResult({ modal: activeModal, payload });
-      if (result?.feedback) setToast(result.feedback);
-      return;
-    }
-
-    if (activeModal.type === "dispatch") {
-      const selected = fulfillments.find((item) => item.id === activeModal.fulfillmentId);
-      if (!selected) {
-        setToast("未找到对应送货记录，无法编辑派单。");
-        return;
-      }
-      const result = await saveFulfillmentDispatch({ fulfillment: selected, payload });
-      if (result?.feedback) setToast(result.feedback);
-      return;
-    }
-
-    if (activeModal.type === "print") {
-      const result = await printFulfillmentDocument({ modal: activeModal, payload });
-      if (result?.feedback) setToast(result.feedback);
-      return;
-    }
-
-    if (activeModal.type === "printVoid") {
-      const result = await voidFulfillmentPrintRecord({ modal: activeModal, payload });
-      if (result?.feedback) setToast(result.feedback);
-      return;
-    }
-
-    if (activeModal.type === "mismatch" || activeModal.type === "unable") {
-      const selected = fulfillments.find((item) => item.id === activeModal.fulfillmentId);
-      if (!selected) {
-        setToast("未找到对应出库 / 交付记录，无法确认异常。");
-        return;
-      }
-      const result = await submitFulfillmentException({
-        fulfillment: selected,
-        modalType: activeModal.type,
-        payload,
-      });
-      if (result?.feedback) setToast(result.feedback);
-      return;
-    }
-
-    if (activeModal.type === "customerConfirmation") {
-      const selected = statements.find((item) => item.id === activeModal.statementId);
-      if (!selected) {
-        setToast("未找到对应对账单，无法登记客户确认。");
-        return;
-      }
-      if (!selected.sent || !selected.sendRecordId) {
-        setToast("当前对账单还没有发送记录，不能登记客户确认。");
-        return;
-      }
-      const customer = findCustomer(selected.customerId);
-      let attachmentIds = [...(selected.customerConfirmationAttachmentIds ?? [])];
-      let attachmentFiles = [];
-      let attachmentSource = "";
-      if (payload.attachCustomerConfirmationProof) {
-        const proofContentDataUrl = await readFileAsDataUrl(payload.customerConfirmationProofFile);
-        const proofFileForAttachment = payload.customerConfirmationProofFile
-          ? {
-              name: payload.customerConfirmationProofFile.name,
-              size: payload.customerConfirmationProofFile.size,
-              type: payload.customerConfirmationProofFile.type,
-              contentDataUrl: proofContentDataUrl,
-            }
-          : null;
-        const attachmentInput = createStatementCustomerConfirmationAttachmentInput({
-          statement: selected,
-          operatorId: currentUserId,
-          remark: payload.customerConfirmationRemark || (proofFileForAttachment?.name ? `客户确认附件：${proofFileForAttachment.name}` : "客户确认截图/聊天记录待补。"),
-          file: proofFileForAttachment,
-        });
-        const attachmentResult = await createOfficeAttachment({
-          authState,
-          ...attachmentInput,
-        });
-        if (attachmentResult.blocked) {
-          setToast(
-            attachmentResult.error?.requiredPermission
-              ? `后端拒绝登记客户确认附件：缺少权限 ${attachmentResult.error.requiredPermission}。`
-              : `后端拒绝登记客户确认附件：${attachmentResult.error?.message ?? "未知错误"}`,
-          );
-          return;
-        }
-        if (attachmentResult.attachment?.attachmentId) {
-          attachmentIds = [...new Set([...attachmentIds, attachmentResult.attachment.attachmentId])];
-          attachmentFiles = [{ ...attachmentResult.attachment, source: attachmentResult.source }];
-        }
-        attachmentSource = attachmentResult.source;
-      }
-      const confirmationContent = String(payload.customerConfirmationContent || "客户回复确认无误").trim() || "客户回复确认无误";
-      const apiResult = await recordOfficeStatementCustomerConfirmation({
-        authState,
-        statement: selected,
-        operatorId: currentUserId,
-        channel: "wechat",
-        confirmedByCustomer: customer.contact || customer.name,
-        content: confirmationContent,
-        attachmentIds,
-        remark: currentUser.displayName + " 在对账 / 收款页登记客户确认。",
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? "后端拒绝登记客户确认：缺少权限 " + apiResult.error.requiredPermission + "。"
-            : "后端拒绝登记客户确认：" + (apiResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      const confirmationRecord = apiResult.confirmationRecord ?? {};
-      setStatements((current) =>
-        recordStatementCustomerConfirmation(current, selected.id, {
-          confirmationRecordId: apiResult.confirmationRecordId,
-          channel: "微信",
-          confirmedByCustomer: confirmationRecord.confirmedByCustomer || customer.contact || customer.name,
-          confirmedAt: confirmationRecord.confirmedAt,
-          content: confirmationRecord.content || confirmationContent,
-          attachmentIds: confirmationRecord.attachmentIds ?? attachmentIds,
-          attachmentFiles,
-          operatorName: currentUser.displayName,
-        }),
-      );
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      const attachmentLabel = attachmentIds.length
-        ? `，确认附件已通过${attachmentSource === "api" ? "后端 API" : "本地规则降级"}登记 ${attachmentIds.length} 个。`
-        : "。";
-      setToast(`已通过${sourceLabel}登记客户确认，对账单保留客户回复证据${attachmentLabel}`);
-      return;
-    }
-
-    if (activeModal.type === "payment") {
-      const selected = statements.find((item) => item.id === activeModal.statementId);
-      if (!selected) {
-        setToast("未找到对应对账单，无法登记实收。");
-        return;
-      }
-      let attachmentIds = [];
-      let attachmentSource = "";
-      if (payload.attachPaymentProof) {
-        const proofContentDataUrl = await readFileAsDataUrl(payload.paymentProofFile);
-        const proofFileForAttachment = payload.paymentProofFile
-          ? {
-              name: payload.paymentProofFile.name,
-              size: payload.paymentProofFile.size,
-              type: payload.paymentProofFile.type,
-              contentDataUrl: proofContentDataUrl,
-            }
-          : null;
-        const attachmentInput = createPaymentScreenshotAttachmentInput({
-          statement: selected,
-          operatorId: currentUserId,
-          remark: payload.paymentProofRemark || (proofFileForAttachment?.name ? `付款凭证附件：${proofFileForAttachment.name}` : "付款截图占位，正式上传后替换。"),
-          file: proofFileForAttachment,
-        });
-        const attachmentResult = await createOfficeAttachment({
-          authState,
-          ...attachmentInput,
-        });
-        if (attachmentResult.blocked) {
-          setToast(
-            attachmentResult.error?.requiredPermission
-              ? `后端拒绝登记付款截图：缺少权限 ${attachmentResult.error.requiredPermission}。`
-              : `后端拒绝登记付款截图：${attachmentResult.error?.message ?? "未知错误"}`,
-          );
-          return;
-        }
-        attachmentIds = attachmentResult.attachment?.attachmentId ? [attachmentResult.attachment.attachmentId] : [];
-        attachmentSource = attachmentResult.source;
-        payload.paymentAttachmentFiles = attachmentResult.attachment
-          ? [{ ...attachmentResult.attachment, source: attachmentResult.source }]
-          : [];
-      }
-      const apiResult = await recordOfficeStatementPayment({
-        authState,
-        statement: selected,
-        amount: payload.amount,
-        reason: payload.reason,
-        operatorId: currentUserId,
-        attachmentIds,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝登记实收：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝登记实收：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const result = confirmOfficeModal({
-        modal: activeModal,
-        payload: { ...payload, attachmentIds },
-        fulfillments,
-        statements,
-        todos,
-        getStatementBlockingAmount,
-      });
-      if (result.statements) setStatements(result.statements);
-      if (result.todoInput) addTodo({ ...result.todoInput, id: apiResult.todoId ?? result.todoInput.id });
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      const attachmentLabel = attachmentIds.length
-        ? `，付款截图已通过${attachmentSource === "api" ? "后端 API" : "本地规则降级"}登记。`
-        : "。";
-      setToast(
-        payload.amount < selected.receivable
-          ? `已通过${sourceLabel}登记实收金额，少付进入差额待确认${attachmentLabel}`
-          : `已通过${sourceLabel}登记实收金额，等待有收款确认权限账号核销${attachmentLabel}`,
-      );
-      return;
-    }
-
-    if (activeModal.type === "variance") {
-      const selected = statements.find((item) => item.id === activeModal.statementId);
-      if (!selected) {
-        setToast("未找到对应对账单，无法处理差额。");
-        return;
-      }
-      const blockingAmount = getStatementBlockingAmount(selected);
-      const apiResult = await handleOfficeStatementVariance({
-        authState,
-        statement: selected,
-        varianceAmount: blockingAmount,
-        reason: payload.reason,
-        operatorId: currentUserId,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝差额处理：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝差额处理：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const result = confirmOfficeModal({
-        modal: activeModal,
-        payload,
-        fulfillments,
-        statements,
-        todos,
-        getStatementBlockingAmount,
-      });
-      if (result.statements) setStatements(result.statements);
-      if (result.todoInput) addTodo({ ...result.todoInput, id: apiResult.todoId ?? result.todoInput.id });
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}记录差额处理结果：${payload.reason}。`);
-      return;
-    }
-
-    const result = confirmOfficeModal({
-      modal: activeModal,
-      payload,
-      fulfillments,
-      statements,
-      todos,
-      getStatementBlockingAmount,
-    });
-    if (result.fulfillments) setFulfillments(result.fulfillments);
-    if (result.statements) setStatements(result.statements);
-    if (result.todoInput) addTodo(result.todoInput);
-    if (result.toast) setToast(result.toast);
   }
 
   if (runtimeServerRequired && !authState.authenticated) {
@@ -6183,13 +5927,13 @@ export function App() {
         </main>
       </div>
 
-      {modal && <ActionModal modal={modal} fulfillments={fulfillments} statements={statements} orderLines={orderLines} onClose={() => setModal(null)} onConfirm={confirmModal} />}
-      {orderActionModal && <OrderLineActionModal modal={orderActionModal} onClose={() => setOrderActionModal(null)} onConfirm={confirmOrderLineAction} />}
-      {attachmentViewer && <AttachmentViewerModal attachment={attachmentViewer} onClose={() => setAttachmentViewer(null)} onDownload={downloadViewedAttachment} />}
+      {modal && <ActionModal modal={modal} fulfillments={fulfillments} statements={statements} orderLines={orderLines} onClose={closeModal} onConfirm={confirmModal} />}
+      {orderActionModal && <OrderLineActionModal modal={orderActionModal} onClose={closeOrderActionModal} onConfirm={confirmOrderLineAction} />}
+      {attachmentViewer && <AttachmentViewerModal attachment={attachmentViewer} onClose={closeAttachmentViewer} onDownload={downloadViewedAttachment} />}
       {masterDataTemplatePanel && (
         <MasterDataImportTemplateModal
           panel={masterDataTemplatePanel}
-          onClose={() => setMasterDataTemplatePanel(null)}
+          onClose={closeMasterDataTemplatePanel}
           onDownload={downloadMasterDataTemplate}
           onPrecheck={precheckMasterDataTemplate}
           precheckState={masterDataPrecheckState}
