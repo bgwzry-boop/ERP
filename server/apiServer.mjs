@@ -99,6 +99,7 @@ import {
 import { buildDriverV1Readiness as getDriverV1ReadinessResponse } from "./services/driverV1ReadinessService.mjs";
 import { buildPrintDriverV1Readiness } from "./services/printDriverV1ReadinessService.mjs";
 import { precheckV1DriverReadiness } from "./services/v1DriverLivePrecheckService.mjs";
+import { resolveConfiguredOrLoopbackV1ApiBaseUrl } from "./services/v1ApiTargetPolicy.mjs";
 import {
   buildCurrentV1RuntimeReadinessReport,
   precheckV1RuntimeReadiness,
@@ -5443,7 +5444,10 @@ async function runSystemV1ProductionFirstStageExecution({ request, operatorId })
   const checkedAt = new Date().toISOString();
   try {
     const report = await runV1ProductionFirstStageExecutionCommand({
-      apiBaseUrl: getCurrentV1ApiBaseUrl(request),
+      apiBaseUrl: resolveConfiguredOrLoopbackV1ApiBaseUrl({
+        request,
+        configuredApiBaseUrl: process.env.ERP_V1_RELEASE_API_BASE_URL,
+      }),
     });
     const firstStageExecution = sanitizeV1ProductionFirstStageExecution(report);
     const ready = firstStageExecution.ready === true;
@@ -9690,7 +9694,10 @@ async function refreshSystemV1ReleaseCandidate({ request, operatorId }) {
     const artifactRoot = getV1GoLiveArtifactRoot();
     const result = await runV1ReleaseCandidateRefreshCommand({
       artifactRoot,
-      apiBaseUrl: getCurrentV1ApiBaseUrl(request),
+      apiBaseUrl: resolveConfiguredOrLoopbackV1ApiBaseUrl({
+        request,
+        configuredApiBaseUrl: process.env.ERP_V1_RELEASE_API_BASE_URL,
+      }),
       operatorId,
       driverOperatorId: String(
         process.env.ERP_V1_RELEASE_DRIVER_OPERATOR_ID ||
@@ -9859,14 +9866,6 @@ function buildV1ReleaseCandidateRefreshSafeguards({
     commandValuesIncluded: false,
     rawSecretsIncluded: false,
   };
-}
-
-function getCurrentV1ApiBaseUrl(request) {
-  const configured = String(process.env.ERP_V1_RELEASE_API_BASE_URL || "").trim();
-  if (configured) return configured.replace(/\/$/, "");
-  const host = String(request?.headers?.host || "").trim();
-  if (host) return `http://${host}/api`;
-  return "http://127.0.0.1:8787/api";
 }
 
 function runV1ReleaseCandidateRefreshCommand({

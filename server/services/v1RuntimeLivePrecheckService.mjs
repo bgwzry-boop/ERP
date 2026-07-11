@@ -6,9 +6,8 @@ import {
   authenticateV1ReadinessRole,
   buildV1ReadinessAuthInput,
 } from "../../scripts/v1ReadinessRuntimeAuth.mjs";
+import { resolveLoopbackV1ApiBaseUrl } from "./v1ApiTargetPolicy.mjs";
 import { sanitizeV1LivePrecheckCriterion } from "./v1StorageLivePrecheckService.mjs";
-
-const defaultApiPort = 8787;
 
 export async function precheckV1RuntimeReadiness({
   request,
@@ -104,10 +103,8 @@ export async function buildCurrentV1RuntimeReadinessReport({
   return { ...report, driverOperatorId };
 }
 
-export function resolveCurrentV1RuntimeApiBaseUrl(request, { fallbackPort = defaultApiPort } = {}) {
-  const socketPort = nonNegativeInteger(request?.socket?.localPort || request?.connection?.localPort);
-  const port = socketPort > 0 && socketPort <= 65_535 ? socketPort : fallbackPort;
-  return `http://127.0.0.1:${port}/api`;
+export function resolveCurrentV1RuntimeApiBaseUrl(request, { fallbackPort = 8787 } = {}) {
+  return resolveLoopbackV1ApiBaseUrl(request, { fallbackPort });
 }
 
 function buildAuthenticationSummary({ operatorAuth, driverAuth }) {

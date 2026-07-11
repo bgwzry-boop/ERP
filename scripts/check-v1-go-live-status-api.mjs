@@ -988,8 +988,6 @@ try {
     headers: {
       "content-type": "application/json",
       "x-erp-user-id": "U-MANAGER-A",
-      host: "attacker.invalid:9443",
-      "x-forwarded-proto": "https",
     },
     body: JSON.stringify({
       valuesFilePath: "/Users/should-not-be-read/values.env",
@@ -2159,6 +2157,8 @@ try {
       headers: {
         "content-type": "application/json",
         "x-erp-user-id": "U-MANAGER-A",
+        host: "attacker.invalid:9443",
+        "x-forwarded-proto": "https",
       },
       body: JSON.stringify({
         envFilePath: "/Users/should-not-be-read/.env",
@@ -3365,6 +3365,8 @@ try {
     headers: {
       "content-type": "application/json",
       "x-erp-user-id": "U-MANAGER-A",
+      host: "attacker.invalid:9443",
+      "x-forwarded-proto": "https",
     },
     body: JSON.stringify({ apiBaseUrl: "http://SUPER_SECRET.invalid/api", bearerToken: "SECRET_VALUE" }),
   });
