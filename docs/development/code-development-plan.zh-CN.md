@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D25-2 打印业务投影 service 拆分已完成。打印作业对打印记录 / 出库交付的状态投影从 API 组合入口迁入可注入独立服务，直接测试锁定 `sent` 不推进交付、可信 `printed` 才确认实体打印、预览不投影和非交付标签的本地更新。全量回归和 PostgreSQL 16 live 通过。下一轮 D25-3 迁移打印作业状态更新、驱动回调 / 轮询、派发和重试，仍保持 `route -> service -> repository` 及 fail-closed 边界。
 - 本轮补充：D25-1 V1 状态页 / client 首轮拆分已完成。页面静态基线、阶段投影、快照新鲜度和生产 env 检查进入纯展示模型，顶部快照 / 门禁 / 模块列表进入总览组件；客户端 22 个 HTTP action 进入 action factory，原 client 保留 normalizer 与兼容导出。直接测试和全量回归覆盖幂等、权限、阻断、离线 fail-closed、管理 / 技术可见及办公室拒绝。下一轮 D25-2 先迁打印 / 交付 API service，保持 trusted printed 门禁、事务和 PostgreSQL live 不变。
 - 本轮补充：D24 财务与角色工具 UI 迁移已完成。对账、生产 / 打包、原材料、车间和司机页面已接入共享运营组件和分层样式；筛选无结果时列表与详情同步清空，不再跨视图显示旧记录。司机空状态 `null.items` 白屏已修复并加入回归。全量 `npm test`、生产构建和 `1280x720 / 390x844` 浏览器验收通过。下一轮 D25 拆分 V1 状态页 / client，并从打印 / 交付开始建立 API `route -> service -> repository` 边界；真实上线门禁保持 `0/4`。
 - Git 初始基线已提交到 `main`。

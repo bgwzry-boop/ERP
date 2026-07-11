@@ -96,6 +96,7 @@ import { createAttachmentRepository } from "./attachmentRepository.mjs";
 import { createAttachmentAccessAuditRepository } from "./attachmentAccessAuditRepository.mjs";
 import { createAttachmentObjectStorage, parseDataUrl } from "./attachmentObjectStorage.mjs";
 import { createAttachmentRecord } from "./services/attachmentCreateService.mjs";
+import { createPrintJobBusinessProjectionService } from "./services/printJobBusinessProjectionService.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
 import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
 import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
@@ -17000,6 +17001,11 @@ async function recordPrinterDeviceFieldTestRoute({ response, workspace, printDev
   });
 }
 
+const printJobBusinessProjectionService = createPrintJobBusinessProjectionService({
+  buildFulfillmentActionRecord,
+  buildOperationLog,
+});
+
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
   const before = await findPrintJob(workspace, printJobId);
   if (!before) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
@@ -17046,7 +17052,7 @@ async function updatePrintJobStatusRoute({ response, workspace, printJobId, body
     idempotencyKey: body.idempotencyKey,
     idempotencyPayload: body,
   });
-  const printProjection = await syncPrintJobBusinessProjection({
+  const printProjection = await printJobBusinessProjectionService.syncPrintJobBusinessProjection({
     workspace,
     printJob: transaction.printJob,
     operatorId,
@@ -17102,7 +17108,7 @@ async function dispatchPrintJobRoute({ response, workspace, printJobId, body }) 
     idempotencyKey: body.idempotencyKey,
     idempotencyPayload: body,
   });
-  const printProjection = await syncPrintJobBusinessProjection({
+  const printProjection = await printJobBusinessProjectionService.syncPrintJobBusinessProjection({
     workspace,
     printJob: transaction.printJob,
     operatorId,
@@ -17253,7 +17259,7 @@ async function recordPrintJobDriverStatus({ workspace, printJobId, body, operato
     idempotencyKey: body.idempotencyKey,
     idempotencyPayload: body,
   });
-  const printProjection = await syncPrintJobBusinessProjection({
+  const printProjection = await printJobBusinessProjectionService.syncPrintJobBusinessProjection({
     workspace,
     printJob: transaction.printJob,
     operatorId: driverStatusEvent.operatorId,
@@ -17265,94 +17271,6 @@ async function recordPrintJobDriverStatus({ workspace, printJobId, body, operato
     driverStatusEvent,
     operationLogId: transaction.operationLogId,
     ...printProjection,
-  };
-}
-
-async function syncPrintJobBusinessProjection({ workspace, printJob, operatorId, reason = "", idempotencyKey = "" }) {
-  const printRecordId = cleanServerText(printJob?.printRecordId);
-  if (!printRecordId || printJob?.jobStatus === "preview_only") return {};
-  const beforePrintRecord = findPrintRecord(workspace, printRecordId);
-  if (!beforePrintRecord) return {};
-
-  const jobStatus = cleanServerText(printJob.jobStatus);
-  const submittedStatus = beforePrintRecord.printAction === "reprint" ? "reprint_submitted" : "submitted";
-  const nextPrintRecordStatus =
-    jobStatus === "printed"
-      ? beforePrintRecord.printAction === "reprint" ? "reprinted" : "printed"
-      : jobStatus === "failed" || jobStatus === "canceled"
-        ? jobStatus
-        : jobStatus === "queued" || jobStatus === "sent"
-          ? submittedStatus
-          : beforePrintRecord.status;
-  if (nextPrintRecordStatus === beforePrintRecord.status && jobStatus !== "printed") return {};
-
-  const now = printJob.finishedAt || printJob.updatedAt || new Date().toISOString();
-  const printRecord = {
-    ...beforePrintRecord,
-    status: nextPrintRecordStatus,
-    printedAt: jobStatus === "printed" ? now : beforePrintRecord.printedAt ?? "",
-    jobStatus,
-    printJobId: printJob.printJobId,
-    updatedAt: now,
-  };
-  const fulfillment =
-    beforePrintRecord.targetType === "fulfillment"
-      ? findFulfillment(workspace, beforePrintRecord.targetId)
-      : null;
-  if (!fulfillment) {
-    workspace.printRecords = upsertByKey(workspace.printRecords ?? [], printRecord, "printRecordId");
-    return { printRecord, physicalPrintConfirmed: jobStatus === "printed" };
-  }
-
-  const nextFulfillment =
-    jobStatus === "printed"
-      ? {
-          ...fulfillment,
-          printed: true,
-          status:
-            mapFulfillmentMethod(fulfillment.method) === "express_ltl" && fulfillment.status !== "已交付"
-              ? "待确认拉走"
-              : fulfillment.status,
-          printBatch: printRecord.batchNo ?? fulfillment.printBatch ?? "",
-          printedAt: printRecord.printedAt,
-        }
-      : fulfillment;
-  const operationLog = buildOperationLog(workspace, {
-    id: nextPlainId("LOG-PRINT-PROJECTION", `${printJob.printJobId}-${jobStatus}`),
-    targetType: jobStatus === "printed" ? "fulfillment" : "print_record",
-    targetId: jobStatus === "printed" ? fulfillment.id : printRecordId,
-    action: jobStatus === "printed" ? "confirm_fulfillment_print_from_driver" : "sync_print_record_from_job",
-    operatorId,
-    before: jobStatus === "printed" ? fulfillment : beforePrintRecord,
-    after: jobStatus === "printed" ? nextFulfillment : printRecord,
-    reason: reason || `print_job_${jobStatus}`,
-  });
-  const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
-    workspace,
-    idempotencyKey: idempotencyKey ? `${idempotencyKey}:business-projection` : "",
-    idempotencyPayload: {
-      printJobId: printJob.printJobId,
-      printRecordId,
-      jobStatus,
-      reason,
-    },
-    fulfillment: buildFulfillmentActionRecord(workspace, nextFulfillment, {
-      operatorId,
-      actualQty: nextFulfillment.actualQty ?? nextFulfillment.qty,
-    }),
-    printRecord,
-    operationLog,
-  });
-  return {
-    fulfillment: {
-      ...(transaction.fulfillment ?? nextFulfillment),
-      printed: jobStatus === "printed" ? true : Boolean(nextFulfillment.printed),
-      printRecordStatus: printRecord.status,
-      activePrintRecordId: printRecord.printRecordId,
-    },
-    printRecord: transaction.printRecord ?? printRecord,
-    fulfillmentOperationLogId: transaction.operationLogId,
-    physicalPrintConfirmed: jobStatus === "printed",
   };
 }
 
@@ -17385,7 +17303,7 @@ async function retryPrintJobRoute({ response, workspace, printJobId, body }) {
     idempotencyKey: body.idempotencyKey,
     idempotencyPayload: body,
   });
-  const printProjection = await syncPrintJobBusinessProjection({
+  const printProjection = await printJobBusinessProjectionService.syncPrintJobBusinessProjection({
     workspace,
     printJob: transaction.printJob,
     operatorId,

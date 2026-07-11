@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-11 - Trusted Print Projection Is An Independent Service Boundary
+
+The mapping from print-job status to print-record and fulfillment state belongs in a dedicated business service, not in the HTTP route composition entrypoint. Routes authenticate, authorize, validate, and invoke the service; the service owns the transition decision and persists through the existing fulfillment action transaction repository. Its fulfillment-record and operation-log builders remain explicit injected dependencies so the service is directly testable without booting the full API server.
+
+This boundary does not change the physical-print trust rule: `queued` and `sent` may update a print record but never advance fulfillment, while only trusted `printed` may set physical print confirmation and move eligible express/LTL work to `待确认拉走`. Preview-only work remains non-advancing. Future dispatch, callback, polling, and retry extraction must call this service instead of duplicating transition rules.
+
 ## 2026-07-11 - V1 Status Separates Transport, Normalization, And Presentation
 
 The V1 status feature keeps three explicit layers: HTTP actions issue authenticated/idempotent requests and fail closed, normalizers map backend artifacts into stable client DTOs, and presentation modules own fallback display models plus rendering. The existing public client import path remains compatible, but the normalization file must not issue HTTP requests directly and the page component must not redefine fallback completion data.
