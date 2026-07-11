@@ -180,13 +180,13 @@ const fixGuidanceByKey = {
   },
   "local-v1-acceptance-bypass-env": {
     valueGuidance: [
-      "生产默认不接受本地持久化或本地文件留档。",
-      "如业务负责人临时接受，必须填写书面签字编号，且 release candidate 仍需显示 warning。",
-      "该开关只能作为明确风险接受记录，不能替代 PostgreSQL、对象存储和现场证据。",
+      "生产禁止使用本地持久化或本地文件留档，这两个接受开关必须保持 false。",
+      "负责人风险签字不能替代 PostgreSQL、对象存储和恢复验证。",
+      "demo / test 如需本地接受只能使用各自隔离配置，不得复制到 production env。",
     ],
     verificationSteps: [
       "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-      "确认负责人签字 / V1-V2 边界表已记录该风险是否被接受。",
+      "确认 production env 中没有启用任何本地持久化或本地附件接受开关。",
     ],
   },
   "preflight-redaction-safeguard": {
@@ -771,10 +771,10 @@ function buildLocalBypassCriterion(env) {
   return criterion({
     key: "local-v1-acceptance-bypass-env",
     label: "本地持久化 / 本地文件留档 V1 接受开关",
-    blocking: false,
-    status: active ? "warning" : "passed",
+    blocking: true,
+    status: active ? "pending" : "passed",
     detail: active
-      ? "检测到本地持久化或本地文件留档接受开关；真实生产预检应由业务方单独签字确认。"
+      ? "production 禁止本地持久化或本地文件留档；接受开关必须关闭。"
       : "No local-persistence or local-file-retention V1 acceptance bypass is enabled.",
     evidence: {
       localSystemPersistenceAccepted: localSystemAccepted,
@@ -1285,28 +1285,25 @@ function buildFieldAcceptanceFixItem({ env, criterion }) {
 }
 
 function buildLocalBypassFixItem({ env, criterion }) {
-  const active =
-    isTrue(env.ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTED) || isTrue(env.ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTED);
-  const missingReferences = [];
-  if (isTrue(env.ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTED) && !hasValue(env, "ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTANCE_REF")) {
-    missingReferences.push("ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTANCE_REF");
-  }
-  if (isTrue(env.ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTED) && !hasValue(env, "ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTANCE_REF")) {
-    missingReferences.push("ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTANCE_REF");
-  }
+  const localSystemAccepted = isTrue(env.ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTED);
+  const localAttachmentAccepted = isTrue(env.ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTED);
+  const active = localSystemAccepted || localAttachmentAccepted;
+  const missingVariables = [];
+  if (localSystemAccepted) missingVariables.push("ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTED=false");
+  if (localAttachmentAccepted) missingVariables.push("ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTED=false");
   return fixItem({
     criterion,
     ownerRole: "管理/技术",
-    requiredVariables: [],
-    recommendedVariables: [
-      "ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTANCE_REF when local persistence bypass is accepted",
-      "ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTANCE_REF when local file-retention bypass is accepted",
+    requiredVariables: [
+      "ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTED=false",
+      "ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTED=false",
     ],
+    recommendedVariables: [],
     configuredVariableCount:
       (isTrue(env.ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTED) ? 1 : 0) +
       (isTrue(env.ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTED) ? 1 : 0),
     totalVariableCount: 2,
-    missingVariables: missingReferences,
+    missingVariables,
     placeholderVariables: placeholderNames(env, [
       "ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTED",
       "ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTANCE_REF",
@@ -1314,7 +1311,7 @@ function buildLocalBypassFixItem({ env, criterion }) {
       "ERP_ATTACHMENT_LOCAL_FS_V1_ACCEPTANCE_REF",
     ]),
     nextAction: active
-      ? "确认负责人是否书面接受本地持久化 / 本地文件留档风险；生产优先改回 PostgreSQL 和对象存储。"
+      ? "关闭本地持久化和本地附件接受开关；production 必须使用 PostgreSQL 和对象存储。"
       : "保持本地持久化接受开关关闭；生产发布继续以 PostgreSQL 和对象存储为准。",
   });
 }

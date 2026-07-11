@@ -107,7 +107,7 @@ const envSections = [
     ],
   },
   {
-    title: "Local V1 bypass flags, keep disabled unless signed",
+    title: "Production local-persistence bypass flags; must remain false",
     lines: [
       "ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTED=false",
       "ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTANCE_REF=",

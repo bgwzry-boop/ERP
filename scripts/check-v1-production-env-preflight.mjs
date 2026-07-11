@@ -480,14 +480,19 @@ const localBypassRun = await runPreflight({
     ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTANCE_REF: "manager signed local risk",
   },
 });
-assert.equal(localBypassRun.status, 0, runFailureMessage("local bypass should warn but not block env syntax", localBypassRun));
+assert.equal(localBypassRun.status, 2, runFailureMessage("local bypass should block production preflight", localBypassRun));
 const localBypassReport = JSON.parse(localBypassRun.stdout);
-assert.equal(localBypassReport.ready, true);
-assert.ok(localBypassReport.summary.warningCount >= 1);
-assert.equal(localBypassReport.criteria.find((item) => item.key === "local-v1-acceptance-bypass-env")?.status, "warning");
+assert.equal(localBypassReport.ready, false);
+assert.ok(localBypassReport.summary.blockingCount >= 1);
+assert.equal(localBypassReport.criteria.find((item) => item.key === "local-v1-acceptance-bypass-env")?.status, "pending");
+assert.ok(
+  localBypassReport.fixChecklist
+    .find((item) => item.key === "local-v1-acceptance-bypass-env")
+    ?.missingVariables.includes("ERP_SYSTEM_LOCAL_PERSISTENCE_V1_ACCEPTED=false"),
+);
 assertNoSensitiveOutput(localBypassRun.stdout + localBypassRun.stderr);
 
-console.log("V1 production env preflight check passed: blocked, ready, env-file, placeholder rejection, invalid JSON, warning, exit codes, and redaction are covered.");
+console.log("V1 production env preflight check passed: blocked, ready, env-file, placeholder rejection, invalid JSON, local-bypass rejection, exit codes, and redaction are covered.");
 
 function runPreflight({ env, args = [], json = true }) {
   const finalArgs = [runnerScript, ...args];

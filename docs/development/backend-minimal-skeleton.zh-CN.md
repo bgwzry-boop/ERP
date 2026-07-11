@@ -381,7 +381,7 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 
 ## 下一步
 
-1. 先处理系统 V1 持久化门禁：切换核心仓储到 PostgreSQL / 对象存储，或形成明确的本地持久化 V1 风险接受配置和业务确认记录。
+1. 先处理系统 V1 持久化门禁：production 必须切换全部核心仓储到 PostgreSQL / 对象存储；本地持久化风险接受只允许 demo / test，不能用于生产放行。
 2. 确认正式后端技术栈和数据库，建议从 Node.js + PostgreSQL 方向评估。
 3. 准备 PostgreSQL 连接，把 `ERP_V1_DATABASE_URL` 写入安全未跟踪 env 文件，执行 `node -- scripts/run-db-migrations.mjs --env-file <secure-env-file> --apply`，确认空库建表。
 4. 用 `ERP_ATTACHMENT_STORE=postgres DATABASE_URL=... npm run api:dev` 做附件创建、列表、短期访问 URL、内容读取和访问审计的 live database 检查。

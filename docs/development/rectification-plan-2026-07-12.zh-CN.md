@@ -22,7 +22,7 @@
 | 文件 | 当前规模 | 整改目标 |
 | --- | ---: | --- |
 | `src/App.jsx` | `7,231` 行 | 只保留会话、导航、路由、全局反馈和依赖装配；领域状态和动作迁入 feature/controller。 |
-| `server/apiServer.mjs` | `18,579` 行 | 只保留启动、依赖注入和路由装配；业务规则迁入 service，SQL 和事务留在 repository。 |
+| `server/apiServer.mjs` | `18,365` 行 | 只保留启动、依赖注入和路由装配；业务规则迁入 service，SQL 和事务留在 repository。 |
 | `src/styles.css` | `9,002` 行 | 降为兼容入口或删除；样式按 token、壳层、控件、表格、面板、状态、移动端和 feature 分层。 |
 
 ## 二、整改原则
@@ -201,7 +201,7 @@ src/styles/
 | D52 | 真实业务试跑 | 各岗位正常 / 异常流程记录 | 34 项证据完整且可追溯。 |
 | D53 | 发布收口 | release candidate、suite、handoff、签字和边界确认 | `34/34`、`6/6`、`4/4`。 |
 | B4 | `App.jsx` 继续拆分 | feature controller 和更薄的 App 壳 | 前端专项、全量测试和 E2E 通过。 |
-| B5 | `apiServer.mjs` 继续拆分 | 剩余 route / service / repository | API、OpenAPI、PostgreSQL live 通过。 |
+| B5（首轮已完成） | `apiServer.mjs` 继续拆分 | 已迁出 V1 系统持久化 / 正式岗位 readiness service；后续继续迁剩余 route / service / repository | 全量、API、OpenAPI、PostgreSQL live、核心 E2E 已通过。 |
 | C4 | CSS 分层和六页 UI 精修 | 分层样式、共享组件、桌面 / 手机截图 | `1280x720`、`390x844` 无溢出、无控制台错误。 |
 
 A 轨按 D48 -> D53 顺序执行；B4、B5、C4 可以与 D49-D52 并行，但不能拖延现场输入和放行门禁。
@@ -239,4 +239,4 @@ git diff --check
 
 ## 八、当前立即执行项
 
-D48 已完成。当前立即进入 D49：不继续扩展认证骨架，由管理 / 技术运维导入并复核 8 岗位真实员工，完成首次改密和车间默认机器绑定，准备未跟踪且 `0600` 的 production 安全 env，再运行 env 文件审计和 production env preflight。
+D48 和 B5 首轮已完成。当前唯一上线主任务仍为 D49：由管理 / 技术运维导入并复核 8 岗位真实员工，完成首次改密和车间默认机器绑定，并补齐未跟踪且 `0600` 的 production 安全 env。代码侧已明确 production 不能通过本地持久化 / 本地附件风险接受开关绕过 PostgreSQL 和对象存储；当前 intake 仍为 `0/29`，其中最低阻断输入 `0/17`，不能据此宣布生产就绪。
