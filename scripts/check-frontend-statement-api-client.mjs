@@ -18,6 +18,8 @@ import {
   downloadOfficeStatementExport,
   getStatementTemplateId,
   handleOfficeStatementVariance,
+  getOfficeStatementDetail,
+  listOfficeStatementCustomers,
   listOfficeStatementExports,
   mapStatementVarianceHandlingResult,
   markOfficeStatementSentViaApi,
@@ -59,6 +61,63 @@ const orderLines = [
     exceptions: [],
   },
 ];
+
+const statementCustomerCalls = [];
+const statementCustomerResult = await listOfficeStatementCustomers(
+  {
+    authState,
+    operatorId: "U-OFFICE-A",
+    filters: { keyword: "李四", status: "debt_or_variance", period: "2026-06" },
+    page: 2,
+    pageSize: 25,
+  },
+  {
+    fetchImpl: async (url, init) => {
+      statementCustomerCalls.push({ url, init });
+      return createJsonResponse(200, {
+        items: [{
+          customerId: "C002",
+          customerName: "李四电商",
+          settlementCycle: "monthly",
+          currentReceivable: 108000,
+          debtAmount: 28000,
+          status: "debt_or_variance",
+          statementId: "ST-0629-002",
+        }],
+        page: 2,
+        pageSize: 25,
+        total: 1,
+      });
+    },
+  },
+);
+assert(statementCustomerResult.source === "api", "statement customer list should use API data");
+assert(statementCustomerResult.items[0]?.statementId === "ST-0629-002", "statement customer list did not map statement id");
+assert(statementCustomerCalls[0]?.url.includes("keyword=%E6%9D%8E%E5%9B%9B"), "statement customer list did not encode keyword");
+assert(statementCustomerCalls[0]?.url.includes("status=debt_or_variance"), "statement customer list did not include status");
+assert(statementCustomerCalls[0]?.url.includes("page=2&pageSize=25"), "statement customer list did not include pagination");
+
+const statementDetailCalls = [];
+const statementDetailResult = await getOfficeStatementDetail(
+  { authState, operatorId: "U-OFFICE-A", statementId: "ST/0629/002" },
+  {
+    fetchImpl: async (url, init) => {
+      statementDetailCalls.push({ url, init });
+      return createJsonResponse(200, {
+        id: "ST/0629/002",
+        customerId: "C002",
+        status: "差额待确认",
+        receivable: 108000,
+        received: 80000,
+        variance: 28000,
+        lineIds: ["ORD-0629-002-01"],
+      });
+    },
+  },
+);
+assert(statementDetailResult.source === "api", "statement detail should use API data");
+assert(statementDetailCalls[0]?.url.includes("/statements/ST%2F0629%2F002"), "statement detail did not encode id");
+assert(statementDetailResult.detail?.received === 80000, "statement detail did not map received amount");
 
 assert(mapStatementVarianceHandlingResult("未收差额转欠款") === "carry_to_debt", "debt variance result was not mapped");
 assert(mapStatementVarianceHandlingResult("抹零/减免已审批") === "approved_allowance", "allowance variance result was not mapped");

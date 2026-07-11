@@ -2,7 +2,7 @@ import { useState } from "react";
 import { DataTable, InfoGrid } from "../../components/ui.jsx";
 import { formatAttachmentSize, isInlineImageAttachment } from "../attachments/attachmentPresentation.js";
 
-export function StatementPage({ statements, orderLines, selectedId, setSelectedId, onAction, helpers }) {
+export function StatementPage({ statements, orderLines, readMeta, selectedId, setSelectedId, onAction, helpers }) {
   const {
     defaultStatementFilters,
     findCustomer,
@@ -21,6 +21,19 @@ export function StatementPage({ statements, orderLines, selectedId, setSelectedI
   const [filters, setFilters] = useState(defaultStatementFilters);
   const filtered = statements.filter((item) => statementMatchesFilters(item, filters));
   const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? statements.find((item) => item.id === selectedId) ?? statements[0];
+  if (!selected) {
+    return (
+      <section className="page-grid statement-layout">
+        <div className="customer-list">
+          <div className="panel-head compact">
+            <h2>客户对账</h2>
+            <span>{readMeta?.loading ? "正在读取后端对账数据" : "暂无对账数据"}</span>
+          </div>
+          <div className="empty-row">{readMeta?.error || "当前账期暂无客户对账单。"}</div>
+        </div>
+      </section>
+    );
+  }
   const customerInfo = findCustomer(selected.customerId);
   const lines = selected.lineIds.map((id) => findOrderLine(orderLines, id)).filter(Boolean);
   const adjustment = Number(selected.adjustment || 0);
@@ -61,7 +74,10 @@ export function StatementPage({ statements, orderLines, selectedId, setSelectedI
       <div className="customer-list">
         <div className="panel-head compact">
           <h2>客户对账</h2>
-          <span>默认：本期待对账 / 欠款 / 收款待确认</span>
+          <span>
+            默认：本期待对账 / 欠款 / 收款待确认
+            {readMeta?.source === "api" ? ` · 后端对账 ${readMeta.total ?? statements.length} 条` : ""}
+          </span>
         </div>
         <div className="statement-filter-panel">
           <label>

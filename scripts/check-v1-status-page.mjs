@@ -1,6 +1,8 @@
 import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
+const v1StatusReadSource = readFileSync(new URL("../src/app/useOfficeV1StatusReads.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 const v1StatusPageSource = readFileSync(new URL("../src/features/v1-status/V1StatusPage.jsx", import.meta.url), "utf8");
@@ -14,8 +16,9 @@ assertIncludes(navigationSource, 'permissionPrefixes: ["system.v1_"]', "V1 statu
 assertIncludes(officePageSource, 'export { V1StatusPage } from "../../features/v1-status/V1StatusPage.jsx";', "office pages should preserve the V1 status public export");
 assertExcludes(officePageSource, "function V1StatusPage", "office pages should no longer define the V1 status page");
 assertIncludes(appSource, "<V1StatusPage", "App should render V1 status page");
-assertIncludes(appSource, "当前仍以发布门禁、现场证据和签字作为完成标准", "refresh toast should keep V1 completion boundary explicit");
-assertIncludes(appSource, "getOfficeV1GoLiveStatus", "App should refresh V1 go-live status from API artifacts");
+assertIncludes(v1StatusReadSource, "当前仍以发布门禁、现场证据和签字作为完成标准", "refresh toast should keep V1 completion boundary explicit");
+assertIncludes(v1StatusReadSource, "getOfficeV1GoLiveStatus", "V1 read hook should refresh go-live status from API artifacts");
+assertExcludes(appSource, "getOfficeV1GoLiveStatus", "App should no longer call the V1 status read client directly");
 assertIncludes(appSource, "generateOfficeV1FieldEvidenceDraftManifest", "App should generate field evidence draft manifest through API");
 assertIncludes(appSource, "validateOfficeV1FieldEvidenceDraftManifest", "App should validate field evidence draft manifest through API");
 assertIncludes(appSource, "precheckOfficeV1ProductionEnv", "App should precheck current production env through API");
@@ -31,10 +34,10 @@ assertIncludes(appSource, "precheckOfficeV1RuntimeReadiness", "App should preche
 assertIncludes(appSource, "getOfficePrintDriverSpoolDiagnostics", "App should precheck print spool diagnostics through print driver API");
 assertIncludes(appSource, "precheckOfficeV1ReleaseCandidateRefresh", "App should precheck release candidate refresh through API");
 assertIncludes(appSource, "refreshOfficeV1ReleaseCandidate", "App should refresh release candidate through API");
-assertIncludes(appSource, "v1GoLiveStatusState", "App should keep V1 go-live status refresh state");
-assertIncludes(appSource, "lastSuccessfulAt", "App should retain the timestamp of the latest successful V1 status snapshot");
-assertIncludes(appSource, "lastAttemptedAt", "App should retain the timestamp of the latest V1 status refresh attempt");
-assertIncludes(appSource, "当前不展示固定门禁数据", "App should not claim static V1 gates when the status API is unavailable");
+assertIncludes(workspaceSource, "v1GoLiveStatusState", "workspace should keep V1 go-live status refresh state");
+assertIncludes(workspaceSource, "lastSuccessfulAt", "workspace should retain the timestamp of the latest successful V1 status snapshot");
+assertIncludes(workspaceSource, "lastAttemptedAt", "workspace should retain the timestamp of the latest V1 status refresh attempt");
+assertIncludes(v1StatusReadSource, "当前不展示固定门禁数据", "V1 read hook should not claim static gates when the status API is unavailable");
 assertIncludes(appSource, "v1FieldEvidenceDraftAction", "App should keep field evidence draft generation state");
 assertIncludes(appSource, "v1FieldEvidenceValidationAction", "App should keep field evidence draft validation state");
 assertIncludes(appSource, "v1FieldEvidenceAttachmentAction", "App should keep field evidence attachment upload state");

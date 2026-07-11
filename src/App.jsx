@@ -130,7 +130,6 @@ import {
 import {
   applyOfficeV1ProductionFirstStageValues,
   generateOfficeV1FieldEvidenceDraftManifest,
-  getOfficeV1GoLiveStatus,
   precheckOfficeV1AttachmentRetention,
   precheckOfficeV1DriverReadiness,
   precheckOfficeV1Persistence,
@@ -730,6 +729,7 @@ export function App() {
     refreshPrintDriverReadiness, refreshPrinterDeviceQa,
     refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries,
     refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
+    refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
     todos, setTodos, todoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
@@ -751,7 +751,7 @@ export function App() {
     printDriverConfig, printDriverReadiness, printDriverCupsDiagnostics,
     driverDeliveryTasks, setDriverDeliveryTasks, driverDeliveryMeta,
     selectedDriverTaskId, setSelectedDriverTaskId,
-    statements, setStatements, selectedStatementId, setSelectedStatementId,
+    statements, setStatements, selectedStatementId, setSelectedStatementId, statementReadMeta,
     masterDataPrecheckState, setMasterDataPrecheckState,
     masterDataImportReviewDrafts, setMasterDataImportReviewDrafts,
     masterDataImportConfirmationPlans, setMasterDataImportConfirmationPlans,
@@ -765,7 +765,7 @@ export function App() {
     rawMaterialSupplierStatementReviews, setRawMaterialSupplierStatementReviews,
     rawMaterialSupplierStatementReviewMeta, setRawMaterialSupplierStatementReviewMeta,
     selectedRawMaterialInboundId, setSelectedRawMaterialInboundId,
-    v1GoLiveStatusState, setV1GoLiveStatusState,
+    v1GoLiveStatusState,
     v1FieldEvidenceDraftAction, setV1FieldEvidenceDraftAction,
     v1FieldEvidenceValidationAction, setV1FieldEvidenceValidationAction,
     v1FieldEvidenceStageRowAction, setV1FieldEvidenceStageRowAction,
@@ -823,45 +823,6 @@ export function App() {
       setActivePage(primaryNavigationItems[0].key);
     }
   }, [activePage, permissionContext]);
-
-  async function refreshV1GoLiveStatus(options = {}) {
-    setV1GoLiveStatusState((current) => ({
-      ...current,
-      loading: true,
-      error: "",
-    }));
-    const result = await getOfficeV1GoLiveStatus({
-      authState,
-      operatorId: currentUserId,
-    });
-    if (result.statusData) {
-      const refreshedAt = new Date().toISOString();
-      setV1GoLiveStatusState({
-        source: result.source,
-        statusData: result.statusData,
-        loading: false,
-        error: "",
-        lastSyncedAt: refreshedAt,
-        lastSuccessfulAt: refreshedAt,
-        lastAttemptedAt: refreshedAt,
-      });
-      if (options.showToast) {
-        setToast("V1 上线状态已从后端 go-live 产物刷新；当前仍以发布门禁、现场证据和签字作为完成标准。");
-      }
-      return result;
-    }
-    setV1GoLiveStatusState((current) => ({
-      ...current,
-      source: result.source,
-      loading: false,
-      error: result.error?.message || "V1 上线状态 API 不可用，当前不展示固定门禁数据。",
-      lastAttemptedAt: new Date().toISOString(),
-    }));
-    if (options.showToast) {
-      setToast("V1 上线状态 API 不可用，当前不展示固定门禁数据；当前仍以发布门禁、现场证据和签字作为完成标准。");
-    }
-    return result;
-  }
 
   async function generateV1FieldEvidenceDraftManifest() {
     setV1FieldEvidenceDraftAction((current) => ({
@@ -3624,7 +3585,7 @@ export function App() {
   useEffect(() => {
     if (activePage !== "v1Status") return;
     void refreshV1GoLiveStatus();
-  }, [activePage, authState, currentUserId]);
+  }, [activePage, refreshV1GoLiveStatus]);
 
   async function saveRawMaterialSupplierStatementReviewDraft(statementResult, options = {}) {
     if (!guardUiAction("rawMaterial", "复核送货单")) return null;
@@ -4296,6 +4257,28 @@ export function App() {
   }, [activePage, refreshOfficePrintJobQueue]);
 
   useEffect(() => {
+    if (activePage !== "statements") return undefined;
+    let cancelled = false;
+    refreshStatements({ showToast: false }).then(() => {
+      if (cancelled) return;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePage, refreshStatements]);
+
+  useEffect(() => {
+    if (activePage !== "statements" || !selectedStatementId) return undefined;
+    let cancelled = false;
+    refreshStatementDetail({ statementId: selectedStatementId, showToast: false }).then(() => {
+      if (cancelled) return;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePage, refreshStatementDetail, selectedStatementId]);
+
+  useEffect(() => {
     if (activePage !== "statements" || !selectedStatementId) return undefined;
     const syncKey = `${currentUserId}:${selectedStatementId}:payment_screenshot`;
     if (paymentAttachmentSyncKeysRef.current.has(syncKey)) return undefined;
@@ -4415,6 +4398,14 @@ export function App() {
       });
       return;
     }
+    if (activePage === "statements") {
+      void refreshStatements({ showToast: true }).then((result) => {
+        if (result?.feedback) setToast(result.feedback);
+        const statementId = result?.selectedStatementId ?? selectedStatementId;
+        if (statementId) void refreshStatementDetail({ statementId, showToast: false });
+      });
+      return;
+    }
     if (activePage === "masterData") {
       void Promise.all([
         refreshMasterDataImportReviewDrafts({ silent: true }),
@@ -4434,7 +4425,9 @@ export function App() {
       return;
     }
     if (activePage === "v1Status") {
-      void refreshV1GoLiveStatus({ showToast: true });
+      void refreshV1GoLiveStatus({ showToast: true }).then((result) => {
+        if (result?.feedback) setToast(result.feedback);
+      });
       return;
     }
     if (activePage === "packing" || activePage === "workshopMobile") {
@@ -7895,6 +7888,7 @@ export function App() {
           {activePage === "statements" && (
             <StatementPage
               statements={statements}
+              readMeta={statementReadMeta}
               orderLines={orderLines}
               selectedId={selectedStatementId}
               setSelectedId={setSelectedStatementId}

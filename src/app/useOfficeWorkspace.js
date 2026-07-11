@@ -5,6 +5,8 @@ import { useOfficeMasterDataReads } from "./useOfficeMasterDataReads.js";
 import { useOfficePrintReads } from "./useOfficePrintReads.js";
 import { useOfficeProductionReads } from "./useOfficeProductionReads.js";
 import { useOfficeRoleToolReads } from "./useOfficeRoleToolReads.js";
+import { useOfficeStatementReads } from "./useOfficeStatementReads.js";
+import { useOfficeV1StatusReads } from "./useOfficeV1StatusReads.js";
 import { buildPackingTaskId } from "../services/officeProductionPackingApiClient.js";
 import {
   createPrinterDeviceFieldTestChecks,
@@ -198,6 +200,17 @@ export function useOfficeWorkspace({
 
   const [statements, setStatements] = useState(initialStatements);
   const [selectedStatementId, setSelectedStatementId] = useState(defaultSelections.statementId);
+  const [statementReadMeta, setStatementReadMeta] = useState({
+    source: "local",
+    total: initialStatements.length,
+    loading: false,
+    error: "",
+    lastSyncedAt: "",
+    detailSource: "local",
+    detailLoading: false,
+    detailError: "",
+    detailLastSyncedAt: "",
+  });
 
   const [masterDataPrecheckState, setMasterDataPrecheckState] = useState({ status: "idle" });
   const [masterDataImportReviewDrafts, setMasterDataImportReviewDrafts] = useState([]);
@@ -292,6 +305,8 @@ export function useOfficeWorkspace({
   const rawMaterialInboundsRef = useRef(initialRawMaterialInbounds);
   const selectedRawMaterialInboundIdRef = useRef(defaultSelections.rawMaterialInboundId);
   const rawMaterialSupplierStatementReviewsRef = useRef([]);
+  const statementsRef = useRef(initialStatements);
+  const selectedStatementIdRef = useRef(defaultSelections.statementId);
   const inventoryCorrectionDraftsRef = useRef([]);
   const masterDataImportReviewDraftsRef = useRef([]);
   const masterDataEmployeeAccountReviewsRef = useRef([]);
@@ -323,6 +338,12 @@ export function useOfficeWorkspace({
   useEffect(() => {
     rawMaterialSupplierStatementReviewsRef.current = rawMaterialSupplierStatementReviews;
   }, [rawMaterialSupplierStatementReviews]);
+  useEffect(() => {
+    statementsRef.current = statements;
+  }, [statements]);
+  useEffect(() => {
+    selectedStatementIdRef.current = selectedStatementId;
+  }, [selectedStatementId]);
   useEffect(() => {
     inventoryCorrectionDraftsRef.current = inventoryCorrectionDrafts;
   }, [inventoryCorrectionDrafts]);
@@ -420,6 +441,20 @@ export function useOfficeWorkspace({
     setMasterDataEmployeeAccountReviews,
     setMasterDataImportReviewDrafts,
   });
+  const statementReads = useOfficeStatementReads({
+    authState,
+    currentUserId,
+    selectedStatementIdRef,
+    statementsRef,
+    setSelectedStatementId,
+    setStatementReadMeta,
+    setStatements,
+  });
+  const v1StatusReads = useOfficeV1StatusReads({
+    authState,
+    currentUserId,
+    setV1GoLiveStatusState,
+  });
 
   return {
     ...coreReads,
@@ -428,6 +463,8 @@ export function useOfficeWorkspace({
     ...printReads,
     ...inventoryDetailReads,
     ...masterDataReads,
+    ...statementReads,
+    ...v1StatusReads,
     todos, setTodos, todoMeta, setTodoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
@@ -451,6 +488,7 @@ export function useOfficeWorkspace({
     driverDeliveryTasks, setDriverDeliveryTasks, driverDeliveryMeta, setDriverDeliveryMeta,
     selectedDriverTaskId, setSelectedDriverTaskId,
     statements, setStatements, selectedStatementId, setSelectedStatementId,
+    statementReadMeta, setStatementReadMeta,
     masterDataPrecheckState, setMasterDataPrecheckState,
     masterDataImportReviewDrafts, setMasterDataImportReviewDrafts,
     masterDataImportConfirmationPlans, setMasterDataImportConfirmationPlans,
