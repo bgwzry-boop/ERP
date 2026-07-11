@@ -1,6 +1,12 @@
 # 后端最小骨架说明
 
-最后更新：2026-07-08
+最后更新：2026-07-12
+
+## 2026-07-12 存储 live precheck 边界
+
+系统持久化与附件留档的当前运行时预检已集中到 `server/services/v1StorageLivePrecheckService.mjs`。该服务只读取注入的 readiness 结果并生成固定、脱敏的 API 投影；它不会刷新 release candidate、写业务数据、执行设备动作，也不会返回连接串、本地路径、诊断 storage key、摘要或原始异常。`server/apiServer.mjs` 只负责授权后的 handler 装配，运行时总门禁复用同一个 criterion 清洗函数。
+
+直接回归入口为 `npm run v1-storage-live-precheck-service:check`，覆盖持久化 ready / blocked、附件留档 ready / blocked、异常固定映射和敏感错误不回显；该专项已纳入 `npm test`。
 
 ## 定位
 
