@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useOfficeCoreReads } from "./useOfficeCoreReads.js";
 import { buildPackingTaskId } from "../services/officeProductionPackingApiClient.js";
 import {
   createPrinterDeviceFieldTestChecks,
@@ -55,7 +56,9 @@ function createGoLiveStatusState() {
 }
 
 export function useOfficeWorkspace({
+  authState,
   customers,
+  currentUserId,
   defaultSelections,
   initialFulfillments,
   initialInventories,
@@ -323,7 +326,29 @@ export function useOfficeWorkspace({
     printJobQueueItemsRef.current = printJobQueue.items;
   }, [printJobQueue.items]);
 
+  const coreReads = useOfficeCoreReads({
+    authState,
+    currentUserId,
+    todosRef,
+    orderLinesRef,
+    inventoryRecordsRef,
+    selectedStockIdRef,
+    fulfillmentsRef,
+    setTodos,
+    setSelectedTodoId,
+    setTodoMeta,
+    setOrderLines,
+    setSelectedOrderId,
+    setOrderPoolMeta,
+    setInventoryRecords,
+    setSelectedStockId,
+    setInventoryMeta,
+    setFulfillments,
+    setSelectedFulfillmentId,
+  });
+
   return {
+    ...coreReads,
     todos, setTodos, todoMeta, setTodoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,

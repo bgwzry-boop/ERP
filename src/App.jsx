@@ -70,13 +70,11 @@ import {
 import {
   adjustOfficeOrderLineQuantity,
   getOfficeOrderLineDetail,
-  listOfficeOrderLines,
   voidOfficeOrderLine,
 } from "./services/officeOrderPoolApiClient.js";
 import {
   handleOfficeTodoAction,
   handleOfficeTodoBatch,
-  listOfficeTodos,
 } from "./services/officeTodoApiClient.js";
 import { createOfficePrintBatchRecord } from "./services/officePrintBatchApiClient.js";
 import {
@@ -84,14 +82,12 @@ import {
   createOfficeInventoryCorrectionDraft,
   getOfficeInventoryCorrectionDetail,
   listOfficeInventoryCorrectionDrafts,
-  listOfficeInventoryItems,
   listOfficeInventoryLedgerEntries,
 } from "./services/officeInventoryApiClient.js";
 import {
   completeOfficeFulfillment,
   confirmOfficeFulfillmentPickup,
   createOfficeFulfillmentException,
-  listOfficeFulfillments,
   printOfficeFulfillment,
   reviewOfficeDeliveryEvidence,
   updateOfficeFulfillmentDispatch,
@@ -755,15 +751,19 @@ export function App() {
   const [orderActionModal, setOrderActionModal] = useState(null);
   const [attachmentViewer, setAttachmentViewer] = useState(null);
   const [masterDataTemplatePanel, setMasterDataTemplatePanel] = useState(null);
+  const permissionContext = authState.permissions;
+  const currentUser = permissionContext.user;
+  const currentUserId = currentUser.userId ?? defaultSeedUserId;
   const {
-    todos, setTodos, todoMeta, setTodoMeta, printBatchRecords, setPrintBatchRecords,
+    refreshTodos, refreshOrderPool, refreshInventoryRecords, refreshFulfillments,
+    todos, setTodos, todoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
     selectedOrderDetail, setSelectedOrderDetail, entryText, setEntryText,
     draftRows, setDraftRows, draftStatus, setDraftStatus, draftApiMeta, setDraftApiMeta,
     selectedDraftId, setSelectedDraftId, orderFilters, setOrderFilters,
     selectedOrderId, setSelectedOrderId,
-    inventoryRecords, setInventoryRecords, inventoryMeta, setInventoryMeta,
+    inventoryRecords, setInventoryRecords, inventoryMeta,
     inventoryLedgerState, setInventoryLedgerState, inventoryLedgerFilters, setInventoryLedgerFilters,
     inventoryCorrectionDetailState, setInventoryCorrectionDetailState,
     setInventoryCorrectionDrafts,
@@ -821,12 +821,14 @@ export function App() {
     v1V2ScopeBriefRefreshAction, setV1V2ScopeBriefRefreshAction,
     v1ReleaseCandidateRefreshPrecheckAction, setV1ReleaseCandidateRefreshPrecheckAction,
     v1ReleaseCandidateRefreshAction, setV1ReleaseCandidateRefreshAction,
-    todosRef, orderLinesRef, inventoryRecordsRef, fulfillmentsRef, rawMaterialInboundsRef,
+    orderLinesRef, rawMaterialInboundsRef,
     rawMaterialSupplierStatementReviewsRef, inventoryCorrectionDraftsRef,
     selectedStockIdRef, inventoryLedgerFiltersRef, printerDeviceQaSelectedIdRef,
     printJobQueueItemsRef, paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
   } = useOfficeWorkspace({
+    authState,
     customers,
+    currentUserId,
     defaultSelections,
     initialFulfillments,
     initialInventories,
@@ -837,9 +839,6 @@ export function App() {
     sampleText,
   });
 
-  const permissionContext = authState.permissions;
-  const currentUser = permissionContext.user;
-  const currentUserId = currentUser.userId ?? defaultSeedUserId;
   const activeMeta = allNavigationItems.find((item) => item.key === activePage) ?? primaryNavigationItems[0];
   const authSourceLabel = authState.authenticated ? "后端认证" : runtimeServerRequired ? "等待登录" : "本地权限";
   const unhandledTodos = todos.filter((item) => !item.handled).length;
@@ -3692,88 +3691,6 @@ export function App() {
     void refreshV1GoLiveStatus();
   }, [activePage, authState, currentUserId]);
 
-  const refreshTodos = useCallback(async ({ showToast = false } = {}) => {
-    setTodoMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await listOfficeTodos({
-      authState,
-      operatorId: currentUserId,
-      status: "all",
-      pageSize: 200,
-      localTodos: todosRef.current,
-    });
-
-    if (result.blocked) {
-      setTodoMeta((current) => ({
-        ...current,
-        source: result.source,
-        loading: false,
-        error: result.error?.message ?? "公共待办 API 返回错误。",
-      }));
-      if (showToast) setToast(`刷新公共待办失败：${result.error?.message ?? "接口错误"}`);
-      return result;
-    }
-
-    const items = result.items ?? [];
-    setTodos(items);
-    setSelectedTodoId((current) => (items.some((item) => item.id === current) ? current : sortTodos(items)[0]?.id ?? current));
-    setTodoMeta({
-      source: result.source,
-      total: result.total ?? items.length,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    });
-    if (showToast) {
-      const sourceLabel = result.source === "api" ? "后端公共待办" : "本地公共待办";
-      setToast(`已刷新${sourceLabel}：${result.total ?? items.length} 条。`);
-    }
-    return result;
-  }, [authState, currentUserId]);
-
-  const refreshOrderPool = useCallback(async ({ showToast = false } = {}) => {
-    setOrderPoolMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await listOfficeOrderLines({
-      authState,
-      operatorId: currentUserId,
-      localOrderLines: orderLinesRef.current,
-      pageSize: 200,
-      includeHistory: false,
-    });
-
-    if (result.blocked) {
-      setOrderPoolMeta((current) => ({
-        ...current,
-        source: result.source,
-        loading: false,
-        error: result.error?.message ?? "订单池列表 API 返回错误。",
-      }));
-      if (showToast) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新订单池：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新订单池：${result.error?.message ?? "未知错误"}`,
-        );
-      }
-      return result;
-    }
-
-    setOrderLines(result.items);
-    setSelectedOrderId((current) => (result.items.some((item) => item.id === current) ? current : result.items[0]?.id ?? current));
-    setOrderPoolMeta((current) => ({
-      ...current,
-      source: result.source,
-      total: result.total,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    }));
-    if (showToast) {
-      const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`订单池已通过${sourceLabel}刷新，共 ${result.total} 行。`);
-    }
-    return result;
-  }, [authState, currentUserId]);
-
   const refreshDriverDeliveryTasks = useCallback(async ({ showToast = false } = {}) => {
     setDriverDeliveryMeta((current) => ({ ...current, loading: true, error: "" }));
     const result = await listDriverDeliveryTasks({
@@ -3818,78 +3735,6 @@ export function App() {
     }
     return result;
   }, [authState, currentUserId, fulfillments, orderLines]);
-
-  const refreshInventoryRecords = useCallback(async ({ showToast = false } = {}) => {
-    setInventoryMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await listOfficeInventoryItems({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 200,
-      localInventoryRecords: inventoryRecordsRef.current,
-    });
-
-    if (result.blocked) {
-      setInventoryMeta((current) => ({
-        ...current,
-        source: result.source,
-        loading: false,
-        error: result.error?.message ?? "库存列表 API 返回错误。",
-      }));
-      if (showToast) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新库存列表：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新库存列表：${result.error?.message ?? "未知错误"}`,
-        );
-      }
-      return result;
-    }
-
-    const nextItems = result.items.length ? result.items : inventoryRecordsRef.current;
-    const currentSelectedId = selectedStockIdRef.current;
-    const nextSelectedStockId = nextItems.some((item) => item.id === currentSelectedId)
-      ? currentSelectedId
-      : nextItems[0]?.id ?? currentSelectedId;
-    setInventoryRecords(nextItems);
-    setSelectedStockId(nextSelectedStockId);
-    setInventoryMeta({
-      source: result.source,
-      total: result.total,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    });
-    if (showToast) {
-      const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`库存列表已通过${sourceLabel}刷新，共 ${result.total} 个库存键。`);
-    }
-    return { ...result, selectedStockId: nextSelectedStockId };
-  }, [authState, currentUserId]);
-
-  const refreshFulfillments = useCallback(async ({ showToast = false } = {}) => {
-    const result = await listOfficeFulfillments({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 200,
-      localFulfillments: fulfillmentsRef.current,
-    });
-    if (result.blocked || (isOfficeApiServerRequired() && result.source !== "api")) {
-      if (showToast) {
-        setToast(`刷新出库交付失败：${result.error?.message ?? "生产模式要求后端交付投影。"}`);
-      }
-      return result;
-    }
-    const nextItems = result.items ?? [];
-    setFulfillments(nextItems);
-    setSelectedFulfillmentId((current) =>
-      nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id ?? current,
-    );
-    if (showToast) {
-      const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`出库交付已通过${sourceLabel}刷新，共 ${result.total ?? nextItems.length} 条。`);
-    }
-    return result;
-  }, [authState, currentUserId]);
 
   const refreshRawMaterialInbounds = useCallback(async ({ showToast = false } = {}) => {
     setRawMaterialInboundMeta((current) => ({ ...current, loading: true, error: "" }));
@@ -4913,39 +4758,13 @@ export function App() {
 
   useEffect(() => {
     let cancelled = false;
-    setOrderPoolMeta((current) => ({ ...current, loading: true, error: "" }));
-    listOfficeOrderLines({
-      authState,
-      operatorId: currentUserId,
-      localOrderLines: orderLinesRef.current,
-      pageSize: 200,
-      includeHistory: false,
-    }).then((result) => {
+    refreshOrderPool({ showToast: false }).then(() => {
       if (cancelled) return;
-      if (result.blocked) {
-        setOrderPoolMeta((current) => ({
-          ...current,
-          source: result.source,
-          loading: false,
-          error: result.error?.message ?? "订单池列表 API 返回错误。",
-        }));
-        return;
-      }
-      setOrderLines(result.items);
-      setSelectedOrderId((current) => (result.items.some((item) => item.id === current) ? current : result.items[0]?.id ?? current));
-      setOrderPoolMeta((current) => ({
-        ...current,
-        source: result.source,
-        total: result.total,
-        loading: false,
-        error: result.error?.message ?? "",
-        lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-      }));
     });
     return () => {
       cancelled = true;
     };
-  }, [authState, currentUserId]);
+  }, [refreshOrderPool]);
 
   useEffect(() => {
     if (activePage !== "driverMobile") return undefined;
@@ -5219,11 +5038,15 @@ export function App() {
 
   function refreshActivePage() {
     if (activePage === "todos") {
-      void refreshTodos({ showToast: true });
+      void refreshTodos({ showToast: true }).then((result) => {
+        if (result?.feedback) setToast(result.feedback);
+      });
       return;
     }
     if (activePage === "orders") {
-      void refreshOrderPool({ showToast: true });
+      void refreshOrderPool({ showToast: true }).then((result) => {
+        if (result?.feedback) setToast(result.feedback);
+      });
       return;
     }
     if (activePage === "driverMobile") {
@@ -5232,8 +5055,15 @@ export function App() {
     }
     if (activePage === "inventory") {
       void refreshInventoryRecords({ showToast: true }).then((result) => {
+        if (result?.feedback) setToast(result.feedback);
         const stockId = result?.selectedStockId ?? selectedStockIdRef.current;
         void refreshInventoryLedgerEntries({ stockId, showToast: false });
+      });
+      return;
+    }
+    if (activePage === "fulfillment") {
+      void refreshFulfillments({ showToast: true }).then((result) => {
+        if (result?.feedback) setToast(result.feedback);
       });
       return;
     }
@@ -8581,6 +8411,7 @@ export function App() {
           getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
         />
         <main className="content">
+          <div className="toast" role="status">{toast}</div>
           <PageHead page={activeMeta} onRefresh={refreshActivePage} />
           {activePage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} helpers={pageHelpers} />}
           {activePage === "entry" && (
@@ -8814,7 +8645,6 @@ export function App() {
               onValidateFieldEvidenceDraft={validateV1FieldEvidenceDraftManifest}
             />
           )}
-          <div className="toast" role="status">{toast}</div>
         </main>
       </div>
 
@@ -8963,7 +8793,7 @@ function PageHead({ page, onRefresh }) {
         <p>{subtitles[page.key]}</p>
       </div>
       <div className="head-actions">
-        <button className="ghost-button" onClick={onRefresh}>
+        <button type="button" className="ghost-button" onClick={() => onRefresh()}>
           <ReloadOutlined />
           刷新
         </button>

@@ -6790,18 +6790,18 @@ button.route-nav-button {
 }
 
 .toast {
-  position: absolute;
-  top: 14px;
-  right: 18px;
-  z-index: 5;
-  max-width: 560px;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
   border: 1px solid #cfe0ff;
   border-radius: 6px;
-  background: #fff;
-  box-shadow: 0 8px 28px rgba(19, 33, 52, 0.13);
+  background: #f7faff;
   color: #253044;
   font-size: 13px;
+  line-height: 18px;
+  margin-bottom: 8px;
   padding: 9px 12px;
+  pointer-events: none;
 }
 
 .modal-backdrop {
