@@ -929,7 +929,7 @@ try {
     plannedQty: 1800,
     machineId: "BAG-01",
     processType: "制袋",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     publishedAt: new Date().toISOString(),
     remark: "API skeleton schedule publish check",
   });
@@ -946,6 +946,14 @@ try {
     !schedulePublish.operationLogId
   ) {
     throw new Error("/api/production-tasks/{id}/publish-schedule returned an unexpected payload");
+  }
+  const publishedScheduleTaskDetail = await getJson(baseUrl, `/api/production-tasks/${scheduleProductionTaskId}`);
+  if (
+    !publishedScheduleTaskDetail.operationLogs?.some(
+      (log) => log.action === "publish_production_schedule" && log.operatorId === "U-OFFICE-A",
+    )
+  ) {
+    throw new Error("/api/production-tasks/{id}/publish-schedule did not preserve the authenticated operator");
   }
   const workshopVisibleAfterSchedulePublish = await getJson(
     baseUrl,
@@ -1016,7 +1024,7 @@ try {
     {
       machineId: "BAG-01",
       orderedProductionTaskIds: reversedBag01QueueOrder,
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       remark: "API skeleton queue resequence check",
     },
     { headers: { "x-erp-user-id": "U-OFFICE-A" } },
@@ -1081,7 +1089,7 @@ try {
       productionTaskId: movedProductionTaskId,
       targetMachineId: "BAG-02",
       targetQueueSeq: 1,
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       remark: "API skeleton machine move check",
     },
     { headers: { "x-erp-user-id": "U-OFFICE-A" } },

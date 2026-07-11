@@ -1181,6 +1181,7 @@ function normalizeProductionMachineQueueItem(item) {
   const dailyProgress = normalizeProductionDailyProgressDetail(item?.dailyProgress ?? item?.daily_progress);
   return {
     scheduleRecordId: cleanText(item?.scheduleRecordId),
+    revision: Math.max(1, Math.trunc(Number(item?.revision ?? 1))),
     queueSeq: Math.max(0, Math.trunc(Number(item?.queueSeq ?? 0))),
     machineId: cleanText(item?.machineId),
     machineLabel: cleanText(item?.machineLabel ?? item?.machineId),
@@ -1221,6 +1222,7 @@ function normalizeProductionScheduleRecord(item) {
     status: cleanText(item?.status ?? item?.scheduleStatus),
     source: cleanText(item?.source ?? item?.sourceKind),
     sourceKind: cleanText(item?.sourceKind ?? item?.source),
+    revision: Math.max(1, Math.trunc(Number(item?.revision ?? 1))),
     sequenceUpdatedAt: cleanText(item?.sequenceUpdatedAt ?? item?.updatedAt),
     sequenceUpdatedBy: cleanText(item?.sequenceUpdatedBy ?? item?.updatedBy),
     remark: cleanText(item?.remark),
@@ -1296,9 +1298,11 @@ function normalizeProductionTaskDetail(task, fallback = {}) {
     plannedQty: Math.trunc(Number(task?.plannedQty ?? task?.qty ?? fallback.orderLine?.qty ?? 0)),
     taskStatus: cleanText(task?.taskStatus ?? task?.status),
     status: cleanText(task?.status ?? task?.taskStatus),
+    revision: Math.max(1, Math.trunc(Number(task?.revision ?? 1))),
     finishedGoodsPhoto: normalizeFinishedGoodsPhotoSummary(task?.finishedGoodsPhoto),
     createdBy: cleanText(task?.createdBy),
     createdAt: cleanText(task?.createdAt),
+    updatedAt: cleanText(task?.updatedAt),
   };
 }
 

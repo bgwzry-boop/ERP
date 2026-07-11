@@ -150,6 +150,7 @@ const machineQueueResult = await listOfficeProductionMachineQueue(
         items: [
           {
             scheduleRecordId: "SQR-SCH-API-BAG-01-001",
+            revision: 3,
             queueSeq: 1,
             machineId: "BAG-01",
             machineLabel: "BAG-01",
@@ -209,6 +210,7 @@ assert(machineQueueResult.source === "api", "machine queue should use API respon
 assert(machineQueueCalls[0]?.url === "http://127.0.0.1:8787/api/production-schedules/machine-queue?machineId=BAG-01&status=open&keyword=%E7%BE%8E%E7%9A%84", "machine queue URL is incorrect");
 assert(machineQueueCalls[0]?.init.method === "GET", "machine queue method is incorrect");
 assert(machineQueueResult.items[0]?.queueSeq === 1, "machine queue did not map queue sequence");
+assert(machineQueueResult.items[0]?.revision === 3, "machine queue did not preserve schedule revision");
 assert(machineQueueResult.items[0]?.remainingQty === 580, "machine queue did not map remaining quantity");
 assert(machineQueueResult.items[0]?.dailyProgress?.carryOver === true, "machine queue did not map daily progress");
 assert(machineQueueResult.machines[0]?.machineId === "BAG-01", "machine queue did not map machine group");
@@ -238,6 +240,7 @@ const resequenceQueueResult = await resequenceOfficeProductionMachineQueue(
         productionScheduleRecords: [
           {
             scheduleRecordId: "SQR-SCH-API-BAG-01-002",
+            revision: 4,
             productionTaskId: "PT-ORD-0629-003-02",
             orderLineId: "ORD-0629-003-02",
             publishedScheduleId: "SCH-API-BAG-01-002",
@@ -251,6 +254,7 @@ const resequenceQueueResult = await resequenceOfficeProductionMachineQueue(
           },
           {
             scheduleRecordId: "SQR-SCH-API-BAG-01-001",
+            revision: 5,
             productionTaskId: "PT-ORD-0629-003-01",
             orderLineId: productionLine.id,
             publishedScheduleId: "SCH-API-BAG-01-001",
@@ -323,6 +327,7 @@ assert(resequenceQueueResult.items[1]?.queueSeq === 2, "machine queue resequence
 assert(resequenceQueueResult.items[0]?.sequenceUpdatedBy === "U-OFFICE-A", "machine queue resequence did not map sequence updater");
 assert(resequenceQueueResult.productionScheduleRecords[0]?.sourceKind === "manual_resequence", "machine queue resequence did not map schedule records");
 assert(resequenceQueueResult.productionScheduleRecords[1]?.queueSeq === 2, "machine queue resequence did not preserve schedule record sequence");
+assert(resequenceQueueResult.productionScheduleRecords[0]?.revision === 4, "machine queue resequence did not preserve schedule revision");
 assert(resequenceQueueResult.inventoryCreated === false, "machine queue resequence must not create inventory");
 assert(resequenceQueueResult.reservationCreated === false, "machine queue resequence must not reserve inventory");
 assert(resequenceQueueResult.packingTaskCreated === false, "machine queue resequence must not create packing task");
@@ -358,6 +363,8 @@ const moveQueueResult = await moveOfficeProductionMachineQueueItem(
           publishedScheduleId: "SCH-API-BAG-01-002",
           plannedQty: 800,
           taskStatus: "制袋已排产",
+          revision: 6,
+          updatedAt: "2026-07-03T10:30:00.000Z",
         },
         inventoryCreated: false,
         reservationCreated: false,
@@ -365,6 +372,7 @@ const moveQueueResult = await moveOfficeProductionMachineQueueItem(
         productionScheduleRecords: [
           {
             scheduleRecordId: "SQR-SCH-API-BAG-01-002",
+            revision: 5,
             productionTaskId: "PT-ORD-0629-003-02",
             orderLineId: "ORD-0629-003-02",
             publishedScheduleId: "SCH-API-BAG-01-002",
@@ -378,6 +386,7 @@ const moveQueueResult = await moveOfficeProductionMachineQueueItem(
           },
           {
             scheduleRecordId: "SQR-BAG-02-SCH-API-BAG-01-002",
+            revision: 1,
             productionTaskId: "PT-ORD-0629-003-02",
             orderLineId: "ORD-0629-003-02",
             publishedScheduleId: "SCH-API-BAG-01-002",
@@ -435,6 +444,8 @@ assert(moveQueueResult.sourceMachineId === "BAG-01", "machine queue move did not
 assert(moveQueueResult.targetMachineId === "BAG-02", "machine queue move did not map target machine");
 assert(moveQueueResult.targetQueueSeq === 1, "machine queue move did not map target sequence");
 assert(moveQueueResult.productionTask.machineId === "BAG-02", "machine queue move did not map moved production task");
+assert(moveQueueResult.productionTask.revision === 6, "machine queue move did not preserve task revision");
+assert(moveQueueResult.productionTask.updatedAt === "2026-07-03T10:30:00.000Z", "machine queue move did not preserve task update time");
 assert(moveQueueResult.items[0]?.machineId === "BAG-02", "machine queue move did not map target queue item");
 assert(moveQueueResult.productionScheduleRecords.some((record) => record.status === "moved" && record.machineId === "BAG-01"), "machine queue move did not map moved source record");
 assert(moveQueueResult.productionScheduleRecords.some((record) => record.status === "active" && record.machineId === "BAG-02"), "machine queue move did not map active target record");
@@ -477,6 +488,8 @@ const publishScheduleResult = await publishOfficeProductionSchedule(
           publishedScheduleId: "SCH-BAG-01-PT-ORD-0629-003-01",
           plannedQty: 1000,
           taskStatus: "制袋已排产",
+          revision: 2,
+          updatedAt: "2026-07-03T10:00:00.000Z",
         },
         inventoryCreated: false,
         reservationCreated: false,
@@ -494,6 +507,8 @@ assert(publishScheduleCalls[0]?.body.orderLineId === productionLine.id, "publish
 assert(publishScheduleCalls[0]?.body.machineId === "BAG-01", "publish schedule machine is incorrect");
 assert(publishScheduleCalls[0]?.body.plannedQty === 1000, "publish schedule planned quantity is incorrect");
 assert(publishScheduleResult.publishedScheduleId === "SCH-BAG-01-PT-ORD-0629-003-01", "publish schedule did not map published schedule id");
+assert(publishScheduleResult.productionTask.revision === 2, "publish schedule did not preserve task revision");
+assert(publishScheduleResult.productionTask.updatedAt === "2026-07-03T10:00:00.000Z", "publish schedule did not preserve task update time");
 assert(publishScheduleResult.inventoryCreated === false, "publish schedule must not create inventory");
 assert(publishScheduleResult.reservationCreated === false, "publish schedule must not reserve inventory");
 assert(publishScheduleResult.packingTaskCreated === false, "publish schedule must not create packing task");

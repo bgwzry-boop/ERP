@@ -29,7 +29,14 @@ export async function handleProductionWriteRoutes({
     const routes = {
       "publish-schedule": {
         permission: writeActionPermissions.publishProductionSchedule,
-        run: () => publishProductionScheduleRoute({ response, workspace, productionTaskId, body }),
+        run: () =>
+          publishProductionScheduleRoute({
+            response,
+            workspace,
+            productionTaskId,
+            body,
+            operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+          }),
       },
       "report-complete": {
         permission: writeActionPermissions.reportProduction,

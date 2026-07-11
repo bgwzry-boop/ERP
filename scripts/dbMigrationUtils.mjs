@@ -385,6 +385,7 @@ export const requiredTableColumns = {
     "queue_seq",
     "schedule_status",
     "source_kind",
+    "revision",
     "planned_start_at",
     "planned_end_at",
     "sequence_updated_at",

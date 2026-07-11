@@ -26,7 +26,7 @@ const dependencies = {
 };
 
 for (const [pathname, permission, routeName, expected] of [
-  ["/api/production-tasks/PT-1/publish-schedule", "production.schedule.publish", "publishProductionScheduleRoute", { productionTaskId: "PT-1" }],
+  ["/api/production-tasks/PT-1/publish-schedule", "production.schedule.publish", "publishProductionScheduleRoute", { productionTaskId: "PT-1", operatorId: "U-RESOLVED" }],
   ["/api/production-tasks/PT-1/report-complete", "production.report.complete", "reportProductionCompleteRoute", { productionTaskId: "PT-1", operatorId: "U-RESOLVED" }],
   ["/api/production-tasks/PT-1/daily-progress", "production.report.complete", "recordProductionDailyProgressRoute", { productionTaskId: "PT-1", operatorId: "U-RESOLVED" }],
   ["/api/production-tasks/PT-1/finished-goods-photo", "production.report.complete", "uploadProductionFinishedGoodsPhotoRoute", { productionTaskId: "PT-1", operatorId: "U-RESOLVED" }],

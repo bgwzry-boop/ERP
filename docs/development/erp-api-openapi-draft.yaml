@@ -2184,6 +2184,7 @@ paths:
         办公室或管理账号对同一机台的当前未完成排产队列进行人工调序，并写入操作日志。
         请求必须提交该机台当前队列的完整 productionTaskId 顺序，避免漏排或跨机台调序。
         本接口只更新队列顺序记录，不写库存、不占用库存、不生成打包任务，也不代表完整排班 / 插单 / 换模 / 产能排程引擎。
+        队列记录和日志原子提交；idempotencyKey 重放返回首次结果，陈旧队列快照返回 409。
       operationId: resequenceProductionMachineQueue
       requestBody:
         required: true
@@ -2215,6 +2216,7 @@ paths:
         办公室或管理账号把当前未完成生产任务移动到目标机台，并按目标位置插入队列。
         接口会更新生产任务机台、写入源机台 moved 记录、写入目标机台 active 队列记录和操作日志。
         本接口只调整排产队列，不写库存、不占用库存、不生成打包任务，也不代表完整排班 / 换模 / 产能排程引擎。
+        生产任务、源/目标队列和日志原子提交；idempotencyKey 重放返回首次结果，陈旧任务或队列快照返回 409。
       operationId: moveProductionMachineQueueItem
       requestBody:
         required: true
@@ -2245,7 +2247,8 @@ paths:
       description: >
         办公室或管理账号确认排产后，为生产任务写入 publishedScheduleId、机台和已排产状态。
         车间手机端只会看到已发布排产且匹配当前机台的未完成任务；本接口不写入库存、
-        不锁定订单库存、不生成打包任务，也不生成报工记录。
+        不锁定订单库存、不生成打包任务，也不生成报工记录。生产任务、订单行和日志原子提交；
+        idempotencyKey 重放返回首次发布结果，陈旧任务或订单行快照返回 409。
       operationId: publishProductionTaskSchedule
       parameters:
         - $ref: "#/components/parameters/ProductionTaskId"
@@ -17166,6 +17169,9 @@ components:
           type: string
         status:
           type: string
+        revision:
+          type: integer
+          minimum: 1
         finishedGoodsPhoto:
           oneOf:
             - $ref: "#/components/schemas/FinishedGoodsPhotoSummary"
@@ -17173,6 +17179,9 @@ components:
         createdBy:
           type: string
         createdAt:
+          type: string
+          format: date-time
+        updatedAt:
           type: string
           format: date-time
 
@@ -17200,8 +17209,15 @@ components:
         publishedAt:
           type: string
           format: date-time
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: 客户端重试键；同一次发布重试必须复用相同值。
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略此值，操作人取当前认证会话。
         remark:
           type: string
 
@@ -17305,8 +17321,15 @@ components:
           uniqueItems: true
           items:
             type: string
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: 客户端重试键；同一次调序重试必须复用相同值。
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略此值，操作人取当前认证会话。
         updatedAt:
           type: string
           format: date-time
@@ -17373,8 +17396,15 @@ components:
         insertAfterProductionTaskId:
           type: string
           description: 插入到指定生产任务之后；在未传 insertBeforeProductionTaskId 时生效。
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+          description: 客户端重试键；同一次移动重试必须复用相同值。
         operatorId:
           type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略此值，操作人取当前认证会话。
         updatedAt:
           type: string
           format: date-time
@@ -17464,6 +17494,9 @@ components:
           type: string
         sourceKind:
           type: string
+        revision:
+          type: integer
+          minimum: 1
         sequenceUpdatedAt:
           type: string
           format: date-time
@@ -17525,6 +17558,9 @@ components:
       properties:
         scheduleRecordId:
           type: string
+        revision:
+          type: integer
+          minimum: 1
         queueSeq:
           type: integer
           minimum: 1

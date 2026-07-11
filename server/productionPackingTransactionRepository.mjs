@@ -108,7 +108,7 @@ export function createPostgresProductionPackingTransactionRepository(options = {
   const databaseUrl = options.databaseUrl;
   const postgresClient =
     options.postgresClient ?? (options.queryJson || options.transactionJson ? null : createPostgresPoolClient({ databaseUrl }));
-  const { transactionJson, idempotentTransactionJson } = createPostgresTransactionExecutor({
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor({
     ...options,
     databaseUrl,
     postgresClient,
@@ -175,7 +175,13 @@ export function createPostgresProductionPackingTransactionRepository(options = {
     async publishProductionSchedule(input) {
       const builtQuery = buildPublishProductionScheduleTransactionQuery(input);
       const saved = normalizeProductionSchedulePublishTransactionResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await executeIdempotentProductionTransaction({
+          input,
+          scope: "production.schedule.publish",
+          query: builtQuery,
+          idempotentTransactionJson,
+          resourceLocks: buildProductionResourceLocks(input),
+        }),
       );
       if (!saved.productionTask) {
         throw new Error("PostgreSQL production schedule publish transaction returned an invalid result");
@@ -388,17 +394,24 @@ export function buildPublishProductionScheduleTransactionQuery(input) {
   }
 
   const parameters = createPostgresParameterBinder();
+  const writeGuardCtes = buildProductionWriteGuardCtes({
+    productionTask,
+    orderLine,
+    inventoryAdjustments: [],
+    disallowedStatuses: ["已完成"],
+  }, parameters);
   return {
     text: `
 BEGIN;
-WITH upserted_production_task AS (
-  ${buildUpsertProductionTaskSql(productionTask, parameters)}
+WITH ${writeGuardCtes}
+upserted_production_task AS (
+  ${buildUpsertProductionTaskSql(productionTask, parameters, "write_guard")}
 ),
 updated_order_line AS (
-  ${buildUpdateOrderLineSql(orderLine, parameters)}
+  ${buildUpdateOrderLineSql(orderLine, parameters, "write_guard")}
 ),
 inserted_operation_log AS (
-  ${buildInsertOperationLogSql(operationLog, parameters)}
+  ${buildInsertOperationLogSql(operationLog, parameters, "write_guard")}
 )
 SELECT json_build_object(
   'productionTask', (SELECT result FROM upserted_production_task),
@@ -1112,6 +1125,7 @@ function normalizeProductionTask(record) {
     revision: positiveRevision(record.revision),
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
     createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
+    updatedAt: record.updatedAt ?? record.updated_at ?? "",
   };
 }
 
@@ -1364,7 +1378,8 @@ function productionTaskJsonExpression(alias) {
     'publishedScheduleId', ${alias}.published_schedule_id,
     'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
-    'createdAt', ${alias}.created_at
+    'createdAt', ${alias}.created_at,
+    'updatedAt', ${alias}.updated_at
   )`;
 }
 

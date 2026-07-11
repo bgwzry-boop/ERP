@@ -1,5 +1,7 @@
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createProductionScheduleRecordRepository(options = {}) {
   const mode =
@@ -10,14 +12,13 @@ export function createProductionScheduleRecordRepository(options = {}) {
     "local";
   if (mode === "postgres") {
     return createPostgresProductionScheduleRecordRepository({
+      ...options,
       databaseUrl:
         options.databaseUrl ??
         process.env.ERP_PRODUCTION_SCHEDULE_DATABASE_URL ??
         process.env.ERP_PRODUCTION_DATABASE_URL ??
         process.env.DATABASE_URL ??
         process.env.PGURL,
-      queryJson: options.queryJson,
-      postgresClient: options.postgresClient,
     });
   }
   if (mode === "local") return createLocalProductionScheduleRecordRepository();
@@ -49,6 +50,7 @@ export function createLocalProductionScheduleRecordRepository() {
       });
       return {
         productionScheduleRecords: records,
+        transactionContext: normalizeTransactionContext(input.transactionContext),
         operationLogId: operationLog.id,
       };
     },
@@ -69,6 +71,7 @@ export function createLocalProductionScheduleRecordRepository() {
       return {
         productionTask,
         productionScheduleRecords: records,
+        transactionContext: normalizeTransactionContext(input.transactionContext),
         operationLogId: operationLog.id,
       };
     },
@@ -77,13 +80,15 @@ export function createLocalProductionScheduleRecordRepository() {
 
 export function createPostgresProductionScheduleRecordRepository(options = {}) {
   const databaseUrl = options.databaseUrl;
-  const postgresClient = options.postgresClient ?? (options.queryJson ? null : createPostgresPoolClient({ databaseUrl }));
+  const postgresClient =
+    options.postgresClient ??
+    (options.queryJson || options.transactionJson || options.idempotentTransactionJson
+      ? null
+      : createPostgresPoolClient({ databaseUrl }));
   const queryJson =
     options.queryJson ??
     ((text, values) => postgresClient.queryJson(text, values));
-  const transactionJson =
-    options.queryJson ??
-    ((text, values) => postgresClient.transactionJson(text, values));
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor({ ...options, databaseUrl, postgresClient });
 
   return {
     kind: "postgres",
@@ -105,7 +110,13 @@ export function createPostgresProductionScheduleRecordRepository(options = {}) {
     async resequenceMachineQueue(input = {}) {
       const builtQuery = buildResequenceProductionScheduleRecordsTransactionQuery(input);
       const result = normalizeProductionScheduleResequenceResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await executeIdempotentScheduleTransaction({
+          input,
+          scope: "production.schedule.resequence",
+          query: builtQuery,
+          idempotentTransactionJson,
+          resourceLocks: buildScheduleResourceLocks(input),
+        }),
       );
       if (!result.productionScheduleRecords.length) {
         throw new Error("PostgreSQL production schedule resequence returned no records");
@@ -113,7 +124,7 @@ export function createPostgresProductionScheduleRecordRepository(options = {}) {
       applyProductionScheduleRecordWorkspaceMutation({
         workspace: input.workspace,
         records: result.productionScheduleRecords,
-        operationLog: input.operationLog,
+        operationLog: toSavedOperationLog(input.operationLog, result.operationLogId),
       });
       return result;
     },
@@ -121,7 +132,13 @@ export function createPostgresProductionScheduleRecordRepository(options = {}) {
     async moveMachineQueueItem(input = {}) {
       const builtQuery = buildMoveProductionScheduleQueueItemTransactionQuery(input);
       const result = normalizeProductionScheduleMoveResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await executeIdempotentScheduleTransaction({
+          input,
+          scope: "production.schedule.move",
+          query: builtQuery,
+          idempotentTransactionJson,
+          resourceLocks: buildScheduleResourceLocks(input),
+        }),
       );
       if (!result.productionTask || !result.productionScheduleRecords.length) {
         throw new Error("PostgreSQL production schedule move returned no production task or schedule records");
@@ -130,11 +147,43 @@ export function createPostgresProductionScheduleRecordRepository(options = {}) {
         workspace: input.workspace,
         records: result.productionScheduleRecords,
         productionTask: result.productionTask,
-        operationLog: input.operationLog,
+        operationLog: toSavedOperationLog(input.operationLog, result.operationLogId),
       });
       return result;
     },
   };
+}
+
+function executeIdempotentScheduleTransaction({ input, scope, query, idempotentTransactionJson, resourceLocks }) {
+  return idempotentTransactionJson(
+    buildPostgresIdempotencyRequest({
+      scope,
+      idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+      payload: input.idempotencyPayload ?? {},
+      operatorId: input.operationLog?.operatorId,
+      targetType: input.operationLog?.targetType,
+      targetId: input.operationLog?.targetId,
+      resourceLocks,
+      query,
+    }),
+  );
+}
+
+function buildScheduleResourceLocks(input) {
+  const machineIds = normalizeMachineIds(input);
+  const taskIds = [
+    input.productionTask?.productionTaskId ?? input.productionTask?.id,
+    ...(input.records ?? []).map((record) => record.productionTaskId ?? record.production_task_id),
+  ];
+  return [
+    ...machineIds.map((machineId) => `production-schedule-machine:${machineId}`),
+    ...taskIds.map((taskId) => cleanText(taskId)).filter(Boolean).map((taskId) => `production-task:${taskId}`),
+  ];
+}
+
+function toSavedOperationLog(operationLog, operationLogId) {
+  const id = cleanText(operationLogId);
+  return operationLog && id ? { ...operationLog, id } : null;
 }
 
 export function buildResequenceProductionScheduleRecordsTransactionSql(input = {}) {
@@ -143,6 +192,7 @@ export function buildResequenceProductionScheduleRecordsTransactionSql(input = {
 
 export function buildResequenceProductionScheduleRecordsTransactionQuery(input = {}) {
   const records = normalizeProductionScheduleRecords(input.records ?? []);
+  const expectedRecords = normalizeExpectedScheduleRecords(input.expectedRecords ?? input.expected_records ?? []);
   const operationLog = normalizeOperationLogForPersistence(input.operationLog);
   if (!records.length || !operationLog) {
     throw new Error("Production schedule records and operation log are required for resequencing");
@@ -150,11 +200,15 @@ export function buildResequenceProductionScheduleRecordsTransactionQuery(input =
 
   const parameters = createPostgresParameterBinder();
   const scheduleRecordValues = records.map((record) => buildProductionScheduleRecordValuesSql(record, parameters)).join(",\n    ");
-  const operationLogSql = buildInsertOperationLogSql(operationLog, parameters);
+  const machineIds = normalizeMachineIds({ ...input, records, expectedRecords });
+  const writeGuardCtes = buildScheduleWriteGuardCtes({ expectedRecords, machineIds }, parameters);
+  const operationLogSql = buildInsertOperationLogSql(operationLog, parameters, "write_guard");
+  const transactionContext = parameters.json(normalizeTransactionContext(input.transactionContext));
   return {
     text: `
 BEGIN;
-WITH upserted_schedule_records AS (
+WITH ${writeGuardCtes}
+upserted_schedule_records AS (
   INSERT INTO production_schedule_records (
     id,
     biz_no,
@@ -165,6 +219,7 @@ WITH upserted_schedule_records AS (
     queue_seq,
     schedule_status,
     source_kind,
+    revision,
     planned_start_at,
     planned_end_at,
     sequence_updated_at,
@@ -173,14 +228,14 @@ WITH upserted_schedule_records AS (
     created_by,
     created_at,
     updated_at
-  ) VALUES
-    ${scheduleRecordValues}
+  ) ${buildScheduleRecordsInsertSource(scheduleRecordValues, "write_guard")}
   ON CONFLICT (machine_id, production_task_id) DO UPDATE SET
     order_line_id = EXCLUDED.order_line_id,
     published_schedule_id = EXCLUDED.published_schedule_id,
     queue_seq = EXCLUDED.queue_seq,
     schedule_status = EXCLUDED.schedule_status,
     source_kind = EXCLUDED.source_kind,
+    revision = production_schedule_records.revision + 1,
     planned_start_at = EXCLUDED.planned_start_at,
     planned_end_at = EXCLUDED.planned_end_at,
     sequence_updated_at = EXCLUDED.sequence_updated_at,
@@ -197,6 +252,7 @@ SELECT json_build_object(
     SELECT COALESCE(json_agg(result ORDER BY (result->>'machineId'), (result->>'queueSeq')::int, result->>'productionTaskId'), '[]'::json)
     FROM upserted_schedule_records
   ),
+  'transactionContext', ${transactionContext},
   'operationLogId', (SELECT id FROM inserted_operation_log)
 ) AS result;
 COMMIT;
@@ -211,6 +267,7 @@ export function buildMoveProductionScheduleQueueItemTransactionSql(input = {}) {
 
 export function buildMoveProductionScheduleQueueItemTransactionQuery(input = {}) {
   const records = normalizeProductionScheduleRecords(input.records ?? []);
+  const expectedRecords = normalizeExpectedScheduleRecords(input.expectedRecords ?? input.expected_records ?? []);
   const productionTask = normalizeProductionTaskForMachineMove(input.productionTask);
   const operationLog = normalizeOperationLogForPersistence(input.operationLog);
   if (!records.length || !productionTask || !operationLog) {
@@ -221,16 +278,22 @@ export function buildMoveProductionScheduleQueueItemTransactionQuery(input = {})
   const machineId = parameters.text(productionTask.machineId);
   const productionTaskId = parameters.text(productionTask.productionTaskId);
   const scheduleRecordValues = records.map((record) => buildProductionScheduleRecordValuesSql(record, parameters)).join(",\n    ");
-  const operationLogSql = buildInsertOperationLogSql(operationLog, parameters);
+  const machineIds = normalizeMachineIds({ ...input, records, expectedRecords });
+  const writeGuardCtes = buildScheduleWriteGuardCtes({ expectedRecords, machineIds, productionTask }, parameters);
+  const operationLogSql = buildInsertOperationLogSql(operationLog, parameters, "write_guard");
+  const transactionContext = parameters.json(normalizeTransactionContext(input.transactionContext));
   return {
     text: `
 BEGIN;
-WITH updated_production_task AS (
+WITH ${writeGuardCtes}
+updated_production_task AS (
   UPDATE production_tasks
   SET
     machine_id = ${machineId},
+    revision = production_tasks.revision + 1,
     updated_at = now()
   WHERE id = ${productionTaskId}
+    AND EXISTS (SELECT 1 FROM write_guard WHERE ok)
   RETURNING ${productionTaskJsonExpression("production_tasks")} AS result
 ),
 upserted_schedule_records AS (
@@ -244,6 +307,7 @@ upserted_schedule_records AS (
     queue_seq,
     schedule_status,
     source_kind,
+    revision,
     planned_start_at,
     planned_end_at,
     sequence_updated_at,
@@ -252,14 +316,14 @@ upserted_schedule_records AS (
     created_by,
     created_at,
     updated_at
-  ) VALUES
-    ${scheduleRecordValues}
+  ) ${buildScheduleRecordsInsertSource(scheduleRecordValues, "write_guard")}
   ON CONFLICT (machine_id, production_task_id) DO UPDATE SET
     order_line_id = EXCLUDED.order_line_id,
     published_schedule_id = EXCLUDED.published_schedule_id,
     queue_seq = EXCLUDED.queue_seq,
     schedule_status = EXCLUDED.schedule_status,
     source_kind = EXCLUDED.source_kind,
+    revision = production_schedule_records.revision + 1,
     planned_start_at = EXCLUDED.planned_start_at,
     planned_end_at = EXCLUDED.planned_end_at,
     sequence_updated_at = EXCLUDED.sequence_updated_at,
@@ -277,6 +341,7 @@ SELECT json_build_object(
     SELECT COALESCE(json_agg(result ORDER BY (result->>'machineId'), (result->>'queueSeq')::int, result->>'productionTaskId'), '[]'::json)
     FROM upserted_schedule_records
   ),
+  'transactionContext', ${transactionContext},
   'operationLogId', (SELECT id FROM inserted_operation_log)
 ) AS result;
 COMMIT;
@@ -311,6 +376,7 @@ export function normalizeProductionScheduleResequenceResult(value) {
     productionScheduleRecords: normalizeProductionScheduleRecords(
       value?.productionScheduleRecords ?? value?.production_schedule_records ?? [],
     ),
+    transactionContext: normalizeTransactionContext(value?.transactionContext ?? value?.transaction_context),
     operationLogId: cleanText(value?.operationLogId ?? value?.operation_log_id),
   };
 }
@@ -321,6 +387,7 @@ export function normalizeProductionScheduleMoveResult(value) {
     productionScheduleRecords: normalizeProductionScheduleRecords(
       value?.productionScheduleRecords ?? value?.production_schedule_records ?? [],
     ),
+    transactionContext: normalizeTransactionContext(value?.transactionContext ?? value?.transaction_context),
     operationLogId: cleanText(value?.operationLogId ?? value?.operation_log_id),
   };
 }
@@ -328,6 +395,39 @@ export function normalizeProductionScheduleMoveResult(value) {
 export function normalizeProductionScheduleRecords(value) {
   if (!Array.isArray(value)) return [];
   return value.map((record) => normalizeProductionScheduleRecord(record)).filter(Boolean);
+}
+
+function normalizeExpectedScheduleRecords(value) {
+  if (!Array.isArray(value)) return [];
+  const records = value
+    .map((record) => {
+      const machineId = cleanText(record?.machineId ?? record?.machine_id);
+      const productionTaskId = cleanText(record?.productionTaskId ?? record?.production_task_id);
+      if (!machineId || !productionTaskId) return null;
+      return {
+        machineId,
+        productionTaskId,
+        revision: positiveRevision(record?.revision),
+      };
+    })
+    .filter(Boolean);
+  return [...new Map(records.map((record) => [`${record.machineId}::${record.productionTaskId}`, record])).values()];
+}
+
+function normalizeTransactionContext(value) {
+  return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {};
+}
+
+function normalizeMachineIds(input = {}) {
+  const values = [
+    ...(Array.isArray(input.machineIds) ? input.machineIds : []),
+    ...(Array.isArray(input.lockedMachineIds) ? input.lockedMachineIds : []),
+    ...(Array.isArray(input.records) ? input.records.map((record) => record.machineId ?? record.machine_id) : []),
+    ...(Array.isArray(input.expectedRecords)
+      ? input.expectedRecords.map((record) => record.machineId ?? record.machine_id)
+      : []),
+  ];
+  return [...new Set(values.map((value) => cleanText(value)).filter(Boolean))].sort();
 }
 
 export function normalizeProductionScheduleRecord(value = {}) {
@@ -353,6 +453,7 @@ export function normalizeProductionScheduleRecord(value = {}) {
     scheduleStatus: status,
     source: sourceKind,
     sourceKind,
+    revision: positiveRevision(value.revision),
     plannedStartAt: cleanText(value.plannedStartAt ?? value.planned_start_at),
     plannedEndAt: cleanText(value.plannedEndAt ?? value.planned_end_at),
     sequenceUpdatedAt: cleanText(value.sequenceUpdatedAt ?? value.sequence_updated_at ?? updatedAt),
@@ -405,6 +506,88 @@ function buildProductionScheduleRecordWhereClause(filters = {}, parameters) {
   return clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
 }
 
+function buildScheduleWriteGuardCtes({ expectedRecords, machineIds, productionTask }, parameters) {
+  const expectedPayload = expectedRecords.map((record) => ({
+    machine_id: record.machineId,
+    production_task_id: record.productionTaskId,
+    revision: record.revision,
+  }));
+  const productionTaskCondition = productionTask
+    ? `EXISTS (
+      SELECT 1 FROM locked_production_task
+      WHERE revision = ${parameters.integer(productionTask.revision)}
+        AND task_status <> '已完成'
+    )`
+    : "TRUE";
+  return `expected_schedule_records AS MATERIALIZED (
+  SELECT
+    expected.machine_id,
+    expected.production_task_id,
+    expected.revision
+  FROM jsonb_to_recordset(${parameters.json(expectedPayload)}) AS expected(
+    machine_id text,
+    production_task_id text,
+    revision integer
+  )
+),
+locked_schedule_records AS MATERIALIZED (
+  SELECT id, machine_id, production_task_id, revision
+  FROM production_schedule_records
+  WHERE machine_id = ANY(${parameters.textArray(machineIds)})
+  FOR UPDATE
+),
+locked_production_task AS MATERIALIZED (
+  SELECT id, revision, task_status
+  FROM production_tasks
+  WHERE id = ${parameters.text(productionTask?.productionTaskId ?? "")}
+  FOR UPDATE
+),
+write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT COUNT(*) FROM locked_schedule_records) = (SELECT COUNT(*) FROM expected_schedule_records)
+    AND NOT EXISTS (
+      SELECT 1
+      FROM expected_schedule_records AS expected
+      LEFT JOIN locked_schedule_records AS locked
+        ON locked.machine_id = expected.machine_id
+       AND locked.production_task_id = expected.production_task_id
+       AND locked.revision = expected.revision
+      WHERE locked.id IS NULL
+    ),
+    'ERP_PRODUCTION_SCHEDULE_QUEUE_CONCURRENCY_CONFLICT'
+  )
+  AND erp_require(${productionTaskCondition}, 'ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT') AS ok
+),`;
+}
+
+function buildScheduleRecordsInsertSource(values, dependency) {
+  const columns = [
+    "id",
+    "biz_no",
+    "production_task_id",
+    "order_line_id",
+    "published_schedule_id",
+    "machine_id",
+    "queue_seq",
+    "schedule_status",
+    "source_kind",
+    "revision",
+    "planned_start_at",
+    "planned_end_at",
+    "sequence_updated_at",
+    "sequence_updated_by",
+    "remark",
+    "created_by",
+    "created_at",
+    "updated_at",
+  ];
+  return `SELECT payload.*
+FROM (VALUES
+    ${values}
+) AS payload(${columns.join(", ")})
+JOIN ${dependency} ON ${dependency}.ok`;
+}
+
 function buildProductionScheduleRecordValuesSql(record, parameters) {
   return `(
       ${parameters.text(record.scheduleRecordId)},
@@ -416,6 +599,7 @@ function buildProductionScheduleRecordValuesSql(record, parameters) {
       ${parameters.integer(record.queueSeq)},
       ${parameters.text(record.status)},
       ${parameters.text(record.sourceKind)},
+      1,
       ${parameters.nullableTimestamp(record.plannedStartAt)},
       ${parameters.nullableTimestamp(record.plannedEndAt)},
       ${parameters.nullableTimestamp(record.sequenceUpdatedAt || record.updatedAt)},
@@ -439,6 +623,7 @@ function productionTaskJsonExpression(alias) {
     'taskStatus', ${alias}.task_status,
     'status', ${alias}.task_status,
     'publishedScheduleId', ${alias}.published_schedule_id,
+    'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at,
     'updatedAt', ${alias}.updated_at
@@ -458,6 +643,7 @@ function productionScheduleRecordJsonExpression(alias) {
     'scheduleStatus', ${alias}.schedule_status,
     'source', ${alias}.source_kind,
     'sourceKind', ${alias}.source_kind,
+    'revision', ${alias}.revision,
     'plannedStartAt', ${alias}.planned_start_at,
     'plannedEndAt', ${alias}.planned_end_at,
     'sequenceUpdatedAt', ${alias}.sequence_updated_at,
@@ -470,7 +656,18 @@ function productionScheduleRecordJsonExpression(alias) {
   )`;
 }
 
-function buildInsertOperationLogSql(operationLog, parameters) {
+function buildInsertOperationLogSql(operationLog, parameters, dependency = "") {
+  const values = `${parameters.text(operationLog.id)},
+  ${parameters.text(operationLog.targetType)},
+  ${parameters.text(operationLog.targetId)},
+  ${parameters.text(operationLog.action)},
+  ${parameters.json(operationLog.before)},
+  ${parameters.json(operationLog.after)},
+  ${parameters.nullableText(operationLog.reason)},
+  ${parameters.nullableText(operationLog.operatorId)},
+  ${parameters.text(operationLog.pageKey)},
+  ${parameters.timestamp(operationLog.occurredAt)},
+  ${parameters.timestamp(operationLog.createdAt)}`;
   return `INSERT INTO operation_logs (
   id,
   target_type,
@@ -483,19 +680,7 @@ function buildInsertOperationLogSql(operationLog, parameters) {
   page_key,
   occurred_at,
   created_at
-) VALUES (
-  ${parameters.text(operationLog.id)},
-  ${parameters.text(operationLog.targetType)},
-  ${parameters.text(operationLog.targetId)},
-  ${parameters.text(operationLog.action)},
-  ${parameters.json(operationLog.before)},
-  ${parameters.json(operationLog.after)},
-  ${parameters.nullableText(operationLog.reason)},
-  ${parameters.nullableText(operationLog.operatorId)},
-  ${parameters.text(operationLog.pageKey)},
-  ${parameters.timestamp(operationLog.occurredAt)},
-  ${parameters.timestamp(operationLog.createdAt)}
-)
+) ${dependency ? `SELECT ${values} FROM ${dependency} WHERE ok` : `VALUES (${values})`}
 ON CONFLICT (id) DO UPDATE SET
   target_type = EXCLUDED.target_type,
   target_id = EXCLUDED.target_id,
@@ -545,6 +730,7 @@ function normalizeProductionTaskForMachineMove(value = {}) {
     taskStatus: cleanText(value.taskStatus ?? value.task_status ?? value.status),
     status: cleanText(value.status ?? value.taskStatus ?? value.task_status),
     publishedScheduleId: cleanText(value.publishedScheduleId ?? value.published_schedule_id),
+    revision: positiveRevision(value.revision),
     createdBy: cleanText(value.createdBy ?? value.created_by),
     createdAt: cleanText(value.createdAt ?? value.created_at),
     updatedAt: cleanText(value.updatedAt ?? value.updated_at) || new Date().toISOString(),
@@ -613,6 +799,11 @@ function toFiniteInteger(value, fallback = 0) {
   const number = Number(value);
   if (!Number.isFinite(number)) return fallback;
   return Math.trunc(number);
+}
+
+function positiveRevision(value) {
+  const revision = Number(value);
+  return Number.isInteger(revision) && revision >= 1 ? revision : 1;
 }
 
 function cleanText(value) {

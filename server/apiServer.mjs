@@ -2355,12 +2355,15 @@ function toProductionTaskSummary(task, orderLine) {
     orderLineId: task.orderLineId ?? task.lineId ?? orderLine?.id ?? "",
     taskType: task.taskType ?? task.processType ?? "",
     machineId: task.machineId ?? "",
+    publishedScheduleId: task.publishedScheduleId ?? "",
     plannedQty: Number(task.plannedQty ?? task.qty ?? orderLine?.qty ?? 0),
     taskStatus: task.taskStatus ?? task.status ?? "",
     status: task.status ?? task.taskStatus ?? "",
+    revision: Math.max(1, Math.trunc(Number(task.revision ?? 1))),
     finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(null, task, orderLine),
     createdBy: task.createdBy ?? "",
     createdAt: task.createdAt ?? "",
+    updatedAt: task.updatedAt ?? "",
   };
 }
 
@@ -16928,7 +16931,7 @@ function resolvePersistableCreatedBy(workspace, candidateUserId, fallbackUserId)
   return candidate && knownUserIds.has(candidate) ? candidate : cleanServerText(fallbackUserId);
 }
 
-async function publishProductionScheduleRoute({ response, workspace, productionTaskId, body }) {
+async function publishProductionScheduleRoute({ response, workspace, productionTaskId, body, operatorId }) {
   const beforeTask = findProductionTask(workspace, productionTaskId) ?? buildProductionTaskFromBody(workspace, productionTaskId, body);
   if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
   if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
@@ -16950,7 +16953,6 @@ async function publishProductionScheduleRoute({ response, workspace, productionT
     );
   }
 
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const publishedAt = body.publishedAt ?? new Date().toISOString();
   const taskType =
     cleanServerText(body.processType ?? beforeTask.taskType) || inferProductionTaskTypeFromOrderLine(beforeOrderLine);
@@ -16985,6 +16987,7 @@ async function publishProductionScheduleRoute({ response, workspace, productionT
     publishedScheduleId,
     createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
     createdAt: beforeTask.createdAt ?? publishedAt,
+    updatedAt: publishedAt,
   };
   const lineStatus = body.lineStatus ?? resolvePublishedProductionLineStatus({ taskType, beforeOrderLine, taskStatus });
   const afterOrderLine = {
@@ -17017,6 +17020,8 @@ async function publishProductionScheduleRoute({ response, workspace, productionT
     productionTask: afterTask,
     orderLine: afterOrderLine,
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: { ...body, operatorId },
   });
 
   return sendJson(response, 200, {
@@ -17029,7 +17034,7 @@ async function publishProductionScheduleRoute({ response, workspace, productionT
     taskType: transaction.productionTask.taskType,
     machineId: transaction.productionTask.machineId,
     plannedQty: transaction.productionTask.plannedQty,
-    publishedAt,
+    publishedAt: transaction.productionTask.updatedAt || publishedAt,
     productionTask: transaction.productionTask,
     orderLine: transaction.orderLine,
     inventoryCreated: false,
@@ -17041,6 +17046,11 @@ async function publishProductionScheduleRoute({ response, workspace, productionT
 
 async function buildProductionMachineQueueResponse({ workspace, query } = {}) {
   const filters = normalizeProductionMachineQueueQuery(query);
+  const productionScheduleRecords = await workspace.productionScheduleRecordRepository.listProductionScheduleRecords({
+    workspace,
+    filters: {},
+  });
+  workspace.productionScheduleRecords = productionScheduleRecords;
   const listResult = await workspace.productionPackingReadRepository.listProductionTasks({
     workspace,
     query: {
@@ -17133,6 +17143,7 @@ function buildProductionMachineQueueItem(workspace, item) {
   });
   return {
     scheduleRecordId: cleanServerText(scheduleRecord?.scheduleRecordId) || (publishedScheduleId ? `SQR-${safeRecordPart(publishedScheduleId)}` : `SQR-CARRY-${safeRecordPart(productionTaskId)}`),
+    revision: Math.max(1, Math.trunc(Number(scheduleRecord?.revision ?? 1))),
     queueSeq: 0,
     manualQueueSeq: Math.max(0, Math.trunc(Number(scheduleRecord?.queueSeq ?? 0))),
     machineId,
@@ -17302,15 +17313,25 @@ async function resequenceProductionMachineQueueRoute({ response, workspace, body
   const transaction = await workspace.productionScheduleRecordRepository.resequenceMachineQueue({
     workspace,
     records: nextRecords,
+    expectedRecords: beforeRecords.filter((record) => cleanServerText(record.machineId) === machineId),
+    lockedMachineIds: [machineId],
+    transactionContext: {
+      machineId,
+      updatedAt,
+      updatedBy: operatorId,
+      updatedCount: orderedProductionTaskIds.length,
+    },
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: { ...body, operatorId },
   });
   const afterQueue = await buildProductionMachineQueueResponse({ workspace, query: { machineId, status: "open" } });
 
   return sendJson(response, 200, {
     machineId,
-    updatedCount: orderedProductionTaskIds.length,
-    updatedAt,
-    updatedBy: operatorId,
+    updatedCount: Number(transaction.transactionContext.updatedCount ?? orderedProductionTaskIds.length),
+    updatedAt: cleanServerText(transaction.transactionContext.updatedAt) || updatedAt,
+    updatedBy: cleanServerText(transaction.transactionContext.updatedBy) || operatorId,
     operationLogId: transaction.operationLogId,
     productionScheduleRecords: transaction.productionScheduleRecords,
     inventoryCreated: false,
@@ -17452,18 +17473,33 @@ async function moveProductionMachineQueueItemRoute({ response, workspace, body, 
     workspace,
     productionTask: afterTask,
     records: nextRecords,
+    expectedRecords: beforeRecords.filter((record) =>
+      [sourceMachineId, targetMachineId].includes(cleanServerText(record.machineId)),
+    ),
+    lockedMachineIds: [sourceMachineId, targetMachineId],
+    transactionContext: {
+      productionTaskId,
+      sourceMachineId,
+      targetMachineId,
+      targetQueueSeq: movedTargetItem?.queueSeq ?? 0,
+      updatedCount: nextRecords.length,
+      updatedAt,
+      updatedBy: operatorId,
+    },
     operationLog,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: { ...body, operatorId },
   });
   const afterQueue = await buildProductionMachineQueueResponse({ workspace, query: { status: "open" } });
 
   return sendJson(response, 200, {
     productionTaskId,
-    sourceMachineId,
-    targetMachineId,
-    targetQueueSeq: movedTargetItem?.queueSeq ?? 0,
-    updatedCount: nextRecords.length,
-    updatedAt,
-    updatedBy: operatorId,
+    sourceMachineId: cleanServerText(transaction.transactionContext.sourceMachineId) || sourceMachineId,
+    targetMachineId: cleanServerText(transaction.transactionContext.targetMachineId) || targetMachineId,
+    targetQueueSeq: Number(transaction.transactionContext.targetQueueSeq ?? movedTargetItem?.queueSeq ?? 0),
+    updatedCount: Number(transaction.transactionContext.updatedCount ?? nextRecords.length),
+    updatedAt: cleanServerText(transaction.transactionContext.updatedAt) || updatedAt,
+    updatedBy: cleanServerText(transaction.transactionContext.updatedBy) || operatorId,
     operationLogId: transaction.operationLogId,
     productionTask: transaction.productionTask,
     productionScheduleRecords: transaction.productionScheduleRecords,

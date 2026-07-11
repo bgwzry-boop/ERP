@@ -1702,13 +1702,22 @@ ON CONFLICT (id) DO UPDATE SET
     ).dailyCapacityQty,
     80,
   );
+  const scheduleProductionTaskId = "PT-LIVE-SCHEDULE-001";
+  runPsql(
+    `INSERT INTO production_tasks (
+      id, biz_no, order_line_id, task_type, machine_id, planned_qty, task_status, published_schedule_id, created_by
+    ) VALUES (
+      '${scheduleProductionTaskId}', '${scheduleProductionTaskId}', 'OL-LIVE-PROD-001', '制袋', 'BAG-LIVE-01', 80,
+      '制袋中', 'SCH-LIVE-SCHEDULE-001', 'U-OFFICE-A'
+    ) ON CONFLICT (id) DO NOTHING;`,
+  );
   const scheduleRecordWorkspace = { productionScheduleRecords: [], operationLogs: [] };
   const scheduleRecordResult = await productionScheduleRecordRepository.resequenceMachineQueue({
     workspace: scheduleRecordWorkspace,
     records: [
       buildProductionScheduleRecord({
         scheduleRecordId: "SQR-LIVE-PROD-001",
-        productionTaskId: "PT-LIVE-PROD-001",
+        productionTaskId: scheduleProductionTaskId,
         orderLineId: "OL-LIVE-PROD-001",
         machineId: "BAG-LIVE-01",
         queueSeq: 1,
@@ -1716,7 +1725,7 @@ ON CONFLICT (id) DO UPDATE SET
     ],
     operationLog: buildProductionScheduleOperationLog(),
   });
-  assert.equal(scheduleRecordResult.productionScheduleRecords[0].productionTaskId, "PT-LIVE-PROD-001");
+  assert.equal(scheduleRecordResult.productionScheduleRecords[0].productionTaskId, scheduleProductionTaskId);
   assert.equal(scheduleRecordResult.productionScheduleRecords[0].queueSeq, 1);
   assert.equal(scheduleRecordWorkspace.productionScheduleRecords[0].sourceKind, "manual_resequence");
   assert.equal(
@@ -1733,11 +1742,21 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(scheduleRecords[0].scheduleRecordId, "SQR-LIVE-PROD-001");
   const movedScheduleRecordResult = await productionScheduleRecordRepository.moveMachineQueueItem({
     workspace: scheduleRecordWorkspace,
-    productionTask: buildProductionTaskRecord({ taskStatus: "已完成", machineId: "BAG-LIVE-02" }),
+    productionTask: buildProductionTaskRecord({
+      productionTaskId: scheduleProductionTaskId,
+      id: scheduleProductionTaskId,
+      bizNo: scheduleProductionTaskId,
+      taskStatus: "制袋中",
+      machineId: "BAG-LIVE-02",
+    }),
+    expectedRecords: scheduleRecordWorkspace.productionScheduleRecords.filter((record) =>
+      ["BAG-LIVE-01", "BAG-LIVE-02"].includes(record.machineId),
+    ),
+    lockedMachineIds: ["BAG-LIVE-01", "BAG-LIVE-02"],
     records: [
       buildProductionScheduleRecord({
         scheduleRecordId: "SQR-LIVE-PROD-001",
-        productionTaskId: "PT-LIVE-PROD-001",
+        productionTaskId: scheduleProductionTaskId,
         orderLineId: "OL-LIVE-PROD-001",
         machineId: "BAG-LIVE-01",
         queueSeq: 0,
@@ -1747,7 +1766,7 @@ ON CONFLICT (id) DO UPDATE SET
       }),
       buildProductionScheduleRecord({
         scheduleRecordId: "SQR-BAG-LIVE-02-LIVE-PROD-001",
-        productionTaskId: "PT-LIVE-PROD-001",
+        productionTaskId: scheduleProductionTaskId,
         orderLineId: "OL-LIVE-PROD-001",
         machineId: "BAG-LIVE-02",
         queueSeq: 1,
@@ -1758,7 +1777,7 @@ ON CONFLICT (id) DO UPDATE SET
     ],
     operationLog: buildProductionScheduleOperationLog({
       logId: "LOG-LIVE-SCHEDULE-MOVE-001",
-      targetId: "PT-LIVE-PROD-001",
+      targetId: scheduleProductionTaskId,
       action: "move_production_schedule_queue_item",
       before: { sourceMachineId: "BAG-LIVE-01" },
       after: {
@@ -1773,7 +1792,7 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(movedScheduleRecordResult.productionTask.machineId, "BAG-LIVE-02");
   assert.equal(scheduleRecordWorkspace.productionTasks[0].machineId, "BAG-LIVE-02");
   assert.equal(
-    queryJson("SELECT json_build_object('machineId', machine_id) AS result FROM production_tasks WHERE id = 'PT-LIVE-PROD-001';").machineId,
+    queryJson(`SELECT json_build_object('machineId', machine_id) AS result FROM production_tasks WHERE id = '${scheduleProductionTaskId}';`).machineId,
     "BAG-LIVE-02",
   );
   assert.equal(
@@ -1786,9 +1805,34 @@ ON CONFLICT (id) DO UPDATE SET
     filters: { machineId: "BAG-LIVE-02", status: "active" },
   });
   assert.equal(movedTargetScheduleRecords.length, 1);
-  assert.equal(movedTargetScheduleRecords[0].productionTaskId, "PT-LIVE-PROD-001");
+  assert.equal(movedTargetScheduleRecords[0].productionTaskId, scheduleProductionTaskId);
   assert.equal(movedTargetScheduleRecords[0].sourceKind, "machine_reassignment");
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-SCHEDULE-MOVE-001';", { capture: true }).trim()), 1);
+
+  runPsql(
+    `UPDATE production_schedule_records
+     SET revision = revision + 1, updated_at = now()
+     WHERE machine_id = 'BAG-LIVE-02'
+       AND production_task_id = '${scheduleProductionTaskId}';`,
+  );
+  await assert.rejects(
+    productionScheduleRecordRepository.resequenceMachineQueue({
+      workspace: scheduleRecordWorkspace,
+      expectedRecords: movedTargetScheduleRecords,
+      lockedMachineIds: ["BAG-LIVE-02"],
+      records: movedTargetScheduleRecords,
+      operationLog: buildProductionScheduleOperationLog({
+        logId: "LOG-LIVE-SCHEDULE-STALE-001",
+        targetId: "BAG-LIVE-02",
+        reason: "Postgres live stale schedule snapshot",
+      }),
+    }),
+    /ERP_PRODUCTION_SCHEDULE_QUEUE_CONCURRENCY_CONFLICT/,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-SCHEDULE-STALE-001';", { capture: true }).trim()),
+    0,
+  );
 
   const packingWriteSnapshot = queryJson(
     `SELECT json_build_object(
@@ -2408,6 +2452,17 @@ async function checkApiWithPostgresRepositories() {
   const productionPackingTransactionRepository = createPostgresProductionPackingTransactionRepository({
     postgresClient: apiPostgresClient,
   });
+  const productionScheduleRecordRepository = createPostgresProductionScheduleRecordRepository({
+    postgresClient: apiPostgresClient,
+  });
+  runPsql(
+    `INSERT INTO production_tasks (
+      id, biz_no, order_line_id, task_type, machine_id, planned_qty, task_status, published_schedule_id, created_by
+    ) VALUES (
+      'PT-LIVE-API-SCHEDULE-001', 'PT-LIVE-API-SCHEDULE-001', 'OL-LIVE-PROD-001', '制袋', 'BAG-LIVE-01', 80,
+      '待排产', '', 'U-OFFICE-A'
+    ) ON CONFLICT (id) DO NOTHING;`,
+  );
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   const apiServerOptions = {
@@ -2418,6 +2473,7 @@ async function checkApiWithPostgresRepositories() {
     inventoryCorrectionTransactionRepository,
     productionFinishedGoodsPhotoTransactionRepository,
     productionPackingTransactionRepository,
+    productionScheduleRecordRepository,
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
@@ -2464,6 +2520,119 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.v1PersistenceProfile.connectionStringExposed, false);
   assert.equal(health.seed.statementExportObjectStorage, "local_fs");
   assert.equal(health.seed.printDriverAdapter, "guarded_adapter");
+  const apiScheduleTaskId = "PT-LIVE-API-SCHEDULE-001";
+  const apiSchedulePublishBody = {
+    orderLineId: "OL-LIVE-PROD-001",
+    machineId: "BAG-LIVE-01",
+    plannedQty: 80,
+    operatorId: "U-SPOOFED",
+    publishedAt: "2026-07-02T12:45:00.000Z",
+    remark: "postgres live schedule publish",
+    idempotencyKey: "production-schedule-publish-live-001",
+  };
+  const apiSchedulePublish = await postJson(
+    baseUrl,
+    `/api/production-tasks/${apiScheduleTaskId}/publish-schedule`,
+    apiSchedulePublishBody,
+    { headers },
+  );
+  const replayedApiSchedulePublish = await postJson(
+    baseUrl,
+    `/api/production-tasks/${apiScheduleTaskId}/publish-schedule`,
+    apiSchedulePublishBody,
+    { headers },
+  );
+  assert.equal(replayedApiSchedulePublish.operationLogId, apiSchedulePublish.operationLogId);
+  assert.equal(replayedApiSchedulePublish.publishedScheduleId, apiSchedulePublish.publishedScheduleId);
+  assert.equal(replayedApiSchedulePublish.publishedAt, apiSchedulePublish.publishedAt);
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('operatorId', operator_id) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiSchedulePublish.operationLogId)};`,
+    ).operatorId,
+    "U-OFFICE-A",
+  );
+
+  const apiScheduleResequenceBody = {
+    machineId: "BAG-LIVE-01",
+    orderedProductionTaskIds: [apiScheduleTaskId],
+    operatorId: "U-SPOOFED",
+    updatedAt: "2026-07-02T12:50:00.000Z",
+    remark: "postgres live schedule resequence",
+    idempotencyKey: "production-schedule-resequence-live-001",
+  };
+  const apiScheduleResequence = await postJson(
+    baseUrl,
+    "/api/production-schedules/machine-queue/resequence",
+    apiScheduleResequenceBody,
+    { headers },
+  );
+  const replayedApiScheduleResequence = await postJson(
+    baseUrl,
+    "/api/production-schedules/machine-queue/resequence",
+    apiScheduleResequenceBody,
+    { headers },
+  );
+  assert.equal(replayedApiScheduleResequence.operationLogId, apiScheduleResequence.operationLogId);
+  assert.equal(replayedApiScheduleResequence.updatedAt, apiScheduleResequence.updatedAt);
+  assert.equal(replayedApiScheduleResequence.updatedBy, "U-OFFICE-A");
+
+  const apiScheduleMoveBody = {
+    productionTaskId: apiScheduleTaskId,
+    targetMachineId: "BAG-LIVE-02",
+    targetQueueSeq: 2,
+    operatorId: "U-SPOOFED",
+    updatedAt: "2026-07-02T12:55:00.000Z",
+    remark: "postgres live schedule move",
+    idempotencyKey: "production-schedule-move-live-001",
+  };
+  const apiScheduleMove = await postJson(
+    baseUrl,
+    "/api/production-schedules/machine-queue/move",
+    apiScheduleMoveBody,
+    { headers },
+  );
+  const replayedApiScheduleMove = await postJson(
+    baseUrl,
+    "/api/production-schedules/machine-queue/move",
+    apiScheduleMoveBody,
+    { headers },
+  );
+  assert.equal(replayedApiScheduleMove.operationLogId, apiScheduleMove.operationLogId);
+  assert.equal(replayedApiScheduleMove.sourceMachineId, "BAG-LIVE-01");
+  assert.equal(replayedApiScheduleMove.targetMachineId, "BAG-LIVE-02");
+  assert.equal(replayedApiScheduleMove.targetQueueSeq, apiScheduleMove.targetQueueSeq);
+  assert.equal(replayedApiScheduleMove.updatedBy, "U-OFFICE-A");
+  assert.equal(
+    Number(
+      runPsql(
+        `SELECT COUNT(*) FROM production_schedule_records WHERE production_task_id = '${apiScheduleTaskId}';`,
+        { capture: true },
+      ).trim(),
+    ),
+    2,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM operation_idempotency_keys WHERE scope IN ('production.schedule.publish', 'production.schedule.resequence', 'production.schedule.move') AND idempotency_key LIKE '%live-001';",
+        { capture: true },
+      ).trim(),
+    ),
+    3,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        `SELECT COUNT(*) FROM operation_logs WHERE id IN (${[
+          apiSchedulePublish.operationLogId,
+          apiScheduleResequence.operationLogId,
+          apiScheduleMove.operationLogId,
+        ].map(sqlLiteral).join(", ")});`,
+        { capture: true },
+      ).trim(),
+    ),
+    3,
+  );
   const todoActionBody = {
     action: "customer_notification_sent",
     operatorId: "U-SPOOFED",

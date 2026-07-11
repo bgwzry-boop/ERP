@@ -29,11 +29,13 @@ async function checkLocalRepository() {
       buildScheduleRecord({ scheduleRecordId: "SQR-BAG-002", productionTaskId: "PT-BAG-002", queueSeq: 1 }),
       buildScheduleRecord({ scheduleRecordId: "SQR-BAG-001", productionTaskId: "PT-BAG-001", queueSeq: 2 }),
     ],
+    transactionContext: { machineId: "BAG-01", updatedAt: "2026-07-03T10:30:00.000Z" },
     operationLog: buildOperationLog(),
   });
 
   assert.equal(result.operationLogId, "LOG-SCHEDULE-RESEQ-001");
   assert.equal(result.productionScheduleRecords.length, 2);
+  assert.equal(result.transactionContext.machineId, "BAG-01");
   assert.equal(workspace.productionScheduleRecords.length, 3);
   assert.equal(
     workspace.productionScheduleRecords
@@ -75,6 +77,11 @@ async function checkPostgresSqlBoundary() {
   assert.match(transactionSql, /^BEGIN;/);
   assert.match(transactionSql, /INSERT INTO production_schedule_records/);
   assert.match(transactionSql, /ON CONFLICT \(machine_id, production_task_id\) DO UPDATE SET/);
+  assert.match(transactionSql, /locked_schedule_records AS MATERIALIZED/);
+  assert.match(transactionSql, /FOR UPDATE/);
+  assert.match(transactionSql, /ERP_PRODUCTION_SCHEDULE_QUEUE_CONCURRENCY_CONFLICT/);
+  assert.match(transactionSql, /revision = production_schedule_records\.revision \+ 1/);
+  assert.match(transactionSql, /JOIN write_guard ON write_guard\.ok/);
   assert.match(transactionSql, /INSERT INTO operation_logs/);
   assert.ok(!transactionSql.includes("O'Brien urgent"));
   assert.ok(!transactionSql.includes("O'Brien resequence"));
@@ -126,6 +133,8 @@ async function checkPostgresSqlBoundary() {
     operationLog: buildOperationLog({ id: "LOG-SCHEDULE-MOVE-001", action: "move_production_schedule_queue_item" }),
   });
   assert.match(moveSql, /UPDATE production_tasks/);
+  assert.match(moveSql, /revision = production_tasks\.revision \+ 1/);
+  assert.match(moveSql, /ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT/);
   assert.match(moveSql, /machine_id = \$1::text/);
   assert.match(moveSql, /INSERT INTO production_schedule_records/);
   assert.ok(!moveSql.includes("machine_reassignment"));

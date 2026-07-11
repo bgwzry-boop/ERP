@@ -1352,7 +1352,8 @@ function productionTaskJsonExpression(alias) {
     'revision', ${alias}.revision,
     'finishedGoodsPhoto', ${alias}.finished_goods_photo,
     'createdBy', ${alias}.created_by,
-    'createdAt', ${alias}.created_at
+    'createdAt', ${alias}.created_at,
+    'updatedAt', ${alias}.updated_at
   )`;
 }
 
