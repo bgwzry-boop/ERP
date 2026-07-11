@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
+import { createSeedSession } from "../server/authSeed.mjs";
 import {
   buildV1FieldEvidenceManifestTemplate,
   serializeManifestJson,
@@ -29,6 +30,9 @@ const sensitiveValues = [
   "/var/spool/erp-secret",
   "/usr/bin/lpstat-secret",
 ];
+const officeDemoToken = createSeedSession("U-OFFICE-A").accessToken;
+const driverDemoToken = createSeedSession("U-DRIVER-A").accessToken;
+sensitiveValues.push(officeDemoToken, driverDemoToken);
 
 rmSync(storageRoot, { recursive: true, force: true });
 mkdirSync(spoolRoot, { recursive: true });
@@ -67,7 +71,9 @@ const productionEnv = {
   ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_TIMEOUT_MS: "5000",
   ERP_V1_READINESS_API_BASE_URL: "http://127.0.0.1:8787/api",
   ERP_V1_READINESS_OPERATOR_ID: "U-OFFICE-A",
+  ERP_V1_READINESS_TOKEN: officeDemoToken,
   ERP_V1_READINESS_DRIVER_OPERATOR_ID: "U-DRIVER-A",
+  ERP_V1_READINESS_DRIVER_TOKEN: driverDemoToken,
   ERP_V1_FIELD_ACCEPTANCE_OUTPUT_DIR: ".erp-local-storage/v1-field-acceptance",
   ERP_V1_FIELD_ACCEPTANCE_API_BASE_URL: "http://127.0.0.1:8787/api",
 };

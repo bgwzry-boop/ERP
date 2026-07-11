@@ -55,6 +55,10 @@ const preflightRelevantEnvNames = [
   "ERP_V1_READINESS_DRIVER_OPERATOR_ID",
   "ERP_V1_READINESS_TOKEN",
   "ERP_V1_READINESS_DRIVER_TOKEN",
+  "ERP_V1_READINESS_LOGIN_NAME",
+  "ERP_V1_READINESS_PASSWORD",
+  "ERP_V1_READINESS_DRIVER_LOGIN_NAME",
+  "ERP_V1_READINESS_DRIVER_PASSWORD",
   "ERP_V1_FIELD_ACCEPTANCE_OUTPUT_DIR",
   "ERP_V1_FIELD_ACCEPTANCE_API_BASE_URL",
   "ERP_V1_FIELD_ACCEPTANCE_OPERATOR_ID",
@@ -684,15 +688,30 @@ function buildReadinessIdentityCriterion(env) {
   }
   if (!hasValue(env, "ERP_V1_READINESS_OPERATOR_ID")) missing.push("ERP_V1_READINESS_OPERATOR_ID");
   if (!hasValue(env, "ERP_V1_READINESS_DRIVER_OPERATOR_ID")) missing.push("ERP_V1_READINESS_DRIVER_OPERATOR_ID");
+  const officeTokenConfigured = hasValue(env, "ERP_V1_READINESS_TOKEN");
+  const officeLoginConfigured =
+    hasValue(env, "ERP_V1_READINESS_LOGIN_NAME") && hasValue(env, "ERP_V1_READINESS_PASSWORD");
+  const driverTokenConfigured = hasValue(env, "ERP_V1_READINESS_DRIVER_TOKEN");
+  const driverLoginConfigured =
+    hasValue(env, "ERP_V1_READINESS_DRIVER_LOGIN_NAME") &&
+    hasValue(env, "ERP_V1_READINESS_DRIVER_PASSWORD");
+  if (!officeTokenConfigured && !officeLoginConfigured) {
+    missing.push("ERP_V1_READINESS_TOKEN or ERP_V1_READINESS_LOGIN_NAME + ERP_V1_READINESS_PASSWORD");
+  }
+  if (!driverTokenConfigured && !driverLoginConfigured) {
+    missing.push(
+      "ERP_V1_READINESS_DRIVER_TOKEN or ERP_V1_READINESS_DRIVER_LOGIN_NAME + ERP_V1_READINESS_DRIVER_PASSWORD",
+    );
+  }
   return criterion({
     key: "v1-readiness-identity-env",
     label: "V1 readiness 验收账号环境变量",
-    blocking: false,
-    status: missing.length === 0 ? "passed" : "warning",
+    blocking: true,
+    status: missing.length === 0 ? "passed" : "pending",
     detail:
       missing.length === 0
-        ? "Readiness API base URL and office / driver validation identities are explicit."
-        : `未显式配置，将使用脚本默认值或运行时默认值：${missing.join(", ")}`,
+        ? "Readiness API base URL and formal office / driver authentication are explicit."
+        : `缺少 production 正式验收身份配置：${missing.join(", ")}`,
     evidence: {
       apiBaseUrlConfigured: hasAny(env, ["ERP_V1_READINESS_API_BASE_URL", "VITE_ERP_API_BASE_URL"]),
       apiBaseSourceVariable,
@@ -701,6 +720,8 @@ function buildReadinessIdentityCriterion(env) {
       driverOperatorConfigured: hasValue(env, "ERP_V1_READINESS_DRIVER_OPERATOR_ID"),
       tokenConfigured: hasValue(env, "ERP_V1_READINESS_TOKEN"),
       driverTokenConfigured: hasValue(env, "ERP_V1_READINESS_DRIVER_TOKEN"),
+      officeLoginPairConfigured: officeLoginConfigured,
+      driverLoginPairConfigured: driverLoginConfigured,
     },
   });
 }
@@ -1159,6 +1180,21 @@ function buildReadinessIdentityFixItem({ env, criterion }) {
   if (!hasValue(env, "ERP_V1_READINESS_DRIVER_OPERATOR_ID")) {
     missingVariables.push("ERP_V1_READINESS_DRIVER_OPERATOR_ID");
   }
+  const officeAuthConfigured =
+    hasValue(env, "ERP_V1_READINESS_TOKEN") ||
+    (hasValue(env, "ERP_V1_READINESS_LOGIN_NAME") && hasValue(env, "ERP_V1_READINESS_PASSWORD"));
+  const driverAuthConfigured =
+    hasValue(env, "ERP_V1_READINESS_DRIVER_TOKEN") ||
+    (hasValue(env, "ERP_V1_READINESS_DRIVER_LOGIN_NAME") &&
+      hasValue(env, "ERP_V1_READINESS_DRIVER_PASSWORD"));
+  if (!officeAuthConfigured) {
+    missingVariables.push("ERP_V1_READINESS_TOKEN or ERP_V1_READINESS_LOGIN_NAME + ERP_V1_READINESS_PASSWORD");
+  }
+  if (!driverAuthConfigured) {
+    missingVariables.push(
+      "ERP_V1_READINESS_DRIVER_TOKEN or ERP_V1_READINESS_DRIVER_LOGIN_NAME + ERP_V1_READINESS_DRIVER_PASSWORD",
+    );
+  }
   return fixItem({
     criterion,
     ownerRole: "技术/办公室",
@@ -1166,16 +1202,17 @@ function buildReadinessIdentityFixItem({ env, criterion }) {
       "ERP_V1_READINESS_API_BASE_URL or VITE_ERP_API_BASE_URL",
       "ERP_V1_READINESS_OPERATOR_ID",
       "ERP_V1_READINESS_DRIVER_OPERATOR_ID",
+      "ERP_V1_READINESS_TOKEN or ERP_V1_READINESS_LOGIN_NAME + ERP_V1_READINESS_PASSWORD",
+      "ERP_V1_READINESS_DRIVER_TOKEN or ERP_V1_READINESS_DRIVER_LOGIN_NAME + ERP_V1_READINESS_DRIVER_PASSWORD",
     ],
-    recommendedVariables: [
-      "ERP_V1_READINESS_TOKEN when production API requires bearer token",
-      "ERP_V1_READINESS_DRIVER_TOKEN when driver API requires a separate token",
-    ],
+    recommendedVariables: [],
     configuredVariableCount:
       (hasAny(env, ["ERP_V1_READINESS_API_BASE_URL", "VITE_ERP_API_BASE_URL"]) ? 1 : 0) +
       (hasValue(env, "ERP_V1_READINESS_OPERATOR_ID") ? 1 : 0) +
-      (hasValue(env, "ERP_V1_READINESS_DRIVER_OPERATOR_ID") ? 1 : 0),
-    totalVariableCount: 3,
+      (hasValue(env, "ERP_V1_READINESS_DRIVER_OPERATOR_ID") ? 1 : 0) +
+      (officeAuthConfigured ? 1 : 0) +
+      (driverAuthConfigured ? 1 : 0),
+    totalVariableCount: 5,
     missingVariables,
     placeholderVariables: placeholderNames(env, [
       "ERP_V1_READINESS_API_BASE_URL",
@@ -1184,11 +1221,15 @@ function buildReadinessIdentityFixItem({ env, criterion }) {
       "ERP_V1_READINESS_DRIVER_OPERATOR_ID",
       "ERP_V1_READINESS_TOKEN",
       "ERP_V1_READINESS_DRIVER_TOKEN",
+      "ERP_V1_READINESS_LOGIN_NAME",
+      "ERP_V1_READINESS_PASSWORD",
+      "ERP_V1_READINESS_DRIVER_LOGIN_NAME",
+      "ERP_V1_READINESS_DRIVER_PASSWORD",
     ]),
     nextAction:
       missingVariables.length === 0
-        ? "使用指定办公室和司机验收账号跑 runtime readiness，保留结果到 release candidate。"
-        : "补齐生产 API 地址和办公室 / 司机验收账号，避免使用脚本默认 seed 账号。",
+        ? "使用正式 runtime token 或安全 env 登录凭据跑 readiness，保留脱敏结果到 release candidate。"
+        : "补齐生产 API、正式账号 ID，以及办公室 / 司机各自的 runtime token 或安全 env 登录凭据。",
   });
 }
 

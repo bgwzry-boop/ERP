@@ -23,6 +23,8 @@ const sensitiveValues = [
   "not-a-production-api-url",
   "https://bad-prefix.example.com/path",
   "../secret-prefix",
+  "SUPER_SECRET_OFFICE_READINESS_PASSWORD",
+  "SUPER_SECRET_DRIVER_READINESS_PASSWORD",
 ];
 
 rmSync(storageRoot, { recursive: true, force: true });
@@ -61,8 +63,12 @@ const productionEnv = {
   ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_ARGS_JSON: JSON.stringify(["-p", "{cupsPrinterName}"]),
   ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_TIMEOUT_MS: "5000",
   ERP_V1_READINESS_API_BASE_URL: "http://127.0.0.1:8787/api",
-  ERP_V1_READINESS_OPERATOR_ID: "U-OFFICE-A",
-  ERP_V1_READINESS_DRIVER_OPERATOR_ID: "U-DRIVER-A",
+  ERP_V1_READINESS_OPERATOR_ID: "U-V1-OFFICE-A",
+  ERP_V1_READINESS_LOGIN_NAME: "v1.office.a",
+  ERP_V1_READINESS_PASSWORD: sensitiveValues[15],
+  ERP_V1_READINESS_DRIVER_OPERATOR_ID: "U-V1-DRIVER-A",
+  ERP_V1_READINESS_DRIVER_LOGIN_NAME: "v1.driver.a",
+  ERP_V1_READINESS_DRIVER_PASSWORD: sensitiveValues[16],
   ERP_V1_FIELD_ACCEPTANCE_OUTPUT_DIR: ".erp-local-storage/v1-field-acceptance",
 };
 
@@ -423,8 +429,8 @@ assert.ok(
   "invalid statement export key prefix should be included in fix checklist by variable name",
 );
 assert.ok(
-  invalidShapeReport.warningCriteria.some((item) => item.key === "v1-readiness-identity-env"),
-  "invalid readiness URL shape should remain a warning criterion",
+  invalidShapeReport.blockingCriteria.some((item) => item.key === "v1-readiness-identity-env"),
+  "invalid readiness URL shape should block production preflight",
 );
 assertNoSensitiveOutput(invalidShapeRun.stdout + invalidShapeRun.stderr);
 assert.doesNotMatch(

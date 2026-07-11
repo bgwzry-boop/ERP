@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
+import { createSeedSession } from "../server/authSeed.mjs";
 import {
   buildProductionGoLivePrecheckReport,
   formatProductionGoLivePrecheckReport,
@@ -29,7 +30,14 @@ const sensitiveValues = [
   "/usr/local/bin/node-secret",
   "/var/spool/erp-secret",
   "/usr/bin/lpstat-secret",
+  "v1.precheck.office",
+  "SUPER_SECRET_PRECHECK_OFFICE_PASSWORD",
+  "v1.precheck.driver",
+  "SUPER_SECRET_PRECHECK_DRIVER_PASSWORD",
 ];
+const officeDemoToken = createSeedSession("U-OFFICE-A").accessToken;
+const driverDemoToken = createSeedSession("U-DRIVER-A").accessToken;
+sensitiveValues.push(officeDemoToken, driverDemoToken);
 
 rmSync(storageRoot, { recursive: true, force: true });
 mkdirSync(spoolRoot, { recursive: true });
@@ -69,7 +77,13 @@ const productionEnv = {
   ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_ARGS_JSON: JSON.stringify(["-p", "{cupsPrinterName}"]),
   ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_TIMEOUT_MS: "5000",
   ERP_V1_READINESS_OPERATOR_ID: "U-OFFICE-A",
+  ERP_V1_READINESS_TOKEN: officeDemoToken,
+  ERP_V1_READINESS_LOGIN_NAME: sensitiveValues[12],
+  ERP_V1_READINESS_PASSWORD: sensitiveValues[13],
   ERP_V1_READINESS_DRIVER_OPERATOR_ID: "U-DRIVER-A",
+  ERP_V1_READINESS_DRIVER_TOKEN: driverDemoToken,
+  ERP_V1_READINESS_DRIVER_LOGIN_NAME: sensitiveValues[14],
+  ERP_V1_READINESS_DRIVER_PASSWORD: sensitiveValues[15],
   ERP_V1_FIELD_ACCEPTANCE_OUTPUT_DIR: ".erp-local-storage/v1-field-acceptance",
 };
 

@@ -10,6 +10,7 @@ import {
   resolveProductionEnvSetupEnvFiles,
 } from "./productionEnvSetupEnvFileResolver.mjs";
 import { validateV1FieldEvidenceManifest } from "./v1FieldEvidenceManifest.mjs";
+import { loadEnvironment } from "./run-v1-production-env-preflight.mjs";
 
 const defaultApiBaseUrl = "http://127.0.0.1:8787/api";
 const defaultOutputDir = join(".erp-local-storage", "v1-release-candidate");
@@ -64,28 +65,26 @@ try {
     productionEnvSetupJsonPath: options.productionEnvSetupJsonPath,
   });
   const fieldEvidence = readFieldEvidenceManifest({ manifestPath: fieldEvidenceManifestPath });
+  const secureRuntimeEnv = loadEnvironment({ envFiles: envFileResolution.envFiles, baseEnv: process.env });
+  const runtimeAuthEnv = buildRuntimeAuthEnv({
+    env: secureRuntimeEnv,
+    bearerToken: options.bearerToken || process.env.ERP_V1_RELEASE_TOKEN,
+    driverBearerToken:
+      options.driverBearerToken ||
+      process.env.ERP_V1_RELEASE_DRIVER_TOKEN,
+  });
   const readiness = await readRuntimeReadiness({
     apiBaseUrl,
     operatorId,
     driverOperatorId,
-    bearerToken: options.bearerToken || process.env.ERP_V1_RELEASE_TOKEN,
-    driverBearerToken:
-      options.driverBearerToken ||
-      options.bearerToken ||
-      process.env.ERP_V1_RELEASE_DRIVER_TOKEN ||
-      process.env.ERP_V1_RELEASE_TOKEN,
+    runtimeAuthEnv,
   });
   const fieldAcceptance = await writeFieldAcceptanceReport({
     apiBaseUrl,
     operatorId,
     driverOperatorId,
     outputDir: join(outputDir, "field-acceptance"),
-    bearerToken: options.bearerToken || process.env.ERP_V1_RELEASE_TOKEN,
-    driverBearerToken:
-      options.driverBearerToken ||
-      options.bearerToken ||
-      process.env.ERP_V1_RELEASE_DRIVER_TOKEN ||
-      process.env.ERP_V1_RELEASE_TOKEN,
+    runtimeAuthEnv,
   });
   const report = buildReleaseCandidateReport({
     apiBaseUrl,
@@ -209,8 +208,8 @@ function helpText() {
     "  --api-base-url <url>       ERP API base URL, default http://127.0.0.1:8787/api",
     "  --operator-id <id>         Office operator id, default U-OFFICE-A",
     "  --driver-operator-id <id>  Driver operator id, default U-DRIVER-A",
-    "  --bearer-token <jwt>       Optional bearer token instead of seed user header",
-    "  --driver-bearer-token <jwt> Optional driver bearer token for driver readiness checks",
+    "  --bearer-token <token>     Deprecated compatibility input; prefer ERP_V1_READINESS_TOKEN in secure env",
+    "  --driver-bearer-token <token> Deprecated compatibility input; prefer ERP_V1_READINESS_DRIVER_TOKEN",
     "  --output-dir <dir>         Output directory, default .erp-local-storage/v1-release-candidate",
     "  --field-evidence-manifest <path> Filled V1 field-evidence manifest path; defaults to the checked-in template, which remains blocked",
     "  --allow-blocked-exit-zero  Write a blocked report but exit 0 for archival workflows",
@@ -313,8 +312,7 @@ async function readRuntimeReadiness({
   apiBaseUrl,
   operatorId,
   driverOperatorId,
-  bearerToken,
-  driverBearerToken,
+  runtimeAuthEnv,
 }) {
   const args = [
     readinessScript,
@@ -326,9 +324,12 @@ async function readRuntimeReadiness({
     driverOperatorId,
     "--json",
   ];
-  if (bearerToken) args.push("--bearer-token", bearerToken);
-  if (driverBearerToken) args.push("--driver-bearer-token", driverBearerToken);
-  const run = await runNode({ args, timeoutMs: 25000, label: "V1 runtime readiness" });
+  const run = await runNode({
+    args,
+    env: { ...process.env, ...runtimeAuthEnv },
+    timeoutMs: 25000,
+    label: "V1 runtime readiness",
+  });
   const report = parseJsonRun(run, "V1 runtime readiness");
   if (run.status !== 0 && run.status !== 2) {
     throw new Error(report?.error?.message || `V1 runtime readiness exited ${run.status}`);
@@ -344,8 +345,7 @@ async function writeFieldAcceptanceReport({
   operatorId,
   driverOperatorId,
   outputDir,
-  bearerToken,
-  driverBearerToken,
+  runtimeAuthEnv,
 }) {
   const args = [
     fieldReportScript,
@@ -360,9 +360,12 @@ async function writeFieldAcceptanceReport({
     "--allow-blocked-exit-zero",
     "--json",
   ];
-  if (bearerToken) args.push("--bearer-token", bearerToken);
-  if (driverBearerToken) args.push("--driver-bearer-token", driverBearerToken);
-  const run = await runNode({ args, timeoutMs: 30000, label: "V1 field acceptance report" });
+  const run = await runNode({
+    args,
+    env: { ...process.env, ...runtimeAuthEnv },
+    timeoutMs: 30000,
+    label: "V1 field acceptance report",
+  });
   const commandResult = parseJsonRun(run, "V1 field acceptance report");
   if (run.status !== 0) {
     throw new Error(commandResult?.error?.message || `V1 field acceptance report exited ${run.status}`);
@@ -374,11 +377,11 @@ async function writeFieldAcceptanceReport({
   return { commandResult, report };
 }
 
-function runNode({ args, timeoutMs, label }) {
+function runNode({ args, timeoutMs, label, env = process.env }) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd: process.cwd(),
-      env: process.env,
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";
@@ -405,6 +408,26 @@ function runNode({ args, timeoutMs, label }) {
       resolve({ status, signal, stdout, stderr });
     });
   });
+}
+
+function buildRuntimeAuthEnv({ env = {}, bearerToken = "", driverBearerToken = "" } = {}) {
+  const keys = [
+    "ERP_V1_READINESS_OPERATOR_ID",
+    "ERP_V1_READINESS_LOGIN_NAME",
+    "ERP_V1_READINESS_PASSWORD",
+    "ERP_V1_READINESS_DRIVER_OPERATOR_ID",
+    "ERP_V1_READINESS_DRIVER_LOGIN_NAME",
+    "ERP_V1_READINESS_DRIVER_PASSWORD",
+  ];
+  const result = {};
+  for (const key of keys) {
+    if (String(env[key] ?? "").trim()) result[key] = env[key];
+  }
+  const resolvedBearerToken = bearerToken || env.ERP_V1_READINESS_TOKEN;
+  const resolvedDriverBearerToken = driverBearerToken || env.ERP_V1_READINESS_DRIVER_TOKEN;
+  if (resolvedBearerToken) result.ERP_V1_READINESS_TOKEN = resolvedBearerToken;
+  if (resolvedDriverBearerToken) result.ERP_V1_READINESS_DRIVER_TOKEN = resolvedDriverBearerToken;
+  return result;
 }
 
 function parseJsonRun(run, label) {

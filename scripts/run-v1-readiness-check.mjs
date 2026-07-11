@@ -2,6 +2,10 @@
 
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  authenticateV1ReadinessRole,
+  buildV1ReadinessAuthInput,
+} from "./v1ReadinessRuntimeAuth.mjs";
 
 const defaultApiBaseUrl = "http://127.0.0.1:8787/api";
 const requiredActionPermissions = ["attachment.view", "statement.preview", "fulfillment.print"];
@@ -20,16 +24,41 @@ try {
       process.env.VITE_ERP_API_BASE_URL ||
       defaultApiBaseUrl,
   );
-  const operatorId = String(options.operatorId || process.env.ERP_V1_READINESS_OPERATOR_ID || "U-OFFICE-A").trim();
-  const driverOperatorId = String(
-    options.driverOperatorId || process.env.ERP_V1_READINESS_DRIVER_OPERATOR_ID || "U-DRIVER-A",
-  ).trim();
-  const headers = buildHeaders({ operatorId, bearerToken: options.bearerToken || process.env.ERP_V1_READINESS_TOKEN });
-  const driverHeaders = buildHeaders({
-    operatorId: driverOperatorId,
-    bearerToken: options.driverBearerToken || options.bearerToken || process.env.ERP_V1_READINESS_DRIVER_TOKEN,
+  const healthResult = await requestJson(apiBaseUrl, "/health", { headers: {} });
+  if (!healthResult.ok) throw new Error(`/health returned HTTP ${healthResult.status}`);
+  const operatorAuth = await authenticateV1ReadinessRole({
+    apiBaseUrl,
+    health: healthResult.json,
+    authInput: buildV1ReadinessAuthInput({
+      role: "operator",
+      overrides: {
+        operatorId: options.operatorId ?? process.env.ERP_V1_READINESS_OPERATOR_ID,
+        bearerToken: options.bearerToken ?? process.env.ERP_V1_READINESS_TOKEN,
+      },
+    }),
   });
-  const responses = await readV1ReadinessSources({ apiBaseUrl, headers, driverHeaders });
+  const driverAuth = await authenticateV1ReadinessRole({
+    apiBaseUrl,
+    health: healthResult.json,
+    authInput: buildV1ReadinessAuthInput({
+      role: "driver",
+      overrides: {
+        operatorId: options.driverOperatorId ?? process.env.ERP_V1_READINESS_DRIVER_OPERATOR_ID,
+        bearerToken: options.driverBearerToken ?? process.env.ERP_V1_READINESS_DRIVER_TOKEN,
+      },
+    }),
+  });
+  const responses = await readV1ReadinessSources({
+    apiBaseUrl,
+    health: healthResult.json,
+    headers: operatorAuth.headers,
+    driverHeaders: driverAuth.headers,
+  });
+  assertConfiguredAuthIdentity(operatorAuth, responses.permissions, "operator");
+  assertConfiguredAuthIdentity(driverAuth, responses.driverPermissions, "driver");
+  responses.authentication = { operator: sanitizeAuthResult(operatorAuth), driver: sanitizeAuthResult(driverAuth) };
+  const operatorId = String(responses.permissions?.user?.userId || operatorAuth.operatorId || "").trim();
+  const driverOperatorId = String(responses.driverPermissions?.user?.userId || driverAuth.operatorId || "").trim();
   const report = buildV1ReadinessReport({ apiBaseUrl, operatorId, driverOperatorId, responses });
 
   if (options.json) {
@@ -103,16 +132,20 @@ function helpText() {
     "",
     "Options:",
     "  --api-base-url <url>   ERP API base URL, default http://127.0.0.1:8787/api",
-    "  --operator-id <id>     ERP operator id, default U-OFFICE-A",
-    "  --driver-operator-id <id> ERP driver operator id, default U-DRIVER-A",
-    "  --bearer-token <jwt>   Optional bearer token instead of seed user header",
-    "  --driver-bearer-token <jwt> Optional driver bearer token for driver readiness checks",
+    "  --operator-id <id>     Expected office / management formal user ID",
+    "  --driver-operator-id <id> Expected formal driver user ID",
+    "  --bearer-token <token> Optional office runtime token; prefer ERP_V1_READINESS_TOKEN in secure env",
+    "  --driver-bearer-token <token> Optional driver runtime token; prefer ERP_V1_READINESS_DRIVER_TOKEN",
     "  --json                 Print machine-readable JSON",
     "",
     "Exit codes:",
     "  0  V1 readiness gate is ready",
     "  1  API/read error",
     "  2  Gate is reachable but still blocked",
+    "",
+    "Production requires formal runtime tokens or secure-env login pairs:",
+    "  ERP_V1_READINESS_LOGIN_NAME + ERP_V1_READINESS_PASSWORD",
+    "  ERP_V1_READINESS_DRIVER_LOGIN_NAME + ERP_V1_READINESS_DRIVER_PASSWORD",
   ].join("\n");
 }
 
@@ -124,18 +157,12 @@ function normalizeApiBaseUrl(value) {
 
 function buildHeaders({ operatorId, bearerToken }) {
   const headers = { "content-type": "application/json" };
-  if (bearerToken) {
-    headers.authorization = `Bearer ${bearerToken}`;
-  } else if (operatorId) {
-    headers["x-erp-user-id"] = operatorId;
-  }
+  if (bearerToken) headers.authorization = `Bearer ${bearerToken}`;
+  else if (operatorId) headers["x-erp-user-id"] = operatorId;
   return headers;
 }
 
-async function readV1ReadinessSources({ apiBaseUrl, headers, driverHeaders }) {
-  const health = await requestJson(apiBaseUrl, "/health", { headers });
-  if (!health.ok) throw new Error(`/health returned HTTP ${health.status}`);
-
+async function readV1ReadinessSources({ apiBaseUrl, health, headers, driverHeaders }) {
   const openapi = await requestJson(apiBaseUrl, "/openapi/status", { headers, allowHttpError: true });
   if (!openapi.json || typeof openapi.json !== "object") {
     throw new Error(`/openapi/status returned unreadable JSON`);
@@ -154,7 +181,7 @@ async function readV1ReadinessSources({ apiBaseUrl, headers, driverHeaders }) {
     : [];
 
   const responses = {
-    health: health.json,
+    health,
     openapi: openapi.json,
     systemPersistence: null,
     permissions: permissions.json,
@@ -185,6 +212,24 @@ async function readV1ReadinessSources({ apiBaseUrl, headers, driverHeaders }) {
   }
 
   return responses;
+}
+
+function assertConfiguredAuthIdentity(auth, permissions, label) {
+  const expectedUserId = String(auth?.operatorId ?? "").trim();
+  const actualUserId = String(permissions?.user?.userId ?? "").trim();
+  if (expectedUserId && actualUserId && expectedUserId !== actualUserId) {
+    throw new Error(`V1 readiness ${label} session identity does not match the configured operator ID.`);
+  }
+}
+
+function sanitizeAuthResult(auth = {}) {
+  return {
+    source: String(auth.source ?? ""),
+    operatorId: String(auth.operatorId ?? ""),
+    formalRuntimeSession: auth.formalRuntimeSession === true,
+    legacyIdentityHeaderUsed: auth.legacyIdentityHeaderUsed === true,
+    production: auth.production === true,
+  };
 }
 
 async function getRequiredJson(apiBaseUrl, path, { headers }) {
@@ -423,6 +468,7 @@ function buildV1ReadinessReport({ apiBaseUrl, operatorId, driverOperatorId, resp
     cupsDiagnostics,
     printReadiness,
     driverReadiness,
+    authentication: responses.authentication,
   });
 
   return {
@@ -1037,8 +1083,17 @@ function buildSafeguards({
   cupsDiagnostics,
   printReadiness,
   driverReadiness,
+  authentication = {},
 }) {
   return {
+    formalRuntimeAuthentication:
+      authentication.operator?.formalRuntimeSession === true &&
+      authentication.driver?.formalRuntimeSession === true,
+    legacyIdentityHeaderUsed:
+      authentication.operator?.legacyIdentityHeaderUsed === true ||
+      authentication.driver?.legacyIdentityHeaderUsed === true,
+    operatorAuthSource: String(authentication.operator?.source ?? "unknown"),
+    driverAuthSource: String(authentication.driver?.source ?? "unknown"),
     systemReadOnly: systemPersistence.safeguards?.nonMutating !== false,
     systemRepositoryPayloadExposed: Boolean(systemPersistence.safeguards?.repositoryPayloadExposed),
     systemConnectionStringExposed: Boolean(systemPersistence.safeguards?.connectionStringExposed),

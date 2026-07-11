@@ -80,10 +80,13 @@ import { buildProductionEnvFileAuditReport } from "../scripts/run-v1-production-
 import { buildProductionEnvIntakeVerifyReport } from "../scripts/run-v1-production-env-intake-verify.mjs";
 import { buildProductionEnvValuesDryRunProofReport } from "../scripts/run-v1-production-env-values-dry-run-proof-check.mjs";
 import {
-  buildHeaders as buildV1ReadinessHeaders,
   buildV1ReadinessReport,
   readV1ReadinessSources,
 } from "../scripts/run-v1-readiness-check.mjs";
+import {
+  authenticateV1ReadinessRole,
+  buildV1ReadinessAuthInput,
+} from "../scripts/v1ReadinessRuntimeAuth.mjs";
 import { buildProductionGoLivePrecheckReport } from "../scripts/run-v1-production-go-live-precheck.mjs";
 import { validateV1FieldEvidenceManifest } from "../scripts/v1FieldEvidenceManifest.mjs";
 import { createAttachmentRepository } from "./attachmentRepository.mjs";
@@ -5729,11 +5732,15 @@ async function runSystemV1ProductionPersistenceEvidence({ operatorId }) {
 }
 
 async function buildCurrentV1RuntimeReadinessReport({ request, operatorId }) {
-  const apiBaseUrl = buildCurrentApiBaseUrl(request);
-  const driverOperatorId = cleanServerText(process.env.ERP_V1_READINESS_DRIVER_OPERATOR_ID) || "U-DRIVER-A";
-  const headers = buildV1ReadinessHeaders({ operatorId, bearerToken: "" });
-  const driverHeaders = buildV1ReadinessHeaders({ operatorId: driverOperatorId, bearerToken: "" });
-  const responses = await readV1ReadinessSources({ apiBaseUrl, headers, driverHeaders });
+  const { apiBaseUrl, driverOperatorId, health, operatorAuth, driverAuth } =
+    await buildCurrentV1ReadinessProbeContext({ request, operatorId });
+  const responses = await readV1ReadinessSources({
+    apiBaseUrl,
+    health,
+    headers: operatorAuth.headers,
+    driverHeaders: driverAuth.headers,
+  });
+  responses.authentication = buildCurrentV1ReadinessAuthenticationSummary({ operatorAuth, driverAuth });
   return buildV1ReadinessReport({
     apiBaseUrl,
     operatorId,
@@ -9644,11 +9651,15 @@ function buildV1AttachmentRetentionLivePrecheckSafeguards({ readiness }) {
 async function precheckSystemV1RuntimeReadiness({ request, operatorId }) {
   const checkedAt = new Date().toISOString();
   try {
-    const apiBaseUrl = buildCurrentApiBaseUrl(request);
-    const driverOperatorId = cleanServerText(process.env.ERP_V1_READINESS_DRIVER_OPERATOR_ID) || "U-DRIVER-A";
-    const headers = buildV1ReadinessHeaders({ operatorId, bearerToken: "" });
-    const driverHeaders = buildV1ReadinessHeaders({ operatorId: driverOperatorId, bearerToken: "" });
-    const responses = await readV1ReadinessSources({ apiBaseUrl, headers, driverHeaders });
+    const { apiBaseUrl, driverOperatorId, health, operatorAuth, driverAuth } =
+      await buildCurrentV1ReadinessProbeContext({ request, operatorId });
+    const responses = await readV1ReadinessSources({
+      apiBaseUrl,
+      health,
+      headers: operatorAuth.headers,
+      driverHeaders: driverAuth.headers,
+    });
+    responses.authentication = buildCurrentV1ReadinessAuthenticationSummary({ operatorAuth, driverAuth });
     const report = buildV1ReadinessReport({
       apiBaseUrl,
       operatorId,
@@ -9704,6 +9715,51 @@ function buildCurrentApiBaseUrl(request) {
   const host = cleanServerText(request?.headers?.host) || `127.0.0.1:${API_DEFAULT_PORT}`;
   const protocol = cleanServerText(request?.headers?.["x-forwarded-proto"]).split(",")[0] || "http";
   return `${protocol}://${host}/api`;
+}
+
+async function buildCurrentV1ReadinessProbeContext({ request, operatorId }) {
+  const apiBaseUrl = buildCurrentApiBaseUrl(request);
+  const healthResponse = await fetch(`${apiBaseUrl}/health`, {
+    headers: { connection: "close" },
+  });
+  if (!healthResponse.ok) throw new Error(`Current API health returned HTTP ${healthResponse.status}.`);
+  const health = await healthResponse.json();
+  const driverOperatorId = cleanServerText(process.env.ERP_V1_READINESS_DRIVER_OPERATOR_ID) || "U-DRIVER-A";
+  const operatorAuth = await authenticateV1ReadinessRole({
+    apiBaseUrl,
+    health,
+    authInput: buildV1ReadinessAuthInput({
+      role: "operator",
+      env: process.env,
+      overrides: {
+        operatorId,
+        bearerToken: getBearerToken(request) || process.env.ERP_V1_READINESS_TOKEN,
+      },
+    }),
+  });
+  const driverAuth = await authenticateV1ReadinessRole({
+    apiBaseUrl,
+    health,
+    authInput: buildV1ReadinessAuthInput({ role: "driver", env: process.env }),
+  });
+  return { apiBaseUrl, driverOperatorId, health, operatorAuth, driverAuth };
+}
+
+function buildCurrentV1ReadinessAuthenticationSummary({ operatorAuth, driverAuth }) {
+  return {
+    operator: sanitizeCurrentV1ReadinessAuthentication(operatorAuth),
+    driver: sanitizeCurrentV1ReadinessAuthentication(driverAuth),
+  };
+}
+
+function sanitizeCurrentV1ReadinessAuthentication(value = {}) {
+  return {
+    source: cleanServerText(value.source),
+    operatorId: cleanServerText(value.operatorId),
+    formalRuntimeSession: value.formalRuntimeSession === true,
+    legacyIdentityHeaderUsed: value.legacyIdentityHeaderUsed === true,
+    production: value.production === true,
+  };
 }
 
 function sanitizeV1RuntimeReadinessLivePrecheck(report = {}, { checkedAt, operatorId, driverOperatorId } = {}) {

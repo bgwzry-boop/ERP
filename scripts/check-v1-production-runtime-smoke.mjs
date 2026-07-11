@@ -23,6 +23,9 @@ const sensitiveEndpoint = "https://oss-runtime-secret.example.com";
 const sensitiveBucket = "erp-v1-runtime-private-bucket";
 const sensitiveAccessKey = "AKIA_RUNTIME_SECRET";
 const sensitiveSecretKey = "SUPER_SECRET_RUNTIME_OBJECT_STORAGE_VALUE";
+const sensitiveReadinessLoginName = "v1.runtime.smoke.operator";
+const sensitiveReadinessPassword = "SUPER_SECRET_RUNTIME_LOGIN_PASSWORD";
+const fakeRuntimeToken = "erp-runtime-session-v1.fake-runtime-smoke-token";
 
 rmSync(storageRoot, { recursive: true, force: true });
 mkdirSync(storageRoot, { recursive: true });
@@ -56,6 +59,8 @@ async function checkBlockedWithoutEnvFile() {
   assert.equal(report.stages.find((item) => item.key === "production-env-file-audit")?.status, "blocked");
   assert.equal(report.stages.find((item) => item.key === "api-runtime-startup")?.status, "passed");
   assert.equal(report.safeguards.apiProcessTerminated, true);
+  assert.equal(report.safeguards.formalRuntimeAuthentication, true);
+  assert.equal(report.safeguards.legacyIdentityHeaderUsed, false);
   assertNoSensitiveOutput(JSON.stringify(report) + formatProductionRuntimeSmoke(report));
 }
 
@@ -79,9 +84,13 @@ async function checkReadyRuntimeSmoke() {
   assert.equal(report.stages.find((item) => item.key === "production-persistence-env-subset")?.status, "passed");
   assert.equal(report.stages.find((item) => item.key === "api-runtime-startup")?.status, "passed");
   assert.equal(report.stages.find((item) => item.key === "runtime-production-profile")?.status, "passed");
-  assert.equal(report.stages.find((item) => item.key === "runtime-production-profile")?.summary.label, "6/6 通过");
+  assert.equal(report.stages.find((item) => item.key === "runtime-production-profile")?.summary.label, "7/7 通过");
   assert.equal(report.runtime.productionEnvFileApplication.applied, true);
   assert.equal(report.safeguards.productionEnvAppliedToProcess, true);
+  assert.equal(report.safeguards.formalLoginPerformed, true);
+  assert.equal(report.safeguards.readOnlyHttpProbesOnly, false);
+  assert.equal(report.safeguards.businessReadOnly, true);
+  assert.equal(report.safeguards.businessDataMutated, false);
   assert.equal(report.runtime.repositoryProfile.repositoryProfile, "postgres");
   assert.equal(report.runtime.storageProfile.attachmentObjectStorageKind, "object_storage");
   assert.equal(report.runtime.storageProfile.statementExportObjectStorageKind, "object_storage");
@@ -336,6 +345,7 @@ function startExternalFakeApi({ mode }) {
         now: "2026-07-08T03:45:00.000Z",
         openapi: { valid: true, pathCount: 120, schemaCount: 320 },
         seed: {
+          runtimeConfig: { mode: "production", production: true },
           attachmentObjectStorage: ready ? "object_storage" : "local_fs",
           statementExportObjectStorage: ready ? "object_storage" : "local_fs",
         v1PersistenceProfile: {
@@ -349,7 +359,18 @@ function startExternalFakeApi({ mode }) {
     });
       return;
     }
+    if (request.method === "POST" && url.pathname === "/api/auth/login") {
+      sendJson(response, 200, {
+        session: { accessToken: fakeRuntimeToken, userId: "U-V1-RUNTIME-SMOKE" },
+        permissions: { user: { userId: "U-V1-RUNTIME-SMOKE" } },
+      });
+      return;
+    }
     if (url.pathname === "/api/system/v1-readiness") {
+      if (request.headers.authorization !== `Bearer ${fakeRuntimeToken}` || request.headers["x-erp-user-id"]) {
+        sendJson(response, 401, { code: "AUTH_SESSION_REQUIRED" });
+        return;
+      }
       const ready = mode === "ready";
       sendJson(response, 200, {
         status: ready ? "ready" : "blocked",
@@ -476,6 +497,7 @@ async function checkCliAndRedaction() {
 
 function buildReadyEnv() {
   return {
+    ERP_RUNTIME_MODE: "production",
     ERP_V1_PERSISTENCE_PROFILE: "postgres",
     ERP_V1_FILE_STORAGE_PROFILE: "object_storage",
     ERP_V1_DATABASE_URL: sensitiveDatabaseUrl,
@@ -495,6 +517,9 @@ function buildBaseEnv({ fakeMode, includePath = false }) {
     PATH: process.env.PATH || "",
     ...(includePath ? { ERP_FAKE_RUNTIME_SENSITIVE_PATH: fakeApiPath } : {}),
     ERP_FAKE_RUNTIME_MODE: fakeMode,
+    ERP_V1_READINESS_OPERATOR_ID: "U-V1-RUNTIME-SMOKE",
+    ERP_V1_READINESS_LOGIN_NAME: sensitiveReadinessLoginName,
+    ERP_V1_READINESS_PASSWORD: sensitiveReadinessPassword,
   };
 }
 
@@ -532,6 +557,7 @@ const server = http.createServer((request, response) => {
       now: "2026-07-08T03:00:00.000Z",
       openapi: { valid: true, pathCount: 120, schemaCount: 320 },
       seed: {
+        runtimeConfig: { mode: "production", production: true },
         attachmentObjectStorage: ready ? "object_storage" : "local_fs",
         statementExportObjectStorage: ready ? "object_storage" : "local_fs",
         v1PersistenceProfile: {
@@ -566,7 +592,18 @@ const server = http.createServer((request, response) => {
     });
     return;
   }
+  if (request.method === "POST" && url.pathname === "/api/auth/login") {
+    sendJson(response, 200, {
+      session: { accessToken: ${JSON.stringify(fakeRuntimeToken)}, userId: "U-V1-RUNTIME-SMOKE" },
+      permissions: { user: { userId: "U-V1-RUNTIME-SMOKE" } }
+    });
+    return;
+  }
   if (url.pathname === "/api/system/v1-readiness") {
+    if (request.headers.authorization !== "Bearer ${fakeRuntimeToken}" || request.headers["x-erp-user-id"]) {
+      sendJson(response, 401, { code: "AUTH_SESSION_REQUIRED" });
+      return;
+    }
     const ready = mode === "ready";
     sendJson(response, 200, {
       status: ready ? "ready" : "blocked",
@@ -619,6 +656,8 @@ function assertNoSensitiveOutput(value) {
     sensitiveBucket,
     sensitiveAccessKey,
     sensitiveSecretKey,
+    sensitiveReadinessLoginName,
+    sensitiveReadinessPassword,
     envFilePath,
     setupJsonPath,
     fakeApiPath,

@@ -343,7 +343,7 @@ function helpText() {
     "  --api-base-url <url>         Running ERP API base URL; defaults to env file or localhost.",
     "  --operator-id <id>           Office / management validation user; defaults to env file or U-OFFICE-A.",
     "  --driver-operator-id <id>    Driver validation user; defaults to env file or U-DRIVER-A.",
-    "  --bearer-token <token>       Optional office bearer token; passed through env, not printed.",
+    "  --bearer-token <token>       Deprecated compatibility input; prefer ERP_V1_READINESS_TOKEN in secure env.",
     "  --driver-bearer-token <token> Optional driver bearer token; passed through env, not printed.",
     "  --json                       Print machine-readable JSON.",
     "",

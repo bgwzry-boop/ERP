@@ -216,7 +216,7 @@ function helpText() {
     "Options:",
     "  --api-base-url <url>              ERP API base URL. Defaults to http://127.0.0.1:8787/api.",
     "  --operator-id <id>                ERP operator id. Defaults to U-OFFICE-A.",
-    "  --bearer-token <jwt>              Optional bearer token instead of seed user header.",
+    "  --bearer-token <token>            Deprecated compatibility input; prefer ERP_PRINT_V1_READINESS_TOKEN.",
     "  --cups-printer <name>             Real CUPS printer name for non-printing queue preflight.",
     "  --cups-allowlist <names>          Comma-separated CUPS printer allowlist.",
     "  --cups-status-command <command>   Queue status command, usually lpstat.",
@@ -399,9 +399,9 @@ function buildPrintChainExecutionSteps({
 
   const readinessArgs = ["--api-base-url", apiBaseUrl, "--json"];
   const readinessSafeArgs = ["--api-base-url", apiBaseUrl, "--json"];
+  const readinessEnv = {};
   if (bearerToken) {
-    readinessArgs.push("--bearer-token", bearerToken);
-    readinessSafeArgs.push("--bearer-token", "<bearer-token>");
+    readinessEnv.ERP_PRINT_V1_READINESS_TOKEN = bearerToken;
   } else {
     readinessArgs.push("--operator-id", operatorId);
     readinessSafeArgs.push("--operator-id", operatorId);
@@ -425,6 +425,7 @@ function buildPrintChainExecutionSteps({
       script: "scripts/run-print-v1-readiness-check.mjs",
       args: readinessArgs,
       safeArgs: readinessSafeArgs,
+      env: readinessEnv,
       expectsJson: true,
       latestOutputDir: join(paths.printReadinessLatestJson, ".."),
       latestJsonPath: paths.printReadinessLatestJson,
@@ -465,7 +466,7 @@ function buildPrintChainExecutionSteps({
 function executeStepCommand(step) {
   const result = spawnSync(process.execPath, ["--", step.script, ...step.args], {
     cwd: process.cwd(),
-    env: process.env,
+    env: { ...process.env, ...(step.env || {}) },
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 1024 * 1024 * 4,

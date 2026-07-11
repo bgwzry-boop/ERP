@@ -91,6 +91,10 @@ const envSections = [
       "ERP_V1_READINESS_DRIVER_OPERATOR_ID=<REPLACE_WITH_DRIVER_VALIDATION_USER_ID>",
       "ERP_V1_READINESS_TOKEN=<OPTIONAL_OFFICE_BEARER_TOKEN>",
       "ERP_V1_READINESS_DRIVER_TOKEN=<OPTIONAL_DRIVER_BEARER_TOKEN>",
+      "ERP_V1_READINESS_LOGIN_NAME=<REPLACE_WITH_FORMAL_OFFICE_OR_MANAGEMENT_LOGIN>",
+      "ERP_V1_READINESS_PASSWORD=<REPLACE_WITH_FORMAL_OFFICE_OR_MANAGEMENT_PASSWORD>",
+      "ERP_V1_READINESS_DRIVER_LOGIN_NAME=<REPLACE_WITH_FORMAL_DRIVER_LOGIN>",
+      "ERP_V1_READINESS_DRIVER_PASSWORD=<REPLACE_WITH_FORMAL_DRIVER_PASSWORD>",
       "ERP_V1_FIELD_ACCEPTANCE_API_BASE_URL=https://<REPLACE_WITH_ERP_HOST>/api",
       "ERP_V1_FIELD_ACCEPTANCE_OUTPUT_DIR=.erp-local-storage/v1-field-acceptance",
       "ERP_V1_FIELD_ACCEPTANCE_OPERATOR_ID=<REPLACE_WITH_OFFICE_VALIDATION_USER_ID>",
@@ -139,6 +143,14 @@ const requiredPreflightVariables = [
   "ERP_PRINT_COMMAND_BRIDGE_CUPS_ALLOWLIST",
   "ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_COMMAND",
   "ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_ARGS_JSON",
+  "ERP_V1_READINESS_OPERATOR_ID",
+  "ERP_V1_READINESS_DRIVER_OPERATOR_ID",
+  "ERP_V1_READINESS_TOKEN",
+  "ERP_V1_READINESS_DRIVER_TOKEN",
+  "ERP_V1_READINESS_LOGIN_NAME",
+  "ERP_V1_READINESS_PASSWORD",
+  "ERP_V1_READINESS_DRIVER_LOGIN_NAME",
+  "ERP_V1_READINESS_DRIVER_PASSWORD",
 ];
 
 try {
@@ -221,7 +233,7 @@ function helpText() {
 function buildEnvTemplate() {
   const lines = [
     "# ERP V1 production environment template",
-    "# Last generated: 2026-07-10",
+    "# Last generated: 2026-07-12",
     "#",
     "# Copy this file to a secure, untracked env file before editing.",
     "# You can create that secure draft with:",
@@ -254,7 +266,7 @@ function buildRunbook() {
     "## 使用方式",
     "",
     "1. 推荐先运行 `run-v1-production-env-setup` 生成安全 env 草稿；也可以手工复制 `docs/development/v1-production.env.example` 到安全的、不会提交到 git 的环境文件。",
-    "2. 在安全 env 文件中填写真实 PostgreSQL、对象存储、打印桥、CUPS、生产 API 严格认证密钥 / CORS 来源、验收账号和现场证据 manifest 路径；不要把真实连接串、密钥、命令路径或 spool 路径写入文档。",
+    "2. 在安全 env 文件中填写真实 PostgreSQL、对象存储、打印桥、CUPS、生产 API 严格认证密钥 / CORS 来源、验收账号与 runtime token 或正式登录凭据、现场证据 manifest 路径；不要把真实连接串、密码、token、密钥、命令路径或 spool 路径写入文档。",
     "3. 如果真实值先填在另一份安全 env 文件里，可用 `run-v1-production-env-setup --import-from <filled-secure-env-file> --target <secure-env-file> --force` 导入到统一安全草稿；导入前会审计来源 env，target 已存在时必须显式 `--force`。",
     "4. 如果真实值只放在一个较小的安全 env 片段中，优先从 `production-env-minimum-values-fragment.template.env.example` 复制当前最小 blocking 补值路径；站点已经固定使用 `DATABASE_URL` / `PGURL` 别名，或要补 warning / optional fallback 时，再使用完整 `production-env-values-fragment.template.env.example`。片段先用 `run-v1-production-env-intake-apply --dry-run` 或第一阶段执行器的 `--production-env-values-dry-run` 预检白名单、任选别名和安全固定值；dry-run 会在内存中给出预计生产 env 变量预检、全量 intake 覆盖、最小 blocking 补值覆盖和建议 / 可选补值覆盖结果，不写目标 env，也不产生含真实值副本。正式合并入口会先运行 `run-v1-production-env-values-dry-run-proof-check`，要求最近 dry-run 证明有效、目标来源一致、真实值片段指纹一致，且真实值片段和目标 env 在 dry-run 后未修改；确认无阻塞后，再在第一阶段执行器里去掉 `--production-env-values-dry-run`，保留 `--production-env-values-file <secure-values-env-fragment>`，由执行器先检查 dry-run 证明、再调用 intake 白名单合并，并继续 env 审计、真实值校验和后续阶段。",
     "5. 准备器会把真实值字段留空、保留少量安全默认值，并把文件权限收窄到 `0600`；导入模式只复制到安全 target，报告仍不输出真实值；同时输出 `production-env-fix-checklist.zh-CN.md`、`production-env-fix-checklist.csv`、`production-env-real-value-intake.csv`、`production-env-minimum-values-fragment.template.env.example`、`production-env-values-fragment.template.env.example` 和 `production-env-fill-template.env.example` 供现场按变量名填写；最小片段只含当前 blocking 最短补值路径，全量片段保留 warning / optional fallback 和全部白名单变量；它只代表 env 文件已可安全填写，不代表生产变量已通过。",
@@ -361,7 +373,7 @@ function buildRunbook() {
     "- 生产 env 真实值 intake 校验：`run-v1-production-env-intake-verify` 优先用 `--use-production-env-setup-env-file` 复用 production env setup 报告中的安全 env 文件，并对照 `production-env-real-value-intake.csv` 确认真实值变量、任选别名组、安全固定值以及 `filled` / `verified` / `evidenceRef` 回填状态；只有绕开 setup 报告时才显式传入 `--env-file <secure-env-file>`。它只输出变量名、计数、状态和下一步，不输出真实 env 值、路径、连接串、bucket、secret、spool 路径或证据原文。",
     "- 第一阶段执行器：`run-v1-production-first-stage-execution` 串联 env 文件审计、生产 env 真实值 intake 校验、生产 env 预检、迁移计划 / 显式迁移执行、持久化留证、runtime smoke、第一阶段现场证据建议和 closeout；默认不执行迁移 `--apply`，只有传 `--apply-migrations` 才会调用生产迁移；恢复验证库重置同样必须显式传 `--allow-restore-reset`，不要依赖长期 env true；可用 `--use-production-env-setup-env-file` 复用生产 env setup 报告中的安全 env 文件，也可显式传 `--env-file <secure-env-file>`；如果真实值先放在独立安全 env 片段，可先加 `--production-env-values-dry-run`，让执行器只跑白名单合并 dry-run 并停止，确认白名单、任选别名、安全固定值、预计生产 env 预检和最小补值覆盖无阻塞后，再去掉该参数、保留 `--production-env-values-file <secure-values-env-fragment>` 正式合并；正式合并会先执行 `run-v1-production-env-values-dry-run-proof-check`，要求 latest dry-run 报告 ready、默认 24 小时内有效、setup 目标来源一致、真实值片段指纹一致、真实值片段和目标安全 env 文件未在 dry-run 后改动，证明通过后才按 intake 白名单合并并刷新 setup / intake verify latest，再继续执行后续阶段；现场证据 manifest 可通过 `--field-evidence-manifest` 显式传入，也可由安全 env 文件中的 `ERP_V1_FIELD_EVIDENCE_MANIFEST` 提供；证据建议只生成待复核 CSV，不自动应用、不自动签收。",
     "- 生产持久化首阶段留证：`run-v1-production-persistence-evidence --use-production-env-setup-env-file` 汇总 env 文件安全审计、生产持久化 env 子集、迁移计划、PostgreSQL 结构 / 权限预检、PostgreSQL 备份 / 恢复抽样验证、对象存储 live 预检和独立 bucket 治理检查（版本控制 / 生命周期 / 服务端加密 / policy 可读性）；它不执行迁移 `--apply`，不替代现场备份策略负责人确认、恢复演练工单 / 截图、对象存储控制台截图、访问审计或真实业务附件样本；只有需要绕开 setup 报告时才显式传入 `--env-file <secure-env-file>`。",
-    "- 生产 API 运行态 smoke：`run-v1-production-runtime-smoke` 可用 `--use-production-env-setup-env-file` 复用生产 env setup 报告中的安全 env 文件，也可显式传 `--env-file <secure-env-file>`；脚本通过 `ERP_V1_PRODUCTION_ENV_FILE` 临时启动 API，或在传入 `--api-base-url https://<erp-host>/api` 时检查已经长驻运行的生产 API。两种模式都只执行 GET 探针，并要求 `/api/health.seed.productionEnvFileApplication.applied=true`、`/api/health` 和 `/api/system/v1-readiness` 显示 PostgreSQL repository profile、附件对象存储、对账导出对象存储和系统 V1 持久化门禁，不替代打印、司机真机或业务试跑。",
+    "- 生产 API 运行态 smoke：`run-v1-production-runtime-smoke` 可用 `--use-production-env-setup-env-file` 复用生产 env setup 报告中的安全 env 文件，也可显式传 `--env-file <secure-env-file>`；脚本通过 `ERP_V1_PRODUCTION_ENV_FILE` 临时启动 API，或在传入 `--api-base-url https://<erp-host>/api` 时检查已经长驻运行的生产 API。production 必须从安全 env 取得正式 runtime token，或使用正式登录名 / 密码临时换取 runtime session，禁止回退到 `x-erp-user-id`。登录只创建 session，后续 smoke 仍为只读 GET 探针；报告不输出登录名、密码或 token。",
     "- 第一阶段现场证据建议：`run-v1-production-first-stage-evidence-suggestions` 读取持久化留证和 runtime smoke，生成 `suggested-evidence-items.csv`，只建议自动化报告可支撑的 `production_persistence` / `object_storage` 回填项；备份策略负责人、bucket 备份策略 / 控制台证据和访问审计仍必须人工补齐。建议 CSV 不能替代负责人复核、不能自动刷新 release candidate，也不能声明 V1 完成。",
     "- 第一阶段 closeout：`run-v1-production-first-stage-closeout` 读取持久化首阶段留证、runtime smoke 和已填写现场证据 manifest，检查自动化证据 ready、时效、安全护栏，以及 `production_persistence` / `object_storage` 两组证据后生成第一阶段签收结论；它不连接外部服务，不声明 V1 全部完成，只用于生产环境 / 持久化阶段交接。",
     "- 打印阶段 closeout：`run-v1-print-chain-closeout` 读取已保存的打印 readiness JSON 和已填写的 `print_hardware` 现场证据组，检查 CUPS 非打印预检、标签 / 针式样张、纸张对位、条码扫码、spool 或驱动回写、作废重打和脱敏护栏；它不调用 API、CUPS 或打印机，也不声明 V1 全部完成，只用于真实打印链路阶段签收。",

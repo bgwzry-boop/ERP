@@ -131,8 +131,8 @@ function helpText() {
     "  --api-base-url <url>       ERP API base URL, default http://127.0.0.1:8787/api",
     "  --operator-id <id>         Office operator id, default U-OFFICE-A",
     "  --driver-operator-id <id>  Driver operator id, default U-DRIVER-A",
-    "  --bearer-token <jwt>       Optional bearer token instead of seed user header",
-    "  --driver-bearer-token <jwt> Optional driver bearer token for driver readiness checks",
+    "  --bearer-token <token>     Deprecated compatibility input; prefer ERP_V1_READINESS_TOKEN in secure env",
+    "  --driver-bearer-token <token> Deprecated compatibility input; prefer ERP_V1_READINESS_DRIVER_TOKEN",
     "  --output-dir <dir>         Output directory, default .erp-local-storage/v1-field-acceptance",
     "  --allow-blocked-exit-zero  Write a blocked report but exit 0 for archival workflows",
     "  --json                     Print machine-readable command summary",
@@ -161,12 +161,14 @@ function runReadinessRunner({ apiBaseUrl, operatorId, driverOperatorId, bearerTo
     driverOperatorId,
     "--json",
   ];
-  if (bearerToken) args.push("--bearer-token", bearerToken);
-  if (driverBearerToken) args.push("--driver-bearer-token", driverBearerToken);
+  const childEnv = { ...process.env };
+  if (bearerToken) childEnv.ERP_V1_READINESS_TOKEN = bearerToken;
+  if (driverBearerToken) childEnv.ERP_V1_READINESS_DRIVER_TOKEN = driverBearerToken;
 
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd: process.cwd(),
+      env: childEnv,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

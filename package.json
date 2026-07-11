@@ -112,7 +112,7 @@
     "print-command-bridge:check": "node scripts/check-print-command-bridge.mjs",
     "cups-queue-preflight:check": "node scripts/check-cups-queue-preflight-runner.mjs",
     "print-v1-readiness:check": "node scripts/check-print-v1-readiness-runner.mjs",
-    "v1-readiness:check": "node scripts/check-v1-readiness-runner.mjs",
+    "v1-readiness:check": "node scripts/check-v1-readiness-runner.mjs && node scripts/check-v1-readiness-runtime-auth.mjs",
     "v1-field-acceptance-report:check": "node scripts/check-v1-field-acceptance-report.mjs",
     "v1-field-evidence:check": "node scripts/check-v1-field-evidence-manifest.mjs",
     "v1-field-evidence-intake-apply:check": "node scripts/check-v1-field-evidence-intake-apply.mjs",

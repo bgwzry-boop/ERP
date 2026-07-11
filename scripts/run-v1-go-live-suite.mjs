@@ -771,8 +771,8 @@ function helpText() {
     "  --api-base-url <url>                 API URL passed to release-candidate refresh",
     "  --operator-id <id>                   Office operator passed to release-candidate refresh",
     "  --driver-operator-id <id>            Driver operator passed to release-candidate refresh",
-    "  --bearer-token <jwt>                 Optional office bearer token for release-candidate refresh",
-    "  --driver-bearer-token <jwt>          Optional driver bearer token for release-candidate refresh",
+    "  --bearer-token <token>               Deprecated compatibility input; prefer secure env for release refresh",
+    "  --driver-bearer-token <token>        Deprecated compatibility input; prefer secure env for release refresh",
     "  --json                               Print a machine-readable suite summary",
     "",
     "The suite is non-mutating for evidence: it writes reports and handoff packs, but it does not change pending evidence to passed.",
@@ -891,9 +891,10 @@ async function resolveReleaseCandidate({ options, outputRoot, fieldEvidenceManif
     pushOption(args, "--api-base-url", options.apiBaseUrl);
     pushOption(args, "--operator-id", options.operatorId);
     pushOption(args, "--driver-operator-id", options.driverOperatorId);
-    pushOption(args, "--bearer-token", options.bearerToken);
-    pushOption(args, "--driver-bearer-token", options.driverBearerToken);
-    const result = await runJsonStep({ key: "releaseCandidate", label: "V1 release candidate", args });
+    const env = { ...process.env };
+    if (options.bearerToken) env.ERP_V1_RELEASE_TOKEN = options.bearerToken;
+    if (options.driverBearerToken) env.ERP_V1_RELEASE_DRIVER_TOKEN = options.driverBearerToken;
+    const result = await runJsonStep({ key: "releaseCandidate", label: "V1 release candidate", args, env });
     return normalizeReleaseCandidateStep(result);
   }
 
@@ -939,8 +940,8 @@ function pushOption(args, name, value) {
   args.push(name, String(value));
 }
 
-async function runJsonStep({ key, label, args }) {
-  const run = await runNode({ args, timeoutMs: 30000, label });
+async function runJsonStep({ key, label, args, env }) {
+  const run = await runNode({ args, env, timeoutMs: 30000, label });
   const output = `${run.stdout || ""}${run.stderr || ""}`;
   assertNoSensitiveOutput(output, label);
   if (run.status !== 0) {
@@ -960,10 +961,11 @@ async function runJsonStep({ key, label, args }) {
   };
 }
 
-function runNode({ args, timeoutMs, label }) {
+function runNode({ args, timeoutMs, label, env = process.env }) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, args, {
       cwd: process.cwd(),
+      env,
       stdio: ["ignore", "pipe", "pipe"],
     });
     let stdout = "";

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { createApiServer } from "../server/apiServer.mjs";
+import { createSeedSession } from "../server/authSeed.mjs";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -42,6 +43,8 @@ const originalV1GoLiveArtifactRoot = process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT;
 const fixtureArtifactRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-go-live-status-api");
 const expectedPersistenceRepositoryCount =
   v1PersistenceRepositoryObjectKeys.length + v1PersistenceStorageObjectKeys.length;
+const officeDemoReadinessToken = createSeedSession("U-MANAGER-A").accessToken;
+const driverDemoReadinessToken = createSeedSession("U-DRIVER-A").accessToken;
 
 prepareV1GoLiveStatusFixture(fixtureArtifactRoot);
 process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT = fixtureArtifactRoot;
@@ -219,7 +222,7 @@ try {
   assert.equal(json.productionEnvGate.summary.passedCount, 2);
   assert.equal(json.productionEnvGate.summary.totalCount, json.productionEnvGate.checks.length);
   assert.ok(json.productionEnvGate.summary.blockingCount >= 6);
-  assert.equal(json.productionEnvGate.summary.warningCount, 2);
+  assert.equal(json.productionEnvGate.summary.warningCount, 1);
   assert.equal(json.productionEnvGate.summary.auditStatus, "passed");
   assert.equal(json.productionEnvGate.summary.auditLabel, "已通过");
   assert.equal(json.productionEnvGate.audit.included, true);
@@ -271,7 +274,7 @@ try {
       json.productionEnvIntakeVerification.summary.minimumBlockingAlternativeGroupCount,
     expectedBlockingTargetCount,
   );
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingAlternativeGroupCount, 1);
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingAlternativeGroupCount, 4);
   assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningLabel, `0/${expectedWarningTargetCount}`);
   assert.ok(expectedWarningTargetCount >= 5);
   assert.equal(
@@ -279,11 +282,11 @@ try {
       json.productionEnvIntakeVerification.summary.minimumWarningAlternativeGroupCount,
     expectedWarningTargetCount,
   );
-  assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningAlternativeGroupCount, 1);
+  assert.equal(json.productionEnvIntakeVerification.summary.minimumWarningAlternativeGroupCount, 0);
   assert.equal(json.productionEnvIntakeVerification.summary.blockingCount, expectedBlockingTargetCount);
   assert.equal(json.productionEnvIntakeVerification.summary.warningCount, expectedWarningTargetCount);
-  assert.equal(json.productionEnvIntakeVerification.summary.alternativeGroupCount, 2);
-  assert.equal(json.productionEnvIntakeVerification.summary.alternativeGroupBlockingCount, 1);
+  assert.equal(json.productionEnvIntakeVerification.summary.alternativeGroupCount, 4);
+  assert.equal(json.productionEnvIntakeVerification.summary.alternativeGroupBlockingCount, 4);
   assert.equal(json.productionEnvIntakeVerification.summary.auditReady, true);
   assert.equal(json.productionEnvIntakeVerification.summary.intakeCsvReady, true);
   assert.equal(json.productionEnvIntakeVerification.summary.minimumBlockingItemCount, expectedBlockingTargetCount);
@@ -440,8 +443,9 @@ try {
   assert.ok(
     json.roleTaskBoard.roles.some((role) =>
       role.role === "办公室" &&
-      role.taskCount === 19 &&
-      role.tasks.some((task) => task.title === "系统打印 command_bridge 环境变量")
+      role.taskCount === 18 &&
+      role.tasks.length === 5 &&
+      role.tasks.every((task) => task.title && task.action)
     ),
   );
   assert.equal(json.roleTaskBoard.safeguards.rawOnsiteTaskBoardIncluded, false);
@@ -696,7 +700,7 @@ try {
   assert.ok(json.productionEnvFillTemplate.previewLines.includes("# ERP_ATTACHMENT_OBJECT_STORAGE_SECRET_ACCESS_KEY=<待填写>"));
   assert.ok(json.productionEnvFillTemplate.previewLines.includes("# ERP_SYSTEM_PRINTER_COMMAND=<待填写>"));
   assert.ok(json.productionEnvFillTemplate.previewLines.includes("# BLOCKING | 技术/管理 | 统一 V1 持久化 profile"));
-  assert.ok(json.productionEnvFillTemplate.previewLines.includes("# WARNING | 技术/办公室 | V1 readiness 验收账号环境变量"));
+  assert.ok(json.productionEnvFillTemplate.previewLines.includes("# BLOCKING | 技术/办公室 | V1 readiness 验收账号环境变量"));
   assert.equal(json.productionEnvFillTemplate.safeguards.realEnvValuesIncluded, false);
   assert.equal(json.productionEnvFillTemplate.safeguards.secretValuesIncluded, false);
   assert.equal(json.productionEnvFillTemplate.safeguards.artifactPathExposed, false);
@@ -772,7 +776,7 @@ try {
       json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingAlternativeGroupCount,
     expectedBlockingTargetCount,
   );
-  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingAlternativeGroupCount, 1);
+  assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumBlockingAlternativeGroupCount, 4);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumWarningLabel, `0/${expectedWarningTargetCount}`);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.minimumWarningMissingCount, expectedWarningTargetCount);
   assert.equal(json.productionEnvValuesFragmentSourceStatus.summary.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
@@ -874,7 +878,7 @@ try {
       json.productionEnvValuesApplyGateStatus.summary.minimumBlockingAlternativeGroupCount,
     expectedBlockingTargetCount,
   );
-  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingAlternativeGroupCount, 1);
+  assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumBlockingAlternativeGroupCount, 4);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumWarningLabel, `0/${expectedWarningTargetCount}`);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.minimumWarningMissingCount, expectedWarningTargetCount);
   assert.equal(json.productionEnvValuesApplyGateStatus.summary.fullIntakeConfiguredLabel, `0/${expectedIntakeRowCount}`);
@@ -1527,15 +1531,15 @@ try {
   assert.equal(productionEnvPrecheckJson.summary.readinessLabel, "2/11");
   assert.equal(productionEnvPrecheckJson.summary.passedCount, 2);
   assert.equal(productionEnvPrecheckJson.summary.totalCount, 11);
-  assert.equal(productionEnvPrecheckJson.summary.blockingCount, 7);
-  assert.equal(productionEnvPrecheckJson.summary.warningCount, 2);
+  assert.equal(productionEnvPrecheckJson.summary.blockingCount, 8);
+  assert.equal(productionEnvPrecheckJson.summary.warningCount, 1);
   assert.equal(productionEnvPrecheckJson.summary.currentRuntime, true);
   assert.equal(productionEnvPrecheckJson.summary.envFilePathAccepted, false);
   assert.equal(productionEnvPrecheckJson.summary.releaseCandidateRefreshed, false);
   assert.equal(productionEnvPrecheckJson.summary.goLiveSuiteRefreshed, false);
   assert.equal(productionEnvPrecheckJson.checks.length, 11);
-  assert.equal(productionEnvPrecheckJson.blockingChecks.length, 7);
-  assert.equal(productionEnvPrecheckJson.warningChecks.length, 2);
+  assert.equal(productionEnvPrecheckJson.blockingChecks.length, 8);
+  assert.equal(productionEnvPrecheckJson.warningChecks.length, 1);
   assert.ok(
     productionEnvPrecheckJson.blockingChecks.some((item) =>
       item.key === "v1-persistence-profile" &&
@@ -1583,7 +1587,7 @@ try {
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.currentRuntime, true);
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.envFilePathAccepted, false);
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.releaseCandidateRefreshed, false);
-  assert.equal(clientProductionEnvPrecheckResult.precheckResult.blockingChecks.length, 7);
+  assert.equal(clientProductionEnvPrecheckResult.precheckResult.blockingChecks.length, 8);
 
   const productionEnvSetupResponse = await fetch(`${baseUrl}/api/system/v1-production-env-setup/live-run`, {
     method: "POST",
@@ -2769,7 +2773,9 @@ try {
       "ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_ARGS_JSON=[\"-p\",\"{printer}\"]",
       "ERP_V1_READINESS_API_BASE_URL=http://127.0.0.1:8787/api",
       "ERP_V1_READINESS_OPERATOR_ID=U-MANAGER-A",
+      `ERP_V1_READINESS_TOKEN=${officeDemoReadinessToken}`,
       "ERP_V1_READINESS_DRIVER_OPERATOR_ID=U-DRIVER-A",
+      `ERP_V1_READINESS_DRIVER_TOKEN=${driverDemoReadinessToken}`,
       "ERP_V1_FIELD_ACCEPTANCE_OUTPUT_DIR=.erp-local-storage/v1-field-acceptance-live-secret",
       "ERP_V1_FIELD_ACCEPTANCE_API_BASE_URL=http://127.0.0.1:8787/api",
       "",
@@ -2953,6 +2959,8 @@ try {
   const serializedConfiguredProductionEnvFilePreviewPrecheck = JSON.stringify(configuredProductionEnvFilePreviewPrecheckJson);
   assert.doesNotMatch(serializedConfiguredProductionEnvFilePreviewPrecheck, /\.erp-local-storage|secure-live\.env|\/Users\/|\/private\//);
   assert.doesNotMatch(serializedConfiguredProductionEnvFilePreviewPrecheck, /SUPER_SECRET|oss-live-secret|lp-live-secret|print-spool-live-secret|field-acceptance-live-secret/i);
+  assert.doesNotMatch(serializedConfiguredProductionEnvFilePreviewPrecheck, new RegExp(escapeRegExp(officeDemoReadinessToken)));
+  assert.doesNotMatch(serializedConfiguredProductionEnvFilePreviewPrecheck, new RegExp(escapeRegExp(driverDemoReadinessToken)));
 
   const configuredClientProductionEnvFilePreviewPrecheckResult = await precheckOfficeV1ProductionEnvFilePreview(
     { operatorId: "U-MANAGER-A" },
@@ -3804,7 +3812,7 @@ try {
   assert.equal(clientStatus.productionEnvGate.available, true);
   assert.equal(clientStatus.productionEnvGate.summary.passedLabel, `2/${json.productionEnvGate.summary.totalCount}`);
   assert.equal(clientStatus.productionEnvGate.summary.blockingLabel, `${json.productionEnvGate.summary.blockingCount} 项`);
-  assert.equal(clientStatus.productionEnvGate.summary.warningLabel, "2 项");
+  assert.equal(clientStatus.productionEnvGate.summary.warningLabel, "1 项");
   assert.equal(clientStatus.productionEnvGate.summary.auditStatusLabel, "已通过");
   assert.equal(clientStatus.productionEnvGate.audit.statusLabel, "已通过");
   assert.ok(clientStatus.productionEnvGate.blockingChecks.some((item) => item.label === "统一 V1 持久化 profile"));
@@ -4217,6 +4225,10 @@ function restoreProductionEnvValuesFileEnv() {
   restoreEnvValue("ERP_V1_PRODUCTION_ENV_MINIMUM_VALUES_FILE", originalProductionEnvMinimumValuesFile);
   restoreEnvValue("ERP_V1_PRODUCTION_ENV_VALUES_FRAGMENT_FILE", originalProductionEnvValuesFragmentFile);
   restoreEnvValue("ERP_V1_PRODUCTION_ENV_VALUES_APPLY_ENABLED", originalProductionEnvValuesApplyEnabled);
+}
+
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function restoreEnvValue(key, value) {

@@ -9,6 +9,10 @@ import { resolveProductionEnvSetupEnvFiles } from "./productionEnvSetupEnvFileRe
 import { buildProductionEnvFileAuditReport } from "./run-v1-production-env-file-audit.mjs";
 import { buildProductionEnvPreflight, loadEnvironment } from "./run-v1-production-env-preflight.mjs";
 import { redactPersistenceEvidenceText } from "./run-v1-production-persistence-evidence.mjs";
+import {
+  authenticateV1ReadinessRole,
+  buildV1ReadinessAuthInput,
+} from "./v1ReadinessRuntimeAuth.mjs";
 
 const defaultOutputDir = ".erp-local-storage/v1-production-runtime-smoke";
 const defaultProductionEnvSetupJsonPath = ".erp-local-storage/v1-production-env-setup/latest.json";
@@ -37,6 +41,7 @@ async function runCli() {
       port: options.port,
       timeoutMs: options.timeoutMs,
       operatorId: options.operatorId,
+      bearerToken: options.bearerToken,
     });
     const outputReport = redactRuntimeSmokeReport(
       options.write
@@ -135,6 +140,11 @@ function parseArgs(args) {
       index += 1;
       continue;
     }
+    if (arg === "--bearer-token") {
+      options.bearerToken = readValue(args, index, arg);
+      index += 1;
+      continue;
+    }
     if (arg === "--output-dir") {
       options.outputDir = readValue(args, index, arg);
       index += 1;
@@ -201,7 +211,8 @@ function helpText() {
     '  --api-args-json <json>         API process args. Defaults to ["server/apiServer.mjs"].',
     "  --port <n>                     Port passed as ERP_API_PORT. Defaults to 0, which selects a free local port.",
     "  --timeout-ms <n>               API startup/read timeout. Defaults to 15000.",
-    "  --operator-id <id>             Operator id for read-only readiness probes. Defaults to env or U-OFFICE-A.",
+    "  --operator-id <id>             Expected formal operator user ID.",
+    "  --bearer-token <token>         Runtime token; prefer ERP_V1_READINESS_TOKEN in the secure env file.",
     "  --output-dir <path>            Write redacted evidence files. Defaults to .erp-local-storage/v1-production-runtime-smoke.",
     "  --no-write                     Do not write JSON / Markdown evidence files.",
     "  --json                         Print machine-readable JSON.",
@@ -211,7 +222,8 @@ function helpText() {
     "  1  Runner error",
     "  2  Runtime smoke is readable but still blocked for first production go-live stage",
     "",
-    "This runner only performs GET readiness probes, does not apply migrations, does not mutate business data, does not print, and stops the spawned API process after checking.",
+    "Production requires a runtime token or ERP_V1_READINESS_LOGIN_NAME + ERP_V1_READINESS_PASSWORD in the secure env file.",
+    "The optional formal login creates only a session; readiness probes remain read-only, do not apply migrations, mutate business data, or print.",
   ].join("\n");
 }
 
@@ -254,6 +266,7 @@ async function buildProductionRuntimeSmoke({
   port = 0,
   timeoutMs = 15000,
   operatorId,
+  bearerToken,
   checkedAt = new Date().toISOString(),
   fetchImpl = globalThis.fetch,
 } = {}) {
@@ -265,10 +278,17 @@ async function buildProductionRuntimeSmoke({
   const selectedPort = externalApiBaseUrl ? 0 : port > 0 ? port : await findFreePort();
   const runtimeApiBaseUrl = externalApiBaseUrl || `http://127.0.0.1:${selectedPort}/api`;
   const resolvedOperatorId = cleanString(operatorId || env.ERP_V1_READINESS_OPERATOR_ID || "U-OFFICE-A");
+  const authInput = buildV1ReadinessAuthInput({
+    role: "operator",
+    env,
+    overrides: { operatorId: resolvedOperatorId, bearerToken },
+  });
   const runtimeResult = externalApiBaseUrl
     ? await probeExistingApiRuntime({
         apiBaseUrl: runtimeApiBaseUrl,
         operatorId: resolvedOperatorId,
+        runtimeMode: env.ERP_RUNTIME_MODE || "production",
+        authInput,
         timeoutMs,
         fetchImpl,
       })
@@ -281,6 +301,8 @@ async function buildProductionRuntimeSmoke({
         port: selectedPort,
         apiBaseUrl: runtimeApiBaseUrl,
         operatorId: resolvedOperatorId,
+        runtimeMode: env.ERP_RUNTIME_MODE || "production",
+        authInput,
         timeoutMs,
         fetchImpl,
       });
@@ -322,12 +344,17 @@ async function buildProductionRuntimeSmoke({
     runtime: buildRuntimeSnapshot(runtimeResult),
     safeguards: {
       nonMutating: true,
-      readOnlyHttpProbesOnly: true,
+      readOnlyHttpProbesOnly: runtimeResult.authentication?.source !== "formal_login",
+      formalLoginPerformed: runtimeResult.authentication?.source === "formal_login",
+      businessReadOnly: true,
       apiProcessSpawned: runtimeResult.apiProcessSpawned === true,
       apiProcessTerminated: runtimeResult.apiProcessTerminated === true,
       externalApiProbed: runtimeResult.externalApiProbed === true,
       envFileReadFromProductionSetup: Boolean(envFileFromProductionSetup || normalizedEnvFileSource === "production_env_setup"),
       productionEnvAppliedToProcess: runtimeResult.health?.seed?.productionEnvFileApplication?.applied === true,
+      formalRuntimeAuthentication: runtimeResult.authentication?.formalRuntimeSession === true,
+      legacyIdentityHeaderUsed: runtimeResult.authentication?.legacyIdentityHeaderUsed === true,
+      runtimeAuthSource: cleanString(runtimeResult.authentication?.source || "unknown"),
       migrationApplyExecuted: false,
       businessDataMutated: false,
       physicalPrinterCalled: false,
@@ -454,6 +481,8 @@ async function runApiRuntimeProbe({
   port,
   apiBaseUrl,
   operatorId,
+  runtimeMode,
+  authInput,
   timeoutMs,
   fetchImpl,
 }) {
@@ -477,11 +506,18 @@ async function runApiRuntimeProbe({
   let result;
   try {
     const health = await waitForHealth({ apiBaseUrl, timeoutMs, fetchImpl, childState: state });
-    const headers = buildSeedHeaders(operatorId);
+    const authentication = await authenticateV1ReadinessRole({
+      apiBaseUrl,
+      runtimeMode,
+      health,
+      authInput,
+      timeoutMs,
+      fetchImpl,
+    });
     const systemReadiness = await requestJson({
       apiBaseUrl,
       path: "/system/v1-readiness",
-      headers,
+      headers: authentication.headers,
       timeoutMs,
       fetchImpl,
     });
@@ -494,6 +530,7 @@ async function runApiRuntimeProbe({
       startupReady: true,
       health,
       systemReadiness,
+      authentication: sanitizeAuthentication(authentication),
       stdoutSample: "",
       stderrSample: "",
       exitBeforeReady: false,
@@ -520,7 +557,7 @@ async function runApiRuntimeProbe({
   return result;
 }
 
-async function probeExistingApiRuntime({ apiBaseUrl, operatorId, timeoutMs, fetchImpl }) {
+async function probeExistingApiRuntime({ apiBaseUrl, operatorId, runtimeMode, authInput, timeoutMs, fetchImpl }) {
   try {
     const health = await requestJson({
       apiBaseUrl,
@@ -529,11 +566,18 @@ async function probeExistingApiRuntime({ apiBaseUrl, operatorId, timeoutMs, fetc
       timeoutMs,
       fetchImpl,
     });
-    const headers = buildSeedHeaders(operatorId);
+    const authentication = await authenticateV1ReadinessRole({
+      apiBaseUrl,
+      runtimeMode,
+      health,
+      authInput,
+      timeoutMs,
+      fetchImpl,
+    });
     const systemReadiness = await requestJson({
       apiBaseUrl,
       path: "/system/v1-readiness",
-      headers,
+      headers: authentication.headers,
       timeoutMs,
       fetchImpl,
     });
@@ -548,6 +592,7 @@ async function probeExistingApiRuntime({ apiBaseUrl, operatorId, timeoutMs, fetc
       startupReady: health?.status === "ok",
       health,
       systemReadiness,
+      authentication: sanitizeAuthentication(authentication),
       stdoutSample: "",
       stderrSample: "",
       exitBeforeReady: false,
@@ -675,10 +720,14 @@ async function findFreePort() {
   return port;
 }
 
-function buildSeedHeaders(operatorId) {
-  const headers = { "content-type": "application/json" };
-  if (operatorId) headers["x-erp-user-id"] = operatorId;
-  return headers;
+function sanitizeAuthentication(authentication = {}) {
+  return {
+    source: cleanString(authentication.source || "unknown"),
+    operatorId: cleanString(authentication.operatorId),
+    formalRuntimeSession: authentication.formalRuntimeSession === true,
+    legacyIdentityHeaderUsed: authentication.legacyIdentityHeaderUsed === true,
+    production: authentication.production === true,
+  };
 }
 
 function buildApiStartupStage(runtimeResult = {}) {
@@ -785,6 +834,18 @@ function buildRuntimeProfileChecks(runtimeResult = {}) {
   const attachmentStorageKind = cleanString(seed.attachmentObjectStorage);
   const statementExportStorageKind = cleanString(seed.statementExportObjectStorage);
   return [
+    criterion({
+      key: "formal-runtime-authentication",
+      label: "正式 runtime session 认证",
+      passed:
+        runtimeResult.authentication?.formalRuntimeSession === true &&
+        runtimeResult.authentication?.legacyIdentityHeaderUsed !== true,
+      detail:
+        runtimeResult.authentication?.formalRuntimeSession === true &&
+        runtimeResult.authentication?.legacyIdentityHeaderUsed !== true
+          ? "Readiness probe used a formal runtime session without a legacy identity header."
+          : "生产运行态探针未证明使用正式 runtime session。",
+    }),
     criterion({
       key: "health-ok",
       label: "API health 可访问",
@@ -904,6 +965,7 @@ function buildRuntimeSnapshot(runtimeResult = {}) {
         runtimeResult.systemReadiness?.localPersistenceAcceptance?.accepted === true ||
         runtimeResult.systemReadiness?.safeguards?.localPersistenceAcceptedForV1 === true,
     },
+    authentication: sanitizeAuthentication(runtimeResult.authentication),
     error: runtimeResult.error || null,
   };
 }
@@ -984,7 +1046,9 @@ function formatProductionRuntimeSmoke(report) {
     `- System readiness: ${report.runtime.systemReadiness.status || "unknown"} ${report.runtime.systemReadiness.summaryLabel}`,
     "",
     "## Safeguards",
-    `- Read-only HTTP probes only: ${yesNo(report.safeguards.readOnlyHttpProbesOnly)}`,
+    `- Formal login performed: ${yesNo(report.safeguards.formalLoginPerformed)}`,
+    `- Read-only HTTP requests only: ${yesNo(report.safeguards.readOnlyHttpProbesOnly)}`,
+    `- Business data remained read-only: ${yesNo(report.safeguards.businessReadOnly)}`,
     `- API process spawned: ${yesNo(report.safeguards.apiProcessSpawned)}`,
     `- API process terminated: ${yesNo(report.safeguards.apiProcessTerminated)}`,
     `- Env file read from production setup: ${yesNo(report.safeguards.envFileReadFromProductionSetup)}`,
