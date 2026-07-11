@@ -2608,7 +2608,7 @@ try {
       mimeType: "image/png",
       fileSize: 96,
       contentDataUrl: "data:image/png;base64,ZHJpdmVyLXdh dGVybWFyaw==".replace(" ", ""),
-      uploadedBy: "U-DRIVER-A",
+      uploadedBy: "U-SPOOFED",
       metadata: {
         watermarkId: "WM-API-SMOKE-1",
         watermarkCapturedAt: "2026-07-02T09:10:00.000Z",
@@ -2630,6 +2630,59 @@ try {
   ) {
     throw new Error("/api/attachments did not allow driver delivery evidence upload");
   }
+
+  const wrongOwnerWatermarkAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "fulfillment",
+      ownerId: driverExceptionTask.fulfillmentId,
+      purpose: "delivery_watermark_photo",
+      fileType: "image",
+      fileName: "driver-watermark-wrong-owner.png",
+      contentRef: `p0://driver-delivery/${driverExceptionTask.fulfillmentId}/delivery_watermark_photo/api-smoke`,
+      mimeType: "image/png",
+      contentDataUrl: "data:image/png;base64,d3Jvbmctb3duZXI=",
+      uploadedBy: "U-SPOOFED",
+    },
+    {
+      headers: { "x-erp-user-id": "U-DRIVER-A" },
+    },
+  );
+  const blockedWrongOwnerEvidence = await postJson(
+    baseUrl,
+    `/api/driver/delivery-tasks/${driverPendingTask.fulfillmentId}/complete`,
+    {
+      fulfillmentId: driverPendingTask.fulfillmentId,
+      watermarkedPhotoAttachmentId: wrongOwnerWatermarkAttachment.attachmentId,
+    },
+    {
+      expectedStatus: 422,
+      headers: { "x-erp-user-id": "U-DRIVER-A" },
+    },
+  );
+  if (blockedWrongOwnerEvidence.code !== "DELIVERY_EVIDENCE_ATTACHMENT_OWNER_MISMATCH") {
+    throw new Error("driver completion accepted delivery evidence owned by another fulfillment");
+  }
+
+  const driverSignatureAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "fulfillment",
+      ownerId: driverPendingTask.fulfillmentId,
+      purpose: "signature_photo",
+      fileType: "image",
+      fileName: "driver-signature-api-smoke.png",
+      contentRef: `p0://driver-delivery/${driverPendingTask.fulfillmentId}/signature_photo/api-smoke`,
+      mimeType: "image/png",
+      contentDataUrl: "data:image/png;base64,c2lnbmF0dXJl",
+      uploadedBy: "U-SPOOFED",
+    },
+    {
+      headers: { "x-erp-user-id": "U-DRIVER-A" },
+    },
+  );
 
   const blockedDriverPaymentAttachment = await postJson(
     baseUrl,
@@ -2672,6 +2725,7 @@ try {
       watermarkOperatorId: "U-SPOOFED",
       watermarkOperatorName: "司机A",
       signaturePhotoAttached: true,
+      signaturePhotoAttachmentId: driverSignatureAttachment.attachmentId,
       receiverName: "API 客户签收",
       paperNoteStatus: "已交回",
       completedAt: new Date().toISOString(),
@@ -2690,6 +2744,7 @@ try {
     driverComplete.task?.watermarkLocationLabel !== "厚街仓库门岗" ||
     driverComplete.task?.watermarkGeoPoint !== "22.920000,113.680000" ||
     driverComplete.task?.watermarkOperatorId !== "U-DRIVER-A" ||
+    driverComplete.task?.signaturePhotoAttachmentId !== driverSignatureAttachment.attachmentId ||
     driverComplete.task?.loadedAt !== driverLoadedAt ||
     driverComplete.task?.receiverName !== "API 客户签收" ||
     driverComplete.task?.paperNoteStatus !== "已交回" ||
@@ -2751,6 +2806,30 @@ try {
     throw new Error("/api/fulfillments/{id}/delivery-evidence-review did not create a retake todo");
   }
 
+  const driverRetakeAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "fulfillment",
+      ownerId: driverPendingTask.fulfillmentId,
+      purpose: "delivery_watermark_photo",
+      fileType: "image",
+      fileName: "driver-watermark-retake-api-smoke.png",
+      contentRef: `p0://driver-delivery/${driverPendingTask.fulfillmentId}/delivery_watermark_photo/retake`,
+      mimeType: "image/png",
+      contentDataUrl: "data:image/png;base64,cmV0YWtl",
+      uploadedBy: "U-SPOOFED",
+      metadata: {
+        watermarkId: "WM-DRIVER-RETAKE-1",
+        watermarkCapturedAt: "2026-07-02T10:45:00.000Z",
+        watermarkLocationLabel: "客户门店补拍",
+      },
+    },
+    {
+      headers: { "x-erp-user-id": "U-DRIVER-A" },
+    },
+  );
+
   const deliveryEvidenceResubmission = await postJson(
     baseUrl,
     `/api/driver/delivery-tasks/${driverPendingTask.fulfillmentId}/complete`,
@@ -2758,7 +2837,7 @@ try {
       fulfillmentId: driverPendingTask.fulfillmentId,
       actualQty: driverPendingTask.qty,
       operatorId: "U-DRIVER-A",
-      watermarkedPhotoAttachmentId: "ATT-DRIVER-WM-RETAKE-1",
+      watermarkedPhotoAttachmentId: driverRetakeAttachment.attachmentId,
       watermarkId: "WM-DRIVER-RETAKE-1",
       watermarkText: "补拍水印 WM-DRIVER-RETAKE-1",
       watermarkCapturedAt: "2026-07-02T10:45:00.000Z",
@@ -2777,7 +2856,7 @@ try {
     deliveryEvidenceResubmission.inventoryLedgerIds?.length !== 0 ||
     deliveryEvidenceResubmission.task?.deliveryEvidenceReviewStatus !== "待复核" ||
     deliveryEvidenceResubmission.task?.deliveryEvidenceIssueReason !== "" ||
-    deliveryEvidenceResubmission.task?.watermarkedPhotoAttachmentId !== "ATT-DRIVER-WM-RETAKE-1"
+    deliveryEvidenceResubmission.task?.watermarkedPhotoAttachmentId !== driverRetakeAttachment.attachmentId
   ) {
     throw new Error("/api/driver/delivery-tasks/{id}/complete did not resubmit retake evidence correctly");
   }

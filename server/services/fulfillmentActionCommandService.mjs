@@ -7,6 +7,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     confirmFulfillmentException,
     findCustomerName,
     findActiveDriverDeliveryDispatch,
+    findAttachmentRecord,
     findDriverDeliveryFulfillment,
     findFulfillment,
     findInventoryItem,
@@ -32,6 +33,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     confirmFulfillmentException,
     findCustomerName,
     findActiveDriverDeliveryDispatch,
+    findAttachmentRecord,
     findDriverDeliveryFulfillment,
     findFulfillment,
     findInventoryItem,
@@ -528,11 +530,14 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     if (body.fulfillmentId && body.fulfillmentId !== fulfillmentId) {
       return businessError(422, "VALIDATION_ERROR", "fulfillmentId in path and body must match");
     }
-    if (!hasDriverWatermarkEvidence(body)) {
+    const watermarkedPhotoAttachmentId = String(
+      body.watermarkedPhotoAttachmentId ?? body.watermarkedPhotoId ?? "",
+    ).trim();
+    if (!watermarkedPhotoAttachmentId) {
       return businessError(
         422,
         "WATERMARK_PHOTO_REQUIRED",
-        "Driver delivery completion requires a watermarked delivery photo.",
+        "Driver delivery completion requires a persisted watermarked-photo attachment.",
       );
     }
     const isDeliveryEvidenceRetake = before.status === "已交付" && before.deliveryEvidenceReviewStatus === "需重拍";
@@ -551,6 +556,15 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       );
     }
 
+    const evidenceValidation = validateDriverDeliveryEvidenceAttachments({
+      workspace,
+      fulfillmentId,
+      body,
+      operatorId,
+      watermarkedPhotoAttachmentId,
+    });
+    if (evidenceValidation.errorResult) return evidenceValidation.errorResult;
+
     const fulfillments = isDeliveryEvidenceRetake
       ? workspace.fulfillments
       : updateFulfillmentsForAction(workspace.fulfillments, fulfillmentId, "完成送货");
@@ -558,7 +572,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     const completedAt = normalizeTimestamp(body.completedAt, nowIso(now));
     const actualQty = Math.max(0, Number(body.actualQty ?? baseAfter.actualQty ?? baseAfter.qty ?? 0));
     const watermarkCapturedAt = normalizeTimestamp(
-      body.watermarkCapturedAt ?? body.watermarkedPhotoCapturedAt,
+      evidenceValidation.watermarkMetadata.watermarkCapturedAt ??
+        body.watermarkCapturedAt ??
+        body.watermarkedPhotoCapturedAt,
       completedAt,
     );
     const after = {
@@ -569,20 +585,33 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       receiverName: String(body.receiverName ?? "").trim(),
       paperNoteStatus: String(body.paperNoteStatus ?? "已交回").trim() || "已交回",
       watermarkedPhotoAttached: true,
-      watermarkedPhotoAttachmentId: String(
-        body.watermarkedPhotoAttachmentId ?? body.watermarkedPhotoId ?? "",
+      watermarkedPhotoAttachmentId,
+      watermarkedPhotoUrl: String(evidenceValidation.watermarkAttachment.url ?? "").trim(),
+      watermarkId: String(
+        evidenceValidation.watermarkMetadata.watermarkId ?? body.watermarkId ?? body.watermarkedPhotoWatermarkId ?? "",
       ).trim(),
-      watermarkedPhotoUrl: String(body.watermarkedPhotoUrl ?? "").trim(),
-      watermarkId: String(body.watermarkId ?? body.watermarkedPhotoWatermarkId ?? "").trim(),
-      watermarkText: String(body.watermarkText ?? "").trim(),
+      watermarkText: String(evidenceValidation.watermarkMetadata.watermarkText ?? body.watermarkText ?? "").trim(),
       watermarkCapturedAt,
-      watermarkLocationLabel: String(body.watermarkLocationLabel ?? body.locationLabel ?? "").trim(),
-      watermarkGeoPoint: String(body.watermarkGeoPoint ?? body.geoPoint ?? "").trim(),
-      watermarkAddress: String(body.watermarkAddress ?? body.address ?? before.address ?? "").trim(),
+      watermarkLocationLabel: String(
+        evidenceValidation.watermarkMetadata.watermarkLocationLabel ??
+          body.watermarkLocationLabel ??
+          body.locationLabel ??
+          "",
+      ).trim(),
+      watermarkGeoPoint: String(
+        evidenceValidation.watermarkMetadata.watermarkGeoPoint ?? body.watermarkGeoPoint ?? body.geoPoint ?? "",
+      ).trim(),
+      watermarkAddress: String(
+        evidenceValidation.watermarkMetadata.watermarkAddress ??
+          body.watermarkAddress ??
+          body.address ??
+          before.address ??
+          "",
+      ).trim(),
       watermarkOperatorId: operatorId,
       watermarkOperatorName: String(body.watermarkOperatorName ?? "").trim(),
-      signaturePhotoAttached: body.signaturePhotoAttached === true,
-      signaturePhotoAttachmentId: String(body.signaturePhotoAttachmentId ?? body.signaturePhotoId ?? "").trim(),
+      signaturePhotoAttached: Boolean(evidenceValidation.signatureAttachment),
+      signaturePhotoAttachmentId: evidenceValidation.signatureAttachment?.attachmentId ?? "",
       deliveryEvidenceReviewStatus: "待复核",
       deliveryEvidenceReviewedAt: "",
       deliveryEvidenceReviewedBy: "",
@@ -659,6 +688,120 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       }),
       operationLogId: transaction.operationLogId,
     });
+  }
+
+  function validateDriverDeliveryEvidenceAttachments({
+    workspace,
+    fulfillmentId,
+    body,
+    operatorId,
+    watermarkedPhotoAttachmentId,
+  }) {
+    const watermarkResult = validateDriverDeliveryEvidenceAttachment({
+      workspace,
+      attachmentId: watermarkedPhotoAttachmentId,
+      fulfillmentId,
+      operatorId,
+      purpose: "delivery_watermark_photo",
+      label: "watermarked delivery photo",
+    });
+    if (watermarkResult.errorResult) return watermarkResult;
+
+    const signaturePhotoAttachmentId = String(
+      body.signaturePhotoAttachmentId ?? body.signaturePhotoId ?? "",
+    ).trim();
+    if (body.signaturePhotoAttached === true && !signaturePhotoAttachmentId) {
+      return {
+        errorResult: businessError(
+          422,
+          "SIGNATURE_PHOTO_ATTACHMENT_REQUIRED",
+          "signaturePhotoAttached=true requires a persisted signature-photo attachment.",
+        ),
+      };
+    }
+    const signatureResult = signaturePhotoAttachmentId
+      ? validateDriverDeliveryEvidenceAttachment({
+          workspace,
+          attachmentId: signaturePhotoAttachmentId,
+          fulfillmentId,
+          operatorId,
+          purpose: "signature_photo",
+          label: "signature photo",
+        })
+      : { attachment: null };
+    if (signatureResult.errorResult) return signatureResult;
+
+    return {
+      watermarkAttachment: watermarkResult.attachment,
+      signatureAttachment: signatureResult.attachment,
+      watermarkMetadata: normalizeDeliveryWatermarkMetadata(watermarkResult.attachment.metadata),
+    };
+  }
+
+  function validateDriverDeliveryEvidenceAttachment({
+    workspace,
+    attachmentId,
+    fulfillmentId,
+    operatorId,
+    purpose,
+    label,
+  }) {
+    const attachment = findAttachmentRecord(workspace, attachmentId);
+    if (!attachment) {
+      return {
+        errorResult: businessError(
+          422,
+          "DELIVERY_EVIDENCE_ATTACHMENT_NOT_FOUND",
+          `The ${label} attachment does not exist.`,
+        ),
+      };
+    }
+    if (
+      String(attachment.ownerType ?? "").trim() !== "fulfillment" ||
+      String(attachment.ownerId ?? "").trim() !== fulfillmentId
+    ) {
+      return {
+        errorResult: businessError(
+          422,
+          "DELIVERY_EVIDENCE_ATTACHMENT_OWNER_MISMATCH",
+          `The ${label} attachment does not belong to this fulfillment.`,
+        ),
+      };
+    }
+    if (String(attachment.purpose ?? "").trim() !== purpose) {
+      return {
+        errorResult: businessError(
+          422,
+          "DELIVERY_EVIDENCE_ATTACHMENT_PURPOSE_MISMATCH",
+          `The ${label} attachment purpose is invalid.`,
+        ),
+      };
+    }
+    if (String(attachment.uploadedBy ?? "").trim() !== String(operatorId ?? "").trim()) {
+      return {
+        errorResult: businessError(
+          422,
+          "DELIVERY_EVIDENCE_ATTACHMENT_UPLOADER_MISMATCH",
+          `The ${label} attachment was not uploaded by the authenticated driver.`,
+        ),
+      };
+    }
+    const fileType = String(attachment.fileType ?? "").trim().toLowerCase();
+    const mimeType = String(attachment.mimeType ?? "").trim().toLowerCase();
+    if (
+      String(attachment.status ?? "uploaded").trim() !== "uploaded" ||
+      (fileType && fileType !== "image") ||
+      (mimeType && !mimeType.startsWith("image/"))
+    ) {
+      return {
+        errorResult: businessError(
+          422,
+          "DELIVERY_EVIDENCE_ATTACHMENT_INVALID",
+          `The ${label} attachment is not an active image upload.`,
+        ),
+      };
+    }
+    return { attachment };
   }
 
   async function reportDriverDeliveryException({ workspace, fulfillmentId, body = {}, operatorId }) {
@@ -1133,6 +1276,18 @@ function normalizeDateInput(value) {
   if (/^\d{4}-\d{2}-\d{2}$/.test(text) && Number.isFinite(Date.parse(`${text}T00:00:00.000Z`))) return text;
   if (!Number.isFinite(Date.parse(text))) return "";
   return new Date(text).toISOString().slice(0, 10);
+}
+
+function normalizeDeliveryWatermarkMetadata(value) {
+  const metadata = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    watermarkId: String(metadata.watermarkId ?? "").trim(),
+    watermarkText: String(metadata.watermarkText ?? "").trim(),
+    watermarkCapturedAt: String(metadata.watermarkCapturedAt ?? metadata.capturedAt ?? "").trim(),
+    watermarkLocationLabel: String(metadata.watermarkLocationLabel ?? metadata.locationLabel ?? "").trim(),
+    watermarkGeoPoint: String(metadata.watermarkGeoPoint ?? metadata.geoPoint ?? "").trim(),
+    watermarkAddress: String(metadata.watermarkAddress ?? metadata.address ?? "").trim(),
+  };
 }
 
 function nowIso(now) {

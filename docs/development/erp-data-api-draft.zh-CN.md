@@ -162,7 +162,7 @@ erDiagram
 | `GET /api/driver/delivery-tasks` | `status?`, `date?` | `tasks`, `metrics` | 司机手机端送货任务列表 |
 | `GET /api/driver/delivery-tasks/{id}` | 无 | `task` | 单条司机送货任务详情 |
 | `POST /api/driver/delivery-tasks/{id}/load-confirm` | `checkedAt?`, `remark?` | `task`, `operationLogId` | 司机确认装车，待送货转配送中 |
-| `POST /api/driver/delivery-tasks/{id}/complete` | `actualQty?`, `receiverName?`, `watermarkedPhotoAttached`, `watermarkedPhotoAttachmentId?`, `watermarkId?`, `watermarkText?`, `watermarkCapturedAt?`, `watermarkLocationLabel?`, `watermarkGeoPoint?`, `signaturePhotoAttached?`, `signaturePhotoAttachmentId?`, `paperNoteStatus?`, `remark?` | `task`, `statementCandidate`, `operationLogId` | 司机送达完成，必须有水印照片证据；水印照片可用附件 ID 证明，并保存水印编号、时间、地址、定位快照和附件 metadata |
+| `POST /api/driver/delivery-tasks/{id}/complete` | `actualQty?`, `receiverName?`, `watermarkedPhotoAttachmentId`, `watermarkId?`, `watermarkText?`, `watermarkCapturedAt?`, `watermarkLocationLabel?`, `watermarkGeoPoint?`, `signaturePhotoAttached?`, `signaturePhotoAttachmentId?`, `paperNoteStatus?`, `remark?` | `task`, `statementCandidate`, `operationLogId` | 司机送达完成必须引用当前交付名下、用途为 `delivery_watermark_photo`、由当前认证司机上传的正式附件；可选签收照同样校验归属、`signature_photo` 用途和上传人，并保存水印编号、时间、地址、定位快照和附件 metadata |
 | `POST /api/driver/delivery-tasks/{id}/exception` | `reason`, `remark?` | `task`, `todoId`, `operationLogId` | 司机上报装车 / 送货异常 |
 
 ### 5A. 生产报工 / 打包完成

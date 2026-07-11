@@ -972,6 +972,7 @@ async function routeWrite(context) {
       workspace,
       body,
       permissionContext,
+      operatorId: getPermissionOperatorId(permissionContext, authContext),
       requireAttachmentCreatePermission,
       createAttachmentRoute,
     })
@@ -15829,6 +15830,7 @@ const fulfillmentActionCommandService = createFulfillmentActionCommandService({
   buildTodo,
   confirmFulfillmentException,
   findActiveDriverDeliveryDispatch,
+  findAttachmentRecord,
   findCustomerName,
   findDriverDeliveryFulfillment,
   findFulfillment,
@@ -16438,10 +16440,10 @@ async function writeOffStatementRoute({ response, workspace, statementId, body, 
   });
 }
 
-async function createAttachmentRoute({ response, workspace, body }) {
+async function createAttachmentRoute({ response, workspace, body, operatorId }) {
   const result = await createAttachmentRecord({
     workspace,
-    body,
+    body: { ...body, uploadedBy: operatorId },
     parseDataUrl,
     buildOperationLog,
     nextId,

@@ -7,6 +7,7 @@ const dependencies = {
   workspace: {},
   body: { purpose: "delivery_watermark_photo" },
   permissionContext: { actionPermissions: [] },
+  operatorId: "U-DRIVER-A",
   requireAttachmentCreatePermission(response, permissionContext, body) {
     calls.push({ kind: "permission", response, permissionContext, body });
     return true;
@@ -19,7 +20,13 @@ const dependencies = {
 assert.equal(await handleAttachmentWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/attachments") }), true);
 assert.deepEqual(calls, [
   { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, body: dependencies.body },
-  { kind: "create", response: dependencies.response, workspace: dependencies.workspace, body: dependencies.body },
+  {
+    kind: "create",
+    response: dependencies.response,
+    workspace: dependencies.workspace,
+    body: dependencies.body,
+    operatorId: dependencies.operatorId,
+  },
 ]);
 calls.length = 0;
 assert.equal(

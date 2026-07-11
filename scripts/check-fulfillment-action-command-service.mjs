@@ -55,6 +55,9 @@ const service = createFulfillmentActionCommandService({
       ) ?? {}
     );
   },
+  findAttachmentRecord(workspace, attachmentId) {
+    return workspace.attachments.find((item) => item.attachmentId === attachmentId) ?? null;
+  },
   findDriverDeliveryFulfillment(workspace, fulfillmentId) {
     return workspace.fulfillments.find((item) => item.id === fulfillmentId && item.method === "送货") ?? null;
   },
@@ -360,12 +363,47 @@ async function checkDriverAssignmentAndLoad() {
 
 async function checkDriverCompletionAndRetake() {
   const workspace = buildWorkspace({ method: "送货", status: "配送中" });
+  const missingAttachment = await service.completeDriverDelivery({
+    workspace,
+    fulfillmentId: "FUL-001",
+    body: { watermarkedPhotoAttachmentId: "ATT-NOT-FOUND" },
+    operatorId: "U-DRIVER-A",
+  });
+  assert.equal(missingAttachment.code, "DELIVERY_EVIDENCE_ATTACHMENT_NOT_FOUND");
+
+  for (const [attachmentId, expectedCode] of [
+    ["ATT-WM-WRONG-OWNER", "DELIVERY_EVIDENCE_ATTACHMENT_OWNER_MISMATCH"],
+    ["ATT-WM-WRONG-PURPOSE", "DELIVERY_EVIDENCE_ATTACHMENT_PURPOSE_MISMATCH"],
+    ["ATT-WM-WRONG-UPLOADER", "DELIVERY_EVIDENCE_ATTACHMENT_UPLOADER_MISMATCH"],
+  ]) {
+    const blocked = await service.completeDriverDelivery({
+      workspace,
+      fulfillmentId: "FUL-001",
+      body: { watermarkedPhotoAttachmentId: attachmentId },
+      operatorId: "U-DRIVER-A",
+    });
+    assert.equal(blocked.code, expectedCode);
+  }
+
+  const missingSignature = await service.completeDriverDelivery({
+    workspace,
+    fulfillmentId: "FUL-001",
+    body: {
+      watermarkedPhotoAttachmentId: "ATT-WM-001",
+      signaturePhotoAttached: true,
+    },
+    operatorId: "U-DRIVER-A",
+  });
+  assert.equal(missingSignature.code, "SIGNATURE_PHOTO_ATTACHMENT_REQUIRED");
+
   const completed = await service.completeDriverDelivery({
     workspace,
     fulfillmentId: "FUL-001",
     body: {
       actualQty: 100,
       watermarkedPhotoAttachmentId: "ATT-WM-001",
+      signaturePhotoAttached: true,
+      signaturePhotoAttachmentId: "ATT-SIGN-001",
       watermarkOperatorId: "U-SPOOFED",
       receiverName: "客户仓管",
       operatorId: "U-SPOOFED",
@@ -375,6 +413,7 @@ async function checkDriverCompletionAndRetake() {
   assert.equal(completed.response.status, "已完成");
   const input = calls.at(-1);
   assert.equal(input.fulfillment.watermarkOperatorId, "U-DRIVER-A");
+  assert.equal(input.fulfillment.signaturePhotoAttachmentId, "ATT-SIGN-001");
   assert.equal(input.idempotencyPayload.operatorId, "U-DRIVER-A");
   assert.equal(input.inventoryLedgerEntries[0].operatorId, "U-DRIVER-A");
 
@@ -500,6 +539,19 @@ function buildWorkspace(overrides = {}) {
         style: "空白袋",
       },
     ],
+    attachments: [
+      buildDeliveryEvidenceAttachment("ATT-WM-001", "delivery_watermark_photo"),
+      buildDeliveryEvidenceAttachment("ATT-WM-002", "delivery_watermark_photo"),
+      buildDeliveryEvidenceAttachment("ATT-WM-RETAKE", "delivery_watermark_photo"),
+      buildDeliveryEvidenceAttachment("ATT-SIGN-001", "signature_photo"),
+      buildDeliveryEvidenceAttachment("ATT-WM-WRONG-OWNER", "delivery_watermark_photo", {
+        ownerId: "FUL-OTHER",
+      }),
+      buildDeliveryEvidenceAttachment("ATT-WM-WRONG-PURPOSE", "signature_photo"),
+      buildDeliveryEvidenceAttachment("ATT-WM-WRONG-UPLOADER", "delivery_watermark_photo", {
+        uploadedBy: "U-DRIVER-B",
+      }),
+    ],
   };
   workspace.fulfillmentActionTransactionRepository = {
     async recordFulfillmentAction(input) {
@@ -545,4 +597,20 @@ function buildWorkspace(overrides = {}) {
     },
   };
   return workspace;
+}
+
+function buildDeliveryEvidenceAttachment(attachmentId, purpose, overrides = {}) {
+  return {
+    attachmentId,
+    ownerType: "fulfillment",
+    ownerId: "FUL-001",
+    purpose,
+    fileType: "image",
+    mimeType: "image/png",
+    status: "uploaded",
+    uploadedBy: "U-DRIVER-A",
+    url: `/api/attachments/${attachmentId}/content`,
+    metadata: {},
+    ...overrides,
+  };
 }

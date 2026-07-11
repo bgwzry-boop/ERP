@@ -116,6 +116,8 @@ Before loading, drivers get a lightweight `confirm loaded` action. If goods, pac
 
 Delivery completion requires a watermark photo, with signature photo optional. The system records driver, completion time, and location automatically; receiver name and notes are optional.
 
+Initial completion and evidence retake must reference persisted attachment records. The watermark attachment must belong to the current fulfillment, have purpose `delivery_watermark_photo`, be an active image, and have been uploaded by the authenticated driver. If a signature photo is declared or its ID is supplied, it must belong to the same fulfillment, have purpose `signature_photo`, and have been uploaded by that same authenticated driver. Boolean flags, URLs, another fulfillment's attachment, or another account's upload cannot substitute for these checks.
+
 Initial delivery completion requires a prior `confirm loaded` transition. The watermark operator is always the authenticated driver. Evidence retake after office rejection updates evidence and returns it to pending review without deducting inventory again or replacing the original delivery time.
 
 Driver delivery completion and office evidence review are separate states. After the driver submits watermarked evidence, the delivery evidence waits for office review; office / management users can mark it `reviewed` or `retake required` after checking the watermark photo, optional signature photo, location, and paper-note context. Driver users must not have evidence-review permission.

@@ -3175,6 +3175,49 @@ async function checkApiWithPostgresRepositories() {
 
   const driverCompletedAt = "2026-07-02T10:20:00.000Z";
   const driverCompleteRemark = "postgres live driver complete check";
+  const driverWatermarkAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "fulfillment",
+      ownerId: "F008",
+      purpose: "delivery_watermark_photo",
+      fileType: "image",
+      fileName: "driver-watermark-f008.png",
+      mimeType: "image/png",
+      contentRef: "p0://postgres-live/driver/F008/watermark",
+      contentDataUrl: "data:image/png;base64,cG9zdGdyZXMtbGl2ZS13YXRlcm1hcms=",
+      uploadedBy: "U-SPOOFED",
+      idempotencyKey: "driver-watermark-f008-live-001",
+      metadata: {
+        watermarkId: "WM-LIVE-DRIVER-F008",
+        watermarkText: "李四电商 / 厚街客户仓 / 水印 WM-LIVE-DRIVER-F008",
+        watermarkCapturedAt: "2026-07-02T10:18:00.000Z",
+        watermarkLocationLabel: "厚街客户仓门口",
+        watermarkGeoPoint: "22.910000,113.670000",
+        watermarkAddress: "厚街客户仓",
+      },
+    },
+    { headers: driverHeaders },
+  );
+  assert.equal(driverWatermarkAttachment.uploadedBy, "U-DRIVER-A");
+  const driverSignatureAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "fulfillment",
+      ownerId: "F008",
+      purpose: "signature_photo",
+      fileType: "image",
+      fileName: "driver-signature-f008.png",
+      mimeType: "image/png",
+      contentRef: "p0://postgres-live/driver/F008/signature",
+      contentDataUrl: "data:image/png;base64,cG9zdGdyZXMtbGl2ZS1zaWduYXR1cmU=",
+      uploadedBy: "U-SPOOFED",
+      idempotencyKey: "driver-signature-f008-live-001",
+    },
+    { headers: driverHeaders },
+  );
   const apiDriverComplete = await postJson(
     baseUrl,
     "/api/driver/delivery-tasks/F008/complete",
@@ -3182,7 +3225,7 @@ async function checkApiWithPostgresRepositories() {
       fulfillmentId: "F008",
       actualQty: 3000,
       operatorId: "U-DRIVER-A",
-      watermarkedPhotoAttachmentId: "ATT-LIVE-DRIVER-WM-F008",
+      watermarkedPhotoAttachmentId: driverWatermarkAttachment.attachmentId,
       watermarkId: "WM-LIVE-DRIVER-F008",
       watermarkText: "李四电商 / 厚街客户仓 / 水印 WM-LIVE-DRIVER-F008",
       watermarkCapturedAt: "2026-07-02T10:18:00.000Z",
@@ -3191,6 +3234,8 @@ async function checkApiWithPostgresRepositories() {
       watermarkAddress: "厚街客户仓",
       watermarkOperatorId: "U-DRIVER-A",
       watermarkOperatorName: "司机A",
+      signaturePhotoAttached: true,
+      signaturePhotoAttachmentId: driverSignatureAttachment.attachmentId,
       receiverName: "客户仓管",
       paperNoteStatus: "已交回",
       completedAt: driverCompletedAt,
@@ -3203,7 +3248,8 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(new Date(apiDriverComplete.task.loadedAt).toISOString(), driverLoadAt);
   assert.equal(apiDriverComplete.task.receiverName, "客户仓管");
   assert.equal(apiDriverComplete.task.paperNoteStatus, "已交回");
-  assert.equal(apiDriverComplete.task.watermarkedPhotoAttachmentId, "ATT-LIVE-DRIVER-WM-F008");
+  assert.equal(apiDriverComplete.task.watermarkedPhotoAttachmentId, driverWatermarkAttachment.attachmentId);
+  assert.equal(apiDriverComplete.task.signaturePhotoAttachmentId, driverSignatureAttachment.attachmentId);
   assert.equal(apiDriverComplete.inventoryDeductionMode, "skipped_no_reservation");
   assert.ok(apiDriverComplete.operationLogId);
   const persistedDriverComplete = queryJson(
@@ -3226,7 +3272,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(coldStartAfterDriverComplete.driverRemark, driverCompleteRemark);
   assert.equal(coldStartAfterDriverComplete.receiverName, "客户仓管");
   assert.equal(coldStartAfterDriverComplete.paperNoteStatus, "已交回");
-  assert.equal(coldStartAfterDriverComplete.watermarkedPhotoAttachmentId, "ATT-LIVE-DRIVER-WM-F008");
+  assert.equal(coldStartAfterDriverComplete.watermarkedPhotoAttachmentId, driverWatermarkAttachment.attachmentId);
 
   const apiDeliveryEvidenceRetake = await postJson(
     baseUrl,
@@ -3248,13 +3294,38 @@ async function checkApiWithPostgresRepositories() {
   assertPostgresOperationLogOperator(queryJson, apiDeliveryEvidenceRetake.operationLogId);
 
   const driverRetakeSubmittedAt = "2026-07-02T10:45:00.000Z";
+  const driverRetakeAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "fulfillment",
+      ownerId: "F008",
+      purpose: "delivery_watermark_photo",
+      fileType: "image",
+      fileName: "driver-watermark-f008-retake.png",
+      mimeType: "image/png",
+      contentRef: "p0://postgres-live/driver/F008/watermark-retake",
+      contentDataUrl: "data:image/png;base64,cG9zdGdyZXMtbGl2ZS13YXRlcm1hcmstcmV0YWtl",
+      uploadedBy: "U-SPOOFED",
+      idempotencyKey: "driver-watermark-f008-retake-live-001",
+      metadata: {
+        watermarkId: "WM-LIVE-DRIVER-F008-RETAKE",
+        watermarkText: "李四电商 / 厚街客户仓 / 补拍水印 WM-LIVE-DRIVER-F008-RETAKE",
+        watermarkCapturedAt: driverRetakeSubmittedAt,
+        watermarkLocationLabel: "厚街客户仓门口补拍",
+        watermarkGeoPoint: "22.910001,113.670001",
+        watermarkAddress: "厚街客户仓",
+      },
+    },
+    { headers: driverHeaders },
+  );
   const apiDriverEvidenceResubmission = await postJson(
     baseUrl,
     "/api/driver/delivery-tasks/F008/complete",
     {
       fulfillmentId: "F008",
       operatorId: "U-DRIVER-A",
-      watermarkedPhotoAttachmentId: "ATT-LIVE-DRIVER-WM-F008-RETAKE",
+      watermarkedPhotoAttachmentId: driverRetakeAttachment.attachmentId,
       watermarkId: "WM-LIVE-DRIVER-F008-RETAKE",
       watermarkText: "李四电商 / 厚街客户仓 / 补拍水印 WM-LIVE-DRIVER-F008-RETAKE",
       watermarkCapturedAt: driverRetakeSubmittedAt,
@@ -3273,7 +3344,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(apiDriverEvidenceResubmission.inventoryLedgerIds.length, 0);
   assert.equal(apiDriverEvidenceResubmission.task.deliveryEvidenceReviewStatus, "待复核");
   assert.equal(apiDriverEvidenceResubmission.task.deliveryEvidenceIssueReason, "");
-  assert.equal(apiDriverEvidenceResubmission.task.watermarkedPhotoAttachmentId, "ATT-LIVE-DRIVER-WM-F008-RETAKE");
+  assert.equal(apiDriverEvidenceResubmission.task.watermarkedPhotoAttachmentId, driverRetakeAttachment.attachmentId);
   assert.ok(apiDriverEvidenceResubmission.operationLogId);
   const persistedDriverEvidenceResubmission = queryJson(
     `SELECT json_build_object(
@@ -3293,7 +3364,7 @@ async function checkApiWithPostgresRepositories() {
     WHERE f.id = 'F008';`,
   );
   assert.equal(persistedDriverEvidenceResubmission.status, "已交付");
-  assert.equal(persistedDriverEvidenceResubmission.watermarkedPhotoAttachmentId, "ATT-LIVE-DRIVER-WM-F008-RETAKE");
+  assert.equal(persistedDriverEvidenceResubmission.watermarkedPhotoAttachmentId, driverRetakeAttachment.attachmentId);
   assert.equal(persistedDriverEvidenceResubmission.watermarkId, "WM-LIVE-DRIVER-F008-RETAKE");
   assert.equal(persistedDriverEvidenceResubmission.reviewStatus, "待复核");
   assert.equal(persistedDriverEvidenceResubmission.reviewedAt, null);
@@ -3309,7 +3380,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(coldStartAfterDriverEvidenceResubmission.status, "已完成");
   assert.equal(coldStartAfterDriverEvidenceResubmission.deliveryEvidenceReviewStatus, "待复核");
   assert.equal(coldStartAfterDriverEvidenceResubmission.deliveryEvidenceIssueReason, "");
-  assert.equal(coldStartAfterDriverEvidenceResubmission.watermarkedPhotoAttachmentId, "ATT-LIVE-DRIVER-WM-F008-RETAKE");
+  assert.equal(coldStartAfterDriverEvidenceResubmission.watermarkedPhotoAttachmentId, driverRetakeAttachment.attachmentId);
 
   const apiDeviceFieldTest = await postJson(
     baseUrl,

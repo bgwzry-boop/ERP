@@ -2969,7 +2969,9 @@ paths:
       summary: 司机提交送达和回单凭证
       description: >
         首次完成送货必须先确认装车并提交水印照片凭证，且仅当前指派司机可执行。
-        水印操作人固定为认证司机，不能由请求体覆盖。若办公室已将送达证据退回为需重拍，
+        水印照片必须是当前交付名下、用途为 delivery_watermark_photo、由当前认证司机上传的正式附件；
+        水印操作人固定为认证司机，不能由请求体覆盖。可选签收照片同样必须归属当前交付、用途为
+        signature_photo 且由当前认证司机上传。若办公室已将送达证据退回为需重拍，
         同一接口可用于司机补拍后重新提交证据；补拍提交只更新证据并回到待复核，
         不重复扣减库存。签收照片、收货人、纸质联状态和备注可选补充。
       operationId: completeDriverDeliveryTask
@@ -4068,6 +4070,7 @@ paths:
         统一附件记录，并通过 ownerType / ownerId / purpose 关联业务对象。
         正式环境把元数据和关联写入 PostgreSQL，把文件写入对象存储；相同
         ownerType / ownerId / purpose / contentDigest 的内容复用已有附件。
+        上传人固定为当前认证用户，请求体 uploadedBy 仅为旧客户端兼容且会被忽略。
       operationId: createAttachment
       parameters:
         - in: header
@@ -16951,7 +16954,7 @@ components:
 
     DriverDeliveryCompleteRequest:
       type: object
-      required: [fulfillmentId]
+      required: [fulfillmentId, watermarkedPhotoAttachmentId]
       properties:
         fulfillmentId:
           type: string
@@ -16967,11 +16970,16 @@ components:
           format: date-time
         watermarkedPhotoAttached:
           type: boolean
-          description: 必须为 true，或改传正式附件 ID / URL 字段。
+          deprecated: true
+          description: 旧客户端兼容字段；不能代替正式水印照片附件 ID。
         watermarkedPhotoAttachmentId:
           type: string
+          minLength: 1
+          description: 当前交付名下、用途为 delivery_watermark_photo、由认证司机上传的正式附件 ID。
         watermarkedPhotoUrl:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；不能代替正式水印照片附件 ID。
         watermarkId:
           type: string
         watermarkText:
@@ -16995,8 +17003,10 @@ components:
         signaturePhotoAttached:
           type: boolean
           default: false
+          description: 为 true 时必须同时提供 signaturePhotoAttachmentId。
         signaturePhotoAttachmentId:
           type: string
+          description: 当前交付名下、用途为 signature_photo、由认证司机上传的正式附件 ID。
         receiverName:
           type: string
         paperNoteStatus:
@@ -20855,7 +20865,6 @@ components:
         - purpose
         - fileName
         - contentRef
-        - uploadedBy
       properties:
         ownerType:
           type: string
@@ -20886,6 +20895,8 @@ components:
           description: 附件业务元数据；送货水印照片保存水印编号、时间、地址和定位快照。
         uploadedBy:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略并使用当前认证用户。
         remark:
           type: string
 
