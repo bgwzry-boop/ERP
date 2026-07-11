@@ -30,6 +30,7 @@ import { createPostgresPrintBatchRepository } from "../server/printBatchReposito
 import { createPostgresPrintDeviceRepository } from "../server/printDeviceRepository.mjs";
 import { createPostgresPrintJobRepository } from "../server/printJobRepository.mjs";
 import { createPostgresTodoActionRepository } from "../server/todoActionRepository.mjs";
+import { createPostgresInventoryCorrectionTransactionRepository } from "../server/inventoryCorrectionTransactionRepository.mjs";
 import { createPostgresMasterDataImportReviewRepository } from "../server/masterDataImportReviewRepository.mjs";
 import { createPostgresMasterDataImportTransactionRepository } from "../server/masterDataImportTransactionRepository.mjs";
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
@@ -55,7 +56,7 @@ try {
   await checkPostgresRepositories();
   await checkApiWithPostgresRepositories();
   console.log(
-    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction repository, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
+    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, inventory correction transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction repository, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
   );
 } finally {
   if (server) await closeServer(server);
@@ -145,6 +146,7 @@ VALUES
   ('U-OFFICE-A', 'office.a', '办公室A', 'office'),
   ('U-FINANCE-A', 'finance.a', '财务A', 'finance'),
   ('U-WAREHOUSE-A', 'warehouse.a', '仓库A', 'warehouse'),
+  ('U-MANAGER-A', 'manager.a', '管理A', 'management'),
   ('U-DRIVER-A', 'driver.a', '司机A', 'driver'),
   ('U-PRINT-DRIVER-A', 'print.driver.a', '打印驱动服务账号A', 'system')
 ON CONFLICT (id) DO UPDATE SET
@@ -205,7 +207,8 @@ INSERT INTO inventory_items (
   ('30*38*10-白色-普通提-空白袋-待快运区', '30*38*10|白色|普通提|空白袋|待快运区|待提货锁定', '30*38*10', 'SC-WHITE', '普通提', '空白袋', '待快运区', '待提货锁定', 1005, 0, 1005, 0, '已清点'),
   ('25*32*10-白色-加长提-空白袋-B区-服装', '25*32*10|白色|加长提|空白袋|B区-服装|仓库已清点', '25*32*10', 'SC-WHITE', '加长提', '空白袋', 'B区-服装', '仓库已清点', 2100, 1200, 0, 0, '已清点'),
   ('INV-LIVE-CONFIRM-001', 'live-confirm|红色|普通提|空白袋|A区', '30*38*10', 'SC-RED', '普通提', '空白袋', 'A区', '仓库已清点', 1000, 10, 0, 0, '已清点'),
-  ('INV-LIVE-PROD-001', 'live-production|白色|普通提|空白袋|生产完成区', '30*38*10', 'SC-WHITE', '普通提', '空白袋', '生产完成区', '仓库已清点', 20, 0, 0, 0, '已清点')
+  ('INV-LIVE-PROD-001', 'live-production|白色|普通提|空白袋|生产完成区', '30*38*10', 'SC-WHITE', '普通提', '空白袋', '生产完成区', '仓库已清点', 20, 0, 0, 0, '已清点'),
+  ('INV-LIVE-CORRECTION-001', 'live-correction|白色|普通提|空白袋|盘点区', '30*38*10', 'SC-WHITE', '普通提', '空白袋', '盘点区', '仓库已清点', 600, 25, 5, 0, '已清点')
 ON CONFLICT (id) DO UPDATE SET
   inventory_key = EXCLUDED.inventory_key,
   size = EXCLUDED.size,
@@ -2355,6 +2358,9 @@ async function checkApiWithPostgresRepositories() {
   });
   const printBatchRepository = createPostgresPrintBatchRepository({ postgresClient: apiPostgresClient });
   const todoActionRepository = createPostgresTodoActionRepository({ postgresClient: apiPostgresClient });
+  const inventoryCorrectionTransactionRepository = createPostgresInventoryCorrectionTransactionRepository({
+    postgresClient: apiPostgresClient,
+  });
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   const apiServerOptions = {
@@ -2362,6 +2368,7 @@ async function checkApiWithPostgresRepositories() {
     orderDraftRepository,
     printBatchRepository,
     todoActionRepository,
+    inventoryCorrectionTransactionRepository,
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
@@ -2389,6 +2396,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.productionScheduleRecordRepository, "postgres");
   assert.equal(health.seed.printBatchRepository, "postgres");
   assert.equal(health.seed.todoActionRepository, "postgres");
+  assert.equal(health.seed.inventoryCorrectionTransactionRepository, "postgres");
   assert.equal(health.seed.printDeviceRepository, "postgres");
   assert.equal(health.seed.printJobRepository, "postgres");
   assert.equal(health.seed.printerDeviceFieldTestRepository, "postgres");
@@ -2471,6 +2479,96 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(databaseInventoryLedgers.items[0].changeType, "订单占用");
   assert.equal(databaseInventoryLedgers.items[0].qtyChange, 25);
   assert.equal(databaseInventoryLedgers.items[0].colorName, "红色");
+
+  const correctionCreateBody = {
+    inventoryItemId: "INV-LIVE-CORRECTION-001",
+    expectedQty: 600,
+    actualQty: 585,
+    reason: "cycle_count",
+    remark: "PostgreSQL live correction",
+    operatorId: "U-SPOOFED",
+    idempotencyKey: "inventory-correction-create-live-001",
+  };
+  const correctionWarehouseHeaders = { "x-erp-user-id": "U-WAREHOUSE-A" };
+  const correctionManagerHeaders = { "x-erp-user-id": "U-MANAGER-A" };
+  const createdCorrection = await postJson(baseUrl, "/api/inventory/correction-drafts", correctionCreateBody, {
+    headers: correctionWarehouseHeaders,
+  });
+  assert.equal(createdCorrection.inventoryItemId, "INV-LIVE-CORRECTION-001");
+  assert.equal(createdCorrection.qtyBefore.onHand, 600);
+  assert.equal(createdCorrection.requestedQtyAfter.onHand, 585);
+  const replayedCorrectionCreate = await postJson(baseUrl, "/api/inventory/correction-drafts", correctionCreateBody, {
+    headers: correctionWarehouseHeaders,
+  });
+  assert.equal(replayedCorrectionCreate.correctionDraftId, createdCorrection.correctionDraftId);
+  assert.equal(replayedCorrectionCreate.operationLogId, createdCorrection.operationLogId);
+  const persistedOpenCorrection = queryJson(
+    `SELECT json_build_object('status', status, 'createdBy', created_by, 'todoId', todo_id, 'actualQty', actual_qty) AS result FROM inventory_correction_drafts WHERE id = ${sqlLiteral(createdCorrection.correctionDraftId)};`,
+  );
+  assert.equal(persistedOpenCorrection.status, "待确认生效");
+  assert.equal(persistedOpenCorrection.createdBy, "U-WAREHOUSE-A");
+  assert.equal(persistedOpenCorrection.todoId, createdCorrection.todoId);
+  assert.equal(persistedOpenCorrection.actualQty, 585);
+  assert.equal(
+    Number(runPsql("SELECT on_hand_qty FROM inventory_items WHERE id = 'INV-LIVE-CORRECTION-001';", { capture: true }).trim()),
+    600,
+  );
+
+  const correctionConfirmBody = {
+    correctionDraftId: createdCorrection.correctionDraftId,
+    approvalReason: "PostgreSQL live manager approval",
+    operatorId: "U-SPOOFED",
+    idempotencyKey: "inventory-correction-confirm-live-001",
+  };
+  const confirmedCorrection = await postJson(
+    baseUrl,
+    `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}/confirm`,
+    correctionConfirmBody,
+    { headers: correctionManagerHeaders },
+  );
+  assert.equal(confirmedCorrection.qtyBefore.onHand, 600);
+  assert.equal(confirmedCorrection.qtyAfter.onHand, 585);
+  assert.equal(confirmedCorrection.ledger.qtyChange, -15);
+  assert.equal(confirmedCorrection.ledger.operatorId, "U-MANAGER-A");
+  assert.equal(confirmedCorrection.todo.handledBy, "U-MANAGER-A");
+  const replayedCorrectionConfirm = await postJson(
+    baseUrl,
+    `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}/confirm`,
+    correctionConfirmBody,
+    { headers: correctionManagerHeaders },
+  );
+  assert.equal(replayedCorrectionConfirm.ledger.ledgerId, confirmedCorrection.ledger.ledgerId);
+  assert.equal(replayedCorrectionConfirm.operationLogId, confirmedCorrection.operationLogId);
+  assert.equal(
+    Number(runPsql("SELECT on_hand_qty FROM inventory_items WHERE id = 'INV-LIVE-CORRECTION-001';", { capture: true }).trim()),
+    585,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        `SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_id = ${sqlLiteral(createdCorrection.correctionDraftId)};`,
+        { capture: true },
+      ).trim(),
+    ),
+    1,
+  );
+  assert.equal(
+    Number(
+      runPsql(`SELECT COUNT(*) FROM todo_events WHERE todo_id = ${sqlLiteral(createdCorrection.todoId)};`, {
+        capture: true,
+      }).trim(),
+    ),
+    2,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        `SELECT COUNT(*) FROM operation_logs WHERE target_type = 'inventory_correction' AND target_id = ${sqlLiteral(createdCorrection.correctionDraftId)};`,
+        { capture: true },
+      ).trim(),
+    ),
+    2,
+  );
 
   const databaseDriverTasks = await getJson(
     baseUrl,
@@ -4245,6 +4343,24 @@ WHERE id = 'F002';`,
   assert.equal(restartedTodoAction?.notifiedBy, "U-OFFICE-A");
   assert.equal(restartedTodoAction?.notificationStatus, "已通知客户");
   assert.equal(restartedTodoAction?.notificationCopyText, "PostgreSQL 待办持久化验证");
+  const restartedCorrectionDetail = await getJson(
+    baseUrl,
+    `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}`,
+    { headers },
+  );
+  assert.equal(restartedCorrectionDetail.status, "已确认生效");
+  assert.equal(restartedCorrectionDetail.qtyBefore.onHand, 600);
+  assert.equal(restartedCorrectionDetail.requestedQtyAfter.onHand, 585);
+  assert.equal(restartedCorrectionDetail.ledger.ledgerId, confirmedCorrection.ledger.ledgerId);
+  assert.equal(restartedCorrectionDetail.operatorId, "U-WAREHOUSE-A");
+  assert.equal(restartedCorrectionDetail.confirmedBy, "U-MANAGER-A");
+  const restartedCorrectionReplay = await postJson(
+    baseUrl,
+    `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}/confirm`,
+    correctionConfirmBody,
+    { headers: correctionManagerHeaders },
+  );
+  assert.equal(restartedCorrectionReplay.operationLogId, confirmedCorrection.operationLogId);
   const resumedDraft = await patchJson(
     baseUrl,
     `/api/order-drafts/${concurrentDraftId}`,

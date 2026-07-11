@@ -422,7 +422,7 @@ try {
       expectedQty: inventoryBefore.inStock,
       actualQty: inventoryBefore.inStock + 5,
       reason: "cycle_count",
-      operatorId: "U-WAREHOUSE-A",
+      operatorId: "U-FINANCE-A",
       remark: "API skeleton check",
     },
     {
@@ -456,7 +456,8 @@ try {
     correctionDraftQueueBeforeConfirm.total !== 1 ||
     correctionDraftQueueBeforeConfirm.items?.[0]?.correctionDraftId !== correctionDraft.correctionDraftId ||
     correctionDraftQueueBeforeConfirm.items?.[0]?.status !== "待确认生效" ||
-    correctionDraftQueueBeforeConfirm.items?.[0]?.todoId !== correctionDraft.todoId
+    correctionDraftQueueBeforeConfirm.items?.[0]?.todoId !== correctionDraft.todoId ||
+    correctionDraftQueueBeforeConfirm.items?.[0]?.operatorId !== "U-WAREHOUSE-A"
   ) {
     throw new Error("/api/inventory/correction-drafts list did not return the open correction draft");
   }
@@ -502,7 +503,7 @@ try {
     {
       correctionDraftId: correctionDraft.correctionDraftId,
       approvalReason: "API skeleton check confirm",
-      operatorId: "U-MANAGER-A",
+      operatorId: "U-WAREHOUSE-A",
     },
     {
       headers: { "x-erp-user-id": "U-MANAGER-A" },
@@ -513,6 +514,8 @@ try {
     correctionConfirm.qtyAfter?.onHand !== inventoryBefore.inStock + 5 ||
     correctionConfirm.ledger?.changeType !== "correction" ||
     correctionConfirm.ledger?.qtyChange !== 5 ||
+    correctionConfirm.ledger?.operatorId !== "U-MANAGER-A" ||
+    correctionConfirm.todo?.handledBy !== "U-MANAGER-A" ||
     !correctionConfirm.operationLogId
   ) {
     throw new Error("/api/inventory/correction-drafts/{id}/confirm returned an unexpected payload");
@@ -580,7 +583,7 @@ try {
     "/api/order-drafts/recognize",
     {
       sourceText: "王五包装 30*38红10个 明天自提",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-FINANCE-A",
     },
     {
       expectedStatus: 403,
@@ -704,7 +707,7 @@ try {
     {
       releaseQty: 4,
       reason: "manual_release",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-FINANCE-A",
       relatedActionId: confirm.orderLines[0].id,
     },
   );
@@ -725,6 +728,7 @@ try {
     releaseLedgerList.total < 1 ||
     releaseLedgerList.items?.[0]?.ledgerId !== releasedReservation.ledgerId ||
     releaseLedgerList.items?.[0]?.changeType !== "释放占用" ||
+    releaseLedgerList.items?.[0]?.operatorId !== "U-OFFICE-A" ||
     releaseLedgerList.items?.[0]?.qtyChange !== -4
   ) {
     throw new Error("/api/inventory/ledger-entries did not return the inventory reservation release ledger");

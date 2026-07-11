@@ -74,6 +74,24 @@ export const requiredTables = [
 ];
 
 export const requiredTableColumns = {
+  inventory_correction_drafts: [
+    "id",
+    "inventory_item_id",
+    "expected_qty",
+    "actual_qty",
+    "delta_qty",
+    "reason",
+    "status",
+    "revision",
+    "todo_id",
+    "remark",
+    "attachment_ids",
+    "created_by",
+    "confirmed_by",
+    "confirmed_at",
+    "created_at",
+    "updated_at",
+  ],
   operation_idempotency_keys: [
     "scope",
     "idempotency_key",

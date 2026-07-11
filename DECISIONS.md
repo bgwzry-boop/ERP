@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-11 - Inventory Correction Is One Auditable Transaction
+
+Creating an inventory correction persists the review draft, related todo, full todo event, and operation log atomically without changing stock. Confirming it updates the inventory item and correction draft while inserting the inventory ledger, resolving the todo, appending its event, and recording the operation log in one idempotent transaction. A partial success must never be projected as a valid correction.
+
+Correction writes use authenticated session identity, not body `operatorId`. Production serializes work by inventory item, correction draft, and todo and checks inventory/draft revisions before commit. The correction repository is mandatory in the production PostgreSQL profile; local memory remains demo/test only. Inventory reservation release follows the same authenticated-operator rule even though it uses its existing transaction repository.
+
 ## 2026-07-11 - Trusted Print Projection Is An Independent Service Boundary
 
 The mapping from print-job status to print-record and fulfillment state belongs in a dedicated business service, not in the HTTP route composition entrypoint. Routes authenticate, authorize, validate, and invoke the service; the service owns the transition decision and persists through the existing fulfillment action transaction repository. Its fulfillment-record and operation-log builders remain explicit injected dependencies so the service is directly testable without booting the full API server.

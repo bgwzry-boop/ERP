@@ -62,9 +62,6 @@ import {
   recordStatementCustomerConfirmation,
 } from "../src/state/officeStatementActions.js";
 import {
-  markTodoHandled,
-} from "../src/state/officeTodoActions.js";
-import {
   filterByKeyword,
   filterByValue,
   getEffectivePermissions,
@@ -95,7 +92,9 @@ import { createFulfillmentPrintCommandService } from "./services/fulfillmentPrin
 import { createPrintDeviceCommandService } from "./services/printDeviceCommandService.mjs";
 import { createPrintBatchCommandService } from "./services/printBatchCommandService.mjs";
 import { createTodoCommandService } from "./services/todoCommandService.mjs";
+import { createInventoryCorrectionCommandService } from "./services/inventoryCorrectionCommandService.mjs";
 import { createTodoActionRepository } from "./todoActionRepository.mjs";
+import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
 import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
 import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
@@ -327,6 +326,9 @@ export function createApiServer(options = {}) {
     createCoreWorkspaceReadRepository(effectiveOptions.coreWorkspaceReadRepositoryOptions);
   const todoActionRepository =
     effectiveOptions.todoActionRepository ?? createTodoActionRepository(effectiveOptions.todoActionRepositoryOptions);
+  const inventoryCorrectionTransactionRepository =
+    effectiveOptions.inventoryCorrectionTransactionRepository ??
+    createInventoryCorrectionTransactionRepository(effectiveOptions.inventoryCorrectionTransactionRepositoryOptions);
   const orderDraftRepository =
     effectiveOptions.orderDraftRepository ?? createOrderDraftRepository(effectiveOptions.orderDraftRepositoryOptions);
   const orderConfirmationTransactionRepository =
@@ -407,6 +409,7 @@ export function createApiServer(options = {}) {
       statementExportRepository,
       coreWorkspaceReadRepository,
       todoActionRepository,
+      inventoryCorrectionTransactionRepository,
       orderDraftRepository,
       orderConfirmationTransactionRepository,
       orderPoolReadRepository,
@@ -489,6 +492,7 @@ export function createApiServer(options = {}) {
   workspace.statementExportObjectStorage = statementExportObjectStorage;
   workspace.coreWorkspaceReadRepository = coreWorkspaceReadRepository;
   workspace.todoActionRepository = todoActionRepository;
+  workspace.inventoryCorrectionTransactionRepository = inventoryCorrectionTransactionRepository;
   workspace.orderDraftRepository = orderDraftRepository;
   workspace.orderConfirmationTransactionRepository = orderConfirmationTransactionRepository;
   workspace.orderPoolReadRepository = orderPoolReadRepository;
@@ -680,6 +684,7 @@ async function routeGet(context) {
         statementExportObjectStorage: workspace.statementExportObjectStorage.kind,
         coreWorkspaceReadRepository: workspace.coreWorkspaceReadRepository.kind,
         todoActionRepository: workspace.todoActionRepository.kind,
+        inventoryCorrectionTransactionRepository: workspace.inventoryCorrectionTransactionRepository.kind,
         orderDraftRepository: workspace.orderDraftRepository.kind,
         orderConfirmationTransactionRepository: workspace.orderConfirmationTransactionRepository.kind,
         orderPoolReadRepository: workspace.orderPoolReadRepository.kind,
@@ -1049,8 +1054,10 @@ async function routeWrite(context) {
       workspace,
       body,
       permissionContext,
+      authContext,
       writeActionPermissions,
       requireActionPermission,
+      getPermissionOperatorId,
       createInventoryCorrectionDraftRoute,
       confirmInventoryCorrectionDraftRoute,
       releaseInventoryReservationRoute,
@@ -2141,6 +2148,12 @@ function toInventoryQuantitySnapshot(inventoryItem, overrides = {}) {
 function buildInventoryCorrectionDraftDetail(workspace, draft) {
   const correctionDraftId = draft.correctionDraftId ?? draft.id;
   const inventoryItem = findInventoryItem(workspace, draft.inventoryItemId);
+  const qtyBefore = buildInventoryCorrectionQuantitySnapshot(inventoryItem, draft.qtyBefore, draft.expectedQty);
+  const requestedQtyAfter = buildInventoryCorrectionQuantitySnapshot(
+    inventoryItem,
+    draft.requestedQtyAfter,
+    draft.actualQty,
+  );
   const users = new Map((workspace.users ?? []).map((user) => [user.id ?? user.userId, user]));
   const ledgers = (workspace.inventoryLedgers ?? [])
     .filter((entry) => entry.correctionDraftId === correctionDraftId || entry.sourceId === correctionDraftId)
@@ -2157,17 +2170,17 @@ function buildInventoryCorrectionDraftDetail(workspace, draft) {
     status: draft.status,
     reason: draft.reason ?? "",
     remark: draft.remark ?? "",
-    qtyBefore: draft.qtyBefore,
-    requestedQtyAfter: draft.requestedQtyAfter,
+    qtyBefore,
+    requestedQtyAfter,
     qtyAfter: ledgers[0]
       ? {
-          ...draft.requestedQtyAfter,
+          ...requestedQtyAfter,
           onHand: ledgers[0].qtyAfter,
           available:
             ledgers[0].qtyAfter -
-            Number(draft.requestedQtyAfter?.reserved ?? 0) -
-            Number(draft.requestedQtyAfter?.waitingPickupLocked ?? 0) -
-            Number(draft.requestedQtyAfter?.pendingHandling ?? 0),
+            Number(requestedQtyAfter.reserved ?? 0) -
+            Number(requestedQtyAfter.waitingPickupLocked ?? 0) -
+            Number(requestedQtyAfter.pendingHandling ?? 0),
         }
       : null,
     inventoryItem: inventoryItem
@@ -2199,6 +2212,12 @@ function buildInventoryCorrectionDraftDetail(workspace, draft) {
 function toInventoryCorrectionDraftSummary(workspace, draft) {
   const correctionDraftId = draft.correctionDraftId ?? draft.id;
   const inventoryItem = findInventoryItem(workspace, draft.inventoryItemId);
+  const qtyBefore = buildInventoryCorrectionQuantitySnapshot(inventoryItem, draft.qtyBefore, draft.expectedQty);
+  const requestedQtyAfter = buildInventoryCorrectionQuantitySnapshot(
+    inventoryItem,
+    draft.requestedQtyAfter,
+    draft.actualQty,
+  );
   const users = new Map((workspace.users ?? []).map((user) => [user.id ?? user.userId, user]));
   return {
     correctionDraftId,
@@ -2207,8 +2226,8 @@ function toInventoryCorrectionDraftSummary(workspace, draft) {
     status: draft.status,
     reason: draft.reason ?? "",
     remark: draft.remark ?? "",
-    qtyBefore: draft.qtyBefore,
-    requestedQtyAfter: draft.requestedQtyAfter,
+    qtyBefore,
+    requestedQtyAfter,
     inventoryItem: inventoryItem
       ? {
           id: inventoryItem.id,
@@ -2231,6 +2250,12 @@ function toInventoryCorrectionDraftSummary(workspace, draft) {
     updatedAt: draft.updatedAt ?? "",
     confirmedAt: draft.confirmedAt ?? "",
   };
+}
+
+function buildInventoryCorrectionQuantitySnapshot(inventoryItem, snapshot, onHandFallback) {
+  const onHand = Number(snapshot?.onHand ?? onHandFallback ?? inventoryItem?.inStock ?? 0);
+  const base = inventoryItem ? toInventoryQuantitySnapshot(inventoryItem, { onHand }) : { onHand };
+  return { ...base, ...(snapshot ?? {}), onHand };
 }
 
 function filterInventoryCorrectionDraftSummaries(items, searchParams) {
@@ -4137,159 +4162,49 @@ function getEmployeeAccountDepartment(roleKey) {
   return departments[roleKey] ?? "workshop";
 }
 
-function createInventoryCorrectionDraftRoute({ response, workspace, body }) {
-  const inventoryItem = findInventoryItem(workspace, body.inventoryItemId);
-  if (!inventoryItem) return sendNotFound(response, "INVENTORY_ITEM_NOT_FOUND");
-
-  const expectedQty = Number(body.expectedQty);
-  const actualQty = Number(body.actualQty);
-  if (!Number.isFinite(expectedQty) || expectedQty < 0 || !Number.isFinite(actualQty) || actualQty < 0) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "expectedQty and actualQty must be non-negative numbers");
-  }
-  if (expectedQty !== Number(inventoryItem.inStock ?? 0)) {
-    return sendBusinessError(response, 409, "INVENTORY_QUANTITY_CHANGED", "Inventory quantity changed before the correction draft was created.");
-  }
-
-  const qtyBefore = toInventoryQuantitySnapshot(inventoryItem);
-  const requestedQtyAfter = toInventoryQuantitySnapshot(inventoryItem, { onHand: actualQty });
-  const correctionDraftId = nextId("ADJ-API", workspace.inventoryCorrectionDrafts);
-  const todo = createTodo(workspace, {
-    type: "库存修正待确认",
-    customerId: "C001",
-    ref: correctionDraftId,
-    summary: `${inventoryItem.size} ${inventoryItem.color} ${inventoryItem.handle} ${inventoryItem.style}：系统 ${expectedQty}，实盘 ${actualQty}，差异 ${actualQty - expectedQty}`,
-    latest: "今天",
-    urgency: "关注",
-    impact: "需有库存调整确认权限账号确认后才改库存",
-  });
-  const draft = {
-    id: correctionDraftId,
-    correctionDraftId,
-    inventoryItemId: inventoryItem.id,
-    status: "待确认生效",
-    qtyBefore,
-    requestedQtyAfter,
-    reason: body.reason ?? "manual_review",
-    remark: body.remark ?? "",
-    attachmentIds: body.attachmentIds ?? [],
-    operatorId: body.operatorId ?? "U-OFFICE-A",
-    todoId: todo.id,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  };
-  workspace.inventoryCorrectionDrafts.unshift(draft);
-  const operationLogId = addOperationLog(workspace, {
-    targetType: "inventory_correction",
-    targetId: correctionDraftId,
-    action: "create_inventory_correction_draft",
-    operatorId: draft.operatorId,
-    before: qtyBefore,
-    after: {
-      status: draft.status,
-      requestedQtyAfter,
-      todoId: todo.id,
-    },
-    reason: draft.reason,
-  });
-
+async function createInventoryCorrectionDraftRoute({ response, workspace, body, operatorId }) {
+  const result = await inventoryCorrectionCommandService.createCorrectionDraft({ workspace, body, operatorId });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  const draft = result.correctionDraft;
   return sendJson(response, 200, {
-    correctionDraftId,
-    inventoryItemId: inventoryItem.id,
+    correctionDraftId: draft.correctionDraftId,
+    inventoryItemId: draft.inventoryItemId,
     status: draft.status,
-    qtyBefore,
-    requestedQtyAfter,
-    todoId: todo.id,
-    operationLogId,
+    qtyBefore: draft.qtyBefore,
+    requestedQtyAfter: draft.requestedQtyAfter,
+    todoId: result.todo.id,
+    operationLogId: result.operationLogId,
   });
 }
 
-function confirmInventoryCorrectionDraftRoute({ response, workspace, correctionDraftId, body }) {
-  const draft = workspace.inventoryCorrectionDrafts.find((item) => item.correctionDraftId === correctionDraftId || item.id === correctionDraftId);
-  if (!draft) return sendNotFound(response, "INVENTORY_CORRECTION_DRAFT_NOT_FOUND");
-  if (body.correctionDraftId && body.correctionDraftId !== correctionDraftId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "correctionDraftId in path and body must match");
-  }
-  if (draft.status !== "待确认生效") {
-    return sendBusinessError(response, 409, "INVENTORY_CORRECTION_DRAFT_NOT_OPEN", "Only open correction drafts can be confirmed.");
-  }
-
-  const inventoryItem = findInventoryItem(workspace, draft.inventoryItemId);
-  if (!inventoryItem) return sendNotFound(response, "INVENTORY_ITEM_NOT_FOUND");
-
-  const qtyBefore = toInventoryQuantitySnapshot(inventoryItem);
-  const qtyAfter = toInventoryQuantitySnapshot(inventoryItem, { onHand: draft.requestedQtyAfter.onHand });
-  const inventoryIndex = workspace.inventories.findIndex((item) => item.id === inventoryItem.id);
-  workspace.inventories[inventoryIndex] = {
-    ...inventoryItem,
-    inStock: draft.requestedQtyAfter.onHand,
-  };
-  draft.status = "已确认生效";
-  draft.confirmedAt = new Date().toISOString();
-  draft.confirmedBy = body.operatorId ?? "U-OFFICE-A";
-  draft.updatedAt = draft.confirmedAt;
+async function confirmInventoryCorrectionDraftRoute({ response, workspace, correctionDraftId, body, operatorId }) {
+  const result = await inventoryCorrectionCommandService.confirmCorrectionDraft({
+    workspace,
+    correctionDraftId,
+    body,
+    operatorId,
+  });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
   const users = new Map((workspace.users ?? []).map((user) => [user.id ?? user.userId, user]));
-
-  const ledger = {
-    ledgerId: nextId("LEDGER", workspace.inventoryLedgers),
-    inventoryItemId: inventoryItem.id,
-    inventoryKey: inventoryItem.inventoryKey ?? inventoryItem.id,
-    size: inventoryItem.size,
-    colorName: inventoryItem.color,
-    handleType: inventoryItem.handle,
-    style: inventoryItem.style,
-    zone: inventoryItem.zone,
-    inventoryState: inventoryItem.state,
-    changeType: "correction",
-    qtyBefore: qtyBefore.onHand,
-    qtyChange: qtyAfter.onHand - qtyBefore.onHand,
-    qtyAfter: qtyAfter.onHand,
-    sourceType: "inventory_correction",
-    sourceId: correctionDraftId,
-    correctionDraftId,
-    reason: body.approvalReason ?? draft.reason,
-    operatorId: body.operatorId ?? "U-OFFICE-A",
-    confirmedBy: draft.confirmedBy,
-  };
-  const ledgerRecord = { ...ledger, createdAt: draft.confirmedAt, occurredAt: draft.confirmedAt };
-  workspace.inventoryLedgers.unshift(ledgerRecord);
-  if (draft.todoId && findTodo(workspace, draft.todoId)) {
-    const handledBy = getUserDisplayName(users, draft.confirmedBy) || draft.confirmedBy;
-    workspace.todos = markTodoHandled(workspace.todos, draft.todoId, "库存修正已确认生效", handledBy).map((todo) =>
-      todo.id === draft.todoId
-        ? {
-            ...todo,
-            handled: true,
-            status: "已处理",
-            handledBy,
-            handledAt: draft.confirmedAt,
-            lastAction: "库存修正已确认生效",
-          }
-        : todo,
-    );
-  }
-  const operationLogId = addOperationLog(workspace, {
-    targetType: "inventory_correction",
-    targetId: correctionDraftId,
-    action: "confirm_inventory_correction_draft",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
-    before: qtyBefore,
-    after: qtyAfter,
-    reason: body.approvalReason,
-  });
-
-  const handledTodo = draft.todoId ? findTodo(workspace, draft.todoId) : null;
   return sendJson(response, 200, {
-    correctionDraftId,
-    inventoryItemId: inventoryItem.id,
-    qtyBefore,
-    qtyAfter,
-    ledger: toInventoryCorrectionLedgerSummary(ledgerRecord, inventoryItem, users, correctionDraftId),
-    todo: handledTodo ? toTodoListItem(workspace, handledTodo) : null,
-    operationLogId,
+    correctionDraftId: result.correctionDraft.correctionDraftId,
+    inventoryItemId: result.inventoryItem.id,
+    qtyBefore: result.correctionDraft.qtyBefore,
+    qtyAfter: toInventoryQuantitySnapshot(result.inventoryItem),
+    ledger: toInventoryCorrectionLedgerSummary(
+      result.inventoryLedger,
+      result.inventoryItem,
+      users,
+      result.correctionDraft.correctionDraftId,
+    ),
+    todo: result.todo ? toTodoListItem(workspace, result.todo) : null,
+    operationLogId: result.operationLogId,
   });
 }
 
-async function releaseInventoryReservationRoute({ response, workspace, reservationId, body }) {
+async function releaseInventoryReservationRoute({ response, workspace, reservationId, body, operatorId }) {
   const before = findInventoryReservation(workspace, reservationId);
   if (!before) return sendNotFound(response, "INVENTORY_RESERVATION_NOT_FOUND");
   if (body.reservationId && body.reservationId !== reservationId) {
@@ -4311,7 +4226,6 @@ async function releaseInventoryReservationRoute({ response, workspace, reservati
     return sendBusinessError(response, 409, "INVENTORY_RELEASE_QTY_EXCEEDS_RESERVED", "releaseQty exceeds reserved quantity.");
   }
 
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const releasedQty = requestedReleaseQty;
   const remainingReservedQty = Math.max(0, currentReservedQty - releasedQty);
   const status = remainingReservedQty > 0 ? "部分释放" : "已释放";
@@ -4412,6 +4326,7 @@ const v1SystemPersistenceGroups = [
     repositories: [
       ["coreWorkspaceReadRepository", "核心工作区启动快照"],
       ["todoActionRepository", "公共待办处理交易"],
+      ["inventoryCorrectionTransactionRepository", "库存修正交易"],
       ["orderDraftRepository", "订单草稿"],
       ["orderConfirmationTransactionRepository", "订单确认交易"],
       ["orderPoolReadRepository", "订单池读取"],
@@ -16789,6 +16704,12 @@ const fulfillmentPrintCommandService = createFulfillmentPrintCommandService({
 const printDeviceCommandService = createPrintDeviceCommandService({ buildOperationLog });
 const printBatchCommandService = createPrintBatchCommandService({ buildOperationLog });
 const todoCommandService = createTodoCommandService({ buildOperationLog });
+const inventoryCorrectionCommandService = createInventoryCorrectionCommandService({
+  buildOperationLog,
+  buildTodo,
+  findInventoryItem,
+  toInventoryQuantitySnapshot,
+});
 
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
   const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
@@ -19839,12 +19760,6 @@ function roundMoney(value) {
   return Math.round(Number(value ?? 0) * 100) / 100;
 }
 
-function createTodo(workspace, input) {
-  const todo = buildTodo(workspace, input);
-  workspace.todos.unshift(todo);
-  return todo;
-}
-
 function findAttachmentRecord(workspace, attachmentId) {
   const safeAttachmentId = cleanServerText(attachmentId);
   if (!safeAttachmentId) return null;
@@ -21617,10 +21532,6 @@ function findInventoryReservation(workspace, id) {
 
 function findStatement(workspace, id) {
   return workspace.statements.find((item) => item.id === id);
-}
-
-function findTodo(workspace, id) {
-  return workspace.todos.find((item) => item.id === id);
 }
 
 function findCustomerName(workspace, customerId) {

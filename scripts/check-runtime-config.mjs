@@ -145,6 +145,7 @@ try {
   assert.equal(healthJson.seed.statementExportObjectStorage, "object_storage");
   assert.equal(healthJson.seed.coreWorkspaceReadRepository, "postgres");
   assert.equal(healthJson.seed.todoActionRepository, "postgres");
+  assert.equal(healthJson.seed.inventoryCorrectionTransactionRepository, "postgres");
   assert.equal(healthJson.seed.customers, 0);
   assert.equal(healthJson.seed.orderLines, 0);
   assert.equal(healthJson.seed.inventories, 0);

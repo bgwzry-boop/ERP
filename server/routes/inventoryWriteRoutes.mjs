@@ -5,8 +5,10 @@ export async function handleInventoryWriteRoutes({
   workspace,
   body,
   permissionContext,
+  authContext,
   writeActionPermissions,
   requireActionPermission,
+  getPermissionOperatorId,
   createInventoryCorrectionDraftRoute,
   confirmInventoryCorrectionDraftRoute,
   releaseInventoryReservationRoute,
@@ -15,18 +17,24 @@ export async function handleInventoryWriteRoutes({
 
   if (url.pathname === "/api/inventory/correction-drafts") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.createInventoryCorrectionDraft)) return true;
-    createInventoryCorrectionDraftRoute({ response, workspace, body });
+    await createInventoryCorrectionDraftRoute({
+      response,
+      workspace,
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
     return true;
   }
 
   const correctionConfirmMatch = url.pathname.match(/^\/api\/inventory\/correction-drafts\/([^/]+)\/confirm$/);
   if (correctionConfirmMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.confirmInventoryCorrectionDraft)) return true;
-    confirmInventoryCorrectionDraftRoute({
+    await confirmInventoryCorrectionDraftRoute({
       response,
       workspace,
       correctionDraftId: decodeURIComponent(correctionConfirmMatch[1]),
       body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
     });
     return true;
   }
@@ -40,6 +48,7 @@ export async function handleInventoryWriteRoutes({
     workspace,
     reservationId: decodeURIComponent(reservationReleaseMatch[1]),
     body,
+    operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
   });
   return true;
 }

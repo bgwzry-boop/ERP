@@ -6,6 +6,7 @@ const dependencies = {
   response: {},
   workspace: {},
   body: { operatorId: "U-OFFICE-A" },
+  authContext: { authenticated: true, userId: "U-AUTH" },
   permissionContext: { actionPermissions: ["inventory.correction.create"] },
   writeActionPermissions: {
     createInventoryCorrectionDraft: "inventory.correction.create",
@@ -16,14 +17,18 @@ const dependencies = {
     calls.push({ kind: "permission", response, permissionContext, permission });
     return true;
   },
-  createInventoryCorrectionDraftRoute({ response, workspace, body }) {
-    calls.push({ kind: "create", response, workspace, body });
+  getPermissionOperatorId(permissionContext, authContext, fallbackUserId) {
+    calls.push({ kind: "operator", permissionContext, authContext, fallbackUserId });
+    return authContext.userId;
   },
-  confirmInventoryCorrectionDraftRoute({ response, workspace, correctionDraftId, body }) {
-    calls.push({ kind: "confirm", response, workspace, correctionDraftId, body });
+  async createInventoryCorrectionDraftRoute({ response, workspace, body, operatorId }) {
+    calls.push({ kind: "create", response, workspace, body, operatorId });
   },
-  async releaseInventoryReservationRoute({ response, workspace, reservationId, body }) {
-    calls.push({ kind: "release", response, workspace, reservationId, body });
+  async confirmInventoryCorrectionDraftRoute({ response, workspace, correctionDraftId, body, operatorId }) {
+    calls.push({ kind: "confirm", response, workspace, correctionDraftId, body, operatorId });
+  },
+  async releaseInventoryReservationRoute({ response, workspace, reservationId, body, operatorId }) {
+    calls.push({ kind: "release", response, workspace, reservationId, body, operatorId });
   },
 };
 
@@ -66,6 +71,18 @@ async function expectHandled(pathname, permission, expectedCall) {
       permissionContext: dependencies.permissionContext,
       permission,
     },
-    { ...expectedCall, response: dependencies.response, workspace: dependencies.workspace, body: dependencies.body },
+    {
+      kind: "operator",
+      permissionContext: dependencies.permissionContext,
+      authContext: dependencies.authContext,
+      fallbackUserId: "U-OFFICE-A",
+    },
+    {
+      ...expectedCall,
+      response: dependencies.response,
+      workspace: dependencies.workspace,
+      body: dependencies.body,
+      operatorId: "U-AUTH",
+    },
   ]);
 }

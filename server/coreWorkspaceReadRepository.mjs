@@ -431,20 +431,28 @@ function toInventoryLedger(row) {
 }
 
 function toInventoryCorrectionDraft(row) {
+  const expectedQty = integer(row.expected_qty);
+  const actualQty = integer(row.actual_qty);
   return {
     id: clean(row.id),
     correctionDraftId: clean(row.id),
     bizNo: clean(row.biz_no),
     inventoryItemId: clean(row.inventory_item_id),
-    expectedQty: integer(row.expected_qty),
-    actualQty: integer(row.actual_qty),
+    expectedQty,
+    actualQty,
     deltaQty: integer(row.delta_qty),
     reason: clean(row.reason),
+    remark: clean(row.remark),
+    attachmentIds: array(row.attachment_ids),
     status: clean(row.status),
     revision: integer(row.revision, 1),
+    qtyBefore: { onHand: expectedQty },
+    requestedQtyAfter: { onHand: actualQty },
+    operatorId: clean(row.created_by),
     createdBy: clean(row.created_by),
     confirmedBy: clean(row.confirmed_by),
     confirmedAt: timestamp(row.confirmed_at),
+    todoId: clean(row.todo_id),
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at),
   };

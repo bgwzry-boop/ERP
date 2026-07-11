@@ -1275,7 +1275,8 @@ paths:
       summary: 发起库存修正草稿
       description: >
         出库员、办公室或生产主管可发起修正草稿。草稿不直接改库存，
-        只有确认接口成功后才写库存流水和最新数量。
+        草稿、待办、待办事件和操作日志在同一事务中写入；操作者取已认证会话，
+        请求体里的 operatorId 仅为旧客户端兼容字段，不作为审计身份。
       operationId: createInventoryCorrectionDraft
       requestBody:
         required: true
@@ -1323,7 +1324,8 @@ paths:
       summary: 确认库存修正草稿生效
       description: >
         库存修正只能由有库存调整确认权限的账号确认。确认后写库存流水、
-        操作日志，并返回最新库存数量。普通发起修正不直接改库存总数。
+        更新库存和草稿、处理关联待办并写操作日志，以上动作在同一事务中完成。
+        操作者取已认证会话，请求体里的 operatorId 不作为审计身份。
       operationId: confirmInventoryCorrectionDraft
       parameters:
         - $ref: "#/components/parameters/CorrectionDraftId"
@@ -13498,7 +13500,6 @@ components:
         - expectedQty
         - actualQty
         - reason
-        - operatorId
       properties:
         inventoryItemId:
           type: string
@@ -13519,6 +13520,8 @@ components:
             type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
 
     CreateInventoryCorrectionDraftResponse:
       type: object
@@ -15605,7 +15608,6 @@ components:
       required:
         - correctionDraftId
         - approvalReason
-        - operatorId
       properties:
         correctionDraftId:
           type: string
@@ -15613,6 +15615,8 @@ components:
           type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         attachmentIds:
           type: array
           items:

@@ -64,7 +64,7 @@
     "office-mobile-pages:check": "node scripts/check-office-mobile-pages.mjs",
     "attachment-create-service:check": "node scripts/check-attachment-create-service.mjs",
     "order-pool-api:check": "node scripts/check-order-read-routes.mjs && node scripts/check-frontend-order-pool-api-client.mjs",
-    "inventory-api:check": "node scripts/check-inventory-read-routes.mjs && node scripts/check-inventory-write-routes.mjs && node scripts/check-frontend-inventory-api-client.mjs",
+    "inventory-api:check": "node scripts/check-inventory-read-routes.mjs && node scripts/check-inventory-write-routes.mjs && node scripts/check-frontend-inventory-api-client.mjs && node scripts/check-inventory-correction-command-service.mjs && node scripts/check-inventory-correction-transaction-repository.mjs",
     "fulfillment-api:check": "node scripts/check-fulfillment-read-routes.mjs && node scripts/check-fulfillment-write-routes.mjs && node scripts/check-frontend-fulfillment-api-client.mjs",
     "print-template:check": "node scripts/check-fulfillment-print-template.mjs",
     "print-job-api:check": "node scripts/check-frontend-print-job-api-client.mjs",
