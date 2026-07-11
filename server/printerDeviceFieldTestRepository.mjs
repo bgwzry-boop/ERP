@@ -2,6 +2,8 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 import {
   getPrinterDeviceFieldTestEvidenceSummary,
   normalizePrinterDeviceFieldTestEvidence,
@@ -26,6 +28,7 @@ export function createPrinterDeviceFieldTestRepository(options = {}) {
         process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -74,10 +77,11 @@ export function createPostgresPrinterDeviceFieldTestRepository(options = {}) {
   const queryJson =
     options.queryJson ??
     ((text, values) => postgresClient.queryJson(text, values));
-  const transactionJson =
-    options.transactionJson ??
-    options.queryJson ??
-    ((text, values) => postgresClient.transactionJson(text, values));
+  const { idempotentTransactionJson } = createPostgresTransactionExecutor({
+    ...options,
+    databaseUrl,
+    postgresClient,
+  });
 
   return {
     kind: "postgres",
@@ -91,8 +95,27 @@ export function createPostgresPrinterDeviceFieldTestRepository(options = {}) {
 
     async recordPrinterDeviceFieldTest(input = {}) {
       const builtQuery = buildRecordPrinterDeviceFieldTestTransactionQuery(input);
+      const recordId = input.record?.recordId ?? input.record?.id ?? "";
+      const printDeviceId = input.record?.printDeviceId ?? input.record?.printerDeviceId ?? "";
       const result = normalizePrinterDeviceFieldTestTransactionResult(
-        await transactionJson(builtQuery.text, builtQuery.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "print.device.field_test",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? {
+              action: input.operationLog?.action,
+              record: input.record,
+            },
+            operatorId: input.operationLog?.operatorId,
+            targetType: "print_device",
+            targetId: printDeviceId,
+            resourceLocks: [
+              `print-device:${printDeviceId}`,
+              `printer-device-field-test:${recordId}`,
+            ],
+            query: builtQuery,
+          }),
+        ),
       );
       if (!result.record) throw new Error("PostgreSQL printer device field-test save returned an invalid record");
       applyPrinterDeviceFieldTestWorkspaceMutation({

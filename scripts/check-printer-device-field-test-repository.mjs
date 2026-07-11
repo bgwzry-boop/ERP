@@ -106,13 +106,15 @@ function checkLocalPrinterDeviceFieldTestRepository() {
 
 async function checkPostgresPrinterDeviceFieldTestSqlBoundary() {
   const calls = [];
+  const idempotentCalls = [];
   const repository = createPostgresPrinterDeviceFieldTestRepository({
     queryJson(text, values) {
       calls.push({ text, values });
-      if (text.includes("INSERT INTO printer_device_field_tests")) {
-        return { record, operationLogId: operationLog.id };
-      }
       return [record];
+    },
+    idempotentTransactionJson(request) {
+      idempotentCalls.push(request);
+      return { record, operationLogId: operationLog.id };
     },
   });
   const workspace = {
@@ -121,7 +123,13 @@ async function checkPostgresPrinterDeviceFieldTestSqlBoundary() {
     operationLogs: [],
   };
 
-  const transaction = await repository.recordPrinterDeviceFieldTest({ workspace, record, operationLog });
+  const transaction = await repository.recordPrinterDeviceFieldTest({
+    workspace,
+    record,
+    operationLog,
+    idempotencyKey: "printer-qa-check-001",
+    idempotencyPayload: { recordId: record.recordId, checks: record.checks },
+  });
   const listed = await repository.listPrinterDeviceFieldTests({
     filters: { printDeviceId: "PRN-LABEL-A", printJobId: "PJ-CHECK-1", documentType: "express_ltl_label" },
   });
@@ -133,7 +141,15 @@ async function checkPostgresPrinterDeviceFieldTestSqlBoundary() {
   assert.equal(workspace.printerDeviceFieldTests.length, 1);
   assert.equal(workspace.operationLogs.length, 1);
 
-  const createQuery = calls[0];
+  assert.equal(idempotentCalls.length, 1);
+  assert.equal(idempotentCalls[0].scope, "print.device.field_test");
+  assert.equal(idempotentCalls[0].idempotencyKey, "printer-qa-check-001");
+  assert.equal(idempotentCalls[0].targetType, "print_device");
+  assert.equal(idempotentCalls[0].targetId, "PRN-LABEL-A");
+  assert.ok(idempotentCalls[0].resourceLocks.includes("print-device:PRN-LABEL-A"));
+  assert.ok(idempotentCalls[0].resourceLocks.includes("printer-device-field-test:PDQA-CHECK-PRN-LABEL-A"));
+
+  const createQuery = idempotentCalls[0];
   assert.match(createQuery.text, /^BEGIN;/);
   assert.match(createQuery.text, /INSERT INTO operation_logs/);
   assert.match(createQuery.text, /INSERT INTO printer_device_field_tests/);
@@ -146,7 +162,7 @@ async function checkPostgresPrinterDeviceFieldTestSqlBoundary() {
   assert.ok(!createQuery.text.includes("条码扫码受浓度影响"));
   assert.match(createQuery.text, /COMMIT;/);
 
-  const listQuery = calls[1];
+  const listQuery = calls[0];
   assert.match(listQuery.text, /FROM printer_device_field_tests/);
   assert.match(listQuery.text, /printer_device_id = \$1::text/);
   assert.match(listQuery.text, /print_job_id = \$2::text/);

@@ -2115,3 +2115,7 @@ Shared office UI carries structure, accessibility, and visual rules only; featur
 ## 2026-07-11 - Mobile Operational Tables Show Key Columns
 
 At the office mobile breakpoint, wide operational tables show a page-specific key-column subset for scanning instead of compressing every desktop column into unreadable cells. Order Pool keeps order, customer, product, status, and exception; Inventory keeps size, color, style, state, available quantity, and trust; Fulfillment keeps method, customer, goods, quantity, and status. The selected record's full fields and actions remain available in the detail pane below, and business filtering is unchanged.
+
+## 2026-07-11 - Print Device Commands Use Stable Identity And Idempotent QA Writes
+
+Print-device maintenance, driver-mode changes, and printer field-QA recording belong in a dedicated command service rather than the HTTP composition root. When an operator omits a device ID, readable ASCII names may form the identifier; names that contain no usable ASCII slug must use a stable digest suffix and must never produce an empty identifier such as `PRN--`. Printer field-QA writes use the request idempotency key plus print-device and field-test-record resource locks. The authenticated operator is authoritative over any operator value supplied in the request body, while device and print-job ownership must be validated before evidence is accepted.

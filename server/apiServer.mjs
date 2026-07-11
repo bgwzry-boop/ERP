@@ -51,10 +51,7 @@ import {
 } from "../src/services/driverDeviceFieldTestClient.js";
 import { normalizeDriverNativeCapabilityDiagnostics } from "../src/services/driverNativeCapabilityClient.js";
 import {
-  getPrinterDeviceFieldTestSummary,
   getPrinterDeviceFieldTestEvidenceSummary,
-  normalizePrinterDeviceFieldTestEvidence,
-  normalizePrinterDeviceFieldTestChecks,
 } from "../src/services/printerDeviceFieldTestClient.js";
 import {
   confirmStatementPayment,
@@ -99,6 +96,7 @@ import { createAttachmentRecord } from "./services/attachmentCreateService.mjs";
 import { createPrintJobBusinessProjectionService } from "./services/printJobBusinessProjectionService.mjs";
 import { createPrintJobLifecycleService } from "./services/printJobLifecycleService.mjs";
 import { createFulfillmentPrintCommandService } from "./services/fulfillmentPrintCommandService.mjs";
+import { createPrintDeviceCommandService } from "./services/printDeviceCommandService.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
 import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
 import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
@@ -2703,37 +2701,6 @@ function normalizeDriverDeviceFieldTestApiRecord(value = {}) {
     checks,
     packageLabelScanSample,
     nativeBridgeDiagnostics,
-    note: cleanServerText(value.note),
-  };
-}
-
-function normalizePrinterDeviceFieldTestApiRecord(value = {}) {
-  const printDeviceId = cleanServerText(value.printDeviceId ?? value.printerDeviceId);
-  const checkedAt = normalizeTimestamp(value.checkedAt, new Date().toISOString());
-  const checks = normalizePrinterDeviceFieldTestChecks(value.checks ?? []);
-  const evidence = normalizePrinterDeviceFieldTestEvidence(value.evidence ?? value.summary?.evidence);
-  const evidenceSummary = getPrinterDeviceFieldTestEvidenceSummary(evidence);
-  const summary = {
-    ...getPrinterDeviceFieldTestSummary(checks),
-    evidenceSummary,
-  };
-  const recordId =
-    cleanServerText(value.recordId) ||
-    `PDQA-${compactTimestamp(checkedAt)}-${safeRecordPart(printDeviceId || "PRINT")}`;
-  return {
-    recordId,
-    printDeviceId,
-    printJobId: cleanServerText(value.printJobId),
-    documentType: cleanServerText(value.documentType),
-    operatorId: cleanServerText(value.operatorId),
-    operatorName: cleanServerText(value.operatorName),
-    checkedAt,
-    deviceLabel: cleanServerText(value.deviceLabel),
-    driverLabel: cleanServerText(value.driverLabel),
-    paperLabel: cleanServerText(value.paperLabel),
-    summary,
-    checks,
-    evidence,
     note: cleanServerText(value.note),
   };
 }
@@ -16747,93 +16714,20 @@ async function printFulfillmentRoute({ response, workspace, fulfillmentId, body 
 }
 
 async function upsertPrintDeviceRoute({ response, workspace, body }) {
-  const now = new Date().toISOString();
-  const printDeviceId = body.printDeviceId ?? body.id ?? nextPlainId("PRN", body.name ?? "PRINT-DEVICE");
-  const existing = await findPrintDevice(workspace, printDeviceId);
-  const printDevice = {
-    ...(existing ?? {}),
-    ...body,
-    printDeviceId,
-    updatedBy: body.updatedBy ?? body.operatorId ?? "U-OFFICE-A",
-    createdBy: body.createdBy ?? existing?.createdBy ?? body.operatorId ?? "U-OFFICE-A",
-    updatedAt: body.updatedAt ?? now,
-    createdAt: body.createdAt ?? existing?.createdAt ?? now,
-  };
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "print_device",
-    targetId: printDevice.printDeviceId,
-    action: "upsert_print_device",
-    operatorId: printDevice.updatedBy,
-    after: printDevice,
-    reason: body.reason ?? "打印设备参数维护",
-  });
-  const transaction = await workspace.printDeviceRepository.upsertPrintDevice({
-    workspace,
-    printDevice,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
-  });
-  return sendJson(response, 200, {
-    printDevice: transaction.printDevice,
-    operationLogId: transaction.operationLogId,
-  });
+  const result = await printDeviceCommandService.upsertPrintDevice({ workspace, body });
+  return sendJson(response, 200, result);
 }
 
 async function updatePrintDeviceDriverModeRoute({ response, workspace, printDeviceId, body, operatorId }) {
-  const existing = await findPrintDevice(workspace, printDeviceId);
-  if (!existing) return sendNotFound(response, "PRINT_DEVICE_NOT_FOUND");
-
-  const driverMode = normalizeOfficePrintDeviceDriverMode(body.driverMode ?? body.mode ?? body.settings?.driverMode);
-  if (!driverMode) {
-    return sendBusinessError(
-      response,
-      422,
-      "INVALID_PRINT_DEVICE_DRIVER_MODE",
-      "driverMode must be preview_only or system_printer",
-    );
-  }
-
-  const now = new Date().toISOString();
-  const previousDriverMode = normalizeOfficePrintDeviceDriverMode(existing.settings?.driverMode ?? existing.driverMode) || "preview_only";
-  const printDevice = {
-    ...existing,
-    settings: {
-      ...(existing.settings ?? {}),
-      driverMode,
-    },
-    updatedBy: operatorId,
-    updatedAt: now,
-  };
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "print_device",
-    targetId: existing.printDeviceId,
-    action: "update_print_device_driver_mode",
-    operatorId,
-    before: {
-      printDeviceId: existing.printDeviceId,
-      driverMode: previousDriverMode,
-    },
-    after: {
-      printDeviceId: existing.printDeviceId,
-      driverMode,
-    },
-    reason: body.reason ?? "打印设备驱动模式维护",
-  });
-  const transaction = await workspace.printDeviceRepository.upsertPrintDevice({
+  const result = await printDeviceCommandService.updatePrintDeviceDriverMode({
     workspace,
-    printDevice,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    printDeviceId,
+    body,
+    operatorId,
   });
-  return sendJson(response, 200, {
-    printDevice: transaction.printDevice,
-    printDeviceId: transaction.printDevice?.printDeviceId ?? existing.printDeviceId,
-    previousDriverMode,
-    driverMode,
-    operationLogId: transaction.operationLogId,
-  });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result);
 }
 
 async function listPrinterDeviceFieldTestsRoute({ response, workspace, printDeviceId, searchParams }) {
@@ -16857,56 +16751,15 @@ async function listPrinterDeviceFieldTestsRoute({ response, workspace, printDevi
 }
 
 async function recordPrinterDeviceFieldTestRoute({ response, workspace, printDeviceId, body, operatorId }) {
-  const printDevice = await findPrintDevice(workspace, printDeviceId);
-  if (!printDevice) return sendNotFound(response, "PRINT_DEVICE_NOT_FOUND");
-  if (body.printDeviceId && body.printDeviceId !== printDeviceId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "printDeviceId in path and body must match");
-  }
-  const printJobId = cleanServerText(body.printJobId);
-  const printJob = printJobId ? await findPrintJob(workspace, printJobId) : null;
-  if (printJobId && !printJob) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
-  if (printJob && printJob.printDeviceId && printJob.printDeviceId !== printDeviceId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "printJobId must belong to the requested printDeviceId");
-  }
-
-  const record = normalizePrinterDeviceFieldTestApiRecord({
-    ...body,
-    printDeviceId,
-    printJobId,
-    documentType: body.documentType ?? printJob?.documentType,
-    operatorId,
-    deviceLabel: body.deviceLabel ?? printDevice.name,
-    driverLabel: body.driverLabel ?? printDevice.driverName ?? printDevice.connectionType,
-    paperLabel: body.paperLabel ?? getPrintDevicePaperLabel(printDevice),
-  });
-  if (!record.recordId || !record.printDeviceId) {
-    return sendBusinessError(response, 422, "PRINTER_DEVICE_FIELD_TEST_RECORD_REQUIRED", "Printer device field-test record is required.");
-  }
-
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "print_device",
-    targetId: printDeviceId,
-    action: "record_printer_device_field_test",
-    operatorId,
-    before: printDevice.latestFieldTestRecord ?? null,
-    after: record,
-    reason: record.summary?.label ?? "printer_device_field_test",
-  });
-  const transaction = await workspace.printerDeviceFieldTestRepository.recordPrinterDeviceFieldTest({
+  const result = await printDeviceCommandService.recordPrinterDeviceFieldTest({
     workspace,
-    record,
-    operationLog,
-  });
-  const savedRecord = transaction.record ?? record;
-  const savedPrintDevice = (await findPrintDevice(workspace, printDeviceId)) ?? printDevice;
-  return sendJson(response, 200, {
     printDeviceId,
-    printDevice: savedPrintDevice,
-    printJob,
-    record: savedRecord,
-    summary: savedRecord.summary,
-    operationLogId: transaction.operationLogId || operationLog.id,
+    body,
+    operatorId,
   });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result);
 }
 
 const printJobBusinessProjectionService = createPrintJobBusinessProjectionService({
@@ -16925,6 +16778,7 @@ const fulfillmentPrintCommandService = createFulfillmentPrintCommandService({
   getDocumentType,
   getTemplateId,
 });
+const printDeviceCommandService = createPrintDeviceCommandService({ buildOperationLog });
 
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
   const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
@@ -21846,15 +21700,6 @@ async function findPrintDevice(workspace, id) {
   return items.find((item) => item.printDeviceId === normalizedId || item.id === normalizedId) ?? null;
 }
 
-function getPrintDevicePaperLabel(printDevice = {}) {
-  const paperName = cleanServerText(printDevice.paperName);
-  if (paperName) return paperName;
-  const width = Number(printDevice.paperWidthMm ?? 0);
-  const height = Number(printDevice.paperHeightMm ?? 0);
-  if (width > 0 && height > 0) return `${width}x${height}mm`;
-  return "";
-}
-
 function findOrderLine(workspace, id) {
   return workspace.orderLines.find((item) => item.id === id || item.orderLineId === id);
 }
@@ -21930,12 +21775,6 @@ function mapVarianceHandlingResult(value, fallback) {
     other: fallback || "其他",
   };
   return map[value] ?? fallback ?? value ?? "其他";
-}
-
-function normalizeOfficePrintDeviceDriverMode(value) {
-  const mode = cleanServerText(value);
-  if (mode === "preview_only" || mode === "system_printer") return mode;
-  return "";
 }
 
 function buildCorsHeaders(response, options = {}) {
