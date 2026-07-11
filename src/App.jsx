@@ -123,8 +123,6 @@ import {
   confirmOfficeRawMaterialSupplierPayment,
   createOfficeRawMaterialSupplierStatementReviewDraft,
   generateOfficeRawMaterialSupplierPayableDraft,
-  listOfficeRawMaterialInbounds,
-  listOfficeRawMaterialSupplierStatementReviews,
   updateOfficeRawMaterialInboundAction,
 } from "./services/officeRawMaterialApiClient.js";
 import {
@@ -172,7 +170,6 @@ import {
   completeDriverDeliveryTask,
   confirmDriverDeliveryLoaded,
   getDriverLoadPackageCheckState,
-  listDriverDeliveryTasks,
   recordDriverDeviceFieldTest,
   reportDriverDeliveryException,
 } from "./services/driverMobileApiClient.js";
@@ -756,6 +753,7 @@ export function App() {
   const currentUserId = currentUser.userId ?? defaultSeedUserId;
   const {
     refreshTodos, refreshOrderPool, refreshInventoryRecords, refreshFulfillments,
+    refreshDriverDeliveryTasks, refreshRawMaterialInbounds, refreshRawMaterialSupplierStatementReviews,
     todos, setTodos, todoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
@@ -776,7 +774,7 @@ export function App() {
     printerDeviceQa, setPrinterDeviceQa, printJobQueue, setPrintJobQueue,
     printDriverConfig, setPrintDriverConfig, printDriverReadiness, setPrintDriverReadiness,
     printDriverCupsDiagnostics, setPrintDriverCupsDiagnostics,
-    driverDeliveryTasks, setDriverDeliveryTasks, driverDeliveryMeta, setDriverDeliveryMeta,
+    driverDeliveryTasks, setDriverDeliveryTasks, driverDeliveryMeta,
     selectedDriverTaskId, setSelectedDriverTaskId,
     statements, setStatements, selectedStatementId, setSelectedStatementId,
     masterDataPrecheckState, setMasterDataPrecheckState,
@@ -3691,135 +3689,6 @@ export function App() {
     void refreshV1GoLiveStatus();
   }, [activePage, authState, currentUserId]);
 
-  const refreshDriverDeliveryTasks = useCallback(async ({ showToast = false } = {}) => {
-    setDriverDeliveryMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await listDriverDeliveryTasks({
-      authState,
-      driverId: currentUserId,
-      operatorId: currentUserId,
-      localFulfillments: fulfillments,
-      orderLines,
-      customers,
-    });
-
-    if (result.blocked) {
-      setDriverDeliveryMeta((current) => ({
-        ...current,
-        source: result.source,
-        loading: false,
-        error: result.error?.message ?? "司机送货任务 API 返回错误。",
-      }));
-      if (showToast) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新司机任务：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新司机任务：${result.error?.message ?? "未知错误"}`,
-        );
-      }
-      return result;
-    }
-
-    setDriverDeliveryTasks(result.items);
-    setSelectedDriverTaskId((current) => (result.items.some((item) => item.fulfillmentId === current) ? current : result.items[0]?.fulfillmentId ?? current));
-    setDriverDeliveryMeta({
-      source: result.source,
-      total: result.total,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-      metrics: result.metrics,
-    });
-    if (showToast) {
-      const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`司机送货任务已通过${sourceLabel}刷新，共 ${result.total} 条。`);
-    }
-    return result;
-  }, [authState, currentUserId, fulfillments, orderLines]);
-
-  const refreshRawMaterialInbounds = useCallback(async ({ showToast = false } = {}) => {
-    setRawMaterialInboundMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await listOfficeRawMaterialInbounds({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 200,
-      localInbounds: rawMaterialInboundsRef.current,
-    });
-
-    if (result.blocked) {
-      setRawMaterialInboundMeta((current) => ({
-        ...current,
-        source: result.source,
-        loading: false,
-        error: result.error?.message ?? "原材料入库列表 API 返回错误。",
-      }));
-      if (showToast) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新原材料入库单：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新原材料入库单：${result.error?.message ?? "未知错误"}`,
-        );
-      }
-      return result;
-    }
-
-    const nextItems = result.items.length ? result.items : rawMaterialInboundsRef.current;
-    const currentSelectedId = selectedRawMaterialInboundId || rawMaterialInboundsRef.current[0]?.id || "";
-    const nextSelectedId = nextItems.some((item) => item.id === currentSelectedId)
-      ? currentSelectedId
-      : nextItems[0]?.id ?? currentSelectedId;
-    setRawMaterialInbounds(nextItems);
-    setSelectedRawMaterialInboundId(nextSelectedId);
-    setRawMaterialInboundMeta({
-      source: result.source,
-      total: result.total,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    });
-    if (showToast) {
-      const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`原材料入库单已通过${sourceLabel}刷新，共 ${result.total} 条；打印标签仍不会直接入可用库存。`);
-    }
-    return { ...result, selectedRawMaterialInboundId: nextSelectedId };
-  }, [authState, currentUserId, selectedRawMaterialInboundId]);
-
-  const refreshRawMaterialSupplierStatementReviews = useCallback(async ({ showToast = false } = {}) => {
-    setRawMaterialSupplierStatementReviewMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await listOfficeRawMaterialSupplierStatementReviews({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 20,
-    });
-    if (result.blocked) {
-      setRawMaterialSupplierStatementReviewMeta((current) => ({
-        ...current,
-        source: result.source,
-        loading: false,
-        error: result.error?.message ?? "供应商月结复核草稿 API 返回错误。",
-      }));
-      if (showToast) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新月结复核草稿：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新月结复核草稿：${result.error?.message ?? "未知错误"}`,
-        );
-      }
-      return result;
-    }
-    setRawMaterialSupplierStatementReviews(result.items);
-    setRawMaterialSupplierStatementReviewMeta({
-      source: result.source,
-      total: result.total,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    });
-    if (showToast) {
-      setToast(`供应商月结复核草稿已刷新，共 ${result.total} 条；草稿不写库存、不生成应付、不确认付款。`);
-    }
-    return result;
-  }, [authState, currentUserId]);
-
   async function saveRawMaterialSupplierStatementReviewDraft(statementResult, options = {}) {
     if (!guardUiAction("rawMaterial", "复核送货单")) return null;
     const result = await createOfficeRawMaterialSupplierStatementReviewDraft({
@@ -5050,7 +4919,9 @@ export function App() {
       return;
     }
     if (activePage === "driverMobile") {
-      void refreshDriverDeliveryTasks({ showToast: true });
+      void refreshDriverDeliveryTasks({ showToast: true }).then((result) => {
+        if (result?.feedback) setToast(result.feedback);
+      });
       return;
     }
     if (activePage === "inventory") {

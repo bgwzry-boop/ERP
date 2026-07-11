@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useOfficeCoreReads } from "./useOfficeCoreReads.js";
+import { useOfficeRoleToolReads } from "./useOfficeRoleToolReads.js";
 import { buildPackingTaskId } from "../services/officeProductionPackingApiClient.js";
 import {
   createPrinterDeviceFieldTestChecks,
@@ -283,6 +284,7 @@ export function useOfficeWorkspace({
   const inventoryRecordsRef = useRef(initialInventories);
   const fulfillmentsRef = useRef(initialFulfillments);
   const rawMaterialInboundsRef = useRef(initialRawMaterialInbounds);
+  const selectedRawMaterialInboundIdRef = useRef(defaultSelections.rawMaterialInboundId);
   const rawMaterialSupplierStatementReviewsRef = useRef([]);
   const inventoryCorrectionDraftsRef = useRef([]);
   const selectedStockIdRef = useRef(defaultSelections.stockId);
@@ -307,6 +309,9 @@ export function useOfficeWorkspace({
   useEffect(() => {
     rawMaterialInboundsRef.current = rawMaterialInbounds;
   }, [rawMaterialInbounds]);
+  useEffect(() => {
+    selectedRawMaterialInboundIdRef.current = selectedRawMaterialInboundId;
+  }, [selectedRawMaterialInboundId]);
   useEffect(() => {
     rawMaterialSupplierStatementReviewsRef.current = rawMaterialSupplierStatementReviews;
   }, [rawMaterialSupplierStatementReviews]);
@@ -346,9 +351,27 @@ export function useOfficeWorkspace({
     setFulfillments,
     setSelectedFulfillmentId,
   });
+  const roleToolReads = useOfficeRoleToolReads({
+    authState,
+    currentUserId,
+    customers,
+    fulfillmentsRef,
+    orderLinesRef,
+    rawMaterialInboundsRef,
+    selectedRawMaterialInboundIdRef,
+    setDriverDeliveryTasks,
+    setSelectedDriverTaskId,
+    setDriverDeliveryMeta,
+    setRawMaterialInbounds,
+    setSelectedRawMaterialInboundId,
+    setRawMaterialInboundMeta,
+    setRawMaterialSupplierStatementReviews,
+    setRawMaterialSupplierStatementReviewMeta,
+  });
 
   return {
     ...coreReads,
+    ...roleToolReads,
     todos, setTodos, todoMeta, setTodoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
