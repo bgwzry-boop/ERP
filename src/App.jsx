@@ -109,8 +109,6 @@ import {
   uploadOfficeProductionFinishedGoodsPhoto,
 } from "./services/officeProductionPackingApiClient.js";
 import {
-  listOfficePrintDevices,
-  listOfficePrinterDeviceFieldTests,
   recordOfficePrinterDeviceFieldTest,
   updateOfficePrintDeviceDriverMode,
 } from "./services/officePrinterDeviceApiClient.js";
@@ -124,11 +122,9 @@ import {
 } from "./services/officeRawMaterialApiClient.js";
 import {
   dispatchOfficePrintJob,
-  listOfficePrintJobs,
   retryOfficePrintJob,
 } from "./services/officePrintJobApiClient.js";
 import {
-  getOfficePrintDriverConfig,
   getOfficePrintDriverCupsDiagnostics,
   getOfficePrintDriverSpoolDiagnostics,
   getOfficePrintDriverV1Readiness,
@@ -749,6 +745,8 @@ export function App() {
     refreshTodos, refreshOrderPool, refreshInventoryRecords, refreshFulfillments,
     refreshDriverDeliveryTasks, refreshRawMaterialInbounds, refreshRawMaterialSupplierStatementReviews,
     refreshProductionPackingTaskLists,
+    refreshOfficePrintJobQueue, refreshPrintDriverConfig, refreshPrintDriverCupsDiagnostics,
+    refreshPrintDriverReadiness, refreshPrinterDeviceQa,
     todos, setTodos, todoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
@@ -767,8 +765,7 @@ export function App() {
     productionPacking, setProductionPacking, productionPackingFocus, setProductionPackingFocus,
     productionPackingDetailState, setProductionPackingDetailState,
     printerDeviceQa, setPrinterDeviceQa, printJobQueue, setPrintJobQueue,
-    printDriverConfig, setPrintDriverConfig, printDriverReadiness, setPrintDriverReadiness,
-    printDriverCupsDiagnostics, setPrintDriverCupsDiagnostics,
+    printDriverConfig, printDriverReadiness, printDriverCupsDiagnostics,
     driverDeliveryTasks, setDriverDeliveryTasks, driverDeliveryMeta,
     selectedDriverTaskId, setSelectedDriverTaskId,
     statements, setStatements, selectedStatementId, setSelectedStatementId,
@@ -817,7 +814,7 @@ export function App() {
     orderLinesRef, rawMaterialInboundsRef,
     rawMaterialSupplierStatementReviewsRef, inventoryCorrectionDraftsRef,
     selectedStockIdRef, inventoryLedgerFiltersRef, printerDeviceQaSelectedIdRef,
-    printJobQueueItemsRef, paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
+    paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
   } = useOfficeWorkspace({
     activePage,
     authState,
@@ -3933,268 +3930,6 @@ export function App() {
     if (showToast) {
       const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
       setToast(`库存修正确认队列已通过${sourceLabel}刷新，共 ${result.total} 条。`);
-    }
-    return result;
-  }, [authState, currentUserId]);
-
-  const refreshPrintDriverConfig = useCallback(async ({ showToast = false } = {}) => {
-    setPrintDriverConfig((current) => ({
-      ...current,
-      loading: true,
-      error: "",
-    }));
-
-    const result = await getOfficePrintDriverConfig({
-      authState,
-      operatorId: currentUserId,
-    });
-    const lastSyncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-    const errorMessage = result.error?.message ?? "";
-
-    setPrintDriverConfig({
-      source: result.source,
-      config: result.config,
-      loading: false,
-      error: result.blocked ? errorMessage || "打印驱动配置 API 返回错误。" : errorMessage,
-      lastSyncedAt,
-    });
-
-    if (showToast) {
-      if (result.blocked) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新打印驱动诊断：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新打印驱动诊断：${errorMessage || "未知错误"}`,
-        );
-      } else {
-        const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-        setToast(`打印驱动诊断已通过${sourceLabel}刷新。`);
-      }
-    }
-
-    return result;
-  }, [authState, currentUserId]);
-
-  const refreshPrintDriverReadiness = useCallback(async ({ showToast = false } = {}) => {
-    setPrintDriverReadiness((current) => ({
-      ...current,
-      loading: true,
-      error: "",
-    }));
-
-    const result = await getOfficePrintDriverV1Readiness({
-      authState,
-      operatorId: currentUserId,
-    });
-    const lastSyncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-    const errorMessage = result.error?.message ?? "";
-
-    setPrintDriverReadiness({
-      source: result.source,
-      readiness: result.readiness,
-      loading: false,
-      error: result.blocked ? errorMessage || "打印 V1 上线门禁 API 返回错误。" : errorMessage,
-      lastSyncedAt,
-    });
-
-    if (showToast) {
-      if (result.blocked) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新打印上线门禁：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新打印上线门禁：${errorMessage || "未知错误"}`,
-        );
-      } else {
-        const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-        const readyLabel = result.readiness?.ready ? "已满足 V1 门禁" : `仍有 ${result.readiness?.summary?.blockingCount ?? 0} 项阻塞`;
-        setToast(`打印上线门禁已通过${sourceLabel}刷新：${readyLabel}。`);
-      }
-    }
-
-    return result;
-  }, [authState, currentUserId]);
-
-  const refreshPrintDriverCupsDiagnostics = useCallback(async ({ showToast = false } = {}) => {
-    setPrintDriverCupsDiagnostics((current) => ({
-      ...current,
-      loading: true,
-      error: "",
-    }));
-
-    const result = await getOfficePrintDriverCupsDiagnostics({
-      authState,
-      operatorId: currentUserId,
-    });
-    const lastSyncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-    const errorMessage = result.error?.message ?? "";
-
-    setPrintDriverCupsDiagnostics({
-      source: result.source,
-      diagnostics: result.diagnostics,
-      loading: false,
-      error: result.blocked ? errorMessage || "CUPS 队列预检 API 返回错误。" : errorMessage,
-      lastSyncedAt,
-    });
-
-    if (showToast) {
-      if (result.blocked) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新 CUPS 队列预检：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新 CUPS 队列预检：${errorMessage || "未知错误"}`,
-        );
-      } else {
-        const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-        const readyLabel = result.diagnostics?.ready ? "队列可访问" : "队列未通过";
-        setToast(`CUPS 队列预检已通过${sourceLabel}刷新：${readyLabel}。`);
-      }
-    }
-
-    return result;
-  }, [authState, currentUserId]);
-
-  const refreshPrinterDeviceQa = useCallback(async ({ showToast = false, selectedDeviceId = "" } = {}) => {
-    setPrinterDeviceQa((current) => ({
-      ...current,
-      loading: true,
-      error: "",
-    }));
-
-    const deviceResult = await listOfficePrintDevices({
-      authState,
-      operatorId: currentUserId,
-      query: { status: "active", pageSize: 50 },
-    });
-
-    if (deviceResult.blocked) {
-      setPrinterDeviceQa((current) => ({
-        ...current,
-        source: deviceResult.source,
-        recordSource: "api_error",
-        devices: [],
-        fieldTests: [],
-        latestRecord: null,
-        loading: false,
-        error: deviceResult.error?.message ?? "打印设备列表 API 返回错误。",
-      }));
-      if (showToast) {
-        setToast(
-          deviceResult.error?.requiredPermission
-            ? `后端拒绝刷新打印设备：缺少权限 ${deviceResult.error.requiredPermission}。`
-            : `后端拒绝刷新打印设备：${deviceResult.error?.message ?? "未知错误"}`,
-        );
-      }
-      return { devices: deviceResult, fieldTests: null };
-    }
-
-    const devices = Array.isArray(deviceResult.items) ? deviceResult.items : [];
-    const requestedDeviceId = String(selectedDeviceId || printerDeviceQaSelectedIdRef.current || "").trim();
-    const selectedDevice =
-      devices.find((item) => item.printDeviceId === requestedDeviceId) ??
-      devices[0] ??
-      null;
-    const nextSelectedDeviceId = selectedDevice?.printDeviceId ?? "";
-    let fieldTestResult = null;
-    if (nextSelectedDeviceId) {
-      fieldTestResult = await listOfficePrinterDeviceFieldTests({
-        authState,
-        printDeviceId: nextSelectedDeviceId,
-        operatorId: currentUserId,
-        query: { pageSize: 10 },
-      });
-    }
-
-    const latestRecord =
-      fieldTestResult?.latestRecord ??
-      selectedDevice?.latestFieldTestRecord ??
-      null;
-    const latestChecks = latestRecord?.checks?.length
-      ? normalizePrinterDeviceFieldTestChecks(latestRecord.checks)
-      : createPrinterDeviceFieldTestChecks();
-    const latestEvidence = latestRecord
-      ? normalizePrinterDeviceFieldTestEvidence(latestRecord.evidence ?? latestRecord.summary?.evidence)
-      : createPrinterDeviceFieldTestEvidence();
-    const errorMessages = [deviceResult.error, fieldTestResult?.error]
-      .map((error) => {
-        if (!error) return "";
-        if (error.requiredPermission) return `缺少权限 ${error.requiredPermission}`;
-        return error.message ?? "";
-      })
-      .filter(Boolean);
-    const lastSyncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-
-    setPrinterDeviceQa((current) => ({
-      ...current,
-      source: deviceResult.source,
-      recordSource: fieldTestResult?.source ?? "idle",
-      devices,
-      selectedDeviceId: nextSelectedDeviceId,
-      fieldTests: fieldTestResult?.items ?? [],
-      latestRecord,
-      checks: latestChecks,
-      deviceLabel: selectedDevice?.name ?? current.deviceLabel,
-      driverLabel: getPrinterDeviceQaDriverLabel(selectedDevice) || current.driverLabel,
-      driverModeDraft: selectedDevice ? getPrinterDeviceDriverMode(selectedDevice) : current.driverModeDraft,
-      paperLabel: getPrinterDeviceQaPaperLabel(selectedDevice) || current.paperLabel,
-      evidence: latestEvidence,
-      loading: false,
-      error: errorMessages.join("；"),
-      lastSyncedAt,
-    }));
-
-    if (showToast) {
-      const sourceLabel = deviceResult.source === "api" || fieldTestResult?.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`打印设备验收已通过${sourceLabel}刷新，共 ${devices.length} 台设备。`);
-    }
-
-    return { devices: deviceResult, fieldTests: fieldTestResult };
-  }, [authState, currentUserId]);
-
-  const refreshOfficePrintJobQueue = useCallback(async ({ showToast = false } = {}) => {
-    setPrintJobQueue((current) => ({
-      ...current,
-      loading: true,
-      error: "",
-    }));
-
-    const result = await listOfficePrintJobs({
-      authState,
-      operatorId: currentUserId,
-      query: { pageSize: 8 },
-      localPrintJobs: printJobQueueItemsRef.current,
-    });
-    const lastSyncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-
-    if (result.blocked) {
-      setPrintJobQueue((current) => ({
-        ...current,
-        source: result.source,
-        loading: false,
-        error: result.error?.message ?? "打印作业列表 API 返回错误。",
-        lastSyncedAt,
-      }));
-      if (showToast) {
-        setToast(
-          result.error?.requiredPermission
-            ? `后端拒绝刷新打印作业池：缺少权限 ${result.error.requiredPermission}。`
-            : `后端拒绝刷新打印作业池：${result.error?.message ?? "未知错误"}`,
-        );
-      }
-      return result;
-    }
-
-    setPrintJobQueue((current) => ({
-      ...current,
-      source: result.source,
-      items: result.items,
-      total: result.total,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt,
-    }));
-    if (showToast) {
-      const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`打印作业池已通过${sourceLabel}刷新，共 ${result.total} 条。`);
     }
     return result;
   }, [authState, currentUserId]);

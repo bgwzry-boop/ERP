@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useOfficeCoreReads } from "./useOfficeCoreReads.js";
+import { useOfficePrintReads } from "./useOfficePrintReads.js";
 import { useOfficeProductionReads } from "./useOfficeProductionReads.js";
 import { useOfficeRoleToolReads } from "./useOfficeRoleToolReads.js";
 import { buildPackingTaskId } from "../services/officeProductionPackingApiClient.js";
@@ -379,11 +380,23 @@ export function useOfficeWorkspace({
     orderLinesRef,
     setProductionPacking,
   });
+  const printReads = useOfficePrintReads({
+    authState,
+    currentUserId,
+    printerDeviceQaSelectedIdRef,
+    printJobQueueItemsRef,
+    setPrintDriverConfig,
+    setPrintDriverCupsDiagnostics,
+    setPrintDriverReadiness,
+    setPrinterDeviceQa,
+    setPrintJobQueue,
+  });
 
   return {
     ...coreReads,
     ...roleToolReads,
     ...productionReads,
+    ...printReads,
     todos, setTodos, todoMeta, setTodoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, setOrderLines, orderPoolMeta, setOrderPoolMeta,
