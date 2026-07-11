@@ -57,7 +57,7 @@ export function buildDriverNativeIntegrationKit(input = {}) {
 }
 
 export function getDriverNativeIntegrationKitSummary(kit = {}) {
-  const items = Array.isArray(kit.items) ? kit.items : [];
+  const items = Array.isArray(kit?.items) ? kit.items : [];
   if (!items.length) return "未生成原生壳联调清单";
   return items.map((item) => `${cleanText(item.label)} ${cleanText(item.messageType)}`).join(" / ");
 }

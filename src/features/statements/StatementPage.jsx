@@ -1,5 +1,12 @@
 import { useState } from "react";
-import { DataTable, InfoGrid } from "../../components/ui.jsx";
+import {
+  DataState,
+  DataTable,
+  FilterBar,
+  InfoGrid,
+  OperationalPanel,
+  PanelHeader,
+} from "../../shared/ui/operational.jsx";
 import { formatAttachmentSize, isInlineImageAttachment } from "../attachments/attachmentPresentation.js";
 
 export function StatementPage({ statements, orderLines, readMeta, selectedId, setSelectedId, onAction, helpers }) {
@@ -20,17 +27,54 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
   } = helpers;
   const [filters, setFilters] = useState(defaultStatementFilters);
   const filtered = statements.filter((item) => statementMatchesFilters(item, filters));
-  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? statements.find((item) => item.id === selectedId) ?? statements[0];
+  const selected = filtered.find((item) => item.id === selectedId) ?? filtered[0] ?? null;
+  const statementMetrics = [
+    ["本期待对账", statements.filter((item) => getStatementBucket(item) === "本期待对账").length],
+    ["欠款/差额", statements.filter((item) => getStatementBucket(item) === "欠款/差额" || getStatementDisplayDebt(item) > 0).length],
+    ["收款待确认", statements.filter((item) => getStatementBucket(item) === "收款待确认").length],
+  ];
+
+  function updateFilter(field, value) {
+    setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  const statementFilter = (
+    <FilterBar
+      className="statement-filter-bar"
+      ariaLabel="客户对账筛选"
+      summary={`${statementMetrics.map(([label, value]) => `${label} ${value}`).join(" · ")}；命中 ${filtered.length}`}
+      actions={<button onClick={() => setFilters(defaultStatementFilters)}>重置</button>}
+    >
+      <div className="statement-filter-fields">
+        <label>
+          <span>客户 / 对账单</span>
+          <input placeholder="客户名 / 单号 / 联系人" value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} />
+        </label>
+        <label>
+          <span>范围</span>
+          <select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
+            {statementFilterOptions.map((item) => <option key={item}>{item}</option>)}
+          </select>
+        </label>
+      </div>
+    </FilterBar>
+  );
+
   if (!selected) {
     return (
-      <section className="page-grid statement-layout">
-        <div className="customer-list">
-          <div className="panel-head compact">
-            <h2>客户对账</h2>
-            <span>{readMeta?.loading ? "正在读取后端对账数据" : "暂无对账数据"}</span>
-          </div>
-          <div className="empty-row">{readMeta?.error || "当前账期暂无客户对账单。"}</div>
-        </div>
+      <section className="page-grid statement-layout statement-workbench">
+        <OperationalPanel className="customer-list statement-customer-panel" ariaLabel="客户对账列表">
+          <PanelHeader title="客户对账" summary={readMeta?.loading ? "正在读取后端对账数据" : "暂无匹配对账数据"} />
+          {statementFilter}
+          <DataState
+            title={readMeta?.error ? "对账数据读取失败" : statements.length ? "没有匹配客户" : "当前账期暂无客户对账单"}
+            detail={readMeta?.error || (statements.length ? "调整客户或范围筛选后重试。" : "生成对账单后会在这里显示。")}
+            tone={readMeta?.error ? "danger" : "empty"}
+          />
+        </OperationalPanel>
+        <OperationalPanel className="statement-main statement-detail-panel" ariaLabel="客户对账详情">
+          <DataState title="没有可显示的对账详情" detail="从左侧选择客户对账单后显示财务口径和明细。" />
+        </OperationalPanel>
       </section>
     );
   }
@@ -59,42 +103,14 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
   const downloadExportState = getUiActionState("statements", "下载导出文件");
   const previewPaymentProofState = getUiActionState("statements", "查看付款凭证");
   const previewCustomerConfirmationAttachmentState = getUiActionState("statements", "查看客户确认附件");
-  const statementMetrics = [
-    ["本期待对账", statements.filter((item) => getStatementBucket(item) === "本期待对账").length],
-    ["欠款/差额", statements.filter((item) => getStatementBucket(item) === "欠款/差额" || getStatementDisplayDebt(item) > 0).length],
-    ["收款待确认", statements.filter((item) => getStatementBucket(item) === "收款待确认").length],
-  ];
-
-  function updateFilter(field, value) {
-    setFilters((current) => ({ ...current, [field]: value }));
-  }
-
   return (
-    <section className="page-grid statement-layout">
-      <div className="customer-list">
-        <div className="panel-head compact">
-          <h2>客户对账</h2>
-          <span>
-            默认：本期待对账 / 欠款 / 收款待确认
-            {readMeta?.source === "api" ? ` · 后端对账 ${readMeta.total ?? statements.length} 条` : ""}
-          </span>
-        </div>
-        <div className="statement-filter-panel">
-          <label>
-            <span>客户 / 对账单</span>
-            <input placeholder="客户名 / 单号 / 联系人" value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} />
-          </label>
-          <label>
-            <span>范围</span>
-            <select value={filters.status} onChange={(event) => updateFilter("status", event.target.value)}>
-              {statementFilterOptions.map((item) => <option key={item}>{item}</option>)}
-            </select>
-          </label>
-          <div className="statement-filter-summary">
-            <span>{statementMetrics.map(([label, value]) => `${label} ${value}`).join(" · ")}；命中 {filtered.length}</span>
-            <button onClick={() => setFilters(defaultStatementFilters)}>重置</button>
-          </div>
-        </div>
+    <section className="page-grid statement-layout statement-workbench">
+      <OperationalPanel className="customer-list statement-customer-panel" ariaLabel="客户对账列表">
+        <PanelHeader
+          title="客户对账"
+          summary={`默认：本期待对账 / 欠款 / 收款待确认${readMeta?.source === "api" ? ` · 后端对账 ${readMeta.total ?? statements.length} 条` : ""}`}
+        />
+        {statementFilter}
         <div className="statement-customer-scroll">
           {filtered.map((item) => {
             const customer = findCustomer(item.customerId);
@@ -107,10 +123,10 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
               </button>
             );
           })}
-          {!filtered.length && <div className="empty-row">没有匹配客户</div>}
+          {!filtered.length && <DataState title="没有匹配客户" compact />}
         </div>
-      </div>
-      <div className="statement-main">
+      </OperationalPanel>
+      <OperationalPanel className="statement-main statement-detail-panel" ariaLabel="客户对账详情">
         <div className="statement-summary">
           <div>
             <span>客户</span>
@@ -296,7 +312,7 @@ export function StatementPage({ statements, orderLines, readMeta, selectedId, se
             return <button className={item === "确认核销" ? "primary-action" : ""} disabled={actionState.disabled} key={item} title={actionState.title} onClick={() => onAction(item, selected.id)}>{item}</button>;
           })}
         </div>
-      </div>
+      </OperationalPanel>
     </section>
   );
 }

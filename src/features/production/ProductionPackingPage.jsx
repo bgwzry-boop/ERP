@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { DataTable, DetailPane, InfoGrid, MetricStrip, StatusPill, Timeline } from "../../components/ui.jsx";
+import {
+  DataState,
+  DataTable,
+  DetailPane,
+  InfoGrid,
+  MetricStrip,
+  OperationalPanel,
+  PanelHeader,
+  StatusPill,
+  Timeline,
+} from "../../shared/ui/operational.jsx";
 import {
   PRINTER_DEVICE_FIELD_TEST_EVIDENCE_ITEMS,
   PRINTER_DEVICE_FIELD_TEST_STATUS_OPTIONS,
@@ -378,15 +388,20 @@ export function ProductionPackingPage({
   }
 
   return (
-    <section className="page-grid split-detail">
-      <div className="table-pane">
-        <MetricStrip items={stats} />
-        <div className="toolbar-line">
-          <span>生产报工只认合格数量；机器计数只做凭证。打包完成不扣库存。</span>
-          <strong className="toolbar-focus-hint">{taskListStatusText}</strong>
-          <strong className="toolbar-focus-hint">{scheduleQueueStatusText}</strong>
-          {focusNotice ? <strong className="toolbar-focus-hint">{focusNotice}</strong> : null}
-        </div>
+    <section className="page-grid split-detail production-packing-workbench">
+      <OperationalPanel className="table-pane production-packing-list-panel" ariaLabel="生产与打包任务列表">
+        <MetricStrip items={stats} ariaLabel="生产与打包状态摘要" />
+        <PanelHeader
+          title="生产 / 打包任务池"
+          summary="生产报工只认合格数量；机器计数只做凭证。打包完成不扣库存。"
+          actions={(
+            <div className="production-status-hints">
+              <strong className="toolbar-focus-hint">{taskListStatusText}</strong>
+              <strong className="toolbar-focus-hint">{scheduleQueueStatusText}</strong>
+              {focusNotice ? <strong className="toolbar-focus-hint">{focusNotice}</strong> : null}
+            </div>
+          )}
+        />
         <section className="detail-section compact-section">
           <div className="section-head-row">
             <h3>机台排产队列</h3>
@@ -549,8 +564,9 @@ export function ProductionPackingPage({
             })}
           />
         </section>
-      </div>
+      </OperationalPanel>
       <DetailPane
+        className="production-packing-detail-pane"
         title={detailMode === "packing" ? selectedPackingTask?.packingTaskId ?? "打包任务" : selectedProductionLine ? buildProductionTaskId(selectedProductionLine) : "生产报工"}
         subtitle={detailLine ? `${findCustomer(detailLine.customerId).name} · ${detailLine.id}` : "未选择"}
       >
@@ -790,7 +806,7 @@ export function ProductionPackingPage({
             />
           </>
         ) : (
-          <div className="empty-row">暂无生产或打包任务</div>
+          <DataState title="暂无生产或打包任务" detail="刷新任务池或确认排产是否已发布。" compact />
         )}
       </DetailPane>
     </section>

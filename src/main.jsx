@@ -10,6 +10,8 @@ import "./styles/features/orders-entry.css";
 import "./styles/features/orders-pool.css";
 import "./styles/features/inventory.css";
 import "./styles/features/fulfillment.css";
+import "./styles/features/statements.css";
+import "./styles/features/role-tools.css";
 
 createRoot(document.getElementById("root")).render(
   <React.StrictMode>

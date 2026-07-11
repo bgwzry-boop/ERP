@@ -1,0 +1,107 @@
+.production-packing-workbench,
+.raw-material-workbench,
+.workshop-mobile-workbench,
+.driver-mobile-workbench {
+  gap: 10px;
+}
+
+.production-packing-list-panel,
+.raw-material-list-panel,
+.mobile-role-task-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.production-status-hints,
+.raw-material-panel-actions {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.production-status-hints .toolbar-focus-hint {
+  max-width: 210px;
+}
+
+.production-packing-detail-pane .detail-head,
+.raw-material-detail-pane .detail-head,
+.mobile-role-detail-pane .detail-head {
+  min-height: var(--erp-panel-header-height);
+  padding: 7px 10px;
+}
+
+.raw-material-filter-bar .search.small {
+  width: 100%;
+  max-width: none;
+}
+
+.raw-material-panel-actions .segmented {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.mobile-role-task-panel .mobile-task-list {
+  flex: 1;
+  min-height: 0;
+}
+
+@media (max-width: 720px) {
+  .production-status-hints,
+  .raw-material-panel-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .production-status-hints .toolbar-focus-hint {
+    max-width: 100%;
+  }
+
+  .raw-material-panel-actions .ghost-button {
+    flex: 0 0 auto;
+  }
+
+  .production-schedule-queue-table .data-row {
+    grid-template-columns: 54px minmax(76px, 1fr) minmax(72px, 1fr) 68px 64px;
+  }
+
+  .production-schedule-queue-table .data-row span:nth-child(2),
+  .production-schedule-queue-table .data-row span:nth-child(5) {
+    display: none;
+  }
+
+  .production-task-table .data-row {
+    grid-template-columns: minmax(72px, 1fr) minmax(64px, 0.8fr) minmax(72px, 1fr) 68px minmax(72px, 1fr);
+  }
+
+  .production-task-table .data-row span:nth-child(4),
+  .production-task-table .data-row span:nth-child(5),
+  .production-task-table .data-row span:nth-child(6) {
+    display: none;
+  }
+
+  .packing-task-table .data-row {
+    grid-template-columns: minmax(72px, 1fr) minmax(64px, 0.8fr) minmax(72px, 1fr) 54px 68px;
+  }
+
+  .packing-task-table .data-row span:nth-child(4),
+  .packing-task-table .data-row span:nth-child(5),
+  .packing-task-table .data-row span:nth-child(6) {
+    display: none;
+  }
+
+  .raw-material-inbound-table .data-row {
+    grid-template-columns: minmax(68px, 0.9fr) minmax(82px, 1.1fr) minmax(72px, 1fr) 62px 68px 76px;
+  }
+
+  .raw-material-inbound-table .data-row span:nth-child(4) {
+    display: none;
+  }
+
+  .mobile-role-task-panel .mobile-task-list {
+    max-height: 420px;
+  }
+}

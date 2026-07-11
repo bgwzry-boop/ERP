@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D24 财务与角色工具 UI 迁移已完成。对账、生产 / 打包、原材料、车间和司机页面已接入共享运营组件和分层样式；筛选无结果时列表与详情同步清空，不再跨视图显示旧记录。司机空状态 `null.items` 白屏已修复并加入回归。全量 `npm test`、生产构建和 `1280x720 / 390x844` 浏览器验收通过。下一轮 D25 拆分 V1 状态页 / client，并从打印 / 交付开始建立 API `route -> service -> repository` 边界；真实上线门禁保持 `0/4`。
 - Git 初始基线已提交到 `main`。
 - 当前开发分支：`codex/p0-office-hardening`。
 - 本轮补充：R2 本地部署恢复能力已落地。Node 24、systemd API / 周期 health、nginx TLS / 同源 API、API 优雅停机、共享 PostgreSQL pool 关闭、生产服务 health、部署清单、按完整 commit 的全新目录恢复检查和部署/备份/回滚手册均已接入专项及 `npm test`。批次 B PostgreSQL 16 live 和 production profile live 通过。当前真实部署清单为 `14/15`，唯一清单阻塞是没有受控 Git 远端；真实基础设施和另一台主机恢复仍需技术运维执行，完成度不提高。

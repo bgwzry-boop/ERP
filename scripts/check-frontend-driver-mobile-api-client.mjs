@@ -488,6 +488,10 @@ assert(
   getDriverNativeIntegrationKitSummary(nativeIntegrationKit).includes("driver.packageLabel.scan"),
   "native integration kit summary missed package-scan message type",
 );
+assert(
+  getDriverNativeIntegrationKitSummary(null) === "未生成原生壳联调清单",
+  "native integration kit summary should tolerate an empty task selection",
+);
 const directNativeCalls = [];
 const directNativeResult = await requestDriverNativePackageLabelScan({
   task: nativeBridgeTask,

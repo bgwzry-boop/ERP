@@ -1,5 +1,15 @@
 import { useEffect, useRef, useState } from "react";
-import { DetailPane, InfoGrid, MetricStrip, Segmented, StatusPill, Timeline } from "../../components/ui.jsx";
+import {
+  DataState,
+  DetailPane,
+  InfoGrid,
+  MetricStrip,
+  OperationalPanel,
+  PanelHeader,
+  Segmented,
+  StatusPill,
+  Timeline,
+} from "../../shared/ui/operational.jsx";
 import {
   applyDriverPackageScan,
   getDriverLoadPackageCheckState,
@@ -54,8 +64,6 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
   const selectedTask =
     visibleTasks.find((item) => item.fulfillmentId === selectedTaskId) ??
     visibleTasks[0] ??
-    tasks.find((item) => item.fulfillmentId === selectedTaskId) ??
-    tasks[0] ??
     null;
   const currentInput = taskInputs[selectedTask?.fulfillmentId] ?? {};
   const watermarkedPhotoFile = currentInput.watermarkedPhotoFile ?? null;
@@ -869,16 +877,14 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
   }
 
   return (
-    <section className="page-grid workshop-mobile-layout">
-      <div className="table-pane">
-        <MetricStrip items={stats} />
-        <div className="panel-head compact mobile-work-head">
-          <div>
-            <h2>司机送货任务</h2>
-            <span>{sourceText} · {meta.total ?? tasks.length} 条</span>
-          </div>
-          <Segmented value={view} onChange={setView} items={["待送货", "配送中", "已完成", "送货异常", "全部"]} />
-        </div>
+    <section className="page-grid workshop-mobile-layout driver-mobile-workbench">
+      <OperationalPanel className="table-pane mobile-role-task-panel driver-task-panel" ariaLabel="司机送货任务列表">
+        <MetricStrip items={stats} ariaLabel="司机送货任务摘要" />
+        <PanelHeader
+          title="司机送货任务"
+          summary={`${sourceText} · ${meta.total ?? tasks.length} 条`}
+          actions={<Segmented ariaLabel="司机任务状态" value={view} onChange={setView} items={["待送货", "配送中", "已完成", "送货异常", "全部"]} />}
+        />
         <div className="mobile-task-list">
           {visibleTasks.length ? visibleTasks.map((task) => (
             <button
@@ -895,10 +901,10 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
                 {task.status}
               </StatusPill>
             </button>
-          )) : <div className="empty-row">当前视图没有司机送货任务</div>}
+          )) : <DataState title="当前视图没有司机送货任务" detail="切换任务状态或刷新后重试。" compact />}
         </div>
-      </div>
-      <DetailPane title={selectedTask ? `${selectedTask.customerName} · ${selectedTask.status}` : "司机送货"} subtitle={selectedTask?.orderLineId ?? "未选择"}>
+      </OperationalPanel>
+      <DetailPane className="mobile-role-detail-pane driver-detail-pane" title={selectedTask ? `${selectedTask.customerName} · ${selectedTask.status}` : "司机送货"} subtitle={selectedTask?.orderLineId ?? "未选择"}>
         {selectedTask ? (
           <>
             <InfoGrid
@@ -1297,7 +1303,7 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
             />
           </>
         ) : (
-          <div className="empty-row">当前没有送货任务</div>
+          <DataState title="当前没有送货任务" detail="当前状态筛选没有匹配任务。" compact />
         )}
       </DetailPane>
     </section>

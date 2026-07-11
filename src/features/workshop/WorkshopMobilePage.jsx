@@ -1,5 +1,15 @@
 import { useState } from "react";
-import { DetailPane, InfoGrid, MetricStrip, Segmented, StatusPill, Timeline } from "../../components/ui.jsx";
+import {
+  DataState,
+  DetailPane,
+  InfoGrid,
+  MetricStrip,
+  OperationalPanel,
+  PanelHeader,
+  Segmented,
+  StatusPill,
+  Timeline,
+} from "../../shared/ui/operational.jsx";
 import {
   buildPackingTaskRows,
   formatCompactDateTime,
@@ -131,16 +141,14 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
   }
 
   return (
-    <section className="page-grid workshop-mobile-layout">
-      <div className="table-pane">
-        <MetricStrip items={stats} />
-        <div className="panel-head compact mobile-work-head">
-          <div>
-            <h2>移动任务池</h2>
-            <span>车间只报合格数和机器计数；打包只报实包数和包裹数。{taskListStatusText}</span>
-          </div>
-          <Segmented value={mode} onChange={setMode} items={["生产报工", "打包任务"]} />
-        </div>
+    <section className="page-grid workshop-mobile-layout workshop-mobile-workbench">
+      <OperationalPanel className="table-pane mobile-role-task-panel workshop-task-panel" ariaLabel="车间与打包移动任务">
+        <MetricStrip items={stats} ariaLabel="车间与打包任务摘要" />
+        <PanelHeader
+          title="移动任务池"
+          summary={`车间只报合格数和机器计数；打包只报实包数和包裹数。${taskListStatusText}`}
+          actions={<Segmented ariaLabel="车间任务模式" value={mode} onChange={setMode} items={["生产报工", "打包任务"]} />}
+        />
         <div className="mobile-task-list">
           {mode === "生产报工" ? (
             productionLines.length ? productionLines.map((line) => {
@@ -157,7 +165,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                   <StatusPill tone={inventoryItem ? statusTone(line.status) : "danger"}>{inventoryItem ? line.status : "缺库存键"}</StatusPill>
                 </button>
               );
-            }) : <div className="empty-row">暂无待报工生产任务</div>
+            }) : <DataState title="暂无待报工生产任务" compact />
           ) : (
             openPackingTasks.length ? openPackingTasks.map((task) => {
               const line = task.orderLine;
@@ -172,11 +180,12 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                   <StatusPill tone={statusTone(task.status)}>{task.status}</StatusPill>
                 </button>
               );
-            }) : <div className="empty-row">暂无待打包任务</div>
+            }) : <DataState title="暂无待打包任务" compact />
           )}
         </div>
-      </div>
+      </OperationalPanel>
       <DetailPane
+        className="mobile-role-detail-pane workshop-detail-pane"
         title={mode === "打包任务" ? selectedPackingTask?.packingTaskId ?? "打包任务" : selectedProductionLine ? buildProductionTaskId(selectedProductionLine) : "生产报工"}
         subtitle={selectedLine ? `${findCustomer(selectedLine.customerId).name} · ${selectedLine.id}` : "未选择"}
       >
@@ -353,7 +362,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
             />
           </>
         ) : (
-          <div className="empty-row">当前岗位暂无任务</div>
+          <DataState title="当前岗位暂无任务" detail="切换任务模式或刷新任务池后重试。" compact />
         )}
       </DetailPane>
     </section>

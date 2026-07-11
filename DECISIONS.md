@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-11 - Filtered Workbenches Clear Out-Of-Scope Detail
+
+When a search, status tab, delivery method, or other workbench filter has no matching record, both the list and detail pane must show an explicit empty state. The UI must not retain or fall back to a record from another filter, tab, or status because that can make an operator act on the wrong customer, material inbound, fulfillment, or driver task.
+
+Derived summaries and optional device-integration helpers must accept a null selection. A no-result state is a normal product state, not an exceptional condition; it must not dereference task fields or blank the page. Direct regression checks should cover at least one empty filtered state for financial, inventory/material, fulfillment, and mobile-role workflows.
+
 ## 2026-07-11 - Fulfillment Advances Only After Trusted Printed Status
 
 Creating a print request, rendering a browser preview, queueing a job, or receiving `sent` from a driver proves only that ERP or the print subsystem accepted work. These states must not mark a fulfillment as physically printed or move express/LTL fulfillment to `待确认拉走`. A fulfillment print record starts as `previewed`, `submitted`, or `reprint_submitted`; only a trusted driver callback or spool poll reporting `printed` may change it to `printed` / `reprinted` and advance the fulfillment projection. Express/LTL pickup confirmation must fail closed before that transition.

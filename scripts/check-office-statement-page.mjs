@@ -5,7 +5,10 @@ const statementPageSource = readFileSync(new URL("../src/features/statements/Sta
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 
 assert.match(statementPageSource, /export function StatementPage/);
-assert.match(statementPageSource, /from "\.\.\/\.\.\/components\/ui\.jsx"/);
+assert.match(statementPageSource, /from "\.\.\/\.\.\/shared\/ui\/operational\.jsx"/);
+assert.match(statementPageSource, /<FilterBar/);
+assert.match(statementPageSource, /<OperationalPanel/);
+assert.match(statementPageSource, /\?\? filtered\[0\] \?\? null/);
 for (const label of ["本期应收", "本期实收", "本期未收", "历史欠款", "累计欠款"]) {
   assert.equal(statementPageSource.includes(label), true, `statement page should retain ${label}`);
 }

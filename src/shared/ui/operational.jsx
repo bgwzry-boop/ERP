@@ -103,11 +103,20 @@ export function DataTable({ columns, rows, className = "" }) {
         {columns.map((column) => <span key={column}>{column}</span>)}
       </div>
       {rows.length ? (
-        rows.map((row) => (
-          <button className={`data-row ${row.active ? "active" : ""} ${row.tone ?? ""}`} aria-pressed={row.active} key={row.id} onClick={row.onClick}>
-            {row.cells.map((cell, index) => <span key={`${row.id}-${index}`}>{cell}</span>)}
-          </button>
-        ))
+        rows.map((row) => {
+          const RowElement = row.onClick ? "button" : "div";
+          return (
+            <RowElement
+              className={`data-row ${row.active ? "active" : ""} ${row.tone ?? ""}`}
+              aria-pressed={row.onClick ? Boolean(row.active) : undefined}
+              key={row.id}
+              onClick={row.onClick}
+              type={row.onClick ? "button" : undefined}
+            >
+              {row.cells.map((cell, index) => <span key={`${row.id}-${index}`}>{cell}</span>)}
+            </RowElement>
+          );
+        })
       ) : (
         <DataState title="没有匹配记录" compact />
       )}

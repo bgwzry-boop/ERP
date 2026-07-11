@@ -1,0 +1,51 @@
+.statement-workbench {
+  gap: 10px;
+}
+
+.statement-customer-panel,
+.statement-detail-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.statement-filter-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px;
+  gap: 7px;
+}
+
+.statement-customer-panel .statement-customer-scroll {
+  flex: 1;
+  min-height: 0;
+}
+
+.statement-detail-panel .statement-summary {
+  flex: 0 0 auto;
+}
+
+.statement-detail-panel .statement-table {
+  flex: 0 0 auto;
+  max-height: 360px;
+}
+
+@media (max-width: 720px) {
+  .statement-filter-fields {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .statement-customer-panel .statement-customer-scroll {
+    max-height: 280px;
+  }
+
+  .statement-detail-panel .statement-table .data-row {
+    grid-template-columns: 62px minmax(72px, 1fr) minmax(92px, 1.3fr) 68px minmax(72px, 1fr);
+  }
+
+  .statement-detail-panel .statement-table .data-row span:nth-child(4),
+  .statement-detail-panel .statement-table .data-row span:nth-child(5),
+  .statement-detail-panel .statement-table .data-row span:nth-child(6),
+  .statement-detail-panel .statement-table .data-row span:nth-child(7) {
+    display: none;
+  }
+}

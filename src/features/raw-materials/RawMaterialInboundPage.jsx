@@ -1,6 +1,18 @@
 import { useEffect, useState } from "react";
 import { SearchOutlined } from "@ant-design/icons";
-import { DataTable, DetailPane, InfoGrid, MetricStrip, Segmented, StatusPill, Timeline } from "../../components/ui.jsx";
+import {
+  DataState,
+  DataTable,
+  DetailPane,
+  FilterBar,
+  InfoGrid,
+  MetricStrip,
+  OperationalPanel,
+  PanelHeader,
+  Segmented,
+  StatusPill,
+  Timeline,
+} from "../../shared/ui/operational.jsx";
 import { precheckRawMaterialSupplierStatementWorkbook } from "../../domain/rawMaterialSupplierStatementImport.js";
 import {
   buildRawMaterialInboundMetrics,
@@ -49,7 +61,7 @@ export function RawMaterialInboundPage({
   const [statementReviewSaving, setStatementReviewSaving] = useState(false);
   const records = filterRawMaterialInboundsByTab(inbounds, activeTab);
   const visibleRecords = filterRawMaterialInboundsByKeyword(records, keyword);
-  const selected = visibleRecords.find((item) => item.id === selectedId) ?? records.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? records[0] ?? null;
+  const selected = visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
   const costState = getUiActionState("rawMaterial", "查看成本");
   const canViewCost = !costState.disabled;
   const reviewState = getUiActionState("rawMaterial", "复核送货单");
@@ -170,29 +182,30 @@ export function RawMaterialInboundPage({
   }
 
   return (
-    <section className="page-grid split-detail raw-material-inbound-page">
-      <div className="table-pane">
-        <div className="raw-material-inbound-head">
-          <div>
-            <Segmented value={activeTab} onChange={changeTab} items={rawMaterialInboundTabs} />
-            <span>原材料送货单 OCR 仅预填；供应商单号有则录、无则空，ERP 入库单号和卷号统一生成；打印标签只是待贴标。</span>
-            <span>{getRawMaterialInboundSourceLabel(meta)}</span>
-          </div>
-          <button className="ghost-button" onClick={() => setKeyword("")}>重置</button>
-        </div>
-        <div className="inventory-filter-panel">
-          <div className="toolbar-line">
-            <label className="search small">
-              <SearchOutlined />
-              <input placeholder="搜索供应商 / 供应商单号 / ERP 入库单 / 原料 / 颜色 / 批号" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-            </label>
-          </div>
-          <div className="filter-summary">
-            <span>命中 {visibleRecords.length} / {records.length} 条；成本和单价只给有权限账号查看。</span>
-            <span>{activeTab} · 原材料入库</span>
-          </div>
-        </div>
-        <MetricStrip items={metrics} />
+    <section className="page-grid split-detail raw-material-inbound-page raw-material-workbench">
+      <OperationalPanel className="table-pane raw-material-list-panel" ariaLabel="原材料入库列表">
+        <PanelHeader
+          title="原材料工作台"
+          summary={`OCR 仅预填，打印标签只是待贴标；${getRawMaterialInboundSourceLabel(meta)}`}
+          actions={(
+            <div className="raw-material-panel-actions">
+              <Segmented ariaLabel="原材料视图" value={activeTab} onChange={changeTab} items={rawMaterialInboundTabs} />
+              <button className="ghost-button" onClick={() => setKeyword("")}>重置</button>
+            </div>
+          )}
+        />
+        <FilterBar
+          className="raw-material-filter-bar"
+          ariaLabel="原材料搜索"
+          summary={`命中 ${visibleRecords.length} / ${records.length} 条；成本和单价只给有权限账号查看。`}
+          secondarySummary={`${activeTab} · 原材料入库`}
+        >
+          <label className="search small">
+            <SearchOutlined />
+            <input placeholder="搜索供应商 / 供应商单号 / ERP 入库单 / 原料 / 颜色 / 批号" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
+          </label>
+        </FilterBar>
+        <MetricStrip items={metrics} ariaLabel="原材料状态摘要" />
         <DataTable
           className="raw-material-inbound-table"
           columns={["供应商", "外部/内部单号", "原料", "规格/颜色", "卷/重量", "状态", "下一步"]}
@@ -212,8 +225,9 @@ export function RawMaterialInboundPage({
             ],
           }))}
         />
-      </div>
+      </OperationalPanel>
       <DetailPane
+        className="raw-material-detail-pane"
         title={selected ? `${selected.supplierName} · ${formatRawMaterialDeliveryNoteNo(selected)}` : "原材料入库"}
         subtitle={selected ? `${selected.status} · ${selected.source}` : "原材料送货单 OCR / 一卷一标"}
       >
@@ -494,7 +508,7 @@ export function RawMaterialInboundPage({
             </section>
           </>
         ) : (
-          <div className="empty-row">暂无原材料入库单。</div>
+          <DataState title="暂无原材料入库单" detail="调整视图或搜索条件后重试。" compact />
         )}
       </DetailPane>
     </section>
