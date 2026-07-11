@@ -7,7 +7,6 @@ import {
   PlusOutlined,
   ReloadOutlined,
   SearchOutlined,
-  SyncOutlined,
   UploadOutlined,
   UserOutlined,
 } from "@ant-design/icons";
@@ -33,6 +32,7 @@ import {
 import { AppNavigation } from "./app/AppNavigation.jsx";
 import { useOfficeInteractionController } from "./app/useOfficeInteractionController.js";
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
+import { WorkspaceNotice, WorkspacePageHeader } from "./shared/ui/operational.jsx";
 import {
   defaultSeedUserId,
   getUiActionState,
@@ -5683,8 +5683,13 @@ export function App() {
           getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
         />
         <main className="content">
-          <div className="toast" role="status">{toast}</div>
-          <PageHead page={activeMeta} onRefresh={refreshActivePage} />
+          <WorkspaceNotice>{toast}</WorkspaceNotice>
+          <WorkspacePageHeader
+            title={activeMeta.label}
+            description={activeMeta.description}
+            contextLabel={authSourceLabel}
+            onRefresh={refreshActivePage}
+          />
           {activePage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} helpers={pageHelpers} />}
           {activePage === "entry" && (
             <EntryPage
@@ -6049,42 +6054,6 @@ function Topbar({ authSourceLabel, currentUserId, currentUser, onCreateOrder, on
         )}
       </div>
     </header>
-  );
-}
-
-function PageHead({ page, onRefresh }) {
-  const subtitles = {
-    todos: "共享待办池，按急单、异常、最晚要货和等待时长排序。",
-    entry: "整段粘贴或手动输入客户消息，规则识别后在表格里修正。",
-    orders: "按订单明细查询状态、库存、生产、交付、对账和操作记录。",
-    inventory: "按尺寸/颜色/提手/款式/库区/状态精确查询可用库存。",
-    fulfillment: "统一处理自提、送货、快递快运的出库和交付确认。",
-    packing: "生产报工入库、生成打包任务、提交包裹明细并进入标签/出库下一步。",
-    rawMaterials: "原材料送货单拍照/OCR 预填、供应商单号有则录无则空、人工复核、一卷一标、贴标扫码后才算可用原料。",
-    statements: "按客户生成对账、登记实收、处理差额和欠款。",
-    masterData: "维护客户、价格、规格库存和员工机台基础资料；草稿复核后再进入正式导入流程。",
-    v1Status: "展示 V1 当前完成度、发布阻塞、模块就绪度和计划 V2 差异；不替代现场验收签字。",
-    workshopMobile: "按岗位展示车间报工和打包任务，手机端动作直接写入同一套 API。",
-    driverMobile: "司机查看送货任务，确认装车、提交水印照片和回单状态。",
-  };
-
-  return (
-    <section className="page-head">
-      <div>
-        <h1>{page.label}</h1>
-        <p>{subtitles[page.key]}</p>
-      </div>
-      <div className="head-actions">
-        <button type="button" className="ghost-button" onClick={() => onRefresh()}>
-          <ReloadOutlined />
-          刷新
-        </button>
-        <button className="ghost-button">
-          <SyncOutlined />
-          本地演示
-        </button>
-      </div>
-    </section>
   );
 }
 

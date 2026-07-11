@@ -101,16 +101,19 @@ assert.match(fulfillmentResult.feedback, /生产模式要求后端交付投影/)
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const sharedUiSource = readFileSync(new URL("../src/shared/ui/operational.jsx", import.meta.url), "utf8");
+const shellStylesSource = readFileSync(new URL("../src/styles/shell.css", import.meta.url), "utf8");
 for (const apiName of ["listOfficeTodos", "listOfficeOrderLines", "listOfficeInventoryItems", "listOfficeFulfillments"]) {
   assert.equal(appSource.includes(apiName), false, `App should not directly orchestrate ${apiName}`);
 }
 assert.match(workspaceSource, /useOfficeCoreReads/);
 assert.match(workspaceSource, /\.\.\.coreReads/);
 assert.match(appSource, /activePage === "fulfillment"/);
-assert.match(appSource, /<button type="button" className="ghost-button" onClick=\{\(\) => onRefresh\(\)\}>/);
-assert.equal(appSource.indexOf('<div className="toast" role="status">') < appSource.indexOf("<PageHead page={activeMeta}"), true);
-assert.match(stylesSource, /\.toast\s*\{[^}]*pointer-events:\s*none/s);
-assert.doesNotMatch(stylesSource, /\.toast\s*\{[^}]*position:\s*absolute/s);
+assert.match(appSource, /<WorkspaceNotice>/);
+assert.match(appSource, /<WorkspacePageHeader/);
+assert.equal(appSource.indexOf("<WorkspaceNotice>") < appSource.indexOf("<WorkspacePageHeader"), true);
+assert.match(sharedUiSource, /className="ghost-button" onClick=\{\(\) => onRefresh\?\.\(\)\}/);
+assert.match(shellStylesSource, /\.workspace-notice\s*\{[^}]*pointer-events:\s*none/s);
+assert.doesNotMatch(shellStylesSource, /\.workspace-notice\s*\{[^}]*position:\s*absolute/s);
 
 console.log("Office core reads check passed: API success, denial, empty inventory, and production fallback blocking are covered.");

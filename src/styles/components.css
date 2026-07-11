@@ -1,0 +1,216 @@
+.operational-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-md);
+  background: var(--erp-surface);
+}
+
+.operational-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: var(--erp-panel-header-height);
+  border-bottom: 1px solid var(--erp-border-subtle);
+  gap: 10px;
+  padding: 7px 10px;
+}
+
+.operational-panel-heading {
+  min-width: 0;
+}
+
+.operational-panel-heading h2 {
+  margin: 0;
+  color: var(--erp-text);
+  font-size: 14px;
+  line-height: 20px;
+}
+
+.operational-panel-heading > span {
+  display: block;
+  overflow: hidden;
+  margin-top: 1px;
+  color: var(--erp-text-muted);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.operational-panel-eyebrow {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-bottom: 2px;
+  gap: 6px;
+}
+
+.operational-panel-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.metric-strip {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  padding: 0;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface-subtle);
+}
+
+.metric {
+  position: relative;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  min-height: 42px;
+  border: 0;
+  border-right: 1px solid var(--erp-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  gap: 8px;
+  padding: 9px 10px 8px 13px;
+}
+
+.metric:last-child {
+  border-right: 0;
+}
+
+.metric::before {
+  position: absolute;
+  top: 9px;
+  bottom: 9px;
+  left: 0;
+  width: 3px;
+  border-radius: 2px;
+  background: #aab6c7;
+  content: "";
+}
+
+.metric span {
+  display: block;
+  color: var(--erp-text-muted);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.metric strong {
+  display: block;
+  margin: 0;
+  color: var(--erp-text);
+  font-size: 17px;
+  line-height: 20px;
+}
+
+.metric.blue::before { background: var(--erp-accent); }
+.metric.success::before { background: var(--erp-success); }
+.metric.warning::before { background: #d8921d; }
+.metric.danger::before { background: var(--erp-danger); }
+
+.data-state {
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr);
+  align-items: stretch;
+  min-height: 72px;
+  margin: 10px;
+  overflow: hidden;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-md);
+  background: var(--erp-surface-subtle);
+}
+
+.data-state.compact {
+  min-height: 54px;
+  margin: 8px;
+}
+
+.data-state-marker {
+  background: #aab6c7;
+}
+
+.data-state > div {
+  display: grid;
+  align-content: center;
+  min-width: 0;
+  gap: 2px;
+  padding: 9px 11px;
+}
+
+.data-state strong,
+.data-state span {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.data-state strong {
+  color: var(--erp-text);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.data-state span {
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.data-state.info .data-state-marker { background: var(--erp-accent); }
+.data-state.success .data-state-marker { background: var(--erp-success); }
+.data-state.warning .data-state-marker { background: var(--erp-warning); }
+.data-state.danger .data-state-marker { background: var(--erp-danger); }
+
+.operational-detail-pane {
+  border-color: var(--erp-border);
+  border-radius: var(--erp-radius-md);
+}
+
+.segmented {
+  border-color: var(--erp-border);
+  border-radius: var(--erp-radius-md);
+  background: var(--erp-neutral-bg);
+  padding: 2px;
+}
+
+.segmented button {
+  height: 27px;
+  border-radius: var(--erp-radius-sm);
+  font-size: 12px;
+  padding: 0 10px;
+}
+
+.segmented button.selected {
+  background: var(--erp-surface);
+  color: var(--erp-accent-strong);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+}
+
+@media (max-width: 720px) {
+  .operational-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .operational-panel-actions {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .metric-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .metric:nth-child(2) {
+    border-right: 0;
+  }
+
+  .metric:nth-child(-n + 2) {
+    border-bottom: 1px solid var(--erp-border-subtle);
+  }
+}

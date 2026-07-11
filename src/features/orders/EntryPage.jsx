@@ -1,4 +1,11 @@
-import { DetailPane, InfoGrid, StatusPill } from "../../components/ui.jsx";
+import {
+  DataState,
+  DetailPane,
+  InfoGrid,
+  OperationalPanel,
+  PanelHeader,
+  StatusPill,
+} from "../../shared/ui/operational.jsx";
 
 export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, selectedDraftId, setSelectedDraftId, onRecognize, onDraftFieldChange, onDraftCommand, onAction, helpers }) {
   const { editableColors, getDraftColorSpecLabel, getDraftMissingFields, getDraftNote, getDraftStatusTone, getDraftTypeLabel, getUiActionState, money, sampleText } = helpers;
@@ -6,29 +13,32 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
   const selectedMissing = selected ? getDraftMissingFields(selected) : [];
   const recognizeState = getUiActionState("entry", "识别");
   return (
-    <section className="page-stack">
-      <div className="entry-box">
-        <textarea value={entryText} onChange={(event) => setEntryText(event.target.value)} />
-        <div className="entry-actions">
-          <button className="primary-button" disabled={recognizeState.disabled} title={recognizeState.title} onClick={onRecognize}>识别</button>
-          <button onClick={() => setEntryText("")}>清空</button>
-          <button onClick={() => setEntryText(sampleText)}>填入样例</button>
-        </div>
-      </div>
-      <section className="page-grid split-detail">
-        <div className="table-pane">
-          <div className="table-tools">
-            <div>
-              <StatusPill tone={getDraftStatusTone(draftStatus)}>{draftStatus}</StatusPill>
-              <span>{draftRows.length} 行识别明细</span>
-              {selected ? <small>当前：{selected.id}</small> : <small>未选择明细</small>}
-            </div>
-            <div className="tool-actions">
-              <button onClick={() => onDraftCommand("合并下一行")}>合并下一行</button>
-              <button onClick={() => onDraftCommand("拆分当前行")}>拆分当前行</button>
-              <button onClick={() => onDraftCommand("删除当前行")}>删除当前行</button>
-            </div>
+    <section className="page-stack entry-workbench">
+      <OperationalPanel className="entry-source-panel" ariaLabel="订单原文">
+        <PanelHeader title="订单原文" summary={`${entryText.trim().length} 字`} />
+        <div className="entry-capture-body">
+          <textarea aria-label="订单原文" value={entryText} onChange={(event) => setEntryText(event.target.value)} />
+          <div className="entry-actions entry-capture-actions">
+            <button className="primary-button" disabled={recognizeState.disabled} title={recognizeState.title} onClick={onRecognize}>识别</button>
+            <button onClick={() => setEntryText("")}>清空</button>
+            <button onClick={() => setEntryText(sampleText)}>填入样例</button>
           </div>
+        </div>
+      </OperationalPanel>
+      <section className="page-grid split-detail entry-detail-grid">
+        <OperationalPanel className="table-pane entry-table-panel" ariaLabel="识别明细">
+          <PanelHeader
+            eyebrow={<StatusPill tone={getDraftStatusTone(draftStatus)}>{draftStatus}</StatusPill>}
+            title="识别明细"
+            summary={`${draftRows.length} 行 · 当前 ${selected?.id ?? "未选择"}`}
+            actions={(
+              <div className="tool-actions">
+                <button onClick={() => onDraftCommand("合并下一行")}>合并下一行</button>
+                <button onClick={() => onDraftCommand("拆分当前行")}>拆分当前行</button>
+                <button onClick={() => onDraftCommand("删除当前行")}>删除当前行</button>
+              </div>
+            )}
+          />
           <EntryDraftTable rows={draftRows} selectedId={selected?.id} onSelect={setSelectedDraftId} onChange={onDraftFieldChange} helpers={helpers} />
           <div className="footer-actions">
             {["保存草稿", "保存并确认", "拆分订单", "作废草稿"].map((item) => {
@@ -36,8 +46,8 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
               return <button className={item === "保存并确认" ? "primary-action" : ""} disabled={actionState.disabled} key={item} title={actionState.title} onClick={() => onAction(item)}>{item}</button>;
             })}
           </div>
-        </div>
-        <DetailPane title="识别详情" subtitle={selected?.id ?? "未选择"}>
+        </OperationalPanel>
+        <DetailPane className="entry-detail-pane" title="识别详情" subtitle={selected?.id ?? "未选择"}>
           {selected ? (
             <>
               <InfoGrid
@@ -108,7 +118,7 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
                 </StatusPill>
               </section>
             </>
-          ) : null}
+          ) : <DataState title="未选择识别明细" detail="识别订单原文后可在此复核印刷、提手和备注。" compact />}
         </DetailPane>
       </section>
     </section>
@@ -118,6 +128,7 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
 function EntryDraftTable({ rows, selectedId, onSelect, onChange, helpers }) {
   const { customers, getDraftTypeLabel, getDraftTypeTone, money, statusTone } = helpers;
   const columns = ["客户", "品名/印刷", "尺寸", "颜色", "提手", "款式/类型", "印刷", "数量", "交付", "最晚", "库存", "预估"];
+  if (!rows.length) return <DataState title="暂无识别明细" detail="录入订单原文并执行识别后显示。" compact />;
   return (
     <div className="data-table entry-table" style={{ "--cols": columns.length }}>
       <div className="data-row head">

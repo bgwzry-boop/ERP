@@ -1,0 +1,125 @@
+.workspace-notice {
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr);
+  align-items: stretch;
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  min-height: 34px;
+  overflow: hidden;
+  border: 1px solid #cfe0ff;
+  border-radius: var(--erp-radius-md);
+  background: #f7faff;
+  color: #253044;
+  font-size: 12px;
+  line-height: 18px;
+  margin-bottom: var(--erp-space-2);
+  pointer-events: none;
+}
+
+.workspace-notice > span:last-child {
+  min-width: 0;
+  padding: 7px 10px;
+  overflow-wrap: anywhere;
+}
+
+.workspace-notice-marker {
+  background: var(--erp-accent);
+}
+
+.workspace-notice.success {
+  border-color: #b9e5ca;
+  background: var(--erp-success-bg);
+}
+
+.workspace-notice.success .workspace-notice-marker {
+  background: var(--erp-success);
+}
+
+.workspace-notice.warning {
+  border-color: #f5d79d;
+  background: var(--erp-warning-bg);
+}
+
+.workspace-notice.warning .workspace-notice-marker {
+  background: var(--erp-warning);
+}
+
+.workspace-notice.danger {
+  border-color: #fac2bf;
+  background: var(--erp-danger-bg);
+}
+
+.workspace-notice.danger .workspace-notice-marker {
+  background: var(--erp-danger);
+}
+
+.workspace-page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 48px;
+  margin-bottom: var(--erp-space-2);
+  gap: var(--erp-space-3);
+}
+
+.workspace-page-title {
+  min-width: 0;
+}
+
+.workspace-page-title h1 {
+  margin: 0;
+  color: #121a2a;
+  font-size: 20px;
+  font-weight: 760;
+  letter-spacing: 0;
+  line-height: 26px;
+}
+
+.workspace-page-title p {
+  margin: 1px 0 0;
+  overflow: hidden;
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-page-actions {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  gap: var(--erp-space-2);
+}
+
+.workspace-context-label {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.workspace-context-label svg {
+  color: var(--erp-success);
+}
+
+@media (max-width: 720px) {
+  .workspace-page-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .workspace-page-title p {
+    white-space: normal;
+  }
+
+  .workspace-page-actions {
+    width: 100%;
+    justify-content: space-between;
+  }
+}

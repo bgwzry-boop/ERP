@@ -1,0 +1,124 @@
+.entry-workbench {
+  gap: 8px;
+}
+
+.entry-source-panel {
+  flex: 0 0 auto;
+}
+
+.entry-source-panel .operational-panel-header {
+  min-height: 40px;
+}
+
+.entry-capture-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  padding: 8px;
+}
+
+.entry-capture-body textarea {
+  width: 100%;
+  min-height: 76px;
+  resize: vertical;
+  border: 1px solid #cfd9e6;
+  border-radius: var(--erp-radius-sm);
+  outline: 0;
+  color: var(--erp-text);
+  font-size: 13px;
+  line-height: 20px;
+  padding: 8px 10px;
+}
+
+.entry-capture-body textarea:focus {
+  border-color: var(--erp-accent);
+  box-shadow: var(--erp-shadow-focus);
+}
+
+.entry-capture-actions {
+  display: flex;
+  align-self: start;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.entry-capture-actions button {
+  width: 92px;
+}
+
+.entry-detail-grid {
+  gap: 10px;
+}
+
+.entry-table-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.entry-table-panel .operational-panel-header {
+  flex: 0 0 auto;
+}
+
+.entry-table-panel .data-table {
+  flex: 1;
+}
+
+.entry-table-panel .footer-actions {
+  flex: 0 0 auto;
+}
+
+.entry-table-panel .tool-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.entry-table-panel .tool-actions button {
+  min-height: 27px;
+}
+
+.entry-edit-row:focus-within,
+.entry-edit-row:focus-visible {
+  position: relative;
+  z-index: 1;
+  outline: 2px solid rgba(11, 116, 255, 0.35);
+  outline-offset: -2px;
+}
+
+.entry-detail-pane .detail-head {
+  min-height: var(--erp-panel-header-height);
+  padding: 7px 10px;
+}
+
+@media (max-width: 720px) {
+  .entry-capture-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .entry-capture-actions {
+    width: 100%;
+    flex-direction: row;
+    flex-wrap: wrap;
+  }
+
+  .entry-capture-actions button {
+    width: auto;
+    flex: 1 1 88px;
+  }
+
+  .entry-table-panel .operational-panel-header {
+    align-items: stretch;
+  }
+
+  .entry-table-panel .tool-actions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    width: 100%;
+  }
+
+  .entry-table-panel .tool-actions button {
+    white-space: normal;
+  }
+}

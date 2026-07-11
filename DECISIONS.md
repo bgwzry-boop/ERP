@@ -2085,3 +2085,7 @@ An existing production task's machine assignment is server-authoritative and can
 ## 2026-07-11 - Global Interaction State Uses One Controller Boundary
 
 Global toast and overlay state, permission action guards, and cross-domain modal routing belong in an application interaction controller rather than `App.jsx` or individual pages. The controller may coordinate existing domain write hooks and API clients, but it must not duplicate permissions, URLs, transaction rules, or business state machines. Permission denials, version/lock conflicts, and blocked results without feature-specific feedback must produce a visible normalized message; committed business writes remain server-authoritative and feature hooks remain responsible for projection refresh behavior.
+
+## 2026-07-11 - Shared Operational UI Uses a Compatibility Layer
+
+Shared office UI carries structure, accessibility, and visual rules only; feature modules continue to own business fields, permissions, and action eligibility. The legacy `styles.css` remains loaded during staged migration, while tokens, shell, shared components, and feature styles load afterward. Page descriptions belong to navigation metadata, and the workspace header shows a read-only runtime context plus one real refresh action; a no-op “local demo” command is not shown. Public Todo and Order Entry are the first adopters, followed by Order Pool, Inventory, and Fulfillment without changing business state machines or API contracts.

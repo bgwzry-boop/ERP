@@ -1,0 +1,63 @@
+.todo-workbench {
+  gap: 10px;
+}
+
+.todo-list-panel {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+.todo-list-panel .todo-list {
+  flex: 1;
+  min-height: 0;
+}
+
+.todo-list-panel .todo-bulk-row {
+  min-height: 38px;
+  border-bottom-color: var(--erp-border-subtle);
+  background: #f8fbff;
+}
+
+.todo-list-panel .todo-row {
+  min-height: 72px;
+  padding: 8px 10px;
+}
+
+.todo-list-panel .todo-row:hover {
+  background: #f8fbff;
+}
+
+.todo-list-panel .todo-row.active {
+  background: var(--erp-surface-selected);
+  box-shadow: inset 3px 0 0 var(--erp-accent);
+}
+
+.todo-list-panel .todo-main strong {
+  font-size: 13px;
+}
+
+.todo-detail-pane .detail-head {
+  min-height: var(--erp-panel-header-height);
+  padding: 7px 10px;
+}
+
+@media (max-width: 720px) {
+  .todo-workbench {
+    gap: 8px;
+  }
+
+  .todo-list-panel .todo-row {
+    grid-template-columns: minmax(0, 1fr) 78px;
+  }
+
+  .todo-list-panel .todo-bulk-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 6px;
+  }
+
+  .todo-list-panel .todo-bulk-row span {
+    white-space: normal;
+  }
+}

@@ -1,4 +1,14 @@
-import { DetailPane, InfoGrid, MetricStrip, Segmented, StatusPill, Timeline } from "../../components/ui.jsx";
+import {
+  DataState,
+  DetailPane,
+  InfoGrid,
+  MetricStrip,
+  OperationalPanel,
+  PanelHeader,
+  Segmented,
+  StatusPill,
+  Timeline,
+} from "../../shared/ui/operational.jsx";
 import {
   formatPrintBatchPackageList,
   getPrintBatchRecordsForTodo,
@@ -24,19 +34,14 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
   ];
 
   return (
-    <section className="page-grid two-col">
-      <div className="list-pane">
-        <MetricStrip items={stats} />
-        <div className="panel-head compact todo-head">
-          <div>
-            <h2>公共待办池</h2>
-            <span>
-              急单、异常、今天要发、等待时长排序
-              {todoMeta.source ? ` · ${todoMeta.source === "api" ? "后端公共待办" : "本地公共待办"} ${todoMeta.total ?? todos.length} 条` : ""}
-            </span>
-          </div>
-          <Segmented value={view} onChange={setView} items={["未处理", "已处理", "全部"]} />
-        </div>
+    <section className="page-grid two-col todo-workbench">
+      <OperationalPanel className="list-pane todo-list-panel" ariaLabel="公共待办池">
+        <MetricStrip items={stats} ariaLabel="待办状态摘要" />
+        <PanelHeader
+          title="公共待办池"
+          summary={`急单、异常、今天要发、等待时长排序${todoMeta.source ? ` · ${todoMeta.source === "api" ? "后端公共待办" : "本地公共待办"} ${todoMeta.total ?? todos.length} 条` : ""}`}
+          actions={<Segmented ariaLabel="待办视图" value={view} onChange={setView} items={["未处理", "已处理", "全部"]} />}
+        />
         {printOpenCount > 0 ? (
           <div className="todo-bulk-row">
             <span>打印类待办 {printOpenCount} 条，人工核对与 spool 状态分开记录</span>
@@ -53,7 +58,7 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
           {visibleTodos.length ? visibleTodos.map((item) => {
             const customer = findCustomer(item.customerId);
             return (
-              <button className={`${item.id === selected?.id ? "todo-row active" : "todo-row"} ${item.handled ? "handled" : ""} ${item.reminder ? "snoozed" : ""}`} key={item.id} onClick={() => onSelect(item.id)}>
+              <button aria-pressed={item.id === selected?.id} className={`${item.id === selected?.id ? "todo-row active" : "todo-row"} ${item.handled ? "handled" : ""} ${item.reminder ? "snoozed" : ""}`} key={item.id} onClick={() => onSelect(item.id)}>
                 <div className="todo-main">
                   <strong>{item.type}</strong>
                   <span>{customer.name} · {item.ref}</span>
@@ -68,11 +73,11 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
                 </div>
               </button>
             );
-          }) : <div className="empty-row">当前视图没有待办</div>}
+          }) : <DataState title="当前视图没有待办" compact />}
         </div>
-      </div>
+      </OperationalPanel>
       {selected && customerInfo ? (
-      <DetailPane title={selected.type} subtitle={`${customerInfo.name} · ${selected.ref}`}>
+        <DetailPane className="todo-detail-pane" title={selected.type} subtitle={`${customerInfo.name} · ${selected.ref}`}>
         <InfoGrid
           rows={[
             ["客户", customerInfo.name],
@@ -153,10 +158,10 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
           </section>
         )}
         <Timeline items={["系统创建待办", selected.lastAction ?? `${currentUser.displayName} 查看详情`, selected.handled ? "已处理" : selected.reminder ? `已设提醒 ${selected.reminder}` : "等待人工处理"]} />
-      </DetailPane>
+        </DetailPane>
       ) : (
-        <DetailPane title="公共待办" subtitle="未选择">
-          <div className="empty-row">没有可显示的待办</div>
+        <DetailPane className="todo-detail-pane" title="公共待办" subtitle="未选择">
+          <DataState title="没有可显示的待办" compact />
         </DetailPane>
       )}
     </section>
