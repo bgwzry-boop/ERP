@@ -214,6 +214,48 @@ export async function completeOfficeFulfillment(input, options = {}) {
   }
 }
 
+export async function markOfficeFulfillmentPrepared(input, options = {}) {
+  const { authState, fulfillment, operatorId, remark = "" } = input;
+  try {
+    const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillment.id)}/prepared`, {
+      ...options,
+      authState,
+      method: "POST",
+      operatorId,
+      body: {
+        fulfillmentId: fulfillment.id,
+        operatorId,
+        preparedAt: new Date().toISOString(),
+        remark,
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "标记备货 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      fulfillmentId: json.fulfillmentId,
+      status: json.status,
+      operationLogId: json.operationLogId,
+    };
+  } catch (error) {
+    if (isOfficeApiServerRequired(options)) {
+      return buildServerRequiredWriteError("FULFILLMENT_PREPARED_API_UNAVAILABLE", error);
+    }
+    return {
+      source: "local_fallback",
+      error: { code: "FULFILLMENT_PREPARED_API_UNAVAILABLE", message: error?.message ?? String(error) },
+      fulfillmentId: fulfillment?.id ?? "",
+      status: "已备货",
+    };
+  }
+}
+
 export async function confirmOfficeFulfillmentPickup(input, options = {}) {
   const { authState, fulfillment, operatorId, remark = "" } = input;
 
@@ -551,6 +593,16 @@ export function mapApiFulfillmentToLocal(value = {}) {
     deliveryEvidenceReviewedBy: cleanText(value.deliveryEvidenceReviewedBy),
     deliveryEvidenceReviewedByUserId: cleanText(value.deliveryEvidenceReviewedByUserId),
     deliveryEvidenceIssueReason: cleanText(value.deliveryEvidenceIssueReason),
+    driverId: cleanText(value.driverId ?? value.driver_id),
+    routeDate: cleanText(value.routeDate ?? value.route_date),
+    routeNo: cleanText(value.routeNo ?? value.routeBatchNo ?? value.route_batch_no),
+    routeBatchNo: cleanText(value.routeBatchNo ?? value.routeNo ?? value.route_batch_no),
+    routeSequence: toNumber(value.routeSequence ?? value.stopSequence ?? value.stop_sequence, 0),
+    stopSequence: toNumber(value.stopSequence ?? value.routeSequence ?? value.stop_sequence, 0),
+    dispatchStatus: cleanText(value.dispatchStatus ?? value.dispatch_status),
+    plannedDepartureAt: cleanText(value.plannedDepartureAt ?? value.planned_departure_at),
+    dispatchAssignedAt: cleanText(value.dispatchAssignedAt ?? value.assignedAt ?? value.assigned_at),
+    dispatchRemark: cleanText(value.dispatchRemark ?? value.remark),
   };
 }
 

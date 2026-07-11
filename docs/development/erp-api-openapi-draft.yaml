@@ -2673,6 +2673,45 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /fulfillments/{fulfillmentId}/prepared:
+    post:
+      tags: [Fulfillment]
+      summary: 标记出库任务已备货
+      description: 只更新备货状态和审计记录，不扣减库存、不释放占用、不进入对账候选。
+      operationId: markFulfillmentPrepared
+      parameters:
+        - $ref: "#/components/parameters/FulfillmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [fulfillmentId, operatorId]
+              properties:
+                fulfillmentId:
+                  type: string
+                operatorId:
+                  type: string
+                preparedAt:
+                  type: string
+                  format: date-time
+                remark:
+                  type: string
+      responses:
+        "200":
+          description: 已记录备货状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FulfillmentActionResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /fulfillments/{fulfillmentId}/pickup-confirm:
     post:
       tags: [Fulfillment]
@@ -15738,6 +15777,26 @@ components:
         deliveryEvidenceReviewedByUserId:
           type: string
         deliveryEvidenceIssueReason:
+          type: string
+        driverId:
+          type: string
+        routeDate:
+          type: string
+          format: date
+        routeNo:
+          type: string
+        routeSequence:
+          type: integer
+          minimum: 0
+        dispatchStatus:
+          type: string
+        plannedDepartureAt:
+          type: string
+          format: date-time
+        dispatchAssignedAt:
+          type: string
+          format: date-time
+        dispatchRemark:
           type: string
 
     PrintFulfillmentRequest:

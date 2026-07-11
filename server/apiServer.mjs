@@ -1945,6 +1945,7 @@ async function logoutSeedAuth({ response, workspace, authContext }) {
 }
 
 function toFulfillmentListItem(workspace, item) {
+  const dispatch = findActiveDriverDeliveryDispatch(workspace, item.id);
   return {
     fulfillmentId: item.id,
     customerId: item.customerId,
@@ -1972,6 +1973,14 @@ function toFulfillmentListItem(workspace, item) {
     deliveryEvidenceReviewedBy: item.deliveryEvidenceReviewedBy ?? "",
     deliveryEvidenceReviewedByUserId: item.deliveryEvidenceReviewedByUserId ?? "",
     deliveryEvidenceIssueReason: item.deliveryEvidenceIssueReason ?? "",
+    driverId: dispatch.driverId ?? dispatch.driver_id ?? "",
+    routeDate: dispatch.routeDate ?? dispatch.route_date ?? "",
+    routeNo: dispatch.routeNo ?? dispatch.routeBatchNo ?? dispatch.route_batch_no ?? "",
+    routeSequence: Number(dispatch.routeSequence ?? dispatch.stopSequence ?? dispatch.stop_sequence ?? 0),
+    dispatchStatus: dispatch.dispatchStatus ?? dispatch.dispatch_status ?? "",
+    plannedDepartureAt: dispatch.plannedDepartureAt ?? dispatch.planned_departure_at ?? "",
+    dispatchAssignedAt: dispatch.assignedAt ?? dispatch.dispatchAssignedAt ?? dispatch.assigned_at ?? "",
+    dispatchRemark: dispatch.remark ?? "",
   };
 }
 
@@ -17339,7 +17348,12 @@ async function updateFulfillmentStatusRoute({ response, workspace, fulfillmentId
   const operationLog = buildOperationLog(workspace, {
     targetType: "fulfillment",
     targetId: fulfillmentId,
-    action: action === "确认已拉走" ? "confirm_fulfillment_pickup" : "complete_fulfillment",
+    action:
+      action === "确认已拉走"
+        ? "confirm_fulfillment_pickup"
+        : action === "标记已备货"
+          ? "mark_fulfillment_prepared"
+          : "complete_fulfillment",
     operatorId,
     before,
     after,

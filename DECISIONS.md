@@ -2067,3 +2067,7 @@ Large office pages should move into `src/features/<domain>` while their former b
 ## 2026-07-11 - Core Navigation Is Stable And Role Tools Are Permission-Scoped
 
 The left navigation always presents the six office core pages first: todos, entry, orders, inventory, fulfillment, and statements. Implemented V1 operational surfaces outside that P0 core belong in a secondary `role tools` group and appear only when the current permission set matches; losing access while a secondary page is active returns the user to the todo page. Stable English API/database enums remain valid internal contracts, but API clients must convert them to Chinese operator labels and reverse-map Chinese filters before requests. Internal enum values must not appear in operational tables, details, labels, or action text.
+
+## 2026-07-11 - Fulfillment Prepared State Is Audited But Non-Financial
+
+Marking a fulfillment as prepared is a real backend state transition with permission, idempotency, and operation-log coverage. It must not deduct finished-goods inventory, release reservations, create a statement candidate, or imply customer handover; only fulfillment completion or pickup confirmation performs those downstream effects. Delivery dispatch is also server-authoritative, and the fulfillment list projection must return the active driver, route date, route number, stop sequence, dispatch status, planned departure, assignment metadata, and remark so a committed dispatch cannot disappear after refresh.

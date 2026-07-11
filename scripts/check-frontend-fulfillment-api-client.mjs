@@ -7,6 +7,7 @@ import {
   getFulfillmentDocumentType,
   getFulfillmentPrintAction,
   listOfficeFulfillments,
+  markOfficeFulfillmentPrepared,
   mapApiFulfillmentToLocal,
   mapFulfillmentExceptionReason,
   mapPrintVoidReason,
@@ -136,11 +137,25 @@ const mappedFulfillment = mapApiFulfillmentToLocal({
   latestNeededAt: "今天 19:00",
   status: "待打印标签",
   inventorySource: "待快运区",
+  driverId: "U-DRIVER-A",
+  routeDate: "2026-07-12",
+  routeNo: "虎门线-A",
+  routeSequence: 2,
+  dispatchStatus: "已派单",
+  plannedDepartureAt: "2026-07-12T08:30:00.000Z",
+  dispatchAssignedAt: "2026-07-11T10:00:00.000Z",
+  dispatchRemark: "上午第二站",
 });
 assert(mappedFulfillment?.id === "F-API-LIST-1", "fulfillment list did not map the API id");
 assert(mappedFulfillment?.customerId === "C001" && mappedFulfillment?.lineId === "ORD-API-01", "fulfillment list lost trace IDs");
 assert(mappedFulfillment?.method === "快递快运", "fulfillment list exposed the internal method value");
 assert(mappedFulfillment?.packages === "3包", "fulfillment list did not map package count");
+assert(
+  mappedFulfillment?.routeNo === "虎门线-A" &&
+    mappedFulfillment?.routeSequence === 2 &&
+    mappedFulfillment?.dispatchStatus === "已派单",
+  "fulfillment list lost the committed dispatch projection",
+);
 
 const fulfillmentListCalls = [];
 const fulfillmentListResult = await listOfficeFulfillments(
@@ -475,6 +490,23 @@ assert(completeCalls[0]?.url.endsWith("/api/fulfillments/F008/complete"), "compl
 assert(completeCalls[0]?.init.headers["x-erp-user-id"] === "U-WAREHOUSE-A", "complete API did not send seed user header");
 assert(completeCalls[0]?.body.actualQty === 3000, "complete request actualQty is incorrect");
 assert(completeResult.status === "已交付" && completeResult.statementCandidate === true, "complete response was not mapped");
+
+const preparedCalls = [];
+const preparedResult = await markOfficeFulfillmentPrepared(
+  { authState, fulfillment: deliveryFulfillment, operatorId: "U-WAREHOUSE-A", remark: "备货完成" },
+  {
+    fetchImpl: async (url, init) => {
+      preparedCalls.push({ url, init, body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ fulfillmentId: "F008", status: "已备货", operationLogId: "LOG-PREPARED" }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    },
+  },
+);
+assert(preparedCalls[0]?.url.endsWith("/api/fulfillments/F008/prepared"), "prepared API URL is incorrect");
+assert(preparedCalls[0]?.body.fulfillmentId === "F008", "prepared request fulfillmentId is incorrect");
+assert(preparedResult.status === "已备货", "prepared response was not mapped");
 
 const pickupCalls = [];
 const pickupResult = await confirmOfficeFulfillmentPickup(

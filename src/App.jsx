@@ -68,12 +68,7 @@ import {
 } from "./services/officeTodoApiClient.js";
 import { createOfficePrintBatchRecord } from "./services/officePrintBatchApiClient.js";
 import {
-  completeOfficeFulfillment,
-  confirmOfficeFulfillmentPickup,
-  createOfficeFulfillmentException,
   printOfficeFulfillment,
-  reviewOfficeDeliveryEvidence,
-  updateOfficeFulfillmentDispatch,
   voidOfficePrintRecord,
 } from "./services/officeFulfillmentApiClient.js";
 import {
@@ -167,11 +162,9 @@ import {
 } from "./services/officeStatementApiClient.js";
 import {
   confirmOfficeStatementWriteOff,
-  createOfficeFulfillmentExceptionTodo,
   createOfficeTodo,
   loadOfficeWorkspace,
   markOfficeStatementSent,
-  updateOfficeFulfillmentAction,
 } from "./services/officeMockService.js";
 import {
   batchPrintResultOptions,
@@ -685,6 +678,8 @@ export function App() {
     refreshPrintDriverReadiness, refreshPrinterDeviceQa,
     refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries,
     loadInventoryCorrectionDetail, createInventoryCorrectionDraft, confirmInventoryCorrectionDraft,
+    completeFulfillmentAction, markFulfillmentPrepared, reviewFulfillmentDeliveryEvidence,
+    saveFulfillmentDispatch, submitFulfillmentException,
     refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
     refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
     executeOrderEntryAction, executeOrderLineAction, recognizeOrderDraft,
@@ -4937,6 +4932,10 @@ export function App() {
   async function updateFulfillment(action, fulfillmentId = selectedFulfillmentId, actionPayload = {}) {
     if (!guardUiAction("fulfillment", action)) return;
     const selected = fulfillments.find((item) => item.id === fulfillmentId) ?? fulfillments[0];
+    if (!selected) {
+      setToast("当前没有可操作的出库 / 交付记录。");
+      return;
+    }
     const targetFulfillmentId = selected.id;
     if (action === "查看水印照片" || action === "查看签收照片") {
       const isSignature = action === "查看签收照片";
@@ -5027,98 +5026,19 @@ export function App() {
       return;
     }
     if (action === "证据复核通过") {
-      if (!selected.watermarkedPhotoAttachmentId && !selected.watermarkedPhotoAttached && !selected.watermarkedPhotoUrl) {
-        setToast("缺少水印照片附件，不能复核通过。");
-        return;
-      }
-      const apiResult = await reviewOfficeDeliveryEvidence({
-        authState,
-        fulfillment: selected,
-        operatorId: currentUserId,
-        reviewerName: currentUser.displayName || currentUserId,
-        reviewStatus: "approved",
-        remark: `${currentUser.displayName} 在出库 / 交付页复核送达证据通过`,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝送达证据复核：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝送达证据复核：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const reviewedAt = apiResult.reviewedAt || new Date().toISOString();
-      setFulfillments((current) =>
-        current.map((item) =>
-          item.id === selected.id
-            ? {
-                ...item,
-                deliveryEvidenceReviewStatus: apiResult.reviewStatus || "已复核",
-                deliveryEvidenceReviewedAt: reviewedAt,
-                deliveryEvidenceReviewedBy: apiResult.reviewedBy || currentUser.displayName || currentUserId,
-                deliveryEvidenceReviewedByUserId: apiResult.reviewedByUserId || currentUserId,
-                deliveryEvidenceIssueReason: "",
-              }
-            : item,
-        ),
-      );
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}复核送达证据：水印照片、定位和回单状态通过；复核人 ${currentUser.displayName}。`);
+      const result = await reviewFulfillmentDeliveryEvidence({ action, fulfillment: selected });
+      if (result?.feedback) setToast(result.feedback);
       return;
     }
     if (action === "退回重拍") {
-      if (!selected.watermarkedPhotoAttachmentId && !selected.watermarkedPhotoAttached && !selected.watermarkedPhotoUrl) {
-        setToast("缺少水印照片附件，不能退回重拍。");
-        return;
-      }
       const reason = actionPayload.reason || "水印/定位/照片清晰度需补充";
-      const apiResult = await reviewOfficeDeliveryEvidence({
-        authState,
+      const result = await reviewFulfillmentDeliveryEvidence({
+        action,
         fulfillment: selected,
-        operatorId: currentUserId,
-        reviewerName: currentUser.displayName || currentUserId,
-        reviewStatus: "retake_required",
         reason,
-        remark: `${currentUser.displayName} 在出库 / 交付页退回送达证据：${reason}`,
+        customerName: findCustomer(selected.customerId).name,
       });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝退回送达证据：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝退回送达证据：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const reviewedAt = apiResult.reviewedAt || new Date().toISOString();
-      setFulfillments((current) =>
-        current.map((item) =>
-          item.id === selected.id
-            ? {
-                ...item,
-                deliveryEvidenceReviewStatus: apiResult.reviewStatus || "需重拍",
-                deliveryEvidenceIssueReason: apiResult.issueReason || reason,
-                deliveryEvidenceReviewedAt: reviewedAt,
-                deliveryEvidenceReviewedBy: apiResult.reviewedBy || currentUser.displayName || currentUserId,
-                deliveryEvidenceReviewedByUserId: apiResult.reviewedByUserId || currentUserId,
-              }
-            : item,
-        ),
-      );
-      const existingTodo = todos.find((item) => item.ref === selected.lineId && item.type === "照片待重拍" && !item.handled);
-      if (!existingTodo) {
-        addTodo({
-          ...(apiResult.todoId ? { id: apiResult.todoId } : {}),
-          type: "照片待重拍",
-          customerId: selected.customerId,
-          ref: selected.lineId,
-          summary: `${findCustomer(selected.customerId).name} ${selected.goods || selected.lineId}：${reason}`,
-          latest: selected.latest,
-          urgency: "异常",
-          impact: "需司机补拍水印照片或办公室补充说明",
-        });
-      }
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(existingTodo ? `已通过${sourceLabel}退回送达证据；该订单已有照片待重拍待办。` : `已通过${sourceLabel}退回送达证据并生成照片待重拍待办。`);
+      if (result?.feedback) setToast(result.feedback);
       return;
     }
     if (action === "打开订单") {
@@ -5127,13 +5047,31 @@ export function App() {
     }
     if (action === "打开待办") {
       const todoType = selected.status.includes("数量") ? "数量差异待处理" : "无法出库待处理";
-      const existingTodo = todos.find((item) => item.ref === selected.lineId && item.type === todoType && !item.handled) ?? todos.find((item) => item.ref === selected.lineId && item.type === todoType);
+      let existingTodo = todos.find((item) => item.ref === selected.lineId && item.type === todoType && !item.handled)
+        ?? todos.find((item) => item.ref === selected.lineId && item.type === todoType);
+      if (!existingTodo) {
+        const todoResult = await refreshTodos({ showToast: false });
+        existingTodo = todoResult?.items?.find(
+          (item) => item.ref === selected.lineId && item.type === todoType && !item.handled,
+        ) ?? todoResult?.items?.find((item) => item.ref === selected.lineId && item.type === todoType);
+      }
       if (existingTodo) {
         setSelectedTodoId(existingTodo.id);
-      } else {
-        const todo = createOfficeFulfillmentExceptionTodo({ fulfillment: selected, todoType });
+      } else if (!runtimeServerRequired) {
+        const todo = createOfficeTodo({
+          type: todoType,
+          customerId: selected.customerId,
+          ref: selected.lineId,
+          summary: `${selected.goods} 当前状态：${selected.status}，需办公室继续处理`,
+          latest: selected.latest,
+          urgency: "异常",
+          impact: "影响出库交付",
+        });
         setTodos((current) => [todo, ...current]);
         setSelectedTodoId(todo.id);
+      } else {
+        setToast("后端未返回该出库异常对应的公共待办，production 不创建本地替代记录。");
+        return;
       }
       setActivePage("todos");
       setToast(existingTodo ? "已打开该出库异常对应的公共待办。" : "未找到已有待办，已补建一条公共待办。");
@@ -5168,6 +5106,11 @@ export function App() {
       setModal({ type: "print", fulfillmentId: targetFulfillmentId, action });
       return;
     }
+    if (action === "标记已备货") {
+      const result = await markFulfillmentPrepared({ fulfillment: selected });
+      if (result?.feedback) setToast(result.feedback);
+      return;
+    }
     if (action === "确认已拉走" && selected.method !== "快递快运") {
       setToast("确认已拉走只用于快递/快运；自提和送货用完成出库/交付。");
       return;
@@ -5191,40 +5134,12 @@ export function App() {
     }
 
     if (action === "确认已拉走" || action === "完成自提" || action === "完成送货" || action === "完成出库/交付") {
-      const apiResult = action === "确认已拉走"
-        ? await confirmOfficeFulfillmentPickup({
-            authState,
-            fulfillment: selected,
-            operatorId: currentUserId,
-            remark: `${currentUser.displayName} 在出库 / 交付页确认快递快运拉走`,
-          })
-        : await completeOfficeFulfillment({
-            authState,
-            fulfillment: selected,
-            operatorId: currentUserId,
-            actualQty: selected.qty,
-            remark: `${currentUser.displayName} 在出库 / 交付页执行：${action}`,
-          });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝出库 / 交付动作：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝出库 / 交付动作：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      setFulfillments((current) =>
-        updateOfficeFulfillmentAction({ fulfillments: current, fulfillmentId: targetFulfillmentId, action })
-      );
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}记录${action}，操作人：${currentUser.displayName}；${action === "确认已拉走" ? "快递/快运现在才进入交付和对账。" : "交付完成后可进入对账候选。"}`);
+      const result = await completeFulfillmentAction({ action, fulfillment: selected });
+      if (result?.feedback) setToast(result.feedback);
       return;
     }
 
-    setFulfillments((current) =>
-      updateOfficeFulfillmentAction({ fulfillments: current, fulfillmentId: targetFulfillmentId, action })
-    );
-    setToast(`${action} 已按本地规则记录，操作人：${currentUser.displayName}；后端暂未接该轻量状态。`);
+    setToast(`不支持的出库 / 交付动作：${action || "未指定"}；未修改任何业务状态。`);
   }
 
   async function handleProductionPackingAction(action, payload = {}) {
@@ -6848,57 +6763,8 @@ export function App() {
         setToast("未找到对应送货记录，无法编辑派单。");
         return;
       }
-      const apiResult = await updateOfficeFulfillmentDispatch({
-        authState,
-        fulfillment: selected,
-        operatorId: currentUserId,
-        driverId: payload.driverId,
-        routeDate: payload.routeDate,
-        routeNo: payload.routeNo,
-        routeSequence: payload.routeSequence,
-        plannedDepartureAt: payload.plannedDepartureAt,
-        remark: payload.remark || `${currentUser.displayName} 在出库 / 交付页编辑司机派单`,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝编辑司机派单：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝编辑司机派单：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const dispatch = apiResult.dispatch ?? {
-        driverId: payload.driverId,
-        routeDate: payload.routeDate,
-        routeNo: payload.routeNo,
-        routeSequence: Number(payload.routeSequence ?? 0),
-        stopSequence: Number(payload.routeSequence ?? 0),
-        dispatchStatus: "已派单",
-        plannedDepartureAt: payload.plannedDepartureAt,
-        assignedAt: new Date().toISOString(),
-        remark: payload.remark ?? "",
-      };
-      setFulfillments((current) =>
-        current.map((item) =>
-          item.id === selected.id
-            ? {
-                ...item,
-                driverId: dispatch.driverId,
-                routeDate: dispatch.routeDate,
-                routeNo: dispatch.routeNo ?? dispatch.routeBatchNo,
-                routeBatchNo: dispatch.routeBatchNo ?? dispatch.routeNo,
-                routeSequence: Number(dispatch.routeSequence ?? dispatch.stopSequence ?? 0),
-                stopSequence: Number(dispatch.stopSequence ?? dispatch.routeSequence ?? 0),
-                dispatchStatus: dispatch.dispatchStatus || "已派单",
-                plannedDepartureAt: dispatch.plannedDepartureAt,
-                dispatchAssignedAt: dispatch.assignedAt ?? dispatch.dispatchAssignedAt,
-                dispatchRemark: dispatch.remark ?? "",
-              }
-            : item,
-        ),
-      );
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}保存司机派单：${dispatch.routeDate} ${dispatch.routeNo ?? dispatch.routeBatchNo} 第 ${dispatch.routeSequence ?? dispatch.stopSequence} 站。`);
+      const result = await saveFulfillmentDispatch({ fulfillment: selected, payload });
+      if (result?.feedback) setToast(result.feedback);
       return;
     }
 
@@ -7001,34 +6867,12 @@ export function App() {
         setToast("未找到对应出库 / 交付记录，无法确认异常。");
         return;
       }
-      const apiResult = await createOfficeFulfillmentException({
-        authState,
+      const result = await submitFulfillmentException({
         fulfillment: selected,
         modalType: activeModal.type,
-        actualQty: payload.actualQty,
-        reason: payload.reason,
-        operatorId: currentUserId,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝提交出库异常：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝提交出库异常：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const result = confirmOfficeModal({
-        modal: activeModal,
         payload,
-        fulfillments,
-        statements,
-        todos,
-        getStatementBlockingAmount,
       });
-      if (result.fulfillments) setFulfillments(result.fulfillments);
-      if (result.todoInput) addTodo({ ...result.todoInput, id: apiResult.todoId ?? result.todoInput.id });
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}提交${activeModal.type === "unable" ? "无法出库" : "数量不符"}，生成办公室公共待办并保留原因。`);
+      if (result?.feedback) setToast(result.feedback);
       return;
     }
 
@@ -8653,7 +8497,7 @@ function ActionModal({ modal, fulfillments, statements, orderLines, onClose, onC
       <section className="modal" role="dialog" aria-modal="true" aria-label={officeModalTitles[modal.type]}>
         <div className="modal-title">
           <div>
-            <span>P0 模拟动作</span>
+            <span>业务操作</span>
             <h2>{officeModalTitles[modal.type]}</h2>
           </div>
           <button className="icon-button" onClick={onClose}>×</button>
@@ -8855,7 +8699,7 @@ function ActionModal({ modal, fulfillments, statements, orderLines, onClose, onC
         )}
         <div className="modal-actions">
           <button onClick={onClose}>取消</button>
-          <button className="primary-action" onClick={confirm}>{modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : "确认模拟"}</button>
+          <button className="primary-action" onClick={confirm}>{modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : modal.type === "mismatch" ? "提交数量差异" : modal.type === "unable" ? "提交无法出库" : "确认提交"}</button>
         </div>
       </section>
     </div>

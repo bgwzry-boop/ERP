@@ -19,7 +19,7 @@ export async function handleFulfillmentWriteRoutes({
 }) {
   if (method !== "POST") return false;
 
-  const fulfillmentActionMatch = url.pathname.match(/^\/api\/fulfillments\/([^/]+)\/(exception|dispatch|print|complete|pickup-confirm|cancel|delivery-evidence-review)$/);
+  const fulfillmentActionMatch = url.pathname.match(/^\/api\/fulfillments\/([^/]+)\/(exception|dispatch|print|prepared|complete|pickup-confirm|cancel|delivery-evidence-review)$/);
   if (fulfillmentActionMatch) {
     const fulfillmentId = decodeURIComponent(fulfillmentActionMatch[1]);
     const action = fulfillmentActionMatch[2];
@@ -42,6 +42,10 @@ export async function handleFulfillmentWriteRoutes({
       print: {
         permission: writeActionPermissions.printFulfillment,
         run: () => printFulfillmentRoute({ response, workspace, fulfillmentId, body }),
+      },
+      prepared: {
+        permission: writeActionPermissions.completeFulfillment,
+        run: () => updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action: "标记已备货", body }),
       },
       complete: {
         permission: writeActionPermissions.completeFulfillment,

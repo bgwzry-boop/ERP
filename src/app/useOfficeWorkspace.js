@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useOfficeCoreReads } from "./useOfficeCoreReads.js";
+import { useOfficeFulfillmentWrites } from "./useOfficeFulfillmentWrites.js";
 import { useOfficeInventoryDetailReads } from "./useOfficeInventoryDetailReads.js";
 import { useOfficeInventoryWrites } from "./useOfficeInventoryWrites.js";
 import { useOfficeMasterDataReads } from "./useOfficeMasterDataReads.js";
@@ -478,6 +479,20 @@ export function useOfficeWorkspace({
     currentUserId,
     setV1GoLiveStatusState,
   });
+  const fulfillmentWrites = useOfficeFulfillmentWrites({
+    authState,
+    currentUserDisplayName: currentUser?.displayName ?? currentUserId,
+    currentUserId,
+    fulfillmentsRef,
+    refreshFulfillments: coreReads.refreshFulfillments,
+    refreshInventoryRecords: coreReads.refreshInventoryRecords,
+    refreshStatements: statementReads.refreshStatements,
+    refreshTodos: coreReads.refreshTodos,
+    setFulfillments,
+    setSelectedTodoId,
+    setTodos,
+    todosRef,
+  });
   const orderWrites = useOfficeOrderWrites({
     authState,
     currentUserId,
@@ -516,6 +531,7 @@ export function useOfficeWorkspace({
     ...masterDataReads,
     ...statementReads,
     ...v1StatusReads,
+    ...fulfillmentWrites,
     ...orderWrites,
     todos, setTodos, todoMeta, setTodoMeta, printBatchRecords, setPrintBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
