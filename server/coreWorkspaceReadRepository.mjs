@@ -636,6 +636,7 @@ function toStatementLine(row) {
     amount: number(row.amount),
     adjustmentAmount: number(row.adjustment_amount),
     finalAmount: number(row.final_amount),
+    revision: integer(row.revision, 1),
     createdAt: timestamp(row.created_at),
   };
 }

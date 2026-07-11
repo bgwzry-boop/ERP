@@ -86,34 +86,63 @@ async function checkLocalWorkspaceMutation() {
 
 async function checkPostgresSqlBoundary() {
   const calls = [];
+  let persistedResponse = null;
   const repository = createPostgresOrderLineVoidTransactionRepository({
     postgresClient: {
-      transactionJson(text, values) {
-        calls.push({ text, values });
-        return {
-          orderLine: buildOrderLine({ lineStatus: "已关闭", status: "已关闭", voidReason: "O'Brien cancelled" }),
-          fulfillmentRecords: [buildFulfillment({ status: "已取消" })],
-          inventoryReservations: [buildReservation({ reservedQty: 0, status: "已释放" })],
+      queryJson() {
+        return persistedResponse
+          ? { requestHash: calls[0].requestHash, response: persistedResponse }
+          : null;
+      },
+      idempotentTransactionJson(request) {
+        calls.push(request);
+        persistedResponse = {
+          orderLine: buildOrderLine({ lineStatus: "已关闭", status: "已关闭", voidReason: "O'Brien cancelled", revision: 2 }),
+          fulfillmentRecords: [buildFulfillment({ status: "已取消", revision: 2 })],
+          inventoryReservations: [buildReservation({ reservedQty: 0, status: "已释放", revision: 2 })],
+          inventoryItems: [{ inventoryItemId: "INV-V001", reservedQty: 0, revision: 2 }],
           inventoryLedgerEntries: [buildLedger({ reason: "O'Brien cancelled" })],
           orderLineChangeRecordId: "OLCR-V001",
           operationLogId: "LOG-V001",
         };
+        return persistedResponse;
       },
     },
   });
   const transaction = await repository.voidOrderLine({
     workspace: {},
-    orderLine: buildOrderLine({ lineStatus: "已关闭", status: "已关闭", voidReason: "O'Brien cancelled" }),
+    idempotencyKey: "void-line-OL-V001",
+    idempotencyPayload: { orderLineId: "OL-V001", reason: "O'Brien cancelled" },
+    expectedOrderLineRevision: 1,
+    orderLine: buildOrderLine({ lineStatus: "已关闭", status: "已关闭", voidReason: "O'Brien cancelled", revision: 1 }),
     fulfillmentRecords: [buildFulfillment({ status: "已取消" })],
     inventoryReservations: [buildReservation({ reservedQty: 0, status: "已释放" })],
-    inventoryAdjustments: [{ inventoryItemId: "INV-V001", reservedQtyChange: -100 }],
+    inventoryAdjustments: [
+      { inventoryItemId: "INV-V001", reservedQtyChange: -100, expectedRevision: 1, expectedReservedQty: 100 },
+    ],
     inventoryLedgerEntries: [buildLedger({ reason: "O'Brien cancelled" })],
     orderLineChangeRecord: buildChangeRecord({ reason: "O'Brien cancelled" }),
     operationLog: buildOperationLog({ reason: "O'Brien cancelled" }),
   });
 
   assert.equal(transaction.orderLine.lineStatus, "已关闭");
+  assert.equal(calls[0].scope, "order.line.void");
+  assert.equal(calls[0].idempotencyKey, "void-line-OL-V001");
+  assert.match(calls[0].requestHash, /^[a-f0-9]{64}$/);
+  assert.deepEqual(calls[0].resourceLocks, [
+    "fulfillment:FUL-V001",
+    "idempotency:order.line.void:void-line-OL-V001",
+    "inventory:INV-V001",
+    "order-line:OL-V001",
+    "reservation:RSV-V001",
+  ]);
   assert.match(calls[0].text, /UPDATE order_lines/);
+  assert.match(calls[0].text, /FOR UPDATE/);
+  assert.match(calls[0].text, /ERP_ORDER_LINE_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /ERP_FULFILLMENT_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /ERP_RESERVATION_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /ERP_INVENTORY_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /revision = revision \+ 1/);
   assert.match(calls[0].text, /UPDATE fulfillment_records/);
   assert.match(calls[0].text, /UPDATE inventory_reservations/);
   assert.match(calls[0].text, /UPDATE inventory_items AS item/);
@@ -124,8 +153,24 @@ async function checkPostgresSqlBoundary() {
   assert.ok(calls[0].values.includes("O'Brien cancelled"));
   assert.match(calls[0].text, /COMMIT/);
 
+  const replay = await repository.findIdempotentReplay({
+    idempotencyKey: "void-line-OL-V001",
+    idempotencyPayload: { orderLineId: "OL-V001", reason: "O'Brien cancelled" },
+  });
+  assert.equal(replay.orderLine.lineStatus, "已关闭");
+  assert.equal(replay.operationLogId, "LOG-V001");
+  await assert.rejects(
+    () =>
+      repository.findIdempotentReplay({
+        idempotencyKey: "void-line-OL-V001",
+        idempotencyPayload: { orderLineId: "OL-V001", reason: "different reason" },
+      }),
+    (error) => error?.code === "IDEMPOTENCY_KEY_REUSED" && error?.statusCode === 409,
+  );
+
   const directInput = {
     orderLine: buildOrderLine({ lineStatus: "已关闭", status: "已关闭" }),
+    expectedOrderLineRevision: 1,
     fulfillmentRecords: [],
     inventoryReservations: [],
     inventoryAdjustments: [],
@@ -159,6 +204,7 @@ function buildOrderLine(overrides = {}) {
     fulfillmentMethod: "自提",
     lineStatus: "待交付确认",
     exceptionTags: [],
+    revision: 1,
     voidedBy: "U-OFFICE-A",
     voidReason: "客户取消订单",
     ...overrides,
@@ -176,6 +222,7 @@ function buildFulfillment(overrides = {}) {
     expectedQty: 100,
     status: "待出库",
     confirmedBy: "U-OFFICE-A",
+    revision: 1,
     ...overrides,
   };
 }
@@ -190,6 +237,10 @@ function buildReservation(overrides = {}) {
     reservationType: "待提货锁定",
     status: "生效",
     createdBy: "U-OFFICE-A",
+    revision: 1,
+    expectedRevision: 1,
+    expectedReservedQty: 100,
+    expectedStatus: "生效",
     ...overrides,
   };
 }

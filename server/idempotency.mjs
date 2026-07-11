@@ -82,6 +82,27 @@ export function buildIdempotencyRequestHash(payload) {
   return createHash("sha256").update(stableSerialize(payload ?? null)).digest("hex");
 }
 
+export async function readPostgresIdempotencyReplay({ queryJson, scope, idempotencyKey, payload } = {}) {
+  const normalizedKey = normalizeIdempotencyKey(idempotencyKey);
+  if (!normalizedKey || typeof queryJson !== "function") return null;
+  const normalizedScope = String(scope ?? "").trim().toLowerCase();
+  if (!operationScopePattern.test(normalizedScope)) {
+    throw new Error(`Invalid idempotency operation scope: ${normalizedScope || "<empty>"}`);
+  }
+  const stored = await queryJson(
+    `SELECT json_build_object(
+  'requestHash', request_hash,
+  'response', response_json
+) AS result
+FROM operation_idempotency_keys
+WHERE scope = $1 AND idempotency_key = $2;`,
+    [normalizedScope, normalizedKey],
+  );
+  if (!stored) return null;
+  if (stored.requestHash !== buildIdempotencyRequestHash(payload)) throw buildIdempotencyConflictError();
+  return stored.response ?? null;
+}
+
 export function buildIdempotencyConflictError() {
   return idempotencyError(
     409,

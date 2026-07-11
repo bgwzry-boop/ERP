@@ -1,5 +1,10 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import {
+  buildPostgresIdempotencyRequest,
+  readPostgresIdempotencyReplay,
+  resolveRepositoryIdempotencyKey,
+} from "./idempotency.mjs";
 
 export function createOrderLineVoidTransactionRepository(options = {}) {
   const mode =
@@ -12,6 +17,7 @@ export function createOrderLineVoidTransactionRepository(options = {}) {
       databaseUrl: options.databaseUrl ?? process.env.ERP_ORDER_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -22,6 +28,10 @@ export function createOrderLineVoidTransactionRepository(options = {}) {
 export function createLocalOrderLineVoidTransactionRepository() {
   return {
     kind: "local_memory",
+
+    findIdempotentReplay() {
+      return null;
+    },
 
     voidOrderLine(input) {
       const transaction = normalizeOrderLineVoidTransactionResult({
@@ -48,14 +58,43 @@ export function createLocalOrderLineVoidTransactionRepository() {
 }
 
 export function createPostgresOrderLineVoidTransactionRepository(options = {}) {
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { queryJson, idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
 
+    async findIdempotentReplay(input) {
+      const replay = await readPostgresIdempotencyReplay({
+        queryJson,
+        scope: "order.line.void",
+        idempotencyKey: input.idempotencyKey,
+        payload: input.idempotencyPayload,
+      });
+      return replay ? normalizeOrderLineVoidTransactionResult(replay) : null;
+    },
+
     async voidOrderLine(input) {
       const query = buildVoidOrderLineTransactionQuery(input);
-      const saved = normalizeOrderLineVoidTransactionResult(await transactionJson(query.text, query.values));
+      const orderLineId = input.orderLine?.orderLineId ?? input.orderLine?.id ?? "";
+      const saved = normalizeOrderLineVoidTransactionResult(
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "order.line.void",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? buildOrderLineVoidIdempotencyPayload(input),
+            operatorId: input.operationLog?.operatorId,
+            targetType: "order_line",
+            targetId: orderLineId,
+            resourceLocks: [
+              `order-line:${orderLineId}`,
+              ...(input.fulfillmentRecords ?? []).map((item) => `fulfillment:${item.fulfillmentId ?? item.id ?? ""}`),
+              ...(input.inventoryReservations ?? []).map((item) => `reservation:${item.reservationId ?? item.id ?? ""}`),
+              ...(input.inventoryAdjustments ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
+            ],
+            query,
+          }),
+        ),
+      );
       if (!saved.orderLine) {
         throw new Error("PostgreSQL order line void transaction returned an invalid order line");
       }
@@ -64,13 +103,24 @@ export function createPostgresOrderLineVoidTransactionRepository(options = {}) {
         orderLine: saved.orderLine,
         fulfillmentRecords: saved.fulfillmentRecords,
         inventoryReservations: saved.inventoryReservations,
-        inventoryAdjustments: input.inventoryAdjustments,
+        inventoryItems: saved.inventoryItems,
         inventoryLedgerEntries: saved.inventoryLedgerEntries,
         orderLineChangeRecord: input.orderLineChangeRecord,
-        operationLog: input.operationLog,
+        operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return saved;
     },
+  };
+}
+
+function buildOrderLineVoidIdempotencyPayload(input = {}) {
+  return {
+    orderLine: input.orderLine,
+    fulfillmentRecords: input.fulfillmentRecords,
+    inventoryReservations: input.inventoryReservations,
+    inventoryAdjustments: input.inventoryAdjustments,
+    inventoryLedgerEntries: input.inventoryLedgerEntries,
+    orderLineChangeRecord: input.orderLineChangeRecord,
   };
 }
 
@@ -97,10 +147,85 @@ function buildVoidOrderLineTransactionText(input, parameters) {
   if (!orderLine || !orderLineChangeRecord || !operationLog) {
     throw new Error("Order line, order line change record, and operation log are required");
   }
+  const expectedOrderLineRevision = Math.max(1, toFiniteInteger(input.expectedOrderLineRevision ?? orderLine.revision));
 
   return `
 BEGIN;
-WITH updated_order_line AS (
+WITH locked_order_line AS MATERIALIZED (
+  SELECT id, revision
+  FROM order_lines
+  WHERE id = ${parameters.text(orderLine.orderLineId)}
+  FOR UPDATE
+),
+fulfillment_updates AS MATERIALIZED (
+  ${buildFulfillmentUpdatesSql(fulfillmentRecords, parameters)}
+),
+locked_fulfillment_records AS MATERIALIZED (
+  SELECT fulfillment.id, fulfillment.revision
+  FROM fulfillment_records AS fulfillment
+  JOIN fulfillment_updates AS updates ON updates.id = fulfillment.id
+  ORDER BY fulfillment.id
+  FOR UPDATE OF fulfillment
+),
+reservation_updates AS MATERIALIZED (
+  ${buildReservationUpdatesSql(inventoryReservations, parameters)}
+),
+locked_inventory_reservations AS MATERIALIZED (
+  SELECT reservation.id, reservation.revision, reservation.reserved_qty, reservation.status
+  FROM inventory_reservations AS reservation
+  JOIN reservation_updates AS updates ON updates.id = reservation.id
+  ORDER BY reservation.id
+  FOR UPDATE OF reservation
+),
+inventory_deltas AS MATERIALIZED (
+  ${buildInventoryDeltasSql(inventoryAdjustments, parameters)}
+),
+locked_inventory_items AS MATERIALIZED (
+  SELECT item.id, item.revision, item.reserved_qty, delta.reserved_qty_change
+  FROM inventory_items AS item
+  JOIN inventory_deltas AS delta ON delta.inventory_item_id = item.id
+  ORDER BY item.id
+  FOR UPDATE OF item
+),
+write_guard AS MATERIALIZED (
+  SELECT
+    erp_require(
+      EXISTS (SELECT 1 FROM locked_order_line WHERE revision = ${parameters.integer(expectedOrderLineRevision)}),
+      'ERP_ORDER_LINE_CONCURRENCY_CONFLICT'
+    )
+    AND erp_require(
+      (SELECT COUNT(*) FROM locked_fulfillment_records) = (SELECT COUNT(*) FROM fulfillment_updates)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_fulfillment_records AS locked
+        JOIN fulfillment_updates AS updates ON updates.id = locked.id
+        WHERE locked.revision <> updates.expected_revision
+      ),
+      'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
+    )
+    AND erp_require(
+      (SELECT COUNT(*) FROM locked_inventory_reservations) = (SELECT COUNT(*) FROM reservation_updates)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_inventory_reservations AS locked
+        JOIN reservation_updates AS updates ON updates.id = locked.id
+        WHERE locked.revision <> updates.expected_revision
+           OR locked.reserved_qty <> updates.expected_reserved_qty
+           OR locked.status <> updates.expected_status
+      ),
+      'ERP_RESERVATION_CONCURRENCY_CONFLICT'
+    )
+    AND erp_require(
+      (SELECT COUNT(*) FROM locked_inventory_items) = (SELECT COUNT(*) FROM inventory_deltas)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_inventory_items AS locked
+        JOIN inventory_deltas AS delta ON delta.inventory_item_id = locked.id
+        WHERE locked.revision <> delta.expected_revision
+           OR locked.reserved_qty <> delta.expected_reserved_qty
+           OR locked.reserved_qty + locked.reserved_qty_change < 0
+      ),
+      'ERP_INVENTORY_CONCURRENCY_CONFLICT'
+    ) AS ok
+),
+updated_order_line AS (
   UPDATE order_lines
   SET
     line_status = ${parameters.text(orderLine.lineStatus)},
@@ -111,7 +236,8 @@ WITH updated_order_line AS (
     voided_by = ${parameters.nullableText(orderLine.voidedBy)},
     void_reason = ${parameters.nullableText(orderLine.voidReason)},
     updated_at = now()
-  WHERE id = ${parameters.text(orderLine.orderLineId)}
+  FROM write_guard AS guard
+  WHERE id = ${parameters.text(orderLine.orderLineId)} AND guard.ok
   RETURNING ${orderLineJsonExpression("order_lines")} AS result
 ),
 updated_fulfillment_records AS (
@@ -198,6 +324,7 @@ SELECT json_build_object(
   'orderLine', (SELECT result FROM updated_order_line),
   'fulfillmentRecords', (SELECT COALESCE(json_agg(result ORDER BY result->>'fulfillmentId'), '[]'::json) FROM updated_fulfillment_records),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM updated_inventory_reservations),
+  'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'orderLineChangeRecordId', (SELECT id FROM inserted_order_line_change_record),
   'operationLogId', (SELECT id FROM inserted_operation_log)
@@ -212,6 +339,7 @@ export function normalizeOrderLineVoidTransactionResult(value) {
       orderLine: null,
       fulfillmentRecords: [],
       inventoryReservations: [],
+      inventoryItems: [],
       inventoryLedgerEntries: [],
       orderLineChangeRecordId: "",
       operationLogId: "",
@@ -221,6 +349,7 @@ export function normalizeOrderLineVoidTransactionResult(value) {
     orderLine: value.orderLine ? normalizeOrderLine(value.orderLine) : null,
     fulfillmentRecords: normalizeFulfillmentRecords(value.fulfillmentRecords ?? value.fulfillment_records ?? []),
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
+    inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),
     inventoryLedgerEntries: normalizeInventoryLedgerEntries(value.inventoryLedgerEntries ?? value.inventory_ledger_entries ?? []),
     orderLineChangeRecordId: String(value.orderLineChangeRecordId ?? value.order_line_change_record_id ?? "").trim(),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
@@ -242,7 +371,11 @@ function applyOrderLineVoidWorkspaceMutation(input) {
   for (const reservation of inventoryReservations) {
     workspace.inventoryReservations = upsertById(workspace.inventoryReservations ?? [], reservation);
   }
-  applyWorkspaceInventoryAdjustments(workspace, input.inventoryAdjustments ?? []);
+  if (Array.isArray(input.inventoryItems) && input.inventoryItems.length > 0) {
+    applyWorkspaceInventoryItems(workspace, input.inventoryItems);
+  } else {
+    applyWorkspaceInventoryAdjustments(workspace, input.inventoryAdjustments ?? []);
+  }
   const inventoryLedgerEntries = (input.inventoryLedgerEntries ?? []).map(toWorkspaceInventoryLedgerEntry).filter(Boolean);
   for (const ledger of inventoryLedgerEntries) {
     workspace.inventoryLedgers = upsertById(workspace.inventoryLedgers ?? [], ledger);
@@ -256,6 +389,31 @@ function applyOrderLineVoidWorkspaceMutation(input) {
   if (input.operationLog) {
     workspace.operationLogs = upsertById(workspace.operationLogs ?? [], input.operationLog);
   }
+}
+
+function normalizeInventoryItems(records) {
+  if (!Array.isArray(records)) return [];
+  return records
+    .map((record) => {
+      const inventoryItemId = String(record?.inventoryItemId ?? record?.id ?? "").trim();
+      if (!inventoryItemId) return null;
+      return {
+        inventoryItemId,
+        id: inventoryItemId,
+        reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty),
+        revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
+      };
+    })
+    .filter(Boolean);
+}
+
+function applyWorkspaceInventoryItems(workspace, inventoryItems) {
+  if (!Array.isArray(workspace.inventories)) return;
+  const byId = new Map(normalizeInventoryItems(inventoryItems).map((item) => [item.inventoryItemId, item]));
+  workspace.inventories = workspace.inventories.map((inventory) => {
+    const saved = byId.get(inventory.id);
+    return saved ? { ...inventory, reserved: saved.reservedQty, revision: saved.revision } : inventory;
+  });
 }
 
 function applyWorkspaceInventoryAdjustments(workspace, inventoryAdjustments) {
@@ -300,6 +458,7 @@ function normalizeOrderLine(record) {
     fulfillmentMethod: String(record.fulfillmentMethod ?? record.fulfillment_method ?? record.fulfillment ?? "待确认").trim(),
     lineStatus: String(record.lineStatus ?? record.line_status ?? record.status ?? "已关闭").trim() || "已关闭",
     exceptionTags: normalizeTextArray(record.exceptionTags ?? record.exception_tags ?? record.exceptions ?? []),
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
     createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
     closedAt: record.closedAt ?? record.closed_at ?? new Date().toISOString(),
@@ -331,6 +490,7 @@ function normalizeFulfillmentRecord(record) {
     expectedQty: toFiniteInteger(record.expectedQty ?? record.expected_qty ?? record.qty),
     actualQty: record.actualQty ?? record.actual_qty ?? null,
     status: String(record.status ?? "已取消").trim() || "已取消",
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
     latestNeededAt: record.latestNeededAt ?? record.latest_needed_at ?? record.latest ?? "",
     confirmedBy: String(record.confirmedBy ?? record.confirmed_by ?? "").trim(),
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
@@ -357,6 +517,9 @@ function normalizeInventoryReservation(record) {
     reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty ?? record.qty),
     reservationType: String(record.reservationType ?? record.reservation_type ?? "出库占用").trim() || "出库占用",
     status: String(record.status ?? "已释放").trim() || "已释放",
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
+    expectedReservedQty: toFiniteInteger(record.expectedReservedQty ?? record.expected_reserved_qty),
+    expectedStatus: String(record.expectedStatus ?? record.expected_status ?? "生效").trim() || "生效",
     expiresAt: record.expiresAt ?? record.expires_at ?? "",
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
     createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
@@ -365,7 +528,22 @@ function normalizeInventoryReservation(record) {
 
 function normalizeInventoryAdjustments(records) {
   if (!Array.isArray(records)) return [];
-  return records.map(normalizeInventoryAdjustment).filter(Boolean);
+  const byInventoryItemId = new Map();
+  for (const adjustment of records.map(normalizeInventoryAdjustment).filter(Boolean)) {
+    const existing = byInventoryItemId.get(adjustment.inventoryItemId);
+    if (!existing) {
+      byInventoryItemId.set(adjustment.inventoryItemId, adjustment);
+      continue;
+    }
+    if (
+      existing.expectedRevision !== adjustment.expectedRevision ||
+      existing.expectedReservedQty !== adjustment.expectedReservedQty
+    ) {
+      throw new Error(`Conflicting inventory snapshots for ${adjustment.inventoryItemId}`);
+    }
+    existing.reservedQtyChange += adjustment.reservedQtyChange;
+  }
+  return [...byInventoryItemId.values()];
 }
 
 function normalizeInventoryAdjustment(record) {
@@ -375,6 +553,8 @@ function normalizeInventoryAdjustment(record) {
   return {
     inventoryItemId,
     reservedQtyChange: toFiniteInteger(record.reservedQtyChange ?? record.reserved_qty_change ?? 0),
+    expectedRevision: Math.max(1, toFiniteInteger(record.expectedRevision ?? record.expected_revision ?? 1)),
+    expectedReservedQty: toFiniteInteger(record.expectedReservedQty ?? record.expected_reserved_qty),
   };
 }
 
@@ -466,6 +646,7 @@ function toWorkspaceOrderLine(record) {
     fulfillment: record.fulfillment ?? line.fulfillmentMethod,
     latest: record.latest ?? line.latestNeededAt,
     exceptions: line.exceptionTags,
+    revision: line.revision,
     closedAt: line.closedAt,
     voidedAt: line.voidedAt,
     voidedBy: line.voidedBy,
@@ -484,6 +665,7 @@ function toWorkspaceFulfillment(record) {
     method: fulfillment.method,
     qty: record.qty ?? fulfillment.expectedQty,
     status: fulfillment.status,
+    revision: fulfillment.revision,
     latest: record.latest ?? fulfillment.latestNeededAt,
   };
 }
@@ -500,6 +682,7 @@ function toWorkspaceInventoryReservation(record) {
     reservedQty: reservation.reservedQty,
     reservationType: reservation.reservationType,
     status: reservation.status,
+    revision: reservation.revision,
     expiresAt: reservation.expiresAt,
     createdBy: reservation.createdBy,
     createdAt: reservation.createdAt,
@@ -512,67 +695,87 @@ function toWorkspaceInventoryLedgerEntry(record) {
   return { id: ledger.ledgerId, ...ledger };
 }
 
-function buildUpdateFulfillmentRecordsSql(records, parameters) {
+function buildUpdateFulfillmentRecordsSql(records, _parameters) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map(
-      (record) =>
-        `(${parameters.text(record.fulfillmentId)}, ${parameters.text(record.status)}, ${parameters.nullableText(record.confirmedBy)})`,
-    )
-    .join(",\n");
   return `UPDATE fulfillment_records AS fulfillment
 SET
   status = updates.status,
   confirmed_by = COALESCE(updates.confirmed_by, fulfillment.confirmed_by),
+  revision = fulfillment.revision + 1,
   updated_at = now()
-FROM (VALUES
-${values}
-) AS updates(id, status, confirmed_by)
-WHERE fulfillment.id = updates.id
+FROM fulfillment_updates AS updates, write_guard AS guard
+WHERE fulfillment.id = updates.id AND guard.ok
 RETURNING ${fulfillmentRecordJsonExpression("fulfillment")} AS result`;
 }
 
-function buildUpdateInventoryReservationsSql(records, parameters) {
+function buildUpdateInventoryReservationsSql(records, _parameters) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map(
-      (record) =>
-        `(${parameters.text(record.reservationId)}, ${parameters.integer(record.reservedQty)}, ${parameters.text(record.status)})`,
-    )
-    .join(",\n");
   return `UPDATE inventory_reservations AS reservation
 SET
   reserved_qty = updates.reserved_qty,
   status = updates.status,
+  revision = reservation.revision + 1,
   updated_at = now()
-FROM (VALUES
-${values}
-) AS updates(id, reserved_qty, status)
-WHERE reservation.id = updates.id
+FROM reservation_updates AS updates, write_guard AS guard
+WHERE reservation.id = updates.id AND guard.ok
 RETURNING ${inventoryReservationJsonExpression("reservation")} AS result`;
 }
 
-function buildUpdateInventoryItemsSql(records, parameters) {
+function buildUpdateInventoryItemsSql(records, _parameters) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map((record) => `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.reservedQtyChange)})`)
-    .join(",\n");
   return `UPDATE inventory_items AS item
 SET
-  reserved_qty = GREATEST(0, item.reserved_qty + delta.reserved_qty_change),
+  reserved_qty = item.reserved_qty + delta.reserved_qty_change,
+  revision = item.revision + 1,
   updated_at = now()
-FROM (
-  SELECT inventory_item_id, SUM(reserved_qty_change)::INTEGER AS reserved_qty_change
-  FROM (VALUES
-${values}
-  ) AS raw(inventory_item_id, reserved_qty_change)
-  GROUP BY inventory_item_id
-) AS delta
-WHERE item.id = delta.inventory_item_id
+FROM inventory_deltas AS delta, write_guard AS guard
+WHERE item.id = delta.inventory_item_id AND guard.ok
 RETURNING json_build_object(
   'inventoryItemId', item.id,
-  'reservedQty', item.reserved_qty
+  'reservedQty', item.reserved_qty,
+  'revision', item.revision
 ) AS result`;
+}
+
+function buildFulfillmentUpdatesSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS id, NULL::text AS status, NULL::text AS confirmed_by, NULL::integer AS expected_revision WHERE false";
+  }
+  const values = records.map((record) => `(
+    ${parameters.text(record.fulfillmentId)},
+    ${parameters.text(record.status)},
+    ${parameters.nullableText(record.confirmedBy)},
+    ${parameters.integer(record.revision)}
+  )`).join(",\n");
+  return `SELECT * FROM (VALUES\n${values}\n) AS updates(id, status, confirmed_by, expected_revision)`;
+}
+
+function buildReservationUpdatesSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS id, NULL::integer AS reserved_qty, NULL::text AS status, NULL::integer AS expected_revision, NULL::integer AS expected_reserved_qty, NULL::text AS expected_status WHERE false";
+  }
+  const values = records.map((record) => `(
+    ${parameters.text(record.reservationId)},
+    ${parameters.integer(record.reservedQty)},
+    ${parameters.text(record.status)},
+    ${parameters.integer(record.revision)},
+    ${parameters.integer(record.expectedReservedQty)},
+    ${parameters.text(record.expectedStatus)}
+  )`).join(",\n");
+  return `SELECT * FROM (VALUES\n${values}\n) AS updates(id, reserved_qty, status, expected_revision, expected_reserved_qty, expected_status)`;
+}
+
+function buildInventoryDeltasSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS inventory_item_id, NULL::integer AS reserved_qty_change, NULL::integer AS expected_revision, NULL::integer AS expected_reserved_qty WHERE false";
+  }
+  const values = records.map((record) => `(
+    ${parameters.text(record.inventoryItemId)},
+    ${parameters.integer(record.reservedQtyChange)},
+    ${parameters.integer(record.expectedRevision)},
+    ${parameters.integer(record.expectedReservedQty)}
+  )`).join(",\n");
+  return `SELECT * FROM (VALUES\n${values}\n) AS delta(inventory_item_id, reserved_qty_change, expected_revision, expected_reserved_qty)`;
 }
 
 function buildInsertInventoryLedgerEntriesSql(records, parameters) {
@@ -648,6 +851,7 @@ function orderLineJsonExpression(alias) {
     'fulfillmentMethod', ${alias}.fulfillment_method,
     'lineStatus', ${alias}.line_status,
     'exceptionTags', ${alias}.exception_tags,
+    'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at,
     'closedAt', ${alias}.closed_at,
@@ -668,6 +872,7 @@ function fulfillmentRecordJsonExpression(alias) {
     'expectedQty', ${alias}.expected_qty,
     'actualQty', ${alias}.actual_qty,
     'status', ${alias}.status,
+    'revision', ${alias}.revision,
     'latestNeededAt', ${alias}.latest_needed_at,
     'confirmedBy', ${alias}.confirmed_by,
     'createdBy', ${alias}.created_by,
@@ -683,6 +888,7 @@ function inventoryReservationJsonExpression(alias) {
     'reservedQty', ${alias}.reserved_qty,
     'reservationType', ${alias}.reservation_type,
     'status', ${alias}.status,
+    'revision', ${alias}.revision,
     'expiresAt', ${alias}.expires_at,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at

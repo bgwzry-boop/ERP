@@ -1,5 +1,10 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import {
+  buildPostgresIdempotencyRequest,
+  readPostgresIdempotencyReplay,
+  resolveRepositoryIdempotencyKey,
+} from "./idempotency.mjs";
 
 export function createOrderLineQuantityAdjustmentTransactionRepository(options = {}) {
   const mode =
@@ -12,6 +17,7 @@ export function createOrderLineQuantityAdjustmentTransactionRepository(options =
       databaseUrl: options.databaseUrl ?? process.env.ERP_ORDER_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -23,6 +29,10 @@ export function createLocalOrderLineQuantityAdjustmentTransactionRepository() {
   return {
     kind: "local_memory",
 
+    findIdempotentReplay() {
+      return null;
+    },
+
     adjustOrderLineQuantity(input) {
       const transaction = normalizeOrderLineQuantityAdjustmentTransactionResult({
         orderLine: input.orderLine,
@@ -32,6 +42,11 @@ export function createLocalOrderLineQuantityAdjustmentTransactionRepository() {
         inventoryLedgerEntries: input.inventoryLedgerEntries,
         statementLines: input.statementLines,
         statementRecords: input.statementRecords,
+        previousQty: input.orderLineChangeRecord?.before?.originalQty,
+        newQty: input.orderLineChangeRecord?.after?.originalQty,
+        qtyDelta:
+          toFiniteInteger(input.orderLineChangeRecord?.after?.originalQty) -
+          toFiniteInteger(input.orderLineChangeRecord?.before?.originalQty),
         orderLineChangeRecordId: input.orderLineChangeRecord?.changeRecordId ?? input.orderLineChangeRecord?.id ?? "",
         operationLogId: input.operationLog?.id ?? "",
       });
@@ -54,15 +69,43 @@ export function createLocalOrderLineQuantityAdjustmentTransactionRepository() {
 }
 
 export function createPostgresOrderLineQuantityAdjustmentTransactionRepository(options = {}) {
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { queryJson, idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
 
+    async findIdempotentReplay(input) {
+      const replay = await readPostgresIdempotencyReplay({
+        queryJson,
+        scope: "order.line.quantity.adjust",
+        idempotencyKey: input.idempotencyKey,
+        payload: input.idempotencyPayload,
+      });
+      return replay ? normalizeOrderLineQuantityAdjustmentTransactionResult(replay) : null;
+    },
+
     async adjustOrderLineQuantity(input) {
       const query = buildAdjustOrderLineQuantityTransactionQuery(input);
+      const orderLineId = input.orderLine?.orderLineId ?? input.orderLine?.id ?? "";
       const saved = normalizeOrderLineQuantityAdjustmentTransactionResult(
-        await transactionJson(query.text, query.values),
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: "order.line.quantity.adjust",
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+            payload: input.idempotencyPayload ?? buildOrderLineQuantityAdjustmentIdempotencyPayload(input),
+            operatorId: input.operationLog?.operatorId,
+            targetType: "order_line",
+            targetId: orderLineId,
+            resourceLocks: [
+              `order-line:${orderLineId}`,
+              ...(input.fulfillmentRecords ?? []).map((item) => `fulfillment:${item.fulfillmentId ?? item.id ?? ""}`),
+              ...(input.inventoryReservations ?? []).map((item) => `reservation:${item.reservationId ?? item.id ?? ""}`),
+              ...(input.inventoryAdjustments ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
+              ...(input.statementRecords ?? []).map((item) => `statement:${item.statementId ?? item.id ?? ""}`),
+            ],
+            query,
+          }),
+        ),
       );
       if (!saved.orderLine) {
         throw new Error("PostgreSQL order line quantity adjustment transaction returned an invalid order line");
@@ -73,15 +116,29 @@ export function createPostgresOrderLineQuantityAdjustmentTransactionRepository(o
         fulfillmentRecords: saved.fulfillmentRecords,
         priceSnapshots: saved.priceSnapshots,
         inventoryReservations: saved.inventoryReservations,
-        inventoryAdjustments: input.inventoryAdjustments,
+        inventoryItems: saved.inventoryItems,
         inventoryLedgerEntries: saved.inventoryLedgerEntries,
         statementLines: saved.statementLines,
         statementRecords: saved.statementRecords,
         orderLineChangeRecord: input.orderLineChangeRecord,
-        operationLog: input.operationLog,
+        operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
       return saved;
     },
+  };
+}
+
+function buildOrderLineQuantityAdjustmentIdempotencyPayload(input = {}) {
+  return {
+    orderLine: input.orderLine,
+    fulfillmentRecords: input.fulfillmentRecords,
+    priceSnapshots: input.priceSnapshots,
+    inventoryReservations: input.inventoryReservations,
+    inventoryAdjustments: input.inventoryAdjustments,
+    inventoryLedgerEntries: input.inventoryLedgerEntries,
+    statementLines: input.statementLines,
+    statementRecords: input.statementRecords,
+    orderLineChangeRecord: input.orderLineChangeRecord,
   };
 }
 
@@ -111,10 +168,126 @@ function buildAdjustOrderLineQuantityTransactionText(input, parameters) {
   if (!orderLine || !orderLineChangeRecord || !operationLog) {
     throw new Error("Order line, order line change record, and operation log are required");
   }
+  const expectedOrderLineRevision = Math.max(1, toFiniteInteger(input.expectedOrderLineRevision ?? orderLine.revision));
 
   return `
 BEGIN;
-WITH updated_order_line AS (
+WITH locked_order_line AS MATERIALIZED (
+  SELECT id, revision
+  FROM order_lines
+  WHERE id = ${parameters.text(orderLine.orderLineId)}
+  FOR UPDATE
+),
+fulfillment_updates AS MATERIALIZED (
+  ${buildFulfillmentUpdatesSql(fulfillmentRecords, parameters)}
+),
+locked_fulfillment_records AS MATERIALIZED (
+  SELECT fulfillment.id, fulfillment.revision
+  FROM fulfillment_records AS fulfillment
+  JOIN fulfillment_updates AS updates ON updates.id = fulfillment.id
+  ORDER BY fulfillment.id
+  FOR UPDATE OF fulfillment
+),
+reservation_updates AS MATERIALIZED (
+  ${buildReservationUpdatesSql(inventoryReservations, parameters)}
+),
+locked_inventory_reservations AS MATERIALIZED (
+  SELECT reservation.id, reservation.revision, reservation.reserved_qty, reservation.status
+  FROM inventory_reservations AS reservation
+  JOIN reservation_updates AS updates ON updates.id = reservation.id
+  ORDER BY reservation.id
+  FOR UPDATE OF reservation
+),
+inventory_deltas AS MATERIALIZED (
+  ${buildInventoryDeltasSql(inventoryAdjustments, parameters)}
+),
+locked_inventory_items AS MATERIALIZED (
+  SELECT item.id, item.revision, item.reserved_qty, delta.reserved_qty_change
+  FROM inventory_items AS item
+  JOIN inventory_deltas AS delta ON delta.inventory_item_id = item.id
+  ORDER BY item.id
+  FOR UPDATE OF item
+),
+statement_line_updates AS MATERIALIZED (
+  ${buildStatementLineUpdatesSql(statementLines, parameters)}
+),
+locked_statement_lines AS MATERIALIZED (
+  SELECT line.id, line.revision, line.delivered_qty, line.chargeable_qty, line.final_amount
+  FROM statement_lines AS line
+  JOIN statement_line_updates AS updates ON updates.id = line.id
+  ORDER BY line.id
+  FOR UPDATE OF line
+),
+statement_updates AS MATERIALIZED (
+  ${buildStatementUpdatesSql(statementRecords, parameters)}
+),
+locked_statements AS MATERIALIZED (
+  SELECT statement.id, statement.revision
+  FROM statements AS statement
+  JOIN statement_updates AS updates ON updates.id = statement.id
+  ORDER BY statement.id
+  FOR UPDATE OF statement
+),
+write_guard AS MATERIALIZED (
+  SELECT
+    erp_require(
+      EXISTS (SELECT 1 FROM locked_order_line WHERE revision = ${parameters.integer(expectedOrderLineRevision)}),
+      'ERP_ORDER_LINE_CONCURRENCY_CONFLICT'
+    )
+    AND erp_require(
+      (SELECT COUNT(*) FROM locked_fulfillment_records) = (SELECT COUNT(*) FROM fulfillment_updates)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_fulfillment_records AS locked
+        JOIN fulfillment_updates AS updates ON updates.id = locked.id
+        WHERE locked.revision <> updates.expected_revision
+      ),
+      'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
+    )
+    AND erp_require(
+      (SELECT COUNT(*) FROM locked_inventory_reservations) = (SELECT COUNT(*) FROM reservation_updates)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_inventory_reservations AS locked
+        JOIN reservation_updates AS updates ON updates.id = locked.id
+        WHERE locked.revision <> updates.expected_revision
+           OR locked.reserved_qty <> updates.expected_reserved_qty
+           OR locked.status <> updates.expected_status
+      ),
+      'ERP_RESERVATION_CONCURRENCY_CONFLICT'
+    )
+    AND erp_require(
+      (SELECT COUNT(*) FROM locked_inventory_items) = (SELECT COUNT(*) FROM inventory_deltas)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_inventory_items AS locked
+        JOIN inventory_deltas AS delta ON delta.inventory_item_id = locked.id
+        WHERE locked.revision <> delta.expected_revision
+           OR locked.reserved_qty <> delta.expected_reserved_qty
+           OR locked.reserved_qty + locked.reserved_qty_change < 0
+      ),
+      'ERP_INVENTORY_CONCURRENCY_CONFLICT'
+    )
+    AND erp_require(
+      (SELECT COUNT(*) FROM locked_statement_lines) = (SELECT COUNT(*) FROM statement_line_updates)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_statement_lines AS locked
+        JOIN statement_line_updates AS updates ON updates.id = locked.id
+        WHERE locked.revision <> updates.expected_revision
+           OR locked.delivered_qty <> updates.expected_delivered_qty
+           OR locked.chargeable_qty <> updates.expected_chargeable_qty
+           OR locked.final_amount <> updates.expected_final_amount
+      ),
+      'ERP_STATEMENT_LINE_CONCURRENCY_CONFLICT'
+    )
+    AND erp_require(
+      (SELECT COUNT(*) FROM locked_statements) = (SELECT COUNT(*) FROM statement_updates)
+      AND NOT EXISTS (
+        SELECT 1 FROM locked_statements AS locked
+        JOIN statement_updates AS updates ON updates.id = locked.id
+        WHERE locked.revision <> updates.expected_revision
+      ),
+      'ERP_STATEMENT_CONCURRENCY_CONFLICT'
+    ) AS ok
+),
+updated_order_line AS (
   UPDATE order_lines
   SET
     original_qty = ${parameters.integer(orderLine.originalQty)},
@@ -122,7 +295,8 @@ WITH updated_order_line AS (
     exception_tags = ${parameters.textArray(orderLine.exceptionTags)},
     revision = revision + 1,
     updated_at = now()
-  WHERE id = ${parameters.text(orderLine.orderLineId)}
+  FROM write_guard AS guard
+  WHERE id = ${parameters.text(orderLine.orderLineId)} AND guard.ok
   RETURNING ${orderLineJsonExpression("order_lines")} AS result
 ),
 updated_fulfillment_records AS (
@@ -219,9 +393,16 @@ SELECT json_build_object(
   'fulfillmentRecords', (SELECT COALESCE(json_agg(result ORDER BY result->>'fulfillmentId'), '[]'::json) FROM updated_fulfillment_records),
   'priceSnapshots', (SELECT COALESCE(json_agg(result ORDER BY result->>'priceSnapshotId'), '[]'::json) FROM inserted_price_snapshots),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM updated_inventory_reservations),
+  'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'statementLines', (SELECT COALESCE(json_agg(result ORDER BY result->>'statementLineId'), '[]'::json) FROM updated_statement_lines),
   'statementRecords', (SELECT COALESCE(json_agg(result ORDER BY result->>'statementId'), '[]'::json) FROM updated_statement_records),
+  'previousQty', ${parameters.integer(orderLineChangeRecord.before?.originalQty)},
+  'newQty', ${parameters.integer(orderLineChangeRecord.after?.originalQty ?? orderLine.originalQty)},
+  'qtyDelta', ${parameters.integer(
+    toFiniteInteger(orderLineChangeRecord.after?.originalQty ?? orderLine.originalQty) -
+      toFiniteInteger(orderLineChangeRecord.before?.originalQty),
+  )},
   'orderLineChangeRecordId', (SELECT id FROM inserted_order_line_change_record),
   'operationLogId', (SELECT id FROM inserted_operation_log)
 ) AS result;
@@ -236,9 +417,13 @@ export function normalizeOrderLineQuantityAdjustmentTransactionResult(value) {
       fulfillmentRecords: [],
       priceSnapshots: [],
       inventoryReservations: [],
+      inventoryItems: [],
       inventoryLedgerEntries: [],
       statementLines: [],
       statementRecords: [],
+      previousQty: 0,
+      newQty: 0,
+      qtyDelta: 0,
       orderLineChangeRecordId: "",
       operationLogId: "",
     };
@@ -248,9 +433,13 @@ export function normalizeOrderLineQuantityAdjustmentTransactionResult(value) {
     fulfillmentRecords: normalizeFulfillmentRecords(value.fulfillmentRecords ?? value.fulfillment_records ?? []),
     priceSnapshots: normalizePriceSnapshots(value.priceSnapshots ?? value.price_snapshots ?? []),
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
+    inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),
     inventoryLedgerEntries: normalizeInventoryLedgerEntries(value.inventoryLedgerEntries ?? value.inventory_ledger_entries ?? []),
     statementLines: normalizeStatementLines(value.statementLines ?? value.statement_lines ?? []),
     statementRecords: normalizeStatementRecords(value.statementRecords ?? value.statement_records ?? []),
+    previousQty: toFiniteInteger(value.previousQty ?? value.previous_qty),
+    newQty: toFiniteInteger(value.newQty ?? value.new_qty ?? value.orderLine?.originalQty ?? value.order_line?.original_qty),
+    qtyDelta: toFiniteInteger(value.qtyDelta ?? value.qty_delta),
     orderLineChangeRecordId: String(value.orderLineChangeRecordId ?? value.order_line_change_record_id ?? "").trim(),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
   };
@@ -275,7 +464,11 @@ function applyOrderLineQuantityAdjustmentWorkspaceMutation(input) {
   for (const reservation of inventoryReservations) {
     workspace.inventoryReservations = upsertById(workspace.inventoryReservations ?? [], reservation);
   }
-  applyWorkspaceInventoryAdjustments(workspace, input.inventoryAdjustments ?? []);
+  if (Array.isArray(input.inventoryItems) && input.inventoryItems.length > 0) {
+    applyWorkspaceInventoryItems(workspace, input.inventoryItems);
+  } else {
+    applyWorkspaceInventoryAdjustments(workspace, input.inventoryAdjustments ?? []);
+  }
   const inventoryLedgerEntries = (input.inventoryLedgerEntries ?? []).map(toWorkspaceInventoryLedgerEntry).filter(Boolean);
   for (const ledger of inventoryLedgerEntries) {
     workspace.inventoryLedgers = upsertById(workspace.inventoryLedgers ?? [], ledger);
@@ -297,6 +490,31 @@ function applyOrderLineQuantityAdjustmentWorkspaceMutation(input) {
   if (input.operationLog) {
     workspace.operationLogs = upsertById(workspace.operationLogs ?? [], input.operationLog);
   }
+}
+
+function normalizeInventoryItems(records) {
+  if (!Array.isArray(records)) return [];
+  return records
+    .map((record) => {
+      const inventoryItemId = String(record?.inventoryItemId ?? record?.id ?? "").trim();
+      if (!inventoryItemId) return null;
+      return {
+        inventoryItemId,
+        id: inventoryItemId,
+        reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty),
+        revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
+      };
+    })
+    .filter(Boolean);
+}
+
+function applyWorkspaceInventoryItems(workspace, inventoryItems) {
+  if (!Array.isArray(workspace.inventories)) return;
+  const byId = new Map(normalizeInventoryItems(inventoryItems).map((item) => [item.inventoryItemId, item]));
+  workspace.inventories = workspace.inventories.map((inventory) => {
+    const saved = byId.get(inventory.id);
+    return saved ? { ...inventory, reserved: saved.reservedQty, revision: saved.revision } : inventory;
+  });
 }
 
 function applyWorkspaceInventoryAdjustments(workspace, inventoryAdjustments) {
@@ -341,6 +559,7 @@ function normalizeOrderLine(record) {
     fulfillmentMethod: String(record.fulfillmentMethod ?? record.fulfillment_method ?? record.fulfillment ?? "待确认").trim(),
     lineStatus: String(record.lineStatus ?? record.line_status ?? record.status ?? "待确认").trim() || "待确认",
     exceptionTags: normalizeTextArray(record.exceptionTags ?? record.exception_tags ?? record.exceptions ?? []),
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
     createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
     closedAt: record.closedAt ?? record.closed_at ?? "",
@@ -372,6 +591,7 @@ function normalizeFulfillmentRecord(record) {
     expectedQty: toFiniteInteger(record.expectedQty ?? record.expected_qty ?? record.qty),
     actualQty: record.actualQty ?? record.actual_qty ?? null,
     status: String(record.status ?? "待出库").trim() || "待出库",
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
     latestNeededAt: record.latestNeededAt ?? record.latest_needed_at ?? record.latest ?? "",
     confirmedBy: String(record.confirmedBy ?? record.confirmed_by ?? "").trim(),
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
@@ -426,6 +646,9 @@ function normalizeInventoryReservation(record) {
     reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty ?? record.qty),
     reservationType: String(record.reservationType ?? record.reservation_type ?? "出库占用").trim() || "出库占用",
     status: String(record.status ?? "生效").trim() || "生效",
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
+    expectedReservedQty: toFiniteInteger(record.expectedReservedQty ?? record.expected_reserved_qty),
+    expectedStatus: String(record.expectedStatus ?? record.expected_status ?? "生效").trim() || "生效",
     expiresAt: record.expiresAt ?? record.expires_at ?? "",
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
     createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
@@ -434,7 +657,22 @@ function normalizeInventoryReservation(record) {
 
 function normalizeInventoryAdjustments(records) {
   if (!Array.isArray(records)) return [];
-  return records.map(normalizeInventoryAdjustment).filter(Boolean);
+  const byInventoryItemId = new Map();
+  for (const adjustment of records.map(normalizeInventoryAdjustment).filter(Boolean)) {
+    const existing = byInventoryItemId.get(adjustment.inventoryItemId);
+    if (!existing) {
+      byInventoryItemId.set(adjustment.inventoryItemId, adjustment);
+      continue;
+    }
+    if (
+      existing.expectedRevision !== adjustment.expectedRevision ||
+      existing.expectedReservedQty !== adjustment.expectedReservedQty
+    ) {
+      throw new Error(`Conflicting inventory snapshots for ${adjustment.inventoryItemId}`);
+    }
+    existing.reservedQtyChange += adjustment.reservedQtyChange;
+  }
+  return [...byInventoryItemId.values()];
 }
 
 function normalizeInventoryAdjustment(record) {
@@ -444,6 +682,8 @@ function normalizeInventoryAdjustment(record) {
   return {
     inventoryItemId,
     reservedQtyChange: toFiniteInteger(record.reservedQtyChange ?? record.reserved_qty_change ?? 0),
+    expectedRevision: Math.max(1, toFiniteInteger(record.expectedRevision ?? record.expected_revision ?? 1)),
+    expectedReservedQty: toFiniteInteger(record.expectedReservedQty ?? record.expected_reserved_qty),
   };
 }
 
@@ -499,6 +739,11 @@ function normalizeStatementLine(record) {
     amount: toFiniteNumber(record.amount ?? 0),
     adjustmentAmount: toFiniteNumber(record.adjustmentAmount ?? record.adjustment_amount ?? 0),
     finalAmount: toFiniteNumber(record.finalAmount ?? record.final_amount ?? record.amount ?? 0),
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
+    expectedRevision: Math.max(1, toFiniteInteger(record.expectedRevision ?? record.expected_revision ?? record.revision ?? 1)),
+    expectedDeliveredQty: toFiniteInteger(record.expectedDeliveredQty ?? record.expected_delivered_qty),
+    expectedChargeableQty: toFiniteInteger(record.expectedChargeableQty ?? record.expected_chargeable_qty),
+    expectedFinalAmount: toFiniteNumber(record.expectedFinalAmount ?? record.expected_final_amount),
     createdAt: record.createdAt ?? record.created_at ?? new Date().toISOString(),
   };
 }
@@ -519,6 +764,7 @@ function normalizeStatementRecord(record) {
     receivable: toFiniteNumber(record.receivable ?? record.receivableAmount ?? record.receivable_amount ?? 0),
     received: toFiniteNumber(record.received ?? record.receivedAmount ?? record.received_amount ?? 0),
     variance: toFiniteNumber(record.variance ?? record.varianceAmount ?? record.variance_amount ?? 0),
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
   };
 }
 
@@ -581,6 +827,7 @@ function toWorkspaceOrderLine(record) {
     fulfillment: record.fulfillment ?? line.fulfillmentMethod,
     latest: record.latest ?? line.latestNeededAt,
     exceptions: line.exceptionTags,
+    revision: line.revision,
   };
 }
 
@@ -596,6 +843,7 @@ function toWorkspaceFulfillment(record) {
     qty: fulfillment.expectedQty,
     status: fulfillment.status,
     latest: record.latest ?? fulfillment.latestNeededAt,
+    revision: fulfillment.revision,
   };
 }
 
@@ -633,6 +881,7 @@ function toWorkspaceInventoryReservation(record) {
     reservedQty: reservation.reservedQty,
     reservationType: reservation.reservationType,
     status: reservation.status,
+    revision: reservation.revision,
     expiresAt: reservation.expiresAt,
     createdBy: reservation.createdBy,
     createdAt: reservation.createdAt,
@@ -660,6 +909,7 @@ function toWorkspaceStatementLine(record) {
     amount: line.amount,
     adjustmentAmount: line.adjustmentAmount,
     finalAmount: line.finalAmount,
+    revision: line.revision,
     createdAt: line.createdAt,
   };
 }
@@ -674,27 +924,21 @@ function toWorkspaceStatementRecord(record) {
     receivable: statement.receivable,
     received: statement.received,
     variance: statement.variance,
+    revision: statement.revision,
   };
 }
 
-function buildUpdateFulfillmentRecordsSql(records, parameters) {
+function buildUpdateFulfillmentRecordsSql(records, _parameters) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map(
-      (record) =>
-        `(${parameters.text(record.fulfillmentId)}, ${parameters.integer(record.expectedQty)}, ${parameters.text(record.status)}, ${parameters.nullableText(record.confirmedBy)})`,
-    )
-    .join(",\n");
   return `UPDATE fulfillment_records AS fulfillment
 SET
   expected_qty = updates.expected_qty,
   status = updates.status,
   confirmed_by = COALESCE(updates.confirmed_by, fulfillment.confirmed_by),
+  revision = fulfillment.revision + 1,
   updated_at = now()
-FROM (VALUES
-${values}
-) AS updates(id, expected_qty, status, confirmed_by)
-WHERE fulfillment.id = updates.id
+FROM fulfillment_updates AS updates, write_guard AS guard
+WHERE fulfillment.id = updates.id AND guard.ok
 RETURNING ${fulfillmentRecordJsonExpression("fulfillment")} AS result`;
 }
 
@@ -733,8 +977,26 @@ function buildInsertPriceSnapshotsSql(records, parameters) {
   override_reason,
   created_by,
   created_at
-) VALUES
+) SELECT input.*
+FROM (VALUES
 ${values}
+) AS input(
+  id,
+  order_line_id,
+  snapshot_type,
+  version_no,
+  bag_price,
+  print_price,
+  other_fee,
+  adjustment_amount,
+  chargeable_qty,
+  final_amount,
+  override_reason,
+  created_by,
+  created_at
+)
+CROSS JOIN write_guard AS guard
+WHERE guard.ok
 ON CONFLICT (order_line_id, snapshot_type, version_no) DO UPDATE SET
   bag_price = EXCLUDED.bag_price,
   print_price = EXCLUDED.print_price,
@@ -746,43 +1008,32 @@ ON CONFLICT (order_line_id, snapshot_type, version_no) DO UPDATE SET
 RETURNING ${priceSnapshotJsonExpression("price_snapshots")} AS result`;
 }
 
-function buildUpdateInventoryReservationsSql(records, parameters) {
+function buildUpdateInventoryReservationsSql(records, _parameters) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map((record) => `(${parameters.text(record.reservationId)}, ${parameters.integer(record.reservedQty)}, ${parameters.text(record.status)})`)
-    .join(",\n");
   return `UPDATE inventory_reservations AS reservation
 SET
   reserved_qty = updates.reserved_qty,
   status = updates.status,
+  revision = reservation.revision + 1,
   updated_at = now()
-FROM (VALUES
-${values}
-) AS updates(id, reserved_qty, status)
-WHERE reservation.id = updates.id
+FROM reservation_updates AS updates, write_guard AS guard
+WHERE reservation.id = updates.id AND guard.ok
 RETURNING ${inventoryReservationJsonExpression("reservation")} AS result`;
 }
 
-function buildUpdateInventoryItemsSql(records, parameters) {
+function buildUpdateInventoryItemsSql(records, _parameters) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map((record) => `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.reservedQtyChange)})`)
-    .join(",\n");
   return `UPDATE inventory_items AS item
 SET
-  reserved_qty = GREATEST(0, item.reserved_qty + delta.reserved_qty_change),
+  reserved_qty = item.reserved_qty + delta.reserved_qty_change,
+  revision = item.revision + 1,
   updated_at = now()
-FROM (
-  SELECT inventory_item_id, SUM(reserved_qty_change)::INTEGER AS reserved_qty_change
-  FROM (VALUES
-${values}
-  ) AS raw(inventory_item_id, reserved_qty_change)
-  GROUP BY inventory_item_id
-) AS delta
-WHERE item.id = delta.inventory_item_id
+FROM inventory_deltas AS delta, write_guard AS guard
+WHERE item.id = delta.inventory_item_id AND guard.ok
 RETURNING json_build_object(
   'inventoryItemId', item.id,
-  'reservedQty', item.reserved_qty
+  'reservedQty', item.reserved_qty,
+  'revision', item.revision
 ) AS result`;
 }
 
@@ -838,21 +1089,8 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING ${inventoryLedgerJsonExpression("inventory_ledger_entries")} AS result`;
 }
 
-function buildUpdateStatementLinesSql(records, parameters) {
+function buildUpdateStatementLinesSql(records, _parameters) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map(
-      (record) => `(
-    ${parameters.text(record.statementLineId)},
-    ${parameters.integer(record.deliveredQty)},
-    ${parameters.integer(record.chargeableQty)},
-    ${parameters.integer(record.freeQty)},
-    ${parameters.number(record.amount)},
-    ${parameters.number(record.adjustmentAmount)},
-    ${parameters.number(record.finalAmount)}
-  )`,
-    )
-    .join(",\n");
   return `UPDATE statement_lines AS line
 SET
   delivered_qty = updates.delivered_qty,
@@ -860,39 +1098,103 @@ SET
   free_qty = updates.free_qty,
   amount = updates.amount,
   adjustment_amount = updates.adjustment_amount,
-  final_amount = updates.final_amount
-FROM (VALUES
-${values}
-) AS updates(id, delivered_qty, chargeable_qty, free_qty, amount, adjustment_amount, final_amount)
-WHERE line.id = updates.id
+  final_amount = updates.final_amount,
+  revision = line.revision + 1
+FROM statement_line_updates AS updates, write_guard AS guard
+WHERE line.id = updates.id AND guard.ok
 RETURNING ${statementLineJsonExpression("line")} AS result`;
 }
 
-function buildUpdateStatementRecordsSql(records, parameters) {
+function buildUpdateStatementRecordsSql(records, _parameters) {
   if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
-  const values = records
-    .map(
-      (record) => `(
-    ${parameters.text(record.statementId)},
-    ${parameters.nullableText(record.status)},
-    ${parameters.number(record.receivable)},
-    ${parameters.number(record.received)},
-    ${parameters.number(record.variance)}
-  )`,
-    )
-    .join(",\n");
   return `UPDATE statements AS statement
 SET
   status = COALESCE(NULLIF(updates.status, ''), statement.status),
   receivable_amount = updates.receivable_amount,
   received_amount = updates.received_amount,
   variance_amount = updates.variance_amount,
+  revision = statement.revision + 1,
   updated_at = now()
-FROM (VALUES
-${values}
-) AS updates(id, status, receivable_amount, received_amount, variance_amount)
-WHERE statement.id = updates.id
+FROM statement_updates AS updates, write_guard AS guard
+WHERE statement.id = updates.id AND guard.ok
 RETURNING ${statementRecordJsonExpression("statement")} AS result`;
+}
+
+function buildFulfillmentUpdatesSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS id, NULL::integer AS expected_qty, NULL::text AS status, NULL::text AS confirmed_by, NULL::integer AS expected_revision WHERE false";
+  }
+  const values = records.map((record) => `(
+    ${parameters.text(record.fulfillmentId)},
+    ${parameters.integer(record.expectedQty)},
+    ${parameters.text(record.status)},
+    ${parameters.nullableText(record.confirmedBy)},
+    ${parameters.integer(record.revision)}
+  )`).join(",\n");
+  return `SELECT * FROM (VALUES\n${values}\n) AS updates(id, expected_qty, status, confirmed_by, expected_revision)`;
+}
+
+function buildReservationUpdatesSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS id, NULL::integer AS reserved_qty, NULL::text AS status, NULL::integer AS expected_revision, NULL::integer AS expected_reserved_qty, NULL::text AS expected_status WHERE false";
+  }
+  const values = records.map((record) => `(
+    ${parameters.text(record.reservationId)},
+    ${parameters.integer(record.reservedQty)},
+    ${parameters.text(record.status)},
+    ${parameters.integer(record.revision)},
+    ${parameters.integer(record.expectedReservedQty)},
+    ${parameters.text(record.expectedStatus)}
+  )`).join(",\n");
+  return `SELECT * FROM (VALUES\n${values}\n) AS updates(id, reserved_qty, status, expected_revision, expected_reserved_qty, expected_status)`;
+}
+
+function buildInventoryDeltasSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS inventory_item_id, NULL::integer AS reserved_qty_change, NULL::integer AS expected_revision, NULL::integer AS expected_reserved_qty WHERE false";
+  }
+  const values = records.map((record) => `(
+    ${parameters.text(record.inventoryItemId)},
+    ${parameters.integer(record.reservedQtyChange)},
+    ${parameters.integer(record.expectedRevision)},
+    ${parameters.integer(record.expectedReservedQty)}
+  )`).join(",\n");
+  return `SELECT * FROM (VALUES\n${values}\n) AS delta(inventory_item_id, reserved_qty_change, expected_revision, expected_reserved_qty)`;
+}
+
+function buildStatementLineUpdatesSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS id, NULL::integer AS delivered_qty, NULL::integer AS chargeable_qty, NULL::integer AS free_qty, NULL::numeric AS amount, NULL::numeric AS adjustment_amount, NULL::numeric AS final_amount, NULL::integer AS expected_revision, NULL::integer AS expected_delivered_qty, NULL::integer AS expected_chargeable_qty, NULL::numeric AS expected_final_amount WHERE false";
+  }
+  const values = records.map((record) => `(
+    ${parameters.text(record.statementLineId)},
+    ${parameters.integer(record.deliveredQty)},
+    ${parameters.integer(record.chargeableQty)},
+    ${parameters.integer(record.freeQty)},
+    ${parameters.number(record.amount)},
+    ${parameters.number(record.adjustmentAmount)},
+    ${parameters.number(record.finalAmount)},
+    ${parameters.integer(record.expectedRevision)},
+    ${parameters.integer(record.expectedDeliveredQty)},
+    ${parameters.integer(record.expectedChargeableQty)},
+    ${parameters.number(record.expectedFinalAmount)}
+  )`).join(",\n");
+  return `SELECT * FROM (VALUES\n${values}\n) AS updates(id, delivered_qty, chargeable_qty, free_qty, amount, adjustment_amount, final_amount, expected_revision, expected_delivered_qty, expected_chargeable_qty, expected_final_amount)`;
+}
+
+function buildStatementUpdatesSql(records, parameters) {
+  if (records.length === 0) {
+    return "SELECT NULL::text AS id, NULL::text AS status, NULL::numeric AS receivable_amount, NULL::numeric AS received_amount, NULL::numeric AS variance_amount, NULL::integer AS expected_revision WHERE false";
+  }
+  const values = records.map((record) => `(
+    ${parameters.text(record.statementId)},
+    ${parameters.nullableText(record.status)},
+    ${parameters.number(record.receivable)},
+    ${parameters.number(record.received)},
+    ${parameters.number(record.variance)},
+    ${parameters.integer(record.revision)}
+  )`).join(",\n");
+  return `SELECT * FROM (VALUES\n${values}\n) AS updates(id, status, receivable_amount, received_amount, variance_amount, expected_revision)`;
 }
 
 function orderLineJsonExpression(alias) {
@@ -916,6 +1218,7 @@ function orderLineJsonExpression(alias) {
     'fulfillmentMethod', ${alias}.fulfillment_method,
     'lineStatus', ${alias}.line_status,
     'exceptionTags', ${alias}.exception_tags,
+    'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at,
     'closedAt', ${alias}.closed_at,
@@ -936,6 +1239,7 @@ function fulfillmentRecordJsonExpression(alias) {
     'expectedQty', ${alias}.expected_qty,
     'actualQty', ${alias}.actual_qty,
     'status', ${alias}.status,
+    'revision', ${alias}.revision,
     'latestNeededAt', ${alias}.latest_needed_at,
     'confirmedBy', ${alias}.confirmed_by,
     'createdBy', ${alias}.created_by,
@@ -969,6 +1273,7 @@ function inventoryReservationJsonExpression(alias) {
     'reservedQty', ${alias}.reserved_qty,
     'reservationType', ${alias}.reservation_type,
     'status', ${alias}.status,
+    'revision', ${alias}.revision,
     'expiresAt', ${alias}.expires_at,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at
@@ -1006,6 +1311,7 @@ function statementLineJsonExpression(alias) {
     'amount', ${alias}.amount,
     'adjustmentAmount', ${alias}.adjustment_amount,
     'finalAmount', ${alias}.final_amount,
+    'revision', ${alias}.revision,
     'createdAt', ${alias}.created_at
   )`;
 }
@@ -1016,7 +1322,8 @@ function statementRecordJsonExpression(alias) {
     'status', ${alias}.status,
     'receivable', ${alias}.receivable_amount,
     'received', ${alias}.received_amount,
-    'variance', ${alias}.variance_amount
+    'variance', ${alias}.variance_amount,
+    'revision', ${alias}.revision
   )`;
 }
 

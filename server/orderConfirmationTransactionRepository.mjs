@@ -53,6 +53,7 @@ export function createLocalOrderConfirmationTransactionRepository() {
         priceSnapshots: transaction.priceSnapshots,
         fulfillmentRecords: transaction.fulfillmentRecords,
         inventoryReservations: transaction.inventoryReservations,
+        inventoryItems: transaction.inventoryItems,
         inventoryLedgerEntries: transaction.inventoryLedgerEntries,
         todos: transaction.todos,
         operationLog: input.operationLog,
@@ -96,6 +97,7 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
         priceSnapshots: saved.priceSnapshots,
         fulfillmentRecords: saved.fulfillmentRecords,
         inventoryReservations: saved.inventoryReservations,
+        inventoryItems: saved.inventoryItems,
         inventoryLedgerEntries: saved.inventoryLedgerEntries,
         todos: saved.todos,
         operationLog: input.operationLog,
@@ -291,6 +293,7 @@ SELECT json_build_object(
   'priceSnapshots', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM inserted_price_snapshots),
   'fulfillmentRecords', (SELECT COALESCE(json_agg(result ORDER BY result->>'fulfillmentId'), '[]'::json) FROM inserted_fulfillment_records),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM inserted_inventory_reservations),
+  'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'todos', (SELECT COALESCE(json_agg(result ORDER BY result->>'id'), '[]'::json) FROM inserted_todos),
   'operationLogId', (SELECT id FROM inserted_operation_log),
@@ -311,6 +314,7 @@ export function normalizeOrderConfirmationTransactionResult(value) {
       priceSnapshots: [],
       fulfillmentRecords: [],
       inventoryReservations: [],
+      inventoryItems: [],
       inventoryLedgerEntries: [],
       todos: [],
       operationLogId: "",
@@ -325,6 +329,7 @@ export function normalizeOrderConfirmationTransactionResult(value) {
     priceSnapshots: normalizePriceSnapshots(value.priceSnapshots ?? value.price_snapshots ?? [], orderLines),
     fulfillmentRecords: normalizeFulfillmentRecords(value.fulfillmentRecords ?? value.fulfillment_records ?? []),
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
+    inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),
     inventoryLedgerEntries: normalizeInventoryLedgerEntries(value.inventoryLedgerEntries ?? value.inventory_ledger_entries ?? []),
     todos: normalizeTodos(value.todos ?? []),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
@@ -550,6 +555,7 @@ function applyOrderConfirmationWorkspaceMutation({
   priceSnapshots = [],
   fulfillmentRecords,
   inventoryReservations,
+  inventoryItems = [],
   inventoryLedgerEntries,
   todos,
   operationLog,
@@ -580,7 +586,11 @@ function applyOrderConfirmationWorkspaceMutation({
       (item) => !fulfillmentRecords.some((record) => record.fulfillmentId === item.id),
     ),
   ];
-  applyWorkspaceInventoryReservations(workspace, inventoryReservations);
+  if (inventoryItems.length > 0) {
+    applyWorkspaceInventoryItems(workspace, inventoryItems);
+  } else {
+    applyWorkspaceInventoryReservations(workspace, inventoryReservations);
+  }
   workspace.inventoryReservations = [
     ...inventoryReservations.map(toWorkspaceInventoryReservation),
     ...(workspace.inventoryReservations ?? []).filter(
@@ -675,6 +685,37 @@ function applyWorkspaceInventoryReservations(workspace, inventoryReservations) {
       .reduce((sum, reservation) => sum + Number(reservation.reservedQty ?? 0), 0);
     if (!reservedQty) return inventory;
     return { ...inventory, reserved: Number(inventory.reserved ?? 0) + reservedQty };
+  });
+}
+
+function normalizeInventoryItems(records) {
+  if (!Array.isArray(records)) return [];
+  return records
+    .map((record) => {
+      const inventoryItemId = String(record?.inventoryItemId ?? record?.inventory_item_id ?? record?.id ?? "").trim();
+      if (!inventoryItemId) return null;
+      return {
+        inventoryItemId,
+        id: inventoryItemId,
+        reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty),
+        revision: Math.max(1, toFiniteInteger(record.revision)),
+      };
+    })
+    .filter(Boolean);
+}
+
+function applyWorkspaceInventoryItems(workspace, inventoryItems) {
+  if (!Array.isArray(workspace.inventories) || inventoryItems.length === 0) return;
+  const byId = new Map(normalizeInventoryItems(inventoryItems).map((item) => [item.inventoryItemId, item]));
+  workspace.inventories = workspace.inventories.map((inventory) => {
+    const saved = byId.get(inventory.id ?? inventory.inventoryItemId);
+    if (!saved) return inventory;
+    return {
+      ...inventory,
+      reserved: saved.reservedQty,
+      reservedQty: saved.reservedQty,
+      revision: saved.revision,
+    };
   });
 }
 

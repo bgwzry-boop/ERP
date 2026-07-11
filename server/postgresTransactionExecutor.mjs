@@ -7,11 +7,15 @@ export function createPostgresTransactionExecutor(options = {}) {
     options.transactionJson ??
     options.queryJson ??
     ((text, values) => postgresClient.transactionJson(text, values));
+  const queryJson =
+    options.queryJson ??
+    postgresClient?.queryJson?.bind(postgresClient) ??
+    transactionJson;
 
   const idempotentTransactionJson =
     options.idempotentTransactionJson ??
     postgresClient?.idempotentTransactionJson?.bind(postgresClient) ??
     ((request) => transactionJson(request.text, request.values));
 
-  return { transactionJson, idempotentTransactionJson };
+  return { queryJson, transactionJson, idempotentTransactionJson };
 }

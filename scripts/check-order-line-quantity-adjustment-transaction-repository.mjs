@@ -78,6 +78,9 @@ async function checkLocalWorkspaceMutation() {
   });
 
   assert.equal(transaction.orderLine.originalQty, 80);
+  assert.equal(transaction.previousQty, 100);
+  assert.equal(transaction.newQty, 80);
+  assert.equal(transaction.qtyDelta, -20);
   assert.equal(transaction.fulfillmentRecords[0].expectedQty, 80);
   assert.equal(transaction.priceSnapshots[0].finalAmount, 160);
   assert.equal(transaction.inventoryReservations[0].reservedQty, 80);
@@ -100,31 +103,47 @@ async function checkLocalWorkspaceMutation() {
 
 async function checkPostgresSqlBoundary() {
   const calls = [];
+  let persistedResponse = null;
   const repository = createPostgresOrderLineQuantityAdjustmentTransactionRepository({
     postgresClient: {
-      transactionJson(text, values) {
-        calls.push({ text, values });
-        return {
-          orderLine: buildOrderLine({ originalQty: 120, amount: 240 }),
-          fulfillmentRecords: [buildFulfillment({ expectedQty: 120 })],
+      queryJson() {
+        return persistedResponse
+          ? { requestHash: calls[0].requestHash, response: persistedResponse }
+          : null;
+      },
+      idempotentTransactionJson(request) {
+        calls.push(request);
+        persistedResponse = {
+          orderLine: buildOrderLine({ originalQty: 120, amount: 240, revision: 2 }),
+          fulfillmentRecords: [buildFulfillment({ expectedQty: 120, revision: 2 })],
           priceSnapshots: [buildPriceSnapshot({ versionNo: 2, chargeableQty: 120, finalAmount: 240 })],
-          inventoryReservations: [buildReservation({ reservedQty: 120 })],
+          inventoryReservations: [buildReservation({ reservedQty: 120, revision: 2 })],
+          inventoryItems: [{ inventoryItemId: "INV-Q001", reservedQty: 120, revision: 2 }],
           inventoryLedgerEntries: [buildLedger({ qtyBefore: 100, qtyChange: 20, qtyAfter: 120, reason: "O'Brien changed qty" })],
-          statementLines: [buildStatementLine({ chargeableQty: 120, amount: 240, finalAmount: 240 })],
-          statementRecords: [buildStatementRecord({ receivable: 240, received: 50, variance: 190 })],
+          statementLines: [buildStatementLine({ chargeableQty: 120, amount: 240, finalAmount: 240, revision: 2 })],
+          statementRecords: [buildStatementRecord({ receivable: 240, received: 50, variance: 190, revision: 2 })],
+          previousQty: 100,
+          newQty: 120,
+          qtyDelta: 20,
           orderLineChangeRecordId: "OLCR-Q001",
           operationLogId: "LOG-Q001",
         };
+        return persistedResponse;
       },
     },
   });
   const transaction = await repository.adjustOrderLineQuantity({
     workspace: {},
-    orderLine: buildOrderLine({ originalQty: 120, amount: 240 }),
+    idempotencyKey: "qty-adjust-OL-Q001",
+    idempotencyPayload: { orderLineId: "OL-Q001", newQty: 120, reason: "O'Brien changed qty" },
+    expectedOrderLineRevision: 1,
+    orderLine: buildOrderLine({ originalQty: 120, amount: 240, revision: 1 }),
     fulfillmentRecords: [buildFulfillment({ expectedQty: 120 })],
     priceSnapshots: [buildPriceSnapshot({ versionNo: 2, chargeableQty: 120, finalAmount: 240 })],
     inventoryReservations: [buildReservation({ reservedQty: 120 })],
-    inventoryAdjustments: [{ inventoryItemId: "INV-Q001", reservedQtyChange: 20 }],
+    inventoryAdjustments: [
+      { inventoryItemId: "INV-Q001", reservedQtyChange: 20, expectedRevision: 1, expectedReservedQty: 100 },
+    ],
     inventoryLedgerEntries: [buildLedger({ qtyBefore: 100, qtyChange: 20, qtyAfter: 120, reason: "O'Brien changed qty" })],
     statementLines: [buildStatementLine({ chargeableQty: 120, amount: 240, finalAmount: 240 })],
     statementRecords: [buildStatementRecord({ receivable: 240, received: 50, variance: 190 })],
@@ -135,8 +154,27 @@ async function checkPostgresSqlBoundary() {
   assert.equal(transaction.orderLine.originalQty, 120);
   assert.equal(transaction.priceSnapshots[0].finalAmount, 240);
   assert.equal(transaction.statementRecords[0].receivable, 240);
+  assert.equal(calls[0].scope, "order.line.quantity.adjust");
+  assert.equal(calls[0].idempotencyKey, "qty-adjust-OL-Q001");
+  assert.match(calls[0].requestHash, /^[a-f0-9]{64}$/);
+  assert.deepEqual(calls[0].resourceLocks, [
+    "fulfillment:FUL-Q001",
+    "idempotency:order.line.quantity.adjust:qty-adjust-OL-Q001",
+    "inventory:INV-Q001",
+    "order-line:OL-Q001",
+    "reservation:RSV-Q001",
+    "statement:ST-Q001",
+  ]);
   assert.match(calls[0].text, /UPDATE order_lines/);
-  assert.match(calls[0].text, /original_qty = \$1::integer/);
+  assert.match(calls[0].text, /original_qty = \$\d+::integer/);
+  assert.match(calls[0].text, /FOR UPDATE/);
+  assert.match(calls[0].text, /ERP_ORDER_LINE_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /ERP_FULFILLMENT_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /ERP_RESERVATION_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /ERP_INVENTORY_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /ERP_STATEMENT_LINE_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /ERP_STATEMENT_CONCURRENCY_CONFLICT/);
+  assert.match(calls[0].text, /revision = revision \+ 1/);
   assert.match(calls[0].text, /UPDATE fulfillment_records/);
   assert.match(calls[0].text, /expected_qty = updates.expected_qty/);
   assert.match(calls[0].text, /INSERT INTO price_snapshots/);
@@ -151,8 +189,25 @@ async function checkPostgresSqlBoundary() {
   assert.ok(calls[0].values.includes("O'Brien changed qty"));
   assert.match(calls[0].text, /COMMIT/);
 
+  const replay = await repository.findIdempotentReplay({
+    idempotencyKey: "qty-adjust-OL-Q001",
+    idempotencyPayload: { orderLineId: "OL-Q001", newQty: 120, reason: "O'Brien changed qty" },
+  });
+  assert.equal(replay.previousQty, 100);
+  assert.equal(replay.newQty, 120);
+  assert.equal(replay.operationLogId, "LOG-Q001");
+  await assert.rejects(
+    () =>
+      repository.findIdempotentReplay({
+        idempotencyKey: "qty-adjust-OL-Q001",
+        idempotencyPayload: { orderLineId: "OL-Q001", newQty: 121, reason: "O'Brien changed qty" },
+      }),
+    (error) => error?.code === "IDEMPOTENCY_KEY_REUSED" && error?.statusCode === 409,
+  );
+
   const directInput = {
     orderLine: buildOrderLine({ originalQty: 90 }),
+    expectedOrderLineRevision: 1,
     fulfillmentRecords: [],
     priceSnapshots: [],
     inventoryReservations: [],
@@ -189,6 +244,7 @@ function buildOrderLine(overrides = {}) {
     fulfillmentMethod: "自提",
     lineStatus: "待交付确认",
     exceptionTags: [],
+    revision: 1,
     ...overrides,
   };
 }
@@ -204,6 +260,7 @@ function buildFulfillment(overrides = {}) {
     expectedQty: 100,
     status: "待出库",
     confirmedBy: "U-OFFICE-A",
+    revision: 1,
     ...overrides,
   };
 }
@@ -236,6 +293,10 @@ function buildReservation(overrides = {}) {
     reservationType: "待提货锁定",
     status: "生效",
     createdBy: "U-OFFICE-A",
+    revision: 1,
+    expectedRevision: 1,
+    expectedReservedQty: 100,
+    expectedStatus: "生效",
     ...overrides,
   };
 }
@@ -253,6 +314,11 @@ function buildStatementLine(overrides = {}) {
     amount: 200,
     adjustmentAmount: 0,
     finalAmount: 200,
+    revision: 1,
+    expectedRevision: 1,
+    expectedDeliveredQty: 100,
+    expectedChargeableQty: 100,
+    expectedFinalAmount: 200,
     ...overrides,
   };
 }
@@ -265,6 +331,7 @@ function buildStatementRecord(overrides = {}) {
     receivable: 200,
     received: 50,
     variance: 150,
+    revision: 1,
     ...overrides,
   };
 }

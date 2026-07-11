@@ -1314,6 +1314,22 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(releaseLedgerRead.items[0].qtyChange, -15);
   assert.equal(releaseLedgerRead.items[0].colorName, "红色");
 
+  const voidMutationSnapshot = queryJson(
+    `SELECT json_build_object(
+      'orderLineRevision', ol.revision,
+      'fulfillmentRevision', fr.revision,
+      'reservationRevision', ir.revision,
+      'reservationQty', ir.reserved_qty,
+      'reservationStatus', ir.status,
+      'inventoryRevision', ii.revision,
+      'inventoryReservedQty', ii.reserved_qty
+    ) AS result
+    FROM order_lines ol
+    JOIN fulfillment_records fr ON fr.id = 'F-LIVE-CONFIRM-001'
+    JOIN inventory_reservations ir ON ir.id = 'RSV-LIVE-CONFIRM-001'
+    JOIN inventory_items ii ON ii.id = 'INV-LIVE-CONFIRM-001'
+    WHERE ol.id = 'OL-LIVE-CONFIRM-001';`,
+  );
   const voidedOrderLine = await orderLineVoidRepository.voidOrderLine({
     workspace: {
       orderLines: orderConfirmation.orderLines,
@@ -1324,6 +1340,7 @@ ON CONFLICT (id) DO UPDATE SET
       orderLineChangeRecords: [],
       operationLogs: [],
     },
+    expectedOrderLineRevision: voidMutationSnapshot.orderLineRevision,
     orderLine: {
       ...orderConfirmation.orderLines[0],
       lineStatus: "已关闭",
@@ -1333,9 +1350,33 @@ ON CONFLICT (id) DO UPDATE SET
       voidedAt: "2026-07-02T10:55:00.000Z",
       voidReason: "客户取消订单",
     },
-    fulfillmentRecords: [{ ...orderConfirmation.fulfillmentRecords[0], status: "已取消", confirmedBy: "U-FINANCE-A" }],
-    inventoryReservations: [{ ...releasedReservation.reservation, reservedQty: 0, status: "已释放" }],
-    inventoryAdjustments: [{ inventoryItemId: "INV-LIVE-CONFIRM-001", reservedQtyChange: -10 }],
+    fulfillmentRecords: [
+      {
+        ...orderConfirmation.fulfillmentRecords[0],
+        status: "已取消",
+        confirmedBy: "U-FINANCE-A",
+        revision: voidMutationSnapshot.fulfillmentRevision,
+      },
+    ],
+    inventoryReservations: [
+      {
+        ...releasedReservation.reservation,
+        reservedQty: 0,
+        status: "已释放",
+        revision: voidMutationSnapshot.reservationRevision,
+        expectedRevision: voidMutationSnapshot.reservationRevision,
+        expectedReservedQty: voidMutationSnapshot.reservationQty,
+        expectedStatus: voidMutationSnapshot.reservationStatus,
+      },
+    ],
+    inventoryAdjustments: [
+      {
+        inventoryItemId: "INV-LIVE-CONFIRM-001",
+        reservedQtyChange: -10,
+        expectedRevision: voidMutationSnapshot.inventoryRevision,
+        expectedReservedQty: voidMutationSnapshot.inventoryReservedQty,
+      },
+    ],
     inventoryLedgerEntries: [
       {
         ledgerId: "LEDGER-LIVE-VOID-001",
@@ -1450,6 +1491,22 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(quantityAdjustmentOrder.orderLines[0].originalQty, 20);
   assert.equal(Number(runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim()), 30);
 
+  const decreaseMutationSnapshot = queryJson(
+    `SELECT json_build_object(
+      'orderLineRevision', ol.revision,
+      'fulfillmentRevision', fr.revision,
+      'reservationRevision', ir.revision,
+      'reservationQty', ir.reserved_qty,
+      'reservationStatus', ir.status,
+      'inventoryRevision', ii.revision,
+      'inventoryReservedQty', ii.reserved_qty
+    ) AS result
+    FROM order_lines ol
+    JOIN fulfillment_records fr ON fr.id = 'F-LIVE-QTY-001'
+    JOIN inventory_reservations ir ON ir.id = 'RSV-LIVE-QTY-001'
+    JOIN inventory_items ii ON ii.id = 'INV-LIVE-CONFIRM-001'
+    WHERE ol.id = 'OL-LIVE-QTY-001';`,
+  );
   const decreasedQuantityOrderLine = await orderLineQuantityAdjustmentRepository.adjustOrderLineQuantity({
     workspace: {
       orderLines: quantityAdjustmentOrder.orderLines,
@@ -1461,8 +1518,17 @@ ON CONFLICT (id) DO UPDATE SET
       orderLineChangeRecords: [],
       operationLogs: [],
     },
+    expectedOrderLineRevision: decreaseMutationSnapshot.orderLineRevision,
     orderLine: { ...quantityAdjustmentOrder.orderLines[0], originalQty: 12, qty: 12 },
-    fulfillmentRecords: [{ ...quantityAdjustmentOrder.fulfillmentRecords[0], expectedQty: 12, qty: 12, confirmedBy: "U-FINANCE-A" }],
+    fulfillmentRecords: [
+      {
+        ...quantityAdjustmentOrder.fulfillmentRecords[0],
+        expectedQty: 12,
+        qty: 12,
+        confirmedBy: "U-FINANCE-A",
+        revision: decreaseMutationSnapshot.fulfillmentRevision,
+      },
+    ],
     priceSnapshots: [
       {
         priceSnapshotId: "PS-LIVE-QTY-DECREASE-001",
@@ -1479,8 +1545,26 @@ ON CONFLICT (id) DO UPDATE SET
         createdBy: "U-FINANCE-A",
       },
     ],
-    inventoryReservations: [{ ...quantityAdjustmentOrder.inventoryReservations[0], reservedQty: 12, qty: 12, status: "生效" }],
-    inventoryAdjustments: [{ inventoryItemId: "INV-LIVE-CONFIRM-001", reservedQtyChange: -8 }],
+    inventoryReservations: [
+      {
+        ...quantityAdjustmentOrder.inventoryReservations[0],
+        reservedQty: 12,
+        qty: 12,
+        status: "生效",
+        revision: decreaseMutationSnapshot.reservationRevision,
+        expectedRevision: decreaseMutationSnapshot.reservationRevision,
+        expectedReservedQty: decreaseMutationSnapshot.reservationQty,
+        expectedStatus: decreaseMutationSnapshot.reservationStatus,
+      },
+    ],
+    inventoryAdjustments: [
+      {
+        inventoryItemId: "INV-LIVE-CONFIRM-001",
+        reservedQtyChange: -8,
+        expectedRevision: decreaseMutationSnapshot.inventoryRevision,
+        expectedReservedQty: decreaseMutationSnapshot.inventoryReservedQty,
+      },
+    ],
     inventoryLedgerEntries: [
       {
         ledgerId: "LEDGER-LIVE-QTY-DECREASE-001",
@@ -1538,6 +1622,22 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(Number(runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim()), 22);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM inventory_ledger_entries WHERE id = 'LEDGER-LIVE-QTY-DECREASE-001';", { capture: true }).trim()), 1);
 
+  const increaseMutationSnapshot = queryJson(
+    `SELECT json_build_object(
+      'orderLineRevision', ol.revision,
+      'fulfillmentRevision', fr.revision,
+      'reservationRevision', ir.revision,
+      'reservationQty', ir.reserved_qty,
+      'reservationStatus', ir.status,
+      'inventoryRevision', ii.revision,
+      'inventoryReservedQty', ii.reserved_qty
+    ) AS result
+    FROM order_lines ol
+    JOIN fulfillment_records fr ON fr.id = 'F-LIVE-QTY-001'
+    JOIN inventory_reservations ir ON ir.id = 'RSV-LIVE-QTY-001'
+    JOIN inventory_items ii ON ii.id = 'INV-LIVE-CONFIRM-001'
+    WHERE ol.id = 'OL-LIVE-QTY-001';`,
+  );
   const increasedQuantityOrderLine = await orderLineQuantityAdjustmentRepository.adjustOrderLineQuantity({
     workspace: {
       orderLines: [decreasedQuantityOrderLine.orderLine],
@@ -1549,8 +1649,17 @@ ON CONFLICT (id) DO UPDATE SET
       orderLineChangeRecords: [],
       operationLogs: [],
     },
+    expectedOrderLineRevision: increaseMutationSnapshot.orderLineRevision,
     orderLine: { ...decreasedQuantityOrderLine.orderLine, originalQty: 15, qty: 15 },
-    fulfillmentRecords: [{ ...decreasedQuantityOrderLine.fulfillmentRecords[0], expectedQty: 15, qty: 15, confirmedBy: "U-FINANCE-A" }],
+    fulfillmentRecords: [
+      {
+        ...decreasedQuantityOrderLine.fulfillmentRecords[0],
+        expectedQty: 15,
+        qty: 15,
+        confirmedBy: "U-FINANCE-A",
+        revision: increaseMutationSnapshot.fulfillmentRevision,
+      },
+    ],
     priceSnapshots: [
       {
         priceSnapshotId: "PS-LIVE-QTY-INCREASE-001",
@@ -1567,8 +1676,26 @@ ON CONFLICT (id) DO UPDATE SET
         createdBy: "U-FINANCE-A",
       },
     ],
-    inventoryReservations: [{ ...decreasedQuantityOrderLine.inventoryReservations[0], reservedQty: 15, qty: 15, status: "生效" }],
-    inventoryAdjustments: [{ inventoryItemId: "INV-LIVE-CONFIRM-001", reservedQtyChange: 3 }],
+    inventoryReservations: [
+      {
+        ...decreasedQuantityOrderLine.inventoryReservations[0],
+        reservedQty: 15,
+        qty: 15,
+        status: "生效",
+        revision: increaseMutationSnapshot.reservationRevision,
+        expectedRevision: increaseMutationSnapshot.reservationRevision,
+        expectedReservedQty: increaseMutationSnapshot.reservationQty,
+        expectedStatus: increaseMutationSnapshot.reservationStatus,
+      },
+    ],
+    inventoryAdjustments: [
+      {
+        inventoryItemId: "INV-LIVE-CONFIRM-001",
+        reservedQtyChange: 3,
+        expectedRevision: increaseMutationSnapshot.inventoryRevision,
+        expectedReservedQty: increaseMutationSnapshot.inventoryReservedQty,
+      },
+    ],
     inventoryLedgerEntries: [
       {
         ledgerId: "LEDGER-LIVE-QTY-INCREASE-001",
@@ -2516,6 +2643,13 @@ async function checkApiWithPostgresRepositories() {
   const statementExportRepository = createPostgresStatementExportRepository({
     postgresClient: apiPostgresClient,
   });
+  const orderLineVoidTransactionRepository = createPostgresOrderLineVoidTransactionRepository({
+    postgresClient: apiPostgresClient,
+  });
+  const orderLineQuantityAdjustmentTransactionRepository =
+    createPostgresOrderLineQuantityAdjustmentTransactionRepository({
+      postgresClient: apiPostgresClient,
+    });
   runPsql(
     `INSERT INTO production_tasks (
       id, biz_no, order_line_id, task_type, machine_id, planned_qty, task_status, published_schedule_id, created_by
@@ -2537,6 +2671,8 @@ async function checkApiWithPostgresRepositories() {
     productionScheduleRecordRepository,
     statementSendTransactionRepository,
     statementExportRepository,
+    orderLineVoidTransactionRepository,
+    orderLineQuantityAdjustmentTransactionRepository,
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
@@ -4228,14 +4364,16 @@ WHERE id = 'F002';`,
     ),
     1325,
   );
+  const voidHeaders = { ...headers, "idempotency-key": "live-order-line-void-001" };
+  const voidRequestBody = {
+    reason: "order_cancelled",
+    operatorId: "U-SPOOFED",
+  };
   const apiVoidedOrderLine = await postJson(
     baseUrl,
     `/api/order-lines/${voidCandidateOrder.orderLines[0].id}/void`,
-    {
-      reason: "order_cancelled",
-      operatorId: "U-SPOOFED",
-    },
-    { headers },
+    voidRequestBody,
+    { headers: voidHeaders },
   );
   assert.equal(apiVoidedOrderLine.status, "已关闭");
   assert.equal(apiVoidedOrderLine.releasedReservations[0].status, "released");
@@ -4244,6 +4382,20 @@ WHERE id = 'F002';`,
   assert.equal(apiVoidedOrderLine.inventoryLedgerIds.length, 1);
   assert.ok(apiVoidedOrderLine.orderLineChangeRecordId);
   assert.ok(apiVoidedOrderLine.operationLogId);
+  const replayedApiVoidedOrderLine = await postJson(
+    baseUrl,
+    `/api/order-lines/${voidCandidateOrder.orderLines[0].id}/void`,
+    voidRequestBody,
+    { headers: voidHeaders },
+  );
+  assert.deepEqual(replayedApiVoidedOrderLine, apiVoidedOrderLine);
+  const rejectedVoidKeyReuse = await postJson(
+    baseUrl,
+    `/api/order-lines/${voidCandidateOrder.orderLines[0].id}/void`,
+    { ...voidRequestBody, reason: "duplicate_order" },
+    { headers: voidHeaders, expectedStatus: 409 },
+  );
+  assert.equal(rejectedVoidKeyReuse.code, "IDEMPOTENCY_KEY_REUSED");
   assertPostgresOperationLogOperator(queryJson, apiVoidedOrderLine.operationLogId);
   assert.equal(
     queryJson(
@@ -4338,16 +4490,18 @@ WHERE id = 'F002';`,
     ),
     1330,
   );
+  const decreaseHeaders = { ...headers, "idempotency-key": "live-order-line-qty-decrease-001" };
+  const decreaseRequestBody = {
+    orderLineId: quantityCandidateOrder.orderLines[0].id,
+    newQty: 6,
+    reason: "customer_change",
+    operatorId: "U-SPOOFED",
+  };
   const apiDecreasedOrderLine = await postJson(
     baseUrl,
     `/api/order-lines/${quantityCandidateOrder.orderLines[0].id}/quantity-adjustment`,
-    {
-      orderLineId: quantityCandidateOrder.orderLines[0].id,
-      newQty: 6,
-      reason: "customer_change",
-      operatorId: "U-SPOOFED",
-    },
-    { headers },
+    decreaseRequestBody,
+    { headers: decreaseHeaders },
   );
   assert.equal(apiDecreasedOrderLine.previousQty, 10);
   assert.equal(apiDecreasedOrderLine.newQty, 6);
@@ -4360,6 +4514,20 @@ WHERE id = 'F002';`,
   assert.equal(apiDecreasedOrderLine.inventoryLedgerIds.length, 1);
   assert.ok(apiDecreasedOrderLine.orderLineChangeRecordId);
   assert.ok(apiDecreasedOrderLine.operationLogId);
+  const replayedApiDecreasedOrderLine = await postJson(
+    baseUrl,
+    `/api/order-lines/${quantityCandidateOrder.orderLines[0].id}/quantity-adjustment`,
+    decreaseRequestBody,
+    { headers: decreaseHeaders },
+  );
+  assert.deepEqual(replayedApiDecreasedOrderLine, apiDecreasedOrderLine);
+  const rejectedQuantityKeyReuse = await postJson(
+    baseUrl,
+    `/api/order-lines/${quantityCandidateOrder.orderLines[0].id}/quantity-adjustment`,
+    { ...decreaseRequestBody, newQty: 7 },
+    { headers: decreaseHeaders, expectedStatus: 409 },
+  );
+  assert.equal(rejectedQuantityKeyReuse.code, "IDEMPOTENCY_KEY_REUSED");
   assertPostgresOperationLogOperator(queryJson, apiDecreasedOrderLine.operationLogId);
   assert.equal(
     queryJson(
@@ -4404,7 +4572,7 @@ WHERE id = 'F002';`,
       reason: "customer_change",
       operatorId: "U-SPOOFED",
     },
-    { headers },
+    { headers: { ...headers, "idempotency-key": "live-order-line-qty-increase-001" } },
   );
   assert.equal(apiIncreasedOrderLine.previousQty, 6);
   assert.equal(apiIncreasedOrderLine.newQty, 8);

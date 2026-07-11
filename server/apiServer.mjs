@@ -3026,6 +3026,12 @@ async function voidOrderLineRoute({ response, workspace, orderLineId, body, oper
   if (body.orderLineId && body.orderLineId !== orderLineId) {
     return sendBusinessError(response, 422, "VALIDATION_ERROR", "orderLineId in path and body must match");
   }
+  const idempotencyPayload = { ...body, operatorId };
+  const replay = await workspace.orderLineVoidTransactionRepository.findIdempotentReplay?.({
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload,
+  });
+  if (replay) return sendVoidOrderLineTransactionResponse(response, orderLineId, replay);
   if (!isVoidableOrderLine(before, workspace)) {
     return sendBusinessError(response, 409, "ORDER_LINE_NOT_VOIDABLE", "Delivered, closed, or production-started order lines cannot be voided directly.");
   }
@@ -3088,7 +3094,8 @@ async function voidOrderLineRoute({ response, workspace, orderLineId, body, oper
   const transaction = await workspace.orderLineVoidTransactionRepository.voidOrderLine({
     workspace,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
+    idempotencyPayload,
+    expectedOrderLineRevision: Number(before.revision ?? 1),
     orderLine: afterOrderLine,
     fulfillmentRecords,
     inventoryReservations: inventoryRelease.inventoryReservations,
@@ -3098,6 +3105,10 @@ async function voidOrderLineRoute({ response, workspace, orderLineId, body, oper
     operationLog,
   });
 
+  return sendVoidOrderLineTransactionResponse(response, orderLineId, transaction);
+}
+
+function sendVoidOrderLineTransactionResponse(response, orderLineId, transaction) {
   return sendJson(response, 200, {
     orderLineId,
     status: transaction.orderLine?.lineStatus ?? "已关闭",
@@ -3115,6 +3126,12 @@ async function adjustOrderLineQuantityRoute({ response, workspace, orderLineId, 
   if (body.orderLineId && body.orderLineId !== orderLineId) {
     return sendBusinessError(response, 422, "VALIDATION_ERROR", "orderLineId in path and body must match");
   }
+  const idempotencyPayload = { ...body, operatorId };
+  const replay = await workspace.orderLineQuantityAdjustmentTransactionRepository.findIdempotentReplay?.({
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload,
+  });
+  if (replay) return sendAdjustedOrderLineQuantityResponse(response, orderLineId, replay);
   if (!isQuantityAdjustableOrderLine(before, workspace)) {
     return sendBusinessError(
       response,
@@ -3231,7 +3248,8 @@ async function adjustOrderLineQuantityRoute({ response, workspace, orderLineId, 
   const transaction = await workspace.orderLineQuantityAdjustmentTransactionRepository.adjustOrderLineQuantity({
     workspace,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
+    idempotencyPayload,
+    expectedOrderLineRevision: Number(before.revision ?? 1),
     orderLine: afterOrderLine,
     fulfillmentRecords,
     priceSnapshots: [financialChange.priceSnapshot],
@@ -3244,17 +3262,31 @@ async function adjustOrderLineQuantityRoute({ response, workspace, orderLineId, 
     operationLog,
   });
 
+  return sendAdjustedOrderLineQuantityResponse(response, orderLineId, transaction, {
+    previousQty,
+    newQty,
+    qtyDelta,
+    fallbackPriceSnapshot: financialChange.priceSnapshot,
+    fallbackStatus: afterOrderLine.lineStatus,
+  });
+}
+
+function sendAdjustedOrderLineQuantityResponse(response, orderLineId, transaction, fallback = {}) {
+  const previousQty = Number(transaction.previousQty ?? fallback.previousQty ?? 0);
+  const newQty = Number(transaction.newQty ?? fallback.newQty ?? transaction.orderLine?.originalQty ?? 0);
+  const qtyDelta = Number(transaction.qtyDelta ?? fallback.qtyDelta ?? newQty - previousQty);
+  const priceSnapshot = transaction.priceSnapshots[0] ?? fallback.fallbackPriceSnapshot ?? null;
   return sendJson(response, 200, {
     orderLineId,
     previousQty,
     newQty,
     qtyDelta,
-    status: transaction.orderLine?.lineStatus ?? afterOrderLine.lineStatus,
+    status: transaction.orderLine?.lineStatus ?? fallback.fallbackStatus ?? "",
     adjustedReservations: transaction.inventoryReservations.map(toInventoryReservationTransactionSummary),
     adjustedFulfillmentIds: transaction.fulfillmentRecords.map((fulfillment) => fulfillment.fulfillmentId),
     inventoryLedgerIds: transaction.inventoryLedgerEntries.map((ledger) => ledger.ledgerId),
-    priceSnapshot: transaction.priceSnapshots[0] ?? financialChange.priceSnapshot,
-    finalAmount: transaction.priceSnapshots[0]?.finalAmount ?? financialChange.priceSnapshot.finalAmount,
+    priceSnapshot,
+    finalAmount: priceSnapshot?.finalAmount ?? 0,
     adjustedStatementLines: transaction.statementLines,
     adjustedStatements: transaction.statementRecords,
     orderLineChangeRecordId: transaction.orderLineChangeRecordId,
@@ -3344,6 +3376,10 @@ function buildAdjustedStatementLinesForOrderLine(workspace, input) {
         amount,
         adjustmentAmount,
         finalAmount: roundMoney(amount + adjustmentAmount),
+        expectedRevision: Number(line.revision ?? 1),
+        expectedDeliveredQty: Number(line.deliveredQty ?? line.delivered_qty ?? 0),
+        expectedChargeableQty: Number(line.chargeableQty ?? line.chargeable_qty ?? 0),
+        expectedFinalAmount: Number(line.finalAmount ?? line.final_amount ?? line.amount ?? 0),
       };
     });
 }
@@ -3360,11 +3396,13 @@ function buildAdjustedStatementRecords(workspace, adjustedStatementLines) {
     const receivable = roundMoney(lines.reduce((sum, line) => sum + Number(line.finalAmount ?? line.final_amount ?? line.amount ?? 0), 0));
     const received = Number(statement.received ?? statement.receivedAmount ?? 0);
     return {
+      ...statement,
       statementId,
       status: statement.status ?? "",
       receivable,
       received,
       variance: roundMoney(Math.max(0, receivable - received)),
+      revision: Number(statement.revision ?? 1),
     };
   });
 }
@@ -19738,6 +19776,7 @@ function buildFulfillmentCancelInventoryRelease(workspace, fulfillment, input = 
     const reservedQty = Math.max(0, Number(reservation.reservedQty ?? reservation.qty ?? 0));
     if (!reservedQty) continue;
     const reservationId = reservation.reservationId ?? reservation.id;
+    const inventoryItem = findInventoryItem(workspace, reservation.inventoryItemId);
     inventoryReservations.push({
       ...reservation,
       reservationId,
@@ -19750,7 +19789,6 @@ function buildFulfillmentCancelInventoryRelease(workspace, fulfillment, input = 
       reservedQtyChange: -reservedQty,
     });
 
-    const inventoryItem = findInventoryItem(workspace, reservation.inventoryItemId);
     const projectedBefore = projectedReservedByItem.has(reservation.inventoryItemId)
       ? projectedReservedByItem.get(reservation.inventoryItemId)
       : Number(inventoryItem?.reserved ?? 0);
@@ -19882,10 +19920,15 @@ function buildOrderLineQuantityReductionInventoryChange(workspace, activeReserva
       reservedQty: remainingReservedQty,
       qty: remainingReservedQty,
       status: remainingReservedQty > 0 ? "生效" : "已释放",
+      revision: Number(reservation.revision ?? 1),
+      expectedReservedQty: reservedQty,
+      expectedStatus: reservation.status,
     });
     inventoryAdjustments.push({
       inventoryItemId: reservation.inventoryItemId,
       reservedQtyChange: -releasedQty,
+      expectedRevision: Number(inventoryItem.revision ?? 1),
+      expectedReservedQty: Number(inventoryItem.reserved ?? 0),
     });
 
     const projectedBefore = projectedReservedByItem.has(reservation.inventoryItemId)
@@ -19965,12 +20008,17 @@ function buildOrderLineQuantityIncreaseInventoryChange(workspace, activeReservat
         reservedQty: reservedAfter,
         qty: reservedAfter,
         status: "生效",
+        revision: Number(reservation.revision ?? 1),
+        expectedReservedQty: reservedBefore,
+        expectedStatus: reservation.status,
       },
     ],
     inventoryAdjustments: [
       {
         inventoryItemId: reservation.inventoryItemId,
         reservedQtyChange: increaseQty,
+        expectedRevision: Number(inventoryItem.revision ?? 1),
+        expectedReservedQty: itemReservedBefore,
       },
     ],
     inventoryLedgerEntries: [
@@ -20005,19 +20053,24 @@ function buildOrderLineVoidInventoryRelease(workspace, input) {
     const reservedQty = Math.max(0, Number(reservation.reservedQty ?? reservation.qty ?? 0));
     if (!reservedQty) continue;
     const reservationId = reservation.reservationId ?? reservation.id;
+    const inventoryItem = findInventoryItem(workspace, reservation.inventoryItemId);
     inventoryReservations.push({
       ...reservation,
       reservationId,
       reservedQty: 0,
       qty: 0,
       status: "已释放",
+      revision: Number(reservation.revision ?? 1),
+      expectedReservedQty: reservedQty,
+      expectedStatus: reservation.status,
     });
     inventoryAdjustments.push({
       inventoryItemId: reservation.inventoryItemId,
       reservedQtyChange: -reservedQty,
+      expectedRevision: Number(inventoryItem?.revision ?? 1),
+      expectedReservedQty: Number(inventoryItem?.reserved ?? 0),
     });
 
-    const inventoryItem = findInventoryItem(workspace, reservation.inventoryItemId);
     const projectedBefore = projectedReservedByItem.has(reservation.inventoryItemId)
       ? projectedReservedByItem.get(reservation.inventoryItemId)
       : Number(inventoryItem?.reserved ?? 0);
