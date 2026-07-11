@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-11 - Finished-Goods Photo Review Owns Its Todo Transaction
+
+A finished-goods photo is production-task state, not an in-memory UI annotation. Upload persists the photo snapshot and audit log atomically. Review persists the task state, the customer-notification or retake todo, any automatically resolved prior retake todo, full todo events, and the operation log as one idempotent transaction. The workflow never creates inventory, reservations, or packing output.
+
+Photo state is stored as JSONB with a production-task revision guard so attachment, review, and history remain one coherent snapshot. Both startup and production-task read repositories must expose it. Authenticated identity is the upload/review audit identity; body operator fields are deprecated compatibility input. Production must use the PostgreSQL photo transaction repository.
+
 ## 2026-07-11 - Inventory Correction Is One Auditable Transaction
 
 Creating an inventory correction persists the review draft, related todo, full todo event, and operation log atomically without changing stock. Confirming it updates the inventory item and correction draft while inserting the inventory ledger, resolving the todo, appending its event, and recording the operation log in one idempotent transaction. A partial success must never be projected as a valid correction.

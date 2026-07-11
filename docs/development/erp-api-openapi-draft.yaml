@@ -2345,7 +2345,8 @@ paths:
       summary: 上传并登记定制印刷成品图
       description: >
         车间或办公室为生产任务登记成品图附件。上传后状态为待确认，不进入待通知客户池，
-        也不写入库存、不锁定订单库存、不生成打包任务。
+        任务成品图状态和操作日志同一事务保存；操作者取认证会话。接口不写库存、
+        不锁定订单库存、不生成打包任务。
       operationId: uploadProductionTaskFinishedGoodsPhoto
       parameters:
         - $ref: "#/components/parameters/ProductionTaskId"
@@ -2377,7 +2378,8 @@ paths:
       summary: 复核定制印刷成品图
       description: >
         办公室或管理账号确认成品图。复核通过后生成待通知客户待办；退回则生成成品图需重拍待办。
-        本接口仍不写入库存、不锁定订单库存、不生成打包任务。
+        任务、待办、待办事件和操作日志同一事务保存，并自动解决已通过重拍的旧待办。
+        操作者取认证会话；本接口仍不写库存、不锁定订单库存、不生成打包任务。
       operationId: reviewProductionTaskFinishedGoodsPhoto
       parameters:
         - $ref: "#/components/parameters/ProductionTaskId"
@@ -18120,7 +18122,6 @@ components:
       required:
         - orderLineId
         - attachmentId
-        - operatorId
       properties:
         productionTaskId:
           type: string
@@ -18139,13 +18140,14 @@ components:
           type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
 
     ProductionFinishedGoodsPhotoReviewRequest:
       type: object
       required:
         - orderLineId
         - reviewStatus
-        - operatorId
       properties:
         productionTaskId:
           type: string
@@ -18162,6 +18164,8 @@ components:
           format: date-time
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
 
     ProductionFinishedGoodsPhotoResponse:
       type: object

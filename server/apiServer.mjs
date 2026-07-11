@@ -93,8 +93,10 @@ import { createPrintDeviceCommandService } from "./services/printDeviceCommandSe
 import { createPrintBatchCommandService } from "./services/printBatchCommandService.mjs";
 import { createTodoCommandService } from "./services/todoCommandService.mjs";
 import { createInventoryCorrectionCommandService } from "./services/inventoryCorrectionCommandService.mjs";
+import { createProductionFinishedGoodsPhotoCommandService } from "./services/productionFinishedGoodsPhotoCommandService.mjs";
 import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
+import { createProductionFinishedGoodsPhotoTransactionRepository } from "./productionFinishedGoodsPhotoTransactionRepository.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
 import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
 import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
@@ -329,6 +331,11 @@ export function createApiServer(options = {}) {
   const inventoryCorrectionTransactionRepository =
     effectiveOptions.inventoryCorrectionTransactionRepository ??
     createInventoryCorrectionTransactionRepository(effectiveOptions.inventoryCorrectionTransactionRepositoryOptions);
+  const productionFinishedGoodsPhotoTransactionRepository =
+    effectiveOptions.productionFinishedGoodsPhotoTransactionRepository ??
+    createProductionFinishedGoodsPhotoTransactionRepository(
+      effectiveOptions.productionFinishedGoodsPhotoTransactionRepositoryOptions,
+    );
   const orderDraftRepository =
     effectiveOptions.orderDraftRepository ?? createOrderDraftRepository(effectiveOptions.orderDraftRepositoryOptions);
   const orderConfirmationTransactionRepository =
@@ -410,6 +417,7 @@ export function createApiServer(options = {}) {
       coreWorkspaceReadRepository,
       todoActionRepository,
       inventoryCorrectionTransactionRepository,
+      productionFinishedGoodsPhotoTransactionRepository,
       orderDraftRepository,
       orderConfirmationTransactionRepository,
       orderPoolReadRepository,
@@ -493,6 +501,7 @@ export function createApiServer(options = {}) {
   workspace.coreWorkspaceReadRepository = coreWorkspaceReadRepository;
   workspace.todoActionRepository = todoActionRepository;
   workspace.inventoryCorrectionTransactionRepository = inventoryCorrectionTransactionRepository;
+  workspace.productionFinishedGoodsPhotoTransactionRepository = productionFinishedGoodsPhotoTransactionRepository;
   workspace.orderDraftRepository = orderDraftRepository;
   workspace.orderConfirmationTransactionRepository = orderConfirmationTransactionRepository;
   workspace.orderPoolReadRepository = orderPoolReadRepository;
@@ -685,6 +694,7 @@ async function routeGet(context) {
         coreWorkspaceReadRepository: workspace.coreWorkspaceReadRepository.kind,
         todoActionRepository: workspace.todoActionRepository.kind,
         inventoryCorrectionTransactionRepository: workspace.inventoryCorrectionTransactionRepository.kind,
+        productionFinishedGoodsPhotoTransactionRepository: workspace.productionFinishedGoodsPhotoTransactionRepository.kind,
         orderDraftRepository: workspace.orderDraftRepository.kind,
         orderConfirmationTransactionRepository: workspace.orderConfirmationTransactionRepository.kind,
         orderPoolReadRepository: workspace.orderPoolReadRepository.kind,
@@ -4327,6 +4337,7 @@ const v1SystemPersistenceGroups = [
       ["coreWorkspaceReadRepository", "核心工作区启动快照"],
       ["todoActionRepository", "公共待办处理交易"],
       ["inventoryCorrectionTransactionRepository", "库存修正交易"],
+      ["productionFinishedGoodsPhotoTransactionRepository", "生产成品图交易"],
       ["orderDraftRepository", "订单草稿"],
       ["orderConfirmationTransactionRepository", "订单确认交易"],
       ["orderPoolReadRepository", "订单池读取"],
@@ -16710,6 +16721,16 @@ const inventoryCorrectionCommandService = createInventoryCorrectionCommandServic
   findInventoryItem,
   toInventoryQuantitySnapshot,
 });
+const productionFinishedGoodsPhotoCommandService = createProductionFinishedGoodsPhotoCommandService({
+  buildOperationLog,
+  buildPhotoSummary: buildFinishedGoodsPhotoSummary,
+  buildCustomerNotificationTodo: buildFinishedGoodsCustomerNotificationTodo,
+  buildPhotoRetakeTodo: buildFinishedGoodsPhotoRetakeTodo,
+  findAttachment: findAttachmentRecord,
+  findOrderLine,
+  normalizeHistory: normalizeFinishedGoodsPhotoHistory,
+  normalizeReviewStatus: normalizeFinishedGoodsPhotoReviewStatus,
+});
 
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
   const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
@@ -17750,168 +17771,46 @@ async function recordProductionDailyProgressRoute({ response, workspace, product
   });
 }
 
-function uploadProductionFinishedGoodsPhotoRoute({ response, workspace, productionTaskId, body, operatorId }) {
-  const beforeTask = findProductionTask(workspace, productionTaskId) ?? buildProductionTaskFromBody(workspace, productionTaskId, body);
-  if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
-  if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
-  }
-  const orderLineId = cleanServerText(body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId);
-  const orderLine = findOrderLine(workspace, orderLineId);
-  if (!orderLine) return sendNotFound(response, "ORDER_LINE_NOT_FOUND");
-
-  const attachmentId = cleanServerText(body.attachmentId);
-  if (!attachmentId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "attachmentId is required when uploading a finished-goods photo.");
-  }
-  const attachment = findAttachmentRecord(workspace, attachmentId);
-  if (!attachment) return sendNotFound(response, "ATTACHMENT_NOT_FOUND");
-
-  const uploadedAt = cleanServerText(body.uploadedAt) || new Date().toISOString();
-  const previousPhoto = buildFinishedGoodsPhotoSummary(workspace, beforeTask, orderLine);
-  const afterTask = {
-    ...beforeTask,
-    id: productionTaskId,
-    productionTaskId,
-    orderLineId,
-    lineId: orderLineId,
-    finishedGoodsPhotoStatus: "待确认",
-    finishedGoodsPhotoAttachmentId: attachmentId,
-    finishedGoodsPhotoFileName: cleanServerText(body.fileName) || attachment.fileName || attachmentId,
-    finishedGoodsPhotoUploadedAt: uploadedAt,
-    finishedGoodsPhotoUploadedBy: operatorId,
-    finishedGoodsPhotoReviewedAt: "",
-    finishedGoodsPhotoReviewedBy: "",
-    finishedGoodsPhotoRejectedReason: "",
-    finishedGoodsPhotoHistory: [
-      ...normalizeFinishedGoodsPhotoHistory(beforeTask.finishedGoodsPhotoHistory),
-      {
-        status: "待确认",
-        attachmentId,
-        fileName: cleanServerText(body.fileName) || attachment.fileName || attachmentId,
-        uploadedAt,
-        uploadedBy: operatorId,
-        remark: cleanServerText(body.remark),
-      },
-    ],
-  };
-  workspace.productionTasks = upsertByKey(workspace.productionTasks ?? [], afterTask, "productionTaskId");
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "production_task",
-    targetId: productionTaskId,
-    action: "upload_finished_goods_photo",
-    operatorId,
-    before: {
-      productionTask: beforeTask,
-      finishedGoodsPhoto: previousPhoto,
-    },
-    after: {
-      productionTask: afterTask,
-      finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(workspace, afterTask, orderLine),
-      customerNotificationTodoCreated: false,
-    },
-    reason: cleanServerText(body.remark) || "上传定制印刷成品图，等待办公室确认",
-  });
-  workspace.operationLogs.unshift(operationLog);
-
+async function uploadProductionFinishedGoodsPhotoRoute({ response, workspace, productionTaskId, body, operatorId }) {
+  const result = await productionFinishedGoodsPhotoCommandService.uploadPhoto({ workspace, productionTaskId, body, operatorId });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  const productionTask = result.productionTask;
+  const orderLine = findOrderLine(workspace, productionTask.orderLineId);
   return sendJson(response, 200, {
     productionTaskId,
-    orderLineId,
-    productionTask: toProductionTaskSummary(afterTask, orderLine),
+    orderLineId: productionTask.orderLineId,
+    productionTask: toProductionTaskSummary(productionTask, orderLine),
     orderLine: summarizeOrderLineForChange(orderLine),
-    finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(workspace, afterTask, orderLine),
+    finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(workspace, productionTask, orderLine),
     customerNotificationTodoCreated: false,
     retakeTodoCreated: false,
     inventoryCreated: false,
     reservationCreated: false,
     packingTaskCreated: false,
-    operationLogId: operationLog.id,
+    operationLogId: result.operationLogId,
   });
 }
 
-function reviewProductionFinishedGoodsPhotoRoute({ response, workspace, productionTaskId, body, operatorId }) {
-  const beforeTask = findProductionTask(workspace, productionTaskId);
-  if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
-  if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
-  }
-  const orderLineId = cleanServerText(body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId);
-  const orderLine = findOrderLine(workspace, orderLineId);
-  if (!orderLine) return sendNotFound(response, "ORDER_LINE_NOT_FOUND");
-  const beforePhoto = buildFinishedGoodsPhotoSummary(workspace, beforeTask, orderLine);
-  if (!beforePhoto.attachmentId) {
-    return sendBusinessError(response, 409, "FINISHED_GOODS_PHOTO_REQUIRED", "A finished-goods photo must be uploaded before review.");
-  }
-
-  const reviewStatus = normalizeFinishedGoodsPhotoReviewStatus(body.reviewStatus ?? body.status);
-  if (!reviewStatus) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "reviewStatus must be accepted or retake_required.");
-  }
-  const reviewedAt = cleanServerText(body.reviewedAt) || new Date().toISOString();
-  const reason = cleanServerText(body.reason ?? body.remark);
-  const afterTask = {
-    ...beforeTask,
-    finishedGoodsPhotoStatus: reviewStatus,
-    finishedGoodsPhotoReviewedAt: reviewedAt,
-    finishedGoodsPhotoReviewedBy: operatorId,
-    finishedGoodsPhotoRejectedReason: reviewStatus === "需重拍" ? reason || "办公室退回重拍" : "",
-    finishedGoodsPhotoHistory: [
-      ...normalizeFinishedGoodsPhotoHistory(beforeTask.finishedGoodsPhotoHistory),
-      {
-        status: reviewStatus,
-        attachmentId: beforePhoto.attachmentId,
-        fileName: beforePhoto.fileName,
-        reviewedAt,
-        reviewedBy: operatorId,
-        reason,
-      },
-    ],
-  };
-  workspace.productionTasks = upsertByKey(workspace.productionTasks ?? [], afterTask, "productionTaskId");
-
-  const todo = reviewStatus === "已接受"
-    ? upsertFinishedGoodsCustomerNotificationTodo(workspace, orderLine, afterTask, operatorId)
-    : upsertFinishedGoodsPhotoRetakeTodo(workspace, orderLine, afterTask, reason, operatorId);
-  if (reviewStatus === "已接受") {
-    workspace.todos = resolveOpenTodosByTypeAndRef(workspace.todos ?? [], "成品图需重拍", orderLineId, {
-      handledBy: operatorId,
-      handledAt: reviewedAt,
-      handlingResult: "成品图已重新上传并确认通过",
-    });
-  }
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "production_task",
-    targetId: productionTaskId,
-    action: reviewStatus === "已接受" ? "accept_finished_goods_photo" : "reject_finished_goods_photo",
-    operatorId,
-    before: {
-      productionTask: beforeTask,
-      finishedGoodsPhoto: beforePhoto,
-    },
-    after: {
-      productionTask: afterTask,
-      finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(workspace, afterTask, orderLine),
-      todo: todo ? toTodoSummary(todo) : null,
-      customerNotificationTodoCreated: reviewStatus === "已接受",
-      retakeTodoCreated: reviewStatus === "需重拍",
-    },
-    reason: reason || (reviewStatus === "已接受" ? "成品图确认通过，进入待通知客户" : "成品图退回重拍"),
-  });
-  workspace.operationLogs.unshift(operationLog);
-
+async function reviewProductionFinishedGoodsPhotoRoute({ response, workspace, productionTaskId, body, operatorId }) {
+  const result = await productionFinishedGoodsPhotoCommandService.reviewPhoto({ workspace, productionTaskId, body, operatorId });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  const productionTask = result.productionTask;
+  const orderLine = findOrderLine(workspace, productionTask.orderLineId);
   return sendJson(response, 200, {
     productionTaskId,
-    orderLineId,
-    productionTask: toProductionTaskSummary(afterTask, orderLine),
+    orderLineId: productionTask.orderLineId,
+    productionTask: toProductionTaskSummary(productionTask, orderLine),
     orderLine: summarizeOrderLineForChange(orderLine),
-    finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(workspace, afterTask, orderLine),
-    todo: todo ? toTodoSummary(todo) : null,
-    customerNotificationTodoCreated: reviewStatus === "已接受",
-    retakeTodoCreated: reviewStatus === "需重拍",
+    finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(workspace, productionTask, orderLine),
+    todo: result.todo ? toTodoSummary(result.todo) : null,
+    customerNotificationTodoCreated: result.reviewStatus === "已接受",
+    retakeTodoCreated: result.reviewStatus === "需重拍",
     inventoryCreated: false,
     reservationCreated: false,
     packingTaskCreated: false,
-    operationLogId: operationLog.id,
+    operationLogId: result.operationLogId,
   });
 }
 
@@ -19837,7 +19736,7 @@ function normalizeFinishedGoodsPhotoReviewStatus(value) {
   return "";
 }
 
-function upsertFinishedGoodsCustomerNotificationTodo(workspace, orderLine, productionTask, operatorId) {
+function buildFinishedGoodsCustomerNotificationTodo(workspace, orderLine, productionTask, operatorId, todoId) {
   const orderLineId = cleanServerText(orderLine?.id ?? orderLine?.orderLineId ?? productionTask?.orderLineId);
   const existingTodo = findOpenTodoByTypeAndRef(workspace, "待通知客户", orderLineId);
   const customerId = cleanServerText(orderLine?.customerId);
@@ -19850,6 +19749,7 @@ function upsertFinishedGoodsCustomerNotificationTodo(workspace, orderLine, produ
   const photoPrompt = buildFinishedGoodsPhotoPrompt(productionTask);
   const todo = buildTodo(workspace, {
     ...(existingTodo ?? {}),
+    id: existingTodo?.id ?? todoId,
     type: "待通知客户",
     customerId,
     ref: orderLineId,
@@ -19863,7 +19763,6 @@ function upsertFinishedGoodsCustomerNotificationTodo(workspace, orderLine, produ
     photoPrompt,
     createdBy: existingTodo?.createdBy ?? operatorId,
   });
-  workspace.todos = upsertByKey(workspace.todos ?? [], todo, "id");
   return todo;
 }
 
@@ -19910,7 +19809,7 @@ function buildFinishedGoodsPhotoPrompt(productionTask) {
     : "发送客户通知时请附上已复核成品图。";
 }
 
-function upsertFinishedGoodsPhotoRetakeTodo(workspace, orderLine, productionTask, reason, operatorId) {
+function buildFinishedGoodsPhotoRetakeTodo(workspace, orderLine, productionTask, reason, operatorId, todoId) {
   const orderLineId = cleanServerText(orderLine?.id ?? orderLine?.orderLineId ?? productionTask?.orderLineId);
   const existingTodo = findOpenTodoByTypeAndRef(workspace, "成品图需重拍", orderLineId);
   const customerId = cleanServerText(orderLine?.customerId);
@@ -19921,6 +19820,7 @@ function upsertFinishedGoodsPhotoRetakeTodo(workspace, orderLine, productionTask
     .join(" ");
   const todo = buildTodo(workspace, {
     ...(existingTodo ?? {}),
+    id: existingTodo?.id ?? todoId,
     type: "成品图需重拍",
     customerId,
     ref: orderLineId,
@@ -19930,7 +19830,6 @@ function upsertFinishedGoodsPhotoRetakeTodo(workspace, orderLine, productionTask
     impact: "未确认前不能进入待通知客户池",
     createdBy: existingTodo?.createdBy ?? operatorId,
   });
-  workspace.todos = upsertByKey(workspace.todos ?? [], todo, "id");
   return todo;
 }
 
@@ -19938,23 +19837,6 @@ function findOpenTodoByTypeAndRef(workspace, type, ref) {
   const safeType = cleanServerText(type);
   const safeRef = cleanServerText(ref);
   return (workspace.todos ?? []).find((todo) => todo.type === safeType && todo.ref === safeRef && !todo.handled) ?? null;
-}
-
-function resolveOpenTodosByTypeAndRef(todos = [], type, ref, result = {}) {
-  const safeType = cleanServerText(type);
-  const safeRef = cleanServerText(ref);
-  return todos.map((todo) =>
-    todo.type === safeType && todo.ref === safeRef && !todo.handled
-      ? {
-          ...todo,
-          status: "已处理",
-          handled: true,
-          handledBy: result.handledBy ?? "",
-          handledAt: result.handledAt ?? "",
-          handlingResult: result.handlingResult ?? "",
-        }
-      : todo,
-  );
 }
 
 function buildDeliveryEvidenceRetakeTodo(workspace, fulfillment, reason, operatorId) {

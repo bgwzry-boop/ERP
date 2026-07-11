@@ -1349,6 +1349,8 @@ function productionTaskJsonExpression(alias) {
     'plannedQty', ${alias}.planned_qty,
     'taskStatus', ${alias}.task_status,
     'status', ${alias}.task_status,
+    'revision', ${alias}.revision,
+    'finishedGoodsPhoto', ${alias}.finished_goods_photo,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at
   )`;

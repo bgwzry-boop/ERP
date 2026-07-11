@@ -31,6 +31,7 @@ import { createPostgresPrintDeviceRepository } from "../server/printDeviceReposi
 import { createPostgresPrintJobRepository } from "../server/printJobRepository.mjs";
 import { createPostgresTodoActionRepository } from "../server/todoActionRepository.mjs";
 import { createPostgresInventoryCorrectionTransactionRepository } from "../server/inventoryCorrectionTransactionRepository.mjs";
+import { createPostgresProductionFinishedGoodsPhotoTransactionRepository } from "../server/productionFinishedGoodsPhotoTransactionRepository.mjs";
 import { createPostgresMasterDataImportReviewRepository } from "../server/masterDataImportReviewRepository.mjs";
 import { createPostgresMasterDataImportTransactionRepository } from "../server/masterDataImportTransactionRepository.mjs";
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
@@ -56,7 +57,7 @@ try {
   await checkPostgresRepositories();
   await checkApiWithPostgresRepositories();
   console.log(
-    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, inventory correction transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction repository, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
+    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, inventory correction transaction repository, production finished-goods photo transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction repository, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
   );
 } finally {
   if (server) await closeServer(server);
@@ -147,6 +148,7 @@ VALUES
   ('U-FINANCE-A', 'finance.a', '财务A', 'finance'),
   ('U-WAREHOUSE-A', 'warehouse.a', '仓库A', 'warehouse'),
   ('U-MANAGER-A', 'manager.a', '管理A', 'management'),
+  ('U-WORKSHOP-A', 'workshop.a', '车间A', 'workshop'),
   ('U-DRIVER-A', 'driver.a', '司机A', 'driver'),
   ('U-PRINT-DRIVER-A', 'print.driver.a', '打印驱动服务账号A', 'system')
 ON CONFLICT (id) DO UPDATE SET
@@ -2361,6 +2363,9 @@ async function checkApiWithPostgresRepositories() {
   const inventoryCorrectionTransactionRepository = createPostgresInventoryCorrectionTransactionRepository({
     postgresClient: apiPostgresClient,
   });
+  const productionFinishedGoodsPhotoTransactionRepository = createPostgresProductionFinishedGoodsPhotoTransactionRepository({
+    postgresClient: apiPostgresClient,
+  });
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   const apiServerOptions = {
@@ -2369,6 +2374,7 @@ async function checkApiWithPostgresRepositories() {
     printBatchRepository,
     todoActionRepository,
     inventoryCorrectionTransactionRepository,
+    productionFinishedGoodsPhotoTransactionRepository,
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
@@ -2397,6 +2403,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.printBatchRepository, "postgres");
   assert.equal(health.seed.todoActionRepository, "postgres");
   assert.equal(health.seed.inventoryCorrectionTransactionRepository, "postgres");
+  assert.equal(health.seed.productionFinishedGoodsPhotoTransactionRepository, "postgres");
   assert.equal(health.seed.printDeviceRepository, "postgres");
   assert.equal(health.seed.printJobRepository, "postgres");
   assert.equal(health.seed.printerDeviceFieldTestRepository, "postgres");
@@ -2559,6 +2566,88 @@ async function checkApiWithPostgresRepositories() {
       }).trim(),
     ),
     2,
+  );
+
+  const workshopHeaders = { "x-erp-user-id": "U-WORKSHOP-A" };
+  const photoAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "production_task",
+      ownerId: "PT-LIVE-PROD-001",
+      fileType: "image",
+      purpose: "finished_goods_photo",
+      fileName: "postgres-live-finished-goods.png",
+      contentRef: "p0://postgres-live/production/PT-LIVE-PROD-001/finished-goods.png",
+      mimeType: "image/png",
+      fileSize: 68,
+      contentDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
+      uploadedBy: "U-WORKSHOP-A",
+      operatorId: "U-SPOOFED",
+      idempotencyKey: "production-photo-attachment-live-001",
+    },
+    { headers: workshopHeaders },
+  );
+  const photoUploadBody = {
+    productionTaskId: "PT-LIVE-PROD-001",
+    orderLineId: "OL-LIVE-PROD-001",
+    attachmentId: photoAttachment.attachmentId,
+    fileName: photoAttachment.fileName,
+    operatorId: "U-SPOOFED",
+    idempotencyKey: "production-photo-upload-live-001",
+  };
+  const uploadedPhoto = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo",
+    photoUploadBody,
+    { headers: workshopHeaders },
+  );
+  assert.equal(uploadedPhoto.finishedGoodsPhoto.status, "待确认");
+  assert.equal(uploadedPhoto.finishedGoodsPhoto.uploadedBy, "U-WORKSHOP-A");
+  const replayedPhotoUpload = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo",
+    photoUploadBody,
+    { headers: workshopHeaders },
+  );
+  assert.equal(replayedPhotoUpload.operationLogId, uploadedPhoto.operationLogId);
+  const photoReviewBody = {
+    productionTaskId: "PT-LIVE-PROD-001",
+    orderLineId: "OL-LIVE-PROD-001",
+    reviewStatus: "已接受",
+    reason: "PostgreSQL live accepted",
+    operatorId: "U-SPOOFED",
+    idempotencyKey: "production-photo-review-live-001",
+  };
+  const reviewedPhoto = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo-review",
+    photoReviewBody,
+    { headers },
+  );
+  assert.equal(reviewedPhoto.finishedGoodsPhoto.status, "已接受");
+  assert.equal(reviewedPhoto.finishedGoodsPhoto.reviewedBy, "U-OFFICE-A");
+  assert.equal(reviewedPhoto.todo.type, "待通知客户");
+  const replayedPhotoReview = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo-review",
+    photoReviewBody,
+    { headers },
+  );
+  assert.equal(replayedPhotoReview.operationLogId, reviewedPhoto.operationLogId);
+  const persistedPhoto = queryJson(
+    "SELECT json_build_object('photo', finished_goods_photo, 'revision', revision) AS result FROM production_tasks WHERE id = 'PT-LIVE-PROD-001';",
+  );
+  assert.equal(persistedPhoto.photo.status, "已接受");
+  assert.equal(persistedPhoto.photo.uploadedBy, "U-WORKSHOP-A");
+  assert.equal(persistedPhoto.photo.reviewedBy, "U-OFFICE-A");
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE target_id = 'PT-LIVE-PROD-001' AND action IN ('upload_finished_goods_photo', 'accept_finished_goods_photo');", { capture: true }).trim()),
+    2,
+  );
+  assert.equal(
+    Number(runPsql(`SELECT COUNT(*) FROM todo_events WHERE todo_id = ${sqlLiteral(reviewedPhoto.todo.todoId)};`, { capture: true }).trim()),
+    1,
   );
   assert.equal(
     Number(
@@ -4361,6 +4450,16 @@ WHERE id = 'F002';`,
     { headers: correctionManagerHeaders },
   );
   assert.equal(restartedCorrectionReplay.operationLogId, confirmedCorrection.operationLogId);
+  const restartedPhotoTask = await getJson(baseUrl, "/api/production-tasks/PT-LIVE-PROD-001", { headers });
+  assert.equal(restartedPhotoTask.finishedGoodsPhoto.status, "已接受");
+  assert.equal(restartedPhotoTask.finishedGoodsPhoto.attachmentId, photoAttachment.attachmentId);
+  const restartedPhotoReviewReplay = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo-review",
+    photoReviewBody,
+    { headers },
+  );
+  assert.equal(restartedPhotoReviewReplay.operationLogId, reviewedPhoto.operationLogId);
   const resumedDraft = await patchJson(
     baseUrl,
     `/api/order-drafts/${concurrentDraftId}`,

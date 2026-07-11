@@ -70,7 +70,7 @@
     "print-job-api:check": "node scripts/check-frontend-print-job-api-client.mjs",
     "print-driver-config-api:check": "node scripts/check-frontend-print-driver-config-api-client.mjs",
     "printer-device-api:check": "node scripts/check-frontend-printer-device-api-client.mjs",
-    "production-packing-api:check": "node scripts/check-production-read-routes.mjs && node scripts/check-production-write-routes.mjs && node scripts/check-frontend-production-packing-api-client.mjs",
+    "production-packing-api:check": "node scripts/check-production-read-routes.mjs && node scripts/check-production-write-routes.mjs && node scripts/check-frontend-production-packing-api-client.mjs && node scripts/check-production-finished-goods-photo-command-service.mjs && node scripts/check-production-finished-goods-photo-transaction-repository.mjs",
     "production-packing-state:check": "node scripts/check-office-production-packing-state.mjs",
     "office-print-state:check": "node scripts/check-office-print-state.mjs",
     "office-master-data-state:check": "node scripts/check-office-master-data-state.mjs",

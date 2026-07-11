@@ -1264,7 +1264,7 @@ try {
       orderLineId: "ORD-0629-003-01",
       attachmentId: finishedGoodsPhotoAttachment.attachmentId,
       fileName: finishedGoodsPhotoAttachment.fileName,
-      operatorId: "U-WORKSHOP-A",
+      operatorId: "U-SPOOFED",
       uploadedAt: new Date().toISOString(),
       remark: "API skeleton workshop finished goods photo upload check",
     },
@@ -1273,6 +1273,7 @@ try {
   if (
     finishedGoodsPhotoUpload.finishedGoodsPhoto?.status !== "待确认" ||
     finishedGoodsPhotoUpload.finishedGoodsPhoto?.attachmentId !== finishedGoodsPhotoAttachment.attachmentId ||
+    finishedGoodsPhotoUpload.finishedGoodsPhoto?.uploadedBy !== "U-WORKSHOP-A" ||
     finishedGoodsPhotoUpload.customerNotificationTodoCreated !== false ||
     finishedGoodsPhotoUpload.inventoryCreated !== false ||
     finishedGoodsPhotoUpload.reservationCreated !== false ||
@@ -1307,13 +1308,14 @@ try {
       orderLineId: "ORD-0629-003-01",
       reviewStatus: "已接受",
       reason: "API skeleton finished goods photo accepted",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       reviewedAt: new Date().toISOString(),
     },
     { headers: { "x-erp-user-id": "U-OFFICE-A" } },
   );
   if (
     finishedGoodsPhotoReview.finishedGoodsPhoto?.status !== "已接受" ||
+    finishedGoodsPhotoReview.finishedGoodsPhoto?.reviewedBy !== "U-OFFICE-A" ||
     finishedGoodsPhotoReview.todo?.type !== "待通知客户" ||
     finishedGoodsPhotoReview.customerNotificationTodoCreated !== true ||
     finishedGoodsPhotoReview.inventoryCreated !== false ||

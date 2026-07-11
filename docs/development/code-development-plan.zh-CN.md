@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D27-2 生产成品图事务持久化已完成。上传时生产任务图片状态与日志同事务保存；审核时任务、待通知客户 / 重拍待办、自动解决的旧重拍待办、完整事件和日志同事务保存。迁移 `0014` 增加任务 revision 和 JSONB 图片快照，启动读和生产任务专用读可跨重启恢复。production 已接共享幂等、资源锁、revision 门禁和认证操作人；API 主文件删除旧双份逻辑和直接 workspace 写入。直接 service / repository、HTTP、全量、构建和 PostgreSQL 16 重放 / 重启 live 通过。下一轮 D28 硬化生产报工 / 跨日报数 / 打包完成事务。
 - 本轮补充：D27-1 库存修正事务持久化已完成。创建草稿时修正单、待办、完整待办事件和操作日志同事务写入，确认时库存、修正单、流水、待办、事件和日志同事务提交；production 使用共享幂等、三类资源锁和 revision 门禁。创建、确认、库存占用释放均使用认证操作人。迁移 `0013` 和启动读模型支持重启恢复完整详情。直接 service / repository、HTTP、OpenAPI、production profile 和 PostgreSQL 16 重放 / 重启 live 通过。下一轮 D27-2 迁移生产成品图审核的任务和待办来源写入。
 - 本轮补充：D26 公共待办命令持久化已完成。八类处理动作进入 `todoCommandService.mjs`，`todoActionRepository.mjs` 在 production 同一幂等事务内更新主表、写完整事件和操作日志，并增加待办资源锁、陈旧时间门禁和认证操作人。核心启动读模型合并最新事件，通知 / 打印核对 / 提醒细节可跨重启恢复；repository 已纳入 production PostgreSQL profile 与 readiness。直接 service / repository、HTTP、全量、构建和 PostgreSQL 16 重放 / 重启 live 通过。下一轮 D27 迁移仍直接创建 / 解决待办的业务来源路径。
 - 本轮补充：D25-6 打印批次命令 service 迁移已完成。批次创建进入 `printBatchCommandService.mjs`，认证操作人覆盖请求体身份，无显式 ID 时按幂等键生成稳定批次号，无效相对时间改用服务端 ISO 时间。PostgreSQL repository 已接共享幂等执行器和批次资源锁，重放返回首个操作日志且不生成伪内存日志。直接 service、HTTP、全量、构建和 PostgreSQL 16 重放 live 通过。下一轮 D26 修复公共待办动作仅写内存和身份可伪造问题。

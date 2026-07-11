@@ -459,6 +459,7 @@ function toInventoryCorrectionDraft(row) {
 }
 
 function toProductionTask(row) {
+  const finishedGoodsPhoto = object(row.finished_goods_photo);
   return {
     id: clean(row.id),
     productionTaskId: clean(row.id),
@@ -471,6 +472,16 @@ function toProductionTask(row) {
     status: clean(row.task_status),
     publishedScheduleId: clean(row.published_schedule_id),
     revision: integer(row.revision, 1),
+    finishedGoodsPhoto,
+    finishedGoodsPhotoStatus: clean(finishedGoodsPhoto.status),
+    finishedGoodsPhotoAttachmentId: clean(finishedGoodsPhoto.attachmentId),
+    finishedGoodsPhotoFileName: clean(finishedGoodsPhoto.fileName),
+    finishedGoodsPhotoUploadedAt: timestamp(finishedGoodsPhoto.uploadedAt),
+    finishedGoodsPhotoUploadedBy: clean(finishedGoodsPhoto.uploadedBy),
+    finishedGoodsPhotoReviewedAt: timestamp(finishedGoodsPhoto.reviewedAt),
+    finishedGoodsPhotoReviewedBy: clean(finishedGoodsPhoto.reviewedBy),
+    finishedGoodsPhotoRejectedReason: clean(finishedGoodsPhoto.rejectedReason),
+    finishedGoodsPhotoHistory: array(finishedGoodsPhoto.history),
     createdBy: clean(row.created_by),
     createdAt: timestamp(row.created_at),
     updatedAt: timestamp(row.updated_at),
