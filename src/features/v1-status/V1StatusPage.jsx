@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { DetailPane, InfoGrid, StatusPill } from "../../components/ui.jsx";
+import { DetailPane, StatusPill } from "../../components/ui.jsx";
 import {
   V1StatusGateModulePanel,
   V1StatusHeader,
@@ -8,6 +8,8 @@ import {
   V1StatusWorkspaceTabs,
   renderV1ProductionEnvFileSourceStatusList,
 } from "./V1StatusOverview.jsx";
+import { V1StatusDecisionWorkspace } from "./V1StatusDecisionWorkspace.jsx";
+import { V1StatusModuleWorkspace } from "./V1StatusModuleWorkspace.jsx";
 import {
   buildProductionEnvVariableCheckOverlayForPage,
   buildProductionEnvVariableChecksForPage,
@@ -16,7 +18,6 @@ import {
   getProductionEnvTemplateSectionLabel,
   getProductionEnvVariableCheckCountLabelForPage,
   getProductionEnvVariableCheckOverlayItemForPage,
-  getV1PhaseTaskTone,
   normalizeV1PhaseGroupForPage,
   normalizeV1PhaseTaskForPage,
   v1BoundaryStageStatusOptions,
@@ -2265,224 +2266,23 @@ export function V1StatusPage({
 
         <DetailPane title={workspaceTitle} subtitle="V1 上线工作台">
           <V1StatusSectionTabs items={workspaceSections} value={workspaceSection} onChange={setWorkspaceSection} />
-          <div className="v1-module-summary">
-            <InfoGrid
-              rows={[
-                ["需求确认", selectedModule.requirements],
-                ["P0/代码", selectedModule.p0Code],
-                ["V1 上线就绪", selectedModule.v1Readiness],
-                ["完成标准", "发布门禁 + 现场证据 + 签字"],
-                ["当前阶段", `${selectedPhase.label} / ${selectedPhase.taskCount} 项`],
-              ]}
-            />
-          </div>
-          {ownerDecisionBrief ? (
-            <section className="detail-section v1-workspace-panel v1-workspace-overview v1-section-owner">
-              <h3>负责人决策摘要</h3>
-              <div className="v1-owner-decision-head">
-                <StatusPill tone={ownerDecisionBrief.canDeclareV1Complete ? "success" : "danger"}>
-                  {ownerDecisionBrief.decision.label || "不能宣布 V1 已完成"}
-                </StatusPill>
-                <p>{ownerDecisionBrief.conclusion}</p>
-              </div>
-              <div className="v1-owner-decision-summary">
-                <span>发布门禁 <strong>{ownerDecisionBrief.completion.releaseGate}</strong></span>
-                <span>运行时 <strong>{ownerDecisionBrief.completion.runtimeReadiness}</strong></span>
-                <span>现场任务 <strong>{ownerDecisionBrief.completion.onsiteTaskLabel}</strong></span>
-                <span>现场证据 <strong>{ownerDecisionBrief.completion.fieldEvidence}</strong></span>
-              </div>
-              <div className="v1-owner-decision-grid">
-                <div className="v1-owner-decision-column">
-                  <strong>已完成基础</strong>
-                  <div className="v1-owner-decision-list">
-                    {ownerDecisionBrief.doneHighlights.map((item) => (
-                      <p key={item}>{item}</p>
-                    ))}
-                  </div>
-                </div>
-                <div className="v1-owner-decision-column">
-                  <strong>还没完成</strong>
-                  <div className="v1-owner-decision-list">
-                    {ownerDecisionBrief.unfinishedItems.slice(0, 5).map((item) => (
-                      <p key={`${item.type}-${item.label}`}>
-                        <b>{item.label}</b>：{item.detail}
-                      </p>
-                    ))}
-                  </div>
-                </div>
-              </div>
-              {ownerDecisionBrief.releaseGates.length ? (
-                <div className="v1-owner-decision-gates">
-                  {ownerDecisionBrief.releaseGates.map((gate) => (
-                    <div className="v1-owner-decision-gate" key={gate.label}>
-                      <StatusPill tone={gate.status === "blocked" ? "danger" : "warning"}>{gate.summary}</StatusPill>
-                      <div>
-                        <strong>{gate.label}</strong>
-                        <p>{gate.detail}</p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-              {(ownerDecisionBrief.nextActions.length || ownerDecisionBrief.topBlockers.length) ? (
-                <div className="v1-owner-action-plan">
-                  {ownerDecisionBrief.nextActions.length ? (
-                    <div className="v1-owner-action-column">
-                      <strong>优先动作 <span>{ownerDecisionBrief.summary.nextActionLabel}</span></strong>
-                      <div className="v1-owner-action-list">
-                        {ownerDecisionBrief.nextActions.map((action) => (
-                          <p key={action}>{action}</p>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                  {ownerDecisionBrief.topBlockers.length ? (
-                    <div className="v1-owner-action-column">
-                      <strong>首批阻塞 <span>{ownerDecisionBrief.summary.topBlockerLabel}</span></strong>
-                      <div className="v1-owner-blocker-list">
-                        {ownerDecisionBrief.topBlockers.map((blocker) => (
-                          <div className="v1-owner-blocker-row" key={`${blocker.gate}-${blocker.label}`}>
-                            <StatusPill tone="danger">{blocker.gate || "阻塞"}</StatusPill>
-                            <div>
-                              <strong>{blocker.label}</strong>
-                              <p>{blocker.detail}</p>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  ) : null}
-                </div>
-              ) : null}
-              <div className="v1-owner-decision-question">
-                <strong>负责人需要判断</strong>
-                <p>{ownerDecisionBrief.decision.ownerQuestion}</p>
-                <p>{ownerDecisionBrief.decision.recommendation}</p>
-              </div>
-            </section>
-          ) : null}
-          {completionAudit ? (
-            <section className="detail-section v1-workspace-panel v1-workspace-overview v1-section-audit">
-              <h3>V1 完成审计</h3>
-              <div className="v1-owner-decision-head">
-                <StatusPill tone={completionAudit.canDeclareV1Complete ? "success" : "danger"}>
-                  {completionAudit.canDeclareV1Complete ? "可以宣布完成" : "不能宣布完成"}
-                </StatusPill>
-                <p>{completionAudit.summary.label}</p>
-              </div>
-              <div className="v1-owner-decision-summary">
-                <span>完成标准 <strong>{completionAudit.summary.passedCriteriaCount}/{completionAudit.summary.criteriaCount}</strong></span>
-                <span>阻塞 <strong>{completionAudit.summary.blockingCriteriaLabel}</strong></span>
-                <span>现场任务 <strong>{completionAudit.summary.onsiteTaskLabel}</strong></span>
-                <span>V2 差异 <strong>{completionAudit.summary.v2DifferenceLabel}</strong></span>
-              </div>
-              <div className="v1-owner-decision-gates">
-                {completionAudit.criteria.map((criterion) => {
-                  const criterionActions = buildCompletionAuditActions(criterion);
-                  return (
-                    <div className="v1-owner-decision-gate" key={criterion.key}>
-                      <StatusPill tone={criterion.ready ? "success" : "danger"}>{criterion.statusLabel}</StatusPill>
-                      <div>
-                        <strong>{criterion.label}</strong>
-                        <p>当前：{criterion.evidenceLabel}</p>
-                        {criterion.proofRequirements?.length ? (
-                          <div className="v1-completion-proof-list">
-                            <span>需证明</span>
-                            {criterion.proofRequirements.map((proof) => (
-                              <b key={proof}>{proof}</b>
-                            ))}
-                          </div>
-                        ) : null}
-                        {criterion.proofGaps?.length ? (
-                          <div className="v1-completion-gap-list">
-                            <span>{criterion.proofGapCountLabel ? `还缺 ${criterion.proofGapCountLabel}` : "还缺"}</span>
-                            {criterion.proofGaps.map((gap) => (
-                              <b key={gap}>{gap}</b>
-                            ))}
-                          </div>
-                        ) : null}
-                        <p>{criterion.ready ? criterion.current : criterion.nextAction}</p>
-                        {criterionActions.length ? (
-                          <div className="v1-refresh-precheck-actions">
-                            {criterionActions.map((action) => (
-                              <button
-                                className="ghost-button"
-                                disabled={action.disabled}
-                                key={`${criterion.key}-${action.key}`}
-                                onClick={action.onClick}
-                                type="button"
-                              >
-                                {action.label}
-                              </button>
-                            ))}
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-              <div className="v1-owner-decision-question">
-                <strong>V1/V2 边界</strong>
-                <p>{completionAudit.v2Boundary.label}</p>
-                <p>{completionAudit.v2Boundary.nextAction}</p>
-              </div>
-            </section>
-          ) : null}
-          <section className="detail-section v1-workspace-panel v1-workspace-overview v1-section-phase">
-            <h3>当前解除阻塞阶段</h3>
-            <div className="v1-phase-detail">
-              <p>{selectedPhase.nextStep}</p>
-              <div className="v1-phase-meta">
-                <span>发布门禁 {selectedPhase.releaseTaskCount}</span>
-                <span>现场证据 {selectedPhase.evidenceTaskCount}</span>
-                <span>签字/边界 {selectedPhase.signBoundaryCount}</span>
-                {selectedPhase.groupLabel ? <span>分组 {selectedPhase.groupLabel}</span> : null}
-                {selectedPhase.firstTaskLabel ? <span>首批任务 {selectedPhase.firstTaskLabel}</span> : null}
-              </div>
-              <div className="v1-role-strip">
-                {selectedPhaseRoles.map((role) => <span key={role}>{role}</span>)}
-              </div>
-              {selectedPhaseGroups.length ? (
-                <div className="v1-phase-group-list">
-                  {selectedPhaseGroups.map((group) => (
-                    <span className="v1-phase-group" key={group.key}>
-                      <strong>{group.group}</strong>
-                      {group.countLabel ? <em>{group.countLabel}</em> : null}
-                    </span>
-                  ))}
-                </div>
-              ) : null}
-              <div className="v1-phase-quick-actions">
-                {buildSelectedPhaseQuickActions().map((action) => (
-                  <button
-                    className="ghost-button"
-                    disabled={action.disabled}
-                    key={`${selectedPhase.key}-${action.key}`}
-                    onClick={action.onClick}
-                    type="button"
-                  >
-                    {action.label}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="v1-action-list">
-              {selectedPhaseTasks.map((task) => (
-                <div className="v1-action-row" key={`${selectedPhase.key}-${task.key}`}>
-                  <StatusPill tone={getV1PhaseTaskTone(task)}>{task.type || "待办"}</StatusPill>
-                  <div>
-                    <strong>{task.title}</strong>
-                    <p>{task.group} / {task.roleLabel}：{task.action}</p>
-                    <div className="v1-action-meta">
-                      <span>{task.statusLabel}</span>
-                      {task.primaryRole ? <span>{task.primaryRole}</span> : null}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </section>
+          <V1StatusModuleWorkspace
+            selectedModule={selectedModule}
+            selectedPhase={selectedPhase}
+            roleBuckets={unblockPlan.roleBuckets}
+            blockers={statusSummary.blockers}
+            v2DifferenceItems={v2DifferenceItemsForPage}
+          />
+          <V1StatusDecisionWorkspace
+            ownerDecisionBrief={ownerDecisionBrief}
+            completionAudit={completionAudit}
+            buildCompletionAuditActions={buildCompletionAuditActions}
+            selectedPhase={selectedPhase}
+            selectedPhaseRoles={selectedPhaseRoles}
+            selectedPhaseGroups={selectedPhaseGroups}
+            selectedPhaseTasks={selectedPhaseTasks}
+            selectedPhaseQuickActions={buildSelectedPhaseQuickActions()}
+          />
           {productionEnvGate ? (
             <section className="detail-section v1-workspace-panel v1-workspace-production v1-section-env_gate" ref={productionEnvGateRef}>
               <div className="v1-section-title-row">
@@ -5533,35 +5333,6 @@ export function V1StatusPage({
               ) : null}
             </section>
           ) : null}
-          <section className="detail-section v1-workspace-panel v1-workspace-module v1-section-module_pressure">
-            <h3>角色压力</h3>
-            <div className="v1-role-buckets">
-              {unblockPlan.roleBuckets.map(([role, count]) => (
-                <span key={role}>{role}<strong>{count}</strong></span>
-              ))}
-            </div>
-          </section>
-          <section className="detail-section v1-workspace-panel v1-workspace-module v1-section-module_gaps">
-            <h3>主要未完成</h3>
-            <p>{selectedModule.remaining}</p>
-          </section>
-          <section className="detail-section v1-workspace-panel v1-workspace-module v1-section-module_blockers">
-            <h3>当前最小阻塞</h3>
-            <ul className="v1-blocker-list">
-              {statusSummary.blockers.map((item) => <li key={item}>{item}</li>)}
-            </ul>
-          </section>
-          <section className="detail-section v1-workspace-panel v1-workspace-module v1-section-module_v2">
-            <h3>计划 V2 差异</h3>
-            <div className="v2-difference-list">
-              {v2DifferenceItemsForPage.map(([label, text]) => (
-                <div className="v2-difference-row" key={label}>
-                  <strong>{label}</strong>
-                  <span>{text}</span>
-                </div>
-              ))}
-            </div>
-          </section>
         </DetailPane>
       </section>
     </section>
