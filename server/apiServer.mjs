@@ -94,6 +94,7 @@ import { createPrintBatchCommandService } from "./services/printBatchCommandServ
 import { createTodoCommandService } from "./services/todoCommandService.mjs";
 import { createInventoryCorrectionCommandService } from "./services/inventoryCorrectionCommandService.mjs";
 import { createProductionFinishedGoodsPhotoCommandService } from "./services/productionFinishedGoodsPhotoCommandService.mjs";
+import { createProductionSchedulingCommandService } from "./services/productionSchedulingCommandService.mjs";
 import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
 import { createProductionFinishedGoodsPhotoTransactionRepository } from "./productionFinishedGoodsPhotoTransactionRepository.mjs";
@@ -16734,6 +16735,20 @@ const productionFinishedGoodsPhotoCommandService = createProductionFinishedGoods
   normalizeHistory: normalizeFinishedGoodsPhotoHistory,
   normalizeReviewStatus: normalizeFinishedGoodsPhotoReviewStatus,
 });
+const productionSchedulingCommandService = createProductionSchedulingCommandService({
+  buildMachineQueueResponse: buildProductionMachineQueueResponse,
+  buildOperationLog,
+  buildProductionTaskFromBody,
+  findOrderLine,
+  findProductionTask,
+  inferProductionMachineIdFromTaskType,
+  inferProductionTaskTypeFromOrderLine,
+  isProductionTaskCompletedStatus,
+  resolvePersistableCreatedBy,
+  resolvePublishedProductionLineStatus,
+  resolvePublishedProductionTaskStatus,
+  summarizeOrderLineForChange,
+});
 
 async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
   const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
@@ -16932,116 +16947,10 @@ function resolvePersistableCreatedBy(workspace, candidateUserId, fallbackUserId)
 }
 
 async function publishProductionScheduleRoute({ response, workspace, productionTaskId, body, operatorId }) {
-  const beforeTask = findProductionTask(workspace, productionTaskId) ?? buildProductionTaskFromBody(workspace, productionTaskId, body);
-  if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
-  if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
-  }
-  if (isProductionTaskCompletedStatus(beforeTask.taskStatus ?? beforeTask.status)) {
-    return sendBusinessError(response, 409, "PRODUCTION_TASK_ALREADY_COMPLETED", "Completed production tasks cannot be published again.");
-  }
-
-  const orderLineId = body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId;
-  const beforeOrderLine = findOrderLine(workspace, orderLineId);
-  if (!beforeOrderLine) return sendNotFound(response, "ORDER_LINE_NOT_FOUND");
-  if (String(beforeOrderLine.orderType ?? "").includes("外加工")) {
-    return sendBusinessError(
-      response,
-      409,
-      "PRODUCTION_SCHEDULE_EXTERNAL_PROCESSING_NOT_SUPPORTED",
-      "External-processing print service tasks are not published to the in-house workshop task pool.",
-    );
-  }
-
-  const publishedAt = body.publishedAt ?? new Date().toISOString();
-  const taskType =
-    cleanServerText(body.processType ?? beforeTask.taskType) || inferProductionTaskTypeFromOrderLine(beforeOrderLine);
-  const machineId =
-    cleanServerText(body.machineId ?? beforeTask.machineId) || inferProductionMachineIdFromTaskType(taskType);
-  const plannedQty = Math.trunc(Number(body.plannedQty ?? beforeTask.plannedQty ?? beforeTask.qty ?? beforeOrderLine.qty ?? beforeOrderLine.originalQty ?? 0));
-  if (!machineId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "machineId is required when publishing a production schedule.");
-  }
-  if (!Number.isFinite(plannedQty) || plannedQty <= 0) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "plannedQty must be greater than 0.");
-  }
-
-  const publishedScheduleId =
-    cleanServerText(body.publishedScheduleId) ||
-    cleanServerText(beforeTask.publishedScheduleId) ||
-    nextPlainId("SCH", `${machineId}-${productionTaskId}-${compactTimestamp(publishedAt)}`);
-  const taskStatus = body.taskStatus ?? resolvePublishedProductionTaskStatus({ taskType, beforeTask, beforeOrderLine });
-  const afterTask = {
-    ...beforeTask,
-    id: productionTaskId,
-    productionTaskId,
-    bizNo: beforeTask.bizNo ?? productionTaskId,
-    orderLineId,
-    lineId: orderLineId,
-    taskType,
-    machineId,
-    plannedQty,
-    qty: plannedQty,
-    taskStatus,
-    status: taskStatus,
-    publishedScheduleId,
-    createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
-    createdAt: beforeTask.createdAt ?? publishedAt,
-    updatedAt: publishedAt,
-  };
-  const lineStatus = body.lineStatus ?? resolvePublishedProductionLineStatus({ taskType, beforeOrderLine, taskStatus });
-  const afterOrderLine = {
-    ...beforeOrderLine,
-    orderLineId: beforeOrderLine.orderLineId ?? beforeOrderLine.id,
-    lineStatus,
-    status: lineStatus,
-    exceptionTags: beforeOrderLine.exceptionTags ?? beforeOrderLine.exceptions ?? [],
-  };
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "production_task",
-    targetId: productionTaskId,
-    action: "publish_production_schedule",
-    operatorId,
-    before: {
-      productionTask: beforeTask,
-      orderLine: summarizeOrderLineForChange(beforeOrderLine),
-    },
-    after: {
-      productionTask: afterTask,
-      orderLine: summarizeOrderLineForChange(afterOrderLine),
-      inventoryCreated: false,
-      reservationCreated: false,
-      packingTaskCreated: false,
-    },
-    reason: body.remark ?? "办公室发布排产到车间任务池",
-  });
-  const transaction = await workspace.productionPackingTransactionRepository.publishProductionSchedule({
-    workspace,
-    productionTask: afterTask,
-    orderLine: afterOrderLine,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
-  });
-
-  return sendJson(response, 200, {
-    productionTaskId,
-    orderLineId,
-    publishedScheduleId: transaction.productionTask.publishedScheduleId,
-    status: transaction.productionTask.taskStatus,
-    taskStatus: transaction.productionTask.taskStatus,
-    orderLineStatus: transaction.orderLine?.lineStatus ?? lineStatus,
-    taskType: transaction.productionTask.taskType,
-    machineId: transaction.productionTask.machineId,
-    plannedQty: transaction.productionTask.plannedQty,
-    publishedAt: transaction.productionTask.updatedAt || publishedAt,
-    productionTask: transaction.productionTask,
-    orderLine: transaction.orderLine,
-    inventoryCreated: false,
-    reservationCreated: false,
-    packingTaskCreated: false,
-    operationLogId: transaction.operationLogId,
-  });
+  const result = await productionSchedulingCommandService.publishSchedule({ workspace, productionTaskId, body, operatorId });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 async function buildProductionMachineQueueResponse({ workspace, query } = {}) {
@@ -17241,384 +17150,16 @@ function getServerQueryValue(query, key) {
 }
 
 async function resequenceProductionMachineQueueRoute({ response, workspace, body, operatorId }) {
-  const machineId = cleanServerText(body.machineId);
-  const orderedProductionTaskIds = normalizeStringArray(body.orderedProductionTaskIds ?? body.productionTaskIds);
-  if (!machineId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "machineId is required for production queue resequencing.");
-  }
-  if (orderedProductionTaskIds.length < 1) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "orderedProductionTaskIds must contain at least one production task.");
-  }
-  if (new Set(orderedProductionTaskIds).size !== orderedProductionTaskIds.length) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "orderedProductionTaskIds must not contain duplicates.");
-  }
-
-  const beforeQueue = await buildProductionMachineQueueResponse({ workspace, query: { machineId, status: "open" } });
-  const machineQueueItems = beforeQueue.items.filter((item) => item.machineId === machineId);
-  const queueByTaskId = new Map(machineQueueItems.map((item) => [item.productionTaskId, item]));
-  const unknownIds = orderedProductionTaskIds.filter((productionTaskId) => !queueByTaskId.has(productionTaskId));
-  if (unknownIds.length) {
-    return sendBusinessError(
-      response,
-      422,
-      "PRODUCTION_SCHEDULE_QUEUE_ITEM_NOT_FOUND",
-      `Production tasks are not in the active queue for ${machineId}: ${unknownIds.join(", ")}`,
-    );
-  }
-  const missingIds = machineQueueItems
-    .map((item) => item.productionTaskId)
-    .filter((productionTaskId) => !orderedProductionTaskIds.includes(productionTaskId));
-  if (missingIds.length) {
-    return sendBusinessError(
-      response,
-      422,
-      "PRODUCTION_SCHEDULE_QUEUE_SEQUENCE_INCOMPLETE",
-      `The new sequence must include every active queue item for ${machineId}: ${missingIds.join(", ")}`,
-    );
-  }
-
-  const updatedAt = cleanServerText(body.updatedAt) || new Date().toISOString();
-  const remark = cleanServerText(body.remark) || "办公室调整同机台排产队列顺序";
-  const beforeRecords = cloneJson(workspace.productionScheduleRecords ?? []);
-  const nextRecords = buildProductionScheduleRecordsForSequence({
-    records: workspace.productionScheduleRecords ?? [],
-    orderedItems: orderedProductionTaskIds.map((productionTaskId, index) => ({
-      ...queueByTaskId.get(productionTaskId),
-      queueSeq: index + 1,
-    })),
-    machineId,
-    operatorId,
-    updatedAt,
-    remark,
-  });
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "production_schedule_queue",
-    targetId: machineId,
-    action: "resequence_production_schedule_queue",
-    operatorId,
-    before: {
-      machineId,
-      items: machineQueueItems.map((item) => summarizeProductionScheduleQueueItem(item)),
-      records: beforeRecords.filter((record) => cleanServerText(record.machineId) === machineId),
-    },
-    after: {
-      machineId,
-      items: nextRecords.map((item) => summarizeProductionScheduleQueueItem(item)),
-      inventoryCreated: false,
-      reservationCreated: false,
-      packingTaskCreated: false,
-    },
-    reason: remark,
-  });
-  const transaction = await workspace.productionScheduleRecordRepository.resequenceMachineQueue({
-    workspace,
-    records: nextRecords,
-    expectedRecords: beforeRecords.filter((record) => cleanServerText(record.machineId) === machineId),
-    lockedMachineIds: [machineId],
-    transactionContext: {
-      machineId,
-      updatedAt,
-      updatedBy: operatorId,
-      updatedCount: orderedProductionTaskIds.length,
-    },
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
-  });
-  const afterQueue = await buildProductionMachineQueueResponse({ workspace, query: { machineId, status: "open" } });
-
-  return sendJson(response, 200, {
-    machineId,
-    updatedCount: Number(transaction.transactionContext.updatedCount ?? orderedProductionTaskIds.length),
-    updatedAt: cleanServerText(transaction.transactionContext.updatedAt) || updatedAt,
-    updatedBy: cleanServerText(transaction.transactionContext.updatedBy) || operatorId,
-    operationLogId: transaction.operationLogId,
-    productionScheduleRecords: transaction.productionScheduleRecords,
-    inventoryCreated: false,
-    reservationCreated: false,
-    packingTaskCreated: false,
-    ...afterQueue,
-  });
+  const result = await productionSchedulingCommandService.resequenceMachineQueue({ workspace, body, operatorId });
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 async function moveProductionMachineQueueItemRoute({ response, workspace, body, operatorId }) {
-  const productionTaskId = cleanServerText(body.productionTaskId);
-  const targetMachineId = cleanServerText(body.targetMachineId ?? body.machineId);
-  if (!productionTaskId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "productionTaskId is required for moving a production schedule item.");
-  }
-  if (!targetMachineId) {
-    return sendBusinessError(response, 422, "VALIDATION_ERROR", "targetMachineId is required for moving a production schedule item.");
-  }
-
-  const beforeQueue = await buildProductionMachineQueueResponse({ workspace, query: { status: "open" } });
-  const movingItem = beforeQueue.items.find((item) => item.productionTaskId === productionTaskId);
-  if (!movingItem) {
-    return sendBusinessError(
-      response,
-      404,
-      "PRODUCTION_SCHEDULE_QUEUE_ITEM_NOT_FOUND",
-      `Production task is not in the active machine queue: ${productionTaskId}`,
-    );
-  }
-  const sourceMachineId = cleanServerText(movingItem.machineId);
-  const targetQueueBase = beforeQueue.items.filter(
-    (item) => item.machineId === targetMachineId && item.productionTaskId !== productionTaskId,
-  );
-  const positionedTargetQueue = insertProductionScheduleQueueItem({
-    items: targetQueueBase,
-    item: {
-      ...movingItem,
-      machineId: targetMachineId,
-      machineLabel: targetMachineId,
-      scheduleRecordId: "",
-    },
-    body,
-  });
-  if (positionedTargetQueue.error) {
-    return sendBusinessError(response, 422, positionedTargetQueue.error.code, positionedTargetQueue.error.message);
-  }
-
-  const updatedAt = cleanServerText(body.updatedAt) || new Date().toISOString();
-  const remark =
-    cleanServerText(body.remark) ||
-    (sourceMachineId === targetMachineId
-      ? "办公室插入调整机台排产队列顺序"
-      : `办公室将生产任务从 ${sourceMachineId} 调整到 ${targetMachineId}`);
-  const beforeRecords = cloneJson(workspace.productionScheduleRecords ?? []);
-  const nextRecords = [];
-
-  if (sourceMachineId !== targetMachineId) {
-    const sourceQueueAfterMove = beforeQueue.items
-      .filter((item) => item.machineId === sourceMachineId && item.productionTaskId !== productionTaskId)
-      .map((item, index) => ({ ...item, queueSeq: index + 1 }));
-    nextRecords.push(
-      ...buildProductionScheduleRecordsForSequence({
-        records: workspace.productionScheduleRecords ?? [],
-        orderedItems: sourceQueueAfterMove,
-        machineId: sourceMachineId,
-        operatorId,
-        updatedAt,
-        remark,
-        sourceKind: "machine_reassignment",
-        reuseItemScheduleRecordId: true,
-      }),
-    );
-    nextRecords.push(
-      buildMovedProductionScheduleRecord({
-        records: workspace.productionScheduleRecords ?? [],
-        item: movingItem,
-        sourceMachineId,
-        operatorId,
-        updatedAt,
-        remark,
-      }),
-    );
-  }
-
-  const targetQueueAfterMove = positionedTargetQueue.items.map((item, index) => ({ ...item, queueSeq: index + 1 }));
-  nextRecords.push(
-    ...buildProductionScheduleRecordsForSequence({
-      records: workspace.productionScheduleRecords ?? [],
-      orderedItems: targetQueueAfterMove,
-      machineId: targetMachineId,
-      operatorId,
-      updatedAt,
-      remark,
-      sourceKind: sourceMachineId === targetMachineId ? "queue_insert" : "machine_reassignment",
-      reuseItemScheduleRecordId: false,
-    }),
-  );
-
-  const beforeTask = findProductionTask(workspace, productionTaskId);
-  if (!beforeTask) return sendNotFound(response, "PRODUCTION_TASK_NOT_FOUND");
-  const afterTask = {
-    ...beforeTask,
-    id: productionTaskId,
-    productionTaskId,
-    machineId: targetMachineId,
-    updatedAt,
-  };
-  const movedTargetItem = targetQueueAfterMove.find((item) => item.productionTaskId === productionTaskId);
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "production_schedule_queue",
-    targetId: productionTaskId,
-    action: sourceMachineId === targetMachineId ? "insert_production_schedule_queue_item" : "move_production_schedule_queue_item",
-    operatorId,
-    before: {
-      productionTask: beforeTask,
-      sourceMachineId,
-      targetMachineId,
-      sourceItems: beforeQueue.items
-        .filter((item) => item.machineId === sourceMachineId)
-        .map((item) => summarizeProductionScheduleQueueItem(item)),
-      targetItems: beforeQueue.items
-        .filter((item) => item.machineId === targetMachineId)
-        .map((item) => summarizeProductionScheduleQueueItem(item)),
-      records: beforeRecords.filter((record) => cleanServerText(record.productionTaskId) === productionTaskId),
-    },
-    after: {
-      productionTask: afterTask,
-      sourceMachineId,
-      targetMachineId,
-      targetQueueSeq: movedTargetItem?.queueSeq ?? 0,
-      records: nextRecords.map((record) => summarizeProductionScheduleRecord(record)),
-      inventoryCreated: false,
-      reservationCreated: false,
-      packingTaskCreated: false,
-    },
-    reason: remark,
-  });
-  const transaction = await workspace.productionScheduleRecordRepository.moveMachineQueueItem({
-    workspace,
-    productionTask: afterTask,
-    records: nextRecords,
-    expectedRecords: beforeRecords.filter((record) =>
-      [sourceMachineId, targetMachineId].includes(cleanServerText(record.machineId)),
-    ),
-    lockedMachineIds: [sourceMachineId, targetMachineId],
-    transactionContext: {
-      productionTaskId,
-      sourceMachineId,
-      targetMachineId,
-      targetQueueSeq: movedTargetItem?.queueSeq ?? 0,
-      updatedCount: nextRecords.length,
-      updatedAt,
-      updatedBy: operatorId,
-    },
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: { ...body, operatorId },
-  });
-  const afterQueue = await buildProductionMachineQueueResponse({ workspace, query: { status: "open" } });
-
-  return sendJson(response, 200, {
-    productionTaskId,
-    sourceMachineId: cleanServerText(transaction.transactionContext.sourceMachineId) || sourceMachineId,
-    targetMachineId: cleanServerText(transaction.transactionContext.targetMachineId) || targetMachineId,
-    targetQueueSeq: Number(transaction.transactionContext.targetQueueSeq ?? movedTargetItem?.queueSeq ?? 0),
-    updatedCount: Number(transaction.transactionContext.updatedCount ?? nextRecords.length),
-    updatedAt: cleanServerText(transaction.transactionContext.updatedAt) || updatedAt,
-    updatedBy: cleanServerText(transaction.transactionContext.updatedBy) || operatorId,
-    operationLogId: transaction.operationLogId,
-    productionTask: transaction.productionTask,
-    productionScheduleRecords: transaction.productionScheduleRecords,
-    inventoryCreated: false,
-    reservationCreated: false,
-    packingTaskCreated: false,
-    ...afterQueue,
-  });
-}
-
-function buildProductionScheduleRecordsForSequence({
-  records,
-  orderedItems,
-  machineId,
-  operatorId,
-  updatedAt,
-  remark,
-  sourceKind = "manual_resequence",
-  status = "active",
-  reuseItemScheduleRecordId = true,
-}) {
-  const nextByKey = new Map((records ?? []).map((record) => [getProductionScheduleRecordKey(record), { ...record }]));
-  const nextRecords = [];
-  for (const item of orderedItems) {
-    const key = getProductionScheduleRecordKey(item);
-    const current = nextByKey.get(key) ?? {};
-    nextRecords.push({
-      ...current,
-      scheduleRecordId:
-        cleanServerText(current.scheduleRecordId) ||
-        (reuseItemScheduleRecordId ? cleanServerText(item.scheduleRecordId) : "") ||
-        `SQR-${safeRecordPart(machineId)}-${safeRecordPart(item.publishedScheduleId || item.productionTaskId)}`,
-      productionTaskId: item.productionTaskId,
-      orderLineId: item.orderLineId,
-      machineId,
-      publishedScheduleId: item.publishedScheduleId,
-      queueSeq: item.queueSeq,
-      status,
-      source: sourceKind,
-      createdAt: cleanServerText(current.createdAt) || updatedAt,
-      createdBy: cleanServerText(current.createdBy) || operatorId,
-      updatedAt,
-      updatedBy: operatorId,
-      remark,
-    });
-  }
-  return nextRecords.sort((left, right) => {
-    const leftMachine = cleanServerText(left.machineId);
-    const rightMachine = cleanServerText(right.machineId);
-    if (leftMachine !== rightMachine) return leftMachine.localeCompare(rightMachine);
-    return Math.max(0, Math.trunc(Number(left.queueSeq ?? 0))) - Math.max(0, Math.trunc(Number(right.queueSeq ?? 0)));
-  });
-}
-
-function buildMovedProductionScheduleRecord({ records, item, sourceMachineId, operatorId, updatedAt, remark }) {
-  const current =
-    (records ?? []).find(
-      (record) =>
-        cleanServerText(record.machineId) === sourceMachineId &&
-        cleanServerText(record.productionTaskId) === cleanServerText(item.productionTaskId),
-    ) ?? {};
-  return {
-    ...current,
-    scheduleRecordId:
-      cleanServerText(current.scheduleRecordId) ||
-      cleanServerText(item.scheduleRecordId) ||
-      `SQR-${safeRecordPart(sourceMachineId)}-${safeRecordPart(item.publishedScheduleId || item.productionTaskId)}`,
-    productionTaskId: item.productionTaskId,
-    orderLineId: item.orderLineId,
-    machineId: sourceMachineId,
-    publishedScheduleId: item.publishedScheduleId,
-    queueSeq: 0,
-    status: "moved",
-    source: "machine_reassignment",
-    createdAt: cleanServerText(current.createdAt) || updatedAt,
-    createdBy: cleanServerText(current.createdBy) || operatorId,
-    updatedAt,
-    updatedBy: operatorId,
-    remark,
-  };
-}
-
-function insertProductionScheduleQueueItem({ items, item, body }) {
-  const beforeProductionTaskId = cleanServerText(body.insertBeforeProductionTaskId ?? body.beforeProductionTaskId);
-  const afterProductionTaskId = cleanServerText(body.insertAfterProductionTaskId ?? body.afterProductionTaskId);
-  const requestedQueueSeq = Math.trunc(Number(body.targetQueueSeq ?? body.queueSeq ?? body.insertAtQueueSeq ?? 0));
-  const next = [...items];
-  let insertIndex = next.length;
-  if (beforeProductionTaskId) {
-    insertIndex = next.findIndex((candidate) => candidate.productionTaskId === beforeProductionTaskId);
-    if (insertIndex < 0) {
-      return {
-        error: {
-          code: "PRODUCTION_SCHEDULE_INSERT_TARGET_NOT_FOUND",
-          message: `insertBeforeProductionTaskId is not in the target machine queue: ${beforeProductionTaskId}`,
-        },
-      };
-    }
-  } else if (afterProductionTaskId) {
-    insertIndex = next.findIndex((candidate) => candidate.productionTaskId === afterProductionTaskId);
-    if (insertIndex < 0) {
-      return {
-        error: {
-          code: "PRODUCTION_SCHEDULE_INSERT_TARGET_NOT_FOUND",
-          message: `insertAfterProductionTaskId is not in the target machine queue: ${afterProductionTaskId}`,
-        },
-      };
-    }
-    insertIndex += 1;
-  } else if (requestedQueueSeq > 0) {
-    insertIndex = Math.min(Math.max(requestedQueueSeq - 1, 0), next.length);
-  }
-  next.splice(insertIndex, 0, item);
-  return {
-    items: next.map((candidate, index) => ({
-      ...candidate,
-      queueSeq: index + 1,
-    })),
-  };
+  const result = await productionSchedulingCommandService.moveMachineQueueItem({ workspace, body, operatorId });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, result.response);
 }
 
 function findProductionScheduleRecord(workspace, input = {}) {
@@ -17632,51 +17173,6 @@ function findProductionScheduleRecord(workspace, input = {}) {
       (publishedScheduleId && cleanServerText(record.publishedScheduleId) === publishedScheduleId)
     );
   }) ?? null;
-}
-
-function getProductionScheduleRecordKey(record = {}) {
-  return `${cleanServerText(record.machineId)}::${cleanServerText(record.productionTaskId) || cleanServerText(record.publishedScheduleId)}`;
-}
-
-function summarizeProductionScheduleQueueItem(item) {
-  return {
-    scheduleRecordId: cleanServerText(item.scheduleRecordId),
-    queueSeq: Math.max(0, Math.trunc(Number(item.queueSeq ?? 0))),
-    machineId: cleanServerText(item.machineId),
-    publishedScheduleId: cleanServerText(item.publishedScheduleId),
-    productionTaskId: cleanServerText(item.productionTaskId),
-    orderLineId: cleanServerText(item.orderLineId),
-    customerName: cleanServerText(item.customerName),
-    productName: cleanServerText(item.productName),
-    plannedQty: Math.max(0, Math.trunc(Number(item.plannedQty ?? 0))),
-    remainingQty: Math.max(0, Math.trunc(Number(item.remainingQty ?? 0))),
-    status: cleanServerText(item.status),
-  };
-}
-
-function summarizeProductionScheduleRecord(record) {
-  return {
-    scheduleRecordId: cleanServerText(record.scheduleRecordId ?? record.id),
-    productionTaskId: cleanServerText(record.productionTaskId),
-    orderLineId: cleanServerText(record.orderLineId),
-    publishedScheduleId: cleanServerText(record.publishedScheduleId),
-    machineId: cleanServerText(record.machineId),
-    queueSeq: Math.max(0, Math.trunc(Number(record.queueSeq ?? 0))),
-    status: cleanServerText(record.status ?? record.scheduleStatus),
-    sourceKind: cleanServerText(record.sourceKind ?? record.source),
-    sequenceUpdatedAt: cleanServerText(record.sequenceUpdatedAt ?? record.updatedAt),
-    sequenceUpdatedBy: cleanServerText(record.sequenceUpdatedBy ?? record.updatedBy),
-    remark: cleanServerText(record.remark),
-  };
-}
-
-function normalizeStringArray(value) {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => cleanServerText(item)).filter(Boolean);
-}
-
-function cloneJson(value) {
-  return JSON.parse(JSON.stringify(value ?? null));
 }
 
 async function recordProductionDailyProgressRoute({ response, workspace, productionTaskId, body, operatorId }) {

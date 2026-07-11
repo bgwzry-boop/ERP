@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D30 生产排产 command service 抽取已完成。新增 `productionSchedulingCommandService.mjs`，发布、调序和移机的校验、记录构造、审计及 repository 编排可脱离 HTTP 直接测试；API 路由只保留 service 调用和 HTTP 映射，`apiServer.mjs` 从 `21,624` 行降至 `21,120` 行。直接 service 检查覆盖认证身份、参数 / 完整队列 / 插入目标门禁、幂等参数、expectedRecords 和机台 / 任务锁输入，并纳入生产专项。D29 权限、状态机、事务 SQL、revision 和不创建库存 / 产量边界不变。专项、API 骨架、OpenAPI、全量 `npm test`、生产构建、PostgreSQL 16 live 和 production profile live 通过。下一轮 D31 抽取生产报工、跨日报数和打包完成 command service。
 - 本轮补充：D29 生产排产事务硬化已完成。迁移 `0016` 为排产记录增加 revision；排产发布、同机台调序和跨机台移动接入认证操作人、共享 PostgreSQL 幂等、机台 / 任务资源锁、完整队列快照和生产任务 revision 门禁。陈旧队列或任务统一返回 409，跨机台移动同时递增任务版本；队列读取每次刷新数据库记录，不再依赖启动快照。幂等重放复用首次事务上下文和操作日志，API / 前端保留 revision、updatedAt。专项、OpenAPI、API 骨架、全量 `npm test`、生产构建、PostgreSQL 16 身份防伪 / 重放 / 陈旧快照回滚和 production profile live 通过。下一轮 D30 将排产发布、调序和移机编排从 `apiServer.mjs` 迁入独立 command service。
 - 本轮补充：D28 生产报工 / 跨日报数 / 打包完成事务硬化已完成。迁移 `0015` 增加打包任务 revision；三个 production 写链使用共享幂等、资源锁、行锁、对象级冲突码、revision / 库存数量快照和终态门禁。全部业务写 CTE 依赖 `write_guard` 后再执行；写后库存和产能以内存绝对值覆盖，跨日报数从持久化 evidence 构造响应，重放不重复入库、占用、产能或包裹。路由操作人固定取认证上下文，旧 `createdBy` 显示名不会再写入用户外键。专项、全量、OpenAPI、PostgreSQL 16 实库 HTTP 重放和 production profile live 通过。下一轮 D29 收口排产发布 / 调序 / 跨机台移动。
 - 本轮补充：D27-2 生产成品图事务持久化已完成。上传时生产任务图片状态与日志同事务保存；审核时任务、待通知客户 / 重拍待办、自动解决的旧重拍待办、完整事件和日志同事务保存。迁移 `0014` 增加任务 revision 和 JSONB 图片快照，启动读和生产任务专用读可跨重启恢复。production 已接共享幂等、资源锁、revision 门禁和认证操作人；API 主文件删除旧双份逻辑和直接 workspace 写入。直接 service / repository、HTTP、全量、构建和 PostgreSQL 16 重放 / 重启 live 通过。下一轮 D28 硬化生产报工 / 跨日报数 / 打包完成事务。
