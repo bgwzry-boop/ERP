@@ -6,6 +6,7 @@ import { useOfficeInventoryWrites } from "./useOfficeInventoryWrites.js";
 import { useOfficeMasterDataReads } from "./useOfficeMasterDataReads.js";
 import { useOfficeOrderWrites } from "./useOfficeOrderWrites.js";
 import { useOfficePrintReads } from "./useOfficePrintReads.js";
+import { useOfficePrintWrites } from "./useOfficePrintWrites.js";
 import { useOfficeProductionReads } from "./useOfficeProductionReads.js";
 import { useOfficeProductionWrites } from "./useOfficeProductionWrites.js";
 import { useOfficeRoleToolReads } from "./useOfficeRoleToolReads.js";
@@ -319,6 +320,8 @@ export function useOfficeWorkspace({
   const selectedStockIdRef = useRef(defaultSelections.stockId);
   const inventoryLedgerFiltersRef = useRef(defaultInventoryLedgerFilters);
   const printerDeviceQaSelectedIdRef = useRef("");
+  const printerDeviceQaRef = useRef(printerDeviceQa);
+  const printBatchRecordsRef = useRef([]);
   const printJobQueueItemsRef = useRef([]);
   const paymentAttachmentSyncKeysRef = useRef(new Set());
   const customerConfirmationAttachmentSyncKeysRef = useRef(new Set());
@@ -374,6 +377,12 @@ export function useOfficeWorkspace({
   useEffect(() => {
     printerDeviceQaSelectedIdRef.current = printerDeviceQa.selectedDeviceId;
   }, [printerDeviceQa.selectedDeviceId]);
+  useEffect(() => {
+    printerDeviceQaRef.current = printerDeviceQa;
+  }, [printerDeviceQa]);
+  useEffect(() => {
+    printBatchRecordsRef.current = printBatchRecords;
+  }, [printBatchRecords]);
   useEffect(() => {
     printJobQueueItemsRef.current = printJobQueue.items;
   }, [printJobQueue.items]);
@@ -433,6 +442,26 @@ export function useOfficeWorkspace({
     setPrintDriverReadiness,
     setPrinterDeviceQa,
     setPrintJobQueue,
+  });
+  const printWrites = useOfficePrintWrites({
+    authState,
+    currentUserDisplayName: currentUser?.displayName ?? currentUserId,
+    currentUserId,
+    fulfillmentsRef,
+    printerDeviceQaRef,
+    printBatchRecordsRef,
+    refreshFulfillments: coreReads.refreshFulfillments,
+    refreshOfficePrintJobQueue: printReads.refreshOfficePrintJobQueue,
+    refreshPrinterDeviceQa: printReads.refreshPrinterDeviceQa,
+    refreshPrintDriverReadiness: printReads.refreshPrintDriverReadiness,
+    refreshTodos: coreReads.refreshTodos,
+    setFulfillments,
+    setPrinterDeviceQa,
+    setPrintBatchRecords,
+    setPrintJobQueue,
+    setSelectedTodoId,
+    setTodos,
+    todosRef,
   });
   const inventoryDetailReads = useOfficeInventoryDetailReads({
     authState,
@@ -552,6 +581,7 @@ export function useOfficeWorkspace({
     ...roleToolReads,
     ...productionReads,
     ...printReads,
+    ...printWrites,
     ...inventoryDetailReads,
     ...inventoryWrites,
     ...masterDataReads,
@@ -628,7 +658,7 @@ export function useOfficeWorkspace({
     v1ReleaseCandidateRefreshAction, setV1ReleaseCandidateRefreshAction,
     todosRef, orderLinesRef, inventoryRecordsRef, fulfillmentsRef, productionPackingRef, rawMaterialInboundsRef,
     rawMaterialSupplierStatementReviewsRef, inventoryCorrectionDraftsRef, inventoryLedgerEntriesRef,
-    selectedStockIdRef, inventoryLedgerFiltersRef, printerDeviceQaSelectedIdRef,
-    printJobQueueItemsRef, paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
+    selectedStockIdRef, inventoryLedgerFiltersRef, printerDeviceQaSelectedIdRef, printerDeviceQaRef,
+    printBatchRecordsRef, printJobQueueItemsRef, paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
   };
 }

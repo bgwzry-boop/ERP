@@ -24,7 +24,6 @@ import {
 import { confirmDraftOrder } from "../src/state/officeOrderActions.js";
 import {
   confirmFulfillmentException,
-  confirmFulfillmentPrint,
   updateFulfillmentsForAction,
 } from "../src/state/officeFulfillmentActions.js";
 import {
@@ -16745,7 +16744,6 @@ async function printFulfillmentRoute({ response, workspace, fulfillmentId, body 
     return sendBusinessError(response, printValidation.statusCode, printValidation.code, printValidation.message);
   }
   const operatorId = body.operatorId ?? "U-OFFICE-A";
-  const printAction = body.printAction ?? "first_print";
   const documentType = getDocumentType(before.method);
   const normalizedPrintBody = {
     ...body,
@@ -16764,9 +16762,9 @@ async function printFulfillmentRoute({ response, workspace, fulfillmentId, body 
       printDeviceResolution.message,
     );
   }
-  const fulfillments =
-    printAction === "preview" ? workspace.fulfillments : confirmFulfillmentPrint(workspace.fulfillments, fulfillmentId);
-  const after = fulfillments.find((item) => item.id === fulfillmentId);
+  // Creating a job proves only that ERP accepted the request. Fulfillment may
+  // advance only after a trusted driver/spool status reports `printed`.
+  const after = before;
   const printRecord = buildFulfillmentPrintRecord(
     workspace,
     fulfillmentId,
@@ -16835,6 +16833,7 @@ async function printFulfillmentRoute({ response, workspace, fulfillmentId, body 
     nextStatus: after.status,
     operationLogId: transaction.operationLogId,
     printJobOperationLogId: printJobTransaction.operationLogId,
+    physicalPrintConfirmed: savedPrintJob.jobStatus === "printed",
   });
 }
 
@@ -17047,9 +17046,17 @@ async function updatePrintJobStatusRoute({ response, workspace, printJobId, body
     idempotencyKey: body.idempotencyKey,
     idempotencyPayload: body,
   });
+  const printProjection = await syncPrintJobBusinessProjection({
+    workspace,
+    printJob: transaction.printJob,
+    operatorId,
+    reason: body.reason ?? body.errorMessage ?? "",
+    idempotencyKey: body.idempotencyKey,
+  });
   return sendJson(response, 200, {
     printJob: transaction.printJob,
     operationLogId: transaction.operationLogId,
+    ...printProjection,
   });
 }
 
@@ -17095,10 +17102,18 @@ async function dispatchPrintJobRoute({ response, workspace, printJobId, body }) 
     idempotencyKey: body.idempotencyKey,
     idempotencyPayload: body,
   });
+  const printProjection = await syncPrintJobBusinessProjection({
+    workspace,
+    printJob: transaction.printJob,
+    operatorId,
+    reason: body.reason ?? dispatchResult.message ?? "",
+    idempotencyKey: body.idempotencyKey,
+  });
   return sendJson(response, 200, {
     printJob: transaction.printJob,
     dispatchResult,
     operationLogId: transaction.operationLogId,
+    ...printProjection,
   });
 }
 
@@ -17238,10 +17253,106 @@ async function recordPrintJobDriverStatus({ workspace, printJobId, body, operato
     idempotencyKey: body.idempotencyKey,
     idempotencyPayload: body,
   });
+  const printProjection = await syncPrintJobBusinessProjection({
+    workspace,
+    printJob: transaction.printJob,
+    operatorId: driverStatusEvent.operatorId,
+    reason: body.reason ?? driverStatusEvent.message ?? driverStatusEvent.errorMessage ?? driverStatusEvent.driverStatus,
+    idempotencyKey: body.idempotencyKey,
+  });
   return {
     printJob: transaction.printJob,
     driverStatusEvent,
     operationLogId: transaction.operationLogId,
+    ...printProjection,
+  };
+}
+
+async function syncPrintJobBusinessProjection({ workspace, printJob, operatorId, reason = "", idempotencyKey = "" }) {
+  const printRecordId = cleanServerText(printJob?.printRecordId);
+  if (!printRecordId || printJob?.jobStatus === "preview_only") return {};
+  const beforePrintRecord = findPrintRecord(workspace, printRecordId);
+  if (!beforePrintRecord) return {};
+
+  const jobStatus = cleanServerText(printJob.jobStatus);
+  const submittedStatus = beforePrintRecord.printAction === "reprint" ? "reprint_submitted" : "submitted";
+  const nextPrintRecordStatus =
+    jobStatus === "printed"
+      ? beforePrintRecord.printAction === "reprint" ? "reprinted" : "printed"
+      : jobStatus === "failed" || jobStatus === "canceled"
+        ? jobStatus
+        : jobStatus === "queued" || jobStatus === "sent"
+          ? submittedStatus
+          : beforePrintRecord.status;
+  if (nextPrintRecordStatus === beforePrintRecord.status && jobStatus !== "printed") return {};
+
+  const now = printJob.finishedAt || printJob.updatedAt || new Date().toISOString();
+  const printRecord = {
+    ...beforePrintRecord,
+    status: nextPrintRecordStatus,
+    printedAt: jobStatus === "printed" ? now : beforePrintRecord.printedAt ?? "",
+    jobStatus,
+    printJobId: printJob.printJobId,
+    updatedAt: now,
+  };
+  const fulfillment =
+    beforePrintRecord.targetType === "fulfillment"
+      ? findFulfillment(workspace, beforePrintRecord.targetId)
+      : null;
+  if (!fulfillment) {
+    workspace.printRecords = upsertByKey(workspace.printRecords ?? [], printRecord, "printRecordId");
+    return { printRecord, physicalPrintConfirmed: jobStatus === "printed" };
+  }
+
+  const nextFulfillment =
+    jobStatus === "printed"
+      ? {
+          ...fulfillment,
+          printed: true,
+          status:
+            mapFulfillmentMethod(fulfillment.method) === "express_ltl" && fulfillment.status !== "已交付"
+              ? "待确认拉走"
+              : fulfillment.status,
+          printBatch: printRecord.batchNo ?? fulfillment.printBatch ?? "",
+          printedAt: printRecord.printedAt,
+        }
+      : fulfillment;
+  const operationLog = buildOperationLog(workspace, {
+    id: nextPlainId("LOG-PRINT-PROJECTION", `${printJob.printJobId}-${jobStatus}`),
+    targetType: jobStatus === "printed" ? "fulfillment" : "print_record",
+    targetId: jobStatus === "printed" ? fulfillment.id : printRecordId,
+    action: jobStatus === "printed" ? "confirm_fulfillment_print_from_driver" : "sync_print_record_from_job",
+    operatorId,
+    before: jobStatus === "printed" ? fulfillment : beforePrintRecord,
+    after: jobStatus === "printed" ? nextFulfillment : printRecord,
+    reason: reason || `print_job_${jobStatus}`,
+  });
+  const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    workspace,
+    idempotencyKey: idempotencyKey ? `${idempotencyKey}:business-projection` : "",
+    idempotencyPayload: {
+      printJobId: printJob.printJobId,
+      printRecordId,
+      jobStatus,
+      reason,
+    },
+    fulfillment: buildFulfillmentActionRecord(workspace, nextFulfillment, {
+      operatorId,
+      actualQty: nextFulfillment.actualQty ?? nextFulfillment.qty,
+    }),
+    printRecord,
+    operationLog,
+  });
+  return {
+    fulfillment: {
+      ...(transaction.fulfillment ?? nextFulfillment),
+      printed: jobStatus === "printed" ? true : Boolean(nextFulfillment.printed),
+      printRecordStatus: printRecord.status,
+      activePrintRecordId: printRecord.printRecordId,
+    },
+    printRecord: transaction.printRecord ?? printRecord,
+    fulfillmentOperationLogId: transaction.operationLogId,
+    physicalPrintConfirmed: jobStatus === "printed",
   };
 }
 
@@ -17274,10 +17385,18 @@ async function retryPrintJobRoute({ response, workspace, printJobId, body }) {
     idempotencyKey: body.idempotencyKey,
     idempotencyPayload: body,
   });
+  const printProjection = await syncPrintJobBusinessProjection({
+    workspace,
+    printJob: transaction.printJob,
+    operatorId,
+    reason: body.retryReason ?? body.reason ?? "",
+    idempotencyKey: body.idempotencyKey,
+  });
   return sendJson(response, 200, {
     sourcePrintJob: before,
     printJob: transaction.printJob,
     operationLogId: transaction.operationLogId,
+    ...printProjection,
   });
 }
 
@@ -17342,6 +17461,18 @@ async function voidPrintRecordRoute({ response, workspace, printRecordId, body }
 async function updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action, body }) {
   const before = findFulfillment(workspace, fulfillmentId);
   if (!before) return sendNotFound(response, "FULFILLMENT_NOT_FOUND");
+  if (
+    action === "确认已拉走" &&
+    mapFulfillmentMethod(before.method) === "express_ltl" &&
+    (!before.printed || before.status !== "待确认拉走")
+  ) {
+    return sendBusinessError(
+      response,
+      409,
+      "FULFILLMENT_PRINT_NOT_CONFIRMED",
+      "Express/LTL pickup requires a trusted printed status before confirmation.",
+    );
+  }
   const operatorId = body.operatorId ?? "U-OFFICE-A";
   const fulfillments = updateFulfillmentsForAction(workspace.fulfillments, fulfillmentId, action);
   const after = fulfillments.find((item) => item.id === fulfillmentId);
@@ -20711,8 +20842,14 @@ function buildFulfillmentActionRecord(workspace, fulfillment, input = {}) {
 function buildFulfillmentPrintRecord(workspace, fulfillmentId, body, operatorId, printDevice = null) {
   const createdAt = new Date().toISOString();
   const printAction = body.printAction ?? "first_print";
-  const status = printAction === "preview" ? "previewed" : printAction === "reprint" ? "reprinted" : "printed";
   const printDeviceSnapshot = buildPrintDeviceSnapshot(printDevice);
+  const driverMode = getPrintDriverMode(printDeviceSnapshot);
+  const status =
+    printAction === "preview" || driverMode === "preview_only"
+      ? "previewed"
+      : printAction === "reprint"
+        ? "reprint_submitted"
+        : "submitted";
   return {
     printRecordId: nextPlainId("PR", `${fulfillmentId}-${workspace.printRecords.length + 1}`),
     targetType: "fulfillment",
@@ -20727,7 +20864,8 @@ function buildFulfillmentPrintRecord(workspace, fulfillmentId, body, operatorId,
     previousPrintRecordId: body.previousPrintRecordId ?? "",
     reprintReason: body.reprintReason ?? "",
     operatorId,
-    printedAt: ["printed", "reprinted"].includes(status) ? createdAt : "",
+    printedAt: "",
+    submittedAt: ["submitted", "reprint_submitted"].includes(status) ? createdAt : "",
     createdAt,
   };
 }
@@ -22429,7 +22567,7 @@ function nextPlainId(prefix, value) {
 }
 
 function findFulfillment(workspace, id) {
-  return workspace.fulfillments.find((item) => item.id === id);
+  return workspace.fulfillments.find((item) => item.id === id || item.fulfillmentId === id);
 }
 
 function findPrintRecord(workspace, id) {
@@ -22539,7 +22677,7 @@ function findActivePrintRecordForFulfillment(workspace, fulfillmentId) {
       (item) =>
         item.targetType === "fulfillment" &&
         item.targetId === fulfillmentId &&
-        ["printed", "reprinted"].includes(item.status),
+        ["submitted", "reprint_submitted", "printed", "reprinted"].includes(item.status),
     );
 }
 

@@ -15854,6 +15854,9 @@ components:
           type: string
         printJobOperationLogId:
           type: string
+        physicalPrintConfirmed:
+          type: boolean
+          description: 仅当可信驱动或 spool 状态已回读为 printed 时为 true；作业创建或预览不得据此推进交付。
 
     FulfillmentDispatchRequest:
       type: object
@@ -20575,7 +20578,7 @@ components:
           type: string
         status:
           type: string
-          enum: [previewed, printed, voided, reprinted]
+          enum: [previewed, submitted, reprint_submitted, printed, failed, canceled, voided, reprinted]
         printAction:
           type: string
           enum: [preview, first_print, reprint]

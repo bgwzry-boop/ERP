@@ -1615,8 +1615,8 @@ try {
     connectionType: "system_printer",
     connectionUri: "system://api-mode-label",
     driverName: "API Mode Check 203dpi Driver",
-    supportedDocumentTypes: ["package_label"],
-    defaultDocumentTypes: ["package_label"],
+    supportedDocumentTypes: ["package_label", "express_ltl_label"],
+    defaultDocumentTypes: ["package_label", "express_ltl_label"],
     paperWidthMm: 92,
     paperHeightMm: 38,
     paperName: "92x38 热敏标签",
@@ -1682,12 +1682,12 @@ try {
     templateId: "tpl-p0-express-label",
     documentType: "express_ltl_label",
     printDeviceId: "PRN-API-CHECK-1",
-    printAction: "first_print",
+    printAction: "preview",
     operatorId: "U-OFFICE-A",
   });
   if (
-    printFulfillment.printRecord?.status !== "printed" ||
-    printFulfillment.printRecord?.printAction !== "first_print" ||
+    printFulfillment.printRecord?.status !== "previewed" ||
+    printFulfillment.printRecord?.printAction !== "preview" ||
     !printFulfillment.printRecord?.templateId ||
     printFulfillment.printRecord?.printDeviceId !== "PRN-API-CHECK-1" ||
     printFulfillment.printRecord?.printDeviceSnapshot?.paperWidthMm !== 76 ||
@@ -1697,6 +1697,7 @@ try {
     printFulfillment.printJob?.printRecordId !== printFulfillment.printRecord.printRecordId ||
     printFulfillment.printJob?.printDeviceId !== "PRN-API-CHECK-1" ||
     printFulfillment.printJob?.jobStatus !== "preview_only" ||
+    printFulfillment.physicalPrintConfirmed !== false ||
     !printFulfillment.printJobOperationLogId
   ) {
     throw new Error("/api/fulfillments/{fulfillmentId}/print returned an unexpected OpenAPI-shaped payload");
@@ -1911,6 +1912,60 @@ try {
     throw new Error("/api/print-jobs/{printJobId}/retry did not create a retry print job");
   }
 
+  const pickupBeforePhysicalPrint = await postJson(
+    baseUrl,
+    `/api/fulfillments/${expressFulfillmentId}/pickup-confirm`,
+    {
+      fulfillmentId: expressFulfillmentId,
+      pickedAt: new Date().toISOString(),
+      operatorId: "U-OFFICE-A",
+    },
+    { expectedStatus: 409 },
+  );
+  if (pickupBeforePhysicalPrint.code !== "FULFILLMENT_PRINT_NOT_CONFIRMED") {
+    throw new Error("express/LTL pickup should remain blocked before trusted printed status");
+  }
+
+  const physicalPrintFulfillment = await postJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}/print`, {
+    templateId: "tpl-p0-express-label",
+    documentType: "express_ltl_label",
+    printDeviceId: "PRN-API-MODE-CHECK",
+    printAction: "first_print",
+    operatorId: "U-OFFICE-A",
+  });
+  if (
+    physicalPrintFulfillment.printRecord?.status !== "submitted" ||
+    physicalPrintFulfillment.printJob?.jobStatus !== "queued" ||
+    physicalPrintFulfillment.nextStatus === "待确认拉走" ||
+    physicalPrintFulfillment.physicalPrintConfirmed !== false
+  ) {
+    throw new Error("creating a physical print job should not confirm paper output or advance fulfillment");
+  }
+
+  const physicalPrintCallback = await postJson(
+    baseUrl,
+    `/api/print-jobs/${physicalPrintFulfillment.printJob.printJobId}/driver-status`,
+    {
+      status: "printed",
+      adapterName: "api-check-system-printer",
+      eventSource: "driver_callback",
+      driverStatus: "completed",
+      eventAt: "2026-07-02T12:00:00.000Z",
+      operatorId: "PRINT-DRIVER",
+    },
+    { headers: { "x-erp-user-id": "U-PRINT-DRIVER-A" } },
+  );
+  if (
+    physicalPrintCallback.printJob?.jobStatus !== "printed" ||
+    physicalPrintCallback.printRecord?.status !== "printed" ||
+    physicalPrintCallback.fulfillment?.status !== "待确认拉走" ||
+    physicalPrintCallback.fulfillment?.printed !== true ||
+    physicalPrintCallback.physicalPrintConfirmed !== true ||
+    !physicalPrintCallback.fulfillmentOperationLogId
+  ) {
+    throw new Error(`trusted printed callback did not advance print record and fulfillment together: ${JSON.stringify(physicalPrintCallback)}`);
+  }
+
   const blockedReprint = await postJson(
     baseUrl,
     `/api/fulfillments/${expressFulfillmentId}/print`,
@@ -1919,7 +1974,7 @@ try {
       documentType: "express_ltl_label",
       printDeviceId: "PRN-API-CHECK-1",
       printAction: "reprint",
-      previousPrintRecordId: printFulfillment.printRecord.printRecordId,
+      previousPrintRecordId: physicalPrintFulfillment.printRecord.printRecordId,
       reprintReason: "info_changed",
       operatorId: "U-OFFICE-A",
     },
@@ -1929,7 +1984,7 @@ try {
     throw new Error("/api/fulfillments/{fulfillmentId}/print allowed reprint before voiding the old label");
   }
 
-  const voidPrint = await postJson(baseUrl, `/api/print-records/${printFulfillment.printRecord.printRecordId}/void`, {
+  const voidPrint = await postJson(baseUrl, `/api/print-records/${physicalPrintFulfillment.printRecord.printRecordId}/void`, {
     voidReason: "info_changed",
     operatorId: "U-OFFICE-A",
   });
@@ -1944,20 +1999,37 @@ try {
   const reprintFulfillment = await postJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}/print`, {
     templateId: "tpl-p0-express-label",
     documentType: "express_ltl_label",
-    printDeviceId: "PRN-API-CHECK-1",
+    printDeviceId: "PRN-API-MODE-CHECK",
     printAction: "reprint",
-    previousPrintRecordId: printFulfillment.printRecord.printRecordId,
+    previousPrintRecordId: physicalPrintFulfillment.printRecord.printRecordId,
     reprintReason: "info_changed",
     operatorId: "U-OFFICE-A",
   });
   if (
-    reprintFulfillment.printRecord?.status !== "reprinted" ||
-    reprintFulfillment.printRecord?.previousPrintRecordId !== printFulfillment.printRecord.printRecordId ||
-    reprintFulfillment.printRecord?.printDeviceId !== "PRN-API-CHECK-1" ||
+    reprintFulfillment.printRecord?.status !== "reprint_submitted" ||
+    reprintFulfillment.printRecord?.previousPrintRecordId !== physicalPrintFulfillment.printRecord.printRecordId ||
+    reprintFulfillment.printRecord?.printDeviceId !== "PRN-API-MODE-CHECK" ||
     reprintFulfillment.printTemplate?.priceHidden !== true ||
     !reprintFulfillment.operationLogId
   ) {
-    throw new Error("/api/fulfillments/{fulfillmentId}/print did not create a reprint record after voiding");
+    throw new Error("/api/fulfillments/{fulfillmentId}/print did not create a queued reprint record after voiding");
+  }
+
+  const reprintCallback = await postJson(
+    baseUrl,
+    `/api/print-jobs/${reprintFulfillment.printJob.printJobId}/driver-status`,
+    {
+      status: "printed",
+      adapterName: "api-check-system-printer",
+      eventSource: "driver_callback",
+      driverStatus: "completed",
+      eventAt: "2026-07-02T12:05:00.000Z",
+      operatorId: "PRINT-DRIVER",
+    },
+    { headers: { "x-erp-user-id": "U-PRINT-DRIVER-A" } },
+  );
+  if (reprintCallback.printRecord?.status !== "reprinted" || reprintCallback.physicalPrintConfirmed !== true) {
+    throw new Error("trusted reprint callback did not mark the reprint record completed");
   }
 
   const pickupFulfillment = await postJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}/pickup-confirm`, {
@@ -1994,6 +2066,15 @@ try {
     throw new Error("/api/fulfillments/{fulfillmentId}/print did not return the delivery dot-matrix template");
   }
 
+  const deliveryDeviceModeUpdate = await postJson(baseUrl, "/api/print-devices/PRN-DOT-A/driver-mode", {
+    driverMode: "system_printer",
+    operatorId: "U-OFFICE-A",
+    reason: "API skeleton verifies delivery-note spool completion boundary",
+  });
+  if (deliveryDeviceModeUpdate.driverMode !== "system_printer") {
+    throw new Error("delivery print device could not be prepared for queued print verification");
+  }
+
   const deliveryFirstPrint = await postJson(baseUrl, `/api/fulfillments/${deliveryFulfillment.fulfillmentId}/print`, {
     templateId: "tpl-p0-delivery-note",
     documentType: "delivery_note",
@@ -2001,15 +2082,34 @@ try {
     operatorId: "U-OFFICE-A",
   });
   if (
-    deliveryFirstPrint.printRecord?.status !== "printed" ||
+    deliveryFirstPrint.printRecord?.status !== "submitted" ||
     deliveryFirstPrint.printRecord?.printAction !== "first_print" ||
     deliveryFirstPrint.printRecord?.printDeviceId !== "PRN-DOT-A" ||
     deliveryFirstPrint.printTemplate?.documentType !== "delivery_note" ||
     deliveryFirstPrint.printTemplate?.priceHidden !== false ||
     deliveryFirstPrint.printJob?.documentType !== "delivery_note" ||
+    deliveryFirstPrint.printJob?.jobStatus !== "queued" ||
+    deliveryFirstPrint.physicalPrintConfirmed !== false ||
     !deliveryFirstPrint.operationLogId
   ) {
-    throw new Error("/api/fulfillments/{fulfillmentId}/print did not create a printed delivery note record");
+    throw new Error("/api/fulfillments/{fulfillmentId}/print did not create a queued delivery note record");
+  }
+
+  const deliveryFirstPrintCallback = await postJson(
+    baseUrl,
+    `/api/print-jobs/${deliveryFirstPrint.printJob.printJobId}/driver-status`,
+    {
+      status: "printed",
+      adapterName: "api-check-dot-matrix",
+      eventSource: "driver_callback",
+      driverStatus: "completed",
+      eventAt: "2026-07-02T12:10:00.000Z",
+      operatorId: "PRINT-DRIVER",
+    },
+    { headers: { "x-erp-user-id": "U-PRINT-DRIVER-A" } },
+  );
+  if (deliveryFirstPrintCallback.printRecord?.status !== "printed" || deliveryFirstPrintCallback.physicalPrintConfirmed !== true) {
+    throw new Error("delivery-note printed callback did not complete its print record");
   }
 
   const blockedDeliveryReprint = await postJson(
@@ -2054,14 +2154,31 @@ try {
     operatorId: "U-OFFICE-A",
   });
   if (
-    deliveryReprint.printRecord?.status !== "reprinted" ||
+    deliveryReprint.printRecord?.status !== "reprint_submitted" ||
     deliveryReprint.printRecord?.previousPrintRecordId !== deliveryFirstPrint.printRecord.printRecordId ||
     deliveryReprint.printTemplate?.documentType !== "delivery_note" ||
     deliveryReprint.printTemplate?.priceHidden !== false ||
     deliveryReprint.printJob?.documentType !== "delivery_note" ||
     !deliveryReprint.operationLogId
   ) {
-    throw new Error("/api/fulfillments/{fulfillmentId}/print did not create a delivery note reprint after voiding");
+    throw new Error("/api/fulfillments/{fulfillmentId}/print did not queue a delivery note reprint after voiding");
+  }
+
+  const deliveryReprintCallback = await postJson(
+    baseUrl,
+    `/api/print-jobs/${deliveryReprint.printJob.printJobId}/driver-status`,
+    {
+      status: "printed",
+      adapterName: "api-check-dot-matrix",
+      eventSource: "driver_callback",
+      driverStatus: "completed",
+      eventAt: "2026-07-02T12:15:00.000Z",
+      operatorId: "PRINT-DRIVER",
+    },
+    { headers: { "x-erp-user-id": "U-PRINT-DRIVER-A" } },
+  );
+  if (deliveryReprintCallback.printRecord?.status !== "reprinted") {
+    throw new Error("delivery-note reprint callback did not complete its print record");
   }
 
   const completeFulfillment = await postJson(baseUrl, `/api/fulfillments/${deliveryFulfillment.fulfillmentId}/complete`, {

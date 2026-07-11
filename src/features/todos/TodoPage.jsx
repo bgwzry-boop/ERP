@@ -39,7 +39,7 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
         </div>
         {printOpenCount > 0 ? (
           <div className="todo-bulk-row">
-            <span>打印类待办 {printOpenCount} 条，打印后需确认结果</span>
+            <span>打印类待办 {printOpenCount} 条，人工核对与 spool 状态分开记录</span>
             <button
               disabled={getUiActionState("todo", "批量打印标签").disabled}
               title={getUiActionState("todo", "批量打印标签").title}

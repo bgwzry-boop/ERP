@@ -1,5 +1,11 @@
 # Decisions
 
+## 2026-07-11 - Fulfillment Advances Only After Trusted Printed Status
+
+Creating a print request, rendering a browser preview, queueing a job, or receiving `sent` from a driver proves only that ERP or the print subsystem accepted work. These states must not mark a fulfillment as physically printed or move express/LTL fulfillment to `待确认拉走`. A fulfillment print record starts as `previewed`, `submitted`, or `reprint_submitted`; only a trusted driver callback or spool poll reporting `printed` may change it to `printed` / `reprinted` and advance the fulfillment projection. Express/LTL pickup confirmation must fail closed before that transition.
+
+Manual batch-result confirmation records operator reconciliation of labels and todo/package results. It must not create print jobs after the fact, substitute for spool state, or advance fulfillment. Setting a device to `system_printer` means only that it is a real-print candidate; command bridge, spool readback, CUPS, physical output, barcode scanning, field QA, evidence, and signoff remain separate gates.
+
 ## 2026-07-11 - Browser Business Writes Require The Idempotency Header In CORS
 
 Every browser business POST/PATCH already carries `Idempotency-Key`; API CORS policy must therefore allow `idempotency-key` in both prototype and strict modes or the browser will block the request before server authorization and transaction handling. Strict mode allows only `content-type`, `authorization`, and `idempotency-key`. Prototype mode may additionally allow `x-erp-user-id` and `x-erp-action-permissions`; these prototype identity headers remain forbidden by strict authentication.

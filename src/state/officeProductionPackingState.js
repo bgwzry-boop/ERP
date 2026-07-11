@@ -240,6 +240,21 @@ export function applyPrintRecordProjection(fulfillments = [], fulfillmentId, pri
         printPreviewRecordId: printRecord.printRecordId,
       };
     }
+    if (["submitted", "reprint_submitted", "failed", "canceled"].includes(printRecord.status)) {
+      return {
+        ...item,
+        printed: false,
+        status: previousFulfillment.status ?? item.status,
+        printRecordStatus: printRecord.status,
+        activePrintRecordId: ["submitted", "reprint_submitted"].includes(printRecord.status)
+          ? printRecord.printRecordId
+          : "",
+        printRecordId: printRecord.printRecordId,
+        previousPrintRecordId: printRecord.previousPrintRecordId ?? item.previousPrintRecordId ?? "",
+        printAction: printRecord.printAction ?? item.printAction,
+        printJobId: printRecord.printJobId ?? item.printJobId ?? "",
+      };
+    }
     return {
       ...item,
       printed: true,

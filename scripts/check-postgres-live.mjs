@@ -3248,8 +3248,8 @@ WHERE id = 'F002';`,
       connectionType: "system_printer",
       connectionUri: "system://postgres-live-label",
       driverName: "Postgres Live 203dpi Driver",
-      supportedDocumentTypes: ["express_ltl_label", "package_label"],
-      defaultDocumentTypes: ["express_ltl_label"],
+      supportedDocumentTypes: ["express_ltl_label", "package_label", "pickup_note", "delivery_note", "outbound_note"],
+      defaultDocumentTypes: ["express_ltl_label", "pickup_note", "delivery_note"],
       paperWidthMm: 76,
       paperHeightMm: 50,
       paperName: "76x50 热敏标签",
@@ -3274,6 +3274,92 @@ WHERE id = 'F002';`,
   const apiPrintDevices = await getJson(baseUrl, "/api/print-devices?documentType=express_ltl_label", { headers });
   assert.ok(apiPrintDevices.total >= 1);
   assert.ok(apiPrintDevices.items.some((device) => device.printDeviceId === "PRN-LIVE-API-001"));
+
+  const apiLivePrintDeviceMode = await postJson(
+    baseUrl,
+    "/api/print-devices/PRN-LIVE-API-001/driver-mode",
+    {
+      driverMode: "system_printer",
+      operatorId: "U-OFFICE-A",
+      reason: "postgres live trusted print projection check",
+    },
+    { headers },
+  );
+  assert.equal(apiLivePrintDeviceMode.driverMode, "system_printer");
+  const apiPrintCandidateFulfillments = await getJson(baseUrl, "/api/fulfillments?pageSize=50", { headers });
+  const apiTrustedPrintFulfillment = apiPrintCandidateFulfillments.items.find((item) => {
+    const count = queryJson(
+      `SELECT json_build_object('count', COUNT(*)) AS result FROM print_records WHERE target_type = 'fulfillment' AND target_id = ${sqlLiteral(item.fulfillmentId)};`,
+    ).count;
+    return Number(count) === 0 && item.status !== "已交付";
+  });
+  assert.ok(apiTrustedPrintFulfillment?.fulfillmentId, "postgres live needs one unprinted fulfillment");
+  const apiTrustedPrintInitialStatus = apiTrustedPrintFulfillment.status;
+  const apiTrustedPrintExpectedStatus =
+    apiTrustedPrintFulfillment.method === "快递快运" ? "待确认拉走" : apiTrustedPrintInitialStatus;
+  const apiTrustedPrintRequest = await postJson(
+    baseUrl,
+    `/api/fulfillments/${apiTrustedPrintFulfillment.fulfillmentId}/print`,
+    {
+      templateId: "tpl-p0-express-label",
+      documentType:
+        apiTrustedPrintFulfillment.method === "快递快运"
+          ? "express_ltl_label"
+          : apiTrustedPrintFulfillment.method === "送货"
+            ? "delivery_note"
+            : "pickup_note",
+      printDeviceId: "PRN-LIVE-API-001",
+      printAction: "first_print",
+      operatorId: "U-OFFICE-A",
+    },
+    { headers },
+  );
+  assert.equal(apiTrustedPrintRequest.printRecord.status, "submitted");
+  assert.equal(apiTrustedPrintRequest.printJob.jobStatus, "queued");
+  assert.equal(apiTrustedPrintRequest.nextStatus, apiTrustedPrintInitialStatus);
+  assert.equal(apiTrustedPrintRequest.physicalPrintConfirmed, false);
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('status', status) AS result FROM print_records WHERE id = ${sqlLiteral(apiTrustedPrintRequest.printRecord.printRecordId)};`,
+    ).status,
+    "submitted",
+  );
+  const apiTrustedPrintCallback = await postJson(
+    baseUrl,
+    `/api/print-jobs/${apiTrustedPrintRequest.printJob.printJobId}/driver-status`,
+    {
+      status: "printed",
+      adapterName: "postgres-live-driver",
+      eventSource: "driver_callback",
+      driverStatus: "completed",
+      eventAt: "2026-07-02T10:29:00.000Z",
+      operatorId: "PRINT-DRIVER-FREEFORM",
+    },
+    { headers: printDriverHeaders },
+  );
+  assert.equal(apiTrustedPrintCallback.printRecord.status, "printed");
+  assert.equal(apiTrustedPrintCallback.fulfillment.status, apiTrustedPrintExpectedStatus);
+  assert.equal(apiTrustedPrintCallback.physicalPrintConfirmed, true);
+  assert.ok(apiTrustedPrintCallback.operationLogId);
+  assert.ok(apiTrustedPrintCallback.fulfillmentOperationLogId);
+  assert.notEqual(apiTrustedPrintCallback.operationLogId, apiTrustedPrintCallback.fulfillmentOperationLogId);
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('status', status) AS result FROM print_records WHERE id = ${sqlLiteral(apiTrustedPrintRequest.printRecord.printRecordId)};`,
+    ).status,
+    "printed",
+  );
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('status', status) AS result FROM fulfillment_records WHERE id = ${sqlLiteral(apiTrustedPrintFulfillment.fulfillmentId)};`,
+    ).status,
+    apiTrustedPrintExpectedStatus,
+  );
+  const apiTrustedPrintProjectionLog = queryJson(
+    `SELECT json_build_object('operatorId', operator_id, 'action', action) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiTrustedPrintCallback.fulfillmentOperationLogId)};`,
+  );
+  assert.equal(apiTrustedPrintProjectionLog.operatorId, "U-PRINT-DRIVER-A");
+  assert.equal(apiTrustedPrintProjectionLog.action, "confirm_fulfillment_print_from_driver");
 
   const apiSeedPrintJobWorkspace = { printJobs: [], operationLogs: [] };
   const apiSeedPrintJob = buildPrintJobRecord({

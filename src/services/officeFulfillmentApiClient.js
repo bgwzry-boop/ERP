@@ -105,6 +105,7 @@ export async function printOfficeFulfillment(input, options = {}) {
       printJobId: json.printJobId,
       printJobOperationLogId: json.printJobOperationLogId,
       operationLogId: json.operationLogId,
+      physicalPrintConfirmed: json.physicalPrintConfirmed === true,
     };
   } catch (error) {
     if (isOfficeApiServerRequired(options)) {
@@ -565,6 +566,7 @@ export function mapApiFulfillmentToLocal(value = {}) {
   if (!id) return null;
   const packageCount = toNumber(value.packageCount, 0);
   const packageLabel = cleanText(value.packages ?? value.package) || (packageCount > 0 ? `${packageCount}包` : "待打包");
+  const status = cleanText(value.status) || "待处理";
   return {
     id,
     fulfillmentId: id,
@@ -579,7 +581,11 @@ export function mapApiFulfillmentToLocal(value = {}) {
     package: packageLabel,
     packageCount,
     latest: cleanText(value.latestNeededAt ?? value.latest) || "待确认",
-    status: cleanText(value.status) || "待处理",
+    status,
+    printed: value.printed === true || status === "待确认拉走",
+    printRecordStatus: cleanText(value.printRecordStatus ?? value.print_record_status),
+    activePrintRecordId: cleanText(value.activePrintRecordId ?? value.active_print_record_id),
+    printRecordId: cleanText(value.printRecordId ?? value.print_record_id),
     zone: cleanText(value.zone ?? value.inventorySource),
     inventorySource: cleanText(value.inventorySource),
     source: "后端交付任务",

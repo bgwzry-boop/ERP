@@ -61,15 +61,7 @@ import {
   listOfficeAttachments,
 } from "./services/officeAttachmentApiClient.js";
 import { getOfficeOrderLineDetail } from "./services/officeOrderPoolApiClient.js";
-import {
-  handleOfficeTodoAction,
-  handleOfficeTodoBatch,
-} from "./services/officeTodoApiClient.js";
-import { createOfficePrintBatchRecord } from "./services/officePrintBatchApiClient.js";
-import {
-  printOfficeFulfillment,
-  voidOfficePrintRecord,
-} from "./services/officeFulfillmentApiClient.js";
+import { handleOfficeTodoAction } from "./services/officeTodoApiClient.js";
 import {
   buildPackingTaskId,
   buildProductionTaskId,
@@ -78,10 +70,6 @@ import {
   getOfficeProductionTaskDetail,
 } from "./services/officeProductionPackingApiClient.js";
 import {
-  recordOfficePrinterDeviceFieldTest,
-  updateOfficePrintDeviceDriverMode,
-} from "./services/officePrinterDeviceApiClient.js";
-import {
   confirmOfficeRawMaterialSupplierStatement,
   confirmOfficeRawMaterialSupplierStatementReview,
   confirmOfficeRawMaterialSupplierPayment,
@@ -89,10 +77,6 @@ import {
   generateOfficeRawMaterialSupplierPayableDraft,
   updateOfficeRawMaterialInboundAction,
 } from "./services/officeRawMaterialApiClient.js";
-import {
-  dispatchOfficePrintJob,
-  retryOfficePrintJob,
-} from "./services/officePrintJobApiClient.js";
 import {
   getOfficePrintDriverCupsDiagnostics,
   getOfficePrintDriverSpoolDiagnostics,
@@ -183,15 +167,9 @@ import {
   upsertMasterDataImportReviewDraft,
 } from "./state/officeMasterDataState.js";
 import {
-  applyPrintRecordProjection,
-  findFulfillmentForPrintTodo,
-} from "./state/officeProductionPackingState.js";
-import {
-  getPrintJobStatusLabel,
   getPrinterDeviceDriverMode,
   getPrinterDeviceQaDriverLabel,
   getPrinterDeviceQaPaperLabel,
-  mergeOfficePrintJobQueueItems,
 } from "./state/officePrintState.js";
 import {
   getStatementWriteOffBlocker,
@@ -234,8 +212,6 @@ import {
   revokeOfficeMasterDataEmployeeAccountPassword,
 } from "./services/officeMasterDataImportApiClient.js";
 import {
-  applyBatchPrintResult,
-  createPrintBatchRecord,
   getBatchPrintPackageRows,
   getBatchPrintStats,
   getNextOpenTodoId,
@@ -587,6 +563,11 @@ export function App() {
     refreshProductionPackingTaskLists,
     refreshOfficePrintJobQueue, refreshPrintDriverConfig, refreshPrintDriverCupsDiagnostics,
     refreshPrintDriverReadiness, refreshPrinterDeviceQa,
+    confirmBatchPrintResult, dispatchPrintJobQueueItem: executePrintJobDispatch,
+    printFulfillmentDocument, retryPrintJobQueueItem: executePrintJobRetry,
+    savePrinterDeviceMode: executeSavePrinterDeviceMode,
+    savePrinterDeviceQaRecord: executeSavePrinterDeviceQaRecord,
+    voidFulfillmentPrintRecord,
     refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries,
     loadInventoryCorrectionDetail, createInventoryCorrectionDraft, confirmInventoryCorrectionDraft,
     completeFulfillmentAction, markFulfillmentPrepared, reviewFulfillmentDeliveryEvidence,
@@ -596,7 +577,7 @@ export function App() {
     refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
     executeOrderEntryAction, executeOrderLineAction, recognizeOrderDraft,
     runOrderDraftCommand, updateOrderDraftField,
-    todos, setTodos, todoMeta, printBatchRecords, setPrintBatchRecords,
+    todos, setTodos, todoMeta, printBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, orderPoolMeta, setOrderPoolMeta,
     selectedOrderDetail, setSelectedOrderDetail, entryText, setEntryText,
@@ -612,7 +593,7 @@ export function App() {
     selectedFulfillmentId, setSelectedFulfillmentId,
     productionPacking, productionPackingFocus, setProductionPackingFocus,
     productionPackingDetailState, setProductionPackingDetailState,
-    printerDeviceQa, setPrinterDeviceQa, printJobQueue, setPrintJobQueue,
+    printerDeviceQa, setPrinterDeviceQa, printJobQueue,
     printDriverConfig, printDriverReadiness, printDriverCupsDiagnostics,
     driverDeliveryTasks, setDriverDeliveryTasks, driverDeliveryMeta,
     selectedDriverTaskId, setSelectedDriverTaskId,
@@ -3579,92 +3560,16 @@ export function App() {
     return result.review;
   }
 
-  function upsertPrintJobQueueItems(printJobs = []) {
-    const safePrintJobs = (Array.isArray(printJobs) ? printJobs : [printJobs]).filter((item) => item?.printJobId);
-    if (!safePrintJobs.length) return;
-    setPrintJobQueue((current) => {
-      const items = mergeOfficePrintJobQueueItems(current.items, safePrintJobs);
-      return {
-        ...current,
-        source: current.source === "idle" ? "api" : current.source,
-        items,
-        total: Math.max(Number(current.total ?? 0), items.length),
-        lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-      };
-    });
-  }
-
   async function dispatchPrintJobQueueItem(printJobId) {
     if (!guardUiAction("productionPacking", "派发打印作业")) return;
-    const safePrintJobId = String(printJobId ?? "").trim();
-    if (!safePrintJobId) {
-      setToast("未选择打印作业，无法派发。");
-      return;
-    }
-
-    setPrintJobQueue((current) => ({ ...current, actionJobId: safePrintJobId, error: "" }));
-    const result = await dispatchOfficePrintJob({
-      authState,
-      printJobId: safePrintJobId,
-      operatorId: currentUserId,
-      reason: `${currentUser.displayName} 在打包/标签页派发打印作业`,
-    });
-    setPrintJobQueue((current) => ({ ...current, actionJobId: "" }));
-
-    if (result.blocked) {
-      setPrintJobQueue((current) => ({
-        ...current,
-        source: result.source,
-        error: result.error?.message ?? "打印作业派发 API 返回错误。",
-      }));
-      setToast(
-        result.error?.requiredPermission
-          ? `后端拒绝派发打印作业：缺少权限 ${result.error.requiredPermission}。`
-          : `后端拒绝派发打印作业：${result.error?.message ?? "未知错误"}`,
-      );
-      return;
-    }
-
-    upsertPrintJobQueueItems([result.printJob]);
-    const statusLabel = getPrintJobStatusLabel(result.printJob?.jobStatus ?? result.dispatchResult?.jobStatus);
-    setToast(`打印作业 ${safePrintJobId} 已派发：${statusLabel}。`);
-    void refreshOfficePrintJobQueue({ showToast: false });
+    const result = await executePrintJobDispatch(printJobId);
+    if (result?.feedback) setToast(result.feedback);
   }
 
   async function retryPrintJobQueueItem(printJobId) {
     if (!guardUiAction("productionPacking", "重试打印作业")) return;
-    const safePrintJobId = String(printJobId ?? "").trim();
-    if (!safePrintJobId) {
-      setToast("未选择打印作业，无法重试。");
-      return;
-    }
-
-    setPrintJobQueue((current) => ({ ...current, actionJobId: safePrintJobId, error: "" }));
-    const result = await retryOfficePrintJob({
-      authState,
-      printJobId: safePrintJobId,
-      operatorId: currentUserId,
-      retryReason: `${currentUser.displayName} 在打包/标签页重试打印作业`,
-    });
-    setPrintJobQueue((current) => ({ ...current, actionJobId: "" }));
-
-    if (result.blocked) {
-      setPrintJobQueue((current) => ({
-        ...current,
-        source: result.source,
-        error: result.error?.message ?? "打印作业重试 API 返回错误。",
-      }));
-      setToast(
-        result.error?.requiredPermission
-          ? `后端拒绝重试打印作业：缺少权限 ${result.error.requiredPermission}。`
-          : `后端拒绝重试打印作业：${result.error?.message ?? "未知错误"}`,
-      );
-      return;
-    }
-
-    upsertPrintJobQueueItems([result.sourcePrintJob, result.printJob]);
-    setToast(`已为 ${safePrintJobId} 创建重试作业 ${result.printJob?.printJobId ?? ""}。`);
-    void refreshOfficePrintJobQueue({ showToast: false });
+    const result = await executePrintJobRetry(printJobId);
+    if (result?.feedback) setToast(result.feedback);
   }
 
   function selectPrinterDeviceQaDevice(printDeviceId) {
@@ -3718,139 +3623,14 @@ export function App() {
 
   async function savePrinterDeviceMode() {
     if (!guardUiAction("productionPacking", "保存设备模式")) return;
-    const selectedDeviceId = printerDeviceQa.selectedDeviceId;
-    if (!selectedDeviceId) {
-      setToast("请先选择要维护的打印设备。");
-      return;
-    }
-
-    const selectedDevice = printerDeviceQa.devices.find((item) => item.printDeviceId === selectedDeviceId);
-    if (!selectedDevice) {
-      setToast("当前设备列表里找不到该打印设备，请先刷新。");
-      return;
-    }
-
-    const nextDriverMode = String(printerDeviceQa.driverModeDraft || "preview_only").trim() || "preview_only";
-    setPrinterDeviceQa((current) => ({ ...current, savingDeviceMode: true, error: "" }));
-    const result = await updateOfficePrintDeviceDriverMode({
-      authState,
-      printDeviceId: selectedDeviceId,
-      driverMode: nextDriverMode,
-      operatorId: currentUserId,
-      reason: `${currentUser.displayName} 在打包/标签页把 ${selectedDevice.name || selectedDeviceId} 驱动模式改为 ${nextDriverMode}`,
-    });
-
-    if (result.blocked) {
-      setPrinterDeviceQa((current) => ({
-        ...current,
-        savingDeviceMode: false,
-        source: result.source,
-        error: result.error?.message ?? "打印设备保存 API 返回错误。",
-      }));
-      setToast(
-        result.error?.requiredPermission
-          ? `后端拒绝保存设备模式：缺少权限 ${result.error.requiredPermission}。`
-          : `后端拒绝保存设备模式：${result.error?.message ?? "未知错误"}`,
-      );
-      return;
-    }
-
-    const savedDevice = result.printDevice ?? {
-      ...selectedDevice,
-      settings: {
-        ...(selectedDevice.settings ?? {}),
-        driverMode: nextDriverMode,
-      },
-    };
-    setPrinterDeviceQa((current) => ({
-      ...current,
-      savingDeviceMode: false,
-      source: result.source,
-      devices: current.devices.map((device) => (
-        device.printDeviceId === selectedDeviceId ? savedDevice : device
-      )),
-      deviceLabel: savedDevice.name || current.deviceLabel,
-      driverLabel: getPrinterDeviceQaDriverLabel(savedDevice) || current.driverLabel,
-      driverModeDraft: getPrinterDeviceDriverMode(savedDevice),
-      paperLabel: getPrinterDeviceQaPaperLabel(savedDevice) || current.paperLabel,
-      error: "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    }));
-
-    const modeTip = nextDriverMode === "system_printer"
-      ? "已允许真实系统打印；仍需 V1 门禁、spool 回读和现场 QA 通过。"
-      : "已切回仅预览，不会派发真实系统打印。";
-    setToast(`设备模式已通过后端 API 保存：${selectedDevice.name || selectedDeviceId} -> ${nextDriverMode}。${modeTip}`);
-    void refreshPrintDriverReadiness({ showToast: false });
+    const result = await executeSavePrinterDeviceMode();
+    if (result?.feedback) setToast(result.feedback);
   }
 
   async function savePrinterDeviceQaRecord() {
     if (!guardUiAction("productionPacking", "保存打印验收")) return;
-    const selectedDeviceId = printerDeviceQa.selectedDeviceId;
-    if (!selectedDeviceId) {
-      setToast("请先选择要验收的打印设备。");
-      return;
-    }
-
-    const selectedDevice = printerDeviceQa.devices.find((item) => item.printDeviceId === selectedDeviceId) ?? { printDeviceId: selectedDeviceId };
-    setPrinterDeviceQa((current) => ({ ...current, saving: true, error: "" }));
-    const result = await recordOfficePrinterDeviceFieldTest({
-      authState,
-      printDeviceId: selectedDeviceId,
-      printDevice: {
-        ...selectedDevice,
-        name: printerDeviceQa.deviceLabel || selectedDevice.name,
-        driverName: printerDeviceQa.driverLabel || selectedDevice.driverName,
-        paperName: printerDeviceQa.paperLabel || selectedDevice.paperName,
-      },
-      operatorId: currentUserId,
-      operatorName: currentUser.displayName,
-      checks: printerDeviceQa.checks,
-      evidence: printerDeviceQa.evidence,
-      note: printerDeviceQa.note,
-    });
-
-    if (result.blocked) {
-      setPrinterDeviceQa((current) => ({
-        ...current,
-        saving: false,
-        recordSource: result.source,
-        error: result.error?.message ?? "打印设备验收记录 API 返回错误。",
-      }));
-      setToast(
-        result.error?.requiredPermission
-          ? `后端拒绝保存打印设备验收：缺少权限 ${result.error.requiredPermission}。`
-          : `后端拒绝保存打印设备验收：${result.error?.message ?? "未知错误"}`,
-      );
-      return;
-    }
-
-    const savedRecord = result.record ?? null;
-    setPrinterDeviceQa((current) => ({
-      ...current,
-      saving: false,
-      recordSource: result.source,
-      devices: current.devices.map((device) => (
-        device.printDeviceId === selectedDeviceId && savedRecord
-          ? {
-            ...device,
-            latestFieldTestRecord: savedRecord,
-            latestFieldTestSummary: savedRecord.summary,
-            latestFieldTestCheckedAt: savedRecord.checkedAt,
-          }
-          : device
-      )),
-      fieldTests: savedRecord
-        ? [savedRecord, ...current.fieldTests.filter((item) => item.recordId !== savedRecord.recordId)]
-        : current.fieldTests,
-      latestRecord: savedRecord ?? current.latestRecord,
-      checks: savedRecord?.checks ?? current.checks,
-      evidence: savedRecord?.evidence ?? current.evidence,
-      error: result.error?.message ?? "",
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    }));
-    const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
-    setToast(`打印设备验收已通过${sourceLabel}保存：${savedRecord?.summary?.label ?? result.summary?.label ?? "已记录"}。`);
+    const result = await executeSavePrinterDeviceQaRecord();
+    if (result?.feedback) setToast(result.feedback);
   }
 
   async function loadAttachmentAccessAudit(attachmentId) {
@@ -5850,194 +5630,8 @@ export function App() {
     setModal(null);
     if (!activeModal) return;
     if (activeModal.type === "batchPrintResult") {
-      const printTodos = todos.filter((item) => activeModal.todoIds?.includes(item.id) && !item.handled && isPrintTodo(item));
-      if (!printTodos.length) {
-        setToast("没有可确认结果的打印类待办。");
-        return;
-      }
-      const resultLabel = payload.reason;
-      const totalLabels = getBatchPrintStats(printTodos).totalLabels;
-      const printedLabelCount =
-        resultLabel === "全部打出"
-          ? totalLabels
-          : resultLabel === "部分打出"
-            ? Number(payload.actualQty ?? 0)
-            : 0;
-      if (resultLabel === "部分打出" && (!Number.isFinite(printedLabelCount) || printedLabelCount <= 0 || printedLabelCount >= totalLabels)) {
-        setToast(`部分打出需要填写 1 到 ${Math.max(1, totalLabels - 1)} 之间的已打出标签数。`);
-        return;
-      }
-
-      const batchResult = applyBatchPrintResult(todos, isPrintTodo, {
-        todoIds: activeModal.todoIds,
-        result: resultLabel,
-        printedLabelCount,
-        printedPackageIds: payload.printedPackageIds,
-        operatorName: currentUser.displayName,
-      });
-      const fulfillmentPrintUpdates = [];
-
-      for (const todo of batchResult.fullPrintedTodos) {
-        const fulfillment = findFulfillmentForPrintTodo(todo, fulfillments);
-        if (!fulfillment || fulfillment.status === "已交付") continue;
-        const apiResult = await printOfficeFulfillment({
-          authState,
-          fulfillment,
-          action: "打印标签",
-          operatorId: currentUserId,
-          reason: resultLabel,
-        });
-        if (apiResult.blocked) {
-          setToast(
-            apiResult.error?.requiredPermission
-              ? `后端拒绝批量打印对应出库标签：缺少权限 ${apiResult.error.requiredPermission}。`
-              : `后端拒绝批量打印对应出库标签：${apiResult.error?.message ?? "未知错误"}`,
-          );
-          return;
-        }
-        fulfillmentPrintUpdates.push({
-          fulfillment,
-          printRecord: apiResult.printRecord,
-          printJob: apiResult.printJob,
-        });
-      }
-
-      if (batchResult.fullPrintedTodos.length) {
-        const apiResult = await handleOfficeTodoBatch({
-          authState,
-          todoIds: batchResult.fullPrintedTodos.map((item) => item.id),
-          action: "批量打印标签",
-          operatorId: currentUserId,
-          handlingResult: `批量打印标签：${resultLabel}`,
-        });
-        if (apiResult.blocked) {
-          setToast(
-            apiResult.error?.requiredPermission
-              ? `后端拒绝批量处理待办：缺少权限 ${apiResult.error.requiredPermission}。`
-              : `后端拒绝批量处理待办：${apiResult.error?.message ?? "未知错误"}`,
-          );
-          return;
-        }
-      }
-
-      const pendingPrintTodos = batchResult.printTodos.filter((item) => !batchResult.fullyPrintedIds.has(item.id));
-      for (const todo of pendingPrintTodos) {
-        const projected = batchResult.todos.find((item) => item.id === todo.id) ?? todo;
-        const apiResult = await handleOfficeTodoAction({
-          authState,
-          todoId: todo.id,
-          action: "批量打印结果待处理",
-          operatorId: currentUserId,
-          reason: resultLabel,
-          handlingResult: projected.lastAction,
-          printResultStatus: projected.printResultStatus,
-          printedLabelCount: projected.printedLabelCount,
-          pendingLabelCount: projected.pendingLabelCount,
-          totalLabelCount: Number(projected.printedLabelCount ?? 0) + Number(projected.pendingLabelCount ?? 0),
-          printedPackageIds: projected.printedPackageIds,
-          pendingPackageIds: projected.pendingPackageIds,
-          printPackages: projected.printPackages,
-        });
-        if (apiResult.blocked) {
-          setToast(
-            apiResult.error?.requiredPermission
-              ? `后端拒绝记录打印结果：缺少权限 ${apiResult.error.requiredPermission}。`
-              : `后端拒绝记录打印结果：${apiResult.error?.message ?? "未知错误"}`,
-          );
-          return;
-        }
-      }
-
-      const printBatchPackages = batchResult.printTodos.flatMap((todo) => {
-        const projected = batchResult.todos.find((item) => item.id === todo.id) ?? todo;
-        return (projected.printPackages ?? []).map((item) => ({
-          ...item,
-          todoId: todo.id,
-          todoRef: todo.ref,
-          todoType: todo.type,
-          customerId: todo.customerId,
-          summary: todo.summary,
-        }));
-      });
-      const printBatchDraft = createPrintBatchRecord({
-        action: "批量打印标签",
-        resultLabel,
-        todoIds: batchResult.printTodos.map((item) => item.id),
-        todoRefs: batchResult.printTodos.map((item) => item.ref),
-        totalTaskCount: batchResult.totalTasks,
-        totalLabelCount: batchResult.totalLabels,
-        printedLabelCount: batchResult.printedLabelCount,
-        pendingLabelCount: batchResult.pendingLabelCount,
-        printedPackageIds: batchResult.printedPackageIds,
-        pendingPackageIds: batchResult.pendingPackageIds,
-        printPackages: printBatchPackages,
-        operatorId: currentUserId,
-        operatorName: currentUser.displayName,
-        sequence: printBatchRecords.length + 1,
-      });
-      const printBatchApiResult = await createOfficePrintBatchRecord({
-        authState,
-        operatorId: currentUserId,
-        printBatchRecord: printBatchDraft,
-      });
-      if (printBatchApiResult.blocked) {
-        setToast(
-          printBatchApiResult.error?.requiredPermission
-            ? `后端拒绝记录打印批次：缺少权限 ${printBatchApiResult.error.requiredPermission}。`
-            : `后端拒绝记录打印批次：${printBatchApiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const printBatchRecord = {
-        ...printBatchDraft,
-        ...(printBatchApiResult.printBatchRecord ?? {}),
-        operationLogId: printBatchApiResult.operationLogId ?? printBatchApiResult.printBatchRecord?.operationLogId ?? "",
-      };
-
-      setTodos(batchResult.todos);
-      setPrintBatchRecords((current) => [
-        printBatchRecord,
-        ...current.filter((item) => item.printBatchId !== printBatchRecord.printBatchId),
-      ]);
-      setFulfillments((current) =>
-        batchResult.printTodos.reduce((next, todo) => {
-          const fulfillment = findFulfillmentForPrintTodo(todo, next);
-          const projected = batchResult.todos.find((item) => item.id === todo.id);
-          if (!fulfillment || !projected?.printPackages?.length) return next;
-          return next.map((item) =>
-            item.id === fulfillment.id
-              ? {
-                  ...item,
-                  printPackages: projected.printPackages,
-                  printResultStatus: projected.printResultStatus,
-                  printedLabelCount: projected.printedLabelCount,
-                  pendingLabelCount: projected.pendingLabelCount,
-                }
-              : item,
-          );
-        }, current),
-      );
-      if (fulfillmentPrintUpdates.length) {
-        setFulfillments((current) => fulfillmentPrintUpdates.reduce((next, update) => {
-          const withPrintedState = next.map((item) =>
-            item.id === update.fulfillment.id
-              ? {
-                  ...item,
-                  printed: true,
-                  status: item.method === "快递快运" && item.status !== "已交付" ? "待确认拉走" : item.status,
-                  printResultStatus: "printed",
-                }
-              : item,
-          );
-          return applyPrintRecordProjection(withPrintedState, update.fulfillment.id, update.printRecord, update.fulfillment);
-        }, current));
-        upsertPrintJobQueueItems(fulfillmentPrintUpdates.map((item) => item.printJob));
-        void refreshOfficePrintJobQueue({ showToast: false });
-      }
-      const nextOpenId = getNextOpenTodoId(batchResult.todos, batchResult.fullPrintedTodos.map((item) => item.id), sortTodos);
-      if (nextOpenId) setSelectedTodoId(nextOpenId);
-      const pendingText = batchResult.pendingLabelCount ? `，剩余 ${batchResult.pendingLabelCount} 张继续待打印/核对` : "";
-      setToast(`已确认批量打印结果：${resultLabel}，已打出 ${batchResult.printedLabelCount}/${batchResult.totalLabels} 张${pendingText}；批次 ${printBatchRecord.printBatchId}。`);
+      const result = await confirmBatchPrintResult({ modal: activeModal, payload });
+      if (result?.feedback) setToast(result.feedback);
       return;
     }
 
@@ -6053,95 +5647,14 @@ export function App() {
     }
 
     if (activeModal.type === "print") {
-      const selected = fulfillments.find((item) => item.id === activeModal.fulfillmentId);
-      if (!selected) {
-        setToast("未找到对应出库 / 交付记录，无法打印。");
-        return;
-      }
-      const apiResult = await printOfficeFulfillment({
-        authState,
-        fulfillment: selected,
-        action: activeModal.action,
-        operatorId: currentUserId,
-        reason: payload.reason,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝打印 / 预览：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝打印 / 预览：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const result = confirmOfficeModal({
-        modal: activeModal,
-        payload,
-        fulfillments,
-        statements,
-        todos,
-        getStatementBlockingAmount,
-      });
-      if (result.fulfillments) {
-        setFulfillments(applyPrintRecordProjection(result.fulfillments, selected.id, apiResult.printRecord, selected));
-      }
-      upsertPrintJobQueueItems([apiResult.printJob]);
-      void refreshOfficePrintJobQueue({ showToast: false });
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      const documentLabel = getFulfillmentDocumentLabel(selected);
-      const printActionText = activeModal.action ?? "打印预览";
-      const nextText = printActionText.includes("重打")
-        ? `生成新有效${documentLabel}。`
-        : selected.method === "快递快运"
-          ? "快递/快运进入待确认拉走。"
-          : "自提/送货保留当前交付状态。";
-      setToast(`已通过${sourceLabel}记录${printActionText}；${nextText}`);
+      const result = await printFulfillmentDocument({ modal: activeModal, payload });
+      if (result?.feedback) setToast(result.feedback);
       return;
     }
 
     if (activeModal.type === "printVoid") {
-      const selected = fulfillments.find((item) => item.id === activeModal.fulfillmentId);
-      const printRecordId = activeModal.printRecordId ?? selected?.activePrintRecordId ?? selected?.printRecordId;
-      if (!selected || !printRecordId) {
-        setToast("未找到可作废的打印记录，无法继续。");
-        return;
-      }
-      const apiResult = await voidOfficePrintRecord({
-        authState,
-        printRecordId,
-        operatorId: currentUserId,
-        reason: payload.reason,
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? `后端拒绝作废旧单据/标签：缺少权限 ${apiResult.error.requiredPermission}。`
-            : `后端拒绝作废旧单据/标签：${apiResult.error?.message ?? "未知错误"}`,
-        );
-        return;
-      }
-      const printRecord = apiResult.printRecord ?? {
-        printRecordId,
-        status: "voided",
-        voidReason: payload.reason,
-        voidedAt: new Date().toISOString(),
-      };
-      setFulfillments((current) => current.map((item) => (
-        item.id === selected.id
-          ? {
-              ...item,
-              printed: true,
-              printRecordStatus: "voided",
-              activePrintRecordId: printRecord.printRecordId,
-              printRecordId: printRecord.printRecordId,
-              printVoidReason: payload.reason,
-              printVoidedAt: printRecord.voidedAt ?? "刚刚",
-            }
-          : item
-      )));
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      const documentLabel = getFulfillmentDocumentLabel(selected);
-      const nextText = selected.method === "快递快运" ? "确认拉走" : "完成交付";
-      setToast(`已通过${sourceLabel}作废旧${documentLabel}；需要重打${documentLabel}后才能${nextText}。`);
+      const result = await voidFulfillmentPrintRecord({ modal: activeModal, payload });
+      if (result?.feedback) setToast(result.feedback);
       return;
     }
 
@@ -7923,7 +7436,7 @@ function ActionModal({ modal, fulfillments, statements, orderLines, onClose, onC
               </div>
             ) : null}
             <div className="form-note">
-              只有确认已打出的标签会进入待快递/快运提货；未打出继续留在待打印，结果不确定进入打印异常核对。
+              此处只记录人工核对结果；未打出继续留在待打印，结果不确定进入异常核对。交付状态只由可信 spool / 驱动 printed 回读推进。
             </div>
           </div>
         ) : modal.type === "statementPreview" ? (
