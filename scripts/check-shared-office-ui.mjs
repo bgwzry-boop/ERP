@@ -68,5 +68,8 @@ assert.match(entrySource, /entry-workbench/);
 assert.match(entrySource, /<OperationalPanel/);
 assert.match(entrySource, /<PanelHeader/);
 assert.match(entrySource, /<DataState/);
+assert.match(entrySource, /const currentStep =/);
+assert.match(entrySource, /aria-current=\{step\.id === currentStep \? "step"/);
+assert.match(entrySource, /function toFiniteNumber/);
 
-console.log("Shared office UI checks passed: shell, operational states, layered styles, and Todo/Entry adoption are locked.");
+console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");

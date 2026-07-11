@@ -12,6 +12,12 @@ for (const contract of ["生产任务", "打包任务", "机台排产队列", "�
 assert.match(pageSource, /PrinterDeviceQaPanel/);
 assert.match(pageSource, /PrintDriverV1ReadinessPanel/);
 assert.match(pageSource, /PrintDriverDiagnosticsPanel/);
+assert.match(pageSource, /const PRODUCTION_WORKBENCH_TABS/);
+assert.match(pageSource, /activeWorkbenchTab === "print" \? null/);
+assert.match(pageSource, /activeWorkbenchTab === "print" \? \(/);
+assert.match(pageSource, /aria-controls="production-workbench-panel"/);
+assert.match(pageSource, /role="tabpanel"/);
+assert.doesNotMatch(pageSource, /setActiveDetail/);
 
 for (const helper of ["isProductionReportCandidate", "buildPackingTaskRows", "getProductionFinishedGoodsPhoto", "getProductionPackingTaskListStatusText"]) {
   assert.equal(presentationSource.includes(`export function ${helper}`), true, `production presentation should export ${helper}`);
@@ -21,4 +27,4 @@ assert.match(officePageSource, /export \{ ProductionPackingPage \} from "\.\.\/\
 assert.doesNotMatch(officePageSource, /function ProductionPackingPage/);
 assert.doesNotMatch(officePageSource, /function PrinterDeviceQaPanel/);
 
-console.log("Office production/packing page check passed: page ownership, print gates, and machine-count safety labels remain intact.");
+console.log("Office production/packing page check passed: page ownership, independent print workspace, tab semantics, and machine-count safety labels remain intact.");

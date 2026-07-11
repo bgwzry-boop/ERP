@@ -69,6 +69,12 @@ const PRINT_DRIVER_MODE_OPTIONS = [
   { value: "system_printer", label: "系统打印" },
 ];
 
+const PRODUCTION_WORKBENCH_TABS = [
+  { value: "production", label: "生产任务" },
+  { value: "packing", label: "打包任务" },
+  { value: "print", label: "打印与设备" },
+];
+
 export function ProductionPackingPage({
   orderLines,
   inventoryRecords,
@@ -125,7 +131,8 @@ export function ProductionPackingPage({
   const lastAppliedFocusKeyRef = useRef("");
   const [selectedProductionLineId, setSelectedProductionLineId] = useState(productionLines[0]?.id ?? "");
   const [selectedPackingTaskId, setSelectedPackingTaskId] = useState(packingTasks[0]?.packingTaskId ?? "");
-  const [activeDetail, setActiveDetail] = useState(productionLines.length ? "production" : "packing");
+  const [activeWorkbenchTab, setActiveWorkbenchTab] = useState(productionLines.length ? "production" : "packing");
+  const [productionTaskPriority, setProductionTaskPriority] = useState("attention");
   const [reportInputs, setReportInputs] = useState({});
   const [packingInputs, setPackingInputs] = useState({});
   const [queueMoveDraft, setQueueMoveDraft] = useState({
@@ -133,11 +140,18 @@ export function ProductionPackingPage({
     targetQueueSeq: "1",
     reasonCode: "supervisor_order",
   });
-  const selectedProductionLine = productionLines.find((item) => item.id === selectedProductionLineId) ?? productionLines[0] ?? null;
-  const selectedPackingTask = packingTasks.find((item) => item.packingTaskId === selectedPackingTaskId) ?? packingTasks[0] ?? null;
   const resolveInventoryItem = (line, task = null) => findProductionInventoryItem(line, inventoryRecords) ?? line?.inventoryItem ?? task?.inventoryItem ?? null;
-  const detailMode = activeDetail === "packing" && selectedPackingTask ? "packing" : "production";
-  const detailLine = detailMode === "packing" ? selectedPackingTask?.orderLine : selectedProductionLine;
+  const isAttentionProductionLine = (line) => !resolveInventoryItem(line) || line.confidence === "medium";
+  const productionAttentionCount = productionLines.filter(isAttentionProductionLine).length;
+  const productionTaskCards = [...productionLines].sort((left, right) => {
+    const leftAttention = Number(isAttentionProductionLine(left));
+    const rightAttention = Number(isAttentionProductionLine(right));
+    return productionTaskPriority === "attention" ? rightAttention - leftAttention : leftAttention - rightAttention;
+  });
+  const selectedProductionLine = productionTaskCards.find((item) => item.id === selectedProductionLineId) ?? productionTaskCards[0] ?? null;
+  const selectedPackingTask = packingTasks.find((item) => item.packingTaskId === selectedPackingTaskId) ?? packingTasks[0] ?? null;
+  const detailMode = activeWorkbenchTab === "packing" && selectedPackingTask ? "packing" : "production";
+  const detailLine = activeWorkbenchTab === "print" ? null : detailMode === "packing" ? selectedPackingTask?.orderLine : selectedProductionLine;
   const detailInventoryItem = detailLine ? resolveInventoryItem(detailLine, selectedPackingTask) : null;
   const reportState = getUiActionState("productionPacking", "报工完成");
   const reportDailyState = getUiActionState("productionPacking", "报当日数量");
@@ -272,12 +286,12 @@ export function ProductionPackingPage({
 
   function selectProductionLine(lineId) {
     setSelectedProductionLineId(lineId);
-    setActiveDetail("production");
+    setActiveWorkbenchTab("production");
   }
 
   function selectPackingTask(taskId) {
     setSelectedPackingTaskId(taskId);
-    setActiveDetail("packing");
+    setActiveWorkbenchTab("packing");
   }
 
   function selectScheduleQueueItem(queueItem) {
@@ -351,7 +365,7 @@ export function ProductionPackingPage({
         packingTasks.find((task) => task.orderLineId === focusTarget.orderLineId);
       if (!targetTask) return;
       setSelectedPackingTaskId(targetTask.packingTaskId);
-      setActiveDetail("packing");
+      setActiveWorkbenchTab("packing");
       lastAppliedFocusKeyRef.current = focusTarget.focusKey;
       return;
     }
@@ -360,7 +374,7 @@ export function ProductionPackingPage({
       const targetLine = findFocusedProductionLine(productionLines, focusTarget, buildProductionTaskId);
       if (!targetLine) return;
       setSelectedProductionLineId(targetLine.id);
-      setActiveDetail("production");
+      setActiveWorkbenchTab("production");
       lastAppliedFocusKeyRef.current = focusTarget.focusKey;
     }
   }, [focusTarget, packingTasks, productionLines, buildProductionTaskId]);
@@ -388,7 +402,29 @@ export function ProductionPackingPage({
   }
 
   return (
-    <section className="page-grid split-detail production-packing-workbench">
+    <section className="page-stack production-packing-shell">
+      <div className="packing-workbench-tabs" role="tablist" aria-label="打包与标签工作台">
+        {PRODUCTION_WORKBENCH_TABS.map((tab) => (
+          <button
+            type="button"
+            role="tab"
+            id={`production-workbench-tab-${tab.value}`}
+            aria-controls="production-workbench-panel"
+            aria-selected={activeWorkbenchTab === tab.value}
+            className={activeWorkbenchTab === tab.value ? "active" : ""}
+            key={tab.value}
+            onClick={() => setActiveWorkbenchTab(tab.value)}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+      <section
+        className={`page-grid split-detail production-packing-workbench production-mode-${activeWorkbenchTab}`}
+        id="production-workbench-panel"
+        role="tabpanel"
+        aria-labelledby={`production-workbench-tab-${activeWorkbenchTab}`}
+      >
       <OperationalPanel className="table-pane production-packing-list-panel" ariaLabel="生产与打包任务列表">
         <MetricStrip items={stats} ariaLabel="生产与打包状态摘要" />
         <PanelHeader
@@ -402,7 +438,63 @@ export function ProductionPackingPage({
             </div>
           )}
         />
-        <section className="detail-section compact-section">
+        {activeWorkbenchTab === "production" ? (
+          <div className="production-task-focus-toolbar">
+            <div>
+              <button
+                type="button"
+                className={productionTaskPriority === "attention" ? "active attention" : ""}
+                aria-pressed={productionTaskPriority === "attention"}
+                onClick={() => setProductionTaskPriority("attention")}
+              >
+                异常优先 ({productionAttentionCount})
+              </button>
+              <button
+                type="button"
+                className={productionTaskPriority === "normal" ? "active normal" : ""}
+                aria-pressed={productionTaskPriority === "normal"}
+                onClick={() => setProductionTaskPriority("normal")}
+              >
+                正常优先 ({Math.max(0, productionLines.length - productionAttentionCount)})
+              </button>
+            </div>
+            <span className="production-task-machine-count">{scheduleQueueMachineOptions.length} 台机台</span>
+          </div>
+        ) : null}
+        <div className="production-task-cards" aria-label={`${PRODUCTION_WORKBENCH_TABS.find((tab) => tab.value === activeWorkbenchTab)?.label ?? "任务"}列表`}>
+          {activeWorkbenchTab === "production" ? productionTaskCards.map((line) => {
+            const inventoryItem = resolveInventoryItem(line);
+            const isActive = line.id === selectedProductionLine?.id;
+            return (
+              <button className={`production-task-card ${isActive ? "active" : ""}`} key={line.id} onClick={() => selectProductionLine(line.id)}>
+                <StatusPill tone={inventoryItem ? (line.confidence === "medium" ? "warning" : "success") : "danger"}>{inventoryItem ? (line.confidence === "medium" ? "待复核" : "正常") : "缺货"}</StatusPill>
+                <div className="production-task-card-main">
+                  <strong>{buildProductionTaskId(line)}</strong>
+                  <span>{findCustomer(line.customerId).name} · {line.size} · {getLineColorSpecLabel(line)} · {getLinePrintSide(line)}</span>
+                  <small>计划 {line.qty} 个 · {line.latest}交付 · {line.fulfillment}</small>
+                </div>
+                <b>{inventoryItem ? line.status : "缺库存键"}</b>
+              </button>
+            );
+          }) : activeWorkbenchTab === "packing" ? packingTasks.map((task) => {
+            const line = task.orderLine;
+            const isActive = task.packingTaskId === selectedPackingTask?.packingTaskId;
+            return (
+              <button className={`production-task-card ${isActive ? "active" : ""}`} key={task.packingTaskId} onClick={() => selectPackingTask(task.packingTaskId)}>
+                <StatusPill tone={statusTone(task.status)}>{task.status}</StatusPill>
+                <div className="production-task-card-main">
+                  <strong>{task.packingTaskId}</strong>
+                  <span>{findCustomer(line.customerId).name} · {line.size} · {getLineColorSpecLabel(line)}</span>
+                  <small>计划 {task.plannedQty} 个 · {task.packageCount ?? inferPackageCountFromQty(task.plannedQty)} 包</small>
+                </div>
+                <b>{task.labelsPrinted ? "标签已打印" : "待打包"}</b>
+              </button>
+            );
+          }) : (
+            <DataState title="打印与设备" detail="在右侧查看设备验收、驱动状态和打印作业队列。" compact />
+          )}
+        </div>
+        <section className="detail-section compact-section legacy-production-section schedule-queue-section">
           <div className="section-head-row">
             <h3>机台排产队列</h3>
             <div className="section-tools">
@@ -505,7 +597,7 @@ export function ProductionPackingPage({
             })}
           />
         </section>
-        <section className="detail-section compact-section">
+        <section className="detail-section compact-section legacy-production-section production-task-section">
           <div className="section-head-row">
             <h3>生产报工</h3>
             <span className="section-count">{productionLines.length} 条</span>
@@ -535,7 +627,7 @@ export function ProductionPackingPage({
             })}
           />
         </section>
-        <section className="detail-section compact-section">
+        <section className="detail-section compact-section legacy-production-section packing-task-section">
           <div className="section-head-row">
             <h3>打包任务</h3>
             <span className="section-count">{packingTasks.length} 条</span>
@@ -567,10 +659,10 @@ export function ProductionPackingPage({
       </OperationalPanel>
       <DetailPane
         className="production-packing-detail-pane"
-        title={detailMode === "packing" ? selectedPackingTask?.packingTaskId ?? "打包任务" : selectedProductionLine ? buildProductionTaskId(selectedProductionLine) : "生产报工"}
-        subtitle={detailLine ? `${findCustomer(detailLine.customerId).name} · ${detailLine.id}` : "未选择"}
+        title={activeWorkbenchTab === "print" ? "打印与设备" : detailMode === "packing" ? selectedPackingTask?.packingTaskId ?? "打包任务" : selectedProductionLine ? buildProductionTaskId(selectedProductionLine) : "生产报工"}
+        subtitle={activeWorkbenchTab === "print" ? "设备验收、驱动状态与打印作业" : detailLine ? `${findCustomer(detailLine.customerId).name} · ${detailLine.id}` : "未选择"}
       >
-        {detailLine ? (
+        {activeWorkbenchTab === "print" ? (
           <>
             <PrinterDeviceQaPanel
               qaState={printerDeviceQa}
@@ -601,12 +693,23 @@ export function ProductionPackingPage({
               onDispatch={onDispatchPrintJob}
               onRetry={onRetryPrintJob}
             />
+          </>
+        ) : detailLine ? (
+          <>
+            <div className="production-current-task">
+              <span>当前任务</span>
+              <strong>{detailMode === "packing" ? selectedPackingTask?.packingTaskId : buildProductionTaskId(selectedProductionLine)}</strong>
+              <p>{findCustomer(detailLine.customerId).name} · {detailLine.size} · {getLineColorSpecLabel(detailLine)} · {getLinePrintSide(detailLine)}</p>
+            </div>
             <InfoGrid
               rows={[
+                ["计划数量", `${detailLine.qty} 个`],
+                ["交付", detailLine.latest],
+                ["交付方式", detailLine.fulfillment],
+                ["状态", detailMode === "packing" ? selectedPackingTask.status : detailLine.status],
+                ["机台", detailMode === "production" ? selectedProductionMachineId : "打包台待分配"],
                 ["货品", `${detailLine.product} / ${detailLine.size}`],
                 ["颜色/印刷/提手", `${getLineColorSpecLabel(detailLine)} / ${getLinePrintSide(detailLine)}`],
-                ["数量", `${detailLine.qty} 个`],
-                ["交付", `${detailLine.fulfillment} · ${detailLine.latest}`],
                 ["排产发布", detailMode === "production" ? (selectedPublishedScheduleId ? `${selectedProductionMachineId} / ${selectedPublishedScheduleId}` : "未发布到车间任务池") : "生产完成后进入打包"],
                 ["库存键", detailInventoryItem ? `${detailInventoryItem.id} / ${detailInventoryItem.zone}` : "未找到匹配库存键"],
                 ["跨日进度", formatProductionDailyProgressLabel(detailLine) || "暂无日报数"],
@@ -619,8 +722,21 @@ export function ProductionPackingPage({
             ) : null}
             {detailMode === "production" ? (
               <>
+                <section className="detail-section production-machine-proof">
+                  <div className="section-title-row">
+                    <h3>机器计数 / 动作次数（仅作生产凭证）</h3>
+                    <button type="button" onClick={() => updateReportInput("machineCount", 0)}>清零计数</button>
+                  </div>
+                  <div className="machine-proof-metrics">
+                    <span>计划动作次数<strong>{Number(selectedProductionLine.qty || 0).toLocaleString("zh-CN")} 次</strong></span>
+                    <span>机器动作次数<strong>{Number(reportMachineCount || 0).toLocaleString("zh-CN")} 次</strong></span>
+                    <span>良品动作次数<strong>{Number(reportQualifiedQty || 0).toLocaleString("zh-CN")} 次</strong></span>
+                    <span>不良动作次数<strong>{Number(reportExceptionQty || 0).toLocaleString("zh-CN")} 次</strong></span>
+                  </div>
+                  <p>仅用于生产过程追溯，不作为合格数量、库存、履约数量或计费数量。</p>
+                </section>
                 <section className="detail-section">
-                  <h3>报工字段</h3>
+                  <h3>合格产出（用于交付与入库）</h3>
                   <div className="detail-form">
                     <label>
                       <span>合格数量</span>
@@ -635,10 +751,36 @@ export function ProductionPackingPage({
                       <input type="number" min="0" placeholder="只作凭证" value={reportMachineCount} onChange={(event) => updateReportInput("machineCount", event.target.value)} />
                     </label>
                   </div>
+                  <div className="action-row production-qualified-submit">
+                    <button
+                      className="primary-action"
+                      disabled={reportDisabled}
+                      title={reportTitle}
+                      onClick={() =>
+                        onAction("报工完成", {
+                          orderLineId: selectedProductionLine.id,
+                          orderLine: selectedProductionLine,
+                          qualifiedQty: Number(reportQualifiedQty || 0),
+                          exceptionQty: Number(reportExceptionQty || 0),
+                          machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
+                        })
+                      }
+                    >
+                      提交合格数量
+                    </button>
+                  </div>
                 </section>
-                <section className="detail-section">
+                <section className="detail-section production-transaction-result">
                   <h3>事务结果</h3>
                   <p>报当日数量只记录跨日进度，不入库、不占用、不生成打包任务；报工完成才会把合格数量入库并占用给该订单。</p>
+                </section>
+                <section className="detail-section production-task-history">
+                  <h3>任务历史（本任务）</h3>
+                  <DataTable
+                    className="production-task-history-table"
+                    columns={["时间", "类型", "机台", "数量/次数", "操作人", "备注"]}
+                    rows={[]}
+                  />
                 </section>
                 <section className="detail-section finished-goods-photo-section">
                   <div className="section-title-row">
@@ -730,22 +872,6 @@ export function ProductionPackingPage({
                   >
                     报当日数量
                   </button>
-                  <button
-                    className="primary-action"
-                    disabled={reportDisabled}
-                    title={reportTitle}
-                    onClick={() =>
-                      onAction("报工完成", {
-                        orderLineId: selectedProductionLine.id,
-                        orderLine: selectedProductionLine,
-                        qualifiedQty: Number(reportQualifiedQty || 0),
-                        exceptionQty: Number(reportExceptionQty || 0),
-                        machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
-                      })
-                    }
-                  >
-                    报工完成
-                  </button>
                 </div>
               </>
             ) : (
@@ -809,6 +935,7 @@ export function ProductionPackingPage({
           <DataState title="暂无生产或打包任务" detail="刷新任务池或确认排产是否已发布。" compact />
         )}
       </DetailPane>
+      </section>
     </section>
   );
 }

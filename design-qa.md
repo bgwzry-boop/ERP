@@ -1,39 +1,62 @@
-**Design QA**
+# Design QA
 
-- source visual truth path: `/Users/xu/.codex/generated_images/019efd8b-39d7-7993-9460-eb82d7943b9e/ig_07cf3cc9336ef685016a3cd7f4ba04819592e39096fb72290c.png`
-- implementation screenshot path: `/Users/xu/Documents/ERP/screenshots/prototype-1440x1024.png`
-- responsive screenshot path: `/Users/xu/Documents/ERP/screenshots/prototype-1280x900.png`
-- viewport: `1440 x 1024`, plus `1280 x 900` narrow desktop check
-- state: default production board, selected `S2 丝印机` / `SO250517-005`
-- full-view comparison evidence: `/Users/xu/Documents/ERP/screenshots/comparison-1440x1024.png`
-- focused region comparison evidence: full-view comparison is sufficient for this pass because the target is a high-density dashboard; focused checks were made visually on the sidebar, KPI row, machine lanes, job chips, and right detail panel from the 1440 screenshot.
+source visual truth path: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-11/09-selected-hybrid-redesign.png`
 
-**Findings**
+implementation screenshot paths:
 
-- No actionable P0/P1/P2 findings remain.
-- [P3] The implementation intentionally adds a left `合批建议` panel that is not present in the selected source option. This matches the user's requested hybrid of option 2 plus option 1's batching recommendations.
-- [P3] Job-chip typography is slightly denser than the source so all 4 silk-screen and 9 bag-making machines fit in the 1024px viewport. The tradeoff is acceptable for this prototype because the core requirement is small-order short-queue visibility.
+- `/Users/xu/Documents/ERP/screenshots/ui-implementation-2026-07-12/entry-1024x768.png`
+- `/Users/xu/Documents/ERP/screenshots/ui-implementation-2026-07-12/production-1024x768.png`
+- `/Users/xu/Documents/ERP/screenshots/ui-implementation-2026-07-12/print-device-1024x768.png`
+- `/Users/xu/Documents/ERP/screenshots/ui-implementation-2026-07-12/entry-390x844.png`
+- `/Users/xu/Documents/ERP/screenshots/ui-implementation-2026-07-12/packing-390x844.png`
 
-**Required Fidelity Surfaces**
+viewport: desktop `1024x768`; responsive overflow check `390x844`.
 
-- Fonts and typography: Uses system Chinese UI fonts with compact 10-16px hierarchy. Text truncates in dense chips instead of overlapping.
-- Spacing and layout rhythm: Matches the target's dark left sidebar, top sync bar, KPI row, grouped workshop sections, lane rows, and right-side detail panel. Lane height was tightened so all 13 machines are visible.
-- Colors and visual tokens: Preserves the target's neutral ERP palette with blue primary actions, green running/ready states, amber setup warnings, red bottleneck/conflict states, and gray idle states.
-- Image quality and asset fidelity: No raster product imagery is required by the target. Icons use `@ant-design/icons`; no custom inline SVG or CSS-drawn substitute assets were used.
-- Copy and content: Chinese ERP copy matches the planned factory context: online self-run shop API, offline pickup, silk-screen/bag-making queues, roll-material leftovers, batching, and completion registration.
+state: local demo data, office account, order-entry recognized-draft state, packing/label production-task tab with one selected task.
 
-**Patches Made Since Previous QA Pass**
+## Full-view comparison evidence
 
-- Reduced machine-lane and job-chip vertical height so `B9 制袋机` appears within the 1440 x 1024 first viewport.
-- Moved the narrow-desktop breakpoint from `1260px` to `1360px` so the right detail panel hides before it gets clipped at 1280px.
-- Rebuilt production assets after the layout changes.
+The source composite and both final desktop implementation captures were opened together at original resolution. The shell width, 140px navigation rail, top action bar, page-title hierarchy, order-entry three-step strip, source-recognition panel, dense table/validation split, bottom summary actions, packing task-list/detail split, three workbench tabs, machine-count evidence block, qualified-output block, and task-history placement align with the selected hybrid direction.
 
-**Implementation Checklist**
+## Focused region comparison evidence
 
-- Build passes with `npm run build`.
-- Local Vite server is running at `http://127.0.0.1:5174/`.
-- Desktop screenshot captured at `1440 x 1024`.
-- Narrow desktop screenshot captured at `1280 x 900`.
-- Interaction states implemented for date filters, workshop tabs, risk filter, batch selection, queue selection, reorder, insert order, merge batch, transfer machine, and completion modal.
+- Order entry table/footer: six editable rows remain visible with the validation sidebar and both `保存草稿` and blue `保存并确认` in the first viewport. The implementation uses current fixture fields and values rather than copying the mock's illustrative values.
+- Packing machine-count/output region: machine action counts are shown before qualified output and are explicitly labeled as production evidence only. The blue `提交合格数量` action is visible without scrolling.
+- Packing history region: the task-history table follows qualified output; lower-priority finished-goods photo details remain available below the fold.
+- No raster artwork, logos, illustrations, or decorative assets were required by the selected operational UI. Existing Ant Design icons remain consistent; no custom SVG, CSS illustration, emoji, or placeholder imagery was introduced.
+
+## Required fidelity surfaces
+
+- Fonts and typography: the implementation retains the existing Inter / PingFang SC / Microsoft YaHei stack and matches the compact 10-14px operational hierarchy. Labels, task IDs, totals, and primary actions remain readable without broken wrapping at the target viewport.
+- Spacing and layout rhythm: the selected narrow rail, compact panels, 8px section rhythm, table density, validation sidebar, task cards, and fixed-height workbench are present. Panels now scroll internally rather than extending the app below the viewport.
+- Colors and visual tokens: existing ERP blue, green, yellow, red, neutral surfaces, borders, and focus tokens map to the source semantic states. Primary confirmation and qualified-output actions are blue; availability is green, review is yellow, and shortage is red.
+- Image quality and asset fidelity: the target contains no photographic or illustrative imagery. No image assets are missing and no code-drawn image substitutes were introduced.
+- Copy and content: visible language uses factory-facing Chinese labels. `机器计数 / 动作次数（仅作生产凭证）` and its explanatory copy prevent qualified-output, inventory, fulfillment, and billing misinterpretation.
+- Accessibility and behavior: navigation and workbench tabs are semantic buttons/tabs with stable keys and panel relationships; inputs retain labels and focus treatment; contrast remains consistent with existing tokens. `保存并确认` and `提交合格数量` were confirmed visible and enabled in the tested state. Production priority controls perform real sorting and expose pressed state. Production, packing, and print/device tabs all switch successfully; the print/device tab remains independent and contains no production evidence, qualified-output action, or task timeline.
+- Viewport resilience: desktop target has no clipped persistent controls. At `390x844`, both priority pages report `scrollWidth === clientWidth === 390`; the packing two-column layout collapses to one column and the workbench tabs use full width.
+
+## Comparison history
+
+1. Initial implementation: order entry extended below the viewport, the topbar wrapped, and packing mixed queue, production, packing, and print/device content in one view. Result: blocked with P1 layout and hierarchy findings.
+2. First fix: added the three-step entry flow, validation sidebar, compact task cards/tabs, 1024px shell tuning, and machine-count evidence block. Remaining P1: entry footer was below the viewport and packing's qualified-output primary action was not visible.
+3. Second fix: constrained the desktop shell to `100vh`, enabled internal panel scrolling, restored the blue entry confirmation action, moved machine evidence before qualified output, added a visible blue qualified-output submission, and placed task history before lower-priority details. Post-fix screenshots show no actionable P0/P1/P2 mismatch.
+
+## Findings
+
+No actionable P0, P1, or P2 findings remain.
+
+## Follow-up polish
+
+- P3: the implementation's live fixture counts and task quantities differ from the illustrative source mock by design.
+- P3: order-entry rows are slightly denser than the source, favoring complete first-viewport visibility for operational use.
+- P3: the source shortage warning is not shown for the currently selected implementation task because its fixture has a valid inventory match; the red shortage state remains present on affected task cards.
+
+## Implementation checklist
+
+- [x] Order-entry progress, recognition source, editable table, validation sidebar, totals, and primary actions.
+- [x] Packing production/packing/print-device tabs and priority task cards.
+- [x] Machine-count evidence separation and visible qualified-output submission.
+- [x] Fixed-height desktop workbench and mobile overflow protection.
+- [x] Focused page checks, production build, browser interaction checks, and console review.
 
 final result: passed

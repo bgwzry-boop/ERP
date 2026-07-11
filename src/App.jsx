@@ -276,7 +276,6 @@ const driverDispatchOptions = [
 
 const officeScenarioData = loadOfficeWorkspace();
 const {
-  scenario: activeScenario,
   customers,
   defaultSelections,
   initialFulfillments,
@@ -676,7 +675,7 @@ export function App() {
     findCustomer,
     fulfillments,
     getStatementBlockingAmount,
-    initialToast: `P0 原型已载入：${activeScenario.name}。`,
+    initialToast: "",
     orderLines,
     permissionContext,
     printFulfillmentDocument,
@@ -5696,7 +5695,7 @@ export function App() {
           getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
         />
         <main className="content">
-          <WorkspaceNotice>{toast}</WorkspaceNotice>
+          {toast ? <WorkspaceNotice>{toast}</WorkspaceNotice> : null}
           <WorkspacePageHeader
             title={activeMeta.label}
             description={activeMeta.description}

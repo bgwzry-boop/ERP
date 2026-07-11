@@ -33,6 +33,7 @@ body {
 
 .app-shell {
   display: flex;
+  height: 100vh;
   min-height: 100vh;
   overflow: hidden;
 }
@@ -284,6 +285,7 @@ body:has(.runtime-login-shell) {
 
 .workspace {
   display: flex;
+  height: 100vh;
   min-width: 0;
   flex: 1;
   flex-direction: column;
@@ -8411,12 +8413,66 @@ button.route-nav-button {
 
 @media (max-width: 1240px) {
   body {
-    min-width: 1024px;
+    min-width: 960px;
+  }
+
+  .sidebar {
+    width: 140px;
+    min-width: 140px;
+  }
+
+  .topbar {
+    gap: 8px;
+    padding: 0 10px;
+  }
+
+  .topbar .search {
+    width: 300px;
+  }
+
+  .topbar .primary-button {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .topbar .icon-button[aria-label="用户"] {
+    display: none;
+  }
+
+  .topbar .user-block select {
+    width: 116px;
+    max-width: 116px;
+  }
+
+  .content {
+    padding: 4px 12px 7px;
+  }
+
+  .workspace-page-header {
+    min-height: 34px;
+    margin-bottom: 6px;
+  }
+
+  .workspace-page-title p {
+    display: none;
+  }
+
+  .workspace-notice {
+    min-height: 30px;
+    margin-bottom: 6px;
+  }
+
+  .workspace-notice > span:last-child {
+    padding: 5px 9px;
   }
 
   .page-grid.split-detail,
   .page-grid.two-col {
     grid-template-columns: minmax(640px, 1fr) 330px;
+  }
+
+  .page-grid.entry-detail-grid {
+    grid-template-columns: minmax(0, 1fr) 184px;
   }
 
   .page-grid.raw-material-inbound-page {
@@ -8442,7 +8498,9 @@ button.route-nav-button {
   }
 
   .app-shell {
+    height: auto;
     min-width: 0;
+    min-height: 100vh;
     overflow-x: hidden;
     flex-direction: column;
   }
@@ -8486,6 +8544,7 @@ button.route-nav-button {
   }
 
   .workspace {
+    height: auto;
     min-width: 0;
   }
 

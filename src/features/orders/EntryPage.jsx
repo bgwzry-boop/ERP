@@ -7,15 +7,43 @@ import {
   StatusPill,
 } from "../../shared/ui/operational.jsx";
 
+const ENTRY_STEPS = [
+  { id: 1, title: "粘贴原文", detail: "粘贴客户消息" },
+  { id: 2, title: "校对明细", detail: "识别并校对表格" },
+  { id: 3, title: "库存与确认", detail: "校验库存与金额" },
+];
+
 export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, selectedDraftId, setSelectedDraftId, onRecognize, onDraftFieldChange, onDraftCommand, onAction, helpers }) {
   const { editableColors, getDraftColorSpecLabel, getDraftMissingFields, getDraftNote, getDraftStatusTone, getDraftTypeLabel, getUiActionState, money, sampleText } = helpers;
   const selected = draftRows.find((item) => item.id === selectedDraftId) ?? draftRows[0];
   const selectedMissing = selected ? getDraftMissingFields(selected) : [];
+  const missingRows = draftRows.filter((item) => getDraftMissingFields(item).length > 0);
+  const inventoryIssueRows = draftRows.filter((item) => !["可用", "正常"].includes(String(item.inventory ?? "").trim()));
+  const reviewRows = draftRows.filter((item) => item.confidence !== "high");
+  const attentionRows = new Set([...missingRows, ...inventoryIssueRows, ...reviewRows]);
+  const currentStep = !entryText.trim() || !draftRows.length ? 1 : attentionRows.size ? 2 : 3;
+  const quantityTotal = draftRows.reduce((sum, item) => sum + toFiniteNumber(item.qty), 0);
+  const amountTotal = draftRows.reduce((sum, item) => sum + toFiniteNumber(item.amount), 0);
   const recognizeState = getUiActionState("entry", "识别");
   return (
     <section className="page-stack entry-workbench">
+      <ol className="entry-progress" aria-label="订单录入步骤">
+        {ENTRY_STEPS.map((step) => (
+          <li
+            className={step.id < currentStep ? "complete" : step.id === currentStep ? "active" : ""}
+            aria-current={step.id === currentStep ? "step" : undefined}
+            key={step.id}
+          >
+            <b>{step.id}</b>
+            <span><strong>{step.title}</strong><small>{step.detail}</small></span>
+          </li>
+        ))}
+      </ol>
       <OperationalPanel className="entry-source-panel" ariaLabel="订单原文">
-        <PanelHeader title="订单原文" summary={`${entryText.trim().length} 字`} />
+        <PanelHeader
+          title={draftRows.length ? "原文已识别" : "订单原文"}
+          summary={`${entryText.trim().length} 字 · ${draftRows.length ? "可继续修改后重新识别" : "粘贴客户消息后执行识别"}`}
+        />
         <div className="entry-capture-body">
           <textarea aria-label="订单原文" value={entryText} onChange={(event) => setEntryText(event.target.value)} />
           <div className="entry-actions entry-capture-actions">
@@ -39,15 +67,51 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
               </div>
             )}
           />
+          <div className="entry-table-groups" aria-hidden="true">
+            <span>基本规格</span>
+            <span>印刷与类型</span>
+            <span>交付与库存</span>
+            <span>金额</span>
+          </div>
           <EntryDraftTable rows={draftRows} selectedId={selected?.id} onSelect={setSelectedDraftId} onChange={onDraftFieldChange} helpers={helpers} />
           <div className="footer-actions">
+            <div className="entry-summary-metrics">
+              <span>已识别 <strong>{draftRows.length}</strong> 行</span>
+              <span>数量合计 <strong>{quantityTotal.toLocaleString("zh-CN")}</strong> 个</span>
+              <span>金额合计 <strong>{money(amountTotal)}</strong></span>
+            </div>
             {["保存草稿", "保存并确认", "拆分订单", "作废草稿"].map((item) => {
               const actionState = getUiActionState("entry", item);
               return <button className={item === "保存并确认" ? "primary-action" : ""} disabled={actionState.disabled} key={item} title={actionState.title} onClick={() => onAction(item)}>{item}</button>;
             })}
           </div>
         </OperationalPanel>
-        <DetailPane className="entry-detail-pane" title="识别详情" subtitle={selected?.id ?? "未选择"}>
+        <DetailPane
+          className="entry-detail-pane"
+          title="识别校验"
+          subtitle={`缺字段 ${missingRows.length} · 库存异常 ${inventoryIssueRows.length} · 待复核 ${reviewRows.length}`}
+        >
+          <section className="entry-validation-summary" aria-label="识别校验摘要">
+            <ValidationGroup
+              title="缺字段"
+              tone="danger"
+              rows={missingRows}
+              detail={(item) => `第 ${draftRows.indexOf(item) + 1} 行 · 缺 ${getDraftMissingFields(item).join("、")}`}
+            />
+            <ValidationGroup
+              title="库存异常"
+              tone="danger"
+              rows={inventoryIssueRows}
+              detail={(item) => `第 ${draftRows.indexOf(item) + 1} 行 · ${item.inventory}`}
+            />
+            <ValidationGroup
+              title="待复核"
+              tone="warning"
+              rows={reviewRows}
+              detail={(item) => `第 ${draftRows.indexOf(item) + 1} 行 · ${item.customerName || item.product || item.id}`}
+            />
+            <p className="entry-validation-success">{Math.max(0, draftRows.length - inventoryIssueRows.length)} 行库存状态正常</p>
+          </section>
           {selected ? (
             <>
               <InfoGrid
@@ -123,6 +187,21 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
       </section>
     </section>
   );
+}
+
+function ValidationGroup({ title, tone, rows, detail }) {
+  return (
+    <section className={`entry-validation-group ${tone}`}>
+      <div><strong>{title}</strong><b>{rows.length}</b></div>
+      {rows.slice(0, 3).map((item) => <p key={`${title}-${item.id}`}>{detail(item)}</p>)}
+      {rows.length > 3 ? <small>另有 {rows.length - 3} 项</small> : null}
+    </section>
+  );
+}
+
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : 0;
 }
 
 function EntryDraftTable({ rows, selectedId, onSelect, onChange, helpers }) {
