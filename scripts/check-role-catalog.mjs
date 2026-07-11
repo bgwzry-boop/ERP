@@ -21,6 +21,10 @@ for (const user of seedUserOptions) {
 const office = getEffectivePermissionsForUser("U-OFFICE-A");
 const manager = getEffectivePermissionsForUser("U-MANAGER-A");
 const technical = getEffectivePermissionsForUser("U-TECH-A");
+const printWorkshop = getEffectivePermissionsForUser("U-WORKSHOP-PRINT-A");
+assert.deepEqual(printWorkshop.roles, ["workshop"]);
+assert.equal(printWorkshop.user.defaultMachineId, "PRINT-01");
+assert.deepEqual(printWorkshop.actionPermissions, roleCatalog.workshop.actionPermissions);
 assert.equal(office.actionPermissions.some((permission) => permission.startsWith("system.v1_")), false);
 for (const permission of systemV1ActionPermissions) {
   assert.equal(manager.actionPermissions.includes(permission), true, `management is missing ${permission}`);

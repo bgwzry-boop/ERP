@@ -68,6 +68,8 @@ export function createOfficePrintReadActions({
   setPrinterDeviceQa,
   setPrintJobQueue,
 }) {
+  const canReadPrinterDeviceFieldTests = authState?.permissions?.actionPermissions?.includes("print.device_qa.record") === true;
+
   async function refreshPrintDriverConfig({ showToast = false } = {}) {
     setPrintDriverConfig((current) => ({ ...current, loading: true, error: "" }));
     const result = normalizeReadResultForRuntime(
@@ -170,7 +172,7 @@ export function createOfficePrintReadActions({
     const selectedDevice = devices.find((item) => item.printDeviceId === requestedDeviceId) ?? devices[0] ?? null;
     const nextSelectedDeviceId = selectedDevice?.printDeviceId ?? "";
     let fieldTestResult = null;
-    if (nextSelectedDeviceId) {
+    if (nextSelectedDeviceId && canReadPrinterDeviceFieldTests) {
       fieldTestResult = normalizeReadResultForRuntime(
         await api.listOfficePrinterDeviceFieldTests({
           authState,

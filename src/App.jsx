@@ -544,6 +544,7 @@ export function App() {
   const permissionContext = authState.permissions;
   const currentUser = permissionContext.user;
   const currentUserId = currentUser.userId ?? defaultSeedUserId;
+  const canUsePrintDiagnostics = permissionContext.actionPermissions?.includes("fulfillment.print") === true;
   const {
     refreshTodos, refreshOrderPool, refreshInventoryRecords, refreshFulfillments,
     refreshDriverDeliveryTasks, refreshRawMaterialInbounds, refreshRawMaterialSupplierStatementReviews,
@@ -3855,7 +3856,7 @@ export function App() {
   }, [activePage, refreshProductionPackingTaskLists]);
 
   useEffect(() => {
-    if (activePage !== "packing") return undefined;
+    if (activePage !== "packing" || !canUsePrintDiagnostics) return undefined;
     let cancelled = false;
     refreshPrintDriverConfig({ showToast: false }).then(() => {
       if (cancelled) return;
@@ -3863,10 +3864,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [activePage, refreshPrintDriverConfig]);
+  }, [activePage, canUsePrintDiagnostics, refreshPrintDriverConfig]);
 
   useEffect(() => {
-    if (activePage !== "packing") return undefined;
+    if (activePage !== "packing" || !canUsePrintDiagnostics) return undefined;
     let cancelled = false;
     refreshPrintDriverReadiness({ showToast: false }).then(() => {
       if (cancelled) return;
@@ -3874,10 +3875,10 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [activePage, refreshPrintDriverReadiness]);
+  }, [activePage, canUsePrintDiagnostics, refreshPrintDriverReadiness]);
 
   useEffect(() => {
-    if (activePage !== "packing") return undefined;
+    if (activePage !== "packing" || !canUsePrintDiagnostics) return undefined;
     let cancelled = false;
     refreshPrintDriverCupsDiagnostics({ showToast: false }).then(() => {
       if (cancelled) return;
@@ -3885,7 +3886,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [activePage, refreshPrintDriverCupsDiagnostics]);
+  }, [activePage, canUsePrintDiagnostics, refreshPrintDriverCupsDiagnostics]);
 
   useEffect(() => {
     if (activePage !== "packing") return undefined;
@@ -4085,14 +4086,19 @@ export function App() {
     }
     if (activePage === "packing" || activePage === "workshopMobile") {
       if (activePage === "packing") {
-        void Promise.all([
+        const refreshActions = [
           refreshProductionPackingTaskLists({ showToast: false }),
           refreshPrintDriverConfig({ showToast: false }),
-          refreshPrintDriverReadiness({ showToast: false }),
-          refreshPrintDriverCupsDiagnostics({ showToast: false }),
           refreshPrinterDeviceQa({ showToast: false }),
           refreshOfficePrintJobQueue({ showToast: false }),
-        ]).then(() => {
+        ];
+        if (canUsePrintDiagnostics) {
+          refreshActions.push(
+            refreshPrintDriverReadiness({ showToast: false }),
+            refreshPrintDriverCupsDiagnostics({ showToast: false }),
+          );
+        }
+        void Promise.all(refreshActions).then(() => {
           setToast("打包/标签任务池、打印上线门禁、打印驱动诊断、CUPS 队列预检、打印设备验收和打印作业池已刷新。");
         });
         return;

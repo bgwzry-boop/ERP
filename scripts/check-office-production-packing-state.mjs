@@ -43,6 +43,12 @@ assert.deepEqual(buildProductionTaskListQueryForPage("workshopMobile", {}, "U-WO
   visibility: "workshop_mobile",
   machineId: "BAG-01",
 });
+assert.deepEqual(buildProductionTaskListQueryForPage("workshopMobile", {}, "U-WORKSHOP-PRINT-A"), {
+  pageSize: 200,
+  status: "open",
+  visibility: "workshop_mobile",
+  machineId: "PRINT-01",
+});
 
 const productionLine = mapProductionTaskListItemToLine(
   {

@@ -22,6 +22,8 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   const mainNavigation = page.getByRole("navigation", { name: "主导航" });
   await mainNavigation.getByRole("button", { name: /订单录入/ }).click();
   await expect(page.getByRole("heading", { name: "订单录入" })).toBeVisible();
+  const orderLinesBeforeConfirmation = await apiGet(request, "/order-lines?page=1&pageSize=200");
+  const existingOrderLineIds = new Set(orderLinesBeforeConfirmation.items.map((item) => item.id));
 
   await page.getByRole("textbox", { name: "订单原文" }).fill(orderText);
   await page.getByRole("button", { name: "识别", exact: true }).click();
@@ -33,7 +35,7 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
 
   const orderLinesAfterConfirmation = await apiGet(request, "/order-lines?page=1&pageSize=200");
   const createdLine = orderLinesAfterConfirmation.items.find((item) =>
-    item.customerId === "C001" && Number(item.qty) === 10,
+    !existingOrderLineIds.has(item.id) && item.customerId === "C001" && Number(item.qty) === 10,
   );
   expect(createdLine, "后端订单池应包含刚确认的 10 个自提订单").toBeTruthy();
   expect(["pickup", "自提"]).toContain(createdLine.fulfillmentMethod);
@@ -93,17 +95,26 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
 });
 
-test("定制印刷订单经生产打包、可信打印和快运拉走后进入对账", async ({ page, request }) => {
+test("定制印刷订单按岗位交接完成生产、可信打印、快运和对账", async ({ page, request }) => {
   const browserErrors = [];
+  const forbiddenResponses = [];
   page.on("console", (message) => {
-    if (message.type() === "error") browserErrors.push(message.text());
+    if (message.type() === "error" && !message.text().includes("403 (Forbidden)")) browserErrors.push(message.text());
   });
   page.on("pageerror", (error) => browserErrors.push(error.message));
+  page.on("response", (response) => {
+    if (response.status() === 403) {
+      const operator = response.request().headers()["x-erp-user-id"] ?? "unknown";
+      forbiddenResponses.push(`${new URL(response.url()).pathname} operator=${operator}`);
+    }
+  });
 
   await page.goto("/");
   await switchAccount(page, operatorId);
   const mainNavigation = page.getByRole("navigation", { name: "主导航" });
   await mainNavigation.getByRole("button", { name: /订单录入/ }).click();
+  const orderLinesBeforeConfirmation = await apiGet(request, "/order-lines?page=1&pageSize=200");
+  const existingOrderLineIds = new Set(orderLinesBeforeConfirmation.items.map((item) => item.id));
 
   await page.getByRole("textbox", { name: "订单原文" }).fill(
     "美的空调 30*38*10 白印黑 白袋黑提 单面 12个 普通提 明天下午快运",
@@ -116,7 +127,10 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
   await expect(page.getByRole("heading", { name: "订单池" })).toBeVisible();
 
   const createdLine = await waitForApiItem(request, "/order-lines?page=1&pageSize=200", (item) =>
-    item.customerId === "C004" && Number(item.qty) === 12 && item.printFlag === true,
+    !existingOrderLineIds.has(item.id) &&
+    item.customerId === "C004" &&
+    Number(item.qty) === 12 &&
+    item.printFlag === true,
   );
   expect(["express_ltl", "快递快运"]).toContain(createdLine.fulfillmentMethod);
   expect(createdLine.bagColor ?? createdLine.color).toBe("白色");
@@ -128,13 +142,36 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
     item.orderLineId === createdLine.id,
   );
   const productionTaskId = productionTask.productionTaskId;
+  expect(productionTask.productionTask.machineId).toBe("PRINT-01");
   const inventoryBeforeReport = await findInventoryItem(request, createdLine);
   const inStockBeforeReport = Number(inventoryBeforeReport.inStock ?? 0);
   const reservedBeforeReport = Number(inventoryBeforeReport.reserved ?? inventoryBeforeReport.reservedQty ?? 0);
 
   await mainNavigation.getByRole("button", { name: /打包\/标签/ }).click();
   await selectWorkbenchTabIfPresent(page, "生产任务");
-  await page.getByRole("button", { name: new RegExp(productionTaskId) }).click();
+  await selectProductionTask(page, productionTaskId);
+  await page.getByRole("button", { name: "发布排产", exact: true }).click();
+  await waitForApiDetail(
+    request,
+    `/production-tasks/${encodeURIComponent(productionTaskId)}`,
+    (detail) => Boolean(detail.productionTask?.publishedScheduleId),
+  );
+
+  await switchAccount(page, "U-WORKSHOP-PRINT-A");
+  await mainNavigation.getByRole("button", { name: /车间\/打包手机端/ }).click();
+  await page.getByRole("tab", { name: "生产报工", exact: true }).click();
+  await page.locator(".mobile-task-row").filter({ hasText: "12 个" }).first().click();
+  await expect(page.getByRole("heading", { name: productionTaskId, exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "确认成品图", exact: true })).toHaveCount(0);
+
+  const workshopReviewDenied = await apiPost(
+    request,
+    `/production-tasks/${encodeURIComponent(productionTaskId)}/finished-goods-photo-review`,
+    { reviewStatus: "accepted", reason: "workshop must not approve its own photo" },
+    "U-WORKSHOP-PRINT-A",
+    403,
+  );
+  expect(workshopReviewDenied.requiredPermission).toBe("production.schedule.publish");
   await page.getByRole("button", { name: "上传成品图", exact: true }).click();
   await expect(page.getByText("上传成品图附件", { exact: false })).toBeVisible();
 
@@ -144,6 +181,7 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
     (detail) => detail.finishedGoodsPhoto?.status === "待确认",
   );
   expect(productionDetail.finishedGoodsPhoto.attachmentId).toBeTruthy();
+  expect(productionDetail.finishedGoodsPhoto.uploadedBy).toBe("U-WORKSHOP-PRINT-A");
   const finishedGoodsAttachments = await apiGet(
     request,
     `/attachments?ownerType=production_task&ownerId=${encodeURIComponent(productionTaskId)}&purpose=finished_goods_photo`,
@@ -152,6 +190,10 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
     item.attachmentId === productionDetail.finishedGoodsPhoto.attachmentId,
   )).toBe(true);
 
+  await switchAccount(page, operatorId);
+  await mainNavigation.getByRole("button", { name: /打包\/标签/ }).click();
+  await selectWorkbenchTabIfPresent(page, "生产任务");
+  await selectProductionTask(page, productionTaskId);
   await page.getByRole("button", { name: "确认成品图", exact: true }).click();
   await expect(page.getByText("确认成品图", { exact: false })).toBeVisible();
   productionDetail = await waitForApiDetail(
@@ -161,10 +203,14 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
   );
   expect(productionDetail.finishedGoodsPhoto.reviewedBy).toBe(operatorId);
 
+  await switchAccount(page, "U-WORKSHOP-PRINT-A");
+  await mainNavigation.getByRole("button", { name: /车间\/打包手机端/ }).click();
+  await page.getByRole("tab", { name: "生产报工", exact: true }).click();
+  await page.locator(".mobile-task-row").filter({ hasText: "12 个" }).first().click();
   await page.getByLabel("合格数量").fill("12");
   await page.getByLabel("异常/废品数").fill("2");
   await page.getByLabel("机器计数/动作次数").fill("9876");
-  await page.getByRole("button", { name: /^(提交合格数量|报工完成)$/ }).first().click();
+  await page.getByRole("button", { name: "报工完成", exact: true }).click();
   await expect(page.getByText("完成生产报工", { exact: false })).toBeVisible();
 
   productionDetail = await waitForApiDetail(
@@ -175,6 +221,7 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
   expect(Number(productionDetail.latestReport?.qualifiedQty)).toBe(12);
   expect(Number(productionDetail.latestReport?.exceptionQty)).toBe(2);
   expect(Number(productionDetail.latestReport?.machineCount)).toBe(9876);
+  expect(productionDetail.latestReport?.operatorId).toBe("U-WORKSHOP-PRINT-A");
   const packingTaskId = productionDetail.packingTask?.packingTaskId;
   expect(packingTaskId).toBeTruthy();
 
@@ -182,8 +229,20 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
   expect(Number(inventoryAfterReport.inStock)).toBe(inStockBeforeReport + 12);
   expect(Number(inventoryAfterReport.reserved ?? inventoryAfterReport.reservedQty ?? 0)).toBe(reservedBeforeReport + 12);
 
-  await selectWorkbenchTabIfPresent(page, "打包任务");
-  await page.getByRole("button", { name: new RegExp(packingTaskId) }).click();
+  const packingReportDenied = await apiPost(
+    request,
+    `/production-tasks/${encodeURIComponent(productionTaskId)}/report-complete`,
+    { orderLineId: createdLine.id, qualifiedQty: 12 },
+    "U-PACKING-A",
+    403,
+  );
+  expect(packingReportDenied.requiredPermission).toBe("production.report.complete");
+
+  await switchAccount(page, "U-PACKING-A");
+  await mainNavigation.getByRole("button", { name: /车间\/打包手机端/ }).click();
+  await page.getByRole("tab", { name: "打包任务", exact: true }).click();
+  await page.locator(".mobile-task-row").filter({ hasText: "12 个" }).first().click();
+  await expect(page.getByText(packingTaskId, { exact: false })).toBeVisible();
   await page.getByLabel("实际打包数量").fill("12");
   await page.getByLabel("包裹数").fill("2");
   await page.getByLabel("标签状态").selectOption("未打印");
@@ -196,6 +255,7 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
     (detail) => detail.packingTask?.status === "已完成",
   );
   expect(packingDetail.packages).toHaveLength(2);
+  expect(packingDetail.packages.every((item) => item.createdBy === "U-PACKING-A")).toBe(true);
   expect(Number(packingDetail.packingTask.actualPackedQty)).toBe(12);
   const fulfillmentId = packingDetail.fulfillment?.fulfillmentId;
   expect(fulfillmentId).toBeTruthy();
@@ -206,6 +266,8 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
   const inventoryAfterPacking = await findInventoryItem(request, createdLine);
   expect(Number(inventoryAfterPacking.inStock)).toBe(inStockBeforeReport + 12);
 
+  await switchAccount(page, "U-WAREHOUSE-A");
+  await mainNavigation.getByRole("button", { name: /打包\/标签/ }).click();
   await selectWorkbenchTabIfPresent(page, "打印与设备");
   const printerDeviceQa = page.locator(".printer-device-qa-section");
   await printerDeviceQa.locator(".printer-device-qa-select-row select").selectOption("PRN-LABEL-A");
@@ -227,6 +289,7 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
   );
   expect(printJob.printDeviceId).toBe("PRN-LABEL-A");
   expect(printJob.driverMode).toBe("system_printer");
+  expect(printJob.requestedBy).toBe("U-WAREHOUSE-A");
 
   await mainNavigation.getByRole("button", { name: /打包\/标签/ }).click();
   await selectWorkbenchTabIfPresent(page, "打印与设备");
@@ -272,7 +335,7 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
     item.fulfillmentId === fulfillmentId && item.status === "待确认拉走",
   );
   await page.reload();
-  await switchAccount(page, operatorId);
+  await switchAccount(page, "U-WAREHOUSE-A");
   const refreshedNavigation = page.getByRole("navigation", { name: "主导航" });
   await refreshedNavigation.getByRole("button", { name: /出库交付/ }).click();
   await page.getByRole("tab", { name: "快递快运", exact: true }).click();
@@ -288,11 +351,22 @@ test("定制印刷订单经生产打包、可信打印和快运拉走后进入�
   expect(Number(inventoryAfterFulfillment.inStock)).toBe(inStockBeforeReport);
   expect(Number(inventoryAfterFulfillment.reserved ?? inventoryAfterFulfillment.reservedQty ?? 0)).toBe(reservedBeforeReport);
 
-  const statementCustomers = await apiGet(request, "/statements/customers?page=1&pageSize=200");
+  await switchAccount(page, "U-FINANCE-A");
+  await refreshedNavigation.getByRole("button", { name: /对账收款/ }).click();
+  await page.getByPlaceholder("客户名 / 单号 / 联系人").fill("美的空调网店");
+  await page.getByRole("button", { name: "美的空调网店", exact: false }).first().click();
+  await expect(page.getByText(createdLine.id, { exact: false })).toBeVisible();
+
+  const statementCustomers = await apiGet(request, "/statements/customers?page=1&pageSize=200", "U-FINANCE-A");
   const customerStatement = statementCustomers.items.find((item) => item.customerId === "C004");
   expect(customerStatement?.statementId).toBeTruthy();
-  const statementDetail = await apiGet(request, `/statements/${encodeURIComponent(customerStatement.statementId)}`);
+  const statementDetail = await apiGet(
+    request,
+    `/statements/${encodeURIComponent(customerStatement.statementId)}`,
+    "U-FINANCE-A",
+  );
   expect(statementDetail.lineIds).toContain(createdLine.id);
+  expect(forbiddenResponses, `页面不应发起越权请求：\n${forbiddenResponses.join("\n")}`).toEqual([]);
   expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
 });
 
@@ -347,14 +421,31 @@ async function findInventoryItem(request, line) {
 async function switchAccount(page, userId) {
   const accountSwitcher = page.getByRole("combobox", { name: "切换当前账号" });
   if (await accountSwitcher.count()) {
+    if (await accountSwitcher.inputValue() === userId) return;
+    const loginResponsePromise = page.waitForResponse((response) =>
+      new URL(response.url()).pathname === "/api/auth/prototype-login" && response.request().method() === "POST",
+    );
     await accountSwitcher.selectOption(userId);
+    const loginResponse = await loginResponsePromise;
+    expect(loginResponse.ok(), `${userId} 原型账号登录应成功`).toBe(true);
     await expect(accountSwitcher).toHaveValue(userId);
+    const displayName = (await accountSwitcher.locator("option:checked").textContent())?.split(" · ")[0];
+    await expect(page.getByText(`已通过后端 seed 登录切换为：${displayName}`, { exact: false })).toBeVisible();
   }
 }
 
 async function selectWorkbenchTabIfPresent(page, name) {
   const tab = page.getByRole("tab", { name, exact: true });
   if (await tab.count()) await tab.click();
+}
+
+async function selectProductionTask(page, productionTaskId) {
+  const taskCard = page.locator(".production-task-card").filter({ hasText: productionTaskId });
+  if (await taskCard.count()) {
+    await taskCard.first().click();
+    return;
+  }
+  await page.locator(".production-task-table").getByRole("button", { name: new RegExp(productionTaskId) }).click();
 }
 
 function createOnePixelPng() {

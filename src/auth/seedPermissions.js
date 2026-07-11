@@ -9,6 +9,7 @@ export const seedUserOptions = [
   { userId: "U-MANAGER-A", displayName: "管理A", defaultRole: "management", roleLabel: "管理 / 审核", roles: ["office", "warehouse", "finance", "management"] },
   { userId: "U-TECH-A", displayName: "技术运维A", defaultRole: "technical_operations", roleLabel: "部署 / 上线" },
   { userId: "U-WORKSHOP-A", displayName: "车间A", defaultRole: "workshop", roleLabel: "制袋 / 报工", defaultMachineId: "BAG-01" },
+  { userId: "U-WORKSHOP-PRINT-A", displayName: "丝印A", defaultRole: "workshop", roleLabel: "丝印 / 报工", defaultMachineId: "PRINT-01" },
   { userId: "U-PACKING-A", displayName: "打包A", defaultRole: "packing", roleLabel: "打包 / 标签", defaultMachineId: "PACK-01" },
   { userId: "U-DRIVER-A", displayName: "司机A", defaultRole: "driver", roleLabel: "送货 / 回单" },
 ];

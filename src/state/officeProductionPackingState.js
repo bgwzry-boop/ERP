@@ -38,6 +38,7 @@ export function getWorkshopMobileMachineId(user = {}, userId = "") {
   if (fromUser) return fromUser;
   const seedMachineByUserId = {
     "U-WORKSHOP-A": "BAG-01",
+    "U-WORKSHOP-PRINT-A": "PRINT-01",
   };
   return seedMachineByUserId[cleanProductionPackingText(userId)] ?? "";
 }

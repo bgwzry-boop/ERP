@@ -91,6 +91,17 @@ const seedUsers = [
     roles: ["workshop"],
   },
   {
+    userId: "U-WORKSHOP-PRINT-A",
+    loginName: "workshop.print.a",
+    seedPassword: "workshopprint123",
+    displayName: "丝印A",
+    defaultRole: "workshop",
+    department: "workshop",
+    defaultMachineId: "PRINT-01",
+    enabled: true,
+    roles: ["workshop"],
+  },
+  {
     userId: "U-PACKING-A",
     loginName: "packing.a",
     seedPassword: "packing123",

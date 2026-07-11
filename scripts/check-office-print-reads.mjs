@@ -14,7 +14,10 @@ function createState(initialValue) {
   };
 }
 
-function createDependencies(api, { serverRequired = false } = {}) {
+function createDependencies(api, {
+  serverRequired = false,
+  actionPermissions = ["fulfillment.print", "print.device_qa.record"],
+} = {}) {
   const state = {
     config: createState({ source: "idle", config: null }),
     readiness: createState({ source: "idle", readiness: null }),
@@ -35,7 +38,7 @@ function createDependencies(api, { serverRequired = false } = {}) {
   return {
     actions: createOfficePrintReadActions({
       api,
-      authState: { authenticated: true },
+      authState: { authenticated: true, permissions: { actionPermissions } },
       currentUserId: "U-OFFICE-A",
       printerDeviceQaSelectedIdRef: { current: "PD-2" },
       printJobQueueItemsRef: { current: [{ printJobId: "PJ-LOCAL" }] },
@@ -124,6 +127,20 @@ const deniedResult = await deniedCase.actions.refreshPrinterDeviceQa({ showToast
 assert.equal(deniedResult.blocked, true);
 assert.equal(deniedCase.state.devices.value.devices.length, 0);
 assert.match(deniedResult.feedback, /缺少权限 print\.device\.view/);
+
+let fieldTestReadCount = 0;
+const noDeviceQaCase = createDependencies({
+  ...successApi,
+  async listOfficePrinterDeviceFieldTests() {
+    fieldTestReadCount += 1;
+    return { source: "api", items: [], total: 0, latestRecord: null };
+  },
+}, { actionPermissions: ["fulfillment.print"] });
+const noDeviceQaResult = await noDeviceQaCase.actions.refreshPrinterDeviceQa({ showToast: true });
+assert.equal(noDeviceQaResult.blocked, false);
+assert.equal(noDeviceQaCase.state.devices.value.devices.length, 2);
+assert.equal(noDeviceQaCase.state.devices.value.latestRecord, null);
+assert.equal(fieldTestReadCount, 0);
 
 const fallbackApi = Object.fromEntries(
   Object.keys(successApi).map((name) => [
