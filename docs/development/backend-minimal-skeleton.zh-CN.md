@@ -53,6 +53,8 @@ V1 现场交接现在还有七个本地执行辅助边界：`npm run v1-go-live-
 - `scripts/check-attachment-object-storage.mjs`：校验附件 `local_fs` 对象存储接口、data URL 兼容读取、诊断对象清理、S3 兼容 PUT / GET / DELETE 签名、签名 URL 和 token 校验。
 - `scripts/check-attachment-object-storage-live.mjs`：启动本地 S3 兼容 HTTP 端点和 `object_storage` 模式 ERP API，校验业务附件上传 / 读取、对象存储签名 URL、附件 storage diagnostics、V1 留档门禁、诊断对象清理、SigV4 请求头和密钥脱敏。
 - `scripts/check-object-storage-minio-live.mjs`：启动临时真实 MinIO 容器并创建附件 / 对账导出两个 bucket，校验两类文件写入、读回、删除、附件签名 URL、生产 V1 留档 readiness 和诊断对象清理；公开镜像可由 `ERP_MINIO_DOCKER_IMAGE` 固定替换，失败或 Docker 不可用时直接阻断。
+- `scripts/assert-v1-production-release-gate.mjs`：最终生产放行断言，要求新鲜 release candidate `4/4`、现场证据至少 `34/34`、签字至少 `6/6`、V1/V2 边界确认、go-live suite ready 和全部脱敏护栏；成功只写 commit 与三份来源文件 SHA-256，不复制证据编号、签字人或 env 值。
+- `.github/workflows/v1-production-release-gate.yml`：手工触发、受保护 Environment 审批、自托管生产 runner 执行的最终 V1 放行 CI；普通 push / PR 不会触发，真实 secrets 只解码到忽略目录并在结束时删除。
 - `scripts/check-v1-production-profile-live.mjs`：启动临时 PostgreSQL、应用迁移、启动本地 S3 兼容 HTTP 端点，并用统一 V1 profile 启动 ERP API，校验系统持久化门禁、附件 V1 留档门禁、无现场证据时顶层 V1 runner `7/11` 阻塞边界，以及自动化打印 / 司机 QA 证据下 `11/11` 正向边界。
 - `scripts/run-v1-production-env-file-audit.mjs`：在预检前审计真实 env 文件是否安全未跟踪、不是模板、没有未替换占位值，并保持不输出任何 env 值。
 - `scripts/check-v1-production-env-file-audit.mjs`：校验 env 文件安全审计的通过、模板拒绝、占位符拒绝、warning、退出码和脱敏。
@@ -125,6 +127,7 @@ V1 现场交接现在还有七个本地执行辅助边界：`npm run v1-go-live-
 | `npm run attachment-storage:check` | 校验附件对象存储接口的本地写入 / 读取 / 删除、内容摘要、S3 兼容 PUT / GET / DELETE 签名、签名 URL、token 过期 / 无效拒绝和 provider factory 默认值 |
 | `npm run attachment-storage-live:check` | 启动本地 S3 兼容 HTTP 端点和 ERP API `object_storage` 模式，校验附件上传 / 读取、签名 URL、storage diagnostics、V1 留档门禁、清理和脱敏 |
 | `npm run object-storage:minio-live:check` | 启动临时真实 MinIO 容器与两个 bucket，校验附件 / 对账导出读写删、附件签名 URL、生产留档 readiness、诊断清理和容器清理 |
+| `npm run v1-production-release-gate:check` | 校验最终生产放行断言和 GitHub workflow：阻断态、缺签字、过期报告、不安全输出、不可变 commit、受保护 runner / secrets、全量基础设施 / E2E 和失败清理 |
 | `npm run v1-production-env-template:check` | 校验 V1 生产环境变量模板和发布前执行清单：生成器同步、预检变量覆盖、release-candidate 命令、V1/V2 边界和敏感值脱敏 |
 | `npm run v1-production-env-file-audit:check` | 校验 V1 生产 env 文件安全审计：安全未跟踪 env 文件通过、模板文件拒绝、未替换占位符拒绝、重复变量 / 权限 warning、退出码和敏感值脱敏 |
 | `npm run v1-field-evidence:check` | 校验 V1 现场证据 manifest 模板 / 清单、填写校验器、默认 blocked、完整证据 ready、缺分组 invalid 和 evidenceRef 脱敏 |

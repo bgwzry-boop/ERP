@@ -1,0 +1,168 @@
+name: V1 Production Release Gate
+
+on:
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: Full 40-character immutable release commit
+        required: true
+        type: string
+      production_api_base_url:
+        description: HTTPS production ERP API base URL ending in /api
+        required: true
+        type: string
+      confirmation:
+        description: Type RELEASE-V1-SMALL-SCOPE to confirm the small-scope V1 gate
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: v1-production-release-gate
+  cancel-in-progress: false
+
+jobs:
+  release-gate:
+    environment: v1-production-release
+    runs-on: [self-hosted, linux, erp-production-gate]
+    timeout-minutes: 60
+    env:
+      RELEASE_COMMIT: ${{ inputs.commit }}
+      PRODUCTION_API_BASE_URL: ${{ inputs.production_api_base_url }}
+      RELEASE_CONFIRMATION: ${{ inputs.confirmation }}
+      ERP_V1_RELEASE_OPERATOR_ID: ${{ vars.ERP_V1_RELEASE_OPERATOR_ID }}
+      ERP_V1_RELEASE_DRIVER_OPERATOR_ID: ${{ vars.ERP_V1_RELEASE_DRIVER_OPERATOR_ID }}
+    steps:
+      - name: Check out immutable release commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.commit }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Verify release intent and commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$RELEASE_CONFIRMATION" == "RELEASE-V1-SMALL-SCOPE" ]]
+          [[ "$RELEASE_COMMIT" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-parse HEAD)" == "$RELEASE_COMMIT" ]]
+          [[ -z "$(git status --porcelain)" ]]
+          [[ "$PRODUCTION_API_BASE_URL" == https://*/api ]]
+          [[ -n "$ERP_V1_RELEASE_OPERATOR_ID" ]]
+          [[ -n "$ERP_V1_RELEASE_DRIVER_OPERATOR_ID" ]]
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install locked dependencies
+        run: npm ci
+
+      - name: Run code and infrastructure gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test
+          npm audit --audit-level=high
+          npm run api:validate-openapi
+          npm run db:postgres-live:check
+          npm run object-storage:minio-live:check
+
+      - name: Run isolated browser release regression
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx playwright install chromium
+          npm run e2e:core
+
+      - name: Materialize protected release inputs
+        shell: bash
+        env:
+          PRODUCTION_ENV_FILE_B64: ${{ secrets.ERP_V1_PRODUCTION_ENV_FILE_B64 }}
+          FIELD_EVIDENCE_MANIFEST_B64: ${{ secrets.ERP_V1_FIELD_EVIDENCE_MANIFEST_B64 }}
+        run: |
+          set -euo pipefail
+          umask 077
+          input_dir="$RUNNER_TEMP/erp-v1-production-release-input/$GITHUB_RUN_ID"
+          report_root="$GITHUB_WORKSPACE/.erp-local-storage/v1-production-release-gate/$GITHUB_RUN_ID"
+          mkdir -p "$input_dir" "$report_root"
+          [[ -n "$PRODUCTION_ENV_FILE_B64" ]]
+          [[ -n "$FIELD_EVIDENCE_MANIFEST_B64" ]]
+          printf '%s' "$PRODUCTION_ENV_FILE_B64" | base64 --decode > "$input_dir/production.env"
+          printf '%s' "$FIELD_EVIDENCE_MANIFEST_B64" | base64 --decode > "$input_dir/field-evidence.json"
+          chmod 600 "$input_dir/production.env" "$input_dir/field-evidence.json"
+          [[ -s "$input_dir/production.env" ]]
+          [[ -s "$input_dir/field-evidence.json" ]]
+          {
+            echo "V1_GATE_INPUT_DIR=$input_dir"
+            echo "V1_PRODUCTION_ENV_FILE=$input_dir/production.env"
+            echo "V1_FIELD_EVIDENCE_MANIFEST=$input_dir/field-evidence.json"
+            echo "V1_RELEASE_REPORT_ROOT=$report_root"
+          } >> "$GITHUB_ENV"
+
+      - name: Validate signed field evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/validate-v1-field-evidence-manifest.mjs \
+            --manifest "$V1_FIELD_EVIDENCE_MANIFEST" \
+            --json > /dev/null
+
+      - name: Run live production release candidate gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-v1-release-candidate-check.mjs \
+            --env-file "$V1_PRODUCTION_ENV_FILE" \
+            --field-evidence-manifest "$V1_FIELD_EVIDENCE_MANIFEST" \
+            --api-base-url "$PRODUCTION_API_BASE_URL" \
+            --operator-id "$ERP_V1_RELEASE_OPERATOR_ID" \
+            --driver-operator-id "$ERP_V1_RELEASE_DRIVER_OPERATOR_ID" \
+            --output-dir "$V1_RELEASE_REPORT_ROOT/release-candidate" \
+            --json > /dev/null
+
+      - name: Build go-live handoff suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/run-v1-go-live-suite.mjs \
+            --release-candidate-json "$V1_RELEASE_REPORT_ROOT/release-candidate/latest.json" \
+            --release-candidate-markdown "$V1_RELEASE_REPORT_ROOT/release-candidate/latest.md" \
+            --field-evidence-manifest "$V1_FIELD_EVIDENCE_MANIFEST" \
+            --output-root "$V1_RELEASE_REPORT_ROOT/go-live-suite" \
+            --json > /dev/null
+
+      - name: Assert final V1 production release gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          node scripts/assert-v1-production-release-gate.mjs \
+            --release-candidate "$V1_RELEASE_REPORT_ROOT/release-candidate/latest.json" \
+            --go-live-suite "$V1_RELEASE_REPORT_ROOT/go-live-suite/latest.json" \
+            --field-evidence-manifest "$V1_FIELD_EVIDENCE_MANIFEST" \
+            --expected-commit "$RELEASE_COMMIT" \
+            --output "$V1_RELEASE_REPORT_ROOT/release-attestation.json" > /dev/null
+
+      - name: Upload redacted release evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v1-production-release-gate-${{ github.run_id }}
+          path: .erp-local-storage/v1-production-release-gate/${{ github.run_id }}/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Remove protected release inputs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "${V1_GATE_INPUT_DIR:-}" && "$V1_GATE_INPUT_DIR" == "$RUNNER_TEMP/erp-v1-production-release-input/"* ]]; then
+            rm -rf -- "$V1_GATE_INPUT_DIR"
+          fi

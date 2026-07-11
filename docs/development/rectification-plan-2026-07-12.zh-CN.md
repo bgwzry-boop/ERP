@@ -1,7 +1,7 @@
 # ERP 代码、上线与 UI 整改执行方案
 
 制定日期：2026-07-12
-版本：V8.1
+版本：V8.2
 适用范围：V1 小范围真实上线、代码精简、UI 重构、现场验收
 
 ## 一、整改结论
@@ -203,6 +203,7 @@ src/styles/
 | B4 | `App.jsx` 继续拆分 | feature controller 和更薄的 App 壳 | 前端专项、全量测试和 E2E 通过。 |
 | B5（第四轮已完成） | `apiServer.mjs` 继续拆分 | 已迁出系统持久化、文件留档、司机真机和打印 readiness；后续继续迁剩余上线执行器 / route / service / repository | 全量、司机 / 打印工具链、OpenAPI、production profile、PostgreSQL live、核心 E2E 已通过。 |
 | F1（已完成） | 真实基础设施集成与 CI 门禁 | 临时 PostgreSQL、临时 MinIO、全依赖高危审计和核心 E2E 纳入 CI | MinIO 双 bucket 真实读写删、签名 URL、生产留档 readiness 通过；CI 任一项失败即阻断。 |
+| F2（代码已完成，待配置生产 runner） | 生产放行工作流 | 受保护 Environment、自托管 runner、真实 env / 现场 manifest secrets、最终 attestation | 只接受不可变 commit；`4/4`、`34/34`、`6/6`、V1/V2 边界和 go-live suite 全部 ready 才通过。 |
 | C4 | CSS 分层和六页 UI 精修 | 分层样式、共享组件、桌面 / 手机截图 | `1280x720`、`390x844` 无溢出、无控制台错误。 |
 
 A 轨按 D48 -> D53 顺序执行；B4、B5、C4 可以与 D49-D52 并行，但不能拖延现场输入和放行门禁。
@@ -226,7 +227,8 @@ git diff --check
 - 核心闭环：Playwright 隔离数据 E2E。
 - UI：`1280x720` 与 `390x844` 截图、控制台错误、横向溢出、可点击动作和空 / 错误 / 无权限状态。
 - 生产工具：输出脱敏扫描，不在命令行、报告或交接包暴露敏感值。
-- CI：必须执行全量测试、全依赖 `high` 级漏洞审计、临时 PostgreSQL 迁移 / 实库回归、临时 MinIO 双 bucket 回归和核心 Playwright E2E；真实现场放行材料仍由 release candidate / go-live suite 单独阻断，不用自动化夹具冒充现场证据。
+- 普通 CI：必须执行全量测试、全依赖 `high` 级漏洞审计、临时 PostgreSQL 迁移 / 实库回归、临时 MinIO 双 bucket 回归和核心 Playwright E2E。
+- 生产放行 CI：只在受保护的 `v1-production-release` Environment 和 `erp-production-gate` 自托管 runner 手工执行；真实 production env、现场证据、6 岗位签字、V1/V2 边界、运行时 readiness、release candidate 和 go-live suite 任一未 ready 都必须失败，自动化夹具不能作为生产现场输入。
 
 ## 七、每轮汇报格式
 
@@ -241,4 +243,4 @@ git diff --check
 
 ## 八、当前立即执行项
 
-D48、B5 前四轮和 F1 已完成。CI 现会阻断全量测试、高危依赖、PostgreSQL 实库迁移 / 回归、真实 MinIO 对象存储回归和核心浏览器 E2E；进程内 fake S3 只保留为快速协议测试，不能再作为真实对象存储集成证据。当前唯一上线主任务仍为 D49：由管理 / 技术运维导入并复核 8 岗位真实员工，完成首次改密和车间默认机器绑定，并补齐未跟踪且 `0600` 的 production 安全 env。司机 / 打印 readiness 仍必须以 72 小时内真实手机、原生扫码 / 导航、真实出纸、spool/CUPS 回读和现场 QA 为准。当前 intake 仍为 `0/29`，其中最低阻断输入 `0/17`，不能据此宣布生产就绪。
+D48、B5 前四轮、F1 和 F2 代码已完成。普通 CI 现会阻断全量测试、高危依赖、PostgreSQL 实库迁移 / 回归、真实 MinIO 对象存储回归和核心浏览器 E2E；生产放行 workflow 还会要求不可变 commit、真实 production env、`4/4` 发布门禁、至少 `34/34` 现场证据、`6/6` 签字、V1/V2 边界及 go-live suite 全部 ready。当前仍需在 GitHub 配置受保护 Environment、自托管生产 runner、两项岗位变量和两项 base64 secrets。上线主任务仍为 D49：导入并复核 8 岗位真实员工，完成首次改密和车间默认机器绑定，并补齐未跟踪且 `0600` 的 production 安全 env；当前 intake `0/29`、最低阻断输入 `0/17`，不能据此宣布生产就绪。
