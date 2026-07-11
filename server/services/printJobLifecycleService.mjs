@@ -9,7 +9,7 @@ export function createPrintJobLifecycleService({
     "printJobBusinessProjectionService.syncPrintJobBusinessProjection",
   );
 
-  async function updatePrintJobStatus({ workspace, printJobId, body = {} }) {
+  async function updatePrintJobStatus({ workspace, printJobId, body = {}, operatorId }) {
     const before = await findPrintJob(workspace, printJobId);
     if (!before) return notFound();
 
@@ -21,7 +21,6 @@ export function createPrintJobLifecycleService({
         "Print job status must be queued, sent, printed, failed, or canceled.",
       );
     }
-    const operatorId = body.operatorId ?? "U-OFFICE-A";
     const updatedAt = nowIso(now);
     const terminal = ["printed", "failed", "canceled"].includes(status);
     const after = {
@@ -53,7 +52,7 @@ export function createPrintJobLifecycleService({
       printJob: after,
       operationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
     });
     const printProjection = await syncBusinessProjection({
       workspace,
@@ -69,7 +68,7 @@ export function createPrintJobLifecycleService({
     };
   }
 
-  async function dispatchPrintJob({ workspace, printJobId, body = {} }) {
+  async function dispatchPrintJob({ workspace, printJobId, body = {}, operatorId }) {
     const before = await findPrintJob(workspace, printJobId);
     if (!before) return notFound();
     if (["sent", "printed"].includes(before.jobStatus)) {
@@ -87,7 +86,6 @@ export function createPrintJobLifecycleService({
       );
     }
 
-    const operatorId = body.operatorId ?? "U-OFFICE-A";
     const dispatchResult = await workspace.printDriverAdapter.dispatchPrintJob({
       printJob: before,
       operatorId,
@@ -108,7 +106,7 @@ export function createPrintJobLifecycleService({
       printJob: after,
       operationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
     });
     const printProjection = await syncBusinessProjection({
       workspace,
@@ -231,7 +229,7 @@ export function createPrintJobLifecycleService({
       printJob: after,
       operationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
     });
     const printProjection = await syncBusinessProjection({
       workspace,
@@ -248,7 +246,7 @@ export function createPrintJobLifecycleService({
     };
   }
 
-  async function retryPrintJob({ workspace, printJobId, body = {} }) {
+  async function retryPrintJob({ workspace, printJobId, body = {}, operatorId }) {
     const before = await findPrintJob(workspace, printJobId);
     if (!before) return notFound();
     if (!["failed", "canceled"].includes(before.jobStatus)) {
@@ -258,7 +256,6 @@ export function createPrintJobLifecycleService({
         "Only failed or canceled print jobs can be retried.",
       );
     }
-    const operatorId = body.operatorId ?? "U-OFFICE-A";
     const retryJob = buildRetryPrintJobRecord(workspace, before, body, operatorId, now);
     const operationLog = buildOperationLog(workspace, {
       targetType: "print_job",
@@ -274,7 +271,7 @@ export function createPrintJobLifecycleService({
       printJob: retryJob,
       operationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
     });
     const printProjection = await syncBusinessProjection({
       workspace,

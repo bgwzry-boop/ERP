@@ -618,7 +618,7 @@ try {
 
   const recognition = await postJson(baseUrl, "/api/order-drafts/recognize", {
     sourceText: "王五包装 30*38红10个 明天自提",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (!recognition.draft?.draftId || recognition.lines?.length < 1) {
     throw new Error("/api/order-drafts/recognize returned an unexpected payload");
@@ -626,6 +626,11 @@ try {
   if (recognition.lines[0]?.customerId !== "C003" || recognition.lines[0]?.customerName !== "王五包装") {
     throw new Error("/api/order-drafts/recognize did not return line-level customer fields");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "order_draft",
+    targetId: recognition.draft.draftId,
+    operationLogId: recognition.operationLogId,
+  });
 
   const draftLineInput = {
     draftLineId: "API-DRAFT-LINE-1",
@@ -647,7 +652,7 @@ try {
     draftId: recognition.draft.draftId,
     sourceText: "王五包装 30*38红10个 明天自提",
     customerId: "C003",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     clientRevision: recognition.draft.clientRevision,
     draftStatus: "待补充信息",
     saveReason: "API skeleton check",
@@ -661,12 +666,17 @@ try {
   ) {
     throw new Error("/api/order-drafts/{draftId} did not save draft state, todo, and operation log");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "order_draft",
+    targetId: recognition.draft.draftId,
+    operationLogId: savedDraft.operationLogId,
+  });
 
   const confirm = await postJson(baseUrl, `/api/order-drafts/${recognition.draft.draftId}/confirm`, {
     draftId: recognition.draft.draftId,
     sourceText: "王五包装 30*38红10个 明天自提",
     customerId: "C003",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     confirmMode: "confirm_now",
     clientRevision: savedDraft.draft.clientRevision,
     lines: [draftLineInput],
@@ -674,6 +684,11 @@ try {
   if (!confirm.orderId || confirm.orderLines?.length !== 1 || confirm.fulfillmentTasks?.length !== 1) {
     throw new Error("/api/order-drafts/{draftId}/confirm returned an unexpected payload");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "order_draft",
+    targetId: recognition.draft.draftId,
+    operationLogId: confirm.operationLogIds[0],
+  });
   if (
     !confirm.priceSnapshots?.[0]?.priceVersion ||
     confirm.inventoryChecks?.[0]?.requestedQty !== 10 ||
@@ -736,7 +751,7 @@ try {
   const voidedOrderLine = await postJson(baseUrl, `/api/order-lines/${confirm.orderLines[0].id}/void`, {
     orderLineId: confirm.orderLines[0].id,
     reason: "order_cancelled",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     voidedOrderLine.status !== "已关闭" ||
@@ -749,10 +764,15 @@ try {
   ) {
     throw new Error("/api/order-lines/{orderLineId}/void did not close the line, release remaining reservation, and cancel fulfillment");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "order_line",
+    targetId: confirm.orderLines[0].id,
+    operationLogId: voidedOrderLine.operationLogId,
+  });
 
   const qtyRecognition = await postJson(baseUrl, "/api/order-drafts/recognize", {
     sourceText: "王五包装 30*38红10个 明天自提",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (!qtyRecognition.draft?.draftId) {
     throw new Error("/api/order-drafts/recognize did not return a draft for quantity adjustment checks");
@@ -799,7 +819,7 @@ try {
     orderLineId: qtyOrderLineId,
     newQty: 6,
     reason: "customer_change",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     decreasedOrderLine.previousQty !== 10 ||
@@ -817,11 +837,16 @@ try {
   ) {
     throw new Error("/api/order-lines/{orderLineId}/quantity-adjustment did not decrease quantity and release reservation");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "order_line",
+    targetId: qtyOrderLineId,
+    operationLogId: decreasedOrderLine.operationLogId,
+  });
   const increasedOrderLine = await postJson(baseUrl, `/api/order-lines/${qtyOrderLineId}/quantity-adjustment`, {
     orderLineId: qtyOrderLineId,
     newQty: 8,
     reason: "customer_change",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     increasedOrderLine.previousQty !== 6 ||
@@ -860,7 +885,7 @@ try {
   const cancelledFulfillment = await postJson(baseUrl, `/api/fulfillments/${qtyConfirm.fulfillmentTasks[0].fulfillmentId}/cancel`, {
     fulfillmentId: qtyConfirm.fulfillmentTasks[0].fulfillmentId,
     reason: "office_correction",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     cancelledFulfillment.status !== "已取消" ||
@@ -872,6 +897,11 @@ try {
   ) {
     throw new Error("/api/fulfillments/{fulfillmentId}/cancel did not cancel fulfillment and release active reservation");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "fulfillment",
+    targetId: qtyConfirm.fulfillmentTasks[0].fulfillmentId,
+    operationLogId: cancelledFulfillment.operationLogId,
+  });
 
   const productionInventoryItemId = "30*38*10-白色-普通提-空白袋-待快运区";
   const productionInventoryBefore = await getJson(
@@ -1633,6 +1663,11 @@ try {
   ) {
     throw new Error("/api/print-devices did not save a print device profile");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "print_device",
+    targetId: "PRN-API-CHECK-1",
+    operationLogId: savedPrintDevice.operationLogId,
+  });
 
   const savedDriverModeDevice = await postJson(baseUrl, "/api/print-devices", {
     printDeviceId: "PRN-API-MODE-CHECK",
@@ -1653,7 +1688,7 @@ try {
     speed: 4,
     cutterEnabled: false,
     settings: { driverMode: "preview_only", note: "mode route should preserve this note" },
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (savedDriverModeDevice.printDevice?.settings?.driverMode !== "preview_only") {
     throw new Error("/api/print-devices did not save the initial driver mode");
@@ -1729,6 +1764,11 @@ try {
   ) {
     throw new Error("/api/fulfillments/{fulfillmentId}/print returned an unexpected OpenAPI-shaped payload");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "fulfillment",
+    targetId: expressFulfillmentId,
+    operationLogId: printFulfillment.operationLogId,
+  });
 
   const printJobList = await getJson(
     baseUrl,
@@ -1772,7 +1812,7 @@ try {
     recordId: "PDQA-API-SMOKE-PRN-API-CHECK-1",
     printDeviceId: "PRN-API-CHECK-1",
     printJobId: printFulfillment.printJob.printJobId,
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     operatorName: "办公室A",
     checkedAt: "2026-07-02T11:25:00.000Z",
     deviceLabel: "API 校验标签机",
@@ -1838,6 +1878,11 @@ try {
   ) {
     throw new Error("/api/print-jobs/{printJobId}/dispatch did not preserve a preview-only print job boundary");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "print_job",
+    targetId: printFulfillment.printJob.printJobId,
+    operationLogId: dispatchPreviewPrintJob.operationLogId,
+  });
 
   const deniedPreviewDriverStatus = await postJson(
     baseUrl,
@@ -1915,7 +1960,7 @@ try {
     errorCode: "CHECK_DRIVER_TIMEOUT",
     errorMessage: "API check simulated driver timeout",
     reason: "校验打印失败回写",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     failedPrintJob.printJob?.jobStatus !== "failed" ||
@@ -1924,10 +1969,15 @@ try {
   ) {
     throw new Error("/api/print-jobs/{printJobId}/status did not persist a failed print job status");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "print_job",
+    targetId: printFulfillment.printJob.printJobId,
+    operationLogId: failedPrintJob.operationLogId,
+  });
 
   const retryPrintJob = await postJson(baseUrl, `/api/print-jobs/${printFulfillment.printJob.printJobId}/retry`, {
     retryReason: "校验失败重试",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     retryPrintJob.sourcePrintJob?.printJobId !== printFulfillment.printJob.printJobId ||
@@ -1938,6 +1988,11 @@ try {
   ) {
     throw new Error("/api/print-jobs/{printJobId}/retry did not create a retry print job");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "print_job",
+    targetId: retryPrintJob.printJob.printJobId,
+    operationLogId: retryPrintJob.operationLogId,
+  });
 
   const pickupBeforePhysicalPrint = await postJson(
     baseUrl,
@@ -1958,7 +2013,7 @@ try {
     documentType: "express_ltl_label",
     printDeviceId: "PRN-API-MODE-CHECK",
     printAction: "first_print",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     physicalPrintFulfillment.printRecord?.status !== "submitted" ||
@@ -2022,6 +2077,11 @@ try {
   ) {
     throw new Error("/api/print-records/{printRecordId}/void returned an unexpected payload");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "print_record",
+    targetId: physicalPrintFulfillment.printRecord.printRecordId,
+    operationLogId: voidPrint.operationLogId,
+  });
 
   const reprintFulfillment = await postJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}/print`, {
     templateId: "tpl-p0-express-label",
@@ -2030,7 +2090,7 @@ try {
     printAction: "reprint",
     previousPrintRecordId: physicalPrintFulfillment.printRecord.printRecordId,
     reprintReason: "info_changed",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     reprintFulfillment.printRecord?.status !== "reprint_submitted" ||
@@ -2062,11 +2122,16 @@ try {
   const pickupFulfillment = await postJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}/pickup-confirm`, {
     fulfillmentId: expressFulfillmentId,
     pickedAt: new Date().toISOString(),
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (pickupFulfillment.statementCandidate !== true || !pickupFulfillment.operationLogId) {
     throw new Error("/api/fulfillments/{fulfillmentId}/pickup-confirm returned an unexpected payload");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "fulfillment",
+    targetId: expressFulfillmentId,
+    operationLogId: pickupFulfillment.operationLogId,
+  });
 
   const deliveryFulfillmentList = await getJson(baseUrl, "/api/fulfillments?method=送货&pageSize=1");
   const deliveryFulfillment = deliveryFulfillmentList.items?.[0];
@@ -2078,7 +2143,7 @@ try {
     templateId: "tpl-p0-delivery-note",
     documentType: "delivery_note",
     printAction: "preview",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
   });
   if (
     deliveryPrintPreview.printRecord?.status !== "previewed" ||
@@ -2226,6 +2291,11 @@ try {
   ) {
     throw new Error("/api/fulfillments/{fulfillmentId}/complete returned an unexpected payload");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "fulfillment",
+    targetId: deliveryFulfillment.fulfillmentId,
+    operationLogId: completeFulfillment.operationLogId,
+  });
 
   const deniedWarehouseDriverTasks = await getJson(baseUrl, "/api/driver/delivery-tasks", {
     expectedStatus: 403,
@@ -2622,7 +2692,7 @@ try {
   const deliveryEvidenceReview = await postJson(baseUrl, `/api/fulfillments/${driverPendingTask.fulfillmentId}/delivery-evidence-review`, {
     fulfillmentId: driverPendingTask.fulfillmentId,
     reviewStatus: "approved",
-    operatorId: "U-OFFICE-A",
+    operatorId: "U-SPOOFED",
     reviewerName: "办公室A",
     remark: "API skeleton delivery evidence review check",
   });
@@ -2727,6 +2797,11 @@ try {
   if (!fulfillmentException.todoId || fulfillmentException.status !== "数量差异待处理") {
     throw new Error("/api/fulfillments/{fulfillmentId}/exception returned an unexpected payload");
   }
+  await assertOperationLogOperator(baseUrl, {
+    targetType: "fulfillment",
+    targetId: fulfillmentId,
+    operationLogId: fulfillmentException.operationLogId,
+  });
 
   const statementCustomers = await getJson(baseUrl, "/api/statements/customers");
   const statementId = statementCustomers.items?.find((item) => item.currentReceivable > 0)?.statementId;
@@ -3826,6 +3901,20 @@ async function patchJson(baseUrl, route, body, options = {}) {
     throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
   }
   return json;
+}
+
+async function assertOperationLogOperator(
+  baseUrl,
+  { targetType, targetId, operationLogId, expectedOperatorId = "U-OFFICE-A" },
+) {
+  const query = new URLSearchParams({ targetType, targetId, pageSize: "100" });
+  const result = await getJson(baseUrl, `/api/operation-logs?${query}`);
+  const operationLog = result.items?.find((item) => item.id === operationLogId);
+  if (!operationLog || operationLog.operatorId !== expectedOperatorId) {
+    throw new Error(
+      `${targetType}/${targetId} operation log ${operationLogId} did not preserve authenticated operator ${expectedOperatorId}`,
+    );
+  }
 }
 
 async function readJson(response) {

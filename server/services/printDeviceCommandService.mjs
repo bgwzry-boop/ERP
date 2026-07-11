@@ -9,7 +9,7 @@ import {
 export function createPrintDeviceCommandService({ buildOperationLog, now = () => new Date() } = {}) {
   assertFunction(buildOperationLog, "buildOperationLog");
 
-  async function upsertPrintDevice({ workspace, body = {} }) {
+  async function upsertPrintDevice({ workspace, body = {}, operatorId }) {
     const timestamp = nowIso(now);
     const printDeviceId = body.printDeviceId ?? body.id ?? buildPrintDeviceId(body.name);
     const existing = await findPrintDevice(workspace, printDeviceId);
@@ -17,8 +17,8 @@ export function createPrintDeviceCommandService({ buildOperationLog, now = () =>
       ...(existing ?? {}),
       ...body,
       printDeviceId,
-      updatedBy: body.updatedBy ?? body.operatorId ?? "U-OFFICE-A",
-      createdBy: body.createdBy ?? existing?.createdBy ?? body.operatorId ?? "U-OFFICE-A",
+      updatedBy: operatorId,
+      createdBy: existing?.createdBy ?? operatorId,
       updatedAt: body.updatedAt ?? timestamp,
       createdAt: body.createdAt ?? existing?.createdAt ?? timestamp,
     };
@@ -35,7 +35,7 @@ export function createPrintDeviceCommandService({ buildOperationLog, now = () =>
       printDevice,
       operationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
     });
     return { printDevice: transaction.printDevice, operationLogId: transaction.operationLogId };
   }
@@ -73,7 +73,7 @@ export function createPrintDeviceCommandService({ buildOperationLog, now = () =>
       printDevice,
       operationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
     });
     return {
       printDevice: transaction.printDevice,
@@ -131,7 +131,7 @@ export function createPrintDeviceCommandService({ buildOperationLog, now = () =>
       record,
       operationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
     });
     const savedRecord = transaction.record ?? record;
     const savedPrintDevice = (await findPrintDevice(workspace, printDeviceId)) ?? printDevice;

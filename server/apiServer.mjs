@@ -1184,8 +1184,10 @@ async function routeWrite(context) {
       workspace,
       body,
       permissionContext,
+      authContext,
       writeActionPermissions,
       requireActionPermission,
+      getPermissionOperatorId,
       recognizeOrderDraft,
       saveOrderDraft,
       confirmOrderDraftRoute,
@@ -2776,7 +2778,7 @@ function normalizeDateInput(value) {
   return new Date(text).toISOString().slice(0, 10);
 }
 
-async function recognizeOrderDraft({ response, workspace, body }) {
+async function recognizeOrderDraft({ response, workspace, body, operatorId }) {
   const sourceText = body.sourceText ?? body.text ?? workspace.sampleText;
   const lines = parseOrderText(sourceText, { customers: workspace.customers, inventories: workspace.inventories });
   const draftId =
@@ -2797,14 +2799,14 @@ async function recognizeOrderDraft({ response, workspace, body }) {
     lines,
     revision: 0,
     clientRevision: 0,
-    createdBy: body.operatorId ?? "U-OFFICE-A",
+    createdBy: operatorId,
   });
   const operationLog = buildOperationLog(workspace, {
     id: buildDraftOperationLogId("recognize", draftId, 1, body.idempotencyKey),
     targetType: "order_draft",
     targetId: draftId,
     action: "recognize_order_draft",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
+    operatorId,
     after: { lineCount: lines.length, sourceText },
   });
   const transaction = await workspace.orderDraftRepository.saveOrderDraft({
@@ -2814,7 +2816,7 @@ async function recognizeOrderDraft({ response, workspace, body }) {
     todos: [],
     operationLog,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    idempotencyPayload: { ...body, operatorId },
   });
   const savedLines = transaction.draft.lines;
 
@@ -2826,7 +2828,7 @@ async function recognizeOrderDraft({ response, workspace, body }) {
   });
 }
 
-async function saveOrderDraft({ response, workspace, draftId, body }) {
+async function saveOrderDraft({ response, workspace, draftId, body, operatorId }) {
   const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
   if (!lines.length) {
     return sendBusinessError(response, 422, "VALIDATION_ERROR", "lines must contain at least one draft line");
@@ -2864,7 +2866,7 @@ async function saveOrderDraft({ response, workspace, draftId, body }) {
             latest: lines[0]?.latest ?? "待确认",
             urgency: "普通",
             impact: "草稿未生成正式订单",
-            createdBy: body.operatorId ?? "U-OFFICE-A",
+            createdBy: operatorId,
           }),
         ]
       : [];
@@ -2873,7 +2875,7 @@ async function saveOrderDraft({ response, workspace, draftId, body }) {
     targetType: "order_draft",
     targetId: draftId,
     action: "save_order_draft",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
+    operatorId,
     before: previous,
     after: summarizeDraft(draft),
     reason: body.saveReason,
@@ -2885,7 +2887,7 @@ async function saveOrderDraft({ response, workspace, draftId, body }) {
     todos,
     operationLog,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    idempotencyPayload: { ...body, operatorId },
   });
 
   return sendJson(response, 200, {
@@ -2895,7 +2897,7 @@ async function saveOrderDraft({ response, workspace, draftId, body }) {
   });
 }
 
-async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
+async function confirmOrderDraftRoute({ response, workspace, draftId, body, operatorId }) {
   const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
   if (!lines.length) {
     return sendBusinessError(response, 422, "VALIDATION_ERROR", "lines must contain at least one draft line");
@@ -2930,7 +2932,7 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
       targetType: "order_draft",
       targetId: draftId,
       action: "block_order_draft_confirmation",
-      operatorId: body.operatorId ?? "U-OFFICE-A",
+      operatorId,
       before: summarizeDraft(previous),
       after: summarizeDraft(blockedDraft),
       reason: result.toast,
@@ -2942,7 +2944,7 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
       todos: [],
       operationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
     });
     return sendBusinessError(response, 409, "ORDER_DRAFT_BLOCKED", result.toast);
   }
@@ -2964,7 +2966,7 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
     targetType: "order_draft",
     targetId: draftId,
     action: "confirm_order_draft",
-    operatorId: body.operatorId ?? "U-OFFICE-A",
+    operatorId,
     after: { orderNo: result.orderNo, lineCount: result.newLines.length },
   });
   const priceSnapshots = result.newLines.map((line) => ({
@@ -2974,9 +2976,8 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
     versionNo: 1,
     chargeableQty: Number(line.qty ?? 0),
     finalAmount: Number(line.amount ?? 0),
-    createdBy: body.operatorId ?? "U-OFFICE-A",
+    createdBy: operatorId,
   }));
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const inventoryReservations = buildOrderConfirmationInventoryReservations(
     workspace,
     result.checkedRows,
@@ -2988,16 +2989,16 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
   const transaction = await workspace.orderConfirmationTransactionRepository.confirmOrder({
     workspace,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    idempotencyPayload: { ...body, operatorId },
     orderDraft: confirmedDraft,
     expectedDraftRevision: expectedRevision,
-    order: buildConfirmedOrderRecord(workspace, draftId, result, body),
-    orderLines: result.newLines.map((line) => ({ ...line, createdBy: body.operatorId ?? "U-OFFICE-A" })),
+    order: buildConfirmedOrderRecord(workspace, draftId, result, body, operatorId),
+    orderLines: result.newLines.map((line) => ({ ...line, createdBy: operatorId })),
     priceSnapshots,
     fulfillmentRecords: result.newFulfillments.map((fulfillment) => ({
       ...fulfillment,
       expectedQty: fulfillment.qty,
-      createdBy: body.operatorId ?? "U-OFFICE-A",
+      createdBy: operatorId,
       customerSnapshot: buildCustomerSnapshot(workspace, fulfillment.customerId),
     })),
     inventoryReservations,
@@ -3019,7 +3020,7 @@ async function confirmOrderDraftRoute({ response, workspace, draftId, body }) {
   });
 }
 
-async function voidOrderLineRoute({ response, workspace, orderLineId, body }) {
+async function voidOrderLineRoute({ response, workspace, orderLineId, body, operatorId }) {
   const before = findOrderLine(workspace, orderLineId);
   if (!before) return sendNotFound(response, "ORDER_LINE_NOT_FOUND");
   if (body.orderLineId && body.orderLineId !== orderLineId) {
@@ -3029,7 +3030,6 @@ async function voidOrderLineRoute({ response, workspace, orderLineId, body }) {
     return sendBusinessError(response, 409, "ORDER_LINE_NOT_VOIDABLE", "Delivered, closed, or production-started order lines cannot be voided directly.");
   }
 
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const reasonCode = body.reason ?? "order_cancelled";
   const reason = mapOrderLineVoidReason(reasonCode, body.reasonText);
   const voidedAt = body.voidedAt ?? new Date().toISOString();
@@ -3087,6 +3087,8 @@ async function voidOrderLineRoute({ response, workspace, orderLineId, body }) {
   });
   const transaction = await workspace.orderLineVoidTransactionRepository.voidOrderLine({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: { ...body, operatorId },
     orderLine: afterOrderLine,
     fulfillmentRecords,
     inventoryReservations: inventoryRelease.inventoryReservations,
@@ -3107,7 +3109,7 @@ async function voidOrderLineRoute({ response, workspace, orderLineId, body }) {
   });
 }
 
-async function adjustOrderLineQuantityRoute({ response, workspace, orderLineId, body }) {
+async function adjustOrderLineQuantityRoute({ response, workspace, orderLineId, body, operatorId }) {
   const before = findOrderLine(workspace, orderLineId);
   if (!before) return sendNotFound(response, "ORDER_LINE_NOT_FOUND");
   if (body.orderLineId && body.orderLineId !== orderLineId) {
@@ -3131,7 +3133,6 @@ async function adjustOrderLineQuantityRoute({ response, workspace, orderLineId, 
     return sendBusinessError(response, 409, "ORDER_LINE_QUANTITY_UNCHANGED", "newQty must be different from the current order quantity.");
   }
 
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const adjustedAt = body.adjustedAt ?? new Date().toISOString();
   const reason = mapOrderLineQuantityAdjustmentReason(body.reason ?? "customer_change", body.reasonText);
   const qtyDelta = newQty - previousQty;
@@ -3229,6 +3230,8 @@ async function adjustOrderLineQuantityRoute({ response, workspace, orderLineId, 
   });
   const transaction = await workspace.orderLineQuantityAdjustmentTransactionRepository.adjustOrderLineQuantity({
     workspace,
+    idempotencyKey: body.idempotencyKey,
+    idempotencyPayload: { ...body, operatorId },
     orderLine: afterOrderLine,
     fulfillmentRecords,
     priceSnapshots: [financialChange.priceSnapshot],
@@ -16600,11 +16603,10 @@ async function reviewDeliveryEvidenceRoute({ response, workspace, fulfillmentId,
   });
 }
 
-async function createFulfillmentExceptionRoute({ response, workspace, fulfillmentId, body }) {
+async function createFulfillmentExceptionRoute({ response, workspace, fulfillmentId, body, operatorId }) {
   const selected = findFulfillment(workspace, fulfillmentId);
   if (!selected) return sendNotFound(response, "FULFILLMENT_NOT_FOUND");
   const modalType = body.exceptionType === "unable_to_outbound" ? "unable" : "mismatch";
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const payload = {
     actualQty: Number(body.actualQty ?? 0),
     reason: body.reasonCode ?? body.reason ?? "other",
@@ -16628,7 +16630,7 @@ async function createFulfillmentExceptionRoute({ response, workspace, fulfillmen
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    idempotencyPayload: { ...body, operatorId },
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty: payload.actualQty,
@@ -16648,15 +16650,15 @@ async function createFulfillmentExceptionRoute({ response, workspace, fulfillmen
   });
 }
 
-async function printFulfillmentRoute({ response, workspace, fulfillmentId, body }) {
-  const result = await fulfillmentPrintCommandService.printFulfillment({ workspace, fulfillmentId, body });
+async function printFulfillmentRoute({ response, workspace, fulfillmentId, body, operatorId }) {
+  const result = await fulfillmentPrintCommandService.printFulfillment({ workspace, fulfillmentId, body, operatorId });
   if (result.notFound) return sendNotFound(response, "FULFILLMENT_NOT_FOUND");
   if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
   return sendJson(response, 200, result);
 }
 
-async function upsertPrintDeviceRoute({ response, workspace, body }) {
-  const result = await printDeviceCommandService.upsertPrintDevice({ workspace, body });
+async function upsertPrintDeviceRoute({ response, workspace, body, operatorId }) {
+  const result = await printDeviceCommandService.upsertPrintDevice({ workspace, body, operatorId });
   return sendJson(response, 200, result);
 }
 
@@ -16786,15 +16788,15 @@ const statementCommunicationCommandService = createStatementCommunicationCommand
   toStatementExportSummary,
 });
 
-async function updatePrintJobStatusRoute({ response, workspace, printJobId, body }) {
-  const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body });
+async function updatePrintJobStatusRoute({ response, workspace, printJobId, body, operatorId }) {
+  const result = await printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body, operatorId });
   if (result.notFound) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
   if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
   return sendJson(response, 200, result);
 }
 
-async function dispatchPrintJobRoute({ response, workspace, printJobId, body }) {
-  const result = await printJobLifecycleService.dispatchPrintJob({ workspace, printJobId, body });
+async function dispatchPrintJobRoute({ response, workspace, printJobId, body, operatorId }) {
+  const result = await printJobLifecycleService.dispatchPrintJob({ workspace, printJobId, body, operatorId });
   if (result.notFound) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
   if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
   return sendJson(response, 200, result);
@@ -16821,21 +16823,21 @@ async function recordPrintJobDriverStatusRoute({ response, workspace, printJobId
   return sendJson(response, 200, result);
 }
 
-async function retryPrintJobRoute({ response, workspace, printJobId, body }) {
-  const result = await printJobLifecycleService.retryPrintJob({ workspace, printJobId, body });
+async function retryPrintJobRoute({ response, workspace, printJobId, body, operatorId }) {
+  const result = await printJobLifecycleService.retryPrintJob({ workspace, printJobId, body, operatorId });
   if (result.notFound) return sendNotFound(response, "PRINT_JOB_NOT_FOUND");
   if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
   return sendJson(response, 200, result);
 }
 
-async function voidPrintRecordRoute({ response, workspace, printRecordId, body }) {
-  const result = await fulfillmentPrintCommandService.voidPrintRecord({ workspace, printRecordId, body });
+async function voidPrintRecordRoute({ response, workspace, printRecordId, body, operatorId }) {
+  const result = await fulfillmentPrintCommandService.voidPrintRecord({ workspace, printRecordId, body, operatorId });
   if (result.notFound) return sendNotFound(response, "PRINT_RECORD_NOT_FOUND");
   if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
   return sendJson(response, 200, result);
 }
 
-async function updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action, body }) {
+async function updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action, body, operatorId }) {
   const before = findFulfillment(workspace, fulfillmentId);
   if (!before) return sendNotFound(response, "FULFILLMENT_NOT_FOUND");
   if (
@@ -16850,7 +16852,6 @@ async function updateFulfillmentStatusRoute({ response, workspace, fulfillmentId
       "Express/LTL pickup requires a trusted printed status before confirmation.",
     );
   }
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const fulfillments = updateFulfillmentsForAction(workspace.fulfillments, fulfillmentId, action);
   const after = fulfillments.find((item) => item.id === fulfillmentId);
   const operationLog = buildOperationLog(workspace, {
@@ -16880,7 +16881,7 @@ async function updateFulfillmentStatusRoute({ response, workspace, fulfillmentId
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    idempotencyPayload: { ...body, operatorId },
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty,
@@ -16904,7 +16905,7 @@ async function updateFulfillmentStatusRoute({ response, workspace, fulfillmentId
   });
 }
 
-async function cancelFulfillmentRoute({ response, workspace, fulfillmentId, body }) {
+async function cancelFulfillmentRoute({ response, workspace, fulfillmentId, body, operatorId }) {
   const before = findFulfillment(workspace, fulfillmentId);
   if (!before) return sendNotFound(response, "FULFILLMENT_NOT_FOUND");
   if (body.fulfillmentId && body.fulfillmentId !== fulfillmentId) {
@@ -16919,7 +16920,6 @@ async function cancelFulfillmentRoute({ response, workspace, fulfillmentId, body
     );
   }
 
-  const operatorId = body.operatorId ?? "U-OFFICE-A";
   const canceledAt = body.canceledAt ?? new Date().toISOString();
   const reason = mapFulfillmentCancelReason(body.reason ?? "office_correction", body.reasonText);
   const after = {
@@ -16952,7 +16952,7 @@ async function cancelFulfillmentRoute({ response, workspace, fulfillmentId, body
   const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
     workspace,
     idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
+    idempotencyPayload: { ...body, operatorId },
     fulfillment: buildFulfillmentActionRecord(workspace, after, {
       operatorId,
       actualQty: 0,
@@ -19686,7 +19686,7 @@ function buildProductionTaskFromBody(workspace, productionTaskId, body) {
     qty: Number(body.plannedQty ?? orderLine.qty ?? orderLine.originalQty ?? 0),
     taskStatus: "待开始",
     status: "待开始",
-    createdBy: body.operatorId ?? "U-OFFICE-A",
+    createdBy: orderLine.createdBy ?? "",
     createdAt: body.createdAt ?? new Date().toISOString(),
   };
 }
@@ -20260,7 +20260,7 @@ function buildCustomerSnapshot(workspace, customerId) {
   };
 }
 
-function buildConfirmedOrderRecord(workspace, draftId, result, body) {
+function buildConfirmedOrderRecord(workspace, draftId, result, body, operatorId) {
   const customerId = result.newLines[0]?.customerId ?? body.customerId ?? "";
   return {
     orderId: result.orderNo,
@@ -20271,7 +20271,7 @@ function buildConfirmedOrderRecord(workspace, draftId, result, body) {
     customerSnapshot: buildCustomerSnapshot(workspace, customerId),
     sourceText: body.sourceText ?? "",
     summaryStatus: "处理中",
-    createdBy: body.operatorId ?? "U-OFFICE-A",
+    createdBy: operatorId,
   };
 }
 

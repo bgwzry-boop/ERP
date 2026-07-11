@@ -38,7 +38,13 @@ export async function handlePrintWriteRoutes({
     },
     "/api/print-devices": {
       permission: writeActionPermissions.printFulfillment,
-      run: () => upsertPrintDeviceRoute({ response, workspace, body }),
+      run: () =>
+        upsertPrintDeviceRoute({
+          response,
+          workspace,
+          body,
+          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+        }),
     },
     "/api/print-jobs/status-poll": {
       permission: writeActionPermissions.printJobDriverCallback,
@@ -92,11 +98,25 @@ export async function handlePrintWriteRoutes({
   const routes = {
     status: {
       permission: writeActionPermissions.printFulfillment,
-      run: () => updatePrintJobStatusRoute({ response, workspace, printJobId, body }),
+      run: () =>
+        updatePrintJobStatusRoute({
+          response,
+          workspace,
+          printJobId,
+          body,
+          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+        }),
     },
     dispatch: {
       permission: writeActionPermissions.printFulfillment,
-      run: () => dispatchPrintJobRoute({ response, workspace, printJobId, body }),
+      run: () =>
+        dispatchPrintJobRoute({
+          response,
+          workspace,
+          printJobId,
+          body,
+          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+        }),
     },
     "driver-status": {
       permission: writeActionPermissions.printJobDriverCallback,
@@ -122,7 +142,14 @@ export async function handlePrintWriteRoutes({
     },
     retry: {
       permission: writeActionPermissions.printFulfillment,
-      run: () => retryPrintJobRoute({ response, workspace, printJobId, body }),
+      run: () =>
+        retryPrintJobRoute({
+          response,
+          workspace,
+          printJobId,
+          body,
+          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+        }),
     },
   };
   const route = routes[action];

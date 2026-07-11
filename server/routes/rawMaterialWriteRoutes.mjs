@@ -35,7 +35,7 @@ export async function handleRawMaterialWriteRoutes({
       inboundId,
       actionSlug,
       body,
-      operatorId: getPermissionOperatorId(permissionContext, authContext, body.operatorId ?? "U-OFFICE-A"),
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
     });
     return true;
   }
@@ -46,7 +46,7 @@ export async function handleRawMaterialWriteRoutes({
       response,
       workspace,
       body,
-      operatorId: getPermissionOperatorId(permissionContext, authContext, body.operatorId ?? "U-OFFICE-A"),
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
     });
     return true;
   }
@@ -87,7 +87,7 @@ export async function handleRawMaterialWriteRoutes({
     workspace,
     reviewId,
     body,
-    operatorId: getPermissionOperatorId(permissionContext, authContext, body.operatorId ?? route.fallbackOperatorId),
+    operatorId: getPermissionOperatorId(permissionContext, authContext, route.fallbackOperatorId),
   });
   return true;
 }

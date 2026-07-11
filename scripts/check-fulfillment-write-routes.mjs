@@ -47,14 +47,14 @@ const dependencies = {
   },
 };
 
-await expectHandled("/api/fulfillments/F-1/exception", "fulfillment.exception.create", "exception", { fulfillmentId: "F-1" });
+await expectHandled("/api/fulfillments/F-1/exception", "fulfillment.exception.create", "exception", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
 await expectHandled("/api/fulfillments/F-1/dispatch", "fulfillment.dispatch.update", "dispatch", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
-await expectHandled("/api/fulfillments/F-1/print", "fulfillment.print", "print", { fulfillmentId: "F-1" });
-await expectHandled("/api/print-records/PR-1/void", "fulfillment.print", "void", { printRecordId: "PR-1" });
-await expectHandled("/api/fulfillments/F-1/prepared", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "标记已备货" });
-await expectHandled("/api/fulfillments/F-1/complete", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "完成出库/交付" });
-await expectHandled("/api/fulfillments/F-1/pickup-confirm", "fulfillment.pickup.confirm", "status", { fulfillmentId: "F-1", action: "确认已拉走" });
-await expectHandled("/api/fulfillments/F-1/cancel", "fulfillment.cancel", "cancel", { fulfillmentId: "F-1" });
+await expectHandled("/api/fulfillments/F-1/print", "fulfillment.print", "print", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
+await expectHandled("/api/print-records/PR-1/void", "fulfillment.print", "void", { printRecordId: "PR-1", operatorId: "resolved:U-OFFICE-A" });
+await expectHandled("/api/fulfillments/F-1/prepared", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "标记已备货", operatorId: "resolved:U-OFFICE-A" });
+await expectHandled("/api/fulfillments/F-1/complete", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "完成出库/交付", operatorId: "resolved:U-OFFICE-A" });
+await expectHandled("/api/fulfillments/F-1/pickup-confirm", "fulfillment.pickup.confirm", "status", { fulfillmentId: "F-1", action: "确认已拉走", operatorId: "resolved:U-OFFICE-A" });
+await expectHandled("/api/fulfillments/F-1/cancel", "fulfillment.cancel", "cancel", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
 await expectHandled("/api/fulfillments/F-1/delivery-evidence-review", "delivery.evidence.review", "review", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
 
 calls.length = 0;

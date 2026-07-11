@@ -37,7 +37,7 @@ export async function handleMasterDataWriteRoutes({
       response,
       workspace,
       body,
-      operatorId: getPermissionOperatorId(permissionContext, authContext, body.operatorId ?? directRoute.fallbackOperatorId),
+      operatorId: getPermissionOperatorId(permissionContext, authContext, directRoute.fallbackOperatorId),
     });
     return true;
   }
@@ -50,7 +50,7 @@ export async function handleMasterDataWriteRoutes({
       workspace,
       executionId: decodeURIComponent(failedRowsMatch[1]),
       body,
-      operatorId: getPermissionOperatorId(permissionContext, authContext, body.operatorId ?? "U-OFFICE-A"),
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
     });
     return true;
   }
@@ -81,7 +81,7 @@ export async function handleMasterDataWriteRoutes({
     workspace,
     employeeId,
     body,
-    operatorId: getPermissionOperatorId(permissionContext, authContext, body.operatorId ?? "U-MANAGER-A"),
+    operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
   });
   return true;
 }

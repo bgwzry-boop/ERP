@@ -7,6 +7,10 @@ const dependencies = {
   workspace: {},
   body: { operatorId: "U-OFFICE-A" },
   permissionContext: { actionPermissions: [] },
+  authContext: { userId: "U-AUTHENTICATED" },
+  getPermissionOperatorId(_permissionContext, authContext) {
+    return authContext.userId;
+  },
   writeActionPermissions: {
     recognizeOrderDraft: "order.draft.recognize",
     saveOrderDraft: "order.draft.save",
@@ -60,6 +64,13 @@ async function expectHandled(method, pathname, permission, kind, identifiers) {
   assert.equal(await handleOrderWriteRoutes({ ...dependencies, method, url: new URL(`http://erp.test${pathname}`) }), true);
   assert.deepEqual(calls, [
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission },
-    { kind, response: dependencies.response, workspace: dependencies.workspace, body: dependencies.body, ...identifiers },
+    {
+      kind,
+      response: dependencies.response,
+      workspace: dependencies.workspace,
+      body: dependencies.body,
+      operatorId: "U-AUTHENTICATED",
+      ...identifiers,
+    },
   ]);
 }

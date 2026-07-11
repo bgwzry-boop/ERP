@@ -7,7 +7,12 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
 {
   const harness = createHarness([]);
   assert.equal(
-    (await harness.service.updatePrintJobStatus({ workspace: harness.workspace, printJobId: "PJ-MISSING", body: {} })).notFound,
+    (await harness.service.updatePrintJobStatus({
+      workspace: harness.workspace,
+      printJobId: "PJ-MISSING",
+      body: {},
+      operatorId: "U-OFFICE-A",
+    })).notFound,
     true,
   );
 }
@@ -18,6 +23,7 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
     workspace: harness.workspace,
     printJobId: "PJ-001",
     body: { status: "unknown" },
+    operatorId: "U-OFFICE-A",
   });
   assert.equal(invalid.statusCode, 422);
   assert.equal(invalid.code, "INVALID_PRINT_JOB_STATUS");
@@ -27,17 +33,20 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
     printJobId: "PJ-001",
     body: {
       status: "sent",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       reason: "manual status check",
       idempotencyKey: "status-001",
       metadata: { source: "direct_check" },
     },
+    operatorId: "U-OFFICE-A",
   });
   assert.equal(updated.printJob.jobStatus, "sent");
   assert.equal(updated.printJob.sentAt, fixedNow);
   assert.equal(updated.printJob.metadata.statusUpdatedBy, "U-OFFICE-A");
   assert.equal(updated.printJob.metadata.source, "direct_check");
   assert.equal(harness.updateCalls.at(-1).idempotencyKey, "status-001");
+  assert.equal(harness.updateCalls.at(-1).idempotencyPayload.operatorId, "U-OFFICE-A");
+  assert.equal(harness.updateCalls.at(-1).operationLog.operatorId, "U-OFFICE-A");
   assert.equal(harness.updateCalls.at(-1).operationLog.action, "update_print_job_status");
   assert.equal(harness.projectionCalls.at(-1).printJob.jobStatus, "sent");
 }
@@ -47,7 +56,8 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
   const dispatched = await harness.service.dispatchPrintJob({
     workspace: harness.workspace,
     printJobId: "PJ-001",
-    body: { operatorId: "U-OFFICE-A", reason: "send to driver", idempotencyKey: "dispatch-001" },
+    body: { operatorId: "U-SPOOFED", reason: "send to driver", idempotencyKey: "dispatch-001" },
+    operatorId: "U-OFFICE-A",
   });
   assert.equal(dispatched.printJob.jobStatus, "sent");
   assert.equal(dispatched.printJob.metadata.externalJobId, undefined);
@@ -55,11 +65,14 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
   assert.equal(dispatched.dispatchResult.adapterStatus, "sent");
   assert.equal(harness.dispatchCalls.at(-1).operatorId, "U-OFFICE-A");
   assert.equal(harness.updateCalls.at(-1).operationLog.action, "dispatch_print_job");
+  assert.equal(harness.updateCalls.at(-1).operationLog.operatorId, "U-OFFICE-A");
+  assert.equal(harness.updateCalls.at(-1).idempotencyPayload.operatorId, "U-OFFICE-A");
 
   const duplicate = await harness.service.dispatchPrintJob({
     workspace: harness.workspace,
     printJobId: "PJ-001",
     body: {},
+    operatorId: "U-OFFICE-A",
   });
   assert.equal(duplicate.statusCode, 409);
   assert.equal(duplicate.code, "PRINT_JOB_ALREADY_DISPATCHED");
@@ -157,7 +170,8 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
   const retried = await harness.service.retryPrintJob({
     workspace: harness.workspace,
     printJobId: "PJ-001",
-    body: { operatorId: "U-OFFICE-A", retryReason: "paper replaced", idempotencyKey: "retry-001" },
+    body: { operatorId: "U-SPOOFED", retryReason: "paper replaced", idempotencyKey: "retry-001" },
+    operatorId: "U-OFFICE-A",
   });
   assert.equal(retried.sourcePrintJob.printJobId, "PJ-001");
   assert.equal(retried.printJob.sourcePrintJobId, "PJ-001");
@@ -165,12 +179,15 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
   assert.equal(retried.printJob.jobStatus, "queued");
   assert.equal(retried.printJob.metadata.retryReason, "paper replaced");
   assert.equal(harness.createCalls.at(-1).operationLog.action, "retry_print_job");
+  assert.equal(harness.createCalls.at(-1).operationLog.operatorId, "U-OFFICE-A");
   assert.equal(harness.createCalls.at(-1).idempotencyKey, "retry-001");
+  assert.equal(harness.createCalls.at(-1).idempotencyPayload.operatorId, "U-OFFICE-A");
 
   const notRetryable = await harness.service.retryPrintJob({
     workspace: harness.workspace,
     printJobId: retried.printJob.printJobId,
     body: {},
+    operatorId: "U-OFFICE-A",
   });
   assert.equal(notRetryable.statusCode, 409);
   assert.equal(notRetryable.code, "PRINT_JOB_RETRY_REQUIRES_FAILED_JOB");

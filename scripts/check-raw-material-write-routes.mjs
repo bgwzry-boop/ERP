@@ -66,11 +66,11 @@ for (const [action, permission] of [
   await expectInboundAction(action, permission);
 }
 
-await expectSupplierAction("/api/raw-material-supplier-statement-reviews", "raw_material.inbound.review", "createReview", undefined, "U-REQUESTED");
-await expectSupplierAction("/api/raw-material-supplier-statement-reviews/RSR-1/confirm-review", "raw_material.inbound.review", "confirmReview", "RSR-1", "U-REQUESTED");
-await expectSupplierAction("/api/raw-material-supplier-statement-reviews/RSR-1/confirm-statement", "raw_material.inbound.review", "confirmStatement", "RSR-1", "U-REQUESTED");
-await expectSupplierAction("/api/raw-material-supplier-statement-reviews/RSR-1/generate-payable", "raw_material.supplier_payable.create", "generatePayable", "RSR-1", "U-REQUESTED");
-await expectSupplierAction("/api/raw-material-supplier-statement-reviews/RSR-1/confirm-payment", "raw_material.supplier_payment.confirm", "confirmPayment", "RSR-1", "U-REQUESTED");
+await expectSupplierAction("/api/raw-material-supplier-statement-reviews", "raw_material.inbound.review", "createReview", undefined, "U-OFFICE-A");
+await expectSupplierAction("/api/raw-material-supplier-statement-reviews/RSR-1/confirm-review", "raw_material.inbound.review", "confirmReview", "RSR-1", "U-OFFICE-A");
+await expectSupplierAction("/api/raw-material-supplier-statement-reviews/RSR-1/confirm-statement", "raw_material.inbound.review", "confirmStatement", "RSR-1", "U-OFFICE-A");
+await expectSupplierAction("/api/raw-material-supplier-statement-reviews/RSR-1/generate-payable", "raw_material.supplier_payable.create", "generatePayable", "RSR-1", "U-FINANCE-A");
+await expectSupplierAction("/api/raw-material-supplier-statement-reviews/RSR-1/confirm-payment", "raw_material.supplier_payment.confirm", "confirmPayment", "RSR-1", "U-FINANCE-A");
 
 calls.length = 0;
 assert.equal(await handleRawMaterialWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/raw-material-inbounds/RMI-1/unknown") }), true);
@@ -99,7 +99,7 @@ async function expectInboundAction(action, permission) {
   assert.equal(await handleRawMaterialWriteRoutes({ ...dependencies, method: "POST", url: new URL(`http://erp.test/api/raw-material-inbounds/RMI-1/${action}`) }), true);
   assert.deepEqual(calls, [
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission },
-    { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback: "U-REQUESTED" },
+    { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback: "U-OFFICE-A" },
     {
       kind: "inbound",
       response: dependencies.response,

@@ -10,16 +10,19 @@ const fixedNow = "2026-07-11T12:00:00.000Z";
     workspace: harness.workspace,
     body: {
       name: "新标签机",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       status: "active",
       idempotencyKey: "device-upsert-001",
     },
+    operatorId: "U-OFFICE-A",
   });
   assert.match(created.printDevice.printDeviceId, /^PRN-[A-F0-9]{12}$/);
   assert.equal(created.printDevice.createdAt, fixedNow);
   assert.equal(created.printDevice.updatedBy, "U-OFFICE-A");
   assert.equal(harness.deviceWriteCalls.at(-1).idempotencyKey, "device-upsert-001");
+  assert.equal(harness.deviceWriteCalls.at(-1).idempotencyPayload.operatorId, "U-OFFICE-A");
   assert.equal(harness.deviceWriteCalls.at(-1).operationLog.action, "upsert_print_device");
+  assert.equal(harness.deviceWriteCalls.at(-1).operationLog.operatorId, "U-OFFICE-A");
 }
 
 {

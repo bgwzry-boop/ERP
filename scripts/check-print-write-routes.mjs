@@ -20,8 +20,8 @@ const dependencies = {
   async createPrintBatchRoute(input) {
     calls.push({ kind: "batch", ...input });
   },
-  async upsertPrintDeviceRoute({ response, workspace, body }) {
-    calls.push({ kind: "device", response, workspace, body });
+  async upsertPrintDeviceRoute(input) {
+    calls.push({ kind: "device", ...input });
   },
   getPermissionOperatorId(permissionContext, authContext, fallback) {
     calls.push({ kind: "operator", permissionContext, authContext, fallback });
@@ -43,15 +43,15 @@ for (const [routeName, kind] of [
 }
 
 await expectHandled("/api/print-batches", "batch", "fulfillment.print", {}, "U-OFFICE-A");
-await expectHandled("/api/print-devices", "device");
+await expectHandled("/api/print-devices", "device", "fulfillment.print", {}, "U-OFFICE-A");
 await expectHandled("/api/print-devices/PRN-1/driver-mode", "driverMode", "fulfillment.print", { printDeviceId: "PRN-1" }, "U-OFFICE-A");
 await expectHandled("/api/print-devices/PRN-1/field-tests", "fieldTest", "print.device_qa.record", { printDeviceId: "PRN-1" }, "U-OFFICE-A");
-await expectHandled("/api/print-jobs/PJ-1/status", "jobStatus", "fulfillment.print", { printJobId: "PJ-1" });
-await expectHandled("/api/print-jobs/PJ-1/dispatch", "dispatch", "fulfillment.print", { printJobId: "PJ-1" });
+await expectHandled("/api/print-jobs/PJ-1/status", "jobStatus", "fulfillment.print", { printJobId: "PJ-1" }, "U-OFFICE-A");
+await expectHandled("/api/print-jobs/PJ-1/dispatch", "dispatch", "fulfillment.print", { printJobId: "PJ-1" }, "U-OFFICE-A");
 await expectHandled("/api/print-jobs/status-poll", "statusPoll", "print.job.callback", {}, "U-PRINT-DRIVER-A");
 await expectHandled("/api/print-jobs/PJ-1/driver-status", "driverStatus", "print.job.callback", { printJobId: "PJ-1" }, "U-PRINT-DRIVER-A");
 await expectHandled("/api/print-jobs/PJ-1/poll-status", "pollStatus", "print.job.callback", { printJobId: "PJ-1" }, "U-PRINT-DRIVER-A");
-await expectHandled("/api/print-jobs/PJ-1/retry", "retry", "fulfillment.print", { printJobId: "PJ-1" });
+await expectHandled("/api/print-jobs/PJ-1/retry", "retry", "fulfillment.print", { printJobId: "PJ-1" }, "U-OFFICE-A");
 
 calls.length = 0;
 assert.equal(

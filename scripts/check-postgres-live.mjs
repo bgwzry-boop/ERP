@@ -3098,7 +3098,7 @@ async function checkApiWithPostgresRepositories() {
     {
       fulfillmentId: "F008",
       reviewStatus: "retake_required",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       reviewerName: "办公室A",
       reason: "水印定位不清晰",
     },
@@ -3109,6 +3109,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(apiDeliveryEvidenceRetake.task.deliveryEvidenceReviewStatus, "需重拍");
   assert.ok(apiDeliveryEvidenceRetake.todoId);
   assert.ok(apiDeliveryEvidenceRetake.operationLogId);
+  assertPostgresOperationLogOperator(queryJson, apiDeliveryEvidenceRetake.operationLogId);
 
   const driverRetakeSubmittedAt = "2026-07-02T10:45:00.000Z";
   const apiDriverEvidenceResubmission = await postJson(
@@ -3309,7 +3310,7 @@ async function checkApiWithPostgresRepositories() {
     {
       draftId: "DRAFT-LIVE-ORDER-001",
       sourceText: "张三服饰 30*38红10个 明天自提",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
@@ -3320,12 +3321,13 @@ async function checkApiWithPostgresRepositories() {
     {
       draftId: "DRAFT-LIVE-ORDER-001",
       sourceText: "张三服饰 30*38红10个 明天自提",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
   assert.equal(replayedConfirmedOrderDraft.draft.clientRevision, 1);
   assert.equal(replayedConfirmedOrderDraft.operationLogId, confirmedOrderDraft.operationLogId);
+  assertPostgresOperationLogOperator(queryJson, confirmedOrderDraft.operationLogId);
   assert.equal(
     Number(runPsql("SELECT COUNT(*) FROM order_drafts WHERE id = 'DRAFT-LIVE-ORDER-001';", { capture: true }).trim()),
     1,
@@ -3337,7 +3339,7 @@ async function checkApiWithPostgresRepositories() {
       draftId: "DRAFT-LIVE-ORDER-001",
       sourceText: "张三服饰 30*38红10个 明天自提",
       customerId: "C001",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       confirmMode: "confirm_now",
       clientRevision: confirmedOrderDraft.draft.clientRevision,
       lines: [
@@ -3363,6 +3365,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(confirmedOrder.orderLines.length, 1);
   assert.equal(confirmedOrder.reservations.length, 1);
   assert.equal(confirmedOrder.fulfillmentTasks.length, 1);
+  assertPostgresOperationLogOperator(queryJson, confirmedOrder.operationLogIds[0]);
   const coldOrderDraftRepository = createPostgresOrderDraftRepository({ queryJson });
   const coldOrderDraftState = await coldOrderDraftRepository.loadState();
   const coldConfirmedDraft = coldOrderDraftState.orderDrafts.find((draft) => draft.id === "DRAFT-LIVE-ORDER-001");
@@ -3375,7 +3378,7 @@ async function checkApiWithPostgresRepositories() {
     {
       sourceText: "旧页面不能覆盖已确认草稿",
       customerId: "C001",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       clientRevision: 1,
       draftStatus: "待审核",
       lines: [
@@ -3486,7 +3489,7 @@ async function checkApiWithPostgresRepositories() {
     {
       fulfillmentId: confirmedOrder.fulfillmentTasks[0].fulfillmentId,
       actualQty: 10,
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       completedAt: "2026-07-02T11:00:00.000Z",
       remark: "postgres live fulfillment action route",
     },
@@ -3494,6 +3497,7 @@ async function checkApiWithPostgresRepositories() {
   );
   assert.equal(completedFulfillment.status, "已交付");
   assert.ok(completedFulfillment.operationLogId);
+  assertPostgresOperationLogOperator(queryJson, completedFulfillment.operationLogId);
   assert.equal(completedFulfillment.inventoryLedgerIds.length, 1);
   assert.equal(
     queryJson(
@@ -3555,7 +3559,7 @@ WHERE id = 'F002';`,
     {
       fulfillmentId: "F002",
       actualQty: 1200,
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       completedAt: "2026-07-02T12:00:00.000Z",
       remark: "postgres live legacy fulfillment deduction",
       allowUnreservedInventoryDeduction: true,
@@ -3565,6 +3569,7 @@ WHERE id = 'F002';`,
   assert.equal(completedLegacyFulfillment.status, "已交付");
   assert.equal(completedLegacyFulfillment.inventoryDeductionMode, "legacy_reserved_stock_match");
   assert.equal(completedLegacyFulfillment.inventoryLedgerIds.length, 1);
+  assertPostgresOperationLogOperator(queryJson, completedLegacyFulfillment.operationLogId);
   const legacyInventoryAfterFulfillment = queryJson(
     "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '25*32*10-白色-加长提-空白袋-B区-服装';",
   );
@@ -3844,12 +3849,13 @@ WHERE id = 'F002';`,
       speed: 4,
       cutterEnabled: false,
       settings: { driverMode: "preview_only", source: "postgres-live-api" },
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
   assert.equal(apiPrintDevice.printDevice.printDeviceId, "PRN-LIVE-API-001");
   assert.ok(apiPrintDevice.operationLogId);
+  assertPostgresOperationLogOperator(queryJson, apiPrintDevice.operationLogId);
   assert.equal(
     queryJson(
       "SELECT json_build_object('paperWidthMm', paper_width_mm, 'driver', driver_name) AS result FROM printer_devices WHERE id = 'PRN-LIVE-API-001';",
@@ -3865,7 +3871,7 @@ WHERE id = 'F002';`,
     "/api/print-devices/PRN-LIVE-API-001/driver-mode",
     {
       driverMode: "system_printer",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
       reason: "postgres live trusted print projection check",
     },
     { headers },
@@ -3895,7 +3901,7 @@ WHERE id = 'F002';`,
             : "pickup_note",
       printDeviceId: "PRN-LIVE-API-001",
       printAction: "first_print",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
@@ -3903,6 +3909,7 @@ WHERE id = 'F002';`,
   assert.equal(apiTrustedPrintRequest.printJob.jobStatus, "queued");
   assert.equal(apiTrustedPrintRequest.nextStatus, apiTrustedPrintInitialStatus);
   assert.equal(apiTrustedPrintRequest.physicalPrintConfirmed, false);
+  assertPostgresOperationLogOperator(queryJson, apiTrustedPrintRequest.operationLogId);
   assert.equal(
     queryJson(
       `SELECT json_build_object('status', status) AS result FROM print_records WHERE id = ${sqlLiteral(apiTrustedPrintRequest.printRecord.printRecordId)};`,
@@ -3972,13 +3979,14 @@ WHERE id = 'F002';`,
     "/api/print-jobs/PJ-LIVE-API-001/dispatch",
     {
       reason: "postgres live dispatch boundary",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
   assert.equal(apiDispatchedPrintJob.printJob.jobStatus, "failed");
   assert.equal(apiDispatchedPrintJob.dispatchResult.errorCode, "SYSTEM_PRINTER_ADAPTER_NOT_CONFIGURED");
   assert.ok(apiDispatchedPrintJob.operationLogId);
+  assertPostgresOperationLogOperator(queryJson, apiDispatchedPrintJob.operationLogId);
   const apiFailedPrintJob = await postJson(
     baseUrl,
     "/api/print-jobs/PJ-LIVE-API-001/status",
@@ -3987,19 +3995,20 @@ WHERE id = 'F002';`,
       errorCode: "LIVE_API_DRIVER_TIMEOUT",
       errorMessage: "postgres live API simulated driver timeout",
       reason: "postgres live status callback",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
   assert.equal(apiFailedPrintJob.printJob.jobStatus, "failed");
   assert.equal(apiFailedPrintJob.printJob.errorCode, "LIVE_API_DRIVER_TIMEOUT");
   assert.ok(apiFailedPrintJob.operationLogId);
+  assertPostgresOperationLogOperator(queryJson, apiFailedPrintJob.operationLogId);
   const apiRetryPrintJob = await postJson(
     baseUrl,
     "/api/print-jobs/PJ-LIVE-API-001/retry",
     {
       retryReason: "postgres live retry",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
@@ -4007,6 +4016,7 @@ WHERE id = 'F002';`,
   assert.equal(apiRetryPrintJob.printJob.sourcePrintJobId, "PJ-LIVE-API-001");
   assert.equal(apiRetryPrintJob.printJob.attemptNo, 2);
   assert.equal(apiRetryPrintJob.printJob.jobStatus, "queued");
+  assertPostgresOperationLogOperator(queryJson, apiRetryPrintJob.operationLogId);
 
   const apiPollingPrintJob = {
     ...buildPrintJobRecord({
@@ -4175,7 +4185,7 @@ WHERE id = 'F002';`,
     {
       draftId: "DRAFT-LIVE-VOID-001",
       sourceText: "张三服饰 30*38红5个 明天自提后取消",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
@@ -4223,7 +4233,7 @@ WHERE id = 'F002';`,
     `/api/order-lines/${voidCandidateOrder.orderLines[0].id}/void`,
     {
       reason: "order_cancelled",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
@@ -4234,6 +4244,7 @@ WHERE id = 'F002';`,
   assert.equal(apiVoidedOrderLine.inventoryLedgerIds.length, 1);
   assert.ok(apiVoidedOrderLine.orderLineChangeRecordId);
   assert.ok(apiVoidedOrderLine.operationLogId);
+  assertPostgresOperationLogOperator(queryJson, apiVoidedOrderLine.operationLogId);
   assert.equal(
     queryJson(
       `SELECT json_build_object('lineStatus', line_status, 'voidReason', void_reason) AS result FROM order_lines WHERE id = ${sqlLiteral(
@@ -4284,7 +4295,7 @@ WHERE id = 'F002';`,
     {
       draftId: "DRAFT-LIVE-QTY-API-001",
       sourceText: "张三服饰 30*38红10个 明天自提改量",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
@@ -4334,7 +4345,7 @@ WHERE id = 'F002';`,
       orderLineId: quantityCandidateOrder.orderLines[0].id,
       newQty: 6,
       reason: "customer_change",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
@@ -4349,6 +4360,7 @@ WHERE id = 'F002';`,
   assert.equal(apiDecreasedOrderLine.inventoryLedgerIds.length, 1);
   assert.ok(apiDecreasedOrderLine.orderLineChangeRecordId);
   assert.ok(apiDecreasedOrderLine.operationLogId);
+  assertPostgresOperationLogOperator(queryJson, apiDecreasedOrderLine.operationLogId);
   assert.equal(
     queryJson(
       `SELECT json_build_object('originalQty', original_qty) AS result FROM order_lines WHERE id = ${sqlLiteral(
@@ -4390,7 +4402,7 @@ WHERE id = 'F002';`,
       orderLineId: quantityCandidateOrder.orderLines[0].id,
       newQty: 8,
       reason: "customer_change",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
@@ -4402,6 +4414,7 @@ WHERE id = 'F002';`,
   assert.equal(apiIncreasedOrderLine.adjustedReservations[0].qty, 8);
   assert.equal(apiIncreasedOrderLine.adjustedReservations[0].status, "active");
   assert.equal(apiIncreasedOrderLine.inventoryLedgerIds.length, 1);
+  assertPostgresOperationLogOperator(queryJson, apiIncreasedOrderLine.operationLogId);
   assert.equal(
     queryJson(
       `SELECT json_build_object('reservedQty', reserved_qty) AS result FROM inventory_reservations WHERE id = ${sqlLiteral(
@@ -4444,7 +4457,7 @@ WHERE id = 'F002';`,
     {
       fulfillmentId: quantityCandidateOrder.fulfillmentTasks[0].fulfillmentId,
       reason: "office_correction",
-      operatorId: "U-OFFICE-A",
+      operatorId: "U-SPOOFED",
     },
     { headers },
   );
@@ -4453,6 +4466,7 @@ WHERE id = 'F002';`,
   assert.equal(apiCancelledFulfillment.releasedReservations[0].status, "released");
   assert.equal(apiCancelledFulfillment.inventoryLedgerIds.length, 1);
   assert.ok(apiCancelledFulfillment.operationLogId);
+  assertPostgresOperationLogOperator(queryJson, apiCancelledFulfillment.operationLogId);
   assert.equal(
     queryJson(
       `SELECT json_build_object('status', status, 'actualQty', actual_qty) AS result FROM fulfillment_records WHERE id = ${sqlLiteral(
@@ -6077,6 +6091,13 @@ function queryJson(sql, values = []) {
     .find((line) => line.startsWith("{") || line.startsWith("[") || line === "null");
   if (!jsonLine || jsonLine === "null") return null;
   return JSON.parse(jsonLine);
+}
+
+function assertPostgresOperationLogOperator(query, operationLogId, expectedOperatorId = "U-OFFICE-A") {
+  const operationLog = query(
+    `SELECT json_build_object('operatorId', operator_id) AS result FROM operation_logs WHERE id = ${sqlLiteral(operationLogId)};`,
+  );
+  assert.equal(operationLog?.operatorId, expectedOperatorId, `unexpected operator for operation log ${operationLogId}`);
 }
 
 function interpolatePsqlParameters(sql, values = []) {

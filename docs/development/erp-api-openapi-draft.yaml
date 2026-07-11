@@ -2696,12 +2696,14 @@ paths:
           application/json:
             schema:
               type: object
-              required: [fulfillmentId, operatorId]
+              required: [fulfillmentId]
               properties:
                 fulfillmentId:
                   type: string
                 operatorId:
                   type: string
+                  deprecated: true
+                  description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
                 preparedAt:
                   type: string
                   format: date-time
@@ -12833,7 +12835,6 @@ components:
       type: object
       required:
         - sourceText
-        - operatorId
       properties:
         sourceText:
           type: string
@@ -12857,6 +12858,8 @@ components:
             type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
 
     OrderDraftRecognitionResponse:
       type: object
@@ -12998,7 +13001,6 @@ components:
       required:
         - draftId
         - sourceText
-        - operatorId
         - clientRevision
         - lines
       properties:
@@ -13010,6 +13012,8 @@ components:
           type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         clientRevision:
           type: integer
           minimum: 0
@@ -13046,7 +13050,6 @@ components:
         - draftId
         - sourceText
         - customerId
-        - operatorId
         - confirmMode
         - lines
         - clientRevision
@@ -13064,6 +13067,8 @@ components:
           type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         confirmMode:
           type: string
           enum: [confirm_now, save_pending_fulfillment, save_draft_only]
@@ -15838,7 +15843,6 @@ components:
         - templateId
         - documentType
         - printAction
-        - operatorId
       properties:
         templateId:
           type: string
@@ -15861,6 +15865,8 @@ components:
           enum: [customer_change, qty_changed, price_changed, fulfillment_changed, damaged_paper, lost_document, info_changed, other]
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
 
     PrintFulfillmentResponse:
       type: object
@@ -15899,7 +15905,6 @@ components:
         - routeDate
         - routeNo
         - routeSequence
-        - operatorId
       properties:
         fulfillmentId:
           type: string
@@ -15923,6 +15928,8 @@ components:
           type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
 
     FulfillmentDispatchSummary:
       type: object
@@ -16052,7 +16059,6 @@ components:
         - exceptionType
         - expectedQty
         - reasonCode
-        - operatorId
         - occurredAt
       properties:
         fulfillmentId:
@@ -16085,6 +16091,8 @@ components:
             type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         occurredAt:
           type: string
           format: date-time
@@ -16120,7 +16128,6 @@ components:
       required:
         - fulfillmentId
         - actualQty
-        - operatorId
         - completedAt
       properties:
         fulfillmentId:
@@ -16135,6 +16142,8 @@ components:
             type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         completedAt:
           type: string
           format: date-time
@@ -16154,7 +16163,6 @@ components:
       required:
         - fulfillmentId
         - pickedAt
-        - operatorId
       properties:
         fulfillmentId:
           type: string
@@ -16163,6 +16171,8 @@ components:
           format: date-time
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         pickupBatchNo:
           type: string
           description: 快递 / 快运批次号或司机交接号。
@@ -16181,7 +16191,6 @@ components:
       type: object
       required:
         - reason
-        - operatorId
       properties:
         fulfillmentId:
           type: string
@@ -16198,6 +16207,8 @@ components:
           type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         canceledAt:
           type: string
           format: date-time
@@ -16235,7 +16246,6 @@ components:
       required:
         - fulfillmentId
         - reviewStatus
-        - operatorId
       properties:
         fulfillmentId:
           type: string
@@ -16244,6 +16254,8 @@ components:
           enum: [approved, reviewed, rejected, retake_required, 已复核, 需重拍]
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         reviewerName:
           type: string
         reviewedAt:
@@ -19230,6 +19242,8 @@ components:
           properties:
             operatorId:
               type: string
+              deprecated: true
+              description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
             reason:
               type: string
 
@@ -19254,6 +19268,8 @@ components:
           $ref: "#/components/schemas/PrintDeviceDriverMode"
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         reason:
           type: string
 
@@ -19538,13 +19554,14 @@ components:
       type: object
       required:
         - status
-        - operatorId
       properties:
         status:
           type: string
           enum: [queued, sent, printed, failed, canceled]
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         reason:
           type: string
         sentAt:
@@ -20262,6 +20279,8 @@ components:
       properties:
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         reason:
           type: string
 
@@ -20539,11 +20558,11 @@ components:
 
     RetryPrintJobRequest:
       type: object
-      required:
-        - operatorId
       properties:
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         retryReason:
           type: string
         printJobId:
@@ -20622,13 +20641,14 @@ components:
       type: object
       required:
         - voidReason
-        - operatorId
       properties:
         voidReason:
           type: string
           enum: [customer_change, qty_changed, price_changed, fulfillment_changed, damaged_paper, other]
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         relatedPrintRecordId:
           type: string
           description: 作废后新重打记录 ID，可后补
@@ -22250,7 +22270,6 @@ components:
       type: object
       required:
         - reason
-        - operatorId
       properties:
         orderLineId:
           type: string
@@ -22269,6 +22288,8 @@ components:
           type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         voidedAt:
           type: string
           format: date-time
@@ -22311,7 +22332,6 @@ components:
       required:
         - newQty
         - reason
-        - operatorId
       properties:
         orderLineId:
           type: string
@@ -22332,6 +22352,8 @@ components:
           type: string
         operatorId:
           type: string
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
         adjustedAt:
           type: string
           format: date-time

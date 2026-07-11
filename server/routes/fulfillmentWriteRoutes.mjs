@@ -23,10 +23,11 @@ export async function handleFulfillmentWriteRoutes({
   if (fulfillmentActionMatch) {
     const fulfillmentId = decodeURIComponent(fulfillmentActionMatch[1]);
     const action = fulfillmentActionMatch[2];
+    const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A");
     const routes = {
       exception: {
         permission: writeActionPermissions.createFulfillmentException,
-        run: () => createFulfillmentExceptionRoute({ response, workspace, fulfillmentId, body }),
+        run: () => createFulfillmentExceptionRoute({ response, workspace, fulfillmentId, body, operatorId }),
       },
       dispatch: {
         permission: writeActionPermissions.updateFulfillmentDispatch,
@@ -36,28 +37,28 @@ export async function handleFulfillmentWriteRoutes({
             workspace,
             fulfillmentId,
             body,
-            operatorId: getPermissionOperatorId(permissionContext, authContext, body.operatorId ?? "U-OFFICE-A"),
+            operatorId,
           }),
       },
       print: {
         permission: writeActionPermissions.printFulfillment,
-        run: () => printFulfillmentRoute({ response, workspace, fulfillmentId, body }),
+        run: () => printFulfillmentRoute({ response, workspace, fulfillmentId, body, operatorId }),
       },
       prepared: {
         permission: writeActionPermissions.completeFulfillment,
-        run: () => updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action: "标记已备货", body }),
+        run: () => updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action: "标记已备货", body, operatorId }),
       },
       complete: {
         permission: writeActionPermissions.completeFulfillment,
-        run: () => updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action: "完成出库/交付", body }),
+        run: () => updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action: "完成出库/交付", body, operatorId }),
       },
       "pickup-confirm": {
         permission: writeActionPermissions.confirmFulfillmentPickup,
-        run: () => updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action: "确认已拉走", body }),
+        run: () => updateFulfillmentStatusRoute({ response, workspace, fulfillmentId, action: "确认已拉走", body, operatorId }),
       },
       cancel: {
         permission: writeActionPermissions.cancelFulfillment,
-        run: () => cancelFulfillmentRoute({ response, workspace, fulfillmentId, body }),
+        run: () => cancelFulfillmentRoute({ response, workspace, fulfillmentId, body, operatorId }),
       },
       "delivery-evidence-review": {
         permission: writeActionPermissions.reviewDeliveryEvidence,
@@ -67,7 +68,7 @@ export async function handleFulfillmentWriteRoutes({
             workspace,
             fulfillmentId,
             body,
-            operatorId: getPermissionOperatorId(permissionContext, authContext, body.operatorId ?? "U-OFFICE-A"),
+            operatorId,
           }),
       },
     };
@@ -86,6 +87,7 @@ export async function handleFulfillmentWriteRoutes({
     workspace,
     printRecordId: decodeURIComponent(printRecordVoidMatch[1]),
     body,
+    operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
   });
   return true;
 }

@@ -18,14 +18,13 @@ export function createFulfillmentPrintCommandService({
     assertFunction(dependency, name);
   }
 
-  async function printFulfillment({ workspace, fulfillmentId, body = {} }) {
+  async function printFulfillment({ workspace, fulfillmentId, body = {}, operatorId }) {
     const before = findFulfillment(workspace, fulfillmentId);
     if (!before) return notFound();
 
     const printValidation = validateFulfillmentPrintRequest(workspace, fulfillmentId, body);
     if (printValidation.error) return printValidation;
 
-    const operatorId = body.operatorId ?? "U-OFFICE-A";
     const documentType = getDocumentType(before.method);
     const normalizedPrintBody = {
       ...body,
@@ -58,7 +57,7 @@ export function createFulfillmentPrintCommandService({
     const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
       workspace,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
       fulfillment: buildFulfillmentActionRecord(workspace, before, {
         operatorId,
         actualQty: before.actualQty ?? before.qty,
@@ -98,7 +97,7 @@ export function createFulfillmentPrintCommandService({
       printJob,
       operationLog: printJobOperationLog,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: body,
+      idempotencyPayload: { ...body, operatorId },
     });
     const savedPrintJob = printJobTransaction.printJob ?? printJob;
     return {
@@ -114,7 +113,7 @@ export function createFulfillmentPrintCommandService({
     };
   }
 
-  async function voidPrintRecord({ workspace, printRecordId, body = {} }) {
+  async function voidPrintRecord({ workspace, printRecordId, body = {}, operatorId }) {
     const before = findPrintRecord(workspace, printRecordId);
     if (!before) return notFound();
     if (before.status === "voided") {
@@ -124,7 +123,6 @@ export function createFulfillmentPrintCommandService({
       return businessError(409, "PRINT_RECORD_NOT_VOIDABLE", "Only printed or reprinted records can be voided.");
     }
 
-    const operatorId = body.operatorId ?? "U-OFFICE-A";
     const voidedAt = body.voidedAt ?? nowIso(now);
     const after = {
       ...before,
@@ -149,7 +147,7 @@ export function createFulfillmentPrintCommandService({
       const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
         workspace,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: body,
+        idempotencyPayload: { ...body, operatorId },
         fulfillment: buildFulfillmentActionRecord(workspace, fulfillment, {
           operatorId,
           actualQty: fulfillment.actualQty ?? fulfillment.qty,
