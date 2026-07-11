@@ -503,6 +503,57 @@
   min-height: 0;
 }
 
+.mobile-role-detail-tabs {
+  border-bottom: 1px solid var(--erp-border-subtle);
+  background: #f8fafc;
+  padding: 7px 10px;
+}
+
+.mobile-role-detail-tabs .segmented {
+  display: grid;
+  width: 100%;
+  grid-auto-columns: minmax(64px, 1fr);
+  grid-auto-flow: column;
+  overflow-x: auto;
+}
+
+.mobile-role-detail-tabs .segmented button {
+  min-width: 64px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.mobile-role-stage {
+  min-width: 0;
+}
+
+.mobile-role-summary-stage > .info-grid,
+.driver-route-stage > .info-grid {
+  border-bottom: 1px solid var(--erp-border-subtle);
+}
+
+.mobile-role-history-stage {
+  padding: 8px 10px 12px;
+}
+
+.mobile-role-stage-actions {
+  margin: 8px 10px 10px;
+}
+
+.driver-stage-action-bar {
+  justify-content: flex-start;
+  margin-right: 0;
+  margin-left: 0;
+  border: 1px solid #c9dcf7;
+  border-radius: var(--erp-radius-md);
+  background: #f4f8fe;
+  padding: 7px;
+}
+
+.driver-stage-action-bar .primary-action {
+  min-width: 140px;
+}
+
 @media (max-width: 720px) {
   .production-packing-shell {
     margin-top: 0;
@@ -589,6 +640,25 @@
   }
 
   .mobile-role-task-panel .mobile-task-list {
-    max-height: 420px;
+    max-height: 260px;
+  }
+
+  .mobile-role-detail-tabs {
+    padding: 6px 8px;
+  }
+
+  .mobile-role-stage-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
+  }
+
+  .mobile-role-stage-actions .primary-action,
+  .driver-stage-action-bar .primary-action {
+    min-width: 0;
+  }
+
+  .driver-stage-action-bar {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

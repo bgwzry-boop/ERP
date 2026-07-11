@@ -54,6 +54,7 @@ import {
 export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId, meta = {}, onAction, helpers }) {
   const { currentUser, getUiActionState, statusTone } = helpers;
   const [view, setView] = useState("待送货");
+  const [detailView, setDetailView] = useState("装车");
   const [taskInputs, setTaskInputs] = useState({});
   const [photoPreviewUrls, setPhotoPreviewUrls] = useState({ watermarked: "", signature: "" });
   const packageCameraVideoRef = useRef(null);
@@ -180,6 +181,10 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
       stopDeliveryPhotoCamera({ silent: true });
     };
   }, [selectedTask?.fulfillmentId]);
+
+  useEffect(() => {
+    setDetailView(getDriverDefaultDetailView(selectedTask?.status));
+  }, [selectedTask?.fulfillmentId, selectedTask?.status]);
 
   function selectTask(taskId) {
     setSelectedTaskId(taskId);
@@ -907,23 +912,28 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
       <DetailPane className="mobile-role-detail-pane driver-detail-pane" title={selectedTask ? `${selectedTask.customerName} · ${selectedTask.status}` : "司机送货"} subtitle={selectedTask?.orderLineId ?? "未选择"}>
         {selectedTask ? (
           <>
-            <InfoGrid
-              rows={[
-                ["联系人", `${selectedTask.contactName} ${selectedTask.contactPhone}`],
-                ["地址", selectedTask.address],
-                ["导航区域", selectedTask.addressArea],
-                ["路线/站序", `${routeContext?.routeLabel ?? "未排路线"} / ${routeContext?.stopLabel ?? "未排站序"}`],
-                ["计划发车", formatDriverDateTime(selectedTask.plannedDepartureAt) || "未排"],
-                ["送货单号", selectedTask.deliveryNoteNo],
-                ["货品", selectedTask.goodsSummary],
-                ["数量/包裹", `${selectedTask.qty} 个 / ${selectedTask.packageSummary}`],
-                ["库存来源", selectedTask.inventorySource || "待确认"],
-                ["下一步", selectedTask.nextStep],
-                ["客户备注", selectedTask.customerNote || "无"],
-                ["办公室备注", selectedTask.officeNote || "无"],
-              ]}
-            />
-            <section className="detail-section driver-route-section">
+            <div className="mobile-role-detail-tabs driver-detail-tabs">
+              <Segmented ariaLabel="司机任务详情" value={detailView} onChange={setDetailView} items={["路线", "装车", "送达", "设备", "记录"]} />
+            </div>
+            {detailView === "路线" ? (
+              <section className="mobile-role-stage driver-route-stage">
+                <InfoGrid
+                  rows={[
+                    ["联系人", `${selectedTask.contactName} ${selectedTask.contactPhone}`],
+                    ["地址", selectedTask.address],
+                    ["导航区域", selectedTask.addressArea],
+                    ["路线/站序", `${routeContext?.routeLabel ?? "未排路线"} / ${routeContext?.stopLabel ?? "未排站序"}`],
+                    ["计划发车", formatDriverDateTime(selectedTask.plannedDepartureAt) || "未排"],
+                    ["送货单号", selectedTask.deliveryNoteNo],
+                    ["货品", selectedTask.goodsSummary],
+                    ["数量/包裹", `${selectedTask.qty} 个 / ${selectedTask.packageSummary}`],
+                    ["库存来源", selectedTask.inventorySource || "待确认"],
+                    ["下一步", selectedTask.nextStep],
+                    ["客户备注", selectedTask.customerNote || "无"],
+                    ["办公室备注", selectedTask.officeNote || "无"],
+                  ]}
+                />
+                <section className="detail-section driver-route-section">
               <h3>路线执行</h3>
               <div className="driver-route-summary">
                 <div>
@@ -965,8 +975,32 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
                   {nativeNavigationStatus}
                 </small>
               </div>
-            </section>
-            <section className="detail-section driver-device-section">
+                </section>
+                <section className="detail-section driver-exception-section">
+                  <h3>异常上报</h3>
+                  <div className="detail-form">
+                    <label>
+                      <span>原因</span>
+                      <select value={exceptionReason} onChange={(event) => updateTaskInput("exceptionReason", event.target.value)}>
+                        <option>装车少货</option>
+                        <option>地址不清</option>
+                        <option>客户不在</option>
+                        <option>拒收</option>
+                        <option>其他</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="action-row mobile-role-stage-actions">
+                    <button disabled={exceptionState.disabled || selectedTask.status === "已完成"} title={exceptionState.title} onClick={() => submit(exceptionAction)}>
+                      {exceptionAction}
+                    </button>
+                  </div>
+                </section>
+              </section>
+            ) : null}
+            {detailView === "设备" ? (
+              <section className="mobile-role-stage driver-device-stage">
+                <section className="detail-section driver-device-section">
               <div className="section-title-row">
                 <h3>设备自检</h3>
                 <span className={`driver-device-summary ${deviceReadiness.summary.tone}`}>
@@ -1007,8 +1041,8 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
                   </div>
                 ) : null}
               </div>
-            </section>
-            <section className="detail-section driver-field-test-section">
+                </section>
+                <section className="detail-section driver-field-test-section">
               <div className="section-title-row">
                 <h3>现场验收</h3>
                 <span className={`driver-device-summary ${deviceFieldTestSummary.tone}`}>
@@ -1088,8 +1122,11 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
                   <small>{deviceFieldTestRecord.deviceLabel} · {deviceFieldTestRecord.browserLabel} · {deviceFieldTestRecord.summary.label}</small>
                 </div>
               ) : null}
-            </section>
-            <section className="detail-section driver-load-check-section">
+                </section>
+              </section>
+            ) : null}
+            {detailView === "装车" ? (
+              <section className="detail-section driver-load-check-section mobile-role-stage driver-load-stage">
               <div className="section-title-row">
                 <h3>装车清单</h3>
                 <button type="button" onClick={() => setAllPackagesChecked(!packageCheckState.allChecked)}>
@@ -1099,6 +1136,23 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
               <div className="driver-load-check-summary">
                 <strong>{packageCheckState.summary}</strong>
                 <span>{packageCheckState.allChecked ? "包裹已核对，可确认装车。" : `还有 ${packageCheckState.missingCount} 包未核对，不能确认装车。`}</span>
+              </div>
+              <div className="action-row mobile-role-stage-actions driver-stage-action-bar">
+                <button
+                  className="primary-action"
+                  disabled={loadState.disabled || selectedTask.status !== "待送货" || loadBlockedByPackageCheck}
+                  title={
+                    loadState.title ||
+                    (selectedTask.status !== "待送货"
+                      ? "只有待送货任务可确认装车"
+                      : loadBlockedByPackageCheck
+                        ? "请先核对全部包裹"
+                        : "")
+                  }
+                  onClick={() => submit("确认已装车")}
+                >
+                  确认已装车{routeContext?.hasRoute ? `（${routeContext.stopLabel}）` : ""}
+                </button>
               </div>
               <div className="driver-load-scan-row">
                 <label>
@@ -1159,8 +1213,20 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
                 })}
               </div>
             </section>
-            <section className="detail-section">
+            ) : null}
+            {detailView === "送达" ? (
+              <section className="detail-section mobile-role-stage driver-delivery-stage">
               <h3>送达凭证</h3>
+              <div className="action-row mobile-role-stage-actions driver-stage-action-bar">
+                <button
+                  className="primary-action"
+                  disabled={completeState.disabled || selectedTask.status !== "配送中" || !watermarkedPhotoAttached}
+                  title={completeState.title || (selectedTask.status !== "配送中" ? "配送中任务才能提交送达" : !watermarkedPhotoAttached ? "完成送货必须有水印照片" : "")}
+                  onClick={() => submit("提交送达")}
+                >
+                  提交送达
+                </button>
+              </div>
               <div className="detail-form driver-proof-form">
                 <label>
                   <span>实际数量</span>
@@ -1249,58 +1315,20 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
                 ) : null}
               </div>
             </section>
-            <section className="detail-section">
-              <h3>异常</h3>
-              <div className="detail-form">
-                <label>
-                  <span>原因</span>
-                  <select value={exceptionReason} onChange={(event) => updateTaskInput("exceptionReason", event.target.value)}>
-                    <option>装车少货</option>
-                    <option>地址不清</option>
-                    <option>客户不在</option>
-                    <option>拒收</option>
-                    <option>其他</option>
-                  </select>
-                </label>
-              </div>
-            </section>
-            <div className="action-row">
-              <button
-                className="primary-action"
-                disabled={loadState.disabled || selectedTask.status !== "待送货" || loadBlockedByPackageCheck}
-                title={
-                  loadState.title ||
-                  (selectedTask.status !== "待送货"
-                    ? "只有待送货任务可确认装车"
-                    : loadBlockedByPackageCheck
-                      ? "请先核对全部包裹"
-                      : "")
-                }
-                onClick={() => submit("确认已装车")}
-              >
-                确认已装车{routeContext?.hasRoute ? `（${routeContext.stopLabel}）` : ""}
-              </button>
-              <button
-                className="primary-action"
-                disabled={completeState.disabled || selectedTask.status !== "配送中" || !watermarkedPhotoAttached}
-                title={completeState.title || (selectedTask.status !== "配送中" ? "配送中任务才能提交送达" : !watermarkedPhotoAttached ? "完成送货必须有水印照片" : "")}
-                onClick={() => submit("提交送达")}
-              >
-                提交送达
-              </button>
-              <button disabled={exceptionState.disabled || selectedTask.status === "已完成"} title={exceptionState.title} onClick={() => submit(exceptionAction)}>
-                {exceptionAction}
-              </button>
-            </div>
-            <Timeline
-              items={[
-                "办公室创建送货任务",
-                routeContext?.hasRoute ? `办公室派单：${routeContext.routeLabel} ${routeContext.stopLabel}` : "路线未排，按临时通知执行",
-                selectedTask.loadedAt ? "司机已装车" : "等待司机装车",
-                selectedTask.status,
-                selectedTask.completedAt ? "回单进入办公室复核" : "等待送达凭证",
-              ]}
-            />
+            ) : null}
+            {detailView === "记录" ? (
+              <section className="mobile-role-stage mobile-role-history-stage">
+                <Timeline
+                  items={[
+                    "办公室创建送货任务",
+                    routeContext?.hasRoute ? `办公室派单：${routeContext.routeLabel} ${routeContext.stopLabel}` : "路线未排，按临时通知执行",
+                    selectedTask.loadedAt ? "司机已装车" : "等待司机装车",
+                    selectedTask.status,
+                    selectedTask.completedAt ? "回单进入办公室复核" : "等待送达凭证",
+                  ]}
+                />
+              </section>
+            ) : null}
           </>
         ) : (
           <DataState title="当前没有送货任务" detail="当前状态筛选没有匹配任务。" compact />
@@ -1308,6 +1336,13 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
       </DetailPane>
     </section>
   );
+}
+
+function getDriverDefaultDetailView(status) {
+  if (status === "待送货") return "装车";
+  if (status === "配送中") return "送达";
+  if (status === "已完成") return "记录";
+  return "路线";
 }
 
 function buildDriverWatermarkPreview({ task, currentUser, watermarkLocationLabel, watermarkGeoPoint }) {

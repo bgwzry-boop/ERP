@@ -60,9 +60,14 @@ assert.doesNotMatch(masterDataSource, /records\.find\(\(item\) => item\.id === s
 
 assert.match(workshopSource, /机器计数\/动作次数/);
 assert.match(workshopSource, /报当日数量只记录跨日继续和剩余数量，不入库/);
+assert.match(workshopSource, /ariaLabel="车间任务详情"/);
+assert.match(workshopSource, /mobile-role-stage-actions/);
 assert.match(driverSource, /visibleTasks\[0\] \?\?\s*null/);
 assert.doesNotMatch(driverSource, /tasks\.find\(\(item\) => item\.fulfillmentId === selectedTaskId\)/);
 assert.match(driverSource, /司机任务状态/);
+assert.match(driverSource, /ariaLabel="司机任务详情"/);
+assert.match(driverSource, /driver-load-stage/);
+assert.match(driverSource, /driver-delivery-stage/);
 
 assert.match(mainSource, /\.\/styles\/features\/statements\.css/);
 assert.match(mainSource, /\.\/styles\/features\/role-tools\.css/);
@@ -71,5 +76,7 @@ assert.match(componentStyles, /\.page-grid\.operational-statement-layout/);
 assert.match(roleStyles, /production-schedule-queue-table/);
 assert.match(roleStyles, /raw-material-inbound-table/);
 assert.match(roleStyles, /master-data-maintenance-table/);
+assert.match(roleStyles, /mobile-role-detail-tabs/);
+assert.match(roleStyles, /driver-stage-action-bar/);
 
 console.log("Office finance/role UI adoption checks passed: financial trust amounts, production counters, raw-material gates, and driver view isolation remain explicit.");

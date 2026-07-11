@@ -51,6 +51,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
   });
   const openPackingTasks = allPackingTasks.filter((task) => task.status !== "已完成");
   const [mode, setMode] = useState(productionLines.length ? "生产报工" : "打包任务");
+  const [detailView, setDetailView] = useState("操作");
   const [selectedProductionLineId, setSelectedProductionLineId] = useState(productionLines[0]?.id ?? "");
   const [selectedPackingTaskId, setSelectedPackingTaskId] = useState(openPackingTasks[0]?.packingTaskId ?? "");
   const [reportInputs, setReportInputs] = useState({});
@@ -96,15 +97,23 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
           : "未选择文件时会登记一张样张，用于原型验证");
   const packingDisabled = packingState.disabled || !selectedPackingTask;
   const packingTitle = packingState.title || "";
+  const detailViews = mode === "生产报工" ? ["操作", "任务", "成品图", "记录"] : ["操作", "任务", "记录"];
+
+  function changeMode(nextMode) {
+    setMode(nextMode);
+    setDetailView("操作");
+  }
 
   function selectProductionLine(lineId) {
     setSelectedProductionLineId(lineId);
     setMode("生产报工");
+    setDetailView("操作");
   }
 
   function selectPackingTask(taskId) {
     setSelectedPackingTaskId(taskId);
     setMode("打包任务");
+    setDetailView("操作");
   }
 
   function updateReportInput(field, value) {
@@ -147,7 +156,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
         <PanelHeader
           title="移动任务池"
           summary={`车间只报合格数和机器计数；打包只报实包数和包裹数。${taskListStatusText}`}
-          actions={<Segmented ariaLabel="车间任务模式" value={mode} onChange={setMode} items={["生产报工", "打包任务"]} />}
+          actions={<Segmented ariaLabel="车间任务模式" value={mode} onChange={changeMode} items={["生产报工", "打包任务"]} />}
         />
         <div className="mobile-task-list">
           {mode === "生产报工" ? (
@@ -191,20 +200,27 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
       >
         {selectedLine ? (
           <>
-            <InfoGrid
-              rows={[
-                ["岗位入口", mode === "打包任务" ? "打包工手机端" : `${getProductionProcessLabel(selectedLine)}手机端`],
-                ["货品", `${selectedLine.product} / ${selectedLine.size}`],
-                ["颜色/单双面", `${getLineColorSpecLabel(selectedLine)} / ${getLinePrintSide(selectedLine)}`],
-                ["数量", `${selectedLine.qty} 个`],
-                ["交付", `${selectedLine.fulfillment} · ${selectedLine.latest}`],
-                ["库存键", selectedInventoryItem ? `${selectedInventoryItem.id} / ${selectedInventoryItem.zone}` : "未找到匹配库存键"],
-                ["跨日进度", formatProductionDailyProgressLabel(selectedLine) || "暂无日报数"],
-                ["成品图", mode === "生产报工" ? formatProductionFinishedGoodsPhotoLabel(selectedFinishedGoodsPhoto) : "生产侧确认"],
-                ["备注", getLineRemark(selectedLine) || "无"],
-              ]}
-            />
-            {mode === "生产报工" ? (
+            <div className="mobile-role-detail-tabs">
+              <Segmented ariaLabel="车间任务详情" value={detailView} onChange={setDetailView} items={detailViews} />
+            </div>
+            {detailView === "任务" ? (
+              <section className="mobile-role-stage mobile-role-summary-stage">
+                <InfoGrid
+                  rows={[
+                    ["岗位入口", mode === "打包任务" ? "打包工手机端" : `${getProductionProcessLabel(selectedLine)}手机端`],
+                    ["货品", `${selectedLine.product} / ${selectedLine.size}`],
+                    ["颜色/单双面", `${getLineColorSpecLabel(selectedLine)} / ${getLinePrintSide(selectedLine)}`],
+                    ["数量", `${selectedLine.qty} 个`],
+                    ["交付", `${selectedLine.fulfillment} · ${selectedLine.latest}`],
+                    ["库存键", selectedInventoryItem ? `${selectedInventoryItem.id} / ${selectedInventoryItem.zone}` : "未找到匹配库存键"],
+                    ["跨日进度", formatProductionDailyProgressLabel(selectedLine) || "暂无日报数"],
+                    ["成品图", mode === "生产报工" ? formatProductionFinishedGoodsPhotoLabel(selectedFinishedGoodsPhoto) : "生产侧确认"],
+                    ["备注", getLineRemark(selectedLine) || "无"],
+                  ]}
+                />
+              </section>
+            ) : null}
+            {mode === "生产报工" && detailView === "操作" ? (
               <>
                 <section className="detail-section">
                   <h3>车间报工</h3>
@@ -224,7 +240,45 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                   </div>
                   <p>报当日数量只记录跨日继续和剩余数量，不入库；报工完成才会进入库存和后续打包。</p>
                 </section>
-                <section className="detail-section finished-goods-photo-section">
+                <div className="action-row mobile-role-stage-actions">
+                  <button
+                    disabled={reportDailyDisabled}
+                    title={reportDailyTitle}
+                    onClick={() =>
+                      onAction("报当日数量", {
+                        entryLabel: "车间手机端",
+                        orderLineId: selectedProductionLine.id,
+                        orderLine: selectedProductionLine,
+                        dailyQualifiedQty: Number(reportQualifiedQty || 0),
+                        exceptionQty: Number(reportExceptionQty || 0),
+                        machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
+                      })
+                    }
+                  >
+                    报当日数量
+                  </button>
+                  <button
+                    className="primary-action"
+                    disabled={reportDisabled}
+                    title={reportTitle}
+                    onClick={() =>
+                      onAction("报工完成", {
+                        entryLabel: "车间手机端",
+                        orderLineId: selectedProductionLine.id,
+                        orderLine: selectedProductionLine,
+                        qualifiedQty: Number(reportQualifiedQty || 0),
+                        exceptionQty: Number(reportExceptionQty || 0),
+                        machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
+                      })
+                    }
+                  >
+                    报工完成
+                  </button>
+                </div>
+              </>
+            ) : null}
+            {mode === "生产报工" && detailView === "成品图" ? (
+              <section className="detail-section finished-goods-photo-section mobile-role-stage">
                   <div className="section-title-row">
                     <h3>定制成品图</h3>
                     <StatusPill tone={getProductionFinishedGoodsPhotoTone(selectedFinishedGoodsPhoto)}>
@@ -269,44 +323,9 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                       {selectedFinishedGoodsPhoto.attachmentId ? "重拍/重传成品图" : "上传成品图"}
                     </button>
                   </div>
-                </section>
-                <div className="action-row">
-                  <button
-                    disabled={reportDailyDisabled}
-                    title={reportDailyTitle}
-                    onClick={() =>
-                      onAction("报当日数量", {
-                        entryLabel: "车间手机端",
-                        orderLineId: selectedProductionLine.id,
-                        orderLine: selectedProductionLine,
-                        dailyQualifiedQty: Number(reportQualifiedQty || 0),
-                        exceptionQty: Number(reportExceptionQty || 0),
-                        machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
-                      })
-                    }
-                  >
-                    报当日数量
-                  </button>
-                  <button
-                    className="primary-action"
-                    disabled={reportDisabled}
-                    title={reportTitle}
-                    onClick={() =>
-                      onAction("报工完成", {
-                        entryLabel: "车间手机端",
-                        orderLineId: selectedProductionLine.id,
-                        orderLine: selectedProductionLine,
-                        qualifiedQty: Number(reportQualifiedQty || 0),
-                        exceptionQty: Number(reportExceptionQty || 0),
-                        machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
-                      })
-                    }
-                  >
-                    报工完成
-                  </button>
-                </div>
-              </>
-            ) : (
+              </section>
+            ) : null}
+            {mode === "打包任务" && detailView === "操作" ? (
               <>
                 <section className="detail-section">
                   <h3>打包提交</h3>
@@ -329,7 +348,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                   </div>
                   <p>打包完成生成包裹和标签下一步；不会扣库存，仍由出库完成或快递快运拉走确认扣减。</p>
                 </section>
-                <div className="action-row">
+                <div className="action-row mobile-role-stage-actions">
                   <button
                     className="primary-action"
                     disabled={packingDisabled}
@@ -351,15 +370,19 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                   </button>
                 </div>
               </>
-            )}
-            <Timeline
-              items={[
-                mode === "打包任务" ? "生产完成进入打包手机端" : "发布任务到车间手机端",
-                mode === "打包任务" ? "打包工填写实包数量和包裹数" : "岗位工填写合格数量和机器计数",
-                mode === "打包任务" ? "包裹进入标签/出库下一步" : "合格品入库并占用给订单",
-                "关键动作写后端 API 和操作日志",
-              ]}
-            />
+            ) : null}
+            {detailView === "记录" ? (
+              <section className="mobile-role-stage mobile-role-history-stage">
+                <Timeline
+                  items={[
+                    mode === "打包任务" ? "生产完成进入打包手机端" : "发布任务到车间手机端",
+                    mode === "打包任务" ? "打包工填写实包数量和包裹数" : "岗位工填写合格数量和机器计数",
+                    mode === "打包任务" ? "包裹进入标签/出库下一步" : "合格品入库并占用给订单",
+                    "关键动作写后端 API 和操作日志",
+                  ]}
+                />
+              </section>
+            ) : null}
           </>
         ) : (
           <DataState title="当前岗位暂无任务" detail="切换任务模式或刷新任务池后重试。" compact />

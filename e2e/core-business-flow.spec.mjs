@@ -173,6 +173,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
     403,
   );
   expect(workshopReviewDenied.requiredPermission).toBe("production.schedule.publish");
+  await page.getByRole("tab", { name: "成品图", exact: true }).click();
   await page.getByRole("button", { name: "上传成品图", exact: true }).click();
   await expect(page.getByText("上传成品图附件", { exact: false })).toBeVisible();
 
