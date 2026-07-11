@@ -10,6 +10,7 @@
 
 ## 当前基线
 
+- 本轮补充：D25-4 交付打印命令 service 迁移已完成。首次打印 / 重打门禁、设备选择与文档兼容校验、打印记录事务、模板和打印作业创建、打印记录作废已迁入 `fulfillmentPrintCommandService.mjs`。production 对无正式事务目标的打印记录作废改为 fail-closed，不允许只写内存。直接 service、HTTP、OpenAPI、全量和 PostgreSQL 16 live 通过。下一轮 D25-5 迁移打印设备、驱动模式和现场 QA 命令。
 - 本轮补充：D25-3 打印作业生命周期 service 迁移已完成。状态更新、派发、批量 / 单作业轮询、驱动回调、外部作业号匹配、终态锁和失败 / 取消重试已迁入 `printJobLifecycleService.mjs`；API 只转换结构化结果，驱动上报的 operator 不能覆盖已认证服务账号。直接 service、实际 HTTP、全量测试、构建和 PostgreSQL 16 live 通过。下一轮 D25-4 迁移打印记录创建 / 作废和交付打印命令。
 - 本轮补充：D25-2 打印业务投影 service 拆分已完成。打印作业对打印记录 / 出库交付的状态投影从 API 组合入口迁入可注入独立服务，直接测试锁定 `sent` 不推进交付、可信 `printed` 才确认实体打印、预览不投影和非交付标签的本地更新。全量回归和 PostgreSQL 16 live 通过。下一轮 D25-3 迁移打印作业状态更新、驱动回调 / 轮询、派发和重试，仍保持 `route -> service -> repository` 及 fail-closed 边界。
 - 本轮补充：D25-1 V1 状态页 / client 首轮拆分已完成。页面静态基线、阶段投影、快照新鲜度和生产 env 检查进入纯展示模型，顶部快照 / 门禁 / 模块列表进入总览组件；客户端 22 个 HTTP action 进入 action factory，原 client 保留 normalizer 与兼容导出。直接测试和全量回归覆盖幂等、权限、阻断、离线 fail-closed、管理 / 技术可见及办公室拒绝。下一轮 D25-2 先迁打印 / 交付 API service，保持 trusted printed 门禁、事务和 PostgreSQL live 不变。
