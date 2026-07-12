@@ -4,7 +4,17 @@ export const coreWorkspaceCollectionKeys = Object.freeze([
   "customers",
   "customerContacts",
   "customerAddresses",
+  "customerNotes",
   "standardColors",
+  "colorAliases",
+  "sizeSpecs",
+  "finishedGoodsStyles",
+  "priceTables",
+  "priceTableItems",
+  "machines",
+  "employees",
+  "employeeMachineAssignments",
+  "machineCapacityBaselines",
   "originalOrders",
   "orderLines",
   "orderLineChangeRecords",
@@ -34,7 +44,17 @@ const sourceTables = Object.freeze({
   customers: "customers",
   customerContacts: "customer_contacts",
   customerAddresses: "customer_addresses",
+  customerNotes: "customer_notes",
   standardColors: "standard_colors",
+  colorAliases: "color_aliases",
+  sizeSpecs: "size_specs",
+  finishedGoodsStyles: "finished_goods_styles",
+  priceTables: "price_tables",
+  priceTableItems: "price_table_items",
+  machines: "machines",
+  employees: "employees",
+  employeeMachineAssignments: "employee_machine_assignments",
+  machineCapacityBaselines: "machine_capacity_baselines",
   originalOrders: "original_orders",
   orderLines: "order_lines",
   orderLineChangeRecords: "order_line_change_records",
@@ -135,7 +155,17 @@ export function normalizeCoreWorkspaceState(value) {
     ),
     customerContacts: rows.customerContacts.map(toCustomerContact),
     customerAddresses: rows.customerAddresses.map(toCustomerAddress),
+    customerNotes: rows.customerNotes.map(toCustomerNote),
     standardColors: rows.standardColors.map(toStandardColor),
+    colorAliases: rows.colorAliases.map(toColorAlias),
+    sizeSpecs: rows.sizeSpecs.map(toSizeSpec),
+    finishedGoodsStyles: rows.finishedGoodsStyles.map(toFinishedGoodsStyle),
+    priceTables: rows.priceTables.map(toPriceTable),
+    priceTableItems: rows.priceTableItems.map(toPriceTableItem),
+    machines: rows.machines.map(toMachine),
+    employees: rows.employees.map(toEmployee),
+    employeeMachineAssignments: rows.employeeMachineAssignments.map(toEmployeeMachineAssignment),
+    machineCapacityBaselines: rows.machineCapacityBaselines.map(toMachineCapacityBaseline),
     originalOrders: rows.originalOrders.map(toOriginalOrder),
     orderLines: rows.orderLines.map((row) =>
       toOrderLine(
@@ -244,6 +274,19 @@ function toCustomerAddress(row) {
   };
 }
 
+function toCustomerNote(row) {
+  return {
+    id: clean(row.id),
+    customerId: clean(row.customer_id),
+    noteType: clean(row.note_type),
+    content: clean(row.content),
+    visibleTo: clean(row.visible_to) || "office",
+    createdBy: clean(row.created_by),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
 function toStandardColor(row) {
   return {
     id: clean(row.id),
@@ -251,6 +294,154 @@ function toStandardColor(row) {
     colorKey: clean(row.color_key),
     name: clean(row.name),
     enabled: boolean(row.enabled, true),
+  };
+}
+
+function toColorAlias(row) {
+  return {
+    id: clean(row.id),
+    alias: clean(row.alias),
+    standardColorId: clean(row.standard_color_id),
+    sourceType: clean(row.source_type) || "global",
+    sourceId: clean(row.source_id),
+    enabled: boolean(row.enabled, true),
+    createdBy: clean(row.created_by),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toSizeSpec(row) {
+  return {
+    id: clean(row.id),
+    sizeKey: clean(row.size_key),
+    displayName: clean(row.display_name),
+    widthMm: nullableNumber(row.width_mm),
+    heightMm: nullableNumber(row.height_mm),
+    gussetMm: nullableNumber(row.gusset_mm),
+    seamMm: nullableNumber(row.seam_mm),
+    enabled: boolean(row.enabled, true),
+    metadata: object(row.metadata_json),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toFinishedGoodsStyle(row) {
+  return {
+    id: clean(row.id),
+    styleKey: clean(row.style_key),
+    name: clean(row.name),
+    enabled: boolean(row.enabled, true),
+    allowedSizeKeys: array(row.allowed_size_keys),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toPriceTable(row) {
+  return {
+    id: clean(row.id),
+    bizNo: clean(row.biz_no),
+    name: clean(row.name),
+    versionNo: integer(row.version_no, 1),
+    status: clean(row.status) || "active",
+    effectiveFrom: timestamp(row.effective_from),
+    effectiveTo: timestamp(row.effective_to),
+    createdBy: clean(row.created_by),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toPriceTableItem(row) {
+  return {
+    id: clean(row.id),
+    priceTableId: clean(row.price_table_id),
+    sizeKey: clean(row.size_key),
+    standardColorId: clean(row.standard_color_id),
+    handleType: clean(row.handle_type),
+    styleKey: clean(row.style_key),
+    bagPrice: number(row.bag_price),
+    printPrice: number(row.print_price),
+    otherFee: number(row.other_fee),
+    minQty: nullableInteger(row.min_qty),
+    enabled: boolean(row.enabled, true),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toMachine(row) {
+  return {
+    id: clean(row.id),
+    machineId: clean(row.id),
+    bizNo: clean(row.biz_no),
+    name: clean(row.name),
+    machineType: clean(row.machine_type) || "bag_making",
+    workshop: clean(row.workshop),
+    status: clean(row.status) || "active",
+    enabled: boolean(row.enabled, true),
+    settings: object(row.settings_json),
+    createdBy: clean(row.created_by),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toEmployee(row) {
+  return {
+    id: clean(row.id),
+    employeeId: clean(row.id),
+    bizNo: clean(row.biz_no),
+    userId: clean(row.user_id),
+    name: clean(row.name),
+    roleName: clean(row.role_name),
+    defaultWorkshop: clean(row.default_workshop),
+    defaultMachineId: clean(row.default_machine_id),
+    baseHourlyWage: number(row.base_hourly_wage),
+    positionAllowanceHourly: number(row.position_allowance_hourly),
+    wageEffectiveFrom: clean(row.wage_effective_from),
+    accountEnabled: boolean(row.account_enabled),
+    profileStatus: clean(row.profile_status) || "pending_admin_review",
+    requestedEnabled: boolean(row.requested_enabled),
+    remark: clean(row.remark),
+    createdBy: clean(row.created_by),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toEmployeeMachineAssignment(row) {
+  return {
+    id: clean(row.id),
+    employeeId: clean(row.employee_id),
+    machineId: clean(row.machine_id),
+    assignmentType: clean(row.assignment_type) || "default",
+    workshop: clean(row.workshop),
+    effectiveFrom: clean(row.effective_from),
+    effectiveTo: clean(row.effective_to),
+    enabled: boolean(row.enabled, true),
+    createdBy: clean(row.created_by),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toMachineCapacityBaseline(row) {
+  return {
+    id: clean(row.id),
+    machineId: clean(row.machine_id),
+    sizeKey: clean(row.size_key),
+    dailyCapacityQty: integer(row.daily_capacity_qty),
+    hourlyCapacityQty: nullableInteger(row.hourly_capacity_qty),
+    sourceKind: clean(row.source_kind) || "manual_estimate",
+    confidence: clean(row.confidence) || "low",
+    effectiveFrom: clean(row.effective_from),
+    remark: clean(row.remark),
+    createdBy: clean(row.created_by),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
   };
 }
 
@@ -806,6 +997,11 @@ function integer(value, fallback = 0) {
 function nullableInteger(value) {
   if (value === null || value === undefined || value === "") return null;
   return integer(value);
+}
+
+function nullableNumber(value) {
+  if (value === null || value === undefined || value === "") return null;
+  return number(value);
 }
 
 function boolean(value, fallback = false) {
