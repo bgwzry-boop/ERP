@@ -31,6 +31,7 @@ import { useOfficeInteractionController } from "./app/useOfficeInteractionContro
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
 import { createOfficeDriverDeliveryActions } from "./app/createOfficeDriverDeliveryActions.js";
 import { createOfficeRawMaterialActions } from "./app/createOfficeRawMaterialActions.js";
+import { createOfficeStatementActions } from "./app/createOfficeStatementActions.js";
 import { createOfficeV1StatusActions } from "./app/createOfficeV1StatusActions.js";
 import { isInlineImageAttachment } from "./app/attachmentViewUtils.js";
 import { DataState, WorkspaceNotice, WorkspacePageHeader } from "./shared/ui/operational.jsx";
@@ -68,19 +69,8 @@ import {
   normalizePrinterDeviceFieldTestChecks,
 } from "./services/printerDeviceFieldTestClient.js";
 import {
-  buildStatementExcelWorkbook,
-  downloadOfficeStatementExport,
-  listOfficeStatementExports,
-  markOfficeStatementSentViaApi,
-  previewOfficeStatement,
-  recordOfficeStatementSendReceipt,
-  writeOffOfficeStatement,
-} from "./services/officeStatementApiClient.js";
-import {
-  confirmOfficeStatementWriteOff,
   createOfficeTodo,
   loadOfficeWorkspace,
-  markOfficeStatementSent,
 } from "./services/officeMockService.js";
 import {
   upsertMasterDataEmployeeAccountReview,
@@ -93,14 +83,8 @@ import {
   getPrinterDeviceQaPaperLabel,
 } from "./state/officePrintState.js";
 import {
-  getStatementWriteOffBlocker,
-  recordStatementSendReceipt,
-  recordStatementExport,
   syncStatementCustomerConfirmationAttachments,
   syncStatementPaymentAttachments,
-  syncStatementExportRecords,
-  updateStatementCustomerConfirmationAttachmentPreview,
-  updateStatementPaymentAttachmentPreview,
 } from "./state/officeStatementActions.js";
 import { getProductionPackingFocusFromLedgerEntry } from "./domain/productionPackingSourceFocus.js";
 import {
@@ -2355,453 +2339,25 @@ export function App() {
     setToast,
     todos,
   });
-  async function statementAction(action, statementId = selectedStatementId, actionPayload = {}) {
-    if (!guardUiAction("statements", action)) return;
-    const selected = statements.find((item) => item.id === statementId) ?? statements[0];
-    const customer = findCustomer(selected.customerId);
-    const blockingAmount = getStatementBlockingAmount(selected);
-
-    if (action === "查看付款凭证") {
-      const attachmentId = typeof actionPayload === "string" ? actionPayload : actionPayload?.attachmentId;
-      const attachmentFile = (selected.paymentAttachmentFiles ?? []).find((file) => file.attachmentId === attachmentId);
-      if (!attachmentId) {
-        setToast("未找到付款凭证附件 ID，无法预览。");
-        return;
-      }
-      if (attachmentFile?.previewDataUrl) {
-        const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-        openAttachmentViewer({
-          ...attachmentFile,
-          accessAudit,
-          statementId: selected.id,
-        });
-        setStatements((current) =>
-          updateStatementPaymentAttachmentPreview(current, selected.id, attachmentId, {
-            accessAudit,
-          }),
-        );
-        setToast(`已打开付款凭证预览：${attachmentFile.fileName || attachmentId}。`);
-        return;
-      }
-      const contentResult = await downloadOfficeAttachmentContent({
-        authState,
-        attachmentId,
-        operatorId: currentUserId,
-      });
-      if (contentResult.blocked) {
-        setToast(
-          contentResult.error?.requiredPermission
-            ? "后端拒绝读取付款凭证：缺少权限 " + contentResult.error.requiredPermission + "。"
-            : "后端拒绝读取付款凭证：" + (contentResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      if (contentResult.source !== "api") {
-        setStatements((current) =>
-          updateStatementPaymentAttachmentPreview(current, selected.id, attachmentId, {
-            previewStatus: "读取失败，API 不可用",
-          }),
-        );
-        setToast("付款凭证内容读取 API 暂不可用，已保留附件记录。");
-        return;
-      }
-      const previewDataUrl = contentResult.contentBlob ? await readBlobAsDataUrl(contentResult.contentBlob) : "";
-      const isImagePreview = isInlineImageAttachment({
-        previewDataUrl,
-        contentType: contentResult.contentType,
-        mimeType: contentResult.contentType || attachmentFile?.mimeType,
-      });
-      const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-      const nextPreview = {
-        ...attachmentFile,
-        attachmentId,
-        fileName: attachmentFile?.fileName || attachmentId,
-        mimeType: contentResult.contentType || attachmentFile?.mimeType,
-        contentType: contentResult.contentType,
-        contentDisposition: contentResult.contentDisposition,
-        previewDataUrl,
-        previewStatus: previewDataUrl ? (isImagePreview ? "已加载预览" : "已读取内容，可下载原文件") : "未读取到内容",
-        accessAudit,
-        statementId: selected.id,
-      };
-      setStatements((current) =>
-        updateStatementPaymentAttachmentPreview(current, selected.id, attachmentId, {
-          previewDataUrl: nextPreview.previewDataUrl,
-          previewStatus: nextPreview.previewStatus,
-          contentType: nextPreview.contentType,
-          contentDisposition: nextPreview.contentDisposition,
-          accessAudit: nextPreview.accessAudit,
-        }),
-      );
-      if (previewDataUrl) {
-        openAttachmentViewer(nextPreview);
-      }
-      setToast(
-        previewDataUrl
-          ? isImagePreview
-            ? "已通过后端 API 读取付款凭证并显示预览。"
-            : "已通过后端 API 读取付款凭证，可下载原文件查看。"
-          : "已通过后端 API 读取付款凭证，当前没有可下载内容。",
-      );
-      return;
-    }
-
-    if (action === "查看客户确认附件") {
-      const attachmentId = typeof actionPayload === "string" ? actionPayload : actionPayload?.attachmentId;
-      const attachmentFile = (selected.customerConfirmationAttachmentFiles ?? []).find((file) => file.attachmentId === attachmentId);
-      if (!attachmentId) {
-        setToast("未找到客户确认附件 ID，无法预览。");
-        return;
-      }
-      if (attachmentFile?.previewDataUrl) {
-        const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-        openAttachmentViewer({
-          ...attachmentFile,
-          accessAudit,
-          statementId: selected.id,
-          viewerTitle: "客户确认附件预览",
-        });
-        setStatements((current) =>
-          updateStatementCustomerConfirmationAttachmentPreview(current, selected.id, attachmentId, {
-            accessAudit,
-          }),
-        );
-        setToast(`已打开客户确认附件预览：${attachmentFile.fileName || attachmentId}。`);
-        return;
-      }
-      const contentResult = await downloadOfficeAttachmentContent({
-        authState,
-        attachmentId,
-        operatorId: currentUserId,
-      });
-      if (contentResult.blocked) {
-        setToast(
-          contentResult.error?.requiredPermission
-            ? "后端拒绝读取客户确认附件：缺少权限 " + contentResult.error.requiredPermission + "。"
-            : "后端拒绝读取客户确认附件：" + (contentResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      if (contentResult.source !== "api") {
-        setStatements((current) =>
-          updateStatementCustomerConfirmationAttachmentPreview(current, selected.id, attachmentId, {
-            previewStatus: "读取失败，API 不可用",
-          }),
-        );
-        setToast("客户确认附件内容读取 API 暂不可用，已保留附件记录。");
-        return;
-      }
-      const previewDataUrl = contentResult.contentBlob ? await readBlobAsDataUrl(contentResult.contentBlob) : "";
-      const isImagePreview = isInlineImageAttachment({
-        previewDataUrl,
-        contentType: contentResult.contentType,
-        mimeType: contentResult.contentType || attachmentFile?.mimeType,
-      });
-      const accessAudit = await loadAttachmentAccessAudit(attachmentId);
-      const nextPreview = {
-        ...attachmentFile,
-        attachmentId,
-        fileName: attachmentFile?.fileName || attachmentId,
-        mimeType: contentResult.contentType || attachmentFile?.mimeType,
-        contentType: contentResult.contentType,
-        contentDisposition: contentResult.contentDisposition,
-        previewDataUrl,
-        previewStatus: previewDataUrl ? (isImagePreview ? "已加载预览" : "已读取内容，可下载原文件") : "未读取到内容",
-        accessAudit,
-        statementId: selected.id,
-        viewerTitle: "客户确认附件预览",
-      };
-      setStatements((current) =>
-        updateStatementCustomerConfirmationAttachmentPreview(current, selected.id, attachmentId, {
-          previewDataUrl: nextPreview.previewDataUrl,
-          previewStatus: nextPreview.previewStatus,
-          contentType: nextPreview.contentType,
-          contentDisposition: nextPreview.contentDisposition,
-          accessAudit: nextPreview.accessAudit,
-        }),
-      );
-      if (previewDataUrl) {
-        openAttachmentViewer(nextPreview);
-      }
-      setToast(
-        previewDataUrl
-          ? isImagePreview
-            ? "已通过后端 API 读取客户确认附件并显示预览。"
-            : "已通过后端 API 读取客户确认附件，可下载原文件查看。"
-          : "已通过后端 API 读取客户确认附件，当前没有可下载内容。",
-      );
-      return;
-    }
-
-    if (action === "生成对账单预览") {
-      const apiResult = await previewOfficeStatement({
-        authState,
-        statement: selected,
-        orderLines,
-        customer,
-        operatorId: currentUserId,
-        previewType: "customer_send",
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? "后端拒绝生成对账预览：缺少权限 " + apiResult.error.requiredPermission + "。"
-            : "后端拒绝生成对账预览：" + (apiResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      openModal({ type: "statementPreview", statementId: selected.id, preview: apiResult.preview, previewSource: apiResult.source });
-      if (apiResult.source === "api" && apiResult.preview?.downloadToken) {
-        await refreshStatementExportRecords(selected);
-      }
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast("已通过" + sourceLabel + "生成客户发送版对账单预览；预览不等于已发送。");
-      return;
-    }
-
-    if (action === "导出占位" || action === "导出Excel") {
-      const apiResult = await previewOfficeStatement({
-        authState,
-        statement: selected,
-        orderLines,
-        customer,
-        operatorId: currentUserId,
-        previewType: "internal_archive",
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? "后端拒绝生成导出文件：缺少权限 " + apiResult.error.requiredPermission + "。"
-            : "后端拒绝生成导出文件：" + (apiResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      const exportResult = await downloadOfficeStatementExport({
-        authState,
-        statement: selected,
-        preview: apiResult.preview,
-        operatorId: currentUserId,
-      });
-      if (exportResult.blocked) {
-        setToast(
-          exportResult.error?.requiredPermission
-            ? "后端拒绝下载导出文件：缺少权限 " + exportResult.error.requiredPermission + "。"
-            : "后端拒绝下载导出文件：" + (exportResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      const workbookContent =
-        exportResult.source === "api"
-          ? exportResult.workbookData
-          : buildStatementExcelWorkbook(apiResult.preview, { statement: selected, customer });
-      const downloaded = downloadStatementExcelWorkbook(workbookContent, selected, customer, {
-        fileName: exportResult.fileName,
-        contentType: exportResult.contentType,
-      });
-      const exportSourceLabel = exportResult.source === "api" ? "后端 API 文件" : "本地规则降级";
-      const exportRecordPayload = {
-        fileName: exportResult.fileName || "statement-" + selected.id + "-" + (customer?.name ?? "customer") + ".xlsx",
-        source: exportSourceLabel,
-        downloadToken: apiResult.preview?.downloadToken,
-        previewType: apiResult.preview?.previewType,
-        contentType: exportResult.contentType,
-      };
-      const listResult = exportResult.source === "api" ? await refreshStatementExportRecords(selected) : null;
-      if (listResult?.source !== "api") {
-        setStatements((current) => recordStatementExport(current, selected, exportRecordPayload));
-      }
-      setToast("已通过" + exportSourceLabel + "生成内部留档 Excel 文件" + (downloaded ? "，包含对账汇总和交付明细。" : "，当前环境未触发下载。"));
-      return;
-    }
-
-    if (action === "刷新导出记录") {
-      const listResult = await refreshStatementExportRecords(selected);
-      if (listResult?.blocked) {
-        setToast(
-          listResult.error?.requiredPermission
-            ? "后端拒绝查询导出记录：缺少权限 " + listResult.error.requiredPermission + "。"
-            : "后端拒绝查询导出记录：" + (listResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      const sourceLabel = listResult?.source === "api" ? "后端 API" : "本地记录";
-      setToast("已通过" + sourceLabel + "刷新导出记录，共 " + (listResult?.total ?? 0) + " 条。");
-      return;
-    }
-
-    if (action === "下载导出文件") {
-      const exportRecord = actionPayload.exportRecord;
-      if (!exportRecord?.downloadToken) {
-        setToast("该导出记录缺少下载令牌，无法重下历史文件。");
-        return;
-      }
-      const exportResult = await downloadOfficeStatementExport({
-        authState,
-        statement: selected,
-        exportRecord,
-        operatorId: currentUserId,
-        allowLocalFallback: false,
-      });
-      if (exportResult.blocked) {
-        setToast(
-          exportResult.error?.requiredPermission
-            ? "后端拒绝下载历史导出文件：缺少权限 " + exportResult.error.requiredPermission + "。"
-            : "后端拒绝下载历史导出文件：" + (exportResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      if (exportResult.source !== "api") {
-        setToast("历史导出文件下载接口暂不可用，未重新生成本地文件。");
-        return;
-      }
-      const downloaded = downloadStatementExcelWorkbook(exportResult.workbookData, selected, customer, {
-        fileName: exportResult.fileName || exportRecord.fileName,
-        contentType: exportResult.contentType || exportRecord.contentType,
-      });
-      setToast(
-        downloaded
-          ? "已重新下载历史导出文件：" + (exportResult.fileName || exportRecord.fileName || "对账 Excel") + "。"
-          : "历史导出文件已读取，但当前环境未触发下载。",
-      );
-      return;
-    }
-
-    if (action === "登记实收") {
-      openModal({ type: "payment", statementId: selected.id });
-      return;
-    }
-
-    if (action === "标记已发送") {
-      const sentTo = findCustomer(selected.customerId).contact;
-      const sendChannel = "微信";
-      const apiResult = await markOfficeStatementSentViaApi({
-        authState,
-        statement: selected,
-        operatorId: currentUserId,
-        sentTo,
-        channel: "wechat",
-        remark: currentUser.displayName + " 在对账 / 收款页标记发送。",
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? "后端拒绝标记发送：缺少权限 " + apiResult.error.requiredPermission + "。"
-            : "后端拒绝标记发送：" + (apiResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      setStatements((current) =>
-        markOfficeStatementSent({
-          statements: current,
-          statementId: selected.id,
-          payload: {
-            sendRecordId: apiResult.sendRecordId,
-            channel: sendChannel,
-            sentTo,
-            operatorName: currentUser.displayName,
-            remark: currentUser.displayName + " 在对账 / 收款页标记发送。",
-          },
-        }),
-      );
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast("已通过" + sourceLabel + "记录对账发送渠道、发送人和发送时间。");
-      return;
-    }
-
-    if (action === "标记已读回执") {
-      if (!selected.sent || !selected.sendRecordId) {
-        setToast("当前对账单还没有发送记录，不能登记客户已读回执。");
-        return;
-      }
-      const apiResult = await recordOfficeStatementSendReceipt({
-        authState,
-        statement: selected,
-        operatorId: currentUserId,
-        receiptStatus: "read",
-        remark: currentUser.displayName + " 在对账 / 收款页登记客户已读回执。",
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? "后端拒绝登记回执：缺少权限 " + apiResult.error.requiredPermission + "。"
-            : "后端拒绝登记回执：" + (apiResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      setStatements((current) =>
-        recordStatementSendReceipt(current, selected.id, {
-          receiptStatus: apiResult.receiptStatus || "read",
-          receiptAt: apiResult.receiptAt,
-          operatorName: currentUser.displayName,
-          remark: currentUser.displayName + " 在对账 / 收款页登记客户已读回执。",
-        }),
-      );
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast("已通过" + sourceLabel + "登记客户已读回执。");
-      return;
-    }
-
-    if (action === "登记客户确认") {
-      if (!selected.sent || !selected.sendRecordId) {
-        setToast("当前对账单还没有发送记录，不能登记客户确认。");
-        return;
-      }
-      openModal({ type: "customerConfirmation", statementId: selected.id });
-      return;
-    }
-
-    if (action === "差额待确认") {
-      if (blockingAmount <= 0 && selected.received >= selected.receivable) {
-        setToast("当前没有差额，无需进入差额处理。");
-        return;
-      }
-      openModal({ type: "variance", statementId: selected.id });
-      return;
-    }
-
-    if (action === "确认核销") {
-      const blocker = getStatementWriteOffBlocker(selected, blockingAmount);
-      if (blocker) {
-        setToast(blocker);
-        return;
-      }
-      const apiResult = await writeOffOfficeStatement({
-        authState,
-        statement: selected,
-        operatorId: currentUserId,
-        confirmReason: currentUser.displayName + " 确认核销 / 欠款状态。",
-      });
-      if (apiResult.blocked) {
-        setToast(
-          apiResult.error?.requiredPermission
-            ? "后端拒绝确认核销：缺少权限 " + apiResult.error.requiredPermission + "。"
-            : "后端拒绝确认核销：" + (apiResult.error?.message ?? "未知错误"),
-        );
-        return;
-      }
-      const result = confirmOfficeStatementWriteOff({ statements, statement: selected, blockingAmount });
-      setStatements(result.statements);
-      const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast("已通过" + sourceLabel + "记录：" + result.toast.replace("办公室A", currentUser.displayName));
-      return;
-    }
-
-    setToast(action + " 已模拟完成；正式 Excel 样式等拿到模板后适配。");
-  }
-
-  async function refreshStatementExportRecords(statement) {
-    const listResult = await listOfficeStatementExports({
-      authState,
-      statement,
-      operatorId: currentUserId,
-    });
-    if (!listResult.blocked) {
-      setStatements((current) => syncStatementExportRecords(current, statement, listResult.items, {
-        source: listResult.source === "api" ? "后端 API 文件" : "本地记录",
-      }));
-    }
-    return listResult;
-  }
+  const { statementAction } = createOfficeStatementActions({
+    allowLocalFallback: !runtimeServerRequired,
+    authState,
+    currentUser,
+    currentUserId,
+    downloadStatementExcelWorkbook,
+    findCustomer,
+    getStatementBlockingAmount,
+    guardUiAction,
+    loadAttachmentAccessAudit,
+    openAttachmentViewer,
+    openModal,
+    orderLines,
+    readBlobAsDataUrl,
+    selectedStatementId,
+    setStatements,
+    setToast,
+    statements,
+  });
 
   if (runtimeServerRequired && !authState.authenticated) {
     return (
