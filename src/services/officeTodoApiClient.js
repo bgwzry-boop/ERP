@@ -262,6 +262,13 @@ export function mapTodoUiActionToApiPayload(action, options = {}) {
       reason: options.reason ?? action,
     };
   }
+  if (action === "客户待确认") {
+    return {
+      action: "customer_pending",
+      handlingResult: options.handlingResult ?? action,
+      reason: options.reason ?? action,
+    };
+  }
   return {
     action: "mark_handled",
     handlingResult: options.handlingResult ?? action,

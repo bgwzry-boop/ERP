@@ -3038,6 +3038,37 @@ async function checkApiWithPostgresRepositories() {
     Number(runPsql("SELECT COUNT(*) FROM todo_events WHERE todo_id = 'T-LIVE-IDEMPOTENCY-001';", { capture: true }).trim()),
     1,
   );
+  const customerPendingAction = await postJson(
+    baseUrl,
+    "/api/todos/T-LIVE-IDEMPOTENCY-002/handle",
+    {
+      action: "customer_pending",
+      handlingResult: "客户待确认",
+      idempotencyKey: "todo-customer-pending-live-api-001",
+    },
+    { headers },
+  );
+  assert.equal(customerPendingAction.todo.handled, false);
+  assert.equal(customerPendingAction.todo.status, "snoozed");
+  assert.equal(customerPendingAction.todo.reminder, "等待客户回复");
+  const persistedCustomerPending = queryJson(
+    `SELECT json_build_object(
+      'status', todo_record.status,
+      'handledBy', todo_record.handled_by,
+      'reminder', (
+        SELECT event_payload->'todo'->>'reminder'
+        FROM todo_events
+        WHERE todo_id = todo_record.id
+        ORDER BY occurred_at DESC, created_at DESC, id DESC
+        LIMIT 1
+      )
+    ) AS result
+    FROM todos AS todo_record
+    WHERE todo_record.id = 'T-LIVE-IDEMPOTENCY-002';`,
+  );
+  assert.equal(persistedCustomerPending.status, "未处理");
+  assert.equal(persistedCustomerPending.reminder, "等待客户回复");
+  assert.equal(persistedCustomerPending.handledBy, null);
   const startupOperationLogs = await getJson(baseUrl, "/api/operation-logs?limit=200", { headers });
   assert.equal(
     startupOperationLogs.total,
@@ -5399,6 +5430,11 @@ WHERE id = 'F002';`,
   assert.equal(restartedTodoAction?.notifiedBy, "U-OFFICE-A");
   assert.equal(restartedTodoAction?.notificationStatus, "已通知客户");
   assert.equal(restartedTodoAction?.notificationCopyText, "PostgreSQL 待办持久化验证");
+  const restartedOpenTodos = await getJson(baseUrl, "/api/todos?status=open&pageSize=200", { headers });
+  const restartedCustomerPending = restartedOpenTodos.items.find((item) => item.todoId === "T-LIVE-IDEMPOTENCY-002");
+  assert.equal(restartedCustomerPending?.handled, false);
+  assert.equal(restartedCustomerPending?.reminder, "等待客户回复");
+  assert.equal(restartedCustomerPending?.lastAction, "客户待确认");
   const restartedCorrectionDetail = await getJson(
     baseUrl,
     `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}`,

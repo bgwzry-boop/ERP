@@ -38,6 +38,9 @@ assert(notificationCopyPayload.action === "customer_notification_copied", "custo
 const notificationSentPayload = mapTodoUiActionToApiPayload("确认已通知客户");
 assert(notificationSentPayload.action === "customer_notification_sent", "customer notification sent action was not mapped correctly");
 
+const customerPendingPayload = mapTodoUiActionToApiPayload("客户待确认");
+assert(customerPendingPayload.action === "customer_pending", "customer pending action was not mapped correctly");
+
 const printTodoA = { id: "T-PRINT-A", type: "待打印标签", summary: "快运 3 包，打包工已提交包裹明细", urgency: "今天" };
 const printTodoB = { id: "T-PRINT-B", type: "待打印标签", summary: "快运 2 包，打包工已提交包裹明细", urgency: "今天" };
 const nonPrintTodo = { id: "T-NORMAL", type: "订单草稿待确认", summary: "普通待办", urgency: "普通" };
@@ -303,6 +306,33 @@ assert(notificationCalls[0]?.body.action === "customer_notification_copied", "cu
 assert(notificationCalls[0]?.body.notificationContent === "客户通知文案", "customer notification copy content was not sent");
 assert(notificationCopyResult.todo?.handled === false, "copying customer notification should keep todo open");
 
+const customerPendingResult = await handleOfficeTodoAction(
+  {
+    authState,
+    todoId: "T-CUSTOMER-NOTIFY-1",
+    action: "客户待确认",
+    operatorId: "U-OFFICE-A",
+    handlingResult: "客户待确认",
+  },
+  {
+    fetchImpl: async (url, init) => {
+      notificationCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        todo: {
+          todoId: "T-CUSTOMER-NOTIFY-1",
+          handled: false,
+          status: "open",
+          reminder: "等待客户回复",
+          lastAction: "客户待确认",
+        },
+        operationLogId: "LOG-TODO-CUSTOMER-PENDING-1",
+      });
+    },
+  },
+);
+assert(notificationCalls[1]?.body.action === "customer_pending", "customer pending API action is incorrect");
+assert(customerPendingResult.todo?.handled === false, "customer pending should keep the todo open");
+
 const notificationSentResult = await handleOfficeTodoAction(
   {
     authState,
@@ -336,8 +366,8 @@ const notificationSentResult = await handleOfficeTodoAction(
   },
 );
 
-assert(notificationCalls[1]?.body.action === "customer_notification_sent", "customer notification sent API action is incorrect");
-assert(notificationCalls[1]?.body.notificationChannel === "微信 / 企业微信人工发送", "customer notification channel was not sent");
+assert(notificationCalls[2]?.body.action === "customer_notification_sent", "customer notification sent API action is incorrect");
+assert(notificationCalls[2]?.body.notificationChannel === "微信 / 企业微信人工发送", "customer notification channel was not sent");
 assert(notificationSentResult.todo?.handled === true, "sent customer notification should close todo");
 
 const printBatchCalls = [];

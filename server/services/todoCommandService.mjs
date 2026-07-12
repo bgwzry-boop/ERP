@@ -72,6 +72,7 @@ const supportedActions = new Set([
   "mark_viewed",
   "customer_notification_copied",
   "customer_notification_sent",
+  "customer_pending",
 ]);
 
 function applyTodoAction({ before, action, body, operatorId, timestamp }) {
@@ -144,6 +145,16 @@ function applyTodoAction({ before, action, body, operatorId, timestamp }) {
       notificationCopiedBy: operatorId,
       notificationCopiedAt: timestamp,
       lastAction: cleanText(body.handlingResult) || "已复制客户通知话术",
+      updatedAt: timestamp,
+    };
+  }
+  if (action === "customer_pending") {
+    return {
+      ...before,
+      status: "未处理",
+      handled: false,
+      reminder: "等待客户回复",
+      lastAction: cleanText(body.handlingResult) || "客户待确认",
       updatedAt: timestamp,
     };
   }

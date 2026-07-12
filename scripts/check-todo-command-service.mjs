@@ -90,6 +90,21 @@ const copied = await service.handleTodo({
 assert.equal(copied.todo.notificationCopiedBy, "U-AUTH");
 assert.equal(copied.todo.notificationCopyText, "请确认");
 
+const customerPending = await service.handleTodo({
+  workspace,
+  todoId: "T-CMD-1",
+  operatorId: "U-AUTH",
+  body: {
+    action: "customer_pending",
+    handlingResult: "客户待确认",
+    idempotencyKey: "todo-command-customer-pending-001",
+  },
+});
+assert.equal(customerPending.todo.handled, false);
+assert.equal(customerPending.todo.status, "未处理");
+assert.equal(customerPending.todo.reminder, "等待客户回复");
+assert.equal(customerPending.todo.lastAction, "客户待确认");
+
 const pending = await service.handleTodo({
   workspace,
   todoId: "T-CMD-1",
