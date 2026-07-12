@@ -6617,6 +6617,7 @@ button.route-nav-button {
 
 .form-grid label {
   display: grid;
+  min-width: 0;
   color: #536178;
   font-size: 12px;
   gap: 6px;
@@ -6625,6 +6626,8 @@ button.route-nav-button {
 .form-grid input,
 .form-grid select,
 .form-grid textarea {
+  width: 100%;
+  min-width: 0;
   height: 34px;
   border: 1px solid #d5deea;
   border-radius: 5px;
@@ -8400,6 +8403,10 @@ button.route-nav-button {
 
   .statement-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .form-grid {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .v1-status-banner {

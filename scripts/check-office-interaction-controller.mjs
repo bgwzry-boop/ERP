@@ -170,11 +170,34 @@ assert.equal(
 }
 
 const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appViewsSource = fs.readFileSync(new URL("../src/app/AppViews.jsx", import.meta.url), "utf8");
+const appShellViewsSource = fs.readFileSync(new URL("../src/app/AppShellViews.jsx", import.meta.url), "utf8");
+const attachmentViewerSource = fs.readFileSync(new URL("../src/app/AttachmentViewerModal.jsx", import.meta.url), "utf8");
+const masterDataTemplateModalSource = fs.readFileSync(new URL("../src/app/MasterDataImportTemplateModal.jsx", import.meta.url), "utf8");
+const actionModalsSource = fs.readFileSync(new URL("../src/app/ActionModals.jsx", import.meta.url), "utf8");
+const attachmentViewUtilsSource = fs.readFileSync(new URL("../src/app/attachmentViewUtils.js", import.meta.url), "utf8");
+const stylesSource = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 assert.match(appSource, /useOfficeInteractionController\(\{/);
+assert.match(appSource, /from "\.\/app\/AppViews\.jsx"/);
 assert.doesNotMatch(appSource, /const \[toast, setToast\] = useState/);
 assert.doesNotMatch(appSource, /const \[modal, setModal\] = useState/);
 assert.doesNotMatch(appSource, /function confirmModal\(/);
 assert.doesNotMatch(appSource, /function guardUiAction\(/);
 assert.doesNotMatch(appSource, /recordOfficeStatementPayment|handleOfficeStatementVariance|confirmOfficeModal/);
+assert.doesNotMatch(appSource, /function ActionModal\(/);
+assert.doesNotMatch(appSource, /function MasterDataImportTemplateModal\(/);
+assert.match(appViewsSource, /from "\.\/ActionModals\.jsx"/);
+assert.match(appViewsSource, /from "\.\/AttachmentViewerModal\.jsx"/);
+assert.match(appViewsSource, /from "\.\/MasterDataImportTemplateModal\.jsx"/);
+assert.match(appViewsSource, /from "\.\/AppShellViews\.jsx"/);
+assert.match(actionModalsSource, /export function ActionModal\(/);
+assert.match(actionModalsSource, /export function OrderLineActionModal\(/);
+assert.match(attachmentViewerSource, /export function AttachmentViewerModal\(/);
+assert.match(masterDataTemplateModalSource, /export function MasterDataImportTemplateModal\(/);
+assert.match(appShellViewsSource, /export function RuntimeLoginScreen\(/);
+assert.match(appShellViewsSource, /export function Topbar\(/);
+assert.match(attachmentViewUtilsSource, /export function isInlineImageAttachment\(/);
+assert.match(stylesSource, /\.form-grid label \{[\s\S]*?min-width: 0;/);
+assert.match(stylesSource, /@media \(max-width: 720px\) \{[\s\S]*?\.form-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/);
 
 console.log("Office interaction controller checks passed: overlay state, permission guards, modal routing, and conflict feedback are centralized.");
