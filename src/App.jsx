@@ -31,6 +31,7 @@ import { useOfficeInteractionController } from "./app/useOfficeInteractionContro
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
 import { createOfficeDriverDeliveryActions } from "./app/createOfficeDriverDeliveryActions.js";
 import { createOfficeFulfillmentActions } from "./app/createOfficeFulfillmentActions.js";
+import { createOfficeInventoryActions } from "./app/createOfficeInventoryActions.js";
 import { createOfficeMasterDataActions } from "./app/createOfficeMasterDataActions.js";
 import { createOfficeRawMaterialActions } from "./app/createOfficeRawMaterialActions.js";
 import { createOfficeStatementActions } from "./app/createOfficeStatementActions.js";
@@ -81,7 +82,6 @@ import {
   syncStatementCustomerConfirmationAttachments,
   syncStatementPaymentAttachments,
 } from "./state/officeStatementActions.js";
-import { getProductionPackingFocusFromLedgerEntry } from "./domain/productionPackingSourceFocus.js";
 import {
   MASTER_DATA_IMPORT_CONTENT_TYPE,
   buildMasterDataImportTemplateMetadata,
@@ -1279,13 +1279,6 @@ export function App() {
     setToast(`未找到 ${ref} 的对账记录，已定位到订单池明细。`);
   }
 
-  async function openInventoryCorrectionDetail(correctionDraftId, sourceEntry = null) {
-    setActivePage("inventory");
-    const result = await loadInventoryCorrectionDetail(correctionDraftId, sourceEntry, { showToast: true });
-    if (result?.feedback) setToast(result.feedback);
-    return result?.detail ?? null;
-  }
-
   async function loadProductionPackingSourceDetail(focusTarget) {
     const requestedType = String(focusTarget?.mode ?? "").trim();
     const requestedId = String(focusTarget?.taskId ?? focusTarget?.productionTaskId ?? focusTarget?.packingTaskId ?? "").trim();
@@ -1374,109 +1367,6 @@ export function App() {
     return result.detail;
   }
 
-  function focusInventoryLedgerSource(entry) {
-    const sourceType = String(entry?.sourceType ?? "").trim();
-    const sourceId = String(entry?.sourceId ?? "").trim();
-    if (!sourceId) {
-      setToast(`库存流水 ${entry?.ledgerId ?? ""} 暂无来源单据 ID。`);
-      return;
-    }
-
-    const fulfillmentSourceTypes = new Set([
-      "fulfillment_complete",
-      "fulfillment_complete_legacy",
-      "fulfillment_pickup",
-      "fulfillment_pickup_legacy",
-      "fulfillment_cancel",
-    ]);
-    const orderLineSourceTypes = new Set([
-      "order_confirm",
-      "order_line",
-      "order_line_quantity_adjustment",
-      "order_line_void",
-      "inventory_reservation",
-      "inventory_reservation_release",
-    ]);
-    const productionSourceTypes = new Set(["production_report", "production_report_reservation", "packing_complete"]);
-
-    const fulfillment =
-      fulfillments.find((item) => item.id === sourceId) ??
-      fulfillments.find((item) => item.fulfillmentId === sourceId) ??
-      fulfillments.find((item) => item.lineId === sourceId);
-    const orderLine = resolveLineFromRef(orderLines, statements, sourceId);
-
-    if (productionSourceTypes.has(sourceType)) {
-      const focusTarget = getProductionPackingFocusFromLedgerEntry(entry, {
-        orderLines: [...(productionPacking.productionTasks ?? []), ...orderLines],
-        productionPacking,
-        buildProductionTaskId,
-        buildPackingTaskId,
-      });
-      setActivePage("packing");
-      if (focusTarget) {
-        const nextFocusTarget = {
-          ...focusTarget,
-          focusKey: `${entry?.ledgerId ?? sourceId}-${Date.now()}`,
-        };
-        setProductionPackingFocus(nextFocusTarget);
-        void loadProductionPackingSourceDetail(nextFocusTarget);
-        const targetLabel = focusTarget.mode === "packing" ? "打包任务" : "生产报工任务";
-        setToast(`已从库存流水定位到${targetLabel} ${focusTarget.taskId}。`);
-      } else {
-        setProductionPackingDetailState({
-          source: "local",
-          detail: null,
-          requestedType: "",
-          requestedId: "",
-          loading: false,
-          error: `未找到来源 ${sourceId} 对应的生产或打包任务。`,
-          lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-        });
-        setToast(`已打开打包 / 标签页；未找到来源 ${sourceId} 对应的生产或打包任务。`);
-      }
-      return;
-    }
-
-    if (fulfillmentSourceTypes.has(sourceType) && fulfillment) {
-      setSelectedFulfillmentId(fulfillment.id);
-      setFulfillmentTab(fulfillment.method);
-      setActivePage("fulfillment");
-      setToast(`已从库存流水定位到出库 / 交付记录 ${fulfillment.id}。`);
-      return;
-    }
-
-    if (orderLineSourceTypes.has(sourceType) && orderLine) {
-      setSelectedOrderId(orderLine.id);
-      setOrderFilters({ ...defaultOrderFilters, customerId: orderLine.customerId });
-      setActivePage("orders");
-      setToast(`已从库存流水定位到订单明细 ${orderLine.id}。`);
-      return;
-    }
-
-    if (fulfillment) {
-      setSelectedFulfillmentId(fulfillment.id);
-      setFulfillmentTab(fulfillment.method);
-      setActivePage("fulfillment");
-      setToast(`已从库存流水定位到出库 / 交付记录 ${fulfillment.id}。`);
-      return;
-    }
-
-    if (orderLine) {
-      setSelectedOrderId(orderLine.id);
-      setOrderFilters({ ...defaultOrderFilters, customerId: orderLine.customerId });
-      setActivePage("orders");
-      setToast(`已从库存流水定位到订单明细 ${orderLine.id}。`);
-      return;
-    }
-
-    if (sourceType === "inventory_correction") {
-      void openInventoryCorrectionDetail(sourceId, entry);
-      return;
-    }
-
-    setToast(`暂不能定位库存流水来源 ${sourceType || "未知类型"} / ${sourceId}。`);
-  }
-
   function openOrderLineAction(action, orderLine) {
     if (!orderLine) {
       setToast("请先选择一条订单明细。");
@@ -1537,26 +1427,40 @@ export function App() {
     if (result?.feedback) setToast(result.feedback);
   }
 
-  async function handleInventoryCorrectionDraft({ stock, actualQty, reason }) {
-    if (!guardUiAction("inventory", "生成修正草稿")) return null;
-    const result = await createInventoryCorrectionDraft({ stock, actualQty, reason });
-    if (result?.feedback) setToast(result.feedback);
-    return result?.blocked ? null : result?.draft ?? null;
-  }
-
-  async function handleInventoryCorrectionAttachment(payload) {
-    if (!guardUiAction("inventory", "生成修正草稿")) return null;
-    const result = await linkInventoryCorrectionAttachment(payload);
-    if (result?.feedback) setToast(result.feedback);
-    return result;
-  }
-
-  async function handleInventoryCorrectionConfirm(draft) {
-    if (!guardUiAction("inventory", "确认修正生效")) return null;
-    const result = await confirmInventoryCorrectionDraft(draft);
-    if (result?.feedback) setToast(result.feedback);
-    return result?.blocked ? null : result?.confirmation ?? null;
-  }
+  const {
+    focusInventoryLedgerSource,
+    handleInventoryCorrectionAttachment,
+    handleInventoryCorrectionConfirm,
+    handleInventoryCorrectionDraft,
+    openInventoryCorrectionDetail,
+    refreshInventoryCorrectionQueueAction,
+    refreshInventoryLedgerAction,
+  } = createOfficeInventoryActions({
+    allowLocalFallback: !runtimeServerRequired,
+    confirmInventoryCorrectionDraft,
+    createInventoryCorrectionDraft,
+    defaultOrderFilters,
+    fulfillments,
+    guardUiAction,
+    inventoryLedgerSource: inventoryLedgerState.source,
+    linkInventoryCorrectionAttachment,
+    loadInventoryCorrectionDetail,
+    loadProductionPackingSourceDetail,
+    orderLines,
+    productionPacking,
+    refreshInventoryCorrectionQueue,
+    refreshInventoryLedgerEntries,
+    resolveLineFromRef,
+    setActivePage,
+    setFulfillmentTab,
+    setOrderFilters,
+    setProductionPackingDetailState,
+    setProductionPackingFocus,
+    setSelectedFulfillmentId,
+    setSelectedOrderId,
+    setToast,
+    statements,
+  });
 
   const { updateFulfillment } = createOfficeFulfillmentActions({
     allowLocalFallback: !runtimeServerRequired,
@@ -1733,14 +1637,8 @@ export function App() {
               onLinkCorrectionAttachment={handleInventoryCorrectionAttachment}
               onConfirmCorrectionDraft={handleInventoryCorrectionConfirm}
               onOpenCorrectionDraft={openInventoryCorrectionDetail}
-              onRefreshCorrectionQueue={(options) => refreshInventoryCorrectionQueue(options).then((result) => {
-                if (result?.feedback) setToast(result.feedback);
-                return result;
-              })}
-              onRefreshInventoryLedger={(options) => refreshInventoryLedgerEntries(options).then((result) => {
-                if (result?.feedback) setToast(result.feedback);
-                return result;
-              })}
+              onRefreshCorrectionQueue={refreshInventoryCorrectionQueueAction}
+              onRefreshInventoryLedger={refreshInventoryLedgerAction}
               onLocateInventoryLedgerSource={focusInventoryLedgerSource}
               helpers={pageHelpers}
             />
