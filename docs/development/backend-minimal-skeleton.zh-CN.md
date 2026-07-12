@@ -52,7 +52,8 @@ V1 现场交接现在还有七个本地执行辅助边界：`npm run v1-go-live-
 - `server/services/runtimeAuthCommandService.mjs`：正式 / seed 登录、失败锁定、密码摘要升级 / 过期、首次改密、当前会话和 logout 撤销命令；有状态写入先持久化 staged identity workspace，再提交进程内投影。
 - `server/services/v1FieldEvidenceProjectionService.mjs`：V1 现场证据 / 签字 CSV 汇总、缺项待办、manifest 草稿摘要新鲜度、回填指导和质量门禁投影；只返回脱敏计数和操作摘要，不返回原始证据编号、签字人、摘要、本地路径或原始 CSV。
 - `server/services/v1ProductionStatusProjectionService.mjs`：V1 生产 env 门禁 / setup / intake、生产持久化留证、第一阶段执行、修正清单和安全 env 模板投影；自由文本与命令统一隐藏连接串、服务地址、bucket 值、token、敏感赋值、CLI 参数值、本机路径和目标签名。
-- `server/services/v1StatusTextSanitizer.mjs`：跨 V1 状态域复用的短文本脱敏，只处理证据 / 签字字段名、本地路径和待填写占位符，不拥有现场证据业务规则。
+- `server/services/v1ReleaseStatusProjectionService.mjs`：V1 完成度摘要、发布候选、负责人决策、模块完成度 / 差异和顶层阻塞投影；只返回脱敏文字、状态与有界计数。
+- `server/services/v1StatusTextSanitizer.mjs`：跨 V1 状态域复用的短文本与敏感状态文本脱敏，统一处理证据 / 签字字段名、连接串、服务地址、bucket / token / CLI 值、本地路径和待填写占位符，不拥有业务门禁规则。
 - `server/driverDeliveryTaskReadRepository.mjs`：司机送货任务读取仓储边界，默认读当前 workspace，显式 PostgreSQL 模式从送货出库记录、订单、客户、包裹、打印记录、库存来源、送达证据和 `driver_delivery_dispatches` 组合任务列表 / 详情，并按路线日期 / 趟次 / 站点顺序排序。
 - `server/driverDeliveryDispatchRepository.mjs`：司机派单写入仓储边界，默认写当前 API workspace，显式 PostgreSQL 模式 upsert `driver_delivery_dispatches` 并写 `operation_logs`。
 - `server/productionScheduleRecordRepository.mjs`：生产排产记录仓储边界，默认写当前 API workspace，显式 PostgreSQL 模式 upsert `production_schedule_records`、移动生产任务机台并写 `operation_logs`。

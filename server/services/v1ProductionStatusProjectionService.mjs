@@ -1,4 +1,4 @@
-import { sanitizeV1RoleTaskActionText } from "./v1StatusTextSanitizer.mjs";
+import { sanitizeV1SensitiveStatusText as sanitizeProductionStatusText } from "./v1StatusTextSanitizer.mjs";
 
 export function sanitizeV1ProductionEnvGate(envPreflight = {}, envFileAudit = {}, fallbackFixChecklist = []) {
   const preflight = isPlainServerObject(envPreflight) ? envPreflight : {};
@@ -973,26 +973,6 @@ function cleanServerText(value) {
 function sanitizeStringList(value = []) {
   const raw = Array.isArray(value) ? value : String(value ?? "").split(",");
   return raw.map((item) => sanitizeProductionStatusText(item)).filter(Boolean);
-}
-
-function sanitizeProductionStatusText(value) {
-  return sanitizeV1RoleTaskActionText(value)
-    .replace(/\b(?:postgres(?:ql)?|mysql|mongodb(?:\+srv)?|redis):\/\/[^\s'",;]+/gi, "<连接串已隐藏>")
-    .replace(/\bhttps?:\/\/[^\s'",;]+/gi, "<服务地址已隐藏>")
-    .replace(/\bBearer\s+[^\s'",;]+/gi, "Bearer <令牌已隐藏>")
-    .replace(/(?:\/var|\/tmp)\/[^\s'",;]+/g, "<本地路径已隐藏>")
-    .replace(
-      /(--(?:token|secret|password|database-url|endpoint|bucket|access-key(?:-id)?|secret-access-key))(?:=|\s+)(?:"[^"]*"|'[^']*'|[^\s]+)/gi,
-      "$1 <值已隐藏>",
-    )
-    .replace(
-      /\b((?:database[-_ ]?url|connection[-_ ]?string|endpoint|bucket|access[-_ ]?key(?:[-_ ]?id)?|secret[-_ ]?access[-_ ]?key|token|password|secret))(?:=|:\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/gi,
-      "$1=<值已隐藏>",
-    )
-    .replace(
-      /\b([A-Z][A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|DATABASE_URL|ACCESS_KEY|ENDPOINT|BUCKET)[A-Z0-9_]*)=([^\s,;]+)/g,
-      "$1=<值已隐藏>",
-    );
 }
 
 function normalizeV1NonNegativeInteger(value, fallback = 0) {

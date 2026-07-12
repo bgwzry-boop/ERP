@@ -123,7 +123,10 @@ import {
   summarizeV1FieldEvidenceIntakeRows,
   summarizeV1FieldEvidenceIntakeSignoffRows,
 } from "./services/v1FieldEvidenceProjectionService.mjs";
-import { sanitizeV1RoleTaskActionText } from "./services/v1StatusTextSanitizer.mjs";
+import {
+  sanitizeV1RoleTaskActionText,
+  sanitizeV1SensitiveStatusText,
+} from "./services/v1StatusTextSanitizer.mjs";
 import {
   sanitizeV1ProductionEnvFileAudit,
   sanitizeV1ProductionEnvFillTemplate,
@@ -136,6 +139,16 @@ import {
   sanitizeV1ProductionFirstStageExecution,
   sanitizeV1ProductionPersistenceEvidence,
 } from "./services/v1ProductionStatusProjectionService.mjs";
+import {
+  normalizeV1GoLiveStatus,
+  sanitizeV1GoLiveSummary,
+  sanitizeV1ModuleCompletion,
+  sanitizeV1ModuleDifferences,
+  sanitizeV1OwnerDecisionBrief,
+  sanitizeV1ReleaseCandidate,
+  sanitizeV1StatusTextList,
+  sanitizeV1TopBlockers,
+} from "./services/v1ReleaseStatusProjectionService.mjs";
 import {
   buildOfficeWorkspaceProjection,
   isOfficeWorkspaceProjectionEnabled,
@@ -2785,7 +2798,7 @@ function getSystemV1GoLiveStatusResponse({ operatorId }) {
   const moduleCompletion = sanitizeV1ModuleCompletion(
     completion.moduleCompletion ?? suite.moduleCompletion ?? [],
   );
-  const v2Differences = sanitizeStringList(v1V2Scope.v2Differences ?? completion.v2Differences ?? []);
+  const v2Differences = sanitizeV1StatusTextList(v1V2Scope.v2Differences ?? completion.v2Differences ?? []);
   const moduleV1V2Differences = sanitizeV1ModuleDifferences(
     v1V2Scope.moduleDifferences ?? completion.moduleV1V2Differences ?? [],
   );
@@ -2900,7 +2913,7 @@ function getSystemV1GoLiveStatusResponse({ operatorId }) {
     generatedAt: cleanServerText(suite.generatedAt || completion.generatedAt || v1V2Scope.generatedAt),
     operatorId,
     conclusion:
-      cleanServerText(completion.conclusion || suite.conclusion || v1V2Scope.conclusion) ||
+      sanitizeV1SensitiveStatusText(completion.conclusion || suite.conclusion || v1V2Scope.conclusion) ||
       "当前仍不能声明 V1 已完成；必须以发布门禁、现场证据和负责人签字为准。",
     summary: sanitizedSummary,
     releaseCandidate: sanitizedReleaseCandidate,
@@ -2926,17 +2939,17 @@ function getSystemV1GoLiveStatusResponse({ operatorId }) {
     productionEnvValuesFragmentSourceStatus,
     productionEnvValuesApplyGateStatus,
     v2Differences,
-    v2Categories: sanitizeStringList(v1V2Scope.v2Categories ?? suite.summary?.v2Categories ?? []),
+    v2Categories: sanitizeV1StatusTextList(v1V2Scope.v2Categories ?? suite.summary?.v2Categories ?? []),
     moduleV1V2Differences,
-    v1MustContinue: sanitizeStringList(v1V2Scope.v1MustContinue ?? completion.v1MustContinue ?? []),
+    v1MustContinue: sanitizeV1StatusTextList(v1V2Scope.v1MustContinue ?? completion.v1MustContinue ?? []),
     topBlockers: sanitizeV1TopBlockers(completion.topBlockers ?? []),
     sourceStatus: Object.fromEntries(
       Object.values(artifacts).map((artifact) => [
         artifact.key,
         {
           status: artifact.status,
-          label: artifact.label,
-          reason: artifact.reason,
+          label: sanitizeV1SensitiveStatusText(artifact.label),
+          reason: sanitizeV1SensitiveStatusText(artifact.reason),
         },
       ]),
     ),
@@ -9836,62 +9849,6 @@ function readV1GoLiveTextArtifact({ key, label, filePath }) {
   }
 }
 
-function normalizeV1GoLiveStatus(value) {
-  const status = cleanServerText(value);
-  if (["ready", "blocked"].includes(status)) return status;
-  return "blocked";
-}
-
-function sanitizeV1GoLiveSummary(value = {}) {
-  const source = isPlainServerObject(value) ? value : {};
-  return {
-    label: cleanServerText(source.label) || "V1 完成度快照：BLOCKED",
-    requirements: cleanServerText(source.requirements) || "85-90%",
-    p0Prototype: cleanServerText(source.p0Prototype) || "97-98%",
-    v1Readiness: cleanServerText(source.v1Readiness) || "80-83%",
-    releaseGate: cleanServerText(source.releaseGate || source.releaseCandidate) || "0/4 发布门禁通过",
-    runtimeReadiness: cleanServerText(source.runtimeReadiness) || "",
-    fieldEvidence: cleanServerText(source.fieldEvidence) || "",
-    fieldAcceptance: cleanServerText(source.fieldAcceptance) || "",
-    onsiteTaskCount: normalizeV1NonNegativeInteger(source.onsiteTaskCount ?? source.onsiteTasks),
-    v2DifferenceCount: normalizeV1NonNegativeInteger(source.v2DifferenceCount),
-  };
-}
-
-function sanitizeV1ReleaseCandidate(value = {}) {
-  const source = isPlainServerObject(value) ? value : {};
-  const summary = isPlainServerObject(source.summary) ? source.summary : {};
-  return {
-    status: normalizeV1GoLiveStatus(source.status),
-    ready: Boolean(source.ready),
-    summary: {
-      label: cleanServerText(summary.label) || "0/4 发布门禁通过",
-      passedGateCount: normalizeV1NonNegativeInteger(summary.passedGateCount),
-      totalGateCount: normalizeV1NonNegativeInteger(summary.totalGateCount),
-      blockingCount: normalizeV1NonNegativeInteger(summary.blockingCount),
-      envPreflight: cleanServerText(summary.envPreflight),
-      fieldEvidence: cleanServerText(summary.fieldEvidence),
-      runtimeReadiness: cleanServerText(summary.runtimeReadiness),
-      fieldAcceptance: cleanServerText(summary.fieldAcceptance),
-    },
-    gates: Array.isArray(source.gates)
-      ? source.gates.map(sanitizeV1ReleaseGate).filter(Boolean)
-      : [],
-  };
-}
-
-function sanitizeV1ReleaseGate(value = {}) {
-  if (!isPlainServerObject(value)) return null;
-  return {
-    key: cleanServerText(value.key),
-    label: cleanServerText(value.label),
-    status: normalizeV1GoLiveStatus(value.status),
-    ready: Boolean(value.ready),
-    summary: cleanServerText(value.summary),
-    detail: cleanServerText(value.detail),
-  };
-}
-
 function buildV1CompletionAudit({
   ready = false,
   summary = {},
@@ -10551,26 +10508,6 @@ function parseV1ReadinessCountLabel(value) {
   };
 }
 
-function sanitizeV1ModuleCompletion(value = []) {
-  return Array.isArray(value)
-    ? value.map(sanitizeV1ModuleCompletionRow).filter(Boolean)
-    : [];
-}
-
-function sanitizeV1ModuleCompletionRow(value = {}) {
-  if (!isPlainServerObject(value)) return null;
-  const module = cleanServerText(value.module);
-  if (!module) return null;
-  return {
-    module,
-    requirementCompletion: cleanServerText(value.requirementCompletion),
-    p0CodeCompletion: cleanServerText(value.p0CodeCompletion),
-    v1Readiness: cleanServerText(value.v1Readiness),
-    currentStatus: cleanServerText(value.currentStatus),
-    remaining: cleanServerText(value.remaining),
-  };
-}
-
 function sanitizeV1UnblockPlan(value = {}) {
   const source = isPlainServerObject(value) ? value : {};
   const summary = isPlainServerObject(source.summary) ? source.summary : {};
@@ -10911,163 +10848,6 @@ function sanitizeV1V2BoundaryBrief(scope = {}, completion = {}) {
   };
 }
 
-function sanitizeV1OwnerDecisionBrief(value = {}, completion = {}, suite = {}) {
-  const source = isPlainServerObject(value) ? value : {};
-  const decisionSource = isPlainServerObject(source.decision) ? source.decision : {};
-  const completionSource = isPlainServerObject(source.completion)
-    ? source.completion
-    : isPlainServerObject(completion.summary)
-      ? completion.summary
-      : {};
-  const suiteSummary = isPlainServerObject(suite.summary) ? suite.summary : {};
-  const doneHighlights = sanitizeStringList(source.doneHighlights).slice(0, 4);
-  const unfinishedItems = Array.isArray(source.unfinishedItems)
-    ? source.unfinishedItems.map(sanitizeV1OwnerDecisionItem).filter(Boolean)
-    : [];
-  const releaseGates = Array.isArray(source.releaseGates)
-    ? source.releaseGates.map(sanitizeV1OwnerDecisionGate).filter(Boolean)
-    : [];
-  const blockerGroups = Array.isArray(source.blockerGroups)
-    ? source.blockerGroups.map(sanitizeV1OwnerDecisionBlockerGroup).filter(Boolean)
-    : [];
-  const nextActions = sanitizeStringList(source.nextActions)
-    .map(sanitizeV1RoleTaskActionText)
-    .filter(Boolean);
-  const topBlockers = Array.isArray(source.topBlockers)
-    ? source.topBlockers.map(sanitizeV1OwnerDecisionTopBlocker).filter(Boolean)
-    : [];
-  const ready = source.ready === true && source.canDeclareV1Complete === true;
-  const available = Boolean(
-    cleanServerText(source.status) ||
-      cleanServerText(source.conclusion) ||
-      cleanServerText(decisionSource.label) ||
-      doneHighlights.length ||
-      unfinishedItems.length ||
-      releaseGates.length ||
-      nextActions.length ||
-      topBlockers.length,
-  );
-  const onsiteTaskCount =
-    normalizeV1NonNegativeInteger(completionSource.onsiteTaskCount ?? completionSource.onsiteTasks) ||
-    normalizeV1NonNegativeInteger(suiteSummary.onsiteTaskCount ?? suiteSummary.onsiteTasks);
-
-  return {
-    status:
-      cleanServerText(source.status) ||
-      (available ? (ready ? "ready_owner_brief_written" : "blocked_owner_brief_written") : "missing"),
-    ready,
-    available,
-    canDeclareV1Complete: ready,
-    generatedAt: cleanServerText(source.generatedAt),
-    conclusion:
-      sanitizeV1RoleTaskActionText(source.conclusion) ||
-      "当前不能宣布 V1 完成；必须先补齐发布门禁、现场证据、负责人签字和 V1/V2 边界确认。",
-    decision: {
-      label: cleanServerText(decisionSource.label) || (ready ? "可以宣布 V1 已完成" : "不能宣布 V1 已完成"),
-      recommendation:
-        sanitizeV1RoleTaskActionText(decisionSource.recommendation) ||
-        "先补齐生产环境、现场证据、真实设备 / 真机验收和负责人签字，再重新生成 release candidate。",
-      ownerQuestion:
-        sanitizeV1RoleTaskActionText(decisionSource.ownerQuestion) ||
-        "是否继续按阻塞清单补齐后再评审？",
-    },
-    completion: {
-      requirements: cleanServerText(completionSource.requirements) || "85-90%",
-      p0Prototype: cleanServerText(completionSource.p0Prototype) || "97-98%",
-      v1Readiness: cleanServerText(completionSource.v1Readiness) || "80-83%",
-      releaseGate:
-        cleanServerText(completionSource.releaseGate || completionSource.releaseCandidate) ||
-        "0/4 发布门禁通过",
-      runtimeReadiness: cleanServerText(completionSource.runtimeReadiness) || "5/11 通过",
-      fieldEvidence:
-        sanitizeV1RoleTaskActionText(completionSource.fieldEvidence) ||
-        "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
-      fieldAcceptance: cleanServerText(completionSource.fieldAcceptance) || "5/11 通过",
-      onsiteTaskCount,
-    },
-    summary: {
-      unfinishedItemCount: Array.isArray(source.unfinishedItems) ? source.unfinishedItems.length : unfinishedItems.length,
-      shownUnfinishedItemCount: unfinishedItems.slice(0, 8).length,
-      releaseGateCount: releaseGates.length,
-      doneHighlightCount: doneHighlights.length,
-      blockerGroupCount: blockerGroups.length,
-      nextActionCount: nextActions.length,
-      shownNextActionCount: nextActions.slice(0, 8).length,
-      topBlockerCount: topBlockers.length,
-      shownTopBlockerCount: topBlockers.slice(0, 5).length,
-    },
-    doneHighlights,
-    unfinishedItems: unfinishedItems.slice(0, 8),
-    releaseGates: releaseGates.slice(0, 4),
-    blockerGroups,
-    nextActions: nextActions.slice(0, 8),
-    topBlockers: topBlockers.slice(0, 5),
-    nextAction:
-      sanitizeV1RoleTaskActionText(decisionSource.recommendation) ||
-      "继续处理 V1 阻塞项，全部门禁通过后再由负责人复核。",
-    safeguards: {
-      nonMutating: true,
-      rawOwnerDecisionBriefIncluded: false,
-      rawEvidenceRefsIncluded: false,
-      rawSignersIncluded: false,
-      rawNotesIncluded: false,
-      rawSecretsIncluded: false,
-      artifactPathExposed: false,
-      localPathExposed: false,
-      sourceArtifactIncluded: false,
-      v2FullListDuplicated: false,
-      environmentValuesIncluded: false,
-      commandValuesIncluded: false,
-      rawTopBlockersIncluded: false,
-    },
-  };
-}
-
-function sanitizeV1OwnerDecisionItem(value = {}) {
-  if (!isPlainServerObject(value)) return null;
-  const label = cleanServerText(value.label);
-  if (!label) return null;
-  return {
-    type: cleanServerText(value.type),
-    label,
-    detail: sanitizeV1RoleTaskActionText(value.detail),
-  };
-}
-
-function sanitizeV1OwnerDecisionGate(value = {}) {
-  if (!isPlainServerObject(value)) return null;
-  const label = cleanServerText(value.label);
-  if (!label) return null;
-  return {
-    label,
-    status: cleanServerText(value.status) || "blocked",
-    summary: sanitizeV1RoleTaskActionText(value.summary),
-    detail: sanitizeV1RoleTaskActionText(value.detail),
-  };
-}
-
-function sanitizeV1OwnerDecisionBlockerGroup(value = {}) {
-  if (!isPlainServerObject(value)) return null;
-  const gate = cleanServerText(value.gate);
-  if (!gate) return null;
-  return {
-    gate,
-    count: normalizeV1NonNegativeInteger(value.count),
-  };
-}
-
-function sanitizeV1OwnerDecisionTopBlocker(value = {}) {
-  if (!isPlainServerObject(value)) return null;
-  const label = cleanServerText(value.label);
-  if (!label) return null;
-  return {
-    gate: cleanServerText(value.gate),
-    label,
-    status: cleanServerText(value.status) || "pending",
-    detail: sanitizeV1RoleTaskActionText(value.detail),
-  };
-}
-
 function isV1ReleaseTask(task = {}) {
   return cleanServerText(task.id).startsWith("release.") || cleanServerText(task.type).includes("发布");
 }
@@ -11082,32 +10862,6 @@ function isV1SignoffTask(task = {}) {
 
 function isV1BoundaryTask(task = {}) {
   return cleanServerText(task.id).startsWith("boundary.") || cleanServerText(task.type).includes("边界");
-}
-
-function sanitizeV1TopBlockers(value = []) {
-  return Array.isArray(value)
-    ? value
-        .map((item) => ({
-          gate: cleanServerText(item?.gate),
-          key: cleanServerText(item?.key),
-          label: cleanServerText(item?.label),
-          status: cleanServerText(item?.status),
-          detail: cleanServerText(item?.detail),
-        }))
-        .filter((item) => item.label)
-    : [];
-}
-
-function sanitizeV1ModuleDifferences(value = []) {
-  return Array.isArray(value)
-    ? value
-        .map((item) => ({
-          module: cleanServerText(item?.module),
-          v1: cleanServerText(item?.v1),
-          v2: cleanServerText(item?.v2),
-        }))
-        .filter((item) => item.module || item.v2)
-    : [];
 }
 
 function sanitizeStringList(value = []) {
