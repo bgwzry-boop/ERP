@@ -2,7 +2,26 @@ import { getFulfillmentMethodLabel } from "../shared/labels.js";
 
 export const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 
-export const editableColors = ["黄色", "红色", "黑色", "白色", "蓝色", "绿色", "米白", "浅蓝", "牛仔蓝", "大红", "粉色"];
+export const editableColors = [
+  "黄色",
+  "红色",
+  "黑色",
+  "白色",
+  "蓝色",
+  "绿色",
+  "米白",
+  "米白色",
+  "米色",
+  "咖色",
+  "橘色",
+  "宝蓝色",
+  "焦糖色",
+  "安哥拉红",
+  "浅蓝",
+  "牛仔蓝",
+  "大红",
+  "粉色",
+];
 
 export function findCustomer(customers, id) {
   return customers.find((item) => item.id === id) ?? customers[0];

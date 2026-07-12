@@ -58,6 +58,14 @@ const apiResponse = {
       recognitionEvidence: { sourceText: "张三服饰 30*38 红500 明天自提" },
     },
   ],
+  recognition: {
+    version: "wechat-order-conversation-v1",
+    sourceMessages: [{ id: "MSG-CHECK-1", intentType: "explicit_order" }],
+    draftGroups: [{ id: "ODG-MSG-CHECK-1" }],
+    nonOrderIntents: [],
+    temporaryHolds: [],
+    summary: { orderRowCount: 1, inventoryInquiryCount: 0, temporaryHoldCount: 0, duplicateCandidateCount: 0 },
+  },
   riskHints: [],
   operationLogId: "LOG-CHECK-1",
 };
@@ -143,6 +151,7 @@ const apiResult = await recognizeOfficeDraft(
 );
 
 assert(apiResult.source === "api", "recognizeOfficeDraft did not use the API response");
+assert(apiResult.recognition?.version === "wechat-order-conversation-v1", "conversation recognition context was not preserved");
 assert(apiCalls[0]?.url === "http://127.0.0.1:8787/api/order-drafts/recognize", "recognition API URL is incorrect");
 assert(apiCalls[0]?.init.headers.authorization === "Bearer seed-session.order-check", "recognition API did not send bearer auth");
 assert(apiCalls[0]?.body.operatorId === "U-OFFICE-A", "recognition API did not send operatorId");
@@ -292,6 +301,29 @@ const fallbackResult = await recognizeOfficeDraft(
 
 assert(fallbackResult.source === "local_fallback", "network failure should fall back to local recognition");
 assert(fallbackResult.rows.length === 1 && fallbackResult.rows[0].customerId === "C001", "local fallback recognition is incorrect");
+
+const fallbackInquiry = await recognizeOfficeDraft(
+  {
+    authState,
+    customers: [{ id: "C001", name: "张三服饰" }],
+    inventories,
+    operatorId: "U-OFFICE-A",
+    sourceMessages: [{
+      id: "MSG-FE-INQUIRY",
+      conversationId: "GROUP-FE-1",
+      customerId: "C001",
+      text: "30*38红色100个有吗？",
+    }],
+    sourceText: "30*38红色100个有吗？",
+  },
+  {
+    fetchImpl: async () => {
+      throw new Error("api offline");
+    },
+  },
+);
+assert(fallbackInquiry.rows.length === 0, "inventory inquiry must not become a local fallback order row");
+assert(fallbackInquiry.recognition.nonOrderIntents[0].status === "询库存-待客户确认", "local fallback inquiry status is incorrect");
 
 const fallbackConfirmResult = await confirmOfficeDraftViaApi(
   {

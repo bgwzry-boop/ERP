@@ -15,7 +15,38 @@ try {
   });
   assert.equal(recognition.status, 200);
   assert.equal(recognition.json.draft.clientRevision, 1);
+  assert.equal(recognition.json.recognition.summary.originalOrderCount, 1);
   const draftId = recognition.json.draft.draftId;
+
+  const conversationRecognition = await requestJson(baseUrl, "/api/order-drafts/recognize", {
+    method: "POST",
+    headers,
+    body: {
+      sourceMessages: [
+        {
+          id: "MSG-API-INQUIRY",
+          conversationId: "GROUP-API-1",
+          customerId: "C003",
+          sender: "王经理",
+          sentAt: "2026-07-12 09:00",
+          text: "30*38红色100个有吗？",
+        },
+        {
+          id: "MSG-API-REPLY",
+          conversationId: "GROUP-API-1",
+          sender: "办公室A",
+          senderRole: "office",
+          sentAt: "2026-07-12 09:01",
+          text: "有",
+        },
+      ],
+      idempotencyKey: "order-draft-api-conversation-001",
+    },
+  });
+  assert.equal(conversationRecognition.status, 200);
+  assert.equal(conversationRecognition.json.lines.length, 0);
+  assert.equal(conversationRecognition.json.recognition.nonOrderIntents[0].status, "询库存-待客户确认");
+  assert.equal(conversationRecognition.json.recognition.nonOrderIntents[1].advancesCustomerIntent, false);
   const line = {
     draftLineId: `${draftId}-01-SAVED`,
     customerId: "C003",

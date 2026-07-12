@@ -27,7 +27,7 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
 
   await page.getByRole("textbox", { name: "订单原文" }).fill(orderText);
   await page.getByRole("button", { name: "识别", exact: true }).click();
-  await expect(page.getByText("可保存确认", { exact: true })).toBeVisible();
+  await expect(page.getByLabel("缺字段检查")).toHaveText("当前行已完成必要字段校对");
 
   await page.getByRole("button", { name: "保存并确认", exact: true }).click();
   await expect(page.getByText("订单已由后端确认", { exact: false })).toBeVisible();
@@ -122,8 +122,13 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   );
   await page.getByRole("button", { name: "识别", exact: true }).click();
   await expect(page.getByText("白印黑 / 白袋黑提", { exact: true })).toBeVisible();
-  await page.getByLabel("印刷图/稿件").selectOption("已上传");
-  await expect(page.getByText("可保存前需复核库存/时间", { exact: true })).toBeVisible();
+  await page.locator('.entry-upload-action input[type="file"]').setInputFiles({
+    name: "e2e-print-artwork.png",
+    mimeType: "image/png",
+    buffer: createOnePixelPng(),
+  });
+  await expect(page.getByLabel("缺字段检查")).toHaveText("当前行已完成必要字段校对");
+  await expect(page.getByText("库存需复核", { exact: false })).toBeVisible();
   await page.getByRole("button", { name: "保存并确认", exact: true }).click();
   await expect(page.getByRole("heading", { name: "订单池" })).toBeVisible();
 

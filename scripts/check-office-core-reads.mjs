@@ -143,7 +143,7 @@ assert.match(appSource, /activePage === "fulfillment"/);
 assert.match(appSource, /<WorkspaceNotice>/);
 assert.match(appSource, /<WorkspacePageHeader/);
 assert.equal(appSource.indexOf("<WorkspaceNotice>") < appSource.indexOf("<WorkspacePageHeader"), true);
-assert.match(sharedUiSource, /className="ghost-button" onClick=\{\(\) => onRefresh\?\.\(\)\}/);
+assert.match(sharedUiSource, /className="ghost-button" onClick=\{onRefresh\}/);
 assert.match(shellStylesSource, /\.workspace-notice\s*\{[^}]*pointer-events:\s*none/s);
 assert.doesNotMatch(shellStylesSource, /\.workspace-notice\s*\{[^}]*position:\s*absolute/s);
 

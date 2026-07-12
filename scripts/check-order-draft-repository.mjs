@@ -27,6 +27,7 @@ async function checkLocalRepositoryRevisionBoundary() {
   assert.equal(first.draft.revision, 1);
   assert.equal(first.draft.clientRevision, 1);
   assert.equal(workspace.orderDrafts[0].revision, 1);
+  assert.equal(workspace.orderDrafts[0].recognitionContext.summary.messageCount, 1);
   assert.equal(workspace.todos[0].id, "T-DRAFT-001");
   assert.equal(workspace.operationLogs[0].id, "LOG-DRAFT-001");
   assert.equal((await repository.getOrderDraft({ workspace, draftId: "DRAFT-001" })).revision, 1);
@@ -111,6 +112,7 @@ async function checkPostgresRepositoryBoundary() {
   assert.match(transaction.text, /COMMIT;/);
   assert.doesNotMatch(transaction.text, /张三服饰|O'Brien/);
   assert.ok(transaction.values.includes("张三服饰 O'Brien 30*38 白袋黑提 100个"));
+  assert.ok(transaction.values.some((value) => String(value).includes("wechat-order-conversation-v1")));
 
   const directQuery = buildSaveOrderDraftTransactionQuery({
     expectedRevision: 1,
@@ -136,6 +138,14 @@ function buildDraft(overrides = {}) {
     sourceMessageId: "MSG-001",
     customerId: "C001",
     customerName: "张三服饰",
+    recognitionContext: {
+      version: "wechat-order-conversation-v1",
+      sourceMessages: [{ id: "MSG-001", text: "张三服饰 O'Brien 30*38 白袋黑提 100个" }],
+      draftGroups: [{ id: "ODG-MSG-001" }],
+      nonOrderIntents: [],
+      temporaryHolds: [],
+      summary: { messageCount: 1, orderRowCount: 1 },
+    },
     status: "待审核",
     revision: 0,
     clientRevision: 0,

@@ -155,9 +155,13 @@ export function createOfficeOrderWriteActions({
       source: result.source,
     });
     const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
+    const recognitionSummary = result.recognition?.summary;
+    const nonOrderSummary = recognitionSummary
+      ? `；另识别库存询问 ${recognitionSummary.inventoryInquiryCount} 条、临时留货 ${recognitionSummary.temporaryHoldCount} 条、疑似重复 ${recognitionSummary.duplicateCandidateCount} 条`
+      : "";
     return withFeedback(
       result,
-      `已通过${sourceLabel} 识别 ${rows.length} 行明细；库存与价格为识别时快照，保存正式订单前会重新校验。`,
+      `已通过${sourceLabel} 识别 ${rows.length} 行明细${nonOrderSummary}；非订单意图不会占用库存，保存正式订单前会重新校验。`,
     );
   }
 

@@ -14,6 +14,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     nextId,
     nextPlainId,
     parseOrderText,
+    recognizeOrderConversation,
     toFulfillmentTaskSummary,
     toInventoryCheckResult,
     toInventoryReservationTransactionSummary,
@@ -35,6 +36,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
     nextId,
     nextPlainId,
     parseOrderText,
+    recognizeOrderConversation,
     toFulfillmentTaskSummary,
     toInventoryCheckResult,
     toInventoryReservationTransactionSummary,
@@ -52,11 +54,33 @@ export function createOrderDraftCommandService(dependencies = {}) {
   };
 
   async function recognizeOrderDraft({ workspace, body = {}, operatorId }) {
-    const sourceText = body.sourceText ?? body.text ?? workspace.sampleText;
-    const lines = parseOrderText(sourceText, {
-      customers: workspace.customers,
-      inventories: workspace.inventories,
-    });
+    const sourceText = body.sourceText ?? body.text ?? "";
+    const recognition = recognizeOrderConversation(
+      Array.isArray(body.sourceMessages) && body.sourceMessages.length ? body.sourceMessages : sourceText,
+      {
+        customers: workspace.customers,
+        inventories: workspace.inventories,
+        standardColors: workspace.standardColors,
+        colorAliases: workspace.colorAliases,
+        customerId: body.customerId,
+        conversationId: body.conversationId ?? body.sourceMessageId,
+        currentDraftStatus: body.currentDraftStatus,
+        parseOrderText,
+        now,
+      },
+    );
+    if (!recognition.sourceMessages.length) {
+      return businessError(422, "VALIDATION_ERROR", "sourceText or sourceMessages must contain at least one message");
+    }
+    const lines = recognition.orderRows;
+    const recognitionContext = {
+      version: recognition.version,
+      sourceMessages: recognition.sourceMessages,
+      draftGroups: recognition.draftGroups,
+      nonOrderIntents: recognition.nonOrderIntents,
+      temporaryHolds: recognition.temporaryHolds,
+      summary: recognition.summary,
+    };
     const draftId =
       body.draftId ??
       (body.idempotencyKey
@@ -73,6 +97,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       customerName: findCustomerName(workspace, customerId),
       status: "待审核",
       lines,
+      recognitionContext,
       revision: 0,
       clientRevision: 0,
       createdBy: operatorId,
@@ -83,7 +108,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       targetId: draftId,
       action: "recognize_order_draft",
       operatorId,
-      after: { lineCount: lines.length, sourceText },
+      after: { lineCount: lines.length, sourceText, recognitionSummary: recognition.summary },
     });
     const transaction = await workspace.orderDraftRepository.saveOrderDraft({
       workspace,
@@ -99,7 +124,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
     return success({
       draft: summarizeDraft(transaction.draft),
       lines: savedLines.map(toRecognizedDraftLine),
-      riskHints: buildDraftRiskHints(savedLines),
+      recognition: recognitionContext,
+      riskHints: [...buildDraftRiskHints(savedLines), ...recognition.riskHints],
       operationLogId: transaction.operationLogId,
     });
   }
@@ -333,6 +359,18 @@ export function createOrderDraftCommandService(dependencies = {}) {
         inventory: line.inventory ?? "",
         confidence: line.confidence ?? "",
         amount: line.amount ?? 0,
+        originalOrderGroupId: line.originalOrderGroupId ?? line.recognitionEvidence?.originalOrderGroupId ?? "",
+        intentType: line.intentType ?? line.recognitionEvidence?.intentType ?? "explicit_order",
+        appendDecision: line.appendDecision ?? line.recognitionEvidence?.appendDecision ?? "",
+        sourceMessageId: line.sourceMessageId ?? line.recognitionEvidence?.sourceMessageId ?? "",
+        sourceSender: line.sourceSender ?? line.recognitionEvidence?.sourceSender ?? "",
+        sourceSenderRole: line.sourceSenderRole ?? line.recognitionEvidence?.sourceSenderRole ?? "",
+        sourceSentAt: line.sourceSentAt ?? line.recognitionEvidence?.sourceSentAt ?? "",
+        sourceSequence: line.sourceSequence ?? line.recognitionEvidence?.sourceSequence ?? 0,
+        sourceConversationId: line.sourceConversationId ?? line.recognitionEvidence?.sourceConversationId ?? "",
+        reviewReasons: line.reviewReasons ?? line.recognitionEvidence?.reviewReasons ?? [],
+        dimensionEvidence: line.dimensionEvidence ?? line.recognitionEvidence?.dimensionEvidence,
+        aliasEvidence: line.aliasEvidence ?? line.recognitionEvidence?.aliasEvidence,
       };
     });
   }
@@ -364,7 +402,21 @@ export function createOrderDraftCommandService(dependencies = {}) {
             ? "low_confidence"
             : "medium_confidence",
       missingFields: getMissingDraftFields(row),
-      recognitionEvidence: { sourceText: row.source },
+      recognitionEvidence: {
+        sourceText: row.source,
+        sourceMessageId: row.sourceMessageId ?? "",
+        sourceSender: row.sourceSender ?? "",
+        sourceSenderRole: row.sourceSenderRole ?? "",
+        sourceSentAt: row.sourceSentAt ?? "",
+        sourceSequence: row.sourceSequence ?? 0,
+        sourceConversationId: row.sourceConversationId ?? "",
+        originalOrderGroupId: row.originalOrderGroupId ?? "",
+        intentType: row.intentType ?? "explicit_order",
+        appendDecision: row.appendDecision ?? "",
+        reviewReasons: row.reviewReasons ?? [],
+        dimensionEvidence: row.dimensionEvidence,
+        aliasEvidence: row.aliasEvidence,
+      },
     };
   }
 
@@ -513,6 +565,7 @@ function summarizeDraft(draft) {
     sourceMessageId: draft.sourceMessageId,
     customerId: draft.customerId,
     customerName: draft.customerName,
+    recognitionContext: draft.recognitionContext,
     clientRevision: draft.clientRevision,
     createdAt: draft.createdAt,
     updatedAt: draft.updatedAt,

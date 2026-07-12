@@ -12958,8 +12958,9 @@ components:
 
     RecognizeOrderDraftRequest:
       type: object
-      required:
-        - sourceText
+      anyOf:
+        - required: [sourceText]
+        - required: [sourceMessages]
       properties:
         sourceText:
           type: string
@@ -12967,6 +12968,16 @@ components:
         sourceChannel:
           $ref: "#/components/schemas/SourceChannel"
         sourceMessageId:
+          type: string
+        sourceMessages:
+          type: array
+          minItems: 1
+          description: 微信群或其他会话的消息级来源；服务端保留顺序并区分订单、库存询问、商家回复、留货和重复候选。
+          items:
+            $ref: "#/components/schemas/OrderSourceMessage"
+        conversationId:
+          type: string
+        currentDraftStatus:
           type: string
         sourceSender:
           type: string
@@ -13000,6 +13011,8 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/RecognizedOrderDraftLine"
+        recognition:
+          $ref: "#/components/schemas/OrderConversationRecognition"
         riskHints:
           type: array
           items:
@@ -13035,6 +13048,8 @@ components:
           type: string
         customerName:
           type: string
+        recognitionContext:
+          $ref: "#/components/schemas/OrderConversationRecognition"
         clientRevision:
           type: integer
           minimum: 0
@@ -13110,10 +13125,10 @@ components:
       properties:
         riskType:
           type: string
-          enum: [duplicate_candidate, missing_required_field, low_confidence, inventory_shortage, price_needs_review, customer_needs_review]
+          enum: [duplicate_candidate, duplicate_message, dimension_confirmation, alias_confirmation, missing_required_field, low_confidence, inventory_shortage, price_needs_review, customer_needs_review]
         level:
           type: string
-          enum: [info, warning, blocking]
+          enum: [info, review, warning, blocking]
         message:
           type: string
         relatedField:
@@ -22779,6 +22794,31 @@ components:
       type: object
       additionalProperties: true
       properties:
+        sourceText:
+          type: string
+        sourceMessageId:
+          type: string
+        sourceSender:
+          type: string
+        sourceSenderRole:
+          type: string
+          enum: [customer, office, merchant]
+        sourceSentAt:
+          type: string
+        sourceSequence:
+          type: integer
+        sourceConversationId:
+          type: string
+        originalOrderGroupId:
+          type: string
+        intentType:
+          type: string
+        appendDecision:
+          type: string
+        reviewReasons:
+          type: array
+          items:
+            type: string
         sourceFragment:
           type: string
         confidence:
@@ -22786,6 +22826,62 @@ components:
           enum: [high, medium, low]
         ruleId:
           type: string
+
+    OrderSourceMessage:
+      type: object
+      required: [id, text]
+      properties:
+        id:
+          type: string
+        conversationId:
+          type: string
+        customerId:
+          type: string
+        sender:
+          type: string
+        senderId:
+          type: string
+        senderRole:
+          type: string
+          enum: [customer, office, merchant]
+        sentAt:
+          type: string
+        sequence:
+          type: integer
+        text:
+          type: string
+
+    OrderConversationRecognition:
+      type: object
+      additionalProperties: true
+      required: [version, sourceMessages, draftGroups, nonOrderIntents, temporaryHolds, summary]
+      properties:
+        version:
+          type: string
+          enum: [wechat-order-conversation-v1]
+        sourceMessages:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        draftGroups:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        nonOrderIntents:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        temporaryHolds:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+        summary:
+          type: object
+          additionalProperties: true
 
     SourceChannel:
       type: string

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { createOrderDraftCommandService } from "../server/services/orderDraftCommandService.mjs";
+import { recognizeOrderConversation } from "../src/lib/orderConversationRecognition.js";
 
 let confirmationMode = "success";
 const calls = { draftSaves: [], confirmations: [] };
@@ -93,6 +94,7 @@ const service = createOrderDraftCommandService({
       },
     ];
   },
+  recognizeOrderConversation,
   toFulfillmentTaskSummary(fulfillment) {
     return { fulfillmentId: fulfillment.id, expectedQty: fulfillment.qty };
   },
@@ -121,6 +123,7 @@ const service = createOrderDraftCommandService({
 });
 
 await checkRecognition();
+await checkConversationRecognition();
 await checkDraftSave();
 await checkConfirmation();
 await checkBlockedConfirmation();
@@ -145,11 +148,54 @@ async function checkRecognition() {
   assert.equal(result.response.draft.clientRevision, 1);
   assert.equal(result.response.lines[0].recognitionStatus, "high_confidence");
   assert.equal(result.response.riskHints.length, 0);
+  assert.equal(result.response.recognition.summary.originalOrderCount, 1);
+  assert.equal(result.response.draft.recognitionContext.summary.orderRowCount, 1);
   const input = calls.draftSaves.at(-1);
   assert.equal(input.expectedRevision, 0);
   assert.equal(input.draft.createdBy, "U-OFFICE-A");
   assert.equal(input.idempotencyPayload.operatorId, "U-OFFICE-A");
   assert.equal(input.operationLog.operatorId, "U-OFFICE-A");
+}
+
+async function checkConversationRecognition() {
+  const workspace = buildWorkspace();
+  const inquiry = await service.recognizeOrderDraft({
+    workspace,
+    operatorId: "U-OFFICE-A",
+    body: {
+      sourceMessages: [
+        {
+          id: "MSG-SERVICE-INQUIRY",
+          conversationId: "GROUP-SERVICE-1",
+          customerId: "C001",
+          sender: "张经理",
+          sentAt: "2026-07-12 09:30",
+          text: "30*38红色100个有吗？",
+        },
+        {
+          id: "MSG-SERVICE-REPLY",
+          conversationId: "GROUP-SERVICE-1",
+          sender: "办公室A",
+          senderRole: "office",
+          sentAt: "2026-07-12 09:31",
+          text: "有",
+        },
+      ],
+      idempotencyKey: "draft-recognize-conversation-service-001",
+    },
+  });
+  assert.equal(inquiry.response.lines.length, 0, "inventory inquiry must not become an order line");
+  assert.equal(inquiry.response.recognition.nonOrderIntents[0].status, "询库存-待客户确认");
+  assert.equal(inquiry.response.recognition.nonOrderIntents[1].advancesCustomerIntent, false);
+  assert.equal(calls.draftSaves.at(-1).draft.recognitionContext.sourceMessages.length, 2);
+
+  const empty = await service.recognizeOrderDraft({
+    workspace,
+    operatorId: "U-OFFICE-A",
+    body: { idempotencyKey: "draft-recognize-empty-service-001" },
+  });
+  assert.equal(empty.statusCode, 422, "missing source text must be rejected instead of injecting workspace sample text");
+  assert.equal(empty.code, "VALIDATION_ERROR");
 }
 
 async function checkDraftSave() {

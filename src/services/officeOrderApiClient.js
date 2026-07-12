@@ -1,11 +1,12 @@
-import { enrichDraftRow, parseOrderText } from "../lib/orderParser.js";
+import { enrichDraftRow } from "../lib/orderParser.js";
+import { recognizeOrderConversation } from "../lib/orderConversationRecognition.js";
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
 import { requestOfficeApi as requestOrderApi } from "./officeApiClientCore.js";
 
 const defaultDraftStatus = "待补充信息";
 
 export async function recognizeOfficeDraft(input, options = {}) {
-  const { authState, customers = [], inventories = [], operatorId, sourceText } = input;
+  const { authState, customers = [], inventories = [], operatorId, sourceMessages, sourceText } = input;
   try {
     const response = await requestOrderApi("/order-drafts/recognize", {
       ...options,
@@ -14,6 +15,7 @@ export async function recognizeOfficeDraft(input, options = {}) {
       operatorId,
       body: {
         sourceText,
+        sourceMessages,
         sourceChannel: "manual",
         operatorId,
       },
@@ -37,17 +39,23 @@ export async function recognizeOfficeDraft(input, options = {}) {
       source: "api",
       draft: json.draft,
       rows: mapRecognizedDraftRows(json, { inventories, sourceText }),
+      recognition: json.recognition ?? null,
       riskHints: json.riskHints ?? [],
       operationLogId: json.operationLogId,
     };
   } catch (error) {
+    const recognition = recognizeOrderConversation(sourceMessages?.length ? sourceMessages : sourceText, {
+      customers,
+      inventories,
+    });
     return {
       source: "local_fallback",
       error: {
         code: "ORDER_RECOGNIZE_API_UNAVAILABLE",
         message: error?.message ?? String(error),
       },
-      rows: parseOrderText(sourceText, { customers, inventories }),
+      rows: recognition.orderRows,
+      recognition,
     };
   }
 }
@@ -238,6 +246,18 @@ export function mapRecognizedDraftRows(response, { inventories = [], sourceText 
         handleColor: line.handleColor ?? "",
         note,
         source: line.recognitionEvidence?.sourceText ?? draft.sourceText ?? sourceText,
+        sourceMessageId: line.recognitionEvidence?.sourceMessageId ?? "",
+        sourceSender: line.recognitionEvidence?.sourceSender ?? "",
+        sourceSenderRole: line.recognitionEvidence?.sourceSenderRole ?? "",
+        sourceSentAt: line.recognitionEvidence?.sourceSentAt ?? "",
+        sourceSequence: line.recognitionEvidence?.sourceSequence ?? 0,
+        sourceConversationId: line.recognitionEvidence?.sourceConversationId ?? "",
+        originalOrderGroupId: line.recognitionEvidence?.originalOrderGroupId ?? "",
+        intentType: line.recognitionEvidence?.intentType ?? "explicit_order",
+        appendDecision: line.recognitionEvidence?.appendDecision ?? "",
+        reviewReasons: line.recognitionEvidence?.reviewReasons ?? [],
+        dimensionEvidence: line.recognitionEvidence?.dimensionEvidence,
+        aliasEvidence: line.recognitionEvidence?.aliasEvidence,
       },
       inventories,
     );
@@ -269,6 +289,18 @@ export function mapDraftRowsToApiLines(draftRows, sourceText = "") {
       officeNote: "",
       recognitionEvidence: {
         sourceText: row.source || sourceText,
+        sourceMessageId: row.sourceMessageId || undefined,
+        sourceSender: row.sourceSender || undefined,
+        sourceSenderRole: row.sourceSenderRole || undefined,
+        sourceSentAt: row.sourceSentAt || undefined,
+        sourceSequence: row.sourceSequence || undefined,
+        sourceConversationId: row.sourceConversationId || undefined,
+        originalOrderGroupId: row.originalOrderGroupId || undefined,
+        intentType: row.intentType || undefined,
+        appendDecision: row.appendDecision || undefined,
+        reviewReasons: row.reviewReasons?.length ? row.reviewReasons : undefined,
+        dimensionEvidence: row.dimensionEvidence,
+        aliasEvidence: row.aliasEvidence,
       },
     });
   });

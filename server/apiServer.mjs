@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { createGracefulShutdownController } from "./gracefulShutdown.mjs";
 import { closeSharedPostgresPools } from "./postgresPoolClient.mjs";
 import { makeTodo } from "../src/data/fixtures.js";
+import { recognizeOrderConversation } from "../src/lib/orderConversationRecognition.js";
 import { parseOrderText } from "../src/lib/orderParser.js";
 import {
   getSeedUser,
@@ -10176,6 +10177,7 @@ const orderDraftCommandService = createOrderDraftCommandService({
   nextId,
   nextPlainId,
   parseOrderText,
+  recognizeOrderConversation,
   toFulfillmentTaskSummary,
   toInventoryCheckResult,
   toInventoryReservationTransactionSummary,
