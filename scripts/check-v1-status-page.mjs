@@ -33,7 +33,14 @@ const v1StatusPresentationSource = readFileSync(new URL("../src/features/v1-stat
 const v1StatusPageSource = [v1StatusPageEntrySource, v1StatusOverviewSource, v1StatusDecisionSource, v1StatusRuntimeSource, v1StatusFieldAcceptanceSource, v1StatusRoleTaskSource, v1StatusFieldEvidenceSource, v1StatusFieldProgressSource, v1StatusEvidenceEntrySource, v1StatusSignoffEntrySource, v1StatusFieldCloseoutSource, v1StatusFieldCloseoutStagingResultsSource, v1StatusFieldCloseoutReleaseResultsSource, v1StatusBoundarySource, v1StatusProductionSource, v1StatusProductionGateSource, v1StatusProductionIntakeSource, v1StatusProductionFirstStageSource, v1StatusProductionFirstStageReadinessSource, v1StatusProductionFirstStageActionResultsSource, v1StatusProductionEnvFixSource, v1StatusProductionEnvMinimumSource, v1StatusProductionEnvDraftSource, v1StatusModuleSource, v1StatusPresentationSource].join("\n");
 const clientEntrySource = readFileSync(new URL("../src/services/officeV1GoLiveStatusApiClient.js", import.meta.url), "utf8");
 const clientActionsSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusActions.js", import.meta.url), "utf8");
-const clientSource = [clientEntrySource, clientActionsSource].join("\n");
+const clientFieldEvidenceNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusFieldEvidenceNormalizers.js", import.meta.url), "utf8");
+const clientNormalizerUtilsSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusNormalizerUtils.js", import.meta.url), "utf8");
+const clientProductionEnvNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusProductionEnvNormalizers.js", import.meta.url), "utf8");
+const clientProductionFirstStageNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusProductionFirstStageNormalizers.js", import.meta.url), "utf8");
+const clientProductionTemplateNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusProductionTemplateNormalizers.js", import.meta.url), "utf8");
+const clientReleaseNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusReleaseNormalizers.js", import.meta.url), "utf8");
+const clientRuntimeNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusRuntimeNormalizers.js", import.meta.url), "utf8");
+const clientSource = [clientEntrySource, clientActionsSource, clientFieldEvidenceNormalizersSource, clientNormalizerUtilsSource, clientProductionEnvNormalizersSource, clientProductionFirstStageNormalizersSource, clientProductionTemplateNormalizersSource, clientReleaseNormalizersSource, clientRuntimeNormalizersSource].join("\n");
 const attachmentClientSource = readFileSync(new URL("../src/services/officeAttachmentApiClient.js", import.meta.url), "utf8");
 const styleSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
 const featureStyleSource = readFileSync(new URL("../src/styles/features/v1-status.css", import.meta.url), "utf8");
@@ -778,6 +785,22 @@ assertIncludes(v1StatusPageSource, "现场必须留档", "page should show requi
 
 assertIncludes(clientSource, "/system/v1-go-live-status", "client should call V1 go-live status API");
 assertIncludes(clientEntrySource, 'from "./officeV1GoLiveStatusActions.js"', "V1 status client should compose extracted HTTP actions");
+assertIncludes(clientEntrySource, 'from "./officeV1GoLiveStatusFieldEvidenceNormalizers.js"', "V1 status client should compose field-evidence normalizers");
+assertIncludes(clientEntrySource, 'from "./officeV1GoLiveStatusProductionFirstStageNormalizers.js"', "V1 status client should compose production first-stage normalizers");
+assertIncludes(clientEntrySource, 'from "./officeV1GoLiveStatusReleaseNormalizers.js"', "V1 status client should compose release normalizers");
+assertIncludes(clientFieldEvidenceNormalizersSource, "export function normalizeFieldEvidenceProgress", "field-evidence normalizers should own progress normalization");
+assertIncludes(clientFieldEvidenceNormalizersSource, "export function normalizeV1FieldEvidenceStageRowResult", "field-evidence normalizers should own staging-result normalization");
+assertIncludes(clientReleaseNormalizersSource, "export function normalizeV1ReleaseCandidateRefreshResult", "release normalizers should own release refresh normalization");
+assertIncludes(clientProductionEnvNormalizersSource, "export function normalizeV1ProductionEnvFileAuditConfigSourceStatus", "production-env normalizers should own config-source normalization");
+assertIncludes(clientProductionEnvNormalizersSource, "export function normalizeV1ProductionEnvLivePrecheckResult", "production-env normalizers should own live-precheck normalization");
+assertIncludes(clientProductionFirstStageNormalizersSource, "export function normalizeV1ProductionFirstStageValuesApplyLiveRunResult", "production first-stage normalizers should own values-apply normalization");
+assertIncludes(clientProductionTemplateNormalizersSource, "export function normalizeProductionEnvFixChecklist", "production-template normalizers should own fix-checklist normalization");
+assertIncludes(clientRuntimeNormalizersSource, "export function normalizeV1RuntimeReadinessLivePrecheckResult", "runtime normalizers should own runtime live-precheck normalization");
+assertExcludes(clientEntrySource, "function normalizeFieldEvidenceProgress", "V1 status client entry should not retain field-evidence normalization");
+assertExcludes(clientEntrySource, "function normalizeV1ReleaseCandidateRefreshResult", "V1 status client entry should not retain release normalization");
+assertExcludes(clientEntrySource, "function normalizeV1RuntimeReadinessLivePrecheckResult", "V1 status client entry should not retain runtime normalization");
+assertExcludes(clientEntrySource, "function normalizeV1ProductionEnvLivePrecheckResult", "V1 status client entry should not retain production-env normalization");
+assertExcludes(clientEntrySource, "function normalizeV1ProductionFirstStageValuesApplyLiveRunResult", "V1 status client entry should not retain first-stage normalization");
 assertIncludes(clientActionsSource, "export function createOfficeV1GoLiveStatusActions", "V1 status actions should expose an injectable factory");
 assertIncludes(clientActionsSource, "blockedWhenNotReady", "V1 status actions should preserve readiness-based blocking");
 assertExcludes(clientEntrySource, "requestOfficeApi", "V1 status normalizer client should not issue HTTP requests directly");
