@@ -1,11 +1,20 @@
 import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const rawMaterialControllerSource = readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
+const rawMaterialLocalActionsSource = readFileSync(new URL("../src/domain/rawMaterialInboundLocalActions.js", import.meta.url), "utf8");
+const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const fixturesSource = readFileSync(new URL("../src/data/fixtures.js", import.meta.url), "utf8");
-const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
+const roleToolReadsSource = readFileSync(new URL("../src/app/useOfficeRoleToolReads.js", import.meta.url), "utf8");
+const officePageEntrySource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
+const rawMaterialPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
+const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}`;
 const rawMaterialListStateSource = readFileSync(new URL("../src/domain/rawMaterialInboundListState.js", import.meta.url), "utf8");
 const permissionSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
-const styleSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const styleSource = [
+  readFileSync(new URL("../src/styles.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/role-tools.css", import.meta.url), "utf8"),
+].join("\n");
 
 assertIncludes(fixturesSource, "initialRawMaterialInbounds", "fixtures should seed raw-material inbound records");
 assertIncludes(fixturesSource, "已识别待复核", "fixtures should include OCR review state");
@@ -15,30 +24,33 @@ assertIncludes(fixturesSource, "白侯模板月结时需拆重1-重5", "fixtures
 assertIncludes(fixturesSource, "北陈月结 Excel 用批号强匹配", "fixtures should preserve batch matching notes");
 assertIncludes(fixturesSource, "供应商单号未提供", "fixtures should cover suppliers without delivery-note numbers");
 
-assertIncludes(appSource, '{ key: "rawMaterials", label: "原材料"', "navigation should expose the raw-material page");
+assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expose the raw-material page");
+assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");
 assertIncludes(appSource, "<RawMaterialInboundPage", "App should render the raw-material inbound page");
-assertIncludes(appSource, "updateRawMaterialInbound", "App should own raw-material local action state");
-assertIncludes(appSource, "listOfficeRawMaterialInbounds", "App should refresh raw-material inbounds through API client");
-assertIncludes(appSource, "updateOfficeRawMaterialInboundAction", "App should submit raw-material actions through API client");
-assertIncludes(appSource, "listOfficeRawMaterialSupplierStatementReviews", "App should refresh supplier statement review drafts through API client");
-assertIncludes(appSource, "createOfficeRawMaterialSupplierStatementReviewDraft", "App should save supplier statement review drafts through API client");
-assertIncludes(appSource, "confirmOfficeRawMaterialSupplierStatementReview", "App should confirm supplier statement review drafts through API client");
-assertIncludes(appSource, "confirmOfficeRawMaterialSupplierStatement", "App should confirm reviewed supplier statements through API client");
-assertIncludes(appSource, "generateOfficeRawMaterialSupplierPayableDraft", "App should generate supplier payable drafts through API client");
-assertIncludes(appSource, "confirmOfficeRawMaterialSupplierPayment", "App should confirm supplier payments through API client");
-assertIncludes(appSource, "打印只是待贴标状态，不能直接作为可用库存", "print action must not imply available inventory");
-assertIncludes(appSource, "手机扫码并上传签单信息后再入库可用", "attach action should be required before availability");
-assertIncludes(appSource, "机边领料", "App should support raw-material machine-side issue actions");
-assertIncludes(appSource, "不生成成品数量或成本分摊", "machine-side issue should not imply finished output or cost allocation");
-assertIncludes(appSource, "拆卷领料", "App should support split-roll partial raw-material issue");
-assertIncludes(appSource, "部分消耗", "App should support partial raw-material consumption");
-assertIncludes(appSource, "rawMaterialSplitRecords", "App should preserve split-roll trace records");
-assertIncludes(appSource, "确认消耗", "App should support raw-material consumption confirmation actions");
-assertIncludes(appSource, "余料退回", "App should support raw-material leftover return actions");
-assertIncludes(appSource, "不自动变可用库存", "leftover return should not imply available inventory");
-assertIncludes(appSource, "复核余料可用", "App should support raw-material leftover review actions");
-assertIncludes(appSource, "转回可用库存", "leftover review should explicitly restore available inventory only after review");
-assertIncludes(appSource, "供应商未提供单号", "App toasts should fall back when supplier note number is missing");
+assertIncludes(appSource, "createOfficeRawMaterialActions", "App should compose the raw-material action controller");
+assertExcludes(appSource, "updateOfficeRawMaterialInboundAction", "App should not call the raw-material write client directly");
+assertIncludes(roleToolReadsSource, "listOfficeRawMaterialInbounds", "role-tool reads should refresh raw-material inbounds through API client");
+assertIncludes(roleToolReadsSource, "listOfficeRawMaterialSupplierStatementReviews", "role-tool reads should refresh supplier statement review drafts through API client");
+assertIncludes(rawMaterialControllerSource, "updateOfficeRawMaterialInboundAction", "raw-material controller should submit actions through API client");
+assertIncludes(rawMaterialControllerSource, "createOfficeRawMaterialSupplierStatementReviewDraft", "raw-material controller should save supplier statement review drafts through API client");
+assertIncludes(rawMaterialControllerSource, "confirmOfficeRawMaterialSupplierStatementReview", "raw-material controller should confirm supplier statement review drafts through API client");
+assertIncludes(rawMaterialControllerSource, "confirmOfficeRawMaterialSupplierStatement", "raw-material controller should confirm reviewed supplier statements through API client");
+assertIncludes(rawMaterialControllerSource, "generateOfficeRawMaterialSupplierPayableDraft", "raw-material controller should generate supplier payable drafts through API client");
+assertIncludes(rawMaterialControllerSource, "confirmOfficeRawMaterialSupplierPayment", "raw-material controller should confirm supplier payments through API client");
+assertIncludes(rawMaterialControllerSource, "生产/正式后端模式禁止本地降级", "production raw-material actions should fail closed when the API is unavailable");
+assertIncludes(rawMaterialLocalActionsSource, "打印只是待贴标状态，不能直接作为可用库存", "print action must not imply available inventory");
+assertIncludes(rawMaterialLocalActionsSource, "手机扫码并上传签单信息后再入库可用", "attach action should be required before availability");
+assertIncludes(rawMaterialLocalActionsSource, "机边领料", "raw-material projection should support machine-side issue actions");
+assertIncludes(rawMaterialLocalActionsSource, "不生成成品数量或成本分摊", "machine-side issue should not imply finished output or cost allocation");
+assertIncludes(rawMaterialLocalActionsSource, "拆卷领料", "raw-material projection should support split-roll partial issue");
+assertIncludes(rawMaterialLocalActionsSource, "部分消耗", "raw-material projection should support partial consumption");
+assertIncludes(rawMaterialLocalActionsSource, "rawMaterialSplitRecords", "raw-material projection should preserve split-roll trace records");
+assertIncludes(rawMaterialLocalActionsSource, "确认消耗", "raw-material projection should support consumption confirmation actions");
+assertIncludes(rawMaterialLocalActionsSource, "余料退回", "raw-material projection should support leftover return actions");
+assertIncludes(rawMaterialLocalActionsSource, "不自动变可用库存", "leftover return should not imply available inventory");
+assertIncludes(rawMaterialLocalActionsSource, "复核余料可用", "raw-material projection should support leftover review actions");
+assertIncludes(rawMaterialLocalActionsSource, "转回可用库存", "leftover review should restore available inventory only after review");
+assertIncludes(rawMaterialLocalActionsSource, "供应商未提供单号", "raw-material toasts should fall back when supplier note number is missing");
 
 assertIncludes(officePageSource, "export function RawMaterialInboundPage", "office pages should export RawMaterialInboundPage");
 assertIncludes(officePageSource, "OCR 仅预填", "page should clearly label OCR as prefill only");
@@ -91,7 +103,7 @@ assertIncludes(permissionSource, "raw_material.cost.view", "permissions should g
 assertIncludes(permissionSource, "raw_material.supplier_payable.create", "permissions should guard supplier payable draft generation");
 assertIncludes(permissionSource, "raw_material.supplier_payment.confirm", "permissions should guard supplier payment confirmation");
 
-assertIncludes(styleSource, ".raw-material-inbound-page", "styles should cover raw-material page");
+assertIncludes(styleSource, ".raw-material-workbench", "styles should cover raw-material page");
 assertIncludes(styleSource, ".raw-material-roll-row", "styles should cover roll rows");
 assertIncludes(styleSource, ".supplier-statement-preview", "styles should cover supplier statement import preview");
 assertIncludes(styleSource, ".supplier-statement-review-list", "styles should cover supplier statement review list");
@@ -102,5 +114,11 @@ console.log("raw-material inbound page check passed");
 function assertIncludes(source, expected, message) {
   if (!source.includes(expected)) {
     throw new Error(`${message}: missing ${expected}`);
+  }
+}
+
+function assertExcludes(source, expected, message) {
+  if (source.includes(expected)) {
+    throw new Error(`${message}: found ${expected}`);
   }
 }
