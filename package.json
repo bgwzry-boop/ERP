@@ -51,7 +51,7 @@
     "api-async-startup:check": "node scripts/check-api-async-startup.mjs",
     "api-security:check": "node scripts/check-office-workspace-projection-service.mjs && node scripts/check-api-security-boundary.mjs && node scripts/check-api-security-policy.mjs && node scripts/check-http-json-body.mjs",
     "api:validate-openapi": "node scripts/validate-openapi.mjs",
-    "auth:check": "node scripts/check-auth-routes.mjs && node scripts/check-frontend-auth-service.mjs",
+    "auth:check": "node scripts/check-runtime-auth-command-service.mjs && node scripts/check-auth-routes.mjs && node scripts/check-frontend-auth-service.mjs",
     "print-batch-api:check": "node scripts/check-frontend-print-batch-api-client.mjs",
     "print-read-routes:check": "node scripts/check-print-read-routes.mjs",
     "print-write-routes:check": "node scripts/check-print-write-routes.mjs && node scripts/check-print-job-business-projection-service.mjs && node scripts/check-print-job-lifecycle-service.mjs && node scripts/check-fulfillment-print-command-service.mjs && node scripts/check-print-device-command-service.mjs && node scripts/check-print-batch-command-service.mjs",

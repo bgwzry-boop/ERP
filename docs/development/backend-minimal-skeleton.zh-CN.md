@@ -28,7 +28,7 @@ V1 现场交接现在还有七个本地执行辅助边界：`npm run v1-go-live-
 
 相关文件：
 
-- `server/apiServer.mjs`：Node HTTP API server，包含 seed 认证、只读 seed 路由和第一批内存写入路由。
+- `server/apiServer.mjs`：Node HTTP API 组合入口，负责启动、认证上下文、权限、依赖注入和路由结果适配；正式认证命令已迁入独立 service。
 - `server/attachmentRepository.mjs`：附件摘要仓储边界，默认本地 JSON，显式配置时可生成 PostgreSQL 附件表写入 / 查询 SQL。
 - `server/attachmentObjectStorage.mjs`：附件内容对象存储边界，默认 `local_fs` 写入 `.erp-local-storage/attachments/`；`object_storage` 配置完整时走 S3 兼容 AWS Signature V4 PUT / GET / DELETE 和直连签名 URL。
 - `server/orderConfirmationTransactionRepository.mjs`：订单确认事务边界，默认写当前 API workspace，显式 PostgreSQL 模式在一个事务内写正式原始订单、订单明细、价格快照、出库任务、库存占用、库存流水、缺货待办和操作日志，并更新库存 reserved 数量。
@@ -49,6 +49,7 @@ V1 现场交接现在还有七个本地执行辅助边界：`npm run v1-go-live-
 - `server/statementExportRepository.mjs`：对账预览 / 导出仓储边界，默认写当前 API workspace，显式 PostgreSQL 模式同事务替换 `statement_lines`、写 `statement_export_files` 元数据和 `.xlsx` base64 兜底内容，并写 `operation_logs`。
 - `server/statementExportObjectStorage.mjs`：对账导出文件对象存储边界，默认 `local_fs` 写入 `.erp-local-storage/statement-exports/`；显式对象存储模式复用 S3 兼容 PUT / GET 签名，并保留数据库内容作为下载兜底。
 - `server/authSeed.mjs`：办公室、库房、财务、管理、司机等 seed 账号的登录、签名 token、角色和有效权限合成。
+- `server/services/runtimeAuthCommandService.mjs`：正式 / seed 登录、失败锁定、密码摘要升级 / 过期、首次改密、当前会话和 logout 撤销命令；有状态写入先持久化 staged identity workspace，再提交进程内投影。
 - `server/driverDeliveryTaskReadRepository.mjs`：司机送货任务读取仓储边界，默认读当前 workspace，显式 PostgreSQL 模式从送货出库记录、订单、客户、包裹、打印记录、库存来源、送达证据和 `driver_delivery_dispatches` 组合任务列表 / 详情，并按路线日期 / 趟次 / 站点顺序排序。
 - `server/driverDeliveryDispatchRepository.mjs`：司机派单写入仓储边界，默认写当前 API workspace，显式 PostgreSQL 模式 upsert `driver_delivery_dispatches` 并写 `operation_logs`。
 - `server/productionScheduleRecordRepository.mjs`：生产排产记录仓储边界，默认写当前 API workspace，显式 PostgreSQL 模式 upsert `production_schedule_records`、移动生产任务机台并写 `operation_logs`。
@@ -283,9 +284,10 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 
 | 路由 | 说明 |
 |---|---|
-| `POST /api/auth/login` | 使用 seed 登录名 / 密码生成签名 bearer token |
-| `GET /api/auth/me` | 校验 bearer token，并返回当前会话和有效权限 |
-| `POST /api/auth/logout` | 退出占位；当前 seed token 无状态，前端丢弃 token 即可 |
+| `POST /api/auth/login` | production 使用正式导入员工账号生成 runtime bearer token；demo/test 可兼容 seed 登录 |
+| `POST /api/auth/change-password` | 正式员工校验当前密码后修改密码，同步员工状态和操作日志 |
+| `GET /api/auth/me` | 校验 runtime / 允许的 seed bearer token，并返回当前会话和有效权限 |
+| `POST /api/auth/logout` | 持久化 session JTI 撤销记录；重复撤销保持稳定，不接受仅前端丢 token 作为生产退出事实 |
 
 ## 当前只读路由
 
@@ -293,7 +295,7 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 |---|---|
 | `GET /api/health` | 健康检查，返回 OpenAPI 和种子数据计数 |
 | `GET /api/openapi/status` | OpenAPI 校验状态 |
-| `GET /api/auth/me` | 当前 seed 登录会话和权限 |
+| `GET /api/auth/me` | 当前已验签 runtime / seed 登录会话和权限 |
 | `GET /api/office/workspace` | 仅 demo/test 可用的旧办公室白名单摘要；production 禁用，且不返回用户密码、认证 secret、仓库或文件存储内部对象 |
 | `GET /api/order-lines` | 订单池明细列表，默认读 workspace；PostgreSQL 模式读正式订单表并返回兼容字段和 OpenAPI 字段 |
 | `GET /api/order-lines/{id}` | 单条订单明细详情，返回订单、价格、库存、出库、对账、附件和操作日志摘要 |
