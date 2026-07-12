@@ -41,6 +41,7 @@ export function createOfficeCoreReadActions({
   setSelectedStockId,
   setInventoryMeta,
   setFulfillments,
+  setFulfillmentMeta,
   setSelectedFulfillmentId,
 }) {
   async function refreshTodos({ showToast = false } = {}) {
@@ -162,6 +163,7 @@ export function createOfficeCoreReadActions({
   }
 
   async function refreshFulfillments({ showToast = false } = {}) {
+    setFulfillmentMeta((current) => ({ ...current, loading: true, error: "" }));
     const result = await api.listOfficeFulfillments({
       authState,
       operatorId: currentUserId,
@@ -169,6 +171,12 @@ export function createOfficeCoreReadActions({
       localFulfillments: fulfillmentsRef.current,
     });
     if (result.blocked || (serverRequired() && result.source !== "api")) {
+      setFulfillmentMeta((current) => ({
+        ...current,
+        source: result.source,
+        loading: false,
+        error: result.error?.message ?? "生产模式要求后端交付投影。",
+      }));
       return withFeedback(
         result,
         showToast,
@@ -181,6 +189,13 @@ export function createOfficeCoreReadActions({
     setSelectedFulfillmentId((current) =>
       nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id ?? current,
     );
+    setFulfillmentMeta({
+      source: result.source,
+      total: result.total ?? nextItems.length,
+      loading: false,
+      error: result.error?.message ?? "",
+      lastSyncedAt: formatSyncTime(),
+    });
     const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
     return withFeedback(result, showToast, `出库交付已通过${sourceLabel}刷新，共 ${result.total ?? nextItems.length} 条。`);
   }

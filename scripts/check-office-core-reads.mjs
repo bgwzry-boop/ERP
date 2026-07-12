@@ -26,6 +26,7 @@ function createDependencies(api, options = {}) {
     selectedStockId: createState("STOCK-LOCAL"),
     inventoryMeta: createState({ source: "local", loading: false }),
     fulfillments: createState([]),
+    fulfillmentMeta: createState({ source: "local", loading: false, error: "" }),
     selectedFulfillmentId: createState("OLD-FULFILLMENT"),
   };
   const dependencies = {
@@ -48,6 +49,7 @@ function createDependencies(api, options = {}) {
     setSelectedStockId: state.selectedStockId.set,
     setInventoryMeta: state.inventoryMeta.set,
     setFulfillments: state.fulfillments.set,
+    setFulfillmentMeta: state.fulfillmentMeta.set,
     setSelectedFulfillmentId: state.selectedFulfillmentId.set,
   };
   return { actions: createOfficeCoreReadActions(dependencies), state };
@@ -97,6 +99,8 @@ const productionFulfillmentCase = createDependencies(api, { serverRequired: () =
 const fulfillmentResult = await productionFulfillmentCase.actions.refreshFulfillments({ showToast: true });
 assert.equal(fulfillmentResult.source, "local");
 assert.equal(productionFulfillmentCase.state.fulfillments.value.length, 0);
+assert.equal(productionFulfillmentCase.state.fulfillmentMeta.value.source, "local");
+assert.match(productionFulfillmentCase.state.fulfillmentMeta.value.error, /生产模式要求后端交付投影/);
 assert.match(fulfillmentResult.feedback, /生产模式要求后端交付投影/);
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");

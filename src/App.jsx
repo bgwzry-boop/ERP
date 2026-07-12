@@ -33,6 +33,7 @@ import { createOfficeDriverDeliveryActions } from "./app/createOfficeDriverDeliv
 import { createOfficeFulfillmentActions } from "./app/createOfficeFulfillmentActions.js";
 import { createOfficeInventoryActions } from "./app/createOfficeInventoryActions.js";
 import { createOfficeMasterDataActions } from "./app/createOfficeMasterDataActions.js";
+import { createOfficeOrderActions } from "./app/createOfficeOrderActions.js";
 import { createOfficeRawMaterialActions } from "./app/createOfficeRawMaterialActions.js";
 import { createOfficeStatementActions } from "./app/createOfficeStatementActions.js";
 import { createOfficeTodoActions } from "./app/createOfficeTodoActions.js";
@@ -362,7 +363,7 @@ export function App() {
     inventoryCorrectionDetailState,
     inventoryCorrectionQueueState,
     selectedStockId, setSelectedStockId,
-    fulfillmentTab, setFulfillmentTab, fulfillments, setFulfillments,
+    fulfillmentTab, setFulfillmentTab, fulfillments, setFulfillments, fulfillmentMeta,
     selectedFulfillmentId, setSelectedFulfillmentId,
     productionPacking, productionPackingFocus, setProductionPackingFocus,
     productionPackingDetailState, setProductionPackingDetailState,
@@ -1233,52 +1234,6 @@ export function App() {
     setToast(`${activeMeta.label} 已刷新本地假数据。`);
   }
 
-  function createOrderFromTopbar() {
-    if (!guardUiAction("topbar", "新建订单")) return;
-    setActivePage("entry");
-  }
-
-  function focusOrderLine(ref, reason = "订单池") {
-    const line = resolveLineFromRef(orderLines, statements, ref);
-    setActivePage("orders");
-    if (!line) {
-      setOrderFilters(defaultOrderFilters);
-      setToast(`已打开订单池，但未找到 ${ref} 对应的订单明细。`);
-      return null;
-    }
-    setSelectedOrderId(line.id);
-    setOrderFilters({ ...defaultOrderFilters, customerId: line.customerId });
-    setToast(`已从${reason}定位到订单明细 ${line.id}。`);
-    return line;
-  }
-
-  function focusFulfillmentByRef(ref) {
-    const line = resolveLineFromRef(orderLines, statements, ref);
-    const fulfillment = fulfillments.find((item) => item.lineId === ref) ?? fulfillments.find((item) => item.lineId === line?.id) ?? fulfillments.find((item) => item.lineId.startsWith(line?.orderNo ?? ref));
-    if (fulfillment) {
-      setSelectedFulfillmentId(fulfillment.id);
-      setFulfillmentTab(fulfillment.method);
-      setActivePage("fulfillment");
-      setToast(`已定位到出库 / 交付记录 ${fulfillment.lineId}。`);
-      return;
-    }
-    focusOrderLine(ref, "待办");
-    setToast(`未找到 ${ref} 的出库记录，已定位到订单池明细。`);
-  }
-
-  function focusStatementByRef(ref) {
-    const line = resolveLineFromRef(orderLines, statements, ref);
-    const statement = statements.find((item) => item.id === ref) ?? statements.find((item) => item.lineIds.includes(line?.id));
-    if (statement) {
-      setSelectedStatementId(statement.id);
-      setActivePage("statements");
-      setToast(`已定位到对账 / 收款记录 ${statement.id}。`);
-      return;
-    }
-    focusOrderLine(ref, "待办");
-    setToast(`未找到 ${ref} 的对账记录，已定位到订单池明细。`);
-  }
-
   async function loadProductionPackingSourceDetail(focusTarget) {
     const requestedType = String(focusTarget?.mode ?? "").trim();
     const requestedId = String(focusTarget?.taskId ?? focusTarget?.productionTaskId ?? focusTarget?.packingTaskId ?? "").trim();
@@ -1367,19 +1322,43 @@ export function App() {
     return result.detail;
   }
 
-  function openOrderLineAction(action, orderLine) {
-    if (!orderLine) {
-      setToast("请先选择一条订单明细。");
-      return;
-    }
-    const label = action === "quantity" ? "调整正式单数量" : "作废正式单";
-    if (!guardUiAction("orders", label)) return;
-    openOrderActionModal({
-      type: action,
-      orderLineId: orderLine.id,
-      orderLine,
-    });
-  }
+  const {
+    createOrderFromTopbar,
+    entryAction,
+    focusFulfillmentByRef,
+    focusOrderLine,
+    focusStatementByRef,
+    handleDraftCommand,
+    openOrderLineAction,
+    recognize,
+    updateDraftField,
+  } = createOfficeOrderActions({
+    allowLocalFallback: !runtimeServerRequired,
+    defaultOrderFilters,
+    executeOrderEntryAction,
+    fulfillmentSource: fulfillmentMeta.source,
+    fulfillments,
+    guardUiAction,
+    openOrderActionModal,
+    orderLines,
+    orderPoolSource: orderPoolMeta.source,
+    recognizeOrderDraft,
+    refreshFulfillments,
+    refreshOrderPool,
+    refreshStatements,
+    resolveLineFromRef,
+    runOrderDraftCommand,
+    setActivePage,
+    setFulfillmentTab,
+    setOrderFilters,
+    setSelectedFulfillmentId,
+    setSelectedOrderId,
+    setSelectedStatementId,
+    setToast,
+    statementSource: statementReadMeta.source,
+    statements,
+    updateOrderDraftField,
+  });
 
   const { handleTodo } = createOfficeTodoActions({
     allowLocalFallback: !runtimeServerRequired,
@@ -1405,28 +1384,6 @@ export function App() {
     sortTodos,
     todos,
   });
-  async function recognize() {
-    if (!guardUiAction("entry", "识别")) return;
-    const result = await recognizeOrderDraft();
-    if (result?.feedback) setToast(result.feedback);
-  }
-
-  function updateDraftField(id, field, value) {
-    updateOrderDraftField(id, field, value);
-  }
-
-  function handleDraftCommand(action) {
-    const result = runOrderDraftCommand(action);
-    if (result?.feedback) setToast(result.feedback);
-  }
-
-  async function entryAction(label) {
-    if (!guardUiAction("entry", label)) return;
-    const result = await executeOrderEntryAction(label);
-    if (result?.navigateTo) setActivePage(result.navigateTo);
-    if (result?.feedback) setToast(result.feedback);
-  }
-
   const {
     focusInventoryLedgerSource,
     handleInventoryCorrectionAttachment,

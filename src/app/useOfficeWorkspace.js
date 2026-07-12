@@ -157,6 +157,13 @@ export function useOfficeWorkspace({
 
   const [fulfillmentTab, setFulfillmentTab] = useState("全部");
   const [fulfillments, setFulfillments] = useState(initialFulfillments);
+  const [fulfillmentMeta, setFulfillmentMeta] = useState({
+    source: "local",
+    total: initialFulfillments.length,
+    loading: false,
+    error: "",
+    lastSyncedAt: "",
+  });
   const [selectedFulfillmentId, setSelectedFulfillmentId] = useState(defaultSelections.fulfillmentId);
 
   const [productionPacking, setProductionPacking] = useState(() =>
@@ -405,6 +412,7 @@ export function useOfficeWorkspace({
     setSelectedStockId,
     setInventoryMeta,
     setFulfillments,
+    setFulfillmentMeta,
     setSelectedFulfillmentId,
   });
   const roleToolReads = useOfficeRoleToolReads({
@@ -603,7 +611,7 @@ export function useOfficeWorkspace({
     inventoryCorrectionDrafts, setInventoryCorrectionDrafts,
     inventoryCorrectionQueueState, setInventoryCorrectionQueueState,
     selectedStockId, setSelectedStockId,
-    fulfillmentTab, setFulfillmentTab, fulfillments, setFulfillments,
+    fulfillmentTab, setFulfillmentTab, fulfillments, setFulfillments, fulfillmentMeta, setFulfillmentMeta,
     selectedFulfillmentId, setSelectedFulfillmentId,
     productionPacking, setProductionPacking, productionPackingFocus, setProductionPackingFocus,
     productionPackingDetailState, setProductionPackingDetailState,

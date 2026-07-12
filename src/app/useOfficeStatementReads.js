@@ -87,7 +87,7 @@ export function createOfficeStatementReadActions({
     }));
     const sourceLabel = result.source === "api" ? "后端 API" : "本地规则降级";
     return withFeedback(
-      { ...result, selectedStatementId },
+      { ...result, statements: items, selectedStatementId },
       showToast,
       `客户对账列表已通过${sourceLabel}刷新，共 ${result.total ?? items.length} 条。`,
     );
