@@ -900,6 +900,43 @@ try {
   assert(restartedExecutionList.items.some((item) => item.executionId === clientExecution.importExecution.executionId));
   assert(restartedExecutionList.items.some((item) => item.executionId === committedClientExecution.importExecution.executionId));
 
+  const restartedEmployeeReviews = await listOfficeMasterDataEmployeeAccountReviews(
+    {
+      authState: createLocalSeedAuthState("U-MANAGER-A"),
+      operatorId: "U-MANAGER-A",
+      filters: { employeeId: pendingEmployeeReview.employeeId },
+    },
+    { apiBaseUrl: `${restartedBaseUrl}/api` },
+  );
+  assert.equal(restartedEmployeeReviews.source, "api", JSON.stringify(restartedEmployeeReviews.error));
+  assert.equal(restartedEmployeeReviews.total, 1);
+  assert.equal(restartedEmployeeReviews.items[0].accountEnabled, true);
+  assert.equal(
+    restartedEmployeeReviews.items[0].userId,
+    enabledEmployeeReview.employeeAccountReview.userId,
+  );
+  assert.equal(restartedEmployeeReviews.items[0].loginEnabled, false);
+  assert.equal(restartedEmployeeReviews.items[0].passwordStatus, "password_revoked");
+
+  const restartedEmployeeReviewLogs = await getJson(
+    restartedBaseUrl,
+    `/api/operation-logs?targetType=master_data_employee_account_review&targetId=${encodeURIComponent(pendingEmployeeReview.employeeId)}`,
+  );
+  assert(
+    restartedEmployeeReviewLogs.items.some(
+      (log) => log.id === enabledEmployeeReview.operationLogId,
+    ),
+  );
+  const restartedEmployeePasswordLogs = await getJson(
+    restartedBaseUrl,
+    `/api/operation-logs?targetType=master_data_employee_account_password&targetId=${encodeURIComponent(pendingEmployeeReview.employeeId)}`,
+  );
+  assert(
+    restartedEmployeePasswordLogs.items.some(
+      (log) => log.id === revokedEmployeePassword.operationLogId,
+    ),
+  );
+
   const restartedFailedRowsDownload = await downloadOfficeMasterDataImportFailedRows(
     {
       authState: createLocalSeedAuthState("U-OFFICE-A"),

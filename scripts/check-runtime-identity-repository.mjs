@@ -15,6 +15,7 @@ import {
   buildSaveRuntimeIdentityStateQuery,
   buildSaveRuntimeIdentityStateSql,
   createRuntimeIdentityRepository,
+  mergeRuntimeIdentityStateIntoWorkspace,
   runtimeIdentityStoreKey,
 } from "../server/runtimeIdentityRepository.mjs";
 
@@ -33,6 +34,7 @@ const expiredChangedAt = "2026-01-01T00:00:00.000Z";
 const expiredLoginAt = "2026-07-04T00:00:00.000Z";
 const expiredChangedPasswordValue = "runtime-expired-new-password-001";
 const issuedAt = "2026-01-01T00:00:00.000Z";
+const accountOperationLogId = "LOG-EMP-RUNTIME-CHECK";
 const authSecret = "runtime-identity-check-auth-secret";
 const temporaryPasswordHash = hashRuntimeUserPassword(temporaryPassword, { userId, authSecret });
 const secondTemporaryPasswordHash = hashRuntimeUserPassword(temporaryPassword, { userId, authSecret });
@@ -93,6 +95,21 @@ repository.saveState({
       },
     ],
     revokedSeedSessions: [],
+    operationLogs: [
+      {
+        id: accountOperationLogId,
+        targetType: "master_data_employee_account_review",
+        targetId: "EMP-RUNTIME-CHECK",
+        action: "master_data_employee_account_enabled",
+        before: { accountEnabled: false },
+        after: { accountEnabled: true, userId },
+        reason: "runtime identity persistence check",
+        operatorId: "U-MANAGER-A",
+        pageKey: "master_data",
+        occurredAt: issuedAt,
+        createdAt: issuedAt,
+      },
+    ],
   },
 });
 
@@ -261,6 +278,11 @@ try {
   assert.equal(expiredPersistedUser.mustChangePassword, false);
   assert(expiredPersistedUser.passwordExpiresAt);
   assert(reloaded.revokedSeedSessionJtis.includes(changedLoginAfterRestart.session.jti));
+  assert(reloaded.operationLogs.some((log) => log.id === accountOperationLogId));
+
+  const mergedWorkspace = { users: [], operationLogs: [] };
+  const merged = mergeRuntimeIdentityStateIntoWorkspace(mergedWorkspace, reloaded);
+  assert(merged.operationLogs.some((log) => log.id === accountOperationLogId));
 
   const persistedJson = readFileSync(join(storageRoot, runtimeIdentityStoreKey), "utf8");
   assert.equal(persistedJson.includes(temporaryPassword), false);
@@ -271,6 +293,8 @@ try {
   const loadSql = buildLoadRuntimeIdentityStateSql();
   assert(loadSql.includes("seed_session_revocations"));
   assert(loadSql.includes("source = 'master_data_import_review'"));
+  assert(loadSql.includes("master_data_employee_account_review"));
+  assert(loadSql.includes("master_data_employee_account_password"));
   const loadQuery = buildLoadRuntimeIdentityStateQuery();
   assert.equal(loadQuery.text, loadSql);
   assert.deepEqual(loadQuery.values, []);
@@ -278,6 +302,9 @@ try {
   const saveSql = buildSaveRuntimeIdentityStateSql(reloaded);
   assert(saveSql.includes("ON CONFLICT (id) DO UPDATE"));
   assert(saveSql.includes("ON CONFLICT (jti) DO UPDATE"));
+  assert(saveSql.includes("UPDATE employees"));
+  assert(saveSql.includes("INSERT INTO operation_logs"));
+  assert(saveSql.includes("savedOperationLogCount"));
   assert.doesNotMatch(saveSql, /runtime-new-password-001/);
   assert.match(saveSql, /\$\d+::jsonb/);
   assert.equal(saveQuery.text, saveSql);
@@ -295,6 +322,8 @@ const postgresRepository = createRuntimeIdentityRepository({
     return {
       savedUserCount: reloaded.users.length,
       revokedSessionCount: reloaded.revokedSeedSessions.length,
+      savedOperationLogCount: reloaded.operationLogs.length,
+      updatedEmployeeCount: 1,
     };
   },
 });
@@ -303,16 +332,21 @@ const postgresSaved = await postgresRepository.saveState({
   workspace: {
     users: reloaded.users,
     revokedSeedSessions: reloaded.revokedSeedSessions,
+    operationLogs: reloaded.operationLogs,
   },
 });
 assert.equal(postgresRepository.kind, "postgres");
 assert.equal(postgresState.users.length, reloaded.users.length);
 assert.equal(postgresSaved.savedUserCount, reloaded.users.length);
 assert.equal(postgresSaved.revokedSessionCount, reloaded.revokedSeedSessions.length);
+assert.equal(postgresSaved.savedOperationLogCount, reloaded.operationLogs.length);
+assert.equal(postgresSaved.updatedEmployeeCount, 1);
 assert.equal(postgresCalls[0].kind, "query");
 assert.equal(postgresCalls[1].kind, "transaction");
 assert.match(postgresCalls[1].text, /^\s*WITH saved_users AS/);
 assert.match(postgresCalls[1].text, /saved_revoked_sessions AS/);
+assert.match(postgresCalls[1].text, /updated_employees AS/);
+assert.match(postgresCalls[1].text, /saved_operation_logs AS/);
 assert.match(postgresCalls[1].text, /AS result;\s*$/);
 assert.doesNotMatch(postgresCalls[1].text, /\bBEGIN\b|\bCOMMIT\b/);
 assert.ok(postgresCalls[1].values.length > 30);

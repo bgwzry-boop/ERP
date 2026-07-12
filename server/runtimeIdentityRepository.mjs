@@ -45,6 +45,8 @@ export function createLocalRuntimeIdentityRepository(options = {}) {
       return {
         savedUserCount: state.users.length,
         revokedSessionCount: state.revokedSeedSessions.length,
+        savedOperationLogCount: state.operationLogs.length,
+        savedEmployeeAccountCount: state.employeeAccounts.length,
       };
     },
   };
@@ -73,6 +75,10 @@ export function createPostgresRuntimeIdentityRepository(options = {}) {
       return {
         savedUserCount: Number(saved.savedUserCount ?? state.users.length) || 0,
         revokedSessionCount: Number(saved.revokedSessionCount ?? state.revokedSeedSessions.length) || 0,
+        savedOperationLogCount:
+          Number(saved.savedOperationLogCount ?? state.operationLogs.length) || 0,
+        savedEmployeeAccountCount: state.employeeAccounts.length,
+        updatedEmployeeCount: Number(saved.updatedEmployeeCount) || 0,
       };
     },
   };
@@ -95,6 +101,30 @@ export function mergeRuntimeIdentityStateIntoWorkspace(workspace = {}, state = {
   workspace.users = Array.from(usersById.values());
   workspace.revokedSeedSessions = normalized.revokedSeedSessions;
   workspace.revokedSeedSessionJtis = normalized.revokedSeedSessionJtis;
+  const employeesById = new Map(
+    (Array.isArray(workspace.employees) ? workspace.employees : [])
+      .map((employee) => [cleanText(employee?.id), employee])
+      .filter(([id]) => id),
+  );
+  for (const employeeAccount of normalized.employeeAccounts) {
+    employeesById.set(employeeAccount.id, {
+      ...(employeesById.get(employeeAccount.id) ?? {}),
+      ...employeeAccount,
+    });
+  }
+  workspace.employees = Array.from(employeesById.values());
+  const operationLogsById = new Map(
+    (Array.isArray(workspace.operationLogs) ? workspace.operationLogs : [])
+      .map((log) => [cleanText(log?.id), log])
+      .filter(([id]) => id),
+  );
+  for (const operationLog of normalized.operationLogs) {
+    operationLogsById.set(operationLog.id, {
+      ...(operationLogsById.get(operationLog.id) ?? {}),
+      ...operationLog,
+    });
+  }
+  workspace.operationLogs = Array.from(operationLogsById.values());
   return workspace;
 }
 
@@ -108,8 +138,10 @@ export function normalizeRuntimeIdentityStateFromWorkspace(workspace = {}) {
   return {
     schemaVersion: 1,
     users,
+    employeeAccounts: normalizeRuntimeIdentityEmployeeAccounts(workspace.employees, users),
     revokedSeedSessions,
     revokedSeedSessionJtis: revokedSeedSessions.map((item) => item.jti),
+    operationLogs: normalizeRuntimeIdentityOperationLogs(workspace.operationLogs),
   };
 }
 
@@ -130,6 +162,26 @@ SELECT json_build_object(
       ORDER BY updated_at DESC, id
     ) runtime_users
   ), '[]'::json),
+  'employeeAccounts', COALESCE((
+    SELECT json_agg(json_build_object(
+      'id', employees.id,
+      'bizNo', employees.biz_no,
+      'userId', COALESCE(employees.user_id, users.id),
+      'loginName', users.login_name,
+      'name', employees.name,
+      'roleName', employees.role_name,
+      'defaultWorkshop', employees.default_workshop,
+      'defaultMachineId', employees.default_machine_id,
+      'accountEnabled', employees.account_enabled,
+      'profileStatus', employees.profile_status,
+      'requestedEnabled', employees.requested_enabled,
+      'remark', employees.remark,
+      'updatedAt', COALESCE(employees.updated_at::TEXT, '')
+    ) ORDER BY employees.updated_at DESC, employees.id)
+    FROM employees
+    JOIN users ON users.employee_id = employees.id
+    WHERE users.source = 'master_data_import_review'
+  ), '[]'::json),
   'revokedSeedSessions', COALESCE((
     SELECT json_agg(json_build_object(
       'jti', jti,
@@ -141,6 +193,14 @@ SELECT json_build_object(
       'createdAt', COALESCE(created_at::TEXT, '')
     ) ORDER BY revoked_at DESC, jti)
     FROM seed_session_revocations
+  ), '[]'::json),
+  'operationLogs', COALESCE((
+    SELECT json_agg(${runtimeIdentityOperationLogJsonExpression("operation_logs")} ORDER BY occurred_at DESC, id)
+    FROM operation_logs
+    WHERE target_type IN (
+      'master_data_employee_account_review',
+      'master_data_employee_account_password'
+    )
   ), '[]'::json)
 ) AS result;
 `,
@@ -157,6 +217,9 @@ export function buildSaveRuntimeIdentityStateQuery(state = {}) {
   const parameters = createPostgresParameterBinder();
   const userRows = normalized.users.map((user) => runtimeUserSqlRow(user, parameters)).filter(Boolean);
   const revokedRows = normalized.revokedSeedSessions.map((record) => revokedSeedSessionSqlRow(record, parameters)).filter(Boolean);
+  const operationLogRows = normalized.operationLogs
+    .map((record) => runtimeIdentityOperationLogSqlRow(record, parameters))
+    .filter(Boolean);
   return {
     text: `
 WITH saved_users AS (
@@ -164,10 +227,28 @@ WITH saved_users AS (
 ),
 saved_revoked_sessions AS (
   ${revokedRows.length > 0 ? buildUpsertRevokedSeedSessionsSql(revokedRows) : "SELECT NULL::TEXT AS jti WHERE FALSE"}
+),
+updated_employees AS (
+  UPDATE employees
+  SET
+    user_id = users.id,
+    account_enabled = TRUE,
+    profile_status = 'account_enabled',
+    updated_at = users.updated_at
+  FROM users
+  WHERE employees.id = users.employee_id
+    AND users.source = 'master_data_import_review'
+    AND EXISTS (SELECT 1 FROM saved_users WHERE saved_users.id = users.id)
+  RETURNING employees.id
+),
+saved_operation_logs AS (
+  ${operationLogRows.length > 0 ? buildUpsertRuntimeIdentityOperationLogsSql(operationLogRows) : "SELECT NULL::TEXT AS id WHERE FALSE"}
 )
 SELECT json_build_object(
   'savedUserCount', (SELECT COUNT(*) FROM saved_users),
-  'revokedSessionCount', (SELECT COUNT(*) FROM saved_revoked_sessions)
+  'revokedSessionCount', (SELECT COUNT(*) FROM saved_revoked_sessions),
+  'updatedEmployeeCount', (SELECT COUNT(*) FROM updated_employees),
+  'savedOperationLogCount', (SELECT COUNT(*) FROM saved_operation_logs)
 ) AS result;
 `,
     values: parameters.values,
@@ -251,6 +332,37 @@ RETURNING jti
 `;
 }
 
+function buildUpsertRuntimeIdentityOperationLogsSql(rows) {
+  return `
+INSERT INTO operation_logs (
+  id,
+  target_type,
+  target_id,
+  action,
+  before_json,
+  after_json,
+  reason,
+  operator_id,
+  page_key,
+  occurred_at,
+  created_at
+)
+VALUES
+${rows.join(",\n")}
+ON CONFLICT (id) DO UPDATE SET
+  target_type = EXCLUDED.target_type,
+  target_id = EXCLUDED.target_id,
+  action = EXCLUDED.action,
+  before_json = EXCLUDED.before_json,
+  after_json = EXCLUDED.after_json,
+  reason = EXCLUDED.reason,
+  operator_id = EXCLUDED.operator_id,
+  page_key = EXCLUDED.page_key,
+  occurred_at = EXCLUDED.occurred_at
+RETURNING id
+`;
+}
+
 function runtimeUserSqlRow(user, parameters) {
   const safeUser = normalizeRuntimeUser(user);
   if (!safeUser) return null;
@@ -265,6 +377,9 @@ function runtimeUserSqlRow(user, parameters) {
     lockedUntil: safeUser.lockedUntil,
     passwordExpiresAt: safeUser.passwordExpiresAt,
     passwordExpiredAt: safeUser.passwordExpiredAt,
+    accountReviewedBy: safeUser.accountReviewedBy,
+    accountReviewedAt: safeUser.accountReviewedAt,
+    accountReviewNote: safeUser.accountReviewNote,
   };
   return `(
     ${parameters.text(safeUser.userId)},
@@ -306,6 +421,24 @@ function revokedSeedSessionSqlRow(record, parameters) {
   )`;
 }
 
+function runtimeIdentityOperationLogSqlRow(record, parameters) {
+  const safeRecord = normalizeRuntimeIdentityOperationLog(record);
+  if (!safeRecord) return null;
+  return `(
+    ${parameters.text(safeRecord.id)},
+    ${parameters.text(safeRecord.targetType)},
+    ${parameters.text(safeRecord.targetId)},
+    ${parameters.text(safeRecord.action)},
+    ${parameters.json(safeRecord.before)},
+    ${parameters.json(safeRecord.after)},
+    ${parameters.nullableText(safeRecord.reason)},
+    ${parameters.nullableText(safeRecord.operatorId)},
+    ${parameters.nullableText(safeRecord.pageKey)},
+    ${parameters.timestamp(safeRecord.occurredAt)},
+    ${parameters.timestamp(safeRecord.createdAt)}
+  )`;
+}
+
 function runtimeUserJsonExpression(alias) {
   return `json_build_object(
     'id', ${alias}.id,
@@ -336,7 +469,26 @@ function runtimeUserJsonExpression(alias) {
     'lockedUntil', COALESCE(${alias}.metadata_json->>'lockedUntil', ''),
     'passwordExpiresAt', COALESCE(${alias}.metadata_json->>'passwordExpiresAt', ''),
     'passwordExpiredAt', COALESCE(${alias}.metadata_json->>'passwordExpiredAt', ''),
+    'accountReviewedBy', COALESCE(${alias}.metadata_json->>'accountReviewedBy', ''),
+    'accountReviewedAt', COALESCE(${alias}.metadata_json->>'accountReviewedAt', ''),
+    'accountReviewNote', COALESCE(${alias}.metadata_json->>'accountReviewNote', ''),
     'updatedAt', COALESCE(${alias}.updated_at::TEXT, '')
+  )`;
+}
+
+function runtimeIdentityOperationLogJsonExpression(alias) {
+  return `json_build_object(
+    'id', ${alias}.id,
+    'targetType', ${alias}.target_type,
+    'targetId', ${alias}.target_id,
+    'action', ${alias}.action,
+    'before', ${alias}.before_json,
+    'after', ${alias}.after_json,
+    'reason', COALESCE(${alias}.reason, ''),
+    'operatorId', COALESCE(${alias}.operator_id, ''),
+    'pageKey', COALESCE(${alias}.page_key, ''),
+    'occurredAt', COALESCE(${alias}.occurred_at::TEXT, ''),
+    'createdAt', COALESCE(${alias}.created_at::TEXT, '')
   )`;
 }
 
@@ -359,7 +511,9 @@ function persistPersistentRuntimeIdentityState(storageRoot, state) {
       {
         schemaVersion: 1,
         users: state.users,
+        employeeAccounts: state.employeeAccounts,
         revokedSeedSessions: state.revokedSeedSessions,
+        operationLogs: state.operationLogs,
       },
       null,
       2,
@@ -377,8 +531,10 @@ function normalizeRuntimeIdentityState(value = {}) {
   return {
     schemaVersion: 1,
     users,
+    employeeAccounts: normalizeRuntimeIdentityEmployeeAccounts(value.employeeAccounts, users),
     revokedSeedSessions,
     revokedSeedSessionJtis: revokedSeedSessions.map((item) => item.jti),
+    operationLogs: normalizeRuntimeIdentityOperationLogs(value.operationLogs),
   };
 }
 
@@ -392,6 +548,51 @@ function normalizeRuntimeUsers(users = []) {
       seen.add(user.userId);
       return true;
     });
+}
+
+function normalizeRuntimeIdentityEmployeeAccounts(records = [], users = []) {
+  const runtimeEmployeeIds = new Set(
+    (Array.isArray(users) ? users : [])
+      .filter((user) => cleanText(user?.source) === "master_data_import_review")
+      .map((user) => cleanText(user?.employeeId))
+      .filter(Boolean),
+  );
+  const seen = new Set();
+  return (Array.isArray(records) ? records : [])
+    .map((record) => normalizeRuntimeIdentityEmployeeAccount(record))
+    .filter(Boolean)
+    .filter(
+      (record) =>
+        runtimeEmployeeIds.has(record.id) ||
+        record.accountEnabled === true ||
+        record.profileStatus === "account_enabled",
+    )
+    .filter((record) => {
+      if (seen.has(record.id)) return false;
+      seen.add(record.id);
+      return true;
+    });
+}
+
+function normalizeRuntimeIdentityEmployeeAccount(record = {}) {
+  const id = cleanText(record.id ?? record.employeeId ?? record.employee_id);
+  if (!id) return null;
+  return {
+    id,
+    bizNo: cleanText(record.bizNo ?? record.biz_no) || id,
+    userId: cleanText(record.userId ?? record.user_id),
+    loginName: cleanText(record.loginName ?? record.login_name),
+    name: cleanText(record.name),
+    roleName: cleanText(record.roleName ?? record.role_name),
+    defaultWorkshop: cleanText(record.defaultWorkshop ?? record.default_workshop),
+    defaultMachineId: cleanText(record.defaultMachineId ?? record.default_machine_id),
+    accountEnabled: record.accountEnabled === true || record.account_enabled === true,
+    profileStatus:
+      cleanText(record.profileStatus ?? record.profile_status) || "account_enabled",
+    requestedEnabled: record.requestedEnabled === true || record.requested_enabled === true,
+    remark: cleanText(record.remark),
+    updatedAt: cleanText(record.updatedAt ?? record.updated_at) || new Date().toISOString(),
+  };
 }
 
 function normalizeRuntimeUser(user = {}) {
@@ -428,7 +629,50 @@ function normalizeRuntimeUser(user = {}) {
     lockedUntil: cleanText(user.lockedUntil),
     passwordExpiresAt: cleanText(user.passwordExpiresAt),
     passwordExpiredAt: cleanText(user.passwordExpiredAt),
+    accountReviewedBy: cleanText(user.accountReviewedBy),
+    accountReviewedAt: cleanText(user.accountReviewedAt),
+    accountReviewNote: cleanText(user.accountReviewNote),
     updatedAt: cleanText(user.updatedAt) || new Date().toISOString(),
+  };
+}
+
+function normalizeRuntimeIdentityOperationLogs(records = []) {
+  const seen = new Set();
+  return (Array.isArray(records) ? records : [])
+    .map((record) => normalizeRuntimeIdentityOperationLog(record))
+    .filter(Boolean)
+    .filter((record) => {
+      if (seen.has(record.id)) return false;
+      seen.add(record.id);
+      return true;
+    });
+}
+
+function normalizeRuntimeIdentityOperationLog(record = {}) {
+  const id = cleanText(record.id);
+  const targetType = cleanText(record.targetType ?? record.target_type);
+  if (
+    !id ||
+    !["master_data_employee_account_review", "master_data_employee_account_password"].includes(
+      targetType,
+    )
+  ) {
+    return null;
+  }
+  const occurredAt =
+    cleanText(record.occurredAt ?? record.occurred_at) || new Date().toISOString();
+  return {
+    id,
+    targetType,
+    targetId: cleanText(record.targetId ?? record.target_id),
+    action: cleanText(record.action),
+    before: record.before ?? record.before_json ?? null,
+    after: record.after ?? record.after_json ?? null,
+    reason: cleanText(record.reason),
+    operatorId: cleanText(record.operatorId ?? record.operator_id),
+    pageKey: cleanText(record.pageKey ?? record.page_key),
+    occurredAt,
+    createdAt: cleanText(record.createdAt ?? record.created_at) || occurredAt,
   };
 }
 

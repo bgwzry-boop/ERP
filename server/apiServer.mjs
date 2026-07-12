@@ -19,7 +19,6 @@ import {
   getRuntimeUserSecurityState,
   hashRuntimeUserPassword,
   isRuntimeUserPasswordHashUpgradeRequired,
-  issueRuntimeUserTemporaryPassword,
   verifyRuntimeUserPassword,
   verifyRuntimeSessionToken,
   verifySeedSessionToken,
@@ -108,13 +107,6 @@ import {
   precheckV1AttachmentRetention,
   precheckV1Persistence,
 } from "./services/v1StorageLivePrecheckService.mjs";
-import {
-  getEmployeeAccountDepartment,
-  getEmployeeAccountRoleLabel,
-  normalizeEmployeeAccountRoleKey,
-  validateEmployeeAccountIdentity,
-  validateEnabledEmployeeAccountReview,
-} from "./services/runtimeEmployeeAccountPolicy.mjs";
 import { createProductionSchedulingCommandService } from "./services/productionSchedulingCommandService.mjs";
 import { createProductionReportingCommandService } from "./services/productionReportingCommandService.mjs";
 import { createPackingCommandService } from "./services/packingCommandService.mjs";
@@ -124,6 +116,17 @@ import { createOrderLineMutationCommandService } from "./services/orderLineMutat
 import { createOrderDraftCommandService } from "./services/orderDraftCommandService.mjs";
 import { createFulfillmentActionCommandService } from "./services/fulfillmentActionCommandService.mjs";
 import { createMasterDataImportCommandService } from "./services/masterDataImportCommandService.mjs";
+import {
+  createMasterDataEmployeeAccountCommandService,
+  toMasterDataEmployeeAccountReview,
+} from "./services/masterDataEmployeeAccountCommandService.mjs";
+import {
+  findRuntimeUserById,
+  findRuntimeUserByIdentifiers,
+  persistRuntimeIdentityState,
+  sanitizeRuntimeUserForResponse,
+  upsertRuntimeUser,
+} from "./services/runtimeIdentityWorkspace.mjs";
 import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
 import { createProductionFinishedGoodsPhotoTransactionRepository } from "./productionFinishedGoodsPhotoTransactionRepository.mjs";
@@ -1829,30 +1832,6 @@ async function changeRuntimeUserPasswordRoute({ response, workspace, body, authC
   });
 }
 
-function findRuntimeUserById(workspace, userId) {
-  const safeUserId = cleanServerText(userId);
-  if (!safeUserId) return null;
-  return (
-    (Array.isArray(workspace.users) ? workspace.users : []).find(
-      (user) => cleanServerText(user?.userId ?? user?.id) === safeUserId && cleanServerText(user?.source) === "master_data_import_review",
-    ) ?? null
-  );
-}
-
-function findRuntimeUserByIdentifiers(workspace, identifiers = {}) {
-  const safeLoginName = cleanServerText(identifiers.loginName);
-  const safeUserId = cleanServerText(identifiers.userId);
-  if (!safeLoginName && !safeUserId) return null;
-  return (
-    (Array.isArray(workspace.users) ? workspace.users : []).find((user) => {
-      if (cleanServerText(user?.source) !== "master_data_import_review") return false;
-      const userId = cleanServerText(user?.userId ?? user?.id);
-      const loginName = cleanServerText(user?.loginName);
-      return (safeUserId && userId === safeUserId) || (safeLoginName && loginName === safeLoginName);
-    }) ?? null
-  );
-}
-
 function recordRuntimeUserLoginFailure(workspace, runtimeUser, { nowMs }) {
   if (!runtimeUser?.loginEnabled) return runtimeUser;
   const failedLoginCount = Math.max(0, Number(runtimeUser.failedLoginCount) || 0) + 1;
@@ -2932,454 +2911,41 @@ function listMasterDataEmployeeAccountReviews(workspace, filters = {}) {
 }
 
 async function enableMasterDataEmployeeAccountRoute({ response, workspace, employeeId, body, operatorId }) {
-  const safeEmployeeId = cleanServerText(employeeId);
-  if (!safeEmployeeId) {
-    return sendBusinessError(response, 400, "MASTER_DATA_EMPLOYEE_ID_REQUIRED", "employeeId is required.");
-  }
-  workspace.employees = Array.isArray(workspace.employees) ? workspace.employees : [];
-  const employeeIndex = workspace.employees.findIndex((item) => cleanServerText(item?.id) === safeEmployeeId);
-  if (employeeIndex < 0) {
-    return sendNotFound(response, "MASTER_DATA_EMPLOYEE_NOT_FOUND");
-  }
-
-  const before = { ...workspace.employees[employeeIndex] };
-  const reviewedAt = cleanServerText(body.reviewedAt) || new Date().toISOString();
-  const roleKey = normalizeEmployeeAccountRoleKey(body.roleKey, before.roleName);
-  const userId = cleanServerText(body.userId) || cleanServerText(before.userId) || buildEmployeeAccountUserId(before);
-  const loginName = cleanServerText(body.loginName) || cleanServerText(before.loginName) || buildEmployeeAccountLoginName(before);
-  const reviewNote = cleanServerText(body.reviewNote ?? body.note) || "管理员复核启用导入员工账号";
-  const reviewLockError = validateEnabledEmployeeAccountReview(before, { userId, loginName, roleKey });
-  if (reviewLockError) return sendBusinessError(response, 409, reviewLockError.code, reviewLockError.message);
-  const identityError = validateEmployeeAccountIdentity(workspace, {
-    employeeId: safeEmployeeId,
-    userId,
-    loginName,
-  });
-  if (identityError) return sendBusinessError(response, 409, identityError.code, identityError.message);
-  const updatedEmployee = {
-    ...before,
-    userId,
-    loginName,
-    accountEnabled: true,
-    profileStatus: "account_enabled",
-    reviewedBy: operatorId,
-    reviewedAt,
-    reviewedRoleKey: roleKey,
-    reviewNote,
-    updatedAt: reviewedAt,
-  };
-  workspace.employees[employeeIndex] = updatedEmployee;
-
-  const user = upsertMasterDataEmployeeUser(workspace, updatedEmployee, {
-    roleKey,
-    reviewedAt,
-  });
-
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "master_data_employee_account_review",
-    targetId: updatedEmployee.id,
-    action: "master_data_employee_account_enabled",
-    before: {
-      employeeId: before.id,
-      userId: before.userId,
-      accountEnabled: before.accountEnabled === true,
-      profileStatus: before.profileStatus,
-    },
-    after: {
-      employeeId: updatedEmployee.id,
-      userId: updatedEmployee.userId,
-      loginName: updatedEmployee.loginName,
-      accountEnabled: true,
-      profileStatus: updatedEmployee.profileStatus,
-      reviewedRoleKey: roleKey,
-    },
-    reason: reviewNote,
+  const result = await masterDataEmployeeAccountCommandService.enableEmployeeAccount({
+    workspace,
+    employeeId,
+    body,
     operatorId,
-    pageKey: "master_data",
   });
-  workspace.operationLogs = Array.isArray(workspace.operationLogs) ? workspace.operationLogs : [];
-  workspace.operationLogs.unshift(operationLog);
-  await persistRuntimeIdentityState(workspace);
-
-  const users = new Map((workspace.users ?? []).map((item) => [cleanServerText(item.userId ?? item.id), item]));
-  return sendJson(response, 200, {
-    employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, users),
-    employee: updatedEmployee,
-    user: sanitizeRuntimeUserForResponse(user),
-    operationLogId: operationLog.id,
-  });
+  return sendMasterDataEmployeeAccountCommandResult(response, result);
 }
 
 async function issueMasterDataEmployeeAccountPasswordRoute({ response, workspace, employeeId, body, operatorId }) {
-  const safeEmployeeId = cleanServerText(employeeId);
-  if (!safeEmployeeId) {
-    return sendBusinessError(response, 400, "MASTER_DATA_EMPLOYEE_ID_REQUIRED", "employeeId is required.");
-  }
-  workspace.employees = Array.isArray(workspace.employees) ? workspace.employees : [];
-  const employeeIndex = workspace.employees.findIndex((item) => cleanServerText(item?.id) === safeEmployeeId);
-  if (employeeIndex < 0) {
-    return sendNotFound(response, "MASTER_DATA_EMPLOYEE_NOT_FOUND");
-  }
-
-  const before = { ...workspace.employees[employeeIndex] };
-  const accountEnabled = before.accountEnabled === true || cleanServerText(before.profileStatus) === "account_enabled";
-  if (!accountEnabled) {
-    return sendBusinessError(
-      response,
-      409,
-      "MASTER_DATA_EMPLOYEE_ACCOUNT_NOT_ENABLED",
-      "Employee account must be reviewed and enabled before issuing a temporary password.",
-    );
-  }
-
-  const issuedAt = cleanServerText(body.issuedAt) || new Date().toISOString();
-  const roleKey = normalizeEmployeeAccountRoleKey("", before.reviewedRoleKey || before.roleName);
-  const userId = cleanServerText(before.userId) || buildEmployeeAccountUserId(before);
-  const loginName = cleanServerText(before.loginName) || buildEmployeeAccountLoginName(before);
-  const reviewLockError = validateEnabledEmployeeAccountReview(before, {
-    userId: cleanServerText(body.userId) || userId,
-    loginName: cleanServerText(body.loginName) || loginName,
-    roleKey: cleanServerText(body.roleKey) || roleKey,
-  });
-  if (reviewLockError) return sendBusinessError(response, 409, reviewLockError.code, reviewLockError.message);
-  const identityError = validateEmployeeAccountIdentity(workspace, {
-    employeeId: safeEmployeeId,
-    userId,
-    loginName,
-  });
-  if (identityError) return sendBusinessError(response, 409, identityError.code, identityError.message);
-  const issueNote = cleanServerText(body.issueNote ?? body.note) || "管理员发放员工临时登录密码";
-  const existingRuntimeUser = findRuntimeUserById(workspace, userId);
-  const issuedPassword = issueRuntimeUserTemporaryPassword(
-    {
-      userId,
-      loginName,
-    },
-    {
-      temporaryPassword: cleanServerText(body.temporaryPassword),
-      nowMs: Date.parse(issuedAt) || Date.now(),
-      authSecret: getWorkspaceSecurityPolicy(workspace).authSecret,
-    },
-  );
-
-  const updatedEmployee = {
-    ...before,
-    userId,
-    loginName,
-    accountEnabled: true,
-    profileStatus: "account_enabled",
-    loginEnabled: true,
-    passwordStatus: issuedPassword.passwordStatus,
-    passwordIssuedBy: operatorId,
-    passwordIssuedAt: issuedPassword.passwordIssuedAt,
-    mustChangePassword: true,
-    passwordIssueNote: issueNote,
-    passwordExpiresAt: "",
-    passwordExpiredAt: "",
-    failedLoginCount: 0,
-    lastFailedLoginAt: "",
-    lockedUntil: "",
-    sessionValidAfter: issuedPassword.passwordIssuedAt,
-    updatedAt: issuedPassword.passwordIssuedAt,
-  };
-  workspace.employees[employeeIndex] = updatedEmployee;
-
-  const baseUser = upsertMasterDataEmployeeUser(workspace, updatedEmployee, {
-    roleKey,
-    reviewedAt: issuedPassword.passwordIssuedAt,
-  });
-  const user = upsertRuntimeUser(workspace, {
-    ...baseUser,
-    loginEnabled: true,
-    passwordHash: issuedPassword.passwordHash,
-    passwordStatus: issuedPassword.passwordStatus,
-    passwordIssuedBy: operatorId,
-    passwordIssuedAt: issuedPassword.passwordIssuedAt,
-    mustChangePassword: true,
-    passwordExpiresAt: "",
-    passwordExpiredAt: "",
-    failedLoginCount: 0,
-    lastFailedLoginAt: "",
-    lockedUntil: "",
-    sessionValidAfter: issuedPassword.passwordIssuedAt,
-    sessionVersion: nextRuntimeSessionVersion(existingRuntimeUser?.sessionVersion),
-    updatedAt: issuedPassword.passwordIssuedAt,
-  });
-
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "master_data_employee_account_password",
-    targetId: updatedEmployee.id,
-    action: "master_data_employee_account_password_issued",
-    before: {
-      employeeId: before.id,
-      userId: before.userId,
-      loginName: before.loginName,
-      passwordIssuedAt: before.passwordIssuedAt,
-      passwordStatus: before.passwordStatus,
-    },
-    after: {
-      employeeId: updatedEmployee.id,
-      userId: updatedEmployee.userId,
-      loginName: updatedEmployee.loginName,
-      passwordIssuedAt: updatedEmployee.passwordIssuedAt,
-      passwordStatus: updatedEmployee.passwordStatus,
-      loginEnabled: true,
-      mustChangePassword: true,
-      lockedUntil: "",
-    },
-    reason: issueNote,
+  const result = await masterDataEmployeeAccountCommandService.issueEmployeeTemporaryPassword({
+    workspace,
+    employeeId,
+    body,
     operatorId,
-    pageKey: "master_data",
   });
-  workspace.operationLogs = Array.isArray(workspace.operationLogs) ? workspace.operationLogs : [];
-  workspace.operationLogs.unshift(operationLog);
-  await persistRuntimeIdentityState(workspace);
-
-  const users = new Map((workspace.users ?? []).map((item) => [cleanServerText(item.userId ?? item.id), item]));
-  return sendJson(response, 200, {
-    employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, users),
-    issuedCredential: {
-      userId,
-      loginName,
-      temporaryPassword: issuedPassword.temporaryPassword,
-      passwordIssuedAt: issuedPassword.passwordIssuedAt,
-      passwordStatus: issuedPassword.passwordStatus,
-      mustChangePassword: true,
-      visibleOnce: true,
-    },
-    user: sanitizeRuntimeUserForResponse(user),
-    operationLogId: operationLog.id,
-  });
+  return sendMasterDataEmployeeAccountCommandResult(response, result);
 }
 
 async function revokeMasterDataEmployeeAccountPasswordRoute({ response, workspace, employeeId, body, operatorId }) {
-  const safeEmployeeId = cleanServerText(employeeId);
-  if (!safeEmployeeId) {
-    return sendBusinessError(response, 400, "MASTER_DATA_EMPLOYEE_ID_REQUIRED", "employeeId is required.");
-  }
-  workspace.employees = Array.isArray(workspace.employees) ? workspace.employees : [];
-  const employeeIndex = workspace.employees.findIndex((item) => cleanServerText(item?.id) === safeEmployeeId);
-  if (employeeIndex < 0) {
-    return sendNotFound(response, "MASTER_DATA_EMPLOYEE_NOT_FOUND");
-  }
-
-  const before = { ...workspace.employees[employeeIndex] };
-  const userId = cleanServerText(before.userId);
-  if (!userId) {
-    return sendBusinessError(
-      response,
-      409,
-      "MASTER_DATA_EMPLOYEE_ACCOUNT_NOT_ENABLED",
-      "Employee account must be reviewed and enabled before revoking password.",
-    );
-  }
-
-  const revokedAt = cleanServerText(body.revokedAt) || new Date().toISOString();
-  const revokeNote = cleanServerText(body.revokeNote ?? body.note) || "管理员撤销员工登录密码";
-  const runtimeUser = findRuntimeUserById(workspace, userId);
-  const updatedEmployee = {
-    ...before,
-    loginEnabled: false,
-    passwordStatus: "password_revoked",
-    mustChangePassword: false,
-    passwordRevokedBy: operatorId,
-    passwordRevokedAt: revokedAt,
-    passwordRevokeNote: revokeNote,
-    passwordExpiresAt: "",
-    passwordExpiredAt: "",
-    failedLoginCount: 0,
-    lastFailedLoginAt: "",
-    lockedUntil: "",
-    sessionValidAfter: revokedAt,
-    updatedAt: revokedAt,
-  };
-  workspace.employees[employeeIndex] = updatedEmployee;
-
-  let updatedUser = runtimeUser;
-  if (runtimeUser) {
-    updatedUser = upsertRuntimeUser(workspace, {
-      ...runtimeUser,
-      loginEnabled: false,
-      passwordHash: "",
-      passwordStatus: "password_revoked",
-      mustChangePassword: false,
-      passwordRevokedBy: operatorId,
-      passwordRevokedAt: revokedAt,
-      passwordExpiresAt: "",
-      passwordExpiredAt: "",
-      failedLoginCount: 0,
-      lastFailedLoginAt: "",
-      lockedUntil: "",
-      sessionValidAfter: revokedAt,
-      sessionVersion: nextRuntimeSessionVersion(runtimeUser.sessionVersion),
-      updatedAt: revokedAt,
-    });
-  }
-
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "master_data_employee_account_password",
-    targetId: updatedEmployee.id,
-    action: "master_data_employee_account_password_revoked",
-    before: {
-      employeeId: before.id,
-      userId: before.userId,
-      loginName: before.loginName,
-      loginEnabled: before.loginEnabled === true,
-      passwordStatus: before.passwordStatus,
-      mustChangePassword: before.mustChangePassword === true,
-      passwordIssuedAt: before.passwordIssuedAt,
-      passwordChangedAt: before.passwordChangedAt,
-    },
-    after: {
-      employeeId: updatedEmployee.id,
-      userId: updatedEmployee.userId,
-      loginName: updatedEmployee.loginName,
-      loginEnabled: false,
-      passwordStatus: updatedEmployee.passwordStatus,
-      mustChangePassword: false,
-      passwordRevokedAt: revokedAt,
-      sessionsRevokedAfter: revokedAt,
-    },
-    reason: revokeNote,
-    operatorId,
-    pageKey: "master_data",
-  });
-  workspace.operationLogs = Array.isArray(workspace.operationLogs) ? workspace.operationLogs : [];
-  workspace.operationLogs.unshift(operationLog);
-  await persistRuntimeIdentityState(workspace);
-
-  const users = new Map((workspace.users ?? []).map((item) => [cleanServerText(item.userId ?? item.id), item]));
-  return sendJson(response, 200, {
-    revoked: true,
-    employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, users),
-    user: updatedUser ? sanitizeRuntimeUserForResponse(updatedUser) : null,
-    sessionsRevokedAfter: revokedAt,
-    operationLogId: operationLog.id,
-  });
-}
-
-function toMasterDataEmployeeAccountReview(employee = {}, users = new Map()) {
-  const employeeId = cleanServerText(employee.id);
-  const userId = cleanServerText(employee.userId);
-  const user = userId ? users.get(userId) : null;
-  const accountEnabled = employee.accountEnabled === true || cleanServerText(employee.profileStatus) === "account_enabled";
-  const roleKey = cleanServerText(employee.reviewedRoleKey) || normalizeEmployeeAccountRoleKey("", employee.roleName);
-  const userPasswordStatus = cleanServerText(user?.passwordStatus);
-  const employeePasswordStatus = cleanServerText(employee.passwordStatus);
-  return {
+  const result = await masterDataEmployeeAccountCommandService.revokeEmployeePassword({
+    workspace,
     employeeId,
-    bizNo: cleanServerText(employee.bizNo) || employeeId,
-    name: cleanServerText(employee.name),
-    roleName: cleanServerText(employee.roleName),
-    defaultWorkshop: cleanServerText(employee.defaultWorkshop),
-    defaultMachineId: cleanServerText(employee.defaultMachineId),
-    requestedEnabled: employee.requestedEnabled === true,
-    accountEnabled,
-    profileStatus: accountEnabled ? "account_enabled" : cleanServerText(employee.profileStatus) || "pending_admin_review",
-    status: accountEnabled ? "account_enabled" : "pending_admin_review",
-    statusLabel: accountEnabled ? "已启用" : "待管理员复核",
-    recommendedRoleKey: roleKey,
-    recommendedRoleLabel: getEmployeeAccountRoleLabel(roleKey),
-    loginName: cleanServerText(employee.loginName) || cleanServerText(user?.loginName) || buildEmployeeAccountLoginName(employee),
-    userId,
-    userDisplayName: cleanServerText(user?.displayName) || cleanServerText(employee.name),
-    reviewedBy: cleanServerText(employee.reviewedBy),
-    reviewedAt: cleanServerText(employee.reviewedAt),
-    reviewNote: cleanServerText(employee.reviewNote),
-    loginEnabled: employee.loginEnabled === true || user?.loginEnabled === true,
-    passwordIssuedAt: cleanServerText(employee.passwordIssuedAt) || cleanServerText(user?.passwordIssuedAt),
-    passwordStatus: userPasswordStatus === "password_expired" ? userPasswordStatus : employeePasswordStatus || userPasswordStatus,
-    passwordIssuedBy: cleanServerText(employee.passwordIssuedBy) || cleanServerText(user?.passwordIssuedBy),
-    passwordChangedAt: cleanServerText(employee.passwordChangedAt) || cleanServerText(user?.passwordChangedAt),
-    passwordChangedBy: cleanServerText(employee.passwordChangedBy) || cleanServerText(user?.passwordChangedBy),
-    passwordRevokedAt: cleanServerText(employee.passwordRevokedAt) || cleanServerText(user?.passwordRevokedAt),
-    passwordRevokedBy: cleanServerText(employee.passwordRevokedBy) || cleanServerText(user?.passwordRevokedBy),
-    mustChangePassword: employee.mustChangePassword === true || user?.mustChangePassword === true,
-    passwordExpiresAt: cleanServerText(employee.passwordExpiresAt) || cleanServerText(user?.passwordExpiresAt),
-    passwordExpiredAt: cleanServerText(employee.passwordExpiredAt) || cleanServerText(user?.passwordExpiredAt),
-    failedLoginCount: Number(user?.failedLoginCount ?? employee.failedLoginCount) || 0,
-    lastFailedLoginAt: cleanServerText(user?.lastFailedLoginAt) || cleanServerText(employee.lastFailedLoginAt),
-    lockedUntil: cleanServerText(user?.lockedUntil) || cleanServerText(employee.lockedUntil),
-    remark: cleanServerText(employee.remark),
-    actionRequired: !accountEnabled,
-  };
+    body,
+    operatorId,
+  });
+  return sendMasterDataEmployeeAccountCommandResult(response, result);
 }
 
-function upsertMasterDataEmployeeUser(workspace, employee, options = {}) {
-  const roleKey = normalizeEmployeeAccountRoleKey(options.roleKey, employee.roleName);
-  const reviewedAt = cleanServerText(options.reviewedAt) || new Date().toISOString();
-  const userId = cleanServerText(employee.userId) || buildEmployeeAccountUserId(employee);
-  const user = {
-    id: userId,
-    userId,
-    loginName: cleanServerText(employee.loginName) || buildEmployeeAccountLoginName(employee),
-    displayName: cleanServerText(employee.name) || userId,
-    defaultRole: roleKey,
-    department: getEmployeeAccountDepartment(roleKey),
-    defaultMachineId: cleanServerText(employee.defaultMachineId),
-    enabled: true,
-    roles: [roleKey],
-    employeeId: cleanServerText(employee.id),
-    source: "master_data_import_review",
-    updatedAt: reviewedAt,
-  };
-  workspace.users = Array.isArray(workspace.users) ? workspace.users : [];
-  const userIndex = workspace.users.findIndex((item) => cleanServerText(item.userId ?? item.id) === userId);
-  if (userIndex >= 0) {
-    workspace.users[userIndex] = {
-      ...workspace.users[userIndex],
-      ...user,
-    };
-  } else {
-    workspace.users.unshift(user);
+function sendMasterDataEmployeeAccountCommandResult(response, result) {
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) {
+    return sendBusinessError(response, result.statusCode, result.code, result.message);
   }
-  return user;
-}
-
-function upsertRuntimeUser(workspace, user) {
-  const userId = cleanServerText(user?.userId ?? user?.id);
-  if (!userId) return user;
-  workspace.users = Array.isArray(workspace.users) ? workspace.users : [];
-  const userIndex = workspace.users.findIndex((item) => cleanServerText(item.userId ?? item.id) === userId);
-  if (userIndex >= 0) {
-    workspace.users[userIndex] = {
-      ...workspace.users[userIndex],
-      ...user,
-      id: userId,
-      userId,
-    };
-    return workspace.users[userIndex];
-  }
-  const nextUser = {
-    ...user,
-    id: userId,
-    userId,
-  };
-  workspace.users.unshift(nextUser);
-  return nextUser;
-}
-
-function nextRuntimeSessionVersion(currentVersion) {
-  return (Number(currentVersion) || 0) + 1;
-}
-
-async function persistRuntimeIdentityState(workspace) {
-  if (!workspace?.runtimeIdentityRepository?.saveState) return null;
-  return await workspace.runtimeIdentityRepository.saveState({ workspace });
-}
-
-function sanitizeRuntimeUserForResponse(user = {}) {
-  const { seedPassword, passwordHash, ...safeUser } = user ?? {};
-  return safeUser;
-}
-
-function buildEmployeeAccountUserId(employee = {}) {
-  return `U-EMP-${safeRecordPart(employee.id || employee.bizNo || employee.name).toUpperCase()}`;
-}
-
-function buildEmployeeAccountLoginName(employee = {}) {
-  const source = cleanServerText(employee.bizNo) || cleanServerText(employee.name) || cleanServerText(employee.id);
-  return `emp.${source.toLowerCase().replace(/[^a-z0-9]+/g, ".").replace(/^\.+|\.+$/g, "") || safeRecordPart(employee.id).toLowerCase()}`;
+  return sendJson(response, result.statusCode ?? 200, result.response);
 }
 
 async function createInventoryCorrectionDraftRoute({ response, workspace, body, operatorId }) {
@@ -14355,6 +13921,9 @@ const orderDraftCommandService = createOrderDraftCommandService({
   toTodoSummary,
 });
 const masterDataImportCommandService = createMasterDataImportCommandService({
+  buildOperationLog,
+});
+const masterDataEmployeeAccountCommandService = createMasterDataEmployeeAccountCommandService({
   buildOperationLog,
 });
 const fulfillmentActionCommandService = createFulfillmentActionCommandService({
