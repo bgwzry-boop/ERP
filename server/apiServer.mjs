@@ -123,6 +123,7 @@ import { createStatementFinancialCommandService } from "./services/statementFina
 import { createOrderLineMutationCommandService } from "./services/orderLineMutationCommandService.mjs";
 import { createOrderDraftCommandService } from "./services/orderDraftCommandService.mjs";
 import { createFulfillmentActionCommandService } from "./services/fulfillmentActionCommandService.mjs";
+import { createMasterDataImportCommandService } from "./services/masterDataImportCommandService.mjs";
 import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
 import { createProductionFinishedGoodsPhotoTransactionRepository } from "./productionFinishedGoodsPhotoTransactionRepository.mjs";
@@ -222,9 +223,6 @@ import {
   buildV1ProductionEnvValuesMinimumFillStatus,
   isV1ProductionEnvValuesDryRunProofFileBindingBlockedStatus,
 } from "./v1ProductionEnvDryRunProofCore.mjs";
-import { createMasterDataImportConfirmationPlan } from "../src/domain/masterDataImportConfirmationPlan.js";
-import { createMasterDataImportExecution } from "../src/domain/masterDataImportExecution.js";
-import { createMasterDataImportCorrectionDraftFromFailedRows } from "../src/domain/masterDataImportReviewQueue.js";
 
 const writeActionPermissions = {
   recognizeOrderDraft: "order.draft.recognize",
@@ -2848,296 +2846,39 @@ async function adjustOrderLineQuantityRoute({ response, workspace, orderLineId, 
 }
 
 async function createMasterDataFailedRowsCorrectionDraftRoute({ response, workspace, executionId, body, operatorId }) {
-  const safeExecutionId = cleanServerText(executionId);
-  if (!safeExecutionId) {
-    return sendBusinessError(response, 400, "MASTER_DATA_IMPORT_EXECUTION_ID_REQUIRED", "executionId is required.");
-  }
-  const importExecution = (await workspace.masterDataImportReviewRepository.listImportExecutions({
+  const result = await masterDataImportCommandService.createFailedRowsCorrectionDraft({
     workspace,
-    filters: { executionId: safeExecutionId },
-  }))[0];
-  if (!importExecution) {
-    return sendNotFound(response, "MASTER_DATA_IMPORT_EXECUTION_NOT_FOUND");
-  }
-
-  const failedRows = Array.isArray(importExecution.failedRows)
-    ? importExecution.failedRows
-    : importExecution.importPayload?.failedRows;
-  if (!Array.isArray(failedRows) || failedRows.length === 0) {
-    return sendBusinessError(
-      response,
-      409,
-      "MASTER_DATA_IMPORT_FAILED_ROWS_NOT_AVAILABLE",
-      "This import execution has no failed rows to generate a correction draft.",
-    );
-  }
-
-  let reviewDraft;
-  try {
-    const users = new Map((workspace.users ?? []).map((user) => [user.id ?? user.userId, user]));
-    reviewDraft = createMasterDataImportCorrectionDraftFromFailedRows({
-      importExecution,
-      rowCorrections: Array.isArray(body.rowCorrections) ? body.rowCorrections : [],
-      requestedBy: getUserDisplayName(users, operatorId) || operatorId,
-      createdAt: body.createdAt ?? new Date().toISOString(),
-    });
-  } catch (error) {
-    return sendBusinessError(
-      response,
-      422,
-      "MASTER_DATA_FAILED_ROWS_CORRECTION_DRAFT_INVALID",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "master_data_import_review_draft",
-    targetId: reviewDraft.draftId,
-    action: "master_data_import_failed_rows_correction_draft_created",
-    before: {
-      executionId: importExecution.executionId,
-      planId: importExecution.planId,
-      status: importExecution.status,
-      failedRowCount: failedRows.length,
-    },
-    after: {
-      draftId: reviewDraft.draftId,
-      sourceExecutionId: reviewDraft.sourceExecutionId,
-      sourcePlanId: reviewDraft.sourcePlanId,
-      status: reviewDraft.status,
-      correctionSummary: reviewDraft.correctionSummary,
-      officialImportEnabled: false,
-      officialWriteScope: "none",
-    },
-    reason: "基础资料导入失败行生成修正草稿",
+    executionId,
+    body,
     operatorId,
-    pageKey: "master_data",
   });
-
-  const saved = await workspace.masterDataImportReviewRepository.saveReviewDraft({
-    workspace,
-    reviewDraft,
-    operationLog,
-  });
-
-  return sendJson(response, 201, {
-    ...saved,
-    sourceExecution: {
-      executionId: importExecution.executionId,
-      planId: importExecution.planId,
-      status: importExecution.status,
-      statusLabel: importExecution.statusLabel,
-    },
-    correctionSummary: saved.reviewDraft?.correctionSummary ?? reviewDraft.correctionSummary,
-    officialImportEnabled: false,
-    officialWriteScope: "none",
-  });
+  return sendMasterDataImportCommandResult(response, result);
 }
 
 async function createMasterDataImportConfirmationPlanRoute({ response, workspace, body, operatorId }) {
-  const reviewDraft = body.reviewDraft;
-  if (!reviewDraft || typeof reviewDraft !== "object") {
-    return sendBusinessError(response, 400, "MASTER_DATA_IMPORT_REVIEW_DRAFT_REQUIRED", "reviewDraft is required.");
-  }
-
-  let confirmationPlan;
-  try {
-    const users = new Map((workspace.users ?? []).map((user) => [user.id ?? user.userId, user]));
-    confirmationPlan = createMasterDataImportConfirmationPlan({
-      reviewDraft,
-      createdBy: getUserDisplayName(users, operatorId) || operatorId,
-      createdAt: body.createdAt ?? new Date().toISOString(),
-    });
-  } catch (error) {
-    return sendBusinessError(
-      response,
-      422,
-      "MASTER_DATA_IMPORT_CONFIRMATION_PLAN_INVALID",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "master_data_import_confirmation_plan",
-    targetId: confirmationPlan.planId,
-    action: "master_data_import_confirmation_plan_created",
-    before: null,
-    after: {
-      planId: confirmationPlan.planId,
-      draftId: confirmationPlan.draftId,
-      status: confirmationPlan.status,
-      summary: confirmationPlan.summary,
-      targetTables: confirmationPlan.targetTables,
-      officialImportEnabled: false,
-      officialWriteScope: "none",
-    },
-    reason: "基础资料导入确认计划草稿",
-    operatorId,
-    pageKey: "master_data",
-  });
-
-  const saved = await workspace.masterDataImportReviewRepository.saveConfirmationPlan({
+  const result = await masterDataImportCommandService.createConfirmationPlan({
     workspace,
-    reviewDraft,
-    confirmationPlan,
-    operationLog,
+    body,
+    operatorId,
   });
-
-  return sendJson(response, 201, {
-    ...saved,
-    officialImportEnabled: false,
-    officialWriteScope: "none",
-  });
+  return sendMasterDataImportCommandResult(response, result);
 }
 
 async function createMasterDataImportExecutionRoute({ response, workspace, body, operatorId }) {
-  const planId = cleanServerText(body.planId);
-  if (!planId) {
-    return sendBusinessError(response, 400, "MASTER_DATA_IMPORT_CONFIRMATION_PLAN_ID_REQUIRED", "planId is required.");
-  }
-
-  const confirmationPlan = (await workspace.masterDataImportReviewRepository.listConfirmationPlans({
+  const result = await masterDataImportCommandService.createImportExecution({
     workspace,
-    filters: { planId },
-  }))[0];
-  if (!confirmationPlan) {
-    return sendNotFound(response, "MASTER_DATA_IMPORT_CONFIRMATION_PLAN_NOT_FOUND");
-  }
-
-  let importExecution;
-  try {
-    const users = new Map((workspace.users ?? []).map((user) => [user.id ?? user.userId, user]));
-    const officialImportEnabled = body.officialImportEnabled === true || body.confirmOfficialImport === true;
-    const officialWriterKind = cleanServerText(body.officialWriterKind)
-      || cleanServerText(process.env.ERP_MASTER_DATA_IMPORT_WRITER)
-      || "not_configured";
-    importExecution = createMasterDataImportExecution({
-      confirmationPlan,
-      requestedBy: getUserDisplayName(users, operatorId) || operatorId,
-      requestedAt: body.requestedAt ?? new Date().toISOString(),
-      officialImportEnabled,
-      officialWriterKind,
-      officialWriteScope: officialImportEnabled ? "master_data_import_v1" : "none",
-    });
-  } catch (error) {
-    return sendBusinessError(
-      response,
-      422,
-      "MASTER_DATA_IMPORT_EXECUTION_INVALID",
-      error instanceof Error ? error.message : String(error),
-    );
-  }
-
-  const operationLog = buildOperationLog(workspace, {
-    targetType: "master_data_import_execution",
-    targetId: importExecution.executionId,
-    action: importExecution.operationLogDraft.action,
-    before: {
-      planId: confirmationPlan.planId,
-      status: confirmationPlan.status,
-      officialImportEnabled: confirmationPlan.officialImportEnabled,
-      officialWriteScope: confirmationPlan.officialWriteScope,
-    },
-    after: {
-      executionId: importExecution.executionId,
-      planId: importExecution.planId,
-      draftId: importExecution.draftId,
-      status: importExecution.status,
-      summary: importExecution.summary,
-      blockingReasons: importExecution.blockingReasons,
-      officialWriteAttempted: importExecution.status === "ready_for_transaction_writer",
-      officialWriteScope: importExecution.officialWriteScope,
-    },
-    reason: "基础资料正式导入执行请求",
+    body,
     operatorId,
-    pageKey: "master_data",
   });
+  return sendMasterDataImportCommandResult(response, result);
+}
 
-  if (importExecution.status === "ready_for_transaction_writer") {
-    try {
-      const transaction = await workspace.masterDataImportTransactionRepository.applyImportExecution({
-        workspace,
-        importExecution,
-        operationLog,
-      });
-      const saved = await workspace.masterDataImportReviewRepository.saveImportExecution({
-        workspace,
-        confirmationPlan,
-        importExecution: transaction.importExecution,
-        operationLog,
-      });
-      return sendJson(response, 201, {
-        ...saved,
-        transactionSummary: transaction.summary,
-        officialWriteAttempted: true,
-        officialWriteScope: transaction.importExecution.officialWriteScope,
-      });
-    } catch (error) {
-      const failedAt = new Date().toISOString();
-      const message = error instanceof Error ? error.message : String(error);
-      const failedExecution = {
-        ...importExecution,
-        status: "failed",
-        statusLabel: "导入失败已回滚",
-        officialWriteAttempted: true,
-        officialWriteScope: "master_data_import_v1",
-        transactionStarted: true,
-        finishedAt: failedAt,
-        summary: {
-          ...importExecution.summary,
-          blockedReasonCount: 1,
-        },
-        blockingReasons: [message],
-        transactionSummary: {
-          rollbackApplied: true,
-          errorMessage: message,
-          failedAt,
-        },
-      };
-      const failedLog = buildOperationLog(workspace, {
-        targetType: "master_data_import_execution",
-        targetId: failedExecution.executionId,
-        action: "master_data_import_execution_failed_rolled_back",
-        before: operationLog.after,
-        after: {
-          executionId: failedExecution.executionId,
-          status: failedExecution.status,
-          blockingReasons: failedExecution.blockingReasons,
-          officialWriteAttempted: true,
-          officialWriteScope: failedExecution.officialWriteScope,
-          rollbackApplied: true,
-        },
-        reason: "基础资料正式导入失败，事务已回滚",
-        operatorId,
-        pageKey: "master_data",
-      });
-      await workspace.masterDataImportReviewRepository.saveImportExecution({
-        workspace,
-        confirmationPlan,
-        importExecution: failedExecution,
-        operationLog: failedLog,
-      });
-      return sendJson(response, 422, {
-        code: "MASTER_DATA_IMPORT_TRANSACTION_FAILED_ROLLED_BACK",
-        message,
-        importExecution: failedExecution,
-        operationLogId: failedLog.id,
-      });
-    }
+function sendMasterDataImportCommandResult(response, result) {
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) {
+    return sendBusinessError(response, result.statusCode, result.code, result.message);
   }
-
-  const saved = await workspace.masterDataImportReviewRepository.saveImportExecution({
-    workspace,
-    confirmationPlan,
-    importExecution,
-    operationLog,
-  });
-
-  return sendJson(response, 201, {
-    ...saved,
-    officialWriteAttempted: importExecution.officialWriteAttempted,
-    officialWriteScope: importExecution.officialWriteScope,
-  });
+  return sendJson(response, result.statusCode ?? 200, result.response);
 }
 
 async function downloadMasterDataImportFailedRowsRoute({ response, workspace, executionId }) {
@@ -14612,6 +14353,9 @@ const orderDraftCommandService = createOrderDraftCommandService({
   toOrderLineSummary,
   toPriceSnapshot,
   toTodoSummary,
+});
+const masterDataImportCommandService = createMasterDataImportCommandService({
+  buildOperationLog,
 });
 const fulfillmentActionCommandService = createFulfillmentActionCommandService({
   buildFulfillmentActionRecord,
