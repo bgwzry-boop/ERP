@@ -5,7 +5,7 @@ import { createMasterDataImportCorrectionDraftFromFailedRows } from "../../src/d
 export function createMasterDataImportCommandService(dependencies = {}) {
   const {
     buildOperationLog,
-    getOfficialWriterKind = () => process.env.ERP_MASTER_DATA_IMPORT_WRITER,
+    getOfficialWriterKind = inferOfficialWriterKind,
     now = () => new Date(),
   } = dependencies;
   if (typeof buildOperationLog !== "function") {
@@ -175,10 +175,7 @@ export function createMasterDataImportCommandService(dependencies = {}) {
     try {
       const officialImportEnabled =
         body.officialImportEnabled === true || body.confirmOfficialImport === true;
-      const officialWriterKind =
-        cleanText(body.officialWriterKind) ||
-        cleanText(getOfficialWriterKind()) ||
-        "not_configured";
+      const officialWriterKind = cleanText(getOfficialWriterKind(workspace)) || "not_configured";
       importExecution = createMasterDataImportExecution({
         confirmationPlan,
         requestedBy: getOperatorName(workspace, operatorId),
@@ -317,6 +314,13 @@ export function createMasterDataImportCommandService(dependencies = {}) {
       });
     }
   }
+}
+
+function inferOfficialWriterKind(workspace) {
+  const repositoryKind = cleanText(workspace?.masterDataImportTransactionRepository?.kind);
+  if (repositoryKind === "postgres") return "postgres";
+  if (repositoryKind === "local_memory") return "local_transaction";
+  return "";
 }
 
 function getOperatorName(workspace, operatorId) {

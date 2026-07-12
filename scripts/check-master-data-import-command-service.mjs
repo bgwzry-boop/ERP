@@ -16,6 +16,7 @@ assert.match(commandServiceSource, /createMasterDataImportCorrectionDraftFromFai
 
 const fixedNow = new Date("2026-07-12T08:00:00.000Z");
 let logSequence = 0;
+let officialWriterKind = "";
 const service = createMasterDataImportCommandService({
   buildOperationLog(workspace, input) {
     logSequence += 1;
@@ -24,7 +25,7 @@ const service = createMasterDataImportCommandService({
       ...input,
     };
   },
-  getOfficialWriterKind: () => "",
+  getOfficialWriterKind: () => officialWriterKind,
   now: () => fixedNow,
 });
 
@@ -111,18 +112,20 @@ workspace.masterDataImportTransactionRepository.applyImportExecution = async ({ 
     insertedCount: 1,
   },
 });
+officialWriterKind = "postgres";
 const committedExecution = await service.createImportExecution({
   workspace,
   body: {
     planId: planResult.response.confirmationPlan.planId,
     requestedAt: "2026-07-12T08:01:00.000Z",
     officialImportEnabled: true,
-    officialWriterKind: "postgres",
+    officialWriterKind: "local_transaction",
   },
   operatorId: "U-MANAGER",
 });
 assert.equal(committedExecution.statusCode, 201);
 assert.equal(committedExecution.response.importExecution.status, "committed");
+assert.equal(committedExecution.response.importExecution.officialWriterKind, "postgres");
 assert.equal(committedExecution.response.transactionSummary.committed, true);
 assert.equal(committedExecution.response.officialWriteScope, "master_data_import_v1");
 
@@ -135,7 +138,7 @@ const failedExecution = await service.createImportExecution({
     planId: planResult.response.confirmationPlan.planId,
     requestedAt: "2026-07-12T08:02:00.000Z",
     officialImportEnabled: true,
-    officialWriterKind: "postgres",
+    officialWriterKind: "local_transaction",
   },
   operatorId: "U-MANAGER",
 });

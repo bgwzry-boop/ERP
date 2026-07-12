@@ -188,7 +188,8 @@ try {
   assert.equal(clientExecution.importExecution.summary.failedRowCount, 0);
   assert.equal(clientExecution.importExecution.failedRowsDownload.required, false);
   assert(clientExecution.importExecution.importPayload.targetRecords.employees.some((record) => record.name === "王师傅"));
-  assert(clientExecution.importExecution.blockingReasons.some((reason) => reason.includes("正式主数据 PostgreSQL 写入器尚未配置")));
+  assert.equal(clientExecution.importExecution.officialWriterKind, "local_transaction");
+  assert(clientExecution.importExecution.blockingReasons.some((reason) => reason.includes("officialImportEnabled=false")));
   assert(clientExecution.operationLogId, "created execution should return an operation log id");
   assert.equal(clientExecution.importExecution.operationLogId, clientExecution.operationLogId);
 
@@ -238,7 +239,7 @@ try {
       planId: created.confirmationPlan.planId,
       requestedAt: "2026-07-03T10:31:00.000Z",
       officialImportEnabled: true,
-      officialWriterKind: "local_transaction",
+      officialWriterKind: "postgres",
     },
     { apiBaseUrl: `${baseUrl}/api` },
   );
@@ -248,6 +249,11 @@ try {
   assert.equal(committedClientExecution.importExecution.officialImportEnabled, true);
   assert.equal(committedClientExecution.importExecution.officialWriteAttempted, true);
   assert.equal(committedClientExecution.importExecution.officialWriteScope, "master_data_import_v1");
+  assert.equal(
+    committedClientExecution.importExecution.officialWriterKind,
+    "local_transaction",
+    "the server must ignore a browser-supplied writer kind and use its configured repository",
+  );
   assert.equal(committedClientExecution.importExecution.transactionStarted, true);
   assert.equal(committedClientExecution.importExecution.transactionSummary.repositoryKind, "local_memory");
   assert.equal(

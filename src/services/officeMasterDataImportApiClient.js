@@ -264,6 +264,11 @@ export async function createOfficeMasterDataImportExecution(input = {}, options 
       return {
         source: "api_error",
         blocked: true,
+        importExecution: normalizeImportExecution(json?.importExecution, {
+          operationLogId: json?.operationLogId,
+          persistenceStatus: json?.importExecution ? "后端事务未提交，已保存失败记录" : "",
+        }),
+        operationLogId: cleanText(json?.operationLogId),
         error: toApiError(json, response.status, "基础资料导入执行 API 返回错误。"),
       };
     }
