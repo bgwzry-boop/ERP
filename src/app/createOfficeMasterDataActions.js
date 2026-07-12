@@ -42,6 +42,7 @@ export function createOfficeMasterDataActions({
   downloadTextFile,
   getActionState,
   lastIssuedEmployeeCredential,
+  masterDataMaintenanceTab,
   masterDataPrecheckState,
   now = () => new Date(),
   refreshMasterDataEmployeeAccountReviews,
@@ -51,6 +52,7 @@ export function createOfficeMasterDataActions({
   setMasterDataImportConfirmationPlans,
   setMasterDataImportExecutions,
   setMasterDataImportReviewDrafts,
+  setMasterDataMaintenanceDrafts,
   setMasterDataPrecheckState,
   setToast,
   showMasterDataTemplatePanel,
@@ -105,6 +107,36 @@ export function createOfficeMasterDataActions({
     setMasterDataPrecheckState({ status: "idle" });
     void refreshMasterDataImportReviewDrafts({ silent: true });
     setToast(`已打开${sourceLabel || "基础资料"}导入模板；正式写入仍需经过确认计划和导入执行记录。`);
+  }
+
+  function saveMasterDataMaintenanceDraft(input = {}) {
+    const actionState = getActionState("生成维护草稿");
+    if (actionState.disabled) {
+      setToast(actionState.title);
+      return null;
+    }
+    const createdAt = now();
+    const draftId = `MDM-${createdAt.getTime().toString(36).toUpperCase()}`;
+    const recordLabel = String(
+      input.recordLabel ?? input.record?.label ?? input.record?.name ?? input.recordId ?? "主数据记录",
+    ).trim();
+    const fieldLabel = String(input.fieldLabel ?? input.field ?? "字段").trim();
+    const draft = {
+      draftId,
+      tab: String(input.tab ?? masterDataMaintenanceTab).trim() || "基础资料",
+      recordId: String(input.recordId ?? input.record?.id ?? "").trim(),
+      recordLabel,
+      field: String(input.field ?? fieldLabel).trim(),
+      fieldLabel,
+      nextValue: String(input.nextValue ?? "").trim(),
+      reason: String(input.reason ?? "").trim() || "办公室维护草稿，待管理复核后通过导入确认流程写入。",
+      status: "待复核",
+      createdBy: currentUser.displayName || currentUserId,
+      createdAt: createdAt.toISOString(),
+    };
+    setMasterDataMaintenanceDrafts((current) => [draft, ...current].slice(0, 12));
+    setToast(`已生成基础资料维护草稿 ${draftId}：${recordLabel} / ${fieldLabel}。正式写入仍需走导入确认。`);
+    return draft;
   }
 
   function downloadMasterDataTemplate(templateKey) {
@@ -454,5 +486,6 @@ export function createOfficeMasterDataActions({
     openMasterDataTemplatePanel,
     precheckMasterDataTemplate,
     revokeMasterDataEmployeeAccountPassword,
+    saveMasterDataMaintenanceDraft,
   };
 }

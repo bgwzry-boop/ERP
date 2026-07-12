@@ -91,17 +91,44 @@ assert.match(blockedOrderResult.feedback, /缺少权限 order\.view/);
 
 const inventoryCase = createDependencies(api);
 const inventoryResult = await inventoryCase.actions.refreshInventoryRecords();
-assert.equal(inventoryResult.selectedStockId, "STOCK-LOCAL");
-assert.deepEqual(inventoryCase.state.inventoryRecords.value.map((item) => item.id), ["STOCK-LOCAL"]);
-assert.equal(inventoryCase.state.selectedStockId.value, "STOCK-LOCAL");
+assert.equal(inventoryResult.selectedStockId, "");
+assert.deepEqual(inventoryCase.state.inventoryRecords.value, []);
+assert.equal(inventoryCase.state.selectedStockId.value, "");
 
 const productionFulfillmentCase = createDependencies(api, { serverRequired: () => true });
 const fulfillmentResult = await productionFulfillmentCase.actions.refreshFulfillments({ showToast: true });
-assert.equal(fulfillmentResult.source, "local");
+assert.equal(fulfillmentResult.source, "api_error");
 assert.equal(productionFulfillmentCase.state.fulfillments.value.length, 0);
-assert.equal(productionFulfillmentCase.state.fulfillmentMeta.value.source, "local");
-assert.match(productionFulfillmentCase.state.fulfillmentMeta.value.error, /生产模式要求后端交付投影/);
-assert.match(fulfillmentResult.feedback, /生产模式要求后端交付投影/);
+assert.equal(productionFulfillmentCase.state.fulfillmentMeta.value.source, "api_error");
+assert.match(productionFulfillmentCase.state.fulfillmentMeta.value.error, /生产模式要求从后端读取出库交付/);
+assert.match(fulfillmentResult.feedback, /生产模式要求从后端读取出库交付/);
+
+const formalOptions = [];
+const formalFallbackApi = {
+  async listOfficeTodos(_input, options) {
+    formalOptions.push(options);
+    return { source: "local_fallback", items: [{ id: "TODO-FALLBACK" }] };
+  },
+  async listOfficeOrderLines(_input, options) {
+    formalOptions.push(options);
+    return { source: "local_fallback", items: [{ id: "ORDER-FALLBACK" }] };
+  },
+  async listOfficeInventoryItems(_input, options) {
+    formalOptions.push(options);
+    return { source: "local_fallback", items: [{ id: "STOCK-FALLBACK" }] };
+  },
+  async listOfficeFulfillments(_input, options) {
+    formalOptions.push(options);
+    return { source: "local_fallback", items: [{ id: "FULFILLMENT-FALLBACK" }] };
+  },
+};
+for (const actionName of ["refreshTodos", "refreshOrderPool", "refreshInventoryRecords", "refreshFulfillments"]) {
+  const formalCase = createDependencies(formalFallbackApi, { serverRequired: () => true });
+  const result = await formalCase.actions[actionName]({ showToast: true });
+  assert.equal(result.blocked, true, `${actionName} must block a formal local fallback`);
+  assert.equal(result.source, "api_error");
+}
+assert.equal(formalOptions.every((options) => options?.serverRequired === true), true);
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
@@ -120,4 +147,4 @@ assert.match(sharedUiSource, /className="ghost-button" onClick=\{\(\) => onRefre
 assert.match(shellStylesSource, /\.workspace-notice\s*\{[^}]*pointer-events:\s*none/s);
 assert.doesNotMatch(shellStylesSource, /\.workspace-notice\s*\{[^}]*position:\s*absolute/s);
 
-console.log("Office core reads check passed: API success, denial, empty inventory, and production fallback blocking are covered.");
+console.log("Office core reads check passed: API success, denial, authoritative empty states, and production fallback blocking are covered.");

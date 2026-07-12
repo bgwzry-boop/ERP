@@ -29,7 +29,7 @@ function createHarness({
     allowLocalFallback,
     dispatchPrintJobQueueItem: async (id) => {
       calls.dispatch.push(id);
-      return results.dispatch ?? { source: "api", feedback: "派发成功" };
+      return Object.hasOwn(results, "dispatch") ? results.dispatch : { source: "api", feedback: "派发成功" };
     },
     guardUiAction: (surface, action) => {
       calls.guard.push([surface, action]);
@@ -87,6 +87,13 @@ function createHarness({
   assert.equal((await harness.controller.retryPrintJobQueueItem("PJ-1")).blocked, true);
   assert.equal((await harness.controller.savePrinterDeviceMode()).blocked, true);
   assert.equal((await harness.controller.savePrinterDeviceQaRecord()).blocked, true);
+}
+
+{
+  const harness = createHarness({ results: { dispatch: undefined } });
+  const result = await harness.controller.dispatchPrintJobQueueItem("PJ-MISSING");
+  assert.equal(result.blocked, true);
+  assert.match(harness.toasts.at(-1), /未返回结果/);
 }
 
 {

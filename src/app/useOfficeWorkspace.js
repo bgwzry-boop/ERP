@@ -81,51 +81,65 @@ export function useOfficeWorkspace({
   initialStatements,
   initialTodos,
   sampleText,
+  serverRequired = false,
 }) {
-  const [todos, setTodos] = useState(initialTodos);
+  const initialWorkspaceRecords = serverRequired
+    ? { fulfillments: [], inventories: [], orderLines: [], rawMaterialInbounds: [], statements: [], todos: [] }
+    : {
+        fulfillments: initialFulfillments,
+        inventories: initialInventories,
+        orderLines: initialOrderLines,
+        rawMaterialInbounds: initialRawMaterialInbounds,
+        statements: initialStatements,
+        todos: initialTodos,
+      };
+  const initialEntryText = serverRequired ? "" : sampleText;
+  const initialSource = serverRequired ? "idle" : "local";
+  const initialSelections = serverRequired ? {} : defaultSelections;
+  const [todos, setTodos] = useState(initialWorkspaceRecords.todos);
   const [todoMeta, setTodoMeta] = useState({
-    source: "local",
-    total: initialTodos.length,
+    source: initialSource,
+    total: initialWorkspaceRecords.todos.length,
     loading: false,
     error: "",
     lastSyncedAt: "",
   });
   const [printBatchRecords, setPrintBatchRecords] = useState([]);
-  const [selectedTodoId, setSelectedTodoId] = useState(defaultSelections.todoId);
+  const [selectedTodoId, setSelectedTodoId] = useState(initialSelections.todoId ?? "");
   const [todoView, setTodoView] = useState("未处理");
 
-  const [orderLines, setOrderLines] = useState(initialOrderLines);
+  const [orderLines, setOrderLines] = useState(initialWorkspaceRecords.orderLines);
   const [orderPoolMeta, setOrderPoolMeta] = useState({
-    source: "local",
-    total: initialOrderLines.length,
+    source: initialSource,
+    total: initialWorkspaceRecords.orderLines.length,
     loading: false,
     error: "",
     lastSyncedAt: "",
-    detailSource: "local",
+    detailSource: initialSource,
     detailLoading: false,
     detailError: "",
   });
   const [selectedOrderDetail, setSelectedOrderDetail] = useState(null);
-  const [entryText, setEntryText] = useState(sampleText);
+  const [entryText, setEntryText] = useState(initialEntryText);
   const [draftRows, setDraftRows] = useState(() =>
-    parseOrderText(sampleText, { customers, inventories: initialInventories }),
+    parseOrderText(initialEntryText, { customers, inventories: initialWorkspaceRecords.inventories }),
   );
-  const [draftStatus, setDraftStatus] = useState("已识别待确认");
-  const [draftApiMeta, setDraftApiMeta] = useState({ draftId: "", clientRevision: 0, source: "local" });
-  const [selectedDraftId, setSelectedDraftId] = useState("DRAFT-1-1");
+  const [draftStatus, setDraftStatus] = useState(serverRequired ? "待录入" : "已识别待确认");
+  const [draftApiMeta, setDraftApiMeta] = useState({ draftId: "", clientRevision: 0, source: initialSource });
+  const [selectedDraftId, setSelectedDraftId] = useState(serverRequired ? "" : "DRAFT-1-1");
   const [orderFilters, setOrderFilters] = useState(defaultOrderFilters);
-  const [selectedOrderId, setSelectedOrderId] = useState(defaultSelections.orderId);
+  const [selectedOrderId, setSelectedOrderId] = useState(initialSelections.orderId ?? "");
 
-  const [inventoryRecords, setInventoryRecords] = useState(initialInventories);
+  const [inventoryRecords, setInventoryRecords] = useState(initialWorkspaceRecords.inventories);
   const [inventoryMeta, setInventoryMeta] = useState({
-    source: "local",
-    total: initialInventories.length,
+    source: initialSource,
+    total: initialWorkspaceRecords.inventories.length,
     loading: false,
     error: "",
     lastSyncedAt: "",
   });
   const [inventoryLedgerState, setInventoryLedgerState] = useState({
-    source: "local",
+    source: initialSource,
     items: [],
     total: 0,
     loading: false,
@@ -144,7 +158,7 @@ export function useOfficeWorkspace({
   });
   const [inventoryCorrectionDrafts, setInventoryCorrectionDrafts] = useState([]);
   const [inventoryCorrectionQueueState, setInventoryCorrectionQueueState] = useState({
-    source: "local",
+    source: initialSource,
     items: [],
     total: 0,
     loading: false,
@@ -153,25 +167,25 @@ export function useOfficeWorkspace({
     lastSyncedAt: "",
     filters: { status: "待确认生效" },
   });
-  const [selectedStockId, setSelectedStockId] = useState(defaultSelections.stockId);
+  const [selectedStockId, setSelectedStockId] = useState(initialSelections.stockId ?? "");
 
   const [fulfillmentTab, setFulfillmentTab] = useState("全部");
-  const [fulfillments, setFulfillments] = useState(initialFulfillments);
+  const [fulfillments, setFulfillments] = useState(initialWorkspaceRecords.fulfillments);
   const [fulfillmentMeta, setFulfillmentMeta] = useState({
-    source: "local",
-    total: initialFulfillments.length,
+    source: initialSource,
+    total: initialWorkspaceRecords.fulfillments.length,
     loading: false,
     error: "",
     lastSyncedAt: "",
   });
-  const [selectedFulfillmentId, setSelectedFulfillmentId] = useState(defaultSelections.fulfillmentId);
+  const [selectedFulfillmentId, setSelectedFulfillmentId] = useState(initialSelections.fulfillmentId ?? "");
 
   const [productionPacking, setProductionPacking] = useState(() =>
-    createInitialProductionPackingState(initialOrderLines, { buildPackingTaskId }),
+    createInitialProductionPackingState(initialWorkspaceRecords.orderLines, { buildPackingTaskId }),
   );
   const [productionPackingFocus, setProductionPackingFocus] = useState(null);
   const [productionPackingDetailState, setProductionPackingDetailState] = useState({
-    source: "local",
+    source: initialSource,
     detail: null,
     requestedType: "",
     requestedId: "",
@@ -195,30 +209,30 @@ export function useOfficeWorkspace({
 
   const [driverDeliveryTasks, setDriverDeliveryTasks] = useState(() =>
     buildLocalDriverDeliveryTasks({
-      fulfillments: initialFulfillments,
-      orderLines: initialOrderLines,
+      fulfillments: initialWorkspaceRecords.fulfillments,
+      orderLines: initialWorkspaceRecords.orderLines,
       customers,
       driverId: "U-DRIVER-A",
     }),
   );
   const [driverDeliveryMeta, setDriverDeliveryMeta] = useState({
-    source: "local",
-    total: initialFulfillments.filter((item) => item.method === "送货").length,
+    source: initialSource,
+    total: initialWorkspaceRecords.fulfillments.filter((item) => item.method === "送货").length,
     loading: false,
     error: "",
     lastSyncedAt: "",
   });
-  const [selectedDriverTaskId, setSelectedDriverTaskId] = useState("F002");
+  const [selectedDriverTaskId, setSelectedDriverTaskId] = useState(serverRequired ? "" : "F002");
 
-  const [statements, setStatements] = useState(initialStatements);
-  const [selectedStatementId, setSelectedStatementId] = useState(defaultSelections.statementId);
+  const [statements, setStatements] = useState(initialWorkspaceRecords.statements);
+  const [selectedStatementId, setSelectedStatementId] = useState(initialSelections.statementId ?? "");
   const [statementReadMeta, setStatementReadMeta] = useState({
-    source: "local",
-    total: initialStatements.length,
+    source: initialSource,
+    total: initialWorkspaceRecords.statements.length,
     loading: false,
     error: "",
     lastSyncedAt: "",
-    detailSource: "local",
+    detailSource: initialSource,
     detailLoading: false,
     detailError: "",
     detailLastSyncedAt: "",
@@ -232,26 +246,26 @@ export function useOfficeWorkspace({
   const [lastIssuedEmployeeCredential, setLastIssuedEmployeeCredential] = useState(null);
   const [masterDataMaintenanceDrafts, setMasterDataMaintenanceDrafts] = useState([]);
   const [masterDataMaintenanceTab, setMasterDataMaintenanceTab] = useState("客户档案");
-  const [selectedMasterDataId, setSelectedMasterDataId] = useState("C001");
+  const [selectedMasterDataId, setSelectedMasterDataId] = useState(serverRequired ? "" : "C001");
 
-  const [rawMaterialInbounds, setRawMaterialInbounds] = useState(initialRawMaterialInbounds);
+  const [rawMaterialInbounds, setRawMaterialInbounds] = useState(initialWorkspaceRecords.rawMaterialInbounds);
   const [rawMaterialInboundMeta, setRawMaterialInboundMeta] = useState({
-    source: "local",
-    total: initialRawMaterialInbounds.length,
+    source: initialSource,
+    total: initialWorkspaceRecords.rawMaterialInbounds.length,
     loading: false,
     error: "",
     lastSyncedAt: "",
   });
   const [rawMaterialSupplierStatementReviews, setRawMaterialSupplierStatementReviews] = useState([]);
   const [rawMaterialSupplierStatementReviewMeta, setRawMaterialSupplierStatementReviewMeta] = useState({
-    source: "local",
+    source: initialSource,
     total: 0,
     loading: false,
     error: "",
     lastSyncedAt: "",
   });
   const [selectedRawMaterialInboundId, setSelectedRawMaterialInboundId] = useState(
-    defaultSelections.rawMaterialInboundId,
+    initialSelections.rawMaterialInboundId ?? "",
   );
 
   const [v1GoLiveStatusState, setV1GoLiveStatusState] = useState(createGoLiveStatusState);
@@ -310,21 +324,21 @@ export function useOfficeWorkspace({
   );
   const [v1ReleaseCandidateRefreshAction, setV1ReleaseCandidateRefreshAction] = useState(createAsyncActionState);
 
-  const todosRef = useRef(initialTodos);
-  const orderLinesRef = useRef(initialOrderLines);
-  const inventoryRecordsRef = useRef(initialInventories);
-  const fulfillmentsRef = useRef(initialFulfillments);
+  const todosRef = useRef(initialWorkspaceRecords.todos);
+  const orderLinesRef = useRef(initialWorkspaceRecords.orderLines);
+  const inventoryRecordsRef = useRef(initialWorkspaceRecords.inventories);
+  const fulfillmentsRef = useRef(initialWorkspaceRecords.fulfillments);
   const productionPackingRef = useRef(productionPacking);
-  const rawMaterialInboundsRef = useRef(initialRawMaterialInbounds);
-  const selectedRawMaterialInboundIdRef = useRef(defaultSelections.rawMaterialInboundId);
+  const rawMaterialInboundsRef = useRef(initialWorkspaceRecords.rawMaterialInbounds);
+  const selectedRawMaterialInboundIdRef = useRef(initialSelections.rawMaterialInboundId ?? "");
   const rawMaterialSupplierStatementReviewsRef = useRef([]);
-  const statementsRef = useRef(initialStatements);
-  const selectedStatementIdRef = useRef(defaultSelections.statementId);
+  const statementsRef = useRef(initialWorkspaceRecords.statements);
+  const selectedStatementIdRef = useRef(initialSelections.statementId ?? "");
   const inventoryCorrectionDraftsRef = useRef([]);
   const inventoryLedgerEntriesRef = useRef([]);
   const masterDataImportReviewDraftsRef = useRef([]);
   const masterDataEmployeeAccountReviewsRef = useRef([]);
-  const selectedStockIdRef = useRef(defaultSelections.stockId);
+  const selectedStockIdRef = useRef(initialSelections.stockId ?? "");
   const inventoryLedgerFiltersRef = useRef(defaultInventoryLedgerFilters);
   const printerDeviceQaSelectedIdRef = useRef("");
   const printerDeviceQaRef = useRef(printerDeviceQa);

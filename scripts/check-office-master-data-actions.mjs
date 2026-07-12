@@ -21,6 +21,7 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
   let reviewDrafts = [];
   let employeeReviews = [];
   let issuedCredential = null;
+  let maintenanceDrafts = [];
   let employeeRefreshCount = 0;
   const toasts = [];
   const controller = createOfficeMasterDataActions({
@@ -34,6 +35,7 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
     downloadTextFile: () => true,
     getActionState: () => ({ disabled: false, title: "" }),
     lastIssuedEmployeeCredential: issuedCredential,
+    masterDataMaintenanceTab: "价格表",
     masterDataPrecheckState: { status: "idle" },
     now: () => new Date("2026-07-12T09:00:00.000Z"),
     refreshMasterDataEmployeeAccountReviews: async () => {
@@ -55,6 +57,9 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
     setMasterDataImportReviewDrafts: (updater) => {
       reviewDrafts = typeof updater === "function" ? updater(reviewDrafts) : updater;
     },
+    setMasterDataMaintenanceDrafts: (updater) => {
+      maintenanceDrafts = typeof updater === "function" ? updater(maintenanceDrafts) : updater;
+    },
     setMasterDataPrecheckState: () => {},
     setToast: (message) => toasts.push(message),
     showMasterDataTemplatePanel: () => {},
@@ -66,9 +71,25 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
     getEmployeeReviews: () => employeeReviews,
     getExecutions: () => executions,
     getIssuedCredential: () => issuedCredential,
+    getMaintenanceDrafts: () => maintenanceDrafts,
     getReviewDrafts: () => reviewDrafts,
     toasts,
   };
+}
+
+{
+  const harness = createHarness();
+  const draft = harness.controller.saveMasterDataMaintenanceDraft({
+    recordId: "PRICE-1",
+    recordLabel: "客户A价格",
+    field: "unitPrice",
+    fieldLabel: "单价",
+    nextValue: "0.45",
+  });
+  assert.equal(draft.tab, "价格表");
+  assert.equal(draft.createdBy, "管理A");
+  assert.equal(harness.getMaintenanceDrafts()[0].draftId, draft.draftId);
+  assert.match(harness.toasts.at(-1), /正式写入仍需走导入确认/);
 }
 
 {

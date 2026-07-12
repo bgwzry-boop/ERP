@@ -4,6 +4,7 @@ import {
   listOfficeRawMaterialInbounds,
   listOfficeRawMaterialSupplierStatementReviews,
 } from "../services/officeRawMaterialApiClient.js";
+import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 
 function formatSyncTime() {
   return new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
@@ -19,6 +20,24 @@ const defaultApi = {
   listOfficeRawMaterialSupplierStatementReviews,
 };
 
+function normalizeReadResultForRuntime(result, { label, serverRequired }) {
+  const safeResult = result ?? {};
+  if (!serverRequired() || safeResult.source === "api") return safeResult;
+  return {
+    ...safeResult,
+    blocked: true,
+    upstreamSource: safeResult.source,
+    source: "api_error",
+    error: {
+      code: safeResult.error?.code ?? "ROLE_TOOL_READ_SERVER_REQUIRED",
+      message: safeResult.error?.message ?? `生产模式要求从后端读取${label}。`,
+      ...(safeResult.error?.requiredPermission
+        ? { requiredPermission: safeResult.error.requiredPermission }
+        : {}),
+    },
+  };
+}
+
 export function createOfficeRoleToolReadActions({
   api = defaultApi,
   authState,
@@ -28,6 +47,7 @@ export function createOfficeRoleToolReadActions({
   orderLinesRef,
   rawMaterialInboundsRef,
   selectedRawMaterialInboundIdRef,
+  serverRequired = isOfficeApiServerRequired,
   setDriverDeliveryTasks,
   setSelectedDriverTaskId,
   setDriverDeliveryMeta,
@@ -39,14 +59,17 @@ export function createOfficeRoleToolReadActions({
 }) {
   async function refreshDriverDeliveryTasks({ showToast = false } = {}) {
     setDriverDeliveryMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await api.listDriverDeliveryTasks({
-      authState,
-      driverId: currentUserId,
-      operatorId: currentUserId,
-      localFulfillments: fulfillmentsRef.current,
-      orderLines: orderLinesRef.current,
-      customers,
-    });
+    const result = normalizeReadResultForRuntime(
+      await api.listDriverDeliveryTasks({
+        authState,
+        driverId: currentUserId,
+        operatorId: currentUserId,
+        localFulfillments: fulfillmentsRef.current,
+        orderLines: orderLinesRef.current,
+        customers,
+      }, { serverRequired: serverRequired() }),
+      { label: "司机送货任务", serverRequired },
+    );
 
     if (result.blocked) {
       setDriverDeliveryMeta((current) => ({
@@ -64,7 +87,7 @@ export function createOfficeRoleToolReadActions({
     const items = result.items ?? [];
     setDriverDeliveryTasks(items);
     setSelectedDriverTaskId((current) =>
-      items.some((item) => item.fulfillmentId === current) ? current : items[0]?.fulfillmentId ?? current,
+      items.some((item) => item.fulfillmentId === current) ? current : items[0]?.fulfillmentId ?? "",
     );
     setDriverDeliveryMeta({
       source: result.source,
@@ -84,12 +107,15 @@ export function createOfficeRoleToolReadActions({
 
   async function refreshRawMaterialInbounds({ showToast = false } = {}) {
     setRawMaterialInboundMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await api.listOfficeRawMaterialInbounds({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 200,
-      localInbounds: rawMaterialInboundsRef.current,
-    });
+    const result = normalizeReadResultForRuntime(
+      await api.listOfficeRawMaterialInbounds({
+        authState,
+        operatorId: currentUserId,
+        pageSize: 200,
+        localInbounds: rawMaterialInboundsRef.current,
+      }, { serverRequired: serverRequired() }),
+      { label: "原材料入库单", serverRequired },
+    );
 
     if (result.blocked) {
       setRawMaterialInboundMeta((current) => ({
@@ -104,12 +130,12 @@ export function createOfficeRoleToolReadActions({
       return withFeedback(result, showToast, feedback);
     }
 
-    const nextItems = result.items?.length ? result.items : rawMaterialInboundsRef.current;
+    const nextItems = result.items ?? [];
     const currentSelectedId =
       selectedRawMaterialInboundIdRef.current || rawMaterialInboundsRef.current[0]?.id || "";
     const nextSelectedId = nextItems.some((item) => item.id === currentSelectedId)
       ? currentSelectedId
-      : nextItems[0]?.id ?? currentSelectedId;
+      : nextItems[0]?.id ?? "";
     setRawMaterialInbounds(nextItems);
     setSelectedRawMaterialInboundId(nextSelectedId);
     setRawMaterialInboundMeta({
@@ -129,11 +155,14 @@ export function createOfficeRoleToolReadActions({
 
   async function refreshRawMaterialSupplierStatementReviews({ showToast = false } = {}) {
     setRawMaterialSupplierStatementReviewMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await api.listOfficeRawMaterialSupplierStatementReviews({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 20,
-    });
+    const result = normalizeReadResultForRuntime(
+      await api.listOfficeRawMaterialSupplierStatementReviews({
+        authState,
+        operatorId: currentUserId,
+        pageSize: 20,
+      }, { serverRequired: serverRequired() }),
+      { label: "供应商月结复核草稿", serverRequired },
+    );
     if (result.blocked) {
       setRawMaterialSupplierStatementReviewMeta((current) => ({
         ...current,
@@ -180,20 +209,21 @@ export function useOfficeRoleToolReads(options) {
     orderLinesRef,
     rawMaterialInboundsRef,
     selectedRawMaterialInboundIdRef,
+    serverRequired,
   } = options;
 
   return {
     refreshDriverDeliveryTasks: useCallback(
       actions.refreshDriverDeliveryTasks,
-      [authState, currentUserId, customers, fulfillmentsRef, orderLinesRef],
+      [authState, currentUserId, customers, fulfillmentsRef, orderLinesRef, serverRequired],
     ),
     refreshRawMaterialInbounds: useCallback(
       actions.refreshRawMaterialInbounds,
-      [authState, currentUserId, rawMaterialInboundsRef, selectedRawMaterialInboundIdRef],
+      [authState, currentUserId, rawMaterialInboundsRef, selectedRawMaterialInboundIdRef, serverRequired],
     ),
     refreshRawMaterialSupplierStatementReviews: useCallback(
       actions.refreshRawMaterialSupplierStatementReviews,
-      [authState, currentUserId],
+      [authState, currentUserId, serverRequired],
     ),
   };
 }

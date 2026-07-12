@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import { customers, initialInventories } from "../src/data/fixtures.js";
 import { parseOrderText } from "../src/lib/orderParser.js";
 
+assert.deepEqual(parseOrderText(""), [], "empty order input must not inject demo fixture rows");
+
 const redBlankBag = parseOrderText(
   "张三服饰，30*38*10红色空白袋10个，普通提，自提，明天下午",
   { customers, inventories: initialInventories },

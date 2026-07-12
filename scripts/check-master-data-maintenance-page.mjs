@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const controllerSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const featureSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenancePage.jsx", import.meta.url), "utf8");
@@ -10,8 +11,9 @@ const styleSource = readFileSync(new URL("../src/styles/features/role-tools.css"
 assertIncludes(navigationSource, 'key: "masterData"', "navigation should expose the master-data maintenance page");
 assertIncludes(navigationSource, 'label: "基础资料"', "navigation should label the master-data maintenance page");
 assertIncludes(appSource, "<MasterDataMaintenancePage", "App should render the master-data maintenance page");
-assertIncludes(appSource, "saveMasterDataMaintenanceDraft", "App should keep maintenance drafts in page state");
-assertIncludes(appSource, "正式写入仍需走导入确认", "maintenance drafts must not imply direct database writes");
+assertIncludes(appSource, "saveMasterDataMaintenanceDraft", "App should wire the maintenance draft controller action");
+assertIncludes(controllerSource, "function saveMasterDataMaintenanceDraft", "master-data controller should own maintenance drafts");
+assertIncludes(controllerSource, "正式写入仍需走导入确认", "maintenance drafts must not imply direct database writes");
 
 assertIncludes(officePageSource, "MasterDataMaintenancePage", "office pages should export MasterDataMaintenancePage");
 assertIncludes(featureSource, "export function MasterDataMaintenancePage", "master-data feature should own the page");

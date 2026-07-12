@@ -1,4 +1,3 @@
-import { sampleText } from "../data/fixtures.js";
 import { calculateLinePricing } from "../domain/priceTable.js";
 
 const colorWords = ["米白", "浅蓝", "牛仔蓝", "大红", "红", "黑", "白", "蓝", "绿", "黄", "粉"];
@@ -28,7 +27,8 @@ const customerAliases = {
 };
 
 export function parseOrderText(text, { customers = [], inventories = [] } = {}) {
-  const normalized = (text || sampleText).replace(/\s+/g, " ").trim();
+  const normalized = String(text ?? "").replace(/\s+/g, " ").trim();
+  if (!normalized) return [];
   const chunks = normalized
     .split(/[；;\n]+/)
     .map((item) => item.trim())

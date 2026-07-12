@@ -21,6 +21,24 @@ const defaultApi = {
   listOfficeTodos,
 };
 
+function normalizeReadResultForRuntime(result, { label, serverRequired }) {
+  const safeResult = result ?? {};
+  if (!serverRequired() || safeResult.source === "api") return safeResult;
+  return {
+    ...safeResult,
+    blocked: true,
+    upstreamSource: safeResult.source,
+    source: "api_error",
+    error: {
+      code: safeResult.error?.code ?? "CORE_READ_SERVER_REQUIRED",
+      message: safeResult.error?.message ?? `生产模式要求从后端读取${label}。`,
+      ...(safeResult.error?.requiredPermission
+        ? { requiredPermission: safeResult.error.requiredPermission }
+        : {}),
+    },
+  };
+}
+
 export function createOfficeCoreReadActions({
   api = defaultApi,
   authState,
@@ -46,13 +64,16 @@ export function createOfficeCoreReadActions({
 }) {
   async function refreshTodos({ showToast = false } = {}) {
     setTodoMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await api.listOfficeTodos({
-      authState,
-      operatorId: currentUserId,
-      status: "all",
-      pageSize: 200,
-      localTodos: todosRef.current,
-    });
+    const result = normalizeReadResultForRuntime(
+      await api.listOfficeTodos({
+        authState,
+        operatorId: currentUserId,
+        status: "all",
+        pageSize: 200,
+        localTodos: todosRef.current,
+      }, { serverRequired: serverRequired() }),
+      { label: "公共待办", serverRequired },
+    );
 
     if (result.blocked) {
       setTodoMeta((current) => ({
@@ -67,7 +88,7 @@ export function createOfficeCoreReadActions({
     const items = result.items ?? [];
     setTodos(items);
     setSelectedTodoId((current) =>
-      items.some((item) => item.id === current) ? current : sortTodos(items)[0]?.id ?? current,
+      items.some((item) => item.id === current) ? current : sortTodos(items)[0]?.id ?? "",
     );
     setTodoMeta({
       source: result.source,
@@ -82,13 +103,16 @@ export function createOfficeCoreReadActions({
 
   async function refreshOrderPool({ showToast = false } = {}) {
     setOrderPoolMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await api.listOfficeOrderLines({
-      authState,
-      operatorId: currentUserId,
-      localOrderLines: orderLinesRef.current,
-      pageSize: 200,
-      includeHistory: false,
-    });
+    const result = normalizeReadResultForRuntime(
+      await api.listOfficeOrderLines({
+        authState,
+        operatorId: currentUserId,
+        localOrderLines: orderLinesRef.current,
+        pageSize: 200,
+        includeHistory: false,
+      }, { serverRequired: serverRequired() }),
+      { label: "订单池", serverRequired },
+    );
 
     if (result.blocked) {
       setOrderPoolMeta((current) => ({
@@ -105,7 +129,7 @@ export function createOfficeCoreReadActions({
 
     const items = result.items ?? [];
     setOrderLines(items);
-    setSelectedOrderId((current) => (items.some((item) => item.id === current) ? current : items[0]?.id ?? current));
+    setSelectedOrderId((current) => (items.some((item) => item.id === current) ? current : items[0]?.id ?? ""));
     setOrderPoolMeta((current) => ({
       ...current,
       source: result.source,
@@ -120,12 +144,15 @@ export function createOfficeCoreReadActions({
 
   async function refreshInventoryRecords({ showToast = false } = {}) {
     setInventoryMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await api.listOfficeInventoryItems({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 200,
-      localInventoryRecords: inventoryRecordsRef.current,
-    });
+    const result = normalizeReadResultForRuntime(
+      await api.listOfficeInventoryItems({
+        authState,
+        operatorId: currentUserId,
+        pageSize: 200,
+        localInventoryRecords: inventoryRecordsRef.current,
+      }, { serverRequired: serverRequired() }),
+      { label: "库存列表", serverRequired },
+    );
 
     if (result.blocked) {
       setInventoryMeta((current) => ({
@@ -140,11 +167,11 @@ export function createOfficeCoreReadActions({
       return withFeedback(result, showToast, feedback);
     }
 
-    const nextItems = result.items?.length ? result.items : inventoryRecordsRef.current;
+    const nextItems = result.items ?? [];
     const currentSelectedId = selectedStockIdRef.current;
     const nextSelectedStockId = nextItems.some((item) => item.id === currentSelectedId)
       ? currentSelectedId
-      : nextItems[0]?.id ?? currentSelectedId;
+      : nextItems[0]?.id ?? "";
     setInventoryRecords(nextItems);
     setSelectedStockId(nextSelectedStockId);
     setInventoryMeta({
@@ -164,13 +191,16 @@ export function createOfficeCoreReadActions({
 
   async function refreshFulfillments({ showToast = false } = {}) {
     setFulfillmentMeta((current) => ({ ...current, loading: true, error: "" }));
-    const result = await api.listOfficeFulfillments({
-      authState,
-      operatorId: currentUserId,
-      pageSize: 200,
-      localFulfillments: fulfillmentsRef.current,
-    });
-    if (result.blocked || (serverRequired() && result.source !== "api")) {
+    const result = normalizeReadResultForRuntime(
+      await api.listOfficeFulfillments({
+        authState,
+        operatorId: currentUserId,
+        pageSize: 200,
+        localFulfillments: fulfillmentsRef.current,
+      }, { serverRequired: serverRequired() }),
+      { label: "出库交付", serverRequired },
+    );
+    if (result.blocked) {
       setFulfillmentMeta((current) => ({
         ...current,
         source: result.source,
@@ -187,7 +217,7 @@ export function createOfficeCoreReadActions({
     const nextItems = result.items ?? [];
     setFulfillments(nextItems);
     setSelectedFulfillmentId((current) =>
-      nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id ?? current,
+      nextItems.some((item) => item.id === current) ? current : nextItems[0]?.id ?? "",
     );
     setFulfillmentMeta({
       source: result.source,
@@ -218,18 +248,19 @@ export function useOfficeCoreReads(options) {
     inventoryRecordsRef,
     selectedStockIdRef,
     fulfillmentsRef,
+    serverRequired,
   } = options;
 
   return {
-    refreshTodos: useCallback(actions.refreshTodos, [authState, currentUserId, todosRef]),
-    refreshOrderPool: useCallback(actions.refreshOrderPool, [authState, currentUserId, orderLinesRef]),
+    refreshTodos: useCallback(actions.refreshTodos, [authState, currentUserId, serverRequired, todosRef]),
+    refreshOrderPool: useCallback(actions.refreshOrderPool, [authState, currentUserId, orderLinesRef, serverRequired]),
     refreshInventoryRecords: useCallback(
       actions.refreshInventoryRecords,
-      [authState, currentUserId, inventoryRecordsRef, selectedStockIdRef],
+      [authState, currentUserId, inventoryRecordsRef, selectedStockIdRef, serverRequired],
     ),
     refreshFulfillments: useCallback(
       actions.refreshFulfillments,
-      [authState, currentUserId, fulfillmentsRef],
+      [authState, currentUserId, fulfillmentsRef, serverRequired],
     ),
   };
 }

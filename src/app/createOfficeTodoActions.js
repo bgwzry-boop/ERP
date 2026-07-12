@@ -1,4 +1,5 @@
 import { handleOfficeTodoAction as handleOfficeTodoActionDefault } from "../services/officeTodoApiClient.js";
+import { createOfficeTodo } from "../services/officeMockService.js";
 import {
   getBatchPrintPackageRows,
   getBatchPrintStats,
@@ -11,6 +12,15 @@ import {
   reopenTodo,
   snoozeTodo,
 } from "../state/officeTodoActions.js";
+
+export function createOfficeTodoAppender({ createTodo = createOfficeTodo, setSelectedTodoId, setTodos }) {
+  return (input) => {
+    const todo = createTodo(input);
+    setTodos((current) => [todo, ...current]);
+    setSelectedTodoId(todo.id);
+    return todo;
+  };
+}
 
 const defaultApi = {
   handleOfficeTodoAction: handleOfficeTodoActionDefault,

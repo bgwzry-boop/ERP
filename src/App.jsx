@@ -35,10 +35,12 @@ import { createOfficeFulfillmentActions } from "./app/createOfficeFulfillmentAct
 import { createOfficeInventoryActions } from "./app/createOfficeInventoryActions.js";
 import { createOfficeMasterDataActions } from "./app/createOfficeMasterDataActions.js";
 import { createOfficeOrderActions } from "./app/createOfficeOrderActions.js";
+import { createOfficePageRefreshActions } from "./app/createOfficePageRefreshActions.js";
 import { createOfficePrintDeviceActions } from "./app/createOfficePrintDeviceActions.js";
+import { createOfficeProductionPackingActions } from "./app/createOfficeProductionPackingActions.js";
 import { createOfficeRawMaterialActions } from "./app/createOfficeRawMaterialActions.js";
 import { createOfficeStatementActions } from "./app/createOfficeStatementActions.js";
-import { createOfficeTodoActions } from "./app/createOfficeTodoActions.js";
+import { createOfficeTodoActions, createOfficeTodoAppender } from "./app/createOfficeTodoActions.js";
 import { createOfficeV1StatusActions } from "./app/createOfficeV1StatusActions.js";
 import { DataState, WorkspaceNotice, WorkspacePageHeader } from "./shared/ui/operational.jsx";
 import {
@@ -59,13 +61,8 @@ import {
   buildPackingTaskId,
   buildProductionTaskId,
   findProductionInventoryItem,
-  getOfficePackingTaskDetail,
-  getOfficeProductionTaskDetail,
 } from "./services/officeProductionPackingApiClient.js";
-import {
-  createOfficeTodo,
-  loadOfficeWorkspace,
-} from "./services/officeMockService.js";
+import { loadOfficeWorkspace } from "./services/officeMockService.js";
 import {
   MASTER_DATA_IMPORT_CONTENT_TYPE,
   buildMasterDataImportTemplateMetadata,
@@ -387,7 +384,9 @@ export function App() {
     initialStatements,
     initialTodos,
     sampleText,
+    serverRequired: runtimeServerRequired,
   });
+  const addTodo = createOfficeTodoAppender({ setSelectedTodoId, setTodos });
 
   const {
     attachmentViewer,
@@ -520,6 +519,7 @@ export function App() {
     openMasterDataTemplatePanel,
     precheckMasterDataTemplate,
     revokeMasterDataEmployeeAccountPassword,
+    saveMasterDataMaintenanceDraft,
   } = createOfficeMasterDataActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
@@ -530,6 +530,7 @@ export function App() {
     downloadTextFile,
     getActionState: (action) => getUiActionState(permissionContext, "masterData", action),
     lastIssuedEmployeeCredential,
+    masterDataMaintenanceTab,
     masterDataPrecheckState,
     refreshMasterDataEmployeeAccountReviews,
     refreshMasterDataImportReviewDrafts,
@@ -538,35 +539,11 @@ export function App() {
     setMasterDataImportConfirmationPlans,
     setMasterDataImportExecutions,
     setMasterDataImportReviewDrafts,
+    setMasterDataMaintenanceDrafts,
     setMasterDataPrecheckState,
     setToast,
     showMasterDataTemplatePanel,
   });
-  function saveMasterDataMaintenanceDraft(input = {}) {
-    if (!guardUiAction("masterData", "生成维护草稿")) return null;
-    const draftId = `MDM-${Date.now().toString(36).toUpperCase()}`;
-    const recordLabel = String(input.recordLabel ?? input.record?.label ?? input.record?.name ?? input.recordId ?? "主数据记录").trim();
-    const fieldLabel = String(input.fieldLabel ?? input.field ?? "字段").trim();
-    const nextValue = String(input.nextValue ?? "").trim();
-    const reason = String(input.reason ?? "").trim() || "办公室维护草稿，待管理复核后通过导入确认流程写入。";
-    const draft = {
-      draftId,
-      tab: String(input.tab ?? masterDataMaintenanceTab).trim() || "基础资料",
-      recordId: String(input.recordId ?? input.record?.id ?? "").trim(),
-      recordLabel,
-      field: String(input.field ?? fieldLabel).trim(),
-      fieldLabel,
-      nextValue,
-      reason,
-      status: "待复核",
-      createdBy: currentUser.displayName || currentUserId,
-      createdAt: new Date().toISOString(),
-    };
-    setMasterDataMaintenanceDrafts((current) => [draft, ...current].slice(0, 12));
-    setToast(`已生成基础资料维护草稿 ${draftId}：${recordLabel} / ${fieldLabel}。正式写入仍需走导入确认。`);
-    return draft;
-  }
-
   const {
     confirmRawMaterialSupplierPayment,
     confirmRawMaterialSupplierStatement,
@@ -650,12 +627,6 @@ export function App() {
     statusTone,
     uniqueStockOptions,
   };
-
-  function addTodo(input) {
-    const todo = createOfficeTodo(input);
-    setTodos((current) => [todo, ...current]);
-    setSelectedTodoId(todo.id);
-  }
 
   useEffect(() => {
     if (activePage !== "v1Status") return;
@@ -981,185 +952,55 @@ export function App() {
     }
   }
 
-  function refreshActivePage() {
-    if (activePage === "todos") {
-      void refreshTodos({ showToast: true }).then((result) => {
-        if (result?.feedback) setToast(result.feedback);
-      });
-      return;
-    }
-    if (activePage === "orders") {
-      void refreshOrderPool({ showToast: true }).then((result) => {
-        if (result?.feedback) setToast(result.feedback);
-      });
-      return;
-    }
-    if (activePage === "driverMobile") {
-      void refreshDriverDeliveryTasks({ showToast: true }).then((result) => {
-        if (result?.feedback) setToast(result.feedback);
-      });
-      return;
-    }
-    if (activePage === "inventory") {
-      void refreshInventoryRecords({ showToast: true }).then((result) => {
-        if (result?.feedback) setToast(result.feedback);
-        const stockId = result?.selectedStockId ?? selectedStockIdRef.current;
-        void refreshInventoryLedgerEntries({ stockId, showToast: false });
-      });
-      return;
-    }
-    if (activePage === "fulfillment") {
-      void refreshFulfillments({ showToast: true }).then((result) => {
-        if (result?.feedback) setToast(result.feedback);
-      });
-      return;
-    }
-    if (activePage === "statements") {
-      void refreshStatements({ showToast: true }).then((result) => {
-        if (result?.feedback) setToast(result.feedback);
-        const statementId = result?.selectedStatementId ?? selectedStatementId;
-        if (statementId) void refreshStatementDetail({ statementId, showToast: false });
-      });
-      return;
-    }
-    if (activePage === "masterData") {
-      void Promise.all([
-        refreshMasterDataImportReviewDrafts({ silent: true }),
-        refreshMasterDataEmployeeAccountReviews({ silent: true }),
-      ]).then(() => {
-        setToast("基础资料维护页已刷新：导入草稿和员工账号复核状态已同步。");
-      });
-      return;
-    }
-    if (activePage === "rawMaterials") {
-      void Promise.all([
-        refreshRawMaterialInbounds({ showToast: false }),
-        refreshRawMaterialSupplierStatementReviews({ showToast: false }),
-      ]).then(() => {
-        setToast("原材料入库单和供应商月结复核草稿已刷新；月结草稿仍不影响库存或付款。");
-      });
-      return;
-    }
-    if (activePage === "v1Status") {
-      void refreshV1GoLiveStatus({ showToast: true }).then((result) => {
-        if (result?.feedback) setToast(result.feedback);
-      });
-      return;
-    }
-    if (activePage === "packing" || activePage === "workshopMobile") {
-      if (activePage === "packing") {
-        const refreshActions = [
-          refreshProductionPackingTaskLists({ showToast: false }),
-          refreshPrintDriverConfig({ showToast: false }),
-          refreshPrinterDeviceQa({ showToast: false }),
-          refreshOfficePrintJobQueue({ showToast: false }),
-        ];
-        if (canUsePrintDiagnostics) {
-          refreshActions.push(
-            refreshPrintDriverReadiness({ showToast: false }),
-            refreshPrintDriverCupsDiagnostics({ showToast: false }),
-          );
-        }
-        void Promise.all(refreshActions).then(() => {
-          setToast("打包/标签任务池、打印上线门禁、打印驱动诊断、CUPS 队列预检、打印设备验收和打印作业池已刷新。");
-        });
-        return;
-      }
-      void refreshProductionPackingTaskLists({ showToast: true }).then((result) => {
-        if (result?.feedback) setToast(result.feedback);
-      });
-      return;
-    }
-    setToast(`${activeMeta.label} 已刷新本地假数据。`);
-  }
+  const { refreshActivePage } = createOfficePageRefreshActions({
+    activeMetaLabel: activeMeta.label,
+    activePage,
+    allowLocalFallback: !runtimeServerRequired,
+    canUsePrintDiagnostics,
+    refreshDriverDeliveryTasks,
+    refreshFulfillments,
+    refreshInventoryLedgerEntries,
+    refreshInventoryRecords,
+    refreshMasterDataEmployeeAccountReviews,
+    refreshMasterDataImportReviewDrafts,
+    refreshOfficePrintJobQueue,
+    refreshOrderPool,
+    refreshPrintDriverConfig,
+    refreshPrintDriverCupsDiagnostics,
+    refreshPrintDriverReadiness,
+    refreshPrinterDeviceQa,
+    refreshProductionPackingTaskLists,
+    refreshRawMaterialInbounds,
+    refreshRawMaterialSupplierStatementReviews,
+    refreshStatementDetail,
+    refreshStatements,
+    refreshTodos,
+    refreshV1GoLiveStatus,
+    selectedStatementId,
+    selectedStockIdRef,
+    setToast,
+  });
 
-  async function loadProductionPackingSourceDetail(focusTarget) {
-    const requestedType = String(focusTarget?.mode ?? "").trim();
-    const requestedId = String(focusTarget?.taskId ?? focusTarget?.productionTaskId ?? focusTarget?.packingTaskId ?? "").trim();
-    if (!requestedType || !requestedId) {
-      setProductionPackingDetailState({
-        source: "local",
-        detail: null,
-        requestedType,
-        requestedId,
-        loading: false,
-        error: "未找到可读取的生产/打包来源任务 ID。",
-        lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-      });
-      return null;
-    }
-
-    setProductionPackingDetailState({
-      source: "api",
-      detail: null,
-      requestedType,
-      requestedId,
-      loading: true,
-      error: "",
-      lastSyncedAt: "",
-    });
-
-    const orderLineId = String(focusTarget?.orderLineId ?? "").trim();
-    const orderLine =
-      orderLines.find((item) => item.id === orderLineId || item.orderLineId === orderLineId) ??
-      productionPacking.productionTasks?.find((item) => item.id === orderLineId || item.orderLineId === orderLineId) ??
-      productionPacking.packingTasks?.find((item) => item.orderLineId === orderLineId)?.orderLine;
-    const inventoryItem = orderLine ? findProductionInventoryItem(orderLine, inventoryRecords) : null;
-    const reportResult =
-      (orderLineId ? productionPacking.reportResultsByLineId?.[orderLineId] : null) ??
-      productionPacking.productionTasks?.find((item) => item.productionTaskId === requestedId || item.orderLineId === orderLineId)?.latestReport ??
-      Object.values(productionPacking.reportResultsByLineId ?? {}).find(
-        (item) => item?.reportId === focusTarget?.sourceId || item?.productionTaskId === requestedId,
-      );
-
-    const result =
-      requestedType === "packing"
-        ? await getOfficePackingTaskDetail({
-            authState,
-            packingTaskId: requestedId,
-            packingTask: productionPacking.packingTasks.find((item) => item.packingTaskId === requestedId),
-            orderLine,
-            inventoryItem,
-            operatorId: currentUserId,
-          })
-        : await getOfficeProductionTaskDetail({
-            authState,
-            productionTaskId: requestedId,
-            orderLine,
-            reportResult,
-            inventoryItem,
-            operatorId: currentUserId,
-          });
-
-    const lastSyncedAt = new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
-    if (result.blocked) {
-      const message = result.error?.requiredPermission
-        ? `后端拒绝读取生产/打包来源详情：缺少权限 ${result.error.requiredPermission}。`
-        : `后端拒绝读取生产/打包来源详情：${result.error?.message ?? "未知错误"}`;
-      setProductionPackingDetailState({
-        source: result.source,
-        detail: null,
-        requestedType,
-        requestedId,
-        loading: false,
-        error: message,
-        lastSyncedAt,
-      });
-      setToast(message);
-      return null;
-    }
-
-    setProductionPackingDetailState({
-      source: result.source,
-      detail: result.detail,
-      requestedType,
-      requestedId,
-      loading: false,
-      error: result.error?.message ?? "",
-      lastSyncedAt,
-    });
-    return result.detail;
-  }
+  const {
+    handleProductionPackingAction,
+    loadProductionPackingSourceDetail,
+    refreshPrintDriverDiagnostics,
+    refreshPrintJobs,
+  } = createOfficeProductionPackingActions({
+    allowLocalFallback: !runtimeServerRequired,
+    authState,
+    currentUserId,
+    executeProductionPackingAction,
+    guardUiAction,
+    inventoryRecords,
+    orderLines,
+    productionPacking,
+    refreshOfficePrintJobQueue,
+    refreshPrintDriverConfig,
+    refreshPrintDriverCupsDiagnostics,
+    setProductionPackingDetailState,
+    setToast,
+  });
 
   const {
     createOrderFromTopbar,
@@ -1284,13 +1125,6 @@ export function App() {
     setToast,
     todos,
   });
-  async function handleProductionPackingAction(action, payload = {}) {
-    if (!guardUiAction("productionPacking", action)) return null;
-    const result = await executeProductionPackingAction({ action, payload });
-    if (result?.feedback) setToast(result.feedback);
-    return result;
-  }
-
   const { handleDriverDeliveryAction } = createOfficeDriverDeliveryActions({
     addTodo,
     allowLocalFallback: !runtimeServerRequired,
@@ -1465,14 +1299,7 @@ export function App() {
               printDriverReadiness={printDriverReadiness}
               printDriverCupsDiagnostics={printDriverCupsDiagnostics}
               onAction={handleProductionPackingAction}
-              onRefreshPrintDriverConfig={() => {
-                void Promise.all([
-                  refreshPrintDriverConfig({ showToast: false }),
-                  refreshPrintDriverCupsDiagnostics({ showToast: false }),
-                ]).then(() => {
-                  setToast("打印驱动诊断和 CUPS 队列预检已刷新。");
-                });
-              }}
+              onRefreshPrintDriverConfig={refreshPrintDriverDiagnostics}
               onRefreshPrintDriverReadiness={() => refreshPrintDriverReadiness({ showToast: true })}
               onRefreshPrinterDeviceQa={() => refreshPrinterDeviceQa({ showToast: true })}
               onSelectPrinterDeviceQaDevice={selectPrinterDeviceQaDevice}
@@ -1481,7 +1308,7 @@ export function App() {
               onChangePrinterDeviceQaEvidenceField={changePrinterDeviceQaEvidenceField}
               onSavePrinterDeviceMode={savePrinterDeviceMode}
               onSavePrinterDeviceQa={savePrinterDeviceQaRecord}
-              onRefreshPrintJobs={() => refreshOfficePrintJobQueue({ showToast: true })}
+              onRefreshPrintJobs={refreshPrintJobs}
               onDispatchPrintJob={dispatchPrintJobQueueItem}
               onRetryPrintJob={retryPrintJobQueueItem}
               helpers={pageHelpers}

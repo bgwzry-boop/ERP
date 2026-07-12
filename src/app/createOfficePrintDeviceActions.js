@@ -24,7 +24,15 @@ export function createOfficePrintDeviceActions({
   setToast,
 }) {
   function normalizeFormalWriteResult(result, label) {
-    if (!result || result.blocked || allowLocalFallback || result.source === "api") return result;
+    if (!result) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: { code: "PRINT_DEVICE_ACTION_RESULT_MISSING", message: `${label}未返回结果。` },
+        feedback: `${label}未返回结果，未修改打印状态。`,
+      };
+    }
+    if (result.blocked || allowLocalFallback || result.source === "api") return result;
     return {
       ...result,
       blocked: true,
