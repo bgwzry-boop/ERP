@@ -387,6 +387,7 @@ function normalizePaymentAttachmentFile(file) {
     previewStatus: file?.previewStatus ?? (file?.previewDataUrl ? "已加载预览" : file?.hasContent ? "可读取内容" : "待上传内容"),
     contentType: file?.contentType ?? file?.mimeType ?? "",
     contentDisposition: file?.contentDisposition ?? "",
+    contentSource: file?.contentSource ?? "",
   };
 }
 
@@ -403,6 +404,7 @@ function mergeStatementAttachmentFiles(existingFiles = [], nextFiles = []) {
         previewStatus: file.previewStatus || merged[index].previewStatus,
         contentType: file.contentType || merged[index].contentType,
         contentDisposition: file.contentDisposition || merged[index].contentDisposition,
+        contentSource: file.contentSource || merged[index].contentSource,
         source: file.source || merged[index].source,
       });
     } else {

@@ -60,7 +60,7 @@ export function createOfficeFulfillmentActions({
         setToast(isSignature ? "当前送货记录没有签收照片附件。" : "当前送货记录没有水印照片附件。");
         return;
       }
-      if (attachmentFile?.previewDataUrl) {
+      if (attachmentFile?.previewDataUrl && (allowLocalFallback || attachmentFile.contentSource === "api")) {
         const accessAudit = await loadAttachmentAccessAudit(attachmentId);
         openAttachmentViewer({
           ...attachmentFile,
@@ -113,6 +113,7 @@ export function createOfficeFulfillmentActions({
         mimeType: contentResult.contentType || attachmentFile?.mimeType,
         contentType: contentResult.contentType,
         contentDisposition: contentResult.contentDisposition,
+        contentSource: contentResult.source,
         previewDataUrl,
         previewStatus: previewDataUrl ? (isImagePreview ? "已加载预览" : "已读取内容，可下载原文件") : "未读取到内容",
         accessAudit,

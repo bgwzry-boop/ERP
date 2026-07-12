@@ -29,11 +29,13 @@ import {
 } from "./app/AppViews.jsx";
 import { useOfficeInteractionController } from "./app/useOfficeInteractionController.js";
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
+import { createOfficeAttachmentActions } from "./app/createOfficeAttachmentActions.js";
 import { createOfficeDriverDeliveryActions } from "./app/createOfficeDriverDeliveryActions.js";
 import { createOfficeFulfillmentActions } from "./app/createOfficeFulfillmentActions.js";
 import { createOfficeInventoryActions } from "./app/createOfficeInventoryActions.js";
 import { createOfficeMasterDataActions } from "./app/createOfficeMasterDataActions.js";
 import { createOfficeOrderActions } from "./app/createOfficeOrderActions.js";
+import { createOfficePrintDeviceActions } from "./app/createOfficePrintDeviceActions.js";
 import { createOfficeRawMaterialActions } from "./app/createOfficeRawMaterialActions.js";
 import { createOfficeStatementActions } from "./app/createOfficeStatementActions.js";
 import { createOfficeTodoActions } from "./app/createOfficeTodoActions.js";
@@ -52,10 +54,6 @@ import {
   loginRuntimeUser,
   loginSeedUser,
 } from "./services/officeAuthService.js";
-import {
-  listOfficeAttachmentAccessLogs,
-  listOfficeAttachments,
-} from "./services/officeAttachmentApiClient.js";
 import { getOfficeOrderLineDetail } from "./services/officeOrderPoolApiClient.js";
 import {
   buildPackingTaskId,
@@ -65,24 +63,9 @@ import {
   getOfficeProductionTaskDetail,
 } from "./services/officeProductionPackingApiClient.js";
 import {
-  createPrinterDeviceFieldTestChecks,
-  createPrinterDeviceFieldTestEvidence,
-  normalizePrinterDeviceFieldTestEvidence,
-  normalizePrinterDeviceFieldTestChecks,
-} from "./services/printerDeviceFieldTestClient.js";
-import {
   createOfficeTodo,
   loadOfficeWorkspace,
 } from "./services/officeMockService.js";
-import {
-  getPrinterDeviceDriverMode,
-  getPrinterDeviceQaDriverLabel,
-  getPrinterDeviceQaPaperLabel,
-} from "./state/officePrintState.js";
-import {
-  syncStatementCustomerConfirmationAttachments,
-  syncStatementPaymentAttachments,
-} from "./state/officeStatementActions.js";
 import {
   MASTER_DATA_IMPORT_CONTENT_TYPE,
   buildMasterDataImportTemplateMetadata,
@@ -229,40 +212,12 @@ function readBlobAsDataUrl(blob) {
   });
 }
 
-function getFileNameFromContentDisposition(contentDisposition = "") {
-  const encodedMatch = String(contentDisposition).match(/filename\*=UTF-8''([^;]+)/i);
-  if (encodedMatch?.[1]) {
-    try {
-      return decodeURIComponent(encodedMatch[1]);
-    } catch {
-      return encodedMatch[1];
-    }
-  }
-  const plainMatch = String(contentDisposition).match(/filename="?([^";]+)"?/i);
-  return plainMatch?.[1] ?? "";
-}
-
 function sanitizeDownloadFileName(fileName, fallback = "attachment") {
   const safeName = String(fileName || fallback)
     .trim()
     .replace(/[\\/:*?"<>|]+/g, "-")
     .replace(/\s+/g, " ");
   return safeName || fallback;
-}
-
-function downloadAttachmentPreview(attachment) {
-  if (typeof document === "undefined" || !attachment?.previewDataUrl) return false;
-  const link = document.createElement("a");
-  const fileName = sanitizeDownloadFileName(
-    attachment.fileName || getFileNameFromContentDisposition(attachment.contentDisposition),
-    `${attachment.attachmentId || "payment-proof"}.png`,
-  );
-  link.href = attachment.previewDataUrl;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  return true;
 }
 
 function downloadStatementExcelWorkbook(workbookContent, statement, customer, options = {}) {
@@ -707,124 +662,44 @@ export function App() {
     void refreshV1GoLiveStatus();
   }, [activePage, refreshV1GoLiveStatus]);
 
-  async function dispatchPrintJobQueueItem(printJobId) {
-    if (!guardUiAction("productionPacking", "派发打印作业")) return;
-    const result = await executePrintJobDispatch(printJobId);
-    if (result?.feedback) setToast(result.feedback);
-  }
+  const {
+    changePrinterDeviceQaCheck,
+    changePrinterDeviceQaEvidenceField,
+    changePrinterDeviceQaField,
+    dispatchPrintJobQueueItem,
+    retryPrintJobQueueItem,
+    savePrinterDeviceMode,
+    savePrinterDeviceQaRecord,
+    selectPrinterDeviceQaDevice,
+  } = createOfficePrintDeviceActions({
+    allowLocalFallback: !runtimeServerRequired,
+    dispatchPrintJobQueueItem: executePrintJobDispatch,
+    guardUiAction,
+    printerDeviceQa,
+    printerDeviceQaSelectedIdRef,
+    refreshPrinterDeviceQa,
+    retryPrintJobQueueItem: executePrintJobRetry,
+    savePrinterDeviceMode: executeSavePrinterDeviceMode,
+    savePrinterDeviceQaRecord: executeSavePrinterDeviceQaRecord,
+    setPrinterDeviceQa,
+    setToast,
+  });
 
-  async function retryPrintJobQueueItem(printJobId) {
-    if (!guardUiAction("productionPacking", "重试打印作业")) return;
-    const result = await executePrintJobRetry(printJobId);
-    if (result?.feedback) setToast(result.feedback);
-  }
-
-  function selectPrinterDeviceQaDevice(printDeviceId) {
-    const selectedDevice = printerDeviceQa.devices.find((item) => item.printDeviceId === printDeviceId) ?? null;
-    printerDeviceQaSelectedIdRef.current = printDeviceId;
-    setPrinterDeviceQa((current) => ({
-      ...current,
-      selectedDeviceId: printDeviceId,
-      fieldTests: [],
-      latestRecord: null,
-      checks: createPrinterDeviceFieldTestChecks(),
-      deviceLabel: selectedDevice?.name ?? "",
-      driverLabel: getPrinterDeviceQaDriverLabel(selectedDevice),
-      driverModeDraft: selectedDevice ? getPrinterDeviceDriverMode(selectedDevice) : "preview_only",
-      paperLabel: getPrinterDeviceQaPaperLabel(selectedDevice),
-      evidence: createPrinterDeviceFieldTestEvidence(),
-      error: "",
-    }));
-    void refreshPrinterDeviceQa({ selectedDeviceId: printDeviceId, showToast: false });
-  }
-
-  function changePrinterDeviceQaField(field, value) {
-    setPrinterDeviceQa((current) => ({
-      ...current,
-      [field]: value,
-    }));
-  }
-
-  function changePrinterDeviceQaCheck(checkKey, status) {
-    setPrinterDeviceQa((current) => ({
-      ...current,
-      checks: normalizePrinterDeviceFieldTestChecks(
-        current.checks.map((item) => (
-          item.key === checkKey
-            ? { ...item, status }
-            : item
-        )),
-      ),
-    }));
-  }
-
-  function changePrinterDeviceQaEvidenceField(field, value) {
-    setPrinterDeviceQa((current) => ({
-      ...current,
-      evidence: normalizePrinterDeviceFieldTestEvidence({
-        ...(current.evidence ?? {}),
-        [field]: value,
-      }),
-    }));
-  }
-
-  async function savePrinterDeviceMode() {
-    if (!guardUiAction("productionPacking", "保存设备模式")) return;
-    const result = await executeSavePrinterDeviceMode();
-    if (result?.feedback) setToast(result.feedback);
-  }
-
-  async function savePrinterDeviceQaRecord() {
-    if (!guardUiAction("productionPacking", "保存打印验收")) return;
-    const result = await executeSavePrinterDeviceQaRecord();
-    if (result?.feedback) setToast(result.feedback);
-  }
-
-  async function loadAttachmentAccessAudit(attachmentId) {
-    const result = await listOfficeAttachmentAccessLogs({
-      authState,
-      attachmentId,
-      operatorId: currentUserId,
-      limit: 6,
-    });
-
-    if (result.blocked) {
-      return {
-        source: "api_error",
-        status: result.error?.requiredPermission
-          ? `后端拒绝访问记录：缺少权限 ${result.error.requiredPermission}`
-          : `后端拒绝访问记录：${result.error?.message ?? "未知错误"}`,
-        items: [],
-        total: 0,
-      };
-    }
-
-    if (result.source !== "api") {
-      return {
-        source: result.source,
-        status: "访问记录暂不可用",
-        items: [],
-        total: 0,
-      };
-    }
-
-    return {
-      source: "api",
-      status: result.items.length ? `最近 ${result.items.length} 条 / 共 ${result.total} 条` : "暂无访问记录",
-      items: result.items,
-      total: result.total,
-    };
-  }
-
-  function downloadViewedAttachment(attachment) {
-    const downloaded = downloadAttachmentPreview(attachment);
-    const label = attachment.viewerTitle?.replace("预览", "") || (attachment.statementId ? "对账附件" : "附件");
-    setToast(
-      downloaded
-        ? `已下载${label}：${attachment.fileName || attachment.attachmentId || label}。`
-        : `当前${label}没有可下载的预览内容。`,
-    );
-  }
+  const {
+    downloadViewedAttachment,
+    loadAttachmentAccessAudit,
+    syncStatementCustomerAttachmentsFromSource,
+    syncStatementPaymentAttachmentsFromSource,
+  } = createOfficeAttachmentActions({
+    allowLocalFallback: !runtimeServerRequired,
+    authState,
+    currentUserId,
+    customerConfirmationAttachmentSyncKeysRef,
+    paymentAttachmentSyncKeysRef,
+    setStatements,
+    setToast,
+    statements,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -1057,27 +932,9 @@ export function App() {
 
   useEffect(() => {
     if (activePage !== "statements" || !selectedStatementId) return undefined;
-    const syncKey = `${currentUserId}:${selectedStatementId}:payment_screenshot`;
-    if (paymentAttachmentSyncKeysRef.current.has(syncKey)) return undefined;
-    paymentAttachmentSyncKeysRef.current.add(syncKey);
     let cancelled = false;
-    const currentStatement = statements.find((item) => item.id === selectedStatementId);
-    listOfficeAttachments({
-      authState,
-      ownerType: "statement",
-      ownerId: selectedStatementId,
-      purpose: "payment_screenshot",
-      operatorId: currentUserId,
-      localAttachments: currentStatement?.paymentAttachmentFiles ?? [],
-    }).then((result) => {
-      if (cancelled || result.blocked || !result.items?.length) return;
-      setStatements((current) =>
-        syncStatementPaymentAttachments(
-          current,
-          selectedStatementId,
-          result.items.map((item) => ({ ...item, source: result.source })),
-        ),
-      );
+    void syncStatementPaymentAttachmentsFromSource(selectedStatementId, {
+      isCancelled: () => cancelled,
     });
     return () => {
       cancelled = true;
@@ -1086,27 +943,9 @@ export function App() {
 
   useEffect(() => {
     if (activePage !== "statements" || !selectedStatementId) return undefined;
-    const syncKey = `${currentUserId}:${selectedStatementId}:statement_customer_confirmation`;
-    if (customerConfirmationAttachmentSyncKeysRef.current.has(syncKey)) return undefined;
-    customerConfirmationAttachmentSyncKeysRef.current.add(syncKey);
     let cancelled = false;
-    const currentStatement = statements.find((item) => item.id === selectedStatementId);
-    listOfficeAttachments({
-      authState,
-      ownerType: "statement",
-      ownerId: selectedStatementId,
-      purpose: "statement_customer_confirmation",
-      operatorId: currentUserId,
-      localAttachments: currentStatement?.customerConfirmationAttachmentFiles ?? [],
-    }).then((result) => {
-      if (cancelled || result.blocked || !result.items?.length) return;
-      setStatements((current) =>
-        syncStatementCustomerConfirmationAttachments(
-          current,
-          selectedStatementId,
-          result.items.map((item) => ({ ...item, source: result.source })),
-        ),
-      );
+    void syncStatementCustomerAttachmentsFromSource(selectedStatementId, {
+      isCancelled: () => cancelled,
     });
     return () => {
       cancelled = true;

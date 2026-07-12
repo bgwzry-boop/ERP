@@ -121,7 +121,7 @@ export function createOfficeStatementActions({
         setToast("未找到付款凭证附件 ID，无法预览。");
         return;
       }
-      if (attachmentFile?.previewDataUrl) {
+      if (attachmentFile?.previewDataUrl && (allowLocalFallback || attachmentFile.contentSource === "api")) {
         const accessAudit = await loadAttachmentAccessAudit(attachmentId);
         openAttachmentViewer({
           ...attachmentFile,
@@ -172,6 +172,7 @@ export function createOfficeStatementActions({
         mimeType: contentResult.contentType || attachmentFile?.mimeType,
         contentType: contentResult.contentType,
         contentDisposition: contentResult.contentDisposition,
+        contentSource: contentResult.source,
         previewDataUrl,
         previewStatus: previewDataUrl ? (isImagePreview ? "已加载预览" : "已读取内容，可下载原文件") : "未读取到内容",
         accessAudit,
@@ -183,6 +184,7 @@ export function createOfficeStatementActions({
           previewStatus: nextPreview.previewStatus,
           contentType: nextPreview.contentType,
           contentDisposition: nextPreview.contentDisposition,
+          contentSource: nextPreview.contentSource,
           accessAudit: nextPreview.accessAudit,
         }),
       );
@@ -206,7 +208,7 @@ export function createOfficeStatementActions({
         setToast("未找到客户确认附件 ID，无法预览。");
         return;
       }
-      if (attachmentFile?.previewDataUrl) {
+      if (attachmentFile?.previewDataUrl && (allowLocalFallback || attachmentFile.contentSource === "api")) {
         const accessAudit = await loadAttachmentAccessAudit(attachmentId);
         openAttachmentViewer({
           ...attachmentFile,
@@ -258,6 +260,7 @@ export function createOfficeStatementActions({
         mimeType: contentResult.contentType || attachmentFile?.mimeType,
         contentType: contentResult.contentType,
         contentDisposition: contentResult.contentDisposition,
+        contentSource: contentResult.source,
         previewDataUrl,
         previewStatus: previewDataUrl ? (isImagePreview ? "已加载预览" : "已读取内容，可下载原文件") : "未读取到内容",
         accessAudit,
@@ -270,6 +273,7 @@ export function createOfficeStatementActions({
           previewStatus: nextPreview.previewStatus,
           contentType: nextPreview.contentType,
           contentDisposition: nextPreview.contentDisposition,
+          contentSource: nextPreview.contentSource,
           accessAudit: nextPreview.accessAudit,
         }),
       );

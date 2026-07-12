@@ -37,3 +37,38 @@ export function isInlineImageAttachment(attachment = {}) {
   const dataUrl = String(attachment.previewDataUrl || "").toLowerCase();
   return contentType.startsWith("image/") || dataUrl.startsWith("data:image/");
 }
+
+export function downloadAttachmentPreview(attachment) {
+  if (typeof document === "undefined" || !attachment?.previewDataUrl) return false;
+  const link = document.createElement("a");
+  link.href = attachment.previewDataUrl;
+  link.download = sanitizeDownloadFileName(
+    attachment.fileName || getFileNameFromContentDisposition(attachment.contentDisposition),
+    `${attachment.attachmentId || "payment-proof"}.png`,
+  );
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  return true;
+}
+
+function getFileNameFromContentDisposition(contentDisposition = "") {
+  const encodedMatch = String(contentDisposition).match(/filename\*=UTF-8''([^;]+)/i);
+  if (encodedMatch?.[1]) {
+    try {
+      return decodeURIComponent(encodedMatch[1]);
+    } catch {
+      return encodedMatch[1];
+    }
+  }
+  const plainMatch = String(contentDisposition).match(/filename="?([^";]+)"?/i);
+  return plainMatch?.[1] ?? "";
+}
+
+function sanitizeDownloadFileName(fileName, fallback = "attachment") {
+  const safeName = String(fileName || fallback)
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, "-")
+    .replace(/\s+/g, " ");
+  return safeName || fallback;
+}
