@@ -294,7 +294,7 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 | `GET /api/health` | 健康检查，返回 OpenAPI 和种子数据计数 |
 | `GET /api/openapi/status` | OpenAPI 校验状态 |
 | `GET /api/auth/me` | 当前 seed 登录会话和权限 |
-| `GET /api/office/workspace` | P0 办公室端完整种子工作台 |
+| `GET /api/office/workspace` | 仅 demo/test 可用的旧办公室白名单摘要；production 禁用，且不返回用户密码、认证 secret、仓库或文件存储内部对象 |
 | `GET /api/order-lines` | 订单池明细列表，默认读 workspace；PostgreSQL 模式读正式订单表并返回兼容字段和 OpenAPI 字段 |
 | `GET /api/order-lines/{id}` | 单条订单明细详情，返回订单、价格、库存、出库、对账、附件和操作日志摘要 |
 | `GET /api/inventory/items` | 库存种子列表 |

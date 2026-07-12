@@ -127,6 +127,10 @@ import {
   sanitizeRuntimeUserForResponse,
   upsertRuntimeUser,
 } from "./services/runtimeIdentityWorkspace.mjs";
+import {
+  buildOfficeWorkspaceProjection,
+  isOfficeWorkspaceProjectionEnabled,
+} from "./services/officeWorkspaceProjectionService.mjs";
 import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
 import { createProductionFinishedGoodsPhotoTransactionRepository } from "./productionFinishedGoodsPhotoTransactionRepository.mjs";
@@ -795,7 +799,15 @@ async function routeGet(context) {
   }
 
   if (url.pathname === "/api/office/workspace") {
-    return sendJson(response, 200, workspace);
+    if (!isOfficeWorkspaceProjectionEnabled(workspace)) {
+      return sendBusinessError(
+        response,
+        403,
+        "OFFICE_WORKSPACE_PROJECTION_DISABLED",
+        "The legacy whole-workspace projection is disabled in production. Use permission-scoped domain APIs.",
+      );
+    }
+    return sendJson(response, 200, buildOfficeWorkspaceProjection(workspace));
   }
 
   if (await handleOrderReadRoutes({ url, response, workspace, sendJson, sendNotFound })) return;

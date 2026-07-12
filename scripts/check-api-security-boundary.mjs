@@ -141,6 +141,18 @@ try {
   assert.equal(authenticated.status, 200);
   assert.equal(authenticated.body.user?.userId, "U-RUNTIME-OFFICE");
 
+  const safeWorkspaceProjection = await requestJson(baseUrl, "/api/office/workspace", {
+    headers: authorization,
+  });
+  assert.equal(safeWorkspaceProjection.status, 200);
+  assert.equal(safeWorkspaceProjection.body.projectionVersion, "office-workspace-legacy-v1");
+  assert.equal(safeWorkspaceProjection.body.users, undefined);
+  assert.equal(safeWorkspaceProjection.body.securityPolicy, undefined);
+  assert.equal(safeWorkspaceProjection.body.runtimeIdentityRepository, undefined);
+  const serializedWorkspaceProjection = JSON.stringify(safeWorkspaceProjection.body);
+  assert.equal(serializedWorkspaceProjection.includes(authSecret), false);
+  assert.equal(serializedWorkspaceProjection.includes(runtimeUsers[0].passwordHash), false);
+
   const financeSession = createRuntimeSession("U-RUNTIME-FINANCE", { authSecret, sessionVersion: 1 });
   const forgedPermission = await requestJson(baseUrl, "/api/order-drafts/recognize", {
     method: "POST",

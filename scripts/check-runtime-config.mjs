@@ -163,6 +163,16 @@ try {
     authSecret: "runtime-config-check-secret",
     sessionVersion: 1,
   });
+  const productionWorkspaceProjection = await fetch(
+    `http://127.0.0.1:${port}/api/office/workspace`,
+    { headers: { authorization: `Bearer ${runtimeSession.accessToken}` } },
+  );
+  assert.equal(productionWorkspaceProjection.status, 403);
+  assert.equal(
+    (await productionWorkspaceProjection.json()).code,
+    "OFFICE_WORKSPACE_PROJECTION_DISABLED",
+  );
+
   const missingIdempotencyKey = await fetch(`http://127.0.0.1:${port}/api/nonexistent-business-write`, {
     method: "POST",
     headers: {
