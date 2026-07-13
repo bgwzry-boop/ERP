@@ -14,6 +14,7 @@ const componentStyles = read("src/styles/components.css");
 const orderStyles = read("src/styles/features/orders-pool.css");
 const inventoryStyles = read("src/styles/features/inventory.css");
 const fulfillmentStyles = read("src/styles/features/fulfillment.css");
+const sharedStyles = read("src/styles/shared.css");
 
 assert.match(sharedUiSource, /export function FilterBar\(/);
 assert.match(sharedUiSource, /operational-filter-fields/);
@@ -71,5 +72,19 @@ assert.match(fulfillmentStyles, /@media \(max-width: 720px\)/);
 assert.match(orderStyles, /span:nth-child\(8\)/);
 assert.match(inventoryStyles, /span:nth-child\(8\)/);
 assert.match(fulfillmentStyles, /span:nth-child\(7\)/);
+for (const selector of [".delivery-evidence-cards", ".delivery-evidence-card"]) {
+  assert.equal(fulfillmentStyles.includes(selector), true, `fulfillment feature styles should own ${selector}`);
+  assert.equal(sharedStyles.includes(selector), false, `shared styles should not retain ${selector}`);
+}
+assert.doesNotMatch(sharedStyles, /\.delivery-evidence-review/);
+for (const selector of [".inventory-ledger-filters", ".inventory-ledger-row", ".inventory-ledger-source", ".ledger-message"]) {
+  assert.equal(inventoryStyles.includes(selector), true, `inventory feature styles should own ${selector}`);
+  assert.equal(sharedStyles.includes(selector), false, `shared styles should not retain ${selector}`);
+}
+for (const selector of [".inventory-correction-detail", ".inventory-correction-ledger", ".inventory-correction-audit-row", ".inventory-correction-queue-row", ".correction-draft"]) {
+  assert.equal(inventoryStyles.includes(selector), true, `inventory correction styles should own ${selector}`);
+  assert.equal(sharedStyles.includes(selector), false, `shared styles should not retain ${selector}`);
+}
+assert.doesNotMatch(sharedStyles, /\.inventory-filter-panel/);
 
 console.log("Office operational UI adoption checks passed: Order Pool, Inventory, and Fulfillment share the operational shell with safe empty and mobile states.");

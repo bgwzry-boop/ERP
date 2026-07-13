@@ -23,6 +23,7 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
   let issuedCredential = null;
   let maintenanceDrafts = [];
   let employeeRefreshCount = 0;
+  let v1StatusRefreshCount = 0;
   const toasts = [];
   const controller = createOfficeMasterDataActions({
     allowLocalFallback,
@@ -42,6 +43,9 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
       employeeRefreshCount += 1;
     },
     refreshMasterDataImportReviewDrafts: async () => {},
+    refreshV1GoLiveStatus: async () => {
+      v1StatusRefreshCount += 1;
+    },
     setLastIssuedEmployeeCredential: (value) => {
       issuedCredential = typeof value === "function" ? value(issuedCredential) : value;
     },
@@ -69,6 +73,7 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
     getConfirmationPlans: () => confirmationPlans,
     getEmployeeRefreshCount: () => employeeRefreshCount,
     getEmployeeReviews: () => employeeReviews,
+    getV1StatusRefreshCount: () => v1StatusRefreshCount,
     getExecutions: () => executions,
     getIssuedCredential: () => issuedCredential,
     getMaintenanceDrafts: () => maintenanceDrafts,
@@ -146,6 +151,7 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
   assert.equal(Object.hasOwn(requestInput, "officialWriterKind"), false, "the browser must not choose an infrastructure writer");
   assert.equal(harness.getExecutions()[0]?.status, "committed");
   assert.equal(harness.getEmployeeRefreshCount(), 1);
+  assert.equal(harness.getV1StatusRefreshCount(), 1);
   assert.match(harness.toasts.at(-1), /已正式导入/);
 }
 
@@ -167,6 +173,7 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
   await harness.controller.commitMasterDataImportExecutionFromPlan(readyPlan);
   assert.equal(harness.getExecutions()[0]?.status, "blocked_official_writer_not_configured");
   assert.equal(harness.getEmployeeRefreshCount(), 0);
+  assert.equal(harness.getV1StatusRefreshCount(), 0);
   assert.match(harness.toasts.at(-1), /正式导入未完成/);
 }
 
@@ -204,7 +211,24 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
   });
   await harness.controller.enableMasterDataEmployeeAccount(review);
   assert.equal(harness.getEmployeeReviews().length, 0, "formal fallback must not enable an employee account locally");
+  assert.equal(harness.getV1StatusRefreshCount(), 0);
   assert.match(harness.toasts.at(-1), /启用员工账号失败/);
+}
+
+{
+  const review = { employeeId: "EMP-001A", name: "王师傅", recommendedRoleKey: "workshop" };
+  const harness = createHarness({
+    api: {
+      enableOfficeMasterDataEmployeeAccount: async () => ({
+        source: "api",
+        employeeAccountReview: { ...review, accountEnabled: true, userId: "U-EMP-001A" },
+      }),
+    },
+  });
+  await harness.controller.enableMasterDataEmployeeAccount(review);
+  assert.equal(harness.getEmployeeReviews()[0]?.accountEnabled, true);
+  assert.equal(harness.getEmployeeRefreshCount(), 1);
+  assert.equal(harness.getV1StatusRefreshCount(), 1);
 }
 
 {
@@ -222,6 +246,42 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
   await harness.controller.issueMasterDataEmployeeAccountPassword(review);
   assert.equal(harness.getEmployeeReviews()[0]?.userId, "U-EMP-002");
   assert.equal(harness.getIssuedCredential()?.operationLogId, "LOG-PASSWORD-1");
+  assert.equal(harness.getEmployeeRefreshCount(), 1);
+  assert.equal(harness.getV1StatusRefreshCount(), 1);
+}
+
+{
+  const review = { employeeId: "EMP-ASSIGN-001", name: "调配员工", recommendedRoleKey: "packing" };
+  let requestInput = null;
+  const harness = createHarness({
+    api: {
+      updateOfficeMasterDataEmployeeAssignment: async (input) => {
+        requestInput = input;
+        return {
+          source: "api",
+          employeeAccountReview: {
+            ...review,
+            defaultWorkshop: "2号车间",
+            defaultMachineId: "",
+            assignmentMode: "general_worker",
+          },
+          operationLogId: "LOG-ASSIGN-1",
+        };
+      },
+    },
+  });
+  await harness.controller.updateMasterDataEmployeeAssignment(review, {
+    assignmentMode: "general_worker",
+    workshop: "2号车间",
+    machineId: "BAG-04",
+    reason: "临时支援2号车间",
+  });
+  assert.equal(requestInput.operatorId, "U-MANAGER-A");
+  assert.equal(requestInput.assignmentMode, "general_worker");
+  assert.equal(harness.getEmployeeReviews()[0]?.defaultWorkshop, "2号车间");
+  assert.equal(harness.getEmployeeReviews()[0]?.defaultMachineId, "");
+  assert.equal(harness.getEmployeeRefreshCount(), 1);
+  assert.equal(harness.getV1StatusRefreshCount(), 1);
 }
 
 {
@@ -242,9 +302,34 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
     loginEnabled: true,
   });
   assert.equal(revokeCalls, 0, "password revocation must require explicit confirmation");
+  assert.equal(harness.getEmployeeRefreshCount(), 0);
+  assert.equal(harness.getV1StatusRefreshCount(), 0);
+}
+
+{
+  const review = {
+    employeeId: "EMP-004",
+    name: "赵师傅",
+    userId: "U-EMP-004",
+    accountEnabled: true,
+    loginEnabled: true,
+  };
+  const harness = createHarness({
+    api: {
+      revokeOfficeMasterDataEmployeeAccountPassword: async () => ({
+        source: "api",
+        employeeAccountReview: { ...review, loginEnabled: false, passwordStatus: "password_revoked" },
+      }),
+    },
+  });
+  await harness.controller.revokeMasterDataEmployeeAccountPassword(review);
+  assert.equal(harness.getEmployeeReviews()[0]?.passwordStatus, "password_revoked");
+  assert.equal(harness.getEmployeeRefreshCount(), 1);
+  assert.equal(harness.getV1StatusRefreshCount(), 1);
 }
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const actionsSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
 const serverSource = readFileSync(new URL("../server/services/masterDataImportCommandService.mjs", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeMasterDataActions\(\{/);
 assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
@@ -257,5 +342,6 @@ for (const functionName of [
   assert.doesNotMatch(appSource, new RegExp(`(?:async )?function ${functionName}\\(`));
 }
 assert.doesNotMatch(serverSource, /cleanText\(body\.officialWriterKind\)/);
+assert.match(actionsSource, /Promise\.allSettled\(\[/, "successful employee writes should settle read-model refreshes independently");
 
 console.log("Office master-data actions check passed: imports and employee accounts are isolated, formal writes fail closed, and the server owns writer selection.");

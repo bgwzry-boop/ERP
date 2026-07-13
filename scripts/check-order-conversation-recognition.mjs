@@ -113,6 +113,9 @@ assert.equal(afternoon.color, "米白色");
 assert.equal(afternoon.handleColor, "咖色");
 assert.equal(afternoon.size, "40*30*10");
 assert.equal(afternoon.dimensionEvidence.requiresConfirmation, true);
+assert.equal(afternoon.fieldReviews[0].field, "size");
+assert.equal(afternoon.fieldReviews[0].status, "pending");
+assert.equal(afternoon.fieldReviews[0].suggestedValue, "40*30*10");
 assert.equal(afternoon.confidence, "low");
 assert.equal(afternoon.appendDecision, "new_original_order");
 
@@ -124,9 +127,41 @@ assert.equal(appended.appendDecision, "append_to_unconfirmed_draft");
 
 const hold = recognition.temporaryHolds[0];
 assert.equal(hold.expiresAt, "2026-07-12T19:30:00+08:00");
+assert.equal(hold.requiresExpiryReview, false);
+assert.equal(hold.expiryRule, "same_day_1930");
 assert.equal(hold.reservesInventory, "pending_authorized_hold_creation");
-assert.equal(recognition.nonOrderIntents.find((item) => item.id === "MSG-SHORTAGE-CANCEL").cancellationScope, "shortage_lines_only");
+
+const afterCutoffRecognition = recognizeOrderConversation([{
+  id: "MSG-HOLD-AFTER-CUTOFF",
+  conversationId: "GROUP-STOCK-AFTER-CUTOFF",
+  customerId: "C001",
+  sender: "张经理",
+  sentAt: "2026-07-12 20:05",
+  text: "35*27白色有的话给我留20个",
+}], { customers, inventories: initialInventories, now: () => new Date("2026-07-12T12:05:00.000Z") });
+const afterCutoffHold = afterCutoffRecognition.temporaryHolds[0];
+assert.equal(afterCutoffHold.expiresAt, "2026-07-12T19:30:00+08:00");
+assert.equal(afterCutoffHold.requiresExpiryReview, true);
+assert.equal(afterCutoffHold.expiryRule, "manual_future_expiry_required_after_1930");
+assert.equal(afterCutoffRecognition.riskHints.some((item) => item.riskType === "temporary_hold_expiry"), true);
+const shortageCancellation = recognition.nonOrderIntents.find((item) => item.id === "MSG-SHORTAGE-CANCEL");
+assert.equal(shortageCancellation.cancellationScope, "shortage_lines_only");
+assert.equal(shortageCancellation.status, "库存不足取消-已关联草稿明细");
+assert.equal(shortageCancellation.targetBasis, "current_inventory_shortage");
+assert.deepEqual(shortageCancellation.relatedDraftLineIds.sort(), [afternoon.id, appended.id].sort());
+assert.equal(afternoon.cancellationStatus, "库存不足取消");
+assert.equal(appended.excludedFromConfirmation, true);
+assert.equal(recognition.summary.cancelledDraftLineCount, 2);
 assert.equal(recognition.sourceMessages.find((item) => item.id === "MSG-DUPLICATE").duplicateOf, "MSG-PM-ORDER");
+
+const unresolvedCancellation = recognizeOrderConversation([{
+  id: "MSG-CANCEL-NO-ORDER",
+  conversationId: "GROUP-STOCK-02",
+  customerId: "C001",
+  text: "没货的不要了",
+}], { customers, inventories: initialInventories });
+assert.equal(unresolvedCancellation.nonOrderIntents[0].requiresReview, true);
+assert.equal(unresolvedCancellation.riskHints[0].riskType, "shortage_cancellation_target");
 
 const confirmedDraftRecognition = recognizeOrderConversation(messages.slice(0, 6), {
   customers,

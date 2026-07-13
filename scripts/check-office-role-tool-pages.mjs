@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 const rawMaterialPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
 const masterDataPageSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenancePage.jsx", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const stylesSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const rawMaterialStylesSource = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
 
 assert.match(rawMaterialPageSource, /export function RawMaterialInboundPage/);
 for (const contract of ["复核送货单", "打印卷标", "确认贴标入库", "机边领料", "余料退回", "供应商对账"]) {
@@ -16,7 +16,7 @@ assert.match(rawMaterialPageSource, /canReviewRawMaterialLeftoverRoll/);
 assert.match(rawMaterialPageSource, /RAW_MATERIAL_DETAIL_TABS/);
 assert.match(rawMaterialPageSource, /selectRawMaterialInboundMetrics/);
 assert.match(rawMaterialPageSource, /columns=\{\["供应商\/单号", "原料\/规格", "卷\/重量", "状态", "下一步"\]\}/);
-assert.match(stylesSource, /\.raw-material-roll-row\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
+assert.match(rawMaterialStylesSource, /\.raw-material-roll-row\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/s);
 
 assert.match(masterDataPageSource, /export function MasterDataMaintenancePage/);
 for (const contract of ["客户档案", "价格表", "规格库存", "员工机台", "维护草稿不直接写库", "导入模板"]) {

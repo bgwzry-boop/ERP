@@ -1955,6 +1955,8 @@ function formatSuiteMarkdown(suite) {
     `| 负责人决策摘要 | \`${escapeMarkdownTable(displayPathValue(suite.filesFromSteps.ownerDecisionBrief?.latestMarkdown))}\` |`,
     `| 现场证据采集包 | \`${escapeMarkdownTable(displayPathValue(suite.filesFromSteps.fieldEvidenceIntake?.summaryMarkdown))}\` |`,
     `| 上线交接包 | \`${escapeMarkdownTable(displayPathValue(suite.filesFromSteps.handoffPack?.summaryMarkdown))}\` |`,
+    `| D49 正式员工机台导入模板 | \`${escapeMarkdownTable(displayPathValue(suite.filesFromSteps.handoffPack?.d49EmployeeImportTemplate))}\` |`,
+    `| D49 正式员工导入说明 | \`${escapeMarkdownTable(displayPathValue(suite.filesFromSteps.handoffPack?.d49EmployeeIntakeGuide))}\` |`,
     `| 生产 env 准备报告（交接包） | \`${escapeMarkdownTable(displayPathValue(suite.filesFromSteps.handoffPack?.productionEnvSetupMarkdown))}\` |`,
     `| 生产 env 真实值校验（交接包） | \`${escapeMarkdownTable(displayPathValue(suite.filesFromSteps.handoffPack?.productionEnvIntakeVerificationMarkdown))}\` |`,
     `| 第一阶段证据建议（交接包） | \`${escapeMarkdownTable(displayPathValue(suite.filesFromSteps.handoffPack?.productionFirstStageEvidenceSuggestionsMarkdown))}\` |`,

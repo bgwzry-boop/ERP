@@ -35,6 +35,7 @@ export function createMasterDataImportReviewDraft(input = {}) {
   const errorCount = getPrecheckErrorCount(precheckResult);
   const warningCount = getPrecheckWarningCount(precheckResult);
   const dataRowCount = toFiniteNumber(summary.dataRowCount);
+  const employeeRoleCoverage = normalizeMasterDataEmployeeRoleCoverage(precheckResult.employeeRoleCoverage);
 
   return {
     version: MASTER_DATA_IMPORT_REVIEW_VERSION,
@@ -67,7 +68,9 @@ export function createMasterDataImportReviewDraft(input = {}) {
       issueCount: issues.length,
       importAllowed: errorCount === 0,
       requiresManualReview: warningCount > 0,
+      employeeRoleCoverageLabel: employeeRoleCoverage.coverageLabel,
     },
+    employeeRoleCoverage,
     sheets,
     stagedRows,
     issues: issues.slice(0, 20),
@@ -191,7 +194,30 @@ export function getMasterDataImportReviewDraftSummary(draft) {
   const rowLabel = `${draft.summary?.dataRowCount ?? 0} 行`;
   const warningLabel = `${draft.summary?.warningCount ?? 0} 项需确认`;
   const errorLabel = `${draft.summary?.errorCount ?? 0} 项阻断`;
-  return `${draft.statusLabel || "待处理"} · ${rowLabel} · ${errorLabel} · ${warningLabel}`;
+  const roleLabel = draft.employeeRoleCoverage?.available ? ` · 岗位 ${draft.employeeRoleCoverage.coverageLabel}` : "";
+  return `${draft.statusLabel || "待处理"} · ${rowLabel} · ${errorLabel} · ${warningLabel}${roleLabel}`;
+}
+
+export function normalizeMasterDataEmployeeRoleCoverage(value = {}) {
+  const roles = (Array.isArray(value.roles) ? value.roles : []).map((role) => ({
+    roleKey: cleanText(role.roleKey),
+    roleLabel: cleanText(role.roleLabel),
+    covered: role.covered === true,
+    rowCount: toFiniteNumber(role.rowCount),
+  })).filter((role) => role.roleKey && role.roleLabel);
+  const requiredRoleCount = toFiniteNumber(value.requiredRoleCount) || roles.length;
+  const coveredRoleCount = toFiniteNumber(value.coveredRoleCount) || roles.filter((role) => role.covered).length;
+  return {
+    available: value.available === true,
+    complete: value.complete === true && requiredRoleCount > 0 && coveredRoleCount === requiredRoleCount,
+    employeeRowCount: toFiniteNumber(value.employeeRowCount),
+    requiredRoleCount,
+    coveredRoleCount,
+    missingRoleCount: Math.max(0, requiredRoleCount - coveredRoleCount),
+    coverageLabel: requiredRoleCount ? `${coveredRoleCount}/${requiredRoleCount}` : "0/8",
+    missingRoleLabels: (Array.isArray(value.missingRoleLabels) ? value.missingRoleLabels : []).map(cleanText).filter(Boolean),
+    roles,
+  };
 }
 
 function getReviewStatus(precheckResult) {

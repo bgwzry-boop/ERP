@@ -1,7 +1,14 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
-import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import {
+  buildIdempotencyRequestHash,
+  buildIdempotencyConflictError,
+  buildPostgresIdempotencyRequest,
+  readPostgresIdempotencyReplay,
+  resolveRepositoryIdempotencyKey,
+} from "./idempotency.mjs";
 import { normalizeOrderDraft } from "./orderDraftRepository.mjs";
+import { normalizeInventoryIntents } from "./inventoryIntentDomain.mjs";
 
 export function createOrderConfirmationTransactionRepository(options = {}) {
   const mode =
@@ -23,10 +30,17 @@ export function createOrderConfirmationTransactionRepository(options = {}) {
 }
 
 export function createLocalOrderConfirmationTransactionRepository() {
+  const idempotencyResults = new Map();
   return {
     kind: "local_memory",
 
+    findIdempotentReplay(input = {}) {
+      return readLocalIdempotencyReplay(idempotencyResults, input);
+    },
+
     confirmOrder(input) {
+      const replay = readLocalIdempotencyReplay(idempotencyResults, input);
+      if (replay) return replay;
       const expectedDraftRevision = toFiniteInteger(input.expectedDraftRevision);
       const currentDraft = (input.workspace?.orderDrafts ?? []).find((item) => item.id === input.orderDraft?.id);
       const currentRevision = toFiniteInteger(currentDraft?.revision ?? currentDraft?.clientRevision);
@@ -34,42 +48,64 @@ export function createLocalOrderConfirmationTransactionRepository() {
         throw orderDraftConcurrencyError();
       }
       const orderDraft = buildCommittedOrderDraft(input.orderDraft, input.expectedDraftRevision);
+      const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations);
+      const shortageCancellationIntents = normalizeInventoryIntents(input.shortageCancellationIntents);
+      validateLocalTemporaryHoldConversions(input.workspace, inventoryReservations);
+      const orders = normalizeOriginalOrders(input.orders ?? [input.order]);
       const transaction = normalizeOrderConfirmationTransactionResult({
         orderDraft,
-        order: input.order,
+        order: orders[0],
+        orders,
         orderLines: input.orderLines,
         productionTasks: input.productionTasks,
         priceSnapshots: input.priceSnapshots,
         fulfillmentRecords: input.fulfillmentRecords,
-        inventoryReservations: input.inventoryReservations,
+        inventoryReservations,
+        inventoryIntents: [
+          ...buildLocalConvertedInventoryIntents(input.workspace, inventoryReservations),
+          ...buildLocalAppliedShortageCancellationIntents(input.workspace, shortageCancellationIntents),
+        ],
         inventoryLedgerEntries: input.inventoryLedgerEntries,
         todos: input.todos,
         operationLogId: input.operationLog?.id ?? "",
+        commandResponse: input.commandResponse ?? null,
       });
       applyOrderConfirmationWorkspaceMutation({
         workspace: input.workspace,
         orderDraft: transaction.orderDraft,
-        order: transaction.order,
+        orders: transaction.orders,
         orderLines: transaction.orderLines,
         productionTasks: transaction.productionTasks,
         priceSnapshots: transaction.priceSnapshots,
         fulfillmentRecords: transaction.fulfillmentRecords,
         inventoryReservations: transaction.inventoryReservations,
+        inventoryIntents: transaction.inventoryIntents,
         inventoryItems: transaction.inventoryItems,
         inventoryLedgerEntries: transaction.inventoryLedgerEntries,
         todos: transaction.todos,
         operationLog: input.operationLog,
       });
+      saveLocalIdempotencyReplay(idempotencyResults, input, transaction);
       return transaction;
     },
   };
 }
 
 export function createPostgresOrderConfirmationTransactionRepository(options = {}) {
-  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
+  const { queryJson, idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
+
+    async findIdempotentReplay(input = {}) {
+      const replay = await readPostgresIdempotencyReplay({
+        queryJson,
+        scope: "order.confirm",
+        idempotencyKey: input.idempotencyKey,
+        payload: input.idempotencyPayload,
+      });
+      return replay ? normalizeOrderConfirmationTransactionResult(replay) : null;
+    },
 
     async confirmOrder(input) {
       const query = buildConfirmOrderTransactionQuery(input);
@@ -79,27 +115,29 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
         payload: input.idempotencyPayload ?? buildOrderConfirmationIdempotencyPayload(input),
         operatorId: input.operationLog?.operatorId,
         targetType: "original_order",
-        targetId: input.order?.orderId ?? input.order?.id,
+        targetId: input.orders?.[0]?.orderId ?? input.orders?.[0]?.id ?? input.order?.orderId ?? input.order?.id,
         resourceLocks: [
-          `order:${input.order?.orderId ?? input.order?.id ?? ""}`,
+          ...(input.orders ?? [input.order]).map((item) => `order:${item?.orderId ?? item?.id ?? ""}`),
           `order-draft:${input.orderDraft?.id ?? input.order?.sourceDraftId ?? ""}`,
           ...(input.inventoryReservations ?? []).map((item) => `inventory:${item.inventoryItemId ?? ""}`),
+          ...(input.shortageCancellationIntents ?? []).map((item) => `inventory-intent:${item.id ?? item.intentId ?? ""}`),
         ],
         query,
       });
       const saved = normalizeOrderConfirmationTransactionResult(await idempotentTransactionJson(idempotencyRequest));
-      if (!saved.orderDraft || !saved.order || saved.orderLines.length === 0) {
+      if (!saved.orderDraft || !saved.order || saved.orders.length === 0 || saved.orderLines.length === 0) {
         throw new Error("PostgreSQL order confirmation transaction returned an invalid result");
       }
       applyOrderConfirmationWorkspaceMutation({
         workspace: input.workspace,
         orderDraft: saved.orderDraft,
-        order: saved.order,
+        orders: saved.orders,
         orderLines: saved.orderLines,
         productionTasks: saved.productionTasks,
         priceSnapshots: saved.priceSnapshots,
         fulfillmentRecords: saved.fulfillmentRecords,
         inventoryReservations: saved.inventoryReservations,
+        inventoryIntents: saved.inventoryIntents,
         inventoryItems: saved.inventoryItems,
         inventoryLedgerEntries: saved.inventoryLedgerEntries,
         todos: saved.todos,
@@ -110,16 +148,36 @@ export function createPostgresOrderConfirmationTransactionRepository(options = {
   };
 }
 
+function readLocalIdempotencyReplay(store, input = {}) {
+  const key = resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id);
+  const existing = store.get(`order.confirm:${key}`);
+  if (!existing) return null;
+  if (existing.requestHash !== buildIdempotencyRequestHash(input.idempotencyPayload)) {
+    throw buildIdempotencyConflictError();
+  }
+  return structuredClone(existing.result);
+}
+
+function saveLocalIdempotencyReplay(store, input, result) {
+  const key = resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id);
+  store.set(`order.confirm:${key}`, {
+    requestHash: buildIdempotencyRequestHash(input.idempotencyPayload),
+    result: structuredClone(result),
+  });
+}
+
 function buildOrderConfirmationIdempotencyPayload(input = {}) {
   return {
     orderDraft: input.orderDraft,
     expectedDraftRevision: input.expectedDraftRevision,
     order: input.order,
+    orders: input.orders,
     orderLines: input.orderLines,
     productionTasks: input.productionTasks,
     priceSnapshots: input.priceSnapshots,
     fulfillmentRecords: input.fulfillmentRecords,
     inventoryReservations: input.inventoryReservations,
+    shortageCancellationIntents: input.shortageCancellationIntents,
     inventoryLedgerEntries: input.inventoryLedgerEntries,
     todos: input.todos,
   };
@@ -140,20 +198,27 @@ export function buildConfirmOrderTransactionQuery(input) {
 function buildConfirmOrderTransactionText(input, parameters) {
   const orderDraft = normalizeOrderDraft(input.orderDraft);
   const expectedDraftRevision = toFiniteInteger(input.expectedDraftRevision);
-  const order = normalizeOriginalOrder(input.order);
+  const orders = normalizeOriginalOrders(input.orders ?? [input.order]);
+  const order = orders[0] ?? null;
   const orderLines = normalizeOrderLines(input.orderLines ?? [], order?.orderId);
   const productionTasks = normalizeProductionTasks(input.productionTasks ?? [], orderLines);
   const priceSnapshots = normalizePriceSnapshots(input.priceSnapshots ?? [], orderLines);
   const fulfillmentRecords = normalizeFulfillmentRecords(input.fulfillmentRecords ?? []);
   const inventoryReservations = normalizeInventoryReservations(input.inventoryReservations ?? []);
+  const inventoryIntentConversions = inventoryReservations.filter((reservation) => reservation.convertFromTemporaryHold);
+  const shortageCancellationIntents = normalizeInventoryIntents(input.shortageCancellationIntents ?? []);
   const inventoryLedgerEntries = normalizeInventoryLedgerEntries(input.inventoryLedgerEntries ?? []);
   const todos = normalizeTodos(input.todos ?? []);
   const operationLog = normalizeOperationLogForPersistence(input.operationLog);
-  if (!orderDraft || expectedDraftRevision < 1 || !order || orderLines.length === 0 || !operationLog) {
-    throw new Error("Order draft, expected draft revision, order, order lines, and operation log are required for order confirmation transaction");
+  if (!orderDraft || expectedDraftRevision < 1 || orders.length === 0 || orderLines.length === 0 || !operationLog) {
+    throw new Error("Order draft, expected draft revision, orders, order lines, and operation log are required for order confirmation transaction");
   }
-  if (order.sourceDraftId !== orderDraft.id) {
-    throw new Error("The formal order source draft must match the confirmed order draft");
+  if (orders.some((item) => item.sourceDraftId !== orderDraft.id)) {
+    throw new Error("Every formal order source draft must match the confirmed order draft");
+  }
+  const orderIds = new Set(orders.map((item) => item.orderId));
+  if (orderLines.some((line) => !orderIds.has(line.orderId))) {
+    throw new Error("Every formal order line must belong to an order in the same confirmation transaction");
   }
   return `
 BEGIN;
@@ -183,6 +248,7 @@ updated_order_draft AS (
       recognition_summary = draft.recognition_summary || ${parameters.json({
         customerName: orderDraft.customerName,
         generatedOrderNo: order.orderId,
+        generatedOrderNos: orders.map((item) => item.orderId),
       })},
       revision = draft.revision + 1,
       updated_at = now()
@@ -206,6 +272,16 @@ inserted_order_draft_lines AS (
 inventory_deltas AS MATERIALIZED (
   ${buildInventoryReservationDeltasSql(inventoryReservations, parameters)}
 ),
+temporary_hold_inputs AS MATERIALIZED (
+  ${buildTemporaryHoldConversionsSql(inventoryIntentConversions, parameters)}
+),
+locked_temporary_holds AS MATERIALIZED (
+  SELECT reservation.*
+  FROM inventory_reservations AS reservation
+  JOIN temporary_hold_inputs AS conversion ON conversion.reservation_id = reservation.id
+  ORDER BY reservation.id
+  FOR UPDATE OF reservation
+),
 locked_inventory_items AS MATERIALIZED (
   SELECT item.id, item.on_hand_qty, item.reserved_qty, delta.reserved_qty AS requested_qty
   FROM inventory_items AS item
@@ -222,34 +298,23 @@ inventory_write_guard AS MATERIALIZED (
         WHERE on_hand_qty - reserved_qty < requested_qty
       ),
     'ERP_INVENTORY_CONCURRENCY_CONFLICT'
-  ) AS ok
+  ) AS inventory_ok,
+  erp_require(
+    (SELECT COUNT(*) FROM locked_temporary_holds) = (SELECT COUNT(*) FROM temporary_hold_inputs)
+      AND NOT EXISTS (
+        SELECT 1
+        FROM locked_temporary_holds AS reservation
+        JOIN temporary_hold_inputs AS conversion ON conversion.reservation_id = reservation.id
+        WHERE reservation.reservation_type <> '临时留货'
+          OR reservation.status <> '生效'
+          OR reservation.expires_at IS NULL
+          OR reservation.expires_at <= now()
+      ),
+    'ERP_TEMPORARY_HOLD_CONVERSION_CONFLICT'
+  ) AS hold_ok
 ),
-inserted_order AS (
-  INSERT INTO original_orders (
-    id,
-    biz_no,
-    source_draft_id,
-    customer_id,
-    customer_snapshot,
-    source_text,
-    summary_status,
-    created_by,
-    created_at,
-    updated_at
-  ) VALUES (
-    ${parameters.text(order.orderId)},
-    ${parameters.text(order.bizNo)},
-    ${parameters.nullableText(order.sourceDraftId)},
-    ${parameters.text(order.customerId)},
-    ${parameters.json(order.customerSnapshot)},
-    ${parameters.text(order.sourceText)},
-    ${parameters.text(order.summaryStatus)},
-    ${parameters.nullableText(order.createdBy)},
-    ${parameters.timestamp(order.createdAt)},
-    now()
-  )
-  ON CONFLICT (id) DO NOTHING
-  RETURNING ${orderJsonExpression("original_orders")} AS result
+inserted_orders AS (
+  ${buildInsertOriginalOrdersSql(orders, parameters)}
 ),
 inserted_order_lines AS (
   ${buildInsertOrderLinesSql(orderLines, parameters)}
@@ -266,6 +331,17 @@ inserted_fulfillment_records AS (
 inserted_inventory_reservations AS (
   ${buildInsertInventoryReservationsSql(inventoryReservations, parameters)}
 ),
+updated_temporary_hold_intents AS (
+  ${buildConvertInventoryIntentsSql(inventoryIntentConversions)}
+),
+updated_shortage_cancellation_intents AS (
+  ${buildApplyShortageCancellationIntentsSql(shortageCancellationIntents, parameters)}
+),
+updated_inventory_intents AS (
+  SELECT result FROM updated_temporary_hold_intents
+  UNION ALL
+  SELECT result FROM updated_shortage_cancellation_intents
+),
 updated_inventory_items AS (
   ${buildUpdateInventoryItemsSql(inventoryReservations)}
 ),
@@ -280,13 +356,14 @@ inserted_operation_log AS (
 ),
 business_id_write_guard AS MATERIALIZED (
   SELECT erp_require(
-    (SELECT COUNT(*) FROM inserted_order) = 1
+    (SELECT COUNT(*) FROM inserted_orders) = ${parameters.integer(orders.length)}
       AND (SELECT COUNT(*) FROM inserted_order_draft_lines) = ${parameters.integer(orderDraft.lines.length)}
       AND (SELECT COUNT(*) FROM inserted_order_lines) = ${parameters.integer(orderLines.length)}
       AND (SELECT COUNT(*) FROM inserted_production_tasks) = ${parameters.integer(productionTasks.length)}
       AND (SELECT COUNT(*) FROM inserted_price_snapshots) = ${parameters.integer(priceSnapshots.length)}
       AND (SELECT COUNT(*) FROM inserted_fulfillment_records) = ${parameters.integer(fulfillmentRecords.length)}
       AND (SELECT COUNT(*) FROM inserted_inventory_reservations) = ${parameters.integer(inventoryReservations.length)}
+      AND (SELECT COUNT(*) FROM updated_inventory_intents) = ${parameters.integer(inventoryIntentConversions.length + shortageCancellationIntents.length)}
       AND (SELECT COUNT(*) FROM inserted_inventory_ledger_entries) = ${parameters.integer(inventoryLedgerEntries.length)}
       AND (SELECT COUNT(*) FROM inserted_todos) = ${parameters.integer(todos.length)}
       AND (SELECT COUNT(*) FROM inserted_operation_log) = 1,
@@ -297,17 +374,20 @@ SELECT json_build_object(
   'orderDraft', (SELECT result::jsonb || jsonb_build_object(
     'lines', (SELECT COALESCE(json_agg(result ORDER BY result->>'id'), '[]'::json) FROM inserted_order_draft_lines)
   ) FROM updated_order_draft),
-  'order', (SELECT result FROM inserted_order),
+  'order', (SELECT result FROM inserted_orders ORDER BY result->>'orderId' LIMIT 1),
+  'orders', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderId'), '[]'::json) FROM inserted_orders),
   'orderLines', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM inserted_order_lines),
   'productionTasks', (SELECT COALESCE(json_agg(result ORDER BY result->>'productionTaskId'), '[]'::json) FROM inserted_production_tasks),
   'priceSnapshots', (SELECT COALESCE(json_agg(result ORDER BY result->>'orderLineId'), '[]'::json) FROM inserted_price_snapshots),
   'fulfillmentRecords', (SELECT COALESCE(json_agg(result ORDER BY result->>'fulfillmentId'), '[]'::json) FROM inserted_fulfillment_records),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM inserted_inventory_reservations),
+  'inventoryIntents', (SELECT COALESCE(json_agg(result ORDER BY result->>'intentId'), '[]'::json) FROM updated_inventory_intents),
   'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
   'inventoryLedgerEntries', (SELECT COALESCE(json_agg(result ORDER BY result->>'ledgerId'), '[]'::json) FROM inserted_inventory_ledger_entries),
   'todos', (SELECT COALESCE(json_agg(result ORDER BY result->>'id'), '[]'::json) FROM inserted_todos),
   'operationLogId', (SELECT id FROM inserted_operation_log),
-  'writeGuard', (SELECT ok FROM inventory_write_guard),
+  'commandResponse', ${parameters.json(input.commandResponse ?? null)},
+  'writeGuard', (SELECT inventory_ok AND hold_ok FROM inventory_write_guard),
   'draftWriteGuard', (SELECT ok FROM order_draft_write_guard),
   'businessIdWriteGuard', (SELECT ok FROM business_id_write_guard)
 ) AS result;
@@ -320,31 +400,38 @@ export function normalizeOrderConfirmationTransactionResult(value) {
     return {
       orderDraft: null,
       order: null,
+      orders: [],
       orderLines: [],
       productionTasks: [],
       priceSnapshots: [],
       fulfillmentRecords: [],
       inventoryReservations: [],
+      inventoryIntents: [],
       inventoryItems: [],
       inventoryLedgerEntries: [],
       todos: [],
       operationLogId: "",
+      commandResponse: null,
     };
   }
-  const order = normalizeOriginalOrder(value.order);
+  const orders = normalizeOriginalOrders(value.orders ?? value.original_orders ?? [value.order]);
+  const order = orders[0] ?? normalizeOriginalOrder(value.order);
   const orderLines = normalizeOrderLines(value.orderLines ?? value.order_lines ?? [], order?.orderId);
   return {
     orderDraft: normalizeOrderDraft(value.orderDraft ?? value.order_draft),
     order,
+    orders: orders.length ? orders : order ? [order] : [],
     orderLines,
     productionTasks: normalizeProductionTasks(value.productionTasks ?? value.production_tasks ?? [], orderLines),
     priceSnapshots: normalizePriceSnapshots(value.priceSnapshots ?? value.price_snapshots ?? [], orderLines),
     fulfillmentRecords: normalizeFulfillmentRecords(value.fulfillmentRecords ?? value.fulfillment_records ?? []),
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
+    inventoryIntents: normalizeInventoryIntents(value.inventoryIntents ?? value.inventory_intents ?? []),
     inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),
     inventoryLedgerEntries: normalizeInventoryLedgerEntries(value.inventoryLedgerEntries ?? value.inventory_ledger_entries ?? []),
     todos: normalizeTodos(value.todos ?? []),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
+    commandResponse: value.commandResponse ?? value.command_response ?? null,
   };
 }
 
@@ -364,6 +451,11 @@ export function normalizeOriginalOrder(order) {
     createdBy: String(order.createdBy ?? order.created_by ?? "").trim(),
     createdAt: String(order.createdAt ?? order.created_at ?? new Date().toISOString()).trim(),
   };
+}
+
+export function normalizeOriginalOrders(orders) {
+  if (!Array.isArray(orders)) return [];
+  return orders.map(normalizeOriginalOrder).filter(Boolean);
 }
 
 export function normalizeOrderLines(lines, fallbackOrderId = "") {
@@ -504,15 +596,23 @@ function normalizeInventoryReservation(record) {
   const reservationId = String(record.reservationId ?? record.id ?? "").trim();
   const orderLineId = String(record.orderLineId ?? record.order_line_id ?? "").trim();
   const inventoryItemId = String(record.inventoryItemId ?? record.inventory_item_id ?? "").trim();
+  const sourceIntentId = String(record.sourceIntentId ?? record.source_intent_id ?? "").trim();
   if (!reservationId || !orderLineId || !inventoryItemId) return null;
   return {
     reservationId,
     orderLineId,
+    sourceIntentId,
+    customerId: String(record.customerId ?? record.customer_id ?? "").trim(),
+    sourceMessageId: String(record.sourceMessageId ?? record.source_message_id ?? "").trim(),
     inventoryItemId,
     reservedQty: toFiniteInteger(record.reservedQty ?? record.reserved_qty ?? record.qty),
+    inventoryDeltaQty: toFiniteInteger(record.inventoryDeltaQty ?? record.inventory_delta_qty ?? record.reservedQty ?? record.reserved_qty ?? record.qty),
     reservationType: String(record.reservationType ?? record.reservation_type ?? "出库占用").trim() || "出库占用",
     status: String(record.status ?? "生效").trim() || "生效",
     expiresAt: String(record.expiresAt ?? record.expires_at ?? "").trim(),
+    metadata: normalizeObject(record.metadata ?? record.metadata_json),
+    convertFromTemporaryHold: Boolean(record.convertFromTemporaryHold ?? record.convert_from_temporary_hold),
+    revision: Math.max(1, toFiniteInteger(record.revision ?? 1)),
     createdBy: String(record.createdBy ?? record.created_by ?? "").trim(),
     createdAt: String(record.createdAt ?? record.created_at ?? new Date().toISOString()).trim(),
   };
@@ -586,12 +686,13 @@ function normalizeTodo(record) {
 function applyOrderConfirmationWorkspaceMutation({
   workspace,
   orderDraft,
-  order,
+  orders = [],
   orderLines,
   productionTasks = [],
   priceSnapshots = [],
   fulfillmentRecords,
   inventoryReservations,
+  inventoryIntents = [],
   inventoryItems = [],
   inventoryLedgerEntries,
   todos,
@@ -604,8 +705,12 @@ function applyOrderConfirmationWorkspaceMutation({
     ];
   }
   workspace.originalOrders = workspace.originalOrders ?? [];
-  if (order) {
-    workspace.originalOrders = [order, ...workspace.originalOrders.filter((item) => item.orderId !== order.orderId)];
+  if (orders.length) {
+    const savedOrderIds = new Set(orders.map((order) => order.orderId));
+    workspace.originalOrders = [
+      ...orders,
+      ...workspace.originalOrders.filter((item) => !savedOrderIds.has(item.orderId)),
+    ];
   }
   workspace.orderLines = [
     ...orderLines.map(toWorkspaceOrderLine),
@@ -638,6 +743,12 @@ function applyOrderConfirmationWorkspaceMutation({
     ...inventoryReservations.map(toWorkspaceInventoryReservation),
     ...(workspace.inventoryReservations ?? []).filter(
       (item) => !inventoryReservations.some((record) => record.reservationId === item.id),
+    ),
+  ];
+  workspace.inventoryIntents = [
+    ...inventoryIntents,
+    ...(workspace.inventoryIntents ?? []).filter(
+      (item) => !inventoryIntents.some((intent) => intent.id === item.id),
     ),
   ];
   workspace.inventoryLedgers = [
@@ -745,9 +856,78 @@ function applyWorkspaceInventoryReservations(workspace, inventoryReservations) {
   workspace.inventories = workspace.inventories.map((inventory) => {
     const reservedQty = inventoryReservations
       .filter((reservation) => reservation.inventoryItemId === inventory.id)
-      .reduce((sum, reservation) => sum + Number(reservation.reservedQty ?? 0), 0);
+      .reduce((sum, reservation) => sum + Number(reservation.inventoryDeltaQty ?? reservation.reservedQty ?? 0), 0);
     if (!reservedQty) return inventory;
     return { ...inventory, reserved: Number(inventory.reserved ?? 0) + reservedQty };
+  });
+}
+
+function validateLocalTemporaryHoldConversions(workspace, reservations) {
+  for (const conversion of reservations.filter((reservation) => reservation.convertFromTemporaryHold)) {
+    const existing = (workspace.inventoryReservations ?? []).find(
+      (reservation) => (reservation.id ?? reservation.reservationId) === conversion.reservationId,
+    );
+    const intent = (workspace.inventoryIntents ?? []).find(
+      (record) => (record.id ?? record.intentId) === conversion.sourceIntentId,
+    );
+    if (!existing || existing.reservationType !== "临时留货" || existing.status !== "生效"
+      || existing.sourceIntentId !== conversion.sourceIntentId
+      || existing.inventoryItemId !== conversion.inventoryItemId
+      || Number(existing.reservedQty ?? existing.qty) !== conversion.reservedQty
+      || (existing.expiresAt && Date.parse(existing.expiresAt) <= Date.now())
+      || intent?.intentStatus !== "临时留货-生效") {
+      const error = new Error("The temporary hold changed before order confirmation.");
+      error.statusCode = 409;
+      error.code = "TEMPORARY_HOLD_CONVERSION_CONFLICT";
+      throw error;
+    }
+  }
+}
+
+function buildLocalConvertedInventoryIntents(workspace, reservations) {
+  return reservations
+    .filter((reservation) => reservation.convertFromTemporaryHold)
+    .map((reservation) => {
+      const intent = (workspace.inventoryIntents ?? []).find(
+        (record) => (record.id ?? record.intentId) === reservation.sourceIntentId,
+      );
+      if (!intent) return null;
+      return {
+        ...intent,
+        id: intent.id ?? intent.intentId,
+        intentId: intent.id ?? intent.intentId,
+        intentStatus: "已转订单",
+        relatedOrderLineId: reservation.orderLineId,
+        revision: Number(intent.revision ?? 1) + 1,
+        updatedAt: new Date().toISOString(),
+      };
+    })
+    .filter(Boolean);
+}
+
+function buildLocalAppliedShortageCancellationIntents(workspace, requestedIntents) {
+  return requestedIntents.map((requested) => {
+    const current = (workspace.inventoryIntents ?? []).find(
+      (record) => (record.id ?? record.intentId) === requested.id,
+    );
+    if (!current
+      || current.intentType !== "shortage_cancellation"
+      || current.intentStatus === "库存不足取消-已应用"
+      || Number(current.revision ?? 1) + 1 !== Number(requested.revision ?? 0)) {
+      const error = new Error("The shortage cancellation changed before order confirmation.");
+      error.statusCode = 409;
+      error.code = "SHORTAGE_CANCELLATION_CONFLICT";
+      throw error;
+    }
+    return {
+      ...current,
+      ...requested,
+      id: current.id ?? current.intentId,
+      intentId: current.id ?? current.intentId,
+      intentStatus: "库存不足取消-已应用",
+      revision: Number(current.revision ?? 1) + 1,
+      updatedAt: requested.updatedAt ?? new Date().toISOString(),
+    };
   });
 }
 
@@ -787,12 +967,19 @@ function toWorkspaceInventoryReservation(record) {
     id: record.reservationId,
     reservationId: record.reservationId,
     orderLineId: record.orderLineId,
+    sourceIntentId: record.sourceIntentId,
+    customerId: record.customerId,
+    sourceMessageId: record.sourceMessageId,
     inventoryItemId: record.inventoryItemId,
     qty: record.reservedQty,
     reservedQty: record.reservedQty,
+    inventoryDeltaQty: record.inventoryDeltaQty,
     reservationType: record.reservationType,
     status: record.status,
     expiresAt: record.expiresAt,
+    metadata: record.metadata,
+    convertFromTemporaryHold: record.convertFromTemporaryHold,
+    revision: record.revision,
     createdBy: record.createdBy,
     createdAt: record.createdAt,
   };
@@ -835,6 +1022,28 @@ function toWorkspaceTodo(todo) {
     createdBy: todo.createdBy,
     createdAt: todo.createdAt,
   };
+}
+
+function buildInsertOriginalOrdersSql(orders, parameters) {
+  const values = orders.map((order) => `(
+    ${parameters.text(order.orderId)},
+    ${parameters.text(order.bizNo)},
+    ${parameters.nullableText(order.sourceDraftId)},
+    ${parameters.text(order.customerId)},
+    ${parameters.json(order.customerSnapshot)},
+    ${parameters.text(order.sourceText)},
+    ${parameters.text(order.summaryStatus)},
+    ${parameters.nullableText(order.createdBy)},
+    ${parameters.timestamp(order.createdAt)},
+    now()
+  )`).join(",\n");
+  return `INSERT INTO original_orders (
+    id, biz_no, source_draft_id, customer_id, customer_snapshot,
+    source_text, summary_status, created_by, created_at, updated_at
+  ) VALUES
+${values}
+  ON CONFLICT (id) DO NOTHING
+  RETURNING ${orderJsonExpression("original_orders")} AS result`;
 }
 
 function buildInsertOrderLinesSql(orderLines, parameters) {
@@ -1126,11 +1335,16 @@ function buildInsertInventoryReservationsSql(records, parameters) {
       (record) => `(
     ${parameters.text(record.reservationId)},
     ${parameters.text(record.orderLineId)},
+    ${parameters.nullableText(record.sourceIntentId)},
+    ${parameters.nullableText(record.customerId)},
+    ${parameters.nullableText(record.sourceMessageId)},
     ${parameters.text(record.inventoryItemId)},
     ${parameters.integer(record.reservedQty)},
     ${parameters.text(record.reservationType)},
     ${parameters.text(record.status)},
     ${parameters.nullableTimestamp(record.expiresAt)},
+    ${parameters.json(record.metadata)},
+    ${parameters.integer(record.revision)},
     ${parameters.nullableText(record.createdBy)},
     ${parameters.timestamp(record.createdAt)},
     now()
@@ -1140,17 +1354,58 @@ function buildInsertInventoryReservationsSql(records, parameters) {
   return `INSERT INTO inventory_reservations (
   id,
   order_line_id,
+  source_intent_id,
+  customer_id,
+  source_message_id,
   inventory_item_id,
   reserved_qty,
   reservation_type,
   status,
   expires_at,
+  metadata_json,
+  revision,
   created_by,
   created_at,
   updated_at
-) VALUES
+  )
+SELECT
+  reservation_values.id,
+  reservation_values.order_line_id,
+  reservation_values.source_intent_id,
+  reservation_values.customer_id,
+  reservation_values.source_message_id,
+  reservation_values.inventory_item_id,
+  reservation_values.reserved_qty,
+  reservation_values.reservation_type,
+  reservation_values.status,
+  reservation_values.expires_at,
+  reservation_values.metadata_json,
+  reservation_values.revision,
+  reservation_values.created_by,
+  reservation_values.created_at,
+  reservation_values.updated_at
+FROM (VALUES
 ${values}
-ON CONFLICT (id) DO NOTHING
+) AS reservation_values(
+  id, order_line_id, source_intent_id, customer_id, source_message_id, inventory_item_id,
+  reserved_qty, reservation_type, status, expires_at, metadata_json, revision,
+  created_by, created_at, updated_at
+)
+CROSS JOIN inventory_write_guard AS guard
+WHERE guard.inventory_ok AND guard.hold_ok
+ON CONFLICT (id) DO UPDATE SET
+  order_line_id = EXCLUDED.order_line_id,
+  reservation_type = EXCLUDED.reservation_type,
+  status = EXCLUDED.status,
+  expires_at = NULL,
+  metadata_json = inventory_reservations.metadata_json || EXCLUDED.metadata_json,
+  revision = inventory_reservations.revision + 1,
+  updated_at = now()
+WHERE inventory_reservations.reservation_type = '临时留货'
+  AND inventory_reservations.status = '生效'
+  AND inventory_reservations.source_intent_id = EXCLUDED.source_intent_id
+  AND inventory_reservations.inventory_item_id = EXCLUDED.inventory_item_id
+  AND inventory_reservations.reserved_qty = EXCLUDED.reserved_qty
 RETURNING ${inventoryReservationJsonExpression("inventory_reservations")} AS result`;
 }
 
@@ -1162,7 +1417,7 @@ SET
   revision = item.revision + 1,
   updated_at = now()
 FROM inventory_deltas AS delta, inventory_write_guard AS guard
-WHERE item.id = delta.inventory_item_id AND guard.ok
+WHERE item.id = delta.inventory_item_id AND guard.inventory_ok AND guard.hold_ok
 RETURNING json_build_object(
   'inventoryItemId', item.id,
   'reservedQty', item.reserved_qty,
@@ -1175,13 +1430,69 @@ function buildInventoryReservationDeltasSql(records, parameters) {
     return "SELECT NULL::text AS inventory_item_id, 0::integer AS reserved_qty WHERE false";
   }
   const values = records
-    .map((record) => `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.reservedQty)})`)
+    .map((record) => `(${parameters.text(record.inventoryItemId)}, ${parameters.integer(record.inventoryDeltaQty)})`)
     .join(",\n");
   return `SELECT inventory_item_id, SUM(reserved_qty)::integer AS reserved_qty
 FROM (VALUES
 ${values}
 ) AS raw(inventory_item_id, reserved_qty)
-GROUP BY inventory_item_id`;
+GROUP BY inventory_item_id
+HAVING SUM(reserved_qty) <> 0`;
+}
+
+function buildTemporaryHoldConversionsSql(records, parameters) {
+  if (records.length === 0) {
+    return `SELECT NULL::text AS reservation_id, NULL::text AS source_intent_id,
+      NULL::text AS inventory_item_id, 0::integer AS reserved_qty, NULL::text AS order_line_id
+      WHERE false`;
+  }
+  const values = records.map((record) => `(
+    ${parameters.text(record.reservationId)},
+    ${parameters.text(record.sourceIntentId)},
+    ${parameters.text(record.inventoryItemId)},
+    ${parameters.integer(record.reservedQty)},
+    ${parameters.text(record.orderLineId)}
+  )`).join(",\n");
+  return `SELECT * FROM (VALUES
+${values}
+) AS conversion(reservation_id, source_intent_id, inventory_item_id, reserved_qty, order_line_id)`;
+}
+
+function buildConvertInventoryIntentsSql(records) {
+  if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
+  return `UPDATE inventory_intents AS intent
+SET intent_status = '已转订单',
+    related_order_line_id = conversion.order_line_id,
+    revision = intent.revision + 1,
+    updated_at = now()
+FROM temporary_hold_inputs AS conversion
+JOIN inserted_inventory_reservations AS saved
+  ON saved.result->>'reservationId' = conversion.reservation_id
+WHERE intent.id = conversion.source_intent_id
+  AND intent.intent_status = '临时留货-生效'
+RETURNING ${inventoryIntentJsonExpression("intent")} AS result`;
+}
+
+function buildApplyShortageCancellationIntentsSql(records, parameters) {
+  if (records.length === 0) return "SELECT NULL::json AS result WHERE false";
+  const values = records.map((intent) => `(
+    ${parameters.text(intent.id)},
+    ${parameters.integer(Math.max(1, Number(intent.revision ?? 1) - 1))},
+    ${parameters.json(intent.candidate)}
+  )`).join(",\n");
+  return `UPDATE inventory_intents AS intent
+SET intent_status = '库存不足取消-已应用',
+    candidate_json = applied.candidate_json,
+    revision = intent.revision + 1,
+    updated_at = now()
+FROM (VALUES
+${values}
+) AS applied(intent_id, expected_revision, candidate_json)
+WHERE intent.id = applied.intent_id
+  AND intent.intent_type = 'shortage_cancellation'
+  AND intent.revision = applied.expected_revision
+  AND intent.intent_status <> '库存不足取消-已应用'
+RETURNING ${inventoryIntentJsonExpression("intent")} AS result`;
 }
 
 function buildInsertInventoryLedgerEntriesSql(records, parameters) {
@@ -1456,13 +1767,39 @@ function inventoryReservationJsonExpression(alias) {
   return `json_build_object(
     'reservationId', ${alias}.id,
     'orderLineId', ${alias}.order_line_id,
+    'sourceIntentId', ${alias}.source_intent_id,
+    'customerId', ${alias}.customer_id,
+    'sourceMessageId', ${alias}.source_message_id,
     'inventoryItemId', ${alias}.inventory_item_id,
     'reservedQty', ${alias}.reserved_qty,
     'reservationType', ${alias}.reservation_type,
     'status', ${alias}.status,
     'expiresAt', ${alias}.expires_at,
+    'metadata', ${alias}.metadata_json,
+    'revision', ${alias}.revision,
     'createdBy', ${alias}.created_by,
     'createdAt', ${alias}.created_at
+  )`;
+}
+
+function inventoryIntentJsonExpression(alias) {
+  return `json_build_object(
+    'intentId', ${alias}.id,
+    'sourceDraftId', ${alias}.source_draft_id,
+    'sourceMessageId', ${alias}.source_message_id,
+    'conversationId', ${alias}.conversation_id,
+    'customerId', ${alias}.customer_id,
+    'intentType', ${alias}.intent_type,
+    'intentStatus', ${alias}.intent_status,
+    'sourceText', ${alias}.source_text,
+    'candidate', ${alias}.candidate_json,
+    'cancellationScope', ${alias}.cancellation_scope,
+    'relatedReservationId', ${alias}.related_reservation_id,
+    'relatedOrderLineId', ${alias}.related_order_line_id,
+    'revision', ${alias}.revision,
+    'createdBy', ${alias}.created_by,
+    'createdAt', ${alias}.created_at,
+    'updatedAt', ${alias}.updated_at
   )`;
 }
 

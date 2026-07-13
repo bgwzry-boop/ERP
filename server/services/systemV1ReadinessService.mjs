@@ -14,6 +14,7 @@ export const v1SystemPersistenceGroups = Object.freeze([
       ["orderPoolReadRepository", "订单池读取"],
       ["inventoryLedgerReadRepository", "库存流水读取"],
       ["inventoryReservationReleaseTransactionRepository", "库存占用释放交易"],
+      ["inventoryIntentTransactionRepository", "库存意图 / 临时留货交易"],
       ["orderLineVoidTransactionRepository", "订单明细作废交易"],
       ["orderLineQuantityAdjustmentTransactionRepository", "订单明细改量交易"],
       ["fulfillmentActionTransactionRepository", "出库 / 交付交易"],

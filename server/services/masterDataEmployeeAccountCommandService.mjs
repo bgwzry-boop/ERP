@@ -16,6 +16,19 @@ import {
   upsertRuntimeUser,
 } from "./runtimeIdentityWorkspace.mjs";
 
+const employeeAssignmentModes = new Set(["fixed_machine", "general_worker", "unassigned"]);
+const defaultEmployeeAssignmentMachines = Object.freeze(
+  Array.from({ length: 9 }, (_, index) => {
+    const machineNumber = index + 1;
+    return Object.freeze({
+      machineId: `BAG-${String(machineNumber).padStart(2, "0")}`,
+      machineLabel: `${machineNumber}号机`,
+      workshop: `${Math.ceil(machineNumber / 3)}号车间`,
+      enabled: true,
+    });
+  }),
+);
+
 export function createMasterDataEmployeeAccountCommandService(dependencies = {}) {
   const {
     buildOperationLog,
@@ -29,7 +42,99 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     enableEmployeeAccount,
     issueEmployeeTemporaryPassword,
     revokeEmployeePassword,
+    updateEmployeeAssignment,
   };
+
+  async function updateEmployeeAssignment({ workspace, employeeId, body = {}, operatorId }) {
+    const context = getEmployeeContext(workspace, employeeId);
+    if (context.result) return context.result;
+    const { before, employeeIndex } = context;
+    const assignmentMode = cleanText(body.assignmentMode) || "unassigned";
+    if (!employeeAssignmentModes.has(assignmentMode)) {
+      return businessError(400, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_MODE_INVALID", "Unknown employee assignment mode.");
+    }
+
+    const assignmentOptions = buildEmployeeAssignmentOptions(workspace);
+    const requestedWorkshop = cleanText(body.workshop);
+    const requestedMachineId = cleanText(body.machineId);
+    let defaultWorkshop = "";
+    let defaultMachineId = "";
+    if (assignmentMode === "fixed_machine") {
+      const machine = assignmentOptions.machines.find((item) => item.machineId === requestedMachineId && item.enabled !== false);
+      if (!machine) {
+        return businessError(409, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_MACHINE_NOT_FOUND", "Selected machine is unavailable.");
+      }
+      defaultWorkshop = requestedWorkshop || machine.workshop;
+      if (!defaultWorkshop) {
+        return businessError(400, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_REQUIRED", "Workshop is required for a fixed-machine assignment.");
+      }
+      if (machine.workshop && machine.workshop !== defaultWorkshop) {
+        return businessError(409, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_MISMATCH", "Selected machine does not belong to the selected workshop.");
+      }
+      defaultMachineId = machine.machineId;
+    } else if (assignmentMode === "general_worker") {
+      if (!requestedWorkshop) {
+        return businessError(400, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_REQUIRED", "Workshop is required for a general-worker assignment.");
+      }
+      defaultWorkshop = requestedWorkshop;
+    }
+
+    const changedAt = cleanText(body.changedAt) || now().toISOString();
+    const reason = cleanText(body.reason) || "管理员手动调整员工车间 / 机台";
+    const updatedEmployee = {
+      ...before,
+      defaultWorkshop,
+      defaultMachineId,
+      assignmentMode,
+      assignmentUpdatedBy: operatorId,
+      assignmentUpdatedAt: changedAt,
+      assignmentNote: reason,
+      updatedAt: changedAt,
+    };
+    const stagedWorkspace = stageWorkspace(workspace);
+    stagedWorkspace.employees[employeeIndex] = updatedEmployee;
+    const existingUser = resolveEmployeeRuntimeUser(stagedWorkspace, updatedEmployee);
+    if (existingUser) {
+      upsertRuntimeUser(stagedWorkspace, {
+        ...existingUser,
+        defaultMachineId,
+        metadata: {
+          ...(existingUser.metadata ?? {}),
+          defaultWorkshop,
+          assignmentMode,
+        },
+        updatedAt: changedAt,
+      });
+    }
+    const operationLog = buildOperationLog(stagedWorkspace, {
+      targetType: "master_data_employee_assignment",
+      targetId: updatedEmployee.id,
+      action: "master_data_employee_assignment_updated",
+      before: {
+        employeeId: before.id,
+        defaultWorkshop: cleanText(before.defaultWorkshop),
+        defaultMachineId: cleanText(before.defaultMachineId),
+        assignmentMode: getEmployeeAssignmentMode(before),
+      },
+      after: {
+        employeeId: updatedEmployee.id,
+        defaultWorkshop,
+        defaultMachineId,
+        assignmentMode,
+      },
+      reason,
+      operatorId,
+      pageKey: "master_data",
+    });
+    stagedWorkspace.operationLogs.unshift(operationLog);
+    await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace);
+
+    return success({
+      employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, stagedWorkspace.users),
+      assignmentOptions,
+      operationLogId: operationLog.id,
+    });
+  }
 
   async function enableEmployeeAccount({ workspace, employeeId, body = {}, operatorId }) {
     const context = getEmployeeContext(workspace, employeeId);
@@ -382,6 +487,10 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = []) {
     roleName: cleanText(employee.roleName),
     defaultWorkshop: cleanText(employee.defaultWorkshop),
     defaultMachineId: cleanText(employee.defaultMachineId),
+    assignmentMode: getEmployeeAssignmentMode(employee),
+    assignmentUpdatedBy: cleanText(employee.assignmentUpdatedBy),
+    assignmentUpdatedAt: cleanText(employee.assignmentUpdatedAt),
+    assignmentNote: cleanText(employee.assignmentNote),
     requestedEnabled: employee.requestedEnabled === true,
     accountEnabled,
     profileStatus:
@@ -421,6 +530,38 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = []) {
     remark: cleanText(employee.remark),
     actionRequired: !accountEnabled,
   };
+}
+
+export function buildEmployeeAssignmentOptions(workspace = {}) {
+  const byMachineId = new Map(defaultEmployeeAssignmentMachines.map((machine) => [machine.machineId, { ...machine }]));
+  for (const machine of workspace.machines ?? []) {
+    const machineId = cleanText(machine?.machineId ?? machine?.id);
+    if (!machineId) continue;
+    byMachineId.set(machineId, {
+      machineId,
+      machineLabel: cleanText(machine?.machineLabel ?? machine?.name) || machineId,
+      workshop: cleanText(machine?.workshop),
+      enabled: machine?.enabled !== false && cleanText(machine?.status) !== "inactive",
+    });
+  }
+  const machines = [...byMachineId.values()].sort((left, right) =>
+    left.machineLabel.localeCompare(right.machineLabel, "zh-CN", { numeric: true }),
+  );
+  const workshops = [...new Set([
+    "1号车间",
+    "2号车间",
+    "3号车间",
+    ...machines.map((machine) => machine.workshop).filter(Boolean),
+  ])];
+  return { workshops, machines };
+}
+
+function getEmployeeAssignmentMode(employee = {}) {
+  const stored = cleanText(employee.assignmentMode);
+  if (employeeAssignmentModes.has(stored)) return stored;
+  if (cleanText(employee.defaultMachineId)) return "fixed_machine";
+  if (cleanText(employee.defaultWorkshop)) return "general_worker";
+  return "unassigned";
 }
 
 function getEmployeeContext(workspace, employeeId) {

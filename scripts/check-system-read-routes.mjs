@@ -70,7 +70,7 @@ async function expectHandled(pathname, kind, responseBody) {
   assert.equal(await handleSystemReadRoutes({ ...dependencies, url: new URL(`http://erp.test${pathname}`) }), true);
   assert.deepEqual(calls, [
     { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback: "SYSTEM" },
-    kind === "readiness"
+    ["readiness", "goLive"].includes(kind)
       ? { kind, workspace: dependencies.workspace, operatorId: "U-RESOLVED" }
       : { kind, operatorId: "U-RESOLVED" },
     { kind: "json", response: dependencies.response, status: 200, body: responseBody },

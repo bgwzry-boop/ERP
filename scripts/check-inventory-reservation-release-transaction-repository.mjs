@@ -1,17 +1,133 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   buildReleaseInventoryReservationTransactionQuery,
   buildReleaseInventoryReservationTransactionSql,
   createLocalInventoryReservationReleaseTransactionRepository,
   createPostgresInventoryReservationReleaseTransactionRepository,
 } from "../server/inventoryReservationReleaseTransactionRepository.mjs";
+import { createInventoryReservationReleaseCommandService } from "../server/services/inventoryReservationReleaseCommandService.mjs";
 
+await checkInventoryReservationReleaseCommandService();
 await checkLocalInventoryReservationReleaseTransactionRepository();
 await checkPostgresInventoryReservationReleaseTransactionSqlBoundary();
+checkApiServerUsesThinReleaseRoute();
 
 console.log(
-  "Inventory reservation release transaction repository check passed: local workspace mutation and PostgreSQL release SQL are covered.",
+  "Inventory reservation release checks passed: command validation, thin HTTP routing, local mutation, and PostgreSQL release SQL are covered.",
 );
+
+async function checkInventoryReservationReleaseCommandService() {
+  const service = createInventoryReservationReleaseCommandService({
+    buildOperationLog(workspace, input) {
+      return {
+        id: `LOG-${workspace.operationLogs.length + 1}`,
+        ...input,
+        pageKey: "api",
+        occurredAt: "2026-07-13T08:00:00.000Z",
+        createdAt: "2026-07-13T08:00:00.000Z",
+      };
+    },
+    findInventoryItem(workspace, id) {
+      return workspace.inventories.find((item) => item.id === id) ?? null;
+    },
+    findInventoryReservation(workspace, id) {
+      return workspace.inventoryReservations.find((item) => item.id === id || item.reservationId === id) ?? null;
+    },
+    isReleasableInventoryReservation(reservation) {
+      return ["生效", "部分释放", "active", "partially_released"].includes(reservation.status);
+    },
+    nextPlainId(prefix, value) {
+      return `${prefix}-${String(value).replace(/[^a-z0-9]+/gi, "-")}`;
+    },
+  });
+  const workspace = buildWorkspace();
+  workspace.inventoryReservationReleaseTransactionRepository =
+    createLocalInventoryReservationReleaseTransactionRepository();
+
+  const partial = await service.releaseReservation({
+    workspace,
+    reservationId: "RSV-F003-001",
+    body: {
+      releaseQty: 500,
+      reason: "qty_changed",
+      relatedActionId: "OLCR-001",
+      operatorId: "U-SPOOFED",
+    },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(partial.response.status, "partially_released");
+  assert.equal(partial.response.qty, 1000);
+  assert.equal(partial.response.releasedQty, 500);
+  assert.equal(workspace.inventories[0].reserved, 1000);
+  assert.equal(workspace.inventoryLedgers[0].sourceId, "OLCR-001");
+  assert.equal(workspace.inventoryLedgers[0].reason, "订单改量释放库存");
+  assert.equal(workspace.inventoryLedgers[0].operatorId, "U-OFFICE-A");
+  assert.equal(workspace.operationLogs[0].operatorId, "U-OFFICE-A");
+
+  const full = await service.releaseReservation({
+    workspace,
+    reservationId: "RSV-F003-001",
+    body: {},
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(full.response.status, "released");
+  assert.equal(full.response.qty, 0);
+  assert.equal(workspace.inventories[0].reserved, 0);
+
+  assert.equal(
+    (await service.releaseReservation({ workspace, reservationId: "MISSING", operatorId: "U-OFFICE-A" })).code,
+    "INVENTORY_RESERVATION_NOT_FOUND",
+  );
+  const validationWorkspace = buildWorkspace();
+  validationWorkspace.inventoryReservationReleaseTransactionRepository =
+    createLocalInventoryReservationReleaseTransactionRepository();
+  assert.equal(
+    (
+      await service.releaseReservation({
+        workspace: validationWorkspace,
+        reservationId: "RSV-F003-001",
+        body: { reservationId: "RSV-OTHER" },
+        operatorId: "U-OFFICE-A",
+      })
+    ).code,
+    "VALIDATION_ERROR",
+  );
+  assert.equal(
+    (
+      await service.releaseReservation({
+        workspace: validationWorkspace,
+        reservationId: "RSV-F003-001",
+        body: { releaseQty: 1501 },
+        operatorId: "U-OFFICE-A",
+      })
+    ).code,
+    "INVENTORY_RELEASE_QTY_EXCEEDS_RESERVED",
+  );
+  validationWorkspace.inventoryReservations[0].reservationType = "临时留货";
+  assert.equal(
+    (
+      await service.releaseReservation({
+        workspace: validationWorkspace,
+        reservationId: "RSV-F003-001",
+        body: {},
+        operatorId: "U-OFFICE-A",
+      })
+    ).code,
+    "TEMPORARY_HOLD_DEDICATED_RELEASE_REQUIRED",
+  );
+}
+
+function checkApiServerUsesThinReleaseRoute() {
+  const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+  assert.match(apiServerSource, /createInventoryReservationReleaseCommandService/);
+  const routeSource = apiServerSource.match(
+    /async function releaseInventoryReservationRoute[\s\S]*?\n}\n\nasync function listDriverDeliveryTasksRoute/,
+  )?.[0];
+  assert.ok(routeSource, "inventory reservation release route should remain discoverable");
+  assert.match(routeSource, /inventoryReservationReleaseCommandService\.releaseReservation/);
+  assert.doesNotMatch(routeSource, /currentReservedQty|inventoryLedgerEntry|releaseReservationReason/);
+}
 
 async function checkLocalInventoryReservationReleaseTransactionRepository() {
   const repository = createLocalInventoryReservationReleaseTransactionRepository();

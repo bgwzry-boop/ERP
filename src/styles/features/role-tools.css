@@ -1,3 +1,18 @@
+.toolbar-focus-hint {
+  overflow: hidden;
+  max-width: 42%;
+  border: 1px solid #bfdbfe;
+  border-radius: 999px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 22px;
+  padding: 0 9px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .production-packing-workbench,
 .raw-material-workbench,
 .master-data-workbench,
@@ -382,8 +397,105 @@
   gap: 5px;
 }
 
+.master-data-filter-actions {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.master-data-filter-actions .segmented {
+  max-width: 100%;
+}
+
 .master-data-maintenance-table .data-row {
   min-height: 42px;
+}
+
+.master-data-role-readiness {
+  display: grid;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  gap: 7px;
+  padding: 8px 10px;
+}
+
+.master-data-role-readiness > header,
+.master-data-role-readiness > header > div,
+.master-data-role-readiness-grid article,
+.master-data-role-readiness-grid article > div {
+  display: flex;
+  min-width: 0;
+}
+
+.master-data-role-readiness > header {
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.master-data-role-readiness > header > div {
+  flex-direction: column;
+}
+
+.master-data-role-readiness > header strong {
+  color: var(--erp-text);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.master-data-role-readiness > header span,
+.master-data-role-readiness-grid span,
+.master-data-role-readiness-grid small {
+  color: var(--erp-text-muted);
+  font-size: 10px;
+  line-height: 15px;
+}
+
+.master-data-role-readiness-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.master-data-role-readiness-grid article {
+  flex-direction: column;
+  border: 1px solid #e1e6ed;
+  border-radius: 4px;
+  background: #f8fafc;
+  gap: 2px;
+  padding: 5px 6px;
+}
+
+.master-data-role-readiness-grid article.ready {
+  border-color: #b9dfca;
+  background: #f3fbf6;
+}
+
+.master-data-role-readiness-grid article.blocked {
+  border-color: #f0d49b;
+  background: #fffaf0;
+}
+
+.master-data-role-readiness-grid article > div {
+  align-items: center;
+  justify-content: space-between;
+  gap: 5px;
+}
+
+.master-data-role-readiness-grid strong {
+  overflow: hidden;
+  color: var(--erp-text);
+  font-size: 11px;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.master-data-role-readiness-grid small {
+  min-height: 30px;
+  overflow-wrap: anywhere;
 }
 
 .master-data-maintenance-table.customer .data-row {
@@ -624,6 +736,10 @@
   .master-data-maintenance-table.stock .data-row,
   .master-data-maintenance-table.employee .data-row {
     grid-template-columns: minmax(96px, 1.2fr) minmax(82px, 1fr) minmax(96px, 1.15fr) minmax(92px, 1.1fr);
+  }
+
+  .master-data-role-readiness-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .master-data-maintenance-table.customer .data-row span:nth-child(3),

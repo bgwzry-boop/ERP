@@ -1,8 +1,14 @@
 import { useCallback } from "react";
 import {
   confirmOfficeDraftViaApi,
+  confirmOfficeDraftSplit,
+  listOfficeDraftQueue,
+  linkOfficeDraftShortageCancellation,
+  previewOfficeDraftSplit,
   recognizeOfficeDraft,
+  recognizeOfficeDraftQueue,
   resolveOfficeOrderConfirmationStrategy,
+  restoreOfficeDraftShortageCancellation,
   saveOfficeDraft,
 } from "../services/officeOrderApiClient.js";
 import {
@@ -26,8 +32,14 @@ import { applyDraftInventoryReservations } from "../state/officeOrderActions.js"
 const defaultApi = {
   adjustOfficeOrderLineQuantity,
   confirmOfficeDraftViaApi,
+  confirmOfficeDraftSplit,
+  listOfficeDraftQueue,
+  linkOfficeDraftShortageCancellation,
+  previewOfficeDraftSplit,
   recognizeOfficeDraft,
+  recognizeOfficeDraftQueue,
   resolveOfficeOrderConfirmationStrategy,
+  restoreOfficeDraftShortageCancellation,
   saveOfficeDraft,
   voidOfficeOrderLine,
 };
@@ -97,6 +109,7 @@ export function createOfficeOrderWriteActions({
   setDraftApiMeta,
   setDraftRows,
   setDraftStatus,
+  setEntryText,
   setFulfillments,
   setInventoryRecords,
   setOrderLines,
@@ -165,6 +178,95 @@ export function createOfficeOrderWriteActions({
     );
   }
 
+  async function recognizeOrderDraftQueue() {
+    const result = await orderApi.recognizeOfficeDraftQueue({
+      authState,
+      customerId: draftRows.find((row) => row.customerId)?.customerId ?? "",
+      inventories: inventoryRecords,
+      operatorId: currentUserId,
+      sourceText: entryText,
+    });
+    if (result.blocked) return withFeedback(result, formatBlockedFeedback("后端拒绝批量识别入队", result));
+    return withFeedback(
+      result,
+      `已生成 ${result.queueBatch?.summary?.queueItemCount ?? result.drafts?.length ?? 0} 个独立队列项：订单草稿 ${result.queueBatch?.summary?.orderDraftCount ?? 0} 张，库存/复核上下文 ${result.queueBatch?.summary?.intentDraftCount ?? 0} 项。`,
+    );
+  }
+
+  async function refreshOrderDraftQueue(queueBatchId = "") {
+    const result = await orderApi.listOfficeDraftQueue({
+      authState,
+      inventories: inventoryRecords,
+      operatorId: currentUserId,
+      queueBatchId,
+    });
+    if (result.blocked) return withFeedback(result, formatBlockedFeedback("后端拒绝读取草稿队列", result));
+    return withFeedback(result, `草稿队列已刷新，共 ${result.total ?? result.items?.length ?? 0} 项。`);
+  }
+
+  function openQueuedOrderDraft(item) {
+    if (!item?.draft || item.kind !== "order_draft") {
+      return withFeedback({ blocked: true }, "库存询问、留货和重复候选保留在队列中处理，不能作为订单明细打开。");
+    }
+    const rows = item.rows ?? [];
+    setEntryText(item.draft.sourceText ?? "");
+    setDraftRows(rows);
+    setSelectedDraftId(rows[0]?.id ?? "");
+    setDraftStatus(item.draft.status ?? "待审核");
+    setDraftApiMeta({
+      draftId: item.draft.draftId ?? item.draft.id ?? "",
+      clientRevision: Number(item.draft.clientRevision ?? item.draft.revision ?? 0),
+      source: "api",
+    });
+    return withFeedback({ source: "api", draft: item.draft, rows }, `已打开独立订单草稿 ${item.draft.draftId ?? item.draft.id}。`);
+  }
+
+  async function prepareOrderDraftFromTemporaryHold({ intent, hold, candidate }) {
+    const holdId = String(hold?.reservationId ?? hold?.id ?? "").trim();
+    const intentId = String(intent?.intentId ?? intent?.id ?? hold?.sourceIntentId ?? "").trim();
+    if (!holdId || !intentId || !candidate) {
+      return withFeedback({ blocked: true }, "临时留货缺少来源意图或规格，无法转入订单录入。");
+    }
+    const sourceText = [
+      "我要",
+      candidate.product || candidate.productName || "空白袋",
+      candidate.size,
+      candidate.color || candidate.bagColor,
+      candidate.handle || candidate.handleType,
+      `${hold.reservedQty ?? candidate.qty ?? 0}个`,
+    ].filter(Boolean).join(" ");
+    setDraftStatus("识别中");
+    const result = await orderApi.recognizeOfficeDraft({
+      authState,
+      customers,
+      inventories: inventoryRecords,
+      operatorId: currentUserId,
+      sourceText,
+    });
+    if (result.blocked || !result.rows?.length) {
+      setDraftStatus("识别失败");
+      return withFeedback(result, formatBlockedFeedback("后端拒绝创建留货订单草稿", result));
+    }
+    const rows = result.rows.map((row, index) => index === 0 ? {
+      ...row,
+      customerId: intent.customerId || row.customerId,
+      qty: Number(hold.reservedQty ?? candidate.qty ?? row.qty ?? 0),
+      sourceHoldId: holdId,
+      sourceIntentId: intentId,
+      note: uniqueText([row.note, `由临时留货 ${holdId} 转入`, intent.sourceText]).join("；"),
+    } : row);
+    setEntryText(sourceText);
+    setDraftRows(rows);
+    setSelectedDraftId(rows[0].id);
+    setDraftStatus("已识别待确认");
+    setDraftApiMeta({
+      draftId: result.draft?.draftId ?? "",
+      clientRevision: Number(result.draft?.clientRevision ?? 0),
+      source: result.source,
+    });
+    return withFeedback(result, `临时留货 ${holdId} 已转入订单草稿；确认订单后将原位转换占用，不会重复扣库存。`);
+  }
+
   function updateOrderDraftField(id, field, value) {
     setDraftStatus("已调整待确认");
     setDraftRows((current) => updateDraftRowsField(current, {
@@ -174,6 +276,64 @@ export function createOfficeOrderWriteActions({
       customers,
       inventoryRecords,
     }));
+  }
+
+  async function restoreShortageCancelledLine({ draftLineId, reason }) {
+    if (!draftApiMeta.draftId || Number(draftApiMeta.clientRevision ?? 0) < 1) {
+      return withFeedback({ blocked: true }, "当前取消明细尚未保存到后端，请先保存草稿后再恢复订购。");
+    }
+    setDraftStatus("恢复订购中");
+    const result = normalizeWriteResultForRuntime(
+      await orderApi.restoreOfficeDraftShortageCancellation({
+        authState,
+        draftId: draftApiMeta.draftId,
+        draftLineId,
+        clientRevision: draftApiMeta.clientRevision,
+        operatorId: currentUserId,
+        reason,
+      }),
+      { label: "恢复缺货取消明细", serverRequired },
+    );
+    if (result.blocked || !result.line) {
+      setDraftStatus("恢复订购失败");
+      return withFeedback(result, formatBlockedFeedback("后端拒绝恢复订购", result));
+    }
+    setDraftRows((current) => current.map((row) => row.id === draftLineId ? { ...row, ...result.line } : row));
+    rememberDraftApiMeta(result);
+    setDraftStatus("已恢复待确认");
+    return withFeedback(result, "该明细已恢复为待确认订购；取消来源和恢复操作已留痕，正式确认前仍会重新校验库存与价格。");
+  }
+
+  async function linkCrossDraftShortageCancellation({ intentId, reason }) {
+    const targetLine = draftRows.find((row) => row.id === selectedDraftId);
+    if (!targetLine) return withFeedback({ blocked: true }, "请先打开目标订单草稿并选择要取消的具体明细。");
+    if (targetLine.excludedFromConfirmation === true || targetLine.cancellationStatus === "库存不足取消") {
+      return withFeedback({ blocked: true }, "当前明细已经取消，不能重复关联跨草稿取消消息。");
+    }
+    if (!draftApiMeta.draftId || Number(draftApiMeta.clientRevision ?? 0) < 1) {
+      return withFeedback({ blocked: true }, "目标草稿尚未保存到后端，请先保存草稿后再关联取消消息。");
+    }
+    setDraftStatus("关联取消中");
+    const result = normalizeWriteResultForRuntime(
+      await orderApi.linkOfficeDraftShortageCancellation({
+        authState,
+        draftId: draftApiMeta.draftId,
+        draftLineId: targetLine.id,
+        intentId,
+        clientRevision: draftApiMeta.clientRevision,
+        operatorId: currentUserId,
+        reason,
+      }),
+      { label: "关联跨草稿取消", serverRequired },
+    );
+    if (result.blocked || !result.line) {
+      setDraftStatus("关联取消失败");
+      return withFeedback(result, formatBlockedFeedback("后端拒绝关联跨草稿取消", result));
+    }
+    setDraftRows((current) => current.map((row) => row.id === targetLine.id ? { ...row, ...result.line } : row));
+    rememberDraftApiMeta(result);
+    setDraftStatus("已关联取消待确认");
+    return withFeedback(result, "取消消息已关联到当前草稿明细；来源上下文和操作记录已保留，该行不会生成正式订单。");
   }
 
   function runOrderDraftCommand(action) {
@@ -197,8 +357,95 @@ export function createOfficeOrderWriteActions({
     return withFeedback(result, result.toast);
   }
 
-  async function executeOrderEntryAction(label) {
-    if (label === "拆分订单") return runOrderDraftCommand("拆分当前行");
+  async function executeOrderEntryAction(label, payload = {}) {
+    if (label === "拆分订单") {
+      setDraftStatus("拆单预览中");
+      let splitDraftId = draftApiMeta.draftId;
+      let splitDraftRevision = Number(draftApiMeta.clientRevision ?? 0);
+      if (!splitDraftId || splitDraftRevision < 1) {
+        const recognition = await orderApi.recognizeOfficeDraft({
+          authState,
+          customers,
+          inventories: inventoryRecords,
+          operatorId: currentUserId,
+          sourceText: entryText,
+        });
+        if (recognition.blocked || !recognition.draft?.draftId) {
+          setDraftStatus("拆单预览失败");
+          return withFeedback(recognition, formatBlockedFeedback("后端拒绝建立拆单草稿", recognition));
+        }
+        splitDraftId = recognition.draft.draftId;
+        splitDraftRevision = Number(recognition.draft.clientRevision ?? 0);
+        const saved = await orderApi.saveOfficeDraft({
+          authState,
+          draftRows,
+          draftId: splitDraftId,
+          clientRevision: splitDraftRevision,
+          operatorId: currentUserId,
+          sourceText: entryText,
+          draftStatus: "待审核",
+          saveReason: "office_entry_split_preview_prepare",
+        });
+        if (saved.blocked) {
+          setDraftStatus("拆单预览失败");
+          return withFeedback(saved, formatBlockedFeedback("后端拒绝保存拆单草稿", saved));
+        }
+        splitDraftRevision = Number(saved.draft?.clientRevision ?? splitDraftRevision);
+        setDraftApiMeta({ draftId: splitDraftId, clientRevision: splitDraftRevision, source: "api" });
+      }
+      const result = await orderApi.previewOfficeDraftSplit({
+        authState,
+        draftRows,
+        draftId: splitDraftId,
+        clientRevision: splitDraftRevision,
+        operatorId: currentUserId,
+        sourceText: entryText,
+      });
+      if (result.blocked) {
+        setDraftStatus("拆单预览失败");
+        return withFeedback(result, formatBlockedFeedback("后端拒绝生成拆单预览", result));
+      }
+      setDraftStatus("拆单预览待确认");
+      return withFeedback(result, `已生成 ${result.splitPlan?.groups?.length ?? 0} 个客户/交付组，请核对后确认拆单。`);
+    }
+    if (label === "确认拆单") {
+      setDraftStatus("拆单确认中");
+      const apiResult = await orderApi.confirmOfficeDraftSplit({
+        authState,
+        draftRows,
+        draftId: draftApiMeta.draftId,
+        clientRevision: draftApiMeta.clientRevision,
+        operatorId: currentUserId,
+        sourceText: entryText,
+        splitPlanHash: payload.splitPlanHash,
+      });
+      const confirmationStrategy = orderApi.resolveOfficeOrderConfirmationStrategy(apiResult, {
+        serverRequired: true,
+      });
+      if (confirmationStrategy.kind === "blocked") {
+        setDraftStatus("拆单确认失败");
+        return withFeedback(apiResult, formatBlockedFeedback("后端拒绝确认拆单", {
+          ...apiResult,
+          error: confirmationStrategy.error,
+        }));
+      }
+      rememberDraftApiMeta(apiResult);
+      setDraftStatus("已生成多个正式订单");
+      const projectionResults = await Promise.all([
+        refreshOrderPool({ showToast: false }),
+        refreshInventoryRecords({ showToast: false }),
+        refreshFulfillments({ showToast: false }),
+        refreshTodos({ showToast: false }),
+      ]);
+      const refreshFailed = projectionResults.some((result) => result?.blocked || result?.source !== "api");
+      return withFeedback(
+        apiResult,
+        refreshFailed
+          ? `已生成 ${confirmationStrategy.confirmation.orderIds?.length ?? 0} 个正式订单；部分投影刷新失败，请刷新页面。`
+          : `已按预览生成 ${confirmationStrategy.confirmation.orderIds?.length ?? 0} 个正式订单，库存、交付和待办已刷新。`,
+        { navigateTo: "orders" },
+      );
+    }
     if (label === "作废草稿") {
       setDraftStatus("作废中");
       const apiResult = normalizeWriteResultForRuntime(
@@ -288,6 +535,20 @@ export function createOfficeOrderWriteActions({
 
     if (confirmationStrategy.kind === "server") {
       rememberDraftApiMeta(apiResult);
+      if (confirmationStrategy.confirmation?.closedWithoutOrder === true) {
+        setDraftStatus("库存不足取消");
+        const projectionResults = await Promise.all([
+          refreshInventoryRecords({ showToast: false }),
+          refreshTodos({ showToast: false }),
+        ]);
+        const refreshFailed = projectionResults.some((result) => result?.blocked || result?.source !== "api");
+        return withFeedback(
+          apiResult,
+          refreshFailed
+            ? "草稿全部明细已按库存不足取消，未生成正式订单；库存意图或待办刷新失败，请刷新页面后重试。"
+            : "草稿全部明细已按库存不足取消，已保留原文证据，未生成正式订单、库存占用或交付任务。",
+        );
+      }
       const confirmedOrderLineId = confirmationStrategy.confirmation?.orderLines?.[0]?.id ?? "";
       if (confirmedOrderLineId) setSelectedOrderId(confirmedOrderLineId);
       setDraftStatus("已确认");
@@ -433,7 +694,13 @@ export function createOfficeOrderWriteActions({
   return {
     executeOrderEntryAction,
     executeOrderLineAction,
+    openQueuedOrderDraft,
+    recognizeOrderDraftQueue,
     recognizeOrderDraft,
+    refreshOrderDraftQueue,
+    prepareOrderDraftFromTemporaryHold,
+    linkCrossDraftShortageCancellation,
+    restoreShortageCancelledLine,
     runOrderDraftCommand,
     updateOrderDraftField,
   };
@@ -457,7 +724,13 @@ export function useOfficeOrderWrites(options) {
   return {
     executeOrderEntryAction: useCallback(actions.executeOrderEntryAction, dependencies),
     executeOrderLineAction: useCallback(actions.executeOrderLineAction, dependencies),
+    openQueuedOrderDraft: useCallback(actions.openQueuedOrderDraft, dependencies),
+    recognizeOrderDraftQueue: useCallback(actions.recognizeOrderDraftQueue, dependencies),
     recognizeOrderDraft: useCallback(actions.recognizeOrderDraft, dependencies),
+    refreshOrderDraftQueue: useCallback(actions.refreshOrderDraftQueue, dependencies),
+    prepareOrderDraftFromTemporaryHold: useCallback(actions.prepareOrderDraftFromTemporaryHold, dependencies),
+    linkCrossDraftShortageCancellation: useCallback(actions.linkCrossDraftShortageCancellation, dependencies),
+    restoreShortageCancelledLine: useCallback(actions.restoreShortageCancelledLine, dependencies),
     runOrderDraftCommand: useCallback(actions.runOrderDraftCommand, dependencies),
     updateOrderDraftField: useCallback(actions.updateOrderDraftField, dependencies),
   };

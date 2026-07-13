@@ -16,6 +16,8 @@ const mainSource = read("src/main.jsx");
 const componentStyles = read("src/styles/components.css");
 const statementStyles = read("src/styles/features/statements.css");
 const roleStyles = read("src/styles/features/role-tools.css");
+const rawMaterialStyles = read("src/styles/features/raw-material.css");
+const sharedStyles = read("src/styles/shared.css");
 
 assert.match(sharedUiSource, /const RowElement = row\.onClick \? "button" : "div"/);
 
@@ -72,9 +74,18 @@ assert.match(driverSource, /driver-delivery-stage/);
 assert.match(mainSource, /\.\/styles\/features\/statements\.css/);
 assert.match(mainSource, /\.\/styles\/features\/role-tools\.css/);
 assert.match(statementStyles, /statement-table \.data-row span:nth-child\(6\)/);
+for (const selector of [".customer-row", ".statement-summary", ".statement-actions", ".export-history-row"]) {
+  assert.equal(statementStyles.includes(selector), true, `statement feature styles should own ${selector}`);
+  assert.equal(sharedStyles.includes(selector), false, `shared styles should not retain ${selector}`);
+}
+assert.doesNotMatch(statementStyles, /\.page-grid\.statement-layout|\.customer-list|\.statement-main/);
+assert.doesNotMatch(sharedStyles, /\.page-grid\.statement-layout/);
+assert.doesNotMatch(sharedStyles, /\.statement-filter-panel|\.statement-filter-summary/);
 assert.match(componentStyles, /\.page-grid\.operational-statement-layout/);
 assert.match(roleStyles, /production-schedule-queue-table/);
 assert.match(roleStyles, /raw-material-inbound-table/);
+assert.match(rawMaterialStyles, /supplier-statement-review-list/);
+assert.doesNotMatch(sharedStyles, /\.raw-material-roll-row|\.supplier-statement-preview/);
 assert.match(roleStyles, /master-data-maintenance-table/);
 assert.match(roleStyles, /mobile-role-detail-tabs/);
 assert.match(roleStyles, /driver-stage-action-bar/);

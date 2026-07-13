@@ -13,6 +13,7 @@ import { buildXlsxWorkbookFromWorksheets, cell } from "../src/domain/xlsxWorkboo
 const generatedAt = "2026-07-03T10:30:00.000Z";
 const validWorkbook = buildMasterDataImportTemplateWorkbook({
   templateKey: "all",
+  includeFixtureRows: true,
   generatedAt,
   generatedBy: "office-admin",
 });
@@ -29,10 +30,109 @@ assert.equal(validResult.summary.dataRowCount, 5);
 assert.equal(validResult.summary.checkedSheetCount, 5);
 assert.equal(validResult.summary.errorCount, 0);
 assert.equal(validResult.summary.warningCount, 0);
+assert.equal(validResult.employeeRoleCoverage.available, true);
+assert.equal(validResult.employeeRoleCoverage.coverageLabel, "1/8");
+assert.equal(validResult.employeeRoleCoverage.coveredRoleCount, 1);
+assert.equal(validResult.employeeRoleCoverage.missingRoleCount, 7);
+assert.equal(validResult.employeeRoleCoverage.roles.find((role) => role.roleKey === "workshop")?.rowCount, 1);
 assert(validResult.sheets.every((sheet) => sheet.status === "ok"), "valid template sheets should pass");
 assert.equal(validResult.stagedRows.length, 5);
 assert(validResult.stagedRows.some((sheet) => sheet.sheetKey === "customers" && sheet.rows[0].values["客户名称"] === "张三服饰"));
 assert(validResult.stagedRows.some((sheet) => sheet.sheetKey === "inventory_items" && sheet.rows[0].values["在库数量"] === "2480"));
+
+const emptyGeneratedResult = await precheckMasterDataImportWorkbook({
+  bytes: buildMasterDataImportTemplateWorkbook({ templateKey: "all", generatedAt, generatedBy: "office-admin" }),
+  fileName: "empty-system-template.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(emptyGeneratedResult.summary.status, "blocked");
+assert.equal(emptyGeneratedResult.summary.dataRowCount, 0);
+assert.equal(emptyGeneratedResult.summary.errorCount, 5);
+assert.equal(emptyGeneratedResult.stagedRows.length, 0);
+assert(emptyGeneratedResult.issues.every((issue) => issue.message.includes("没有可导入数据")));
+
+const workshopOnlyResult = await precheckMasterDataImportWorkbook({
+  bytes: buildMasterDataImportTemplateWorkbook({ templateKey: "workshop", generatedAt, generatedBy: "office-admin", includeFixtureRows: true }),
+  fileName: "erp-workshop-master-import-template-2026-07-03.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(workshopOnlyResult.summary.status, "passed");
+assert.equal(workshopOnlyResult.summary.checkedSheetCount, 1);
+assert.equal(workshopOnlyResult.summary.dataRowCount, 1);
+assert.equal(workshopOnlyResult.employeeRoleCoverage.coverageLabel, "1/8");
+
+const employeeSpec = getMasterDataImportWorksheetSpecs().find((spec) => spec.key === "employees_machines");
+const officeOnlyWorkbook = buildEmployeeOnlyWorkbook(employeeSpec, {
+  员工编号: "EMP-OFFICE-001",
+  员工姓名: "陈文员",
+  角色: "办公室",
+  启用状态: "启用",
+});
+const officeOnlyResult = await precheckMasterDataImportWorkbook({
+  bytes: officeOnlyWorkbook,
+  fileName: "office-employees.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(officeOnlyResult.summary.status, "passed");
+assert.equal(officeOnlyResult.summary.importAllowed, true);
+assert.equal(officeOnlyResult.employeeRoleCoverage.roles.find((role) => role.roleKey === "office")?.rowCount, 1);
+assert(!officeOnlyResult.issues.some((issue) => issue.field === "默认车间" || issue.field === "默认机台"));
+
+const missingEmployeeIdResult = await precheckMasterDataImportWorkbook({
+  bytes: buildEmployeeOnlyWorkbook(employeeSpec, { 员工姓名: "缺编号员工", 角色: "办公室", 启用状态: "启用" }),
+  fileName: "missing-employee-id.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(missingEmployeeIdResult.summary.status, "blocked");
+assert(missingEmployeeIdResult.issues.some((issue) => issue.message.includes("员工编号 不能为空")));
+
+const invalidEmployeeIdResult = await precheckMasterDataImportWorkbook({
+  bytes: buildEmployeeOnlyWorkbook(employeeSpec, { 员工编号: "员工 001", 员工姓名: "非法编号员工", 角色: "办公室", 启用状态: "启用" }),
+  fileName: "invalid-employee-id.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(invalidEmployeeIdResult.summary.status, "blocked");
+assert(invalidEmployeeIdResult.issues.some((issue) => issue.message.includes("员工编号须为1-32位")));
+
+const duplicateEmployeeResult = await precheckMasterDataImportWorkbook({
+  bytes: buildEmployeeOnlyWorkbook(employeeSpec, [
+    { 员工编号: "EMP-DUP-001", 员工姓名: "员工甲", 角色: "办公室", 启用状态: "启用" },
+    { 员工编号: "emp-dup-001", 员工姓名: "员工乙", 角色: "财务 / 对账", 启用状态: "启用" },
+  ]),
+  fileName: "duplicate-employee-id.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(duplicateEmployeeResult.summary.status, "blocked");
+assert(duplicateEmployeeResult.issues.some((issue) => issue.message.includes("员工编号 重复")));
+
+const copiedExampleResult = await precheckMasterDataImportWorkbook({
+  bytes: buildEmployeeOnlyWorkbook(employeeSpec, {
+    员工编号: "示例-请替换",
+    员工姓名: "王师傅",
+    角色: "车间报工",
+    默认车间: "1号车间",
+    默认机台: "1号机",
+    启用状态: "启用",
+  }),
+  fileName: "copied-employee-example.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(copiedExampleResult.summary.status, "blocked");
+assert(copiedExampleResult.issues.some((issue) => issue.message.includes("未替换的模板示例标记")));
+
+const priceSpec = getMasterDataImportWorksheetSpecs().find((spec) => spec.key === "price_tables");
+const priceWithoutSpecsResult = await precheckMasterDataImportWorkbook({
+  bytes: buildXlsxWorkbookFromWorksheets({
+    worksheets: [{
+      name: priceSpec.worksheetName,
+      rows: [priceSpec.columns, priceSpec.columns.map((column) => priceSpec.requiredFields.includes(column) ? "必填" : "可选")],
+    }],
+  }),
+  fileName: "price-without-product-specs.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(priceWithoutSpecsResult.summary.status, "blocked");
+assert(priceWithoutSpecsResult.issues.some((issue) => issue.message.includes("缺少 尺寸颜色款式 sheet")));
 
 const externalWorkbook = buildExternalCompressedSharedStringWorkbook();
 const externalResult = await precheckMasterDataImportWorkbook({
@@ -50,6 +150,26 @@ assert(externalResult.stagedRows.some((sheet) => sheet.sheetKey === "inventory_i
 assert.equal(getExternalStagedValues(externalResult, "price_tables")["生效日期"], "2026-07-03");
 assert.equal(getExternalStagedValues(externalResult, "inventory_items")["盘点日期"], "2026-07-01");
 assert.equal(getExternalStagedValues(externalResult, "employees_machines")["生效日期"], "2026-07-01");
+
+const namespacePrefixedResult = await precheckMasterDataImportWorkbook({
+  bytes: buildNamespacePrefixedEmployeeWorkbook(employeeSpec),
+  fileName: "namespace-prefixed-employees.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(namespacePrefixedResult.summary.status, "passed");
+assert.equal(namespacePrefixedResult.summary.dataRowCount, 1);
+assert.equal(namespacePrefixedResult.summary.checkedSheetCount, 1);
+assert.equal(namespacePrefixedResult.employeeRoleCoverage.coverageLabel, "1/8");
+assert.equal(getExternalStagedValues(namespacePrefixedResult, "employees_machines")["员工编号"], "EMP-NS-001");
+
+const namespacePrefixedMissingIdResult = await precheckMasterDataImportWorkbook({
+  bytes: buildNamespacePrefixedEmployeeWorkbook(employeeSpec, { missingEmployeeNumber: true }),
+  fileName: "namespace-prefixed-employee-missing-id.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(namespacePrefixedMissingIdResult.summary.status, "blocked");
+assert(namespacePrefixedMissingIdResult.issues.some((issue) => issue.field === "员工编号" && issue.message.includes("不能为空")));
+assert(!namespacePrefixedMissingIdResult.issues.some((issue) => issue.field === "员工姓名"));
 
 const invalidWorkbook = buildXlsxWorkbookFromWorksheets({
   title: "错误基础资料导入模板",
@@ -101,9 +221,10 @@ const invalidWorkbook = buildXlsxWorkbookFromWorksheets({
       name: "员工机台",
       columns: [120, 120, 120],
       rows: [
-        ["员工姓名", "角色", "默认车间", "粗略日产量", "启用状态"].map((item) => cell(item, { styleId: "Header" })),
-        ["必填", "必填", "必填", "可选", "可选"].map((item) => cell(item)),
-        ["王师傅", "制袋工", "1号车间", "-1", "启用"].map((item) => cell(item)),
+        ["员工姓名", "角色", "默认车间", "默认机台", "粗略日产量", "启用状态"].map((item) => cell(item, { styleId: "Header" })),
+        ["必填", "必填", "必填", "可选", "可选", "可选"].map((item) => cell(item)),
+        ["王师傅", "神秘岗位", "1号车间", "", "-1", "启用"].map((item) => cell(item)),
+        ["李师傅", "制袋工", "1号车间", "", "1000", "启用"].map((item) => cell(item)),
       ],
     },
   ],
@@ -124,6 +245,9 @@ assert(invalidResult.issues.some((issue) => issue.message.includes("单价明显
 assert(invalidResult.issues.some((issue) => issue.message.includes("价格导入应先进入待审核")));
 assert(invalidResult.issues.some((issue) => issue.message.includes("不能大于在库数量")));
 assert(invalidResult.issues.some((issue) => issue.message.includes("未在尺寸颜色款式 sheet 定义")));
+assert(invalidResult.issues.some((issue) => issue.message.includes("角色无法映射到V1正式岗位")));
+assert(!invalidResult.issues.some((issue) => issue.message.includes("车间岗位必须填写默认机台")));
+assert.equal(invalidResult.employeeRoleCoverage.coverageLabel, "1/8");
 
 console.log("master-data import precheck passed");
 
@@ -145,6 +269,73 @@ function buildExternalCompressedSharedStringWorkbook() {
   ];
   files.push({ path: "xl/sharedStrings.xml", content: buildSharedStringsXml(sharedStrings) });
   return createCompressedZipWithDataDescriptors(files);
+}
+
+function buildEmployeeOnlyWorkbook(employeeSpec, values) {
+  const valueRows = Array.isArray(values) ? values : [values];
+  return buildXlsxWorkbookFromWorksheets({
+    title: "员工正式资料导入",
+    creator: "test",
+    createdAt: generatedAt,
+    worksheets: [{
+      name: employeeSpec.worksheetName,
+      columns: employeeSpec.columns.map(() => 120),
+      rows: [
+        employeeSpec.columns.map((column) => cell(column, { styleId: "Header" })),
+        employeeSpec.columns.map((column) => cell(employeeSpec.requiredFields.includes(column) ? "必填" : employeeSpec.conditionalRequiredFields.includes(column) ? "车间岗必填" : employeeSpec.deferredFields.includes(column) ? "可后补" : "可选")),
+        ...valueRows.map((row) => employeeSpec.columns.map((column) => cell(row[column] ?? ""))),
+      ],
+    }],
+  });
+}
+
+function buildNamespacePrefixedEmployeeWorkbook(employeeSpec, options = {}) {
+  const sharedStrings = [];
+  const values = {
+    员工编号: options.missingEmployeeNumber ? "" : "EMP-NS-001",
+    员工姓名: "命名空间员工",
+    角色: "办公室",
+    启用状态: "启用",
+  };
+  const rows = [
+    employeeSpec.columns,
+    employeeSpec.columns.map((column) => employeeSpec.requiredFields.includes(column) ? "必填" : employeeSpec.conditionalRequiredFields.includes(column) ? "车间岗必填" : employeeSpec.deferredFields.includes(column) ? "可后补" : "可选"),
+    employeeSpec.columns.map((column) => values[column] ?? ""),
+  ];
+  let worksheetXml = buildExternalWorksheet(rows, sharedStrings)
+    .replaceAll("<worksheet", "<x:worksheet")
+    .replaceAll("</worksheet>", "</x:worksheet>")
+    .replaceAll("<sheetData", "<x:sheetData")
+    .replaceAll("</sheetData>", "</x:sheetData>")
+    .replaceAll("<row", "<x:row")
+    .replaceAll("</row>", "</x:row>")
+    .replaceAll("<c", "<x:c")
+    .replaceAll("</c>", "</x:c>")
+    .replaceAll("<v>", "<x:v>")
+    .replaceAll("</v>", "</x:v>")
+    .replace('xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"', 'xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"');
+  if (options.missingEmployeeNumber) {
+    worksheetXml = worksheetXml.replace(/<x:c r="A3" t="s"><x:v>\d+<\/x:v><\/x:c>/, '<x:c r="A3" t="str" />');
+  }
+  const sharedStringsXml = buildSharedStringsXml(sharedStrings)
+    .replace("<sst ", "<x:sst ")
+    .replace("</sst>", "</x:sst>")
+    .replaceAll("<si>", "<x:si>")
+    .replaceAll("</si>", "</x:si>")
+    .replaceAll("<t>", "<x:t>")
+    .replaceAll("</t>", "</x:t>")
+    .replace('xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"', 'xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main"');
+  const workbookXml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><x:workbook xmlns:x="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><x:sheets><x:sheet name="${escapeXmlText(employeeSpec.worksheetName)}" sheetId="1" r:id="rId1"/></x:sheets></x:workbook>`;
+  const workbookRels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><p:Relationships xmlns:p="http://schemas.openxmlformats.org/package/2006/relationships"><p:Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="/xl/worksheets/sheet1.xml"/><p:Relationship Id="rId2" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/sharedStrings" Target="sharedStrings.xml"/></p:Relationships>`;
+  return createCompressedZipWithDataDescriptors([
+    { path: "[Content_Types].xml", content: buildContentTypes(1) },
+    { path: "_rels/.rels", content: buildRootRels() },
+    { path: "xl/workbook.xml", content: workbookXml },
+    { path: "xl/_rels/workbook.xml.rels", content: workbookRels },
+    { path: "xl/styles.xml", content: "<styleSheet xmlns=\"http://schemas.openxmlformats.org/spreadsheetml/2006/main\"/>" },
+    { path: "xl/worksheets/sheet1.xml", content: worksheetXml },
+    { path: "xl/sharedStrings.xml", content: sharedStringsXml },
+  ]);
 }
 
 function buildExternalDataWorksheet(spec, sharedStrings, omitHeaderRefs = false) {

@@ -5,6 +5,11 @@ import {
   buildXlsxWorkbookFromWorksheets,
   cell,
 } from "./xlsxWorkbook.js";
+import {
+  getV1RuntimeEmployeeRoleInputLabels,
+  roleCatalog,
+  v1RuntimeEmployeeRoleKeys,
+} from "../../shared/auth/roleCatalog.js";
 
 export const MASTER_DATA_IMPORT_TEMPLATE_VERSION = "p0-master-data-import-template-v1";
 export const MASTER_DATA_IMPORT_WORKBOOK_FORMAT = "XLSX Office Open XML";
@@ -177,9 +182,11 @@ const templateDefinitions = [
   {
     key: "employees_machines",
     label: "员工机台",
-    description: "员工、岗位、工资基础字段、车间机台和粗略产能。",
+    description: "员工编号使用1-32位字母/数字/_/-；维护岗位、工资基础字段、车间机台和粗略产能。",
     worksheetName: "员工机台",
-    requiredFields: ["员工姓名", "角色", "默认车间"],
+    requiredFields: ["员工编号", "员工姓名", "角色"],
+    conditionalRequiredFields: [],
+    deferredFields: ["默认车间", "默认机台"],
     columns: [
       "员工编号",
       "员工姓名",
@@ -252,6 +259,8 @@ export function getMasterDataImportTemplateDefinitions() {
     description: definition.description,
     worksheetName: definition.worksheetName,
     requiredFields: [...definition.requiredFields],
+    conditionalRequiredFields: [...(definition.conditionalRequiredFields ?? [])],
+    deferredFields: [...(definition.deferredFields ?? [])],
     columnCount: definition.columns.length,
   }));
 }
@@ -263,6 +272,8 @@ export function getMasterDataImportWorksheetSpecs() {
     description: definition.description,
     worksheetName: definition.worksheetName,
     requiredFields: [...definition.requiredFields],
+    conditionalRequiredFields: [...(definition.conditionalRequiredFields ?? [])],
+    deferredFields: [...(definition.deferredFields ?? [])],
     columns: [...definition.columns],
   }));
 }
@@ -295,6 +306,8 @@ export function buildMasterDataImportTemplateMetadata(input = {}) {
     requiredFieldGroups: definitions.map((definition) => ({
       sheet: definition.worksheetName,
       fields: [...definition.requiredFields],
+      conditionalFields: [...(definition.conditionalRequiredFields ?? [])],
+      deferredFields: [...(definition.deferredFields ?? [])],
     })),
   };
 }
@@ -309,7 +322,8 @@ export function buildMasterDataImportTemplateWorkbook(input = {}) {
     createdAt: metadata.generatedAt,
     worksheets: [
       buildReadmeWorksheet(metadata, definitions),
-      ...definitions.map((definition) => buildDataWorksheet(definition)),
+      ...definitions.map((definition) => buildDataWorksheet(definition, input)),
+      ...definitions.map((definition) => buildExampleWorksheet(definition)),
     ],
   });
 }
@@ -326,7 +340,7 @@ export function buildMasterDataImportTemplateWorkbookBase64(input = {}) {
 export function getMasterDataImportTemplateSummary(templateKey = "all") {
   const key = normalizeTemplateKey(templateKey);
   const definitions = getDefinitionsForTemplateKey(key);
-  return `${templateSets[key].label} / ${definitions.length} 个 sheet / ${definitions.reduce((sum, item) => sum + item.columns.length, 0)} 个字段`;
+  return `${templateSets[key].label} / ${definitions.length} 个导入 sheet / ${definitions.reduce((sum, item) => sum + item.columns.length, 0)} 个字段`;
 }
 
 export function getMasterDataImportTemplateFileName(templateKey = "all", generatedAt = "") {
@@ -341,11 +355,13 @@ function getWorkbookWorksheets(input = {}) {
   const definitions = getDefinitionsForTemplateKey(templateKey);
   return [
     buildReadmeWorksheet(metadata, definitions),
-    ...definitions.map((definition) => buildDataWorksheet(definition)),
+    ...definitions.map((definition) => buildDataWorksheet(definition, input)),
+    ...definitions.map((definition) => buildExampleWorksheet(definition)),
   ];
 }
 
 function buildReadmeWorksheet(metadata, definitions) {
+  const includesEmployees = definitions.some((definition) => definition.key === "employees_machines");
   return {
     name: "导入说明",
     columns: [150, 220, 260, 360],
@@ -354,6 +370,7 @@ function buildReadmeWorksheet(metadata, definitions) {
       [cell("模板版本", { styleId: "Label" }), cell(metadata.templateVersion), cell("生成时间", { styleId: "Label" }), cell(formatDateTime(metadata.generatedAt))],
       [cell("导入口径", { styleId: "Label" }), cell("导入前先做整表预检查；发现重复、缺字段、价格高风险或库存异常时生成待确认，不直接落正式数据。", { mergeAcross: 2 })],
       [cell("更新规则", { styleId: "Label" }), cell("用业务编号或名称去重；历史订单、价格快照和库存流水不被后续主数据改动覆盖。", { mergeAcross: 2 })],
+      [cell("示例隔离", { styleId: "Label" }), cell("正式数据 Sheet 默认留空；“示例-*”Sheet 只供参考，不参与预检查或导入。复制示例后必须替换“示例-请替换”标记。", { mergeAcross: 2 })],
       [],
       [cell("Sheet", { styleId: "Header" }), cell("用途", { styleId: "Header" }), cell("必填字段", { styleId: "Header" }), cell("字段数", { styleId: "Header" })],
       ...definitions.map((definition) => [
@@ -362,24 +379,82 @@ function buildReadmeWorksheet(metadata, definitions) {
         cell(definition.requiredFields.join("、")),
         cell(definition.columns.length, { styleId: "Number" }),
       ]),
+      ...(includesEmployees ? buildEmployeeRoleGuideRows() : []),
     ],
   };
 }
 
-function buildDataWorksheet(definition) {
+function buildDataWorksheet(definition, input = {}) {
   const noteRow = definition.columns.map((column) => {
     const required = definition.requiredFields.includes(column);
-    return cell(required ? "必填" : "可选", { styleId: required ? "Input" : "Muted" });
+    const conditional = definition.conditionalRequiredFields?.includes(column);
+    const deferred = definition.deferredFields?.includes(column);
+    return cell(required ? "必填" : conditional ? "车间岗必填" : deferred ? "可后补" : "可选", { styleId: required || conditional || deferred ? "Input" : "Muted" });
   });
+  const roleLabels = getV1RuntimeEmployeeRoleInputLabels();
   return {
     name: definition.worksheetName,
     columns: definition.columns.map((column) => Math.max(90, Math.min(220, column.length * 16 + 70))),
     rows: [
       definition.columns.map((column) => cell(column, { styleId: "Header" })),
       noteRow,
-      definition.sampleRow.map((value) => cell(value)),
+      ...(input.includeFixtureRows === true ? [definition.sampleRow.map((value) => cell(value))] : []),
+    ],
+    dataValidations: definition.key === "employees_machines"
+      ? [{
+          sqref: "C3:C1000",
+          type: "list",
+          formula1: `"${roleLabels.join(",")}"`,
+          allowBlank: false,
+          promptTitle: "选择标准岗位",
+          prompt: "请选择8类V1正式岗位之一。",
+          errorTitle: "岗位不在允许范围",
+          error: `请选择：${roleLabels.join("、")}`,
+        }]
+      : [],
+  };
+}
+
+function buildExampleWorksheet(definition) {
+  const exampleRow = [...definition.sampleRow];
+  exampleRow[0] = "示例-请替换";
+  return {
+    name: `示例-${definition.worksheetName}`,
+    columns: definition.columns.map((column) => Math.max(90, Math.min(220, column.length * 16 + 70))),
+    rows: [
+      [cell(`${definition.label}填写示例（不参与导入）`, { styleId: "Title", mergeAcross: Math.max(0, definition.columns.length - 1) })],
+      [cell("使用说明", { styleId: "Label" }), cell("请在正式数据 Sheet 填写；如复制本行，必须替换“示例-请替换”及全部演示值。", { mergeAcross: Math.max(0, definition.columns.length - 2) })],
+      definition.columns.map((column) => cell(column, { styleId: "Header" })),
+      exampleRow.map((value) => cell(value, { styleId: "Muted" })),
     ],
   };
+}
+
+function buildEmployeeRoleGuideRows() {
+  return [
+    [],
+    [cell("员工正式账号岗位指引", { styleId: "Section", mergeAcross: 3 })],
+    [
+      cell("标准岗位", { styleId: "Header" }),
+      cell("填写要求", { styleId: "Header" }),
+      cell("默认车间 / 机台", { styleId: "Header" }),
+      cell("上线口径", { styleId: "Header" }),
+    ],
+    [
+      cell("编号规则", { styleId: "Label" }),
+      cell("员工编号为1-32位字母、数字、下划线或短横线，首位必须是字母或数字；按大小写不敏感唯一。", { mergeAcross: 2 }),
+    ],
+    ...v1RuntimeEmployeeRoleKeys.map((roleKey) => [
+      cell(roleCatalog[roleKey].displayName),
+      cell("员工编号、员工姓名、角色必填；一名真实员工一行。"),
+      cell(roleKey === "workshop" ? "可导入后在员工机台页手动分配；固定机台需车间+机台。" : roleKey === "packing" ? "杂工可只绑定负责车间，不绑定机台。" : "无需填写，不要使用虚假车间占位。"),
+      cell("至少1个已复核、已首次改密、未锁定且未过期的正式账号。"),
+    ]),
+    [
+      cell("注意", { styleId: "Label" }),
+      cell("8类岗位必须全部覆盖；模板样例不计入正式上线就绪。", { mergeAcross: 2 }),
+    ],
+  ];
 }
 
 function getDefinitionsForTemplateKey(templateKey) {

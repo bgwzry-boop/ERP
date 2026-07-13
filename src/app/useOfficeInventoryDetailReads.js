@@ -3,6 +3,8 @@ import {
   getOfficeInventoryCorrectionDetail,
   listOfficeInventoryCorrectionDrafts,
   listOfficeInventoryLedgerEntries,
+  listOfficeInventoryIntents,
+  listOfficeTemporaryInventoryHolds,
 } from "../services/officeInventoryApiClient.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 
@@ -56,6 +58,8 @@ const defaultApi = {
   getOfficeInventoryCorrectionDetail,
   listOfficeInventoryCorrectionDrafts,
   listOfficeInventoryLedgerEntries,
+  listOfficeInventoryIntents,
+  listOfficeTemporaryInventoryHolds,
 };
 
 export function createOfficeInventoryDetailReadActions({
@@ -71,6 +75,7 @@ export function createOfficeInventoryDetailReadActions({
   setInventoryCorrectionDetailState,
   setInventoryCorrectionQueueState,
   setInventoryLedgerState,
+  setInventoryIntentState,
 }) {
   async function loadInventoryCorrectionDetail(correctionDraftId, sourceEntry = null, { showToast = false } = {}) {
     const safeCorrectionDraftId = String(correctionDraftId ?? "").trim();
@@ -240,7 +245,43 @@ export function createOfficeInventoryDetailReadActions({
     );
   }
 
-  return { loadInventoryCorrectionDetail, refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries };
+  async function refreshInventoryIntents({ showToast = false } = {}) {
+    setInventoryIntentState((current) => ({ ...current, loading: true, error: "" }));
+    const [intentResult, holdResult] = await Promise.all([
+      api.listOfficeInventoryIntents({ authState, operatorId: currentUserId }),
+      api.listOfficeTemporaryInventoryHolds({ authState, operatorId: currentUserId }),
+    ]);
+    const blocked = intentResult?.blocked || holdResult?.blocked
+      || (serverRequired() && (intentResult?.source !== "api" || holdResult?.source !== "api"));
+    const lastSyncedAt = formatSyncTime();
+    if (blocked) {
+      const errorMessage = getErrorMessage(intentResult?.blocked ? intentResult : holdResult, "库存意图队列 API 返回错误。");
+      setInventoryIntentState({
+        source: "api_error",
+        items: [],
+        holds: [],
+        loading: false,
+        mutatingId: "",
+        error: errorMessage,
+        lastSyncedAt,
+      });
+      return withFeedback({ source: "api_error", blocked: true, error: { message: errorMessage } }, showToast, `后端拒绝刷新库存意图队列：${errorMessage}。`);
+    }
+    const items = intentResult.items ?? [];
+    const holds = holdResult.items ?? [];
+    setInventoryIntentState((current) => ({
+      ...current,
+      source: "api",
+      items,
+      holds,
+      loading: false,
+      error: "",
+      lastSyncedAt,
+    }));
+    return withFeedback({ source: "api", items, holds }, showToast, `库存意图和临时留货已刷新，共 ${items.length} 条意图、${holds.length} 条留货。`);
+  }
+
+  return { loadInventoryCorrectionDetail, refreshInventoryCorrectionQueue, refreshInventoryIntents, refreshInventoryLedgerEntries };
 }
 
 export function useOfficeInventoryDetailReads(options) {
@@ -273,6 +314,11 @@ export function useOfficeInventoryDetailReads(options) {
       authState,
       currentUserId,
       inventoryCorrectionDraftsRef,
+      serverRequired,
+    ]),
+    refreshInventoryIntents: useCallback(actions.refreshInventoryIntents, [
+      authState,
+      currentUserId,
       serverRequired,
     ]),
   };

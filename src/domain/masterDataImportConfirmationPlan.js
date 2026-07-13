@@ -1,3 +1,5 @@
+import { normalizeMasterDataEmployeeRoleCoverage } from "./masterDataImportReviewQueue.js";
+
 export const MASTER_DATA_IMPORT_CONFIRMATION_PLAN_VERSION = "p0-master-data-import-confirmation-plan-v1";
 
 const sheetWriteContracts = {
@@ -54,6 +56,7 @@ export function createMasterDataImportConfirmationPlan(input = {}) {
   const status = requiresManualReview ? "manual_review_required" : "ready_for_final_confirmation";
   const targetTables = unique(writeBatches.flatMap((batch) => batch.targetTables));
   const stagedRowCount = stagedRows.reduce((sum, sheet) => sum + sheet.rows.length, 0);
+  const employeeRoleCoverage = normalizeMasterDataEmployeeRoleCoverage(reviewDraft.employeeRoleCoverage);
 
   return {
     version: MASTER_DATA_IMPORT_CONFIRMATION_PLAN_VERSION,
@@ -73,7 +76,9 @@ export function createMasterDataImportConfirmationPlan(input = {}) {
       warningCount: toFiniteNumber(reviewDraft.summary?.warningCount),
       requiresManualReview,
       stagedRowCount,
+      employeeRoleCoverageLabel: employeeRoleCoverage.coverageLabel,
     },
+    employeeRoleCoverage,
     writeBatches,
     stagedRows,
     targetTables,
@@ -124,7 +129,8 @@ function normalizeRowValues(values = {}) {
 
 export function getMasterDataImportConfirmationPlanSummary(plan) {
   if (!plan) return "";
-  return `${plan.statusLabel || "待处理"} · ${plan.summary?.dataRowCount ?? 0} 行 · ${plan.summary?.targetTableCount ?? 0} 张目标表`;
+  const roleLabel = plan.employeeRoleCoverage?.available ? ` · 岗位 ${plan.employeeRoleCoverage.coverageLabel}` : "";
+  return `${plan.statusLabel || "待处理"} · ${plan.summary?.dataRowCount ?? 0} 行 · ${plan.summary?.targetTableCount ?? 0} 张目标表${roleLabel}`;
 }
 
 export function getMasterDataImportConfirmationPlanStatusLabel(status) {

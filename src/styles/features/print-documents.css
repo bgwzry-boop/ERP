@@ -1,0 +1,283 @@
+.print-batch-records {
+  display: grid;
+  gap: 7px;
+}
+
+.print-batch-record {
+  display: grid;
+  gap: 4px;
+  border: 1px solid #e2e8f2;
+  border-radius: 6px;
+  background: #fbfcff;
+  padding: 8px;
+}
+
+.print-batch-record > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.print-batch-record strong {
+  color: #172033;
+  font-size: 13px;
+}
+
+.print-batch-record p,
+.print-batch-record small,
+.print-batch-record em {
+  margin: 0;
+  color: #536178;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.print-batch-record em {
+  color: #7b8798;
+  font-style: normal;
+}
+
+.print-sheet {
+  margin: 10px 12px;
+  border: 1px dashed #b7c5d8;
+  border-radius: 6px;
+  background: #fbfcff;
+  padding: 16px;
+}
+
+.print-sheet h3 {
+  margin: 0 0 10px;
+}
+
+.print-sheet p {
+  color: #536178;
+  font-size: 13px;
+  line-height: 22px;
+}
+
+.print-package-checklist {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 6px;
+}
+
+.print-package-checklist > span {
+  color: #536178;
+  font-size: 12px;
+}
+
+.print-package-checklist > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.print-package-checklist label {
+  display: grid;
+  grid-template-columns: 16px minmax(58px, auto) minmax(0, 1fr);
+  align-items: center;
+  min-height: 32px;
+  border: 1px solid #d5deea;
+  border-radius: 5px;
+  background: #f8fbff;
+  color: #172033;
+  gap: 6px;
+  padding: 6px 8px;
+}
+
+.print-package-checklist label.checked {
+  border-color: #9bc2ff;
+  background: #eef6ff;
+}
+
+.print-package-checklist input {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
+.print-package-checklist strong {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.print-package-checklist small {
+  min-width: 0;
+  overflow: hidden;
+  color: #6b7890;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-template-sheet {
+  margin: 10px 12px;
+  padding: 12px;
+  border: 1px solid #c3d2e4;
+  border-radius: 6px;
+  background: #fff;
+  color: #1f2a3d;
+  font-size: 12px;
+}
+
+.label-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding-bottom: 8px;
+  border-bottom: 2px solid #22314a;
+}
+
+.label-header span,
+.label-grid span,
+.label-goods span,
+.label-note span {
+  display: block;
+  color: #7b8798;
+  font-size: 11px;
+  line-height: 16px;
+}
+
+.label-header h3 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 24px;
+}
+
+.label-header strong {
+  white-space: nowrap;
+  font-size: 13px;
+}
+
+.label-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 8px;
+  padding: 8px 0;
+}
+
+.label-grid > div,
+.label-goods,
+.label-note {
+  min-width: 0;
+  border: 1px solid #e2e8f1;
+  border-radius: 5px;
+  background: #f8fafc;
+  padding: 7px 8px;
+}
+
+.label-grid strong,
+.label-goods strong,
+.label-note strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.label-goods {
+  margin-bottom: 8px;
+}
+
+.print-line-table {
+  margin-bottom: 8px;
+  border: 1px solid #d9e3ef;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.print-line-head,
+.print-line-row {
+  display: grid;
+  grid-template-columns: 0.5fr 2.1fr 1fr 1.1fr;
+  gap: 0;
+  align-items: stretch;
+}
+
+.print-line-head {
+  background: #eef4fb;
+  color: #536178;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.print-line-head span,
+.print-line-row span,
+.print-line-row strong {
+  min-width: 0;
+  padding: 6px 7px;
+  border-right: 1px solid #d9e3ef;
+  overflow-wrap: anywhere;
+  line-height: 18px;
+}
+
+.print-line-head span:last-child,
+.print-line-row span:last-child,
+.print-line-row strong:last-child {
+  border-right: 0;
+}
+
+.print-line-row {
+  border-top: 1px solid #d9e3ef;
+  font-size: 12px;
+}
+
+.print-line-row strong {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.label-grid.compact {
+  grid-template-columns: 0.8fr 0.8fr 1.4fr 0.7fr;
+}
+
+.label-grid.document-money-grid {
+  grid-template-columns: 0.8fr 0.8fr 1.8fr 0.9fr;
+}
+
+.label-note {
+  margin-bottom: 8px;
+}
+
+.label-barcode {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 34px;
+  border: 1px solid #1f2a3d;
+  background: repeating-linear-gradient(
+    90deg,
+    #1f2a3d 0,
+    #1f2a3d 2px,
+    #fff 2px,
+    #fff 5px
+  );
+}
+
+.label-barcode span {
+  max-width: 100%;
+  padding: 2px 8px;
+  background: #fff;
+  color: #1f2a3d;
+  font-size: 11px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.label-footer {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-top: 8px;
+}
+
+.label-footer span {
+  border-radius: 4px;
+  background: #eef6ff;
+  color: #2563a7;
+  padding: 2px 7px;
+  font-size: 11px;
+}

@@ -8,6 +8,8 @@ export async function handleMasterDataReadRoutes({
   sendJson,
   paginate,
   listMasterDataEmployeeAccountReviews,
+  buildRuntimeEmployeeAccountReadiness,
+  buildEmployeeAssignmentOptions,
   downloadMasterDataImportFailedRowsRoute,
 }) {
   const listRoutes = {
@@ -61,7 +63,12 @@ export async function handleMasterDataReadRoutes({
   const listRoute = listRoutes[url.pathname];
   if (listRoute) {
     if (!requireActionPermission(response, permissionContext, listRoute.permission)) return true;
-    sendJson(response, 200, paginate(await listRoute.list(), url.searchParams));
+    const body = paginate(await listRoute.list(), url.searchParams);
+    if (url.pathname === "/api/master-data/employee-account-reviews") {
+      body.readiness = buildRuntimeEmployeeAccountReadiness({ users: workspace.users });
+      body.assignmentOptions = buildEmployeeAssignmentOptions(workspace);
+    }
+    sendJson(response, 200, body);
     return true;
   }
 

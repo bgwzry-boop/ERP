@@ -189,6 +189,11 @@
   line-height: 20px;
 }
 
+.metric.danger { border-color: #fac2bf; background: #fff8f7; }
+.metric.warning { border-color: #f5d79d; background: #fffaf0; }
+.metric.success { border-color: #b9e5ca; background: #f5fcf8; }
+.metric.blue { border-color: #bdd7ff; background: #f5f9ff; }
+
 .metric.blue::before { background: var(--erp-accent); }
 .metric.success::before { background: var(--erp-success); }
 .metric.warning::before { background: #d8921d; }
@@ -252,7 +257,9 @@
 }
 
 .segmented {
-  border-color: var(--erp-border);
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--erp-border);
   border-radius: var(--erp-radius-md);
   background: var(--erp-neutral-bg);
   padding: 2px;
@@ -260,7 +267,10 @@
 
 .segmented button {
   height: 27px;
+  border: 0;
   border-radius: var(--erp-radius-sm);
+  background: transparent;
+  color: #536178;
   font-size: 12px;
   padding: 0 10px;
 }
@@ -268,6 +278,7 @@
 .segmented button.selected {
   background: var(--erp-surface);
   color: var(--erp-accent-strong);
+  font-weight: 700;
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
 }
 

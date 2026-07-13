@@ -461,6 +461,8 @@ export async function listOfficeMasterDataEmployeeAccountReviews(input = {}, opt
     return {
       source: "api",
       items,
+      readiness: normalizeEmployeeAccountReadiness(json?.readiness),
+      assignmentOptions: normalizeEmployeeAssignmentOptions(json?.assignmentOptions),
       page: Number(json?.page) || page,
       pageSize: Number(json?.pageSize) || pageSize,
       total: Number(json?.total) || items.length,
@@ -470,6 +472,8 @@ export async function listOfficeMasterDataEmployeeAccountReviews(input = {}, opt
     return {
       source: "local_fallback",
       items,
+      readiness: null,
+      assignmentOptions: normalizeEmployeeAssignmentOptions(),
       page,
       pageSize,
       total: items.length,
@@ -534,6 +538,59 @@ export async function enableOfficeMasterDataEmployeeAccount(input = {}, options 
       blocked: true,
       error: {
         code: "MASTER_DATA_EMPLOYEE_ACCOUNT_REVIEW_API_UNAVAILABLE",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
+export async function updateOfficeMasterDataEmployeeAssignment(input = {}, options = {}) {
+  const { authState, operatorId, employeeId, assignmentMode, workshop, machineId, reason, changedAt } = input;
+  const safeEmployeeId = cleanText(employeeId);
+  if (!safeEmployeeId) {
+    return {
+      source: "client",
+      blocked: true,
+      error: { code: "MASTER_DATA_EMPLOYEE_ID_REQUIRED", message: "缺少员工 ID。" },
+    };
+  }
+  try {
+    const response = await requestMasterDataImportApi(
+      `/master-data/employee-account-reviews/${encodeURIComponent(safeEmployeeId)}/assignment`,
+      {
+        ...options,
+        authState,
+        method: "POST",
+        operatorId,
+        body: {
+          assignmentMode: cleanText(assignmentMode),
+          workshop: cleanText(workshop),
+          machineId: cleanText(machineId),
+          reason: cleanText(reason),
+          changedAt: cleanText(changedAt),
+        },
+      },
+    );
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "员工车间 / 机台调配 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      employeeAccountReview: normalizeEmployeeAccountReview(json?.employeeAccountReview),
+      assignmentOptions: normalizeEmployeeAssignmentOptions(json?.assignmentOptions),
+      operationLogId: cleanText(json?.operationLogId),
+    };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "MASTER_DATA_EMPLOYEE_ASSIGNMENT_API_UNAVAILABLE",
         message: error?.message ?? String(error),
       },
     };
@@ -781,6 +838,10 @@ function normalizeEmployeeAccountReview(review, extra = {}) {
     roleName: cleanText(review.roleName),
     defaultWorkshop: cleanText(review.defaultWorkshop),
     defaultMachineId: cleanText(review.defaultMachineId),
+    assignmentMode: cleanText(review.assignmentMode),
+    assignmentUpdatedBy: cleanText(review.assignmentUpdatedBy),
+    assignmentUpdatedAt: cleanText(review.assignmentUpdatedAt),
+    assignmentNote: cleanText(review.assignmentNote),
     status: cleanText(review.status),
     statusLabel: cleanText(review.statusLabel),
     profileStatus: cleanText(review.profileStatus),
@@ -805,6 +866,45 @@ function normalizeEmployeeAccountReview(review, extra = {}) {
     accountEnabled: review.accountEnabled === true,
     requestedEnabled: review.requestedEnabled === true,
     actionRequired: review.actionRequired !== false,
+  };
+}
+
+function normalizeEmployeeAssignmentOptions(value = {}) {
+  const workshops = Array.isArray(value?.workshops)
+    ? value.workshops.map(cleanText).filter(Boolean)
+    : ["1号车间", "2号车间", "3号车间"];
+  const machines = Array.isArray(value?.machines)
+    ? value.machines.map((machine) => ({
+        machineId: cleanText(machine?.machineId),
+        machineLabel: cleanText(machine?.machineLabel ?? machine?.machineId),
+        workshop: cleanText(machine?.workshop),
+        enabled: machine?.enabled !== false,
+      })).filter((machine) => machine.machineId)
+    : [];
+  return { workshops, machines };
+}
+
+function normalizeEmployeeAccountReadiness(readiness) {
+  if (!readiness || typeof readiness !== "object") return null;
+  return {
+    ready: readiness.ready === true,
+    requiredRoleCount: Number(readiness.requiredRoleCount) || 0,
+    coveredRoleCount: Number(readiness.coveredRoleCount) || 0,
+    missingRoleCount: Number(readiness.missingRoleCount) || 0,
+    formalAccountCount: Number(readiness.formalAccountCount) || 0,
+    readyFormalAccountCount: Number(readiness.readyFormalAccountCount) || 0,
+    roles: (Array.isArray(readiness.roles) ? readiness.roles : []).map((role) => ({
+      roleKey: cleanText(role.roleKey),
+      roleLabel: cleanText(role.roleLabel),
+      ready: role.ready === true,
+      accountCount: Number(role.accountCount) || 0,
+      readyAccountCount: Number(role.readyAccountCount) || 0,
+      blockers: (Array.isArray(role.blockers) ? role.blockers : []).map((blocker) => ({
+        code: cleanText(blocker.code),
+        label: cleanText(blocker.label),
+        count: Number(blocker.count) || 0,
+      })).filter((blocker) => blocker.code && blocker.label),
+    })).filter((role) => role.roleKey && role.roleLabel),
   };
 }
 

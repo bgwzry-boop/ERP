@@ -167,6 +167,10 @@ function mapTodoListItem(item = {}) {
     notifiedBy: cleanText(item.notifiedBy),
     notifiedAt: cleanText(item.notifiedAt),
     createdAt: cleanText(item.createdAt),
+    referenceStatus: cleanText(item.referenceStatus) || "unverifiable",
+    resolvedRefType: cleanText(item.resolvedRefType ?? item.refType),
+    resolvedRefId: cleanText(item.resolvedRefId ?? item.refId),
+    referenceReason: cleanText(item.referenceReason),
   };
 }
 

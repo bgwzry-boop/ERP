@@ -28,6 +28,7 @@ export async function handleSystemReadRoutes({
       response,
       200,
       getSystemV1GoLiveStatusResponse({
+        workspace,
         operatorId: getPermissionOperatorId(permissionContext, authContext, "SYSTEM"),
       }),
     );

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createOfficeTodoActions } from "../src/app/createOfficeTodoActions.js";
+import { getTodoActions, getTodoHandlingRule, getTodoTone } from "../src/domain/officeRules.js";
 
 const baseTodos = [
   {
@@ -21,14 +22,15 @@ const baseTodos = [
   },
 ];
 
-function createHarness({ allowLocalFallback = false, api = {}, copyResult = true } = {}) {
-  let todos = baseTodos.map((item) => ({ ...item }));
+function createHarness({ allowLocalFallback = false, api = {}, copyResult = true, todoItems = baseTodos } = {}) {
+  let todos = todoItems.map((item) => ({ ...item }));
   let selectedTodoId = todos[0].id;
   let todoView = "未处理";
   let activePage = "todos";
   let refreshCount = 0;
   const modals = [];
   const toasts = [];
+  const focusCalls = { drafts: [], fulfillments: [], inventories: [], statements: [] };
   const controller = createOfficeTodoActions({
     allowLocalFallback,
     api,
@@ -37,9 +39,23 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
     currentUser: { displayName: "办公室A" },
     currentUserId: "U-OFFICE-A",
     findCustomer: () => ({ id: "C001", name: "测试客户", contact: "联系人" }),
-    focusFulfillmentByRef: () => {},
+    focusFulfillmentByRef: async (ref) => {
+      focusCalls.fulfillments.push(ref);
+      return { id: "F-FOCUS-1", lineId: ref };
+    },
+    focusInventoryByRef: async (ref, todo) => {
+      focusCalls.inventories.push({ ref, todoId: todo.id });
+      return { id: "INV-FOCUS-1" };
+    },
+    focusOrderDraftByRef: async (ref) => {
+      focusCalls.drafts.push(ref);
+      return { draftId: ref };
+    },
     focusOrderLine: () => {},
-    focusStatementByRef: () => {},
+    focusStatementByRef: async (ref) => {
+      focusCalls.statements.push(ref);
+      return { id: "ST-FOCUS-1", ref };
+    },
     getTodoCustomerNotificationDraft: () => ({
       channel: "微信 / 企业微信人工发送",
       copyText: "请确认订单信息",
@@ -73,11 +89,49 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
     getActivePage: () => activePage,
     getModals: () => modals,
     getRefreshCount: () => refreshCount,
+    getFocusCalls: () => focusCalls,
     getSelectedTodoId: () => selectedTodoId,
     getTodos: () => todos,
     getTodoView: () => todoView,
     toasts,
   };
+}
+
+{
+  const missingReferenceTodo = { ...baseTodos[0], referenceStatus: "missing", referenceReason: "引用目标不存在" };
+  const harness = createHarness({ todoItems: [missingReferenceTodo] });
+  await harness.controller.handleTodo("打开订单录入");
+  assert.deepEqual(harness.getFocusCalls().drafts, []);
+  assert.match(harness.toasts.at(-1), /引用已失效/);
+  assert.deepEqual(getTodoActions(missingReferenceTodo), [{ label: "处理完成", variant: "secondary" }]);
+  assert.match(getTodoHandlingRule(missingReferenceTodo), /引用失效/);
+  assert.equal(getTodoTone(missingReferenceTodo), "danger");
+}
+
+{
+  const harness = createHarness();
+  await harness.controller.handleTodo("打开订单录入");
+  assert.deepEqual(harness.getFocusCalls().drafts, ["ORD-001-01"]);
+}
+
+{
+  const harness = createHarness();
+  await harness.controller.handleTodo("打开库存查询");
+  assert.deepEqual(harness.getFocusCalls().inventories, [{ ref: "ORD-001-01", todoId: "T-CONTROLLER-001" }]);
+}
+
+{
+  const harness = createHarness();
+  await harness.controller.handleTodo("打印预览", "T-CONTROLLER-PRINT");
+  assert.equal(harness.getModals()[0]?.type, "print");
+  assert.equal(harness.getModals()[0]?.fulfillmentId, "F-FOCUS-1");
+}
+
+{
+  const harness = createHarness();
+  await harness.controller.handleTodo("未接入动作");
+  assert.match(harness.toasts.at(-1), /本次未执行/);
+  assert.doesNotMatch(harness.toasts.at(-1), /模拟执行/);
 }
 
 {

@@ -56,8 +56,13 @@ export function MasterDataImportTemplateModal({
   const templateSets = getMasterDataImportTemplateSets();
   const definitions = getMasterDataImportTemplateDefinitions();
   const sourceLabel = panel?.sourceLabel || "基础资料";
+  const preferredTemplateKey = getPreferredTemplateKey(sourceLabel);
+  const orderedTemplateSets = preferredTemplateKey
+    ? [...templateSets].sort((left, right) => Number(right.key === preferredTemplateKey) - Number(left.key === preferredTemplateKey))
+    : templateSets;
   const precheck = precheckState ?? { status: "idle" };
   const precheckResult = precheck.result;
+  const employeeRoleCoverage = precheckResult?.employeeRoleCoverage;
   const topIssues = precheckResult?.issues?.slice(0, 6) ?? [];
   const statusTone = getMasterDataPrecheckTone(precheckResult?.summary?.status);
   const draftItems = Array.isArray(reviewDrafts) ? reviewDrafts : [];
@@ -172,10 +177,11 @@ export function MasterDataImportTemplateModal({
           <button className="icon-button" onClick={onClose}>×</button>
         </div>
         <div className="master-data-template-summary">
-          {templateSets.map((item) => (
-            <button className="master-data-template-card" key={item.key} onClick={() => onDownload(item.key)}>
+          {orderedTemplateSets.map((item) => (
+            <button className={`master-data-template-card ${item.key === preferredTemplateKey ? "is-preferred" : ""}`} key={item.key} onClick={() => onDownload(item.key)}>
               <div>
                 <strong>{item.label}</strong>
+                {item.key === preferredTemplateKey ? <small>当前入口</small> : null}
                 <span>{getMasterDataImportTemplateSummary(item.key)}</span>
               </div>
               <DownloadOutlined />
@@ -192,7 +198,12 @@ export function MasterDataImportTemplateModal({
               <div className="master-data-template-field-row" key={definition.key}>
                 <strong>{definition.label}</strong>
                 <span>{definition.description}</span>
-                <small>必填：{definition.requiredFields.join("、")} · {definition.columnCount} 字段</small>
+                <small>
+                  必填：{definition.requiredFields.join("、")}
+                  {definition.conditionalRequiredFields?.length ? ` · 车间岗必填：${definition.conditionalRequiredFields.join("、")}` : ""}
+                  {definition.deferredFields?.length ? ` · 可导入后手动补：${definition.deferredFields.join("、")}` : ""}
+                  {` · ${definition.columnCount} 字段`}
+                </small>
               </div>
             ))}
           </div>
@@ -246,6 +257,12 @@ export function MasterDataImportTemplateModal({
                 </span>
               </div>
               <div className="master-data-precheck-note">{precheckResult.summary.recommendedAction}</div>
+              {employeeRoleCoverage?.available ? (
+                <div className={`master-data-role-coverage ${employeeRoleCoverage.complete ? "complete" : "partial"}`}>
+                  <strong>本次员工岗位 {employeeRoleCoverage.coverageLabel}</strong>
+                  <span>{employeeRoleCoverage.complete ? "8类岗位均有导入行" : `未覆盖：${employeeRoleCoverage.missingRoleLabels.join("、")}`}</span>
+                </div>
+              ) : null}
               <div className="master-data-precheck-sheets">
                 {precheckResult.sheets.map((sheet) => (
                   <span className={`master-data-precheck-sheet ${sheet.status}`} key={sheet.key}>
@@ -539,4 +556,14 @@ export function MasterDataImportTemplateModal({
       </section>
     </div>
   );
+}
+
+function getPreferredTemplateKey(sourceLabel) {
+  return {
+    客户档案: "customers",
+    价格表: "prices",
+    规格库存: "inventory",
+    初始库存: "inventory",
+    员工机台: "workshop",
+  }[String(sourceLabel ?? "").trim()] ?? "";
 }

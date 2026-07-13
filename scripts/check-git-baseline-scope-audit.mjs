@@ -1,0 +1,111 @@
+import assert from "node:assert/strict";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import {
+  buildGitBaselineScopeReport,
+  inspectGitBaselineScope,
+  parsePorcelainStatus,
+  scanChangedContent,
+} from "./run-git-baseline-scope-audit.mjs";
+
+const parsed = parsePorcelainStatus(
+  " M src/App.jsx\0?? server/newService.mjs\0R  docs/new.md\0docs/old.md\0",
+);
+assert.deepEqual(parsed, [
+  { status: " M", path: "src/App.jsx" },
+  { status: "??", path: "server/newService.mjs" },
+  { status: "R ", path: "docs/new.md", originalPath: "docs/old.md" },
+]);
+
+const classified = buildGitBaselineScopeReport({
+  entries: [
+    { status: " M", path: "PROJECT_STATUS.md" },
+    { status: " M", path: "package.json" },
+    { status: "??", path: "server/services/example.mjs" },
+    { status: " M", path: "src/App.jsx" },
+    { status: " M", path: "scripts/check-api-skeleton.mjs" },
+    { status: "??", path: "e2e/v1-d49-layout.spec.mjs" },
+  ],
+  remoteCount: 0,
+  branch: "codex/audit",
+  head: "1234567890ab",
+});
+assert.equal(classified.scopeSafe, true);
+assert.equal(classified.releaseReady, false);
+assert.equal(classified.summary.changedFileCount, 6);
+assert.equal(classified.summary.classifiedCount, 6);
+assert.equal(classified.summary.unclassifiedCount, 0);
+assert.deepEqual(classified.blockers, ["controlled_git_remote_missing", "worktree_not_clean"]);
+assert.equal(classified.groups.find((group) => group.key === "verification")?.count, 2);
+assert.equal(classified.groups.filter((group) => group.key !== "verification").every((group) => group.count === 1), true);
+
+const cleanReady = buildGitBaselineScopeReport({
+  entries: [],
+  remoteCount: 1,
+  branch: "main",
+  head: "abcdef123456",
+});
+assert.equal(cleanReady.scopeSafe, true);
+assert.equal(cleanReady.releaseReady, true);
+assert.deepEqual(cleanReady.blockers, []);
+
+const contentRoot = mkdtempSync(join(tmpdir(), "erp-git-scope-content-"));
+try {
+  mkdirSync(join(contentRoot, "server"), { recursive: true });
+  writeFileSync(
+    join(contentRoot, "server", "unsafe.mjs"),
+    [
+      "const databaseUrl = 'postgres://real_user:real_password@db.internal:5432/erp';",
+      ["-----BEGIN", "PRIVATE KEY-----"].join(" "),
+    ].join("\n"),
+  );
+  const contentFindings = scanChangedContent({
+    rootDir: contentRoot,
+    entries: [{ status: "??", path: "server/unsafe.mjs" }],
+  });
+  assert.deepEqual(contentFindings.map((item) => item.rule), [
+    "database_url_with_password",
+    "private_key",
+  ]);
+  assert.doesNotMatch(JSON.stringify(contentFindings), /real_password|BEGIN PRIVATE KEY/);
+} finally {
+  rmSync(contentRoot, { recursive: true, force: true });
+}
+
+const blocked = buildGitBaselineScopeReport({
+  entries: [
+    { status: "??", path: ".env.production" },
+    { status: "??", path: "screenshots/private.png" },
+    { status: "??", path: "unknown.bin" },
+    { status: "??", path: "unknown.bin" },
+  ],
+  remoteCount: 1,
+  contentFindings: [{ path: "server/config.mjs", rule: "private_key", line: 4, matchedValue: "must-not-leak" }],
+});
+assert.equal(blocked.scopeSafe, false);
+assert.deepEqual(blocked.sensitivePaths, [".env.production"]);
+assert.deepEqual(blocked.forbiddenPaths, ["screenshots/private.png"]);
+assert.deepEqual(blocked.unclassifiedPaths, [".env.production", "screenshots/private.png", "unknown.bin", "unknown.bin"]);
+assert.deepEqual(blocked.duplicatePaths, ["unknown.bin"]);
+assert.equal(blocked.summary.sensitiveContentFindingCount, 1);
+assert.deepEqual(blocked.sensitiveContentFindings, [
+  { path: "server/config.mjs", rule: "private_key", line: 4 },
+]);
+assert.doesNotMatch(JSON.stringify(blocked), /must-not-leak/);
+assert.equal(blocked.blockers.includes("sensitive_content"), true);
+
+const live = inspectGitBaselineScope();
+assert.equal(live.scopeSafe, true, JSON.stringify({ blockers: live.blockers, unclassified: live.unclassifiedPaths }));
+assert.equal(live.summary.changedFileCount > 0, true);
+assert.equal(live.summary.changedFileCount, live.summary.classifiedCount);
+assert.equal(live.summary.remoteCount, 0);
+assert.equal(live.summary.sensitiveContentFindingCount, 0);
+assert.equal(live.releaseReady, false);
+assert.equal(live.safeguards.readOnly, true);
+assert.equal(live.safeguards.gitAddExecuted, false);
+assert.equal(live.safeguards.matchedContentIncluded, false);
+
+console.log(
+  `Git baseline scope audit passed: ${live.summary.changedFileCount} changed files are classified across ${live.summary.groupCount} ownership groups; remote/worktree release blockers remain explicit.`,
+);

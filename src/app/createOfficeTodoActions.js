@@ -35,6 +35,8 @@ export function createOfficeTodoActions({
   currentUserId,
   findCustomer,
   focusFulfillmentByRef,
+  focusInventoryByRef,
+  focusOrderDraftByRef,
   focusOrderLine,
   focusStatementByRef,
   getTodoCustomerNotificationDraft,
@@ -43,7 +45,6 @@ export function createOfficeTodoActions({
   openModal,
   refreshTodos,
   selectedTodoId,
-  setActivePage,
   setSelectedTodoId,
   setTodos,
   setTodoView,
@@ -78,6 +79,10 @@ export function createOfficeTodoActions({
     if (!guardUiAction("todo", action)) return;
     const selected = todos.find((item) => item.id === todoId);
     if (!selected && action !== "批量打印标签") return;
+    if (selected?.referenceStatus === "missing" && referenceNavigationActions.has(action)) {
+      setToast(`待办引用已失效：${selected.referenceReason || "目标不存在"}。本次未执行，请核对来源后关闭待办。`);
+      return;
+    }
 
     if (action === "打印标签") {
       if (!selected || !isPrintTodo(selected)) {
@@ -187,8 +192,7 @@ export function createOfficeTodoActions({
     }
 
     if (action === "打开订单录入") {
-      setActivePage("entry");
-      setToast("已切到订单录入页；P0 先用页面跳转模拟从待办打开草稿。");
+      await focusOrderDraftByRef(selected.ref);
       return;
     }
     if (action === "打开订单池" || action === "打开订单") {
@@ -196,8 +200,7 @@ export function createOfficeTodoActions({
       return;
     }
     if (action === "打开库存查询") {
-      setActivePage("inventory");
-      setToast("已切到库存查询；缺货待办后续会补库存键定位。");
+      await focusInventoryByRef(selected.ref, selected);
       return;
     }
     if (action === "打开出库异常") {
@@ -324,12 +327,30 @@ export function createOfficeTodoActions({
       return;
     }
     if (action === "打印预览") {
-      setToast("已打开打印预览占位；真实模板和打印权限后接。");
+      if (selected.type.includes("对账") || selected.type.includes("收款")) {
+        const statement = await focusStatementByRef(selected.ref);
+        if (statement) openModal({ type: "statementPreview", statementId: statement.id, action });
+        return;
+      }
+      const fulfillment = await focusFulfillmentByRef(selected.ref);
+      if (fulfillment) openModal({ type: "print", fulfillmentId: fulfillment.id, action });
       return;
     }
-    setToast(`${action} 已模拟执行。`);
+    setToast(`“${action}”尚未接入正式处理流程，本次未执行。`);
   }
 
 
   return { handleTodo };
 }
+
+const referenceNavigationActions = new Set([
+  "打开订单录入",
+  "打开订单池",
+  "打开订单",
+  "打开库存查询",
+  "打开出库异常",
+  "打开对账收款",
+  "打印预览",
+  "打印标签",
+  "批量打印标签",
+]);

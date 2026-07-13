@@ -7,6 +7,9 @@ import {
 } from "../server/orderConfirmationTransactionRepository.mjs";
 
 await checkLocalOrderConfirmationTransactionRepository();
+await checkLocalMultiOrderConfirmationTransaction();
+await checkLocalTemporaryHoldConversion();
+await checkLocalShortageCancellationApplication();
 await checkPostgresOrderConfirmationTransactionSqlBoundary();
 
 console.log(
@@ -33,6 +36,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
   const inventoryLedgerEntries = buildInventoryLedgerEntries();
   const todos = buildTodos();
   const operationLog = buildOperationLog();
+  const commandResponse = { splitConfirmed: true, orderIds: [order.orderId] };
 
   const transaction = await repository.confirmOrder({
     idempotencyKey: "idem-order-confirm-001",
@@ -48,6 +52,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
     inventoryLedgerEntries,
     todos,
     operationLog,
+    commandResponse,
   });
 
   assert.equal(transaction.orderDraft.revision, 2);
@@ -60,6 +65,7 @@ async function checkLocalOrderConfirmationTransactionRepository() {
   assert.equal(transaction.inventoryLedgerEntries.length, 1);
   assert.equal(transaction.todos.length, 1);
   assert.equal(transaction.operationLogId, "LOG-ORDER-CONFIRM-001");
+  assert.deepEqual(transaction.commandResponse, commandResponse);
   assert.equal(workspace.originalOrders.length, 1);
   assert.equal(workspace.orderDrafts[0].status, "已生成正式订单");
   assert.equal(workspace.orderDrafts[0].revision, 2);
@@ -72,6 +78,205 @@ async function checkLocalOrderConfirmationTransactionRepository() {
   assert.equal(workspace.inventoryLedgers.length, 1);
   assert.equal(workspace.todos.length, 1);
   assert.equal(workspace.operationLogs.length, 1);
+
+  const replay = await repository.findIdempotentReplay({
+    idempotencyKey: "idem-order-confirm-001",
+    idempotencyPayload: undefined,
+  });
+  assert.deepEqual(replay, transaction);
+  const repeated = await repository.confirmOrder({
+    idempotencyKey: "idem-order-confirm-001",
+    workspace,
+    orderDraft,
+    expectedDraftRevision: 1,
+    order,
+    orderLines,
+    productionTasks,
+    priceSnapshots,
+    fulfillmentRecords,
+    inventoryReservations,
+    inventoryLedgerEntries,
+    todos,
+    operationLog,
+    commandResponse,
+  });
+  assert.deepEqual(repeated, transaction);
+  assert.equal(workspace.originalOrders.length, 1, "local replay must not duplicate workspace projections");
+  assert.throws(
+    () => repository.findIdempotentReplay({
+      idempotencyKey: "idem-order-confirm-001",
+      idempotencyPayload: { changed: true },
+    }),
+    (error) => error.code === "IDEMPOTENCY_KEY_REUSED",
+  );
+}
+
+async function checkLocalMultiOrderConfirmationTransaction() {
+  const repository = createLocalOrderConfirmationTransactionRepository();
+  const workspace = {
+    orderDrafts: [buildOrderDraft()],
+    originalOrders: [],
+    orderLines: [],
+    productionTasks: [],
+    priceSnapshots: [],
+    fulfillments: [],
+    inventories: [],
+    inventoryReservations: [],
+    inventoryLedgers: [],
+    todos: [],
+    operationLogs: [],
+  };
+  const firstOrder = buildOrder();
+  const secondOrder = {
+    ...buildOrder(),
+    orderId: "ORD-CONFIRM-002",
+    bizNo: "ORD-CONFIRM-002",
+  };
+  const [firstLine, secondSourceLine] = buildOrderLines();
+  const secondLine = {
+    ...secondSourceLine,
+    id: "ORD-CONFIRM-002-01",
+    orderNo: "ORD-CONFIRM-002",
+    fulfillment: "送货",
+  };
+  const transaction = await repository.confirmOrder({
+    workspace,
+    orderDraft: buildOrderDraft({ status: "已生成多个正式订单" }),
+    expectedDraftRevision: 1,
+    order: firstOrder,
+    orders: [firstOrder, secondOrder],
+    orderLines: [firstLine, secondLine],
+    productionTasks: [],
+    priceSnapshots: [],
+    fulfillmentRecords: [],
+    inventoryReservations: [],
+    inventoryLedgerEntries: [],
+    todos: [],
+    operationLog: buildOperationLog(),
+  });
+  assert.deepEqual(transaction.orders.map((order) => order.orderId), ["ORD-CONFIRM-001", "ORD-CONFIRM-002"]);
+  assert.equal(workspace.originalOrders.length, 2);
+  assert.equal(workspace.orderLines.length, 2);
+  assert.deepEqual(new Set(workspace.orderLines.map((line) => line.orderNo)), new Set(["ORD-CONFIRM-001", "ORD-CONFIRM-002"]));
+
+  const query = buildConfirmOrderTransactionQuery({
+    orderDraft: buildOrderDraft({ status: "已生成多个正式订单" }),
+    expectedDraftRevision: 1,
+    order: firstOrder,
+    orders: [firstOrder, secondOrder],
+    orderLines: [firstLine, secondLine],
+    productionTasks: [],
+    priceSnapshots: [],
+    fulfillmentRecords: [],
+    inventoryReservations: [],
+    inventoryLedgerEntries: [],
+    todos: [],
+    operationLog: buildOperationLog(),
+  });
+  assert.match(query.text, /inserted_orders AS/);
+  assert.match(query.text, /'orders'/);
+  assert.ok(query.values.includes("ORD-CONFIRM-002"));
+}
+
+async function checkLocalTemporaryHoldConversion() {
+  const repository = createLocalOrderConfirmationTransactionRepository();
+  const intent = {
+    id: "INT-HOLD-CONFIRM",
+    sourceDraftId: "DRAFT-CONFIRM-001",
+    sourceMessageId: "MSG-HOLD-CONFIRM",
+    conversationId: "GROUP-001",
+    customerId: "C001",
+    intentType: "temporary_hold",
+    intentStatus: "临时留货-生效",
+    sourceText: "有的话给我留500个",
+    candidate: {},
+    relatedReservationId: "HOLD-CONFIRM-001",
+    revision: 2,
+    createdAt: "2026-07-02T09:00:00.000Z",
+    updatedAt: "2026-07-02T09:00:00.000Z",
+  };
+  const activeHold = {
+    id: "HOLD-CONFIRM-001",
+    reservationId: "HOLD-CONFIRM-001",
+    sourceIntentId: intent.id,
+    customerId: "C001",
+    sourceMessageId: intent.sourceMessageId,
+    inventoryItemId: "INV-RED-3038",
+    reservedQty: 500,
+    qty: 500,
+    reservationType: "临时留货",
+    status: "生效",
+    expiresAt: "2099-07-12T11:30:00.000Z",
+    revision: 1,
+    createdBy: "U-OFFICE-A",
+  };
+  const workspace = {
+    orderDrafts: [buildOrderDraft()],
+    originalOrders: [],
+    orderLines: [],
+    productionTasks: [],
+    priceSnapshots: [],
+    fulfillments: [],
+    inventories: [{ id: "INV-RED-3038", reserved: 1320 }],
+    inventoryIntents: [intent],
+    inventoryReservations: [activeHold],
+    inventoryLedgers: [],
+    todos: [],
+    operationLogs: [],
+  };
+  const convertedReservation = {
+    ...activeHold,
+    orderLineId: "ORD-CONFIRM-001-01",
+    reservationType: "待提货锁定",
+    expiresAt: "",
+    inventoryDeltaQty: 0,
+    convertFromTemporaryHold: true,
+    metadata: { convertedFromTemporaryHold: true },
+  };
+  const transaction = await repository.confirmOrder({
+    workspace,
+    orderDraft: buildOrderDraft({ status: "已生成正式订单" }),
+    expectedDraftRevision: 1,
+    order: buildOrder(),
+    orderLines: buildOrderLines(),
+    productionTasks: buildProductionTasks(),
+    priceSnapshots: buildPriceSnapshots(),
+    fulfillmentRecords: buildFulfillmentRecords(),
+    inventoryReservations: [convertedReservation],
+    inventoryLedgerEntries: [{
+      ...buildInventoryLedgerEntries()[0],
+      ledgerId: "LEDGER-HOLD-CONVERT-001",
+      changeType: "临时留货转订单占用",
+      qtyChange: 0,
+      qtyAfter: 1320,
+    }],
+    todos: buildTodos(),
+    operationLog: buildOperationLog(),
+  });
+
+  assert.equal(transaction.inventoryReservations[0].reservationId, activeHold.id);
+  assert.equal(transaction.inventoryIntents[0].intentStatus, "已转订单");
+  assert.equal(workspace.inventories[0].reserved, 1320, "hold conversion must not reserve inventory twice");
+  assert.equal(workspace.inventoryReservations[0].reservationType, "待提货锁定");
+  assert.equal(workspace.inventoryIntents[0].relatedOrderLineId, "ORD-CONFIRM-001-01");
+
+  const query = buildConfirmOrderTransactionQuery({
+    orderDraft: buildOrderDraft({ status: "已生成正式订单" }),
+    expectedDraftRevision: 1,
+    order: buildOrder(),
+    orderLines: buildOrderLines(),
+    productionTasks: buildProductionTasks(),
+    priceSnapshots: buildPriceSnapshots(),
+    fulfillmentRecords: buildFulfillmentRecords(),
+    inventoryReservations: [convertedReservation],
+    inventoryLedgerEntries: [],
+    todos: buildTodos(),
+    operationLog: buildOperationLog(),
+  });
+  assert.match(query.text, /locked_temporary_holds/);
+  assert.match(query.text, /ERP_TEMPORARY_HOLD_CONVERSION_CONFLICT/);
+  assert.match(query.text, /intent_status = '已转订单'/);
+  assert.ok(query.values.includes(0), "conversion must persist a zero inventory delta");
 }
 
 async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
@@ -202,6 +407,76 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   assert.equal(directQuery.text, directSql);
   assert.ok(directQuery.values.length > 80);
   assert.ok(directQuery.values.includes("O'Brien 30*38 红色 500个"));
+}
+
+async function checkLocalShortageCancellationApplication() {
+  const repository = createLocalOrderConfirmationTransactionRepository();
+  const currentIntent = buildShortageCancellationIntent();
+  const workspace = {
+    orderDrafts: [buildOrderDraft()],
+    originalOrders: [],
+    orderLines: [],
+    productionTasks: [],
+    priceSnapshots: [],
+    fulfillments: [],
+    inventories: [{ id: "INV-RED-3038", reserved: 1320 }],
+    inventoryIntents: [currentIntent],
+    inventoryReservations: [],
+    inventoryLedgers: [],
+    todos: [],
+    operationLogs: [],
+  };
+  const appliedIntent = {
+    ...currentIntent,
+    intentStatus: "库存不足取消-已应用",
+    candidate: {
+      ...currentIntent.candidate,
+      appliedDraftLineIds: ["DRAFT-CONFIRM-001-02"],
+      continuedDraftLineIds: ["DRAFT-CONFIRM-001-01"],
+      generatedOrderId: "ORD-CONFIRM-001",
+    },
+    revision: 2,
+  };
+  const activeLine = buildOrderLines()[0];
+  const transaction = await repository.confirmOrder({
+    workspace,
+    orderDraft: buildOrderDraft({ status: "已生成正式订单（部分缺货取消）" }),
+    expectedDraftRevision: 1,
+    order: buildOrder(),
+    orderLines: [activeLine],
+    productionTasks: [],
+    priceSnapshots: [buildPriceSnapshots()[0]],
+    fulfillmentRecords: buildFulfillmentRecords(),
+    inventoryReservations: buildInventoryReservations(),
+    shortageCancellationIntents: [appliedIntent],
+    inventoryLedgerEntries: buildInventoryLedgerEntries(),
+    todos: [],
+    operationLog: buildOperationLog(),
+  });
+  assert.equal(transaction.orderLines.length, 1);
+  assert.equal(transaction.inventoryIntents[0].intentStatus, "库存不足取消-已应用");
+  assert.deepEqual(transaction.inventoryIntents[0].candidate.appliedDraftLineIds, ["DRAFT-CONFIRM-001-02"]);
+  assert.equal(workspace.orderLines.some((line) => line.id === "ORD-CONFIRM-001-02"), false);
+  assert.equal(workspace.fulfillments.length, 1);
+
+  const query = buildConfirmOrderTransactionQuery({
+    orderDraft: buildOrderDraft({ status: "已生成正式订单（部分缺货取消）" }),
+    expectedDraftRevision: 1,
+    order: buildOrder(),
+    orderLines: [activeLine],
+    productionTasks: [],
+    priceSnapshots: [buildPriceSnapshots()[0]],
+    fulfillmentRecords: buildFulfillmentRecords(),
+    inventoryReservations: buildInventoryReservations(),
+    shortageCancellationIntents: [appliedIntent],
+    inventoryLedgerEntries: buildInventoryLedgerEntries(),
+    todos: [],
+    operationLog: buildOperationLog(),
+  });
+  assert.match(query.text, /updated_shortage_cancellation_intents/);
+  assert.match(query.text, /intent_type = 'shortage_cancellation'/);
+  assert.match(query.text, /intent_status = '库存不足取消-已应用'/);
+  assert.ok(query.values.some((value) => String(value).includes("DRAFT-CONFIRM-001-02")));
 }
 
 function buildOrder(overrides = {}) {
@@ -434,5 +709,29 @@ function buildOperationLog() {
     pageKey: "api",
     occurredAt: "2026-07-02T10:30:00.000Z",
     createdAt: "2026-07-02T10:30:00.000Z",
+  };
+}
+
+function buildShortageCancellationIntent() {
+  return {
+    id: "INT-SHORTAGE-CANCEL-CONFIRM",
+    intentId: "INT-SHORTAGE-CANCEL-CONFIRM",
+    sourceDraftId: "DRAFT-CONFIRM-001",
+    sourceMessageId: "MSG-SHORTAGE-CANCEL-CONFIRM",
+    conversationId: "GROUP-001",
+    customerId: "C001",
+    intentType: "shortage_cancellation",
+    intentStatus: "库存不足取消-已关联草稿明细",
+    sourceText: "黑色没货不要了，红色继续",
+    candidate: {
+      relatedDraftLineIds: ["DRAFT-CONFIRM-001-02"],
+      requiresReview: false,
+      targetBasis: "explicit_spec",
+    },
+    cancellationScope: "shortage_lines_only",
+    revision: 1,
+    createdBy: "U-OFFICE-A",
+    createdAt: "2026-07-02T10:25:00.000Z",
+    updatedAt: "2026-07-02T10:25:00.000Z",
   };
 }

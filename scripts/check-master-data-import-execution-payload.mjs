@@ -15,6 +15,7 @@ import {
 const generatedAt = "2026-07-03T10:30:00.000Z";
 const workbook = buildMasterDataImportTemplateWorkbook({
   templateKey: "all",
+  includeFixtureRows: true,
   generatedAt,
   generatedBy: "office-admin",
 });
@@ -58,6 +59,31 @@ assert(payload.targetRecords.machineCapacityBaselines.some((record) => (
     && record.sourceKind === "manual_estimate"
     && record.confidence === "low"
 )));
+
+const employeeRolePayload = buildMasterDataImportExecutionPayload({
+  planId: "MDP-ROLE-COVERAGE",
+  draftId: "MDI-ROLE-COVERAGE",
+  stagedRows: [{
+    sheetKey: "employees_machines",
+    worksheetName: "员工机台",
+    rows: [
+      { rowNumber: 3, values: { 员工编号: "EMP-OFFICE-001", 员工姓名: "陈文员", 角色: "办公室", 默认车间: "", 默认机台: "", 启用状态: "启用" } },
+      { rowNumber: 4, values: { 员工编号: "EMP-WORKSHOP-001", 员工姓名: "李师傅", 角色: "车间报工", 默认车间: "", 默认机台: "", 启用状态: "启用" } },
+      { rowNumber: 5, values: { 员工编号: "EMP-UNKNOWN-001", 员工姓名: "未知员工", 角色: "未知岗位", 启用状态: "启用" } },
+      { rowNumber: 6, values: { 员工编号: "emp-office-001", 员工姓名: "重复员工", 角色: "办公室", 启用状态: "启用" } },
+      { rowNumber: 7, values: { 员工编号: "", 员工姓名: "缺编号员工", 角色: "办公室", 启用状态: "启用" } },
+      { rowNumber: 8, values: { 员工编号: "员工 001", 员工姓名: "非法编号员工", 角色: "办公室", 启用状态: "启用" } },
+    ],
+  }],
+});
+assert.equal(employeeRolePayload.summary.writableRowCount, 2);
+assert.equal(employeeRolePayload.summary.failedRowCount, 4);
+assert(employeeRolePayload.targetRecords.employees.some((record) => record.id === "EMP-OFFICE-001" && record.defaultWorkshop === ""));
+assert(employeeRolePayload.targetRecords.employees.some((record) => record.id === "EMP-WORKSHOP-001" && record.defaultMachineId === ""));
+assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("角色无法映射到V1正式岗位")));
+assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("员工编号重复")));
+assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("员工编号、员工姓名和角色必须完整")));
+assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("员工编号须为1-32位")));
 
 const execution = createMasterDataImportExecution({
   confirmationPlan: readyPlan,

@@ -17,6 +17,7 @@ import {
 const generatedAt = "2026-07-03T10:30:00.000Z";
 const workbook = buildMasterDataImportTemplateWorkbook({
   templateKey: "all",
+  includeFixtureRows: true,
   generatedAt,
   generatedBy: "office-admin",
 });
@@ -43,11 +44,15 @@ assert.equal(readyDraft.summary.dataRowCount, 5);
 assert.equal(readyDraft.summary.sheetCount, 5);
 assert.equal(readyDraft.summary.errorCount, 0);
 assert.equal(readyDraft.summary.warningCount, 0);
+assert.equal(readyDraft.employeeRoleCoverage.coverageLabel, "1/8");
+assert.equal(readyDraft.employeeRoleCoverage.missingRoleCount, 7);
+assert.equal(readyDraft.summary.employeeRoleCoverageLabel, "1/8");
 assert.equal(readyDraft.sheets.length, 5);
 assert.equal(readyDraft.stagedRows.length, 5);
 assert(readyDraft.stagedRows.some((sheet) => sheet.sheetKey === "price_tables" && sheet.rows[0].values["价格表名称"] === "袋子价格表1"));
 assert.match(readyDraft.draftId, /^MDI-20260703-[0-9A-Z]{6}$/);
 assert(getMasterDataImportReviewDraftSummary(readyDraft).includes("待确认导入"));
+assert(getMasterDataImportReviewDraftSummary(readyDraft).includes("岗位 1/8"));
 assert.equal(canCreateMasterDataImportReviewDraft(passedPrecheck), true);
 
 const sameReadyDraft = createMasterDataImportReviewDraft({

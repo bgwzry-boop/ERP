@@ -72,6 +72,62 @@
   padding: 7px 10px;
 }
 
+.delivery-evidence-cards {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.delivery-evidence-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  min-width: 0;
+  gap: 8px;
+  border: 1px solid #dce5f1;
+  border-radius: 6px;
+  background: #f8fbff;
+  padding: 8px;
+}
+
+.delivery-evidence-card > div {
+  min-width: 0;
+}
+
+.delivery-evidence-card span,
+.delivery-evidence-card strong,
+.delivery-evidence-card small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.delivery-evidence-card span {
+  color: #7b8798;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.delivery-evidence-card strong {
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.delivery-evidence-card small {
+  color: #536178;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.delivery-evidence-card button {
+  height: 30px;
+  white-space: nowrap;
+  padding: 0 10px;
+}
+
 @media (max-width: 720px) {
   .fulfillment-list-panel .operational-panel-actions {
     overflow-x: auto;
@@ -86,5 +142,9 @@
   .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(5),
   .fulfillment-list-panel .fulfillment-table .data-row span:nth-child(7) {
     display: none;
+  }
+
+  .delivery-evidence-cards {
+    grid-template-columns: minmax(0, 1fr);
   }
 }

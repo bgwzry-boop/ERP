@@ -34,7 +34,7 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
   const stats = [
     ["未处理", openTodos.length, "warning"],
     ["今天要发", openTodos.filter((item) => item.latest.includes("今天")).length, "blue"],
-    ["异常红点", openTodos.filter((item) => item.urgency === "异常").length, "danger"],
+    ["异常红点", openTodos.filter((item) => item.urgency === "异常" || item.referenceStatus === "missing").length, "danger"],
     ["已处理(今日)", handledTodos.length, "success"],
   ];
 
@@ -96,6 +96,7 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
               ["处理方式", getTodoHandlingRule(selected)],
               ["提醒状态", selected.reminder ?? "未设置"],
               ["影响", selected.impact],
+              ["业务引用", selected.referenceStatus === "missing" ? `失效：${selected.referenceReason || "目标不存在"}` : selected.referenceStatus === "valid" ? `有效：${selected.resolvedRefType}` : "待运行时核对"],
               ["最后动作", selected.lastAction ?? selected.handledAt ?? "未处理"],
             ]}
           />

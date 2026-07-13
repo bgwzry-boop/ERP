@@ -1,9 +1,12 @@
+import { UploadOutlined } from "@ant-design/icons";
 import { StatusPill } from "../../components/ui.jsx";
 
 export function V1StatusProductionIntakeStage({
+  d49Readiness,
   productionEnvIntakeVerification,
   sectionRef,
   onPrecheckProductionEnvIntake,
+  onOpenEmployeeImport,
   productionEnvIntakePrecheckAction,
   productionEnvMinimumBlockingItems,
   productionEnvMinimumValuesFragmentTemplate,
@@ -13,6 +16,9 @@ export function V1StatusProductionIntakeStage({
   scrollV1StatusRefIntoView,
 }) {
   const productionEnvIntakeVerificationRef = sectionRef;
+  const d49EmployeeRoles = d49Readiness?.employees?.roles ?? [];
+  const d49EnvironmentBlockers = d49Readiness?.blockers?.filter((item) => item.category !== "employee") ?? [];
+  const d49EnvironmentBlockerGroups = groupD49EnvironmentBlockers(d49EnvironmentBlockers);
   return (
     <>
           {productionEnvIntakeVerification ? (
@@ -39,6 +45,68 @@ export function V1StatusProductionIntakeStage({
                   </button>
                 </div>
               </div>
+              {d49Readiness ? (
+                <div className="v1-production-env-intake-priority">
+                  <div className="v1-section-title-row">
+                    <div>
+                      <StatusPill tone={d49Readiness.ready ? "success" : "danger"}>
+                        {d49Readiness.statusLabel}
+                      </StatusPill>
+                      <strong>D49 员工与环境联合预检</strong>
+                    </div>
+                    {onOpenEmployeeImport ? (
+                      <button className="ghost-button" type="button" onClick={onOpenEmployeeImport}>
+                        <UploadOutlined /> 打开员工导入
+                      </button>
+                    ) : null}
+                  </div>
+                  <div className="v1-field-intake-summary">
+                    <span>正式岗位 <strong>{d49Readiness.summary.employeeRoleLabel}</strong></span>
+                    <span>正式账号 <strong>{d49Readiness.summary.readyFormalAccountCount}/{d49Readiness.summary.formalAccountCount}</strong></span>
+                    <span>setup <strong>{d49Readiness.summary.envSetupReady ? "通过" : "阻塞"}</strong></span>
+                    <span>env 审计 <strong>{d49Readiness.summary.envAuditReady ? "通过" : "阻塞"}</strong></span>
+                    <span>env 预检 <strong>{d49Readiness.summary.envPreflightLabel}</strong></span>
+                    <span>intake <strong>{d49Readiness.summary.envIntakeConfiguredLabel}</strong></span>
+                    <span>阻塞 <strong>{d49Readiness.summary.blockerLabel}</strong></span>
+                  </div>
+                  <p>{d49Readiness.nextAction}</p>
+                  {d49EmployeeRoles.length ? (
+                    <div className="v1-d49-role-grid" aria-label="D49八岗位就绪矩阵">
+                      {d49EmployeeRoles.map((role) => (
+                        <div className={`v1-d49-role-row ${role.ready ? "ready" : "blocked"}`} key={role.roleKey}>
+                          <div>
+                            <strong>{role.roleLabel}</strong>
+                            <StatusPill tone={role.ready ? "success" : "danger"}>{role.ready ? "就绪" : "阻塞"}</StatusPill>
+                          </div>
+                          <span>可用 {role.readyAccountCount}/{role.accountCount}</span>
+                          <small>
+                            {role.ready
+                              ? "正式账号可用"
+                              : role.blockers.length
+                                ? role.blockers.map((item) => `${item.label} ${item.count}`).join("、")
+                                : "未导入正式账号"}
+                          </small>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                  {d49EnvironmentBlockers.length ? (
+                    <div className="v1-production-env-intake-blockers v1-d49-environment-blockers" aria-label="D49环境阻塞">
+                      <strong>
+                        环境阻塞 {d49EnvironmentBlockers.length} 项
+                        {d49EnvironmentBlockerGroups.length < d49EnvironmentBlockers.length
+                          ? ` / ${d49EnvironmentBlockerGroups.length} 组`
+                          : ""}
+                      </strong>
+                      {d49EnvironmentBlockerGroups.map((item) => (
+                        <p key={item.key || item.label}>
+                          {item.label}{item.count > 1 ? ` ×${item.count}` : ""}：{item.nextAction || item.detail}
+                        </p>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
               <div className="v1-field-intake-summary">
                 <span>真实值清单 <strong>{productionEnvIntakeVerification.summary.configuredLabel}</strong></span>
                 <span>最小阻塞补值 <strong>{productionEnvIntakeVerification.summary.minimumBlockingLabel}</strong></span>
@@ -201,4 +269,15 @@ export function V1StatusProductionIntakeStage({
           ) : null}
     </>
   );
+}
+
+function groupD49EnvironmentBlockers(items) {
+  const groups = new Map();
+  for (const item of items) {
+    const signature = [item.category, item.label, item.nextAction, item.detail].join("|");
+    const current = groups.get(signature);
+    if (current) current.count += 1;
+    else groups.set(signature, { ...item, count: 1 });
+  }
+  return [...groups.values()];
 }

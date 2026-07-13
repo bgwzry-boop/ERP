@@ -4,7 +4,13 @@ import { join } from "node:path";
 
 import { getEffectivePermissionsForUser } from "../server/authSeed.mjs";
 import { createApiServer } from "../server/apiServer.mjs";
-import { roleCatalog, systemV1ActionPermissions } from "../shared/auth/roleCatalog.js";
+import {
+  getV1RuntimeEmployeeRoleInputLabels,
+  normalizeV1RuntimeEmployeeRoleKey,
+  roleCatalog,
+  systemV1ActionPermissions,
+  v1RuntimeEmployeeRoleKeys,
+} from "../shared/auth/roleCatalog.js";
 import { getSeedPermissionContext, seedUserOptions } from "../src/auth/seedPermissions.js";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "role-catalog");
@@ -32,6 +38,19 @@ for (const permission of systemV1ActionPermissions) {
 }
 assert.deepEqual(technical.roles, ["technical_operations"]);
 assert.equal(roleCatalog.technical_operations.department, "system");
+assert.equal(v1RuntimeEmployeeRoleKeys.length, 8);
+assert.equal(getV1RuntimeEmployeeRoleInputLabels().length, 8);
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "办公室文员"), "office");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "仓库出库"), "warehouse");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "财务对账"), "finance");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "制袋工"), "workshop");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "打包杂工"), "packing");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "送货司机"), "driver");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "管理主管"), "management");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "系统运维"), "technical_operations");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "办公室主管"), "management");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "财务负责人"), "management");
+assert.equal(normalizeV1RuntimeEmployeeRoleKey("", "神秘岗位"), "");
 
 for (const [roleKey, definition] of Object.entries(roleCatalog)) {
   assert.equal(new Set(definition.buttonPermissions).size, definition.buttonPermissions.length, `${roleKey} has duplicate button permissions`);

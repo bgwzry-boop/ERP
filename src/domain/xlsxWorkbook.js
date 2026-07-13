@@ -39,6 +39,7 @@ function normalizeWorksheets(value) {
         name: cleanText(worksheet.name) || `Sheet${index + 1}`,
         columns: Array.isArray(worksheet.columns) ? worksheet.columns : [],
         rows: Array.isArray(worksheet.rows) ? worksheet.rows : [],
+        dataValidations: normalizeDataValidations(worksheet.dataValidations),
       }))
     : [{ name: "Sheet1", columns: [], rows: [] }];
 }
@@ -164,13 +165,16 @@ function buildStyles() {
 </styleSheet>`;
 }
 
-function buildWorksheet({ rows, columns = [] }) {
+function buildWorksheet({ rows, columns = [], dataValidations = [] }) {
   const merges = [];
   const rowXml = rows
     .map((row, rowIndex) => buildRow(Array.isArray(row) ? row : [], rowIndex + 1, merges))
     .join("\n");
   const mergeText = merges.length
     ? `\n <mergeCells count="${merges.length}">${merges.map((ref) => `<mergeCell ref="${ref}"/>`).join("")}</mergeCells>`
+    : "";
+  const dataValidationText = dataValidations.length
+    ? `\n <dataValidations count="${dataValidations.length}">${dataValidations.map(buildDataValidation).join("")}</dataValidations>`
     : "";
   return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
@@ -180,9 +184,44 @@ ${columns.map((width, index) => `  <col min="${index + 1}" max="${index + 1}" wi
  </cols>
  <sheetData>
 ${rowXml}
- </sheetData>${mergeText}
+ </sheetData>${mergeText}${dataValidationText}
  <pageMargins left="0.3" right="0.3" top="0.5" bottom="0.5" header="0.2" footer="0.2"/>
 </worksheet>`;
+}
+
+function normalizeDataValidations(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((validation) => ({
+      sqref: cleanText(validation?.sqref),
+      type: cleanText(validation?.type) || "list",
+      formula1: cleanText(validation?.formula1),
+      allowBlank: validation?.allowBlank !== false,
+      promptTitle: cleanText(validation?.promptTitle),
+      prompt: cleanText(validation?.prompt),
+      errorTitle: cleanText(validation?.errorTitle),
+      error: cleanText(validation?.error),
+    }))
+    .filter((validation) => validation.sqref && validation.formula1);
+}
+
+function buildDataValidation(validation) {
+  const attributes = [
+    `type="${escapeXmlAttribute(validation.type)}"`,
+    `sqref="${escapeXmlAttribute(validation.sqref)}"`,
+    `allowBlank="${validation.allowBlank ? 1 : 0}"`,
+    'showInputMessage="1"',
+    'showErrorMessage="1"',
+    'errorStyle="stop"',
+  ];
+  for (const [key, value] of [
+    ["promptTitle", validation.promptTitle],
+    ["prompt", validation.prompt],
+    ["errorTitle", validation.errorTitle],
+    ["error", validation.error],
+  ]) {
+    if (value) attributes.push(`${key}="${escapeXmlAttribute(value)}"`);
+  }
+  return `<dataValidation ${attributes.join(" ")}><formula1>${escapeXmlText(validation.formula1)}</formula1></dataValidation>`;
 }
 
 function buildRow(row, rowNumber, merges) {

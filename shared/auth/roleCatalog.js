@@ -335,6 +335,52 @@ export const roleCatalog = Object.freeze(
   ),
 );
 
+export const v1RuntimeEmployeeRoleKeys = Object.freeze([
+  "office",
+  "warehouse",
+  "finance",
+  "workshop",
+  "packing",
+  "driver",
+  "management",
+  "technical_operations",
+]);
+
+const v1RuntimeEmployeeRoleAliases = Object.freeze({
+  technical_operations: Object.freeze(["技术运维", "系统运维", "运维"]),
+  management: Object.freeze(["管理", "主管", "负责人"]),
+  office: Object.freeze(["办公室", "文员", "录单", "客服"]),
+  finance: Object.freeze(["财务", "对账", "收款"]),
+  warehouse: Object.freeze(["库房", "出库", "仓库"]),
+  driver: Object.freeze(["司机", "送货"]),
+  packing: Object.freeze(["打包", "杂工"]),
+  workshop: Object.freeze(["车间", "制袋", "丝印", "操作工"]),
+});
+const v1RuntimeEmployeeRoleAliasPriority = Object.freeze([
+  "technical_operations",
+  "management",
+  "office",
+  "finance",
+  "warehouse",
+  "driver",
+  "packing",
+  "workshop",
+]);
+
+export function normalizeV1RuntimeEmployeeRoleKey(roleKey, roleName = "") {
+  const normalizedKey = String(roleKey ?? "").trim();
+  if (v1RuntimeEmployeeRoleKeys.includes(normalizedKey)) return normalizedKey;
+  const normalizedName = String(roleName ?? "").trim();
+  if (!normalizedName) return "";
+  return v1RuntimeEmployeeRoleAliasPriority.find((candidate) =>
+    v1RuntimeEmployeeRoleAliases[candidate].some((alias) => normalizedName.includes(alias)),
+  ) ?? "";
+}
+
+export function getV1RuntimeEmployeeRoleInputLabels() {
+  return v1RuntimeEmployeeRoleKeys.map((roleKey) => roleCatalog[roleKey].displayName);
+}
+
 export function normalizeRoleKeys(roles = []) {
   return unique(roles).filter((roleKey) => Boolean(roleCatalog[roleKey]));
 }

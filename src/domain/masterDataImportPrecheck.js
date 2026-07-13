@@ -2,6 +2,13 @@ import {
   MASTER_DATA_IMPORT_TEMPLATE_VERSION,
   getMasterDataImportWorksheetSpecs,
 } from "./masterDataImportTemplate.js";
+import {
+  getV1RuntimeEmployeeRoleInputLabels,
+  normalizeV1RuntimeEmployeeRoleKey,
+  roleCatalog,
+  v1RuntimeEmployeeRoleKeys,
+} from "../../shared/auth/roleCatalog.js";
+import { isValidEmployeeNumber } from "../../shared/auth/employeeIdentity.js";
 
 export const MASTER_DATA_IMPORT_PRECHECK_VERSION = "p0-master-data-import-precheck-v1";
 
@@ -46,13 +53,15 @@ export function precheckParsedMasterDataWorkbook(workbook, input = {}) {
   const specs = getMasterDataImportWorksheetSpecs();
   const sheetsByName = new Map((workbook.sheets ?? []).map((sheet) => [sheet.name, sheet]));
   const issues = [];
-  const sheetResults = specs.map((spec) => checkSheet(spec, sheetsByName.get(spec.worksheetName), issues));
+  const activeSpecs = getActiveWorksheetSpecs(specs, sheetsByName);
+  const sheetResults = activeSpecs.map((spec) => checkSheet(spec, sheetsByName.get(spec.worksheetName), issues));
   checkCrossSheetProductSpecs(sheetResults, issues);
   const sortedIssues = sortIssues(issues);
   const errorCount = sortedIssues.filter((issue) => issue.severity === "error").length;
   const warningCount = sortedIssues.filter((issue) => issue.severity === "warning").length;
   const dataRowCount = sheetResults.reduce((sum, sheet) => sum + sheet.dataRowCount, 0);
   const summaryStatus = errorCount ? "blocked" : warningCount ? "review" : "passed";
+  const employeeRoleCoverage = buildEmployeeRoleCoverage(sheetResults);
   return {
     version: MASTER_DATA_IMPORT_PRECHECK_VERSION,
     templateVersion: MASTER_DATA_IMPORT_TEMPLATE_VERSION,
@@ -72,7 +81,46 @@ export function precheckParsedMasterDataWorkbook(workbook, input = {}) {
     },
     sheets: sheetResults.map(({ rows, ...sheet }) => sheet),
     stagedRows: buildStagedRows(sheetResults),
+    employeeRoleCoverage,
     issues: sortedIssues,
+  };
+}
+
+function getActiveWorksheetSpecs(specs, sheetsByName) {
+  const presentKeys = new Set(
+    specs.filter((spec) => sheetsByName.has(spec.worksheetName)).map((spec) => spec.key),
+  );
+  if (presentKeys.has("price_tables") || presentKeys.has("inventory_items")) {
+    presentKeys.add("product_specs");
+  }
+  if (presentKeys.size === 0) return specs;
+  return specs.filter((spec) => presentKeys.has(spec.key));
+}
+
+function buildEmployeeRoleCoverage(sheetResults) {
+  const employeeSheet = sheetResults.find((sheet) => sheet.key === "employees_machines");
+  const rowCounts = new Map(v1RuntimeEmployeeRoleKeys.map((roleKey) => [roleKey, 0]));
+  for (const row of employeeSheet?.rows ?? []) {
+    const roleKey = normalizeV1RuntimeEmployeeRoleKey("", row.values?.["角色"]);
+    if (roleKey) rowCounts.set(roleKey, (rowCounts.get(roleKey) ?? 0) + 1);
+  }
+  const roles = v1RuntimeEmployeeRoleKeys.map((roleKey) => ({
+    roleKey,
+    roleLabel: roleCatalog[roleKey].displayName,
+    covered: (rowCounts.get(roleKey) ?? 0) > 0,
+    rowCount: rowCounts.get(roleKey) ?? 0,
+  }));
+  const coveredRoleCount = roles.filter((role) => role.covered).length;
+  return {
+    available: employeeSheet?.present === true,
+    complete: coveredRoleCount === roles.length,
+    employeeRowCount: employeeSheet?.rows?.length ?? 0,
+    requiredRoleCount: roles.length,
+    coveredRoleCount,
+    missingRoleCount: roles.length - coveredRoleCount,
+    coverageLabel: `${coveredRoleCount}/${roles.length}`,
+    missingRoleLabels: roles.filter((role) => !role.covered).map((role) => role.roleLabel),
+    roles,
   };
 }
 
@@ -116,6 +164,12 @@ function checkSheet(spec, sheet, issues) {
   const rows = getDataRows(sheet.rows, columnIndexes, spec.columns, spec.worksheetName);
   const sheetIssues = [];
 
+  if (rows.length === 0) {
+    const issue = createIssue("error", spec.worksheetName, "", "", `${spec.worksheetName} 没有可导入数据，请至少填写 1 行后再上传。`);
+    sheetIssues.push(issue);
+    issues.push(issue);
+  }
+
   for (const field of missingColumns) {
     const severity = spec.requiredFields.includes(field) ? "error" : "warning";
     const issue = createIssue(severity, spec.worksheetName, "", field, `缺少${severity === "error" ? "必填" : "建议"}字段：${field}。`);
@@ -155,6 +209,9 @@ function checkSheet(spec, sheet, issues) {
 }
 
 function checkBusinessRules(spec, row, sheetIssues, allIssues) {
+  if (Object.values(row.values).some((value) => cleanText(value).includes("示例-请替换"))) {
+    addIssue("error", row, "", "检测到未替换的模板示例标记；请填写真实资料，不要导入示例数据。", sheetIssues, allIssues);
+  }
   if (spec.key === "customers") {
     checkAllowedValue(row, "风险状态", ["正常", "关注", "暂停接单", "黑名单"], "warning", sheetIssues, allIssues);
     checkAllowedValue(row, "启用状态", ["启用", "停用"], "warning", sheetIssues, allIssues);
@@ -196,6 +253,22 @@ function checkBusinessRules(spec, row, sheetIssues, allIssues) {
     checkNonNegativeNumber(row, "岗位补贴/小时", false, sheetIssues, allIssues);
     checkPositiveNumber(row, "粗略日产量", false, sheetIssues, allIssues);
     checkAllowedValue(row, "启用状态", ["启用", "停用"], "warning", sheetIssues, allIssues);
+    const roleName = cleanText(row.values["角色"]);
+    const employeeNumber = cleanText(row.values["员工编号"]);
+    if (employeeNumber && !isValidEmployeeNumber(employeeNumber)) {
+      addIssue("error", row, "员工编号", "员工编号须为1-32位字母、数字、下划线或短横线，且首位必须是字母或数字。", sheetIssues, allIssues);
+    }
+    const roleKey = normalizeV1RuntimeEmployeeRoleKey("", roleName);
+    if (roleName && !roleKey) {
+      addIssue(
+        "error",
+        row,
+        "角色",
+        `角色无法映射到V1正式岗位，建议使用：${getV1RuntimeEmployeeRoleInputLabels().join("、")}。`,
+        sheetIssues,
+        allIssues,
+      );
+    }
   }
 }
 
@@ -233,7 +306,8 @@ function checkDuplicates(spec, rows, sheetIssues, allIssues) {
   for (const group of keyGroups) {
     const seen = new Map();
     for (const row of rows) {
-      const key = group.fields.map((field) => cleanText(row.values[field])).join("|");
+      const rawKey = group.fields.map((field) => cleanText(row.values[field])).join("|");
+      const key = group.caseInsensitive ? rawKey.toLowerCase() : rawKey;
       if (!key.replace(/\|/g, "")) continue;
       if (seen.has(key)) {
         addIssue("error", row, group.fields[0], `${group.label} 重复：${key.replace(/\|/g, " / ")}。`, sheetIssues, allIssues);
@@ -260,7 +334,7 @@ function getDuplicateKeyGroups(specKey) {
       { label: "库存键", fields: ["尺寸", "颜色", "提手类型", "成品款式", "库区"] },
     ],
     employees_machines: [
-      { label: "员工机台", fields: ["员工姓名", "角色", "默认车间", "默认机台"] },
+      { label: "员工编号", fields: ["员工编号"], caseInsensitive: true },
     ],
   };
   return map[specKey] ?? [];
@@ -322,7 +396,7 @@ function buildColumnIndexes(header) {
 
 function isNoteRow(cells) {
   const values = cells.map(cleanText).filter(Boolean);
-  return values.length > 0 && values.every((value) => value === "必填" || value === "可选");
+  return values.length > 0 && values.every((value) => value === "必填" || value === "可选" || value === "可后补" || value === "车间岗必填");
 }
 
 function isBlankRow(cells) {
@@ -440,11 +514,11 @@ function readOptionalZipTextEntry(entries, name) {
 
 function parseWorkbookSheets(workbookXml, relsXml) {
   const rels = new Map();
-  for (const match of relsXml.matchAll(/<Relationship\b[^>]*\/?>/g)) {
+  for (const match of relsXml.matchAll(/<(?:[\w.-]+:)?Relationship\b[^>]*\/?>/g)) {
     const attrs = parseAttributes(match[0]);
     if (attrs.Id && attrs.Target) rels.set(attrs.Id, normalizeWorkbookTarget(attrs.Target));
   }
-  return Array.from(workbookXml.matchAll(/<sheet\b[^>]*\/?>/g)).map((match) => {
+  return Array.from(workbookXml.matchAll(/<(?:[\w.-]+:)?sheet\b[^>]*\/?>/g)).map((match) => {
     const attrs = parseAttributes(match[0]);
     const relId = attrs["r:id"];
     return {
@@ -457,22 +531,22 @@ function parseWorkbookSheets(workbookXml, relsXml) {
 
 function parseSharedStrings(xml) {
   if (!xml) return [];
-  return Array.from(xml.matchAll(/<si\b[^>]*>([\s\S]*?)<\/si>/g)).map((match) =>
-    Array.from(match[1].matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g))
+  return Array.from(xml.matchAll(/<(?:[\w.-]+:)?si\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?si>/g)).map((match) =>
+    Array.from(match[1].matchAll(/<(?:[\w.-]+:)?t\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?t>/g))
       .map((textMatch) => decodeXml(textMatch[1]))
       .join(""),
   );
 }
 
 function parseWorksheetRows(xml, sharedStrings) {
-  return Array.from(xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)).map((rowMatch, rowIndex) => {
+  return Array.from(xml.matchAll(/<(?:[\w.-]+:)?row\b([^>]*)>([\s\S]*?)<\/(?:[\w.-]+:)?row>/g)).map((rowMatch, rowIndex) => {
     const rowAttrs = parseAttributes(rowMatch[1]);
     const cells = [];
     let nextColumnIndex = 0;
-    for (const cellMatch of rowMatch[2].matchAll(/<c\b([^>]*)>([\s\S]*?)<\/c>/g)) {
+    for (const cellMatch of rowMatch[2].matchAll(/<(?:[\w.-]+:)?c\b([^>]*?)(?:\/\s*>|>([\s\S]*?)<\/(?:[\w.-]+:)?c>)/g)) {
       const attrs = parseAttributes(cellMatch[1]);
       const index = attrs.r ? getColumnIndex(attrs.r) : nextColumnIndex;
-      cells[index] = parseCellValue(attrs, cellMatch[2], sharedStrings);
+      cells[index] = parseCellValue(attrs, cellMatch[2] ?? "", sharedStrings);
       nextColumnIndex = index + 1;
     }
     return {
@@ -484,7 +558,7 @@ function parseWorksheetRows(xml, sharedStrings) {
 
 function parseCellValue(attrs, cellXml, sharedStrings) {
   if (attrs.t === "inlineStr") {
-    return Array.from(cellXml.matchAll(/<t\b[^>]*>([\s\S]*?)<\/t>/g))
+    return Array.from(cellXml.matchAll(/<(?:[\w.-]+:)?t\b[^>]*>([\s\S]*?)<\/(?:[\w.-]+:)?t>/g))
       .map((match) => decodeXml(match[1]))
       .join("");
   }
@@ -605,7 +679,8 @@ function formatDateParts(year, month, day) {
 }
 
 function readXmlElementText(xml, tagName) {
-  const match = String(xml ?? "").match(new RegExp(`<${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${tagName}>`));
+  const optionalPrefix = "(?:[\\w.-]+:)?";
+  const match = String(xml ?? "").match(new RegExp(`<${optionalPrefix}${tagName}\\b[^>]*>([\\s\\S]*?)<\\/${optionalPrefix}${tagName}>`));
   return match ? decodeXml(match[1]) : "";
 }
 

@@ -24,6 +24,138 @@ const reasonLabelByCode = {
   other: "其他",
 };
 
+export async function listOfficeInventoryIntents(input = {}, options = {}) {
+  const { authState, operatorId, filters = {} } = input;
+  try {
+    const response = await requestInventoryApi(`/inventory/intents${buildInventoryIntentQuery(filters)}`, {
+      ...options,
+      authState,
+      operatorId,
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, "库存意图队列 API 返回错误。"), items: [] };
+    }
+    return { source: "api", items: Array.isArray(json?.items) ? json.items : [] };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: { code: "INVENTORY_INTENT_API_UNAVAILABLE", message: error?.message ?? String(error) },
+      items: [],
+    };
+  }
+}
+
+export async function listOfficeTemporaryInventoryHolds(input = {}, options = {}) {
+  const { authState, operatorId, filters = {} } = input;
+  try {
+    const response = await requestInventoryApi(`/inventory/holds${buildInventoryHoldQuery(filters)}`, {
+      ...options,
+      authState,
+      operatorId,
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, "临时留货列表 API 返回错误。"), items: [] };
+    }
+    return { source: "api", items: Array.isArray(json?.items) ? json.items : [] };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: { code: "TEMPORARY_HOLD_API_UNAVAILABLE", message: error?.message ?? String(error) },
+      items: [],
+    };
+  }
+}
+
+export function createOfficeTemporaryInventoryHold(input = {}, options = {}) {
+  return requestInventoryIntentWrite({
+    input,
+    options,
+    path: `/inventory/intents/${encodeURIComponent(cleanText(input.intentId))}/hold`,
+    fallbackCode: "TEMPORARY_HOLD_CREATE_API_UNAVAILABLE",
+    fallbackMessage: "创建临时留货失败。",
+  });
+}
+
+export function releaseOfficeTemporaryInventoryHold(input = {}, options = {}) {
+  return requestInventoryIntentWrite({
+    input,
+    options,
+    path: `/inventory/holds/${encodeURIComponent(cleanText(input.holdId ?? input.reservationId))}/release`,
+    fallbackCode: "TEMPORARY_HOLD_RELEASE_API_UNAVAILABLE",
+    fallbackMessage: "释放临时留货失败。",
+  });
+}
+
+export function extendOfficeTemporaryInventoryHold(input = {}, options = {}) {
+  return requestInventoryIntentWrite({
+    input,
+    options,
+    path: `/inventory/holds/${encodeURIComponent(cleanText(input.holdId ?? input.reservationId))}/extend`,
+    fallbackCode: "TEMPORARY_HOLD_EXTEND_API_UNAVAILABLE",
+    fallbackMessage: "延长临时留货失败。",
+  });
+}
+
+export function expireDueOfficeTemporaryInventoryHolds(input = {}, options = {}) {
+  return requestInventoryIntentWrite({
+    input,
+    options,
+    path: "/inventory/holds/expire-due",
+    fallbackCode: "TEMPORARY_HOLD_EXPIRY_API_UNAVAILABLE",
+    fallbackMessage: "处理到期临时留货失败。",
+  });
+}
+
+async function requestInventoryIntentWrite({ input, options, path, fallbackCode, fallbackMessage }) {
+  if (!cleanText(path) || /\/(?:intents|holds)\/$/.test(path)) {
+    return { source: "client_validation", blocked: true, error: { code: "INVENTORY_INTENT_ID_REQUIRED", message: "缺少库存意图或留货 ID。" } };
+  }
+  try {
+    const response = await requestInventoryApi(path, {
+      ...options,
+      authState: input.authState,
+      method: "POST",
+      operatorId: input.operatorId,
+      body: omitTransportFields(input),
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, fallbackMessage) };
+    }
+    return { source: "api", response: json, ...json };
+  } catch (error) {
+    if (isOfficeApiServerRequired()) return buildServerRequiredWriteError(fallbackCode, error);
+    return { source: "api_error", blocked: true, error: { code: fallbackCode, message: error?.message ?? String(error) } };
+  }
+}
+
+function omitTransportFields(input) {
+  const { authState: _authState, operatorId: _operatorId, intentId: _intentId, holdId: _holdId, reservationId: _reservationId, ...body } = input;
+  return body;
+}
+
+function buildInventoryIntentQuery(filters = {}) {
+  return buildSimpleQuery(filters, ["status", "intentType", "customerId", "sourceDraftId"]);
+}
+
+function buildInventoryHoldQuery(filters = {}) {
+  return buildSimpleQuery(filters, ["status", "customerId"]);
+}
+
+function buildSimpleQuery(filters, keys) {
+  const query = new URLSearchParams();
+  for (const key of keys) {
+    const value = cleanText(filters[key]);
+    if (value) query.set(key, value);
+  }
+  const text = query.toString();
+  return text ? `?${text}` : "";
+}
+
 export async function listOfficeInventoryLedgerEntries(input = {}, options = {}) {
   const { authState, operatorId, localLedgerEntries = [], page = 1, pageSize = 50, filters = {} } = input;
 

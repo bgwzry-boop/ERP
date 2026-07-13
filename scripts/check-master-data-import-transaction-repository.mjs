@@ -27,6 +27,7 @@ assert.equal(readyExecution.officialWriteScope, "master_data_import_v1");
 
 await checkLocalMasterDataImportTransaction();
 await checkLocalRollback();
+await checkLocalEmployeeIdentityRollback();
 await checkPostgresSqlBoundary();
 
 console.log("master-data import transaction repository passed");
@@ -34,6 +35,7 @@ console.log("master-data import transaction repository passed");
 async function buildReadyConfirmationPlan() {
   const workbook = buildMasterDataImportTemplateWorkbook({
     templateKey: "all",
+    includeFixtureRows: true,
     generatedAt,
     generatedBy: "office-admin",
   });
@@ -112,6 +114,51 @@ async function checkLocalRollback() {
   assert.equal(workspace.customers, undefined);
   assert.equal(workspace.inventoryItems, undefined);
   assert.equal(workspace.employees, undefined);
+}
+
+async function checkLocalEmployeeIdentityRollback() {
+  const repository = createLocalMasterDataImportTransactionRepository();
+  const existingEmployee = {
+    id: "emp-import-001",
+    bizNo: "emp-import-001",
+    name: "既有员工",
+    roleName: "办公室",
+  };
+  const workspace = { employees: [existingEmployee], operationLogs: [] };
+  assert.throws(
+    () => repository.applyImportExecution({
+      workspace,
+      importExecution: readyExecution,
+      operationLog: buildOperationLog("LOG-MD-EMPLOYEE-IDENTITY-CONFLICT"),
+    }),
+    /conflicts with existing employee number: EMP-IMPORT-001/,
+  );
+  assert.deepEqual(workspace.employees, [existingEmployee]);
+  assert.deepEqual(workspace.operationLogs, []);
+
+  const invalidIdentityExecution = {
+    ...readyExecution,
+    executionId: "MDE-INVALID-EMPLOYEE-IDENTITY",
+    importPayload: {
+      ...readyExecution.importPayload,
+      targetRecords: {
+        ...readyExecution.importPayload.targetRecords,
+        employees: readyExecution.importPayload.targetRecords.employees.map((employee) => ({
+          ...employee,
+          id: "员工 001",
+          bizNo: "员工 001",
+        })),
+      },
+    },
+  };
+  assert.throws(
+    () => repository.applyImportExecution({
+      workspace: { operationLogs: [] },
+      importExecution: invalidIdentityExecution,
+      operationLog: buildOperationLog("LOG-MD-INVALID-EMPLOYEE-IDENTITY"),
+    }),
+    /invalid stable employee number/,
+  );
 }
 
 async function checkPostgresSqlBoundary() {

@@ -13,6 +13,7 @@ export async function handleMasterDataWriteRoutes({
   createMasterDataImportExecutionRoute,
   createMasterDataFailedRowsCorrectionDraftRoute,
   enableMasterDataEmployeeAccountRoute,
+  updateMasterDataEmployeeAssignmentRoute,
   issueMasterDataEmployeeAccountPasswordRoute,
   revokeMasterDataEmployeeAccountPasswordRoute,
 }) {
@@ -55,7 +56,7 @@ export async function handleMasterDataWriteRoutes({
     return true;
   }
 
-  const employeeActionMatch = url.pathname.match(/^\/api\/master-data\/employee-account-reviews\/([^/]+)\/(enable|password(?:\/revoke)?)$/);
+  const employeeActionMatch = url.pathname.match(/^\/api\/master-data\/employee-account-reviews\/([^/]+)\/(enable|assignment|password(?:\/revoke)?)$/);
   if (!employeeActionMatch) return false;
 
   const employeeId = decodeURIComponent(employeeActionMatch[1]);
@@ -64,6 +65,10 @@ export async function handleMasterDataWriteRoutes({
     enable: {
       permission: writeActionPermissions.reviewMasterDataEmployeeAccount,
       run: enableMasterDataEmployeeAccountRoute,
+    },
+    assignment: {
+      permission: writeActionPermissions.reviewMasterDataEmployeeAccount,
+      run: updateMasterDataEmployeeAssignmentRoute,
     },
     password: {
       permission: writeActionPermissions.issueMasterDataEmployeeAccountPassword,

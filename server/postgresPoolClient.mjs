@@ -158,7 +158,7 @@ function normalizeStoredJson(value) {
 
 function normalizePostgresWriteError(error) {
   if (error?.statusCode || error?.code === "IDEMPOTENCY_KEY_REUSED") return error;
-  if (/ERP_[A-Z_]+_CONCURRENCY_CONFLICT/.test(String(error?.message ?? ""))) {
+  if (/ERP_[A-Z_]+_CONFLICT/.test(String(error?.message ?? ""))) {
     const conflict = new Error("The business record changed before this transaction could be committed.");
     conflict.statusCode = 409;
     conflict.code = "BUSINESS_WRITE_CONFLICT";

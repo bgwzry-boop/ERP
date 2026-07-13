@@ -227,7 +227,6 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
           <button onClick={() => setToast("已复制订单摘要。")}>复制</button>
           <button onClick={() => selectedFulfillment ? onLocateFulfillment(selected.id) : setToast("当前明细没有对应出库记录。")}>定位出库</button>
           <button onClick={() => selectedStatement ? onLocateStatement(selected.id) : setToast("当前明细没有对应对账记录。")}>定位对账</button>
-          <button onClick={() => setToast("已打开订单详情占位；正式详情页后接。")}>打开详情</button>
           <button disabled={quantityActionState.disabled} title={quantityActionState.title} onClick={() => onOrderAction("quantity", selected)}>调整数量</button>
           <button disabled={voidActionState.disabled} title={voidActionState.title} onClick={() => onOrderAction("void", selected)}>作废正式单</button>
         </div>

@@ -295,6 +295,7 @@ try {
   assert(loadSql.includes("source = 'master_data_import_review'"));
   assert(loadSql.includes("master_data_employee_account_review"));
   assert(loadSql.includes("master_data_employee_account_password"));
+  assert(loadSql.includes("master_data_employee_assignment"));
   const loadQuery = buildLoadRuntimeIdentityStateQuery();
   assert.equal(loadQuery.text, loadSql);
   assert.deepEqual(loadQuery.values, []);
@@ -303,6 +304,8 @@ try {
   assert(saveSql.includes("ON CONFLICT (id) DO UPDATE"));
   assert(saveSql.includes("ON CONFLICT (jti) DO UPDATE"));
   assert(saveSql.includes("UPDATE employees"));
+  assert(saveSql.includes("employee_assignment_updates"));
+  assert(saveSql.includes("default_workshop = employee_assignment_updates.default_workshop"));
   assert(saveSql.includes("INSERT INTO operation_logs"));
   assert(saveSql.includes("savedOperationLogCount"));
   assert.doesNotMatch(saveSql, /runtime-new-password-001/);
@@ -324,6 +327,7 @@ const postgresRepository = createRuntimeIdentityRepository({
       revokedSessionCount: reloaded.revokedSeedSessions.length,
       savedOperationLogCount: reloaded.operationLogs.length,
       updatedEmployeeCount: 1,
+      updatedEmployeeAssignmentCount: 1,
     };
   },
 });
@@ -341,11 +345,13 @@ assert.equal(postgresSaved.savedUserCount, reloaded.users.length);
 assert.equal(postgresSaved.revokedSessionCount, reloaded.revokedSeedSessions.length);
 assert.equal(postgresSaved.savedOperationLogCount, reloaded.operationLogs.length);
 assert.equal(postgresSaved.updatedEmployeeCount, 1);
+assert.equal(postgresSaved.updatedEmployeeAssignmentCount, 1);
 assert.equal(postgresCalls[0].kind, "query");
 assert.equal(postgresCalls[1].kind, "transaction");
 assert.match(postgresCalls[1].text, /^\s*WITH saved_users AS/);
 assert.match(postgresCalls[1].text, /saved_revoked_sessions AS/);
 assert.match(postgresCalls[1].text, /updated_employees AS/);
+assert.match(postgresCalls[1].text, /updated_employee_assignments AS/);
 assert.match(postgresCalls[1].text, /saved_operation_logs AS/);
 assert.match(postgresCalls[1].text, /AS result;\s*$/);
 assert.doesNotMatch(postgresCalls[1].text, /\bBEGIN\b|\bCOMMIT\b/);

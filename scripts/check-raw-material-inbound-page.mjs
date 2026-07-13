@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
@@ -11,10 +12,11 @@ const rawMaterialPageSource = readFileSync(new URL("../src/features/raw-material
 const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}`;
 const rawMaterialListStateSource = readFileSync(new URL("../src/domain/rawMaterialInboundListState.js", import.meta.url), "utf8");
 const permissionSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
-const styleSource = [
-  readFileSync(new URL("../src/styles.css", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/styles/features/role-tools.css", import.meta.url), "utf8"),
-].join("\n");
+const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
+const roleToolStyleSource = readFileSync(new URL("../src/styles/features/role-tools.css", import.meta.url), "utf8");
+const rawMaterialStyleSource = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
+const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
+const styleSource = `${roleToolStyleSource}\n${rawMaterialStyleSource}`;
 
 assertIncludes(fixturesSource, "initialRawMaterialInbounds", "fixtures should seed raw-material inbound records");
 assertIncludes(fixturesSource, "已识别待复核", "fixtures should include OCR review state");
@@ -108,6 +110,24 @@ assertIncludes(styleSource, ".raw-material-roll-row", "styles should cover roll 
 assertIncludes(styleSource, ".supplier-statement-preview", "styles should cover supplier statement import preview");
 assertIncludes(styleSource, ".supplier-statement-review-list", "styles should cover supplier statement review list");
 assertIncludes(styleSource, ".supplier-statement-review-actions", "styles should cover supplier statement review actions");
+assertIncludes(mainSource, 'import "./styles/features/raw-material.css";', "main should import raw-material feature styles");
+assert.equal(
+  mainSource.indexOf('import "./styles/features/role-tools.css";') < mainSource.indexOf('import "./styles/features/raw-material.css";'),
+  true,
+  "raw-material overlays should load after the role-tool workbench layer",
+);
+for (const selector of [
+  ".raw-material-roll-row",
+  ".raw-material-statement-import",
+  ".file-upload-button",
+  ".supplier-statement-preview",
+  ".supplier-statement-review-actions",
+  ".supplier-statement-row",
+  ".supplier-statement-review-list",
+]) {
+  assertIncludes(rawMaterialStyleSource, selector, `raw-material styles should own ${selector}`);
+  assert.equal(sharedStyleSource.includes(selector), false, `shared styles should not retain ${selector}`);
+}
 
 console.log("raw-material inbound page check passed");
 

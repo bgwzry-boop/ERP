@@ -8,6 +8,7 @@ import { V1StatusProductionIntakeStage } from "./V1StatusProductionIntakeStage.j
 export function V1StatusProductionWorkspace({ data, actions, handlers, refs, viewState }) {
   const {
     productionEnvGate,
+    d49Readiness,
     productionEnvIntakeVerification,
     productionEnvMinimumBlockingItems,
     productionEnvMinimumValuesFragmentTemplate,
@@ -56,6 +57,7 @@ export function V1StatusProductionWorkspace({ data, actions, handlers, refs, vie
     onPrecheckProductionGoLive,
     buildProductionEnvGateActions,
     onPrecheckProductionEnvIntake,
+    onOpenEmployeeImport,
     scrollV1StatusRefIntoView,
     onRunProductionFirstStageExecution,
     onRunProductionPersistenceEvidence,
@@ -103,9 +105,11 @@ export function V1StatusProductionWorkspace({ data, actions, handlers, refs, vie
         buildProductionEnvGateActions={buildProductionEnvGateActions}
       />
       <V1StatusProductionIntakeStage
+        d49Readiness={d49Readiness}
         productionEnvIntakeVerification={productionEnvIntakeVerification}
         sectionRef={productionEnvIntakeVerificationRef}
         onPrecheckProductionEnvIntake={onPrecheckProductionEnvIntake}
+        onOpenEmployeeImport={onOpenEmployeeImport}
         productionEnvIntakePrecheckAction={productionEnvIntakePrecheckAction}
         productionEnvMinimumBlockingItems={productionEnvMinimumBlockingItems}
         productionEnvMinimumValuesFragmentTemplate={productionEnvMinimumValuesFragmentTemplate}

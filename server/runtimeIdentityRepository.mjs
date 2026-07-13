@@ -79,6 +79,7 @@ export function createPostgresRuntimeIdentityRepository(options = {}) {
           Number(saved.savedOperationLogCount ?? state.operationLogs.length) || 0,
         savedEmployeeAccountCount: state.employeeAccounts.length,
         updatedEmployeeCount: Number(saved.updatedEmployeeCount) || 0,
+        updatedEmployeeAssignmentCount: Number(saved.updatedEmployeeAssignmentCount) || 0,
       };
     },
   };
@@ -199,7 +200,8 @@ SELECT json_build_object(
     FROM operation_logs
     WHERE target_type IN (
       'master_data_employee_account_review',
-      'master_data_employee_account_password'
+      'master_data_employee_account_password',
+      'master_data_employee_assignment'
     )
   ), '[]'::json)
 ) AS result;
@@ -216,6 +218,9 @@ export function buildSaveRuntimeIdentityStateQuery(state = {}) {
   const normalized = normalizeRuntimeIdentityState(state);
   const parameters = createPostgresParameterBinder();
   const userRows = normalized.users.map((user) => runtimeUserSqlRow(user, parameters)).filter(Boolean);
+  const employeeAssignmentRows = normalized.employeeAccounts
+    .map((record) => runtimeEmployeeAssignmentSqlRow(record, parameters))
+    .filter(Boolean);
   const revokedRows = normalized.revokedSeedSessions.map((record) => revokedSeedSessionSqlRow(record, parameters)).filter(Boolean);
   const operationLogRows = normalized.operationLogs
     .map((record) => runtimeIdentityOperationLogSqlRow(record, parameters))
@@ -227,6 +232,21 @@ WITH saved_users AS (
 ),
 saved_revoked_sessions AS (
   ${revokedRows.length > 0 ? buildUpsertRevokedSeedSessionsSql(revokedRows) : "SELECT NULL::TEXT AS jti WHERE FALSE"}
+),
+employee_assignment_updates (id, default_workshop, default_machine_id, updated_at) AS (
+  ${employeeAssignmentRows.length > 0
+    ? `VALUES\n${employeeAssignmentRows.join(",\n")}`
+    : "SELECT NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ WHERE FALSE"}
+),
+updated_employee_assignments AS (
+  UPDATE employees
+  SET
+    default_workshop = employee_assignment_updates.default_workshop,
+    default_machine_id = employee_assignment_updates.default_machine_id,
+    updated_at = employee_assignment_updates.updated_at
+  FROM employee_assignment_updates
+  WHERE employees.id = employee_assignment_updates.id
+  RETURNING employees.id
 ),
 updated_employees AS (
   UPDATE employees
@@ -248,6 +268,7 @@ SELECT json_build_object(
   'savedUserCount', (SELECT COUNT(*) FROM saved_users),
   'revokedSessionCount', (SELECT COUNT(*) FROM saved_revoked_sessions),
   'updatedEmployeeCount', (SELECT COUNT(*) FROM updated_employees),
+  'updatedEmployeeAssignmentCount', (SELECT COUNT(*) FROM updated_employee_assignments),
   'savedOperationLogCount', (SELECT COUNT(*) FROM saved_operation_logs)
 ) AS result;
 `,
@@ -439,6 +460,17 @@ function runtimeIdentityOperationLogSqlRow(record, parameters) {
   )`;
 }
 
+function runtimeEmployeeAssignmentSqlRow(record, parameters) {
+  const employeeId = cleanText(record?.id);
+  if (!employeeId) return null;
+  return `(
+    ${parameters.text(employeeId)},
+    ${parameters.text(record.defaultWorkshop)},
+    ${parameters.nullableText(record.defaultMachineId)},
+    ${parameters.timestamp(record.updatedAt)}
+  )`;
+}
+
 function runtimeUserJsonExpression(alias) {
   return `json_build_object(
     'id', ${alias}.id,
@@ -550,23 +582,11 @@ function normalizeRuntimeUsers(users = []) {
     });
 }
 
-function normalizeRuntimeIdentityEmployeeAccounts(records = [], users = []) {
-  const runtimeEmployeeIds = new Set(
-    (Array.isArray(users) ? users : [])
-      .filter((user) => cleanText(user?.source) === "master_data_import_review")
-      .map((user) => cleanText(user?.employeeId))
-      .filter(Boolean),
-  );
+function normalizeRuntimeIdentityEmployeeAccounts(records = []) {
   const seen = new Set();
   return (Array.isArray(records) ? records : [])
     .map((record) => normalizeRuntimeIdentityEmployeeAccount(record))
     .filter(Boolean)
-    .filter(
-      (record) =>
-        runtimeEmployeeIds.has(record.id) ||
-        record.accountEnabled === true ||
-        record.profileStatus === "account_enabled",
-    )
     .filter((record) => {
       if (seen.has(record.id)) return false;
       seen.add(record.id);
@@ -586,6 +606,10 @@ function normalizeRuntimeIdentityEmployeeAccount(record = {}) {
     roleName: cleanText(record.roleName ?? record.role_name),
     defaultWorkshop: cleanText(record.defaultWorkshop ?? record.default_workshop),
     defaultMachineId: cleanText(record.defaultMachineId ?? record.default_machine_id),
+    assignmentMode: cleanText(record.assignmentMode ?? record.assignment_mode),
+    assignmentUpdatedBy: cleanText(record.assignmentUpdatedBy ?? record.assignment_updated_by),
+    assignmentUpdatedAt: cleanText(record.assignmentUpdatedAt ?? record.assignment_updated_at),
+    assignmentNote: cleanText(record.assignmentNote ?? record.assignment_note),
     accountEnabled: record.accountEnabled === true || record.account_enabled === true,
     profileStatus:
       cleanText(record.profileStatus ?? record.profile_status) || "account_enabled",
@@ -653,7 +677,7 @@ function normalizeRuntimeIdentityOperationLog(record = {}) {
   const targetType = cleanText(record.targetType ?? record.target_type);
   if (
     !id ||
-    !["master_data_employee_account_review", "master_data_employee_account_password"].includes(
+    !["master_data_employee_account_review", "master_data_employee_account_password", "master_data_employee_assignment"].includes(
       targetType,
     )
   ) {

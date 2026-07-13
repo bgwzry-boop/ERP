@@ -557,6 +557,10 @@ assert.match(suiteSummary, /V2 主题：/);
 assert.match(suiteSummary, /顶层 latest 同步/);
 assert.match(suiteSummary, /V1\/V2 差异摘要/);
 assert.match(suiteSummary, /上线交接包/);
+assert.match(suiteSummary, /D49 正式员工机台导入模板/);
+assert.match(suiteSummary, /d49-formal-employee-machine-import-template\.xlsx/);
+assert.match(suiteSummary, /D49 正式员工导入说明/);
+assert.match(suiteSummary, /d49-formal-employee-intake-guide\.zh-CN\.md/);
 assert.match(suiteSummary, /生产 env 准备报告（交接包）/);
 assert.match(suiteSummary, /第一阶段证据建议（交接包）/);
 assert.match(suiteSummary, /第一阶段 suggested CSV（交接包）/);
@@ -694,6 +698,19 @@ assert.equal(
   readFileSync(join(canonicalRoot, "v1-go-live-handoff", "handoff-summary.zh-CN.md"), "utf8"),
   readFileSync(join(outputRoot, "go-live-handoff", "handoff-summary.zh-CN.md"), "utf8"),
   "canonical handoff summary should match the generated suite copy",
+);
+assert.ok(
+  existsSync(join(outputRoot, "go-live-handoff", "d49-formal-employee-machine-import-template.xlsx")),
+  "suite should include the D49 formal employee workbook",
+);
+assert.ok(
+  existsSync(join(outputRoot, "go-live-handoff", "d49-formal-employee-intake-guide.zh-CN.md")),
+  "suite should include the D49 employee intake guide",
+);
+assert.deepEqual(
+  readFileSync(join(canonicalRoot, "v1-go-live-handoff", "d49-formal-employee-machine-import-template.xlsx")),
+  readFileSync(join(outputRoot, "go-live-handoff", "d49-formal-employee-machine-import-template.xlsx")),
+  "canonical D49 employee workbook should match the generated suite copy",
 );
 assert.equal(
   readFileSync(join(canonicalRoot, "v1-go-live-handoff", "v1-unblock-plan.latest.zh-CN.md"), "utf8"),

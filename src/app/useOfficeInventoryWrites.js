@@ -1,8 +1,11 @@
 import { useCallback } from "react";
 import {
   confirmOfficeInventoryCorrectionDraft,
+  createOfficeTemporaryInventoryHold,
   createOfficeInventoryCorrectionDraft,
   linkOfficeInventoryCorrectionAttachments,
+  releaseOfficeTemporaryInventoryHold,
+  extendOfficeTemporaryInventoryHold,
 } from "../services/officeInventoryApiClient.js";
 import {
   createInventoryCorrectionEvidenceAttachmentInput,
@@ -13,10 +16,13 @@ import { readAttachmentFileAsDataUrl } from "../features/attachments/readAttachm
 
 const defaultApi = {
   confirmOfficeInventoryCorrectionDraft,
+  createOfficeTemporaryInventoryHold,
   createOfficeInventoryCorrectionDraft,
   createInventoryCorrectionEvidenceAttachmentInput,
   createOfficeAttachment,
   linkOfficeInventoryCorrectionAttachments,
+  releaseOfficeTemporaryInventoryHold,
+  extendOfficeTemporaryInventoryHold,
   readAttachmentFileAsDataUrl,
 };
 
@@ -58,12 +64,14 @@ export function createOfficeInventoryWriteActions({
   loadInventoryCorrectionDetail,
   refreshInventoryCorrectionQueue,
   refreshInventoryLedgerEntries,
+  refreshInventoryIntents,
   refreshInventoryRecords,
   refreshTodos,
   selectedStockIdRef,
   serverRequired = isOfficeApiServerRequired,
   setInventoryCorrectionDrafts,
   setInventoryCorrectionQueueState,
+  setInventoryIntentState,
   setSelectedStockId,
 }) {
   const inventoryApi = { ...defaultApi, ...api };
@@ -299,7 +307,88 @@ export function createOfficeInventoryWriteActions({
     );
   }
 
-  return { confirmInventoryCorrectionDraft, createInventoryCorrectionDraft, linkInventoryCorrectionAttachment };
+  async function createTemporaryInventoryHold({ intent, candidateIndex, inventoryItemId, qty, expiresAt, reason }) {
+    const intentId = String(intent?.intentId ?? intent?.id ?? "").trim();
+    setInventoryIntentState((current) => ({ ...current, mutatingId: intentId, error: "" }));
+    const result = normalizeWriteResultForRuntime(
+      await inventoryApi.createOfficeTemporaryInventoryHold({
+        authState,
+        operatorId: currentUserId,
+        intentId,
+        clientRevision: intent?.revision,
+        candidateIndex,
+        inventoryItemId,
+        qty,
+        expiresAt,
+        reason,
+      }),
+      { label: "临时留货创建", serverRequired },
+    );
+    return finalizeTemporaryHoldMutation(result, "临时留货已创建");
+  }
+
+  async function releaseTemporaryInventoryHold({ hold, reason }) {
+    const holdId = String(hold?.reservationId ?? hold?.id ?? "").trim();
+    const intent = hold?.intent;
+    setInventoryIntentState((current) => ({ ...current, mutatingId: holdId, error: "" }));
+    const result = normalizeWriteResultForRuntime(
+      await inventoryApi.releaseOfficeTemporaryInventoryHold({
+        authState,
+        operatorId: currentUserId,
+        holdId,
+        clientRevision: intent?.revision,
+        reason,
+      }),
+      { label: "临时留货释放", serverRequired },
+    );
+    return finalizeTemporaryHoldMutation(result, "临时留货已释放");
+  }
+
+  async function extendTemporaryInventoryHold({ hold, expiresAt, reason }) {
+    const holdId = String(hold?.reservationId ?? hold?.id ?? "").trim();
+    const intent = hold?.intent;
+    setInventoryIntentState((current) => ({ ...current, mutatingId: holdId, error: "" }));
+    const result = normalizeWriteResultForRuntime(
+      await inventoryApi.extendOfficeTemporaryInventoryHold({
+        authState,
+        operatorId: currentUserId,
+        holdId,
+        clientRevision: intent?.revision,
+        expiresAt,
+        reason,
+      }),
+      { label: "临时留货延长", serverRequired },
+    );
+    return finalizeTemporaryHoldMutation(result, "临时留货到期时间已延长");
+  }
+
+  async function finalizeTemporaryHoldMutation(result, successMessage) {
+    if (result.blocked || result.source !== "api") {
+      const feedback = formatBlockedFeedback("后端拒绝库存留货操作", result);
+      setInventoryIntentState((current) => ({ ...current, mutatingId: "", error: feedback }));
+      return withFeedback({ ...result, blocked: true }, feedback);
+    }
+    const inventoryItemId = result.inventoryItem?.inventoryItemId ?? result.hold?.inventoryItemId;
+    const refreshes = [refreshInventoryIntents({ showToast: false }), refreshInventoryRecords({ showToast: false })];
+    if (inventoryItemId) refreshes.push(refreshInventoryLedgerEntries({ stockId: inventoryItemId, showToast: false }));
+    const refreshResults = await Promise.all(refreshes);
+    const projectionRefreshFailed = hasProjectionRefreshFailure(refreshResults);
+    setInventoryIntentState((current) => ({ ...current, mutatingId: "" }));
+    return withFeedback(
+      result,
+      projectionRefreshFailed ? `${successMessage}，但库存或意图队列刷新失败，请手动刷新。` : `${successMessage}，库存、流水和意图队列已同步。`,
+      { projectionRefreshFailed },
+    );
+  }
+
+  return {
+    confirmInventoryCorrectionDraft,
+    createInventoryCorrectionDraft,
+    linkInventoryCorrectionAttachment,
+    createTemporaryInventoryHold,
+    releaseTemporaryInventoryHold,
+    extendTemporaryInventoryHold,
+  };
 }
 
 export function useOfficeInventoryWrites(options) {
@@ -316,5 +405,8 @@ export function useOfficeInventoryWrites(options) {
     confirmInventoryCorrectionDraft: useCallback(actions.confirmInventoryCorrectionDraft, dependencies),
     createInventoryCorrectionDraft: useCallback(actions.createInventoryCorrectionDraft, dependencies),
     linkInventoryCorrectionAttachment: useCallback(actions.linkInventoryCorrectionAttachment, dependencies),
+    createTemporaryInventoryHold: useCallback(actions.createTemporaryInventoryHold, dependencies),
+    releaseTemporaryInventoryHold: useCallback(actions.releaseTemporaryInventoryHold, dependencies),
+    extendTemporaryInventoryHold: useCallback(actions.extendTemporaryInventoryHold, dependencies),
   };
 }

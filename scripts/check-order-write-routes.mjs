@@ -25,7 +25,12 @@ const dependencies = {
 };
 for (const [routeName, kind] of [
   ["recognizeOrderDraft", "recognize"],
+  ["recognizeOrderDraftQueue", "recognize-queue"],
   ["saveOrderDraft", "save"],
+  ["linkCrossDraftShortageCancellationRoute", "link-cross-cancel"],
+  ["restoreShortageCancelledDraftLineRoute", "restore-shortage"],
+  ["previewOrderDraftSplitRoute", "split-preview"],
+  ["confirmSplitOrderDraftRoute", "split-confirm"],
   ["confirmOrderDraftRoute", "confirm"],
   ["voidOrderLineRoute", "void"],
   ["adjustOrderLineQuantityRoute", "adjust"],
@@ -34,7 +39,12 @@ for (const [routeName, kind] of [
 }
 
 await expectHandled("POST", "/api/order-drafts/recognize", "order.draft.recognize", "recognize", {});
+await expectHandled("POST", "/api/order-draft-queues/recognize", "order.draft.recognize", "recognize-queue", {});
 await expectHandled("PATCH", "/api/order-drafts/DRAFT-1", "order.draft.save", "save", { draftId: "DRAFT-1" });
+await expectHandled("POST", "/api/order-drafts/DRAFT-1/cross-draft-shortage-cancellation", "order.draft.save", "link-cross-cancel", { draftId: "DRAFT-1" });
+await expectHandled("POST", "/api/order-drafts/DRAFT-1/shortage-cancellation-restore", "order.draft.save", "restore-shortage", { draftId: "DRAFT-1" });
+await expectHandled("POST", "/api/order-drafts/DRAFT-1/split-preview", "order.confirm", "split-preview", { draftId: "DRAFT-1" });
+await expectHandled("POST", "/api/order-drafts/DRAFT-1/split-confirm", "order.confirm", "split-confirm", { draftId: "DRAFT-1" });
 await expectHandled("POST", "/api/order-drafts/DRAFT-1/confirm", "order.confirm", "confirm", { draftId: "DRAFT-1" });
 await expectHandled("POST", "/api/order-lines/OL-1/void", "order.void", "void", { orderLineId: "OL-1" });
 await expectHandled("POST", "/api/order-lines/OL-1/quantity-adjustment", "order.quantity.adjust", "adjust", { orderLineId: "OL-1" });

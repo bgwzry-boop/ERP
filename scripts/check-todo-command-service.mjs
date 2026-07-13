@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { createLocalTodoActionRepository } from "../server/todoActionRepository.mjs";
 import { createTodoCommandService } from "../server/services/todoCommandService.mjs";
+import { resolveTodoReference } from "../server/services/todoReferenceService.mjs";
 
 const fixedNow = new Date("2026-07-11T08:30:00.000Z");
 const workspace = {
@@ -152,4 +153,15 @@ const missing = await service.handleTodo({
 });
 assert.equal(missing.code, "TODO_NOT_FOUND");
 
-console.log("Todo command service checks passed: actions, authenticated identity, timestamps, and event projection are isolated.");
+const referenceWorkspace = {
+  orderDrafts: [{ id: "DRAFT-VALID-1" }],
+  orderLines: [{ id: "ORD-VALID-1-01", orderNo: "ORD-VALID-1" }],
+  fulfillments: [{ id: "F-VALID-1", lineId: "ORD-VALID-1-01" }],
+  statements: [{ id: "ST-VALID-1", lineIds: ["ORD-VALID-1-01"] }],
+};
+assert.equal(resolveTodoReference(referenceWorkspace, { type: "订单草稿待确认", ref: "DRAFT-VALID-1" }).referenceStatus, "valid");
+assert.equal(resolveTodoReference(referenceWorkspace, { type: "快递待确认", ref: "ORD-VALID-1" }).resolvedRefId, "F-VALID-1");
+assert.equal(resolveTodoReference(referenceWorkspace, { refType: "statement", refId: "ST-MISSING" }).referenceStatus, "missing");
+assert.equal(resolveTodoReference(referenceWorkspace, { refType: "external_review", refId: "EXT-1" }).referenceStatus, "unverifiable");
+
+console.log("Todo command service checks passed: actions, authenticated identity, timestamps, events, and reference projection are isolated.");

@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { buildV1FieldEvidenceManifestTemplate, serializeManifestJson } from "./v1FieldEvidenceManifest.mjs";
+import { readZipEntries, readZipTextEntry } from "./xlsxTestUtils.mjs";
 
 const handoffScript = join(process.cwd(), "scripts", "run-v1-go-live-handoff-pack.mjs");
 const tempRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-go-live-handoff");
@@ -317,6 +318,11 @@ assert.ok(
   ),
 );
 assert.equal(blockedResult.productionEnvSetup.included, true);
+assert.equal(blockedResult.d49EmployeeIntake.requiredRoleCount, 8);
+assert.equal(blockedResult.d49EmployeeIntake.businessSheetStartsEmpty, true);
+assert.equal(blockedResult.d49EmployeeIntake.examplesExcludedFromImport, true);
+assert.equal(blockedResult.d49EmployeeIntake.safeguards.realEmployeeDataIncluded, false);
+assert.equal(blockedResult.d49EmployeeIntake.safeguards.temporaryPasswordsIncluded, false);
 assert.equal(blockedResult.productionEnvSetup.status, "prepared");
 assert.equal(blockedResult.productionEnvSetup.ready, false);
 assert.equal(blockedResult.productionEnvSetup.setupReady, true);
@@ -504,6 +510,8 @@ assert.ok(
   "production env values fragment template path was not returned",
 );
 assert.ok(blockedResult.files.productionEnvFillTemplate, "production env fill template path was not returned");
+assert.ok(blockedResult.files.d49EmployeeImportTemplate, "D49 employee import template path was not returned");
+assert.ok(blockedResult.files.d49EmployeeIntakeGuide, "D49 employee intake guide path was not returned");
 assert.ok(blockedResult.files.productionEnvSetupJson, "production env setup JSON path was not returned");
 assert.ok(blockedResult.files.productionEnvSetupMarkdown, "production env setup Markdown path was not returned");
 assert.ok(blockedResult.files.productionEnvIntakeVerificationJson, "production env intake verification JSON path was not returned");
@@ -571,6 +579,12 @@ assert.ok(
 
 const summaryMarkdown = readGeneratedFile(blockedResult.files.summaryMarkdown);
 const handoffManifest = readGeneratedFile(blockedResult.files.handoffManifest);
+const d49EmployeeIntakeGuide = readGeneratedFile(blockedResult.files.d49EmployeeIntakeGuide);
+const d49EmployeeWorkbook = readGeneratedBuffer(blockedResult.files.d49EmployeeImportTemplate);
+const d49WorkbookEntries = readZipEntries(d49EmployeeWorkbook);
+const d49WorkbookXml = readZipTextEntry(d49WorkbookEntries, "xl/workbook.xml");
+const d49ImportSheetXml = readZipTextEntry(d49WorkbookEntries, "xl/worksheets/sheet2.xml");
+const d49ExampleSheetXml = readZipTextEntry(d49WorkbookEntries, "xl/worksheets/sheet3.xml");
 const productionEnvFixMarkdown = readGeneratedFile(blockedResult.files.productionEnvFixChecklistMarkdown);
 const productionEnvFixCsv = readGeneratedFile(blockedResult.files.productionEnvFixChecklistCsv);
 const productionEnvValueIntakeMarkdown = readGeneratedFile(blockedResult.files.productionEnvValueIntakeMarkdown);
@@ -643,6 +657,9 @@ const driverRoleCopy = readGeneratedFile(
 );
 assert.match(summaryMarkdown, /ERP V1 上线交接包/);
 assert.match(summaryMarkdown, /当前结论：BLOCKED/);
+assert.match(summaryMarkdown, /D49 正式员工导入/);
+assert.match(summaryMarkdown, /d49-formal-employee-machine-import-template\.xlsx/);
+assert.match(summaryMarkdown, /正式数据页不含演示员工/);
 assert.match(summaryMarkdown, /生产环境修正清单/);
 assert.match(summaryMarkdown, /生产 env 准备报告/);
 assert.match(summaryMarkdown, /生产 env 真实值校验/);
@@ -777,6 +794,20 @@ assert.doesNotMatch(
 );
 
 assert.match(handoffManifest, /v1_go_live_handoff_pack/);
+assert.match(handoffManifest, /d49EmployeeIntake/);
+assert.match(handoffManifest, /"realEmployeeDataIncluded": false/);
+assert.match(d49EmployeeIntakeGuide, /D49 正式员工账号导入与验收/);
+assert.match(d49EmployeeIntakeGuide, /一名真实员工填写一行/);
+assert.match(d49EmployeeIntakeGuide, /临时密码不得写回本工作簿/);
+assert.match(d49EmployeeIntakeGuide, /岗位矩阵达到8\/8/);
+assert.match(d49EmployeeIntakeGuide, /run-d49-employee-workbook-precheck\.mjs --file <filled-workbook\.xlsx> --json/);
+assert.match(d49EmployeeIntakeGuide, /只有`uploadAllowed=true`才进入网页上传/);
+assert.match(d49WorkbookXml, /name="员工机台"/);
+assert.match(d49WorkbookXml, /name="示例-员工机台"/);
+assert.match(d49ImportSheetXml, /员工编号/);
+assert.doesNotMatch(d49ImportSheetXml, /王师傅/);
+assert.match(d49ExampleSheetXml, /王师傅/);
+assert.match(d49ExampleSheetXml, /示例-请替换/);
 assert.match(handoffManifest, /productionEnvFixChecklist/);
 assert.match(handoffManifest, /productionEnvSetup/);
 assert.match(handoffManifest, /printChainExecution/);
@@ -2746,6 +2777,17 @@ function readGeneratedFile(path, baseDir = process.cwd()) {
   const fullPath = candidates.find((candidate) => existsSync(candidate));
   assert.ok(fullPath, `generated file is missing: ${path}`);
   return readFileSync(fullPath, "utf8");
+}
+
+function readGeneratedBuffer(path, baseDir = process.cwd()) {
+  const candidates = [
+    path,
+    isAbsolute(path) ? path : join(baseDir, path),
+    isAbsolute(path) ? path : join(process.cwd(), path),
+  ];
+  const fullPath = candidates.find((candidate) => existsSync(candidate));
+  assert.ok(fullPath, `generated file is missing: ${path}`);
+  return readFileSync(fullPath);
 }
 
 function runFailureMessage(message, result) {

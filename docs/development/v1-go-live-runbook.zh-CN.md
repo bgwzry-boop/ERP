@@ -18,6 +18,8 @@
 ## 命令顺序
 
 ```bash
+# D49正式员工表填写后，先做离线只读预检查；报告不包含姓名、员工编号原值、密码或工作簿路径。只有uploadAllowed=true才进入网页上传，服务端仍会再次预检查：
+node scripts/run-d49-employee-workbook-precheck.mjs --file <filled-workbook.xlsx> --json
 # 先生成安全 env 草稿和生产 env 修正清单 / 填写骨架；该命令不会写真实值，生成后仍必须人工填写并通过预检：
 node -- scripts/run-v1-production-env-setup.mjs --target <secure-env-file>
 # 如果真实值已经在另一份安全 env 文件中，先审计来源并导入到统一安全草稿；target 已存在时必须显式 --force：

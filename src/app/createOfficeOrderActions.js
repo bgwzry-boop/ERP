@@ -1,36 +1,60 @@
-const persistentEntryActions = new Set(["保存草稿", "保存并确认", "作废草稿"]);
+import { findStockForDraft } from "../domain/officeRules.js";
+import { getOfficeDraft as getOfficeDraftDefault } from "../services/officeOrderApiClient.js";
+
+const persistentEntryActions = new Set(["保存草稿", "保存并确认", "确认拆单", "作废草稿"]);
 const orderLineActions = new Map([
   ["quantity", "调整正式单数量"],
   ["void", "作废正式单"],
 ]);
 
 export function createOfficeOrderActions({
+  api = {},
   allowLocalFallback,
+  authState,
+  confirmDiscardDraft,
+  currentUserId,
   defaultOrderFilters,
+  draftApiMeta,
+  draftRows,
+  draftStatus,
+  entryText,
   executeOrderEntryAction,
   fulfillmentSource,
   fulfillments,
   guardUiAction,
+  inventoryRecords,
   openOrderActionModal,
+  openQueuedOrderDraft,
   orderLines,
   orderPoolSource,
+  linkCrossDraftShortageCancellation,
   recognizeOrderDraft,
+  recognizeOrderDraftQueue,
   refreshFulfillments,
   refreshOrderPool,
+  refreshOrderDraftQueue,
   refreshStatements,
   resolveLineFromRef,
+  restoreShortageCancelledLine,
   runOrderDraftCommand,
   setActivePage,
+  setDraftApiMeta,
+  setDraftRows,
+  setDraftStatus,
+  setEntryText,
   setFulfillmentTab,
   setOrderFilters,
   setSelectedFulfillmentId,
+  setSelectedStockId,
   setSelectedOrderId,
+  setSelectedDraftId,
   setSelectedStatementId,
   setToast,
   statementSource,
   statements,
   updateOrderDraftField,
 }) {
+  const orderApi = { getOfficeDraft: getOfficeDraftDefault, ...api };
   function normalizeFormalWriteResult(result, label) {
     if (!result || result.blocked || allowLocalFallback || result.source === "api") return result;
     return {
@@ -92,13 +116,81 @@ export function createOfficeOrderActions({
 
   function createOrderFromTopbar() {
     if (!guardUiAction("topbar", "新建订单")) return;
+    if (hasUnsavedOrderDraft({ draftRows, draftStatus, entryText })) {
+      const shouldDiscard = confirmDiscardDraft?.("当前订单草稿尚未保存。新建订单会清空现有录入内容，是否继续？") ?? false;
+      if (!shouldDiscard) return null;
+    }
+    setEntryText("");
+    setDraftRows([]);
+    setDraftStatus("待录入");
+    setDraftApiMeta({ draftId: "", clientRevision: 0, source: "local" });
+    setSelectedDraftId("");
     setActivePage("entry");
+    setToast("已新建空白订单，请粘贴或输入客户原文。");
+    return { blocked: false };
   }
 
   async function focusOrderLine(ref, reason = "订单池") {
     const candidateOrderLines = await loadFormalOrderLines();
     if (!candidateOrderLines) return null;
     return focusOrderLineFromItems(ref, reason, candidateOrderLines);
+  }
+
+  async function focusOrderDraft(ref) {
+    const draftId = String(ref ?? "").trim();
+    if (!draftId) {
+      setToast("待办缺少草稿编号，无法打开订单草稿。");
+      return null;
+    }
+    if (draftApiMeta?.draftId === draftId) {
+      setSelectedDraftId(draftRows[0]?.id ?? "");
+      setActivePage("entry");
+      setToast(`已定位到当前订单草稿 ${draftId}。`);
+      return { draftId, rows: draftRows };
+    }
+    const result = await orderApi.getOfficeDraft({
+      authState,
+      draftId,
+      inventories: inventoryRecords,
+      operatorId: currentUserId,
+    }, { serverRequired: !allowLocalFallback });
+    if (result?.blocked) {
+      setToast(`无法读取订单草稿 ${draftId}：${result.error?.message ?? "未知错误"}`);
+      return null;
+    }
+    if (!result?.item) {
+      setToast(`未找到订单草稿 ${draftId}，待办来源可能已关闭或失效。`);
+      return null;
+    }
+    const opened = openQueuedOrderDraft({ ...result.item, kind: "order_draft" });
+    if (opened?.blocked) {
+      setToast(opened.feedback ?? `订单草稿 ${draftId} 无法打开。`);
+      return null;
+    }
+    setActivePage("entry");
+    setToast(`已从待办打开订单草稿 ${draftId}。`);
+    return opened;
+  }
+
+  async function focusInventoryByRef(ref, todo = {}) {
+    const directInventoryId = String(todo.inventoryItemId ?? todo.inventoryKey ?? ref ?? "").trim();
+    let stock = inventoryRecords.find((item) => item.id === directInventoryId || item.inventoryKey === directInventoryId);
+    let line = null;
+    if (!stock) {
+      const candidateOrderLines = await loadFormalOrderLines();
+      if (!candidateOrderLines) return null;
+      line = resolveLineFromRef(candidateOrderLines, statements, ref);
+      if (line) stock = findStockForDraft(line, inventoryRecords);
+    }
+    if (!stock) stock = findInventoryFromTodoSummary(todo, inventoryRecords);
+    setActivePage("inventory");
+    if (!stock) {
+      setToast(`已打开库存查询，但未找到 ${String(ref ?? "").trim() || "该待办"} 对应的库存规格。`);
+      return null;
+    }
+    setSelectedStockId(stock.id);
+    setToast(`已从待办定位到库存 ${stock.id}。`);
+    return stock;
   }
 
   async function focusFulfillmentByRef(ref) {
@@ -186,6 +278,25 @@ export function createOfficeOrderActions({
     return result;
   }
 
+  async function recognizeQueue() {
+    if (!guardUiAction("entry", "识别")) return null;
+    const result = await recognizeOrderDraftQueue();
+    if (result?.feedback) setToast(result.feedback);
+    return result;
+  }
+
+  async function refreshDraftQueue(batchId) {
+    const result = await refreshOrderDraftQueue(batchId);
+    if (result?.feedback) setToast(result.feedback);
+    return result;
+  }
+
+  function openQueueDraft(item) {
+    const result = openQueuedOrderDraft(item);
+    if (result?.feedback) setToast(result.feedback);
+    return result;
+  }
+
   function updateDraftField(id, field, value) {
     updateOrderDraftField(id, field, value);
   }
@@ -196,9 +307,31 @@ export function createOfficeOrderActions({
     return result;
   }
 
-  async function entryAction(label) {
+  async function restoreCancelledDraftLine(draftLineId) {
+    if (!guardUiAction("entry", "保存草稿")) return null;
+    const result = await restoreShortageCancelledLine({
+      draftLineId,
+      reason: "客户确认恢复订购",
+    });
+    const normalized = normalizeFormalWriteResult(result, "恢复缺货取消明细");
+    if (normalized?.feedback) setToast(normalized.feedback);
+    return normalized;
+  }
+
+  async function linkCancellationIntentToSelectedLine(intentId) {
+    if (!guardUiAction("entry", "保存草稿")) return null;
+    const result = await linkCrossDraftShortageCancellation({
+      intentId,
+      reason: "办公室核对来源消息后关联到当前草稿明细",
+    });
+    const normalized = normalizeFormalWriteResult(result, "关联跨草稿取消");
+    if (normalized?.feedback) setToast(normalized.feedback);
+    return normalized;
+  }
+
+  async function entryAction(label, payload) {
     if (!guardUiAction("entry", label)) return null;
-    const rawResult = await executeOrderEntryAction(label);
+    const rawResult = await executeOrderEntryAction(label, payload);
     const result = persistentEntryActions.has(label)
       ? normalizeFormalWriteResult(rawResult, `订单${label}`)
       : rawResult;
@@ -211,11 +344,34 @@ export function createOfficeOrderActions({
     createOrderFromTopbar,
     entryAction,
     focusFulfillmentByRef,
+    focusInventoryByRef,
+    focusOrderDraft,
     focusOrderLine,
     focusStatementByRef,
     handleDraftCommand,
+    linkCancellationIntentToSelectedLine,
     openOrderLineAction,
+    openQueueDraft,
     recognize,
+    recognizeQueue,
+    refreshDraftQueue,
+    restoreCancelledDraftLine,
     updateDraftField,
   };
+}
+
+export function hasUnsavedOrderDraft({ draftRows = [], draftStatus = "", entryText = "" } = {}) {
+  const hasContent = draftRows.length > 0 || String(entryText).trim().length > 0;
+  if (!hasContent) return false;
+  return !["已保存草稿", "已确认", "已生成正式订单", "已生成多个正式订单", "已作废", "空草稿"].includes(String(draftStatus).trim());
+}
+
+function findInventoryFromTodoSummary(todo, inventoryRecords) {
+  const text = `${todo?.summary ?? ""} ${todo?.ref ?? todo?.refId ?? ""}`.toLowerCase();
+  if (!text.trim()) return null;
+  return inventoryRecords.find((item) => {
+    const size = String(item.size ?? "").toLowerCase();
+    const color = String(item.color ?? "").replace(/色$/u, "").toLowerCase();
+    return size && text.includes(size) && (!color || text.includes(color));
+  }) ?? null;
 }

@@ -41,6 +41,14 @@ const dependencies = {
     calls.push({ kind: "employees", sourceWorkspace, filters });
     return [{ employeeId: "EMP-1" }];
   },
+  buildRuntimeEmployeeAccountReadiness({ users }) {
+    calls.push({ kind: "employeeReadiness", users });
+    return { ready: false, requiredRoleCount: 8, coveredRoleCount: 0, missingRoleCount: 8, formalAccountCount: 0, readyFormalAccountCount: 0, roles: [] };
+  },
+  buildEmployeeAssignmentOptions(sourceWorkspace) {
+    calls.push({ kind: "employeeAssignmentOptions", sourceWorkspace });
+    return { workshops: ["1号车间", "2号车间", "3号车间"], machines: [] };
+  },
   async downloadMasterDataImportFailedRowsRoute(input) {
     calls.push({ kind: "failedRows", ...input });
   },
@@ -77,9 +85,17 @@ console.log("master-data read routes checks passed");
 async function expectList(pathname, permission, kind, filters, item) {
   calls.length = 0;
   assert.equal(await handleMasterDataReadRoutes({ ...dependencies, url: new URL(`http://erp.test${pathname}`) }), true);
-  assert.deepEqual(calls, [
+  const expectedCalls = [
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission },
     kind === "employees" ? { kind, sourceWorkspace: workspace, filters } : { kind, filters },
-    { kind: "json", response: dependencies.response, status: 200, body: { items: [item], page: pathname.includes("page=2") ? 2 : 1 } },
-  ]);
+  ];
+  const body = { items: [item], page: pathname.includes("page=2") ? 2 : 1 };
+  if (kind === "employees") {
+    expectedCalls.push({ kind: "employeeReadiness", users: workspace.users });
+    expectedCalls.push({ kind: "employeeAssignmentOptions", sourceWorkspace: workspace });
+    body.readiness = { ready: false, requiredRoleCount: 8, coveredRoleCount: 0, missingRoleCount: 8, formalAccountCount: 0, readyFormalAccountCount: 0, roles: [] };
+    body.assignmentOptions = { workshops: ["1号车间", "2号车间", "3号车间"], machines: [] };
+  }
+  expectedCalls.push({ kind: "json", response: dependencies.response, status: 200, body });
+  assert.deepEqual(calls, expectedCalls);
 }

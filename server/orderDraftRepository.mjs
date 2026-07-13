@@ -2,6 +2,7 @@ import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { normalizeInventoryIntents } from "./inventoryIntentDomain.mjs";
 
 export function createOrderDraftRepository(options = {}) {
   const mode = options.mode ?? process.env.ERP_ORDER_DRAFT_STORE ?? process.env.ERP_ORDER_STORE ?? "local";
@@ -47,11 +48,13 @@ export function createLocalOrderDraftRepository() {
       applyOrderDraftWorkspaceMutation({
         workspace: input.workspace,
         draft,
+        inventoryIntents: input.inventoryIntents,
         todos: input.todos,
         operationLog: input.operationLog,
       });
       return {
         draft,
+        inventoryIntents: normalizeInventoryIntents(input.inventoryIntents),
         todos: normalizeTodos(input.todos),
         operationLogId: input.operationLog?.id ?? "",
       };
@@ -103,6 +106,7 @@ export function createPostgresOrderDraftRepository(options = {}) {
       applyOrderDraftWorkspaceMutation({
         workspace: input.workspace,
         draft: saved.draft,
+        inventoryIntents: saved.inventoryIntents,
         todos: saved.todos.map((todo) => ({ ...(input.todos ?? []).find((item) => item.id === todo.id), ...todo })),
         operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
@@ -159,7 +163,8 @@ LEFT JOIN LATERAL (
       'fulfillment', COALESCE(line.fulfillment_method, ''),
       'latest', COALESCE(line.latest_needed_at::text, ''),
       'note', COALESCE(line.remark, ''),
-      'confidence', COALESCE(line.confidence, '')
+      'confidence', COALESCE(line.confidence, ''),
+      'recognitionEvidence', COALESCE(line.evidence_json, '{}'::jsonb)
     )
     ORDER BY line.line_seq, line.id
   ) AS result
@@ -179,12 +184,14 @@ export function buildSaveOrderDraftTransactionSql(input) {
 export function buildSaveOrderDraftTransactionQuery(input) {
   const draft = normalizeOrderDraft(input.draft);
   const todos = normalizeTodos(input.todos);
+  const inventoryIntents = normalizeInventoryIntents(input.inventoryIntents);
   const operationLog = normalizeOperationLog(input.operationLog);
   if (!draft || !operationLog) throw new Error("Order draft and operation log are required");
   const expectedRevision = Math.max(0, Number(input.expectedRevision ?? draft.revision) || 0);
   const parameters = createPostgresParameterBinder();
   const lineSql = buildInsertDraftLinesSql(draft, parameters);
   const todoSql = buildInsertTodosSql(todos, parameters);
+  const inventoryIntentSql = buildInsertInventoryIntentsSql(inventoryIntents, parameters);
   const operationLogSql = buildInsertOperationLogSql(operationLog, parameters);
 
   return {
@@ -271,6 +278,9 @@ draft_line_replacement_guard AS MATERIALIZED (
 inserted_draft_lines AS (
   ${lineSql}
 ),
+inserted_inventory_intents AS (
+  ${inventoryIntentSql}
+),
 inserted_todos AS (
   ${todoSql}
 ),
@@ -281,6 +291,7 @@ SELECT json_build_object(
   'draft', (SELECT result FROM upserted_draft)::jsonb || jsonb_build_object(
     'lines', (SELECT COALESCE(json_agg(result ORDER BY result->>'id'), '[]'::json) FROM inserted_draft_lines)
   ),
+  'inventoryIntents', (SELECT COALESCE(json_agg(result ORDER BY result->>'intentId'), '[]'::json) FROM inserted_inventory_intents),
   'todos', (SELECT COALESCE(json_agg(result ORDER BY result->>'id'), '[]'::json) FROM inserted_todos),
   'operationLogId', (SELECT id FROM inserted_operation_log),
   'writeGuard', (SELECT ok FROM draft_write_guard),
@@ -290,6 +301,74 @@ COMMIT;
 `.trim(),
     values: parameters.values,
   };
+}
+
+function buildInsertInventoryIntentsSql(intents, parameters) {
+  if (intents.length === 0) return "SELECT NULL::json AS result WHERE false";
+  const values = intents.map((intent) => `(
+    ${parameters.text(intent.id)},
+    ${parameters.text(intent.sourceMessageId)},
+    ${parameters.text(intent.conversationId)},
+    ${parameters.nullableText(intent.customerId)},
+    ${parameters.text(intent.intentType)},
+    ${parameters.text(intent.intentStatus)},
+    ${parameters.text(intent.sourceText)},
+    ${parameters.json(intent.candidate)},
+    ${parameters.nullableText(intent.cancellationScope)},
+    ${parameters.integer(intent.revision)},
+    ${parameters.nullableText(intent.createdBy)},
+    ${parameters.timestamp(intent.createdAt)},
+    ${parameters.timestamp(intent.updatedAt)}
+  )`).join(",\n");
+  return `INSERT INTO inventory_intents (
+  id, source_draft_id, source_message_id, conversation_id, customer_id, intent_type,
+  intent_status, source_text, candidate_json, cancellation_scope, revision,
+  created_by, created_at, updated_at
+)
+SELECT
+  intent_values.id, draft.id, intent_values.source_message_id, intent_values.conversation_id,
+  intent_values.customer_id, intent_values.intent_type, intent_values.intent_status,
+  intent_values.source_text, intent_values.candidate_json, intent_values.cancellation_scope,
+  intent_values.revision, intent_values.created_by, intent_values.created_at, intent_values.updated_at
+FROM (VALUES
+${values}
+) AS intent_values(
+  id, source_message_id, conversation_id, customer_id, intent_type, intent_status,
+  source_text, candidate_json, cancellation_scope, revision, created_by, created_at, updated_at
+)
+CROSS JOIN (SELECT id FROM upserted_draft) AS draft
+ON CONFLICT (id) DO UPDATE SET
+  intent_status = EXCLUDED.intent_status,
+  source_text = EXCLUDED.source_text,
+  candidate_json = EXCLUDED.candidate_json,
+  cancellation_scope = EXCLUDED.cancellation_scope,
+  revision = CASE
+    WHEN inventory_intents.intent_status IS DISTINCT FROM EXCLUDED.intent_status
+      OR inventory_intents.candidate_json IS DISTINCT FROM EXCLUDED.candidate_json
+      OR inventory_intents.cancellation_scope IS DISTINCT FROM EXCLUDED.cancellation_scope
+    THEN inventory_intents.revision + 1
+    ELSE inventory_intents.revision
+  END,
+  updated_at = EXCLUDED.updated_at
+WHERE inventory_intents.intent_status NOT IN ('临时留货-生效', '已转订单', '已过期', '已取消')
+RETURNING json_build_object(
+  'intentId', id,
+  'sourceDraftId', source_draft_id,
+  'sourceMessageId', source_message_id,
+  'conversationId', conversation_id,
+  'customerId', customer_id,
+  'intentType', intent_type,
+  'intentStatus', intent_status,
+  'sourceText', source_text,
+  'candidate', candidate_json,
+  'cancellationScope', cancellation_scope,
+  'relatedReservationId', related_reservation_id,
+  'relatedOrderLineId', related_order_line_id,
+  'revision', revision,
+  'createdBy', created_by,
+  'createdAt', created_at,
+  'updatedAt', updated_at
+) AS result`;
 }
 
 function buildInsertDraftLinesSql(draft, parameters) {
@@ -450,9 +529,10 @@ RETURNING id`;
 }
 
 export function normalizeOrderDraftTransactionResult(value) {
-  if (!value || typeof value !== "object") return { draft: null, todos: [], operationLogId: "" };
+  if (!value || typeof value !== "object") return { draft: null, inventoryIntents: [], todos: [], operationLogId: "" };
   return {
     draft: normalizeOrderDraft(value.draft),
+    inventoryIntents: normalizeInventoryIntents(value.inventoryIntents ?? value.inventory_intents),
     todos: normalizeTodos(value.todos),
     operationLogId: cleanText(value.operationLogId ?? value.operation_log_id),
   };
@@ -559,9 +639,12 @@ function normalizeOperationLog(value) {
   };
 }
 
-function applyOrderDraftWorkspaceMutation({ workspace, draft, todos, operationLog }) {
+function applyOrderDraftWorkspaceMutation({ workspace, draft, inventoryIntents, todos, operationLog }) {
   if (!workspace) return;
   workspace.orderDrafts = upsertById(workspace.orderDrafts ?? [], draft);
+  for (const intent of normalizeInventoryIntents(inventoryIntents)) {
+    workspace.inventoryIntents = upsertById(workspace.inventoryIntents ?? [], intent);
+  }
   for (const todo of normalizeTodos(todos)) workspace.todos = upsertById(workspace.todos ?? [], todo);
   if (operationLog) workspace.operationLogs = upsertById(workspace.operationLogs ?? [], operationLog);
 }

@@ -1,4 +1,8 @@
+import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { createV1StatusBlockerActionBuilders } from "../src/features/v1-status/createV1StatusBlockerActionBuilders.js";
+import { createV1StatusFieldRoleActionBuilders } from "../src/features/v1-status/createV1StatusFieldRoleActionBuilders.js";
+import { createV1StatusPhaseActionBuilders } from "../src/features/v1-status/createV1StatusPhaseActionBuilders.js";
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const v1StatusActionsSource = readFileSync(new URL("../src/app/createOfficeV1StatusActions.js", import.meta.url), "utf8");
@@ -31,7 +35,11 @@ const v1StatusProductionEnvMinimumSource = readFileSync(new URL("../src/features
 const v1StatusProductionEnvDraftSource = readFileSync(new URL("../src/features/v1-status/V1StatusProductionEnvDraftStage.jsx", import.meta.url), "utf8");
 const v1StatusModuleSource = readFileSync(new URL("../src/features/v1-status/V1StatusModuleWorkspace.jsx", import.meta.url), "utf8");
 const v1StatusPresentationSource = readFileSync(new URL("../src/features/v1-status/v1StatusPresentation.js", import.meta.url), "utf8");
-const v1StatusPageSource = [v1StatusPageEntrySource, v1StatusOverviewSource, v1StatusDecisionSource, v1StatusRuntimeSource, v1StatusFieldAcceptanceSource, v1StatusRoleTaskSource, v1StatusFieldEvidenceSource, v1StatusFieldProgressSource, v1StatusEvidenceEntrySource, v1StatusSignoffEntrySource, v1StatusFieldCloseoutSource, v1StatusFieldCloseoutStagingResultsSource, v1StatusFieldCloseoutReleaseResultsSource, v1StatusBoundarySource, v1StatusProductionSource, v1StatusProductionGateSource, v1StatusProductionIntakeSource, v1StatusProductionFirstStageSource, v1StatusProductionFirstStageReadinessSource, v1StatusProductionFirstStageActionResultsSource, v1StatusProductionEnvFixSource, v1StatusProductionEnvMinimumSource, v1StatusProductionEnvDraftSource, v1StatusModuleSource, v1StatusPresentationSource].join("\n");
+const v1StatusFieldEvidenceControllerSource = readFileSync(new URL("../src/features/v1-status/useV1StatusFieldEvidenceController.js", import.meta.url), "utf8");
+const v1StatusBlockerActionBuildersSource = readFileSync(new URL("../src/features/v1-status/createV1StatusBlockerActionBuilders.js", import.meta.url), "utf8");
+const v1StatusFieldRoleActionBuildersSource = readFileSync(new URL("../src/features/v1-status/createV1StatusFieldRoleActionBuilders.js", import.meta.url), "utf8");
+const v1StatusPhaseActionBuildersSource = readFileSync(new URL("../src/features/v1-status/createV1StatusPhaseActionBuilders.js", import.meta.url), "utf8");
+const v1StatusPageSource = [v1StatusPageEntrySource, v1StatusOverviewSource, v1StatusDecisionSource, v1StatusRuntimeSource, v1StatusFieldAcceptanceSource, v1StatusRoleTaskSource, v1StatusFieldEvidenceSource, v1StatusFieldProgressSource, v1StatusEvidenceEntrySource, v1StatusSignoffEntrySource, v1StatusFieldCloseoutSource, v1StatusFieldCloseoutStagingResultsSource, v1StatusFieldCloseoutReleaseResultsSource, v1StatusBoundarySource, v1StatusProductionSource, v1StatusProductionGateSource, v1StatusProductionIntakeSource, v1StatusProductionFirstStageSource, v1StatusProductionFirstStageReadinessSource, v1StatusProductionFirstStageActionResultsSource, v1StatusProductionEnvFixSource, v1StatusProductionEnvMinimumSource, v1StatusProductionEnvDraftSource, v1StatusModuleSource, v1StatusPresentationSource, v1StatusFieldEvidenceControllerSource, v1StatusBlockerActionBuildersSource, v1StatusFieldRoleActionBuildersSource, v1StatusPhaseActionBuildersSource].join("\n");
 const clientEntrySource = readFileSync(new URL("../src/services/officeV1GoLiveStatusApiClient.js", import.meta.url), "utf8");
 const clientActionsSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusActions.js", import.meta.url), "utf8");
 const clientFieldEvidenceNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusFieldEvidenceNormalizers.js", import.meta.url), "utf8");
@@ -43,8 +51,11 @@ const clientReleaseNormalizersSource = readFileSync(new URL("../src/services/off
 const clientRuntimeNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusRuntimeNormalizers.js", import.meta.url), "utf8");
 const clientSource = [clientEntrySource, clientActionsSource, clientFieldEvidenceNormalizersSource, clientNormalizerUtilsSource, clientProductionEnvNormalizersSource, clientProductionFirstStageNormalizersSource, clientProductionTemplateNormalizersSource, clientReleaseNormalizersSource, clientRuntimeNormalizersSource].join("\n");
 const attachmentClientSource = readFileSync(new URL("../src/services/officeAttachmentApiClient.js", import.meta.url), "utf8");
-const styleSource = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
-const featureStyleSource = readFileSync(new URL("../src/styles/features/v1-status.css", import.meta.url), "utf8");
+const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
+const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
+const v1StatusBaseStyleSource = readFileSync(new URL("../src/styles/features/v1-status-base.css", import.meta.url), "utf8");
+const v1StatusWorkbenchStyleSource = readFileSync(new URL("../src/styles/features/v1-status.css", import.meta.url), "utf8");
+const featureStyleSource = `${v1StatusBaseStyleSource}\n${v1StatusWorkbenchStyleSource}`;
 
 assertIncludes(navigationSource, 'key: "v1Status"', "navigation should expose V1 status page");
 assertIncludes(navigationSource, 'label: "上线状态"', "navigation should label V1 status page");
@@ -136,6 +147,140 @@ assertIncludes(appSource, "onRefreshReleaseCandidate={refreshV1ReleaseCandidate}
 assertIncludes(v1StatusPageSource, "export function V1StatusPage", "office pages should export V1StatusPage");
 assertIncludes(v1StatusPageEntrySource, 'from "./V1StatusOverview.jsx"', "V1 status page should compose the extracted overview");
 assertIncludes(v1StatusPageEntrySource, 'from "./v1StatusPresentation.js"', "V1 status page should consume the extracted presentation model");
+assertIncludes(v1StatusPageEntrySource, 'from "./useV1StatusFieldEvidenceController.js"', "V1 status page should compose the extracted field-evidence controller");
+assertIncludes(v1StatusFieldEvidenceControllerSource, "export function useV1StatusFieldEvidenceController", "field evidence state and commands should have a dedicated controller hook");
+assertExcludes(v1StatusPageEntrySource, "const [evidenceStageDraft", "V1 status page should not retain field-evidence draft state");
+assertExcludes(v1StatusPageEntrySource, "function stageSelectedEvidenceRow", "V1 status page should not retain field-evidence staging commands");
+assertIncludes(v1StatusPageEntrySource, 'from "./createV1StatusBlockerActionBuilders.js"', "V1 status page should compose the blocker action builders");
+assertIncludes(v1StatusBlockerActionBuildersSource, "export function createV1StatusBlockerActionBuilders", "runtime and release blocker actions should have a dedicated builder factory");
+assertIncludes(v1StatusBlockerActionBuildersSource, "function buildRuntimeReadinessBlockerActions", "runtime blocker actions should be isolated");
+assertIncludes(v1StatusBlockerActionBuildersSource, "function buildReleaseCandidateRefreshBlockerActions", "release-candidate blocker actions should be isolated");
+assertExcludes(v1StatusPageEntrySource, "function buildRuntimeReadinessBlockerActions", "V1 status page should not retain runtime blocker action routing");
+assertExcludes(v1StatusPageEntrySource, "function buildReleaseCandidateRefreshBlockerActions", "V1 status page should not retain release blocker action routing");
+assertIncludes(v1StatusPageEntrySource, 'from "./createV1StatusFieldRoleActionBuilders.js"', "V1 status page should compose field and role action builders");
+assertIncludes(v1StatusFieldRoleActionBuildersSource, "export function createV1StatusFieldRoleActionBuilders", "field and role actions should have a dedicated builder factory");
+for (const builderName of ["buildFieldEvidenceGroupActions", "buildRoleTaskQuickActions", "buildRoleTaskCategorySummaries"]) {
+  assertIncludes(v1StatusFieldRoleActionBuildersSource, `function ${builderName}`, `${builderName} should be isolated`);
+  assertExcludes(v1StatusPageEntrySource, `function ${builderName}`, `V1 status page should not retain ${builderName}`);
+}
+assertIncludes(v1StatusPageEntrySource, 'from "./createV1StatusPhaseActionBuilders.js"', "V1 status page should compose phase action builders");
+assertIncludes(v1StatusPhaseActionBuildersSource, "export function createV1StatusPhaseActionBuilders", "production, phase, and audit actions should have a dedicated builder factory");
+for (const builderName of ["buildProductionEnvGateActions", "buildSelectedPhaseQuickActions", "buildCompletionAuditActions"]) {
+  assertIncludes(v1StatusPhaseActionBuildersSource, `function ${builderName}`, `${builderName} should be isolated`);
+  assertExcludes(v1StatusPageEntrySource, `function ${builderName}`, `V1 status page should not retain ${builderName}`);
+}
+
+const blockerActionCalls = [];
+const blockerActionBuilders = createV1StatusBlockerActionBuilders({
+  canShowProductionEnvFrontDoorReview: true,
+  findMatchingMissingEvidenceOptionByText: () => ({ key: "print-evidence" }),
+  findSignoffBoundaryOptionByText: () => ({ key: "driver-signoff", type: "signoff" }),
+  focusFieldAcceptanceReportFromPhase: () => blockerActionCalls.push("field-acceptance"),
+  focusFieldEvidenceProgressFromPhase: () => blockerActionCalls.push("field-evidence"),
+  focusProductionEnvFixChecklistFromBlocker: () => blockerActionCalls.push("env-fix"),
+  focusV1V2BoundaryBriefFromBlocker: () => blockerActionCalls.push("boundary"),
+  missingEvidenceOptions: [{ key: "first-evidence" }],
+  onPrecheckProductionEnv: () => blockerActionCalls.push("env-precheck"),
+  onPrecheckProductionEnvFileAudit: () => blockerActionCalls.push("env-file-audit"),
+  onPrecheckProductionEnvFilePreview: () => blockerActionCalls.push("env-file-preview"),
+  onPrecheckProductionGoLive: () => blockerActionCalls.push("go-live"),
+  onPrecheckV1PrintCups: () => blockerActionCalls.push("cups"),
+  productionEnvGateRef: { current: null },
+  releaseCandidateRefreshPrecheckAction: {
+    result: { summary: { productionGoLiveFirstBlockedStageKey: "production-env-file-audit" } },
+  },
+  runProductionEnvFrontDoorReview: () => blockerActionCalls.push("front-door"),
+  scrollV1StatusRefIntoView: () => blockerActionCalls.push("scroll"),
+  selectMissingEvidenceForStage: () => blockerActionCalls.push("select-evidence"),
+  selectSignoffBoundaryForStage: () => blockerActionCalls.push("select-signoff"),
+  signoffBoundaryOptions: [{ key: "owner", type: "signoff" }, { key: "boundary", type: "boundary" }],
+});
+const cupsBlockerActions = blockerActionBuilders.buildRuntimeReadinessBlockerActions({ key: "print-cups-diagnostics" });
+assert.deepEqual(cupsBlockerActions.map((item) => item.key), ["run-print-cups", "fill-print-evidence"]);
+cupsBlockerActions[0].onClick();
+assert.equal(blockerActionCalls.includes("cups"), true, "CUPS blocker action should preserve its precheck callback");
+const releaseComboActions = blockerActionBuilders.buildReleaseCandidateRefreshBlockerActions({ key: "production-go-live-combo-blocked" });
+assert.deepEqual(releaseComboActions.map((item) => item.key), [
+  "run-env-front-door-review",
+  "run-env-file-audit",
+  "run-env-file-preview",
+  "run-current-env-precheck",
+  "open-production-gate",
+  "run-combo-precheck",
+]);
+
+const fieldRoleActionCalls = [];
+const fieldRoleActionBuilders = createV1StatusFieldRoleActionBuilders({
+  findMatchingMissingEvidenceOptionByText: () => ({ key: "matched-evidence" }),
+  findSignoffBoundaryOptionByText: () => ({ key: "matched-signoff", type: "signoff" }),
+  focusFieldAcceptanceReportFromPhase: () => fieldRoleActionCalls.push("field-acceptance"),
+  focusFieldEvidenceProgressFromPhase: () => fieldRoleActionCalls.push("field-evidence"),
+  focusMissingEvidenceGroup: () => fieldRoleActionCalls.push("focus-group"),
+  focusProductionEnvFixChecklistFromBlocker: () => fieldRoleActionCalls.push("env-fix"),
+  focusRuntimeReadinessFromPhase: () => fieldRoleActionCalls.push("runtime"),
+  focusV1V2BoundaryBriefFromBlocker: () => fieldRoleActionCalls.push("boundary"),
+  missingEvidenceOptions: [{ key: "first-evidence" }],
+  onPrecheckV1PrintCups: () => fieldRoleActionCalls.push("cups"),
+  onPrecheckV1PrintReadiness: () => fieldRoleActionCalls.push("print-readiness"),
+  onPrecheckV1PrintSpool: () => fieldRoleActionCalls.push("spool"),
+  scrollV1StatusRefIntoView: () => fieldRoleActionCalls.push("scroll"),
+  selectMissingEvidenceForStage: () => fieldRoleActionCalls.push("select-evidence"),
+  selectSignoffBoundaryForStage: () => fieldRoleActionCalls.push("select-signoff"),
+  signoffBoundaryOptions: [{ key: "owner", type: "signoff" }, { key: "boundary", type: "boundary" }],
+});
+const printEvidenceGroupActions = fieldRoleActionBuilders.buildFieldEvidenceGroupActions({
+  key: "print_hardware",
+  firstMissingItem: { key: "print-first" },
+  missingCount: 4,
+});
+assert.deepEqual(printEvidenceGroupActions.map((item) => item.key), [
+  "fill-first-print_hardware",
+  "run-print-spool",
+  "run-print-cups",
+  "run-print-readiness",
+  "filter-evidence-print_hardware",
+]);
+printEvidenceGroupActions[2].onClick();
+assert.equal(fieldRoleActionCalls.includes("cups"), true, "print evidence group should preserve its CUPS action");
+const evidenceTaskActions = fieldRoleActionBuilders.buildRoleTaskQuickActions({
+  type: "现场证据",
+  title: "打印样张证据",
+});
+assert.deepEqual(evidenceTaskActions.map((item) => item.key), ["fill-evidence", "open-field-evidence"]);
+
+const phaseActionCalls = [];
+const phaseActionBuilders = createV1StatusPhaseActionBuilders({
+  findMissingEvidenceOptionByText: () => ({ key: "print-evidence" }),
+  findProductionEnvFixItemForGate: () => null,
+  findSignoffBoundaryOptionByText: () => null,
+  focusRuntimeReadinessFromPhase: () => phaseActionCalls.push("runtime"),
+  onPrecheckProductionEnv: () => phaseActionCalls.push("env"),
+  onPrecheckProductionGoLive: () => phaseActionCalls.push("go-live"),
+  onPrecheckRuntimeReadiness: () => phaseActionCalls.push("runtime-precheck"),
+  onPrecheckV1PrintCups: () => phaseActionCalls.push("cups"),
+  onPrecheckV1PrintReadiness: () => phaseActionCalls.push("print-readiness"),
+  onPrecheckV1PrintSpool: () => phaseActionCalls.push("spool"),
+  productionEnvTemplateSectionIndexByLabel: new Map(),
+  selectedPhase: { key: "print_hardware", label: "真实打印" },
+  selectMissingEvidenceForStage: () => phaseActionCalls.push("select-evidence"),
+});
+const cupsEnvGateActions = phaseActionBuilders.buildProductionEnvGateActions({ key: "cups-preflight-env" });
+assert.deepEqual(cupsEnvGateActions.map((item) => item.key), [
+  "run-production-env-precheck",
+  "run-print-cups",
+  "run-print-readiness",
+  "run-production-go-live",
+]);
+const printPhaseActions = phaseActionBuilders.buildSelectedPhaseQuickActions();
+assert.deepEqual(printPhaseActions.map((item) => item.key), [
+  "open-runtime-readiness",
+  "run-print-spool",
+  "run-print-cups",
+  "run-print-readiness",
+  "fill-print-evidence",
+]);
+const runtimeAuditActions = phaseActionBuilders.buildCompletionAuditActions({ key: "runtime_readiness" });
+assert.deepEqual(runtimeAuditActions.map((item) => item.key), ["open-runtime-readiness", "run-runtime-readiness"]);
 assertIncludes(v1StatusOverviewSource, "export function V1StatusGateModulePanel", "V1 status overview should own gate and module rendering");
 assertIncludes(v1StatusOverviewSource, "export function V1StatusWorkspaceTabs", "V1 status overview should own the top-level operational views");
 assertIncludes(v1StatusOverviewSource, "export function V1StatusSectionTabs", "V1 status overview should own current-view stage navigation");
@@ -177,6 +322,20 @@ assertIncludes(v1StatusPageEntrySource, "<V1StatusProductionWorkspace", "V1 stat
 assertExcludes(v1StatusPageEntrySource, "<h3>生产配置门禁</h3>", "V1 status page should not retain production-gate markup");
 assertIncludes(v1StatusProductionGateSource, "export function V1StatusProductionGateStage", "V1 production gate should have a dedicated stage component");
 assertIncludes(v1StatusProductionIntakeSource, "export function V1StatusProductionIntakeStage", "V1 production intake should have a dedicated stage component");
+assertIncludes(v1StatusProductionIntakeSource, "D49 员工与环境联合预检", "V1 production intake should show the unified D49 readiness projection");
+assertIncludes(v1StatusProductionIntakeSource, "正式岗位", "D49 projection should show formal role coverage");
+assertIncludes(v1StatusProductionIntakeSource, "env 预检", "D49 projection should show secure production environment readiness");
+assertIncludes(v1StatusProductionIntakeSource, "D49八岗位就绪矩阵", "D49 projection should expose every formal role in a dedicated matrix");
+assertIncludes(v1StatusProductionIntakeSource, "d49EmployeeRoles.map", "D49 projection should render all normalized formal roles");
+assertIncludes(v1StatusProductionIntakeSource, 'item.category !== "employee"', "D49 projection should separate environment blockers from employee roles");
+assertIncludes(v1StatusProductionIntakeSource, "groupD49EnvironmentBlockers", "D49 projection should group indistinguishable environment blockers instead of repeating them");
+assertIncludes(v1StatusProductionIntakeSource, "item.count > 1", "D49 grouped environment blockers should retain their raw occurrence count");
+assertExcludes(v1StatusProductionIntakeSource, "d49Readiness.blockers.slice(0, 6)", "D49 projection must not silently truncate role or environment blockers");
+assertIncludes(v1StatusProductionIntakeSource, "打开员工导入", "D49 projection should provide a direct formal employee import action");
+assertIncludes(v1StatusProductionIntakeSource, "onOpenEmployeeImport ?", "D49 employee import action should remain permission-scoped by its caller");
+assertIncludes(appSource, 'isNavigationPageVisible("masterData", permissionContext) ? () =>', "App should expose D49 employee import only when master-data navigation is authorized");
+assertIncludes(appSource, 'setMasterDataMaintenanceTab("员工机台")', "D49 employee import should focus the employee-machine workspace");
+assertIncludes(appSource, 'openMasterDataTemplatePanel("员工机台")', "D49 employee import should open the employee-machine import template");
 assertIncludes(v1StatusProductionFirstStageSource, "export function V1StatusProductionFirstStage", "V1 production first-stage execution should have a dedicated component");
 assertIncludes(v1StatusProductionFirstStageSource, "<V1StatusProductionFirstStageReadiness", "V1 production first-stage coordinator should compose readiness results");
 assertIncludes(v1StatusProductionFirstStageSource, "<V1StatusProductionFirstStageActionResults", "V1 production first-stage coordinator should compose action results");
@@ -196,6 +355,16 @@ assertIncludes(v1StatusPageEntrySource, "v1StatusWorkspaceSections", "V1 status 
 assertIncludes(v1StatusPageEntrySource, "v1-status-section-${workspaceSection}", "V1 status page should expose only the selected business section");
 assertIncludes(featureStyleSource, ".page-grid.two-col.v1-status-workbench", "V1 status feature styles should own the responsive split");
 assertIncludes(featureStyleSource, ".v1-status-page .v1-workspace-panel", "V1 status feature styles should hide inactive workflow sections");
+assertIncludes(mainSource, 'import "./styles/features/v1-status-base.css";', "main should import the V1 base feature styles");
+assertIncludes(mainSource, 'import "./styles/features/v1-status.css";', "main should import the V1 workbench overrides");
+assert.equal(
+  mainSource.indexOf('import "./styles/features/v1-status-base.css";') < mainSource.indexOf('import "./styles/features/v1-status.css";'),
+  true,
+  "V1 base styles should load before workbench overrides",
+);
+assertExcludes(sharedStyleSource, ".v1-status-page", "shared styles should not retain the V1 status page base");
+assertExcludes(sharedStyleSource, ".v1-section-title-row", "shared styles should not retain V1 section title rules");
+assertExcludes(sharedStyleSource, ".v1-field-stage-row", "shared styles should not retain V1 mobile field-stage rules");
 assertIncludes(v1StatusPresentationSource, "export function buildV1StatusSummaryForPage", "V1 status presentation should own summary fallback rules");
 assertExcludes(v1StatusPageEntrySource, "const v1StatusSummary =", "V1 status page should not redefine the fallback summary");
 assertIncludes(v1StatusPageSource, "goLiveStatus", "V1 status page should accept API status data");
@@ -799,6 +968,7 @@ assertIncludes(clientProductionEnvNormalizersSource, "export function normalizeV
 assertIncludes(clientProductionFirstStageNormalizersSource, "export function normalizeV1ProductionFirstStageValuesApplyLiveRunResult", "production first-stage normalizers should own values-apply normalization");
 assertIncludes(clientProductionTemplateNormalizersSource, "export function normalizeProductionEnvFixChecklist", "production-template normalizers should own fix-checklist normalization");
 assertIncludes(clientRuntimeNormalizersSource, "export function normalizeV1RuntimeReadinessLivePrecheckResult", "runtime normalizers should own runtime live-precheck normalization");
+assertIncludes(clientRuntimeNormalizersSource, "export function normalizeV1D49Readiness", "runtime normalizers should own D49 readiness normalization");
 assertExcludes(clientEntrySource, "function normalizeFieldEvidenceProgress", "V1 status client entry should not retain field-evidence normalization");
 assertExcludes(clientEntrySource, "function normalizeV1ReleaseCandidateRefreshResult", "V1 status client entry should not retain release normalization");
 assertExcludes(clientEntrySource, "function normalizeV1RuntimeReadinessLivePrecheckResult", "V1 status client entry should not retain runtime normalization");
@@ -815,7 +985,7 @@ assertIncludes(attachmentClientSource, "v1_field_evidence", "attachment client s
 assertIncludes(attachmentClientSource, "createV1SignoffBoundaryAttachmentInput", "attachment client should build V1 signoff/boundary upload input");
 assertIncludes(attachmentClientSource, "createV1SignoffBoundaryAttachmentListInput", "attachment client should build V1 signoff/boundary list input");
 assertIncludes(attachmentClientSource, "v1_signoff_boundary", "attachment client should link uploads to V1 signoff/boundary rows");
-assertIncludes(styleSource, ".v1-field-attachment-list", "styles should render reusable field evidence attachment list");
+assertIncludes(featureStyleSource, ".v1-field-attachment-list", "styles should render reusable field evidence attachment list");
 assertIncludes(clientSource, "/system/v1-production-env/live-precheck", "client should call current production env precheck API");
 assertIncludes(clientSource, "/system/v1-production-env-intake/live-precheck", "client should call production env intake live precheck API");
 assertIncludes(clientSource, "/system/v1-production-env-file-audit/live-precheck", "client should call current production env file audit precheck API");
@@ -962,126 +1132,126 @@ assertIncludes(clientSource, "rawOnsiteTaskBoardIncluded", "client should preser
 assertIncludes(clientSource, "missingVariables", "client should preserve missing variable names but not values");
 assertIncludes(clientSource, "variableLabel", "client should expose compact variable labels for the page");
 
-assertIncludes(styleSource, ".v1-status-page", "styles should cover V1 status page");
-assertIncludes(styleSource, ".v1-status-source", "styles should cover V1 status source");
-assertIncludes(styleSource, ".v1-gate-row", "styles should cover V1 gate rows");
-assertIncludes(styleSource, ".v2-difference-row", "styles should cover V2 difference rows");
-assertIncludes(styleSource, ".v1-unblock-summary", "styles should cover V1 unblock summary");
-assertIncludes(styleSource, ".v1-phase-row", "styles should cover V1 unblock phases");
-assertIncludes(styleSource, ".v1-action-row", "styles should cover V1 first actions");
-assertIncludes(styleSource, ".v1-phase-group-list", "styles should cover V1 unblock phase groups");
-assertIncludes(styleSource, ".v1-action-meta", "styles should cover V1 unblock task metadata");
-assertIncludes(styleSource, ".v1-owner-decision-head", "styles should cover owner decision heading");
-assertIncludes(styleSource, ".v1-owner-decision-grid", "styles should cover owner decision columns");
-assertIncludes(styleSource, ".v1-owner-decision-summary", "styles should cover owner decision summary chips");
-assertIncludes(styleSource, ".v1-owner-decision-gate", "styles should cover owner decision gate rows");
-assertIncludes(styleSource, ".v1-owner-action-plan", "styles should cover owner decision action plan");
-assertIncludes(styleSource, ".v1-owner-blocker-row", "styles should cover owner decision top blocker rows");
-assertIncludes(styleSource, ".v1-field-evidence-row", "styles should cover field evidence rows");
-assertIncludes(styleSource, ".v1-field-evidence-group-actions", "styles should cover field evidence group actions");
-assertIncludes(styleSource, ".v1-field-evidence-group-preview", "styles should cover evidence group missing item previews");
-assertIncludes(styleSource, ".v1-field-evidence-group-preview-row", "styles should cover evidence group preview rows");
-assertIncludes(styleSource, ".v1-field-evidence-item", "styles should cover missing field evidence item rows");
-assertIncludes(styleSource, ".v1-field-evidence-missing-head", "styles should cover missing field evidence list heading");
-assertIncludes(styleSource, ".v1-signoff-boundary-row", "styles should cover signoff and boundary action rows");
-assertIncludes(styleSource, ".v1-signoff-boundary-actions", "styles should cover signoff and boundary action section");
-assertIncludes(styleSource, ".v1-field-intake-guidance", "styles should cover field evidence intake guidance");
-assertIncludes(styleSource, ".v1-field-intake-quality", "styles should cover field evidence intake quality");
-assertIncludes(styleSource, ".v1-field-intake-actions", "styles should cover field evidence intake action buttons");
-assertIncludes(styleSource, ".v1-field-intake-quality-row", "styles should cover field evidence intake quality rows");
-assertIncludes(styleSource, ".v1-field-stage-grid", "styles should cover field evidence row staging grid");
-assertIncludes(styleSource, ".v1-field-stage-card", "styles should cover field evidence row staging card");
-assertIncludes(styleSource, ".v1-field-stage-row", "styles should cover field evidence row staging inputs");
-assertIncludes(styleSource, ".v1-field-stage-upload", "styles should cover field evidence attachment upload controls");
-assertIncludes(styleSource, ".v1-field-stage-result", "styles should cover latest field evidence row staging result");
-assertIncludes(styleSource, ".v1-field-intake-draft-result", "styles should cover field evidence draft generation result");
-assertIncludes(styleSource, ".v1-field-intake-validation-result", "styles should cover field evidence draft validation result");
-assertIncludes(styleSource, ".v1-field-intake-refresh-precheck-result", "styles should cover release candidate refresh precheck result");
-assertIncludes(styleSource, ".v1-refresh-precheck-blocker-row", "styles should cover release candidate refresh blocker rows");
-assertIncludes(styleSource, ".v1-refresh-precheck-actions", "styles should cover release candidate refresh blocker actions");
-assertIncludes(styleSource, ".v1-phase-quick-actions", "styles should cover selected phase quick action buttons");
-assertIncludes(styleSource, ".v1-field-intake-command-row", "styles should cover field evidence intake command rows");
-assertIncludes(styleSource, ".v1-field-intake-summary", "styles should cover field evidence intake summary");
-assertIncludes(styleSource, ".v1-signoff-strip", "styles should cover signoff progress strip");
-assertIncludes(styleSource, ".v1-role-task-row", "styles should cover role task rows");
-assertIncludes(styleSource, ".v1-role-task-item", "styles should cover role task preview items");
-assertIncludes(styleSource, ".v1-role-category-grid", "styles should cover role task category grid");
-assertIncludes(styleSource, ".v1-role-category-card", "styles should cover role task category cards");
-assertIncludes(styleSource, ".v1-role-category-preview", "styles should cover role task category first-task previews");
-assertIncludes(styleSource, ".v1-role-category-actions", "styles should cover role task category actions");
-assertIncludes(styleSource, ".v1-role-first-actions", "styles should cover prioritized onsite role actions");
-assertIncludes(styleSource, ".v1-role-first-action-row", "styles should cover prioritized role action rows");
-assertIncludes(styleSource, ".v1-role-first-action-buttons", "styles should cover prioritized role action buttons");
-assertIncludes(styleSource, ".v1-role-task-more", "styles should cover hidden role task count hints");
-assertIncludes(styleSource, ".v1-runtime-readiness-row", "styles should cover runtime readiness blocker rows");
-assertIncludes(styleSource, ".v1-runtime-readiness-actions", "styles should cover runtime readiness blocker row actions");
-assertIncludes(styleSource, ".v1-runtime-readiness-live-result", "styles should cover runtime readiness live precheck result");
-assertIncludes(styleSource, ".v1-runtime-readiness-live-blockers", "styles should cover runtime readiness live precheck blockers");
-assertIncludes(styleSource, ".v1-field-acceptance-module-row", "styles should cover field acceptance module rows");
-assertIncludes(styleSource, ".v1-field-acceptance-blocker-row", "styles should cover field acceptance blocker rows");
-assertIncludes(styleSource, ".v1-field-acceptance-required-row", "styles should cover field acceptance required evidence rows");
-assertIncludes(styleSource, ".v1-runtime-readiness-summary", "styles should cover runtime readiness summary");
-assertIncludes(styleSource, ".v1-runtime-readiness-meta", "styles should cover runtime readiness metadata");
-assertIncludes(styleSource, ".v1-production-env-gate-row", "styles should cover production env gate rows");
-assertIncludes(styleSource, ".v1-production-env-gate-actions", "styles should cover production env gate row actions");
-assertIncludes(styleSource, ".v1-production-env-gate-summary", "styles should cover production env gate summary");
-assertIncludes(styleSource, ".v1-production-env-audit", "styles should cover env file audit row");
-assertIncludes(styleSource, ".v1-production-env-setup-live-result", "styles should cover production env setup live-run result");
-assertIncludes(styleSource, ".v1-production-env-live-result", "styles should cover production env live precheck result");
-assertIncludes(styleSource, ".v1-production-env-live-blockers", "styles should cover production env live precheck blockers");
-assertIncludes(styleSource, ".v1-production-env-file-audit-live-result", "styles should cover production env file audit live precheck result");
-assertIncludes(styleSource, ".v1-production-env-file-audit-blockers", "styles should cover production env file audit blockers");
-assertIncludes(styleSource, ".v1-production-env-file-audit-files", "styles should cover production env file audit file summaries");
-assertIncludes(styleSource, ".v1-production-env-file-audit-source-list", "styles should cover production env file audit source status list");
-assertIncludes(styleSource, ".v1-production-env-file-preview-live-result", "styles should cover production env file application live precheck result");
-assertIncludes(styleSource, ".v1-production-env-file-preview-blockers", "styles should cover production env file application blockers");
-assertIncludes(styleSource, ".v1-production-env-file-preview-stage", "styles should cover production env file application stage diagnosis");
-assertIncludes(styleSource, ".v1-production-go-live-live-result", "styles should cover production go-live combo live precheck result");
-assertIncludes(styleSource, ".v1-production-env-intake-priority", "styles should cover production env intake priority guidance");
-assertIncludes(styleSource, ".v1-production-env-intake-live-result", "styles should cover production env intake live precheck result");
-assertIncludes(styleSource, ".v1-production-persistence-evidence-latest", "styles should cover persisted production persistence evidence latest result");
-assertIncludes(styleSource, ".v1-production-persistence-evidence-live-result", "styles should cover production persistence evidence live result");
-assertIncludes(styleSource, ".v1-production-first-stage-execution-live-result", "styles should cover production first-stage execution live result");
-assertIncludes(styleSource, ".v1-production-first-stage-dry-run-live-result", "styles should cover production first-stage values dry-run live precheck result");
-assertIncludes(styleSource, ".v1-blocker-preview-row", "styles should cover persistence evidence blocker preview rows");
-assertIncludes(styleSource, ".v1-production-go-live-stage", "styles should cover production go-live combo stage rows");
-assertIncludes(styleSource, ".v1-production-go-live-blockers", "styles should cover production go-live combo blockers");
-assertIncludes(styleSource, ".v1-production-go-live-unblock-list", "styles should cover production go-live unblock checklist");
-assertIncludes(styleSource, ".v1-production-go-live-unblock-row", "styles should cover production go-live unblock rows");
-assertIncludes(styleSource, ".v1-production-go-live-evidence-coverage", "styles should cover production go-live evidence coverage");
-assertIncludes(styleSource, ".v1-production-go-live-evidence-row", "styles should cover production go-live evidence rows");
-assertIncludes(styleSource, ".v1-persistence-live-result", "styles should cover V1 persistence live precheck result");
-assertIncludes(styleSource, ".v1-persistence-group-row", "styles should cover V1 persistence group rows");
-assertIncludes(styleSource, ".v1-attachment-retention-live-result", "styles should cover V1 attachment retention live precheck result");
-assertIncludes(styleSource, ".v1-attachment-retention-live-blockers", "styles should cover V1 attachment retention blockers");
-assertIncludes(styleSource, ".v1-print-spool-live-result", "styles should cover print spool diagnostics live precheck result");
-assertIncludes(styleSource, ".v1-print-spool-live-blockers", "styles should cover print spool diagnostics blockers");
-assertIncludes(styleSource, ".v1-print-cups-live-result", "styles should cover print CUPS diagnostics live precheck result");
-assertIncludes(styleSource, ".v1-print-cups-live-blockers", "styles should cover print CUPS diagnostics blockers");
-assertIncludes(styleSource, ".v1-section-title-actions", "styles should cover multi-action section headers");
-assertIncludes(styleSource, ".v1-section-title-row", "styles should cover V1 section title action rows");
-assertIncludes(styleSource, ".v1-v2-boundary-precheck-result", "styles should cover V1/V2 boundary precheck result");
-assertIncludes(styleSource, ".v1-v2-boundary-precheck-blockers", "styles should cover V1/V2 boundary precheck blockers");
-assertIncludes(styleSource, ".v1-v2-boundary-grid", "styles should cover V1/V2 boundary columns");
-assertIncludes(styleSource, ".v1-v2-module-row", "styles should cover V1/V2 module rows");
-assertIncludes(styleSource, ".v1-v2-list-head", "styles should cover V1/V2 list count headings");
-assertIncludes(styleSource, ".v1-v2-list-toggle", "styles should cover V1/V2 expand controls");
-assertIncludes(styleSource, ".v1-v2-owner-review", "styles should cover V1/V2 owner review");
-assertIncludes(styleSource, ".v1-env-fix-row", "styles should cover production env fix rows");
-assertIncludes(styleSource, ".v1-env-list-head", "styles should cover production env shown/total headings");
-assertIncludes(styleSource, ".v1-env-list-toggle", "styles should cover production env expand controls");
-assertIncludes(styleSource, ".v1-env-template-preview", "styles should cover safe env template preview");
-assertIncludes(styleSource, ".v1-env-template-line", "styles should cover line-based safe env template preview");
-assertIncludes(styleSource, ".v1-env-template-line.focused", "styles should highlight located env template sections");
-assertIncludes(styleSource, ".v1-env-template-locate-button", "styles should cover production env locate controls");
-assertIncludes(styleSource, ".v1-env-variable-checks", "styles should cover production env variable check blocks");
-assertIncludes(styleSource, ".v1-env-variable-check-head", "styles should cover production env variable check source headings");
-assertIncludes(styleSource, ".v1-env-variable-check-source", "styles should cover production env variable check source labels");
-assertIncludes(styleSource, ".v1-env-variable-check-source.live", "styles should cover live production env variable check source labels");
-assertIncludes(styleSource, ".v1-env-variable-check-list", "styles should cover production env variable check chip wrapping");
-assertIncludes(styleSource, ".v1-env-variable-chip.missing", "styles should cover missing production env variable chips");
-assertIncludes(styleSource, ".v1-env-variable-chip.placeholder", "styles should cover placeholder production env variable chips");
-assertIncludes(styleSource, ".v1-env-variable-chip.configured", "styles should cover configured production env variable chips");
+assertIncludes(featureStyleSource, ".v1-status-page", "styles should cover V1 status page");
+assertIncludes(featureStyleSource, ".v1-status-source", "styles should cover V1 status source");
+assertIncludes(featureStyleSource, ".v1-gate-row", "styles should cover V1 gate rows");
+assertIncludes(featureStyleSource, ".v2-difference-row", "styles should cover V2 difference rows");
+assertIncludes(featureStyleSource, ".v1-unblock-summary", "styles should cover V1 unblock summary");
+assertIncludes(featureStyleSource, ".v1-phase-row", "styles should cover V1 unblock phases");
+assertIncludes(featureStyleSource, ".v1-action-row", "styles should cover V1 first actions");
+assertIncludes(featureStyleSource, ".v1-phase-group-list", "styles should cover V1 unblock phase groups");
+assertIncludes(featureStyleSource, ".v1-action-meta", "styles should cover V1 unblock task metadata");
+assertIncludes(featureStyleSource, ".v1-owner-decision-head", "styles should cover owner decision heading");
+assertIncludes(featureStyleSource, ".v1-owner-decision-grid", "styles should cover owner decision columns");
+assertIncludes(featureStyleSource, ".v1-owner-decision-summary", "styles should cover owner decision summary chips");
+assertIncludes(featureStyleSource, ".v1-owner-decision-gate", "styles should cover owner decision gate rows");
+assertIncludes(featureStyleSource, ".v1-owner-action-plan", "styles should cover owner decision action plan");
+assertIncludes(featureStyleSource, ".v1-owner-blocker-row", "styles should cover owner decision top blocker rows");
+assertIncludes(featureStyleSource, ".v1-field-evidence-row", "styles should cover field evidence rows");
+assertIncludes(featureStyleSource, ".v1-field-evidence-group-actions", "styles should cover field evidence group actions");
+assertIncludes(featureStyleSource, ".v1-field-evidence-group-preview", "styles should cover evidence group missing item previews");
+assertIncludes(featureStyleSource, ".v1-field-evidence-group-preview-row", "styles should cover evidence group preview rows");
+assertIncludes(featureStyleSource, ".v1-field-evidence-item", "styles should cover missing field evidence item rows");
+assertIncludes(featureStyleSource, ".v1-field-evidence-missing-head", "styles should cover missing field evidence list heading");
+assertIncludes(featureStyleSource, ".v1-signoff-boundary-row", "styles should cover signoff and boundary action rows");
+assertIncludes(featureStyleSource, ".v1-signoff-boundary-actions", "styles should cover signoff and boundary action section");
+assertIncludes(featureStyleSource, ".v1-field-intake-guidance", "styles should cover field evidence intake guidance");
+assertIncludes(featureStyleSource, ".v1-field-intake-quality", "styles should cover field evidence intake quality");
+assertIncludes(featureStyleSource, ".v1-field-intake-actions", "styles should cover field evidence intake action buttons");
+assertIncludes(featureStyleSource, ".v1-field-intake-quality-row", "styles should cover field evidence intake quality rows");
+assertIncludes(featureStyleSource, ".v1-field-stage-grid", "styles should cover field evidence row staging grid");
+assertIncludes(featureStyleSource, ".v1-field-stage-card", "styles should cover field evidence row staging card");
+assertIncludes(featureStyleSource, ".v1-field-stage-row", "styles should cover field evidence row staging inputs");
+assertIncludes(featureStyleSource, ".v1-field-stage-upload", "styles should cover field evidence attachment upload controls");
+assertIncludes(featureStyleSource, ".v1-field-stage-result", "styles should cover latest field evidence row staging result");
+assertIncludes(featureStyleSource, ".v1-field-intake-draft-result", "styles should cover field evidence draft generation result");
+assertIncludes(featureStyleSource, ".v1-field-intake-validation-result", "styles should cover field evidence draft validation result");
+assertIncludes(featureStyleSource, ".v1-field-intake-refresh-precheck-result", "styles should cover release candidate refresh precheck result");
+assertIncludes(featureStyleSource, ".v1-refresh-precheck-blocker-row", "styles should cover release candidate refresh blocker rows");
+assertIncludes(featureStyleSource, ".v1-refresh-precheck-actions", "styles should cover release candidate refresh blocker actions");
+assertIncludes(featureStyleSource, ".v1-phase-quick-actions", "styles should cover selected phase quick action buttons");
+assertIncludes(featureStyleSource, ".v1-field-intake-command-row", "styles should cover field evidence intake command rows");
+assertIncludes(featureStyleSource, ".v1-field-intake-summary", "styles should cover field evidence intake summary");
+assertIncludes(featureStyleSource, ".v1-signoff-strip", "styles should cover signoff progress strip");
+assertIncludes(featureStyleSource, ".v1-role-task-row", "styles should cover role task rows");
+assertIncludes(featureStyleSource, ".v1-role-task-item", "styles should cover role task preview items");
+assertIncludes(featureStyleSource, ".v1-role-category-grid", "styles should cover role task category grid");
+assertIncludes(featureStyleSource, ".v1-role-category-card", "styles should cover role task category cards");
+assertIncludes(featureStyleSource, ".v1-role-category-preview", "styles should cover role task category first-task previews");
+assertIncludes(featureStyleSource, ".v1-role-category-actions", "styles should cover role task category actions");
+assertIncludes(featureStyleSource, ".v1-role-first-actions", "styles should cover prioritized onsite role actions");
+assertIncludes(featureStyleSource, ".v1-role-first-action-row", "styles should cover prioritized role action rows");
+assertIncludes(featureStyleSource, ".v1-role-first-action-buttons", "styles should cover prioritized role action buttons");
+assertIncludes(featureStyleSource, ".v1-role-task-more", "styles should cover hidden role task count hints");
+assertIncludes(featureStyleSource, ".v1-runtime-readiness-row", "styles should cover runtime readiness blocker rows");
+assertIncludes(featureStyleSource, ".v1-runtime-readiness-actions", "styles should cover runtime readiness blocker row actions");
+assertIncludes(featureStyleSource, ".v1-runtime-readiness-live-result", "styles should cover runtime readiness live precheck result");
+assertIncludes(featureStyleSource, ".v1-runtime-readiness-live-blockers", "styles should cover runtime readiness live precheck blockers");
+assertIncludes(featureStyleSource, ".v1-field-acceptance-module-row", "styles should cover field acceptance module rows");
+assertIncludes(featureStyleSource, ".v1-field-acceptance-blocker-row", "styles should cover field acceptance blocker rows");
+assertIncludes(featureStyleSource, ".v1-field-acceptance-required-row", "styles should cover field acceptance required evidence rows");
+assertIncludes(featureStyleSource, ".v1-runtime-readiness-summary", "styles should cover runtime readiness summary");
+assertIncludes(featureStyleSource, ".v1-runtime-readiness-meta", "styles should cover runtime readiness metadata");
+assertIncludes(featureStyleSource, ".v1-production-env-gate-row", "styles should cover production env gate rows");
+assertIncludes(featureStyleSource, ".v1-production-env-gate-actions", "styles should cover production env gate row actions");
+assertIncludes(featureStyleSource, ".v1-production-env-gate-summary", "styles should cover production env gate summary");
+assertIncludes(featureStyleSource, ".v1-production-env-audit", "styles should cover env file audit row");
+assertIncludes(featureStyleSource, ".v1-production-env-setup-live-result", "styles should cover production env setup live-run result");
+assertIncludes(featureStyleSource, ".v1-production-env-live-result", "styles should cover production env live precheck result");
+assertIncludes(featureStyleSource, ".v1-production-env-live-blockers", "styles should cover production env live precheck blockers");
+assertIncludes(featureStyleSource, ".v1-production-env-file-audit-live-result", "styles should cover production env file audit live precheck result");
+assertIncludes(featureStyleSource, ".v1-production-env-file-audit-blockers", "styles should cover production env file audit blockers");
+assertIncludes(featureStyleSource, ".v1-production-env-file-audit-files", "styles should cover production env file audit file summaries");
+assertIncludes(featureStyleSource, ".v1-production-env-file-audit-source-list", "styles should cover production env file audit source status list");
+assertIncludes(featureStyleSource, ".v1-production-env-file-preview-live-result", "styles should cover production env file application live precheck result");
+assertIncludes(featureStyleSource, ".v1-production-env-file-preview-blockers", "styles should cover production env file application blockers");
+assertIncludes(featureStyleSource, ".v1-production-env-file-preview-stage", "styles should cover production env file application stage diagnosis");
+assertIncludes(featureStyleSource, ".v1-production-go-live-live-result", "styles should cover production go-live combo live precheck result");
+assertIncludes(featureStyleSource, ".v1-production-env-intake-priority", "styles should cover production env intake priority guidance");
+assertIncludes(featureStyleSource, ".v1-production-env-intake-live-result", "styles should cover production env intake live precheck result");
+assertIncludes(featureStyleSource, ".v1-production-persistence-evidence-latest", "styles should cover persisted production persistence evidence latest result");
+assertIncludes(featureStyleSource, ".v1-production-persistence-evidence-live-result", "styles should cover production persistence evidence live result");
+assertIncludes(featureStyleSource, ".v1-production-first-stage-execution-live-result", "styles should cover production first-stage execution live result");
+assertIncludes(featureStyleSource, ".v1-production-first-stage-dry-run-live-result", "styles should cover production first-stage values dry-run live precheck result");
+assertIncludes(featureStyleSource, ".v1-blocker-preview-row", "styles should cover persistence evidence blocker preview rows");
+assertIncludes(featureStyleSource, ".v1-production-go-live-stage", "styles should cover production go-live combo stage rows");
+assertIncludes(featureStyleSource, ".v1-production-go-live-blockers", "styles should cover production go-live combo blockers");
+assertIncludes(featureStyleSource, ".v1-production-go-live-unblock-list", "styles should cover production go-live unblock checklist");
+assertIncludes(featureStyleSource, ".v1-production-go-live-unblock-row", "styles should cover production go-live unblock rows");
+assertIncludes(featureStyleSource, ".v1-production-go-live-evidence-coverage", "styles should cover production go-live evidence coverage");
+assertIncludes(featureStyleSource, ".v1-production-go-live-evidence-row", "styles should cover production go-live evidence rows");
+assertIncludes(featureStyleSource, ".v1-persistence-live-result", "styles should cover V1 persistence live precheck result");
+assertIncludes(featureStyleSource, ".v1-persistence-group-row", "styles should cover V1 persistence group rows");
+assertIncludes(featureStyleSource, ".v1-attachment-retention-live-result", "styles should cover V1 attachment retention live precheck result");
+assertIncludes(featureStyleSource, ".v1-attachment-retention-live-blockers", "styles should cover V1 attachment retention blockers");
+assertIncludes(featureStyleSource, ".v1-print-spool-live-result", "styles should cover print spool diagnostics live precheck result");
+assertIncludes(featureStyleSource, ".v1-print-spool-live-blockers", "styles should cover print spool diagnostics blockers");
+assertIncludes(featureStyleSource, ".v1-print-cups-live-result", "styles should cover print CUPS diagnostics live precheck result");
+assertIncludes(featureStyleSource, ".v1-print-cups-live-blockers", "styles should cover print CUPS diagnostics blockers");
+assertIncludes(featureStyleSource, ".v1-section-title-actions", "styles should cover multi-action section headers");
+assertIncludes(featureStyleSource, ".v1-section-title-row", "styles should cover V1 section title action rows");
+assertIncludes(featureStyleSource, ".v1-v2-boundary-precheck-result", "styles should cover V1/V2 boundary precheck result");
+assertIncludes(featureStyleSource, ".v1-v2-boundary-precheck-blockers", "styles should cover V1/V2 boundary precheck blockers");
+assertIncludes(featureStyleSource, ".v1-v2-boundary-grid", "styles should cover V1/V2 boundary columns");
+assertIncludes(featureStyleSource, ".v1-v2-module-row", "styles should cover V1/V2 module rows");
+assertIncludes(featureStyleSource, ".v1-v2-list-head", "styles should cover V1/V2 list count headings");
+assertIncludes(featureStyleSource, ".v1-v2-list-toggle", "styles should cover V1/V2 expand controls");
+assertIncludes(featureStyleSource, ".v1-v2-owner-review", "styles should cover V1/V2 owner review");
+assertIncludes(featureStyleSource, ".v1-env-fix-row", "styles should cover production env fix rows");
+assertIncludes(featureStyleSource, ".v1-env-list-head", "styles should cover production env shown/total headings");
+assertIncludes(featureStyleSource, ".v1-env-list-toggle", "styles should cover production env expand controls");
+assertIncludes(featureStyleSource, ".v1-env-template-preview", "styles should cover safe env template preview");
+assertIncludes(featureStyleSource, ".v1-env-template-line", "styles should cover line-based safe env template preview");
+assertIncludes(featureStyleSource, ".v1-env-template-line.focused", "styles should highlight located env template sections");
+assertIncludes(featureStyleSource, ".v1-env-template-locate-button", "styles should cover production env locate controls");
+assertIncludes(featureStyleSource, ".v1-env-variable-checks", "styles should cover production env variable check blocks");
+assertIncludes(featureStyleSource, ".v1-env-variable-check-head", "styles should cover production env variable check source headings");
+assertIncludes(featureStyleSource, ".v1-env-variable-check-source", "styles should cover production env variable check source labels");
+assertIncludes(featureStyleSource, ".v1-env-variable-check-source.live", "styles should cover live production env variable check source labels");
+assertIncludes(featureStyleSource, ".v1-env-variable-check-list", "styles should cover production env variable check chip wrapping");
+assertIncludes(featureStyleSource, ".v1-env-variable-chip.missing", "styles should cover missing production env variable chips");
+assertIncludes(featureStyleSource, ".v1-env-variable-chip.placeholder", "styles should cover placeholder production env variable chips");
+assertIncludes(featureStyleSource, ".v1-env-variable-chip.configured", "styles should cover configured production env variable chips");
 
 console.log("V1 status page check passed");
 

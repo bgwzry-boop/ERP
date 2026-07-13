@@ -294,26 +294,29 @@ export function App() {
     savePrinterDeviceMode: executeSavePrinterDeviceMode,
     savePrinterDeviceQaRecord: executeSavePrinterDeviceQaRecord,
     voidFulfillmentPrintRecord,
-    refreshInventoryCorrectionQueue, refreshInventoryLedgerEntries,
+    refreshInventoryCorrectionQueue, refreshInventoryIntents, refreshInventoryLedgerEntries,
     loadInventoryCorrectionDetail, createInventoryCorrectionDraft, linkInventoryCorrectionAttachment, confirmInventoryCorrectionDraft,
+    createTemporaryInventoryHold, releaseTemporaryInventoryHold, extendTemporaryInventoryHold,
     completeFulfillmentAction, markFulfillmentPrepared, reviewFulfillmentDeliveryEvidence,
     saveFulfillmentDispatch, submitFulfillmentException,
     executeProductionPackingAction,
     refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
     refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
-    executeOrderEntryAction, executeOrderLineAction, recognizeOrderDraft,
-    runOrderDraftCommand, updateOrderDraftField,
+    executeOrderEntryAction, executeOrderLineAction, openQueuedOrderDraft,
+    recognizeOrderDraft, recognizeOrderDraftQueue, refreshOrderDraftQueue,
+    runOrderDraftCommand, updateOrderDraftField, prepareOrderDraftFromTemporaryHold, linkCrossDraftShortageCancellation, restoreShortageCancelledLine,
     todos, setTodos, todoMeta, printBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, orderPoolMeta, setOrderPoolMeta,
     selectedOrderDetail, setSelectedOrderDetail, entryText, setEntryText,
-    draftRows, draftStatus,
+    draftRows, setDraftRows, draftStatus, setDraftStatus, draftApiMeta, setDraftApiMeta,
     selectedDraftId, setSelectedDraftId, orderFilters, setOrderFilters,
     selectedOrderId, setSelectedOrderId,
     inventoryRecords, inventoryMeta,
     inventoryLedgerState, inventoryLedgerFilters, setInventoryLedgerFilters,
     inventoryCorrectionDetailState,
     inventoryCorrectionQueueState,
+    inventoryIntentState,
     selectedStockId, setSelectedStockId,
     fulfillmentTab, setFulfillmentTab, fulfillments, setFulfillments, fulfillmentMeta,
     selectedFulfillmentId, setSelectedFulfillmentId,
@@ -328,7 +331,7 @@ export function App() {
     masterDataImportReviewDrafts, setMasterDataImportReviewDrafts,
     masterDataImportConfirmationPlans, setMasterDataImportConfirmationPlans,
     masterDataImportExecutions, setMasterDataImportExecutions,
-    masterDataEmployeeAccountReviews, setMasterDataEmployeeAccountReviews,
+    masterDataEmployeeAccountReviews, setMasterDataEmployeeAccountReviews, masterDataEmployeeAccountReadiness, masterDataEmployeeAssignmentOptions,
     lastIssuedEmployeeCredential, setLastIssuedEmployeeCredential,
     masterDataMaintenanceDrafts, setMasterDataMaintenanceDrafts,
     masterDataMaintenanceTab, setMasterDataMaintenanceTab,
@@ -519,6 +522,7 @@ export function App() {
     openMasterDataTemplatePanel,
     precheckMasterDataTemplate,
     revokeMasterDataEmployeeAccountPassword,
+    updateMasterDataEmployeeAssignment,
     saveMasterDataMaintenanceDraft,
   } = createOfficeMasterDataActions({
     allowLocalFallback: !runtimeServerRequired,
@@ -532,8 +536,7 @@ export function App() {
     lastIssuedEmployeeCredential,
     masterDataMaintenanceTab,
     masterDataPrecheckState,
-    refreshMasterDataEmployeeAccountReviews,
-    refreshMasterDataImportReviewDrafts,
+    refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts, refreshV1GoLiveStatus,
     setLastIssuedEmployeeCredential,
     setMasterDataEmployeeAccountReviews,
     setMasterDataImportConfirmationPlans,
@@ -655,7 +658,6 @@ export function App() {
     setPrinterDeviceQa,
     setToast,
   });
-
   const {
     downloadViewedAttachment,
     loadAttachmentAccessAudit,
@@ -794,13 +796,10 @@ export function App() {
   useEffect(() => {
     if (activePage !== "inventory") return undefined;
     let cancelled = false;
-    refreshInventoryCorrectionQueue({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshInventoryCorrectionQueue]);
+    Promise.all([refreshInventoryCorrectionQueue({ showToast: false }), refreshInventoryIntents({ showToast: false })])
+      .then(() => { if (cancelled) return; });
+    return () => { cancelled = true; };
+  }, [activePage, refreshInventoryCorrectionQueue, refreshInventoryIntents]);
 
   useEffect(() => {
     if (activePage !== "inventory" || !selectedStockId) return undefined;
@@ -959,7 +958,7 @@ export function App() {
     canUsePrintDiagnostics,
     refreshDriverDeliveryTasks,
     refreshFulfillments,
-    refreshInventoryLedgerEntries,
+    refreshInventoryLedgerEntries, refreshInventoryIntents,
     refreshInventoryRecords,
     refreshMasterDataEmployeeAccountReviews,
     refreshMasterDataImportReviewDrafts,
@@ -1005,33 +1004,34 @@ export function App() {
   const {
     createOrderFromTopbar,
     entryAction,
-    focusFulfillmentByRef,
-    focusOrderLine,
-    focusStatementByRef,
-    handleDraftCommand,
-    openOrderLineAction,
-    recognize,
-    updateDraftField,
+    focusFulfillmentByRef, focusInventoryByRef, focusOrderDraft, focusOrderLine, focusStatementByRef,
+    handleDraftCommand, linkCancellationIntentToSelectedLine, openOrderLineAction, openQueueDraft, recognize, recognizeQueue, refreshDraftQueue, restoreCancelledDraftLine, updateDraftField,
   } = createOfficeOrderActions({
     allowLocalFallback: !runtimeServerRequired,
-    defaultOrderFilters,
+    authState,
+    confirmDiscardDraft: (message) => window.confirm(message), defaultOrderFilters,
+    currentUserId,
+    draftApiMeta, draftRows, draftStatus, entryText,
     executeOrderEntryAction,
     fulfillmentSource: fulfillmentMeta.source,
     fulfillments,
-    guardUiAction,
-    openOrderActionModal,
+    guardUiAction, inventoryRecords,
+    linkCrossDraftShortageCancellation,
+    openOrderActionModal, openQueuedOrderDraft,
     orderLines,
     orderPoolSource: orderPoolMeta.source,
-    recognizeOrderDraft,
+    recognizeOrderDraft, recognizeOrderDraftQueue,
     refreshFulfillments,
-    refreshOrderPool,
+    refreshOrderPool, refreshOrderDraftQueue,
     refreshStatements,
     resolveLineFromRef,
+    restoreShortageCancelledLine,
     runOrderDraftCommand,
     setActivePage,
+    setDraftApiMeta, setDraftRows, setDraftStatus, setEntryText,
     setFulfillmentTab,
     setOrderFilters,
-    setSelectedFulfillmentId,
+    setSelectedFulfillmentId, setSelectedDraftId, setSelectedStockId,
     setSelectedOrderId,
     setSelectedStatementId,
     setToast,
@@ -1039,7 +1039,6 @@ export function App() {
     statements,
     updateOrderDraftField,
   });
-
   const { handleTodo } = createOfficeTodoActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
@@ -1048,6 +1047,8 @@ export function App() {
     currentUserId,
     findCustomer,
     focusFulfillmentByRef,
+    focusInventoryByRef,
+    focusOrderDraftByRef: focusOrderDraft,
     focusOrderLine,
     focusStatementByRef,
     getTodoCustomerNotificationDraft,
@@ -1056,7 +1057,6 @@ export function App() {
     openModal,
     refreshTodos,
     selectedTodoId,
-    setActivePage,
     setSelectedTodoId,
     setTodos,
     setTodoView,
@@ -1161,7 +1161,6 @@ export function App() {
     setToast,
     statements,
   });
-
   if (runtimeServerRequired && !authState.authenticated) {
     return (
       <RuntimeLoginScreen
@@ -1212,9 +1211,9 @@ export function App() {
           {toast ? <WorkspaceNotice>{toast}</WorkspaceNotice> : null}
           <WorkspacePageHeader
             title={activeMeta.label}
-            description={activeMeta.description}
-            contextLabel={authSourceLabel}
-            onRefresh={refreshActivePage}
+            description={activePage === "entry" ? "" : activeMeta.description}
+            contextLabel={activePage === "entry" ? "" : authSourceLabel}
+            onRefresh={activePage === "entry" ? undefined : refreshActivePage}
           />
           {activePage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} helpers={pageHelpers} />}
           {activePage === "entry" && (
@@ -1226,8 +1225,9 @@ export function App() {
               selectedDraftId={selectedDraftId}
               setSelectedDraftId={setSelectedDraftId}
               onRecognize={recognize}
+              onQueueRecognize={recognizeQueue} onQueueRefresh={refreshDraftQueue} onQueueOpen={openQueueDraft} onQueueCancellationLink={linkCancellationIntentToSelectedLine}
               onDraftFieldChange={updateDraftField}
-              onDraftCommand={handleDraftCommand}
+              onDraftCommand={handleDraftCommand} onRestoreCancelledLine={restoreCancelledDraftLine}
               onAction={entryAction}
               helpers={pageHelpers}
             />
@@ -1259,7 +1259,7 @@ export function App() {
               inventoryLedgerFilters={inventoryLedgerFilters}
               setInventoryLedgerFilters={setInventoryLedgerFilters}
               inventoryCorrectionDetailState={inventoryCorrectionDetailState}
-              inventoryCorrectionQueueState={inventoryCorrectionQueueState}
+              inventoryCorrectionQueueState={inventoryCorrectionQueueState} inventoryIntentState={inventoryIntentState}
               selectedStockId={selectedStockId}
               setSelectedStockId={setSelectedStockId}
               setToast={setToast}
@@ -1269,6 +1269,8 @@ export function App() {
               onOpenCorrectionDraft={openInventoryCorrectionDetail}
               onRefreshCorrectionQueue={refreshInventoryCorrectionQueueAction}
               onRefreshInventoryLedger={refreshInventoryLedgerAction}
+              onRefreshInventoryIntents={refreshInventoryIntents} onCreateTemporaryHold={createTemporaryInventoryHold}
+              onReleaseTemporaryHold={releaseTemporaryInventoryHold} onExtendTemporaryHold={extendTemporaryInventoryHold} onConvertTemporaryHoldToOrder={async ({ hold, intent, candidate }) => { const result = await prepareOrderDraftFromTemporaryHold({ hold, intent, candidate }); if (!result?.blocked) setActivePage("entry"); return result; }}
               onLocateInventoryLedgerSource={focusInventoryLedgerSource}
               helpers={pageHelpers}
             />
@@ -1368,7 +1370,7 @@ export function App() {
               orderLines={orderLines}
               inventoryRecords={inventoryRecords}
               statements={statements}
-              employeeAccountReviews={masterDataEmployeeAccountReviews}
+              employeeAccountReviews={masterDataEmployeeAccountReviews} employeeAccountReadiness={masterDataEmployeeAccountReadiness} employeeAssignmentOptions={masterDataEmployeeAssignmentOptions}
               importReviewDrafts={masterDataImportReviewDrafts}
               importExecutions={masterDataImportExecutions}
               maintenanceDrafts={masterDataMaintenanceDrafts}
@@ -1376,7 +1378,7 @@ export function App() {
               setSelectedTab={setMasterDataMaintenanceTab}
               selectedId={selectedMasterDataId}
               setSelectedId={setSelectedMasterDataId}
-              onSaveDraft={saveMasterDataMaintenanceDraft}
+              onSaveDraft={saveMasterDataMaintenanceDraft} onUpdateEmployeeAssignment={updateMasterDataEmployeeAssignment}
               onOpenImportTemplate={openMasterDataTemplatePanel}
               helpers={pageHelpers}
             />
@@ -1442,6 +1444,7 @@ export function App() {
                 onPrecheckReleaseCandidateRefresh={precheckV1ReleaseCandidateRefresh}
                 onRefreshReleaseCandidate={refreshV1ReleaseCandidate}
                 onValidateFieldEvidenceDraft={validateV1FieldEvidenceDraftManifest}
+                onOpenEmployeeImport={isNavigationPageVisible("masterData", permissionContext) ? () => { setMasterDataMaintenanceTab("员工机台"); setActivePage("masterData"); openMasterDataTemplatePanel("员工机台"); } : undefined}
               />
             </Suspense>
           )}

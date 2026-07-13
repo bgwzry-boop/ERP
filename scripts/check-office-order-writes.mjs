@@ -35,11 +35,12 @@ const draftRow = {
   source: "测试订单",
 };
 
-function createOrderWriteCase({ api = {}, serverRequired = false, refreshResults = {} } = {}) {
+function createOrderWriteCase({ api = {}, draftApiMeta = { draftId: "DRAFT-API-1", clientRevision: 2, source: "api" }, serverRequired = false, refreshResults = {} } = {}) {
   const states = {
-    draftApiMeta: createState({ draftId: "DRAFT-API-1", clientRevision: 2, source: "api" }),
+    draftApiMeta: createState(draftApiMeta),
     draftRows: createState([draftRow]),
     draftStatus: createState("已识别待确认"),
+    entryText: createState("客户A 30*38 白色 100个"),
     fulfillments: createState([{ id: "F001", lineId: "OL-1", qty: 10, status: "待出库" }]),
     inventoryRecords: createState([{ id: "S001", size: "30*38", color: "白色", handle: "普通提", style: "空白袋", inStock: 500, reserved: 0 }]),
     orderLines: createState([{ id: "OL-1", qty: 10, originalQty: 10, amount: 100, exceptions: [] }]),
@@ -75,6 +76,7 @@ function createOrderWriteCase({ api = {}, serverRequired = false, refreshResults
     setDraftApiMeta: states.draftApiMeta.set,
     setDraftRows: states.draftRows.set,
     setDraftStatus: states.draftStatus.set,
+    setEntryText: states.entryText.set,
     setFulfillments: states.fulfillments.set,
     setInventoryRecords: states.inventoryRecords.set,
     setOrderLines: states.orderLines.set,
@@ -104,6 +106,29 @@ assert.equal(recognizeCase.states.draftStatus.value, "已识别待确认");
 assert.equal(recognizeCase.states.draftApiMeta.value.draftId, "DRAFT-RECOGNIZED");
 assert.match(recognizeResult.feedback, /后端 API.*识别 1 行/);
 
+const holdDraftCase = createOrderWriteCase({
+  api: {
+    async recognizeOfficeDraft(input) {
+      assert.match(input.sourceText, /我要.*30\*38.*20个/);
+      return {
+        source: "api",
+        draft: { draftId: "DRAFT-HOLD-1", clientRevision: 1 },
+        rows: [{ ...draftRow, id: "DRAFT-HOLD-1-L1", qty: 20 }],
+      };
+    },
+  },
+});
+const holdDraftResult = await holdDraftCase.actions.prepareOrderDraftFromTemporaryHold({
+  intent: { intentId: "INT-HOLD-1", customerId: "C001", sourceText: "有的话给我留20个" },
+  hold: { reservationId: "HOLD-1", reservedQty: 20 },
+  candidate: { product: "空白袋", size: "30*38", color: "白色", handle: "普通提", qty: 20 },
+});
+assert.equal(holdDraftCase.states.draftRows.value[0].sourceHoldId, "HOLD-1");
+assert.equal(holdDraftCase.states.draftRows.value[0].sourceIntentId, "INT-HOLD-1");
+assert.equal(holdDraftCase.states.draftApiMeta.value.draftId, "DRAFT-HOLD-1");
+assert.match(holdDraftCase.states.draftRows.value[0].note, /由临时留货 HOLD-1 转入/);
+assert.match(holdDraftResult.feedback, /不会重复扣库存/);
+
 const saveCase = createOrderWriteCase({
   api: {
     async saveOfficeDraft() {
@@ -122,6 +147,72 @@ assert.equal(saveCase.states.draftApiMeta.value.clientRevision, 3);
 assert.equal(saveCase.states.todos.value[0].id, "T-SAVE-1");
 assert.equal(saveCase.states.selectedTodoId.value, "T-SAVE-1");
 assert.match(saveResult.feedback, /后端 API保存/);
+
+const restoreCase = createOrderWriteCase({
+  api: {
+    async restoreOfficeDraftShortageCancellation(input) {
+      assert.equal(input.draftId, "DRAFT-API-1");
+      assert.equal(input.draftLineId, "DRAFT-1");
+      assert.equal(input.clientRevision, 2);
+      assert.equal(input.reason, "客户确认恢复订购");
+      return {
+        source: "api",
+        draft: { draftId: "DRAFT-API-1", clientRevision: 3, status: "待审核" },
+        line: { ...draftRow, cancellationStatus: "", excludedFromConfirmation: false, cancellationRestoration: { restoredBy: "U-OFFICE-A" } },
+      };
+    },
+  },
+});
+restoreCase.states.draftRows.set([{ ...draftRow, cancellationStatus: "库存不足取消", excludedFromConfirmation: true }]);
+const restoreResult = await restoreCase.actions.restoreShortageCancelledLine({
+  draftLineId: "DRAFT-1",
+  reason: "客户确认恢复订购",
+});
+assert.equal(restoreCase.states.draftRows.value[0].cancellationStatus, "");
+assert.equal(restoreCase.states.draftRows.value[0].excludedFromConfirmation, false);
+assert.equal(restoreCase.states.draftApiMeta.value.clientRevision, 3);
+assert.equal(restoreCase.states.draftStatus.value, "已恢复待确认");
+assert.match(restoreResult.feedback, /取消来源和恢复操作已留痕/);
+
+const blockedRestoreCase = createOrderWriteCase({
+  serverRequired: true,
+  api: {
+    async restoreOfficeDraftShortageCancellation() {
+      return { source: "local_fallback", line: { ...draftRow, cancellationStatus: "" } };
+    },
+  },
+});
+const blockedRestore = await blockedRestoreCase.actions.restoreShortageCancelledLine({
+  draftLineId: "DRAFT-1",
+  reason: "客户确认恢复订购",
+});
+assert.equal(blockedRestore.blocked, true);
+assert.equal(blockedRestoreCase.states.draftRows.value[0].id, "DRAFT-1");
+assert.equal(blockedRestoreCase.states.draftStatus.value, "恢复订购失败");
+
+const crossDraftCancelCase = createOrderWriteCase({
+  api: {
+    async linkOfficeDraftShortageCancellation(input) {
+      assert.equal(input.draftId, "DRAFT-API-1");
+      assert.equal(input.draftLineId, "DRAFT-1");
+      assert.equal(input.intentId, "INT-CROSS-CANCEL-1");
+      assert.equal(input.clientRevision, 2);
+      return {
+        source: "api",
+        draft: { draftId: "DRAFT-API-1", clientRevision: 3, status: "待审核" },
+        line: { ...draftRow, cancellationStatus: "库存不足取消", excludedFromConfirmation: true, crossDraftCancellation: { intentId: input.intentId } },
+      };
+    },
+  },
+});
+const crossDraftCancelResult = await crossDraftCancelCase.actions.linkCrossDraftShortageCancellation({
+  intentId: "INT-CROSS-CANCEL-1",
+  reason: "办公室核对来源消息后关联到当前草稿明细",
+});
+assert.equal(crossDraftCancelCase.states.draftRows.value[0].excludedFromConfirmation, true);
+assert.equal(crossDraftCancelCase.states.draftApiMeta.value.clientRevision, 3);
+assert.equal(crossDraftCancelCase.states.draftStatus.value, "已关联取消待确认");
+assert.match(crossDraftCancelResult.feedback, /不会生成正式订单/);
 
 const voidDraftCase = createOrderWriteCase({
   api: {
@@ -191,6 +282,148 @@ assert.equal(confirmCase.states.selectedOrderId.value, "OL-CONFIRMED");
 assert.equal(confirmResult.navigateTo, "orders");
 assert.deepEqual(confirmCase.refreshCalls.sort(), ["fulfillments", "inventory", "orders", "todos"]);
 assert.match(confirmResult.feedback, /投影已刷新/);
+
+const splitPreviewCase = createOrderWriteCase({
+  api: {
+    async previewOfficeDraftSplit(input) {
+      assert.equal(input.draftRows.length, 1);
+      return {
+        source: "api",
+        draftId: input.draftId,
+        splitPlan: {
+          planHash: "split-plan-001",
+          groups: [{ groupId: "SPLIT-1" }, { groupId: "SPLIT-2" }],
+          canConfirm: true,
+        },
+      };
+    },
+  },
+});
+const splitPreviewResult = await splitPreviewCase.actions.executeOrderEntryAction("拆分订单");
+assert.equal(splitPreviewResult.splitPlan.groups.length, 2);
+assert.match(splitPreviewResult.feedback, /2 个客户\/交付组/);
+assert.equal(splitPreviewCase.states.draftRows.value.length, 1, "split preview must not split the selected row locally");
+
+const unpersistedSplitCase = createOrderWriteCase({
+  draftApiMeta: { draftId: "", clientRevision: 0, source: "local" },
+  api: {
+    async recognizeOfficeDraft() {
+      return {
+        source: "api",
+        draft: { draftId: "DRAFT-SPLIT-PREPARED", clientRevision: 1 },
+        rows: [],
+      };
+    },
+    async saveOfficeDraft(input) {
+      assert.equal(input.draftId, "DRAFT-SPLIT-PREPARED");
+      assert.equal(input.draftRows[0].id, "DRAFT-1", "current edited rows must be persisted before preview");
+      return {
+        source: "api",
+        draftId: input.draftId,
+        draft: { draftId: input.draftId, clientRevision: 2 },
+        todos: [],
+      };
+    },
+    async previewOfficeDraftSplit(input) {
+      assert.equal(input.draftId, "DRAFT-SPLIT-PREPARED");
+      assert.equal(input.clientRevision, 2);
+      return {
+        source: "api",
+        splitPlan: { planHash: "prepared-plan", groups: [{}, {}], canConfirm: true },
+      };
+    },
+  },
+});
+const unpersistedSplitResult = await unpersistedSplitCase.actions.executeOrderEntryAction("拆分订单");
+assert.equal(unpersistedSplitResult.splitPlan.planHash, "prepared-plan");
+assert.deepEqual(unpersistedSplitCase.states.draftApiMeta.value, {
+  draftId: "DRAFT-SPLIT-PREPARED",
+  clientRevision: 2,
+  source: "api",
+});
+assert.equal(unpersistedSplitCase.states.draftStatus.value, "拆单预览待确认");
+
+const splitConfirmCase = createOrderWriteCase({
+  serverRequired: true,
+  api: {
+    async confirmOfficeDraftSplit(input) {
+      assert.equal(input.splitPlanHash, "split-plan-001");
+      return {
+        source: "api",
+        draft: { draftId: input.draftId, clientRevision: 3 },
+        confirmation: {
+          orderId: "ORD-SPLIT-001",
+          orderIds: ["ORD-SPLIT-001", "ORD-SPLIT-002"],
+          splitConfirmed: true,
+          orderLines: [{ id: "ORD-SPLIT-001-01" }, { id: "ORD-SPLIT-002-01" }],
+        },
+      };
+    },
+  },
+});
+const splitConfirmResult = await splitConfirmCase.actions.executeOrderEntryAction("确认拆单", {
+  splitPlanHash: "split-plan-001",
+});
+assert.equal(splitConfirmCase.states.draftStatus.value, "已生成多个正式订单");
+assert.equal(splitConfirmResult.navigateTo, "orders");
+assert.deepEqual(splitConfirmCase.refreshCalls.sort(), ["fulfillments", "inventory", "orders", "todos"]);
+assert.match(splitConfirmResult.feedback, /2 个正式订单/);
+
+const fullyCancelledCase = createOrderWriteCase({
+  serverRequired: true,
+  api: {
+    async confirmOfficeDraftViaApi() {
+      return {
+        source: "api",
+        draft: { draftId: "DRAFT-API-1", clientRevision: 3, status: "库存不足取消" },
+        confirmation: {
+          orderId: "",
+          closedWithoutOrder: true,
+          orderLines: [],
+          cancelledDraftLineIds: ["DRAFT-1"],
+          appliedShortageCancellationIntentIds: ["INT-CANCEL-1"],
+        },
+      };
+    },
+  },
+});
+const fullyCancelledResult = await fullyCancelledCase.actions.executeOrderEntryAction("保存并确认");
+assert.equal(fullyCancelledCase.states.draftStatus.value, "库存不足取消");
+assert.equal(fullyCancelledCase.states.selectedOrderId.value, "OL-1");
+assert.equal(fullyCancelledResult.navigateTo, undefined);
+assert.deepEqual(fullyCancelledCase.refreshCalls.sort(), ["inventory", "todos"]);
+assert.match(fullyCancelledResult.feedback, /未生成正式订单、库存占用或交付任务/);
+
+const queueCase = createOrderWriteCase({
+  api: {
+    async recognizeOfficeDraftQueue() {
+      return {
+        source: "api",
+        queueBatch: { batchId: "QBAT-WRITE-1", summary: { queueItemCount: 2, orderDraftCount: 1, intentDraftCount: 1 } },
+        drafts: [],
+      };
+    },
+    async listOfficeDraftQueue() {
+      return { source: "api", items: [], total: 2, summary: { orderDraftCount: 1, intentDraftCount: 1 } };
+    },
+  },
+});
+const queueRecognitionResult = await queueCase.actions.recognizeOrderDraftQueue();
+assert.match(queueRecognitionResult.feedback, /订单草稿 1 张，库存\/复核上下文 1 项/);
+const queueRefreshResult = await queueCase.actions.refreshOrderDraftQueue("QBAT-WRITE-1");
+assert.match(queueRefreshResult.feedback, /共 2 项/);
+const queuedOrderItem = {
+  kind: "order_draft",
+  draft: { draftId: "DRAFT-Q-WRITE-1", sourceText: "队列订单", status: "待审核", clientRevision: 1 },
+  rows: [{ ...draftRow, id: "DRAFT-Q-WRITE-1-01", source: "队列订单" }],
+};
+const openedQueueDraft = queueCase.actions.openQueuedOrderDraft(queuedOrderItem);
+assert.equal(queueCase.states.draftApiMeta.value.draftId, "DRAFT-Q-WRITE-1");
+assert.equal(queueCase.states.draftRows.value[0].id, "DRAFT-Q-WRITE-1-01");
+assert.match(openedQueueDraft.feedback, /已打开独立订单草稿/);
+const blockedIntentOpen = queueCase.actions.openQueuedOrderDraft({ kind: "inventory_inquiry", draft: { draftId: "DRAFT-Q-INTENT-1" } });
+assert.equal(blockedIntentOpen.blocked, true);
+assert.match(blockedIntentOpen.feedback, /不能作为订单明细打开/);
 
 const quantityCase = createOrderWriteCase({
   api: {
@@ -278,4 +511,4 @@ const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js",
 assert.match(workspaceSource, /useOfficeOrderWrites/);
 assert.match(workspaceSource, /\.\.\.orderWrites/);
 
-console.log("Office order writes check passed: recognition, save, 409 conflict, production fail-closed, confirmation refresh, quantity, and void behavior are covered.");
+console.log("Office order writes check passed: recognition, independent draft queue, save, shortage-cancellation restore, 409 conflict, production fail-closed, confirmation, all-cancelled closure, quantity, and void behavior are covered.");

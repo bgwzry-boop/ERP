@@ -14,7 +14,7 @@ const service = createOrderDraftCommandService({
   buildTodo(_workspace, input) {
     return { handled: false, ...input };
   },
-  confirmDraftOrder({ draftRows }) {
+  confirmDraftOrder({ draftRows, orderLines = [], fulfillments = [] }) {
     if (confirmationMode === "blocked") {
       return {
         blocked: true,
@@ -23,31 +23,28 @@ const service = createOrderDraftCommandService({
         toast: "库存或关键字段需要确认",
       };
     }
+    const orderNo = `ORD-SERVICE-${String(orderLines.length + 1).padStart(3, "0")}`;
     return {
       blocked: false,
       draftStatus: "已生成正式订单",
-      orderNo: "ORD-SERVICE-001",
+      orderNo,
       checkedRows: draftRows.map((row) => ({ ...row, inventory: "可用", amount: 3.4 })),
-      newLines: [
-        {
-          id: "OL-SERVICE-001",
-          orderId: "ORD-SERVICE-001",
-          customerId: "C001",
-          qty: 10,
+      newLines: draftRows.map((row, index) => ({
+          id: `${orderNo}-${String(index + 1).padStart(2, "0")}`,
+          orderId: orderNo,
+          customerId: row.customerId,
+          qty: row.qty,
           amount: 3.4,
           status: "待出库",
-        },
-      ],
-      newFulfillments: [
-        {
-          id: "FUL-SERVICE-001",
-          lineId: "OL-SERVICE-001",
-          customerId: "C001",
+        })),
+      newFulfillments: draftRows.map((row, index) => ({
+          id: `FUL-SERVICE-${String(fulfillments.length + index + 1).padStart(3, "0")}`,
+          lineId: `${orderNo}-${String(index + 1).padStart(2, "0")}`,
+          customerId: row.customerId,
           method: "自提",
-          qty: 10,
+          qty: row.qty,
           status: "待出库",
-        },
-      ],
+        })),
       shortageTodoInputs: [],
     };
   },
@@ -126,6 +123,13 @@ await checkRecognition();
 await checkConversationRecognition();
 await checkDraftSave();
 await checkConfirmation();
+await checkFieldReviewConfirmationGate();
+await checkSplitPreviewAndConfirmation();
+await checkCrossDraftShortageCancellationLink();
+await checkShortageCancellationRestore();
+await checkPartialShortageCancellation();
+await checkFullyCancelledDraft();
+await checkUnresolvedShortageCancellation();
 await checkBlockedConfirmation();
 await checkValidation();
 
@@ -275,6 +279,119 @@ async function checkConfirmation() {
   assert.equal(input.operationLog.operatorId, "U-OFFICE-A");
 }
 
+async function checkFieldReviewConfirmationGate() {
+  confirmationMode = "success";
+  const pendingReview = {
+    reviewId: "MSG-SERVICE-TYPO:size",
+    field: "size",
+    fieldLabel: "尺寸",
+    originalValue: "40+30",
+    suggestedValue: "40*30*10",
+    reason: "疑似尺寸输入错误：40+30",
+    status: "pending",
+  };
+  const blockedWorkspace = buildWorkspace();
+  blockedWorkspace.orderDrafts[0].lines = [{
+    id: "DRAFT-SERVICE-001-01",
+    fieldReviews: [pendingReview],
+    dimensionEvidence: { original: "40+30", suggested: "40*30*10", requiresConfirmation: true },
+  }];
+  const beforeConfirmationCount = calls.confirmations.length;
+  const blocked = await service.confirmOrderDraft({
+    workspace: blockedWorkspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { clientRevision: 1, lines: [buildRequestLine()] },
+  });
+  assert.equal(blocked.statusCode, 409);
+  assert.equal(blocked.code, "ORDER_DRAFT_FIELD_REVIEW_REQUIRED");
+  assert.equal(calls.confirmations.length, beforeConfirmationCount, "omitting persisted reviews must not bypass the gate");
+
+  const confirmedWorkspace = buildWorkspace();
+  confirmedWorkspace.orderDrafts[0].lines = blockedWorkspace.orderDrafts[0].lines;
+  const confirmed = await service.confirmOrderDraft({
+    workspace: confirmedWorkspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      clientRevision: 1,
+      idempotencyKey: "draft-confirm-reviewed-field-001",
+      lines: [{
+        ...buildRequestLine(),
+        recognitionEvidence: {
+          fieldReviews: [{ ...pendingReview, status: "confirmed", confirmationMethod: "accepted", confirmedValue: "40*30*10" }],
+          dimensionEvidence: { original: "40+30", suggested: "40*30*10", requiresConfirmation: false, reviewStatus: "confirmed" },
+        },
+      }],
+    },
+  });
+  assert.equal(confirmed.response.orderId, "ORD-SERVICE-001");
+  assert.equal(calls.confirmations.at(-1).orderDraft.lines[0].fieldReviews[0].status, "confirmed");
+  assert.equal(calls.confirmations.at(-1).orderDraft.lines[0].fieldReviews[0].confirmedBy, "U-OFFICE-A");
+  assert.equal(calls.confirmations.at(-1).orderDraft.lines[0].fieldReviews[0].confirmedAt, "2026-07-11T13:00:00.000Z");
+}
+
+async function checkSplitPreviewAndConfirmation() {
+  confirmationMode = "success";
+  const workspace = buildWorkspace();
+  const firstLine = {
+    ...buildRequestLine(),
+    recognitionEvidence: { originalOrderGroupId: "ODG-SERVICE-001" },
+  };
+  const secondLine = {
+    ...buildRequestLine(),
+    draftLineId: "DRAFT-SERVICE-001-02",
+    fulfillmentMethod: "送货",
+    latestNeededAt: "后天",
+    recognitionEvidence: { originalOrderGroupId: "ODG-SERVICE-001" },
+  };
+  const preview = await service.previewOrderDraftSplit({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { clientRevision: 1, lines: [firstLine, secondLine] },
+  });
+  assert.equal(preview.response.splitPlan.groups.length, 2);
+  assert.equal(preview.response.splitPlan.canConfirm, true);
+  assert.equal(preview.response.splitPlan.groups.reduce((sum, group) => sum + group.quantityTotal, 0), 20);
+
+  const beforeConfirmationCount = calls.confirmations.length;
+  const result = await service.confirmSplitOrderDraft({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      clientRevision: 1,
+      lines: [firstLine, secondLine],
+      splitPlanHash: preview.response.splitPlan.planHash,
+      idempotencyKey: "draft-split-confirm-service-001",
+    },
+  });
+  assert.equal(result.response.splitConfirmed, true);
+  assert.equal(result.response.orderIds.length, 2);
+  assert.equal(new Set(result.response.orderIds).size, 2);
+  assert.equal(result.response.orderLines.length, 2);
+  assert.equal(calls.confirmations.length, beforeConfirmationCount + 1, "split orders must use one transaction call");
+  const transactionInput = calls.confirmations.at(-1);
+  assert.equal(transactionInput.orders.length, 2);
+  assert.equal(transactionInput.orderLines.length, 2);
+  assert.equal(transactionInput.orderDraft.status, "已生成多个正式订单");
+  assert.equal(transactionInput.operationLog.action, "confirm_split_order_draft");
+
+  const stale = await service.confirmSplitOrderDraft({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      clientRevision: 1,
+      lines: [firstLine, { ...secondLine, qty: 25 }],
+      splitPlanHash: preview.response.splitPlan.planHash,
+    },
+  });
+  assert.equal(stale.statusCode, 409);
+  assert.equal(stale.code, "ORDER_DRAFT_SPLIT_PLAN_CHANGED");
+}
+
 async function checkBlockedConfirmation() {
   confirmationMode = "blocked";
   const workspace = buildWorkspace();
@@ -291,6 +408,208 @@ async function checkBlockedConfirmation() {
   assert.equal(calls.draftSaves.at(-1).draft.status, "待补充信息");
   assert.equal(calls.draftSaves.at(-1).operationLog.action, "block_order_draft_confirmation");
   confirmationMode = "success";
+}
+
+async function checkPartialShortageCancellation() {
+  confirmationMode = "success";
+  const workspace = buildWorkspace();
+  workspace.inventoryIntents = [buildShortageCancellationIntent({
+    relatedDraftLineIds: ["DRAFT-SERVICE-001-01"],
+  })];
+  const cancelledLine = buildRequestLine();
+  const continuingLine = {
+    ...buildRequestLine(),
+    draftLineId: "DRAFT-SERVICE-001-02",
+    bagColor: "黑色",
+  };
+  const result = await service.confirmOrderDraft({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      clientRevision: 1,
+      idempotencyKey: "draft-confirm-partial-shortage-cancel-001",
+      lines: [cancelledLine, continuingLine],
+    },
+  });
+  assert.equal(result.response.closedWithoutOrder, false);
+  assert.deepEqual(result.response.cancelledDraftLineIds, [cancelledLine.draftLineId]);
+  assert.equal(result.response.orderLines.length, 1, "only the available continuing line becomes formal");
+  const input = calls.confirmations.at(-1);
+  assert.equal(input.orderDraft.lines.length, 2, "cancelled line remains in draft evidence");
+  assert.equal(input.orderLines.length, 1);
+  assert.equal(input.orderLines[0].customerId, continuingLine.customerId);
+  assert.equal(input.shortageCancellationIntents[0].intentStatus, "库存不足取消-已应用");
+  assert.deepEqual(input.shortageCancellationIntents[0].candidate.appliedDraftLineIds, [cancelledLine.draftLineId]);
+  assert.deepEqual(input.shortageCancellationIntents[0].candidate.continuedDraftLineIds, [continuingLine.draftLineId]);
+}
+
+async function checkShortageCancellationRestore() {
+  const workspace = buildWorkspace();
+  workspace.orderDrafts[0].lines = [{
+    id: "DRAFT-SERVICE-001-01",
+    customerId: "C001",
+    customer: "张三服饰",
+    product: "空白袋",
+    size: "30*38*10",
+    color: "红色",
+    handle: "普通提",
+    style: "空白袋",
+    print: "否",
+    qty: 10,
+    fulfillment: "自提",
+    latest: "明天",
+    cancellationStatus: "库存不足取消",
+    cancellationScope: "shortage_lines_only",
+    cancellationSourceMessageId: "MSG-SHORTAGE-CANCEL-001",
+    excludedFromConfirmation: true,
+  }];
+  workspace.inventoryIntents = [buildShortageCancellationIntent({ relatedDraftLineIds: ["DRAFT-SERVICE-001-01"] })];
+  const result = await service.restoreShortageCancelledDraftLine({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      clientRevision: 1,
+      draftLineId: "DRAFT-SERVICE-001-01",
+      reason: "客户确认恢复订购",
+      idempotencyKey: "restore-shortage-service-001",
+    },
+  });
+  assert.equal(result.response.draft.clientRevision, 2);
+  assert.equal(result.response.line.recognitionEvidence.cancellationStatus, "");
+  assert.equal(result.response.line.recognitionEvidence.excludedFromConfirmation, false);
+  assert.equal(result.response.line.recognitionEvidence.cancellationRestoration.restoredBy, "U-OFFICE-A");
+  const input = calls.draftSaves.at(-1);
+  assert.equal(input.operationLog.action, "restore_order_draft_shortage_cancellation");
+  assert.equal(input.inventoryIntents[0].intentStatus, "库存不足取消-已恢复订购");
+  assert.deepEqual(input.inventoryIntents[0].candidate.relatedDraftLineIds, []);
+  assert.deepEqual(input.inventoryIntents[0].candidate.restoredDraftLineIds, ["DRAFT-SERVICE-001-01"]);
+  assert.equal(input.idempotencyPayload.operatorId, "U-OFFICE-A");
+
+  const confirmedWorkspace = buildWorkspace();
+  confirmedWorkspace.orderDrafts[0].status = "已生成正式订单";
+  confirmedWorkspace.orderDrafts[0].lines = workspace.orderDrafts[0].lines;
+  confirmedWorkspace.inventoryIntents = [buildShortageCancellationIntent({ relatedDraftLineIds: ["DRAFT-SERVICE-001-01"] })];
+  const forbidden = await service.restoreShortageCancelledDraftLine({
+    workspace: confirmedWorkspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { clientRevision: 1, draftLineId: "DRAFT-SERVICE-001-01", reason: "客户又要了" },
+  });
+  assert.equal(forbidden.code, "SHORTAGE_CANCELLATION_RESTORE_AFTER_CONFIRMATION_FORBIDDEN");
+}
+
+async function checkCrossDraftShortageCancellationLink() {
+  const workspace = buildWorkspace();
+  workspace.orderDrafts[0].lines = [{
+    id: "DRAFT-SERVICE-001-01",
+    customerId: "C001",
+    customer: "张三服饰",
+    product: "空白袋",
+    size: "30*38*10",
+    color: "红色",
+    handle: "普通提",
+    style: "空白袋",
+    print: "否",
+    qty: 10,
+    fulfillment: "自提",
+    latest: "明天",
+  }];
+  workspace.inventoryIntents = [{
+    ...buildShortageCancellationIntent({ relatedDraftLineIds: [], requiresReview: true }),
+    id: "INT-CROSS-DRAFT-001",
+    intentId: "INT-CROSS-DRAFT-001",
+    sourceDraftId: "DRAFT-CANCELLATION-CONTEXT-001",
+    intentStatus: "库存不足取消-待关联明细",
+    sourceText: "上一单红色缺货不要了",
+  }];
+  const result = await service.linkCrossDraftShortageCancellation({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      clientRevision: 1,
+      intentId: "INT-CROSS-DRAFT-001",
+      draftLineId: "DRAFT-SERVICE-001-01",
+      reason: "办公室核对来源消息后关联",
+      idempotencyKey: "cross-draft-link-service-001",
+    },
+  });
+  assert.equal(result.response.draft.clientRevision, 2);
+  assert.equal(result.response.line.recognitionEvidence.cancellationStatus, "库存不足取消");
+  assert.equal(result.response.line.recognitionEvidence.excludedFromConfirmation, true);
+  assert.equal(result.response.line.recognitionEvidence.crossDraftCancellation.sourceDraftId, "DRAFT-CANCELLATION-CONTEXT-001");
+  assert.equal(result.response.inventoryIntent.intentStatus, "库存不足取消-已关联跨草稿明细");
+  assert.equal(result.response.inventoryIntent.candidate.targetDraftId, "DRAFT-SERVICE-001");
+  const input = calls.draftSaves.at(-1);
+  assert.equal(input.operationLog.action, "link_cross_draft_shortage_cancellation");
+  assert.equal(input.idempotencyPayload.operatorId, "U-OFFICE-A");
+
+  const mismatchWorkspace = buildWorkspace();
+  mismatchWorkspace.orderDrafts[0].lines = workspace.orderDrafts[0].lines;
+  mismatchWorkspace.inventoryIntents = [{
+    ...workspace.inventoryIntents[0],
+    customerId: "C-OTHER",
+  }];
+  const mismatch = await service.linkCrossDraftShortageCancellation({
+    workspace: mismatchWorkspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { clientRevision: 1, intentId: "INT-CROSS-DRAFT-001", draftLineId: "DRAFT-SERVICE-001-01", reason: "错误关联" },
+  });
+  assert.equal(mismatch.code, "CROSS_DRAFT_CANCELLATION_CUSTOMER_MISMATCH");
+
+  const unresolvedWorkspace = buildWorkspace();
+  unresolvedWorkspace.orderDrafts[0].lines = workspace.orderDrafts[0].lines;
+  unresolvedWorkspace.inventoryIntents = [{ ...workspace.inventoryIntents[0], customerId: "" }];
+  const unresolved = await service.linkCrossDraftShortageCancellation({
+    workspace: unresolvedWorkspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { clientRevision: 1, intentId: "INT-CROSS-DRAFT-001", draftLineId: "DRAFT-SERVICE-001-01", reason: "客户未知" },
+  });
+  assert.equal(unresolved.code, "CROSS_DRAFT_CANCELLATION_CUSTOMER_UNRESOLVED");
+}
+
+async function checkFullyCancelledDraft() {
+  const workspace = buildWorkspace();
+  workspace.inventoryIntents = [buildShortageCancellationIntent({
+    scope: "whole_order",
+    relatedDraftLineIds: ["DRAFT-SERVICE-001-01"],
+  })];
+  const beforeConfirmationCount = calls.confirmations.length;
+  const result = await service.confirmOrderDraft({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: {
+      clientRevision: 1,
+      idempotencyKey: "draft-close-full-shortage-cancel-001",
+      lines: [buildRequestLine()],
+    },
+  });
+  assert.equal(result.response.closedWithoutOrder, true);
+  assert.equal(result.response.orderId, "");
+  assert.equal(calls.confirmations.length, beforeConfirmationCount, "closed draft must not run order confirmation transaction");
+  assert.equal(calls.draftSaves.at(-1).draft.status, "库存不足取消");
+  assert.equal(calls.draftSaves.at(-1).inventoryIntents[0].intentStatus, "库存不足取消-已应用");
+}
+
+async function checkUnresolvedShortageCancellation() {
+  const workspace = buildWorkspace();
+  workspace.inventoryIntents = [buildShortageCancellationIntent({
+    relatedDraftLineIds: [],
+    requiresReview: true,
+  })];
+  const result = await service.confirmOrderDraft({
+    workspace,
+    draftId: "DRAFT-SERVICE-001",
+    operatorId: "U-OFFICE-A",
+    body: { clientRevision: 1, lines: [buildRequestLine()] },
+  });
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.code, "SHORTAGE_CANCELLATION_REVIEW_REQUIRED");
 }
 
 async function checkValidation() {
@@ -353,6 +672,7 @@ function buildWorkspace() {
     fulfillments: [],
     todos: [],
     operationLogs: [],
+    inventoryIntents: [],
     orderDraftRepository: {
       async getOrderDraft({ workspace, draftId }) {
         return workspace.orderDrafts.find((item) => item.id === draftId) ?? null;
@@ -375,6 +695,8 @@ function buildWorkspace() {
         calls.confirmations.push(input);
         return {
           order: input.order,
+          orders: input.orders ?? [input.order],
+          productionTasks: input.productionTasks ?? [],
           inventoryReservations: input.inventoryReservations,
           todos: input.todos,
           operationLogId: input.operationLog.id,
@@ -398,5 +720,29 @@ function buildRequestLine() {
     fulfillmentMethod: "自提",
     latestNeededAt: "明天",
     printFlag: false,
+  };
+}
+
+function buildShortageCancellationIntent({
+  relatedDraftLineIds,
+  requiresReview = false,
+  scope = "shortage_lines_only",
+}) {
+  return {
+    id: "INT-SHORTAGE-CANCEL-001",
+    intentId: "INT-SHORTAGE-CANCEL-001",
+    sourceDraftId: "DRAFT-SERVICE-001",
+    sourceMessageId: "MSG-SHORTAGE-CANCEL-001",
+    conversationId: "GROUP-SERVICE-1",
+    customerId: "C001",
+    intentType: "shortage_cancellation",
+    intentStatus: requiresReview ? "库存不足取消-待关联明细" : "库存不足取消-已关联草稿明细",
+    sourceText: "缺货的不要了，其他继续",
+    candidate: { relatedDraftLineIds, requiresReview, targetBasis: "current_inventory_shortage" },
+    cancellationScope: scope,
+    revision: 1,
+    createdBy: "U-OFFICE-A",
+    createdAt: "2026-07-11T12:00:00.000Z",
+    updatedAt: "2026-07-11T12:00:00.000Z",
   };
 }

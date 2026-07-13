@@ -1,0 +1,229 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="2400" height="3500" viewBox="0 0 2400 3500">
+  <defs>
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L12,6 L0,12 Z" fill="#64748b"/>
+    </marker>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="8" flood-color="#0f172a" flood-opacity="0.08"/>
+    </filter>
+    <style>
+      text { font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif; fill: #172033; }
+      .page-title { font-size: 64px; font-weight: 700; }
+      .page-subtitle { font-size: 28px; fill: #526071; }
+      .overview-label { font-size: 25px; font-weight: 600; text-anchor: middle; }
+      .lane-bg { fill: #f8fafc; stroke: #d9e1ea; stroke-width: 3; }
+      .role-number { font-size: 30px; font-weight: 700; text-anchor: middle; fill: white; }
+      .role-title { font-size: 38px; font-weight: 700; }
+      .role-desc { font-size: 23px; fill: #64748b; }
+      .step-box { fill: #ffffff; stroke: #d7dee8; stroke-width: 2; }
+      .step-text { font-size: 24px; font-weight: 500; text-anchor: middle; }
+      .flow-line { stroke: #64748b; stroke-width: 3; fill: none; marker-end: url(#arrow); }
+      .complete { font-size: 25px; font-weight: 600; fill: #166534; }
+      .attention { font-size: 24px; font-weight: 600; fill: #9a3412; }
+      .footer { font-size: 29px; font-weight: 600; text-anchor: middle; }
+    </style>
+  </defs>
+
+  <rect width="2400" height="3500" fill="#ffffff"/>
+
+  <text x="140" y="105" class="page-title">ERP 员工岗位流程与交接说明</text>
+  <text x="140" y="158" class="page-subtitle">从上往下找到自己的岗位：按实填写、正常提交、异常上报，完成后交给下一岗位。</text>
+
+  <rect x="140" y="205" width="2120" height="150" rx="28" fill="#f1f5f9" stroke="#d8e0ea" stroke-width="2"/>
+  <text x="250" y="255" class="role-desc">整条业务主线</text>
+
+  <g filter="url(#shadow)">
+    <rect x="180" y="277" width="210" height="58" rx="16" fill="#ffffff"/>
+    <rect x="440" y="277" width="210" height="58" rx="16" fill="#ffffff"/>
+    <rect x="700" y="277" width="210" height="58" rx="16" fill="#ffffff"/>
+    <rect x="960" y="277" width="210" height="58" rx="16" fill="#ffffff"/>
+    <rect x="1220" y="277" width="210" height="58" rx="16" fill="#ffffff"/>
+    <rect x="1480" y="277" width="210" height="58" rx="16" fill="#ffffff"/>
+    <rect x="1740" y="277" width="210" height="58" rx="16" fill="#ffffff"/>
+    <rect x="2000" y="277" width="210" height="58" rx="16" fill="#ffffff"/>
+  </g>
+  <text x="285" y="315" class="overview-label">接单</text>
+  <text x="545" y="315" class="overview-label">备货 / 生产</text>
+  <text x="805" y="315" class="overview-label">打包</text>
+  <text x="1065" y="315" class="overview-label">打印</text>
+  <text x="1325" y="315" class="overview-label">出库</text>
+  <text x="1585" y="315" class="overview-label">交付</text>
+  <text x="1845" y="315" class="overview-label">对账收款</text>
+  <text x="2105" y="315" class="overview-label">核销结清</text>
+  <path d="M390 306 H430" class="flow-line"/>
+  <path d="M650 306 H690" class="flow-line"/>
+  <path d="M910 306 H950" class="flow-line"/>
+  <path d="M1170 306 H1210" class="flow-line"/>
+  <path d="M1430 306 H1470" class="flow-line"/>
+  <path d="M1690 306 H1730" class="flow-line"/>
+  <path d="M1950 306 H1990" class="flow-line"/>
+
+  <!-- 1 办公室 / 客服 -->
+  <g transform="translate(0,400)">
+    <rect x="140" y="0" width="2120" height="310" rx="30" class="lane-bg"/>
+    <rect x="140" y="0" width="14" height="310" rx="7" fill="#2563eb"/>
+    <circle cx="205" cy="66" r="38" fill="#2563eb"/>
+    <text x="205" y="77" class="role-number">1</text>
+    <text x="265" y="57" class="role-title">办公室 / 客服</text>
+    <text x="265" y="94" class="role-desc">接单、确认、协调</text>
+    <rect x="520" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <rect x="800" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <rect x="1080" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <rect x="1360" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <rect x="1640" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <rect x="1920" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <text x="635" y="76" class="step-text"><tspan x="635">查看待办</tspan><tspan x="635" dy="30">和客户消息</tspan></text>
+    <text x="915" y="76" class="step-text"><tspan x="915">录入并识别</tspan><tspan x="915" dy="30">客户原文</tspan></text>
+    <text x="1195" y="76" class="step-text"><tspan x="1195">核对客户</tspan><tspan x="1195" dy="30">规格与数量</tspan></text>
+    <text x="1475" y="76" class="step-text"><tspan x="1475">核对库存</tspan><tspan x="1475" dy="30">价格与交期</tspan></text>
+    <text x="1755" y="76" class="step-text"><tspan x="1755">保存并确认</tspan><tspan x="1755" dy="30">正式订单</tspan></text>
+    <text x="2035" y="76" class="step-text"><tspan x="2035">进入订单池</tspan><tspan x="2035" dy="30">持续跟进</tspan></text>
+    <path d="M750 83 H790" class="flow-line"/><path d="M1030 83 H1070" class="flow-line"/><path d="M1310 83 H1350" class="flow-line"/><path d="M1590 83 H1630" class="flow-line"/><path d="M1870 83 H1910" class="flow-line"/>
+    <text x="265" y="205" class="complete">完成标准：正式订单已生成，现货占用或生产、交付任务已经建立。</text>
+    <text x="265" y="252" class="attention">特别注意：信息不确定先保存草稿；不能为了赶进度跳过价格、库存或交期核对。</text>
+  </g>
+
+  <!-- 2 原材料 / 收货 -->
+  <g transform="translate(0,750)">
+    <rect x="140" y="0" width="2120" height="310" rx="30" class="lane-bg"/>
+    <rect x="140" y="0" width="14" height="310" rx="7" fill="#7c3aed"/>
+    <circle cx="205" cy="66" r="38" fill="#7c3aed"/>
+    <text x="205" y="77" class="role-number">2</text>
+    <text x="265" y="57" class="role-title">原材料 / 收货</text>
+    <text x="265" y="94" class="role-desc">入库、贴标、领料</text>
+    <rect x="520" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="800" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1080" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1360" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1640" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1920" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <text x="635" y="76" class="step-text"><tspan x="635">拍供应商</tspan><tspan x="635" dy="30">送货单</tspan></text>
+    <text x="915" y="76" class="step-text"><tspan x="915">OCR预填</tspan><tspan x="915" dy="30">并人工复核</tspan></text>
+    <text x="1195" y="76" class="step-text"><tspan x="1195">生成ERP</tspan><tspan x="1195" dy="30">入库编号</tspan></text>
+    <text x="1475" y="76" class="step-text"><tspan x="1475">每卷每件</tspan><tspan x="1475" dy="30">打印标签</tspan></text>
+    <text x="1755" y="76" class="step-text"><tspan x="1755">贴标扫码</tspan><tspan x="1755" dy="30">确认实物</tspan></text>
+    <text x="2035" y="76" class="step-text"><tspan x="2035">成为可用</tspan><tspan x="2035" dy="30">或机边领料</tspan></text>
+    <path d="M750 83 H790" class="flow-line"/><path d="M1030 83 H1070" class="flow-line"/><path d="M1310 83 H1350" class="flow-line"/><path d="M1590 83 H1630" class="flow-line"/><path d="M1870 83 H1910" class="flow-line"/>
+    <text x="265" y="205" class="complete">完成标准：每卷/每件原料已经和唯一标签绑定，状态明确为可用、机边或待复核。</text>
+    <text x="265" y="252" class="attention">特别注意：供应商单号可以没有，但ERP入库号和卷/件编号必须存在；未贴标扫码不能入可用库存。</text>
+  </g>
+
+  <!-- 3 车间 -->
+  <g transform="translate(0,1100)">
+    <rect x="140" y="0" width="2120" height="310" rx="30" class="lane-bg"/>
+    <rect x="140" y="0" width="14" height="310" rx="7" fill="#0f766e"/>
+    <circle cx="205" cy="66" r="38" fill="#0f766e"/>
+    <text x="205" y="77" class="role-number">3</text>
+    <text x="265" y="57" class="role-title">车间员工</text>
+    <text x="265" y="94" class="role-desc">丝印 / 制袋 / 报工</text>
+    <rect x="520" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="800" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1080" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1360" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1640" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1920" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <text x="635" y="76" class="step-text"><tspan x="635">打开本机台</tspan><tspan x="635" dy="30">今日任务</tspan></text>
+    <text x="915" y="76" class="step-text"><tspan x="915">核对规格</tspan><tspan x="915" dy="30">物料和数量</tspan></text>
+    <text x="1195" y="76" class="step-text"><tspan x="1195">开始生产</tspan><tspan x="1195" dy="30">按工艺操作</tspan></text>
+    <text x="1475" y="76" class="step-text"><tspan x="1475">定制品上传</tspan><tspan x="1475" dy="30">成品照片</tspan></text>
+    <text x="1755" y="76" class="step-text"><tspan x="1755">填写合格数</tspan><tspan x="1755" dy="30">废品和机数</tspan></text>
+    <text x="2035" y="76" class="step-text"><tspan x="2035">提交生产</tspan><tspan x="2035" dy="30">报工完成</tspan></text>
+    <path d="M750 83 H790" class="flow-line"/><path d="M1030 83 H1070" class="flow-line"/><path d="M1310 83 H1350" class="flow-line"/><path d="M1590 83 H1630" class="flow-line"/><path d="M1870 83 H1910" class="flow-line"/>
+    <text x="265" y="205" class="complete">完成标准：真实合格数量已经提交，定制品照片已上传并通过要求。</text>
+    <text x="265" y="252" class="attention">特别注意：机器计数只是动作/循环次数，不是合格成品数量；少做或多做必须按实填写。</text>
+  </g>
+
+  <!-- 4 打包 -->
+  <g transform="translate(0,1450)">
+    <rect x="140" y="0" width="2120" height="310" rx="30" class="lane-bg"/>
+    <rect x="140" y="0" width="14" height="310" rx="7" fill="#ea580c"/>
+    <circle cx="205" cy="66" r="38" fill="#ea580c"/>
+    <text x="205" y="77" class="role-number">4</text>
+    <text x="265" y="57" class="role-title">打包员工</text>
+    <text x="265" y="94" class="role-desc">清点、分包、提交</text>
+    <rect x="520" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="800" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1080" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1360" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1640" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1920" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <text x="635" y="76" class="step-text"><tspan x="635">打开打包</tspan><tspan x="635" dy="30">任务</tspan></text>
+    <text x="915" y="76" class="step-text"><tspan x="915">核对产品</tspan><tspan x="915" dy="30">规格和数量</tspan></text>
+    <text x="1195" y="76" class="step-text"><tspan x="1195">清点实际</tspan><tspan x="1195" dy="30">合格成品</tspan></text>
+    <text x="1475" y="76" class="step-text"><tspan x="1475">填写实际</tspan><tspan x="1475" dy="30">打包数量</tspan></text>
+    <text x="1755" y="76" class="step-text"><tspan x="1755">填写每个</tspan><tspan x="1755" dy="30">包裹数量</tspan></text>
+    <text x="2035" y="76" class="step-text"><tspan x="2035">提交打包</tspan><tspan x="2035" dy="30">完成</tspan></text>
+    <path d="M750 83 H790" class="flow-line"/><path d="M1030 83 H1070" class="flow-line"/><path d="M1310 83 H1350" class="flow-line"/><path d="M1590 83 H1630" class="flow-line"/><path d="M1870 83 H1910" class="flow-line"/>
+    <text x="265" y="205" class="complete">完成标准：每包数量合计等于实际打包数量，包裹明细与实物一致。</text>
+    <text x="265" y="252" class="attention">特别注意：数量不够、包裹破损或标签异常必须上报，不能为了完成任务随意改数。</text>
+  </g>
+
+  <!-- 5 仓库 / 出库 -->
+  <g transform="translate(0,1800)">
+    <rect x="140" y="0" width="2120" height="310" rx="30" class="lane-bg"/>
+    <rect x="140" y="0" width="14" height="310" rx="7" fill="#15803d"/>
+    <circle cx="205" cy="66" r="38" fill="#15803d"/>
+    <text x="205" y="77" class="role-number">5</text>
+    <text x="265" y="57" class="role-title">仓库 / 出库</text>
+    <text x="265" y="94" class="role-desc">打印、备货、交接</text>
+    <rect x="520" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="800" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1080" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1360" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1640" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1920" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <text x="635" y="76" class="step-text"><tspan x="635">查看待出库</tspan><tspan x="635" dy="30">任务</tspan></text>
+    <text x="915" y="76" class="step-text"><tspan x="915">核对货物</tspan><tspan x="915" dy="30">和包裹</tspan></text>
+    <text x="1195" y="76" class="step-text"><tspan x="1195">打印标签</tspan><tspan x="1195" dy="30">或交付单</tspan></text>
+    <text x="1475" y="76" class="step-text"><tspan x="1475">确认打印</tspan><tspan x="1475" dy="30">已经成功</tspan></text>
+    <text x="1755" y="76" class="step-text"><tspan x="1755">备货到</tspan><tspan x="1755" dy="30">指定区域</tspan></text>
+    <text x="2035" y="76" class="step-text"><tspan x="2035">真实交出后</tspan><tspan x="2035" dy="30">确认完成</tspan></text>
+    <path d="M750 83 H790" class="flow-line"/><path d="M1030 83 H1070" class="flow-line"/><path d="M1310 83 H1350" class="flow-line"/><path d="M1590 83 H1630" class="flow-line"/><path d="M1870 83 H1910" class="flow-line"/>
+    <text x="265" y="205" class="complete">完成标准：货物已经真实交给客户、司机或物流，系统完成相应库存扣减。</text>
+    <text x="265" y="252" class="attention">特别注意：打印标签、放到待提货区都不等于已经出库；必须等实物真正交接。</text>
+  </g>
+
+  <!-- 6 司机 -->
+  <g transform="translate(0,2150)">
+    <rect x="140" y="0" width="2120" height="310" rx="30" class="lane-bg"/>
+    <rect x="140" y="0" width="14" height="310" rx="7" fill="#0284c7"/>
+    <circle cx="205" cy="66" r="38" fill="#0284c7"/>
+    <text x="205" y="77" class="role-number">6</text>
+    <text x="265" y="57" class="role-title">司机</text>
+    <text x="265" y="94" class="role-desc">装车、送达、留证</text>
+    <rect x="520" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="800" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1080" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1360" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1640" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1920" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <text x="635" y="76" class="step-text"><tspan x="635">查看自己的</tspan><tspan x="635" dy="30">送货任务</tspan></text>
+    <text x="915" y="76" class="step-text"><tspan x="915">核对客户</tspan><tspan x="915" dy="30">地址和包裹</tspan></text>
+    <text x="1195" y="76" class="step-text"><tspan x="1195">确认货物</tspan><tspan x="1195" dy="30">已经装车</tspan></text>
+    <text x="1475" y="76" class="step-text"><tspan x="1475">导航并</tspan><tspan x="1475" dy="30">送达客户</tspan></text>
+    <text x="1755" y="76" class="step-text"><tspan x="1755">拍水印照片</tspan><tspan x="1755" dy="30">或回单</tspan></text>
+    <text x="2035" y="76" class="step-text"><tspan x="2035">填写接收人</tspan><tspan x="2035" dy="30">完成送货</tspan></text>
+    <path d="M750 83 H790" class="flow-line"/><path d="M1030 83 H1070" class="flow-line"/><path d="M1310 83 H1350" class="flow-line"/><path d="M1590 83 H1630" class="flow-line"/><path d="M1870 83 H1910" class="flow-line"/>
+    <text x="265" y="205" class="complete">完成标准：货物已经送达，接收人和交付证据已经上传。</text>
+    <text x="265" y="252" class="attention">特别注意：司机只处理自己的送货任务，不能修改订单、价格、库存或对账信息。</text>
+  </g>
+
+  <!-- 7 财务 -->
+  <g transform="translate(0,2500)">
+    <rect x="140" y="0" width="2120" height="310" rx="30" class="lane-bg"/>
+    <rect x="140" y="0" width="14" height="310" rx="7" fill="#ca8a04"/>
+    <circle cx="205" cy="66" r="38" fill="#ca8a04"/>
+    <text x="205" y="77" class="role-number">7</text>
+    <text x="265" y="57" class="role-title">财务</text>
+    <text x="265" y="94" class="role-desc">对账、收款、核销</text>
+    <rect x="520" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="800" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1080" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1360" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1640" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1920" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <text x="635" y="76" class="step-text"><tspan x="635">查看待处理</tspan><tspan x="635" dy="30">客户账单</tspan></text>
+    <text x="915" y="76" class="step-text"><tspan x="915">核对应收</tspan><tspan x="915" dy="30">金额和明细</tspan></text>
+    <text x="1195" y="76" class="step-text"><tspan x="1195">查看客户</tspan><tspan x="1195" dy="30">付款凭证</tspan></text>
+    <text x="1475" y="76" class="step-text"><tspan x="1475">登记实际</tspan><tspan x="1475" dy="30">收到金额</tspan></text>
+    <text x="1755" y="76" class="step-text"><tspan x="1755">核对是否</tspan><tspan x="1755" dy="30">足额</tspan></text>
+    <text x="2035" y="76" class="step-text"><tspan x="2035">核销结清或</tspan><tspan x="2035" dy="30">提交差额</tspan></text>
+    <path d="M750 83 H790" class="flow-line"/><path d="M1030 83 H1070" class="flow-line"/><path d="M1310 83 H1350" class="flow-line"/><path d="M1590 83 H1630" class="flow-line"/><path d="M1870 83 H1910" class="flow-line"/>
+    <text x="265" y="205" class="complete">完成标准：账单已核销结清，或者差额、欠款已经进入公共待办。</text>
+    <text x="265" y="252" class="attention">特别注意：分多次付款时必须核对累计实收；付款凭证、金额和客户必须相互对应。</text>
+  </g>
+
+  <!-- 8 管理 / 技术支援 -->
+  <g transform="translate(0,2850)">
+    <rect x="140" y="0" width="2120" height="310" rx="30" class="lane-bg"/>
+    <rect x="140" y="0" width="14" height="310" rx="7" fill="#475569"/>
+    <circle cx="205" cy="66" r="38" fill="#475569"/>
+    <text x="205" y="77" class="role-number">8</text>
+    <text x="265" y="57" class="role-title">管理 / 技术支援</text>
+    <text x="265" y="94" class="role-desc">异常判断与系统保障</text>
+    <rect x="520" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="800" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1080" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1360" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1640" y="40" width="230" height="86" rx="12" class="step-box"/><rect x="1920" y="40" width="230" height="86" rx="12" class="step-box"/>
+    <text x="635" y="76" class="step-text"><tspan x="635">查看异常</tspan><tspan x="635" dy="30">或审核待办</tspan></text>
+    <text x="915" y="76" class="step-text"><tspan x="915">判断业务或</tspan><tspan x="915" dy="30">技术问题</tspan></text>
+    <text x="1195" y="76" class="step-text"><tspan x="1195">确认影响</tspan><tspan x="1195" dy="30">金额和范围</tspan></text>
+    <text x="1475" y="76" class="step-text"><tspan x="1475">批准、退回</tspan><tspan x="1475" dy="30">或修复</tspan></text>
+    <text x="1755" y="76" class="step-text"><tspan x="1755">记录原因</tspan><tspan x="1755" dy="30">和处理结果</tspan></text>
+    <text x="2035" y="76" class="step-text"><tspan x="2035">交回原岗位</tspan><tspan x="2035" dy="30">继续业务</tspan></text>
+    <path d="M750 83 H790" class="flow-line"/><path d="M1030 83 H1070" class="flow-line"/><path d="M1310 83 H1350" class="flow-line"/><path d="M1590 83 H1630" class="flow-line"/><path d="M1870 83 H1910" class="flow-line"/>
+    <text x="265" y="205" class="complete">完成标准：异常有明确结论，系统或设备恢复，并且任务已回到正确岗位继续处理。</text>
+    <text x="265" y="252" class="attention">特别注意：管理负责判断、技术负责恢复；两者都不能代替员工填写虚假的生产、库存或交付数据。</text>
+  </g>
+
+  <rect x="140" y="3230" width="2120" height="150" rx="30" fill="#eff6ff" stroke="#bfdbfe" stroke-width="2"/>
+  <text x="1200" y="3290" class="footer">全员共同规则：先看任务 → 核对信息 → 按实填写 → 正常提交 → 异常上报</text>
+  <text x="1200" y="3340" class="page-subtitle" text-anchor="middle">公共待办是异常入口，不是随意跳过业务步骤的快捷按钮。</text>
+</svg>

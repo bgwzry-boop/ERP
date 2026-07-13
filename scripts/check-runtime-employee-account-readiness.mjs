@@ -30,12 +30,15 @@ finance.mustChangePassword = true;
 finance.passwordStatus = "temporary_password_issued";
 const driver = blockedUsers.find((user) => user.defaultRole === "driver");
 driver.lockedUntil = "2026-07-12T08:15:00.000Z";
+const office = blockedUsers.find((user) => user.defaultRole === "office");
+office.passwordExpiresAt = "2026-07-12T07:59:59.000Z";
 const blocked = buildRuntimeEmployeeAccountReadiness({ users: blockedUsers, nowMs });
 assert.equal(blocked.ready, false);
-assert.equal(blocked.coveredRoleCount, 5);
+assert.equal(blocked.coveredRoleCount, 4);
 assert.deepEqual(blockerCodes(blocked, "workshop"), ["machine_scope_missing"]);
 assert.deepEqual(blockerCodes(blocked, "finance"), ["password_change_required", "password_not_active"]);
 assert.deepEqual(blockerCodes(blocked, "driver"), ["account_locked"]);
+assert.deepEqual(blockerCodes(blocked, "office"), ["password_expired"]);
 
 const seedLikeUsers = readyUsers.map((user) => ({ ...user, source: "seed" }));
 const seedLike = buildRuntimeEmployeeAccountReadiness({ users: seedLikeUsers, nowMs });

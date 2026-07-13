@@ -73,6 +73,23 @@ try {
   assert.match(json.summary.releaseGate, /0\/4/);
   assert.equal(json.summary.onsiteTaskCount, 53);
   assert.equal(json.summary.v2DifferenceCount, 17);
+  assert.equal(json.d49Readiness.version, "p0-v1-d49-readiness-v1");
+  assert.equal(json.d49Readiness.scope, "v1_d49_readiness");
+  assert.equal(json.d49Readiness.status, "blocked");
+  assert.equal(json.d49Readiness.ready, false);
+  assert.equal(json.d49Readiness.summary.requiredRoleCount, 8);
+  assert.equal(json.d49Readiness.summary.blocksRegardlessOfDemoMode, true);
+  assert.equal(json.d49Readiness.employees.roles.length, 8);
+  assert.equal(json.d49Readiness.safeguards.rawEmployeeIdentifiersIncluded, false);
+  assert.equal(json.d49Readiness.safeguards.loginNamesIncluded, false);
+  assert.equal(json.d49Readiness.safeguards.passwordDataIncluded, false);
+  assert.equal(json.d49Readiness.safeguards.envFilePathIncluded, false);
+  assert.equal(json.d49Readiness.safeguards.envValuesIncluded, false);
+  assert.equal(json.d49Readiness.safeguards.connectionStringIncluded, false);
+  assert.doesNotMatch(
+    JSON.stringify(json.d49Readiness),
+    /\/Users\/|postgres(?:ql)?:\/\/|https?:\/\/[^\s\"]+|"loginName"\s*:|"passwordHash"\s*:/i,
+  );
   assert.equal(json.releaseCandidate.status, "blocked");
   assert.equal(json.releaseCandidate.ready, false);
   assert.equal(json.releaseCandidate.summary.totalGateCount, 4);

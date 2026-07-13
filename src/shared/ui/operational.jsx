@@ -14,20 +14,24 @@ export function WorkspacePageHeader({ title, description, contextLabel, onRefres
     <section className="workspace-page-header">
       <div className="workspace-page-title">
         <h1>{title}</h1>
-        <p>{description}</p>
+        {description ? <p>{description}</p> : null}
       </div>
-      <div className="workspace-page-actions">
-        {contextLabel ? (
-          <span className="workspace-context-label">
-            <DatabaseOutlined />
-            {contextLabel}
-          </span>
-        ) : null}
-        <button type="button" className="ghost-button" onClick={() => onRefresh?.()}>
-          <ReloadOutlined />
-          刷新
-        </button>
-      </div>
+      {contextLabel || onRefresh ? (
+        <div className="workspace-page-actions">
+          {contextLabel ? (
+            <span className="workspace-context-label">
+              <DatabaseOutlined />
+              {contextLabel}
+            </span>
+          ) : null}
+          {onRefresh ? (
+            <button type="button" className="ghost-button" onClick={onRefresh}>
+              <ReloadOutlined />
+              刷新
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </section>
   );
 }

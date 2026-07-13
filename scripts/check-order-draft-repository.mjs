@@ -117,15 +117,43 @@ async function checkPostgresRepositoryBoundary() {
   const directQuery = buildSaveOrderDraftTransactionQuery({
     expectedRevision: 1,
     draft: buildDraft({ revision: 1 }),
+    inventoryIntents: [buildRestoredShortageIntent()],
     todos: [buildTodo()],
     operationLog,
   });
   assert.match(directQuery.text, /\(SELECT result FROM upserted_draft\)::jsonb/);
+  assert.match(directQuery.text, /INSERT INTO inventory_intents/);
+  assert.match(directQuery.text, /candidate_json = EXCLUDED\.candidate_json/);
+  assert.ok(directQuery.values.includes("库存不足取消-已恢复订购"));
+  assert.ok(directQuery.values.some((value) => typeof value === "string" && value.includes("restoredDraftLineIds")));
   assert.ok(directQuery.values.length > 30);
 
   const listQuery = buildListOrderDraftsQuery();
   assert.deepEqual(listQuery.values, []);
   assert.doesNotMatch(listQuery.text, /WHERE draft\.id/);
+}
+
+function buildRestoredShortageIntent() {
+  return {
+    id: "INT-RESTORE-001",
+    sourceDraftId: "DRAFT-001",
+    sourceMessageId: "MSG-CANCEL-001",
+    conversationId: "GROUP-001",
+    customerId: "C001",
+    intentType: "shortage_cancellation",
+    intentStatus: "库存不足取消-已恢复订购",
+    sourceText: "缺货不要了；后来恢复订购",
+    candidate: {
+      relatedDraftLineIds: [],
+      restoredDraftLineIds: ["DRAFT-001-01"],
+      restorationHistory: [{ draftLineId: "DRAFT-001-01", restoredBy: "U-OFFICE-A" }],
+    },
+    cancellationScope: "shortage_lines_only",
+    revision: 2,
+    createdBy: "U-OFFICE-A",
+    createdAt: "2026-07-11T08:00:00.000Z",
+    updatedAt: "2026-07-11T09:00:00.000Z",
+  };
 }
 
 function buildDraft(overrides = {}) {

@@ -1,3 +1,130 @@
+.todo-list {
+  overflow: auto;
+}
+
+.todo-bulk-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 42px;
+  border-bottom: 1px solid #edf1f7;
+  background: #fbfcff;
+  padding: 6px 10px;
+}
+
+.todo-bulk-row span {
+  min-width: 0;
+  overflow: hidden;
+  color: #64748b;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-bulk-row button {
+  flex-shrink: 0;
+  height: 28px;
+}
+
+.todo-row {
+  display: grid;
+  width: 100%;
+  border: 0;
+  border-bottom: 1px solid #edf1f7;
+  background: #fff;
+  color: inherit;
+  text-align: left;
+}
+
+.todo-row {
+  grid-template-columns: minmax(0, 1fr) 96px;
+  gap: 10px;
+  min-height: 76px;
+  padding: 9px 11px;
+}
+
+.todo-row.active {
+  background: #eef5ff;
+  box-shadow: inset 3px 0 0 #0b74ff;
+}
+
+.todo-main strong,
+.todo-main span,
+.todo-main small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-main strong {
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.todo-main span {
+  color: #536178;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.todo-main small {
+  color: #7b8798;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.todo-main em {
+  display: block;
+  overflow: hidden;
+  color: #9a6b12;
+  font-size: 11px;
+  font-style: normal;
+  line-height: 16px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.todo-side {
+  display: flex;
+  align-items: flex-end;
+  flex-direction: column;
+  justify-content: space-between;
+}
+
+.todo-side em {
+  color: #7b8798;
+  font-size: 12px;
+  font-style: normal;
+}
+
+.todo-row.handled {
+  opacity: 0.74;
+}
+
+.todo-row.snoozed {
+  background: #fffdf5;
+}
+
+.todo-notification-card {
+  display: grid;
+  gap: 10px;
+}
+
+.todo-notification-card p {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid #e2e8f2;
+  border-radius: 6px;
+  background: #fbfcff;
+  color: #172033;
+  font-size: 13px;
+  line-height: 1.65;
+  white-space: pre-wrap;
+}
+
+
 .todo-workbench {
   gap: 10px;
 }

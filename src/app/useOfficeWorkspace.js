@@ -126,7 +126,7 @@ export function useOfficeWorkspace({
   );
   const [draftStatus, setDraftStatus] = useState(serverRequired ? "待录入" : "已识别待确认");
   const [draftApiMeta, setDraftApiMeta] = useState({ draftId: "", clientRevision: 0, source: initialSource });
-  const [selectedDraftId, setSelectedDraftId] = useState(serverRequired ? "" : "DRAFT-1-1");
+  const [selectedDraftId, setSelectedDraftId] = useState(serverRequired ? "" : "DRAFT-2-1");
   const [orderFilters, setOrderFilters] = useState(defaultOrderFilters);
   const [selectedOrderId, setSelectedOrderId] = useState(initialSelections.orderId ?? "");
 
@@ -166,6 +166,15 @@ export function useOfficeWorkspace({
     error: "",
     lastSyncedAt: "",
     filters: { status: "待确认生效" },
+  });
+  const [inventoryIntentState, setInventoryIntentState] = useState({
+    source: initialSource,
+    items: [],
+    holds: [],
+    loading: false,
+    mutatingId: "",
+    error: "",
+    lastSyncedAt: "",
   });
   const [selectedStockId, setSelectedStockId] = useState(initialSelections.stockId ?? "");
 
@@ -243,6 +252,8 @@ export function useOfficeWorkspace({
   const [masterDataImportConfirmationPlans, setMasterDataImportConfirmationPlans] = useState([]);
   const [masterDataImportExecutions, setMasterDataImportExecutions] = useState([]);
   const [masterDataEmployeeAccountReviews, setMasterDataEmployeeAccountReviews] = useState([]);
+  const [masterDataEmployeeAccountReadiness, setMasterDataEmployeeAccountReadiness] = useState(null);
+  const [masterDataEmployeeAssignmentOptions, setMasterDataEmployeeAssignmentOptions] = useState({ workshops: ["1号车间", "2号车间", "3号车间"], machines: [] });
   const [lastIssuedEmployeeCredential, setLastIssuedEmployeeCredential] = useState(null);
   const [masterDataMaintenanceDrafts, setMasterDataMaintenanceDrafts] = useState([]);
   const [masterDataMaintenanceTab, setMasterDataMaintenanceTab] = useState("客户档案");
@@ -495,6 +506,7 @@ export function useOfficeWorkspace({
     setInventoryCorrectionDrafts,
     setInventoryCorrectionDetailState,
     setInventoryCorrectionQueueState,
+    setInventoryIntentState,
     setInventoryLedgerState,
   });
   const inventoryWrites = useOfficeInventoryWrites({
@@ -505,11 +517,13 @@ export function useOfficeWorkspace({
     loadInventoryCorrectionDetail: inventoryDetailReads.loadInventoryCorrectionDetail,
     refreshInventoryCorrectionQueue: inventoryDetailReads.refreshInventoryCorrectionQueue,
     refreshInventoryLedgerEntries: inventoryDetailReads.refreshInventoryLedgerEntries,
+    refreshInventoryIntents: inventoryDetailReads.refreshInventoryIntents,
     refreshInventoryRecords: coreReads.refreshInventoryRecords,
     refreshTodos: coreReads.refreshTodos,
     selectedStockIdRef,
     setInventoryCorrectionDrafts,
     setInventoryCorrectionQueueState,
+    setInventoryIntentState,
     setSelectedStockId,
   });
   const masterDataReads = useOfficeMasterDataReads({
@@ -519,6 +533,8 @@ export function useOfficeWorkspace({
     masterDataImportReviewDraftsRef,
     permissionContext: authState?.permissions ?? {},
     setMasterDataEmployeeAccountReviews,
+    setMasterDataEmployeeAccountReadiness,
+    setMasterDataEmployeeAssignmentOptions,
     setMasterDataImportReviewDrafts,
   });
   const statementReads = useOfficeStatementReads({
@@ -588,6 +604,7 @@ export function useOfficeWorkspace({
     setDraftApiMeta,
     setDraftRows,
     setDraftStatus,
+    setEntryText,
     setFulfillments,
     setInventoryRecords,
     setOrderLines,
@@ -624,6 +641,7 @@ export function useOfficeWorkspace({
     inventoryCorrectionDetailState, setInventoryCorrectionDetailState,
     inventoryCorrectionDrafts, setInventoryCorrectionDrafts,
     inventoryCorrectionQueueState, setInventoryCorrectionQueueState,
+    inventoryIntentState, setInventoryIntentState,
     selectedStockId, setSelectedStockId,
     fulfillmentTab, setFulfillmentTab, fulfillments, setFulfillments, fulfillmentMeta, setFulfillmentMeta,
     selectedFulfillmentId, setSelectedFulfillmentId,
@@ -641,6 +659,8 @@ export function useOfficeWorkspace({
     masterDataImportConfirmationPlans, setMasterDataImportConfirmationPlans,
     masterDataImportExecutions, setMasterDataImportExecutions,
     masterDataEmployeeAccountReviews, setMasterDataEmployeeAccountReviews,
+    masterDataEmployeeAccountReadiness, setMasterDataEmployeeAccountReadiness,
+    masterDataEmployeeAssignmentOptions, setMasterDataEmployeeAssignmentOptions,
     lastIssuedEmployeeCredential, setLastIssuedEmployeeCredential,
     masterDataMaintenanceDrafts, setMasterDataMaintenanceDrafts,
     masterDataMaintenanceTab, setMasterDataMaintenanceTab,

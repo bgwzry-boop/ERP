@@ -37,10 +37,12 @@ import { createPostgresMasterDataImportReviewRepository } from "../server/master
 import { createPostgresMasterDataImportTransactionRepository } from "../server/masterDataImportTransactionRepository.mjs";
 import { createPostgresCoreWorkspaceReadRepository } from "../server/coreWorkspaceReadRepository.mjs";
 import { createPostgresRuntimeIdentityRepository } from "../server/runtimeIdentityRepository.mjs";
+import { buildRuntimeEmployeeAccountReadiness } from "../server/services/runtimeEmployeeAccountReadiness.mjs";
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
 import { v1PersistencePostgresRepositoryOptionKeys } from "../server/v1PersistenceProfile.mjs";
 import { loadMigrationFiles, validateMigrationSet } from "./dbMigrationUtils.mjs";
 import { assertStatementXlsxWorkbook } from "./xlsxTestUtils.mjs";
+import { orderConversationCorpus } from "../shared/orderConversationCorpus.mjs";
 
 const dockerImage = process.env.ERP_POSTGRES_DOCKER_IMAGE || "postgres:16-alpine";
 const { Pool } = pg;
@@ -64,7 +66,7 @@ try {
   await checkPostgresRepositories();
   await checkApiWithPostgresRepositories();
   console.log(
-    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, inventory correction transaction repository, production finished-goods photo transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, core workspace/master-data restart snapshot, runtime identity repository/formal login/logout revocation, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
+    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, inventory correction transaction repository, inventory intent/temporary-hold transaction repository, production finished-goods photo transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, core workspace/master-data restart snapshot, runtime identity repository/formal login/logout revocation, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
   );
 } finally {
   if (server) await closeServer(server);
@@ -237,12 +239,31 @@ INSERT INTO order_drafts (
   id, biz_no, source_text, source_channel, customer_id, status, recognition_summary, revision, created_by
 ) VALUES
   ('DRAFT-LIVE-CONFIRM-001', 'DRAFT-LIVE-CONFIRM-001', 'Postgres live order confirmation', 'manual', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A'),
+  ('DRAFT-LIVE-CANCEL-001', 'DRAFT-LIVE-CANCEL-001', 'Postgres live partial shortage cancellation', 'wechat_group', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A'),
+  ('DRAFT-LIVE-SPLIT-001', 'DRAFT-LIVE-SPLIT-001', 'Postgres live atomic split confirmation', 'wechat_group', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A'),
   ('DRAFT-LIVE-QTY-001', 'DRAFT-LIVE-QTY-001', 'Postgres live quantity order confirmation', 'manual', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A')
 ON CONFLICT (id) DO UPDATE SET
   source_text = EXCLUDED.source_text,
   customer_id = EXCLUDED.customer_id,
   status = EXCLUDED.status,
   recognition_summary = EXCLUDED.recognition_summary,
+  revision = EXCLUDED.revision,
+  updated_at = now();
+
+INSERT INTO inventory_intents (
+  id, source_draft_id, source_message_id, conversation_id, customer_id,
+  intent_type, intent_status, source_text, candidate_json, cancellation_scope,
+  revision, created_by
+) VALUES (
+  'INT-LIVE-CANCEL-001', 'DRAFT-LIVE-CANCEL-001', 'MSG-LIVE-CANCEL-001',
+  'GROUP-LIVE-CANCEL-001', 'C-LIVE-REPO', 'shortage_cancellation',
+  '库存不足取消-已关联草稿明细', '白色缺货不要了，红色继续',
+  '{"relatedDraftLineIds":["DRAFT-LIVE-CANCEL-001-02"],"targetBasis":"explicit_spec"}'::jsonb,
+  'shortage_lines_only', 1, 'U-FINANCE-A'
+)
+ON CONFLICT (id) DO UPDATE SET
+  intent_status = EXCLUDED.intent_status,
+  candidate_json = EXCLUDED.candidate_json,
   revision = EXCLUDED.revision,
   updated_at = now();
 
@@ -578,7 +599,9 @@ async function checkPostgresRepositories() {
   const settlementTransactionRepository = createPostgresStatementSettlementTransactionRepository({ queryJson });
   const sendTransactionRepository = createPostgresStatementSendTransactionRepository({ postgresClient: statementPostgresClient });
   const exportRepository = createPostgresStatementExportRepository({ postgresClient: statementPostgresClient });
-  const orderConfirmationRepository = createPostgresOrderConfirmationTransactionRepository({ queryJson });
+  const orderConfirmationRepository = createPostgresOrderConfirmationTransactionRepository({
+    postgresClient: statementPostgresClient,
+  });
   const fulfillmentActionRepository = createPostgresFulfillmentActionTransactionRepository({ queryJson });
   const driverDeviceFieldTestRepository = createPostgresDriverDeviceFieldTestRepository({ queryJson });
   const driverDeliveryTaskReadRepository = createPostgresDriverDeliveryTaskReadRepository({ queryJson });
@@ -636,6 +659,13 @@ async function checkPostgresRepositories() {
   assert.notEqual(persistedRuntimeUser.passwordHash, liveRuntimePassword);
   assert.match(persistedRuntimeUser.passwordHash, /^runtime-password-v2\./);
   assert.equal(persistedRuntimeUser.passwordExpiresAt, "2026-10-10T00:00:00.000Z");
+  const persistedRuntimeReadiness = buildRuntimeEmployeeAccountReadiness({
+    users: runtimeIdentityState.users,
+    nowMs: Date.parse("2026-07-13T00:00:00.000Z"),
+  });
+  const persistedTechnicalRole = persistedRuntimeReadiness.roles.find((role) => role.roleKey === "technical_operations");
+  assert.equal(persistedTechnicalRole?.ready, true);
+  assert.equal(persistedTechnicalRole?.readyAccountCount, 1);
 
   assert.equal((await attachmentRepository.loadState()).attachments.length, 0);
 
@@ -864,6 +894,15 @@ async function checkPostgresRepositories() {
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM price_table_items WHERE id = 'PTI-MD-LIVE-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM inventory_ledger_entries WHERE id = 'LEDGER-MD-LIVE-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM employees WHERE id = 'EMP-MD-LIVE-001' AND account_enabled = false AND profile_status = 'pending_admin_review';", { capture: true }).trim()), 1);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM pg_indexes WHERE schemaname = 'public' AND indexname = 'ux_employees_id_case_insensitive';", { capture: true }).trim()), 1);
+  assert.throws(
+    () => runPsql("INSERT INTO employees (id, biz_no, name, role_name) VALUES ('emp-md-live-001', 'emp-md-live-001', '重复员工', '办公室');"),
+    /ux_employees_id_case_insensitive/,
+  );
+  assert.throws(
+    () => runPsql("INSERT INTO employees (id, biz_no, name, role_name) VALUES ('员工 001', 'invalid-employee', '非法编号员工', '办公室');"),
+    /employees_id_format_check/,
+  );
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM machines WHERE id = 'MACH-MD-LIVE-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-MD-LIVE-IMPORT-001';", { capture: true }).trim()), 1);
 
@@ -891,6 +930,7 @@ async function checkPostgresRepositories() {
   });
   assert.equal(savedMasterDataReviewPlan.confirmationPlan.planId, masterDataReviewPlan.planId);
   assert.equal(savedMasterDataReviewPlan.confirmationPlan.operationLogId, masterDataReviewPlanLog.id);
+  assert.equal(savedMasterDataReviewPlan.confirmationPlan.employeeRoleCoverage.coverageLabel, "1/8");
   assert.equal((await masterDataImportReviewRepository.listConfirmationPlans({ filters: { draftId: masterDataReviewDraft.draftId } })).length, 1);
 
   const masterDataReviewExecution = buildLiveMasterDataImportReviewExecution(masterDataReviewPlan);
@@ -904,7 +944,10 @@ async function checkPostgresRepositories() {
   assert.equal(savedMasterDataReviewExecution.importExecution.executionId, masterDataReviewExecution.executionId);
   assert.equal(savedMasterDataReviewExecution.confirmationPlan.lastExecutionId, masterDataReviewExecution.executionId);
   assert.equal((await masterDataImportReviewRepository.listImportExecutions({ filters: { status: "committed" } })).length, 1);
-  assert.equal((await masterDataImportReviewRepository.loadState()).masterDataImportConfirmationPlans.length, 1);
+  const reloadedMasterDataReviewState = await masterDataImportReviewRepository.loadState();
+  assert.equal(reloadedMasterDataReviewState.masterDataImportConfirmationPlans.length, 1);
+  assert.equal(reloadedMasterDataReviewState.masterDataImportReviewDrafts[0].employeeRoleCoverage.missingRoleCount, 7);
+  assert.equal(reloadedMasterDataReviewState.masterDataImportConfirmationPlans[0].employeeRoleCoverage.coverageLabel, "1/8");
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM master_data_import_review_drafts WHERE id = 'MDR-MD-LIVE-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM master_data_import_confirmation_plans WHERE id = 'MDP-MD-REVIEW-LIVE-001';", { capture: true }).trim()), 1);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM master_data_import_executions WHERE id = 'MDE-MD-REVIEW-LIVE-001';", { capture: true }).trim()), 1);
@@ -1099,6 +1142,186 @@ async function checkPostgresRepositories() {
   assert.deepEqual(
     queryJson("SELECT json_build_object('status', status, 'revision', revision) AS result FROM order_drafts WHERE id = 'DRAFT-LIVE-CONFIRM-001';"),
     { status: "已生成正式订单", revision: 2 },
+  );
+
+  const cancellationDraft = buildConfirmedOrderDraft({
+    draftId: "DRAFT-LIVE-CANCEL-001",
+    customerId: "C-LIVE-REPO",
+    createdBy: "U-FINANCE-A",
+  });
+  const cancellationConfirmation = await orderConfirmationRepository.confirmOrder({
+    workspace: {
+      orderDrafts: [cancellationDraft],
+      originalOrders: [],
+      orderLines: [],
+      fulfillments: [],
+      inventoryIntents: [],
+      operationLogs: [],
+    },
+    idempotencyKey: "idem-live-partial-shortage-cancel-001",
+    orderDraft: { ...cancellationDraft, status: "已生成正式订单（部分缺货取消）" },
+    expectedDraftRevision: 1,
+    order: buildConfirmedOrder({
+      orderId: "ORD-LIVE-CANCEL-001",
+      sourceDraftId: "DRAFT-LIVE-CANCEL-001",
+      customerId: "C-LIVE-REPO",
+      createdBy: "U-FINANCE-A",
+    }),
+    orderLines: buildConfirmedOrderLines({
+      orderId: "ORD-LIVE-CANCEL-001",
+      customerId: "C-LIVE-REPO",
+      orderLineId: "OL-LIVE-CANCEL-001",
+      createdBy: "U-FINANCE-A",
+    }),
+    shortageCancellationIntents: [{
+      id: "INT-LIVE-CANCEL-001",
+      sourceDraftId: "DRAFT-LIVE-CANCEL-001",
+      sourceMessageId: "MSG-LIVE-CANCEL-001",
+      conversationId: "GROUP-LIVE-CANCEL-001",
+      customerId: "C-LIVE-REPO",
+      intentType: "shortage_cancellation",
+      intentStatus: "库存不足取消-已应用",
+      sourceText: "白色缺货不要了，红色继续",
+      candidate: {
+        relatedDraftLineIds: ["DRAFT-LIVE-CANCEL-001-02"],
+        appliedDraftLineIds: ["DRAFT-LIVE-CANCEL-001-02"],
+        continuedDraftLineIds: ["DRAFT-LIVE-CANCEL-001-01"],
+        generatedOrderId: "ORD-LIVE-CANCEL-001",
+      },
+      cancellationScope: "shortage_lines_only",
+      revision: 2,
+      createdBy: "U-FINANCE-A",
+    }],
+    operationLog: buildOperationLog({
+      logId: "LOG-LIVE-CANCEL-001",
+      action: "confirm_order_draft",
+      before: null,
+      after: { id: "ORD-LIVE-CANCEL-001", cancelledDraftLineIds: ["DRAFT-LIVE-CANCEL-001-02"] },
+    }),
+  });
+  assert.equal(cancellationConfirmation.orderLines.length, 1);
+  assert.equal(cancellationConfirmation.inventoryIntents[0].intentStatus, "库存不足取消-已应用");
+  assert.deepEqual(
+    queryJson(`SELECT json_build_object(
+      'status', intent_status,
+      'revision', revision,
+      'appliedDraftLineIds', candidate_json->'appliedDraftLineIds',
+      'generatedOrderId', candidate_json->>'generatedOrderId'
+    ) AS result FROM inventory_intents WHERE id = 'INT-LIVE-CANCEL-001';`),
+    {
+      status: "库存不足取消-已应用",
+      revision: 2,
+      appliedDraftLineIds: ["DRAFT-LIVE-CANCEL-001-02"],
+      generatedOrderId: "ORD-LIVE-CANCEL-001",
+    },
+  );
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM order_lines WHERE order_id = 'ORD-LIVE-CANCEL-001';", { capture: true }).trim()), 1);
+
+  const splitDraftBase = buildConfirmedOrderDraft({
+    draftId: "DRAFT-LIVE-SPLIT-001",
+    customerId: "C-LIVE-REPO",
+    createdBy: "U-FINANCE-A",
+  });
+  const splitDraft = {
+    ...splitDraftBase,
+    status: "已生成多个正式订单",
+    lines: [
+      splitDraftBase.lines[0],
+      { ...splitDraftBase.lines[0], id: "DRAFT-LIVE-SPLIT-001-02", fulfillment: "送货", latest: "后天" },
+    ],
+  };
+  const splitOrderOne = buildConfirmedOrder({
+    orderId: "ORD-LIVE-SPLIT-001",
+    sourceDraftId: "DRAFT-LIVE-SPLIT-001",
+    customerId: "C-LIVE-REPO",
+    createdBy: "U-FINANCE-A",
+  });
+  const splitOrderTwo = buildConfirmedOrder({
+    orderId: "ORD-LIVE-SPLIT-002",
+    sourceDraftId: "DRAFT-LIVE-SPLIT-001",
+    customerId: "C-LIVE-REPO",
+    createdBy: "U-FINANCE-A",
+  });
+  const splitLineOne = buildConfirmedOrderLines({
+    orderId: splitOrderOne.orderId,
+    customerId: "C-LIVE-REPO",
+    orderLineId: "OL-LIVE-SPLIT-001",
+    createdBy: "U-FINANCE-A",
+  })[0];
+  const splitLineTwo = {
+    ...buildConfirmedOrderLines({
+      orderId: splitOrderTwo.orderId,
+      customerId: "C-LIVE-REPO",
+      orderLineId: "OL-LIVE-SPLIT-002",
+      createdBy: "U-FINANCE-A",
+    })[0],
+    fulfillment: "送货",
+  };
+  const splitIdempotencyPayload = {
+    draftId: splitDraft.id,
+    clientRevision: 1,
+    splitPlanHash: "SPLIT-PLAN-LIVE-001",
+    action: "confirm_split_order_draft",
+  };
+  const splitCommandResponse = {
+    orderId: splitOrderOne.orderId,
+    orderIds: [splitOrderOne.orderId, splitOrderTwo.orderId],
+    splitConfirmed: true,
+  };
+  const splitConfirmation = await orderConfirmationRepository.confirmOrder({
+    workspace: {
+      orderDrafts: [splitDraftBase],
+      originalOrders: [],
+      orderLines: [],
+      fulfillments: [],
+      operationLogs: [],
+    },
+    idempotencyKey: "idem-live-order-split-001",
+    idempotencyPayload: splitIdempotencyPayload,
+    orderDraft: splitDraft,
+    expectedDraftRevision: 1,
+    order: splitOrderOne,
+    orders: [splitOrderOne, splitOrderTwo],
+    orderLines: [splitLineOne, splitLineTwo],
+    productionTasks: [],
+    priceSnapshots: [],
+    fulfillmentRecords: [],
+    inventoryReservations: [],
+    inventoryLedgerEntries: [],
+    todos: [],
+    commandResponse: splitCommandResponse,
+    operationLog: buildOperationLog({
+      logId: "LOG-LIVE-SPLIT-001",
+      action: "confirm_split_order_draft",
+      before: null,
+      after: { orderNos: [splitOrderOne.orderId, splitOrderTwo.orderId] },
+    }),
+  });
+  assert.deepEqual(splitConfirmation.orders.map((order) => order.orderId), [splitOrderOne.orderId, splitOrderTwo.orderId]);
+  assert.deepEqual(splitConfirmation.commandResponse, splitCommandResponse);
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM original_orders WHERE source_draft_id = 'DRAFT-LIVE-SPLIT-001';", { capture: true }).trim()),
+    2,
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM order_lines WHERE order_id IN ('ORD-LIVE-SPLIT-001', 'ORD-LIVE-SPLIT-002');", { capture: true }).trim()),
+    2,
+  );
+  const restartedSplitRepository = createPostgresOrderConfirmationTransactionRepository({
+    postgresClient: statementPostgresClient,
+  });
+  const splitReplay = await restartedSplitRepository.findIdempotentReplay({
+    idempotencyKey: "idem-live-order-split-001",
+    idempotencyPayload: splitIdempotencyPayload,
+  });
+  assert.deepEqual(splitReplay.commandResponse, splitCommandResponse);
+  assert.deepEqual(splitReplay.orders.map((order) => order.orderId), [splitOrderOne.orderId, splitOrderTwo.orderId]);
+  await assert.rejects(
+    () => restartedSplitRepository.findIdempotentReplay({
+      idempotencyKey: "idem-live-order-split-001",
+      idempotencyPayload: { ...splitIdempotencyPayload, splitPlanHash: "SPLIT-PLAN-LIVE-CHANGED" },
+    }),
+    (error) => error?.statusCode === 409 && error?.code === "IDEMPOTENCY_KEY_REUSED",
   );
 
   const reservedBeforeStaleConfirmation = Number(
@@ -2762,6 +2985,22 @@ async function checkApiWithPostgresRepositories() {
   const orderDraftRepository = createPostgresOrderDraftRepository({
     postgresClient: apiPostgresClient,
   });
+  const postgresOrderConfirmationRepository = createPostgresOrderConfirmationTransactionRepository({
+    postgresClient: apiPostgresClient,
+  });
+  const orderConfirmationTransactionRepository = {
+    kind: "postgres",
+    confirmOrder(input) {
+      const conversion = input.inventoryReservations?.find((reservation) => reservation.convertFromTemporaryHold);
+      if (conversion) {
+        assert.ok(conversion.sourceIntentId);
+        assert.equal(conversion.inventoryDeltaQty, 0);
+        assert.equal(conversion.reservedQty, 5);
+        assert.equal(conversion.inventoryItemId, "INV-LIVE-CONFIRM-001");
+      }
+      return postgresOrderConfirmationRepository.confirmOrder(input);
+    },
+  };
   const printBatchRepository = createPostgresPrintBatchRepository({ postgresClient: apiPostgresClient });
   const todoActionRepository = createPostgresTodoActionRepository({ postgresClient: apiPostgresClient });
   const inventoryCorrectionTransactionRepository = createPostgresInventoryCorrectionTransactionRepository({
@@ -2803,6 +3042,7 @@ async function checkApiWithPostgresRepositories() {
     authSecret: liveRuntimeAuthSecret,
     v1PersistenceProfile: { repositoryMode: "postgres", queryJson },
     orderDraftRepository,
+    orderConfirmationTransactionRepository,
     printBatchRepository,
     todoActionRepository,
     inventoryCorrectionTransactionRepository,
@@ -2835,6 +3075,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(health.seed.driverDeviceFieldTestRepository, "postgres");
   assert.equal(health.seed.driverDeliveryTaskReadRepository, "postgres");
   assert.equal(health.seed.inventoryLedgerReadRepository, "postgres");
+  assert.equal(health.seed.inventoryIntentTransactionRepository, "postgres");
   assert.equal(health.seed.productionPackingTransactionRepository, "postgres");
   assert.equal(health.seed.productionPackingReadRepository, "postgres");
   assert.equal(health.seed.productionScheduleRecordRepository, "postgres");
@@ -2868,6 +3109,41 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(restartedPendingEmployeeReviews.items[0].name, "主数据导入员工");
   assert.equal(restartedPendingEmployeeReviews.items[0].status, "pending_admin_review");
   assert.equal(restartedPendingEmployeeReviews.items[0].defaultMachineId, "MACH-MD-LIVE-001");
+  assert.equal(restartedPendingEmployeeReviews.readiness.requiredRoleCount, 8);
+  assert.equal(restartedPendingEmployeeReviews.readiness.roles.length, 8);
+  assert.equal(restartedPendingEmployeeReviews.readiness.ready, false);
+  assert.equal(
+    JSON.stringify(restartedPendingEmployeeReviews.readiness).includes(restartedPendingEmployeeReviews.items[0].loginName),
+    false,
+  );
+  const generalWorkerAssignment = await postJson(
+    baseUrl,
+    "/api/master-data/employee-account-reviews/EMP-MD-LIVE-001/assignment",
+    { assignmentMode: "general_worker", workshop: "2号车间", reason: "PostgreSQL杂工调配验证" },
+    { headers: { "x-erp-user-id": "U-MANAGER-A" } },
+  );
+  assert.equal(generalWorkerAssignment.employeeAccountReview.assignmentMode, "general_worker");
+  assert.equal(generalWorkerAssignment.employeeAccountReview.defaultMachineId, "");
+  assert.equal(
+    runPsql("SELECT default_workshop || '|' || COALESCE(default_machine_id, '') FROM employees WHERE id = 'EMP-MD-LIVE-001';", { capture: true }).trim(),
+    "2号车间|",
+  );
+  const fixedMachineAssignment = await postJson(
+    baseUrl,
+    "/api/master-data/employee-account-reviews/EMP-MD-LIVE-001/assignment",
+    { assignmentMode: "fixed_machine", workshop: "1号车间", machineId: "BAG-03", reason: "PostgreSQL固定机台验证" },
+    { headers: { "x-erp-user-id": "U-MANAGER-A" } },
+  );
+  assert.equal(fixedMachineAssignment.employeeAccountReview.assignmentMode, "fixed_machine");
+  assert.equal(fixedMachineAssignment.employeeAccountReview.defaultMachineId, "BAG-03");
+  assert.equal(
+    runPsql("SELECT default_workshop || '|' || COALESCE(default_machine_id, '') FROM employees WHERE id = 'EMP-MD-LIVE-001';", { capture: true }).trim(),
+    "1号车间|BAG-03",
+  );
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE target_type = 'master_data_employee_assignment' AND target_id = 'EMP-MD-LIVE-001';", { capture: true }).trim()),
+    2,
+  );
   const formalRuntimeLogin = await postJson(baseUrl, "/api/auth/login", {
     loginName: liveRuntimeLoginName,
     password: liveRuntimePassword,
@@ -3791,6 +4067,413 @@ async function checkApiWithPostgresRepositories() {
     ["attachment_access_url_created", "attachment_content_read"],
   );
 
+  const queueCorpus = orderConversationCorpus[0];
+  const queueRequest = {
+    sourceMessages: queueCorpus.messages,
+    currentDraftStatus: queueCorpus.options.currentDraftStatus,
+    idempotencyKey: "order-draft-queue-postgres-live-001",
+  };
+  const queuedDrafts = await postJson(baseUrl, "/api/order-draft-queues/recognize", queueRequest, { headers });
+  assert.equal(queuedDrafts.queueBatch.summary.queueItemCount, 5);
+  assert.equal(queuedDrafts.queueBatch.summary.orderDraftCount, 2);
+  assert.equal(queuedDrafts.queueBatch.summary.intentDraftCount, 3);
+  assert.deepEqual(
+    queuedDrafts.drafts.filter((item) => item.kind === "order_draft").map((item) => item.lines.length),
+    [2, 2],
+  );
+  const reviewLine = queuedDrafts.drafts
+    .flatMap((item) => item.lines)
+    .find((line) => line.recognitionEvidence?.fieldReviews?.some((review) => review.field === "size"));
+  assert.equal(reviewLine?.recognitionEvidence.fieldReviews[0].status, "pending");
+  const queuedDraftReplay = await postJson(baseUrl, "/api/order-draft-queues/recognize", queueRequest, { headers });
+  assert.deepEqual(
+    queuedDraftReplay.drafts.map((item) => item.draft.draftId),
+    queuedDrafts.drafts.map((item) => item.draft.draftId),
+  );
+  assert.equal(
+    Number(runPsql(
+      `SELECT COUNT(*) FROM order_drafts
+       WHERE recognition_summary->'recognitionContext'->>'queueBatchId' = '${queuedDrafts.queueBatch.batchId}';`,
+      { capture: true },
+    ).trim()),
+    5,
+  );
+  assert.equal(
+    Number(runPsql(
+      `SELECT COUNT(*) FROM order_draft_lines AS line
+       JOIN order_drafts AS draft ON draft.id = line.order_draft_id
+       WHERE draft.recognition_summary->'recognitionContext'->>'queueBatchId' = '${queuedDrafts.queueBatch.batchId}'
+         AND line.evidence_json->'fieldReviews' @> '[{"field":"size","status":"pending"}]'::jsonb;`,
+      { capture: true },
+    ).trim()),
+    1,
+  );
+  const queuedDraftList = await getJson(
+    baseUrl,
+    `/api/order-drafts?queueOnly=true&queueBatchId=${encodeURIComponent(queuedDrafts.queueBatch.batchId)}&pageSize=20`,
+    { headers },
+  );
+  assert.equal(queuedDraftList.total, 5);
+  assert.equal(queuedDraftList.summary.orderDraftCount, 2);
+  assert.equal(queuedDraftList.summary.intentDraftCount, 3);
+
+  const queuedOrderDrafts = queuedDrafts.drafts.filter((item) => item.kind === "order_draft");
+  const crossDraftTarget = queuedOrderDrafts[0];
+  const crossDraftSource = queuedOrderDrafts[1];
+  const crossDraftIntent = crossDraftSource.inventoryIntents.find((intent) => intent.intentType === "shortage_cancellation");
+  const crossDraftTargetLine = crossDraftTarget.lines[0];
+  const linkedCrossDraftCancellation = await postJson(
+    baseUrl,
+    `/api/order-drafts/${encodeURIComponent(crossDraftTarget.draft.draftId)}/cross-draft-shortage-cancellation`,
+    {
+      clientRevision: crossDraftTarget.draft.clientRevision,
+      draftLineId: crossDraftTargetLine.draftLineId,
+      intentId: crossDraftIntent.intentId,
+      reason: "办公室核对来源消息后关联到当前草稿明细",
+      idempotencyKey: "postgres-live-cross-draft-cancel-001",
+    },
+    { headers },
+  );
+  assert.equal(linkedCrossDraftCancellation.line.recognitionEvidence.excludedFromConfirmation, true);
+  assert.equal(linkedCrossDraftCancellation.inventoryIntent.sourceDraftId, crossDraftSource.draft.draftId);
+  assert.deepEqual(
+    queryJson(`SELECT json_build_object(
+      'sourceDraftId', intent.source_draft_id,
+      'targetDraftId', intent.candidate_json->>'targetDraftId',
+      'intentStatus', intent.intent_status,
+      'lineSourceDraftId', line.evidence_json->'crossDraftCancellation'->>'sourceDraftId',
+      'excluded', line.evidence_json->>'excludedFromConfirmation',
+      'operatorId', log.operator_id
+    ) AS result
+    FROM inventory_intents AS intent
+    JOIN order_draft_lines AS line ON line.order_draft_id = '${crossDraftTarget.draft.draftId}' AND line.id = '${crossDraftTargetLine.draftLineId}'
+    JOIN operation_logs AS log ON log.target_id = '${crossDraftTarget.draft.draftId}' AND log.action = 'link_cross_draft_shortage_cancellation'
+    WHERE intent.id = '${crossDraftIntent.intentId}';`),
+    {
+      sourceDraftId: crossDraftSource.draft.draftId,
+      targetDraftId: crossDraftTarget.draft.draftId,
+      intentStatus: "库存不足取消-已关联跨草稿明细",
+      lineSourceDraftId: crossDraftSource.draft.draftId,
+      excluded: "true",
+      operatorId: "U-OFFICE-A",
+    },
+  );
+
+  const restorableCancellationDraft = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: "DRAFT-LIVE-RESTORE-CANCEL-001",
+      sourceMessages: [
+        {
+          id: "MSG-LIVE-RESTORE-ORDER-001",
+          conversationId: "GROUP-LIVE-RESTORE-001",
+          customerId: "C001",
+          sender: "张三服饰",
+          senderRole: "customer",
+          sentAt: "2099-07-12 09:20",
+          text: "30*38 红色10个 明天自提",
+        },
+        {
+          id: "MSG-LIVE-RESTORE-CANCEL-001",
+          conversationId: "GROUP-LIVE-RESTORE-001",
+          customerId: "C001",
+          sender: "张三服饰",
+          senderRole: "customer",
+          sentAt: "2099-07-12 09:21",
+          text: "红色缺货不要了",
+        },
+      ],
+      customerId: "C001",
+      idempotencyKey: "postgres-live-restore-cancel-recognize-001",
+    },
+    { headers },
+  );
+  const restorableLine = restorableCancellationDraft.lines.find(
+    (line) => line.recognitionEvidence?.cancellationStatus === "库存不足取消",
+  );
+  assert.ok(restorableLine);
+  const restoredCancellation = await postJson(
+    baseUrl,
+    "/api/order-drafts/DRAFT-LIVE-RESTORE-CANCEL-001/shortage-cancellation-restore",
+    {
+      clientRevision: restorableCancellationDraft.draft.clientRevision,
+      draftLineId: restorableLine.draftLineId,
+      reason: "客户确认恢复订购",
+      idempotencyKey: "postgres-live-restore-cancel-001",
+    },
+    { headers },
+  );
+  assert.equal(restoredCancellation.draft.clientRevision, 2);
+  assert.equal(restoredCancellation.line.recognitionEvidence.cancellationStatus, "");
+  assert.equal(restoredCancellation.line.recognitionEvidence.cancellationRestoration.restoredBy, "U-OFFICE-A");
+  assert.equal(restoredCancellation.inventoryIntents[0].intentStatus, "库存不足取消-已恢复订购");
+  assert.deepEqual(
+    queryJson(`SELECT json_build_object(
+      'draftStatus', draft.status,
+      'draftRevision', draft.revision,
+      'intentStatus', intent.intent_status,
+      'relatedDraftLineIds', intent.candidate_json->'relatedDraftLineIds',
+      'restoredDraftLineIds', intent.candidate_json->'restoredDraftLineIds',
+      'restoredBy', line.evidence_json->'cancellationRestoration'->>'restoredBy'
+    ) AS result
+    FROM order_drafts AS draft
+    JOIN inventory_intents AS intent ON intent.source_draft_id = draft.id
+    JOIN order_draft_lines AS line ON line.order_draft_id = draft.id
+    WHERE draft.id = 'DRAFT-LIVE-RESTORE-CANCEL-001';`),
+    {
+      draftStatus: "待审核",
+      draftRevision: 2,
+      intentStatus: "库存不足取消-已恢复订购",
+      relatedDraftLineIds: [],
+      restoredDraftLineIds: [restorableLine.draftLineId],
+      restoredBy: "U-OFFICE-A",
+    },
+  );
+
+  const afterCutoffHoldDraft = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: "DRAFT-LIVE-HOLD-AFTER-CUTOFF-001",
+      sourceMessages: [{
+        id: "MSG-LIVE-HOLD-AFTER-CUTOFF-001",
+        conversationId: "GROUP-LIVE-HOLD-AFTER-CUTOFF-001",
+        customerId: "C001",
+        sender: "张三服饰",
+        senderRole: "customer",
+        sentAt: "2099-07-12 20:05",
+        text: "30*38 红色有的话给我留2个",
+      }],
+      customerId: "C001",
+    },
+    { headers },
+  );
+  const afterCutoffHoldIntent = afterCutoffHoldDraft.inventoryIntents[0];
+  assert.equal(afterCutoffHoldIntent.candidate.requiresExpiryReview, true);
+  const blockedAfterCutoffHold = await postJson(
+    baseUrl,
+    `/api/inventory/intents/${afterCutoffHoldIntent.intentId}/hold`,
+    {
+      clientRevision: afterCutoffHoldIntent.revision,
+      candidateIndex: 0,
+      inventoryItemId: "INV-LIVE-CONFIRM-001",
+      qty: 2,
+    },
+    { headers, expectedStatus: 409 },
+  );
+  assert.equal(blockedAfterCutoffHold.code, "TEMPORARY_HOLD_EXPIRY_REVIEW_REQUIRED");
+  assert.deepEqual(
+    queryJson(`SELECT json_build_object(
+      'reservations', (SELECT COUNT(*) FROM inventory_reservations WHERE source_intent_id = '${afterCutoffHoldIntent.intentId}'),
+      'ledgers', (SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_id = '${afterCutoffHoldIntent.intentId}'),
+      'logs', (SELECT COUNT(*) FROM operation_logs WHERE target_id = '${afterCutoffHoldIntent.intentId}' AND action = 'create_temporary_inventory_hold')
+    ) AS result;`),
+    { reservations: 0, ledgers: 0, logs: 0 },
+  );
+  const reviewedAfterCutoffHold = await postJson(
+    baseUrl,
+    `/api/inventory/intents/${afterCutoffHoldIntent.intentId}/hold`,
+    {
+      clientRevision: afterCutoffHoldIntent.revision,
+      candidateIndex: 0,
+      inventoryItemId: "INV-LIVE-CONFIRM-001",
+      qty: 2,
+      expiresAt: "2099-07-13T19:30:00+08:00",
+      reason: "办公室确认19:30后新留货到期时间",
+    },
+    { headers },
+  );
+  assert.equal(reviewedAfterCutoffHold.hold.expiresAt, "2099-07-13T11:30:00.000Z");
+  await postJson(
+    baseUrl,
+    `/api/inventory/holds/${reviewedAfterCutoffHold.hold.reservationId}/release`,
+    { clientRevision: reviewedAfterCutoffHold.intent.revision, reason: "PostgreSQL live测试释放" },
+    { headers },
+  );
+
+  const holdDraft = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: "DRAFT-LIVE-HOLD-001",
+      sourceMessages: [{
+        id: "MSG-LIVE-HOLD-001",
+        conversationId: "GROUP-LIVE-HOLD-001",
+        customerId: "C001",
+        sender: "张三服饰",
+        senderRole: "customer",
+        sentAt: "2099-07-12 10:00",
+        text: "30*38 红色有的话给我留5个",
+      }],
+      customerId: "C001",
+    },
+    { headers },
+  );
+  assert.equal(holdDraft.inventoryIntents.length, 1);
+  const holdIntent = holdDraft.inventoryIntents[0];
+  assert.equal(
+    Number(runPsql("SELECT COUNT(*) FROM inventory_intents WHERE id = '" + holdIntent.intentId + "';", { capture: true }).trim()),
+    1,
+  );
+  const temporaryHold = await postJson(
+    baseUrl,
+    `/api/inventory/intents/${holdIntent.intentId}/hold`,
+    {
+      clientRevision: holdIntent.revision,
+      candidateIndex: 0,
+      inventoryItemId: "INV-LIVE-CONFIRM-001",
+      qty: 5,
+      reason: "PostgreSQL live 临时留货",
+    },
+    { headers },
+  );
+  assert.equal(temporaryHold.intent.intentStatus, "临时留货-生效");
+  assert.equal(temporaryHold.hold.reservedQty, 5);
+  assert.equal(temporaryHold.hold.sourceIntentId, holdIntent.intentId);
+  const reservedAfterHold = Number(
+    runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim(),
+  );
+  assert.deepEqual(
+    queryJson(`SELECT json_build_object(
+      'type', reservation_type,
+      'status', status,
+      'sourceIntentId', source_intent_id,
+      'inventoryItemId', inventory_item_id,
+      'reservedQty', reserved_qty,
+      'expiresInFuture', expires_at > now()
+    ) AS result FROM inventory_reservations WHERE id = '${temporaryHold.hold.reservationId}';`),
+    {
+      type: "临时留货",
+      status: "生效",
+      sourceIntentId: holdIntent.intentId,
+      inventoryItemId: "INV-LIVE-CONFIRM-001",
+      reservedQty: 5,
+      expiresInFuture: true,
+    },
+  );
+
+  const holdOrderDraft = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: "DRAFT-LIVE-HOLD-ORDER-001",
+      sourceText: "张三服饰 30*38红5个 明天自提",
+      customerId: "C001",
+    },
+    { headers },
+  );
+  const convertedHoldOrder = await postJson(
+    baseUrl,
+    "/api/order-drafts/DRAFT-LIVE-HOLD-ORDER-001/confirm",
+    {
+      draftId: "DRAFT-LIVE-HOLD-ORDER-001",
+      sourceText: "张三服饰 30*38红5个 明天自提",
+      customerId: "C001",
+      clientRevision: holdOrderDraft.draft.clientRevision,
+      lines: [{
+        draftLineId: "DRAFT-LIVE-HOLD-ORDER-001-01",
+        customerId: "C001",
+        customer: "张三服饰",
+        productName: "空白袋",
+        size: "30*38*10",
+        bagColor: "红色",
+        handleType: "普通提",
+        style: "空白袋",
+        qty: 5,
+        fulfillmentMethod: "自提",
+        latestNeededAt: "明天",
+        printFlag: false,
+        sourceHoldId: temporaryHold.hold.reservationId,
+        sourceIntentId: holdIntent.intentId,
+      }],
+    },
+    { headers },
+  );
+  assert.deepEqual(convertedHoldOrder.convertedTemporaryHoldIds, [temporaryHold.hold.reservationId]);
+  assert.equal(
+    Number(runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim()),
+    reservedAfterHold,
+    "PostgreSQL hold conversion must not reserve inventory twice",
+  );
+  assert.deepEqual(
+    queryJson(`SELECT json_build_object(
+      'status', intent_status,
+      'orderLineId', related_order_line_id
+    ) AS result FROM inventory_intents WHERE id = '${holdIntent.intentId}';`),
+    { status: "已转订单", orderLineId: convertedHoldOrder.orderLines[0].id },
+  );
+  assert.equal(
+    queryJson(`SELECT json_build_object(
+      'type', reservation_type,
+      'status', status,
+      'orderLineId', order_line_id,
+      'sourceIntentId', source_intent_id
+    ) AS result FROM inventory_reservations WHERE id = '${temporaryHold.hold.reservationId}';`).sourceIntentId,
+    holdIntent.intentId,
+  );
+
+  const releaseHoldDraft = await postJson(
+    baseUrl,
+    "/api/order-drafts/recognize",
+    {
+      draftId: "DRAFT-LIVE-HOLD-RELEASE-001",
+      sourceMessages: [{
+        id: "MSG-LIVE-HOLD-RELEASE-001",
+        conversationId: "GROUP-LIVE-HOLD-RELEASE-001",
+        customerId: "C001",
+        sender: "张三服饰",
+        senderRole: "customer",
+        sentAt: "2099-07-12 10:20",
+        text: "30*38 红色有的话给我留3个",
+      }],
+      customerId: "C001",
+    },
+    { headers },
+  );
+  const releaseIntent = releaseHoldDraft.inventoryIntents[0];
+  const reservedBeforeReleaseHold = Number(
+    runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim(),
+  );
+  const releasableHold = await postJson(
+    baseUrl,
+    `/api/inventory/intents/${releaseIntent.intentId}/hold`,
+    {
+      clientRevision: releaseIntent.revision,
+      candidateIndex: 0,
+      inventoryItemId: "INV-LIVE-CONFIRM-001",
+      qty: 3,
+      reason: "PostgreSQL release live 留货",
+    },
+    { headers },
+  );
+  const extendedHold = await postJson(
+    baseUrl,
+    `/api/inventory/holds/${releasableHold.hold.reservationId}/extend`,
+    {
+      clientRevision: releasableHold.intent.revision,
+      expiresAt: "2099-07-12T20:30:00+08:00",
+      reason: "客户授权延长一小时",
+    },
+    { headers },
+  );
+  assert.equal(extendedHold.hold.expiresAt, "2099-07-12T12:30:00.000Z");
+  const releasedHold = await postJson(
+    baseUrl,
+    `/api/inventory/holds/${releasableHold.hold.reservationId}/release`,
+    {
+      clientRevision: extendedHold.intent.revision,
+      reason: "客户取消留货",
+    },
+    { headers },
+  );
+  assert.equal(releasedHold.intent.intentStatus, "已取消");
+  assert.equal(releasedHold.hold.reservedQty, 0);
+  assert.equal(
+    Number(runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim()),
+    reservedBeforeReleaseHold,
+  );
+
   const confirmedOrderDraft = await postJson(
     baseUrl,
     "/api/order-drafts/recognize",
@@ -4040,6 +4723,13 @@ WHERE id = 'F002';`,
   server = createApiServer(apiServerOptions);
   await listen(server);
   baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const restartedHoldIntents = await getJson(
+    baseUrl,
+    "/api/inventory/intents?sourceDraftId=DRAFT-LIVE-HOLD-001",
+    { headers },
+  );
+  assert.equal(restartedHoldIntents.items[0].intentStatus, "已转订单");
+  assert.equal(restartedHoldIntents.items[0].relatedOrderLineId, convertedHoldOrder.orderLines[0].id);
   const completedLegacyFulfillment = await postJson(
     baseUrl,
     "/api/fulfillments/F002/complete",
@@ -6511,10 +7201,22 @@ function buildLiveMasterDataImportReviewDraft() {
     createdAt: "2026-07-03T10:20:00.000Z",
     checkedAt: "2026-07-03T10:20:00.000Z",
     canEnterReviewQueue: true,
+    employeeRoleCoverage: {
+      available: true,
+      complete: false,
+      employeeRowCount: 1,
+      requiredRoleCount: 8,
+      coveredRoleCount: 1,
+      missingRoleCount: 7,
+      coverageLabel: "1/8",
+      missingRoleLabels: ["管理人员", "办公室", "仓库", "包装", "司机", "财务", "技术运维"],
+      roles: [{ roleKey: "workshop", roleLabel: "车间", rowCount: 1 }],
+    },
     summary: {
       stagedRowCount: 2,
       errorCount: 0,
       warningCount: 0,
+      employeeRoleCoverageLabel: "1/8",
     },
   };
 }
@@ -6528,9 +7230,11 @@ function buildLiveMasterDataImportConfirmationPlan(reviewDraft) {
     fileName: reviewDraft.fileName,
     createdBy: "办公室A",
     createdAt: "2026-07-03T10:21:00.000Z",
+    employeeRoleCoverage: reviewDraft.employeeRoleCoverage,
     summary: {
       stagedRowCount: 2,
       targetRecordCount: 2,
+      employeeRoleCoverageLabel: "1/8",
     },
     stagedRows: [{ sheetKey: "customers", rowCount: 1 }],
     targetTables: ["customers", "price_table_items"],

@@ -24,6 +24,7 @@ import {
   listOfficeMasterDataImportExecutions,
   listOfficeMasterDataImportReviewDrafts,
   revokeOfficeMasterDataEmployeeAccountPassword,
+  updateOfficeMasterDataEmployeeAssignment,
 } from "../src/services/officeMasterDataImportApiClient.js";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "master-data-import-api");
@@ -55,6 +56,7 @@ assert.equal(
 const generatedAt = "2026-07-03T10:30:00.000Z";
 const workbook = buildMasterDataImportTemplateWorkbook({
   templateKey: "all",
+  includeFixtureRows: true,
   generatedAt,
   generatedBy: "office-admin",
 });
@@ -140,6 +142,8 @@ try {
   assert.equal(created.confirmationPlan.officialImportEnabled, false);
   assert.equal(created.confirmationPlan.officialWriteScope, "none");
   assert.equal(created.confirmationPlan.summary.stagedRowCount, 5);
+  assert.equal(created.confirmationPlan.employeeRoleCoverage.coverageLabel, "1/8");
+  assert.equal(created.confirmationPlan.employeeRoleCoverage.missingRoleCount, 7);
   assert.equal(created.confirmationPlan.stagedRows.length, 5);
   assert.equal(created.officialImportEnabled, false);
   assert(created.operationLogId, "created plan should return an operation log id");
@@ -153,6 +157,7 @@ try {
   );
   assert.equal(list.total, 1);
   assert.equal(list.items[0].planId, created.confirmationPlan.planId);
+  assert.equal(list.items[0].employeeRoleCoverage.coverageLabel, "1/8");
 
   const operationLogs = await getJson(
     baseUrl,
@@ -304,11 +309,72 @@ try {
   );
   assert.equal(employeeReviewList.source, "api", JSON.stringify(employeeReviewList.error));
   assert(employeeReviewList.total >= 1);
+  assert.equal(employeeReviewList.readiness.requiredRoleCount, 8);
+  assert.equal(employeeReviewList.readiness.ready, false);
+  assert.equal(employeeReviewList.readiness.roles.length, 8);
+  assert.equal(employeeReviewList.readiness.roles.some((role) => role.roleKey === "technical_operations"), true);
+  assert.equal(employeeReviewList.assignmentOptions.workshops.length >= 3, true);
+  assert.equal(employeeReviewList.assignmentOptions.machines.some((machine) => machine.machineId === "BAG-09"), true);
   const pendingEmployeeReview = employeeReviewList.items.find((item) => item.name === "王师傅");
   assert(pendingEmployeeReview, "formal import should create a pending employee account review");
+  assert.equal(JSON.stringify(employeeReviewList.readiness).includes(pendingEmployeeReview.loginName), false);
   assert.equal(pendingEmployeeReview.accountEnabled, false);
   assert.equal(pendingEmployeeReview.status, "pending_admin_review");
   assert.equal(pendingEmployeeReview.recommendedRoleKey, "workshop");
+  const pendingD49WorkshopRole = await getD49EmployeeRole(baseUrl, "workshop");
+  assert.equal(pendingD49WorkshopRole.ready, false);
+  assert.equal(pendingD49WorkshopRole.readyAccountCount, 0);
+
+  const assignmentDenied = await postJson(
+    baseUrl,
+    `/api/master-data/employee-account-reviews/${encodeURIComponent(pendingEmployeeReview.employeeId)}/assignment`,
+    { assignmentMode: "general_worker", workshop: "2号车间" },
+    { expectedStatus: 403, headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  assert.equal(assignmentDenied.requiredPermission, "master_data.employee_account.review");
+
+  const generalWorkerAssignment = await updateOfficeMasterDataEmployeeAssignment(
+    {
+      authState: createLocalSeedAuthState("U-MANAGER-A"),
+      operatorId: "U-MANAGER-A",
+      employeeId: pendingEmployeeReview.employeeId,
+      assignmentMode: "general_worker",
+      workshop: "2号车间",
+      machineId: "BAG-04",
+      reason: "临时安排为2号车间杂工",
+    },
+    { apiBaseUrl: `${baseUrl}/api` },
+  );
+  assert.equal(generalWorkerAssignment.source, "api", JSON.stringify(generalWorkerAssignment.error));
+  assert.equal(generalWorkerAssignment.employeeAccountReview.assignmentMode, "general_worker");
+  assert.equal(generalWorkerAssignment.employeeAccountReview.defaultWorkshop, "2号车间");
+  assert.equal(generalWorkerAssignment.employeeAccountReview.defaultMachineId, "");
+  assert(generalWorkerAssignment.operationLogId);
+
+  const mismatchedAssignment = await postJson(
+    baseUrl,
+    `/api/master-data/employee-account-reviews/${encodeURIComponent(pendingEmployeeReview.employeeId)}/assignment`,
+    { assignmentMode: "fixed_machine", workshop: "1号车间", machineId: "BAG-04" },
+    { expectedStatus: 409, headers: { "x-erp-user-id": "U-MANAGER-A" } },
+  );
+  assert.equal(mismatchedAssignment.code, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_MISMATCH");
+
+  const fixedMachineAssignment = await updateOfficeMasterDataEmployeeAssignment(
+    {
+      authState: createLocalSeedAuthState("U-MANAGER-A"),
+      operatorId: "U-MANAGER-A",
+      employeeId: pendingEmployeeReview.employeeId,
+      assignmentMode: "fixed_machine",
+      workshop: "1号车间",
+      machineId: "BAG-03",
+      reason: "调整到1号车间3号机",
+    },
+    { apiBaseUrl: `${baseUrl}/api` },
+  );
+  assert.equal(fixedMachineAssignment.source, "api", JSON.stringify(fixedMachineAssignment.error));
+  assert.equal(fixedMachineAssignment.employeeAccountReview.defaultWorkshop, "1号车间");
+  assert.equal(fixedMachineAssignment.employeeAccountReview.defaultMachineId, "BAG-03");
+  assert.equal(fixedMachineAssignment.employeeAccountReview.assignmentMode, "fixed_machine");
 
   const seedIdentityConflict = await postJson(
     baseUrl,
@@ -403,6 +469,10 @@ try {
   assert.equal(issuedEmployeePassword.employeeAccountReview.mustChangePassword, true);
   assert.equal(issuedEmployeePassword.user.passwordHash, undefined);
   assert(issuedEmployeePassword.operationLogId);
+  const temporaryPasswordD49WorkshopRole = await getD49EmployeeRole(baseUrl, "workshop");
+  assert.equal(temporaryPasswordD49WorkshopRole.ready, false);
+  assert.equal(temporaryPasswordD49WorkshopRole.accountCount, 1);
+  assert.equal(temporaryPasswordD49WorkshopRole.readyAccountCount, 0);
 
   const deniedDynamicLogin = await postJson(
     baseUrl,
@@ -533,6 +603,9 @@ try {
   assert.equal(changedPassword.employeeAccountReview.mustChangePassword, false);
   assert.equal(changedPassword.employeeAccountReview.passwordStatus, "active");
   assert(changedPassword.operationLogId);
+  const changedPasswordD49WorkshopRole = await getD49EmployeeRole(baseUrl, "workshop");
+  assert.equal(changedPasswordD49WorkshopRole.ready, true);
+  assert.equal(changedPasswordD49WorkshopRole.readyAccountCount, 1);
 
   const sessionAfterPasswordChange = await getJson(baseUrl, "/api/auth/me", {
     headers: { authorization: `Bearer ${dynamicLogin.session.accessToken}` },
@@ -584,6 +657,9 @@ try {
   assert.equal(lockedChangedPasswordLogin.code, "AUTH_ACCOUNT_LOCKED");
   assert(lockedChangedPasswordLogin.lockedUntil);
   assert.equal(lockedChangedPasswordLogin.securityPolicy.maxFailedLoginAttempts, 5);
+  const lockedD49WorkshopRole = await getD49EmployeeRole(baseUrl, "workshop");
+  assert.equal(lockedD49WorkshopRole.ready, false);
+  assert(lockedD49WorkshopRole.blockers.some((blocker) => blocker.code === "account_locked"));
   const correctChangedPasswordWhileLocked = await postJson(
     baseUrl,
     "/api/auth/login",
@@ -612,6 +688,10 @@ try {
   assert.equal(resetEmployeePassword.employeeAccountReview.failedLoginCount, 0);
   assert.equal(resetEmployeePassword.employeeAccountReview.lockedUntil, "");
   assert(resetEmployeePassword.issuedCredential.temporaryPassword);
+  const resetD49WorkshopRole = await getD49EmployeeRole(baseUrl, "workshop");
+  assert.equal(resetD49WorkshopRole.ready, false);
+  assert(resetD49WorkshopRole.blockers.some((blocker) => blocker.code === "password_change_required"));
+  assert.equal(resetD49WorkshopRole.blockers.some((blocker) => blocker.code === "account_locked"), false);
   assert.notEqual(
     resetEmployeePassword.issuedCredential.temporaryPassword,
     issuedEmployeePassword.issuedCredential.temporaryPassword,
@@ -666,6 +746,9 @@ try {
   assert.equal(revokedEmployeePassword.employeeAccountReview.mustChangePassword, false);
   assert(revokedEmployeePassword.sessionsRevokedAfter);
   assert(revokedEmployeePassword.operationLogId);
+  const revokedD49WorkshopRole = await getD49EmployeeRole(baseUrl, "workshop");
+  assert.equal(revokedD49WorkshopRole.ready, false);
+  assert.equal(revokedD49WorkshopRole.readyAccountCount, 0);
 
   const resetTemporarySessionAfterRevoke = await getJson(baseUrl, "/api/auth/me", {
     headers: { authorization: `Bearer ${resetTemporaryLogin.session.accessToken}` },
@@ -895,6 +978,8 @@ try {
   );
   assert.equal(restartedList.total, 1);
   assert.equal(restartedList.items[0].planId, created.confirmationPlan.planId);
+  assert.equal(restartedList.items[0].employeeRoleCoverage.coverageLabel, "1/8");
+  assert.equal(restartedList.items[0].employeeRoleCoverage.missingRoleCount, 7);
   assert.equal(restartedList.items[0].lastExecutionId, committedClientExecution.importExecution.executionId);
 
   const restartedExecutionList = await getJson(
@@ -923,6 +1008,9 @@ try {
   );
   assert.equal(restartedEmployeeReviews.items[0].loginEnabled, false);
   assert.equal(restartedEmployeeReviews.items[0].passwordStatus, "password_revoked");
+  const restartedD49WorkshopRole = await getD49EmployeeRole(restartedBaseUrl, "workshop");
+  assert.equal(restartedD49WorkshopRole.ready, false);
+  assert.equal(restartedD49WorkshopRole.readyAccountCount, 0);
 
   const restartedEmployeeReviewLogs = await getJson(
     restartedBaseUrl,
@@ -1020,6 +1108,15 @@ async function getJson(baseUrl, path, options = {}) {
   const json = await response.json();
   assert.equal(response.status, options.expectedStatus ?? 200, JSON.stringify(json));
   return json;
+}
+
+async function getD49EmployeeRole(baseUrl, roleKey) {
+  const status = await getJson(baseUrl, "/api/system/v1-go-live-status", {
+    headers: { "x-erp-user-id": "U-MANAGER-A" },
+  });
+  const role = status.d49Readiness?.employees?.roles?.find((item) => item.roleKey === roleKey);
+  assert(role, `D49 readiness should include ${roleKey}`);
+  return role;
 }
 
 async function postJson(baseUrl, path, body, options = {}) {

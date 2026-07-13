@@ -1,3 +1,5 @@
+import { inventoryIntentRouteModule as defaultInventoryIntentRouteModule } from "./inventoryIntentRoutes.mjs";
+
 export async function handleInventoryWriteRoutes({
   method,
   url,
@@ -13,8 +15,31 @@ export async function handleInventoryWriteRoutes({
   linkInventoryCorrectionAttachmentsRoute,
   confirmInventoryCorrectionDraftRoute,
   releaseInventoryReservationRoute,
+  inventoryIntentRouteModule = defaultInventoryIntentRouteModule,
+  sendJson,
+  sendNotFound,
+  sendBusinessError,
 }) {
   if (method !== "POST") return false;
+
+  if (
+    await inventoryIntentRouteModule.handleWriteRoutes({
+      method,
+      url,
+      response,
+      workspace,
+      body,
+      permissionContext,
+      authContext,
+      requireActionPermission,
+      getPermissionOperatorId,
+      sendJson,
+      sendNotFound,
+      sendBusinessError,
+    })
+  ) {
+    return true;
+  }
 
   if (url.pathname === "/api/inventory/correction-drafts") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.createInventoryCorrectionDraft)) return true;

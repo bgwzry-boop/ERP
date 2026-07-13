@@ -11,6 +11,81 @@ import {
   normalizeStringList,
 } from "./officeV1GoLiveStatusNormalizerUtils.js";
 
+export function normalizeV1D49Readiness(value = {}) {
+  const source = isPlainObject(value) ? value : {};
+  const summary = isPlainObject(source.summary) ? source.summary : {};
+  const employees = isPlainObject(source.employees) ? source.employees : {};
+  const environment = isPlainObject(source.environment) ? source.environment : {};
+  const roles = Array.isArray(employees.roles)
+    ? employees.roles.map((role) => ({
+        roleKey: cleanText(role.roleKey),
+        roleLabel: cleanText(role.roleLabel),
+        ready: role.ready === true,
+        accountCount: Number(role.accountCount) || 0,
+        readyAccountCount: Number(role.readyAccountCount) || 0,
+        blockers: Array.isArray(role.blockers)
+          ? role.blockers.map((item) => ({
+              code: cleanText(item.code),
+              label: cleanText(item.label),
+              count: Number(item.count) || 0,
+            }))
+          : [],
+      })).filter((role) => role.roleKey)
+    : [];
+  const blockers = Array.isArray(source.blockers)
+    ? source.blockers.map((item) => ({
+        key: cleanText(item.key),
+        category: cleanText(item.category),
+        label: cleanText(item.label),
+        detail: cleanText(item.detail),
+        nextAction: cleanText(item.nextAction),
+      })).filter((item) => item.label)
+    : [];
+  const status = cleanText(source.status) || (source.ready === true ? "ready" : "blocked");
+  return {
+    available: cleanText(source.scope) === "v1_d49_readiness",
+    status,
+    ready: source.ready === true,
+    statusLabel: source.ready === true ? "D49 已就绪" : status === "error" ? "D49 预检失败" : "D49 仍有阻塞",
+    checkedAt: formatDateTimeLabel(source.checkedAt),
+    summary: {
+      label: cleanText(summary.label),
+      employeeRoleLabel: cleanText(summary.employeeRoleLabel) || "0/8",
+      coveredRoleCount: Number(summary.coveredRoleCount) || 0,
+      requiredRoleCount: Number(summary.requiredRoleCount) || 8,
+      missingRoleCount: Number(summary.missingRoleCount) || 0,
+      formalAccountCount: Number(summary.formalAccountCount) || 0,
+      readyFormalAccountCount: Number(summary.readyFormalAccountCount) || 0,
+      envSetupReady: summary.envSetupReady === true,
+      envAuditReady: summary.envAuditReady === true,
+      envPreflightLabel: cleanText(summary.envPreflightLabel) || "0/11",
+      envIntakeReady: summary.envIntakeReady === true,
+      envIntakeConfiguredLabel: cleanText(summary.envIntakeConfiguredLabel) || "0/0",
+      blockerCount: Number(summary.blockerCount) || blockers.length,
+      blockerLabel: cleanText(summary.blockerLabel) || `${blockers.length} 项`,
+      currentRuntimeMode: cleanText(summary.currentRuntimeMode) || "unknown",
+      blocksRegardlessOfDemoMode: summary.blocksRegardlessOfDemoMode === true,
+    },
+    employees: {
+      ready: employees.ready === true,
+      roles,
+    },
+    environment: {
+      status: cleanText(environment.status),
+      ready: environment.ready === true,
+      setupReady: environment.setupReady === true,
+      auditReady: environment.auditReady === true,
+      preflightReady: environment.preflightReady === true,
+      preflightLabel: cleanText(environment.preflightLabel) || "0/11",
+      intakeReady: environment.intakeReady === true,
+      intakeConfiguredLabel: cleanText(environment.intakeConfiguredLabel) || "0/0",
+    },
+    blockers,
+    nextAction: cleanText(source.nextAction),
+    safeguards: isPlainObject(source.safeguards) ? source.safeguards : {},
+  };
+}
+
 export function normalizeV1PersistenceLivePrecheckResult(value = {}) {
   const source = isPlainObject(value) ? value : {};
   const summary = isPlainObject(source.summary) ? source.summary : {};

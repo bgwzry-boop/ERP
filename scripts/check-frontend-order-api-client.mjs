@@ -1,10 +1,17 @@
 import { createLocalSeedAuthState, isOfficeApiServerRequired } from "../src/services/officeAuthService.js";
 import {
   confirmOfficeDraftViaApi,
+  confirmOfficeDraftSplit,
+  getOfficeDraft,
+  listOfficeDraftQueue,
+  linkOfficeDraftShortageCancellation,
   mapDraftRowsToApiLines,
   mapRecognizedDraftRows,
   recognizeOfficeDraft,
+  recognizeOfficeDraftQueue,
+  previewOfficeDraftSplit,
   resolveOfficeOrderConfirmationStrategy,
+  restoreOfficeDraftShortageCancellation,
   saveOfficeDraft,
 } from "../src/services/officeOrderApiClient.js";
 
@@ -102,6 +109,13 @@ assert(apiLineInputs[0].draftLineId === "DRAFT-LINE-CHECK-1", "draft row id was 
 assert(apiLineInputs[0].customerId === "C001", "draft row customerId was not mapped to API line input");
 assert(apiLineInputs[0].orderType === "stock" && apiLineInputs[0].printFlag === false, "stock draft line was not mapped correctly");
 assert(!Object.hasOwn(apiLineInputs[0], "printSide"), "non-print draft line should not send printSide");
+const heldLineInput = mapDraftRowsToApiLines([{
+  ...mappedRows[0],
+  sourceHoldId: "HOLD-CLIENT-1",
+  sourceIntentId: "INT-CLIENT-1",
+}], apiResponse.draft.sourceText)[0];
+assert(heldLineInput.recognitionEvidence.sourceHoldId === "HOLD-CLIENT-1", "temporary hold id was not mapped");
+assert(heldLineInput.recognitionEvidence.sourceIntentId === "INT-CLIENT-1", "inventory intent id was not mapped");
 
 const customLineInputs = mapDraftRowsToApiLines([
   {
@@ -200,6 +214,80 @@ assert(saveCalls[0]?.body.draftStatus === "待补充信息", "save draft did not
 assert(saveCalls[0]?.body.lines[0].customerId === "C001", "save draft did not send mapped line customerId");
 assert(saveResult.todos[0]?.id === "T-API-CHECK-1", "save draft API todo summary was not mapped to local todo input");
 
+const restoreCalls = [];
+const restoreResult = await restoreOfficeDraftShortageCancellation(
+  {
+    authState,
+    draftId: "DRAFT-API-CHECK",
+    draftLineId: "DRAFT-LINE-CHECK-1",
+    clientRevision: 2,
+    operatorId: "U-OFFICE-A",
+    reason: "客户确认恢复订购",
+  },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url, init) => {
+      restoreCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        draft: { ...apiResponse.draft, clientRevision: 3, status: "待审核" },
+        line: {
+          ...apiResponse.lines[0],
+          recognitionEvidence: {
+            ...apiResponse.lines[0].recognitionEvidence,
+            cancellationRestoration: { reason: "客户确认恢复订购", restoredBy: "U-OFFICE-A", restoredAt: "2026-07-12T15:00:00.000Z" },
+          },
+        },
+        inventoryIntents: [{ intentId: "INT-CANCEL-1", intentStatus: "库存不足取消-已恢复订购" }],
+        operationLogId: "LOG-RESTORE-1",
+      });
+    },
+  },
+);
+assert(restoreResult.source === "api", "shortage cancellation restore should use the API response");
+assert(restoreResult.draft.clientRevision === 3, "restore should return the committed draft revision");
+assert(restoreResult.line.cancellationRestoration.restoredBy === "U-OFFICE-A", "restore evidence was not mapped");
+assert(restoreCalls[0].url.endsWith("/order-drafts/DRAFT-API-CHECK/shortage-cancellation-restore"), "restore API URL is incorrect");
+assert(restoreCalls[0].body.draftLineId === "DRAFT-LINE-CHECK-1", "restore API must send the target draft line");
+assert(restoreCalls[0].body.idempotencyKey === "restore-shortage:DRAFT-API-CHECK:DRAFT-LINE-CHECK-1:2", "restore API should use a stable idempotency key");
+
+const linkCalls = [];
+const linkResult = await linkOfficeDraftShortageCancellation(
+  {
+    authState,
+    draftId: "DRAFT-API-CHECK",
+    draftLineId: "DRAFT-LINE-CHECK-1",
+    intentId: "INT-CROSS-CANCEL-1",
+    clientRevision: 3,
+    operatorId: "U-OFFICE-A",
+    reason: "办公室核对来源消息后关联到当前草稿明细",
+  },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url, init) => {
+      linkCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        draft: { ...apiResponse.draft, clientRevision: 4, status: "待审核" },
+        line: {
+          ...apiResponse.lines[0],
+          cancellationStatus: "库存不足取消",
+          excludedFromConfirmation: true,
+          recognitionEvidence: {
+            ...apiResponse.lines[0].recognitionEvidence,
+            crossDraftCancellation: { sourceIntentId: "INT-CROSS-CANCEL-1", sourceDraftId: "DRAFT-CONTEXT-1" },
+          },
+        },
+        inventoryIntent: { intentId: "INT-CROSS-CANCEL-1", intentStatus: "库存不足取消-已关联跨草稿明细" },
+        operationLogId: "LOG-CROSS-CANCEL-1",
+      });
+    },
+  },
+);
+assert(linkResult.source === "api" && linkResult.draft.clientRevision === 4, "cross-draft cancellation should use the committed API response");
+assert(linkResult.line.crossDraftCancellation.sourceIntentId === "INT-CROSS-CANCEL-1", "cross-draft cancellation evidence was not mapped");
+assert(linkCalls[0].url.endsWith("/order-drafts/DRAFT-API-CHECK/cross-draft-shortage-cancellation"), "cross-draft cancellation API URL is incorrect");
+assert(linkCalls[0].body.intentId === "INT-CROSS-CANCEL-1", "cross-draft cancellation API must send the source intent");
+assert(linkCalls[0].body.idempotencyKey === "cross-draft-shortage:DRAFT-API-CHECK:DRAFT-LINE-CHECK-1:INT-CROSS-CANCEL-1:3", "cross-draft cancellation API should use a stable idempotency key");
+
 const confirmCalls = [];
 const confirmResult = await confirmOfficeDraftViaApi(
   {
@@ -234,9 +322,74 @@ assert(confirmCalls[0]?.url === "http://127.0.0.1:8787/api/order-drafts/DRAFT-AP
 assert(confirmCalls[0]?.init.method === "POST", "confirm draft API method is incorrect");
 assert(confirmCalls[0]?.body.confirmMode === "confirm_now", "confirm draft did not send confirm_now mode");
 assert(confirmCalls[0]?.body.lines[0].draftLineId === "DRAFT-LINE-CHECK-1", "confirm draft did not send mapped draft lines");
+assert(confirmCalls[0]?.body.lines[0].estimatedAmount === mappedRows[0].amount, "confirm draft should preserve the estimated amount snapshot");
 assert(
   resolveOfficeOrderConfirmationStrategy(confirmResult, { serverRequired: true }).kind === "server",
   "verified API confirmation should use the server transaction projection",
+);
+
+const splitCalls = [];
+const splitPreviewResult = await previewOfficeDraftSplit(
+  {
+    authState,
+    draftRows: mappedRows,
+    draftId: "DRAFT-API-CHECK",
+    clientRevision: 2,
+    operatorId: "U-OFFICE-A",
+    sourceText: "两种交付方式",
+  },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url, init) => {
+      splitCalls.push({ url, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        splitPlan: {
+          planHash: "split-plan-check",
+          groups: [{ groupId: "SPLIT-1" }, { groupId: "SPLIT-2" }],
+          canConfirm: true,
+        },
+      });
+    },
+  },
+);
+assert(splitPreviewResult.source === "api", "split preview should use the API response");
+assert(splitPreviewResult.splitPlan.groups.length === 2, "split preview should expose backend groups");
+assert(splitCalls[0].url.endsWith("/order-drafts/DRAFT-API-CHECK/split-preview"), "split preview URL is incorrect");
+assert(splitCalls[0].body.lines.length === mappedRows.length, "split preview must send all draft lines");
+
+const splitConfirmResult = await confirmOfficeDraftSplit(
+  {
+    authState,
+    draftRows: mappedRows,
+    draftId: "DRAFT-API-CHECK",
+    clientRevision: 2,
+    operatorId: "U-OFFICE-A",
+    sourceText: "两种交付方式",
+    splitPlanHash: "split-plan-check",
+  },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url, init) => {
+      splitCalls.push({ url, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        orderId: "ORD-SPLIT-001",
+        orderIds: ["ORD-SPLIT-001", "ORD-SPLIT-002"],
+        splitConfirmed: true,
+        orderLines: [],
+      });
+    },
+  },
+);
+assert(splitConfirmResult.confirmation.orderIds.length === 2, "split confirmation should expose all formal order ids");
+assert(splitCalls[1].url.endsWith("/order-drafts/DRAFT-API-CHECK/split-confirm"), "split confirm URL is incorrect");
+assert(splitCalls[1].body.splitPlanHash === "split-plan-check", "split confirm must send the reviewed plan hash");
+
+assert(
+  resolveOfficeOrderConfirmationStrategy({
+    source: "api",
+    confirmation: { orderId: "", closedWithoutOrder: true, cancelledDraftLineIds: ["DRAFT-LINE-CHECK-1"] },
+  }, { serverRequired: true }).kind === "server",
+  "verified all-cancelled draft closure should be accepted without an order id",
 );
 
 const deniedResult = await recognizeOfficeDraft(
@@ -388,7 +541,106 @@ const strictFallbackSaveResult = await saveOfficeDraft(
 );
 assert(strictFallbackSaveResult.blocked === true, "strict save must reject an unavailable API instead of creating a local todo");
 
-console.log("Frontend order API client check passed: recognition, save, server-authoritative confirm, denial blocking, and local fallback are covered.");
+const queueCalls = [];
+const queueResult = await recognizeOfficeDraftQueue(
+  {
+    authState,
+    inventories,
+    operatorId: "U-OFFICE-A",
+    sourceText: "[09:00] 客户甲：30*38红色100个\n[15:00] 客户甲：30*38蓝色100个",
+  },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url, init) => {
+      queueCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        queueBatch: { batchId: "QBAT-CHECK-1", summary: { queueItemCount: 2, orderDraftCount: 2, intentDraftCount: 0 } },
+        drafts: [{
+          queueItemId: "QITEM-CHECK-1",
+          kind: "order_draft",
+          status: "待审核",
+          sourceMessageIds: ["MSG-CHECK-Q-1"],
+          draft: { draftId: "DRAFT-Q-CHECK-1", customerId: "C001", customerName: "张三服饰", sourceText: "30*38红色100个", clientRevision: 1 },
+          lines: [apiResponse.lines[0]],
+        }],
+      });
+    },
+  },
+);
+assert(queueResult.source === "api", "queue recognition must use the backend response");
+assert(queueResult.drafts[0].rows[0].id === "DRAFT-LINE-CHECK-1", "queue order rows were not mapped for editing");
+assert(queueCalls[0].url.endsWith("/api/order-draft-queues/recognize"), "queue recognition URL is incorrect");
+assert(queueCalls[0].body.idempotencyKey.startsWith("order-draft-queue:"), "queue recognition must use a stable idempotency key");
+
+const queueListResult = await listOfficeDraftQueue(
+  { authState, inventories, operatorId: "U-OFFICE-A", queueBatchId: "QBAT-CHECK-1" },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url) => {
+      queueCalls.push({ url });
+      return createJsonResponse(200, {
+        items: [{
+          id: "DRAFT-Q-CHECK-1",
+          draftId: "DRAFT-Q-CHECK-1",
+          customerId: "C001",
+          customerName: "张三服饰",
+          sourceText: "30*38红色100个",
+          status: "待审核",
+          clientRevision: 1,
+          recognitionContext: {
+            queueBatchId: "QBAT-CHECK-1",
+            queueItemId: "QITEM-CHECK-1",
+            queueKind: "order_draft",
+            originalOrderGroupId: "ODG-CHECK-1",
+            sourceMessages: [{ id: "MSG-CHECK-Q-1" }],
+          },
+          lines: [{
+            id: "DRAFT-LINE-CHECK-1",
+            customerId: "C001",
+            customer: "张三服饰",
+            product: "空白袋",
+            size: "30*38*10",
+            color: "红色",
+            handle: "普通提",
+            style: "空白袋",
+            print: "否",
+            qty: 500,
+            fulfillment: "自提",
+            latest: "明天",
+          }],
+        }],
+        total: 1,
+        summary: { orderDraftCount: 1, intentDraftCount: 0 },
+      });
+    },
+  },
+);
+assert(queueListResult.items[0].kind === "order_draft", "queue list kind was not mapped");
+assert(queueListResult.items[0].rows[0].inventory === "可用", "queued draft row was not enriched for editing");
+assert(queueCalls[1].url.includes("queueBatchId=QBAT-CHECK-1"), "queue list filter is missing");
+
+const draftReadResult = await getOfficeDraft(
+  { authState, draftId: "DRAFT-Q-CHECK-1", inventories, operatorId: "U-OFFICE-A" },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url) => {
+      queueCalls.push({ url });
+      return createJsonResponse(200, {
+        items: [{
+          id: "DRAFT-Q-CHECK-1",
+          draftId: "DRAFT-Q-CHECK-1",
+          status: "待审核",
+          sourceText: "30*38红色100个",
+          lines: [{ id: "DRAFT-LINE-CHECK-1", product: "空白袋", size: "30*38*10", color: "红色", handle: "普通提", style: "空白袋", print: "否", qty: 100 }],
+        }],
+      });
+    },
+  },
+);
+assert(draftReadResult.item.rows[0].id === "DRAFT-LINE-CHECK-1", "single draft read was not mapped for editing");
+assert(queueCalls[2].url.includes("draftId=DRAFT-Q-CHECK-1"), "single draft read filter is missing");
+
+console.log("Frontend order API client check passed: recognition, independent draft queue, save, server-authoritative confirm, denial blocking, and local fallback are covered.");
 
 function createJsonResponse(status, body) {
   return {

@@ -835,6 +835,87 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /order-draft-queues/recognize:
+    post:
+      tags: [OrderDrafts]
+      summary: 将多消息会话识别为独立草稿队列
+      description: >
+        面向客户群 / 会话批量入口。每个原始消息订单组保存为独立订单草稿；
+        库存询问、临时留货和重复候选保存为独立意图上下文，不进入正式订单明细。
+        队列项分别持久化并使用稳定幂等键，部分失败可安全重试，不把不同来源组合并到一张可编辑草稿。
+      operationId: recognizeOrderDraftQueue
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecognizeOrderDraftQueueRequest"
+      responses:
+        "200":
+          description: 独立草稿 / 意图队列项已生成
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDraftQueueRecognitionResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /order-drafts:
+    get:
+      tags: [OrderDrafts]
+      summary: 查询订单草稿和识别队列
+      operationId: listOrderDrafts
+      parameters:
+        - name: draftId
+          in: query
+          description: 按待办引用的独立草稿 ID 精确读取
+          schema:
+            type: string
+        - name: queueOnly
+          in: query
+          schema:
+            type: boolean
+            default: false
+        - name: queueBatchId
+          in: query
+          schema:
+            type: string
+        - name: queueKind
+          in: query
+          schema:
+            type: string
+            enum: [order_draft, inventory_inquiry, temporary_hold, duplicate_review, cancellation_review, intent_review]
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: customerId
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+            default: 50
+      responses:
+        "200":
+          description: 草稿分页列表及订单 / 意图队列汇总
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDraftListResponse"
+
   /order-drafts/{draftId}:
     patch:
       tags: [OrderDrafts]
@@ -890,6 +971,123 @@ paths:
                 $ref: "#/components/schemas/ConfirmOrderDraftResponse"
         "400":
           $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /order-drafts/{draftId}/shortage-cancellation-restore:
+    post:
+      tags: [OrderDrafts]
+      summary: 正式确认前恢复缺货取消明细
+      description: >
+        仅允许在草稿生成正式订单前，由有草稿保存权限的当前认证账号显式恢复一条已关联的缺货取消明细。
+        命令同时更新草稿行、取消意图和操作日志；原取消来源及恢复证据继续保留。正式确认后必须新建原订单，不允许恢复改写。
+      operationId: restoreOrderDraftShortageCancellation
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RestoreOrderDraftShortageCancellationRequest"
+      responses:
+        "200":
+          description: 取消明细已恢复为待确认订购
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RestoreOrderDraftShortageCancellationResponse"
+        "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /order-drafts/{draftId}/cross-draft-shortage-cancellation:
+    post:
+      tags: [OrderDrafts]
+      summary: 将跨草稿缺货取消消息关联到指定草稿明细
+      description: >
+        办公室核对来源消息后，将一条独立取消复核意图显式关联到同客户、未确认草稿的具体明细。
+        服务端不自动猜测历史订单；命令原子更新目标草稿行、库存意图和操作日志，同时保留意图原始 sourceDraftId。
+      operationId: linkCrossDraftShortageCancellation
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LinkCrossDraftShortageCancellationRequest"
+      responses:
+        "200":
+          description: 取消消息已关联到目标草稿明细
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LinkCrossDraftShortageCancellationResponse"
+        "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /order-drafts/{draftId}/split-preview:
+    post:
+      tags: [OrderDrafts]
+      summary: 预览按客户和交付批次拆单
+      description: >
+        按客户、原始消息订单组、交付方式和最晚时间生成后端权威拆单计划。
+        只返回预览和计划哈希，不生成正式订单、不占用库存。
+      operationId: previewOrderDraftSplit
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderDraftSplitRequest"
+      responses:
+        "200":
+          description: 拆单预览已生成
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrderDraftSplitPreviewResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /order-drafts/{draftId}/split-confirm:
+    post:
+      tags: [OrderDrafts]
+      summary: 按已复核预览原子确认多个正式订单
+      description: >
+        重新计算拆单计划并校验 splitPlanHash。草稿或分组发生变化时返回 409；
+        通过后在同一事务中写入多个原订单、明细、库存占用、生产和交付记录。
+        相同幂等键和相同请求重试时重放首次 200 响应；同键请求内容变化时返回 409。
+      operationId: confirmOrderDraftSplit
+      parameters:
+        - $ref: "#/components/parameters/DraftId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrderDraftSplitConfirmRequest"
+      responses:
+        "200":
+          description: 多个正式订单已原子确认
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmOrderDraftResponse"
         "409":
           $ref: "#/components/responses/ConflictError"
         "422":
@@ -1223,6 +1421,168 @@ paths:
           $ref: "#/components/responses/ConflictError"
         "422":
           $ref: "#/components/responses/ValidationError"
+
+  /inventory/intents:
+    get:
+      tags: [Inventory]
+      summary: 查询库存询问和临时留货意图
+      operationId: listInventoryIntents
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: intentType
+          in: query
+          schema: { type: string }
+        - name: customerId
+          in: query
+          schema: { type: string }
+        - name: sourceDraftId
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: 库存意图列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/InventoryIntentSummary" }
+
+  /inventory/intents/{intentId}/hold:
+    post:
+      tags: [Inventory]
+      summary: 将客户明确留货意图转为临时库存占用
+      description: >
+        19:30前识别的留货意图默认使用当天19:30；消息发送时间已到或超过19:30时，服务端不自动延到次日，
+        必须由办公室显式提交未来expiresAt，否则返回TEMPORARY_HOLD_EXPIRY_REVIEW_REQUIRED且不写库存占用、流水或日志。
+      operationId: createTemporaryInventoryHold
+      parameters:
+        - name: intentId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateTemporaryHoldRequest" }
+      responses:
+        "200":
+          description: 临时留货已生效
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TemporaryHoldMutationResponse" }
+        "404": { $ref: "#/components/responses/BusinessError" }
+        "409": { $ref: "#/components/responses/ConflictError" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /inventory/holds:
+    get:
+      tags: [Inventory]
+      summary: 查询临时留货记录
+      operationId: listTemporaryInventoryHolds
+      parameters:
+        - name: status
+          in: query
+          schema: { type: string }
+        - name: customerId
+          in: query
+          schema: { type: string }
+      responses:
+        "200":
+          description: 临时留货列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/TemporaryHoldSummary" }
+
+  /inventory/holds/{holdId}/release:
+    post:
+      tags: [Inventory]
+      summary: 主动释放临时留货
+      operationId: releaseTemporaryInventoryHold
+      parameters:
+        - name: holdId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ReleaseTemporaryHoldRequest" }
+      responses:
+        "200":
+          description: 临时留货已释放
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TemporaryHoldMutationResponse" }
+        "404": { $ref: "#/components/responses/BusinessError" }
+        "409": { $ref: "#/components/responses/ConflictError" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /inventory/holds/{holdId}/extend:
+    post:
+      tags: [Inventory]
+      summary: 经授权延长临时留货
+      operationId: extendTemporaryInventoryHold
+      parameters:
+        - name: holdId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/ExtendTemporaryHoldRequest" }
+      responses:
+        "200":
+          description: 留货到期时间已延长
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TemporaryHoldMutationResponse" }
+        "404": { $ref: "#/components/responses/BusinessError" }
+        "409": { $ref: "#/components/responses/ConflictError" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /inventory/holds/expire-due:
+    post:
+      tags: [Inventory]
+      summary: 释放所有已到期临时留货
+      operationId: expireDueTemporaryInventoryHolds
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                cutoffAt: { type: string, format: date-time }
+      responses:
+        "200":
+          description: 到期处理结果
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [cutoffAt, dueCount, expiredCount, expired, skipped]
+                properties:
+                  cutoffAt: { type: string, format: date-time }
+                  dueCount: { type: integer }
+                  expiredCount: { type: integer }
+                  expired: { type: array, items: { $ref: "#/components/schemas/TemporaryHoldMutationResponse" } }
+                  skipped: { type: array, items: { type: object, additionalProperties: true } }
 
   /inventory/correction-drafts:
     get:
@@ -4801,6 +5161,42 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/IssueMasterDataEmployeeAccountPasswordResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/BusinessError"
+
+  /master-data/employee-account-reviews/{employeeId}/assignment:
+    post:
+      tags: [MasterData]
+      summary: 手动调整员工车间和机台
+      description: >
+        管理账号可把正式员工设置为固定机台、杂工/流动或暂未分配。固定机台必须同时选择匹配的车间和机台；
+        杂工/流动只绑定负责车间并清空默认机台。服务端记录认证操作人、修改前后、原因和时间。
+      operationId: updateMasterDataEmployeeAssignment
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateMasterDataEmployeeAssignmentRequest"
+      responses:
+        "200":
+          description: 员工车间和机台调配已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UpdateMasterDataEmployeeAssignmentResponse"
         "400":
           $ref: "#/components/responses/BusinessError"
         "403":
@@ -9353,6 +9749,201 @@ components:
         nextAction:
           type: string
 
+    SystemV1D49ReadinessRole:
+      type: object
+      required: [roleKey, roleLabel, ready, accountCount, readyAccountCount, blockers]
+      properties:
+        roleKey:
+          type: string
+        roleLabel:
+          type: string
+        ready:
+          type: boolean
+        accountCount:
+          type: integer
+          minimum: 0
+        readyAccountCount:
+          type: integer
+          minimum: 0
+        blockers:
+          type: array
+          items:
+            type: object
+            required: [code, label, count]
+            properties:
+              code:
+                type: string
+              label:
+                type: string
+              count:
+                type: integer
+                minimum: 0
+
+    SystemV1D49ReadinessBlocker:
+      type: object
+      required: [key, category, label, status, blocking, detail, nextAction]
+      properties:
+        key:
+          type: string
+        category:
+          type: string
+          enum: [employee, environment, setup, env-audit, env-preflight, env-intake]
+        label:
+          type: string
+        status:
+          type: string
+          enum: [blocked]
+        blocking:
+          type: boolean
+          const: true
+        detail:
+          type: string
+        nextAction:
+          type: string
+
+    SystemV1D49Readiness:
+      type: object
+      required: [version, scope, status, ready, checkedAt, summary, employees, environment, blockers, nextAction, safeguards]
+      properties:
+        version:
+          type: string
+          enum: [p0-v1-d49-readiness-v1]
+        scope:
+          type: string
+          enum: [v1_d49_readiness]
+        status:
+          type: string
+          enum: [ready, blocked]
+        ready:
+          type: boolean
+        checkedAt:
+          type: string
+          format: date-time
+        operatorId:
+          type: string
+        summary:
+          type: object
+          required: [label, employeeRoleLabel, coveredRoleCount, requiredRoleCount, missingRoleCount, formalAccountCount, readyFormalAccountCount, envSetupReady, envAuditReady, envPreflightLabel, envPreflightPassedCount, envPreflightTotalCount, envIntakeReady, envIntakeConfiguredLabel, blockerCount, blockerLabel, currentRuntimeMode, blocksRegardlessOfDemoMode]
+          properties:
+            label:
+              type: string
+            employeeRoleLabel:
+              type: string
+            coveredRoleCount:
+              type: integer
+              minimum: 0
+            requiredRoleCount:
+              type: integer
+              minimum: 0
+            missingRoleCount:
+              type: integer
+              minimum: 0
+            formalAccountCount:
+              type: integer
+              minimum: 0
+            readyFormalAccountCount:
+              type: integer
+              minimum: 0
+            envSetupReady:
+              type: boolean
+            envAuditReady:
+              type: boolean
+            envPreflightLabel:
+              type: string
+            envPreflightPassedCount:
+              type: integer
+              minimum: 0
+            envPreflightTotalCount:
+              type: integer
+              minimum: 0
+            envIntakeReady:
+              type: boolean
+            envIntakeConfiguredLabel:
+              type: string
+            blockerCount:
+              type: integer
+              minimum: 0
+            blockerLabel:
+              type: string
+            currentRuntimeMode:
+              type: string
+            blocksRegardlessOfDemoMode:
+              type: boolean
+              const: true
+        employees:
+          type: object
+          required: [ready, requiredRoleCount, coveredRoleCount, missingRoleCount, formalAccountCount, readyFormalAccountCount, roles]
+          properties:
+            ready:
+              type: boolean
+            requiredRoleCount:
+              type: integer
+              minimum: 0
+            coveredRoleCount:
+              type: integer
+              minimum: 0
+            missingRoleCount:
+              type: integer
+              minimum: 0
+            formalAccountCount:
+              type: integer
+              minimum: 0
+            readyFormalAccountCount:
+              type: integer
+              minimum: 0
+            roles:
+              type: array
+              items:
+                $ref: "#/components/schemas/SystemV1D49ReadinessRole"
+        environment:
+          type: object
+          required: [status, ready, setupReady, auditReady, preflightReady, preflightLabel, preflightPassedCount, preflightTotalCount, preflightBlockingCount, preflightWarningCount, intakeReady, intakeConfiguredLabel, intakeBlockingCount, intakeWarningCount]
+          properties:
+            status:
+              type: string
+            ready:
+              type: boolean
+            setupReady:
+              type: boolean
+            auditReady:
+              type: boolean
+            preflightReady:
+              type: boolean
+            preflightLabel:
+              type: string
+            preflightPassedCount:
+              type: integer
+              minimum: 0
+            preflightTotalCount:
+              type: integer
+              minimum: 0
+            preflightBlockingCount:
+              type: integer
+              minimum: 0
+            preflightWarningCount:
+              type: integer
+              minimum: 0
+            intakeReady:
+              type: boolean
+            intakeConfiguredLabel:
+              type: string
+            intakeBlockingCount:
+              type: integer
+              minimum: 0
+            intakeWarningCount:
+              type: integer
+              minimum: 0
+        blockers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SystemV1D49ReadinessBlocker"
+        nextAction:
+          type: string
+        safeguards:
+          type: object
+          additionalProperties:
+            type: boolean
+
     SystemV1GoLiveStatusResponse:
       type: object
       required:
@@ -9364,6 +9955,7 @@ components:
         - checkedAt
         - generatedAt
         - summary
+        - d49Readiness
         - releaseCandidate
         - ownerDecisionBrief
         - completionAudit
@@ -9436,6 +10028,8 @@ components:
               type: integer
             v2DifferenceCount:
               type: integer
+        d49Readiness:
+          $ref: "#/components/schemas/SystemV1D49Readiness"
         releaseCandidate:
           type: object
           additionalProperties: true
@@ -13024,6 +13618,112 @@ components:
         operationLogId:
           type: string
 
+    RecognizeOrderDraftQueueRequest:
+      allOf:
+        - $ref: "#/components/schemas/RecognizeOrderDraftRequest"
+        - type: object
+          required: [idempotencyKey]
+          properties:
+            idempotencyKey:
+              type: string
+              minLength: 8
+            currentDraftStatus:
+              type: string
+
+    OrderDraftQueueRecognitionResponse:
+      type: object
+      required: [queueBatch, drafts, recognition]
+      properties:
+        queueBatch:
+          $ref: "#/components/schemas/OrderDraftQueueBatch"
+        drafts:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderDraftQueueItem"
+        recognition:
+          type: object
+          additionalProperties: true
+
+    OrderDraftQueueBatch:
+      type: object
+      required: [version, batchId, queueRequestHash, summary, unassignedSourceMessages]
+      properties:
+        version:
+          type: string
+          enum: [order-draft-queue-plan-v1]
+        batchId:
+          type: string
+        queueRequestHash:
+          type: string
+        summary:
+          type: object
+          required: [sourceMessageCount, queueItemCount, orderDraftCount, intentDraftCount, reviewItemCount, unassignedSourceMessageCount]
+          additionalProperties:
+            type: integer
+        unassignedSourceMessages:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    OrderDraftQueueItem:
+      type: object
+      required: [queueItemId, kind, status, sourceMessageIds, draft, lines, inventoryIntents]
+      properties:
+        queueItemId:
+          type: string
+        kind:
+          type: string
+          enum: [order_draft, inventory_inquiry, temporary_hold, duplicate_review, cancellation_review, intent_review]
+        status:
+          type: string
+        requiresReview:
+          type: boolean
+        excludedFromFormalOrder:
+          type: boolean
+        sourceMessageIds:
+          type: array
+          items:
+            type: string
+        originalOrderGroupId:
+          type: string
+        draft:
+          $ref: "#/components/schemas/OrderDraftSummary"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/RecognizedOrderDraftLine"
+        inventoryIntents:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    OrderDraftListResponse:
+      type: object
+      required: [items, page, pageSize, total, summary]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderDraftSummary"
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        summary:
+          type: object
+          required: [orderDraftCount, intentDraftCount, reviewCount]
+          properties:
+            orderDraftCount:
+              type: integer
+            intentDraftCount:
+              type: integer
+            reviewCount:
+              type: integer
+
     OrderDraftSummary:
       type: object
       required:
@@ -13037,7 +13737,7 @@ components:
           type: string
         status:
           type: string
-          enum: [待审核, 待补充信息, 已生成正式订单, 识别错误作废, 疑似重复待处理]
+          enum: [待审核, 待补充信息, 已生成正式订单, 已生成多个正式订单, 识别错误作废, 疑似重复待处理, 询库存-待客户确认, 临时留货-待确认, 疑似重复待确认, 库存不足取消-待关联明细, 库存不足取消, 意图待确认]
         sourceText:
           type: string
         sourceChannel:
@@ -13184,6 +13884,66 @@ components:
         operationLogId:
           type: string
 
+    RestoreOrderDraftShortageCancellationRequest:
+      type: object
+      required: [clientRevision, draftLineId, reason]
+      properties:
+        clientRevision:
+          type: integer
+          minimum: 1
+        draftLineId:
+          type: string
+        reason:
+          type: string
+          minLength: 1
+        idempotencyKey:
+          type: string
+
+    RestoreOrderDraftShortageCancellationResponse:
+      type: object
+      required: [draft, line, inventoryIntents, operationLogId]
+      properties:
+        draft:
+          $ref: "#/components/schemas/OrderDraftSummary"
+        line:
+          $ref: "#/components/schemas/RecognizedOrderDraftLine"
+        inventoryIntents:
+          type: array
+          items:
+            $ref: "#/components/schemas/InventoryIntentSummary"
+        operationLogId:
+          type: string
+
+    LinkCrossDraftShortageCancellationRequest:
+      type: object
+      required: [clientRevision, draftLineId, intentId, reason]
+      properties:
+        clientRevision:
+          type: integer
+          minimum: 1
+        draftLineId:
+          type: string
+        intentId:
+          type: string
+        reason:
+          type: string
+          minLength: 1
+        idempotencyKey:
+          type: string
+
+    LinkCrossDraftShortageCancellationResponse:
+      type: object
+      required: [draft, line, inventoryIntent, operationLogId]
+      properties:
+        draft:
+          $ref: "#/components/schemas/OrderDraftSummary"
+        line:
+          $ref: "#/components/schemas/RecognizedOrderDraftLine"
+        inventoryIntent:
+          $ref: "#/components/schemas/InventoryIntentSummary"
+        operationLogId:
+          type: string
+
     ConfirmOrderDraftRequest:
       type: object
       required:
@@ -13236,6 +13996,33 @@ components:
       properties:
         orderId:
           type: string
+          description: 正式订单 ID；整张草稿因库存不足关闭且未生成订单时为空字符串。
+        orderIds:
+          type: array
+          description: 拆单确认生成的全部正式订单 ID；普通确认可省略。
+          items:
+            type: string
+        splitConfirmed:
+          type: boolean
+          default: false
+        splitPlan:
+          $ref: "#/components/schemas/OrderDraftSplitPlan"
+        closedWithoutOrder:
+          type: boolean
+          default: false
+          description: true 表示全部明细已按库存不足取消，仅关闭草稿并保留证据，不创建正式订单和下游任务。
+        cancelledDraftLineIds:
+          type: array
+          items:
+            type: string
+        appliedShortageCancellationIntentIds:
+          type: array
+          items:
+            type: string
+        convertedTemporaryHoldIds:
+          type: array
+          items:
+            type: string
         orderSummaryStatus:
           type: string
         orderLines:
@@ -13266,6 +14053,134 @@ components:
           type: array
           items:
             type: string
+
+    OrderDraftSplitRequest:
+      type: object
+      required: [clientRevision, lines]
+      properties:
+        draftId:
+          type: string
+        sourceText:
+          type: string
+        sourceChannel:
+          $ref: "#/components/schemas/SourceChannel"
+        customerId:
+          type: string
+        clientRevision:
+          type: integer
+          minimum: 1
+        lines:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/OrderDraftLineInput"
+
+    OrderDraftSplitConfirmRequest:
+      allOf:
+        - $ref: "#/components/schemas/OrderDraftSplitRequest"
+        - type: object
+          required: [splitPlanHash]
+          properties:
+            splitPlanHash:
+              type: string
+              minLength: 64
+
+    OrderDraftSplitPreviewResponse:
+      type: object
+      required: [splitPlan]
+      properties:
+        splitPlan:
+          $ref: "#/components/schemas/OrderDraftSplitPlan"
+
+    OrderDraftSplitPlan:
+      type: object
+      required:
+        - version
+        - draftId
+        - revision
+        - planHash
+        - groups
+        - activeDraftLineCount
+        - cancelledDraftLineIds
+        - canConfirm
+        - noSplitNeeded
+      properties:
+        version:
+          type: string
+          enum: [order-draft-split-plan-v1]
+        draftId:
+          type: string
+        revision:
+          type: integer
+        planHash:
+          type: string
+        groups:
+          type: array
+          items:
+            $ref: "#/components/schemas/OrderDraftSplitGroup"
+        activeDraftLineCount:
+          type: integer
+        cancelledDraftLineIds:
+          type: array
+          items:
+            type: string
+        canConfirm:
+          type: boolean
+        noSplitNeeded:
+          type: boolean
+
+    OrderDraftSplitGroup:
+      type: object
+      required:
+        - groupId
+        - sequence
+        - sourceGroupId
+        - fulfillmentMethod
+        - latestNeededAt
+        - draftLineIds
+        - lineCount
+        - quantityTotal
+        - amountTotal
+        - requiresReview
+        - reviewReasons
+      properties:
+        groupId:
+          type: string
+        sequence:
+          type: integer
+        customerId:
+          type: string
+        customerName:
+          type: string
+        sourceGroupId:
+          type: string
+        fulfillmentMethod:
+          type: string
+        latestNeededAt:
+          type: string
+        draftLineIds:
+          type: array
+          items:
+            type: string
+        lineCount:
+          type: integer
+        quantityTotal:
+          type: number
+        amountTotal:
+          type: number
+        requiresReview:
+          type: boolean
+        reviewReasons:
+          type: array
+          items:
+            type: string
+        fieldReviews:
+          type: array
+          description: 字段级人工复核证据；存在 pending 项时正式确认和拆单确认必须拒绝。
+          items:
+            $ref: "#/components/schemas/OrderDraftFieldReview"
+        dimensionEvidence:
+          $ref: "#/components/schemas/OrderDraftDimensionEvidence"
 
     OrderDraftLineInput:
       type: object
@@ -13298,6 +14213,10 @@ components:
         qty:
           type: integer
           minimum: 1
+        estimatedAmount:
+          type: number
+          minimum: 0
+          description: 识别 / 人工编辑阶段的预估金额快照，仅用于草稿和拆单预览；正式确认必须重新计价。
         fulfillmentMethod:
           $ref: "#/components/schemas/FulfillmentMethod"
         latestNeededAt:
@@ -15713,6 +16632,87 @@ components:
           type: array
           items:
             $ref: "#/components/schemas/OperationLogEntry"
+
+    InventoryIntentSummary:
+      type: object
+      required: [intentId, sourceDraftId, sourceMessageId, intentType, intentStatus, revision]
+      properties:
+        intentId: { type: string }
+        sourceDraftId: { type: string }
+        sourceMessageId: { type: string }
+        conversationId: { type: string }
+        customerId: { type: string }
+        intentType:
+          type: string
+          enum: [inventory_inquiry, merchant_reply, inventory_confirmation, temporary_hold, shortage_cancellation, duplicate_candidate]
+        intentStatus: { type: string }
+        sourceText: { type: string }
+        candidate: { type: object, additionalProperties: true }
+        cancellationScope: { type: string }
+        relatedReservationId: { type: string }
+        relatedOrderLineId: { type: string }
+        revision: { type: integer, minimum: 1 }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    TemporaryHoldSummary:
+      type: object
+      required: [reservationId, sourceIntentId, inventoryItemId, reservedQty, reservationType, status, revision]
+      properties:
+        reservationId: { type: string }
+        orderLineId: { type: string }
+        sourceIntentId: { type: string }
+        customerId: { type: string }
+        sourceMessageId: { type: string }
+        inventoryItemId: { type: string }
+        reservedQty: { type: integer, minimum: 0 }
+        reservationType: { type: string, enum: [临时留货] }
+        status: { type: string, enum: [生效, 已取消, 已过期] }
+        expiresAt:
+          type: string
+          format: date-time
+          description: 19:30后新留货必须显式提交经办公室确认的未来到期时间；19:30前可省略并使用识别意图中的当天19:30。
+        metadata: { type: object, additionalProperties: true }
+        revision: { type: integer, minimum: 1 }
+        createdBy: { type: string }
+        createdAt: { type: string, format: date-time }
+
+    CreateTemporaryHoldRequest:
+      type: object
+      required: [clientRevision, candidateIndex]
+      properties:
+        clientRevision: { type: integer, minimum: 1 }
+        candidateIndex: { type: integer, minimum: 0 }
+        inventoryItemId: { type: string }
+        qty: { type: integer, minimum: 1 }
+        expiresAt: { type: string, format: date-time }
+        reason: { type: string }
+
+    ReleaseTemporaryHoldRequest:
+      type: object
+      required: [clientRevision, reason]
+      properties:
+        clientRevision: { type: integer, minimum: 1 }
+        reason: { type: string, minLength: 1 }
+
+    ExtendTemporaryHoldRequest:
+      type: object
+      required: [clientRevision, expiresAt, reason]
+      properties:
+        clientRevision: { type: integer, minimum: 1 }
+        expiresAt: { type: string, format: date-time }
+        reason: { type: string, minLength: 1 }
+
+    TemporaryHoldMutationResponse:
+      type: object
+      required: [intent, hold, operationLogId]
+      properties:
+        intent: { $ref: "#/components/schemas/InventoryIntentSummary" }
+        hold: { $ref: "#/components/schemas/TemporaryHoldSummary" }
+        inventoryItem: { type: object, nullable: true, additionalProperties: true }
+        ledger: { type: object, nullable: true, additionalProperties: true }
+        operationLogId: { type: string }
 
     CreateInventoryReservationRequest:
       type: object
@@ -21567,6 +22567,15 @@ components:
           type: string
         refId:
           type: string
+        referenceStatus:
+          type: string
+          enum: [valid, missing, unverifiable]
+        resolvedRefType:
+          type: string
+        resolvedRefId:
+          type: string
+        referenceReason:
+          type: string
         priority:
           type: string
           enum: [normal, urgent, exception, management_watch]
@@ -22237,6 +23246,16 @@ components:
           type: string
         defaultMachineId:
           type: string
+        assignmentMode:
+          type: string
+          enum: [fixed_machine, general_worker, unassigned]
+        assignmentUpdatedBy:
+          type: string
+        assignmentUpdatedAt:
+          type: string
+          format: date-time
+        assignmentNote:
+          type: string
         requestedEnabled:
           type: boolean
         accountEnabled:
@@ -22310,7 +23329,7 @@ components:
 
     MasterDataEmployeeAccountReviewListResponse:
       type: object
-      required: [items, total, page, pageSize]
+      required: [items, total, page, pageSize, readiness, assignmentOptions]
       properties:
         items:
           type: array
@@ -22325,6 +23344,61 @@ components:
         pageSize:
           type: integer
           minimum: 1
+        readiness:
+          $ref: "#/components/schemas/RuntimeEmployeeAccountReadiness"
+        assignmentOptions:
+          $ref: "#/components/schemas/MasterDataEmployeeAssignmentOptions"
+
+    MasterDataEmployeeAssignmentOptions:
+      type: object
+      required: [workshops, machines]
+      properties:
+        workshops:
+          type: array
+          items:
+            type: string
+        machines:
+          type: array
+          items:
+            type: object
+            required: [machineId, machineLabel, workshop, enabled]
+            properties:
+              machineId:
+                type: string
+              machineLabel:
+                type: string
+              workshop:
+                type: string
+              enabled:
+                type: boolean
+
+    UpdateMasterDataEmployeeAssignmentRequest:
+      type: object
+      required: [assignmentMode]
+      properties:
+        assignmentMode:
+          type: string
+          enum: [fixed_machine, general_worker, unassigned]
+        workshop:
+          type: string
+        machineId:
+          type: string
+        reason:
+          type: string
+        changedAt:
+          type: string
+          format: date-time
+
+    UpdateMasterDataEmployeeAssignmentResponse:
+      type: object
+      required: [employeeAccountReview, assignmentOptions, operationLogId]
+      properties:
+        employeeAccountReview:
+          $ref: "#/components/schemas/MasterDataEmployeeAccountReview"
+        assignmentOptions:
+          $ref: "#/components/schemas/MasterDataEmployeeAssignmentOptions"
+        operationLogId:
+          type: string
 
     EnableMasterDataEmployeeAccountRequest:
       type: object
@@ -22333,7 +23407,7 @@ components:
           type: string
         roleKey:
           type: string
-          enum: [office, warehouse, finance, management, driver, workshop, packing]
+          enum: [office, warehouse, finance, management, driver, workshop, packing, technical_operations]
         loginName:
           type: string
         userId:
@@ -22826,6 +23900,97 @@ components:
           enum: [high, medium, low]
         ruleId:
           type: string
+        cancellationStatus:
+          type: string
+          enum: [库存不足取消]
+        cancellationScope:
+          type: string
+          enum: [shortage_lines_only, whole_order]
+        cancellationSourceMessageId:
+          type: string
+        excludedFromConfirmation:
+          type: boolean
+          description: 已关联缺货取消意图的草稿行保留为证据，但确认时不得创建正式订单行。
+        cancellationRestoration:
+          type: object
+          required: [reason, restoredBy, restoredAt]
+          properties:
+            reason:
+              type: string
+            restoredBy:
+              type: string
+            restoredAt:
+              type: string
+              format: date-time
+        crossDraftCancellation:
+          type: object
+          required: [sourceIntentId, sourceDraftId, reason, linkedBy, linkedAt]
+          properties:
+            sourceIntentId:
+              type: string
+            sourceDraftId:
+              type: string
+            sourceMessageId:
+              type: string
+            reason:
+              type: string
+            linkedBy:
+              type: string
+            linkedAt:
+              type: string
+              format: date-time
+
+    OrderDraftFieldReview:
+      type: object
+      required: [reviewId, field, fieldLabel, reason, status]
+      properties:
+        reviewId:
+          type: string
+        field:
+          type: string
+          enum: [size, color, handleColor, colorHandle]
+        fieldLabel:
+          type: string
+        originalValue:
+          type: string
+        suggestedValue:
+          type: string
+        reason:
+          type: string
+        sourceMessageId:
+          type: string
+        status:
+          type: string
+          enum: [pending, confirmed]
+        confirmationMethod:
+          type: string
+          enum: [accepted, edited]
+        confirmedValue:
+          type: string
+        confirmedBy:
+          type: string
+        confirmedAt:
+          type: string
+          format: date-time
+
+    OrderDraftDimensionEvidence:
+      type: object
+      required: [original, suggested, requiresConfirmation]
+      properties:
+        original:
+          type: string
+        suggested:
+          type: string
+        requiresConfirmation:
+          type: boolean
+        reviewStatus:
+          type: string
+          enum: [pending, confirmed]
+        confirmationMethod:
+          type: string
+          enum: [accepted, edited]
+        confirmedValue:
+          type: string
 
     OrderSourceMessage:
       type: object
@@ -22885,7 +24050,7 @@ components:
 
     SourceChannel:
       type: string
-      enum: [manual, wechat, wecom, phone, onsite]
+      enum: [manual, wechat, wecom, wechat_group_queue, phone, onsite]
 
     FulfillmentMethod:
       type: string

@@ -32,7 +32,18 @@ const reviewDraft = {
   createdAt: now,
   checkedAt: now,
   canEnterReviewQueue: true,
-  summary: { stagedRowCount: 2 },
+  summary: { stagedRowCount: 2, employeeRoleCoverageLabel: "1/8" },
+  employeeRoleCoverage: {
+    available: true,
+    complete: false,
+    employeeRowCount: 1,
+    requiredRoleCount: 8,
+    coveredRoleCount: 1,
+    missingRoleCount: 7,
+    coverageLabel: "1/8",
+    missingRoleLabels: ["管理人员", "办公室", "仓库", "包装", "司机", "财务", "技术运维"],
+    roles: [{ roleKey: "workshop", roleLabel: "车间", rowCount: 1 }],
+  },
 };
 
 const confirmationPlan = {
@@ -43,7 +54,8 @@ const confirmationPlan = {
   fileName: reviewDraft.fileName,
   createdBy: "办公室A",
   createdAt: now,
-  summary: { stagedRowCount: 2 },
+  summary: { stagedRowCount: 2, employeeRoleCoverageLabel: "1/8" },
+  employeeRoleCoverage: reviewDraft.employeeRoleCoverage,
   stagedRows: [{ sheetKey: "customers", rowCount: 1 }],
   targetTables: ["customers", "price_table_items"],
 };
@@ -132,6 +144,7 @@ const localSavedPlan = localRepository.saveConfirmationPlan({
 });
 assert.equal(localRepository.kind, "local_json");
 assert.equal(localSavedPlan.confirmationPlan.operationLogId, planLog.id);
+assert.equal(localSavedPlan.confirmationPlan.employeeRoleCoverage.coverageLabel, "1/8");
 assert.equal(localRepository.listConfirmationPlans({ workspace: localWorkspace, filters: { draftId: reviewDraft.draftId } }).length, 1);
 
 const localSavedExecution = localRepository.saveImportExecution({
@@ -160,6 +173,7 @@ const reloadedState = reloadedLocalRepository.loadState();
 assert.equal(reloadedState.masterDataImportReviewDrafts.length, 2);
 assert(reloadedState.masterDataImportReviewDrafts.some((draft) => draft.draftId === correctionDraft.draftId));
 assert.equal(reloadedState.masterDataImportConfirmationPlans[0].planId, confirmationPlan.planId);
+assert.equal(reloadedState.masterDataImportConfirmationPlans[0].employeeRoleCoverage.missingRoleCount, 7);
 assert.equal(reloadedState.masterDataImportExecutions[0].executionId, importExecution.executionId);
 assert(reloadedState.operationLogs.some((log) => log.id === correctionDraftLog.id));
 
@@ -290,6 +304,7 @@ const postgresSavedPlan = await postgresRepository.saveConfirmationPlan({
   operationLog: planLog,
 });
 assert.equal(postgresSavedPlan.confirmationPlan.operationLogId, planLog.id);
+assert.equal(postgresSavedPlan.confirmationPlan.employeeRoleCoverage.coverageLabel, "1/8");
 assert.equal(postgresWorkspace.masterDataImportConfirmationPlans.length, 1);
 
 const postgresSavedExecution = await postgresRepository.saveImportExecution({

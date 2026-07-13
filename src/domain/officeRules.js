@@ -1,4 +1,5 @@
 import { getFulfillmentMethodLabel } from "../shared/labels.js";
+import { getPendingDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
 
 export const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 
@@ -141,6 +142,7 @@ export function getDraftMissingFields(row) {
   if (!row.size || row.size === "待确认") missing.push("尺寸");
   if (!row.color || row.color === "待确认") missing.push("颜色");
   if (!Number(row.qty)) missing.push("数量");
+  if (getPendingDraftFieldReviews(row).length) missing.push("识别字段待确认");
 
   if (isCustomPrintDraft(row)) {
     if (!row.product || row.product === "空白袋") missing.push("印刷内容/品名");
@@ -596,6 +598,7 @@ export function sortTodos(todos) {
 
 export function getTodoTone(todo) {
   if (todo.handled) return "success";
+  if (todo.referenceStatus === "missing") return "danger";
   if (todo.printResultStatus === "unknown") return "danger";
   if (todo.printResultStatus === "partial" || todo.printResultStatus === "not_printed") return "warning";
   if (todo.urgency === "异常") return "danger";
@@ -609,6 +612,7 @@ export function isPrintTodo(todo) {
 }
 
 export function getTodoHandlingRule(todo) {
+  if (todo.referenceStatus === "missing") return "引用失效，需核对来源后关闭";
   if (todo.type.includes("数量") || todo.type.includes("差额") || todo.type.includes("缺货")) return "必须逐条处理";
   if (todo.type.includes("待通知客户")) return "先复制话术，人工发送后确认";
   if (todo.type.includes("成品图需重拍")) return "通知车间重拍后关闭";
@@ -626,6 +630,10 @@ export function getTodoActions(todo) {
       { label: "重新打开", variant: "secondary" },
       { label: "打印预览", variant: "secondary" },
     ];
+  }
+
+  if (todo.referenceStatus === "missing") {
+    return [{ label: "处理完成", variant: "secondary" }];
   }
 
   if (todo.type.includes("订单草稿")) {

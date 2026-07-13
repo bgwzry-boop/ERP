@@ -194,7 +194,8 @@ export const initialRawMaterialInbounds = [
   }),
 ];
 
-export const sampleText = "张三服饰，30*38红500个明天下午自提，30*38黑100个；美的空调 30*38 白袋 黄印 双面 1000个 周五快运；白鲸自营店 35*27 白印黑 白袋黑提 单面 1500个 今天快运；李四电商 外卖活动袋 40*30 黄印黑 黄袋红提 双面 3000个 明天送货；小熊童装 25*32 白色加长提 1200个送货";
+export const sampleText = "张三服饰，30*38红500个明天下午自提，30*38黑100个明天下午自提；外卖活动袋40*30黄印黑黄袋红提双面3000个明天送货；35*27白色普通提1500个周五快运；25*32白色加长提1200个后天送货；30*38白色普通提1000个周五快运";
+const customPrintShorthandSampleText = "张三服饰，30*38红500个明天下午自提，30*38黑100个；美的空调 30*38 白袋 黄印 双面 1000个 周五快运；白鲸自营店 35*27 白印黑 白袋黑提 单面 1500个 今天快运；李四电商 外卖活动袋 40*30 黄印黑 黄袋红提 双面 3000个 明天送货；小熊童装 25*32 白色加长提 1200个送货";
 
 export const defaultOfficeScenarioId = "p0-office-core";
 
@@ -219,7 +220,7 @@ export const officeScenarioDefinitions = [
     name: "订单录入定制短写识别",
     modules: ["订单录入", "订单池"],
     description: "验证白印黑、白袋黑提、黄印黑、黄袋红提等工厂短写可以落到袋色、印色、提手色、单双面和备注字段。",
-    sampleText,
+    sampleText: customPrintShorthandSampleText,
     focus: { orderId: "ORD-0629-010-01", draftCustomerId: "C011" },
     acceptance: ["白印黑识别为白色袋子印黑色", "白袋黑提识别为白袋黑提手", "定制印刷表格显示定制印刷而不是空白袋"],
   },

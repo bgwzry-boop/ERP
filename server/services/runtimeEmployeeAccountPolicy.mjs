@@ -1,29 +1,11 @@
 import { getSeedUsers } from "../authSeed.mjs";
-import { roleCatalog } from "../../shared/auth/roleCatalog.js";
-
-const runtimeEmployeeRoleKeys = new Set([
-  "office",
-  "warehouse",
-  "finance",
-  "management",
-  "technical_operations",
-  "driver",
-  "workshop",
-  "packing",
-]);
+import {
+  normalizeV1RuntimeEmployeeRoleKey,
+  roleCatalog,
+} from "../../shared/auth/roleCatalog.js";
 
 export function normalizeEmployeeAccountRoleKey(roleKey, roleName = "") {
-  const normalized = text(roleKey);
-  if (runtimeEmployeeRoleKeys.has(normalized)) return normalized;
-  const name = text(roleName);
-  if (/技术运维|系统运维|运维/.test(name)) return "technical_operations";
-  if (/管理|主管|负责人/.test(name)) return "management";
-  if (/办公室|文员|录单|客服/.test(name)) return "office";
-  if (/财务|对账|收款/.test(name)) return "finance";
-  if (/库房|出库|仓库/.test(name)) return "warehouse";
-  if (/司机|送货/.test(name)) return "driver";
-  if (/打包|杂工/.test(name)) return "packing";
-  return "workshop";
+  return normalizeV1RuntimeEmployeeRoleKey(roleKey, roleName) || "workshop";
 }
 
 export function getEmployeeAccountRoleLabel(roleKey) {

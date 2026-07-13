@@ -43,6 +43,8 @@ export function createOfficeMasterDataReadActions({
   permissionContext,
   serverRequired = isOfficeApiServerRequired,
   setMasterDataEmployeeAccountReviews,
+  setMasterDataEmployeeAccountReadiness = () => {},
+  setMasterDataEmployeeAssignmentOptions = () => {},
   setMasterDataImportReviewDrafts,
 }) {
   async function refreshMasterDataImportReviewDrafts({ silent = false } = {}) {
@@ -74,6 +76,8 @@ export function createOfficeMasterDataReadActions({
   async function refreshMasterDataEmployeeAccountReviews({ silent = false } = {}) {
     const actionState = getActionState(permissionContext, "masterData", "刷新员工复核");
     if (actionState.disabled) {
+      setMasterDataEmployeeAccountReadiness(null);
+      setMasterDataEmployeeAssignmentOptions({ workshops: [], machines: [] });
       return withFeedback(
         {
           source: "permission",
@@ -94,6 +98,8 @@ export function createOfficeMasterDataReadActions({
       { label: "员工账号复核列表", serverRequired },
     );
     if (result.blocked) {
+      setMasterDataEmployeeAccountReadiness(null);
+      setMasterDataEmployeeAssignmentOptions({ workshops: [], machines: [] });
       return withFeedback(
         result,
         silent,
@@ -102,6 +108,8 @@ export function createOfficeMasterDataReadActions({
     }
     const items = result.items ?? [];
     setMasterDataEmployeeAccountReviews(items);
+    setMasterDataEmployeeAccountReadiness(result.readiness ?? null);
+    setMasterDataEmployeeAssignmentOptions(result.assignmentOptions ?? { workshops: [], machines: [] });
     const sourceLabel = result.source === "api" ? "API" : "本地";
     return withFeedback(
       result,

@@ -1,0 +1,901 @@
+.production-schedule-queue-table .data-row {
+  grid-template-columns:
+    minmax(0, 0.58fr)
+    minmax(0, 0.42fr)
+    minmax(0, 1.24fr)
+    minmax(0, 0.82fr)
+    minmax(0, 1.7fr)
+    minmax(0, 0.86fr)
+    minmax(0, 1fr);
+}
+
+.production-schedule-queue-table .data-row span:nth-child(5) {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.35;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.production-task-table .data-row,
+.packing-task-table .data-row {
+  grid-template-columns:
+    minmax(0, 0.96fr)
+    minmax(0, 0.78fr)
+    minmax(0, 0.86fr)
+    minmax(0, 1.04fr)
+    minmax(0, 0.46fr)
+    minmax(0, 0.5fr)
+    minmax(0, 0.62fr)
+    minmax(0, 0.7fr);
+}
+
+.production-task-table .data-row span:nth-child(3),
+.production-task-table .data-row span:nth-child(4),
+.packing-task-table .data-row span:nth-child(3),
+.packing-task-table .data-row span:nth-child(4) {
+  display: -webkit-box;
+  overflow: hidden;
+  line-height: 1.35;
+  white-space: normal;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.production-source-detail-section {
+  background: #fbfdff;
+}
+
+.production-source-detail-section .info-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.printer-device-qa-section {
+  border-color: #cfe0f6;
+  background: #f8fbff;
+}
+
+.printer-device-qa-head {
+  align-items: flex-start;
+}
+
+.printer-device-qa-head > div:first-child {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.printer-device-qa-head small {
+  display: block;
+  max-width: 210px;
+  overflow: hidden;
+  color: #68758a;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.printer-device-qa-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.printer-device-qa-head-actions button {
+  height: 26px;
+  border: 1px solid #cbd7e8;
+  border-radius: 5px;
+  background: #fff;
+  color: #536178;
+  font-size: 12px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.printer-device-qa-select-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 8px;
+  margin-top: 7px;
+}
+
+.printer-device-qa-select-row label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #6a7486;
+  font-size: 12px;
+}
+
+.printer-device-qa-select-row select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #d7dfeb;
+  border-radius: 5px;
+  background: #fff;
+  color: #253044;
+  font-size: 13px;
+  padding: 0 8px;
+}
+
+.printer-device-mode-row {
+  display: grid;
+  grid-template-columns: minmax(92px, 0.9fr) minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 7px;
+  margin-top: 7px;
+}
+
+.printer-device-mode-current {
+  min-width: 0;
+  border: 1px solid #dce5f1;
+  border-radius: 6px;
+  background: #fff;
+  padding: 6px 8px;
+}
+
+.printer-device-mode-current.success {
+  border-color: #a9d9bd;
+  background: #f2fbf5;
+}
+
+.printer-device-mode-current.warning {
+  border-color: #f0cf88;
+  background: #fffaf0;
+}
+
+.printer-device-mode-current span,
+.printer-device-mode-current strong,
+.printer-device-mode-current small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.printer-device-mode-current span,
+.printer-device-mode-current small,
+.printer-device-mode-row label span,
+.printer-device-mode-note {
+  color: #68758a;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.printer-device-mode-current strong {
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.printer-device-mode-row label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.printer-device-mode-row select {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #d7dfeb;
+  border-radius: 5px;
+  background: #fff;
+  color: #253044;
+  font-size: 13px;
+  padding: 0 8px;
+}
+
+.printer-device-mode-row button {
+  height: 30px;
+  border: 1px solid #0b74ff;
+  border-radius: 5px;
+  background: #0b74ff;
+  color: #fff;
+  font-size: 12px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.printer-device-mode-row button:disabled {
+  border-color: #cbd7e8;
+  background: #eef3f9;
+  color: #8a96a8;
+}
+
+.printer-device-mode-note {
+  display: block;
+  margin-top: 5px;
+}
+
+.driver-field-test-form.printer-device-qa-form {
+  margin-top: 7px;
+}
+
+.printer-device-qa-checks {
+  max-height: 324px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.printer-device-qa-evidence {
+  margin-top: 7px;
+  border: 1px solid #dce5f1;
+  border-radius: 6px;
+  background: #fff;
+  padding: 7px 8px;
+}
+
+.printer-device-qa-evidence-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.printer-device-qa-evidence-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.printer-device-qa-evidence-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.printer-device-qa-evidence-grid label {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  color: #6a7486;
+  font-size: 12px;
+}
+
+.printer-device-qa-evidence-grid input {
+  min-width: 0;
+  height: 30px;
+  border: 1px solid #d7dfeb;
+  border-radius: 5px;
+  background: #fff;
+  color: #253044;
+  font-size: 13px;
+  padding: 0 8px;
+}
+
+.printer-device-qa-record {
+  border-color: #a9c8ee;
+}
+
+.print-driver-diagnostics-section {
+  border-color: #d6e2f0;
+  background: #fcfdff;
+}
+
+.print-driver-diagnostics-section.success {
+  border-color: #a9d9bd;
+  background: #f7fcf9;
+}
+
+.print-driver-diagnostics-section.warning {
+  border-color: #f0cf88;
+  background: #fffaf0;
+}
+
+.print-driver-diagnostics-section.danger {
+  border-color: #f2aaa9;
+  background: #fff7f7;
+}
+
+.print-driver-v1-readiness-section {
+  border-color: #b9ccea;
+}
+
+.print-driver-diagnostics-head {
+  align-items: flex-start;
+}
+
+.print-driver-diagnostics-head > div:first-child {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.print-driver-diagnostics-head small {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  color: #68758a;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-driver-diagnostics-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.print-driver-diagnostics-meta span {
+  overflow: hidden;
+  border: 1px solid #dbe5f1;
+  border-radius: 5px;
+  background: #fff;
+  color: #536178;
+  font-size: 12px;
+  line-height: 24px;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-driver-diagnostics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.print-driver-diagnostics-grid div {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #dce5f1;
+  border-radius: 6px;
+  background: #fff;
+  padding: 7px 8px;
+}
+
+.print-driver-diagnostics-grid div.success {
+  border-color: #a9d9bd;
+  background: #f5fbf7;
+}
+
+.print-driver-diagnostics-grid div.warning {
+  border-color: #ebcf8e;
+  background: #fffaf0;
+}
+
+.print-driver-diagnostics-grid span,
+.print-driver-diagnostics-grid strong,
+.print-driver-diagnostics-grid small {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-driver-diagnostics-grid span,
+.print-driver-diagnostics-grid small {
+  color: #68758a;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.print-driver-diagnostics-grid strong {
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.print-driver-readiness {
+  overflow: hidden;
+  border: 1px solid #dbe5f1;
+  border-radius: 6px;
+  background: #fff;
+  margin-top: 7px;
+}
+
+.print-driver-readiness-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid #e6edf6;
+  padding: 7px 8px;
+}
+
+.print-driver-readiness-head strong {
+  min-width: 0;
+  overflow: hidden;
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-driver-readiness-head span {
+  flex: 0 0 auto;
+  border: 1px solid #d9e3ef;
+  border-radius: 999px;
+  color: #536178;
+  font-size: 12px;
+  line-height: 20px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+.print-driver-readiness-head span.success {
+  border-color: #a9d9bd;
+  color: #237449;
+  background: #f3fbf6;
+}
+
+.print-driver-readiness-head span.warning {
+  border-color: #ebcf8e;
+  color: #8a5f10;
+  background: #fff8e6;
+}
+
+.print-driver-readiness-head span.danger {
+  border-color: #efb0b0;
+  color: #b33a3a;
+  background: #fff4f4;
+}
+
+.print-driver-readiness-list {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.print-driver-readiness-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 1px;
+  min-width: 0;
+  border-right: 1px solid #edf2f8;
+  border-bottom: 1px solid #edf2f8;
+  padding: 7px 8px;
+}
+
+.print-driver-readiness-row:nth-child(3n) {
+  border-right: 0;
+}
+
+.print-driver-readiness-row:nth-last-child(-n + 3) {
+  border-bottom: 0;
+}
+
+.print-driver-readiness-row span {
+  align-self: start;
+  border-radius: 999px;
+  color: #536178;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.print-driver-readiness-row.success span {
+  background: #e9f8ef;
+  color: #237449;
+}
+
+.print-driver-readiness-row.warning span {
+  background: #fff0c7;
+  color: #8a5f10;
+}
+
+.print-driver-readiness-row.danger span {
+  background: #ffe4e4;
+  color: #b33a3a;
+}
+
+.print-driver-readiness-row strong,
+.print-driver-readiness-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-driver-readiness-row strong {
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.print-driver-readiness-row small {
+  grid-column: 2;
+  color: #68758a;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.print-driver-v1-risks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.print-driver-v1-risks span {
+  max-width: 100%;
+  overflow: hidden;
+  border: 1px solid #f0cf88;
+  border-radius: 999px;
+  background: #fff8e6;
+  color: #80570d;
+  font-size: 12px;
+  line-height: 22px;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-driver-diagnostics-note {
+  margin-top: 7px;
+  color: #536178;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.print-driver-integration-kit {
+  overflow: hidden;
+  border: 1px solid #bdd6f6;
+  border-radius: 6px;
+  background: #f7fbff;
+  margin-top: 7px;
+}
+
+.print-driver-integration-summary {
+  display: grid;
+  gap: 2px;
+  border-bottom: 1px solid #e3edf9;
+  padding: 7px 8px;
+}
+
+.print-driver-integration-summary strong,
+.print-driver-integration-summary small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.print-driver-integration-summary strong {
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.print-driver-integration-summary small {
+  color: #61708a;
+  font-size: 12px;
+  line-height: 17px;
+  white-space: normal;
+  word-break: break-word;
+}
+
+.print-driver-integration-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.print-driver-integration-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  column-gap: 6px;
+  row-gap: 1px;
+  min-width: 0;
+  border-right: 1px solid #e3edf9;
+  padding: 7px 8px;
+}
+
+.print-driver-integration-row:nth-child(2n) {
+  border-right: 0;
+}
+
+.print-driver-integration-row span {
+  align-self: start;
+  border-radius: 999px;
+  color: #536178;
+  font-size: 11px;
+  line-height: 18px;
+  padding: 0 6px;
+  white-space: nowrap;
+}
+
+.print-driver-integration-row.success span {
+  background: #e9f8ef;
+  color: #237449;
+}
+
+.print-driver-integration-row.warning span {
+  background: #fff0c7;
+  color: #8a5f10;
+}
+
+.print-driver-integration-row strong,
+.print-driver-integration-row small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-driver-integration-row strong {
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.print-driver-integration-row small {
+  grid-column: 2;
+  color: #68758a;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.print-job-queue-section {
+  border-color: #d5e2ef;
+  background: #fbfcfe;
+}
+
+.print-job-queue-head {
+  align-items: flex-start;
+}
+
+.print-job-queue-head > div:first-child {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.print-job-queue-head small {
+  display: block;
+  max-width: 220px;
+  overflow: hidden;
+  color: #68758a;
+  font-size: 12px;
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-job-stats {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.print-job-stats span {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #dbe5f1;
+  border-radius: 5px;
+  background: #fff;
+  color: #4a5b73;
+  font-size: 12px;
+  line-height: 26px;
+  padding: 0 8px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-job-stats span.danger {
+  border-color: #f2b7b7;
+  color: #b33a3a;
+}
+
+.print-job-list {
+  display: grid;
+  gap: 6px;
+  max-height: 310px;
+  margin-top: 7px;
+  overflow-y: auto;
+  padding-right: 2px;
+}
+
+.print-job-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid #dbe5f1;
+  border-radius: 6px;
+  background: #fff;
+  padding: 7px 8px;
+}
+
+.print-job-row.warning {
+  border-color: #ebcf8e;
+  background: #fffaf0;
+}
+
+.print-job-row.danger {
+  border-color: #efb0b0;
+  background: #fff7f7;
+}
+
+.print-job-row.success {
+  border-color: #abd9bf;
+  background: #f5fbf7;
+}
+
+.print-job-row.blue {
+  border-color: #b9d2f4;
+  background: #f5f9ff;
+}
+
+.print-job-main,
+.print-job-main div {
+  min-width: 0;
+}
+
+.print-job-main {
+  display: grid;
+  gap: 2px;
+}
+
+.print-job-main div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.print-job-main strong,
+.print-job-main span,
+.print-job-main small,
+.print-job-main em {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.print-job-main strong {
+  color: #172033;
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.print-job-main span,
+.print-job-main small {
+  color: #68758a;
+  font-size: 12px;
+  line-height: 17px;
+}
+
+.print-job-main em {
+  color: #b33a3a;
+  font-size: 12px;
+  font-style: normal;
+  line-height: 17px;
+}
+
+.print-job-actions {
+  display: flex;
+  justify-content: flex-end;
+  min-width: 52px;
+}
+
+.print-job-actions button {
+  height: 28px;
+  border: 1px solid #cbd7e8;
+  border-radius: 5px;
+  background: #fff;
+  color: #40516b;
+  font-size: 12px;
+  padding: 0 9px;
+  white-space: nowrap;
+}
+
+.print-job-actions span {
+  color: #7a8799;
+  font-size: 12px;
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.driver-field-test-form.printer-device-qa-form {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.queue-move-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+}
+
+.queue-move-controls label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  color: #7b8798;
+  font-size: 12px;
+}
+
+.queue-move-controls select {
+  height: 30px;
+  max-width: 112px;
+  border: 1px solid #d7e1ee;
+  border-radius: 6px;
+  background: #fff;
+  color: #24324b;
+  font: inherit;
+  padding: 0 24px 0 8px;
+}
+
+.queue-move-impact {
+  margin: -2px 0 8px;
+  color: #536178;
+  font-size: 12px;
+  line-height: 18px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .printer-device-qa-form,
+  .printer-device-qa-evidence-grid,
+  .printer-device-qa-select-row,
+  .printer-device-mode-row,
+  .driver-field-test-form.printer-device-qa-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .printer-device-qa-head,
+  .print-driver-diagnostics-head,
+  .print-job-queue-head,
+  .printer-device-qa-head-actions {
+    flex-wrap: wrap;
+  }
+
+  .printer-device-qa-head small,
+  .print-driver-diagnostics-head small,
+  .print-job-queue-head small {
+    max-width: 100%;
+  }
+
+  .print-driver-diagnostics-grid,
+  .print-driver-readiness-list,
+  .print-driver-integration-list,
+  .print-job-stats,
+  .print-job-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .print-driver-readiness-row,
+  .print-driver-readiness-row:nth-child(3n) {
+    border-right: 0;
+  }
+
+  .print-driver-readiness-row:nth-last-child(-n + 3) {
+    border-bottom: 1px solid #edf2f8;
+  }
+
+  .print-driver-readiness-row:last-child {
+    border-bottom: 0;
+  }
+
+  .print-driver-integration-row,
+  .print-driver-integration-row:nth-child(2n) {
+    border-right: 0;
+    border-bottom: 1px solid #e3edf9;
+  }
+
+  .print-driver-integration-row:last-child {
+    border-bottom: 0;
+  }
+
+  .print-job-actions {
+    justify-content: flex-start;
+  }
+}

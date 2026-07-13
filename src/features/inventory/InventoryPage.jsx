@@ -12,7 +12,7 @@ import {
   StatusPill,
 } from "../../shared/ui/operational.jsx";
 
-const INVENTORY_DETAIL_TABS = ["概览", "流水", "修正"];
+const INVENTORY_DETAIL_TABS = ["概览", "留货", "流水", "修正"];
 
 const defaultInventoryLedgerPanelFilters = {
   keyword: "",
@@ -60,6 +60,7 @@ export function InventoryPage({
   setInventoryLedgerFilters,
   inventoryCorrectionDetailState = {},
   inventoryCorrectionQueueState = {},
+  inventoryIntentState = {},
   selectedStockId,
   setSelectedStockId,
   setToast,
@@ -69,6 +70,11 @@ export function InventoryPage({
   onOpenCorrectionDraft,
   onRefreshCorrectionQueue,
   onRefreshInventoryLedger,
+  onRefreshInventoryIntents,
+  onCreateTemporaryHold,
+  onReleaseTemporaryHold,
+  onExtendTemporaryHold,
+  onConvertTemporaryHoldToOrder,
   onLocateInventoryLedgerSource,
   helpers,
 }) {
@@ -82,6 +88,9 @@ export function InventoryPage({
   const [correctionDraft, setCorrectionDraft] = useState(null);
   const [correctionEvidenceFile, setCorrectionEvidenceFile] = useState(null);
   const [correctionEvidenceUploading, setCorrectionEvidenceUploading] = useState(false);
+  const [holdInventorySelections, setHoldInventorySelections] = useState({});
+  const [holdExpiryDrafts, setHoldExpiryDrafts] = useState({});
+  const [holdExtensionDrafts, setHoldExtensionDrafts] = useState({});
   const ledgerFilters = { ...defaultInventoryLedgerPanelFilters, ...inventoryLedgerFilters };
   const includePending = showPending || filters.state === "待处理";
   const visible = inventoryRecords.filter((item) => {
@@ -135,6 +144,8 @@ export function InventoryPage({
   const correctionState = getUiActionState("inventory", "生成修正草稿");
   const correctionConfirmState = getUiActionState("inventory", "确认修正生效");
   const correctionQueueItems = Array.isArray(inventoryCorrectionQueueState.items) ? inventoryCorrectionQueueState.items : [];
+  const inventoryIntents = Array.isArray(inventoryIntentState.items) ? inventoryIntentState.items : [];
+  const temporaryHolds = Array.isArray(inventoryIntentState.holds) ? inventoryIntentState.holds : [];
 
   function updateFilter(field, value) {
     setFilters((current) => ({ ...current, [field]: value }));
@@ -209,6 +220,12 @@ export function InventoryPage({
     } finally {
       setCorrectionEvidenceUploading(false);
     }
+  }
+
+  async function runTemporaryHoldAction(action, payload) {
+    const result = await action?.(payload);
+    if (result?.feedback) setToast(result.feedback);
+    return result;
   }
 
   return (
@@ -305,6 +322,169 @@ export function InventoryPage({
           ]}
           />
         </div>
+        <section className="detail-section inventory-hold-section operational-detail-section-first" hidden={detailTab !== "留货"}>
+          <div className="inventory-ledger-head">
+            <div>
+              <h3>库存意图与临时留货</h3>
+              <p>
+                {inventoryIntentState.loading
+                  ? "正在读取库存意图"
+                  : inventoryIntentState.lastSyncedAt
+                    ? `后端库存意图 · ${inventoryIntents.length} 条 / 留货 ${temporaryHolds.length} 条 · ${inventoryIntentState.lastSyncedAt}`
+                    : "询库存不占用；客户明确要求留货后才创建临时占用"}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="ghost-button"
+              disabled={inventoryIntentState.loading}
+              onClick={() => runTemporaryHoldAction(onRefreshInventoryIntents, { showToast: true })}
+            >
+              刷新意图
+            </button>
+          </div>
+          {inventoryIntentState.error ? (
+            <p className="ledger-message danger">{inventoryIntentState.error}</p>
+          ) : inventoryIntentState.loading ? (
+            <p className="ledger-message">正在加载库存意图和临时留货。</p>
+          ) : inventoryIntents.length ? (
+            <div className="inventory-correction-queue-list inventory-intent-list">
+              {inventoryIntents.map((intent) => {
+                const candidates = Array.isArray(intent.candidate?.parsedCandidates) ? intent.candidate.parsedCandidates : [];
+                const canCreate = intent.intentType === "temporary_hold"
+                  && ["临时留货-待确认", "待创建留货"].includes(intent.intentStatus);
+                const mutating = inventoryIntentState.mutatingId === (intent.intentId || intent.id);
+                return (
+                  <div className="inventory-correction-queue-row inventory-intent-row" key={intent.intentId || intent.id}>
+                    <div>
+                      <StatusPill tone={getInventoryIntentTone(intent.intentStatus)}>{intent.intentStatus}</StatusPill>
+                      <strong>{getInventoryIntentTypeLabel(intent.intentType)}</strong>
+                      <span>{intent.customerId || "客户待确认"} / {intent.sourceMessageId}</span>
+                    </div>
+                    <p>{intent.sourceText || "原消息为空"}</p>
+                    {candidates.map((candidate, candidateIndex) => {
+                      const candidateKey = `${intent.intentId || intent.id}:${candidateIndex}`;
+                      const matches = inventoryRecords.filter((item) => inventoryMatchesHoldCandidate(item, candidate));
+                      const selectedInventoryItemId = holdInventorySelections[candidateKey] ?? (matches.length === 1 ? matches[0].id : "");
+                      const expiryNeedsReview = intent.candidate?.requiresExpiryReview === true;
+                      const expiryDraft = holdExpiryDrafts[candidateKey] ?? "";
+                      return (
+                        <div className="inventory-intent-candidate" key={candidateKey}>
+                          <span>{formatHoldCandidate(candidate)}</span>
+                          {canCreate && (
+                            <>
+                              <select
+                                aria-label="选择留货库存项"
+                                value={selectedInventoryItemId}
+                                onChange={(event) => setHoldInventorySelections((current) => ({ ...current, [candidateKey]: event.target.value }))}
+                              >
+                                <option value="">{matches.length ? "选择库存项" : "无精确库存项"}</option>
+                                {matches.map((item) => (
+                                  <option key={item.id} value={item.id}>{item.zone} / 可用 {availableQty(item)}</option>
+                                ))}
+                              </select>
+                              {expiryNeedsReview ? (
+                                <label className="inventory-hold-expiry-review">
+                                  <span>19:30后留货，确认未来到期时间</span>
+                                  <input
+                                    type="datetime-local"
+                                    aria-label="新留货到期时间"
+                                    value={expiryDraft}
+                                    onInput={(event) => {
+                                      const value = event.currentTarget.value;
+                                      setHoldExpiryDrafts((current) => ({ ...current, [candidateKey]: value }));
+                                    }}
+                                  />
+                                </label>
+                              ) : (
+                                <small>默认到期：当天19:30</small>
+                              )}
+                              <button
+                                type="button"
+                                disabled={mutating || !selectedInventoryItemId || (expiryNeedsReview && !expiryDraft)}
+                                title={!selectedInventoryItemId ? "先选择与候选规格一致的库存项" : expiryNeedsReview && !expiryDraft ? "19:30后新留货必须人工确认未来到期时间" : ""}
+                                onClick={() => runTemporaryHoldAction(onCreateTemporaryHold, {
+                                  intent,
+                                  candidateIndex,
+                                  inventoryItemId: selectedInventoryItemId,
+                                  qty: candidate.qty,
+                                  expiresAt: expiryNeedsReview ? toShanghaiExpiryIso(expiryDraft) : intent.candidate?.expiresAt,
+                                  reason: expiryNeedsReview ? "办公室确认19:30后新留货到期时间" : "客户明确要求临时留货",
+                                })}
+                              >
+                                {mutating ? "处理中" : "创建留货"}
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })}
+                    <small>{formatInventoryCorrectionTime(intent.updatedAt || intent.createdAt)} · 版本 {intent.revision}</small>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="ledger-message">暂无库存询问或临时留货意图。</p>
+          )}
+          {temporaryHolds.some((hold) => hold.status === "生效") && (
+            <div className="inventory-hold-active-list">
+              <h3>生效中的临时留货</h3>
+              {temporaryHolds.filter((hold) => hold.status === "生效").map((hold) => {
+                const holdId = hold.reservationId || hold.id;
+                const draft = holdExtensionDrafts[holdId] ?? { expiresAt: "", reason: "" };
+                const mutating = inventoryIntentState.mutatingId === holdId;
+                return (
+                  <div className="inventory-correction-queue-row inventory-hold-active-row" key={holdId}>
+                    <div>
+                      <StatusPill tone="warning">生效</StatusPill>
+                      <strong>{holdId}</strong>
+                      <span>{formatHoldInventoryItem(hold.inventoryItem)} / {hold.reservedQty} 个</span>
+                    </div>
+                    <p>到期：{formatInventoryCorrectionTime(hold.expiresAt)}；客户 {hold.customerId || "待确认"}</p>
+                    <div className="inventory-hold-extension-form">
+                      <button
+                        type="button"
+                        disabled={mutating}
+                        onClick={() => runTemporaryHoldAction(onConvertTemporaryHoldToOrder, {
+                          hold,
+                          intent: hold.intent,
+                          candidate: resolveTemporaryHoldCandidate(hold),
+                        })}
+                      >转订单</button>
+                      <input
+                        type="datetime-local"
+                        aria-label="新的留货到期时间"
+                        value={draft.expiresAt}
+                        onChange={(event) => setHoldExtensionDrafts((current) => ({ ...current, [holdId]: { ...draft, expiresAt: event.target.value } }))}
+                      />
+                      <input
+                        aria-label="延长留货原因"
+                        placeholder="授权延长原因"
+                        value={draft.reason}
+                        onChange={(event) => setHoldExtensionDrafts((current) => ({ ...current, [holdId]: { ...draft, reason: event.target.value } }))}
+                      />
+                      <button
+                        type="button"
+                        disabled={mutating || !draft.expiresAt || !draft.reason.trim()}
+                        onClick={() => runTemporaryHoldAction(onExtendTemporaryHold, { hold, ...draft })}
+                      >延长</button>
+                      <button
+                        type="button"
+                        className="danger-button"
+                        disabled={mutating}
+                        onClick={() => {
+                          if (!window.confirm(`确认释放临时留货 ${holdId}？释放后库存会恢复可用。`)) return;
+                          void runTemporaryHoldAction(onReleaseTemporaryHold, { hold, reason: "办公室确认释放临时留货" });
+                        }}
+                      >释放</button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
         <section className="detail-section inventory-ledger-section operational-detail-section-first" hidden={detailTab !== "流水"}>
           <div className="inventory-ledger-head">
             <div>
@@ -758,6 +938,65 @@ function getInventoryCorrectionOperationLabel(action) {
     confirm_inventory_correction_draft: "确认生效",
   };
   return labels[action] || action || "操作记录";
+}
+
+function getInventoryIntentTypeLabel(type) {
+  const labels = {
+    inventory_inquiry: "询库存",
+    merchant_reply: "商家库存回复",
+    inventory_confirmation: "客户确认库存意向",
+    temporary_hold: "临时留货请求",
+    shortage_cancellation: "库存不足取消",
+    duplicate_candidate: "疑似重复消息",
+  };
+  return labels[type] || type || "库存意图";
+}
+
+function getInventoryIntentTone(status) {
+  const text = String(status ?? "");
+  if (text.includes("取消") || text.includes("过期")) return "neutral";
+  if (text.includes("生效") || text.includes("已转订单")) return "success";
+  if (text.includes("重复") || text.includes("待确认") || text.includes("待创建")) return "warning";
+  return "blue";
+}
+
+function inventoryMatchesHoldCandidate(item, candidate) {
+  const same = (left, right) => String(left ?? "").trim() === String(right ?? "").trim();
+  const optional = (left, right) => !String(right ?? "").trim() || same(left, right);
+  return same(item.size, candidate.size)
+    && same(item.color, candidate.color ?? candidate.bagColor)
+    && optional(item.handle ?? item.handleType, candidate.handle ?? candidate.handleType)
+    && optional(item.style, candidate.style);
+}
+
+function formatHoldCandidate(candidate) {
+  return [
+    candidate.product || candidate.productName,
+    candidate.size,
+    candidate.color || candidate.bagColor,
+    candidate.handle || candidate.handleType,
+    candidate.style,
+    candidate.qty ? `${candidate.qty} 个` : "数量待确认",
+  ].filter(Boolean).join(" / ");
+}
+
+function toShanghaiExpiryIso(value) {
+  const normalized = String(value ?? "").trim();
+  if (!/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) return "";
+  const parsed = new Date(`${normalized}:00+08:00`);
+  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
+}
+
+function formatHoldInventoryItem(item) {
+  if (!item) return "库存项待确认";
+  return [item.size, item.color, item.handle || item.handleType, item.style, item.zone].filter(Boolean).join(" / ");
+}
+
+function resolveTemporaryHoldCandidate(hold) {
+  if (hold?.metadata?.candidate) return hold.metadata.candidate;
+  const candidates = hold?.intent?.candidate?.parsedCandidates;
+  const index = Number(hold?.metadata?.candidateIndex ?? 0);
+  return Array.isArray(candidates) ? candidates[index] ?? candidates[0] : null;
 }
 
 function formatInventoryLedgerTime(value) {

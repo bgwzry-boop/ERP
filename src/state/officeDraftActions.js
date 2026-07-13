@@ -1,10 +1,15 @@
 import { enrichDraftRow } from "../lib/orderParser.js";
 import { isArtworkReady, joinUniqueNotes } from "../domain/officeRules.js";
+import { confirmDraftFieldReview, confirmDraftFieldReviewsForEdit } from "../../shared/orderDraftFieldReview.mjs";
 
 export function updateDraftRowsField(rows, { id, field, value, customers, inventoryRecords }) {
   return rows.map((row) => {
     if (row.id !== id) return row;
-    const next = { ...row, [field]: field === "qty" ? Number(value || 0) : value };
+    if (field === "fieldReviewConfirmation") {
+      return enrichDraftRow(confirmDraftFieldReview(row, value, { method: "accepted" }), inventoryRecords);
+    }
+    let next = { ...row, [field]: field === "qty" ? Number(value || 0) : value };
+    next = confirmDraftFieldReviewsForEdit(next, field, value);
     if (field === "customerId") {
       const customer = value ? customers.find((item) => item.id === value) : null;
       next.customer = customer?.name ?? "待确认客户";

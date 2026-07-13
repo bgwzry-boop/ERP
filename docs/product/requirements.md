@@ -42,6 +42,8 @@ V1 needs account-based permissions rather than hard-coded person names. Permissi
 
 Every factory worker should use an individual account. V1 should not use shared person accounts or shared machine accounts.
 
+Employee and machine maintenance must default to formally imported accounts. Seed users may appear only in an explicitly labeled demonstration view, must never count toward role readiness or release gates, and must not mask an empty formal-account state.
+
 Different roles should have different permissions, such as office staff, production supervisor, silk-screen worker, bag-making worker, helper / packing worker, driver, HR / personnel, and management.
 
 All operation records should default to the current logged-in account, including workshop reporting, photos, packing, outbound, delivery confirmation, payment entry, price override, and review.
@@ -254,7 +256,11 @@ If mobile browser, Enterprise WeChat embedded browser, camera permission, or loc
 
 The V1 permission matrix should start from role defaults and then allow account-level extra permissions. Default roles include office, management, technical operations, production supervisor, silk-screen, bag-making, helper / packing, warehouse, driver, and HR / personnel. Special permissions can be granted per account, such as price review, printing, payment confirmation, inventory adjustment confirmation, performance / deduction confirmation, and boss-review access.
 
-Runtime environments must explicitly distinguish `demo`, `test`, and `production`. Default local data is partitioned by runtime mode, and demo reset operations must never remove test or production data. Production requires formal employee login, server-side authentication, PostgreSQL, and object storage; seed accounts, legacy identity headers, local memory/JSON/filesystem business persistence, and browser-local write fallback are forbidden. Office users do not receive production-configuration, persistence-evidence, field-evidence mutation, or release-candidate `system.v1_*` actions by default; those actions belong to management or technical-operations roles and must remain auditable.
+Runtime environments must explicitly distinguish `demo`, `test`, and `production`. Default local data is partitioned by runtime mode, and demo reset operations must never remove test or production data. Production requires formal employee login, server-side authentication, PostgreSQL, and object storage. Formal employees receive a distinct runtime session and must never be wrapped in a seed session. Seed accounts/tokens, legacy identity headers, local memory/JSON/filesystem business persistence, and browser-local write fallback are forbidden. Office users do not receive production-configuration, persistence-evidence, field-evidence mutation, or release-candidate `system.v1_*` actions by default; those actions belong to management or technical-operations roles and must remain auditable.
+
+Formal employee passwords must use an independently salted slow password hash, and neither plaintext passwords nor password hashes may appear in APIs or reports; a legacy hash may only remain until a successful compatibility login upgrades it. Before production release, office, warehouse, finance, workshop, packing, driver, management, and technical operations must each have at least one reviewed, enabled, login-enabled, fully changed, unlocked, and unexpired formal account. Workshop coverage additionally requires a default machine. Seed accounts never satisfy formal role coverage.
+
+Employee/machine maintenance should show aggregate coverage, usable-account counts, and blocker reasons for those eight roles. It must not expose account identifiers or password information, and permission denial or backend read failure must clear a prior management-session summary.
 
 The V1 first-pass button permission matrix should use these defaults:
 
@@ -351,7 +357,7 @@ The machine-capacity template should include machine number, workshop, capable s
 
 Machine capacity baselines feed estimated completion time, replenishment recommendations, scheduling risk, and capacity statistics. Before historical-data calibration, the UI should mark capacity as manually estimated.
 
-Employee accounts should be initialized from an employee table with fields such as name, phone / login account, position, default role, default workshop, default machine, enabled state, and special permissions. After initialization, reporting, photos, printing, approvals, payment confirmation, inventory adjustment, and delivery confirmation should all bind to the account.
+Employee accounts should be initialized from an employee table with fields such as employee number, name, phone / login account, position, default role, default workshop, default machine, enabled state, and special permissions. Employee number is the stable identity key for formal account review, first-password change, audit, and later profile updates; it is required and case-insensitively unique, and a missing number must never create a new identity derived from name or role. After initialization, reporting, photos, printing, approvals, payment confirmation, inventory adjustment, and delivery confirmation should all bind to the account.
 
 Initial finished-goods inventory should import by inventory item, including size, color, handle type, finished-goods style, warehouse zone / state, quantity, and source note. It must distinguish normal / long handle, blank / printed stock styles, and warehouse-counted versus workshop-reported inventory states rather than importing only one aggregate quantity.
 
@@ -589,6 +595,8 @@ When a new note or label is reprinted, the old version is not overwritten. It is
 Office todos, inventory exceptions, quantity variances, waiting customer notification, waiting print, payment confirmation, customer confirmation, and review/approval tasks use one todo table, with business type deciding available actions and handling logic.
 
 Todo records should include todo type, linked business object, priority, state, creation source, created time, due / reminder time, actual handler, handled time, result, and notes.
+
+Todo list reads must validate the linked business object. Valid references expose the resolved target; missing references appear as exceptions and block order, inventory, fulfillment, statement, or print navigation until office staff review and close them. Unsupported external reference types remain explicitly unverifiable and must never be presented as valid or successfully executed.
 
 The first V1 API phase should cover only the core capabilities required by page shells and main flows: order drafts / formal orders, inventory lookup / reservation / release, scheduling tasks, workshop reporting, packing packages, outbound and delivery, statements and payments, attachment upload, and operation logs.
 
@@ -1024,6 +1032,14 @@ P0 confidence display should use normal styling for high confidence, yellow hint
 
 The P0 order-entry / recognition footer actions are `save draft`, `save and confirm`, `split order`, and `void draft`. A complete manual entry without mandatory review conditions can use `save and confirm` directly and should not enter the shared todo pool for duplicate review; automation / OCR / robot drafts still default to review.
 
+`Save and confirm` preserves the default source-order boundary: multiple specifications, colors, processes, or fulfillment lines remain order lines under one formal original order unless the clerk explicitly invokes split-order review.
+
+When the clerk invokes `split by customer / fulfillment`, the server must produce an authoritative preview grouped by customer, original source-message order group, fulfillment method, and latest-needed time. The preview shows customer, source group, fulfillment, deadline, line count, quantity, and amount, and creates no order or reservation before approval.
+
+Split confirmation validates both draft revision and preview hash. If the draft or grouping changed, the clerk must preview again. An approved plan creates every formal original order and its inventory, production, fulfillment, and todo records in one transaction; any failed group rolls back the whole batch. Each generated order retains the same source draft and its source-message evidence. Shortage-cancelled lines remain draft evidence and never enter a split group.
+
+Split confirmation must provide persistent idempotent replay. Repeating the exact request with the same authenticated operator and idempotency key returns the first successful response even after that success advanced the draft revision, without creating another order, reservation, or log. Reusing the same key with changed request content returns a conflict and must neither replay nor execute a new split.
+
 The order-entry page should keep two business entry modes: `manual order entry` and `paste recognition`. The difference is mainly source context: manual entry may come from phone, on-site orders, private chat, or office-staff summarized text; paste recognition usually comes from customer group messages, customer original text, screenshots, or files. Both modes should flow into the same draft review / formal-order creation path.
 
 Many customer orders currently arrive in Enterprise WeChat group chats. The parser should prioritize natural-language order text copied from those group chats.
@@ -1043,6 +1059,8 @@ For custom printed orders, key missing fields should be based on whether product
 If a custom printed order lacks a print image, artwork/file, or key print requirement, it should enter missing information and generate customer copy asking for the missing image/artwork/print details.
 
 If a custom printed order lacks latest shipment time, mark it as a scheduling risk / pending confirmation and show estimated lead time or a suggested confirmation time. If production-critical information is complete, office staff can decide whether to accept and schedule first.
+
+When a production-ready custom-print line is confirmed as a formal order, the same order-confirmation transaction must create its production task and fulfillment placeholder. A newly confirmed custom order must not depend on API-startup seed synthesis before entering production, packing, trusted printing, and express/LTL fulfillment; later stages update the same fulfillment record.
 
 The business can gradually improve customer ordering habits in Enterprise WeChat groups by encouraging a more consistent order message format.
 
@@ -1066,6 +1084,8 @@ The order-draft review page should use a side-by-side layout:
 Parsed fields should carry confidence levels: `high`, `medium`, and `low`.
 
 `Low confidence` fields must be manually edited or confirmed before a formal order can be created.
+
+Low-confidence fields must retain field-level review evidence: field, original value, candidate value, reason, source message, status, confirmation method, reviewer, and confirmation time. Both normal and split confirmation must be blocked by the server while an active review is pending; omitting review fields from the client cannot bypass persisted evidence. Editing the related field resolves the review as an edit, while accepting a candidate requires an explicit action. Cancelled shortage evidence lines do not block formal-order creation.
 
 `Medium confidence` fields should be highlighted for office review.
 
@@ -1671,6 +1691,8 @@ If the customer asks the office to hold the goods, or office staff decides a sho
 
 `Hold inventory` must have an expiry time. V1 can default to automatic release at 19:30 on the same day, to avoid unconfirmed orders holding inventory indefinitely.
 
+Before 19:30, the expiry may default to 19:30 on the same day. At or after 19:30, V1 must not infer a next-day expiry: office staff must explicitly enter a future time. A request without that value must fail before reservation, inventory-ledger, or operation-log writes.
+
 `Hold inventory` should record holder, hold time, hold expiry time, hold reason, order line, and reserved quantity.
 
 When the hold expires, if the order has not moved to `waiting for outbound` / formal `fulfillment pending confirmation` and the hold has not been extended, the system should automatically release the reserved inventory and keep a release record. Formal orders in `fulfillment pending confirmation` should not be auto-released by the temporary-hold expiry rule.
@@ -2014,6 +2036,8 @@ The current 9 bag-making machines are distributed across 3 workshops. The 3 help
 The system should support configurable `workshop/zone - bag-making machine - helper account` responsibility mapping. For example, workshop A can cover machines 1-3, workshop B machines 4-6, and workshop C machines 7-9, but the grouping must be configurable rather than hard-coded.
 
 V1 can initialize the default mapping as `workshop 1 = machines 1-3`, `workshop 2 = machines 4-6`, and `workshop 3 = machines 7-9`, but the backend must allow workshop, machine, and helper-account bindings to be edited.
+
+`Master Data > Employees and Machines` must expose manual assignment modes: `fixed machine` requires both workshop and machine, `general worker / floating` binds only a responsible workshop, and `unassigned` clears both. Every save records the authenticated operator, timestamp, before/after values, and reason. Employee import requires only employee number, name, and role; workshop/machine may be assigned after import. Workshop-role production readiness still requires a default machine, while a general worker must not be blocked merely for having no fixed machine.
 
 A helper account should by default see only the material-preparation task pool and packing task pool for the workshop/zone they currently cover. Office staff, production supervisor, and management accounts can view all workshops.
 
@@ -4133,6 +4157,37 @@ V1 must pass at least the following acceptance scenarios before launch. These sc
 - Supplier monthly reconciliation: test uploading a fabric supplier statement Excel at the start of the following month, matching it against ERP-confirmed inbound records by delivery note, date, color, specification, weight, unit price, and amount, and highlighting missing ERP inbound, supplier omissions, specification differences, weight differences, unit-price differences, and amount differences.
 
 Acceptance tests should keep test data, operator account, expected result, and actual result. Failed scenarios should enter a fix list instead of being treated as launch-ready.
+
+## Order-Entry 09 UI Rules (2026-07-12)
+
+- Desktop order entry uses one three-step workbench: `paste source → review lines → inventory and confirm`; source recognition, editable rows, validation, and confirmation remain in the same screen.
+- The editable table exposes one `Order Type` column. Stock/common-goods rows show their bag/style type and custom rows show `Custom Print`; a separate visible `Is Printed` column is not used because it repeats the same decision.
+- The internal print flag remains structured data. Base-bag style, print color, print side, handle color, artwork, and notes are viewed and edited in the selected-row detail panel.
+- Missing fields, inventory exceptions, and recognition-review items use both text and semantic color, and each issue can select its related row.
+- Quantity, estimated amount, save draft, split by customer/fulfillment, void draft, and `Save and Confirm` remain in a persistently visible footer, with `Save and Confirm` as the primary action.
+- Table select arrows remain visually quiet until row hover, row selection, or keyboard focus, and every editable cell exposes a visible keyboard-focus treatment.
+- `Delete Current Row` uses danger styling and requires confirmation; cancellation leaves the draft unchanged.
+- Clicking a validation item scrolls to and highlights the related row.
+- Topbar `New Order` checks for unsaved draft content. Cancel retains the draft; confirmation clears source text, rows, selection, status, and draft revision metadata before opening a blank order.
+- Statuses never rely on red/yellow/green alone and retain text such as `Short 60`, `Review Required`, and `Available`.
+- Order-entry examples and the default manual flow must not combine unrelated customers into one draft table. The common case is one customer with multiple product lines, or one customer message containing multiple delivery batches/order intents.
+- Future customer-group automation supports concurrent recognition across many groups, but each group/message context produces an independently traceable draft in a processing queue. Concurrency means several drafts exist at once; it never merges different groups, customers, or source contexts into one editable draft.
+- Batch conversation recognition uses a separate queue command. Each original source-message order group creates one editable order draft. Inventory inquiry chains (including merchant replies and customer confirmations), temporary holds, duplicate candidates, and unresolved cancellations create line-free intent-context drafts. Only an `order_draft` queue item may open in the order editor; intent contexts cannot become formal-order quantities or inventory reservations.
+- Each batch retains batch ID, queue-item ID, every source message and sequence, queue kind, source order group, request hash, and independent draft ID. An exact retry reuses existing items. Reusing the same idempotency key with changed batch content must fail the whole preflight before any new item is written, while a partially persisted exact batch remains safely retryable item by item.
+- The anonymized real-conversation corpus is versioned and enforced by automated contracts for unique message IDs, sender role / time / sequence, intent classification, original-order grouping, structured rows, duplicate linkage, and direct-identifier scanning. V1 currently contains one confirmed anonymized case; release trial preparation still requires expansion to 20–50 real anonymized orders / conversations covering available and unavailable stock, custom print, all three fulfillment methods, quantity variance, and payment variance.
+- The current editable-draft boundary is one customer. Customer ownership is selected once at draft level and inherited by every line; changing it updates the whole draft, so the table does not repeat a customer column. Fulfillment-method/latest-time combinations are displayed as delivery-batch hints for office-confirmed splitting.
+- The default demo uses one `Zhangsan Apparel` customer, six lines, four delivery batches, and 7,300 total pieces. Multi-customer shorthand recognition remains only as a separate parser-test scenario, not the default order-entry experience.
+- A real stock/common-goods WeChat-group case now covers one customer sending separate order blocks in the morning and afternoon, with an inventory question (`Do you have it?`) and an office reply (`Yes`) between them. The messages also include a same-size multi-color quantity expression such as `40*30 orange 100, royal blue 200`, shop-floor shorthand such as `caramel / beige handle`, and a likely dimension typo such as `40+30`. Recognition must retain every source message, sender, timestamp, and conversation order, classify explicit orders separately from inventory inquiries, office replies, and later add-on/new-order candidates, and must not count the inquiry quantity again when a later explicit list confirms the order.
+- In this case `laminated bag` is a stock/common-goods style, not custom printing. A same-size multi-color expression should become separate inherited-spec lines. A likely `40+30` typo may suggest `40*30`, but must retain the original text and require office confirmation. Customer/group shorthand such as the caramel/beige-handle expression should use confirmed source-scoped color/handle aliases; without a confirmed alias it remains a review item rather than a silent guess.
+- In the confirmed real case, the later afternoon order block creates a new original order even though the customer and date match the morning order. The system must support this source segmentation and new-order classification rather than silently merging by customer/day. Eligible orders may still be combined later for packing/outbound/fulfillment when their method, address, and delivery batch match, while source-order identity and order time remain independent. An immediate `add another / supplement` follows the confirmed rule below: append only while the draft is unconfirmed, otherwise create a new order.
+- A quantity-bearing `Do you have it?` message is an inventory inquiry / conditional purchase intent, not confirmed order quantity and not an inventory reservation. The system retains the requested specification, color, handle, quantity, and source message, checks an inventory snapshot, and waits for an explicit order. If the customer cancels after learning stock is unavailable, record `Cancelled - Out of Stock` / close the inquiry and do not project its quantity into outbound, production, statements, or payments. For an explicit multi-line order that later has shortages, each shortage line remains in the existing customer-decision flow until the customer chooses replenishment or shortage cancellation.
+- Confirmed customer shorthand includes `caramel + beige handle`, meaning a caramel bag with a beige handle, and `off-white + coffee handle`, meaning an off-white bag with a coffee-colored handle. Repeated same-color wording means the bag and handle use the same named color. The parser may split the `[bag color][handle color] handle` pattern, while retaining original text and source scope; new or ambiguous aliases still require human confirmation before becoming customer/group mappings.
+- When an inventory inquiry finds available stock, it remains `Inventory Inquiry - Waiting for Customer Confirmation` and does not reserve inventory. Only explicit customer intent such as `take it / hold it / count it in`, or a later explicit order list, advances it into an order or hold flow. An office reply saying stock is available is not customer purchase confirmation.
+- If only some lines in an explicit order are unavailable and the customer cancels the unavailable goods, cancel those shortage lines by default while available lines continue. Cancel all unfulfilled lines only when the customer explicitly cancels the whole order.
+- Before formal confirmation, office staff may explicitly restore a shortage-cancelled draft line after the customer resumes the item. Restoration is a server-authoritative command that validates draft revision, target line, active cancellation intent, authenticated operator and reason, retains original cancellation evidence, and reruns inventory, price, required-field and low-confidence checks. After formal confirmation, resumed demand creates a new original order instead of rewriting the applied cancellation.
+- A standalone shortage-cancellation message that cannot be assigned to the current original order remains an independent cancellation-review context. The system must not guess or rewrite a historical order. Office staff may explicitly link it only to one line in an open, unconfirmed draft for the same resolved customer; unresolved/mismatched customers and confirmed targets fail closed. The transaction updates the target line, source intent and audit log while preserving the original source draft, message, sender and timestamp. Formal orders use the normal void/new-original-order workflow.
+- `If available, hold N for me` creates a temporary inventory hold, not a formal order. The hold records customer, source message, item, quantity, creator, and expiry. Before 19:30 it defaults to 19:30 the same day, with authorized office extension. At or after 19:30, office staff must explicitly select a future expiry and the system must not silently roll to the next day; a missing expiry creates no reservation, ledger, or operation-log side effect. Later order confirmation converts the hold into order-line reservation; cancellation or expiry releases it.
+- An immediate explicit `add another / supplement` message appends to the same original-order draft only while that draft is still unconfirmed, retaining the new source message. Once the original order is formally confirmed, the added content creates a new original order and must not silently rewrite confirmed quantities.
 
 ## Open On-Site Verification
 

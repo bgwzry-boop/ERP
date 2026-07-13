@@ -1,0 +1,274 @@
+.raw-material-roll-list {
+  display: grid;
+  gap: 7px;
+}
+
+.raw-material-roll-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e5ecf5;
+  border-radius: 6px;
+  background: #fbfcff;
+  padding: 7px 8px;
+}
+
+.raw-material-roll-row > * {
+  min-width: 0;
+}
+
+.raw-material-roll-row > div {
+  display: grid;
+  gap: 2px;
+}
+
+.raw-material-roll-row strong,
+.raw-material-roll-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raw-material-roll-row strong {
+  color: #172033;
+  font-size: 12px;
+}
+
+.raw-material-roll-row span {
+  color: #68758a;
+  font-size: 12px;
+}
+
+.raw-material-roll-row button {
+  min-height: 28px;
+  white-space: nowrap;
+}
+
+.raw-material-statement-import {
+  display: grid;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.file-upload-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  border: 1px solid #cfd9e8;
+  border-radius: 6px;
+  background: #fff;
+  color: #25324a;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.file-upload-button:hover {
+  border-color: #7aa7e8;
+  color: #1677ff;
+}
+
+.file-upload-button input {
+  display: none;
+}
+
+.supplier-statement-preview {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #e5ecf5;
+  border-radius: 6px;
+  background: #fbfcff;
+  padding: 8px;
+}
+
+.supplier-statement-preview-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.supplier-statement-preview-head > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.supplier-statement-preview-head strong,
+.supplier-statement-preview-head span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.supplier-statement-preview-head strong {
+  color: #172033;
+  font-size: 12px;
+}
+
+.supplier-statement-preview-head span,
+.supplier-statement-row span,
+.supplier-statement-review-actions span,
+.supplier-statement-review-row span,
+.supplier-statement-note-list span,
+.supplier-statement-issues span {
+  color: #68758a;
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.supplier-statement-review-actions {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid #eef3f9;
+  padding-top: 6px;
+}
+
+.supplier-statement-review-actions span {
+  min-width: 0;
+}
+
+.supplier-statement-review-actions button {
+  min-height: 28px;
+  white-space: nowrap;
+}
+
+.supplier-statement-row-list {
+  display: grid;
+  gap: 6px;
+}
+
+.supplier-statement-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1.2fr) minmax(52px, 0.42fr) minmax(58px, 0.42fr) auto;
+  align-items: center;
+  gap: 7px;
+  border-top: 1px solid #eef3f9;
+  padding-top: 6px;
+}
+
+.supplier-statement-row > div {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.supplier-statement-row strong,
+.supplier-statement-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.supplier-statement-row strong {
+  color: #172033;
+  font-size: 12px;
+}
+
+.supplier-statement-note-list,
+.supplier-statement-issues {
+  display: grid;
+  gap: 3px;
+  border-top: 1px solid #eef3f9;
+  padding-top: 6px;
+}
+
+.supplier-statement-issues span {
+  color: #b42318;
+}
+
+.supplier-statement-review-list {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #e5ecf5;
+  border-radius: 6px;
+  background: #fff;
+  padding: 8px;
+}
+
+.supplier-statement-review-list-head,
+.supplier-statement-review-row {
+  display: grid;
+  align-items: center;
+  gap: 8px;
+}
+
+.supplier-statement-review-list-head {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.supplier-statement-review-list-head strong {
+  color: #172033;
+  font-size: 12px;
+}
+
+.supplier-statement-review-list-head span {
+  color: #68758a;
+  font-size: 12px;
+}
+
+.supplier-statement-review-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  border-top: 1px solid #eef3f9;
+  padding-top: 6px;
+}
+
+.supplier-statement-review-row > div:first-child {
+  display: grid;
+  min-width: 0;
+  gap: 2px;
+}
+
+.supplier-statement-review-row strong,
+.supplier-statement-review-row span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.supplier-statement-review-row strong {
+  color: #172033;
+  font-size: 12px;
+}
+
+.compact-actions {
+  gap: 4px;
+}
+
+.compact-actions button {
+  min-height: 28px;
+  padding: 0 8px;
+  white-space: nowrap;
+}
+
+@media (max-width: 720px) {
+  .raw-material-roll-row,
+  .supplier-statement-preview-head,
+  .supplier-statement-review-actions,
+  .supplier-statement-row,
+  .supplier-statement-review-list-head,
+  .supplier-statement-review-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .raw-material-roll-row button {
+    width: 100%;
+  }
+
+  .supplier-statement-preview-head strong,
+  .supplier-statement-preview-head span,
+  .supplier-statement-row strong,
+  .supplier-statement-row span {
+    white-space: normal;
+  }
+}

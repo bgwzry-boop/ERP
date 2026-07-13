@@ -14,6 +14,7 @@ export function createOfficePageRefreshActions({
   refreshDriverDeliveryTasks,
   refreshFulfillments,
   refreshInventoryLedgerEntries,
+  refreshInventoryIntents,
   refreshInventoryRecords,
   refreshMasterDataEmployeeAccountReviews,
   refreshMasterDataImportReviewDrafts,
@@ -80,8 +81,12 @@ export function createOfficePageRefreshActions({
       const stockId = inventoryResult.selectedStockId ?? selectedStockIdRef.current;
       return runGroup(
         "库存与流水",
-        [() => Promise.resolve(inventoryResult), () => refreshInventoryLedgerEntries({ stockId, showToast: false })],
-        "库存和当前货品流水已从可信来源刷新。",
+        [
+          () => Promise.resolve(inventoryResult),
+          () => refreshInventoryLedgerEntries({ stockId, showToast: false }),
+          () => refreshInventoryIntents({ showToast: false }),
+        ],
+        "库存、当前货品流水和留货意图已从可信来源刷新。",
       );
     }
     if (activePage === "fulfillment") {

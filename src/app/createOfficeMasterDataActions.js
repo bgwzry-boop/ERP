@@ -14,6 +14,7 @@ import {
   enableOfficeMasterDataEmployeeAccount as enableOfficeMasterDataEmployeeAccountDefault,
   issueOfficeMasterDataEmployeeAccountPassword as issueOfficeMasterDataEmployeeAccountPasswordDefault,
   revokeOfficeMasterDataEmployeeAccountPassword as revokeOfficeMasterDataEmployeeAccountPasswordDefault,
+  updateOfficeMasterDataEmployeeAssignment as updateOfficeMasterDataEmployeeAssignmentDefault,
 } from "../services/officeMasterDataImportApiClient.js";
 import {
   upsertMasterDataEmployeeAccountReview,
@@ -29,6 +30,7 @@ const defaultApi = {
   enableOfficeMasterDataEmployeeAccount: enableOfficeMasterDataEmployeeAccountDefault,
   issueOfficeMasterDataEmployeeAccountPassword: issueOfficeMasterDataEmployeeAccountPasswordDefault,
   revokeOfficeMasterDataEmployeeAccountPassword: revokeOfficeMasterDataEmployeeAccountPasswordDefault,
+  updateOfficeMasterDataEmployeeAssignment: updateOfficeMasterDataEmployeeAssignmentDefault,
 };
 
 export function createOfficeMasterDataActions({
@@ -47,6 +49,7 @@ export function createOfficeMasterDataActions({
   now = () => new Date(),
   refreshMasterDataEmployeeAccountReviews,
   refreshMasterDataImportReviewDrafts,
+  refreshV1GoLiveStatus = async () => {},
   setLastIssuedEmployeeCredential,
   setMasterDataEmployeeAccountReviews,
   setMasterDataImportConfirmationPlans,
@@ -98,6 +101,44 @@ export function createOfficeMasterDataActions({
     callMasterDataWrite(masterDataApi.issueOfficeMasterDataEmployeeAccountPassword, input, "发放员工临时密码");
   const revokeOfficeMasterDataEmployeeAccountPassword = (input) =>
     callMasterDataWrite(masterDataApi.revokeOfficeMasterDataEmployeeAccountPassword, input, "撤销员工密码");
+  const updateOfficeMasterDataEmployeeAssignment = (input) =>
+    callMasterDataWrite(masterDataApi.updateOfficeMasterDataEmployeeAssignment, input, "保存员工车间 / 机台调配");
+
+  async function refreshEmployeeD49ReadModels() {
+    await Promise.allSettled([
+      refreshMasterDataEmployeeAccountReviews({ silent: true }),
+      refreshV1GoLiveStatus({ showToast: false }),
+    ]);
+  }
+
+  async function updateMasterDataEmployeeAssignment(review, assignment = {}) {
+    const actionState = getActionState("保存员工调配");
+    if (actionState.disabled) {
+      setToast(actionState.title);
+      return;
+    }
+    const result = await updateOfficeMasterDataEmployeeAssignment({
+      authState,
+      operatorId: currentUserId,
+      employeeId: review?.employeeId,
+      assignmentMode: assignment.assignmentMode,
+      workshop: assignment.workshop,
+      machineId: assignment.machineId,
+      reason: assignment.reason,
+      changedAt: now().toISOString(),
+    });
+    if (result.blocked) {
+      setToast(`保存员工调配失败：${result.error?.message || "权限或接口错误"}`);
+      return;
+    }
+    if (!result.employeeAccountReview) {
+      setToast("保存员工调配失败：未返回员工复核记录。");
+      return;
+    }
+    setMasterDataEmployeeAccountReviews((items) => upsertMasterDataEmployeeAccountReview(items, result.employeeAccountReview));
+    setToast(`已更新员工调配：${result.employeeAccountReview.name || result.employeeAccountReview.employeeId}。`);
+    await refreshEmployeeD49ReadModels();
+  }
 
   function openMasterDataTemplatePanel(sourceLabel) {
     showMasterDataTemplatePanel({
@@ -295,7 +336,7 @@ export function createOfficeMasterDataActions({
     }
     const recordCount = execution.summary?.transactionRecordCount ?? execution.summary?.targetRecordCount ?? 0;
     setToast(`已正式导入：${execution.executionId}，写入 ${recordCount} 条主数据记录。`);
-    await refreshMasterDataEmployeeAccountReviews({ silent: true });
+    await refreshEmployeeD49ReadModels();
   }
 
   async function downloadMasterDataImportFailedRows(execution) {
@@ -395,6 +436,7 @@ export function createOfficeMasterDataActions({
     }
     setMasterDataEmployeeAccountReviews((items) => upsertMasterDataEmployeeAccountReview(items, result.employeeAccountReview));
     setToast(`已启用员工账号：${result.employeeAccountReview.name || result.employeeAccountReview.employeeId}（${result.employeeAccountReview.loginName || result.employeeAccountReview.userId}）。`);
+    await refreshEmployeeD49ReadModels();
   }
 
   async function issueMasterDataEmployeeAccountPassword(review) {
@@ -432,6 +474,7 @@ export function createOfficeMasterDataActions({
       operationLogId: result.operationLogId,
     });
     setToast(`已发放临时密码：${result.issuedCredential.loginName || result.issuedCredential.userId}。`);
+    await refreshEmployeeD49ReadModels();
   }
 
   async function revokeMasterDataEmployeeAccountPassword(review) {
@@ -470,6 +513,7 @@ export function createOfficeMasterDataActions({
       setLastIssuedEmployeeCredential(null);
     }
     setToast(`已撤销员工密码：${result.employeeAccountReview.name || result.employeeAccountReview.loginName || result.employeeAccountReview.employeeId}。`);
+    await refreshEmployeeD49ReadModels();
   }
 
 
@@ -486,6 +530,7 @@ export function createOfficeMasterDataActions({
     openMasterDataTemplatePanel,
     precheckMasterDataTemplate,
     revokeMasterDataEmployeeAccountPassword,
+    updateMasterDataEmployeeAssignment,
     saveMasterDataMaintenanceDraft,
   };
 }

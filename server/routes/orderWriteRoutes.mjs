@@ -10,7 +10,12 @@ export async function handleOrderWriteRoutes({
   requireActionPermission,
   getPermissionOperatorId,
   recognizeOrderDraft,
+  recognizeOrderDraftQueue,
   saveOrderDraft,
+  restoreShortageCancelledDraftLineRoute,
+  linkCrossDraftShortageCancellationRoute,
+  previewOrderDraftSplitRoute,
+  confirmSplitOrderDraftRoute,
   confirmOrderDraftRoute,
   voidOrderLineRoute,
   adjustOrderLineQuantityRoute,
@@ -18,6 +23,17 @@ export async function handleOrderWriteRoutes({
   if (method === "POST" && url.pathname === "/api/order-drafts/recognize") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.recognizeOrderDraft)) return true;
     await recognizeOrderDraft({
+      response,
+      workspace,
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    return true;
+  }
+
+  if (method === "POST" && url.pathname === "/api/order-draft-queues/recognize") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.recognizeOrderDraft)) return true;
+    await recognizeOrderDraftQueue({
       response,
       workspace,
       body,
@@ -46,6 +62,58 @@ export async function handleOrderWriteRoutes({
       response,
       workspace,
       draftId: decodeURIComponent(confirmDraftMatch[1]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    return true;
+  }
+
+  const restoreShortageCancellationMatch = url.pathname.match(/^\/api\/order-drafts\/([^/]+)\/shortage-cancellation-restore$/);
+  if (method === "POST" && restoreShortageCancellationMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    await restoreShortageCancelledDraftLineRoute({
+      response,
+      workspace,
+      draftId: decodeURIComponent(restoreShortageCancellationMatch[1]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    return true;
+  }
+
+  const linkCrossDraftCancellationMatch = url.pathname.match(/^\/api\/order-drafts\/([^/]+)\/cross-draft-shortage-cancellation$/);
+  if (method === "POST" && linkCrossDraftCancellationMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.saveOrderDraft)) return true;
+    await linkCrossDraftShortageCancellationRoute({
+      response,
+      workspace,
+      draftId: decodeURIComponent(linkCrossDraftCancellationMatch[1]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    return true;
+  }
+
+  const splitPreviewMatch = url.pathname.match(/^\/api\/order-drafts\/([^/]+)\/split-preview$/);
+  if (method === "POST" && splitPreviewMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.confirmOrderDraft)) return true;
+    await previewOrderDraftSplitRoute({
+      response,
+      workspace,
+      draftId: decodeURIComponent(splitPreviewMatch[1]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    return true;
+  }
+
+  const splitConfirmMatch = url.pathname.match(/^\/api\/order-drafts\/([^/]+)\/split-confirm$/);
+  if (method === "POST" && splitConfirmMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.confirmOrderDraft)) return true;
+    await confirmSplitOrderDraftRoute({
+      response,
+      workspace,
+      draftId: decodeURIComponent(splitConfirmMatch[1]),
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
     });

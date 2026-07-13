@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import { nextId } from "../src/domain/officeRules.js";
 import { confirmDraftOrder } from "../src/state/officeOrderActions.js";
+import { updateDraftRowsField } from "../src/state/officeDraftActions.js";
 
 const sparseFulfillments = [
   { id: "F001" },
@@ -98,5 +99,29 @@ assert.equal(customPrintResult.blocked, false);
 assert.equal(customPrintResult.newLines[0].status, "待排产");
 assert.equal(customPrintResult.newFulfillments[0].lineId, customPrintResult.newLines[0].id);
 assert.equal(customPrintResult.newFulfillments[0].status, "待排产");
+
+const reviewedRows = updateDraftRowsField([{
+  id: "DRAFT-REVIEW-01",
+  size: "40*30*10",
+  fieldReviews: [{
+    reviewId: "MSG-REVIEW:size",
+    field: "size",
+    fieldLabel: "尺寸",
+    originalValue: "40+30",
+    suggestedValue: "40*30*10",
+    reason: "疑似尺寸输入错误",
+    status: "pending",
+  }],
+  dimensionEvidence: { original: "40+30", suggested: "40*30*10", requiresConfirmation: true },
+}], {
+  id: "DRAFT-REVIEW-01",
+  field: "fieldReviewConfirmation",
+  value: "MSG-REVIEW:size",
+  customers: [],
+  inventoryRecords: [],
+});
+assert.equal(reviewedRows[0].fieldReviews[0].status, "confirmed");
+assert.equal(reviewedRows[0].fieldReviews[0].confirmationMethod, "accepted");
+assert.equal(reviewedRows[0].dimensionEvidence.requiresConfirmation, false);
 
 console.log("Office order action checks passed.");

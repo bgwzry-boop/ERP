@@ -176,7 +176,10 @@ const attachmentViewerSource = fs.readFileSync(new URL("../src/app/AttachmentVie
 const masterDataTemplateModalSource = fs.readFileSync(new URL("../src/app/MasterDataImportTemplateModal.jsx", import.meta.url), "utf8");
 const actionModalsSource = fs.readFileSync(new URL("../src/app/ActionModals.jsx", import.meta.url), "utf8");
 const attachmentViewUtilsSource = fs.readFileSync(new URL("../src/app/attachmentViewUtils.js", import.meta.url), "utf8");
-const stylesSource = fs.readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+const mainSource = fs.readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
+const sharedStylesSource = fs.readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
+const printDocumentStylesSource = fs.readFileSync(new URL("../src/styles/features/print-documents.css", import.meta.url), "utf8");
+const attachmentStylesSource = fs.readFileSync(new URL("../src/styles/features/attachments.css", import.meta.url), "utf8");
 assert.match(appSource, /useOfficeInteractionController\(\{/);
 assert.match(appSource, /from "\.\/app\/AppViews\.jsx"/);
 assert.doesNotMatch(appSource, /const \[toast, setToast\] = useState/);
@@ -194,10 +197,36 @@ assert.match(actionModalsSource, /export function ActionModal\(/);
 assert.match(actionModalsSource, /export function OrderLineActionModal\(/);
 assert.match(attachmentViewerSource, /export function AttachmentViewerModal\(/);
 assert.match(masterDataTemplateModalSource, /export function MasterDataImportTemplateModal\(/);
+assert.match(masterDataTemplateModalSource, /员工机台: "workshop"/);
+assert.match(masterDataTemplateModalSource, /orderedTemplateSets\.map/);
+assert.match(masterDataTemplateModalSource, /item\.key === preferredTemplateKey \? <small>当前入口<\/small>/);
+assert.match(masterDataTemplateModalSource, /item\.key === preferredTemplateKey \? "is-preferred"/);
+assert.match(masterDataTemplateModalSource, /本次员工岗位/);
+assert.match(masterDataTemplateModalSource, /employeeRoleCoverage\.missingRoleLabels/);
 assert.match(appShellViewsSource, /export function RuntimeLoginScreen\(/);
 assert.match(appShellViewsSource, /export function Topbar\(/);
 assert.match(attachmentViewUtilsSource, /export function isInlineImageAttachment\(/);
-assert.match(stylesSource, /\.form-grid label \{[\s\S]*?min-width: 0;/);
-assert.match(stylesSource, /@media \(max-width: 720px\) \{[\s\S]*?\.form-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/);
+assert.match(sharedStylesSource, /\.form-grid label \{[\s\S]*?min-width: 0;/);
+assert.match(sharedStylesSource, /@media \(max-width: 720px\) \{[\s\S]*?\.form-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/);
+assert.match(mainSource, /import "\.\/styles\/features\/print-documents\.css";/);
+assert.equal(
+  mainSource.indexOf('import "./styles/features/production-print.css";') < mainSource.indexOf('import "./styles/features/print-documents.css";'),
+  true,
+  "print-document styles should load after the production/print workbench layer",
+);
+for (const selector of [".print-batch-record", ".print-sheet", ".print-package-checklist", ".print-template-sheet", ".label-header", ".print-line-table", ".label-barcode"]) {
+  assert.equal(printDocumentStylesSource.includes(selector), true, `print-document styles should own ${selector}`);
+  assert.equal(sharedStylesSource.includes(selector), false, `shared styles should not retain ${selector}`);
+}
+assert.match(mainSource, /import "\.\/styles\/features\/attachments\.css";/);
+assert.equal(
+  mainSource.indexOf('import "./styles/features/print-documents.css";') < mainSource.indexOf('import "./styles/features/attachments.css";'),
+  true,
+  "attachment styles should load after print-document styles",
+);
+for (const selector of [".payment-proof-row", ".attachment-preview", ".attachment-viewer-modal", ".attachment-viewer-body", ".attachment-viewer-meta", ".attachment-viewer-audit-row"]) {
+  assert.equal(attachmentStylesSource.includes(selector), true, `attachment styles should own ${selector}`);
+  assert.equal(sharedStylesSource.includes(selector), false, `shared styles should not retain ${selector}`);
+}
 
 console.log("Office interaction controller checks passed: overlay state, permission guards, modal routing, and conflict feedback are centralized.");

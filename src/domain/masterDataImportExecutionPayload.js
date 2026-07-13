@@ -1,3 +1,9 @@
+import { normalizeV1RuntimeEmployeeRoleKey } from "../../shared/auth/roleCatalog.js";
+import {
+  isValidEmployeeNumber,
+  normalizeEmployeeNumberKey,
+} from "../../shared/auth/employeeIdentity.js";
+
 export const MASTER_DATA_IMPORT_EXECUTION_PAYLOAD_VERSION = "p0-master-data-import-execution-payload-v1";
 
 const supportedSheetKeys = new Set(["customers", "product_specs", "price_tables", "inventory_items", "employees_machines"]);
@@ -9,6 +15,7 @@ export function buildMasterDataImportExecutionPayload(confirmationPlan = {}) {
   const targetRecords = createEmptyTargetRecords();
   const failedRows = [];
   const writableRows = [];
+  const seenEmployeeIds = new Set();
 
   for (const sheet of stagedSheets) {
     for (const row of sheet.rows) {
@@ -16,11 +23,19 @@ export function buildMasterDataImportExecutionPayload(confirmationPlan = {}) {
         failedRows.push(createFailedRow(sheet, row, unsupportedSheetReasons[sheet.sheetKey] || "该 sheet 暂未接入正式导入写入器。"));
         continue;
       }
+      const employeeId = sheet.sheetKey === "employees_machines"
+        ? normalizeEmployeeNumberKey(row.values["员工编号"])
+        : "";
+      if (employeeId && seenEmployeeIds.has(employeeId)) {
+        failedRows.push(createFailedRow(sheet, row, `员工编号重复：${cleanText(row.values["员工编号"])}。`));
+        continue;
+      }
       const mapped = mapRowToTargetRecords(sheet, row);
       if (mapped.failedReason) {
         failedRows.push(createFailedRow(sheet, row, mapped.failedReason));
         continue;
       }
+      if (employeeId) seenEmployeeIds.add(employeeId);
       appendTargetRecords(targetRecords, mapped.targetRecords);
       writableRows.push({
         sheetKey: sheet.sheetKey,
@@ -291,13 +306,18 @@ function mapInventoryItemRow(row) {
 }
 
 function mapEmployeeMachineRow(row) {
+  const employeeId = cleanText(row.values["员工编号"]);
   const employeeName = cleanText(row.values["员工姓名"]);
   const roleName = cleanText(row.values["角色"]);
   const defaultWorkshop = cleanText(row.values["默认车间"]);
-  if (!employeeName || !roleName || !defaultWorkshop) return { failedReason: "员工姓名、角色和默认车间必须完整。" };
-
-  const employeeId = cleanText(row.values["员工编号"]) || stableId("EMP-IMP", `${employeeName}|${roleName}|${defaultWorkshop}`);
-  const machineName = cleanText(row.values["机台名称"]) || cleanText(row.values["默认机台"]);
+  if (!employeeId || !employeeName || !roleName) return { failedReason: "员工编号、员工姓名和角色必须完整。" };
+  if (!isValidEmployeeNumber(employeeId)) {
+    return { failedReason: "员工编号须为1-32位字母、数字、下划线或短横线，且首位必须是字母或数字。" };
+  }
+  const roleKey = normalizeV1RuntimeEmployeeRoleKey("", roleName);
+  if (!roleKey) return { failedReason: "角色无法映射到V1正式岗位。" };
+  const defaultMachineName = cleanText(row.values["机台名称"]) || cleanText(row.values["默认机台"]);
+  const machineName = defaultMachineName;
   const machineWorkshop = cleanText(row.values["机台车间"]) || defaultWorkshop;
   const machineId = cleanText(row.values["机台编号"]) || (machineName ? stableId("MACH-IMP", `${machineName}|${machineWorkshop}`) : "");
   const capacitySize = cleanText(row.values["产能尺寸"]);

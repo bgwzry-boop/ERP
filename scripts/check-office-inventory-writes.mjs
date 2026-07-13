@@ -37,6 +37,7 @@ function createInventoryWriteCase({ api = {}, initialDrafts = [], refreshResults
     drafts: createState(initialDrafts),
     queue: createState({ source: "api", items: initialDrafts, total: initialDrafts.length, confirmingId: "", error: "" }),
     selectedStockId: createState("S001"),
+    intent: createState({ source: "api", items: [], holds: [], loading: false, mutatingId: "", error: "" }),
   };
   const draftsRef = { current: initialDrafts };
   const selectedStockIdRef = { current: "S001" };
@@ -54,12 +55,14 @@ function createInventoryWriteCase({ api = {}, initialDrafts = [], refreshResults
     loadInventoryCorrectionDetail: refresh("detail"),
     refreshInventoryCorrectionQueue: refresh("queue"),
     refreshInventoryLedgerEntries: refresh("ledger"),
+    refreshInventoryIntents: refresh("intents"),
     refreshInventoryRecords: refresh("inventory"),
     refreshTodos: refresh("todos"),
     selectedStockIdRef,
     serverRequired: () => serverRequired,
     setInventoryCorrectionDrafts: states.drafts.set,
     setInventoryCorrectionQueueState: states.queue.set,
+    setInventoryIntentState: states.intent.set,
     setSelectedStockId: states.selectedStockId.set,
   });
   return { actions, draftsRef, refreshCalls, selectedStockIdRef, states };
@@ -230,6 +233,55 @@ const refreshFailure = await refreshFailureCase.actions.confirmInventoryCorrecti
 assert.equal(refreshFailure.projectionRefreshFailed, true);
 assert.match(refreshFailure.feedback, /已通过后端 API确认.*刷新失败/);
 
+const temporaryHoldIntent = { intentId: "INT-1", revision: 1, intentType: "temporary_hold" };
+const temporaryHold = {
+  reservationId: "HOLD-1",
+  inventoryItemId: "S001",
+  reservedQty: 20,
+  intent: { ...temporaryHoldIntent, revision: 2, intentStatus: "临时留货-生效" },
+};
+const holdCase = createInventoryWriteCase({
+  api: {
+    async createOfficeTemporaryInventoryHold(input) {
+      assert.equal(input.intentId, "INT-1");
+      assert.equal(input.clientRevision, 1);
+      return { source: "api", intent: temporaryHold.intent, hold: temporaryHold, inventoryItem: { inventoryItemId: "S001" } };
+    },
+    async extendOfficeTemporaryInventoryHold(input) {
+      assert.equal(input.clientRevision, 2);
+      return { source: "api", intent: { ...temporaryHold.intent, revision: 3 }, hold: { ...temporaryHold, expiresAt: input.expiresAt } };
+    },
+    async releaseOfficeTemporaryInventoryHold(input) {
+      assert.equal(input.clientRevision, 2);
+      return { source: "api", intent: { ...temporaryHold.intent, intentStatus: "已取消" }, hold: { ...temporaryHold, reservedQty: 0 } };
+    },
+  },
+});
+const holdCreated = await holdCase.actions.createTemporaryInventoryHold({
+  intent: temporaryHoldIntent,
+  candidateIndex: 0,
+  inventoryItemId: "S001",
+  qty: 20,
+  reason: "客户明确留货",
+});
+assert.equal(holdCreated.blocked, undefined);
+assert.deepEqual(holdCase.refreshCalls.map((item) => item.name).sort(), ["intents", "inventory", "ledger"]);
+assert.match(holdCreated.feedback, /库存、流水和意图队列已同步/);
+
+holdCase.refreshCalls.length = 0;
+const holdExtended = await holdCase.actions.extendTemporaryInventoryHold({
+  hold: temporaryHold,
+  expiresAt: "2026-07-12T20:30:00+08:00",
+  reason: "客户授权",
+});
+assert.equal(holdExtended.source, "api");
+assert.equal(holdCase.states.intent.value.mutatingId, "");
+
+holdCase.refreshCalls.length = 0;
+const holdReleased = await holdCase.actions.releaseTemporaryInventoryHold({ hold: temporaryHold, reason: "客户取消" });
+assert.equal(holdReleased.hold.reservedQty, 0);
+assert.deepEqual(holdCase.refreshCalls.map((item) => item.name).sort(), ["intents", "inventory", "ledger"]);
+
 const detailState = createState({ source: "idle", detail: null, requestedId: "", loading: false, error: "" });
 const detailActions = createOfficeInventoryDetailReadActions({
   api: {
@@ -247,6 +299,7 @@ const detailActions = createOfficeInventoryDetailReadActions({
   setInventoryCorrectionDrafts() {},
   setInventoryCorrectionDetailState: detailState.set,
   setInventoryCorrectionQueueState() {},
+  setInventoryIntentState() {},
   setInventoryLedgerState() {},
 });
 const detailResult = await detailActions.loadInventoryCorrectionDetail("ICD-1", null, { showToast: true });
@@ -270,17 +323,41 @@ const blockedDetailActions = createOfficeInventoryDetailReadActions({
   setInventoryCorrectionDrafts() {},
   setInventoryCorrectionDetailState: blockedDetailState.set,
   setInventoryCorrectionQueueState() {},
+  setInventoryIntentState() {},
   setInventoryLedgerState() {},
 });
 const blockedDetail = await blockedDetailActions.loadInventoryCorrectionDetail("ICD-1");
 assert.equal(blockedDetail.blocked, true);
 assert.equal(blockedDetailState.value.detail, null);
 
+const intentReadState = createState({ items: [], holds: [], loading: false, error: "" });
+const intentReadActions = createOfficeInventoryDetailReadActions({
+  api: {
+    async listOfficeInventoryIntents() {
+      return { source: "api", items: [temporaryHoldIntent] };
+    },
+    async listOfficeTemporaryInventoryHolds() {
+      return { source: "api", items: [temporaryHold] };
+    },
+  },
+  authState: {},
+  currentUserId: "U-OFFICE-A",
+  serverRequired: () => true,
+  setInventoryIntentState: intentReadState.set,
+});
+const intentRead = await intentReadActions.refreshInventoryIntents({ showToast: true });
+assert.equal(intentReadState.value.items[0].intentId, "INT-1");
+assert.equal(intentReadState.value.holds[0].reservationId, "HOLD-1");
+assert.match(intentRead.feedback, /临时留货已刷新/);
+
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 for (const directWrite of [
   "createOfficeInventoryCorrectionDraft",
   "linkOfficeInventoryCorrectionAttachments",
   "confirmOfficeInventoryCorrectionDraft",
+  "createOfficeTemporaryInventoryHold",
+  "extendOfficeTemporaryInventoryHold",
+  "releaseOfficeTemporaryInventoryHold",
 ]) {
   assert.equal(appSource.includes(directWrite), false, `App must not own ${directWrite}`);
 }

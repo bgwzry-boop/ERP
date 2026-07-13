@@ -17,6 +17,7 @@ function createHarness({ activePage, allowLocalFallback = false, results = {} } 
     refreshDriverDeliveryTasks: refresh("driver"),
     refreshFulfillments: refresh("fulfillment"),
     refreshInventoryLedgerEntries: refresh("ledger"),
+    refreshInventoryIntents: refresh("intents"),
     refreshInventoryRecords: refresh("inventory", { source: "api", selectedStockId: "S-API" }),
     refreshMasterDataEmployeeAccountReviews: refresh("employeeReviews"),
     refreshMasterDataImportReviewDrafts: refresh("importReviews"),
@@ -50,6 +51,7 @@ function createHarness({ activePage, allowLocalFallback = false, results = {} } 
   const harness = createHarness({ activePage: "inventory" });
   assert.equal((await harness.controller.refreshActivePage()).source, "api");
   assert.equal(harness.calls.find(([name]) => name === "ledger")[1].stockId, "S-API");
+  assert.equal(harness.calls.some(([name]) => name === "intents"), true);
 }
 
 {

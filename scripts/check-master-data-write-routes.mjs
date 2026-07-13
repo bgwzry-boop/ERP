@@ -28,6 +28,7 @@ for (const [routeName, kind] of [
   ["createMasterDataImportExecutionRoute", "execution"],
   ["createMasterDataFailedRowsCorrectionDraftRoute", "correction"],
   ["enableMasterDataEmployeeAccountRoute", "enable"],
+  ["updateMasterDataEmployeeAssignmentRoute", "assignment"],
   ["issueMasterDataEmployeeAccountPasswordRoute", "password"],
   ["revokeMasterDataEmployeeAccountPasswordRoute", "revoke"],
 ]) {
@@ -38,6 +39,7 @@ await expectHandled("/api/master-data/import-confirmation-plans", "master_data.i
 await expectHandled("/api/master-data/import-executions", "master_data.import.execute", "execution", {}, "U-MANAGER-A");
 await expectHandled("/api/master-data/import-executions/EX-1/failed-rows/correction-draft", "master_data.import.plan.create", "correction", { executionId: "EX-1" }, "U-OFFICE-A");
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/enable", "master_data.employee_account.review", "enable", { employeeId: "EMP-1" }, "U-MANAGER-A");
+await expectHandled("/api/master-data/employee-account-reviews/EMP-1/assignment", "master_data.employee_account.review", "assignment", { employeeId: "EMP-1" }, "U-MANAGER-A");
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/password", "master_data.employee_account.password.issue", "password", { employeeId: "EMP-1" }, "U-MANAGER-A");
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/password/revoke", "master_data.employee_account.password.issue", "revoke", { employeeId: "EMP-1" }, "U-MANAGER-A");
 

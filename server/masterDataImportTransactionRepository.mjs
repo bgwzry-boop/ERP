@@ -1,5 +1,9 @@
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import {
+  isValidEmployeeNumber,
+  normalizeEmployeeNumberKey,
+} from "../shared/auth/employeeIdentity.js";
 
 const masterDataImportWriteScope = "master_data_import_v1";
 
@@ -177,6 +181,7 @@ export function normalizeTargetRecords(targetRecords = {}) {
   for (const recordType of recordTypeWriteOrder) {
     normalized[recordType] = normalizeRecordList(recordType, targetRecords[recordType] ?? []);
   }
+  assertIncomingEmployeeIdentityKeys(normalized.employees);
   return normalized;
 }
 
@@ -217,6 +222,9 @@ function applyTargetRecordsToWorkspace(workspace = {}, targetRecords = {}) {
     workspace[contract.workspaceKey] = Array.isArray(workspace[contract.workspaceKey])
       ? workspace[contract.workspaceKey]
       : [];
+    if (recordType === "employees") {
+      assertExistingEmployeeIdentityKeys(workspace[contract.workspaceKey], records);
+    }
     assertLocalReferences(workspace, recordType, records);
     const result = upsertManyById(workspace[contract.workspaceKey], records);
     workspace[contract.workspaceKey] = result.items;
@@ -234,6 +242,31 @@ function applyTargetRecordsToWorkspace(workspace = {}, targetRecords = {}) {
   }
 
   return summary;
+}
+
+function assertIncomingEmployeeIdentityKeys(records = []) {
+  const seen = new Set();
+  for (const record of records) {
+    const employeeId = cleanText(record.id);
+    if (!isValidEmployeeNumber(employeeId)) {
+      throw new Error(`employees record has invalid stable employee number: ${employeeId || "missing"}`);
+    }
+    const key = normalizeEmployeeNumberKey(employeeId);
+    if (seen.has(key)) throw new Error(`employees records contain duplicate employee number: ${employeeId}`);
+    seen.add(key);
+  }
+}
+
+function assertExistingEmployeeIdentityKeys(currentRecords = [], incomingRecords = []) {
+  const existingByKey = new Map(
+    currentRecords.map((record) => [normalizeEmployeeNumberKey(record?.id), cleanText(record?.id)]),
+  );
+  for (const record of incomingRecords) {
+    const existingId = existingByKey.get(normalizeEmployeeNumberKey(record.id));
+    if (existingId && existingId !== cleanText(record.id)) {
+      throw new Error(`employees record conflicts with existing employee number: ${record.id}`);
+    }
+  }
 }
 
 function assertLocalReferences(workspace, recordType, records) {

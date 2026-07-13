@@ -121,16 +121,17 @@ function detectSize(chunk) {
 
 function detectQuantities(chunk) {
   const matches = [];
-  const colorQtyRegExp = new RegExp(`(${colorPattern})色?\\s*(\\d{2,5})(?:\\s*个)?`, "g");
+  const colorQtyRegExp = new RegExp(`(${colorPattern})色?\\s*(\\d{1,6})(?:\\s*个)?`, "g");
   for (const match of chunk.matchAll(colorQtyRegExp)) {
     const before = chunk.slice(Math.max(0, match.index - 3), match.index);
-    if (before.includes("印")) continue;
+    const after = chunk.slice(Number(match.index) + match[0].length);
+    if (before.includes("印") || /^\s*[*xX×]/.test(after)) continue;
     matches.push({ color: normalizeColor(match[1]), qty: Number(match[2]) });
   }
 
   if (matches.length) return matches;
 
-  const qty = chunk.match(/(\d{2,5})\s*个/);
+  const qty = chunk.match(/(\d{1,6})\s*个/);
   return [{ color: detectColor(chunk), qty: qty ? Number(qty[1]) : 0 }];
 }
 

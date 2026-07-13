@@ -1,12 +1,18 @@
 # ERP 系统代码与 UI 整改方案
 
 制定日期：2026-07-11
-版本：V7.30
+版本：V8.27
 适用范围：V1 上线收口、代码精简、UI 统一和现场验收
 
 执行口径：本方案按“代码质量整改”和“真实上线验收”双轨推进。代码、自动化和本地预览通过，不等于真实生产环境、打印机、司机手机和现场业务已经验收。
 
 ## 零、执行摘要
+
+B5 / V1 现场证据投影收口第十四轮已完成。现场证据进度、缺项 / 签字 / 边界待办、CSV 汇总、manifest 草稿摘要新鲜度、回填指导和质量门禁迁入 `v1FieldEvidenceProjectionService.mjs`，通用 V1 文本脱敏进入 `v1StatusTextSanitizer.mjs`，API 组合根从 `15,323` 行降至 `14,183` 行。直接测试覆盖 fresh / stale / missing 草稿、完整证据 / 签字 / 边界和敏感信息隐藏；全量 192 脚本链、零高危依赖、PostgreSQL 16、MinIO、production profile、OpenAPI、E2E `2/2` 和浏览器现场工作台通过。现场证据服务仍有 `1,153` 行，可后续再分层；真实门禁 `0/4`、证据 `0/34`、签字 `0/6` 不变。
+
+B5 / 正式认证编排收口第十三轮已完成。正式员工登录、失败锁定、旧摘要升级、密码过期、首次改密、当前会话和 logout 撤销迁入 `runtimeAuthCommandService.mjs`，API 组合根从 `15,722` 行降至 `15,323` 行。原流程在持久化前修改内存，identity repository 失败会造成进程与 PostgreSQL 不一致；现所有状态命令使用 staged workspace，持久化成功后才提交 users、employees、审计和撤销投影。新增登录 / 改密 / logout 失败回滚直接测试；全量 192 脚本链、零高危依赖、PostgreSQL 16、MinIO、production profile、OpenAPI、E2E `2/2` 和浏览器会话恢复通过。下一轮继续迁出 V1 上线状态编排；真实 A1/A2、证据和签字数字不变。
+
+B5 / 生产 API 安全收口第十二轮已完成。审核发现旧 `GET /api/office/workspace` 在鉴权后仍直接返回整个进程 workspace，可泄露认证 secret、正式账号密码摘要、repository / storage 内部对象和越权业务集合。现 production 固定返回 `403 OFFICE_WORKSPACE_PROJECTION_DISABLED`，只允许权限收口的领域 API；demo/test 使用独立白名单投影服务，仅保留 10 类兼容集合和安全运行摘要，并递归删除敏感键。新增服务、严格认证 HTTP 和 production HTTP 回归；全量 192 脚本链、零高危依赖、PostgreSQL 16、MinIO、production profile、OpenAPI、核心 E2E `2/2` 和浏览器均通过。下一轮继续拆分 V1 上线系统编排，并逐步移除测试对旧投影的依赖；真实 A1/A2、现场证据和签字数字不变。
 
 本轮整改不推翻现有业务代码，也不做一次性全站换肤。现有六个办公室主页面、角色工具、权限、事务和大部分领域 API 已具备，整改重点是把仍留在组合根中的职责迁出、统一操作型 UI，并完成真实环境与现场门禁。
 
@@ -22,6 +28,32 @@
 R1、R2 的 D21 交互控制器、D22 共享 UI 首轮、D23 三个操作页、D24 对账 / 角色工具迁移、D25-1 V1 状态模块首轮拆分、D25-2 / D25-6 打印域 service、D26 公共待办处理持久化、D27 库存修正 / 生产成品图来源事务、D28 生产报工 / 跨日报数 / 打包事务、D29 排产事务硬化、D30-D31 生产 command service、D32 对账通信写链、D33 认证身份边界、D34-D35 订单明细事务 / service、D36 订单草稿 / 确认 service、D37-D38 出库 / 派单 / 司机交付 command service、D39 司机送达凭证附件可信校验、D40 共享业务附件校验 / 定制成品图、D41 财务 / 客户确认附件收口和 D42 库存修正附件持久化关联已完成；当前进入 D43 隔离数据核心浏览器 E2E。R8 需要现场真实配置和设备配合，可与其余代码整改并行，但不能由本地模拟代替。
 
 D24 已把对账、生产 / 打包、原材料、车间和司机页接入共享运营 UI。对账保留五项财务口径；生产保留“机器计数不是合格产量”边界；原材料保留 OCR 仅预填、一卷一标、贴标扫码后可用；司机页按当前状态隔离任务。浏览器验收还发现并修复了司机切换到无任务状态时原生联调摘要读取 `null.items` 导致白屏的问题，并加入回归测试。
+
+C4.6 已完成车间 / 司机移动工作台二轮收敛。车间详情拆为操作、任务、成品图、记录；司机详情拆为路线、装车、送达、设备、记录，并按待送货 / 配送中 / 已完成状态默认进入装车 / 送达 / 记录。长设备验收、任务摘要和凭证表单不再把当前主动作压到数屏之后；`390x844` 下司机页面高度由约 `4749px` 降至 `1389px`，装车按钮由约 `4578px` 提前至 `908px`，车间报工按钮由约 `1630px` 提前至 `997px`。权限、库存、机器计数、成品图复核和附件可信规则未改变。下一轮 C4.7 精修 V1 上线状态管理页；真实手机、打印机和现场门禁仍按 R8 单独验收。
+
+C4.7 已完成 V1 上线状态管理页二轮收敛。原页面在 `1024x768` 的约 `399px` 高详情窗内连续承载约 `41,128px` 内容，手机端整页约 `40,058px`。现增加两级业务视图：左侧在发布门禁、解除阻塞、模块之间切换；右侧按决策总览、生产配置、运行门禁、现场验收、V1/V2、模块详情分区，并在每个工作区内继续按负责人结论 / 完成审计 / 当前阶段等阶段切换。桌面默认详情滚动约 `1,863px`，手机默认整页约 `3,766px`；V1 状态样式进入独立 feature CSS。真实数字保持需求 `85-90%`、P0/代码 `97-98%`、V1 就绪 `80-83%`、门禁 `0/4`、证据 `0/34`、签字 `0/6`，没有因 UI 收敛改变。
+
+B5 前端结构收口首轮已完成。负责人结论、完成审计和当前解除阻塞阶段迁入 `V1StatusDecisionWorkspace.jsx`；模块摘要、岗位压力、主要未完成项、阻塞项和 V1/V2 差异迁入 `V1StatusModuleWorkspace.jsx`。两个工作区只接收显式 props，不建立第二份状态或改变 action service；`V1StatusPage.jsx` 从 `5,569` 行降至 `5,340` 行，结构检查阻止已迁移区块回流。全量、构建预算、依赖审计、PostgreSQL、MinIO、production profile、OpenAPI、E2E 和浏览器验证通过。下一轮先迁出运行门禁与现场验收，再分拆体积最大的生产配置与现场证据区；真实 A1/A2 门禁数字不变。
+
+B5 前端结构收口第二轮已完成。运行门禁、七类只读预检结果和阻塞动作迁入 `V1StatusRuntimeWorkspace.jsx`，现场验收报告迁入 `V1StatusFieldAcceptanceWorkspace.jsx`；运行工作区统一复用结果容器、指标和阻塞列表，但保留原 ref、回调、顺序和不出纸 / 只读护栏。`V1StatusPage.jsx` 从 `5,340` 行降至 `4,938` 行，两轮累计减少 `631` 行。结构门禁、全量、构建预算、依赖审计、PostgreSQL、MinIO、production profile、OpenAPI、E2E 和浏览器预检动作 / 验收页签验证通过。下一轮迁出角色现场任务、证据 intake、签字和 V1/V2 边界，再处理生产配置；真实 A1/A2 门禁数字不变。
+
+B5 前端结构收口第三轮已完成。角色任务、证据 / 签字 staging 与附件、closeout / release candidate 结果和 V1/V2 边界迁入三个独立工作区；证据组件按数据、能力、动作、处理器、草稿、ref 和选项分组输入，页面仍拥有权威 action state 和跨工作区导航。`V1StatusPage.jsx` 从 `4,938` 行降至 `3,812` 行，三轮累计减少 `1,757` 行。全量、构建预算、依赖审计、PostgreSQL、MinIO、production profile、OpenAPI、E2E 和浏览器证据 / 边界动作通过。`V1StatusFieldEvidenceWorkspace.jsx` 仍有 `1,087` 行且 390px 证据阶段约 `8,021px` 高；下一轮先按进度、证据、签字和收尾分层，再处理生产配置。真实 A1/A2 门禁数字不变。
+
+B5 前端结构收口第四轮已完成。证据工作区拆为进度、证据回填、签字 / 边界、收尾检查四个受控阶段，角色任务快捷动作会切换到正确表单；入口协调组件从 `1,087` 行降至 `267` 行，四个子组件最大 `523` 行。手机高度由单页约 `8,021px` 分为 `4,552 / 1,832 / 1,870 / 3,532px`，默认进度只显示 6 条优先证据和 3 条签字预览，完整任务仍可逐项处理。全量、构建预算、依赖审计、PostgreSQL、MinIO、production profile、OpenAPI、E2E 和浏览器通过。下一轮迁出生产配置；`erp-pages` 为 `431,434/450,000` 字节，禁止复制大段 JSX。真实 A1/A2 门禁数字不变。
+
+B5 前端结构收口第五轮已完成。V1 上线状态不再由办公室页面 barrel 静态导入，改用 React `lazy` / `Suspense` 按需加载；构建门禁要求恰好一个 `erp-v1-status` 懒加载 chunk、入口 HTML 不直接引用、且业务 JS 保留动态引用。生产配置迁入 `V1StatusProductionWorkspace.jsx`，并拆成配置门禁、真实值校验、第一阶段、修正清单、最小模板、安全草稿六个受控阶段。`V1StatusPage.jsx` 从 `3,823` 行降至 `2,524` 行，B5 累计减少 `3,045` 行；`erp-pages` 从 `431,434` 字节降至约 `230,020` 字节，V1 懒加载 chunk 约 `211,200` 字节，最大 chunk 约 `347,613` 字节。全量、依赖审计、PostgreSQL、MinIO、production profile、OpenAPI、核心 E2E `2/2` 和浏览器六阶段 / 当前预检 / 1024px / 390px 验收通过。下一轮处理仍为 `638` 行的生产第一阶段、`523` 行的现场收尾，以及 `App.jsx` / API 组合根；真实 A1/A2 门禁数字不变。
+
+B5 前端结构收口第六轮已完成。生产第一阶段从 `638` 行降为 `135` 行协调器，并拆出 readiness / 持久化证据 `281` 行、执行 / dry-run / 正式合并结果 `277` 行；现场收尾从 `523` 行降为 `195` 行协调器，并拆出草稿 staging / 附件结果和 release precheck / refresh 结果两个 `187` 行组件。四个结果组件只负责展示，action state、权限、回调、env 脱敏、dry-run 证明、附件归属和发布 fail-closed 仍由原边界负责。结构门禁、全量、依赖审计、PostgreSQL、MinIO、production profile、OpenAPI、核心 E2E `2/2`、浏览器真实值 dry-run / 刷新预检和 1024px / 390px 均通过。V1 feature 内最大 JSX 组件现为 `460` 行生产门禁；下一轮转向 `App.jsx`、API 组合根和 V1 normalizer。真实 A1/A2 门禁数字不变。
+
+B5 前端结构收口第七轮已完成。`officeV1GoLiveStatusApiClient.js` 从 `4,676` 行降至 `953` 行，现场证据、发布 / 边界、运行门禁、生产 env、生产第一阶段、生产模板和通用 normalizer 工具均有独立领域模块；HTTP action 继续由可注入 factory 负责。结构门禁锁定领域导入、关键 export 和旧实现不回流。首次构建发现文件名未命中 V1 chunk 规则后，统一采用 `officeV1GoLiveStatus*` 前缀；最终 `erp-runtime` 约 `347,613` 字节，V1 runtime 约 `152,790` 字节。全量、依赖审计、PostgreSQL、MinIO、production profile、OpenAPI、核心 E2E `2/2`、浏览器 dry-run / 刷新预检和全新零错误页面通过。下一轮审计 `App.jsx` 与 API 组合根；生产 env normalizer `1,154` 行作为后续单领域拆分候选。真实 A1/A2 门禁数字不变。
+
+B5 前端结构收口第八轮已完成。登录壳、顶部栏、附件查看、基础资料导入模板和跨域业务操作弹窗从 `App.jsx` 迁入 `src/app/`，由稳定 barrel 导出；`App.jsx` 从 `7,235` 行降至 `5,922` 行。客户查找和对账阻断金额不再依赖模块隐藏作用域，改由组合根显式注入。浏览器发现并修复 `390px` 收款弹窗双列裁切：手机端表单改为单列，表单项和原生控件允许收缩，结构门禁防止规则回退。全量、依赖审计、构建、PostgreSQL、MinIO、production profile、OpenAPI、核心 E2E `2/2` 和 1024 / 390 浏览器验证通过。下一轮优先收敛 `server/apiServer.mjs` 约 `16,397` 行的组合根职责；真实 A1/A2 门禁数字不变。
+
+B5 API 组合根收口第九轮已完成。基础资料导入确认计划、正式执行和失败行修正草稿的校验、认证操作人、审计构造、review / transaction repository 编排及事务失败回滚投影迁入 `masterDataImportCommandService.mjs`；`apiServer.mjs` 从 `16,397` 行降至 `16,141` 行，只保留薄响应适配。直接服务测试覆盖缺参 / 不存在、默认不写正式数据、显式 PostgreSQL writer 提交、失败回滚和失败行修正，结构断言防止领域构造函数回流。全量、依赖审计、PostgreSQL、MinIO、production profile、OpenAPI、核心 E2E `2/2` 和浏览器基础资料工作区通过。下一轮迁出员工账号启用 / 临时密码 / 撤销命令，再继续 V1 上线系统编排拆分；真实 A1/A2 门禁数字不变。
+
+B5 API 组合根收口第十轮已完成。员工账号启用、临时密码发放和密码撤销迁入 `masterDataEmployeeAccountCommandService.mjs`，共享 runtime user 查找、upsert、持久化和响应脱敏迁入 `runtimeIdentityWorkspace.mjs`；`apiServer.mjs` 从 `16,141` 行降至 `15,710` 行。审核发现 runtime user 虽持久化，但导入员工账号字段和账号审计只在内存，重启后会丢失复核投影；现本地 identity state 保存员工账号快照及账号日志，PostgreSQL 同事务 upsert 用户、回写员工账号状态并保存审计。命令使用 staged workspace，repository 成功后才提交内存，失败不产生半成功状态。直接服务、重启 API、全量、依赖审计、PostgreSQL、MinIO、production profile、OpenAPI、核心 E2E `2/2` 和浏览器员工机台工作区通过。下一轮继续拆分 V1 上线系统编排；真实 A1/A2 门禁数字不变。
+
+B5 / 生产持久化补漏第十一轮已完成。正式基础资料导入虽会写 PostgreSQL 16 张目标表，但生产启动快照遗漏客户备注、颜色别名、规格、款式、价格表 / 价格项、机台、员工、员工机台关系和产能基线 10 类集合，导致数据库有记录而新进程工作区无记录。现 `coreWorkspaceReadRepository` 为所有导入集合提供显式表来源和领域映射；production 启动用 PostgreSQL 结果替换 seed，包括权威空数组，再叠加 runtime identity 员工账号状态。PostgreSQL 16 live 在正式导入后创建全新 repository 和 API server，验证价格 / 规格 / 机台关系及待复核员工跨启动可见。全量、依赖审计、MinIO、production profile、OpenAPI、核心 E2E `2/2` 和浏览器通过。本地内存导入仍仅限 demo；下一轮继续审计持久化写读不对称和 V1 系统编排，真实 A1/A2 门禁数字不变。
 
 D25-1 已把 V1 状态页的静态完成度基线、阶段归一、快照新鲜度和生产 env 变量检查迁入纯展示模型，把顶部快照 / 发布门禁 / 模块列表迁入独立组件；客户端把 22 个 HTTP action 收敛为显式配置的 action factory，原文件只保留 normalizer 和兼容导出。action factory 直接覆盖幂等请求头、权限拒绝、ready=false 阻断和离线 fail-closed；管理 / 技术运维可见、办公室不可见的权限边界保持。
 
@@ -65,7 +97,15 @@ D41 已新增 `statementFinancialCommandService.mjs`，把收款、差额和核�
 
 D42 已补齐库存修正凭证真实可达链路。创建草稿仍拒绝附件且不改库存；附件上传使用当前草稿 owner 和 `inventory_correction_evidence` purpose，允许图片 / PDF，最多 10 个；独立 link command 在本地 / PostgreSQL 事务中校验附件、锁定草稿与附件、检查 revision、更新 `attachment_ids` 并写操作日志，确认生效前再次校验。仓库只新增库存修正专用上传权限。前端在草稿生成后开放上传，失败可对同一草稿重试，详情显示凭证数量。
 
-D43 已建立隔离数据核心浏览器 E2E。Playwright 只清理 E2E 专用 runtime root，使用独立 API / 前端端口，真实操作订单识别 / 确认、库存占用、自提交付、对账、收款和付款凭证上传，CI 对失败阻断并保留 trace / 截图 / video。执行中修复 `空白袋` 触发白袋颜色误判，以及交付完成未写对账明细 / 应收的漏账；对账候选现与交付、库存和审计同事务幂等提交。下一轮 D44 扩展定制印刷生产 / 打包 / 可信打印 / 快运拉走链路，不以机器计数代替合格数量。
+D43 已建立隔离数据核心浏览器 E2E。Playwright 只清理 E2E 专用 runtime root，使用独立 API / 前端端口，真实操作订单识别 / 确认、库存占用、自提交付、对账、收款和付款凭证上传，CI 对失败阻断并保留 trace / 截图 / video。执行中修复 `空白袋` 触发白袋颜色误判，以及交付完成未写对账明细 / 应收的漏账；对账候选现与交付、库存和审计同事务幂等提交。
+
+D44 已扩展定制印刷核心闭环：识别 `白印黑 / 白袋黑提 / 单面`，确认时同事务创建生产任务和交付占位，完成成品图上传 / 复核、合格报工、打包、可信打印 dry-run 派发 / 服务账号回写、快运拉走、库存和对账。机器计数 `9876` 与合格数量 `12` 分离断言，未打印标签时保持阻断。执行中修复印刷面 / 稿件状态 API 映射及新定制单缺生产 / 交付任务；本地事务、PostgreSQL 16 live、全量测试和核心 E2E `2/2` 通过。D45 建议扩展角色分工交接 E2E，并把主要精力转入真实基础设施、设备和现场验收。
+
+D45 已将同一条定制印刷链改为岗位分权交接：管理账号负责确认、排产和成品图复核，`PRINT-01` 丝印账号负责上传 / 报工，打包账号负责包裹，仓库账号负责打印 / 派发 / 拉走，打印驱动服务账号负责可信回调，财务账号复核对账。负向断言锁定车间不可自审、打包不可报工、仓库不可回调；持久化记录校验各动作操作人。前端按权限加载打印诊断和设备验收，受限岗位不再产生后台 403。下一轮转向正式员工账号、真实基础设施 / 设备输入和现场验收，不把 seed 切换或 dry-run 当上线证据。
+
+D46 已完成正式员工身份类型拆分与生产持久化实测。正式导入员工签发独立 runtime session，seed / runtime token 不能跨账号类型使用；严格模式正式登录、会话查询、改密、重启恢复和 logout 撤销通过。正式账号启用增加 seed / 员工身份唯一性、启用后身份 / 角色锁定和技术运维角色。PostgreSQL live 发现并修复运行期身份仓储参数化多语句无法执行的问题，改为单条 CTE 原子 upsert 用户与撤销记录。D47 继续升级密码哈希和正式角色账号覆盖门禁，再导入真实员工清单。
+
+D47 已完成正式员工密码和角色覆盖门禁。新密码使用随机盐 `scrypt` v2，旧 v1 摘要在成功登录后自动迁移；生产系统 readiness 和组合 go-live precheck 要求办公室、库房、财务、车间、打包、司机、管理、技术运维 8 类岗位均有已复核、已完成首次改密、未锁定、未过期的正式账号，车间账号还需绑定默认机器。严格 production、PostgreSQL 16、对象存储 live、全量测试和 OpenAPI 已通过。下一步不再继续扩认证骨架，转为导入真实员工清单、完成首次改密 / 机器绑定并执行 A1/A2 现场试跑。
 
 ## 一、整改结论
 
@@ -83,19 +123,26 @@ D43 已建立隔离数据核心浏览器 E2E。Playwright 只清理 E2E 专用 r
 
 | 对象 | 当前规模 / 证据 | 审计判断 |
 | --- | --- | --- |
-| `src/App.jsx` | `7,217` 行 | D22 已迁出页面标题和全局通知渲染；页面动作、附件查看、V1 执行与装配仍使组合根过重。 |
+| `src/App.jsx` | `5,922` 行 | B5 第八轮已迁出登录、顶部栏、附件、导入和操作弹窗视图；仍拥有会话、业务状态、路由、回调和领域装配。 |
 | `useOfficeInteractionController.js` | `399` 行 | 统一管理 toast、四类浮层状态、权限守卫、订单动作和领域弹窗提交；实际业务写仍委托既有领域 write hook / API。 |
-| `server/apiServer.mjs` | `19,439` 行 | 多数 HTTP 分发已进入 `server/routes/`；打印、待办、库存、生产、对账通信和订单全写链职责已迁出，出库交付主动作编排仍待继续拆分。 |
+| `server/apiServer.mjs` | `14,183` 行 | 多数 HTTP 分发和核心 command 已迁出；正式认证与现场证据投影只保留薄装配，V1 上线执行编排仍需继续拆分。 |
+| `officeWorkspaceProjectionService.mjs` | `52` 行 | production 禁用旧 workspace 投影；demo/test 只返回 10 类白名单集合并递归脱敏，不暴露用户、认证策略、repository 或 storage 对象。 |
+| `runtimeAuthCommandService.mjs` | `522` 行 | 登录、锁定、摘要升级 / 过期、改密、会话和 logout 已独立；有状态命令持久化成功后才提交五类 identity 投影。 |
+| `v1FieldEvidenceProjectionService.mjs` | `1,153` 行 | 现场证据进度、CSV 汇总、草稿新鲜度、质量和签字 / 边界投影已独立；原始证据、签字、摘要和路径不出服务。 |
+| `masterDataImportCommandService.mjs` | `347` 行 | 确认计划、执行、失败行修正、审计、事务提交 / 回滚投影已独立，可脱离 HTTP 直接测试。 |
+| `masterDataEmployeeAccountCommandService.mjs` | `564` 行 | 员工账号启用、临时密码、撤销、重启投影和 staged persistence 已独立。 |
+| `runtimeIdentityWorkspace.mjs` | `78` 行 | runtime user 查找、upsert、sessionVersion、持久化和响应脱敏由认证 / 员工账号共用。 |
+| `coreWorkspaceReadRepository.mjs` | `1,017` 行 | production 启动恢复核心业务及全部已支持导入的主数据集合；字段显式映射并由 PostgreSQL live 验证。 |
 | `statementCommunicationCommandService.mjs` | `400` 行 | 预览、发送、回执、客户确认已独立；认证身份、稳定 ID、错误发送记录门禁和事务输入可直接测试。 |
 | `productionSchedulingCommandService.mjs` | `619` 行 | 发布、调序、移机的校验、记录 / 审计构造和 repository 编排已独立；直接测试固定认证身份、队列完整性和事务输入。 |
 | `productionReportingCommandService.mjs` | `505` 行 | 完工报工和跨日报数的数量规则、库存 / 占用 / 打包输入、审计和 repository 编排已独立；机器计数仅作证据。 |
 | `packingCommandService.mjs` | `245` 行 | 打包完成、包裹、交付与零扣库存流水输入已独立；包裹创建人固定取认证会话。 |
 | 打印 API services | `149 + 514 + 391 + 255 + 79` 行 | 投影、作业生命周期、交付打印、设备 / QA 和批次命令已分层，依赖可注入，可脱离 HTTP 直接测试。 |
 | 待办 command / repository | `212 + 359` 行 | 八类动作、认证身份、完整事件、幂等、行锁 / 陈旧门禁和重启恢复已独立测试。 |
-| `src/styles.css` | `8,943` 行 + `959` 行新分层样式 | D22-D24 已建立 tokens、shell、共享组件和办公室 / 角色工具 feature 层；旧单文件尚未迁完。 |
-| `V1StatusPage.jsx` | `5,478` 行 + `542` 行展示模型 / 总览 | D25-1 已迁出静态基线、纯展示规则和顶部总览；现场证据、生产门禁和动作编排仍需继续拆。 |
-| `officeV1GoLiveStatusApiClient.js` | `4,676` 行 + `275` 行 action factory | D25-1 已分离 HTTP action 与 normalizer；normalizer 仍需按生产 env、证据、发布候选继续拆分。 |
-| 自动化 | `173` 个 npm scripts，`npm test` 覆盖 lint + 核心链 | 打印域和待办 command / repository 已有直接测试，PostgreSQL live 覆盖重放与重启恢复；浏览器 E2E 仍主要是按轮人工 / 脚本验证，真实设备测试不能自动化替代。 |
+| `src/styles.css` | `8,753` 行 + feature 分层样式 | 已建立 tokens、shell、共享组件和办公室 / 角色工具 feature 层；本轮补齐手机弹窗单列和控件收缩门禁，旧单文件仍未迁完。 |
+| `V1StatusPage.jsx` | `2,524` 行 + 懒加载分阶段工作区 | D25-1 和 B5 前六轮已迁出主要工作区；第一阶段和现场收尾协调器为 `135 / 195` 行，四个结果组件最大 `281` 行，V1 feature 最大 JSX 组件为 `460` 行。剩余重点是页面 action state / 装配、V1 client normalizer 和跨 feature 组合根。 |
+| `officeV1GoLiveStatusApiClient.js` | `953` 行入口 + 7 类 normalizer 模块 + `275` 行 action factory | B5 第七轮已按现场证据、发布、运行、生产 env、第一阶段、模板和通用工具拆分；入口只保留总状态投影和 action 装配。生产 env 模块 `1,154` 行仍可后续按审计 / setup / intake 细分。 |
+| 自动化 | `192` 个 npm scripts，`npm test` 覆盖 lint + 核心链 | command / repository 已有分层测试，PostgreSQL live 覆盖真实事务；核心浏览器 E2E 已覆盖两条闭环，真实设备测试仍不能自动化替代。 |
 
 本次审计未发现需要推翻现有技术栈或重写全部页面的理由。主要问题是职责集中、重复 UI 模式尚未抽象、真实环境证据为空，而不是业务模块整体缺失。
 
@@ -146,8 +193,8 @@ D43 已建立隔离数据核心浏览器 E2E。Playwright 只清理 E2E 专用 r
 
 | 编号 | 问题 | 当前证据 | 整改目标 |
 | --- | --- | --- | --- |
-| P1-01 | 应用组合根过大 | `src/App.jsx` 约 `7,217` 行 | 仅保留会话、导航、路由、全局反馈和领域装配，目标约 `1,500` 行以内。 |
-| P1-02 | API 主入口过大 | `server/apiServer.mjs` 约 `21,779` 行 | 仅保留启动、中间件、依赖注入和路由装配，业务进入 service / domain。 |
+| P1-01 | 应用组合根过大 | `src/App.jsx` 约 `5,922` 行 | 仅保留会话、导航、路由、全局反馈和领域装配，目标约 `1,500` 行以内。 |
+| P1-02 | API 主入口过大 | `server/apiServer.mjs` 约 `15,710` 行 | 仅保留启动、中间件、依赖注入和路由装配，业务进入 service / domain。 |
 | P1-03 | CSS 集中且重复 | `src/styles.css` 约 `8,943` 行 | 拆为 tokens、shell、table、form、panel、mobile 和领域样式。 |
 | P1-04 | V1 状态模块过大 | 页面约 `5,958` 行，client 约 `5,519` 行 | 按阶段卡、数据 normalizer 和 action client 分组，减少单文件职责。 |
 | P1-05 | 页面 UI 模式不完全一致 | 标题、筛选、表格、详情和状态反馈存在差异 | 六个主页面统一骨架、密度、状态和响应式行为。 |
@@ -401,8 +448,8 @@ npm run db:postgres-live:check
 
 | 指标 | 当前 | 阶段目标 | 最终目标 |
 | --- | --- | --- | --- |
-| `App.jsx` | `7,217` 行 | B1.5 首阶段 `<4,000` | 约 `<1,500`，只保留组合根职责。 |
-| `apiServer.mjs` | `21,779` 行 | 每次迁移一个领域且测试等价 | 只保留启动、安全中间件、依赖注入和路由装配。 |
+| `App.jsx` | `5,922` 行 | B1.5 下一阶段 `<4,000` | 约 `<1,500`，只保留组合根职责。 |
+| `apiServer.mjs` | `15,710` 行 | 每次迁移一个领域且测试等价 | 只保留启动、安全中间件、依赖注入和路由装配。 |
 | `styles.css` | `8,943` 行 | 先成为模块 import 入口 | 兼容入口或删除，业务样式进入分层文件。 |
 | V1 状态页面 | `5,958` 行 | 拆出阶段 section 与 presentation | 页面只组合阶段组件，不承载大段归一逻辑。 |
 | V1 状态 client | `5,519` 行 | 拆 read / action / normalizer | transport、动作和投影职责可独立测试。 |
@@ -426,7 +473,7 @@ npm run db:postgres-live:check
 
 1. **技术运维主线**：立即执行 A1，补真实 PostgreSQL、恢复验证库、对象存储和受控 Git 远端。
 2. **代码整改主线**：B1.1-B1.4 和 D21 已通过；B1.5 继续收敛 App 页面动作 / 装配，保持 API、幂等、设备门禁和事务边界不变。
-3. **UI / API 主线**：D22-D24 已完成共享运营 UI 迁移；D25-1 完成 V1 状态首轮拆分，D25-2 / D25-6 完成首轮打印域 service，D26-D31 完成待办、库存和生产主链，D32 完成对账通信写链，D33 完成认证身份，D34-D36 完成订单写链。下一轮抽取出库交付主动作编排。
+3. **UI / API 主线**：D22-D24 已完成共享运营 UI 迁移；C4.1-C4.7 已完成操作页二轮精修；B5 前九轮已迁出主要 V1 状态工作区、结果区、领域 normalizer、App 壳层 / 浮层视图和基础资料导入 command service。下一阶段先迁出员工账号命令，再继续拆 V1 上线系统编排和 `App.jsx` 回调装配；API 保持既有 command service / repository 边界。
 4. **设备与业务主线**：A1 通过后进入 A2，随后执行 A3 和 A4。
 
 这样可以继续降低代码风险并改善 UI，同时不掩盖真实上线阻塞。
@@ -463,7 +510,10 @@ npm run db:postgres-live:check
 | D41（已通过） | 财务 / 客户确认附件与财务 command service | 付款、差额、客户确认附件收口；收款 / 差额 / 核销编排迁出 API。 |
 | D42（已通过） | 库存修正凭证持久化关联 | 先建草稿、再上传图片 / PDF、独立幂等事务关联、确认前复核；PostgreSQL live 和浏览器通过。 |
 | D43（已通过） | 隔离数据核心浏览器 E2E | 已覆盖订单 → 库存占用 → 自提出库 → 对账 → 收款 → 付款附件；CI 阻断且不污染 demo 数据。 |
-| D44（下一轮） | 定制印刷浏览器 E2E 扩展 | 覆盖定制识别 → 排产 / 合格数量 → 成品图 → 打包 → 可信打印 → 快运拉走，并保持机器计数不入库存。 |
+| D44（已通过） | 定制印刷浏览器 E2E 扩展 | 已覆盖定制识别 → 生产任务 / 合格数量 → 成品图 → 打包 → 可信打印 → 快运拉走 → 对账，并保持机器计数不入库存。 |
+| D45（已通过） | 角色分工交接 E2E / 生产准备 | 管理 / 丝印 / 打包 / 库房 / 打印驱动 / 财务已按权限完成交接，并覆盖越权拒绝和持久化操作人。 |
+| D46（已通过） | 正式账号身份边界 | runtime / seed 会话拆分、账号唯一性、启用后身份锁定、技术运维正式角色、PostgreSQL 用户 / 撤销实写通过。 |
+| D47（已通过） | 密码哈希与正式角色覆盖门禁 | 随机盐 scrypt、旧摘要登录迁移、8 岗位 production readiness、车间机器绑定和严格 PostgreSQL / 对象存储 live 通过。 |
 
 D20-D25 是代码整改序列，不代表完成 A1-A4。技术运维应同步推进真实基础设施、设备和现场试跑；否则代码完成后仍不能上线。
 

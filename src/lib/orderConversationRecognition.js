@@ -1,4 +1,5 @@
 import { enrichDraftRow, parseOrderText } from "./orderParser.js";
+import { createDraftFieldReview } from "../../shared/orderDraftFieldReview.mjs";
 
 const unconfirmedDraftStatuses = new Set(["", "待录入", "识别中", "已识别待确认", "已调整待确认", "待审核", "待补充信息"]);
 const customerConfirmationWords = /^(?:要|要的|留|留着|给我留|算上|一起算上|要了|可以)$/;
@@ -111,11 +112,14 @@ export function recognizeOrderConversation(input, options = {}) {
 
     if (classification.type === "temporary_hold") {
       const parsed = parseMessageRows(message, buildColorLexicon({ ...options, ...message }), options);
+      const expiry = resolveHoldExpiry(message.sentAt, options.now);
       const hold = {
         ...sourceRecord,
         status: "临时留货-待确认",
         holdType: "temporary_inventory_hold",
-        expiresAt: resolveHoldExpiry(message.sentAt, options.now),
+        expiresAt: expiry.expiresAt,
+        requiresExpiryReview: expiry.requiresReview,
+        expiryRule: expiry.rule,
         reservesInventory: "pending_authorized_hold_creation",
         parsedCandidates: parsed.rows,
       };
@@ -123,16 +127,39 @@ export function recognizeOrderConversation(input, options = {}) {
       nonOrderIntents.push(hold);
       sourceMessages.push(sourceRecord);
       riskHints.push(...parsed.riskHints);
+      if (expiry.requiresReview) {
+        riskHints.push(buildMessageRisk(message, "temporary_hold_expiry", "medium", "留货消息发送时间已到或超过19:30，创建库存占用前必须人工填写未来到期时间。"));
+      }
       continue;
     }
 
     if (classification.type === "shortage_cancellation") {
-      nonOrderIntents.push({
-        ...sourceRecord,
-        status: "库存不足取消-待关联明细",
-        cancellationScope: wholeOrderCancelWords.test(message.text) ? "whole_order" : "shortage_lines_only",
-        relatedOrderGroupId: lastOrderGroup?.id ?? "",
+      const cancellationScope = wholeOrderCancelWords.test(message.text) ? "whole_order" : "shortage_lines_only";
+      const targets = resolveShortageCancellationTargets({
+        message,
+        scope: cancellationScope,
+        orderGroup: lastOrderGroup,
+        orderRows,
       });
+      for (const row of targets.rows) {
+        row.cancellationStatus = "库存不足取消";
+        row.cancellationScope = cancellationScope;
+        row.cancellationSourceMessageId = message.id;
+        row.excludedFromConfirmation = true;
+      }
+      const cancellation = {
+        ...sourceRecord,
+        status: targets.requiresReview ? "库存不足取消-待关联明细" : "库存不足取消-已关联草稿明细",
+        cancellationScope,
+        relatedOrderGroupId: lastOrderGroup?.id ?? "",
+        relatedDraftLineIds: targets.rows.map((row) => row.id),
+        targetBasis: targets.basis,
+        requiresReview: targets.requiresReview,
+      };
+      nonOrderIntents.push(cancellation);
+      if (targets.requiresReview) {
+        riskHints.push(buildMessageRisk(message, "shortage_cancellation_target", "blocking", "缺货取消尚未匹配到具体明细，确认订单前必须人工关联。"));
+      }
       sourceMessages.push(sourceRecord);
       continue;
     }
@@ -205,9 +232,46 @@ export function recognizeOrderConversation(input, options = {}) {
       inventoryInquiryCount: nonOrderIntents.filter((item) => item.intentType === "inventory_inquiry").length,
       temporaryHoldCount: temporaryHolds.length,
       duplicateCandidateCount: sourceMessages.filter((item) => item.intentType === "duplicate_candidate").length,
+      shortageCancellationCount: nonOrderIntents.filter((item) => item.intentType === "shortage_cancellation").length,
+      cancelledDraftLineCount: orderRows.filter((item) => item.excludedFromConfirmation).length,
       reviewCount: riskHints.length,
     },
   };
+}
+
+function resolveShortageCancellationTargets({ message, scope, orderGroup, orderRows }) {
+  if (!orderGroup) return { rows: [], basis: "missing_order_group", requiresReview: true };
+  const groupRows = orderRows.filter((row) => row.originalOrderGroupId === orderGroup.id);
+  if (scope === "whole_order") {
+    return { rows: groupRows, basis: "explicit_whole_order", requiresReview: groupRows.length === 0 };
+  }
+  const explicitRows = groupRows.filter((row) => cancellationTextMatchesRow(message.text, row));
+  if (explicitRows.length) return { rows: explicitRows, basis: "explicit_spec", requiresReview: false };
+  const shortageRows = groupRows.filter((row) => String(row.inventory ?? "").startsWith("缺货"));
+  if (shortageRows.length) return { rows: shortageRows, basis: "current_inventory_shortage", requiresReview: false };
+  return { rows: [], basis: "no_shortage_line_match", requiresReview: true };
+}
+
+function cancellationTextMatchesRow(text, row) {
+  const source = cleanText(text);
+  const cancellationSegments = source
+    .split(/[，,；;。！？!?]/)
+    .filter((segment) => /缺货|没货|无货|不要|取消|算了/.test(segment));
+  const compact = compactText(cancellationSegments.join(" ") || source).replace(/[xX×+]/g, "*");
+  const size = cleanText(row.size).replace(/[xX×+]/g, "*").split("*").slice(0, 2).join("*");
+  const color = cleanText(row.color).replace(/色$/, "");
+  const product = cleanText(row.product);
+  const rowTokens = [size, color, product].filter(Boolean);
+  const continueIndex = compact.search(/继续|照常|仍要|还要/);
+  if (continueIndex >= 0 && rowTokens.some((token) => {
+    const tokenIndex = compact.lastIndexOf(token, continueIndex);
+    return tokenIndex >= 0 && continueIndex - (tokenIndex + token.length) <= 2;
+  })) return false;
+  return Boolean(
+    (size && compact.includes(size))
+    || (color && compact.includes(color))
+    || (product && !["空白袋", "覆膜袋"].includes(product) && compact.includes(product)),
+  );
 }
 
 function normalizeSourceMessages(input, options) {
@@ -310,14 +374,36 @@ function parseMessageRows(message, colorLexicon, options) {
   }
   const normalizedRows = rows.map((row) => {
     const customer = (options.customers ?? []).find((item) => item.id === message.customerId);
+    const fieldReviews = [];
+    if (dimension.corrected) {
+      fieldReviews.push(createDraftFieldReview({
+        id: `${message.id}:size`,
+        field: "size",
+        originalValue: dimension.originalSize,
+        suggestedValue: dimension.suggestedSize,
+        reason: reviewReasons.find((reason) => reason.startsWith("疑似尺寸")),
+        sourceMessageId: message.id,
+      }));
+    }
+    if (compoundAlias?.needsReview || (!compoundAlias && hasUnresolvedColorHandleShorthand(dimension.normalizedText))) {
+      fieldReviews.push(createDraftFieldReview({
+        id: `${message.id}:color-handle`,
+        field: "colorHandle",
+        originalValue: message.text,
+        suggestedValue: compoundAlias ? `${compoundAlias.bagColor} / ${compoundAlias.handleColor}` : "",
+        reason: compoundAlias?.needsReview ? "颜色/提手短写需确认" : "未匹配的颜色/提手短写需确认",
+        sourceMessageId: message.id,
+      }));
+    }
     const next = {
       ...row,
       customer: customer?.name ?? row.customer,
       customerId: message.customerId || row.customerId,
       source: message.text,
       reviewReasons: [...new Set([...(row.reviewReasons ?? []), ...reviewReasons])],
+      fieldReviews,
       dimensionEvidence: dimension.corrected
-        ? { original: dimension.originalSize, suggested: dimension.suggestedSize, requiresConfirmation: true }
+        ? { original: dimension.originalSize, suggested: dimension.suggestedSize, requiresConfirmation: true, reviewStatus: "pending" }
         : undefined,
       aliasEvidence: compoundAlias?.evidence,
     };
@@ -338,6 +424,11 @@ function parseMessageRows(message, colorLexicon, options) {
     const enriched = colorQuantities.length > 1 || compoundAlias || dimension.corrected || laminatedBag
       ? enrichDraftRow(next, options.inventories ?? [])
       : next;
+    if (dimension.corrected) {
+      enriched.fieldReviews = enriched.fieldReviews.map((review) => review.field === "size"
+        ? { ...review, suggestedValue: enriched.size }
+        : review);
+    }
     if (next.reviewReasons.length) enriched.confidence = "low";
     return enriched;
   });
@@ -452,18 +543,30 @@ function hasUnresolvedColorHandleShorthand(text) {
 }
 
 function resolveHoldExpiry(sentAt, now = () => new Date()) {
-  const dateMatch = String(sentAt ?? "").match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})/);
-  if (dateMatch) {
-    return `${dateMatch[1]}-${dateMatch[2].padStart(2, "0")}-${dateMatch[3].padStart(2, "0")}T19:30:00+08:00`;
-  }
+  const sourceText = String(sentAt ?? "").trim();
+  const sourceMatch = sourceText.match(/(20\d{2})[-/](\d{1,2})[-/](\d{1,2})(?:[ T](\d{1,2}):(\d{2}))?/);
+  const fallback = new Date(now());
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Shanghai",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date(now()));
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(fallback);
   const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
-  return `${values.year}-${values.month}-${values.day}T19:30:00+08:00`;
+  const year = sourceMatch?.[1] ?? values.year;
+  const month = (sourceMatch?.[2] ?? values.month).padStart(2, "0");
+  const day = (sourceMatch?.[3] ?? values.day).padStart(2, "0");
+  const hour = Number(sourceMatch?.[4] ?? values.hour);
+  const minute = Number(sourceMatch?.[5] ?? values.minute);
+  const requiresReview = hour > 19 || (hour === 19 && minute >= 30);
+  return {
+    expiresAt: `${year}-${month}-${day}T19:30:00+08:00`,
+    requiresReview,
+    rule: requiresReview ? "manual_future_expiry_required_after_1930" : "same_day_1930",
+  };
 }
 
 function buildMessageRisk(message, riskType, level, detail) {

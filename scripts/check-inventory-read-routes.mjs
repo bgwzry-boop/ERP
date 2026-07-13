@@ -48,6 +48,19 @@ const dependencies = {
   toInventoryCorrectionDraftSummary(_workspace, draft) {
     return { correctionDraftId: draft.correctionDraftId };
   },
+  inventoryIntentRouteModule: {
+    async handleReadRoutes({ url, response, sendJson }) {
+      if (url.pathname === "/api/inventory/intents") {
+        sendJson(response, 200, { items: [{ intentId: "INT-1", filters: Object.fromEntries(url.searchParams) }] });
+        return true;
+      }
+      if (url.pathname === "/api/inventory/holds") {
+        sendJson(response, 200, { items: [{ reservationId: "HOLD-1", filters: Object.fromEntries(url.searchParams) }] });
+        return true;
+      }
+      return false;
+    },
+  },
 };
 
 assert.equal(
@@ -59,6 +72,18 @@ assert.deepEqual(calls.pop(), {
   status: 200,
   body: { items: [workspace.inventories[0]], page: 2, total: 1 },
 });
+
+assert.equal(
+  await handleInventoryReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/inventory/intents?intentType=temporary_hold") }),
+  true,
+);
+assert.equal(calls.pop().body.items[0].filters.intentType, "temporary_hold");
+
+assert.equal(
+  await handleInventoryReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/inventory/holds?status=%E7%94%9F%E6%95%88") }),
+  true,
+);
+assert.equal(calls.pop().body.items[0].filters.status, "生效");
 
 assert.equal(
   await handleInventoryReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/inventory/correction-drafts?page=2") }),

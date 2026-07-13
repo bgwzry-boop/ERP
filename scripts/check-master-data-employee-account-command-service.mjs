@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { verifyRuntimeUserPassword } from "../server/authSeed.mjs";
 import {
+  buildEmployeeAssignmentOptions,
   createMasterDataEmployeeAccountCommandService,
   toMasterDataEmployeeAccountReview,
 } from "../server/services/masterDataEmployeeAccountCommandService.mjs";
@@ -35,6 +36,69 @@ assert.throws(
   () => createMasterDataEmployeeAccountCommandService(),
   /buildOperationLog must be a function/,
 );
+
+const assignmentOptions = buildEmployeeAssignmentOptions({ machines: [] });
+assert.deepEqual(assignmentOptions.workshops, ["1号车间", "2号车间", "3号车间"]);
+assert.equal(assignmentOptions.machines.length, 9);
+assert.equal(assignmentOptions.machines.find((machine) => machine.machineId === "BAG-04")?.workshop, "2号车间");
+
+const assignmentWorkspace = createWorkspace();
+const fixedAssignment = await service.updateEmployeeAssignment({
+  workspace: assignmentWorkspace,
+  employeeId: "EMP-WORKER-001",
+  body: {
+    assignmentMode: "fixed_machine",
+    workshop: "1号车间",
+    machineId: "BAG-02",
+    reason: "调整到2号机",
+  },
+  operatorId: "U-MANAGER-A",
+});
+assert.equal(fixedAssignment.statusCode, 200);
+assert.equal(fixedAssignment.response.employeeAccountReview.defaultWorkshop, "1号车间");
+assert.equal(fixedAssignment.response.employeeAccountReview.defaultMachineId, "BAG-02");
+assert.equal(fixedAssignment.response.employeeAccountReview.assignmentMode, "fixed_machine");
+assert.equal(assignmentWorkspace.operationLogs[0].action, "master_data_employee_assignment_updated");
+assert.equal(assignmentWorkspace.operationLogs[0].operatorId, "U-MANAGER-A");
+
+const generalWorkerAssignment = await service.updateEmployeeAssignment({
+  workspace: assignmentWorkspace,
+  employeeId: "EMP-WORKER-001",
+  body: {
+    assignmentMode: "general_worker",
+    workshop: "2号车间",
+    machineId: "BAG-04",
+    reason: "改为2号车间杂工",
+  },
+  operatorId: "U-MANAGER-A",
+});
+assert.equal(generalWorkerAssignment.statusCode, 200);
+assert.equal(generalWorkerAssignment.response.employeeAccountReview.defaultWorkshop, "2号车间");
+assert.equal(generalWorkerAssignment.response.employeeAccountReview.defaultMachineId, "");
+assert.equal(generalWorkerAssignment.response.employeeAccountReview.assignmentMode, "general_worker");
+
+const beforeMismatch = structuredClone(assignmentWorkspace.employees);
+const mismatchAssignment = await service.updateEmployeeAssignment({
+  workspace: assignmentWorkspace,
+  employeeId: "EMP-WORKER-001",
+  body: { assignmentMode: "fixed_machine", workshop: "1号车间", machineId: "BAG-04" },
+  operatorId: "U-MANAGER-A",
+});
+assert.equal(mismatchAssignment.code, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_MISMATCH");
+assert.deepEqual(assignmentWorkspace.employees, beforeMismatch);
+
+const failedAssignmentWorkspace = createWorkspace({ saveError: new Error("assignment persistence unavailable") });
+const failedAssignmentSnapshot = structuredClone(failedAssignmentWorkspace.employees);
+await assert.rejects(
+  service.updateEmployeeAssignment({
+    workspace: failedAssignmentWorkspace,
+    employeeId: "EMP-WORKER-001",
+    body: { assignmentMode: "general_worker", workshop: "3号车间" },
+    operatorId: "U-MANAGER-A",
+  }),
+  /assignment persistence unavailable/,
+);
+assert.deepEqual(failedAssignmentWorkspace.employees, failedAssignmentSnapshot);
 
 {
   const missingId = await service.enableEmployeeAccount({

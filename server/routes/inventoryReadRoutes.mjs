@@ -1,3 +1,5 @@
+import { inventoryIntentRouteModule as defaultInventoryIntentRouteModule } from "./inventoryIntentRoutes.mjs";
+
 export async function handleInventoryReadRoutes({
   url,
   response,
@@ -12,6 +14,7 @@ export async function handleInventoryReadRoutes({
   buildInventoryCorrectionDraftDetail,
   filterInventoryCorrectionDraftSummaries,
   toInventoryCorrectionDraftSummary,
+  inventoryIntentRouteModule = defaultInventoryIntentRouteModule,
 }) {
   if (url.pathname === "/api/inventory/items") {
     let items = workspace.inventories;
@@ -35,6 +38,8 @@ export async function handleInventoryReadRoutes({
     );
     return true;
   }
+
+  if (await inventoryIntentRouteModule.handleReadRoutes({ url, response, workspace, sendJson })) return true;
 
   if (url.pathname === "/api/inventory/correction-drafts") {
     const items = filterInventoryCorrectionDraftSummaries(

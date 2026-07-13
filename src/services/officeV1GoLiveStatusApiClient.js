@@ -39,6 +39,7 @@ import {
 } from "./officeV1GoLiveStatusProductionTemplateNormalizers.js";
 import {
   normalizeV1AttachmentRetentionLivePrecheckResult,
+  normalizeV1D49Readiness,
   normalizeV1DriverReadinessLivePrecheckResult,
   normalizeV1PersistenceLivePrecheckResult,
   normalizeV1ProductionGoLiveLivePrecheckResult,
@@ -144,6 +145,7 @@ export function normalizeV1GoLiveStatusForClient(value = {}) {
   const runtimeReadinessBlockers = normalizeRuntimeReadinessBlockers(source.runtimeReadinessBlockers);
   const fieldAcceptanceReport = normalizeFieldAcceptanceReport(source.fieldAcceptanceReport);
   const productionEnvGate = normalizeProductionEnvGate(source.productionEnvGate);
+  const d49Readiness = normalizeV1D49Readiness(source.d49Readiness);
   const productionEnvIntakeVerification = normalizeProductionEnvIntakeVerification(source.productionEnvIntakeVerification);
   const productionPersistenceEvidence = normalizeV1ProductionPersistenceEvidence(source.productionPersistenceEvidence);
   const productionFirstStageExecution = normalizeProductionFirstStageExecution(source.productionFirstStageExecution);
@@ -214,6 +216,7 @@ export function normalizeV1GoLiveStatusForClient(value = {}) {
     runtimeReadinessBlockers,
     fieldAcceptanceReport,
     productionEnvGate,
+    d49Readiness,
     productionEnvIntakeVerification,
     productionPersistenceEvidence,
     productionFirstStageExecution,

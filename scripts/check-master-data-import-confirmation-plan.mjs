@@ -14,6 +14,7 @@ import {
 const generatedAt = "2026-07-03T10:30:00.000Z";
 const workbook = buildMasterDataImportTemplateWorkbook({
   templateKey: "all",
+  includeFixtureRows: true,
   generatedAt,
   generatedBy: "office-admin",
 });
@@ -44,6 +45,9 @@ assert.equal(readyPlan.operationLogDraft.action, "master_data_import_confirmatio
 assert.equal(readyPlan.summary.dataRowCount, 5);
 assert.equal(readyPlan.summary.sheetCount, 5);
 assert.equal(readyPlan.summary.stagedRowCount, 5);
+assert.equal(readyPlan.employeeRoleCoverage.coverageLabel, "1/8");
+assert.equal(readyPlan.employeeRoleCoverage.missingRoleCount, 7);
+assert.equal(readyPlan.summary.employeeRoleCoverageLabel, "1/8");
 assert.equal(readyPlan.stagedRows.length, 5);
 assert(readyPlan.stagedRows.some((sheet) => sheet.sheetKey === "employees_machines" && sheet.rows[0].values["员工姓名"] === "王师傅"));
 assert(readyPlan.writeBatches.some((batch) => batch.sheetKey === "inventory_items" && batch.targetTables.includes("inventory_ledger_entries")));
@@ -52,6 +56,7 @@ assert(readyPlan.targetTables.includes("customers"));
 assert(readyPlan.targetTables.includes("price_table_items"));
 assert(readyPlan.targetTables.includes("standard_colors"));
 assert.match(getMasterDataImportConfirmationPlanSummary(readyPlan), /待最终确认 · 5 行/);
+assert.match(getMasterDataImportConfirmationPlanSummary(readyPlan), /岗位 1\/8/);
 assert.equal(canCreateMasterDataImportConfirmationPlan(readyDraft), true);
 
 const warningPrecheck = {

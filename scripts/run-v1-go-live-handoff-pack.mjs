@@ -3,6 +3,10 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { basename, join, relative, resolve } from "node:path";
 import { validateV1FieldEvidenceManifest } from "./v1FieldEvidenceManifest.mjs";
+import {
+  MASTER_DATA_IMPORT_TEMPLATE_VERSION,
+  buildMasterDataImportTemplateWorkbook,
+} from "../src/domain/masterDataImportTemplate.js";
 
 const defaultOutputDir = join(".erp-local-storage", "v1-go-live-handoff");
 const defaultReleaseCandidateJsonPath = join(".erp-local-storage", "v1-release-candidate", "latest.json");
@@ -106,6 +110,8 @@ const defaultProductionEnvValuesDryRunProofMaxAgeHours = 24;
 const productionEnvValuesDryRunProofMaxAgeHoursEnvName =
   "ERP_V1_PRODUCTION_ENV_VALUES_DRY_RUN_MAX_AGE_HOURS";
 const redactedProductionEnvSetupEnvFileLabel = "env 文件 1";
+const d49EmployeeTemplateFileName = "d49-formal-employee-machine-import-template.xlsx";
+const d49EmployeeGuideFileName = "d49-formal-employee-intake-guide.zh-CN.md";
 
 const requiredDocs = [
   {
@@ -2078,6 +2084,22 @@ function buildHandoffReport({
     conclusion: ready
       ? "V1 发布候选和现场证据 manifest 均为 READY；该交接包可进入负责人复核和小范围真实订单试运行。"
       : "V1 仍不能声明完成；该交接包用于现场部署、证据补齐、负责人复核和继续解除阻塞。",
+    d49EmployeeIntake: {
+      templateVersion: MASTER_DATA_IMPORT_TEMPLATE_VERSION,
+      templateFile: d49EmployeeTemplateFileName,
+      guideFile: d49EmployeeGuideFileName,
+      importSheet: "员工机台",
+      exampleSheet: "示例-员工机台",
+      requiredRoleCount: 8,
+      businessSheetStartsEmpty: true,
+      examplesExcludedFromImport: true,
+      employeeNumberRule: "1-32位字母、数字、下划线或短横线，首位为字母或数字，大小写不敏感唯一",
+      safeguards: {
+        realEmployeeDataIncluded: false,
+        temporaryPasswordsIncluded: false,
+        seedRowsIncludedInImportSheet: false,
+      },
+    },
     releaseCandidate: {
       path: displayInputPath(releaseCandidateJsonPath),
       markdownPath: releaseCandidateMarkdownPath ? displayInputPath(releaseCandidateMarkdownPath) : "",
@@ -2462,6 +2484,20 @@ function writeHandoffPack({
     files.releaseCandidateMarkdown = displayPath(releaseMarkdownTarget);
   }
 
+  const d49EmployeeTemplateTarget = join(outputDir, d49EmployeeTemplateFileName);
+  const d49EmployeeGuideTarget = join(outputDir, d49EmployeeGuideFileName);
+  writeFileSync(
+    d49EmployeeTemplateTarget,
+    buildMasterDataImportTemplateWorkbook({
+      templateKey: "workshop",
+      generatedAt: report.generatedAt,
+      generatedBy: "ERP V1 Go-Live Handoff",
+    }),
+  );
+  writeFileSync(d49EmployeeGuideTarget, formatD49EmployeeIntakeGuide(report.d49EmployeeIntake));
+  files.d49EmployeeImportTemplate = displayPath(d49EmployeeTemplateTarget);
+  files.d49EmployeeIntakeGuide = displayPath(d49EmployeeGuideTarget);
+
   if (report.productionEnvFixChecklist.included) {
     const envFixMarkdownTarget = join(outputDir, "production-env-fix-checklist.zh-CN.md");
     const envFixCsvTarget = join(outputDir, "production-env-fix-checklist.csv");
@@ -2834,6 +2870,7 @@ function buildCommandResult({ report }) {
     ready: report.ready,
     generatedAt: report.generatedAt,
     conclusion: report.conclusion,
+    d49EmployeeIntake: report.d49EmployeeIntake,
     releaseCandidate: {
       status: report.releaseCandidate.status,
       ready: report.releaseCandidate.ready,
@@ -3123,6 +3160,7 @@ function formatHandoffMarkdown(report) {
     `- V1/V2 差异摘要：${report.v1V2ScopeBrief.included ? `${report.v1V2ScopeBrief.summary?.v2DifferenceCount ?? "未返回"} 项 V2 差异 / ${report.v1V2ScopeBrief.status || "unknown"}` : "未纳入，可先运行 V1/V2 差异摘要生成命令"}`,
     `- 生产上线组合预检阶段：${report.productionGoLiveStageChecklist.included ? `${report.productionGoLiveStageChecklist.summary?.label || "已纳入"} / ${report.productionGoLiveStageChecklist.status || "unknown"}` : "未纳入，可先运行 V1 go-live suite 生成命令"}`,
     `- 最小解除阻塞：${report.unblockPlan.included ? `${report.unblockPlan.summary?.label || "已纳入"} / ${report.unblockPlan.status || "unknown"}` : "未纳入，可先运行 V1 go-live suite 生成命令"}`,
+    `- D49 正式员工导入：已附专用空白模板和填写说明；正式数据页不含演示员工`,
     `- 说明：${report.conclusion}`,
     "",
     "## 发布门禁",
@@ -3158,6 +3196,16 @@ function formatHandoffMarkdown(report) {
     `| 真实打印链路 | ${report.printChainCloseout.included ? "已纳入" : "未纳入"} | ${escapeMarkdownTable(report.printChainCloseout.status || "missing")} | ${escapeMarkdownTable(report.printChainCloseout.summary?.label || "未返回")} | ${report.printChainCloseout.blockingStages?.length || 0} | ${escapeMarkdownTable(report.printChainCloseout.nextActions?.[0] || "先运行打印链路 closeout")} |`,
     `| 司机真机执行 | ${report.driverRealDeviceExecution.included ? "已纳入" : "未纳入"} | ${escapeMarkdownTable(report.driverRealDeviceExecution.status || "missing")} | ${escapeMarkdownTable(report.driverRealDeviceExecution.summary?.label || "未返回")} | ${report.driverRealDeviceExecution.blockingStages?.length || 0} | ${escapeMarkdownTable(report.driverRealDeviceExecution.nextActions?.[0] || "先运行司机真机阶段执行器")} |`,
     `| 司机真机 closeout | ${report.driverRealDeviceCloseout.included ? "已纳入" : "未纳入"} | ${escapeMarkdownTable(report.driverRealDeviceCloseout.status || "missing")} | ${escapeMarkdownTable(report.driverRealDeviceCloseout.summary?.label || "未返回")} | ${report.driverRealDeviceCloseout.blockingStages?.length || 0} | ${escapeMarkdownTable(report.driverRealDeviceCloseout.nextActions?.[0] || "先运行司机真机 closeout")} |`,
+    "",
+    "## D49 正式员工导入",
+    "",
+    `- 模板：\`${report.d49EmployeeIntake.templateFile}\``,
+    `- 填写说明：\`${report.d49EmployeeIntake.guideFile}\``,
+    `- 正式填写页：\`${report.d49EmployeeIntake.importSheet}\`；该页默认空白。`,
+    `- 示例参考页：\`${report.d49EmployeeIntake.exampleSheet}\`；该页不参与预检查或导入。`,
+    `- 员工编号：${report.d49EmployeeIntake.employeeNumberRule}。`,
+    `- 验收：8类岗位必须全部具备已复核、已首次改密、未锁定且未过期的正式账号；车间岗还必须绑定默认车间和默认机台。`,
+    "- 交接包不包含真实员工资料、临时密码或可导入 seed 行；填写后的工作簿应作为受控业务文件保存，不提交 Git。",
     "",
     "## 生产环境修正清单",
     "",
@@ -3707,6 +3755,8 @@ function formatHandoffMarkdown(report) {
     "| `handoff-summary.zh-CN.md` | 给负责人阅读的当前结论、阻塞项、V1/V2 差异和文件索引 |",
     "| `handoff-manifest.json` | 机器可读交接包索引，不含原始 evidenceRef |",
     "| `release-candidate.latest.md/json` | 当前发布候选报告快照 |",
+    "| `d49-formal-employee-machine-import-template.xlsx` | D49正式员工机台专用空白模板，正式数据页无演示员工 |",
+    "| `d49-formal-employee-intake-guide.zh-CN.md` | D49员工填写、预检查、启用、首次改密和岗位就绪验收步骤 |",
     "| `production-env-fix-checklist.zh-CN.md` | 按负责角色拆分的生产环境变量修正清单，存在时自动生成 |",
     "| `production-env-fix-checklist.csv` | 可用于现场逐项跟进的生产环境变量修正表，存在时自动生成 |",
     "| `production-env-real-value-intake.zh-CN.md` | 生产 env 真实值填写 / 验收清单，标明任选其一变量组、来源系统和证据编号列 |",
@@ -3744,6 +3794,7 @@ function formatHandoffMarkdown(report) {
     "## 安全说明",
     "",
     "- 交接包默认只复制生产 env 模板，不复制真实 env 文件。",
+    "- D49员工模板只包含空白正式数据页和隔离示例页；交接包不包含真实员工资料、登录名或密码。",
     "- 交接包默认只写脱敏现场证据 manifest；如需内部留存原始 evidenceRef，必须显式使用 `--include-raw-field-evidence`。",
     "- 生产 env 准备报告只应来自 `run-v1-production-env-setup.mjs` 输出的脱敏 JSON / Markdown，不应额外附带真实 env 文件、连接串、bucket、secret、token 或命令值。",
     "- 生产 env 真实值校验报告只应来自 `run-v1-production-env-intake-verify.mjs` 输出的脱敏 JSON / Markdown，不应额外附带真实 env 文件路径、连接串、bucket、secret、token、spool 路径或证据原文。",
@@ -3757,6 +3808,50 @@ function formatHandoffMarkdown(report) {
     "",
   ];
   return `${lines.join("\n")}`;
+}
+
+function formatD49EmployeeIntakeGuide(intake) {
+  return `${[
+    "# D49 正式员工账号导入与验收",
+    "",
+    `- 模板版本：${intake.templateVersion}`,
+    `- 填写文件：\`${intake.templateFile}\``,
+    `- 正式数据页：\`${intake.importSheet}\``,
+    `- 示例页：\`${intake.exampleSheet}\`，只供参考，不参与预检查或导入。`,
+    "",
+    "## 填写规则",
+    "",
+    "1. 一名真实员工填写一行，只在“员工机台”页填写。不要把示例页整页改名后导入。",
+    `2. 员工编号使用${intake.employeeNumberRule}；不得按姓名或岗位临时生成，也不得复用离职员工编号。`,
+    "3. 员工姓名和角色必填；角色必须选择模板下拉中的8类标准岗位之一。",
+    "4. 默认车间/机台可在正式导入后到员工机台页手动调配；固定机台选择车间+机台，杂工/流动只选择负责车间。车间报工账号未绑定机台时仍不能通过上线门禁。",
+    "5. 基础时薪、岗位补贴等敏感工资字段仅由授权负责人填写和复核；不需要首期维护时留空。",
+    "6. 工作簿包含真实员工资料后属于受控业务文件，不提交 Git，不通过公开聊天或无权限网盘传输。",
+    "",
+    "## 执行顺序",
+    "",
+    "1. 填写后先在ERP项目目录运行离线只读预检查；报告不包含姓名、员工编号原值、密码或文件路径：",
+    "",
+    "```bash",
+    "node scripts/run-d49-employee-workbook-precheck.mjs --file <filled-workbook.xlsx> --json",
+    "```",
+    "",
+    "2. 处理非法编号、重复编号、未知岗位和车间岗缺默认机台等失败行；只有`uploadAllowed=true`才进入网页上传。",
+    "3. 在基础资料的“员工机台”入口上传同一工作簿，并再次执行服务端预检查。",
+    "4. 管理账号复核确认计划后执行正式导入；导入成功不等于账号已就绪。",
+    "5. 管理账号逐个复核并启用正式账号，发放临时密码。临时密码不得写回本工作簿。",
+    "6. 员工本人完成首次改密；复核账号未锁定、密码未过期、有效期正常。",
+    "7. 检查D49岗位矩阵达到8/8；车间岗同时验证默认机台绑定。",
+    "",
+    "## 完成标准",
+    "",
+    "- 8类岗位均至少有1个可用正式账号。",
+    "- seed演示账号不计入岗位覆盖。",
+    "- 待复核、仅持有临时密码、锁定或密码过期的账号不计入就绪。",
+    "- 导入、启用、临时密码发放和首次改密均保留服务端审计记录。",
+    "- 完成D49只解除身份侧阻塞；production env、数据库、对象存储、设备、现场证据和签字仍需继续验收。",
+    "",
+  ].join("\n")}\n`;
 }
 
 function buildProductionEnvFixChecklist(envPreflight) {

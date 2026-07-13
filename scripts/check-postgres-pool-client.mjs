@@ -109,6 +109,22 @@ await assert.rejects(
 );
 assert.deepEqual(failingCalls, ["BEGIN", { text: "SELECT 1;", values: [] }, "ROLLBACK", "RELEASE"]);
 
+const businessConflictPool = {
+  async connect() {
+    return {
+      async query(input) {
+        if (input === "BEGIN" || input === "ROLLBACK") return { rows: [] };
+        throw new Error("ERP_TEMPORARY_HOLD_CONVERSION_CONFLICT");
+      },
+      release() {},
+    };
+  },
+};
+await assert.rejects(
+  () => createPostgresPoolClient({ pool: businessConflictPool }).transactionJson("BEGIN; SELECT 1; COMMIT;"),
+  (error) => error?.statusCode === 409 && error?.code === "BUSINESS_WRITE_CONFLICT",
+);
+
 const serverDirectory = fileURLToPath(new URL("../server/", import.meta.url));
 const synchronousRepositoryFiles = readdirSync(serverDirectory)
   .filter((fileName) => fileName.endsWith("Repository.mjs"))

@@ -116,6 +116,7 @@ assert.equal(productionLedgerState.value.items.length, 0);
 function createMasterCase({ serverRequired = false, actionDisabled = false } = {}) {
   const drafts = createState([{ draftId: "DR-LOCAL" }]);
   const reviews = createState([{ employeeId: "E-LOCAL" }]);
+  const readiness = createState({ ready: true, coveredRoleCount: 8 });
   const actions = createOfficeMasterDataReadActions({
     api: {
       async listOfficeMasterDataImportReviewDrafts() {
@@ -126,7 +127,7 @@ function createMasterCase({ serverRequired = false, actionDisabled = false } = {
       async listOfficeMasterDataEmployeeAccountReviews() {
         return serverRequired
           ? { source: "local_fallback", items: [{ employeeId: "E-FAKE" }], total: 1, error: { message: "offline" } }
-          : { source: "api", items: [{ employeeId: "E-API" }], total: 1 };
+          : { source: "api", items: [{ employeeId: "E-API" }], total: 1, readiness: { ready: false, coveredRoleCount: 1 } };
       },
     },
     authState: {},
@@ -137,9 +138,10 @@ function createMasterCase({ serverRequired = false, actionDisabled = false } = {
     permissionContext: {},
     serverRequired: () => serverRequired,
     setMasterDataEmployeeAccountReviews: reviews.set,
+    setMasterDataEmployeeAccountReadiness: readiness.set,
     setMasterDataImportReviewDrafts: drafts.set,
   });
-  return { actions, drafts, reviews };
+  return { actions, drafts, readiness, reviews };
 }
 
 const masterSuccess = createMasterCase();
@@ -148,11 +150,13 @@ assert.equal(masterSuccess.drafts.value[0].draftId, "DR-API");
 assert.match(draftResult.feedback, /已从后端刷新导入确认草稿/);
 const employeeResult = await masterSuccess.actions.refreshMasterDataEmployeeAccountReviews();
 assert.equal(masterSuccess.reviews.value[0].employeeId, "E-API");
+assert.equal(masterSuccess.readiness.value.coveredRoleCount, 1);
 assert.match(employeeResult.feedback, /已刷新员工账号复核：1 条/);
 
 const permissionCase = createMasterCase({ actionDisabled: true });
 const permissionResult = await permissionCase.actions.refreshMasterDataEmployeeAccountReviews();
 assert.equal(permissionResult.blocked, true);
+assert.equal(permissionCase.readiness.value, null);
 assert.equal(permissionCase.reviews.value[0].employeeId, "E-LOCAL");
 assert.equal(permissionResult.feedback, "无员工复核权限");
 
@@ -163,6 +167,7 @@ assert.equal(masterProduction.drafts.value[0].draftId, "DR-LOCAL");
 const productionEmployeeResult = await masterProduction.actions.refreshMasterDataEmployeeAccountReviews();
 assert.equal(productionEmployeeResult.blocked, true);
 assert.equal(masterProduction.reviews.value[0].employeeId, "E-LOCAL");
+assert.equal(masterProduction.readiness.value, null);
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
