@@ -175,6 +175,20 @@
   padding: 7px 10px;
 }
 
+.todo-reference-repair {
+  background: #fffaf0;
+}
+
+.todo-reference-repair .compact-form-grid {
+  padding: 8px 0;
+}
+
+.todo-reference-repair .detail-hint {
+  color: #7a5b1b;
+  font-size: 12px;
+  line-height: 18px;
+}
+
 @media (max-width: 720px) {
   .todo-workbench {
     gap: 8px;

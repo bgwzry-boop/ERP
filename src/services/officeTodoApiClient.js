@@ -131,6 +131,36 @@ export async function handleOfficeTodoAction(input, options = {}) {
   }
 }
 
+export async function repairOfficeTodoReference(input, options = {}) {
+  const { authState, todoId, refType, refId, reason, operatorId, idempotencyKey } = input;
+  try {
+    const response = await requestTodoApi(`/todos/${encodeURIComponent(todoId)}/reference`, {
+      ...options,
+      authState,
+      method: "POST",
+      operatorId,
+      body: { refType, refId, reason, idempotencyKey },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        todoId,
+        error: toApiError(json, response.status, "待办引用重新关联 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      todoId,
+      todo: mapTodoListItem(json.todo),
+      operationLogId: json.operationLogId,
+    };
+  } catch (error) {
+    return buildServerRequiredWriteError("TODO_REFERENCE_REPAIR_API_UNAVAILABLE", error, { todoId });
+  }
+}
+
 function mapTodoListItem(item = {}) {
   const todoId = cleanText(item.todoId ?? item.id);
   return {
@@ -171,6 +201,12 @@ function mapTodoListItem(item = {}) {
     resolvedRefType: cleanText(item.resolvedRefType ?? item.refType),
     resolvedRefId: cleanText(item.resolvedRefId ?? item.refId),
     referenceReason: cleanText(item.referenceReason),
+    referenceCandidates: Array.isArray(item.referenceCandidates) ? item.referenceCandidates.map((candidate) => ({
+      refType: cleanText(candidate.refType),
+      refId: cleanText(candidate.refId),
+      label: cleanText(candidate.label),
+    })).filter((candidate) => candidate.refType && candidate.refId) : [],
+    referenceRepair: item.referenceRepair && typeof item.referenceRepair === "object" ? item.referenceRepair : null,
   };
 }
 

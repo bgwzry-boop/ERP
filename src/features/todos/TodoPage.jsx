@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PrinterOutlined } from "@ant-design/icons";
 import {
   DataState,
@@ -17,9 +17,21 @@ import {
 } from "../../state/officeTodoActions.js";
 
 const TODO_DETAIL_TABS = ["处理", "通知/打印", "记录"];
+const TODO_REFERENCE_TYPE_OPTIONS = [
+  ["order_draft", "订单草稿"],
+  ["order_line", "订单行"],
+  ["fulfillment", "出库交付"],
+  ["statement", "对账单"],
+  ["inventory_item", "库存货品"],
+  ["inventory_correction", "库存修正"],
+  ["production_task", "生产任务"],
+];
 
-export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selectedTodoId, onSelect, view, setView, onAction, helpers }) {
+export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selectedTodoId, onSelect, view, setView, onAction, onRepairReference, helpers }) {
   const [detailTab, setDetailTab] = useState("处理");
+  const [repairRefType, setRepairRefType] = useState("order_line");
+  const [repairRefId, setRepairRefId] = useState("");
+  const [repairReason, setRepairReason] = useState("办公室核对原始待办后重新关联");
   const { currentUser, findCustomer, getTodoActions, getTodoCustomerNotificationDraft, getTodoHandlingRule, getTodoTone, getUiActionState, isPrintTodo, sortTodos } = helpers;
   const sortedTodos = sortTodos(todos);
   const openTodos = sortedTodos.filter((item) => !item.handled);
@@ -37,6 +49,19 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
     ["异常红点", openTodos.filter((item) => item.urgency === "异常" || item.referenceStatus === "missing").length, "danger"],
     ["已处理(今日)", handledTodos.length, "success"],
   ];
+  useEffect(() => {
+    const candidate = selected?.referenceCandidates?.[0];
+    setRepairRefType(candidate?.refType || selected?.resolvedRefType || "order_line");
+    setRepairRefId(candidate?.refId || "");
+    setRepairReason("办公室核对原始待办后重新关联");
+  }, [selected?.id, selected?.referenceStatus]);
+
+  const repairActionState = getUiActionState("todo", "重新关联待办");
+  const selectReferenceCandidate = (refId) => {
+    setRepairRefId(refId);
+    const candidate = selected?.referenceCandidates?.find((item) => item.refId === refId);
+    if (candidate) setRepairRefType(candidate.refType);
+  };
 
   return (
     <section className="page-grid split-detail operational-split-workbench todo-workbench">
@@ -105,6 +130,34 @@ export function TodoPage({ todos, todoMeta = {}, printBatchRecords = [], selecte
           <h3>摘要</h3>
           <p>{selected.summary}</p>
         </section>
+        {selected.referenceStatus === "missing" ? (
+          <section className="detail-section todo-reference-repair" hidden={detailTab !== "处理"}>
+            <h3>重新关联业务</h3>
+            <p className="detail-hint">原引用已失效。请选择候选或手动填写真实业务编号，服务端验证通过后才会保存。</p>
+            <div className="form-grid compact-form-grid">
+              <label>
+                业务类型
+                <select value={repairRefType} onChange={(event) => setRepairRefType(event.target.value)}>
+                  {TODO_REFERENCE_TYPE_OPTIONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+                </select>
+              </label>
+              <label>
+                业务编号
+                <input list={`todo-reference-candidates-${selected.id}`} value={repairRefId} onChange={(event) => selectReferenceCandidate(event.target.value)} placeholder="输入或选择业务编号" />
+                <datalist id={`todo-reference-candidates-${selected.id}`}>
+                  {(selected.referenceCandidates ?? []).map((candidate) => <option key={`${candidate.refType}:${candidate.refId}`} value={candidate.refId}>{candidate.label}</option>)}
+                </datalist>
+              </label>
+              <label className="wide-field">
+                修复原因
+                <input value={repairReason} onChange={(event) => setRepairReason(event.target.value)} placeholder="填写核对依据或修复原因" />
+              </label>
+            </div>
+            <div className="action-row">
+              <button className="primary-action" disabled={repairActionState.disabled || !repairRefType || !repairRefId.trim() || !repairReason.trim()} title={repairActionState.title} onClick={() => onRepairReference?.(selected.id, { refType: repairRefType, refId: repairRefId.trim(), reason: repairReason.trim() })}>验证并重新关联</button>
+            </div>
+          </section>
+        ) : null}
         {customerNotificationDraft ? (
           <section className="detail-section operational-detail-section-first" hidden={detailTab !== "通知/打印"}>
             <h3>客户通知</h3>

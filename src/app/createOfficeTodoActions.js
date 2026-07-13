@@ -1,4 +1,4 @@
-import { handleOfficeTodoAction as handleOfficeTodoActionDefault } from "../services/officeTodoApiClient.js";
+import { handleOfficeTodoAction as handleOfficeTodoActionDefault, repairOfficeTodoReference as repairOfficeTodoReferenceDefault } from "../services/officeTodoApiClient.js";
 import { createOfficeTodo } from "../services/officeMockService.js";
 import {
   getBatchPrintPackageRows,
@@ -24,6 +24,7 @@ export function createOfficeTodoAppender({ createTodo = createOfficeTodo, setSel
 
 const defaultApi = {
   handleOfficeTodoAction: handleOfficeTodoActionDefault,
+  repairOfficeTodoReference: repairOfficeTodoReferenceDefault,
 };
 
 export function createOfficeTodoActions({
@@ -339,8 +340,34 @@ export function createOfficeTodoActions({
     setToast(`“${action}”尚未接入正式处理流程，本次未执行。`);
   }
 
+  async function repairTodoReference(todoId, input) {
+    if (!guardUiAction("todo", "重新关联待办")) return;
+    const selected = todos.find((item) => item.id === todoId);
+    if (!selected || selected.referenceStatus === "valid") {
+      setToast("当前待办引用有效，无需重新关联。");
+      return;
+    }
+    const result = await todoApi.repairOfficeTodoReference({
+      authState,
+      todoId,
+      operatorId: currentUserId,
+      ...input,
+      idempotencyKey: `${todoId}:${input.refType}:${input.refId}:${selected.updatedAt || selected.ref}`,
+    }, { serverRequired: true });
+    if (result?.source !== "api" || result.blocked) {
+      setToast(
+        result?.error?.requiredPermission
+          ? `后端拒绝重新关联：缺少权限 ${result.error.requiredPermission}。`
+          : `后端拒绝重新关联：${result?.error?.message ?? "未知错误"}`,
+      );
+      return;
+    }
+    setTodos((current) => current.map((item) => item.id === todoId ? result.todo : item));
+    await refreshTodos({ showToast: false });
+    setToast(`待办已重新关联到 ${result.todo.ref}，服务端已记录操作人、原因和修改前后引用。`);
+  }
 
-  return { handleTodo };
+  return { handleTodo, repairTodoReference };
 }
 
 const referenceNavigationActions = new Set([

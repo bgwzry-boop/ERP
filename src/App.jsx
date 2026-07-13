@@ -1039,7 +1039,7 @@ export function App() {
     statements,
     updateOrderDraftField,
   });
-  const { handleTodo } = createOfficeTodoActions({
+  const { handleTodo, repairTodoReference } = createOfficeTodoActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     copyTextToClipboard,
@@ -1215,7 +1215,7 @@ export function App() {
             contextLabel={activePage === "entry" ? "" : authSourceLabel}
             onRefresh={activePage === "entry" ? undefined : refreshActivePage}
           />
-          {activePage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} helpers={pageHelpers} />}
+          {activePage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
           {activePage === "entry" && (
             <EntryPage
               entryText={entryText}
