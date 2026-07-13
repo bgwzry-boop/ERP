@@ -44,6 +44,7 @@ const uiActionPermissions = {
     处理完成: { permissionKey: "todo.handle", permissionType: "action" },
     确认已查看: { permissionKey: "todo.handle", permissionType: "action" },
     重新打开: { permissionKey: "todo.handle", permissionType: "action" },
+    重新关联待办: { permissionKey: "todo.handle", permissionType: "action" },
     打印标签: { permissionKey: "todo.handle", permissionType: "action" },
     打印预览: { permissionKey: "todo.handle", permissionType: "action" },
     批量打印标签: { permissionKey: "todo.handle", permissionType: "action" },

@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { resolveTodoReference } from "./todoReferenceService.mjs";
 
 const reminderLabels = {
   稍后30分钟: "30 分钟后",
@@ -59,6 +60,79 @@ export function createTodoCommandService({ buildOperationLog, now = () => new Da
         idempotencyKey: body.idempotencyKey,
         idempotencyPayload: body,
       });
+    },
+    async repairTodoReference({ workspace, todoId, body = {}, operatorId, operatorName }) {
+      const refType = cleanText(body.refType).toLowerCase();
+      const refId = cleanText(body.refId);
+      const reason = cleanText(body.reason);
+      if (!refType || !refId || !reason) {
+        return businessError(422, "VALIDATION_ERROR", "refType、refId 和 reason 均为必填项");
+      }
+      const before = await workspace.todoActionRepository.getTodo({ workspace, todoId });
+      if (!before) return { notFound: true, code: "TODO_NOT_FOUND" };
+      if (before.handled) return businessError(409, "TODO_ALREADY_HANDLED", "已处理待办不能重新关联业务引用");
+      if (resolveTodoReference(workspace, before).referenceStatus === "valid") {
+        return businessError(409, "TODO_REFERENCE_STILL_VALID", "当前待办引用仍然有效，无需重新关联");
+      }
+
+      const timestamp = nowIso(now);
+      const candidate = { ...before, refType, refId, ref: refId };
+      const reference = resolveTodoReference(workspace, candidate);
+      if (reference.referenceStatus !== "valid") {
+        return businessError(422, "TODO_REFERENCE_TARGET_NOT_FOUND", "重新关联目标不存在或不支持校验");
+      }
+      const after = {
+        ...candidate,
+        refType: reference.resolvedRefType,
+        refId: reference.resolvedRefId,
+        ref: reference.resolvedRefId,
+        lastAction: "待办引用已重新关联",
+        referenceRepair: {
+          beforeRefType: cleanText(before.refType),
+          beforeRefId: cleanText(before.refId ?? before.ref),
+          afterRefType: reference.resolvedRefType,
+          afterRefId: reference.resolvedRefId,
+          reason,
+          operatorId,
+          operatorName: cleanText(operatorName) || operatorId,
+          repairedAt: timestamp,
+        },
+        updatedAt: timestamp,
+        createdAt: cleanText(before.createdAt) || timestamp,
+      };
+      const action = "repair_reference";
+      const operationLogId = buildTodoOperationLogId(todoId, action, body.idempotencyKey);
+      const operationLog = buildOperationLog(workspace, {
+        id: operationLogId,
+        targetType: "todo",
+        targetId: todoId,
+        action: "repair_todo_reference",
+        operatorId,
+        before,
+        after,
+        reason,
+      });
+      const todoEvent = {
+        eventId: `TE-${operationLog.id}`,
+        todoId,
+        eventType: "repair_todo_reference",
+        eventPayload: { action, todo: after, operatorName: cleanText(operatorName) || operatorId },
+        operatorId,
+        occurredAt: timestamp,
+        createdAt: timestamp,
+      };
+      const result = await workspace.todoActionRepository.recordTodoAction({
+        workspace,
+        action,
+        before,
+        expectedUpdatedAt: before.updatedAt,
+        todo: after,
+        todoEvent,
+        operationLog,
+        idempotencyKey: body.idempotencyKey,
+        idempotencyPayload: { refType, refId, reason },
+      });
+      return { ...result, reference };
     },
   };
 }

@@ -10,16 +10,23 @@ export async function handleTodoWriteRoutes({
   requireActionPermission,
   getPermissionOperatorId,
   handleTodoRoute,
+  repairTodoReferenceRoute,
 }) {
   const todoHandleMatch = url.pathname.match(/^\/api\/todos\/([^/]+)\/handle$/);
-  if (method !== "POST" || !todoHandleMatch) return false;
+  const todoReferenceMatch = url.pathname.match(/^\/api\/todos\/([^/]+)\/reference$/);
+  if (method !== "POST" || (!todoHandleMatch && !todoReferenceMatch)) return false;
 
-  if (!requireActionPermission(response, permissionContext, writeActionPermissions.handleTodo)) return true;
+  const requiredPermission = todoReferenceMatch
+    ? writeActionPermissions.repairTodoReference
+    : writeActionPermissions.handleTodo;
+  if (!requireActionPermission(response, permissionContext, requiredPermission)) return true;
   const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A");
-  await handleTodoRoute({
+  const handler = todoReferenceMatch ? repairTodoReferenceRoute : handleTodoRoute;
+  const match = todoReferenceMatch ?? todoHandleMatch;
+  await handler({
     response,
     workspace,
-    todoId: decodeURIComponent(todoHandleMatch[1]),
+    todoId: decodeURIComponent(match[1]),
     body,
     operatorId,
     operatorName: permissionContext?.user?.displayName ?? operatorId,

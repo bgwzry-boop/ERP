@@ -133,6 +133,8 @@ todo_write_guard AS MATERIALIZED (
 updated_todo AS (
   UPDATE todos
   SET
+    ref_type = ${parameters.text(todo.refType)},
+    ref_id = ${parameters.text(todo.refId)},
     priority = ${parameters.text(todo.priority)},
     status = ${parameters.text(todo.status)},
     summary = ${parameters.text(todo.summary)},

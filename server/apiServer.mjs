@@ -71,7 +71,7 @@ import { createFulfillmentPrintCommandService } from "./services/fulfillmentPrin
 import { createPrintDeviceCommandService } from "./services/printDeviceCommandService.mjs";
 import { createPrintBatchCommandService } from "./services/printBatchCommandService.mjs";
 import { createTodoCommandService } from "./services/todoCommandService.mjs";
-import { resolveTodoReference } from "./services/todoReferenceService.mjs";
+import { listTodoReferenceCandidates, resolveTodoReference } from "./services/todoReferenceService.mjs";
 import { createInventoryCorrectionCommandService } from "./services/inventoryCorrectionCommandService.mjs";
 import { createInventoryReservationReleaseCommandService } from "./services/inventoryReservationReleaseCommandService.mjs";
 import { createV1FieldEvidenceStagingService } from "./services/v1FieldEvidenceStagingService.mjs";
@@ -358,6 +358,7 @@ const writeActionPermissions = {
   reviewRawMaterialMarginSnapshot: "raw_material.margin.review",
   createRawMaterialInboundException: "raw_material.exception.create",
   handleTodo: "todo.handle",
+  repairTodoReference: "todo.handle",
 };
 
 export function createApiServer(options = {}) {
@@ -1120,6 +1121,7 @@ async function routeWrite(context) {
       requireActionPermission,
       getPermissionOperatorId,
       handleTodoRoute,
+      repairTodoReferenceRoute,
     })
   ) {
     return;
@@ -1840,9 +1842,12 @@ function toTodoSummary(todo) {
 }
 
 function toTodoListItem(workspace, todo) {
+  const reference = resolveTodoReference(workspace, todo);
   return {
     ...toTodoSummary(todo),
-    ...resolveTodoReference(workspace, todo),
+    ...reference,
+    referenceCandidates: reference.referenceStatus === "valid" ? [] : listTodoReferenceCandidates(workspace, todo),
+    referenceRepair: todo.referenceRepair,
     status: mapTodoStatus(todo),
     priority: mapTodoPriority(todo.urgency),
     customerName: findCustomerName(workspace, todo.customerId),
@@ -6664,6 +6669,16 @@ function toAttachmentSummary(attachment) {
 
 async function handleTodoRoute({ response, workspace, todoId, body, operatorId, operatorName }) {
   const result = await todoCommandService.handleTodo({ workspace, todoId, body, operatorId, operatorName });
+  if (result.notFound) return sendNotFound(response, result.code);
+  if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
+  return sendJson(response, 200, {
+    todo: toTodoListItem(workspace, result.todo),
+    operationLogId: result.operationLogId,
+  });
+}
+
+async function repairTodoReferenceRoute({ response, workspace, todoId, body, operatorId, operatorName }) {
+  const result = await todoCommandService.repairTodoReference({ workspace, todoId, body, operatorId, operatorName });
   if (result.notFound) return sendNotFound(response, result.code);
   if (result.error) return sendBusinessError(response, result.statusCode, result.code, result.message);
   return sendJson(response, 200, {

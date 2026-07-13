@@ -13,7 +13,7 @@ export function resolveTodoReference(workspace, todo = {}) {
   return referenceResult("missing", refType, refId, "引用目标不存在或已失效");
 }
 
-const supportedRefTypes = new Set([
+export const TODO_REFERENCE_TYPES = [
   "order_draft",
   "order_line",
   "fulfillment",
@@ -21,7 +21,41 @@ const supportedRefTypes = new Set([
   "inventory_item",
   "inventory_correction",
   "production_task",
-]);
+];
+
+const supportedRefTypes = new Set(TODO_REFERENCE_TYPES);
+const referenceTypeLabels = {
+  order_draft: "订单草稿",
+  order_line: "订单行",
+  fulfillment: "出库交付",
+  statement: "对账单",
+  inventory_item: "库存货品",
+  inventory_correction: "库存修正",
+  production_task: "生产任务",
+};
+
+export function listTodoReferenceCandidates(workspace, todo = {}, limit = 20) {
+  const current = resolveTodoReference(workspace, todo);
+  if (current.referenceStatus === "valid") return [];
+  const customerId = cleanText(todo.customerId);
+  const preferredType = normalizeRefType(todo.refType) || normalizeRefType(inferTodoRefType(todo, cleanText(todo.refId ?? todo.ref)));
+  const candidates = TODO_REFERENCE_TYPES.flatMap((refType) => referenceRows(workspace, refType).map((target) => {
+    const refId = referenceTargetId(target, refType);
+    return refId ? {
+      refType,
+      refId,
+      label: `${referenceTypeLabels[refType]} · ${refId}${referenceTargetStatus(target) ? ` · ${referenceTargetStatus(target)}` : ""}`,
+      sameCustomer: Boolean(customerId) && referenceCustomerId(workspace, target, refType) === customerId,
+    } : null;
+  }).filter(Boolean));
+
+  return candidates
+    .sort((left, right) => Number(right.sameCustomer) - Number(left.sameCustomer)
+      || Number(right.refType === preferredType) - Number(left.refType === preferredType)
+      || left.refId.localeCompare(right.refId, "zh-CN"))
+    .slice(0, Math.max(1, Math.min(50, Number(limit) || 20)))
+    .map(({ sameCustomer: _sameCustomer, ...candidate }) => candidate);
+}
 
 function findReferenceTarget(workspace, refType, refId) {
   if (refType === "order_draft") return findById(workspace.orderDrafts, refId);
@@ -44,6 +78,38 @@ function findReferenceTarget(workspace, refType, refId) {
   if (refType === "inventory_correction") return findById(workspace.inventoryCorrectionDrafts, refId, "correctionDraftId");
   if (refType === "production_task") return findById(workspace.productionTasks ?? workspace.productionPacking?.productionTasks, refId, "productionTaskId");
   return null;
+}
+
+function referenceRows(workspace, refType) {
+  if (refType === "order_draft") return workspace.orderDrafts ?? [];
+  if (refType === "order_line") return workspace.orderLines ?? [];
+  if (refType === "fulfillment") return workspace.fulfillments ?? [];
+  if (refType === "statement") return workspace.statements ?? [];
+  if (refType === "inventory_item") return workspace.inventories ?? workspace.inventoryRecords ?? [];
+  if (refType === "inventory_correction") return workspace.inventoryCorrectionDrafts ?? [];
+  if (refType === "production_task") return workspace.productionTasks ?? workspace.productionPacking?.productionTasks ?? [];
+  return [];
+}
+
+function referenceTargetId(target, refType) {
+  if (refType === "inventory_item") return cleanText(target.id ?? target.inventoryKey);
+  if (refType === "inventory_correction") return cleanText(target.id ?? target.correctionDraftId);
+  if (refType === "production_task") return cleanText(target.id ?? target.productionTaskId);
+  return cleanText(target.id);
+}
+
+function referenceTargetStatus(target) {
+  return cleanText(target.status ?? target.state ?? target.inventoryStatus ?? target.stage);
+}
+
+function referenceCustomerId(workspace, target, refType) {
+  const direct = cleanText(target.customerId);
+  if (direct) return direct;
+  if (refType === "fulfillment" || refType === "production_task") {
+    const lineId = cleanText(target.lineId ?? target.orderLineId);
+    return cleanText((workspace.orderLines ?? []).find((line) => cleanText(line.id) === lineId)?.customerId);
+  }
+  return "";
 }
 
 function inferTodoRefType(todo, refId) {
