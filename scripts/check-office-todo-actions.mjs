@@ -109,6 +109,41 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
 }
 
 {
+  const missingReferenceTodo = { ...baseTodos[0], referenceStatus: "missing", referenceReason: "引用目标不存在" };
+  let repairInput = null;
+  let repairOptions = null;
+  const harness = createHarness({
+    todoItems: [missingReferenceTodo],
+    api: {
+      repairOfficeTodoReference: async (input, options) => {
+        repairInput = input;
+        repairOptions = options;
+        return { source: "api", todo: { ...missingReferenceTodo, ref: input.refId, refId: input.refId, refType: input.refType, referenceStatus: "valid" } };
+      },
+    },
+  });
+  await harness.controller.repairTodoReference("T-CONTROLLER-001", { refType: "order_line", refId: "ORD-VALID-01", reason: "核对原始消息" });
+  assert.equal(repairInput.operatorId, "U-OFFICE-A");
+  assert.equal(repairOptions.serverRequired, true);
+  assert.equal(harness.getTodos()[0].referenceStatus, "valid");
+  assert.equal(harness.getRefreshCount(), 1);
+  assert.match(harness.toasts.at(-1), /已重新关联/);
+}
+
+{
+  const missingReferenceTodo = { ...baseTodos[0], referenceStatus: "missing" };
+  const harness = createHarness({
+    allowLocalFallback: true,
+    todoItems: [missingReferenceTodo],
+    api: { repairOfficeTodoReference: async () => ({ source: "local_fallback" }) },
+  });
+  await harness.controller.repairTodoReference("T-CONTROLLER-001", { refType: "order_line", refId: "ORD-VALID-01", reason: "核对原始消息" });
+  assert.equal(harness.getTodos()[0].referenceStatus, "missing");
+  assert.equal(harness.getRefreshCount(), 0);
+  assert.match(harness.toasts.at(-1), /后端拒绝重新关联/);
+}
+
+{
   const harness = createHarness();
   await harness.controller.handleTodo("打开订单录入");
   assert.deepEqual(harness.getFocusCalls().drafts, ["ORD-001-01"]);

@@ -4,6 +4,7 @@ import {
   handleOfficeTodoBatch,
   listOfficeTodos,
   mapTodoUiActionToApiPayload,
+  repairOfficeTodoReference,
 } from "../src/services/officeTodoApiClient.js";
 import { createOfficePrintBatchRecord } from "../src/services/officePrintBatchApiClient.js";
 import {
@@ -125,6 +126,8 @@ const listResult = await listOfficeTodos(
             notificationChannel: "微信 / 企业微信人工发送",
             notificationStatus: "待人工发送",
             photoPrompt: "请附成品图",
+            referenceStatus: "missing",
+            referenceCandidates: [{ refType: "order_line", refId: "ORD-CHECK-1-01", label: "订单行 · ORD-CHECK-1-01" }],
             createdAt: "2026-07-01T00:00:00.000Z",
           },
         ],
@@ -142,6 +145,7 @@ assert(listResult.items[0]?.id === "T-LIST-NOTIFY-1", "todo list API id was not 
 assert(listResult.items[0]?.ref === "ORD-CHECK-1", "todo list API ref was not mapped");
 assert(listResult.items[0]?.notificationCopyText === "客户通知文案", "todo list API notification copy text was not mapped");
 assert(listResult.items[0]?.photoPrompt === "请附成品图", "todo list API photo prompt was not mapped");
+assert(listResult.items[0]?.referenceCandidates[0]?.refId === "ORD-CHECK-1-01", "todo reference candidates were not mapped");
 
 const apiCalls = [];
 const apiResult = await handleOfficeTodoAction(
@@ -184,6 +188,39 @@ assert(apiCalls[0]?.init.headers.authorization === "Bearer seed-session.todo-che
 assert(apiCalls[0]?.body.action === "mark_handled", "todo handle request action is incorrect");
 assert(apiCalls[0]?.body.operatorId === "U-OFFICE-A", "todo handle request did not send operatorId");
 assert(apiResult.todo.handled === true && apiResult.operationLogId === "LOG-TODO-CHECK-1", "todo handle API response was not mapped");
+
+const repairCalls = [];
+const repairResult = await repairOfficeTodoReference(
+  {
+    authState: { ...authState, session: { accessToken: "seed-session.todo-repair" } },
+    todoId: "T-CHECK-REPAIR",
+    refType: "order_line",
+    refId: "ORD-CHECK-1-01",
+    reason: "办公室核对原始消息",
+    operatorId: "U-OFFICE-A",
+    idempotencyKey: "todo-reference-repair-check-1",
+  },
+  {
+    fetchImpl: async (url, init) => {
+      repairCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        todo: {
+          todoId: "T-CHECK-REPAIR",
+          type: "订单异常",
+          refType: "order_line",
+          refId: "ORD-CHECK-1-01",
+          referenceStatus: "valid",
+          handled: false,
+        },
+        operationLogId: "LOG-TODO-REPAIR-CHECK-1",
+      });
+    },
+  },
+);
+assert(repairCalls[0]?.url.endsWith("/todos/T-CHECK-REPAIR/reference"), "todo reference repair URL is incorrect");
+assert(repairCalls[0]?.body.reason === "办公室核对原始消息", "todo reference repair reason was not sent");
+assert(repairCalls[0]?.init.headers.authorization === "Bearer seed-session.todo-repair", "todo reference repair did not send bearer auth");
+assert(repairResult.todo?.ref === "ORD-CHECK-1-01", "todo reference repair response was not mapped");
 
 const batchCalls = [];
 const batchResult = await handleOfficeTodoBatch(

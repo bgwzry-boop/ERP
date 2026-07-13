@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createLocalTodoActionRepository } from "../server/todoActionRepository.mjs";
 import { createTodoCommandService } from "../server/services/todoCommandService.mjs";
-import { resolveTodoReference } from "../server/services/todoReferenceService.mjs";
+import { listTodoReferenceCandidates, resolveTodoReference } from "../server/services/todoReferenceService.mjs";
 
 const fixedNow = new Date("2026-07-11T08:30:00.000Z");
 const workspace = {
@@ -21,7 +21,21 @@ const workspace = {
       createdAt: "2026-07-11T08:00:00.000Z",
       updatedAt: "2026-07-11T08:00:00.000Z",
     },
+    {
+      id: "T-CMD-REPAIR",
+      todoId: "T-CMD-REPAIR",
+      type: "订单异常",
+      customerId: "C-REPAIR",
+      refType: "order_line",
+      refId: "ORD-MISSING",
+      ref: "ORD-MISSING",
+      status: "未处理",
+      handled: false,
+      createdAt: "2026-07-11T08:00:00.000Z",
+      updatedAt: "2026-07-11T08:00:00.000Z",
+    },
   ],
+  orderLines: [{ id: "ORD-REPAIR-01", orderNo: "ORD-REPAIR", customerId: "C-REPAIR", status: "待生产" }],
   todoEvents: [],
   operationLogs: [],
   todoActionRepository: createLocalTodoActionRepository(),
@@ -153,6 +167,38 @@ const missing = await service.handleTodo({
 });
 assert.equal(missing.code, "TODO_NOT_FOUND");
 
+const invalidRepair = await service.repairTodoReference({
+  workspace,
+  todoId: "T-CMD-REPAIR",
+  operatorId: "U-AUTH",
+  body: { refType: "order_line", refId: "ORD-NOT-FOUND", reason: "核对原始消息" },
+});
+assert.equal(invalidRepair.code, "TODO_REFERENCE_TARGET_NOT_FOUND");
+const repaired = await service.repairTodoReference({
+  workspace,
+  todoId: "T-CMD-REPAIR",
+  operatorId: "U-AUTH",
+  operatorName: "认证办公室",
+  body: { refType: "order_line", refId: "ORD-REPAIR-01", reason: "核对原始消息", idempotencyKey: "todo-repair-001" },
+});
+assert.equal(repaired.todo.refId, "ORD-REPAIR-01");
+assert.equal(repaired.todo.referenceRepair.beforeRefId, "ORD-MISSING");
+assert.equal(repaired.todo.referenceRepair.operatorId, "U-AUTH");
+assert.equal(workspace.todoEvents[0].eventType, "repair_todo_reference");
+assert.equal(workspace.operationLogs[0].action, "repair_todo_reference");
+assert.equal((await service.repairTodoReference({
+  workspace,
+  todoId: "T-CMD-REPAIR",
+  operatorId: "U-AUTH",
+  body: { refType: "order_line", refId: "ORD-REPAIR-01", reason: "重复修复" },
+})).code, "TODO_REFERENCE_STILL_VALID");
+assert.equal((await service.repairTodoReference({
+  workspace,
+  todoId: "T-CMD-1",
+  operatorId: "U-AUTH",
+  body: { refType: "order_line", refId: "ORD-REPAIR-01", reason: "已处理待办" },
+})).code, "TODO_ALREADY_HANDLED");
+
 const referenceWorkspace = {
   orderDrafts: [{ id: "DRAFT-VALID-1" }],
   orderLines: [{ id: "ORD-VALID-1-01", orderNo: "ORD-VALID-1" }],
@@ -163,5 +209,10 @@ assert.equal(resolveTodoReference(referenceWorkspace, { type: "订单草稿待�
 assert.equal(resolveTodoReference(referenceWorkspace, { type: "快递待确认", ref: "ORD-VALID-1" }).resolvedRefId, "F-VALID-1");
 assert.equal(resolveTodoReference(referenceWorkspace, { refType: "statement", refId: "ST-MISSING" }).referenceStatus, "missing");
 assert.equal(resolveTodoReference(referenceWorkspace, { refType: "external_review", refId: "EXT-1" }).referenceStatus, "unverifiable");
+assert.deepEqual(listTodoReferenceCandidates(workspace, workspace.todos.find((todo) => todo.id === "T-CMD-1"))[0], {
+  refType: "order_line",
+  refId: "ORD-REPAIR-01",
+  label: "订单行 · ORD-REPAIR-01 · 待生产",
+});
 
-console.log("Todo command service checks passed: actions, authenticated identity, timestamps, events, and reference projection are isolated.");
+console.log("Todo command service checks passed: actions, authenticated identity, references, repair audit, and invalid targets are isolated.");

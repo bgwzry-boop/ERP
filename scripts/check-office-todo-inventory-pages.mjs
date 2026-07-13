@@ -15,6 +15,10 @@ assert.match(todoPageSource, /批量打印标签/);
 assert.match(todoPageSource, /getPrintBatchRecordsForTodo/);
 assert.match(todoPageSource, /业务引用/);
 assert.match(todoPageSource, /referenceStatus === "missing"/);
+assert.match(todoPageSource, /重新关联业务/);
+assert.match(todoPageSource, /验证并重新关联/);
+assert.match(todoPageSource, /referenceCandidates/);
+assert.match(todoStyleSource, /\.todo-reference-repair/);
 assert.match(mainSource, /import "\.\/styles\/features\/todos\.css";/);
 assert.equal(
   mainSource.indexOf('import "./styles/components.css";') < mainSource.indexOf('import "./styles/features/todos.css";'),
