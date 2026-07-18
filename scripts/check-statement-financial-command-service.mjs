@@ -5,6 +5,16 @@ const calls = { payments: [], variances: [], writeOffs: [] };
 const workspace = createWorkspace();
 const service = createStatementFinancialCommandService({
   now: () => "2026-07-11T16:00:00.000Z",
+  businessDecisionEvidenceService: {
+    prepareDecision(input) {
+      return {
+        ok: true,
+        record: { id: `BD-${input.decisionScope}`, businessDecisionId: `BD-${input.decisionScope}` },
+        attachmentLinks: [],
+      };
+    },
+    toProjection(record) { return record; },
+  },
   findStatement(current, statementId) {
     return current.statements.find((item) => item.id === statementId) ?? null;
   },
@@ -29,12 +39,6 @@ const service = createStatementFinancialCommandService({
   getStatementWriteOffBlocker() {
     return "";
   },
-  mapVarianceHandlingResult(_result, reason) {
-    return reason || "未收差额转欠款";
-  },
-  mapStatementApiStatus(status) {
-    return status;
-  },
   nextId(prefix, rows) {
     return `${prefix}-${rows.length + 1}`;
   },
@@ -57,7 +61,7 @@ for (const [attachmentId, expectedCode] of [
   const blocked = await service.recordPayment({
     workspace,
     statementId: "ST-1",
-    body: { amount: 80, attachmentIds: [attachmentId] },
+    body: { amount: 80, attachmentIds: [attachmentId], expectedRevision: 1 },
     operatorId: "U-FINANCE",
   });
   assert.equal(blocked.code, expectedCode);
@@ -68,6 +72,7 @@ const payment = await service.recordPayment({
   statementId: "ST-1",
   body: {
     amount: 80,
+    expectedRevision: 1,
     attachmentIds: ["ATT-PAY", "ATT-PAY"],
     operatorId: "U-SPOOFED",
     idempotencyKey: "payment-command-001",
@@ -76,6 +81,7 @@ const payment = await service.recordPayment({
 });
 assert.equal(payment.response.payment.operatorId, "U-FINANCE");
 assert.deepEqual(payment.response.payment.attachmentIds, ["ATT-PAY"]);
+assert.equal(payment.response.statementRevision, 2);
 assert.equal(calls.payments[0].idempotencyPayload.operatorId, "U-FINANCE");
 
 const blockedVarianceAttachments = await service.handleVariance({
@@ -83,6 +89,7 @@ const blockedVarianceAttachments = await service.handleVariance({
   statementId: "ST-1",
   body: {
     varianceAmount: 20,
+    expectedRevision: 1,
     reason: "未收差额转欠款",
     attachmentIds: ["ATT-PAY", "ATT-PAY-2"],
   },
@@ -94,7 +101,8 @@ const variance = await service.handleVariance({
   workspace,
   statementId: "ST-1",
   body: {
-    varianceAmount: 20,
+    varianceAmount: 9999,
+    expectedRevision: 1,
     reason: "未收差额转欠款",
     attachmentIds: ["ATT-PAY"],
     operatorId: "U-SPOOFED",
@@ -103,11 +111,13 @@ const variance = await service.handleVariance({
 });
 assert.equal(variance.response.varianceRecord.attachmentId, "ATT-PAY");
 assert.equal(variance.response.varianceRecord.operatorId, "U-FINANCE");
+assert.equal(variance.response.varianceRecord.amount, 20, "client varianceAmount must not override the statement amount");
+assert.equal(variance.response.statementRevision, 2);
 
 const blockedWriteOffAttachment = await service.writeOffStatement({
   workspace,
   statementId: "ST-1",
-  body: { confirmReason: "确认转欠款", attachmentIds: ["ATT-PAY"] },
+  body: { confirmReason: "确认转欠款", attachmentIds: ["ATT-PAY"], expectedRevision: 1 },
   operatorId: "U-FINANCE",
 });
 assert.equal(blockedWriteOffAttachment.code, "STATEMENT_WRITE_OFF_ATTACHMENT_UNSUPPORTED");
@@ -115,17 +125,23 @@ assert.equal(blockedWriteOffAttachment.code, "STATEMENT_WRITE_OFF_ATTACHMENT_UNS
 const writtenOff = await service.writeOffStatement({
   workspace,
   statementId: "ST-1",
-  body: { confirmReason: "确认转欠款", operatorId: "U-SPOOFED" },
+  body: {
+    confirmReason: "确认转欠款",
+    operatorId: "U-SPOOFED",
+    expectedRevision: 1,
+    delegatedDecision: { evidenceAttachmentIds: ["ATT-PAY"] },
+  },
   operatorId: "U-FINANCE",
 });
 assert.equal(writtenOff.response.status, "已确认欠款");
+assert.equal(writtenOff.response.statementRevision, 2);
 assert.equal(calls.writeOffs[0].operationLog.operatorId, "U-FINANCE");
 
 console.log("Statement financial command service checks passed");
 
 function createWorkspace() {
   const current = {
-    statements: [{ id: "ST-1", customerId: "C-1", receivable: 100, received: 0, variance: 20, status: "差额待确认" }],
+    statements: [{ id: "ST-1", customerId: "C-1", receivable: 100, received: 0, variance: 20, status: "差额待确认", revision: 1 }],
     paymentRecords: [],
     varianceRecords: [],
     todos: [],
@@ -155,12 +171,18 @@ function createWorkspace() {
       return {
         varianceRecord: input.varianceRecord,
         todo: input.todo,
+        businessDecision: input.decisionRecord,
         operationLogId: input.operationLog.id,
       };
     },
     async writeOffStatement(input) {
       calls.writeOffs.push(input);
-      return { statement: input.statement, operationLogId: input.operationLog.id };
+      return {
+        statement: input.statement,
+        writeOffRecord: input.writeOffRecord,
+        businessDecision: input.decisionRecord,
+        operationLogId: input.operationLog.id,
+      };
     },
   };
   return current;

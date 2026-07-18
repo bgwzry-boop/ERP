@@ -158,7 +158,7 @@ const previewResult = await previewOfficeStatement(
             orderNo: "ORD-0629-010",
             productName: "白鲸活动袋",
             goodsSpec: "白鲸活动袋 / 35*27 / 白色 / 单面 / 印黑色 / 1500个",
-            billQty: 1500,
+            chargeableQty: 1500,
             unitPrice: 72,
             amount: 108000,
             adjustmentAmount: 0,
@@ -709,6 +709,7 @@ const paymentResult = await recordOfficeStatementPayment(
           attachmentIds: ["ATT-PAYMENT-SCREENSHOT-1"],
         },
         statementStatus: "差额待确认",
+        statementRevision: 8,
         varianceAmount: 28000,
         todoId: "T-PAYMENT-VARIANCE-1",
         operationLogId: "LOG-STATEMENT-PAYMENT-1",
@@ -724,6 +725,7 @@ assert(paymentCalls[0]?.body.method === "bank_transfer", "payment request method
 assert(paymentCalls[0]?.body.remark === "客户少付，差额待确认", "payment request remark is incorrect");
 assert(paymentCalls[0]?.body.attachmentIds?.[0] === "ATT-PAYMENT-SCREENSHOT-1", "payment request missed attachment ids");
 assert(paymentResult.payment.paymentRecordId === "PAY-ST-0629-002" && paymentResult.varianceAmount === 28000, "payment response was not mapped");
+assert(paymentResult.statementRevision === 8, "payment response revision was not mapped");
 
 const varianceCalls = [];
 const varianceResult = await handleOfficeStatementVariance(
@@ -746,6 +748,7 @@ const varianceResult = await handleOfficeStatementVariance(
           reason: "未收差额转欠款",
         },
         statementStatus: "有欠款",
+        statementRevision: 9,
         debtAmount: 28000,
         operationLogId: "LOG-STATEMENT-VARIANCE-1",
       });
@@ -756,6 +759,7 @@ const varianceResult = await handleOfficeStatementVariance(
 assert(varianceCalls[0]?.url.endsWith("/api/statements/ST-0629-002/variance"), "variance API URL is incorrect");
 assert(varianceCalls[0]?.body.handlingResult === "carry_to_debt", "variance request handling result is incorrect");
 assert(varianceCalls[0]?.body.varianceAmount === 28000, "variance request amount is incorrect");
+assert(varianceResult.statementRevision === 9, "variance response revision was not mapped");
 assert(varianceResult.varianceRecord.varianceRecordId === "VAR-ST-0629-002" && varianceResult.debtAmount === 28000, "variance response was not mapped");
 
 const writeOffCalls = [];
@@ -772,6 +776,7 @@ const writeOffResult = await writeOffOfficeStatement(
       return createJsonResponse(200, {
         statementId: statement.id,
         status: "已确认欠款",
+        statementRevision: 10,
         receivable: 108000,
         received: 80000,
         variance: 28000,
@@ -785,6 +790,7 @@ const writeOffResult = await writeOffOfficeStatement(
 assert(writeOffCalls[0]?.url.endsWith("/api/statements/ST-0629-002/write-off"), "write-off API URL is incorrect");
 assert(writeOffCalls[0]?.body.confirmReason === "API client check write-off", "write-off request reason is incorrect");
 assert(writeOffResult.status === "已确认欠款" && writeOffResult.debtAmount === 28000, "write-off response was not mapped");
+assert(writeOffResult.statementRevision === 10, "write-off response revision was not mapped");
 
 const deniedResult = await recordOfficeStatementPayment(
   {

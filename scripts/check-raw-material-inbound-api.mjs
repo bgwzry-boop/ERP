@@ -1,14 +1,22 @@
 import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
-import { initialRawMaterialInbounds } from "../src/data/fixtures.js";
+import { initialOrderLines, initialRawMaterialInbounds } from "../src/data/fixtures.js";
 import { createApiServer } from "../server/apiServer.mjs";
 import {
   createLocalRawMaterialInboundRepository,
   createPostgresRawMaterialInboundRepository,
   buildListRawMaterialInboundPayloadsQuery,
   buildListRawMaterialInboundPayloadsSql,
+  applyRawMaterialInboundAction,
 } from "../server/rawMaterialInboundRepository.mjs";
+import {
+  closeTestServer,
+  getJson,
+  getTestServerBaseUrl,
+  listenTestServer,
+  requestJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "raw-material-inbound-api");
 const repositoryStorageRoot = join(checkStorageRoot, "repository");
@@ -16,6 +24,7 @@ const apiStorageRoot = join(checkStorageRoot, "api");
 rmSync(checkStorageRoot, { recursive: true, force: true });
 
 await checkRepository();
+checkPerRollLabelGate();
 await checkPostgresRepositoryBoundary();
 await checkApi();
 
@@ -69,7 +78,7 @@ async function checkRepository() {
     action: "review",
     operatorId: "U-OFFICE-A",
     operatorName: "办公室A",
-    body: { now: "2026-07-04T01:00:00.000Z" },
+    body: { expectedRevision: 1, now: "2026-07-04T01:00:00.000Z" },
   });
   assert.equal(review.inbound.status, "已复核待打印标签", "review should move inbound to pending label print");
   assert.equal(review.inbound.rolls[0].labelStatus, "待打印标签", "review should not mark roll labels as printed");
@@ -81,7 +90,7 @@ async function checkRepository() {
     action: "print-labels",
     operatorId: "U-OFFICE-A",
     operatorName: "办公室A",
-    body: { now: "2026-07-04T01:05:00.000Z" },
+    body: { expectedRevision: 2, now: "2026-07-04T01:05:00.000Z" },
   });
   assert.equal(printed.inbound.status, "已打印待贴标", "printing should move inbound to pending attach");
   assert.equal(printed.inbound.rolls[0].labelStatus, "已打印待贴标", "printing should mark labels as printed");
@@ -93,12 +102,13 @@ async function checkRepository() {
     action: "attach-confirm",
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
-    body: { rollId: "RM-240704-001-01", now: "2026-07-04T01:10:00.000Z" },
+    body: { expectedRevision: 3, rollId: "RM-240704-001-01", matchResult: "matched", now: "2026-07-04T01:10:00.000Z" },
   });
   assert.equal(attached.inbound.status, "部分贴标", "single roll attach should keep inbound partially labeled");
   assert.equal(attached.inbound.rolls[0].inventoryStatus, "可用", "attached roll should become available");
   assert.equal(attached.inbound.rolls[1].inventoryStatus, "不可用", "unattached roll should remain unavailable");
-  assert.equal(attached.inbound.rolls[0].signedNoteStatus, "已扫码/签单", "attach confirmation should require scan/signoff evidence state");
+  assert.equal(attached.inbound.rolls[0].labelVerification.result, "匹配", "attach confirmation should persist the physical label check");
+  assert.equal(attached.inbound.rolls[0].labelVerification.verifiedByUserId, "U-WAREHOUSE-A", "the authenticated operator should be recorded");
 
   const issued = repository.recordRawMaterialInboundAction({
     workspace,
@@ -107,6 +117,7 @@ async function checkRepository() {
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
     body: {
+      expectedRevision: 4,
       rollId: "RM-240704-001-01",
       issuedWeightKg: 50,
       machineId: "制袋机-01",
@@ -136,6 +147,7 @@ async function checkRepository() {
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
     body: {
+      expectedRevision: 5,
       rollId: "RM-240704-001-01-S01",
       consumedWeightKg: 30,
       machineId: "制袋机-01",
@@ -163,6 +175,7 @@ async function checkRepository() {
     operatorId: "U-MANAGER-A",
     operatorName: "管理A",
     body: {
+      expectedRevision: 6,
       note: "专项检查生成成本草稿；仍需成本复核。",
       now: "2026-07-04T01:28:00.000Z",
     },
@@ -186,6 +199,7 @@ async function checkRepository() {
     operatorId: "U-MANAGER-A",
     operatorName: "管理A",
     body: {
+      expectedRevision: 7,
       note: "专项检查确认成本草稿；损耗校准和毛利仍待后续流程。",
       now: "2026-07-04T01:29:00.000Z",
     },
@@ -210,6 +224,7 @@ async function checkRepository() {
     operatorId: "U-MANAGER-A",
     operatorName: "管理A",
     body: {
+      expectedRevision: 8,
       expectedOutputQuantity: 1000,
       actualQualifiedOutputQuantity: 950,
       note: "专项检查校准损耗；仍需毛利报表确认。",
@@ -244,6 +259,7 @@ async function checkRepository() {
     operatorId: "U-MANAGER-A",
     operatorName: "管理A",
     body: {
+      expectedRevision: 9,
       note: "专项检查生成订单毛利快照；只供财务复核。",
       now: "2026-07-04T01:29:45.000Z",
     },
@@ -266,6 +282,7 @@ async function checkRepository() {
     operatorId: "U-MANAGER-A",
     operatorName: "管理A",
     body: {
+      expectedRevision: 10,
       note: "专项检查复核订单毛利快照；生成内部毛利报表。",
       now: "2026-07-04T01:29:55.000Z",
     },
@@ -287,8 +304,10 @@ async function checkRepository() {
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
     body: {
+      expectedRevision: 1,
       rollId: "RM-240704-003-01",
-      machineId: "提手备料区",
+      machineId: "BAG-01",
+      productionTaskId: "PT-RMI-001",
       now: "2026-07-04T01:30:00.000Z",
     },
   });
@@ -300,6 +319,7 @@ async function checkRepository() {
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
     body: {
+      expectedRevision: 2,
       rollId: "RM-240704-003-01",
       returnLocation: "余料区",
       now: "2026-07-04T01:35:00.000Z",
@@ -316,6 +336,7 @@ async function checkRepository() {
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
     body: {
+      expectedRevision: 3,
       rollId: "RM-240704-003-01",
       reviewLocation: "原料库-余料可用区",
       now: "2026-07-04T01:40:00.000Z",
@@ -384,11 +405,110 @@ async function checkRepository() {
   );
 }
 
+function checkPerRollLabelGate() {
+  const inbound = {
+    id: "RMI-PER-ROLL-001",
+    supplierName: "测试供应商",
+    factoryColor: "本白",
+    spec: "55cm / 60g",
+    status: "已打印待贴标",
+    rolls: Array.from({ length: 8 }, (_, index) => ({
+      id: `RMI-PER-ROLL-${index + 1}`,
+      supplierRollNo: `重${index + 1}`,
+      weightKg: 100 + index,
+      labelVersion: 1,
+      labelStatus: "已打印待贴标",
+      inventoryStatus: "待贴标",
+      location: "待贴标区",
+    })),
+  };
+  const workspace = { rawMaterialInbounds: [inbound] };
+  assert.throws(
+    () =>
+      applyRawMaterialInboundAction({
+        workspace,
+        inboundId: inbound.id,
+        action: "attach_confirm",
+        body: { expectedRevision: 1, matchResult: "matched" },
+        operatorId: "U-OFFICE-A",
+        operatorName: "办公室A",
+      }),
+    (error) => error?.code === "RAW_MATERIAL_ATTACH_ROLL_REQUIRED",
+    "attach confirmation must fail closed when rollId is missing",
+  );
+
+  let current = inbound;
+  for (const roll of inbound.rolls.slice(0, 7)) {
+    current = applyRawMaterialInboundAction({
+      workspace: { rawMaterialInbounds: [current] },
+      inboundId: inbound.id,
+      action: "attach_confirm",
+      body: {
+        expectedRevision: current.revision ?? 1,
+        rollId: roll.id,
+        matchResult: "matched",
+        checkedWeightKg: roll.weightKg,
+        checkedColor: "本白",
+        checkedSpec: "55cm / 60g",
+        location: "原料库-A01",
+        operatorId: "U-SPOOFED",
+      },
+      operatorId: "U-OFFICE-A",
+      operatorName: "办公室A",
+    }).inbound;
+  }
+  current = applyRawMaterialInboundAction({
+    workspace: { rawMaterialInbounds: [current] },
+    inboundId: inbound.id,
+    action: "attach_confirm",
+    body: { expectedRevision: current.revision, rollId: "RMI-PER-ROLL-8", matchResult: "mismatched", location: "原料隔离区" },
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+  }).inbound;
+  assert.equal(current.status, "部分入库，1卷异常");
+  assert.equal(current.rolls.filter((roll) => roll.inventoryStatus === "可用").length, 7);
+  assert.equal(current.rolls[7].labelStatus, "标签或实物不符/待确认");
+  assert.equal(current.rolls[0].labelVerification.verifiedByUserId, "U-OFFICE-A", "body operator must not spoof the authenticated operator");
+
+  current = applyRawMaterialInboundAction({
+    workspace: { rawMaterialInbounds: [current] },
+    inboundId: inbound.id,
+    action: "void_label",
+    body: { expectedRevision: current.revision, rollId: "RMI-PER-ROLL-8", reason: "标签损坏" },
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+  }).inbound;
+  assert.equal(current.rolls[7].labelStatus, "标签已作废/待重打");
+  assert.equal(current.rolls[0].inventoryStatus, "可用", "voiding an exceptional label must not affect matched rolls");
+
+  current = applyRawMaterialInboundAction({
+    workspace: { rawMaterialInbounds: [current] },
+    inboundId: inbound.id,
+    action: "reprint_label",
+    body: { expectedRevision: current.revision, rollId: "RMI-PER-ROLL-8" },
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+  }).inbound;
+  assert.equal(current.rolls[7].labelVersion, 2);
+  assert.equal(current.rolls[7].labelStatus, "已打印待贴标");
+  current = applyRawMaterialInboundAction({
+    workspace: { rawMaterialInbounds: [current] },
+    inboundId: inbound.id,
+    action: "attach_confirm",
+    body: { expectedRevision: current.revision, rollId: "RMI-PER-ROLL-8", matchResult: "matched", location: "原料库-A01" },
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+  }).inbound;
+  assert.equal(current.status, "已贴标/可用库存");
+  assert.equal(current.rolls.filter((roll) => roll.inventoryStatus === "可用").length, 8);
+}
+
 async function checkPostgresRepositoryBoundary() {
   const calls = [];
   const repository = createPostgresRawMaterialInboundRepository({
     queryJson(text, values) {
       calls.push({ kind: "query", text, values });
+      if (text.includes("FROM operation_idempotency_keys")) return null;
       if (text.includes("WHERE id =")) return initialRawMaterialInbounds[0];
       return [initialRawMaterialInbounds[0]];
     },
@@ -428,7 +548,7 @@ async function checkPostgresRepositoryBoundary() {
     operatorId: "U-OFFICE-A",
     operatorName: "办公室A",
     idempotencyKey: "idem-raw-material-review-001",
-    body: { now: "2026-07-04T01:00:00.000Z" },
+    body: { expectedRevision: 1, now: "2026-07-04T01:00:00.000Z" },
   });
   const transactionQuery = calls.find((call) => call.kind === "idempotent");
   assert.equal(saved.inbound.status, "已复核待打印标签", "postgres action should return saved inbound payload");
@@ -448,19 +568,37 @@ async function checkPostgresRepositoryBoundary() {
 }
 
 async function checkApi() {
+  const testOrderLine = {
+    id: "ORD-RMI-API-001-01",
+    orderId: "ORD-RMI-API-001",
+    customerId: "C001",
+    productName: "原料领料测试红袋",
+    bagColor: "红色",
+    color: "红色",
+    qty: 1000,
+    status: "制袋中",
+    lineStatus: "制袋中",
+  };
+  initialOrderLines.push(testOrderLine);
   const server = createApiServer({
     rawMaterialInboundRepositoryOptions: { storageRoot: apiStorageRoot },
   });
-  await listen(server);
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  await listenTestServer(server);
+  const baseUrl = `${getTestServerBaseUrl(server)}/api`;
 
   try {
-    const health = await getJson(`${baseUrl}/health`);
+    const health = await getJson(baseUrl, "health");
     assert.equal(health.seed?.rawMaterialInboundRepository, "local_json", "health should expose raw-material repository kind");
 
-    const list = await getJson(`${baseUrl}/raw-material-inbounds?pageSize=10`);
+    const list = await getJson(baseUrl, "raw-material-inbounds?pageSize=10");
     assert(list.items?.some((item) => item.id === "RMI-0704-001"), "API list should include raw-material seed rows");
     assert.equal(list.metrics?.pendingReviewCount >= 1, true, "API list should include raw-material metrics");
+    const taskList = await getJson(baseUrl, "production-tasks?pageSize=200");
+    const testProductionTask = (taskList.items ?? []).find((item) => item.orderLineId === testOrderLine.id);
+    assert.ok(testProductionTask?.productionTaskId, "API test seed should expose a red bag-making production task");
+    const testProductionTaskId = testProductionTask.productionTaskId;
+    const testMachineId = testProductionTask.productionTask?.machineId;
+    assert.equal(testMachineId, "BAG-01", "API test seed should bind the test task to the bag-making machine");
 
     const review = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/review`, {
       userId: "U-OFFICE-A",
@@ -481,22 +619,22 @@ async function checkApi() {
       "print route must not make raw material available",
     );
 
-    const deniedAttach = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/attach-confirm`, {
+    const invalidOfficeAttach = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/attach-confirm`, {
       userId: "U-OFFICE-A",
       body: { rollId: "RM-240704-001-01" },
     });
-    assert.equal(deniedAttach.status, 403, "office user should not bypass attach-confirm permission");
+    assert.equal(invalidOfficeAttach.status, 422, "office attach confirmation should still require a per-roll match decision");
     assert.equal(
-      deniedAttach.json.requiredPermission,
-      "raw_material.label.attach_confirm",
-      "attach-confirm denial should return required permission",
+      invalidOfficeAttach.json.code,
+      "RAW_MATERIAL_LABEL_MATCH_RESULT_REQUIRED",
+      "office attach validation should fail closed before inventory becomes available",
     );
 
     const attached = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/attach-confirm`, {
-      userId: "U-WAREHOUSE-A",
-      body: { rollId: "RM-240704-001-01", now: "2026-07-04T02:10:00.000Z" },
+      userId: "U-OFFICE-A",
+      body: { rollId: "RM-240704-001-01", matchResult: "matched", now: "2026-07-04T02:10:00.000Z" },
     });
-    assert.equal(attached.status, 200, "warehouse user should be allowed to confirm attached label");
+    assert.equal(attached.status, 200, "office user should be allowed to confirm the label-to-roll check");
     assert.equal(attached.json.inbound.status, "部分贴标", "single roll attach should not close all rolls");
     assert.equal(attached.json.inbound.rolls[0].inventoryStatus, "可用", "attached roll should be available through API");
     assert.equal(attached.json.inbound.rolls[1].inventoryStatus, "不可用", "unattached roll should stay unavailable through API");
@@ -534,32 +672,43 @@ async function checkApi() {
       "issue denial should return required permission",
     );
 
-    const splitIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/issue-to-machine`, {
+    const missingMachineIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/issue-to-machine`, {
       userId: "U-WAREHOUSE-A",
       body: {
         rollId: "RM-240704-001-01",
-        machineId: "制袋机-01",
         issuedWeightKg: 50,
         now: "2026-07-04T02:12:00.000Z",
       },
     });
-    assert.equal(splitIssue.status, 200, "split-roll issue should be allowed in V1 first partial workflow");
+    assert.equal(missingMachineIssue.status, 422, "scan outbound must require the destination machine or area");
+    assert.equal(
+      missingMachineIssue.json.code,
+      "RAW_MATERIAL_ISSUE_MACHINE_REQUIRED",
+      "missing machine must fail closed before any raw-material movement",
+    );
+
+    const splitIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/issue-to-machine`, {
+      userId: "U-WAREHOUSE-A",
+      body: {
+        rollId: "RM-240704-001-01",
+        machineId: testMachineId,
+        productionTaskId: testProductionTaskId,
+        issuedWeightKg: 50,
+        now: "2026-07-04T02:12:00.000Z",
+      },
+    });
+    assert.equal(splitIssue.status, 200, "split-roll issue should be allowed after selecting a matching production task and machine");
     assert.equal(splitIssue.json.inbound.status, "部分领料/机边", "single issued roll should keep inbound partially issued");
     assert.equal(splitIssue.json.inbound.rolls[0].inventoryStatus, "可用", "split source roll should stay available inventory");
     assert.equal(splitIssue.json.inbound.rolls[0].weightKg, 55.4, "split source roll should keep remaining weight");
     assert.equal(splitIssue.json.inbound.rolls[1].id, "RM-240704-001-01-S01", "split route should create a child machine-side roll");
     assert.equal(splitIssue.json.inbound.rolls[1].inventoryStatus, "机边领用", "split child roll should be machine-side");
-    assert.equal(splitIssue.json.inbound.rawMaterialIssueRecords[0].productionTaskMatchStatus, "未关联生产任务", "issue without task should be explicitly marked unlinked");
+    assert.equal(splitIssue.json.inbound.rawMaterialIssueRecords[0].productionTaskMatchStatus, "已匹配", "issue must persist the selected production task match");
     assert.match(splitIssue.json.inbound.rawMaterialSplitRecords[0].splitRecordId, /^RMI-SPLIT-/, "split route should create RMI-SPLIT record");
-    assert.equal(
-      splitIssue.json.inbound.nextStep.includes("不直接生成成品或成本分摊"),
-      true,
-      "issue action should keep cost/output boundary explicit",
-    );
 
     const attachedWhite = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-002/attach-confirm`, {
       userId: "U-WAREHOUSE-A",
-      body: { rollId: "RM-240704-002-01", now: "2026-07-04T02:13:00.000Z" },
+      body: { rollId: "RM-240704-002-01", matchResult: "matched", now: "2026-07-04T02:13:00.000Z" },
     });
     assert.equal(attachedWhite.status, 200, "warehouse user should attach a white raw-material roll for task matching");
     const machineMismatchIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-002/issue-to-machine`, {
@@ -625,7 +774,7 @@ async function checkApi() {
         rollId: "RM-240704-001-01-S01",
         consumedWeightKg: 30,
         machineId: "制袋机-01",
-        productionTaskId: "PT-RMI-API-001",
+        productionTaskId: testProductionTaskId,
         now: "2026-07-04T02:25:00.000Z",
       },
     });
@@ -652,17 +801,6 @@ async function checkApi() {
       deniedCostDraft.json.requiredPermission,
       "raw_material.cost.allocate",
       "cost draft denial should return required permission",
-    );
-
-    const unlinkedCostDraft = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/generate-cost-draft`, {
-      userId: "U-FINANCE-A",
-      body: { now: "2026-07-04T02:28:00.000Z" },
-    });
-    assert.equal(unlinkedCostDraft.status, 422, "unlinked consumption should not generate cost draft");
-    assert.equal(
-      unlinkedCostDraft.json.code,
-      "RAW_MATERIAL_COST_DRAFT_NO_ELIGIBLE_CONSUMPTION",
-      "unlinked cost draft should return a stable no-eligible code",
     );
 
     const generatedCostDraft = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-002/generate-cost-draft`, {
@@ -874,7 +1012,8 @@ async function checkApi() {
       userId: "U-WAREHOUSE-A",
       body: {
         rollId: "RM-240704-003-01",
-        machineId: "提手备料区",
+        machineId: "BAG-01",
+        productionTaskId: "PT-ORD-0629-003-01",
         now: "2026-07-04T02:30:00.000Z",
       },
     });
@@ -927,15 +1066,15 @@ async function checkApi() {
     assert.equal(reviewedLeftover.json.inbound.rolls[0].inventoryStatus, "可用", "leftover review route should restore available inventory after review");
     assert.match(reviewedLeftover.json.inbound.rawMaterialLeftoverReviewRecords[0].leftoverReviewRecordId, /^RMI-LREV-/, "leftover review route should create RMI-LREV record");
 
-    await closeServer(server);
+    await closeTestServer(server);
 
     const restartedServer = createApiServer({
       rawMaterialInboundRepositoryOptions: { storageRoot: apiStorageRoot },
     });
-    await listen(restartedServer);
+    await listenTestServer(restartedServer);
     try {
-      const restartedBaseUrl = `http://127.0.0.1:${restartedServer.address().port}/api`;
-      const persisted = await getJson(`${restartedBaseUrl}/raw-material-inbounds/RMI-0704-001`);
+      const restartedBaseUrl = `${getTestServerBaseUrl(restartedServer)}/api`;
+      const persisted = await getJson(restartedBaseUrl, "raw-material-inbounds/RMI-0704-001");
       assert.equal(persisted.inbound.status, "部分消耗确认", "API should reload persisted raw-material inbound status");
       assert.equal(
         persisted.inbound.rolls[0].inventoryStatus,
@@ -947,7 +1086,7 @@ async function checkApi() {
         20,
         "API should reload persisted partial consumption remaining machine-side weight",
       );
-      const persistedCostDraft = await getJson(`${restartedBaseUrl}/raw-material-inbounds/RMI-0704-002`);
+      const persistedCostDraft = await getJson(restartedBaseUrl, "raw-material-inbounds/RMI-0704-002");
       assert.equal(
         persistedCostDraft.inbound.rawMaterialCostAllocationDrafts?.[0]?.allocatedCostAmount,
         172,
@@ -978,56 +1117,42 @@ async function checkApi() {
         308,
         "API should reload persisted raw-material reviewed margin report gross profit",
       );
-      const persistedLeftover = await getJson(`${restartedBaseUrl}/raw-material-inbounds/RMI-0704-003`);
+      const persistedLeftover = await getJson(restartedBaseUrl, "raw-material-inbounds/RMI-0704-003");
       assert.equal(
         persistedLeftover.inbound.rolls[0].inventoryStatus,
         "可用",
         "API should reload persisted reviewed leftover status",
       );
     } finally {
-      await closeServer(restartedServer);
+      await closeTestServer(restartedServer);
     }
   } finally {
-    await closeServer(server);
+    await closeTestServer(server);
+    initialOrderLines.pop();
   }
 }
 
-function listen(server) {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-}
-
-function closeServer(server) {
-  if (!server.listening) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    server.close((error) => {
-      if (error && error.code !== "ERR_SERVER_NOT_RUNNING") reject(error);
-      else resolve();
-    });
-  });
-}
-
-async function getJson(url) {
-  const response = await fetch(url);
-  return response.json();
-}
-
 async function postJson(url, { userId, body }) {
-  const response = await fetch(url, {
+  const endpoint = new URL(url);
+  const requestBody = { ...(body ?? {}) };
+  const inboundMatch = endpoint.pathname.match(/^(.*\/raw-material-inbounds\/([^/]+))\/[^/]+$/);
+  if (inboundMatch && requestBody.expectedRevision == null) {
+    const revisionResponse = await requestJson(endpoint.origin, inboundMatch[1], {
+      method: "GET",
+      headers: { "x-erp-user-id": userId },
+    });
+    requestBody.expectedRevision = Number(revisionResponse.body?.inbound?.revision ?? 0);
+  }
+  const response = await requestJson(endpoint.origin, `${endpoint.pathname}${endpoint.search}`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-erp-user-id": userId,
     },
-    body: JSON.stringify(body ?? {}),
+    body: JSON.stringify(requestBody),
   });
   return {
     status: response.status,
-    json: await response.json(),
+    json: response.body,
   };
 }

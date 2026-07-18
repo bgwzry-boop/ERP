@@ -214,7 +214,10 @@ function checkGoLiveSuiteIntegration({ manifest, releaseCandidate }) {
   const releaseMarkdownPath = join(sandboxRoot, "release-candidate.md");
   const manifestPath = join(sandboxRoot, "field-evidence.json");
   const outputRoot = join(sandboxRoot, "suite");
+  const todoLoadDir = join(sandboxRoot, ".erp-local-storage", "v1-todo-load-precheck");
+  const todoLoadPath = join(todoLoadDir, "latest.json");
   mkdirSync(sandboxRoot, { recursive: true });
+  mkdirSync(todoLoadDir, { recursive: true });
   symlinkSync(join(process.cwd(), "docs"), join(sandboxRoot, "docs"), "dir");
   const generatedAt = new Date().toISOString();
   const integrationRelease = {
@@ -227,6 +230,7 @@ function checkGoLiveSuiteIntegration({ manifest, releaseCandidate }) {
   writeJson(releasePath, integrationRelease);
   writeFileSync(releaseMarkdownPath, "# ERP V1 发布候选检查\n\n- 结论：READY（4/4 发布门禁通过）\n");
   writeJson(manifestPath, manifest);
+  writeJson(todoLoadPath, buildReadyTodoLoadPrecheck(generatedAt));
   const run = spawnSync(
     process.execPath,
     [
@@ -259,6 +263,54 @@ function checkGoLiveSuiteIntegration({ manifest, releaseCandidate }) {
     now: new Date(generatedSuite.generatedAt),
   });
   assert.equal(attestation.ready, true);
+}
+
+function buildReadyTodoLoadPrecheck(checkedAt) {
+  return {
+    scope: "v1_todo_load_precheck",
+    status: "ready",
+    ready: true,
+    checkedAt,
+    target: {
+      protocol: "https",
+      loopback: false,
+      apiPathValidated: true,
+      embeddedCredentials: false,
+      addressExposed: false,
+    },
+    config: { requestCount: 100, concurrency: 10, maxP95Ms: 1000, maxErrorRate: 0 },
+    authentication: {
+      formalRuntimeSession: true,
+      serverVerified: true,
+      sessionType: "runtime",
+      identityExposed: false,
+    },
+    summary: {
+      label: "5/5 通过",
+      requestCount: 100,
+      successCount: 100,
+      errorCount: 0,
+      errorRate: 0,
+      throughputPerSecond: 100,
+      latencyMs: { p50: 100, p95: 200, max: 300 },
+      snapshotChanged: false,
+    },
+    stages: [],
+    blockingStages: [],
+    warnings: [],
+    safeguards: {
+      explicitReadLoadConfirmation: true,
+      businessReadOnly: true,
+      businessDataMutated: false,
+      requestCountBounded: true,
+      concurrencyBounded: true,
+      responsePayloadStored: false,
+      todoIdentityStored: false,
+      credentialsExposed: false,
+      apiAddressExposed: false,
+      physicalPrinterCalled: false,
+    },
+  };
 }
 
 function writeJson(path, value) {

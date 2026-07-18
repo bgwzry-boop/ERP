@@ -7,6 +7,7 @@ function read(relativePath) {
 
 const sharedUiSource = read("src/shared/ui/operational.jsx");
 const appSource = read("src/App.jsx");
+const appShellViewsSource = read("src/app/AppShellViews.jsx");
 const navigationSource = read("src/app/navigation.js");
 const mainSource = read("src/main.jsx");
 const todoSource = read("src/features/todos/TodoPage.jsx");
@@ -37,8 +38,12 @@ assert.match(sharedUiSource, /role="tablist"/);
 assert.match(sharedUiSource, /aria-selected=\{value === item\}/);
 assert.match(appSource, /<WorkspaceNotice>/);
 assert.match(appSource, /<WorkspacePageHeader/);
+assert.match(appSource, /onOpenTodos=\{\(\) => setActivePage\("todos"\)\}/);
 assert.doesNotMatch(appSource, /function PageHead\(/);
 assert.doesNotMatch(appSource, />\s*本地演示\s*</);
+assert.match(appShellViewsSource, /onClick=\{onOpenTodos\}/);
+assert.match(appShellViewsSource, /aria-label="全局搜索"/);
+assert.doesNotMatch(appShellViewsSource, /当前：2026-/);
 assert.match(navigationSource, /description:/);
 
 for (const styleImport of [
@@ -96,11 +101,14 @@ for (const token of [
 
 assert.match(todoSource, /todo-workbench/);
 assert.match(todoSource, /<OperationalPanel/);
-assert.match(todoSource, /<PanelHeader/);
+assert.match(todoSource, /<FilterBar/);
 assert.match(todoSource, /<DataState/);
 assert.match(todoSource, /TODO_DETAIL_TABS/);
 assert.match(todoSource, /operational-split-workbench/);
 assert.match(todoSource, /ariaLabel="待办详情视图"/);
+assert.match(todoSource, /公共待办筛选/);
+assert.match(todoSource, /todo-detail-scroll/);
+assert.doesNotMatch(todoSource, /<MetricStrip/);
 assert.match(entrySource, /entry-workbench/);
 assert.match(entrySource, /<OperationalPanel/);
 assert.match(entrySource, /<DataState/);

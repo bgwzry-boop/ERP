@@ -8,6 +8,13 @@ import {
   createLocalRawMaterialSupplierStatementReviewRepository,
   createPostgresRawMaterialSupplierStatementReviewRepository,
 } from "../server/rawMaterialSupplierStatementReviewRepository.mjs";
+import {
+  closeTestServer,
+  getJson,
+  getTestServerBaseUrl,
+  listenTestServer,
+  requestJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "raw-material-supplier-statement-review-api");
 const repositoryStorageRoot = join(checkStorageRoot, "repository");
@@ -345,28 +352,28 @@ async function checkApi() {
   const server = createApiServer({
     rawMaterialSupplierStatementReviewRepositoryOptions: { storageRoot: apiStorageRoot },
   });
-  await listen(server);
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  await listenTestServer(server);
+  const baseUrl = getTestServerBaseUrl(server);
 
   try {
-    const health = await getJson(`${baseUrl}/health`);
+    const health = await getJson(baseUrl, "/api/health");
     assert.equal(
       health.seed?.rawMaterialSupplierStatementReviewRepository,
       "local_json",
       "health should expose supplier statement review repository kind",
     );
 
-    const emptyList = await getJson(`${baseUrl}/raw-material-supplier-statement-reviews?pageSize=10`);
+    const emptyList = await getJson(baseUrl, "/api/raw-material-supplier-statement-reviews?pageSize=10");
     assert.equal(emptyList.total, 0, "API list should start empty");
 
-    const denied = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews`, {
+    const denied = await postApiJson(baseUrl, "/api/raw-material-supplier-statement-reviews", {
       userId: "U-WAREHOUSE-A",
       body: { statementResult: buildStatementResult({ fileName: "denied.xlsx" }) },
     });
     assert.equal(denied.status, 403, "warehouse user should not save supplier statement review drafts");
     assert.equal(denied.json.requiredPermission, "raw_material.inbound.review");
 
-    const created = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews`, {
+    const created = await postApiJson(baseUrl, "/api/raw-material-supplier-statement-reviews", {
       userId: "U-OFFICE-A",
       body: {
         supplierName: "白侯无纺布",
@@ -379,7 +386,7 @@ async function checkApi() {
     assert.equal(created.json.review.payableEffect, "none");
     const reviewId = created.json.review.reviewId;
 
-    const confirmed = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/confirm-review`, {
+    const confirmed = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-review`, {
       userId: "U-OFFICE-A",
       body: { decision: "一致", note: "月结行已人工核对" },
     });
@@ -387,7 +394,7 @@ async function checkApi() {
     assert.equal(confirmed.json.review.status, "已人工复核/一致");
     assert.equal(confirmed.json.review.paymentEffect, "none", "confirmed review should still not confirm payment");
 
-    const statementConfirmed = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/confirm-statement`, {
+    const statementConfirmed = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-statement`, {
       userId: "U-OFFICE-A",
       body: { note: "确认对账一致，财务付款另行确认" },
     });
@@ -398,20 +405,20 @@ async function checkApi() {
     assert.equal(statementConfirmed.json.review.paymentStatus, "待财务付款确认");
     assert.equal(statementConfirmed.json.review.paymentEffect, "none", "statement confirmation should not confirm payment");
 
-    const duplicateStatementConfirmation = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/confirm-statement`, {
+    const duplicateStatementConfirmation = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-statement`, {
       userId: "U-OFFICE-A",
       body: { note: "重复确认应阻断" },
     });
     assert.equal(duplicateStatementConfirmation.status, 409, "confirmed statement should not be confirmed twice");
 
-    const officePayableDenied = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/generate-payable`, {
+    const officePayableDenied = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/generate-payable`, {
       userId: "U-OFFICE-A",
       body: { note: "办公室不能生成应付" },
     });
     assert.equal(officePayableDenied.status, 403, "office user should not generate supplier payable draft");
     assert.equal(officePayableDenied.json.requiredPermission, "raw_material.supplier_payable.create");
 
-    const payableDraft = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/generate-payable`, {
+    const payableDraft = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/generate-payable`, {
       userId: "U-FINANCE-A",
       body: { note: "财务生成应付草稿，付款另行确认" },
     });
@@ -422,26 +429,26 @@ async function checkApi() {
     assert.equal(payableDraft.json.review.supplierPayableDraft.payableAmount, 1816.14);
     assert.equal(payableDraft.json.review.paymentEffect, "none", "payable draft should not confirm payment");
 
-    const duplicatePayableDraft = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/generate-payable`, {
+    const duplicatePayableDraft = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/generate-payable`, {
       userId: "U-FINANCE-A",
       body: { note: "重复生成应付应阻断" },
     });
     assert.equal(duplicatePayableDraft.status, 409, "supplier payable draft should not be generated twice");
 
-    const officePaymentDenied = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
+    const officePaymentDenied = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
       userId: "U-OFFICE-A",
       body: { paidAmount: 1816.14, note: "办公室不能确认供应商付款" },
     });
     assert.equal(officePaymentDenied.status, 403, "office user should not confirm supplier payment");
     assert.equal(officePaymentDenied.json.requiredPermission, "raw_material.supplier_payment.confirm");
 
-    const wrongPaymentAmount = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
+    const wrongPaymentAmount = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
       userId: "U-FINANCE-A",
       body: { paidAmount: 1800, paymentMethod: "银行转账", note: "金额不一致应阻断" },
     });
     assert.equal(wrongPaymentAmount.status, 409, "supplier payment amount should match payable draft in v1");
 
-    const paymentConfirmed = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
+    const paymentConfirmed = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
       userId: "U-FINANCE-A",
       body: {
         paidAmount: 1816.14,
@@ -459,31 +466,31 @@ async function checkApi() {
     assert.equal(paymentConfirmed.json.review.inventoryEffect, "none");
     assert.equal(paymentConfirmed.json.review.paymentEffect, "supplier_payment_confirmed");
 
-    const duplicatePayment = await postJson(`${baseUrl}/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
+    const duplicatePayment = await postApiJson(baseUrl, `/api/raw-material-supplier-statement-reviews/${reviewId}/confirm-payment`, {
       userId: "U-FINANCE-A",
       body: { paidAmount: 1816.14, note: "重复付款确认应阻断" },
     });
     assert.equal(duplicatePayment.status, 409, "supplier payment should not be confirmed twice");
 
-    await closeServer(server);
+    await closeTestServer(server);
 
     const restartedServer = createApiServer({
       rawMaterialSupplierStatementReviewRepositoryOptions: { storageRoot: apiStorageRoot },
     });
-    await listen(restartedServer);
+    await listenTestServer(restartedServer);
     try {
-      const restartedBaseUrl = `http://127.0.0.1:${restartedServer.address().port}/api`;
-      const persisted = await getJson(`${restartedBaseUrl}/raw-material-supplier-statement-reviews?pageSize=10`);
+      const restartedBaseUrl = getTestServerBaseUrl(restartedServer);
+      const persisted = await getJson(restartedBaseUrl, "/api/raw-material-supplier-statement-reviews?pageSize=10");
       assert.equal(persisted.total, 1, "API should reload persisted supplier statement review drafts");
       assert.equal(persisted.items[0].status, "已确认付款/已完成");
       assert.match(persisted.items[0].statementConfirmationId, /^RMSRC-/, "API should reload persisted statement confirmation id");
       assert.match(persisted.items[0].supplierPayableId, /^RMSP-/, "API should reload persisted payable draft id");
       assert.match(persisted.items[0].supplierPaymentConfirmationId, /^RMSPAY-/, "API should reload persisted payment confirmation id");
     } finally {
-      await closeServer(restartedServer);
+      await closeTestServer(restartedServer);
     }
   } finally {
-    await closeServer(server);
+    await closeTestServer(server);
   }
 }
 
@@ -591,33 +598,8 @@ function buildSavedReview() {
   };
 }
 
-function listen(server) {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-}
-
-function closeServer(server) {
-  if (!server.listening) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    server.close((error) => {
-      if (error && error.code !== "ERR_SERVER_NOT_RUNNING") reject(error);
-      else resolve();
-    });
-  });
-}
-
-async function getJson(url) {
-  const response = await fetch(url);
-  return response.json();
-}
-
-async function postJson(url, { userId, body }) {
-  const response = await fetch(url, {
+async function postApiJson(baseUrl, route, { userId, body }) {
+  const response = await requestJson(baseUrl, route, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -627,6 +609,6 @@ async function postJson(url, { userId, body }) {
   });
   return {
     status: response.status,
-    json: await response.json(),
+    json: response.body,
   };
 }

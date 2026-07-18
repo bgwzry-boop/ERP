@@ -38,6 +38,10 @@ assert.equal(state.machines[0].machineType, "bag_making");
 assert.equal(state.employees[0].profileStatus, "pending_admin_review");
 assert.equal(state.employeeMachineAssignments[0].employeeId, "EMP-CORE-001");
 assert.equal(state.machineCapacityBaselines[0].dailyCapacityQty, 12000);
+assert.equal(state.productionExceptions[0].exceptionType, "机器问题");
+assert.equal(state.productionExceptions[0].continuationMode, "暂停等确认");
+assert.equal(state.productionExceptions[0].resolutionCode, "继续生产");
+assert.equal(state.productionExceptions[0].resolvedBy, "U-MANAGER-A");
 assert.equal(state.orderLines[0].orderNo, "ORD-CORE-001");
 assert.equal(state.orderLines[0].amount, 100);
 assert.equal(state.orderLines[0].inventory, "已占用");
@@ -69,6 +73,7 @@ for (const table of [
   "machine_capacity_baselines",
   "original_orders",
   "order_lines",
+  "production_exception_records",
   "inventory_items",
   "fulfillment_records",
   "statements",
@@ -173,6 +178,30 @@ function buildDatabaseSnapshot() {
     inventoryCorrectionDrafts: [],
     productionTasks: [],
     workshopReports: [],
+    productionExceptions: [
+      {
+        id: "PEX-CORE-001",
+        biz_no: "PEX-CORE-001",
+        production_task_id: "PT-CORE-001",
+        order_line_id: "OL-CORE-001",
+        process_type: "制袋",
+        machine_id: "BAG-01",
+        operator_id: "U-OFFICE-A",
+        exception_type: "机器问题",
+        continuation_mode: "暂停等确认",
+        status: "已恢复生产",
+        resolution_code: "继续生产",
+        resolution_note: "主管确认机器已调整",
+        resolved_by: "U-MANAGER-A",
+        resolved_at: "2026-07-02T12:20:00.000Z",
+        estimated_loss_qty: 6,
+        affects_delivery: true,
+        remark: "机器异响",
+        evidence_json: { inventoryCreated: false },
+        occurred_at: "2026-07-02T12:05:00.000Z",
+        created_at: "2026-07-02T12:05:00.000Z",
+      },
+    ],
     packingTasks: [],
     fulfillments: [
       { id: "F-CORE-001", biz_no: "F-CORE-001", order_line_id: "OL-CORE-001", customer_id: "C001", customer_snapshot: { name: "张三服饰" }, method: "送货", expected_qty: 100, status: "待出库", revision: 1 },

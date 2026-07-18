@@ -12,9 +12,6 @@ const service = createOrderLineMutationCommandService({
   findOrderLine(workspace, orderLineId) {
     return (workspace.orderLines ?? []).find((item) => item.id === orderLineId) ?? null;
   },
-  isReleasableInventoryReservation(reservation) {
-    return ["生效", "部分释放", "active", "partially_released"].includes(reservation.status);
-  },
   nextPlainId(prefix, value) {
     return `${prefix}-${String(value).replace(/[^a-z0-9]+/gi, "-")}`;
   },

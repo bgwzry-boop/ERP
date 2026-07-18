@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleSystemWriteRoutes } from "../server/routes/systemWriteRoutes.mjs";
 
 const cases = [
@@ -26,6 +27,11 @@ const cases = [
 ];
 
 const calls = [];
+const recordHandler = (name) => async (input) => {
+  calls.push({ kind: "handler", name, input });
+  return { httpStatus: 207, body: { name } };
+};
+const runV1ProductionEnvSetupCommand = async () => ({ status: "unused" });
 const dependencies = {
   response: { id: "response" },
   request: { id: "request" },
@@ -45,24 +51,67 @@ const dependencies = {
   sendJson(response, status, body) {
     calls.push({ kind: "json", response, status, body });
   },
-  handlers: Object.fromEntries(
-    cases.map(([, , name]) => [name, async (input) => {
-      calls.push({ kind: "handler", name, input });
-      return { httpStatus: 207, body: { name } };
-    }]),
-  ),
+  v1FieldEvidenceDraftService: {
+    generateDraft: recordHandler("generateFieldEvidenceDraftManifest"),
+    validateDraft: recordHandler("validateFieldEvidenceDraftManifest"),
+  },
+  v1FieldEvidenceStagingService: {
+    stageRow: recordHandler("stageFieldEvidenceRow"),
+  },
+  precheckV1ProductionEnv: recordHandler("precheckProductionEnv"),
+  runV1ProductionEnvSetup: recordHandler("runProductionEnvSetup"),
+  v1LocalCommandRunnerService: { runV1ProductionEnvSetupCommand },
+  precheckV1ProductionEnvIntake: recordHandler("precheckProductionEnvIntake"),
+  precheckV1ProductionEnvFileAudit: recordHandler("precheckProductionEnvFileAudit"),
+  precheckV1ProductionEnvFilePreview: recordHandler("precheckProductionEnvFilePreview"),
+  v1ProductionGoLivePrecheckService: {
+    precheck: recordHandler("precheckProductionGoLive"),
+  },
+  v1ProductionPersistenceEvidenceLiveRunService: {
+    run: recordHandler("runProductionPersistenceEvidence"),
+  },
+  v1ProductionFirstStageExecutionLiveRunService: {
+    run: recordHandler("runProductionFirstStageExecution"),
+  },
+  v1ProductionFirstStageValuesDryRunLivePrecheckService: {
+    precheck: recordHandler("precheckProductionFirstStageValuesDryRun"),
+  },
+  v1ProductionEnvValuesApplyService: {
+    run: recordHandler("runProductionFirstStageValuesApply"),
+  },
+  precheckV1Persistence: recordHandler("precheckPersistence"),
+  precheckV1AttachmentRetention: recordHandler("precheckAttachmentRetention"),
+  precheckV1DriverReadiness: recordHandler("precheckDriverReadiness"),
+  precheckV1RuntimeReadiness: recordHandler("precheckRuntimeReadiness"),
+  v1V2BoundaryService: {
+    precheck: recordHandler("precheckV1V2Boundary"),
+    refreshScopeBrief: recordHandler("refreshV1V2ScopeBrief"),
+  },
+  v1ReleaseCandidateRefreshPrecheckService: {
+    precheck: recordHandler("precheckV1ReleaseCandidateRefresh"),
+  },
+  v1ReleaseCandidateRefreshService: {
+    refresh: recordHandler("refreshV1ReleaseCandidate"),
+  },
 };
 
 for (const [pathname, permissionKey, handlerName, inputKind] of cases) {
   calls.length = 0;
   assert.equal(await handleSystemWriteRoutes({ ...dependencies, method: "POST", url: new URL(`http://erp.test${pathname}`) }), true);
+  const handlerInput = {
+    operatorId: "U-RESOLVED",
+    ...(inputKind === "body" ? { body: dependencies.body } : {}),
+    ...(inputKind === "request" ? { request: dependencies.request } : {}),
+    ...(inputKind === "workspace" ? { workspace: dependencies.workspace } : {}),
+    ...(handlerName === "runProductionEnvSetup" ? { runCommand: runV1ProductionEnvSetupCommand } : {}),
+  };
   assert.deepEqual(calls, [
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission: `permission.${permissionKey}` },
     { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback: "SYSTEM" },
     {
       kind: "handler",
       name: handlerName,
-      input: { operatorId: "U-RESOLVED", ...(inputKind === "body" ? { body: dependencies.body } : {}), ...(inputKind === "request" ? { request: dependencies.request } : {}), ...(inputKind === "workspace" ? { workspace: dependencies.workspace } : {}) },
+      input: handlerInput,
     },
     { kind: "json", response: dependencies.response, status: 207, body: { name: handlerName } },
   ]);
@@ -74,4 +123,22 @@ assert.deepEqual(calls, []);
 assert.equal(await handleSystemWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/system/v1-persistence/live-precheck") }), false);
 assert.equal(await handleSystemWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/system/unknown") }), false);
 
-console.log("system write routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
+for (const oldWrapper of [
+  "generateSystemV1FieldEvidenceIntakeDraftManifest",
+  "precheckSystemV1ProductionEnv",
+  "runSystemV1ProductionEnvSetup",
+  "precheckSystemV1ProductionGoLive",
+  "runSystemV1ProductionFirstStageValuesApply",
+  "precheckSystemV1V2Boundary",
+  "refreshSystemV1ReleaseCandidate",
+]) {
+  assert.equal(apiSource.includes(oldWrapper), false, `${oldWrapper} should not remain in the API composition root`);
+}
+assert.match(routeSource, /v1FieldEvidenceDraftService\.generateDraft/);
+assert.match(routeSource, /v1ProductionGoLivePrecheckService\.precheck/);
+assert.match(routeSource, /v1ProductionEnvValuesApplyService\.run/);
+assert.match(routeSource, /v1ReleaseCandidateRefreshService\.refresh/);
+
+console.log("system write routes checks passed: 21 V1 actions, permissions, exact inputs, responses, and direct route ownership are covered");

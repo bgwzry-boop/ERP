@@ -85,16 +85,14 @@ const serviceSource = readFileSync(
   new URL("../server/services/v1ReleaseCandidateRefreshService.mjs", import.meta.url),
   "utf8",
 );
-const apiFunction = apiSource.match(
-  /async function refreshSystemV1ReleaseCandidate\(\{ request, operatorId \}\) \{([\s\S]*?)\n\}/,
-)?.[1];
-assert.ok(apiFunction, "API release refresh composition function should exist");
+const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /async function refreshSystemV1ReleaseCandidate/);
 assert.match(
-  apiFunction,
-  /return v1ReleaseCandidateRefreshService\.refresh\(\{ request, operatorId \}\);/,
+  routeSource,
+  /refreshV1ReleaseCandidate:[\s\S]*v1ReleaseCandidateRefreshService\.refresh\(\{ request, operatorId \}\)/,
 );
 assert.doesNotMatch(
-  apiFunction,
+  routeSource,
   /process\.env|runV1ReleaseCandidateRefreshCommand|getV1GoLiveArtifactRoot|blockingItems|try\s*\{/,
 );
 for (const oldHelper of [

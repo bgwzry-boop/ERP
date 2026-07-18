@@ -16,6 +16,8 @@ const child = spawn(process.execPath, ["server/apiServer.mjs", "--mode", "test"]
     ERP_RUNTIME_MODE: "test",
     ERP_RUNTIME_STORAGE_ROOT: storageRoot,
     ERP_PRINT_DRIVER_DRY_RUN: "true",
+    ERP_E2E_WAREHOUSE_EMPLOYEE_ID: "E2E-WAREHOUSE-001",
+    ERP_E2E_BUSINESS_DECISION_FIXTURES: "true",
   },
   stdio: "inherit",
 });

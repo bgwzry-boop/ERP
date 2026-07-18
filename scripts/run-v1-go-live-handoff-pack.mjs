@@ -7,6 +7,21 @@ import {
   MASTER_DATA_IMPORT_TEMPLATE_VERSION,
   buildMasterDataImportTemplateWorkbook,
 } from "../src/domain/masterDataImportTemplate.js";
+import {
+  buildProductionEnvFixChecklist,
+  formatProductionEnvFixChecklistCsv,
+  formatProductionEnvFixChecklistMarkdown,
+} from "./helpers/v1GoLiveHandoffProductionEnvFixChecklist.mjs";
+import {
+  buildProductionEnvMinimumValueIntakeChecklist,
+  buildProductionEnvMinimumValuesFragmentTemplate,
+  buildProductionEnvValueIntakeChecklist,
+  buildProductionEnvValuesFragmentTemplate,
+  envTemplateAssignmentGroupsForItem,
+  formatProductionEnvValueIntakeCsv,
+  minimumProductionEnvValueRows,
+  sanitizeEnvComment,
+} from "./helpers/v1GoLiveHandoffProductionEnvIntake.mjs";
 
 const defaultOutputDir = join(".erp-local-storage", "v1-go-live-handoff");
 const defaultReleaseCandidateJsonPath = join(".erp-local-storage", "v1-release-candidate", "latest.json");
@@ -80,6 +95,8 @@ const defaultProductionPersistenceEvidenceMarkdownPath = join(
 );
 const defaultProductionRuntimeSmokeJsonPath = join(".erp-local-storage", "v1-production-runtime-smoke", "latest.json");
 const defaultProductionRuntimeSmokeMarkdownPath = join(".erp-local-storage", "v1-production-runtime-smoke", "latest.md");
+const defaultTodoLoadPrecheckJsonPath = join(".erp-local-storage", "v1-todo-load-precheck", "latest.json");
+const defaultTodoLoadPrecheckMarkdownPath = join(".erp-local-storage", "v1-todo-load-precheck", "latest.md");
 const defaultPrintChainExecutionJsonPath = join(".erp-local-storage", "v1-print-chain-execution", "latest.json");
 const defaultPrintChainExecutionMarkdownPath = join(".erp-local-storage", "v1-print-chain-execution", "latest.md");
 const defaultPrintChainCloseoutJsonPath = join(".erp-local-storage", "v1-print-chain-closeout", "latest.json");
@@ -303,6 +320,18 @@ try {
     defaultPath: defaultProductionRuntimeSmokeMarkdownPath,
     label: "V1 production runtime-smoke Markdown",
   });
+  const todoLoadPrecheckJsonPath = resolveOptionalPath({
+    explicitPath: options.todoLoadPrecheckJson,
+    envPath: process.env.ERP_V1_GO_LIVE_HANDOFF_TODO_LOAD_PRECHECK_JSON,
+    defaultPath: defaultTodoLoadPrecheckJsonPath,
+    label: "V1 todo-load precheck JSON",
+  });
+  const todoLoadPrecheckMarkdownPath = resolveOptionalPath({
+    explicitPath: options.todoLoadPrecheckMarkdown,
+    envPath: process.env.ERP_V1_GO_LIVE_HANDOFF_TODO_LOAD_PRECHECK_MARKDOWN,
+    defaultPath: defaultTodoLoadPrecheckMarkdownPath,
+    label: "V1 todo-load precheck Markdown",
+  });
   const printChainCloseoutJsonPath = resolveOptionalPath({
     explicitPath: options.printChainCloseoutJson,
     envPath: process.env.ERP_V1_GO_LIVE_HANDOFF_PRINT_CHAIN_CLOSEOUT_JSON,
@@ -418,6 +447,10 @@ try {
     jsonPath: productionRuntimeSmokeJsonPath,
     markdownPath: productionRuntimeSmokeMarkdownPath,
   });
+  const todoLoadPrecheck = readTodoLoadPrecheck({
+    jsonPath: todoLoadPrecheckJsonPath,
+    markdownPath: todoLoadPrecheckMarkdownPath,
+  });
   const printChainCloseout = readStageCloseout({
     jsonPath: printChainCloseoutJsonPath,
     markdownPath: printChainCloseoutMarkdownPath,
@@ -460,6 +493,7 @@ try {
     productionFirstStageEvidenceSuggestions,
     productionPersistenceEvidence,
     productionRuntimeSmoke,
+    todoLoadPrecheck,
     printChainCloseout,
     printChainExecution,
     driverRealDeviceExecution,
@@ -487,6 +521,7 @@ try {
     productionFirstStageEvidenceSuggestions,
     productionPersistenceEvidence,
     productionRuntimeSmoke,
+    todoLoadPrecheck,
     printChainCloseout,
     printChainExecution,
     driverRealDeviceExecution,
@@ -665,6 +700,16 @@ function parseArgs(args) {
       index += 1;
       continue;
     }
+    if (arg === "--todo-load-precheck-json") {
+      options.todoLoadPrecheckJson = readValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--todo-load-precheck-markdown") {
+      options.todoLoadPrecheckMarkdown = readValue(args, index, arg);
+      index += 1;
+      continue;
+    }
     if (arg === "--print-chain-closeout-json") {
       options.printChainCloseoutJson = readValue(args, index, arg);
       index += 1;
@@ -783,6 +828,10 @@ function helpText() {
     "                                      Optional production runtime-smoke JSON, default .erp-local-storage/v1-production-runtime-smoke/latest.json when present",
     "  --production-runtime-smoke-markdown <path>",
     "                                      Optional production runtime-smoke Markdown, default .erp-local-storage/v1-production-runtime-smoke/latest.md when present",
+    "  --todo-load-precheck-json <path>",
+    "                                      Optional redacted todo-load precheck JSON, default .erp-local-storage/v1-todo-load-precheck/latest.json when present",
+    "  --todo-load-precheck-markdown <path>",
+    "                                      Optional todo-load precheck Markdown source; handoff regenerates a sanitized summary from JSON",
     "  --print-chain-closeout-json <path>",
     "                                      Optional print-chain stage closeout JSON, default .erp-local-storage/v1-print-chain-closeout/latest.json when present",
     "  --print-chain-closeout-markdown <path>",
@@ -863,6 +912,7 @@ function readOnsiteTaskBoard({ jsonPath, markdownPath, rolesDir }) {
       rolesDir: "",
       status: "",
       ready: false,
+      productionReady: false,
       summary: {},
       roleBuckets: [],
       roleMarkdownFiles: [],
@@ -1624,6 +1674,135 @@ function readProductionRuntimeSmoke({ jsonPath, markdownPath }) {
   };
 }
 
+function readTodoLoadPrecheck({ jsonPath, markdownPath }) {
+  if (!jsonPath) {
+    return {
+      included: false,
+      jsonPath: "",
+      markdownPath: markdownPath || "",
+      status: "",
+      ready: false,
+      checkedAt: "",
+      summary: {},
+      target: {},
+      authentication: {},
+      safeguards: {},
+      blockingStageKeys: [],
+      warningKeys: [],
+    };
+  }
+  const source = readJson(jsonPath, "V1 todo-load precheck JSON");
+  if (source?.scope !== "v1_todo_load_precheck" || !source?.summary || !source?.safeguards) {
+    throw new Error(`V1 todo-load precheck JSON has an unexpected shape: ${displayInputPath(jsonPath)}`);
+  }
+  const safeguards = source.safeguards || {};
+  const safeToPackage =
+    safeguards.responsePayloadStored === false &&
+    safeguards.todoIdentityStored === false &&
+    safeguards.credentialsExposed === false &&
+    safeguards.apiAddressExposed === false &&
+    source.authentication?.identityExposed === false &&
+    source.target?.addressExposed === false;
+  if (!safeToPackage) {
+    throw new Error("V1 todo-load precheck JSON is not safe to package; regenerate a redacted report.");
+  }
+  return {
+    included: true,
+    jsonPath,
+    markdownPath: markdownPath || "",
+    scope: "v1_todo_load_precheck",
+    status: stringValue(source.status),
+    ready: source.ready === true,
+    productionReady:
+      source.ready === true &&
+      source.target?.loopback === false &&
+      stringValue(source.target?.protocol) === "https" &&
+      source.target?.apiPathValidated === true &&
+      source.authentication?.formalRuntimeSession === true &&
+      source.authentication?.serverVerified === true &&
+      stringValue(source.authentication?.sessionType) === "runtime" &&
+      safeguards.explicitReadLoadConfirmation === true &&
+      safeguards.businessReadOnly === true &&
+      safeguards.businessDataMutated === false &&
+      safeguards.requestCountBounded === true &&
+      safeguards.concurrencyBounded === true &&
+      safeguards.physicalPrinterCalled === false,
+    checkedAt: stringValue(source.checkedAt),
+    summary: {
+      label: stringValue(source.summary.label),
+      requestCount: numberOrZero(source.summary.requestCount),
+      successCount: numberOrZero(source.summary.successCount),
+      errorCount: numberOrZero(source.summary.errorCount),
+      errorRate: numberOrZero(source.summary.errorRate),
+      throughputPerSecond: numberOrZero(source.summary.throughputPerSecond),
+      latencyMs: {
+        p50: numberOrZero(source.summary.latencyMs?.p50),
+        p95: numberOrZero(source.summary.latencyMs?.p95),
+        max: numberOrZero(source.summary.latencyMs?.max),
+      },
+      snapshotChanged: source.summary.snapshotChanged === true,
+    },
+    thresholds: {
+      maxP95Ms: numberOrZero(source.config?.maxP95Ms),
+      maxErrorRate: numberOrZero(source.config?.maxErrorRate),
+    },
+    target: {
+      protocol: stringValue(source.target?.protocol),
+      loopback: source.target?.loopback === true,
+      apiPathValidated: source.target?.apiPathValidated === true,
+      addressExposed: false,
+    },
+    authentication: {
+      formalRuntimeSession: source.authentication?.formalRuntimeSession === true,
+      serverVerified: source.authentication?.serverVerified === true,
+      sessionType: stringValue(source.authentication?.sessionType),
+      identityExposed: false,
+    },
+    safeguards: {
+      explicitReadLoadConfirmation: safeguards.explicitReadLoadConfirmation === true,
+      businessReadOnly: safeguards.businessReadOnly === true,
+      businessDataMutated: safeguards.businessDataMutated === true,
+      requestCountBounded: safeguards.requestCountBounded === true,
+      concurrencyBounded: safeguards.concurrencyBounded === true,
+      responsePayloadStored: false,
+      todoIdentityStored: false,
+      credentialsExposed: false,
+      apiAddressExposed: false,
+      physicalPrinterCalled: safeguards.physicalPrinterCalled === true,
+    },
+    blockingStageKeys: Array.isArray(source.blockingStages)
+      ? source.blockingStages.slice(0, 8).map((stage) => stringValue(stage?.key)).filter(Boolean)
+      : [],
+    warningKeys: Array.isArray(source.warnings)
+      ? source.warnings.slice(0, 8).map((warning) => stringValue(warning?.key)).filter(Boolean)
+      : [],
+  };
+}
+
+function formatTodoLoadPrecheckHandoff(report) {
+  const summary = report.summary || {};
+  const latency = summary.latencyMs || {};
+  return `${[
+    "# V1 Todo Load Precheck Handoff Snapshot",
+    "",
+    `Status: ${report.ready ? "READY" : "BLOCKED"} (${summary.label || "未返回"})`,
+    `Checked at: ${report.checkedAt || "未返回"}`,
+    `Requests: ${summary.successCount || 0}/${summary.requestCount || 0} successful`,
+    `Error rate: ${summary.errorRate || 0}; threshold ${report.thresholds?.maxErrorRate || 0}`,
+    `Latency P50/P95/Max: ${latency.p50 || 0}/${latency.p95 || 0}/${latency.max || 0}ms`,
+    `P95 threshold: ${report.thresholds?.maxP95Ms || 0}ms`,
+    `Throughput: ${summary.throughputPerSecond || 0} req/s`,
+    `Production target: ${report.target?.loopback === false && report.target?.protocol === "https" ? "yes" : "no"}`,
+    `Formal runtime session server verified: ${report.authentication?.formalRuntimeSession && report.authentication?.serverVerified ? "yes" : "no"}`,
+    `Snapshot changed during load: ${summary.snapshotChanged ? "yes" : "no"}`,
+    `Blocking stage keys: ${report.blockingStageKeys?.length ? report.blockingStageKeys.join(", ") : "none"}`,
+    `Warning keys: ${report.warningKeys?.length ? report.warningKeys.join(", ") : "none"}`,
+    "",
+    "This handoff snapshot is regenerated from allowlisted metrics and booleans. It does not copy the source response payload, todo identities, operator identity, credentials, API address, or source Markdown.",
+    "",
+  ].join("\n")}`;
+}
+
 function sanitizeProductionEvidenceStage(stage) {
   return {
     key: stringValue(stage?.key),
@@ -2028,6 +2207,7 @@ function buildHandoffReport({
   productionFirstStageEvidenceSuggestions,
   productionPersistenceEvidence,
   productionRuntimeSmoke,
+  todoLoadPrecheck,
   printChainCloseout,
   printChainExecution,
   driverRealDeviceExecution,
@@ -2062,6 +2242,7 @@ function buildHandoffReport({
   const productionPersistenceEvidenceReady =
     !productionPersistenceEvidence.included || productionPersistenceEvidence.ready;
   const productionRuntimeSmokeReady = !productionRuntimeSmoke.included || productionRuntimeSmoke.ready;
+  const todoLoadPrecheckReady = todoLoadPrecheck.included && todoLoadPrecheck.productionReady;
   const stageCloseoutsReady =
     (!printChainExecution.included || printChainExecution.ready) &&
     (!printChainCloseout.included || printChainCloseout.ready) &&
@@ -2074,6 +2255,7 @@ function buildHandoffReport({
       firstStageExecutionReady &&
       productionPersistenceEvidenceReady &&
       productionRuntimeSmokeReady &&
+      todoLoadPrecheckReady &&
       stageCloseoutsReady,
   );
   return {
@@ -2310,6 +2492,23 @@ function buildHandoffReport({
       safeguards: productionRuntimeSmoke.safeguards || {},
       nextActions: productionRuntimeSmoke.nextActions || [],
     },
+    todoLoadPrecheck: {
+      included: Boolean(todoLoadPrecheck.included),
+      jsonPath: todoLoadPrecheck.jsonPath ? displayInputPath(todoLoadPrecheck.jsonPath) : "",
+      markdownPath: todoLoadPrecheck.markdownPath ? displayInputPath(todoLoadPrecheck.markdownPath) : "",
+      scope: stringValue(todoLoadPrecheck.scope),
+      status: stringValue(todoLoadPrecheck.status),
+      ready: Boolean(todoLoadPrecheck.ready),
+      productionReady: Boolean(todoLoadPrecheck.productionReady),
+      checkedAt: stringValue(todoLoadPrecheck.checkedAt),
+      summary: todoLoadPrecheck.summary || {},
+      thresholds: todoLoadPrecheck.thresholds || {},
+      target: todoLoadPrecheck.target || {},
+      authentication: todoLoadPrecheck.authentication || {},
+      safeguards: todoLoadPrecheck.safeguards || {},
+      blockingStageKeys: todoLoadPrecheck.blockingStageKeys || [],
+      warningKeys: todoLoadPrecheck.warningKeys || [],
+    },
     printChainCloseout: {
       included: Boolean(printChainCloseout.included),
       jsonPath: printChainCloseout.jsonPath ? displayInputPath(printChainCloseout.jsonPath) : "",
@@ -2411,6 +2610,9 @@ function buildHandoffReport({
       productionPersistenceEvidenceReportExpectedRedacted: Boolean(productionPersistenceEvidence.included),
       productionRuntimeSmokeIncluded: Boolean(productionRuntimeSmoke.included),
       productionRuntimeSmokeReportExpectedRedacted: Boolean(productionRuntimeSmoke.included),
+      todoLoadPrecheckIncluded: Boolean(todoLoadPrecheck.included),
+      todoLoadPrecheckSanitizedCopyWritten: Boolean(todoLoadPrecheck.included),
+      todoLoadPrecheckSourcePayloadCopied: false,
       productionEnvValueIntakeChecklistIncluded: Boolean(productionEnvValueIntakeChecklist.included),
       productionEnvValueIntakeRealValuesExposed: false,
       productionEnvMinimumValueIntakeChecklistIncluded: Boolean(productionEnvMinimumValueIntakeChecklist.included),
@@ -2457,6 +2659,7 @@ function writeHandoffPack({
   productionFirstStageEvidenceSuggestions,
   productionPersistenceEvidence,
   productionRuntimeSmoke,
+  todoLoadPrecheck,
   printChainCloseout,
   printChainExecution,
   driverRealDeviceExecution,
@@ -2761,6 +2964,23 @@ function writeHandoffPack({
     }
   }
 
+  if (todoLoadPrecheck.included) {
+    const todoLoadJsonTarget = join(outputDir, "todo-load-precheck.latest.json");
+    const todoLoadMarkdownTarget = join(outputDir, "todo-load-precheck.latest.md");
+    const todoLoadSnapshot = {
+      ...todoLoadPrecheck,
+      jsonPath: "",
+      markdownPath: "",
+      sourcePathsIncluded: false,
+      sourceMarkdownCopied: false,
+      sourcePayloadCopied: false,
+    };
+    writeFileSync(todoLoadJsonTarget, `${JSON.stringify(todoLoadSnapshot, null, 2)}\n`);
+    writeFileSync(todoLoadMarkdownTarget, formatTodoLoadPrecheckHandoff(todoLoadSnapshot));
+    files.todoLoadPrecheckJson = displayPath(todoLoadJsonTarget);
+    files.todoLoadPrecheckMarkdown = displayPath(todoLoadMarkdownTarget);
+  }
+
   if (printChainCloseout.included) {
     if (printChainCloseout.jsonPath && existsSync(printChainCloseout.jsonPath)) {
       const closeoutJsonTarget = join(outputDir, "print-chain-closeout.latest.json");
@@ -3050,6 +3270,20 @@ function buildCommandResult({ report }) {
       blockingStages: report.productionRuntimeSmoke.blockingStages,
       safeguards: report.productionRuntimeSmoke.safeguards,
       nextActions: report.productionRuntimeSmoke.nextActions,
+    },
+    todoLoadPrecheck: {
+      included: report.todoLoadPrecheck.included,
+      status: report.todoLoadPrecheck.status,
+      ready: report.todoLoadPrecheck.ready,
+      productionReady: report.todoLoadPrecheck.productionReady,
+      checkedAt: report.todoLoadPrecheck.checkedAt,
+      summary: report.todoLoadPrecheck.summary,
+      thresholds: report.todoLoadPrecheck.thresholds,
+      target: report.todoLoadPrecheck.target,
+      authentication: report.todoLoadPrecheck.authentication,
+      safeguards: report.todoLoadPrecheck.safeguards,
+      blockingStageKeys: report.todoLoadPrecheck.blockingStageKeys,
+      warningKeys: report.todoLoadPrecheck.warningKeys,
     },
     printChainCloseout: {
       included: report.printChainCloseout.included,
@@ -3483,6 +3717,23 @@ function formatHandoffMarkdown(report) {
           "- 未找到生产 API runtime smoke 报告。建议在真实生产 env 填完并启动 API 后运行 `node -- scripts/run-v1-production-runtime-smoke.mjs --use-production-env-setup-env-file --api-base-url <production-api-base-url> --json`，确认长驻 API 已应用生产 env 且进入 PostgreSQL / 对象存储 profile；如需绕开 setup 报告，可改用 `--env-file <secure-env-file>`。",
         ]),
     "",
+    "## 生产待办只读容量预检查",
+    "",
+    ...(report.todoLoadPrecheck.included
+      ? [
+          `- 状态：${report.todoLoadPrecheck.ready ? "READY" : "BLOCKED"}`,
+          `- 汇总：${report.todoLoadPrecheck.summary?.label || "未返回"}`,
+          `- 检查时间：${report.todoLoadPrecheck.checkedAt || "未返回"}`,
+          `- 请求：${report.todoLoadPrecheck.summary?.successCount || 0}/${report.todoLoadPrecheck.summary?.requestCount || 0} 成功；错误率 ${report.todoLoadPrecheck.summary?.errorRate || 0}；吞吐 ${report.todoLoadPrecheck.summary?.throughputPerSecond || 0} req/s`,
+          `- 延迟：P50 ${report.todoLoadPrecheck.summary?.latencyMs?.p50 || 0}ms；P95 ${report.todoLoadPrecheck.summary?.latencyMs?.p95 || 0}ms / 阈值 ${report.todoLoadPrecheck.thresholds?.maxP95Ms || 0}ms；最大 ${report.todoLoadPrecheck.summary?.latencyMs?.max || 0}ms`,
+          `- 目标：${report.todoLoadPrecheck.target?.loopback === false && report.todoLoadPrecheck.target?.protocol === "https" ? "非本机 HTTPS 生产 API" : "非生产目标或未确认"}；正式 runtime 会话服务端复核 ${report.todoLoadPrecheck.authentication?.formalRuntimeSession && report.todoLoadPrecheck.authentication?.serverVerified ? "通过" : "未通过"}`,
+          `- 负载期间快照变化：${report.todoLoadPrecheck.summary?.snapshotChanged ? "是" : "否"}；阻塞阶段：${report.todoLoadPrecheck.blockingStageKeys?.length ? report.todoLoadPrecheck.blockingStageKeys.join("、") : "无"}`,
+          "- 交接包中的 JSON / Markdown 由白名单指标重新生成，不复制原报告业务响应、待办编号、身份、凭据、API 地址或源 Markdown。",
+        ]
+      : [
+          "- 未找到生产待办只读容量报告。请在 runtime smoke 通过后，对真实非本机 HTTPS 长驻 API 显式运行 `node -- scripts/run-v1-todo-load-precheck.mjs --confirm-read-load --use-production-env-setup-env-file --api-base-url https://<erp-host>/api --json`，再刷新第一阶段 closeout 和交接包。",
+        ]),
+    "",
     "## 第一阶段现场证据建议",
     "",
     ...(report.productionFirstStageEvidenceSuggestions.included
@@ -3774,6 +4025,7 @@ function formatHandoffMarkdown(report) {
     "| `production-first-stage-evidence-suggestions.csv` | 第一阶段 suggested evidence CSV，存在时自动纳入；不能直接当作签字证据 |",
     "| `production-persistence-evidence.latest.md/json` | 生产持久化底层留证报告，存在时自动纳入；覆盖 PostgreSQL、备份恢复、对象存储 live 预检和 bucket 治理 |",
     "| `production-runtime-smoke.latest.md/json` | 生产 API runtime smoke 报告，存在时自动纳入；覆盖长驻 API / 临时 API 运行态持久化 profile |",
+    "| `todo-load-precheck.latest.md/json` | 生产待办只读容量预检查白名单快照，存在时自动纳入；只含请求数、吞吐、延迟、错误率、目标/会话布尔状态和阶段 key |",
     "| `print-chain-execution.latest.md/json` | 真实打印链路阶段 CUPS 预检、打印 readiness 和 closeout 执行链路，存在时自动纳入 |",
     "| `print-chain-closeout.latest.md/json` | 真实打印链路阶段 closeout 结论，存在时自动纳入 |",
     "| `driver-real-device-execution.latest.md/json` | 司机真机阶段 readiness 保存和 closeout 执行链路，存在时自动纳入 |",
@@ -3802,6 +4054,7 @@ function formatHandoffMarkdown(report) {
     "- 第一阶段现场证据建议只应来自 `run-v1-production-first-stage-evidence-suggestions.mjs` 输出的脱敏报告和 suggested CSV；它必须人工复核后再生成 draft manifest，不能替代负责人签字。",
     "- 生产持久化留证报告只应来自 `run-v1-production-persistence-evidence.mjs` 输出的脱敏 JSON / Markdown，不应额外附带真实 env 文件、数据库 URL、endpoint、bucket、secret、对象 key、签名 URL、bucket policy 原文、dump 路径或 payload。",
     "- 生产 API runtime smoke 报告只应来自 `run-v1-production-runtime-smoke.mjs` 输出的脱敏 JSON / Markdown，不应额外附带 API 启动命令原文、真实 env 文件路径、数据库 URL、对象存储密钥、token 或响应 payload。",
+    "- 生产待办只读容量报告只应来自 `run-v1-todo-load-precheck.mjs`；交接包会从 JSON 白名单重新生成副本，不复制源 Markdown、业务响应、待办编号、身份、凭据或 API 地址。",
     "- 打印链路执行报告只应来自 `run-v1-print-chain-execution.mjs` 输出的脱敏 JSON / Markdown，不应额外附带 CUPS 命令原文、spool 路径、stdout/stderr、标签 payload、扫码原文或本地路径。",
     "- 司机真机执行报告只应来自 `run-v1-driver-real-device-execution.mjs` 输出的脱敏 JSON / Markdown，不应额外附带扫码原文、定位点、照片 payload、token 或本地路径。",
     "- 发布候选报告和现场证据校验报告只应包含状态、计数、阻塞标签和脱敏摘要，不应包含连接串、密钥、命令路径、spool 路径或客户隐私原文。",
@@ -3854,288 +4107,6 @@ function formatD49EmployeeIntakeGuide(intake) {
   ].join("\n")}\n`;
 }
 
-function buildProductionEnvFixChecklist(envPreflight) {
-  const items = Array.isArray(envPreflight?.fixChecklist)
-    ? envPreflight.fixChecklist.map((item) => ({
-        key: stringValue(item.key || "unknown"),
-        label: stringValue(item.label || item.key || "生产环境预检项"),
-        status: stringValue(item.status || "pending"),
-        ready: item.ready === true,
-        blocking: item.blocking !== false,
-        severity: stringValue(item.severity || (item.ready ? "ok" : item.blocking === false ? "warning" : "blocking")),
-        ownerRole: stringValue(item.ownerRole || "技术/管理"),
-        requiredVariables: stringList(item.requiredVariables),
-        recommendedVariables: stringList(item.recommendedVariables),
-        configuredVariableCount: numberOrZero(item.configuredVariableCount),
-        totalVariableCount: numberOrZero(item.totalVariableCount),
-        missingVariables: stringList(item.missingVariables),
-        placeholderVariableCount: numberOrZero(item.placeholderVariableCount),
-        placeholderVariables: stringList(item.placeholderVariables),
-        valueGuidance: stringList(item.valueGuidance).length
-          ? stringList(item.valueGuidance)
-          : defaultProductionEnvFixGuidance(item.key).valueGuidance,
-        verificationSteps: stringList(item.verificationSteps).length
-          ? stringList(item.verificationSteps)
-          : defaultProductionEnvFixGuidance(item.key).verificationSteps,
-        nextAction: stringValue(item.nextAction),
-      }))
-    : [];
-  return {
-    included: items.length > 0,
-    status: stringValue(envPreflight?.status || ""),
-    ready: envPreflight?.ready === true,
-    checkedAt: stringValue(envPreflight?.checkedAt || ""),
-    envFileCount: numberOrZero(envPreflight?.envFileCount),
-    summary: envPreflight?.summary || {},
-    fixItemCount: items.length,
-    blockingItemCount: items.filter((item) => item.severity === "blocking").length,
-    warningItemCount: items.filter((item) => item.severity === "warning").length,
-    placeholderVariableCount: items.reduce((total, item) => total + item.placeholderVariableCount, 0),
-    items,
-  };
-}
-
-function defaultProductionEnvFixGuidance(key) {
-  const guidance = {
-    "v1-persistence-profile": {
-      valueGuidance: [
-        "生产必须显式使用 postgres 仓储 profile；真实连接串只放安全 env 文件。",
-        "文件留档 profile 必须切到 object_storage，并与附件对象存储配置同时复核。",
-      ],
-      verificationSteps: [
-        "node scripts/run-v1-production-env-file-audit.mjs --env-file <secure-env-file>",
-        "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-        "npm run v1-production-profile-live:check",
-      ],
-    },
-    "postgres-restore-validation-env": {
-      valueGuidance: [
-        "生产恢复演练必须使用专用可重置验证库，不能和生产源库指向同一 host/port/database。",
-        "`ERP_V1_POSTGRES_RESTORE_RESET_ALLOWED` 在生产 env 中必须保持 false；实际恢复演练时由负责人显式传 `--allow-restore-reset`。",
-      ],
-      verificationSteps: [
-        "node scripts/run-v1-production-env-file-audit.mjs --env-file <secure-env-file>",
-        "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-        "node -- scripts/run-v1-production-postgres-backup-restore-check.mjs --use-production-env-setup-env-file --allow-restore-reset",
-      ],
-    },
-    "attachment-object-storage-env": {
-      valueGuidance: [
-        "endpoint、bucket、access key、secret key 必须来自真实 OSS/S3/COS 或兼容对象存储。",
-        "bucket 需要支持附件上传、读回、下载和签名 URL 留档；不要使用本地目录替代。",
-      ],
-      verificationSteps: [
-        "node scripts/run-v1-production-env-file-audit.mjs --env-file <secure-env-file>",
-        "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-        "node -- scripts/run-v1-production-object-storage-preflight.mjs --use-production-env-setup-env-file",
-        "在上线状态页执行附件留档预检，并保留上传 / 读回现场证据。",
-      ],
-    },
-    "statement-export-object-storage-env": {
-      valueGuidance: [
-        "对账导出可以使用独立 bucket，也可以在附件对象存储完整时复用附件 fallback。",
-        "如使用独立 bucket，4 个 ERP_STATEMENT_EXPORT_OBJECT_STORAGE_* 变量必须成套配置。",
-      ],
-      verificationSteps: [
-        "node scripts/run-v1-production-env-file-audit.mjs --env-file <secure-env-file>",
-        "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-        "node -- scripts/run-v1-production-object-storage-preflight.mjs --use-production-env-setup-env-file",
-        "在真实 API 上导出一份客户对账单并确认导出记录可重新下载。",
-      ],
-    },
-    "system-printer-command-bridge-env": {
-      valueGuidance: [
-        "打印桥必须启用 command_bridge，并指向生产打印桥命令或 Node 命令。",
-        "命令参数必须是 JSON array，allowlist 只能列真实允许打印的设备名。",
-      ],
-      verificationSteps: [
-        "node scripts/run-v1-production-env-file-audit.mjs --env-file <secure-env-file>",
-        "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-        "在上线状态页依次执行 spool 预检和打印门禁预检。",
-      ],
-    },
-    "cups-preflight-env": {
-      valueGuidance: [
-        "CUPS 模式必须使用 cups_lp，allowlist 只列现场真实 CUPS 队列。",
-        "状态命令必须是非出纸命令，例如 lpstat；参数必须是 JSON array。",
-      ],
-      verificationSteps: [
-        "node scripts/run-v1-production-env-file-audit.mjs --env-file <secure-env-file>",
-        "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-        "在上线状态页执行 CUPS 预检，并保留现场 lpstat / 队列截图证据。",
-      ],
-    },
-    "v1-readiness-identity-env": {
-      valueGuidance: [
-        "API base URL 必须指向生产 API，不要使用本机 localhost 作为生产验收目标。",
-        "办公室和司机验收账号必须是真实生产账号，权限应与现场岗位一致。",
-      ],
-      verificationSteps: [
-        "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-        "npm run v1-readiness:check",
-        "用指定账号在上线状态页执行运行时门禁、司机真机和打印门禁预检。",
-      ],
-    },
-    "v1-field-acceptance-report-env": {
-      valueGuidance: [
-        "输出目录必须是上线交接包可归档的位置，不能依赖临时目录。",
-        "现场验收 API 地址应与 readiness 目标一致，避免报告和实际运行实例不一致。",
-      ],
-      verificationSteps: [
-        "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-        "生成 V1 现场验收 JSON / Markdown 报告。",
-        "把报告编号回填到现场证据采集包后再刷新 go-live suite。",
-      ],
-    },
-    "local-v1-acceptance-bypass-env": {
-      valueGuidance: [
-        "生产默认不接受本地持久化或本地文件留档。",
-        "如业务负责人临时接受，必须填写书面签字编号，且 release candidate 仍需显示 warning。",
-      ],
-      verificationSteps: [
-        "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
-        "确认负责人签字 / V1-V2 边界表已记录该风险是否被接受。",
-      ],
-    },
-    "preflight-redaction-safeguard": {
-      valueGuidance: [
-        "报告只能输出变量名、计数、状态和脱敏下一步。",
-        "不要把真实连接串、secret、命令路径、spool 路径或 token 粘贴进交接文档。",
-      ],
-      verificationSteps: ["npm run v1-production-env-preflight:check", "git diff --check"],
-    },
-  }[stringValue(key)];
-  return {
-    valueGuidance: stringList(guidance?.valueGuidance),
-    verificationSteps: stringList(guidance?.verificationSteps),
-  };
-}
-
-function formatProductionEnvFixChecklistMarkdown(report) {
-  const checklist = report.productionEnvFixChecklist;
-  const lines = [
-    "# ERP V1 生产环境修正清单",
-    "",
-    `- 生成时间：${report.generatedAt}`,
-    `- 来源 release-candidate：${report.releaseCandidate.generatedAt || "未返回"}`,
-    `- 状态：${checklist.ready ? "READY" : "BLOCKED"}`,
-    `- 汇总：${checklist.summary?.label || "未返回"}`,
-    `- 修正项：${checklist.fixItemCount} 项；阻塞 ${checklist.blockingItemCount} 项；提醒 ${checklist.warningItemCount} 项`,
-    `- 未替换占位变量：${checklist.placeholderVariableCount} 个`,
-    "",
-    "## 修正项",
-    "",
-    "| 负责人 | 项目 | 级别 | 状态 | 配置数 | 必填变量 | 需补变量 | 占位变量 | 填写提示 | 复核步骤 | 下一步 |",
-    "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
-    ...checklist.items.map((item) =>
-      `| ${escapeMarkdownTable(item.ownerRole)} | ${escapeMarkdownTable(item.label)} | ${escapeMarkdownTable(item.severity)} | ${escapeMarkdownTable(item.status)} | ${escapeMarkdownTable(`${item.configuredVariableCount}/${item.totalVariableCount}`)} | ${escapeMarkdownTable(item.requiredVariables.join(", ") || "无")} | ${escapeMarkdownTable(item.missingVariables.join(", ") || "无")} | ${escapeMarkdownTable(item.placeholderVariables.join(", ") || "无")} | ${escapeMarkdownTable(item.valueGuidance.join("; ") || "无")} | ${escapeMarkdownTable(item.verificationSteps.join("; ") || "无")} | ${escapeMarkdownTable(item.nextAction)} |`,
-    ),
-    "",
-    "## 使用规则",
-    "",
-    "- 只把真实连接串、对象存储密钥、命令路径、spool 路径和 token 写入安全的未跟踪 env 文件。",
-    "- 修正后重新运行生产环境变量预检、release-candidate 和 go-live suite。",
-    "- 该清单只帮助分派生产环境配置工作；它不能替代真实服务联通、现场证据、负责人签字或 V1/V2 边界确认。",
-    "",
-  ];
-  return `${lines.join("\n")}`;
-}
-
-function formatProductionEnvFixChecklistCsv(items) {
-  const header = [
-    "key",
-    "label",
-    "ownerRole",
-    "severity",
-    "status",
-    "configuredVariableCount",
-    "totalVariableCount",
-    "requiredVariables",
-    "missingVariables",
-    "placeholderVariables",
-    "valueGuidance",
-    "verificationSteps",
-    "nextAction",
-  ];
-  const rows = items.map((item) => [
-    item.key,
-    item.label,
-    item.ownerRole,
-    item.severity,
-    item.status,
-    item.configuredVariableCount,
-    item.totalVariableCount,
-    item.requiredVariables.join("; "),
-    item.missingVariables.join("; "),
-    item.placeholderVariables.join("; "),
-    item.valueGuidance.join("; "),
-    item.verificationSteps.join("; "),
-    item.nextAction,
-  ]);
-  return `${[header, ...rows].map((row) => row.map(csvCell).join(",")).join("\n")}\n`;
-}
-
-function buildProductionEnvValueIntakeChecklist(fixChecklist, generatedAt) {
-  const rows = [];
-  for (const item of fixChecklist.items ?? []) {
-    if (!item.missingVariables.length && !item.placeholderVariables.length) continue;
-    const fallbackOptionalStatementExport =
-      item.key === "statement-export-object-storage-env" && item.configuredVariableCount === 0;
-    for (const group of envTemplateAssignmentGroupsForItem(item)) {
-      if (!group.assignments.length) continue;
-      const alternativeRule =
-        group.assignments.length > 1
-          ? `任选其一，优先使用 ${group.assignments[0].key}；现场已有标准变量名时才选其它别名`
-          : fallbackOptionalStatementExport
-            ? "可选独立 bucket；附件对象存储 fallback 完整时本变量组可不填"
-          : fillRuleForAssignment(group.assignments[0]);
-      const alternativeGroup = group.assignments.length > 1 ? group.assignments.map((assignment) => assignment.key).join(" / ") : "";
-      for (const assignment of group.assignments) {
-        rows.push({
-          itemKey: item.key,
-          label: item.label,
-          ownerRole: item.ownerRole,
-          severity: fallbackOptionalStatementExport ? "warning" : item.severity,
-          status: fallbackOptionalStatementExport ? "optional_fallback" : item.status,
-          variableKey: assignment.key,
-          alternativeGroup,
-          alternativeRule,
-          sourceSystem: sourceSystemForEnvFixItem(item.key),
-          expectedValueType: expectedValueTypeForVariable(assignment.key, group.sourceText),
-          safeLiteralValue: assignment.isSafeLiteral ? assignment.value : "",
-          fillStatus: fallbackOptionalStatementExport
-            ? "可选：独立 bucket 才填写"
-            : assignment.isSafeLiteral
-              ? "复制安全字面值后复核"
-              : "待填写真实值",
-          verifiedStatus: fallbackOptionalStatementExport ? "附件 fallback 完整后复核" : "待预检",
-          evidenceRef: "",
-          sourceText: group.sourceText,
-          verificationSteps: item.verificationSteps.join("; "),
-          nextAction: fallbackOptionalStatementExport
-            ? "优先补齐附件对象存储 fallback；如财务要求独立 bucket，再补齐对账导出独立变量。"
-            : item.nextAction,
-        });
-      }
-    }
-  }
-  return {
-    included: fixChecklist.included,
-    status: fixChecklist.ready ? "ready" : rows.length ? "pending_real_values" : "no_missing_env_values",
-    ready: fixChecklist.ready === true && rows.length === 0,
-    generatedAt: stringValue(generatedAt),
-    rowCount: rows.length,
-    chooseOneGroupCount: new Set(rows.map((row) => row.alternativeGroup).filter(Boolean)).size,
-    rows,
-    safeguards: {
-      envValuesIncluded: false,
-      connectionStringIncluded: false,
-      objectStorageSecretIncluded: false,
-      commandValueIncluded: false,
-      tokenIncluded: false,
-    },
-  };
-}
 
 function formatProductionEnvValueIntakeMarkdown(report) {
   const checklist = report.productionEnvValueIntakeChecklist;
@@ -4170,77 +4141,6 @@ function formatProductionEnvValueIntakeMarkdown(report) {
     "",
   );
   return lines.join("\n");
-}
-
-function formatProductionEnvValueIntakeCsv(rows) {
-  const header = [
-    "itemKey",
-    "label",
-    "ownerRole",
-    "severity",
-    "status",
-    "variableKey",
-    "alternativeGroup",
-    "alternativeRule",
-    "sourceSystem",
-    "expectedValueType",
-    "safeLiteralValue",
-    "filled",
-    "verified",
-    "evidenceRef",
-    "fillStatus",
-    "verifiedStatus",
-    "verificationSteps",
-    "nextAction",
-  ];
-  const csvRows = rows.map((row) => [
-    row.itemKey,
-    row.label,
-    row.ownerRole,
-    row.severity,
-    row.status,
-    row.variableKey,
-    row.alternativeGroup,
-    row.alternativeRule,
-    row.sourceSystem,
-    row.expectedValueType,
-    row.safeLiteralValue,
-    "",
-    "",
-    "",
-    row.fillStatus,
-    row.verifiedStatus,
-    row.verificationSteps,
-    row.nextAction,
-  ]);
-  return `${[header, ...csvRows].map((row) => row.map(csvCell).join(",")).join("\n")}\n`;
-}
-
-function buildProductionEnvMinimumValueIntakeChecklist(checklist) {
-  const rows = minimumProductionEnvValueRows(Array.isArray(checklist?.rows) ? checklist.rows : []);
-  return {
-    included: Boolean(checklist?.included),
-    status: rows.length ? "pending_minimum_real_values" : "no_blocking_env_values",
-    ready: rows.length === 0 && checklist?.ready === true,
-    generatedAt: stringValue(checklist?.generatedAt),
-    rowCount: rows.length,
-    sourceRowCount: checklist?.rowCount ?? 0,
-    variableCount: new Set(rows.map((row) => row.variableKey).filter(Boolean)).size,
-    chooseOneGroupCount: new Set(rows.map((row) => row.alternativeGroup).filter(Boolean)).size,
-    rows,
-    safeguards: {
-      envValuesIncluded: false,
-      connectionStringIncluded: false,
-      objectStorageSecretIncluded: false,
-      commandValueIncluded: false,
-      tokenIncluded: false,
-      onlyBlockingRowsIncluded: true,
-      onlyWhitelistedIntakeVariables: true,
-      optionalFallbackRowsExcluded: true,
-      safeLiteralRowsExcluded: true,
-      nonPreferredAliasesExcluded: true,
-    },
-  };
 }
 
 function formatProductionEnvMinimumValueIntakeMarkdown(report) {
@@ -4279,55 +4179,6 @@ function formatProductionEnvMinimumValueIntakeMarkdown(report) {
     "",
   );
   return lines.join("\n");
-}
-
-function buildProductionEnvValuesFragmentTemplate(checklist) {
-  const rows = Array.isArray(checklist?.rows) ? checklist.rows : [];
-  return {
-    included: Boolean(checklist?.included),
-    status: rows.length ? "pending_real_values_fragment" : "no_missing_env_values",
-    ready: rows.length === 0 && checklist?.ready === true,
-    fileName: "production-env-values-fragment.template.env.example",
-    rowCount: rows.length,
-    variableCount: new Set(rows.map((row) => row.variableKey).filter(Boolean)).size,
-    chooseOneGroupCount: checklist?.chooseOneGroupCount ?? 0,
-    safeguards: {
-      envValuesIncluded: false,
-      connectionStringIncluded: false,
-      objectStorageSecretIncluded: false,
-      commandValueIncluded: false,
-      tokenIncluded: false,
-      onlyWhitelistedIntakeVariables: true,
-    },
-  };
-}
-
-function buildProductionEnvMinimumValuesFragmentTemplate(checklist) {
-  const rows = minimumProductionEnvValueRows(Array.isArray(checklist?.rows) ? checklist.rows : []);
-  const minimumBlockingTargetSignature = buildProductionEnvMinimumRowsTargetSignature(rows);
-  return {
-    included: Boolean(checklist?.included),
-    status: rows.length ? "pending_minimum_real_values_fragment" : "no_blocking_env_values",
-    ready: rows.length === 0 && checklist?.ready === true,
-    fileName: "production-env-minimum-values-fragment.template.env.example",
-    rowCount: rows.length,
-    sourceRowCount: checklist?.rowCount ?? 0,
-    variableCount: new Set(rows.map((row) => row.variableKey).filter(Boolean)).size,
-    chooseOneGroupCount: new Set(rows.map((row) => row.alternativeGroup).filter(Boolean)).size,
-    minimumBlockingTargetSignature,
-    minimumBlockingTargetSignatureIncluded: Boolean(minimumBlockingTargetSignature),
-    safeguards: {
-      envValuesIncluded: false,
-      connectionStringIncluded: false,
-      objectStorageSecretIncluded: false,
-      commandValueIncluded: false,
-      tokenIncluded: false,
-      onlyBlockingRowsIncluded: true,
-      onlyWhitelistedIntakeVariables: true,
-      optionalFallbackRowsExcluded: true,
-      nonPreferredAliasesExcluded: true,
-    },
-  };
 }
 
 function buildProductionEnvValueExecutionPlan({
@@ -4441,54 +4292,6 @@ function buildProductionEnvValueExecutionPlan({
       targetSignatureIncludesOnlyVariableNames: true,
     },
   };
-}
-
-function buildProductionEnvMinimumRowsTargetSignature(rows) {
-  return [
-    ...new Set(
-      rows
-        .map((row) =>
-          row.alternativeGroup
-            ? `alternative-group:${row.alternativeGroup}`
-            : row.variableKey
-              ? `variable:${row.variableKey}`
-              : "",
-        )
-        .filter(Boolean),
-    ),
-  ]
-    .sort()
-    .join("|");
-}
-
-function minimumProductionEnvValueRows(rows) {
-  const minimumRows = [];
-  const seenAlternativeGroups = new Set();
-  for (const row of rows) {
-    if (row.severity !== "blocking") continue;
-    if (row.status === "optional_fallback") continue;
-    if (row.safeLiteralValue) continue;
-    if (row.alternativeGroup) {
-      const groupKey = `${row.itemKey}:${row.alternativeGroup}`;
-      if (seenAlternativeGroups.has(groupKey)) continue;
-      seenAlternativeGroups.add(groupKey);
-      const preferredVariable = row.alternativeGroup
-        .split(/\s*\/\s*/)
-        .map((item) => item.trim())
-        .filter(Boolean)[0];
-      const preferredRow =
-        rows.find(
-          (candidate) =>
-            candidate.itemKey === row.itemKey &&
-            candidate.alternativeGroup === row.alternativeGroup &&
-            candidate.variableKey === preferredVariable,
-        ) || row;
-      minimumRows.push(preferredRow);
-      continue;
-    }
-    minimumRows.push(row);
-  }
-  return minimumRows;
 }
 
 function formatProductionEnvMinimumValuesFragmentTemplate(report) {
@@ -4658,120 +4461,6 @@ function formatProductionEnvFillTemplate(report) {
     lines.push("");
   }
   return `${lines.join("\n")}`;
-}
-
-function envTemplateAssignmentGroupsForItem(item) {
-  const variables = [...item.missingVariables, ...item.placeholderVariables];
-  return variables.map(parseEnvVariableGroup).filter((group) => group.assignments.length);
-}
-
-function parseEnvVariableGroup(value) {
-  const seen = new Set();
-  const assignments = [];
-  for (const option of stringValue(value).split(/\s+or\s+/i)) {
-    for (const assignment of parseEnvVariableOption(option.trim())) {
-      if (seen.has(assignment.key)) continue;
-      seen.add(assignment.key);
-      assignments.push(assignment);
-    }
-  }
-  return { sourceText: stringValue(value), assignments };
-}
-
-function parseEnvVariableOption(value) {
-  const exactAssignment = parseExactEnvVariableAssignment(value);
-  if (exactAssignment) return [exactAssignment];
-  return extractEnvVariableAssignments(value);
-}
-
-function parseExactEnvVariableAssignment(value) {
-  const match = stringValue(value)
-    .trim()
-    .match(/^([A-Z][A-Z0-9_]*)(?:=([^\s#]+))?$/);
-  if (!match) return null;
-  const [, key, configuredValue = ""] = match;
-  return buildEnvTemplateAssignment(key, configuredValue);
-}
-
-function extractEnvVariableAssignments(value) {
-  const text = stringValue(value);
-  const assignments = [];
-  const variablePattern = /\b(?:ERP_[A-Z0-9_]*[A-Z0-9]|VITE_[A-Z0-9_]*[A-Z0-9]|DATABASE_URL|PGURL)\b/g;
-  for (const match of text.matchAll(variablePattern)) {
-    const key = match[0];
-    const rest = text.slice(match.index + key.length);
-    const valueMatch = rest.match(/^=([^\s#;]+)/);
-    assignments.push(buildEnvTemplateAssignment(key, valueMatch?.[1] || ""));
-  }
-  return assignments;
-}
-
-function buildEnvTemplateAssignment(key, configuredValue = "") {
-  const safeLiteral = safeEnvLiteralValue(key, configuredValue);
-  return {
-    key,
-    value: safeLiteral || `<REPLACE_WITH_${key}>`,
-    isSafeLiteral: Boolean(safeLiteral),
-  };
-}
-
-function safeEnvLiteralValue(key, value) {
-  const configuredValue = stringValue(value).trim();
-  if (!configuredValue) return "";
-  if (/^(postgres|object_storage|false|true|command_bridge|cups_lp|s3_compatible)$/i.test(configuredValue)) {
-    return configuredValue;
-  }
-  if (/^\d+$/.test(configuredValue) && /_TIMEOUT_MS$/.test(key)) return configuredValue;
-  if (/^\[[\s\S]*\]$/.test(configuredValue) && /_ARGS_JSON$/.test(key) && !/secret|token|pass|key|url/i.test(configuredValue)) {
-    return configuredValue;
-  }
-  return "";
-}
-
-function fillRuleForAssignment(assignment) {
-  if (assignment.isSafeLiteral) return "复制安全字面值并复核";
-  return "填写真实生产值";
-}
-
-function sourceSystemForEnvFixItem(key) {
-  return (
-    {
-      "v1-persistence-profile": "PostgreSQL 生产库 / 持久化 profile",
-      "postgres-restore-validation-env": "PostgreSQL 专用恢复验证库",
-      "attachment-object-storage-env": "附件对象存储 bucket",
-      "statement-export-object-storage-env": "对账导出对象存储 bucket",
-      "system-printer-command-bridge-env": "办公室打印桥 / 命令桥",
-      "cups-preflight-env": "CUPS 真实打印队列",
-      "v1-readiness-identity-env": "生产 API / 办公室与司机验收账号",
-      "v1-field-acceptance-report-env": "现场验收报告 / 归档目录",
-      "local-v1-acceptance-bypass-env": "本地持久化例外签字",
-    }[stringValue(key)] || "生产环境配置"
-  );
-}
-
-function expectedValueTypeForVariable(key, sourceText) {
-  const text = `${key} ${sourceText}`;
-  if (/DATABASE_URL|POSTGRES/i.test(text)) return "PostgreSQL 连接串";
-  if (/ENDPOINT|BASE_URL/i.test(key)) return "http/https URL";
-  if (/BUCKET/i.test(key)) return "bucket 名称";
-  if (/SECRET_ACCESS_KEY|TOKEN/i.test(key)) return "密钥 / token";
-  if (/ACCESS_KEY_ID/i.test(key)) return "access key id";
-  if (/ARGS_JSON/i.test(key)) return "JSON array";
-  if (/TIMEOUT_MS/i.test(key)) return "正整数毫秒";
-  if (/COMMAND$/i.test(key)) return "命令路径或命令名";
-  if (/ALLOWLIST|PRINTER/i.test(key)) return "真实设备 / 队列名";
-  if (/SPOOL_DIR|OUTPUT_DIR|MANIFEST/i.test(key)) return "安全本地路径 / 归档路径";
-  if (/OPERATOR_ID/i.test(key)) return "生产账号 ID";
-  if (/PROFILE|ADAPTER|MODE|ENABLED|ACCEPTED|RESET_ALLOWED/i.test(key)) return "固定字面值";
-  return "按预检提示填写";
-}
-
-function sanitizeEnvComment(value) {
-  return stringValue(value).replace(/\r?\n/g, " ").replace(/#/g, "＃");
-}
-
-function csvCell(value) {
-  return `"${stringValue(value).replace(/"/g, '""')}"`;
 }
 
 function stringList(value) {

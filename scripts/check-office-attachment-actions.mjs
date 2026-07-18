@@ -108,6 +108,10 @@ function createHarness({ allowLocalFallback = false, api = {}, downloadResult = 
   assert.equal(harness.getStatements()[0].paymentAttachmentFiles[0].attachmentId, "ATT-PAY-API");
   assert.equal(harness.getStatements()[0].paymentAttachmentFiles[0].source, "api");
   assert.equal(harness.paymentRef.current.size, 1);
+  const skipped = await harness.controller.syncStatementPaymentAttachmentsFromSource("ST-1");
+  assert.equal(skipped.reason, "already_synced");
+  await harness.controller.syncStatementPaymentAttachmentsFromSource("ST-1", { force: true });
+  assert.equal(harness.calls.list.length, 2, "forced attachment sync must bypass a previously cached empty or stale result");
 }
 
 {

@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { createOfficeDriverDeliveryActions } from "../src/app/createOfficeDriverDeliveryActions.js";
+import { buildDriverDeliveryCompletionSummary } from "../src/services/driverDeliveryCompletionClient.js";
 
 const baseTask = {
   fulfillmentId: "F-DRIVER-1",
@@ -169,6 +170,52 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
 }
 
 {
+  const summary = buildDriverDeliveryCompletionSummary({
+    task: { ...baseTask, packageCount: 2 },
+    payload: {
+      actualQty: 998,
+      receiverName: "客户仓管",
+      paperNoteStatus: "已交回",
+      watermarkedPhotoAttached: true,
+      signaturePhotoAttached: true,
+    },
+  });
+  assert.equal(summary.title, "确认提交送达");
+  assert(summary.fields.some((item) => item.label === "实际数量" && item.value === "998 个（应送 1000 个）"));
+  assert(summary.fields.some((item) => item.label === "包裹" && item.value === "2 包"));
+  assert(summary.fields.some((item) => item.label === "水印照片" && item.value === "已准备"));
+  assert(summary.effects.some((item) => item.includes("对账候选")));
+}
+
+{
+  let attachmentCalls = 0;
+  let completionCalls = 0;
+  const harness = createHarness({
+    api: {
+      createOfficeAttachment: async () => {
+        attachmentCalls += 1;
+        return { source: "api", blocked: false };
+      },
+      completeDriverDeliveryTask: async () => {
+        completionCalls += 1;
+        return { source: "api", blocked: false, status: "已完成" };
+      },
+    },
+  });
+  const result = await harness.actions.handleDriverDeliveryAction("提交送达", {
+    fulfillmentId: "F-DRIVER-1",
+    watermarkedPhotoAttached: true,
+    watermarkedPhotoAttachmentId: "ATT-WM-EXISTING",
+  });
+  assert.equal(result.blocked, true);
+  assert.equal(result.error.code, "DRIVER_DELIVERY_COMPLETION_CONFIRMATION_REQUIRED");
+  assert.equal(attachmentCalls, 0);
+  assert.equal(completionCalls, 0);
+  assert.equal(harness.fulfillments[0].status, "待送货");
+  assert.match(harness.toast, /未上传凭证或写入送货完成记录/);
+}
+
+{
   const attachmentCalls = [];
   let completeInput;
   const harness = createHarness({
@@ -199,6 +246,7 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
     paperNoteStatus: "已交回",
     watermarkLocationLabel: "客户仓库门口",
     watermarkGeoPoint: "22.9000,113.7000",
+    deliveryCompletionConfirmed: true,
     watermarkedPhotoFile: { name: "delivery.png", type: "image/png", size: 12 },
     signaturePhotoFile: { name: "signature.png", type: "image/png", size: 8 },
   });
@@ -223,6 +271,7 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
   });
   await harness.actions.handleDriverDeliveryAction("提交送达", {
     fulfillmentId: "F-DRIVER-1",
+    deliveryCompletionConfirmed: true,
     watermarkedPhotoAttached: true,
     watermarkedPhotoAttachmentId: "ATT-WM-EXISTING",
   });
@@ -269,11 +318,22 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
 
 const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const controllerSource = fs.readFileSync(new URL("../src/app/createOfficeDriverDeliveryActions.js", import.meta.url), "utf8");
+const driverPageSource = fs.readFileSync(new URL("../src/features/driver/DriverMobilePage.jsx", import.meta.url), "utf8");
+const driverDeliveryStageSource = fs.readFileSync(new URL("../src/features/driver/DriverDeliveryStage.jsx", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeDriverDeliveryActions\(\{/);
 assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
 assert.doesNotMatch(appSource, /async function handleDriverDeliveryAction/);
 assert.doesNotMatch(appSource, /completeDriverDeliveryTask|confirmDriverDeliveryLoaded|reportDriverDeliveryException/);
 assert.match(controllerSource, /const apiOptions = \{ serverRequired: !allowLocalFallback \}/);
 assert.match(controllerSource, /DRIVER_WRITE_LOCAL_FALLBACK_FORBIDDEN/);
+assert.match(controllerSource, /DRIVER_DELIVERY_COMPLETION_CONFIRMATION_REQUIRED/);
+assert.match(driverPageSource, /buildDriverDeliveryCompletionSummary/);
+assert.match(driverPageSource, /import \{ DriverDeliveryStage \} from "\.\/DriverDeliveryStage\.jsx"/);
+assert.match(driverDeliveryStageSource, /确认提交送达/);
+assert.match(driverPageSource, /deliveryCompletionConfirmed: true/);
+assert.match(driverPageSource, /restoreDeliveryCompletionTriggerFocusRef/);
+assert.match(driverPageSource, /handleDeliveryCompletionConfirmationKeyDown/);
+assert.match(driverDeliveryStageSource, /aria-live="assertive"/);
+assert.match(driverDeliveryStageSource, /!deliveryCompletionConfirmation \? \(/);
 
-console.log("Office driver delivery action checks passed: device QA, package loading, evidence completion, exceptions, and formal-mode fail-closed behavior are isolated.");
+console.log("Office driver delivery action checks passed: device QA, package loading, delivery confirmation, evidence completion, exceptions, and formal-mode fail-closed behavior are isolated.");

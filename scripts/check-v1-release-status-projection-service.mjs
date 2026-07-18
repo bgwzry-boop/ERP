@@ -33,17 +33,26 @@ const unsafeText = [
 ].join(" ");
 
 const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiServerSource, /from "\.\/services\/v1ReleaseStatusProjectionService\.mjs"/);
+const registrySource = readFileSync(
+  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
+  "utf8",
+);
+const statusResponseSource = readFileSync(
+  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
+  "utf8",
+);
+assert.match(statusResponseSource, /from "\.\/v1ReleaseStatusProjectionService\.mjs"/);
+assert.match(registrySource, /createV1GoLiveStatusResponseService/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1GoLiveSummary/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1OwnerDecisionBrief/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1TopBlockers/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1ModuleDifferences/);
 assert.match(
-  apiServerSource,
+  statusResponseSource,
   /sanitizeV1SensitiveStatusText\(completion\.conclusion \|\| suite\.conclusion \|\| v1V2Scope\.conclusion\)/,
 );
-assert.match(apiServerSource, /label: sanitizeV1SensitiveStatusText\(artifact\.label\)/);
-assert.match(apiServerSource, /reason: sanitizeV1SensitiveStatusText\(artifact\.reason\)/);
+assert.match(statusResponseSource, /label: sanitizeV1SensitiveStatusText\(artifact\.label\)/);
+assert.match(statusResponseSource, /reason: sanitizeV1SensitiveStatusText\(artifact\.reason\)/);
 
 assert.equal(normalizeV1GoLiveStatus("ready"), "ready");
 assert.equal(normalizeV1GoLiveStatus("unexpected"), "blocked");

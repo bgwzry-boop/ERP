@@ -117,6 +117,7 @@ function createMasterCase({ serverRequired = false, actionDisabled = false } = {
   const drafts = createState([{ draftId: "DR-LOCAL" }]);
   const reviews = createState([{ employeeId: "E-LOCAL" }]);
   const readiness = createState({ ready: true, coveredRoleCount: 8 });
+  const assignmentOptions = createState({ workshops: ["旧车间"], machines: [{ machineId: "M-OLD" }] });
   const actions = createOfficeMasterDataReadActions({
     api: {
       async listOfficeMasterDataImportReviewDrafts() {
@@ -139,9 +140,10 @@ function createMasterCase({ serverRequired = false, actionDisabled = false } = {
     serverRequired: () => serverRequired,
     setMasterDataEmployeeAccountReviews: reviews.set,
     setMasterDataEmployeeAccountReadiness: readiness.set,
+    setMasterDataEmployeeAssignmentOptions: assignmentOptions.set,
     setMasterDataImportReviewDrafts: drafts.set,
   });
-  return { actions, drafts, readiness, reviews };
+  return { actions, assignmentOptions, drafts, readiness, reviews };
 }
 
 const masterSuccess = createMasterCase();
@@ -157,17 +159,50 @@ const permissionCase = createMasterCase({ actionDisabled: true });
 const permissionResult = await permissionCase.actions.refreshMasterDataEmployeeAccountReviews();
 assert.equal(permissionResult.blocked, true);
 assert.equal(permissionCase.readiness.value, null);
-assert.equal(permissionCase.reviews.value[0].employeeId, "E-LOCAL");
+assert.deepEqual(permissionCase.reviews.value, []);
+assert.deepEqual(permissionCase.assignmentOptions.value, { workshops: [], machines: [], allMachines: [] });
+assert.deepEqual(permissionResult.items, []);
 assert.equal(permissionResult.feedback, "无员工复核权限");
 
 const masterProduction = createMasterCase({ serverRequired: true });
 const productionDraftResult = await masterProduction.actions.refreshMasterDataImportReviewDrafts();
 assert.equal(productionDraftResult.blocked, true);
-assert.equal(masterProduction.drafts.value[0].draftId, "DR-LOCAL");
+assert.deepEqual(masterProduction.drafts.value, []);
 const productionEmployeeResult = await masterProduction.actions.refreshMasterDataEmployeeAccountReviews();
 assert.equal(productionEmployeeResult.blocked, true);
-assert.equal(masterProduction.reviews.value[0].employeeId, "E-LOCAL");
+assert.deepEqual(masterProduction.reviews.value, []);
 assert.equal(masterProduction.readiness.value, null);
+assert.deepEqual(masterProduction.assignmentOptions.value, { workshops: [], machines: [], allMachines: [] });
+
+const pendingEmployeeReads = [];
+const concurrentReviews = createState([{ employeeId: "E-OLD" }]);
+const employeeAccountRequestSequenceRef = { current: 0 };
+const concurrentActions = createOfficeMasterDataReadActions({
+  api: {
+    async listOfficeMasterDataEmployeeAccountReviews() {
+      return new Promise((resolve) => pendingEmployeeReads.push(resolve));
+    },
+  },
+  authState: {},
+  currentUserId: "U-MANAGER-A",
+  getActionState: () => ({ disabled: false, title: "" }),
+  masterDataEmployeeAccountReviewsRef: { current: concurrentReviews.value },
+  masterDataImportReviewDraftsRef: { current: [] },
+  permissionContext: {},
+  serverRequired: () => false,
+  employeeAccountRequestSequenceRef,
+  setMasterDataEmployeeAccountReviews: concurrentReviews.set,
+  setMasterDataEmployeeAccountReadiness() {},
+  setMasterDataImportReviewDrafts() {},
+});
+const olderRead = concurrentActions.refreshMasterDataEmployeeAccountReviews();
+const newerRead = concurrentActions.refreshMasterDataEmployeeAccountReviews();
+pendingEmployeeReads[1]({ source: "api", items: [{ employeeId: "E-NEW" }], total: 1 });
+await newerRead;
+pendingEmployeeReads[0]({ source: "api", items: [{ employeeId: "E-STALE" }], total: 1 });
+const staleResult = await olderRead;
+assert.equal(staleResult.stale, true);
+assert.equal(concurrentReviews.value[0].employeeId, "E-NEW");
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");

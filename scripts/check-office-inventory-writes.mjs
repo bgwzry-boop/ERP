@@ -244,15 +244,15 @@ const holdCase = createInventoryWriteCase({
   api: {
     async createOfficeTemporaryInventoryHold(input) {
       assert.equal(input.intentId, "INT-1");
-      assert.equal(input.clientRevision, 1);
+      assert.equal(input.expectedRevision, 1);
       return { source: "api", intent: temporaryHold.intent, hold: temporaryHold, inventoryItem: { inventoryItemId: "S001" } };
     },
     async extendOfficeTemporaryInventoryHold(input) {
-      assert.equal(input.clientRevision, 2);
+      assert.equal(input.expectedRevision, 2);
       return { source: "api", intent: { ...temporaryHold.intent, revision: 3 }, hold: { ...temporaryHold, expiresAt: input.expiresAt } };
     },
     async releaseOfficeTemporaryInventoryHold(input) {
-      assert.equal(input.clientRevision, 2);
+      assert.equal(input.expectedRevision, 2);
       return { source: "api", intent: { ...temporaryHold.intent, intentStatus: "已取消" }, hold: { ...temporaryHold, reservedQty: 0 } };
     },
   },

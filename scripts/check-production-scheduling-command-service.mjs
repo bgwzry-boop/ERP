@@ -22,7 +22,7 @@ const workspace = {
   ],
   operationLogs: [],
 };
-const calls = { publish: [], resequence: [], move: [] };
+const calls = { publish: [], resequence: [], move: [], decisions: [] };
 workspace.productionPackingTransactionRepository = {
   async publishProductionSchedule(input) {
     calls.publish.push(input);
@@ -30,6 +30,7 @@ workspace.productionPackingTransactionRepository = {
       productionTask: { ...input.productionTask, revision: 2 },
       orderLine: { ...input.orderLine, revision: 2 },
       operationLogId: input.operationLog.id,
+      businessDecision: input.decisionRecord,
     };
   },
 };
@@ -40,6 +41,7 @@ workspace.productionScheduleRecordRepository = {
       productionScheduleRecords: input.records.map((record) => ({ ...record, revision: 2 })),
       transactionContext: input.transactionContext,
       operationLogId: input.operationLog.id,
+      businessDecision: input.decisionRecord,
     };
   },
   async moveMachineQueueItem(input) {
@@ -49,12 +51,29 @@ workspace.productionScheduleRecordRepository = {
       productionScheduleRecords: input.records.map((record) => ({ ...record, revision: 2 })),
       transactionContext: input.transactionContext,
       operationLogId: input.operationLog.id,
+      businessDecision: input.decisionRecord,
     };
   },
 };
 
 const dependencies = {
   now: () => now,
+  businessDecisionEvidenceService: {
+    prepareDecision(input) {
+      calls.decisions.push(input);
+      return {
+        ok: true,
+        record: {
+          id: `BD-${input.businessId}`,
+          businessDecisionId: `BD-${input.businessId}`,
+          decisionMakerNameSnapshot: "负责人",
+          enteredByUserId: input.operatorId,
+        },
+        attachmentLinks: [],
+      };
+    },
+    toProjection(record) { return record; },
+  },
   async buildMachineQueueResponse({ query = {} }) {
     const items = queueItems.filter((item) => !query.machineId || item.machineId === query.machineId);
     return { items, machines: [], total: items.length, generatedAt: now.toISOString(), source: "test" };
@@ -101,7 +120,7 @@ const dependencies = {
   },
 };
 
-assert.throws(() => createProductionSchedulingCommandService({}), /buildMachineQueueResponse must be a function/);
+assert.throws(() => createProductionSchedulingCommandService({}), /businessDecisionEvidenceService\.prepareDecision must be a function/);
 const service = createProductionSchedulingCommandService(dependencies);
 
 const published = await service.publishSchedule({
@@ -114,6 +133,7 @@ const published = await service.publishSchedule({
     machineId: "BAG-01",
     processType: "制袋",
     plannedQty: 100,
+    expectedRevision: 1,
     operatorId: "U-SPOOFED",
     idempotencyKey: "schedule-publish-service-001",
   },
@@ -145,12 +165,29 @@ const incompleteSequence = await service.resequenceMachineQueue({
 });
 assert.equal(incompleteSequence.code, "PRODUCTION_SCHEDULE_QUEUE_SEQUENCE_INCOMPLETE");
 
+const mismatchedDecisionTarget = await service.resequenceMachineQueue({
+  workspace,
+  operatorId: "U-OFFICE",
+  body: {
+    machineId: "BAG-01",
+    orderedProductionTaskIds: ["PT-2", "PT-1"],
+    businessDecisionTargetId: "PT-3",
+  },
+});
+assert.equal(mismatchedDecisionTarget.code, "BUSINESS_DECISION_EVIDENCE_DRAFT_TARGET_MISMATCH");
+
 const resequenced = await service.resequenceMachineQueue({
   workspace,
   operatorId: "U-OFFICE",
   body: {
     machineId: "BAG-01",
     orderedProductionTaskIds: ["PT-2", "PT-1"],
+    expectedRevision: 2,
+    affectedRevisions: [
+      { productionTaskId: "PT-1", revision: 1 },
+      { productionTaskId: "PT-2", revision: 1 },
+    ],
+    businessDecisionTargetId: "PT-2",
     operatorId: "U-SPOOFED",
     idempotencyKey: "schedule-resequence-service-001",
   },
@@ -163,6 +200,8 @@ assert.equal(calls.resequence[0].expectedRecords.length, 2);
 assert.deepEqual(calls.resequence[0].lockedMachineIds, ["BAG-01"]);
 assert.equal(calls.resequence[0].operationLog.operatorId, "U-OFFICE");
 assert.equal(calls.resequence[0].idempotencyPayload.operatorId, "U-OFFICE");
+assert.equal(calls.decisions.at(-1).businessType, "production_task");
+assert.equal(calls.decisions.at(-1).businessId, "PT-2");
 
 const missingInsertTarget = await service.moveMachineQueueItem({
   workspace,
@@ -182,6 +221,7 @@ const moved = await service.moveMachineQueueItem({
     productionTaskId: "PT-1",
     targetMachineId: "BAG-02",
     insertBeforeProductionTaskId: "PT-3",
+    expectedRevision: 1,
     operatorId: "U-SPOOFED",
     idempotencyKey: "schedule-move-service-001",
   },

@@ -123,6 +123,7 @@ function buildStatement(overrides = {}) {
     receivable: 273,
     received: overrides.received,
     variance: overrides.variance,
+    revision: overrides.revision ?? 1,
   };
 }
 

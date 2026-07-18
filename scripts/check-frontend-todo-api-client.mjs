@@ -4,6 +4,7 @@ import {
   handleOfficeTodoBatch,
   listOfficeTodos,
   mapTodoUiActionToApiPayload,
+  repairOfficeTodoFulfillment,
   repairOfficeTodoReference,
 } from "../src/services/officeTodoApiClient.js";
 import { createOfficePrintBatchRecord } from "../src/services/officePrintBatchApiClient.js";
@@ -127,13 +128,32 @@ const listResult = await listOfficeTodos(
             notificationStatus: "待人工发送",
             photoPrompt: "请附成品图",
             referenceStatus: "missing",
+            allowedRefTypes: ["order_line"],
+            resolvedRefTypeLabel: "订单行",
             referenceCandidates: [{ refType: "order_line", refId: "ORD-CHECK-1-01", label: "订单行 · ORD-CHECK-1-01" }],
             createdAt: "2026-07-01T00:00:00.000Z",
+            waitingMinutes: 60,
+            waitingLabel: "1小时",
+            waitingSource: "created_at",
+            reminderLevel: "red_dot",
+            reminderLevelLabel: "红点提醒",
+            activeSnooze: false,
+            dueToday: false,
+            overdue: false,
+            serverSortRank: 400,
+            serverSortIndex: 0,
           },
         ],
         page: 1,
         pageSize: 200,
         total: 1,
+        reminderPolicy: {
+          source: "server",
+          version: "v1",
+          redDotAfterMinutes: 30,
+          followUpAfterMinutes: 1440,
+          pinDueToday: true,
+        },
       });
     },
   },
@@ -146,6 +166,12 @@ assert(listResult.items[0]?.ref === "ORD-CHECK-1", "todo list API ref was not ma
 assert(listResult.items[0]?.notificationCopyText === "客户通知文案", "todo list API notification copy text was not mapped");
 assert(listResult.items[0]?.photoPrompt === "请附成品图", "todo list API photo prompt was not mapped");
 assert(listResult.items[0]?.referenceCandidates[0]?.refId === "ORD-CHECK-1-01", "todo reference candidates were not mapped");
+assert(listResult.items[0]?.allowedRefTypes[0] === "order_line", "todo allowed reference types were not mapped");
+assert(listResult.items[0]?.resolvedRefTypeLabel === "订单行", "todo reference type label was not mapped");
+assert(listResult.items[0]?.waitingMinutes === 60, "todo waiting minutes were not mapped");
+assert(listResult.items[0]?.reminderLevel === "red_dot", "todo reminder level was not mapped");
+assert(listResult.items[0]?.serverSortIndex === 0, "todo server sort index was not mapped");
+assert(listResult.reminderPolicy?.followUpAfterMinutes === 1440, "todo reminder policy metadata was not mapped");
 
 const apiCalls = [];
 const apiResult = await handleOfficeTodoAction(
@@ -221,6 +247,35 @@ assert(repairCalls[0]?.url.endsWith("/todos/T-CHECK-REPAIR/reference"), "todo re
 assert(repairCalls[0]?.body.reason === "办公室核对原始消息", "todo reference repair reason was not sent");
 assert(repairCalls[0]?.init.headers.authorization === "Bearer seed-session.todo-repair", "todo reference repair did not send bearer auth");
 assert(repairResult.todo?.ref === "ORD-CHECK-1-01", "todo reference repair response was not mapped");
+
+const fulfillmentRepairCalls = [];
+const fulfillmentRepairResult = await repairOfficeTodoFulfillment(
+  {
+    authState: { ...authState, session: { accessToken: "seed-session.fulfillment-repair" } },
+    todoId: "T-CHECK-FULFILLMENT-REPAIR",
+    reason: "根据打包完成记录补建",
+    operatorId: "U-OFFICE-A",
+    idempotencyKey: "todo-fulfillment-repair-check-1",
+  },
+  {
+    fetchImpl: async (url, init) => {
+      fulfillmentRepairCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        todo: { todoId: "T-CHECK-FULFILLMENT-REPAIR", type: "出库交付待补建", handled: true, status: "handled" },
+        labelTodo: { todoId: "T-LABEL-CHECK", type: "待打印标签", refType: "fulfillment", refId: "F-REPAIR-CHECK", handled: false },
+        fulfillment: { fulfillmentId: "F-REPAIR-CHECK", orderLineId: "OL-REPAIR-CHECK", status: "待打印标签" },
+        packageIds: ["PKG-REPAIR-CHECK-1", "PKG-REPAIR-CHECK-2"],
+        operationLogId: "LOG-TODO-FULFILLMENT-REPAIR-CHECK",
+      });
+    },
+  },
+);
+assert(fulfillmentRepairCalls[0]?.url.endsWith("/todos/T-CHECK-FULFILLMENT-REPAIR/fulfillment-repair"), "todo fulfillment repair URL is incorrect");
+assert(fulfillmentRepairCalls[0]?.body.reason === "根据打包完成记录补建", "todo fulfillment repair reason was not sent");
+assert(fulfillmentRepairCalls[0]?.init.headers.authorization === "Bearer seed-session.fulfillment-repair", "todo fulfillment repair did not send bearer auth");
+assert(fulfillmentRepairResult.labelTodo?.ref === "F-REPAIR-CHECK", "todo fulfillment repair label todo was not mapped");
+assert(fulfillmentRepairResult.fulfillment?.fulfillmentId === "F-REPAIR-CHECK", "todo fulfillment repair record was not mapped");
+assert(fulfillmentRepairResult.packageIds.length === 2, "todo fulfillment repair package ids were not mapped");
 
 const batchCalls = [];
 const batchResult = await handleOfficeTodoBatch(

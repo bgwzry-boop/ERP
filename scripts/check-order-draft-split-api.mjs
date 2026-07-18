@@ -1,12 +1,19 @@
 import assert from "node:assert/strict";
 import { createApiServer } from "../server/apiServer.mjs";
+import {
+  closeTestServer,
+  getJson as getSharedJson,
+  getTestServerBaseUrl,
+  listenTestServer,
+  postJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const server = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
 await server.ready;
-await listen(server);
+await listenTestServer(server);
 
 try {
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const baseUrl = getTestServerBaseUrl(server);
   const headers = { "content-type": "application/json", "x-erp-user-id": "U-OFFICE-A" };
   const recognition = await writeJson(baseUrl, "/order-drafts/recognize", {
     sourceMessages: [
@@ -112,30 +119,13 @@ try {
 
   console.log("Order draft split API check passed: backend preview, reviewed-plan hash, atomic multi-order confirmation, exact success replay, and changed-payload rejection are covered.");
 } finally {
-  await new Promise((resolve) => server.close(resolve));
+  await closeTestServer(server);
 }
 
-async function getJson(baseUrl, path, headers) {
-  const response = await fetch(`${baseUrl}${path}`, { headers });
-  const json = await response.json();
-  assert.equal(response.status, 200, JSON.stringify(json));
-  return json;
+function getJson(baseUrl, path, headers) {
+  return getSharedJson(baseUrl, `/api${path}`, { headers });
 }
 
-async function writeJson(baseUrl, path, body, headers, expectedStatus = 200) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-  const json = await response.json();
-  assert.equal(response.status, expectedStatus, JSON.stringify(json));
-  return json;
-}
-
-function listen(serverInstance) {
-  return new Promise((resolve, reject) => {
-    serverInstance.once("error", reject);
-    serverInstance.listen(0, "127.0.0.1", resolve);
-  });
+function writeJson(baseUrl, path, body, headers, expectedStatus = 200) {
+  return postJson(baseUrl, `/api${path}`, body, { headers, expectedStatus });
 }

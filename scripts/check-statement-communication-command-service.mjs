@@ -15,7 +15,18 @@ const service = createStatementCommunicationCommandService({
     return previewType === "internal_archive" ? "TPL-INTERNAL" : "TPL-CUSTOMER";
   },
   buildStatementPreviewLines() {
-    return [{ statementLineId: "ST-1-001", statementId: "ST-1", orderLineId: "OL-1", amount: 100 }];
+    return [{
+      statementLineId: "ST-1-001",
+      statementId: "ST-1",
+      orderLineId: "OL-1",
+      orderNo: "ORD-1",
+      productName: "定制袋",
+      goodsSpec: "30*38 / 白印黑",
+      billQty: 200,
+      deliveredQty: 200,
+      amount: 100,
+      finalAmount: 100,
+    }];
   },
   buildStatementExportFile(_workspace, statement, options) {
     return {
@@ -55,12 +66,6 @@ const service = createStatementCommunicationCommandService({
         : statement,
     );
   },
-  normalizeStatementSendReceiptStatus(value) {
-    return ["delivered", "read", "confirmed", "no_response"].includes(value) ? value : "read";
-  },
-  mapStatementApiStatus(status) {
-    return status === "已发送待回款" ? "已发送" : status;
-  },
   nextId(prefix, rows) {
     return `${prefix}-${rows.length + 1}`;
   },
@@ -88,12 +93,17 @@ assert.match(preview.response.downloadToken, /^DL-[A-F0-9]{24}$/);
 assert.equal(calls.exports[0].exportFile.createdBy, "U-FINANCE");
 assert.equal(calls.exports[0].operationLog.operatorId, "U-FINANCE");
 assert.equal(calls.exports[0].idempotencyPayload.operatorId, "U-FINANCE");
+assert.equal(preview.response.lines[0].productName, "定制袋");
+assert.equal(preview.response.lines[0].goodsSpec, "30*38 / 白印黑");
+assert.equal(preview.response.lines[0].billQty, 200);
+assert.equal(preview.response.lines[0].chargeableQty, 200);
 
 const sent = await service.markStatementSent({
   workspace,
   statementId: "ST-1",
   operatorId: "U-FINANCE",
   body: {
+    expectedRevision: 2,
     channel: "wechat",
     sentTo: "客户财务",
     operatorId: "U-SPOOFED",
@@ -122,6 +132,7 @@ const receipt = await service.markStatementSendReceipt({
   statementId: "ST-1",
   operatorId: "U-FINANCE",
   body: {
+    expectedRevision: 3,
     sendRecordId: "SEND-EXISTING",
     receiptStatus: "read",
     operatorId: "U-SPOOFED",
@@ -137,6 +148,7 @@ const blockedConfirmation = await service.recordStatementCustomerConfirmation({
   statementId: "ST-1",
   operatorId: "U-FINANCE",
   body: {
+    expectedRevision: 2,
     sendRecordId: "SEND-EXISTING",
     attachmentIds: ["ATT-WRONG-OWNER"],
   },
@@ -148,6 +160,7 @@ const confirmation = await service.recordStatementCustomerConfirmation({
   statementId: "ST-1",
   operatorId: "U-FINANCE",
   body: {
+    expectedRevision: 2,
     sendRecordId: "SEND-EXISTING",
     content: "客户确认无误",
     attachmentIds: ["ATT-1"],
@@ -222,7 +235,15 @@ function createWorkspace() {
       calls.exports.push(input);
       return {
         exportFile: input.exportFile,
-        statementLines: input.statementLines,
+        statementLines: input.statementLines.map((line) => ({
+          statementLineId: line.statementLineId,
+          statementId: line.statementId,
+          orderLineId: line.orderLineId,
+          deliveredQty: line.deliveredQty,
+          chargeableQty: line.billQty,
+          amount: line.amount,
+          finalAmount: line.finalAmount,
+        })),
         operationLogId: input.operationLog.id,
       };
     },

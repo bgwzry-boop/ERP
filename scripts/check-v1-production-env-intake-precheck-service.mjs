@@ -104,22 +104,22 @@ assert.equal(JSON.stringify(errorResult).includes("postgres://"), false);
 assert.equal(JSON.stringify(errorResult).includes("/Users/private"), false);
 
 const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const apiFunction = apiSource.match(
-  /function precheckSystemV1ProductionEnvIntake\(\{ operatorId \}\) \{([\s\S]*?)\n\}/,
-)?.[1];
-assert.ok(apiFunction, "API production-env intake composition function should exist");
-assert.match(apiFunction, /return precheckV1ProductionEnvIntake\(\{ operatorId \}\);/);
-assert.doesNotMatch(apiFunction, /buildProductionEnvIntakeVerifyReport|resolve|readFileSync|process\.env/);
+const valuesSafetySource = readFileSync(
+  new URL("../server/services/v1ProductionEnvValuesSafetyStatusService.mjs", import.meta.url),
+  "utf8",
+);
+const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /function precheckSystemV1ProductionEnvIntake/);
+assert.match(routeSource, /precheckProductionEnvIntake:[\s\S]*precheckV1ProductionEnvIntake\(\{ operatorId \}\)/);
+assert.doesNotMatch(routeSource, /buildProductionEnvIntakeVerifyReport|readFileSync|process\.env/);
 assert.doesNotMatch(
   apiSource,
   /function resolveV1ProductionEnvSetupSafeEnvFileForIntakeLivePrecheck\(/,
 );
 assert.doesNotMatch(apiSource, /const V1_PRODUCTION_ENV_INTAKE_CSV_PATH\s*=/);
-assert.match(apiSource, /productionEnvSetupJson: V1_PRODUCTION_ENV_SETUP_JSON_PATH/);
-assert.match(
-  apiSource,
-  /const resolution = resolveV1ProductionEnvSetupSafeEnvFileForIntakeLivePrecheck\(\);/,
-);
+assert.doesNotMatch(apiSource, /productionEnvSetupJson: V1_PRODUCTION_ENV_SETUP_JSON_PATH/);
+assert.match(valuesSafetySource, /productionEnvSetupJson = V1_PRODUCTION_ENV_SETUP_JSON_PATH/);
+assert.match(valuesSafetySource, /const resolution = resolveSetupTarget\(\);/);
 
 console.log(
   "V1 production-env intake precheck service checks passed: setup safety gates, fixed server input, redaction, and thin API composition are covered.",

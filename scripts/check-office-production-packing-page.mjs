@@ -1,16 +1,21 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { buildPrintWorkspaceItems } from "../src/features/production/productionPackingPresentation.js";
 
 const pageSource = readFileSync(new URL("../src/features/production/ProductionPackingPage.jsx", import.meta.url), "utf8");
+const exceptionPanelSource = readFileSync(new URL("../src/features/production/ProductionExceptionPanel.jsx", import.meta.url), "utf8");
+const navigationSource = readFileSync(new URL("../src/features/production/ProductionPackingNavigation.jsx", import.meta.url), "utf8");
 const printDevicePanelSource = readFileSync(new URL("../src/features/production/ProductionPrintDevicePanels.jsx", import.meta.url), "utf8");
 const printReadinessPanelSource = readFileSync(new URL("../src/features/production/ProductionPrintReadinessPanel.jsx", import.meta.url), "utf8");
 const printDiagnosticsPanelSource = readFileSync(new URL("../src/features/production/ProductionPrintDiagnosticsPanel.jsx", import.meta.url), "utf8");
-const featureSource = `${pageSource}\n${printDevicePanelSource}\n${printReadinessPanelSource}\n${printDiagnosticsPanelSource}`;
+const featureSource = `${pageSource}\n${exceptionPanelSource}\n${printDevicePanelSource}\n${printReadinessPanelSource}\n${printDiagnosticsPanelSource}`;
+const exceptionFeatureSource = `${pageSource}\n${exceptionPanelSource}`;
 const presentationSource = readFileSync(new URL("../src/features/production/productionPackingPresentation.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const driverStyleSource = readFileSync(new URL("../src/styles/features/driver.css", import.meta.url), "utf8");
+const roleToolStyleSource = readFileSync(new URL("../src/styles/features/role-tools.css", import.meta.url), "utf8");
 const productionPrintStyleSource = readFileSync(new URL("../src/styles/features/production-print.css", import.meta.url), "utf8");
 
 assert.match(pageSource, /export function ProductionPackingPage/);
@@ -21,6 +26,51 @@ assert.match(pageSource, /PrinterDeviceQaPanel/);
 assert.match(pageSource, /PrintDriverV1ReadinessPanel/);
 assert.match(pageSource, /PrintDriverDiagnosticsPanel/);
 assert.match(pageSource, /const PRODUCTION_WORKBENCH_TABS/);
+assert.match(pageSource, /const PACKING_TASK_FILTERS/);
+assert.match(presentationSource, /export const PRINT_WORKSPACE_TABS/);
+assert.match(presentationSource, /export function buildPrintWorkspaceItems/);
+assert.match(navigationSource, /export function PackingTaskFilterTabs/);
+assert.match(navigationSource, /export function PrintWorkspaceNavigation/);
+assert.match(pageSource, /from "\.\/ProductionPackingNavigation\.jsx"/);
+assert.match(pageSource, /const detailMode = activeWorkbenchTab === "packing" \? "packing" : "production"/);
+assert.match(pageSource, /className="production-detail-scroll"/);
+assert.match(pageSource, /buildPackingCompletionSummary/);
+assert.match(pageSource, /确认提交打包完成/);
+assert.match(pageSource, /packingCompletionConfirmed: true/);
+assert.match(pageSource, /restorePackingCompletionTriggerFocusRef/);
+assert.match(pageSource, /handlePackingCompletionConfirmationKeyDown/);
+assert.match(pageSource, /aria-live="assertive"/);
+assert.match(pageSource, /!packingCompletionConfirmation \? \(/);
+for (const label of ["确认排产经营决定", "原排产", "变更后", "业务决定人", "系统操作人", "决定渠道 / 时间", "决定证据内容", "授权依据", "预计影响"]) {
+  assert.equal(pageSource.includes(label), true, `schedule confirmation should retain ${label}`);
+}
+assert.match(pageSource, /formatBusinessDecisionChannelAndTime/);
+assert.match(pageSource, /buildProductionReportSummary/);
+assert.match(pageSource, /确认完成生产报工/);
+assert.match(pageSource, /productionReportConfirmed: true/);
+assert.match(pageSource, /restoreProductionReportTriggerKindRef/);
+assert.match(pageSource, /handleProductionReportConfirmationKeyDown/);
+assert.match(pageSource, /!productionReportConfirmation \? \(/);
+assert.match(pageSource, /ProductionExceptionPanel/);
+assert.match(exceptionPanelSource, /export function ProductionExceptionPanel/);
+assert.match(exceptionFeatureSource, /生产异常/);
+assert.match(exceptionFeatureSource, /报异常并继续/);
+assert.match(exceptionFeatureSource, /报异常并暂停/);
+assert.match(exceptionFeatureSource, /上报会创建生产异常待办/);
+assert.match(exceptionFeatureSource, /不会写库存、占用、打包或对账/);
+assert.match(pageSource, /submitProductionException/);
+assert.match(exceptionFeatureSource, /生产管理处理/);
+assert.match(pageSource, /处理生产异常/);
+assert.match(exceptionFeatureSource, /确认异常处理/);
+assert.match(pageSource, /productionExceptionResolutionConfirmation/);
+assert.match(pageSource, /resolutionConfirmed: true/);
+assert.match(pageSource, /buildProductionExceptionResolutionEffects/);
+assert.match(exceptionFeatureSource, /继续生产才会解除报工阻断/);
+assert.match(pageSource, /className="production-detail-scroll production-print-detail-scroll"/);
+assert.match(pageSource, /hidden=\{activePrintWorkspaceTab !== "qa"\}/);
+assert.match(pageSource, /hidden=\{activePrintWorkspaceTab !== "readiness"\}/);
+assert.match(pageSource, /hidden=\{activePrintWorkspaceTab !== "diagnostics"\}/);
+assert.match(pageSource, /hidden=\{activePrintWorkspaceTab !== "jobs"\}/);
 assert.match(pageSource, /activeWorkbenchTab === "print" \? null/);
 assert.match(pageSource, /activeWorkbenchTab === "print" \? \(/);
 assert.match(pageSource, /aria-controls="production-workbench-panel"/);
@@ -55,6 +105,11 @@ for (const selector of [".production-schedule-queue-table", ".printer-device-qa-
   assert.equal(productionPrintStyleSource.includes(selector), true, `production/print feature styles should own ${selector}`);
   assert.equal(sharedStyleSource.includes(selector), false, `shared styles should not retain ${selector}`);
 }
+for (const selector of [".production-print-nav-item", ".production-detail-scroll", ".production-print-overview", ".production-mode-print"]) {
+  assert.equal(roleToolStyleSource.includes(selector), true, `role-tool styles should own ${selector}`);
+}
+assert.match(roleToolStyleSource, /\.production-packing-detail-pane\s*\{[\s\S]*?overflow: hidden;/);
+assert.match(roleToolStyleSource, /\.production-exception-report \.danger-action/);
 
 for (const helper of ["isProductionReportCandidate", "buildPackingTaskRows", "getProductionFinishedGoodsPhoto", "getProductionPackingTaskListStatusText"]) {
   assert.equal(presentationSource.includes(`export function ${helper}`), true, `production presentation should export ${helper}`);
@@ -63,5 +118,18 @@ assert.match(presentationSource, /machineCount.*动作次数，不入库/s);
 assert.match(officePageSource, /export \{ ProductionPackingPage \} from "\.\.\/\.\.\/features\/production\/ProductionPackingPage\.jsx";/);
 assert.doesNotMatch(officePageSource, /function ProductionPackingPage/);
 assert.doesNotMatch(officePageSource, /function PrinterDeviceQaPanel/);
+assert.doesNotMatch(pageSource, /function PrintWorkspaceNavigation/);
+assert.doesNotMatch(pageSource, /function ProductionExceptionPanel/);
+
+const printWorkspaceItems = buildPrintWorkspaceItems({
+  printerDeviceQa: { checks: Array.from({ length: 6 }, (_, index) => ({ status: index < 2 ? "passed" : "pending" })) },
+  printDriverReadiness: { readiness: { ready: false, summary: { blockingCount: 7 } } },
+  printDriverConfig: { config: { realDispatchAvailable: false, commandBridgeStatusReadbackAvailable: false } },
+  printJobQueue: { items: [{ jobStatus: "failed" }, { jobStatus: "queued" }] },
+});
+assert.deepEqual(printWorkspaceItems.map((item) => item.value), ["qa", "readiness", "diagnostics", "jobs"]);
+assert.equal(printWorkspaceItems.find((item) => item.value === "qa")?.meta, "2/6 通过");
+assert.equal(printWorkspaceItems.find((item) => item.value === "readiness")?.meta, "7 项阻塞");
+assert.equal(printWorkspaceItems.find((item) => item.value === "jobs")?.status, "存在失败");
 
 console.log("Office production/packing page check passed: page ownership, independent print workspace, tab semantics, and machine-count safety labels remain intact.");

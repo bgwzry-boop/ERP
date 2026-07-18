@@ -11,11 +11,26 @@ assert.equal(blocked.status, "blocked");
 assert.equal(blocked.ready, false);
 assert.equal(blocked.summary.employeeRoleLabel, "0/8");
 assert.equal(blocked.summary.missingRoleCount, 8);
+assert.equal(blocked.summary.employeeIntakeAvailable, true);
+assert.equal(blocked.summary.employeeIntakeFresh, true);
+assert.equal(blocked.summary.employeeIntakeRowCount, 19);
+assert.equal(blocked.summary.employeeIntakeCoverageLabel, "6/8");
+assert.equal(blocked.summary.employeeNumberMissingCount, 19);
+assert.equal(blocked.employeeIntake.summary.missingEmployeeNumberCount, 19);
+assert.match(blocked.nextAction, /补齐 19 个员工编号/);
 assert.equal(blocked.summary.blocksRegardlessOfDemoMode, true);
 assert.equal(blocked.safeguards.demoModeDoesNotBypassEmployeeReadiness, true);
 assert.equal(blocked.safeguards.seedAccountsCountedAsFormal, false);
 assert.equal(blocked.blockers.filter((item) => item.category === "employee").length, 8);
 assertSensitiveTextAbsent(blocked);
+
+const staleEmployeeIntake = buildHarness({ employeeReady: false, setupReady: true, envReady: true, intakeFresh: false }).result;
+assert.equal(staleEmployeeIntake.summary.employeeIntakeAvailable, true);
+assert.equal(staleEmployeeIntake.summary.employeeIntakeFresh, false);
+assert.equal(staleEmployeeIntake.employeeIntake.status, "stale");
+assert.equal(staleEmployeeIntake.employeeIntake.ready, false);
+assert.match(staleEmployeeIntake.nextAction, /重新运行D49专用离线预检查/);
+assertSensitiveTextAbsent(staleEmployeeIntake);
 
 const employeesBlocked = buildHarness({ employeeReady: false, setupReady: true, envReady: true }).result;
 assert.equal(employeesBlocked.summary.envPreflightLabel, "11/11");
@@ -51,6 +66,7 @@ assert.equal(ready.ready, true);
 assert.equal(ready.summary.employeeRoleLabel, "8/8");
 assert.equal(ready.summary.envPreflightLabel, "11/11");
 assert.equal(ready.summary.envIntakeReady, true);
+assert.equal(ready.employeeIntake.ready, true);
 assert.equal(ready.blockers.length, 0);
 assert.deepEqual(readyHarness.calls.auditInput, { envFiles: ["/private/secure.env"] });
 assert.deepEqual(readyHarness.calls.preflightInput, {
@@ -70,16 +86,23 @@ assertSensitiveTextAbsent(error);
 
 const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
 const routeSource = readFileSync(new URL("../server/routes/systemReadRoutes.mjs", import.meta.url), "utf8");
-assert.match(apiSource, /const d49Readiness = buildV1D49Readiness\(\{ workspace, operatorId \}\);/);
-assert.match(apiSource, /d49Readiness,/);
-assert.match(routeSource, /getSystemV1GoLiveStatusResponse\(\{\s*workspace,/);
+const statusResponseSource = readFileSync(
+  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
+  "utf8",
+);
+assert.match(statusResponseSource, /from "\.\/v1D49ReadinessService\.mjs"/);
+assert.match(statusResponseSource, /const d49Readiness = buildD49Readiness\(\{ workspace, operatorId \}\);/);
+assert.match(statusResponseSource, /d49Readiness,/);
+const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
+assert.match(registrySource, /createV1GoLiveStatusResponseService/);
+assert.match(routeSource, /v1GoLiveStatusResponseService\.build\(\{\s*workspace,/);
 assert.doesNotMatch(apiSource, /passwordHash.*d49Readiness|loginName.*d49Readiness/);
 
 console.log(
   "V1 D49 readiness checks passed: eight formal roles, setup/audit/preflight/intake gates, demo-mode blocking, redaction, and go-live status integration are covered.",
 );
 
-function buildHarness({ employeeReady, setupReady, envReady = false, envError = null, envPreflightBlockerCount = 1 }) {
+function buildHarness({ employeeReady, setupReady, envReady = false, envError = null, envPreflightBlockerCount = 1, intakeFresh = true }) {
   const calls = { preview: 0, auditInput: null, preflightInput: null, intakeInput: null };
   const result = buildV1D49Readiness({
     workspace: { runtimeConfig: { mode: "demo" }, users: [] },
@@ -87,6 +110,7 @@ function buildHarness({ employeeReady, setupReady, envReady = false, envError = 
     now: () => new Date(checkedAt),
     intakeCsv: "/private/intake.csv",
     buildEmployeeReadiness: () => buildEmployeeReadiness(employeeReady),
+    buildEmployeeIntakeStatus: () => buildEmployeeIntakeStatus(employeeReady, intakeFresh),
     resolveSetup: () => setupReady
       ? { status: "configured", ready: true, setupReady: true, envFiles: ["/private/secure.env"], blockingItems: [] }
       : {
@@ -160,6 +184,58 @@ function buildHarness({ employeeReady, setupReady, envReady = false, envError = 
     },
   });
   return { result, calls };
+}
+
+function buildEmployeeIntakeStatus(ready, fresh = true) {
+  return {
+    version: "p0-v1-d49-employee-intake-status-v2",
+    scope: "v1_d49_employee_intake_status",
+    available: true,
+    fresh,
+    status: !fresh ? "stale" : ready ? "ready_for_upload" : "needs_employee_numbers",
+    ready: fresh && ready,
+    uploadAllowed: fresh && ready,
+    checkedAt,
+    freshness: {
+      fresh,
+      status: fresh ? "fresh" : "workbook_changed",
+      label: fresh ? "当前工作簿与预检报告一致" : "工作簿已变化，需重新预检",
+      checkedAtValid: true,
+      withinMaxAge: true,
+      sourceMatched: fresh,
+      maxAgeHours: 72,
+      ageHours: 0,
+    },
+    summary: {
+      label: ready ? "受控草稿已通过" : "受控草稿仍缺19个员工编号",
+      employeeRowCount: 19,
+      coveredRoleCount: ready ? 8 : 6,
+      requiredRoleCount: 8,
+      missingRoleCount: ready ? 0 : 2,
+      coverageLabel: ready ? "8/8" : "6/8",
+      errorCount: ready ? 0 : 19,
+      warningCount: 0,
+      issueCount: ready ? 0 : 19,
+      missingEmployeeNumberCount: ready ? 0 : 19,
+      blockerCount: ready ? 0 : 19,
+      blockerLabel: ready ? "0 项" : "19 项",
+      freshnessLabel: fresh ? "当前工作簿与预检报告一致" : "工作簿已变化，需重新预检",
+    },
+    roles: [],
+    missingRoleLabels: ready ? [] : ["财务 / 对账", "管理"],
+    nextAction: !fresh ? "重新运行D49专用离线预检查。" : ready ? "进入网页预检查。" : "先补齐 19 个员工编号并重新预检查。",
+    safeguards: {
+      readOnly: true,
+      reportRedactionVerified: true,
+      employeeNamesIncluded: false,
+      employeeNumbersIncluded: false,
+      workbookPathIncluded: false,
+      issueRowsIncluded: false,
+      rawIssuesIncluded: false,
+      sourceEvidenceVerified: fresh,
+      workbookDigestIncluded: false,
+    },
+  };
 }
 
 function buildEmployeeReadiness(ready) {

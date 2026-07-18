@@ -1,9 +1,11 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleStatementReadRoutes } from "../server/routes/statementReadRoutes.mjs";
 
 const calls = [];
 const workspace = {
   statements: [{ id: "ST-1", customerId: "C-1", status: "待收款" }],
+  statementExportObjectStorage: { id: "statement-storage" },
 };
 const customers = [
   { customerId: "C-1", customerName: "白鲸", statementId: "ST-1", status: "待收款" },
@@ -20,6 +22,12 @@ const dependencies = {
   },
   sendNotFound(response, code) {
     calls.push({ kind: "notFound", response, code });
+  },
+  sendCommandResponse(response, result) {
+    calls.push({ kind: "commandResponse", response, result });
+  },
+  sendFile(response, statusCode, body, options) {
+    calls.push({ kind: "file", response, statusCode, body, options });
   },
   getStatementCustomers() {
     return customers;
@@ -42,24 +50,47 @@ const dependencies = {
     calls.push({ kind: "operator", permissionContext, authContext, fallback });
     return "U-RESOLVED";
   },
-  async getStatementExportStorageDiagnosticsRoute(input) {
-    calls.push({ kind: "storage", ...input });
+  async runStatementExportStorageDiagnostics(storage) {
+    calls.push({ kind: "storage", storage });
+    return { status: "ready" };
   },
-  async getStatementExportV1ReadinessRoute(input) {
+  async buildStatementExportV1Readiness(input) {
     calls.push({ kind: "readiness", ...input });
+    return { status: "blocked" };
   },
-  async listStatementExportsRoute(input) {
-    calls.push({ kind: "exports", ...input });
-  },
-  async downloadStatementExportRoute(input) {
-    calls.push({ kind: "download", ...input });
+  statementExportFileService: {
+    async listExports(input) {
+      calls.push({ kind: "exports", ...input });
+      return { response: { items: [{ downloadToken: "DL-1" }] } };
+    },
+    async getExportDownload(input) {
+      calls.push({ kind: "download", ...input });
+      if (input.downloadToken === "MISSING") return { notFound: true, code: "STATEMENT_EXPORT_NOT_FOUND" };
+      return { response: { body: Buffer.from("xlsx"), options: { contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName: "statement.xlsx" } } };
+    },
   },
 };
 
-await expectProtectedRoute("/api/statements/export-storage-diagnostics", "storage");
-await expectProtectedRoute("/api/statements/export-v1-readiness", "readiness", { operatorId: "U-RESOLVED" }, "U-OFFICE-A");
-await expectProtectedRoute("/api/statements/ST%2F1/exports", "exports", { statementId: "ST/1" });
-await expectProtectedRoute("/api/statements/ST%2F1/exports/DL%2F1", "download", { statementId: "ST/1", downloadToken: "DL/1" });
+await expectProtectedRoute("/api/statements/export-storage-diagnostics", [
+  { kind: "storage", storage: workspace.statementExportObjectStorage },
+  { kind: "json", response: dependencies.response, status: 200, body: { status: "ready" } },
+]);
+await expectProtectedRoute("/api/statements/export-v1-readiness", [
+  { kind: "readiness", workspace, operatorId: "U-RESOLVED" },
+  { kind: "json", response: dependencies.response, status: 200, body: { status: "blocked" } },
+], true);
+await expectProtectedRoute("/api/statements/ST%2F1/exports", [
+  { kind: "exports", workspace, statementId: "ST/1" },
+  { kind: "commandResponse", response: dependencies.response, result: { response: { items: [{ downloadToken: "DL-1" }] } } },
+]);
+await expectProtectedRoute("/api/statements/ST%2F1/exports/DL%2F1", [
+  { kind: "download", workspace, statementId: "ST/1", downloadToken: "DL/1" },
+  { kind: "file", response: dependencies.response, statusCode: 200, body: Buffer.from("xlsx"), options: { contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", fileName: "statement.xlsx" } },
+]);
+await expectProtectedRoute("/api/statements/ST-1/exports/MISSING", [
+  { kind: "download", workspace, statementId: "ST-1", downloadToken: "MISSING" },
+  { kind: "notFound", response: dependencies.response, code: "STATEMENT_EXPORT_NOT_FOUND" },
+]);
 assert.equal(
   await handleStatementReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/statements/customers?status=%E5%BE%85%E6%94%B6%E6%AC%BE&page=2") }),
   true,
@@ -98,9 +129,20 @@ assert.equal(
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleStatementReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/statements/ST-1/exports/DL-1/extra") }), false);
 
-console.log("statement read routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+for (const removedWrapper of [
+  "getStatementExportStorageDiagnosticsRoute",
+  "getStatementExportV1ReadinessRoute",
+  "listStatementExportsRoute",
+  "downloadStatementExportRoute",
+]) {
+  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
+}
+assert.match(apiSource, /handleStatementReadRoutes\([\s\S]*statementExportFileService,[\s\S]*runStatementExportStorageDiagnostics,[\s\S]*sendFile,/);
 
-async function expectProtectedRoute(pathname, kind, identifiers = {}, fallback = "") {
+console.log("statement read routes checks passed: customer/detail reads, diagnostics, export list/download, permissions, 404, and thin API wiring are covered");
+
+async function expectProtectedRoute(pathname, expectedCalls, needsOperator = false) {
   calls.length = 0;
   assert.equal(await handleStatementReadRoutes({ ...dependencies, url: new URL(`http://erp.test${pathname}`) }), true);
   assert.deepEqual(calls.shift(), {
@@ -109,13 +151,13 @@ async function expectProtectedRoute(pathname, kind, identifiers = {}, fallback =
     permissionContext: dependencies.permissionContext,
     permission: "statement.preview",
   });
-  if (fallback) {
+  if (needsOperator) {
     assert.deepEqual(calls.shift(), {
       kind: "operator",
       permissionContext: dependencies.permissionContext,
       authContext: dependencies.authContext,
-      fallback,
+      fallback: "U-OFFICE-A",
     });
   }
-  assert.deepEqual(calls, [{ kind, response: dependencies.response, workspace: dependencies.workspace, ...identifiers }]);
+  assert.deepEqual(calls, expectedCalls);
 }

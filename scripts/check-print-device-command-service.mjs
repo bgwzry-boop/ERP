@@ -91,6 +91,32 @@ const fixedNow = "2026-07-11T12:00:00.000Z";
   });
   assert.equal(wrongDevice.statusCode, 422);
   assert.equal(wrongDevice.code, "VALIDATION_ERROR");
+
+  const completeChecks = buildCompleteChecks();
+  const completeEvidence = buildCompleteEvidence();
+  const missingPrintedJob = await harness.service.recordPrinterDeviceFieldTest({
+    workspace: harness.workspace,
+    printDeviceId: "PRN-001",
+    body: { checks: completeChecks, evidence: completeEvidence },
+    operatorId: "U-TECH-A",
+  });
+  assert.equal(missingPrintedJob.statusCode, 422);
+  assert.equal(missingPrintedJob.code, "PRINTER_DEVICE_FIELD_TEST_PRINTED_JOB_REQUIRED");
+
+  harness.workspace.printJobs.push({
+    printJobId: "PJ-QUEUED",
+    printDeviceId: "PRN-001",
+    documentType: "express_ltl_label",
+    jobStatus: "queued",
+  });
+  const queuedJob = await harness.service.recordPrinterDeviceFieldTest({
+    workspace: harness.workspace,
+    printDeviceId: "PRN-001",
+    body: { printJobId: "PJ-QUEUED", checks: completeChecks, evidence: completeEvidence },
+    operatorId: "U-TECH-A",
+  });
+  assert.equal(queuedJob.statusCode, 409);
+  assert.equal(queuedJob.code, "PRINTER_DEVICE_FIELD_TEST_PRINT_JOB_NOT_PRINTED");
 }
 
 {
@@ -106,10 +132,16 @@ const fixedNow = "2026-07-11T12:00:00.000Z";
         { key: "sample_print", status: "passed" },
         { key: "paper_alignment", status: "passed" },
         { key: "barcode_scan", status: "passed" },
+        { key: "driver_callback", status: "passed" },
+        { key: "legibility", status: "passed" },
+        { key: "void_reprint", status: "passed" },
       ],
       evidence: {
         samplePrintReference: "sample-001",
         barcodeScanText: "F-001-PKG-001",
+        driverCallbackStatus: "spool completed -> printed",
+        voidReprintReference: "PR-001 void -> PJ-001 reprinted",
+        operatorAcceptance: "技术现场签认",
       },
       idempotencyKey: "printer-field-test-001",
     },
@@ -124,12 +156,20 @@ const fixedNow = "2026-07-11T12:00:00.000Z";
   assert.equal(recorded.record.paperLabel, "76x50mm");
   assert.equal(recorded.record.checkedAt, fixedNow);
   assert.match(recorded.record.recordId, /^PDQA-20260711120000-PRN-001$/);
+  assert.equal(recorded.acceptance.ready, true);
+  assert.equal(recorded.acceptance.printedJobLinked, true);
+  assert.equal(recorded.resultStatus.recordSaved, true);
+  assert.equal(recorded.resultStatus.onsiteAcceptancePassed, true);
+  assert.equal(recorded.resultStatus.physicalPrinterCalledByRequest, false);
+  assert.equal(recorded.safeguards.nonPrinting, true);
+  assert.equal(recorded.safeguards.physicalPrinterCalled, false);
   assert.equal(harness.fieldTestCalls.at(-1).idempotencyKey, "printer-field-test-001");
   assert.equal(harness.fieldTestCalls.at(-1).operationLog.operatorId, "U-TECH-A");
 }
 
 const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiServerSource, /createPrintDeviceCommandService/);
+const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
+assert.match(registrySource, /createPrintDeviceCommandService/);
 for (const embeddedFunction of [
   "normalizePrinterDeviceFieldTestApiRecord",
   "getPrintDevicePaperLabel",
@@ -162,6 +202,7 @@ function createHarness() {
         printJobId: "PJ-001",
         printDeviceId: "PRN-001",
         documentType: "express_ltl_label",
+        jobStatus: "printed",
       },
     ],
     printerDeviceFieldTests: [],
@@ -202,6 +243,21 @@ function createHarness() {
     },
   });
   return { service, workspace, deviceWriteCalls, fieldTestCalls };
+}
+
+function buildCompleteChecks() {
+  return ["sample_print", "paper_alignment", "barcode_scan", "driver_callback", "legibility", "void_reprint"]
+    .map((key) => ({ key, status: "passed" }));
+}
+
+function buildCompleteEvidence() {
+  return {
+    samplePrintReference: "PJ-SAMPLE",
+    barcodeScanText: "PKG-SAMPLE",
+    driverCallbackStatus: "spool completed -> printed",
+    voidReprintReference: "PR-VOID -> PJ-REPRINT",
+    operatorAcceptance: "技术现场签认",
+  };
 }
 
 function upsert(rows, record, key) {

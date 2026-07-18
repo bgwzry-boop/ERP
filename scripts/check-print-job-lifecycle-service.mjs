@@ -204,8 +204,43 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
   assert.equal(previewCallback.code, "PRINT_JOB_DRIVER_CALLBACK_NOT_EXPECTED");
 }
 
+{
+  const harness = createHarness(
+    [createPrintJob({ jobStatus: "sent", revision: 1, metadata: { lastDispatch: { externalJobId: "EXT-PJ-001" } } })],
+    {},
+    {
+      persistFulfillmentPrintJobProjection(input) {
+        return {
+          handled: true,
+          printJob: { ...input.printJob, revision: 2 },
+          operationLogId: input.printJobOperationLog.id,
+          fulfillment: { id: "FUL-001", printed: true, printRecordStatus: "printed" },
+          printRecord: { printRecordId: "PR-001", status: "printed" },
+          fulfillmentOperationLogId: "LOG-PROJECTION-ATOMIC-001",
+          physicalPrintConfirmed: true,
+        };
+      },
+    },
+  );
+  const printed = await harness.service.recordPrintJobDriverStatus({
+    workspace: harness.workspace,
+    printJobId: "PJ-001",
+    operatorId: "U-PRINT-DRIVER-A",
+    body: { status: "printed", externalJobId: "EXT-PJ-001", idempotencyKey: "atomic-callback-001" },
+  });
+  assert.equal(printed.printJob.jobStatus, "printed");
+  assert.equal(printed.operationLogId, "LOG-1");
+  assert.equal(printed.fulfillmentOperationLogId, "LOG-PROJECTION-ATOMIC-001");
+  assert.equal(printed.physicalPrintConfirmed, true);
+  assert.equal(harness.atomicProjectionCalls.length, 1);
+  assert.equal(harness.atomicProjectionCalls[0].printJobWriteMode, "update");
+  assert.equal(harness.updateCalls.length, 0);
+  assert.equal(harness.projectionCalls.length, 0);
+}
+
 const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiServerSource, /createPrintJobLifecycleService/);
+const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
+assert.match(registrySource, /createPrintJobLifecycleService/);
 for (const embeddedFunction of [
   "buildRetryPrintJobRecord",
   "buildDispatchedPrintJobRecord",
@@ -218,10 +253,11 @@ for (const embeddedFunction of [
 
 console.log("Print job lifecycle service checks passed: status, dispatch, callback, polling, terminal locks, and retry are isolated.");
 
-function createHarness(initialJobs, adapterOverrides = {}) {
+function createHarness(initialJobs, adapterOverrides = {}, projectionOverrides = {}) {
   const updateCalls = [];
   const createCalls = [];
   const projectionCalls = [];
+  const atomicProjectionCalls = [];
   const dispatchCalls = [];
   let operationLogSequence = 0;
   const workspace = {
@@ -267,13 +303,20 @@ function createHarness(initialJobs, adapterOverrides = {}) {
       return { id: `LOG-${operationLogSequence}`, ...input, occurredAt: fixedNow, createdAt: fixedNow };
     },
     printJobBusinessProjectionService: {
+      async persistFulfillmentPrintJobProjection(input) {
+        atomicProjectionCalls.push(input);
+        if (typeof projectionOverrides.persistFulfillmentPrintJobProjection === "function") {
+          return projectionOverrides.persistFulfillmentPrintJobProjection(input);
+        }
+        return { handled: false };
+      },
       async syncPrintJobBusinessProjection(input) {
         projectionCalls.push(input);
         return { projectionChecked: true };
       },
     },
   });
-  return { service, workspace, updateCalls, createCalls, projectionCalls, dispatchCalls };
+  return { service, workspace, updateCalls, createCalls, projectionCalls, atomicProjectionCalls, dispatchCalls };
 }
 
 function createPrintJob(overrides = {}) {

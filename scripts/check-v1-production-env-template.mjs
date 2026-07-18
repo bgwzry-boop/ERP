@@ -174,7 +174,7 @@ assert.match(runbook, /真实值可填入统一安全 env 文件，也可先填�
 assert.match(runbook, /串联 env 文件审计、生产 env 真实值 intake 校验、生产 env 预检/);
 assert.match(
   runbook,
-  /node scripts\/run-v1-production-first-stage-closeout\.mjs --persistence-evidence-json \.erp-local-storage\/v1-production-persistence-evidence\/latest\.json --runtime-smoke-json \.erp-local-storage\/v1-production-runtime-smoke\/latest\.json --field-evidence-manifest <filled-field-evidence-manifest>/,
+  /node scripts\/run-v1-production-first-stage-closeout\.mjs --persistence-evidence-json \.erp-local-storage\/v1-production-persistence-evidence\/latest\.json --runtime-smoke-json \.erp-local-storage\/v1-production-runtime-smoke\/latest\.json --todo-load-precheck-json \.erp-local-storage\/v1-todo-load-precheck\/latest\.json --field-evidence-manifest <filled-field-evidence-manifest>/,
 );
 assert.match(
   runbook,
@@ -189,6 +189,10 @@ assert.match(runbook, /备用：如需绕开 setup 报告，也可显式传入�
 assert.match(runbook, /通过 ERP_V1_PRODUCTION_ENV_FILE 临时启动 ERP API/);
 assert.match(runbook, /productionEnvFileApplication\.applied=true/);
 assert.match(runbook, /仍要求真实服务 \/health 报告已应用安全生产 env 文件/);
+assert.match(runbook, /run-v1-todo-load-precheck\.mjs --confirm-read-load/);
+assert.match(runbook, /默认100请求\/10并发，硬上限2000请求\/50并发/);
+assert.match(runbook, /业务请求仅为 `GET \/todos`/);
+assert.match(runbook, /实验室通过不能代替真实生产API留证/);
 assert.match(runbook, /ERP_V1_PRODUCTION_ENV_FILE=<secure-env-file> npm run api:dev/);
 assert.match(runbook, /ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS=<secure-env-file> npm run api:dev/);
 assert.match(runbook, /API 会先执行 env 文件安全审计，审计通过才把变量应用到当前进程/);

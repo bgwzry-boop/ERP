@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import {
   buildGetTodoActionStateQuery,
+  buildRepairMissingFulfillmentTransactionQuery,
   buildRecordTodoActionTransactionQuery,
   createLocalTodoActionRepository,
   createPostgresTodoActionRepository,
@@ -44,11 +45,63 @@ const localRepository = createLocalTodoActionRepository();
 assert.equal((await localRepository.getTodo({ workspace: localWorkspace, todoId: "T-REPO-1" })).status, "未处理");
 const localResult = await localRepository.recordTodoAction({
   workspace: localWorkspace,
+  action: "mark_handled",
+  before,
+  expectedUpdatedAt: before.updatedAt,
   todo: after,
   todoEvent,
   operationLog,
+  idempotencyKey: "todo-action-local-001",
+  idempotencyPayload: { action: "mark_handled", todoId: "T-REPO-1" },
 });
 assert.equal(localResult.todo.notificationStatus, "已通知客户");
+assert.equal(localWorkspace.todoEvents.length, 1);
+assert.equal(localWorkspace.operationLogs.length, 1);
+
+const localReplay = await localRepository.recordTodoAction({
+  workspace: localWorkspace,
+  action: "mark_handled",
+  before,
+  expectedUpdatedAt: before.updatedAt,
+  todo: { ...after, handlingResult: "不应覆盖首次结果" },
+  todoEvent: { ...todoEvent, eventId: "TE-LOCAL-REPLAY-NOT-SAVED" },
+  operationLog: { ...operationLog, id: "LOG-LOCAL-REPLAY-NOT-SAVED" },
+  idempotencyKey: "todo-action-local-001",
+  idempotencyPayload: { action: "mark_handled", todoId: "T-REPO-1" },
+});
+assert.equal(localReplay.todo.handlingResult, after.handlingResult);
+assert.equal(localWorkspace.todoEvents.length, 1);
+assert.equal(localWorkspace.operationLogs.length, 1);
+
+await assert.rejects(
+  localRepository.recordTodoAction({
+    workspace: localWorkspace,
+    action: "mark_handled",
+    before,
+    expectedUpdatedAt: before.updatedAt,
+    todo: after,
+    todoEvent,
+    operationLog,
+    idempotencyKey: "todo-action-local-001",
+    idempotencyPayload: { action: "mark_handled", todoId: "T-REPO-CHANGED" },
+  }),
+  (error) => error?.statusCode === 409 && error?.code === "IDEMPOTENCY_KEY_REUSED",
+);
+
+await assert.rejects(
+  localRepository.recordTodoAction({
+    workspace: localWorkspace,
+    action: "snooze",
+    before,
+    expectedUpdatedAt: before.updatedAt,
+    todo: { ...after, status: "未处理", handled: false, updatedAt: "2026-07-11T08:31:00.000Z" },
+    todoEvent: { ...todoEvent, eventId: "TE-LOCAL-STALE-NOT-SAVED", eventType: "handle_todo:snooze" },
+    operationLog: { ...operationLog, id: "LOG-LOCAL-STALE-NOT-SAVED", action: "handle_todo:snooze" },
+    idempotencyKey: "todo-action-local-stale-001",
+    idempotencyPayload: { action: "snooze", todoId: "T-REPO-1" },
+  }),
+  (error) => error?.statusCode === 409 && error?.code === "BUSINESS_WRITE_CONFLICT",
+);
 assert.equal(localWorkspace.todoEvents.length, 1);
 assert.equal(localWorkspace.operationLogs.length, 1);
 
@@ -122,10 +175,84 @@ const writeQuery = buildRecordTodoActionTransactionQuery({
 });
 assert.match(writeQuery.text, /^BEGIN;/);
 assert.match(writeQuery.text, /date_trunc\('milliseconds'/);
+assert.match(writeQuery.text, /ref_type =/);
+assert.match(writeQuery.text, /ref_id =/);
 assert.match(writeQuery.text, /COMMIT;$/);
 assert.ok(writeQuery.values.length > 20);
 
-console.log("Todo action repository checks passed: local projection, row lock, optimistic guard, events, logs, and replay are covered.");
+const repairBefore = buildTodo({
+  id: "T-REPAIR-FULFILLMENT-1",
+  todoId: "T-REPAIR-FULFILLMENT-1",
+  bizNo: "T-REPAIR-FULFILLMENT-1",
+  type: "出库交付待补建",
+  refType: "order_line",
+  refId: "OL-REPAIR-FULFILLMENT-1",
+  ref: "OL-REPAIR-FULFILLMENT-1",
+});
+const repairCompleted = {
+  ...repairBefore,
+  status: "已处理",
+  handled: true,
+  handledBy: "U-AUTH",
+  handledAt: "2026-07-11T08:30:00.000Z",
+  handlingResult: "已补建出库交付 F-REPAIR-OL-REPAIR-FULFILLMENT-1",
+  updatedAt: "2026-07-11T08:30:00.000Z",
+};
+const repairLabelTodo = buildTodo({
+  id: "T-LABEL-T-REPAIR-FULFILLMENT-1",
+  todoId: "T-LABEL-T-REPAIR-FULFILLMENT-1",
+  bizNo: "T-LABEL-T-REPAIR-FULFILLMENT-1",
+  type: "待打印标签",
+  refId: "F-REPAIR-OL-REPAIR-FULFILLMENT-1",
+  ref: "F-REPAIR-OL-REPAIR-FULFILLMENT-1",
+  createdAt: "2026-07-11T08:30:00.000Z",
+  updatedAt: "2026-07-11T08:30:00.000Z",
+});
+const repairFulfillment = {
+  fulfillmentId: "F-REPAIR-OL-REPAIR-FULFILLMENT-1",
+  bizNo: "F-REPAIR-OL-REPAIR-FULFILLMENT-1",
+  orderLineId: "OL-REPAIR-FULFILLMENT-1",
+  customerId: "C-REPAIR",
+  customerSnapshot: { name: "修复客户" },
+  method: "快递快运",
+  expectedQty: 80,
+  actualQty: 80,
+  status: "待打印标签",
+  latestNeededAt: "2026-07-11T09:00:00.000Z",
+  createdBy: "U-AUTH",
+  createdAt: "2026-07-11T08:30:00.000Z",
+  updatedAt: "2026-07-11T08:30:00.000Z",
+};
+const repairPackages = [1, 2].map((packageSeq) => ({
+  packageId: `PKG-REPAIR-${packageSeq}`,
+  orderLineId: "OL-REPAIR-FULFILLMENT-1",
+  packageSeq,
+  packageCount: 2,
+  packedQty: 40,
+  status: "待打印标签",
+}));
+const repairQuery = buildRepairMissingFulfillmentTransactionQuery({
+  beforeTodo: repairBefore,
+  expectedUpdatedAt: repairBefore.updatedAt,
+  completedTodo: repairCompleted,
+  labelTodo: repairLabelTodo,
+  fulfillment: repairFulfillment,
+  packages: repairPackages,
+  packingTask: { packingTaskId: "PKT-REPAIR-1", actualPackedQty: 80 },
+  oldTodoEvent: { ...todoEvent, eventId: "TE-REPAIR-OLD", todoId: repairBefore.id, eventType: "fulfillment_repair_completed" },
+  newTodoEvent: { ...todoEvent, eventId: "TE-REPAIR-NEW", todoId: repairLabelTodo.id, eventType: "todo_source:fulfillment_repaired" },
+  operationLog: { ...operationLog, id: "LOG-REPAIR-FULFILLMENT-1", targetId: repairBefore.id, action: "repair_missing_fulfillment" },
+});
+assert.match(repairQuery.text, /locked_packages AS MATERIALIZED/);
+assert.match(repairQuery.text, /ERP_TODO_FULFILLMENT_REPAIR_CONFLICT/);
+assert.match(repairQuery.text, /INSERT INTO fulfillment_records/);
+assert.match(repairQuery.text, /UPDATE packages/);
+assert.match(repairQuery.text, /inserted_label_todo/);
+assert.ok(repairQuery.values.includes("fulfillment_repair_completed"));
+assert.match(repairQuery.text, /COMMIT;$/);
+assert.ok(repairQuery.values.includes("F-REPAIR-OL-REPAIR-FULFILLMENT-1"));
+
+console.log("Todo action repository checks passed: local concurrency/idempotency, PostgreSQL locks, events, logs, and atomic fulfillment repair are covered.");
 
 function buildTodo(overrides = {}) {
   return {

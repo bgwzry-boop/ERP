@@ -4,6 +4,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
 import {
+  closeTestServer,
+  getTestServerBaseUrl,
+  listenTestServer,
+  requestJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
+import {
   createOfficeAttachment,
   createV1FieldEvidenceAttachmentInput,
   createV1FieldEvidenceAttachmentListInput,
@@ -45,11 +51,11 @@ const server = createApiServer({
 });
 
 try {
-  await listen(server);
-  const { port } = server.address();
-  const apiBaseUrl = `http://127.0.0.1:${port}/api`;
+  await listenTestServer(server);
+  const serverBaseUrl = getTestServerBaseUrl(server);
+  const apiBaseUrl = `${serverBaseUrl}/api`;
 
-  const deniedResponse = await fetch(`${apiBaseUrl}/system/v1-field-evidence-intake/stage-row`, {
+  const deniedResponse = await requestJson(serverBaseUrl, "/api/system/v1-field-evidence-intake/stage-row", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -62,12 +68,13 @@ try {
       onsiteStatus: "passed",
       onsiteEvidenceRef: "EVID-PG-001",
     }),
+    expectedStatus: 403,
   });
   assert.equal(deniedResponse.status, 403, "warehouse cannot stage V1 field evidence rows");
-  const deniedJson = await deniedResponse.json();
+  const deniedJson = deniedResponse.body;
   assert.equal(deniedJson.requiredPermission, "system.v1_field_evidence_intake.apply");
 
-  const invalidResponse = await fetch(`${apiBaseUrl}/system/v1-field-evidence-intake/stage-row`, {
+  const invalidResponse = await requestJson(serverBaseUrl, "/api/system/v1-field-evidence-intake/stage-row", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -79,15 +86,16 @@ try {
       itemKey: "postgres_migration_applied",
       onsiteStatus: "passed",
     }),
+    expectedStatus: 422,
   });
   assert.equal(invalidResponse.status, 422, "passed evidence requires a reference");
-  const invalidJson = await invalidResponse.json();
+  const invalidJson = invalidResponse.body;
   assert.equal(invalidJson.version, "p0-v1-field-evidence-intake-stage-row-v1");
   assert.equal(invalidJson.status, "invalid");
   assert.equal(invalidJson.summary.csvUpdated, false);
   assert.equal(invalidJson.safeguards.rawEvidenceRefsIncluded, false);
 
-  const evidenceResponse = await fetch(`${apiBaseUrl}/system/v1-field-evidence-intake/stage-row`, {
+  const evidenceResponse = await requestJson(serverBaseUrl, "/api/system/v1-field-evidence-intake/stage-row", {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -101,9 +109,10 @@ try {
       onsiteEvidenceRef: "EVID-PG-001",
       onsiteNotes: "migration screenshot archived",
     }),
+    expectedStatus: 200,
   });
   assert.equal(evidenceResponse.status, 200, "management can stage one V1 field evidence row");
-  const evidenceJson = await evidenceResponse.json();
+  const evidenceJson = evidenceResponse.body;
   assert.equal(evidenceJson.version, "p0-v1-field-evidence-intake-stage-row-v1");
   assert.equal(evidenceJson.scope, "v1_field_evidence_intake_stage_row");
   assert.equal(evidenceJson.status, "blocked_draft_written");
@@ -356,7 +365,7 @@ try {
   assert.match(readFileSync(join(intakeRoot, "signoff-boundary.csv"), "utf8"), /办公室负责人/);
   assert.match(readFileSync(join(intakeRoot, "signoff-boundary.csv"), "utf8"), new RegExp(signoffAttachmentResult.attachment.attachmentId));
 } finally {
-  await closeServer(server);
+  await closeTestServer(server, { forceAfterMs: 1_000 });
   restoreEnvValue("ERP_V1_GO_LIVE_ARTIFACT_ROOT", originalArtifactRoot);
   rmSync(artifactRoot, { recursive: true, force: true });
 }
@@ -367,20 +376,4 @@ function restoreEnvValue(key, value) {
     return;
   }
   process.env[key] = value;
-}
-
-function listen(target) {
-  return new Promise((resolve, reject) => {
-    target.once("error", reject);
-    target.listen(0, "127.0.0.1", () => {
-      target.off("error", reject);
-      resolve();
-    });
-  });
-}
-
-function closeServer(target) {
-  return new Promise((resolve, reject) => {
-    target.close((error) => (error ? reject(error) : resolve()));
-  });
 }

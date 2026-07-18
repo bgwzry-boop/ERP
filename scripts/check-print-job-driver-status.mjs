@@ -1,6 +1,13 @@
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
+import {
+  closeTestServer,
+  getJson as getSharedJson,
+  getTestServerBaseUrl,
+  listenTestServer,
+  postJson as postSharedJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "print-job-driver-status");
 rmSync(checkStorageRoot, { recursive: true, force: true });
@@ -11,10 +18,11 @@ const server = createApiServer({
     dryRunEnabled: true,
   },
 });
+await server.ready;
+await listenTestServer(server);
 
 try {
-  await listen(server);
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const baseUrl = getTestServerBaseUrl(server);
   const officeHeaders = { "x-erp-user-id": "U-OFFICE-A" };
   const warehouseHeaders = { "x-erp-user-id": "U-WAREHOUSE-A" };
   const printDriverHeaders = { "x-erp-user-id": "U-PRINT-DRIVER-A" };
@@ -165,56 +173,13 @@ try {
 
   console.log("print-job-driver-status check passed");
 } finally {
-  await close(server);
+  await closeTestServer(server, { forceAfterMs: 1_000 });
 }
 
 async function getJson(baseUrl, route, options = {}) {
-  const expectedStatus = options.expectedStatus ?? 200;
-  const response = await fetch(`${baseUrl}${route}`, {
-    headers: options.headers ?? {},
-  });
-  const json = await readJson(response);
-  if (response.status !== expectedStatus) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  if (expectedStatus < 400 && !response.ok) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  return json;
+  return getSharedJson(baseUrl, route, options);
 }
 
 async function postJson(baseUrl, route, body, options = {}) {
-  const expectedStatus = options.expectedStatus ?? 200;
-  const response = await fetch(`${baseUrl}${route}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...(options.headers ?? {}) },
-    body: JSON.stringify(body),
-  });
-  const json = await readJson(response);
-  if (response.status !== expectedStatus) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  if (expectedStatus < 400 && !response.ok) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  return json;
-}
-
-async function readJson(response) {
-  const text = await response.text();
-  return text ? JSON.parse(text) : {};
-}
-
-function listen(apiServer) {
-  return new Promise((resolve, reject) => {
-    apiServer.once("error", reject);
-    apiServer.listen(0, "127.0.0.1", resolve);
-  });
-}
-
-function close(apiServer) {
-  if (!apiServer?.listening) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    apiServer.close((error) => (error ? reject(error) : resolve()));
-  });
+  return postSharedJson(baseUrl, route, body, options);
 }

@@ -30,6 +30,10 @@ function checkLocalProductionPackingReadRepository() {
   assert.equal(productionDetail.orderLine.productName, "美的空调");
   assert.equal(productionDetail.latestReport.reportId, "WR-LOCAL-PROD-001");
   assert.equal(productionDetail.latestReport.machineCount, 12345);
+  assert.equal(productionDetail.latestException.exceptionType, "机器问题");
+  assert.equal(productionDetail.latestException.continuationMode, "暂停等确认");
+  assert.equal(productionDetail.latestException.resolutionCode, "继续生产");
+  assert.equal(productionDetail.latestException.resolvedBy, "U-MANAGER-A");
   assert.equal(productionDetail.latestReport.machineCountAffectsInventory, false);
   assert.equal(productionDetail.dailyProgress.cumulativeQualifiedQty, 45);
   assert.equal(productionDetail.dailyProgress.remainingQty, 35);
@@ -61,6 +65,8 @@ function checkLocalProductionPackingReadRepository() {
   assert.equal(productionList.items.length, 1);
   assert.equal(productionList.items[0].productionTaskId, "PT-LOCAL-PROD-001");
   assert.equal(productionList.items[0].latestReport.machineCountAffectsInventory, false);
+  assert.equal(productionList.items[0].latestException.exceptionType, "机器问题");
+  assert.equal(productionList.items[0].latestException.resolutionNote, "主管确认机器已调整");
   assert.equal(productionList.items[0].dailyProgress.carryOver, true);
   assert.equal(productionList.items[0].dailyProgress.cumulativeQualifiedQty, 45);
   assert.equal(productionList.items[0].reservations[0].status, "active");
@@ -105,6 +111,9 @@ async function checkPostgresProductionPackingReadRepository() {
 
   assert.equal(productionDetail.productionTaskId, "PT-PG-001");
   assert.equal(productionDetail.latestReport.machineCount, 8888);
+  assert.equal(productionDetail.latestException.exceptionType, "机器问题");
+  assert.equal(productionDetail.latestException.resolutionCode, "继续生产");
+  assert.equal(productionDetail.latestException.resolvedAt, "2026-07-02T12:20:00.000Z");
   assert.equal(productionDetail.dailyProgress.cumulativeQualifiedQty, 45);
   assert.equal(productionDetail.dailyProgress.remainingQty, 35);
   assert.equal(productionDetail.inventoryLedgerEntries.length, 2);
@@ -112,6 +121,7 @@ async function checkPostgresProductionPackingReadRepository() {
   assert.equal(productionDetail.reservations[0].status, "active");
   assert.match(productionCalls[0].text, /WITH direct_production_task/);
   assert.match(productionCalls[0].text, /workshop_reports/);
+  assert.match(productionCalls[0].text, /production_exception_records/);
   assert.match(productionCalls[0].text, /source_type IN \('production_report', 'production_report_reservation'\)/);
   assert.match(productionCalls[0].text, /inventory_reservations/);
   assert.match(productionCalls[0].text, /operation_logs/);
@@ -161,6 +171,8 @@ async function checkPostgresProductionPackingReadRepository() {
   });
   assert.equal(productionList.items[0].productionTaskId, "PT-PG-001");
   assert.equal(productionList.items[0].latestReport.machineCountAffectsInventory, false);
+  assert.equal(productionList.items[0].latestException.exceptionType, "机器问题");
+  assert.equal(productionList.items[0].latestException.resolvedBy, "U-MANAGER-A");
   assert.equal(productionList.items[0].dailyProgress.carryOver, true);
   assert.match(productionListCalls[0].text, /WITH filtered_production_tasks/);
   assert.match(productionListCalls[0].text, /task\.task_status <> '已完成'/);
@@ -422,6 +434,29 @@ function buildWorkspace() {
         },
       },
     ],
+    productionExceptions: [
+      {
+        id: "PEX-LOCAL-PROD-001",
+        productionExceptionId: "PEX-LOCAL-PROD-001",
+        productionTaskId: "PT-LOCAL-PROD-001",
+        orderLineId: "OL-LOCAL-PROD-001",
+        processType: "制袋",
+        machineId: "BAG-01",
+        operatorId: "U-OFFICE-A",
+        exceptionType: "机器问题",
+        continuationMode: "暂停等确认",
+        status: "已恢复生产",
+        resolutionCode: "继续生产",
+        resolutionNote: "主管确认机器已调整",
+        resolvedBy: "U-MANAGER-A",
+        resolvedAt: "2026-07-02T12:20:00.000Z",
+        estimatedLossQty: 6,
+        affectsDelivery: true,
+        remark: "机器异响",
+        occurredAt: "2026-07-02T12:05:00.000Z",
+        createdAt: "2026-07-02T12:05:00.000Z",
+      },
+    ],
     packingTasks: [
       {
         packingTaskId: "PKT-LOCAL-PROD-001",
@@ -558,6 +593,28 @@ function buildProductionDetailJson() {
       machineCount: 8888,
       completedAt: "2026-07-02T12:00:00.000Z",
     },
+    exceptions: [
+      {
+        productionExceptionId: "PEX-PG-001",
+        productionTaskId: "PT-PG-001",
+        orderLineId: "OL-PG-001",
+        processType: "制袋",
+        machineId: "BAG-PG-01",
+        operatorId: "U-OFFICE-A",
+        exceptionType: "机器问题",
+        continuationMode: "暂停等确认",
+        status: "已恢复生产",
+        resolutionCode: "继续生产",
+        resolutionNote: "主管确认机器已调整",
+        resolvedBy: "U-MANAGER-A",
+        resolvedAt: "2026-07-02T12:20:00.000Z",
+        estimatedLossQty: 6,
+        affectsDelivery: true,
+        remark: "机器异响",
+        occurredAt: "2026-07-02T12:05:00.000Z",
+        createdAt: "2026-07-02T12:05:00.000Z",
+      },
+    ],
     packingTask: {
       packingTaskId: "PKT-PG-001",
       orderLineId: "OL-PG-001",

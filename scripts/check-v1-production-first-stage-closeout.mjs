@@ -13,6 +13,7 @@ import { buildV1FieldEvidenceManifestTemplate } from "./v1FieldEvidenceManifest.
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-production-first-stage-closeout");
 const persistencePath = join(storageRoot, "persistence-evidence.json");
 const runtimePath = join(storageRoot, "runtime-smoke.json");
+const todoLoadPath = join(storageRoot, "todo-load-precheck.json");
 const manifestPath = join(storageRoot, "field-evidence-manifest.json");
 const outputDir = join(storageRoot, "closeout");
 const runnerScript = join(process.cwd(), "scripts", "run-v1-production-first-stage-closeout.mjs");
@@ -29,12 +30,13 @@ try {
   checkBlockedMissingArtifacts();
   checkReadyCloseout();
   checkReadyCloseoutWithExternalRuntimeSmoke();
+  checkLoopbackTodoLoadBlocked();
   checkFieldEvidenceBlocked();
   checkStaleEvidenceBlocked();
   checkSafeguardBlocked();
   await checkCliAndRedaction();
   console.log(
-    "V1 production first-stage closeout check passed: missing artifacts, ready closeout with field evidence, external runtime-smoke safeguards, field-evidence blockers, stale evidence, safeguard failures, artifacts, CLI, and redaction are covered.",
+    "V1 production first-stage closeout check passed: missing artifacts, production todo-load readiness/target/auth/safeguards, ready closeout with field evidence, external runtime-smoke safeguards, field-evidence blockers, stale evidence, artifacts, CLI, and redaction are covered.",
   );
 } finally {
   rmSync(storageRoot, { recursive: true, force: true });
@@ -44,6 +46,7 @@ function checkBlockedMissingArtifacts() {
   const report = buildProductionFirstStageCloseout({
     persistenceEvidencePath: join(storageRoot, "missing-persistence.json"),
     runtimeSmokePath: join(storageRoot, "missing-runtime.json"),
+    todoLoadPrecheckPath: join(storageRoot, "missing-todo-load.json"),
     fieldEvidenceManifestPath: join(storageRoot, "missing-manifest.json"),
     checkedAt: "2026-07-08T08:00:00.000Z",
     now: new Date("2026-07-08T08:00:00.000Z"),
@@ -52,17 +55,20 @@ function checkBlockedMissingArtifacts() {
   assert.equal(report.ready, false);
   assert.equal(report.stages.find((item) => item.key === "production-persistence-evidence-artifact")?.status, "blocked");
   assert.equal(report.stages.find((item) => item.key === "production-runtime-smoke-artifact")?.status, "blocked");
+  assert.equal(report.stages.find((item) => item.key === "todo-load-precheck-artifact")?.status, "blocked");
   assertNoSensitiveOutput(JSON.stringify(report) + formatProductionFirstStageCloseout(report));
 }
 
 function checkReadyCloseout() {
   writeJson(persistencePath, buildPersistenceEvidenceReport({ checkedAt: "2026-07-08T07:00:00.000Z" }));
   writeJson(runtimePath, buildRuntimeSmokeReport({ checkedAt: "2026-07-08T07:05:00.000Z" }));
+  writeJson(todoLoadPath, buildTodoLoadPrecheckReport({ checkedAt: "2026-07-08T07:10:00.000Z" }));
   writeJson(manifestPath, buildFirstStageManifest());
 
   const report = buildProductionFirstStageCloseout({
     persistenceEvidencePath: persistencePath,
     runtimeSmokePath: runtimePath,
+    todoLoadPrecheckPath: todoLoadPath,
     fieldEvidenceManifestPath: manifestPath,
     checkedAt: "2026-07-08T08:00:00.000Z",
     now: new Date("2026-07-08T08:00:00.000Z"),
@@ -74,6 +80,9 @@ function checkReadyCloseout() {
   assert.equal(report.evidenceSummary.fieldEvidenceManifest.schemaValid, true);
   assert.equal(report.evidenceSummary.productionPersistenceEvidence.completedRequired, 5);
   assert.equal(report.evidenceSummary.objectStorageEvidence.completedRequired, 5);
+  assert.equal(report.evidenceSummary.todoLoadPrecheck.requestCount, 100);
+  assert.equal(report.evidenceSummary.todoLoadPrecheck.latencyMs.p95, 240);
+  assert.equal(report.evidenceSummary.todoLoadPrecheck.productionTarget, true);
   assert.equal(report.evidenceSummary.sourceArtifactPathsIncluded, false);
   assert.equal(report.evidenceSummary.rawReportsIncluded, false);
   assert.equal(report.evidenceSummary.rawEvidenceRefsIncluded, false);
@@ -97,10 +106,12 @@ function checkReadyCloseoutWithExternalRuntimeSmoke() {
     }),
   );
   writeJson(manifestPath, buildFirstStageManifest());
+  writeJson(todoLoadPath, buildTodoLoadPrecheckReport({ checkedAt: "2026-07-08T07:10:00.000Z" }));
 
   const report = buildProductionFirstStageCloseout({
     persistenceEvidencePath: persistencePath,
     runtimeSmokePath: runtimePath,
+    todoLoadPrecheckPath: todoLoadPath,
     fieldEvidenceManifestPath: manifestPath,
     checkedAt: "2026-07-08T08:00:00.000Z",
     now: new Date("2026-07-08T08:00:00.000Z"),
@@ -112,14 +123,38 @@ function checkReadyCloseoutWithExternalRuntimeSmoke() {
   assertNoSensitiveOutput(JSON.stringify(report) + formatProductionFirstStageCloseout(report));
 }
 
+function checkLoopbackTodoLoadBlocked() {
+  writeJson(persistencePath, buildPersistenceEvidenceReport({ checkedAt: "2026-07-08T07:00:00.000Z" }));
+  writeJson(runtimePath, buildRuntimeSmokeReport({ checkedAt: "2026-07-08T07:05:00.000Z" }));
+  writeJson(
+    todoLoadPath,
+    buildTodoLoadPrecheckReport({ checkedAt: "2026-07-08T07:10:00.000Z", target: { loopback: true, protocol: "http" } }),
+  );
+  writeJson(manifestPath, buildFirstStageManifest());
+
+  const report = buildProductionFirstStageCloseout({
+    persistenceEvidencePath: persistencePath,
+    runtimeSmokePath: runtimePath,
+    todoLoadPrecheckPath: todoLoadPath,
+    fieldEvidenceManifestPath: manifestPath,
+    checkedAt: "2026-07-08T08:00:00.000Z",
+    now: new Date("2026-07-08T08:00:00.000Z"),
+  });
+  assert.equal(report.ready, false);
+  assert.equal(report.stages.find((item) => item.key === "todo-load-production-target")?.status, "blocked");
+  assertNoSensitiveOutput(JSON.stringify(report) + formatProductionFirstStageCloseout(report));
+}
+
 function checkFieldEvidenceBlocked() {
   writeJson(persistencePath, buildPersistenceEvidenceReport({ checkedAt: "2026-07-08T07:00:00.000Z" }));
   writeJson(runtimePath, buildRuntimeSmokeReport({ checkedAt: "2026-07-08T07:05:00.000Z" }));
+  writeJson(todoLoadPath, buildTodoLoadPrecheckReport({ checkedAt: "2026-07-08T07:10:00.000Z" }));
   writeJson(manifestPath, buildFirstStageManifest({ objectStorageReady: false }));
 
   const report = buildProductionFirstStageCloseout({
     persistenceEvidencePath: persistencePath,
     runtimeSmokePath: runtimePath,
+    todoLoadPrecheckPath: todoLoadPath,
     fieldEvidenceManifestPath: manifestPath,
     checkedAt: "2026-07-08T08:00:00.000Z",
     now: new Date("2026-07-08T08:00:00.000Z"),
@@ -135,11 +170,13 @@ function checkFieldEvidenceBlocked() {
 function checkStaleEvidenceBlocked() {
   writeJson(persistencePath, buildPersistenceEvidenceReport({ checkedAt: "2026-07-01T07:00:00.000Z" }));
   writeJson(runtimePath, buildRuntimeSmokeReport({ checkedAt: "2026-07-08T07:05:00.000Z" }));
+  writeJson(todoLoadPath, buildTodoLoadPrecheckReport({ checkedAt: "2026-07-08T07:10:00.000Z" }));
   writeJson(manifestPath, buildFirstStageManifest());
 
   const report = buildProductionFirstStageCloseout({
     persistenceEvidencePath: persistencePath,
     runtimeSmokePath: runtimePath,
+    todoLoadPrecheckPath: todoLoadPath,
     fieldEvidenceManifestPath: manifestPath,
     checkedAt: "2026-07-08T08:00:00.000Z",
     now: new Date("2026-07-08T08:00:00.000Z"),
@@ -169,10 +206,18 @@ function checkSafeguardBlocked() {
     }),
   );
   writeJson(manifestPath, buildFirstStageManifest({ sensitiveEvidenceRef: true }));
+  writeJson(
+    todoLoadPath,
+    buildTodoLoadPrecheckReport({
+      checkedAt: "2026-07-08T07:10:00.000Z",
+      safeguards: { businessDataMutated: true, responsePayloadStored: true },
+    }),
+  );
 
   const report = buildProductionFirstStageCloseout({
     persistenceEvidencePath: persistencePath,
     runtimeSmokePath: runtimePath,
+    todoLoadPrecheckPath: todoLoadPath,
     fieldEvidenceManifestPath: manifestPath,
     checkedAt: "2026-07-08T08:00:00.000Z",
     now: new Date("2026-07-08T08:00:00.000Z"),
@@ -184,12 +229,15 @@ function checkSafeguardBlocked() {
   assert.ok(safeguards.blockingItems.some((item) => item.key === "persistence-probes-clean"));
   assert.ok(safeguards.blockingItems.some((item) => item.key === "runtime-process-stopped"));
   assert.ok(safeguards.blockingItems.some((item) => item.key === "manifest-evidence-ref-redacted"));
+  assert.ok(safeguards.blockingItems.some((item) => item.key === "todo-load-read-only-bounds"));
+  assert.ok(safeguards.blockingItems.some((item) => item.key === "todo-load-redacted"));
   assertNoSensitiveOutput(JSON.stringify(report) + formatProductionFirstStageCloseout(report));
 }
 
 async function checkCliAndRedaction() {
   writeJson(persistencePath, buildPersistenceEvidenceReport({ checkedAt: "2026-07-08T07:00:00.000Z" }));
   writeJson(runtimePath, buildRuntimeSmokeReport({ checkedAt: "2026-07-08T07:05:00.000Z" }));
+  writeJson(todoLoadPath, buildTodoLoadPrecheckReport({ checkedAt: "2026-07-08T07:10:00.000Z" }));
   writeJson(manifestPath, buildFirstStageManifest());
   const run = await runNodeCli([
     runnerScript,
@@ -197,10 +245,12 @@ async function checkCliAndRedaction() {
     persistencePath,
     "--runtime-smoke-json",
     runtimePath,
+    "--todo-load-precheck-json",
+    todoLoadPath,
     "--field-evidence-manifest",
     manifestPath,
     "--max-age-hours",
-    "72",
+    "0",
     "--output-dir",
     outputDir,
     "--json",
@@ -213,7 +263,7 @@ async function checkCliAndRedaction() {
   assertNoSensitiveOutput(run.stdout + run.stderr);
 
   const redacted = redactCloseoutText(
-    `${sensitiveDatabaseUrl} ${sensitiveEndpoint}/${sensitiveBucket} ${sensitiveAccessKey} ${sensitiveSecretKey} ${persistencePath} ${runtimePath} ${manifestPath}`,
+    `${sensitiveDatabaseUrl} ${sensitiveEndpoint}/${sensitiveBucket} ${sensitiveAccessKey} ${sensitiveSecretKey} ${persistencePath} ${runtimePath} ${todoLoadPath} ${manifestPath}`,
   );
   assertNoSensitiveOutput(redacted);
 }
@@ -281,6 +331,61 @@ function buildRuntimeSmokeReport({ checkedAt, safeguards = {} } = {}) {
   };
 }
 
+function buildTodoLoadPrecheckReport({ checkedAt, target = {}, safeguards = {}, authentication = {} } = {}) {
+  return {
+    scope: "v1_todo_load_precheck",
+    status: "ready",
+    ready: true,
+    checkedAt,
+    target: {
+      protocol: "https",
+      loopback: false,
+      apiPathValidated: true,
+      embeddedCredentials: false,
+      addressExposed: false,
+      ...target,
+    },
+    config: { requestCount: 100, concurrency: 10, maxP95Ms: 1000, maxErrorRate: 0 },
+    authentication: {
+      formalRuntimeSession: true,
+      serverVerified: true,
+      sessionType: "runtime",
+      identityExposed: false,
+      ...authentication,
+    },
+    summary: {
+      label: "5/5 通过",
+      requestCount: 100,
+      successCount: 100,
+      errorCount: 0,
+      errorRate: 0,
+      throughputPerSecond: 120.5,
+      latencyMs: { p50: 120, p95: 240, max: 300 },
+      snapshotChanged: false,
+    },
+    stages: [],
+    blockingStages: [],
+    safeguards: {
+      explicitReadLoadConfirmation: true,
+      businessReadOnly: true,
+      businessDataMutated: false,
+      businessProbeMethod: "GET",
+      legacyIdentityHeaderUsed: false,
+      formalRuntimeAuthenticationRequired: true,
+      requestCountBounded: true,
+      concurrencyBounded: true,
+      responsePayloadStored: false,
+      todoIdentityStored: false,
+      credentialsExposed: false,
+      apiAddressExposed: false,
+      embeddedApiCredentialsAllowed: false,
+      physicalPrinterCalled: false,
+      ...safeguards,
+    },
+    nextActions: [],
+  };
+}
+
 function buildFirstStageManifest({
   productionPersistenceReady = true,
   objectStorageReady = true,
@@ -339,6 +444,7 @@ function assertNoSensitiveOutput(value) {
     sensitiveSecretKey,
     persistencePath,
     runtimePath,
+    todoLoadPath,
     manifestPath,
     outputDir,
   ]) {

@@ -23,6 +23,7 @@ const sensitiveBucket = "erp-v1-execution-private-bucket";
 const sensitiveAccessKey = "AKIA_EXECUTION_SECRET";
 const sensitiveSecretKey = "SUPER_SECRET_EXEC_OBJECT_STORAGE_VALUE";
 const sensitiveProductionApiBaseUrl = "https://erp-prod-secret.example.com/api";
+const sensitiveTodoLoadPrecheckPath = "/private/tmp/erp-prod/todo-load-precheck.json";
 const sensitiveProductionEnvIntakeCsv = "/private/tmp/erp-prod/production-env-real-value-intake.csv";
 const sensitiveProductionEnvValuesFile = "/private/tmp/erp-prod/production-env-real-values.env";
 const productionEnvSetupJsonPath = join(storageRoot, "production-env-setup.json");
@@ -311,6 +312,8 @@ function checkPlanOnly() {
   assert.equal(report.execution.fieldEvidenceManifestDefaultTemplateUsed, false);
   assert.equal(report.execution.fieldEvidenceManifestPathIncluded, false);
   assert.equal(report.execution.fieldEvidenceManifestValueIncluded, false);
+  assert.equal(report.execution.todoLoadPrecheckPathIncluded, false);
+  assert.equal(report.execution.todoLoadAutomaticallyExecuted, false);
   assert.equal(report.stages.every((stage) => stage.status === "planned"), true);
   assert.match(report.stages[0].command, /--env-file <secure-env-file>/);
   assert.match(
@@ -322,6 +325,7 @@ function checkPlanOnly() {
     /--allow-restore-reset/,
   );
   assert.match(report.stages.find((stage) => stage.key === "first-stage-closeout")?.command || "", /--field-evidence-manifest <field-evidence-manifest>/);
+  assert.match(report.stages.find((stage) => stage.key === "first-stage-closeout")?.command || "", /--todo-load-precheck-json <todo-load-precheck-json>/);
   assert.ok(report.nextActions.some((action) => action.includes("ERP_V1_FIELD_EVIDENCE_MANIFEST")));
   assert.ok(report.nextActions.some((action) => action.includes("--allow-restore-reset")));
   assertNoSensitiveOutput(JSON.stringify(report) + formatProductionFirstStageExecution(report));
@@ -696,6 +700,8 @@ async function checkCliPlanOnlyAndRedaction() {
     "--allow-restore-reset",
     "--field-evidence-manifest",
     sensitiveFieldEvidenceManifest,
+    "--todo-load-precheck-json",
+    sensitiveTodoLoadPrecheckPath,
     "--json",
   ]);
   assert.equal(run.status, 2, run.stderr || run.stdout);
@@ -719,6 +725,7 @@ async function checkCliPlanOnlyAndRedaction() {
   assert.match(report.stages.find((stage) => stage.key === "persistence-evidence")?.command || "", /--pg-dump-command <pg-dump-command>/);
   assert.match(report.stages.find((stage) => stage.key === "persistence-evidence")?.command || "", /--allow-restore-reset/);
   assert.match(report.stages.find((stage) => stage.key === "first-stage-closeout")?.command || "", /--field-evidence-manifest <field-evidence-manifest>/);
+  assert.match(report.stages.find((stage) => stage.key === "first-stage-closeout")?.command || "", /--todo-load-precheck-json <todo-load-precheck-json>/);
   assertNoSensitiveOutput(run.stdout + run.stderr);
 
   const dryRunPlan = await runNodeCli([
@@ -1074,6 +1081,7 @@ function assertNoSensitiveOutput(value) {
     sensitiveAccessKey,
     sensitiveSecretKey,
     sensitiveProductionApiBaseUrl,
+    sensitiveTodoLoadPrecheckPath,
     sensitiveProductionEnvIntakeCsv,
     sensitiveProductionEnvValuesFile,
     productionEnvSetupSecret,

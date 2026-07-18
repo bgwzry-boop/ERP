@@ -1,39 +1,90 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleAttachmentWriteRoutes } from "../server/routes/attachmentWriteRoutes.mjs";
 
 const calls = [];
+const attachment = { attachmentId: "ATT-1", fileName: "proof.png", storageKey: "must-not-leak" };
 const dependencies = {
   response: {},
   workspace: {},
   body: { purpose: "delivery_watermark_photo" },
   permissionContext: { actionPermissions: [] },
-  operatorId: "U-DRIVER-A",
+  authContext: { user: { userId: "U-AUTH" } },
   requireAttachmentCreatePermission(response, permissionContext, body) {
     calls.push({ kind: "permission", response, permissionContext, body });
     return true;
   },
-  async createAttachmentRoute(input) {
-    calls.push({ kind: "create", ...input });
+  getPermissionOperatorId(permissionContext, authContext) {
+    calls.push({ kind: "operator", permissionContext, authContext });
+    return "U-RESOLVED";
+  },
+  attachmentCreateCommandService: {
+    async createAttachment(input) {
+      calls.push({ kind: "create", ...input });
+      return {
+        ok: true,
+        attachment,
+        deduplicated: false,
+        duplicateOfAttachmentId: "",
+        operationLogId: "LOG-1",
+      };
+    },
+  },
+  attachmentFileAccessService: {
+    toAttachmentSummary(value) {
+      calls.push({ kind: "summary", value });
+      return { attachmentId: value.attachmentId, fileName: value.fileName, storageKeyStored: Boolean(value.storageKey) };
+    },
+  },
+  sendJson(response, statusCode, result) {
+    calls.push({ kind: "json", response, statusCode, result });
+  },
+  sendBusinessError(response, statusCode, code, message) {
+    calls.push({ kind: "businessError", response, statusCode, code, message });
   },
 };
 
-assert.equal(await handleAttachmentWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/attachments") }), true);
+assert.equal(await run("POST", "/api/attachments"), true);
 assert.deepEqual(calls, [
   { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, body: dependencies.body },
+  { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext },
+  { kind: "create", workspace: dependencies.workspace, body: dependencies.body, operatorId: "U-RESOLVED" },
+  { kind: "summary", value: attachment },
   {
-    kind: "create",
+    kind: "json",
     response: dependencies.response,
-    workspace: dependencies.workspace,
-    body: dependencies.body,
-    operatorId: dependencies.operatorId,
+    statusCode: 200,
+    result: {
+      attachmentId: "ATT-1",
+      fileName: "proof.png",
+      storageKeyStored: true,
+      deduplicated: false,
+      duplicateOfAttachmentId: "",
+      operationLogId: "LOG-1",
+    },
   },
 ]);
+
 calls.length = 0;
 assert.equal(
-  await handleAttachmentWriteRoutes({
-    ...dependencies,
-    method: "POST",
-    url: new URL("http://erp.test/api/attachments"),
+  await run("POST", "/api/attachments", {
+    attachmentCreateCommandService: {
+      async createAttachment() {
+        return { ok: false, statusCode: 422, errorCode: "VALIDATION_ERROR", message: "file required" };
+      },
+    },
+  }),
+  true,
+);
+assert.deepEqual(calls, [
+  { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, body: dependencies.body },
+  { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext },
+  { kind: "businessError", response: dependencies.response, statusCode: 422, code: "VALIDATION_ERROR", message: "file required" },
+]);
+
+calls.length = 0;
+assert.equal(
+  await run("POST", "/api/attachments", {
     requireAttachmentCreatePermission() {
       calls.push({ kind: "denied" });
       return false;
@@ -42,7 +93,22 @@ assert.equal(
   true,
 );
 assert.deepEqual(calls, [{ kind: "denied" }]);
-assert.equal(await handleAttachmentWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/attachments") }), false);
-assert.equal(await handleAttachmentWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/attachments/ATT-1") }), false);
+assert.equal(await run("GET", "/api/attachments"), false);
+assert.equal(await run("POST", "/api/attachments/ATT-1"), false);
 
-console.log("attachment write routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+const routeSource = readFileSync(new URL("../server/routes/attachmentWriteRoutes.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /async function createAttachmentRoute\b/);
+assert.match(apiSource, /handleAttachmentWriteRoutes\([\s\S]*attachmentCreateCommandService,[\s\S]*attachmentFileAccessService,[\s\S]*sendBusinessError,/);
+assert.doesNotMatch(routeSource, /storageKey|parseDataUrl|attachmentRepository|attachmentObjectStorage|putObject/);
+
+console.log("attachment write routes checks passed: permission-first operator resolution, command ownership, safe summaries, failures, and thin API wiring are covered");
+
+function run(method, pathname, overrides = {}) {
+  return handleAttachmentWriteRoutes({
+    ...dependencies,
+    ...overrides,
+    method,
+    url: new URL(`http://erp.test${pathname}`),
+  });
+}

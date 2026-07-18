@@ -13,7 +13,16 @@ const apiServerSource = readFileSync(
   new URL("../server/apiServer.mjs", import.meta.url),
   "utf8",
 );
-assert.match(apiServerSource, /from "\.\/services\/v1FieldEvidenceProjectionService\.mjs"/);
+const registrySource = readFileSync(
+  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
+  "utf8",
+);
+const statusResponseSource = readFileSync(
+  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
+  "utf8",
+);
+assert.match(statusResponseSource, /from "\.\/v1FieldEvidenceProjectionService\.mjs"/);
+assert.match(registrySource, /createV1GoLiveStatusResponseService/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1FieldEvidenceProgress/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1FieldEvidenceIntakeQuality/);
 assert.doesNotMatch(apiServerSource, /const V1_FIELD_EVIDENCE_INTAKE_GUIDANCE_COMMANDS/);

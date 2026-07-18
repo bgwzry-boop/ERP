@@ -55,7 +55,10 @@ assert.deepEqual(toOfficeApiError(null, 403, "禁止"), {
   code: "HTTP_403",
   message: "禁止",
   requiredPermission: undefined,
+  currentRevision: undefined,
+  status: 403,
 });
+assert.equal(toOfficeApiError({ code: "BUSINESS_WRITE_CONFLICT", currentRevision: 7 }, 409, "冲突").currentRevision, 7);
 assert.deepEqual(buildOfficeServerRequiredWriteError("WRITE_UNAVAILABLE", new Error("offline"), { item: null }), {
   source: "api_error",
   blocked: true,

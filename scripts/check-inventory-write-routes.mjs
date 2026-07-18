@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleInventoryWriteRoutes } from "../server/routes/inventoryWriteRoutes.mjs";
 
 const calls = [];
@@ -26,17 +27,60 @@ const dependencies = {
     calls.push({ kind: "operator", permissionContext, authContext, fallbackUserId });
     return authContext.userId;
   },
-  async createInventoryCorrectionDraftRoute({ response, workspace, body, operatorId }) {
-    calls.push({ kind: "create", response, workspace, body, operatorId });
+  inventoryCorrectionCommandService: {
+    async createCorrectionDraft(input) {
+      calls.push({ kind: "create", ...input });
+      return {
+        correctionDraft: {
+          correctionDraftId: "ICD-NEW",
+          inventoryItemId: "INV-1",
+          status: "待复核",
+          revision: 1,
+          attachmentIds: ["ATT-1"],
+          qtyBefore: { onHand: 10 },
+          requestedQtyAfter: { onHand: 12 },
+        },
+        todo: { id: "TODO-1" },
+        operationLogId: "LOG-CREATE",
+      };
+    },
+    async linkCorrectionAttachments(input) {
+      calls.push({ kind: "link", ...input });
+      return {
+        correctionDraft: { correctionDraftId: input.correctionDraftId, revision: 2, attachmentIds: ["ATT-2"] },
+        attachmentIds: ["ATT-2"],
+        unchanged: false,
+        operationLogId: "LOG-LINK",
+      };
+    },
+    async confirmCorrectionDraft(input) {
+      calls.push({ kind: "confirm", ...input });
+      return {
+        correctionDraft: { correctionDraftId: input.correctionDraftId, qtyBefore: { onHand: 10 } },
+        inventoryItem: { id: "INV-1", onHandQty: 12, reserved: 2, waitingPickupLocked: 1, pendingHandling: 1 },
+        inventoryLedger: { id: "LED-1" },
+        todo: { id: "TODO-2" },
+        operationLogId: "LOG-CONFIRM",
+      };
+    },
   },
-  async linkInventoryCorrectionAttachmentsRoute({ response, workspace, correctionDraftId, body, operatorId }) {
-    calls.push({ kind: "link", response, workspace, correctionDraftId, body, operatorId });
+  inventoryReservationReleaseCommandService: {
+    async releaseReservation(input) {
+      calls.push({ kind: "release", ...input });
+      return { response: { reservationId: input.reservationId, released: true } };
+    },
   },
-  async confirmInventoryCorrectionDraftRoute({ response, workspace, correctionDraftId, body, operatorId }) {
-    calls.push({ kind: "confirm", response, workspace, correctionDraftId, body, operatorId });
+  inventoryCorrectionReadProjectionService: {
+    buildLedgerSummary(input) {
+      calls.push({ kind: "ledger", ...input });
+      return { ledgerId: "LED-1" };
+    },
   },
-  async releaseInventoryReservationRoute({ response, workspace, reservationId, body, operatorId }) {
-    calls.push({ kind: "release", response, workspace, reservationId, body, operatorId });
+  todoReadProjectionService: {
+    projectTodo(input) {
+      calls.push({ kind: "todo", ...input });
+      return { todoId: input.todo.id };
+    },
   },
   inventoryIntentRouteModule: {
     async handleWriteRoutes(input) {
@@ -58,6 +102,9 @@ const dependencies = {
       return true;
     },
   },
+  sendCommandResponse(response, result, options) {
+    calls.push({ kind: "command-response", response, result, options });
+  },
   sendJson(response, status, body) {
     calls.push({ kind: "send", response, status, body });
   },
@@ -69,10 +116,10 @@ const dependencies = {
   },
 };
 
-await expectHandled("/api/inventory/correction-drafts", "inventory.correction.create", { kind: "create" });
-await expectHandled("/api/inventory/correction-drafts/ICD-1/attachments", "inventory.correction.create", { kind: "link", correctionDraftId: "ICD-1" });
-await expectHandled("/api/inventory/correction-drafts/ICD-1/confirm", "inventory.correction.confirm", { kind: "confirm", correctionDraftId: "ICD-1" });
-await expectHandled("/api/inventory/reservations/RSV-1/release", "inventory.reservation.release", { kind: "release", reservationId: "RSV-1" });
+await expectCreateCorrection();
+await expectLinkAttachments();
+await expectConfirmCorrection();
+await expectReleaseReservation();
 
 await expectIntentRoute("/api/inventory/intents/INT-1/hold", "inventory.reservation.create", "hold-create", { intentId: "INT-1" });
 await expectIntentRoute("/api/inventory/holds/HOLD-1/extend", "inventory.reservation.create", "hold-extend", { reservationId: "HOLD-1" });
@@ -98,6 +145,27 @@ assert.equal(
   true,
 );
 assert.deepEqual(calls, [{ kind: "denied" }]);
+
+calls.length = 0;
+assert.equal(
+  await handleInventoryWriteRoutes({
+    ...dependencies,
+    method: "POST",
+    url: new URL("http://erp.test/api/inventory/correction-drafts"),
+    inventoryCorrectionCommandService: {
+      ...dependencies.inventoryCorrectionCommandService,
+      async createCorrectionDraft(input) {
+        calls.push({ kind: "create-error", ...input });
+        return { error: true, statusCode: 422, code: "INVENTORY_CORRECTION_INVALID", message: "invalid" };
+      },
+    },
+  }),
+  true,
+);
+assert.equal(calls.at(-1).kind, "command-response");
+assert.equal(calls.at(-1).result.statusCode, 422);
+assert.equal(calls.some((call) => call.kind === "send"), false);
+
 assert.equal(
   await handleInventoryWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/inventory/correction-drafts") }),
   false,
@@ -107,37 +175,85 @@ assert.equal(
   false,
 );
 
-console.log("inventory write routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+for (const removedWrapper of [
+  "createInventoryCorrectionDraftRoute",
+  "linkInventoryCorrectionAttachmentsRoute",
+  "confirmInventoryCorrectionDraftRoute",
+  "releaseInventoryReservationRoute",
+]) {
+  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
+}
+assert.match(apiSource, /handleInventoryWriteRoutes\([\s\S]*inventoryCorrectionCommandService,[\s\S]*inventoryReservationReleaseCommandService,[\s\S]*inventoryCorrectionReadProjectionService,[\s\S]*todoReadProjectionService,[\s\S]*sendCommandResponse,/);
 
-async function expectHandled(pathname, permission, expectedCall) {
+console.log("inventory write routes checks passed: direct commands, custom correction projections, failures, permissions, intents, and thin API wiring are covered");
+
+async function expectCreateCorrection() {
   calls.length = 0;
-  assert.equal(await handleInventoryWriteRoutes({ ...dependencies, method: "POST", url: new URL(`http://erp.test${pathname}`) }), true);
-  assert.deepEqual(calls, [
-    {
-      kind: "permission",
-      response: dependencies.response,
-      permissionContext: dependencies.permissionContext,
-      permission,
-    },
-    {
-      kind: "operator",
-      permissionContext: dependencies.permissionContext,
-      authContext: dependencies.authContext,
-      fallbackUserId: "U-OFFICE-A",
-    },
-    {
-      ...expectedCall,
-      response: dependencies.response,
-      workspace: dependencies.workspace,
-      body: dependencies.body,
-      operatorId: "U-AUTH",
-    },
-  ]);
+  assert.equal(await handle("/api/inventory/correction-drafts"), true);
+  assert.deepEqual(calls.map(({ kind }) => kind), ["permission", "operator", "create", "send"]);
+  assert.deepEqual(calls.at(-1).body, {
+    correctionDraftId: "ICD-NEW",
+    inventoryItemId: "INV-1",
+    status: "待复核",
+    revision: 1,
+    attachmentIds: ["ATT-1"],
+    qtyBefore: { onHand: 10 },
+    requestedQtyAfter: { onHand: 12 },
+    todoId: "TODO-1",
+    operationLogId: "LOG-CREATE",
+  });
+}
+
+async function expectLinkAttachments() {
+  calls.length = 0;
+  assert.equal(await handle("/api/inventory/correction-drafts/ICD-1/attachments"), true);
+  assert.deepEqual(calls.map(({ kind }) => kind), ["permission", "operator", "link", "send"]);
+  assert.equal(calls[2].correctionDraftId, "ICD-1");
+  assert.deepEqual(calls.at(-1).body, {
+    correctionDraftId: "ICD-1",
+    attachmentIds: ["ATT-2"],
+    revision: 2,
+    unchanged: false,
+    operationLogId: "LOG-LINK",
+  });
+}
+
+async function expectConfirmCorrection() {
+  calls.length = 0;
+  assert.equal(await handle("/api/inventory/correction-drafts/ICD-1/confirm"), true);
+  assert.deepEqual(calls.map(({ kind }) => kind), ["permission", "operator", "confirm", "ledger", "todo", "send"]);
+  assert.equal(calls[2].correctionDraftId, "ICD-1");
+  assert.deepEqual(calls.at(-1).body, {
+    correctionDraftId: "ICD-1",
+    inventoryItemId: "INV-1",
+    qtyBefore: { onHand: 10 },
+    qtyAfter: { onHand: 12, reserved: 2, available: 8, waitingPickupLocked: 1, pendingHandling: 1 },
+    ledger: { ledgerId: "LED-1" },
+    todo: { todoId: "TODO-2" },
+    operationLogId: "LOG-CONFIRM",
+  });
+}
+
+async function expectReleaseReservation() {
+  calls.length = 0;
+  assert.equal(await handle("/api/inventory/reservations/RSV-1/release"), true);
+  assert.deepEqual(calls.map(({ kind }) => kind), ["permission", "operator", "release", "command-response"]);
+  assert.equal(calls[2].reservationId, "RSV-1");
+  assert.deepEqual(calls.at(-1).result, { response: { reservationId: "RSV-1", released: true } });
+}
+
+async function handle(pathname) {
+  return handleInventoryWriteRoutes({
+    ...dependencies,
+    method: "POST",
+    url: new URL(`http://erp.test${pathname}`),
+  });
 }
 
 async function expectIntentRoute(pathname, permission, kind, expected) {
   calls.length = 0;
-  assert.equal(await handleInventoryWriteRoutes({ ...dependencies, method: "POST", url: new URL(`http://erp.test${pathname}`) }), true);
+  assert.equal(await handle(pathname), true);
   assert.equal(calls[0].kind, "permission");
   assert.equal(calls[0].permission, permission);
   assert.equal(calls[1].kind, "operator");

@@ -112,6 +112,7 @@ assert.equal(
     options: {
       rollId: "ROLL-1",
       machineId: "BAG-01",
+      productionTaskId: "PT-LOCAL-001",
       issuedWeightKg: 30,
       partialIssue: true,
     },
@@ -205,11 +206,15 @@ assert.equal(
       },
     },
   });
-  const result = await harness.actions.updateRawMaterialInbound("复核送货单", "RMI-1", { note: "已核对" });
+  const result = await harness.actions.updateRawMaterialInbound("复核送货单", "RMI-1", {
+    note: "已核对",
+    lineReviews: [{ lineId: "OCR-1", values: { spec: "90g*1.6米" } }],
+  });
   assert.equal(result, committedInbound);
   assert.equal(receivedInput.operatorId, "U-WAREHOUSE-A");
   assert.equal(receivedInput.operatorName, "库房A");
   assert.equal(receivedInput.note, "已核对");
+  assert.deepEqual(receivedInput.lineReviews, [{ lineId: "OCR-1", values: { spec: "90g*1.6米" } }]);
   assert.equal(harness.rawMaterialInbounds[0], committedInbound);
   assert.equal(harness.rawMaterialInboundMeta.source, "api");
 }

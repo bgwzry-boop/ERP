@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleSystemReadRoutes } from "../server/routes/systemReadRoutes.mjs";
 
 const calls = [];
@@ -21,13 +22,15 @@ const dependencies = {
     calls.push({ kind: "operator", permissionContext, authContext, fallback });
     return "U-RESOLVED";
   },
-  getSystemV1ReadinessResponse(input) {
+  buildSystemV1Readiness(input) {
     calls.push({ kind: "readiness", ...input });
     return { status: "blocked" };
   },
-  getSystemV1GoLiveStatusResponse(input) {
-    calls.push({ kind: "goLive", ...input });
-    return { version: "v1" };
+  v1GoLiveStatusResponseService: {
+    build(input) {
+      calls.push({ kind: "goLive", ...input });
+      return { version: "v1" };
+    },
   },
   filterByValue(items, value, field) {
     return value ? items.filter((item) => item[field] === value) : items;
@@ -63,7 +66,13 @@ assert.deepEqual(calls, [
 ]);
 assert.equal(await handleSystemReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/system/unknown") }), false);
 
-console.log("system read routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+const routeSource = readFileSync(new URL("../server/routes/systemReadRoutes.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /function getSystemV1ReadinessResponse|function getSystemV1GoLiveStatusResponse/);
+assert.match(routeSource, /buildSystemV1Readiness\(\{/);
+assert.match(routeSource, /v1GoLiveStatusResponseService\.build\(\{/);
+
+console.log("system read routes checks passed: V1 status builders, permission identity, logs, OpenAPI, and direct ownership are covered");
 
 async function expectHandled(pathname, kind, responseBody) {
   calls.length = 0;

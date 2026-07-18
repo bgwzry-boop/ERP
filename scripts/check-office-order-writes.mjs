@@ -35,12 +35,12 @@ const draftRow = {
   source: "测试订单",
 };
 
-function createOrderWriteCase({ api = {}, draftApiMeta = { draftId: "DRAFT-API-1", clientRevision: 2, source: "api" }, serverRequired = false, refreshResults = {} } = {}) {
+function createOrderWriteCase({ api = {}, draftApiMeta = { draftId: "DRAFT-API-1", clientRevision: 2, source: "api" }, draftStatus = "已识别待确认", entryText = "客户A 30*38 白色 100个", serverRequired = false, refreshResults = {} } = {}) {
   const states = {
     draftApiMeta: createState(draftApiMeta),
     draftRows: createState([draftRow]),
-    draftStatus: createState("已识别待确认"),
-    entryText: createState("客户A 30*38 白色 100个"),
+    draftStatus: createState(draftStatus),
+    entryText: createState(entryText),
     fulfillments: createState([{ id: "F001", lineId: "OL-1", qty: 10, status: "待出库" }]),
     inventoryRecords: createState([{ id: "S001", size: "30*38", color: "白色", handle: "普通提", style: "空白袋", inStock: 500, reserved: 0 }]),
     orderLines: createState([{ id: "OL-1", qty: 10, originalQty: 10, amount: 100, exceptions: [] }]),
@@ -62,7 +62,7 @@ function createOrderWriteCase({ api = {}, draftApiMeta = { draftId: "DRAFT-API-1
     customers: [{ id: "C001", name: "客户A" }],
     draftApiMeta: states.draftApiMeta.value,
     draftRows: states.draftRows.value,
-    entryText: "客户A 30*38 白色 100个",
+    entryText,
     fulfillments: states.fulfillments.value,
     inventoryRecords: states.inventoryRecords.value,
     orderLines: states.orderLines.value,
@@ -88,6 +88,21 @@ function createOrderWriteCase({ api = {}, draftApiMeta = { draftId: "DRAFT-API-1
   });
   return { actions, refreshCalls, states };
 }
+
+const sourceTextEditCase = createOrderWriteCase({ draftStatus: "已保存草稿" });
+assert.deepEqual(sourceTextEditCase.actions.updateOrderEntryText("客户A 30*38 白色 100个，备注急单"), { changed: true });
+assert.equal(sourceTextEditCase.states.entryText.value, "客户A 30*38 白色 100个，备注急单");
+assert.equal(sourceTextEditCase.states.draftStatus.value, "原文已修改待重新识别");
+
+const unchangedSourceTextCase = createOrderWriteCase({ draftStatus: "已保存草稿" });
+assert.deepEqual(unchangedSourceTextCase.actions.updateOrderEntryText("客户A 30*38 白色 100个"), { changed: false });
+assert.equal(unchangedSourceTextCase.states.draftStatus.value, "已保存草稿");
+
+const unsupportedEntryActionCase = createOrderWriteCase();
+const unsupportedEntryActionResult = await unsupportedEntryActionCase.actions.executeOrderEntryAction("未知草稿动作");
+assert.equal(unsupportedEntryActionResult.blocked, true, "unknown order-entry actions must fail closed");
+assert.match(unsupportedEntryActionResult.feedback, /未识别订单草稿操作/);
+assert.equal(unsupportedEntryActionCase.states.draftStatus.value, "已识别待确认");
 
 const recognizeCase = createOrderWriteCase({
   api: {

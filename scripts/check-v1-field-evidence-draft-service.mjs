@@ -112,6 +112,8 @@ try {
   assert.doesNotMatch(JSON.stringify({ generateError, validateError }), /private\/path|db\.internal|user:password/);
 
   const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+  const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
+  const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
   const stagingSource = readFileSync(
     new URL("../server/services/v1FieldEvidenceStagingService.mjs", import.meta.url),
     "utf8",
@@ -120,9 +122,9 @@ try {
     new URL("../server/services/v1ReleaseCandidateRefreshPrecheckService.mjs", import.meta.url),
     "utf8",
   );
-  assert.match(apiSource, /createV1FieldEvidenceDraftService/);
-  assert.match(apiSource, /v1FieldEvidenceDraftService\.generateDraft/);
-  assert.match(apiSource, /v1FieldEvidenceDraftService\.validateDraft/);
+  assert.match(registrySource, /createV1FieldEvidenceDraftService/);
+  assert.match(routeSource, /v1FieldEvidenceDraftService\.generateDraft/);
+  assert.match(routeSource, /v1FieldEvidenceDraftService\.validateDraft/);
   assert.doesNotMatch(apiSource, /sanitizeV1FieldEvidenceDraftManifestValidationResult/);
   assert.match(refreshPrecheckSource, /sanitizeV1FieldEvidenceDraftManifestValidationResult/);
   assert.doesNotMatch(apiSource, /function sanitizeV1FieldEvidenceIntakeDraftManifestResult/);

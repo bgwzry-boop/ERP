@@ -2,9 +2,135 @@ import { expect, test } from "@playwright/test";
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.ERP_E2E_API_PORT ?? 18787}/api`;
 const operatorId = "U-MANAGER-A";
+const officeOperatorId = "U-OFFICE-A";
 const printDriverOperatorId = "U-PRINT-DRIVER-A";
+const warehousePhysicalExecutorEmployeeId = "E2E-WAREHOUSE-001";
 const customerName = "张三服饰";
 const orderText = `${customerName}，30*38*10红色空白袋10个，普通提，自提，明天下午`;
+const dangerOrderText = `${customerName}，30*38*10红色空白袋11个，普通提，自提，明天下午`;
+
+test.beforeAll(async ({ request }) => {
+  for (const decisionScope of ["order_priority", "production_schedule", "raw_material_purchase", "fulfillment_quantity_variance", "statement_variance", "statement_write_off"]) {
+    await ensureBusinessAuthorization(request, {
+      employeeId: "E2E-MANAGER-001",
+      decisionScope,
+      idempotencyKey: `e2e-manager-authorization-${decisionScope}`,
+      note: "E2E 管理账号直接决定授权",
+    });
+  }
+});
+
+test("默认公共待办引用真实业务并可打开保存草稿", async ({ page, request }) => {
+  const browserErrors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+
+  await page.goto("/");
+  await switchAccount(page, operatorId);
+  const todoResponse = await apiGet(request, "/todos?status=open&pageSize=200");
+  expect(todoResponse.items).toHaveLength(8);
+  expect(todoResponse.items.every((item) => item.referenceStatus === "valid")).toBe(true);
+  expect(todoResponse.items.find((item) => item.todoId === "T001")).toMatchObject({
+    refType: "order_draft",
+    refId: "DRAFT-DEMO-001",
+  });
+
+  const draftTodo = page.getByRole("button", { name: /订单草稿待确认.*DRAFT-DEMO-001/ });
+  await expect(draftTodo).toHaveCount(1);
+  await draftTodo.click();
+  await page.getByRole("button", { name: "打开订单录入", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "订单录入" })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "订单原文" })).toHaveValue(/张三服饰.*红500.*黑100/);
+  await expect(page.locator(".entry-edit-row")).toHaveCount(2);
+
+  const firstRow = page.locator(".entry-edit-row").nth(0);
+  const secondRow = page.locator(".entry-edit-row").nth(1);
+  await page.locator(".entry-issue-list button").filter({ hasText: /库存缺货\s*60/ }).click();
+  await expect(secondRow).toHaveClass(/active/);
+  await expect(page.getByRole("heading", { name: /当前选中行详情.*第2行/ })).toBeVisible();
+  await expect(secondRow).toBeInViewport();
+
+  const firstRowLatest = page.getByRole("textbox", { name: "第1行最晚时间" });
+  const secondRowProduct = page.getByRole("textbox", { name: "第2行品名" });
+  await firstRowLatest.focus();
+  await expect(firstRow).toHaveClass(/active/);
+  await firstRowLatest.press("Tab");
+  await expect(secondRowProduct).toBeFocused();
+  await expect(secondRow).toHaveClass(/active/);
+  const focusedCellOutline = await secondRowProduct.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return { style: style.outlineStyle, width: Number.parseFloat(style.outlineWidth) };
+  });
+  expect(focusedCellOutline.style).toBe("solid");
+  expect(focusedCellOutline.width).toBeGreaterThan(0);
+
+  const confirmationFooter = page.getByLabel("订单汇总与确认");
+  await expect(confirmationFooter).toBeVisible();
+  const initialFooterBox = await confirmationFooter.boundingBox();
+  expect(initialFooterBox?.y).toBeGreaterThanOrEqual(0);
+  expect((initialFooterBox?.y ?? 0) + (initialFooterBox?.height ?? 0)).toBeLessThanOrEqual(
+    await page.evaluate(() => window.innerHeight),
+  );
+
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const reviewPanelBox = await page.locator(".entry-review-panel").boundingBox();
+  const bottomFooterBox = await confirmationFooter.boundingBox();
+  expect((reviewPanelBox?.y ?? 0) + (reviewPanelBox?.height ?? 0)).toBeLessThanOrEqual(bottomFooterBox?.y ?? 0);
+
+  await switchAccount(page, "U-WORKSHOP-PRINT-A");
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole("navigation", { name: "现场岗位手机导航" })).toBeVisible();
+  await expect(page.getByRole("button", { name: /当前任务/ })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBe(390);
+  expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
+});
+
+test("订单录入危险操作确认可取消且已保存后修改原文仍阻止直接清空", async ({ page }) => {
+  const browserErrors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+
+  await page.goto("/");
+  await switchAccount(page, operatorId);
+  await navigateToPage(page, "订单录入", "订单");
+  await expect(page.getByRole("heading", { name: "订单录入" })).toBeVisible();
+
+  const sourceText = page.getByRole("textbox", { name: "订单原文" });
+  await sourceText.fill(dangerOrderText);
+  await page.getByRole("button", { name: "识别", exact: true }).click();
+  await expect(page.locator(".entry-edit-row")).toHaveCount(1);
+
+  const deleteRow = page.getByRole("button", { name: "删除当前行", exact: true });
+  await clickWithConfirm(page, deleteRow, { accept: false, message: "确认删除当前明细行" });
+  await expect(page.locator(".entry-edit-row")).toHaveCount(1);
+  await clickWithConfirm(page, deleteRow, { accept: true, message: "确认删除当前明细行" });
+  await expect(page.locator(".entry-edit-row")).toHaveCount(0);
+  await expect(page.getByText("暂无识别明细", { exact: true })).toBeVisible();
+
+  await page.getByRole("button", { name: "识别", exact: true }).click();
+  await expect(page.locator(".entry-edit-row")).toHaveCount(1);
+  await page.getByRole("button", { name: "保存草稿", exact: true }).click();
+  await expect(page.locator(".entry-fact-badge").filter({ hasText: "已保存草稿" })).toBeVisible();
+
+  const changedSourceText = `${dangerOrderText}，备注急单`;
+  await sourceText.fill(changedSourceText);
+  await expect(page.locator(".entry-fact-badge").filter({ hasText: "原文已修改待重新识别" })).toBeVisible();
+
+  const createOrder = page.locator(".topbar button").filter({ hasText: "新建订单" });
+  await expect(createOrder).toHaveCount(1);
+  await clickWithConfirm(page, createOrder, { accept: false, message: "当前订单草稿尚未保存" });
+  await expect(sourceText).toHaveValue(changedSourceText);
+  await expect(page.locator(".entry-edit-row")).toHaveCount(1);
+
+  await clickWithConfirm(page, createOrder, { accept: true, message: "当前订单草稿尚未保存" });
+  await expect(sourceText).toHaveValue("");
+  await expect(page.locator(".entry-edit-row")).toHaveCount(0);
+  expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
+});
 
 test("订单确认到收款凭证形成可追溯闭环", async ({ page, request }) => {
   const browserErrors = [];
@@ -14,13 +140,8 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
   await page.goto("/");
-  const accountSwitcher = page.getByRole("combobox", { name: "切换当前账号" });
-  if (await accountSwitcher.count()) {
-    await accountSwitcher.selectOption(operatorId);
-    await expect(accountSwitcher).toHaveValue(operatorId);
-  }
-  const mainNavigation = page.getByRole("navigation", { name: "主导航" });
-  await mainNavigation.getByRole("button", { name: /订单录入/ }).click();
+  await switchAccount(page, operatorId);
+  await navigateToPage(page, "订单录入", "订单");
   await expect(page.getByRole("heading", { name: "订单录入" })).toBeVisible();
   const orderLinesBeforeConfirmation = await apiGet(request, "/order-lines?page=1&pageSize=200");
   const existingOrderLineIds = new Set(orderLinesBeforeConfirmation.items.map((item) => item.id));
@@ -44,26 +165,65 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   const reservedInventory = inventoriesAfterConfirmation.items.find((item) =>
     item.size === "30*38*10" && item.color === "红色" && item.handle === "普通提" && item.style === "空白袋",
   );
+  const pickupInStockBeforeOutbound = Number(reservedInventory?.inStock ?? 0);
+  const pickupReservedBeforeOutbound = Number(reservedInventory?.reserved ?? reservedInventory?.reservedQty ?? 0);
   expect(Number(reservedInventory?.reserved ?? reservedInventory?.reservedQty ?? 0)).toBeGreaterThanOrEqual(10);
 
-  await mainNavigation.getByRole("button", { name: /出库交付/ }).click();
+  await navigateToPage(page, "出库交付", "库存交付");
   await expect(page.getByRole("heading", { name: "出库交付" })).toBeVisible();
   await page.getByRole("tab", { name: "自提", exact: true }).click();
 
   const createdFulfillment = await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
     item.lineId === createdLine.id || item.orderLineId === createdLine.id,
   );
-  await page.locator(`.fulfillment-table [data-row-id="${createdFulfillment.fulfillmentId}"]`).click();
-  await expect(page.getByText(createdLine.id, { exact: false })).toBeVisible();
-  await page.getByRole("button", { name: "完成自提", exact: true }).click();
-  await expect(page.getByText("已通过后端 API记录完成自提", { exact: false })).toBeVisible();
+  await switchAccount(page, officeOperatorId);
+  await configureSystemPrinter(request, "PRN-DOT-A", officeOperatorId);
+  const pickupPrintJob = await submitFulfillmentPrint(page, request, {
+    fulfillmentId: createdFulfillment.fulfillmentId,
+    methodTab: "自提",
+    action: "打印自提单",
+    documentType: "pickup_note",
+  });
+  expect(pickupPrintJob.printDeviceId).toBe("PRN-DOT-A");
+  const pickupPrintResult = await dispatchAndConfirmTrustedPrint(page, request, pickupPrintJob, {
+    dispatchOperatorId: officeOperatorId,
+  });
+  expect(pickupPrintResult.physicalPrintConfirmed).toBe(true);
+
+  const printedFulfillment = await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
+    item.fulfillmentId === createdFulfillment.fulfillmentId && item.paperOutboundStatus === "已打印待交库房",
+  );
+  expect(printedFulfillment.paperOutboundDocument?.printRecordId).toBe(pickupPrintJob.printRecordId);
+  expect(printedFulfillment.paperOutboundDocument?.printedBy).toBe(officeOperatorId);
+
+  await handoffAndRecordPhysicalOutbound(page, request, {
+    fulfillmentId: createdFulfillment.fulfillmentId,
+    methodTab: "自提",
+    physicalExecutorEmployeeId: warehousePhysicalExecutorEmployeeId,
+    feedbackChannel: "纸面",
+  });
 
   const completedFulfillment = await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
     item.id === createdFulfillment.id && item.status === "已交付",
   );
   expect(completedFulfillment.status).toBe("已交付");
+  expect(completedFulfillment.paperOutboundStatus).toBe("已交库房");
+  expect(completedFulfillment.paperOutboundDocument?.handedToWarehouseBy).toBe(officeOperatorId);
+  expect(completedFulfillment.latestWarehouseExecution).toMatchObject({
+    result: "实物已出库",
+    physicalExecutorEmployeeId: warehousePhysicalExecutorEmployeeId,
+    feedbackChannel: "纸面",
+    authenticatedOperatorId: officeOperatorId,
+    paperDocumentVersion: completedFulfillment.paperOutboundDocument?.documentVersion,
+  });
+  expect(completedFulfillment.physicalOutboundDocumentId).toBe(completedFulfillment.paperOutboundDocument?.paperOutboundDocumentId);
+  expect(completedFulfillment.physicalOutboundAt).toBeTruthy();
+  expect(completedFulfillment.finalDeliveryAt).toBeTruthy();
+  const pickupInventoryAfterOutbound = await findInventoryItem(request, createdLine);
+  expect(Number(pickupInventoryAfterOutbound.inStock)).toBe(pickupInStockBeforeOutbound - 10);
+  expect(Number(pickupInventoryAfterOutbound.reserved ?? pickupInventoryAfterOutbound.reservedQty ?? 0)).toBe(pickupReservedBeforeOutbound - 10);
 
-  await mainNavigation.getByRole("button", { name: /对账收款/ }).click();
+  await navigateToPage(page, "对账收款", "对账");
   await expect(page.getByRole("heading", { name: "对账收款" })).toBeVisible();
   await page.getByPlaceholder("客户名 / 单号 / 联系人").fill(customerName);
   await page.getByRole("button", { name: customerName, exact: false }).first().click();
@@ -78,7 +238,6 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
     buffer: createOnePixelPng(),
   });
   await paymentDialog.getByRole("button", { name: "确认提交", exact: true }).click();
-  await expect(page.getByText("付款截图已通过后端 API登记", { exact: false })).toBeVisible();
   await page.getByRole("tab", { name: "凭证/确认", exact: true }).click();
   await expect(page.getByText("e2e-payment-proof.png", { exact: true })).toBeVisible();
 
@@ -112,8 +271,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
 
   await page.goto("/");
   await switchAccount(page, operatorId);
-  const mainNavigation = page.getByRole("navigation", { name: "主导航" });
-  await mainNavigation.getByRole("button", { name: /订单录入/ }).click();
+  await navigateToPage(page, "订单录入", "订单");
   const orderLinesBeforeConfirmation = await apiGet(request, "/order-lines?page=1&pageSize=200");
   const existingOrderLineIds = new Set(orderLinesBeforeConfirmation.items.map((item) => item.id));
 
@@ -153,20 +311,45 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   const inStockBeforeReport = Number(inventoryBeforeReport.inStock ?? 0);
   const reservedBeforeReport = Number(inventoryBeforeReport.reserved ?? inventoryBeforeReport.reservedQty ?? 0);
 
-  await mainNavigation.getByRole("button", { name: /打包\/标签/ }).click();
+  await switchAccount(page, officeOperatorId);
+  await navigateToPage(page, "打包/标签", "更多工作台");
   await selectWorkbenchTabIfPresent(page, "生产任务");
+  await expect(page.locator(".production-status-hints")).not.toContainText("刷新中");
   await selectProductionTask(page, productionTaskId);
+  const scheduleDecisionSection = page.locator(".production-schedule-decision-section");
+  await expect(scheduleDecisionSection.getByLabel("业务决定人")).toBeEnabled();
+  await scheduleDecisionSection.getByLabel("业务决定人").selectOption("E2E-MANAGER-001");
+  await scheduleDecisionSection.getByLabel("决定渠道").selectOption("wechat");
+  await scheduleDecisionSection.getByLabel("决定内容").fill("负责人确认本单优先进入丝印排产");
+  await scheduleDecisionSection.getByLabel("授权依据").fill("微信经营群确认");
   await page.getByRole("button", { name: "发布排产", exact: true }).click();
+  const scheduleConfirmation = page.getByRole("dialog", { name: "确认排产经营决定" });
+  await expect(scheduleConfirmation).toBeVisible();
+  for (const label of ["原排产", "变更后", "业务决定人", "系统操作人", "决定渠道 / 时间", "决定证据内容", "授权依据", "预计影响"]) {
+    await expect(scheduleConfirmation.getByText(label, { exact: true })).toBeVisible();
+  }
+  await expect(scheduleConfirmation).toContainText("微信");
+  await expect(scheduleConfirmation).not.toContainText("wechat");
+  await scheduleConfirmation.getByRole("button", { name: "确认提交", exact: true }).click();
   await waitForApiDetail(
     request,
     `/production-tasks/${encodeURIComponent(productionTaskId)}`,
     (detail) => Boolean(detail.productionTask?.publishedScheduleId),
   );
+  const scheduleDecisionHistory = await apiGet(
+    request,
+    `/business-decisions?businessType=production_task&businessId=${encodeURIComponent(productionTaskId)}`,
+    officeOperatorId,
+  );
+  expect(scheduleDecisionHistory.items).toHaveLength(1);
+  expect(scheduleDecisionHistory.items[0]).toMatchObject({
+    decisionMakerEmployeeId: "E2E-MANAGER-001",
+    enteredByUserId: officeOperatorId,
+    decisionType: "delegated",
+  });
 
   await switchAccount(page, "U-WORKSHOP-PRINT-A");
-  await mainNavigation.getByRole("button", { name: /车间\/打包手机端/ }).click();
-  await page.getByRole("tab", { name: "生产报工", exact: true }).click();
-  await page.locator(".mobile-task-row").filter({ hasText: "12 个" }).first().click();
+  await openWorkshopTask(page, createdLine.id);
   await expect(page.getByRole("heading", { name: productionTaskId, exact: true })).toBeVisible();
   await expect(page.getByRole("button", { name: "确认成品图", exact: true })).toHaveCount(0);
 
@@ -180,7 +363,6 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   expect(workshopReviewDenied.requiredPermission).toBe("production.schedule.publish");
   await page.getByRole("tab", { name: "成品图", exact: true }).click();
   await page.getByRole("button", { name: "上传成品图", exact: true }).click();
-  await expect(page.getByText("上传成品图附件", { exact: false })).toBeVisible();
 
   let productionDetail = await waitForApiDetail(
     request,
@@ -198,11 +380,11 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   )).toBe(true);
 
   await switchAccount(page, operatorId);
-  await mainNavigation.getByRole("button", { name: /打包\/标签/ }).click();
+  await navigateToPage(page, "打包/标签", "更多工作台");
   await selectWorkbenchTabIfPresent(page, "生产任务");
   await selectProductionTask(page, productionTaskId);
   await page.getByRole("button", { name: "确认成品图", exact: true }).click();
-  await expect(page.getByText("确认成品图", { exact: false })).toBeVisible();
+  await expect(page.getByRole("button", { name: "确认成品图", exact: true })).toBeDisabled();
   productionDetail = await waitForApiDetail(
     request,
     `/production-tasks/${encodeURIComponent(productionTaskId)}`,
@@ -211,14 +393,12 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   expect(productionDetail.finishedGoodsPhoto.reviewedBy).toBe(operatorId);
 
   await switchAccount(page, "U-WORKSHOP-PRINT-A");
-  await mainNavigation.getByRole("button", { name: /车间\/打包手机端/ }).click();
-  await page.getByRole("tab", { name: "生产报工", exact: true }).click();
-  await page.locator(".mobile-task-row").filter({ hasText: "12 个" }).first().click();
+  await openWorkshopTask(page, createdLine.id);
   await page.getByLabel("合格数量").fill("12");
   await page.getByLabel("异常/废品数").fill("2");
   await page.getByLabel("机器计数/动作次数").fill("9876");
   await page.getByRole("button", { name: "报工完成", exact: true }).click();
-  await expect(page.getByText("完成生产报工", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "确认完成生产报工", exact: true }).click();
 
   productionDetail = await waitForApiDetail(
     request,
@@ -246,15 +426,12 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   expect(packingReportDenied.requiredPermission).toBe("production.report.complete");
 
   await switchAccount(page, "U-PACKING-A");
-  await mainNavigation.getByRole("button", { name: /车间\/打包手机端/ }).click();
-  await page.getByRole("tab", { name: "打包任务", exact: true }).click();
-  await page.locator(".mobile-task-row").filter({ hasText: "12 个" }).first().click();
+  await openMobileTask(page, "打包移动任务", createdLine.id);
   await expect(page.getByText(packingTaskId, { exact: false })).toBeVisible();
   await page.getByLabel("实际打包数量").fill("12");
   await page.getByLabel("包裹数").fill("2");
-  await page.getByLabel("标签状态").selectOption("未打印");
   await page.getByRole("button", { name: "提交打包完成", exact: true }).click();
-  await expect(page.getByText("提交打包完成", { exact: false })).toBeVisible();
+  await page.getByRole("button", { name: "确认提交打包完成", exact: true }).click();
 
   const packingDetail = await waitForApiDetail(
     request,
@@ -273,93 +450,83 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   const inventoryAfterPacking = await findInventoryItem(request, createdLine);
   expect(Number(inventoryAfterPacking.inStock)).toBe(inStockBeforeReport + 12);
 
-  await switchAccount(page, "U-WAREHOUSE-A");
-  await mainNavigation.getByRole("button", { name: /打包\/标签/ }).click();
-  await selectWorkbenchTabIfPresent(page, "打印与设备");
-  const printerDeviceQa = page.locator(".printer-device-qa-section");
-  await printerDeviceQa.locator(".printer-device-qa-select-row select").selectOption("PRN-LABEL-A");
-  await printerDeviceQa.getByLabel("目标模式").selectOption("system_printer");
-  await page.getByRole("button", { name: "保存设备模式", exact: true }).click();
-  await expect(page.getByText("设备模式已通过后端 API 保存", { exact: false })).toBeVisible();
+  await switchAccount(page, officeOperatorId);
+  await configureSystemPrinter(request, "PRN-LABEL-A", officeOperatorId);
+  await configureSystemPrinter(request, "PRN-DOT-A", officeOperatorId);
 
-  await mainNavigation.getByRole("button", { name: /出库交付/ }).click();
-  await page.getByRole("tab", { name: "快递快运", exact: true }).click();
-  await page.locator(`.fulfillment-table [data-row-id="${fulfillment.fulfillmentId}"]`).click();
-  await page.getByRole("button", { name: "打印标签", exact: true }).click();
-  const printDialog = page.getByRole("dialog", { name: "单据 / 标签预览" });
-  await expect(printDialog).toBeVisible();
-  await printDialog.getByRole("button", { name: "确认提交", exact: true }).click();
-  await expect(page.getByText("打印作业已创建", { exact: false })).toBeVisible();
-
-  let printJob = await waitForApiItem(request, "/print-jobs?page=1&pageSize=200", (item) =>
-    item.targetId === fulfillmentId && item.jobStatus === "queued",
-  );
-  expect(printJob.printDeviceId).toBe("PRN-LABEL-A");
-  expect(printJob.driverMode).toBe("system_printer");
-  expect(printJob.requestedBy).toBe("U-WAREHOUSE-A");
-
-  await mainNavigation.getByRole("button", { name: /打包\/标签/ }).click();
-  await selectWorkbenchTabIfPresent(page, "打印与设备");
-  const printJobRow = page.locator(".print-job-row").filter({ hasText: printJob.printJobId });
-  await printJobRow.getByRole("button", { name: "派发", exact: true }).click();
-  await expect(page.getByText(`打印作业 ${printJob.printJobId} 已派发`, { exact: false })).toBeVisible();
-  const dispatchedPrintJobDetail = await waitForApiDetail(
-    request,
-    `/print-jobs/${encodeURIComponent(printJob.printJobId)}`,
-    (detail) => detail.printJob?.jobStatus === "sent",
-  );
-  printJob = dispatchedPrintJobDetail.printJob;
-  const externalJobId = printJob.metadata?.lastDispatch?.externalJobId;
-  expect(externalJobId).toBe(`DRY-${printJob.printJobId}`);
-
-  const warehouseCallback = await apiPost(
-    request,
-    `/print-jobs/${encodeURIComponent(printJob.printJobId)}/driver-status`,
-    { status: "printed", externalJobId },
-    "U-WAREHOUSE-A",
-    403,
-  );
-  expect(warehouseCallback.requiredPermission).toBe("print.job.callback");
-
-  const callbackResult = await apiPost(
-    request,
-    `/print-jobs/${encodeURIComponent(printJob.printJobId)}/driver-status`,
-    {
-      status: "printed",
-      externalJobId,
-      adapterName: "e2e-dry-run-driver",
-      eventSource: "driver_callback",
-      driverStatus: "completed",
-      message: "D44 isolated trusted print callback",
-      idempotencyKey: `D44-${printJob.printJobId}-printed`,
-    },
-    printDriverOperatorId,
-  );
-  expect(callbackResult.printJob.jobStatus).toBe("printed");
-  expect(callbackResult.physicalPrintConfirmed).toBe(true);
+  const labelPrintJob = await submitFulfillmentPrint(page, request, {
+    fulfillmentId,
+    methodTab: "快递快运",
+    action: "打印标签",
+    documentType: "express_ltl_label",
+  });
+  expect(labelPrintJob.printDeviceId).toBe("PRN-LABEL-A");
+  expect(labelPrintJob.driverMode).toBe("system_printer");
+  expect(labelPrintJob.requestedBy).toBe(officeOperatorId);
+  const labelCallbackResult = await dispatchAndConfirmTrustedPrint(page, request, labelPrintJob, {
+    dispatchOperatorId: officeOperatorId,
+    forbiddenCallbackOperatorId: officeOperatorId,
+  });
+  expect(labelCallbackResult.physicalPrintConfirmed).toBe(true);
 
   fulfillment = await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
-    item.fulfillmentId === fulfillmentId && item.status === "待确认拉走",
+    item.fulfillmentId === fulfillmentId && item.status === "待打印出库单" && item.labelsPrinted === true,
   );
-  await page.reload();
-  await switchAccount(page, "U-WAREHOUSE-A");
-  const refreshedNavigation = page.getByRole("navigation", { name: "主导航" });
-  await refreshedNavigation.getByRole("button", { name: /出库交付/ }).click();
-  await page.getByRole("tab", { name: "快递快运", exact: true }).click();
-  await page.locator(`.fulfillment-table [data-row-id="${fulfillment.fulfillmentId}"]`).click();
-  await page.getByRole("button", { name: "确认已拉走", exact: true }).click();
-  await expect(page.getByText("已通过后端 API记录确认已拉走", { exact: false })).toBeVisible();
+  expect(fulfillment.paperOutboundDocument).toBeNull();
+  expect(fulfillment.printed).toBe(false);
+  expect(fulfillment.labelPrintRecordId).toBe(labelPrintJob.printRecordId);
+  const labelLinkedPackingDetail = await waitForApiDetail(
+    request,
+    `/packing-tasks/${encodeURIComponent(packingTaskId)}`,
+    (detail) => detail.packages?.every((item) => item.labelPrintRecordId === labelPrintJob.printRecordId),
+  );
+  expect(labelLinkedPackingDetail.packages.every((item) => item.status === "已打印标签")).toBe(true);
+
+  const outboundPrintJob = await submitFulfillmentPrint(page, request, {
+    fulfillmentId,
+    methodTab: "快递快运",
+    action: "打印出库单",
+    documentType: "outbound_note",
+  });
+  expect(outboundPrintJob.printDeviceId).toBe("PRN-DOT-A");
+  expect(outboundPrintJob.printRecordId).not.toBe(labelPrintJob.printRecordId);
+  const outboundCallbackResult = await dispatchAndConfirmTrustedPrint(page, request, outboundPrintJob, {
+    dispatchOperatorId: officeOperatorId,
+  });
+  expect(outboundCallbackResult.physicalPrintConfirmed).toBe(true);
+
+  const printedPaperFulfillment = await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
+    item.fulfillmentId === fulfillmentId && item.paperOutboundStatus === "已打印待交库房",
+  );
+  expect(printedPaperFulfillment.labelsPrinted).toBe(true);
+  expect(printedPaperFulfillment.paperOutboundDocument?.printRecordId).toBe(outboundPrintJob.printRecordId);
+  expect(printedPaperFulfillment.paperOutboundDocument?.printRecordId).not.toBe(labelPrintJob.printRecordId);
+  expect(printedPaperFulfillment.paperOutboundDocument?.printedBy).toBe(officeOperatorId);
+
+  await handoffAndRecordPhysicalOutbound(page, request, {
+    fulfillmentId,
+    methodTab: "快递快运",
+    physicalExecutorEmployeeId: warehousePhysicalExecutorEmployeeId,
+    feedbackChannel: "纸面",
+  });
 
   fulfillment = await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
     item.fulfillmentId === fulfillmentId && item.status === "已交付",
   );
   expect(fulfillment.actualQty).toBe(12);
+  expect(fulfillment.latestWarehouseExecution).toMatchObject({
+    result: "实物已出库",
+    physicalExecutorEmployeeId: warehousePhysicalExecutorEmployeeId,
+    feedbackChannel: "纸面",
+    authenticatedOperatorId: officeOperatorId,
+  });
+  expect(fulfillment.physicalOutboundDocumentId).toBe(fulfillment.paperOutboundDocument?.paperOutboundDocumentId);
   const inventoryAfterFulfillment = await findInventoryItem(request, createdLine);
   expect(Number(inventoryAfterFulfillment.inStock)).toBe(inStockBeforeReport);
   expect(Number(inventoryAfterFulfillment.reserved ?? inventoryAfterFulfillment.reservedQty ?? 0)).toBe(reservedBeforeReport);
 
   await switchAccount(page, "U-FINANCE-A");
-  await refreshedNavigation.getByRole("button", { name: /对账收款/ }).click();
+  await navigateToPage(page, "对账收款", "对账");
   await page.getByPlaceholder("客户名 / 单号 / 联系人").fill("美的空调网店");
   await page.getByRole("button", { name: "美的空调网店", exact: false }).first().click();
   await expect(page.getByText(createdLine.id, { exact: false })).toBeVisible();
@@ -376,6 +543,426 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
   expect(forbiddenResponses, `页面不应发起越权请求：\n${forbiddenResponses.join("\n")}`).toEqual([]);
   expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
 });
+
+test("经营决定区分决定人与操作人并保证授权、幂等和历史可追溯", async ({ request }, testInfo) => {
+  const suffix = `${Date.now()}-${testInfo.retry}`;
+  const motherAuthorization = await ensureBusinessAuthorization(request, {
+    employeeId: "E2E-DM-MOTHER",
+    decisionScope: "raw_material_purchase",
+    idempotencyKey: `e2e-mother-raw-material-purchase-authorization-${suffix}`,
+    note: "负责人确认母亲可决定原材料采购",
+  });
+  await ensureBusinessAuthorization(request, {
+    employeeId: "E2E-DM-AUNT",
+    decisionScope: "raw_material_purchase",
+    idempotencyKey: "e2e-aunt-raw-material-purchase-authorization",
+    note: "负责人确认姨妈可决定原材料采购",
+  });
+  const officeEffectiveAuthorizations = await apiGet(request, "/business-decision-authorizations?scope=raw_material_purchase&effectiveOnly=true", officeOperatorId);
+  expect(officeEffectiveAuthorizations.items.map((item) => item.employeeId)).toContain("E2E-DM-MOTHER");
+
+  const decidedAt = new Date(Date.now() - 5 * 60 * 1000).toISOString();
+  const idempotencyKey = `e2e-delegated-purchase-${suffix}`;
+  const requestId = `RMP-E2E-EVIDENCE-${suffix}`;
+  const evidenceDraft = await apiPost(request, "/business-decision-evidence-drafts", {
+    idempotencyKey: `e2e-evidence-draft-${suffix}`,
+    businessType: "raw_material_purchase_request",
+    businessId: requestId,
+    decisionScope: "raw_material_purchase",
+  }, officeOperatorId, 201);
+  const evidenceAttachment = await apiPost(request, "/attachments", {
+    idempotencyKey: `e2e-evidence-attachment-${suffix}`,
+    ownerType: "business_decision_evidence_draft",
+    ownerId: evidenceDraft.draft.draftId,
+    purpose: "business_decision_evidence",
+    fileType: "image",
+    fileName: "微信经营群采购确认.png",
+    contentRef: `e2e://business-decision/${suffix}`,
+    mimeType: "image/png",
+    fileSize: 8,
+    contentDataUrl: "data:image/png;base64,iVBORw0KGgo=",
+    uploadedBy: "FORGED-UPLOADER",
+  }, officeOperatorId);
+  expect(evidenceAttachment.uploadedBy).toBe(officeOperatorId);
+  const delegatedDecision = {
+    decisionMakerEmployeeId: "E2E-DM-MOTHER",
+    decisionChannel: "wechat",
+    decidedAt,
+    decisionContent: { summary: "同意采购 E2E 米白无纺布并按本周计划执行" },
+    authorizationBasis: "微信经营群确认",
+    evidenceDraftId: evidenceDraft.draft.draftId,
+  };
+  const delegatedBody = {
+    idempotencyKey,
+    requestId,
+    supplierName: "E2E 薄膜供应商甲",
+    materialLines: [{ materialName: "无纺布", color: "米白", qty: 320, unit: "kg" }],
+    delegatedDecision,
+    operatorId: "U-MANAGER-A",
+    enteredByUserId: "U-MANAGER-A",
+  };
+
+  const delegated = await apiPost(request, "/raw-material-purchase-requests", delegatedBody, "U-OFFICE-B");
+  expect(delegated.purchaseRequest.status).toBe("待执行");
+  expect(delegated.purchaseRequest.createdBy).toBe("U-OFFICE-B");
+  expect(delegated.businessDecision).toMatchObject({
+    decisionType: "delegated",
+    decisionMakerEmployeeId: "E2E-DM-MOTHER",
+    enteredByUserId: "U-OFFICE-B",
+    decisionChannel: "wechat",
+  });
+  expect(delegated.businessDecision.decisionMakerEmployeeId).not.toBe(delegated.businessDecision.enteredByUserId);
+
+  const replay = await apiPost(request, "/raw-material-purchase-requests", delegatedBody, "U-OFFICE-B");
+  expect(replay.replayed).toBe(true);
+  expect(replay.purchaseRequest.id).toBe(delegated.purchaseRequest.id);
+  expect(replay.businessDecision.businessDecisionId).toBe(delegated.businessDecision.businessDecisionId);
+
+  const changedReplay = await apiPost(
+    request,
+    "/raw-material-purchase-requests",
+    {
+      ...delegatedBody,
+      materialLines: [{ materialName: "无纺布", color: "米白", qty: 321, unit: "kg" }],
+    },
+    "U-OFFICE-B",
+    409,
+  );
+  expect(changedReplay.code).toMatch(/IDEMPOTENCY|CONFLICT/);
+
+  const history = await apiGet(
+    request,
+    `/business-decisions?businessType=raw_material_purchase_request&businessId=${encodeURIComponent(delegated.purchaseRequest.id)}`,
+    officeOperatorId,
+  );
+  expect(history.total).toBe(1);
+  expect(history.items[0]).toMatchObject({
+    businessDecisionId: delegated.businessDecision.businessDecisionId,
+    decisionMakerEmployeeId: "E2E-DM-MOTHER",
+    enteredByUserId: "U-OFFICE-B",
+    decisionChannelLabel: "微信",
+  });
+  expect(history.items[0].evidenceAttachments).toEqual(expect.arrayContaining([
+    expect.objectContaining({ attachmentId: evidenceAttachment.attachmentId, fileName: "微信经营群采购确认.png" }),
+  ]));
+
+  const direct = await apiPost(
+    request,
+    "/raw-material-purchase-requests",
+    {
+      idempotencyKey: `e2e-direct-purchase-${suffix}`,
+      supplierName: "E2E 薄膜供应商乙",
+      materialLines: [{ materialName: "薄膜", color: "透明", qty: 180, unit: "kg" }],
+      directDecisionContent: { summary: "管理人员本人确认采购 E2E 透明薄膜" },
+      operatorId: officeOperatorId,
+      enteredByUserId: officeOperatorId,
+    },
+    operatorId,
+  );
+  expect(direct.businessDecision).toMatchObject({
+    decisionType: "direct",
+    decisionMakerEmployeeId: "E2E-MANAGER-001",
+    enteredByUserId: operatorId,
+    decisionChannel: "self_system",
+  });
+
+  const purchasesBeforeRejectedWrites = await apiGet(request, "/raw-material-purchase-requests", officeOperatorId);
+  const decisionsBeforeRejectedWrites = await apiGet(request, "/business-decisions", officeOperatorId);
+  const missingEvidence = await apiPost(
+    request,
+    "/raw-material-purchase-requests",
+    {
+      idempotencyKey: `e2e-missing-decision-${suffix}`,
+      supplierName: "E2E 不应落库供应商一",
+      materialLines: [{ materialName: "薄膜", color: "白", qty: 1, unit: "kg" }],
+      delegatedDecision: { ...delegatedDecision, authorizationBasis: "" },
+    },
+    officeOperatorId,
+    422,
+  );
+  expect(missingEvidence.code).toBe("BUSINESS_DECISION_AUTHORIZATION_BASIS_REQUIRED");
+
+  const unauthorizedDecisionMaker = await apiPost(
+    request,
+    "/raw-material-purchase-requests",
+    {
+      idempotencyKey: `e2e-unauthorized-decision-${suffix}`,
+      supplierName: "E2E 不应落库供应商二",
+      materialLines: [{ materialName: "薄膜", color: "黑", qty: 1, unit: "kg" }],
+      delegatedDecision: {
+        ...delegatedDecision,
+        decisionMakerEmployeeId: warehousePhysicalExecutorEmployeeId,
+        evidenceDraftId: "",
+      },
+    },
+    officeOperatorId,
+    403,
+  );
+  expect(unauthorizedDecisionMaker.code).toBe("SCOPE_MISMATCH");
+
+  const purchasesAfterRejectedWrites = await apiGet(request, "/raw-material-purchase-requests", officeOperatorId);
+  const decisionsAfterRejectedWrites = await apiGet(request, "/business-decisions", officeOperatorId);
+  expect(purchasesAfterRejectedWrites.total).toBe(purchasesBeforeRejectedWrites.total);
+  expect(decisionsAfterRejectedWrites.total).toBe(decisionsBeforeRejectedWrites.total);
+
+  const deactivated = await apiPost(request, `/business-decision-authorizations/${encodeURIComponent(motherAuthorization.authorizationId)}/deactivate`, {
+    idempotencyKey: `e2e-deactivate-mother-${suffix}`,
+    expectedRevision: motherAuthorization.revision,
+    reason: "E2E 验证停用后办公室不可再选",
+  }, operatorId);
+  expect(deactivated.authorization.status).toBe("inactive");
+  const officeAfterDeactivate = await apiGet(request, "/business-decision-authorizations?scope=raw_material_purchase&effectiveOnly=true", officeOperatorId);
+  expect(officeAfterDeactivate.items.map((item) => item.employeeId)).not.toContain("E2E-DM-MOTHER");
+});
+
+test("办公室AB同版本竞争只提交一次并可刷新后重试", async ({ request }, testInfo) => {
+  const suffix = `${Date.now()}-${testInfo.retry}`;
+  await ensureBusinessAuthorization(request, {
+    employeeId: "E2E-DM-AUNT",
+    decisionScope: "raw_material_purchase",
+    idempotencyKey: `e2e-ab-aunt-authorization-${suffix}`,
+    note: "负责人确认姨妈可决定原材料采购",
+  });
+  const created = await apiPost(
+    request,
+    "/raw-material-purchase-requests",
+    {
+      idempotencyKey: `e2e-ab-purchase-${suffix}`,
+      supplierName: "E2E AB 并发供应商",
+      materialLines: [{ materialName: "无纺布", color: "焦糖", qty: 88, unit: "kg" }],
+      delegatedDecision: {
+        decisionMakerEmployeeId: "E2E-DM-AUNT",
+        decisionChannel: "phone",
+        decidedAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        decisionContent: { summary: "同意建立 AB 并发验收采购请求" },
+        authorizationBasis: "电话确认",
+        evidenceAttachmentIds: [],
+      },
+    },
+    officeOperatorId,
+  );
+  const requestId = created.purchaseRequest.id;
+  const [officeARead, officeBRead] = await Promise.all([
+    apiGet(request, `/raw-material-purchase-requests/${encodeURIComponent(requestId)}`, "U-OFFICE-A"),
+    apiGet(request, `/raw-material-purchase-requests/${encodeURIComponent(requestId)}`, "U-OFFICE-B"),
+  ]);
+  expect(officeARead.purchaseRequest.revision).toBe(1);
+  expect(officeBRead.purchaseRequest.revision).toBe(1);
+
+  const submitStatus = (currentOperatorId, key) => request.post(
+    `${apiBaseUrl}/raw-material-purchase-requests/${encodeURIComponent(requestId)}/status`,
+    {
+      data: {
+        expectedRevision: 1,
+        idempotencyKey: key,
+        status: "已联系供应商",
+        reason: `${currentOperatorId} 根据共享任务池联系供应商`,
+      },
+      headers: { "x-erp-user-id": currentOperatorId },
+    },
+  );
+  const [officeAWrite, officeBWrite] = await Promise.all([
+    submitStatus("U-OFFICE-A", `e2e-ab-a-${suffix}`),
+    submitStatus("U-OFFICE-B", `e2e-ab-b-${suffix}`),
+  ]);
+  expect([officeAWrite.status(), officeBWrite.status()].sort()).toEqual([200, 409]);
+  const loserId = officeAWrite.status() === 409 ? "U-OFFICE-A" : "U-OFFICE-B";
+  const conflict = await (officeAWrite.status() === 409 ? officeAWrite : officeBWrite).json();
+  expect(conflict.code).toBe("BUSINESS_WRITE_CONFLICT");
+  expect(conflict.details?.currentRevision ?? conflict.currentRevision).toBe(2);
+
+  const afterConflict = await apiGet(
+    request,
+    `/raw-material-purchase-requests/${encodeURIComponent(requestId)}`,
+    loserId,
+  );
+  expect(afterConflict.purchaseRequest).toMatchObject({ status: "已联系供应商", revision: 2 });
+  const decisionsAfterConflict = await apiGet(
+    request,
+    `/business-decisions?businessType=raw_material_purchase_request&businessId=${encodeURIComponent(requestId)}`,
+    loserId,
+  );
+  expect(decisionsAfterConflict.total).toBe(1);
+
+  const retried = await apiPost(
+    request,
+    `/raw-material-purchase-requests/${encodeURIComponent(requestId)}/status`,
+    {
+      expectedRevision: afterConflict.purchaseRequest.revision,
+      idempotencyKey: `e2e-ab-retry-${suffix}`,
+      status: "已下单",
+      reason: `${loserId} 刷新最新版本并重新确认后下单`,
+    },
+    loserId,
+  );
+  expect(retried.purchaseRequest).toMatchObject({ status: "已下单", revision: 3 });
+  const decisionsAfterRetry = await apiGet(
+    request,
+    `/business-decisions?businessType=raw_material_purchase_request&businessId=${encodeURIComponent(requestId)}`,
+    loserId,
+  );
+  expect(decisionsAfterRetry.total).toBe(1);
+});
+
+async function ensureBusinessAuthorization(request, { employeeId, decisionScope, idempotencyKey, note }) {
+  const existing = await apiGet(
+    request,
+    `/business-decision-authorizations?includeAll=true&employeeId=${encodeURIComponent(employeeId)}&scope=${encodeURIComponent(decisionScope)}`,
+    operatorId,
+  );
+  const active = existing.items?.find((item) => item.status === "active" && (item.isEffective === true || item.effectiveStatus === "current"));
+  if (active) return active;
+  const created = await apiPost(request, "/business-decision-authorizations", {
+    idempotencyKey,
+    employeeId,
+    decisionScope,
+    maxAmount: null,
+    activeFrom: "2020-01-01T00:00:00.000Z",
+    activeTo: "",
+    authorizationNote: note,
+    createdBy: "FORGED-CREATOR",
+    updatedBy: "FORGED-UPDATER",
+  }, operatorId, 201);
+  expect(created.authorization.createdBy).toBe(operatorId);
+  expect(created.authorization.updatedBy).toBe(operatorId);
+  return created.authorization;
+}
+
+async function configureSystemPrinter(request, printDeviceId, currentOperatorId) {
+  const result = await apiPost(
+    request,
+    `/print-devices/${encodeURIComponent(printDeviceId)}/driver-mode`,
+    { driverMode: "system_printer", reason: "E2E 可信打印链路准备" },
+    currentOperatorId,
+  );
+  expect(result.printDevice?.printDeviceId).toBe(printDeviceId);
+  expect(result.printDevice?.settings?.driverMode).toBe("system_printer");
+}
+
+async function submitFulfillmentPrint(page, request, {
+  fulfillmentId,
+  methodTab,
+  action,
+  documentType,
+}) {
+  const before = await apiGet(request, "/print-jobs?page=1&pageSize=200");
+  const existingIds = new Set(before.items.map((item) => item.printJobId));
+  await navigateToPage(page, "出库交付", "库存交付");
+  await page.getByRole("tab", { name: methodTab, exact: true }).click();
+  await page.locator(`.fulfillment-table [data-row-id="${fulfillmentId}"]`).click();
+  await page.getByRole("button", { name: action, exact: true }).click();
+  const printDialog = page.getByRole("dialog", { name: "单据 / 标签预览" });
+  await expect(printDialog).toBeVisible();
+  await printDialog.getByRole("button", { name: "确认提交", exact: true }).click();
+  return waitForApiItem(request, "/print-jobs?page=1&pageSize=200", (item) =>
+    !existingIds.has(item.printJobId) &&
+    item.targetId === fulfillmentId &&
+    item.documentType === documentType &&
+    item.jobStatus === "queued",
+  );
+}
+
+async function dispatchAndConfirmTrustedPrint(page, request, printJob, {
+  dispatchOperatorId = officeOperatorId,
+  forbiddenCallbackOperatorId = "",
+} = {}) {
+  await navigateToPage(page, "打包/标签", "更多工作台");
+  await selectWorkbenchTabIfPresent(page, "打印与设备");
+  await page.getByRole("tab", { name: /打印作业/ }).click();
+  const printJobRow = page.locator(".print-job-row").filter({ hasText: printJob.printJobId });
+  const dispatchButton = printJobRow.getByRole("button", { name: "派发", exact: true });
+  await expect(dispatchButton).toBeEnabled();
+  const dispatchResult = await apiPost(
+    request,
+    `/print-jobs/${encodeURIComponent(printJob.printJobId)}/dispatch`,
+    { reason: "E2E 办公室可信打印派发" },
+    dispatchOperatorId,
+  );
+  expect(dispatchResult.printJob?.jobStatus).toBe("sent");
+  const dispatched = await apiGet(request, `/print-jobs/${encodeURIComponent(printJob.printJobId)}`);
+  const externalJobId = dispatched.printJob.metadata?.lastDispatch?.externalJobId;
+  expect(externalJobId).toBe(`DRY-${printJob.printJobId}`);
+
+  if (forbiddenCallbackOperatorId) {
+    const forbidden = await apiPost(
+      request,
+      `/print-jobs/${encodeURIComponent(printJob.printJobId)}/driver-status`,
+      { status: "printed", externalJobId },
+      forbiddenCallbackOperatorId,
+      403,
+    );
+    expect(forbidden.requiredPermission).toBe("print.job.callback");
+  }
+
+  return apiPost(
+    request,
+    `/print-jobs/${encodeURIComponent(printJob.printJobId)}/driver-status`,
+    {
+      status: "printed",
+      externalJobId,
+      adapterName: "e2e-dry-run-driver",
+      eventSource: "driver_callback",
+      driverStatus: "completed",
+      message: "isolated trusted print callback",
+      idempotencyKey: `E2E-${printJob.printJobId}-printed`,
+    },
+    printDriverOperatorId,
+  );
+}
+
+async function handoffAndRecordPhysicalOutbound(page, request, {
+  fulfillmentId,
+  methodTab,
+  physicalExecutorEmployeeId,
+  feedbackChannel,
+}) {
+  await page.reload();
+  await navigateToPage(page, "出库交付", "库存交付");
+  await page.getByRole("tab", { name: methodTab, exact: true }).click();
+  await page.locator(`.fulfillment-table [data-row-id="${fulfillmentId}"]`).click();
+  await page.getByRole("button", { name: "纸单交库房", exact: true }).click();
+  const handoffDialog = page.getByRole("dialog", { name: "纸单交库房" });
+  await expect(handoffDialog).toBeVisible();
+  await handoffDialog.getByPlaceholder("如：纸单已交郭青格，等库房找货").fill("E2E 纸单已交库房");
+  await handoffDialog.getByRole("button", { name: "确认交库房", exact: true }).click();
+  await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
+    item.fulfillmentId === fulfillmentId && item.paperOutboundStatus === "已交库房",
+  );
+
+  await page.reload();
+  await navigateToPage(page, "出库交付", "库存交付");
+  await page.getByRole("tab", { name: methodTab, exact: true }).click();
+  await page.locator(`.fulfillment-table [data-row-id="${fulfillmentId}"]`).click();
+  await page.getByRole("button", { name: "回录库房结果", exact: true }).click();
+  const executionDialog = page.getByRole("dialog", { name: "回录库房实物结果" });
+  await expect(executionDialog).toBeVisible();
+  await executionDialog.getByLabel("库房反馈结果").selectOption("实物已出库");
+  await executionDialog.getByLabel("实物执行人员工编号").fill(physicalExecutorEmployeeId);
+  await executionDialog.getByLabel("反馈渠道").selectOption(feedbackChannel);
+  await executionDialog.getByLabel("备注").fill("按当前纸单核对规格和数量后完成实物交接");
+  await executionDialog.getByRole("button", { name: "下一步确认", exact: true }).click();
+  await expect(executionDialog.getByText("只登记库房实物出库并扣减库存", { exact: false })).toBeVisible();
+  await executionDialog.getByRole("button", { name: "确认回录", exact: true }).click();
+  await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
+    item.fulfillmentId === fulfillmentId
+      && item.status === (methodTab === "自提" ? "待确认自提交付" : "待承运方拉走")
+      && Boolean(item.physicalOutboundAt)
+      && !item.finalDeliveryAt,
+  );
+
+  await page.reload();
+  await navigateToPage(page, "出库交付", "库存交付");
+  await page.getByRole("tab", { name: methodTab, exact: true }).click();
+  await page.locator(`.fulfillment-table [data-row-id="${fulfillmentId}"]`).click();
+  await page.getByRole("button", { name: methodTab === "自提" ? "确认最终自提" : "确认已拉走", exact: true }).click();
+  const finalDeliveryDialog = page.getByRole("dialog", { name: "确认最终交付" });
+  await expect(finalDeliveryDialog).toBeVisible();
+  await expect(finalDeliveryDialog.getByText("库存已在库房实物出库时扣减", { exact: false })).toBeVisible();
+  await finalDeliveryDialog.getByRole("button", { name: "确认最终交付", exact: true }).click();
+  await waitForApiItem(request, "/fulfillments?page=1&pageSize=200", (item) =>
+    item.fulfillmentId === fulfillmentId && item.status === "已交付" && Boolean(item.finalDeliveryAt),
+  );
+}
 
 async function apiGet(request, path, currentOperatorId = operatorId) {
   const response = await request.get(`${apiBaseUrl}${path}`, {
@@ -426,19 +1013,69 @@ async function findInventoryItem(request, line) {
 }
 
 async function switchAccount(page, userId) {
-  const accountSwitcher = page.getByRole("combobox", { name: "切换当前账号" });
-  if (await accountSwitcher.count()) {
-    if (await accountSwitcher.inputValue() === userId) return;
-    const loginResponsePromise = page.waitForResponse((response) =>
-      new URL(response.url()).pathname === "/api/auth/prototype-login" && response.request().method() === "POST",
+  const accountSwitcher = page.getByRole("combobox", { name: /切换当前账号|切换演示角色/ });
+  await expect(accountSwitcher).toBeVisible();
+  const currentUserId = await accountSwitcher.inputValue();
+  if (currentUserId === userId) {
+    const alternate = await accountSwitcher.locator("option").evaluateAll(
+      (options, selectedUserId) => options.map((item) => item.value).find((value) => value !== selectedUserId) ?? "",
+      userId,
     );
-    await accountSwitcher.selectOption(userId);
-    const loginResponse = await loginResponsePromise;
-    expect(loginResponse.ok(), `${userId} 原型账号登录应成功`).toBe(true);
-    await expect(accountSwitcher).toHaveValue(userId);
-    const displayName = (await accountSwitcher.locator("option:checked").textContent())?.split(" · ")[0];
-    await expect(page.getByText(`已通过后端 seed 登录切换为：${displayName}`, { exact: false })).toBeVisible();
+    if (alternate) await selectPrototypeAccount(page, accountSwitcher, alternate);
   }
+  await selectPrototypeAccount(page, page.getByRole("combobox", { name: /切换当前账号|切换演示角色/ }), userId);
+}
+
+async function selectPrototypeAccount(page, accountSwitcher, userId) {
+  const selectedOption = accountSwitcher.locator(`option[value="${userId}"]`);
+  const displayName = (await selectedOption.textContent())?.split(" · ")[0] ?? userId;
+  const loginResponsePromise = page.waitForResponse((response) =>
+    new URL(response.url()).pathname === "/api/auth/prototype-login" && response.request().method() === "POST",
+  );
+  await accountSwitcher.selectOption(userId);
+  const loginResponse = await loginResponsePromise;
+  expect(loginResponse.ok(), `${userId} 原型账号登录应成功`).toBe(true);
+  const loginPayload = await loginResponse.json();
+  expect(loginPayload.permissions?.user?.userId).toBe(userId);
+  await expect(page.getByText(displayName, { exact: true }).first()).toBeVisible();
+  const currentSwitcher = page.getByRole("combobox", { name: /切换当前账号|切换演示角色/ });
+  if (await currentSwitcher.count()) await expect(currentSwitcher).toHaveValue(userId);
+}
+
+async function navigateToPage(page, pageLabel, groupLabel = "") {
+  const navigation = page.getByRole("navigation", { name: "主导航" });
+  await expect(navigation).toBeVisible();
+  let target = navigation.getByRole("button", { name: pageLabel, exact: true });
+  if (!(await target.isVisible().catch(() => false)) && groupLabel) {
+    await navigation.getByRole("button", { name: groupLabel, exact: true }).click();
+    target = navigation.getByRole("button", { name: pageLabel, exact: true });
+  }
+  await expect(target).toBeVisible();
+  await target.click();
+}
+
+async function openWorkshopTask(page, orderLineId) {
+  await openMobileTask(page, "车间移动任务", orderLineId);
+}
+
+async function openMobileTask(page, regionName, recordId) {
+  const mobileNavigation = page.getByRole("navigation", { name: "现场岗位手机导航" });
+  await expect(mobileNavigation).toBeVisible();
+  await mobileNavigation.getByRole("button", { name: /待处理/ }).click();
+  const taskRegion = page.getByRole("region", { name: regionName });
+  await expect(taskRegion).not.toContainText("刷新中");
+  await taskRegion.locator(".mobile-task-row").filter({ hasText: recordId }).click();
+}
+
+async function clickWithConfirm(page, locator, { accept, message }) {
+  const dialogPromise = page.waitForEvent("dialog");
+  const clickPromise = locator.click();
+  const dialog = await dialogPromise;
+  expect(dialog.type()).toBe("confirm");
+  expect(dialog.message()).toContain(message);
+  if (accept) await dialog.accept();
+  else await dialog.dismiss();
+  await clickPromise;
 }
 
 async function selectWorkbenchTabIfPresent(page, name) {

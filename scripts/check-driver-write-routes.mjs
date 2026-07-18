@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleDriverWriteRoutes } from "../server/routes/driverWriteRoutes.mjs";
 
 const calls = [];
 const dependencies = {
   response: {},
   workspace: {},
-  body: { operatorId: "U-DRIVER-A" },
+  body: { idempotencyKey: "driver-write-route-check" },
   permissionContext: { actionPermissions: [] },
-  authContext: { userId: "U-AUTH" },
+  authContext: { user: { userId: "U-AUTH" } },
   writeActionPermissions: {
     confirmDriverDeliveryLoaded: "delivery.load_confirm",
     recordDriverDeviceFieldTest: "delivery.device_qa.record",
@@ -22,14 +23,22 @@ const dependencies = {
     calls.push({ kind: "operator", permissionContext, authContext, fallback });
     return "U-RESOLVED";
   },
+  fulfillmentActionCommandService: {},
+  driverDeviceFieldTestCommandService: {},
+  sendCommandResponse(response, result, options) {
+    calls.push({ kind: "response", response, result, options });
+  },
 };
-for (const [routeName, kind] of [
-  ["confirmDriverDeliveryLoadedRoute", "load"],
-  ["recordDriverDeviceFieldTestRoute", "fieldTest"],
-  ["completeDriverDeliveryTaskRoute", "complete"],
-  ["reportDriverDeliveryExceptionRoute", "exception"],
+for (const [serviceName, commandName, kind] of [
+  ["fulfillmentActionCommandService", "confirmDriverDeliveryLoaded", "load"],
+  ["driverDeviceFieldTestCommandService", "recordDriverDeviceFieldTest", "fieldTest"],
+  ["fulfillmentActionCommandService", "completeDriverDelivery", "complete"],
+  ["fulfillmentActionCommandService", "reportDriverDeliveryException", "exception"],
 ]) {
-  dependencies[routeName] = async (input) => calls.push({ kind, ...input });
+  dependencies[serviceName][commandName] = async (input) => {
+    calls.push({ kind, ...input });
+    return { response: { command: kind } };
+  };
 }
 
 for (const [action, permission, kind] of [
@@ -58,7 +67,21 @@ assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleDriverWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/driver/delivery-tasks/F-1/complete") }), false);
 assert.equal(await handleDriverWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/driver/delivery-tasks/F-1") }), false);
 
-console.log("driver write routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+for (const removedWrapper of [
+  "confirmDriverDeliveryLoadedRoute",
+  "recordDriverDeviceFieldTestRoute",
+  "completeDriverDeliveryTaskRoute",
+  "reportDriverDeliveryExceptionRoute",
+]) {
+  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
+}
+assert.match(
+  apiSource,
+  /handleDriverWriteRoutes\([\s\S]*fulfillmentActionCommandService,[\s\S]*driverDeviceFieldTestCommandService,[\s\S]*sendCommandResponse,/,
+);
+
+console.log("driver write routes checks passed: permissions, authenticated operators, driver commands, response adaptation, and thin API wiring are covered");
 
 async function expectHandled(action, permission, kind) {
   calls.length = 0;
@@ -68,11 +91,16 @@ async function expectHandled(action, permission, kind) {
     { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback: "U-DRIVER-A" },
     {
       kind,
-      response: dependencies.response,
       workspace: dependencies.workspace,
       fulfillmentId: "F-1",
       body: dependencies.body,
       operatorId: "U-RESOLVED",
+    },
+    {
+      kind: "response",
+      response: dependencies.response,
+      result: { response: { command: kind } },
+      options: undefined,
     },
   ]);
 }

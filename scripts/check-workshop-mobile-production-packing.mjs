@@ -282,7 +282,6 @@ const packingResult = await completeOfficePackingTask(
     inventoryItem,
     actualPackedQty: 1000,
     packageCount: 3,
-    labelsPrinted: false,
     operatorId: "U-PACKING-A",
     remark: "打包手机端提交打包完成",
   },
@@ -306,6 +305,7 @@ const packingResult = await completeOfficePackingTask(
 assert(packingResult.source === "api", "mobile packing completion did not use API");
 assert(packingCalls[0]?.init.headers["x-erp-user-id"] === "U-PACKING-A", "mobile packing completion did not send packing user header");
 assert(packingCalls[0]?.body.remark.includes("打包手机端"), "mobile packing remark did not identify mobile entry");
+assert(!Object.hasOwn(packingCalls[0]?.body ?? {}, "labelsPrinted"), "mobile packing must not send a browser-reported label flag");
 assert(packingResult.inventoryDeducted === false, "mobile packing completion must not deduct inventory");
 
 console.log("Workshop mobile production/packing check passed: seed roles, UI permissions, finished-goods photo upload, and API client headers are covered.");

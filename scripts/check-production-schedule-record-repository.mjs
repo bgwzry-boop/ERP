@@ -8,7 +8,18 @@ import {
   buildResequenceProductionScheduleRecordsTransactionSql,
   createLocalProductionScheduleRecordRepository,
   createPostgresProductionScheduleRecordRepository,
+  ensurePublishedTaskScheduleRecords,
 } from "../server/productionScheduleRecordRepository.mjs";
+import { createLocalBusinessDecisionEvidenceRepository } from "../server/businessDecisionEvidenceRepository.mjs";
+
+const backfilled = ensurePublishedTaskScheduleRecords({
+  productionTasks: [buildProductionTask({ publishedScheduleId: "SCH-BACKFILL-001" })],
+  records: [],
+});
+assert.equal(backfilled.length, 1);
+assert.equal(backfilled[0].sourceKind, "schedule_publish_backfill");
+assert.equal(backfilled[0].revision, 1);
+assert.equal(ensurePublishedTaskScheduleRecords({ productionTasks: [buildProductionTask({ publishedScheduleId: "SCH-BACKFILL-001" })], records: backfilled }).length, 1);
 
 await checkLocalRepository();
 await checkPostgresSqlBoundary();
@@ -22,6 +33,12 @@ async function checkLocalRepository() {
   const workspace = {
     productionScheduleRecords: [buildScheduleRecord({ scheduleRecordId: "SQR-OTHER", machineId: "PRINT-01", productionTaskId: "PT-PRINT-001", queueSeq: 1 })],
     operationLogs: [],
+    businessDecisionRecords: [],
+    businessDecisionAuthorizations: [],
+    attachmentLinks: [],
+    operationIdempotencyRecords: [],
+    productionTasks: [buildProductionTask()],
+    businessDecisionEvidenceRepository: createLocalBusinessDecisionEvidenceRepository(),
   };
   const result = await repository.resequenceMachineQueue({
     workspace,
@@ -31,6 +48,7 @@ async function checkLocalRepository() {
     ],
     transactionContext: { machineId: "BAG-01", updatedAt: "2026-07-03T10:30:00.000Z" },
     operationLog: buildOperationLog(),
+    decisionRecord: buildDecisionRecord("BD-SCHEDULE-RESEQ-LOCAL"),
   });
 
   assert.equal(result.operationLogId, "LOG-SCHEDULE-RESEQ-001");
@@ -59,6 +77,8 @@ async function checkLocalRepository() {
       buildScheduleRecord({ scheduleRecordId: "SQR-BAG-02-001", productionTaskId: "PT-BAG-001", machineId: "BAG-02", queueSeq: 1, sourceKind: "machine_reassignment" }),
     ],
     operationLog: buildOperationLog({ id: "LOG-SCHEDULE-MOVE-001", action: "move_production_schedule_queue_item" }),
+    decisionRecord: buildDecisionRecord("BD-SCHEDULE-MOVE-LOCAL"),
+    expectedRecords: workspace.productionScheduleRecords.filter((record) => ["BAG-01", "BAG-02"].includes(record.machineId)),
   });
   assert.equal(moveResult.productionTask.machineId, "BAG-02");
   assert.equal(workspace.productionTasks[0].machineId, "BAG-02");
@@ -73,6 +93,7 @@ async function checkPostgresSqlBoundary() {
       buildScheduleRecord({ productionTaskId: "PT-BAG-SQL-001", queueSeq: 2 }),
     ],
     operationLog: buildOperationLog({ reason: "O'Brien resequence" }),
+    decisionRecord: buildDecisionRecord("BD-SCHEDULE-RESEQ-SQL"),
   });
   assert.match(transactionSql, /^BEGIN;/);
   assert.match(transactionSql, /INSERT INTO production_schedule_records/);
@@ -108,10 +129,11 @@ async function checkPostgresSqlBoundary() {
           buildScheduleRecord({ productionTaskId: "PT-BAG-SQL-001", queueSeq: 2 }),
         ],
         operationLogId: "LOG-SCHEDULE-RESEQ-001",
+        businessDecision: buildDecisionRecord("BD-SCHEDULE-RESEQ-PG"),
       };
     },
   });
-  const workspace = { productionScheduleRecords: [], operationLogs: [] };
+  const workspace = { productionScheduleRecords: [], operationLogs: [], businessDecisionRecords: [], attachmentLinks: [] };
   const result = await repository.resequenceMachineQueue({
     workspace,
     records: [
@@ -119,6 +141,7 @@ async function checkPostgresSqlBoundary() {
       buildScheduleRecord({ productionTaskId: "PT-BAG-SQL-001", queueSeq: 2 }),
     ],
     operationLog: buildOperationLog(),
+    decisionRecord: buildDecisionRecord("BD-SCHEDULE-RESEQ-PG"),
   });
   assert.equal(result.operationLogId, "LOG-SCHEDULE-RESEQ-001");
   assert.equal(workspace.productionScheduleRecords[0].productionTaskId, "PT-BAG-SQL-002");
@@ -131,6 +154,7 @@ async function checkPostgresSqlBoundary() {
       buildScheduleRecord({ productionTaskId: "PT-BAG-SQL-001", machineId: "BAG-02", queueSeq: 1, sourceKind: "machine_reassignment" }),
     ],
     operationLog: buildOperationLog({ id: "LOG-SCHEDULE-MOVE-001", action: "move_production_schedule_queue_item" }),
+    decisionRecord: buildDecisionRecord("BD-SCHEDULE-MOVE-SQL"),
   });
   assert.match(moveSql, /UPDATE production_tasks/);
   assert.match(moveSql, /revision = production_tasks\.revision \+ 1/);
@@ -149,6 +173,7 @@ async function checkPostgresSqlBoundary() {
       buildScheduleRecord({ productionTaskId: "PT-BAG-SQL-001", queueSeq: 2 }),
     ],
     operationLog: buildOperationLog({ reason: "O'Brien resequence" }),
+    decisionRecord: buildDecisionRecord("BD-SCHEDULE-RESEQ-QUERY"),
   });
   assert.equal(resequenceQuery.values.includes("O'Brien urgent"), true);
   assert.equal(resequenceQuery.values.includes("O'Brien resequence"), true);
@@ -156,7 +181,39 @@ async function checkPostgresSqlBoundary() {
     productionTask: buildProductionTask({ machineId: "BAG-02" }),
     records: [buildScheduleRecord({ productionTaskId: "PT-BAG-SQL-001", machineId: "BAG-02", queueSeq: 1, sourceKind: "machine_reassignment" })],
     operationLog: buildOperationLog({ id: "LOG-SCHEDULE-MOVE-001", action: "move_production_schedule_queue_item" }),
+    decisionRecord: buildDecisionRecord("BD-SCHEDULE-MOVE-QUERY"),
   }).values.slice(0, 2), ["BAG-02", "PT-BAG-001"]);
+}
+
+function buildDecisionRecord(id) {
+  return {
+    id,
+    businessType: "production_schedule_queue",
+    businessId: "BAG-01",
+    decisionScope: "production_schedule",
+    decisionType: "delegated",
+    decisionMakerEmployeeId: "ERP-MOTHER",
+    decisionMakerEmployeeNoSnapshot: "031",
+    decisionMakerNameSnapshot: "负责人",
+    decisionChannel: "wechat",
+    decidedAt: "2026-07-03T10:20:00.000Z",
+    decisionContent: { summary: "确认排产顺序" },
+    authorizationId: "AUTH-SCHEDULE",
+    authorizationSnapshot: { authorizationId: "AUTH-SCHEDULE" },
+    authorizationBasis: "微信确认",
+    amountSnapshot: null,
+    currency: "CNY",
+    evidenceAttachmentIds: [],
+    enteredByUserId: "U-OFFICE-A",
+    enteredAt: "2026-07-03T10:30:00.000Z",
+    status: "active",
+    lateEntry: false,
+    lateEntryReason: "",
+    revision: 1,
+    operationLogId: "LOG-SCHEDULE-RESEQ-001",
+    createdAt: "2026-07-03T10:30:00.000Z",
+    updatedAt: "2026-07-03T10:30:00.000Z",
+  };
 }
 
 function buildProductionTask(overrides = {}) {

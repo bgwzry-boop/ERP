@@ -67,12 +67,11 @@ assertSensitiveTextAbsent(failedResult);
 
 const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
 const serviceSource = readFileSync(new URL("../server/services/v1V2BoundaryService.mjs", import.meta.url), "utf8");
-const precheckFunction = extractFunction(apiSource, "function precheckSystemV1V2Boundary({ operatorId })");
-const refreshFunction = extractFunction(apiSource, "async function refreshSystemV1V2ScopeBrief({ operatorId })");
-assert.match(precheckFunction, /return v1V2BoundaryService\.precheck\(\{ operatorId \}\);/);
-assert.match(refreshFunction, /return v1V2BoundaryService\.refreshScopeBrief\(\{ operatorId \}\);/);
-assert.doesNotMatch(precheckFunction, /readV1GoLiveStatusArtifacts|summarizeV1FieldEvidence|blockers|try\s*\{/);
-assert.doesNotMatch(refreshFunction, /runV1V2ScopeBriefRefreshCommand|readV1GoLiveStatusArtifacts|try\s*\{/);
+const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /function precheckSystemV1V2Boundary|async function refreshSystemV1V2ScopeBrief/);
+assert.match(routeSource, /precheckV1V2Boundary:[\s\S]*v1V2BoundaryService\.precheck\(\{ operatorId \}\)/);
+assert.match(routeSource, /refreshV1V2ScopeBrief:[\s\S]*v1V2BoundaryService\.refreshScopeBrief\(\{ operatorId \}\)/);
+assert.doesNotMatch(routeSource, /readV1GoLiveStatusArtifacts|summarizeV1FieldEvidence|runV1V2ScopeBriefRefreshCommand/);
 for (const oldHelper of [
   "buildV1V2BoundaryPrecheckBlockers",
   "buildV1V2BoundaryPrecheckBlocker",
@@ -142,17 +141,4 @@ function assertSensitiveTextAbsent(value) {
   for (const fragment of ["postgres://", "owner:secret", "db.internal", "erp.internal", "/Users/private"]) {
     assert.equal(serialized.includes(fragment), false, `response must redact ${fragment}`);
   }
-}
-
-function extractFunction(source, declaration) {
-  const start = source.indexOf(declaration);
-  assert.notEqual(start, -1, `${declaration} should exist`);
-  const bodyStart = source.indexOf("{", start + declaration.length - 1);
-  let depth = 0;
-  for (let index = bodyStart; index < source.length; index += 1) {
-    if (source[index] === "{") depth += 1;
-    if (source[index] === "}") depth -= 1;
-    if (depth === 0) return source.slice(start, index + 1);
-  }
-  throw new Error(`${declaration} should be balanced`);
 }

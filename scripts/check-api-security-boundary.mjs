@@ -4,6 +4,12 @@ import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createRuntimeSession, createSeedSession, hashRuntimeUserPassword } from "../server/authSeed.mjs";
 import { createApiServer } from "../server/apiServer.mjs";
+import {
+  closeTestServer as close,
+  getTestServerBaseUrl as serverUrl,
+  listenTestServer as listen,
+  requestJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "api-security-boundary");
 const authSecret = "api-security-boundary-test-secret";
@@ -208,36 +214,6 @@ try {
   await close(strictServer);
   await close(strictRuntimeServer);
   rmSync(checkStorageRoot, { recursive: true, force: true });
-}
-
-function listen(server) {
-  return new Promise((resolvePromise, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolvePromise();
-    });
-  });
-}
-
-function close(server) {
-  if (!server?.listening) return Promise.resolve();
-  return new Promise((resolvePromise, reject) => server.close((error) => (error ? reject(error) : resolvePromise())));
-}
-
-function serverUrl(server) {
-  const address = server.address();
-  return `http://127.0.0.1:${address.port}`;
-}
-
-async function requestJson(baseUrl, pathname, options = {}) {
-  const response = await fetch(`${baseUrl}${pathname}`, options);
-  const text = await response.text();
-  return {
-    status: response.status,
-    headers: response.headers,
-    body: text ? JSON.parse(text) : {},
-  };
 }
 
 function requestChunkedJson(baseUrl, pathname, options = {}) {

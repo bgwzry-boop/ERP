@@ -19,6 +19,7 @@ const defaultProductionEnvSetupOutputDir = ".erp-local-storage/v1-production-env
 const defaultProductionEnvIntakeVerifyOutputDir = ".erp-local-storage/v1-production-env-intake-verify";
 const defaultPersistenceEvidenceJsonPath = ".erp-local-storage/v1-production-persistence-evidence/latest.json";
 const defaultRuntimeSmokeJsonPath = ".erp-local-storage/v1-production-runtime-smoke/latest.json";
+const defaultTodoLoadPrecheckJsonPath = ".erp-local-storage/v1-todo-load-precheck/latest.json";
 const defaultEvidenceSuggestionsOutputDir = ".erp-local-storage/v1-production-first-stage-evidence-suggestions";
 const defaultProductionEnvSetupJsonPath = ".erp-local-storage/v1-production-env-setup/latest.json";
 const fieldEvidenceManifestEnvName = "ERP_V1_FIELD_EVIDENCE_MANIFEST";
@@ -52,6 +53,7 @@ function runCli() {
       productionEnvIntakeVerifyOutputDir: options.productionEnvIntakeVerifyOutputDir,
       psqlCommand: options.psqlCommand,
       signedUrlTtlSeconds: options.signedUrlTtlSeconds,
+      todoLoadPrecheckPath: options.todoLoadPrecheckPath,
     });
     const outputReport =
       options.write && !options.planOnly
@@ -103,6 +105,7 @@ function parseArgs(args) {
     productionEnvValuesDryRun: false,
     psqlCommand: "psql",
     signedUrlTtlSeconds: 120,
+    todoLoadPrecheckPath: defaultTodoLoadPrecheckJsonPath,
     useProductionEnvSetupEnvFile: false,
     write: true,
   };
@@ -207,6 +210,11 @@ function parseArgs(args) {
       index += 1;
       continue;
     }
+    if (arg === "--todo-load-precheck-json") {
+      options.todoLoadPrecheckPath = readValue(args, index, arg);
+      index += 1;
+      continue;
+    }
     if (arg === "--help" || arg === "-h") {
       process.stdout.write(helpText());
       process.exit(0);
@@ -286,6 +294,7 @@ function helpText() {
     "  --pg-dump-command <path>       PostgreSQL dump command for backup / restore evidence. Defaults to pg_dump.",
     "  --signed-url-ttl-seconds <n>   Object-storage signed URL probe TTL. Defaults to 120.",
     "  --max-age-hours <n>            Closeout source evidence freshness. Defaults to 72; 0 disables freshness blocking.",
+    "  --todo-load-precheck-json <path> Redacted todo-load report consumed by closeout. Defaults to .erp-local-storage/v1-todo-load-precheck/latest.json.",
     "  --output-dir <path>            Write redacted execution files. Defaults to .erp-local-storage/v1-production-first-stage-execution.",
     "  --no-write                     Do not write JSON / Markdown execution files.",
     "  --json                         Print machine-readable JSON.",
@@ -296,7 +305,7 @@ function helpText() {
     "  2  Plan-only or a readable first-stage blocker remains",
     "",
     "Default execution is non-business-mutating. Schema migration apply requires explicit --apply-migrations.",
-    "After persistence evidence and runtime smoke pass, this runner writes first-stage evidence suggestions for human review; it does not apply them.",
+    "After persistence evidence and runtime smoke pass, this runner consumes a separately generated todo-load report and writes first-stage evidence suggestions for human review; it never starts todo load by itself.",
   ].join("\n");
 }
 
@@ -408,6 +417,7 @@ function buildProductionFirstStageExecution({
   productionEnvIntakeVerifyOutputDir = defaultProductionEnvIntakeVerifyOutputDir,
   psqlCommand = "psql",
   signedUrlTtlSeconds = 120,
+  todoLoadPrecheckPath = defaultTodoLoadPrecheckJsonPath,
   stepExecutor = executeStepCommand,
 } = {}) {
   const steps = buildExecutionSteps({
@@ -428,7 +438,8 @@ function buildProductionFirstStageExecution({
     productionEnvSetupOutputDir,
       productionEnvIntakeVerifyOutputDir,
       psqlCommand,
-      signedUrlTtlSeconds,
+    signedUrlTtlSeconds,
+    todoLoadPrecheckPath,
   });
   const stages = [];
 
@@ -517,6 +528,8 @@ function buildProductionFirstStageExecution({
       productionEnvValuesDryRunStopsBeforeFirstStage: valuesDryRun,
       productionEnvValuesFilePathIncluded: false,
       productionEnvValuesApplyOutputDirIncluded: false,
+      todoLoadPrecheckPathIncluded: false,
+      todoLoadAutomaticallyExecuted: false,
     },
     stages,
     blockingStages,
@@ -670,6 +683,7 @@ function buildExecutionSteps({
   productionEnvIntakeVerifyOutputDir = defaultProductionEnvIntakeVerifyOutputDir,
   psqlCommand,
   signedUrlTtlSeconds,
+  todoLoadPrecheckPath = defaultTodoLoadPrecheckJsonPath,
 }) {
   const envArgs = envFiles.flatMap((envFile) => ["--env-file", envFile]);
   const safeEnvArgs = envFiles.flatMap(() => ["--env-file", "<secure-env-file>"]);
@@ -891,6 +905,8 @@ function buildExecutionSteps({
         fieldEvidenceManifestPath,
         "--max-age-hours",
         String(maxAgeHours),
+        "--todo-load-precheck-json",
+        todoLoadPrecheckPath,
         "--json",
       ],
       safeArgs: [
@@ -898,6 +914,8 @@ function buildExecutionSteps({
         "<field-evidence-manifest>",
         "--max-age-hours",
         String(maxAgeHours),
+        "--todo-load-precheck-json",
+        "<todo-load-precheck-json>",
         "--json",
       ],
       expectsJson: true,

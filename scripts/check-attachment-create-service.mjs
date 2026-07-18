@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { parseDataUrl } from "../server/attachmentObjectStorage.mjs";
 import {
+  createAttachmentCommandService,
   createAttachmentRecord,
   inferAttachmentFileType,
   validateAttachmentUploadBody,
@@ -34,6 +35,20 @@ assert.equal(
 );
 assert.equal(
   validateAttachmentUploadBody(
+    { purpose: "raw_material_delivery_note", fileName: "note.pdf", fileType: "pdf", mimeType: "application/pdf", fileSize: 1024 },
+    { buffer: Buffer.from("pdf"), contentType: "application/pdf" },
+  ),
+  null,
+);
+assert.equal(
+  validateAttachmentUploadBody(
+    { purpose: "raw_material_delivery_note", fileName: "note.xlsx", fileType: "spreadsheet", mimeType: "application/vnd.ms-excel" },
+    null,
+  )?.code,
+  "ATTACHMENT_FILE_TYPE_NOT_ALLOWED",
+);
+assert.equal(
+  validateAttachmentUploadBody(
     { purpose: "payment_screenshot", fileName: "proof.png", fileType: "image", fileSize: 9 * 1024 * 1024 },
     null,
   )?.code,
@@ -59,6 +74,16 @@ const invalidDataUrl = await createAttachmentRecord({
 });
 assert.equal(invalidDataUrl.ok, false);
 assert.equal(invalidDataUrl.message, "contentDataUrl must be a valid data URL");
+
+const noContentPayment = await createAttachmentRecord({
+  workspace: createWorkspace(),
+  body: { ...baseBody, contentDataUrl: "", idempotencyKey: "attachment-check-no-content" },
+  parseDataUrl,
+  buildOperationLog,
+  nextId,
+});
+assert.equal(noContentPayment.ok, false);
+assert.equal(noContentPayment.errorCode, "ATTACHMENT_CONTENT_REQUIRED");
 
 const storageCalls = [];
 const workspace = createWorkspace({ storageCalls });
@@ -101,7 +126,18 @@ assert.equal(deduplicated.deduplicated, true);
 assert.equal(deduplicated.duplicateOfAttachmentId, existingAttachment.attachmentId);
 assert.equal(storageCalls.length, 1, "known content should not be written to object storage twice");
 
-console.log("Attachment create service check passed: validation, digesting, object storage, deduplication, and idempotent IDs are covered.");
+const commandWorkspace = createWorkspace();
+const attachmentCommandService = createAttachmentCommandService({ parseDataUrl, buildOperationLog, nextId });
+const commandResult = await attachmentCommandService.createAttachment({
+  workspace: commandWorkspace,
+  body: { ...baseBody, uploadedBy: "U-CLIENT-SPOOF", idempotencyKey: "attachment-command-check" },
+  operatorId: "U-AUTHENTICATED",
+});
+assert.equal(commandResult.ok, true);
+assert.equal(commandResult.attachment.uploadedBy, "U-AUTHENTICATED");
+assert.throws(() => createAttachmentCommandService(), /parseDataUrl must be a function/);
+
+console.log("Attachment create service check passed: validation, authenticated ownership, digesting, object storage, deduplication, and idempotent IDs are covered.");
 
 function createWorkspace({ storageCalls = [], existingAttachment = null } = {}) {
   return {

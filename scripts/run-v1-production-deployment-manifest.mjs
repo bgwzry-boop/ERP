@@ -147,6 +147,7 @@ export function buildProductionDeploymentManifestReport(options = {}) {
         "ERP_V1_PRODUCTION_ENV_FILE=/etc/erp/erp.production.env",
         "ERP_API_PORT=8787",
         "ERP_API_SHUTDOWN_TIMEOUT_MS=25000",
+        "ERP_FIRST_RELEASE_SCOPE=raw_material",
         "ERP_PRINT_COMMAND_BRIDGE_SPOOL_DIR=/var/spool/erp-print",
       ]) && !/(DATABASE_URL|SECRET_ACCESS_KEY|AUTH_SECRET)=\S+/i.test(serviceEnv),
     ),
@@ -177,8 +178,12 @@ export function buildProductionDeploymentManifestReport(options = {}) {
     ),
     check(
       "frontend-env",
-      "生产前端同源 API",
-      includesAll(frontendEnv, ["VITE_ERP_RUNTIME_MODE=production", "VITE_ERP_API_BASE_URL=/api"]),
+      "生产前端同源 API 与原材料首发范围",
+      includesAll(frontendEnv, [
+        "VITE_ERP_RUNTIME_MODE=production",
+        "VITE_ERP_API_BASE_URL=/api",
+        "VITE_RAW_MATERIAL_FIRST_RELEASE=true",
+      ]),
     ),
     check(
       "recovery-runner",

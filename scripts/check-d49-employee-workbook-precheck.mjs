@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { buildMasterDataImportTemplateWorkbook, getMasterDataImportWorksheetSpecs } from "../src/domain/masterDataImportTemplate.js";
 import { buildXlsxWorkbookFromWorksheets, cell } from "../src/domain/xlsxWorkbook.js";
@@ -23,6 +23,7 @@ const validRun = await runNode([runner, "--file", validPath, "--output-dir", joi
 assert.equal(validRun.status, 0, validRun.stderr || validRun.stdout);
 const validResult = JSON.parse(validRun.stdout);
 assert.equal(validResult.scope, "v1_d49_employee_workbook_precheck");
+assert.equal(validResult.version, "v1-d49-employee-workbook-precheck-v2");
 assert.equal(validResult.status, "review_required");
 assert.equal(validResult.uploadAllowed, true);
 assert.equal(validResult.summary.employeeRowCount, 1);
@@ -30,8 +31,20 @@ assert.equal(validResult.summary.coverageLabel, "1/8");
 assert.equal(validResult.safeguards.readOnly, true);
 assert.equal(validResult.safeguards.formalDataWritten, false);
 assert.equal(validResult.safeguards.stagedRowsIncluded, false);
+assert.equal(validResult.safeguards.workbookDigestIncluded, false);
+assert.equal(validResult.sourceEvidence.workbookDigestIncluded, false);
+assert.equal("workbookDigest" in validResult.sourceEvidence, false);
 assertNoPrivateData(validRun.stdout);
-assertNoPrivateData(readFileSync(join(root, "valid-report", "latest.json"), "utf8"));
+const storedValidReportSource = readFileSync(join(root, "valid-report", "latest.json"), "utf8");
+const storedValidReport = JSON.parse(storedValidReportSource);
+assert.equal(statSync(join(root, "valid-report")).mode & 0o777, 0o700);
+assert.equal(statSync(join(root, "valid-report", "latest.json")).mode & 0o777, 0o600);
+assert.equal(statSync(join(root, "valid-report", "latest.zh-CN.md")).mode & 0o777, 0o600);
+assert.match(storedValidReport.sourceEvidence.workbookDigest, /^[a-f0-9]{64}$/);
+assert.equal(storedValidReport.sourceEvidence.workbookByteLength, readFileSync(validPath).length);
+assert.equal(storedValidReport.safeguards.workbookDigestIncluded, true);
+assert.equal(validRun.stdout.includes(storedValidReport.sourceEvidence.workbookDigest), false);
+assertNoPrivateData(storedValidReportSource);
 assertNoPrivateData(readFileSync(join(root, "valid-report", "latest.zh-CN.md"), "utf8"));
 
 const emptyRun = await runNode([
@@ -85,7 +98,7 @@ const missingResult = JSON.parse(missingRun.stdout);
 assert.equal(missingResult.error.code, "employee_workbook_unreadable");
 assert.doesNotMatch(missingRun.stdout, /missing\.xlsx|d49-employee-workbook-precheck/);
 
-console.log("D49 employee workbook precheck passed: dedicated scope, redaction, role coverage, blocked inputs, and report files are covered.");
+console.log("D49 employee workbook precheck passed: dedicated scope, redaction, source fingerprint evidence, role coverage, blocked inputs, and report files are covered.");
 
 function buildDuplicateEmployeeWorkbook() {
   const spec = getMasterDataImportWorksheetSpecs().find((item) => item.key === "employees_machines");

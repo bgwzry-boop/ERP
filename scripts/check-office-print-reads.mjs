@@ -80,13 +80,26 @@ const successApi = {
       total: 1,
       latestRecord: {
         printerDeviceFieldTestId: "PDQA-1",
+        printJobId: "PJ-API",
         checks: [{ key: "sample_print", status: "passed" }],
         evidence: { samplePrint: "sample-1" },
       },
     };
   },
-  async listOfficePrintJobs() {
-    return { source: "api", items: [{ printJobId: "PJ-API", jobStatus: "queued" }], total: 1 };
+  async listOfficePrintJobs(input) {
+    const qaQuery = input.query?.status === "printed";
+    return {
+      source: "api",
+      items: [
+        {
+          printJobId: "PJ-API",
+          printDeviceId: qaQuery ? "PD-2" : "PD-1",
+          documentType: "delivery_note",
+          jobStatus: qaQuery ? "printed" : "queued",
+        },
+      ],
+      total: 1,
+    };
   },
 };
 
@@ -108,7 +121,10 @@ assert.equal(successCase.state.devices.value.driverLabel, "Driver-B");
 assert.equal(successCase.state.devices.value.driverModeDraft, "system_print");
 assert.equal(successCase.state.devices.value.paperLabel, "241x140mm");
 assert.equal(successCase.state.devices.value.latestRecord.printerDeviceFieldTestId, "PDQA-1");
+assert.equal(successCase.state.devices.value.eligiblePrintJobs.length, 1);
+assert.equal(successCase.state.devices.value.selectedPrintJobId, "PJ-API");
 assert.match(deviceResult.feedback, /共 2 台设备/);
+assert.match(deviceResult.feedback, /1 个可关联已打印作业/);
 const jobsResult = await successCase.actions.refreshOfficePrintJobQueue({ showToast: true });
 assert.equal(successCase.state.jobs.value.items[0].printJobId, "PJ-API");
 assert.match(jobsResult.feedback, /共 1 条/);

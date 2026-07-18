@@ -54,16 +54,14 @@ for (const fragment of ["postgres://", "erp.internal", "/Users/private", "owner:
 }
 
 const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const apiFunction = apiSource.match(
-  /async function precheckSystemV1ReleaseCandidateRefresh\(\{ request, operatorId \}\) \{([\s\S]*?)\n\}/,
-)?.[1];
-assert.ok(apiFunction, "API refresh precheck composition function should exist");
+const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /async function precheckSystemV1ReleaseCandidateRefresh/);
 assert.match(
-  apiFunction,
-  /return v1ReleaseCandidateRefreshPrecheckService\.precheck\(\{ request, operatorId \}\);/,
+  routeSource,
+  /precheckV1ReleaseCandidateRefresh:[\s\S]*v1ReleaseCandidateRefreshPrecheckService\.precheck\(\{ request, operatorId \}\)/,
 );
 assert.doesNotMatch(
-  apiFunction,
+  routeSource,
   /readV1GoLiveStatusArtifacts|buildV1FieldEvidenceDraftFreshness|sanitizeV1ProductionEnvGate|blockers|process\.env/,
 );
 for (const oldHelper of [

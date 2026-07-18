@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { precheckMasterDataImportWorkbook } from "../src/domain/masterDataImportPrecheck.js";
 
@@ -14,13 +15,16 @@ try {
     if (!options.file) throw new Error("missing_file");
     const inputPath = resolve(options.file);
     if (!existsSync(inputPath)) throw new Error("missing_file");
+    const workbookBytes = readFileSync(inputPath);
     const precheck = await precheckMasterDataImportWorkbook({
-      bytes: readFileSync(inputPath),
+      bytes: workbookBytes,
       checkedAt: new Date().toISOString(),
     });
-    const report = buildD49EmployeeWorkbookPrecheck(precheck);
+    const report = buildD49EmployeeWorkbookPrecheck(precheck, {
+      sourceEvidence: buildWorkbookSourceEvidence(workbookBytes),
+    });
     const files = writeReport(report, resolve(options.outputDir || defaultOutputDir));
-    const result = { ...report, files };
+    const result = { ...projectCommandReport(report), files };
     process.stdout.write(options.json ? `${JSON.stringify(result, null, 2)}\n` : formatCommandResult(result));
     if (!report.uploadAllowed && !options.allowBlockedExitZero) process.exitCode = 2;
   }
@@ -34,14 +38,15 @@ try {
       code: "employee_workbook_unreadable",
       message: "无法读取或解析员工机台工作簿；请确认文件存在，并使用系统生成的D49专用XLSX重新填写。",
     },
-    safeguards: buildSafeguards(),
+    safeguards: buildSafeguards(false),
   };
   if (process.argv.includes("--json")) process.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
   else process.stderr.write(`D49 employee workbook precheck failed: ${result.error.message}\n`);
   process.exitCode = 1;
 }
 
-export function buildD49EmployeeWorkbookPrecheck(precheck = {}) {
+export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence } = {}) {
+  const safeSourceEvidence = normalizeSourceEvidence(sourceEvidence);
   const employeeSheets = (precheck.sheets ?? []).filter((sheet) => sheet.key === "employees_machines");
   const dedicatedWorkbook = precheck.sheets?.length === 1 && employeeSheets.length === 1;
   const domainIssues = Array.isArray(precheck.issues) ? precheck.issues : [];
@@ -63,7 +68,7 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}) {
   const status = uploadAllowed ? (ready ? "passed" : "review_required") : "blocked";
   return {
     scope: "v1_d49_employee_workbook_precheck",
-    version: "v1-d49-employee-workbook-precheck-v1",
+    version: "v1-d49-employee-workbook-precheck-v2",
     status,
     ready,
     uploadAllowed,
@@ -92,6 +97,7 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}) {
       dataRowCount: Number(sheet.dataRowCount || 0),
     })),
     issues: projectedIssues,
+    sourceEvidence: safeSourceEvidence,
     nextActions: uploadAllowed
       ? [
           coverage.complete
@@ -104,7 +110,7 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}) {
           "按issues中的行号和字段修正工作簿后重新运行本预检查。",
           "不要用全量主数据模板代替D49专用员工机台模板。",
         ],
-    safeguards: buildSafeguards(),
+    safeguards: buildSafeguards(Boolean(safeSourceEvidence.workbookDigest)),
   };
 }
 
@@ -149,7 +155,7 @@ function sanitizeIssueMessage(issue = {}) {
   return message;
 }
 
-function buildSafeguards() {
+function buildSafeguards(workbookDigestIncluded = false) {
   return {
     readOnly: true,
     formalDataWritten: false,
@@ -160,15 +166,58 @@ function buildSafeguards() {
     passwordsIncluded: false,
     seedAccountsCountedAsReady: false,
     uploadStillRequiresServerPrecheck: true,
+    workbookDigestIncluded,
+  };
+}
+
+function buildWorkbookSourceEvidence(bytes) {
+  return {
+    version: "v1-d49-workbook-source-evidence-v1",
+    digestAlgorithm: "sha256",
+    workbookDigest: createHash("sha256").update(bytes).digest("hex"),
+    workbookByteLength: bytes.length,
+  };
+}
+
+function normalizeSourceEvidence(value = {}) {
+  const workbookDigest = String(value.workbookDigest || "").trim().toLowerCase();
+  return {
+    version: value.version === "v1-d49-workbook-source-evidence-v1"
+      ? value.version
+      : "v1-d49-workbook-source-evidence-v1",
+    digestAlgorithm: value.digestAlgorithm === "sha256" ? "sha256" : "sha256",
+    workbookDigest: /^[a-f0-9]{64}$/.test(workbookDigest) ? workbookDigest : "",
+    workbookByteLength: Number.isSafeInteger(value.workbookByteLength) && value.workbookByteLength >= 0
+      ? value.workbookByteLength
+      : 0,
+  };
+}
+
+function projectCommandReport(report) {
+  return {
+    ...report,
+    sourceEvidence: {
+      version: report.sourceEvidence.version,
+      digestAlgorithm: report.sourceEvidence.digestAlgorithm,
+      workbookByteLength: report.sourceEvidence.workbookByteLength,
+      workbookDigestIncluded: false,
+    },
+    safeguards: {
+      ...report.safeguards,
+      workbookDigestIncluded: false,
+    },
   };
 }
 
 function writeReport(report, outputDir) {
-  mkdirSync(outputDir, { recursive: true });
+  mkdirSync(outputDir, { recursive: true, mode: 0o700 });
+  chmodSync(outputDir, 0o700);
   const jsonPath = join(outputDir, "latest.json");
   const markdownPath = join(outputDir, "latest.zh-CN.md");
-  writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`);
-  writeFileSync(markdownPath, formatMarkdown(report));
+  writeFileSync(jsonPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+  writeFileSync(markdownPath, formatMarkdown(report), { mode: 0o600 });
+  chmodSync(jsonPath, 0o600);
+  chmodSync(markdownPath, 0o600);
   return {
     latestJson: displayOutputPath(jsonPath),
     latestMarkdown: displayOutputPath(markdownPath),

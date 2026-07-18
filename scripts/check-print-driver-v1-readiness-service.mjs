@@ -38,6 +38,7 @@ assert.equal(ready.ready, true);
 assert.equal(ready.summary.label, "9/9 通过");
 assert.equal(ready.criteria.every((item) => item.status === "passed"), true);
 assert.equal(ready.deviceReadiness.every((item) => item.ready), true);
+assert.equal(ready.deviceReadiness.every((item) => item.criteria.at(-1)?.evidence?.printedJobLinked === true), true);
 assert.deepEqual(ready.requiredDocumentTypes, [
   "express_ltl_label",
   "package_label",
@@ -94,6 +95,24 @@ const dotQa = incomplete.criteria.find((item) => item.key === "dot-matrix-notes-
 assert.equal(dotQa.status, "pending");
 assert.equal(dotQa.evidence.missingChecks.includes("void_reprint"), true);
 assert.ok(incomplete.remainingV1Risks.some((item) => item.includes("现场 QA 仍有未通过项目")));
+
+const missingPrintedJobWorkspace = buildReadyWorkspace();
+missingPrintedJobWorkspace.printJobs = missingPrintedJobWorkspace.printJobs.filter(
+  (item) => item.printJobId !== "PJ-QA-LABEL",
+);
+const missingPrintedJob = buildPrintDriverV1Readiness({
+  workspace: missingPrintedJobWorkspace,
+  operatorId,
+  now,
+  ...buildDiagnosticDependencies({ configReady: true, spoolReady: true, cupsReady: true }),
+});
+const missingPrintedJobCriterion = missingPrintedJob.criteria.find(
+  (item) => item.key === "express-ltl-label-printer-field-qa",
+);
+assert.equal(missingPrintedJob.ready, false);
+assert.equal(missingPrintedJobCriterion.status, "pending");
+assert.equal(missingPrintedJobCriterion.evidence.printedJobLinked, false);
+assert.equal(missingPrintedJobCriterion.evidence.acceptanceBlockers.includes("print_job_not_found"), true);
 
 assert.throws(
   () => buildPrintDriverV1Readiness({ workspace: readyWorkspace, operatorId, now }),
@@ -162,8 +181,12 @@ function buildReadyWorkspace() {
       }),
     ],
     printerDeviceFieldTests: [
-      buildQaRecord("PDQA-LABEL", "PRN-LABEL-FORMAL", "express_ltl_label", "2026-07-12T13:40:00.000Z"),
-      buildQaRecord("PDQA-DOT", "PRN-DOT-FORMAL", "delivery_note", "2026-07-12T13:45:00.000Z"),
+      buildQaRecord("PDQA-LABEL", "PRN-LABEL-FORMAL", "PJ-QA-LABEL", "express_ltl_label", "2026-07-12T13:40:00.000Z"),
+      buildQaRecord("PDQA-DOT", "PRN-DOT-FORMAL", "PJ-QA-DOT", "delivery_note", "2026-07-12T13:45:00.000Z"),
+    ],
+    printJobs: [
+      buildPrintedJob("PJ-QA-LABEL", "PRN-LABEL-FORMAL", "express_ltl_label"),
+      buildPrintedJob("PJ-QA-DOT", "PRN-DOT-FORMAL", "delivery_note"),
     ],
   };
 }
@@ -181,10 +204,11 @@ function buildDevice({ printDeviceId, name, deviceType, documentTypes }) {
   };
 }
 
-function buildQaRecord(recordId, printDeviceId, documentType, recordCheckedAt) {
+function buildQaRecord(recordId, printDeviceId, printJobId, documentType, recordCheckedAt) {
   return {
     recordId,
     printDeviceId,
+    printJobId,
     documentType,
     checkedAt: recordCheckedAt,
     checks: [
@@ -203,4 +227,8 @@ function buildQaRecord(recordId, printDeviceId, documentType, recordCheckedAt) {
       operatorAcceptance: "仓库现场签认",
     },
   };
+}
+
+function buildPrintedJob(printJobId, printDeviceId, documentType) {
+  return { printJobId, printDeviceId, documentType, jobStatus: "printed" };
 }

@@ -2,7 +2,18 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
+import {
+  copyTextToClipboard,
+  downloadMasterDataImportTemplateWorkbook,
+  downloadStatementExcelWorkbook,
+  downloadTextFile,
+  mergeAttachmentSummaries,
+  readBlobAsDataUrl,
+  readFileAsDataUrl,
+  sanitizeDownloadFileName,
+} from "../src/app/browserFileActions.js";
 import { useOfficeWorkspace } from "../src/app/useOfficeWorkspace.js";
+import { shouldRefreshMasterDataOnEntry } from "../src/app/useOfficeMasterDataEntryRefresh.js";
 import { loadOfficeWorkspace } from "../src/services/officeMockService.js";
 
 const scenarioData = loadOfficeWorkspace();
@@ -61,15 +72,65 @@ for (const key of ["selectedTodoId", "selectedOrderId", "selectedStockId", "sele
 assert.deepEqual(productionWorkspace.productionPacking.productionTasks, []);
 assert.deepEqual(productionWorkspace.driverDeliveryTasks, []);
 
+const masterDataEntryRef = { current: null };
+const masterDataAuth = { authenticated: true };
+assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "todos", authState: masterDataAuth, currentUserId: "U-1" }), false);
+assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "masterData", authState: masterDataAuth, currentUserId: "U-1" }), true);
+assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "masterData", authState: masterDataAuth, currentUserId: "U-1" }), false);
+assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "masterData", authState: { authenticated: true }, currentUserId: "U-1" }), true);
+assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "orders", authState: masterDataAuth, currentUserId: "U-1" }), false);
+assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "masterData", authState: masterDataAuth, currentUserId: "U-1" }), true);
+
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const browserFileActionsSource = readFileSync(new URL("../src/app/browserFileActions.js", import.meta.url), "utf8");
 const hookSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
+const workspaceOverlaysSource = readFileSync(new URL("../src/app/WorkspaceOverlays.jsx", import.meta.url), "utf8");
 assert.match(appSource, /useOfficeWorkspace\(\{/);
 assert.match(appSource, /serverRequired: runtimeServerRequired/);
+assert.match(appSource, /from "\.\/app\/browserFileActions\.js"/);
+assert.match(appSource, /from "\.\/app\/WorkspaceOverlays\.jsx"/);
+for (const overlayName of ["ActionModal", "OrderLineActionModal", "AttachmentViewerModal", "MasterDataImportTemplateModal"]) {
+  assert.doesNotMatch(appSource, new RegExp(`<${overlayName}`));
+  assert.match(workspaceOverlaysSource, new RegExp(`<${overlayName}`));
+}
+for (const helperName of [
+  "readFileAsDataUrl",
+  "copyTextToClipboard",
+  "mergeAttachmentSummaries",
+  "readBlobAsDataUrl",
+  "sanitizeDownloadFileName",
+  "downloadStatementExcelWorkbook",
+  "downloadMasterDataImportTemplateWorkbook",
+  "downloadTextFile",
+]) {
+  assert.doesNotMatch(appSource, new RegExp(`(?:async )?function ${helperName}\\(`));
+  assert.match(browserFileActionsSource, new RegExp(`export (?:async )?function ${helperName}\\(`));
+}
 assert.doesNotMatch(appSource, /useState\(initialTodos\)/);
 assert.doesNotMatch(appSource, /useState\(initialOrderLines\)/);
 assert.doesNotMatch(appSource, /useState\(initialInventories\)/);
 assert.match(hookSource, /todosRef\.current = todos/);
 assert.match(hookSource, /printJobQueueItemsRef\.current = printJobQueue\.items/);
+assert.match(hookSource, /useOfficeMasterDataEntryRefresh/);
 assert.doesNotMatch(hookSource, /createInitialAuthState|setActivePage|setToast|setModal/);
 
-console.log("Office workspace hook check passed: business state ownership moved out of App while shell/auth state stays outside.");
+assert.equal(await readFileAsDataUrl(null), "");
+assert.equal(await readBlobAsDataUrl(null), "");
+assert.equal(await copyTextToClipboard(""), false);
+assert.equal(await copyTextToClipboard("copy-without-browser"), false);
+assert.equal(downloadStatementExcelWorkbook("content"), false);
+assert.equal(downloadMasterDataImportTemplateWorkbook("customers"), null);
+assert.equal(downloadTextFile("content"), false);
+assert.equal(sanitizeDownloadFileName("  bad/name?:file  "), "bad-name-file");
+assert.deepEqual(
+  mergeAttachmentSummaries(
+    [{ attachmentId: "ATT-1", status: "待审" }],
+    [null, { attachmentId: "ATT-1", status: "已审" }, { attachmentId: "ATT-2", status: "待传" }],
+  ),
+  [
+    { attachmentId: "ATT-1", status: "已审" },
+    { attachmentId: "ATT-2", status: "待传" },
+  ],
+);
+
+console.log("Office workspace hook check passed: workspace and browser-file boundaries stay outside the App shell.");

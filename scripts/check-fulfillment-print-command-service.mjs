@@ -16,6 +16,32 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
 }
 
 {
+  const harness = createHarness({ printDevices: [createPrintDevice()] });
+  const result = await harness.service.printFulfillment({
+    workspace: harness.workspace,
+    fulfillmentId: "F-001",
+    body: { printDeviceId: "PRN-001", printAction: "archive" },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(result.statusCode, 422);
+  assert.equal(result.code, "PRINT_ACTION_UNSUPPORTED");
+  assert.equal(harness.fulfillmentCalls.length, 0, "unsupported print action must not create fulfillment writes");
+  assert.equal(harness.printJobCalls.length, 0, "unsupported print action must not create print jobs");
+}
+
+{
+  const harness = createHarness({ packages: [] });
+  const result = await harness.service.printFulfillment({
+    workspace: harness.workspace,
+    fulfillmentId: "F-001",
+    body: { printDeviceId: "PRN-001", printAction: "first_print" },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.code, "FULFILLMENT_PACKAGES_REQUIRED_FOR_LABEL_PRINT");
+}
+
+{
   const harness = createHarness({ printDevices: [] });
   const result = await harness.service.printFulfillment({
     workspace: harness.workspace,
@@ -83,7 +109,7 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
     body: {
       printDeviceId: "PRN-001",
       printAction: "first_print",
-      packageIds: ["PKG-001"],
+      packageIds: ["PKG-SPOOFED"],
       paperNo: "NO-001",
       operatorId: "U-SPOOFED",
       idempotencyKey: "print-001",
@@ -94,9 +120,13 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
   assert.equal(result.printRecord.submittedAt, fixedNow);
   assert.equal(result.printJob.jobStatus, "queued");
   assert.equal(result.printJob.queuedAt, fixedNow);
+  assert.equal(result.printRecord.fulfillmentRevision, 2);
   assert.deepEqual(result.printJob.payload.request.packageIds, ["PKG-001"]);
+  assert.deepEqual(result.printRecord.packageSnapshot, [{ packageId: "PKG-001", revision: 1 }]);
+  assert.equal(result.ignoredClientPackageIds, true);
   assert.equal(result.printJob.payload.request.paperNo, "NO-001");
   assert.equal(result.physicalPrintConfirmed, false);
+  assert.equal(result.paperOutboundDocument, null, "package labels must not create a paper outbound document");
 
   const duplicate = await harness.service.printFulfillment({
     workspace: harness.workspace,
@@ -106,6 +136,45 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
   });
   assert.equal(duplicate.statusCode, 409);
   assert.equal(duplicate.code, "ACTIVE_PRINT_RECORD_EXISTS");
+}
+
+{
+  const harness = createHarness({ production: true, atomicPrint: true });
+  const result = await harness.service.printFulfillment({
+    workspace: harness.workspace,
+    fulfillmentId: "F-001",
+    body: { printDeviceId: "PRN-001", printAction: "first_print", idempotencyKey: "atomic-print-001" },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(result.printRecord.status, "submitted");
+  assert.equal(result.printJob.jobStatus, "queued");
+  assert.equal(harness.atomicPrintCalls.length, 1, "PostgreSQL prints must use the combined fulfillment print transaction");
+  assert.equal(harness.fulfillmentCalls.length, 0, "PostgreSQL prints must not first commit an independent print record");
+  assert.equal(harness.printJobCalls.length, 0, "PostgreSQL prints must not create a second standalone print-job transaction");
+  assert.equal(harness.workspace.printRecords.length, 1);
+  assert.equal(harness.workspace.printJobs.length, 1);
+  assert.equal(harness.workspace.operationLogs.length, 2);
+  assert.notEqual(
+    harness.atomicPrintCalls[0].operationLog.id,
+    harness.atomicPrintCalls[0].printJobOperationLog.id,
+    "the combined transaction must retain separate fulfillment and print-job audit records",
+  );
+  assert.equal(harness.atomicPrintCalls[0].printJob.printRecordId, harness.atomicPrintCalls[0].printRecord.printRecordId);
+  assert.equal(harness.atomicPrintCalls[0].printJobOperationLog.targetId, result.printJob.printJobId);
+}
+
+{
+  const harness = createHarness({ production: true });
+  const result = await harness.service.printFulfillment({
+    workspace: harness.workspace,
+    fulfillmentId: "F-001",
+    body: { printDeviceId: "PRN-001", printAction: "first_print" },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(result.statusCode, 409);
+  assert.equal(result.code, "PRINT_TRANSACTION_PERSISTENCE_REQUIRED");
+  assert.equal(harness.fulfillmentCalls.length, 0, "production must not fall back to a standalone print-record write");
+  assert.equal(harness.printJobCalls.length, 0, "production must not create a standalone job after a blocked print record");
 }
 
 {
@@ -175,6 +244,93 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
 }
 
 {
+  const harness = createHarness({
+    fulfillments: [createFulfillment({ status: "待确认拉走", printed: true })],
+    printRecords: [createPrintRecord({ status: "printed", fulfillmentRevision: 1, packageSnapshot: [{ packageId: "PKG-001", revision: 1 }] })],
+    packages: [createPackage({ status: "已打印标签", labelPrintRecordId: "PR-OLD", revision: 2 })],
+  });
+  const voided = await harness.service.voidPrintRecord({
+    workspace: harness.workspace,
+    printRecordId: "PR-OLD",
+    body: { voidReason: "label_reprint_required", idempotencyKey: "void-current-label-001" },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(voided.nextStatus, "待打印标签");
+  assert.equal(voided.packages[0].status, "待打印标签");
+  assert.equal(voided.packages[0].labelPrintRecordId, "");
+  assert.equal(voided.packages[0].revision, 3);
+}
+
+{
+  const paperOutboundDocument = {
+    id: "POD-OLD",
+    paperOutboundDocumentId: "POD-OLD",
+    fulfillmentId: "F-001",
+    printRecordId: "PR-OLD",
+    documentType: "outbound_note",
+    documentVersion: 1,
+    status: "已交库房",
+    revision: 2,
+    createdAt: fixedNow,
+    updatedAt: fixedNow,
+  };
+  const harness = createHarness({
+    fulfillments: [createFulfillment({ status: "数量差异待处理", paperOutboundStatus: "已交库房", paperOutboundDocumentId: "POD-OLD" })],
+    printRecords: [createPrintRecord({ status: "printed", documentType: "outbound_note" })],
+    paperOutboundDocuments: [paperOutboundDocument],
+    warehouseOutboundExecutions: [{
+      warehouseOutboundExecutionId: "WEX-OLD",
+      fulfillmentId: "F-001",
+      paperOutboundDocumentId: "POD-OLD",
+      result: "数量不符",
+      actualQty: 1430,
+    }],
+  });
+  const voided = await harness.service.voidPrintRecord({
+    workspace: harness.workspace,
+    printRecordId: "PR-OLD",
+    body: { voidReason: "qty_changed" },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(voided.printRecord.status, "voided");
+  assert.equal(voided.paperOutboundDocument.status, "已作废");
+  assert.equal(harness.workspace.paperOutboundDocuments[0].status, "已作废");
+
+  const reprinted = await harness.service.printFulfillment({
+    workspace: harness.workspace,
+    fulfillmentId: "F-001",
+    body: {
+      printAction: "reprint",
+      printDeviceId: "PRN-001",
+      previousPrintRecordId: "PR-OLD",
+      documentType: "outbound_note",
+    },
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(reprinted.paperOutboundDocument.documentVersion, 2);
+
+  const physicalHarness = createHarness({
+    fulfillments: [createFulfillment({ physicalOutboundDocumentId: "POD-OLD", physicalOutboundAt: fixedNow })],
+    printRecords: [createPrintRecord({ status: "printed", documentType: "outbound_note" })],
+    paperOutboundDocuments: [paperOutboundDocument],
+    warehouseOutboundExecutions: [{
+      warehouseOutboundExecutionId: "WEX-PHYSICAL",
+      fulfillmentId: "F-001",
+      paperOutboundDocumentId: "POD-OLD",
+      result: "实物已出库",
+      actualQty: 1500,
+    }],
+  });
+  const blocked = await physicalHarness.service.voidPrintRecord({
+    workspace: physicalHarness.workspace,
+    printRecordId: "PR-OLD",
+    body: {},
+    operatorId: "U-OFFICE-A",
+  });
+  assert.equal(blocked.code, "PAPER_OUTBOUND_DOCUMENT_PHYSICAL_EXECUTION_RECORDED");
+}
+
+{
   const orphanRecord = createPrintRecord({ targetType: "other", targetId: "OTHER-001", status: "printed" });
   const productionHarness = createHarness({ printRecords: [orphanRecord], production: true });
   const blocked = await productionHarness.service.voidPrintRecord({
@@ -199,7 +355,8 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
 }
 
 const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiServerSource, /createFulfillmentPrintCommandService/);
+const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
+assert.match(registrySource, /createFulfillmentPrintCommandService/);
 for (const embeddedFunction of [
   "buildFulfillmentPrintRecord",
   "buildPrintJobRecord",
@@ -215,9 +372,14 @@ function createHarness({
   fulfillments = [createFulfillment()],
   printRecords = [],
   printDevices = [createPrintDevice()],
+  packages = [createPackage()],
+  paperOutboundDocuments = [],
+  warehouseOutboundExecutions = [],
   production = false,
+  atomicPrint = false,
 } = {}) {
   const fulfillmentCalls = [];
+  const atomicPrintCalls = [];
   const printJobCalls = [];
   let logSequence = 0;
   const workspace = {
@@ -225,6 +387,9 @@ function createHarness({
     fulfillments: fulfillments.map((item) => structuredClone(item)),
     printRecords: printRecords.map((item) => structuredClone(item)),
     printJobs: [],
+    paperOutboundDocuments: paperOutboundDocuments.map((item) => structuredClone(item)),
+    warehouseOutboundExecutions: warehouseOutboundExecutions.map((item) => structuredClone(item)),
+    packages: packages.map((item) => structuredClone(item)),
     printDevices: printDevices.map((item) => structuredClone(item)),
     operationLogs: [],
     orderLines: [{ id: "OL-001", orderLineId: "OL-001", customerId: "C-001", qty: 1500 }],
@@ -240,15 +405,46 @@ function createHarness({
       },
     },
     fulfillmentActionTransactionRepository: {
+      kind: atomicPrint ? "postgres" : "local_memory",
       async recordFulfillmentAction(input) {
         fulfillmentCalls.push(input);
         workspace.printRecords = upsert(workspace.printRecords, input.printRecord, "printRecordId");
+        workspace.paperOutboundDocuments = upsert(
+          workspace.paperOutboundDocuments,
+          input.paperOutboundDocument,
+          "paperOutboundDocumentId",
+        );
         return {
           fulfillment: input.fulfillment,
           printRecord: input.printRecord,
+          paperOutboundDocument: input.paperOutboundDocument ?? null,
           operationLogId: input.operationLog.id,
         };
       },
+      ...(atomicPrint
+        ? {
+            async recordFulfillmentPrint(input) {
+              atomicPrintCalls.push(input);
+              workspace.printRecords = upsert(workspace.printRecords, input.printRecord, "printRecordId");
+              workspace.printJobs = upsert(workspace.printJobs, input.printJob, "printJobId");
+              workspace.paperOutboundDocuments = upsert(
+                workspace.paperOutboundDocuments,
+                input.paperOutboundDocument,
+                "paperOutboundDocumentId",
+              );
+              workspace.operationLogs = upsert(workspace.operationLogs, input.operationLog, "id");
+              workspace.operationLogs = upsert(workspace.operationLogs, input.printJobOperationLog, "id");
+              return {
+                fulfillment: input.fulfillment,
+                printRecord: input.printRecord,
+                printJob: input.printJob,
+                paperOutboundDocument: input.paperOutboundDocument ?? null,
+                operationLogId: input.operationLog.id,
+                printJobOperationLogId: input.printJobOperationLog.id,
+              };
+            },
+          }
+        : {}),
     },
     printJobRepository: {
       async createPrintJob(input) {
@@ -285,7 +481,7 @@ function createHarness({
       return "tpl-express-label";
     },
   });
-  return { service, workspace, fulfillmentCalls, printJobCalls };
+  return { service, workspace, fulfillmentCalls, atomicPrintCalls, printJobCalls };
 }
 
 function createFulfillment(overrides = {}) {
@@ -308,8 +504,8 @@ function createPrintDevice(overrides = {}) {
     printDeviceId: "PRN-001",
     name: "标签机 A",
     status: "active",
-    supportedDocumentTypes: ["express_ltl_label"],
-    defaultDocumentTypes: ["express_ltl_label"],
+    supportedDocumentTypes: ["express_ltl_label", "outbound_note"],
+    defaultDocumentTypes: ["express_ltl_label", "outbound_note"],
     settings: { driverMode },
     ...overrides,
   };
@@ -320,8 +516,25 @@ function createPrintRecord(overrides = {}) {
     printRecordId: "PR-OLD",
     targetType: "fulfillment",
     targetId: "F-001",
+    documentType: "express_ltl_label",
+    templateId: "tpl-p0-express-ltl-label",
     status: "printed",
     printAction: "first_print",
+    ...overrides,
+  };
+}
+
+function createPackage(overrides = {}) {
+  return {
+    id: "PKG-001",
+    packageId: "PKG-001",
+    orderLineId: "OL-001",
+    fulfillmentId: "F-001",
+    packageSeq: 1,
+    packageCount: 1,
+    packedQty: 1500,
+    status: "待打印标签",
+    revision: 1,
     ...overrides,
   };
 }

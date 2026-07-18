@@ -209,7 +209,7 @@ async function checkDraftSave() {
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
     body: {
-      clientRevision: 1,
+      expectedRevision: 1,
       draftStatus: "待补充信息",
       operatorId: "U-SPOOFED",
       lines: [buildRequestLine()],
@@ -228,7 +228,7 @@ async function checkDraftSave() {
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
     body: {
-      clientRevision: 1,
+      expectedRevision: 1,
       draftStatus: "待补充信息",
       lines: [{
         ...buildRequestLine(),
@@ -255,7 +255,7 @@ async function checkConfirmation() {
     operatorId: "U-OFFICE-A",
     body: {
       sourceText: "张三服饰 30*38红10个 明天自提",
-      clientRevision: 1,
+      expectedRevision: 1,
       idempotencyKey: "draft-confirm-service-001",
       operatorId: "U-SPOOFED",
       lines: [buildRequestLine()],
@@ -301,7 +301,7 @@ async function checkFieldReviewConfirmationGate() {
     workspace: blockedWorkspace,
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 1, lines: [buildRequestLine()] },
+    body: { expectedRevision: 1, lines: [buildRequestLine()] },
   });
   assert.equal(blocked.statusCode, 409);
   assert.equal(blocked.code, "ORDER_DRAFT_FIELD_REVIEW_REQUIRED");
@@ -314,7 +314,7 @@ async function checkFieldReviewConfirmationGate() {
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
     body: {
-      clientRevision: 1,
+      expectedRevision: 1,
       idempotencyKey: "draft-confirm-reviewed-field-001",
       lines: [{
         ...buildRequestLine(),
@@ -349,7 +349,7 @@ async function checkSplitPreviewAndConfirmation() {
     workspace,
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 1, lines: [firstLine, secondLine] },
+    body: { expectedRevision: 1, lines: [firstLine, secondLine] },
   });
   assert.equal(preview.response.splitPlan.groups.length, 2);
   assert.equal(preview.response.splitPlan.canConfirm, true);
@@ -361,7 +361,7 @@ async function checkSplitPreviewAndConfirmation() {
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
     body: {
-      clientRevision: 1,
+      expectedRevision: 1,
       lines: [firstLine, secondLine],
       splitPlanHash: preview.response.splitPlan.planHash,
       idempotencyKey: "draft-split-confirm-service-001",
@@ -383,7 +383,7 @@ async function checkSplitPreviewAndConfirmation() {
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
     body: {
-      clientRevision: 1,
+      expectedRevision: 1,
       lines: [firstLine, { ...secondLine, qty: 25 }],
       splitPlanHash: preview.response.splitPlan.planHash,
     },
@@ -400,7 +400,7 @@ async function checkBlockedConfirmation() {
     workspace,
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 1, lines: [buildRequestLine()] },
+    body: { expectedRevision: 1, lines: [buildRequestLine()] },
   });
   assert.equal(result.statusCode, 409);
   assert.equal(result.code, "ORDER_DRAFT_BLOCKED");
@@ -427,7 +427,7 @@ async function checkPartialShortageCancellation() {
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
     body: {
-      clientRevision: 1,
+      expectedRevision: 1,
       idempotencyKey: "draft-confirm-partial-shortage-cancel-001",
       lines: [cancelledLine, continuingLine],
     },
@@ -470,7 +470,7 @@ async function checkShortageCancellationRestore() {
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
     body: {
-      clientRevision: 1,
+      expectedRevision: 1,
       draftLineId: "DRAFT-SERVICE-001-01",
       reason: "客户确认恢复订购",
       idempotencyKey: "restore-shortage-service-001",
@@ -495,7 +495,7 @@ async function checkShortageCancellationRestore() {
     workspace: confirmedWorkspace,
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 1, draftLineId: "DRAFT-SERVICE-001-01", reason: "客户又要了" },
+    body: { expectedRevision: 1, draftLineId: "DRAFT-SERVICE-001-01", reason: "客户又要了" },
   });
   assert.equal(forbidden.code, "SHORTAGE_CANCELLATION_RESTORE_AFTER_CONFIRMATION_FORBIDDEN");
 }
@@ -529,7 +529,7 @@ async function checkCrossDraftShortageCancellationLink() {
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
     body: {
-      clientRevision: 1,
+      expectedRevision: 1,
       intentId: "INT-CROSS-DRAFT-001",
       draftLineId: "DRAFT-SERVICE-001-01",
       reason: "办公室核对来源消息后关联",
@@ -556,7 +556,7 @@ async function checkCrossDraftShortageCancellationLink() {
     workspace: mismatchWorkspace,
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 1, intentId: "INT-CROSS-DRAFT-001", draftLineId: "DRAFT-SERVICE-001-01", reason: "错误关联" },
+    body: { expectedRevision: 1, intentId: "INT-CROSS-DRAFT-001", draftLineId: "DRAFT-SERVICE-001-01", reason: "错误关联" },
   });
   assert.equal(mismatch.code, "CROSS_DRAFT_CANCELLATION_CUSTOMER_MISMATCH");
 
@@ -567,7 +567,7 @@ async function checkCrossDraftShortageCancellationLink() {
     workspace: unresolvedWorkspace,
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 1, intentId: "INT-CROSS-DRAFT-001", draftLineId: "DRAFT-SERVICE-001-01", reason: "客户未知" },
+    body: { expectedRevision: 1, intentId: "INT-CROSS-DRAFT-001", draftLineId: "DRAFT-SERVICE-001-01", reason: "客户未知" },
   });
   assert.equal(unresolved.code, "CROSS_DRAFT_CANCELLATION_CUSTOMER_UNRESOLVED");
 }
@@ -584,7 +584,7 @@ async function checkFullyCancelledDraft() {
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
     body: {
-      clientRevision: 1,
+      expectedRevision: 1,
       idempotencyKey: "draft-close-full-shortage-cancel-001",
       lines: [buildRequestLine()],
     },
@@ -606,7 +606,7 @@ async function checkUnresolvedShortageCancellation() {
     workspace,
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 1, lines: [buildRequestLine()] },
+    body: { expectedRevision: 1, lines: [buildRequestLine()] },
   });
   assert.equal(result.statusCode, 409);
   assert.equal(result.code, "SHORTAGE_CANCELLATION_REVIEW_REQUIRED");
@@ -618,22 +618,22 @@ async function checkValidation() {
     workspace,
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 1, lines: [] },
+    body: { expectedRevision: 1, lines: [] },
   });
   assert.equal(empty.statusCode, 422);
   const invalidRevision = await service.confirmOrderDraft({
     workspace,
     draftId: "DRAFT-SERVICE-001",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 0, lines: [buildRequestLine()] },
+    body: { expectedRevision: 0, lines: [buildRequestLine()] },
   });
-  assert.equal(invalidRevision.code, "VALIDATION_ERROR");
+  assert.equal(invalidRevision.code, "EXPECTED_REVISION_REQUIRED");
   workspace.orderDrafts = [];
   const missing = await service.saveOrderDraft({
     workspace,
     draftId: "DRAFT-MISSING",
     operatorId: "U-OFFICE-A",
-    body: { clientRevision: 1, lines: [buildRequestLine()] },
+    body: { expectedRevision: 1, lines: [buildRequestLine()] },
   });
   assert.equal(missing.code, "ORDER_DRAFT_NOT_FOUND");
 }

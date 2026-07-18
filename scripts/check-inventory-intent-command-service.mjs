@@ -14,7 +14,7 @@ const workspace = buildWorkspace();
 const inquiry = await service.createTemporaryHold({
   workspace,
   intentId: "INT-INQUIRY",
-  body: { clientRevision: 1, candidateIndex: 0, inventoryItemId: "INV-001", qty: 20 },
+  body: { expectedRevision: 1, candidateIndex: 0, inventoryItemId: "INV-001", qty: 20 },
   operatorId: "U-OFFICE-A",
 });
 assert.equal(inquiry.error, true);
@@ -25,7 +25,7 @@ const created = await service.createTemporaryHold({
   workspace,
   intentId: "INT-HOLD",
   body: {
-    clientRevision: 1,
+    expectedRevision: 1,
     candidateIndex: 0,
     inventoryItemId: "INV-001",
     qty: 120,
@@ -44,7 +44,7 @@ const extended = await service.extendTemporaryHold({
   workspace,
   reservationId: created.response.hold.reservationId,
   body: {
-    clientRevision: 2,
+    expectedRevision: 2,
     expiresAt: "2026-07-12T20:30:00+08:00",
     reason: "客户已明确回复，授权延长一小时",
     idempotencyKey: "hold-extend-001",
@@ -59,7 +59,7 @@ const released = await service.releaseTemporaryHold({
   workspace,
   reservationId: created.response.hold.reservationId,
   body: {
-    clientRevision: 3,
+    expectedRevision: 3,
     reason: "客户取消临时留货",
     idempotencyKey: "hold-release-001",
   },
@@ -76,7 +76,7 @@ const expiring = await service.createTemporaryHold({
   workspace: expiryWorkspace,
   intentId: "INT-HOLD",
   body: {
-    clientRevision: 1,
+    expectedRevision: 1,
     candidateIndex: 0,
     inventoryItemId: "INV-001",
     qty: 80,
@@ -103,7 +103,7 @@ afterCutoffWorkspace.inventoryIntents[0].candidate = {
 const blockedAfterCutoff = await service.createTemporaryHold({
   workspace: afterCutoffWorkspace,
   intentId: "INT-HOLD",
-  body: { clientRevision: 1, candidateIndex: 0, inventoryItemId: "INV-001", qty: 20 },
+  body: { expectedRevision: 1, candidateIndex: 0, inventoryItemId: "INV-001", qty: 20 },
   operatorId: "U-OFFICE-A",
 });
 assert.equal(blockedAfterCutoff.code, "TEMPORARY_HOLD_EXPIRY_REVIEW_REQUIRED");
@@ -112,7 +112,7 @@ const reviewedAfterCutoff = await service.createTemporaryHold({
   workspace: afterCutoffWorkspace,
   intentId: "INT-HOLD",
   body: {
-    clientRevision: 1,
+    expectedRevision: 1,
     candidateIndex: 0,
     inventoryItemId: "INV-001",
     qty: 20,

@@ -72,6 +72,14 @@ const record = {
     label: "原生 0/2",
     message: "普通浏览器未接原生壳。",
   },
+  nativeNavigationSample: {
+    requestId: "DNN-20260702101459-F002",
+    fulfillmentId: "F002",
+    status: "failed",
+    source: "native_navigation_sdk",
+    message: "导航未打开",
+    checkedAt: "2026-07-02T10:14:59.000Z",
+  },
   note: "扫码受光线影响，定位受限",
 };
 
@@ -115,6 +123,7 @@ assert.equal(workspace.driverDeviceFieldTests.length, 1);
 assert.equal(workspace.driverDeviceFieldTests[0].summary.label, "通过 2/6，异常 2");
 assert.equal(workspace.driverDeviceFieldTests[0].packageLabelScanSample.matchedPackageId, "PKG-F002-1");
 assert.equal(workspace.driverDeviceFieldTests[0].nativeBridgeDiagnostics.label, "原生 0/2");
+assert.equal(workspace.driverDeviceFieldTests[0].nativeNavigationSample.status, "failed");
 assert.equal(workspace.fulfillments[0].deviceFieldTestRecord.recordId, "DQA-CHECK-F002");
 assert.equal(workspace.fulfillments[0].deviceFieldTestRecord.packageLabelScanSample.method, "scanner_wedge");
 assert.equal(workspace.fulfillments[0].deviceFieldTestRecord.nativeBridgeDiagnostics.items.length, 2);
@@ -213,6 +222,7 @@ assert.deepEqual(builtQuery.values.slice(11, 23), [
 assert.equal(builtQuery.values[23], JSON.stringify(record.checks));
 assert.match(builtQuery.values[24], /packageLabelScanSample/);
 assert.match(builtQuery.values[24], /nativeBridgeDiagnostics/);
+assert.match(builtQuery.values[24], /nativeNavigationSample/);
 assert.equal(builtQuery.values[25], "扫码受光线影响，定位受限");
 
 const calls = [];

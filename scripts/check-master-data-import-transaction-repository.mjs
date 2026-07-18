@@ -28,6 +28,8 @@ assert.equal(readyExecution.officialWriteScope, "master_data_import_v1");
 await checkLocalMasterDataImportTransaction();
 await checkLocalRollback();
 await checkLocalEmployeeIdentityRollback();
+await checkLocalIdentityPersistenceRollback();
+await checkLocalMachinePersistenceCompensation();
 await checkPostgresSqlBoundary();
 
 console.log("master-data import transaction repository passed");
@@ -58,7 +60,16 @@ async function buildReadyConfirmationPlan() {
 
 async function checkLocalMasterDataImportTransaction() {
   const repository = createLocalMasterDataImportTransactionRepository();
-  const workspace = { operationLogs: [] };
+  const savedEmployeeCounts = [];
+  const workspace = {
+    operationLogs: [],
+    runtimeIdentityRepository: {
+      kind: "local_json",
+      saveState({ workspace: savedWorkspace }) {
+        savedEmployeeCounts.push(savedWorkspace.employees?.length ?? 0);
+      },
+    },
+  };
   const transaction = await repository.applyImportExecution({
     workspace,
     importExecution: readyExecution,
@@ -84,6 +95,7 @@ async function checkLocalMasterDataImportTransaction() {
   assert(workspace.employeeMachineAssignments.some((record) => record.assignmentType === "default"));
   assert(workspace.machineCapacityBaselines.some((record) => record.dailyCapacityQty === 12000));
   assert.equal(workspace.operationLogs[0].id, "LOG-MD-IMPORT-COMMIT-001");
+  assert.deepEqual(savedEmployeeCounts, [readyExecution.importPayload.targetRecords.employees.length]);
 }
 
 async function checkLocalRollback() {
@@ -101,8 +113,8 @@ async function checkLocalRollback() {
     },
   };
 
-  assert.throws(
-    () => repository.applyImportExecution({
+  await assert.rejects(
+    repository.applyImportExecution({
       workspace,
       importExecution: brokenExecution,
       operationLog: buildOperationLog("LOG-MD-IMPORT-ROLLBACK-001"),
@@ -125,8 +137,8 @@ async function checkLocalEmployeeIdentityRollback() {
     roleName: "办公室",
   };
   const workspace = { employees: [existingEmployee], operationLogs: [] };
-  assert.throws(
-    () => repository.applyImportExecution({
+  await assert.rejects(
+    repository.applyImportExecution({
       workspace,
       importExecution: readyExecution,
       operationLog: buildOperationLog("LOG-MD-EMPLOYEE-IDENTITY-CONFLICT"),
@@ -151,14 +163,76 @@ async function checkLocalEmployeeIdentityRollback() {
       },
     },
   };
-  assert.throws(
-    () => repository.applyImportExecution({
+  await assert.rejects(
+    repository.applyImportExecution({
       workspace: { operationLogs: [] },
       importExecution: invalidIdentityExecution,
       operationLog: buildOperationLog("LOG-MD-INVALID-EMPLOYEE-IDENTITY"),
     }),
     /invalid stable employee number/,
   );
+}
+
+async function checkLocalIdentityPersistenceRollback() {
+  const repository = createLocalMasterDataImportTransactionRepository();
+  const workspace = {
+    operationLogs: [],
+    runtimeIdentityRepository: {
+      kind: "local_json",
+      saveState() {
+        throw new Error("identity persistence unavailable");
+      },
+    },
+  };
+
+  await assert.rejects(
+    repository.applyImportExecution({
+      workspace,
+      importExecution: readyExecution,
+      operationLog: buildOperationLog("LOG-MD-IDENTITY-PERSISTENCE-ROLLBACK"),
+    }),
+    /identity persistence unavailable/,
+  );
+  assert.deepEqual(workspace.operationLogs, []);
+  assert.equal(workspace.employees, undefined);
+  assert.equal(workspace.machines, undefined);
+}
+
+async function checkLocalMachinePersistenceCompensation() {
+  const repository = createLocalMasterDataImportTransactionRepository();
+  const identitySnapshots = [];
+  const machineSnapshots = [];
+  let machineSaveCount = 0;
+  const workspace = {
+    operationLogs: [],
+    runtimeIdentityRepository: {
+      kind: "local_json",
+      saveState({ workspace: savedWorkspace }) {
+        identitySnapshots.push(savedWorkspace.employees?.length ?? -1);
+      },
+    },
+    masterDataMachineConfigurationRepository: {
+      saveState({ workspace: savedWorkspace }) {
+        machineSaveCount += 1;
+        if (machineSaveCount === 1) throw new Error("machine persistence unavailable");
+        machineSnapshots.push(savedWorkspace.machines?.length ?? -1);
+      },
+    },
+  };
+
+  await assert.rejects(
+    repository.applyImportExecution({
+      workspace,
+      importExecution: readyExecution,
+      operationLog: buildOperationLog("LOG-MD-MACHINE-PERSISTENCE-ROLLBACK"),
+    }),
+    /machine persistence unavailable/,
+  );
+  assert.deepEqual(identitySnapshots, [readyExecution.importPayload.targetRecords.employees.length, -1]);
+  assert.deepEqual(machineSnapshots, [-1]);
+  assert.deepEqual(workspace.operationLogs, []);
+  assert.equal(workspace.employees, undefined);
+  assert.equal(workspace.machines, undefined);
 }
 
 async function checkPostgresSqlBoundary() {

@@ -4,7 +4,15 @@ import { createProductionFinishedGoodsPhotoCommandService } from "../server/serv
 
 const now = new Date("2026-07-11T04:00:00.000Z");
 const workspace = {
-  productionTasks: [{ id: "PT-1", productionTaskId: "PT-1", orderLineId: "OL-1", revision: 1 }],
+  productionTasks: [
+    {
+      id: "PT-1",
+      productionTaskId: "PT-1",
+      orderLineId: "OL-1",
+      revision: 1,
+      finished_goods_photo_history: [{ status: "历史记录", attachmentId: "ATT-HISTORY" }],
+    },
+  ],
   orderLines: [{ id: "OL-1", customerId: "C-1", productName: "定制袋", size: "30*38", orderType: "定制印刷" }],
   attachments: [
     buildAttachment("ATT-1"),
@@ -88,6 +96,8 @@ const uploaded = await service.uploadPhoto({
 assert.equal(uploaded.productionTask.finishedGoodsPhoto.status, "待确认");
 assert.equal(uploaded.productionTask.finishedGoodsPhoto.uploadedBy, "U-WORKSHOP");
 assert.equal(uploaded.productionTask.finishedGoodsPhoto.fileName, "finished.png");
+assert.equal(uploaded.productionTask.finishedGoodsPhoto.history.length, 2);
+assert.equal(uploaded.productionTask.finishedGoodsPhoto.history[0].status, "历史记录");
 assert.equal(uploaded.productionTask.revision, 2);
 assert.equal(workspace.operationLogs[0].operatorId, "U-WORKSHOP");
 
@@ -100,6 +110,13 @@ const blockedReview = await service.reviewPhoto({
 });
 assert.equal(blockedReview.code, "FINISHED_GOODS_PHOTO_ATTACHMENT_PURPOSE_MISMATCH");
 workspace.attachments[0].purpose = "finished_goods_photo";
+workspace.todos.push({
+  id: "T-LEGACY-RETAKE",
+  type: "成品图需重拍",
+  refId: "OL-1",
+  status: "未处理",
+  handled: false,
+});
 
 const reviewed = await service.reviewPhoto({
   workspace,
@@ -111,7 +128,15 @@ assert.equal(reviewed.productionTask.finishedGoodsPhoto.status, "已接受");
 assert.equal(reviewed.productionTask.finishedGoodsPhoto.reviewedBy, "U-OFFICE");
 assert.equal(reviewed.todo.type, "待通知客户");
 assert.equal(reviewed.todo.createdBy, "U-OFFICE");
-assert.equal(workspace.todoEvents[0].eventType, "todo_source:finished_goods_photo_accepted");
+assert.equal(workspace.todos.find((todo) => todo.id === "T-LEGACY-RETAKE")?.handled, true);
+assert.equal(
+  workspace.todoEvents.some((event) => event.eventType === "todo_source:finished_goods_photo_accepted"),
+  true,
+);
+assert.equal(
+  workspace.todoEvents.some((event) => event.eventType === "todo_source:finished_goods_photo_retake_resolved"),
+  true,
+);
 assert.equal(workspace.operationLogs[0].action, "accept_finished_goods_photo");
 
 console.log("production finished-goods photo command service checks passed");

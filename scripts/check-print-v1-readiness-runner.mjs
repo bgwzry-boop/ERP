@@ -3,6 +3,17 @@ import { spawn } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
+import {
+  buildPassedPrinterDeviceFieldTest as buildPassedPrinterDeviceFieldTestFixture,
+  seedPrintedPrintReadinessJobs,
+} from "./helpers/printReadinessTestFixture.mjs";
+import {
+  closeTestServer,
+  getJson as getSharedJson,
+  getTestServerBaseUrl,
+  listenTestServer,
+  postJson as postSharedJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "print-v1-readiness-runner");
 const spoolRoot = join(storageRoot, "spool");
@@ -11,9 +22,11 @@ const printCommandBridgeScript = join(process.cwd(), "scripts", "print-command-b
 const fakeCupsStatusScript = join(process.cwd(), "scripts", "fake-cups-lpstat.mjs");
 rmSync(storageRoot, { recursive: true, force: true });
 mkdirSync(spoolRoot, { recursive: true });
+seedPrintedPrintReadinessJobs({ storageRoot, idPrefix: "PJ-RUNNER" });
 
 const server = createApiServer({
   printDeviceRepositoryOptions: { storageRoot },
+  printJobRepositoryOptions: { storageRoot },
   printerDeviceFieldTestRepositoryOptions: { storageRoot },
   printDriverAdapterOptions: {
     systemPrinterEnabled: true,
@@ -32,12 +45,14 @@ const server = createApiServer({
     allowedPrinterNames: ["PRN-LABEL-A", "PRN-DOT-A", "标签机A", "针式打印机A"],
   },
 });
+await server.ready;
+await listenTestServer(server);
 
 try {
-  await listen(server);
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const baseUrl = getTestServerBaseUrl(server);
+  const apiBaseUrl = `${baseUrl}/api`;
 
-  const blockedRun = await runRunner(baseUrl);
+  const blockedRun = await runRunner(apiBaseUrl);
   assert.equal(blockedRun.status, 2, runFailureMessage("runner should exit 2 when V1 print gate is blocked", blockedRun));
   const blockedReport = JSON.parse(blockedRun.stdout);
   assert.equal(blockedReport.status, "blocked");
@@ -50,7 +65,7 @@ try {
 
   await preparePositiveReadiness(baseUrl);
 
-  const readyRun = await runRunner(baseUrl);
+  const readyRun = await runRunner(apiBaseUrl);
   assert.equal(readyRun.status, 0, runFailureMessage("runner should exit 0 when V1 print gate is ready", readyRun));
   const readyReport = JSON.parse(readyRun.stdout);
   assert.equal(readyReport.status, "ready");
@@ -63,7 +78,7 @@ try {
   assert.equal(readyReport.safeguards.physicalPrinterCalled, false);
   assertNoSensitiveOutput(readyRun.stdout + readyRun.stderr);
 
-  const textRun = await runRunner(baseUrl, { json: false });
+  const textRun = await runRunner(apiBaseUrl, { json: false });
   assert.equal(textRun.status, 0, runFailureMessage("runner text output should exit 0 when V1 print gate is ready", textRun));
   assert.match(textRun.stdout, /V1 print readiness: READY/);
   assert.match(textRun.stdout, /CUPS queue preflight: READY/);
@@ -71,7 +86,7 @@ try {
 
   console.log("Print V1 readiness runner check passed: blocked gate, ready gate, CUPS preflight, redaction, and exit codes are covered.");
 } finally {
-  await closeServer(server);
+  await closeTestServer(server, { forceAfterMs: 1_000 });
 }
 
 async function preparePositiveReadiness(baseUrl) {
@@ -94,6 +109,7 @@ async function preparePositiveReadiness(baseUrl) {
   await postJson(baseUrl, "/print-devices/PRN-LABEL-A/field-tests", buildPassedPrinterDeviceFieldTest({
     recordId: "PDQA-RUNNER-LABEL-A",
     printDeviceId: "PRN-LABEL-A",
+    printJobId: "PJ-RUNNER-LABEL-A",
     documentType: "express_ltl_label",
     deviceLabel: "标签机A",
     driverLabel: "Generic 203dpi Label",
@@ -102,6 +118,7 @@ async function preparePositiveReadiness(baseUrl) {
   await postJson(baseUrl, "/print-devices/PRN-DOT-A/field-tests", buildPassedPrinterDeviceFieldTest({
     recordId: "PDQA-RUNNER-DOT-A",
     printDeviceId: "PRN-DOT-A",
+    printJobId: "PJ-RUNNER-DOT-A",
     documentType: "delivery_note",
     deviceLabel: "针式打印机A",
     driverLabel: "Generic Dot Matrix",
@@ -109,42 +126,15 @@ async function preparePositiveReadiness(baseUrl) {
   }));
 }
 
-function buildPassedPrinterDeviceFieldTest({
-  recordId,
-  printDeviceId,
-  documentType,
-  deviceLabel,
-  driverLabel,
-  paperLabel,
-}) {
-  return {
-    recordId,
-    printDeviceId,
-    documentType,
-    operatorId: "U-OFFICE-A",
-    operatorName: "办公室A",
+function buildPassedPrinterDeviceFieldTest(input) {
+  return buildPassedPrinterDeviceFieldTestFixture({
+    ...input,
     checkedAt: "2026-07-04T10:00:00.000Z",
-    deviceLabel,
-    driverLabel,
-    paperLabel,
-    checks: [
-      { key: "sample_print", status: "passed" },
-      { key: "paper_alignment", status: "passed" },
-      { key: "barcode_scan", status: "passed" },
-      { key: "driver_callback", status: "passed" },
-      { key: "legibility", status: "passed" },
-      { key: "void_reprint", status: "passed" },
-    ],
-    evidence: {
-      samplePrintReference: `${recordId} 样张已出纸且纸张对位通过`,
-      barcodeScanText: `${printDeviceId}-SAMPLE-CODE 可扫码`,
-      driverCallbackStatus: "spool completed -> printed",
-      voidReprintReference: `${recordId}-VOID-REPRINT 作废后重打通过`,
-      operatorAcceptance: "办公室A 现场签认",
-    },
     note: "Print V1 readiness runner positive check",
-  };
+  });
 }
+
+
 
 function runRunner(baseUrl, options = {}) {
   const args = [
@@ -199,65 +189,18 @@ function assertNoSensitiveOutput(output) {
 }
 
 async function getJson(baseUrl, route) {
-  return fetchJson(baseUrl, route, {
+  return getSharedJson(baseUrl, `/api${route}`, {
     headers: { "x-erp-user-id": "U-OFFICE-A" },
+    closeConnection: true,
+    timeoutMs: 10_000,
   });
 }
 
 async function postJson(baseUrl, route, body) {
-  return fetchJson(baseUrl, route, {
-    method: "POST",
+  return postSharedJson(baseUrl, `/api${route}`, body, {
     headers: { "content-type": "application/json", "x-erp-user-id": "U-OFFICE-A" },
-    body: JSON.stringify(body),
-  });
-}
-
-async function fetchJson(baseUrl, route, options = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const response = await fetch(`${baseUrl}${route}`, {
-      ...options,
-      headers: { ...(options.headers ?? {}), connection: "close" },
-      signal: controller.signal,
-    });
-    const json = await readJson(response);
-    if (!response.ok) throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-    return json;
-  } catch (error) {
-    if (error?.name === "AbortError") throw new Error(`${route} request timed out after 10000ms`);
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function readJson(response) {
-  const text = await response.text();
-  return text ? JSON.parse(text) : {};
-}
-
-function listen(targetServer) {
-  return new Promise((resolve) => {
-    targetServer.listen(0, "127.0.0.1", resolve);
-  });
-}
-
-function closeServer(targetServer) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      resolve();
-    };
-    targetServer.close(finish);
-    targetServer.closeIdleConnections?.();
-    const timeout = setTimeout(() => {
-      targetServer.closeAllConnections?.();
-      finish();
-    }, 1000);
-    timeout.unref?.();
+    closeConnection: true,
+    timeoutMs: 10_000,
   });
 }
 

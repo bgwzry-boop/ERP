@@ -28,7 +28,16 @@ const unsafeText = [
 ].join(" ");
 
 const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiServerSource, /from "\.\/services\/v1FieldCoordinationProjectionService\.mjs"/);
+const registrySource = readFileSync(
+  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
+  "utf8",
+);
+const statusResponseSource = readFileSync(
+  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
+  "utf8",
+);
+assert.match(statusResponseSource, /from "\.\/v1FieldCoordinationProjectionService\.mjs"/);
+assert.match(registrySource, /createV1GoLiveStatusResponseService/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1UnblockPlan/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1RoleTaskBoard/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1V2BoundaryBrief/);

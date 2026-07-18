@@ -120,11 +120,11 @@ async function checkInventoryReservationReleaseCommandService() {
 
 function checkApiServerUsesThinReleaseRoute() {
   const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-  assert.match(apiServerSource, /createInventoryReservationReleaseCommandService/);
-  const routeSource = apiServerSource.match(
-    /async function releaseInventoryReservationRoute[\s\S]*?\n}\n\nasync function listDriverDeliveryTasksRoute/,
-  )?.[0];
-  assert.ok(routeSource, "inventory reservation release route should remain discoverable");
+  const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
+  const routeSource = readFileSync(new URL("../server/routes/inventoryWriteRoutes.mjs", import.meta.url), "utf8");
+  assert.match(registrySource, /createInventoryReservationReleaseCommandService/);
+  assert.match(apiServerSource, /handleInventoryWriteRoutes\([\s\S]*inventoryReservationReleaseCommandService,/);
+  assert.doesNotMatch(apiServerSource, /async function releaseInventoryReservationRoute\b/);
   assert.match(routeSource, /inventoryReservationReleaseCommandService\.releaseReservation/);
   assert.doesNotMatch(routeSource, /currentReservedQty|inventoryLedgerEntry|releaseReservationReason/);
 }

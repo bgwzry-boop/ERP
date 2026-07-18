@@ -13,6 +13,9 @@ import {
   v1PersistenceStorageObjectKeys,
 } from "../server/v1PersistenceProfile.mjs";
 import { loadMigrationFiles, validateMigrationSet } from "./dbMigrationUtils.mjs";
+import {
+  buildPassedPrinterDeviceFieldTest as buildPassedPrinterDeviceFieldTestFixture,
+} from "./helpers/printReadinessTestFixture.mjs";
 
 const dockerImage = process.env.ERP_POSTGRES_DOCKER_IMAGE || "postgres:16-alpine";
 const containerName = `erp-v1-profile-live-${process.pid}-${Date.now()}`;
@@ -382,6 +385,12 @@ SELECT json_build_object(
     FROM printer_device_field_tests
     WHERE id IN ('PDQA-V1-PROFILE-LABEL-A', 'PDQA-V1-PROFILE-DOT-A')
   ),
+  'printedJobCount', (
+    SELECT COUNT(*)
+    FROM print_jobs
+    WHERE id IN ('PJ-V1-PROFILE-LABEL-A', 'PJ-V1-PROFILE-DOT-A')
+      AND job_status = 'printed'
+  ),
   'driverQaCount', (
     SELECT COUNT(*)
     FROM driver_device_field_tests
@@ -397,6 +406,7 @@ SELECT json_build_object(
   assert.equal(Number(persistedEvidence?.printerDeviceCount), 2);
   assert.equal(Number(persistedEvidence?.printerDeviceSystemModeCount), 2);
   assert.equal(Number(persistedEvidence?.printerQaCount), 2);
+  assert.equal(Number(persistedEvidence?.printedJobCount), 2);
   assert.equal(Number(persistedEvidence?.driverQaCount), 1);
   assert.equal(persistedEvidence?.driverSampleResult, "matched");
 }
@@ -417,10 +427,12 @@ async function preparePositiveV1FieldGateEvidence(apiBaseUrl) {
     });
     assert.equal(saved.printDevice?.settings?.driverMode, "system_printer");
   }
+  seedPrintedFieldGateJobs();
 
   await postJson(apiBaseUrl, "/print-devices/PRN-LABEL-A/field-tests", buildPassedPrinterDeviceFieldTest({
     recordId: "PDQA-V1-PROFILE-LABEL-A",
     printDeviceId: "PRN-LABEL-A",
+    printJobId: "PJ-V1-PROFILE-LABEL-A",
     documentType: "express_ltl_label",
     deviceLabel: "标签机A",
     driverLabel: "Generic 203dpi Label",
@@ -429,6 +441,7 @@ async function preparePositiveV1FieldGateEvidence(apiBaseUrl) {
   await postJson(apiBaseUrl, "/print-devices/PRN-DOT-A/field-tests", buildPassedPrinterDeviceFieldTest({
     recordId: "PDQA-V1-PROFILE-DOT-A",
     printDeviceId: "PRN-DOT-A",
+    printJobId: "PJ-V1-PROFILE-DOT-A",
     documentType: "delivery_note",
     deviceLabel: "针式打印机A",
     driverLabel: "Generic Dot Matrix",
@@ -451,41 +464,70 @@ async function preparePositiveV1FieldGateEvidence(apiBaseUrl) {
   );
 }
 
-function buildPassedPrinterDeviceFieldTest({
-  recordId,
-  printDeviceId,
-  documentType,
-  deviceLabel,
-  driverLabel,
-  paperLabel,
-}) {
-  return {
-    recordId,
-    printDeviceId,
-    documentType,
-    operatorId: "U-OFFICE-A",
-    operatorName: "办公室A",
+function seedPrintedFieldGateJobs() {
+  runPsql(`
+INSERT INTO print_jobs (
+  id,
+  biz_no,
+  target_type,
+  target_id,
+  document_type,
+  printer_device_id,
+  driver_mode,
+  job_status,
+  attempt_no,
+  requested_by,
+  finished_at
+) VALUES
+  (
+    'PJ-V1-PROFILE-LABEL-A',
+    'PJ-V1-PROFILE-LABEL-A',
+    'fulfillment',
+    'F002',
+    'express_ltl_label',
+    'PRN-LABEL-A',
+    'system_printer',
+    'printed',
+    1,
+    'U-OFFICE-A',
+    '2026-07-04T09:59:00.000Z'
+  ),
+  (
+    'PJ-V1-PROFILE-DOT-A',
+    'PJ-V1-PROFILE-DOT-A',
+    'fulfillment',
+    'F002',
+    'delivery_note',
+    'PRN-DOT-A',
+    'system_printer',
+    'printed',
+    1,
+    'U-OFFICE-A',
+    '2026-07-04T09:59:00.000Z'
+  )
+ON CONFLICT (id) DO UPDATE SET
+  document_type = EXCLUDED.document_type,
+  printer_device_id = EXCLUDED.printer_device_id,
+  driver_mode = EXCLUDED.driver_mode,
+  job_status = EXCLUDED.job_status,
+  finished_at = EXCLUDED.finished_at,
+  updated_at = now();
+`);
+}
+
+function buildPassedPrinterDeviceFieldTest(input) {
+  return buildPassedPrinterDeviceFieldTestFixture({
+    ...input,
     checkedAt: "2026-07-04T10:00:00.000Z",
-    deviceLabel,
-    driverLabel,
-    paperLabel,
-    checks: [
-      { key: "sample_print", status: "passed" },
-      { key: "paper_alignment", status: "passed" },
-      { key: "barcode_scan", status: "passed" },
-      { key: "driver_callback", status: "passed" },
-      { key: "legibility", status: "passed" },
-      { key: "void_reprint", status: "passed" },
-    ],
+    note: "V1 production profile automated print field-gate check",
     evidence: {
-      samplePrintReference: `${recordId} automated sample evidence`,
-      barcodeScanText: `${printDeviceId}-SAMPLE-CODE matched`,
+      samplePrintReference: `${input.recordId} automated sample evidence`,
+      barcodeScanText: `${input.printDeviceId}-SAMPLE-CODE matched`,
       driverCallbackStatus: "spool completed -> printed",
-      voidReprintReference: `${recordId}-VOID-REPRINT passed`,
+      voidReprintReference: `${input.recordId}-VOID-REPRINT passed`,
       operatorAcceptance: "办公室A automated field-gate evidence accepted",
     },
-    note: "V1 production profile automated print field-gate check",
-  };
+  });
 }
 
 function buildPassedDriverDeviceFieldTest({ recordId, fulfillmentId, orderLineId, expectedPackageId }) {
@@ -517,8 +559,18 @@ function buildPassedDriverDeviceFieldTest({ recordId, fulfillmentId, orderLineId
       matchedPackageId: expectedPackageId,
       method: "native_sdk",
       result: "matched",
+      requestId: `DNPS-V1-PROFILE-${fulfillmentId}`,
+      source: "native_sdk",
       message: "原生扫码 SDK 已扫自动化纸质包裹标签样本",
       checkedAt: "2026-07-04T10:09:59.000Z",
+    },
+    nativeNavigationSample: {
+      requestId: `DNN-V1-PROFILE-${fulfillmentId}`,
+      fulfillmentId,
+      status: "opened",
+      source: "native_navigation_sdk",
+      mapApp: "高德地图",
+      checkedAt: "2026-07-04T10:10:00.000Z",
     },
     nativeBridgeDiagnostics: {
       items: [

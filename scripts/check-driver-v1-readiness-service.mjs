@@ -31,7 +31,10 @@ const olderFailedRecord = {
 };
 const readyTask = {
   fulfillmentId: "FUL-DRIVER-001",
+  orderLineId: "OL-DRIVER-001",
+  driverId: operatorId,
   status: "待装车",
+  packageChecklist: [{ packageId: "PKG-DRIVER-001" }],
   latestDeviceFieldTestRecord: readyRecord,
 };
 const readyWorkspace = buildWorkspace({
@@ -79,7 +82,13 @@ const incompleteRecord = {
 };
 const incomplete = await buildDriverV1Readiness({
   workspace: buildWorkspace({
-    tasks: [{ fulfillmentId: "FUL-DRIVER-001", latestDeviceFieldTestRecord: incompleteRecord }],
+    tasks: [{
+      fulfillmentId: "FUL-DRIVER-001",
+      orderLineId: "OL-DRIVER-001",
+      driverId: operatorId,
+      packageChecklist: [{ packageId: "PKG-DRIVER-001" }],
+      latestDeviceFieldTestRecord: incompleteRecord,
+    }],
   }),
   operatorId,
   now,
@@ -139,6 +148,16 @@ function buildReadyRecord({ recordId, checkedAt: recordCheckedAt }) {
       matchedPackageId: "PKG-DRIVER-001",
       method: "native_sdk",
       result: "matched",
+      requestId: "DNPS-20260712125000-FUL-DRIVER-001",
+      source: "native_sdk",
+      checkedAt: recordCheckedAt,
+    },
+    nativeNavigationSample: {
+      requestId: "DNN-20260712125000-FUL-DRIVER-001",
+      fulfillmentId: "FUL-DRIVER-001",
+      status: "opened",
+      source: "native_navigation_sdk",
+      mapApp: "高德地图",
       checkedAt: recordCheckedAt,
     },
     nativeBridgeDiagnostics: {

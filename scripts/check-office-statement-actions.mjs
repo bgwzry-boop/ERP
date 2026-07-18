@@ -13,7 +13,7 @@ const baseStatement = {
   lineIds: [],
 };
 
-function createHarness({ allowLocalFallback = false, api = {}, statement = baseStatement } = {}) {
+function createHarness({ allowLocalFallback = false, api = {}, confirmAction = () => true, statement = baseStatement } = {}) {
   let statements = [{ ...statement }];
   const toasts = [];
   const modals = [];
@@ -22,6 +22,7 @@ function createHarness({ allowLocalFallback = false, api = {}, statement = baseS
     allowLocalFallback,
     api,
     authState: { authenticated: true },
+    confirmAction,
     currentUser: { displayName: "财务A" },
     currentUserId: "U-FINANCE-A",
     downloadStatementExcelWorkbook: (...args) => {
@@ -103,6 +104,47 @@ function createHarness({ allowLocalFallback = false, api = {}, statement = baseS
 }
 
 {
+  let writeOffCalls = 0;
+  const confirmations = [];
+  const harness = createHarness({
+    confirmAction: (message) => {
+      confirmations.push(message);
+      return false;
+    },
+    api: {
+      writeOffOfficeStatement: async () => {
+        writeOffCalls += 1;
+        return { source: "api", status: "已核销" };
+      },
+    },
+  });
+  await harness.controller.statementAction("确认核销");
+  assert.equal(writeOffCalls, 0, "cancelling write-off confirmation must not call the API");
+  assert.equal(harness.getStatements()[0].status, "待发送", "cancelling write-off must preserve statement state");
+  assert.match(confirmations[0], /对账单：ST-CONTROLLER-001/);
+  assert.match(confirmations[0], /客户：测试客户/);
+  assert.match(confirmations[0], /本期应收：¥100\.00/);
+  assert.match(confirmations[0], /本期实收：¥100\.00/);
+  assert.match(confirmations[0], /核销交易和操作日志/);
+  assert.match(harness.toasts.at(-1), /已取消核销/);
+}
+
+{
+  let writeOffCalls = 0;
+  const harness = createHarness({
+    api: {
+      writeOffOfficeStatement: async () => {
+        writeOffCalls += 1;
+        return { source: "api", status: "已核销" };
+      },
+    },
+  });
+  await harness.controller.statementAction("确认核销");
+  assert.equal(writeOffCalls, 1, "approved write-off confirmation should call the API once");
+  assert.equal(harness.getStatements()[0].status, "已核销", "API-confirmed write-off should update statement state");
+}
+
+{
   const harness = createHarness({
     api: {
       writeOffOfficeStatement: async () => ({ source: "local_fallback" }),
@@ -137,10 +179,24 @@ function createHarness({ allowLocalFallback = false, api = {}, statement = baseS
   assert.equal(harness.getStatements()[0].sent, true, "demo mode should retain local fallback behavior");
 }
 
+{
+  const harness = createHarness();
+  await harness.controller.statementAction("未知对账动作");
+  assert.equal(harness.getStatements()[0].status, "待发送", "unknown statement actions must not change state");
+  assert.match(harness.toasts.at(-1), /未识别对账操作/);
+}
+
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeStatementActions\(\{/);
 assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
+assert.match(appSource, /confirmAction: \(message\) => window\.confirm\(message\)/);
 assert.doesNotMatch(appSource, /async function statementAction/);
 assert.doesNotMatch(appSource, /async function refreshStatementExportRecords/);
+const statementActionsSource = readFileSync(new URL("../src/app/createOfficeStatementActions.js", import.meta.url), "utf8");
+const permissionsSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
+assert.doesNotMatch(statementActionsSource, /导出占位/);
+assert.match(statementActionsSource, /function buildStatementWriteOffConfirmation/);
+assert.match(statementActionsSource, /已取消核销，对账单未改动/);
+assert.doesNotMatch(permissionsSource, /导出占位/);
 
 console.log("Office statement actions check passed: financial actions are isolated and formal mode rejects local fallback state changes.");

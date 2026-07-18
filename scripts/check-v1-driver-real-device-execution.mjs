@@ -5,6 +5,12 @@ import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
 import { buildV1FieldEvidenceManifestTemplate } from "./v1FieldEvidenceManifest.mjs";
 import {
+  closeTestServer,
+  getTestServerBaseUrl,
+  listenTestServer,
+  requestJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
+import {
   buildDriverRealDeviceExecution,
   formatDriverRealDeviceExecution,
   writeDriverRealDeviceExecutionArtifacts,
@@ -35,8 +41,8 @@ const server = createApiServer({
 });
 
 try {
-  await listen(server);
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  await listenTestServer(server);
+  const baseUrl = `${getTestServerBaseUrl(server)}/api`;
 
   await checkPlanOnly(baseUrl);
   await preparePositiveDriverReadiness(baseUrl);
@@ -47,7 +53,7 @@ try {
     "V1 driver real-device execution check passed: plan-only, driver readiness capture, blocked evidence, closeout, artifacts, CLI, and redaction are covered.",
   );
 } finally {
-  await closeServer(server);
+  await closeTestServer(server, { forceAfterMs: 1000 });
   rmSync(storageRoot, { recursive: true, force: true });
 }
 
@@ -148,7 +154,7 @@ async function preparePositiveDriverReadiness(baseUrl) {
   const driverTask = driverTasks.items?.[0];
   assert.ok(driverTask?.fulfillmentId, "positive readiness setup missed driver delivery task");
   const expectedPackageId = driverTask.packageChecklist?.[0]?.packageId || `${driverTask.fulfillmentId}-PKG-1`;
-  await postDriverJson(
+  const fieldTest = await postDriverJson(
     baseUrl,
     `/driver/delivery-tasks/${encodeURIComponent(driverTask.fulfillmentId)}/device-field-tests`,
     buildPassedDriverDeviceFieldTest({
@@ -157,6 +163,10 @@ async function preparePositiveDriverReadiness(baseUrl) {
       expectedPackageId,
     }),
   );
+  assert.equal(fieldTest.acceptance?.ready, true);
+  assert.equal(fieldTest.acceptance?.packageIdsMatch, true);
+  assert.equal(fieldTest.acceptance?.navigationSampleReady, true);
+  assert.equal(fieldTest.safeguards?.nativeBridgeInvoked, false);
 }
 
 function buildPassedDriverDeviceFieldTest({ fulfillmentId, orderLineId, expectedPackageId }) {
@@ -182,14 +192,24 @@ function buildPassedDriverDeviceFieldTest({ fulfillmentId, orderLineId, expected
     ],
     packageLabelScanSample: {
       sampleId: `DPLS-V1-EXEC-${fulfillmentId}`,
+      requestId: `DNPS-V1-EXEC-${fulfillmentId}`,
       fulfillmentId,
       expectedPackageId,
       scannedText: sensitiveScanText,
       matchedPackageId: expectedPackageId,
       method: "native_sdk",
+      source: "native_sdk",
       result: "matched",
       message: "原生扫码 SDK 已扫真实纸质包裹标签",
       checkedAt: "2026-07-08T10:09:59.000Z",
+    },
+    nativeNavigationSample: {
+      requestId: `DNN-V1-EXEC-${fulfillmentId}`,
+      fulfillmentId,
+      status: "opened",
+      source: "native_navigation_sdk",
+      mapApp: "高德地图",
+      checkedAt: "2026-07-08T10:10:00.000Z",
     },
     nativeBridgeDiagnostics: {
       items: [
@@ -292,52 +312,13 @@ async function postDriverJson(baseUrl, route, body) {
 }
 
 async function fetchJson(baseUrl, route, options = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const response = await fetch(`${baseUrl}${route}`, {
-      ...options,
-      headers: { ...(options.headers ?? {}), connection: "close" },
-      signal: controller.signal,
-    });
-    const json = await readJson(response);
-    if (!response.ok) throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-    return json;
-  } catch (error) {
-    if (error?.name === "AbortError") throw new Error(`${route} request timed out after 10000ms`);
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function readJson(response) {
-  const text = await response.text();
-  return text ? JSON.parse(text) : {};
-}
-
-function listen(targetServer) {
-  return new Promise((resolve) => {
-    targetServer.listen(0, "127.0.0.1", resolve);
+  const result = await requestJson(`${baseUrl}/`, route.replace(/^\/+/, ""), {
+    ...options,
+    closeConnection: true,
+    expectedStatus: "ok",
+    timeoutMs: 10000,
   });
-}
-
-function closeServer(targetServer) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      resolve();
-    };
-    targetServer.close(finish);
-    targetServer.closeIdleConnections?.();
-    const timeout = setTimeout(() => {
-      targetServer.closeAllConnections?.();
-      finish();
-    }, 1000);
-    timeout.unref?.();
-  });
+  return result.body;
 }
 
 function writeJson(filePath, value) {

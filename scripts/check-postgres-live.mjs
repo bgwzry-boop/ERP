@@ -5,7 +5,6 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import pg from "pg";
 import { createApiServer } from "../server/apiServer.mjs";
-import { hashRuntimeUserPassword } from "../server/authSeed.mjs";
 import { buildPostgresIdempotencyRequest } from "../server/idempotency.mjs";
 import { createPostgresPoolClient } from "../server/postgresPoolClient.mjs";
 import { createPostgresAttachmentRepository } from "../server/attachmentRepository.mjs";
@@ -42,6 +41,66 @@ import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
 import { v1PersistencePostgresRepositoryOptionKeys } from "../server/v1PersistenceProfile.mjs";
 import { loadMigrationFiles, validateMigrationSet } from "./dbMigrationUtils.mjs";
 import { assertStatementXlsxWorkbook } from "./xlsxTestUtils.mjs";
+import {
+  buildOperationLog,
+  buildPaymentRecord,
+  buildSendRecord,
+  buildStatement,
+  buildStatementExportFile,
+  buildStatementExportLines,
+  buildTodo,
+  buildVarianceRecord,
+} from "./helpers/postgresLiveStatementFixtures.mjs";
+import { checkPostgresLiveAttachmentRepositoryScenario } from "./helpers/postgresLiveAttachmentRepositoryScenario.mjs";
+import {
+  buildMachineCapacityBaselineRecord,
+  buildPackageRecord,
+  buildPackingTaskRecord,
+  buildProductionInventoryLedgerRecord,
+  buildProductionOperationLog,
+  buildProductionOrderLineRecord,
+  buildProductionReservationRecord,
+  buildProductionScheduleOperationLog,
+  buildProductionScheduleRecord,
+  buildProductionTaskRecord,
+  buildWorkshopReportRecord,
+} from "./helpers/postgresLiveProductionFixtures.mjs";
+import {
+  buildPrintBatchOperationLog,
+  buildPrintBatchRecord,
+  buildPrintDeviceOperationLog,
+  buildPrintDeviceRecord,
+  buildPrintJobOperationLog,
+  buildPrintJobRecord,
+} from "./helpers/postgresLivePrintFixtures.mjs";
+import {
+  buildFulfillmentActionRecord,
+  buildFulfillmentExceptionRecord,
+  buildFulfillmentOperationLog,
+  buildFulfillmentPrintRecord,
+  buildFulfillmentTodo,
+} from "./helpers/postgresLiveFulfillmentFixtures.mjs";
+import {
+  buildLiveMasterDataImportConfirmationPlan,
+  buildLiveMasterDataImportExecution,
+  buildLiveMasterDataImportOperationLog,
+  buildLiveMasterDataImportReviewDraft,
+  buildLiveMasterDataImportReviewExecution,
+  buildLiveMasterDataImportReviewExecutionOperationLog,
+  buildLiveMasterDataImportReviewPlanOperationLog,
+} from "./helpers/postgresLiveMasterDataFixtures.mjs";
+import {
+  buildConfirmedFulfillments,
+  buildConfirmedInventoryLedgerEntries,
+  buildConfirmedInventoryReservations,
+  buildConfirmedOrder,
+  buildConfirmedOrderDraft,
+  buildConfirmedOrderLines,
+  buildConfirmedPriceSnapshots,
+  buildConfirmedTodos,
+} from "./helpers/postgresLiveOrderConfirmationFixtures.mjs";
+import { buildLiveRuntimeUser } from "./helpers/postgresLiveRuntimeIdentityFixtures.mjs";
+import { seedPostgresLiveBusinessRows } from "./helpers/postgresLiveBusinessSeed.mjs";
 import { orderConversationCorpus } from "../shared/orderConversationCorpus.mjs";
 
 const dockerImage = process.env.ERP_POSTGRES_DOCKER_IMAGE || "postgres:16-alpine";
@@ -52,6 +111,12 @@ const liveRuntimeAuthSecret = "postgres-live-runtime-auth-secret";
 const liveRuntimeUserId = "U-EMP-LIVE-IDENTITY-001";
 const liveRuntimeLoginName = "employee.live.identity";
 const liveRuntimePassword = "employee-live-password-001";
+const liveOfficeRuntimeUserId = "U-EMP-LIVE-OFFICE-001";
+const liveOfficeRuntimeLoginName = "employee.live.office";
+const liveOfficeRuntimePassword = "employee-live-office-password-001";
+const liveManagerRuntimeUserId = "U-EMP-LIVE-MANAGER-001";
+const liveManagerRuntimeLoginName = "employee.live.manager";
+const liveManagerRuntimePassword = "employee-live-manager-password-001";
 let server = null;
 let orderDraftPool = null;
 let attachmentPool = null;
@@ -66,7 +131,7 @@ try {
   await checkPostgresRepositories();
   await checkApiWithPostgresRepositories();
   console.log(
-    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository, inventory correction transaction repository, inventory intent/temporary-hold transaction repository, production finished-goods photo transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, core workspace/master-data restart snapshot, runtime identity repository/formal login/logout revocation, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
+    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository/formal two-session conflict, inventory correction transaction repository, inventory intent/temporary-hold transaction repository, production finished-goods photo transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, core workspace/master-data restart snapshot, runtime identity repository/formal login/logout revocation, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
   );
 } finally {
   if (server) await closeServer(server);
@@ -150,348 +215,7 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 }
 
 function seedRequiredBusinessRows() {
-  runPsql(`
-INSERT INTO users (id, login_name, display_name, department)
-VALUES
-  ('U-OFFICE-A', 'office.a', '办公室A', 'office'),
-  ('U-FINANCE-A', 'finance.a', '财务A', 'finance'),
-  ('U-WAREHOUSE-A', 'warehouse.a', '仓库A', 'warehouse'),
-  ('U-MANAGER-A', 'manager.a', '管理A', 'management'),
-  ('U-WORKSHOP-A', 'workshop.a', '车间A', 'workshop'),
-  ('U-DRIVER-A', 'driver.a', '司机A', 'driver'),
-  ('U-PRINT-DRIVER-A', 'print.driver.a', '打印驱动服务账号A', 'system')
-ON CONFLICT (id) DO UPDATE SET
-  login_name = EXCLUDED.login_name,
-  display_name = EXCLUDED.display_name,
-  department = EXCLUDED.department,
-  updated_at = now();
-
-INSERT INTO print_templates (id, template_key, template_type, name, created_by)
-VALUES
-  ('tpl-p0-fulfillment', 'p0.fulfillment', 'fulfillment', 'P0 出库交付单据', 'U-OFFICE-A'),
-  ('tpl-p0-express-label', 'p0.express-label', 'fulfillment_label', 'P0 快运标签', 'U-OFFICE-A'),
-  ('tpl-p0-express-ltl-label', 'p0.express-ltl-label', 'fulfillment_label', 'P0 快递快运包裹标签', 'U-OFFICE-A')
-ON CONFLICT (id) DO UPDATE SET
-  template_key = EXCLUDED.template_key,
-  template_type = EXCLUDED.template_type,
-  name = EXCLUDED.name,
-  updated_at = now();
-
-INSERT INTO customers (id, biz_no, name, short_name, settlement_cycle, created_by)
-VALUES
-  ('C001', 'CUST-LIVE-001', '张三服饰', '张三服饰', '7天一结', 'U-OFFICE-A'),
-  ('C002', 'CUST-LIVE-002', '李四电商', '李四电商', '15天一结', 'U-OFFICE-A'),
-  ('C004', 'CUST-LIVE-004', '美的空调网店', '美的空调', '月结', 'U-OFFICE-A'),
-  ('C010', 'CUST-LIVE-010', '月结客户', '月结客户', '月结', 'U-OFFICE-A'),
-  ('C-LIVE-REPO', 'CUST-LIVE-REPO', 'Postgres 仓储测试客户', 'PG仓储', '7天一结', 'U-OFFICE-A')
-ON CONFLICT (id) DO UPDATE SET
-  name = EXCLUDED.name,
-  short_name = EXCLUDED.short_name,
-  settlement_cycle = EXCLUDED.settlement_cycle,
-  updated_at = now();
-
-INSERT INTO standard_colors (id, color_key, name)
-VALUES
-  ('SC-RED', 'red', '红色'),
-  ('SC-WHITE', 'white', '白色')
-ON CONFLICT (id) DO UPDATE SET
-  color_key = EXCLUDED.color_key,
-  name = EXCLUDED.name,
-  updated_at = now();
-
-INSERT INTO inventory_items (
-  id,
-  inventory_key,
-  size,
-  standard_color_id,
-  handle_type,
-  style,
-  zone,
-  inventory_state,
-  on_hand_qty,
-  reserved_qty,
-  waiting_pickup_locked_qty,
-  pending_handling_qty,
-  trust_level
-) VALUES
-  ('30*38*10-红色-普通提-空白袋-A区-30*38', '30*38*10|红色|普通提|空白袋|A区-30*38|仓库已清点', '30*38*10', 'SC-RED', '普通提', '空白袋', 'A区-30*38', '仓库已清点', 2480, 1320, 120, 0, '已清点'),
-  ('30*38*10-白色-普通提-空白袋-待快运区', '30*38*10|白色|普通提|空白袋|待快运区|待提货锁定', '30*38*10', 'SC-WHITE', '普通提', '空白袋', '待快运区', '待提货锁定', 1005, 0, 1005, 0, '已清点'),
-  ('25*32*10-白色-加长提-空白袋-B区-服装', '25*32*10|白色|加长提|空白袋|B区-服装|仓库已清点', '25*32*10', 'SC-WHITE', '加长提', '空白袋', 'B区-服装', '仓库已清点', 2100, 1200, 0, 0, '已清点'),
-  ('INV-LIVE-CONFIRM-001', 'live-confirm|红色|普通提|空白袋|A区', '30*38*10', 'SC-RED', '普通提', '空白袋', 'A区', '仓库已清点', 1000, 10, 0, 0, '已清点'),
-  ('INV-LIVE-PROD-001', 'live-production|白色|普通提|空白袋|生产完成区', '30*38*10', 'SC-WHITE', '普通提', '空白袋', '生产完成区', '仓库已清点', 20, 0, 0, 0, '已清点'),
-  ('INV-LIVE-CORRECTION-001', 'live-correction|白色|普通提|空白袋|盘点区', '30*38*10', 'SC-WHITE', '普通提', '空白袋', '盘点区', '仓库已清点', 600, 25, 5, 0, '已清点')
-ON CONFLICT (id) DO UPDATE SET
-  inventory_key = EXCLUDED.inventory_key,
-  size = EXCLUDED.size,
-  standard_color_id = EXCLUDED.standard_color_id,
-  handle_type = EXCLUDED.handle_type,
-  style = EXCLUDED.style,
-  zone = EXCLUDED.zone,
-  inventory_state = EXCLUDED.inventory_state,
-  on_hand_qty = EXCLUDED.on_hand_qty,
-  reserved_qty = EXCLUDED.reserved_qty,
-  waiting_pickup_locked_qty = EXCLUDED.waiting_pickup_locked_qty,
-  pending_handling_qty = EXCLUDED.pending_handling_qty,
-  trust_level = EXCLUDED.trust_level,
-  updated_at = now();
-
-INSERT INTO order_drafts (
-  id, biz_no, source_text, source_channel, customer_id, status, recognition_summary, revision, created_by
-) VALUES
-  ('DRAFT-LIVE-CONFIRM-001', 'DRAFT-LIVE-CONFIRM-001', 'Postgres live order confirmation', 'manual', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A'),
-  ('DRAFT-LIVE-CANCEL-001', 'DRAFT-LIVE-CANCEL-001', 'Postgres live partial shortage cancellation', 'wechat_group', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A'),
-  ('DRAFT-LIVE-SPLIT-001', 'DRAFT-LIVE-SPLIT-001', 'Postgres live atomic split confirmation', 'wechat_group', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A'),
-  ('DRAFT-LIVE-QTY-001', 'DRAFT-LIVE-QTY-001', 'Postgres live quantity order confirmation', 'manual', 'C-LIVE-REPO', '待审核', '{"customerName":"Postgres 仓储测试客户"}'::jsonb, 1, 'U-FINANCE-A')
-ON CONFLICT (id) DO UPDATE SET
-  source_text = EXCLUDED.source_text,
-  customer_id = EXCLUDED.customer_id,
-  status = EXCLUDED.status,
-  recognition_summary = EXCLUDED.recognition_summary,
-  revision = EXCLUDED.revision,
-  updated_at = now();
-
-INSERT INTO inventory_intents (
-  id, source_draft_id, source_message_id, conversation_id, customer_id,
-  intent_type, intent_status, source_text, candidate_json, cancellation_scope,
-  revision, created_by
-) VALUES (
-  'INT-LIVE-CANCEL-001', 'DRAFT-LIVE-CANCEL-001', 'MSG-LIVE-CANCEL-001',
-  'GROUP-LIVE-CANCEL-001', 'C-LIVE-REPO', 'shortage_cancellation',
-  '库存不足取消-已关联草稿明细', '白色缺货不要了，红色继续',
-  '{"relatedDraftLineIds":["DRAFT-LIVE-CANCEL-001-02"],"targetBasis":"explicit_spec"}'::jsonb,
-  'shortage_lines_only', 1, 'U-FINANCE-A'
-)
-ON CONFLICT (id) DO UPDATE SET
-  intent_status = EXCLUDED.intent_status,
-  candidate_json = EXCLUDED.candidate_json,
-  revision = EXCLUDED.revision,
-  updated_at = now();
-
-INSERT INTO original_orders (id, biz_no, customer_id, customer_snapshot, summary_status, created_by)
-VALUES
-  ('ORD-0629-001', 'ORD-0629-001', 'C001', '{"name":"张三服饰"}'::jsonb, '待出库', 'U-OFFICE-A'),
-  ('ORD-0629-002', 'ORD-0629-002', 'C002', '{"name":"李四电商"}'::jsonb, '已备货', 'U-OFFICE-A'),
-  ('ORD-0629-003', 'ORD-0629-003', 'C004', '{"name":"美的空调网店"}'::jsonb, '生产中', 'U-OFFICE-A'),
-  ('ORD-0629-009', 'ORD-0629-009', 'C010', '{"name":"月结客户"}'::jsonb, '待送货', 'U-OFFICE-A'),
-  ('ORD-0629-015', 'ORD-0629-015', 'C001', '{"name":"张三服饰"}'::jsonb, '待对账', 'U-OFFICE-A'),
-  ('ORD-0629-022', 'ORD-0629-022', 'C002', '{"name":"李四电商"}'::jsonb, '丝印中', 'U-OFFICE-A'),
-  ('ORD-LIVE-PROD-001', 'ORD-LIVE-PROD-001', 'C-LIVE-REPO', '{"name":"Postgres 仓储测试客户"}'::jsonb, '生产中', 'U-OFFICE-A'),
-  ('ORD-LIVE-REPO-001', 'ORD-LIVE-REPO-001', 'C-LIVE-REPO', '{"name":"Postgres 仓储测试客户"}'::jsonb, '待对账', 'U-OFFICE-A')
-ON CONFLICT (id) DO UPDATE SET
-  customer_id = EXCLUDED.customer_id,
-  customer_snapshot = EXCLUDED.customer_snapshot,
-  summary_status = EXCLUDED.summary_status,
-  updated_at = now();
-
-INSERT INTO order_lines (
-  id,
-  biz_no,
-  order_id,
-  customer_id,
-  product_name,
-  order_type,
-  size,
-  bag_color,
-  handle_type,
-  style,
-  original_qty,
-  fulfillment_method,
-  line_status,
-  created_by
-) VALUES
-  ('ORD-0629-001-01', 'ORD-0629-001-01', 'ORD-0629-001', 'C001', '空白袋', '现货有货', '30*38*10', '红色', '普通提', '空白袋', 500, '自提', '待出库', 'U-OFFICE-A'),
-  ('ORD-0629-002-01', 'ORD-0629-002-01', 'ORD-0629-002', 'C002', '服装店白袋', '现货有货', '25*32*10', '白色', '加长提', '空白袋', 1200, '送货', '已备货', 'U-OFFICE-A'),
-  ('ORD-0629-003-01', 'ORD-0629-003-01', 'ORD-0629-003', 'C004', '美的空调', '定制印刷', '30*38*10', '白色', '普通提', '空白袋', 1000, '快递快运', '制袋中', 'U-OFFICE-A'),
-  ('ORD-0629-009-01', 'ORD-0629-009-01', 'ORD-0629-009', 'C010', '月结客户活动袋', '定制印刷', '35*41', '白色', '普通提', '空白袋', 2000, '送货', '待送货', 'U-OFFICE-A'),
-  ('ORD-0629-015-01', 'ORD-0629-015-01', 'ORD-0629-015', 'C001', '空白袋', '现货有货', '25*32*10', '红色', '普通提', '空白袋', 300, '自提', '待对账', 'U-OFFICE-A'),
-  ('ORD-0629-022-01', 'ORD-0629-022-01', 'ORD-0629-022', 'C002', '外卖活动袋', '定制印刷', '40*30*10', '黄色', '普通提', '空白袋', 3000, '送货', '丝印中', 'U-OFFICE-A'),
-  ('OL-LIVE-PROD-001', 'OL-LIVE-PROD-001', 'ORD-LIVE-PROD-001', 'C-LIVE-REPO', 'Postgres 生产报工', '定制印刷', '30*38*10', '白色', '普通提', '空白袋', 80, '快递快运', '制袋中', 'U-OFFICE-A'),
-  ('OL-LIVE-EXPORT-LINE-001', 'OL-LIVE-EXPORT-LINE-001', 'ORD-LIVE-REPO-001', 'C-LIVE-REPO', 'Postgres Export Live', '现货有货', '30*38*10', '白色', '普通提', '空白袋', 273, '自提', '待对账', 'U-OFFICE-A')
-ON CONFLICT (id) DO UPDATE SET
-  order_id = EXCLUDED.order_id,
-  customer_id = EXCLUDED.customer_id,
-  product_name = EXCLUDED.product_name,
-  original_qty = EXCLUDED.original_qty,
-  fulfillment_method = EXCLUDED.fulfillment_method,
-  line_status = EXCLUDED.line_status,
-  updated_at = now();
-
-INSERT INTO fulfillment_records (
-  id,
-  biz_no,
-  order_line_id,
-  customer_id,
-  customer_snapshot,
-  method,
-  expected_qty,
-  actual_qty,
-  status,
-  created_by
-) VALUES
-  ('F001', 'F001', 'ORD-0629-001-01', 'C001', '{"name":"张三服饰"}'::jsonb, '自提', 500, 500, '待出库', 'U-OFFICE-A'),
-  ('F002', 'F002', 'ORD-0629-002-01', 'C002', '{"name":"李四电商"}'::jsonb, '送货', 1200, 1200, '已备货', 'U-OFFICE-A'),
-  ('F006', 'F006', 'ORD-0629-009-01', 'C010', '{"name":"月结客户"}'::jsonb, '送货', 2000, 2000, '待送货', 'U-OFFICE-A'),
-  ('F008', 'F008', 'ORD-0629-022-01', 'C002', '{"name":"李四电商"}'::jsonb, '送货', 3000, 3000, '待出库', 'U-OFFICE-A'),
-  ('F-LIVE-EXPORT-001', 'F-LIVE-EXPORT-001', 'OL-LIVE-EXPORT-LINE-001', 'C-LIVE-REPO', '{"name":"Postgres 仓储测试客户"}'::jsonb, '自提', 273, 273, '待对账', 'U-OFFICE-A')
-ON CONFLICT (id) DO UPDATE SET
-  order_line_id = EXCLUDED.order_line_id,
-  customer_id = EXCLUDED.customer_id,
-  expected_qty = EXCLUDED.expected_qty,
-  actual_qty = EXCLUDED.actual_qty,
-  status = EXCLUDED.status,
-  updated_at = now();
-
-INSERT INTO driver_delivery_dispatches (
-  id,
-  biz_no,
-  fulfillment_id,
-  driver_id,
-  route_date,
-  route_batch_no,
-  stop_sequence,
-  dispatch_status,
-  planned_departure_at,
-  assigned_by,
-  assigned_at,
-  remark
-) VALUES
-  (
-    'DDIS-LIVE-F002-001',
-    'DDIS-LIVE-F002-001',
-    'F002',
-    'U-DRIVER-A',
-    '2026-07-02',
-    '虎门线-A',
-    2,
-    '已派单',
-    '2026-07-02T08:30:00.000Z',
-    'U-OFFICE-A',
-    '2026-07-02T08:00:00.000Z',
-    '办公室测试派单顺序'
-  ),
-  (
-    'DDIS-LIVE-F008-001',
-    'DDIS-LIVE-F008-001',
-    'F008',
-    'U-DRIVER-A',
-    '2026-07-02',
-    '虎门线-A',
-    3,
-    '已派单',
-    '2026-07-02T08:40:00.000Z',
-    'U-OFFICE-A',
-    '2026-07-02T08:05:00.000Z',
-    '司机动作字段冷启动测试派单'
-  ),
-  (
-    'DDIS-LIVE-F006-001',
-    'DDIS-LIVE-F006-001',
-    'F006',
-    'U-DRIVER-A',
-    '2026-07-02',
-    '虎门线-A',
-    4,
-    '已派单',
-    '2026-07-02T08:50:00.000Z',
-    'U-OFFICE-A',
-    '2026-07-02T08:10:00.000Z',
-    '司机异常上报冷启动测试派单'
-  )
-ON CONFLICT (id) DO UPDATE SET
-  driver_id = EXCLUDED.driver_id,
-  route_date = EXCLUDED.route_date,
-  route_batch_no = EXCLUDED.route_batch_no,
-  stop_sequence = EXCLUDED.stop_sequence,
-  dispatch_status = EXCLUDED.dispatch_status,
-  planned_departure_at = EXCLUDED.planned_departure_at,
-  assigned_by = EXCLUDED.assigned_by,
-  assigned_at = EXCLUDED.assigned_at,
-  remark = EXCLUDED.remark,
-  updated_at = now();
-
-INSERT INTO packages (
-  id,
-  biz_no,
-  order_line_id,
-  fulfillment_id,
-  package_seq,
-  package_count,
-  packed_qty,
-  label_print_record_id,
-  status,
-  created_by
-) VALUES
-  ('PKG-LIVE-F002-1', 'PKG-LIVE-F002-1', 'ORD-0629-002-01', 'F002', 1, 3, 400, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F002-2', 'PKG-LIVE-F002-2', 'ORD-0629-002-01', 'F002', 2, 3, 400, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F002-3', 'PKG-LIVE-F002-3', 'ORD-0629-002-01', 'F002', 3, 3, 400, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F006-1', 'PKG-LIVE-F006-1', 'ORD-0629-009-01', 'F006', 1, 2, 1000, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F006-2', 'PKG-LIVE-F006-2', 'ORD-0629-009-01', 'F006', 2, 2, 1000, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-1', 'PKG-LIVE-F008-1', 'ORD-0629-022-01', 'F008', 1, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-2', 'PKG-LIVE-F008-2', 'ORD-0629-022-01', 'F008', 2, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-3', 'PKG-LIVE-F008-3', 'ORD-0629-022-01', 'F008', 3, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-4', 'PKG-LIVE-F008-4', 'ORD-0629-022-01', 'F008', 4, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-5', 'PKG-LIVE-F008-5', 'ORD-0629-022-01', 'F008', 5, 6, 500, NULL, '已打印', 'U-OFFICE-A'),
-  ('PKG-LIVE-F008-6', 'PKG-LIVE-F008-6', 'ORD-0629-022-01', 'F008', 6, 6, 500, NULL, '已打印', 'U-OFFICE-A')
-ON CONFLICT (id) DO UPDATE SET
-  fulfillment_id = EXCLUDED.fulfillment_id,
-  package_seq = EXCLUDED.package_seq,
-  package_count = EXCLUDED.package_count,
-  packed_qty = EXCLUDED.packed_qty,
-  label_print_record_id = EXCLUDED.label_print_record_id,
-  status = EXCLUDED.status,
-  updated_at = now();
-
-INSERT INTO statements (
-  id,
-  biz_no,
-  customer_id,
-  period_start,
-  period_end,
-  status,
-  receivable_amount,
-  received_amount,
-  variance_amount,
-  created_by
-) VALUES
-  ('ST-0629-001', 'ST-LIVE-API-001', 'C001', '2026-06-22', '2026-06-29', '待生成', 273, 0, 273, 'U-OFFICE-A'),
-  ('ST-0629-002', 'ST-LIVE-API-002', 'C002', '2026-06-15', '2026-06-29', '差额待确认', 108000, 80000, 28000, 'U-OFFICE-A'),
-  ('ST-0629-005', 'ST-LIVE-API-005', 'C010', '2026-06-01', '2026-06-29', '有欠款', 1510, 0, 5300, 'U-OFFICE-A'),
-  ('ST-LIVE-REPO-001', 'ST-LIVE-REPO-001', 'C-LIVE-REPO', '2026-06-22', '2026-06-29', '待生成', 273, 0, 273, 'U-OFFICE-A'),
-  ('ST-LIVE-VAR-001', 'ST-LIVE-VAR-001', 'C-LIVE-REPO', '2026-06-22', '2026-06-29', '差额待确认', 273, 200, 73, 'U-OFFICE-A'),
-  ('ST-LIVE-SEND-001', 'ST-LIVE-SEND-001', 'C-LIVE-REPO', '2026-06-22', '2026-06-29', '待生成', 273, 0, 273, 'U-OFFICE-A')
-ON CONFLICT (id) DO UPDATE SET
-  customer_id = EXCLUDED.customer_id,
-  status = EXCLUDED.status,
-  receivable_amount = EXCLUDED.receivable_amount,
-  received_amount = EXCLUDED.received_amount,
-  variance_amount = EXCLUDED.variance_amount,
-  updated_at = now();
-
-INSERT INTO statement_lines (
-  id,
-  statement_id,
-  order_line_id,
-  fulfillment_id,
-  delivered_qty,
-  chargeable_qty,
-  free_qty,
-  amount,
-  adjustment_amount,
-  final_amount
-) VALUES
-  ('ST-0629-001-001', 'ST-0629-001', 'ORD-0629-001-01', 'F001', 500, 500, 0, 180, 0, 180),
-  ('ST-0629-001-002', 'ST-0629-001', 'ORD-0629-015-01', NULL, 300, 300, 0, 93, 0, 93)
-ON CONFLICT (id) DO UPDATE SET
-  statement_id = EXCLUDED.statement_id,
-  order_line_id = EXCLUDED.order_line_id,
-  fulfillment_id = EXCLUDED.fulfillment_id,
-  delivered_qty = EXCLUDED.delivered_qty,
-  chargeable_qty = EXCLUDED.chargeable_qty,
-  free_qty = EXCLUDED.free_qty,
-  amount = EXCLUDED.amount,
-  adjustment_amount = EXCLUDED.adjustment_amount,
-  final_amount = EXCLUDED.final_amount;
-`);
+  return seedPostgresLiveBusinessRows({ runPsql });
 }
 
 async function checkPostgresIdempotencyAndConcurrency() {
@@ -610,6 +334,7 @@ async function checkPostgresRepositories() {
   const orderLineVoidRepository = createPostgresOrderLineVoidTransactionRepository({ queryJson });
   const orderLineQuantityAdjustmentRepository = createPostgresOrderLineQuantityAdjustmentTransactionRepository({ queryJson });
   const productionPackingRepository = createPostgresProductionPackingTransactionRepository({ queryJson });
+  const todoFulfillmentRepairRepository = createPostgresTodoActionRepository({ postgresClient: statementPostgresClient });
   const productionPackingReadRepository = createPostgresProductionPackingReadRepository({ queryJson });
   const productionScheduleRecordRepository = createPostgresProductionScheduleRecordRepository({ queryJson });
   const printBatchRepository = createPostgresPrintBatchRepository({
@@ -621,36 +346,44 @@ async function checkPostgresRepositories() {
   const masterDataImportTransactionRepository = createPostgresMasterDataImportTransactionRepository({ queryJson });
   const coreWorkspaceReadRepository = createPostgresCoreWorkspaceReadRepository({ queryJson });
   const runtimeIdentityRepository = createPostgresRuntimeIdentityRepository({ postgresClient: statementPostgresClient });
-  const workspace = { attachments: [], attachmentLinks: [], attachmentAccessLogs: [], operationLogs: [] };
-
   const runtimeIdentitySave = await runtimeIdentityRepository.saveState({
     workspace: {
-      users: [{
-        userId: liveRuntimeUserId,
-        loginName: liveRuntimeLoginName,
-        displayName: "PostgreSQL 正式员工账号",
-        defaultRole: "technical_operations",
-        department: "system",
-        enabled: true,
-        roles: ["technical_operations"],
-        employeeId: "EMP-LIVE-IDENTITY-001",
-        source: "master_data_import_review",
-        loginEnabled: true,
-        passwordHash: hashRuntimeUserPassword(liveRuntimePassword, {
+      users: [
+        buildLiveRuntimeUser({
           userId: liveRuntimeUserId,
+          loginName: liveRuntimeLoginName,
+          password: liveRuntimePassword,
           authSecret: liveRuntimeAuthSecret,
+          displayName: "PostgreSQL 正式技术账号",
+          role: "technical_operations",
+          department: "system",
+          employeeId: "EMP-LIVE-IDENTITY-001",
         }),
-        passwordStatus: "active",
-        mustChangePassword: false,
-        passwordChangedAt: "2026-07-12T00:00:00.000Z",
-        passwordExpiresAt: "2026-10-10T00:00:00.000Z",
-        sessionVersion: 1,
-        updatedAt: "2026-07-12T00:00:00.000Z",
-      }],
+        buildLiveRuntimeUser({
+          userId: liveOfficeRuntimeUserId,
+          loginName: liveOfficeRuntimeLoginName,
+          password: liveOfficeRuntimePassword,
+          authSecret: liveRuntimeAuthSecret,
+          displayName: "PostgreSQL 正式办公室账号",
+          role: "office",
+          department: "office",
+          employeeId: "EMP-LIVE-OFFICE-001",
+        }),
+        buildLiveRuntimeUser({
+          userId: liveManagerRuntimeUserId,
+          loginName: liveManagerRuntimeLoginName,
+          password: liveManagerRuntimePassword,
+          authSecret: liveRuntimeAuthSecret,
+          displayName: "PostgreSQL 正式管理账号",
+          role: "management",
+          department: "management",
+          employeeId: "EMP-LIVE-MANAGER-001",
+        }),
+      ],
       revokedSeedSessions: [],
     },
   });
-  assert.equal(runtimeIdentitySave.savedUserCount, 1);
+  assert.equal(runtimeIdentitySave.savedUserCount, 3);
   const runtimeIdentityState = await runtimeIdentityRepository.loadState();
   const persistedRuntimeUser = runtimeIdentityState.users.find((user) => user.userId === liveRuntimeUserId);
   assert(persistedRuntimeUser, "runtime employee should persist in PostgreSQL users");
@@ -667,203 +400,11 @@ async function checkPostgresRepositories() {
   assert.equal(persistedTechnicalRole?.ready, true);
   assert.equal(persistedTechnicalRole?.readyAccountCount, 1);
 
-  assert.equal((await attachmentRepository.loadState()).attachments.length, 0);
-
-  const attachment = buildAttachment({
-    attachmentId: "ATT-LIVE-REPO-001",
-    ownerId: "ST-LIVE-REPO-001",
-    uploadedBy: "U-FINANCE-A",
+  await checkPostgresLiveAttachmentRepositoryScenario({
+    attachmentRepository,
+    auditRepository,
+    runPsql,
   });
-  const link = {
-    id: "ALINK-LIVE-REPO-001",
-    attachmentId: attachment.attachmentId,
-    ownerType: "statement",
-    ownerId: attachment.ownerId,
-    purpose: "payment_screenshot",
-    createdAt: "2026-07-01T10:30:00.000Z",
-  };
-
-  const attachmentOperationLog = buildOperationLog({
-    logId: "LOG-LIVE-ATTACHMENT-001",
-    action: "create_attachment",
-    before: null,
-    after: attachment,
-  });
-  attachmentOperationLog.targetType = "statement";
-  attachmentOperationLog.targetId = attachment.ownerId;
-  const saved = await attachmentRepository.createAttachment({
-    workspace,
-    attachment,
-    link,
-    operationLog: attachmentOperationLog,
-    idempotencyKey: "attachment-live-repo-001",
-    idempotencyPayload: { ownerId: attachment.ownerId, contentDigest: attachment.contentDigest },
-  });
-  assert.equal(saved.attachment.attachmentId, attachment.attachmentId);
-  assert.equal(saved.attachment.ownerId, "ST-LIVE-REPO-001");
-  assert.equal(saved.deduplicated, false);
-  assert.equal(saved.operationLogId, attachmentOperationLog.id);
-
-  const replayed = await attachmentRepository.createAttachment({
-    workspace,
-    attachment,
-    link,
-    operationLog: attachmentOperationLog,
-    idempotencyKey: "attachment-live-repo-001",
-    idempotencyPayload: { ownerId: attachment.ownerId, contentDigest: attachment.contentDigest },
-  });
-  assert.deepEqual(replayed, saved);
-  assert.equal(
-    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-ATTACHMENT-001';", { capture: true }).trim()),
-    1,
-  );
-
-  await assert.rejects(
-    () =>
-      attachmentRepository.createAttachment({
-        workspace,
-        attachment,
-        link,
-        operationLog: attachmentOperationLog,
-        idempotencyKey: "attachment-live-repo-001",
-        idempotencyPayload: { ownerId: attachment.ownerId, contentDigest: "b".repeat(64) },
-      }),
-    (error) => error?.statusCode === 409 && error?.code === "IDEMPOTENCY_KEY_REUSED",
-  );
-
-  const duplicateAttachment = buildAttachment({
-    attachmentId: "ATT-LIVE-REPO-002",
-    ownerId: attachment.ownerId,
-    uploadedBy: "U-FINANCE-A",
-  });
-  duplicateAttachment.fileName = "payment-proof-postgres-live-copy.png";
-  const duplicateOperationLog = buildOperationLog({
-    logId: "LOG-LIVE-ATTACHMENT-002",
-    action: "create_attachment",
-    before: null,
-    after: duplicateAttachment,
-  });
-  duplicateOperationLog.targetType = "statement";
-  duplicateOperationLog.targetId = attachment.ownerId;
-  const duplicateSaved = await attachmentRepository.createAttachment({
-    workspace,
-    attachment: duplicateAttachment,
-    link: {
-      ...link,
-      id: "ALINK-LIVE-REPO-002",
-      attachmentId: duplicateAttachment.attachmentId,
-    },
-    operationLog: duplicateOperationLog,
-    idempotencyKey: "attachment-live-repo-002",
-    idempotencyPayload: { ownerId: duplicateAttachment.ownerId, contentDigest: duplicateAttachment.contentDigest },
-  });
-  assert.equal(duplicateSaved.deduplicated, true);
-  assert.equal(duplicateSaved.attachment.attachmentId, attachment.attachmentId);
-  assert.equal(Number(runPsql("SELECT COUNT(*) FROM attachments WHERE id LIKE 'ATT-LIVE-REPO-%';", { capture: true }).trim()), 1);
-  assert.equal(Number(runPsql("SELECT COUNT(*) FROM attachment_content_dedup_keys WHERE owner_id = 'ST-LIVE-REPO-001';", { capture: true }).trim()), 1);
-  assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id LIKE 'LOG-LIVE-ATTACHMENT-%';", { capture: true }).trim()), 2);
-  assert.equal(
-    Number(
-      runPsql("SELECT COUNT(*) FROM operation_idempotency_keys WHERE scope = 'attachment.create';", { capture: true }).trim(),
-    ),
-    2,
-  );
-
-  const concurrentOwnerId = "ST-LIVE-REPO-CONCURRENT";
-  const concurrentInputs = ["LEFT", "RIGHT"].map((side, index) => {
-    const concurrentAttachment = buildAttachment({
-      attachmentId: `ATT-LIVE-CONCURRENT-${side}`,
-      ownerId: concurrentOwnerId,
-      uploadedBy: "U-FINANCE-A",
-    });
-    concurrentAttachment.contentDigest = "c".repeat(64);
-    const operationLog = buildOperationLog({
-      logId: `LOG-LIVE-ATTACHMENT-CONCURRENT-${side}`,
-      action: "create_attachment",
-      before: null,
-      after: concurrentAttachment,
-    });
-    operationLog.targetType = "statement";
-    operationLog.targetId = concurrentOwnerId;
-    return {
-      workspace,
-      attachment: concurrentAttachment,
-      link: {
-        ...link,
-        id: `ALINK-LIVE-CONCURRENT-${side}`,
-        attachmentId: concurrentAttachment.attachmentId,
-        ownerId: concurrentOwnerId,
-      },
-      operationLog,
-      idempotencyKey: `attachment-live-concurrent-00${index + 1}`,
-      idempotencyPayload: {
-        ownerId: concurrentOwnerId,
-        contentDigest: concurrentAttachment.contentDigest,
-        side,
-      },
-    };
-  });
-  const concurrentResults = await Promise.all(concurrentInputs.map((input) => attachmentRepository.createAttachment(input)));
-  assert.equal(concurrentResults[0].attachment.attachmentId, concurrentResults[1].attachment.attachmentId);
-  assert.equal(concurrentResults.filter((result) => result.deduplicated).length, 1);
-  assert.equal(
-    Number(runPsql("SELECT COUNT(*) FROM attachments WHERE id LIKE 'ATT-LIVE-CONCURRENT-%';", { capture: true }).trim()),
-    1,
-  );
-  assert.equal(
-    Number(
-      runPsql(
-        "SELECT COUNT(*) FROM attachment_content_dedup_keys WHERE owner_id = 'ST-LIVE-REPO-CONCURRENT';",
-        { capture: true },
-      ).trim(),
-    ),
-    1,
-  );
-  assert.equal(
-    Number(
-      runPsql("SELECT COUNT(*) FROM operation_logs WHERE id LIKE 'LOG-LIVE-ATTACHMENT-CONCURRENT-%';", {
-        capture: true,
-      }).trim(),
-    ),
-    2,
-  );
-
-  const listed = await attachmentRepository.listAttachments({
-    filters: {
-      ownerType: "statement",
-      ownerId: "ST-LIVE-REPO-001",
-      purpose: "payment_screenshot",
-      fileType: "image",
-      keyword: "live",
-    },
-  });
-  assert.equal(listed.length, 1);
-  assert.equal(listed[0].storageKey, attachment.storageKey);
-
-  const found = await attachmentRepository.findAttachmentById({ attachmentId: attachment.attachmentId });
-  assert.equal(found.fileName, attachment.fileName);
-  const foundByDigest = await attachmentRepository.findAttachmentByDigest({
-    ownerType: attachment.ownerType,
-    ownerId: attachment.ownerId,
-    purpose: attachment.purpose,
-    contentDigest: attachment.contentDigest,
-  });
-  assert.equal(foundByDigest.attachmentId, attachment.attachmentId);
-
-  const savedLog = await auditRepository.recordAccessLog({
-    workspace,
-    accessLog: buildAccessLog({
-      logId: "ALOG-LIVE-REPO-001",
-      attachmentId: attachment.attachmentId,
-      operatorId: "U-FINANCE-A",
-      operationLogId: "LOG-LIVE-REPO-001",
-    }),
-  });
-  assert.equal(savedLog.logId, "ALOG-LIVE-REPO-001");
-
-  const accessLogs = await auditRepository.listAccessLogs({ attachmentId: attachment.attachmentId, limit: 10 });
-  assert.equal(accessLogs.total, 1);
-  assert.equal(accessLogs.items[0].operationLogId, "LOG-LIVE-REPO-001");
 
   const paymentWorkspace = { paymentRecords: [] };
   const paymentRecord = await paymentRepository.createPaymentRecord({
@@ -2290,6 +1831,28 @@ ON CONFLICT (id) DO UPDATE SET
         sourceId: "PKT-LIVE-PROD-001",
       }),
     ],
+    todo: {
+      id: "T-LIVE-PACK-REMEDIATION-001",
+      type: "出库交付待补建",
+      refType: "order_line",
+      refId: "OL-LIVE-PROD-001",
+      ref: "OL-LIVE-PROD-001",
+      priority: "异常",
+      status: "未处理",
+      summary: "PostgreSQL 打包完成后缺少出库交付记录",
+      createdBy: "U-WAREHOUSE-A",
+      createdAt: "2026-07-02T12:30:00.000Z",
+      updatedAt: "2026-07-02T12:30:00.000Z",
+    },
+    todoEvent: {
+      eventId: "TE-LIVE-PACK-REMEDIATION-001",
+      todoId: "T-LIVE-PACK-REMEDIATION-001",
+      eventType: "todo_source:packing_completed",
+      eventPayload: { packingTaskId: "PKT-LIVE-PROD-001", orderLineId: "OL-LIVE-PROD-001", fulfillmentId: "" },
+      operatorId: "U-WAREHOUSE-A",
+      occurredAt: "2026-07-02T12:30:00.000Z",
+      createdAt: "2026-07-02T12:30:00.000Z",
+    },
     operationLog: buildProductionOperationLog({
       logId: "LOG-LIVE-PACK-001",
       targetType: "packing_task",
@@ -2300,16 +1863,108 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(packingCompletion.packingTask.status, "已完成");
   assert.equal(packingCompletion.packages.length, 2);
   assert.equal(packingCompletion.inventoryLedgerEntries[0].qtyChange, 0);
+  assert.equal(packingCompletion.todo.refType, "order_line");
+  assert.equal(packingCompletion.todoEvent.eventType, "todo_source:packing_completed");
   const productionInventoryAfterPacking = queryJson(
     "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = 'INV-LIVE-PROD-001';",
   );
   assert.equal(Number(productionInventoryAfterPacking.onHand), 100);
   assert.equal(Number(productionInventoryAfterPacking.reserved), 80);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM packages WHERE order_line_id = 'OL-LIVE-PROD-001';", { capture: true }).trim()), 2);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM todos WHERE id = 'T-LIVE-PACK-REMEDIATION-001' AND ref_type = 'order_line' AND ref_id = 'OL-LIVE-PROD-001';", { capture: true }).trim()), 1);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM todo_events WHERE id = 'TE-LIVE-PACK-REMEDIATION-001' AND todo_id = 'T-LIVE-PACK-REMEDIATION-001';", { capture: true }).trim()), 1);
   assert.equal(
     queryJson("SELECT json_build_object('lineStatus', line_status) AS result FROM order_lines WHERE id = 'OL-LIVE-PROD-001';").lineStatus,
     "待打印标签",
   );
+  const fulfillmentRepairTimestamp = "2026-07-02T12:35:00.000Z";
+  const fulfillmentRepairBeforeTodo = productionWorkspace.todos.find((item) => item.id === "T-LIVE-PACK-REMEDIATION-001");
+  const fulfillmentRepairCompletedTodo = {
+    ...fulfillmentRepairBeforeTodo,
+    status: "已处理",
+    handled: true,
+    handledBy: "U-OFFICE-A",
+    handledAt: fulfillmentRepairTimestamp,
+    handlingResult: "已补建出库交付 F-REPAIR-OL-LIVE-PROD-001",
+    updatedAt: fulfillmentRepairTimestamp,
+  };
+  const fulfillmentRepairLabelTodo = {
+    id: "T-LABEL-T-LIVE-PACK-REMEDIATION-001",
+    type: "待打印标签",
+    refType: "fulfillment",
+    refId: "F-REPAIR-OL-LIVE-PROD-001",
+    ref: "F-REPAIR-OL-LIVE-PROD-001",
+    priority: "普通",
+    status: "未处理",
+    summary: "PostgreSQL 补建出库交付后等待打印标签",
+    createdBy: "U-OFFICE-A",
+    createdAt: fulfillmentRepairTimestamp,
+    updatedAt: fulfillmentRepairTimestamp,
+  };
+  const fulfillmentRepairRecord = {
+    fulfillmentId: "F-REPAIR-OL-LIVE-PROD-001",
+    bizNo: "F-REPAIR-OL-LIVE-PROD-001",
+    orderLineId: "OL-LIVE-PROD-001",
+    customerId: "C-LIVE-REPO",
+    customerSnapshot: { name: "Postgres 仓储测试客户" },
+    method: "快递快运",
+    expectedQty: 80,
+    actualQty: 80,
+    status: "待打印标签",
+    createdBy: "U-OFFICE-A",
+    createdAt: fulfillmentRepairTimestamp,
+    updatedAt: fulfillmentRepairTimestamp,
+  };
+  const fulfillmentRepairInput = {
+    workspace: productionWorkspace,
+    beforeTodo: fulfillmentRepairBeforeTodo,
+    expectedUpdatedAt: fulfillmentRepairBeforeTodo.updatedAt,
+    completedTodo: fulfillmentRepairCompletedTodo,
+    labelTodo: fulfillmentRepairLabelTodo,
+    fulfillment: fulfillmentRepairRecord,
+    packages: packingCompletion.packages,
+    packingTask: packingCompletion.packingTask,
+    orderLine: productionWorkspace.orderLines.find((item) => item.id === "OL-LIVE-PROD-001"),
+    oldTodoEvent: {
+      eventId: "TE-LIVE-FULFILLMENT-REPAIR-001",
+      todoId: fulfillmentRepairCompletedTodo.id,
+      eventType: "fulfillment_repair_completed",
+      eventPayload: { todo: fulfillmentRepairCompletedTodo, fulfillmentId: fulfillmentRepairRecord.fulfillmentId },
+      operatorId: "U-OFFICE-A",
+      occurredAt: fulfillmentRepairTimestamp,
+      createdAt: fulfillmentRepairTimestamp,
+    },
+    newTodoEvent: {
+      eventId: "TE-LIVE-FULFILLMENT-LABEL-001",
+      todoId: fulfillmentRepairLabelTodo.id,
+      eventType: "todo_source:fulfillment_repaired",
+      eventPayload: { todo: fulfillmentRepairLabelTodo, fulfillmentId: fulfillmentRepairRecord.fulfillmentId },
+      operatorId: "U-OFFICE-A",
+      occurredAt: fulfillmentRepairTimestamp,
+      createdAt: fulfillmentRepairTimestamp,
+    },
+    operationLog: buildProductionOperationLog({
+      logId: "LOG-LIVE-FULFILLMENT-REPAIR-001",
+      targetType: "todo",
+      targetId: fulfillmentRepairCompletedTodo.id,
+      action: "repair_missing_fulfillment",
+      reason: "PostgreSQL live fulfillment repair",
+    }),
+    idempotencyKey: "postgres-live-fulfillment-repair-001",
+    idempotencyPayload: { todoId: fulfillmentRepairCompletedTodo.id, reason: "PostgreSQL live fulfillment repair" },
+  };
+  const fulfillmentRepair = await todoFulfillmentRepairRepository.repairMissingFulfillment(fulfillmentRepairInput);
+  assert.equal(fulfillmentRepair.todo.handled, true);
+  assert.equal(fulfillmentRepair.labelTodo.refId, fulfillmentRepairRecord.fulfillmentId);
+  assert.equal(fulfillmentRepair.fulfillment.actualQty, 80);
+  assert.equal(fulfillmentRepair.packages.length, 2);
+  assert.ok(fulfillmentRepair.packages.every((record) => record.fulfillmentId === fulfillmentRepairRecord.fulfillmentId));
+  const fulfillmentRepairReplay = await todoFulfillmentRepairRepository.repairMissingFulfillment(fulfillmentRepairInput);
+  assert.equal(fulfillmentRepairReplay.operationLogId, fulfillmentRepair.operationLogId);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM fulfillment_records WHERE order_line_id = 'OL-LIVE-PROD-001';", { capture: true }).trim()), 1);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM packages WHERE order_line_id = 'OL-LIVE-PROD-001' AND fulfillment_id = 'F-REPAIR-OL-LIVE-PROD-001';", { capture: true }).trim()), 2);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM todos WHERE id = 'T-LIVE-PACK-REMEDIATION-001' AND status = '已处理';", { capture: true }).trim()), 1);
+  assert.equal(Number(runPsql("SELECT COUNT(*) FROM todos WHERE id = 'T-LABEL-T-LIVE-PACK-REMEDIATION-001' AND ref_type = 'fulfillment' AND ref_id = 'F-REPAIR-OL-LIVE-PROD-001';", { capture: true }).trim()), 1);
   const coldStartProductionDetail = await productionPackingReadRepository.getProductionTaskDetail({
     productionTaskId: "PT-LIVE-PROD-001",
   });
@@ -2323,6 +1978,7 @@ ON CONFLICT (id) DO UPDATE SET
   });
   assert.equal(coldStartPackingDetail.packingTask.status, "已完成");
   assert.equal(coldStartPackingDetail.packages.length, 2);
+  assert.equal(coldStartPackingDetail.fulfillment.fulfillmentId, "F-REPAIR-OL-LIVE-PROD-001");
   assert.equal(coldStartPackingDetail.inventoryLedgerEntries[0].sourceType, "packing_complete");
   assert.equal(coldStartPackingDetail.inventoryDeducted, false);
 
@@ -3136,6 +2792,9 @@ async function checkApiWithPostgresRepositories() {
   );
   assert.equal(fixedMachineAssignment.employeeAccountReview.assignmentMode, "fixed_machine");
   assert.equal(fixedMachineAssignment.employeeAccountReview.defaultMachineId, "BAG-03");
+  assert.equal(fixedMachineAssignment.employeeAccountReview.assignmentUpdatedBy, "U-MANAGER-A");
+  assert(fixedMachineAssignment.employeeAccountReview.assignmentUpdatedAt);
+  assert.equal(fixedMachineAssignment.employeeAccountReview.assignmentNote, "PostgreSQL固定机台验证");
   assert.equal(
     runPsql("SELECT default_workshop || '|' || COALESCE(default_machine_id, '') FROM employees WHERE id = 'EMP-MD-LIVE-001';", { capture: true }).trim(),
     "1号车间|BAG-03",
@@ -3314,6 +2973,33 @@ async function checkApiWithPostgresRepositories() {
     Number(runPsql("SELECT COUNT(*) FROM todo_events WHERE todo_id = 'T-LIVE-IDEMPOTENCY-001';", { capture: true }).trim()),
     1,
   );
+  const invalidTodoReferenceRepair = await postJson(
+    baseUrl,
+    "/api/todos/T-LIVE-IDEMPOTENCY-002/reference",
+    { refType: "order_line", refId: "ORD-NOT-FOUND", reason: "PostgreSQL 无效引用验证" },
+    { expectedStatus: 422, headers },
+  );
+  assert.equal(invalidTodoReferenceRepair.code, "TODO_REFERENCE_TARGET_NOT_FOUND");
+  const todoReferenceRepair = await postJson(
+    baseUrl,
+    "/api/todos/T-LIVE-IDEMPOTENCY-002/reference",
+    {
+      refType: "order_line",
+      refId: "ORD-0629-001-01",
+      reason: "PostgreSQL 人工核对原始待办",
+      idempotencyKey: "todo-reference-repair-live-api-001",
+    },
+    { headers },
+  );
+  assert.equal(todoReferenceRepair.todo.referenceStatus, "valid");
+  assert.equal(todoReferenceRepair.todo.refId, "ORD-0629-001-01");
+  assert.equal(todoReferenceRepair.todo.referenceRepair.beforeRefId, "T-LIVE-IDEMPOTENCY-002");
+  assert.ok(todoReferenceRepair.operationLogId);
+  const persistedTodoReference = queryJson(
+    "SELECT json_build_object('refType', ref_type, 'refId', ref_id) AS result FROM todos WHERE id = 'T-LIVE-IDEMPOTENCY-002';",
+  );
+  assert.equal(persistedTodoReference.refType, "order_line");
+  assert.equal(persistedTodoReference.refId, "ORD-0629-001-01");
   const customerPendingAction = await postJson(
     baseUrl,
     "/api/todos/T-LIVE-IDEMPOTENCY-002/handle",
@@ -4023,7 +3709,9 @@ async function checkApiWithPostgresRepositories() {
   const created = await postJson(baseUrl, "/api/attachments", attachmentUploadBody, { headers });
   assert.equal(created.ownerId, "ST-LIVE-API-001");
   assert.equal(created.storageProvider, "local_fs");
-  assert.match(created.storageKey, /^attachments\/sha256\/[a-f0-9]{2}\/[a-f0-9]{64}$/);
+  assert.equal(created.storageKeyStored, true);
+  assert.equal(Object.hasOwn(created, "storageKey"), false);
+  assert.equal(Object.hasOwn(created, "thumbnailStorageKey"), false);
   assert.equal(created.deduplicated, false);
   assert.ok(created.operationLogId);
 
@@ -4045,6 +3733,8 @@ async function checkApiWithPostgresRepositories() {
   );
   assert.equal(listed.total, 1);
   assert.equal(listed.items[0].attachmentId, created.attachmentId);
+  assert.equal(listed.items[0].storageKeyStored, true);
+  assert.equal(Object.hasOwn(listed.items[0], "storageKey"), false);
 
   const contentResponse = await fetch(`${baseUrl}/api/attachments/${created.attachmentId}/content`, { headers });
   assert.equal(contentResponse.status, 200);
@@ -4056,6 +3746,8 @@ async function checkApiWithPostgresRepositories() {
   });
   assert.equal(accessUrl.attachmentId, created.attachmentId);
   assert.equal(accessUrl.storageProvider, "local_fs");
+  assert.equal(accessUrl.storageKeyStored, true);
+  assert.equal(Object.hasOwn(accessUrl, "storageKey"), false);
   assert.ok(accessUrl.operationLogId);
 
   const accessLogs = await getJson(baseUrl, `/api/attachments/${created.attachmentId}/access-logs?limit=10`, {
@@ -4066,6 +3758,8 @@ async function checkApiWithPostgresRepositories() {
     accessLogs.items.map((item) => item.action).sort(),
     ["attachment_access_url_created", "attachment_content_read"],
   );
+  assert.equal(accessLogs.items.every((item) => item.storageKeyStored === true), true);
+  assert.equal(accessLogs.items.some((item) => Object.hasOwn(item, "storageKey")), false);
 
   const queueCorpus = orderConversationCorpus[0];
   const queueRequest = {
@@ -4723,6 +4417,18 @@ WHERE id = 'F002';`,
   server = createApiServer(apiServerOptions);
   await listen(server);
   baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const restartedAssignedEmployeeReview = await getJson(
+    baseUrl,
+    "/api/master-data/employee-account-reviews?employeeId=EMP-MD-LIVE-001",
+    { headers: { "x-erp-user-id": "U-MANAGER-A" } },
+  );
+  assert.equal(restartedAssignedEmployeeReview.total, 1);
+  assert.equal(restartedAssignedEmployeeReview.items[0].assignmentMode, "fixed_machine");
+  assert.equal(restartedAssignedEmployeeReview.items[0].defaultWorkshop, "1号车间");
+  assert.equal(restartedAssignedEmployeeReview.items[0].defaultMachineId, "BAG-03");
+  assert.equal(restartedAssignedEmployeeReview.items[0].assignmentUpdatedBy, "U-MANAGER-A");
+  assert(restartedAssignedEmployeeReview.items[0].assignmentUpdatedAt);
+  assert.equal(restartedAssignedEmployeeReview.items[0].assignmentNote, "PostgreSQL固定机台验证");
   const restartedHoldIntents = await getJson(
     baseUrl,
     "/api/inventory/intents?sourceDraftId=DRAFT-LIVE-HOLD-001",
@@ -4820,6 +4526,176 @@ WHERE id = 'F002';`,
       `SELECT json_build_object('operatorId', operator_id) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiDailyProgress.operationLogId)};`,
     ).operatorId,
     "U-OFFICE-A",
+  );
+  const apiProductionExceptionInventoryBefore = queryJson(
+    "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';",
+  );
+  const apiProductionExceptionReservationCountBefore = Number(
+    runPsql(
+      "SELECT COUNT(*) FROM inventory_reservations WHERE order_line_id = 'ORD-0629-003-01';",
+      { capture: true },
+    ).trim(),
+  );
+  const apiProductionExceptionPackingTaskCountBefore = Number(
+    runPsql(
+      "SELECT COUNT(*) FROM packing_tasks WHERE order_line_id = 'ORD-0629-003-01';",
+      { capture: true },
+    ).trim(),
+  );
+  const apiProductionExceptionBody = {
+    orderLineId: "ORD-0629-003-01",
+    exceptionType: "机器问题",
+    continuationMode: "暂停等确认",
+    estimatedLossQty: 6,
+    affectsDelivery: true,
+    operatorId: "U-SPOOFED",
+    occurredAt: "2026-07-02T12:45:00.000Z",
+    remark: "postgres live production exception route",
+    idempotencyKey: "production-exception-live-001",
+  };
+  const apiProductionException = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception",
+    apiProductionExceptionBody,
+    { headers },
+  );
+  const replayedApiProductionException = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception",
+    apiProductionExceptionBody,
+    { headers },
+  );
+  assert.equal(apiProductionException.exceptionType, "机器问题");
+  assert.equal(apiProductionException.continuationMode, "暂停等确认");
+  assert.equal(apiProductionException.inventoryCreated, false);
+  assert.equal(apiProductionException.reservationCreated, false);
+  assert.equal(apiProductionException.packingTaskCreated, false);
+  assert.equal(apiProductionException.statementUpdated, false);
+  assert.ok(apiProductionException.productionExceptionId);
+  assert.ok(apiProductionException.todoId);
+  assert.equal(replayedApiProductionException.productionExceptionId, apiProductionException.productionExceptionId);
+  assert.equal(replayedApiProductionException.operationLogId, apiProductionException.operationLogId);
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM production_exception_records WHERE production_task_id = 'PT-ORD-0629-003-01' AND exception_type = '机器问题';",
+        { capture: true },
+      ).trim(),
+    ),
+    1,
+  );
+  const apiProductionExceptionTodo = queryJson(
+    `SELECT json_build_object('type', type, 'refType', ref_type, 'refId', ref_id, 'status', status) AS result FROM todos WHERE id = ${sqlLiteral(apiProductionException.todoId)};`,
+  );
+  assert.equal(apiProductionExceptionTodo.type, "生产异常");
+  assert.equal(apiProductionExceptionTodo.refType, "production_task");
+  assert.equal(apiProductionExceptionTodo.refId, "PT-ORD-0629-003-01");
+  assert.deepEqual(
+    queryJson(
+      "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';",
+    ),
+    apiProductionExceptionInventoryBefore,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM inventory_reservations WHERE order_line_id = 'ORD-0629-003-01';",
+        { capture: true },
+      ).trim(),
+    ),
+    apiProductionExceptionReservationCountBefore,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM packing_tasks WHERE order_line_id = 'ORD-0629-003-01';",
+        { capture: true },
+      ).trim(),
+    ),
+    apiProductionExceptionPackingTaskCountBefore,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        `SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_id = ${sqlLiteral(apiProductionException.productionExceptionId)};`,
+        { capture: true },
+      ).trim(),
+    ),
+    0,
+  );
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('operatorId', operator_id) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiProductionException.operationLogId)};`,
+    ).operatorId,
+    "U-OFFICE-A",
+  );
+  const apiProductionExceptionResolutionBody = {
+    productionExceptionId: apiProductionException.productionExceptionId,
+    resolutionCode: "继续生产",
+    resolutionNote: "主管确认机器已调整",
+    resolutionConfirmed: true,
+  };
+  const apiProductionExceptionResolutionHeaders = { ...headers, "idempotency-key": "production-exception-resolution-live-001" };
+  const apiProductionExceptionResolution = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception-resolution",
+    apiProductionExceptionResolutionBody,
+    { headers: apiProductionExceptionResolutionHeaders },
+  );
+  const replayedApiProductionExceptionResolution = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception-resolution",
+    apiProductionExceptionResolutionBody,
+    { headers: apiProductionExceptionResolutionHeaders },
+  );
+  assert.equal(apiProductionExceptionResolution.exceptionStatus, "已恢复生产");
+  assert.equal(apiProductionExceptionResolution.resolutionCode, "继续生产");
+  assert.equal(apiProductionExceptionResolution.taskStatus, "跨日继续");
+  assert.equal(apiProductionExceptionResolution.todoStatus, "已处理");
+  assert.equal(apiProductionExceptionResolution.resolvedBy, "U-OFFICE-A");
+  assert.ok(apiProductionExceptionResolution.resolvedAt);
+  assert.equal(replayedApiProductionExceptionResolution.operationLogId, apiProductionExceptionResolution.operationLogId);
+  assert.deepEqual(
+    queryJson(
+      `SELECT json_build_object('status', status, 'resolutionCode', resolution_code, 'resolutionNote', resolution_note, 'resolvedBy', resolved_by, 'resolvedAt', resolved_at) AS result FROM production_exception_records WHERE id = ${sqlLiteral(apiProductionException.productionExceptionId)};`,
+    ),
+    {
+      status: "已恢复生产",
+      resolutionCode: "继续生产",
+      resolutionNote: "主管确认机器已调整",
+      resolvedBy: "U-OFFICE-A",
+      resolvedAt: apiProductionExceptionResolution.resolvedAt,
+    },
+  );
+  assert.equal(
+    queryJson(
+      `SELECT json_build_object('status', status, 'handlingResult', handling_result) AS result FROM todos WHERE id = ${sqlLiteral(apiProductionException.todoId)};`,
+    ).status,
+    "已处理",
+  );
+  assert.deepEqual(
+    queryJson(
+      "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';",
+    ),
+    apiProductionExceptionInventoryBefore,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM inventory_reservations WHERE order_line_id = 'ORD-0629-003-01';",
+        { capture: true },
+      ).trim(),
+    ),
+    apiProductionExceptionReservationCountBefore,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM packing_tasks WHERE order_line_id = 'ORD-0629-003-01';",
+        { capture: true },
+      ).trim(),
+    ),
+    apiProductionExceptionPackingTaskCountBefore,
   );
   const apiProductionReportBody = {
     orderLineId: "ORD-0629-003-01",
@@ -6125,6 +6001,9 @@ WHERE id = 'F002';`,
   assert.equal(restartedCustomerPending?.handled, false);
   assert.equal(restartedCustomerPending?.reminder, "等待客户回复");
   assert.equal(restartedCustomerPending?.lastAction, "客户待确认");
+  assert.equal(restartedCustomerPending?.refId, "ORD-0629-001-01");
+  assert.equal(restartedCustomerPending?.referenceStatus, "valid");
+  assert.equal(restartedCustomerPending?.referenceRepair?.beforeRefId, "T-LIVE-IDEMPOTENCY-002");
   const restartedCorrectionDetail = await getJson(
     baseUrl,
     `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}`,
@@ -6160,1189 +6039,118 @@ WHERE id = 'F002';`,
     { headers: { ...headers, "idempotency-key": "live-restart-save-001" } },
   );
   assert.equal(resumedDraft.draft.clientRevision, 3);
-}
 
-function buildAttachment({ attachmentId, ownerId, uploadedBy }) {
-  return {
-    attachmentId,
-    ownerType: "statement",
-    ownerId,
-    fileType: "image",
-    purpose: "payment_screenshot",
-    url: `/api/attachments/${attachmentId}/content`,
-    status: "uploaded",
-    uploadedBy,
-    uploadedAt: "2026-07-01T10:30:00.000Z",
-    fileName: "payment-proof-postgres-live.png",
-    contentRef: `p0://payment-screenshot/${ownerId}/postgres-live`,
-    mimeType: "image/png",
-    fileSize: 13,
-    contentDataUrl: "",
-    storageProvider: "local_fs",
-    storageKey: `attachments/${attachmentId}/payment-proof-postgres-live.png`,
-    contentDigest: "a".repeat(64),
-    thumbnailStorageKey: "",
-    thumbnailUrl: "",
-    signedUrlExpiresAt: "",
-    hasContent: true,
-    remark: "postgres live check",
-  };
-}
+  await closeServer(server);
+  server = null;
+  const formalConcurrentTodoId = "T-LIVE-FORMAL-CONCURRENT-001";
+  runPsql(`
+INSERT INTO todos (
+  id, biz_no, type, ref_type, ref_id, priority, status, summary, created_by, created_at, updated_at
+) VALUES (
+  '${formalConcurrentTodoId}', '${formalConcurrentTodoId}', '正式账号并发验收', 'system',
+  '${formalConcurrentTodoId}', '普通', '未处理', '两个正式账号同时处理同一待办',
+  '${liveOfficeRuntimeUserId}', now(), now()
+);
+`);
+  const strictTodoRepository = createTodoReadBarrierRepository(todoActionRepository, formalConcurrentTodoId);
+  server = createApiServer({
+    ...apiServerOptions,
+    strictAuth: true,
+    todoActionRepository: strictTodoRepository,
+  });
+  await listen(server);
+  baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const [formalOfficeLogin, formalManagerLogin] = await Promise.all([
+    postJson(baseUrl, "/api/auth/login", {
+      loginName: liveOfficeRuntimeLoginName,
+      password: liveOfficeRuntimePassword,
+    }),
+    postJson(baseUrl, "/api/auth/login", {
+      loginName: liveManagerRuntimeLoginName,
+      password: liveManagerRuntimePassword,
+    }),
+  ]);
+  assert.deepEqual(formalOfficeLogin.permissions.roles, ["office"]);
+  assert.deepEqual(formalManagerLogin.permissions.roles, ["management"]);
+  assert(formalOfficeLogin.permissions.actionPermissions.includes("todo.handle"));
+  assert(formalManagerLogin.permissions.actionPermissions.includes("todo.handle"));
 
-function buildAccessLog({ logId, attachmentId, operatorId, operationLogId }) {
-  return {
-    logId,
-    attachmentId,
-    operationLogId,
-    action: "attachment_content_read",
-    operatorId,
-    accessMode: "permission",
-    deliveryMode: "api_permission",
-    storageProvider: "local_fs",
-    storageKey: `attachments/${attachmentId}/payment-proof-postgres-live.png`,
-    ownerType: "statement",
-    ownerId: "ST-LIVE-REPO-001",
-    purpose: "payment_screenshot",
-    fileName: "payment-proof-postgres-live.png",
-    contentType: "image/png",
-    expiresAt: "",
-    metadata: { check: "postgres-live" },
-    occurredAt: "2026-07-01T10:30:00.000Z",
-  };
-}
-
-function buildPaymentRecord({ paymentRecordId, statementId, customerId, operatorId, amount = 273 }) {
-  return {
-    paymentRecordId,
-    bizNo: paymentRecordId,
-    statementId,
-    customerId,
-    amount,
-    paidAt: "2026-07-01T10:30:00.000Z",
-    method: "wechat",
-    status: "recorded",
-    attachmentIds: ["ATT-PAY-LIVE-001"],
-    operatorId,
-    remark: "postgres live payment repository",
-  };
-}
-
-function buildVarianceRecord({ varianceRecordId, statementId, amount, operatorId }) {
-  return {
-    varianceRecordId,
-    statementId,
-    paymentRecordId: "",
-    amount,
-    handlingResult: "carry_to_debt",
-    reason: "未收差额转欠款",
-    status: "recorded",
-    attachmentId: "",
-    operatorId,
-  };
-}
-
-function buildSendRecord({ sendRecordId, statementId, exportFileId, operatorId }) {
-  return {
-    sendRecordId,
-    statementId,
-    channel: "wechat",
-    sentTo: "客户财务",
-    exportFileId,
-    includePaymentQr: false,
-    sentBy: operatorId,
-    sentAt: "2026-07-01T10:35:00.000Z",
-    remark: "postgres live statement send transaction",
-    receiptStatus: "pending",
-    receiptAt: "",
-    receiptBy: "",
-    receiptNote: "",
-    revision: 1,
-  };
-}
-
-function buildStatementExportFile({ statementId, downloadToken, operationLogId }) {
-  return {
-    exportFileId: downloadToken,
-    statementId,
-    previewType: "customer_send",
-    downloadToken,
-    operationLogId,
-    fileName: `statement-${statementId}.xlsx`,
-    contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-    content: Buffer.from("Postgres Export Live XLSX").toString("base64"),
-    contentEncoding: "base64",
-    storageProvider: "database",
-    storageKey: "",
-    contentDigest: "",
-    createdBy: "U-FINANCE-A",
-    createdAt: "2026-07-02T10:30:00.000Z",
-    metadata: { lineCount: 1, receivable: 273, contentEncoding: "base64" },
-  };
-}
-
-function buildStatementExportLines({ statementId, orderLineId, fulfillmentId }) {
-  return [
+  const formalConcurrentResponses = await Promise.all([
+    [formalOfficeLogin, "todo-formal-concurrent-office-001", "办公室正式账号处理"],
+    [formalManagerLogin, "todo-formal-concurrent-manager-001", "管理正式账号处理"],
+  ].map(([login, idempotencyKey, handlingResult]) => fetch(
+    `${baseUrl}/api/todos/${formalConcurrentTodoId}/handle`,
     {
-      statementLineId: `${statementId}-001`,
-      statementId,
-      orderLineId,
-      fulfillmentId,
-      deliveredQty: 273,
-      chargeableQty: 273,
-      freeQty: 0,
-      amount: 273,
-      adjustmentAmount: 0,
-      finalAmount: 273,
-      createdAt: "2026-07-02T10:30:00.000Z",
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${login.session.accessToken}`,
+        "content-type": "application/json",
+        "idempotency-key": idempotencyKey,
+      },
+      body: JSON.stringify({ action: "mark_handled", handlingResult, idempotencyKey }),
     },
-  ];
+  )));
+  assert.deepEqual(
+    formalConcurrentResponses.map((response) => response.status).sort((left, right) => left - right),
+    [200, 409],
+  );
+  const formalConcurrentPayloads = await Promise.all(formalConcurrentResponses.map((response) => response.json()));
+  const formalConcurrentSuccess = formalConcurrentPayloads.find((payload) => payload.todo);
+  const formalConcurrentConflict = formalConcurrentPayloads.find((payload) => payload.code);
+  assert.equal(formalConcurrentConflict?.code, "BUSINESS_WRITE_CONFLICT");
+  assert.equal(formalConcurrentSuccess?.todo.handled, true);
+  assert([liveOfficeRuntimeUserId, liveManagerRuntimeUserId].includes(formalConcurrentSuccess?.todo.handledBy));
+  assert.equal(strictTodoRepository.metrics.barrierReadCount, 2);
+  const formalConcurrentPersisted = queryJson(`
+SELECT json_build_object(
+  'status', status,
+  'handledBy', handled_by,
+  'eventCount', (SELECT COUNT(*) FROM todo_events WHERE todo_id = '${formalConcurrentTodoId}'),
+  'logCount', (SELECT COUNT(*) FROM operation_logs WHERE target_type = 'todo' AND target_id = '${formalConcurrentTodoId}'),
+  'idempotencyCount', (
+    SELECT COUNT(*) FROM operation_idempotency_keys
+    WHERE scope = 'todo.action.mark_handled'
+      AND idempotency_key IN ('todo-formal-concurrent-office-001', 'todo-formal-concurrent-manager-001')
+  )
+) AS result
+FROM todos
+WHERE id = '${formalConcurrentTodoId}';
+`);
+  assert.equal(formalConcurrentPersisted.status, "已处理");
+  assert([liveOfficeRuntimeUserId, liveManagerRuntimeUserId].includes(formalConcurrentPersisted.handledBy));
+  assert.equal(Number(formalConcurrentPersisted.eventCount), 1);
+  assert.equal(Number(formalConcurrentPersisted.logCount), 1);
+  assert.equal(Number(formalConcurrentPersisted.idempotencyCount), 1);
 }
 
-function buildConfirmedOrder({ orderId, sourceDraftId, customerId, createdBy }) {
+function createTodoReadBarrierRepository(repository, todoId) {
+  let releaseBarrier;
+  let rejectBarrier;
+  let barrierTimer;
+  const metrics = { barrierReadCount: 0 };
+  const barrier = new Promise((resolve, reject) => {
+    releaseBarrier = resolve;
+    rejectBarrier = reject;
+    barrierTimer = setTimeout(() => reject(new Error(`Timed out waiting for concurrent todo reads: ${todoId}`)), 5_000);
+  });
   return {
-    orderId,
-    bizNo: orderId,
-    sourceDraftId,
-    customerId,
-    customerSnapshot: { name: "Postgres 仓储测试客户" },
-    sourceText: "Postgres live order confirmation",
-    summaryStatus: "处理中",
-    createdBy,
-    createdAt: "2026-07-02T10:30:00.000Z",
-  };
-}
-
-function buildConfirmedOrderDraft({ draftId, customerId, createdBy }) {
-  return {
-    id: draftId,
-    draftId,
-    bizNo: draftId,
-    sourceText: "Postgres live order confirmation",
-    sourceChannel: "manual",
-    sourceMessageId: "",
-    customerId,
-    customerName: "Postgres 仓储测试客户",
-    status: "待审核",
-    revision: 1,
-    clientRevision: 1,
-    createdBy,
-    createdAt: "2026-07-02T10:20:00.000Z",
-    updatedAt: "2026-07-02T10:20:00.000Z",
-    lines: [
-      {
-        id: `${draftId}-01`,
-        customerId,
-        customer: "Postgres 仓储测试客户",
-        product: "Postgres 确认订单",
-        size: "30*38*10",
-        color: "白色",
-        handle: "普通提",
-        style: "空白袋",
-        print: "否",
-        qty: 273,
-        fulfillment: "自提",
-        latest: "待确认",
-        inventory: "可用",
-        confidence: "high",
-        missingFields: [],
-      },
-    ],
-  };
-}
-
-function buildConfirmedOrderLines({ orderId, customerId, orderLineId, createdBy }) {
-  return [
-    {
-      id: orderLineId,
-      orderNo: orderId,
-      customerId,
-      product: "Postgres 确认订单",
-      orderType: "现货有货",
-      size: "30*38*10",
-      color: "白色",
-      handle: "普通提",
-      style: "空白袋",
-      print: "否",
-      qty: 273,
-      fulfillment: "自提",
-      status: "待出库",
-      amount: 273,
-      inventory: "可用",
-      exceptions: [],
-      createdBy,
+    ...repository,
+    metrics,
+    async getTodo(input) {
+      const snapshot = await repository.getTodo(input);
+      if (input.todoId !== todoId || metrics.barrierReadCount >= 2) return snapshot;
+      metrics.barrierReadCount += 1;
+      if (metrics.barrierReadCount === 2) {
+        clearTimeout(barrierTimer);
+        releaseBarrier();
+      }
+      await barrier;
+      return snapshot;
     },
-  ];
-}
-
-function buildConfirmedPriceSnapshots({ orderLineId, createdBy }) {
-  return [
-    {
-      orderLineId,
-      bagPrice: 1,
-      printPrice: 0,
-      otherFee: 0,
-      amount: 273,
-      priceVersion: "P0-SYNTHETIC",
-      chargeableQty: 273,
-      createdBy,
+    closeBarrier() {
+      clearTimeout(barrierTimer);
+      rejectBarrier(new Error(`Todo read barrier closed before completion: ${todoId}`));
     },
-  ];
-}
-
-function buildConfirmedFulfillments({ fulfillmentId, orderLineId, customerId, createdBy }) {
-  return [
-    {
-      id: fulfillmentId,
-      lineId: orderLineId,
-      customerId,
-      method: "自提",
-      qty: 273,
-      status: "待出库",
-      latest: "待确认",
-      goods: "30*38 白色空白袋",
-      packages: "1件散装",
-      zone: "按库存推荐",
-      source: "正式订单占用",
-      createdBy,
-    },
-  ];
-}
-
-function buildConfirmedInventoryReservations({
-  reservationId,
-  orderLineId,
-  inventoryItemId,
-  reservedQty,
-  createdBy,
-}) {
-  return [
-    {
-      reservationId,
-      orderLineId,
-      inventoryItemId,
-      reservedQty,
-      reservationType: "待提货锁定",
-      status: "生效",
-      createdBy,
-    },
-  ];
-}
-
-function buildConfirmedInventoryLedgerEntries({
-  ledgerId,
-  inventoryItemId,
-  sourceId,
-  qtyBefore,
-  qtyChange,
-  qtyAfter,
-  operatorId,
-}) {
-  return [
-    {
-      ledgerId,
-      inventoryItemId,
-      changeType: "订单占用",
-      qtyBefore,
-      qtyChange,
-      qtyAfter,
-      sourceType: "order_confirm",
-      sourceId,
-      operatorId,
-      confirmedBy: operatorId,
-      reason: "订单确认占用库存",
-      remark: "待提货锁定",
-    },
-  ];
-}
-
-function buildConfirmedTodos({ todoId, refId, customerId, createdBy }) {
-  return [
-    {
-      id: todoId,
-      type: "缺货待处理",
-      customerId,
-      ref: refId,
-      summary: "Postgres live order confirmation shortage todo",
-      wait: "刚刚",
-      latest: "今天",
-      urgency: "异常",
-      impact: "影响出库承诺",
-      createdBy,
-    },
-  ];
-}
-
-function buildProductionTaskRecord(overrides = {}) {
-  return {
-    productionTaskId: "PT-LIVE-PROD-001",
-    id: "PT-LIVE-PROD-001",
-    bizNo: "PT-LIVE-PROD-001",
-    orderLineId: "OL-LIVE-PROD-001",
-    taskType: "制袋",
-    machineId: "BAG-LIVE-01",
-    plannedQty: 80,
-    taskStatus: "制袋中",
-    createdBy: "U-OFFICE-A",
-    createdAt: "2026-07-02T12:00:00.000Z",
-    ...overrides,
-  };
-}
-
-function buildWorkshopReportRecord(overrides = {}) {
-  return {
-    reportId: "WR-LIVE-PROD-001",
-    productionTaskId: "PT-LIVE-PROD-001",
-    orderLineId: "OL-LIVE-PROD-001",
-    processType: "制袋",
-    machineId: "BAG-LIVE-01",
-    operatorId: "U-OFFICE-A",
-    qualifiedQty: 80,
-    exceptionQty: 0,
-    machineCount: 8888,
-    completedAt: "2026-07-02T12:30:00.000Z",
-    remark: "Postgres live production report",
-    evidence: { machineCountLabel: "机器计数/动作次数，非合格成品数量" },
-    createdAt: "2026-07-02T12:30:00.000Z",
-    ...overrides,
-  };
-}
-
-function buildPackingTaskRecord(overrides = {}) {
-  return {
-    packingTaskId: "PKT-LIVE-PROD-001",
-    id: "PKT-LIVE-PROD-001",
-    bizNo: "PKT-LIVE-PROD-001",
-    orderLineId: "OL-LIVE-PROD-001",
-    plannedQty: 80,
-    actualPackedQty: 0,
-    status: "待打包",
-    createdBy: "U-OFFICE-A",
-    createdAt: "2026-07-02T12:30:00.000Z",
-    ...overrides,
-  };
-}
-
-function buildMachineCapacityBaselineRecord(overrides = {}) {
-  return {
-    capacityBaselineId: "MCB-LIVE-PROD-001",
-    id: "MCB-LIVE-PROD-001",
-    machineId: "BAG-LIVE-01",
-    sizeKey: "30*38*10",
-    dailyCapacityQty: 80,
-    hourlyCapacityQty: null,
-    sourceKind: "production_report",
-    confidence: "medium",
-    effectiveFrom: "2026-07-02",
-    remark: "Postgres live production capacity calibration",
-    createdBy: "U-OFFICE-A",
-    createdAt: "2026-07-02T12:30:00.000Z",
-    ...overrides,
-  };
-}
-
-function buildProductionOrderLineRecord(overrides = {}) {
-  return {
-    orderLineId: "OL-LIVE-PROD-001",
-    id: "OL-LIVE-PROD-001",
-    lineStatus: "制袋中",
-    exceptionTags: [],
-    ...overrides,
-  };
-}
-
-function buildProductionReservationRecord(overrides = {}) {
-  return {
-    reservationId: "RSV-LIVE-PROD-001",
-    id: "RSV-LIVE-PROD-001",
-    orderLineId: "OL-LIVE-PROD-001",
-    inventoryItemId: "INV-LIVE-PROD-001",
-    reservedQty: 80,
-    reservationType: "生产完成待出库占用",
-    status: "生效",
-    createdBy: "U-OFFICE-A",
-    createdAt: "2026-07-02T12:30:00.000Z",
-    ...overrides,
-  };
-}
-
-function buildProductionInventoryLedgerRecord(overrides = {}) {
-  return {
-    ledgerId: "LEDGER-LIVE-PROD-IN-001",
-    inventoryItemId: "INV-LIVE-PROD-001",
-    changeType: "生产入库",
-    qtyBefore: 20,
-    qtyChange: 80,
-    qtyAfter: 100,
-    sourceType: "production_report",
-    sourceId: "WR-LIVE-PROD-001",
-    operatorId: "U-OFFICE-A",
-    confirmedBy: "U-OFFICE-A",
-    occurredAt: "2026-07-02T12:30:00.000Z",
-    createdAt: "2026-07-02T12:30:00.000Z",
-    reason: "车间合格报工入库",
-    remark: "机器计数不参与库存",
-    ...overrides,
-  };
-}
-
-function buildPackageRecord(overrides = {}) {
-  const packageId = overrides.packageId ?? "PKG-LIVE-PROD-001-1";
-  return {
-    packageId,
-    id: packageId,
-    bizNo: overrides.bizNo ?? packageId,
-    orderLineId: "OL-LIVE-PROD-001",
-    fulfillmentId: "",
-    packageSeq: 1,
-    packageCount: 1,
-    packedQty: 80,
-    labelPrintRecordId: "",
-    status: "待打印标签",
-    createdBy: "U-OFFICE-A",
-    createdAt: "2026-07-02T12:40:00.000Z",
-    ...overrides,
-  };
-}
-
-function buildProductionOperationLog(overrides = {}) {
-  const id = overrides.logId ?? overrides.id ?? "LOG-LIVE-PROD-001";
-  return {
-    id,
-    targetType: "production_task",
-    targetId: "PT-LIVE-PROD-001",
-    action: "complete_production_report",
-    before: null,
-    after: { check: "postgres-live" },
-    reason: "postgres live production packing transaction",
-    operatorId: "U-OFFICE-A",
-    pageKey: "api",
-    occurredAt: "2026-07-02T12:30:00.000Z",
-    createdAt: "2026-07-02T12:30:00.000Z",
-    ...overrides,
-  };
-}
-
-function buildProductionScheduleRecord(overrides = {}) {
-  const productionTaskId = overrides.productionTaskId ?? "PT-LIVE-PROD-001";
-  return {
-    scheduleRecordId: overrides.scheduleRecordId ?? `SQR-${productionTaskId}`,
-    productionTaskId,
-    orderLineId: overrides.orderLineId ?? "OL-LIVE-PROD-001",
-    publishedScheduleId: overrides.publishedScheduleId ?? "SCH-LIVE-PROD-001",
-    machineId: overrides.machineId ?? "BAG-LIVE-01",
-    queueSeq: overrides.queueSeq ?? 1,
-    status: overrides.status ?? "active",
-    sourceKind: overrides.sourceKind ?? "manual_resequence",
-    sequenceUpdatedAt: overrides.sequenceUpdatedAt ?? "2026-07-02T12:35:00.000Z",
-    sequenceUpdatedBy: overrides.sequenceUpdatedBy ?? "U-OFFICE-A",
-    remark: overrides.remark ?? "Postgres live production schedule resequence",
-    createdBy: overrides.createdBy ?? "U-OFFICE-A",
-    createdAt: overrides.createdAt ?? "2026-07-02T12:35:00.000Z",
-    updatedBy: overrides.updatedBy ?? "U-OFFICE-A",
-    updatedAt: overrides.updatedAt ?? "2026-07-02T12:35:00.000Z",
-  };
-}
-
-function buildProductionScheduleOperationLog(overrides = {}) {
-  const id = overrides.logId ?? overrides.id ?? "LOG-LIVE-SCHEDULE-RESEQ-001";
-  return {
-    id,
-    targetType: overrides.targetType ?? "production_schedule_queue",
-    targetId: overrides.targetId ?? "BAG-LIVE-01",
-    action: overrides.action ?? "resequence_production_schedule_queue",
-    before: overrides.before ?? { items: [] },
-    after: overrides.after ?? {
-      items: [{ productionTaskId: "PT-LIVE-PROD-001", queueSeq: 1 }],
-      inventoryCreated: false,
-      reservationCreated: false,
-      packingTaskCreated: false,
-    },
-    reason: overrides.reason ?? "Postgres live production schedule resequence",
-    operatorId: overrides.operatorId ?? "U-OFFICE-A",
-    pageKey: overrides.pageKey ?? "api",
-    occurredAt: overrides.occurredAt ?? "2026-07-02T12:35:00.000Z",
-    createdAt: overrides.createdAt ?? "2026-07-02T12:35:00.000Z",
-    ...overrides,
-  };
-}
-
-function buildPrintDeviceRecord({ printDeviceId, name }) {
-  return {
-    printDeviceId,
-    bizNo: printDeviceId,
-    name,
-    deviceType: "label_printer",
-    status: "active",
-    connectionType: "system_printer",
-    connectionUri: "system://postgres-live-label",
-    driverName: "Postgres Live 203dpi Driver",
-    supportedDocumentTypes: ["express_ltl_label", "package_label"],
-    defaultDocumentTypes: ["express_ltl_label"],
-    paperWidthMm: 76,
-    paperHeightMm: 50,
-    paperName: "76x50 热敏标签",
-    isContinuous: false,
-    dpi: 203,
-    defaultCopies: 1,
-    darkness: 9,
-    speed: 4,
-    cutterEnabled: false,
-    settings: {
-      driverMode: "preview_only",
-      source: "postgres-live",
-    },
-    createdBy: "U-OFFICE-A",
-    updatedBy: "U-OFFICE-A",
-    createdAt: "2026-07-02T10:30:00.000Z",
-    updatedAt: "2026-07-02T10:30:00.000Z",
-  };
-}
-
-function buildPrintDeviceOperationLog({ logId, printDevice }) {
-  return {
-    id: logId,
-    targetType: "print_device",
-    targetId: printDevice.printDeviceId,
-    action: "upsert_print_device",
-    before: null,
-    after: printDevice,
-    reason: "postgres live print device setup",
-    operatorId: "U-OFFICE-A",
-    pageKey: "api",
-    occurredAt: "2026-07-02T10:30:00.000Z",
-    createdAt: "2026-07-02T10:30:00.000Z",
-  };
-}
-
-function buildPrintJobRecord(overrides = {}) {
-  const printJobId = overrides.printJobId ?? "PJ-LIVE-REPO-001";
-  const driverMode = overrides.driverMode ?? "preview_only";
-  const jobStatus = overrides.jobStatus ?? "preview_only";
-  return {
-    printJobId,
-    bizNo: printJobId,
-    printRecordId: overrides.printRecordId ?? "PR-LIVE-FULFILLMENT-001",
-    targetType: "fulfillment",
-    targetId: "F001",
-    documentType: "express_ltl_label",
-    templateId: "tpl-p0-fulfillment",
-    printDeviceId: overrides.printDeviceId ?? "PRN-LIVE-REPO-001",
-    printDeviceSnapshot: {
-      printDeviceId: overrides.printDeviceId ?? "PRN-LIVE-REPO-001",
-      name: "Postgres Live 标签机",
-      deviceType: "label_printer",
-      connectionType: "system_printer",
-      paperWidthMm: 76,
-      paperHeightMm: 50,
-      dpi: 203,
-      defaultCopies: 1,
-      settings: {
-        driverMode,
-      },
-    },
-    driverMode,
-    jobStatus,
-    attemptNo: overrides.attemptNo ?? 1,
-    sourcePrintJobId: overrides.sourcePrintJobId ?? "",
-    requestedBy: "U-OFFICE-A",
-    queuedAt: jobStatus === "queued" ? "2026-07-02T10:30:00.000Z" : "",
-    sentAt: "",
-    finishedAt: "",
-    errorCode: "",
-    errorMessage: "",
-    payload: {
-      printTemplate: {
-        documentType: "express_ltl_label",
-        fields: { goodsSummary: "Postgres live print job" },
-      },
-    },
-    metadata: {
-      source: "postgres-live",
-    },
-    createdAt: "2026-07-02T10:30:00.000Z",
-    updatedAt: "2026-07-02T10:30:00.000Z",
-  };
-}
-
-function buildPrintJobOperationLog({ logId, printJob, action, before = null }) {
-  return {
-    id: logId,
-    targetType: "print_job",
-    targetId: printJob.printJobId,
-    action,
-    before,
-    after: printJob,
-    reason: "postgres live print job check",
-    operatorId: "U-OFFICE-A",
-    pageKey: "api",
-    occurredAt: "2026-07-02T10:30:00.000Z",
-    createdAt: "2026-07-02T10:30:00.000Z",
-  };
-}
-
-function buildPrintBatchRecord({ printBatchId, todoId, operatorName = "办公室A" }) {
-  return {
-    printBatchId,
-    action: "批量打印标签",
-    resultLabel: "部分打出",
-    status: "partial",
-    todoIds: [todoId],
-    todoRefs: ["ORD-LIVE-PRINT-001"],
-    totalTaskCount: 1,
-    totalLabelCount: 2,
-    printedLabelCount: 1,
-    pendingLabelCount: 1,
-    printedPackageIds: ["PKG-LIVE-PRINT-001"],
-    pendingPackageIds: ["PKG-LIVE-PRINT-002"],
-    printPackages: [
-      {
-        packageId: "PKG-LIVE-PRINT-001",
-        packageSeq: 1,
-        packageCount: 2,
-        labelText: "白鲸自营店 / 白鲸活动袋 35*27 白印黑 / 1500个 / 2包",
-        status: "printed",
-      },
-      {
-        packageId: "PKG-LIVE-PRINT-002",
-        packageSeq: 2,
-        packageCount: 2,
-        labelText: "白鲸自营店 / 白鲸活动袋 35*27 白印黑 / 1500个 / 2包",
-        status: "not_printed",
-      },
-    ],
-    printedPackages: [
-      {
-        packageId: "PKG-LIVE-PRINT-001",
-        packageSeq: 1,
-        packageCount: 2,
-        labelText: "白鲸自营店 / 白鲸活动袋 35*27 白印黑 / 1500个 / 2包",
-        status: "printed",
-      },
-    ],
-    pendingPackages: [
-      {
-        packageId: "PKG-LIVE-PRINT-002",
-        packageSeq: 2,
-        packageCount: 2,
-        labelText: "白鲸自营店 / 白鲸活动袋 35*27 白印黑 / 1500个 / 2包",
-        status: "not_printed",
-      },
-    ],
-    summary: "部分打出：1/2，待处理 1 张",
-    operatorId: "U-OFFICE-A",
-    operatorName,
-    createdAt: "2026-07-02T10:30:00.000Z",
-    operationLogId: "LOG-LIVE-PRINT-BATCH-001",
-    metadata: {
-      source: "postgres-live",
-    },
-  };
-}
-
-function buildPrintBatchOperationLog({ logId, printBatchRecord }) {
-  return {
-    id: logId,
-    targetType: "print_batch",
-    targetId: printBatchRecord.printBatchId,
-    action: "create_print_batch",
-    before: null,
-    after: printBatchRecord,
-    reason: printBatchRecord.summary,
-    operatorId: "U-OFFICE-A",
-    pageKey: "api",
-    occurredAt: "2026-07-02T10:30:00.000Z",
-    createdAt: "2026-07-02T10:30:00.000Z",
-  };
-}
-
-function buildFulfillmentActionRecord(overrides = {}) {
-  const fulfillmentId = overrides.fulfillmentId ?? "F001";
-  return {
-    fulfillmentId,
-    id: fulfillmentId,
-    bizNo: fulfillmentId,
-    orderLineId: overrides.orderLineId ?? "ORD-0629-001-01",
-    lineId: overrides.orderLineId ?? "ORD-0629-001-01",
-    customerId: overrides.customerId ?? "C001",
-    customerSnapshot: { name: "张三服饰" },
-    method: overrides.method ?? "自提",
-    expectedQty: overrides.expectedQty ?? 500,
-    qty: overrides.expectedQty ?? 500,
-    actualQty: overrides.actualQty ?? 500,
-    status: overrides.status ?? "待出库",
-    latestNeededAt: "2026-07-02T15:00:00.000Z",
-    deliveredAt: overrides.deliveredAt ?? "",
-    confirmedAt: overrides.confirmedAt ?? "",
-    confirmedBy: overrides.confirmedBy ?? "U-OFFICE-A",
-    createdBy: "U-OFFICE-A",
-    ...overrides,
-  };
-}
-
-function buildFulfillmentPrintRecord({ printRecordId, targetId }) {
-  return {
-    printRecordId,
-    targetType: "fulfillment",
-    targetId,
-    templateId: "tpl-p0-fulfillment",
-    batchNo: `${printRecordId}-BATCH`,
-    status: "printed",
-    printAction: "first_print",
-    operatorId: "U-OFFICE-A",
-    printedAt: "2026-07-02T10:40:00.000Z",
-    createdAt: "2026-07-02T10:40:00.000Z",
-  };
-}
-
-function buildFulfillmentExceptionRecord({ exceptionId, fulfillmentId, todoId }) {
-  return {
-    exceptionId,
-    fulfillmentId,
-    exceptionType: "quantity_mismatch",
-    expectedQty: 500,
-    actualQty: 490,
-    reason: "stock_shortage",
-    status: "待办公室处理",
-    todoId,
-    reportedBy: "U-WAREHOUSE-A",
-    createdAt: "2026-07-02T10:45:00.000Z",
-  };
-}
-
-function buildFulfillmentTodo({ todoId, refId }) {
-  return {
-    id: todoId,
-    type: "数量差异待处理",
-    customerId: "C001",
-    ref: refId,
-    summary: "张三服饰自提单数量差异，需办公室确认",
-    latest: "2026-07-02T15:00:00.000Z",
-    urgency: "异常",
-    impact: "影响出库交付",
-    createdBy: "U-WAREHOUSE-A",
-  };
-}
-
-function buildFulfillmentOperationLog({ logId, action, fulfillmentId }) {
-  const before = buildFulfillmentActionRecord({ fulfillmentId, status: "待出库" });
-  const after = buildFulfillmentActionRecord({ fulfillmentId, status: "待确认拉走", actualQty: 490 });
-  return {
-    id: logId,
-    targetType: "fulfillment",
-    targetId: fulfillmentId,
-    action,
-    before,
-    after,
-    reason: "postgres live fulfillment action",
-    operatorId: "U-OFFICE-A",
-    pageKey: "api",
-    occurredAt: "2026-07-02T10:45:00.000Z",
-    createdAt: "2026-07-02T10:45:00.000Z",
-  };
-}
-
-function buildStatement({ id, customerId, status, received = 0, variance = 273, revision = 1 }) {
-  return {
-    id,
-    customerId,
-    status,
-    receivable: 273,
-    received,
-    variance,
-    revision,
-  };
-}
-
-function buildTodo({ todoId, statementId }) {
-  return {
-    id: todoId,
-    type: "收款差额待确认",
-    customerId: "C-LIVE-REPO",
-    ref: statementId,
-    summary: "应收 273，实收 200，差额 73",
-    latest: "本期",
-    urgency: "异常",
-    impact: "需确认未收差额",
-  };
-}
-
-function buildLiveMasterDataImportExecution() {
-  const targetRecords = {
-    standardColors: [
-      {
-        id: "SC-MD-LIVE-001",
-        colorKey: "md-live-red",
-        name: "主数据导入红",
-        enabled: true,
-      },
-    ],
-    priceTables: [
-      {
-        id: "PT-MD-LIVE-001",
-        bizNo: "PT-MD-LIVE-001",
-        name: "主数据导入价格表",
-        status: "pending_review",
-        effectiveFrom: "2026-07-03",
-      },
-    ],
-    customers: [
-      {
-        id: "C-MD-LIVE-001",
-        bizNo: "CUST-MD-LIVE-001",
-        name: "主数据导入客户",
-        shortName: "主数据客户",
-        settlementCycle: "7天一结",
-        riskStatus: "正常",
-        enabled: true,
-      },
-    ],
-    customerContacts: [
-      {
-        id: "CC-MD-LIVE-001",
-        customerId: "C-MD-LIVE-001",
-        contactName: "导入联系人",
-        phone: "13900009999",
-        role: "客户本人",
-        isDefault: true,
-        remark: "live check",
-      },
-    ],
-    customerAddresses: [
-      {
-        id: "CA-MD-LIVE-001",
-        customerId: "C-MD-LIVE-001",
-        contactId: "CC-MD-LIVE-001",
-        address: "主数据导入地址",
-        area: "虎门",
-        defaultFulfillmentMethod: "自提",
-        isDefault: true,
-        remark: "live check",
-      },
-    ],
-    customerNotes: [
-      {
-        id: "CN-MD-LIVE-001",
-        customerId: "C-MD-LIVE-001",
-        noteType: "office",
-        content: "主数据导入备注",
-        visibleTo: "office",
-      },
-    ],
-    colorAliases: [
-      {
-        id: "CALIAS-MD-LIVE-001",
-        alias: "导入红",
-        standardColorId: "SC-MD-LIVE-001",
-        sourceType: "global",
-        sourceId: "",
-        enabled: true,
-      },
-    ],
-    sizeSpecs: [
-      {
-        id: "SIZE-MD-LIVE-001",
-        sizeKey: "md-live-30-38-10",
-        displayName: "30*38*10",
-        widthMm: 30,
-        heightMm: 38,
-        metadata: { source: "postgres-live" },
-        enabled: true,
-      },
-    ],
-    finishedGoodsStyles: [
-      {
-        id: "STYLE-MD-LIVE-001",
-        styleKey: "blank-bag",
-        name: "空白袋",
-        enabled: true,
-        allowedSizeKeys: ["md-live-30-38-10"],
-      },
-    ],
-    priceTableItems: [
-      {
-        id: "PTI-MD-LIVE-001",
-        priceTableId: "PT-MD-LIVE-001",
-        sizeKey: "md-live-30-38-10",
-        standardColorId: "SC-MD-LIVE-001",
-        handleType: "普通提",
-        styleKey: "blank-bag",
-        bagPrice: 0.34,
-        printPrice: 0,
-        otherFee: 0,
-        minQty: 1,
-        enabled: false,
-      },
-    ],
-    inventoryItems: [
-      {
-        id: "INV-MD-LIVE-001",
-        inventoryKey: "30*38*10|主数据导入红|普通提|空白袋|MD-LIVE|仓库已清点",
-        size: "30*38*10",
-        standardColorId: "SC-MD-LIVE-001",
-        handleType: "普通提",
-        style: "空白袋",
-        zone: "MD-LIVE",
-        inventoryState: "仓库已清点",
-        onHandQty: 100,
-        reservedQty: 0,
-        waitingPickupLockedQty: 0,
-        pendingHandlingQty: 0,
-        trustLevel: "已清点",
-      },
-    ],
-    inventoryLedgerEntries: [
-      {
-        id: "LEDGER-MD-LIVE-001",
-        inventoryItemId: "INV-MD-LIVE-001",
-        changeType: "initial_import",
-        qtyBefore: 0,
-        qtyChange: 100,
-        qtyAfter: 100,
-        sourceType: "master_data_import",
-        sourceId: "MDE-MD-LIVE-001",
-        occurredAt: "2026-07-03T10:30:00.000Z",
-        reason: "基础资料初始库存导入",
-        remark: "postgres live check",
-      },
-    ],
-    machines: [
-      {
-        id: "MACH-MD-LIVE-001",
-        bizNo: "MACH-MD-LIVE-001",
-        name: "主数据导入制袋机",
-        machineType: "bag_making",
-        workshop: "1号车间",
-        status: "active",
-        enabled: true,
-        settings: { source: "postgres-live" },
-      },
-    ],
-    employees: [
-      {
-        id: "EMP-MD-LIVE-001",
-        bizNo: "EMP-MD-LIVE-001",
-        userId: "",
-        name: "主数据导入员工",
-        roleName: "制袋",
-        defaultWorkshop: "1号车间",
-        defaultMachineId: "MACH-MD-LIVE-001",
-        baseHourlyWage: 22,
-        positionAllowanceHourly: 2,
-        wageEffectiveFrom: "2026-07-03",
-        accountEnabled: false,
-        profileStatus: "pending_admin_review",
-        requestedEnabled: true,
-        remark: "postgres live check",
-      },
-    ],
-    employeeMachineAssignments: [
-      {
-        id: "EMA-MD-LIVE-001",
-        employeeId: "EMP-MD-LIVE-001",
-        machineId: "MACH-MD-LIVE-001",
-        assignmentType: "default",
-        workshop: "1号车间",
-        effectiveFrom: "2026-07-03",
-        enabled: true,
-      },
-    ],
-    machineCapacityBaselines: [
-      {
-        id: "MCB-MD-LIVE-001",
-        machineId: "MACH-MD-LIVE-001",
-        sizeKey: "md-live-30-38-10",
-        dailyCapacityQty: 12000,
-        hourlyCapacityQty: null,
-        sourceKind: "manual_estimate",
-        confidence: "low",
-        effectiveFrom: "2026-07-03",
-        remark: "postgres live check",
-      },
-    ],
-  };
-  const targetRecordCount = Object.values(targetRecords).reduce((sum, records) => sum + records.length, 0);
-  return {
-    executionId: "MDE-MD-LIVE-001",
-    planId: "MDP-MD-LIVE-001",
-    draftId: "MDI-MD-LIVE-001",
-    fileName: "master-data-live.xlsx",
-    requestedBy: "管理A",
-    requestedAt: "2026-07-03T10:30:00.000Z",
-    status: "ready_for_transaction_writer",
-    statusLabel: "待事务写入器执行",
-    officialWriterKind: "postgres",
-    officialImportEnabled: true,
-    officialWriteAttempted: false,
-    officialWriteScope: "master_data_import_v1",
-    transactionStarted: false,
-    summary: {
-      stagedRowCount: 5,
-      writableRowCount: 5,
-      failedRowCount: 0,
-      targetRecordCount,
-      targetTableCount: 16,
-    },
-    importPayload: {
-      targetRecords,
-    },
-    failedRows: [],
-    writeBatches: [],
-    blockingReasons: [],
-  };
-}
-
-function buildLiveMasterDataImportReviewDraft() {
-  return {
-    draftId: "MDR-MD-LIVE-001",
-    status: "ready_for_review_queue",
-    statusLabel: "可进入复核",
-    fileName: "master-data-review-live.xlsx",
-    requestedBy: "办公室A",
-    createdAt: "2026-07-03T10:20:00.000Z",
-    checkedAt: "2026-07-03T10:20:00.000Z",
-    canEnterReviewQueue: true,
-    employeeRoleCoverage: {
-      available: true,
-      complete: false,
-      employeeRowCount: 1,
-      requiredRoleCount: 8,
-      coveredRoleCount: 1,
-      missingRoleCount: 7,
-      coverageLabel: "1/8",
-      missingRoleLabels: ["管理人员", "办公室", "仓库", "包装", "司机", "财务", "技术运维"],
-      roles: [{ roleKey: "workshop", roleLabel: "车间", rowCount: 1 }],
-    },
-    summary: {
-      stagedRowCount: 2,
-      errorCount: 0,
-      warningCount: 0,
-      employeeRoleCoverageLabel: "1/8",
-    },
-  };
-}
-
-function buildLiveMasterDataImportConfirmationPlan(reviewDraft) {
-  return {
-    planId: "MDP-MD-REVIEW-LIVE-001",
-    draftId: reviewDraft.draftId,
-    status: "ready_for_final_confirmation",
-    statusLabel: "待最终确认",
-    fileName: reviewDraft.fileName,
-    createdBy: "办公室A",
-    createdAt: "2026-07-03T10:21:00.000Z",
-    employeeRoleCoverage: reviewDraft.employeeRoleCoverage,
-    summary: {
-      stagedRowCount: 2,
-      targetRecordCount: 2,
-      employeeRoleCoverageLabel: "1/8",
-    },
-    stagedRows: [{ sheetKey: "customers", rowCount: 1 }],
-    targetTables: ["customers", "price_table_items"],
-    writeBatches: [],
-    officialImportEnabled: false,
-    officialWriteScope: "none",
-  };
-}
-
-function buildLiveMasterDataImportReviewExecution(confirmationPlan) {
-  return {
-    executionId: "MDE-MD-REVIEW-LIVE-001",
-    planId: confirmationPlan.planId,
-    draftId: confirmationPlan.draftId,
-    status: "committed",
-    statusLabel: "已正式导入",
-    fileName: confirmationPlan.fileName,
-    requestedBy: "管理A",
-    requestedAt: "2026-07-03T10:22:00.000Z",
-    officialWriterKind: "postgres",
-    officialImportEnabled: true,
-    officialWriteAttempted: true,
-    officialWriteScope: "master_data_import_v1",
-    transactionStarted: true,
-    summary: {
-      stagedRowCount: 2,
-      writableRowCount: 2,
-      failedRowCount: 0,
-      transactionRecordCount: 2,
-    },
-    importPayload: {
-      targetRecords: {},
-    },
-    failedRows: [],
-    blockingReasons: [],
-  };
-}
-
-function buildLiveMasterDataImportReviewPlanOperationLog(planId) {
-  return {
-    id: "LOG-MD-LIVE-REVIEW-PLAN-001",
-    targetType: "master_data_import_confirmation_plan",
-    targetId: planId,
-    action: "master_data_import_confirmation_plan_created",
-    before: null,
-    after: { planId },
-    reason: "postgres live master data import review plan",
-    operatorId: "U-OFFICE-A",
-    pageKey: "master_data",
-    occurredAt: "2026-07-03T10:21:00.000Z",
-    createdAt: "2026-07-03T10:21:00.000Z",
-  };
-}
-
-function buildLiveMasterDataImportReviewExecutionOperationLog(executionId) {
-  return {
-    id: "LOG-MD-LIVE-REVIEW-EXEC-001",
-    targetType: "master_data_import_execution",
-    targetId: executionId,
-    action: "master_data_import_execution_committed",
-    before: { status: "ready_for_transaction_writer" },
-    after: { executionId, officialWriteScope: "master_data_import_v1" },
-    reason: "postgres live master data import review execution",
-    operatorId: "U-OFFICE-A",
-    pageKey: "master_data",
-    occurredAt: "2026-07-03T10:22:00.000Z",
-    createdAt: "2026-07-03T10:22:00.000Z",
-  };
-}
-
-function buildLiveMasterDataImportOperationLog(executionId) {
-  return {
-    id: "LOG-MD-LIVE-IMPORT-001",
-    targetType: "master_data_import_execution",
-    targetId: executionId,
-    action: "master_data_import_execution_committed",
-    before: { status: "ready_for_transaction_writer" },
-    after: {
-      executionId,
-      officialWriteScope: "master_data_import_v1",
-    },
-    reason: "postgres live master data import",
-    operatorId: "U-OFFICE-A",
-    pageKey: "master_data",
-    occurredAt: "2026-07-03T10:30:00.000Z",
-    createdAt: "2026-07-03T10:30:00.000Z",
-  };
-}
-
-function buildOperationLog({ logId, action = "record_statement_payment", before, after }) {
-  const reasonByAction = {
-    record_statement_payment: "postgres live payment transaction",
-    handle_statement_variance: "未收差额转欠款",
-    write_off_statement: "未收差额转欠款",
-    mark_statement_sent: "客户发送版对账单已发送",
-  };
-  return {
-    id: logId,
-    targetType: "statement",
-    targetId: after.id,
-    action,
-    before,
-    after,
-    reason: reasonByAction[action] ?? "postgres live statement action",
-    operatorId: "U-FINANCE-A",
-    pageKey: "api",
-    occurredAt: "2026-07-01T10:30:00.000Z",
-    createdAt: "2026-07-01T10:30:00.000Z",
   };
 }
 

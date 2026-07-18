@@ -79,6 +79,33 @@ assert.equal(statementCase.statements.value[0].historicalDebt, 80);
 assert.deepEqual(statementCase.statements.value[0].lineIds, ["OL-API"]);
 assert.match(detailResult.feedback, /对账单详情已通过后端 API刷新/);
 
+const concurrentStatement = createState([{
+  id: "ST-CONCURRENT",
+  revision: 3,
+  received: 1200,
+  paymentAttachmentIds: ["ATT-PAY-1"],
+  paymentAttachmentFiles: [{ attachmentId: "ATT-PAY-1", fileName: "payment.png" }],
+  paymentEvidenceStatus: "已登记付款截图",
+}]);
+const concurrentActions = createOfficeStatementReadActions({
+  api: {
+    async getOfficeStatementDetail() {
+      return { source: "api", detail: { id: "ST-CONCURRENT", revision: 2, received: 0 } };
+    },
+  },
+  authState: {},
+  currentUserId: "U-FINANCE-A",
+  selectedStatementIdRef: { current: "ST-CONCURRENT" },
+  serverRequired: () => true,
+  statementsRef: { current: concurrentStatement.value },
+  setSelectedStatementId() {},
+  setStatementReadMeta() {},
+  setStatements: concurrentStatement.set,
+});
+await concurrentActions.refreshStatementDetail({ statementId: "ST-CONCURRENT" });
+assert.equal(concurrentStatement.value[0].revision, 3, "a late detail response must not overwrite a newer payment commit");
+assert.equal(concurrentStatement.value[0].paymentAttachmentFiles[0].fileName, "payment.png");
+
 const emptyStatements = createStatementCase();
 emptyStatements.actions = createOfficeStatementReadActions({
   api: {

@@ -127,12 +127,10 @@ const productionGoLivePrecheckServiceSource = readFileSync(
   new URL("../server/services/v1ProductionGoLivePrecheckService.mjs", import.meta.url),
   "utf8",
 );
-const apiFunction = apiSource.match(
-  /function precheckSystemV1ProductionEnvFilePreview\(\{ operatorId \}\) \{([\s\S]*?)\n\}/,
-)?.[1];
-assert.ok(apiFunction, "API file-preview composition function should exist");
-assert.match(apiFunction, /return precheckV1ProductionEnvFilePreview\(\{ operatorId \}\);/);
-assert.doesNotMatch(apiFunction, /process\.env|readFileSync|buildProductionEnvFileAuditReport|buildProductionEnvPreflight/);
+const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /function precheckSystemV1ProductionEnvFilePreview/);
+assert.match(routeSource, /precheckProductionEnvFilePreview:[\s\S]*precheckV1ProductionEnvFilePreview\(\{ operatorId \}\)/);
+assert.doesNotMatch(routeSource, /process\.env|readFileSync|buildProductionEnvFileAuditReport|buildProductionEnvPreflight/);
 for (const oldDefinition of [
   "buildV1ProductionEnvPreviewFallbackCheck",
   "buildV1ProductionEnvFilePreviewStageDiagnosis",

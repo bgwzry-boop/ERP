@@ -78,6 +78,21 @@ assert.equal(officeOnlyResult.summary.importAllowed, true);
 assert.equal(officeOnlyResult.employeeRoleCoverage.roles.find((role) => role.roleKey === "office")?.rowCount, 1);
 assert(!officeOnlyResult.issues.some((issue) => issue.field === "默认车间" || issue.field === "默认机台"));
 
+const ownerMultiRoleResult = await precheckMasterDataImportWorkbook({
+  bytes: buildEmployeeOnlyWorkbook(employeeSpec, {
+    员工编号: "ERP-0001",
+    员工姓名: "负责人",
+    角色: "管理",
+    附加角色: "财务 / 对账",
+  }),
+  fileName: "owner-multi-role.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(ownerMultiRoleResult.summary.status, "passed");
+assert.equal(ownerMultiRoleResult.employeeRoleCoverage.coverageLabel, "2/8");
+assert.equal(ownerMultiRoleResult.employeeRoleCoverage.roles.find((role) => role.roleKey === "management")?.rowCount, 1);
+assert.equal(ownerMultiRoleResult.employeeRoleCoverage.roles.find((role) => role.roleKey === "finance")?.rowCount, 1);
+
 const missingEmployeeIdResult = await precheckMasterDataImportWorkbook({
   bytes: buildEmployeeOnlyWorkbook(employeeSpec, { 员工姓名: "缺编号员工", 角色: "办公室", 启用状态: "启用" }),
   fileName: "missing-employee-id.xlsx",

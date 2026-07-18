@@ -39,17 +39,36 @@ const dependencies = {
   sendNotFound(response, code) {
     calls.push({ kind: "notFound", response, code });
   },
+  sendJson(response, statusCode, payload) {
+    calls.push({ kind: "json", response, statusCode, payload });
+  },
+  sendBusinessError(response, statusCode, code, message, details) {
+    calls.push({ kind: "businessError", response, statusCode, code, message, details });
+  },
 };
-dependencies.rawMaterialInboundActionRoute = async (input) => calls.push({ kind: "inbound", ...input });
-dependencies.createRawMaterialSupplierStatementReviewDraftRoute = async (input) => calls.push({ kind: "createReview", ...input });
-dependencies.confirmRawMaterialSupplierStatementReviewRoute = async (input) => calls.push({ kind: "confirmReview", ...input });
-dependencies.confirmRawMaterialSupplierStatementRoute = async (input) => calls.push({ kind: "confirmStatement", ...input });
-dependencies.generateRawMaterialSupplierPayableDraftRoute = async (input) => calls.push({ kind: "generatePayable", ...input });
-dependencies.confirmRawMaterialSupplierPaymentRoute = async (input) => calls.push({ kind: "confirmPayment", ...input });
+dependencies.rawMaterialCommandService = {
+  recognizeDeliveryNote: createCommand("recognizeDeliveryNote"),
+  recordInboundAction: createCommand("inbound"),
+  createSupplierStatementReviewDraft: createCommand("createReview"),
+  confirmSupplierStatementReview: createCommand("confirmReview"),
+  confirmSupplierStatement: createCommand("confirmStatement"),
+  generateSupplierPayableDraft: createCommand("generatePayable"),
+  confirmSupplierPayment: createCommand("confirmPayment"),
+};
+
+await expectSupplierAction(
+  "/api/raw-material-inbounds/recognize-delivery-note",
+  "raw_material.inbound.review",
+  "recognizeDeliveryNote",
+  undefined,
+  "U-OFFICE-A",
+);
 
 for (const [action, permission] of [
   ["review", "raw_material.inbound.review"],
   ["print-labels", "raw_material.label.print"],
+  ["void-label", "raw_material.label.print"],
+  ["reprint-label", "raw_material.label.print"],
   ["attach-confirm", "raw_material.label.attach_confirm"],
   ["issue-to-machine", "raw_material.issue.create"],
   ["confirm-consumption", "raw_material.consumption.confirm"],
@@ -89,6 +108,30 @@ assert.equal(
   true,
 );
 assert.deepEqual(calls, [{ kind: "denied" }]);
+calls.length = 0;
+assert.equal(
+  await handleRawMaterialWriteRoutes({
+    ...dependencies,
+    method: "POST",
+    url: new URL("http://erp.test/api/raw-material-inbounds/RMI-1/review"),
+    rawMaterialCommandService: {
+      ...dependencies.rawMaterialCommandService,
+      async recordInboundAction(input) {
+        calls.push({ kind: "inboundError", ...input });
+        return { error: true, statusCode: 409, code: "CONFLICT", message: "conflict", details: { retry: false } };
+      },
+    },
+  }),
+  true,
+);
+assert.deepEqual(calls.at(-1), {
+  kind: "businessError",
+  response: dependencies.response,
+  statusCode: 409,
+  code: "CONFLICT",
+  message: "conflict",
+  details: { retry: false },
+});
 assert.equal(await handleRawMaterialWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/raw-material-inbounds/RMI-1/review") }), false);
 assert.equal(await handleRawMaterialWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/raw-material-supplier-statement-reviews/RSR-1") }), false);
 
@@ -102,12 +145,17 @@ async function expectInboundAction(action, permission) {
     { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback: "U-OFFICE-A" },
     {
       kind: "inbound",
-      response: dependencies.response,
       workspace: dependencies.workspace,
       inboundId: "RMI-1",
       actionSlug: action,
       body: dependencies.body,
       operatorId: "U-RESOLVED",
+    },
+    {
+      kind: "json",
+      response: dependencies.response,
+      statusCode: 200,
+      payload: { result: "inbound" },
     },
   ]);
 }
@@ -120,11 +168,23 @@ async function expectSupplierAction(pathname, permission, kind, reviewId, fallba
   assert.deepEqual(calls, [
     {
       kind,
-      response: dependencies.response,
       workspace: dependencies.workspace,
       body: dependencies.body,
       ...(reviewId ? { reviewId } : {}),
       operatorId: "U-RESOLVED",
     },
+    {
+      kind: "json",
+      response: dependencies.response,
+      statusCode: 200,
+      payload: { result: kind },
+    },
   ]);
+}
+
+function createCommand(kind) {
+  return async (input) => {
+    calls.push({ kind, ...input });
+    return { result: kind };
+  };
 }

@@ -67,6 +67,7 @@ assert.throws(
   () =>
     createApiServer({
       runtimeMode: "production",
+      firstReleaseScope: "raw_material",
       applyProductionEnvFile: false,
       authSecret: "runtime-config-check-secret",
     }),
@@ -85,6 +86,7 @@ assert.throws(
   () =>
     createApiServer({
       runtimeMode: "production",
+      firstReleaseScope: "raw_material",
       applyProductionEnvFile: false,
       authSecret: "runtime-config-check-secret",
       v1PersistenceProfile: {
@@ -99,8 +101,24 @@ assert.throws(
     error?.details?.invalidRepositories?.includes("attachmentRepository"),
 );
 
+assert.throws(
+  () => createApiServer({
+    runtimeMode: "production",
+    applyProductionEnvFile: false,
+    authSecret: "runtime-config-check-secret",
+    v1PersistenceProfile: {
+      databaseUrl: "postgres://runtime:secret@db.example.invalid/erp",
+      queryJson: async () => [],
+      objectStorageOptions,
+    },
+  }),
+  (error) => error?.code === "FIRST_RELEASE_SCOPE_REQUIRED",
+  "a production API with valid persistence wiring must still refuse startup without the first-release scope",
+);
+
 const productionServer = createApiServer({
   runtimeMode: "production",
+  firstReleaseScope: "raw_material",
   applyProductionEnvFile: false,
   authSecret: "runtime-config-check-secret",
   corsAllowedOrigins: ["https://erp.example.invalid"],
@@ -173,7 +191,7 @@ try {
     "OFFICE_WORKSPACE_PROJECTION_DISABLED",
   );
 
-  const missingIdempotencyKey = await fetch(`http://127.0.0.1:${port}/api/nonexistent-business-write`, {
+  const blockedBusinessWrite = await fetch(`http://127.0.0.1:${port}/api/nonexistent-business-write`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${runtimeSession.accessToken}`,
@@ -181,10 +199,10 @@ try {
     },
     body: "{}",
   });
-  assert.equal(missingIdempotencyKey.status, 400);
-  assert.equal((await missingIdempotencyKey.json()).code, "IDEMPOTENCY_KEY_REQUIRED");
+  assert.equal(blockedBusinessWrite.status, 403);
+  assert.equal((await blockedBusinessWrite.json()).code, "FIRST_RELEASE_SCOPE_BLOCKED");
 
-  const validIdempotencyKey = await fetch(`http://127.0.0.1:${port}/api/nonexistent-business-write`, {
+  const blockedBusinessWriteWithIdempotency = await fetch(`http://127.0.0.1:${port}/api/nonexistent-business-write`, {
     method: "POST",
     headers: {
       authorization: `Bearer ${runtimeSession.accessToken}`,
@@ -193,7 +211,8 @@ try {
     },
     body: "{}",
   });
-  assert.equal(validIdempotencyKey.status, 404);
+  assert.equal(blockedBusinessWriteWithIdempotency.status, 403);
+  assert.equal((await blockedBusinessWriteWithIdempotency.json()).code, "FIRST_RELEASE_SCOPE_BLOCKED");
 } finally {
   await close(productionServer);
 }

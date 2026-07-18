@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import {
   getConfiguredV1ProductionEnvApplicationFileConfig,
+  getConfiguredV1ProductionEnvApplicationFiles,
   getConfiguredV1ProductionEnvAuditFileConfig,
   getConfiguredV1ProductionEnvValuesFileConfig,
   precheckV1ProductionEnvFileAudit,
@@ -33,6 +34,15 @@ assert.deepEqual(applicationSource.envFiles, ["/secure/fallback.env"]);
 assert.equal(applicationSource.selectedEnvVariable, "ERP_V1_ENV_FILE");
 assert.equal(applicationSource.auditOnlySourceUsed, false);
 assert.equal(applicationSource.ignoredConfiguredAuditOnlyVariableCount, 1);
+assert.deepEqual(
+  getConfiguredV1ProductionEnvApplicationFiles({
+    env: {
+      ERP_V1_ENV_FILE: "/secure/fallback.env",
+      ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS: "/secure/audit-only.env",
+    },
+  }),
+  ["/secure/fallback.env"],
+);
 
 const previewSource = getConfiguredV1ProductionEnvApplicationFileConfig({
   allowAuditOnlyFallback: true,
@@ -106,12 +116,10 @@ assert.deepEqual(sanitized.blockingFindings, []);
 assert.equal(sanitized.safeguards.rawEnvFileIncluded, false);
 
 const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const apiFunction = apiSource.match(
-  /function precheckSystemV1ProductionEnvFileAudit\(\{ operatorId \}\) \{([\s\S]*?)\n\}/,
-)?.[1];
-assert.ok(apiFunction, "API file-audit composition function should exist");
-assert.match(apiFunction, /return precheckV1ProductionEnvFileAudit\(\{ operatorId \}\);/);
-assert.doesNotMatch(apiFunction, /process\.env|buildProductionEnvFileAuditReport|readFileSync/);
+const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /function precheckSystemV1ProductionEnvFileAudit/);
+assert.match(routeSource, /precheckProductionEnvFileAudit:[\s\S]*precheckV1ProductionEnvFileAudit\(\{ operatorId \}\)/);
+assert.doesNotMatch(routeSource, /buildProductionEnvFileAuditReport|readFileSync/);
 for (const oldDefinition of [
   "buildV1ProductionEnvFileAuditPrecheckBody",
   "buildV1ProductionEnvFileAuditServerConfigGuidance",

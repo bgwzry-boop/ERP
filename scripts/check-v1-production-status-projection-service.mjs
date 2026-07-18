@@ -7,6 +7,7 @@ import {
   sanitizeV1ProductionEnvSetupReport,
   sanitizeV1ProductionFirstStageExecution,
   sanitizeV1ProductionPersistenceEvidence,
+  sanitizeV1TodoLoadPrecheck,
 } from "../server/services/v1ProductionStatusProjectionService.mjs";
 
 const secrets = {
@@ -31,7 +32,16 @@ const unsafeText = [
 ].join(" ");
 
 const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiServerSource, /from "\.\/services\/v1ProductionStatusProjectionService\.mjs"/);
+const registrySource = readFileSync(
+  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
+  "utf8",
+);
+const statusResponseSource = readFileSync(
+  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
+  "utf8",
+);
+assert.match(statusResponseSource, /from "\.\/v1ProductionStatusProjectionService\.mjs"/);
+assert.match(registrySource, /createV1GoLiveStatusResponseService/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1ProductionEnvGate/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1ProductionFirstStageExecution/);
 assert.doesNotMatch(apiServerSource, /function sanitizeV1ProductionEnvFillTemplate/);
@@ -163,6 +173,80 @@ assert.equal(firstStage.dryRunCoverage.minimumWarningTargetSignatureIncluded, tr
 assert.equal("minimumBlockingTargetSignature" in firstStage.dryRunCoverage, false);
 assert.equal("minimumWarningTargetSignature" in firstStage.dryRunCoverage, false);
 
+const todoLoadSource = {
+  scope: "v1_todo_load_precheck",
+  status: "ready",
+  ready: true,
+  checkedAt: "2026-07-13T02:00:00.000Z",
+  target: {
+    protocol: "https",
+    loopback: false,
+    apiPathValidated: true,
+    embeddedCredentials: false,
+    addressExposed: false,
+    rawAddress: "https://erp.internal.example/api",
+  },
+  config: { maxP95Ms: 1000, maxErrorRate: 0.01 },
+  authentication: {
+    formalRuntimeSession: true,
+    serverVerified: true,
+    sessionType: "runtime",
+    identityExposed: false,
+    operatorIdentity: "SECRET-OFFICE-IDENTITY",
+  },
+  summary: {
+    label: "5/5 通过",
+    requestCount: 100,
+    successCount: 100,
+    errorCount: 0,
+    errorRate: 0,
+    throughputPerSecond: 125.5,
+    latencyMs: { p50: 120, p95: 240, max: 320 },
+    snapshotChanged: false,
+  },
+  blockingStages: [],
+  warnings: [],
+  safeguards: {
+    explicitReadLoadConfirmation: true,
+    businessReadOnly: true,
+    businessDataMutated: false,
+    requestCountBounded: true,
+    concurrencyBounded: true,
+    responsePayloadStored: false,
+    todoIdentityStored: false,
+    credentialsExposed: false,
+    apiAddressExposed: false,
+    physicalPrinterCalled: false,
+  },
+  responsePayload: "SECRET-TODO-PAYLOAD",
+};
+const todoLoad = sanitizeV1TodoLoadPrecheck(todoLoadSource, { now: "2026-07-13T03:00:00.000Z" });
+assert.equal(todoLoad.status, "ready");
+assert.equal(todoLoad.ready, true);
+assert.equal(todoLoad.freshness.fresh, true);
+assert.equal(todoLoad.freshness.ageHours, 1);
+assert.equal(todoLoad.target.ready, true);
+assert.equal(todoLoad.authentication.ready, true);
+assert.equal(todoLoad.safeguards.ready, true);
+assert.equal(todoLoad.summary.successLabel, "100/100");
+assert.equal(todoLoad.summary.throughputLabel, "125.5 次/秒");
+assert.equal(todoLoad.summary.latencyMs.p95, 240);
+
+const staleTodoLoad = sanitizeV1TodoLoadPrecheck(todoLoadSource, { now: "2026-07-17T03:00:00.000Z" });
+assert.equal(staleTodoLoad.status, "blocked");
+assert.equal(staleTodoLoad.ready, false);
+assert.equal(staleTodoLoad.freshness.fresh, false);
+assert.match(staleTodoLoad.nextAction, /超过 72 小时/);
+
+const unsafeTodoLoad = sanitizeV1TodoLoadPrecheck({
+  ...todoLoadSource,
+  safeguards: { ...todoLoadSource.safeguards, businessDataMutated: true },
+}, { now: "2026-07-13T03:00:00.000Z" });
+assert.equal(unsafeTodoLoad.status, "blocked");
+assert.equal(unsafeTodoLoad.ready, false);
+assert.equal(unsafeTodoLoad.safeguards.ready, false);
+assert.match(unsafeTodoLoad.nextAction, /只读/);
+
 const fillTemplate = sanitizeV1ProductionEnvFillTemplate([
   "ERP_V1_DATABASE_ADAPTER=postgres",
   `ERP_V1_DATABASE_URL=${secrets.databaseUrl}`,
@@ -187,6 +271,7 @@ const serialized = JSON.stringify({
   intakeVerification,
   persistenceEvidence,
   firstStage,
+  todoLoad,
   fillTemplate,
 });
 for (const secret of Object.values(secrets)) {
@@ -194,5 +279,5 @@ for (const secret of Object.values(secrets)) {
 }
 
 console.log(
-  "V1 production-status projection service checks passed: env, persistence, first-stage, and redaction are isolated.",
+  "V1 production-status projection service checks passed: env, persistence, first-stage, todo-load capacity, freshness, and redaction are isolated.",
 );

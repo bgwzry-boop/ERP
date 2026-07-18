@@ -41,6 +41,8 @@ const productionPersistenceEvidenceJsonPath = join(sourceRoot, "production-persi
 const productionPersistenceEvidenceMarkdownPath = join(sourceRoot, "production-persistence-evidence.md");
 const productionRuntimeSmokeJsonPath = join(sourceRoot, "production-runtime-smoke.json");
 const productionRuntimeSmokeMarkdownPath = join(sourceRoot, "production-runtime-smoke.md");
+const todoLoadPrecheckJsonPath = join(sourceRoot, "todo-load-precheck.json");
+const todoLoadPrecheckMarkdownPath = join(sourceRoot, "todo-load-precheck.md");
 const printChainExecutionJsonPath = join(sourceRoot, "print-chain-execution.json");
 const printChainExecutionMarkdownPath = join(sourceRoot, "print-chain-execution.md");
 const printChainCloseoutJsonPath = join(sourceRoot, "print-chain-closeout.json");
@@ -73,6 +75,8 @@ const sensitiveValues = [
   "SUPER_SECRET_VALUE",
   "/var/spool/erp-secret",
   "/usr/bin/lpstat-secret",
+  "SENSITIVE_TODO_LOAD_PAYLOAD",
+  "SENSITIVE_TODO_LOAD_SOURCE_MARKDOWN",
 ];
 const forbiddenPatterns = [
   /postgres:\/\/[^<\s]+:[^<\s]+@/i,
@@ -84,6 +88,8 @@ const forbiddenPatterns = [
   /secure-prod\.env/i,
   /\/var\/spool\/erp-secret/i,
   /\/usr\/bin\/lpstat-secret/i,
+  /SENSITIVE_TODO_LOAD_PAYLOAD/i,
+  /SENSITIVE_TODO_LOAD_SOURCE_MARKDOWN/i,
 ];
 
 rmSync(tempRoot, { recursive: true, force: true });
@@ -164,6 +170,11 @@ writeFileSync(
 );
 writeFileSync(productionRuntimeSmokeJsonPath, `${JSON.stringify(buildProductionRuntimeSmoke(), null, 2)}\n`);
 writeFileSync(productionRuntimeSmokeMarkdownPath, "# V1 Production Runtime Smoke\n\nStatus: BLOCKED (2/4 通过)\n");
+writeFileSync(todoLoadPrecheckJsonPath, `${JSON.stringify(buildTodoLoadPrecheck(), null, 2)}\n`);
+writeFileSync(
+  todoLoadPrecheckMarkdownPath,
+  "# V1 Todo Load Precheck\n\nSENSITIVE_TODO_LOAD_SOURCE_MARKDOWN\n",
+);
 writeFileSync(printChainCloseoutJsonPath, `${JSON.stringify(buildPrintChainCloseout(), null, 2)}\n`);
 writeFileSync(printChainCloseoutMarkdownPath, "# V1 Print Chain Closeout\n\nStatus: READY (8/8 通过)\n");
 writeFileSync(printChainExecutionJsonPath, `${JSON.stringify(buildPrintChainExecution(), null, 2)}\n`);
@@ -265,6 +276,10 @@ const blockedRun = await runNode([
   productionRuntimeSmokeJsonPath,
   "--production-runtime-smoke-markdown",
   productionRuntimeSmokeMarkdownPath,
+  "--todo-load-precheck-json",
+  todoLoadPrecheckJsonPath,
+  "--todo-load-precheck-markdown",
+  todoLoadPrecheckMarkdownPath,
   "--print-chain-closeout-json",
   printChainCloseoutJsonPath,
   "--print-chain-closeout-markdown",
@@ -420,6 +435,12 @@ assert.equal(blockedResult.productionRuntimeSmoke.runtime.runtimeMode, "external
 assert.equal(blockedResult.productionRuntimeSmoke.stages.length, 4);
 assert.equal(blockedResult.productionRuntimeSmoke.blockingStages.length, 2);
 assert.equal(blockedResult.productionRuntimeSmoke.safeguards.apiProcessSpawned, false);
+assert.equal(blockedResult.todoLoadPrecheck.included, true);
+assert.equal(blockedResult.todoLoadPrecheck.ready, true);
+assert.equal(blockedResult.todoLoadPrecheck.productionReady, true);
+assert.equal(blockedResult.todoLoadPrecheck.summary.requestCount, 100);
+assert.equal(blockedResult.todoLoadPrecheck.summary.latencyMs.p95, 240);
+assert.equal(blockedResult.todoLoadPrecheck.authentication.serverVerified, true);
 assert.equal(blockedResult.printChainCloseout.included, true);
 assert.equal(blockedResult.printChainCloseout.ready, true);
 assert.equal(blockedResult.printChainCloseout.summary.label, "8/8 通过");
@@ -478,6 +499,9 @@ assert.equal(blockedResult.safeguards.productionPersistenceEvidenceIncluded, tru
 assert.equal(blockedResult.safeguards.productionPersistenceEvidenceReportExpectedRedacted, true);
 assert.equal(blockedResult.safeguards.productionRuntimeSmokeIncluded, true);
 assert.equal(blockedResult.safeguards.productionRuntimeSmokeReportExpectedRedacted, true);
+assert.equal(blockedResult.safeguards.todoLoadPrecheckIncluded, true);
+assert.equal(blockedResult.safeguards.todoLoadPrecheckSanitizedCopyWritten, true);
+assert.equal(blockedResult.safeguards.todoLoadPrecheckSourcePayloadCopied, false);
 assert.equal(blockedResult.safeguards.printChainExecutionIncluded, true);
 assert.equal(blockedResult.safeguards.printChainExecutionReportExpectedRedacted, true);
 assert.equal(blockedResult.safeguards.printChainCloseoutIncluded, true);
@@ -545,6 +569,8 @@ assert.ok(
 );
 assert.ok(blockedResult.files.productionRuntimeSmokeJson, "production runtime smoke JSON path was not returned");
 assert.ok(blockedResult.files.productionRuntimeSmokeMarkdown, "production runtime smoke Markdown path was not returned");
+assert.ok(blockedResult.files.todoLoadPrecheckJson, "todo-load precheck JSON path was not returned");
+assert.ok(blockedResult.files.todoLoadPrecheckMarkdown, "todo-load precheck Markdown path was not returned");
 assert.ok(blockedResult.files.printChainCloseoutJson, "print-chain closeout JSON path was not returned");
 assert.ok(blockedResult.files.printChainCloseoutMarkdown, "print-chain closeout Markdown path was not returned");
 assert.ok(blockedResult.files.printChainExecutionJson, "print-chain execution JSON path was not returned");
@@ -635,6 +661,8 @@ const productionPersistenceEvidenceMarkdownCopy = readGeneratedFile(
 );
 const productionRuntimeSmokeCopy = readGeneratedFile(blockedResult.files.productionRuntimeSmokeJson);
 const productionRuntimeSmokeMarkdownCopy = readGeneratedFile(blockedResult.files.productionRuntimeSmokeMarkdown);
+const todoLoadPrecheckCopy = readGeneratedFile(blockedResult.files.todoLoadPrecheckJson);
+const todoLoadPrecheckMarkdownCopy = readGeneratedFile(blockedResult.files.todoLoadPrecheckMarkdown);
 const printChainCloseoutCopy = readGeneratedFile(blockedResult.files.printChainCloseoutJson);
 const printChainCloseoutMarkdownCopy = readGeneratedFile(blockedResult.files.printChainCloseoutMarkdown);
 const printChainExecutionCopy = readGeneratedFile(blockedResult.files.printChainExecutionJson);
@@ -711,6 +739,11 @@ assert.match(summaryMarkdown, /生产 API runtime smoke/);
 assert.match(summaryMarkdown, /2\/4 通过/);
 assert.match(summaryMarkdown, /production-runtime-smoke\.latest\.md\/json/);
 assert.match(summaryMarkdown, /运行模式：external_service/);
+assert.match(summaryMarkdown, /生产待办只读容量预检查/);
+assert.match(summaryMarkdown, /100\/100 成功/);
+assert.match(summaryMarkdown, /P95 240ms \/ 阈值 1000ms/);
+assert.match(summaryMarkdown, /非本机 HTTPS 生产 API/);
+assert.match(summaryMarkdown, /todo-load-precheck\.latest\.md\/json/);
 assert.match(summaryMarkdown, /生产 env 变量预检/);
 assert.match(summaryMarkdown, /迁移执行请求：否/);
 assert.match(summaryMarkdown, /阶段 Closeout 报告/);
@@ -823,6 +856,7 @@ assert.match(handoffManifest, /productionFirstStageExecution/);
 assert.match(handoffManifest, /productionFirstStageEvidenceSuggestions/);
 assert.match(handoffManifest, /productionPersistenceEvidence/);
 assert.match(handoffManifest, /productionRuntimeSmoke/);
+assert.match(handoffManifest, /todoLoadPrecheck/);
 assert.match(handoffManifest, /printChainCloseout/);
 assert.match(handoffManifest, /driverRealDeviceExecution/);
 assert.match(handoffManifest, /driverRealDeviceCloseout/);
@@ -958,6 +992,12 @@ assert.match(productionPersistenceEvidenceMarkdownCopy, /V1 Production Persisten
 assert.match(productionRuntimeSmokeCopy, /v1_production_runtime_smoke/);
 assert.match(productionRuntimeSmokeCopy, /runtime-production-profile/);
 assert.match(productionRuntimeSmokeMarkdownCopy, /V1 Production Runtime Smoke/);
+assert.match(todoLoadPrecheckCopy, /v1_todo_load_precheck/);
+assert.match(todoLoadPrecheckCopy, /"sourcePayloadCopied"/);
+assert.match(todoLoadPrecheckCopy, /"sourcePathsIncluded": false/);
+assert.match(todoLoadPrecheckMarkdownCopy, /V1 Todo Load Precheck Handoff Snapshot/);
+assert.match(todoLoadPrecheckMarkdownCopy, /100\/100 successful/);
+assert.doesNotMatch(todoLoadPrecheckCopy + todoLoadPrecheckMarkdownCopy, /SENSITIVE_TODO_LOAD/);
 assert.match(printChainCloseoutCopy, /v1_print_chain_closeout/);
 assert.match(printChainCloseoutMarkdownCopy, /V1 Print Chain Closeout/);
 assert.match(printChainExecutionCopy, /v1_print_chain_execution/);
@@ -1013,6 +1053,8 @@ assertNoSensitiveOutput(
     productionPersistenceEvidenceMarkdownCopy +
     productionRuntimeSmokeCopy +
     productionRuntimeSmokeMarkdownCopy +
+    todoLoadPrecheckCopy +
+    todoLoadPrecheckMarkdownCopy +
     printChainCloseoutCopy +
     printChainCloseoutMarkdownCopy +
     printChainExecutionCopy +
@@ -2229,6 +2271,61 @@ function buildProductionRuntimeSmoke() {
       commandValueExposed: false,
     },
     nextActions: ["补齐真实生产 env 并重启长驻 API 后，重新运行 runtime smoke。"],
+  };
+}
+
+function buildTodoLoadPrecheck() {
+  return {
+    scope: "v1_todo_load_precheck",
+    status: "ready",
+    ready: true,
+    checkedAt: "2026-07-08T10:25:00.000Z",
+    target: {
+      protocol: "https",
+      loopback: false,
+      apiPathValidated: true,
+      embeddedCredentials: false,
+      addressExposed: false,
+    },
+    config: {
+      requestCount: 100,
+      concurrency: 10,
+      maxP95Ms: 1000,
+      maxErrorRate: 0,
+    },
+    authentication: {
+      formalRuntimeSession: true,
+      serverVerified: true,
+      sessionType: "runtime",
+      identityExposed: false,
+    },
+    summary: {
+      label: "5/5 通过",
+      requestCount: 100,
+      successCount: 100,
+      errorCount: 0,
+      errorRate: 0,
+      throughputPerSecond: 125,
+      latencyMs: { p50: 120, p95: 240, max: 320 },
+      snapshotChanged: false,
+    },
+    stages: [],
+    blockingStages: [],
+    warnings: [],
+    safeguards: {
+      explicitReadLoadConfirmation: true,
+      businessReadOnly: true,
+      businessDataMutated: false,
+      requestCountBounded: true,
+      concurrencyBounded: true,
+      responsePayloadStored: false,
+      todoIdentityStored: false,
+      credentialsExposed: false,
+      apiAddressExposed: false,
+      physicalPrinterCalled: false,
+    },
+    responsePayload: "SENSITIVE_TODO_LOAD_PAYLOAD",
+    diagnosticNoise: "SENSITIVE_TODO_LOAD_PAYLOAD",
   };
 }
 

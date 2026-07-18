@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { createApiServer } from "../server/apiServer.mjs";
+import {
+  closeTestServer as close,
+  getTestServerBaseUrl,
+  listenTestServer as listen,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 let releasePaymentState;
 let paymentStateLoadStarted = false;
@@ -23,9 +28,9 @@ assert.ok(server.ready && typeof server.ready.then === "function", "API server s
 
 try {
   await listen(server);
-  const { port } = server.address();
+  const baseUrl = getTestServerBaseUrl(server);
   let healthRequestCompleted = false;
-  const healthRequest = fetch(`http://127.0.0.1:${port}/api/health`).then(async (response) => {
+  const healthRequest = fetch(`${baseUrl}/api/health`).then(async (response) => {
     healthRequestCompleted = true;
     assert.equal(response.status, 200);
     return response.json();
@@ -43,23 +48,30 @@ try {
   await close(server);
 }
 
-console.log("API async startup check passed: persistent state loads before requests are served.");
+const authoritativeEmptyDraftServer = createApiServer({
+  runtimeMode: "test",
+  orderDraftRepository: {
+    kind: "postgres",
+    async loadState() {
+      return { orderDrafts: [] };
+    },
+  },
+});
 
-function listen(server) {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
+try {
+  await listen(authoritativeEmptyDraftServer);
+  await authoritativeEmptyDraftServer.ready;
+  const baseUrl = getTestServerBaseUrl(authoritativeEmptyDraftServer);
+  const response = await fetch(`${baseUrl}/api/order-drafts?pageSize=20`);
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.total, 0, "authoritative persistent empty state must not receive synthetic demo drafts");
+  assert.deepEqual(payload.items, []);
+} finally {
+  await close(authoritativeEmptyDraftServer);
 }
 
-function close(server) {
-  return new Promise((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
-}
+console.log("API async startup check passed: requests wait for persistence and authoritative empty drafts stay empty.");
 
 function delay(milliseconds) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));

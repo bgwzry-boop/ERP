@@ -11,6 +11,7 @@ import {
   MASTER_DATA_IMPORT_EXECUTION_VERSION,
   createMasterDataImportExecution,
 } from "../src/domain/masterDataImportExecution.js";
+import { resolveImportedMasterDataMachineId } from "../shared/masterDataMachineIdentity.js";
 
 const generatedAt = "2026-07-03T10:30:00.000Z";
 const workbook = buildMasterDataImportTemplateWorkbook({
@@ -52,7 +53,10 @@ assert(payload.targetRecords.employees.some((record) => (
     && record.accountEnabled === false
     && record.profileStatus === "pending_admin_review"
 )));
-assert(payload.targetRecords.machines.some((record) => record.name === "1号制袋机" && record.workshop === "1号车间"));
+assert(payload.targetRecords.machines.some((record) => record.id === "M-01" && record.name === "1号制袋机" && record.workshop === "1号车间"));
+assert(payload.targetRecords.employees.some((record) => record.defaultMachineId === "M-01"));
+assert.equal(resolveImportedMasterDataMachineId({ machineName: "1号机", workshop: "1号车间" }), "BAG-01");
+assert.equal(resolveImportedMasterDataMachineId({ machineName: "9号制袋机", workshop: "3号车间" }), "BAG-09");
 assert(payload.targetRecords.employeeMachineAssignments.some((record) => record.assignmentType === "default"));
 assert(payload.targetRecords.machineCapacityBaselines.some((record) => (
   record.dailyCapacityQty === 12000
@@ -67,7 +71,7 @@ const employeeRolePayload = buildMasterDataImportExecutionPayload({
     sheetKey: "employees_machines",
     worksheetName: "员工机台",
     rows: [
-      { rowNumber: 3, values: { 员工编号: "EMP-OFFICE-001", 员工姓名: "陈文员", 角色: "办公室", 默认车间: "", 默认机台: "", 启用状态: "启用" } },
+      { rowNumber: 3, values: { 员工编号: "EMP-OFFICE-001", 员工姓名: "陈文员", 角色: "办公室", 附加角色: "财务 / 对账", 默认车间: "", 默认机台: "", 启用状态: "启用" } },
       { rowNumber: 4, values: { 员工编号: "EMP-WORKSHOP-001", 员工姓名: "李师傅", 角色: "车间报工", 默认车间: "", 默认机台: "", 启用状态: "启用" } },
       { rowNumber: 5, values: { 员工编号: "EMP-UNKNOWN-001", 员工姓名: "未知员工", 角色: "未知岗位", 启用状态: "启用" } },
       { rowNumber: 6, values: { 员工编号: "emp-office-001", 员工姓名: "重复员工", 角色: "办公室", 启用状态: "启用" } },
@@ -79,6 +83,14 @@ const employeeRolePayload = buildMasterDataImportExecutionPayload({
 assert.equal(employeeRolePayload.summary.writableRowCount, 2);
 assert.equal(employeeRolePayload.summary.failedRowCount, 4);
 assert(employeeRolePayload.targetRecords.employees.some((record) => record.id === "EMP-OFFICE-001" && record.defaultWorkshop === ""));
+assert.deepEqual(
+  employeeRolePayload.targetRecords.employees.find((record) => record.id === "EMP-OFFICE-001")?.roleKeys,
+  ["office", "finance"],
+);
+assert.equal(
+  employeeRolePayload.targetRecords.employees.find((record) => record.id === "EMP-OFFICE-001")?.roleName,
+  "办公室；财务 / 对账",
+);
 assert(employeeRolePayload.targetRecords.employees.some((record) => record.id === "EMP-WORKSHOP-001" && record.defaultMachineId === ""));
 assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("角色无法映射到V1正式岗位")));
 assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("员工编号重复")));

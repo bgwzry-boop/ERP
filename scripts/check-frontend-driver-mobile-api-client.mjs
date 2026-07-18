@@ -31,9 +31,11 @@ import {
   applyDriverPackageCameraFieldTestSignal,
   applyDriverPackageLabelScanFieldTestSignal,
   buildDriverDeviceFieldTestRecord,
+  buildDriverNativeNavigationSample,
   buildDriverPackageLabelScanSample,
   createDriverDeviceFieldTestChecks,
   getDriverDeviceFieldTestContext,
+  getDriverDeviceFieldTestAcceptance,
   getDriverDeviceFieldTestSummary,
   getDriverPackageLabelScanSampleSummary,
   normalizeDriverPackageLabelScanSample,
@@ -282,6 +284,57 @@ assert(fieldTestRecord.packageLabelScanSample.matchedPackageId === "PKG-F008-1",
 assert(fieldTestRecord.nativeBridgeDiagnostics.label === "原生 0/2", "driver field test record missed native bridge diagnostics");
 assert(fieldTestRecord.nativeBridgeDiagnostics.items.length === 2, "driver field test record should carry two native bridge diagnostics");
 assert(fieldTestRecord.note === "扫码受光线影响", "driver field test record missed note");
+const acceptedDriverTask = {
+  fulfillmentId: "F008",
+  orderLineId: "ORD-0629-022-01",
+  driverId: "U-DRIVER-A",
+  packageChecklist: [{ packageId: "PKG-F008-1" }],
+};
+const acceptedDriverRecord = {
+  ...fieldTestRecord,
+  checks: defaultFieldTestChecks.map((item) => ({ ...item, status: "passed" })),
+  packageLabelScanSample: buildDriverPackageLabelScanSample({
+    task: acceptedDriverTask,
+    scannedText: "PKG-F008-1",
+    matchedPackageId: "PKG-F008-1",
+    result: "matched",
+    method: "native_sdk",
+    requestId: "DNPS-20260702093000-F008",
+    source: "native_sdk",
+    checkedAt: "2026-07-02T09:30:00.000Z",
+  }),
+  nativeNavigationSample: buildDriverNativeNavigationSample({
+    task: acceptedDriverTask,
+    requestId: "DNN-20260702093000-F008",
+    status: "opened",
+    source: "native_navigation_sdk",
+    checkedAt: "2026-07-02T09:30:00.000Z",
+  }),
+  nativeBridgeDiagnostics: {
+    items: [
+      { key: "native_package_scan", label: "原生扫码", supported: true, bridgeType: "android_interface", version: "p0-driver-native-bridge-v1" },
+      { key: "native_navigation", label: "原生导航", supported: true, bridgeType: "android_interface", version: "p0-driver-native-navigation-bridge-v1" },
+    ],
+    total: 2,
+    supportedCount: 2,
+    issueCount: 0,
+  },
+};
+const acceptedDriverFieldTest = getDriverDeviceFieldTestAcceptance({
+  record: acceptedDriverRecord,
+  task: acceptedDriverTask,
+});
+assert(acceptedDriverFieldTest.ready === true, "driver field test should accept a task-linked native scan and navigation record");
+assert(
+  getDriverDeviceFieldTestAcceptance({
+    record: {
+      ...acceptedDriverRecord,
+      packageLabelScanSample: { ...acceptedDriverRecord.packageLabelScanSample, matchedPackageId: "PKG-F008-404" },
+    },
+    task: acceptedDriverTask,
+  }).ready === false,
+  "driver field test should reject a package label mismatch",
+);
 const cameraOpenedFieldChecks = applyDriverPackageCameraFieldTestSignal(defaultFieldTestChecks, { type: "camera_opened" }, fullDeviceReadiness);
 assert(
   cameraOpenedFieldChecks.find((item) => item.key === "camera_permission")?.status === "passed",
@@ -1010,6 +1063,30 @@ const fieldTestApiResult = await recordDriverDeviceFieldTest(
           deviceFieldTestSummary: fieldTestRecord.summary,
         },
         operationLogId: "LOG-DRIVER-FIELD-1",
+        acceptance: {
+          ready: false,
+          status: "pending",
+          statusLabel: "现场验收未通过",
+          allChecksPassed: false,
+          taskLinked: true,
+          orderLineLinked: true,
+          driverLinked: true,
+          blockerCount: 4,
+          blockers: [{ key: "field_checks", detail: "司机手机 6 项现场检查尚未全部通过" }],
+        },
+        resultStatus: {
+          recordSaved: true,
+          onsiteAcceptancePassed: false,
+          deliveryStatusChangedByRequest: false,
+          nativeBridgeInvokedByRequest: false,
+        },
+        safeguards: {
+          nonDeliveryAction: true,
+          deliveryStatusChanged: false,
+          nativeBridgeInvoked: false,
+          cameraPermissionRequested: false,
+          navigationAppOpened: false,
+        },
       });
     },
   },
@@ -1030,6 +1107,9 @@ assert(fieldTestApiResult.task.deviceFieldTestRecord.recordId === fieldTestRecor
 assert(fieldTestApiResult.task.deviceFieldTestRecord.packageLabelScanSample?.matchedPackageId === "PKG-F008-1", "driver field test response task missed package label scan sample");
 assert(fieldTestApiResult.task.deviceFieldTestRecord.nativeBridgeDiagnostics?.label === "原生 0/2", "driver field test response task missed native bridge diagnostics");
 assert(fieldTestApiResult.operationLogId === "LOG-DRIVER-FIELD-1", "driver field test response missed operation log id");
+assert(fieldTestApiResult.acceptance?.ready === false && fieldTestApiResult.acceptance?.blockerCount === 4, "driver field test response missed acceptance status");
+assert(fieldTestApiResult.resultStatus?.recordSaved === true && fieldTestApiResult.resultStatus?.onsiteAcceptancePassed === false, "driver field test response conflated record save with acceptance");
+assert(fieldTestApiResult.safeguards?.nativeBridgeInvoked === false, "driver field test save should not claim a native bridge invocation");
 
 const fieldTestDeniedResult = await recordDriverDeviceFieldTest(
   {

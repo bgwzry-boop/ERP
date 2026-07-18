@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createLocalTodoActionRepository } from "../server/todoActionRepository.mjs";
 import { createTodoCommandService } from "../server/services/todoCommandService.mjs";
-import { listTodoReferenceCandidates, resolveTodoReference } from "../server/services/todoReferenceService.mjs";
+import { getAllowedTodoReferenceTypes, getTodoReferenceTypeLabel, listTodoReferenceCandidates, normalizeTodoReferenceForWrite, resolveTodoReference } from "../server/services/todoReferenceService.mjs";
 
 const fixedNow = new Date("2026-07-11T08:30:00.000Z");
 const workspace = {
@@ -34,8 +34,68 @@ const workspace = {
       createdAt: "2026-07-11T08:00:00.000Z",
       updatedAt: "2026-07-11T08:00:00.000Z",
     },
+    {
+      id: "T-CMD-DRAFT",
+      type: "订单草稿待确认",
+      customerId: "C-REPAIR",
+      refType: "order_draft",
+      refId: "DRAFT-MISSING",
+      status: "未处理",
+      handled: false,
+      updatedAt: "2026-07-11T08:00:00.000Z",
+    },
+    {
+      id: "T-CMD-CANDIDATE",
+      type: "待打印标签",
+      customerId: "C-REPAIR",
+      refType: "fulfillment",
+      refId: "F-MISSING",
+      status: "未处理",
+      handled: false,
+      updatedAt: "2026-07-11T08:00:00.000Z",
+    },
+    {
+      id: "T-CMD-FULFILLMENT-REPAIR",
+      type: "出库交付待补建",
+      customerId: "C-REPAIR",
+      refType: "order_line",
+      refId: "ORD-FULFILLMENT-REPAIR-01",
+      ref: "ORD-FULFILLMENT-REPAIR-01",
+      status: "未处理",
+      handled: false,
+      summary: "已打包但缺少出库交付记录",
+      createdAt: "2026-07-11T08:00:00.000Z",
+      updatedAt: "2026-07-11T08:00:00.000Z",
+    },
   ],
-  orderLines: [{ id: "ORD-REPAIR-01", orderNo: "ORD-REPAIR", customerId: "C-REPAIR", status: "待生产" }],
+  customers: [{ id: "C-REPAIR", name: "修复测试客户", contact: "测试联系人" }],
+  orderLines: [
+    { id: "ORD-REPAIR-01", orderNo: "ORD-REPAIR", customerId: "C-REPAIR", status: "待生产" },
+    {
+      id: "ORD-FULFILLMENT-REPAIR-01",
+      orderNo: "ORD-FULFILLMENT-REPAIR",
+      customerId: "C-REPAIR",
+      product: "活动袋",
+      size: "35*27",
+      color: "白色",
+      qty: 80,
+      fulfillment: "快递快运",
+      status: "待打印标签",
+      latest: "2026-07-11T10:00:00.000Z",
+    },
+  ],
+  fulfillments: [{ id: "F-REPAIR-01", lineId: "ORD-REPAIR-01", status: "待打印标签" }],
+  packingTasks: [{
+    id: "PKT-FULFILLMENT-REPAIR-01",
+    packingTaskId: "PKT-FULFILLMENT-REPAIR-01",
+    orderLineId: "ORD-FULFILLMENT-REPAIR-01",
+    actualPackedQty: 80,
+    status: "已完成",
+  }],
+  packages: [
+    { id: "PKG-FULFILLMENT-REPAIR-01", packageId: "PKG-FULFILLMENT-REPAIR-01", orderLineId: "ORD-FULFILLMENT-REPAIR-01", packageSeq: 1, packageCount: 2, packedQty: 40, fulfillmentId: "", status: "待打印标签" },
+    { id: "PKG-FULFILLMENT-REPAIR-02", packageId: "PKG-FULFILLMENT-REPAIR-02", orderLineId: "ORD-FULFILLMENT-REPAIR-01", packageSeq: 2, packageCount: 2, packedQty: 40, fulfillmentId: "", status: "待打印标签" },
+  ],
   todoEvents: [],
   operationLogs: [],
   todoActionRepository: createLocalTodoActionRepository(),
@@ -174,6 +234,13 @@ const invalidRepair = await service.repairTodoReference({
   body: { refType: "order_line", refId: "ORD-NOT-FOUND", reason: "核对原始消息" },
 });
 assert.equal(invalidRepair.code, "TODO_REFERENCE_TARGET_NOT_FOUND");
+const incompatibleRepair = await service.repairTodoReference({
+  workspace,
+  todoId: "T-CMD-DRAFT",
+  operatorId: "U-AUTH",
+  body: { refType: "order_line", refId: "ORD-REPAIR-01", reason: "错误类型回归" },
+});
+assert.equal(incompatibleRepair.code, "TODO_REFERENCE_TYPE_INCOMPATIBLE");
 const repaired = await service.repairTodoReference({
   workspace,
   todoId: "T-CMD-REPAIR",
@@ -199,6 +266,39 @@ assert.equal((await service.repairTodoReference({
   body: { refType: "order_line", refId: "ORD-REPAIR-01", reason: "已处理待办" },
 })).code, "TODO_ALREADY_HANDLED");
 
+const fulfillmentRepair = await service.repairMissingFulfillment({
+  workspace,
+  todoId: "T-CMD-FULFILLMENT-REPAIR",
+  operatorId: "U-AUTH",
+  operatorName: "认证办公室",
+  body: {
+    reason: "根据打包完成记录补建",
+    idempotencyKey: "todo-fulfillment-repair-001",
+  },
+});
+assert.equal(fulfillmentRepair.todo.handled, true);
+assert.equal(fulfillmentRepair.fulfillment.status, "待打印标签");
+assert.equal(fulfillmentRepair.fulfillment.actualQty, 80);
+assert.equal(fulfillmentRepair.labelTodo.type, "待打印标签");
+assert.equal(fulfillmentRepair.labelTodo.refId, fulfillmentRepair.fulfillment.fulfillmentId);
+assert.equal(fulfillmentRepair.packages.length, 2);
+assert.ok(fulfillmentRepair.packages.every((record) => record.fulfillmentId === fulfillmentRepair.fulfillment.fulfillmentId));
+assert.equal(workspace.fulfillments.some((record) => record.id === fulfillmentRepair.fulfillment.fulfillmentId), true);
+assert.equal(workspace.todos.some((todo) => todo.id === fulfillmentRepair.labelTodo.id && !todo.handled), true);
+assert.equal(workspace.operationLogs[0].action, "repair_missing_fulfillment");
+const fulfillmentRepairReplay = await service.repairMissingFulfillment({
+  workspace,
+  todoId: "T-CMD-FULFILLMENT-REPAIR",
+  operatorId: "U-AUTH",
+  operatorName: "认证办公室",
+  body: {
+    reason: "根据打包完成记录补建",
+    idempotencyKey: "todo-fulfillment-repair-001",
+  },
+});
+assert.equal(fulfillmentRepairReplay.fulfillment.fulfillmentId, fulfillmentRepair.fulfillment.fulfillmentId);
+assert.equal(workspace.fulfillments.filter((record) => record.lineId === "ORD-FULFILLMENT-REPAIR-01").length, 1);
+
 const referenceWorkspace = {
   orderDrafts: [{ id: "DRAFT-VALID-1" }],
   orderLines: [{ id: "ORD-VALID-1-01", orderNo: "ORD-VALID-1" }],
@@ -209,10 +309,48 @@ assert.equal(resolveTodoReference(referenceWorkspace, { type: "订单草稿待�
 assert.equal(resolveTodoReference(referenceWorkspace, { type: "快递待确认", ref: "ORD-VALID-1" }).resolvedRefId, "F-VALID-1");
 assert.equal(resolveTodoReference(referenceWorkspace, { refType: "statement", refId: "ST-MISSING" }).referenceStatus, "missing");
 assert.equal(resolveTodoReference(referenceWorkspace, { refType: "external_review", refId: "EXT-1" }).referenceStatus, "unverifiable");
-assert.deepEqual(listTodoReferenceCandidates(workspace, workspace.todos.find((todo) => todo.id === "T-CMD-1"))[0], {
-  refType: "order_line",
-  refId: "ORD-REPAIR-01",
-  label: "订单行 · ORD-REPAIR-01 · 待生产",
-});
+assert.equal(resolveTodoReference(referenceWorkspace, { type: "订单草稿待确认", refType: "fulfillment", refId: "F-VALID-1" }).referenceReason, "引用类型与当前待办业务不兼容");
+assert.deepEqual(
+  normalizeTodoReferenceForWrite(referenceWorkspace, { type: "待打印标签", ref: "F-VALID-1" }),
+  { type: "待打印标签", ref: "F-VALID-1", refType: "fulfillment", refId: "F-VALID-1" },
+);
+assert.deepEqual(
+  normalizeTodoReferenceForWrite(referenceWorkspace, { type: "出库交付待补建", refType: "order_line", refId: "ORD-VALID-1-01" }),
+  { type: "出库交付待补建", ref: "ORD-VALID-1-01", refType: "order_line", refId: "ORD-VALID-1-01" },
+);
+assert.throws(
+  () => normalizeTodoReferenceForWrite(referenceWorkspace, { type: "订单草稿待确认", refType: "fulfillment", refId: "F-VALID-1" }),
+  (error) => error.code === "TODO_REFERENCE_TYPE_INCOMPATIBLE",
+);
+assert.throws(
+  () => normalizeTodoReferenceForWrite(referenceWorkspace, { type: "待打印标签", refType: "fulfillment", refId: "F-MISSING" }),
+  (error) => error.code === "TODO_REFERENCE_TARGET_NOT_FOUND",
+);
+assert.throws(
+  () => normalizeTodoReferenceForWrite(referenceWorkspace, { type: "待核对", refType: "external_review", refId: "EXT-1" }),
+  (error) => error.code === "TODO_REFERENCE_TYPE_UNSUPPORTED",
+);
+assert.deepEqual(getAllowedTodoReferenceTypes({ type: "缺货待处理" }), ["order_line", "inventory_item"]);
+assert.equal(getTodoReferenceTypeLabel("order_line"), "订单行");
+assert.deepEqual(listTodoReferenceCandidates(workspace, workspace.todos.find((todo) => todo.id === "T-CMD-CANDIDATE")), [{
+  refType: "fulfillment",
+  refId: "F-REPAIR-01",
+  label: "出库交付 · F-REPAIR-01 · 待打印标签",
+}, {
+  refType: "fulfillment",
+  refId: "F-REPAIR-ORD-FULFILLMENT-REPAIR-01",
+  label: "出库交付 · F-REPAIR-ORD-FULFILLMENT-REPAIR-01 · 待打印标签",
+}]);
+assert.deepEqual(listTodoReferenceCandidates(workspace, workspace.todos.find((todo) => todo.id === "T-CMD-DRAFT")), []);
+assert.deepEqual(getAllowedTodoReferenceTypes({ type: "订单草稿待确认" }), ["order_draft"]);
+assert.deepEqual(getAllowedTodoReferenceTypes({ type: "待打印标签" }), ["fulfillment"]);
+assert.deepEqual(getAllowedTodoReferenceTypes({ type: "出库交付待补建", refType: "order_line" }), ["order_line"]);
+assert.deepEqual(getAllowedTodoReferenceTypes({ type: "待生成对账" }), ["statement"]);
+assert.deepEqual(getAllowedTodoReferenceTypes({ type: "生产异常" }), ["production_task"]);
+assert.deepEqual(listTodoReferenceCandidates(referenceWorkspace, { type: "待生成对账", refType: "statement", refId: "ST-MISSING" }), [{
+  refType: "statement",
+  refId: "ST-VALID-1",
+  label: "对账单 · ST-VALID-1",
+}]);
 
-console.log("Todo command service checks passed: actions, authenticated identity, references, repair audit, and invalid targets are isolated.");
+console.log("Todo command service checks passed: actions, references, fulfillment repair, replay, audit, and invalid targets are isolated.");

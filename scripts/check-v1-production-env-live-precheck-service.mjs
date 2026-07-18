@@ -71,12 +71,10 @@ const serviceSource = readFileSync(
   new URL("../server/services/v1ProductionEnvLivePrecheckService.mjs", import.meta.url),
   "utf8",
 );
-const apiFunction = apiSource.match(
-  /function precheckSystemV1ProductionEnv\(\{ operatorId \}\) \{([\s\S]*?)\n\}/,
-)?.[1];
-assert.ok(apiFunction, "API composition function should exist");
-assert.match(apiFunction, /return precheckV1ProductionEnv\(\{ operatorId \}\);/);
-assert.doesNotMatch(apiFunction, /buildProductionEnvPreflight|sanitizeV1ProductionEnvGate|process\.env/);
+const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /function precheckSystemV1ProductionEnv/);
+assert.match(routeSource, /precheckProductionEnv:[\s\S]*precheckV1ProductionEnv\(\{ operatorId \}\)/);
+assert.doesNotMatch(routeSource, /buildProductionEnvPreflight|sanitizeV1ProductionEnvGate|process\.env/);
 assert.doesNotMatch(apiSource, /code: "V1_PRODUCTION_ENV_LIVE_PRECHECK_FAILED"/);
 assert.match(serviceSource, /envFiles: \[\]/);
 assert.doesNotMatch(

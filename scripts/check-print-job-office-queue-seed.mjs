@@ -2,6 +2,13 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
+import {
+  closeTestServer,
+  getJson,
+  getTestServerBaseUrl,
+  listenTestServer,
+  postJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "print-job-office-queue");
 rmSync(checkStorageRoot, { recursive: true, force: true });
@@ -17,9 +24,8 @@ delete process.env.ERP_SYSTEM_PRINTER_ALLOWLIST;
 const server = createApiServer();
 
 try {
-  await listen(server);
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
+  await listenTestServer(server);
+  const baseUrl = getTestServerBaseUrl(server);
 
   const initialList = await getJson(baseUrl, "/api/print-jobs?pageSize=10", {
     headers: { "x-erp-user-id": "U-OFFICE-A" },
@@ -68,8 +74,8 @@ try {
   );
 
   const restartedServer = createApiServer();
-  await listen(restartedServer);
-  const restartBaseUrl = `http://127.0.0.1:${restartedServer.address().port}`;
+  await listenTestServer(restartedServer);
+  const restartBaseUrl = getTestServerBaseUrl(restartedServer);
   try {
     const afterRestart = await getJson(restartBaseUrl, "/api/print-jobs?pageSize=20", {
       headers: { "x-erp-user-id": "U-OFFICE-A" },
@@ -84,51 +90,10 @@ try {
       "retry job should persist through local print-job repository restart",
     );
   } finally {
-    await close(restartedServer);
+    await closeTestServer(restartedServer);
   }
 
   console.log("Print job office queue seed check passed: queued dispatch, failed retry, and restart persistence are covered.");
 } finally {
-  await close(server);
-}
-
-function listen(server) {
-  return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-}
-
-function close(server) {
-  return new Promise((resolve, reject) => {
-    if (!server.listening) {
-      resolve();
-      return;
-    }
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
-}
-
-async function getJson(baseUrl, route, options = {}) {
-  const response = await fetch(`${baseUrl}${route}`, {
-    headers: {
-      accept: "application/json",
-      ...(options.headers ?? {}),
-    },
-  });
-  const json = await response.json();
-  assert.equal(response.status, options.expectedStatus ?? 200, `${route} returned ${response.status}: ${JSON.stringify(json)}`);
-  return json;
-}
-
-async function postJson(baseUrl, route, body, options = {}) {
-  const response = await fetch(`${baseUrl}${route}`, {
-    method: "POST",
-    headers: {
-      accept: "application/json",
-      "content-type": "application/json",
-      ...(options.headers ?? {}),
-    },
-    body: JSON.stringify(body),
-  });
-  const json = await response.json();
-  assert.equal(response.status, options.expectedStatus ?? 200, `${route} returned ${response.status}: ${JSON.stringify(json)}`);
-  return json;
+  await closeTestServer(server);
 }

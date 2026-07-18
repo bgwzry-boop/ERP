@@ -1,13 +1,18 @@
 import assert from "node:assert/strict";
-import { spawnSync } from "node:child_process";
 import { createApiServer } from "../server/apiServer.mjs";
 import { createSeedSession } from "../server/authSeed.mjs";
 import { chmodSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import {
+  closeTestServer as closeServer,
+  getTestServerBaseUrl,
+  listenTestServer as listen,
+} from "./helpers/apiIntegrationTestHarness.mjs";
+import {
   v1PersistenceRepositoryObjectKeys,
   v1PersistenceStorageObjectKeys,
 } from "../server/v1PersistenceProfile.mjs";
+import { prepareV1GoLiveStatusFixture } from "./helpers/v1GoLiveStatusFixture.mjs";
 import {
   applyOfficeV1ProductionFirstStageValues,
   generateOfficeV1FieldEvidenceDraftManifest,
@@ -40,20 +45,33 @@ const originalProductionEnvMinimumValuesFile = process.env.ERP_V1_PRODUCTION_ENV
 const originalProductionEnvValuesFragmentFile = process.env.ERP_V1_PRODUCTION_ENV_VALUES_FRAGMENT_FILE;
 const originalProductionEnvValuesApplyEnabled = process.env.ERP_V1_PRODUCTION_ENV_VALUES_APPLY_ENABLED;
 const originalV1GoLiveArtifactRoot = process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT;
+const originalD49EmployeeIntakePrecheckReportPath = process.env.ERP_V1_D49_EMPLOYEE_INTAKE_PRECHECK_REPORT_PATH;
+const originalD49EmployeeIntakeWorkbookPath = process.env.ERP_V1_D49_EMPLOYEE_INTAKE_WORKBOOK_PATH;
 const fixtureArtifactRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-go-live-status-api");
+const fixtureD49EmployeeIntakePrecheckReportPath = join(fixtureArtifactRoot, "d49-employee-intake-precheck.json");
+const fixtureD49EmployeeIntakeWorkbookPath = join(fixtureArtifactRoot, "d49-employee-intake-workbook.xlsx");
+const fixtureD49EmployeeIntakeWorkbookBytes = Buffer.from("D49 controlled workbook fixture", "utf8");
+const fixtureD49EmployeeIntakeCheckedAt = new Date().toISOString();
 const expectedPersistenceRepositoryCount =
   v1PersistenceRepositoryObjectKeys.length + v1PersistenceStorageObjectKeys.length;
 const officeDemoReadinessToken = createSeedSession("U-MANAGER-A").accessToken;
 const driverDemoReadinessToken = createSeedSession("U-DRIVER-A").accessToken;
 
-prepareV1GoLiveStatusFixture(fixtureArtifactRoot);
 process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT = fixtureArtifactRoot;
+process.env.ERP_V1_D49_EMPLOYEE_INTAKE_PRECHECK_REPORT_PATH = fixtureD49EmployeeIntakePrecheckReportPath;
+process.env.ERP_V1_D49_EMPLOYEE_INTAKE_WORKBOOK_PATH = fixtureD49EmployeeIntakeWorkbookPath;
 const server = createApiServer();
 
 try {
   await listen(server);
-  const { port } = server.address();
-  const baseUrl = `http://127.0.0.1:${port}`;
+  const baseUrl = getTestServerBaseUrl(server);
+  await prepareV1GoLiveStatusFixture(fixtureArtifactRoot, {
+    apiBaseUrl: `${baseUrl}/api`,
+    d49EmployeeIntakePrecheckReportPath: fixtureD49EmployeeIntakePrecheckReportPath,
+    d49EmployeeIntakeWorkbookPath: fixtureD49EmployeeIntakeWorkbookPath,
+    d49EmployeeIntakeWorkbookBytes: fixtureD49EmployeeIntakeWorkbookBytes,
+    d49EmployeeIntakeCheckedAt: fixtureD49EmployeeIntakeCheckedAt,
+  });
   const response = await fetch(`${baseUrl}/api/system/v1-go-live-status`, {
     headers: {
       "x-erp-user-id": "U-MANAGER-A",
@@ -73,14 +91,31 @@ try {
   assert.match(json.summary.releaseGate, /0\/4/);
   assert.equal(json.summary.onsiteTaskCount, 53);
   assert.equal(json.summary.v2DifferenceCount, 17);
-  assert.equal(json.d49Readiness.version, "p0-v1-d49-readiness-v1");
+  assert.equal(json.d49Readiness.version, "p0-v1-d49-readiness-v3");
   assert.equal(json.d49Readiness.scope, "v1_d49_readiness");
   assert.equal(json.d49Readiness.status, "blocked");
   assert.equal(json.d49Readiness.ready, false);
   assert.equal(json.d49Readiness.summary.requiredRoleCount, 8);
   assert.equal(json.d49Readiness.summary.blocksRegardlessOfDemoMode, true);
   assert.equal(json.d49Readiness.employees.roles.length, 8);
+  assert.equal(json.d49Readiness.employeeIntake.scope, "v1_d49_employee_intake_status");
+  assert.equal(json.d49Readiness.employeeIntake.fresh, true);
+  assert.equal(json.d49Readiness.employeeIntake.freshness.sourceMatched, true);
+  assert.equal(json.d49Readiness.employeeIntake.summary.employeeRowCount, 19);
+  assert.equal(json.d49Readiness.employeeIntake.summary.coverageLabel, "6/8");
+  assert.equal(json.d49Readiness.employeeIntake.summary.missingEmployeeNumberCount, 19);
+  assert.equal(json.d49Readiness.employeeIntake.safeguards.employeeNamesIncluded, false);
+  assert.equal(json.d49Readiness.employeeIntake.safeguards.employeeNumbersIncluded, false);
+  assert.equal(json.d49Readiness.employeeIntake.safeguards.workbookPathIncluded, false);
+  assert.equal(json.d49Readiness.employeeIntake.safeguards.issueRowsIncluded, false);
+  assert.equal(json.d49Readiness.employeeIntake.safeguards.rawIssuesIncluded, false);
+  assert.equal(json.d49Readiness.employeeIntake.safeguards.workbookDigestIncluded, false);
+  assert.equal("workbookDigest" in json.d49Readiness.employeeIntake, false);
   assert.equal(json.d49Readiness.safeguards.rawEmployeeIdentifiersIncluded, false);
+  assert.equal(json.d49Readiness.safeguards.employeeIntakeNamesIncluded, false);
+  assert.equal(json.d49Readiness.safeguards.employeeIntakeNumbersIncluded, false);
+  assert.equal(json.d49Readiness.safeguards.employeeIntakeWorkbookPathIncluded, false);
+  assert.equal(json.d49Readiness.safeguards.employeeIntakeIssueRowsIncluded, false);
   assert.equal(json.d49Readiness.safeguards.loginNamesIncluded, false);
   assert.equal(json.d49Readiness.safeguards.passwordDataIncluded, false);
   assert.equal(json.d49Readiness.safeguards.envFilePathIncluded, false);
@@ -371,6 +406,21 @@ try {
   assert.equal(json.productionPersistenceEvidence.safeguards.objectStorageBucketExposed, false);
   assert.equal(json.productionPersistenceEvidence.safeguards.secretFieldsExposed, false);
   assert.equal(json.productionPersistenceEvidence.safeguards.payloadExposed, false);
+  assert.equal(json.todoLoadPrecheck.available, true);
+  assert.equal(json.todoLoadPrecheck.status, "ready");
+  assert.equal(json.todoLoadPrecheck.ready, true);
+  assert.equal(json.todoLoadPrecheck.summary.successLabel, "100/100");
+  assert.equal(json.todoLoadPrecheck.summary.latencyMs.p95, 240);
+  assert.equal(json.todoLoadPrecheck.summary.throughputPerSecond, 125);
+  assert.equal(json.todoLoadPrecheck.freshness.fresh, true);
+  assert.equal(json.todoLoadPrecheck.target.ready, true);
+  assert.equal(json.todoLoadPrecheck.authentication.ready, true);
+  assert.equal(json.todoLoadPrecheck.safeguards.ready, true);
+  assert.equal(json.todoLoadPrecheck.safeguards.responsePayloadStored, false);
+  assert.equal(json.todoLoadPrecheck.safeguards.todoIdentityStored, false);
+  assert.equal(json.todoLoadPrecheck.safeguards.apiAddressExposed, false);
+  assert.equal(json.todoLoadPrecheck.safeguards.rawReportIncluded, false);
+  assert.doesNotMatch(JSON.stringify(json.todoLoadPrecheck), /SECRET-TODO|erp\.internal|https?:\/\//i);
   assert.equal(json.productionFirstStageExecution.available, true);
   assert.equal(json.productionFirstStageExecution.status, "blocked");
   assert.equal(json.productionFirstStageExecution.ready, false);
@@ -3133,7 +3183,7 @@ try {
     persistencePrecheckJson.summary.localMemoryCount,
     persistencePrecheckJson.repositoryGroups.flatMap((group) => group.repositories).filter((item) => item.kind === "local_memory").length,
   );
-  assert.equal(persistencePrecheckJson.summary.localJsonCount, 10);
+  assert.equal(persistencePrecheckJson.summary.localJsonCount, 13);
   assert.equal(persistencePrecheckJson.summary.localFsCount, 2);
   assert.equal(persistencePrecheckJson.summary.currentRuntime, true);
   assert.equal(persistencePrecheckJson.summary.requestBodyIgnored, true);
@@ -3784,6 +3834,11 @@ try {
 
   const clientStatus = normalizeV1GoLiveStatusForClient(json);
   assert.equal(clientStatus.statusLabel, "V1 仍未完成");
+  assert.equal(clientStatus.todoLoadPrecheck.ready, true);
+  assert.equal(clientStatus.todoLoadPrecheck.statusLabel, "已通过");
+  assert.equal(clientStatus.todoLoadPrecheck.summary.successLabel, "100/100");
+  assert.equal(clientStatus.todoLoadPrecheck.summary.p95Label, "240 ms");
+  assert.equal(clientStatus.todoLoadPrecheck.freshness.statusLabel, "时效有效");
   assert.ok(clientStatus.metrics.some(([label, value]) => label === "发布门禁" && value === "0/4"));
   assert.ok(clientStatus.metrics.some(([label, value]) => label === "现场证据" && value === "0/34"));
   assert.ok(clientStatus.metrics.some(([label, value]) => label === "负责人签字" && value === "0/6"));
@@ -4113,116 +4168,11 @@ try {
 } finally {
   restoreProductionEnvFileAuditEnv();
   restoreProductionEnvValuesFileEnv();
-  await closeServer(server);
+  await closeServer(server, { forceAfterMs: 1_000 });
   restoreEnvValue("ERP_V1_GO_LIVE_ARTIFACT_ROOT", originalV1GoLiveArtifactRoot);
+  restoreEnvValue("ERP_V1_D49_EMPLOYEE_INTAKE_PRECHECK_REPORT_PATH", originalD49EmployeeIntakePrecheckReportPath);
+  restoreEnvValue("ERP_V1_D49_EMPLOYEE_INTAKE_WORKBOOK_PATH", originalD49EmployeeIntakeWorkbookPath);
   rmSync(fixtureArtifactRoot, { recursive: true, force: true });
-}
-
-function prepareV1GoLiveStatusFixture(artifactRoot) {
-  rmSync(artifactRoot, { recursive: true, force: true });
-  mkdirSync(artifactRoot, { recursive: true });
-
-  const blockedEnvPath = join(artifactRoot, "blocked-production.env");
-  const setupJsonPath = join(artifactRoot, "production-env-setup.json");
-  const suiteOutputRoot = join(artifactRoot, "v1-go-live-suite");
-  const intakeCsvPath = join(artifactRoot, "v1-go-live-handoff", "production-env-real-value-intake.csv");
-
-  writeFileSync(blockedEnvPath, "# Intentionally incomplete production fixture.\n", "utf8");
-  chmodSync(blockedEnvPath, 0o600);
-
-  runFixtureCommand(
-    "V1 go-live suite",
-    [
-      "scripts/run-v1-go-live-suite.mjs",
-      "--output-root",
-      suiteOutputRoot,
-      "--refresh-release-candidate",
-      "--sync-canonical-latest",
-      "--canonical-root",
-      artifactRoot,
-      "--env-file",
-      blockedEnvPath,
-      "--json",
-    ],
-    [0],
-    { ERP_V1_GO_LIVE_SUITE_IGNORE_DEFAULT_ARTIFACTS: "true" },
-  );
-
-  runFixtureCommand(
-    "production env intake",
-    [
-      "scripts/run-v1-production-env-intake-verify.mjs",
-      "--env-file",
-      blockedEnvPath,
-      "--intake-csv",
-      intakeCsvPath,
-      "--output-dir",
-      join(artifactRoot, "v1-production-env-intake-verify"),
-      "--json",
-    ],
-    [2],
-  );
-  runFixtureCommand(
-    "production persistence evidence",
-    [
-      "scripts/run-v1-production-persistence-evidence.mjs",
-      "--env-file",
-      blockedEnvPath,
-      "--output-dir",
-      join(artifactRoot, "v1-production-persistence-evidence"),
-      "--json",
-    ],
-    [2],
-  );
-
-  writeFileSync(
-    setupJsonPath,
-    `${JSON.stringify(
-      {
-        scope: "v1_production_env_setup",
-        status: "prepared",
-        setupReady: true,
-        checkedAt: new Date(Date.now() + 60_000).toISOString(),
-        envFile: {
-          path: blockedEnvPath,
-          gitIgnored: true,
-          gitTracked: false,
-          fileMode: "600",
-        },
-      },
-      null,
-      2,
-    )}\n`,
-    "utf8",
-  );
-  runFixtureCommand(
-    "production first-stage execution",
-    [
-      "scripts/run-v1-production-first-stage-execution.mjs",
-      "--use-production-env-setup-env-file",
-      "--production-env-setup-json",
-      setupJsonPath,
-      "--production-env-intake-csv",
-      intakeCsvPath,
-      "--output-dir",
-      join(artifactRoot, "v1-production-first-stage-execution"),
-      "--json",
-    ],
-    [2],
-  );
-}
-
-function runFixtureCommand(label, args, expectedStatuses, env = {}) {
-  const result = spawnSync(process.execPath, args, {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    env: { ...process.env, ...env },
-    maxBuffer: 20 * 1024 * 1024,
-  });
-  if (result.error) throw result.error;
-  if (!expectedStatuses.includes(result.status)) {
-    throw new Error(`${label} fixture failed with exit ${result.status}: ${result.stderr || result.stdout}`);
-  }
 }
 
 function clearProductionEnvFileAuditEnv() {
@@ -4261,20 +4211,4 @@ function restoreEnvValue(key, value) {
     return;
   }
   process.env[key] = value;
-}
-
-function listen(target) {
-  return new Promise((resolve, reject) => {
-    target.once("error", reject);
-    target.listen(0, "127.0.0.1", () => {
-      target.off("error", reject);
-      resolve();
-    });
-  });
-}
-
-function closeServer(target) {
-  return new Promise((resolve, reject) => {
-    target.close((error) => (error ? reject(error) : resolve()));
-  });
 }

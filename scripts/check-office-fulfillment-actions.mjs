@@ -30,8 +30,8 @@ const baseFulfillments = [
   },
 ];
 
-function createHarness({ allowLocalFallback = false, api = {}, initialTodos = [], refreshTodoResult } = {}) {
-  let fulfillments = baseFulfillments.map((item) => ({
+function createHarness({ allowLocalFallback = false, api = {}, fulfillments: initialFulfillments = baseFulfillments, initialTodos = [], refreshTodoResult } = {}) {
+  let fulfillments = initialFulfillments.map((item) => ({
     ...item,
     deliveryEvidenceAttachmentFiles: item.deliveryEvidenceAttachmentFiles?.map((file) => ({ ...file })) ?? [],
   }));
@@ -58,10 +58,6 @@ function createHarness({ allowLocalFallback = false, api = {}, initialTodos = []
     getFulfillmentDocumentLabel: (item) => item.method === "快递快运" ? "标签" : "交付单",
     guardUiAction: () => true,
     loadAttachmentAccessAudit: async () => ({ source: "api", items: [], total: 0 }),
-    markFulfillmentPrepared: async (input) => {
-      calls.prepared.push(input);
-      return { source: "api", feedback: "已备货" };
-    },
     mergeAttachmentSummaries: (existing = [], next = []) => {
       const merged = existing.map((item) => ({ ...item }));
       next.forEach((item) => {
@@ -106,6 +102,13 @@ function createHarness({ allowLocalFallback = false, api = {}, initialTodos = []
     getViewers: () => viewers,
     toasts,
   };
+}
+
+{
+  const harness = createHarness();
+  await harness.controller.updateFulfillment("打印未知单据", "F-CONTROLLER-DELIVERY");
+  assert.equal(harness.getModals().length, 0, "unknown print-like labels must not open a print modal");
+  assert.match(harness.toasts.at(-1), /不支持的出库/);
 }
 
 {
@@ -201,9 +204,42 @@ function createHarness({ allowLocalFallback = false, api = {}, initialTodos = []
   const harness = createHarness();
   await harness.controller.updateFulfillment("确认已拉走", "F-CONTROLLER-DELIVERY");
   assert.equal(harness.calls.complete.length, 0);
-  assert.match(harness.toasts.at(-1), /只用于快递\/快运/);
+  assert.match(harness.toasts.at(-1), /只适用于快递快运/);
   await harness.controller.updateFulfillment("确认已拉走", "F-CONTROLLER-EXPRESS");
-  assert.equal(harness.calls.complete[0]?.action, "确认已拉走");
+  assert.equal(harness.calls.complete.length, 0);
+  assert.match(harness.toasts.at(-1), /复核高风险摘要/);
+  await harness.controller.updateFulfillment("确认已拉走", "F-CONTROLLER-EXPRESS", {
+    confirmedFinalDelivery: true,
+    expectedRevision: 2,
+    idempotencyKey: "test-express-final-delivery",
+  });
+  assert.equal(harness.calls.complete.length, 1);
+  assert.equal(harness.calls.complete[0].payload.confirmedFinalDelivery, true);
+}
+
+{
+  const paperReady = {
+    ...baseFulfillments[0],
+    id: "F-CONTROLLER-PAPER",
+    paperOutboundStatus: "已打印待交库房",
+    paperOutboundDocument: { paperOutboundDocumentId: "POD-001", documentVersion: 1, revision: 1 },
+  };
+  const handedOver = {
+    ...paperReady,
+    id: "F-CONTROLLER-HANDED",
+    paperOutboundStatus: "已交库房",
+    paperOutboundDocument: { ...paperReady.paperOutboundDocument, revision: 2, status: "已交库房" },
+  };
+  const harness = createHarness({ fulfillments: [paperReady, handedOver] });
+  await harness.controller.updateFulfillment("纸单交库房", "F-CONTROLLER-PAPER");
+  assert.equal(harness.getModals()[0]?.type, "paperHandoff");
+  await harness.controller.updateFulfillment("回录库房结果", "F-CONTROLLER-HANDED");
+  assert.equal(harness.getModals()[1]?.type, "warehouseExecution");
+  await harness.controller.updateFulfillment("数量不符", "F-CONTROLLER-HANDED");
+  assert.equal(harness.getModals()[2]?.type, "warehouseExecution");
+  assert.equal(harness.getModals()[2]?.initialWarehouseResult, "数量不符");
+  await harness.controller.updateFulfillment("无法出库", "F-CONTROLLER-PAPER");
+  assert.match(harness.toasts.at(-1), /必须基于已交库房/);
 }
 
 {
@@ -216,6 +252,8 @@ function createHarness({ allowLocalFallback = false, api = {}, initialTodos = []
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeFulfillmentActions\(\{/);
 assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
+assert.match(appSource, /handoffPaperOutbound/);
+assert.match(appSource, /recordWarehouseExecution/);
 assert.doesNotMatch(appSource, /async function updateFulfillment\(/);
 
 console.log("Office fulfillment actions check passed: evidence reads, todo routing, print gates, delivery modes, and App ownership are isolated with formal-mode safeguards.");

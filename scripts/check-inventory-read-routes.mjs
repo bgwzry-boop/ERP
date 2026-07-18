@@ -33,20 +33,19 @@ const dependencies = {
   paginate(items, query) {
     return { items, page: Number(query.get("page") ?? 1), total: items.length };
   },
-  cleanServerText(value) {
-    return String(value ?? "").trim();
-  },
   findInventoryCorrectionDraft(_workspace, correctionDraftId) {
     return workspace.inventoryCorrectionDrafts.find((item) => item.correctionDraftId === correctionDraftId) ?? null;
   },
-  buildInventoryCorrectionDraftDetail(_workspace, draft) {
-    return { correctionDraftId: draft.correctionDraftId, detail: true };
-  },
-  filterInventoryCorrectionDraftSummaries(items) {
-    return items;
-  },
-  toInventoryCorrectionDraftSummary(_workspace, draft) {
-    return { correctionDraftId: draft.correctionDraftId };
+  inventoryCorrectionReadProjectionService: {
+    listDraftSummaries() {
+      return {
+        items: [{ correctionDraftId: "ICD-1" }],
+        filters: { status: "待确认生效", inventoryItemId: "", keyword: "" },
+      };
+    },
+    buildDraftDetail({ draft }) {
+      return { correctionDraftId: draft.correctionDraftId, detail: true };
+    },
   },
   inventoryIntentRouteModule: {
     async handleReadRoutes({ url, response, sendJson }) {

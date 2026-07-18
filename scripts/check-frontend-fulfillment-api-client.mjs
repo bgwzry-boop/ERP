@@ -6,12 +6,14 @@ import {
   createOfficeFulfillmentException,
   getFulfillmentDocumentType,
   getFulfillmentPrintAction,
+  handoffOfficePaperOutbound,
   listOfficeFulfillments,
   markOfficeFulfillmentPrepared,
   mapApiFulfillmentToLocal,
   mapFulfillmentExceptionReason,
   mapPrintVoidReason,
   printOfficeFulfillment,
+  recordOfficeWarehouseOutboundExecution,
   reviewOfficeDeliveryEvidence,
   updateOfficeFulfillmentDispatch,
   voidOfficePrintRecord,
@@ -57,6 +59,8 @@ assert(getFulfillmentPrintAction("打印标签", { ...expressFulfillment, printe
 assert(
   getFulfillmentActions({
     ...deliveryFulfillment,
+    status: "待司机装车",
+    paperOutboundStatus: "已交库房",
     activePrintRecordId: "PR-F008",
     printRecordStatus: "printed",
   }).some((item) => item.label === "编辑派单"),
@@ -69,10 +73,20 @@ assert(
 assert(
   getFulfillmentActions({
     ...deliveryFulfillment,
+    paperOutboundStatus: "已打印待交库房",
     activePrintRecordId: "PR-F008",
     printRecordStatus: "printed",
   }).some((item) => item.label === "作废旧单据"),
   "printed delivery note should expose document void action",
+);
+assert(
+  !getFulfillmentActions(deliveryFulfillment).some((item) => ["数量不符", "无法出库"].includes(item.label)) &&
+    getFulfillmentActions({
+      ...deliveryFulfillment,
+      paperOutboundStatus: "已交库房",
+      paperOutboundDocument: { paperOutboundDocumentId: "POD-F008", documentVersion: 1, revision: 2 },
+    }).some((item) => item.label === "回录库房结果"),
+  "warehouse results must be recorded against an already-handed paper document rather than through pre-print exception actions",
 );
 assert(
   !getFulfillmentActions({
@@ -145,6 +159,16 @@ const mappedFulfillment = mapApiFulfillmentToLocal({
   plannedDepartureAt: "2026-07-12T08:30:00.000Z",
   dispatchAssignedAt: "2026-07-11T10:00:00.000Z",
   dispatchRemark: "上午第二站",
+  paperOutboundStatus: "已交库房",
+  paperOutboundDocument: {
+    paperOutboundDocumentId: "POD-API-1",
+    documentVersion: 2,
+    revision: 3,
+    status: "已交库房",
+  },
+  physicalOutboundAt: "2026-07-12T09:00:00.000Z",
+  physicalExecutorEmployeeId: "ERP-0008",
+  finalDeliveryStatus: "待最终交付",
 });
 assert(mappedFulfillment?.id === "F-API-LIST-1", "fulfillment list did not map the API id");
 assert(mappedFulfillment?.customerId === "C001" && mappedFulfillment?.lineId === "ORD-API-01", "fulfillment list lost trace IDs");
@@ -155,6 +179,12 @@ assert(
     mappedFulfillment?.routeSequence === 2 &&
     mappedFulfillment?.dispatchStatus === "已派单",
   "fulfillment list lost the committed dispatch projection",
+);
+assert(
+  mappedFulfillment?.paperOutboundDocument?.documentVersion === 2 &&
+    mappedFulfillment?.physicalExecutorEmployeeId === "ERP-0008" &&
+    mappedFulfillment?.finalDeliveryStatus === "待最终交付",
+  "fulfillment list lost paper outbound and physical execution projections",
 );
 
 const fulfillmentListCalls = [];
@@ -170,6 +200,81 @@ const fulfillmentListResult = await listOfficeFulfillments(
 );
 assert(fulfillmentListResult.source === "api" && fulfillmentListResult.items[0]?.id === "F-API-LIST-1", "fulfillment list did not use API data");
 assert(fulfillmentListCalls[0]?.url.includes("/fulfillments?page=1&pageSize=200"), "fulfillment list URL is incorrect");
+
+const paperOutboundFulfillment = {
+  ...deliveryFulfillment,
+  revision: 4,
+  paperOutboundStatus: "已打印待交库房",
+  paperOutboundDocument: {
+    paperOutboundDocumentId: "POD-F008-1",
+    documentVersion: 1,
+    revision: 2,
+  },
+};
+const paperHandoffCalls = [];
+const paperHandoffResult = await handoffOfficePaperOutbound(
+  {
+    authState,
+    fulfillment: paperOutboundFulfillment,
+    paperOutboundDocument: paperOutboundFulfillment.paperOutboundDocument,
+    operatorId: "U-OFFICE-A",
+    note: "纸单交库房",
+  },
+  {
+    fetchImpl: async (url, init) => {
+      paperHandoffCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        fulfillmentId: "F008",
+        status: "待库房备货",
+        paperOutboundDocument: { ...paperOutboundFulfillment.paperOutboundDocument, status: "已交库房", revision: 3 },
+        operationLogId: "LOG-PAPER-HANDOFF-1",
+      });
+    },
+  },
+);
+assert(paperHandoffCalls[0]?.url.endsWith("/api/fulfillments/F008/paper-handoff"), "paper handoff API URL is incorrect");
+assert(paperHandoffCalls[0]?.body.expectedRevision === 4 && paperHandoffCalls[0]?.body.paperDocumentRevision === 2, "paper handoff revision contract is incorrect");
+assert(!Object.hasOwn(paperHandoffCalls[0]?.body ?? {}, "operatorId"), "paper handoff body must not choose the authenticated operator");
+assert(paperHandoffResult.paperOutboundDocument?.status === "已交库房", "paper handoff response was not mapped");
+
+const warehouseExecutionCalls = [];
+const warehouseExecutionResult = await recordOfficeWarehouseOutboundExecution(
+  {
+    authState,
+    fulfillment: { ...paperOutboundFulfillment, revision: 5, paperOutboundStatus: "已交库房" },
+    paperOutboundDocument: { ...paperOutboundFulfillment.paperOutboundDocument, revision: 3 },
+    operatorId: "U-OFFICE-A",
+    result: "数量不符",
+    actualQty: 2430,
+    physicalExecutorEmployeeId: "ERP-0008",
+    feedbackChannel: "纸面",
+    executedAt: "2026-07-12T09:00",
+    note: "纸单 3000，实际 2430",
+  },
+  {
+    fetchImpl: async (url, init) => {
+      warehouseExecutionCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        fulfillmentId: "F008",
+        status: "数量差异待处理",
+        warehouseOutboundExecution: {
+          warehouseOutboundExecutionId: "WEX-F008-1",
+          physicalExecutorEmployeeId: "ERP-0008",
+          authenticatedOperatorId: "U-OFFICE-A",
+        },
+        statementCandidate: false,
+        todoId: "T-F008-MISMATCH",
+        inventoryDeductionMode: "exception_pending_review",
+        operationLogId: "LOG-WEX-1",
+      });
+    },
+  },
+);
+assert(warehouseExecutionCalls[0]?.url.endsWith("/api/fulfillments/F008/warehouse-execution"), "warehouse execution API URL is incorrect");
+assert(warehouseExecutionCalls[0]?.body.expectedRevision === 5, "warehouse execution must send the fulfillment expectedRevision");
+assert(warehouseExecutionCalls[0]?.body.physicalExecutorEmployeeId === "ERP-0008", "warehouse execution must send the physical executor employee ID");
+assert(!Object.hasOwn(warehouseExecutionCalls[0]?.body ?? {}, "operatorId"), "warehouse execution body must not choose the authenticated operator");
+assert(warehouseExecutionResult.statementCandidate === false && warehouseExecutionResult.todoId === "T-F008-MISMATCH", "warehouse execution response was not mapped");
 
 const printCalls = [];
 const printResult = await printOfficeFulfillment(
@@ -227,6 +332,26 @@ assert(printCalls[0]?.body.operatorId === "U-OFFICE-A", "print request missed op
 assert(printResult.nextStatus === "待确认拉走" && printResult.operationLogId === "LOG-FULFILLMENT-PRINT-1", "print response was not mapped");
 assert(printResult.printTemplate?.priceHidden === true, "print template was not mapped");
 assert(printResult.printTemplate?.fields?.goodsSummary.includes("白印黑"), "print template goods summary was not mapped");
+
+const unsupportedPrintCalls = [];
+const unsupportedPrintResult = await printOfficeFulfillment(
+  {
+    authState,
+    fulfillment: expressFulfillment,
+    action: "打印未知单据",
+    operatorId: "U-OFFICE-A",
+  },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (...args) => {
+      unsupportedPrintCalls.push(args);
+      return createJsonResponse(500, {});
+    },
+  },
+);
+assert(unsupportedPrintResult.blocked === true, "unsupported print label must fail before the API request");
+assert(unsupportedPrintResult.error?.code === "FULFILLMENT_PRINT_ACTION_UNSUPPORTED", "unsupported print label returned the wrong error");
+assert(unsupportedPrintCalls.length === 0, "unsupported print label must not invoke the print API");
 
 const deliveryPrintCalls = [];
 const deliveryPrintResult = await printOfficeFulfillment(

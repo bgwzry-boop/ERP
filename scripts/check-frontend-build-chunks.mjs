@@ -11,6 +11,7 @@ const requiredChunkPrefixes = [
   "erp-runtime-",
   "erp-v1-runtime-",
   "erp-domain-",
+  "erp-shared-",
   "erp-data-",
 ];
 const requiredLazyChunkPrefixes = ["erp-v1-status-"];

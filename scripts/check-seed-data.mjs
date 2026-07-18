@@ -1,7 +1,9 @@
 import { loadSyntheticOfficeSeed } from "../server/seeds/syntheticOfficeSeed.mjs";
 import { getEffectivePermissionsForUser } from "../server/authSeed.mjs";
+import { getEffectivePermissions } from "../server/seedData.mjs";
 import { systemV1ActionPermissions } from "../shared/auth/roleCatalog.js";
 import { calculateLinePricing, p0BagPriceRows } from "../src/domain/priceTable.js";
+import { resolveTodoReference } from "../server/services/todoReferenceService.mjs";
 
 const workspace = loadSyntheticOfficeSeed();
 const clonedWorkspace = loadSyntheticOfficeSeed();
@@ -14,17 +16,31 @@ const workshopPermissions = getEffectivePermissionsForUser("U-WORKSHOP-A");
 const packingPermissions = getEffectivePermissionsForUser("U-PACKING-A");
 const driverPermissions = getEffectivePermissionsForUser("U-DRIVER-A");
 const printDriverPermissions = getEffectivePermissionsForUser("U-PRINT-DRIVER-A");
+const officeSeedFixturePermissions = getEffectivePermissions("U-OFFICE-A", {
+  runtimeUsers: [
+    {
+      userId: "U-OFFICE-A",
+      identityKind: "seed_fixture",
+      roles: ["management"],
+      actionPermissions: ["statement.write_off"],
+    },
+  ],
+});
 
 const checks = [
   ["scenario", Boolean(workspace.scenario?.id)],
   ["customers", workspace.customers.length >= 12],
   ["orderLines", workspace.orderLines.length >= 30],
   ["inventories", workspace.inventories.length >= 10],
+  ["orderDrafts", workspace.orderDrafts.length >= 1],
   ["todos", workspace.todos.length >= 8],
   ["fulfillments", workspace.fulfillments.length >= 8],
   ["statements", workspace.statements.length >= 6],
   ["sampleText", typeof workspace.sampleText === "string" && workspace.sampleText.length > 0],
   ["defaultSelections", Object.values(workspace.defaultSelections).every(Boolean)],
+  ["todoExplicitReferences", workspace.todos.every((todo) => todo.ref && todo.refType && todo.refId === todo.ref)],
+  ["todoReferenceIntegrity", workspace.todos.every((todo) => resolveTodoReference(workspace, todo).referenceStatus === "valid")],
+  ["draftTodoTraceability", workspace.todos.some((todo) => todo.refType === "order_draft" && workspace.orderDrafts.some((draft) => draft.id === todo.refId))],
   ["cloneIsolation", workspace.orderLines !== clonedWorkspace.orderLines && workspace.orderLines[0] !== clonedWorkspace.orderLines[0]],
   [
     "officePermissions",
@@ -38,6 +54,13 @@ const checks = [
       officePermissions.actionPermissions.includes("delivery.evidence.review") &&
       officePermissions.actionPermissions.includes("inventory.correction.create") &&
       !officePermissions.actionPermissions.some((permission) => permission.startsWith("system.v1_")),
+  ],
+  [
+    "seedFixturePermissionIsolation",
+    officeSeedFixturePermissions.roles.includes("office") &&
+      !officeSeedFixturePermissions.roles.includes("management") &&
+      officeSeedFixturePermissions.actionPermissions.includes("order.draft.recognize") &&
+      !officeSeedFixturePermissions.actionPermissions.some((permission) => permission.startsWith("system.v1_")),
   ],
   [
     "technicalPermissions",

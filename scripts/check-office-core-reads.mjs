@@ -139,7 +139,7 @@ for (const apiName of ["listOfficeTodos", "listOfficeOrderLines", "listOfficeInv
 }
 assert.match(workspaceSource, /useOfficeCoreReads/);
 assert.match(workspaceSource, /\.\.\.coreReads/);
-assert.match(appSource, /activePage === "fulfillment"/);
+assert.match(appSource, /renderedPage === "fulfillment"/);
 assert.match(appSource, /<WorkspaceNotice>/);
 assert.match(appSource, /<WorkspacePageHeader/);
 assert.equal(appSource.indexOf("<WorkspaceNotice>") < appSource.indexOf("<WorkspacePageHeader"), true);

@@ -8,6 +8,7 @@ import { validateV1FieldEvidenceManifest } from "./v1FieldEvidenceManifest.mjs";
 
 const defaultPersistenceEvidencePath = ".erp-local-storage/v1-production-persistence-evidence/latest.json";
 const defaultRuntimeSmokePath = ".erp-local-storage/v1-production-runtime-smoke/latest.json";
+const defaultTodoLoadPrecheckPath = ".erp-local-storage/v1-todo-load-precheck/latest.json";
 const defaultFieldEvidenceManifestPath = "docs/development/v1-field-evidence-manifest.template.json";
 const defaultOutputDir = ".erp-local-storage/v1-production-first-stage-closeout";
 const defaultMaxAgeHours = 72;
@@ -34,6 +35,7 @@ function runCli() {
     const report = buildProductionFirstStageCloseout({
       persistenceEvidencePath: options.persistenceEvidencePath,
       runtimeSmokePath: options.runtimeSmokePath,
+      todoLoadPrecheckPath: options.todoLoadPrecheckPath,
       fieldEvidenceManifestPath: options.fieldEvidenceManifestPath,
       maxAgeHours: options.maxAgeHours,
       now: new Date(),
@@ -71,6 +73,7 @@ function parseArgs(args) {
   const options = {
     persistenceEvidencePath: defaultPersistenceEvidencePath,
     runtimeSmokePath: defaultRuntimeSmokePath,
+    todoLoadPrecheckPath: defaultTodoLoadPrecheckPath,
     fieldEvidenceManifestPath: defaultFieldEvidenceManifestPath,
     outputDir: defaultOutputDir,
     maxAgeHours: defaultMaxAgeHours,
@@ -94,6 +97,11 @@ function parseArgs(args) {
     }
     if (arg === "--runtime-smoke-json") {
       options.runtimeSmokePath = readValue(args, index, arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--todo-load-precheck-json") {
+      options.todoLoadPrecheckPath = readValue(args, index, arg);
       index += 1;
       continue;
     }
@@ -140,6 +148,7 @@ function helpText() {
     "Options:",
     "  --persistence-evidence-json <path>  Redacted persistence evidence JSON. Defaults to .erp-local-storage/v1-production-persistence-evidence/latest.json.",
     "  --runtime-smoke-json <path>         Redacted runtime smoke JSON. Defaults to .erp-local-storage/v1-production-runtime-smoke/latest.json.",
+    "  --todo-load-precheck-json <path>    Redacted production todo-load precheck JSON. Defaults to .erp-local-storage/v1-todo-load-precheck/latest.json.",
     "  --field-evidence-manifest <path>    Filled V1 field evidence manifest. Defaults to the pending template.",
     "  --max-age-hours <n>                 Maximum report age. Defaults to 72; use 0 to disable freshness blocking.",
     "  --output-dir <path>                 Write redacted closeout files. Defaults to .erp-local-storage/v1-production-first-stage-closeout.",
@@ -151,13 +160,14 @@ function helpText() {
     "  1  Runner/read/write error",
     "  2  Closeout is readable but still blocked",
     "",
-    "This closeout does not connect to external services. It validates the two redacted evidence reports plus production_persistence and object_storage field evidence groups.",
+    "This closeout does not connect to external services. It validates three redacted evidence reports plus production_persistence and object_storage field evidence groups.",
   ].join("\n");
 }
 
 function buildProductionFirstStageCloseout({
   persistenceEvidencePath = defaultPersistenceEvidencePath,
   runtimeSmokePath = defaultRuntimeSmokePath,
+  todoLoadPrecheckPath = defaultTodoLoadPrecheckPath,
   fieldEvidenceManifestPath = defaultFieldEvidenceManifestPath,
   maxAgeHours = defaultMaxAgeHours,
   checkedAt = new Date().toISOString(),
@@ -175,6 +185,12 @@ function buildProductionFirstStageCloseout({
     filePath: runtimeSmokePath,
     expectedScope: "v1_production_runtime_smoke",
   });
+  const todoLoadArtifact = readEvidenceArtifact({
+    artifactKey: "todo-load-precheck",
+    label: "生产待办只读容量预检查",
+    filePath: todoLoadPrecheckPath,
+    expectedScope: "v1_todo_load_precheck",
+  });
   const manifestArtifact = readEvidenceArtifact({
     artifactKey: "field-evidence-manifest",
     label: "现场证据 manifest",
@@ -188,6 +204,7 @@ function buildProductionFirstStageCloseout({
   const stages = [
     buildArtifactStage(persistenceArtifact),
     buildArtifactStage(runtimeArtifact),
+    buildArtifactStage(todoLoadArtifact),
     buildReportReadyStage({
       artifact: persistenceArtifact,
       key: "persistence-evidence-ready",
@@ -202,7 +219,15 @@ function buildProductionFirstStageCloseout({
       readyDetail: "API 已能用同一份安全 env 启动并读回 PostgreSQL / 对象存储 profile。",
       blockedDetail: "生产 API 运行态 smoke 未 ready。",
     }),
-    buildFreshnessStage({ artifacts: [persistenceArtifact, runtimeArtifact], maxAgeHours, now }),
+    buildReportReadyStage({
+      artifact: todoLoadArtifact,
+      key: "todo-load-precheck-ready",
+      label: "生产待办只读容量预检查 ready",
+      readyDetail: "正式 runtime 会话下的待办只读容量、延迟、错误率和服务端合同均已达标。",
+      blockedDetail: "生产待办只读容量预检查未 ready。",
+    }),
+    buildTodoLoadProductionTargetStage(todoLoadArtifact),
+    buildFreshnessStage({ artifacts: [persistenceArtifact, runtimeArtifact, todoLoadArtifact], maxAgeHours, now }),
     buildManifestArtifactStage({ manifestArtifact, manifestValidation }),
     buildRequiredEvidenceGroupStage({
       key: "first-stage-production-persistence-evidence",
@@ -220,7 +245,7 @@ function buildProductionFirstStageCloseout({
       readyDetail: "bucket 策略、附件读回、签名 URL、访问审计和对账导出现场证据均已填写。",
       blockedDetail: "object_storage 仍有现场证据未完成。",
     }),
-    buildSafeguardsStage({ persistenceArtifact, runtimeArtifact, manifestValidation }),
+    buildSafeguardsStage({ persistenceArtifact, runtimeArtifact, todoLoadArtifact, manifestValidation }),
   ];
   const passedCount = stages.filter((item) => item.status === "passed").length;
   const blockingCount = stages.length - passedCount;
@@ -242,6 +267,7 @@ function buildProductionFirstStageCloseout({
     evidenceSummary: {
       persistenceEvidence: summarizeArtifact(persistenceArtifact),
       runtimeSmoke: summarizeArtifact(runtimeArtifact),
+      todoLoadPrecheck: summarizeTodoLoadArtifact(todoLoadArtifact),
       fieldEvidenceManifest: summarizeManifestArtifact(manifestArtifact, manifestValidation),
       productionPersistenceEvidence: summarizeEvidenceGroup(productionPersistenceGroup, requiredProductionPersistenceEvidenceKeys),
       objectStorageEvidence: summarizeEvidenceGroup(objectStorageGroup, requiredObjectStorageEvidenceKeys),
@@ -255,6 +281,7 @@ function buildProductionFirstStageCloseout({
       externalServiceCalledByCloseout: false,
       sourceReportsRequired: true,
       fieldEvidenceManifestRequired: true,
+      productionTodoLoadPrecheckRequired: true,
       rawSourceReportsIncluded: false,
       rawEvidenceRefsIncluded: false,
       sourceArtifactPathExposed: false,
@@ -428,7 +455,7 @@ function buildFreshnessStage({ artifacts, maxAgeHours, now }) {
     ready: blockingItems.length === 0,
     detail:
       blockingItems.length === 0
-        ? `两份第一阶段证据均在 ${maxAgeHours} 小时内。`
+        ? `${checks.length} 份第一阶段证据均在 ${maxAgeHours} 小时内。`
         : `${blockingItems.length} 份第一阶段证据缺少 checkedAt 或超过 ${maxAgeHours} 小时。`,
     summary: {
       label: `${checks.length - blockingItems.length}/${checks.length} 通过`,
@@ -448,6 +475,43 @@ function buildFreshnessStage({ artifacts, maxAgeHours, now }) {
       blockingItems.length === 0
         ? "继续检查安全护栏。"
         : "重新生成过期或缺少时间戳的第一阶段证据后重跑 closeout。",
+  };
+}
+
+function buildTodoLoadProductionTargetStage(todoLoadArtifact) {
+  const target = todoLoadArtifact.report?.target || {};
+  const passed =
+    todoLoadArtifact.readable === true &&
+    target.apiPathValidated === true &&
+    target.embeddedCredentials === false &&
+    target.addressExposed === false &&
+    target.loopback === false &&
+    cleanString(target.protocol) === "https";
+  return {
+    key: "todo-load-production-target",
+    label: "待办容量真实生产目标",
+    status: passed ? "passed" : "blocked",
+    ready: passed,
+    detail: passed
+      ? "容量预检查来自非本机 HTTPS 长驻 API，且报告未暴露目标地址或内嵌凭据。"
+      : "容量预检查必须来自非本机 HTTPS 长驻生产 API；本机实验室报告不能作为第一阶段签收证据。",
+    summary: {
+      label: passed ? "1/1 通过" : "0/1 通过",
+      passedCount: passed ? 1 : 0,
+      totalCount: 1,
+      blockingCount: passed ? 0 : 1,
+      warningCount: 0,
+    },
+    evidence: {
+      protocol: cleanString(target.protocol),
+      loopback: target.loopback === true,
+      apiPathValidated: target.apiPathValidated === true,
+      embeddedCredentials: target.embeddedCredentials === true,
+      addressExposed: target.addressExposed === true,
+    },
+    nextAction: passed
+      ? "继续检查报告时效和安全护栏。"
+      : "对真实非本机 HTTPS 长驻生产 API 显式运行待办只读容量预检查后重跑 closeout。",
   };
 }
 
@@ -524,9 +588,12 @@ function buildRequiredEvidenceGroupStage({ key, label, group, requiredKeys, read
   };
 }
 
-function buildSafeguardsStage({ persistenceArtifact, runtimeArtifact, manifestValidation }) {
+function buildSafeguardsStage({ persistenceArtifact, runtimeArtifact, todoLoadArtifact, manifestValidation }) {
   const persistence = persistenceArtifact.report?.safeguards || {};
   const runtime = runtimeArtifact.report?.safeguards || {};
+  const todoLoad = todoLoadArtifact.report || {};
+  const todoLoadAuthentication = todoLoad.authentication || {};
+  const todoLoadSafeguards = todoLoad.safeguards || {};
   const manifestSafeguards = manifestValidation.safeguards || {};
   const checks = [
     safeguardCheck({
@@ -577,6 +644,42 @@ function buildSafeguardsStage({ persistenceArtifact, runtimeArtifact, manifestVa
       detail: "runtime smoke 若启动临时 API 必须停止；若探测长驻 API 必须只读，且不能改业务数据、调用打印机或改司机状态。",
     }),
     safeguardCheck({
+      key: "todo-load-formal-runtime-auth",
+      label: "待办容量正式会话护栏",
+      passed:
+        todoLoadAuthentication.formalRuntimeSession === true &&
+        todoLoadAuthentication.serverVerified === true &&
+        cleanString(todoLoadAuthentication.sessionType) === "runtime" &&
+        todoLoadAuthentication.identityExposed === false &&
+        todoLoadSafeguards.formalRuntimeAuthenticationRequired === true &&
+        todoLoadSafeguards.legacyIdentityHeaderUsed === false,
+      detail: "容量预检查必须由服务端再次验证正式runtime会话，拒绝seed和旧身份头，且不能暴露身份。",
+    }),
+    safeguardCheck({
+      key: "todo-load-read-only-bounds",
+      label: "待办容量只读与硬上限护栏",
+      passed:
+        todoLoadSafeguards.explicitReadLoadConfirmation === true &&
+        todoLoadSafeguards.businessReadOnly === true &&
+        todoLoadSafeguards.businessDataMutated === false &&
+        cleanString(todoLoadSafeguards.businessProbeMethod) === "GET" &&
+        todoLoadSafeguards.requestCountBounded === true &&
+        todoLoadSafeguards.concurrencyBounded === true &&
+        todoLoadSafeguards.physicalPrinterCalled === false,
+      detail: "容量预检查必须显式确认、只调用受硬上限约束的GET，且不能改业务数据或调用打印机。",
+    }),
+    safeguardCheck({
+      key: "todo-load-redacted",
+      label: "待办容量报告脱敏护栏",
+      passed:
+        todoLoadSafeguards.responsePayloadStored === false &&
+        todoLoadSafeguards.todoIdentityStored === false &&
+        todoLoadSafeguards.credentialsExposed === false &&
+        todoLoadSafeguards.apiAddressExposed === false &&
+        todoLoadSafeguards.embeddedApiCredentialsAllowed === false,
+      detail: "容量报告不能保存响应payload、待办编号、身份、凭据、API地址或内嵌API凭据。",
+    }),
+    safeguardCheck({
       key: "manifest-evidence-ref-redacted",
       label: "现场证据引用未泄露敏感字段",
       passed:
@@ -594,7 +697,7 @@ function buildSafeguardsStage({ persistenceArtifact, runtimeArtifact, manifestVa
     ready: blockingItems.length === 0,
     detail:
       blockingItems.length === 0
-        ? "两份第一阶段证据和现场证据引用的脱敏、非业务写入和进程停止护栏均通过。"
+        ? "三份第一阶段证据和现场证据引用的正式认证、脱敏、只读、硬上限和进程停止护栏均通过。"
         : `${blockingItems.length} 项第一阶段安全护栏未通过。`,
     summary: {
       label: `${checks.length - blockingItems.length}/${checks.length} 通过`,
@@ -608,7 +711,7 @@ function buildSafeguardsStage({ persistenceArtifact, runtimeArtifact, manifestVa
     nextAction:
       blockingItems.length === 0
         ? "第一阶段 closeout 可作为生产环境 / 持久化签收依据。"
-        : "重新生成有完整安全护栏的持久化证据和 runtime smoke 后重跑 closeout。",
+        : "重新生成有完整安全护栏的持久化证据、runtime smoke 和待办容量报告后重跑 closeout。",
   };
 }
 
@@ -633,6 +736,38 @@ function summarizeArtifact(artifact) {
     checkedAt: cleanString(report.checkedAt),
     summaryLabel: cleanString(report.summary?.label),
     rawPathIncluded: false,
+  };
+}
+
+function summarizeTodoLoadArtifact(artifact) {
+  const report = artifact.report || {};
+  const summary = report.summary || {};
+  const latency = summary.latencyMs || {};
+  const config = report.config || {};
+  return {
+    ...summarizeArtifact(artifact),
+    requestCount: numberOrZero(summary.requestCount),
+    successCount: numberOrZero(summary.successCount),
+    errorCount: numberOrZero(summary.errorCount),
+    errorRate: finiteNumberOrZero(summary.errorRate),
+    throughputPerSecond: finiteNumberOrZero(summary.throughputPerSecond),
+    latencyMs: {
+      p50: finiteNumberOrZero(latency.p50),
+      p95: finiteNumberOrZero(latency.p95),
+      max: finiteNumberOrZero(latency.max),
+    },
+    thresholds: {
+      maxP95Ms: finiteNumberOrZero(config.maxP95Ms),
+      maxErrorRate: finiteNumberOrZero(config.maxErrorRate),
+    },
+    snapshotChanged: summary.snapshotChanged === true,
+    serverVerifiedFormalRuntimeSession:
+      report.authentication?.formalRuntimeSession === true && report.authentication?.serverVerified === true,
+    productionTarget:
+      report.target?.loopback === false && cleanString(report.target?.protocol) === "https",
+    rawResponseIncluded: false,
+    todoIdentityIncluded: false,
+    apiAddressIncluded: false,
   };
 }
 
@@ -677,7 +812,7 @@ function sanitizeBlockingStages(items = []) {
 function buildNextActions(stages, ready) {
   if (ready) {
     return [
-      "把 first-stage closeout、persistence evidence 和 runtime smoke 的 latest 报告编号写入现场证据包。",
+      "把 first-stage closeout、persistence evidence、runtime smoke 和 todo load precheck 的 latest 报告编号写入现场证据包。",
       "继续下一阶段真实打印链路：标签机 / 针式机、CUPS、出纸、扫码和纸张对位。",
     ];
   }
@@ -728,6 +863,9 @@ function formatProductionFirstStageCloseout(report) {
     "## Evidence Summary",
     `- Persistence evidence: ${report.evidenceSummary.persistenceEvidence.status} ${report.evidenceSummary.persistenceEvidence.summaryLabel}`,
     `- Runtime smoke: ${report.evidenceSummary.runtimeSmoke.status} ${report.evidenceSummary.runtimeSmoke.summaryLabel}`,
+    `- Todo load precheck: ${report.evidenceSummary.todoLoadPrecheck.status} ${report.evidenceSummary.todoLoadPrecheck.summaryLabel}`,
+    `- Todo load requests: ${report.evidenceSummary.todoLoadPrecheck.successCount}/${report.evidenceSummary.todoLoadPrecheck.requestCount}; error rate ${report.evidenceSummary.todoLoadPrecheck.errorRate}; P50/P95 ${report.evidenceSummary.todoLoadPrecheck.latencyMs.p50}/${report.evidenceSummary.todoLoadPrecheck.latencyMs.p95}ms; throughput ${report.evidenceSummary.todoLoadPrecheck.throughputPerSecond} req/s`,
+    `- Todo load production target: ${yesNo(report.evidenceSummary.todoLoadPrecheck.productionTarget)}`,
     `- Field evidence manifest: ${report.evidenceSummary.fieldEvidenceManifest.status} ${report.evidenceSummary.fieldEvidenceManifest.summaryLabel}`,
     `- Production persistence evidence: ${report.evidenceSummary.productionPersistenceEvidence.completedRequired}/${report.evidenceSummary.productionPersistenceEvidence.requiredTotal}`,
     `- Object-storage evidence: ${report.evidenceSummary.objectStorageEvidence.completedRequired}/${report.evidenceSummary.objectStorageEvidence.requiredTotal}`,
@@ -777,6 +915,11 @@ function numberOrZero(value) {
   const number = Number(value);
   if (!Number.isFinite(number) || number < 0) return 0;
   return Math.trunc(number);
+}
+
+function finiteNumberOrZero(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : 0;
 }
 
 function yesNo(value) {

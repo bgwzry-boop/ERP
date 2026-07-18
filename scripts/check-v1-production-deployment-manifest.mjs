@@ -24,6 +24,8 @@ const ready = buildProductionDeploymentManifestReport({
 assert.equal(ready.ready, true, ready.checks.filter((item) => !item.ready).map((item) => item.key).join(", "));
 assert.equal(ready.summary.blockingCount, 0);
 assert.equal(ready.release.commit, "1234567890ab");
+assert.equal(ready.checks.find((item) => item.key === "service-env")?.ready, true);
+assert.equal(ready.checks.find((item) => item.key === "frontend-env")?.ready, true);
 assert.match(formatReport(ready), /受控远端：已配置/);
 assert.doesNotMatch(JSON.stringify(ready), new RegExp(rootDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 

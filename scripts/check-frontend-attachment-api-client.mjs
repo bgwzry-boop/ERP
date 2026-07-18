@@ -3,6 +3,7 @@ import {
   createOfficeAttachment,
   createOfficeAttachmentAccessUrl,
   createInventoryCorrectionEvidenceAttachmentInput,
+  createMaintenanceEvidenceAttachmentInput,
   createPaymentScreenshotAttachmentInput,
   downloadOfficeAttachmentContent,
   listOfficeAttachmentAccessLogs,
@@ -41,6 +42,10 @@ assert(paymentInput.fileSize === selectedFile.size, "payment screenshot file siz
 assert(paymentInput.contentDataUrl === selectedFile.contentDataUrl, "payment screenshot content data URL was not stored");
 assert(paymentInput.contentRef.includes(encodeURIComponent(selectedFile.name)), "payment screenshot contentRef should include the selected filename");
 assert(validateAttachmentUploadInput(paymentInput) === null, "valid payment screenshot should pass frontend attachment validation");
+assert(
+  validateAttachmentUploadInput({ ...paymentInput, contentDataUrl: "", fileSize: undefined })?.code === "ATTACHMENT_CONTENT_REQUIRED",
+  "payment screenshot without a real file should fail frontend validation",
+);
 
 const correctionEvidenceInput = createInventoryCorrectionEvidenceAttachmentInput({
   correctionDraftId: "ADJ-ATTACHMENT-1",
@@ -112,6 +117,20 @@ const tooLargePhotoValidation = validateAttachmentUploadInput({
 });
 assert(tooLargePhotoValidation?.code === "ATTACHMENT_FILE_TOO_LARGE", "oversized finished-goods photo should fail local validation");
 
+const maintenanceEvidenceInput = createMaintenanceEvidenceAttachmentInput({
+  taskId: "MT-PRINT-01",
+  operatorId: "U-MAINTENANCE-A",
+  remark: "维修完成照片",
+  file: { ...selectedFile, name: "maintenance-result.jpg", type: "image/jpeg" },
+});
+assert(maintenanceEvidenceInput.ownerType === "maintenance_task", "maintenance photo should bind the maintenance task");
+assert(maintenanceEvidenceInput.purpose === "maintenance_evidence", "maintenance photo purpose is incorrect");
+assert(validateAttachmentUploadInput(maintenanceEvidenceInput) === null, "maintenance image should pass frontend validation");
+assert(
+  validateAttachmentUploadInput({ ...maintenanceEvidenceInput, contentDataUrl: "", fileSize: undefined })?.code === "ATTACHMENT_CONTENT_REQUIRED",
+  "maintenance completion evidence must contain an actual image",
+);
+
 const calls = [];
 const result = await createOfficeAttachment(
   {
@@ -136,7 +155,7 @@ const result = await createOfficeAttachment(
         fileSize: selectedFile.size,
         hasContent: true,
         storageProvider: "local_fs",
-        storageKey: "attachments/ATT-001/lisi-payment-wechat.png",
+        storageKeyStored: true,
         contentDigest: "sha256-check",
         url: "/api/attachments/ATT-001/content",
         status: "uploaded",
@@ -164,7 +183,8 @@ assert(result.attachment.mimeType === selectedFile.type, "attachment response mi
 assert(result.attachment.fileSize === selectedFile.size, "attachment response file size was not mapped");
 assert(result.attachment.url === "/api/attachments/ATT-001/content", "attachment content URL was not mapped");
 assert(result.attachment.storageProvider === "local_fs", "attachment storage provider was not mapped");
-assert(result.attachment.storageKey === "attachments/ATT-001/lisi-payment-wechat.png", "attachment storage key was not mapped");
+assert(result.attachment.storageKey === "", "attachment client model exposed a raw storage key");
+assert(result.attachment.storageKeyStored === true, "attachment storage status was not mapped");
 assert(result.attachment.contentDigest === "sha256-check", "attachment content digest was not mapped");
 
 const listCalls = [];
@@ -199,7 +219,8 @@ assert(
 assert(listCalls[0]?.init.method === "GET", "attachment list API method is incorrect");
 assert(listResult.items.length === 1, "attachment list did not map the returned item");
 assert(listResult.items[0].attachmentId === result.attachment.attachmentId, "attachment list item id was not mapped");
-assert(listResult.items[0].storageKey === result.attachment.storageKey, "attachment list storage key was not mapped");
+assert(listResult.items[0].storageKey === "", "attachment list exposed a raw storage key");
+assert(listResult.items[0].storageKeyStored === true, "attachment list storage status was not mapped");
 
 const syncedProjection = syncStatementPaymentAttachments([statement], statement.id, listResult.items);
 assert(syncedProjection[0].paymentAttachmentFiles.length === 1, "attachment list was not synced into statement payment files");
@@ -249,6 +270,7 @@ const accessUrlResult = await createOfficeAttachmentAccessUrl(
         ttlSeconds: 120,
         deliveryMode: "api_proxy",
         storageProvider: "local_fs",
+        storageKeyStored: true,
         fileName: selectedFile.name,
         contentType: selectedFile.type,
         operationLogId: "OP-ACCESS-001",
@@ -264,6 +286,7 @@ assert(
 assert(accessUrlCalls[0]?.init.method === "GET", "attachment access-url API method is incorrect");
 assert(accessUrlResult.access.deliveryMode === "api_proxy", "attachment access-url delivery mode was not mapped");
 assert(accessUrlResult.access.ttlSeconds === 120, "attachment access-url ttl was not mapped");
+assert(accessUrlResult.access.storageKeyStored === true, "attachment access-url storage status was not mapped");
 assert(accessUrlResult.access.operationLogId === "OP-ACCESS-001", "attachment access-url operation log id was not mapped");
 assert(
   accessUrlResult.access.absoluteAccessUrl.startsWith("http://127.0.0.1:8787/api/attachments/ATT-001/content"),
@@ -295,6 +318,7 @@ const accessLogResult = await listOfficeAttachmentAccessLogs(
             accessMode: "permission",
             deliveryMode: "api_proxy",
             storageProvider: "local_fs",
+            storageKeyStored: true,
             ownerType: "statement",
             ownerId: statement.id,
             purpose: "payment_screenshot",
@@ -311,6 +335,7 @@ const accessLogResult = await listOfficeAttachmentAccessLogs(
             accessMode: "signed_url",
             deliveryMode: "api_proxy_signed_url",
             storageProvider: "local_fs",
+            storageKeyStored: true,
             ownerType: "statement",
             ownerId: statement.id,
             purpose: "payment_screenshot",
@@ -334,6 +359,7 @@ assert(accessLogResult.total === 2, "attachment access-log total was not mapped"
 assert(accessLogResult.items[0].logId === "ALOG-ACCESS-001", "attachment access-log id was not mapped");
 assert(accessLogResult.items[0].operationLogId === "OP-ACCESS-001", "attachment access-log operation log id was not mapped");
 assert(accessLogResult.items[0].deliveryMode === "api_proxy", "attachment access-log delivery mode was not mapped");
+assert(accessLogResult.items[0].storageKeyStored === true, "attachment access-log storage status was not mapped");
 assert(accessLogResult.items[1].operatorId === "SIGNED_URL", "attachment signed-url access-log operator was not mapped");
 
 const paymentProjection = confirmStatementPayment([statement], statement, {

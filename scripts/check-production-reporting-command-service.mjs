@@ -54,9 +54,12 @@ const workspace = {
       evidence: { reportKind: "daily_progress" },
     },
   ],
+  productionExceptions: [],
+  todos: [],
+  todoEvents: [],
   operationLogs: [],
 };
-const calls = { daily: [], report: [] };
+const calls = { daily: [], exception: [], exceptionResolution: [], report: [] };
 workspace.productionPackingTransactionRepository = {
   async recordProductionDailyProgress(input) {
     calls.daily.push(input);
@@ -79,6 +82,26 @@ workspace.productionPackingTransactionRepository = {
       operationLogId: input.operationLog.id,
     };
   },
+  async recordProductionException(input) {
+    calls.exception.push(input);
+    return {
+      productionTask: { ...input.productionTask, revision: input.productionTask.revision + 1 },
+      productionException: input.productionException,
+      todo: input.todo,
+      todoEvent: input.todoEvent,
+      operationLogId: input.operationLog.id,
+    };
+  },
+  async resolveProductionException(input) {
+    calls.exceptionResolution.push(input);
+    return {
+      productionTask: { ...input.productionTask, revision: input.productionTask.revision + 1 },
+      productionException: input.productionException,
+      todo: input.todo,
+      todoEvent: input.todoEvent,
+      operationLogId: input.operationLog.id,
+    };
+  },
 };
 
 const service = createProductionReportingCommandService({
@@ -94,6 +117,9 @@ const service = createProductionReportingCommandService({
   },
   buildProductionTaskFromBody() {
     return null;
+  },
+  buildTodo(currentWorkspace, input) {
+    return { ...input, todoId: input.id, refId: input.ref, ref: input.ref, createdAt: input.createdAt, updatedAt: input.updatedAt };
   },
   findInventoryItem(currentWorkspace, id) {
     return currentWorkspace.inventories.find((item) => item.id === id) ?? null;
@@ -149,6 +175,122 @@ const blockedDaily = await service.recordDailyProgress({
 assert.equal(blockedDaily.code, "PRODUCTION_TASK_ALREADY_COMPLETED");
 workspace.productionTasks[0].taskStatus = "制袋中";
 
+const exception = await service.recordProductionException({
+  workspace,
+  productionTaskId: "PT-1",
+  operatorId: "U-WORKSHOP",
+  body: {
+    productionTaskId: "PT-1",
+    exceptionType: "机器问题",
+    continuationMode: "暂停等确认",
+    estimatedLossQty: 6,
+    affectsDelivery: true,
+    operatorId: "U-SPOOFED",
+    idempotencyKey: "production-exception-service-001",
+  },
+});
+assert.equal(exception.response.exceptionType, "机器问题");
+assert.equal(exception.response.continuationMode, "暂停等确认");
+assert.equal(exception.response.taskStatus, "异常暂停");
+assert.equal(exception.response.inventoryCreated, false);
+assert.equal(exception.response.reservationCreated, false);
+assert.equal(exception.response.packingTaskCreated, false);
+assert.equal(exception.response.statementUpdated, false);
+assert.equal(calls.exception[0].productionException.operatorId, "U-WORKSHOP");
+assert.equal(calls.exception[0].productionException.estimatedLossQty, 6);
+assert.equal(calls.exception[0].todo.type, "生产异常");
+assert.equal(calls.exception[0].todo.refType, "production_task");
+assert.equal(calls.exception[0].todo.refId, "PT-1");
+assert.equal(calls.exception[0].todoEvent.eventType, "todo_source:production_exception_reported");
+assert.equal(calls.exception[0].operationLog.operatorId, "U-WORKSHOP");
+assert.equal(calls.exception[0].idempotencyPayload.operatorId, "U-WORKSHOP");
+
+workspace.productionTasks[0].taskStatus = "异常暂停";
+workspace.productionExceptions = [calls.exception[0].productionException];
+workspace.todos = [calls.exception[0].todo];
+const missingResolutionConfirmation = await service.resolveProductionException({
+  workspace,
+  productionTaskId: "PT-1",
+  operatorId: "U-OFFICE",
+  body: {
+    productionExceptionId: calls.exception[0].productionException.productionExceptionId,
+    resolutionCode: "继续生产",
+    resolutionNote: "主管确认机器已调整",
+  },
+});
+assert.equal(missingResolutionConfirmation.code, "PRODUCTION_EXCEPTION_RESOLUTION_CONFIRMATION_REQUIRED");
+const resolution = await service.resolveProductionException({
+  workspace,
+  productionTaskId: "PT-1",
+  operatorId: "U-OFFICE",
+  body: {
+    productionExceptionId: calls.exception[0].productionException.productionExceptionId,
+    resolutionCode: "继续生产",
+    resolutionNote: "主管确认机器已调整",
+    resolutionConfirmed: true,
+    idempotencyKey: "production-exception-resolution-service-001",
+  },
+});
+assert.equal(resolution.response.exceptionStatus, "已恢复生产");
+assert.equal(resolution.response.taskStatus, "制袋中");
+assert.equal(resolution.response.todoStatus, "已处理");
+assert.equal(resolution.response.inventoryCreated, false);
+assert.equal(resolution.response.reservationCreated, false);
+assert.equal(calls.exceptionResolution[0].productionException.resolutionCode, "继续生产");
+assert.equal(calls.exceptionResolution[0].todo.status, "已处理");
+assert.equal(calls.exceptionResolution[0].todoEvent.eventType, "todo_source:production_exception_resolved");
+assert.equal(calls.exceptionResolution[0].operationLog.operatorId, "U-OFFICE");
+assert.equal(resolution.response.resolvedBy, "U-OFFICE");
+assert.equal(resolution.response.resolvedAt, now.toISOString());
+workspace.productionExceptions = [calls.exceptionResolution[0].productionException];
+const terminalResolutionBlocked = await service.resolveProductionException({
+  workspace,
+  productionTaskId: "PT-1",
+  operatorId: "U-OFFICE",
+  body: {
+    productionExceptionId: calls.exception[0].productionException.productionExceptionId,
+    resolutionCode: "继续生产",
+    resolutionNote: "主管确认机器已调整",
+    resolutionConfirmed: true,
+  },
+});
+assert.equal(terminalResolutionBlocked.code, "PRODUCTION_EXCEPTION_ALREADY_RESOLVED");
+
+workspace.productionTasks[0].taskStatus = "异常暂停";
+const pausedDailyBlocked = await service.recordDailyProgress({
+  workspace,
+  productionTaskId: "PT-1",
+  operatorId: "U-WORKSHOP",
+  body: { dailyQualifiedQty: 1 },
+});
+assert.equal(pausedDailyBlocked.code, "PRODUCTION_TASK_EXCEPTION_PAUSED");
+const pausedCompletionBlocked = await service.completeProductionReport({
+  workspace,
+  productionTaskId: "PT-1",
+  operatorId: "U-WORKSHOP",
+  body: { inventoryItemId: "INV-1", qualifiedQty: 1 },
+});
+assert.equal(pausedCompletionBlocked.code, "PRODUCTION_TASK_EXCEPTION_PAUSED");
+workspace.productionTasks[0].taskStatus = "制袋中";
+
+const otherExceptionBlocked = await service.recordProductionException({
+  workspace,
+  productionTaskId: "PT-1",
+  operatorId: "U-WORKSHOP",
+  body: { exceptionType: "其他", continuationMode: "继续生产" },
+});
+assert.equal(otherExceptionBlocked.code, "PRODUCTION_EXCEPTION_REMARK_REQUIRED");
+
+workspace.productionTasks[0].taskStatus = "已完成";
+const completedExceptionBlocked = await service.recordProductionException({
+  workspace,
+  productionTaskId: "PT-1",
+  operatorId: "U-WORKSHOP",
+  body: { exceptionType: "机器问题", continuationMode: "继续生产" },
+});
+assert.equal(completedExceptionBlocked.code, "PRODUCTION_TASK_ALREADY_COMPLETED");
+workspace.productionTasks[0].taskStatus = "制袋中";
+
 const completed = await service.completeProductionReport({
   workspace,
   productionTaskId: "PT-1",
@@ -190,5 +332,5 @@ assert.equal(externalReport.code, "PRODUCTION_REPORT_EXTERNAL_PROCESSING_NOT_INV
 workspace.orderLines[0].orderType = "定制印刷";
 
 console.log(
-  "production reporting command service checks passed: daily progress, completion, inventory snapshots, authenticated identity, and machine-count safety are covered.",
+  "production reporting command service checks passed: daily progress, exception records, completion, inventory snapshots, authenticated identity, and machine-count safety are covered.",
 );

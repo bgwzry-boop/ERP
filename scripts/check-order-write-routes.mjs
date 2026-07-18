@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleOrderWriteRoutes } from "../server/routes/orderWriteRoutes.mjs";
 
 const calls = [];
@@ -22,20 +23,29 @@ const dependencies = {
     calls.push({ kind: "permission", response, permissionContext, permission });
     return true;
   },
+  orderDraftCommandService: {},
+  orderLineMutationCommandService: {},
+  sendCommandResponse(response, result) {
+    calls.push({ kind: "response", response, result });
+    return "response-sent";
+  },
 };
-for (const [routeName, kind] of [
-  ["recognizeOrderDraft", "recognize"],
-  ["recognizeOrderDraftQueue", "recognize-queue"],
-  ["saveOrderDraft", "save"],
-  ["linkCrossDraftShortageCancellationRoute", "link-cross-cancel"],
-  ["restoreShortageCancelledDraftLineRoute", "restore-shortage"],
-  ["previewOrderDraftSplitRoute", "split-preview"],
-  ["confirmSplitOrderDraftRoute", "split-confirm"],
-  ["confirmOrderDraftRoute", "confirm"],
-  ["voidOrderLineRoute", "void"],
-  ["adjustOrderLineQuantityRoute", "adjust"],
+for (const [serviceName, commandName, kind] of [
+  ["orderDraftCommandService", "recognizeOrderDraft", "recognize"],
+  ["orderDraftCommandService", "recognizeOrderDraftQueue", "recognize-queue"],
+  ["orderDraftCommandService", "saveOrderDraft", "save"],
+  ["orderDraftCommandService", "linkCrossDraftShortageCancellation", "link-cross-cancel"],
+  ["orderDraftCommandService", "restoreShortageCancelledDraftLine", "restore-shortage"],
+  ["orderDraftCommandService", "previewOrderDraftSplit", "split-preview"],
+  ["orderDraftCommandService", "confirmSplitOrderDraft", "split-confirm"],
+  ["orderDraftCommandService", "confirmOrderDraft", "confirm"],
+  ["orderLineMutationCommandService", "voidOrderLine", "void"],
+  ["orderLineMutationCommandService", "adjustOrderLineQuantity", "adjust"],
 ]) {
-  dependencies[routeName] = async (input) => calls.push({ kind, ...input });
+  dependencies[serviceName][commandName] = async (input) => {
+    calls.push({ kind, ...input });
+    return { response: { command: kind } };
+  };
 }
 
 await expectHandled("POST", "/api/order-drafts/recognize", "order.draft.recognize", "recognize", {});
@@ -67,7 +77,24 @@ assert.equal(await handleOrderWriteRoutes({ ...dependencies, method: "GET", url:
 assert.equal(await handleOrderWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/order-drafts/DRAFT-1") }), false);
 assert.equal(await handleOrderWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/order-lines/OL-1") }), false);
 
-console.log("order write routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+for (const removedWrapper of [
+  "recognizeOrderDraft",
+  "recognizeOrderDraftQueue",
+  "saveOrderDraft",
+  "restoreShortageCancelledDraftLineRoute",
+  "linkCrossDraftShortageCancellationRoute",
+  "previewOrderDraftSplitRoute",
+  "confirmSplitOrderDraftRoute",
+  "confirmOrderDraftRoute",
+  "voidOrderLineRoute",
+  "adjustOrderLineQuantityRoute",
+]) {
+  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
+}
+assert.match(apiSource, /handleOrderWriteRoutes\([\s\S]*orderDraftCommandService,[\s\S]*orderLineMutationCommandService,[\s\S]*sendCommandResponse,/);
+
+console.log("order write routes checks passed: permissions, authenticated operators, direct command ownership, response adaptation, and thin API wiring are covered");
 
 async function expectHandled(method, pathname, permission, kind, identifiers) {
   calls.length = 0;
@@ -76,11 +103,15 @@ async function expectHandled(method, pathname, permission, kind, identifiers) {
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission },
     {
       kind,
-      response: dependencies.response,
       workspace: dependencies.workspace,
       body: dependencies.body,
       operatorId: "U-AUTHENTICATED",
       ...identifiers,
+    },
+    {
+      kind: "response",
+      response: dependencies.response,
+      result: { response: { command: kind } },
     },
   ]);
 }

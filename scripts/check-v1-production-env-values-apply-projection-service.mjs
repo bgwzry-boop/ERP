@@ -141,10 +141,15 @@ const invalidMode = sanitizeV1ProductionEnvValuesApplyReport({
 assert.equal(invalidMode.targetEnvFile.fileMode, "");
 
 const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(
-  apiSource,
-  /import \{ sanitizeV1ProductionEnvValuesApplyReport \} from "\.\/services\/v1ProductionEnvValuesApplyProjectionService\.mjs";/,
+const applyServiceSource = readFileSync(
+  new URL("../server/services/v1ProductionEnvValuesApplyService.mjs", import.meta.url),
+  "utf8",
 );
+assert.match(
+  applyServiceSource,
+  /import \{ sanitizeV1ProductionEnvValuesApplyReport \} from "\.\/v1ProductionEnvValuesApplyProjectionService\.mjs";/,
+);
+assert.doesNotMatch(apiSource, /sanitizeV1ProductionEnvValuesApplyReport/);
 assert.doesNotMatch(apiSource, /function sanitizeV1ProductionEnvValuesApplyReport\(/);
 for (const oldHelper of [
   "sanitizeV1ProductionEnvValuesApplyFinding",

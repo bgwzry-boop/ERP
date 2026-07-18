@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handlePrintReadRoutes } from "../server/routes/printReadRoutes.mjs";
 
 const calls = [];
@@ -20,6 +21,12 @@ const workspace = {
     async listPrintJobs({ filters }) {
       repositoryCalls.push({ kind: "jobs", filters });
       return [{ printJobId: "PJ-1" }];
+    },
+  },
+  printerDeviceFieldTestRepository: {
+    async listPrinterDeviceFieldTests({ filters }) {
+      calls.push({ kind: "fieldTests", filters });
+      return [{ recordId: "QA-1" }];
     },
   },
 };
@@ -44,6 +51,10 @@ const dependencies = {
   async findPrintJob(_workspace, id) {
     return id === "PJ-1" ? { printJobId: id } : null;
   },
+  async findPrintDevice(sourceWorkspace, id) {
+    calls.push({ kind: "findDevice", sourceWorkspace, id });
+    return id === "MISSING" ? null : { printDeviceId: id };
+  },
   requireActionPermission(response, permissionContext, permission) {
     calls.push({ kind: "permission", response, permissionContext, permission });
     return true;
@@ -52,20 +63,19 @@ const dependencies = {
     calls.push({ kind: "operator", permissionContext, authContext, fallback });
     return "U-RESOLVED";
   },
-  getPrintDriverConfigurationResponse() {
-    return { mode: "guarded" };
-  },
-  getPrintDriverSpoolDiagnosticsResponse({ workspace, operatorId }) {
-    return { source: "spool", workspace, operatorId };
-  },
-  getPrintDriverCupsDiagnosticsResponse({ workspace, operatorId }) {
-    return { source: "cups", workspace, operatorId };
-  },
-  getPrintDriverV1ReadinessResponse({ workspace, operatorId }) {
-    return { source: "readiness", workspace, operatorId };
-  },
-  async listPrinterDeviceFieldTestsRoute(input) {
-    calls.push({ kind: "fieldTests", ...input });
+  printDriverDiagnosticsService: {
+    getConfiguration({ workspace }) {
+      return { mode: "guarded", workspace };
+    },
+    getSpoolDiagnostics({ workspace, operatorId }) {
+      return { source: "spool", workspace, operatorId };
+    },
+    getCupsDiagnostics({ workspace, operatorId }) {
+      return { source: "cups", workspace, operatorId };
+    },
+    getV1Readiness({ workspace, operatorId }) {
+      return { source: "readiness", workspace, operatorId };
+    },
   },
 };
 
@@ -74,6 +84,7 @@ await expectDriverDiagnostics("/api/print-driver/spool-diagnostics", "spool");
 await expectDriverDiagnostics("/api/print-driver/cups-diagnostics", "cups");
 await expectDriverDiagnostics("/api/print-driver/v1-readiness", "readiness");
 await expectDeviceFieldTests();
+await expectMissingDeviceFieldTests();
 await expectJson("/api/print-batches?status=printed&todoId=T-1&page=2", { items: [{ printBatchId: "PB-1" }], page: 2, total: 1 });
 assert.deepEqual(repositoryCalls.pop(), { kind: "batches", filters: { status: "printed", todoId: "T-1" } });
 
@@ -120,7 +131,11 @@ assert.equal(
 );
 assert.deepEqual(calls, [{ kind: "fieldTestsDenied" }]);
 
-console.log("print read routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /async function listPrinterDeviceFieldTestsRoute\b/);
+assert.match(apiSource, /handlePrintReadRoutes\([\s\S]*findPrintDevice,[\s\S]*printDriverDiagnosticsService,/);
+
+console.log("print read routes checks passed: driver diagnostics, repository lists, device QA records, 404, and thin API wiring are covered");
 
 async function expectJson(pathname, body) {
   assert.equal(await handlePrintReadRoutes({ ...dependencies, url: new URL(`http://erp.test${pathname}`) }), true);
@@ -135,7 +150,14 @@ async function expectNotFound(pathname, code) {
 async function expectDriverConfig() {
   calls.length = 0;
   assert.equal(await handlePrintReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/print-driver/config") }), true);
-  assert.deepEqual(calls, [{ kind: "json", response: dependencies.response, status: 200, body: { mode: "guarded" } }]);
+  assert.deepEqual(calls, [
+    {
+      kind: "json",
+      response: dependencies.response,
+      status: 200,
+      body: { mode: "guarded", workspace: dependencies.workspace },
+    },
+  ]);
 }
 
 async function expectDriverDiagnostics(pathname, source) {
@@ -180,11 +202,46 @@ async function expectDeviceFieldTests() {
       permission: "print.device_qa.record",
     },
     {
-      kind: "fieldTests",
-      response: dependencies.response,
-      workspace: dependencies.workspace,
-      printDeviceId: "PRN/1",
-      searchParams: new URL("http://erp.test/?page=2").searchParams,
+      kind: "findDevice",
+      sourceWorkspace: dependencies.workspace,
+      id: "PRN/1",
     },
+    {
+      kind: "fieldTests",
+      filters: { printDeviceId: "PRN/1", printJobId: null, documentType: null, operatorId: null, limit: null },
+    },
+    {
+      kind: "json",
+      response: dependencies.response,
+      status: 200,
+      body: {
+        items: [{ recordId: "QA-1" }],
+        page: 2,
+        total: 1,
+        printDevice: { printDeviceId: "PRN/1" },
+        latestRecord: { recordId: "QA-1" },
+      },
+    },
+  ]);
+}
+
+async function expectMissingDeviceFieldTests() {
+  calls.length = 0;
+  assert.equal(
+    await handlePrintReadRoutes({
+      ...dependencies,
+      url: new URL("http://erp.test/api/print-devices/MISSING/field-tests"),
+    }),
+    true,
+  );
+  assert.deepEqual(calls, [
+    {
+      kind: "permission",
+      response: dependencies.response,
+      permissionContext: dependencies.permissionContext,
+      permission: "print.device_qa.record",
+    },
+    { kind: "findDevice", sourceWorkspace: dependencies.workspace, id: "MISSING" },
+    { kind: "notFound", response: dependencies.response, code: "PRINT_DEVICE_NOT_FOUND" },
   ]);
 }

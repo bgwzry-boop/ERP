@@ -18,6 +18,8 @@ import {
   reviewOfficeProductionFinishedGoodsPhoto,
   reportOfficeProductionDailyProgress,
   reportOfficeProductionComplete,
+  reportOfficeProductionException,
+  resolveOfficeProductionException,
   uploadOfficeProductionFinishedGoodsPhoto,
 } from "../src/services/officeProductionPackingApiClient.js";
 
@@ -621,6 +623,106 @@ assert(dailyProgressResult.inventoryCreated === false, "production daily progres
 assert(dailyProgressResult.reservationCreated === false, "production daily progress must not reserve inventory");
 assert(dailyProgressResult.packingTaskCreated === false, "production daily progress must not create packing task");
 
+const productionExceptionCalls = [];
+const productionExceptionResult = await reportOfficeProductionException(
+  {
+    authState,
+    orderLine: productionLine,
+    productionTaskId: "PT-ORD-0629-003-01",
+    exceptionType: "机器问题",
+    continuationMode: "暂停等确认",
+    estimatedLossQty: 6,
+    affectsDelivery: true,
+    operatorId: "U-OFFICE-A",
+    remark: "machine exception check",
+  },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url, init) => {
+      productionExceptionCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        productionTaskId: "PT-ORD-0629-003-01",
+        orderLineId: productionLine.id,
+        productionExceptionId: "PEX-001",
+        exceptionType: "机器问题",
+        continuationMode: "暂停等确认",
+        exceptionStatus: "待生产确认",
+        taskStatus: "异常暂停",
+        status: "异常暂停",
+        todoId: "T-PEX-001",
+        estimatedLossQty: 6,
+        affectsDelivery: true,
+        inventoryCreated: false,
+        reservationCreated: false,
+        packingTaskCreated: false,
+        statementUpdated: false,
+        operationLogId: "LOG-PEX-001",
+      });
+    },
+  },
+);
+assert(productionExceptionResult.source === "api", "production exception did not use API response");
+assert(productionExceptionCalls[0]?.url === "http://127.0.0.1:8787/api/production-tasks/PT-ORD-0629-003-01/exception", "production exception URL is incorrect");
+assert(productionExceptionCalls[0]?.body.exceptionType === "机器问题", "production exception type is incorrect");
+assert(productionExceptionCalls[0]?.body.continuationMode === "暂停等确认", "production exception continuation mode is incorrect");
+assert(!("inventoryItemId" in productionExceptionCalls[0].body), "production exception must not send inventory item");
+assert(productionExceptionResult.inventoryCreated === false, "production exception must not create inventory");
+assert(productionExceptionResult.reservationCreated === false, "production exception must not reserve inventory");
+assert(productionExceptionResult.packingTaskCreated === false, "production exception must not create packing task");
+assert(productionExceptionResult.statementUpdated === false, "production exception must not change statement");
+
+const productionExceptionResolutionCalls = [];
+const productionExceptionResolutionResult = await resolveOfficeProductionException(
+  {
+    authState,
+    productionTaskId: "PT-ORD-0629-003-01",
+    productionExceptionId: "PEX-001",
+    resolutionCode: "继续生产",
+    resolutionNote: "主管确认机器已调整",
+    resolutionConfirmed: true,
+    operatorId: "U-OFFICE-A",
+  },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url, init) => {
+      productionExceptionResolutionCalls.push({ url, init, body: JSON.parse(init.body) });
+      return createJsonResponse(200, {
+        productionTaskId: "PT-ORD-0629-003-01",
+        orderLineId: productionLine.id,
+        productionExceptionId: "PEX-001",
+        exceptionStatus: "已恢复生产",
+        resolutionCode: "继续生产",
+        resolutionLabel: "继续生产",
+        resolutionNote: "主管确认机器已调整",
+        resolvedBy: "U-OFFICE-A",
+        resolvedAt: "2026-07-11T12:00:00.000Z",
+        taskStatus: "制袋中",
+        todoId: "T-PEX-001",
+        todoStatus: "已处理",
+        inventoryCreated: false,
+        reservationCreated: false,
+        packingTaskCreated: false,
+        statementUpdated: false,
+        operationLogId: "LOG-PEX-RES-001",
+      });
+    },
+  },
+);
+assert(productionExceptionResolutionResult.source === "api", "production exception resolution did not use API response");
+assert(productionExceptionResolutionCalls[0]?.url === "http://127.0.0.1:8787/api/production-tasks/PT-ORD-0629-003-01/exception-resolution", "production exception resolution URL is incorrect");
+assert(productionExceptionResolutionCalls[0]?.body.productionExceptionId === "PEX-001", "production exception resolution lost the exception record ID");
+assert(productionExceptionResolutionCalls[0]?.body.resolutionCode === "继续生产", "production exception resolution code is incorrect");
+assert(productionExceptionResolutionCalls[0]?.body.resolutionConfirmed === true, "production exception resolution requires a final confirmation marker");
+assert(!("resolvedAt" in productionExceptionResolutionCalls[0].body), "production exception resolution time must be authored by the server when not explicitly supplied");
+assert(productionExceptionResolutionResult.taskStatus === "制袋中", "production exception resolution did not map the resumed task status");
+assert(productionExceptionResolutionResult.todoStatus === "已处理", "production exception resolution did not map the todo status");
+assert(productionExceptionResolutionResult.resolvedBy === "U-OFFICE-A", "production exception resolution did not map the authoritative operator");
+assert(productionExceptionResolutionResult.resolvedAt === "2026-07-11T12:00:00.000Z", "production exception resolution did not map the authoritative time");
+assert(productionExceptionResolutionResult.inventoryCreated === false, "production exception resolution must not create inventory");
+assert(productionExceptionResolutionResult.reservationCreated === false, "production exception resolution must not reserve inventory");
+assert(productionExceptionResolutionResult.packingTaskCreated === false, "production exception resolution must not create packing task");
+assert(productionExceptionResolutionResult.statementUpdated === false, "production exception resolution must not change statement");
+
 const finishedPhotoUploadCalls = [];
 const finishedPhotoUploadResult = await uploadOfficeProductionFinishedGoodsPhoto(
   {
@@ -912,7 +1014,6 @@ const packingResult = await completeOfficePackingTask(
     inventoryItem: productionInventory,
     actualPackedQty: 1000,
     packageCount: 3,
-    labelsPrinted: false,
     operatorId: "U-WAREHOUSE-A",
     remark: "frontend packing check",
   },
@@ -925,7 +1026,8 @@ const packingResult = await completeOfficePackingTask(
         status: "已完成",
         actualPackedQty: 1000,
         packageIds: ["PKG-1", "PKG-2", "PKG-3"],
-        fulfillmentId: "",
+        fulfillmentId: "F-PACK-1",
+        todoId: "T-PACK-1",
         fulfillmentStatus: "待打印标签",
         orderLineStatus: "待打印标签",
         inventoryDeducted: false,
@@ -940,9 +1042,10 @@ assert(packingCalls[0]?.url.endsWith("/api/packing-tasks/PKT-ORD-0629-003-01/com
 assert(packingCalls[0]?.init.headers["x-erp-user-id"] === "U-WAREHOUSE-A", "packing complete did not send seed user header");
 assert(packingCalls[0]?.body.actualPackedQty === 1000, "packing complete actual quantity is incorrect");
 assert(packingCalls[0]?.body.packageCount === 3, "packing complete package count is incorrect");
-assert(packingCalls[0]?.body.labelsPrinted === false, "packing complete label flag is incorrect");
+assert(!Object.hasOwn(packingCalls[0]?.body ?? {}, "labelsPrinted"), "packing complete must not send a browser-reported label flag");
 assert(packingResult.inventoryDeducted === false, "packing complete must not deduct inventory");
 assert(packingResult.orderLineStatus === "待打印标签", "packing complete response did not map order status");
+assert(packingResult.todoId === "T-PACK-1", "packing complete response did not map the persisted label todo");
 
 const packingDetailCalls = [];
 const packingDetailResult = await getOfficePackingTaskDetail(

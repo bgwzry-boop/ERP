@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleFulfillmentWriteRoutes } from "../server/routes/fulfillmentWriteRoutes.mjs";
 
 const calls = [];
@@ -12,6 +13,8 @@ const dependencies = {
     createFulfillmentException: "fulfillment.exception.create",
     updateFulfillmentDispatch: "fulfillment.dispatch.update",
     printFulfillment: "fulfillment.print",
+    handoffPaperOutboundDocument: "fulfillment.paper.handoff",
+    recordWarehouseOutboundExecution: "fulfillment.warehouse.execute",
     completeFulfillment: "fulfillment.complete",
     confirmFulfillmentPickup: "fulfillment.pickup.confirm",
     cancelFulfillment: "fulfillment.cancel",
@@ -21,41 +24,47 @@ const dependencies = {
     calls.push({ kind: "permission", response, permissionContext, permission });
     return true;
   },
-  getPermissionOperatorId(_permissionContext, _authContext, fallback) {
+  getPermissionOperatorId(permissionContext, authContext, fallback) {
+    calls.push({ kind: "operator", permissionContext, authContext, fallback });
     return `resolved:${fallback}`;
   },
-  async createFulfillmentExceptionRoute(input) {
-    calls.push({ kind: "exception", ...input });
+  fulfillmentActionCommandService: {},
+  fulfillmentPrintCommandService: {},
+  sendCommandResponse(response, result, options) {
+    calls.push({ kind: "response", response, result, options });
   },
-  async upsertFulfillmentDispatchRoute(input) {
-    calls.push({ kind: "dispatch", ...input });
-  },
-  async printFulfillmentRoute(input) {
-    calls.push({ kind: "print", ...input });
-  },
-  async voidPrintRecordRoute(input) {
-    calls.push({ kind: "void", ...input });
-  },
-  async updateFulfillmentStatusRoute(input) {
-    calls.push({ kind: "status", ...input });
-  },
-  async cancelFulfillmentRoute(input) {
-    calls.push({ kind: "cancel", ...input });
-  },
-  async reviewDeliveryEvidenceRoute(input) {
-    calls.push({ kind: "review", ...input });
+  sendCommandRecord(response, result, options) {
+    calls.push({ kind: "record", response, result, options });
   },
 };
+for (const [serviceName, commandName, kind] of [
+  ["fulfillmentActionCommandService", "createFulfillmentException", "exception"],
+  ["fulfillmentActionCommandService", "upsertDriverDispatch", "dispatch"],
+  ["fulfillmentActionCommandService", "handoffPaperOutboundDocument", "paperHandoff"],
+  ["fulfillmentActionCommandService", "recordWarehouseOutboundExecution", "warehouseExecution"],
+  ["fulfillmentActionCommandService", "updateFulfillmentStatus", "status"],
+  ["fulfillmentActionCommandService", "cancelFulfillment", "cancel"],
+  ["fulfillmentActionCommandService", "reviewDeliveryEvidence", "review"],
+  ["fulfillmentPrintCommandService", "printFulfillment", "print"],
+  ["fulfillmentPrintCommandService", "voidPrintRecord", "void"],
+]) {
+  dependencies[serviceName][commandName] = async (input) => {
+    calls.push({ kind, ...input });
+    return { response: { command: kind } };
+  };
+}
 
-await expectHandled("/api/fulfillments/F-1/exception", "fulfillment.exception.create", "exception", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
-await expectHandled("/api/fulfillments/F-1/dispatch", "fulfillment.dispatch.update", "dispatch", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
-await expectHandled("/api/fulfillments/F-1/print", "fulfillment.print", "print", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
-await expectHandled("/api/print-records/PR-1/void", "fulfillment.print", "void", { printRecordId: "PR-1", operatorId: "resolved:U-OFFICE-A" });
-await expectHandled("/api/fulfillments/F-1/prepared", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "标记已备货", operatorId: "resolved:U-OFFICE-A" });
-await expectHandled("/api/fulfillments/F-1/complete", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "完成出库/交付", operatorId: "resolved:U-OFFICE-A" });
-await expectHandled("/api/fulfillments/F-1/pickup-confirm", "fulfillment.pickup.confirm", "status", { fulfillmentId: "F-1", action: "确认已拉走", operatorId: "resolved:U-OFFICE-A" });
-await expectHandled("/api/fulfillments/F-1/cancel", "fulfillment.cancel", "cancel", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
-await expectHandled("/api/fulfillments/F-1/delivery-evidence-review", "delivery.evidence.review", "review", { fulfillmentId: "F-1", operatorId: "resolved:U-OFFICE-A" });
+await expectHandled("/api/fulfillments/F-1/exception", "fulfillment.exception.create", "exception", { fulfillmentId: "F-1" });
+await expectHandled("/api/fulfillments/F-1/dispatch", "fulfillment.dispatch.update", "dispatch", { fulfillmentId: "F-1" });
+await expectHandled("/api/fulfillments/F-1/paper-handoff", "fulfillment.paper.handoff", "paperHandoff", { fulfillmentId: "F-1" });
+await expectHandled("/api/fulfillments/F-1/warehouse-execution", "fulfillment.warehouse.execute", "warehouseExecution", { fulfillmentId: "F-1" });
+await expectHandled("/api/fulfillments/F-1/print", "fulfillment.print", "print", { fulfillmentId: "F-1" }, "record", { notFoundCode: "FULFILLMENT_NOT_FOUND" });
+await expectHandled("/api/print-records/PR-1/void", "fulfillment.print", "void", { printRecordId: "PR-1" }, "record", { notFoundCode: "PRINT_RECORD_NOT_FOUND" });
+await expectHandled("/api/fulfillments/F-1/prepared", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "标记已备货" });
+await expectHandled("/api/fulfillments/F-1/complete", "fulfillment.complete", "status", { fulfillmentId: "F-1", action: "完成出库/交付" });
+await expectHandled("/api/fulfillments/F-1/pickup-confirm", "fulfillment.pickup.confirm", "status", { fulfillmentId: "F-1", action: "确认已拉走" });
+await expectHandled("/api/fulfillments/F-1/cancel", "fulfillment.cancel", "cancel", { fulfillmentId: "F-1" });
+await expectHandled("/api/fulfillments/F-1/delivery-evidence-review", "delivery.evidence.review", "review", { fulfillmentId: "F-1" });
 
 calls.length = 0;
 assert.equal(
@@ -80,11 +89,28 @@ assert.equal(
   false,
 );
 
-console.log("fulfillment write routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+for (const removedWrapper of [
+  "createFulfillmentExceptionRoute",
+  "upsertFulfillmentDispatchRoute",
+  "printFulfillmentRoute",
+  "voidPrintRecordRoute",
+  "updateFulfillmentStatusRoute",
+  "cancelFulfillmentRoute",
+  "reviewDeliveryEvidenceRoute",
+]) {
+  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
+}
+assert.match(apiSource, /handleFulfillmentWriteRoutes\([\s\S]*fulfillmentActionCommandService,[\s\S]*fulfillmentPrintCommandService,[\s\S]*sendCommandResponse,[\s\S]*sendCommandRecord,/);
 
-async function expectHandled(pathname, permission, kind, expected) {
+console.log("fulfillment write routes checks passed: permissions, authenticated operators, action/print commands, response modes, and thin API wiring are covered");
+
+async function expectHandled(pathname, permission, kind, identifiers, responseKind = "response", options) {
   calls.length = 0;
-  assert.equal(await handleFulfillmentWriteRoutes({ ...dependencies, method: "POST", url: new URL(`http://erp.test${pathname}`) }), true);
+  assert.equal(
+    await handleFulfillmentWriteRoutes({ ...dependencies, method: "POST", url: new URL(`http://erp.test${pathname}`) }),
+    true,
+  );
   assert.deepEqual(calls, [
     {
       kind: "permission",
@@ -92,6 +118,24 @@ async function expectHandled(pathname, permission, kind, expected) {
       permissionContext: dependencies.permissionContext,
       permission,
     },
-    { kind, response: dependencies.response, workspace: dependencies.workspace, body: dependencies.body, ...expected },
+    {
+      kind: "operator",
+      permissionContext: dependencies.permissionContext,
+      authContext: dependencies.authContext,
+      fallback: "U-OFFICE-A",
+    },
+    {
+      kind,
+      workspace: dependencies.workspace,
+      body: dependencies.body,
+      operatorId: "resolved:U-OFFICE-A",
+      ...identifiers,
+    },
+    {
+      kind: responseKind,
+      response: dependencies.response,
+      result: { response: { command: kind } },
+      options,
+    },
   ]);
 }

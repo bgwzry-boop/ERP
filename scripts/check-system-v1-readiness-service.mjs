@@ -1,5 +1,10 @@
 import assert from "node:assert/strict";
 import { hashRuntimeUserPassword } from "../server/authSeed.mjs";
+import { buildDefaultMasterDataMachines } from "../server/masterDataMachineConfigurationRepository.mjs";
+import {
+  v1PersistenceRepositoryObjectKeys,
+  v1PersistenceStorageObjectKeys,
+} from "../server/v1PersistenceProfile.mjs";
 import { requiredV1RuntimeEmployeeRoles } from "../server/services/runtimeEmployeeAccountReadiness.mjs";
 import {
   buildSystemV1Readiness,
@@ -8,6 +13,14 @@ import {
 
 const nowMs = Date.parse("2026-07-12T10:00:00.000Z");
 const operatorId = "U-V1-MANAGEMENT";
+const declaredReadinessRepositoryKeys = v1SystemPersistenceGroups
+  .flatMap((group) => group.repositories.map(([repositoryKey]) => repositoryKey))
+  .sort();
+assert.deepEqual(
+  declaredReadinessRepositoryKeys,
+  [...v1PersistenceRepositoryObjectKeys, ...v1PersistenceStorageObjectKeys].sort(),
+  "system V1 readiness must cover every production persistence repository and storage",
+);
 
 const demoBlocked = buildSystemV1Readiness({
   workspace: buildWorkspace({ mode: "demo", repositoryKind: "local_memory" }),
@@ -101,6 +114,7 @@ function buildWorkspace({ mode, repositoryKind, users = [] }) {
   const workspace = {
     runtimeConfig: { mode },
     users,
+    machines: buildDefaultMasterDataMachines(),
     v1PersistenceProfile: { repositoryProfile: repositoryKind },
   };
   for (const group of v1SystemPersistenceGroups) {

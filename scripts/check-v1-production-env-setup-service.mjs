@@ -68,23 +68,21 @@ assert.equal(missingCommandResult.body.status, "error");
 assert.equal(missingCommandResult.body.error.code, "V1_PRODUCTION_ENV_SETUP_LIVE_RUN_FAILED");
 
 const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const apiFunction = apiSource.match(
-  /async function runSystemV1ProductionEnvSetup\(\{ operatorId \}\) \{([\s\S]*?)\n\}/,
-)?.[1];
-assert.ok(apiFunction, "API production-env setup composition function should exist");
+const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
+const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /async function runSystemV1ProductionEnvSetup/);
 assert.match(
-  apiFunction,
-  /return runV1ProductionEnvSetup\(\{ operatorId, runCommand: runV1ProductionEnvSetupCommand \}\);/,
+  routeSource,
+  /runCommand: v1LocalCommandRunnerService\.runV1ProductionEnvSetupCommand/,
 );
-assert.doesNotMatch(apiFunction, /request|body|targetPath|importFrom|force|process\.env/);
+assert.doesNotMatch(routeSource, /targetPath|importFrom|force|process\.env/);
 for (const oldDefinition of [
   "buildV1ProductionEnvSetupLiveRunBody",
   "buildV1ProductionEnvSetupServerConfigGuidance",
 ]) {
   assert.doesNotMatch(apiSource, new RegExp(`function ${oldDefinition}\\(`));
 }
-assert.match(apiSource, /args: \["scripts\/run-v1-production-env-setup\.mjs", "--json"\]/);
-assert.doesNotMatch(apiSource, /args: \["scripts\/run-v1-production-env-setup\.mjs"[^\]]*"--force"/);
+assert.match(registrySource, /createV1LocalCommandRunnerService\(\)/);
 
 console.log(
   "V1 production-env setup service checks passed: prepared/ready/error projection, fixed command input, no overwrite, redaction, safeguards, and thin API composition are covered.",

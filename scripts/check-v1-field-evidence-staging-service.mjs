@@ -150,12 +150,14 @@ try {
   assert.equal(applyCalls.length, 3);
 
   const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+  const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
+  const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
   const serviceSource = readFileSync(
     new URL("../server/services/v1FieldEvidenceStagingService.mjs", import.meta.url),
     "utf8",
   );
-  assert.match(apiSource, /createV1FieldEvidenceStagingService/);
-  assert.match(apiSource, /v1FieldEvidenceStagingService\.stageRow/);
+  assert.match(registrySource, /createV1FieldEvidenceStagingService/);
+  assert.match(routeSource, /v1FieldEvidenceStagingService\.stageRow/);
   for (const legacyName of [
     "stageV1FieldEvidenceCsvRow",
     "stageV1SignoffBoundaryCsvRow",

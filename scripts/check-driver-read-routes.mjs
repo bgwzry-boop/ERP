@@ -1,10 +1,24 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { handleDriverReadRoutes } from "../server/routes/driverReadRoutes.mjs";
 
 const calls = [];
+const workspace = {
+  id: "workspace",
+  driverDeliveryTaskReadRepository: {
+    async listDriverDeliveryTasks(input) {
+      calls.push({ kind: "list", ...input });
+      return { items: [{ fulfillmentId: "F-1" }] };
+    },
+    async getDriverDeliveryTask(input) {
+      calls.push({ kind: "detail", ...input });
+      return input.fulfillmentId === "MISSING" ? null : { fulfillmentId: input.fulfillmentId };
+    },
+  },
+};
 const dependencies = {
   response: { id: "response" },
-  workspace: { id: "workspace" },
+  workspace,
   permissionContext: { id: "permission" },
   authContext: { id: "auth" },
   writeActionPermissions: { viewDriverDeliveryTasks: "delivery.view" },
@@ -19,11 +33,8 @@ const dependencies = {
   sendJson(response, status, body) {
     calls.push({ kind: "json", response, status, body });
   },
-  async listDriverDeliveryTasksRoute(input) {
-    calls.push({ kind: "list", ...input });
-  },
-  async getDriverDeliveryTaskRoute(input) {
-    calls.push({ kind: "detail", ...input });
+  sendNotFound(response, code) {
+    calls.push({ kind: "notFound", response, code });
   },
   async getDriverV1ReadinessResponse(input) {
     calls.push({ kind: "readiness", ...input });
@@ -32,14 +43,20 @@ const dependencies = {
 };
 
 await expectRoute("/api/driver/delivery-tasks?status=%E9%85%8D%E9%80%81%E4%B8%AD", [
-  { kind: "list", response: dependencies.response, workspace: dependencies.workspace, searchParams: "配送中", operatorId: "U-RESOLVED" },
+  { kind: "list", workspace, query: "配送中", operatorId: "U-RESOLVED" },
+  { kind: "json", response: dependencies.response, status: 200, body: { items: [{ fulfillmentId: "F-1" }] } },
 ]);
 await expectRoute("/api/driver/v1-readiness", [
   { kind: "readiness", workspace: dependencies.workspace, operatorId: "U-RESOLVED" },
   { kind: "json", response: dependencies.response, status: 200, body: { status: "blocked" } },
 ]);
 await expectRoute("/api/driver/delivery-tasks/F%2F1", [
-  { kind: "detail", response: dependencies.response, workspace: dependencies.workspace, fulfillmentId: "F/1", operatorId: "U-RESOLVED" },
+  { kind: "detail", workspace, fulfillmentId: "F/1", operatorId: "U-RESOLVED" },
+  { kind: "json", response: dependencies.response, status: 200, body: { task: { fulfillmentId: "F/1" } } },
+]);
+await expectRoute("/api/driver/delivery-tasks/MISSING", [
+  { kind: "detail", workspace, fulfillmentId: "MISSING", operatorId: "U-RESOLVED" },
+  { kind: "notFound", response: dependencies.response, code: "DRIVER_DELIVERY_TASK_NOT_FOUND" },
 ]);
 
 calls.length = 0;
@@ -57,7 +74,11 @@ assert.equal(
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleDriverReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/driver/delivery-tasks/F-1/complete") }), false);
 
-console.log("driver read routes checks passed");
+const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
+assert.doesNotMatch(apiSource, /async function (list|get)DriverDeliveryTask[s]?Route\b/);
+assert.match(apiSource, /handleDriverReadRoutes\([\s\S]*sendJson,[\s\S]*sendNotFound,[\s\S]*getDriverV1ReadinessResponse,/);
+
+console.log("driver read routes checks passed: list/detail/readiness permissions, repository mapping, 404, and thin API wiring are covered");
 
 async function expectRoute(pathname, expectedCalls) {
   calls.length = 0;
@@ -77,7 +98,7 @@ async function expectRoute(pathname, expectedCalls) {
     fallback: "U-DRIVER-A",
   });
   const normalizedCalls = calls.map((call) =>
-    call.kind === "list" ? { ...call, searchParams: call.searchParams.get("status") } : call,
+    call.kind === "list" ? { ...call, query: call.query.get("status") } : call,
   );
   assert.deepEqual(normalizedCalls, expectedCalls);
 }

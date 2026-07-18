@@ -45,6 +45,8 @@ assert.equal(ready.body.driverOperatorId, "U-EXPLICIT-DRIVER");
 assert.equal(ready.body.summary.readinessLabel, "6/6");
 assert.equal(ready.body.summary.packageLabelScanMatched, true);
 assert.equal(ready.body.summary.packageLabelScanNative, true);
+assert.equal(ready.body.summary.onsiteAcceptancePassed, true);
+assert.equal(ready.body.latestFieldTest.acceptanceStatusLabel, "现场验收已通过");
 
 const error = await precheckV1DriverReadiness({
   workspace: {},
@@ -100,6 +102,12 @@ function buildReadiness({ ready }) {
       location: "LOCATION-SECRET",
     },
     latestFieldTestSummary: { label: "6/6 通过", checks: ["SECRET-CHECK"] },
+    latestFieldTestAcceptance: {
+      ready,
+      statusLabel: ready ? "现场验收已通过" : "现场验收未通过",
+      packageIdsMatch: ready,
+      packageBelongsToTask: ready,
+    },
     nativeBridgeDiagnostics: {
       label: "2/2 可用",
       supportedCount: 2,

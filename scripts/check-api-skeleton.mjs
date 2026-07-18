@@ -1,14 +1,26 @@
 import { createApiServer } from "../server/apiServer.mjs";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { assertStatementXlsxWorkbook } from "./xlsxTestUtils.mjs";
+import { checkPositivePrintDriverReadiness } from "./helpers/apiSkeletonPrintReadinessScenario.mjs";
+import {
+  closeTestServer as close,
+  getBinary,
+  getJson,
+  getText,
+  listenTestServer as listen,
+  patchJson,
+  postJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "api-skeleton");
 const printCommandBridgeScript = join(process.cwd(), "scripts", "print-command-bridge.mjs");
 const fakeCupsStatusScript = join(process.cwd(), "scripts", "fake-cups-lpstat.mjs");
 rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
+process.env.ERP_E2E_BUSINESS_DECISION_FIXTURES = "true";
+process.env.ERP_E2E_WAREHOUSE_EMPLOYEE_ID = "E2E-WAREHOUSE-001";
 delete process.env.ERP_PRINT_DRIVER_DRY_RUN;
 delete process.env.ERP_SYSTEM_PRINTER_ENABLED;
 delete process.env.ERP_SYSTEM_PRINTER_ADAPTER;
@@ -17,9 +29,8 @@ delete process.env.ERP_SYSTEM_PRINTER_COMMAND_ARGS_JSON;
 delete process.env.ERP_SYSTEM_PRINTER_COMMAND_TIMEOUT_MS;
 delete process.env.ERP_SYSTEM_PRINTER_ALLOWLIST;
 
-let server = createApiServer();
+let server = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
 let restartedServer = null;
-let readinessServer = null;
 
 try {
   await listen(server);
@@ -202,16 +213,31 @@ try {
     ["/api/order-lines?pageSize=2", (json) => json.items?.length === 2 && json.total >= 30],
     ["/api/inventory/items?pageSize=3", (json) => json.items?.length === 3 && json.total >= 10],
     [
-      "/api/fulfillments?method=快递快运",
+      "/api/fulfillments?method=express_ltl",
       (json) =>
         json.items?.length >= 1 &&
         Boolean(json.items?.[0]?.fulfillmentId) &&
         Boolean(json.items?.[0]?.customerId) &&
         Boolean(json.items?.[0]?.orderLineId) &&
+        json.items?.[0]?.method === "express_ltl" &&
+        json.items?.[0]?.methodLabel === "快递快运" &&
         typeof json.items?.[0]?.packageCount === "number",
     ],
     ["/api/statements/customers", (json) => json.items?.length >= 6],
     ["/api/todos?status=open", (json) => json.items?.length >= 8],
+    [
+      "/api/todos?status=all&priority=exception&pageSize=200",
+      (json) =>
+        json.items?.length >= 1 &&
+        json.items.every(
+          (item) =>
+            item.priority === "exception" &&
+            Number.isInteger(item.printedLabelCount) &&
+            Number.isInteger(item.pendingLabelCount) &&
+            Number.isInteger(item.totalLabelCount) &&
+            Boolean(item.createdAt),
+        ),
+    ],
     ["/api/permissions/effective", (json) => json.user?.userId === "U-OFFICE-A" && json.actionPermissions?.length > 0],
   ];
 
@@ -220,6 +246,67 @@ try {
     if (!assert(json)) {
       throw new Error(`${route} returned an unexpected payload`);
     }
+  }
+
+  for (const decisionScope of ["production_schedule", "statement_variance", "statement_write_off"]) {
+    const createdAuthorization = await postJson(
+      baseUrl,
+      "/api/business-decision-authorizations",
+      {
+        idempotencyKey: `api-skeleton-authorization-${decisionScope}`,
+        employeeId: "E2E-DM-MOTHER",
+        decisionScope,
+        maxAmount: null,
+        activeFrom: "2020-01-01T00:00:00.000Z",
+        activeTo: "",
+        authorizationNote: "API skeleton 管理账号显式授权",
+        createdBy: "U-SPOOFED",
+      },
+      { expectedStatus: 201, headers: { "x-erp-user-id": "U-MANAGER-A" } },
+    );
+    if (
+      createdAuthorization.authorization?.employeeId !== "E2E-DM-MOTHER" ||
+      createdAuthorization.authorization?.decisionScope !== decisionScope ||
+      createdAuthorization.authorization?.createdBy !== "U-MANAGER-A"
+    ) {
+      throw new Error(`/api/business-decision-authorizations did not create ${decisionScope} through the authenticated manager`);
+    }
+  }
+  const effectiveProductionAuthorizations = await getJson(
+    baseUrl,
+    "/api/business-decision-authorizations?scope=production_schedule&effectiveOnly=true",
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (!effectiveProductionAuthorizations.items?.some((item) => item.employeeId === "E2E-DM-MOTHER" && item.isEffective === true)) {
+    throw new Error("/api/business-decision-authorizations did not expose the manager-created effective authorization to office");
+  }
+
+  const referenceRepairQueue = await getJson(baseUrl, "/api/todos?status=open&pageSize=200");
+  if (referenceRepairQueue.items?.some((item) => item.referenceStatus !== "valid")) {
+    throw new Error("/api/todos default seed should not expose missing or unverifiable business references");
+  }
+  const initialTodoReferences = new Map(referenceRepairQueue.items.map((item) => [item.todoId, `${item.refType}:${item.refId}`]));
+  for (const [todoId, expectedReference] of [
+    ["T001", "order_draft:DRAFT-DEMO-001"],
+    ["T003", "fulfillment:F009"],
+    ["T006", "statement:ST-0629-004"],
+  ]) {
+    if (initialTodoReferences.get(todoId) !== expectedReference) {
+      throw new Error(`/api/todos ${todoId} did not retain its explicit business reference`);
+    }
+  }
+  const initialDraftQueue = await getJson(baseUrl, "/api/order-drafts?draftId=DRAFT-DEMO-001&pageSize=1");
+  if (initialDraftQueue.items?.[0]?.id !== "DRAFT-DEMO-001" || initialDraftQueue.items[0].lines?.length !== 2) {
+    throw new Error("/api/order-drafts did not retain the traceable default demo draft on local cold start");
+  }
+  const validReferenceRepair = await postJson(
+    baseUrl,
+    "/api/todos/T001/reference",
+    { refType: "order_draft", refId: "DRAFT-DEMO-001", reason: "有效引用不应重复修复" },
+    { expectedStatus: 409, headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (validReferenceRepair.code !== "TODO_REFERENCE_STILL_VALID") {
+    throw new Error("/api/todos/{todoId}/reference did not reject a repair attempt for an already-valid reference");
   }
 
   const defaultDriverReadiness = await getJson(baseUrl, "/api/driver/v1-readiness", {
@@ -268,7 +355,11 @@ try {
   if (deniedPrintDriverReadiness.requiredPermission !== "fulfillment.print") {
     throw new Error("/api/print-driver/v1-readiness should deny users without print permission");
   }
-  await checkPositivePrintDriverReadiness();
+  await checkPositivePrintDriverReadiness({
+    storageRoot: checkStorageRoot,
+    printCommandBridgeScript,
+    fakeCupsStatusScript,
+  });
 
   const firstOrderLineList = await getJson(baseUrl, "/api/order-lines?pageSize=1");
   const firstOrderLineId = firstOrderLineList.items?.[0]?.id;
@@ -736,6 +827,8 @@ try {
     savedDraft.draft?.status !== "待补充信息" ||
     savedDraft.draft?.clientRevision !== recognition.draft.clientRevision + 1 ||
     savedDraft.todos?.[0]?.type !== "订单草稿待确认" ||
+    savedDraft.todos?.[0]?.refType !== "order_draft" ||
+    savedDraft.todos?.[0]?.refId !== recognition.draft.draftId ||
     !savedDraft.operationLogId
   ) {
     throw new Error("/api/order-drafts/{draftId} did not save draft state, todo, and operation log");
@@ -992,6 +1085,7 @@ try {
   }
   const scheduleProductionTaskId = "PT-ORD-0629-016-01";
   const scheduleOrderLineId = "ORD-0629-016-01";
+  const scheduleTaskBeforePublish = await getJson(baseUrl, `/api/production-tasks/${scheduleProductionTaskId}`);
   const deniedWarehouseSchedulePublish = await postJson(
     baseUrl,
     `/api/production-tasks/${scheduleProductionTaskId}/publish-schedule`,
@@ -1033,6 +1127,14 @@ try {
     plannedQty: 1800,
     machineId: "BAG-01",
     processType: "制袋",
+    expectedRevision: Math.max(1, Number(scheduleTaskBeforePublish.productionTask?.revision ?? 1) || 1),
+    delegatedDecision: {
+      decisionMakerEmployeeId: "E2E-DM-MOTHER",
+      decisionChannel: "wechat",
+      decidedAt: new Date().toISOString(),
+      decisionContent: { summary: "API skeleton 排产发布确认" },
+      authorizationBasis: "自动化隔离夹具授权",
+    },
     operatorId: "U-SPOOFED",
     publishedAt: new Date().toISOString(),
     remark: "API skeleton schedule publish check",
@@ -1122,12 +1224,24 @@ try {
     throw new Error("/api/production-schedules/machine-queue did not have enough BAG-01 tasks for resequence coverage");
   }
   const reversedBag01QueueOrder = [...bag01QueueOrder].reverse();
+  const affectedQueueRevisions = machineQueueAfterSchedulePublish.items
+    ?.filter((item) => item.machineId === "BAG-01")
+    .map((item) => ({ productionTaskId: item.productionTaskId, revision: item.revision })) ?? [];
   const resequencedQueue = await postJson(
     baseUrl,
     "/api/production-schedules/machine-queue/resequence",
     {
       machineId: "BAG-01",
       orderedProductionTaskIds: reversedBag01QueueOrder,
+      affectedRevisions: affectedQueueRevisions,
+      expectedRevision: affectedQueueRevisions.reduce((sum, item) => sum + Number(item.revision ?? 0), 0),
+      delegatedDecision: {
+        decisionMakerEmployeeId: "E2E-DM-MOTHER",
+        decisionChannel: "wechat",
+        decidedAt: new Date().toISOString(),
+        decisionContent: { summary: "API skeleton 机台队列调序确认" },
+        authorizationBasis: "自动化隔离夹具授权",
+      },
       operatorId: "U-SPOOFED",
       remark: "API skeleton queue resequence check",
     },
@@ -1186,6 +1300,7 @@ try {
     throw new Error("/api/production-schedules/machine-queue/move did not deny the warehouse seed user");
   }
   const movedProductionTaskId = reversedBag01QueueOrder[0];
+  const movedTaskBefore = await getJson(baseUrl, `/api/production-tasks/${movedProductionTaskId}`);
   const movedQueue = await postJson(
     baseUrl,
     "/api/production-schedules/machine-queue/move",
@@ -1193,6 +1308,14 @@ try {
       productionTaskId: movedProductionTaskId,
       targetMachineId: "BAG-02",
       targetQueueSeq: 1,
+      expectedRevision: Math.max(1, Number(movedTaskBefore.productionTask?.revision ?? 1) || 1),
+      delegatedDecision: {
+        decisionMakerEmployeeId: "E2E-DM-MOTHER",
+        decisionChannel: "wechat",
+        decidedAt: new Date().toISOString(),
+        decisionContent: { summary: "API skeleton 跨机台排产调整确认" },
+        authorizationBasis: "自动化隔离夹具授权",
+      },
       operatorId: "U-SPOOFED",
       remark: "API skeleton machine move check",
     },
@@ -1283,6 +1406,26 @@ try {
   ) {
     throw new Error("/api/production-tasks/{id}/daily-progress did not deny the warehouse seed user");
   }
+  const deniedWarehouseProductionException = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception",
+    {
+      orderLineId: "ORD-0629-003-01",
+      exceptionType: "机器问题",
+      continuationMode: "继续生产",
+      operatorId: "U-WAREHOUSE-A",
+    },
+    {
+      expectedStatus: 403,
+      headers: { "x-erp-user-id": "U-WAREHOUSE-A" },
+    },
+  );
+  if (
+    deniedWarehouseProductionException.code !== "PERMISSION_DENIED" ||
+    deniedWarehouseProductionException.requiredPermission !== "production.report.complete"
+  ) {
+    throw new Error("/api/production-tasks/{id}/exception did not deny the warehouse seed user");
+  }
   const dailyProgressTaskBefore = await getJson(
     baseUrl,
     "/api/production-tasks/PT-ORD-0629-003-01",
@@ -1333,6 +1476,138 @@ try {
     productionInventoryAfterDailyProgress.items?.[0]?.reserved !== productionInventoryBeforeItem.reserved
   ) {
     throw new Error("/api/production-tasks/{id}/daily-progress must not add finished goods or reserve inventory");
+  }
+  const productionExceptionBody = {
+    orderLineId: "ORD-0629-003-01",
+    exceptionType: "机器问题",
+    continuationMode: "暂停等确认",
+    estimatedLossQty: 6,
+    affectsDelivery: true,
+    operatorId: "U-SPOOFED",
+    occurredAt: new Date().toISOString(),
+    remark: "API skeleton production exception check",
+    idempotencyKey: "production-exception-api-skeleton-001",
+  };
+  const productionException = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception",
+    productionExceptionBody,
+  );
+  const replayedProductionException = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception",
+    productionExceptionBody,
+  );
+  if (
+    productionException.exceptionType !== "机器问题" ||
+    productionException.continuationMode !== "暂停等确认" ||
+    productionException.inventoryCreated !== false ||
+    productionException.reservationCreated !== false ||
+    productionException.packingTaskCreated !== false ||
+    productionException.statementUpdated !== false ||
+    !productionException.productionExceptionId ||
+    !productionException.todoId ||
+    !productionException.operationLogId ||
+    replayedProductionException.productionExceptionId !== productionException.productionExceptionId ||
+    replayedProductionException.operationLogId !== productionException.operationLogId
+  ) {
+    throw new Error("/api/production-tasks/{id}/exception returned an unexpected payload or failed idempotency replay");
+  }
+  const productionInventoryAfterException = await getJson(
+    baseUrl,
+    `/api/inventory/items?keyword=${encodeURIComponent(productionInventoryItemId)}&pageSize=1`,
+  );
+  if (
+    productionInventoryAfterException.items?.[0]?.inStock !== productionInventoryBeforeItem.inStock ||
+    productionInventoryAfterException.items?.[0]?.reserved !== productionInventoryBeforeItem.reserved
+  ) {
+    throw new Error("/api/production-tasks/{id}/exception must not change finished goods or inventory reservations");
+  }
+  const deniedWarehouseProductionExceptionResolution = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception-resolution",
+    {
+      productionExceptionId: productionException.productionExceptionId,
+      resolutionCode: "继续生产",
+      resolutionNote: "仓库无权恢复生产",
+      resolutionConfirmed: true,
+    },
+    {
+      expectedStatus: 403,
+      headers: { "x-erp-user-id": "U-WAREHOUSE-A" },
+    },
+  );
+  if (
+    deniedWarehouseProductionExceptionResolution.code !== "PERMISSION_DENIED" ||
+    deniedWarehouseProductionExceptionResolution.requiredPermission !== "production.exception.resolve"
+  ) {
+    throw new Error("/api/production-tasks/{id}/exception-resolution did not deny the warehouse seed user");
+  }
+  const missingProductionExceptionResolutionConfirmation = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception-resolution",
+    {
+      productionExceptionId: productionException.productionExceptionId,
+      resolutionCode: "继续生产",
+      resolutionNote: "主管确认机器已调整",
+    },
+    { expectedStatus: 422, headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (missingProductionExceptionResolutionConfirmation.code !== "PRODUCTION_EXCEPTION_RESOLUTION_CONFIRMATION_REQUIRED") {
+    throw new Error("/api/production-tasks/{id}/exception-resolution accepted a missing final confirmation marker");
+  }
+  const blockedProductionCompletionAfterException = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/report-complete",
+    { orderLineId: "ORD-0629-003-01", qualifiedQty: 1000, inventoryItemId: productionInventoryItemId },
+    { expectedStatus: 409, headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (blockedProductionCompletionAfterException.code !== "PRODUCTION_TASK_EXCEPTION_PAUSED") {
+    throw new Error("/api/production-tasks/{id}/report-complete did not block a paused exception task");
+  }
+  const productionExceptionResolutionBody = {
+    productionExceptionId: productionException.productionExceptionId,
+    resolutionCode: "继续生产",
+    resolutionNote: "主管确认机器已调整",
+    resolutionConfirmed: true,
+    idempotencyKey: "production-exception-resolution-api-skeleton-001",
+  };
+  const productionExceptionResolution = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception-resolution",
+    productionExceptionResolutionBody,
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  const replayedProductionExceptionResolution = await postJson(
+    baseUrl,
+    "/api/production-tasks/PT-ORD-0629-003-01/exception-resolution",
+    productionExceptionResolutionBody,
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (
+    productionExceptionResolution.exceptionStatus !== "已恢复生产" ||
+    productionExceptionResolution.resolutionCode !== "继续生产" ||
+    productionExceptionResolution.taskStatus !== "跨日继续" ||
+    productionExceptionResolution.todoStatus !== "已处理" ||
+    productionExceptionResolution.inventoryCreated !== false ||
+    productionExceptionResolution.reservationCreated !== false ||
+    productionExceptionResolution.packingTaskCreated !== false ||
+    productionExceptionResolution.statementUpdated !== false ||
+    !productionExceptionResolution.resolvedAt ||
+    productionExceptionResolution.resolvedBy !== "U-OFFICE-A" ||
+    replayedProductionExceptionResolution.operationLogId !== productionExceptionResolution.operationLogId
+  ) {
+    throw new Error("/api/production-tasks/{id}/exception-resolution returned an unexpected payload or failed idempotency replay");
+  }
+  const productionInventoryAfterExceptionResolution = await getJson(
+    baseUrl,
+    `/api/inventory/items?keyword=${encodeURIComponent(productionInventoryItemId)}&pageSize=1`,
+  );
+  if (
+    productionInventoryAfterExceptionResolution.items?.[0]?.inStock !== productionInventoryBeforeItem.inStock ||
+    productionInventoryAfterExceptionResolution.items?.[0]?.reserved !== productionInventoryBeforeItem.reserved
+  ) {
+    throw new Error("/api/production-tasks/{id}/exception-resolution must not change finished goods or inventory reservations");
   }
   const deniedWarehouseFinishedPhotoUpload = await postJson(
     baseUrl,
@@ -1507,6 +1782,8 @@ try {
   if (
     finishedGoodsNotificationTodos.total < 1 ||
     !finishedGoodsNotificationTodo ||
+    finishedGoodsNotificationTodo.refType !== "order_line" ||
+    finishedGoodsNotificationTodo.referenceStatus !== "valid" ||
     !finishedGoodsNotificationTodo.notificationCopyText ||
     !finishedGoodsNotificationTodo.photoPrompt
   ) {
@@ -1694,9 +1971,10 @@ try {
     packingComplete.orderLineStatus !== "待打印标签" ||
     packingComplete.inventoryDeducted !== false ||
     packingComplete.inventoryLedgerIds?.length !== 1 ||
+    !packingComplete.todoId ||
     !packingComplete.operationLogId
   ) {
-    throw new Error("/api/packing-tasks/{id}/complete returned an unexpected payload");
+    throw new Error(`/api/packing-tasks/{id}/complete returned an unexpected payload: ${JSON.stringify(packingComplete)}`);
   }
   const productionInventoryAfterPacking = await getJson(
     baseUrl,
@@ -1708,11 +1986,90 @@ try {
   ) {
     throw new Error("/api/packing-tasks/{id}/complete changed inventory even though packing completion must not deduct stock");
   }
+  const packingTodoType = packingComplete.fulfillmentId ? "待打印标签" : "出库交付待补建";
+  const packingTodoRefType = packingComplete.fulfillmentId ? "fulfillment" : "order_line";
+  const packingTodoRefId = packingComplete.fulfillmentId || packingComplete.orderLineId;
+  const packingTodos = await getJson(
+    baseUrl,
+    `/api/todos?status=open&type=${encodeURIComponent(packingTodoType)}&keyword=${encodeURIComponent(packingTodoRefId)}`,
+  );
+  const packingTodo = packingTodos.items?.find((item) => item.todoId === packingComplete.todoId);
+  if (
+    packingTodo?.refType !== packingTodoRefType ||
+    packingTodo?.refId !== packingTodoRefId ||
+    packingTodo?.referenceStatus !== "valid"
+  ) {
+    throw new Error("Packing completion did not persist a valid label or fulfillment-remediation todo");
+  }
+  if (packingComplete.fulfillmentId || packingTodo.type !== "出库交付待补建") {
+    throw new Error("API skeleton scenario did not reach the missing-fulfillment remediation path");
+  }
+  const deniedDriverFulfillmentRepair = await postJson(
+    baseUrl,
+    `/api/todos/${packingTodo.todoId}/fulfillment-repair`,
+    {
+      reason: "司机无权补建出库交付",
+      idempotencyKey: "api-skeleton-fulfillment-repair-denied",
+    },
+    { expectedStatus: 403, headers: { "x-erp-user-id": "U-DRIVER-A" } },
+  );
+  if (
+    deniedDriverFulfillmentRepair.code !== "PERMISSION_DENIED" ||
+    deniedDriverFulfillmentRepair.requiredPermission !== "todo.handle"
+  ) {
+    throw new Error("/api/todos/{id}/fulfillment-repair did not enforce todo.handle permission");
+  }
+  const fulfillmentRepairBody = {
+    reason: "办公室根据已完成打包记录和包裹明细补建出库交付",
+    idempotencyKey: "api-skeleton-fulfillment-repair-001",
+  };
+  const fulfillmentRepair = await postJson(
+    baseUrl,
+    `/api/todos/${packingTodo.todoId}/fulfillment-repair`,
+    fulfillmentRepairBody,
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (
+    fulfillmentRepair.todo?.handled !== true ||
+    fulfillmentRepair.labelTodo?.type !== "待打印标签" ||
+    fulfillmentRepair.labelTodo?.refId !== fulfillmentRepair.fulfillment?.fulfillmentId ||
+    fulfillmentRepair.fulfillment?.status !== "待打印标签" ||
+    fulfillmentRepair.fulfillment?.actualQty !== 1000 ||
+    fulfillmentRepair.fulfillment?.packageCount !== 3 ||
+    fulfillmentRepair.packageIds?.length !== 3 ||
+    !fulfillmentRepair.operationLogId
+  ) {
+    throw new Error(`/api/todos/{id}/fulfillment-repair returned an unexpected payload: ${JSON.stringify(fulfillmentRepair)}`);
+  }
+  const fulfillmentRepairReplay = await postJson(
+    baseUrl,
+    `/api/todos/${packingTodo.todoId}/fulfillment-repair`,
+    fulfillmentRepairBody,
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (
+    fulfillmentRepairReplay.fulfillment?.fulfillmentId !== fulfillmentRepair.fulfillment.fulfillmentId ||
+    fulfillmentRepairReplay.operationLogId !== fulfillmentRepair.operationLogId
+  ) {
+    throw new Error("/api/todos/{id}/fulfillment-repair did not replay the idempotent result");
+  }
+  const repairedLabelTodos = await getJson(
+    baseUrl,
+    `/api/todos?status=open&type=${encodeURIComponent("待打印标签")}&keyword=${encodeURIComponent(fulfillmentRepair.fulfillment.fulfillmentId)}`,
+  );
+  if (
+    !repairedLabelTodos.items?.some(
+      (item) => item.todoId === fulfillmentRepair.labelTodo.todoId && item.referenceStatus === "valid",
+    )
+  ) {
+    throw new Error("Fulfillment repair did not persist a valid open label todo");
+  }
   const packingTaskDetail = await getJson(baseUrl, `/api/packing-tasks/${packingComplete.packingTaskId}`);
   if (
     packingTaskDetail.packingTaskId !== packingComplete.packingTaskId ||
     packingTaskDetail.packingTask?.status !== "已完成" ||
     packingTaskDetail.packages?.length !== 3 ||
+    !packingTaskDetail.packages.every((item) => item.fulfillmentId === fulfillmentRepair.fulfillment.fulfillmentId) ||
     !packingTaskDetail.packages.every((item) => item.createdBy === "U-WAREHOUSE-A") ||
     packingTaskDetail.inventoryDeducted !== false ||
     packingTaskDetail.inventoryLedgerEntries?.length !== 1 ||
@@ -1738,10 +2095,34 @@ try {
     throw new Error("/api/packing-tasks did not return the packing task list item after packing completion");
   }
 
-  const expressFulfillmentList = await getJson(baseUrl, "/api/fulfillments?method=快递快运&pageSize=1");
-  const expressFulfillmentId = expressFulfillmentList.items?.[0]?.fulfillmentId;
-  if (!expressFulfillmentId || !expressFulfillmentList.metrics) {
+  const expressFulfillmentList = await getJson(baseUrl, "/api/fulfillments?method=express_ltl&pageSize=200");
+  const expressFulfillment = expressFulfillmentList.items?.find(
+    (item) => item.fulfillmentId === fulfillmentRepair.fulfillment.fulfillmentId,
+  ) ?? expressFulfillmentList.items?.find((item) => Number(item.packageCount ?? 0) > 0);
+  const expressFulfillmentId = expressFulfillment?.fulfillmentId;
+  if (
+    !expressFulfillmentId ||
+    !expressFulfillmentList.metrics ||
+    expressFulfillment.method !== "express_ltl" ||
+    expressFulfillment.methodLabel !== "快递快运" ||
+    typeof expressFulfillment.expectedQty !== "number" ||
+    !expressFulfillment.goodsSpec
+  ) {
     throw new Error("/api/fulfillments did not return OpenAPI-shaped list items and metrics");
+  }
+  const expressFulfillmentDetail = await getJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}`);
+  if (
+    expressFulfillmentDetail.fulfillmentId !== expressFulfillment.fulfillmentId ||
+    expressFulfillmentDetail.orderLineId !== expressFulfillment.orderLineId ||
+    expressFulfillmentDetail.method !== expressFulfillment.method ||
+    expressFulfillmentDetail.methodLabel !== expressFulfillment.methodLabel ||
+    expressFulfillmentDetail.expectedQty !== expressFulfillment.expectedQty ||
+    expressFulfillmentDetail.actualQty !== expressFulfillment.actualQty ||
+    "id" in expressFulfillmentDetail ||
+    "lineId" in expressFulfillmentDetail ||
+    "qty" in expressFulfillmentDetail
+  ) {
+    throw new Error("/api/fulfillments/{fulfillmentId} did not reuse the authoritative list projection");
   }
 
   const defaultPrintDevices = await getJson(baseUrl, "/api/print-devices?documentType=express_ltl_label");
@@ -2131,18 +2512,22 @@ try {
     operationLogId: retryPrintJob.operationLogId,
   });
 
+  const fulfillmentBeforeBlockedPickup = await getJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}`);
   const pickupBeforePhysicalPrint = await postJson(
     baseUrl,
     `/api/fulfillments/${expressFulfillmentId}/pickup-confirm`,
     {
       fulfillmentId: expressFulfillmentId,
+      expectedRevision: fulfillmentBeforeBlockedPickup.revision,
+      confirmedFinalDelivery: true,
+      idempotencyKey: "api-skeleton-express-before-paper",
       pickedAt: new Date().toISOString(),
       operatorId: "U-OFFICE-A",
     },
     { expectedStatus: 409 },
   );
-  if (pickupBeforePhysicalPrint.code !== "FULFILLMENT_PRINT_NOT_CONFIRMED") {
-    throw new Error("express/LTL pickup should remain blocked before trusted printed status");
+  if (pickupBeforePhysicalPrint.code !== "FULFILLMENT_PHYSICAL_OUTBOUND_REQUIRED") {
+    throw new Error("express/LTL pickup should require the paper handoff and warehouse execution flow");
   }
 
   const physicalPrintFulfillment = await postJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}/print`, {
@@ -2177,8 +2562,8 @@ try {
   if (
     physicalPrintCallback.printJob?.jobStatus !== "printed" ||
     physicalPrintCallback.printRecord?.status !== "printed" ||
-    physicalPrintCallback.fulfillment?.status !== "待确认拉走" ||
-    physicalPrintCallback.fulfillment?.printed !== true ||
+    physicalPrintCallback.fulfillment?.status !== "待打印出库单" ||
+    physicalPrintCallback.fulfillment?.printed !== false ||
     physicalPrintCallback.physicalPrintConfirmed !== true ||
     !physicalPrintCallback.fulfillmentOperationLogId
   ) {
@@ -2256,19 +2641,23 @@ try {
     throw new Error("trusted reprint callback did not mark the reprint record completed");
   }
 
-  const pickupFulfillment = await postJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}/pickup-confirm`, {
-    fulfillmentId: expressFulfillmentId,
-    pickedAt: new Date().toISOString(),
-    operatorId: "U-SPOOFED",
-  });
-  if (pickupFulfillment.statementCandidate !== true || !pickupFulfillment.operationLogId) {
-    throw new Error("/api/fulfillments/{fulfillmentId}/pickup-confirm returned an unexpected payload");
+  const fulfillmentBeforePickup = await getJson(baseUrl, `/api/fulfillments/${expressFulfillmentId}`);
+  const pickupFulfillment = await postJson(
+    baseUrl,
+    `/api/fulfillments/${expressFulfillmentId}/pickup-confirm`,
+    {
+      fulfillmentId: expressFulfillmentId,
+      expectedRevision: fulfillmentBeforePickup.revision,
+      confirmedFinalDelivery: true,
+      idempotencyKey: "api-skeleton-express-before-handoff",
+      pickedAt: new Date().toISOString(),
+      operatorId: "U-SPOOFED",
+    },
+    { expectedStatus: 409 },
+  );
+  if (pickupFulfillment.code !== "FULFILLMENT_PHYSICAL_OUTBOUND_REQUIRED") {
+    throw new Error("/api/fulfillments/{fulfillmentId}/pickup-confirm bypassed the paper-led outbound boundary");
   }
-  await assertOperationLogOperator(baseUrl, {
-    targetType: "fulfillment",
-    targetId: expressFulfillmentId,
-    operationLogId: pickupFulfillment.operationLogId,
-  });
 
   const deliveryFulfillmentList = await getJson(baseUrl, "/api/fulfillments?method=送货&pageSize=1");
   const deliveryFulfillment = deliveryFulfillmentList.items?.[0];
@@ -2410,29 +2799,27 @@ try {
     throw new Error("delivery-note reprint callback did not complete its print record");
   }
 
-  const completeFulfillment = await postJson(baseUrl, `/api/fulfillments/${deliveryFulfillment.fulfillmentId}/complete`, {
-    fulfillmentId: deliveryFulfillment.fulfillmentId,
-    actualQty: deliveryFulfillment.expectedQty,
-    handoverEvidence: [],
-    operatorId: "U-OFFICE-A",
-    completedAt: new Date().toISOString(),
-    remark: "API skeleton complete check",
-    allowUnreservedInventoryDeduction: true,
-  });
-  if (
-    completeFulfillment.status !== "已交付" ||
-    completeFulfillment.statementCandidate !== true ||
-    completeFulfillment.inventoryDeductionMode !== "legacy_reserved_stock_match" ||
-    completeFulfillment.inventoryLedgerIds?.length !== 1 ||
-    !completeFulfillment.operationLogId
-  ) {
-    throw new Error("/api/fulfillments/{fulfillmentId}/complete returned an unexpected payload");
+  const deliveryBeforeBlockedComplete = await getJson(baseUrl, `/api/fulfillments/${deliveryFulfillment.fulfillmentId}`);
+  const completeFulfillment = await postJson(
+    baseUrl,
+    `/api/fulfillments/${deliveryFulfillment.fulfillmentId}/complete`,
+    {
+      fulfillmentId: deliveryFulfillment.fulfillmentId,
+      expectedRevision: deliveryBeforeBlockedComplete.revision,
+      confirmedFinalDelivery: true,
+      idempotencyKey: "api-skeleton-delivery-final-blocked",
+      actualQty: deliveryFulfillment.expectedQty,
+      handoverEvidence: [],
+      operatorId: "U-OFFICE-A",
+      completedAt: new Date().toISOString(),
+      remark: "API skeleton complete check",
+      allowUnreservedInventoryDeduction: true,
+    },
+    { expectedStatus: 409 },
+  );
+  if (completeFulfillment.code !== "FULFILLMENT_DRIVER_DELIVERY_REQUIRED") {
+    throw new Error("/api/fulfillments/{fulfillmentId}/complete bypassed the paper-led outbound boundary");
   }
-  await assertOperationLogOperator(baseUrl, {
-    targetType: "fulfillment",
-    targetId: deliveryFulfillment.fulfillmentId,
-    operationLogId: completeFulfillment.operationLogId,
-  });
 
   const deniedWarehouseDriverTasks = await getJson(baseUrl, "/api/driver/delivery-tasks", {
     expectedStatus: 403,
@@ -2544,6 +2931,77 @@ try {
     throw new Error("/api/fulfillments/{fulfillmentId}/dispatch returned an unexpected payload");
   }
 
+  const driverOutboundPrint = await postJson(
+    baseUrl,
+    `/api/fulfillments/${driverPendingTask.fulfillmentId}/print`,
+    {
+      templateId: "tpl-p0-delivery-note",
+      documentType: "delivery_note",
+      printDeviceId: "PRN-DOT-A",
+      printAction: "first_print",
+      operatorId: "U-SPOOFED",
+    },
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  const driverOutboundPrintCallback = await postJson(
+    baseUrl,
+    `/api/print-jobs/${driverOutboundPrint.printJob.printJobId}/driver-status`,
+    {
+      status: "printed",
+      adapterName: "api-check-dot-matrix",
+      eventSource: "driver_callback",
+      driverStatus: "completed",
+      eventAt: "2026-07-02T08:40:00.000Z",
+      operatorId: "PRINT-DRIVER",
+    },
+    { headers: { "x-erp-user-id": "U-PRINT-DRIVER-A" } },
+  );
+  if (driverOutboundPrintCallback.printRecord?.status !== "printed") {
+    throw new Error("driver fulfillment paper outbound print did not reach trusted printed status");
+  }
+  const driverPaperReady = await getJson(baseUrl, `/api/fulfillments/${driverPendingTask.fulfillmentId}`);
+  const driverPaperDocument = driverPaperReady.paperOutboundDocument;
+  const driverPaperHandoff = await postJson(
+    baseUrl,
+    `/api/fulfillments/${driverPendingTask.fulfillmentId}/paper-handoff`,
+    {
+      expectedRevision: driverPaperReady.revision,
+      paperOutboundDocumentId: driverPaperDocument?.paperOutboundDocumentId,
+      paperDocumentVersion: driverPaperDocument?.documentVersion,
+      paperDocumentRevision: driverPaperDocument?.revision,
+      note: "API skeleton 纸单交库房",
+    },
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (driverPaperHandoff.paperOutboundDocument?.status !== "已交库房") {
+    throw new Error("driver fulfillment paper outbound document was not handed to warehouse");
+  }
+  const driverBeforeWarehouseExecution = await getJson(
+    baseUrl,
+    `/api/fulfillments/${driverPendingTask.fulfillmentId}`,
+  );
+  const handedDriverPaperDocument = driverBeforeWarehouseExecution.paperOutboundDocument;
+  const driverWarehouseExecution = await postJson(
+    baseUrl,
+    `/api/fulfillments/${driverPendingTask.fulfillmentId}/warehouse-execution`,
+    {
+      expectedRevision: driverBeforeWarehouseExecution.revision,
+      paperOutboundDocumentId: handedDriverPaperDocument?.paperOutboundDocumentId,
+      paperDocumentVersion: handedDriverPaperDocument?.documentVersion,
+      paperDocumentRevision: handedDriverPaperDocument?.revision,
+      result: "实物已出库",
+      actualQty: driverPendingTask.expectedQty,
+      physicalExecutorEmployeeId: "E2E-WAREHOUSE-001",
+      feedbackChannel: "纸面",
+      executedAt: "2026-07-02T08:50:00.000Z",
+      note: "库房按纸单完成规格和数量核对",
+    },
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (driverWarehouseExecution.status !== "待司机装车") {
+    throw new Error("driver fulfillment warehouse execution did not reach the loading boundary");
+  }
+
   const driverLoadedAt = "2026-07-02T09:05:00.000Z";
   const driverLoadRemark = `API skeleton driver load check；装车核对：${driverPendingTask.packageChecklist.length}/${driverPendingTask.packageChecklist.length}包`;
   const incompleteDriverLoad = await postJson(
@@ -2611,6 +3069,31 @@ try {
   );
   if (deniedWarehouseDeviceFieldTest.requiredPermission !== "delivery.device_qa.record") {
     throw new Error("/api/driver/delivery-tasks/{id}/device-field-tests should deny non-driver field QA permission");
+  }
+
+  const allPassedWithoutNativeEvidence = await postJson(
+    baseUrl,
+    `/api/driver/delivery-tasks/${driverPendingTask.fulfillmentId}/device-field-tests`,
+    {
+      recordId: `DQA-API-NO-NATIVE-${driverPendingTask.fulfillmentId}`,
+      fulfillmentId: driverPendingTask.fulfillmentId,
+      orderLineId: driverPendingTask.orderLineId,
+      driverId: "U-DRIVER-A",
+      operatorId: "U-DRIVER-A",
+      operatorName: "司机A",
+      checkedAt: "2026-07-02T09:34:00.000Z",
+      deviceLabel: "Android field shell",
+      browserLabel: "ERP Driver Native Shell",
+      checks: ["camera_permission", "watermark_photo", "package_label_scan", "geolocation", "file_upload", "navigation"]
+        .map((key) => ({ key, status: "passed" })),
+    },
+    {
+      expectedStatus: 422,
+      headers: { "x-erp-user-id": "U-DRIVER-A" },
+    },
+  );
+  if (allPassedWithoutNativeEvidence.code !== "DRIVER_DEVICE_FIELD_TEST_ACCEPTANCE_EVIDENCE_REQUIRED") {
+    throw new Error("driver field test should reject 6/6 checks without task-linked native evidence");
   }
 
   const driverDeviceFieldTest = await postJson(
@@ -2698,6 +3181,62 @@ try {
     !driverDeviceFieldTest.operationLogId
   ) {
     throw new Error("/api/driver/delivery-tasks/{id}/device-field-tests returned an unexpected payload");
+  }
+  const acceptedDriverDeviceFieldTest = await postJson(
+    baseUrl,
+    `/api/driver/delivery-tasks/${driverPendingTask.fulfillmentId}/device-field-tests`,
+    {
+      recordId: `DQA-API-ACCEPTED-${driverPendingTask.fulfillmentId}`,
+      fulfillmentId: driverPendingTask.fulfillmentId,
+      orderLineId: driverPendingTask.orderLineId,
+      driverId: "U-DRIVER-A",
+      operatorId: "U-DRIVER-A",
+      operatorName: "司机A",
+      checkedAt: "2026-07-02T09:36:00.000Z",
+      deviceLabel: "Android field shell",
+      browserLabel: "ERP Driver Native Shell",
+      checks: ["camera_permission", "watermark_photo", "package_label_scan", "geolocation", "file_upload", "navigation"]
+        .map((key) => ({ key, status: "passed" })),
+      packageLabelScanSample: {
+        sampleId: `DPLS-API-ACCEPTED-${driverPendingTask.fulfillmentId}`,
+        fulfillmentId: driverPendingTask.fulfillmentId,
+        expectedPackageId: driverPendingTask.packageChecklist[0].packageId,
+        scannedText: driverPendingTask.packageChecklist[0].packageId,
+        matchedPackageId: driverPendingTask.packageChecklist[0].packageId,
+        method: "native_sdk",
+        result: "matched",
+        requestId: `DNPS-20260702093600-${driverPendingTask.fulfillmentId}`,
+        source: "native_sdk",
+        checkedAt: "2026-07-02T09:35:59.000Z",
+      },
+      nativeNavigationSample: {
+        requestId: `DNN-20260702093600-${driverPendingTask.fulfillmentId}`,
+        fulfillmentId: driverPendingTask.fulfillmentId,
+        status: "opened",
+        source: "native_navigation_sdk",
+        mapApp: "高德地图",
+        checkedAt: "2026-07-02T09:35:58.000Z",
+      },
+      nativeBridgeDiagnostics: {
+        items: [
+          { key: "native_package_scan", label: "原生扫码", supported: true, bridgeType: "android_interface", version: "p0-driver-native-bridge-v1" },
+          { key: "native_navigation", label: "原生导航", supported: true, bridgeType: "android_interface", version: "p0-driver-native-navigation-bridge-v1" },
+        ],
+        total: 2,
+        supportedCount: 2,
+        issueCount: 0,
+      },
+    },
+    { headers: { "x-erp-user-id": "U-DRIVER-A" } },
+  );
+  if (
+    acceptedDriverDeviceFieldTest.acceptance?.ready !== true ||
+    acceptedDriverDeviceFieldTest.resultStatus?.recordSaved !== true ||
+    acceptedDriverDeviceFieldTest.resultStatus?.onsiteAcceptancePassed !== true ||
+    acceptedDriverDeviceFieldTest.safeguards?.deliveryStatusChanged !== false ||
+    acceptedDriverDeviceFieldTest.safeguards?.nativeBridgeInvoked !== false
+  ) {
+    throw new Error("driver field test did not separate accepted onsite evidence from the non-delivery save command");
   }
   const driverDeviceFieldTestLogs = await getJson(
     baseUrl,
@@ -3040,6 +3579,18 @@ try {
   if (!fulfillmentException.todoId || fulfillmentException.status !== "数量差异待处理") {
     throw new Error("/api/fulfillments/{fulfillmentId}/exception returned an unexpected payload");
   }
+  const fulfillmentExceptionTodos = await getJson(
+    baseUrl,
+    `/api/todos?status=open&type=${encodeURIComponent("数量差异待处理")}&keyword=${encodeURIComponent(fulfillmentId)}`,
+  );
+  const fulfillmentExceptionTodo = fulfillmentExceptionTodos.items?.find((item) => item.todoId === fulfillmentException.todoId);
+  if (
+    fulfillmentExceptionTodo?.refType !== "fulfillment" ||
+    fulfillmentExceptionTodo?.refId !== fulfillmentId ||
+    fulfillmentExceptionTodo?.referenceStatus !== "valid"
+  ) {
+    throw new Error("Fulfillment exception todo did not persist a valid fulfillment reference");
+  }
   await assertOperationLogOperator(baseUrl, {
     targetType: "fulfillment",
     targetId: fulfillmentId,
@@ -3149,7 +3700,9 @@ try {
     throw new Error("/api/statements/{statementId}/preview did not deny the warehouse seed user");
   }
 
+  const statementBeforeSend = await getJson(baseUrl, `/api/statements/${statementId}`);
   const markedSent = await postJson(baseUrl, `/api/statements/${statementId}/mark-sent`, {
+    expectedRevision: statementBeforeSend.revision,
     channel: "wechat",
     sentTo: "API skeleton check customer",
     sentAt: new Date().toISOString(),
@@ -3163,6 +3716,7 @@ try {
 
   const receiptResult = await postJson(baseUrl, `/api/statements/${statementId}/send-receipt`, {
     sendRecordId: markedSent.sendRecordId,
+    expectedRevision: 1,
     receiptStatus: "read",
     receiptAt: "2026-07-01T11:00:00.000Z",
     operatorId: "U-SPOOFED",
@@ -3292,11 +3846,13 @@ try {
     contentDataUrl: "data:image/png;base64,d3Jvbmctb3duZXI=",
     uploadedBy: "U-SPOOFED",
   });
+  const statementBeforeCustomerConfirmation = await getJson(baseUrl, `/api/statements/${statementId}`);
   const blockedWrongOwnerCustomerConfirmation = await postJson(
     baseUrl,
     `/api/statements/${statementId}/customer-confirmation`,
     {
       sendRecordId: markedSent.sendRecordId,
+      expectedRevision: statementBeforeCustomerConfirmation.revision,
       content: "错误归属附件不应被接受",
       attachmentIds: [wrongOwnerCustomerConfirmationAttachment.attachmentId],
     },
@@ -3308,6 +3864,7 @@ try {
 
   const customerConfirmation = await postJson(baseUrl, `/api/statements/${statementId}/customer-confirmation`, {
     sendRecordId: markedSent.sendRecordId,
+    expectedRevision: statementBeforeCustomerConfirmation.revision,
     confirmationType: "customer_reply",
     channel: "wechat",
     confirmedByCustomer: "API skeleton check customer",
@@ -3383,7 +3940,9 @@ try {
     paymentAttachment.mimeType !== "image/png" ||
     paymentAttachment.hasContent !== true ||
     paymentAttachment.storageProvider !== "local_fs" ||
-    !paymentAttachment.storageKey?.startsWith(`attachments/sha256/${paymentAttachment.contentDigest?.slice(0, 2)}/`) ||
+    paymentAttachment.storageKeyStored !== true ||
+    Object.hasOwn(paymentAttachment, "storageKey") ||
+    Object.hasOwn(paymentAttachment, "thumbnailStorageKey") ||
     !paymentAttachment.contentDigest ||
     !paymentAttachment.url?.endsWith(`/api/attachments/${paymentAttachment.attachmentId}/content`) ||
     paymentAttachment.status !== "uploaded" ||
@@ -3435,11 +3994,13 @@ try {
     },
     { headers: { "x-erp-user-id": "U-FINANCE-A" } },
   );
+  const statementBeforeBlockedPayment = await getJson(baseUrl, `/api/statements/${statementId}`);
   const blockedWrongOwnerPayment = await postJson(
     baseUrl,
     `/api/statements/${statementId}/payments`,
     {
       amount: 1,
+      expectedRevision: statementBeforeBlockedPayment.revision,
       attachmentIds: [wrongOwnerPaymentAttachment.attachmentId],
     },
     {
@@ -3450,7 +4011,22 @@ try {
   if (blockedWrongOwnerPayment.code !== "STATEMENT_PAYMENT_ATTACHMENT_OWNER_MISMATCH") {
     throw new Error("statement payment accepted an attachment owned by another statement");
   }
-  const paymentAttachmentFilePath = join(checkStorageRoot, paymentAttachment.storageKey);
+  const paymentAttachmentRecordPath = join(checkStorageRoot, "metadata", "attachment-records.json");
+  if (!existsSync(paymentAttachmentRecordPath)) {
+    throw new Error("/api/attachments did not persist the attachment record index");
+  }
+  const paymentAttachmentRecords = JSON.parse(readFileSync(paymentAttachmentRecordPath, "utf8"));
+  const persistedPaymentAttachment = paymentAttachmentRecords.attachments?.find(
+    (record) => record.attachmentId === paymentAttachment.attachmentId,
+  );
+  if (
+    !persistedPaymentAttachment?.storageKey?.startsWith(
+      `attachments/sha256/${paymentAttachment.contentDigest?.slice(0, 2)}/`,
+    )
+  ) {
+    throw new Error("/api/attachments did not keep the content-addressed storage key inside server metadata");
+  }
+  const paymentAttachmentFilePath = join(checkStorageRoot, persistedPaymentAttachment.storageKey);
   if (!existsSync(paymentAttachmentFilePath)) {
     throw new Error("/api/attachments did not persist payment screenshot content to local storage");
   }
@@ -3462,16 +4038,11 @@ try {
   ) {
     throw new Error("/api/attachments local storage content or digest is incorrect");
   }
-  const paymentAttachmentRecordPath = join(checkStorageRoot, "metadata", "attachment-records.json");
-  if (!existsSync(paymentAttachmentRecordPath)) {
-    throw new Error("/api/attachments did not persist the attachment record index");
-  }
-  const paymentAttachmentRecords = JSON.parse(readFileSync(paymentAttachmentRecordPath, "utf8"));
   if (
     !paymentAttachmentRecords.attachments?.some(
       (record) =>
         record.attachmentId === paymentAttachment.attachmentId &&
-        record.storageKey === paymentAttachment.storageKey &&
+        record.storageKey === persistedPaymentAttachment.storageKey &&
         record.contentDigest === paymentAttachment.contentDigest,
     ) ||
     !paymentAttachmentRecords.attachmentLinks?.some(
@@ -3493,7 +4064,9 @@ try {
     !paymentAttachmentList.items?.some(
       (record) =>
         record.attachmentId === paymentAttachment.attachmentId &&
-        record.storageKey === paymentAttachment.storageKey &&
+        record.storageKeyStored === true &&
+        !Object.hasOwn(record, "storageKey") &&
+        !Object.hasOwn(record, "thumbnailStorageKey") &&
         record.contentDigest === paymentAttachment.contentDigest,
     )
   ) {
@@ -3521,6 +4094,8 @@ try {
     paymentAttachmentAccessUrl.ttlSeconds !== 120 ||
     paymentAttachmentAccessUrl.deliveryMode !== "api_proxy" ||
     paymentAttachmentAccessUrl.storageProvider !== "local_fs" ||
+    paymentAttachmentAccessUrl.storageKeyStored !== true ||
+    Object.hasOwn(paymentAttachmentAccessUrl, "storageKey") ||
     !paymentAttachmentAccessUrl.operationLogId
   ) {
     throw new Error("/api/attachments/{attachmentId}/access-url returned an unexpected payload");
@@ -3541,6 +4116,8 @@ try {
   if (
     paymentAttachmentAccessLogs.attachmentId !== paymentAttachment.attachmentId ||
     paymentAttachmentAccessLogs.total < 3 ||
+    paymentAttachmentAccessLogs.items?.some((record) => Object.hasOwn(record, "storageKey")) ||
+    paymentAttachmentAccessLogs.items?.some((record) => record.storageKeyStored !== true) ||
     !paymentAttachmentAccessLogs.items?.some(
       (record) =>
         record.operationLogId === paymentAttachmentAccessUrl.operationLogId &&
@@ -3757,11 +4334,13 @@ try {
     throw new Error("/api/statements/{statementId}/payments did not deny the warehouse seed user");
   }
 
+  const statementBeforePayment = await getJson(baseUrl, `/api/statements/${statementId}`);
   const payment = await postJson(
     baseUrl,
     `/api/statements/${statementId}/payments`,
     {
       amount: 1,
+      expectedRevision: statementBeforePayment.revision,
       paidAt: new Date().toISOString(),
       method: "cash",
       operatorId: "U-SPOOFED",
@@ -3785,6 +4364,7 @@ try {
     `/api/statements/${statementId}/variance`,
     {
       statementId,
+      expectedRevision: payment.statementRevision,
       varianceAmount: payment.varianceAmount,
       handlingResult: "carry_to_debt",
       reason: "API skeleton attachment limit check",
@@ -3801,17 +4381,25 @@ try {
     `/api/statements/${statementId}/variance`,
     {
       statementId,
+      expectedRevision: payment.statementRevision,
       varianceAmount: payment.varianceAmount,
       handlingResult: "carry_to_debt",
       reason: "API skeleton check",
       attachmentIds: [paymentAttachment.attachmentId],
+      delegatedDecision: {
+        decisionMakerEmployeeId: "E2E-DM-MOTHER",
+        decisionChannel: "wechat",
+        decidedAt: new Date().toISOString(),
+        decisionContent: { summary: "API skeleton 收款差额处理确认" },
+        authorizationBasis: "自动化隔离夹具授权",
+      },
       operatorId: "U-SPOOFED",
     },
-    { headers: { "x-erp-user-id": "U-FINANCE-A" } },
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
   );
   if (
     !variance.varianceRecord?.varianceRecordId ||
-    variance.varianceRecord.operatorId !== "U-FINANCE-A" ||
+    variance.varianceRecord.operatorId !== "U-OFFICE-A" ||
     variance.varianceRecord.attachmentId !== paymentAttachment.attachmentId ||
     !variance.operationLogId
   ) {
@@ -3913,9 +4501,56 @@ try {
     throw new Error("/api/print-batches did not return batch records filtered by todoId");
   }
 
+  const writeOffEvidenceDraft = await postJson(
+    baseUrl,
+    "/api/business-decision-evidence-drafts",
+    {
+      idempotencyKey: "api-skeleton-write-off-evidence-draft",
+      businessType: "statement",
+      businessId: statementId,
+      decisionScope: "statement_write_off",
+    },
+    { expectedStatus: 201, headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  const writeOffEvidenceAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      idempotencyKey: "api-skeleton-write-off-evidence-attachment",
+      ownerType: "business_decision_evidence_draft",
+      ownerId: writeOffEvidenceDraft.draft?.draftId,
+      fileType: "image",
+      purpose: "business_decision_evidence",
+      fileName: "API-skeleton-核销决定凭据.png",
+      contentRef: "api-skeleton://write-off-evidence",
+      mimeType: "image/png",
+      fileSize: 18,
+      contentDataUrl: "data:image/png;base64,d3JpdGUtb2ZmLWV2aWRlbmNl",
+      uploadedBy: "U-SPOOFED",
+    },
+    { headers: { "x-erp-user-id": "U-OFFICE-A" } },
+  );
+  if (
+    !writeOffEvidenceDraft.draft?.draftId ||
+    writeOffEvidenceAttachment.ownerType !== "business_decision_evidence_draft" ||
+    writeOffEvidenceAttachment.ownerId !== writeOffEvidenceDraft.draft.draftId ||
+    writeOffEvidenceAttachment.uploadedBy !== "U-OFFICE-A"
+  ) {
+    throw new Error("经营决定凭据草稿或真实附件未按认证办公室账号创建");
+  }
+
   const writeOff = await postJson(baseUrl, `/api/statements/${statementId}/write-off`, {
+    expectedRevision: variance.statementRevision,
     confirmReason: "API skeleton check",
-    operatorId: "U-OFFICE-A",
+    delegatedDecision: {
+      decisionMakerEmployeeId: "E2E-DM-MOTHER",
+      decisionChannel: "wechat",
+      decidedAt: new Date().toISOString(),
+      decisionContent: { summary: "API skeleton 对账核销确认" },
+      authorizationBasis: "自动化隔离夹具授权",
+      evidenceDraftId: writeOffEvidenceDraft.draft.draftId,
+    },
+    operatorId: "U-SPOOFED",
     confirmedAt: new Date().toISOString(),
   });
   if (
@@ -3935,7 +4570,7 @@ try {
 
   await close(server);
   server = null;
-  restartedServer = createApiServer();
+  restartedServer = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
   await listen(restartedServer);
   const restartedBaseUrl = `http://127.0.0.1:${restartedServer.address().port}`;
   const restartedPaymentAttachmentContent = await getText(
@@ -4009,226 +4644,8 @@ try {
 } finally {
   await close(server);
   await close(restartedServer);
-  await close(readinessServer);
-}
-
-async function checkPositivePrintDriverReadiness() {
-  const readinessStorageRoot = join(checkStorageRoot, "print-readiness-positive");
-  const readinessSpoolDir = join(readinessStorageRoot, "print-command-bridge-spool");
-  rmSync(readinessStorageRoot, { recursive: true, force: true });
-  mkdirSync(readinessSpoolDir, { recursive: true });
-  readinessServer = createApiServer({
-    printDeviceRepositoryOptions: { storageRoot: readinessStorageRoot },
-    printerDeviceFieldTestRepositoryOptions: { storageRoot: readinessStorageRoot },
-    printDriverAdapterOptions: {
-      systemPrinterEnabled: true,
-      systemPrinterAdapterKind: "command_bridge",
-      systemPrinterCommand: process.execPath,
-      systemPrinterCommandArgs: [
-        printCommandBridgeScript,
-        "--storage-root",
-        readinessStorageRoot,
-        "--cups-status-command",
-        process.execPath,
-        "--cups-status-args-json",
-        JSON.stringify([fakeCupsStatusScript, "--printer", "{cupsPrinterName}"]),
-      ],
-      commandBridgeSpoolDir: readinessSpoolDir,
-      allowedPrinterNames: ["PRN-LABEL-A", "PRN-DOT-A", "标签机A", "针式打印机A"],
-    },
-  });
-  await listen(readinessServer);
-  const baseUrl = `http://127.0.0.1:${readinessServer.address().port}`;
-  const labelDevices = await getJson(baseUrl, "/api/print-devices?documentType=express_ltl_label");
-  const labelDevice = labelDevices.items?.find((device) => device.printDeviceId === "PRN-LABEL-A");
-  const dotDevices = await getJson(baseUrl, "/api/print-devices?documentType=delivery_note");
-  const dotDevice = dotDevices.items?.find((device) => device.printDeviceId === "PRN-DOT-A");
-  if (!labelDevice || !dotDevice) {
-    throw new Error("Positive print readiness setup did not load default print devices");
-  }
-  await postJson(baseUrl, "/api/print-devices", {
-    ...labelDevice,
-    settings: { ...(labelDevice.settings ?? {}), driverMode: "system_printer" },
-    operatorId: "U-OFFICE-A",
-  });
-  await postJson(baseUrl, "/api/print-devices", {
-    ...dotDevice,
-    settings: { ...(dotDevice.settings ?? {}), driverMode: "system_printer" },
-    operatorId: "U-OFFICE-A",
-  });
-  await postJson(baseUrl, "/api/print-devices/PRN-LABEL-A/field-tests", buildPassedPrinterDeviceFieldTest({
-    recordId: "PDQA-READY-LABEL-A",
-    printDeviceId: "PRN-LABEL-A",
-    documentType: "express_ltl_label",
-    deviceLabel: "标签机A",
-    driverLabel: "Generic 203dpi Label",
-    paperLabel: "80x60 热敏标签",
-  }));
-  await postJson(baseUrl, "/api/print-devices/PRN-DOT-A/field-tests", buildPassedPrinterDeviceFieldTest({
-    recordId: "PDQA-READY-DOT-A",
-    printDeviceId: "PRN-DOT-A",
-    documentType: "delivery_note",
-    deviceLabel: "针式打印机A",
-    driverLabel: "Generic Dot Matrix",
-    paperLabel: "连续二联针式纸",
-  }));
-  const readiness = await getJson(baseUrl, "/api/print-driver/v1-readiness");
-  if (
-    readiness.status !== "ready" ||
-    readiness.ready !== true ||
-    readiness.summary?.blockingCount !== 0 ||
-    readiness.spoolDiagnostics?.ready !== true ||
-    readiness.cupsDiagnostics?.ready !== true ||
-    !readiness.criteria?.some((item) => item.key === "cups-queue-preflight" && item.status === "passed") ||
-    readiness.deviceReadiness?.length !== 2 ||
-    !readiness.deviceReadiness.every((item) => item.ready === true) ||
-    !readiness.criteria?.every((item) => item.status === "passed") ||
-    readiness.safeguards?.physicalPrinterCalled !== false ||
-    JSON.stringify(readiness).includes(readinessSpoolDir) ||
-    JSON.stringify(readiness).includes(process.execPath)
-  ) {
-    throw new Error("/api/print-driver/v1-readiness did not return a positive ready result under configured test settings");
-  }
-  const cupsDiagnostics = await getJson(baseUrl, "/api/print-driver/cups-diagnostics");
-  if (
-    cupsDiagnostics.status !== "ok" ||
-    cupsDiagnostics.ready !== true ||
-    cupsDiagnostics.scope !== "non_printing_cups_queue_preflight" ||
-    cupsDiagnostics.cupsPrinterAllowed !== true ||
-    cupsDiagnostics.cupsStatusCommandRunnable !== true ||
-    cupsDiagnostics.safeguards?.nonPrinting !== true ||
-    cupsDiagnostics.safeguards?.physicalPrinterCalled !== false ||
-    cupsDiagnostics.safeguards?.printFileCreated !== false ||
-    JSON.stringify(cupsDiagnostics).includes(readinessStorageRoot) ||
-    JSON.stringify(cupsDiagnostics).includes(process.execPath) ||
-    JSON.stringify(cupsDiagnostics).includes(fakeCupsStatusScript)
-  ) {
-    throw new Error("/api/print-driver/cups-diagnostics did not return a redacted positive ready result");
-  }
-}
-
-function buildPassedPrinterDeviceFieldTest({
-  recordId,
-  printDeviceId,
-  documentType,
-  deviceLabel,
-  driverLabel,
-  paperLabel,
-}) {
-  return {
-    recordId,
-    printDeviceId,
-    documentType,
-    operatorId: "U-OFFICE-A",
-    operatorName: "办公室A",
-    checkedAt: "2026-07-04T10:00:00.000Z",
-    deviceLabel,
-    driverLabel,
-    paperLabel,
-    checks: [
-      { key: "sample_print", status: "passed" },
-      { key: "paper_alignment", status: "passed" },
-      { key: "barcode_scan", status: "passed" },
-      { key: "driver_callback", status: "passed" },
-      { key: "legibility", status: "passed" },
-      { key: "void_reprint", status: "passed" },
-    ],
-    evidence: {
-      samplePrintReference: `${recordId} 样张已出纸且纸张对位通过`,
-      barcodeScanText: `${printDeviceId}-SAMPLE-CODE 可扫码`,
-      driverCallbackStatus: "spool completed -> printed",
-      voidReprintReference: `${recordId}-VOID-REPRINT 作废后重打通过`,
-      operatorAcceptance: "办公室A 现场签认",
-    },
-    note: "Positive V1 print readiness check",
-  };
-}
-
-async function getJson(baseUrl, route, options = {}) {
-  const expectedStatus = options.expectedStatus ?? 200;
-  const response = await fetch(`${baseUrl}${route}`, {
-    headers: options.headers ?? {},
-  });
-  const json = await readJson(response);
-  if (response.status !== expectedStatus) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  if (expectedStatus < 400 && !response.ok) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  return json;
-}
-
-async function getText(baseUrl, route, options = {}) {
-  const expectedStatus = options.expectedStatus ?? 200;
-  const response = await fetch(`${baseUrl}${route}`, {
-    headers: options.headers ?? {},
-  });
-  const text = await response.text();
-  if (response.status !== expectedStatus) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${text}`);
-  }
-  if (expectedStatus < 400 && !response.ok) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${text}`);
-  }
-  return {
-    text,
-    contentType: response.headers.get("content-type") ?? "",
-    contentDisposition: response.headers.get("content-disposition") ?? "",
-  };
-}
-
-async function getBinary(baseUrl, route, options = {}) {
-  const expectedStatus = options.expectedStatus ?? 200;
-  const response = await fetch(`${baseUrl}${route}`, {
-    headers: options.headers ?? {},
-  });
-  const bytes = new Uint8Array(await response.arrayBuffer());
-  if (response.status !== expectedStatus) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${new TextDecoder().decode(bytes)}`);
-  }
-  if (expectedStatus < 400 && !response.ok) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${new TextDecoder().decode(bytes)}`);
-  }
-  return {
-    bytes,
-    contentType: response.headers.get("content-type") ?? "",
-    contentDisposition: response.headers.get("content-disposition") ?? "",
-  };
-}
-
-async function postJson(baseUrl, route, body, options = {}) {
-  const expectedStatus = options.expectedStatus ?? 200;
-  const response = await fetch(`${baseUrl}${route}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...(options.headers ?? {}) },
-    body: JSON.stringify(body),
-  });
-  const json = await readJson(response);
-  if (response.status !== expectedStatus) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  if (expectedStatus < 400 && !response.ok) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  return json;
-}
-
-async function patchJson(baseUrl, route, body, options = {}) {
-  const expectedStatus = options.expectedStatus ?? 200;
-  const response = await fetch(`${baseUrl}${route}`, {
-    method: "PATCH",
-    headers: { "content-type": "application/json", ...(options.headers ?? {}) },
-    body: JSON.stringify(body),
-  });
-  const json = await readJson(response);
-  if (response.status !== expectedStatus) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  if (expectedStatus < 400 && !response.ok) {
-    throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-  }
-  return json;
+  delete process.env.ERP_E2E_BUSINESS_DECISION_FIXTURES;
+  delete process.env.ERP_E2E_WAREHOUSE_EMPLOYEE_ID;
 }
 
 async function assertOperationLogOperator(
@@ -4243,23 +4660,4 @@ async function assertOperationLogOperator(
       `${targetType}/${targetId} operation log ${operationLogId} did not preserve authenticated operator ${expectedOperatorId}`,
     );
   }
-}
-
-async function readJson(response) {
-  const text = await response.text();
-  return text ? JSON.parse(text) : {};
-}
-
-function listen(server) {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-}
-
-function close(server) {
-  if (!server || !server.listening) return Promise.resolve();
-  return new Promise((resolve, reject) => {
-    server.close((error) => (error ? reject(error) : resolve()));
-  });
 }

@@ -202,8 +202,23 @@ assert.equal(correctionResult.response.correctionSummary.correctedRowCount, 1);
 assert.equal(correctionResult.response.correctionSummary.unresolvedRowCount, 0);
 assert.equal(correctionResult.response.officialImportEnabled, false);
 
+const downloadWorkspace = createWorkspace();
+assert.deepEqual(await service.getFailedRowsDownload({ workspace: downloadWorkspace, executionId: "MISSING" }), {
+  notFound: true,
+  code: "MASTER_DATA_IMPORT_EXECUTION_NOT_FOUND",
+});
+downloadWorkspace.importExecutions = [{ executionId: "MDE-NO-ROWS" }];
+assert.equal((await service.getFailedRowsDownload({ workspace: downloadWorkspace, executionId: "MDE-NO-ROWS" })).code, "MASTER_DATA_IMPORT_FAILED_ROWS_NOT_AVAILABLE");
+downloadWorkspace.importExecutions = [{
+  executionId: "MDE-DOWNLOAD",
+  failedRowsDownload: { required: true, content: "row,error", fileName: "failed.csv", contentType: "text/csv" },
+}];
+assert.deepEqual(await service.getFailedRowsDownload({ workspace: downloadWorkspace, executionId: "MDE-DOWNLOAD" }), {
+  file: { body: "row,error", options: { contentType: "text/csv", fileName: "failed.csv" } },
+});
+
 console.log(
-  "Master-data import command service checks passed: plan, blocked/committed/rolled-back execution, and failed-row correction are isolated.",
+  "Master-data import command service checks passed: plan, blocked/committed/rolled-back execution, failed-row correction, and failed-row download are isolated.",
 );
 
 function createWorkspace() {

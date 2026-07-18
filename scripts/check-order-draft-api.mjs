@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import { createApiServer } from "../server/apiServer.mjs";
+import {
+  closeTestServer,
+  getTestServerBaseUrl,
+  listenTestServer,
+  requestJson as requestSharedJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const server = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
 await server.ready;
-await listen(server);
+await listenTestServer(server);
 
 try {
-  const baseUrl = `http://127.0.0.1:${server.address().port}`;
+  const baseUrl = getTestServerBaseUrl(server);
   const headers = { "content-type": "application/json", "x-erp-user-id": "U-OFFICE-A" };
   const recognition = await requestJson(baseUrl, "/api/order-drafts/recognize", {
     method: "POST",
@@ -116,26 +122,15 @@ try {
   assert.equal(missing.status, 404);
   assert.equal(missing.json.code, "ORDER_DRAFT_NOT_FOUND");
 } finally {
-  await close(server);
+  await closeTestServer(server);
 }
 
 console.log("Order draft API check passed: committed revision increments, stale saves, and missing drafts are covered.");
 
-function requestJson(baseUrl, pathname, options) {
-  return fetch(`${baseUrl}${pathname}`, {
-    method: options.method,
-    headers: options.headers,
+async function requestJson(baseUrl, pathname, options) {
+  const response = await requestSharedJson(baseUrl, pathname, {
+    ...options,
     body: JSON.stringify(options.body),
-  }).then(async (response) => ({ status: response.status, json: await response.json() }));
-}
-
-function listen(serverInstance) {
-  return new Promise((resolvePromise, reject) => {
-    serverInstance.once("error", reject);
-    serverInstance.listen(0, "127.0.0.1", resolvePromise);
   });
-}
-
-function close(serverInstance) {
-  return new Promise((resolvePromise) => serverInstance.close(resolvePromise));
+  return { status: response.status, json: response.body };
 }

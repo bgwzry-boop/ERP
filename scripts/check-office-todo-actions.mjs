@@ -28,6 +28,7 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
   let todoView = "未处理";
   let activePage = "todos";
   let refreshCount = 0;
+  let fulfillmentRefreshCount = 0;
   const modals = [];
   const toasts = [];
   const focusCalls = { drafts: [], fulfillments: [], inventories: [], statements: [] };
@@ -63,6 +64,10 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
     guardUiAction: () => true,
     isPrintTodo: (todo) => todo.type.includes("打印") || todo.type.includes("标签"),
     openModal: (modal) => modals.push(modal),
+    refreshFulfillments: async () => {
+      fulfillmentRefreshCount += 1;
+      return { source: "api", items: [] };
+    },
     refreshTodos: async () => {
       refreshCount += 1;
       return { source: "api", items: todos };
@@ -90,6 +95,7 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
     getModals: () => modals,
     getRefreshCount: () => refreshCount,
     getFocusCalls: () => focusCalls,
+    getFulfillmentRefreshCount: () => fulfillmentRefreshCount,
     getSelectedTodoId: () => selectedTodoId,
     getTodos: () => todos,
     getTodoView: () => todoView,
@@ -98,14 +104,69 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
 }
 
 {
+  const repairTodo = {
+    id: "T-FULFILLMENT-REPAIR",
+    type: "出库交付待补建",
+    customerId: "C001",
+    ref: "ORD-REPAIR-01",
+    refId: "ORD-REPAIR-01",
+    refType: "order_line",
+    referenceStatus: "valid",
+    updatedAt: "2026-07-11T08:00:00.000Z",
+    handled: false,
+  };
+  let repairInput = null;
+  let repairOptions = null;
+  const harness = createHarness({
+    todoItems: [repairTodo],
+    api: {
+      repairOfficeTodoFulfillment: async (input, options) => {
+        repairInput = input;
+        repairOptions = options;
+        return {
+          source: "api",
+          todo: { ...repairTodo, handled: true },
+          labelTodo: { id: "T-LABEL-REPAIR", type: "待打印标签", ref: "F-REPAIR-1", handled: false },
+          fulfillment: { fulfillmentId: "F-REPAIR-1" },
+          packageIds: ["PKG-REPAIR-1", "PKG-REPAIR-2"],
+        };
+      },
+    },
+  });
+  assert.deepEqual(getTodoActions(repairTodo), [
+    { label: "补建出库交付", variant: "primary" },
+    { label: "打开订单池", variant: "secondary" },
+  ]);
+  await harness.controller.handleTodo("补建出库交付");
+  assert.equal(repairInput.operatorId, "U-OFFICE-A");
+  assert.match(repairInput.idempotencyKey, /^fulfillment-repair:/);
+  assert.equal(repairOptions.serverRequired, true);
+  assert.equal(harness.getRefreshCount(), 1);
+  assert.equal(harness.getFulfillmentRefreshCount(), 1);
+  assert.equal(harness.getSelectedTodoId(), "T-LABEL-REPAIR");
+  assert.match(harness.toasts.at(-1), /2 个包裹已回填/);
+}
+
+{
   const missingReferenceTodo = { ...baseTodos[0], referenceStatus: "missing", referenceReason: "引用目标不存在" };
   const harness = createHarness({ todoItems: [missingReferenceTodo] });
   await harness.controller.handleTodo("打开订单录入");
   assert.deepEqual(harness.getFocusCalls().drafts, []);
-  assert.match(harness.toasts.at(-1), /引用已失效/);
+  assert.match(harness.toasts.at(-1), /不可直接使用/);
   assert.deepEqual(getTodoActions(missingReferenceTodo), [{ label: "处理完成", variant: "secondary" }]);
   assert.match(getTodoHandlingRule(missingReferenceTodo), /引用失效/);
   assert.equal(getTodoTone(missingReferenceTodo), "danger");
+}
+
+{
+  const unverifiableTodo = { ...baseTodos[0], referenceStatus: "unverifiable", referenceReason: "外部引用暂不可校验" };
+  const harness = createHarness({ todoItems: [unverifiableTodo] });
+  await harness.controller.handleTodo("打开订单录入");
+  assert.deepEqual(harness.getFocusCalls().drafts, []);
+  assert.match(harness.toasts.at(-1), /不可直接使用/);
+  assert.deepEqual(getTodoActions(unverifiableTodo), [{ label: "处理完成", variant: "secondary" }]);
+  assert.match(getTodoHandlingRule(unverifiableTodo), /引用待核/);
+  assert.equal(getTodoTone(unverifiableTodo), "warning");
 }
 
 {

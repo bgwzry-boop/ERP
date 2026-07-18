@@ -10,7 +10,11 @@ const apiServerSource = readFileSync(
   new URL("../server/apiServer.mjs", import.meta.url),
   "utf8",
 );
-assert.match(apiServerSource, /createRuntimeAuthCommandService\(\{ buildOperationLog \}\)/);
+const registrySource = readFileSync(
+  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
+  "utf8",
+);
+assert.match(registrySource, /createRuntimeAuthCommandService\(\{ buildOperationLog \}\)/);
 assert.doesNotMatch(apiServerSource, /function recordRuntimeUserLoginFailure/);
 assert.doesNotMatch(apiServerSource, /const runtimePasswordPolicy/);
 
@@ -61,6 +65,8 @@ const login = await service.login({
 assert.equal(login.statusCode, 200);
 assert.equal(login.response.permissions.user.userId, userId);
 assert.equal(login.response.session.sessionVersion, 1);
+assert.equal(login.response.permissions.passwordChangeRequired, true);
+assert.equal(login.response.passwordPolicy.minLength, 10);
 assert.equal(workspace.users[0].failedLoginCount, 0);
 assert.equal(workspace.persistedStates.length, 2);
 
@@ -76,7 +82,7 @@ await assert.rejects(
 );
 assert.equal(failedChangeWorkspace.users[0].passwordHash, beforeFailedChangeHash);
 assert.equal(failedChangeWorkspace.operationLogs.length, 0);
-assert.equal(failedChangeWorkspace.employees[0].passwordStatus, "active");
+assert.equal(failedChangeWorkspace.employees[0].passwordStatus, "temporary");
 
 const changed = await service.changePassword({
   workspace,
@@ -89,6 +95,7 @@ assert.equal(changed.response.user.passwordHash, undefined);
 assert.equal(changed.response.user.passwordStatus, "active");
 assert.equal(changed.response.employeeAccountReview.passwordStatus, "active");
 assert.equal(workspace.operationLogs[0].action, "master_data_employee_account_password_changed");
+assert.equal(workspace.operationLogs[0].reason, "员工首次登录后修改临时密码");
 assert.equal(
   verifyRuntimeUserPassword(workspace.users[0], nextPassword, { authSecret }),
   true,
@@ -97,6 +104,36 @@ assert.equal(
   verifyRuntimeUserPassword(workspace.users[0], currentPassword, { authSecret }),
   false,
 );
+
+const expiredWorkspace = createWorkspace();
+expiredWorkspace.users[0] = {
+  ...expiredWorkspace.users[0],
+  mustChangePassword: true,
+  passwordChangedAt: "2026-04-01T00:00:00.000Z",
+  passwordExpiresAt: "2026-07-01T00:00:00.000Z",
+  passwordStatus: "password_expired",
+};
+expiredWorkspace.employees[0] = {
+  ...expiredWorkspace.employees[0],
+  mustChangePassword: true,
+  passwordStatus: "password_expired",
+};
+const expiredLogin = await service.login({
+  workspace: expiredWorkspace,
+  body: { loginName, password: currentPassword, attemptedAt: nowIso },
+});
+assert.equal(expiredLogin.statusCode, 200);
+assert.equal(expiredLogin.response.permissions.passwordChangeRequired, true);
+assert.equal(expiredLogin.response.permissions.user.passwordStatus, "password_expired");
+assert.equal(expiredLogin.response.passwordPolicy.disallowAccountIdentifiers, true);
+const expiredChanged = await service.changePassword({
+  workspace: expiredWorkspace,
+  body: { currentPassword, newPassword: nextPassword, changedAt: nowIso },
+  authContext: runtimeAuthContext(),
+});
+assert.equal(expiredChanged.statusCode, 200);
+assert.equal(expiredChanged.response.permissions.passwordChangeRequired, undefined);
+assert.equal(expiredWorkspace.operationLogs[0].reason, "员工密码过期后修改密码");
 
 const failedLogoutWorkspace = createWorkspace({ failPersistence: true });
 await assert.rejects(
@@ -118,6 +155,12 @@ const currentSession = service.getCurrentSession({
 });
 assert.equal(currentSession.statusCode, 200);
 assert.equal(currentSession.response.authenticated, true);
+assert.equal(currentSession.response.passwordPolicy.requireNumber, true);
+const activeCurrentSession = service.getCurrentSession({
+  permissionContext: changed.response.permissions,
+  authContext: runtimeAuthContext(),
+});
+assert.equal(activeCurrentSession.response.passwordPolicy, undefined);
 const missingSession = service.getCurrentSession({
   permissionContext: {},
   authContext: { authenticated: false, authError: "AUTH_SESSION_REQUIRED" },
@@ -154,10 +197,11 @@ function createWorkspace({ failPersistence = false } = {}) {
         source: "master_data_import_review",
         defaultRole: "office",
         passwordHash: hashRuntimeUserPassword(currentPassword, { userId, authSecret }),
-        passwordStatus: "active",
-        mustChangePassword: false,
-        passwordChangedAt: "2026-07-01T00:00:00.000Z",
-        passwordExpiresAt: "2026-10-01T00:00:00.000Z",
+        passwordStatus: "temporary",
+        mustChangePassword: true,
+        passwordIssuedAt: "2026-07-01T00:00:00.000Z",
+        passwordChangedAt: "",
+        passwordExpiresAt: "",
         failedLoginCount: 0,
         lastFailedLoginAt: "",
         lockedUntil: "",
@@ -176,7 +220,7 @@ function createWorkspace({ failPersistence = false } = {}) {
         profileStatus: "account_enabled",
         reviewedRoleKey: "office",
         loginEnabled: true,
-        passwordStatus: "active",
+        passwordStatus: "temporary",
       },
     ],
     operationLogs: [],

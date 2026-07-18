@@ -4,6 +4,11 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync }
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
 import { buildV1FieldEvidenceManifestTemplate, serializeManifestJson } from "./v1FieldEvidenceManifest.mjs";
+import {
+  closeTestServer as closeServer,
+  getTestServerBaseUrl,
+  listenTestServer as listen,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const suiteScript = join(process.cwd(), "scripts", "run-v1-go-live-suite.mjs");
 const tempRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-go-live-suite");
@@ -1008,7 +1013,7 @@ assertNoSensitiveOutput(csvRun.stdout + csvRun.stderr + csvSuiteSummary);
 const server = createApiServer();
 try {
   await listen(server);
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const baseUrl = `${getTestServerBaseUrl(server)}/api`;
   writeFileSync(
     staleProductionEnvSetupJsonPath,
     `${JSON.stringify({ ...buildProductionEnvSetup(productionEnvSetupEnvFilePath), checkedAt: "2000-01-01T00:00:00.000Z" }, null, 2)}\n`,
@@ -1136,7 +1141,7 @@ try {
   assert.doesNotMatch(csvRefreshRun.stdout + csvRefreshRun.stderr + csvRefreshSummary, /办公室负责人|总负责人/);
   assertNoSensitiveOutput(csvRefreshRun.stdout + csvRefreshRun.stderr + csvRefreshSummary);
 } finally {
-  await closeServer(server);
+  await closeServer(server, { forceAfterMs: 1_000 });
 }
 
 const missingRun = await runNode([
@@ -2135,32 +2140,6 @@ function runNode(args) {
     child.on("close", (status, signal) => {
       clearTimeout(timeout);
       resolve({ status, signal, stdout, stderr });
-    });
-  });
-}
-
-function listen(server) {
-  return new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", () => {
-      server.off("error", reject);
-      resolve();
-    });
-  });
-}
-
-function closeServer(server) {
-  return new Promise((resolve, reject) => {
-    server.close((error) => {
-      if (error?.code === "ERR_SERVER_NOT_RUNNING") {
-        resolve();
-        return;
-      }
-      if (error) {
-        reject(error);
-        return;
-      }
-      resolve();
     });
   });
 }

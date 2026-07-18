@@ -2,16 +2,20 @@ import assert from "node:assert/strict";
 
 import { createApiServer } from "../server/apiServer.mjs";
 import { orderConversationCorpus } from "../shared/orderConversationCorpus.mjs";
+import {
+  closeTestServer,
+  getJson as getSharedJson,
+  getTestServerBaseUrl,
+  listenTestServer,
+  postJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const server = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
 await server.ready;
-await new Promise((resolve, reject) => {
-  server.once("error", reject);
-  server.listen(0, "127.0.0.1", resolve);
-});
+await listenTestServer(server);
 
 try {
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const baseUrl = getTestServerBaseUrl(server);
   const headers = { "content-type": "application/json", "x-erp-user-id": "U-OFFICE-A" };
   const sample = orderConversationCorpus[0];
   const requestBody = {
@@ -105,23 +109,13 @@ try {
 
   console.log("Order draft queue API check passed: one conversation creates independent order/intent drafts, retries are stable, changed reuse conflicts, and queue reads preserve source boundaries.");
 } finally {
-  await new Promise((resolve) => server.close(resolve));
+  await closeTestServer(server);
 }
 
-async function getJson(baseUrl, path, headers) {
-  const response = await fetch(`${baseUrl}${path}`, { headers });
-  const json = await response.json();
-  assert.equal(response.status, 200, JSON.stringify(json));
-  return json;
+function getJson(baseUrl, path, headers) {
+  return getSharedJson(baseUrl, `/api${path}`, { headers });
 }
 
-async function writeJson(baseUrl, path, body, headers, expectedStatus = 200) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
-  });
-  const json = await response.json();
-  assert.equal(response.status, expectedStatus, JSON.stringify(json));
-  return json;
+function writeJson(baseUrl, path, body, headers, expectedStatus = 200) {
+  return postJson(baseUrl, `/api${path}`, body, { headers, expectedStatus });
 }

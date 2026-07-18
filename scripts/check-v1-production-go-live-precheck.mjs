@@ -8,6 +8,16 @@ import {
   buildProductionGoLivePrecheckReport,
   formatProductionGoLivePrecheckReport,
 } from "./run-v1-production-go-live-precheck.mjs";
+import {
+  closeTestServer,
+  getTestServerBaseUrl,
+  listenTestServer,
+  requestJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
+import {
+  buildPassedPrinterDeviceFieldTest as buildPassedPrinterDeviceFieldTestFixture,
+  seedPrintedPrintReadinessJobs,
+} from "./helpers/printReadinessTestFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-production-go-live-precheck");
 const spoolRoot = join(storageRoot, "spool");
@@ -41,6 +51,10 @@ sensitiveValues.push(officeDemoToken, driverDemoToken);
 
 rmSync(storageRoot, { recursive: true, force: true });
 mkdirSync(spoolRoot, { recursive: true });
+const printedPrintJobs = seedPrintedPrintReadinessJobs({
+  storageRoot,
+  idPrefix: "PJ-V1-PROD-PRECHECK",
+});
 
 const productionEnv = {
   ERP_RUNTIME_MODE: "production",
@@ -252,6 +266,7 @@ const server = createApiServer({
     acceptanceReference: "automated V1 production go-live precheck local persistence fixture",
   },
   printDeviceRepositoryOptions: { storageRoot },
+  printJobRepositoryOptions: { storageRoot },
   printerDeviceFieldTestRepositoryOptions: { storageRoot },
   printDriverAdapterOptions: {
     systemPrinterEnabled: true,
@@ -272,8 +287,8 @@ const server = createApiServer({
 });
 
 try {
-  await listen(server);
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  await listenTestServer(server);
+  const baseUrl = `${getTestServerBaseUrl(server)}/api`;
   const blockedRun = await runPrecheck(baseUrl);
   assert.equal(blockedRun.status, 2, runFailureMessage("precheck should be blocked before field evidence is prepared", blockedRun));
   const blockedReport = JSON.parse(blockedRun.stdout);
@@ -382,7 +397,7 @@ try {
     "V1 production go-live precheck check passed: synthetic ready, env-file/preflight, lab-runtime block, text output, safeguards, and redaction are covered.",
   );
 } finally {
-  await closeServer(server);
+  await closeTestServer(server, { forceAfterMs: 1_000 });
   rmSync(storageRoot, { recursive: true, force: true });
 }
 
@@ -492,6 +507,7 @@ async function preparePositiveReadiness(baseUrl) {
     buildPassedPrinterDeviceFieldTest({
       recordId: "PDQA-V1-PROD-PRECHECK-LABEL-A",
       printDeviceId: "PRN-LABEL-A",
+      printJobId: printedPrintJobs.label.printJobId,
       documentType: "express_ltl_label",
       deviceLabel: "标签机A",
       driverLabel: "Generic 203dpi Label",
@@ -504,6 +520,7 @@ async function preparePositiveReadiness(baseUrl) {
     buildPassedPrinterDeviceFieldTest({
       recordId: "PDQA-V1-PROD-PRECHECK-DOT-A",
       printDeviceId: "PRN-DOT-A",
+      printJobId: printedPrintJobs.dotMatrix.printJobId,
       documentType: "delivery_note",
       deviceLabel: "针式打印机A",
       driverLabel: "Generic Dot Matrix",
@@ -525,41 +542,12 @@ async function preparePositiveReadiness(baseUrl) {
   );
 }
 
-function buildPassedPrinterDeviceFieldTest({
-  recordId,
-  printDeviceId,
-  documentType,
-  deviceLabel,
-  driverLabel,
-  paperLabel,
-}) {
-  return {
-    recordId,
-    printDeviceId,
-    documentType,
-    operatorId: "U-OFFICE-A",
-    operatorName: "办公室A",
+function buildPassedPrinterDeviceFieldTest(input) {
+  return buildPassedPrinterDeviceFieldTestFixture({
+    ...input,
     checkedAt: "2026-07-04T10:00:00.000Z",
-    deviceLabel,
-    driverLabel,
-    paperLabel,
-    checks: [
-      { key: "sample_print", status: "passed" },
-      { key: "paper_alignment", status: "passed" },
-      { key: "barcode_scan", status: "passed" },
-      { key: "driver_callback", status: "passed" },
-      { key: "legibility", status: "passed" },
-      { key: "void_reprint", status: "passed" },
-    ],
-    evidence: {
-      samplePrintReference: `${recordId} 样张已出纸且纸张对位通过`,
-      barcodeScanText: `${printDeviceId}-SAMPLE-CODE 可扫码`,
-      driverCallbackStatus: "spool completed -> printed",
-      voidReprintReference: `${recordId}-VOID-REPRINT 作废后重打通过`,
-      operatorAcceptance: "办公室A 现场签认",
-    },
     note: "V1 production go-live precheck positive check",
-  };
+  });
 }
 
 function buildPassedDriverDeviceFieldTest({ fulfillmentId, orderLineId, expectedPackageId }) {
@@ -591,8 +579,18 @@ function buildPassedDriverDeviceFieldTest({ fulfillmentId, orderLineId, expected
       matchedPackageId: expectedPackageId,
       method: "native_sdk",
       result: "matched",
+      requestId: `DNPS-V1-PROD-PRECHECK-${fulfillmentId}`,
+      source: "native_sdk",
       message: "原生扫码 SDK 已扫真实纸质包裹标签",
       checkedAt: "2026-07-04T10:09:59.000Z",
+    },
+    nativeNavigationSample: {
+      requestId: `DNN-V1-PROD-PRECHECK-${fulfillmentId}`,
+      fulfillmentId,
+      status: "opened",
+      source: "native_navigation_sdk",
+      mapApp: "高德地图",
+      checkedAt: "2026-07-04T10:10:00.000Z",
     },
     nativeBridgeDiagnostics: {
       items: [
@@ -865,52 +863,13 @@ async function postDriverJson(baseUrl, route, body) {
 }
 
 async function fetchJson(baseUrl, route, options = {}) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const response = await fetch(`${baseUrl}${route}`, {
-      ...options,
-      headers: { ...(options.headers ?? {}), connection: "close" },
-      signal: controller.signal,
-    });
-    const json = await readJson(response);
-    if (!response.ok) throw new Error(`${route} returned HTTP ${response.status}: ${JSON.stringify(json)}`);
-    return json;
-  } catch (error) {
-    if (error?.name === "AbortError") throw new Error(`${route} request timed out after 10000ms`);
-    throw error;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-async function readJson(response) {
-  const text = await response.text();
-  return text ? JSON.parse(text) : {};
-}
-
-function listen(targetServer) {
-  return new Promise((resolve) => {
-    targetServer.listen(0, "127.0.0.1", resolve);
+  const result = await requestJson(`${baseUrl}/`, route.replace(/^\/+/, ""), {
+    ...options,
+    closeConnection: true,
+    expectedStatus: "ok",
+    timeoutMs: 10_000,
   });
-}
-
-function closeServer(targetServer) {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = () => {
-      if (settled) return;
-      settled = true;
-      resolve();
-    };
-    targetServer.close(finish);
-    targetServer.closeIdleConnections?.();
-    const timeout = setTimeout(() => {
-      targetServer.closeAllConnections?.();
-      finish();
-    }, 1000);
-    timeout.unref?.();
-  });
+  return result.body;
 }
 
 function escapeRegExp(value) {

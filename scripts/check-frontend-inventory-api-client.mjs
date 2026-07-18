@@ -166,20 +166,21 @@ const writeOptions = {
   },
 };
 await createOfficeTemporaryInventoryHold(
-  { authState, operatorId: "U-OFFICE-A", intentId: inventoryIntent.intentId, clientRevision: 1, candidateIndex: 0, qty: 120 },
+  { authState, operatorId: "U-OFFICE-A", intentId: inventoryIntent.intentId, expectedRevision: 1, candidateIndex: 0, qty: 120 },
   writeOptions,
 );
 await extendOfficeTemporaryInventoryHold(
-  { authState, operatorId: "U-OFFICE-A", holdId: "HOLD-CLIENT-001", clientRevision: 2, expiresAt: "2026-07-12T20:30:00+08:00", reason: "客户授权" },
+  { authState, operatorId: "U-OFFICE-A", holdId: "HOLD-CLIENT-001", expectedRevision: 2, expiresAt: "2026-07-12T20:30:00+08:00", reason: "客户授权" },
   writeOptions,
 );
 await releaseOfficeTemporaryInventoryHold(
-  { authState, operatorId: "U-OFFICE-A", holdId: "HOLD-CLIENT-001", clientRevision: 3, reason: "客户取消" },
+  { authState, operatorId: "U-OFFICE-A", holdId: "HOLD-CLIENT-001", expectedRevision: 3, reason: "客户取消" },
   writeOptions,
 );
 await expireDueOfficeTemporaryInventoryHolds({ authState, operatorId: "U-OFFICE-A" }, writeOptions);
 assert(writeCalls[0].url.endsWith("/inventory/intents/INT-CLIENT-001/hold"), "temporary hold create URL is incorrect");
 assert(writeCalls[0].body.operatorId === undefined, "operator identity must not be copied into the business payload");
+assert(writeCalls[0].body.expectedRevision === 1 && writeCalls[0].body.clientRevision === undefined, "temporary hold create must use expectedRevision");
 assert(writeCalls[1].url.endsWith("/inventory/holds/HOLD-CLIENT-001/extend"), "temporary hold extend URL is incorrect");
 assert(writeCalls[2].url.endsWith("/inventory/holds/HOLD-CLIENT-001/release"), "temporary hold release URL is incorrect");
 assert(writeCalls[3].url.endsWith("/inventory/holds/expire-due"), "temporary hold expiry URL is incorrect");

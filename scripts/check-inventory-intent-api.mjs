@@ -1,15 +1,19 @@
 import assert from "node:assert/strict";
 import { createApiServer } from "../server/apiServer.mjs";
+import {
+  closeTestServer,
+  getJson as getSharedJson,
+  getTestServerBaseUrl,
+  listenTestServer,
+  postJson,
+} from "./helpers/apiIntegrationTestHarness.mjs";
 
 const server = createApiServer({ scenarioId: "inventory-intent-api-check" });
+await server.ready;
+await listenTestServer(server);
 
 try {
-  await new Promise((resolve, reject) => {
-    server.once("error", reject);
-    server.listen(0, "127.0.0.1", resolve);
-  });
-  await server.ready;
-  const baseUrl = `http://127.0.0.1:${server.address().port}/api`;
+  const baseUrl = getTestServerBaseUrl(server);
   const headers = { "x-erp-user-id": "U-OFFICE-A" };
 
   const inventoryBefore = await getJson(baseUrl, "/inventory/items?size=30*38*10&color=%E7%BA%A2%E8%89%B2", headers);
@@ -315,23 +319,16 @@ try {
 
   console.log("Inventory intent API check passed: recognition persistence, holds, cancellation restore, partial shortage cancellation, inventory deltas, and audit responses are covered.");
 } finally {
-  await new Promise((resolve) => server.close(resolve));
+  await closeTestServer(server, { forceAfterMs: 1_000 });
 }
 
 async function getJson(baseUrl, path, headers) {
-  const response = await fetch(`${baseUrl}${path}`, { headers });
-  const json = await response.json();
-  assert.equal(response.status, 200, JSON.stringify(json));
-  return json;
+  return getSharedJson(baseUrl, `/api${path}`, { headers });
 }
 
 async function writeJson(baseUrl, path, body, headers, expectedStatus = 200) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
+  return postJson(baseUrl, `/api${path}`, body, {
+    headers,
+    expectedStatus,
   });
-  const json = await response.json();
-  assert.equal(response.status, expectedStatus, JSON.stringify(json));
-  return json;
 }
