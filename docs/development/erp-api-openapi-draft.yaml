@@ -23,9 +23,9 @@ tags:
   - name: Inventory
     description: 成品库存占用、释放和流水
   - name: RawMaterials
-    description: 原材料送货单 OCR 预填、人工复核、一卷一标、贴标扫码和入库状态
+    description: 原材料送货单 OCR 预填、人工复核、一卷一标、逐卷人工核对入库和领料扫码
   - name: Fulfillment
-    description: 出库、交付和异常
+    description: 纸质出库单、库房实物执行、司机在途、最终交付和异常
   - name: Driver
     description: 司机手机端送货任务、装车、回单和异常
   - name: ProductionPacking
@@ -44,8 +44,403 @@ tags:
     description: 当前账号角色、按钮权限和关键动作权限
   - name: Logs
     description: 关键业务操作日志
+  - name: BusinessDecisions
+    description: 经营决定、代录授权和不可变历史证据的只读投影
+  - name: Maintenance
+    description: 现场机修手机端报修、巡检、预防维护、照片和完成留痕
 
 paths:
+  /business-decisions:
+    get:
+      tags: [BusinessDecisions]
+      summary: 查询经营决定与授权历史
+      description: 只读返回业务决定证据；不能通过写接口事后覆盖或补造已存在的有效决定。
+      operationId: listBusinessDecisions
+      parameters:
+        - { name: businessType, in: query, schema: { type: string } }
+        - { name: businessId, in: query, schema: { type: string } }
+        - { name: decisionScope, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: 经营决定只读列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessDecisionListResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+
+    post:
+      tags: [BusinessDecisions]
+      summary: 决策人手机端提交经营决定
+      description: >
+        仅允许绑定正式员工、持有当前有效范围授权的正式登录账号本人提交。服务端按业务对象和决定范围
+        执行第一终态优先与幂等校验，写入不可变决定证据并生成办公室共享执行待办；本接口不直接修改
+        订单数量、库存、排产、采购单、出库结果或账款，后续仍由对应专用业务命令执行。
+      operationId: recordBusinessDecisionDirective
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordBusinessDecisionDirectiveRequest"
+      responses:
+        "201":
+          description: 决定已记录并生成办公室执行待办
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessDecisionDirectiveResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /business-decision-authorizations:
+    get:
+      tags: [BusinessDecisions]
+      summary: 查询有效业务决定人授权
+      description: 返回正式员工授权投影；无 ERP 账号的正式员工可以作为决定人，但不计入 D49 账号就绪。
+      operationId: listBusinessDecisionAuthorizations
+      parameters:
+        - { name: scope, in: query, schema: { type: string } }
+        - { name: employeeId, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { type: string, enum: [active, inactive] } }
+        - { name: effectiveOnly, in: query, schema: { type: boolean, default: true } }
+        - { name: includeAll, in: query, schema: { type: boolean, default: false }, description: 仅管理权限可读取全量、历史和失效授权。 }
+        - { name: asOf, in: query, schema: { type: string, format: date-time } }
+      responses:
+        "200":
+          description: 决定人授权只读列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessDecisionAuthorizationListResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+    post:
+      tags: [BusinessDecisions]
+      summary: 新建业务决定人授权
+      description: 仅管理角色可执行；正式员工无需 ERP 账号即可作为决定人。服务端忽略客户端伪造的操作人并拒绝重叠有效授权。
+      operationId: createBusinessDecisionAuthorization
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBusinessDecisionAuthorizationRequest"
+      responses:
+        "201":
+          description: 授权已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessDecisionAuthorizationMutationResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /business-decision-authorizations/{authorizationId}/update:
+    post:
+      tags: [BusinessDecisions]
+      summary: 更新有效的业务决定人授权
+      description: 使用 expectedRevision 防止 A/B 岗或多个管理账号静默覆盖；已停用授权不可重新启用。
+      operationId: updateBusinessDecisionAuthorization
+      parameters:
+        - { name: authorizationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateBusinessDecisionAuthorizationRequest"
+      responses:
+        "200":
+          description: 授权已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessDecisionAuthorizationMutationResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /business-decision-authorizations/{authorizationId}/deactivate:
+    post:
+      tags: [BusinessDecisions]
+      summary: 停用业务决定人授权
+      description: 停用原因必填；停用后办公室有效授权投影立即消失，历史决定证据保持不变。
+      operationId: deactivateBusinessDecisionAuthorization
+      parameters:
+        - { name: authorizationId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DeactivateBusinessDecisionAuthorizationRequest"
+      responses:
+        "200":
+          description: 授权已停用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessDecisionAuthorizationMutationResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /business-decision-evidence-drafts:
+    post:
+      tags: [BusinessDecisions]
+      summary: 为一个业务对象创建经营决定凭据草稿
+      description: 草稿固定绑定业务对象与决定范围；办公室 A/B 岗可共享继续录入，但不能改绑或复用。
+      operationId: createBusinessDecisionEvidenceDraft
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateBusinessDecisionEvidenceDraftRequest"
+      responses:
+        "201":
+          description: 凭据草稿已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessDecisionEvidenceDraftMutationResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /business-decision-evidence-drafts/{draftId}:
+    get:
+      tags: [BusinessDecisions]
+      summary: 读取凭据草稿及其服务端确认的附件
+      operationId: getBusinessDecisionEvidenceDraft
+      parameters:
+        - { name: draftId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 凭据草稿详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessDecisionEvidenceDraftReadResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /business-decision-evidence-drafts/{draftId}/void:
+    post:
+      tags: [BusinessDecisions]
+      summary: 作废未提交的凭据草稿
+      operationId: voidBusinessDecisionEvidenceDraft
+      parameters:
+        - { name: draftId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoidBusinessDecisionEvidenceDraftRequest"
+      responses:
+        "200":
+          description: 凭据草稿已作废
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BusinessDecisionEvidenceDraftMutationResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /business-decision-evidence-drafts/{draftId}/attachments/{attachmentId}/void:
+    post:
+      tags: [BusinessDecisions]
+      summary: 删除凭据草稿中一个未使用附件
+      description: 只允许删除当前待提交草稿下由真实上传接口创建的附件；已消费草稿及历史附件不可修改。
+      operationId: voidBusinessDecisionEvidenceAttachment
+      parameters:
+        - { name: draftId, in: path, required: true, schema: { type: string } }
+        - { name: attachmentId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VoidBusinessDecisionEvidenceAttachmentRequest"
+      responses:
+        "200":
+          description: 附件已作废
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [attachment, operationLogId]
+                properties:
+                  attachment: { $ref: "#/components/schemas/BusinessDecisionEvidenceAttachment" }
+                  operationLogId: { type: string }
+                  replayed: { type: boolean }
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+
+  /raw-material-purchase-requests:
+    get:
+      tags: [RawMaterials]
+      summary: 查询原材料采购请求
+      description: 采购请求只代表经营决定和供应商执行进度，不增加库存、不生成已入库卷。
+      operationId: listRawMaterialPurchaseRequests
+      parameters:
+        - { name: status, in: query, schema: { type: string } }
+        - { name: supplierId, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: 原材料采购请求列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawMaterialPurchaseRequestListResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+    post:
+      tags: [RawMaterials]
+      summary: 按经营决定创建原材料采购请求
+      description: 决定、采购请求、附件关联、操作日志和幂等记录原子提交；不会形成库存或入库卷。
+      operationId: createRawMaterialPurchaseRequest
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRawMaterialPurchaseRequest"
+      responses:
+        "200":
+          description: 原材料采购请求已创建
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawMaterialPurchaseMutationResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /raw-material-purchase-requests/{requestId}:
+    get:
+      tags: [RawMaterials]
+      summary: 读取原材料采购请求详情
+      operationId: getRawMaterialPurchaseRequest
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: 原材料采购请求详情
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [purchaseRequest]
+                properties:
+                  purchaseRequest: { $ref: "#/components/schemas/RawMaterialPurchaseRequest" }
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /raw-material-purchase-requests/{requestId}/status:
+    post:
+      tags: [RawMaterials]
+      summary: 更新或取消原材料采购请求
+      description: 使用采购请求根版本防止 AB 岗静默覆盖；取消操作还必须携带经营决定。
+      operationId: updateRawMaterialPurchaseRequestStatus
+      parameters:
+        - { name: requestId, in: path, required: true, schema: { type: string } }
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateRawMaterialPurchaseStatusRequest"
+      responses:
+        "200":
+          description: 采购请求状态已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawMaterialPurchaseMutationResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /fulfillments/{fulfillmentId}/quantity-variance-resolution:
+    post:
+      tags: [Fulfillment]
+      summary: 按经营决定处理成品出库数量差异
+      description: 现场数量异常是事实；本命令只处理后续经营结果，并原子写入决定、专项记录、出库任务、待办和日志。
+      operationId: resolveFulfillmentQuantityVariance
+      parameters:
+        - $ref: "#/components/parameters/FulfillmentId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FulfillmentQuantityVarianceResolutionRequest"
+      responses:
+        "200":
+          description: 数量差异经营处理已记录
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FulfillmentQuantityVarianceResolutionResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /system/v1-readiness:
     get:
       tags: [System]
@@ -1590,7 +1985,8 @@ paths:
       summary: 库存修正确认队列
       description: >
         按状态、库存键或关键词查看库存修正草稿。办公室可用它看到已发起的修正，
-        管理账号可进一步调用确认接口让修正生效。
+        管理账号可进一步调用确认接口让修正生效。数量字段只返回有限整数；旧数据中的非法快照值
+        回退库存权威值，可用量统一由在库、占用、待提货锁定和待处理数量重算。
       operationId: listInventoryCorrectionDrafts
       parameters:
         - name: status
@@ -1666,7 +2062,8 @@ paths:
       summary: 查看库存修正详情
       description: >
         从库存流水或待办查看库存修正草稿详情，包含修正前后数量、发起人、
-        确认人、关联库存流水和操作日志。查看详情不改变库存数量。
+        确认人、关联库存流水和操作日志。列表、详情和确认结果复用同一数量投影，
+        不信任持久化或导入记录中的派生可用量；查看详情不改变库存数量。
       operationId: getInventoryCorrectionDraftDetail
       parameters:
         - $ref: "#/components/parameters/CorrectionDraftId"
@@ -1785,12 +2182,45 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /raw-material-inbounds/recognize-delivery-note:
+    post:
+      tags: [RawMaterials]
+      summary: 腾讯云 OCR 识别原材料送货单
+      description: >
+        后端使用腾讯云表格识别 V3（RecognizeTableAccurateOCR）读取送货单图片或 PDF，
+        保存原始附件并生成待人工复核入库草稿。同一文件按内容摘要去重，不重复调用 OCR；
+        本动作不增加可用库存、不生成应付，也不把密钥或腾讯云原始 Excel 数据返回前端。
+      operationId: recognizeRawMaterialDeliveryNote
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RawMaterialDeliveryNoteOcrRequest"
+      responses:
+        "200":
+          description: 已生成或返回已有待人工复核草稿
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawMaterialDeliveryNoteOcrResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "413":
+          $ref: "#/components/responses/ValidationError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/BusinessError"
+        "503":
+          $ref: "#/components/responses/BusinessError"
+
   /raw-material-inbounds/{rawMaterialInboundId}:
     get:
       tags: [RawMaterials]
       summary: 查看原材料入库单详情
       description: >
-        查看单张原材料送货单的 OCR / 人工复核、卷/件标签、扫码签单和供应商对账摘要。
+        查看单张原材料送货单的 OCR / 人工复核、卷/件标签、逐卷人工核对结果、卷级异常和供应商对账摘要。
       operationId: getRawMaterialInbound
       parameters:
         - $ref: "#/components/parameters/RawMaterialInboundId"
@@ -1863,10 +2293,11 @@ paths:
   /raw-material-inbounds/{rawMaterialInboundId}/attach-confirm:
     post:
       tags: [RawMaterials]
-      summary: 确认标签已贴到对应卷/件并扫码签单
+      summary: 逐卷确认标签与实物一致并入库
       description: >
-        库房、打包或管理账号确认标签已贴到对应卷/件，并通过手机扫码 / 签单信息回传。
-        只有本动作成功的卷/件才成为可用原材料。
+        库房、打包或管理账号按重量、颜色、规格等将标签与对应实物一对一核对并贴标。
+        核对一致的卷/件逐卷成为可用原材料；不一致的卷/件单独进入异常，不阻断同单正确卷。
+        本动作不要求手机扫码或签单信息；签单照片如保留只能作为单据附件。
       operationId: confirmRawMaterialInboundAttachment
       parameters:
         - $ref: "#/components/parameters/RawMaterialInboundId"
@@ -1878,7 +2309,7 @@ paths:
               $ref: "#/components/schemas/RawMaterialInboundActionRequest"
       responses:
         "200":
-          description: 已贴标入库或部分贴标
+          description: 已逐卷核对入库、部分入库或卷级异常
           content:
             application/json:
               schema:
@@ -1888,20 +2319,72 @@ paths:
         "404":
           $ref: "#/components/responses/BusinessError"
 
+  /raw-material-inbounds/{rawMaterialInboundId}/void-label:
+    post:
+      tags: [RawMaterials]
+      summary: 作废异常卷/件标签
+      description: 只作废指定异常卷/件的旧标签；不推断或修改同单其他卷/件的可用状态。
+      operationId: voidRawMaterialInboundLabel
+      parameters:
+        - $ref: "#/components/parameters/RawMaterialInboundId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RawMaterialInboundActionRequest"
+      responses:
+        "200":
+          description: 指定卷/件标签已作废，等待重打
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawMaterialInboundActionResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /raw-material-inbounds/{rawMaterialInboundId}/reprint-label:
+    post:
+      tags: [RawMaterials]
+      summary: 重打指定异常卷/件标签
+      description: 只重打已作废或异常的指定卷/件标签，递增该卷标签版本并回到待贴标状态。
+      operationId: reprintRawMaterialInboundLabel
+      parameters:
+        - $ref: "#/components/parameters/RawMaterialInboundId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RawMaterialInboundActionRequest"
+      responses:
+        "200":
+          description: 指定卷/件新标签已生成，等待重新贴标核对
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RawMaterialInboundActionResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /raw-material-inbounds/{rawMaterialInboundId}/issue-to-machine:
     post:
       tags: [RawMaterials]
       summary: 原材料机边领料
       description: >
-        对已贴标扫码且处于可用库存的卷/件执行机边领料，生成 RMI-ISS-* 领料记录。
+        原材料领料角色选择已人工一对一核对贴标且处于可用库存的单卷/件、生产任务和机台后，执行机边领料并生成 RMI-ISS-* 领料记录。
         V1 第一版支持整卷/整件领料，也支持有重量卷料的拆卷部分领料；拆卷时生成 RMI-SPLIT-* 并保留剩余可用重量。
-        生产任务精确匹配、成本分摊和损耗校准仍留到后续流程。
+        生产任务和机台为本动作必填；成本分摊和损耗校准仍留到后续流程。
         本动作不生成成品数量，不读取机台计数为合格产量。
       operationId: issueRawMaterialToMachine
       parameters:
         - $ref: "#/components/parameters/RawMaterialInboundId"
       requestBody:
-        required: false
+        required: true
         content:
           application/json:
             schema:
@@ -2580,6 +3063,8 @@ paths:
         本接口只更新队列顺序记录，不写库存、不占用库存、不生成打包任务，也不代表完整排班 / 插单 / 换模 / 产能排程引擎。
         队列记录和日志原子提交；idempotencyKey 重放返回首次结果，陈旧队列快照返回 409。
       operationId: resequenceProductionMachineQueue
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -2612,6 +3097,8 @@ paths:
         本接口只调整排产队列，不写库存、不占用库存、不生成打包任务，也不代表完整排班 / 换模 / 产能排程引擎。
         生产任务、源/目标队列和日志原子提交；idempotencyKey 重放返回首次结果，陈旧任务或队列快照返回 409。
       operationId: moveProductionMachineQueueItem
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -2646,6 +3133,7 @@ paths:
       operationId: publishProductionTaskSchedule
       parameters:
         - $ref: "#/components/parameters/ProductionTaskId"
+        - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
         required: true
         content:
@@ -2728,6 +3216,75 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ProductionDailyProgressResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /production-tasks/{productionTaskId}/exception:
+    post:
+      tags: [ProductionPacking]
+      summary: 上报生产异常并建立跟进待办
+      description: >
+        车间或办公室记录固定类型的生产异常，并明确选择继续生产或暂停等确认。
+        暂停会将任务置为异常暂停；两种处理都会建立关联生产任务的生产异常待办。
+        异常记录只做过程追溯，不写成品库存、不占用库存、不生成打包任务，也不更新对账或结算。
+        任务、异常记录、待办、待办事件和操作日志在同一事务内提交，并支持 idempotencyKey 重放。
+      operationId: recordProductionTaskException
+      parameters:
+        - $ref: "#/components/parameters/ProductionTaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductionExceptionRequest"
+      responses:
+        "200":
+          description: 生产异常已保存并已建立跟进待办
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductionExceptionResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /production-tasks/{productionTaskId}/exception-resolution:
+    post:
+      tags: [ProductionPacking]
+      summary: 处理生产异常并决定任务后续状态
+      description: >
+        仅办公室或管理角色可处理指定生产异常。请求必须明确选择继续生产、改任务顺序、等待材料/维修、
+        转数量差异处理、转售后/质量问题或取消/作废任务，并提供处理说明和最终确认标记。
+        继续生产才解除任务报工阻断；其他非作废路径保持异常阻断，作废只作废生产任务而不自动作废订单。
+        任务、异常记录、关联待办、待办事件和操作日志在同一事务内提交，并支持 idempotencyKey 重放；
+        所有处理路径均不写库存、不占用库存、不生成打包任务，也不更新对账或结算。
+      operationId: resolveProductionTaskException
+      parameters:
+        - $ref: "#/components/parameters/ProductionTaskId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProductionExceptionResolutionRequest"
+      responses:
+        "200":
+          description: 生产异常处理决定已保存
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductionExceptionResolutionResponse"
         "400":
           $ref: "#/components/responses/BusinessError"
         "403":
@@ -2907,7 +3464,8 @@ paths:
       summary: 查询出库 / 交付任务列表
       description: >
         出库交付页列表使用。默认关注今天要交付、未完成和异常优先任务；
-        历史完成任务需要显式筛选。
+        历史完成任务需要显式筛选。交付方式筛选同时接受中文标签和内部值，
+        服务端在统一投影后筛选；列表与详情共享数量、包裹、工厂摘要和派单字段合同。
       operationId: listFulfillments
       parameters:
         - name: method
@@ -2956,6 +3514,26 @@ paths:
           $ref: "#/components/responses/BusinessError"
         "422":
           $ref: "#/components/responses/ValidationError"
+
+  /fulfillments/{fulfillmentId}:
+    get:
+      tags: [Fulfillment]
+      summary: 查看出库 / 交付任务详情
+      description: >
+        返回与列表相同的服务端权威投影，不返回内部原始记录。实际数量尚未确认时为 null；
+        交付方式同时提供内部值和中文标签，货品摘要使用工厂短写，包裹数量优先读取已持久化包裹。
+      operationId: getFulfillmentDetail
+      parameters:
+        - $ref: "#/components/parameters/FulfillmentId"
+      responses:
+        "200":
+          description: 出库 / 交付任务详情
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/FulfillmentListItem"
+        "404":
+          $ref: "#/components/responses/NotFound"
 
   /fulfillments/{fulfillmentId}/exception:
     post:
@@ -3047,13 +3625,78 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /fulfillments/{fulfillmentId}/paper-handoff:
+    post:
+      tags: [Fulfillment]
+      summary: 办公室登记当前纸质出库单已交库房
+      description: >
+        仅接受当前履约版本和当前已可信打印纸单版本。该操作只记录办公室将纸单交给库房，
+        不等于已备货、实物出库或客户最终交付，不扣库存、不生成对账候选。认证办公室账号
+        由会话取得，客户端不能在请求体指定操作人。
+      operationId: handoffPaperOutboundDocument
+      parameters:
+        - $ref: "#/components/parameters/FulfillmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PaperOutboundHandoffRequest"
+      responses:
+        "200":
+          description: 当前纸单已交库房，等待办公室回录库房纸单执行结果
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaperOutboundHandoffResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /fulfillments/{fulfillmentId}/warehouse-execution:
+    post:
+      tags: [Fulfillment]
+      summary: 办公室按库房纸单反馈回录实物执行结果
+      description: >
+        输入纸单版本、实际实物执行人员工编号、结果、数量、渠道和执行时间。认证办公室账号仅作为
+        系统操作人；physicalExecutorEmployeeId 是实际库房执行人员。数量不符或无法出库只生成异常待办，
+        不改订单、不扣库存、不生成对账。送货的实物出库仅进入待司机装车，司机最终送达后才生成对账候选；
+        自提或快递快运的实物出库也只扣减库存并进入待最终交接；客户自提或承运方拉走必须
+        再通过各自的最终交付确认接口完成，届时才生成对账候选。
+      operationId: recordWarehouseOutboundExecution
+      parameters:
+        - $ref: "#/components/parameters/FulfillmentId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WarehouseOutboundExecutionRequest"
+      responses:
+        "200":
+          description: 库房纸单执行结果已原子写入
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WarehouseOutboundExecutionResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /fulfillments/{fulfillmentId}/complete:
     post:
       tags: [Fulfillment]
-      summary: 完成自提 / 送货 / 普通出库交付
+      summary: 确认客户最终自提交接
       description: >
-        用于自提和送货等明确交付动作。出库员或办公室不能直接改订单数量，
-        实际数量异常应先走出库异常接口。
+        仅适用于已按当前纸质出库单完成库房实物出库的自提任务。请求必须携带冻结摘要中的
+        expectedRevision、confirmedFinalDelivery 和 idempotencyKey。该操作确认客户最终接货并
+        创建对账候选；库存已在库房实物出库时扣减，本接口不得重复扣减。
       operationId: completeFulfillment
       parameters:
         - $ref: "#/components/parameters/FulfillmentId"
@@ -3065,7 +3708,7 @@ paths:
               $ref: "#/components/schemas/CompleteFulfillmentRequest"
       responses:
         "200":
-          description: 交付已完成，可能进入对账候选
+          description: 客户最终自提已确认并创建对账候选
           content:
             application/json:
               schema:
@@ -3080,8 +3723,9 @@ paths:
   /fulfillments/{fulfillmentId}/prepared:
     post:
       tags: [Fulfillment]
-      summary: 标记出库任务已备货
-      description: 只更新备货状态和审计记录，不扣减库存、不释放占用、不进入对账候选。
+      deprecated: true
+      summary: 已停用的直接标记备货兼容接口
+      description: 服务端统一返回 FULFILLMENT_WAREHOUSE_EXECUTION_REQUIRED；请通过库房纸单执行结果登记已备货。
       operationId: markFulfillmentPrepared
       parameters:
         - $ref: "#/components/parameters/FulfillmentId"
@@ -3121,10 +3765,11 @@ paths:
   /fulfillments/{fulfillmentId}/pickup-confirm:
     post:
       tags: [Fulfillment]
-      summary: 确认快递 / 快运已拉走
+      summary: 确认承运方最终拉走交接
       description: >
-        快递快运必须先打印标签或进入待确认拉走状态，再确认已拉走。
-        确认后才进入已交付和对账候选。
+        仅适用于已按当前纸质出库单完成库房实物出库的快递快运任务。请求必须携带冻结摘要中的
+        expectedRevision、confirmedFinalDelivery 和 idempotencyKey。该操作确认承运方最终拉走并
+        创建对账候选；库存已在库房实物出库时扣减，本接口不得重复扣减。
       operationId: confirmFulfillmentPickup
       parameters:
         - $ref: "#/components/parameters/FulfillmentId"
@@ -3136,7 +3781,7 @@ paths:
               $ref: "#/components/schemas/ConfirmFulfillmentPickupRequest"
       responses:
         "200":
-          description: 快递 / 快运已确认拉走
+          description: 承运方最终拉走已确认并创建对账候选
           content:
             application/json:
               schema:
@@ -3335,6 +3980,9 @@ paths:
         包裹扫码、定位读取、上传兜底和外部导航。该接口写入操作日志，
         但不自动触发相机、定位、文件选择或外部导航权限动作。记录只能写入
         当前认证司机的有效派单任务，driverId / operatorId 请求字段不作为身份来源。
+        未测、失败和受限记录可保存用于问题跟踪；若六项均标为通过，服务端还会要求
+        当前任务/司机绑定、原生扫码回执、任务内包裹严格匹配、原生导航成功回执和当前桥接版本，
+        缺少任一项时返回 422，不把“记录已保存”表述为“现场验收已通过”。
       operationId: recordDriverDeviceFieldTest
       parameters:
         - $ref: "#/components/parameters/FulfillmentId"
@@ -4646,7 +5294,8 @@ paths:
       summary: 查询办公室公共待办
       description: >
         公共待办默认返回未处理事项，并按急单、异常、今天要发、最晚时间和
-        等待时长排序。已处理和全部列表需要显式筛选。
+        等待时长排序。已处理和全部列表需要显式筛选；列表和写后响应复用
+        同一服务端投影，priority 筛选使用稳定内部值。
       operationId: listTodos
       parameters:
         - name: status
@@ -4719,6 +5368,70 @@ paths:
                 $ref: "#/components/schemas/HandleTodoResponse"
         "400":
           $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /todos/{todoId}/reference:
+    post:
+      tags: [Todos]
+      summary: 人工重新关联失效待办引用
+      description: >
+        仅允许办公室对未处理且当前引用失效或无法校验的待办执行。服务端先校验目标类型与待办业务兼容，
+        再验证目标真实存在，并在同一 PostgreSQL 事务中更新引用、写入待办事件和操作日志；
+        类型不兼容或目标无效时保持原待办不变。
+      operationId: repairTodoReference
+      parameters:
+        - $ref: "#/components/parameters/TodoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepairTodoReferenceRequest"
+      responses:
+        "200":
+          description: 重新关联成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HandleTodoResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /todos/{todoId}/fulfillment-repair:
+    post:
+      tags: [Todos]
+      summary: 根据已完成打包记录受控补建出库交付
+      description: >
+        仅处理类型为“出库交付待补建”且有效关联订单行的未处理待办。服务端要求订单行交付方式为快递快运、
+        已完成打包任务和包裹数量一致，并确认该订单行尚无交付记录。新增交付记录、回填全部包裹、关闭原异常待办、
+        新增待打印标签待办、待办事件和操作日志在同一 PostgreSQL 幂等事务中提交；任一前置状态变化时整笔拒绝。
+      operationId: repairTodoMissingFulfillment
+      parameters:
+        - $ref: "#/components/parameters/TodoId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RepairTodoFulfillmentRequest"
+      responses:
+        "200":
+          description: 出库交付已补建，原异常待办已关闭并生成标签待办
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepairTodoFulfillmentResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
         "409":
           $ref: "#/components/responses/ConflictError"
         "422":
@@ -5053,6 +5766,107 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /master-data/machines:
+    get:
+      tags: [MasterData]
+      summary: 查询车间 / 机台配置
+      description: 返回服务端权威机台资料，供员工固定机台与杂工车间调配使用；不生成客户端默认车间。
+      operationId: listMasterDataMachines
+      parameters:
+        - name: keyword
+          in: query
+          schema:
+            type: string
+        - name: workshop
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, maintenance, inactive]
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+        - name: pageSize
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        "200":
+          description: 机台配置分页列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MasterDataMachineListResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+    post:
+      tags: [MasterData]
+      summary: 新增车间 / 机台配置
+      description: 新增稳定机台编号并记录认证操作人、原因和操作日志。
+      operationId: createMasterDataMachine
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveMasterDataMachineRequest"
+      responses:
+        "200":
+          description: 机台配置已新增
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveMasterDataMachineResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/BusinessError"
+
+  /master-data/machines/{machineId}:
+    patch:
+      tags: [MasterData]
+      summary: 修改车间 / 机台配置
+      description: >
+        使用 updatedAt 乐观锁修改名称、类型、所属车间和状态。仍有正式员工绑定时，禁止搬迁、检修或停用，
+        必须先完成员工调配；不提供物理删除。
+      operationId: updateMasterDataMachine
+      parameters:
+        - name: machineId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SaveMasterDataMachineRequest"
+      responses:
+        "200":
+          description: 机台配置已更新
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SaveMasterDataMachineResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/BusinessError"
+
   /master-data/employee-account-reviews:
     get:
       tags: [MasterData]
@@ -5098,6 +5912,35 @@ paths:
         "403":
           $ref: "#/components/responses/PermissionDenied"
 
+  /master-data/employee-account-reviews/batch-enable:
+    post:
+      tags: [MasterData]
+      summary: 原子批量复核并启用导入员工账号
+      description: >
+        管理账号对最多 100 个待复核正式员工执行批量启用。服务端先在隔离工作区校验全部员工、
+        岗位、默认机台、身份确认、推荐角色、登录名和用户标识，任一失败时整批不写入；成功时一次持久化，
+        并为每个实际启用账号记录独立操作日志。已启用账号只计为跳过，不发放临时密码。
+      operationId: enableMasterDataEmployeeAccounts
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/EnableMasterDataEmployeeAccountsRequest"
+      responses:
+        "200":
+          description: 批量员工账号已原子提交或全部已启用
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EnableMasterDataEmployeeAccountsResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "409":
+          $ref: "#/components/responses/BusinessError"
+
   /master-data/employee-account-reviews/{employeeId}/enable:
     post:
       tags: [MasterData]
@@ -5131,6 +5974,45 @@ paths:
         "403":
           $ref: "#/components/responses/PermissionDenied"
         "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/BusinessError"
+
+  /master-data/employee-account-reviews/{employeeId}/identity-confirmation:
+    post:
+      tags: [MasterData]
+      summary: 显式确认待启用员工身份
+      description: >
+        管理账号在启用受控身份候选前，显式核对员工号、当前正式显示名和确认依据。
+        服务端保存认证操作人、服务端时间、姓名和角色快照；候选姓名或角色变化后旧确认自动失效。
+        该动作不启用账号、不发放密码，也不能改名或合并员工档案。
+      operationId: confirmMasterDataEmployeeIdentity
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfirmMasterDataEmployeeIdentityRequest"
+      responses:
+        "200":
+          description: 员工身份确认已保存或同一快照已确认
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConfirmMasterDataEmployeeIdentityResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
           $ref: "#/components/responses/BusinessError"
 
   /master-data/employee-account-reviews/{employeeId}/password:
@@ -5243,6 +6125,82 @@ paths:
         "409":
           $ref: "#/components/responses/BusinessError"
 
+  /maintenance/tasks:
+    get:
+      tags: [Maintenance]
+      summary: 查询设备任务
+      description: 按权限返回报修、巡检和预防维护任务；办公室可查看协调，现场机修使用手机处理。
+      operationId: listMaintenanceTasks
+      parameters:
+        - { name: status, in: query, schema: { type: string, default: all } }
+        - { name: taskType, in: query, schema: { type: string } }
+        - { name: machineId, in: query, schema: { type: string } }
+      responses:
+        "200":
+          description: 设备任务列表
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/MaintenanceTask" }
+                  total: { type: integer, minimum: 0 }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+    post:
+      tags: [Maintenance]
+      summary: 创建设备任务
+      description: 办公室或现场机修创建报修、巡检或预防维护任务，并同步生成办公室公共待办。
+      operationId: createMaintenanceTask
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/CreateMaintenanceTaskRequest" }
+      responses:
+        "201":
+          description: 设备任务已创建
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceTaskWriteResponse" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "409": { $ref: "#/components/responses/BusinessError" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
+  /maintenance/tasks/{taskId}/update:
+    post:
+      tags: [Maintenance]
+      summary: 更新设备任务处理结果
+      description: >
+        仅现场机修本人正式账号可更新。提交已恢复前必须展示冻结摘要、上传至少一张当前任务照片并显式确认；
+        服务端以 expectedRevision 阻止另一台设备或旧页面覆盖，并原子更新设备任务、办公室待办和操作日志。
+      operationId: updateMaintenanceTask
+      parameters:
+        - { $ref: "#/components/parameters/IdempotencyKey" }
+        - name: taskId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateMaintenanceTaskRequest" }
+      responses:
+        "200":
+          description: 设备任务进度或完成结果已写入
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/MaintenanceTaskWriteResponse" }
+        "403": { $ref: "#/components/responses/PermissionDenied" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/BusinessError" }
+        "422": { $ref: "#/components/responses/ValidationError" }
+
 components:
   securitySchemes:
     bearerAuth:
@@ -5254,8 +6212,8 @@ components:
     IdempotencyKey:
       name: Idempotency-Key
       in: header
-      required: false
-      description: 生产业务写入必填；同一请求重试必须复用相同键。
+      required: true
+      description: 办公室业务写入必填；同一请求重试必须复用相同键。
       schema:
         type: string
         minLength: 8
@@ -5384,6 +6342,540 @@ components:
             $ref: "#/components/schemas/ErrorResponse"
 
   schemas:
+    MaintenanceTask:
+      type: object
+      required: [taskId, machineId, machineName, type, faultCategory, priority, status, summary, revision]
+      properties:
+        taskId: { type: string }
+        bizNo: { type: string }
+        machineId: { type: string }
+        machineName: { type: string }
+        type: { type: string, enum: [设备报修, 日常巡检, 预防维护] }
+        faultCategory: { type: string }
+        priority: { type: string, enum: [普通, 今天, 本周, 异常] }
+        status: { type: string, enum: [待处理, 待检查, 待维护, 处理中, 已恢复, 等待配件, 需要停机, 转办公室协调] }
+        summary: { type: string }
+        dueAt: { type: string }
+        finding: { type: string }
+        actionTaken: { type: string }
+        photoAttachmentIds:
+          type: array
+          items: { type: string }
+        assignedTechnicianEmployeeId: { type: string }
+        actualTechnicianEmployeeId: { type: string }
+        completedAt: { type: string }
+        revision: { type: integer, minimum: 1 }
+        updatedAt: { type: string }
+
+    CreateMaintenanceTaskRequest:
+      type: object
+      required: [machineId, type, faultCategory, summary]
+      properties:
+        machineId: { type: string }
+        type: { type: string, enum: [设备报修, 日常巡检, 预防维护] }
+        faultCategory: { type: string, maxLength: 80 }
+        priority: { type: string, enum: [普通, 今天, 本周, 异常], default: 普通 }
+        summary: { type: string, minLength: 2, maxLength: 300 }
+        dueAt: { type: string, format: date-time }
+        assignedTechnicianEmployeeId: { type: string }
+
+    UpdateMaintenanceTaskRequest:
+      type: object
+      required: [expectedRevision, finding, actionTaken, status]
+      properties:
+        expectedRevision: { type: integer, minimum: 1 }
+        finding: { type: string, minLength: 2, maxLength: 500 }
+        actionTaken: { type: string, minLength: 2, maxLength: 500 }
+        status: { type: string, enum: [处理中, 已恢复, 等待配件, 需要停机, 转办公室协调] }
+        photoAttachmentIds:
+          type: array
+          items: { type: string }
+        completionConfirmed:
+          type: boolean
+          description: status=已恢复时必须为 true，且照片列表至少包含一张已上传到当前任务的设备照片。
+
+    MaintenanceTaskWriteResponse:
+      type: object
+      required: [task, todo, operationLogId, replayed]
+      properties:
+        task: { $ref: "#/components/schemas/MaintenanceTask" }
+        todo:
+          type: object
+          additionalProperties: true
+        operationLogId: { type: string }
+        replayed: { type: boolean }
+
+    ExpectedRevision:
+      type: integer
+      minimum: 1
+      description: 客户端读取到的当前根业务版本；服务端只接受完全匹配的版本并在冲突时返回 409，不自动重试。
+
+    DirectDecisionContent:
+      type: object
+      required: [summary]
+      properties:
+        summary:
+          type: string
+          minLength: 1
+      additionalProperties: true
+
+    DelegatedBusinessDecision:
+      type: object
+      required:
+        - decisionMakerEmployeeId
+        - decisionChannel
+        - decidedAt
+        - decisionContent
+        - authorizationBasis
+      properties:
+        decisionMakerEmployeeId:
+          type: string
+          description: 服务端返回的正式员工 ID，不接受自由文本决定人。
+        decisionChannel:
+          type: string
+          enum: [in_person, phone, wechat, paper]
+          description: 页面显示为当面、电话、微信、纸面；办公室代录不能提交本人系统操作。
+        decidedAt:
+          type: string
+          format: date-time
+        decisionContent:
+          $ref: "#/components/schemas/DirectDecisionContent"
+        authorizationBasis:
+          type: string
+          minLength: 1
+        evidenceDraftId:
+          type: string
+          description: 由服务端创建并固定绑定业务对象与决定范围的凭据草稿；正式提交时服务端按此草稿重新解析附件，不接受手填附件编号。
+        evidenceAttachmentIds:
+          type: array
+          uniqueItems: true
+          items: { type: string }
+          deprecated: true
+          readOnly: true
+          description: 仅用于旧版只读兼容；提交时不能替代 evidenceDraftId，服务端从草稿附件投影生成。
+        lateEntryReason:
+          type: string
+      additionalProperties: false
+
+    BusinessDecisionProjection:
+      type: object
+      required:
+        - businessDecisionId
+        - businessType
+        - businessId
+        - decisionScope
+        - decisionScopeLabel
+        - decisionMakerEmployeeId
+        - decisionMakerEmployeeNo
+        - decisionMakerName
+        - decisionChannelLabel
+        - decidedAt
+        - decisionContent
+        - authorizationBasis
+        - enteredByUserId
+        - enteredAt
+        - status
+        - revision
+      properties:
+        businessDecisionId: { type: string }
+        businessType: { type: string }
+        businessId: { type: string }
+        decisionScope: { type: string }
+        decisionScopeLabel: { type: string, description: API/UI 边界提供的中文范围名称。 }
+        decisionType: { type: string }
+        decisionMakerEmployeeId: { type: string }
+        decisionMakerEmployeeNo: { type: string }
+        decisionMakerName: { type: string }
+        decisionChannel: { type: string }
+        decisionChannelLabel: { type: string, description: 当面、电话、微信、纸面或本人系统操作。 }
+        decidedAt: { type: string, format: date-time }
+        decisionContent: { type: object, additionalProperties: true }
+        authorizationId: { type: string }
+        authorizationBasis: { type: string }
+        authorizationSnapshot: { type: object, additionalProperties: true }
+        amountSnapshot: { type: [number, "null"] }
+        currency: { type: string }
+        evidenceDraftId: { type: string }
+        evidenceAttachmentIds: { type: array, items: { type: string } }
+        evidenceAttachments:
+          type: array
+          items: { $ref: "#/components/schemas/BusinessDecisionEvidenceAttachment" }
+        enteredByUserId: { type: string }
+        enteredByUserName: { type: string }
+        enteredAt: { type: string, format: date-time }
+        status: { type: string }
+        statusLabel: { type: string }
+        supersedesDecisionId: { type: string }
+        lateEntry: { type: boolean }
+        lateEntryReason: { type: string }
+        revision: { type: integer, minimum: 1 }
+        operationLogId: { type: string }
+
+    BusinessDecisionListResponse:
+      type: object
+      required: [items, total, readOnly]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BusinessDecisionProjection" }
+        total: { type: integer, minimum: 0 }
+        readOnly: { type: boolean, const: true }
+
+    RecordBusinessDecisionDirectiveRequest:
+      type: object
+      required: [businessType, businessId, decisionScope, outcome, actionLabel, note, idempotencyKey]
+      properties:
+        businessType:
+          type: string
+          enum: [order, production_schedule_queue, raw_material_inbound, fulfillment, statement, todo]
+        businessId: { type: string, minLength: 1 }
+        decisionScope:
+          type: string
+          enum: [order_priority, production_schedule, raw_material_purchase, fulfillment_quantity_variance, statement_variance, statement_write_off, major_exception]
+        outcome:
+          type: string
+          enum: [approve, return_for_more_information, reject, defer]
+        actionLabel: { type: string, minLength: 1, maxLength: 40 }
+        note: { type: string, minLength: 2, maxLength: 500 }
+        taskTitle: { type: string, maxLength: 120 }
+        factsSnapshot:
+          type: array
+          maxItems: 12
+          items:
+            type: array
+            minItems: 2
+            maxItems: 2
+            items: { type: string }
+        authorizationAmount: { type: [number, "null"], minimum: 0 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+      additionalProperties: false
+
+    BusinessDecisionDirectiveResponse:
+      type: object
+      required: [businessDecision, todo, operationLogId, replayed]
+      properties:
+        businessDecision: { $ref: "#/components/schemas/BusinessDecisionProjection" }
+        todo:
+          type: object
+          required: [todoId, type, refType, refId, status, summary]
+          properties:
+            todoId: { type: string }
+            type: { type: string, const: 经营决定待执行 }
+            refType: { type: string }
+            refId: { type: string }
+            priority: { type: string }
+            status: { type: string }
+            summary: { type: string }
+          additionalProperties: true
+        operationLogId: { type: string }
+        replayed: { type: boolean }
+
+    BusinessDecisionAuthorizationWriteFields:
+      type: object
+      required: [employeeId, decisionScope, activeFrom]
+      properties:
+        employeeId:
+          type: string
+          description: 服务端正式员工档案 ID；无需已有 ERP 登录账号。
+        decisionScope:
+          type: string
+          enum: [order_priority, production_schedule, raw_material_purchase, fulfillment_quantity_variance, statement_variance, statement_write_off, major_exception]
+        maxAmount:
+          type: [number, "null"]
+          minimum: 0
+          description: 空值表示不限额，负数被拒绝。
+        activeFrom: { type: string, format: date-time }
+        activeTo: { type: [string, "null"], format: date-time }
+        authorizationNote: { type: string }
+      additionalProperties: true
+
+    CreateBusinessDecisionAuthorizationRequest:
+      allOf:
+        - $ref: "#/components/schemas/BusinessDecisionAuthorizationWriteFields"
+        - type: object
+          required: [idempotencyKey]
+          properties:
+            idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+
+    UpdateBusinessDecisionAuthorizationRequest:
+      allOf:
+        - $ref: "#/components/schemas/BusinessDecisionAuthorizationWriteFields"
+        - type: object
+          required: [expectedRevision, idempotencyKey]
+          properties:
+            expectedRevision: { $ref: "#/components/schemas/ExpectedRevision" }
+            reason: { type: string }
+            idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+
+    DeactivateBusinessDecisionAuthorizationRequest:
+      type: object
+      required: [expectedRevision, reason, idempotencyKey]
+      properties:
+        expectedRevision: { $ref: "#/components/schemas/ExpectedRevision" }
+        reason: { type: string, minLength: 1 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+      additionalProperties: false
+
+    BusinessDecisionAuthorizationProjection:
+      type: object
+      required: [authorizationId, employeeId, employeeNo, employeeName, decisionScope, decisionScopeLabel, status, effectiveStatus, revision]
+      properties:
+        authorizationId: { type: string }
+        employeeId: { type: string }
+        employeeNo: { type: string }
+        employeeName: { type: string }
+        decisionScope: { type: string }
+        decisionScopeLabel: { type: string }
+        maxAmount: { type: [number, "null"] }
+        activeFrom: { type: string }
+        activeTo: { type: string }
+        status: { type: string }
+        effectiveStatus:
+          type: string
+          enum: [current, future, expired, inactive, employee_invalid]
+          description: 服务端在请求时点评估的有效状态；办公室有效列表只返回 current。
+        authorizationNote: { type: string }
+        revision: { type: integer, minimum: 1 }
+        createdBy: { type: string }
+        updatedBy: { type: string }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+        deactivatedBy: { type: string }
+        deactivatedAt: { type: string, format: date-time }
+        deactivationReason: { type: string }
+        operationLogId: { type: string }
+        history:
+          type: array
+          items:
+            type: object
+            additionalProperties: true
+
+    BusinessDecisionAuthorizationListResponse:
+      type: object
+      required: [items, total, readOnly]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/BusinessDecisionAuthorizationProjection" }
+        total: { type: integer, minimum: 0 }
+        readOnly: { type: boolean, const: true }
+
+    BusinessDecisionAuthorizationMutationResponse:
+      type: object
+      required: [authorization, operationLogId]
+      properties:
+        authorization: { $ref: "#/components/schemas/BusinessDecisionAuthorizationProjection" }
+        operationLogId: { type: string }
+        replayed: { type: boolean }
+
+    CreateBusinessDecisionEvidenceDraftRequest:
+      type: object
+      required: [businessType, businessId, decisionScope, idempotencyKey]
+      properties:
+        businessType:
+          type: string
+          enum: [order, order_draft, production_task, production_schedule_queue, raw_material_purchase_request, fulfillment, statement]
+        businessId: { type: string, minLength: 1 }
+        decisionScope:
+          type: string
+          enum: [order_priority, production_schedule, raw_material_purchase, fulfillment_quantity_variance, statement_variance, statement_write_off, major_exception]
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+      additionalProperties: false
+
+    BusinessDecisionEvidenceDraft:
+      type: object
+      required: [draftId, businessType, businessId, decisionScope, status, createdBy, revision, createdAt, updatedAt]
+      properties:
+        draftId: { type: string }
+        businessType: { type: string }
+        businessId: { type: string }
+        decisionScope: { type: string }
+        status: { type: string, enum: [pending, consumed, voided] }
+        createdBy: { type: string }
+        consumedByDecisionId: { type: string }
+        revision: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    BusinessDecisionEvidenceAttachment:
+      type: object
+      required: [attachmentId, fileName, fileType, fileSize, status, uploadedBy, uploadedAt, hasContent]
+      properties:
+        attachmentId: { type: string }
+        fileName: { type: string }
+        fileType: { type: string, enum: [image, pdf, document, spreadsheet] }
+        mimeType: { type: string }
+        fileSize: { type: integer, minimum: 1, maximum: 15728640 }
+        status: { type: string }
+        uploadedBy: { type: string }
+        uploadedAt: { type: string, format: date-time }
+        hasContent: { type: boolean }
+
+    BusinessDecisionEvidenceDraftReadResponse:
+      type: object
+      required: [draft, attachments]
+      properties:
+        draft: { $ref: "#/components/schemas/BusinessDecisionEvidenceDraft" }
+        attachments:
+          type: array
+          maxItems: 5
+          items: { $ref: "#/components/schemas/BusinessDecisionEvidenceAttachment" }
+
+    BusinessDecisionEvidenceDraftMutationResponse:
+      type: object
+      required: [draft, operationLogId]
+      properties:
+        draft: { $ref: "#/components/schemas/BusinessDecisionEvidenceDraft" }
+        operationLogId: { type: string }
+        replayed: { type: boolean }
+
+    VoidBusinessDecisionEvidenceDraftRequest:
+      type: object
+      required: [expectedRevision, reason, idempotencyKey]
+      properties:
+        expectedRevision: { $ref: "#/components/schemas/ExpectedRevision" }
+        reason: { type: string, minLength: 1 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+      additionalProperties: false
+
+    VoidBusinessDecisionEvidenceAttachmentRequest:
+      type: object
+      required: [idempotencyKey]
+      properties:
+        reason: { type: string }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+      additionalProperties: false
+
+    RawMaterialPurchaseLine:
+      type: object
+      required: [materialName, quantity]
+      properties:
+        materialName: { type: string, minLength: 1 }
+        specification: { type: string }
+        color: { type: string }
+        quantity: { type: number, exclusiveMinimum: 0 }
+        unit: { type: string }
+        note: { type: string }
+      additionalProperties: true
+
+    RawMaterialPurchaseRequest:
+      type: object
+      required: [id, supplierNameSnapshot, materialLines, status, businessDecisionId, createdBy, revision, createdAt, updatedAt]
+      properties:
+        id: { type: string }
+        requestId: { type: string }
+        supplierId: { type: string }
+        supplierNameSnapshot: { type: string }
+        materialLines:
+          type: array
+          items: { $ref: "#/components/schemas/RawMaterialPurchaseLine" }
+        requiredAt: { type: [string, "null"], format: date-time }
+        status:
+          type: string
+          enum: [待执行, 已联系供应商, 已下单, 部分到货, 已完成, 已取消]
+        businessDecisionId: { type: string }
+        createdBy: { type: string }
+        revision: { type: integer, minimum: 1 }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+
+    RawMaterialPurchaseRequestListResponse:
+      type: object
+      required: [items, total]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/RawMaterialPurchaseRequest" }
+        total: { type: integer, minimum: 0 }
+
+    CreateRawMaterialPurchaseRequest:
+      type: object
+      required: [supplierNameSnapshot, materialLines, idempotencyKey]
+      properties:
+        requestId: { type: string }
+        supplierId: { type: string }
+        supplierNameSnapshot: { type: string, minLength: 1 }
+        materialLines:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/RawMaterialPurchaseLine" }
+        requiredAt: { type: string, format: date-time }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+        delegatedDecision: { $ref: "#/components/schemas/DelegatedBusinessDecision" }
+        directDecisionContent: { $ref: "#/components/schemas/DirectDecisionContent" }
+      oneOf:
+        - required: [delegatedDecision]
+        - required: [directDecisionContent]
+
+    UpdateRawMaterialPurchaseStatusRequest:
+      type: object
+      required: [expectedRevision, status, reason, idempotencyKey]
+      properties:
+        expectedRevision: { $ref: "#/components/schemas/ExpectedRevision" }
+        status:
+          type: string
+          enum: [已联系供应商, 已下单, 部分到货, 已完成, 已取消]
+        reason: { type: string, minLength: 1 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+        delegatedDecision: { $ref: "#/components/schemas/DelegatedBusinessDecision" }
+        directDecisionContent: { $ref: "#/components/schemas/DirectDecisionContent" }
+        supersedesDecisionId: { type: string }
+
+    RawMaterialPurchaseMutationResponse:
+      type: object
+      required: [purchaseRequest, operationLogId]
+      properties:
+        purchaseRequest: { $ref: "#/components/schemas/RawMaterialPurchaseRequest" }
+        businessDecision:
+          oneOf:
+            - { $ref: "#/components/schemas/BusinessDecisionProjection" }
+            - { type: "null" }
+        operationLogId: { type: string }
+        replayed: { type: boolean }
+
+    FulfillmentQuantityVarianceResolutionRequest:
+      type: object
+      required: [expectedRevision, resolutionResult, reason, idempotencyKey]
+      properties:
+        expectedRevision: { $ref: "#/components/schemas/ExpectedRevision" }
+        resolutionResult:
+          type: string
+          enum: [按实际数量出库, 补货后再出库, 赠送数量, 暂停等待确认, 作废本次出库指令]
+        reason: { type: string, minLength: 1 }
+        idempotencyKey: { type: string, minLength: 8, maxLength: 128 }
+        delegatedDecision: { $ref: "#/components/schemas/DelegatedBusinessDecision" }
+        directDecisionContent: { $ref: "#/components/schemas/DirectDecisionContent" }
+        supersedesDecisionId: { type: string }
+      oneOf:
+        - required: [delegatedDecision]
+        - required: [directDecisionContent]
+
+    FulfillmentQuantityVarianceResolutionResponse:
+      type: object
+      required: [fulfillment, fulfillmentException, quantityVarianceResolution, businessDecision, inventoryChanged, statementChanged, operationLogId]
+      properties:
+        fulfillment: { type: object, additionalProperties: true }
+        fulfillmentException: { type: object, additionalProperties: true }
+        quantityVarianceResolution:
+          type: object
+          required: [id, fulfillmentId, expectedQty, actualQty, resolutionResult, businessDecisionId, recordedBy, revision]
+          properties:
+            id: { type: string }
+            fulfillmentId: { type: string }
+            fulfillmentExceptionId: { type: string }
+            expectedQty: { type: integer, minimum: 0 }
+            actualQty: { type: integer, minimum: 0 }
+            resolutionResult: { type: string }
+            businessDecisionId: { type: string }
+            recordedBy: { type: string }
+            revision: { type: integer, minimum: 1 }
+            operationLogId: { type: string }
+        todo: { type: [object, "null"], additionalProperties: true }
+        businessDecision: { $ref: "#/components/schemas/BusinessDecisionProjection" }
+        inventoryChanged: { type: boolean, const: false }
+        statementChanged: { type: boolean, const: false }
+        operationLogId: { type: string }
+
     SystemPersistenceReadinessCriterion:
       type: object
       required: [key, label, status, tone, blocking, detail, evidence]
@@ -9801,13 +11293,125 @@ components:
         nextAction:
           type: string
 
-    SystemV1D49Readiness:
+    SystemV1D49EmployeeIntakeStatus:
       type: object
-      required: [version, scope, status, ready, checkedAt, summary, employees, environment, blockers, nextAction, safeguards]
+      required: [version, scope, available, fresh, status, ready, uploadAllowed, checkedAt, freshness, summary, roles, missingRoleLabels, nextAction, safeguards]
       properties:
         version:
           type: string
-          enum: [p0-v1-d49-readiness-v1]
+          enum: [p0-v1-d49-employee-intake-status-v2]
+        scope:
+          type: string
+          enum: [v1_d49_employee_intake_status]
+        available:
+          type: boolean
+        fresh:
+          type: boolean
+        status:
+          type: string
+          enum: [ready_for_upload, needs_employee_numbers, needs_role_coverage, review_required, stale, unavailable]
+        ready:
+          type: boolean
+        uploadAllowed:
+          type: boolean
+        checkedAt:
+          type: string
+          format: date-time
+        freshness:
+          type: object
+          required: [fresh, status, label, checkedAtValid, withinMaxAge, sourceMatched, maxAgeHours, ageHours]
+          properties:
+            fresh:
+              type: boolean
+            status:
+              type: string
+              enum: [fresh, workbook_changed, expired, invalid_checked_at, unavailable]
+            label:
+              type: string
+            checkedAtValid:
+              type: boolean
+            withinMaxAge:
+              type: boolean
+            sourceMatched:
+              type: boolean
+            maxAgeHours:
+              type: integer
+              minimum: 1
+            ageHours:
+              type: [integer, "null"]
+              minimum: 0
+        summary:
+          type: object
+          required: [label, employeeRowCount, coveredRoleCount, requiredRoleCount, missingRoleCount, coverageLabel, errorCount, warningCount, issueCount, missingEmployeeNumberCount, blockerCount, blockerLabel, freshnessLabel]
+          properties:
+            label:
+              type: string
+            employeeRowCount:
+              type: integer
+              minimum: 0
+            coveredRoleCount:
+              type: integer
+              minimum: 0
+            requiredRoleCount:
+              type: integer
+              minimum: 0
+            missingRoleCount:
+              type: integer
+              minimum: 0
+            coverageLabel:
+              type: string
+            errorCount:
+              type: integer
+              minimum: 0
+            warningCount:
+              type: integer
+              minimum: 0
+            issueCount:
+              type: integer
+              minimum: 0
+            missingEmployeeNumberCount:
+              type: integer
+              minimum: 0
+            blockerCount:
+              type: integer
+              minimum: 0
+            blockerLabel:
+              type: string
+            freshnessLabel:
+              type: string
+        roles:
+          type: array
+          items:
+            type: object
+            required: [roleKey, roleLabel, covered, rowCount]
+            properties:
+              roleKey:
+                type: string
+              roleLabel:
+                type: string
+              covered:
+                type: boolean
+              rowCount:
+                type: integer
+                minimum: 0
+        missingRoleLabels:
+          type: array
+          items:
+            type: string
+        nextAction:
+          type: string
+        safeguards:
+          type: object
+          additionalProperties:
+            type: boolean
+
+    SystemV1D49Readiness:
+      type: object
+      required: [version, scope, status, ready, checkedAt, summary, employees, employeeIntake, environment, blockers, nextAction, safeguards]
+      properties:
+        version:
+          type: string
+          enum: [p0-v1-d49-readiness-v3]
         scope:
           type: string
           enum: [v1_d49_readiness]
@@ -9823,7 +11427,7 @@ components:
           type: string
         summary:
           type: object
-          required: [label, employeeRoleLabel, coveredRoleCount, requiredRoleCount, missingRoleCount, formalAccountCount, readyFormalAccountCount, envSetupReady, envAuditReady, envPreflightLabel, envPreflightPassedCount, envPreflightTotalCount, envIntakeReady, envIntakeConfiguredLabel, blockerCount, blockerLabel, currentRuntimeMode, blocksRegardlessOfDemoMode]
+          required: [label, employeeRoleLabel, coveredRoleCount, requiredRoleCount, missingRoleCount, formalAccountCount, readyFormalAccountCount, employeeIntakeAvailable, employeeIntakeFresh, employeeIntakeStatusLabel, employeeIntakeRowCount, employeeIntakeCoverageLabel, employeeNumberMissingCount, envSetupReady, envAuditReady, envPreflightLabel, envPreflightPassedCount, envPreflightTotalCount, envIntakeReady, envIntakeConfiguredLabel, blockerCount, blockerLabel, currentRuntimeMode, blocksRegardlessOfDemoMode]
           properties:
             label:
               type: string
@@ -9842,6 +11446,20 @@ components:
               type: integer
               minimum: 0
             readyFormalAccountCount:
+              type: integer
+              minimum: 0
+            employeeIntakeAvailable:
+              type: boolean
+            employeeIntakeFresh:
+              type: boolean
+            employeeIntakeStatusLabel:
+              type: string
+            employeeIntakeRowCount:
+              type: integer
+              minimum: 0
+            employeeIntakeCoverageLabel:
+              type: string
+            employeeNumberMissingCount:
               type: integer
               minimum: 0
             envSetupReady:
@@ -9895,6 +11513,8 @@ components:
               type: array
               items:
                 $ref: "#/components/schemas/SystemV1D49ReadinessRole"
+        employeeIntake:
+          $ref: "#/components/schemas/SystemV1D49EmployeeIntakeStatus"
         environment:
           type: object
           required: [status, ready, setupReady, auditReady, preflightReady, preflightLabel, preflightPassedCount, preflightTotalCount, preflightBlockingCount, preflightWarningCount, intakeReady, intakeConfiguredLabel, intakeBlockingCount, intakeWarningCount]
@@ -9964,6 +11584,8 @@ components:
         - productionEnvGate
         - productionEnvIntakeVerification
         - productionPersistenceEvidence
+        - productionFirstStageExecution
+        - todoLoadPrecheck
         - moduleCompletion
         - unblockPlan
         - fieldEvidenceProgress
@@ -11182,6 +12804,14 @@ components:
           type: object
           additionalProperties: true
           description: 脱敏生产持久化留证 latest 摘要；展示 PostgreSQL、备份恢复、对象存储、bucket 治理和阻塞下一步，不输出真实 env 值、连接串、endpoint/bucket、密钥、对象 key、签名 URL、命令值、本地路径或原始 payload。
+        productionFirstStageExecution:
+          type: object
+          additionalProperties: true
+          description: 脱敏生产环境 / 持久化第一阶段执行摘要；展示步骤、真实值 intake 覆盖、dry-run 覆盖和阻塞状态，不输出命令参数、env 路径、真实值或密钥。
+        todoLoadPrecheck:
+          type: object
+          additionalProperties: true
+          description: 脱敏生产待办 GET-only 容量预检查摘要；展示请求数、吞吐、P50/P95、错误率、72小时时效、生产目标、正式 runtime 会话和只读护栏，不输出 API 地址、响应 payload、待办身份、账号身份、凭据或源报告。
         moduleCompletion:
           type: array
           items:
@@ -13488,6 +15118,26 @@ components:
           $ref: "#/components/schemas/AuthSessionSummary"
         permissions:
           $ref: "#/components/schemas/EffectivePermissionsResponse"
+        passwordPolicy:
+          $ref: "#/components/schemas/AuthPasswordPolicy"
+          description: 当 `permissions.passwordChangeRequired=true` 时返回，供首次或过期改密界面显示。
+
+    AuthPasswordPolicy:
+      type: object
+      required: [minLength, requireLetter, requireNumber, allowWhitespace, disallowAccountIdentifiers, description]
+      properties:
+        minLength:
+          type: integer
+        requireLetter:
+          type: boolean
+        requireNumber:
+          type: boolean
+        allowWhitespace:
+          type: boolean
+        disallowAccountIdentifiers:
+          type: boolean
+        description:
+          type: string
 
     AuthChangePasswordRequest:
       type: object
@@ -13533,6 +15183,9 @@ components:
           $ref: "#/components/schemas/AuthSessionSummary"
         permissions:
           $ref: "#/components/schemas/EffectivePermissionsResponse"
+        passwordPolicy:
+          $ref: "#/components/schemas/AuthPasswordPolicy"
+          description: 当 `permissions.passwordChangeRequired=true` 时返回，供恢复会话后的强制改密界面显示。
 
     AuthLogoutResponse:
       type: object
@@ -13841,7 +15494,7 @@ components:
       required:
         - draftId
         - sourceText
-        - clientRevision
+        - expectedRevision
         - lines
       properties:
         draftId:
@@ -13854,7 +15507,7 @@ components:
           type: string
           deprecated: true
           description: 旧客户端兼容字段；服务端忽略该值并使用已认证会话用户。
-        clientRevision:
+        expectedRevision:
           type: integer
           minimum: 0
         draftStatus:
@@ -13886,9 +15539,9 @@ components:
 
     RestoreOrderDraftShortageCancellationRequest:
       type: object
-      required: [clientRevision, draftLineId, reason]
+      required: [expectedRevision, draftLineId, reason]
       properties:
-        clientRevision:
+        expectedRevision:
           type: integer
           minimum: 1
         draftLineId:
@@ -13916,9 +15569,9 @@ components:
 
     LinkCrossDraftShortageCancellationRequest:
       type: object
-      required: [clientRevision, draftLineId, intentId, reason]
+      required: [expectedRevision, draftLineId, intentId, reason]
       properties:
-        clientRevision:
+        expectedRevision:
           type: integer
           minimum: 1
         draftLineId:
@@ -13952,7 +15605,7 @@ components:
         - customerId
         - confirmMode
         - lines
-        - clientRevision
+        - expectedRevision
       properties:
         draftId:
           type: string
@@ -13972,7 +15625,7 @@ components:
         confirmMode:
           type: string
           enum: [confirm_now, save_pending_fulfillment, save_draft_only]
-        clientRevision:
+        expectedRevision:
           type: integer
           minimum: 0
         lines:
@@ -14056,7 +15709,7 @@ components:
 
     OrderDraftSplitRequest:
       type: object
-      required: [clientRevision, lines]
+      required: [expectedRevision, lines]
       properties:
         draftId:
           type: string
@@ -14066,7 +15719,7 @@ components:
           $ref: "#/components/schemas/SourceChannel"
         customerId:
           type: string
-        clientRevision:
+        expectedRevision:
           type: integer
           minimum: 1
         lines:
@@ -14714,14 +16367,40 @@ components:
 
     RawMaterialInboundActionRequest:
       type: object
+      required: [expectedRevision]
       properties:
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
         operatorId:
           type: string
+          deprecated: true
+          description: 服务端忽略请求体中的操作人，只使用已认证会话账号。
         operatorName:
           type: string
+          deprecated: true
+          description: 服务端忽略请求体中的操作人姓名，只使用已认证会话账号投影。
         rollId:
           type: string
-          description: 确认单卷/单件贴标时传入；不传则尝试确认全部未可用卷/件
+          description: 贴标确认、标签作废/重打和机边领料时必填；每次只允许一卷/一件。
+        matchResult:
+          type: string
+          enum: [matched, mismatched]
+          description: attach-confirm 必填。matched 只使该卷/件可用；mismatched 只隔离该卷/件。
+        checkedWeightKg:
+          type: number
+          description: 人工贴标核对的实物重量；未填时保留该卷已建档重量作为核对摘要。
+        checkedColor:
+          type: string
+          description: 人工贴标核对的实物颜色。
+        checkedSpec:
+          type: string
+          description: 人工贴标核对的实物规格。
+        location:
+          type: string
+          description: 匹配卷的可用库位，或不匹配卷的隔离库位。
+        verificationNote:
+          type: string
+          description: 逐卷贴标核对的补充说明。
         reason:
           type: string
         machineId:
@@ -14729,7 +16408,7 @@ components:
           description: 机边领料时的机台或机边区域
         productionTaskId:
           type: string
-          description: 机边领料可关联的生产任务
+          description: 机边领料必填的生产任务。
         issuePurpose:
           type: string
           description: 机边领料用途，默认生产领料
@@ -14769,11 +16448,30 @@ components:
         qualifiedOutputQuantity:
           type: number
           description: 现场人工填写的合格产量线索；本接口不据此生成成品或成本分摊
+        reviewFields:
+          type: object
+          additionalProperties: true
+          description: 腾讯云 OCR 草稿的人工复核值；服务端只接受原材料复核字段白名单并校验必填项。
+        lineReviews:
+          type: array
+          description: 腾讯云 OCR 草稿的逐行人工复核值；必须覆盖每一条已识别明细行，原识别值和修改证据由服务端保留。
+          items:
+            type: object
+            required: [lineId, values]
+            properties:
+              lineId:
+                type: string
+              values:
+                type: object
+                additionalProperties: true
+                description: 仅接受品名、材料、颜色、规格、卷数、重量、单位、单价、金额、供应商卷号和分卷重量白名单字段。
         note:
           type: string
         now:
           type: string
           format: date-time
+          deprecated: true
+          description: 服务端忽略客户端时间并使用服务端写入时间；保留字段仅为旧客户端兼容。
 
     RawMaterialInboundActionResponse:
       type: object
@@ -14781,6 +16479,43 @@ components:
       properties:
         inbound:
           $ref: "#/components/schemas/RawMaterialInbound"
+        operationLogId:
+          type: string
+
+    RawMaterialDeliveryNoteOcrRequest:
+      type: object
+      required: [fileName, mimeType, contentDataUrl]
+      properties:
+        fileName:
+          type: string
+        mimeType:
+          type: string
+          enum: [image/png, image/jpeg, image/jpg, image/bmp, application/pdf]
+        fileSize:
+          type: integer
+          maximum: 7864320
+        contentDataUrl:
+          type: string
+          format: byte
+          description: 图片或 PDF 的 data URL；只传后端，不持久化到业务 JSON，不返回前端。
+        pdfPageNumber:
+          type: integer
+          minimum: 1
+          default: 1
+        useNewModel:
+          type: boolean
+          default: false
+
+    RawMaterialDeliveryNoteOcrResponse:
+      type: object
+      required: [inbound, attachmentId, deduplicated]
+      properties:
+        inbound:
+          $ref: "#/components/schemas/RawMaterialInbound"
+        attachmentId:
+          type: string
+        deduplicated:
+          type: boolean
         operationLogId:
           type: string
 
@@ -15250,6 +16985,51 @@ components:
         marginSnapshotCount:
           type: integer
 
+    RawMaterialOcrReviewField:
+      type: object
+      required: [key, label, recognizedValue, value, confidence, reviewStatus, required]
+      properties:
+        key:
+          type: string
+        label:
+          type: string
+        recognizedValue: {}
+        value: {}
+        confidence:
+          type: number
+          minimum: 0
+          maximum: 100
+        reviewStatus:
+          type: string
+          enum: [待人工复核, 待人工接受, 人工接受, 人工修改]
+        required:
+          type: boolean
+        reviewedBy:
+          type: string
+        reviewedAt:
+          type: string
+          format: date-time
+
+    RawMaterialOcrLine:
+      type: object
+      required: [lineId, sourceText, reviewStatus, values, confidences]
+      properties:
+        lineId:
+          type: string
+        sourceRowIndex:
+          type: integer
+        sourceText:
+          type: string
+        reviewStatus:
+          type: string
+        values:
+          type: object
+          additionalProperties: true
+        confidences:
+          type: object
+          additionalProperties:
+            type: number
+
     RawMaterialInbound:
       type: object
       required: [id, supplierName, deliveryNoteNo, status, rolls]
@@ -15284,15 +17064,46 @@ components:
           type: number
         status:
           type: string
-          enum: [已拍照待识别, 已识别待复核, 已复核待打印标签, 已打印待贴标, 部分贴标, 已贴标入库/可用, 部分领料/机边, 已领料/机边, 部分消耗确认, 已消耗确认, 部分余料退回, 余料待复核, 部分余料复核, 余料已复核/可用, 入库异常/待确认]
+          description: 当前入库状态。卷级异常时可为“部分入库，N卷异常”；历史“已贴标入库/可用”仅兼容展示，不推断为新的物理事实。
         source:
           type: string
         ocrStatus:
           type: string
+        ocrProvider:
+          type: string
+          enum: [tencent_cloud_table_v3]
+        ocrAction:
+          type: string
+          enum: [RecognizeTableAccurateOCR]
+        ocrRequestId:
+          type: string
+        ocrSourceDigest:
+          type: string
+          description: 服务端内容摘要，用于避免同一文件重复扣 OCR 次数。
+        ocrRecognizedAt:
+          type: string
+          format: date-time
+        ocrRawText:
+          type: string
+        sourceAttachmentId:
+          type: string
+        sourceFileName:
+          type: string
+        sourceMimeType:
+          type: string
+        ocrReviewFields:
+          type: array
+          items:
+            $ref: "#/components/schemas/RawMaterialOcrReviewField"
+        ocrLines:
+          type: array
+          items:
+            $ref: "#/components/schemas/RawMaterialOcrLine"
         photoStatus:
           type: string
         signedNoteStatus:
           type: string
+          description: 可选送货单附件状态，不是卷/件可用库存的确认门禁。
         issueStatus:
           type: string
         issuedAt:
@@ -15487,18 +17298,22 @@ components:
           type: number
         labelStatus:
           type: string
-          enum: [待生成标签, 待打印标签, 已打印待贴标, 已贴标入库/可用]
+          enum: [待生成标签, 待打印标签, 已打印待贴标, 已贴标/可用库存, 标签或实物不符/待确认, 标签已作废/待重打, 已贴标入库/可用]
         inventoryStatus:
           type: string
-          enum: [不可用, 可用, 机边领用, 已消耗, 余料待复核]
+          enum: [不可用, 待贴标, 待确认, 可用, 机边领用, 已消耗, 余料待复核]
         location:
           type: string
         scannedAt:
           type: string
+          deprecated: true
+          description: 历史扫码留痕；逐卷可用状态以 labelVerification 和 inventoryStatus 为准。
         scannedBy:
           type: string
+          deprecated: true
         signedNoteStatus:
           type: string
+          description: 可选单据附件状态，不是贴标确认条件。
         parentRollId:
           type: string
         sourceRollId:
@@ -16680,9 +18495,9 @@ components:
 
     CreateTemporaryHoldRequest:
       type: object
-      required: [clientRevision, candidateIndex]
+      required: [expectedRevision, candidateIndex]
       properties:
-        clientRevision: { type: integer, minimum: 1 }
+        expectedRevision: { type: integer, minimum: 1 }
         candidateIndex: { type: integer, minimum: 0 }
         inventoryItemId: { type: string }
         qty: { type: integer, minimum: 1 }
@@ -16691,16 +18506,16 @@ components:
 
     ReleaseTemporaryHoldRequest:
       type: object
-      required: [clientRevision, reason]
+      required: [expectedRevision, reason]
       properties:
-        clientRevision: { type: integer, minimum: 1 }
+        expectedRevision: { type: integer, minimum: 1 }
         reason: { type: string, minLength: 1 }
 
     ExtendTemporaryHoldRequest:
       type: object
-      required: [clientRevision, expiresAt, reason]
+      required: [expectedRevision, expiresAt, reason]
       properties:
-        clientRevision: { type: integer, minimum: 1 }
+        expectedRevision: { type: integer, minimum: 1 }
         expiresAt: { type: string, format: date-time }
         reason: { type: string, minLength: 1 }
 
@@ -16756,6 +18571,13 @@ components:
         reason:
           type: string
           enum:
+            - BUSINESS_WRITE_CONFLICT
+            - EXPECTED_REVISION_REQUIRED
+            - BUSINESS_DECISION_REQUIRED
+            - BUSINESS_DECISION_AUTHORIZATION_NOT_FOUND
+            - BUSINESS_DECISION_AUTHORIZATION_AMOUNT_EXCEEDED
+            - RAW_MATERIAL_PURCHASE_NOT_FOUND
+            - FULFILLMENT_QUANTITY_VARIANCE_NOT_OPEN
             - order_cancelled
             - qty_changed
             - customer_rejected
@@ -16956,6 +18778,8 @@ components:
       properties:
         fulfillmentId:
           type: string
+        customerId:
+          type: string
         orderLineId:
           type: string
         orderNo:
@@ -16964,21 +18788,79 @@ components:
           type: string
         method:
           $ref: "#/components/schemas/FulfillmentMethod"
+        methodLabel:
+          type: string
+          enum: [自提, 送货, 快递快运, 待确认]
         goodsSpec:
           type: string
           description: 高密度列表使用的货品 / 规格短写。
         expectedQty:
           type: integer
         actualQty:
-          type: integer
+          oneOf:
+            - type: integer
+            - type: "null"
         packageCount:
           type: integer
+        package:
+          type: string
+        packages:
+          type: string
         latestNeededAt:
           type: string
           format: date-time
         status:
           type: string
+        revision:
+          type: integer
+          minimum: 1
+        printed:
+          type: boolean
+        activePrintRecordId:
+          type: string
+        printRecordId:
+          type: string
+        printRecordStatus:
+          type: string
+        printBatch:
+          type: string
+        paperOutboundStatus:
+          type: string
+          enum: [待生成纸单, 待打印确认, 已打印待交库房, 已交库房, 已作废待重打, 待重打纸单, 历史待复核]
+        paperOutboundDocumentId:
+          type: string
+        paperOutboundDocumentVersion:
+          type: integer
+          minimum: 0
+        paperOutboundDocument:
+          oneOf:
+            - $ref: "#/components/schemas/PaperOutboundDocument"
+            - type: "null"
+        physicalOutboundAt:
+          type: string
+          format: date-time
+        physicalExecutorEmployeeId:
+          type: string
+        physicalOutboundDocumentId:
+          type: string
+        physicalOutboundDocumentVersion:
+          type: integer
+          minimum: 0
+        finalDeliveryStatus:
+          type: string
+          enum: [待最终交付, 在途, 已交付, 历史待复核]
+        finalDeliveryAt:
+          type: string
+          format: date-time
+        legacyStateReviewRequired:
+          type: boolean
+        latestWarehouseExecution:
+          oneOf:
+            - $ref: "#/components/schemas/WarehouseOutboundExecution"
+            - type: "null"
         inventorySource:
+          type: string
+        zone:
           type: string
         noteFlags:
           type: array
@@ -17042,6 +18924,8 @@ components:
           enum: [preview, first_print, reprint]
         packageIds:
           type: array
+          deprecated: true
+          description: 旧客户端兼容字段；服务端忽略该值，标签作业只使用当前履约下服务器读取并保存版本快照的包裹。
           items:
             type: string
         paperNo:
@@ -17069,6 +18953,10 @@ components:
           type: string
         printRecord:
           $ref: "#/components/schemas/PrintRecordSummary"
+        paperOutboundDocument:
+          oneOf:
+            - $ref: "#/components/schemas/PaperOutboundDocument"
+            - type: "null"
         printTemplate:
           $ref: "#/components/schemas/PrintTemplateSummary"
         printJob:
@@ -17084,6 +18972,199 @@ components:
         physicalPrintConfirmed:
           type: boolean
           description: 仅当可信驱动或 spool 状态已回读为 printed 时为 true；作业创建或预览不得据此推进交付。
+        ignoredClientPackageIds:
+          type: boolean
+          description: 为 true 表示请求中的旧 packageIds 已被忽略，实际作业使用服务器当前包裹快照。
+
+    PaperOutboundDocument:
+      type: object
+      required:
+        - paperOutboundDocumentId
+        - fulfillmentId
+        - printRecordId
+        - documentType
+        - documentVersion
+        - status
+        - revision
+      properties:
+        paperOutboundDocumentId:
+          type: string
+        fulfillmentId:
+          type: string
+        printRecordId:
+          type: string
+        documentType:
+          type: string
+          enum: [outbound_note, pickup_note, delivery_note, express_ltl_label]
+        documentVersion:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+          enum: [待打印确认, 已打印待交库房, 已交库房, 已作废, 已作废待重打]
+        revision:
+          type: integer
+          minimum: 1
+        printedAt:
+          type: string
+          format: date-time
+        handedToWarehouseAt:
+          type: string
+          format: date-time
+        handedToWarehouseBy:
+          type: string
+        handoverNote:
+          type: string
+        voidedAt:
+          type: string
+          format: date-time
+        voidReason:
+          type: string
+
+    PaperOutboundHandoffRequest:
+      type: object
+      required: [fulfillmentId, expectedRevision, paperOutboundDocumentId, paperDocumentVersion, paperDocumentRevision]
+      properties:
+        fulfillmentId:
+          type: string
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+          description: 当前履约 revision；旧版本统一返回 409 BUSINESS_WRITE_CONFLICT。
+        paperOutboundDocumentId:
+          type: string
+        paperDocumentVersion:
+          type: integer
+          minimum: 1
+        paperDocumentRevision:
+          type: integer
+          minimum: 1
+        note:
+          type: string
+        idempotencyKey:
+          type: string
+
+    PaperOutboundHandoffResponse:
+      type: object
+      required: [fulfillmentId, status, paperOutboundDocument, operationLogId]
+      properties:
+        fulfillmentId:
+          type: string
+        status:
+          type: string
+          enum: [待库房备货]
+        paperOutboundDocument:
+          $ref: "#/components/schemas/PaperOutboundDocument"
+        operationLogId:
+          type: string
+
+    WarehouseOutboundExecutionRequest:
+      type: object
+      required:
+        - fulfillmentId
+        - expectedRevision
+        - paperOutboundDocumentId
+        - paperDocumentVersion
+        - paperDocumentRevision
+        - result
+        - physicalExecutorEmployeeId
+        - feedbackChannel
+        - executedAt
+      properties:
+        fulfillmentId:
+          type: string
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+        paperOutboundDocumentId:
+          type: string
+        paperDocumentVersion:
+          type: integer
+          minimum: 1
+        paperDocumentRevision:
+          type: integer
+          minimum: 1
+        result:
+          type: string
+          enum: [已备货, 实物已出库, 数量不符, 无法出库]
+        actualQty:
+          type: integer
+          minimum: 0
+          description: 实物已出库时必须与纸单数量一致；数量不同必须使用数量不符。
+        physicalExecutorEmployeeId:
+          type: string
+          description: 实际库房物理执行人员的正式员工编号，不等于认证办公室操作人。
+        feedbackChannel:
+          type: string
+          enum: [当面, 电话, 微信, 纸面, 其他]
+        executedAt:
+          type: string
+          format: date-time
+        note:
+          type: string
+        idempotencyKey:
+          type: string
+
+    WarehouseOutboundExecution:
+      type: object
+      required:
+        - warehouseOutboundExecutionId
+        - result
+        - expectedQty
+        - physicalExecutorEmployeeId
+        - feedbackChannel
+        - executedAt
+        - authenticatedOperatorId
+      properties:
+        warehouseOutboundExecutionId:
+          type: string
+        result:
+          type: string
+          enum: [已备货, 实物已出库, 数量不符, 无法出库]
+        expectedQty:
+          type: integer
+        actualQty:
+          oneOf:
+            - type: integer
+            - type: "null"
+        physicalExecutorEmployeeId:
+          type: string
+        feedbackChannel:
+          type: string
+        executedAt:
+          type: string
+          format: date-time
+        note:
+          type: string
+        authenticatedOperatorId:
+          type: string
+
+    WarehouseOutboundExecutionResponse:
+      type: object
+      required:
+        - fulfillmentId
+        - status
+        - warehouseOutboundExecution
+        - statementCandidate
+        - inventoryDeductionMode
+        - operationLogId
+      properties:
+        fulfillmentId:
+          type: string
+        status:
+          type: string
+          enum: [已备货, 待司机装车, 待确认自提交付, 待承运方拉走, 数量差异待处理, 无法出库]
+        warehouseOutboundExecution:
+          $ref: "#/components/schemas/WarehouseOutboundExecution"
+        statementCandidate:
+          type: boolean
+        statementId:
+          type: string
+        todoId:
+          type: string
+        inventoryDeductionMode:
+          type: string
+          enum: [reservation, legacy_reserved_stock_match, legacy_available_stock_match, skipped_no_reservation, not_physical_outbound, exception_pending_review]
+        operationLogId:
+          type: string
 
     FulfillmentDispatchRequest:
       type: object
@@ -17314,15 +19395,25 @@ components:
     CompleteFulfillmentRequest:
       type: object
       required:
-        - fulfillmentId
-        - actualQty
-        - completedAt
+        - expectedRevision
+        - confirmedFinalDelivery
+        - idempotencyKey
       properties:
         fulfillmentId:
           type: string
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+        confirmedFinalDelivery:
+          type: boolean
+          const: true
+        idempotencyKey:
+          type: string
+          minLength: 8
         actualQty:
           type: integer
           minimum: 0
+          deprecated: true
+          description: 最终数量使用服务器已记录的库房实物出库数量；客户端值不作为权威输入。
         handoverEvidence:
           type: array
           description: 交付凭证附件 ID，如送货照片、客户签收图。
@@ -17335,6 +19426,7 @@ components:
         completedAt:
           type: string
           format: date-time
+          deprecated: true
         allowUnreservedInventoryDeduction:
           type: boolean
           default: false
@@ -17349,14 +19441,24 @@ components:
     ConfirmFulfillmentPickupRequest:
       type: object
       required:
-        - fulfillmentId
-        - pickedAt
+        - expectedRevision
+        - confirmedFinalDelivery
+        - idempotencyKey
       properties:
         fulfillmentId:
           type: string
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+        confirmedFinalDelivery:
+          type: boolean
+          const: true
+        idempotencyKey:
+          type: string
+          minLength: 8
         pickedAt:
           type: string
           format: date-time
+          deprecated: true
         operatorId:
           type: string
           deprecated: true
@@ -17697,6 +19799,10 @@ components:
           oneOf:
             - type: "null"
             - $ref: "#/components/schemas/DriverPackageLabelScanSample"
+        nativeNavigationSample:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/DriverNativeNavigationSample"
         remainingV1Risks:
           type: array
           items:
@@ -17941,6 +20047,10 @@ components:
           nullable: true
           allOf:
             - $ref: "#/components/schemas/DriverPackageLabelScanSample"
+        nativeNavigationSample:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/DriverNativeNavigationSample"
         nativeBridgeDiagnostics:
           nullable: true
           allOf:
@@ -17985,6 +20095,35 @@ components:
           enum: [success, warning, danger]
         message:
           type: string
+        requestId:
+          type: string
+          description: 原生 SDK 请求号；完整验收时必须来自 DNPS 请求。
+        source:
+          type: string
+          enum: [native_sdk, ""]
+        checkedAt:
+          type: string
+          format: date-time
+
+    DriverNativeNavigationSample:
+      type: object
+      description: 当前送货任务调用原生导航 SDK 后保存的成功或失败回执；完整验收必须为 opened。
+      properties:
+        requestId:
+          type: string
+          description: 原生导航请求号，如 DNN-20260702093000-F008。
+        fulfillmentId:
+          type: string
+        status:
+          type: string
+          enum: [opened, canceled, failed, unavailable, pending]
+        source:
+          type: string
+          enum: [native_navigation_sdk]
+        mapApp:
+          type: string
+        message:
+          type: string
         checkedAt:
           type: string
           format: date-time
@@ -18014,6 +20153,84 @@ components:
           description: 可读汇总，如“原生 0/2”或“原生能力可用”。
         message:
           type: string
+
+    DriverDeviceFieldTestAcceptance:
+      type: object
+      required: [ready, status, statusLabel, allChecksPassed, blockerCount, blockers]
+      properties:
+        ready:
+          type: boolean
+        status:
+          type: string
+          enum: [accepted, pending]
+        statusLabel:
+          type: string
+        allChecksPassed:
+          type: boolean
+        taskLinked:
+          type: boolean
+        orderLineLinked:
+          type: boolean
+        driverLinked:
+          type: boolean
+        deviceIdentityReady:
+          type: boolean
+        packageSampleReady:
+          type: boolean
+        packageIdsMatch:
+          type: boolean
+        packageBelongsToTask:
+          type: boolean
+        navigationSampleReady:
+          type: boolean
+        nativePackageScanReady:
+          type: boolean
+        nativeNavigationReady:
+          type: boolean
+        blockerCount:
+          type: integer
+          minimum: 0
+        blockers:
+          type: array
+          items:
+            $ref: "#/components/schemas/DriverDeviceFieldTestAcceptanceBlocker"
+
+    DriverDeviceFieldTestAcceptanceBlocker:
+      type: object
+      required: [key, detail]
+      properties:
+        key:
+          type: string
+        detail:
+          type: string
+
+    DriverDeviceFieldTestResultStatus:
+      type: object
+      required: [recordSaved, onsiteAcceptancePassed, deliveryStatusChangedByRequest, nativeBridgeInvokedByRequest]
+      properties:
+        recordSaved:
+          type: boolean
+        onsiteAcceptancePassed:
+          type: boolean
+        deliveryStatusChangedByRequest:
+          type: boolean
+        nativeBridgeInvokedByRequest:
+          type: boolean
+
+    DriverDeviceFieldTestSafeguards:
+      type: object
+      required: [nonDeliveryAction, deliveryStatusChanged, nativeBridgeInvoked, cameraPermissionRequested, navigationAppOpened]
+      properties:
+        nonDeliveryAction:
+          type: boolean
+        deliveryStatusChanged:
+          type: boolean
+        nativeBridgeInvoked:
+          type: boolean
+        cameraPermissionRequested:
+          type: boolean
+        navigationAppOpened:
+          type: boolean
 
     DriverNativeBridgeDiagnosticItem:
       type: object
@@ -18092,10 +20309,12 @@ components:
           enum: [success, warning, danger]
         label:
           type: string
+        acceptance:
+          $ref: "#/components/schemas/DriverDeviceFieldTestAcceptance"
 
     DriverDeviceFieldTestResponse:
       type: object
-      required: [fulfillmentId, record, summary, operationLogId]
+      required: [fulfillmentId, record, summary, operationLogId, acceptance, resultStatus, safeguards]
       properties:
         fulfillmentId:
           type: string
@@ -18107,6 +20326,12 @@ components:
           $ref: "#/components/schemas/DriverDeliveryTask"
         operationLogId:
           type: string
+        acceptance:
+          $ref: "#/components/schemas/DriverDeviceFieldTestAcceptance"
+        resultStatus:
+          $ref: "#/components/schemas/DriverDeviceFieldTestResultStatus"
+        safeguards:
+          $ref: "#/components/schemas/DriverDeviceFieldTestSafeguards"
 
     DriverPackageChecklistItem:
       type: object
@@ -18431,6 +20656,7 @@ components:
         - orderLineId
         - machineId
         - plannedQty
+        - expectedRevision
       properties:
         productionTaskId:
           type: string
@@ -18444,6 +20670,12 @@ components:
         plannedQty:
           type: integer
           minimum: 1
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+        delegatedDecision:
+          $ref: "#/components/schemas/DelegatedBusinessDecision"
+        directDecisionContent:
+          $ref: "#/components/schemas/DirectDecisionContent"
         publishedScheduleId:
           type: string
         publishedAt:
@@ -18460,6 +20692,9 @@ components:
           description: 兼容旧客户端；服务端忽略此值，操作人取当前认证会话。
         remark:
           type: string
+      oneOf:
+        - required: [delegatedDecision]
+        - required: [directDecisionContent]
 
     ProductionSchedulePublishResponse:
       type: object
@@ -18552,6 +20787,8 @@ components:
       required:
         - machineId
         - orderedProductionTaskIds
+        - expectedRevision
+        - affectedRevisions
       properties:
         machineId:
           type: string
@@ -18561,6 +20798,26 @@ components:
           uniqueItems: true
           items:
             type: string
+        expectedRevision:
+          type: integer
+          minimum: 1
+          description: 受影响排产记录 revision 的服务端约定聚合值。
+        affectedRevisions:
+          type: array
+          minItems: 1
+          items:
+            type: object
+            required: [productionTaskId, revision]
+            properties:
+              productionTaskId: { type: string }
+              revision: { $ref: "#/components/schemas/ExpectedRevision" }
+        businessDecisionTargetId:
+          type: string
+          description: 代录决定和凭据绑定的当前机台队列任务；必须属于 orderedProductionTaskIds。
+        delegatedDecision:
+          $ref: "#/components/schemas/DelegatedBusinessDecision"
+        directDecisionContent:
+          $ref: "#/components/schemas/DirectDecisionContent"
         idempotencyKey:
           type: string
           minLength: 8
@@ -18575,6 +20832,9 @@ components:
           format: date-time
         remark:
           type: string
+      oneOf:
+        - required: [delegatedDecision]
+        - required: [directDecisionContent]
 
     ProductionMachineQueueResequenceResponse:
       allOf:
@@ -18621,11 +20881,18 @@ components:
       required:
         - productionTaskId
         - targetMachineId
+        - expectedRevision
       properties:
         productionTaskId:
           type: string
         targetMachineId:
           type: string
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+        delegatedDecision:
+          $ref: "#/components/schemas/DelegatedBusinessDecision"
+        directDecisionContent:
+          $ref: "#/components/schemas/DirectDecisionContent"
         targetQueueSeq:
           type: integer
           minimum: 1
@@ -18650,6 +20917,9 @@ components:
           format: date-time
         remark:
           type: string
+      oneOf:
+        - required: [delegatedDecision]
+        - required: [directDecisionContent]
 
     ProductionMachineQueueMoveResponse:
       allOf:
@@ -19375,6 +21645,205 @@ components:
             operationLogId:
               type: string
 
+    ProductionExceptionRequest:
+      type: object
+      required: [exceptionType, continuationMode]
+      properties:
+        productionTaskId:
+          type: string
+          description: 可选；填写时必须和 path 中的 productionTaskId 一致。
+        orderLineId:
+          type: string
+        processType:
+          type: string
+          enum: [制袋, 丝印, 复合, 分切, 其他]
+        machineId:
+          type: string
+        exceptionType:
+          type: string
+          enum: [印刷问题, 材料问题, 机器问题, 尺寸/模具问题, 数量异常, 客户/订单信息不清, 其他]
+        continuationMode:
+          type: string
+          enum: [继续生产, 暂停等确认]
+        estimatedLossQty:
+          type: integer
+          minimum: 0
+          default: 0
+          description: 预估异常/损耗数量，仅供异常追溯，不影响库存或结算。
+        affectsDelivery:
+          type: boolean
+          default: false
+        occurredAt:
+          type: string
+          format: date-time
+        remark:
+          type: string
+          description: exceptionType 为其他时必填。
+        evidence:
+          type: object
+          additionalProperties: true
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+        operatorId:
+          type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略此值，操作人取当前认证会话。
+
+    ProductionExceptionResponse:
+      type: object
+      required:
+        - productionTaskId
+        - orderLineId
+        - productionExceptionId
+        - exceptionType
+        - continuationMode
+        - exceptionStatus
+        - taskStatus
+        - todoId
+        - estimatedLossQty
+        - affectsDelivery
+        - inventoryCreated
+        - reservationCreated
+        - packingTaskCreated
+        - statementUpdated
+        - operationLogId
+      properties:
+        productionTaskId:
+          type: string
+        orderLineId:
+          type: string
+        productionExceptionId:
+          type: string
+        exceptionType:
+          type: string
+        continuationMode:
+          type: string
+          enum: [继续生产, 暂停等确认]
+        exceptionStatus:
+          type: string
+          enum: [已记录待跟进, 待生产确认]
+        status:
+          type: string
+        taskStatus:
+          type: string
+          description: 暂停等确认时为异常暂停；继续生产保留原任务状态。
+        todoId:
+          type: string
+        estimatedLossQty:
+          type: integer
+          minimum: 0
+        affectsDelivery:
+          type: boolean
+        inventoryCreated:
+          type: boolean
+          const: false
+        reservationCreated:
+          type: boolean
+          const: false
+        packingTaskCreated:
+          type: boolean
+          const: false
+        statementUpdated:
+          type: boolean
+          const: false
+        operationLogId:
+          type: string
+
+    ProductionExceptionResolutionRequest:
+      type: object
+      required: [productionExceptionId, resolutionCode, resolutionNote, resolutionConfirmed]
+      properties:
+        productionTaskId:
+          type: string
+          description: 可选；填写时必须和 path 中的 productionTaskId 一致。
+        productionExceptionId:
+          type: string
+        resolutionCode:
+          type: string
+          enum: [继续生产, 改任务顺序, 等待材料/维修, 转数量差异处理, 转售后/质量问题, 取消/作废任务]
+        resolutionNote:
+          type: string
+          minLength: 1
+        resolutionConfirmed:
+          type: boolean
+          const: true
+        idempotencyKey:
+          type: string
+          minLength: 8
+          maxLength: 128
+        operatorId:
+          type: string
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略此值，操作人取当前认证会话。
+
+    ProductionExceptionResolutionResponse:
+      type: object
+      required:
+        - productionTaskId
+        - orderLineId
+        - productionExceptionId
+        - exceptionStatus
+        - resolutionCode
+        - resolutionLabel
+        - resolutionNote
+        - taskStatus
+        - todoId
+        - todoStatus
+        - inventoryCreated
+        - reservationCreated
+        - packingTaskCreated
+        - statementUpdated
+        - operationLogId
+      properties:
+        productionTaskId:
+          type: string
+        orderLineId:
+          type: string
+        productionExceptionId:
+          type: string
+        exceptionStatus:
+          type: string
+          enum: [已恢复生产, 待调序, 等待材料/维修, 已转数量差异处理, 已转售后/质量问题, 已作废]
+        resolutionCode:
+          type: string
+          enum: [继续生产, 改任务顺序, 等待材料/维修, 转数量差异处理, 转售后/质量问题, 取消/作废任务]
+        resolutionLabel:
+          type: string
+        resolutionNote:
+          type: string
+        resolvedBy:
+          type: string
+          description: 由当前认证会话确定的实际处理人。
+        resolvedAt:
+          type: string
+          format: date-time
+        status:
+          type: string
+        taskStatus:
+          type: string
+          description: 继续生产恢复任务；数量差异保持数量差异待处理；作废为已作废；其余未闭环路径保持异常暂停。
+        todoId:
+          type: string
+        todoStatus:
+          type: string
+          enum: [处理中, 已处理]
+        inventoryCreated:
+          type: boolean
+          const: false
+        reservationCreated:
+          type: boolean
+          const: false
+        packingTaskCreated:
+          type: boolean
+          const: false
+        statementUpdated:
+          type: boolean
+          const: false
+        operationLogId:
+          type: string
+
     FinishedGoodsPhotoSummary:
       type: object
       required:
@@ -19561,8 +22030,8 @@ components:
             $ref: "#/components/schemas/PackingPackageInput"
         labelsPrinted:
           type: boolean
-          default: false
-          description: 快递 / 快运场景下，true 表示已打印标签并进入待确认拉走。
+          deprecated: true
+          description: 兼容旧客户端。服务端忽略此浏览器声明；打包完成始终只生成包裹并进入待打印标签，可信标签状态只能由当前有效打印作业回写。
         inventoryItemId:
           type: string
           description: 用于写零数量库存追踪流水，不扣减库存。
@@ -19624,16 +22093,21 @@ components:
           minimum: 1
         packageIds:
           type: array
+          deprecated: true
+          description: 旧客户端兼容字段；履约标签打印只使用服务器读取的当前包裹版本快照。
           items:
             type: string
         fulfillmentId:
           type: string
+        todoId:
+          type: string
+          description: 打包完成后与事务同时生成的公共待办编号；正常链路为待打印标签，历史任务缺少交付记录时为出库交付待补建。
         fulfillmentStatus:
           type: string
-          enum: [待打印标签, 待确认拉走, 已备货, ""]
+          enum: [待打印标签, 已备货, ""]
         orderLineStatus:
           type: string
-          enum: [待打印标签, 待快运拉走, 待出库]
+          enum: [待打印标签, 待出库]
         inventoryDeducted:
           type: boolean
           const: false
@@ -19998,7 +22472,10 @@ components:
       required:
         - channel
         - sentAt
+        - expectedRevision
       properties:
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
         channel:
           type: string
           enum: [wechat, wecom, phone, offline, other]
@@ -20022,7 +22499,10 @@ components:
       type: object
       required:
         - receiptStatus
+        - expectedRevision
       properties:
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
         sendRecordId:
           type: string
           description: 指定发送记录；为空时 P0 使用当前对账单最近一条发送记录。
@@ -20085,7 +22565,10 @@ components:
       type: object
       required:
         - content
+        - expectedRevision
       properties:
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
         sendRecordId:
           type: string
           description: 指定发送记录；为空时 P0 使用当前对账单最近一条发送记录。
@@ -20188,7 +22671,10 @@ components:
         - amount
         - paidAt
         - method
+        - expectedRevision
       properties:
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
         amount:
           type: number
           minimum: 0
@@ -20215,6 +22701,7 @@ components:
       required:
         - payment
         - statementStatus
+        - statementRevision
         - varianceAmount
         - operationLogId
       properties:
@@ -20223,6 +22710,8 @@ components:
         statementStatus:
           type: string
           enum: [收款待确认, 差额待确认, 有欠款, 已结清]
+        statementRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
         varianceAmount:
           type: number
         todoId:
@@ -20234,10 +22723,16 @@ components:
       type: object
       required:
         - statementId
-        - varianceAmount
         - handlingResult
         - reason
+        - expectedRevision
       properties:
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+        delegatedDecision:
+          $ref: "#/components/schemas/DelegatedBusinessDecision"
+        directDecisionContent:
+          $ref: "#/components/schemas/DirectDecisionContent"
         statementId:
           type: string
         paymentRecordId:
@@ -20245,6 +22740,8 @@ components:
         varianceAmount:
           type: number
           minimum: 0
+          deprecated: true
+          description: 兼容旧客户端；服务端忽略该金额并从权威对账数据计算实际差额。
         handlingResult:
           type: string
           enum:
@@ -20269,12 +22766,16 @@ components:
           description: 兼容旧客户端；服务端忽略该值并使用认证会话财务操作人。
         confirmedBy:
           type: string
+      oneOf:
+        - required: [delegatedDecision]
+        - required: [directDecisionContent]
 
     HandleStatementVarianceResponse:
       type: object
       required:
         - varianceRecord
         - statementStatus
+        - statementRevision
         - debtAmount
         - operationLogId
       properties:
@@ -20283,6 +22784,8 @@ components:
         statementStatus:
           type: string
           enum: [有欠款, 差额待确认, 收款待确认, 已核销, 已确认欠款]
+        statementRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
         debtAmount:
           type: number
           minimum: 0
@@ -20296,7 +22799,14 @@ components:
       required:
         - confirmReason
         - confirmedAt
+        - expectedRevision
       properties:
+        expectedRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
+        delegatedDecision:
+          $ref: "#/components/schemas/DelegatedBusinessDecision"
+        directDecisionContent:
+          $ref: "#/components/schemas/DirectDecisionContent"
         confirmReason:
           type: string
         operatorId:
@@ -20316,12 +22826,16 @@ components:
           description: 核销命令不持久化附件；传入非空数组会返回 422，应先关联到付款或差额记录。
           items:
             type: string
+      oneOf:
+        - required: [delegatedDecision]
+        - required: [directDecisionContent]
 
     WriteOffStatementResponse:
       type: object
       required:
         - statementId
         - status
+        - statementRevision
         - receivable
         - received
         - variance
@@ -20333,6 +22847,8 @@ components:
         status:
           type: string
           enum: [已结清, 已确认欠款, 差额待确认, 收款待确认]
+        statementRevision:
+          $ref: "#/components/schemas/ExpectedRevision"
         receivable:
           type: number
         received:
@@ -20515,7 +23031,7 @@ components:
           type: string
         printJobId:
           type: string
-          description: 可选，关联本次抽样验收使用的打印作业。
+          description: 未测/失败记录可不填；六项通过且证据完整时必须关联同设备、同单据类型、状态为 printed 的打印作业。
         documentType:
           type: string
         operatorId:
@@ -20589,6 +23105,8 @@ components:
           type: string
         evidenceSummary:
           $ref: "#/components/schemas/PrinterDeviceFieldTestEvidenceSummary"
+        acceptance:
+          $ref: "#/components/schemas/PrinterDeviceFieldTestAcceptance"
 
     PrinterDeviceFieldTestEvidence:
       type: object
@@ -20636,6 +23154,33 @@ components:
         label:
           type: string
 
+    PrinterDeviceFieldTestAcceptance:
+      type: object
+      required: [ready, status, label, checksComplete, evidenceComplete, printedJobLinked, printJobId, printJobStatus, blockers]
+      properties:
+        ready:
+          type: boolean
+        status:
+          type: string
+          enum: [accepted, pending]
+        label:
+          type: string
+        checksComplete:
+          type: boolean
+        evidenceComplete:
+          type: boolean
+        printedJobLinked:
+          type: boolean
+        printJobId:
+          type: string
+        printJobStatus:
+          type: string
+          enum: ["", preview_only, queued, sent, printed, failed, canceled]
+        blockers:
+          type: array
+          items:
+            type: string
+
     PrinterDeviceFieldTestListResponse:
       type: object
       required: [items, total, page, pageSize, printDevice]
@@ -20659,7 +23204,7 @@ components:
 
     PrinterDeviceFieldTestResponse:
       type: object
-      required: [printDeviceId, printDevice, record, summary, operationLogId]
+      required: [printDeviceId, printDevice, record, summary, acceptance, resultStatus, safeguards, operationLogId]
       properties:
         printDeviceId:
           type: string
@@ -20673,6 +23218,28 @@ components:
           $ref: "#/components/schemas/PrinterDeviceFieldTestRecord"
         summary:
           $ref: "#/components/schemas/PrinterDeviceFieldTestSummary"
+        acceptance:
+          $ref: "#/components/schemas/PrinterDeviceFieldTestAcceptance"
+        resultStatus:
+          type: object
+          required: [recordSaved, onsiteAcceptancePassed, physicalPrinterCalledByRequest, printJobStatusChangedByRequest]
+          properties:
+            recordSaved:
+              type: boolean
+            onsiteAcceptancePassed:
+              type: boolean
+            physicalPrinterCalledByRequest:
+              type: boolean
+            printJobStatusChangedByRequest:
+              type: boolean
+        safeguards:
+          type: object
+          required: [nonPrinting, physicalPrinterCalled]
+          properties:
+            nonPrinting:
+              type: boolean
+            physicalPrinterCalled:
+              type: boolean
         operationLogId:
           type: string
 
@@ -21879,6 +24446,11 @@ components:
           $ref: "#/components/schemas/PrintRecordSummary"
         nextStatus:
           type: string
+        packages:
+          type: array
+          description: 作废后撤销该打印记录关联的包裹标签信任；历史无关联包裹不会被猜测性修改。
+          items:
+            $ref: "#/components/schemas/PackageLabelTrustSummary"
         operationLogId:
           type: string
 
@@ -21915,6 +24487,14 @@ components:
         printAction:
           type: string
           enum: [preview, first_print, reprint]
+        fulfillmentRevision:
+          type: integer
+          description: 创建标签作业时的履约版本快照；缺失表示历史记录，不能用于推进履约状态。
+        packageSnapshot:
+          type: array
+          description: 创建标签作业时服务端保存的包裹与版本快照；仅当前快照匹配时可确认标签已打印。
+          items:
+            $ref: "#/components/schemas/PackageLabelTrustSummary"
         printedBy:
           type: string
         printedAt:
@@ -21934,6 +24514,20 @@ components:
         voidedAt:
           type: string
           format: date-time
+
+    PackageLabelTrustSummary:
+      type: object
+      required: [packageId, revision]
+      properties:
+        packageId:
+          type: string
+        revision:
+          type: integer
+          minimum: 1
+        status:
+          type: string
+        labelPrintRecordId:
+          type: string
 
     PrintBatchStatus:
       type: string
@@ -22380,6 +24974,9 @@ components:
           enum: [api_proxy, object_storage_signed_url]
         storageProvider:
           type: string
+        storageKeyStored:
+          type: boolean
+          description: 仅表示服务端已保存存储定位信息；原始存储键不返回浏览器。
         fileName:
           type: string
         contentType:
@@ -22433,8 +25030,9 @@ components:
           enum: [api_proxy, api_proxy_signed_url, api_permission, object_storage_signed_url, ""]
         storageProvider:
           type: string
-        storageKey:
-          type: string
+        storageKeyStored:
+          type: boolean
+          description: 仅表示审计记录关联了服务端存储键；原始存储键不返回浏览器。
         ownerType:
           type: string
         ownerId:
@@ -22485,15 +25083,15 @@ components:
           type: string
           enum: [local_fs, object_storage, local_fallback, ""]
           description: 演示/测试可使用 local_fs；正式环境必须使用 object_storage。
-        storageKey:
-          type: string
-          description: 后端按内容摘要生成的存储键；本地和对象存储均不使用用户文件名作为可信路径。
+        storageKeyStored:
+          type: boolean
+          description: 服务端是否已保存内容存储键；原始存储键仅供服务器内部读取和审计。
         contentDigest:
           type: string
           description: 文件内容 sha256 摘要，用于校验和后续迁移。
-        thumbnailStorageKey:
-          type: string
-          description: 缩略图对象存储 key；P0 可为空。
+        thumbnailStored:
+          type: boolean
+          description: 服务端是否已保存缩略图存储键；P0 可为 false。
         thumbnailUrl:
           type: string
           description: 缩略图访问 URL；正式环境建议由后端签发或代理。
@@ -22529,6 +25127,26 @@ components:
           type: integer
         total:
           type: integer
+        reminderPolicy:
+          $ref: "#/components/schemas/TodoReminderPolicy"
+
+    TodoReminderPolicy:
+      type: object
+      required: [source, version, redDotAfterMinutes, followUpAfterMinutes, pinDueToday]
+      properties:
+        source:
+          type: string
+          enum: [server]
+        version:
+          type: string
+        redDotAfterMinutes:
+          type: integer
+          minimum: 0
+        followUpAfterMinutes:
+          type: integer
+          minimum: 0
+        pinDueToday:
+          type: boolean
 
     TodoListItem:
       type: object
@@ -22572,10 +25190,26 @@ components:
           enum: [valid, missing, unverifiable]
         resolvedRefType:
           type: string
+        resolvedRefTypeLabel:
+          type: string
+          description: 面向操作界面的中文业务类型标签，不直接展示内部枚举。
         resolvedRefId:
           type: string
         referenceReason:
           type: string
+        allowedRefTypes:
+          type: array
+          description: 当前待办允许重新关联的业务类型白名单，由服务端按待办语义生成。
+          items:
+            type: string
+            enum: [order_draft, order_line, fulfillment, statement, inventory_item, inventory_correction, production_task]
+        referenceCandidates:
+          type: array
+          description: 引用失效时返回的有限候选；办公室仍可手工输入，最终以服务端校验为准。
+          items:
+            $ref: "#/components/schemas/TodoReferenceCandidate"
+        referenceRepair:
+          $ref: "#/components/schemas/TodoReferenceRepairEvidence"
         priority:
           type: string
           enum: [normal, urgent, exception, management_watch]
@@ -22597,6 +25231,34 @@ components:
           type: string
         reminder:
           type: string
+        remindAt:
+          type: string
+          format: date-time
+        waitingMinutes:
+          type: integer
+          minimum: 0
+        waitingLabel:
+          type: string
+        waitingSource:
+          type: string
+          enum: [created_at, legacy_wait, unknown]
+        reminderLevel:
+          type: string
+          enum: [normal, red_dot, follow_up, snoozed, handled]
+        reminderLevelLabel:
+          type: string
+        activeSnooze:
+          type: boolean
+        dueToday:
+          type: boolean
+        overdue:
+          type: boolean
+        serverSortRank:
+          type: integer
+          minimum: 0
+        serverSortIndex:
+          type: integer
+          minimum: 0
         latestNeededAt:
           type: string
           format: date-time
@@ -22669,7 +25331,7 @@ components:
       properties:
         action:
           type: string
-          enum: [mark_handled, snooze, reopen, mark_viewed, batch_print_confirm, batch_print_result_pending, customer_notification_copied, customer_notification_sent]
+          enum: [mark_handled, snooze, reopen, mark_viewed, batch_print_confirm, batch_print_result_pending, customer_notification_copied, customer_notification_sent, customer_pending]
         operatorId:
           type: string
           deprecated: true
@@ -22711,6 +25373,79 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/PrintPackageResult'
+
+    RepairTodoReferenceRequest:
+      type: object
+      required: [refType, refId, reason]
+      properties:
+        refType:
+          type: string
+          enum: [order_draft, order_line, fulfillment, statement, inventory_item, inventory_correction, production_task]
+        refId:
+          type: string
+        reason:
+          type: string
+        idempotencyKey:
+          type: string
+
+    RepairTodoFulfillmentRequest:
+      type: object
+      required: [reason]
+      properties:
+        reason:
+          type: string
+        idempotencyKey:
+          type: string
+
+    RepairTodoFulfillmentResponse:
+      type: object
+      required: [todo, labelTodo, fulfillment, packageIds, operationLogId]
+      properties:
+        todo:
+          $ref: "#/components/schemas/TodoListItem"
+        labelTodo:
+          $ref: "#/components/schemas/TodoListItem"
+        fulfillment:
+          $ref: "#/components/schemas/FulfillmentListItem"
+        packageIds:
+          type: array
+          items:
+            type: string
+        operationLogId:
+          type: string
+
+    TodoReferenceCandidate:
+      type: object
+      required: [refType, refId, label]
+      properties:
+        refType:
+          type: string
+        refId:
+          type: string
+        label:
+          type: string
+
+    TodoReferenceRepairEvidence:
+      type: object
+      nullable: true
+      properties:
+        beforeRefType:
+          type: string
+        beforeRefId:
+          type: string
+        afterRefType:
+          type: string
+        afterRefId:
+          type: string
+        reason:
+          type: string
+        operatorId:
+          type: string
+        operatorName:
+          type: string
+        repairedAt:
+          type: string
+          format: date-time
 
     HandleTodoResponse:
       type: object
@@ -23246,6 +25981,15 @@ components:
           type: string
         defaultMachineId:
           type: string
+        configuredMachineId:
+          type: string
+        configuredMachineLabel:
+          type: string
+        machineConfigurationStatus:
+          type: string
+          enum: [not_required, missing, not_configured, not_active, workshop_mismatch, active, legacy_alias]
+        machineConfigurationStatusLabel:
+          type: string
         assignmentMode:
           type: string
           enum: [fixed_machine, general_worker, unassigned]
@@ -23265,13 +26009,48 @@ components:
           enum: [pending_admin_review, account_enabled]
         status:
           type: string
-          enum: [pending_admin_review, account_enabled]
+          enum: [pending_admin_review, identity_confirmation_required, account_enabled]
         statusLabel:
           type: string
         recommendedRoleKey:
           type: string
-          enum: [office, warehouse, finance, management, driver, workshop, packing]
+          enum: [office, warehouse, finance, management, driver, workshop, packing, technical_operations]
         recommendedRoleLabel:
+          type: string
+        recommendedRoleKeys:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [office, warehouse, finance, management, driver, workshop, packing, technical_operations]
+        recommendedRoleLabels:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+        identityConfirmationRequired:
+          type: boolean
+        identityConfirmed:
+          type: boolean
+        identityConfirmationStatus:
+          type: string
+          enum: [not_required, pending_confirmation, confirmed]
+        identityConfirmationStatusLabel:
+          type: string
+        identityConfirmedBy:
+          type: string
+        identityConfirmedAt:
+          type: string
+          format: date-time
+        identityConfirmationNote:
+          type: string
+        accountActivationBlocked:
+          type: boolean
+        accountActivationBlockerCode:
+          type: string
+        accountActivationBlockerLabel:
           type: string
         loginName:
           type: string
@@ -23329,7 +26108,7 @@ components:
 
     MasterDataEmployeeAccountReviewListResponse:
       type: object
-      required: [items, total, page, pageSize, readiness, assignmentOptions]
+      required: [items, total, page, pageSize, readiness, assignmentOptions, machineRecords]
       properties:
         items:
           type: array
@@ -23348,6 +26127,10 @@ components:
           $ref: "#/components/schemas/RuntimeEmployeeAccountReadiness"
         assignmentOptions:
           $ref: "#/components/schemas/MasterDataEmployeeAssignmentOptions"
+        machineRecords:
+          type: array
+          items:
+            $ref: "#/components/schemas/MasterDataMachine"
 
     MasterDataEmployeeAssignmentOptions:
       type: object
@@ -23372,6 +26155,129 @@ components:
               enabled:
                 type: boolean
 
+    MasterDataMachineAssignedEmployee:
+      type: object
+      required: [employeeId, name, roleName, assignmentMode]
+      properties:
+        employeeId:
+          type: string
+        name:
+          type: string
+        roleName:
+          type: string
+        assignmentMode:
+          type: string
+
+    MasterDataMachineLastChange:
+      type: object
+      required: [action, operatorId, changedAt, reason]
+      properties:
+        action:
+          type: string
+          enum: [master_data_machine_created, master_data_machine_updated]
+        operatorId:
+          type: string
+        changedAt:
+          type: string
+          format: date-time
+        reason:
+          type: string
+
+    MasterDataMachine:
+      type: object
+      required: [machineId, name, machineType, workshop, status, enabled, assignedEmployeeCount, assignedEmployees, updatedAt]
+      properties:
+        machineId:
+          type: string
+        bizNo:
+          type: string
+        name:
+          type: string
+        machineLabel:
+          type: string
+        machineType:
+          type: string
+          enum: [bag_making, screen_printing, cutting, packing, other]
+        machineTypeLabel:
+          type: string
+        workshop:
+          type: string
+        status:
+          type: string
+          enum: [active, maintenance, inactive]
+        statusLabel:
+          type: string
+        enabled:
+          type: boolean
+        assignedEmployeeCount:
+          type: integer
+          minimum: 0
+        assignedEmployees:
+          type: array
+          items:
+            $ref: "#/components/schemas/MasterDataMachineAssignedEmployee"
+        lastChange:
+          nullable: true
+          allOf:
+            - $ref: "#/components/schemas/MasterDataMachineLastChange"
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+
+    MasterDataMachineListResponse:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/MasterDataMachine"
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+
+    SaveMasterDataMachineRequest:
+      type: object
+      required: [name, machineType, workshop, status, reason]
+      properties:
+        machineId:
+          type: string
+        bizNo:
+          type: string
+        name:
+          type: string
+        machineType:
+          type: string
+          enum: [bag_making, screen_printing, cutting, packing, other]
+        workshop:
+          type: string
+        status:
+          type: string
+          enum: [active, maintenance, inactive]
+        reason:
+          type: string
+        expectedUpdatedAt:
+          type: string
+          format: date-time
+
+    SaveMasterDataMachineResponse:
+      type: object
+      required: [machine, operationLogId]
+      properties:
+        machine:
+          $ref: "#/components/schemas/MasterDataMachine"
+        operationLogId:
+          type: string
+
     UpdateMasterDataEmployeeAssignmentRequest:
       type: object
       required: [assignmentMode]
@@ -23385,9 +26291,6 @@ components:
           type: string
         reason:
           type: string
-        changedAt:
-          type: string
-          format: date-time
 
     UpdateMasterDataEmployeeAssignmentResponse:
       type: object
@@ -23408,12 +26311,107 @@ components:
         roleKey:
           type: string
           enum: [office, warehouse, finance, management, driver, workshop, packing, technical_operations]
+        roleKeys:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [office, warehouse, finance, management, driver, workshop, packing, technical_operations]
         loginName:
           type: string
         userId:
           type: string
         reviewNote:
           type: string
+
+    ConfirmMasterDataEmployeeIdentityRequest:
+      type: object
+      required: [confirmed, confirmedEmployeeId, confirmedName, reason]
+      properties:
+        confirmed:
+          type: boolean
+          const: true
+        confirmedEmployeeId:
+          type: string
+        confirmedName:
+          type: string
+          minLength: 1
+        reason:
+          type: string
+          minLength: 1
+
+    ConfirmMasterDataEmployeeIdentityResponse:
+      type: object
+      required: [employeeAccountReview, operationLogId, identityAlreadyConfirmed]
+      properties:
+        employeeAccountReview:
+          $ref: "#/components/schemas/MasterDataEmployeeAccountReview"
+        operationLogId:
+          type: string
+        identityAlreadyConfirmed:
+          type: boolean
+
+    EnableMasterDataEmployeeAccountsRequest:
+      type: object
+      required: [employeeIds, confirmed]
+      properties:
+        employeeIds:
+          type: array
+          minItems: 1
+          maxItems: 100
+          uniqueItems: true
+          items:
+            type: string
+        confirmed:
+          type: boolean
+          const: true
+        reviewNote:
+          type: string
+        reviewedAt:
+          type: string
+          format: date-time
+
+    EnableMasterDataEmployeeAccountsResponse:
+      type: object
+      required:
+        - employeeAccountReviews
+        - requestedCount
+        - enabledCount
+        - skippedCount
+        - skippedEmployeeIds
+        - operationLogIds
+        - reviewedAt
+        - atomic
+      properties:
+        employeeAccountReviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/MasterDataEmployeeAccountReview"
+        requestedCount:
+          type: integer
+          minimum: 1
+          maximum: 100
+        enabledCount:
+          type: integer
+          minimum: 0
+        skippedCount:
+          type: integer
+          minimum: 0
+        skippedEmployeeIds:
+          type: array
+          items:
+            type: string
+        operationLogIds:
+          type: array
+          items:
+            type: string
+        reviewedAt:
+          type: string
+          format: date-time
+        atomic:
+          type: boolean
+          const: true
 
     EnableMasterDataEmployeeAccountResponse:
       type: object
@@ -23437,7 +26435,14 @@ components:
           type: string
         roleKey:
           type: string
-          enum: [office, warehouse, finance, management, driver, workshop, packing]
+          enum: [office, warehouse, finance, management, driver, workshop, packing, technical_operations]
+        roleKeys:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items:
+            type: string
+            enum: [office, warehouse, finance, management, driver, workshop, packing, technical_operations]
         loginName:
           type: string
         userId:
@@ -24162,3 +27167,7 @@ components:
         details:
           type: object
           additionalProperties: true
+        currentRevision:
+          type: integer
+          minimum: 1
+          description: BUSINESS_WRITE_CONFLICT 时的服务器当前版本；客户端仍需显式刷新并重新确认。

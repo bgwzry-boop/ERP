@@ -1,10 +1,10 @@
 # Git 发布基线整理方案
 
-最后更新：2026-07-13（V8.119）
+最后更新：2026-07-18（V8.306）
 
 ## 当前结论
 
-当前分支为 `codex/p0-office-hardening`，HEAD 为 `801f97118cc9`。仓库没有配置受控 Git 远程，工作区也不是干净候选，因此不能进行正式发布或全新 clone 恢复验证。
+当前分支为 `codex/p0-office-hardening`，继续跟踪 `origin/codex/p0-office-hardening`。经用户明确授权，原`664`个文件已按五个所有权批次形成五个本地提交；当前工作区和暂存区均干净，本地分支领先远端5个提交，尚未推送。Git范围审计为ready，生产部署清单为`15/15`。
 
 V8.83 新增只读审计器：
 
@@ -15,7 +15,7 @@ node scripts/run-git-baseline-scope-audit.mjs --json --write
 
 审计器会把 `git status` 中折叠显示的未跟踪目录展开到文件级，并阻断未归类、重复、`.erp-local-storage/`、`dist/`、`node_modules/`、`screenshots/`、真实 `.env*` 和密钥文件。V8.84进一步扫描已跟踪文件的新增行和未跟踪文本文件，阻断私钥头、真实格式AWS/GitHub/Slack令牌及生产代码中的带密码PostgreSQL URL；报告只保留相对文件、规则和位置，不输出匹配内容。它不会执行 `git add`、`git commit` 或 `git push`。
 
-当前文件级结果以最新审计报告为准：`.erp-local-storage/git-baseline-scope-audit/latest.json`。V8.119新增待办引用投影并同步状态文档后为224个文件，其中未跟踪80个、暂存0个；5组全部归类，远端0、敏感路径/内容命中0。真实人员草稿位于Git忽略的受控目录，动态生成器和交付XLSX位于仓库外，均不进入发布基线。最终数字必须在暂存前重新生成。
+提交前文件级结果保存在受控私有审计报告中：原`664`个文件全部唯一归类为后端领域`178`、前端UI`153`、验证`296`、工程工具`10`、治理文档`27`；禁止路径、敏感路径、敏感内容、重复和未归类命中均为0，Hallmark本地日志明确排除。五批分别提交为`feat(core)`、`feat(ui)`、`test`、`chore(release)`和`docs`主题；每批均核对精确路径集合和`git diff --cached --check`，未使用`git add -A`。提交后的最新审计为0个工作区变更、release ready。真实人员草稿仍位于Git忽略的受控目录，动态生成器和交付XLSX仍在仓库外，不进入发布基线。
 
 ## 所有权分组
 
@@ -31,14 +31,14 @@ node scripts/run-git-baseline-scope-audit.mjs --json --write
 
 ## 暂存顺序
 
-1. 重新运行范围审计，要求 `unclassified=0`、`duplicate=0`、`forbidden=0`、`sensitive=0`。
-2. 先暂存数据库/后端/共享领域及其对应回归，确认 `0019` 与库存意图代码同批、`0020`与员工身份规则/事务代码同批。
-3. 暂存前端/UI和对应结构回归，确认新CSS全部纳管、旧根CSS删除同步发生。
-4. 暂存runner、发布审计工具和 `package.json`，核对测试组数量与顺序。
-5. 最后暂存当前文档和完整历史归档，复核运行数字仍为发布 `0/4`、证据 `0/34`、签字 `0/6`。
-6. 每组暂存后都运行 `git diff --cached --check` 和 `git diff --cached --name-status`，人工复核后才提交。
+1. 重新运行范围审计，要求 `unclassified=0`、`duplicate=0`、`forbidden=0`、`sensitive=0`，并确认“可开始只读分批复核”为是。
+2. 第1批人工复核数据库/后端/共享领域及对应回归，确认迁移与事务/权限/幂等变更不被跨主题文件掩盖。
+3. 第2批前端/UI和对应结构回归已复核，确认新CSS全部纳管、旧根CSS删除同步发生。
+4. 第3批业务/结构回归脚本、第4批runner/发布审计工具和 `package.json` 已复核，测试组数量、顺序及脚本路径一致。
+5. 第5批当前文档和完整历史归档已复核，运行数字仍为发布 `0/4`、证据 `0/34`、签字 `0/6`。
+6. 仅在用户明确授权后，按已人工确认的批次暂存；每组暂存后运行 `git diff --cached --check` 和 `git diff --cached --name-status`，人工复核后才提交。
 
-不得使用无差别 `git add -A` 绕过分组复核。当前未收到用户提交授权，本轮保持暂存区为0。
+本轮按用户明确授权完成五批暂存和本地提交，未使用无差别`git add -A`，也未推送。后续推送、PR或远端恢复验证仍需单独授权或明确任务范围。
 
 ## 验证矩阵
 

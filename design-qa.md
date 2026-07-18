@@ -1,55 +1,59 @@
-# Design QA — 09 稿订单录入
+# Design QA - V8.142 D49 执行工作台
 
-source visual truth path: `/Users/xu/Documents/ERP/screenshots/ui-refactor-audit-2026-07-12/09-gpt-order-entry-final-candidate.png`
+source visual truth path: `/Users/xu/Documents/ERP/screenshots/ui-audit-2026-07-12-c47-04-v1-status-1024-after.png`
 
-implementation screenshot path: `/Users/xu/Documents/ERP/screenshots/ui-refactor-audit-2026-07-12/17-order-entry-single-customer-multi-lines.png`
+implementation screenshot path: `/Users/xu/Documents/ERP/screenshots/ui-refactor-audit-2026-07-14/18-d49-1024.jpg`
 
-viewport: `1440×900`
+full-view comparison evidence: `/Users/xu/Documents/ERP/screenshots/ui-refactor-audit-2026-07-14/20-d49-design-qa-comparison.jpg`
 
-state: local demo data; office account; one `张三服饰` draft; six parsed rows; four delivery batches; row 3 selected; `更多` menu closed.
+focused region comparison evidence: `/Users/xu/Documents/ERP/screenshots/ui-refactor-audit-2026-07-14/21-d49-design-qa-focused-comparison.jpg`
 
-## Full-view comparison evidence
+responsive evidence:
 
-The current normalized comparison is `/Users/xu/Documents/ERP/screenshots/ui-refactor-audit-2026-07-12/18-order-entry-single-customer-qa-comparison.png`. The source and implementation were compared at the same `1440×900` content ratio and the same row-3 review state. The implemented screen preserves the selected workbench composition while applying the user's later approved business correction: the editable draft belongs to one customer, customer ownership appears once above the table, and different fulfillment/time combinations are summarized as delivery batches.
+- `/Users/xu/Documents/ERP/screenshots/ui-refactor-audit-2026-07-14/15-d49-current-actions-1280.jpg`
+- `/Users/xu/Documents/ERP/screenshots/ui-refactor-audit-2026-07-14/17-d49-eight-roles-1280.jpg`
+- `/Users/xu/Documents/ERP/screenshots/ui-refactor-audit-2026-07-14/19-d49-390.jpg`
 
-## Focused region comparison evidence
+primary viewport: `1024x768`
 
-The current full-resolution implementation capture confirms that all eleven line-level columns are visible without repeated customer or `是否印刷` columns; the draft-level customer selector shows `张三服饰`; the context strip shows `6 条明细 · 4 个交付批次`; row 3 is highlighted; counts are `缺字段 1 / 库存异常 5 / 识别待复核 5`; the selected detail exposes the custom-print fields; and the footer keeps `7,300`, `¥2,728`, and `保存并确认` visible.
+state: local demo API; management account; `上线状态 > 生产配置 > 真实值校验`; D49 `当前动作` selected. The source capture uses the same V1 status workbench and viewport but shows `决策总览`; it is the established visual language rather than a pixel-identical D49 state.
 
-No photographic, illustrative, decorative, or custom brand image assets appear in the selected workbench. Existing Ant Design interface icons are used; no placeholder image, custom SVG, CSS illustration, emoji, or text-glyph substitute was introduced.
+## Comparison Evidence
 
-## Required fidelity surfaces
+The source and implementation were placed in one side-by-side comparison image. Both preserve the same ERP shell, completion summary, two-pane workbench proportions, compact tabs, restrained borders, system typography, and semantic status colors. A focused comparison separately checks the source detail-pane hierarchy against the new D49 header, metrics, tabs, and action rows.
 
-- Fonts and typography: the implementation keeps the project's Inter / PingFang SC / Microsoft YaHei stack and the source's compact operational hierarchy. Table and sidebar labels remain legible at `11–13px`; totals and the primary action retain stronger optical weight. Text does not clip or wrap across controls at the tested viewport.
-- Spacing and layout rhythm: the main/detail split, 8–12px operational rhythm, compact controls, row height, validation density, and fixed footer match the selected direction. All eleven line-level columns, the draft-level customer selector, and persistent actions are visible in the first viewport.
-- Colors and visual tokens: blue selection/primary action, green availability, yellow review, red shortage/error, pale selected-row blue, neutral white panels, and low-contrast borders map directly to the source semantics. Every colored state also has a text label.
-- Image quality and asset fidelity: no raster content was required beyond the source/reference captures. Interface icons render sharply from the existing icon library.
-- Copy and content: the implementation uses the approved Chinese factory terminology and the corrected default fixture: one `张三服饰` customer, six lines, four delivery batches, `7,300`, `¥2,728`, row-3 custom print, `黄印黑 / 黄袋红提`, shortage and review labels. `订单类型` is the sole visible type/print decision column.
-- Interaction and accessibility: clicking `库存缺货 60 第2行` selected row 2; clicking the row-3 artwork issue restored row 3; the `更多` menu exposed `作废草稿`; changing row 1 `订单类型` to `定制印刷` updated the control; `保存并确认` was present and enabled. Form fields have explicit labels, focus states remain visible, and browser console errors were `0`.
+## Required Fidelity Surfaces
 
-## Comparison history
+- Fonts and typography: both views use the existing system CJK stack, the same compact 10-14px operational hierarchy, normal letter spacing, and textual status labels. D49 values use 17px only for the four critical metrics; action copy wraps instead of hiding at medium and mobile widths.
+- Spacing and layout rhythm: D49 follows the source detail-pane padding, border radius, tab height, and dense row rhythm. The four metrics remain stable; the action area changes from two columns at 1280 to one column below 1240, and the eight-role matrix changes from four to two columns.
+- Colors and visual tokens: blue remains the navigation/active-tab color, red remains blocking, amber marks incomplete draft coverage, green remains ready, and neutral gray surfaces match the established V1 status canvas. No new one-note palette or decorative gradient was introduced.
+- Image quality and asset fidelity: this operational screen has no product imagery. All visible functional icons use the existing Ant Design icon library; no handcrafted SVG, text glyph, CSS drawing, or placeholder image was added.
+- Copy and content: the implementation separates `受控草稿 19人 / 草稿岗位 6/8 / 待补员工编号 19个 / 正式岗位 0/8`, retains `env 2/11` and `intake 0/29`, and states that finance/management may remain blank while D49 stays blocked. No employee name, identifier value, workbook path, or issue row appears.
 
-1. Initial coded pass: structure and behavior matched the target, but the estimated-amount column was partly outside the first viewport, the bottom of selected-row editing required extra scrolling, and the generic page description/context-refresh block created visible vertical drift. Result: blocked by three P2 fidelity issues.
-2. Fix pass: compressed the twelve table tracks to fit the approved first viewport, tightened selected-detail spacing so notes remain visible, and made the shared page header omit empty description/actions for order entry while preserving them on other pages. Post-fix evidence: `13-order-entry-09-implementation-final.png`, `14-order-entry-09-qa-comparison.png`, and `15-order-entry-09-qa-detail-comparison.png`. No actionable P0/P1/P2 mismatch remains.
-3. Approved business-correction pass: replaced the default multi-customer example with one customer/six lines/four delivery batches, moved customer ownership to draft level, and removed the repeated customer column. At `1440×900`, table and main-region `scrollWidth` equal `clientWidth`; the current post-correction evidence is `17-order-entry-single-customer-multi-lines.png` and `18-order-entry-single-customer-qa-comparison.png`.
+## Interaction Evidence
+
+- `当前动作 / 八岗位 / 环境门禁` tabs all switch and keep stable tab semantics.
+- The role view renders all eight roles; the environment view renders all 12 blocker occurrences grouped into eight visible groups without slicing.
+- Management can open `基础资料 > 员工机台` with the import panel focused. Technical operations can inspect D49 but does not receive that button.
+- Body horizontal overflow is zero at `1280x720`, `1024x768`, and `390x844`; the 390 role matrix contains eight rows in two columns and the environment view contains all eight groups.
+- Browser output showed no ERP-origin error. One Statsig plugin networking timeout occurred during reload and is unrelated to the local ERP page.
+
+## Comparison History
+
+1. Initial 1024 comparison found one P2: the 493px detail pane kept the current-action area in two columns, which compressed the environment title and explanatory copy.
+2. The responsive rule now switches the action area to one column and the role matrix to two columns below 1240px. Post-fix evidence is `18-d49-1024.jpg`; the title and actions are readable and horizontal overflow remains zero.
+3. The post-fix full and focused comparisons found no remaining actionable P0, P1, or P2 mismatch.
 
 ## Findings
 
-No actionable P0, P1, or P2 findings remain.
+No actionable P0, P1, or P2 visual finding remains.
 
-The implementation intentionally retains the live project's current shell. It also moves the mock's repeated row customer field to one draft-level customer selector. That second deviation is an explicit user-approved business correction: manual entry normally handles one customer with multiple lines/orders, while future concurrent groups create independent queue drafts.
+P3: the complete environment blocker list is intentionally scrollable inside the existing status workbench. This preserves every blocker while keeping the first view focused on the two current action groups.
 
-## Follow-up polish
+## Verification
 
-- P3: source and implementation use slightly different shell copy and topbar metadata because the working ERP shell remains authoritative outside the order-entry workbench.
-- P3: live controls use the project's native select-arrow rendering, which is marginally more visible than the mock's quieter row affordances.
-
-## Implementation checklist
-
-- [x] Three-step order-entry strip and source recognition.
-- [x] Six editable rows with one visible `订单类型` column.
-- [x] Clickable validation list and selected-row print detail.
-- [x] Persistent totals, split/menu actions, and primary confirmation.
-- [x] Order-page/controller/action checks, shared UI checks, production build, browser interaction checks, and console review.
+- Primary interactions and permission variants were tested in the in-app browser.
+- Responsive browser checks passed at 1280, 1024, and 390.
+- Full test `122/122`, pretest `6/6`, targeted D49 checks, V1 status API chain, lint, and production build passed.
 
 final result: passed
