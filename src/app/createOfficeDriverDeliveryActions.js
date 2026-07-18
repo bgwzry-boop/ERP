@@ -163,7 +163,10 @@ export function createOfficeDriverDeliveryActions({
         ),
       );
       const sourceLabel = apiResult.source === "api" ? "后端 API" : "本地规则降级";
-      setToast(`已通过${sourceLabel}保存司机现场验收：${savedRecord?.summary?.label ?? "已记录"}。`);
+      const acceptanceLabel = apiResult.acceptance?.ready
+        ? "现场验收已通过"
+        : `记录已保存，现场验收未通过${apiResult.acceptance?.blockerCount ? `（${apiResult.acceptance.blockerCount}项待处理）` : ""}`;
+      setToast(`${sourceLabel}：${acceptanceLabel}；${savedRecord?.summary?.label ?? "已记录"}。`);
       if (apiResult.source === "api") void refreshDriverDeliveryTasks({ showToast: false });
       return apiResult;
     }
@@ -216,6 +219,17 @@ export function createOfficeDriverDeliveryActions({
     }
 
     if (action === "提交送达") {
+      if (payload.deliveryCompletionConfirmed !== true) {
+        setToast("请先核对送货任务、实际数量和凭证影响，再确认提交送达；当前未上传凭证或写入送货完成记录。");
+        return {
+          source: "ui_error",
+          blocked: true,
+          error: {
+            code: "DRIVER_DELIVERY_COMPLETION_CONFIRMATION_REQUIRED",
+            message: "完成送货必须经过司机端最终确认。",
+          },
+        };
+      }
       let watermarkedPhotoAttachmentId = payload.watermarkedPhotoAttachmentId || "";
       let signaturePhotoAttachmentId = payload.signaturePhotoAttachmentId || "";
       let watermarkedPhotoAttachment = null;

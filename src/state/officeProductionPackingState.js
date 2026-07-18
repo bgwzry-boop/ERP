@@ -72,6 +72,8 @@ export function mapProductionTaskListItemToLine(item, localOrderLines = []) {
     publishedScheduleId: cleanProductionPackingText(task.publishedScheduleId ?? item?.publishedScheduleId),
     productionTaskId: cleanProductionPackingText(item?.productionTaskId ?? task.productionTaskId),
     latestReport: item?.latestReport ?? null,
+    latestException: item?.latestException ?? item?.exceptions?.[0] ?? null,
+    productionExceptions: Array.isArray(item?.exceptions) ? item.exceptions : [],
     dailyProgress: item?.dailyProgress ?? null,
     finishedGoodsPhoto: item?.finishedGoodsPhoto ?? task.finishedGoodsPhoto ?? null,
     productionTask: task,

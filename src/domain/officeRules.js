@@ -226,7 +226,13 @@ export function getFulfillmentActions(item) {
   const hasTrackablePrintRecord = Boolean(
     item.activePrintRecordId || item.printRecordId || ["printed", "reprinted"].includes(item.printRecordStatus),
   );
-  const printedDocument = Boolean(item.printed || hasTrackablePrintRecord);
+  const paperStatus = item.paperOutboundStatus || "待生成纸单";
+  const printLabel = method === "快递快运"
+    ? item.labelsPrinted ? "打印出库单" : "打印标签"
+    : method === "送货" ? "打印送货单" : "打印自提单";
+  const reprintLabel = method === "快递快运"
+    ? paperStatus === "已作废待重打" ? "重打出库单" : "重打标签"
+    : method === "送货" ? "重打送货单" : "重打自提单";
 
   if (isFulfillmentDone(item.status)) {
     return [
@@ -235,10 +241,20 @@ export function getFulfillmentActions(item) {
     ];
   }
 
-  const exceptionActions = [
-    { label: "数量不符", variant: "secondary" },
-    { label: "无法出库", variant: "secondary" },
-  ];
+  if (item.legacyStateReviewRequired) {
+    return [
+      { label: "打开订单", variant: "primary" },
+      { label: "打印预览", variant: "secondary" },
+    ];
+  }
+
+  if (paperStatus === "已作废待重打" || item.printRecordStatus === "voided") {
+    return [
+      { label: reprintLabel, variant: "primary" },
+      { label: "打印预览", variant: "secondary" },
+      { label: "打开订单", variant: "secondary" },
+    ];
+  }
 
   if (item.status.includes("数量") || item.status.includes("无法")) {
     return [
@@ -248,66 +264,58 @@ export function getFulfillmentActions(item) {
     ];
   }
 
-  if (method === "快递快运") {
-    if (item.printRecordStatus === "voided") {
-      return [
-        { label: "重打标签", variant: "primary" },
-        { label: "打印预览", variant: "secondary" },
-        { label: "打开订单", variant: "secondary" },
-        ...exceptionActions,
-      ];
-    }
-    if (item.status === "待确认拉走" || item.printed) {
-      return [
-        { label: "确认已拉走", variant: "primary" },
-        { label: hasTrackablePrintRecord ? "作废旧标签" : "打印标签", variant: "secondary" },
-        { label: "打印预览", variant: "secondary" },
-        { label: "打开订单", variant: "secondary" },
-        ...exceptionActions,
-      ];
-    }
+  if (paperStatus === "已打印待交库房") {
     return [
-      { label: "打印标签", variant: "primary" },
-      { label: "标记已备货", variant: "secondary" },
-      { label: "打开订单", variant: "secondary" },
-      ...exceptionActions,
-    ];
-  }
-
-  if (method === "送货") {
-    if (item.printRecordStatus === "voided") {
-      return [
-        { label: "重打送货单", variant: "primary" },
-        { label: "编辑派单", variant: "secondary" },
-        { label: "打印预览", variant: "secondary" },
-        { label: "打开订单", variant: "secondary" },
-        ...exceptionActions,
-      ];
-    }
-    return [
-      { label: "完成送货", variant: "primary" },
-      { label: "编辑派单", variant: "secondary" },
-      { label: "标记已备货", variant: "secondary" },
-      { label: printedDocument && hasTrackablePrintRecord ? "作废旧单据" : "打印送货单", variant: "secondary" },
-      { label: "打开订单", variant: "secondary" },
-      ...exceptionActions,
-    ];
-  }
-
-  if (item.printRecordStatus === "voided") {
-    return [
-      { label: "重打自提单", variant: "primary" },
+      { label: "纸单交库房", variant: "primary" },
+      { label: hasTrackablePrintRecord ? "作废旧单据" : printLabel, variant: "secondary" },
       { label: "打印预览", variant: "secondary" },
       { label: "打开订单", variant: "secondary" },
-      ...exceptionActions,
     ];
   }
+
+  if (paperStatus !== "已交库房") {
+    return [
+      { label: printLabel, variant: "primary" },
+      { label: "打印预览", variant: "secondary" },
+      { label: "打开订单", variant: "secondary" },
+    ];
+  }
+
+  if (method === "送货" && item.status === "待司机装车") {
+    return [
+      { label: "编辑派单", variant: "primary" },
+      { label: "回录库房结果", variant: "secondary" },
+      { label: "打开订单", variant: "secondary" },
+    ];
+  }
+
+  if (method === "送货" && item.status === "配送中") {
+    return [
+      { label: "打开订单", variant: "primary" },
+      { label: "打印预览", variant: "secondary" },
+    ];
+  }
+
+  if (item.physicalOutboundAt && !item.finalDeliveryAt && method === "自提") {
+    return [
+      { label: "确认最终自提", variant: "primary" },
+      { label: "打印预览", variant: "secondary" },
+      { label: "打开订单", variant: "secondary" },
+    ];
+  }
+
+  if (item.physicalOutboundAt && !item.finalDeliveryAt && method === "快递快运") {
+    return [
+      { label: "确认已拉走", variant: "primary" },
+      { label: "打印预览", variant: "secondary" },
+      { label: "打开订单", variant: "secondary" },
+    ];
+  }
+
   return [
-    { label: "完成自提", variant: "primary" },
-    { label: "标记已备货", variant: "secondary" },
-    { label: printedDocument && hasTrackablePrintRecord ? "作废旧单据" : "打印自提单", variant: "secondary" },
+    { label: "回录库房结果", variant: "primary" },
+    { label: "打印预览", variant: "secondary" },
     { label: "打开订单", variant: "secondary" },
-    ...exceptionActions,
   ];
 }
 
@@ -320,18 +328,24 @@ export function getFulfillmentNextStep(item) {
   if (method === "送货" && evidenceReviewStatus === "需重拍") {
     return "送达证据被退回，需通知司机补拍或补充说明后再复核。";
   }
-  if (item.status === "已交付") return "已完成交付；后续进入对账或收款确认。";
+  if (item.status === "已交付") return "已记录最终交付；后续进入对账或收款确认。";
+  if (item.legacyStateReviewRequired) return "这是历史记录，纸单、实物出库和最终交付关系尚未确认，需办公室复核后再处理。";
   if (item.status.includes("数量")) return "等待办公室处理数量差异，不能直接改订单数量。";
   if (item.status.includes("无法")) return "等待办公室处理无法出库原因，决定客户沟通、改单或补货。";
+  if (item.paperOutboundStatus === "已打印待交库房") return "纸单已由打印作业确认，交给库房后再根据纸单反馈回录备货、实物出库或异常。";
+  if (item.paperOutboundStatus === "已交库房" && item.status === "待司机装车") return "库房已实物出库且库存不可再销售；等待司机装车后进入在途，送达后才创建对账候选。";
+  if (item.physicalOutboundAt && !item.finalDeliveryAt && method === "自提") return "库房实物出库已记录；等待确认客户最终自提交接，之后才进入对账。";
+  if (item.physicalOutboundAt && !item.finalDeliveryAt && method === "快递快运") return "库房实物出库已记录；等待确认承运方拉走，之后才进入对账。";
+  if (item.paperOutboundStatus === "已交库房") return "根据纸质出库单回录库房结果；数量不符或无法出库只生成异常待办。";
   if (item.printRecordStatus === "voided") {
     const documentLabel = getFulfillmentDocumentLabel(item);
     const nextAction = method === "快递快运" ? "确认快递/快运拉走" : "完成交付";
     return `旧${documentLabel}已作废，需要先重打${documentLabel}；生成新有效${documentLabel}后才能${nextAction}。`;
   }
-  if (method === "快递快运" && item.status === "待确认拉走") return "等待确认快递/快运已拉走；确认后才扣交付并进入对账。";
-  if (method === "快递快运" && !item.printed) return "先打印包裹标签，包裹进入待提货区后再确认拉走。";
-  if (method === "送货") return "送货完成后记录交付凭证；数量不一致必须走数量不符。";
-  return "客户自提完成后记录交付；数量不一致必须走数量不符。";
+  if (method === "快递快运" && !item.labelsPrinted) return "先完成包裹标签可信打印；标签不会替代纸质出库单。";
+  if (method === "快递快运" && !item.printed) return "包裹标签已可信打印；下一步单独打印纸质出库单并交库房。";
+  if (method === "送货") return "先生成纸单并交库房；司机装车后才进入在途，送达后再记录交付凭证。";
+  return "先生成纸单并交库房；库房实物出库与客户自提或承运方拉走必须分别记录。";
 }
 
 export function getDeliveryEvidenceReviewStatus(item) {
@@ -351,7 +365,7 @@ export function getDeliveryEvidenceReviewTone(status) {
 
 export function getFulfillmentDocumentLabel(item) {
   const method = getFulfillmentMethodLabel(item.method);
-  if (method === "快递快运") return "包裹标签";
+  if (method === "快递快运") return item.paperOutboundDocument ? "纸质出库单" : "包裹标签";
   if (method === "送货") return "送货单";
   return "出库/自提单";
 }
@@ -578,30 +592,36 @@ export function getLatestRank(latest = "") {
 }
 
 export function getTodoPriority(todo) {
+  if (Number.isFinite(todo.serverSortRank)) return todo.serverSortRank;
   if (todo.urgency === "急") return 0;
-  if (todo.urgency === "异常") return 1;
-  if (todo.urgency === "今天" || todo.latest.includes("今天")) return 2;
+  if (todo.urgency === "今天" || todo.latest.includes("今天")) return 1;
+  if (todo.urgency === "异常") return 2;
   if (todo.urgency === "关注") return 3;
   return 4;
 }
 
 export function sortTodos(todos) {
+  const hasCompleteServerOrder = todos.length > 0 && todos.every((item) => Number.isFinite(item.serverSortIndex));
   return [...todos].sort((a, b) => {
+    if (hasCompleteServerOrder) return a.serverSortIndex - b.serverSortIndex;
     if (a.handled !== b.handled) return a.handled ? 1 : -1;
     const priorityDiff = getTodoPriority(a) - getTodoPriority(b);
     if (priorityDiff) return priorityDiff;
     const latestDiff = getLatestRank(a.latest) - getLatestRank(b.latest);
     if (latestDiff) return latestDiff;
-    return getWaitMinutes(b.wait) - getWaitMinutes(a.wait);
+    return (Number.isFinite(b.waitingMinutes) ? b.waitingMinutes : getWaitMinutes(b.wait))
+      - (Number.isFinite(a.waitingMinutes) ? a.waitingMinutes : getWaitMinutes(a.wait));
   });
 }
 
 export function getTodoTone(todo) {
   if (todo.handled) return "success";
   if (todo.referenceStatus === "missing") return "danger";
+  if (todo.referenceStatus === "unverifiable") return "warning";
   if (todo.printResultStatus === "unknown") return "danger";
   if (todo.printResultStatus === "partial" || todo.printResultStatus === "not_printed") return "warning";
   if (todo.urgency === "异常") return "danger";
+  if (todo.reminderLevel === "follow_up" || todo.reminderLevel === "red_dot") return "danger";
   if (todo.urgency === "急" || todo.urgency === "今天") return "warning";
   if (todo.urgency === "关注") return "blue";
   return "neutral";
@@ -613,6 +633,7 @@ export function isPrintTodo(todo) {
 
 export function getTodoHandlingRule(todo) {
   if (todo.referenceStatus === "missing") return "引用失效，需核对来源后关闭";
+  if (todo.referenceStatus === "unverifiable") return "引用待核，禁止直接跳转";
   if (todo.type.includes("数量") || todo.type.includes("差额") || todo.type.includes("缺货")) return "必须逐条处理";
   if (todo.type.includes("待通知客户")) return "先复制话术，人工发送后确认";
   if (todo.type.includes("成品图需重拍")) return "通知车间重拍后关闭";
@@ -632,7 +653,14 @@ export function getTodoActions(todo) {
     ];
   }
 
-  if (todo.referenceStatus === "missing") {
+  if (todo.type === "出库交付待补建") {
+    return [
+      { label: "补建出库交付", variant: "primary" },
+      { label: "打开订单池", variant: "secondary" },
+    ];
+  }
+
+  if (todo.referenceStatus === "missing" || todo.referenceStatus === "unverifiable") {
     return [{ label: "处理完成", variant: "secondary" }];
   }
 

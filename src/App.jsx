@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { MenuFoldOutlined } from "@ant-design/icons";
 import {
   EntryPage,
@@ -8,25 +8,30 @@ import {
   OrderPoolPage,
   ProductionPackingPage,
   RawMaterialInboundPage,
+  RawMaterialScannerPage,
   StatementPage,
   TodoPage,
   DriverMobilePage,
+  WarehouseMobilePage,
   WorkshopMobilePage,
 } from "./pages/office/index.jsx";
+import { RAW_MATERIAL_FIRST_RELEASE_ENABLED } from "./config/rawMaterialFirstRelease.js";
 import {
   allNavigationItems,
+  desktopRequiredMobilePage,
+  getDefaultNavigationPage,
+  getMobileViewportPage,
+  isDedicatedMobileRolePage,
   isNavigationPageVisible,
-  primaryNavigationItems,
+  roleBoundaryPage,
 } from "./app/navigation.js";
-import { AppNavigation } from "./app/AppNavigation.jsx";
-import {
-  ActionModal,
-  AttachmentViewerModal,
-  MasterDataImportTemplateModal,
-  OrderLineActionModal,
-  RuntimeLoginScreen,
-  Topbar,
-} from "./app/AppViews.jsx";
+import { AppNavigation, ContextNavigationStrip } from "./app/AppNavigation.jsx";
+import { MobileRoleShellHeader } from "./app/MobileRoleShellHeader.jsx";
+import { Topbar } from "./app/AppViews.jsx";
+import { WorkspaceOverlays } from "./app/WorkspaceOverlays.jsx";
+import { RuntimeAuthBoundary } from "./app/RuntimeAuthBoundary.jsx";
+import { useRuntimeAuthInitialization } from "./app/useRuntimeAuthInitialization.js";
+import { useRuntimeAuthInvalidation, useRuntimeSessionExpiry, useRuntimeSessionRevalidation } from "./app/useRuntimeSessionExpiry.js";
 import { useOfficeInteractionController } from "./app/useOfficeInteractionController.js";
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
 import { createOfficeAttachmentActions } from "./app/createOfficeAttachmentActions.js";
@@ -42,6 +47,16 @@ import { createOfficeRawMaterialActions } from "./app/createOfficeRawMaterialAct
 import { createOfficeStatementActions } from "./app/createOfficeStatementActions.js";
 import { createOfficeTodoActions, createOfficeTodoAppender } from "./app/createOfficeTodoActions.js";
 import { createOfficeV1StatusActions } from "./app/createOfficeV1StatusActions.js";
+import { createRuntimeAuthActions } from "./app/createRuntimeAuthActions.js";
+import {
+  copyTextToClipboard,
+  downloadMasterDataImportTemplateWorkbook,
+  downloadStatementExcelWorkbook,
+  downloadTextFile,
+  mergeAttachmentSummaries,
+  readBlobAsDataUrl,
+  readFileAsDataUrl,
+} from "./app/browserFileActions.js";
 import { DataState, WorkspaceNotice, WorkspacePageHeader } from "./shared/ui/operational.jsx";
 import {
   defaultSeedUserId,
@@ -50,11 +65,7 @@ import {
 } from "./auth/seedPermissions.js";
 import {
   createInitialAuthState,
-  createLocalSeedAuthState,
-  initializeSeedAuth,
   isOfficeApiServerRequired,
-  loginRuntimeUser,
-  loginSeedUser,
 } from "./services/officeAuthService.js";
 import { getOfficeOrderLineDetail } from "./services/officeOrderPoolApiClient.js";
 import {
@@ -63,11 +74,6 @@ import {
   findProductionInventoryItem,
 } from "./services/officeProductionPackingApiClient.js";
 import { loadOfficeWorkspace } from "./services/officeMockService.js";
-import {
-  MASTER_DATA_IMPORT_CONTENT_TYPE,
-  buildMasterDataImportTemplateMetadata,
-  buildMasterDataImportTemplateWorkbook,
-} from "./domain/masterDataImportTemplate.js";
 import {
   availableQty,
   defaultOrderFilters,
@@ -120,9 +126,11 @@ import {
   uniqueStockOptions,
 } from "./domain/officeRules.js";
 
-const V1StatusPage = lazy(() =>
-  import("./features/v1-status/V1StatusPage.jsx").then((module) => ({ default: module.V1StatusPage })),
-);
+const V1StatusPage = lazy(() => import("./features/v1-status/V1StatusPage.jsx").then((module) => ({ default: module.V1StatusPage })));
+const OfficeMobilePage = lazy(() => import("./features/office-mobile/OfficeMobilePage.jsx").then((module) => ({ default: module.OfficeMobilePage })));
+const DecisionMobilePage = lazy(() => import("./features/decisions/DecisionMobilePage.jsx").then((module) => ({ default: module.DecisionMobilePage })));
+const MaintenanceMobilePage = lazy(() => import("./features/maintenance/MaintenanceMobilePage.jsx").then((module) => ({ default: module.MaintenanceMobilePage })));
+const DesktopRequiredMobilePage = lazy(() => import("./features/mobile/DesktopRequiredMobilePage.jsx").then((module) => ({ default: module.DesktopRequiredMobilePage })));
 
 const officeScenarioData = loadOfficeWorkspace();
 const {
@@ -145,140 +153,22 @@ const getStatementFinancialSummary = (statement) => getStatementFinancialSummary
 const getStatementBucket = (statement) => getStatementBucketRecord(statement, customers);
 const orderMatchesFilters = (row, filters, statements) => orderMatchesFiltersRecord(row, filters, statements, customers);
 const statementMatchesFilters = (statement, filters) => statementMatchesFiltersRecord(statement, filters, customers);
-function readFileAsDataUrl(file) {
-  if (!file || typeof FileReader === "undefined") return Promise.resolve("");
-  if (typeof file.contentDataUrl === "string") return Promise.resolve(file.contentDataUrl);
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => resolve("");
-    reader.readAsDataURL(file);
-  });
-}
-
-async function copyTextToClipboard(text) {
-  const value = String(text ?? "");
-  if (!value) return false;
-  try {
-    if (typeof navigator !== "undefined" && navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(value);
-      return true;
-    }
-  } catch {
-    // Fall through to the textarea-based local fallback.
-  }
-  if (typeof document === "undefined") return false;
-  const textarea = document.createElement("textarea");
-  textarea.value = value;
-  textarea.setAttribute("readonly", "readonly");
-  textarea.style.position = "fixed";
-  textarea.style.left = "-9999px";
-  document.body.appendChild(textarea);
-  textarea.select();
-  let copied;
-  try {
-    copied = document.execCommand("copy");
-  } catch {
-    copied = false;
-  } finally {
-    document.body.removeChild(textarea);
-  }
-  return copied;
-}
-
-function mergeAttachmentSummaries(existing = [], next = []) {
-  const merged = [...(Array.isArray(existing) ? existing : [])];
-  next.filter(Boolean).forEach((attachment) => {
-    const index = merged.findIndex((item) => item.attachmentId && item.attachmentId === attachment.attachmentId);
-    if (index >= 0) {
-      merged[index] = { ...merged[index], ...attachment };
-    } else {
-      merged.push(attachment);
-    }
-  });
-  return merged;
-}
-
-function readBlobAsDataUrl(blob) {
-  if (!blob || typeof FileReader === "undefined") return Promise.resolve("");
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(typeof reader.result === "string" ? reader.result : "");
-    reader.onerror = () => resolve("");
-    reader.readAsDataURL(blob);
-  });
-}
-
-function sanitizeDownloadFileName(fileName, fallback = "attachment") {
-  const safeName = String(fileName || fallback)
-    .trim()
-    .replace(/[\\/:*?"<>|]+/g, "-")
-    .replace(/\s+/g, " ");
-  return safeName || fallback;
-}
-
-function downloadStatementExcelWorkbook(workbookContent, statement, customer, options = {}) {
-  if (typeof document === "undefined" || typeof Blob === "undefined" || typeof URL === "undefined") return false;
-  const blob = new Blob([workbookContent], {
-    type: options.contentType ?? "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  const safeCustomerName = String(customer?.name ?? "customer").replace(/[\\/:*?"<>|\s]+/g, "-");
-  link.href = url;
-  link.download = sanitizeDownloadFileName(options.fileName, `statement-${statement?.id ?? "preview"}-${safeCustomerName}.xlsx`);
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-  return true;
-}
-
-function downloadMasterDataImportTemplateWorkbook(templateKey, operatorName = "ERP") {
-  if (typeof document === "undefined" || typeof Blob === "undefined" || typeof URL === "undefined") return null;
-  const generatedAt = new Date().toISOString();
-  const metadata = buildMasterDataImportTemplateMetadata({
-    templateKey,
-    generatedAt,
-    generatedBy: operatorName,
-  });
-  const workbook = buildMasterDataImportTemplateWorkbook({
-    templateKey,
-    generatedAt,
-    generatedBy: operatorName,
-  });
-  const blob = new Blob([workbook], { type: MASTER_DATA_IMPORT_CONTENT_TYPE });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = sanitizeDownloadFileName(metadata.fileName, "erp-master-data-import-template.xlsx");
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-  return metadata;
-}
-
-function downloadTextFile(content, options = {}) {
-  if (typeof document === "undefined" || typeof Blob === "undefined" || typeof URL === "undefined") return false;
-  const blob = new Blob([String(content ?? "")], { type: options.contentType ?? "text/plain; charset=utf-8" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = sanitizeDownloadFileName(options.fileName, "download.txt");
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-  return true;
-}
 
 export function App() {
   const runtimeServerRequired = isOfficeApiServerRequired();
   const [activePage, setActivePage] = useState("todos");
-  const [authState, setAuthState] = useState(() => createInitialAuthState());
-  const [runtimeLoginForm, setRuntimeLoginForm] = useState({ loginName: "", password: "" });
+  const [mobileViewport, setMobileViewport] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [authState, setAuthState] = useState(() => createInitialAuthState()); const [runtimeLoginForm, setRuntimeLoginForm] = useState({ loginName: "", password: "" });
   const [runtimeLoginLoading, setRuntimeLoginLoading] = useState(false);
+  const runtimeLoginRequestRef = useRef(0);
+  const [runtimePasswordChangeForm, setRuntimePasswordChangeForm] = useState({
+    currentPassword: "",
+    newPassword: "",
+    confirmPassword: "",
+  });
+  const [runtimePasswordChangeError, setRuntimePasswordChangeError] = useState("");
+  const [runtimePasswordChangeLoading, setRuntimePasswordChangeLoading] = useState(false);
   const permissionContext = authState.permissions;
   const currentUser = permissionContext.user;
   const currentUserId = currentUser.userId ?? defaultSeedUserId;
@@ -297,14 +187,14 @@ export function App() {
     refreshInventoryCorrectionQueue, refreshInventoryIntents, refreshInventoryLedgerEntries,
     loadInventoryCorrectionDetail, createInventoryCorrectionDraft, linkInventoryCorrectionAttachment, confirmInventoryCorrectionDraft,
     createTemporaryInventoryHold, releaseTemporaryInventoryHold, extendTemporaryInventoryHold,
-    completeFulfillmentAction, markFulfillmentPrepared, reviewFulfillmentDeliveryEvidence,
-    saveFulfillmentDispatch, submitFulfillmentException,
+    completeFulfillmentAction, handoffPaperOutbound, markFulfillmentPrepared, recordWarehouseExecution, reviewFulfillmentDeliveryEvidence,
+    saveFulfillmentDispatch, submitFulfillmentException, resolveFulfillmentQuantityVariance,
     executeProductionPackingAction,
     refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
     refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
     executeOrderEntryAction, executeOrderLineAction, openQueuedOrderDraft,
     recognizeOrderDraft, recognizeOrderDraftQueue, refreshOrderDraftQueue,
-    runOrderDraftCommand, updateOrderDraftField, prepareOrderDraftFromTemporaryHold, linkCrossDraftShortageCancellation, restoreShortageCancelledLine,
+    runOrderDraftCommand, updateOrderEntryText, updateOrderDraftField, prepareOrderDraftFromTemporaryHold, linkCrossDraftShortageCancellation, restoreShortageCancelledLine,
     todos, setTodos, todoMeta, printBatchRecords,
     selectedTodoId, setSelectedTodoId, todoView, setTodoView,
     orderLines, orderPoolMeta, setOrderPoolMeta,
@@ -422,8 +312,10 @@ export function App() {
     initialToast: "",
     orderLines,
     permissionContext,
+    handoffPaperOutbound,
     printFulfillmentDocument,
     readFileAsDataUrl,
+    recordWarehouseExecution,
     saveFulfillmentDispatch,
     setFulfillments,
     setStatements,
@@ -433,15 +325,29 @@ export function App() {
     voidFulfillmentPrintRecord,
   });
 
-  const activeMeta = allNavigationItems.find((item) => item.key === activePage) ?? primaryNavigationItems[0];
+  const defaultNavigationPage = getDefaultNavigationPage(permissionContext);
+  const requestedPage = mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage;
+  const renderedPage = requestedPage === desktopRequiredMobilePage.key || isNavigationPageVisible(requestedPage, permissionContext) ? requestedPage : defaultNavigationPage;
+  const activeMeta = allNavigationItems.find((item) => item.key === renderedPage) ?? roleBoundaryPage;
+  const dedicatedMobileRolePage = isDedicatedMobileRolePage(renderedPage);
+  const roleFocusedShellPage = dedicatedMobileRolePage || renderedPage === roleBoundaryPage.key
+    || (mobileViewport && renderedPage === "rawMaterials");
   const authSourceLabel = authState.authenticated ? "后端认证" : runtimeServerRequired ? "等待登录" : "本地权限";
   const unhandledTodos = todos.filter((item) => !item.handled).length;
 
   useEffect(() => {
     if (!isNavigationPageVisible(activePage, permissionContext)) {
-      setActivePage(primaryNavigationItems[0].key);
+      setActivePage(getDefaultNavigationPage(permissionContext));
     }
   }, [activePage, permissionContext]);
+
+  useEffect(() => {
+    const media = window.matchMedia("(max-width: 767px)");
+    const syncViewport = () => setMobileViewport(media.matches);
+    syncViewport();
+    media.addEventListener("change", syncViewport);
+    return () => media.removeEventListener("change", syncViewport);
+  }, []);
 
   const {
     applyV1ProductionFirstStageValues,
@@ -511,6 +417,7 @@ export function App() {
   });
   const {
     commitMasterDataImportExecutionFromPlan,
+    confirmMasterDataEmployeeIdentity,
     createMasterDataFailedRowsCorrectionDraft,
     createMasterDataImportConfirmationPlanFromDraft,
     createMasterDataImportExecutionFromPlan,
@@ -518,10 +425,11 @@ export function App() {
     downloadMasterDataImportFailedRows,
     downloadMasterDataTemplate,
     enableMasterDataEmployeeAccount,
+    enableMasterDataEmployeeAccounts,
     issueMasterDataEmployeeAccountPassword,
     openMasterDataTemplatePanel,
     precheckMasterDataTemplate,
-    revokeMasterDataEmployeeAccountPassword,
+    revokeMasterDataEmployeeAccountPassword, saveMasterDataMachine,
     updateMasterDataEmployeeAssignment,
     saveMasterDataMaintenanceDraft,
   } = createOfficeMasterDataActions({
@@ -552,6 +460,7 @@ export function App() {
     confirmRawMaterialSupplierStatement,
     confirmRawMaterialSupplierStatementReviewDraft,
     generateRawMaterialSupplierPayableDraft,
+    recognizeRawMaterialDeliveryNote,
     saveRawMaterialSupplierStatementReviewDraft,
     updateRawMaterialInbound,
   } = createOfficeRawMaterialActions({
@@ -674,19 +583,7 @@ export function App() {
     statements,
   });
 
-  useEffect(() => {
-    let cancelled = false;
-    initializeSeedAuth({ serverRequired: runtimeServerRequired }).then((nextAuthState) => {
-      if (cancelled) return;
-      setAuthState(nextAuthState);
-      if (nextAuthState.authenticated) {
-        setToast(`已恢复后端登录会话：${nextAuthState.permissions.user.displayName}。`);
-      }
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [runtimeServerRequired]);
+  useRuntimeAuthInitialization({ authState, serverRequired: runtimeServerRequired, setAuthState, setToast });
 
   useEffect(() => {
     let cancelled = false;
@@ -708,6 +605,22 @@ export function App() {
       cancelled = true;
     };
   }, [activePage, refreshDriverDeliveryTasks]);
+
+  useEffect(() => {
+    if (activePage !== "rawMaterials" && activePage !== "rawMaterialScanner") return undefined;
+    let cancelled = false;
+    Promise.all([
+      refreshRawMaterialInbounds({ showToast: false }),
+      activePage === "rawMaterials"
+        ? refreshRawMaterialSupplierStatementReviews({ showToast: false })
+        : Promise.resolve(),
+    ]).then(() => {
+      if (cancelled) return;
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activePage, refreshRawMaterialInbounds, refreshRawMaterialSupplierStatementReviews]);
 
   useEffect(() => {
     if (activePage !== "todos") return undefined;
@@ -777,21 +690,6 @@ export function App() {
       cancelled = true;
     };
   }, [activePage, refreshFulfillments]);
-
-  useEffect(() => {
-    if (activePage !== "rawMaterials") return undefined;
-    let cancelled = false;
-    Promise.all([
-      refreshRawMaterialInbounds({ showToast: false }),
-      refreshRawMaterialSupplierStatementReviews({ showToast: false }),
-      refreshProductionPackingTaskLists({ showToast: false }),
-    ]).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshProductionPackingTaskLists, refreshRawMaterialInbounds, refreshRawMaterialSupplierStatementReviews]);
 
   useEffect(() => {
     if (activePage !== "inventory") return undefined;
@@ -900,16 +798,21 @@ export function App() {
     };
   }, [activePage, refreshStatementDetail, selectedStatementId]);
 
+  const selectedStatementPaymentAttachmentKey = (statements.find(
+    (item) => item.id === selectedStatementId,
+  )?.paymentAttachmentIds ?? []).join("|");
+
   useEffect(() => {
     if (activePage !== "statements" || !selectedStatementId) return undefined;
     let cancelled = false;
     void syncStatementPaymentAttachmentsFromSource(selectedStatementId, {
       isCancelled: () => cancelled,
+      cacheKey: selectedStatementPaymentAttachmentKey,
     });
     return () => {
       cancelled = true;
     };
-  }, [activePage, authState, currentUserId, selectedStatementId]);
+  }, [activePage, authState, currentUserId, selectedStatementId, selectedStatementPaymentAttachmentKey]);
 
   useEffect(() => {
     if (activePage !== "statements" || !selectedStatementId) return undefined;
@@ -922,35 +825,18 @@ export function App() {
     };
   }, [activePage, authState, currentUserId, selectedStatementId]);
 
-  async function switchSeedUser(userId) {
-    if (runtimeServerRequired) return;
-    const localState = createLocalSeedAuthState(userId, "optimistic_switch");
-    setAuthState(localState);
-    setToast(`正在切换当前账号：${localState.permissions.user.displayName}。`);
-
-    const nextAuthState = await loginSeedUser(userId);
-    setAuthState(nextAuthState);
-    const displayName = nextAuthState.permissions.user.displayName;
-    if (nextAuthState.source === "api_seed") {
-      setToast(`已通过后端 seed 登录切换为：${displayName}。按钮权限按后端返回结果刷新。`);
-      return;
-    }
-    setToast(`已切换当前账号：${displayName}。后端 API 未连接时使用本地 seed 权限降级。`);
-  }
-
-  async function submitRuntimeLogin(event) {
-    event.preventDefault();
-    if (runtimeLoginLoading) return;
-    setRuntimeLoginLoading(true);
-    const nextAuthState = await loginRuntimeUser(runtimeLoginForm, { serverRequired: true });
-    setAuthState(nextAuthState);
-    setRuntimeLoginLoading(false);
-    if (nextAuthState.authenticated) {
-      setRuntimeLoginForm((current) => ({ ...current, password: "" }));
-      setToast(`已登录：${nextAuthState.permissions.user.displayName}。权限由后端正式账号返回。`);
-    }
-  }
-
+  const { expireRuntimeUserSession, invalidateRuntimeUserSession, logoutRuntimeUserSession, revalidateRuntimeUserSession, switchSeedUser, submitRuntimeLogin, submitRuntimePasswordChange } = createRuntimeAuthActions({
+    authState,
+    runtimeLoginForm, runtimeLoginLoading,
+    runtimePasswordChangeForm, runtimePasswordChangeLoading,
+    runtimeServerRequired, runtimeLoginRequestRef,
+    setAuthState, setRuntimeLoginForm, setRuntimeLoginLoading,
+    setRuntimePasswordChangeError, setRuntimePasswordChangeForm, setRuntimePasswordChangeLoading,
+    setToast,
+  });
+  useRuntimeSessionExpiry({ authState, enabled: runtimeServerRequired, onExpire: expireRuntimeUserSession });
+  useRuntimeAuthInvalidation({ enabled: runtimeServerRequired, onInvalidate: invalidateRuntimeUserSession });
+  useRuntimeSessionRevalidation({ authState, enabled: runtimeServerRequired, onRevalidate: revalidateRuntimeUserSession });
   const { refreshActivePage } = createOfficePageRefreshActions({
     activeMetaLabel: activeMeta.label,
     activePage,
@@ -1055,7 +941,7 @@ export function App() {
     guardUiAction,
     isPrintTodo,
     openModal,
-    refreshTodos,
+    refreshFulfillments, refreshTodos,
     selectedTodoId,
     setSelectedTodoId,
     setTodos,
@@ -1103,6 +989,7 @@ export function App() {
     allowLocalFallback: !runtimeServerRequired,
     authState,
     completeFulfillmentAction,
+    confirmAction: (message) => window.confirm(message),
     currentUserId,
     findCustomer,
     focusOrderLine,
@@ -1117,6 +1004,7 @@ export function App() {
     readBlobAsDataUrl,
     refreshTodos,
     reviewFulfillmentDeliveryEvidence,
+    resolveFulfillmentQuantityVariance,
     selectedFulfillmentId,
     setActivePage,
     setFulfillments,
@@ -1145,6 +1033,7 @@ export function App() {
   const { statementAction } = createOfficeStatementActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
+    confirmAction: (message) => window.confirm(message),
     currentUser,
     currentUserId,
     downloadStatementExcelWorkbook,
@@ -1156,26 +1045,41 @@ export function App() {
     openModal,
     orderLines,
     readBlobAsDataUrl,
+    refreshStatementDetail,
     selectedStatementId,
     setStatements,
     setToast,
     statements,
   });
-  if (runtimeServerRequired && !authState.authenticated) {
+  if (runtimeServerRequired && (!authState.authenticated || authState.permissions.passwordChangeRequired === true || authState.permissions.user?.mustChangePassword === true)) {
     return (
-      <RuntimeLoginScreen
-        error={authState.error?.message ?? ""}
-        form={runtimeLoginForm}
-        loading={runtimeLoginLoading}
-        onChange={(field, value) => setRuntimeLoginForm((current) => ({ ...current, [field]: value }))}
-        onSubmit={submitRuntimeLogin}
+      <RuntimeAuthBoundary
+        authState={authState}
+        passwordChange={{
+          error: runtimePasswordChangeError,
+          form: runtimePasswordChangeForm,
+          loading: runtimePasswordChangeLoading,
+          onChange: (field, value) => {
+            setRuntimePasswordChangeError("");
+            setRuntimePasswordChangeForm((current) => ({ ...current, [field]: value }));
+          },
+          onSubmit: submitRuntimePasswordChange,
+        }}
+        runtimeLogin={{
+          form: runtimeLoginForm,
+          loading: runtimeLoginLoading,
+          onChange: (field, value) => setRuntimeLoginForm((current) => ({ ...current, [field]: value })),
+          onSubmit: submitRuntimeLogin,
+        }}
+        runtimeServerRequired={runtimeServerRequired}
+        user={currentUser}
       />
     );
   }
 
   return (
-    <div className="app-shell">
-      <aside className="sidebar">
+    <div className={`app-shell app-shell-${renderedPage}${roleFocusedShellPage ? " app-shell-mobile-role" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
+      {!roleFocusedShellPage ? <aside className="sidebar">
         <div className="brand">
           <div className="brand-mark">ERP</div>
           <div>
@@ -1184,42 +1088,86 @@ export function App() {
           </div>
         </div>
         <AppNavigation
-          activePage={activePage}
+          activePage={renderedPage}
+          collapsed={sidebarCollapsed}
           permissionContext={permissionContext}
           todoCount={unhandledTodos}
           onNavigate={setActivePage}
-          onOpenLater={openMasterDataTemplatePanel}
         />
-        <button className="collapse-menu">
-          <MenuFoldOutlined />
-          收起菜单
+        <button
+          aria-expanded={!sidebarCollapsed}
+          className="collapse-menu"
+          onClick={() => setSidebarCollapsed((current) => !current)}
+          title={sidebarCollapsed ? "展开菜单" : "收起菜单"}
+          type="button"
+        >
+          <MenuFoldOutlined aria-hidden="true" />
+          <span>{sidebarCollapsed ? "展开菜单" : "收起菜单"}</span>
         </button>
-      </aside>
+      </aside> : null}
 
       <div className="workspace">
-        <Topbar
+        {roleFocusedShellPage ? (
+          <MobileRoleShellHeader
+            currentUser={currentUser}
+            currentUserId={currentUserId}
+            demoMode={!runtimeServerRequired}
+            logoutLoading={runtimeLoginLoading}
+            onLogout={logoutRuntimeUserSession}
+            onUserChange={switchSeedUser}
+            pageKey={renderedPage}
+            userOptions={seedUserOptions}
+          />
+        ) : <Topbar
           authSourceLabel={authSourceLabel}
-          currentUserId={currentUserId}
-          currentUser={currentUser}
-          onCreateOrder={createOrderFromTopbar}
+          currentUserId={currentUserId} currentUser={currentUser}
+          firstReleaseMode={RAW_MATERIAL_FIRST_RELEASE_ENABLED}
+          onCreateOrder={createOrderFromTopbar} onLogout={runtimeServerRequired && authState.authenticated ? logoutRuntimeUserSession : undefined}
+          onOpenTodos={() => setActivePage("todos")}
           onUserChange={switchSeedUser}
-          todoCount={unhandledTodos}
+          logoutLoading={runtimeLoginLoading} todoCount={unhandledTodos}
           userOptions={runtimeServerRequired ? [currentUser] : seedUserOptions}
           getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
-        />
+        />}
         <main className="content">
           {toast ? <WorkspaceNotice>{toast}</WorkspaceNotice> : null}
-          <WorkspacePageHeader
+          {!roleFocusedShellPage ? <WorkspacePageHeader
             title={activeMeta.label}
-            description={activePage === "entry" ? "" : activeMeta.description}
-            contextLabel={activePage === "entry" ? "" : authSourceLabel}
-            onRefresh={activePage === "entry" ? undefined : refreshActivePage}
-          />
-          {activePage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
-          {activePage === "entry" && (
+            onRefresh={renderedPage === "entry" ? undefined : refreshActivePage}
+          /> : null}
+          {!roleFocusedShellPage ? (
+            <ContextNavigationStrip
+              activePage={renderedPage}
+              onNavigate={setActivePage}
+              permissionContext={permissionContext}
+              todoCount={unhandledTodos}
+            />
+          ) : null}
+          {renderedPage === "roleBoundary" && (
+            <DataState title="当前岗位没有 ERP 操作菜单" detail={roleBoundaryPage.description} />
+          )}
+          {renderedPage === "desktopRequiredMobile" && (
+            <Suspense fallback={<DataState title="岗位终端说明加载中" />}>
+              <DesktopRequiredMobilePage currentUser={currentUser} />
+            </Suspense>
+          )}
+          {renderedPage === "officeMobile" && (
+            <Suspense fallback={<DataState title="办公室手机工作台加载中" />}>
+              <OfficeMobilePage
+                todos={todos}
+                selectedTodoId={selectedTodoId}
+                setSelectedTodoId={setSelectedTodoId}
+                onAction={handleTodo}
+                onNavigate={setActivePage}
+                helpers={pageHelpers}
+              />
+            </Suspense>
+          )}
+          {renderedPage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
+          {renderedPage === "entry" && (
             <EntryPage
               entryText={entryText}
-              setEntryText={setEntryText}
+              onEntryTextChange={updateOrderEntryText}
               draftRows={draftRows}
               draftStatus={draftStatus}
               selectedDraftId={selectedDraftId}
@@ -1232,7 +1180,7 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {activePage === "orders" && (
+          {renderedPage === "orders" && (
             <OrderPoolPage
               orderLines={orderLines}
               fulfillments={fulfillments}
@@ -1250,7 +1198,7 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {activePage === "inventory" && (
+          {renderedPage === "inventory" && (
             <InventoryPage
               inventoryRecords={inventoryRecords}
               inventoryMeta={inventoryMeta}
@@ -1275,8 +1223,10 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {activePage === "fulfillment" && (
+          {renderedPage === "fulfillment" && (
             <FulfillmentPage
+              authState={authState}
+              currentUser={currentUser}
               tab={fulfillmentTab}
               setTab={setFulfillmentTab}
               fulfillments={fulfillments}
@@ -1284,11 +1234,14 @@ export function App() {
               selectedId={selectedFulfillmentId}
               setSelectedId={setSelectedFulfillmentId}
               onAction={updateFulfillment}
+              onRefresh={() => refreshFulfillments({ showToast: true })}
               helpers={pageHelpers}
             />
           )}
-          {activePage === "packing" && (
+          {renderedPage === "packing" && (
             <ProductionPackingPage
+              authState={authState}
+              currentUser={currentUser}
               orderLines={orderLines}
               fulfillments={fulfillments}
               inventoryRecords={inventoryRecords}
@@ -1301,6 +1254,7 @@ export function App() {
               printDriverReadiness={printDriverReadiness}
               printDriverCupsDiagnostics={printDriverCupsDiagnostics}
               onAction={handleProductionPackingAction}
+              onRefreshProduction={() => refreshProductionPackingTaskLists({ showToast: false })}
               onRefreshPrintDriverConfig={refreshPrintDriverDiagnostics}
               onRefreshPrintDriverReadiness={() => refreshPrintDriverReadiness({ showToast: true })}
               onRefreshPrinterDeviceQa={() => refreshPrinterDeviceQa({ showToast: true })}
@@ -1316,16 +1270,17 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {activePage === "workshopMobile" && (
+          {renderedPage === "workshopMobile" && (
             <WorkshopMobilePage
               orderLines={orderLines}
               inventoryRecords={inventoryRecords}
               productionPacking={productionPacking}
               onAction={handleProductionPackingAction}
+              onNavigate={setActivePage}
               helpers={pageHelpers}
             />
           )}
-          {activePage === "driverMobile" && (
+          {renderedPage === "driverMobile" && (
             <DriverMobilePage
               tasks={driverDeliveryTasks}
               selectedTaskId={selectedDriverTaskId}
@@ -1335,19 +1290,53 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {activePage === "statements" && (
+          {renderedPage === "warehouseMobile" && (
+            <WarehouseMobilePage
+              fulfillments={fulfillments}
+              orderLines={orderLines}
+              selectedId={selectedFulfillmentId}
+              setSelectedId={setSelectedFulfillmentId}
+              onAction={updateFulfillment}
+              helpers={pageHelpers}
+            />
+          )}
+          {renderedPage === "decisionMobile" && (
+            <Suspense fallback={<DataState title="经营决策工作台加载中" />}>
+              <DecisionMobilePage
+                authState={authState}
+                currentUser={currentUser}
+                todos={todos}
+                orderLines={orderLines}
+                fulfillments={fulfillments}
+                statements={statements}
+                rawMaterialInbounds={rawMaterialInbounds}
+                helpers={pageHelpers}
+              />
+            </Suspense>
+          )}
+          {renderedPage === "maintenanceMobile" && (
+            <Suspense fallback={<DataState title="设备机修工作台加载中" />}>
+              <MaintenanceMobilePage authState={authState} currentUser={currentUser} />
+            </Suspense>
+          )}
+          {renderedPage === "statements" && (
             <StatementPage
+              authState={authState}
+              currentUser={currentUser}
               statements={statements}
               readMeta={statementReadMeta}
               orderLines={orderLines}
               selectedId={selectedStatementId}
               setSelectedId={setSelectedStatementId}
               onAction={statementAction}
+              onRefresh={() => refreshStatementDetail({ statementId: selectedStatementId, showToast: false })}
               helpers={pageHelpers}
             />
           )}
-          {activePage === "rawMaterials" && (
+          {renderedPage === "rawMaterials" && (
             <RawMaterialInboundPage
+              authState={authState}
+              currentUser={currentUser}
               inbounds={rawMaterialInbounds}
               meta={rawMaterialInboundMeta}
               productionTasks={productionPacking.productionTasks}
@@ -1356,16 +1345,28 @@ export function App() {
               selectedId={selectedRawMaterialInboundId}
               setSelectedId={setSelectedRawMaterialInboundId}
               onAction={updateRawMaterialInbound}
+              onDeliveryNoteRecognize={recognizeRawMaterialDeliveryNote}
               onStatementReviewDraftCreate={saveRawMaterialSupplierStatementReviewDraft}
               onStatementReviewConfirm={confirmRawMaterialSupplierStatementReviewDraft}
               onStatementConfirm={confirmRawMaterialSupplierStatement}
               onPayableDraftGenerate={generateRawMaterialSupplierPayableDraft}
               onPaymentConfirm={confirmRawMaterialSupplierPayment}
+              onNavigate={setActivePage}
+              helpers={pageHelpers}
+              firstReleaseMode={RAW_MATERIAL_FIRST_RELEASE_ENABLED}
+            />
+          )}
+          {renderedPage === "rawMaterialScanner" && (
+            <RawMaterialScannerPage
+              inbounds={rawMaterialInbounds}
+              onAction={updateRawMaterialInbound}
               helpers={pageHelpers}
             />
           )}
-          {activePage === "masterData" && (
+          {renderedPage === "masterData" && (
             <MasterDataMaintenancePage
+              authState={authState}
+              currentUser={currentUser}
               customers={customers}
               orderLines={orderLines}
               inventoryRecords={inventoryRecords}
@@ -1374,16 +1375,14 @@ export function App() {
               importReviewDrafts={masterDataImportReviewDrafts}
               importExecutions={masterDataImportExecutions}
               maintenanceDrafts={masterDataMaintenanceDrafts}
-              selectedTab={masterDataMaintenanceTab}
-              setSelectedTab={setMasterDataMaintenanceTab}
-              selectedId={selectedMasterDataId}
-              setSelectedId={setSelectedMasterDataId}
-              onSaveDraft={saveMasterDataMaintenanceDraft} onUpdateEmployeeAssignment={updateMasterDataEmployeeAssignment}
-              onOpenImportTemplate={openMasterDataTemplatePanel}
+              selectedTab={masterDataMaintenanceTab} setSelectedTab={setMasterDataMaintenanceTab}
+              selectedId={selectedMasterDataId} setSelectedId={setSelectedMasterDataId}
+              onSaveDraft={saveMasterDataMaintenanceDraft} onUpdateEmployeeAssignment={updateMasterDataEmployeeAssignment} onSaveMachine={saveMasterDataMachine}
+              onBatchEnableEmployeeAccounts={enableMasterDataEmployeeAccounts} onOpenImportTemplate={openMasterDataTemplatePanel}
               helpers={pageHelpers}
             />
           )}
-          {activePage === "v1Status" && (
+          {renderedPage === "v1Status" && (
             <Suspense fallback={<DataState title="上线状态加载中" />}>
               <V1StatusPage
                 fieldEvidenceDraftAction={v1FieldEvidenceDraftAction}
@@ -1451,48 +1450,47 @@ export function App() {
         </main>
       </div>
 
-      {modal && (
-        <ActionModal
-          modal={modal}
-          fulfillments={fulfillments}
-          statements={statements}
-          orderLines={orderLines}
-          findCustomer={findCustomer}
-          getStatementBlockingAmount={getStatementBlockingAmount}
-          onClose={closeModal}
-          onConfirm={confirmModal}
-        />
-      )}
-      {orderActionModal && <OrderLineActionModal modal={orderActionModal} onClose={closeOrderActionModal} onConfirm={confirmOrderLineAction} />}
-      {attachmentViewer && <AttachmentViewerModal attachment={attachmentViewer} onClose={closeAttachmentViewer} onDownload={downloadViewedAttachment} />}
-      {masterDataTemplatePanel && (
-        <MasterDataImportTemplateModal
-          panel={masterDataTemplatePanel}
-          onClose={closeMasterDataTemplatePanel}
-          onDownload={downloadMasterDataTemplate}
-          onPrecheck={precheckMasterDataTemplate}
-          precheckState={masterDataPrecheckState}
-          reviewDrafts={masterDataImportReviewDrafts}
-          onCreateReviewDraft={createMasterDataImportReviewDraftFromPrecheck}
-          confirmationPlans={masterDataImportConfirmationPlans}
-          onCreateConfirmationPlan={createMasterDataImportConfirmationPlanFromDraft}
-          importExecutions={masterDataImportExecutions}
-          employeeAccountReviews={masterDataEmployeeAccountReviews}
-          lastIssuedEmployeeCredential={lastIssuedEmployeeCredential}
-          getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
-          onCreateImportExecution={createMasterDataImportExecutionFromPlan}
-          onCommitImportExecution={commitMasterDataImportExecutionFromPlan}
-          onDownloadFailedRows={downloadMasterDataImportFailedRows}
-          onCreateFailedRowsCorrectionDraft={createMasterDataFailedRowsCorrectionDraft}
-          onRefreshEmployeeAccountReviews={(options) => refreshMasterDataEmployeeAccountReviews(options).then((result) => {
-            if (result?.feedback) setToast(result.feedback);
-            return result;
-          })}
-          onEnableEmployeeAccount={enableMasterDataEmployeeAccount}
-          onIssueEmployeePassword={issueMasterDataEmployeeAccountPassword}
-          onRevokeEmployeePassword={revokeMasterDataEmployeeAccountPassword}
-        />
-      )}
+      <WorkspaceOverlays
+        attachmentViewer={attachmentViewer}
+        closeAttachmentViewer={closeAttachmentViewer}
+        closeMasterDataTemplatePanel={closeMasterDataTemplatePanel}
+        closeModal={closeModal}
+        closeOrderActionModal={closeOrderActionModal}
+        confirmMasterDataEmployeeIdentity={confirmMasterDataEmployeeIdentity}
+        confirmModal={confirmModal}
+        confirmOrderLineAction={confirmOrderLineAction}
+        commitMasterDataImportExecutionFromPlan={commitMasterDataImportExecutionFromPlan}
+        createMasterDataFailedRowsCorrectionDraft={createMasterDataFailedRowsCorrectionDraft}
+        createMasterDataImportConfirmationPlanFromDraft={createMasterDataImportConfirmationPlanFromDraft}
+        createMasterDataImportExecutionFromPlan={createMasterDataImportExecutionFromPlan}
+        createMasterDataImportReviewDraftFromPrecheck={createMasterDataImportReviewDraftFromPrecheck}
+        downloadMasterDataImportFailedRows={downloadMasterDataImportFailedRows}
+        downloadMasterDataTemplate={downloadMasterDataTemplate}
+        downloadViewedAttachment={downloadViewedAttachment}
+        employeeAccountReviews={masterDataEmployeeAccountReviews}
+        enableMasterDataEmployeeAccount={enableMasterDataEmployeeAccount}
+        findCustomer={findCustomer}
+        fulfillments={fulfillments}
+        getStatementBlockingAmount={getStatementBlockingAmount}
+        getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
+        importExecutions={masterDataImportExecutions}
+        issueMasterDataEmployeeAccountPassword={issueMasterDataEmployeeAccountPassword}
+        lastIssuedEmployeeCredential={lastIssuedEmployeeCredential}
+        masterDataConfirmationPlans={masterDataImportConfirmationPlans}
+        masterDataPrecheckState={masterDataPrecheckState}
+        masterDataReviewDrafts={masterDataImportReviewDrafts}
+        masterDataTemplatePanel={masterDataTemplatePanel}
+        modal={modal}
+        onPrecheckMasterDataTemplate={precheckMasterDataTemplate}
+        onRefreshEmployeeAccountReviews={(options) => refreshMasterDataEmployeeAccountReviews(options).then((result) => {
+          if (result?.feedback) setToast(result.feedback);
+          return result;
+        })}
+        orderActionModal={orderActionModal}
+        orderLines={orderLines}
+        revokeMasterDataEmployeeAccountPassword={revokeMasterDataEmployeeAccountPassword}
+        statements={statements}
+      />
     </div>
   );
 }

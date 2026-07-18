@@ -1,13 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import {
+  AppstoreOutlined,
+  CarOutlined,
+  CheckCircleOutlined,
+  EnvironmentOutlined,
+  InboxOutlined,
+  SafetyCertificateOutlined,
+  UnorderedListOutlined,
+} from "@ant-design/icons";
+import {
   DataState,
   DetailPane,
-  InfoGrid,
-  MetricStrip,
   OperationalPanel,
   PanelHeader,
   Segmented,
-  StatusPill,
   Timeline,
 } from "../../shared/ui/operational.jsx";
 import {
@@ -15,15 +21,13 @@ import {
   getDriverLoadPackageCheckState,
   getDriverNavigationUrl,
   getDriverRouteExecutionContext,
-  getDriverRouteLabel,
-  getDriverRouteStopLabel,
 } from "../../services/driverMobileApiClient.js";
 import {
-  DRIVER_DEVICE_FIELD_TEST_STATUS_OPTIONS,
   appendDriverDeviceFieldTestNote,
   applyDriverPackageCameraFieldTestSignal,
   applyDriverPackageLabelScanFieldTestSignal,
   buildDriverDeviceFieldTestRecord,
+  buildDriverNativeNavigationSample,
   buildDriverPackageLabelScanSample,
   createDriverDeviceFieldTestChecks,
   getDriverDeviceFieldTestContext,
@@ -50,17 +54,34 @@ import {
   buildDriverNativeIntegrationKit,
   getDriverNativeIntegrationKitSummary,
 } from "../../services/driverNativeIntegrationKitClient.js";
+import { buildDriverDeliveryCompletionSummary } from "../../services/driverDeliveryCompletionClient.js";
+import { DriverDeliveryStage } from "./DriverDeliveryStage.jsx";
+import { DriverDeviceStage } from "./DriverDeviceStage.jsx";
+import { DriverLoadStage } from "./DriverLoadStage.jsx";
+import { DriverRouteStage } from "./DriverRouteStage.jsx";
+import { DriverTaskList } from "./DriverTaskList.jsx";
+
+const MOBILE_VIEWS = [
+  ["current", "当前任务", InboxOutlined],
+  ["pending", "待处理", UnorderedListOutlined],
+  ["all", "全部功能", AppstoreOutlined],
+];
 
 export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId, meta = {}, onAction, helpers }) {
   const { currentUser, getUiActionState, statusTone } = helpers;
   const [view, setView] = useState("待送货");
+  const [mobileView, setMobileView] = useState("current");
   const [detailView, setDetailView] = useState("装车");
   const [taskInputs, setTaskInputs] = useState({});
+  const [deliveryCompletionConfirmation, setDeliveryCompletionConfirmation] = useState(null);
   const [photoPreviewUrls, setPhotoPreviewUrls] = useState({ watermarked: "", signature: "" });
   const packageCameraVideoRef = useRef(null);
   const packageCameraScannerRef = useRef(null);
   const deliveryPhotoVideoRef = useRef(null);
   const deliveryPhotoCameraRef = useRef(null);
+  const deliveryCompletionConfirmationRef = useRef(null);
+  const deliveryCompletionTriggerRef = useRef(null);
+  const restoreDeliveryCompletionTriggerFocusRef = useRef(false);
   const visibleTasks = tasks.filter((task) => view === "全部" || task.status === view);
   const selectedTask =
     visibleTasks.find((item) => item.fulfillmentId === selectedTaskId) ??
@@ -137,11 +158,6 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
     ["已完成", tasks.filter((item) => item.status === "已完成").length, "success"],
     ["异常", tasks.filter((item) => item.status === "送货异常").length, "danger"],
   ];
-  const sourceText = meta.loading
-    ? "同步中"
-    : meta.source === "api"
-      ? `后端 API${meta.lastSyncedAt ? ` · ${meta.lastSyncedAt}` : ""}`
-      : "本地任务";
   const deviceReadiness = getDriverDeviceReadiness();
   const fieldTestContext = getDriverDeviceFieldTestContext();
   const deviceFieldTestChecks = currentInput.deviceFieldTestChecks ?? createDriverDeviceFieldTestChecks(deviceReadiness);
@@ -149,6 +165,7 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
   const deviceFieldTestRecord = currentInput.deviceFieldTestRecord ?? selectedTask?.deviceFieldTestRecord ?? null;
   const packageLabelScanSample = currentInput.packageLabelScanSample ?? deviceFieldTestRecord?.packageLabelScanSample ?? null;
   const packageLabelScanSampleSummary = getDriverPackageLabelScanSampleSummary(packageLabelScanSample);
+  const nativeNavigationSample = currentInput.nativeNavigationSample ?? deviceFieldTestRecord?.nativeNavigationSample ?? null;
   const nativeBridgeFieldTestSnapshot =
     currentInput.nativeBridgeDiagnostics ?? deviceFieldTestRecord?.nativeBridgeDiagnostics ?? nativeCapabilityDiagnostics;
   const nativeBridgeFieldTestSnapshotText = (nativeBridgeFieldTestSnapshot?.items ?? [])
@@ -184,10 +201,23 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
 
   useEffect(() => {
     setDetailView(getDriverDefaultDetailView(selectedTask?.status));
+    setDeliveryCompletionConfirmation(null);
   }, [selectedTask?.fulfillmentId, selectedTask?.status]);
+
+  useEffect(() => {
+    if (deliveryCompletionConfirmation) {
+      deliveryCompletionConfirmationRef.current?.focus();
+      return;
+    }
+    if (restoreDeliveryCompletionTriggerFocusRef.current) {
+      restoreDeliveryCompletionTriggerFocusRef.current = false;
+      deliveryCompletionTriggerRef.current?.focus();
+    }
+  }, [deliveryCompletionConfirmation]);
 
   function selectTask(taskId) {
     setSelectedTaskId(taskId);
+    setMobileView("current");
   }
 
   function updateTaskInput(field, value) {
@@ -252,6 +282,7 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
       readiness: deviceReadiness,
       checks: currentChecks,
       packageLabelScanSample: currentTaskInput.packageLabelScanSample ?? deviceFieldTestRecord?.packageLabelScanSample,
+      nativeNavigationSample: currentTaskInput.nativeNavigationSample ?? deviceFieldTestRecord?.nativeNavigationSample,
       nativeBridgeDiagnostics: nativeCapabilityDiagnostics,
     });
     updateTaskInput("deviceFieldTestStatus", "现场验收保存中");
@@ -276,8 +307,11 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
           deviceFieldTestDeviceLabel: savedRecord.deviceLabel,
           deviceFieldTestBrowserLabel: savedRecord.browserLabel,
           packageLabelScanSample: savedRecord.packageLabelScanSample,
+          nativeNavigationSample: savedRecord.nativeNavigationSample,
           nativeBridgeDiagnostics: savedRecord.nativeBridgeDiagnostics,
-          deviceFieldTestStatus: `已保存：${savedRecord.summary.label}`,
+          deviceFieldTestStatus: result?.acceptance?.ready
+            ? `验收通过：${savedRecord.summary.label}`
+            : `记录已保存，验收未通过：${savedRecord.summary.label}`,
         },
       };
     });
@@ -535,6 +569,8 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
           scannedText: code,
           scanResult,
           method: "native_sdk",
+          requestId: nativeResult.requestId,
+          source: nativeResult.source,
           checkedAt: nativeResult.checkedAt,
           message: nativeResult.message || scanResult.message,
         });
@@ -663,10 +699,18 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
             `原生导航SDK打开成功：${nativeResult.mapApp || "系统地图"} · ${taskSnapshot.address}`,
           );
           nextTaskInput.deviceFieldTestStatus = "现场验收记录未保存";
+          nextTaskInput.nativeNavigationSample = buildDriverNativeNavigationSample({
+            task: taskSnapshot,
+            result: nativeResult,
+          });
         } else if (nativeResult.status === "failed" || nativeResult.status === "unavailable") {
           nextTaskInput.deviceFieldTestChecks = updateDriverDeviceFieldTestCheck(currentChecks, "navigation", "failed", deviceReadiness);
           nextTaskInput.deviceFieldTestNote = appendDriverDeviceFieldTestNote(currentTaskInput.deviceFieldTestNote, `原生导航SDK异常：${message}`);
           nextTaskInput.deviceFieldTestStatus = "现场验收记录未保存";
+          nextTaskInput.nativeNavigationSample = buildDriverNativeNavigationSample({
+            task: taskSnapshot,
+            result: nativeResult,
+          });
         }
         return {
           ...current,
@@ -688,6 +732,12 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
             deviceFieldTestChecks: updateDriverDeviceFieldTestCheck(currentChecks, "navigation", "failed", deviceReadiness),
             deviceFieldTestNote: appendDriverDeviceFieldTestNote(currentTaskInput.deviceFieldTestNote, `原生导航SDK异常：${message}`),
             deviceFieldTestStatus: "现场验收记录未保存",
+            nativeNavigationSample: buildDriverNativeNavigationSample({
+              task: taskSnapshot,
+              status: "failed",
+              source: "native_navigation_sdk",
+              message,
+            }),
           },
         };
       });
@@ -851,9 +901,9 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
     );
   }
 
-  function submit(action) {
-    if (!selectedTask) return;
-    onAction(action, {
+  function buildActionPayload() {
+    if (!selectedTask) return null;
+    return {
       task: selectedTask,
       fulfillmentId: selectedTask.fulfillmentId,
       actualQty,
@@ -878,443 +928,180 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
       packageCheckAllDone: packageCheckState.allChecked,
       reason: exceptionReason,
       remark,
-    });
+    };
+  }
+
+  function submit(action) {
+    if (!selectedTask) return;
+    const payload = buildActionPayload();
+    if (!payload) return;
+    if (action === "提交送达") {
+      setDeliveryCompletionConfirmation({
+        payload,
+        summary: buildDriverDeliveryCompletionSummary({ task: selectedTask, payload }),
+      });
+      return;
+    }
+    onAction(action, payload);
+  }
+
+  function confirmDeliveryCompletion() {
+    if (!deliveryCompletionConfirmation) return;
+    const { payload } = deliveryCompletionConfirmation;
+    setDeliveryCompletionConfirmation(null);
+    onAction("提交送达", { ...payload, deliveryCompletionConfirmed: true });
+  }
+
+  function returnToDeliveryCompletionEdit() {
+    restoreDeliveryCompletionTriggerFocusRef.current = true;
+    setDeliveryCompletionConfirmation(null);
+  }
+
+  function handleDeliveryCompletionConfirmationKeyDown(event) {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    returnToDeliveryCompletionEdit();
+  }
+
+  const pendingCount = tasks.filter((task) => !["已完成", "已交付"].includes(task.status)).length;
+
+  function openDriverFunction(nextDetailView) {
+    setDetailView(nextDetailView);
+    setMobileView("current");
   }
 
   return (
-    <section className="page-grid workshop-mobile-layout driver-mobile-workbench">
-      <OperationalPanel className="table-pane mobile-role-task-panel driver-task-panel" ariaLabel="司机送货任务列表">
-        <MetricStrip items={stats} ariaLabel="司机送货任务摘要" />
+    <section className={`guided-mobile-page driver-mobile-workbench view-${mobileView}`}>
+      <header className="guided-mobile-hero driver-guided-hero">
+        <div>
+          <h1>{selectedTask ? `${selectedTask.customerName}送货` : "今日送货"}</h1>
+        </div>
+        <strong>{pendingCount}<small>待处理</small></strong>
+      </header>
+
+      {mobileView === "pending" ? <OperationalPanel className="table-pane mobile-role-task-panel driver-task-panel" ariaLabel="司机送货任务列表">
         <PanelHeader
-          title="司机送货任务"
-          summary={`${sourceText} · ${meta.total ?? tasks.length} 条`}
+          title="送货任务"
+          summary={`${meta.total ?? tasks.length} 条`}
           actions={<Segmented ariaLabel="司机任务状态" value={view} onChange={setView} items={["待送货", "配送中", "已完成", "送货异常", "全部"]} />}
         />
-        <div className="mobile-task-list">
-          {visibleTasks.length ? visibleTasks.map((task) => (
-            <button
-              className={`mobile-task-row ${task.fulfillmentId === selectedTask?.fulfillmentId ? "active" : ""}`}
-              key={task.fulfillmentId}
-              onClick={() => selectTask(task.fulfillmentId)}
-            >
-              <div>
-                <strong>[送货] {task.customerName} · {task.orderTail || task.orderLineId.slice(-5)}</strong>
-                <span>{task.addressArea} · {getDriverRouteStopLabel(task)} · {task.packageSummary} · {task.qty} 个</span>
-                <small>{getDriverRouteLabel(task)} · {task.latest} · {task.goodsSummary}</small>
-              </div>
-              <StatusPill tone={task.status === "配送中" ? "blue" : task.status === "送货异常" ? "danger" : statusTone(task.status)}>
-                {task.status}
-              </StatusPill>
-            </button>
-          )) : <DataState title="当前视图没有司机送货任务" detail="切换任务状态或刷新后重试。" compact />}
-        </div>
-      </OperationalPanel>
-      <DetailPane className="mobile-role-detail-pane driver-detail-pane" title={selectedTask ? `${selectedTask.customerName} · ${selectedTask.status}` : "司机送货"} subtitle={selectedTask?.orderLineId ?? "未选择"}>
+        <DriverTaskList
+          stats={stats}
+          visibleTasks={visibleTasks}
+          selectedTask={selectedTask}
+          onSelect={selectTask}
+          statusTone={statusTone}
+        />
+      </OperationalPanel> : null}
+      {mobileView === "current" ? <DetailPane className="mobile-role-detail-pane driver-detail-pane" title={selectedTask ? `${selectedTask.customerName} · ${selectedTask.status}` : "司机送货"} subtitle={selectedTask?.orderLineId ?? "未选择"}>
         {selectedTask ? (
           <>
             <div className="mobile-role-detail-tabs driver-detail-tabs">
               <Segmented ariaLabel="司机任务详情" value={detailView} onChange={setDetailView} items={["路线", "装车", "送达", "设备", "记录"]} />
             </div>
             {detailView === "路线" ? (
-              <section className="mobile-role-stage driver-route-stage">
-                <InfoGrid
-                  rows={[
-                    ["联系人", `${selectedTask.contactName} ${selectedTask.contactPhone}`],
-                    ["地址", selectedTask.address],
-                    ["导航区域", selectedTask.addressArea],
-                    ["路线/站序", `${routeContext?.routeLabel ?? "未排路线"} / ${routeContext?.stopLabel ?? "未排站序"}`],
-                    ["计划发车", formatDriverDateTime(selectedTask.plannedDepartureAt) || "未排"],
-                    ["送货单号", selectedTask.deliveryNoteNo],
-                    ["货品", selectedTask.goodsSummary],
-                    ["数量/包裹", `${selectedTask.qty} 个 / ${selectedTask.packageSummary}`],
-                    ["库存来源", selectedTask.inventorySource || "待确认"],
-                    ["下一步", selectedTask.nextStep],
-                    ["客户备注", selectedTask.customerNote || "无"],
-                    ["办公室备注", selectedTask.officeNote || "无"],
-                  ]}
-                />
-                <section className="detail-section driver-route-section">
-              <h3>路线执行</h3>
-              <div className="driver-route-summary">
-                <div>
-                  <span>当前路线</span>
-                  <strong>{routeContext?.routeLabel ?? "未排路线"}</strong>
-                  <small>{routeContext?.stopLabel ?? "未排站序"} · {routeContext?.routeProgressLabel ?? "未排"} · {formatDriverDateTime(selectedTask.plannedDepartureAt) || "计划发车未排"}</small>
-                </div>
-                <div className="driver-route-neighbors">
-                  <span>前一站：{formatDriverRouteNeighbor(routeContext?.previousTask)}</span>
-                  <span>下一站：{formatDriverRouteNeighbor(routeContext?.nextTask)}</span>
-                </div>
-                <p>
-                  {routeContext?.pendingBeforeCount
-                    ? `前方还有 ${routeContext.pendingBeforeCount} 个未装车/未完成站点，装车前注意核对站序。`
-                    : routeContext?.hasRoute
-                      ? "当前站序可执行；如货物或单据不一致，走装车异常退回办公室处理。"
-                      : "该任务尚未排路线；司机可按办公室临时通知执行，后续由办公室补派单。"}
-                </p>
-                <div className="driver-route-actions">
-                  {navigationUrl ? (
-                    <a className="route-nav-button" href={navigationUrl} target="_blank" rel="noreferrer">
-                      打开导航
-                    </a>
-                  ) : (
-                    <span className="route-nav-button disabled">导航地址待补</span>
-                  )}
-                  <button
-                    type="button"
-                    className="route-nav-button secondary"
-                    onClick={startNativeNavigation}
-                    disabled={!navigationUrl || !nativeNavigationSupport.supported || nativeNavigationActive}
-                    title={nativeNavigationSupport.supported ? "调用手机原生地图 SDK" : nativeNavigationSupport.message}
-                  >
-                    {nativeNavigationActive ? "调用中" : "原生导航"}
-                  </button>
-                  <span>{selectedTask.address}</span>
-                </div>
-                <small className={`driver-native-navigation-status ${nativeNavigationStatusTone}`}>
-                  {nativeNavigationStatus}
-                </small>
-              </div>
-                </section>
-                <section className="detail-section driver-exception-section">
-                  <h3>异常上报</h3>
-                  <div className="detail-form">
-                    <label>
-                      <span>原因</span>
-                      <select value={exceptionReason} onChange={(event) => updateTaskInput("exceptionReason", event.target.value)}>
-                        <option>装车少货</option>
-                        <option>地址不清</option>
-                        <option>客户不在</option>
-                        <option>拒收</option>
-                        <option>其他</option>
-                      </select>
-                    </label>
-                  </div>
-                  <div className="action-row mobile-role-stage-actions">
-                    <button disabled={exceptionState.disabled || selectedTask.status === "已完成"} title={exceptionState.title} onClick={() => submit(exceptionAction)}>
-                      {exceptionAction}
-                    </button>
-                  </div>
-                </section>
-              </section>
+              <DriverRouteStage
+                task={selectedTask}
+                routeContext={routeContext}
+                navigationUrl={navigationUrl}
+                nativeNavigationSupport={nativeNavigationSupport}
+                nativeNavigationActive={nativeNavigationActive}
+                nativeNavigationStatus={nativeNavigationStatus}
+                nativeNavigationStatusTone={nativeNavigationStatusTone}
+                exceptionReason={exceptionReason}
+                exceptionAction={exceptionAction}
+                exceptionState={exceptionState}
+                onNativeNavigation={startNativeNavigation}
+                onExceptionReasonChange={(value) => updateTaskInput("exceptionReason", value)}
+                onSubmit={submit}
+              />
             ) : null}
             {detailView === "设备" ? (
-              <section className="mobile-role-stage driver-device-stage">
-                <section className="detail-section driver-device-section">
-              <div className="section-title-row">
-                <h3>设备自检</h3>
-                <span className={`driver-device-summary ${deviceReadiness.summary.tone}`}>
-                  {deviceReadiness.summary.label}
-                </span>
-              </div>
-              <div className="driver-device-grid">
-                {deviceReadiness.items.map((item) => (
-                  <div className={`driver-device-item ${item.tone}`} key={item.key}>
-                    <strong>{item.label}</strong>
-                    <span>{item.statusLabel}</span>
-                    <small>{item.message}</small>
-                  </div>
-                ))}
-              </div>
-              <div className="driver-native-diagnostics">
-                <div className="driver-native-diagnostics-head">
-                  <strong>原生桥接</strong>
-                  <span className={`driver-device-summary ${nativeCapabilityDiagnostics.tone}`}>
-                    {nativeCapabilityDiagnostics.label}
-                  </span>
-                </div>
-                <div className="driver-native-diagnostics-grid">
-                  {nativeCapabilityDiagnostics.items.map((item) => (
-                    <div className={`driver-device-item ${item.tone}`} key={item.key}>
-                      <strong>{item.label}</strong>
-                      <span>{item.statusLabel} · {item.bridgeTypeLabel}</span>
-                      <small>{item.version}</small>
-                    </div>
-                  ))}
-                </div>
-                <small>{nativeCapabilityDiagnostics.message}</small>
-                {nativeIntegrationKit ? (
-                  <div className="driver-native-integration-kit">
-                    <strong>{nativeIntegrationKit.title}</strong>
-                    <span>{nativeIntegrationKitSummary}</span>
-                    <small>{nativeIntegrationKit.eventNames.join(" / ")}</small>
-                  </div>
-                ) : null}
-              </div>
-                </section>
-                <section className="detail-section driver-field-test-section">
-              <div className="section-title-row">
-                <h3>现场验收</h3>
-                <span className={`driver-device-summary ${deviceFieldTestSummary.tone}`}>
-                  {deviceFieldTestSummary.label}
-                </span>
-              </div>
-              <div className="driver-field-test-form">
-                <label>
-                  <span>手机型号</span>
-                  <input
-                    value={deviceFieldTestDeviceLabel}
-                    onChange={(event) => updateTaskInput("deviceFieldTestDeviceLabel", event.target.value)}
-                    placeholder="如 iPhone 15 / 华为 Mate"
-                  />
-                </label>
-                <label>
-                  <span>浏览器</span>
-                  <input
-                    value={deviceFieldTestBrowserLabel}
-                    onChange={(event) => updateTaskInput("deviceFieldTestBrowserLabel", event.target.value)}
-                    placeholder="如 Chrome / Safari"
-                  />
-                </label>
-              </div>
-              <div className="driver-field-test-list">
-                {deviceFieldTestChecks.map((item) => (
-                  <label className={`driver-field-test-row ${item.tone}`} key={item.key}>
-                    <div>
-                      <strong>{item.label}</strong>
-                      <span>{item.target}</span>
-                      <small>{item.readinessMessage ? `自检：${item.readinessMessage}` : "现场手动确认"}</small>
-                    </div>
-                    <select value={item.status} onChange={(event) => updateDeviceFieldTestCheck(item.key, event.target.value)}>
-                      {DRIVER_DEVICE_FIELD_TEST_STATUS_OPTIONS.map((option) => (
-                        <option value={option.value} key={option.value}>{option.label}</option>
-                      ))}
-                    </select>
-                  </label>
-                ))}
-              </div>
-              <div className="driver-field-test-note">
-                <input
-                  value={deviceFieldTestNote}
-                  onChange={(event) => updateTaskInput("deviceFieldTestNote", event.target.value)}
-                  placeholder="记录手机、权限、扫码或拍照问题"
-                />
-                <button
-                  type="button"
-                  onClick={saveDeviceFieldTestRecord}
-                  disabled={fieldTestSaveState.disabled}
-                  title={fieldTestSaveState.title}
-                >
-                  保存验收
-                </button>
-              </div>
-              <div className={`driver-field-test-sample ${packageLabelScanSample?.tone ?? "neutral"}`}>
-                <strong>标签样本</strong>
-                <span>{packageLabelScanSampleSummary}</span>
-                <small>
-                  {packageLabelScanSample
-                    ? `预期 ${packageLabelScanSample.expectedPackageId || "待确认"} · 实扫 ${packageLabelScanSample.scannedText || "未取到码"} · ${formatDriverDateTime(packageLabelScanSample.checkedAt)}`
-                    : "扫码枪、手输或相机扫过纸质标签后自动记录。"}
-                </small>
-              </div>
-              <div className={`driver-field-test-sample ${nativeBridgeFieldTestSnapshot?.tone ?? "neutral"}`}>
-                <strong>原生快照</strong>
-                <span>{nativeBridgeFieldTestSnapshot?.label ?? "未记录原生桥接"}</span>
-                <small>{nativeBridgeFieldTestSnapshotText || "保存验收时记录原生壳接入状态。"}</small>
-              </div>
-              <small className={`driver-field-test-status ${deviceFieldTestRecord?.summary?.tone ?? deviceFieldTestSummary.tone}`}>
-                {deviceFieldTestStatus}
-              </small>
-              {deviceFieldTestRecord ? (
-                <div className="driver-field-test-record">
-                  <strong>{deviceFieldTestRecord.recordId}</strong>
-                  <span>{formatDriverDateTime(deviceFieldTestRecord.checkedAt)}</span>
-                  <small>{deviceFieldTestRecord.deviceLabel} · {deviceFieldTestRecord.browserLabel} · {deviceFieldTestRecord.summary.label}</small>
-                </div>
-              ) : null}
-                </section>
-              </section>
+              <DriverDeviceStage
+                deviceReadiness={deviceReadiness}
+                nativeCapabilityDiagnostics={nativeCapabilityDiagnostics}
+                nativeIntegrationKit={nativeIntegrationKit}
+                nativeIntegrationKitSummary={nativeIntegrationKitSummary}
+                deviceFieldTestSummary={deviceFieldTestSummary}
+                deviceFieldTestDeviceLabel={deviceFieldTestDeviceLabel}
+                deviceFieldTestBrowserLabel={deviceFieldTestBrowserLabel}
+                deviceFieldTestChecks={deviceFieldTestChecks}
+                deviceFieldTestNote={deviceFieldTestNote}
+                fieldTestSaveState={fieldTestSaveState}
+                packageLabelScanSample={packageLabelScanSample}
+                packageLabelScanSampleSummary={packageLabelScanSampleSummary}
+                nativeBridgeFieldTestSnapshot={nativeBridgeFieldTestSnapshot}
+                nativeBridgeFieldTestSnapshotText={nativeBridgeFieldTestSnapshotText}
+                nativeNavigationSample={nativeNavigationSample}
+                deviceFieldTestStatus={deviceFieldTestStatus}
+                deviceFieldTestRecord={deviceFieldTestRecord}
+                onUpdateInput={updateTaskInput}
+                onUpdateCheck={updateDeviceFieldTestCheck}
+                onSave={saveDeviceFieldTestRecord}
+              />
             ) : null}
             {detailView === "装车" ? (
-              <section className="detail-section driver-load-check-section mobile-role-stage driver-load-stage">
-              <div className="section-title-row">
-                <h3>装车清单</h3>
-                <button type="button" onClick={() => setAllPackagesChecked(!packageCheckState.allChecked)}>
-                  {packageCheckState.allChecked ? "取消全选" : "全部核对"}
-                </button>
-              </div>
-              <div className="driver-load-check-summary">
-                <strong>{packageCheckState.summary}</strong>
-                <span>{packageCheckState.allChecked ? "包裹已核对，可确认装车。" : `还有 ${packageCheckState.missingCount} 包未核对，不能确认装车。`}</span>
-              </div>
-              <div className="action-row mobile-role-stage-actions driver-stage-action-bar">
-                <button
-                  className="primary-action"
-                  disabled={loadState.disabled || selectedTask.status !== "待送货" || loadBlockedByPackageCheck}
-                  title={
-                    loadState.title ||
-                    (selectedTask.status !== "待送货"
-                      ? "只有待送货任务可确认装车"
-                      : loadBlockedByPackageCheck
-                        ? "请先核对全部包裹"
-                        : "")
-                  }
-                  onClick={() => submit("确认已装车")}
-                >
-                  确认已装车{routeContext?.hasRoute ? `（${routeContext.stopLabel}）` : ""}
-                </button>
-              </div>
-              <div className="driver-load-scan-row">
-                <label>
-                  <span>扫码核包</span>
-                  <div className="inline-control driver-load-scan-actions">
-                    <input
-                      value={packageScanText}
-                      onChange={(event) => updateTaskInput("packageScanText", event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") {
-                          event.preventDefault();
-                          applyPackageScan(event.currentTarget.value);
-                        }
-                      }}
-                      placeholder="扫描或输入包裹号"
-                    />
-                    <button type="button" onClick={applyPackageScan}>核对</button>
-                    <button type="button" onClick={packageCameraScanActive ? () => stopPackageCameraScan() : startPackageCameraScan}>
-                      {packageCameraScanActive ? "停止相机" : "相机扫码"}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={startNativePackageScan}
-                      disabled={packageNativeScanActive || !nativePackageScanSupport.supported}
-                      title={nativePackageScanSupport.message}
-                    >
-                      {packageNativeScanActive ? "原生扫码中" : "原生扫码"}
-                    </button>
-                  </div>
-                  <small className={currentInput.packageScanStatusTone === "danger" ? "scan-error" : ""}>
-                    {packageScanStatus || "扫描枪回车或手输包裹号后自动勾选。"}
-                  </small>
-                  <small className={currentInput.packageCameraScanStatusTone === "danger" ? "scan-error" : ""}>
-                    {packageCameraScanStatus || "相机未启动。"}
-                  </small>
-                  <small className={currentInput.packageNativeScanStatusTone === "danger" ? "scan-error" : ""}>
-                    {packageNativeScanStatus}
-                  </small>
-                  <video
-                    ref={packageCameraVideoRef}
-                    className={packageCameraScanActive ? "driver-camera-scan-preview" : "driver-camera-scan-preview hidden"}
-                    muted
-                    playsInline
-                  />
-                </label>
-              </div>
-              <div className="driver-load-package-list">
-                {packageCheckState.checklist.map((item) => {
-                  const checked = checkedPackageIds.includes(item.packageId);
-                  return (
-                    <label className={checked ? "driver-load-package checked" : "driver-load-package"} key={item.packageId}>
-                      <input type="checkbox" checked={checked} onChange={() => togglePackageCheck(item.packageId)} />
-                      <strong>{item.labelText}</strong>
-                      <span>{item.quantityText}</span>
-                      <small title={item.packageId}>{[item.status, item.packageId].filter(Boolean).join(" · ")}</small>
-                    </label>
-                  );
-                })}
-              </div>
-            </section>
+              <DriverLoadStage
+                task={selectedTask}
+                routeContext={routeContext}
+                packageCheckState={packageCheckState}
+                checkedPackageIds={checkedPackageIds}
+                loadState={loadState}
+                loadBlockedByPackageCheck={loadBlockedByPackageCheck}
+                packageScanText={packageScanText}
+                packageScanStatus={packageScanStatus}
+                packageScanStatusTone={currentInput.packageScanStatusTone}
+                packageCameraScanActive={packageCameraScanActive}
+                packageCameraScanStatus={packageCameraScanStatus}
+                packageCameraScanStatusTone={currentInput.packageCameraScanStatusTone}
+                packageNativeScanActive={packageNativeScanActive}
+                packageNativeScanStatus={packageNativeScanStatus}
+                packageNativeScanStatusTone={currentInput.packageNativeScanStatusTone}
+                nativePackageScanSupport={nativePackageScanSupport}
+                packageCameraVideoRef={packageCameraVideoRef}
+                onSetAllChecked={setAllPackagesChecked}
+                onSubmit={submit}
+                onUpdateInput={updateTaskInput}
+                onApplyPackageScan={applyPackageScan}
+                onTogglePackageCamera={packageCameraScanActive ? () => stopPackageCameraScan() : startPackageCameraScan}
+                onNativePackageScan={startNativePackageScan}
+                onTogglePackageCheck={togglePackageCheck}
+              />
             ) : null}
             {detailView === "送达" ? (
-              <section className="detail-section mobile-role-stage driver-delivery-stage">
-              <h3>送达凭证</h3>
-              <div className="action-row mobile-role-stage-actions driver-stage-action-bar">
-                <button
-                  className="primary-action"
-                  disabled={completeState.disabled || selectedTask.status !== "配送中" || !watermarkedPhotoAttached}
-                  title={completeState.title || (selectedTask.status !== "配送中" ? "配送中任务才能提交送达" : !watermarkedPhotoAttached ? "完成送货必须有水印照片" : "")}
-                  onClick={() => submit("提交送达")}
-                >
-                  提交送达
-                </button>
-              </div>
-              <div className="detail-form driver-proof-form">
-                <label>
-                  <span>实际数量</span>
-                  <input type="number" min="0" value={actualQty} onChange={(event) => updateTaskInput("actualQty", event.target.value)} />
-                </label>
-                <label>
-                  <span>收货人</span>
-                  <input value={receiverName} onChange={(event) => updateTaskInput("receiverName", event.target.value)} placeholder="客户签收人" />
-                </label>
-                <label>
-                  <span>纸质联状态</span>
-                  <select value={paperNoteStatus} onChange={(event) => updateTaskInput("paperNoteStatus", event.target.value)}>
-                    <option>已交回</option>
-                    <option>客户留存</option>
-                    <option>未带回</option>
-                  </select>
-                </label>
-                <label className="driver-location-row">
-                  <span>定位备注</span>
-                  <div className="inline-control">
-                    <input value={watermarkLocationLabel} onChange={(event) => updateTaskInput("watermarkLocationLabel", event.target.value)} placeholder="门店、门岗、仓库区域" />
-                    <button type="button" onClick={captureLocation}>读取定位</button>
-                  </div>
-                  <small>{watermarkGeoPoint || watermarkLocationStatus || "提交时写入地址/定位快照"}</small>
-                </label>
-                <label className="evidence-row">
-                  <span>水印照片</span>
-                  <input
-                    accept="image/*"
-                    capture="environment"
-                    type="file"
-                    onChange={(event) => updateTaskInput("watermarkedPhotoFile", event.target.files?.[0] ?? null)}
-                  />
-                  <div className="delivery-photo-camera-actions">
-                    <button type="button" onClick={deliveryPhotoCameraActive ? () => stopDeliveryPhotoCamera() : startDeliveryPhotoCamera}>
-                      {deliveryPhotoCameraActive ? "停止相机" : "打开相机"}
-                    </button>
-                    <button type="button" disabled={!deliveryPhotoCameraActive} onClick={captureDeliveryPhotoFromCamera}>
-                      拍照
-                    </button>
-                  </div>
-                  <small className={currentInput.deliveryPhotoCameraStatusTone === "danger" ? "scan-error" : ""}>
-                    {deliveryPhotoCameraStatus || "可直接拍送货水印照片，也可继续上传文件。"}
-                  </small>
-                  <video
-                    ref={deliveryPhotoVideoRef}
-                    className={deliveryPhotoCameraActive ? "delivery-photo-camera-preview" : "delivery-photo-camera-preview hidden"}
-                    muted
-                    playsInline
-                  />
-                  <small>{watermarkedPhotoFile?.name || (watermarkedPhotoAttached ? "已记录水印照片" : "必须上传")}</small>
-                  {photoPreviewUrls.watermarked ? (
-                    <div className="photo-proof-preview watermarked-preview">
-                      <img alt="送货水印照片预览" src={photoPreviewUrls.watermarked} />
-                      <div className="photo-watermark-overlay">
-                        {watermarkPreviewLines.map((line) => <span key={line}>{line}</span>)}
-                      </div>
-                    </div>
-                  ) : null}
-                </label>
-                <label className="evidence-row">
-                  <span>签收照片</span>
-                  <input
-                    accept="image/*"
-                    capture="environment"
-                    type="file"
-                    onChange={(event) => updateTaskInput("signaturePhotoFile", event.target.files?.[0] ?? null)}
-                  />
-                  <small>{signaturePhotoFile?.name || (signaturePhotoAttached ? "已记录签收照片" : "可选")}</small>
-                  {photoPreviewUrls.signature ? (
-                    <div className="photo-proof-preview">
-                      <img alt="签收照片预览" src={photoPreviewUrls.signature} />
-                    </div>
-                  ) : null}
-                </label>
-                <label>
-                  <span>备注</span>
-                  <input value={remark} onChange={(event) => updateTaskInput("remark", event.target.value)} placeholder="楼层、门岗、客户补充说明" />
-                </label>
-                {watermarkPreview ? (
-                  <div className="watermark-preview">
-                    <span>水印信息</span>
-                    <strong>{watermarkPreview.title}</strong>
-                    <p>{watermarkPreview.text}</p>
-                  </div>
-                ) : null}
-              </div>
-            </section>
+              <DriverDeliveryStage
+                task={selectedTask}
+                completeState={completeState}
+                watermarkedPhotoAttached={watermarkedPhotoAttached}
+                deliveryCompletionConfirmation={deliveryCompletionConfirmation}
+                deliveryCompletionTriggerRef={deliveryCompletionTriggerRef}
+                deliveryCompletionConfirmationRef={deliveryCompletionConfirmationRef}
+                onSubmit={submit}
+                onReturnToEdit={returnToDeliveryCompletionEdit}
+                onConfirm={confirmDeliveryCompletion}
+                onConfirmationKeyDown={handleDeliveryCompletionConfirmationKeyDown}
+                actualQty={actualQty}
+                receiverName={receiverName}
+                paperNoteStatus={paperNoteStatus}
+                watermarkLocationLabel={watermarkLocationLabel}
+                watermarkGeoPoint={watermarkGeoPoint}
+                watermarkLocationStatus={watermarkLocationStatus}
+                watermarkedPhotoFile={watermarkedPhotoFile}
+                signaturePhotoFile={signaturePhotoFile}
+                signaturePhotoAttached={signaturePhotoAttached}
+                deliveryPhotoCameraActive={deliveryPhotoCameraActive}
+                deliveryPhotoCameraStatus={deliveryPhotoCameraStatus}
+                deliveryPhotoCameraStatusTone={currentInput.deliveryPhotoCameraStatusTone}
+                photoPreviewUrls={photoPreviewUrls}
+                watermarkPreview={watermarkPreview}
+                watermarkPreviewLines={watermarkPreviewLines}
+                remark={remark}
+                deliveryPhotoVideoRef={deliveryPhotoVideoRef}
+                onUpdateInput={updateTaskInput}
+                onCaptureLocation={captureLocation}
+                onToggleDeliveryPhotoCamera={deliveryPhotoCameraActive ? () => stopDeliveryPhotoCamera() : startDeliveryPhotoCamera}
+                onCaptureDeliveryPhoto={captureDeliveryPhotoFromCamera}
+              />
             ) : null}
             {detailView === "记录" ? (
               <section className="mobile-role-stage mobile-role-history-stage">
@@ -1333,7 +1120,29 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
         ) : (
           <DataState title="当前没有送货任务" detail="当前状态筛选没有匹配任务。" compact />
         )}
-      </DetailPane>
+      </DetailPane> : null}
+
+      {mobileView === "all" ? (
+        <section className="guided-mobile-functions" aria-label="司机全部功能">
+          <header><h2>全部功能</h2></header>
+          <div>
+            <button disabled={!selectedTask} onClick={() => openDriverFunction("路线")} type="button"><EnvironmentOutlined /><strong>今日路线</strong><span>{tasks.length} 单</span></button>
+            <button disabled={!selectedTask} onClick={() => openDriverFunction("装车")} type="button"><CarOutlined /><strong>装车核对</strong><span>{tasks.filter((task) => task.status === "待送货").length} 单</span></button>
+            <button disabled={!selectedTask} onClick={() => openDriverFunction("送达")} type="button"><CheckCircleOutlined /><strong>送达回单</strong><span>{tasks.filter((task) => task.status === "配送中").length} 单</span></button>
+            <button disabled={!selectedTask} onClick={() => openDriverFunction("设备")} type="button"><SafetyCertificateOutlined /><strong>设备检查</strong><span>定位/相机</span></button>
+            <button disabled={!selectedTask} onClick={() => openDriverFunction("记录")} type="button"><UnorderedListOutlined /><strong>任务记录</strong><span>查看</span></button>
+          </div>
+        </section>
+      ) : null}
+
+      <nav className="mobile-role-bottom-nav" aria-label="司机手机导航">
+        {MOBILE_VIEWS.map(([key, label, Icon]) => (
+          <button aria-current={mobileView === key ? "page" : undefined} className={mobileView === key ? "active" : ""} key={key} onClick={() => setMobileView(key)} type="button">
+            <Icon aria-hidden="true" /><span>{label}</span>
+            {key === "pending" && pendingCount ? <b>{pendingCount}</b> : null}
+          </button>
+        ))}
+      </nav>
     </section>
   );
 }
@@ -1371,11 +1180,6 @@ function buildDriverWatermarkPreview({ task, currentUser, watermarkLocationLabel
   };
 }
 
-function formatDriverRouteNeighbor(task) {
-  if (!task) return "无";
-  return `${getDriverRouteStopLabel(task)} ${task.customerName || "客户待确认"} ${task.addressArea || ""}`.trim();
-}
-
 function formatDriverWatermarkTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return String(value ?? "");
@@ -1384,19 +1188,6 @@ function formatDriverWatermarkTime(value) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  });
-}
-
-function formatDriverDateTime(value) {
-  if (!value) return "";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return String(value ?? "");
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
   });
 }
 

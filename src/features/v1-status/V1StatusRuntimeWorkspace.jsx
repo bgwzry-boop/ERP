@@ -271,6 +271,7 @@ export function V1StatusRuntimeWorkspace({
               ["阻塞", result.summary.blockerLabel],
               ["任务读取", `${result.summary.deliveryTaskCount} 条`],
               ["现场验收", result.summary.fieldTestRecordAvailable ? result.summary.fieldTestLabel : "未记录"],
+              ["验收结论", result.summary.onsiteAcceptancePassed ? "已通过" : "未通过"],
               ["原生能力", result.summary.nativeSupportedLabel],
               ["标签扫码", result.summary.packageLabelScanMatched ? "已匹配" : "未匹配"],
               ["原生扫码", result.summary.packageLabelScanNative ? "是" : "否"],

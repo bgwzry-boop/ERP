@@ -31,6 +31,7 @@ import {
   normalizeV1ProductionFirstStageValuesDryRunLivePrecheckResult,
   normalizeV1ProductionPersistenceEvidence,
   normalizeV1ProductionPersistenceEvidenceLiveRunResult,
+  normalizeV1TodoLoadPrecheck,
 } from "./officeV1GoLiveStatusProductionFirstStageNormalizers.js";
 import {
   normalizeProductionEnvFillTemplate,
@@ -148,6 +149,7 @@ export function normalizeV1GoLiveStatusForClient(value = {}) {
   const d49Readiness = normalizeV1D49Readiness(source.d49Readiness);
   const productionEnvIntakeVerification = normalizeProductionEnvIntakeVerification(source.productionEnvIntakeVerification);
   const productionPersistenceEvidence = normalizeV1ProductionPersistenceEvidence(source.productionPersistenceEvidence);
+  const todoLoadPrecheck = normalizeV1TodoLoadPrecheck(source.todoLoadPrecheck);
   const productionFirstStageExecution = normalizeProductionFirstStageExecution(source.productionFirstStageExecution);
   const productionEnvFixChecklist = normalizeProductionEnvFixChecklist(source.productionEnvFixChecklist);
   const productionEnvFillTemplate = normalizeProductionEnvFillTemplate(source.productionEnvFillTemplate);
@@ -219,6 +221,7 @@ export function normalizeV1GoLiveStatusForClient(value = {}) {
     d49Readiness,
     productionEnvIntakeVerification,
     productionPersistenceEvidence,
+    todoLoadPrecheck,
     productionFirstStageExecution,
     productionEnvFixChecklist,
     productionEnvFillTemplate,

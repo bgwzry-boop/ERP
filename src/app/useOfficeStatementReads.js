@@ -121,7 +121,7 @@ export function createOfficeStatementReadActions({
     setStatements((current) => {
       const exists = current.some((item) => item.id === result.detail.id);
       return exists
-        ? current.map((item) => (item.id === result.detail.id ? { ...item, ...result.detail } : item))
+        ? current.map((item) => (item.id === result.detail.id ? mergeStatementDetail(item, result.detail) : item))
         : [result.detail, ...current];
     });
     setStatementReadMeta((current) => ({
@@ -136,6 +136,41 @@ export function createOfficeStatementReadActions({
   }
 
   return { refreshStatementDetail, refreshStatements };
+}
+
+function mergeStatementDetail(current, incoming) {
+  const currentRevision = Number(current?.revision);
+  const incomingRevision = Number(incoming?.revision);
+  if (
+    Number.isInteger(currentRevision)
+    && Number.isInteger(incomingRevision)
+    && incomingRevision < currentRevision
+  ) {
+    return current;
+  }
+  const merged = { ...current, ...incoming };
+  preserveAttachmentProjection(merged, current, incoming, {
+    idsKey: "paymentAttachmentIds",
+    filesKey: "paymentAttachmentFiles",
+    statusKey: "paymentEvidenceStatus",
+  });
+  preserveAttachmentProjection(merged, current, incoming, {
+    idsKey: "customerConfirmationAttachmentIds",
+    filesKey: "customerConfirmationAttachmentFiles",
+    statusKey: "customerConfirmationStatus",
+  });
+  return merged;
+}
+
+function preserveAttachmentProjection(target, current, incoming, keys) {
+  const currentIds = Array.isArray(current?.[keys.idsKey]) ? current[keys.idsKey] : [];
+  const currentFiles = Array.isArray(current?.[keys.filesKey]) ? current[keys.filesKey] : [];
+  const incomingIds = Array.isArray(incoming?.[keys.idsKey]) ? incoming[keys.idsKey] : [];
+  const incomingFiles = Array.isArray(incoming?.[keys.filesKey]) ? incoming[keys.filesKey] : [];
+  if ((!currentIds.length && !currentFiles.length) || incomingIds.length || incomingFiles.length) return;
+  target[keys.idsKey] = currentIds;
+  target[keys.filesKey] = currentFiles;
+  target[keys.statusKey] = current?.[keys.statusKey] ?? target[keys.statusKey];
 }
 
 export function useOfficeStatementReads(options) {

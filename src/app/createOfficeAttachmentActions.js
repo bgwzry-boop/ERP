@@ -86,10 +86,13 @@ export function createOfficeAttachmentActions({
     selectLocalAttachments,
     syncProjection,
     isCancelled = () => false,
+    force = false,
+    cacheKey = "",
   }) {
     const safeStatementId = String(statementId ?? "").trim();
     if (!safeStatementId) return null;
-    const syncKey = `${currentUserId}:${safeStatementId}:${purpose}`;
+    const syncKey = `${currentUserId}:${safeStatementId}:${purpose}:${String(cacheKey ?? "")}`;
+    if (force) syncKeysRef.current.delete(syncKey);
     if (syncKeysRef.current.has(syncKey)) return { skipped: true, reason: "already_synced" };
     syncKeysRef.current.add(syncKey);
     const currentStatement = statements.find((item) => item.id === safeStatementId);

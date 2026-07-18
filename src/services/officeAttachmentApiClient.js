@@ -117,6 +117,13 @@ export function validateAttachmentUploadInput(input = {}) {
     };
   }
 
+  if (rule.requiresContent && (!Number.isFinite(byteLength) || byteLength <= 0)) {
+    return {
+      code: "ATTACHMENT_CONTENT_REQUIRED",
+      message: `${rule.label}必须选择实际文件后上传。`,
+    };
+  }
+
   return null;
 }
 
@@ -464,6 +471,31 @@ export function createFinishedGoodsPhotoAttachmentInput({ productionTaskId, orde
   };
 }
 
+export function createMaintenanceEvidenceAttachmentInput({ taskId, operatorId, remark = "", file = null }) {
+  const ownerId = normalizeAttachmentText(taskId);
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+  const selectedFileName = typeof file?.name === "string" && file.name.trim() ? file.name.trim() : "";
+  const fileName = selectedFileName || `maintenance-${ownerId || "task"}-${stamp}.jpg`;
+  const mimeType = typeof file?.type === "string" && file.type.trim() ? file.type.trim() : "image/jpeg";
+  return {
+    ownerType: "maintenance_task",
+    ownerId,
+    fileType: "image",
+    purpose: "maintenance_evidence",
+    fileName,
+    contentRef: selectedFileName
+      ? `p0://maintenance/${ownerId}/${stamp}/${encodeURIComponent(fileName)}`
+      : `p0://maintenance/${ownerId}/${stamp}`,
+    mimeType,
+    fileSize: Number.isFinite(file?.size) ? file.size : undefined,
+    contentDataUrl: typeof file?.contentDataUrl === "string" ? file.contentDataUrl : undefined,
+    metadata: { taskId: ownerId, evidencePurpose: "maintenance_evidence" },
+    uploadedBy: operatorId,
+    remark,
+  };
+}
+
 export function createV1FieldEvidenceAttachmentInput({ evidenceItem, operatorId, remark = "", file = null }) {
   const { groupKey, itemKey, ownerId } = getV1FieldEvidenceAttachmentOwner(evidenceItem);
   const now = new Date();
@@ -571,7 +603,7 @@ function getV1SignoffBoundaryAttachmentOwner(signoffItem = {}) {
   };
 }
 
-function inferAttachmentFileType({ mimeType = "", fileName = "" } = {}) {
+export function inferAttachmentFileType({ mimeType = "", fileName = "" } = {}) {
   const type = String(mimeType || "").toLowerCase();
   const name = String(fileName || "").toLowerCase();
   if (type.startsWith("image/")) return "image";
@@ -608,6 +640,7 @@ function getAttachmentPurposeRule(purpose) {
       ...commonImageRule,
       label: "付款截图",
       maxBytes: 8 * 1024 * 1024,
+      requiresContent: true,
     },
     delivery_watermark_photo: {
       ...commonImageRule,
@@ -621,6 +654,11 @@ function getAttachmentPurposeRule(purpose) {
       ...commonImageRule,
       label: "定制成品图",
     },
+    maintenance_evidence: {
+      ...commonImageRule,
+      label: "设备检查照片",
+      requiresContent: true,
+    },
     statement_customer_confirmation: {
       allowedFileTypes: ["image", "pdf"],
       allowedMimePrefixes: ["image/"],
@@ -628,6 +666,7 @@ function getAttachmentPurposeRule(purpose) {
       allowedLabel: "图片或 PDF",
       label: "客户确认附件",
       maxBytes: 12 * 1024 * 1024,
+      requiresContent: true,
     },
     inventory_correction_evidence: {
       allowedFileTypes: ["image", "pdf"],
@@ -636,6 +675,21 @@ function getAttachmentPurposeRule(purpose) {
       allowedLabel: "图片或 PDF",
       label: "库存修正凭证",
       maxBytes: 12 * 1024 * 1024,
+    },
+    business_decision_evidence: {
+      allowedFileTypes: ["image", "pdf", "spreadsheet", "document"],
+      allowedMimePrefixes: ["image/", "text/"],
+      allowedMimeTypes: [
+        "application/pdf",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ],
+      allowedLabel: "图片、PDF、表格或文档",
+      label: "经营决定凭据",
+      maxBytes: 15 * 1024 * 1024,
+      requiresContent: true,
     },
   };
   return (
@@ -703,6 +757,7 @@ function mapAttachmentAccessUrl(json, options = {}) {
     ttlSeconds: Number.isFinite(json?.ttlSeconds) ? json.ttlSeconds : undefined,
     deliveryMode: json?.deliveryMode ?? "",
     storageProvider: json?.storageProvider ?? "",
+    storageKeyStored: Boolean(json?.storageKeyStored),
     fileName: json?.fileName ?? "",
     contentType: json?.contentType ?? "",
     operationLogId: json?.operationLogId ?? "",
@@ -729,6 +784,7 @@ function mapAttachmentAccessLog(json) {
     accessMode: json?.accessMode ?? "",
     deliveryMode: json?.deliveryMode ?? "",
     storageProvider: json?.storageProvider ?? "",
+    storageKeyStored: Boolean(json?.storageKeyStored),
     ownerType: json?.ownerType ?? "",
     ownerId: json?.ownerId ?? "",
     purpose: json?.purpose ?? "",
@@ -750,9 +806,11 @@ function mapAttachmentSummary(json) {
     fileSize: Number.isFinite(json?.fileSize) ? json.fileSize : undefined,
     hasContent: Boolean(json?.hasContent),
     storageProvider: json?.storageProvider ?? "",
-    storageKey: json?.storageKey ?? "",
+    storageKey: "",
+    storageKeyStored: Boolean(json?.storageKeyStored),
     contentDigest: json?.contentDigest ?? "",
-    thumbnailStorageKey: json?.thumbnailStorageKey ?? "",
+    thumbnailStorageKey: "",
+    thumbnailStored: Boolean(json?.thumbnailStored),
     thumbnailUrl: json?.thumbnailUrl ?? "",
     signedUrlExpiresAt: json?.signedUrlExpiresAt ?? "",
     metadata: isPlainObject(json?.metadata) ? json.metadata : {},
@@ -778,7 +836,10 @@ function createLocalAttachmentSummary(input) {
     hasContent: Boolean(input.contentDataUrl),
     storageProvider: "local_fallback",
     storageKey: "",
+    storageKeyStored: false,
     contentDigest: "",
+    thumbnailStorageKey: "",
+    thumbnailStored: false,
     metadata: isPlainObject(input.metadata) ? input.metadata : {},
     previewDataUrl: typeof input.contentDataUrl === "string" ? input.contentDataUrl : "",
     url: `local://attachments/${attachmentId}/${encodeURIComponent(input.fileName ?? "attachment")}`,

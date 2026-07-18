@@ -60,9 +60,33 @@ const printVoidReasonCodeByLabel = {
   其他: "other",
 };
 
+const fulfillmentPrintActionByLabel = Object.freeze({
+  打印预览: "preview",
+  打印标签: "first_print",
+  打印出库单: "first_print",
+  打印自提单: "first_print",
+  打印送货单: "first_print",
+  重打标签: "reprint",
+  重打出库单: "reprint",
+  重打自提单: "reprint",
+  重打送货单: "reprint",
+});
+
+const supportedFulfillmentPrintActions = new Set(Object.values(fulfillmentPrintActionByLabel));
+
 export async function printOfficeFulfillment(input, options = {}) {
   const { authState, fulfillment, action = "打印预览", operatorId, printAction } = input;
-  const resolvedPrintAction = printAction ?? getFulfillmentPrintAction(action, fulfillment);
+  const resolvedPrintAction = cleanText(printAction) || getFulfillmentPrintAction(action);
+  if (!isSupportedFulfillmentPrintAction(resolvedPrintAction)) {
+    return {
+      source: "ui_error",
+      blocked: true,
+      error: {
+        code: "FULFILLMENT_PRINT_ACTION_UNSUPPORTED",
+        message: "不支持的出库打印动作，未创建打印记录。",
+      },
+    };
+  }
   const previousPrintRecordId =
     input.previousPrintRecordId ??
     fulfillment?.activePrintRecordId ??
@@ -78,8 +102,8 @@ export async function printOfficeFulfillment(input, options = {}) {
       method: "POST",
       operatorId,
       body: {
-        templateId: getFulfillmentTemplateId(fulfillment),
-        documentType: getFulfillmentDocumentType(fulfillment),
+        templateId: getFulfillmentTemplateId(fulfillment, action),
+        documentType: getFulfillmentDocumentType(fulfillment, action),
         printAction: resolvedPrintAction,
         ...(resolvedPrintAction === "reprint" ? { previousPrintRecordId, reprintReason } : {}),
         operatorId,
@@ -166,8 +190,155 @@ export async function voidOfficePrintRecord(input, options = {}) {
   }
 }
 
+export async function handoffOfficePaperOutbound(input, options = {}) {
+  const { authState, fulfillment, paperOutboundDocument, operatorId, note = "" } = input;
+  try {
+    const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillment.id)}/paper-handoff`, {
+      ...options,
+      authState,
+      method: "POST",
+      operatorId,
+      body: {
+        fulfillmentId: fulfillment.id,
+        expectedRevision: Number(fulfillment.revision ?? 0),
+        paperOutboundDocumentId: paperOutboundDocument.paperOutboundDocumentId ?? paperOutboundDocument.id,
+        paperDocumentVersion: Number(paperOutboundDocument.documentVersion ?? 0),
+        paperDocumentRevision: Number(paperOutboundDocument.revision ?? 0),
+        note,
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, "纸单交库房 API 返回错误。") };
+    }
+    return {
+      source: "api",
+      fulfillmentId: json.fulfillmentId,
+      status: json.status,
+      paperOutboundDocument: json.paperOutboundDocument,
+      operationLogId: json.operationLogId,
+    };
+  } catch (error) {
+    return isOfficeApiServerRequired(options)
+      ? buildServerRequiredWriteError("PAPER_OUTBOUND_HANDOFF_API_UNAVAILABLE", error)
+      : { source: "local_fallback", error: { code: "PAPER_OUTBOUND_HANDOFF_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+export async function recordOfficeWarehouseOutboundExecution(input, options = {}) {
+  const {
+    authState,
+    fulfillment,
+    paperOutboundDocument,
+    operatorId,
+    result,
+    actualQty,
+    physicalExecutorEmployeeId,
+    feedbackChannel,
+    executedAt,
+    note = "",
+  } = input;
+  try {
+    const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillment.id)}/warehouse-execution`, {
+      ...options,
+      authState,
+      method: "POST",
+      operatorId,
+      body: {
+        fulfillmentId: fulfillment.id,
+        expectedRevision: Number(fulfillment.revision ?? 0),
+        paperOutboundDocumentId: paperOutboundDocument.paperOutboundDocumentId ?? paperOutboundDocument.id,
+        paperDocumentVersion: Number(paperOutboundDocument.documentVersion ?? 0),
+        paperDocumentRevision: Number(paperOutboundDocument.revision ?? 0),
+        result,
+        actualQty: actualQty === "" || actualQty === undefined ? undefined : Number(actualQty),
+        physicalExecutorEmployeeId,
+        feedbackChannel,
+        executedAt,
+        note,
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, "库房回录 API 返回错误。") };
+    }
+    return {
+      source: "api",
+      fulfillmentId: json.fulfillmentId,
+      status: json.status,
+      warehouseOutboundExecution: json.warehouseOutboundExecution,
+      statementCandidate: json.statementCandidate === true,
+      statementId: cleanText(json.statementId),
+      todoId: cleanText(json.todoId),
+      inventoryDeductionMode: cleanText(json.inventoryDeductionMode),
+      operationLogId: json.operationLogId,
+    };
+  } catch (error) {
+    return isOfficeApiServerRequired(options)
+      ? buildServerRequiredWriteError("WAREHOUSE_OUTBOUND_EXECUTION_API_UNAVAILABLE", error)
+      : { source: "local_fallback", error: { code: "WAREHOUSE_OUTBOUND_EXECUTION_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+export async function resolveOfficeFulfillmentQuantityVariance(input, options = {}) {
+  const {
+    authState,
+    fulfillment,
+    operatorId,
+    resolutionResult,
+    reason = "",
+    delegatedDecision,
+    directDecisionContent,
+    expectedRevision = fulfillment?.revision,
+    idempotencyKey,
+  } = input;
+  try {
+    const response = await requestFulfillmentApi(
+      `/fulfillments/${encodeURIComponent(fulfillment.id)}/quantity-variance-resolution`,
+      {
+        ...options,
+        authState,
+        method: "POST",
+        operatorId,
+        idempotencyKey,
+        body: {
+          expectedRevision: Number(expectedRevision ?? 0),
+          idempotencyKey,
+          resolutionResult,
+          reason,
+          delegatedDecision,
+          directDecisionContent,
+        },
+      },
+    );
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "数量差异处理失败。") };
+    return {
+      source: "api",
+      fulfillment: json.fulfillment,
+      quantityVarianceResolution: json.quantityVarianceResolution,
+      businessDecision: json.businessDecision,
+      todo: json.todo,
+      operationLogId: json.operationLogId,
+    };
+  } catch (error) {
+    return isOfficeApiServerRequired(options)
+      ? buildServerRequiredWriteError("FULFILLMENT_QUANTITY_VARIANCE_API_UNAVAILABLE", error)
+      : { source: "local_fallback", blocked: true, error: { code: "FULFILLMENT_QUANTITY_VARIANCE_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
 export async function completeOfficeFulfillment(input, options = {}) {
-  const { authState, fulfillment, operatorId, actualQty = fulfillment?.qty ?? 0, remark = "" } = input;
+  const {
+    authState,
+    fulfillment,
+    operatorId,
+    actualQty = fulfillment?.qty ?? 0,
+    expectedRevision = fulfillment?.revision,
+    idempotencyKey,
+    confirmedFinalDelivery = false,
+    remark = "",
+  } = input;
 
   try {
     const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillment.id)}/complete`, {
@@ -175,8 +346,12 @@ export async function completeOfficeFulfillment(input, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey,
       body: {
         fulfillmentId: fulfillment.id,
+        expectedRevision: Number(expectedRevision ?? 0),
+        idempotencyKey,
+        confirmedFinalDelivery,
         actualQty: Number(actualQty ?? 0),
         handoverEvidence: [],
         operatorId,
@@ -198,7 +373,11 @@ export async function completeOfficeFulfillment(input, options = {}) {
       source: "api",
       fulfillmentId: json.fulfillmentId,
       status: json.status,
+      finalDeliveryStatus: json.finalDeliveryStatus,
+      finalDeliveryAt: json.finalDeliveryAt,
       statementCandidate: json.statementCandidate,
+      statementId: json.statementId,
+      inventoryDeductionMode: json.inventoryDeductionMode,
       operationLogId: json.operationLogId,
     };
   } catch (error) {
@@ -258,7 +437,15 @@ export async function markOfficeFulfillmentPrepared(input, options = {}) {
 }
 
 export async function confirmOfficeFulfillmentPickup(input, options = {}) {
-  const { authState, fulfillment, operatorId, remark = "" } = input;
+  const {
+    authState,
+    fulfillment,
+    operatorId,
+    expectedRevision = fulfillment?.revision,
+    idempotencyKey,
+    confirmedFinalDelivery = false,
+    remark = "",
+  } = input;
 
   try {
     const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillment.id)}/pickup-confirm`, {
@@ -266,8 +453,12 @@ export async function confirmOfficeFulfillmentPickup(input, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey,
       body: {
         fulfillmentId: fulfillment.id,
+        expectedRevision: Number(expectedRevision ?? 0),
+        idempotencyKey,
+        confirmedFinalDelivery,
         pickedAt: new Date().toISOString(),
         operatorId,
         pickupBatchNo: `P0-${fulfillment.id}`,
@@ -288,7 +479,11 @@ export async function confirmOfficeFulfillmentPickup(input, options = {}) {
       source: "api",
       fulfillmentId: json.fulfillmentId,
       status: json.status,
+      finalDeliveryStatus: json.finalDeliveryStatus,
+      finalDeliveryAt: json.finalDeliveryAt,
       statementCandidate: json.statementCandidate,
+      statementId: json.statementId,
+      inventoryDeductionMode: json.inventoryDeductionMode,
       operationLogId: json.operationLogId,
     };
   } catch (error) {
@@ -546,7 +741,8 @@ export function mapPrintVoidReason(reason) {
   return printVoidReasonCodeByLabel[reason] ?? "other";
 }
 
-export function getFulfillmentDocumentType(fulfillment) {
+export function getFulfillmentDocumentType(fulfillment, action = "") {
+  if (fulfillment?.method === "快递快运" && ["打印出库单", "重打出库单"].includes(cleanText(action))) return "outbound_note";
   if (fulfillment?.method === "快递快运") return "express_ltl_label";
   if (fulfillment?.method === "送货") return "delivery_note";
   if (fulfillment?.method === "自提") return "pickup_note";
@@ -554,10 +750,17 @@ export function getFulfillmentDocumentType(fulfillment) {
 }
 
 export function getFulfillmentPrintAction(action, fulfillment) {
-  if (action === "打印预览") return "preview";
-  if (String(action ?? "").includes("重打")) return "reprint";
-  if (fulfillment?.printed) return "reprint";
-  return "first_print";
+  const mappedAction = fulfillmentPrintActionByLabel[cleanText(action)] ?? "";
+  if (mappedAction === "first_print" && fulfillment?.printed) return "reprint";
+  return mappedAction;
+}
+
+export function isFulfillmentPrintActionLabel(action) {
+  return Object.hasOwn(fulfillmentPrintActionByLabel, cleanText(action));
+}
+
+export function isSupportedFulfillmentPrintAction(printAction) {
+  return supportedFulfillmentPrintActions.has(cleanText(printAction));
 }
 
 export function mapApiFulfillmentToLocal(value = {}) {
@@ -583,9 +786,24 @@ export function mapApiFulfillmentToLocal(value = {}) {
     latest: cleanText(value.latestNeededAt ?? value.latest) || "待确认",
     status,
     printed: value.printed === true || status === "待确认拉走",
+    labelsPrinted: value.labelsPrinted === true || value.labels_printed === true,
+    labelPrintRecordId: cleanText(value.labelPrintRecordId ?? value.label_print_record_id),
     printRecordStatus: cleanText(value.printRecordStatus ?? value.print_record_status),
     activePrintRecordId: cleanText(value.activePrintRecordId ?? value.active_print_record_id),
     printRecordId: cleanText(value.printRecordId ?? value.print_record_id),
+    revision: toNumber(value.revision, 1),
+    paperOutboundDocumentId: cleanText(value.paperOutboundDocumentId ?? value.paper_outbound_document_id),
+    paperOutboundDocumentVersion: toNumber(value.paperOutboundDocumentVersion ?? value.paper_outbound_document_version, 0),
+    paperOutboundStatus: cleanText(value.paperOutboundStatus ?? value.paper_outbound_status),
+    physicalOutboundAt: cleanText(value.physicalOutboundAt ?? value.physical_outbound_at),
+    physicalExecutorEmployeeId: cleanText(value.physicalExecutorEmployeeId ?? value.physical_executor_employee_id),
+    physicalOutboundDocumentId: cleanText(value.physicalOutboundDocumentId ?? value.physical_outbound_document_id),
+    physicalOutboundDocumentVersion: toNumber(value.physicalOutboundDocumentVersion ?? value.physical_outbound_document_version, 0),
+    finalDeliveryStatus: cleanText(value.finalDeliveryStatus ?? value.final_delivery_status),
+    finalDeliveryAt: cleanText(value.finalDeliveryAt ?? value.final_delivery_at),
+    legacyStateReviewRequired: value.legacyStateReviewRequired === true || value.legacy_state_review_required === true,
+    paperOutboundDocument: value.paperOutboundDocument ?? value.paper_outbound_document ?? null,
+    latestWarehouseExecution: value.latestWarehouseExecution ?? value.latest_warehouse_execution ?? null,
     zone: cleanText(value.zone ?? value.inventorySource),
     inventorySource: cleanText(value.inventorySource),
     source: "后端交付任务",
@@ -625,7 +843,8 @@ function buildFulfillmentListQuery({ page, pageSize, filters = {} }) {
   return query ? `?${query}` : "";
 }
 
-function getFulfillmentTemplateId(fulfillment) {
+function getFulfillmentTemplateId(fulfillment, action = "") {
+  if (fulfillment?.method === "快递快运" && ["打印出库单", "重打出库单"].includes(cleanText(action))) return "tpl-p0-pickup-note";
   if (fulfillment?.method === "快递快运") return "tpl-p0-express-ltl-label";
   if (fulfillment?.method === "送货") return "tpl-p0-delivery-note";
   return "tpl-p0-pickup-note";

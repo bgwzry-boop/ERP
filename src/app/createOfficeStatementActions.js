@@ -3,6 +3,7 @@ import { downloadOfficeAttachmentContent as downloadOfficeAttachmentContentDefau
 import {
   buildStatementExcelWorkbook,
   downloadOfficeStatementExport as downloadOfficeStatementExportDefault,
+  handleOfficeStatementVariance as handleOfficeStatementVarianceDefault,
   listOfficeStatementExports as listOfficeStatementExportsDefault,
   markOfficeStatementSentViaApi as markOfficeStatementSentViaApiDefault,
   previewOfficeStatement as previewOfficeStatementDefault,
@@ -25,6 +26,7 @@ import {
 const defaultApi = {
   downloadOfficeAttachmentContent: downloadOfficeAttachmentContentDefault,
   downloadOfficeStatementExport: downloadOfficeStatementExportDefault,
+  handleOfficeStatementVariance: handleOfficeStatementVarianceDefault,
   listOfficeStatementExports: listOfficeStatementExportsDefault,
   markOfficeStatementSentViaApi: markOfficeStatementSentViaApiDefault,
   previewOfficeStatement: previewOfficeStatementDefault,
@@ -36,6 +38,7 @@ export function createOfficeStatementActions({
   allowLocalFallback,
   api = defaultApi,
   authState,
+  confirmAction = () => false,
   currentUser,
   currentUserId,
   downloadStatementExcelWorkbook,
@@ -47,6 +50,7 @@ export function createOfficeStatementActions({
   openModal,
   orderLines,
   readBlobAsDataUrl,
+  refreshStatementDetail,
   selectedStatementId,
   setStatements,
   setToast,
@@ -89,6 +93,8 @@ export function createOfficeStatementActions({
     callStatementApi(statementApi.recordOfficeStatementSendReceipt, input, "登记对账单回执");
   const writeOffOfficeStatement = (input) =>
     callStatementApi(statementApi.writeOffOfficeStatement, input, "确认对账核销");
+  const handleOfficeStatementVariance = (input) =>
+    callStatementApi(statementApi.handleOfficeStatementVariance, input, "处理对账差额");
 
   async function refreshStatementExportRecords(statement) {
     const listResult = await listOfficeStatementExports({
@@ -113,6 +119,53 @@ export function createOfficeStatementActions({
     }
     const customer = findCustomer(selected.customerId);
     const blockingAmount = getStatementBlockingAmount(selected);
+
+    if (action === "差额待确认" && actionPayload.confirmedDecision === true) {
+      const apiResult = await handleOfficeStatementVariance({
+        authState,
+        statement: selected,
+        varianceAmount: blockingAmount,
+        reason: actionPayload.reason,
+        handlingResult: actionPayload.handlingResult,
+        operatorId: currentUserId,
+        expectedRevision: actionPayload.expectedRevision,
+        idempotencyKey: actionPayload.idempotencyKey,
+        delegatedDecision: actionPayload.delegatedDecision,
+        directDecisionContent: actionPayload.directDecisionContent,
+      });
+      if (apiResult.blocked) {
+        setToast(`后端拒绝差额处理：${apiResult.error?.message ?? "业务校验未通过"}`);
+        return apiResult;
+      }
+      await refreshStatementDetail?.({ statementId: selected.id, showToast: false });
+      setToast(`已通过${apiResult.source === "api" ? "后端 API" : "本地规则降级"}记录差额处理结果：${actionPayload.reason}。`);
+      return apiResult;
+    }
+
+    if (action === "确认核销" && actionPayload.confirmedDecision === true) {
+      const blocker = getStatementWriteOffBlocker(selected, blockingAmount);
+      if (blocker) {
+        setToast(blocker);
+        return { blocked: true, error: { code: "STATEMENT_WRITE_OFF_BLOCKED", message: blocker } };
+      }
+      const apiResult = await writeOffOfficeStatement({
+        authState,
+        statement: selected,
+        operatorId: currentUserId,
+        expectedRevision: actionPayload.expectedRevision,
+        idempotencyKey: actionPayload.idempotencyKey,
+        confirmReason: actionPayload.reason,
+        delegatedDecision: actionPayload.delegatedDecision,
+        directDecisionContent: actionPayload.directDecisionContent,
+      });
+      if (apiResult.blocked) {
+        setToast(`后端拒绝确认核销：${apiResult.error?.message ?? "业务校验未通过"}`);
+        return apiResult;
+      }
+      await refreshStatementDetail?.({ statementId: selected.id, showToast: false });
+      setToast(`已通过${apiResult.source === "api" ? "后端 API" : "本地规则降级"}确认核销并写入决定与操作日志。`);
+      return apiResult;
+    }
 
     if (action === "查看付款凭证") {
       const attachmentId = typeof actionPayload === "string" ? actionPayload : actionPayload?.attachmentId;
@@ -316,7 +369,7 @@ export function createOfficeStatementActions({
       return;
     }
 
-    if (action === "导出占位" || action === "导出Excel") {
+    if (action === "导出Excel") {
       const apiResult = await previewOfficeStatement({
         authState,
         statement: selected,
@@ -522,6 +575,15 @@ export function createOfficeStatementActions({
         setToast(blocker);
         return;
       }
+      const confirmed = confirmAction(buildStatementWriteOffConfirmation({
+        statement: selected,
+        customer,
+        blockingAmount,
+      }));
+      if (!confirmed) {
+        setToast("已取消核销，对账单未改动。");
+        return;
+      }
       const apiResult = await writeOffOfficeStatement({
         authState,
         statement: selected,
@@ -543,11 +605,23 @@ export function createOfficeStatementActions({
       return;
     }
 
-    setToast(action + " 已模拟完成；正式 Excel 样式等拿到模板后适配。");
+    setToast("未识别对账操作，未执行。");
   }
 
   return {
     refreshStatementExportRecords,
     statementAction,
   };
+}
+
+function buildStatementWriteOffConfirmation({ statement, customer, blockingAmount }) {
+  const receivable = formatStatementConfirmationAmount(statement?.receivable);
+  const received = formatStatementConfirmationAmount(statement?.received);
+  const variance = formatStatementConfirmationAmount(statement?.variance ?? blockingAmount);
+  return `确认对账核销？\n对账单：${statement?.id || "对账单待确认"}\n客户：${customer?.name || statement?.customerId || "客户待确认"}\n本期应收：${receivable}\n本期实收：${received}\n本期未收/差额：${variance}\n处理结果：${statement?.varianceHandling || "无差额/按到账结清"}\n\n确认后将更新对账单状态，并写入核销交易和操作日志。`;
+}
+
+function formatStatementConfirmationAmount(value) {
+  const amount = Number(value ?? 0);
+  return `¥${(Number.isFinite(amount) ? amount : 0).toFixed(2)}`;
 }

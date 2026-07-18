@@ -64,26 +64,59 @@ export const initialInventories = [
   stock("35*27*10", "白色", "普通提", "空白袋", "B区-横款", "待处理/报废", 0, 0, 0, 260, false),
 ];
 
+export const initialOrderDrafts = [
+  {
+    id: "DRAFT-DEMO-001",
+    draftId: "DRAFT-DEMO-001",
+    bizNo: "DRAFT-DEMO-001",
+    sourceText: "张三服饰，30*38红500个明天下午自提，30*38黑100个明天下午自提",
+    sourceChannel: "manual",
+    customerId: "C001",
+    customerName: "张三服饰",
+    status: "待补充信息",
+    revision: 1,
+    clientRevision: 1,
+    createdBy: "U-OFFICE-A",
+    createdAt: "2026-06-29T02:18:00.000Z",
+    updatedAt: "2026-06-29T02:18:00.000Z",
+    lines: [
+      draftLine("DRAFT-DEMO-001-01", "C001", "张三服饰", "空白袋", "30*38*10", "红色", "普通提", 500, "自提", "今天 15:00", "可用"),
+      draftLine("DRAFT-DEMO-001-02", "C001", "张三服饰", "空白袋", "30*38*10", "黑色", "普通提", 100, "自提", "今天 15:00", "缺货", "库存不足，待客户确认"),
+    ],
+  },
+];
+
 export const initialTodos = [
-  todo("T001", "订单草稿待确认", "C001", "ORD-0629-001", "30*38 红500、黑100，黑色库存不足需确认", "12分钟", "今天 15:00", "急", "库存影响"),
-  todo("T002", "缺货待处理", "C002", "ORD-0629-012", "30*36*8 绿色 700 个缺货，建议生成补货建议", "38分钟", "明天 12:00", "异常", "可能影响送货"),
-  todo("T003", "数量差异待处理", "C004", "ORD-0629-013", "实际打包 1005 个，计费 1000，需标记赠送", "28分钟", "今天 18:30", "异常", "影响对账"),
-  todo("T004", "待打印标签", "C011", "ORD-0629-010", "快运 3 包，打包工已提交包裹明细", "46分钟", "今天 19:00", "今天", "快运可能傍晚拉走"),
-  todo("T005", "快递/快运待确认拉走", "C004", "ORD-0629-023", "昨晚待快运区 2 包，需要确认是否已拉走", "2小时", "今天", "今天", "影响对账日期"),
-  todo("T006", "待生成对账", "C007", "ORD-0629-019", "福字袋 400 个已送货，进入本期待对账", "1天", "本期", "普通", "应收 232"),
-  todo("T007", "收款差额待确认", "C002", "ST-0629-002", "应收 108000，客户实付 80000，差额需处理", "20分钟", "本期", "异常", "形成欠款"),
-  todo("T008", "老板/管理待查看", "C010", "ORD-0629-028", "月结客户欠款超过阈值，接单不阻塞但需查看", "3小时", "本周", "关注", "欠款 5300"),
+  todo("T001", "订单草稿待确认", "C001", "DRAFT-DEMO-001", "30*38 红500、黑100，黑色库存不足需确认", "12分钟", "今天 15:00", "急", "库存影响", "order_draft"),
+  todo("T002", "缺货待处理", "C002", "ORD-0629-012-01", "30*36*8 绿色 700 个缺货，建议生成补货建议", "38分钟", "明天 12:00", "异常", "可能影响送货", "order_line"),
+  todo("T003", "数量差异待处理", "C004", "F009", "实际打包 1005 个，计费 1000，需标记赠送", "28分钟", "今天 18:30", "异常", "影响对账", "fulfillment"),
+  todo("T004", "待打印标签", "C011", "F003", "快运 3 包，打包工已提交包裹明细", "46分钟", "今天 19:00", "今天", "快运可能傍晚拉走", "fulfillment"),
+  todo("T005", "快递/快运待确认拉走", "C004", "F004", "昨晚待快运区 2 包，需要确认是否已拉走", "2小时", "今天", "今天", "影响对账日期", "fulfillment"),
+  todo("T006", "待生成对账", "C007", "ST-0629-004", "福字袋 400 个已送货，进入本期待对账", "1天", "本期", "普通", "应收 232", "statement"),
+  todo("T007", "收款差额待确认", "C002", "ST-0629-002", "应收 108000，客户实付 80000，差额需处理", "20分钟", "本期", "异常", "形成欠款", "statement"),
+  todo("T008", "老板/管理待查看", "C010", "ORD-0629-028-01", "月结客户欠款超过阈值，接单不阻塞但需查看", "3小时", "本周", "关注", "欠款 5300", "order_line"),
 ];
 
 export const initialFulfillments = [
   fulfill("F001", "自提", "C001", "ORD-0629-001-01", "30*38 红色空白袋", 500, "1件散装", "待出库", "今天 15:00", "A区-30*38", "仓库已清点"),
-  fulfill("F002", "送货", "C002", "ORD-0629-002-01", "25*32 白色加长提", 1200, "3包", "已备货", "今天 16:30", "B区-服装", "仓库已清点"),
+  {
+    ...fulfill("F002", "送货", "C002", "ORD-0629-002-01", "25*32 白色加长提", 1200, "3包", "已备货", "今天 16:30", "B区-服装", "仓库已清点"),
+    printed: true,
+    paperOutboundStatus: "已打印待交库房",
+    paperOutboundDocument: { documentNo: "CK-0629-002", documentVersion: 1, status: "已打印待交库房" },
+  },
   fulfill("F003", "快递快运", "C011", "ORD-0629-010-01", "白鲸活动袋 35*27 白印", 1500, "3包", "待打印标签", "今天 19:00", "待快运区", "待提货锁定"),
   fulfill("F004", "快递快运", "C004", "ORD-0629-023-01", "35*41 白色空白袋", 600, "2包", "待确认拉走", "今天", "待快运区", "待提货锁定"),
-  fulfill("F005", "自提", "C005", "ORD-0629-004-01", "25*23 红色小熊袋", 800, "2包", "待出库", "今天 17:00", "印刷通货区", "仓库已清点"),
+  {
+    ...fulfill("F005", "自提", "C005", "ORD-0629-004-01", "25*23 红色小熊袋", 800, "2包", "待出库", "今天 17:00", "印刷通货区", "仓库已清点"),
+    printed: true,
+    paperOutboundStatus: "已交库房",
+    paperOutboundDocument: { documentNo: "CK-0629-005", documentVersion: 1, status: "已交库房" },
+  },
   fulfill("F006", "送货", "C010", "ORD-0629-009-01", "40*32 黑色加长提 黑印", 2000, "4包", "数量不符", "明天 17:00", "打包区", "打包清点库存"),
   fulfill("F007", "自提", "C009", "ORD-0629-008-01", "30*38 红色空白袋", 50, "1件散装", "已交付", "今天 12:00", "A区-30*38", "仓库已清点"),
   fulfill("F008", "送货", "C002", "ORD-0629-022-01", "外卖活动袋 40*30 黄袋红提", 3000, "6包", "待出库", "明天 19:00", "打包区", "生产中"),
+  { ...fulfill("F009", "快递快运", "C004", "ORD-0629-013-01", "美的空调 30*38 红印黄 双面", 1000, "3包", "数量不符", "今天 18:30", "打包区", "打包清点库存"), expectedQty: 1000, actualQty: 1005, noteFlags: ["多 5 个赠送"] },
 ];
 
 export const initialStatements = [
@@ -115,7 +148,7 @@ export const initialRawMaterialInbounds = [
     source: "手机拍照 / OCR 预填",
     ocrStatus: "OCR 预填，供应商未提供单号，待人工核对原材料送货单和实物原标签",
     photoStatus: "送货单照片已上传",
-    signedNoteStatus: "待上传签单信息",
+    signedNoteStatus: "单据附件可选，尚未上传",
     nextStep: "客服/办公室核对原材料送货单、OCR 字段和实物原标签；无供应商单号时用系统入库单号追踪。",
     note: "该供应商随货单据未提供单号；OCR 只能预填，不直接入库；复核后再打印一卷一标。",
     location: "原料待检区",
@@ -146,8 +179,8 @@ export const initialRawMaterialInbounds = [
     source: "手机拍照 / 人工复核",
     ocrStatus: "已复核",
     photoStatus: "送货单照片已上传",
-    signedNoteStatus: "待贴标扫码上传",
-    nextStep: "把系统标签贴到对应卷料，手机扫码并上传签单信息后才可用。",
+    signedNoteStatus: "单据附件可选",
+    nextStep: "把系统标签贴到对应卷料，逐卷人工核对重量、颜色、规格和库位后才可用。",
     note: "白侯模板月结时需拆重1-重5，并识别纸管扣项。",
     location: "原料待贴标区",
     statementStatus: "月结待匹配",
@@ -178,16 +211,16 @@ export const initialRawMaterialInbounds = [
     source: "手机拍照 / 人工复核",
     ocrStatus: "已复核",
     photoStatus: "送货单照片已上传",
-    signedNoteStatus: "部分签单已上传",
-    nextStep: "剩余件数继续贴标扫码，未贴标部分不能作为可用原料。",
+    signedNoteStatus: "部分单据附件已上传",
+    nextStep: "剩余件数继续逐卷贴标人工核对，未确认部分不能作为可用原料。",
     note: "北陈月结 Excel 用批号强匹配，分段表头和退货行需归一化。",
     location: "提手区",
     statementStatus: "存在差异",
     statementSummary: "ERP 已入库 4 件；供应商表有退货分段，待核金额。",
     statementDifferences: ["批号匹配", "退货行待核", "金额差异待确认"],
     rolls: [
-      rawMaterialRoll("RM-240704-003-01", "批号BC029-1", 0, "已贴标入库/可用", "可用", "提手区-A1", "2026-07-04 11:32"),
-      rawMaterialRoll("RM-240704-003-02", "批号BC029-2", 0, "已贴标入库/可用", "可用", "提手区-A1", "2026-07-04 11:36"),
+      rawMaterialRoll("RM-240704-003-01", "批号BC029-1", 0, "已贴标/可用库存", "可用", "提手区-A1", "2026-07-04 11:32"),
+      rawMaterialRoll("RM-240704-003-02", "批号BC029-2", 0, "已贴标/可用库存", "可用", "提手区-A1", "2026-07-04 11:36"),
       rawMaterialRoll("RM-240704-003-03", "批号BC029-3", 0, "已打印待贴标", "不可用", "提手区待贴标"),
       rawMaterialRoll("RM-240704-003-04", "批号BC029-4", 0, "已打印待贴标", "不可用", "提手区待贴标"),
     ],
@@ -271,6 +304,7 @@ export function createOfficeScenarioData(scenarioId = defaultOfficeScenarioId) {
     customers: cloneFixtureRows(customers),
     initialOrderLines: cloneFixtureRows(initialOrderLines),
     initialInventories: cloneFixtureRows(initialInventories),
+    initialOrderDrafts: cloneFixtureRows(initialOrderDrafts),
     initialTodos: cloneFixtureRows(initialTodos),
     initialFulfillments: cloneFixtureRows(initialFulfillments),
     initialStatements: cloneFixtureRows(initialStatements),
@@ -326,12 +360,32 @@ function stock(size, color, handle, style, zone, state, inStock, reserved, locke
   return { id: `${size}-${color}-${handle}-${style}-${zone}`, size, color, handle, style, zone, state, inStock, reserved, locked, pending, estimated };
 }
 
-function todo(id, type, customerId, ref, summary, wait, latest, urgency, impact) {
-  return { id, type, customerId, ref, summary, wait, latest, urgency, impact, handled: false };
+function todo(id, type, customerId, ref, summary, wait, latest, urgency, impact, refType = "") {
+  return { id, type, customerId, ref, refType, refId: ref, summary, wait, latest, urgency, impact, handled: false };
 }
 
 function fulfill(id, method, customerId, lineId, goods, qty, packages, status, latest, zone, source) {
   return { id, method, customerId, lineId, goods, qty, packages, status, latest, zone, source, printed: status === "已交付" };
+}
+
+function draftLine(id, customerId, customer, product, size, color, handle, qty, fulfillment, latest, inventory, note = "") {
+  return {
+    id,
+    customerId,
+    customer,
+    product,
+    size,
+    color,
+    handle,
+    style: "空白袋",
+    print: "否",
+    qty,
+    fulfillment,
+    latest,
+    inventory,
+    note,
+    confidence: "high",
+  };
 }
 
 function statement(id, customerId, status, receivable, received, variance, period, lineIds) {
@@ -342,7 +396,7 @@ function rawMaterialInbound(input) {
   return { ...input };
 }
 
-function rawMaterialRoll(id, supplierRollNo, weightKg, labelStatus, inventoryStatus, location, scannedAt = "") {
+function rawMaterialRoll(id, supplierRollNo, weightKg, labelStatus, inventoryStatus, location, labelVerifiedAt = "") {
   return {
     id,
     supplierRollNo,
@@ -350,8 +404,8 @@ function rawMaterialRoll(id, supplierRollNo, weightKg, labelStatus, inventorySta
     labelStatus,
     inventoryStatus,
     location,
-    scannedAt,
-    signedNoteStatus: scannedAt ? "已扫码/签单" : "待扫码/签单",
+    labelVerifiedAt,
+    signedNoteStatus: labelVerifiedAt ? "逐卷核对已记录" : "单据附件可选",
   };
 }
 

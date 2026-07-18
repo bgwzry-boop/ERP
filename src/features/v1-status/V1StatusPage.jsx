@@ -216,6 +216,7 @@ export function V1StatusPage({
   const productionPersistenceEvidence = goLiveStatus?.productionPersistenceEvidence?.available
     ? goLiveStatus.productionPersistenceEvidence
     : null;
+  const todoLoadPrecheck = goLiveStatus?.todoLoadPrecheck ?? null;
   const productionPersistenceEvidenceSummary = productionPersistenceEvidence?.summary ?? {};
   const productionPersistenceEvidenceLatestBlockers = productionPersistenceEvidence?.blockingStages ?? [];
   const productionPersistenceEvidenceLiveResult = productionPersistenceEvidenceAction?.result ?? null;
@@ -853,6 +854,7 @@ export function V1StatusPage({
               productionEnvValuesApplyGateStatus,
               productionEnvValuesFragmentSourceStatus,
               productionPersistenceEvidence,
+              todoLoadPrecheck,
               productionPersistenceEvidenceSummary,
               productionPersistenceEvidenceBlockers,
               productionPersistenceEvidenceGuidance,

@@ -73,7 +73,9 @@ function isProjectionRefreshFailure(result) {
 }
 
 function getPrintRequestFeedback({ result, fulfillment, action }) {
-  const documentLabel = getFulfillmentDocumentLabel(fulfillment);
+  const documentLabel = ["打印出库单", "重打出库单"].includes(action)
+    ? "纸质出库单"
+    : getFulfillmentDocumentLabel(fulfillment);
   const jobStatus = result.printJob?.jobStatus ?? "";
   if (action === "打印预览" || jobStatus === "preview_only" || result.printRecord?.status === "previewed") {
     return `已生成${documentLabel}预览；预览不等于实体打印，不会推进交付状态。`;
@@ -268,6 +270,9 @@ export function createOfficePrintWriteActions({
       return withFeedback({ source: "ui_error", blocked: true }, "请先选择要验收的打印设备。");
     }
     const selectedDevice = qa.devices.find((item) => item.printDeviceId === selectedDeviceId) ?? { printDeviceId: selectedDeviceId };
+    const selectedPrintJob = (qa.eligiblePrintJobs ?? []).find(
+      (item) => item.printJobId === qa.selectedPrintJobId,
+    ) ?? null;
     setPrinterDeviceQa((current) => ({ ...current, saving: true, error: "" }));
     const result = normalizeWriteResultForRuntime(
       await printApi.recordOfficePrinterDeviceFieldTest({
@@ -279,6 +284,8 @@ export function createOfficePrintWriteActions({
           driverName: qa.driverLabel || selectedDevice.driverName,
           paperName: qa.paperLabel || selectedDevice.paperName,
         },
+        printJob: selectedPrintJob ?? {},
+        printJobId: selectedPrintJob?.printJobId ?? "",
         operatorId: currentUserId,
         operatorName: currentUserDisplayName,
         checks: qa.checks,
@@ -327,7 +334,9 @@ export function createOfficePrintWriteActions({
       result,
       isProjectionRefreshFailure(refreshResult) && result.source === "api"
         ? "打印设备验收记录已保存，但设备验收列表刷新失败，请手动刷新。"
-        : `打印设备验收已通过后端 API 保存：${savedRecord?.summary?.label ?? result.summary?.label ?? "已记录"}；记录本身仍需现场证据支撑。`,
+        : result.acceptance?.ready
+          ? `打印设备验收已保存并关联已打印作业 ${result.acceptance.printJobId}：现场验收通过。`
+          : `打印设备验收记录已保存：${savedRecord?.summary?.label ?? result.summary?.label ?? "已记录"}；尚未达到现场验收通过条件，仍需现场证据支撑，并关联已打印作业。`,
       { projectionRefreshFailed: isProjectionRefreshFailure(refreshResult) && result.source === "api" },
     );
   }

@@ -264,14 +264,15 @@ export function ActionModal({
   const [numberValue, setNumberValue] = useState(getOfficeModalInitialNumberValue(modal, { fulfillment, statement, getStatementBlockingAmount }));
   const [reason, setReason] = useState(getOfficeModalInitialReason(modal));
   const [attachPaymentProof, setAttachPaymentProof] = useState(modal.type === "payment");
-  const [paymentProofRemark, setPaymentProofRemark] = useState("付款截图占位，正式上传后替换。");
+  const [paymentProofRemark, setPaymentProofRemark] = useState("");
   const [paymentProofFile, setPaymentProofFile] = useState(null);
   const [paymentProofPreviewUrl, setPaymentProofPreviewUrl] = useState("");
   const [customerConfirmationContent, setCustomerConfirmationContent] = useState("客户回复确认无误");
   const [attachCustomerConfirmationProof, setAttachCustomerConfirmationProof] = useState(modal.type === "customerConfirmation");
-  const [customerConfirmationRemark, setCustomerConfirmationRemark] = useState("客户确认截图/聊天记录待补。");
+  const [customerConfirmationRemark, setCustomerConfirmationRemark] = useState("");
   const [customerConfirmationProofFile, setCustomerConfirmationProofFile] = useState(null);
   const [customerConfirmationPreviewUrl, setCustomerConfirmationPreviewUrl] = useState("");
+  const [attachmentError, setAttachmentError] = useState("");
   const batchPrintPackages = modal.type === "batchPrintResult" ? modal.printPackages ?? [] : [];
   const [selectedPrintedPackageIds, setSelectedPrintedPackageIds] = useState(() => batchPrintPackages.map((item) => item.packageId));
   const dispatchDefaultRouteDate = toDateInputValue(fulfillment?.routeDate) || new Date().toISOString().slice(0, 10);
@@ -283,6 +284,19 @@ export function ActionModal({
     toDatetimeLocalInputValue(fulfillment?.plannedDepartureAt, dispatchDefaultRouteDate),
   );
   const [dispatchRemark, setDispatchRemark] = useState(fulfillment?.dispatchRemark || "");
+  const initialWarehouseResult = modal.initialWarehouseResult || "已备货";
+  const [paperHandoffNote, setPaperHandoffNote] = useState("");
+  const [warehouseResult, setWarehouseResult] = useState(initialWarehouseResult);
+  const [warehousePhysicalExecutorEmployeeId, setWarehousePhysicalExecutorEmployeeId] = useState("");
+  const [warehouseFeedbackChannel, setWarehouseFeedbackChannel] = useState("当面");
+  const [warehouseExecutedAt, setWarehouseExecutedAt] = useState(
+    toDatetimeLocalInputValue(new Date().toISOString(), new Date().toISOString().slice(0, 10)),
+  );
+  const [warehouseActualQty, setWarehouseActualQty] = useState(
+    initialWarehouseResult === "无法出库" ? "0" : String(fulfillment?.qty ?? ""),
+  );
+  const [warehouseNote, setWarehouseNote] = useState("");
+  const [warehouseReviewOpen, setWarehouseReviewOpen] = useState(false);
 
   useEffect(() => {
     if (!paymentProofFile || !String(paymentProofFile.type ?? "").startsWith("image/")) {
@@ -307,6 +321,7 @@ export function ActionModal({
   function handlePaymentProofFileChange(event) {
     const file = event.target.files?.[0] ?? null;
     setPaymentProofFile(file);
+    setAttachmentError("");
     if (file) {
       setAttachPaymentProof(true);
       setPaymentProofRemark(`付款凭证附件：${file.name}`);
@@ -316,6 +331,7 @@ export function ActionModal({
   function handleCustomerConfirmationFileChange(event) {
     const file = event.target.files?.[0] ?? null;
     setCustomerConfirmationProofFile(file);
+    setAttachmentError("");
     if (file) {
       setAttachCustomerConfirmationProof(true);
       setCustomerConfirmationRemark(`客户确认附件：${file.name}`);
@@ -362,6 +378,52 @@ export function ActionModal({
   }
 
   function confirm() {
+    if (modal.type === "paperHandoff") {
+      onConfirm({ note: paperHandoffNote });
+      return;
+    }
+    if (modal.type === "warehouseExecution") {
+      const actualQty = warehouseResult === "已备货" ? null : Number(warehouseActualQty);
+      const expectedQty = Number(fulfillment?.qty ?? 0);
+      if (!warehousePhysicalExecutorEmployeeId.trim()) {
+        setAttachmentError("请选择或填写实际执行库房人员的正式员工编号。");
+        return;
+      }
+      if (!warehouseExecutedAt) {
+        setAttachmentError("请填写库房实际执行时间。");
+        return;
+      }
+      if (warehouseResult !== "已备货" && (!Number.isFinite(actualQty) || actualQty < 0)) {
+        setAttachmentError("请填写有效的实际数量。");
+        return;
+      }
+      if (warehouseResult === "实物已出库" && actualQty !== expectedQty) {
+        setAttachmentError("实物已出库仅支持数量与纸单一致；数量不同请登记“数量不符”。");
+        return;
+      }
+      if (!warehouseReviewOpen) {
+        setAttachmentError("");
+        setWarehouseReviewOpen(true);
+        return;
+      }
+      onConfirm({
+        result: warehouseResult,
+        physicalExecutorEmployeeId: warehousePhysicalExecutorEmployeeId.trim(),
+        feedbackChannel: warehouseFeedbackChannel,
+        executedAt: warehouseExecutedAt,
+        actualQty,
+        note: warehouseNote.trim(),
+      });
+      return;
+    }
+    if (modal.type === "payment" && attachPaymentProof && !paymentProofFile) {
+      setAttachmentError("已勾选付款凭证，请选择实际文件；如暂不留存凭证，请取消勾选后再登记实收。");
+      return;
+    }
+    if (modal.type === "customerConfirmation" && attachCustomerConfirmationProof && !customerConfirmationProofFile) {
+      setAttachmentError("已勾选确认附件，请选择实际文件；如仅登记客户回复，请取消勾选后再提交。");
+      return;
+    }
     if (modal.type === "dispatch") {
       onConfirm({
         driverId: dispatchDriverId,
@@ -464,6 +526,121 @@ export function ActionModal({
               保存后司机端任务按路线日期、趟号和站序排序；装车和送达仍由司机端单独确认。
             </div>
           </div>
+        ) : modal.type === "paperHandoff" ? (
+          <div className="form-grid">
+            <label>
+              当前纸单
+              <input value={`V${fulfillment?.paperOutboundDocument?.documentVersion ?? fulfillment?.paperOutboundDocumentVersion ?? "待确认"}`} readOnly />
+            </label>
+            <label>
+              打印状态
+              <input value={fulfillment?.printRecordStatus === "reprinted" ? "已重打" : fulfillment?.printRecordStatus === "printed" ? "已打印" : "待确认"} readOnly />
+            </label>
+            <label className="wide-field">
+              交接备注
+              <input value={paperHandoffNote} placeholder="如：纸单已交郭青格，等库房找货" onChange={(event) => setPaperHandoffNote(event.target.value)} />
+            </label>
+            <div className="form-note">
+              这里只登记办公室将已验证纸单交给库房。交库房不等于实物已出库，也不产生库存扣减或对账。
+            </div>
+          </div>
+        ) : modal.type === "warehouseExecution" ? (
+          warehouseReviewOpen ? (
+            <div className="form-grid">
+              <label>
+                纸单版本
+                <input value={`V${fulfillment?.paperOutboundDocument?.documentVersion ?? fulfillment?.paperOutboundDocumentVersion ?? "待确认"}`} readOnly />
+              </label>
+              <label>
+                库房结果
+                <input value={warehouseResult} readOnly />
+              </label>
+              <label>
+                实物执行人
+                <input value={warehousePhysicalExecutorEmployeeId} readOnly />
+              </label>
+              <label>
+                实际执行时间
+                <input value={warehouseExecutedAt.replace("T", " ")} readOnly />
+              </label>
+              <label>
+                纸单 / 实际数量
+                <input value={`${fulfillment?.qty ?? 0} / ${warehouseResult === "已备货" ? "未出库" : warehouseActualQty} 个`} readOnly />
+              </label>
+              <label>
+                反馈渠道
+                <input value={warehouseFeedbackChannel} readOnly />
+              </label>
+              <label className="wide-field">
+                备注
+                <input value={warehouseNote || "无"} readOnly />
+              </label>
+              <div className="form-note" role="alert">
+                {warehouseResult === "实物已出库"
+                  ? fulfillment?.method === "送货"
+                    ? "确认后只登记库房实物出库并进入待司机装车；客户送达前不会生成对账候选。"
+                    : "确认后只登记库房实物出库并扣减库存；客户自提或承运方拉走必须下一步单独确认，届时才生成对账候选。"
+                  : warehouseResult === "数量不符"
+                    ? "确认后只生成数量差异待办，不扣库存、不改单、不生成对账。"
+                    : warehouseResult === "无法出库"
+                      ? "确认后只生成无法出库待办，不扣库存、不改单、不生成对账。"
+                      : "确认后仅登记已备货，库存和对账均不变化。"}
+              </div>
+            </div>
+          ) : (
+            <div className="form-grid">
+              <label>
+                当前纸单
+                <input value={`V${fulfillment?.paperOutboundDocument?.documentVersion ?? fulfillment?.paperOutboundDocumentVersion ?? "待确认"} / ${fulfillment?.qty ?? 0} 个`} readOnly />
+              </label>
+              <label>
+                库房反馈结果
+                <select value={warehouseResult} onChange={(event) => {
+                  const next = event.target.value;
+                  setWarehouseResult(next);
+                  setAttachmentError("");
+                  if (next === "已备货") setWarehouseActualQty("");
+                  if (next === "实物已出库") setWarehouseActualQty(String(fulfillment?.qty ?? ""));
+                  if (next === "无法出库") setWarehouseActualQty("0");
+                }}>
+                  {['已备货', '实物已出库', '数量不符', '无法出库'].map((item) => <option key={item}>{item}</option>)}
+                </select>
+              </label>
+              <label>
+                实物执行人员工编号
+                <input value={warehousePhysicalExecutorEmployeeId} placeholder="如：ERP-0008" onChange={(event) => setWarehousePhysicalExecutorEmployeeId(event.target.value)} />
+              </label>
+              <label>
+                反馈渠道
+                <select value={warehouseFeedbackChannel} onChange={(event) => setWarehouseFeedbackChannel(event.target.value)}>
+                  {['当面', '电话', '微信', '纸面', '其他'].map((item) => <option key={item}>{item}</option>)}
+                </select>
+              </label>
+              <label>
+                实际执行时间
+                <input type="datetime-local" value={warehouseExecutedAt} onChange={(event) => setWarehouseExecutedAt(event.target.value)} />
+              </label>
+              <label>
+                {warehouseResult === "已备货" ? "实际数量" : "实际出库数量"}
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={warehouseActualQty}
+                  disabled={warehouseResult === "已备货"}
+                  onChange={(event) => setWarehouseActualQty(event.target.value)}
+                />
+              </label>
+              <label className="wide-field">
+                备注
+                <input value={warehouseNote} placeholder="如：只找到 430 个，纸单与实物不符" onChange={(event) => setWarehouseNote(event.target.value)} />
+              </label>
+              <div className="form-note">
+                库房只按纸单找货并反馈实物结果。数量不符、无法出库只进入异常处理；不能直接改订单、扣库存或创建对账。
+              </div>
+              {attachmentError && <div className="form-note" role="alert">{attachmentError}</div>}
+            </div>
+          )
         ) : modal.type === "customerConfirmation" ? (
           <div className="form-grid">
             <label className="wide-field">
@@ -481,7 +658,10 @@ export function ActionModal({
             <div className="form-check-row">
               <span>确认附件</span>
               <label>
-                <input type="checkbox" checked={attachCustomerConfirmationProof} onChange={(event) => setAttachCustomerConfirmationProof(event.target.checked)} />
+                <input type="checkbox" checked={attachCustomerConfirmationProof} onChange={(event) => {
+                  setAttachCustomerConfirmationProof(event.target.checked);
+                  if (!event.target.checked) setAttachmentError("");
+                }} />
                 聊天截图/确认附件
               </label>
             </div>
@@ -503,8 +683,9 @@ export function ActionModal({
               </div>
             )}
             <div className="form-note">
-              客户回复“确认 / 没问题”时登记为对账证据；附件可上传微信 / 企业微信截图、PDF 或表格文件。
+              客户回复“确认 / 没问题”时登记为对账证据；勾选附件后必须选择真实文件，未留存附件可取消勾选后提交。
             </div>
+            {attachmentError && <div className="form-note" role="alert">{attachmentError}</div>}
           </div>
         ) : modal.type === "batchPrintResult" ? (
           <div className="form-grid">
@@ -580,7 +761,10 @@ export function ActionModal({
                 <div className="form-check-row">
                   <span>付款凭证</span>
                   <label>
-                    <input type="checkbox" checked={attachPaymentProof} onChange={(event) => setAttachPaymentProof(event.target.checked)} />
+                    <input type="checkbox" checked={attachPaymentProof} onChange={(event) => {
+                      setAttachPaymentProof(event.target.checked);
+                      if (!event.target.checked) setAttachmentError("");
+                    }} />
                     付款截图/附件
                   </label>
                 </div>
@@ -601,13 +785,17 @@ export function ActionModal({
                     </div>
                   </div>
                 )}
+                <div className="form-note">
+                  勾选付款凭证后必须选择真实文件；如暂不留存凭证，可取消勾选后仅登记实收。
+                </div>
               </>
             )}
+            {attachmentError && <div className="form-note" role="alert">{attachmentError}</div>}
           </div>
         )}
         <div className="modal-actions">
-          <button onClick={onClose}>取消</button>
-          <button className="primary-action" onClick={confirm}>{modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : modal.type === "mismatch" ? "提交数量差异" : modal.type === "unable" ? "提交无法出库" : "确认提交"}</button>
+          <button onClick={warehouseReviewOpen && modal.type === "warehouseExecution" ? () => setWarehouseReviewOpen(false) : onClose}>{warehouseReviewOpen && modal.type === "warehouseExecution" ? "返回修改" : "取消"}</button>
+          <button className="primary-action" onClick={confirm}>{modal.type === "warehouseExecution" ? warehouseReviewOpen ? "确认回录" : "下一步确认" : modal.type === "paperHandoff" ? "确认交库房" : modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : modal.type === "mismatch" ? "提交数量差异" : modal.type === "unable" ? "提交无法出库" : "确认提交"}</button>
         </div>
       </section>
     </div>

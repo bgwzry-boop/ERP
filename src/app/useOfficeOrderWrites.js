@@ -278,6 +278,14 @@ export function createOfficeOrderWriteActions({
     }));
   }
 
+  function updateOrderEntryText(nextValue) {
+    const nextText = String(nextValue ?? "");
+    if (nextText === entryText) return { changed: false };
+    setEntryText(nextText);
+    setDraftStatus("原文已修改待重新识别");
+    return { changed: true };
+  }
+
   async function restoreShortageCancelledLine({ draftLineId, reason }) {
     if (!draftApiMeta.draftId || Number(draftApiMeta.clientRevision ?? 0) < 1) {
       return withFeedback({ blocked: true }, "当前取消明细尚未保存到后端，请先保存草稿后再恢复订购。");
@@ -506,7 +514,14 @@ export function createOfficeOrderWriteActions({
     }
 
     if (label !== "保存并确认") {
-      return withFeedback(null, `${label} 已模拟完成，本地原型不会写入真实数据库。`);
+      return withFeedback(
+        {
+          source: "ui_error",
+          blocked: true,
+          error: { code: "ORDER_ENTRY_ACTION_UNSUPPORTED" },
+        },
+        "未识别订单草稿操作，未执行。",
+      );
     }
     if (!draftRows.length) {
       setDraftStatus("空草稿");
@@ -702,6 +717,7 @@ export function createOfficeOrderWriteActions({
     linkCrossDraftShortageCancellation,
     restoreShortageCancelledLine,
     runOrderDraftCommand,
+    updateOrderEntryText,
     updateOrderDraftField,
   };
 }
@@ -732,6 +748,7 @@ export function useOfficeOrderWrites(options) {
     linkCrossDraftShortageCancellation: useCallback(actions.linkCrossDraftShortageCancellation, dependencies),
     restoreShortageCancelledLine: useCallback(actions.restoreShortageCancelledLine, dependencies),
     runOrderDraftCommand: useCallback(actions.runOrderDraftCommand, dependencies),
+    updateOrderEntryText: useCallback(actions.updateOrderEntryText, dependencies),
     updateOrderDraftField: useCallback(actions.updateOrderDraftField, dependencies),
   };
 }

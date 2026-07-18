@@ -4,6 +4,7 @@ import {
   confirmOfficeRawMaterialSupplierStatementReview,
   createOfficeRawMaterialSupplierStatementReviewDraft,
   generateOfficeRawMaterialSupplierPayableDraft,
+  recognizeOfficeRawMaterialDeliveryNote,
   updateOfficeRawMaterialInboundAction,
 } from "../services/officeRawMaterialApiClient.js";
 import {
@@ -17,6 +18,7 @@ const defaultApi = {
   confirmOfficeRawMaterialSupplierStatementReview,
   createOfficeRawMaterialSupplierStatementReviewDraft,
   generateOfficeRawMaterialSupplierPayableDraft,
+  recognizeOfficeRawMaterialDeliveryNote,
   updateOfficeRawMaterialInboundAction,
 };
 
@@ -42,6 +44,48 @@ export function createOfficeRawMaterialActions({
 }) {
   const operatorName = () => currentUser.displayName || currentUserId;
 
+  async function recognizeRawMaterialDeliveryNote(file = {}) {
+    if (!guardUiAction("rawMaterial", "复核送货单")) return null;
+    const result = await api.recognizeOfficeRawMaterialDeliveryNote({
+      authState,
+      operatorId: currentUserId,
+      fileName: file.fileName,
+      mimeType: file.mimeType,
+      fileSize: file.fileSize,
+      contentDataUrl: file.contentDataUrl,
+      pdfPageNumber: file.pdfPageNumber,
+      useNewModel: false,
+    });
+    if (result.blocked || !result.inbound?.id) {
+      const message = result.error?.message ?? "原材料送货单 OCR 识别失败。";
+      setRawMaterialInboundMeta((current) => ({
+        ...current,
+        source: result.source || "api_error",
+        error: message,
+      }));
+      setToast(`送货单没有生成草稿：${message}`);
+      return null;
+    }
+    setRawMaterialInbounds((current) => [
+      result.inbound,
+      ...current.filter((item) => item.id !== result.inbound.id),
+    ]);
+    setRawMaterialInboundMeta((current) => ({
+      ...current,
+      source: "api",
+      total: result.deduplicated ? current.total : Math.max(Number(current.total) || 0, rawMaterialInboundsRef.current.length + 1),
+      error: "",
+      lastSyncedAt: nowTimeLabel(),
+    }));
+    setSelectedRawMaterialInboundId(result.inbound.id);
+    setToast(
+      result.deduplicated
+        ? `这张送货单已识别过，已打开草稿 ${result.inbound.id}，没有重复扣 OCR 次数。`
+        : `腾讯云 OCR 已生成草稿 ${result.inbound.id}；请对照原图完成人工复核，当前未增加可用库存。`,
+    );
+    return result.inbound;
+  }
+
   async function updateRawMaterialInbound(action, inboundId, options = {}) {
     if (!guardUiAction("rawMaterial", action)) return null;
     const target = rawMaterialInboundsRef.current.find((item) => item.id === inboundId);
@@ -56,6 +100,7 @@ export function createOfficeRawMaterialActions({
       operatorId: currentUserId,
       operatorName: operatorName(),
       inboundId,
+      expectedRevision: Number(target.revision ?? 0),
       action,
       rollId: options.rollId,
       reason: options.reason,
@@ -74,6 +119,14 @@ export function createOfficeRawMaterialActions({
       reviewLocation: options.reviewLocation,
       machineCount: options.machineCount,
       qualifiedOutputQuantity: options.qualifiedOutputQuantity,
+      reviewFields: options.reviewFields,
+      lineReviews: options.lineReviews,
+      matchResult: options.matchResult,
+      checkedWeightKg: options.checkedWeightKg,
+      checkedColor: options.checkedColor,
+      checkedSpec: options.checkedSpec,
+      location: options.location,
+      verificationNote: options.verificationNote,
       note: options.note,
     });
 
@@ -282,6 +335,7 @@ export function createOfficeRawMaterialActions({
     confirmRawMaterialSupplierStatementReviewDraft,
     generateRawMaterialSupplierPayableDraft,
     saveRawMaterialSupplierStatementReviewDraft,
+    recognizeRawMaterialDeliveryNote,
     updateRawMaterialInbound,
   };
 }

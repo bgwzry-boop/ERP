@@ -10,13 +10,18 @@ import {
   createOfficeMasterDataImportConfirmationPlan as createOfficeMasterDataImportConfirmationPlanDefault,
   createOfficeMasterDataImportFailedRowsCorrectionDraft as createOfficeMasterDataImportFailedRowsCorrectionDraftDefault,
   createOfficeMasterDataImportExecution as createOfficeMasterDataImportExecutionDefault,
+  createOfficeMasterDataMachine as createOfficeMasterDataMachineDefault,
+  confirmOfficeMasterDataEmployeeIdentity as confirmOfficeMasterDataEmployeeIdentityDefault,
   downloadOfficeMasterDataImportFailedRows as downloadOfficeMasterDataImportFailedRowsDefault,
   enableOfficeMasterDataEmployeeAccount as enableOfficeMasterDataEmployeeAccountDefault,
+  enableOfficeMasterDataEmployeeAccounts as enableOfficeMasterDataEmployeeAccountsDefault,
   issueOfficeMasterDataEmployeeAccountPassword as issueOfficeMasterDataEmployeeAccountPasswordDefault,
   revokeOfficeMasterDataEmployeeAccountPassword as revokeOfficeMasterDataEmployeeAccountPasswordDefault,
+  updateOfficeMasterDataMachine as updateOfficeMasterDataMachineDefault,
   updateOfficeMasterDataEmployeeAssignment as updateOfficeMasterDataEmployeeAssignmentDefault,
 } from "../services/officeMasterDataImportApiClient.js";
 import {
+  mergeMasterDataEmployeeAccountReviews,
   upsertMasterDataEmployeeAccountReview,
   upsertMasterDataImportExecution,
   upsertMasterDataImportReviewDraft,
@@ -26,10 +31,14 @@ const defaultApi = {
   createOfficeMasterDataImportConfirmationPlan: createOfficeMasterDataImportConfirmationPlanDefault,
   createOfficeMasterDataImportFailedRowsCorrectionDraft: createOfficeMasterDataImportFailedRowsCorrectionDraftDefault,
   createOfficeMasterDataImportExecution: createOfficeMasterDataImportExecutionDefault,
+  createOfficeMasterDataMachine: createOfficeMasterDataMachineDefault,
+  confirmOfficeMasterDataEmployeeIdentity: confirmOfficeMasterDataEmployeeIdentityDefault,
   downloadOfficeMasterDataImportFailedRows: downloadOfficeMasterDataImportFailedRowsDefault,
   enableOfficeMasterDataEmployeeAccount: enableOfficeMasterDataEmployeeAccountDefault,
+  enableOfficeMasterDataEmployeeAccounts: enableOfficeMasterDataEmployeeAccountsDefault,
   issueOfficeMasterDataEmployeeAccountPassword: issueOfficeMasterDataEmployeeAccountPasswordDefault,
   revokeOfficeMasterDataEmployeeAccountPassword: revokeOfficeMasterDataEmployeeAccountPasswordDefault,
+  updateOfficeMasterDataMachine: updateOfficeMasterDataMachineDefault,
   updateOfficeMasterDataEmployeeAssignment: updateOfficeMasterDataEmployeeAssignmentDefault,
 };
 
@@ -93,16 +102,24 @@ export function createOfficeMasterDataActions({
       input,
       "生成基础资料失败行修正草稿",
     );
+  const confirmOfficeMasterDataEmployeeIdentity = (input) =>
+    callMasterDataWrite(masterDataApi.confirmOfficeMasterDataEmployeeIdentity, input, "确认员工账号身份");
   const downloadOfficeMasterDataImportFailedRows = (input) =>
     masterDataApi.downloadOfficeMasterDataImportFailedRows(input, apiOptions);
   const enableOfficeMasterDataEmployeeAccount = (input) =>
     callMasterDataWrite(masterDataApi.enableOfficeMasterDataEmployeeAccount, input, "启用员工账号");
+  const enableOfficeMasterDataEmployeeAccounts = (input) =>
+    callMasterDataWrite(masterDataApi.enableOfficeMasterDataEmployeeAccounts, input, "批量启用员工账号");
   const issueOfficeMasterDataEmployeeAccountPassword = (input) =>
     callMasterDataWrite(masterDataApi.issueOfficeMasterDataEmployeeAccountPassword, input, "发放员工临时密码");
   const revokeOfficeMasterDataEmployeeAccountPassword = (input) =>
     callMasterDataWrite(masterDataApi.revokeOfficeMasterDataEmployeeAccountPassword, input, "撤销员工密码");
   const updateOfficeMasterDataEmployeeAssignment = (input) =>
     callMasterDataWrite(masterDataApi.updateOfficeMasterDataEmployeeAssignment, input, "保存员工车间 / 机台调配");
+  const createOfficeMasterDataMachine = (input) =>
+    callMasterDataWrite(masterDataApi.createOfficeMasterDataMachine, input, "新增机台配置");
+  const updateOfficeMasterDataMachine = (input) =>
+    callMasterDataWrite(masterDataApi.updateOfficeMasterDataMachine, input, "修改机台配置");
 
   async function refreshEmployeeD49ReadModels() {
     await Promise.allSettled([
@@ -138,6 +155,39 @@ export function createOfficeMasterDataActions({
     setMasterDataEmployeeAccountReviews((items) => upsertMasterDataEmployeeAccountReview(items, result.employeeAccountReview));
     setToast(`已更新员工调配：${result.employeeAccountReview.name || result.employeeAccountReview.employeeId}。`);
     await refreshEmployeeD49ReadModels();
+  }
+
+  async function saveMasterDataMachine(machineDraft = {}) {
+    const actionState = getActionState("保存机台配置");
+    if (actionState.disabled) {
+      setToast(actionState.title);
+      return null;
+    }
+    const isNew = machineDraft.isNew === true;
+    const operation = isNew ? createOfficeMasterDataMachine : updateOfficeMasterDataMachine;
+    const result = await operation({
+      authState,
+      operatorId: currentUserId,
+      machineId: machineDraft.machineId,
+      bizNo: machineDraft.bizNo,
+      name: machineDraft.name,
+      machineType: machineDraft.machineType,
+      workshop: machineDraft.workshop,
+      status: machineDraft.status,
+      reason: machineDraft.reason,
+      expectedUpdatedAt: machineDraft.updatedAt,
+    });
+    if (result.blocked) {
+      setToast(`保存机台配置失败：${result.error?.message || "权限、占用或接口错误"}`);
+      return null;
+    }
+    if (!result.machine) {
+      setToast("保存机台配置失败：未返回机台记录。");
+      return null;
+    }
+    setToast(`已${isNew ? "新增" : "更新"}机台：${result.machine.name || result.machine.machineId}。`);
+    await refreshEmployeeD49ReadModels();
+    return result.machine;
   }
 
   function openMasterDataTemplatePanel(sourceLabel) {
@@ -417,14 +467,27 @@ export function createOfficeMasterDataActions({
       setToast(actionState.title);
       return;
     }
+    const selectedRoleKeys = Array.isArray(review?.recommendedRoleKeys)
+      ? review.recommendedRoleKeys.filter(Boolean)
+      : [];
+    if (selectedRoleKeys.length > 1) {
+      const selectedRoleLabels = Array.isArray(review?.recommendedRoleLabels)
+        ? review.recommendedRoleLabels.filter(Boolean)
+        : selectedRoleKeys;
+      const confirmed = confirmAction(
+        `确认启用 ${review.name || review.employeeId} 的多角色账号？\n账号角色：${selectedRoleLabels.join("、")}\n启用后不能通过发放密码操作删减已复核角色。`,
+      );
+      if (!confirmed) return;
+    }
     const result = await enableOfficeMasterDataEmployeeAccount({
       authState,
       operatorId: currentUserId,
       employeeId: review.employeeId,
       roleKey: review.recommendedRoleKey,
+      roleKeys: selectedRoleKeys.length ? selectedRoleKeys : review.recommendedRoleKeys,
       loginName: review.loginName,
       userId: review.userId,
-      reviewNote: "已复核导入员工岗位、默认机台和角色，启用内部账号资料。",
+      reviewNote: "已复核导入员工岗位、默认机台、主角色和附加角色，启用内部账号资料。",
     });
     if (result.blocked) {
       setToast(`启用员工账号失败：${result.error?.message || "权限或接口错误"}`);
@@ -436,6 +499,95 @@ export function createOfficeMasterDataActions({
     }
     setMasterDataEmployeeAccountReviews((items) => upsertMasterDataEmployeeAccountReview(items, result.employeeAccountReview));
     setToast(`已启用员工账号：${result.employeeAccountReview.name || result.employeeAccountReview.employeeId}（${result.employeeAccountReview.loginName || result.employeeAccountReview.userId}）。`);
+    await refreshEmployeeD49ReadModels();
+  }
+
+  async function confirmMasterDataEmployeeIdentity(review, draft = {}) {
+    const actionState = getActionState("复核启用员工账号");
+    if (actionState.disabled) {
+      setToast(actionState.title);
+      return;
+    }
+    const confirmedName = String(draft.confirmedName ?? "").trim();
+    const reason = String(draft.reason ?? "").trim();
+    if (!confirmedName || !reason) {
+      setToast("确认员工身份前，请填写正式显示名和确认依据。");
+      return;
+    }
+    const confirmed = confirmAction(
+      `确认 ${review.employeeId} 的正式身份？\n正式显示名：${confirmedName}\n确认依据：${reason}\n确认记录会写入审计日志，候选资料变化后需重新确认。`,
+    );
+    if (!confirmed) return;
+    const result = await confirmOfficeMasterDataEmployeeIdentity({
+      authState,
+      operatorId: currentUserId,
+      employeeId: review.employeeId,
+      confirmed: true,
+      confirmedEmployeeId: review.employeeId,
+      confirmedName,
+      reason,
+    });
+    if (result.blocked) {
+      setToast(`确认员工身份失败：${result.error?.message || "权限、身份或审计写入错误"}`);
+      return;
+    }
+    if (!result.employeeAccountReview) {
+      setToast("确认员工身份失败：未返回员工复核记录。");
+      return;
+    }
+    setMasterDataEmployeeAccountReviews((items) => upsertMasterDataEmployeeAccountReview(items, result.employeeAccountReview));
+    setToast(result.identityAlreadyConfirmed
+      ? `员工身份已经确认：${result.employeeAccountReview.name || result.employeeAccountReview.employeeId}。`
+      : `已确认员工身份：${result.employeeAccountReview.name || result.employeeAccountReview.employeeId}。`);
+    await refreshEmployeeD49ReadModels();
+  }
+
+  async function enableMasterDataEmployeeAccounts(reviews = []) {
+    const actionState = getActionState("复核启用员工账号");
+    if (actionState.disabled) {
+      setToast(actionState.title);
+      return;
+    }
+    const pendingReviews = [...new Map(
+      (Array.isArray(reviews) ? reviews : [])
+        .filter((review) => review?.employeeId && !review.accountEnabled)
+        .map((review) => [review.employeeId, review]),
+    ).values()];
+    if (!pendingReviews.length) {
+      setToast("当前筛选中没有待启用的正式员工账号。");
+      return;
+    }
+    const sampleNames = pendingReviews
+      .slice(0, 5)
+      .map((review) => review.name || review.bizNo || review.employeeId)
+      .join("、");
+    const remainingLabel = pendingReviews.length > 5 ? `等 ${pendingReviews.length} 人` : `${pendingReviews.length} 人`;
+    const confirmed = confirmAction(
+      `确认批量启用已勾选的 ${remainingLabel}？\n${sampleNames}\n系统会先校验全部岗位、机台、角色和账号标识；任一失败则整批不启用。`,
+    );
+    if (!confirmed) return;
+
+    const result = await enableOfficeMasterDataEmployeeAccounts({
+      authState,
+      operatorId: currentUserId,
+      employeeIds: pendingReviews.map((review) => review.employeeId),
+      confirmed: true,
+      reviewNote: "管理员批量复核导入员工岗位、默认机台和角色，启用内部账号资料。",
+      reviewedAt: now().toISOString(),
+    });
+    if (result.blocked) {
+      setToast(`批量启用员工账号失败：${result.error?.message || "权限、账号资料或接口错误"}`);
+      return;
+    }
+    if (result.atomic !== true || !Array.isArray(result.employeeAccountReviews)) {
+      setToast("批量启用员工账号失败：后端未返回原子提交结果。");
+      return;
+    }
+    setMasterDataEmployeeAccountReviews((items) =>
+      mergeMasterDataEmployeeAccountReviews(items, result.employeeAccountReviews));
+    setToast(
+      `已批量启用 ${result.enabledCount} 个员工账号${result.skippedCount ? `，跳过已启用 ${result.skippedCount} 个` : ""}。临时密码仍需按员工分别发放。`,
+    );
     await refreshEmployeeD49ReadModels();
   }
 
@@ -454,6 +606,7 @@ export function createOfficeMasterDataActions({
       operatorId: currentUserId,
       employeeId: review.employeeId,
       roleKey: review.recommendedRoleKey,
+      roleKeys: review.recommendedRoleKeys,
       loginName: review.loginName,
       userId: review.userId,
       issueNote: "管理员发放员工首次临时登录密码。",
@@ -519,6 +672,7 @@ export function createOfficeMasterDataActions({
 
   return {
     commitMasterDataImportExecutionFromPlan,
+    confirmMasterDataEmployeeIdentity,
     createMasterDataFailedRowsCorrectionDraft,
     createMasterDataImportConfirmationPlanFromDraft,
     createMasterDataImportExecutionFromPlan,
@@ -526,10 +680,12 @@ export function createOfficeMasterDataActions({
     downloadMasterDataImportFailedRows,
     downloadMasterDataTemplate,
     enableMasterDataEmployeeAccount,
+    enableMasterDataEmployeeAccounts,
     issueMasterDataEmployeeAccountPassword,
     openMasterDataTemplatePanel,
     precheckMasterDataTemplate,
     revokeMasterDataEmployeeAccountPassword,
+    saveMasterDataMachine,
     updateMasterDataEmployeeAssignment,
     saveMasterDataMaintenanceDraft,
   };

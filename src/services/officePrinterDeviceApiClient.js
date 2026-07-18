@@ -290,6 +290,9 @@ export async function recordOfficePrinterDeviceFieldTest(input = {}, options = {
       printJob: normalizePrintJob(json?.printJob),
       record: savedRecord,
       summary: json?.summary ?? savedRecord.summary,
+      acceptance: isPlainObject(json?.acceptance) ? json.acceptance : savedRecord.summary?.acceptance ?? null,
+      resultStatus: isPlainObject(json?.resultStatus) ? json.resultStatus : null,
+      safeguards: isPlainObject(json?.safeguards) ? json.safeguards : null,
       operationLogId: cleanText(json?.operationLogId),
     };
   } catch (error) {
@@ -312,6 +315,14 @@ export async function recordOfficePrinterDeviceFieldTest(input = {}, options = {
       }),
       record: normalizedRecord,
       summary: normalizedRecord.summary,
+      acceptance: normalizedRecord.summary?.acceptance ?? null,
+      resultStatus: {
+        recordSaved: true,
+        onsiteAcceptancePassed: normalizedRecord.summary?.acceptance?.ready === true,
+        physicalPrinterCalledByRequest: false,
+        printJobStatusChangedByRequest: false,
+      },
+      safeguards: { nonPrinting: true, physicalPrinterCalled: false },
       error: {
         code: "PRINTER_DEVICE_FIELD_TEST_API_UNAVAILABLE",
         message: error?.message ?? String(error),

@@ -1,3 +1,5 @@
+export const RAW_MATERIAL_INBOUND_VIEW_KEYS = ["入库单", "待贴标", "机边领料", "供应商对账"];
+
 export function buildRawMaterialInboundMetrics(inbounds = []) {
   const pendingReview = inbounds.filter((item) => ["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(item.status)).length;
   const pendingPrint = inbounds.filter((item) => item.status === "已复核待打印标签").length;
@@ -46,6 +48,14 @@ export function buildRawMaterialInboundMetrics(inbounds = []) {
   ];
 }
 
+export function buildRawMaterialInboundViewItems(inbounds = []) {
+  return RAW_MATERIAL_INBOUND_VIEW_KEYS.map((key) => ({
+    key,
+    label: key,
+    count: filterRawMaterialInboundsByTab(inbounds, key).length,
+  }));
+}
+
 export function getSupplierStatementStatusTone(status) {
   if (status === "passed") return "success";
   if (status === "blocked") return "danger";
@@ -81,6 +91,19 @@ export function getRawMaterialInboundSourceLabel(meta = {}) {
   return "本地原型数据";
 }
 
+export function getRawMaterialNextActionLabel(item = {}) {
+  const status = String(item.status || "");
+  if (["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(status)) return "核对送货单";
+  if (status === "已复核待打印标签") return "打印卷标";
+  if (status === "已打印待贴标") return "贴标并核对";
+  if (status === "部分贴标") return "继续贴标";
+  if (status.includes("余料待复核")) return "复核余料";
+  if (status.includes("消耗确认")) return "查看消耗记录";
+  if (status.includes("领料/机边")) return "确认消耗或退料";
+  if (status.includes("可用")) return "可扫码领料";
+  return "查看详情";
+}
+
 export function formatRawMaterialDeliveryNoteNo(item = {}) {
   return item.deliveryNoteNo || `供应商未提供单号 / ${item.id || "系统入库单待生成"}`;
 }
@@ -95,7 +118,7 @@ export function filterRawMaterialInboundsByTab(inbounds = [], tab) {
       (item.rolls ?? []).some((roll) => ["机边领用", "已消耗", "余料待复核"].includes(roll.inventoryStatus) || roll.leftoverReviewRecordId),
     );
   }
-  if (tab === "供应商对账") return inbounds.filter((item) => item.statementStatus || item.statementSummary || item.statementDifferences?.length);
+  if (tab === "供应商对账") return inbounds;
   return inbounds;
 }
 
@@ -106,7 +129,8 @@ export function filterRawMaterialInboundsByKeyword(inbounds = [], keyword = "") 
     [
       item.id, item.supplierName, item.deliveryNoteNo, item.materialType, item.productName, item.supplierColor,
       item.factoryColor, item.spec, item.status, item.note,
-      ...(item.rolls ?? []).flatMap((roll) => [roll.id, roll.supplierRollNo, roll.labelStatus, roll.location]),
+      item.widthCm, item.gramWeightGsm, item.totalWeightKg,
+      ...(item.rolls ?? []).flatMap((roll) => [roll.id, roll.supplierRollNo, roll.labelStatus, roll.location, roll.widthCm, roll.weightKg]),
     ].some((value) => String(value ?? "").toLowerCase().includes(query)),
   );
 }
@@ -136,7 +160,7 @@ export function canIssueRawMaterialToMachine(item = {}) {
 }
 
 export function canIssueRawMaterialRoll(roll = {}) {
-  return roll.inventoryStatus === "可用";
+  return roll.inventoryStatus === "可用" && String(roll.labelStatus || "").includes("已贴标");
 }
 
 export function canConfirmRawMaterialConsumptionRoll(roll = {}) {

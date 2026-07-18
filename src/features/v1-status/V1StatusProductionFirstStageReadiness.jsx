@@ -6,6 +6,7 @@ export function V1StatusProductionFirstStageReadiness({
   productionEnvValuesFragmentSourceStatus,
   productionFirstStageExecution,
   productionPersistenceEvidence,
+  todoLoadPrecheck,
   productionPersistenceEvidenceAction,
   productionPersistenceEvidenceBlockers,
   productionPersistenceEvidenceGuidance,
@@ -161,6 +162,39 @@ export function V1StatusProductionFirstStageReadiness({
           ))}
         </div>
       ) : null}
+    </div>
+  ) : null}
+  {todoLoadPrecheck ? (
+    <div className="v1-production-first-stage-result v1-todo-load-precheck-latest">
+      <div>
+        <StatusPill
+          tone={
+            todoLoadPrecheck.ready
+              ? "success"
+              : todoLoadPrecheck.status === "blocked" || todoLoadPrecheck.status === "error"
+                ? "danger"
+                : "warning"
+          }
+        >
+          {todoLoadPrecheck.statusLabel}
+        </StatusPill>
+        <strong>生产待办容量 latest</strong>
+      </div>
+      <p>{todoLoadPrecheck.nextAction}</p>
+      <div className="v1-action-meta">
+        <span>请求成功 <strong>{todoLoadPrecheck.summary.successLabel}</strong></span>
+        <span>吞吐 <strong>{todoLoadPrecheck.summary.throughputLabel}</strong></span>
+        <span>P50 <strong>{todoLoadPrecheck.summary.p50Label}</strong></span>
+        <span>P95 <strong>{todoLoadPrecheck.summary.p95Label}</strong></span>
+        <span>错误率 <strong>{todoLoadPrecheck.summary.errorRateLabel}</strong></span>
+        <span>报告时效 <strong>{todoLoadPrecheck.freshness.statusLabel}</strong></span>
+        <span>最长有效 <strong>{todoLoadPrecheck.freshness.maxAgeHours || 72} 小时</strong></span>
+        <span>生产 HTTPS <strong>{todoLoadPrecheck.target.ready ? "通过" : "未通过"}</strong></span>
+        <span>正式会话 <strong>{todoLoadPrecheck.authentication.ready ? "通过" : "未通过"}</strong></span>
+        <span>只读护栏 <strong>{todoLoadPrecheck.safeguards.ready ? "通过" : "未通过"}</strong></span>
+        <span>业务数据 <strong>{todoLoadPrecheck.safeguards.businessDataMutated ? "已改动" : "未改动"}</strong></span>
+        <span>打印设备 <strong>{todoLoadPrecheck.safeguards.physicalPrinterCalled ? "已调用" : "未调用"}</strong></span>
+      </div>
     </div>
   ) : null}
   {productionPersistenceEvidenceLiveResult || productionPersistenceEvidenceAction.error ? (

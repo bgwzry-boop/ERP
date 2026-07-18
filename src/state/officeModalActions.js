@@ -15,6 +15,8 @@ export const officeModalTitles = {
   print: "单据 / 标签预览",
   printVoid: "作废旧单据/标签",
   dispatch: "编辑司机派单",
+  paperHandoff: "纸单交库房",
+  warehouseExecution: "回录库房实物结果",
   batchPrintResult: "确认打印结果",
   statementPreview: "对账单预览",
   customerConfirmation: "登记客户确认",
@@ -46,6 +48,16 @@ export const batchPrintResultOptions = [
   "不确定",
 ];
 
+const supportedPrintModalActions = new Set([
+  "打印预览",
+  "打印标签",
+  "打印自提单",
+  "打印送货单",
+  "重打标签",
+  "重打自提单",
+  "重打送货单",
+]);
+
 export function getOfficeModalInitialNumberValue(modal, { fulfillment, statement, getStatementBlockingAmount }) {
   if (modal.type === "batchPrintResult") return String(modal.totalLabels ?? 0);
   if (modal.type === "payment") return String(statement?.received || statement?.receivable || 0);
@@ -73,6 +85,9 @@ export function confirmOfficeModal({ modal, payload, fulfillments, statements, t
   }
 
   if (modal.type === "print") {
+    if (!supportedPrintModalActions.has(modal.action)) {
+      return { blocked: true, toast: "未识别打印操作，未执行。" };
+    }
     if (modal.action === "打印预览") {
       return {
         fulfillments,
@@ -103,5 +118,5 @@ export function confirmOfficeModal({ modal, payload, fulfillments, statements, t
     return { toast: "对账单预览已确认；可生成客户发送版或内部留档 Excel 文件。" };
   }
 
-  return { toast: "弹窗动作已模拟确认。" };
+  return { blocked: true, toast: "未识别弹窗操作，未执行。" };
 }

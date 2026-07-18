@@ -30,6 +30,11 @@ import {
   canCreateMasterDataImportConfirmationPlan,
   getMasterDataImportConfirmationPlanSummary,
 } from "../domain/masterDataImportConfirmationPlan.js";
+import {
+  normalizeV1RuntimeEmployeeRoleKeys,
+  roleCatalog,
+  v1RuntimeEmployeeRoleKeys,
+} from "../../shared/auth/roleCatalog.js";
 export function MasterDataImportTemplateModal({
   panel,
   onClose,
@@ -50,6 +55,7 @@ export function MasterDataImportTemplateModal({
   onCreateFailedRowsCorrectionDraft,
   onRefreshEmployeeAccountReviews,
   onEnableEmployeeAccount,
+  onConfirmEmployeeIdentity,
   onIssueEmployeePassword,
   onRevokeEmployeePassword,
 }) {
@@ -80,6 +86,8 @@ export function MasterDataImportTemplateModal({
   const revokeEmployeePasswordState = getUiActionState?.("masterData", "撤销员工密码") ?? { disabled: false, title: "" };
   const [expandedCorrectionExecutionId, setExpandedCorrectionExecutionId] = useState("");
   const [failedRowCorrectionEditors, setFailedRowCorrectionEditors] = useState({});
+  const [employeeRoleSelections, setEmployeeRoleSelections] = useState({});
+  const [employeeIdentityConfirmationDrafts, setEmployeeIdentityConfirmationDrafts] = useState({});
 
   function handlePrecheckFileChange(event) {
     const file = event.target.files?.[0];
@@ -118,6 +126,33 @@ export function MasterDataImportTemplateModal({
         },
       };
     });
+  }
+
+  function toggleEmployeeRole(review, roleKey, checked) {
+    const employeeId = String(review?.employeeId ?? "").trim();
+    if (!employeeId) return;
+    const sourceRoleKeys = getEmployeeReviewSourceRoleKeys(review);
+    if (!checked && sourceRoleKeys.includes(roleKey)) return;
+    setEmployeeRoleSelections((current) => {
+      const selectedRoleKeys = getEmployeeReviewSelectedRoleKeys(review, current);
+      const nextRoleKeys = checked
+        ? normalizeV1RuntimeEmployeeRoleKeys([...selectedRoleKeys, roleKey])
+        : selectedRoleKeys.filter((candidate) => candidate !== roleKey);
+      return { ...current, [employeeId]: nextRoleKeys };
+    });
+  }
+
+  function updateEmployeeIdentityConfirmationDraft(review, field, value) {
+    const employeeId = String(review?.employeeId ?? "").trim();
+    if (!employeeId) return;
+    setEmployeeIdentityConfirmationDrafts((current) => ({
+      ...current,
+      [employeeId]: {
+        confirmedName: current[employeeId]?.confirmedName ?? review?.name ?? "",
+        reason: current[employeeId]?.reason ?? "",
+        [field]: value,
+      },
+    }));
   }
 
   function resetFailedRowCorrectionRow(execution, row) {
@@ -489,24 +524,67 @@ export function MasterDataImportTemplateModal({
               {employeeReviewItems.map((review) => {
                 const passwordStatusLabel = getEmployeePasswordStatusLabel(review);
                 const canRevokePassword = canRevokeEmployeePassword(review);
+                const selectedRoleKeys = getEmployeeReviewSelectedRoleKeys(review, employeeRoleSelections);
+                const identityConfirmationDraft = getEmployeeIdentityConfirmationDraft(review, employeeIdentityConfirmationDrafts);
                 return (
                   <div className={`master-data-employee-review-row ${getEmployeeReviewRowTone(review)}`} key={review.employeeId}>
                     <div>
                       <strong>{review.name || review.bizNo || review.employeeId}</strong>
                       <span>{review.roleName || review.recommendedRoleLabel || "未填岗位"} · {review.defaultWorkshop || "未填车间"} · {review.defaultMachineId || "未绑机台"}</span>
+                      <EmployeeAccountRoleSelector
+                        review={review}
+                        selectedRoleKeys={selectedRoleKeys}
+                        onChange={toggleEmployeeRole}
+                      />
+                      {review.accountActivationBlocked ? (
+                        <div className="master-data-employee-identity-confirmation" aria-label={`${review.name || review.employeeId}身份确认`}>
+                          <label>
+                            <span>正式显示名</span>
+                            <input
+                              value={identityConfirmationDraft.confirmedName}
+                              onChange={(event) => updateEmployeeIdentityConfirmationDraft(review, "confirmedName", event.target.value)}
+                            />
+                          </label>
+                          <label>
+                            <span>确认依据</span>
+                            <input
+                              value={identityConfirmationDraft.reason}
+                              placeholder="如：负责人本人当面确认"
+                              onChange={(event) => updateEmployeeIdentityConfirmationDraft(review, "reason", event.target.value)}
+                            />
+                          </label>
+                          <button
+                            type="button"
+                            disabled={enableEmployeeReviewState.disabled}
+                            title={enableEmployeeReviewState.title || review.accountActivationBlockerLabel || "确认身份后才可启用账号"}
+                            onClick={() => onConfirmEmployeeIdentity?.(review, identityConfirmationDraft)}
+                          >
+                            确认身份
+                          </button>
+                        </div>
+                      ) : null}
                       <small>
                         {review.bizNo || review.employeeId} · {review.loginName || "待生成登录名"} · {passwordStatusLabel}
                         {review.passwordRevokedAt ? ` ${formatCompactDateTime(review.passwordRevokedAt)}` : ""}
                         {review.passwordChangedAt ? ` · 改密 ${formatCompactDateTime(review.passwordChangedAt)}` : ""}
                         {review.remark ? ` · ${review.remark}` : ""}
+                        {review.identityConfirmed ? ` · 身份确认 ${formatCompactDateTime(review.identityConfirmedAt)}` : ""}
                       </small>
                     </div>
                     <em>{review.statusLabel || review.status}</em>
                     <div className="master-data-employee-review-actions">
                       <button
-                        disabled={review.accountEnabled || enableEmployeeReviewState.disabled}
-                        title={enableEmployeeReviewState.title || (review.accountEnabled ? "该员工账号已启用" : "复核并启用导入员工账号")}
-                        onClick={() => onEnableEmployeeAccount?.(review)}
+                        disabled={review.accountEnabled || review.accountActivationBlocked || enableEmployeeReviewState.disabled}
+                        title={enableEmployeeReviewState.title || (review.accountEnabled
+                          ? "该员工账号已启用"
+                          : review.accountActivationBlocked
+                            ? review.accountActivationBlockerLabel || "请先确认员工身份"
+                            : "复核并启用导入员工账号")}
+                        onClick={() => onEnableEmployeeAccount?.({
+                          ...review,
+                          recommendedRoleKeys: selectedRoleKeys,
+                          recommendedRoleLabels: selectedRoleKeys.map((roleKey) => roleCatalog[roleKey]?.displayName ?? roleKey),
+                        })}
                       >
                         {review.accountEnabled ? "已启用" : "复核启用"}
                       </button>
@@ -556,6 +634,57 @@ export function MasterDataImportTemplateModal({
       </section>
     </div>
   );
+}
+
+function EmployeeAccountRoleSelector({ review, selectedRoleKeys, onChange }) {
+  const sourceRoleKeys = getEmployeeReviewSourceRoleKeys(review);
+  const primaryRoleKey = String(review?.recommendedRoleKey ?? "").trim() || sourceRoleKeys[0] || "";
+  return (
+    <div className="master-data-employee-role-selector" role="group" aria-label={`${review?.name || review?.employeeId || "员工"}账号角色`}>
+      <b>账号角色</b>
+      {v1RuntimeEmployeeRoleKeys.map((roleKey) => {
+        const sourceLocked = sourceRoleKeys.includes(roleKey);
+        const checked = selectedRoleKeys.includes(roleKey);
+        const label = roleCatalog[roleKey]?.displayName ?? roleKey;
+        return (
+          <label key={roleKey} title={sourceLocked ? "导入的主角色或附加角色，启用时不可删除" : `增加${label}权限`}>
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled={review?.accountEnabled === true || sourceLocked}
+              onChange={(event) => onChange?.(review, roleKey, event.target.checked)}
+            />
+            <span>{label}{roleKey === primaryRoleKey ? "（主）" : ""}</span>
+          </label>
+        );
+      })}
+    </div>
+  );
+}
+
+function getEmployeeReviewSourceRoleKeys(review = {}) {
+  return normalizeV1RuntimeEmployeeRoleKeys([
+    review.recommendedRoleKey,
+    review.recommendedRoleKeys,
+    review.roleName,
+  ]);
+}
+
+function getEmployeeReviewSelectedRoleKeys(review = {}, selections = {}) {
+  const employeeId = String(review.employeeId ?? "").trim();
+  const selected = employeeId && Array.isArray(selections[employeeId]) ? selections[employeeId] : [];
+  return normalizeV1RuntimeEmployeeRoleKeys([
+    getEmployeeReviewSourceRoleKeys(review),
+    selected,
+  ]);
+}
+
+function getEmployeeIdentityConfirmationDraft(review = {}, drafts = {}) {
+  const employeeId = String(review.employeeId ?? "").trim();
+  return {
+    confirmedName: String(drafts[employeeId]?.confirmedName ?? review.name ?? ""),
+    reason: String(drafts[employeeId]?.reason ?? ""),
+  };
 }
 
 function getPreferredTemplateKey(sourceLabel) {

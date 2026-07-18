@@ -93,6 +93,7 @@ export function createOfficeCoreReadActions({
     setTodoMeta({
       source: result.source,
       total: result.total ?? items.length,
+      reminderPolicy: result.reminderPolicy ?? null,
       loading: false,
       error: result.error?.message ?? "",
       lastSyncedAt: formatSyncTime(),

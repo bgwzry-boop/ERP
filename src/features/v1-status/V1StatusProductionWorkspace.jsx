@@ -16,6 +16,7 @@ export function V1StatusProductionWorkspace({ data, actions, handlers, refs, vie
     productionEnvValuesApplyGateStatus,
     productionEnvValuesFragmentSourceStatus,
     productionPersistenceEvidence,
+    todoLoadPrecheck,
     productionPersistenceEvidenceSummary,
     productionPersistenceEvidenceBlockers,
     productionPersistenceEvidenceGuidance,
@@ -132,6 +133,7 @@ export function V1StatusProductionWorkspace({ data, actions, handlers, refs, vie
         productionEnvValuesApplyGateStatus={productionEnvValuesApplyGateStatus}
         productionEnvValuesFragmentSourceStatus={productionEnvValuesFragmentSourceStatus}
         productionPersistenceEvidence={productionPersistenceEvidence}
+        todoLoadPrecheck={todoLoadPrecheck}
         productionPersistenceEvidenceSummary={productionPersistenceEvidenceSummary}
         productionPersistenceEvidenceBlockers={productionPersistenceEvidenceBlockers}
         productionPersistenceEvidenceGuidance={productionPersistenceEvidenceGuidance}

@@ -1,25 +1,22 @@
-import { useEffect, useState } from "react";
-import { SearchOutlined } from "@ant-design/icons";
+import { useState } from "react";
+import { flushSync } from "react-dom";
 import {
   DataState,
-  DataTable,
   DetailPane,
-  FilterBar,
   InfoGrid,
-  MetricStrip,
-  OperationalPanel,
-  PanelHeader,
   Segmented,
   StatusPill,
   Timeline,
 } from "../../shared/ui/operational.jsx";
 import { precheckRawMaterialSupplierStatementWorkbook } from "../../domain/rawMaterialSupplierStatementImport.js";
 import {
+  buildRawMaterialStockLookup,
+  evaluateRawMaterialOrderSupport,
+} from "../../../shared/rawMaterialInventorySupport.js";
+import {
   buildRawMaterialInboundMetrics,
   canConfirmRawMaterialConsumptionRoll,
-  canConfirmRawMaterialAttachment,
   canIssueRawMaterialRoll,
-  canIssueRawMaterialToMachine,
   canPrintRawMaterialLabels,
   canReturnRawMaterialLeftoverRoll,
   canReviewRawMaterialInbound,
@@ -28,30 +25,41 @@ import {
   filterRawMaterialInboundsByTab,
   formatRawMaterialDeliveryNoteNo,
   formatSupplierPayableAmount,
-  getRawMaterialInboundSourceLabel,
-  getRawMaterialInboundTone,
   getSupplierStatementReviewSourceLabel,
   getSupplierStatementReviewTone,
   getSupplierStatementStatusTone,
 } from "../../domain/rawMaterialInboundListState.js";
+import {
+  formatRawMaterialWeight,
+  RAW_MATERIAL_DETAIL_TABS,
+  RAW_MATERIAL_INBOUND_TABS,
+  RawMaterialDetailOverview,
+  RawMaterialInboundListPane,
+  selectRawMaterialInboundMetrics,
+} from "./RawMaterialInboundWorkbench.jsx";
+import { RawMaterialMobileReceiving } from "./RawMaterialMobileReceiving.jsx";
+import { RawMaterialLabelPrintSheet } from "./RawMaterialLabelPrintSheet.jsx";
+import { RawMaterialPurchasePanel } from "./RawMaterialPurchasePanel.jsx";
 
-const rawMaterialInboundTabs = ["入库单", "待贴标", "机边领料", "供应商对账"];
-const RAW_MATERIAL_DETAIL_TABS = ["入库标签", "领料成本", "供应商账", "记录"];
-const RAW_MATERIAL_METRIC_LABELS = {
-  入库单: ["待复核", "待打印", "待贴标", "可用卷/件"],
-  待贴标: ["待打印", "待贴标", "可用卷/件", "余料待复核"],
-  机边领料: ["机边领料", "已消耗", "余料待复核", "余料已复核"],
-  供应商对账: ["成本草稿", "成本确认", "损耗校准", "毛利报表"],
-};
+const RAW_MATERIAL_FIRST_RELEASE_DETAIL_TABS = ["入库标签", "扫码出库", "供应商账", "记录"];
 
-function selectRawMaterialInboundMetrics(metrics, activeTab) {
-  const metricByLabel = new Map(metrics.map((metric) => [metric[0], metric]));
-  return (RAW_MATERIAL_METRIC_LABELS[activeTab] ?? RAW_MATERIAL_METRIC_LABELS.入库单)
-    .map((label) => metricByLabel.get(label))
-    .filter(Boolean);
-}
+const OCR_LINE_REVIEW_FIELDS = [
+  ["productName", "品名"],
+  ["materialType", "材料"],
+  ["supplierColor", "供应商颜色"],
+  ["spec", "规格 *"],
+  ["rollCount", "卷/件数 *"],
+  ["totalWeightKg", "行总重 kg"],
+  ["unit", "单位 *"],
+  ["unitPrice", "单价"],
+  ["amount", "金额"],
+  ["supplierRollNo", "供应商卷号"],
+  ["rollWeightsKg", "分卷重量 kg"],
+];
 
 export function RawMaterialInboundPage({
+  authState,
+  currentUser,
   inbounds = [],
   meta = {},
   productionTasks = [],
@@ -60,23 +68,44 @@ export function RawMaterialInboundPage({
   selectedId,
   setSelectedId,
   onAction,
+  onDeliveryNoteRecognize,
   onStatementReviewDraftCreate,
   onStatementReviewConfirm,
   onStatementConfirm,
   onPayableDraftGenerate,
   onPaymentConfirm,
+  onNavigate,
+  firstReleaseMode = false,
   helpers = {},
 }) {
   const { getUiActionState = () => ({ disabled: false, title: "" }), money = (value) => `¥${value}` } = helpers;
-  const [activeTab, setActiveTab] = useState(rawMaterialInboundTabs[0]);
+  const [activeTab, setActiveTab] = useState(RAW_MATERIAL_INBOUND_TABS[0]);
   const [detailTab, setDetailTab] = useState("入库标签");
   const [keyword, setKeyword] = useState("");
   const [statementImport, setStatementImport] = useState(null);
   const [statementImportLoading, setStatementImportLoading] = useState(false);
   const [statementReviewSaving, setStatementReviewSaving] = useState(false);
+  const [deliveryNoteOcrLoading, setDeliveryNoteOcrLoading] = useState(false);
+  const [deliveryNoteOcrError, setDeliveryNoteOcrError] = useState("");
+  const [deliveryNoteOcrResult, setDeliveryNoteOcrResult] = useState("");
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [ocrReviewDraft, setOcrReviewDraft] = useState({});
+  const [ocrLineReviewDraft, setOcrLineReviewDraft] = useState({});
+  const [labelVerification, setLabelVerification] = useState(null);
+  const [issueSelection, setIssueSelection] = useState(null);
+  const [printSheetInbound, setPrintSheetInbound] = useState(null);
   const records = filterRawMaterialInboundsByTab(inbounds, activeTab);
   const visibleRecords = filterRawMaterialInboundsByKeyword(records, keyword);
   const selected = visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
+  const selectedStock = selected ? buildRawMaterialStockLookup(inbounds, {
+    color: selected.factoryColor || selected.supplierColor,
+    widthCm: selected.widthCm,
+    gramWeightGsm: selected.gramWeightGsm,
+  }) : null;
+  const selectedTaskCandidate = selected ? findRawMaterialProductionTaskCandidate(selected, productionTasks) : null;
+  const selectedOrderSupport = selectedTaskCandidate
+    ? evaluateRawMaterialOrderSupport({ inbounds, order: selectedTaskCandidate })
+    : null;
   const costState = getUiActionState("rawMaterial", "查看成本");
   const canViewCost = !costState.disabled;
   const reviewState = getUiActionState("rawMaterial", "复核送货单");
@@ -96,15 +125,113 @@ export function RawMaterialInboundPage({
   const paymentState = getUiActionState("rawMaterial", "确认付款");
   const metrics = selectRawMaterialInboundMetrics(buildRawMaterialInboundMetrics(inbounds), activeTab);
 
-  useEffect(() => {
-    if (!selected) return;
-    if (selected.id !== selectedId) setSelectedId(selected.id);
-  }, [selected?.id, selectedId, setSelectedId]);
+  function prepareOcrReviewDraft(inbound) {
+    setOcrReviewDraft(
+      Object.fromEntries((inbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value ?? field.recognizedValue ?? ""])),
+    );
+    setOcrLineReviewDraft(
+      Object.fromEntries((inbound?.ocrLines ?? []).map((line) => [line.lineId, buildOcrLineReviewDraft(line)])),
+    );
+  }
+
+  function handleSelectInbound(inboundId) {
+    setSelectedId(inboundId);
+    prepareOcrReviewDraft(inbounds.find((item) => item.id === inboundId));
+  }
+
+  async function handleDeliveryNoteRecognize(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setDeliveryNoteOcrError("");
+    setDeliveryNoteOcrResult("");
+    const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
+    if (!isSupportedDeliveryNoteFile(mimeType)) {
+      setDeliveryNoteOcrError("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
+      return;
+    }
+    if (file.size > 7.5 * 1024 * 1024) {
+      setDeliveryNoteOcrError("送货单文件不能超过 7.5MB，请压缩后重试。");
+      return;
+    }
+    setDeliveryNoteOcrLoading(true);
+    try {
+      const contentDataUrl = await readFileAsDataUrl(file);
+      const inbound = await onDeliveryNoteRecognize?.({
+        fileName: file.name,
+        mimeType,
+        fileSize: file.size,
+        contentDataUrl,
+      });
+      if (!inbound?.id) {
+        setDeliveryNoteOcrError("后台没有生成识别草稿，请查看页面提示后重试。");
+        return;
+      }
+      setActiveTab("入库单");
+      setKeyword("");
+      setDetailTab("入库标签");
+      setSelectedId(inbound.id);
+      prepareOcrReviewDraft(inbound);
+      setMobileDetailOpen(false);
+      setDeliveryNoteOcrResult(`识别成功：${inbound.id} · ${inbound.ocrStatus || "等待人工复核"}`);
+    } catch (error) {
+      setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
+    } finally {
+      setDeliveryNoteOcrLoading(false);
+    }
+  }
+
+  function handleOcrReviewConfirm() {
+    if (!selected || !canReviewRawMaterialInbound(selected)) return;
+    onAction?.("复核送货单", selected.id, {
+      reviewFields: ocrReviewDraft,
+      lineReviews: (selected.ocrLines ?? []).map((line) => ({
+        lineId: line.lineId,
+        values: ocrLineReviewDraft[line.lineId] ?? buildOcrLineReviewDraft(line),
+      })),
+      reason: "办公室对照原始送货单人工核对并确认腾讯云 OCR 字段。",
+      note: "OCR 字段已人工复核；仍需打印、实物贴标和逐卷人工核对后才能形成可用库存。",
+    });
+  }
+
+  async function handlePrintLabels() {
+    if (!selected || printState.disabled || !canPrintRawMaterialLabels(selected)) return;
+    flushSync(() => setPrintSheetInbound(selected));
+    document.body.classList.add("raw-material-label-printing");
+    try {
+      window.print();
+    } finally {
+      document.body.classList.remove("raw-material-label-printing");
+    }
+    if (!window.confirm(`请确认 ${selected.rolls?.filter((roll) => roll.inventoryStatus !== "可用").length || 0} 张卷标已从打印机正常输出。\n如果取消或打印失败，请点“取消”，系统不会标记为已打印。`)) {
+      setPrintSheetInbound(null);
+      return;
+    }
+    const result = await onAction?.("打印卷标", selected.id);
+    if (result) setPrintSheetInbound(null);
+  }
+
+  async function handleReprintLabel(roll) {
+    if (!selected || !roll || printState.disabled) return;
+    flushSync(() => setPrintSheetInbound({ ...selected, rolls: [roll] }));
+    document.body.classList.add("raw-material-label-printing");
+    try {
+      window.print();
+    } finally {
+      document.body.classList.remove("raw-material-label-printing");
+    }
+    if (!window.confirm(`请确认卷标 ${roll.id} 已从打印机正常输出。\n如果取消或打印失败，请点“取消”，系统不会记录本次重打。`)) {
+      setPrintSheetInbound(null);
+      return;
+    }
+    const result = await onAction?.("重打卷标", selected.id, { rollId: roll.id, reason: "异常卷重新打印标签。" });
+    if (result) setPrintSheetInbound(null);
+  }
 
   function changeTab(tab) {
     setActiveTab(tab);
     setKeyword("");
-    setDetailTab(tab === "供应商对账" ? "供应商账" : tab === "机边领料" ? "领料成本" : "入库标签");
+    setDetailTab(tab === "供应商对账" ? "供应商账" : tab === "机边领料" ? (firstReleaseMode ? "扫码出库" : "领料成本") : "入库标签");
   }
 
   async function handleSupplierStatementImport(event) {
@@ -190,116 +317,235 @@ export function RawMaterialInboundPage({
   }
 
   function handleConfirmSupplierPayment(review) {
+    const payableAmount = Number(review?.supplierPayableDraft?.payableAmount);
+    if (!Number.isFinite(payableAmount) || payableAmount <= 0) return;
+    const supplierName = review?.supplierName || "当前供应商";
+    const payableId = review?.supplierPayableId || "应付草稿待确认";
+    const confirmed = window.confirm(
+      `确认已实际向${supplierName}付款？\n应付单：${payableId}\n付款金额：${formatSupplierPayableAmount(payableAmount, money)}\n确认后将写入付款确认和操作日志；不会影响原材料库存。`,
+    );
+    if (!confirmed) return;
     onPaymentConfirm?.(review.reviewId, {
-      paidAmount: review.supplierPayableDraft?.payableAmount,
+      paidAmount: payableAmount,
       paymentMethod: "银行转账",
       note: "财务确认供应商应付草稿已实际付款；只记录付款确认，不写原材料库存。",
     });
   }
 
   return (
-    <section className="page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench">
-      <OperationalPanel className="table-pane raw-material-list-panel" ariaLabel="原材料入库列表">
-        <PanelHeader
-          title="原材料工作台"
-          summary={`OCR 仅预填，打印标签只是待贴标；${getRawMaterialInboundSourceLabel(meta)}`}
-          actions={(
-            <div className="raw-material-panel-actions">
-              <Segmented ariaLabel="原材料视图" value={activeTab} onChange={changeTab} items={rawMaterialInboundTabs} />
-              <button className="ghost-button" onClick={() => setKeyword("")}>重置</button>
-            </div>
-          )}
-        />
-        <FilterBar
-          className="raw-material-filter-bar"
-          ariaLabel="原材料搜索"
-          summary={`命中 ${visibleRecords.length} / ${records.length} 条；成本和单价只给有权限账号查看。`}
-          secondarySummary={`${activeTab} · 原材料入库`}
-        >
-          <label className="search small">
-            <SearchOutlined />
-            <input placeholder="搜索供应商 / 供应商单号 / ERP 入库单 / 原料 / 颜色 / 批号" value={keyword} onChange={(event) => setKeyword(event.target.value)} />
-          </label>
-        </FilterBar>
-        <MetricStrip items={metrics} ariaLabel="原材料状态摘要" />
-        <DataTable
-          className="raw-material-inbound-table"
-          columns={["供应商/单号", "原料/规格", "卷/重量", "状态", "下一步"]}
-          rows={visibleRecords.map((item) => ({
-            id: item.id,
-            active: item.id === selected?.id,
-            tone: getRawMaterialInboundTone(item.status),
-            onClick: () => setSelectedId(item.id),
-            cells: [
-              `${item.supplierName} / ${formatRawMaterialDeliveryNoteNo(item)}`,
-              `${item.productName || item.materialType} / ${item.spec} / ${item.factoryColor || item.supplierColor}`,
-              `${item.rollCount || item.rolls?.length || 0}${item.materialType === "提手" ? "件" : "卷"} / ${formatRawMaterialWeight(item)}`,
-              item.status,
-              item.nextStep,
-            ],
-          }))}
-        />
-      </OperationalPanel>
+    <section className={`page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench ${mobileDetailOpen ? "is-mobile-detail-open" : ""}`}>
+      <RawMaterialLabelPrintSheet inbound={printSheetInbound} />
+      <RawMaterialMobileReceiving
+        attachState={attachState}
+        deliveryNoteOcrError={deliveryNoteOcrError}
+        deliveryNoteOcrLoading={deliveryNoteOcrLoading}
+        deliveryNoteOcrResult={deliveryNoteOcrResult}
+        onAttach={(options) => selected && onAction?.("确认贴标入库", selected.id, options)}
+        onDeliveryNoteRecognize={handleDeliveryNoteRecognize}
+        onOpenReview={() => {
+          setDetailTab("入库标签");
+          prepareOcrReviewDraft(selected);
+          setMobileDetailOpen(true);
+        }}
+        onNavigate={onNavigate}
+        onPrint={handlePrintLabels}
+        onSelect={handleSelectInbound}
+        printState={printState}
+        records={inbounds}
+        reviewState={reviewState}
+        selected={selected}
+      />
+      <RawMaterialInboundListPane
+        activeTab={activeTab}
+        inbounds={inbounds}
+        keyword={keyword}
+        meta={meta}
+        metrics={metrics}
+        onKeywordChange={setKeyword}
+        onSelect={handleSelectInbound}
+        onTabChange={changeTab}
+        records={records}
+        selectedId={selected?.id}
+        visibleRecords={visibleRecords}
+        firstReleaseMode={firstReleaseMode}
+      />
       <DetailPane
         className="raw-material-detail-pane"
         title={selected?.supplierName ?? "原材料入库"}
-        subtitle={selected ? `${selected.status} · ${selected.source}` : "原材料送货单 OCR / 一卷一标"}
+        subtitle={selected?.status ?? "原材料入库"}
       >
+        <button className="raw-material-mobile-back" onClick={() => setMobileDetailOpen(false)} type="button">返回收货步骤</button>
+        <div className="raw-material-ocr-upload-bar">
+          <div className="raw-material-ocr-copy" title="供应商原始单号有则录、没有就留空">
+            <strong>识别送货单</strong>
+            <span>OCR 仅预填；识别不会直接入库</span>
+          </div>
+          <div className="raw-material-ocr-upload-actions">
+            <label
+              className={`button-like raw-material-camera-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
+              title={reviewState.title || "调用手机后置摄像头拍摄送货单，单张最大 7.5MB"}
+            >
+              {deliveryNoteOcrLoading ? "正在识别…" : "直接拍照"}
+              <input
+                accept="image/jpeg,image/png,image/bmp"
+                capture="environment"
+                disabled={reviewState.disabled || deliveryNoteOcrLoading}
+                hidden
+                onChange={handleDeliveryNoteRecognize}
+                type="file"
+              />
+            </label>
+            <label
+              className={`button-like raw-material-file-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
+              title={reviewState.title || "从相册/文件选择 PNG、JPG、JPEG、BMP 或 PDF，最大 7.5MB"}
+            >
+              {deliveryNoteOcrLoading ? "处理中…" : "相册 / PDF"}
+              <input
+                accept="image/png,image/jpeg,image/bmp,application/pdf"
+                disabled={reviewState.disabled || deliveryNoteOcrLoading}
+                hidden
+                onChange={handleDeliveryNoteRecognize}
+                type="file"
+              />
+            </label>
+          </div>
+          {deliveryNoteOcrResult ? <span className="raw-material-ocr-success" role="status">{deliveryNoteOcrResult}</span> : null}
+          {deliveryNoteOcrError ? <span className="raw-material-ocr-error" role="alert">{deliveryNoteOcrError}</span> : null}
+        </div>
+        {firstReleaseMode ? null : <RawMaterialPurchasePanel authState={authState} currentUser={currentUser} />}
         {selected ? (
           <>
-            <InfoGrid
-              rows={[
-                ["原料", `${selected.productName || selected.materialType} / ${selected.materialType}`],
-                ["外部/内部单号", formatRawMaterialDeliveryNoteNo(selected)],
-                ["规格颜色", `${selected.spec} / ${selected.supplierColor} -> ${selected.factoryColor}`],
-                ["卷/件数", `${selected.rollCount || selected.rolls?.length || 0}`],
-                ["重量/单位", `${formatRawMaterialWeight(selected)} / ${selected.unit || "未填"}`],
-                ["单价/金额", canViewCost ? formatRawMaterialCost(selected, money) : "成本权限可见"],
-                ["库位", selected.location || "待分配"],
-                ["OCR", selected.ocrStatus || "待识别"],
-                ["签单", selected.signedNoteStatus || "待上传"],
-              ]}
-            />
+            <RawMaterialDetailOverview selected={selected} />
             <div className="operational-detail-tabs raw-material-detail-tabs">
-              <Segmented ariaLabel="原材料详情视图" value={detailTab} onChange={setDetailTab} items={RAW_MATERIAL_DETAIL_TABS} />
+              <Segmented ariaLabel="原材料详情视图" value={detailTab} onChange={setDetailTab} items={firstReleaseMode ? RAW_MATERIAL_FIRST_RELEASE_DETAIL_TABS : RAW_MATERIAL_DETAIL_TABS} />
             </div>
-            <section className="detail-section operational-detail-section-first" hidden={detailTab !== "入库标签"}>
-              <h3>入库动作</h3>
-              <p>OCR 仅预填字段；供应商原始单号有则录、没有就留空，内部统一用 ERP 入库单号和卷号追踪；人工复核、打印卷标和贴标扫码是三个独立状态，不能跳过贴标扫码直接形成可用原材料库存。</p>
-              <div className="action-row raw-material-actions">
-                <button
-                  className="primary-action"
-                  disabled={reviewState.disabled || !canReviewRawMaterialInbound(selected)}
-                  title={reviewState.title || (!canReviewRawMaterialInbound(selected) ? "当前状态无需复核" : "")}
-                  onClick={() => onAction?.("复核送货单", selected.id)}
-                >
-                  复核送货单
-                </button>
-                <button
-                  disabled={printState.disabled || !canPrintRawMaterialLabels(selected)}
-                  title={printState.title || (!canPrintRawMaterialLabels(selected) ? "先完成送货单复核" : "")}
-                  onClick={() => onAction?.("打印卷标", selected.id)}
-                >
-                  打印卷标
-                </button>
-                <button
-                  disabled={attachState.disabled || !canConfirmRawMaterialAttachment(selected)}
-                  title={attachState.title || (!canConfirmRawMaterialAttachment(selected) ? "先打印卷标并贴到实物" : "")}
-                  onClick={() => onAction?.("确认贴标入库", selected.id)}
-                >
-                  确认全部贴标
-                </button>
-                <button
-                  disabled={exceptionState.disabled || selected.status === "入库异常/待确认"}
-                  title={exceptionState.title || ""}
-                  onClick={() => onAction?.("标记异常", selected.id, { reason: "页面手工标记异常。" })}
-                >
-                  标记异常
-                </button>
-              </div>
-            </section>
-            <section className="detail-section raw-material-roll-section" hidden={!(["入库标签", "领料成本"].includes(detailTab))}>
-              <h3>{detailTab === "入库标签" ? "卷/件标签" : "卷/件领料与消耗"}</h3>
+            <div className="raw-material-detail-scroll">
+              <section className="detail-section operational-detail-section-first" hidden={detailTab !== "入库标签"}>
+                <h3>入库动作</h3>
+                {selected.ocrProvider === "tencent_cloud_table_v3" && canReviewRawMaterialInbound(selected) ? (
+                  <div className="raw-material-ocr-review-panel">
+                    <div className="raw-material-ocr-review-heading">
+                      <div>
+                        <strong>腾讯云 OCR 人工复核</strong>
+                        <span>原图附件 {selected.sourceAttachmentId || "已保存"} · 请求 {selected.ocrRequestId || "待记录"}</span>
+                      </div>
+                      <span>{selected.ocrStatus}</span>
+                    </div>
+                    <div className="raw-material-ocr-review-grid">
+                      {(selected.ocrReviewFields ?? []).map((field) => (
+                        <label key={field.key}>
+                          <span>{field.label}{field.required ? " *" : ""}</span>
+                          <input
+                            aria-label={`${field.label} OCR 复核值`}
+                            inputMode={isNumericOcrField(field.key) ? "decimal" : undefined}
+                            min={field.key === "rollCount" ? "1" : undefined}
+                            onChange={(event) => setOcrReviewDraft((current) => ({
+                              ...current,
+                              [field.key]: isNumericOcrField(field.key) ? event.target.value : event.target.value,
+                            }))}
+                            step={field.key === "rollCount" ? "1" : isNumericOcrField(field.key) ? "0.001" : undefined}
+                            type={isNumericOcrField(field.key) ? "number" : "text"}
+                            value={ocrReviewDraft[field.key] ?? ""}
+                          />
+                          <small>
+                            识别值：{String(field.recognizedValue || "未识别")} · 可信度 {Math.round(Number(field.confidence) || 0)}% · {field.reviewStatus || "待人工复核"}
+                          </small>
+                        </label>
+                      ))}
+                    </div>
+                    {(selected.ocrLines ?? []).length ? (
+                      <div className="raw-material-ocr-lines" aria-label="OCR 逐行复核">
+                        {(selected.ocrLines ?? []).map((line, index) => {
+                          const lineDraft = ocrLineReviewDraft[line.lineId] ?? buildOcrLineReviewDraft(line);
+                          const recognizedValues = line.recognizedValues ?? line.values ?? {};
+                          return (
+                            <div className="raw-material-ocr-line-review" key={line.lineId}>
+                              <div className="raw-material-ocr-line-heading">
+                                <strong>第 {index + 1} 行</strong>
+                                <span>{line.sourceText || Object.values(recognizedValues).filter(Boolean).join(" | ") || "该行未识别到有效文字"}</span>
+                                <em>{line.reviewStatus || "待人工复核"}</em>
+                              </div>
+                              <div className="raw-material-ocr-line-grid">
+                                {OCR_LINE_REVIEW_FIELDS.map(([key, label]) => (
+                                  <label key={key}>
+                                    <span>{label}</span>
+                                    <input
+                                      aria-label={`OCR 明细 ${line.lineId} ${label}`}
+                                      inputMode={isNumericOcrLineField(key) ? "decimal" : undefined}
+                                      min={key === "rollCount" ? "1" : undefined}
+                                      onChange={(event) => setOcrLineReviewDraft((current) => ({
+                                        ...current,
+                                        [line.lineId]: {
+                                          ...(current[line.lineId] ?? buildOcrLineReviewDraft(line)),
+                                          [key]: event.target.value,
+                                        },
+                                      }))}
+                                      step={key === "rollCount" ? "1" : isNumericOcrLineField(key) ? "0.001" : undefined}
+                                      type={isNumericOcrLineField(key) ? "number" : "text"}
+                                      value={lineDraft[key] ?? ""}
+                                    />
+                                    <small>识别值：{formatOcrLineRecognizedValue(recognizedValues[key])} · {Math.round(Number(line.confidences?.[key]) || 0)}%</small>
+                                  </label>
+                                ))}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : null}
+                    <button
+                      className="primary-action"
+                      disabled={reviewState.disabled}
+                      onClick={handleOcrReviewConfirm}
+                      type="button"
+                    >
+                      确认人工复核
+                    </button>
+                  </div>
+                ) : null}
+                <div className="action-row raw-material-actions">
+                  <button
+                    className="primary-action"
+                    disabled={reviewState.disabled || !canReviewRawMaterialInbound(selected)}
+                    title={reviewState.title || (!canReviewRawMaterialInbound(selected) ? "当前状态无需复核" : "")}
+                    onClick={selected.ocrProvider === "tencent_cloud_table_v3" ? handleOcrReviewConfirm : () => onAction?.("复核送货单", selected.id)}
+                  >
+                    复核送货单
+                  </button>
+                  <button
+                    disabled={printState.disabled || !canPrintRawMaterialLabels(selected)}
+                    title={printState.title || (!canPrintRawMaterialLabels(selected) ? "先完成送货单复核" : "打印标签只是待贴标，贴到实物并核对后才入库")}
+                    onClick={handlePrintLabels}
+                  >
+                    打印一卷一标
+                  </button>
+                  <button
+                    disabled={exceptionState.disabled || selected.status === "入库异常/待确认"}
+                    title={exceptionState.title || ""}
+                    onClick={() => onAction?.("标记异常", selected.id, { reason: "页面手工标记异常。" })}
+                  >
+                    标记异常
+                  </button>
+                </div>
+                <InfoGrid
+                  rows={[
+                    ["原料", `${selected.productName || selected.materialType} / ${selected.materialType}`],
+                    ["外部/内部单号", formatRawMaterialDeliveryNoteNo(selected)],
+                    ["规格颜色", `${formatRawMaterialStructuredSpec(selected)} / ${selected.supplierColor} -> ${selected.factoryColor}`],
+                    ["主要查询键", `${selected.factoryColor || selected.supplierColor || "颜色待补"} / ${selected.widthCm || "?"}cm / ${selected.gramWeightGsm || "?"}克`],
+                    ["同色同宽可用", `${selectedStock?.availableWeightKg || 0}kg / ${selectedStock?.availableRollCount || 0}卷`],
+                    ...(firstReleaseMode ? [] : [["订单支持", formatRawMaterialOrderSupport(selectedOrderSupport, selectedTaskCandidate)]]),
+                    ["卷/件数", `${selected.rollCount || selected.rolls?.length || 0}`],
+                    ["重量/单位", `${formatRawMaterialWeight(selected)} / ${selected.unit || "未填"}`],
+                    ["单价/金额", canViewCost ? formatRawMaterialCost(selected, money) : "成本权限可见"],
+                    ["库位", selected.location || "待分配"],
+                    ["OCR", selected.ocrStatus || "待识别"],
+                    ["单据附件", formatRawMaterialOptionalAttachment(selected.signedNoteStatus)],
+                  ]}
+                />
+              </section>
+              <section className="detail-section raw-material-roll-section" hidden={!(["入库标签", "领料成本", "扫码出库"].includes(detailTab))}>
+              <h3>{detailTab === "入库标签" ? "卷/件标签" : firstReleaseMode ? "按卷扫码出库" : "卷/件领料与消耗"}</h3>
               <div className="raw-material-roll-list">
                 {(selected.rolls ?? []).map((roll) => {
                   const canAttachRoll = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用";
@@ -317,33 +563,49 @@ export function RawMaterialInboundPage({
                       </div>
                       <StatusPill tone={getRawMaterialRollTone(roll)}>{roll.labelStatus} / {roll.inventoryStatus || "不可用"}</StatusPill>
                       <span>{roll.location || "待分配"}</span>
-                      <span>{roll.consumptionStatus || roll.signedNoteStatus || "待扫码/签单"}</span>
+                      <span>{formatRawMaterialLabelVerification(roll)}</span>
                       <button
                         hidden={detailTab !== "入库标签"}
                         disabled={attachState.disabled || !canAttachRoll}
                         title={attachState.title || (!canAttachRoll ? "该卷/件还未到可贴标确认状态" : "")}
-                        onClick={() => onAction?.("确认贴标入库", selected.id, { rollId: roll.id })}
+                        onClick={() => setLabelVerification(buildRawMaterialLabelVerificationDraft(selected, roll))}
                       >
-                        贴标确认
+                        核对并确认
                       </button>
                       <button
-                        hidden={detailTab !== "领料成本"}
+                        hidden={detailTab !== "入库标签" || roll.labelStatus !== "标签或实物不符/待确认"}
+                        disabled={printState.disabled}
+                        title={printState.title || "只作废当前异常卷的旧标签，不影响其他已确认卷"}
+                        onClick={() => onAction?.("作废卷标", selected.id, { rollId: roll.id, reason: "标签与实物不符，作废当前卷旧标签。" })}
+                      >
+                        作废旧标签
+                      </button>
+                      <button
+                        hidden={detailTab !== "入库标签" || roll.labelStatus !== "标签已作废/待重打"}
+                        disabled={printState.disabled}
+                        title={printState.title || "只重打当前异常卷的标签，重打后仍需重新逐卷核对"}
+                        onClick={() => handleReprintLabel(roll)}
+                      >
+                        重打本卷标签
+                      </button>
+                      <button
+                        hidden={!(["领料成本", "扫码出库"].includes(detailTab))}
                         disabled={issueState.disabled || !canIssueRoll}
                         title={issueState.title || (!canIssueRoll ? "该卷/件还不是可用库存，或已经领到机边" : "")}
-                        onClick={() => onAction?.("机边领料", selected.id, buildRawMaterialIssueOptions(selected, roll, productionTasks))}
+                        onClick={() => setIssueSelection(buildRawMaterialIssueOptions(selected, roll, firstReleaseMode ? [] : productionTasks, firstReleaseMode))}
                       >
-                        机边领料
+                        {firstReleaseMode ? "扫码出库" : "机边领料"}
                       </button>
                       <button
-                        hidden={detailTab !== "领料成本"}
+                        hidden={firstReleaseMode || detailTab !== "领料成本"}
                         disabled={issueState.disabled || !canPartialIssueRoll}
                         title={issueState.title || (!canPartialIssueRoll ? "只有有重量的可用卷料才能拆卷部分领料" : "")}
-                        onClick={() => onAction?.("机边领料", selected.id, buildRawMaterialPartialIssueOptions(selected, roll, productionTasks))}
+                        onClick={() => setIssueSelection(buildRawMaterialPartialIssueOptions(selected, roll, productionTasks))}
                       >
                         部分领料
                       </button>
                       <button
-                        hidden={detailTab !== "领料成本"}
+                        hidden={firstReleaseMode || detailTab !== "领料成本"}
                         disabled={consumptionState.disabled || !canConfirmConsumption}
                         title={consumptionState.title || (!canConfirmConsumption ? "只有机边领用且待消耗确认的卷/件才能确认消耗" : "")}
                         onClick={() => onAction?.("确认消耗", selected.id, buildRawMaterialConsumptionOptions(selected, roll))}
@@ -351,7 +613,7 @@ export function RawMaterialInboundPage({
                         确认消耗
                       </button>
                       <button
-                        hidden={detailTab !== "领料成本"}
+                        hidden={firstReleaseMode || detailTab !== "领料成本"}
                         disabled={consumptionState.disabled || !canPartialConsumeRoll}
                         title={consumptionState.title || (!canPartialConsumeRoll ? "只有有重量的机边卷料才能登记部分消耗" : "")}
                         onClick={() => onAction?.("确认消耗", selected.id, buildRawMaterialPartialConsumptionOptions(selected, roll))}
@@ -359,7 +621,7 @@ export function RawMaterialInboundPage({
                         部分消耗
                       </button>
                       <button
-                        hidden={detailTab !== "领料成本"}
+                        hidden={firstReleaseMode || detailTab !== "领料成本"}
                         disabled={leftoverState.disabled || !canReturnLeftover}
                         title={leftoverState.title || (!canReturnLeftover ? "只有机边领用的卷/件才能退回余料" : "")}
                         onClick={() => onAction?.("余料退回", selected.id, buildRawMaterialLeftoverReturnOptions(selected, roll))}
@@ -367,7 +629,7 @@ export function RawMaterialInboundPage({
                         余料退回
                       </button>
                       <button
-                        hidden={detailTab !== "领料成本"}
+                        hidden={firstReleaseMode || detailTab !== "领料成本"}
                         disabled={leftoverReviewState.disabled || !canReviewLeftover}
                         title={leftoverReviewState.title || (!canReviewLeftover ? "只有余料待复核的卷/件才能复核转可用" : "")}
                         onClick={() => onAction?.("复核余料可用", selected.id, buildRawMaterialLeftoverReviewOptions(selected, roll))}
@@ -378,19 +640,100 @@ export function RawMaterialInboundPage({
                   );
                 })}
               </div>
-            </section>
-            <section className="detail-section operational-detail-section-first raw-material-stage-actions" hidden={detailTab !== "领料成本"}>
+              {labelVerification ? (
+                <form
+                  className="raw-material-label-verification"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (!labelVerification.matchResult) return;
+                    const result = await onAction?.("确认贴标入库", selected.id, {
+                      rollId: labelVerification.rollId,
+                      matchResult: labelVerification.matchResult,
+                      checkedWeightKg: labelVerification.checkedWeightKg,
+                      checkedColor: labelVerification.checkedColor,
+                      checkedSpec: labelVerification.checkedSpec,
+                      location:
+                        labelVerification.matchResult === "mismatched" && labelVerification.location === "原料库-可用区"
+                          ? "原料隔离区"
+                          : labelVerification.location,
+                      verificationNote: labelVerification.verificationNote,
+                    });
+                    if (result) setLabelVerification(null);
+                  }}
+                >
+                  <div>
+                    <strong>逐卷贴标核对：{labelVerification.rollId}</strong>
+                    <span>只会影响当前卷/件；不一致将隔离，其他已确认卷保持可用。</span>
+                  </div>
+                  <label>结果
+                    <select
+                      onChange={(event) => setLabelVerification((current) => ({ ...current, matchResult: event.target.value }))}
+                      value={labelVerification.matchResult}
+                    >
+                      <option value="">请选择</option>
+                      <option value="matched">标签与实物一致</option>
+                      <option value="mismatched">标签与实物不一致</option>
+                    </select>
+                  </label>
+                  <label>实物重量 kg<input min="0" onChange={(event) => setLabelVerification((current) => ({ ...current, checkedWeightKg: event.target.value }))} step="0.001" type="number" value={labelVerification.checkedWeightKg} /></label>
+                  <label>实物颜色<input onChange={(event) => setLabelVerification((current) => ({ ...current, checkedColor: event.target.value }))} value={labelVerification.checkedColor} /></label>
+                  <label>实物规格<input onChange={(event) => setLabelVerification((current) => ({ ...current, checkedSpec: event.target.value }))} value={labelVerification.checkedSpec} /></label>
+                  <label>库位<input onChange={(event) => setLabelVerification((current) => ({ ...current, location: event.target.value }))} value={labelVerification.location} /></label>
+                  <label>说明<textarea onChange={(event) => setLabelVerification((current) => ({ ...current, verificationNote: event.target.value }))} value={labelVerification.verificationNote} /></label>
+                  <div className="action-row">
+                    <button className="primary-action" disabled={attachState.disabled || !labelVerification.matchResult} type="submit">确认本卷核对</button>
+                    <button onClick={() => setLabelVerification(null)} type="button">取消</button>
+                  </div>
+                </form>
+              ) : null}
+              {issueSelection ? (
+                <form
+                  className="raw-material-label-verification raw-material-issue-selection"
+                  onSubmit={async (event) => {
+                    event.preventDefault();
+                    if (!issueSelection.machineId || (!firstReleaseMode && !issueSelection.productionTaskId)) return;
+                    const result = await onAction?.(firstReleaseMode ? "扫码出库" : "机边领料", selected.id, issueSelection);
+                    if (result) setIssueSelection(null);
+                  }}
+                >
+                  <div>
+                    <strong>领料确认：{issueSelection.rollId}</strong>
+                    <span>{firstReleaseMode ? "只需选择领用机台；颜色、规格、宽幅和重量由卷码自动带出，暂不关联订单。" : "选择生产任务和机台后才会移动该卷/件到机边；不生成成品数量或成本。"}</span>
+                  </div>
+                  {!firstReleaseMode ? <label>生产任务
+                    <select
+                      onChange={(event) => {
+                        const task = findRawMaterialProductionTaskOption(productionTasks, event.target.value);
+                        setIssueSelection((current) => ({
+                          ...current,
+                          productionTaskId: event.target.value,
+                          machineId: task?.machineId || current.machineId,
+                        }));
+                      }}
+                      value={issueSelection.productionTaskId}
+                    >
+                      <option value="">请选择生产任务</option>
+                      {buildRawMaterialIssueTaskOptions(productionTasks).map((task) => (
+                        <option key={task.productionTaskId} value={task.productionTaskId}>{task.label}</option>
+                      ))}
+                    </select>
+                  </label> : null}
+                  <label>机台 / 机边区域<input onChange={(event) => setIssueSelection((current) => ({ ...current, machineId: event.target.value }))} value={issueSelection.machineId} /></label>
+                  {issueSelection.partialIssue ? (
+                    <label>本次领料 kg<input min="0.001" onChange={(event) => setIssueSelection((current) => ({ ...current, issuedWeightKg: event.target.value }))} step="0.001" type="number" value={issueSelection.issuedWeightKg} /></label>
+                  ) : null}
+                  <label>说明<textarea onChange={(event) => setIssueSelection((current) => ({ ...current, note: event.target.value }))} value={issueSelection.note || ""} /></label>
+                  <div className="action-row">
+                    <button className="primary-action" disabled={issueState.disabled || !issueSelection.machineId || (!firstReleaseMode && !issueSelection.productionTaskId)} type="submit">{firstReleaseMode ? "确认扫码出库" : "确认领料到机边"}</button>
+                    <button onClick={() => setIssueSelection(null)} type="button">取消</button>
+                  </div>
+                </form>
+              ) : null}
+              </section>
+              <section className="detail-section operational-detail-section-first raw-material-stage-actions" hidden={firstReleaseMode || detailTab !== "领料成本"}>
               <h3>领料与成本动作</h3>
               <p>机边领料只移动原材料状态；成本、损耗和毛利按独立复核步骤推进，不把机器计数或领料记录当成合格产量。</p>
               <div className="action-row raw-material-actions">
-                <button
-                  className="primary-action"
-                  disabled={issueState.disabled || !canIssueRawMaterialToMachine(selected)}
-                  title={issueState.title || (!canIssueRawMaterialToMachine(selected) ? "只有已贴标扫码可用的卷/件才能机边领料" : "")}
-                  onClick={() => onAction?.("机边领料", selected.id, buildRawMaterialIssueOptions(selected, null, productionTasks))}
-                >
-                  全部机边领料
-                </button>
                 <button
                   disabled={costDraftState.disabled || !canGenerateRawMaterialCostDraft(selected)}
                   title={costDraftState.title || (!canGenerateRawMaterialCostDraft(selected) ? "需先确认消耗，且领料记录必须已匹配生产任务" : "")}
@@ -427,9 +770,9 @@ export function RawMaterialInboundPage({
                   复核毛利快照
                 </button>
               </div>
-            </section>
-            <section className="detail-section raw-material-machine-section" hidden={detailTab !== "领料成本"}>
-              <h3>机边领料 / 消耗</h3>
+              </section>
+              <section className="detail-section raw-material-machine-section" hidden={!(["领料成本", "扫码出库"].includes(detailTab))}>
+              <h3>{firstReleaseMode ? "扫码出库记录" : "机边领料 / 消耗"}</h3>
               <InfoGrid
                 rows={[
                   ["领料状态", selected.issueStatus || (selected.rawMaterialIssueRecords?.length ? "部分领料/机边" : "未领料")],
@@ -494,8 +837,8 @@ export function RawMaterialInboundPage({
                   (selected.rawMaterialOrderMarginReports ?? []).length
                 ) ? <span>暂无机边领料 / 消耗 / 余料记录。</span> : null}
               </div>
-            </section>
-            <section className="detail-section operational-detail-section-first" hidden={detailTab !== "供应商账"}>
+              </section>
+              <section className="detail-section operational-detail-section-first" hidden={detailTab !== "供应商账"}>
               <h3>供应商对账</h3>
               <InfoGrid
                 rows={[
@@ -530,13 +873,15 @@ export function RawMaterialInboundPage({
                   payableState={payableState}
                   paymentState={paymentState}
                   money={money}
+                  firstReleaseMode={firstReleaseMode}
                 />
               </div>
-            </section>
-            <section className="detail-section operational-detail-section-first" hidden={detailTab !== "记录"}>
-              <h3>流程记录</h3>
-              <Timeline items={buildRawMaterialInboundTimeline(selected)} />
-            </section>
+              </section>
+              <section className="detail-section operational-detail-section-first" hidden={detailTab !== "记录"}>
+                <h3>流程记录</h3>
+                <Timeline items={buildRawMaterialInboundTimeline(selected)} />
+              </section>
+            </div>
           </>
         ) : (
           <DataState title="暂无原材料入库单" detail="调整视图或搜索条件后重试。" compact />
@@ -642,6 +987,7 @@ function SupplierStatementReviewList({
   payableState = {},
   paymentState = {},
   money = (value) => `¥${value}`,
+  firstReleaseMode = false,
 }) {
   const recent = reviews.slice(0, 5);
   return (
@@ -660,6 +1006,7 @@ function SupplierStatementReviewList({
           const canConfirmPayment =
             review.supplierPayableId &&
             review.supplierPayableDraft &&
+            Number(review.supplierPayableDraft.payableAmount) > 0 &&
             review.paymentStatus !== "已确认付款" &&
             !review.supplierPaymentConfirmationId;
           return (
@@ -674,12 +1021,12 @@ function SupplierStatementReviewList({
                 {review.statementConfirmationId ? (
                   <span>{review.statementConfirmationId} / {review.paymentStatus || "待财务付款确认"}</span>
                 ) : null}
-                {review.supplierPayableId ? (
+                {!firstReleaseMode && review.supplierPayableId ? (
                   <span>
                     {review.supplierPayableId} / {review.payableStatus || "待财务复核"} / {formatSupplierPayableAmount(review.supplierPayableDraft?.payableAmount ?? 0, money)}
                   </span>
                 ) : null}
-                {review.supplierPaymentConfirmationId ? (
+                {!firstReleaseMode && review.supplierPaymentConfirmationId ? (
                   <span>
                     {review.supplierPaymentConfirmationId} / 已确认付款 / {formatSupplierPayableAmount(review.supplierPaymentRecord?.paidAmount ?? 0, money)}
                   </span>
@@ -690,20 +1037,20 @@ function SupplierStatementReviewList({
                 <button disabled={!isDraft} onClick={() => onConfirm?.(review.reviewId, "一致")}>标记一致</button>
                 <button disabled={!isDraft} onClick={() => onConfirm?.(review.reviewId, "有差异")}>标记有差异</button>
                 <button disabled={!canConfirmStatement} onClick={() => onStatementConfirm?.(review.reviewId)}>确认对账</button>
-                <button
+                {!firstReleaseMode ? <button
                   disabled={!canGeneratePayable || payableState.disabled}
                   title={payableState.disabled ? payableState.title : (!canGeneratePayable ? "需先确认对账且不能重复生成应付" : "")}
                   onClick={() => onPayableDraftGenerate?.(review.reviewId)}
                 >
                   生成应付
-                </button>
-                <button
+                </button> : null}
+                {!firstReleaseMode ? <button
                   disabled={!canConfirmPayment || paymentState.disabled}
-                  title={paymentState.disabled ? paymentState.title : (!canConfirmPayment ? "需先生成应付草稿且不能重复确认付款" : "")}
+                  title={paymentState.disabled ? paymentState.title : (!canConfirmPayment ? "需先生成金额大于0的应付草稿且不能重复确认付款" : "")}
                   onClick={() => onPaymentConfirm?.(review)}
                 >
                   确认付款
-                </button>
+                </button> : null}
               </div>
             </div>
           );
@@ -763,17 +1110,20 @@ function canReviewRawMaterialMarginSnapshot(item = {}) {
   });
 }
 
-function buildRawMaterialIssueOptions(item = {}, roll = null, productionTasks = []) {
+function buildRawMaterialIssueOptions(item = {}, roll = null, productionTasks = [], standalone = false) {
   const targetTask = findRawMaterialProductionTaskCandidate(item, productionTasks);
-  const machineId = targetTask?.machineId || (item.materialType === "提手" ? "提手备料区" : "BAG-01");
+  const machineId = standalone ? "" : targetTask?.machineId || (item.materialType === "提手" ? "提手备料区" : "BAG-01");
   return {
     rollId: roll?.id,
     machineId,
     productionTaskId: targetTask?.productionTaskId || "",
-    issuePurpose: "生产领料",
+    partialIssue: false,
+    issuePurpose: standalone ? "生产领料（首发阶段暂不关联订单）" : "生产领料",
     issuedWeightKg: roll?.weightKg || undefined,
     issuedQuantity: roll && !roll.weightKg ? 1 : undefined,
-    note: targetTask?.productionTaskId
+    note: standalone
+      ? "杂工按卷码扫码出库；系统自动留存颜色、规格、宽幅和重量，首发阶段暂不关联订单或生产任务。"
+      : targetTask?.productionTaskId
       ? `V1 按生产任务 ${targetTask.productionTaskId} 领料；等待生产报工确认消耗，不生成成品数量或成本分摊。`
       : "V1 整卷/整件机边领料；未匹配生产任务时只允许先形成机边留痕，成本分摊前必须补关联。",
   };
@@ -795,6 +1145,24 @@ function buildRawMaterialPartialIssueOptions(item = {}, roll = null, productionT
       ? `V1 按生产任务 ${targetTask.productionTaskId} 拆卷部分领料；剩余重量保留可用，等待后续称重复核和成本流程。`
       : "V1 拆卷部分领料；未匹配生产任务时只允许先形成机边留痕，成本分摊前必须补关联。",
   };
+}
+
+function buildRawMaterialIssueTaskOptions(productionTasks = []) {
+  return (Array.isArray(productionTasks) ? productionTasks : [])
+    .map((task) => ({
+      productionTaskId: task?.productionTaskId || task?.productionTask?.productionTaskId || task?.id || "",
+      machineId: task?.machineId || task?.productionTask?.machineId || "",
+      label: [
+        task?.productionTaskId || task?.productionTask?.productionTaskId || task?.id,
+        task?.orderLine?.productName || task?.productName || task?.productionTask?.taskType || "生产任务",
+        task?.machineId || task?.productionTask?.machineId,
+      ].filter(Boolean).join(" · "),
+    }))
+    .filter((task) => task.productionTaskId);
+}
+
+function findRawMaterialProductionTaskOption(productionTasks = [], productionTaskId = "") {
+  return buildRawMaterialIssueTaskOptions(productionTasks).find((task) => task.productionTaskId === productionTaskId) ?? null;
 }
 
 function findRawMaterialProductionTaskCandidate(item = {}, productionTasks = []) {
@@ -913,14 +1281,36 @@ function getRawMaterialRollTone(roll = {}) {
   if (roll.inventoryStatus === "已消耗") return "success";
   if (roll.inventoryStatus === "余料待复核") return "warning";
   if (roll.leftoverReviewRecordId) return "success";
-  if (String(roll.inventoryStatus ?? "").includes("异常")) return "danger";
+  if (String(roll.inventoryStatus ?? "").includes("异常") || String(roll.labelStatus ?? "").includes("不符")) return "danger";
   return "neutral";
 }
 
-function formatRawMaterialWeight(item = {}) {
-  const weight = Number(item.totalWeightKg || 0);
-  if (!weight) return item.unit === "件" ? `${item.rollCount || item.rolls?.length || 0}件` : "未填重量";
-  return `${weight}kg`;
+function buildRawMaterialLabelVerificationDraft(item = {}, roll = {}) {
+  return {
+    rollId: roll.id || "",
+    matchResult: "",
+    checkedWeightKg: roll.weightKg ?? "",
+    checkedColor: roll.factoryColor || item.factoryColor || item.supplierColor || "",
+    checkedSpec: roll.spec || item.spec || "",
+    location: "原料库-可用区",
+    verificationNote: "",
+  };
+}
+
+function formatRawMaterialLabelVerification(roll = {}) {
+  const verification = roll.labelVerification;
+  if (!verification) return roll.labelStatus === "已打印待贴标" ? "待逐卷人工核对" : "未记录核对";
+  const result = verification.matchResult === "mismatched" ? "实物不符，已隔离" : "实物一致";
+  const version = verification.labelVersion || roll.labelVersion;
+  const verifier = verification.verifiedByUserId || roll.labelVerifiedByUserId || "操作人待补";
+  return `${result} · 标签V${version || "?"} · ${verifier}`;
+}
+
+function formatRawMaterialOptionalAttachment(value) {
+  const text = String(value || "").trim();
+  if (!text) return "可选，非入库门禁";
+  if (text.includes("待上传") || text.includes("待扫码") || text.includes("扫码上传") || text.includes("签单")) return "可选附件，未作为入库门禁";
+  return text;
 }
 
 function formatRawMaterialCost(item = {}, money) {
@@ -938,7 +1328,7 @@ function buildRawMaterialInboundTimeline(item = {}) {
   if (item.reviewedAt) rows.push(`${formatRawMaterialTimelineTime(item.reviewedAt)} ${item.reviewedBy || "办公室"}复核原材料送货单`);
   if (item.labelPrintedAt) rows.push(`${formatRawMaterialTimelineTime(item.labelPrintedAt)} ${item.labelPrintedBy || "库房"}打印卷标`);
   const attached = (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "可用");
-  if (attached.length) rows.push(`已贴标扫码 ${attached.length}/${item.rolls?.length || attached.length} 卷/件`);
+  if (attached.length) rows.push(`已贴标并逐卷人工核对 ${attached.length}/${item.rolls?.length || attached.length} 卷/件`);
   const split = (item.rawMaterialSplitRecords ?? []).length;
   if (split) rows.push(`已拆卷部分领料 ${split} 次；剩余重量仍保留库存状态`);
   const issued = (item.rawMaterialIssueRecords ?? []).length;
@@ -1098,4 +1488,62 @@ function formatRawMaterialTimelineTime(value) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+}
+
+function formatRawMaterialStructuredSpec(item = {}) {
+  const display = String(item.specDisplay || item.spec || "未填规格").trim();
+  const raw = String(item.specRaw || item.spec || "").trim();
+  return raw && display !== raw ? `${display}（原始：${raw}）` : display;
+}
+
+function formatRawMaterialOrderSupport(support, task) {
+  if (!task) return "未关联订单；选择订单后按颜色、宽幅和可用重量判断";
+  if (!support || support.supportStatus === "需复核") return `${task.productionTaskId || "订单"}：尺寸/颜色待复核`;
+  if (support.supportStatus === "支持订单") {
+    return `${task.productionTaskId || "订单"}：支持，需${support.requiredWeightKg}kg / 可用${support.availableWeightKg}kg`;
+  }
+  return `${task.productionTaskId || "订单"}：不足${support.shortageWeightKg}kg（需${support.requiredWeightKg}kg）`;
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("送货单文件读取失败，请重新选择。"));
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.readAsDataURL(file);
+  });
+}
+
+function inferDeliveryNoteMimeType(fileName) {
+  const name = String(fileName ?? "").toLowerCase();
+  if (name.endsWith(".pdf")) return "application/pdf";
+  if (name.endsWith(".png")) return "image/png";
+  if (name.endsWith(".bmp")) return "image/bmp";
+  if (/\.jpe?g$/.test(name)) return "image/jpeg";
+  return "";
+}
+
+function isSupportedDeliveryNoteFile(mimeType) {
+  return ["image/png", "image/jpeg", "image/jpg", "image/bmp", "application/pdf"].includes(String(mimeType ?? "").toLowerCase());
+}
+
+function isNumericOcrField(key) {
+  return ["rollCount", "totalWeightKg", "unitPrice", "amount"].includes(key);
+}
+
+function isNumericOcrLineField(key) {
+  return ["rollCount", "totalWeightKg", "unitPrice", "amount"].includes(key);
+}
+
+function buildOcrLineReviewDraft(line = {}) {
+  const values = line.values ?? {};
+  return Object.fromEntries(OCR_LINE_REVIEW_FIELDS.map(([key]) => [
+    key,
+    key === "rollWeightsKg" && Array.isArray(values[key]) ? values[key].join(", ") : values[key] ?? "",
+  ]));
+}
+
+function formatOcrLineRecognizedValue(value) {
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "未识别";
+  return String(value ?? "").trim() || "未识别";
 }

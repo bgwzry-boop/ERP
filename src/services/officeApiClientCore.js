@@ -1,4 +1,5 @@
 import { getAuthApiBaseUrl, isOfficeApiServerRequired } from "./officeAuthService.js";
+import { notifyRuntimeAuthInvalidationForResponse } from "./runtimeAuthInvalidation.js";
 
 export function buildOfficeApiHeaders(authState, operatorId, extraHeaders = {}, options = {}) {
   const headers = {
@@ -27,7 +28,9 @@ export async function requestOfficeApi(path, options = {}) {
     headers,
   };
   if (options.body) init.body = JSON.stringify(options.body);
-  return fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, init);
+  const response = await fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, init);
+  await notifyRuntimeAuthInvalidationForResponse(response, { authState: options.authState });
+  return response;
 }
 
 export function createOfficeIdempotencyKey() {
@@ -45,11 +48,15 @@ export async function readOfficeApiJson(response) {
 }
 
 export function toOfficeApiError(json, status, fallbackMessage) {
-  return {
+  const error = {
     code: json?.code ?? `HTTP_${status}`,
     message: json?.message ?? fallbackMessage,
     requiredPermission: json?.requiredPermission,
+    currentRevision: json?.currentRevision,
+    status,
   };
+  if (json?.details !== undefined) error.details = json.details;
+  return error;
 }
 
 export function buildOfficeServerRequiredWriteError(code, error, extra = {}) {

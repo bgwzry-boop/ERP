@@ -3,6 +3,10 @@ import {
   getSeedPermissionContext,
 } from "../auth/seedPermissions.js";
 import { createDisabledPermissionContext } from "../../shared/auth/roleCatalog.js";
+import {
+  getRuntimeAuthInvalidation,
+  notifyRuntimeAuthInvalidationForResponse,
+} from "./runtimeAuthInvalidation.js";
 
 export const seedAuthStorageKey = "erp.authSession.v1";
 const legacySeedAuthStorageKey = "erp.seedAuthSession.v1";
@@ -73,7 +77,6 @@ export async function initializeSeedAuth(options = {}) {
     });
     const json = await readJson(response);
     if (!response.ok) {
-      clearStoredSeedSession(storage);
       if (isOfficeApiServerRequired(options)) {
         return createServerRequiredAuthState(json?.code ?? "stored_session_invalid", json);
       }
@@ -83,7 +86,16 @@ export async function initializeSeedAuth(options = {}) {
       );
     }
 
-    writeStoredSeedSession(json.session, storage);
+    if (
+      storedSession.sessionType === "runtime"
+      && (json?.authenticated !== true || !isValidRuntimeAuthResponse(json, storedSession.userId))
+    ) {
+      return createServerRequiredAuthState("stored_session_response_invalid", {
+        code: "AUTH_RESTORE_RESPONSE_INVALID",
+        message: "正式登录会话恢复响应无效，请重新登录。",
+      });
+    }
+
     return createApiSeedAuthState(json, "restored_seed_session");
   } catch (error) {
     if (isOfficeApiServerRequired(options)) {
@@ -134,11 +146,9 @@ export async function loginSeedUser(userId = defaultSeedUserId, options = {}) {
 }
 
 export async function loginRuntimeUser({ loginName, userId, password } = {}, options = {}) {
-  const storage = options.storage ?? getBrowserStorage();
   const normalizedLoginName = String(loginName ?? "").trim();
   const normalizedUserId = String(userId ?? "").trim();
   if ((!normalizedLoginName && !normalizedUserId) || !String(password ?? "")) {
-    clearStoredSeedSession(storage);
     return createServerRequiredAuthState("missing_credentials", {
       code: "AUTH_CREDENTIALS_REQUIRED",
       message: "请输入登录名或用户编号，以及密码。",
@@ -157,28 +167,115 @@ export async function loginRuntimeUser({ loginName, userId, password } = {}, opt
     });
     const json = await readJson(response);
     if (!response.ok) {
-      clearStoredSeedSession(storage);
       return createServerRequiredAuthState(json?.code ?? "login_failed", json);
     }
 
-    writeStoredSeedSession(json.session, storage);
+    if (!isValidRuntimeAuthResponse(json, normalizedUserId)) {
+      return createServerRequiredAuthState("login_response_invalid", {
+        code: "AUTH_LOGIN_RESPONSE_INVALID",
+        message: "正式登录响应无效，请稍后重试。",
+      });
+    }
+
     return {
       ...createApiSeedAuthState(json, "login_runtime_session"),
       source: "api_runtime",
     };
   } catch (error) {
-    clearStoredSeedSession(storage);
     return createServerRequiredAuthState("api_unavailable", error);
   }
 }
 
-export async function changeSeedUserPassword({ currentPassword, newPassword, changeNote } = {}, options = {}) {
+export async function revalidateRuntimeUserSession(options = {}) {
+  const storage = options.storage ?? getBrowserStorage();
+  const authState = options.authState ?? null;
+  const session = options.session ?? authState?.session ?? readStoredSeedSession(storage);
+  if (session?.sessionType !== "runtime" || !session.accessToken) {
+    return {
+      valid: false,
+      retryable: false,
+      error: {
+        code: "AUTH_RUNTIME_SESSION_REQUIRED",
+        message: "当前没有可复核的正式登录会话。",
+      },
+    };
+  }
+
+  try {
+    const response = await requestAuthApi("/auth/me", {
+      ...options,
+      authState,
+      session,
+      headers: {
+        ...(options.headers ?? {}),
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      const error = {
+        code: json?.code ?? "AUTH_REVALIDATION_FAILED",
+        message: json?.message ?? "正式登录会话复核失败。",
+      };
+      return {
+        valid: false,
+        retryable: response.status >= 500,
+        error,
+        invalidation: getRuntimeAuthInvalidation({ authState, session, status: response.status, error }),
+      };
+    }
+    if (json?.authenticated !== true || !isValidRuntimeAuthResponse(json, session.userId)) {
+      const error = {
+        code: "AUTH_REVALIDATION_RESPONSE_INVALID",
+        message: "正式登录会话复核响应无效，请重新登录。",
+      };
+      return {
+        valid: false,
+        retryable: false,
+        error,
+        invalidation: {
+          reason: "runtime_session_response_invalid",
+          error,
+        },
+      };
+    }
+
+    return {
+      valid: true,
+      session: json.session,
+      authState: {
+        ...createApiSeedAuthState(json, "runtime_session_revalidated"),
+        source: "api_runtime",
+      },
+    };
+  } catch (error) {
+    return {
+      valid: false,
+      retryable: true,
+      error: {
+        code: "AUTH_CLIENT_ERROR",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
+export function requiresRuntimePasswordChange(authState = {}) {
+  const permissionContext = authState?.permissions ?? {};
+  return (
+    authState?.authenticated === true &&
+    authState?.session?.sessionType === "runtime" &&
+    (permissionContext.passwordChangeRequired === true || permissionContext.user?.mustChangePassword === true)
+  );
+}
+
+export async function changeRuntimeUserPassword({ currentPassword, newPassword, changeNote } = {}, options = {}) {
   const storage = options.storage ?? getBrowserStorage();
   const authState = options.authState ?? null;
   const session = options.session ?? authState?.session ?? readStoredSeedSession(storage);
   if (!session?.accessToken) {
     return {
-      source: "api_seed",
+      source: "api_runtime",
       changed: false,
       error: {
         code: "AUTH_SESSION_REQUIRED",
@@ -204,7 +301,7 @@ export async function changeSeedUserPassword({ currentPassword, newPassword, cha
     const json = await readJson(response);
     if (!response.ok) {
       return {
-        source: "api_seed",
+        source: "api_runtime",
         changed: false,
         error: {
           code: json?.code ?? "PASSWORD_CHANGE_FAILED",
@@ -213,26 +310,27 @@ export async function changeSeedUserPassword({ currentPassword, newPassword, cha
         },
       };
     }
-    if (json?.permissions) {
+    if (json?.changed !== true || !isValidRuntimePermissionContext(json?.permissions, session.userId)) {
       return {
-        source: "api_seed",
-        changed: json.changed === true,
-        user: json.user,
-        permissions: normalizePermissionContext(json.permissions),
-        employeeAccountReview: json.employeeAccountReview ?? null,
-        operationLogId: json.operationLogId,
+        source: "api_runtime",
+        changed: false,
+        error: {
+          code: "PASSWORD_CHANGE_RESPONSE_INVALID",
+          message: "修改密码响应无效，请重新登录后确认密码状态。",
+        },
       };
     }
     return {
-      source: "api_seed",
-      changed: json?.changed === true,
-      user: json?.user ?? null,
+      source: "api_runtime",
+      changed: true,
+      user: json.user ?? null,
+      permissions: normalizePermissionContext(json.permissions),
       employeeAccountReview: json?.employeeAccountReview ?? null,
       operationLogId: json?.operationLogId,
     };
   } catch (error) {
     return {
-      source: "api_seed",
+      source: "api_runtime",
       changed: false,
       error: {
         code: "AUTH_CLIENT_ERROR",
@@ -240,6 +338,85 @@ export async function changeSeedUserPassword({ currentPassword, newPassword, cha
       },
     };
   }
+}
+
+export async function logoutRuntimeUser(options = {}) {
+  const storage = options.storage ?? getBrowserStorage();
+  const authState = options.authState ?? null;
+  const session = options.session ?? authState?.session ?? readStoredSeedSession(storage);
+  if (!session?.accessToken) {
+    clearStoredSeedSession(storage);
+    return {
+      source: "api_runtime",
+      loggedOut: true,
+      tokenRevoked: false,
+      localSessionCleared: true,
+    };
+  }
+
+  try {
+    const response = await requestAuthApi("/auth/logout", {
+      ...options,
+      method: "POST",
+      headers: {
+        ...(options.headers ?? {}),
+        authorization: `Bearer ${session.accessToken}`,
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      if (canDiscardRejectedSession(response.status, json?.code)) {
+        clearStoredSeedSession(storage);
+        return {
+          source: "api_runtime",
+          loggedOut: true,
+          tokenRevoked: false,
+          localSessionCleared: true,
+        };
+      }
+      return {
+        source: "api_runtime",
+        loggedOut: false,
+        error: {
+          code: json?.code ?? "LOGOUT_FAILED",
+          message: json?.message ?? "退出登录失败。",
+        },
+      };
+    }
+
+    if (json?.loggedOut !== true) {
+      return {
+        source: "api_runtime",
+        loggedOut: false,
+        error: {
+          code: "LOGOUT_RESPONSE_INVALID",
+          message: "退出登录响应无效，请稍后重试。",
+        },
+      };
+    }
+
+    clearStoredSeedSession(storage);
+    return {
+      source: "api_runtime",
+      loggedOut: true,
+      tokenRevoked: json?.tokenRevoked === true,
+      localSessionCleared: true,
+    };
+  } catch (error) {
+    return {
+      source: "api_runtime",
+      loggedOut: false,
+      error: {
+        code: "AUTH_CLIENT_ERROR",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
+// Kept for existing callers while formal-account UI migrates to the explicit name.
+export async function changeSeedUserPassword(input = {}, options = {}) {
+  return changeRuntimeUserPassword(input, options);
 }
 
 function normalizePasswordPolicy(policy) {
@@ -252,6 +429,11 @@ function normalizePasswordPolicy(policy) {
     disallowAccountIdentifiers: policy.disallowAccountIdentifiers === true,
     description: String(policy.description ?? "").trim(),
   };
+}
+
+function canDiscardRejectedSession(status, code) {
+  if (status !== 401) return false;
+  return ["AUTH_SESSION_REQUIRED", "AUTH_TOKEN_REVOKED", "AUTH_TOKEN_EXPIRED", "AUTH_TOKEN_INVALID", "AUTH_USER_DISABLED"].includes(String(code ?? "").trim());
 }
 
 export function readStoredSeedSession(storage = getBrowserStorage()) {
@@ -279,10 +461,11 @@ export function getAuthApiBaseUrl(options = {}) {
 
 function createApiSeedAuthState(json, reason) {
   return {
-    source: "api_seed",
+    source: json?.session?.sessionType === "runtime" ? "api_runtime" : "api_seed",
     authenticated: true,
     session: json.session,
     permissions: normalizePermissionContext(json.permissions),
+    passwordPolicy: normalizePasswordPolicy(json.passwordPolicy),
     reason,
   };
 }
@@ -293,11 +476,16 @@ async function requestAuthApi(path, options = {}) {
     "content-type": "application/json",
     ...(options.headers ?? {}),
   };
-  return fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, {
+  const response = await fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, {
     method: options.method ?? "GET",
     headers,
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
+  await notifyRuntimeAuthInvalidationForResponse(response, {
+    authState: options.authState,
+    session: options.session,
+  });
+  return response;
 }
 
 async function readJson(response) {
@@ -309,7 +497,7 @@ async function readJson(response) {
 }
 
 function normalizePermissionContext(permissions) {
-  const fallback = getSeedPermissionContext(permissions?.user?.userId ?? defaultSeedUserId);
+  const fallback = createDisabledPermissionContext(permissions?.user?.userId ?? "UNKNOWN_API_USER");
   return {
     ...fallback,
     ...permissions,
@@ -322,6 +510,35 @@ function normalizePermissionContext(permissions) {
     buttonPermissions: [...(permissions?.buttonPermissions ?? fallback.buttonPermissions ?? [])],
     actionPermissions: [...(permissions?.actionPermissions ?? fallback.actionPermissions ?? [])],
   };
+}
+
+function isValidRuntimeAuthResponse(json, expectedUserId = "") {
+  const session = json?.session;
+  const sessionUserId = normalizeUserId(session?.userId);
+  const expected = normalizeUserId(expectedUserId);
+  return (
+    session?.sessionType === "runtime" &&
+    Boolean(String(session?.accessToken ?? "").trim()) &&
+    Boolean(sessionUserId) &&
+    (!expected || sessionUserId === expected) &&
+    isValidRuntimePermissionContext(json?.permissions, sessionUserId)
+  );
+}
+
+function isValidRuntimePermissionContext(permissions, expectedUserId = "") {
+  if (!permissions || typeof permissions !== "object" || !permissions.user || typeof permissions.user !== "object") return false;
+  const permissionUserId = normalizeUserId(permissions.user.userId);
+  const expected = normalizeUserId(expectedUserId);
+  return (
+    Boolean(permissionUserId) &&
+    (!expected || permissionUserId === expected) &&
+    ["roles", "buttonPermissions", "actionPermissions"].every((field) => Array.isArray(permissions[field])) &&
+    (permissions.grants === undefined || Array.isArray(permissions.grants))
+  );
+}
+
+function normalizeUserId(value) {
+  return String(value ?? "").trim();
 }
 
 function withAuthError(authState, error) {

@@ -139,6 +139,51 @@ export function getPrinterDeviceFieldTestSummary(checks = []) {
   };
 }
 
+export function getPrinterDeviceFieldTestAcceptance(value = {}) {
+  const checks = normalizePrinterDeviceFieldTestChecks(value.checks ?? []);
+  const evidence = normalizePrinterDeviceFieldTestEvidence(value.evidence ?? value.summary?.evidence);
+  const summary = getPrinterDeviceFieldTestSummary(checks);
+  const evidenceSummary = getPrinterDeviceFieldTestEvidenceSummary(evidence);
+  const printJob = value.printJob && typeof value.printJob === "object" ? value.printJob : null;
+  const printJobId = cleanText(value.printJobId ?? printJob?.printJobId ?? printJob?.id);
+  const printJobStatus = cleanText(printJob?.jobStatus ?? printJob?.status);
+  const printDeviceId = cleanText(value.printDeviceId);
+  const printJobDeviceId = cleanText(printJob?.printDeviceId ?? printJob?.printerDeviceId);
+  const documentType = cleanText(value.documentType);
+  const printJobDocumentType = cleanText(printJob?.documentType);
+  const checksComplete = summary.passedCount === summary.total && summary.issueCount === 0 && summary.untestedCount === 0;
+  const evidenceComplete = evidenceSummary.complete;
+  const printedJobLinked = Boolean(
+    printJobId &&
+      printJob &&
+      printJobStatus === "printed" &&
+      (!printDeviceId || printJobDeviceId === printDeviceId) &&
+      (!documentType || printJobDocumentType === documentType),
+  );
+  const blockers = [];
+  if (!checksComplete) blockers.push("checks_incomplete");
+  if (!evidenceComplete) blockers.push("evidence_incomplete");
+  if (!printJobId) blockers.push("print_job_required");
+  else if (!printJob) blockers.push("print_job_not_found");
+  else {
+    if (printJobStatus !== "printed") blockers.push("print_job_not_printed");
+    if (printDeviceId && printJobDeviceId !== printDeviceId) blockers.push("print_device_mismatch");
+    if (documentType && printJobDocumentType !== documentType) blockers.push("document_type_mismatch");
+  }
+  const ready = checksComplete && evidenceComplete && printedJobLinked;
+  return {
+    ready,
+    status: ready ? "accepted" : "pending",
+    label: ready ? "现场验收通过" : "现场验收待完成",
+    checksComplete,
+    evidenceComplete,
+    printedJobLinked,
+    printJobId,
+    printJobStatus,
+    blockers,
+  };
+}
+
 export function buildPrinterDeviceFieldTestRecord(input = {}) {
   const {
     printDevice = {},
@@ -160,6 +205,14 @@ export function buildPrinterDeviceFieldTestRecord(input = {}) {
   const normalizedEvidence = normalizePrinterDeviceFieldTestEvidence(evidence);
   const evidenceSummary = getPrinterDeviceFieldTestEvidenceSummary(normalizedEvidence);
   const summary = getPrinterDeviceFieldTestSummary(normalizedChecks);
+  const acceptance = getPrinterDeviceFieldTestAcceptance({
+    checks: normalizedChecks,
+    evidence: normalizedEvidence,
+    printJob,
+    printJobId,
+    printDeviceId,
+    documentType: documentType ?? printJob.documentType,
+  });
   const recordId = `PDQA-${compactTimestamp(checkedAt)}-${safeRecordPart(printDeviceId || "PRINT")}`;
 
   return {
@@ -176,6 +229,7 @@ export function buildPrinterDeviceFieldTestRecord(input = {}) {
     summary: {
       ...summary,
       evidenceSummary,
+      acceptance,
     },
     checks: normalizedChecks,
     evidence: normalizedEvidence,

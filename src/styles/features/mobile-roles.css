@@ -1,0 +1,1028 @@
+.decision-mobile-card,
+.maintenance-mobile-card,
+.office-mobile-task-card {
+  display: grid;
+  min-width: 0;
+  border: 1px solid var(--erp-border);
+  border-radius: 14px;
+  background: var(--erp-surface);
+  gap: 14px;
+  padding: 16px;
+}
+
+.desktop-required-mobile-page {
+  display: grid;
+  width: min(100%, 520px);
+  min-height: 0;
+  align-self: center;
+  align-content: start;
+  justify-items: center;
+  margin: auto;
+  color: var(--erp-text);
+  gap: 10px;
+  padding: 28px 18px;
+  text-align: center;
+}
+
+.desktop-required-mobile-icon {
+  display: grid;
+  width: 72px;
+  height: 72px;
+  place-items: center;
+  border: 1px solid var(--erp-accent-border);
+  border-radius: 16px;
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
+  font-size: 30px;
+}
+
+.desktop-required-mobile-page > span {
+  margin-top: 8px;
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.desktop-required-mobile-page > h1,
+.desktop-required-mobile-page > p {
+  margin: 0;
+}
+
+.desktop-required-mobile-page > h1 {
+  font-size: 24px;
+  letter-spacing: 0;
+  line-height: 32px;
+  text-wrap: balance;
+}
+
+.desktop-required-mobile-page > p {
+  max-width: 38ch;
+  color: var(--erp-text-muted);
+  font-size: 15px;
+  line-height: 23px;
+  text-wrap: pretty;
+}
+
+.desktop-required-mobile-page > section {
+  display: grid;
+  width: 100%;
+  overflow: hidden;
+  margin-top: 8px;
+  border: 1px solid var(--erp-border);
+  border-radius: 12px;
+  background: var(--erp-surface);
+  text-align: left;
+}
+
+.desktop-required-mobile-page > section > div {
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  color: var(--erp-text);
+  gap: 9px;
+  padding: 10px 12px;
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.desktop-required-mobile-page > section > div:last-child {
+  border-bottom: 0;
+}
+
+.desktop-required-mobile-page > section svg {
+  flex: 0 0 auto;
+  color: var(--erp-success);
+}
+
+.desktop-required-mobile-page > aside {
+  display: flex;
+  width: 100%;
+  align-items: flex-start;
+  border-radius: 10px;
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-muted);
+  gap: 8px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 20px;
+  text-align: left;
+}
+
+.desktop-required-mobile-page > aside svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+  color: var(--erp-accent-strong);
+}
+
+.decision-mobile-card > header,
+.maintenance-mobile-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+.decision-mobile-card > header span,
+.decision-mobile-card > header h2,
+.maintenance-mobile-card > header span,
+.maintenance-mobile-card > header h2 {
+  display: block;
+  margin: 0;
+}
+
+.decision-mobile-card > header span,
+.maintenance-mobile-card > header span {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.decision-mobile-card > header h2,
+.maintenance-mobile-card > header h2 {
+  margin-top: 2px;
+  color: var(--erp-text);
+  font-size: 20px;
+  line-height: 28px;
+  text-wrap: balance;
+}
+
+.decision-mobile-card > header em,
+.maintenance-mobile-card > header em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
+  padding: 2px 9px;
+}
+
+.decision-mobile-card > header em.danger,
+.maintenance-mobile-card > header em.danger {
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger);
+}
+
+.maintenance-mobile-card > header em.success {
+  background: var(--erp-success-bg);
+  color: var(--erp-success);
+}
+
+.decision-mobile-card > header em.neutral {
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-muted);
+}
+
+.decision-mobile-summary,
+.maintenance-mobile-summary {
+  margin: 0;
+  color: var(--erp-text);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+  text-wrap: pretty;
+}
+
+.decision-mobile-card > dl,
+.maintenance-mobile-card > dl {
+  display: grid;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--erp-border-subtle);
+  border-radius: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.decision-mobile-card > dl > div,
+.maintenance-mobile-card > dl > div {
+  display: grid;
+  min-width: 0;
+  border-right: 1px solid var(--erp-border-subtle);
+  border-bottom: 1px solid var(--erp-border-subtle);
+  gap: 2px;
+  padding: 10px;
+}
+
+.decision-mobile-card > dl > div:nth-child(even),
+.maintenance-mobile-card > dl > div:nth-child(even) {
+  border-right: 0;
+}
+
+.decision-mobile-card > dl > div:nth-last-child(-n + 2),
+.maintenance-mobile-card > dl > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.decision-mobile-card dt,
+.maintenance-mobile-card dt {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.decision-mobile-card dd,
+.maintenance-mobile-card dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--erp-text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.decision-mobile-evidence,
+.decision-mobile-impact,
+.maintenance-mobile-boundary {
+  display: grid;
+  border-top: 1px solid var(--erp-border-subtle);
+  gap: 4px;
+  padding-top: 12px;
+}
+
+.decision-mobile-evidence strong,
+.decision-mobile-impact strong,
+.maintenance-mobile-boundary strong {
+  display: flex;
+  align-items: center;
+  color: var(--erp-text);
+  gap: 6px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.decision-mobile-evidence p,
+.decision-mobile-impact p,
+.maintenance-mobile-boundary p {
+  margin: 0;
+  color: var(--erp-text-muted);
+  font-size: 14px;
+  line-height: 22px;
+  text-wrap: pretty;
+}
+
+.decision-mobile-impact strong,
+.maintenance-mobile-boundary strong {
+  color: var(--erp-warning);
+}
+
+.decision-mobile-actions,
+.decision-mobile-confirmation > div {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.decision-mobile-actions button,
+.decision-mobile-confirmation button,
+.maintenance-mobile-primary {
+  min-height: 50px;
+  border: 1px solid var(--erp-control-border);
+  border-radius: 8px;
+  background: var(--erp-surface-raised);
+  color: var(--erp-text);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.decision-mobile-actions .primary-action,
+.maintenance-mobile-primary {
+  border-color: var(--erp-accent);
+  background: var(--erp-accent);
+  color: var(--erp-accent-ink);
+}
+
+.decision-mobile-confirmation {
+  display: grid;
+  border: 1px solid var(--erp-warning-border);
+  border-radius: 10px;
+  background: var(--erp-warning-bg);
+  gap: 8px;
+  padding: 12px;
+}
+
+.decision-mobile-history {
+  border-top: 1px solid var(--erp-border-subtle);
+  padding-top: 4px;
+}
+
+.decision-mobile-history > summary {
+  display: flex;
+  min-height: 44px;
+  align-items: center;
+  color: var(--erp-accent-strong);
+  gap: 7px;
+  font-size: 14px;
+  font-weight: 700;
+  list-style: none;
+}
+
+.decision-mobile-history > summary::-webkit-details-marker {
+  display: none;
+}
+
+.decision-mobile-history > summary::after {
+  margin-left: auto;
+  color: var(--erp-text-muted);
+  content: "展开";
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.decision-mobile-history[open] > summary::after {
+  content: "收起";
+}
+
+.decision-mobile-history > p {
+  margin: 0;
+  border-radius: 8px;
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  line-height: 20px;
+  padding: 10px;
+}
+
+.decision-mobile-history .business-decision-history {
+  margin-top: 4px;
+}
+
+.decision-mobile-confirmation > strong {
+  color: var(--erp-text);
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.decision-mobile-confirmation > p {
+  margin: 0;
+  color: var(--erp-text-muted);
+  font-size: 14px;
+  line-height: 22px;
+}
+
+.decision-mobile-confirmation > label {
+  display: grid;
+  color: var(--erp-text);
+  gap: 5px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.decision-mobile-confirmation textarea {
+  width: 100%;
+  min-height: 86px;
+  border: 1px solid var(--erp-control-border);
+  border-radius: 8px;
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  font: inherit;
+  font-weight: 400;
+  line-height: 22px;
+  padding: 10px;
+  resize: vertical;
+}
+
+.decision-mobile-confirmation textarea:focus-visible {
+  border-color: var(--erp-accent);
+  outline: 3px solid var(--erp-accent-soft);
+}
+
+.decision-mobile-confirmation .primary-action {
+  border-color: var(--erp-accent);
+  background: var(--erp-accent);
+  color: var(--erp-accent-ink);
+}
+
+.decision-mobile-confirmation button:disabled,
+.decision-mobile-confirmation textarea:disabled {
+  cursor: not-allowed;
+  opacity: 0.62;
+}
+
+.decision-mobile-confirmation-error {
+  border-radius: 7px;
+  font-size: 13px !important;
+  line-height: 20px !important;
+  padding: 8px 9px;
+}
+
+.decision-mobile-confirmation-error {
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger) !important;
+}
+
+.decision-mobile-notice {
+  margin: 0;
+  border: 1px solid var(--erp-border);
+  border-radius: 10px;
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  font-size: 13px;
+  line-height: 20px;
+  padding: 10px 12px;
+}
+
+.decision-mobile-notice.success {
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
+  color: var(--erp-success);
+}
+
+.decision-mobile-notice.danger {
+  border-color: var(--erp-danger-border);
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger);
+}
+
+.decision-mobile-empty,
+.maintenance-mobile-empty {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  align-content: center;
+  border: 1px solid var(--erp-border);
+  border-radius: 14px;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.decision-mobile-empty svg,
+.maintenance-mobile-empty svg {
+  color: var(--erp-success);
+  font-size: 34px;
+}
+
+.decision-mobile-empty strong,
+.maintenance-mobile-empty strong {
+  color: var(--erp-text);
+  font-size: 17px;
+}
+
+.decision-mobile-empty span,
+.maintenance-mobile-empty span {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.decision-mobile-page {
+  font-size: 16px;
+}
+
+.decision-mobile-hero span {
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.decision-mobile-hero h1 {
+  font-size: 28px;
+  line-height: 36px;
+}
+
+.decision-mobile-hero p {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.decision-mobile-hero > strong {
+  min-height: 44px;
+  font-size: 16px;
+}
+
+.decision-mobile-hero > strong small,
+.decision-mobile-card > header em {
+  font-size: 14px;
+}
+
+.decision-mobile-card > header span,
+.decision-mobile-card dt {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.decision-mobile-card > header h2 {
+  font-size: 21px;
+  line-height: 29px;
+}
+
+.decision-mobile-summary {
+  font-size: 17px;
+  line-height: 26px;
+}
+
+.decision-mobile-card dd,
+.decision-mobile-evidence strong,
+.decision-mobile-impact strong,
+.decision-mobile-confirmation > strong {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.decision-mobile-evidence p,
+.decision-mobile-impact p,
+.decision-mobile-confirmation > p,
+.decision-mobile-history > p,
+.decision-mobile-notice,
+.decision-mobile-confirmation-error {
+  font-size: 15px !important;
+  line-height: 23px !important;
+}
+
+.decision-mobile-actions button,
+.decision-mobile-confirmation button {
+  min-height: 52px;
+  font-size: 16px;
+}
+
+.decision-mobile-history > summary,
+.decision-mobile-confirmation > label {
+  font-size: 15px;
+  line-height: 23px;
+}
+
+.decision-mobile-history > summary::after {
+  font-size: 14px;
+}
+
+.decision-mobile-confirmation textarea {
+  min-height: 104px;
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.decision-mobile-queue > header span,
+.decision-mobile-functions > header span,
+.decision-mobile-queue > button span,
+.decision-mobile-queue > button small,
+.decision-mobile-functions > div > button span {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.decision-mobile-queue > header h2,
+.decision-mobile-functions > header h2 {
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.decision-mobile-queue > button strong,
+.decision-mobile-functions > div > button strong {
+  font-size: 16px;
+  line-height: 24px;
+}
+
+.decision-mobile-page .mobile-role-bottom-nav button {
+  font-size: 14px;
+}
+
+.maintenance-mobile-form {
+  display: grid;
+  gap: 10px;
+}
+
+.maintenance-mobile-steps {
+  display: grid;
+  overflow: hidden;
+  border: 1px solid var(--erp-border-subtle);
+  border-radius: 9px;
+  background: var(--erp-surface-subtle);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.maintenance-mobile-steps span {
+  min-width: 0;
+  border-right: 1px solid var(--erp-border-subtle);
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 18px;
+  padding: 8px 5px;
+  text-align: center;
+}
+
+.maintenance-mobile-steps span:last-child {
+  border-right: 0;
+}
+
+.maintenance-mobile-steps span.active {
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
+}
+
+.maintenance-mobile-form label {
+  display: grid;
+  color: var(--erp-text-muted);
+  gap: 5px;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 21px;
+}
+
+.maintenance-mobile-form textarea,
+.maintenance-mobile-form select {
+  width: 100%;
+  min-height: 48px;
+  border: 1px solid var(--erp-control-border);
+  border-radius: 8px;
+  background: var(--erp-surface-raised);
+  color: var(--erp-text);
+  font: inherit;
+  padding: 10px;
+}
+
+.maintenance-mobile-form textarea {
+  min-height: 82px;
+  resize: vertical;
+}
+
+.maintenance-mobile-form textarea:focus-visible,
+.maintenance-mobile-form select:focus-visible,
+.maintenance-photo-field:focus-within {
+  border-color: var(--erp-accent);
+  outline: 3px solid var(--erp-accent-soft);
+  outline-offset: 1px;
+}
+
+.maintenance-mobile-form textarea:disabled,
+.maintenance-mobile-form select:disabled,
+.maintenance-photo-field:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.64;
+}
+
+.maintenance-photo-field {
+  display: flex !important;
+  min-height: 52px;
+  align-items: center;
+  border: 1px dashed var(--erp-control-border);
+  border-radius: 8px;
+  background: var(--erp-surface-subtle);
+  color: var(--erp-accent-strong) !important;
+  gap: 8px !important;
+  padding: 10px;
+}
+
+.maintenance-photo-field input {
+  min-width: 0;
+  font-size: 13px;
+}
+
+.maintenance-photo-name {
+  margin: -3px 0 0;
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  line-height: 19px;
+  overflow-wrap: anywhere;
+}
+
+.maintenance-mobile-primary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.maintenance-mobile-notice {
+  margin: 0;
+  border-radius: 8px;
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
+  font-size: 14px;
+  line-height: 21px;
+  padding: 9px 10px;
+}
+
+.maintenance-mobile-notice.success {
+  border: 1px solid var(--erp-success-border);
+  background: var(--erp-success-bg);
+  color: var(--erp-success);
+}
+
+.maintenance-mobile-notice.danger {
+  border: 1px solid var(--erp-danger-border);
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger);
+}
+
+.maintenance-completion-confirmation {
+  display: grid;
+  border: 1px solid var(--erp-warning-border);
+  border-radius: 10px;
+  background: var(--erp-warning-bg);
+  gap: 10px;
+  padding: 12px;
+}
+
+.maintenance-completion-confirmation > strong {
+  color: var(--erp-text);
+  font-size: 16px;
+  line-height: 23px;
+}
+
+.maintenance-completion-confirmation > dl {
+  display: grid;
+  margin: 0;
+  border-top: 1px solid color-mix(in srgb, var(--erp-warning) 18%, transparent);
+}
+
+.maintenance-completion-confirmation > dl > div {
+  display: grid;
+  border-bottom: 1px solid color-mix(in srgb, var(--erp-warning) 18%, transparent);
+  gap: 2px;
+  padding: 8px 0;
+}
+
+.maintenance-completion-confirmation dt {
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.maintenance-completion-confirmation dd {
+  margin: 0;
+  color: var(--erp-text);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 21px;
+  overflow-wrap: anywhere;
+}
+
+.maintenance-completion-confirmation > p {
+  margin: 0;
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.maintenance-completion-confirmation > div {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: 8px;
+}
+
+.maintenance-completion-confirmation button {
+  min-height: 48px;
+  border: 1px solid var(--erp-control-border);
+  border-radius: 8px;
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.maintenance-completion-confirmation button.primary-action {
+  border-color: var(--erp-accent);
+  background: var(--erp-accent);
+  color: var(--erp-accent-ink);
+}
+
+.maintenance-completion-confirmation button:disabled,
+.maintenance-mobile-primary:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.maintenance-mobile-completed-summary {
+  display: grid;
+  border: 1px solid var(--erp-success-border);
+  border-radius: 10px;
+  background: var(--erp-success-bg);
+  color: var(--erp-success);
+  gap: 5px;
+  padding: 12px;
+}
+
+.maintenance-mobile-completed-summary strong {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 15px;
+  line-height: 22px;
+}
+
+.maintenance-mobile-completed-summary p,
+.maintenance-mobile-completed-summary span {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.maintenance-mobile-completed-summary span {
+  color: var(--erp-text-muted);
+}
+
+.maintenance-queue-empty {
+  margin: 0;
+  color: var(--erp-text-muted);
+  font-size: 14px;
+  line-height: 21px;
+  padding: 18px 4px;
+  text-align: center;
+}
+
+.office-mobile-task-card > header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  gap: 12px;
+  padding-bottom: 12px;
+}
+
+.office-mobile-task-card > header span,
+.office-mobile-task-card > header h2 {
+  display: block;
+  margin: 0;
+}
+
+.office-mobile-task-card > header span {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.office-mobile-task-card > header h2 {
+  margin-top: 2px;
+  color: var(--erp-text);
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.office-mobile-task-card > header em {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+  line-height: 20px;
+  padding: 2px 9px;
+}
+
+.office-mobile-task-card > header em.danger,
+.office-mobile-task-card > header em.critical {
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger);
+}
+
+.office-mobile-task-summary {
+  margin: 0;
+  color: var(--erp-text);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 24px;
+}
+
+.office-mobile-task-card > dl {
+  display: grid;
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--erp-border-subtle);
+  border-radius: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.office-mobile-task-card > dl > div {
+  display: grid;
+  min-width: 0;
+  border-right: 1px solid var(--erp-border-subtle);
+  border-bottom: 1px solid var(--erp-border-subtle);
+  gap: 2px;
+  padding: 10px;
+}
+
+.office-mobile-task-card > dl > div:nth-child(even) {
+  border-right: 0;
+}
+
+.office-mobile-task-card > dl > div:nth-last-child(-n + 2) {
+  border-bottom: 0;
+}
+
+.office-mobile-task-card dt {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.office-mobile-task-card dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+  color: var(--erp-text);
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 22px;
+}
+
+.office-mobile-next-step {
+  display: grid;
+  border-radius: 10px;
+  background: var(--erp-accent-soft);
+  gap: 4px;
+  padding: 11px 12px;
+}
+
+.office-mobile-next-step strong {
+  display: flex;
+  align-items: center;
+  color: var(--erp-accent-strong);
+  gap: 6px;
+  font-size: 15px;
+}
+
+.office-mobile-next-step p {
+  margin: 0;
+  color: var(--erp-text-muted);
+  font-size: 14px;
+  line-height: 21px;
+}
+
+.office-mobile-task-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.office-mobile-task-actions button {
+  min-height: 50px;
+  border: 1px solid var(--erp-control-border);
+  border-radius: 8px;
+  background: var(--erp-surface-raised);
+  color: var(--erp-text);
+  font-size: 15px;
+  font-weight: 700;
+}
+
+.office-mobile-task-actions .primary-action {
+  border-color: var(--erp-accent);
+  background: var(--erp-accent);
+  color: var(--erp-accent-ink);
+}
+
+.office-mobile-empty {
+  display: grid;
+  min-height: 220px;
+  place-items: center;
+  align-content: center;
+  border: 1px solid var(--erp-border);
+  border-radius: 14px;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+}
+
+.office-mobile-empty svg {
+  color: var(--erp-success);
+  font-size: 34px;
+}
+
+.office-mobile-empty strong {
+  color: var(--erp-text);
+  font-size: 17px;
+}
+
+.office-mobile-empty span {
+  font-size: 14px;
+  line-height: 21px;
+}
+
+@media (max-width: 720px) {
+  .decision-mobile-card,
+  .maintenance-mobile-card,
+  .office-mobile-task-card {
+    padding: 14px;
+  }
+
+  .decision-mobile-card {
+    padding: 16px;
+  }
+
+  .decision-mobile-card > header h2,
+  .maintenance-mobile-card > header h2 {
+    font-size: 19px;
+    line-height: 26px;
+  }
+
+  .decision-mobile-card > header h2 {
+    font-size: 21px;
+    line-height: 29px;
+  }
+
+  .decision-mobile-actions,
+  .decision-mobile-confirmation > div,
+  .office-mobile-task-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

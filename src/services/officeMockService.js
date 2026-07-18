@@ -29,7 +29,8 @@ export function loadOfficeWorkspace(scenarioId) {
 
 export function createOfficeTodo(input) {
   const id = input.id ?? createMockId("T-P0");
-  return makeTodo({ id, wait: "刚刚", ...input });
+  const timestamp = new Date().toISOString();
+  return makeTodo({ id, wait: "刚刚", createdAt: timestamp, updatedAt: timestamp, ...input });
 }
 
 export function createDraftSaveTodo(input) {

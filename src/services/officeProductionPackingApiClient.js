@@ -138,6 +138,11 @@ export async function resequenceOfficeProductionMachineQueue(input = {}, options
     authState,
     machineId,
     orderedProductionTaskIds = [],
+    affectedRevisions = [],
+    expectedRevision,
+    idempotencyKey,
+    delegatedDecision,
+    directDecisionContent,
     operatorId,
     remark,
   } = input;
@@ -163,9 +168,15 @@ export async function resequenceOfficeProductionMachineQueue(input = {}, options
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey,
       body: {
         machineId: safeMachineId,
         orderedProductionTaskIds: safeOrderedProductionTaskIds,
+        affectedRevisions,
+        expectedRevision,
+        idempotencyKey,
+        delegatedDecision,
+        directDecisionContent,
         operatorId,
         remark: remark || "办公室端调整机台排产队列顺序",
       },
@@ -212,6 +223,10 @@ export async function moveOfficeProductionMachineQueueItem(input = {}, options =
     targetQueueSeq,
     insertBeforeProductionTaskId,
     insertAfterProductionTaskId,
+    expectedRevision,
+    idempotencyKey,
+    delegatedDecision,
+    directDecisionContent,
     operatorId,
     remark,
   } = input;
@@ -235,8 +250,13 @@ export async function moveOfficeProductionMachineQueueItem(input = {}, options =
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey,
       body: {
         productionTaskId: safeProductionTaskId,
+        expectedRevision,
+        idempotencyKey,
+        delegatedDecision,
+        directDecisionContent,
         targetMachineId: safeTargetMachineId,
         targetQueueSeq,
         insertBeforeProductionTaskId: cleanText(insertBeforeProductionTaskId),
@@ -426,7 +446,10 @@ export async function publishOfficeProductionSchedule(input = {}, options = {}) 
     processType = getProductionProcessType(orderLine),
     plannedQty = orderLine?.qty ?? orderLine?.originalQty ?? 0,
     operatorId,
-    publishedAt,
+    expectedRevision,
+    idempotencyKey,
+    delegatedDecision,
+    directDecisionContent,
     remark = "",
   } = input;
   const safeProductionTaskId = cleanText(productionTaskId);
@@ -450,14 +473,18 @@ export async function publishOfficeProductionSchedule(input = {}, options = {}) 
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey,
       body: {
         productionTaskId: safeProductionTaskId,
         orderLineId: safeOrderLineId,
         processType,
         machineId,
         plannedQty: safePlannedQty,
+        expectedRevision,
+        idempotencyKey,
+        delegatedDecision,
+        directDecisionContent,
         operatorId,
-        publishedAt: publishedAt ?? new Date().toISOString(),
         remark: remark || "办公室端发布排产到车间任务池",
       },
     });
@@ -682,6 +709,162 @@ export async function reportOfficeProductionDailyProgress(input = {}, options = 
   }
 }
 
+export async function reportOfficeProductionException(input = {}, options = {}) {
+  const {
+    authState,
+    orderLine,
+    productionTaskId = buildProductionTaskId(orderLine),
+    exceptionType,
+    continuationMode,
+    estimatedLossQty = 0,
+    affectsDelivery = false,
+    operatorId,
+    occurredAt,
+    remark = "",
+  } = input;
+  const safeProductionTaskId = cleanText(productionTaskId);
+  const safeOrderLineId = cleanText(orderLine?.id ?? orderLine?.orderLineId ?? input.orderLineId);
+  const safeExceptionType = cleanText(exceptionType);
+  const safeContinuationMode = cleanText(continuationMode);
+  const safeEstimatedLossQty = Math.trunc(Number(estimatedLossQty ?? 0));
+
+  if (!safeProductionTaskId || !safeOrderLineId || !safeExceptionType || !safeContinuationMode || !Number.isFinite(safeEstimatedLossQty) || safeEstimatedLossQty < 0) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "PRODUCTION_EXCEPTION_INPUT_INVALID",
+        message: "生产任务、订单明细、异常类型、处理方式和预估异常数不能为空。",
+      },
+    };
+  }
+
+  try {
+    const response = await requestProductionPackingApi(`/production-tasks/${encodeURIComponent(safeProductionTaskId)}/exception`, {
+      ...options,
+      authState,
+      method: "POST",
+      operatorId,
+      body: {
+        productionTaskId: safeProductionTaskId,
+        orderLineId: safeOrderLineId,
+        processType: getProductionProcessType(orderLine),
+        machineId: getProductionMachineId(orderLine),
+        exceptionType: safeExceptionType,
+        continuationMode: safeContinuationMode,
+        estimatedLossQty: safeEstimatedLossQty,
+        affectsDelivery: affectsDelivery === true,
+        operatorId,
+        occurredAt: occurredAt ?? new Date().toISOString(),
+        remark: cleanText(remark),
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "生产异常上报 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      ...mapProductionExceptionResponse(json, {
+        productionTaskId: safeProductionTaskId,
+        orderLineId: safeOrderLineId,
+        exceptionType: safeExceptionType,
+        continuationMode: safeContinuationMode,
+        estimatedLossQty: safeEstimatedLossQty,
+        affectsDelivery,
+      }),
+    };
+  } catch (error) {
+    if (isOfficeApiServerRequired(options)) {
+      return buildServerRequiredWriteError("PRODUCTION_EXCEPTION_API_UNAVAILABLE", error);
+    }
+    return {
+      source: "local_fallback",
+      blocked: true,
+      error: {
+        code: "PRODUCTION_EXCEPTION_API_UNAVAILABLE",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
+export async function resolveOfficeProductionException(input = {}, options = {}) {
+  const {
+    authState,
+    productionTaskId,
+    productionExceptionId,
+    resolutionCode,
+    resolutionNote,
+    resolutionConfirmed,
+    operatorId,
+  } = input;
+  const safeProductionTaskId = cleanText(productionTaskId);
+  const safeProductionExceptionId = cleanText(productionExceptionId);
+  const safeResolutionCode = cleanText(resolutionCode);
+  const safeResolutionNote = cleanText(resolutionNote);
+  if (!safeProductionTaskId || !safeProductionExceptionId || !safeResolutionCode || !safeResolutionNote || resolutionConfirmed !== true) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "PRODUCTION_EXCEPTION_RESOLUTION_INPUT_INVALID",
+        message: "生产任务、异常记录、处理结果、处理说明和最终确认均为必填项。",
+      },
+    };
+  }
+
+  try {
+    const response = await requestProductionPackingApi(`/production-tasks/${encodeURIComponent(safeProductionTaskId)}/exception-resolution`, {
+      ...options,
+      authState,
+      method: "POST",
+      operatorId,
+      body: {
+        productionTaskId: safeProductionTaskId,
+        productionExceptionId: safeProductionExceptionId,
+        resolutionCode: safeResolutionCode,
+        resolutionNote: safeResolutionNote,
+        resolutionConfirmed: true,
+        operatorId,
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "生产异常处理 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      ...mapProductionExceptionResolutionResponse(json, {
+        productionTaskId: safeProductionTaskId,
+        productionExceptionId: safeProductionExceptionId,
+        resolutionCode: safeResolutionCode,
+        resolutionNote: safeResolutionNote,
+      }),
+    };
+  } catch (error) {
+    if (isOfficeApiServerRequired(options)) {
+      return buildServerRequiredWriteError("PRODUCTION_EXCEPTION_RESOLUTION_API_UNAVAILABLE", error);
+    }
+    return {
+      source: "local_fallback",
+      blocked: true,
+      error: {
+        code: "PRODUCTION_EXCEPTION_RESOLUTION_API_UNAVAILABLE",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
 export async function uploadOfficeProductionFinishedGoodsPhoto(input = {}, options = {}) {
   const {
     authState,
@@ -852,7 +1035,6 @@ export async function completeOfficePackingTask(input = {}, options = {}) {
     inventoryItemId = inventoryItem?.id,
     actualPackedQty = packingTask?.plannedQty ?? orderLine?.qty ?? 0,
     packageCount = packingTask?.packageCount ?? 1,
-    labelsPrinted = false,
     operatorId,
     remark = "",
   } = input;
@@ -883,7 +1065,6 @@ export async function completeOfficePackingTask(input = {}, options = {}) {
         orderLineId: safeOrderLineId,
         actualPackedQty: safeActualPackedQty,
         packageCount: safePackageCount,
-        labelsPrinted,
         inventoryItemId: cleanText(inventoryItemId),
         operatorId,
         completedAt: new Date().toISOString(),
@@ -907,7 +1088,6 @@ export async function completeOfficePackingTask(input = {}, options = {}) {
         orderLineId: safeOrderLineId,
         actualPackedQty: safeActualPackedQty,
         packageCount: safePackageCount,
-        labelsPrinted,
       }),
     };
   } catch (error) {
@@ -925,7 +1105,6 @@ export async function completeOfficePackingTask(input = {}, options = {}) {
         orderLineId: safeOrderLineId,
         actualPackedQty: safeActualPackedQty,
         packageCount: safePackageCount,
-        labelsPrinted,
       }),
     };
   }
@@ -1055,6 +1234,50 @@ function mapProductionDailyProgressResponse(json, fallback = {}) {
   };
 }
 
+function mapProductionExceptionResponse(json, fallback = {}) {
+  return {
+    productionTaskId: cleanText(json?.productionTaskId ?? fallback.productionTaskId),
+    orderLineId: cleanText(json?.orderLineId ?? fallback.orderLineId),
+    productionExceptionId: cleanText(json?.productionExceptionId),
+    exceptionType: cleanText(json?.exceptionType ?? fallback.exceptionType),
+    continuationMode: cleanText(json?.continuationMode ?? fallback.continuationMode),
+    exceptionStatus: cleanText(json?.exceptionStatus) || "待生产确认",
+    taskStatus: cleanText(json?.taskStatus ?? json?.status),
+    status: cleanText(json?.status ?? json?.taskStatus),
+    todoId: cleanText(json?.todoId),
+    estimatedLossQty: Math.max(0, Math.trunc(Number(json?.estimatedLossQty ?? fallback.estimatedLossQty ?? 0))),
+    affectsDelivery: json?.affectsDelivery === true || fallback.affectsDelivery === true,
+    inventoryCreated: false,
+    reservationCreated: false,
+    packingTaskCreated: false,
+    statementUpdated: false,
+    operationLogId: cleanText(json?.operationLogId),
+  };
+}
+
+function mapProductionExceptionResolutionResponse(json, fallback = {}) {
+  return {
+    productionTaskId: cleanText(json?.productionTaskId ?? fallback.productionTaskId),
+    orderLineId: cleanText(json?.orderLineId),
+    productionExceptionId: cleanText(json?.productionExceptionId ?? fallback.productionExceptionId),
+    exceptionStatus: cleanText(json?.exceptionStatus),
+    resolutionCode: cleanText(json?.resolutionCode ?? fallback.resolutionCode),
+    resolutionLabel: cleanText(json?.resolutionLabel),
+    resolutionNote: cleanText(json?.resolutionNote ?? fallback.resolutionNote),
+    resolvedBy: cleanText(json?.resolvedBy),
+    resolvedAt: cleanText(json?.resolvedAt),
+    taskStatus: cleanText(json?.taskStatus ?? json?.status),
+    status: cleanText(json?.status ?? json?.taskStatus),
+    todoId: cleanText(json?.todoId),
+    todoStatus: cleanText(json?.todoStatus),
+    inventoryCreated: false,
+    reservationCreated: false,
+    packingTaskCreated: false,
+    statementUpdated: false,
+    operationLogId: cleanText(json?.operationLogId),
+  };
+}
+
 function mapProductionFinishedGoodsPhotoResponse(json, fallback = {}) {
   const status = cleanText(json?.finishedGoodsPhoto?.status ?? json?.status ?? fallback.status) || "待确认";
   return {
@@ -1093,8 +1316,9 @@ function mapPackingCompleteResponse(json, fallback = {}) {
     packageIds,
     packageCount: packageIds.length,
     fulfillmentId: cleanText(json?.fulfillmentId),
-    fulfillmentStatus: cleanText(json?.fulfillmentStatus) || (fallback.labelsPrinted ? "待确认拉走" : "待打印标签"),
-    orderLineStatus: cleanText(json?.orderLineStatus) || (fallback.labelsPrinted ? "待快运拉走" : "待打印标签"),
+    todoId: cleanText(json?.todoId),
+    fulfillmentStatus: cleanText(json?.fulfillmentStatus) || "待打印标签",
+    orderLineStatus: cleanText(json?.orderLineStatus) || "待打印标签",
     inventoryDeducted: json?.inventoryDeducted === true,
     inventoryLedgerIds: Array.isArray(json?.inventoryLedgerIds) ? json.inventoryLedgerIds : [],
     operationLogId: cleanText(json?.operationLogId),
@@ -1253,6 +1477,8 @@ function mapProductionTaskDetailResponse(json, fallback = {}) {
         ? [report]
         : [],
     latestReport: report.reportId ? report : null,
+    exceptions: Array.isArray(json?.exceptions) ? json.exceptions.map(normalizeProductionExceptionDetail).filter(Boolean) : [],
+    latestException: normalizeProductionExceptionDetail(json?.latestException ?? json?.latest_exception),
     dailyProgress: normalizeProductionDailyProgressDetail(json?.dailyProgress ?? json?.daily_progress),
     packingTask: normalizePackingTaskDetail(json?.packingTask, {
       packingTaskId: fallback.reportResult?.packingTaskId,
@@ -1263,6 +1489,28 @@ function mapProductionTaskDetailResponse(json, fallback = {}) {
     reservations: Array.isArray(json?.reservations) ? json.reservations : [],
     inventoryLedgerEntries: Array.isArray(json?.inventoryLedgerEntries) ? json.inventoryLedgerEntries : [],
     operationLogs: Array.isArray(json?.operationLogs) ? json.operationLogs : [],
+  };
+}
+
+function normalizeProductionExceptionDetail(value) {
+  if (!value || typeof value !== "object") return null;
+  const productionExceptionId = cleanText(value.productionExceptionId ?? value.production_exception_id ?? value.id);
+  if (!productionExceptionId) return null;
+  return {
+    productionExceptionId,
+    productionTaskId: cleanText(value.productionTaskId ?? value.production_task_id),
+    orderLineId: cleanText(value.orderLineId ?? value.order_line_id),
+    exceptionType: cleanText(value.exceptionType ?? value.exception_type),
+    continuationMode: cleanText(value.continuationMode ?? value.continuation_mode),
+    status: cleanText(value.status),
+    resolutionCode: cleanText(value.resolutionCode ?? value.resolution_code),
+    resolutionNote: cleanText(value.resolutionNote ?? value.resolution_note),
+    resolvedBy: cleanText(value.resolvedBy ?? value.resolved_by),
+    resolvedAt: cleanText(value.resolvedAt ?? value.resolved_at),
+    estimatedLossQty: Math.max(0, Math.trunc(Number(value.estimatedLossQty ?? value.estimated_loss_qty ?? 0))),
+    affectsDelivery: value.affectsDelivery === true || value.affects_delivery === true,
+    remark: cleanText(value.remark),
+    occurredAt: cleanText(value.occurredAt ?? value.occurred_at),
   };
 }
 

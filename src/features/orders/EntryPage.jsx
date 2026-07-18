@@ -19,7 +19,7 @@ const ENTRY_STEPS = [
   { id: 3, title: "第三步：库存与确认" },
 ];
 
-export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, selectedDraftId, setSelectedDraftId, onRecognize, onQueueRecognize, onQueueRefresh, onQueueOpen, onQueueCancellationLink, onDraftFieldChange, onDraftCommand, onRestoreCancelledLine, onAction, helpers }) {
+export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus, selectedDraftId, setSelectedDraftId, onRecognize, onQueueRecognize, onQueueRefresh, onQueueOpen, onQueueCancellationLink, onDraftFieldChange, onDraftCommand, onRestoreCancelledLine, onAction, helpers }) {
   const [splitPreview, setSplitPreview] = useState(null);
   const [splitConfirming, setSplitConfirming] = useState(false);
   const [draftQueue, setDraftQueue] = useState({ batchId: "", items: [], summary: null, loading: false });
@@ -48,10 +48,10 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
   const splitState = getUiActionState("entry", "拆分订单");
   const voidState = getUiActionState("entry", "作废草稿");
   const issues = buildValidationIssues({ draftRows, missingRows, inventoryIssueRows, reviewRows, getDraftMissingFields });
-  const locateDraftRow = (rowId) => {
+  const locateDraftRow = (rowId, rowIndex) => {
     setSelectedDraftId(rowId);
     window.requestAnimationFrame(() => {
-      document.querySelector(`[data-draft-id="${rowId}"]`)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      document.getElementById(getEntryDraftRowDomId(rowIndex))?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     });
   };
   const recognizeIntoQueue = async () => {
@@ -95,17 +95,22 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
           <h2>客户原文识别</h2>
           <div className="entry-capture-body">
             <div className="entry-textarea-wrap">
-              <textarea aria-label="订单原文" value={entryText} onChange={(event) => setEntryText(event.target.value)} />
+              <textarea aria-label="订单原文" value={entryText} onChange={(event) => onEntryTextChange(event.target.value)} />
               <div className="entry-recognition-meta">
                 <span>字数：{entryText.trim().length}/1000</span>
                 <strong><CheckCircleOutlined /> {draftRows.length ? `识别完成（${draftRows.length}行）` : "等待识别"}</strong>
               </div>
             </div>
             <div className="entry-actions entry-capture-actions">
-              <button className="primary-button" disabled={recognizeState.disabled} title={recognizeState.title} onClick={onRecognize}>识别</button>
-              <button disabled={recognizeState.disabled || draftQueue.loading} title={recognizeState.title} onClick={recognizeIntoQueue}>识别入队</button>
-              <button onClick={() => setEntryText("")}>清空</button>
-              <button onClick={() => setEntryText(sampleText)}>填入样例</button>
+              <button className="primary-button" disabled={recognizeState.disabled} title={recognizeState.title} onClick={onRecognize} type="button">识别</button>
+              <button onClick={() => onEntryTextChange("")} type="button">清空原文</button>
+              <details className="entry-capture-more">
+                <summary>更多操作</summary>
+                <div className="entry-capture-more-menu">
+                  <button disabled={recognizeState.disabled || draftQueue.loading} title={recognizeState.title} onClick={recognizeIntoQueue} type="button">批量识别入队</button>
+                  <button onClick={() => onEntryTextChange(sampleText)} type="button">填入样例</button>
+                </div>
+              </details>
             </div>
           </div>
         </section>
@@ -218,7 +223,13 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
           </div>
           <div className="entry-issue-list">
             {issues.length ? issues.slice(0, 9).map((issue) => (
-              <button type="button" className={issue.tone} key={issue.id} onClick={() => locateDraftRow(issue.row.id)}>
+              <button
+                type="button"
+                className={issue.tone}
+                aria-controls={getEntryDraftRowDomId(issue.rowIndex)}
+                key={issue.id}
+                onClick={() => locateDraftRow(issue.row.id, issue.rowIndex)}
+              >
                 <span className="entry-issue-dot" aria-hidden="true" />
                 <strong>{issue.label}</strong>
                 <small>第{issue.rowIndex + 1}行</small>
@@ -344,7 +355,7 @@ export function EntryPage({ entryText, setEntryText, draftRows, draftStatus, sel
         </section>
       </aside>
 
-      <footer className="entry-confirm-footer">
+      <footer className="entry-confirm-footer" aria-label="订单汇总与确认">
         <div className="entry-summary-metrics">
           <span>已识别 <strong>{draftRows.length}</strong> 行</span>
           {cancelledRows.length ? <span>已取消 <strong>{cancelledRows.length}</strong> 行</span> : null}
@@ -505,6 +516,10 @@ function withCurrentColor(colors, currentColor) {
   return [...new Set([currentColor, ...colors].filter(Boolean))];
 }
 
+function getEntryDraftRowDomId(rowIndex) {
+  return `entry-draft-row-${rowIndex + 1}`;
+}
+
 function EntryDraftTable({ rows, selectedId, onSelect, onChange, helpers }) {
   const { getDraftTypeLabel, money, statusTone } = helpers;
   const columns = ["序号", "品名", "尺寸", "袋色", "提手类型", "订单类型", "数量（个）", "交付", "最晚", "库存", "预估金额"];
@@ -527,7 +542,16 @@ function EntryDraftTable({ rows, selectedId, onSelect, onChange, helpers }) {
       {rows.map((row, index) => {
         const cancelled = isCancelledDraftRow(row);
         return (
-        <div className={`data-row entry-edit-row ${row.id === selectedId ? "active" : ""} ${cancelled ? "cancelled" : ""}`} aria-disabled={cancelled || undefined} data-customer-id={row.customerId} data-draft-id={row.id} key={row.id} onClick={() => onSelect(row.id)}>
+        <div
+          id={getEntryDraftRowDomId(index)}
+          className={`data-row entry-edit-row ${row.id === selectedId ? "active" : ""} ${cancelled ? "cancelled" : ""}`}
+          aria-disabled={cancelled || undefined}
+          data-customer-id={row.customerId}
+          data-draft-id={row.id}
+          key={row.id}
+          onClick={() => onSelect(row.id)}
+          onFocus={() => onSelect(row.id)}
+        >
           <span className="entry-row-number">{index + 1}</span>
           <span><input disabled={cancelled} aria-label={`第${index + 1}行品名`} value={row.product} onChange={(event) => onChange(row.id, "product", event.target.value)} /></span>
           <span><input disabled={cancelled} aria-label={`第${index + 1}行尺寸`} value={row.size} onChange={(event) => onChange(row.id, "size", event.target.value)} /></span>

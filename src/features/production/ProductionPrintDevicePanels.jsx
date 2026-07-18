@@ -1,4 +1,5 @@
 import { StatusPill } from "../../shared/ui/operational.jsx";
+import { formatOperationalError } from "../../shared/ui/errorPresentation.js";
 import {
   PRINTER_DEVICE_FIELD_TEST_EVIDENCE_ITEMS,
   PRINTER_DEVICE_FIELD_TEST_STATUS_OPTIONS,
@@ -25,7 +26,9 @@ export function PrinterDeviceQaPanel({
 }) {
   const devices = Array.isArray(qaState.devices) ? qaState.devices : [];
   const checks = Array.isArray(qaState.checks) ? qaState.checks : [];
+  const eligiblePrintJobs = Array.isArray(qaState.eligiblePrintJobs) ? qaState.eligiblePrintJobs : [];
   const selectedDevice = devices.find((item) => item.printDeviceId === qaState.selectedDeviceId) ?? null;
+  const selectedPrintJob = eligiblePrintJobs.find((item) => item.printJobId === qaState.selectedPrintJobId) ?? null;
   const latestRecord = qaState.latestRecord ?? selectedDevice?.latestFieldTestRecord ?? null;
   const summary = getPrinterDeviceFieldTestSummary(checks);
   const evidence = qaState.evidence ?? latestRecord?.evidence ?? latestRecord?.summary?.evidence ?? {};
@@ -41,7 +44,14 @@ export function PrinterDeviceQaPanel({
       : qaState.source === "idle"
         ? "neutral"
         : "warning";
-  const saveDisabled = Boolean(saveState.disabled || qaState.loading || qaState.saving || !qaState.selectedDeviceId);
+  const acceptanceCandidate = summary.passedCount === summary.total && evidenceSummary.complete;
+  const saveDisabled = Boolean(
+    saveState.disabled ||
+      qaState.loading ||
+      qaState.saving ||
+      !qaState.selectedDeviceId ||
+      (acceptanceCandidate && !selectedPrintJob),
+  );
   const saveModeDisabled = Boolean(
     deviceModeSaveState.disabled ||
       qaState.loading ||
@@ -51,9 +61,15 @@ export function PrinterDeviceQaPanel({
   );
   const saveTitle =
     saveState.title ||
-    (!qaState.selectedDeviceId ? "请先选择打印设备" : qaState.loading ? "设备验收记录刷新中" : "");
+    (!qaState.selectedDeviceId
+      ? "请先选择打印设备"
+      : acceptanceCandidate && !selectedPrintJob
+        ? "六项通过且证据完整时，必须关联该设备的已打印作业"
+        : qaState.loading
+          ? "设备验收记录刷新中"
+          : "");
   const statusText = qaState.error
-    ? qaState.error
+    ? formatOperationalError(qaState.error, "验收记录读取失败，请刷新重试。")
     : latestRecord
       ? `最新记录 ${latestRecord.recordId} · ${formatPrinterDeviceQaDateTime(latestRecord.checkedAt)}`
       : qaState.loading
@@ -131,6 +147,20 @@ export function PrinterDeviceQaPanel({
       </small>
       <div className="driver-field-test-form printer-device-qa-form">
         <label>
+          <span>已打印作业</span>
+          <select
+            value={qaState.selectedPrintJobId ?? ""}
+            onChange={(event) => onChangeField?.("selectedPrintJobId", event.target.value)}
+          >
+            <option value="">{eligiblePrintJobs.length ? "暂不关联" : "暂无该设备已打印作业"}</option>
+            {eligiblePrintJobs.map((printJob) => (
+              <option value={printJob.printJobId} key={printJob.printJobId}>
+                {printJob.printJobId} · {getPrintDocumentTypeLabel(printJob.documentType)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
           <span>设备标签</span>
           <input
             value={qaState.deviceLabel ?? ""}
@@ -155,6 +185,9 @@ export function PrinterDeviceQaPanel({
           />
         </label>
       </div>
+      <small className="printer-device-mode-note">
+        失败或未测记录可直接保存；六项全通过且证据完整时，必须关联同设备、同单据类型的已打印作业。
+      </small>
       <div className="driver-field-test-list printer-device-qa-checks">
         {checks.map((item) => (
           <label className={`driver-field-test-row ${item.tone}`} key={item.key}>
@@ -217,6 +250,17 @@ export function PrinterDeviceQaPanel({
   );
 }
 
+function getPrintDocumentTypeLabel(documentType) {
+  const labels = {
+    express_ltl_label: "快递/快运标签",
+    package_label: "包裹标签",
+    outbound_note: "出库单",
+    pickup_note: "自提单",
+    delivery_note: "送货单",
+  };
+  return labels[documentType] ?? "打印单据";
+}
+
 export function PrintJobQueuePanel({
   queueState = {},
   dispatchState = {},
@@ -240,7 +284,7 @@ export function PrintJobQueuePanel({
   const statusText = queueState.error
     ? queueState.error
     : queueState.loading
-      ? "正在读取后端打印作业状态"
+      ? "正在读取打印作业"
       : queueState.lastSyncedAt
         ? `最新同步 ${queueState.lastSyncedAt}`
         : "待刷新打印作业";
@@ -332,8 +376,8 @@ function getPrinterDeviceQaSourceLabel(qaState = {}) {
   if (qaState.loading) return "刷新中";
   if (qaState.saving) return "保存中";
   if (qaState.error) return "验收异常";
-  if (qaState.recordSource === "api" || qaState.source === "api") return "后端验收";
-  if (qaState.source === "local_fallback" || qaState.recordSource === "local_fallback") return "本地降级";
+  if (qaState.recordSource === "api" || qaState.source === "api") return "已同步";
+  if (qaState.source === "local_fallback" || qaState.recordSource === "local_fallback") return "待连接";
   if (qaState.source === "idle") return "未读取";
   return "待确认";
 }
@@ -348,8 +392,8 @@ function formatPrinterDeviceQaDateTime(value) {
 function getPrintJobQueueSourceLabel(queueState = {}) {
   if (queueState.loading) return "刷新中";
   if (queueState.error) return "作业异常";
-  if (queueState.source === "api") return "后端作业";
-  if (queueState.source === "local_fallback") return "本地降级";
+  if (queueState.source === "api") return "已同步";
+  if (queueState.source === "local_fallback") return "待连接";
   if (queueState.source === "idle") return "未读取";
   return "待确认";
 }

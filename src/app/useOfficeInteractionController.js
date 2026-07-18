@@ -61,10 +61,12 @@ export function createOfficeInteractionActions({
   getModal,
   getOrderActionModal,
   getStatementBlockingAmount,
+  handoffPaperOutbound,
   orderLines,
   permissionContext,
   printFulfillmentDocument,
   readFileAsDataUrl,
+  recordWarehouseExecution,
   saveFulfillmentDispatch,
   setFulfillments,
   setStatements,
@@ -125,6 +127,32 @@ export function createOfficeInteractionActions({
       return notifyResult(await saveFulfillmentDispatch({ fulfillment: selected, payload }));
     }
 
+    if (activeModal.type === "paperHandoff") {
+      const selected = fulfillments.find((item) => item.id === activeModal.fulfillmentId);
+      if (!selected?.paperOutboundDocument) {
+        notify("未找到当前纸单版本，无法交库房。");
+        return null;
+      }
+      return notifyResult(await handoffPaperOutbound({
+        fulfillment: selected,
+        paperOutboundDocument: selected.paperOutboundDocument,
+        note: payload.note,
+      }));
+    }
+
+    if (activeModal.type === "warehouseExecution") {
+      const selected = fulfillments.find((item) => item.id === activeModal.fulfillmentId);
+      if (!selected?.paperOutboundDocument) {
+        notify("未找到当前纸单版本，无法回录库房结果。");
+        return null;
+      }
+      return notifyResult(await recordWarehouseExecution({
+        fulfillment: selected,
+        paperOutboundDocument: selected.paperOutboundDocument,
+        payload,
+      }));
+    }
+
     if (activeModal.type === "print") {
       return notifyResult(await printFulfillmentDocument({ modal: activeModal, payload }));
     }
@@ -161,6 +189,10 @@ export function createOfficeInteractionActions({
       let attachmentFiles = [];
       let attachmentSource = "";
       if (payload.attachCustomerConfirmationProof) {
+        if (!payload.customerConfirmationProofFile) {
+          notify("已勾选确认附件，请选择实际文件；如仅登记客户回复，请取消勾选后再提交。");
+          return null;
+        }
         const proofContentDataUrl = await readFileAsDataUrl(payload.customerConfirmationProofFile);
         const proofFileForAttachment = payload.customerConfirmationProofFile
           ? {
@@ -173,8 +205,7 @@ export function createOfficeInteractionActions({
         const attachmentInput = createStatementCustomerConfirmationAttachmentInput({
           statement: selected,
           operatorId: currentUserId,
-          remark: payload.customerConfirmationRemark
-            || (proofFileForAttachment?.name ? `客户确认附件：${proofFileForAttachment.name}` : "客户确认截图/聊天记录待补。"),
+          remark: payload.customerConfirmationRemark || `客户确认附件：${proofFileForAttachment.name}`,
           file: proofFileForAttachment,
         });
         const attachmentResult = await api.createOfficeAttachment({ authState, ...attachmentInput });
@@ -233,6 +264,10 @@ export function createOfficeInteractionActions({
       let attachmentIds = [];
       let attachmentSource = "";
       if (payload.attachPaymentProof) {
+        if (!payload.paymentProofFile) {
+          notify("已勾选付款凭证，请选择实际文件；如暂不留存凭证，请取消勾选后再登记实收。");
+          return null;
+        }
         const proofContentDataUrl = await readFileAsDataUrl(payload.paymentProofFile);
         const proofFileForAttachment = payload.paymentProofFile
           ? {
@@ -245,8 +280,7 @@ export function createOfficeInteractionActions({
         const attachmentInput = createPaymentScreenshotAttachmentInput({
           statement: selected,
           operatorId: currentUserId,
-          remark: payload.paymentProofRemark
-            || (proofFileForAttachment?.name ? `付款凭证附件：${proofFileForAttachment.name}` : "付款截图占位，正式上传后替换。"),
+          remark: payload.paymentProofRemark || `付款凭证附件：${proofFileForAttachment.name}`,
           file: proofFileForAttachment,
         });
         const attachmentResult = await api.createOfficeAttachment({ authState, ...attachmentInput });
@@ -274,7 +308,11 @@ export function createOfficeInteractionActions({
       }
       const result = domain.confirmOfficeModal({
         modal: activeModal,
-        payload: { ...payload, attachmentIds },
+        payload: {
+          ...payload,
+          attachmentIds,
+          statementRevision: apiResult.statementRevision,
+        },
         fulfillments,
         statements,
         todos,

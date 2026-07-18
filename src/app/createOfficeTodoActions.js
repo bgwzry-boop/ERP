@@ -1,4 +1,8 @@
-import { handleOfficeTodoAction as handleOfficeTodoActionDefault, repairOfficeTodoReference as repairOfficeTodoReferenceDefault } from "../services/officeTodoApiClient.js";
+import {
+  handleOfficeTodoAction as handleOfficeTodoActionDefault,
+  repairOfficeTodoFulfillment as repairOfficeTodoFulfillmentDefault,
+  repairOfficeTodoReference as repairOfficeTodoReferenceDefault,
+} from "../services/officeTodoApiClient.js";
 import { createOfficeTodo } from "../services/officeMockService.js";
 import {
   getBatchPrintPackageRows,
@@ -24,6 +28,7 @@ export function createOfficeTodoAppender({ createTodo = createOfficeTodo, setSel
 
 const defaultApi = {
   handleOfficeTodoAction: handleOfficeTodoActionDefault,
+  repairOfficeTodoFulfillment: repairOfficeTodoFulfillmentDefault,
   repairOfficeTodoReference: repairOfficeTodoReferenceDefault,
 };
 
@@ -44,6 +49,7 @@ export function createOfficeTodoActions({
   guardUiAction,
   isPrintTodo,
   openModal,
+  refreshFulfillments,
   refreshTodos,
   selectedTodoId,
   setSelectedTodoId,
@@ -80,8 +86,8 @@ export function createOfficeTodoActions({
     if (!guardUiAction("todo", action)) return;
     const selected = todos.find((item) => item.id === todoId);
     if (!selected && action !== "批量打印标签") return;
-    if (selected?.referenceStatus === "missing" && referenceNavigationActions.has(action)) {
-      setToast(`待办引用已失效：${selected.referenceReason || "目标不存在"}。本次未执行，请核对来源后关闭待办。`);
+    if (blockedReferenceStatuses.has(selected?.referenceStatus) && referenceNavigationActions.has(action)) {
+      setToast(`待办引用不可直接使用：${selected.referenceReason || "目标不存在或暂不可校验"}。本次未执行，请核对来源后重新关联或关闭待办。`);
       return;
     }
 
@@ -99,6 +105,32 @@ export function createOfficeTodoActions({
         totalTasks: stats.totalTasks,
         totalLabels: stats.totalLabels,
       });
+      return;
+    }
+
+    if (action === "补建出库交付") {
+      const result = await todoApi.repairOfficeTodoFulfillment({
+        authState,
+        todoId,
+        operatorId: currentUserId,
+        reason: "办公室根据已完成打包记录和包裹明细补建出库交付",
+        idempotencyKey: `fulfillment-repair:${todoId}:${selected.updatedAt || selected.ref}`,
+      }, { serverRequired: true });
+      if (result?.source !== "api" || result.blocked) {
+        setToast(
+          result?.error?.requiredPermission
+            ? `后端拒绝补建出库交付：缺少权限 ${result.error.requiredPermission}。`
+            : `后端拒绝补建出库交付：${result?.error?.message ?? "未知错误"}`,
+        );
+        return;
+      }
+      await Promise.all([
+        refreshTodos({ showToast: false }),
+        refreshFulfillments({ showToast: false }),
+      ]);
+      setTodoView("未处理");
+      setSelectedTodoId(result.labelTodo.id);
+      setToast(`已补建出库交付 ${result.fulfillment.fulfillmentId}，${result.packageIds.length} 个包裹已回填，下一步打印标签。`);
       return;
     }
 
@@ -381,3 +413,4 @@ const referenceNavigationActions = new Set([
   "打印标签",
   "批量打印标签",
 ]);
+const blockedReferenceStatuses = new Set(["missing", "unverifiable"]);

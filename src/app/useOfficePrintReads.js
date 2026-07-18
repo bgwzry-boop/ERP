@@ -155,6 +155,8 @@ export function createOfficePrintReadActions({
         source: deviceResult.source,
         recordSource: "api_error",
         devices: [],
+        eligiblePrintJobs: [],
+        selectedPrintJobId: "",
         fieldTests: [],
         latestRecord: null,
         loading: false,
@@ -171,18 +173,36 @@ export function createOfficePrintReadActions({
     const requestedDeviceId = String(selectedDeviceId || printerDeviceQaSelectedIdRef.current || "").trim();
     const selectedDevice = devices.find((item) => item.printDeviceId === requestedDeviceId) ?? devices[0] ?? null;
     const nextSelectedDeviceId = selectedDevice?.printDeviceId ?? "";
-    let fieldTestResult = null;
-    if (nextSelectedDeviceId && canReadPrinterDeviceFieldTests) {
-      fieldTestResult = normalizeReadResultForRuntime(
-        await api.listOfficePrinterDeviceFieldTests({
-          authState,
-          printDeviceId: nextSelectedDeviceId,
-          operatorId: currentUserId,
-          query: { pageSize: 10 },
-        }),
-        { label: "打印设备现场验收记录", serverRequired },
-      );
-    }
+    const [fieldTestApiResult, printedJobApiResult] = nextSelectedDeviceId
+      ? await Promise.all([
+          canReadPrinterDeviceFieldTests
+            ? api.listOfficePrinterDeviceFieldTests({
+                authState,
+                printDeviceId: nextSelectedDeviceId,
+                operatorId: currentUserId,
+                query: { pageSize: 10 },
+              })
+            : null,
+          api.listOfficePrintJobs({
+            authState,
+            operatorId: currentUserId,
+            query: { printDeviceId: nextSelectedDeviceId, status: "printed", pageSize: 50 },
+            localPrintJobs: printJobQueueItemsRef.current,
+          }),
+        ])
+      : [null, null];
+    const fieldTestResult = fieldTestApiResult
+      ? normalizeReadResultForRuntime(fieldTestApiResult, {
+          label: "打印设备现场验收记录",
+          serverRequired,
+        })
+      : null;
+    const printedJobResult = printedJobApiResult
+      ? normalizeReadResultForRuntime(printedJobApiResult, {
+          label: "打印设备已完成作业",
+          serverRequired,
+        })
+      : null;
 
     const latestRecord = fieldTestResult?.blocked
       ? selectedDevice?.latestFieldTestRecord ?? null
@@ -193,7 +213,18 @@ export function createOfficePrintReadActions({
     const latestEvidence = latestRecord
       ? normalizePrinterDeviceFieldTestEvidence(latestRecord.evidence ?? latestRecord.summary?.evidence)
       : createPrinterDeviceFieldTestEvidence();
-    const errorMessages = [deviceResult, fieldTestResult].map((result) => getReadErrorMessage(result)).filter(Boolean);
+    const eligiblePrintJobs = printedJobResult?.blocked
+      ? []
+      : (printedJobResult?.items ?? []).filter(
+          (item) => item?.jobStatus === "printed" && item?.printDeviceId === nextSelectedDeviceId,
+        );
+    const latestPrintJobId = String(latestRecord?.printJobId ?? "").trim();
+    const selectedPrintJobId = eligiblePrintJobs.some((item) => item.printJobId === latestPrintJobId)
+      ? latestPrintJobId
+      : eligiblePrintJobs[0]?.printJobId ?? "";
+    const errorMessages = [deviceResult, fieldTestResult, printedJobResult]
+      .map((result) => getReadErrorMessage(result))
+      .filter(Boolean);
 
     setPrinterDeviceQa((current) => ({
       ...current,
@@ -201,6 +232,8 @@ export function createOfficePrintReadActions({
       recordSource: fieldTestResult?.source ?? "idle",
       devices,
       selectedDeviceId: nextSelectedDeviceId,
+      eligiblePrintJobs,
+      selectedPrintJobId,
       fieldTests: fieldTestResult?.blocked ? [] : fieldTestResult?.items ?? [],
       latestRecord,
       checks: latestChecks,
@@ -214,7 +247,12 @@ export function createOfficePrintReadActions({
       lastSyncedAt: formatSyncTime(),
     }));
 
-    const result = { devices: deviceResult, fieldTests: fieldTestResult, blocked: fieldTestResult?.blocked === true };
+    const result = {
+      devices: deviceResult,
+      fieldTests: fieldTestResult,
+      printJobs: printedJobResult,
+      blocked: fieldTestResult?.blocked === true || printedJobResult?.blocked === true,
+    };
     if (result.blocked) {
       return withFeedback(
         result,
@@ -223,7 +261,11 @@ export function createOfficePrintReadActions({
       );
     }
     const sourceLabel = deviceResult.source === "api" || fieldTestResult?.source === "api" ? "后端 API" : "本地规则降级";
-    return withFeedback(result, showToast, `打印设备验收已通过${sourceLabel}刷新，共 ${devices.length} 台设备。`);
+    return withFeedback(
+      result,
+      showToast,
+      `打印设备验收已通过${sourceLabel}刷新，共 ${devices.length} 台设备、${eligiblePrintJobs.length} 个可关联已打印作业。`,
+    );
   }
 
   async function refreshOfficePrintJobQueue({ showToast = false } = {}) {

@@ -93,7 +93,22 @@ export function upsertMasterDataEmployeeAccountReview(items = [], review) {
   return [
     review,
     ...(Array.isArray(items) ? items : []).filter((item) => item.employeeId !== review.employeeId),
-  ].slice(0, 12);
+  ];
+}
+
+export function mergeMasterDataEmployeeAccountReviews(items = [], reviews = []) {
+  const updates = new Map(
+    (Array.isArray(reviews) ? reviews : [])
+      .filter((review) => review?.employeeId)
+      .map((review) => [review.employeeId, review]),
+  );
+  const current = Array.isArray(items) ? items : [];
+  const merged = current.map((review) => updates.get(review.employeeId) ?? review);
+  const knownIds = new Set(current.map((review) => review?.employeeId).filter(Boolean));
+  for (const review of updates.values()) {
+    if (!knownIds.has(review.employeeId)) merged.push(review);
+  }
+  return merged;
 }
 
 export function getMasterDataExecutionTone(status = "") {

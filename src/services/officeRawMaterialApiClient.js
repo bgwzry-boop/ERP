@@ -1,5 +1,50 @@
 import { requestOfficeApi as requestRawMaterialApi } from "./officeApiClientCore.js";
 
+export async function listOfficeRawMaterialPurchaseRequests(input = {}, options = {}) {
+  const { authState, operatorId } = input;
+  try {
+    const response = await requestRawMaterialApi("/raw-material-purchase-requests", { ...options, authState, operatorId });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, items: [], error: toApiError(json, response.status, "采购请求读取失败。") };
+    return { source: "api", items: Array.isArray(json?.items) ? json.items : [], total: Number(json?.total ?? 0) };
+  } catch (error) {
+    return { source: "api_error", blocked: true, items: [], error: { code: "RAW_MATERIAL_PURCHASE_LIST_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
+export async function createOfficeRawMaterialPurchaseRequest(input = {}, options = {}) {
+  const { authState, operatorId, idempotencyKey, delegatedDecision, directDecisionContent, ...payload } = input;
+  return writePurchaseRequest("/raw-material-purchase-requests", {
+    ...options,
+    authState,
+    operatorId,
+    idempotencyKey,
+    body: { ...payload, idempotencyKey, delegatedDecision, directDecisionContent },
+  }, "采购请求创建失败。");
+}
+
+export async function updateOfficeRawMaterialPurchaseRequestStatus(input = {}, options = {}) {
+  const { authState, operatorId, requestId, expectedRevision, idempotencyKey, status, reason, delegatedDecision, directDecisionContent } = input;
+  return writePurchaseRequest(`/raw-material-purchase-requests/${encodeURIComponent(requestId)}/status`, {
+    ...options,
+    authState,
+    operatorId,
+    idempotencyKey,
+    body: { expectedRevision, idempotencyKey, status, reason, delegatedDecision, directDecisionContent },
+  }, "采购状态更新失败。");
+}
+
+async function writePurchaseRequest(path, options, fallbackMessage) {
+  try {
+    const response = await requestRawMaterialApi(path, { ...options, method: "POST" });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, fallbackMessage) };
+    return { source: "api", purchaseRequest: json?.purchaseRequest, businessDecision: json?.businessDecision, operationLogId: json?.operationLogId, replayed: json?.replayed === true };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "RAW_MATERIAL_PURCHASE_WRITE_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
 export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
   const { authState, operatorId, localInbounds = [], page = 1, pageSize = 200, filters = {} } = input;
 
@@ -54,11 +99,67 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
   }
 }
 
+export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options = {}) {
+  const { authState, operatorId, fileName, mimeType, fileSize, contentDataUrl, pdfPageNumber, useNewModel } = input;
+  if (!cleanText(contentDataUrl)) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "RAW_MATERIAL_DELIVERY_NOTE_REQUIRED",
+        message: "请选择原材料送货单照片或 PDF 后再识别。",
+      },
+    };
+  }
+  try {
+    const response = await requestRawMaterialApi("/raw-material-inbounds/recognize-delivery-note", {
+      ...options,
+      authState,
+      operatorId,
+      method: "POST",
+      body: {
+        operatorId,
+        fileName,
+        mimeType,
+        fileSize,
+        contentDataUrl,
+        pdfPageNumber,
+        useNewModel: useNewModel === true,
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "原材料送货单 OCR 识别失败。"),
+      };
+    }
+    return {
+      source: "api",
+      inbound: normalizeRawMaterialInbound(json?.inbound),
+      attachmentId: cleanText(json?.attachmentId),
+      deduplicated: json?.deduplicated === true,
+      operationLogId: cleanText(json?.operationLogId),
+    };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "RAW_MATERIAL_DELIVERY_NOTE_OCR_API_UNAVAILABLE",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
 export async function updateOfficeRawMaterialInboundAction(input = {}, options = {}) {
   const {
     authState,
     operatorId,
     inboundId,
+    expectedRevision,
     action,
     rollId,
     reason,
@@ -78,6 +179,14 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
     reviewLocation,
     machineCount,
     qualifiedOutputQuantity,
+    reviewFields,
+    lineReviews,
+    matchResult,
+    checkedWeightKg,
+    checkedColor,
+    checkedSpec,
+    location,
+    verificationNote,
     note,
   } = input;
   const safeInboundId = cleanText(inboundId);
@@ -102,6 +211,7 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
         operatorId,
         method: "POST",
         body: {
+          expectedRevision,
           operatorId,
           operatorName,
           rollId,
@@ -121,6 +231,14 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
           reviewLocation,
           machineCount,
           qualifiedOutputQuantity,
+          reviewFields,
+          lineReviews,
+          matchResult,
+          checkedWeightKg,
+          checkedColor,
+          checkedSpec,
+          location,
+          verificationNote,
           note,
         },
       },
@@ -525,6 +643,50 @@ function normalizeRawMaterialInbound(input = {}) {
   item.supplierName = cleanText(item.supplierName);
   item.deliveryNoteNo = cleanText(item.deliveryNoteNo);
   item.status = cleanText(item.status);
+  item.source = cleanText(item.source);
+  item.ocrProvider = cleanText(item.ocrProvider);
+  item.ocrAction = cleanText(item.ocrAction);
+  item.ocrRequestId = cleanText(item.ocrRequestId);
+  item.ocrStatus = cleanText(item.ocrStatus);
+  item.ocrSourceDigest = cleanText(item.ocrSourceDigest);
+  item.ocrRecognizedAt = cleanText(item.ocrRecognizedAt);
+  item.ocrRawText = cleanText(item.ocrRawText);
+  item.sourceAttachmentId = cleanText(item.sourceAttachmentId);
+  item.sourceFileName = cleanText(item.sourceFileName);
+  item.sourceMimeType = cleanText(item.sourceMimeType);
+  item.ocrReviewFields = (Array.isArray(item.ocrReviewFields) ? item.ocrReviewFields : []).map((field) => ({
+    ...field,
+    key: cleanText(field?.key),
+    label: cleanText(field?.label),
+    recognizedValue: field?.recognizedValue ?? "",
+    value: field?.value ?? "",
+    confidence: toNumber(field?.confidence, 0),
+    reviewStatus: cleanText(field?.reviewStatus),
+    required: field?.required === true,
+  })).filter((field) => field.key);
+  item.ocrLines = (Array.isArray(item.ocrLines) ? item.ocrLines : []).map((line) => {
+    const values = line?.values && typeof line.values === "object" ? { ...line.values } : {};
+    const recognizedValues = line?.recognizedValues && typeof line.recognizedValues === "object" ? { ...line.recognizedValues } : {};
+    return {
+      ...line,
+      lineId: cleanText(line?.lineId),
+      sourceText: cleanText(line?.sourceText),
+      reviewStatus: cleanText(line?.reviewStatus),
+      values,
+      recognizedValues: Object.keys(recognizedValues).length ? recognizedValues : { ...values },
+      confidences: line?.confidences && typeof line.confidences === "object" ? { ...line.confidences } : {},
+      reviewedFields: (Array.isArray(line?.reviewedFields) ? line.reviewedFields : []).map((field) => ({
+        ...field,
+        key: cleanText(field?.key),
+        recognizedValue: field?.recognizedValue ?? "",
+        value: field?.value ?? "",
+        reviewStatus: cleanText(field?.reviewStatus),
+      })).filter((field) => field.key),
+      reviewedBy: cleanText(line?.reviewedBy),
+      reviewedByUserId: cleanText(line?.reviewedByUserId),
+      reviewedAt: cleanText(line?.reviewedAt),
+    };
+  }).filter((line) => line.lineId);
   item.issueStatus = cleanText(item.issueStatus);
   item.machineId = cleanText(item.machineId);
   item.productionTaskId = cleanText(item.productionTaskId);
@@ -1089,7 +1251,7 @@ function buildRawMaterialInboundMetrics(inbounds = []) {
     pendingReviewCount: items.filter((item) => item.status.includes("待复核")).length,
     pendingLabelCount: items.filter((item) => item.status.includes("待打印") || item.status.includes("待贴标")).length,
     partiallyLabeledCount: items.filter((item) => item.status === "部分贴标").length,
-    availableCount: items.filter((item) => item.status === "已贴标入库/可用").length,
+    availableCount: items.filter((item) => ["已贴标/可用库存", "已贴标入库/可用"].includes(item.status)).length,
     issuedCount: items.filter((item) => item.status.includes("领料/机边")).length,
     consumptionConfirmedCount: items.filter((item) => item.status.includes("消耗确认")).length,
     leftoverPendingCount: items.filter((item) => item.status.includes("余料")).length,
@@ -1124,7 +1286,9 @@ function toRawMaterialActionSlug(action) {
   if (value === "复核送货单" || value === "review") return "review";
   if (value === "打印卷标" || value === "print_labels" || value === "print-labels") return "print-labels";
   if (value === "确认贴标入库" || value === "attach_confirm" || value === "attach-confirm") return "attach-confirm";
-  if (value === "机边领料" || value === "issue_to_machine" || value === "issue-to-machine") return "issue-to-machine";
+  if (value === "作废卷标" || value === "void_label" || value === "void-label") return "void-label";
+  if (value === "重打卷标" || value === "reprint_label" || value === "reprint-label") return "reprint-label";
+  if (value === "机边领料" || value === "扫码出库" || value === "issue_to_machine" || value === "issue-to-machine") return "issue-to-machine";
   if (value === "确认消耗" || value === "confirm_consumption" || value === "confirm-consumption") return "confirm-consumption";
   if (value === "余料退回" || value === "return_leftover" || value === "return-leftover") return "return-leftover";
   if (value === "复核余料可用" || value === "review_leftover" || value === "review-leftover") return "review-leftover";

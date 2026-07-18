@@ -15,6 +15,7 @@ export function normalizeV1D49Readiness(value = {}) {
   const source = isPlainObject(value) ? value : {};
   const summary = isPlainObject(source.summary) ? source.summary : {};
   const employees = isPlainObject(source.employees) ? source.employees : {};
+  const employeeIntake = normalizeV1D49EmployeeIntakeStatus(source.employeeIntake);
   const environment = isPlainObject(source.environment) ? source.environment : {};
   const roles = Array.isArray(employees.roles)
     ? employees.roles.map((role) => ({
@@ -56,6 +57,12 @@ export function normalizeV1D49Readiness(value = {}) {
       missingRoleCount: Number(summary.missingRoleCount) || 0,
       formalAccountCount: Number(summary.formalAccountCount) || 0,
       readyFormalAccountCount: Number(summary.readyFormalAccountCount) || 0,
+      employeeIntakeAvailable: summary.employeeIntakeAvailable === true,
+      employeeIntakeFresh: summary.employeeIntakeFresh === true,
+      employeeIntakeStatusLabel: cleanText(summary.employeeIntakeStatusLabel),
+      employeeIntakeRowCount: Number(summary.employeeIntakeRowCount) || employeeIntake.summary.employeeRowCount,
+      employeeIntakeCoverageLabel: cleanText(summary.employeeIntakeCoverageLabel) || employeeIntake.summary.coverageLabel,
+      employeeNumberMissingCount: Number(summary.employeeNumberMissingCount) || employeeIntake.summary.missingEmployeeNumberCount,
       envSetupReady: summary.envSetupReady === true,
       envAuditReady: summary.envAuditReady === true,
       envPreflightLabel: cleanText(summary.envPreflightLabel) || "0/11",
@@ -70,6 +77,7 @@ export function normalizeV1D49Readiness(value = {}) {
       ready: employees.ready === true,
       roles,
     },
+    employeeIntake,
     environment: {
       status: cleanText(environment.status),
       ready: environment.ready === true,
@@ -81,6 +89,71 @@ export function normalizeV1D49Readiness(value = {}) {
       intakeConfiguredLabel: cleanText(environment.intakeConfiguredLabel) || "0/0",
     },
     blockers,
+    nextAction: cleanText(source.nextAction),
+    safeguards: isPlainObject(source.safeguards) ? source.safeguards : {},
+  };
+}
+
+function normalizeV1D49EmployeeIntakeStatus(value = {}) {
+  const source = isPlainObject(value) ? value : {};
+  const summary = isPlainObject(source.summary) ? source.summary : {};
+  const status = cleanText(source.status) || "unavailable";
+  const available = source.available === true && cleanText(source.scope) === "v1_d49_employee_intake_status";
+  const fresh = available && source.fresh === true;
+  const freshness = isPlainObject(source.freshness) ? source.freshness : {};
+  const roles = Array.isArray(source.roles)
+    ? source.roles.map((role) => ({
+        roleKey: cleanText(role.roleKey),
+        roleLabel: cleanText(role.roleLabel),
+        covered: role.covered === true,
+        rowCount: Number(role.rowCount) || 0,
+      })).filter((role) => role.roleKey)
+    : [];
+  return {
+    available,
+    fresh,
+    status,
+    ready: fresh && source.ready === true,
+    uploadAllowed: fresh && source.uploadAllowed === true,
+    statusLabel: fresh && source.ready === true
+      ? "离线预检已通过"
+      : status === "needs_employee_numbers"
+        ? "待补员工编号"
+        : status === "stale"
+          ? "预检结果已过期"
+          : status === "needs_role_coverage"
+            ? "岗位未覆盖"
+            : status === "review_required"
+              ? "待人工复核"
+              : "预检结果不可用",
+    checkedAt: formatDateTimeLabel(source.checkedAt),
+    freshness: {
+      fresh,
+      status: cleanText(freshness.status) || "unavailable",
+      label: cleanText(freshness.label) || "未验证",
+      checkedAtValid: freshness.checkedAtValid === true,
+      withinMaxAge: freshness.withinMaxAge === true,
+      sourceMatched: freshness.sourceMatched === true,
+      maxAgeHours: Number(freshness.maxAgeHours) || 72,
+      ageHours: Number.isFinite(Number(freshness.ageHours)) ? Number(freshness.ageHours) : null,
+    },
+    summary: {
+      label: cleanText(summary.label),
+      employeeRowCount: Number(summary.employeeRowCount) || 0,
+      coveredRoleCount: Number(summary.coveredRoleCount) || 0,
+      requiredRoleCount: Number(summary.requiredRoleCount) || 8,
+      missingRoleCount: Number(summary.missingRoleCount) || 0,
+      coverageLabel: cleanText(summary.coverageLabel) || "0/8",
+      errorCount: Number(summary.errorCount) || 0,
+      warningCount: Number(summary.warningCount) || 0,
+      issueCount: Number(summary.issueCount) || 0,
+      missingEmployeeNumberCount: Number(summary.missingEmployeeNumberCount) || 0,
+      blockerCount: Number(summary.blockerCount) || 0,
+      blockerLabel: cleanText(summary.blockerLabel) || "未读取",
+      freshnessLabel: cleanText(summary.freshnessLabel) || "未验证",
+    },
+    roles,
+    missingRoleLabels: normalizeStringList(source.missingRoleLabels),
     nextAction: cleanText(source.nextAction),
     safeguards: isPlainObject(source.safeguards) ? source.safeguards : {},
   };
@@ -298,6 +371,7 @@ export function normalizeV1DriverReadinessLivePrecheckResult(value = {}) {
         checkedAt: formatDateTimeLabel(source.latestFieldTest.checkedAt),
         deviceLabel: cleanText(source.latestFieldTest.deviceLabel),
         summaryLabel: cleanText(source.latestFieldTest.summaryLabel),
+        acceptanceStatusLabel: cleanText(source.latestFieldTest.acceptanceStatusLabel) || "现场验收未通过",
       }
     : null;
   const nativeBridge = normalizeV1DriverNativeBridge(source.nativeBridge);
@@ -346,6 +420,7 @@ export function normalizeV1DriverReadinessLivePrecheckResult(value = {}) {
       deliveryTaskCount: Number(summary.deliveryTaskCount) || deliveryTaskReadiness.total,
       fieldTestRecordAvailable: summary.fieldTestRecordAvailable === true,
       fieldTestLabel: cleanText(summary.fieldTestLabel) || (latestFieldTest ? latestFieldTest.summaryLabel : "未验收"),
+      onsiteAcceptancePassed: summary.onsiteAcceptancePassed === true,
       nativeSupportedLabel: cleanText(summary.nativeSupportedLabel) || nativeBridge.supportedLabel,
       packageLabelScanMatched: summary.packageLabelScanMatched === true,
       packageLabelScanNative: summary.packageLabelScanNative === true,

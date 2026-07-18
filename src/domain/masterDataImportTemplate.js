@@ -182,7 +182,7 @@ const templateDefinitions = [
   {
     key: "employees_machines",
     label: "员工机台",
-    description: "员工编号使用1-32位字母/数字/_/-；维护岗位、工资基础字段、车间机台和粗略产能。",
+    description: "员工编号使用1-32位字母/数字/_/-；主岗位必填，兼任岗位填在附加角色；维护工资基础字段、车间机台和粗略产能。",
     worksheetName: "员工机台",
     requiredFields: ["员工编号", "员工姓名", "角色"],
     conditionalRequiredFields: [],
@@ -191,6 +191,7 @@ const templateDefinitions = [
       "员工编号",
       "员工姓名",
       "角色",
+      "附加角色",
       "默认车间",
       "默认机台",
       "基础时薪",
@@ -208,6 +209,7 @@ const templateDefinitions = [
       "EMP-IMPORT-001",
       "王师傅",
       "制袋工",
+      "",
       "1号车间",
       "1号机",
       10,
@@ -392,13 +394,19 @@ function buildDataWorksheet(definition, input = {}) {
     return cell(required ? "必填" : conditional ? "车间岗必填" : deferred ? "可后补" : "可选", { styleId: required || conditional || deferred ? "Input" : "Muted" });
   });
   const roleLabels = getV1RuntimeEmployeeRoleInputLabels();
+  const suppliedRows = Array.isArray(input.dataRowsByKey?.[definition.key])
+    ? input.dataRowsByKey[definition.key].slice(0, 1000)
+    : null;
+  const dataRows = suppliedRows === null
+    ? input.includeFixtureRows === true ? [definition.sampleRow] : []
+    : suppliedRows.map((row) => definition.columns.map((column) => row?.[column] ?? ""));
   return {
     name: definition.worksheetName,
     columns: definition.columns.map((column) => Math.max(90, Math.min(220, column.length * 16 + 70))),
     rows: [
       definition.columns.map((column) => cell(column, { styleId: "Header" })),
       noteRow,
-      ...(input.includeFixtureRows === true ? [definition.sampleRow.map((value) => cell(value))] : []),
+      ...dataRows.map((row) => row.map((value) => cell(value))),
     ],
     dataValidations: definition.key === "employees_machines"
       ? [{
@@ -446,13 +454,13 @@ function buildEmployeeRoleGuideRows() {
     ],
     ...v1RuntimeEmployeeRoleKeys.map((roleKey) => [
       cell(roleCatalog[roleKey].displayName),
-      cell("员工编号、员工姓名、角色必填；一名真实员工一行。"),
+      cell("员工编号、员工姓名、主角色必填；兼任岗位填入附加角色，用顿号分隔。"),
       cell(roleKey === "workshop" ? "可导入后在员工机台页手动分配；固定机台需车间+机台。" : roleKey === "packing" ? "杂工可只绑定负责车间，不绑定机台。" : "无需填写，不要使用虚假车间占位。"),
       cell("至少1个已复核、已首次改密、未锁定且未过期的正式账号。"),
     ]),
     [
       cell("注意", { styleId: "Label" }),
-      cell("8类岗位必须全部覆盖；模板样例不计入正式上线就绪。", { mergeAcross: 2 }),
+      cell("8类岗位必须全部覆盖；同一正式账号可保留一个主角色和多个附加角色；模板样例不计入正式上线就绪。", { mergeAcross: 2 }),
     ],
   ];
 }

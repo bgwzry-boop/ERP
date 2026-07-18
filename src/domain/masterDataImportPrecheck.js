@@ -5,7 +5,9 @@ import {
 import {
   getV1RuntimeEmployeeRoleInputLabels,
   normalizeV1RuntimeEmployeeRoleKey,
+  normalizeV1RuntimeEmployeeRoleKeys,
   roleCatalog,
+  splitV1RuntimeEmployeeRoleInputs,
   v1RuntimeEmployeeRoleKeys,
 } from "../../shared/auth/roleCatalog.js";
 import { isValidEmployeeNumber } from "../../shared/auth/employeeIdentity.js";
@@ -101,8 +103,11 @@ function buildEmployeeRoleCoverage(sheetResults) {
   const employeeSheet = sheetResults.find((sheet) => sheet.key === "employees_machines");
   const rowCounts = new Map(v1RuntimeEmployeeRoleKeys.map((roleKey) => [roleKey, 0]));
   for (const row of employeeSheet?.rows ?? []) {
-    const roleKey = normalizeV1RuntimeEmployeeRoleKey("", row.values?.["角色"]);
-    if (roleKey) rowCounts.set(roleKey, (rowCounts.get(roleKey) ?? 0) + 1);
+    const roleKeys = normalizeV1RuntimeEmployeeRoleKeys([
+      row.values?.["角色"],
+      row.values?.["附加角色"],
+    ]);
+    for (const roleKey of roleKeys) rowCounts.set(roleKey, (rowCounts.get(roleKey) ?? 0) + 1);
   }
   const roles = v1RuntimeEmployeeRoleKeys.map((roleKey) => ({
     roleKey,
@@ -265,6 +270,20 @@ function checkBusinessRules(spec, row, sheetIssues, allIssues) {
         row,
         "角色",
         `角色无法映射到V1正式岗位，建议使用：${getV1RuntimeEmployeeRoleInputLabels().join("、")}。`,
+        sheetIssues,
+        allIssues,
+      );
+    }
+    const additionalRoleInputs = splitV1RuntimeEmployeeRoleInputs(row.values["附加角色"]);
+    const invalidAdditionalRoles = additionalRoleInputs.filter(
+      (value) => !normalizeV1RuntimeEmployeeRoleKey(value, value),
+    );
+    if (invalidAdditionalRoles.length) {
+      addIssue(
+        "error",
+        row,
+        "附加角色",
+        `附加角色无法映射到V1正式岗位：${invalidAdditionalRoles.join("、")}。`,
         sheetIssues,
         allIssues,
       );

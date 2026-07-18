@@ -3,7 +3,10 @@ import {
   completeOfficeFulfillment,
   confirmOfficeFulfillmentPickup,
   createOfficeFulfillmentException,
+  handoffOfficePaperOutbound,
   markOfficeFulfillmentPrepared,
+  recordOfficeWarehouseOutboundExecution,
+  resolveOfficeFulfillmentQuantityVariance,
   reviewOfficeDeliveryEvidence,
   updateOfficeFulfillmentDispatch,
 } from "../services/officeFulfillmentApiClient.js";
@@ -15,7 +18,10 @@ const defaultApi = {
   completeOfficeFulfillment,
   confirmOfficeFulfillmentPickup,
   createOfficeFulfillmentException,
+  handoffOfficePaperOutbound,
   markOfficeFulfillmentPrepared,
+  recordOfficeWarehouseOutboundExecution,
+  resolveOfficeFulfillmentQuantityVariance,
   reviewOfficeDeliveryEvidence,
   updateOfficeFulfillmentDispatch,
 };
@@ -99,7 +105,84 @@ export function createOfficeFulfillmentWriteActions({
     );
   }
 
-  async function completeFulfillmentAction({ action, fulfillment }) {
+  async function handoffPaperOutbound({ fulfillment, paperOutboundDocument, note = "" }) {
+    const result = normalizeWriteResultForRuntime(
+      await fulfillmentApi.handoffOfficePaperOutbound({
+        authState,
+        fulfillment,
+        paperOutboundDocument,
+        operatorId: currentUserId,
+        note,
+      }),
+      { label: "纸单交库房", serverRequired },
+    );
+    if (result.blocked) return withFeedback(result, formatBlockedFeedback("后端拒绝纸单交库房", result));
+    setFulfillments((current) => current.map((item) =>
+      item.id === fulfillment.id
+        ? {
+            ...item,
+            status: result.status || "待库房备货",
+            paperOutboundStatus: "已交库房",
+            paperOutboundDocument: result.paperOutboundDocument ?? paperOutboundDocument,
+          }
+        : item,
+    ));
+    const projection = await refreshCommittedProjections([refreshFulfillments({ showToast: false })]);
+    return withFeedback(
+      result,
+      projection.failed && result.source === "api"
+        ? "纸单已交库房，但交付列表刷新失败，请手动刷新。"
+        : "已记录纸单交库房；库房实物执行仍需由办公室根据纸单反馈回录。",
+      { projectionRefreshFailed: projection.failed },
+    );
+  }
+
+  async function recordWarehouseExecution({ fulfillment, paperOutboundDocument, payload }) {
+    const result = normalizeWriteResultForRuntime(
+      await fulfillmentApi.recordOfficeWarehouseOutboundExecution({
+        authState,
+        fulfillment,
+        paperOutboundDocument,
+        operatorId: currentUserId,
+        ...payload,
+      }),
+      { label: "库房纸单结果回录", serverRequired },
+    );
+    if (result.blocked) return withFeedback(result, formatBlockedFeedback("后端拒绝库房结果回录", result));
+    setFulfillments((current) => current.map((item) =>
+      item.id === fulfillment.id
+        ? {
+            ...item,
+            status: result.status || item.status,
+            latestWarehouseExecution: result.warehouseOutboundExecution ?? item.latestWarehouseExecution,
+          }
+        : item,
+    ));
+    const projection = await refreshCommittedProjections([
+      refreshFulfillments({ showToast: false }),
+      refreshInventoryRecords({ showToast: false }),
+      refreshStatements({ showToast: false }),
+      refreshTodos({ showToast: false }),
+    ]);
+    const resultLabel = payload.result === "实物已出库"
+      ? fulfillment.method === "送货"
+        ? "已记录库房实物出库，等待司机装车后进入在途。"
+        : "已记录库房实物出库并扣减库存，等待最终自提或承运方拉走确认；尚未生成对账候选。"
+      : payload.result === "数量不符"
+        ? "已创建数量差异待办；未扣库存、未改订单、未生成对账候选。"
+        : payload.result === "无法出库"
+          ? "已创建无法出库待办；未扣库存、未改订单、未生成对账候选。"
+          : "已回录库房备货结果；尚未实物出库。";
+    return withFeedback(
+      result,
+      projection.failed && result.source === "api"
+        ? "库房结果已由后端提交，但业务投影刷新失败，请手动刷新。"
+        : resultLabel,
+      { projectionRefreshFailed: projection.failed },
+    );
+  }
+
+  async function completeFulfillmentAction({ action, fulfillment, payload = {} }) {
     const isPickup = action === "确认已拉走";
     const result = normalizeWriteResultForRuntime(
       isPickup
@@ -107,12 +190,18 @@ export function createOfficeFulfillmentWriteActions({
             authState,
             fulfillment,
             operatorId: currentUserId,
+            expectedRevision: payload.expectedRevision,
+            idempotencyKey: payload.idempotencyKey,
+            confirmedFinalDelivery: payload.confirmedFinalDelivery === true,
             remark: `${currentUserDisplayName} 在出库 / 交付页确认快递快运拉走`,
           })
         : await fulfillmentApi.completeOfficeFulfillment({
             authState,
             fulfillment,
             operatorId: currentUserId,
+            expectedRevision: payload.expectedRevision,
+            idempotencyKey: payload.idempotencyKey,
+            confirmedFinalDelivery: payload.confirmedFinalDelivery === true,
             actualQty: fulfillment.qty,
             remark: `${currentUserDisplayName} 在出库 / 交付页执行：${action}`,
           }),
@@ -136,6 +225,28 @@ export function createOfficeFulfillmentWriteActions({
       projection.failed && result.source === "api"
         ? `${action}已由后端提交，但交付、库存、对账或待办刷新失败，请手动刷新。`
         : `已通过${sourceLabel}记录${action}，操作人：${currentUserDisplayName}；${successText}`,
+      { projectionRefreshFailed: projection.failed },
+    );
+  }
+
+  async function resolveFulfillmentQuantityVariance({ fulfillment, payload }) {
+    const result = normalizeWriteResultForRuntime(
+      await fulfillmentApi.resolveOfficeFulfillmentQuantityVariance({
+        authState,
+        fulfillment,
+        operatorId: currentUserId,
+        ...payload,
+      }),
+      { label: "数量差异处理", serverRequired },
+    );
+    if (result.blocked) return withFeedback(result, formatBlockedFeedback("后端拒绝数量差异处理", result));
+    const projection = await refreshCommittedProjections([
+      refreshFulfillments({ showToast: false }),
+      refreshTodos({ showToast: false }),
+    ]);
+    return withFeedback(
+      result,
+      projection.failed ? "数量差异已处理，但交付或待办刷新失败，请手动刷新。" : `数量差异已按“${payload.resolutionResult}”处理；未直接扣库存或生成对账。`,
       { projectionRefreshFailed: projection.failed },
     );
   }
@@ -189,6 +300,8 @@ export function createOfficeFulfillmentWriteActions({
           type: "照片待重拍",
           customerId: fulfillment.customerId,
           ref: fulfillment.lineId,
+          refType: "order_line",
+          refId: fulfillment.lineId,
           summary: `${customerName || fulfillment.customerId} ${fulfillment.goods || fulfillment.lineId}：${resolvedReason}`,
           latest: fulfillment.latest,
           urgency: "异常",
@@ -327,7 +440,10 @@ export function createOfficeFulfillmentWriteActions({
 
   return {
     completeFulfillmentAction,
+    handoffPaperOutbound,
     markFulfillmentPrepared,
+    recordWarehouseExecution,
+    resolveFulfillmentQuantityVariance,
     reviewFulfillmentDeliveryEvidence,
     saveFulfillmentDispatch,
     submitFulfillmentException,
@@ -346,7 +462,10 @@ export function useOfficeFulfillmentWrites(options) {
   ];
   return {
     completeFulfillmentAction: useCallback(actions.completeFulfillmentAction, dependencies),
+    handoffPaperOutbound: useCallback(actions.handoffPaperOutbound, dependencies),
     markFulfillmentPrepared: useCallback(actions.markFulfillmentPrepared, dependencies),
+    recordWarehouseExecution: useCallback(actions.recordWarehouseExecution, dependencies),
+    resolveFulfillmentQuantityVariance: useCallback(actions.resolveFulfillmentQuantityVariance, dependencies),
     reviewFulfillmentDeliveryEvidence: useCallback(actions.reviewFulfillmentDeliveryEvidence, dependencies),
     saveFulfillmentDispatch: useCallback(actions.saveFulfillmentDispatch, dependencies),
     submitFulfillmentException: useCallback(actions.submitFulfillmentException, dependencies),

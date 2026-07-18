@@ -10,7 +10,7 @@ export function buildFulfillmentPrintTemplate(input = {}) {
   const customer = input.customer ?? {};
   const printRecord = input.printRecord ?? {};
   const method = fulfillment.method ?? orderLine?.fulfillment ?? "出库";
-  const documentType = getDocumentType(method);
+  const documentType = input.documentType ?? printRecord.documentType ?? getDocumentType(method);
   const isExpressLtl = documentType === "express_ltl_label";
   const isFulfillmentNote = !isExpressLtl;
   const packageCount = getPackageCount(fulfillment.packages);

@@ -20,13 +20,13 @@ export function WorkspacePageHeader({ title, description, contextLabel, onRefres
         <div className="workspace-page-actions">
           {contextLabel ? (
             <span className="workspace-context-label">
-              <DatabaseOutlined />
+              <DatabaseOutlined aria-hidden="true" />
               {contextLabel}
             </span>
           ) : null}
           {onRefresh ? (
             <button type="button" className="ghost-button" onClick={onRefresh}>
-              <ReloadOutlined />
+              <ReloadOutlined aria-hidden="true" />
               刷新
             </button>
           ) : null}
@@ -108,7 +108,17 @@ export function DataTable({ columns, rows, className = "" }) {
       </div>
       {rows.length ? (
         rows.map((row) => {
-          const RowElement = row.onClick ? "button" : "div";
+          const hasInteractiveCells = row.interactive === true;
+          const RowElement = row.onClick && !hasInteractiveCells ? "button" : "div";
+          const handleKeyDown = hasInteractiveCells && row.onClick
+            ? (event) => {
+                if (event.target !== event.currentTarget) return;
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  row.onClick();
+                }
+              }
+            : undefined;
           return (
             <RowElement
               className={`data-row ${row.active ? "active" : ""} ${row.tone ?? ""}`}
@@ -116,7 +126,10 @@ export function DataTable({ columns, rows, className = "" }) {
               data-row-id={row.id}
               key={row.id}
               onClick={row.onClick}
-              type={row.onClick ? "button" : undefined}
+              onKeyDown={handleKeyDown}
+              role={hasInteractiveCells && row.onClick ? "button" : undefined}
+              tabIndex={hasInteractiveCells && row.onClick ? 0 : undefined}
+              type={RowElement === "button" ? "button" : undefined}
             >
               {row.cells.map((cell, index) => <span key={`${row.id}-${index}`}>{cell}</span>)}
             </RowElement>

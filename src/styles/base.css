@@ -1,11 +1,14 @@
 :root {
-  color: #172033;
-  background: #f4f6fa;
-  font-family:
-    Inter, "PingFang SC", "Microsoft YaHei", "Noto Sans SC", system-ui,
-    -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: var(--erp-text);
+  background: var(--erp-canvas);
+  font-family: var(--erp-font-ui);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
+}
+
+html,
+body {
+  overflow-x: clip;
 }
 
 * {
@@ -23,10 +26,28 @@ button {
   cursor: pointer;
 }
 
+:where(button, a, input, textarea, select, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--erp-surface);
+  outline-offset: 2px;
+  box-shadow: var(--erp-shadow-focus);
+}
+
+:where(button, input, textarea, select) {
+  font-variant-numeric: tabular-nums;
+}
+
 body {
   margin: 0;
-  min-width: 1180px;
-  min-height: 100vh;
-  background: #f4f6fa;
+  min-width: 0;
+  min-height: 100dvh;
+  background: var(--erp-canvas);
+  color: var(--erp-text);
+  font-size: var(--erp-text-md);
+  line-height: var(--erp-line-ui);
   -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: var(--erp-surface-selected);
+  color: var(--erp-text);
 }

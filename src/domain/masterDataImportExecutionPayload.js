@@ -1,8 +1,14 @@
-import { normalizeV1RuntimeEmployeeRoleKey } from "../../shared/auth/roleCatalog.js";
+import {
+  normalizeV1RuntimeEmployeeRoleKey,
+  normalizeV1RuntimeEmployeeRoleKeys,
+  roleCatalog,
+  splitV1RuntimeEmployeeRoleInputs,
+} from "../../shared/auth/roleCatalog.js";
 import {
   isValidEmployeeNumber,
   normalizeEmployeeNumberKey,
 } from "../../shared/auth/employeeIdentity.js";
+import { resolveImportedMasterDataMachineId } from "../../shared/masterDataMachineIdentity.js";
 
 export const MASTER_DATA_IMPORT_EXECUTION_PAYLOAD_VERSION = "p0-master-data-import-execution-payload-v1";
 
@@ -316,10 +322,25 @@ function mapEmployeeMachineRow(row) {
   }
   const roleKey = normalizeV1RuntimeEmployeeRoleKey("", roleName);
   if (!roleKey) return { failedReason: "角色无法映射到V1正式岗位。" };
+  const additionalRoleInputs = splitV1RuntimeEmployeeRoleInputs(row.values["附加角色"]);
+  const invalidAdditionalRoles = additionalRoleInputs.filter(
+    (value) => !normalizeV1RuntimeEmployeeRoleKey(value, value),
+  );
+  if (invalidAdditionalRoles.length) {
+    return { failedReason: `附加角色无法映射到V1正式岗位：${invalidAdditionalRoles.join("、")}。` };
+  }
+  const roleKeys = normalizeV1RuntimeEmployeeRoleKeys([roleKey, additionalRoleInputs]);
+  const persistedRoleName = roleKeys.map((candidate) => roleCatalog[candidate].displayName).join("；");
   const defaultMachineName = cleanText(row.values["机台名称"]) || cleanText(row.values["默认机台"]);
   const machineName = defaultMachineName;
   const machineWorkshop = cleanText(row.values["机台车间"]) || defaultWorkshop;
-  const machineId = cleanText(row.values["机台编号"]) || (machineName ? stableId("MACH-IMP", `${machineName}|${machineWorkshop}`) : "");
+  const machineId = machineName
+    ? resolveImportedMasterDataMachineId({
+        explicitMachineId: row.values["机台编号"],
+        machineName,
+        workshop: machineWorkshop,
+      })
+    : "";
   const capacitySize = cleanText(row.values["产能尺寸"]);
   const dailyCapacityQty = toFiniteNumber(row.values["粗略日产量"]);
   const effectiveFrom = cleanText(row.values["生效日期"]);
@@ -330,7 +351,8 @@ function mapEmployeeMachineRow(row) {
     bizNo: employeeId,
     userId: "",
     name: employeeName,
-    roleName,
+    roleName: persistedRoleName,
+    roleKeys,
     defaultWorkshop,
     defaultMachineId: machineId,
     baseHourlyWage: toNullableNumber(row.values["基础时薪"]) ?? 0,

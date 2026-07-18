@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   DataState,
   DataTable,
@@ -11,7 +12,12 @@ import {
   Timeline,
 } from "../../shared/ui/operational.jsx";
 import {
+  formatBusinessDecisionChannelAndTime,
+  getBusinessDecisionContentSummary,
+} from "../../components/businessDecisionPresentation.js";
+import {
   buildPackingTaskRows,
+  buildPrintWorkspaceItems,
   buildProductionPackingSourceDetailRows,
   findFocusedProductionLine,
   findScheduleQueueItemForLine,
@@ -49,9 +55,28 @@ import {
   queueMoveReasonOptions,
   sortScheduleQueueItemsBySeq,
 } from "./productionPackingPresentation.js";
+import {
+  PackingTaskFilterTabs,
+  PrintWorkspaceListHeader,
+  PrintWorkspaceNavigation,
+} from "./ProductionPackingNavigation.jsx";
 import { PrinterDeviceQaPanel, PrintJobQueuePanel } from "./ProductionPrintDevicePanels.jsx";
 import { PrintDriverV1ReadinessPanel } from "./ProductionPrintReadinessPanel.jsx";
 import { PrintDriverDiagnosticsPanel } from "./ProductionPrintDiagnosticsPanel.jsx";
+import {
+  buildProductionExceptionResolutionEffects,
+  isTerminalProductionException,
+  ProductionExceptionPanel,
+  productionExceptionResolutionOptions,
+} from "./ProductionExceptionPanel.jsx";
+import { buildPackingCompletionSummary } from "../../services/packingCompletionConfirmationClient.js";
+import { buildProductionReportSummary } from "../../services/productionReportConfirmationClient.js";
+import {
+  DelegatedBusinessDecisionFields,
+  isDelegatedBusinessDecisionComplete,
+} from "../../components/DelegatedBusinessDecisionFields.jsx";
+import { BusinessDecisionHistoryPanel } from "../../components/BusinessDecisionHistoryPanel.jsx";
+import { BusinessWriteConflictDialog } from "../../components/BusinessWriteConflictDialog.jsx";
 
 const PRODUCTION_WORKBENCH_TABS = [
   { value: "production", label: "生产任务" },
@@ -59,7 +84,15 @@ const PRODUCTION_WORKBENCH_TABS = [
   { value: "print", label: "打印与设备" },
 ];
 
+const PACKING_TASK_FILTERS = [
+  { value: "pending", label: "待打包" },
+  { value: "completed", label: "已完成" },
+  { value: "all", label: "全部" },
+];
+
 export function ProductionPackingPage({
+  authState,
+  currentUser,
   orderLines,
   inventoryRecords,
   productionPacking,
@@ -71,6 +104,7 @@ export function ProductionPackingPage({
   printDriverReadiness,
   printDriverCupsDiagnostics,
   onAction,
+  onRefreshProduction,
   onRefreshPrintDriverConfig,
   onRefreshPrintDriverReadiness,
   onRefreshPrinterDeviceQa,
@@ -117,13 +151,42 @@ export function ProductionPackingPage({
   const [selectedPackingTaskId, setSelectedPackingTaskId] = useState(packingTasks[0]?.packingTaskId ?? "");
   const [activeWorkbenchTab, setActiveWorkbenchTab] = useState(productionLines.length ? "production" : "packing");
   const [productionTaskPriority, setProductionTaskPriority] = useState("attention");
+  const [packingTaskFilter, setPackingTaskFilter] = useState("pending");
+  const [activePrintWorkspaceTab, setActivePrintWorkspaceTab] = useState("qa");
   const [reportInputs, setReportInputs] = useState({});
   const [packingInputs, setPackingInputs] = useState({});
+  const [productionReportConfirmation, setProductionReportConfirmation] = useState(null);
+  const productionReportConfirmationRef = useRef(null);
+  const productionDailyReportTriggerRef = useRef(null);
+  const productionCompleteReportTriggerRef = useRef(null);
+  const restoreProductionReportTriggerKindRef = useRef("");
+  const [productionExceptionResolutionConfirmation, setProductionExceptionResolutionConfirmation] = useState(null);
+  const productionExceptionResolutionConfirmationRef = useRef(null);
+  const productionExceptionResolutionTriggerRef = useRef(null);
+  const restoreProductionExceptionResolutionTriggerRef = useRef(false);
+  const [packingCompletionConfirmation, setPackingCompletionConfirmation] = useState(null);
+  const packingCompletionConfirmationRef = useRef(null);
+  const packingCompletionTriggerRef = useRef(null);
+  const restorePackingCompletionTriggerFocusRef = useRef(false);
   const [queueMoveDraft, setQueueMoveDraft] = useState({
     targetMachineId: "",
     targetQueueSeq: "1",
     reasonCode: "supervisor_order",
   });
+  const [scheduleDecision, setScheduleDecision] = useState({
+    decisionChannel: "wechat",
+    decidedAt: new Date().toISOString(),
+    decisionContent: { summary: "" },
+    authorizationBasis: "",
+    evidenceDraftId: "",
+    evidenceAttachmentIds: [],
+  });
+  const [scheduleActionConfirmation, setScheduleActionConfirmation] = useState(null);
+  const [scheduleActionSubmitting, setScheduleActionSubmitting] = useState(false);
+  const scheduleActionDialogRef = useRef(null);
+  const scheduleActionTriggerRef = useRef(null);
+  const restoreScheduleActionTriggerRef = useRef(false);
+  const [scheduleWriteConflict, setScheduleWriteConflict] = useState(null);
   const resolveInventoryItem = (line, task = null) => findProductionInventoryItem(line, inventoryRecords) ?? line?.inventoryItem ?? task?.inventoryItem ?? null;
   const isAttentionProductionLine = (line) => !resolveInventoryItem(line) || line.confidence === "medium";
   const productionAttentionCount = productionLines.filter(isAttentionProductionLine).length;
@@ -133,12 +196,28 @@ export function ProductionPackingPage({
     return productionTaskPriority === "attention" ? rightAttention - leftAttention : leftAttention - rightAttention;
   });
   const selectedProductionLine = productionTaskCards.find((item) => item.id === selectedProductionLineId) ?? productionTaskCards[0] ?? null;
-  const selectedPackingTask = packingTasks.find((item) => item.packingTaskId === selectedPackingTaskId) ?? packingTasks[0] ?? null;
-  const detailMode = activeWorkbenchTab === "packing" && selectedPackingTask ? "packing" : "production";
+  const pendingPackingTaskCount = packingTasks.filter((item) => item.status !== "已完成").length;
+  const completedPackingTaskCount = packingTasks.length - pendingPackingTaskCount;
+  const visiblePackingTasks = packingTasks.filter((item) => {
+    if (packingTaskFilter === "pending") return item.status !== "已完成";
+    if (packingTaskFilter === "completed") return item.status === "已完成";
+    return true;
+  });
+  const selectedPackingTask = visiblePackingTasks.find((item) => item.packingTaskId === selectedPackingTaskId) ?? visiblePackingTasks[0] ?? null;
+  const printWorkspaceItems = buildPrintWorkspaceItems({
+    printerDeviceQa,
+    printDriverReadiness,
+    printDriverConfig,
+    printJobQueue,
+  });
+  const activePrintWorkspace = printWorkspaceItems.find((item) => item.value === activePrintWorkspaceTab) ?? printWorkspaceItems[0];
+  const detailMode = activeWorkbenchTab === "packing" ? "packing" : "production";
   const detailLine = activeWorkbenchTab === "print" ? null : detailMode === "packing" ? selectedPackingTask?.orderLine : selectedProductionLine;
   const detailInventoryItem = detailLine ? resolveInventoryItem(detailLine, selectedPackingTask) : null;
   const reportState = getUiActionState("productionPacking", "报工完成");
   const reportDailyState = getUiActionState("productionPacking", "报当日数量");
+  const productionExceptionState = getUiActionState("productionPacking", "上报生产异常");
+  const productionExceptionResolutionState = getUiActionState("productionPacking", "处理生产异常");
   const publishScheduleState = getUiActionState("productionPacking", "发布排产");
   const uploadFinishedPhotoState = getUiActionState("productionPacking", "上传成品图");
   const acceptFinishedPhotoState = getUiActionState("productionPacking", "确认成品图");
@@ -147,10 +226,16 @@ export function ProductionPackingPage({
   const reportQualifiedQty = getNumericInput(reportInputs, selectedProductionLine?.id, "qualifiedQty", selectedProductionLine?.qty ?? 0);
   const reportExceptionQty = getNumericInput(reportInputs, selectedProductionLine?.id, "exceptionQty", 0);
   const reportMachineCount = getNumericInput(reportInputs, selectedProductionLine?.id, "machineCount", "");
+  const productionExceptionType = String(reportInputs[selectedProductionLine?.id]?.exceptionType ?? "");
+  const productionExceptionLossQty = getNumericInput(reportInputs, selectedProductionLine?.id, "estimatedLossQty", 0);
+  const productionExceptionAffectsDelivery = getBooleanInput(reportInputs, selectedProductionLine?.id, "exceptionAffectsDelivery", false);
+  const productionExceptionRemark = String(reportInputs[selectedProductionLine?.id]?.exceptionRemark ?? "");
+  const productionExceptionResolutionCode = String(reportInputs[selectedProductionLine?.id]?.exceptionResolutionCode ?? "");
+  const productionExceptionResolutionNote = String(reportInputs[selectedProductionLine?.id]?.exceptionResolutionNote ?? "");
   const packingActualQty = getNumericInput(packingInputs, selectedPackingTask?.packingTaskId, "actualPackedQty", selectedPackingTask?.plannedQty ?? 0);
   const packingPackageCount = getNumericInput(packingInputs, selectedPackingTask?.packingTaskId, "packageCount", selectedPackingTask?.packageCount ?? inferPackageCountFromQty(selectedPackingTask?.plannedQty));
-  const packingLabelsPrinted = getBooleanInput(packingInputs, selectedPackingTask?.packingTaskId, "labelsPrinted", false);
   const selectedProductionCanReport = selectedProductionLine ? isProductionReportCandidate(selectedProductionLine) : false;
+  const selectedProductionPaused = isProductionReportingBlocked(selectedProductionLine);
   const selectedPublishedScheduleId = getProductionPublishedScheduleId(selectedProductionLine);
   const selectedProductionMachineId = getProductionMachineIdLabel(selectedProductionLine);
   const selectedFinishedGoodsPhoto = getProductionFinishedGoodsPhoto(selectedProductionLine);
@@ -197,8 +282,13 @@ export function ProductionPackingPage({
     selectedScheduleQueueItem &&
     selectedScheduleSourceMachineId === queueMoveTargetMachineId &&
     Math.max(1, Math.trunc(Number(selectedScheduleQueueItem.queueSeq ?? 1))) === queueMoveTargetSeq;
+  const scheduleDirectAllowed = authState?.permissions?.actionPermissions?.includes("production.schedule.direct") === true;
+  const scheduleDecisionReady = scheduleDirectAllowed || isDelegatedBusinessDecisionComplete(scheduleDecision);
+  const scheduleDecisionPayload = (summary) => scheduleDirectAllowed
+    ? { directDecisionContent: { summary } }
+    : { delegatedDecision: scheduleDecision };
   const queueMoveDisabled =
-    sequenceState.disabled || !selectedScheduleQueueItem || !queueMoveTargetMachineId || queueMoveSamePosition;
+    sequenceState.disabled || !selectedScheduleQueueItem || !queueMoveTargetMachineId || queueMoveSamePosition || !scheduleDecisionReady || Boolean(scheduleActionConfirmation);
   const queueMoveTitle =
     sequenceState.title ||
     (!selectedScheduleQueueItem
@@ -227,11 +317,34 @@ export function ProductionPackingPage({
     ["待打包", packingTasks.filter((item) => item.status !== "已完成").length, "blue"],
     ["已打包", packingTasks.filter((item) => item.status === "已完成").length, "success"],
   ];
-  const reportDisabled = reportState.disabled || !selectedProductionLine || !detailInventoryItem || !selectedProductionCanReport;
-  const reportTitle = reportState.title || (!selectedProductionCanReport ? "该订单明细已完成生产报工或不在可报工状态" : !detailInventoryItem ? "未找到匹配库存键，不能报工入库" : "");
-  const reportDailyDisabled = reportDailyState.disabled || !selectedProductionLine || !selectedProductionCanReport;
-  const reportDailyTitle = reportDailyState.title || (!selectedProductionCanReport ? "该订单明细已完成生产报工或不在可报工状态" : "");
-  const publishScheduleDisabled = publishScheduleState.disabled || !selectedProductionLine || !selectedProductionCanReport || Boolean(selectedPublishedScheduleId);
+  const reportDisabled = reportState.disabled || !selectedProductionLine || !detailInventoryItem || !selectedProductionCanReport || selectedProductionPaused;
+  const reportTitle = reportState.title || (selectedProductionPaused ? "任务因生产异常暂停，需先由生产管理处理" : !selectedProductionCanReport ? "该订单明细已完成生产报工或不在可报工状态" : !detailInventoryItem ? "未找到匹配库存键，不能报工入库" : "");
+  const reportDailyDisabled = reportDailyState.disabled || !selectedProductionLine || !selectedProductionCanReport || selectedProductionPaused;
+  const reportDailyTitle = reportDailyState.title || (selectedProductionPaused ? "任务因生产异常暂停，需先由生产管理处理" : !selectedProductionCanReport ? "该订单明细已完成生产报工或不在可报工状态" : "");
+  const productionExceptionDisabled = productionExceptionState.disabled || !selectedProductionLine || !productionExceptionType;
+  const productionExceptionTitle = productionExceptionState.title || (!productionExceptionType ? "请先选择异常类型" : "");
+  const latestProductionException =
+    selectedProductionLine?.latestException ?? productionPacking.productionExceptionsByLineId?.[selectedProductionLine?.id] ?? null;
+  const productionExceptionResolutionTerminal = isTerminalProductionException(latestProductionException);
+  const productionExceptionResolutionDisabled =
+    productionExceptionResolutionState.disabled ||
+    !selectedProductionLine ||
+    !latestProductionException?.productionExceptionId ||
+    productionExceptionResolutionTerminal ||
+    !productionExceptionResolutionCode ||
+    !productionExceptionResolutionNote;
+  const productionExceptionResolutionTitle =
+    productionExceptionResolutionState.title ||
+    (!latestProductionException?.productionExceptionId
+      ? "当前任务没有可处理的生产异常"
+      : productionExceptionResolutionTerminal
+        ? "该生产异常已完成最终处理"
+        : !productionExceptionResolutionCode
+          ? "请选择处理结果"
+          : !productionExceptionResolutionNote
+            ? "请填写处理说明"
+            : "");
+  const publishScheduleDisabled = publishScheduleState.disabled || !selectedProductionLine || !selectedProductionCanReport || Boolean(selectedPublishedScheduleId) || !scheduleDecisionReady;
   const publishScheduleTitle = publishScheduleState.title || (selectedPublishedScheduleId ? "该生产任务已发布到车间任务池" : !selectedProductionCanReport ? "该订单明细不在可发布排产状态" : "");
   const finishedPhotoUploadDisabled = uploadFinishedPhotoState.disabled || !selectedProductionLine || !selectedFinishedGoodsPhotoRequired;
   const finishedPhotoUploadTitle =
@@ -268,6 +381,48 @@ export function ProductionPackingPage({
   const packingDisabled = packingState.disabled || !selectedPackingTask || selectedPackingTask.status === "已完成";
   const packingTitle = packingState.title || (selectedPackingTask?.status === "已完成" ? "该打包任务已完成" : "");
 
+  useEffect(() => {
+    setProductionReportConfirmation(null);
+    setProductionExceptionResolutionConfirmation(null);
+  }, [selectedProductionLine?.id, activeWorkbenchTab]);
+
+  useEffect(() => {
+    if (productionReportConfirmation) {
+      productionReportConfirmationRef.current?.focus();
+      return;
+    }
+    const triggerKind = restoreProductionReportTriggerKindRef.current;
+    if (!triggerKind) return;
+    restoreProductionReportTriggerKindRef.current = "";
+    (triggerKind === "daily" ? productionDailyReportTriggerRef : productionCompleteReportTriggerRef).current?.focus();
+  }, [productionReportConfirmation]);
+
+  useEffect(() => {
+    if (productionExceptionResolutionConfirmation) {
+      productionExceptionResolutionConfirmationRef.current?.focus();
+      return;
+    }
+    if (restoreProductionExceptionResolutionTriggerRef.current) {
+      restoreProductionExceptionResolutionTriggerRef.current = false;
+      productionExceptionResolutionTriggerRef.current?.focus();
+    }
+  }, [productionExceptionResolutionConfirmation]);
+
+  useEffect(() => {
+    setPackingCompletionConfirmation(null);
+  }, [selectedPackingTask?.packingTaskId, activeWorkbenchTab]);
+
+  useEffect(() => {
+    if (packingCompletionConfirmation) {
+      packingCompletionConfirmationRef.current?.focus();
+      return;
+    }
+    if (restorePackingCompletionTriggerFocusRef.current) {
+      restorePackingCompletionTriggerFocusRef.current = false;
+      packingCompletionTriggerRef.current?.focus();
+    }
+  }, [packingCompletionConfirmation]);
+
   function selectProductionLine(lineId) {
     setSelectedProductionLineId(lineId);
     setActiveWorkbenchTab("production");
@@ -292,21 +447,89 @@ export function ProductionPackingPage({
     selectProductionLine(targetLine.id);
   }
 
+  function requestScheduleAction(action, payload, summary, effects) {
+    if (!scheduleDecisionReady || scheduleActionSubmitting || scheduleActionConfirmation) return;
+    if (typeof document !== "undefined") scheduleActionTriggerRef.current = document.activeElement;
+    setScheduleWriteConflict(null);
+    setScheduleActionConfirmation({
+      action,
+      payload: structuredClone({
+        ...payload,
+        idempotencyKey: payload.idempotencyKey || buildScheduleActionIdempotencyKey(action, payload),
+      }),
+      summary,
+      effects,
+      directAllowed: scheduleDirectAllowed,
+      selectedTask: selectedScheduleQueueItem ? structuredClone(selectedScheduleQueueItem) : null,
+      selectedLine: selectedProductionLine ? structuredClone(selectedProductionLine) : null,
+    });
+  }
+
+  function returnToScheduleActionEdit() {
+    if (scheduleActionSubmitting) return;
+    restoreScheduleActionTriggerRef.current = true;
+    setScheduleActionConfirmation(null);
+  }
+
+  async function submitScheduleAction() {
+    if (!scheduleActionConfirmation || scheduleActionSubmitting) return;
+    setScheduleActionSubmitting(true);
+    const result = await onAction(scheduleActionConfirmation.action, scheduleActionConfirmation.payload);
+    setScheduleActionSubmitting(false);
+    setScheduleActionConfirmation(null);
+    if (result?.error?.status === 409 || String(result?.error?.code ?? "").includes("CONFLICT")) {
+      setScheduleWriteConflict(result.error);
+    } else if (!result?.error) {
+      setScheduleDecision({
+        decisionChannel: "wechat",
+        decidedAt: new Date().toISOString(),
+        decisionContent: { summary: "" },
+        authorizationBasis: "",
+        evidenceDraftId: "",
+        evidenceAttachmentIds: [],
+      });
+    }
+  }
+
+  useEffect(() => {
+    if (scheduleActionConfirmation) {
+      scheduleActionDialogRef.current?.focus();
+      return;
+    }
+    if (!restoreScheduleActionTriggerRef.current) return;
+    restoreScheduleActionTriggerRef.current = false;
+    scheduleActionTriggerRef.current?.focus?.();
+  }, [scheduleActionConfirmation]);
+
   function moveSelectedScheduleQueue(direction) {
-    if (!selectedScheduleQueueItem) return;
+    if (!selectedScheduleQueueItem || !scheduleDecisionReady || scheduleActionConfirmation) return;
     const nextOrderedItems = moveScheduleQueueItem(selectedMachineScheduleQueueItems, selectedScheduleQueueItem.productionTaskId, direction);
     if (!nextOrderedItems.length) return;
-    onAction("调整排产顺序", {
+    const summary = `${selectedScheduleQueueItem.machineId} 队列${direction === "up" ? "上移" : "下移"} ${selectedScheduleQueueItem.productionTaskId}`;
+    requestScheduleAction("调整排产顺序", {
+      ...scheduleDecisionPayload(summary),
       machineId: selectedScheduleQueueItem.machineId,
+      businessDecisionTargetId: selectedScheduleQueueItem.productionTaskId,
       orderedProductionTaskIds: nextOrderedItems.map((item) => item.productionTaskId),
+      affectedRevisions: selectedMachineScheduleQueueItems.map((item) => ({
+        productionTaskId: item.productionTaskId,
+        revision: Number(item.revision ?? 0),
+      })),
+      expectedRevision: selectedMachineScheduleQueueItems.reduce(
+        (sum, item) => sum + Number(item.revision ?? 0),
+        0,
+      ),
       remark: `${selectedScheduleQueueItem.machineId} ${selectedScheduleQueueItem.productionTaskId} ${direction === "up" ? "上移" : "下移"}`,
-    });
+    }, summary, `将同机台 ${nextOrderedItems.length} 条任务按新顺序整体写入；不改库存、合格数量、打包或对账。`);
   }
 
   function moveSelectedScheduleQueueToTarget() {
     if (queueMoveDisabled) return;
-    onAction("移动排产任务", {
+    const summary = `${selectedScheduleQueueItem.productionTaskId} 调整到 ${queueMoveTargetMachineId} #${queueMoveTargetSeq}`;
+    requestScheduleAction("移动排产任务", {
+      ...scheduleDecisionPayload(summary),
       productionTaskId: selectedScheduleQueueItem.productionTaskId,
+      expectedRevision: Number(selectedScheduleQueueItem.revision ?? 0),
       orderLineId: selectedScheduleQueueItem.orderLineId,
       sourceMachineId: selectedScheduleQueueItem.machineId,
       targetMachineId: queueMoveTargetMachineId,
@@ -315,7 +538,7 @@ export function ProductionPackingPage({
       reasonLabel: queueMoveReason.label,
       impactSummary: queueMoveImpact.remark,
       remark: `${queueMoveReason.label}：${selectedScheduleQueueItem.productionTaskId} 从 ${selectedScheduleQueueItem.machineId} 移到 ${queueMoveTargetMachineId} #${queueMoveTargetSeq}；${queueMoveImpact.remark}`,
-    });
+    }, summary, `${queueMoveImpact.remark}；更新受影响排产记录、决定证据和审计，不改库存、报工或对账。`);
   }
 
   function updateQueueMoveTargetMachine(targetMachineId) {
@@ -385,7 +608,186 @@ export function ProductionPackingPage({
     }));
   }
 
+  function buildProductionReportPayload(kind) {
+    if (!selectedProductionLine) return null;
+    const customer = findCustomer(selectedProductionLine.customerId);
+    const qualifiedQty = Number(reportQualifiedQty || 0);
+    return {
+      entryLabel: "生产/打包工作台",
+      productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
+      productionTask: selectedProductionLine.productionTask ?? selectedProductionLine,
+      orderLineId: selectedProductionLine.id,
+      orderLine: selectedProductionLine,
+      customerName: customer?.name ?? selectedProductionLine.customerName ?? "",
+      goodsSummary: [
+        selectedProductionLine.product ?? selectedProductionLine.productName,
+        selectedProductionLine.size,
+        getLineColorSpecLabel(selectedProductionLine),
+        getLinePrintSide(selectedProductionLine),
+        getLineRemark(selectedProductionLine),
+      ].filter(Boolean).join(" · "),
+      ...(kind === "daily" ? { dailyQualifiedQty: qualifiedQty } : { qualifiedQty }),
+      exceptionQty: Number(reportExceptionQty || 0),
+      machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
+    };
+  }
+
+  function submitProductionException(continuationMode) {
+    if (!selectedProductionLine || !productionExceptionType) return;
+    onAction("上报生产异常", {
+      entryLabel: "生产/打包工作台",
+      productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
+      orderLineId: selectedProductionLine.id,
+      orderLine: selectedProductionLine,
+      exceptionType: productionExceptionType,
+      continuationMode,
+      estimatedLossQty: Number(productionExceptionLossQty || 0),
+      affectsDelivery: productionExceptionAffectsDelivery,
+      remark: productionExceptionRemark,
+    });
+  }
+
+  function requestProductionExceptionResolutionConfirmation() {
+    if (!selectedProductionLine || !latestProductionException || productionExceptionResolutionDisabled) return;
+    const resolutionLabel =
+      productionExceptionResolutionOptions.find((item) => item.value === productionExceptionResolutionCode)?.label ??
+      productionExceptionResolutionCode;
+    setProductionExceptionResolutionConfirmation({
+      payload: {
+        entryLabel: "生产/打包工作台",
+        productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
+        orderLineId: selectedProductionLine.id,
+        orderLine: selectedProductionLine,
+        productionException: latestProductionException,
+        productionExceptionId: latestProductionException.productionExceptionId,
+        resolutionCode: productionExceptionResolutionCode,
+        resolutionNote: productionExceptionResolutionNote,
+      },
+      summary: {
+        title: `确认异常处理：${resolutionLabel}`,
+        fields: [
+          { label: "生产任务", value: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine) },
+          { label: "客户", value: findCustomer(selectedProductionLine.customerId).name },
+          { label: "货品", value: `${selectedProductionLine.product ?? selectedProductionLine.productName ?? ""} / ${selectedProductionLine.size ?? ""}` },
+          { label: "异常", value: `${latestProductionException.exceptionType ?? "生产异常"} / ${latestProductionException.status ?? "待处理"}` },
+          { label: "处理结果", value: resolutionLabel },
+          { label: "处理说明", value: productionExceptionResolutionNote },
+        ],
+        effects: buildProductionExceptionResolutionEffects(productionExceptionResolutionCode),
+      },
+    });
+  }
+
+  function confirmProductionExceptionResolution() {
+    if (!productionExceptionResolutionConfirmation) return;
+    const payload = productionExceptionResolutionConfirmation.payload;
+    setProductionExceptionResolutionConfirmation(null);
+    onAction("处理生产异常", { ...payload, resolutionConfirmed: true });
+  }
+
+  function returnToProductionExceptionResolutionEdit() {
+    restoreProductionExceptionResolutionTriggerRef.current = true;
+    setProductionExceptionResolutionConfirmation(null);
+  }
+
+  function handleProductionExceptionResolutionConfirmationKeyDown(event) {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    returnToProductionExceptionResolutionEdit();
+  }
+
+  function requestProductionReportConfirmation(kind) {
+    const payload = buildProductionReportPayload(kind);
+    if (!payload) return;
+    setProductionReportConfirmation({
+      kind,
+      action: kind === "daily" ? "报当日数量" : "报工完成",
+      payload,
+      summary: buildProductionReportSummary({
+        kind,
+        productionTask: payload.productionTask,
+        orderLine: selectedProductionLine,
+        customerName: payload.customerName,
+        payload,
+      }),
+    });
+  }
+
+  function confirmProductionReport() {
+    if (!productionReportConfirmation) return;
+    const { action, payload } = productionReportConfirmation;
+    setProductionReportConfirmation(null);
+    onAction(action, { ...payload, productionReportConfirmed: true });
+  }
+
+  function returnToProductionReportEdit() {
+    restoreProductionReportTriggerKindRef.current = productionReportConfirmation?.kind ?? "";
+    setProductionReportConfirmation(null);
+  }
+
+  function handleProductionReportConfirmationKeyDown(event) {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    returnToProductionReportEdit();
+  }
+
+  function buildPackingCompletionPayload() {
+    if (!selectedPackingTask?.orderLine) return null;
+    const orderLine = selectedPackingTask.orderLine;
+    const customer = findCustomer(orderLine.customerId);
+    return {
+      entryLabel: "生产/打包工作台",
+      packingTaskId: selectedPackingTask.packingTaskId,
+      packingTask: selectedPackingTask,
+      orderLineId: selectedPackingTask.orderLineId,
+      orderLine,
+      customerName: customer?.name ?? orderLine.customerName ?? "",
+      goodsSummary: [
+        orderLine.product ?? orderLine.productName,
+        orderLine.size,
+        getLineColorSpecLabel(orderLine),
+        getLinePrintSide(orderLine),
+        getLineRemark(orderLine),
+      ].filter(Boolean).join(" · "),
+      actualPackedQty: Number(packingActualQty || 0),
+      packageCount: Number(packingPackageCount || 1),
+    };
+  }
+
+  function requestPackingCompletion() {
+    const payload = buildPackingCompletionPayload();
+    if (!payload) return;
+    setPackingCompletionConfirmation({
+      payload,
+      summary: buildPackingCompletionSummary({
+        packingTask: selectedPackingTask,
+        orderLine: selectedPackingTask.orderLine,
+        customerName: payload.customerName,
+        payload,
+      }),
+    });
+  }
+
+  function confirmPackingCompletion() {
+    if (!packingCompletionConfirmation) return;
+    const { payload } = packingCompletionConfirmation;
+    setPackingCompletionConfirmation(null);
+    onAction("提交打包完成", { ...payload, packingCompletionConfirmed: true });
+  }
+
+  function returnToPackingCompletionEdit() {
+    restorePackingCompletionTriggerFocusRef.current = true;
+    setPackingCompletionConfirmation(null);
+  }
+
+  function handlePackingCompletionConfirmationKeyDown(event) {
+    if (event.key !== "Escape") return;
+    event.preventDefault();
+    returnToPackingCompletionEdit();
+  }
+
   return (
+    <>
     <section className="page-stack production-packing-shell">
       <div className="packing-workbench-tabs" role="tablist" aria-label="打包与标签工作台">
         {PRODUCTION_WORKBENCH_TABS.map((tab) => (
@@ -444,7 +846,17 @@ export function ProductionPackingPage({
             </div>
             <span className="production-task-machine-count">{scheduleQueueMachineOptions.length} 台机台</span>
           </div>
-        ) : null}
+        ) : activeWorkbenchTab === "packing" ? (
+          <PackingTaskFilterTabs
+            filters={PACKING_TASK_FILTERS}
+            value={packingTaskFilter}
+            counts={{ pending: pendingPackingTaskCount, completed: completedPackingTaskCount, all: packingTasks.length }}
+            visibleCount={visiblePackingTasks.length}
+            onChange={setPackingTaskFilter}
+          />
+        ) : (
+          <PrintWorkspaceListHeader />
+        )}
         <div className="production-task-cards" aria-label={`${PRODUCTION_WORKBENCH_TABS.find((tab) => tab.value === activeWorkbenchTab)?.label ?? "任务"}列表`}>
           {activeWorkbenchTab === "production" ? productionTaskCards.map((line) => {
             const inventoryItem = resolveInventoryItem(line);
@@ -460,7 +872,7 @@ export function ProductionPackingPage({
                 <b>{inventoryItem ? line.status : "缺库存键"}</b>
               </button>
             );
-          }) : activeWorkbenchTab === "packing" ? packingTasks.map((task) => {
+          }) : activeWorkbenchTab === "packing" ? visiblePackingTasks.map((task) => {
             const line = task.orderLine;
             const isActive = task.packingTaskId === selectedPackingTask?.packingTaskId;
             return (
@@ -471,12 +883,11 @@ export function ProductionPackingPage({
                   <span>{findCustomer(line.customerId).name} · {line.size} · {getLineColorSpecLabel(line)}</span>
                   <small>计划 {task.plannedQty} 个 · {task.packageCount ?? inferPackageCountFromQty(task.plannedQty)} 包</small>
                 </div>
-                <b>{task.labelsPrinted ? "标签已打印" : "待打包"}</b>
+                <b>{task.status === "已完成" ? "待打印标签" : "待打包"}</b>
               </button>
             );
-          }) : (
-            <DataState title="打印与设备" detail="在右侧查看设备验收、驱动状态和打印作业队列。" compact />
-          )}
+          }) : <PrintWorkspaceNavigation items={printWorkspaceItems} value={activePrintWorkspaceTab} onChange={setActivePrintWorkspaceTab} />}
+          {activeWorkbenchTab === "packing" && !visiblePackingTasks.length ? <DataState title="当前视图没有打包任务" detail="切换待打包、已完成或全部查看。" compact /> : null}
         </div>
         <section className="detail-section compact-section legacy-production-section schedule-queue-section">
           <div className="section-head-row">
@@ -484,14 +895,14 @@ export function ProductionPackingPage({
             <div className="section-tools">
               <span className="section-count">{productionPacking.scheduleQueueTotal ?? scheduleQueueItems.length} 条</span>
               <button
-                disabled={sequenceState.disabled || !canMoveScheduleUp}
+                disabled={sequenceState.disabled || !canMoveScheduleUp || !scheduleDecisionReady || Boolean(scheduleActionConfirmation)}
                 title={sequenceState.title || (!selectedScheduleQueueItem ? "先选择机台排产队列中的任务" : !canMoveScheduleUp ? "当前任务已在本机台最前" : "上移当前任务")}
                 onClick={() => moveSelectedScheduleQueue("up")}
               >
                 上移
               </button>
               <button
-                disabled={sequenceState.disabled || !canMoveScheduleDown}
+                disabled={sequenceState.disabled || !canMoveScheduleDown || !scheduleDecisionReady || Boolean(scheduleActionConfirmation)}
                 title={sequenceState.title || (!selectedScheduleQueueItem ? "先选择机台排产队列中的任务" : !canMoveScheduleDown ? "当前任务已在本机台最后" : "下移当前任务")}
                 onClick={() => moveSelectedScheduleQueue("down")}
               >
@@ -502,7 +913,7 @@ export function ProductionPackingPage({
                   <span>目标</span>
                   <select
                     value={queueMoveTargetMachineId}
-                    disabled={sequenceState.disabled || !selectedScheduleQueueItem}
+                    disabled={sequenceState.disabled || !selectedScheduleQueueItem || Boolean(scheduleActionConfirmation)}
                     title={sequenceState.title || "选择目标机台"}
                     onChange={(event) => updateQueueMoveTargetMachine(event.target.value)}
                   >
@@ -517,7 +928,7 @@ export function ProductionPackingPage({
                   <span>位置</span>
                   <select
                     value={String(queueMoveTargetSeq)}
-                    disabled={sequenceState.disabled || !selectedScheduleQueueItem}
+                    disabled={sequenceState.disabled || !selectedScheduleQueueItem || Boolean(scheduleActionConfirmation)}
                     title={sequenceState.title || "选择插入位置"}
                     onChange={(event) => updateQueueMoveTargetSeq(event.target.value)}
                   >
@@ -532,7 +943,7 @@ export function ProductionPackingPage({
                   <span>原因</span>
                   <select
                     value={queueMoveReason.value}
-                    disabled={sequenceState.disabled || !selectedScheduleQueueItem}
+                    disabled={sequenceState.disabled || !selectedScheduleQueueItem || Boolean(scheduleActionConfirmation)}
                     title={sequenceState.title || "选择本次排产调整原因"}
                     onChange={(event) => updateQueueMoveReason(event.target.value)}
                   >
@@ -552,6 +963,21 @@ export function ProductionPackingPage({
           <div className="queue-move-impact" aria-live="polite">
             {queueMoveImpact.text}
           </div>
+          {!scheduleDirectAllowed ? (
+            <DelegatedBusinessDecisionFields
+              scope="production_schedule"
+              businessType="production_task"
+              businessId={selectedScheduleQueueItem?.productionTaskId || selectedProductionLine?.productionTaskId || (selectedProductionLine ? buildProductionTaskId(selectedProductionLine) : "")}
+              authState={authState}
+              operatorId={currentUser?.userId}
+              operatorName={currentUser?.displayName}
+              value={scheduleDecision}
+              onChange={setScheduleDecision}
+              title="排产决定代录"
+              disabled={scheduleActionSubmitting || Boolean(scheduleActionConfirmation)}
+            />
+          ) : null}
+          {scheduleDirectAllowed ? <p className="form-note">当前管理账号直接决定；操作人、决定内容、目标任务和影响范围仍写入审计。</p> : null}
           <DataTable
             className="production-schedule-queue-table"
             columns={["机台", "顺序", "任务", "客户", "货品规格", "计划/剩余", "状态"]}
@@ -579,6 +1005,22 @@ export function ProductionPackingPage({
                 ],
               };
             })}
+          />
+          <BusinessDecisionHistoryPanel
+            authState={authState}
+            operatorId={currentUser?.userId}
+            businessType="production_schedule_queue"
+            businessId={selectedScheduleQueueItem?.machineId}
+          />
+          <BusinessWriteConflictDialog
+            open={Boolean(scheduleWriteConflict)}
+            error={scheduleWriteConflict}
+            onBack={() => setScheduleWriteConflict(null)}
+            onRefresh={async () => {
+              await onRefreshProduction?.();
+              setScheduleWriteConflict(null);
+              setScheduleActionConfirmation(null);
+            }}
           />
         </section>
         <section className="detail-section compact-section legacy-production-section production-task-section">
@@ -648,64 +1090,88 @@ export function ProductionPackingPage({
       >
         {activeWorkbenchTab === "print" ? (
           <>
-            <PrinterDeviceQaPanel
-              qaState={printerDeviceQa}
-              saveState={getUiActionState("productionPacking", "保存打印验收")}
-              deviceModeSaveState={getUiActionState("productionPacking", "保存设备模式")}
-              onRefresh={onRefreshPrinterDeviceQa}
-              onSelectDevice={onSelectPrinterDeviceQaDevice}
-              onChangeField={onChangePrinterDeviceQaField}
-              onChangeCheck={onChangePrinterDeviceQaCheck}
-              onChangeEvidence={onChangePrinterDeviceQaEvidenceField}
-              onSaveDeviceMode={onSavePrinterDeviceMode}
-              onSave={onSavePrinterDeviceQa}
-            />
-            <PrintDriverV1ReadinessPanel
-              readinessState={printDriverReadiness}
-              onRefresh={onRefreshPrintDriverReadiness}
-            />
-            <PrintDriverDiagnosticsPanel
-              driverState={printDriverConfig}
-              cupsDiagnosticsState={printDriverCupsDiagnostics}
-              onRefresh={onRefreshPrintDriverConfig}
-            />
-            <PrintJobQueuePanel
-              queueState={printJobQueue}
-              dispatchState={getUiActionState("productionPacking", "派发打印作业")}
-              retryState={getUiActionState("productionPacking", "重试打印作业")}
-              onRefresh={onRefreshPrintJobs}
-              onDispatch={onDispatchPrintJob}
-              onRetry={onRetryPrintJob}
-            />
+            <div className="production-print-overview">
+              <div>
+                <span>打印管理</span>
+                <strong>{activePrintWorkspace.label}</strong>
+                <p>{activePrintWorkspace.summary}</p>
+              </div>
+              <StatusPill tone={activePrintWorkspace.tone}>{activePrintWorkspace.status}</StatusPill>
+            </div>
+            <div className="production-detail-scroll production-print-detail-scroll">
+              <div role="tabpanel" aria-label="设备验收" hidden={activePrintWorkspaceTab !== "qa"}>
+                <PrinterDeviceQaPanel
+                  qaState={printerDeviceQa}
+                  saveState={getUiActionState("productionPacking", "保存打印验收")}
+                  deviceModeSaveState={getUiActionState("productionPacking", "保存设备模式")}
+                  onRefresh={onRefreshPrinterDeviceQa}
+                  onSelectDevice={onSelectPrinterDeviceQaDevice}
+                  onChangeField={onChangePrinterDeviceQaField}
+                  onChangeCheck={onChangePrinterDeviceQaCheck}
+                  onChangeEvidence={onChangePrinterDeviceQaEvidenceField}
+                  onSaveDeviceMode={onSavePrinterDeviceMode}
+                  onSave={onSavePrinterDeviceQa}
+                />
+              </div>
+              <div role="tabpanel" aria-label="上线门禁" hidden={activePrintWorkspaceTab !== "readiness"}>
+                <PrintDriverV1ReadinessPanel
+                  readinessState={printDriverReadiness}
+                  onRefresh={onRefreshPrintDriverReadiness}
+                />
+              </div>
+              <div role="tabpanel" aria-label="驱动诊断" hidden={activePrintWorkspaceTab !== "diagnostics"}>
+                <PrintDriverDiagnosticsPanel
+                  driverState={printDriverConfig}
+                  cupsDiagnosticsState={printDriverCupsDiagnostics}
+                  onRefresh={onRefreshPrintDriverConfig}
+                />
+              </div>
+              <div role="tabpanel" aria-label="打印作业" hidden={activePrintWorkspaceTab !== "jobs"}>
+                <PrintJobQueuePanel
+                  queueState={printJobQueue}
+                  dispatchState={getUiActionState("productionPacking", "派发打印作业")}
+                  retryState={getUiActionState("productionPacking", "重试打印作业")}
+                  onRefresh={onRefreshPrintJobs}
+                  onDispatch={onDispatchPrintJob}
+                  onRetry={onRetryPrintJob}
+                />
+              </div>
+            </div>
           </>
         ) : detailLine ? (
           <>
-            <div className="production-current-task">
-              <span>当前任务</span>
-              <strong>{detailMode === "packing" ? selectedPackingTask?.packingTaskId : buildProductionTaskId(selectedProductionLine)}</strong>
-              <p>{findCustomer(detailLine.customerId).name} · {detailLine.size} · {getLineColorSpecLabel(detailLine)} · {getLinePrintSide(detailLine)}</p>
+            <div className="production-detail-fixed">
+              <div className="production-current-task">
+                <span>当前任务</span>
+                <strong>{detailMode === "packing" ? selectedPackingTask?.packingTaskId : buildProductionTaskId(selectedProductionLine)}</strong>
+                <p>{findCustomer(detailLine.customerId).name} · {detailLine.size} · {getLineColorSpecLabel(detailLine)} · {getLinePrintSide(detailLine)}</p>
+              </div>
+              <InfoGrid
+                rows={[
+                  ["计划数量", `${detailLine.qty} 个`],
+                  ["交付", detailLine.latest],
+                  ["交付方式", detailLine.fulfillment],
+                  ["状态", detailMode === "packing" ? selectedPackingTask.status : detailLine.status],
+                  ["机台", detailMode === "production" ? selectedProductionMachineId : "打包台待分配"],
+                  ["货品", `${detailLine.product} / ${detailLine.size}`],
+                  ["颜色/印刷/提手", `${getLineColorSpecLabel(detailLine)} / ${getLinePrintSide(detailLine)}`],
+                  ["排产发布", detailMode === "production" ? (selectedPublishedScheduleId ? `${selectedProductionMachineId} / ${selectedPublishedScheduleId}` : "未发布到车间任务池") : "生产完成后进入打包"],
+                  ["库存键", detailInventoryItem ? `${detailInventoryItem.id} / ${detailInventoryItem.zone}` : "未找到匹配库存键"],
+                  ["跨日进度", formatProductionDailyProgressLabel(detailLine) || "暂无日报数"],
+                  ["成品图", detailMode === "production" ? formatProductionFinishedGoodsPhotoLabel(selectedFinishedGoodsPhoto) : "生产侧确认"],
+                  ["生产异常", detailMode === "production" && latestProductionException ? `${latestProductionException.exceptionType} · ${latestProductionException.continuationMode}` : "无"],
+                  ["备注", getLineRemark(detailLine) || "无"],
+                ]}
+              />
             </div>
-            <InfoGrid
-              rows={[
-                ["计划数量", `${detailLine.qty} 个`],
-                ["交付", detailLine.latest],
-                ["交付方式", detailLine.fulfillment],
-                ["状态", detailMode === "packing" ? selectedPackingTask.status : detailLine.status],
-                ["机台", detailMode === "production" ? selectedProductionMachineId : "打包台待分配"],
-                ["货品", `${detailLine.product} / ${detailLine.size}`],
-                ["颜色/印刷/提手", `${getLineColorSpecLabel(detailLine)} / ${getLinePrintSide(detailLine)}`],
-                ["排产发布", detailMode === "production" ? (selectedPublishedScheduleId ? `${selectedProductionMachineId} / ${selectedPublishedScheduleId}` : "未发布到车间任务池") : "生产完成后进入打包"],
-                ["库存键", detailInventoryItem ? `${detailInventoryItem.id} / ${detailInventoryItem.zone}` : "未找到匹配库存键"],
-                ["跨日进度", formatProductionDailyProgressLabel(detailLine) || "暂无日报数"],
-                ["成品图", detailMode === "production" ? formatProductionFinishedGoodsPhotoLabel(selectedFinishedGoodsPhoto) : "生产侧确认"],
-                ["备注", getLineRemark(detailLine) || "无"],
-              ]}
-            />
+            <div className="production-detail-scroll">
             {visibleSourceDetail ? (
               <ProductionPackingSourceDetailCard detailState={visibleSourceDetail} detailMode={detailMode} />
             ) : null}
             {detailMode === "production" ? (
               <>
+                {!productionReportConfirmation ? (
+                  <>
                 <section className="detail-section production-machine-proof">
                   <div className="section-title-row">
                     <h3>机器计数 / 动作次数（仅作生产凭证）</h3>
@@ -738,26 +1204,45 @@ export function ProductionPackingPage({
                   <div className="action-row production-qualified-submit">
                     <button
                       className="primary-action"
-                      disabled={reportDisabled}
+                      disabled={reportDisabled || Boolean(productionReportConfirmation)}
+                      ref={productionCompleteReportTriggerRef}
                       title={reportTitle}
-                      onClick={() =>
-                        onAction("报工完成", {
-                          orderLineId: selectedProductionLine.id,
-                          orderLine: selectedProductionLine,
-                          qualifiedQty: Number(reportQualifiedQty || 0),
-                          exceptionQty: Number(reportExceptionQty || 0),
-                          machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
-                        })
-                      }
+                      onClick={() => requestProductionReportConfirmation("complete")}
                     >
                       提交合格数量
                     </button>
                   </div>
                 </section>
+                  </>
+                ) : null}
                 <section className="detail-section production-transaction-result">
                   <h3>事务结果</h3>
                   <p>报当日数量只记录跨日进度，不入库、不占用、不生成打包任务；报工完成才会把合格数量入库并占用给该订单。</p>
                 </section>
+                <ProductionExceptionPanel
+                  affectsDelivery={productionExceptionAffectsDelivery}
+                  estimatedLossQty={productionExceptionLossQty}
+                  exceptionDisabled={productionExceptionDisabled}
+                  exceptionRemark={productionExceptionRemark}
+                  exceptionTitle={productionExceptionTitle}
+                  exceptionType={productionExceptionType}
+                  latestException={latestProductionException}
+                  onChangeField={updateReportInput}
+                  onConfirmResolution={confirmProductionExceptionResolution}
+                  onRequestResolutionConfirmation={requestProductionExceptionResolutionConfirmation}
+                  onResolutionConfirmationKeyDown={handleProductionExceptionResolutionConfirmationKeyDown}
+                  onReturnToResolutionEdit={returnToProductionExceptionResolutionEdit}
+                  onSubmitException={submitProductionException}
+                  productionReportConfirmationOpen={Boolean(productionReportConfirmation)}
+                  resolutionCode={productionExceptionResolutionCode}
+                  resolutionConfirmation={productionExceptionResolutionConfirmation}
+                  resolutionConfirmationRef={productionExceptionResolutionConfirmationRef}
+                  resolutionDisabled={productionExceptionResolutionDisabled}
+                  resolutionNote={productionExceptionResolutionNote}
+                  resolutionTerminal={productionExceptionResolutionTerminal}
+                  resolutionTitle={productionExceptionResolutionTitle}
+                  resolutionTriggerRef={productionExceptionResolutionTriggerRef}
+                />
                 <section className="detail-section production-task-history">
                   <h3>任务历史（本任务）</h3>
                   <DataTable
@@ -824,86 +1309,178 @@ export function ProductionPackingPage({
                     </button>
                   </div>
                 </section>
+                <section className="detail-section production-schedule-decision-section">
+                  <h3>排产经营决定</h3>
+                  {!scheduleDirectAllowed ? (
+                    <DelegatedBusinessDecisionFields
+                      scope="production_schedule"
+                      businessType="production_task"
+                      businessId={selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine)}
+                      authState={authState}
+                      operatorId={currentUser?.userId}
+                      operatorName={currentUser?.displayName}
+                      value={scheduleDecision}
+                      onChange={setScheduleDecision}
+                      title="排产决定代录"
+                      disabled={scheduleActionSubmitting || Boolean(scheduleActionConfirmation)}
+                    />
+                  ) : (
+                    <p className="form-note">当前管理账号直接决定；操作人、决定内容、目标任务和影响范围仍写入审计。</p>
+                  )}
+                  <BusinessDecisionHistoryPanel
+                    authState={authState}
+                    operatorId={currentUser?.userId}
+                    businessType="production_task"
+                    businessId={selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine)}
+                  />
+                </section>
                 <div className="action-row">
                   <button
-                    disabled={publishScheduleDisabled}
+                    disabled={publishScheduleDisabled || Boolean(productionReportConfirmation) || Boolean(scheduleActionConfirmation)}
                     title={publishScheduleTitle}
-                    onClick={() =>
-                      onAction("发布排产", {
+                    onClick={() => {
+                      const summary = `发布 ${selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine)} 排产`;
+                      requestScheduleAction("发布排产", {
+                        ...scheduleDecisionPayload(summary),
                         orderLineId: selectedProductionLine.id,
                         orderLine: selectedProductionLine,
                         productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
                         processType: getProductionProcessLabel(selectedProductionLine),
                         machineId: selectedProductionMachineId,
                         plannedQty: selectedProductionLine.qty,
-                      })
-                    }
+                        expectedRevision: Number(
+                          selectedProductionLine.productionTask?.revision ?? selectedProductionLine.revision ?? 0,
+                        ),
+                      }, summary, "创建/更新正式排产记录并进入车间任务池，写入决定证据和审计；不直接生成库存、打包或对账。")
+                    }}
                   >
                     {selectedPublishedScheduleId ? "已发布排产" : "发布排产"}
                   </button>
                   <button
-                    disabled={reportDailyDisabled}
+                    disabled={reportDailyDisabled || Boolean(productionReportConfirmation)}
+                    ref={productionDailyReportTriggerRef}
                     title={reportDailyTitle}
-                    onClick={() =>
-                      onAction("报当日数量", {
-                        orderLineId: selectedProductionLine.id,
-                        orderLine: selectedProductionLine,
-                        dailyQualifiedQty: Number(reportQualifiedQty || 0),
-                        exceptionQty: Number(reportExceptionQty || 0),
-                        machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
-                      })
-                    }
+                    onClick={() => requestProductionReportConfirmation("daily")}
                   >
                     报当日数量
                   </button>
                 </div>
+                {productionReportConfirmation ? (
+                  <section
+                    aria-describedby="production-report-confirmation-summary"
+                    aria-labelledby="production-report-confirmation-title"
+                    aria-live="assertive"
+                    className="production-report-confirmation"
+                    onKeyDown={handleProductionReportConfirmationKeyDown}
+                    ref={productionReportConfirmationRef}
+                    role="region"
+                    tabIndex={-1}
+                  >
+                    <div className="production-report-confirmation-head">
+                      <div>
+                        <strong id="production-report-confirmation-title">{productionReportConfirmation.summary.title}</strong>
+                        <span id="production-report-confirmation-summary">
+                          {productionReportConfirmation.kind === "daily"
+                            ? "确认后才会写入当日进度；按 Esc 可返回修改。"
+                            : "确认后才会完成生产、入库、占用并创建待打包任务；按 Esc 可返回修改。"}
+                        </span>
+                      </div>
+                      <StatusPill tone="warning">高风险写入</StatusPill>
+                    </div>
+                    <div className="production-report-confirmation-grid">
+                      {productionReportConfirmation.summary.fields.map((item) => (
+                        <div key={item.label}>
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <ul className="production-report-confirmation-effects">
+                      {productionReportConfirmation.summary.effects.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                    <div className="production-report-confirmation-actions">
+                      <button type="button" onClick={returnToProductionReportEdit}>返回修改</button>
+                      <button
+                        className="primary-action"
+                        type="button"
+                        disabled={productionReportConfirmation.kind === "daily" ? reportDailyDisabled : reportDisabled}
+                        onClick={confirmProductionReport}
+                      >
+                        {productionReportConfirmation.kind === "daily" ? "确认提交当日报数" : "确认完成生产报工"}
+                      </button>
+                    </div>
+                  </section>
+                ) : null}
               </>
             ) : (
               <>
-                <section className="detail-section">
-                  <h3>包裹明细</h3>
-                  <div className="detail-form">
-                    <label>
-                      <span>实际打包数量</span>
-                      <input type="number" min="1" value={packingActualQty} onChange={(event) => updatePackingInput("actualPackedQty", event.target.value)} />
-                    </label>
-                    <label>
-                      <span>包裹数</span>
-                      <input type="number" min="1" value={packingPackageCount} onChange={(event) => updatePackingInput("packageCount", event.target.value)} />
-                    </label>
-                    <label>
-                      <span>标签状态</span>
-                      <select value={packingLabelsPrinted ? "已打印" : "未打印"} onChange={(event) => updatePackingInput("labelsPrinted", event.target.value === "已打印")}>
-                        <option>未打印</option>
-                        <option>已打印</option>
-                      </select>
-                    </label>
-                  </div>
-                </section>
-                <section className="detail-section">
-                  <h3>事务结果</h3>
-                  <p>提交后生成包裹记录，快递快运未打印标签时进入待打印标签；打包完成本身不扣库存。</p>
-                </section>
+                {!packingCompletionConfirmation ? (
+                  <>
+                    <section className="detail-section">
+                      <h3>包裹明细</h3>
+                      <div className="detail-form">
+                        <label>
+                          <span>实际打包数量</span>
+                          <input type="number" min="1" value={packingActualQty} onChange={(event) => updatePackingInput("actualPackedQty", event.target.value)} />
+                        </label>
+                        <label>
+                          <span>包裹数</span>
+                          <input type="number" min="1" value={packingPackageCount} onChange={(event) => updatePackingInput("packageCount", event.target.value)} />
+                        </label>
+                      </div>
+                    </section>
+                    <section className="detail-section">
+                      <h3>事务结果</h3>
+                      <p>提交后生成包裹记录；快递快运统一进入待打印标签，只有服务端确认打印作业完成后才进入下一步。打包完成本身不扣库存。</p>
+                    </section>
+                  </>
+                ) : null}
                 <div className="action-row">
                   <button
                     className="primary-action"
-                    disabled={packingDisabled}
+                    disabled={packingDisabled || Boolean(packingCompletionConfirmation)}
+                    ref={packingCompletionTriggerRef}
                     title={packingTitle}
-                    onClick={() =>
-                      onAction("提交打包完成", {
-                        packingTaskId: selectedPackingTask.packingTaskId,
-                        packingTask: selectedPackingTask,
-                        orderLineId: selectedPackingTask.orderLineId,
-                        orderLine: selectedPackingTask.orderLine,
-                        actualPackedQty: Number(packingActualQty || 0),
-                        packageCount: Number(packingPackageCount || 1),
-                        labelsPrinted: packingLabelsPrinted,
-                      })
-                    }
+                    onClick={requestPackingCompletion}
                   >
                     提交打包完成
                   </button>
                 </div>
+                {packingCompletionConfirmation ? (
+                  <section
+                    aria-describedby="production-packing-completion-confirmation-summary"
+                    aria-labelledby="production-packing-completion-confirmation-title"
+                    aria-live="assertive"
+                    className="packing-completion-confirmation"
+                    onKeyDown={handlePackingCompletionConfirmationKeyDown}
+                    ref={packingCompletionConfirmationRef}
+                    role="region"
+                    tabIndex={-1}
+                  >
+                    <div className="packing-completion-confirmation-head">
+                      <div>
+                        <strong id="production-packing-completion-confirmation-title">{packingCompletionConfirmation.summary.title}</strong>
+                        <span id="production-packing-completion-confirmation-summary">确认后才会生成包裹并写入打包结果；按 Esc 可返回修改。</span>
+                      </div>
+                      <StatusPill tone="warning">高风险写入</StatusPill>
+                    </div>
+                    <div className="packing-completion-confirmation-grid">
+                      {packingCompletionConfirmation.summary.fields.map((item) => (
+                        <div key={item.label}>
+                          <span>{item.label}</span>
+                          <strong>{item.value}</strong>
+                        </div>
+                      ))}
+                    </div>
+                    <ul className="packing-completion-confirmation-effects">
+                      {packingCompletionConfirmation.summary.effects.map((item) => <li key={item}>{item}</li>)}
+                    </ul>
+                    <div className="packing-completion-confirmation-actions">
+                      <button type="button" onClick={returnToPackingCompletionEdit}>返回修改</button>
+                      <button className="primary-action" type="button" disabled={packingDisabled} onClick={confirmPackingCompletion}>确认提交打包完成</button>
+                    </div>
+                  </section>
+                ) : null}
               </>
             )}
             <Timeline
@@ -914,6 +1491,7 @@ export function ProductionPackingPage({
                 detailMode === "production" ? "进入待打包" : "出库/拉走时再扣库存",
               ]}
             />
+            </div>
           </>
         ) : (
           <DataState title="暂无生产或打包任务" detail="刷新任务池或确认排产是否已发布。" compact />
@@ -921,7 +1499,63 @@ export function ProductionPackingPage({
       </DetailPane>
       </section>
     </section>
+    {scheduleActionConfirmation && typeof document !== "undefined"
+      ? createPortal(
+          <div className="modal-backdrop" role="presentation">
+            <section
+              className="modal schedule-action-confirmation"
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="schedule-action-confirmation-title"
+              ref={scheduleActionDialogRef}
+              tabIndex={-1}
+              onKeyDown={(event) => {
+                if (event.key !== "Escape" || scheduleActionSubmitting) return;
+                event.preventDefault();
+                returnToScheduleActionEdit();
+              }}
+            >
+              <h3 id="schedule-action-confirmation-title">确认排产经营决定</h3>
+              <InfoGrid rows={[
+                ["动作", scheduleActionConfirmation.action],
+                ["任务 / 机台", scheduleActionConfirmation.selectedTask ? `${scheduleActionConfirmation.selectedTask.productionTaskId} / ${scheduleActionConfirmation.selectedTask.machineId}` : `${scheduleActionConfirmation.selectedLine?.productionTaskId || buildProductionTaskId(scheduleActionConfirmation.selectedLine)} / ${scheduleActionConfirmation.payload.machineId}`],
+                ["原排产", getScheduleConfirmationOriginalState(scheduleActionConfirmation)],
+                ["变更后", getScheduleConfirmationTargetState(scheduleActionConfirmation)],
+                ["决定内容", scheduleActionConfirmation.summary],
+                ["业务决定人", scheduleActionConfirmation.directAllowed ? (currentUser?.displayName || currentUser?.userId) : scheduleActionConfirmation.payload.delegatedDecision?.decisionMakerEmployeeId],
+                ["系统操作人", currentUser?.displayName || currentUser?.userId],
+                ["决定渠道 / 时间", formatBusinessDecisionChannelAndTime(scheduleActionConfirmation.directAllowed ? null : scheduleActionConfirmation.payload.delegatedDecision)],
+                ["决定证据内容", getBusinessDecisionContentSummary({ delegatedDecision: scheduleActionConfirmation.directAllowed ? null : scheduleActionConfirmation.payload.delegatedDecision, directSummary: scheduleActionConfirmation.summary })],
+                ["授权依据", scheduleActionConfirmation.directAllowed ? "本人当前有效权限" : scheduleActionConfirmation.payload.delegatedDecision?.authorizationBasis],
+                ["预计影响", scheduleActionConfirmation.effects],
+              ]} />
+              <div className="action-row modal-actions">
+                <button type="button" disabled={scheduleActionSubmitting} onClick={returnToScheduleActionEdit}>返回修改</button>
+                <button type="button" className="primary-action" disabled={scheduleActionSubmitting} onClick={submitScheduleAction}>{scheduleActionSubmitting ? "提交中…" : "确认提交"}</button>
+              </div>
+            </section>
+          </div>,
+          document.body,
+        )
+      : null}
+    </>
   );
+}
+
+function getScheduleConfirmationOriginalState(confirmation) {
+  if (!confirmation?.selectedTask) return "任务尚未发布排产";
+  const queueSeq = Number(confirmation.selectedTask.queueSeq ?? 0);
+  return `${confirmation.selectedTask.machineId || "机台待定"}${queueSeq > 0 ? ` #${queueSeq}` : ""}`;
+}
+
+function getScheduleConfirmationTargetState(confirmation) {
+  const payload = confirmation?.payload ?? {};
+  if (Array.isArray(payload.orderedProductionTaskIds)) {
+    return `${payload.machineId || confirmation?.selectedTask?.machineId || "机台待定"} 新顺序：${payload.orderedProductionTaskIds.join(" → ")}`;
+  }
+  const machineId = payload.targetMachineId || payload.machineId || confirmation?.selectedTask?.machineId || "机台待定";
+  const queueSeq = Number(payload.targetQueueSeq ?? 0);
+  return `${machineId}${queueSeq > 0 ? ` #${queueSeq}` : ""}`;
 }
 
 function ProductionPackingSourceDetailCard({ detailState, detailMode }) {
@@ -938,4 +1572,21 @@ function ProductionPackingSourceDetailCard({ detailState, detailMode }) {
       <InfoGrid rows={rows} />
     </section>
   );
+}
+
+function isProductionReportingBlocked(line) {
+  const status = String(line?.status ?? line?.lineStatus ?? "").trim();
+  return ["异常暂停", "数量差异待处理", "已作废"].includes(status);
+}
+
+function buildScheduleActionIdempotencyKey(action, payload = {}) {
+  const taskId = payload.productionTaskId || payload.machineId || "queue";
+  const revision = Number(payload.expectedRevision ?? 0);
+  const uuid = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+  const actionToken = {
+    发布排产: "publish",
+    移动排产任务: "move",
+    调整排产顺序: "resequence",
+  }[action] ?? "action";
+  return `production-schedule:${actionToken}:${taskId}:${revision}:${uuid}`;
 }

@@ -102,6 +102,7 @@ export async function markOfficeStatementSentViaApi(input, options = {}) {
       method: "POST",
       operatorId,
       body: {
+        expectedRevision: Number(statement.revision ?? 0),
         channel,
         sentTo,
         sentAt: new Date().toISOString(),
@@ -158,6 +159,7 @@ export async function recordOfficeStatementSendReceipt(input, options = {}) {
       method: "POST",
       operatorId,
       body: {
+        expectedRevision: Number(statement.sendRecordRevision ?? statement.latestSendRecord?.revision ?? statement.revision ?? 0),
         sendRecordId,
         receiptStatus,
         receiptAt: new Date().toISOString(),
@@ -219,6 +221,7 @@ export async function recordOfficeStatementCustomerConfirmation(input, options =
       method: "POST",
       operatorId,
       body: {
+        expectedRevision: Number(statement.revision ?? 0),
         sendRecordId,
         confirmationType,
         channel,
@@ -274,6 +277,7 @@ export async function recordOfficeStatementPayment(input, options = {}) {
       method: "POST",
       operatorId,
       body: {
+        expectedRevision: Number(statement.revision ?? 0),
         amount: Number(amount ?? 0),
         paidAt: new Date().toISOString(),
         method,
@@ -296,6 +300,7 @@ export async function recordOfficeStatementPayment(input, options = {}) {
       source: "api",
       payment: json.payment,
       statementStatus: json.statementStatus,
+      statementRevision: Number(json.statementRevision ?? 0),
       varianceAmount: json.varianceAmount,
       todoId: json.todoId,
       operationLogId: json.operationLogId,
@@ -315,7 +320,19 @@ export async function recordOfficeStatementPayment(input, options = {}) {
 }
 
 export async function handleOfficeStatementVariance(input, options = {}) {
-  const { authState, statement, varianceAmount, reason, operatorId, paymentRecordId = "" } = input;
+  const {
+    authState,
+    statement,
+    varianceAmount,
+    reason,
+    handlingResult,
+    operatorId,
+    paymentRecordId = "",
+    delegatedDecision,
+    directDecisionContent,
+    expectedRevision = statement?.revision,
+    idempotencyKey,
+  } = input;
 
   try {
     const response = await requestStatementApi(`/statements/${encodeURIComponent(statement.id)}/variance`, {
@@ -323,11 +340,16 @@ export async function handleOfficeStatementVariance(input, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey,
       body: {
         statementId: statement.id,
+        expectedRevision: Number(expectedRevision ?? 0),
+        idempotencyKey,
+        delegatedDecision,
+        directDecisionContent,
         paymentRecordId: paymentRecordId || undefined,
         varianceAmount: Number(varianceAmount ?? 0),
-        handlingResult: mapStatementVarianceHandlingResult(reason),
+        handlingResult: handlingResult || mapStatementVarianceHandlingResult(reason),
         reason,
         customerConfirmed: reason === "未收差额转欠款",
         attachmentIds: [],
@@ -348,6 +370,7 @@ export async function handleOfficeStatementVariance(input, options = {}) {
       source: "api",
       varianceRecord: json.varianceRecord,
       statementStatus: json.statementStatus,
+      statementRevision: Number(json.statementRevision ?? 0),
       debtAmount: json.debtAmount,
       todoId: json.todoId,
       operationLogId: json.operationLogId,
@@ -367,7 +390,16 @@ export async function handleOfficeStatementVariance(input, options = {}) {
 }
 
 export async function writeOffOfficeStatement(input, options = {}) {
-  const { authState, statement, operatorId, confirmReason = "确认核销" } = input;
+  const {
+    authState,
+    statement,
+    operatorId,
+    confirmReason = "确认核销",
+    delegatedDecision,
+    directDecisionContent,
+    expectedRevision = statement?.revision,
+    idempotencyKey,
+  } = input;
 
   try {
     const response = await requestStatementApi(`/statements/${encodeURIComponent(statement.id)}/write-off`, {
@@ -375,7 +407,12 @@ export async function writeOffOfficeStatement(input, options = {}) {
       authState,
       method: "POST",
       operatorId,
+      idempotencyKey,
       body: {
+        expectedRevision: Number(expectedRevision ?? 0),
+        idempotencyKey,
+        delegatedDecision,
+        directDecisionContent,
         confirmReason,
         operatorId,
         confirmedAt: new Date().toISOString(),
@@ -397,6 +434,7 @@ export async function writeOffOfficeStatement(input, options = {}) {
       source: "api",
       statementId: json.statementId,
       status: json.status,
+      statementRevision: Number(json.statementRevision ?? 0),
       receivable: json.receivable,
       received: json.received,
       variance: json.variance,
@@ -660,6 +698,7 @@ function normalizeStatementCustomerSummary(item) {
     lastStatementAt: String(item.lastStatementAt ?? item.last_statement_at ?? "").trim(),
     status: String(item.status ?? "current_period").trim(),
     statementId,
+    revision: Math.max(1, Number(item.revision ?? 1) || 1),
   };
 }
 
@@ -675,6 +714,7 @@ function mapLocalStatementCustomerSummary(statement) {
     lastStatementAt: statement.lastStatementAt,
     status: mapLocalStatementStatus(statement.status),
     statementId: statement.id,
+    revision: statement.revision,
   });
 }
 
@@ -713,6 +753,7 @@ export function mapStatementCustomerSummaryToLocal(item, localStatement = null) 
     lastStatementAt: summary.lastStatementAt,
     lineIds: Array.isArray(localStatement?.lineIds) ? localStatement.lineIds : [],
     readSummaryStatus: summary.status,
+    revision: summary.revision,
   };
 }
 
@@ -754,7 +795,7 @@ function mapStatementPreviewLine(line) {
     orderNo: line.orderNo ?? "",
     productName: line.productName ?? "",
     goodsSpec: line.goodsSpec ?? "",
-    billQty: Number(line.billQty ?? 0),
+    billQty: Number(line.billQty ?? line.chargeableQty ?? line.chargeable_qty ?? 0),
     deliveredQty: Number(line.deliveredQty ?? line.billQty ?? 0),
     freeQty: Number(line.freeQty ?? 0),
     unitPrice: Number(line.unitPrice ?? 0),
@@ -929,6 +970,9 @@ function toApiError(json, status, fallbackMessage) {
     code: json?.code ?? `HTTP_${status}`,
     message: json?.message ?? fallbackMessage,
     requiredPermission: json?.requiredPermission,
+    status,
+    currentRevision: json?.currentRevision ?? json?.details?.currentRevision,
+    details: json?.details,
   };
 }
 

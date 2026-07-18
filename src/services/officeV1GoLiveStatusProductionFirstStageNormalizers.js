@@ -419,6 +419,110 @@ export function normalizeV1ProductionPersistenceEvidence(value = {}) {
   };
 }
 
+export function normalizeV1TodoLoadPrecheck(value = {}) {
+  const source = isPlainObject(value) ? value : {};
+  const summary = isPlainObject(source.summary) ? source.summary : {};
+  const latencyMs = isPlainObject(summary.latencyMs) ? summary.latencyMs : {};
+  const freshness = isPlainObject(source.freshness) ? source.freshness : {};
+  const target = isPlainObject(source.target) ? source.target : {};
+  const authentication = isPlainObject(source.authentication) ? source.authentication : {};
+  const safeguards = isPlainObject(source.safeguards) ? source.safeguards : {};
+  const status = cleanText(source.status) || "missing";
+  const available = source.available === true || status !== "missing";
+  const requestCount = Number(summary.requestCount) || 0;
+  const successCount = Number(summary.successCount) || 0;
+  const errorCount = Number(summary.errorCount) || 0;
+  const errorRate = Number(summary.errorRate) || 0;
+  const throughputPerSecond = Number(summary.throughputPerSecond) || 0;
+  const p50 = Number(latencyMs.p50) || 0;
+  const p95 = Number(latencyMs.p95) || 0;
+  const max = Number(latencyMs.max) || 0;
+  const ageHours = Number.isFinite(Number(freshness.ageHours)) ? Number(freshness.ageHours) : null;
+  const remainingHours = Number.isFinite(Number(freshness.remainingHours)) ? Number(freshness.remainingHours) : null;
+  return {
+    status,
+    ready: source.ready === true,
+    available,
+    statusLabel:
+      source.ready === true
+        ? "已通过"
+        : status === "missing"
+          ? "未生成"
+          : status === "error"
+            ? "执行失败"
+            : "阻塞",
+    checkedAt: cleanText(source.checkedAt),
+    checkedAtLabel: formatDateTimeLabel(source.checkedAt),
+    summary: {
+      label: cleanText(summary.label) || (available ? "生产待办容量报告仍有阻塞" : "生产待办容量报告未生成"),
+      sourceLabel: cleanText(summary.sourceLabel),
+      requestCount,
+      successCount,
+      errorCount,
+      successLabel: cleanText(summary.successLabel) || `${successCount}/${requestCount}`,
+      errorRate,
+      errorRateLabel: cleanText(summary.errorRateLabel) || `${Math.round(errorRate * 10_000) / 100}%`,
+      throughputPerSecond,
+      throughputLabel: cleanText(summary.throughputLabel) || `${throughputPerSecond} 次/秒`,
+      latencyMs: { p50, p95, max },
+      p50Label: `${p50} ms`,
+      p95Label: `${p95} ms`,
+      maxLabel: `${max} ms`,
+      snapshotChanged: summary.snapshotChanged === true,
+    },
+    thresholds: {
+      maxP95Ms: Number(source.thresholds?.maxP95Ms) || 0,
+      maxErrorRate: Number(source.thresholds?.maxErrorRate) || 0,
+    },
+    freshness: {
+      checkedAtValid: freshness.checkedAtValid === true,
+      fresh: freshness.fresh === true,
+      statusLabel: freshness.fresh === true ? "时效有效" : available ? "已过期/时间无效" : "未生成",
+      maxAgeHours: Number(freshness.maxAgeHours) || 0,
+      ageHours,
+      ageLabel: ageHours === null ? "未记录" : `${ageHours} 小时`,
+      remainingHours,
+      remainingLabel: remainingHours === null ? "未记录" : `${remainingHours} 小时`,
+      expiresAt: cleanText(freshness.expiresAt),
+      expiresAtLabel: formatDateTimeLabel(freshness.expiresAt),
+    },
+    target: {
+      ready: target.ready === true,
+      protocol: cleanText(target.protocol),
+      loopback: target.loopback === true,
+      apiPathValidated: target.apiPathValidated === true,
+      addressExposed: false,
+      embeddedCredentials: false,
+    },
+    authentication: {
+      ready: authentication.ready === true,
+      formalRuntimeSession: authentication.formalRuntimeSession === true,
+      serverVerified: authentication.serverVerified === true,
+      sessionType: cleanText(authentication.sessionType),
+      identityExposed: false,
+    },
+    blockingStageKeys: normalizeStringList(source.blockingStageKeys),
+    warningKeys: normalizeStringList(source.warningKeys),
+    nextAction: cleanText(source.nextAction),
+    safeguards: {
+      ready: safeguards.ready === true,
+      explicitReadLoadConfirmation: safeguards.explicitReadLoadConfirmation === true,
+      businessReadOnly: safeguards.businessReadOnly === true,
+      businessDataMutated: safeguards.businessDataMutated === true,
+      requestCountBounded: safeguards.requestCountBounded === true,
+      concurrencyBounded: safeguards.concurrencyBounded === true,
+      responsePayloadStored: false,
+      todoIdentityStored: false,
+      credentialsExposed: false,
+      apiAddressExposed: false,
+      physicalPrinterCalled: safeguards.physicalPrinterCalled === true,
+      rawReportIncluded: false,
+      sourceReadyClaimTrustedWithoutRecheck: false,
+      artifactPathExposed: false,
+    },
+  };
+}
+
 function normalizeV1ProductionPersistenceEvidenceStage(value = {}) {
   const source = isPlainObject(value) ? value : {};
   const evidence = isPlainObject(source.evidence) ? source.evidence : {};

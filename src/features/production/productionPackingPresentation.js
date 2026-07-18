@@ -1,3 +1,5 @@
+import { formatOperationalError } from "../../shared/ui/errorPresentation.js";
+
 export function isProductionReportCandidate(line) {
   const status = String(line?.status ?? line?.lineStatus ?? "");
   if (!line || String(line.orderType ?? "").includes("外加工")) return false;
@@ -7,7 +9,10 @@ export function isProductionReportCandidate(line) {
     status.includes("待排产") ||
     status.includes("待补印") ||
     status.includes("跨日继续") ||
-    status.includes("待完工确认")
+    status.includes("待完工确认") ||
+    status.includes("异常暂停") ||
+    status.includes("数量差异待处理") ||
+    status.includes("已作废")
   );
 }
 
@@ -121,7 +126,7 @@ export function getProductionPackingTaskListStatusText(productionPacking) {
   if (productionPacking?.taskListLoading) return "任务池刷新中";
   const source = productionPacking?.taskListSource ?? "local";
   const time = productionPacking?.taskListLastSyncedAt ? ` · ${productionPacking.taskListLastSyncedAt}` : "";
-  if (productionPacking?.taskListError) return `任务池异常：${productionPacking.taskListError}`;
+  if (productionPacking?.taskListError) return `任务池异常：${formatOperationalError(productionPacking.taskListError)}`;
   if (source === "api") return `后端任务池${time}`;
   if (source === "api_error") return `后端任务池异常${time}`;
   if (source === "local_fallback") return `本地降级任务池${time}`;
@@ -132,7 +137,7 @@ export function getProductionScheduleQueueStatusText(productionPacking) {
   if (productionPacking?.taskListLoading) return "排产队列刷新中";
   const source = productionPacking?.scheduleQueueSource ?? "local";
   const time = productionPacking?.scheduleQueueLastSyncedAt ? ` · ${productionPacking.scheduleQueueLastSyncedAt}` : "";
-  if (productionPacking?.scheduleQueueError) return `排产队列异常：${productionPacking.scheduleQueueError}`;
+  if (productionPacking?.scheduleQueueError) return `排产队列异常：${formatOperationalError(productionPacking.scheduleQueueError)}`;
   if (source === "api") return `机台队列${time}`;
   if (source === "api_error") return `机台队列异常${time}`;
   if (source === "local_fallback") return `本地降级队列${time}`;
@@ -434,6 +439,52 @@ export function formatCompactDateTime(value) {
     });
   }
   return text.slice(5, 16).replace("T", " ");
+}
+
+export const PRINT_WORKSPACE_TABS = [
+  { value: "qa", label: "设备验收", summary: "样张、对位、扫码和回写" },
+  { value: "readiness", label: "上线门禁", summary: "配置、设备和现场证据" },
+  { value: "diagnostics", label: "驱动诊断", summary: "命令桥、CUPS和状态回读" },
+  { value: "jobs", label: "打印作业", summary: "派发、失败重试和作业状态" },
+];
+
+export function buildPrintWorkspaceItems({ printerDeviceQa = {}, printDriverReadiness = {}, printDriverConfig = {}, printJobQueue = {} }) {
+  const qaChecks = Array.isArray(printerDeviceQa.checks) ? printerDeviceQa.checks : [];
+  const qaPassedCount = qaChecks.filter((item) => ["passed", "通过", "已通过"].includes(String(item.status ?? ""))).length;
+  const readiness = printDriverReadiness.readiness;
+  const readinessBlockingCount = Number(readiness?.summary?.blockingCount ?? 0);
+  const driverConfig = printDriverConfig.config;
+  const driverReady = Boolean(driverConfig?.realDispatchAvailable && driverConfig?.commandBridgeStatusReadbackAvailable);
+  const printJobs = Array.isArray(printJobQueue.items) ? printJobQueue.items.filter(Boolean) : [];
+  const failedPrintJobCount = printJobs.filter((item) => item.jobStatus === "failed").length;
+  const queuedPrintJobCount = printJobs.filter((item) => item.jobStatus === "queued").length;
+  const stateByValue = {
+    qa: printerDeviceQa.error
+      ? { status: "验收异常", tone: "danger", meta: `${qaChecks.length} 项` }
+      : printerDeviceQa.latestRecord
+        ? { status: "已记录", tone: "success", meta: `${qaPassedCount}/${qaChecks.length} 通过` }
+        : { status: "待验收", tone: "warning", meta: `${qaPassedCount}/${qaChecks.length} 通过` },
+    readiness: printDriverReadiness.error
+      ? { status: "门禁异常", tone: "danger", meta: "需刷新" }
+      : readiness?.ready
+        ? { status: "可验收", tone: "success", meta: "0 项阻塞" }
+        : readiness
+          ? { status: "未就绪", tone: "danger", meta: `${readinessBlockingCount} 项阻塞` }
+          : { status: "未读取", tone: "neutral", meta: "待刷新" },
+    diagnostics: printDriverConfig.error
+      ? { status: "配置异常", tone: "danger", meta: "需检查" }
+      : driverReady
+        ? { status: "命令桥+回读", tone: "success", meta: "可联调" }
+        : driverConfig
+          ? { status: "待配置", tone: "warning", meta: "未就绪" }
+          : { status: "未读取", tone: "neutral", meta: "待刷新" },
+    jobs: failedPrintJobCount
+      ? { status: "存在失败", tone: "danger", meta: `${failedPrintJobCount} 失败` }
+      : queuedPrintJobCount
+        ? { status: "待派发", tone: "warning", meta: `${queuedPrintJobCount} 排队` }
+        : { status: printJobs.length ? "无阻塞" : "暂无作业", tone: printJobs.length ? "success" : "neutral", meta: `${printJobs.length} 条` },
+  };
+  return PRINT_WORKSPACE_TABS.map((item) => ({ ...item, ...stateByValue[item.value] }));
 }
 
 export function getNumericInput(inputs, id, field, fallback) {

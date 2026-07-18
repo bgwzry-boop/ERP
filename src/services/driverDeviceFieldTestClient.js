@@ -2,6 +2,8 @@ import {
   getDriverNativeCapabilityDiagnostics,
   normalizeDriverNativeCapabilityDiagnostics,
 } from "./driverNativeCapabilityClient.js";
+import { DRIVER_NATIVE_BRIDGE_VERSION } from "./driverNativeBridgeClient.js";
+import { DRIVER_NATIVE_NAVIGATION_BRIDGE_VERSION } from "./driverNativeNavigationBridgeClient.js";
 
 export const DRIVER_DEVICE_FIELD_TEST_ITEMS = [
   {
@@ -150,6 +152,8 @@ export function normalizeDriverPackageLabelScanSample(value = {}) {
     resultLabel: resultConfig.label,
     tone: resultConfig.tone,
     message,
+    requestId: cleanText(value.requestId ?? value.request_id),
+    source: cleanText(value.source),
     checkedAt,
   };
 }
@@ -172,8 +176,139 @@ export function buildDriverPackageLabelScanSample(input = {}) {
     method: input.method,
     result: input.result ?? scanResult.status,
     message: input.message ?? scanResult.message,
+    requestId: input.requestId ?? scanResult.requestId,
+    source: input.source ?? scanResult.source,
     checkedAt,
   });
+}
+
+export function normalizeDriverNativeNavigationSample(value = {}) {
+  if (!value || typeof value !== "object") return null;
+  const requestId = cleanText(value.requestId ?? value.request_id);
+  const fulfillmentId = cleanText(value.fulfillmentId ?? value.fulfillment_id);
+  const status = cleanText(value.status);
+  const source = cleanText(value.source);
+  const message = cleanText(value.message);
+  const hasContent = Boolean(requestId || fulfillmentId || status || source || message);
+  if (!hasContent) return null;
+  return {
+    requestId,
+    fulfillmentId,
+    status,
+    source,
+    mapApp: cleanText(value.mapApp ?? value.map_app),
+    message,
+    checkedAt: toIsoString(value.checkedAt ?? value.checked_at ?? new Date()),
+  };
+}
+
+export function buildDriverNativeNavigationSample(input = {}) {
+  const task = input.task ?? {};
+  const result = input.result ?? input.nativeResult ?? {};
+  return normalizeDriverNativeNavigationSample({
+    requestId: input.requestId ?? result.requestId,
+    fulfillmentId: input.fulfillmentId ?? task.fulfillmentId ?? task.id,
+    status: input.status ?? result.status,
+    source: input.source ?? result.source,
+    mapApp: input.mapApp ?? result.mapApp,
+    message: input.message ?? result.message,
+    checkedAt: input.checkedAt ?? result.checkedAt,
+  });
+}
+
+export function getDriverDeviceFieldTestAcceptance(input = {}) {
+  const record = input.record ?? {};
+  const task = input.task ?? {};
+  const checks = normalizeDriverDeviceFieldTestChecks(record.checks ?? []);
+  const summary = getDriverDeviceFieldTestSummary(checks);
+  const recordFulfillmentId = cleanText(record.fulfillmentId);
+  const taskFulfillmentId = cleanText(task.fulfillmentId ?? task.id);
+  const recordOrderLineId = cleanText(record.orderLineId);
+  const taskOrderLineId = cleanText(task.orderLineId);
+  const recordDriverId = cleanText(record.driverId);
+  const taskDriverId = cleanText(task.driverId);
+  const sample = normalizeDriverPackageLabelScanSample(record.packageLabelScanSample);
+  const navigationSample = normalizeDriverNativeNavigationSample(record.nativeNavigationSample);
+  const nativeDiagnostics = normalizeDriverNativeCapabilityDiagnostics(record.nativeBridgeDiagnostics);
+  const expectedPackageIds = new Set(
+    toArray(task.packageChecklist)
+      .map((item) => cleanText(item?.packageId ?? item?.id))
+      .filter(Boolean),
+  );
+  const packageScanCapability = getNativeCapabilityAcceptance(
+    nativeDiagnostics,
+    "native_package_scan",
+    DRIVER_NATIVE_BRIDGE_VERSION,
+  );
+  const navigationCapability = getNativeCapabilityAcceptance(
+    nativeDiagnostics,
+    "native_navigation",
+    DRIVER_NATIVE_NAVIGATION_BRIDGE_VERSION,
+  );
+  const taskLinked = Boolean(recordFulfillmentId && taskFulfillmentId && recordFulfillmentId === taskFulfillmentId);
+  const orderLineLinked = !recordOrderLineId || !taskOrderLineId || recordOrderLineId === taskOrderLineId;
+  const driverLinked = Boolean(recordDriverId && taskDriverId && recordDriverId === taskDriverId);
+  const packageIdsMatch = Boolean(
+    sample?.expectedPackageId &&
+      sample?.matchedPackageId &&
+      sample.expectedPackageId === sample.matchedPackageId,
+  );
+  const packageBelongsToTask = Boolean(sample?.matchedPackageId && expectedPackageIds.has(sample.matchedPackageId));
+  const packageSampleReady = Boolean(
+    sample &&
+      sample.fulfillmentId === recordFulfillmentId &&
+      sample.method === "native_sdk" &&
+      sample.source === "native_sdk" &&
+      sample.requestId.startsWith("DNPS-") &&
+      ["matched", "duplicate"].includes(sample.result) &&
+      sample.scannedText &&
+      packageIdsMatch &&
+      packageBelongsToTask,
+  );
+  const navigationSampleReady = Boolean(
+    navigationSample &&
+      navigationSample.fulfillmentId === recordFulfillmentId &&
+      navigationSample.status === "opened" &&
+      navigationSample.source === "native_navigation_sdk" &&
+      navigationSample.requestId.startsWith("DNN-"),
+  );
+  const deviceIdentityReady = Boolean(
+    cleanText(record.deviceLabel) &&
+      cleanText(record.browserLabel) &&
+      !["待填写", "浏览器待确认"].includes(cleanText(record.deviceLabel)) &&
+      !["待填写", "浏览器待确认"].includes(cleanText(record.browserLabel)),
+  );
+  const allChecksPassed = summary.passedCount === summary.total && summary.total === DRIVER_DEVICE_FIELD_TEST_ITEMS.length;
+  const blockers = [
+    acceptanceBlocker("task_link", taskLinked, "验收记录必须关联当前权威送货任务"),
+    acceptanceBlocker("order_line_link", orderLineLinked, "验收记录订单行与送货任务不一致"),
+    acceptanceBlocker("driver_link", driverLinked, "验收司机必须与任务分配司机一致"),
+    acceptanceBlocker("device_identity", deviceIdentityReady, "必须填写真实手机型号和运行环境"),
+    acceptanceBlocker("field_checks", allChecksPassed, "司机手机 6 项现场检查尚未全部通过"),
+    acceptanceBlocker("native_package_scan", packageScanCapability.ready, packageScanCapability.detail),
+    acceptanceBlocker("package_sample", packageSampleReady, "必须用原生 SDK 扫描并严格匹配当前任务的真实包裹标签"),
+    acceptanceBlocker("native_navigation", navigationCapability.ready, navigationCapability.detail),
+    acceptanceBlocker("navigation_sample", navigationSampleReady, "必须保留当前任务原生导航成功打开的回执"),
+  ].filter(Boolean);
+  const ready = blockers.length === 0;
+  return {
+    ready,
+    status: ready ? "accepted" : "pending",
+    statusLabel: ready ? "现场验收已通过" : "现场验收未通过",
+    allChecksPassed,
+    taskLinked,
+    orderLineLinked,
+    driverLinked,
+    deviceIdentityReady,
+    packageSampleReady,
+    packageIdsMatch,
+    packageBelongsToTask,
+    navigationSampleReady,
+    nativePackageScanReady: packageScanCapability.ready,
+    nativeNavigationReady: navigationCapability.ready,
+    blockerCount: blockers.length,
+    blockers,
+  };
 }
 
 export function getDriverPackageLabelScanSampleSummary(sample) {
@@ -218,6 +353,7 @@ export function buildDriverDeviceFieldTestRecord(input = {}) {
     readiness,
     checks,
     packageLabelScanSample,
+    nativeNavigationSample,
     nativeBridgeDiagnostics,
     env = globalThis,
     now = new Date(),
@@ -244,10 +380,28 @@ export function buildDriverDeviceFieldTestRecord(input = {}) {
     summary,
     checks: normalizedChecks,
     packageLabelScanSample: normalizeDriverPackageLabelScanSample(packageLabelScanSample),
+    nativeNavigationSample: normalizeDriverNativeNavigationSample(nativeNavigationSample),
     nativeBridgeDiagnostics:
       normalizeDriverNativeCapabilityDiagnostics(nativeBridgeDiagnostics) ?? getDriverNativeCapabilityDiagnostics(env),
     note: cleanText(note),
   };
+}
+
+function getNativeCapabilityAcceptance(diagnostics, key, expectedVersion) {
+  const item = toArray(diagnostics?.items).find((candidate) => cleanText(candidate?.key) === key);
+  const supportedBridge = ["direct", "android_interface", "webkit_message_handler"].includes(cleanText(item?.bridgeType));
+  const versionMatches = cleanText(item?.version) === expectedVersion;
+  const ready = item?.supported === true && supportedBridge && versionMatches;
+  return {
+    ready,
+    detail: ready
+      ? `${cleanText(item.label) || key}桥接有效`
+      : `${cleanText(item?.label) || key}必须由受支持的原生桥接和当前协议版本证明`,
+  };
+}
+
+function acceptanceBlocker(key, passed, detail) {
+  return passed ? null : { key, detail };
 }
 
 function getPackageLabelScanFieldTestUpdates(signal = {}) {

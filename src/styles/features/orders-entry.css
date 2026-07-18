@@ -95,7 +95,7 @@
   overflow: hidden;
   color: #263247;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 18px;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -109,7 +109,7 @@
 
 .entry-progress li.active strong {
   color: var(--erp-accent-strong);
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .entry-source-section {
@@ -126,7 +126,7 @@
   margin: 0;
   color: var(--erp-text);
   font-size: 13px;
-  font-weight: 750;
+  font-weight: 700;
   line-height: 20px;
 }
 
@@ -298,6 +298,50 @@
   min-height: 38px;
 }
 
+.entry-capture-more {
+  position: relative;
+  width: 100%;
+}
+
+.entry-capture-more summary {
+  display: grid;
+  width: 100%;
+  min-height: 34px;
+  place-items: center;
+  border: 1px solid #dbe3ef;
+  border-radius: 4px;
+  background: #fff;
+  color: #40506a;
+  cursor: pointer;
+  font-size: 13px;
+  list-style: none;
+}
+
+.entry-capture-more summary::-webkit-details-marker {
+  display: none;
+}
+
+.entry-capture-more summary::after {
+  margin-left: 6px;
+  color: var(--erp-text-faint);
+  content: "▾";
+}
+
+.entry-capture-more[open] summary {
+  border-color: #9ab9ec;
+  color: var(--erp-accent-strong);
+}
+
+.entry-capture-more[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.entry-capture-more-menu {
+  display: grid;
+  gap: 6px;
+  margin-top: 6px;
+}
+
 .entry-table-section {
   display: flex;
   min-height: 0;
@@ -449,7 +493,7 @@
   min-height: 34px;
   background: #f7f9fc;
   color: #36445b;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .entry-table .data-row > span {
@@ -470,7 +514,8 @@
   text-align: center;
 }
 
-.entry-table .data-row.active {
+.entry-table .data-row.active,
+.entry-table .entry-edit-row:focus-within {
   background: #eaf4ff;
   box-shadow: inset 3px 0 0 var(--erp-accent);
 }
@@ -479,7 +524,8 @@
   background: #f5f9ff;
 }
 
-.entry-table .data-row.active:hover {
+.entry-table .data-row.active:hover,
+.entry-table .entry-edit-row:focus-within:hover {
   background: #eaf4ff;
 }
 
@@ -592,7 +638,7 @@
 .entry-table .entry-money-cell {
   justify-content: flex-end;
   font-variant-numeric: tabular-nums;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .entry-table .status {
@@ -601,7 +647,7 @@
   border: 0;
   background: transparent;
   font-size: 11px;
-  font-weight: 750;
+  font-weight: 700;
   padding: 0;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -655,7 +701,7 @@
   justify-content: center;
   min-width: 0;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
   gap: 5px;
   white-space: nowrap;
 }
@@ -840,7 +886,7 @@
   flex: 0 0 auto;
   color: var(--erp-accent);
   cursor: pointer;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .entry-upload-action input {
@@ -957,7 +1003,7 @@
 .entry-print-form label > span {
   color: #344157;
   font-size: 11px;
-  font-weight: 650;
+  font-weight: 600;
 }
 
 .entry-print-form select,
@@ -999,7 +1045,7 @@
 
 .entry-selected-check {
   margin-top: 6px;
-  border-left: 3px solid;
+  border: 1px solid currentColor;
   border-radius: 3px;
   font-size: 10px;
   line-height: 17px;
@@ -1057,7 +1103,7 @@
 .entry-summary-metrics strong {
   color: #0868eb;
   font-size: 20px;
-  font-weight: 650;
+  font-weight: 600;
   line-height: 24px;
 }
 
@@ -1080,7 +1126,7 @@
   background: #fff;
   color: #2f3b50;
   font-size: 13px;
-  font-weight: 650;
+  font-weight: 600;
   list-style: none;
   padding: 0 16px;
 }
@@ -1251,7 +1297,7 @@
   background: #eaf4ff;
   color: var(--erp-accent-strong);
   font-size: 12px;
-  font-weight: 750;
+  font-weight: 700;
 }
 
 .entry-split-groups article > div:nth-child(2),
@@ -1282,9 +1328,10 @@
 
 .entry-split-warning {
   margin: 0 16px 12px;
-  border-left: 3px solid #f59e0b;
-  background: #fff8e7;
-  color: #8a5a00;
+  border: 1px solid var(--erp-warning-border);
+  border-radius: var(--erp-radius-md);
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
   font-size: 12px;
   padding: 8px 10px;
 }
@@ -1335,6 +1382,7 @@
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto auto auto;
     overflow: auto;
+    padding-bottom: 84px;
   }
 
   .entry-review-panel,
@@ -1343,10 +1391,52 @@
   }
 
   .entry-confirm-footer {
-    position: sticky;
-    z-index: 5;
-    bottom: 0;
+    position: fixed;
+    z-index: 20;
+    right: 12px;
+    bottom: 7px;
+    left: 152px;
     grid-column: 1;
+    min-height: 64px;
+    gap: 10px;
+    padding: 6px 10px;
+    box-shadow: 0 8px 24px rgba(21, 38, 64, 0.16);
+  }
+
+  .entry-summary-metrics {
+    flex: 1 1 auto;
+  }
+
+  .entry-summary-metrics > span {
+    min-width: 0;
+    min-height: 42px;
+    flex: 1 1 0;
+    padding: 0 8px;
+  }
+
+  .entry-summary-metrics > span:first-child {
+    min-width: 0;
+    padding-left: 0;
+  }
+
+  .entry-summary-metrics strong {
+    font-size: 18px;
+    line-height: 21px;
+  }
+
+  .entry-footer-actions {
+    gap: 7px;
+  }
+
+  .entry-footer-actions > button,
+  .entry-more-menu > summary {
+    min-width: 88px;
+    min-height: 34px;
+    padding: 0 9px;
+  }
+
+  .entry-footer-actions > .primary-action {
+    min-width: 132px;
   }
 }
 
@@ -1393,17 +1483,47 @@
   }
 
   .entry-confirm-footer {
+    right: 8px;
+    bottom: 8px;
+    left: 8px;
     align-items: stretch;
     flex-direction: column;
+    min-height: 0;
+    gap: 6px;
+    padding: 6px 8px;
+  }
+
+  .entry-workbench {
+    padding-bottom: 148px;
   }
 
   .entry-summary-metrics {
+    width: 100%;
     overflow-x: auto;
+  }
+
+  .entry-summary-metrics > span,
+  .entry-summary-metrics > span:first-child {
+    min-width: 84px;
+    min-height: 38px;
+    padding: 0 8px;
+    font-size: 10px;
+    line-height: 14px;
+  }
+
+  .entry-summary-metrics > span:first-child {
+    padding-left: 0;
+  }
+
+  .entry-summary-metrics strong {
+    font-size: 16px;
+    line-height: 18px;
   }
 
   .entry-footer-actions {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 6px;
   }
 
   .entry-footer-actions > button,
@@ -1411,6 +1531,8 @@
   .entry-more-menu > summary {
     width: 100%;
     min-width: 0;
+    min-height: 34px;
+    font-size: 12px;
   }
 
   .entry-split-backdrop {

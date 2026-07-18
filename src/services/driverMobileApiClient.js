@@ -7,6 +7,7 @@ import {
 } from "../domain/officeRules.js";
 import {
   getDriverDeviceFieldTestSummary,
+  normalizeDriverNativeNavigationSample,
   normalizeDriverPackageLabelScanSample,
   normalizeDriverDeviceFieldTestChecks,
 } from "./driverDeviceFieldTestClient.js";
@@ -164,6 +165,9 @@ export async function recordDriverDeviceFieldTest(input = {}, options = {}) {
       summary: json?.summary ?? savedRecord.summary,
       task: mapApiDriverDeliveryTask(json?.task),
       operationLogId: cleanText(json?.operationLogId),
+      acceptance: normalizeDriverDeviceFieldTestAcceptance(json?.acceptance ?? savedRecord.summary?.acceptance),
+      resultStatus: normalizeDriverDeviceFieldTestResultStatus(json?.resultStatus),
+      safeguards: normalizeDriverDeviceFieldTestSafeguards(json?.safeguards),
     };
   } catch (error) {
     if (isOfficeApiServerRequired(options)) {
@@ -832,6 +836,9 @@ function normalizeDriverDeviceFieldTestRecordForClient(value = {}) {
   const nativeBridgeDiagnostics = normalizeDriverNativeCapabilityDiagnostics(
     value.nativeBridgeDiagnostics ?? value.native_bridge_diagnostics ?? value.summary?.nativeBridgeDiagnostics,
   );
+  const nativeNavigationSample = normalizeDriverNativeNavigationSample(
+    value.nativeNavigationSample ?? value.native_navigation_sample ?? value.summary?.nativeNavigationSample,
+  );
   return {
     recordId,
     fulfillmentId: cleanText(value.fulfillmentId),
@@ -847,8 +854,53 @@ function normalizeDriverDeviceFieldTestRecordForClient(value = {}) {
     summary,
     checks,
     packageLabelScanSample,
+    nativeNavigationSample,
     nativeBridgeDiagnostics,
     note: cleanText(value.note),
+  };
+}
+
+function normalizeDriverDeviceFieldTestAcceptance(value = {}) {
+  if (!value || typeof value !== "object") return null;
+  return {
+    ready: value.ready === true,
+    status: cleanText(value.status) || "pending",
+    statusLabel: cleanText(value.statusLabel) || (value.ready === true ? "现场验收已通过" : "现场验收未通过"),
+    allChecksPassed: value.allChecksPassed === true,
+    taskLinked: value.taskLinked === true,
+    orderLineLinked: value.orderLineLinked !== false,
+    driverLinked: value.driverLinked === true,
+    deviceIdentityReady: value.deviceIdentityReady === true,
+    packageSampleReady: value.packageSampleReady === true,
+    packageIdsMatch: value.packageIdsMatch === true,
+    packageBelongsToTask: value.packageBelongsToTask === true,
+    navigationSampleReady: value.navigationSampleReady === true,
+    nativePackageScanReady: value.nativePackageScanReady === true,
+    nativeNavigationReady: value.nativeNavigationReady === true,
+    blockerCount: Number(value.blockerCount ?? 0),
+    blockers: toArray(value.blockers).map((item) => ({
+      key: cleanText(item?.key),
+      detail: cleanText(item?.detail),
+    })).filter((item) => item.key || item.detail),
+  };
+}
+
+function normalizeDriverDeviceFieldTestResultStatus(value = {}) {
+  return {
+    recordSaved: value?.recordSaved === true,
+    onsiteAcceptancePassed: value?.onsiteAcceptancePassed === true,
+    deliveryStatusChangedByRequest: value?.deliveryStatusChangedByRequest === true,
+    nativeBridgeInvokedByRequest: value?.nativeBridgeInvokedByRequest === true,
+  };
+}
+
+function normalizeDriverDeviceFieldTestSafeguards(value = {}) {
+  return {
+    nonDeliveryAction: value?.nonDeliveryAction !== false,
+    deliveryStatusChanged: value?.deliveryStatusChanged === true,
+    nativeBridgeInvoked: value?.nativeBridgeInvoked === true,
+    cameraPermissionRequested: value?.cameraPermissionRequested === true,
+    navigationAppOpened: value?.navigationAppOpened === true,
   };
 }
 

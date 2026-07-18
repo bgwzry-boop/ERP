@@ -16,6 +16,7 @@ export function V1StatusProductionFirstStage({
   productionEnvValuesApplyGateStatus,
   productionEnvValuesFragmentSourceStatus,
   productionPersistenceEvidence,
+  todoLoadPrecheck,
   productionPersistenceEvidenceSummary,
   productionPersistenceEvidenceBlockers,
   productionPersistenceEvidenceGuidance,
@@ -94,6 +95,7 @@ export function V1StatusProductionFirstStage({
                 productionEnvValuesFragmentSourceStatus={productionEnvValuesFragmentSourceStatus}
                 productionFirstStageExecution={productionFirstStageExecution}
                 productionPersistenceEvidence={productionPersistenceEvidence}
+                todoLoadPrecheck={todoLoadPrecheck}
                 productionPersistenceEvidenceAction={productionPersistenceEvidenceAction}
                 productionPersistenceEvidenceBlockers={productionPersistenceEvidenceBlockers}
                 productionPersistenceEvidenceGuidance={productionPersistenceEvidenceGuidance}

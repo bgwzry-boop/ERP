@@ -389,3 +389,259 @@
     position: static;
   }
 }
+.business-decision-fields,
+.business-decision-history {
+  border: 1px solid var(--color-border, #dce2ea);
+  border-radius: 10px;
+  background: #f8fafc;
+  padding: 12px;
+}
+
+.business-decision-fields__heading,
+.business-decision-history > header,
+.business-decision-history__title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.business-decision-fields__heading > div {
+  display: grid;
+  gap: 2px;
+}
+
+.business-decision-fields__heading span,
+.business-decision-history > header span,
+.business-conflict-dialog__meta {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.business-decision-fields__operator {
+  border-radius: 999px;
+  background: #e8eef8;
+  padding: 4px 9px;
+  color: #334155 !important;
+}
+
+.business-decision-fields__grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 9px 12px;
+  margin-top: 10px;
+}
+
+.business-decision-fields__grid label {
+  display: grid;
+  gap: 4px;
+  color: #475569;
+  font-size: 12px;
+}
+
+.business-decision-fields__grid input,
+.business-decision-fields__grid select,
+.business-decision-fields__grid textarea {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  color: #172033;
+  padding: 6px 8px;
+  font: inherit;
+}
+
+.business-decision-fields__grid textarea {
+  resize: vertical;
+}
+
+.business-decision-fields__wide {
+  grid-column: 1 / -1;
+}
+
+.business-decision-fields__error {
+  margin: 8px 0 0;
+  color: #b42318;
+  font-size: 12px;
+}
+
+.business-decision-evidence {
+  display: grid;
+  gap: 8px;
+  border-top: 1px solid #dbe3ee;
+  padding-top: 10px;
+}
+
+.business-decision-evidence__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.business-decision-evidence__toolbar > span {
+  margin-right: auto;
+  color: #475569;
+  font-size: 12px;
+}
+
+.business-decision-evidence .button-like,
+.business-decision-evidence__list button,
+.business-decision-history dd button {
+  width: auto;
+  min-height: 30px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  background: #fff;
+  padding: 5px 9px;
+  color: #334155;
+  cursor: pointer;
+}
+
+.business-decision-evidence__list {
+  display: grid;
+  gap: 6px;
+}
+
+.business-decision-evidence__list > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #e2e8f0;
+  border-radius: 7px;
+  background: #fff;
+  padding: 7px 8px;
+}
+
+.business-decision-evidence__list > div > span {
+  display: grid;
+  min-width: 0;
+  flex: 1;
+}
+
+.business-decision-evidence__list strong,
+.business-decision-evidence__list small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.business-decision-evidence__list small,
+.business-decision-evidence__list p {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.business-decision-evidence__list .danger-text {
+  border-color: #fecaca;
+  color: #b42318;
+}
+
+.business-decision-history dd {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.business-conflict-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  background: rgb(15 23 42 / 42%);
+  padding: 20px;
+}
+
+.business-conflict-dialog {
+  width: min(520px, 100%);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 12px;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 24px 64px rgb(15 23 42 / 24%);
+  padding: 20px;
+}
+
+.business-conflict-dialog__mark {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: #fff1f0;
+  color: #c9362b;
+  font-weight: 700;
+}
+
+.business-conflict-dialog h2,
+.business-conflict-dialog p {
+  margin: 0 0 7px;
+}
+
+.business-conflict-dialog__actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.business-conflict-dialog__actions button {
+  min-height: 36px;
+  border: 1px solid #cbd5e1;
+  border-radius: 7px;
+  background: #fff;
+  padding: 0 14px;
+}
+
+.business-conflict-dialog__actions .primary {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #fff;
+}
+
+.business-decision-history__scroll {
+  max-height: 250px;
+  overflow: auto;
+  margin-top: 8px;
+}
+
+.business-decision-history article {
+  border-top: 1px solid #e2e8f0;
+  padding: 10px 0;
+}
+
+.business-decision-history article:first-child {
+  border-top: 0;
+}
+
+.business-decision-history dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 12px;
+  margin: 8px 0 0;
+}
+
+.business-decision-history dl div {
+  min-width: 0;
+}
+
+.business-decision-history dt {
+  color: #64748b;
+  font-size: 11px;
+}
+
+.business-decision-history dd {
+  margin: 2px 0 0;
+  color: #1e293b;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 720px) {
+  .business-decision-fields__grid,
+  .business-decision-history dl {
+    grid-template-columns: 1fr;
+  }
+}

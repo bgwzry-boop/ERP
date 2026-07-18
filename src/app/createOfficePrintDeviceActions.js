@@ -82,6 +82,8 @@ export function createOfficePrintDeviceActions({
       setPrinterDeviceQa((current) => ({
         ...current,
         selectedDeviceId: safePrintDeviceId,
+        eligiblePrintJobs: [],
+        selectedPrintJobId: "",
         fieldTests: [],
         latestRecord: null,
         checks: createPrinterDeviceFieldTestChecks(),

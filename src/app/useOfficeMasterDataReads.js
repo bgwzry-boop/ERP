@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useRef } from "react";
 import {
   listOfficeMasterDataEmployeeAccountReviews,
   listOfficeMasterDataImportReviewDrafts,
@@ -46,8 +46,11 @@ export function createOfficeMasterDataReadActions({
   setMasterDataEmployeeAccountReadiness = () => {},
   setMasterDataEmployeeAssignmentOptions = () => {},
   setMasterDataImportReviewDrafts,
+  employeeAccountRequestSequenceRef = { current: 0 },
+  importReviewRequestSequenceRef = { current: 0 },
 }) {
   async function refreshMasterDataImportReviewDrafts({ silent = false } = {}) {
+    const requestSequence = ++importReviewRequestSequenceRef.current;
     const result = normalizeReadResultForRuntime(
       await api.listOfficeMasterDataImportReviewDrafts({
         authState,
@@ -56,14 +59,20 @@ export function createOfficeMasterDataReadActions({
       }),
       { label: "基础资料导入确认草稿", serverRequired },
     );
+    if (requestSequence !== importReviewRequestSequenceRef.current) {
+      return withFeedback({ ...result, skipped: true, stale: true }, silent, "已忽略过期的导入确认草稿读取结果。");
+    }
     if (result.blocked) {
+      masterDataImportReviewDraftsRef.current = [];
+      setMasterDataImportReviewDrafts([]);
       return withFeedback(
-        result,
+        { ...result, items: [] },
         silent,
         `刷新导入确认草稿失败：${result.error?.message || "权限或接口错误"}`,
       );
     }
     const items = result.items ?? [];
+    masterDataImportReviewDraftsRef.current = items;
     setMasterDataImportReviewDrafts(items);
     const sourceLabel = result.source === "api" ? "后端" : "本地";
     return withFeedback(
@@ -74,42 +83,62 @@ export function createOfficeMasterDataReadActions({
   }
 
   async function refreshMasterDataEmployeeAccountReviews({ silent = false } = {}) {
+    const requestSequence = ++employeeAccountRequestSequenceRef.current;
     const actionState = getActionState(permissionContext, "masterData", "刷新员工复核");
     if (actionState.disabled) {
+      masterDataEmployeeAccountReviewsRef.current = [];
+      setMasterDataEmployeeAccountReviews([]);
       setMasterDataEmployeeAccountReadiness(null);
-      setMasterDataEmployeeAssignmentOptions({ workshops: [], machines: [] });
+      setMasterDataEmployeeAssignmentOptions({ workshops: [], machines: [], allMachines: [] });
       return withFeedback(
         {
           source: "permission",
           blocked: true,
-          items: masterDataEmployeeAccountReviewsRef.current,
+          items: [],
           error: { code: "MASTER_DATA_EMPLOYEE_REVIEW_PERMISSION_DENIED", message: actionState.title },
         },
         silent,
         actionState.title,
       );
     }
+    const localReviews = masterDataEmployeeAccountReviewsRef.current;
+    if (serverRequired()) {
+      masterDataEmployeeAccountReviewsRef.current = [];
+      setMasterDataEmployeeAccountReviews([]);
+      setMasterDataEmployeeAccountReadiness(null);
+      setMasterDataEmployeeAssignmentOptions({ workshops: [], machines: [], allMachines: [] });
+    }
     const result = normalizeReadResultForRuntime(
       await api.listOfficeMasterDataEmployeeAccountReviews({
         authState,
         operatorId: currentUserId,
-        localReviews: masterDataEmployeeAccountReviewsRef.current,
+        pageSize: 200,
+        localReviews,
       }),
       { label: "员工账号复核列表", serverRequired },
     );
+    if (requestSequence !== employeeAccountRequestSequenceRef.current) {
+      return withFeedback({ ...result, skipped: true, stale: true }, silent, "已忽略过期的员工账号复核读取结果。");
+    }
     if (result.blocked) {
+      masterDataEmployeeAccountReviewsRef.current = [];
+      setMasterDataEmployeeAccountReviews([]);
       setMasterDataEmployeeAccountReadiness(null);
-      setMasterDataEmployeeAssignmentOptions({ workshops: [], machines: [] });
+      setMasterDataEmployeeAssignmentOptions({ workshops: [], machines: [], allMachines: [] });
       return withFeedback(
-        result,
+        { ...result, items: [] },
         silent,
         `刷新员工账号复核失败：${result.error?.message || "权限或接口错误"}`,
       );
     }
     const items = result.items ?? [];
+    masterDataEmployeeAccountReviewsRef.current = items;
     setMasterDataEmployeeAccountReviews(items);
     setMasterDataEmployeeAccountReadiness(result.readiness ?? null);
-    setMasterDataEmployeeAssignmentOptions(result.assignmentOptions ?? { workshops: [], machines: [] });
+    setMasterDataEmployeeAssignmentOptions({
+      ...(result.assignmentOptions ?? { workshops: [], machines: [] }),
+      allMachines: result.machineRecords ?? [],
+    });
     const sourceLabel = result.source === "api" ? "API" : "本地";
     return withFeedback(
       result,
@@ -122,7 +151,13 @@ export function createOfficeMasterDataReadActions({
 }
 
 export function useOfficeMasterDataReads(options) {
-  const actions = createOfficeMasterDataReadActions(options);
+  const employeeAccountRequestSequenceRef = useRef(0);
+  const importReviewRequestSequenceRef = useRef(0);
+  const actions = createOfficeMasterDataReadActions({
+    ...options,
+    employeeAccountRequestSequenceRef,
+    importReviewRequestSequenceRef,
+  });
   const {
     authState,
     currentUserId,

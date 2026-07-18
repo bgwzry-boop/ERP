@@ -1,3 +1,6 @@
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app */
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 */
+
 .production-schedule-queue-table .data-row {
   grid-template-columns:
     minmax(0, 0.58fr)
@@ -44,7 +47,7 @@
 }
 
 .production-source-detail-section {
-  background: #fbfdff;
+  background: var(--erp-surface-subtle);
 }
 
 .production-source-detail-section .info-grid {
@@ -52,8 +55,8 @@
 }
 
 .printer-device-qa-section {
-  border-color: #cfe0f6;
-  background: #f8fbff;
+  border-color: var(--erp-accent-border);
+  background: var(--erp-surface-subtle);
 }
 
 .printer-device-qa-head {
@@ -69,7 +72,7 @@
   display: block;
   max-width: 210px;
   overflow: hidden;
-  color: #68758a;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
@@ -84,10 +87,10 @@
 
 .printer-device-qa-head-actions button {
   height: 26px;
-  border: 1px solid #cbd7e8;
+  border: 1px solid var(--erp-control-border);
   border-radius: 5px;
-  background: #fff;
-  color: #536178;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
   font-size: 12px;
   padding: 0 8px;
   white-space: nowrap;
@@ -105,17 +108,17 @@
   display: grid;
   gap: 4px;
   min-width: 0;
-  color: #6a7486;
+  color: var(--erp-text-muted);
   font-size: 12px;
 }
 
 .printer-device-qa-select-row select {
   min-width: 0;
   height: 30px;
-  border: 1px solid #d7dfeb;
+  border: 1px solid var(--erp-control-border);
   border-radius: 5px;
-  background: #fff;
-  color: #253044;
+  background: var(--erp-surface);
+  color: var(--erp-text);
   font-size: 13px;
   padding: 0 8px;
 }
@@ -130,20 +133,20 @@
 
 .printer-device-mode-current {
   min-width: 0;
-  border: 1px solid #dce5f1;
+  border: 1px solid var(--erp-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 6px 8px;
 }
 
 .printer-device-mode-current.success {
-  border-color: #a9d9bd;
-  background: #f2fbf5;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .printer-device-mode-current.warning {
-  border-color: #f0cf88;
-  background: #fffaf0;
+  border-color: var(--erp-warning-border);
+  background: var(--erp-warning-bg);
 }
 
 .printer-device-mode-current span,
@@ -160,13 +163,13 @@
 .printer-device-mode-current small,
 .printer-device-mode-row label span,
 .printer-device-mode-note {
-  color: #68758a;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 17px;
 }
 
 .printer-device-mode-current strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
 }
@@ -180,29 +183,29 @@
 .printer-device-mode-row select {
   min-width: 0;
   height: 30px;
-  border: 1px solid #d7dfeb;
+  border: 1px solid var(--erp-control-border);
   border-radius: 5px;
-  background: #fff;
-  color: #253044;
+  background: var(--erp-surface);
+  color: var(--erp-text);
   font-size: 13px;
   padding: 0 8px;
 }
 
 .printer-device-mode-row button {
   height: 30px;
-  border: 1px solid #0b74ff;
+  border: 1px solid var(--erp-accent);
   border-radius: 5px;
-  background: #0b74ff;
-  color: #fff;
+  background: var(--erp-accent);
+  color: var(--erp-accent-ink);
   font-size: 12px;
   padding: 0 10px;
   white-space: nowrap;
 }
 
 .printer-device-mode-row button:disabled {
-  border-color: #cbd7e8;
-  background: #eef3f9;
-  color: #8a96a8;
+  border-color: var(--erp-control-border);
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-faint);
 }
 
 .printer-device-mode-note {
@@ -222,9 +225,9 @@
 
 .printer-device-qa-evidence {
   margin-top: 7px;
-  border: 1px solid #dce5f1;
+  border: 1px solid var(--erp-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 7px 8px;
 }
 
@@ -239,7 +242,7 @@
 .printer-device-qa-evidence-head strong {
   min-width: 0;
   overflow: hidden;
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
   text-overflow: ellipsis;
@@ -257,47 +260,47 @@
   display: grid;
   gap: 4px;
   min-width: 0;
-  color: #6a7486;
+  color: var(--erp-text-muted);
   font-size: 12px;
 }
 
 .printer-device-qa-evidence-grid input {
   min-width: 0;
   height: 30px;
-  border: 1px solid #d7dfeb;
+  border: 1px solid var(--erp-control-border);
   border-radius: 5px;
-  background: #fff;
-  color: #253044;
+  background: var(--erp-surface);
+  color: var(--erp-text);
   font-size: 13px;
   padding: 0 8px;
 }
 
 .printer-device-qa-record {
-  border-color: #a9c8ee;
+  border-color: var(--erp-accent-border);
 }
 
 .print-driver-diagnostics-section {
-  border-color: #d6e2f0;
-  background: #fcfdff;
+  border-color: var(--erp-control-border);
+  background: var(--erp-surface-subtle);
 }
 
 .print-driver-diagnostics-section.success {
-  border-color: #a9d9bd;
-  background: #f7fcf9;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .print-driver-diagnostics-section.warning {
-  border-color: #f0cf88;
-  background: #fffaf0;
+  border-color: var(--erp-warning-border);
+  background: var(--erp-warning-bg);
 }
 
 .print-driver-diagnostics-section.danger {
-  border-color: #f2aaa9;
-  background: #fff7f7;
+  border-color: var(--erp-danger-border);
+  background: var(--erp-danger-bg);
 }
 
 .print-driver-v1-readiness-section {
-  border-color: #b9ccea;
+  border-color: var(--erp-accent-border);
 }
 
 .print-driver-diagnostics-head {
@@ -313,7 +316,7 @@
   display: block;
   max-width: 220px;
   overflow: hidden;
-  color: #68758a;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
@@ -329,10 +332,10 @@
 
 .print-driver-diagnostics-meta span {
   overflow: hidden;
-  border: 1px solid #dbe5f1;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #fff;
-  color: #536178;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 24px;
   padding: 0 8px;
@@ -350,20 +353,20 @@
 .print-driver-diagnostics-grid div {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #dce5f1;
+  border: 1px solid var(--erp-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 7px 8px;
 }
 
 .print-driver-diagnostics-grid div.success {
-  border-color: #a9d9bd;
-  background: #f5fbf7;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .print-driver-diagnostics-grid div.warning {
-  border-color: #ebcf8e;
-  background: #fffaf0;
+  border-color: var(--erp-warning-border);
+  background: var(--erp-warning-bg);
 }
 
 .print-driver-diagnostics-grid span,
@@ -378,22 +381,22 @@
 
 .print-driver-diagnostics-grid span,
 .print-driver-diagnostics-grid small {
-  color: #68758a;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 17px;
 }
 
 .print-driver-diagnostics-grid strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
 }
 
 .print-driver-readiness {
   overflow: hidden;
-  border: 1px solid #dbe5f1;
+  border: 1px solid var(--erp-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--erp-surface);
   margin-top: 7px;
 }
 
@@ -402,14 +405,14 @@
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  border-bottom: 1px solid #e6edf6;
+  border-bottom: 1px solid var(--erp-border-subtle);
   padding: 7px 8px;
 }
 
 .print-driver-readiness-head strong {
   min-width: 0;
   overflow: hidden;
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
   text-overflow: ellipsis;
@@ -418,9 +421,9 @@
 
 .print-driver-readiness-head span {
   flex: 0 0 auto;
-  border: 1px solid #d9e3ef;
+  border: 1px solid var(--erp-control-border);
   border-radius: 999px;
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 20px;
   padding: 0 8px;
@@ -428,21 +431,21 @@
 }
 
 .print-driver-readiness-head span.success {
-  border-color: #a9d9bd;
-  color: #237449;
-  background: #f3fbf6;
+  border-color: var(--erp-success-border);
+  color: var(--erp-success);
+  background: var(--erp-success-bg);
 }
 
 .print-driver-readiness-head span.warning {
-  border-color: #ebcf8e;
-  color: #8a5f10;
-  background: #fff8e6;
+  border-color: var(--erp-warning-border);
+  color: var(--erp-warning);
+  background: var(--erp-warning-bg);
 }
 
 .print-driver-readiness-head span.danger {
-  border-color: #efb0b0;
-  color: #b33a3a;
-  background: #fff4f4;
+  border-color: var(--erp-danger-border);
+  color: var(--erp-danger);
+  background: var(--erp-danger-bg);
 }
 
 .print-driver-readiness-list {
@@ -456,8 +459,8 @@
   column-gap: 6px;
   row-gap: 1px;
   min-width: 0;
-  border-right: 1px solid #edf2f8;
-  border-bottom: 1px solid #edf2f8;
+  border-right: 1px solid var(--erp-border-subtle);
+  border-bottom: 1px solid var(--erp-border-subtle);
   padding: 7px 8px;
 }
 
@@ -472,7 +475,7 @@
 .print-driver-readiness-row span {
   align-self: start;
   border-radius: 999px;
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 11px;
   line-height: 18px;
   padding: 0 6px;
@@ -480,18 +483,18 @@
 }
 
 .print-driver-readiness-row.success span {
-  background: #e9f8ef;
-  color: #237449;
+  background: var(--erp-success-bg);
+  color: var(--erp-success);
 }
 
 .print-driver-readiness-row.warning span {
-  background: #fff0c7;
-  color: #8a5f10;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
 }
 
 .print-driver-readiness-row.danger span {
-  background: #ffe4e4;
-  color: #b33a3a;
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger);
 }
 
 .print-driver-readiness-row strong,
@@ -503,14 +506,14 @@
 }
 
 .print-driver-readiness-row strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
 }
 
 .print-driver-readiness-row small {
   grid-column: 2;
-  color: #68758a;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 17px;
 }
@@ -525,10 +528,10 @@
 .print-driver-v1-risks span {
   max-width: 100%;
   overflow: hidden;
-  border: 1px solid #f0cf88;
+  border: 1px solid var(--erp-warning-border);
   border-radius: 999px;
-  background: #fff8e6;
-  color: #80570d;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
   font-size: 12px;
   line-height: 22px;
   padding: 0 8px;
@@ -538,23 +541,23 @@
 
 .print-driver-diagnostics-note {
   margin-top: 7px;
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 18px;
 }
 
 .print-driver-integration-kit {
   overflow: hidden;
-  border: 1px solid #bdd6f6;
+  border: 1px solid var(--erp-accent-border);
   border-radius: 6px;
-  background: #f7fbff;
+  background: var(--erp-surface-subtle);
   margin-top: 7px;
 }
 
 .print-driver-integration-summary {
   display: grid;
   gap: 2px;
-  border-bottom: 1px solid #e3edf9;
+  border-bottom: 1px solid var(--erp-border-subtle);
   padding: 7px 8px;
 }
 
@@ -566,14 +569,14 @@
 }
 
 .print-driver-integration-summary strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
   white-space: nowrap;
 }
 
 .print-driver-integration-summary small {
-  color: #61708a;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 17px;
   white-space: normal;
@@ -591,7 +594,7 @@
   column-gap: 6px;
   row-gap: 1px;
   min-width: 0;
-  border-right: 1px solid #e3edf9;
+  border-right: 1px solid var(--erp-border-subtle);
   padding: 7px 8px;
 }
 
@@ -602,7 +605,7 @@
 .print-driver-integration-row span {
   align-self: start;
   border-radius: 999px;
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 11px;
   line-height: 18px;
   padding: 0 6px;
@@ -610,13 +613,13 @@
 }
 
 .print-driver-integration-row.success span {
-  background: #e9f8ef;
-  color: #237449;
+  background: var(--erp-success-bg);
+  color: var(--erp-success);
 }
 
 .print-driver-integration-row.warning span {
-  background: #fff0c7;
-  color: #8a5f10;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
 }
 
 .print-driver-integration-row strong,
@@ -628,21 +631,21 @@
 }
 
 .print-driver-integration-row strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
 }
 
 .print-driver-integration-row small {
   grid-column: 2;
-  color: #68758a;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 17px;
 }
 
 .print-job-queue-section {
-  border-color: #d5e2ef;
-  background: #fbfcfe;
+  border-color: var(--erp-control-border);
+  background: var(--erp-surface-subtle);
 }
 
 .print-job-queue-head {
@@ -658,7 +661,7 @@
   display: block;
   max-width: 220px;
   overflow: hidden;
-  color: #68758a;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 18px;
   text-overflow: ellipsis;
@@ -675,10 +678,10 @@
 .print-job-stats span {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #dbe5f1;
+  border: 1px solid var(--erp-border);
   border-radius: 5px;
-  background: #fff;
-  color: #4a5b73;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 26px;
   padding: 0 8px;
@@ -687,8 +690,8 @@
 }
 
 .print-job-stats span.danger {
-  border-color: #f2b7b7;
-  color: #b33a3a;
+  border-color: var(--erp-danger-border);
+  color: var(--erp-danger);
 }
 
 .print-job-list {
@@ -705,30 +708,30 @@
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  border: 1px solid #dbe5f1;
+  border: 1px solid var(--erp-border);
   border-radius: 6px;
-  background: #fff;
+  background: var(--erp-surface);
   padding: 7px 8px;
 }
 
 .print-job-row.warning {
-  border-color: #ebcf8e;
-  background: #fffaf0;
+  border-color: var(--erp-warning-border);
+  background: var(--erp-warning-bg);
 }
 
 .print-job-row.danger {
-  border-color: #efb0b0;
-  background: #fff7f7;
+  border-color: var(--erp-danger-border);
+  background: var(--erp-danger-bg);
 }
 
 .print-job-row.success {
-  border-color: #abd9bf;
-  background: #f5fbf7;
+  border-color: var(--erp-success-border);
+  background: var(--erp-success-bg);
 }
 
 .print-job-row.blue {
-  border-color: #b9d2f4;
-  background: #f5f9ff;
+  border-color: var(--erp-accent-border);
+  background: var(--erp-accent-soft);
 }
 
 .print-job-main,
@@ -758,20 +761,20 @@
 }
 
 .print-job-main strong {
-  color: #172033;
+  color: var(--erp-text);
   font-size: 13px;
   line-height: 18px;
 }
 
 .print-job-main span,
 .print-job-main small {
-  color: #68758a;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 17px;
 }
 
 .print-job-main em {
-  color: #b33a3a;
+  color: var(--erp-danger);
   font-size: 12px;
   font-style: normal;
   line-height: 17px;
@@ -785,17 +788,17 @@
 
 .print-job-actions button {
   height: 28px;
-  border: 1px solid #cbd7e8;
+  border: 1px solid var(--erp-control-border);
   border-radius: 5px;
-  background: #fff;
-  color: #40516b;
+  background: var(--erp-surface);
+  color: var(--erp-text-muted);
   font-size: 12px;
   padding: 0 9px;
   white-space: nowrap;
 }
 
 .print-job-actions span {
-  color: #7a8799;
+  color: var(--erp-text-faint);
   font-size: 12px;
   line-height: 18px;
   white-space: nowrap;
@@ -819,24 +822,24 @@
   align-items: center;
   gap: 4px;
   min-width: 0;
-  color: #7b8798;
+  color: var(--erp-text-faint);
   font-size: 12px;
 }
 
 .queue-move-controls select {
   height: 30px;
   max-width: 112px;
-  border: 1px solid #d7e1ee;
+  border: 1px solid var(--erp-control-border);
   border-radius: 6px;
-  background: #fff;
-  color: #24324b;
+  background: var(--erp-surface);
+  color: var(--erp-text);
   font: inherit;
   padding: 0 24px 0 8px;
 }
 
 .queue-move-impact {
   margin: -2px 0 8px;
-  color: #536178;
+  color: var(--erp-text-muted);
   font-size: 12px;
   line-height: 18px;
   overflow-wrap: anywhere;
@@ -878,7 +881,7 @@
   }
 
   .print-driver-readiness-row:nth-last-child(-n + 3) {
-    border-bottom: 1px solid #edf2f8;
+    border-bottom: 1px solid var(--erp-border-subtle);
   }
 
   .print-driver-readiness-row:last-child {
@@ -888,7 +891,7 @@
   .print-driver-integration-row,
   .print-driver-integration-row:nth-child(2n) {
     border-right: 0;
-    border-bottom: 1px solid #e3edf9;
+    border-bottom: 1px solid var(--erp-border-subtle);
   }
 
   .print-driver-integration-row:last-child {

@@ -6,11 +6,11 @@ import {
   DetailPane,
   FilterBar,
   InfoGrid,
-  MetricStrip,
   OperationalPanel,
   Segmented,
   StatusPill,
 } from "../../shared/ui/operational.jsx";
+import { formatOperationalError } from "../../shared/ui/errorPresentation.js";
 
 const INVENTORY_DETAIL_TABS = ["概览", "留货", "流水", "修正"];
 
@@ -79,8 +79,8 @@ export function InventoryPage({
   helpers,
 }) {
   const { availableQty, formatStockKey, getStockStateGroup, getStockStateTone, getStockTone, getStockTrustLabel, getUiActionState, isPendingStock, uniqueStockOptions } = helpers;
-  const [filters, setFilters] = useState({ query: "", size: "全部", color: "全部", handle: "全部", style: "全部", state: "默认可用", trust: "全部" });
-  const [showPending, setShowPending] = useState(false);
+  const [filters, setFilters] = useState({ query: "", size: "全部", color: "全部", handle: "全部", style: "全部", trust: "全部" });
+  const [stockView, setStockView] = useState("常用库存");
   const [detailTab, setDetailTab] = useState("概览");
   const [requestQty, setRequestQty] = useState(500);
   const [correctionActual, setCorrectionActual] = useState("");
@@ -92,16 +92,14 @@ export function InventoryPage({
   const [holdExpiryDrafts, setHoldExpiryDrafts] = useState({});
   const [holdExtensionDrafts, setHoldExtensionDrafts] = useState({});
   const ledgerFilters = { ...defaultInventoryLedgerPanelFilters, ...inventoryLedgerFilters };
-  const includePending = showPending || filters.state === "待处理";
   const visible = inventoryRecords.filter((item) => {
     const queryText = `${item.size} ${item.color} ${item.handle} ${item.style} ${item.zone} ${item.state}`.toLowerCase();
-    if (!includePending && isPendingStock(item)) return false;
+    if (!inventoryMatchesView(item, stockView, { availableQty, isPendingStock })) return false;
     if (filters.query.trim() && !queryText.includes(filters.query.trim().toLowerCase())) return false;
     if (filters.size !== "全部" && item.size !== filters.size) return false;
     if (filters.color !== "全部" && item.color !== filters.color) return false;
     if (filters.handle !== "全部" && item.handle !== filters.handle) return false;
     if (filters.style !== "全部" && item.style !== filters.style) return false;
-    if (filters.state !== "默认可用" && filters.state !== "全部" && getStockStateGroup(item) !== filters.state) return false;
     if (filters.trust !== "全部" && (filters.trust === "估算/待复核") !== item.estimated) return false;
     return true;
   });
@@ -135,12 +133,7 @@ export function InventoryPage({
     shortage > 0
       ? `${formatStockKey(selected)} 当前可用 ${Math.max(0, available)} 个，您要 ${safeRequestQty} 个还差 ${shortage} 个。可以确认等生产、先发可用数量，或改数量/颜色/款式。`
       : `${formatStockKey(selected)} 当前可用 ${available} 个，可满足 ${safeRequestQty} 个；正式确认前我们会再复核库存。`;
-  const stats = [
-    ["可用键", inventoryRecords.filter((item) => !isPendingStock(item) && availableQty(item) > 0).length, "success"],
-    ["占用/锁定", inventoryRecords.filter((item) => item.reserved > 0 || item.locked > 0).length, "warning"],
-    ["缺货/零可用", inventoryRecords.filter((item) => !isPendingStock(item) && availableQty(item) <= 0).length, "danger"],
-    ["待处理", inventoryRecords.filter(isPendingStock).length, "blue"],
-  ];
+  const stockViewTabs = getInventoryViewTabs(inventoryRecords, { availableQty, isPendingStock });
   const correctionState = getUiActionState("inventory", "生成修正草稿");
   const correctionConfirmState = getUiActionState("inventory", "确认修正生效");
   const correctionQueueItems = Array.isArray(inventoryCorrectionQueueState.items) ? inventoryCorrectionQueueState.items : [];
@@ -152,9 +145,21 @@ export function InventoryPage({
   }
 
   function resetFilters() {
-    setFilters({ query: "", size: "全部", color: "全部", handle: "全部", style: "全部", state: "默认可用", trust: "全部" });
-    setShowPending(false);
+    setFilters({ query: "", size: "全部", color: "全部", handle: "全部", style: "全部", trust: "全部" });
+    setStockView("常用库存");
     setToast("库存筛选已重置，默认隐藏待处理/报废库存。");
+  }
+
+  function confirmInventoryCorrection(item) {
+    const correctionDraftId = String(item?.correctionDraftId ?? item?.id ?? "").trim() || "草稿号待确认";
+    const inventoryReference = [item?.stockKey || item?.inventoryItemId || "库存项待确认", item?.zone]
+      .filter(Boolean)
+      .join(" / ");
+    const confirmed = window.confirm(
+      `确认库存修正生效？\n修正草稿：${correctionDraftId}\n库存项：${inventoryReference}\n系统库存：${item?.systemQty ?? "待确认"}\n实盘库存：${item?.actualQty ?? "待确认"}\n差异：${formatInventoryLedgerQty(item?.diff)}\n原因：${item?.reason || "原因待确认"}\n\n确认后将更新库存、写入库存流水、处理关联待办和操作日志；请确认盘点结果已复核。`,
+    );
+    if (!confirmed) return;
+    onConfirmCorrectionDraft?.(item);
   }
 
   function updateLedgerFilter(field, value) {
@@ -231,21 +236,36 @@ export function InventoryPage({
   return (
     <section className="page-grid split-detail operational-split-workbench inventory-workbench">
       <OperationalPanel className="table-pane inventory-list-panel" ariaLabel="库存记录列表">
+        <div className="inventory-status-tabs" role="tablist" aria-label="库存状态快捷筛选">
+          {stockViewTabs.map((item) => (
+            <button
+              type="button"
+              role="tab"
+              aria-selected={stockView === item.label}
+              className={stockView === item.label ? "active" : ""}
+              key={item.label}
+              onClick={() => setStockView(item.label)}
+            >
+              <span>{item.label}</span>
+              <strong>{item.count}</strong>
+            </button>
+          ))}
+        </div>
         <FilterBar
           className="inventory-filter-bar"
           ariaLabel="库存查询筛选"
           summary={`命中 ${visible.length} / ${inventoryRecords.length} 个库存键；${getInventoryListSourceLabel(inventoryMeta)}。`}
-          secondarySummary={includePending ? "已包含待处理库存，仅供查看" : "待处理库存已折叠"}
+          secondarySummary={`当前显示${stockView}${stockView === "待处理" ? "，仅供核对" : ""}`}
+          actions={<button type="button" className="ghost-button" onClick={resetFilters}>重置</button>}
         >
-          <div className="inventory-filter-toolbar">
-            <label className="search small">
-              <SearchOutlined />
-              <input placeholder="尺寸 / 颜色 / 提手 / 款式 / 库区" value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} />
-            </label>
-            <button className="ghost-button" onClick={() => setShowPending((value) => !value)}>{showPending ? "隐藏待处理" : "展开待处理"}</button>
-            <button className="ghost-button" onClick={resetFilters}>重置</button>
-          </div>
           <div className="filter-grid inventory-filter-grid">
+            <label className="inventory-query-field">
+              <span>关键词</span>
+              <div className="inventory-query-control">
+                <SearchOutlined />
+                <input aria-label="库存关键词" placeholder="尺寸 / 颜色 / 款式 / 库区" value={filters.query} onChange={(event) => updateFilter("query", event.target.value)} />
+              </div>
+            </label>
             {[
               ["size", "尺寸", uniqueStockOptions(inventoryRecords, "size")],
               ["color", "颜色", uniqueStockOptions(inventoryRecords, "color")],
@@ -261,41 +281,33 @@ export function InventoryPage({
               </label>
             ))}
             <label>
-              <span>状态</span>
-              <select value={filters.state} onChange={(event) => updateFilter("state", event.target.value)}>
-                {["默认可用", "全部", "可用", "已占用", "待提货锁定", "缺货", "待处理"].map((item) => <option key={item}>{item}</option>)}
-              </select>
-            </label>
-            <label>
               <span>可信度</span>
               <select value={filters.trust} onChange={(event) => updateFilter("trust", event.target.value)}>
                 {["全部", "已清点", "估算/待复核"].map((item) => <option key={item}>{item}</option>)}
               </select>
             </label>
           </div>
-          {inventoryMeta.error && <DataState title="库存列表同步失败" detail={inventoryMeta.error} tone="danger" compact />}
+          {inventoryMeta.error && <DataState title="库存列表同步失败" detail={formatOperationalError(inventoryMeta.error)} tone="danger" compact />}
         </FilterBar>
-        <MetricStrip items={stats} ariaLabel="库存状态摘要" />
         {hasVisibleInventory ? (
           <DataTable
             className="inventory-table"
-            columns={["库存键", "规格/款式", "库区", "状态", "在库", "占用/锁定", "可用", "可信"]}
+            columns={["库存规格", "款式 / 库区", "状态", "在库", "占用 / 锁定", "可用", "可信"]}
             rows={visible.map((row) => {
               const available = availableQty(row);
               return {
                 id: row.id,
                 active: row.id === selected.id,
-                tone: getStockTone(row),
-                onClick: () => setSelectedStockId(row.id),
-                cells: [
-                  `${row.size} / ${row.color}`,
-                  `${row.handle} / ${row.style}`,
-                  row.zone,
+              tone: getStockTone(row),
+              onClick: () => setSelectedStockId(row.id),
+              cells: [
+                  <InventoryCell primary={`${row.size} / ${row.color}`} secondary={row.handle} />,
+                  <InventoryCell primary={row.style} secondary={row.zone} />,
                   <StatusPill tone={getStockStateTone(getStockStateGroup(row))}>{getStockStateGroup(row)}</StatusPill>,
-                  row.inStock,
-                  `${row.reserved} / ${row.locked}`,
-                  available,
-                  getStockTrustLabel(row),
+                  <InventoryQuantity value={row.inStock} />,
+                  <InventoryQuantity value={`${row.reserved} / ${row.locked}`} />,
+                  <InventoryQuantity value={available} strong />,
+                  <StatusPill tone={row.estimated ? "warning" : "success"}>{getStockTrustLabel(row)}</StatusPill>,
                 ],
               };
             })}
@@ -306,21 +318,36 @@ export function InventoryPage({
       </OperationalPanel>
       <DetailPane className="inventory-detail-pane" title="库存明细" subtitle={hasVisibleInventory ? `${selected.size} ${selected.color} ${selected.handle} ${selected.style}` : "当前筛选无结果"}>
         {hasVisibleInventory ? (
-          <>
+          <div className="inventory-detail-scroll">
+        <div className="inventory-detail-overview">
+          <div className="inventory-detail-statuses" aria-label="当前库存状态">
+            <StatusPill tone={getStockStateTone(getStockStateGroup(selected))}>{getStockStateGroup(selected)}</StatusPill>
+            <StatusPill tone={selected.estimated ? "warning" : "success"}>{getStockTrustLabel(selected)}</StatusPill>
+          </div>
+          <div className="inventory-detail-product">
+            <div>
+              <span>库存规格</span>
+              <strong>{selected.size} / {selected.color}</strong>
+              <small>{selected.handle} / {selected.style} / {selected.zone}</small>
+            </div>
+            <dl>
+              <div><dt>可用</dt><dd>{available}<small> 个</small></dd></div>
+              <div><dt>在库</dt><dd>{selected.inStock}<small> 个</small></dd></div>
+            </dl>
+          </div>
+        </div>
         <div className="operational-detail-tabs">
           <Segmented ariaLabel="库存详情视图" value={detailTab} onChange={setDetailTab} items={INVENTORY_DETAIL_TABS} />
         </div>
-        <div hidden={detailTab !== "概览"}>
-          <InfoGrid
-          rows={[
-            ["精确库存键", `${formatStockKey(selected)} / ${selected.zone}`],
-            ["状态/可信度", `${getStockStateGroup(selected)} / ${getStockTrustLabel(selected)}`],
-            ["在库/占用/锁定", `${selected.inStock} / ${selected.reserved} / ${selected.locked}`],
-            ["可用库存", `${available} 个`],
-            ["来源摘要", selected.estimated ? "估算库存 / 待复核" : selected.state],
-            ["待处理", `${selected.pending} 个`],
-          ]}
-          />
+        <div className="inventory-detail-section" hidden={detailTab !== "概览"}>
+          <dl className="inventory-detail-facts">
+            <div><dt>精确库存键</dt><dd>{formatStockKey(selected)}</dd></div>
+            <div><dt>库区</dt><dd>{selected.zone}</dd></div>
+            <div><dt>已占用</dt><dd>{selected.reserved} 个</dd></div>
+            <div><dt>待提货锁定</dt><dd>{selected.locked} 个</dd></div>
+            <div><dt>待处理</dt><dd>{selected.pending} 个</dd></div>
+            <div><dt>来源摘要</dt><dd>{selected.estimated ? "估算库存 / 待复核" : selected.state}</dd></div>
+          </dl>
         </div>
         <section className="detail-section inventory-hold-section operational-detail-section-first" hidden={detailTab !== "留货"}>
           <div className="inventory-ledger-head">
@@ -344,7 +371,7 @@ export function InventoryPage({
             </button>
           </div>
           {inventoryIntentState.error ? (
-            <p className="ledger-message danger">{inventoryIntentState.error}</p>
+            <p className="ledger-message danger">{formatOperationalError(inventoryIntentState.error)}</p>
           ) : inventoryIntentState.loading ? (
             <p className="ledger-message">正在加载库存意图和临时留货。</p>
           ) : inventoryIntents.length ? (
@@ -546,7 +573,7 @@ export function InventoryPage({
             {getInventoryLedgerFilterSummary(ledgerFilters)}
           </p>
           {inventoryLedgerMeta.error ? (
-            <p className="ledger-message danger">{inventoryLedgerMeta.error}</p>
+            <p className="ledger-message danger">{formatOperationalError(inventoryLedgerMeta.error)}</p>
           ) : inventoryLedgerMeta.loading ? (
             <p className="ledger-message">正在加载库存流水。</p>
           ) : selectedLedgerEntries.length ? (
@@ -596,7 +623,7 @@ export function InventoryPage({
               )}
             </div>
             {inventoryCorrectionDetailState.error ? (
-              <p className="ledger-message danger">{inventoryCorrectionDetailState.error}</p>
+              <p className="ledger-message danger">{formatOperationalError(inventoryCorrectionDetailState.error)}</p>
             ) : inventoryCorrectionDetailState.loading ? (
               <p className="ledger-message">正在加载库存修正详情。</p>
             ) : inventoryCorrectionDetailState.detail ? (
@@ -625,7 +652,7 @@ export function InventoryPage({
             </button>
           </div>
           {inventoryCorrectionQueueState.error ? (
-            <p className="ledger-message danger">{inventoryCorrectionQueueState.error}</p>
+            <p className="ledger-message danger">{formatOperationalError(inventoryCorrectionQueueState.error)}</p>
           ) : inventoryCorrectionQueueState.loading ? (
             <p className="ledger-message">正在加载库存修正确认队列。</p>
           ) : correctionQueueItems.length ? (
@@ -656,7 +683,7 @@ export function InventoryPage({
                         type="button"
                         disabled={Boolean(disabledReason) || confirming}
                         title={disabledReason || ""}
-                        onClick={() => onConfirmCorrectionDraft?.(item)}
+                        onClick={() => confirmInventoryCorrection(item)}
                       >
                         {confirming ? "确认中" : "确认生效"}
                       </button>
@@ -731,7 +758,7 @@ export function InventoryPage({
             </div>
           )}
         </section>
-        <div className="action-row operational-detail-actions" hidden={detailTab !== "修正"}>
+        <div className="action-row operational-detail-actions inventory-detail-actions" hidden={detailTab !== "修正"}>
           <button className="primary-action" disabled={correctionState.disabled} title={correctionState.title} onClick={createCorrectionDraft}>生成修正草稿</button>
           <button
             type="button"
@@ -742,13 +769,46 @@ export function InventoryPage({
           </button>
           <button onClick={() => setToast(`已复制客户话术：${customerText}`)}>复制客户话术</button>
         </div>
-          </>
+          </div>
         ) : (
           <DataState title="没有可显示的库存详情" detail="当前筛选没有命中库存键，可重置筛选继续查询。" compact />
         )}
       </DetailPane>
     </section>
   );
+}
+
+function InventoryCell({ primary, secondary }) {
+  return (
+    <span className="inventory-cell-stack" title={`${primary} / ${secondary}`}>
+      <strong>{primary}</strong>
+      <small>{secondary}</small>
+    </span>
+  );
+}
+
+function InventoryQuantity({ value, strong = false }) {
+  return <span className={`inventory-quantity-cell${strong ? " strong" : ""}`}>{value}</span>;
+}
+
+function getInventoryViewTabs(inventoryRecords, { availableQty, isPendingStock }) {
+  return [
+    { label: "常用库存", count: inventoryRecords.filter((item) => !isPendingStock(item)).length },
+    { label: "全部", count: inventoryRecords.length },
+    { label: "有可用量", count: inventoryRecords.filter((item) => !isPendingStock(item) && availableQty(item) > 0).length },
+    { label: "占用/锁定", count: inventoryRecords.filter((item) => !isPendingStock(item) && (item.reserved > 0 || item.locked > 0)).length },
+    { label: "缺货/零可用", count: inventoryRecords.filter((item) => !isPendingStock(item) && availableQty(item) <= 0).length },
+    { label: "待处理", count: inventoryRecords.filter(isPendingStock).length },
+  ];
+}
+
+function inventoryMatchesView(item, view, { availableQty, isPendingStock }) {
+  if (view === "全部") return true;
+  if (view === "有可用量") return !isPendingStock(item) && availableQty(item) > 0;
+  if (view === "占用/锁定") return !isPendingStock(item) && (item.reserved > 0 || item.locked > 0);
+  if (view === "缺货/零可用") return !isPendingStock(item) && availableQty(item) <= 0;
+  if (view === "待处理") return isPendingStock(item);
+  return !isPendingStock(item);
 }
 
 function normalizeInventoryLedgerPanelFilters(filters = {}) {

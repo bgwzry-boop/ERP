@@ -2,6 +2,8 @@ export function createInitialPrinterDeviceQaState({ createChecks = () => [], cre
   return {
     devices: [],
     selectedDeviceId: "",
+    eligiblePrintJobs: [],
+    selectedPrintJobId: "",
     fieldTests: [],
     latestRecord: null,
     checks: createChecks(),

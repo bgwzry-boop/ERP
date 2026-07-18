@@ -2,7 +2,9 @@ export function getFulfillmentExceptionTodoInput(selected, todoType) {
   return {
     type: todoType,
     customerId: selected.customerId,
-    ref: selected.lineId,
+    ref: selected.id,
+    refType: "fulfillment",
+    refId: selected.id,
     summary: `${selected.goods} 当前状态：${selected.status}，需办公室继续处理`,
     latest: selected.latest,
     urgency: "异常",
@@ -32,7 +34,9 @@ export function confirmFulfillmentException(fulfillments, selected, modalType, p
     todoInput: {
       type: modalType === "mismatch" ? "数量差异待处理" : "无法出库待处理",
       customerId: selected.customerId,
-      ref: selected.lineId,
+      ref: selected.id,
+      refType: "fulfillment",
+      refId: selected.id,
       summary: `${selected.goods} 应出 ${selected.qty}，实际 ${actualQty || 0}；${payload.reason}`,
       latest: selected.latest,
       urgency: "异常",

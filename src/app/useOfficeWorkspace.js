@@ -4,6 +4,7 @@ import { useOfficeFulfillmentWrites } from "./useOfficeFulfillmentWrites.js";
 import { useOfficeInventoryDetailReads } from "./useOfficeInventoryDetailReads.js";
 import { useOfficeInventoryWrites } from "./useOfficeInventoryWrites.js";
 import { useOfficeMasterDataReads } from "./useOfficeMasterDataReads.js";
+import { useOfficeMasterDataEntryRefresh } from "./useOfficeMasterDataEntryRefresh.js";
 import { useOfficeOrderWrites } from "./useOfficeOrderWrites.js";
 import { useOfficePrintReads } from "./useOfficePrintReads.js";
 import { useOfficePrintWrites } from "./useOfficePrintWrites.js";
@@ -100,6 +101,7 @@ export function useOfficeWorkspace({
   const [todoMeta, setTodoMeta] = useState({
     source: initialSource,
     total: initialWorkspaceRecords.todos.length,
+    reminderPolicy: null,
     loading: false,
     error: "",
     lastSyncedAt: "",
@@ -253,7 +255,7 @@ export function useOfficeWorkspace({
   const [masterDataImportExecutions, setMasterDataImportExecutions] = useState([]);
   const [masterDataEmployeeAccountReviews, setMasterDataEmployeeAccountReviews] = useState([]);
   const [masterDataEmployeeAccountReadiness, setMasterDataEmployeeAccountReadiness] = useState(null);
-  const [masterDataEmployeeAssignmentOptions, setMasterDataEmployeeAssignmentOptions] = useState({ workshops: ["1号车间", "2号车间", "3号车间"], machines: [] });
+  const [masterDataEmployeeAssignmentOptions, setMasterDataEmployeeAssignmentOptions] = useState({ workshops: [], machines: [], allMachines: [] });
   const [lastIssuedEmployeeCredential, setLastIssuedEmployeeCredential] = useState(null);
   const [masterDataMaintenanceDrafts, setMasterDataMaintenanceDrafts] = useState([]);
   const [masterDataMaintenanceTab, setMasterDataMaintenanceTab] = useState("客户档案");
@@ -537,6 +539,13 @@ export function useOfficeWorkspace({
     setMasterDataEmployeeAssignmentOptions,
     setMasterDataImportReviewDrafts,
   });
+  useOfficeMasterDataEntryRefresh({
+    activePage,
+    authState,
+    currentUserId,
+    refreshEmployeeAccountReviews: masterDataReads.refreshMasterDataEmployeeAccountReviews,
+    refreshImportReviewDrafts: masterDataReads.refreshMasterDataImportReviewDrafts,
+  });
   const statementReads = useOfficeStatementReads({
     authState,
     currentUserId,
@@ -570,6 +579,7 @@ export function useOfficeWorkspace({
     currentUserDisplayName: currentUser?.displayName ?? currentUserId,
     currentUserId,
     customers,
+    fulfillmentsRef,
     inventoryRecordsRef,
     orderLinesRef,
     productionPackingRef,

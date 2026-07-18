@@ -463,6 +463,7 @@ export async function listOfficeMasterDataEmployeeAccountReviews(input = {}, opt
       items,
       readiness: normalizeEmployeeAccountReadiness(json?.readiness),
       assignmentOptions: normalizeEmployeeAssignmentOptions(json?.assignmentOptions),
+      machineRecords: normalizeMasterDataMachines(json?.machineRecords),
       page: Number(json?.page) || page,
       pageSize: Number(json?.pageSize) || pageSize,
       total: Number(json?.total) || items.length,
@@ -474,6 +475,7 @@ export async function listOfficeMasterDataEmployeeAccountReviews(input = {}, opt
       items,
       readiness: null,
       assignmentOptions: normalizeEmployeeAssignmentOptions(),
+      machineRecords: [],
       page,
       pageSize,
       total: items.length,
@@ -486,7 +488,7 @@ export async function listOfficeMasterDataEmployeeAccountReviews(input = {}, opt
 }
 
 export async function enableOfficeMasterDataEmployeeAccount(input = {}, options = {}) {
-  const { authState, operatorId, employeeId, roleKey, loginName, userId, reviewNote } = input;
+  const { authState, operatorId, employeeId, roleKey, roleKeys, loginName, userId, reviewNote } = input;
   const safeEmployeeId = cleanText(employeeId);
   if (!safeEmployeeId) {
     return {
@@ -510,6 +512,7 @@ export async function enableOfficeMasterDataEmployeeAccount(input = {}, options 
         body: {
           operatorId,
           roleKey: cleanText(roleKey),
+          roleKeys: Array.isArray(roleKeys) ? roleKeys.map(cleanText).filter(Boolean) : undefined,
           loginName: cleanText(loginName),
           userId: cleanText(userId),
           reviewNote: cleanText(reviewNote),
@@ -544,8 +547,139 @@ export async function enableOfficeMasterDataEmployeeAccount(input = {}, options 
   }
 }
 
+export async function confirmOfficeMasterDataEmployeeIdentity(input = {}, options = {}) {
+  const safeEmployeeId = cleanText(input.employeeId);
+  if (!safeEmployeeId) {
+    return {
+      source: "client",
+      blocked: true,
+      error: { code: "MASTER_DATA_EMPLOYEE_ID_REQUIRED", message: "缺少员工 ID。" },
+    };
+  }
+  try {
+    const response = await requestMasterDataImportApi(
+      `/master-data/employee-account-reviews/${encodeURIComponent(safeEmployeeId)}/identity-confirmation`,
+      {
+        ...options,
+        authState: input.authState,
+        method: "POST",
+        operatorId: input.operatorId,
+        body: {
+          confirmed: input.confirmed === true,
+          confirmedEmployeeId: cleanText(input.confirmedEmployeeId),
+          confirmedName: cleanText(input.confirmedName),
+          reason: cleanText(input.reason),
+        },
+      },
+    );
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "员工身份确认 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      employeeAccountReview: normalizeEmployeeAccountReview(json?.employeeAccountReview),
+      operationLogId: cleanText(json?.operationLogId),
+      identityAlreadyConfirmed: json?.identityAlreadyConfirmed === true,
+    };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_API_UNAVAILABLE",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
+export async function enableOfficeMasterDataEmployeeAccounts(input = {}, options = {}) {
+  const employeeIds = [...new Set(
+    (Array.isArray(input.employeeIds) ? input.employeeIds : [])
+      .map(cleanText)
+      .filter(Boolean),
+  )];
+  if (!employeeIds.length) {
+    return {
+      source: "client",
+      blocked: true,
+      error: {
+        code: "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_IDS_REQUIRED",
+        message: "请至少选择一个待复核员工账号。",
+      },
+    };
+  }
+  if (employeeIds.length > 100) {
+    return {
+      source: "client",
+      blocked: true,
+      error: {
+        code: "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_LIMIT_EXCEEDED",
+        message: "一次最多批量启用 100 个员工账号。",
+      },
+    };
+  }
+
+  try {
+    const response = await requestMasterDataImportApi(
+      "/master-data/employee-account-reviews/batch-enable",
+      {
+        ...options,
+        authState: input.authState,
+        method: "POST",
+        operatorId: input.operatorId,
+        body: {
+          employeeIds,
+          confirmed: input.confirmed === true,
+          reviewNote: cleanText(input.reviewNote),
+          reviewedAt: cleanText(input.reviewedAt),
+        },
+      },
+    );
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "员工账号批量复核启用 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      employeeAccountReviews: (Array.isArray(json?.employeeAccountReviews) ? json.employeeAccountReviews : [])
+        .map((item) => normalizeEmployeeAccountReview(item))
+        .filter(Boolean),
+      requestedCount: Number(json?.requestedCount) || 0,
+      enabledCount: Number(json?.enabledCount) || 0,
+      skippedCount: Number(json?.skippedCount) || 0,
+      skippedEmployeeIds: Array.isArray(json?.skippedEmployeeIds)
+        ? json.skippedEmployeeIds.map(cleanText).filter(Boolean)
+        : [],
+      operationLogIds: Array.isArray(json?.operationLogIds)
+        ? json.operationLogIds.map(cleanText).filter(Boolean)
+        : [],
+      reviewedAt: cleanText(json?.reviewedAt),
+      atomic: json?.atomic === true,
+    };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_API_UNAVAILABLE",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
 export async function updateOfficeMasterDataEmployeeAssignment(input = {}, options = {}) {
-  const { authState, operatorId, employeeId, assignmentMode, workshop, machineId, reason, changedAt } = input;
+  const { authState, operatorId, employeeId, assignmentMode, workshop, machineId, reason } = input;
   const safeEmployeeId = cleanText(employeeId);
   if (!safeEmployeeId) {
     return {
@@ -567,7 +701,6 @@ export async function updateOfficeMasterDataEmployeeAssignment(input = {}, optio
           workshop: cleanText(workshop),
           machineId: cleanText(machineId),
           reason: cleanText(reason),
-          changedAt: cleanText(changedAt),
         },
       },
     );
@@ -597,8 +730,115 @@ export async function updateOfficeMasterDataEmployeeAssignment(input = {}, optio
   }
 }
 
+export async function listOfficeMasterDataMachines(input = {}, options = {}) {
+  const { authState, operatorId, filters = {}, page = 1, pageSize = 100 } = input;
+  try {
+    const response = await requestMasterDataImportApi(
+      `/master-data/machines${buildMasterDataMachineQuery({ filters, page, pageSize })}`,
+      { ...options, authState, operatorId },
+    );
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "机台配置列表 API 返回错误。"),
+        items: [],
+        page,
+        pageSize,
+        total: 0,
+      };
+    }
+    const items = normalizeMasterDataMachines(json?.items);
+    return {
+      source: "api",
+      items,
+      page: Number(json?.page) || page,
+      pageSize: Number(json?.pageSize) || pageSize,
+      total: Number(json?.total) || items.length,
+    };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "MASTER_DATA_MACHINE_LIST_API_UNAVAILABLE",
+        message: error?.message ?? String(error),
+      },
+      items: [],
+      page,
+      pageSize,
+      total: 0,
+    };
+  }
+}
+
+export async function createOfficeMasterDataMachine(input = {}, options = {}) {
+  return saveOfficeMasterDataMachine(input, { ...options, method: "POST" });
+}
+
+export async function updateOfficeMasterDataMachine(input = {}, options = {}) {
+  const machineId = cleanText(input.machineId);
+  if (!machineId) {
+    return {
+      source: "client",
+      blocked: true,
+      error: { code: "MASTER_DATA_MACHINE_ID_REQUIRED", message: "缺少机台 ID。" },
+    };
+  }
+  return saveOfficeMasterDataMachine(input, {
+    ...options,
+    method: "PATCH",
+    path: `/master-data/machines/${encodeURIComponent(machineId)}`,
+  });
+}
+
+async function saveOfficeMasterDataMachine(input = {}, options = {}) {
+  const { authState, operatorId } = input;
+  const path = options.path || "/master-data/machines";
+  try {
+    const response = await requestMasterDataImportApi(path, {
+      ...options,
+      authState,
+      operatorId,
+      body: {
+        machineId: cleanText(input.machineId),
+        bizNo: cleanText(input.bizNo),
+        name: cleanText(input.name),
+        machineType: cleanText(input.machineType),
+        workshop: cleanText(input.workshop),
+        status: cleanText(input.status),
+        reason: cleanText(input.reason),
+        expectedUpdatedAt: cleanText(input.expectedUpdatedAt),
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "机台配置保存 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      machine: normalizeMasterDataMachine(json?.machine),
+      operationLogId: cleanText(json?.operationLogId),
+    };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "MASTER_DATA_MACHINE_WRITE_API_UNAVAILABLE",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
 export async function issueOfficeMasterDataEmployeeAccountPassword(input = {}, options = {}) {
-  const { authState, operatorId, employeeId, roleKey, loginName, userId, issueNote } = input;
+  const { authState, operatorId, employeeId, roleKey, roleKeys, loginName, userId, issueNote } = input;
   const safeEmployeeId = cleanText(employeeId);
   if (!safeEmployeeId) {
     return {
@@ -622,6 +862,7 @@ export async function issueOfficeMasterDataEmployeeAccountPassword(input = {}, o
         body: {
           operatorId,
           roleKey: cleanText(roleKey),
+          roleKeys: Array.isArray(roleKeys) ? roleKeys.map(cleanText).filter(Boolean) : undefined,
           loginName: cleanText(loginName),
           userId: cleanText(userId),
           issueNote: cleanText(issueNote),
@@ -763,6 +1004,17 @@ function buildEmployeeAccountReviewQuery({ filters = {}, page, pageSize }) {
   return query ? `?${query}` : "";
 }
 
+function buildMasterDataMachineQuery({ filters = {}, page, pageSize }) {
+  const params = new URLSearchParams();
+  if (filters.keyword) params.set("keyword", cleanText(filters.keyword));
+  if (filters.status) params.set("status", cleanText(filters.status));
+  if (filters.workshop) params.set("workshop", cleanText(filters.workshop));
+  params.set("page", String(page));
+  params.set("pageSize", String(pageSize));
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
 function normalizeReviewDraft(draft, extra = {}) {
   if (!draft || typeof draft !== "object") return null;
   const draftId = cleanText(draft.draftId);
@@ -838,6 +1090,10 @@ function normalizeEmployeeAccountReview(review, extra = {}) {
     roleName: cleanText(review.roleName),
     defaultWorkshop: cleanText(review.defaultWorkshop),
     defaultMachineId: cleanText(review.defaultMachineId),
+    configuredMachineId: cleanText(review.configuredMachineId),
+    configuredMachineLabel: cleanText(review.configuredMachineLabel),
+    machineConfigurationStatus: cleanText(review.machineConfigurationStatus),
+    machineConfigurationStatusLabel: cleanText(review.machineConfigurationStatusLabel),
     assignmentMode: cleanText(review.assignmentMode),
     assignmentUpdatedBy: cleanText(review.assignmentUpdatedBy),
     assignmentUpdatedAt: cleanText(review.assignmentUpdatedAt),
@@ -847,6 +1103,22 @@ function normalizeEmployeeAccountReview(review, extra = {}) {
     profileStatus: cleanText(review.profileStatus),
     recommendedRoleKey: cleanText(review.recommendedRoleKey),
     recommendedRoleLabel: cleanText(review.recommendedRoleLabel),
+    recommendedRoleKeys: (Array.isArray(review.recommendedRoleKeys) ? review.recommendedRoleKeys : [])
+      .map(cleanText)
+      .filter(Boolean),
+    recommendedRoleLabels: (Array.isArray(review.recommendedRoleLabels) ? review.recommendedRoleLabels : [])
+      .map(cleanText)
+      .filter(Boolean),
+    identityConfirmationRequired: review.identityConfirmationRequired === true,
+    identityConfirmed: review.identityConfirmed === true,
+    identityConfirmationStatus: cleanText(review.identityConfirmationStatus),
+    identityConfirmationStatusLabel: cleanText(review.identityConfirmationStatusLabel),
+    identityConfirmedBy: cleanText(review.identityConfirmedBy),
+    identityConfirmedAt: cleanText(review.identityConfirmedAt),
+    identityConfirmationNote: cleanText(review.identityConfirmationNote),
+    accountActivationBlocked: review.accountActivationBlocked === true,
+    accountActivationBlockerCode: cleanText(review.accountActivationBlockerCode),
+    accountActivationBlockerLabel: cleanText(review.accountActivationBlockerLabel),
     loginName: cleanText(review.loginName),
     userId: cleanText(review.userId),
     loginEnabled: review.loginEnabled === true,
@@ -872,16 +1144,66 @@ function normalizeEmployeeAccountReview(review, extra = {}) {
 function normalizeEmployeeAssignmentOptions(value = {}) {
   const workshops = Array.isArray(value?.workshops)
     ? value.workshops.map(cleanText).filter(Boolean)
-    : ["1号车间", "2号车间", "3号车间"];
+    : [];
   const machines = Array.isArray(value?.machines)
-    ? value.machines.map((machine) => ({
-        machineId: cleanText(machine?.machineId),
-        machineLabel: cleanText(machine?.machineLabel ?? machine?.machineId),
-        workshop: cleanText(machine?.workshop),
-        enabled: machine?.enabled !== false,
-      })).filter((machine) => machine.machineId)
+    ? normalizeMasterDataMachines(value.machines)
     : [];
   return { workshops, machines };
+}
+
+function normalizeMasterDataMachines(value) {
+  return (Array.isArray(value) ? value : []).map(normalizeMasterDataMachine).filter(Boolean);
+}
+
+function normalizeMasterDataMachine(machine) {
+  if (!machine || typeof machine !== "object") return null;
+  const machineId = cleanText(machine.machineId);
+  if (!machineId) return null;
+  const name = cleanText(machine.name ?? machine.machineLabel ?? machineId);
+  return {
+    machineId,
+    bizNo: cleanText(machine.bizNo ?? machineId),
+    name,
+    machineLabel: cleanText(machine.machineLabel ?? name),
+    machineType: cleanText(machine.machineType),
+    machineTypeLabel: cleanText(machine.machineTypeLabel),
+    workshop: cleanText(machine.workshop),
+    status: cleanText(machine.status) || (machine.enabled === false ? "inactive" : "active"),
+    statusLabel: cleanText(machine.statusLabel),
+    enabled: machine.enabled !== false && (cleanText(machine.status) || "active") === "active",
+    assignedEmployeeCount: Number(machine.assignedEmployeeCount) || 0,
+    assignedEmployees: (Array.isArray(machine.assignedEmployees) ? machine.assignedEmployees : [])
+      .map(normalizeMachineAssignedEmployee)
+      .filter(Boolean),
+    lastChange: normalizeMachineLastChange(machine.lastChange),
+    createdAt: cleanText(machine.createdAt),
+    updatedAt: cleanText(machine.updatedAt),
+  };
+}
+
+function normalizeMachineAssignedEmployee(employee) {
+  if (!employee || typeof employee !== "object") return null;
+  const employeeId = cleanText(employee.employeeId);
+  if (!employeeId) return null;
+  return {
+    employeeId,
+    name: cleanText(employee.name) || employeeId,
+    roleName: cleanText(employee.roleName),
+    assignmentMode: cleanText(employee.assignmentMode),
+  };
+}
+
+function normalizeMachineLastChange(value) {
+  if (!value || typeof value !== "object") return null;
+  const changedAt = cleanText(value.changedAt);
+  const operatorId = cleanText(value.operatorId);
+  if (!changedAt && !operatorId) return null;
+  return {
+    action: cleanText(value.action),
+    operatorId,
+    changedAt,
+    reason: cleanText(value.reason),
+  };
 }
 
 function normalizeEmployeeAccountReadiness(readiness) {

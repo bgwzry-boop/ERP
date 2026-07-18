@@ -12,6 +12,8 @@ import {
   publishOfficeProductionSchedule,
   reportOfficeProductionComplete,
   reportOfficeProductionDailyProgress,
+  reportOfficeProductionException,
+  resolveOfficeProductionException,
   resequenceOfficeProductionMachineQueue,
   reviewOfficeProductionFinishedGoodsPhoto,
   uploadOfficeProductionFinishedGoodsPhoto,
@@ -40,6 +42,8 @@ const defaultApi = {
   publishOfficeProductionSchedule,
   reportOfficeProductionComplete,
   reportOfficeProductionDailyProgress,
+  reportOfficeProductionException,
+  resolveOfficeProductionException,
   resequenceOfficeProductionMachineQueue,
   reviewOfficeProductionFinishedGoodsPhoto,
   uploadOfficeProductionFinishedGoodsPhoto,
@@ -168,6 +172,7 @@ export function createOfficeProductionWriteActions({
   currentUserDisplayName,
   currentUserId,
   customers = [],
+  fulfillmentsRef = { current: [] },
   inventoryRecordsRef,
   orderLinesRef,
   productionPackingRef,
@@ -240,6 +245,10 @@ export function createOfficeProductionWriteActions({
       await productionApi.moveOfficeProductionMachineQueueItem({
         authState,
         productionTaskId: payload.productionTaskId,
+        expectedRevision: payload.expectedRevision,
+        idempotencyKey: payload.idempotencyKey,
+        delegatedDecision: payload.delegatedDecision,
+        directDecisionContent: payload.directDecisionContent,
         targetMachineId: payload.targetMachineId,
         targetQueueSeq: payload.targetQueueSeq,
         operatorId: currentUserId,
@@ -316,6 +325,11 @@ export function createOfficeProductionWriteActions({
         authState,
         machineId: payload.machineId,
         orderedProductionTaskIds: payload.orderedProductionTaskIds,
+        affectedRevisions: payload.affectedRevisions,
+        expectedRevision: payload.expectedRevision,
+        idempotencyKey: payload.idempotencyKey,
+        delegatedDecision: payload.delegatedDecision,
+        directDecisionContent: payload.directDecisionContent,
         operatorId: currentUserId,
         remark: payload.remark || `${currentUserDisplayName} 在打包/标签页调整机台排产队列顺序`,
       }),
@@ -352,6 +366,10 @@ export function createOfficeProductionWriteActions({
         machineId: payload.machineId,
         processType: payload.processType,
         plannedQty: payload.plannedQty,
+        expectedRevision: payload.expectedRevision ?? Number(line.productionTask?.revision ?? line.revision ?? 0),
+        idempotencyKey: payload.idempotencyKey,
+        delegatedDecision: payload.delegatedDecision,
+        directDecisionContent: payload.directDecisionContent,
         operatorId: currentUserId,
         remark: payload.remark || `${currentUserDisplayName} 在打包/标签页发布排产到车间任务池`,
       }),
@@ -400,6 +418,19 @@ export function createOfficeProductionWriteActions({
   }
 
   async function reportDailyProgress(payload) {
+    if (payload.productionReportConfirmed !== true) {
+      return withFeedback(
+        {
+          source: "ui_error",
+          blocked: true,
+          error: {
+            code: "PRODUCTION_DAILY_REPORT_CONFIRMATION_REQUIRED",
+            message: "生产当日报数必须经过最终确认。",
+          },
+        },
+        "请先核对生产任务、合格数量、异常数量、机器计数和跨日进度影响，再确认提交当日报数；当前未写入报工记录。",
+      );
+    }
     const line = findOrderLine(payload);
     if (!line) return withFeedback({ source: "ui_error", blocked: true }, "未找到对应订单明细，无法提交生产当日报数。");
     const result = normalizeWriteResultForRuntime(
@@ -455,6 +486,133 @@ export function createOfficeProductionWriteActions({
       ],
       `已通过${sourceLabel}记录当日报数：今日合格 ${result.dailyQualifiedQty} 个，累计 ${result.cumulativeQualifiedQty} 个，剩余 ${result.remainingQty} 个；未入库、未占用、未生成打包任务。`,
       "生产当日报数已由后端提交，但订单池或生产任务池刷新失败，请手动刷新。",
+    );
+  }
+
+  async function reportProductionException(payload) {
+    const line = findOrderLine(payload);
+    if (!line) return withFeedback({ source: "ui_error", blocked: true }, "未找到对应订单明细，无法上报生产异常。");
+    const result = normalizeWriteResultForRuntime(
+      await productionApi.reportOfficeProductionException({
+        authState,
+        orderLine: line,
+        productionTaskId: payload.productionTaskId,
+        exceptionType: payload.exceptionType,
+        continuationMode: payload.continuationMode,
+        estimatedLossQty: payload.estimatedLossQty,
+        affectsDelivery: payload.affectsDelivery === true,
+        operatorId: currentUserId,
+        remark: payload.remark || `${currentUserDisplayName} 在${payload.entryLabel || "生产工作台"}上报生产异常`,
+      }),
+      { label: "生产异常", serverRequired },
+    );
+    if (result.blocked) return withFeedback(result, formatBlockedFeedback("后端拒绝生产异常上报", result));
+    const productionException = {
+      productionExceptionId: result.productionExceptionId,
+      productionTaskId: result.productionTaskId,
+      orderLineId: result.orderLineId,
+      exceptionType: result.exceptionType,
+      continuationMode: result.continuationMode,
+      status: result.exceptionStatus,
+      estimatedLossQty: result.estimatedLossQty,
+      affectsDelivery: result.affectsDelivery,
+      remark: payload.remark || "",
+    };
+    setOrderLines((current) => current.map((item) =>
+      item.id === result.orderLineId
+        ? { ...item, status: result.taskStatus || item.status, lineStatus: result.taskStatus || item.lineStatus, latestProductionException: productionException }
+        : item,
+    ));
+    setProductionPacking((current) => ({
+      ...current,
+      lastSource: result.source,
+      productionTasks: (current.productionTasks ?? []).map((item) =>
+        item.id === result.orderLineId
+          ? {
+              ...item,
+              status: result.taskStatus || item.status,
+              taskStatus: result.taskStatus || item.taskStatus,
+              lineStatus: result.taskStatus || item.lineStatus,
+              latestException: productionException,
+            }
+          : item,
+      ),
+      productionExceptionsByLineId: { ...(current.productionExceptionsByLineId ?? {}), [result.orderLineId]: productionException },
+    }));
+    return finishCommittedWrite(
+      result,
+      [
+        () => refreshOrderPool({ showToast: false }),
+        () => refreshProductionPackingTaskLists({ showToast: false }),
+        () => refreshTodos({ showToast: false }),
+      ],
+      result.continuationMode === "暂停等确认"
+        ? "已上报生产异常并暂停任务，已创建生产异常待办；未变更库存、占用、打包或对账。"
+        : "已上报生产异常并保留继续生产，已创建生产异常待办；未变更库存、占用、打包或对账。",
+      "生产异常已由后端提交，但生产任务池、订单池或待办刷新失败，请手动刷新。",
+    );
+  }
+
+  async function resolveProductionException(payload) {
+    const line = findOrderLine(payload);
+    if (!line) return withFeedback({ source: "ui_error", blocked: true }, "未找到对应订单明细，无法处理生产异常。");
+    const result = normalizeWriteResultForRuntime(
+      await productionApi.resolveOfficeProductionException({
+        authState,
+        productionTaskId: payload.productionTaskId,
+        productionExceptionId: payload.productionExceptionId,
+        resolutionCode: payload.resolutionCode,
+        resolutionNote: payload.resolutionNote,
+        resolutionConfirmed: payload.resolutionConfirmed === true,
+        operatorId: currentUserId,
+      }),
+      { label: "生产异常处理", serverRequired },
+    );
+    if (result.blocked) return withFeedback(result, formatBlockedFeedback("后端拒绝生产异常处理", result));
+    const previousException = payload.productionException ?? {};
+    const productionException = {
+      ...previousException,
+      productionExceptionId: result.productionExceptionId,
+      productionTaskId: result.productionTaskId,
+      orderLineId: result.orderLineId,
+      status: result.exceptionStatus,
+      resolutionCode: result.resolutionCode,
+      resolutionNote: result.resolutionNote,
+      resolvedBy: result.resolvedBy,
+      resolvedAt: result.resolvedAt,
+    };
+    setOrderLines((current) => current.map((item) =>
+      item.id === result.orderLineId
+        ? { ...item, status: result.taskStatus || item.status, lineStatus: result.taskStatus || item.lineStatus, latestProductionException: productionException }
+        : item,
+    ));
+    setProductionPacking((current) => ({
+      ...current,
+      lastSource: result.source,
+      productionTasks: (current.productionTasks ?? []).map((item) =>
+        item.id === result.orderLineId
+          ? {
+              ...item,
+              status: result.taskStatus || item.status,
+              taskStatus: result.taskStatus || item.taskStatus,
+              lineStatus: result.taskStatus || item.lineStatus,
+              latestException: productionException,
+            }
+          : item,
+      ),
+      productionExceptionsByLineId: { ...(current.productionExceptionsByLineId ?? {}), [result.orderLineId]: productionException },
+    }));
+    const resultText = result.resolutionLabel || result.resolutionCode;
+    const taskText = result.taskStatus ? `任务已更新为${result.taskStatus}` : "任务状态已更新";
+    return finishCommittedWrite(
+      result,
+      [
+        () => refreshOrderPool({ showToast: false }),
+        () => refreshProductionPackingTaskLists({ showToast: false }),
+        () => refreshTodos({ showToast: false }),
+      ],
+      `已处理生产异常：${resultText}，${taskText}；未变更库存、占用、打包或对账。`,
+      "生产异常处理已由后端提交，但生产任务池、订单池或待办刷新失败，请手动刷新。",
     );
   }
 
@@ -577,6 +735,8 @@ export function createOfficeProductionWriteActions({
         type: "待通知客户",
         customerId: line.customerId,
         ref: result.orderLineId,
+        refType: "order_line",
+        refId: result.orderLineId,
         summary: `${line.product} ${line.size} 成品图已确认，可通知客户可发货/可安排快递。`,
         wait: "刚刚",
         latest: line.latest,
@@ -594,6 +754,8 @@ export function createOfficeProductionWriteActions({
         type: "成品图需重拍",
         customerId: line.customerId,
         ref: result.orderLineId,
+        refType: "order_line",
+        refId: result.orderLineId,
         summary: `${line.product} ${line.size}：${reason}`,
         wait: "刚刚",
         latest: line.latest,
@@ -617,6 +779,19 @@ export function createOfficeProductionWriteActions({
   }
 
   async function reportProductionComplete(payload) {
+    if (payload.productionReportConfirmed !== true) {
+      return withFeedback(
+        {
+          source: "ui_error",
+          blocked: true,
+          error: {
+            code: "PRODUCTION_COMPLETION_CONFIRMATION_REQUIRED",
+            message: "完成生产报工必须经过最终确认。",
+          },
+        },
+        "请先核对生产任务、合格数量、异常数量、机器计数及入库、占用和待打包影响，再确认完成生产报工；当前未入库或创建打包任务。",
+      );
+    }
     const line = findOrderLine(payload);
     if (!line) return withFeedback({ source: "ui_error", blocked: true }, "未找到对应订单明细，无法提交生产报工。");
     const inventoryItem = findProductionInventoryItem(line, inventoryRecordsRef.current);
@@ -682,6 +857,19 @@ export function createOfficeProductionWriteActions({
   }
 
   async function completePacking(payload) {
+    if (payload.packingCompletionConfirmed !== true) {
+      return withFeedback(
+        {
+          source: "ui_error",
+          blocked: true,
+          error: {
+            code: "PACKING_COMPLETION_CONFIRMATION_REQUIRED",
+            message: "完成打包必须经过最终确认。",
+          },
+        },
+        "请先核对打包任务、实际数量、包裹、标签状态和后续影响，再确认提交打包完成；当前未生成包裹或写入打包完成记录。",
+      );
+    }
     const packingTask =
       (productionPackingRef.current.packingTasks ?? []).find((item) => item.packingTaskId === payload.packingTaskId) ??
       payload.packingTask;
@@ -700,7 +888,6 @@ export function createOfficeProductionWriteActions({
         inventoryItem,
         actualPackedQty: payload.actualPackedQty,
         packageCount: payload.packageCount,
-        labelsPrinted: payload.labelsPrinted,
         operatorId: currentUserId,
         remark: payload.remark || `${currentUserDisplayName} 在${payload.entryLabel || "打包/标签页"}提交打包完成`,
       }),
@@ -727,7 +914,7 @@ export function createOfficeProductionWriteActions({
             status: result.orderLineStatus,
             lineStatus: result.orderLineStatus,
             inventory:
-              result.orderLineStatus === "待打印标签" || result.orderLineStatus === "待快运拉走"
+              result.orderLineStatus === "待打印标签"
                 ? "待提货锁定"
                 : item.inventory,
             exceptions:
@@ -737,6 +924,10 @@ export function createOfficeProductionWriteActions({
           }
         : item,
     ));
+    const currentFulfillment = fulfillmentsRef.current.find(
+      (item) => item.lineId === result.orderLineId || item.orderLineId === result.orderLineId,
+    );
+    const projectedFulfillmentId = result.fulfillmentId || currentFulfillment?.id || `F-PACK-${result.orderLineId}`;
     setFulfillments((current) => {
       const existing = current.find(
         (item) => item.lineId === result.orderLineId || item.orderLineId === result.orderLineId,
@@ -754,11 +945,13 @@ export function createOfficeProductionWriteActions({
         ? current.map((item) => (item.id === existing.id ? nextFulfillment : item))
         : [nextFulfillment, ...current];
     });
-    if (result.orderLineStatus === "待打印标签") {
+    if (result.orderLineStatus === "待打印标签" && result.source !== "api") {
       addTodoIfMissing({
         type: "待打印标签",
         customerId: line.customerId,
-        ref: result.orderLineId,
+        ref: projectedFulfillmentId,
+        refType: "fulfillment",
+        refId: projectedFulfillmentId,
         summary: `${line.product} ${line.size} 已打包 ${result.actualPackedQty} 个 / ${packageCount} 包，等待打印快递快运标签。`,
         wait: "刚刚",
         latest: line.latest,
@@ -787,6 +980,8 @@ export function createOfficeProductionWriteActions({
     }
     if (action === "发布排产") return publishSchedule(payload);
     if (action === "报当日数量") return reportDailyProgress(payload);
+    if (action === "上报生产异常") return reportProductionException(payload);
+    if (action === "处理生产异常") return resolveProductionException(payload);
     if (action === "上传成品图") return uploadFinishedGoodsPhoto(payload);
     if (action === "确认成品图" || action === "退回成品图") return reviewFinishedGoodsPhoto(action, payload);
     if (action === "报工完成") return reportProductionComplete(payload);
@@ -808,6 +1003,7 @@ export function useOfficeProductionWrites(options) {
       options.currentUserDisplayName,
       options.currentUserId,
       options.customers,
+      options.fulfillmentsRef,
       options.inventoryRecordsRef,
       options.orderLinesRef,
       options.productionPackingRef,

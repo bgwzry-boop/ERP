@@ -1,5 +1,6 @@
 import { isInlineImageAttachment } from "./attachmentViewUtils.js";
 import { downloadOfficeAttachmentContent as downloadOfficeAttachmentContentDefault } from "../services/officeAttachmentApiClient.js";
+import { isFulfillmentPrintActionLabel } from "../services/officeFulfillmentApiClient.js";
 import { createOfficeTodo as createOfficeTodoDefault } from "../services/officeMockService.js";
 
 const defaultApi = {
@@ -20,16 +21,15 @@ export function createOfficeFulfillmentActions({
   findCustomer,
   focusOrderLine,
   fulfillments,
-  getFulfillmentDocumentLabel,
   guardUiAction,
   loadAttachmentAccessAudit,
-  markFulfillmentPrepared,
   mergeAttachmentSummaries,
   openAttachmentViewer,
   openModal,
   readBlobAsDataUrl,
   refreshTodos,
   reviewFulfillmentDeliveryEvidence,
+  resolveFulfillmentQuantityVariance,
   selectedFulfillmentId,
   setActivePage,
   setFulfillments,
@@ -163,8 +163,8 @@ export function createOfficeFulfillmentActions({
     if (action === "打开待办") {
       const todoType = selected.status.includes("数量") ? "数量差异待处理" : "无法出库待处理";
       const findMatchingTodo = (items) =>
-        items.find((item) => item.ref === selected.lineId && item.type === todoType && !item.handled)
-        ?? items.find((item) => item.ref === selected.lineId && item.type === todoType);
+        items.find((item) => (item.refId ?? item.ref) === selected.id && item.type === todoType && !item.handled)
+        ?? items.find((item) => (item.refId ?? item.ref) === selected.id && item.type === todoType);
       let existingTodo = allowLocalFallback ? findMatchingTodo(todos) : null;
       if (!allowLocalFallback || !existingTodo) {
         const todoResult = await refreshTodos({ showToast: false });
@@ -177,7 +177,9 @@ export function createOfficeFulfillmentActions({
         const todo = createOfficeTodo({
           type: todoType,
           customerId: selected.customerId,
-          ref: selected.lineId,
+          ref: selected.id,
+          refType: "fulfillment",
+          refId: selected.id,
           summary: `${selected.goods} 当前状态：${selected.status}，需办公室继续处理`,
           latest: selected.latest,
           urgency: "异常",
@@ -201,12 +203,22 @@ export function createOfficeFulfillmentActions({
       openModal({ type: "dispatch", fulfillmentId: targetFulfillmentId });
       return;
     }
-    if (action === "数量不符") {
-      openModal({ type: "mismatch", fulfillmentId: targetFulfillmentId });
-      return;
+    if (action === "处理数量差异") {
+      const result = await resolveFulfillmentQuantityVariance({ fulfillment: selected, payload: actionPayload });
+      if (result?.feedback) setToast(result.feedback);
+      return result;
     }
-    if (action === "无法出库") {
-      openModal({ type: "unable", fulfillmentId: targetFulfillmentId });
+    if (action === "数量不符" || action === "无法出库") {
+      if (!selected.paperOutboundDocument || selected.paperOutboundStatus !== "已交库房") {
+        setToast("数量异常和无法出库必须基于已交库房的当前纸单回录；请先完成纸单打印和交库房。");
+        return;
+      }
+      openModal({
+        type: "warehouseExecution",
+        fulfillmentId: targetFulfillmentId,
+        action,
+        initialWarehouseResult: action,
+      });
       return;
     }
     if (action === "作废旧标签" || action === "作废旧单据") {
@@ -218,40 +230,43 @@ export function createOfficeFulfillmentActions({
       openModal({ type: "printVoid", fulfillmentId: targetFulfillmentId, printRecordId, action });
       return;
     }
-    if (action === "打印预览" || action.includes("打印") || action.includes("重打")) {
+    if (isFulfillmentPrintActionLabel(action)) {
       openModal({ type: "print", fulfillmentId: targetFulfillmentId, action });
       return;
     }
-    if (action === "标记已备货") {
-      const result = await markFulfillmentPrepared({ fulfillment: selected });
-      if (result?.feedback) setToast(result.feedback);
+    if (action === "纸单交库房") {
+      if (!selected.paperOutboundDocument) {
+        setToast("当前没有可交库房的纸单版本；请先等待服务器确认打印作业。");
+        return;
+      }
+      openModal({ type: "paperHandoff", fulfillmentId: targetFulfillmentId, action });
       return;
     }
-    if (action === "确认已拉走" && selected.method !== "快递快运") {
-      setToast("确认已拉走只用于快递/快运；自提和送货用完成出库/交付。");
+    if (action === "回录库房结果") {
+      if (!selected.paperOutboundDocument || selected.paperOutboundStatus !== "已交库房") {
+        setToast("当前纸单尚未交库房，不能回录库房实物执行结果。");
+        return;
+      }
+      openModal({ type: "warehouseExecution", fulfillmentId: targetFulfillmentId, action });
       return;
     }
-    if (action === "确认已拉走" && selected.method === "快递快运" && !selected.printed && selected.status !== "待确认拉走") {
-      setToast("快递/快运需要先打印标签并进入待确认拉走，再确认已拉走。");
-      return;
+    if (["确认最终自提", "确认已拉走"].includes(action)) {
+      if ((action === "确认最终自提" && selected.method !== "自提") || (action === "确认已拉走" && selected.method !== "快递快运")) {
+        setToast(action === "确认最终自提" ? "最终自提确认只适用于自提任务。" : "承运方拉走确认只适用于快递快运任务。");
+        return { blocked: true, error: { code: "FULFILLMENT_FINAL_ACTION_INVALID", message: "最终交付动作与交付方式不匹配。" } };
+      }
+      if (actionPayload.confirmedFinalDelivery !== true) {
+        setToast("最终交付必须先复核高风险摘要；本次未发送写请求。");
+        return { blocked: true, error: { code: "FULFILLMENT_FINAL_CONFIRMATION_REQUIRED", message: "请先复核最终交付摘要。" } };
+      }
+      return completeFulfillmentAction({
+        action: action === "确认最终自提" ? "完成出库/交付" : action,
+        fulfillment: selected,
+        payload: actionPayload,
+      });
     }
-    if (action === "确认已拉走" && selected.printRecordStatus === "voided") {
-      setToast("旧标签已作废，必须先重打标签，生成新有效标签后才能确认拉走。");
-      return;
-    }
-    if ((action === "完成自提" || action === "完成送货") && selected.printRecordStatus === "voided") {
-      const documentLabel = getFulfillmentDocumentLabel(selected);
-      setToast(`旧${documentLabel}已作废，必须先重打${documentLabel}，生成新有效${documentLabel}后才能完成交付。`);
-      return;
-    }
-    if ((action === "完成自提" || action === "完成送货") && selected.status.includes("待打印")) {
-      setToast("当前单据/标签还未打印，先打印预览后再完成交付。");
-      return;
-    }
-
-    if (action === "确认已拉走" || action === "完成自提" || action === "完成送货" || action === "完成出库/交付") {
-      const result = await completeFulfillmentAction({ action, fulfillment: selected });
-      if (result?.feedback) setToast(result.feedback);
+    if (["标记已备货", "完成自提", "完成送货", "完成出库/交付"].includes(action)) {
+      setToast("旧的直接出库动作已停用；请先交库房纸单，再通过“回录库房结果”记录实物执行。");
       return;
     }
 

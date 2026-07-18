@@ -43,6 +43,7 @@ export async function listOfficeTodos(input = {}, options = {}) {
       total: Number(json?.total ?? items.length),
       page: Number(json?.page ?? 1),
       pageSize: Number(json?.pageSize ?? pageSize),
+      reminderPolicy: mapTodoReminderPolicy(json?.reminderPolicy),
     };
   } catch (error) {
     return {
@@ -161,6 +162,39 @@ export async function repairOfficeTodoReference(input, options = {}) {
   }
 }
 
+export async function repairOfficeTodoFulfillment(input, options = {}) {
+  const { authState, todoId, reason, operatorId, idempotencyKey } = input;
+  try {
+    const response = await requestTodoApi(`/todos/${encodeURIComponent(todoId)}/fulfillment-repair`, {
+      ...options,
+      authState,
+      method: "POST",
+      operatorId,
+      body: { reason, idempotencyKey },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        todoId,
+        error: toApiError(json, response.status, "出库交付补建 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      todoId,
+      todo: mapTodoListItem(json.todo),
+      labelTodo: mapTodoListItem(json.labelTodo),
+      fulfillment: json.fulfillment ?? null,
+      packageIds: Array.isArray(json.packageIds) ? json.packageIds : [],
+      operationLogId: json.operationLogId,
+    };
+  } catch (error) {
+    return buildServerRequiredWriteError("TODO_FULFILLMENT_REPAIR_API_UNAVAILABLE", error, { todoId });
+  }
+}
+
 function mapTodoListItem(item = {}) {
   const todoId = cleanText(item.todoId ?? item.id);
   return {
@@ -181,6 +215,17 @@ function mapTodoListItem(item = {}) {
     handledAt: cleanText(item.handledAt),
     lastAction: cleanText(item.lastAction),
     reminder: cleanText(item.reminder ?? item.snoozeUntil),
+    remindAt: cleanText(item.remindAt ?? item.snoozeUntil),
+    waitingMinutes: toNonNegativeInteger(item.waitingMinutes),
+    waitingLabel: cleanText(item.waitingLabel) || cleanText(item.wait) || "刚刚",
+    waitingSource: cleanText(item.waitingSource),
+    reminderLevel: cleanText(item.reminderLevel) || "normal",
+    reminderLevelLabel: cleanText(item.reminderLevelLabel) || "正常",
+    activeSnooze: item.activeSnooze === true,
+    dueToday: item.dueToday === true,
+    overdue: item.overdue === true,
+    serverSortRank: toNonNegativeInteger(item.serverSortRank),
+    serverSortIndex: toNonNegativeInteger(item.serverSortIndex),
     printResultStatus: cleanText(item.printResultStatus),
     printedLabelCount: toNonNegativeInteger(item.printedLabelCount),
     pendingLabelCount: toNonNegativeInteger(item.pendingLabelCount),
@@ -199,6 +244,7 @@ function mapTodoListItem(item = {}) {
     createdAt: cleanText(item.createdAt),
     referenceStatus: cleanText(item.referenceStatus) || "unverifiable",
     resolvedRefType: cleanText(item.resolvedRefType ?? item.refType),
+    resolvedRefTypeLabel: cleanText(item.resolvedRefTypeLabel),
     resolvedRefId: cleanText(item.resolvedRefId ?? item.refId),
     referenceReason: cleanText(item.referenceReason),
     referenceCandidates: Array.isArray(item.referenceCandidates) ? item.referenceCandidates.map((candidate) => ({
@@ -207,6 +253,18 @@ function mapTodoListItem(item = {}) {
       label: cleanText(candidate.label),
     })).filter((candidate) => candidate.refType && candidate.refId) : [],
     referenceRepair: item.referenceRepair && typeof item.referenceRepair === "object" ? item.referenceRepair : null,
+    allowedRefTypes: Array.isArray(item.allowedRefTypes) ? item.allowedRefTypes.map(cleanText).filter(Boolean) : [],
+  };
+}
+
+function mapTodoReminderPolicy(value) {
+  if (!value || typeof value !== "object") return null;
+  return {
+    source: cleanText(value.source),
+    version: cleanText(value.version),
+    redDotAfterMinutes: toNonNegativeInteger(value.redDotAfterMinutes),
+    followUpAfterMinutes: toNonNegativeInteger(value.followUpAfterMinutes),
+    pinDueToday: value.pinDueToday === true,
   };
 }
 
