@@ -23,9 +23,11 @@ const archives = {
 };
 const entrySource = read("00_项目入口.md");
 const rectificationPlan = read("docs/development/rectification-plan-2026-07-12.zh-CN.md");
+const currentVersion = "V8.306";
+const currentVersionPattern = new RegExp(currentVersion.replace(".", "\\."));
 
 for (const [name, source] of Object.entries(currentDocs)) {
-  assert.match(source, /V8\.119/, `${name} should expose the current version`);
+  assert.match(source, currentVersionPattern, `${name} should expose the current version`);
   assert.match(source, /docs\/history\/status\//, `${name} should link its history archive`);
 }
 
@@ -53,9 +55,9 @@ for (const source of Object.values(archives)) {
   assert.match(source, /V8\.80/, "each archive should include the V8.80 boundary");
 }
 
-assert.match(entrySource, /当前 V8\.119 可执行整改方案/);
+assert.match(entrySource, new RegExp(`当前 ${currentVersionPattern.source} 可执行整改方案`));
 assert.match(entrySource, /docs\/history\/status/);
-assert.match(rectificationPlan, /当前版本：V8\.119/);
+assert.match(rectificationPlan, new RegExp(`当前版本：${currentVersionPattern.source}`));
 assert.match(rectificationPlan, /发布门禁.*`0\/4`/);
 assert.match(rectificationPlan, /现场证据.*`0\/34`/);
 assert.match(rectificationPlan, /负责人签字.*`0\/6`/);

@@ -5,7 +5,7 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_OUTPUT_PATH = ".erp-local-storage/git-baseline-scope-audit/latest.json";
+export const DEFAULT_OUTPUT_PATH = ".erp-local-storage/git-baseline-scope-audit/latest.json";
 
 const GROUPS = Object.freeze([
   {
@@ -16,7 +16,7 @@ const GROUPS = Object.freeze([
   {
     key: "engineering_tooling",
     label: "测试编排与发布审计工具",
-    owns: (path) => path === "package.json" || TOOLING_PATH_PATTERN.test(path),
+    owns: (path) => path === ".gitignore" || path === "package.json" || path === "vite.config.mjs" || path.startsWith("deploy/") || TOOLING_PATH_PATTERN.test(path),
   },
   {
     key: "runtime_domain",
@@ -35,6 +35,34 @@ const GROUPS = Object.freeze([
   },
 ]);
 
+const STAGING_REVIEW_BATCHES = Object.freeze([
+  {
+    key: "runtime_domain",
+    label: "数据库、后端与共享领域",
+    checks: ["db:check", "api:validate-openapi", "对应领域专项"],
+  },
+  {
+    key: "frontend_ui",
+    label: "前端业务、交互与样式",
+    checks: ["目标页面专项", "npm run build", "桌面/手机预览"],
+  },
+  {
+    key: "verification",
+    label: "业务与结构回归脚本",
+    checks: ["对应业务专项", "npm run test", "脚本与源码同批复核"],
+  },
+  {
+    key: "engineering_tooling",
+    label: "测试编排与发布审计工具",
+    checks: ["check-group-runner:check", "git-baseline-scope:check", "package 脚本复核"],
+  },
+  {
+    key: "governance_docs",
+    label: "产品、项目与发布治理文档",
+    checks: ["current-project-docs:check", "git diff --check", "状态数字复核"],
+  },
+]);
+
 const ROOT_DOCUMENTS = new Set([
   "00_项目入口.md",
   "01_当前状态与下一步.md",
@@ -43,6 +71,7 @@ const ROOT_DOCUMENTS = new Set([
   "DECISIONS.md",
   "PROJECT_STATUS.md",
   "ROADMAP.md",
+  "design.md",
   "design-qa.md",
 ]);
 const TOOLING_PATH_PATTERN = /^scripts\/(?:check-check-group-runner|check-current-project-docs|check-group-manifest|run-check-group|check-git-baseline-scope-audit|run-git-baseline-scope-audit)\.mjs$/;
@@ -64,7 +93,7 @@ function runCli() {
   try {
     const options = parseArgs(process.argv.slice(2));
     const report = inspectGitBaselineScope({ rootDir: options.rootDir });
-    if (options.write) writeReport(report, options.outputPath);
+    if (options.write) writeGitBaselineScopeReport(report, { outputPath: options.outputPath });
     process.stdout.write(options.json ? `${JSON.stringify(report, null, 2)}\n` : formatGitBaselineScopeReport(report));
     process.exitCode = report.scopeSafe ? 0 : 2;
   } catch (error) {
@@ -122,6 +151,13 @@ export function buildGitBaselineScopeReport({
     unclassifiedPaths.length === 0;
   const releaseReady = scopeSafe && normalizedEntries.length === 0 && Number(remoteCount) > 0;
 
+  const groupsWithCounts = groups.map((group) => ({ ...group, count: group.files.length }));
+  const stagingReview = buildStagingReview({
+    groups: groupsWithCounts,
+    scopeSafe,
+    stagedCount,
+  });
+
   return {
     scope: "git_baseline_scope_audit",
     status: scopeSafe ? "classified" : "blocked",
@@ -144,7 +180,8 @@ export function buildGitBaselineScopeReport({
       sensitivePathCount: sensitivePaths.length,
       sensitiveContentFindingCount: contentFindings.length,
     },
-    groups: groups.map((group) => ({ ...group, count: group.files.length })),
+    groups: groupsWithCounts,
+    stagingReview,
     blockers: [
       ...(Number(remoteCount) > 0 ? [] : ["controlled_git_remote_missing"]),
       ...(normalizedEntries.length === 0 ? [] : ["worktree_not_clean"]),
@@ -286,14 +323,45 @@ export function formatGitBaselineScopeReport(report) {
     "",
     `阻塞项：${report.blockers.length ? report.blockers.join("、") : "无"}`,
     "",
+    "## 建议分批复核",
+    `- 可开始只读分批复核：${report.stagingReview?.readyToStartReview ? "是" : "否"}`,
+    `- 分批复核阻塞：${report.stagingReview?.blockers?.length ? report.stagingReview.blockers.join("、") : "无"}`,
+    ...(report.stagingReview?.batches ?? []).map(
+      (batch) => `- ${batch.order}. ${batch.label}：${batch.count}个文件；最低检查：${batch.checks.join("、")}`,
+    ),
+    "",
   ];
   return `${lines.join("\n")}\n`;
 }
 
-function writeReport(report, outputPath) {
+function buildStagingReview({ groups, scopeSafe, stagedCount }) {
+  const groupByKey = new Map(groups.map((group) => [group.key, group]));
+  const blockers = [
+    ...(scopeSafe ? [] : ["scope_audit_not_safe"]),
+    ...(stagedCount > 0 ? ["staged_changes_require_manual_review"] : []),
+  ];
+  return {
+    readOnly: true,
+    readyToStartReview: blockers.length === 0,
+    blockers,
+    batches: STAGING_REVIEW_BATCHES.map((definition, index) => {
+      const group = groupByKey.get(definition.key);
+      return {
+        order: index + 1,
+        key: definition.key,
+        label: definition.label,
+        count: group?.count ?? 0,
+        checks: definition.checks,
+      };
+    }).filter((batch) => batch.count > 0),
+  };
+}
+
+export function writeGitBaselineScopeReport(report, { outputPath = DEFAULT_OUTPUT_PATH } = {}) {
   const resolvedPath = resolve(outputPath);
   mkdirSync(dirname(resolvedPath), { recursive: true });
   writeFileSync(resolvedPath, `${JSON.stringify(report, null, 2)}\n`, { mode: 0o600 });
+  return resolvedPath;
 }
 
 function parseArgs(args) {
