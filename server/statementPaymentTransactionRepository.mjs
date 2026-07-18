@@ -29,9 +29,11 @@ export function createLocalStatementPaymentTransactionRepository() {
     kind: "local_memory",
 
     recordStatementPayment(input) {
-      applyStatementPaymentWorkspaceMutation(input);
+      const statement = buildLocalSavedStatement(input);
+      const statements = replaceStatement(input.statements, statement);
+      applyStatementPaymentWorkspaceMutation({ ...input, statements, statement });
       return normalizeStatementPaymentTransactionResult({
-        statement: input.statement,
+        statement,
         payment: input.paymentRecord,
         todo: input.todo ?? null,
         operationLogId: input.operationLog?.id ?? "",
@@ -288,6 +290,25 @@ function applyStatementPaymentWorkspaceMutation({ workspace, statements, stateme
   if (payment) workspace.paymentRecords.unshift(payment);
   if (todo) workspace.todos.unshift(todo);
   if (operationLog) workspace.operationLogs.unshift(operationLog);
+}
+
+function buildLocalSavedStatement(input) {
+  const expected = Number(input.statement?.revision ?? 0);
+  const current = (input.workspace?.statements ?? []).find((item) => item.id === input.statement?.id);
+  if (!current || Number(current.revision ?? 1) !== expected) throw statementWriteConflict(current?.revision);
+  return { ...input.statement, revision: expected + 1 };
+}
+
+function replaceStatement(statements, saved) {
+  return (Array.isArray(statements) ? statements : []).map((item) => item.id === saved.id ? { ...item, ...saved } : item);
+}
+
+function statementWriteConflict(currentRevision) {
+  const error = new Error("该对账单已被另一位办公室人员更新，请刷新后重新确认。");
+  error.statusCode = 409;
+  error.code = "BUSINESS_WRITE_CONFLICT";
+  error.details = { currentRevision: Number(currentRevision ?? 0) };
+  return error;
 }
 
 function normalizeStatementForPersistence(statement) {

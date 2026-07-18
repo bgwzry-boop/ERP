@@ -63,6 +63,7 @@ function projectV1DriverReadinessLivePrecheck(
   const latestFieldTestSummary = objectOrNull(readiness.latestFieldTestSummary);
   const nativeDiagnostics = objectOrNull(readiness.nativeBridgeDiagnostics);
   const packageLabelScanSample = objectOrNull(readiness.packageLabelScanSample);
+  const fieldTestAcceptance = objectOrNull(readiness.latestFieldTestAcceptance);
   const deliveryTaskReadiness = objectOrEmpty(readiness.deliveryTaskReadiness);
   const remainingV1Risks = stringList(readiness.remainingV1Risks).slice(0, 7);
   const readinessLabel = totalCount ? `${passedCount}/${totalCount}` : text(readiness.summary?.label || "0/6");
@@ -91,11 +92,12 @@ function projectV1DriverReadinessLivePrecheck(
       deliveryTaskCount: nonNegativeInteger(deliveryTaskReadiness.total),
       fieldTestRecordAvailable: Boolean(latestFieldTestRecord),
       fieldTestLabel: text(latestFieldTestSummary?.label) || "未验收",
+      onsiteAcceptancePassed: fieldTestAcceptance?.ready === true,
       nativeSupportedLabel: nativeDiagnostics
         ? `${nonNegativeInteger(nativeDiagnostics.supportedCount)}/${nonNegativeInteger(nativeDiagnostics.total)}`
         : "0/2",
       packageLabelScanMatched:
-        packageLabelScanSample?.result === "matched" || packageLabelScanSample?.result === "duplicate",
+        fieldTestAcceptance?.packageIdsMatch === true && fieldTestAcceptance?.packageBelongsToTask === true,
       packageLabelScanNative: packageLabelScanSample?.method === "native_sdk",
       requiresNativeShell: readiness.safeguards?.requiresNativeShell !== false,
       browserOnlyNotReady: Boolean(readiness.safeguards?.browserOnlyNotReady),
@@ -122,6 +124,7 @@ function projectV1DriverReadinessLivePrecheck(
           checkedAt: text(latestFieldTestRecord.checkedAt),
           deviceLabel: text(latestFieldTestRecord.deviceLabel),
           summaryLabel: text(latestFieldTestSummary?.label) || "已记录",
+          acceptanceStatusLabel: text(fieldTestAcceptance?.statusLabel) || "现场验收未通过",
         }
       : null,
     nativeBridge: projectNativeBridge(nativeDiagnostics),

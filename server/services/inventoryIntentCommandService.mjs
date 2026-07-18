@@ -43,8 +43,8 @@ export function createInventoryIntentCommandService(options = {}) {
     if (intent.intentType !== "temporary_hold") {
       return businessError(409, "INVENTORY_INTENT_NOT_HOLD_REQUEST", "Only a temporary-hold request can create inventory hold.");
     }
-    const expectedRevision = positiveInteger(body.clientRevision ?? body.revision);
-    if (!expectedRevision) return validation("clientRevision must be a positive integer.");
+    const expectedRevision = positiveInteger(body.expectedRevision);
+    if (!expectedRevision) return validation("expectedRevision must be a positive integer.");
     const candidateResult = resolveHoldCandidate(intent, body);
     if (candidateResult.error) return candidateResult.error;
     const inventoryResult = resolveInventoryItem(workspace, candidateResult.candidate, body.inventoryItemId);
@@ -131,8 +131,8 @@ export function createInventoryIntentCommandService(options = {}) {
     if (!reservation || reservation.reservationType !== "临时留货") return notFound("TEMPORARY_HOLD_NOT_FOUND");
     const intent = findIntent(workspace, reservation.sourceIntentId);
     if (!intent) return notFound("INVENTORY_INTENT_NOT_FOUND");
-    const expectedRevision = positiveInteger(body.clientRevision ?? body.revision ?? (expired ? intent.revision : 0));
-    if (!expectedRevision) return validation("clientRevision must be a positive integer.");
+    const expectedRevision = positiveInteger(body.expectedRevision ?? (expired ? intent.revision : 0));
+    if (!expectedRevision) return validation("expectedRevision must be a positive integer.");
     const timestamp = new Date(now()).toISOString();
     const targetStatus = expired ? "已过期" : "已取消";
     const reason = expired ? "临时留货已到期自动释放" : cleanText(body.reason) || "办公室主动释放临时留货";
@@ -191,8 +191,8 @@ export function createInventoryIntentCommandService(options = {}) {
     if (!reservation || reservation.reservationType !== "临时留货") return notFound("TEMPORARY_HOLD_NOT_FOUND");
     const intent = findIntent(workspace, reservation.sourceIntentId);
     if (!intent) return notFound("INVENTORY_INTENT_NOT_FOUND");
-    const expectedRevision = positiveInteger(body.clientRevision ?? body.revision);
-    if (!expectedRevision) return validation("clientRevision must be a positive integer.");
+    const expectedRevision = positiveInteger(body.expectedRevision);
+    if (!expectedRevision) return validation("expectedRevision must be a positive integer.");
     const expiresAt = normalizeFutureTimestamp(body.expiresAt, now());
     if (!expiresAt || Date.parse(expiresAt) <= Date.parse(reservation.expiresAt ?? 0)) {
       return validation("expiresAt must be later than the current expiry.");

@@ -55,8 +55,14 @@ export const v1SystemPersistenceGroups = Object.freeze([
       ["printerDeviceFieldTestRepository", "打印设备现场 QA"],
       ["masterDataImportReviewRepository", "主数据导入复核"],
       ["masterDataImportTransactionRepository", "主数据导入交易"],
+      ["masterDataMachineConfigurationRepository", "车间 / 机台配置"],
       ["rawMaterialInboundRepository", "原材料入库单 / 贴标状态"],
       ["rawMaterialSupplierStatementReviewRepository", "原材料供应商月结复核草稿"],
+      ["rawMaterialPurchaseRepository", "原材料采购请求 / 决策留痕"],
+      ["maintenanceTaskRepository", "设备机修任务"],
+      ["businessDecisionEvidenceRepository", "业务决定授权 / 不可变留痕"],
+      ["businessDecisionAuthorizationRepository", "业务决定授权范围 / 有效期"],
+      ["businessDecisionEvidenceDraftRepository", "业务决定凭据草稿 / 一次性消费"],
       ["runtimeIdentityRepository", "运行期员工身份 / session 吊销"],
     ],
   },
@@ -80,6 +86,7 @@ export function buildSystemV1Readiness({
   const productionRuntime = workspace.runtimeConfig?.mode === "production";
   const runtimeEmployeeAccountReadiness = buildRuntimeEmployeeAccountReadiness({
     users: workspace.users,
+    machines: workspace.machines,
     nowMs,
   });
   const declaredLocalPersistenceAcceptance = getLocalPersistenceAcceptance({ workspace, env });

@@ -1,9 +1,13 @@
+import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
+
+const inventoryReservationPolicyService = createInventoryReservationPolicyService();
+
 export function createInventoryReservationReleaseCommandService(dependencies = {}) {
   const {
     buildOperationLog,
     findInventoryItem,
     findInventoryReservation,
-    isReleasableInventoryReservation,
+    isReleasableInventoryReservation = inventoryReservationPolicyService.isReleasableInventoryReservation,
     nextPlainId,
   } = dependencies;
   for (const [name, value] of Object.entries({

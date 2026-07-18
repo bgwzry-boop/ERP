@@ -7,15 +7,15 @@ export async function handleSystemReadRoutes({
   authContext,
   sendJson,
   getPermissionOperatorId,
-  getSystemV1ReadinessResponse,
-  getSystemV1GoLiveStatusResponse,
+  buildSystemV1Readiness,
+  v1GoLiveStatusResponseService,
   filterByValue,
 }) {
   if (url.pathname === "/api/system/v1-readiness") {
     sendJson(
       response,
       200,
-      getSystemV1ReadinessResponse({
+      buildSystemV1Readiness({
         workspace,
         operatorId: getPermissionOperatorId(permissionContext, authContext, "SYSTEM"),
       }),
@@ -27,7 +27,7 @@ export async function handleSystemReadRoutes({
     sendJson(
       response,
       200,
-      getSystemV1GoLiveStatusResponse({
+      v1GoLiveStatusResponseService.build({
         workspace,
         operatorId: getPermissionOperatorId(permissionContext, authContext, "SYSTEM"),
       }),

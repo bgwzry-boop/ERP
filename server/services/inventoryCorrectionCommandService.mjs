@@ -49,7 +49,13 @@ export function createInventoryCorrectionCommandService({
       const qtyBefore = toInventoryQuantitySnapshot(inventoryItem);
       const requestedQtyAfter = toInventoryQuantitySnapshot(inventoryItem, { onHand: actualQty });
       const reason = cleanText(body.reason) || "manual_review";
-      const todo = buildTodo(workspace, {
+      const todo = buildTodo({
+        ...workspace,
+        inventoryCorrectionDrafts: [
+          ...(workspace.inventoryCorrectionDrafts ?? []),
+          { id: correctionDraftId, correctionDraftId },
+        ],
+      }, {
         id: todoId,
         bizNo: todoId,
         type: "库存修正待确认",

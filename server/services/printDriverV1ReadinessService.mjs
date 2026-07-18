@@ -1,6 +1,9 @@
 import { filterPrintDevices } from "../printDeviceRepository.mjs";
 import { filterPrinterDeviceFieldTests } from "../printerDeviceFieldTestRepository.mjs";
-import { getPrinterDeviceFieldTestEvidenceSummary } from "../../src/services/printerDeviceFieldTestClient.js";
+import {
+  getPrinterDeviceFieldTestAcceptance,
+  getPrinterDeviceFieldTestEvidenceSummary,
+} from "../../src/services/printerDeviceFieldTestClient.js";
 
 export const v1PrintReadinessDeviceRequirements = Object.freeze([
   {
@@ -122,7 +125,12 @@ function buildDeviceReadiness({ workspace, requirement }) {
       })[0] ?? device.latestFieldTestRecord ?? null
     : null;
   const driverMode = text(device?.settings?.driverMode) || "preview_only";
-  const qaEvaluation = evaluateFieldTest({ record: latestFieldTestRecord, requiredChecks: requirement.requiredChecks });
+  const qaEvaluation = evaluateFieldTest({
+    workspace,
+    device,
+    record: latestFieldTestRecord,
+    requiredChecks: requirement.requiredChecks,
+  });
   const criteria = [
     criterion({
       key: `${requirement.key}-device-configured`,
@@ -160,6 +168,11 @@ function buildDeviceReadiness({ workspace, requirement }) {
         failedChecks: qaEvaluation.failedChecks,
         blockedChecks: qaEvaluation.blockedChecks,
         untestedChecks: qaEvaluation.untestedChecks,
+        missingEvidence: qaEvaluation.missingEvidence,
+        printJobId: qaEvaluation.printJobId,
+        printJobStatus: qaEvaluation.printJobStatus,
+        printedJobLinked: qaEvaluation.printedJobLinked,
+        acceptanceBlockers: qaEvaluation.acceptanceBlockers,
       },
     }),
   ];
@@ -181,7 +194,7 @@ function supportsAllDocumentTypes(device, documentTypes) {
   return documentTypes.every((documentType) => supported.has(documentType));
 }
 
-function evaluateFieldTest({ record, requiredChecks }) {
+function evaluateFieldTest({ workspace, device, record, requiredChecks }) {
   if (!record) {
     return {
       ready: false,
@@ -191,6 +204,10 @@ function evaluateFieldTest({ record, requiredChecks }) {
       blockedChecks: [],
       untestedChecks: [],
       missingEvidence: [],
+      printJobId: "",
+      printJobStatus: "",
+      printedJobLinked: false,
+      acceptanceBlockers: ["field_test_record_required"],
     };
   }
   const byKey = new Map((record.checks ?? []).map((check) => [text(check.key), check]));
@@ -206,17 +223,39 @@ function evaluateFieldTest({ record, requiredChecks }) {
   }
   const evidenceSummary = getPrinterDeviceFieldTestEvidenceSummary(record.evidence ?? record.summary?.evidence);
   const missingEvidence = evidenceSummary.missingKeys ?? [];
-  const ready = !missingChecks.length && !failedChecks.length && !blockedChecks.length && !untestedChecks.length && evidenceSummary.complete;
+  const printJobId = text(record.printJobId);
+  const printJob = (workspace.printJobs ?? []).find(
+    (item) => text(item?.printJobId ?? item?.id) === printJobId,
+  ) ?? null;
+  const acceptance = getPrinterDeviceFieldTestAcceptance({
+    checks: record.checks,
+    evidence: record.evidence ?? record.summary?.evidence,
+    printJob,
+    printJobId,
+    printDeviceId: device?.printDeviceId,
+    documentType: record.documentType,
+  });
+  const ready =
+    !missingChecks.length &&
+    !failedChecks.length &&
+    !blockedChecks.length &&
+    !untestedChecks.length &&
+    evidenceSummary.complete &&
+    acceptance.ready;
   return {
     ready,
     detail: ready
-      ? "最新现场 QA 记录全部关键项通过，且证据摘要完整"
-      : `现场 QA 未通过：缺 ${missingChecks.length} 项，失败 ${failedChecks.length} 项，受限 ${blockedChecks.length} 项，未测 ${untestedChecks.length} 项，证据缺 ${missingEvidence.length} 项`,
+      ? "最新现场 QA 记录全部关键项通过、证据完整，且已关联同设备的 printed 作业"
+      : `现场 QA 未通过：缺 ${missingChecks.length} 项，失败 ${failedChecks.length} 项，受限 ${blockedChecks.length} 项，未测 ${untestedChecks.length} 项，证据缺 ${missingEvidence.length} 项，实体打印作业${acceptance.printedJobLinked ? "已关联" : "未通过关联校验"}`,
     missingChecks,
     failedChecks,
     blockedChecks,
     untestedChecks,
     missingEvidence,
+    printJobId: acceptance.printJobId,
+    printJobStatus: acceptance.printJobStatus,
+    printedJobLinked: acceptance.printedJobLinked,
+    acceptanceBlockers: acceptance.blockers,
   };
 }
 

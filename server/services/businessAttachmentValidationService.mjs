@@ -13,6 +13,10 @@ export function validateBusinessAttachment({
   allowedMimePrefixes,
   allowedMimeTypes = [],
   requireContent = true,
+  requirePositiveSize = false,
+  maxBytes = null,
+  allowedStatuses = ["uploaded"],
+  validateUploader,
   errorCodePrefix = "BUSINESS_ATTACHMENT",
   label = "business attachment",
 } = {}) {
@@ -38,6 +42,9 @@ export function validateBusinessAttachment({
   if (expectedUploaderId === undefined && requireUploader && !text(attachment.uploadedBy)) {
     return failure(`${errorCodePrefix}_UPLOADER_REQUIRED`, `The ${label} has no authenticated uploader.`);
   }
+  if (typeof validateUploader === "function" && !validateUploader(text(attachment.uploadedBy), attachment)) {
+    return failure(`${errorCodePrefix}_UPLOADER_INVALID`, `The ${label} uploader is not an authenticated allowed operator.`);
+  }
 
   const status = text(attachment.status || "uploaded");
   const fileType = text(attachment.fileType).toLowerCase();
@@ -51,9 +58,12 @@ export function validateBusinessAttachment({
       mimeType &&
         (mimeTypes.includes(mimeType) || mimePrefixes.some((prefix) => mimeType.startsWith(prefix))),
     );
+  const fileSize = Number(attachment.fileSize ?? attachment.fileSizeBytes ?? 0);
   if (
-    status !== "uploaded" ||
+    !normalizedList(allowedStatuses).includes(status.toLowerCase()) ||
     (requireContent && attachment.hasContent !== true) ||
+    (requirePositiveSize && (!Number.isFinite(fileSize) || fileSize <= 0)) ||
+    (Number.isFinite(Number(maxBytes)) && Number(maxBytes) > 0 && fileSize > Number(maxBytes)) ||
     (fileTypes.length && !fileTypes.includes(fileType)) ||
     !mimeAllowed
   ) {

@@ -8,8 +8,7 @@ export async function handleDriverReadRoutes({
   requireActionPermission,
   getPermissionOperatorId,
   sendJson,
-  listDriverDeliveryTasksRoute,
-  getDriverDeliveryTaskRoute,
+  sendNotFound,
   getDriverV1ReadinessResponse,
 }) {
   const permission = writeActionPermissions.viewDriverDeliveryTasks;
@@ -17,12 +16,15 @@ export async function handleDriverReadRoutes({
 
   if (url.pathname === "/api/driver/delivery-tasks") {
     if (!requireActionPermission(response, permissionContext, permission)) return true;
-    await listDriverDeliveryTasksRoute({
+    sendJson(
       response,
-      workspace,
-      searchParams: url.searchParams,
-      operatorId: resolveOperatorId(),
-    });
+      200,
+      await workspace.driverDeliveryTaskReadRepository.listDriverDeliveryTasks({
+        workspace,
+        query: url.searchParams,
+        operatorId: resolveOperatorId(),
+      }),
+    );
     return true;
   }
 
@@ -42,11 +44,12 @@ export async function handleDriverReadRoutes({
   const detailMatch = url.pathname.match(/^\/api\/driver\/delivery-tasks\/([^/]+)$/);
   if (!detailMatch) return false;
   if (!requireActionPermission(response, permissionContext, permission)) return true;
-  await getDriverDeliveryTaskRoute({
-    response,
+  const task = await workspace.driverDeliveryTaskReadRepository.getDriverDeliveryTask({
     workspace,
     fulfillmentId: decodeURIComponent(detailMatch[1]),
     operatorId: resolveOperatorId(),
   });
+  if (task) sendJson(response, 200, { task });
+  else sendNotFound(response, "DRIVER_DELIVERY_TASK_NOT_FOUND");
   return true;
 }

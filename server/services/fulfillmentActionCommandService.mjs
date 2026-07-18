@@ -1,7 +1,13 @@
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
+import { createDeliveryEvidencePolicyService } from "./deliveryEvidencePolicyService.mjs";
+import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
+
+const deliveryEvidencePolicyService = createDeliveryEvidencePolicyService();
+const inventoryReservationPolicyService = createInventoryReservationPolicyService();
 
 export function createFulfillmentActionCommandService(dependencies = {}) {
   const {
+    businessDecisionEvidenceService,
     buildFulfillmentActionRecord,
     buildDriverDeliveryTask,
     buildOperationLog,
@@ -16,17 +22,20 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     findOrderLine,
     getDriverDeliveryTaskResponseProjection,
     getFulfillmentSortSequence,
-    hasDriverWatermarkEvidence,
-    isReleasableInventoryReservation,
+    hasDriverWatermarkEvidence = deliveryEvidencePolicyService.hasDriverWatermarkEvidence,
+    isReleasableInventoryReservation = inventoryReservationPolicyService.isReleasableInventoryReservation,
     mapFulfillmentMethod,
     nextId,
     nextPlainId,
-    normalizeDeliveryEvidenceReviewStatus,
-    normalizeTimestamp,
+    normalizeDeliveryEvidenceReviewStatus = deliveryEvidencePolicyService.normalizeDeliveryEvidenceReviewStatus,
+    normalizeTimestamp = deliveryEvidencePolicyService.normalizeTimestamp,
     toInventoryReservationTransactionSummary,
     updateFulfillmentsForAction,
     now = () => new Date(),
   } = dependencies;
+  if (typeof businessDecisionEvidenceService?.prepareDecision !== "function") {
+    throw new TypeError("businessDecisionEvidenceService.prepareDecision must be a function");
+  }
   for (const [name, value] of Object.entries({
     buildFulfillmentActionRecord,
     buildDriverDeliveryTask,
@@ -57,6 +66,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
 
   return {
     createFulfillmentException,
+    resolveFulfillmentQuantityVariance,
+    handoffPaperOutboundDocument,
+    recordWarehouseOutboundExecution,
     updateFulfillmentStatus,
     cancelFulfillment,
     reviewDeliveryEvidence,
@@ -117,82 +129,466 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     });
   }
 
-  async function updateFulfillmentStatus({ workspace, fulfillmentId, action, body = {}, operatorId }) {
+  async function resolveFulfillmentQuantityVariance({
+    workspace,
+    fulfillmentId,
+    body = {},
+    operatorId,
+    actionPermissions = [],
+  }) {
     const before = findFulfillment(workspace, fulfillmentId);
     if (!before) return notFound("FULFILLMENT_NOT_FOUND");
-    if (
-      action === "确认已拉走" &&
-      mapFulfillmentMethod(before.method) === "express_ltl" &&
-      (!before.printed || before.status !== "待确认拉走")
-    ) {
-      return businessError(
-        409,
-        "FULFILLMENT_PRINT_NOT_CONFIRMED",
-        "Express/LTL pickup requires a trusted printed status before confirmation.",
-      );
+    const expectedRevision = Number(body.expectedRevision);
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision 必须是当前出库任务的正整数版本号。");
     }
-    const fulfillments = updateFulfillmentsForAction(workspace.fulfillments, fulfillmentId, action);
-    const after = fulfillments.find((item) => item.id === fulfillmentId);
+    const resolutionResult = cleanText(body.resolutionResult);
+    const allowedResults = ["按实际数量出库", "补货后再出库", "赠送数量", "暂停等待确认", "作废本次出库指令"];
+    if (!allowedResults.includes(resolutionResult)) {
+      return businessError(422, "FULFILLMENT_QUANTITY_VARIANCE_RESULT_INVALID", "请选择有效的数量差异处理结果。");
+    }
+    const fulfillmentException = [...(workspace.fulfillmentExceptions ?? [])]
+      .filter((record) => cleanText(record.fulfillmentId) === fulfillmentId)
+      .filter((record) => cleanText(record.exceptionType) === "quantity_mismatch")
+      .filter((record) => !["已解决", "已作废"].includes(cleanText(record.status)))
+      .sort((left, right) => String(right.occurredAt ?? right.createdAt ?? "").localeCompare(String(left.occurredAt ?? left.createdAt ?? "")))[0];
+    if (!fulfillmentException) {
+      return businessError(409, "FULFILLMENT_QUANTITY_VARIANCE_NOT_OPEN", "当前出库任务没有待处理的数量差异。");
+    }
+    const expectedQty = Math.max(0, Math.trunc(Number(fulfillmentException.expectedQty ?? before.expectedQty ?? before.qty ?? 0)));
+    const actualQty = Math.max(0, Math.trunc(Number(fulfillmentException.actualQty ?? before.actualQty ?? 0)));
+    const resolvedAt = nowIso(now);
+    const after = {
+      ...before,
+      revision: expectedRevision,
+      actualQty,
+      status: resolveQuantityVarianceFulfillmentStatus(resolutionResult),
+      paperOutboundStatus: resolutionResult === "作废本次出库指令"
+        ? "待作废纸单"
+        : resolutionResult === "暂停等待确认"
+          ? before.paperOutboundStatus
+          : "待重新打印",
+    };
+    const updatedException = {
+      ...fulfillmentException,
+      status: resolutionResult === "作废本次出库指令" ? "已作废" : "已解决",
+      resolutionResult,
+      resolvedBy: operatorId,
+      resolvedAt,
+    };
+    const currentTodo = (workspace.todos ?? []).find((todo) =>
+      cleanText(todo.id) === cleanText(fulfillmentException.todoId)
+      || (!todo.handled && cleanText(todo.ref ?? todo.refId) === fulfillmentId && cleanText(todo.type) === "数量差异待处理"),
+    );
+    const todo = currentTodo ? {
+      ...currentTodo,
+      handled: true,
+      status: "已处理",
+      handledBy: operatorId,
+      handledAt: resolvedAt,
+      handlingResult: resolutionResult,
+      updatedAt: resolvedAt,
+    } : null;
     const operationLog = buildOperationLog(workspace, {
       targetType: "fulfillment",
       targetId: fulfillmentId,
-      action:
-        action === "确认已拉走"
-          ? "confirm_fulfillment_pickup"
-          : action === "标记已备货"
-            ? "mark_fulfillment_prepared"
-            : "complete_fulfillment",
+      action: "resolve_fulfillment_quantity_variance",
       operatorId,
-      before,
-      after,
+      before: { fulfillment: before, fulfillmentException, todo: currentTodo ?? null },
+      after: { fulfillment: after, fulfillmentException: updatedException, todo },
+      reason: cleanText(body.reason) || resolutionResult,
     });
-    const actualQty = Number(body.actualQty ?? after.qty ?? 0);
-    const inventoryMovements = buildInventoryMovements(workspace, after, {
+    const decision = businessDecisionEvidenceService.prepareDecision({
+      workspace,
+      businessType: "fulfillment",
+      businessId: fulfillmentId,
+      decisionScope: "fulfillment_quantity_variance",
+      operatorId,
+      actionPermissions,
+      delegatedDecision: body.delegatedDecision,
+      directDecisionContent: body.directDecisionContent,
+      operationLogId: operationLog.id,
+      supersedesDecisionId: cleanText(body.supersedesDecisionId),
+      idempotencyKey: body.idempotencyKey,
+    });
+    if (decision.error) return decision;
+    operationLog.after.businessDecisionId = decision.record.id;
+    const resolutionId = nextPlainId(
+      "FQVR",
+      `${fulfillmentId}-${(workspace.fulfillmentQuantityVarianceResolutions ?? []).length + 1}`,
+    );
+    const quantityVarianceResolution = {
+      id: resolutionId,
+      quantityVarianceResolutionId: resolutionId,
+      fulfillmentId,
+      fulfillmentExceptionId: cleanText(fulfillmentException.exceptionId ?? fulfillmentException.id),
+      expectedQty,
       actualQty,
-      operatorId,
-      action,
-      allowUnreservedInventoryDeduction:
-        body.allowUnreservedInventoryDeduction === true || body.inventoryDeductionPolicy === "legacy_stock_match",
+      resolutionResult,
+      businessDecisionId: decision.record.id,
+      recordedBy: operatorId,
+      revision: 1,
+      operationLogId: operationLog.id,
+      createdAt: resolvedAt,
+      updatedAt: resolvedAt,
+    };
+    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+      workspace,
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: {
+        fulfillmentId,
+        expectedRevision,
+        resolutionResult,
+        reason: cleanText(body.reason),
+        delegatedDecision: body.delegatedDecision ?? null,
+        directDecisionContent: body.directDecisionContent ?? null,
+      },
+      fulfillment: buildFulfillmentActionRecord(workspace, after, { operatorId, actualQty }),
+      fulfillmentException: updatedException,
+      quantityVarianceResolution,
+      todo,
+      operationLog,
+      decisionRecord: decision.record,
+      attachmentLinks: decision.attachmentLinks,
     });
-    if (inventoryMovements.error) {
-      return businessError(409, inventoryMovements.error.code, inventoryMovements.error.message);
+    return success({
+      fulfillment: transaction.fulfillment,
+      fulfillmentException: transaction.fulfillmentException,
+      quantityVarianceResolution: transaction.quantityVarianceResolution,
+      todo: transaction.todo,
+      businessDecision: businessDecisionEvidenceService.toProjection(transaction.businessDecision ?? decision.record),
+      inventoryChanged: false,
+      statementChanged: false,
+      operationLogId: transaction.operationLogId,
+    });
+  }
+
+  async function handoffPaperOutboundDocument({ workspace, fulfillmentId, body = {}, operatorId }) {
+    const before = findFulfillment(workspace, fulfillmentId);
+    if (!before) return notFound("FULFILLMENT_NOT_FOUND");
+    const revisionError = validateFulfillmentRevision(before, body);
+    if (revisionError) return revisionError;
+    if (before.legacyStateReviewRequired === true) {
+      return businessError(409, "FULFILLMENT_LEGACY_REVIEW_REQUIRED", "Historical fulfillment state must be reviewed before a new paper outbound handoff.");
     }
-    const completedAt = body.completedAt ?? body.pickedAt ?? (after.status === "已交付" ? nowIso(now) : "");
-    const statementCandidate = after.status === "已交付"
-      ? buildFulfillmentStatementCandidate({
-          workspace,
-          fulfillment: after,
-          orderLine: findOrderLine(workspace, after.orderLineId ?? after.lineId),
-          actualQty,
-          operatorId,
-          completedAt,
-        })
-      : null;
+    const paperDocument = findPaperOutboundDocument(workspace, fulfillmentId, body.paperOutboundDocumentId);
+    const paperDocumentError = validatePaperOutboundDocumentVersion(paperDocument, body);
+    if (paperDocumentError) return paperDocumentError;
+    if (paperDocument.status === "已交库房") {
+      return businessError(409, "PAPER_OUTBOUND_ALREADY_HANDED_TO_WAREHOUSE", "This paper outbound document has already been handed to the warehouse.");
+    }
+    if (paperDocument.status === "已作废") {
+      return businessError(409, "PAPER_OUTBOUND_DOCUMENT_VOIDED", "A voided paper outbound document cannot be handed to the warehouse.");
+    }
+    const printRecord = findFulfillmentPrintRecord(workspace, paperDocument.printRecordId);
+    if (!printRecord || !["printed", "reprinted"].includes(String(printRecord.status ?? "").trim())) {
+      return businessError(409, "PAPER_OUTBOUND_PRINT_NOT_CONFIRMED", "Paper outbound handoff requires a server-confirmed printed or reprinted document.");
+    }
+
+    const handedAt = nowIso(now);
+    const nextPaperDocument = {
+      ...paperDocument,
+      status: "已交库房",
+      printedBy: printRecord.operatorId ?? printRecord.printedBy ?? operatorId,
+      printedAt: printRecord.printedAt ?? handedAt,
+      handedToWarehouseBy: operatorId,
+      handedToWarehouseAt: handedAt,
+      handoverNote: cleanText(body.note ?? body.handoverNote),
+      revision: normalizeRevision(paperDocument.revision) + 1,
+      updatedAt: handedAt,
+    };
+    const after = {
+      ...before,
+      status: "待库房备货",
+      paperOutboundStatus: "已交库房",
+      paperOutboundDocumentId: nextPaperDocument.paperOutboundDocumentId ?? nextPaperDocument.id,
+      legacyStateReviewRequired: false,
+    };
+    const operationLog = buildOperationLog(workspace, {
+      targetType: "fulfillment",
+      targetId: fulfillmentId,
+      action: "handoff_paper_outbound_document",
+      operatorId,
+      before: { fulfillment: before, paperOutboundDocument: paperDocument },
+      after: { fulfillment: after, paperOutboundDocument: nextPaperDocument },
+      reason: nextPaperDocument.handoverNote || "paper_outbound_handed_to_warehouse",
+    });
     const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
       fulfillment: buildFulfillmentActionRecord(workspace, after, {
         operatorId,
-        actualQty,
-        deliveredAt: completedAt,
-        confirmedAt: after.status === "已交付" ? completedAt : "",
+        actualQty: after.actualQty ?? after.qty,
       }),
+      paperOutboundDocument: nextPaperDocument,
+      operationLog,
+    });
+    return success({
+      fulfillmentId,
+      status: transaction.fulfillment?.status ?? after.status,
+      paperOutboundDocument: transaction.paperOutboundDocument ?? nextPaperDocument,
+      operationLogId: transaction.operationLogId,
+    });
+  }
+
+  async function recordWarehouseOutboundExecution({ workspace, fulfillmentId, body = {}, operatorId }) {
+    const before = findFulfillment(workspace, fulfillmentId);
+    if (!before) return notFound("FULFILLMENT_NOT_FOUND");
+    const revisionError = validateFulfillmentRevision(before, body);
+    if (revisionError) return revisionError;
+    if (before.legacyStateReviewRequired === true) {
+      return businessError(409, "FULFILLMENT_LEGACY_REVIEW_REQUIRED", "Historical fulfillment state must be reviewed before warehouse execution is recorded.");
+    }
+    const paperDocument = findPaperOutboundDocument(workspace, fulfillmentId, body.paperOutboundDocumentId);
+    const paperDocumentError = validatePaperOutboundDocumentVersion(paperDocument, body);
+    if (paperDocumentError) return paperDocumentError;
+    if (paperDocument.status !== "已交库房") {
+      return businessError(409, "WAREHOUSE_EXECUTION_PAPER_HANDOFF_REQUIRED", "Warehouse execution requires the current paper outbound document to be handed to the warehouse first.");
+    }
+    const executionResult = normalizeWarehouseExecutionResult(body.result ?? body.executionResult);
+    if (!executionResult) {
+      return businessError(422, "WAREHOUSE_EXECUTION_RESULT_REQUIRED", "result must be prepared, physical_outbound, quantity_mismatch, or unable_to_outbound.");
+    }
+    const physicalExecutorEmployeeId = cleanText(body.physicalExecutorEmployeeId);
+    if (!physicalExecutorEmployeeId || !findEmployee(workspace, physicalExecutorEmployeeId)) {
+      return businessError(422, "WAREHOUSE_PHYSICAL_EXECUTOR_REQUIRED", "A valid physical executor employee ID is required.");
+    }
+    const feedbackChannel = normalizeFeedbackChannel(body.feedbackChannel);
+    if (!feedbackChannel) {
+      return businessError(422, "WAREHOUSE_FEEDBACK_CHANNEL_REQUIRED", "feedbackChannel must be 当面、电话、微信、纸面 or 其他.");
+    }
+    const executedAt = normalizeExecutionTimestamp(body.executedAt, nowIso(now));
+    if (!executedAt) return businessError(422, "WAREHOUSE_EXECUTED_AT_INVALID", "executedAt must be a valid timestamp.");
+
+    const expectedQty = Math.max(0, Number(before.qty ?? before.expectedQty ?? 0));
+    const suppliedActualQty = body.actualQty === undefined || body.actualQty === null || body.actualQty === ""
+      ? null
+      : Number(body.actualQty);
+    if (suppliedActualQty !== null && (!Number.isFinite(suppliedActualQty) || suppliedActualQty < 0)) {
+      return businessError(422, "WAREHOUSE_ACTUAL_QTY_INVALID", "actualQty must be a non-negative number when provided.");
+    }
+    const actualQty = executionResult === "无法出库" ? 0 : Math.trunc(suppliedActualQty ?? expectedQty);
+    if (executionResult === "实物已出库" && actualQty !== expectedQty) {
+      return businessError(422, "WAREHOUSE_PHYSICAL_OUTBOUND_QTY_MISMATCH", "A quantity different from the paper instruction must be recorded as 数量不符, not physical outbound.");
+    }
+    if (executionResult === "数量不符" && actualQty === expectedQty) {
+      return businessError(422, "WAREHOUSE_QUANTITY_MISMATCH_REQUIRED", "数量不符 requires an actual quantity different from the paper instruction.");
+    }
+
+    const method = mapFulfillmentMethod(before.method);
+    const nextStatus = resolveWarehouseExecutionFulfillmentStatus(executionResult, method);
+    const after = {
+      ...before,
+      status: nextStatus,
+      actualQty: executionResult === "已备货" ? before.actualQty ?? null : actualQty,
+      paperOutboundStatus: "已交库房",
+      paperOutboundDocumentId: paperDocument.paperOutboundDocumentId ?? paperDocument.id,
+      physicalOutboundAt: executionResult === "实物已出库" ? executedAt : before.physicalOutboundAt ?? "",
+      physicalExecutorEmployeeId: executionResult === "实物已出库" ? physicalExecutorEmployeeId : before.physicalExecutorEmployeeId ?? "",
+      physicalOutboundDocumentId: executionResult === "实物已出库" ? paperDocument.paperOutboundDocumentId ?? paperDocument.id : before.physicalOutboundDocumentId ?? "",
+      physicalOutboundDocumentVersion: executionResult === "实物已出库" ? paperDocument.documentVersion : before.physicalOutboundDocumentVersion ?? 0,
+      finalDeliveryStatus: before.finalDeliveryStatus ?? "待最终交付",
+      finalDeliveryAt: before.finalDeliveryAt ?? "",
+      legacyStateReviewRequired: false,
+    };
+    const warehouseOutboundExecution = {
+      warehouseOutboundExecutionId: nextPlainId(
+        "WEX",
+        `${fulfillmentId}-${(workspace.warehouseOutboundExecutions ?? []).length + 1}`,
+      ),
+      fulfillmentId,
+      paperOutboundDocumentId: paperDocument.paperOutboundDocumentId ?? paperDocument.id,
+      paperDocumentVersion: paperDocument.documentVersion,
+      paperDocumentRevision: paperDocument.revision,
+      result: executionResult,
+      expectedQty,
+      actualQty: executionResult === "已备货" ? null : actualQty,
+      physicalExecutorEmployeeId,
+      feedbackChannel,
+      executedAt,
+      note: cleanText(body.note ?? body.remark),
+      authenticatedOperatorId: operatorId,
+      recordedAt: nowIso(now),
+      revision: 1,
+      createdAt: nowIso(now),
+      updatedAt: nowIso(now),
+    };
+    const exceptionType = executionResult === "数量不符"
+      ? "quantity_mismatch"
+      : executionResult === "无法出库"
+        ? "unable_to_outbound"
+        : "";
+    const todo = exceptionType
+      ? buildWarehouseExecutionTodo(workspace, before, executionResult, actualQty, operatorId)
+      : null;
+    const fulfillmentException = exceptionType
+      ? buildExceptionRecord(
+          workspace,
+          before,
+          {
+            exceptionType,
+            expectedQty,
+            actualQty,
+            reasonCode: cleanText(body.reasonCode) || executionResult,
+            reason: cleanText(body.reason ?? body.note) || executionResult,
+            occurredAt: executedAt,
+          },
+          executionResult === "无法出库" ? "unable" : "mismatch",
+          todo,
+          operatorId,
+        )
+      : null;
+    const inventoryMovements = executionResult === "实物已出库"
+      ? buildInventoryMovements(workspace, after, {
+          actualQty,
+          operatorId,
+          action: "库房实物出库",
+          physicalOutbound: true,
+          allowUnreservedInventoryDeduction:
+            body.allowUnreservedInventoryDeduction === true || body.inventoryDeductionPolicy === "legacy_stock_match",
+        })
+      : emptyInventoryMovements(executionResult === "已备货" ? "not_physical_outbound" : "exception_pending_review");
+    if (inventoryMovements.error) return businessError(409, inventoryMovements.error.code, inventoryMovements.error.message);
+    const operationLog = buildOperationLog(workspace, {
+      targetType: "fulfillment",
+      targetId: fulfillmentId,
+      action: "record_warehouse_outbound_execution",
+      operatorId,
+      before: { fulfillment: before, paperOutboundDocument: paperDocument },
+      after: { fulfillment: after, paperOutboundDocument: paperDocument, warehouseOutboundExecution },
+      reason: warehouseOutboundExecution.note || executionResult,
+    });
+    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+      workspace,
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: { ...body, operatorId },
+      fulfillment: buildFulfillmentActionRecord(workspace, after, {
+        operatorId,
+        actualQty: after.actualQty,
+      }),
+      warehouseOutboundExecution,
+      fulfillmentException,
+      todo,
       inventoryReservations: inventoryMovements.inventoryReservations,
       inventoryLedgerEntries: inventoryMovements.inventoryLedgerEntries,
       inventoryAdjustments: inventoryMovements.inventoryAdjustments,
+      operationLog,
+    });
+    return success({
+      fulfillmentId,
+      status: transaction.fulfillment?.status ?? after.status,
+      warehouseOutboundExecution: transaction.warehouseOutboundExecution ?? warehouseOutboundExecution,
+      statementCandidate: false,
+      statementId: "",
+      inventoryDeductionMode: inventoryMovements.inventoryDeductionMode,
+      todoId: transaction.todo?.id ?? todo?.id ?? "",
+      operationLogId: transaction.operationLogId,
+    });
+  }
+
+  async function updateFulfillmentStatus({ workspace, fulfillmentId, action, body = {}, operatorId }) {
+    const before = findFulfillment(workspace, fulfillmentId);
+    if (!before) return notFound("FULFILLMENT_NOT_FOUND");
+    if (!["完成出库/交付", "确认已拉走"].includes(action)) {
+      return businessError(
+        409,
+        "FULFILLMENT_WAREHOUSE_EXECUTION_REQUIRED",
+        "Record the current paper document handoff and warehouse execution result before final delivery confirmation.",
+      );
+    }
+    if (body.confirmedFinalDelivery !== true) {
+      return businessError(422, "FULFILLMENT_FINAL_CONFIRMATION_REQUIRED", "最终交付必须经过高风险摘要确认后提交。");
+    }
+    const expectedRevision = Number(body.expectedRevision);
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision 必须是当前出库任务的正整数版本号。");
+    }
+    const currentRevision = normalizeRevision(before.revision);
+    const possibleReplay = Boolean(before.finalDeliveryAt) && expectedRevision < currentRevision;
+    if (!possibleReplay) {
+      const revisionError = validateFulfillmentRevision(before, body);
+      if (revisionError) return revisionError;
+    }
+    const method = mapFulfillmentMethod(before.method);
+    if (method === "delivery") {
+      return businessError(409, "FULFILLMENT_DRIVER_DELIVERY_REQUIRED", "送货任务必须由司机送达确认完成最终交付。");
+    }
+    if (method === "pickup" && action !== "完成出库/交付") {
+      return businessError(422, "FULFILLMENT_FINAL_ACTION_INVALID", "自提任务必须使用最终自提确认。");
+    }
+    if (method === "express_ltl" && action !== "确认已拉走") {
+      return businessError(422, "FULFILLMENT_FINAL_ACTION_INVALID", "快递快运任务必须确认承运方已经拉走。");
+    }
+    if (!cleanText(before.physicalOutboundAt) || !cleanText(before.physicalOutboundDocumentId)) {
+      return businessError(409, "FULFILLMENT_PHYSICAL_OUTBOUND_REQUIRED", "必须先按当前纸质出库单登记库房实物出库。");
+    }
+    if (before.finalDeliveryAt && !possibleReplay) {
+      return businessError(409, "FULFILLMENT_FINAL_DELIVERY_ALREADY_CONFIRMED", "该任务已经完成最终交付确认。");
+    }
+
+    const completedAt = nowIso(now);
+    const actualQty = Math.max(0, Math.trunc(Number(before.actualQty ?? before.qty ?? 0)));
+    const after = {
+      ...before,
+      revision: expectedRevision,
+      status: "已交付",
+      finalDeliveryStatus: "已交付",
+      finalDeliveryAt: completedAt,
+      deliveredAt: completedAt,
+      confirmedAt: completedAt,
+      confirmedBy: operatorId,
+    };
+    const statementCandidate = buildFulfillmentStatementCandidate({
+      workspace,
+      fulfillment: after,
+      orderLine: findOrderLine(workspace, after.orderLineId ?? after.lineId),
+      actualQty,
+      operatorId,
+      completedAt,
+    });
+    const operationLog = buildOperationLog(workspace, {
+      targetType: "fulfillment",
+      targetId: fulfillmentId,
+      action: method === "pickup" ? "confirm_self_pickup_final_delivery" : "confirm_carrier_final_handoff",
+      operatorId,
+      before,
+      after,
+      reason: cleanText(body.remark) || (method === "pickup" ? "客户完成最终自提交接" : "承运方完成拉走交接"),
+    });
+    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+      workspace,
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: {
+        fulfillmentId,
+        expectedRevision,
+        action,
+        confirmedFinalDelivery: true,
+        remark: cleanText(body.remark),
+        operatorId,
+      },
+      fulfillment: buildFulfillmentActionRecord(workspace, after, {
+        operatorId,
+        actualQty,
+        deliveredAt: completedAt,
+        confirmedAt: completedAt,
+        confirmedBy: operatorId,
+        finalDeliveryStatus: "已交付",
+        finalDeliveryAt: completedAt,
+      }),
       statementCandidate,
       operationLog,
     });
     return success({
       fulfillmentId,
-      status: after.status,
-      actualQty,
-      statementCandidate: after.status === "已交付",
-      statementId: after.status === "已交付" ? transaction.statement?.id ?? statementCandidate?.statement?.id ?? "" : undefined,
-      inventoryDeductionMode: inventoryMovements.inventoryDeductionMode,
-      inventoryLedgerIds: transaction.inventoryLedgerEntries.map((entry) => entry.ledgerId),
+      status: transaction.fulfillment?.status ?? after.status,
+      finalDeliveryStatus: transaction.fulfillment?.finalDeliveryStatus ?? "已交付",
+      finalDeliveryAt: transaction.fulfillment?.finalDeliveryAt ?? completedAt,
+      statementCandidate: Boolean(statementCandidate),
+      statementId: transaction.statement?.id ?? statementCandidate?.statement?.id ?? "",
+      inventoryDeductionMode: "already_deducted_at_physical_outbound",
       operationLogId: transaction.operationLogId,
+      replayed: transaction.replayed === true,
     });
   }
 
@@ -480,6 +876,13 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
           : "Cancelled or exception delivery tasks must be handled by the office before loading.",
       );
     }
+    if (!before.physicalOutboundAt) {
+      return businessError(
+        409,
+        "DRIVER_DELIVERY_WAREHOUSE_OUTBOUND_REQUIRED",
+        "Driver loading requires an office-recorded warehouse physical outbound result first.",
+      );
+    }
 
     const currentTask = await getDriverDeliveryTaskResponseProjection(workspace, {
       fulfillmentId,
@@ -638,6 +1041,8 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       deliveredAt: isDeliveryEvidenceRetake ? baseAfter.deliveredAt ?? completedAt : completedAt,
       confirmedAt: isDeliveryEvidenceRetake ? baseAfter.confirmedAt ?? completedAt : completedAt,
       confirmedBy: isDeliveryEvidenceRetake ? baseAfter.confirmedBy ?? operatorId : operatorId,
+      finalDeliveryStatus: "已交付",
+      finalDeliveryAt: isDeliveryEvidenceRetake ? baseAfter.finalDeliveryAt ?? completedAt : completedAt,
       driverRemark: body.remark ?? baseAfter.driverRemark ?? "",
     };
     const resolvedRetakeTodo = isDeliveryEvidenceRetake
@@ -655,8 +1060,10 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
         body.receiverName ??
         (isDeliveryEvidenceRetake ? "driver_delivery_evidence_resubmitted" : "driver_delivery_complete"),
     });
-    const inventoryMovements = isDeliveryEvidenceRetake
-      ? emptyInventoryMovements("skipped_delivery_evidence_resubmission")
+    const inventoryMovements = isDeliveryEvidenceRetake || before.physicalOutboundAt
+      ? emptyInventoryMovements(
+          isDeliveryEvidenceRetake ? "skipped_delivery_evidence_resubmission" : "already_physical_outbound",
+        )
       : buildInventoryMovements(workspace, after, {
           actualQty,
           operatorId,
@@ -822,7 +1229,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     const todo = buildTodo(workspace, {
       type: "送货异常待处理",
       customerId: after.customerId,
-      ref: after.lineId ?? after.orderLineId,
+      ref: fulfillmentId,
+      refType: "fulfillment",
+      refId: fulfillmentId,
       summary: `${after.goods ?? orderLine.product ?? "送货任务"}：${reasonText}`,
       latest: after.latest ?? orderLine.latest ?? "待确认",
       urgency: "异常",
@@ -892,6 +1301,134 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     return { fulfillment, dispatch };
   }
 
+  function validateFulfillmentRevision(fulfillment, body) {
+    const expectedRevision = Number(body.expectedRevision);
+    if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision is required for this paper-led outbound action.");
+    }
+    const currentRevision = normalizeRevision(fulfillment.revision);
+    if (expectedRevision !== currentRevision) {
+      return businessError(409, "BUSINESS_WRITE_CONFLICT", "This fulfillment was updated by another operator. Reload the latest record before retrying.");
+    }
+    return null;
+  }
+
+  function findPaperOutboundDocument(workspace, fulfillmentId, requestedId) {
+    const targetId = cleanText(requestedId);
+    const rows = (workspace.paperOutboundDocuments ?? []).filter(
+      (item) => cleanText(item.fulfillmentId ?? item.fulfillment_id) === fulfillmentId,
+    );
+    if (targetId) {
+      return rows.find((item) => cleanText(item.paperOutboundDocumentId ?? item.id) === targetId) ?? null;
+    }
+    return [...rows].sort((left, right) => {
+      const versionDelta = Number(right.documentVersion ?? right.document_version ?? 0) - Number(left.documentVersion ?? left.document_version ?? 0);
+      if (versionDelta) return versionDelta;
+      return String(right.createdAt ?? right.created_at ?? "").localeCompare(String(left.createdAt ?? left.created_at ?? ""));
+    })[0] ?? null;
+  }
+
+  function validatePaperOutboundDocumentVersion(document, body) {
+    if (!document) return businessError(409, "PAPER_OUTBOUND_DOCUMENT_NOT_FOUND", "The current paper outbound document was not found.");
+    const expectedVersion = Number(body.paperDocumentVersion ?? body.documentVersion);
+    const expectedRevision = Number(body.paperDocumentRevision ?? body.documentRevision);
+    const actualVersion = Number(document.documentVersion ?? document.document_version ?? 0);
+    const actualRevision = normalizeRevision(document.revision);
+    if (!Number.isInteger(expectedVersion) || expectedVersion < 1 || !Number.isInteger(expectedRevision) || expectedRevision < 1) {
+      return businessError(422, "PAPER_OUTBOUND_DOCUMENT_REVISION_REQUIRED", "paperDocumentVersion and paperDocumentRevision are required.");
+    }
+    if (expectedVersion !== actualVersion || expectedRevision !== actualRevision) {
+      return businessError(409, "BUSINESS_WRITE_CONFLICT", "The paper outbound document was updated or replaced. Reload the current paper document before retrying.");
+    }
+    return null;
+  }
+
+  function findFulfillmentPrintRecord(workspace, printRecordId) {
+    const targetId = cleanText(printRecordId);
+    return (workspace.printRecords ?? []).find(
+      (item) => cleanText(item.printRecordId ?? item.id) === targetId,
+    ) ?? null;
+  }
+
+  function findEmployee(workspace, employeeId) {
+    const targetId = cleanText(employeeId);
+    return (workspace.employees ?? []).find(
+      (item) => cleanText(item.employeeId ?? item.id) === targetId,
+    ) ?? null;
+  }
+
+  function normalizeWarehouseExecutionResult(value) {
+    const source = cleanText(value);
+    return {
+      prepared: "已备货",
+      "已备货": "已备货",
+      physical_outbound: "实物已出库",
+      "实物已出库": "实物已出库",
+      quantity_mismatch: "数量不符",
+      "数量不符": "数量不符",
+      unable_to_outbound: "无法出库",
+      "无法出库": "无法出库",
+    }[source] ?? "";
+  }
+
+  function normalizeFeedbackChannel(value) {
+    const source = cleanText(value);
+    return ["当面", "电话", "微信", "纸面", "其他"].includes(source) ? source : "";
+  }
+
+  function normalizeExecutionTimestamp(value, fallback) {
+    const source = cleanText(value) || fallback;
+    if (!Number.isFinite(Date.parse(source))) return "";
+    return new Date(source).toISOString();
+  }
+
+  function resolveWarehouseExecutionFulfillmentStatus(result, method) {
+    if (result === "已备货") return "已备货";
+    if (result === "数量不符") return "数量差异待处理";
+    if (result === "无法出库") return "无法出库";
+    if (method === "delivery") return "待司机装车";
+    if (method === "express_ltl") return "待承运方拉走";
+    return "待确认自提交付";
+  }
+
+  function buildWarehouseExecutionTodo(workspace, fulfillment, result, actualQty, operatorId) {
+    const expectedQty = Number(fulfillment.qty ?? fulfillment.expectedQty ?? 0);
+    const isUnable = result === "无法出库";
+    return buildTodo(workspace, {
+      type: isUnable ? "无法出库待处理" : "数量差异待处理",
+      customerId: fulfillment.customerId,
+      ref: fulfillment.id,
+      refType: "fulfillment",
+      refId: fulfillment.id,
+      summary: isUnable
+        ? `${fulfillment.goods ?? fulfillment.id}：库房反馈无法出库`
+        : `${fulfillment.goods ?? fulfillment.id}：纸单 ${expectedQty}，库房找到 ${actualQty}`,
+      latest: fulfillment.latest ?? fulfillment.latestNeededAt ?? "待确认",
+      urgency: "异常",
+      impact: "只生成异常待办，未扣库存、未改订单、未生成对账候选",
+      createdBy: operatorId,
+    });
+  }
+
+function cleanText(value) {
+  return String(value ?? "").trim();
+}
+
+function resolveQuantityVarianceFulfillmentStatus(result) {
+  const statuses = {
+    "按实际数量出库": "差异已确认待重新出库",
+    "补货后再出库": "待补货",
+    "赠送数量": "差异已确认待重新出库",
+    "暂停等待确认": "数量差异待处理",
+    "作废本次出库指令": "已取消",
+  };
+  return statuses[result] ?? "数量差异待处理";
+}
+
+  function normalizeRevision(value) {
+    return Math.max(1, Math.trunc(Number(value) || 1));
+  }
+
   function buildExceptionRecord(workspace, selected, body, modalType, todo, operatorId) {
     const reasonCode = String(body.reasonCode ?? body.exceptionReasonCode ?? "").trim();
     const reasonText = String(body.reasonText ?? body.reason ?? reasonCode ?? "other").trim() || "other";
@@ -913,7 +1450,8 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
   }
 
   function buildInventoryMovements(workspace, fulfillment, input = {}) {
-    if (fulfillment.status !== "已交付") return emptyInventoryMovements("not_delivered");
+    const physicalOutbound = input.physicalOutbound === true;
+    if (fulfillment.status !== "已交付" && !physicalOutbound) return emptyInventoryMovements("not_delivered");
     const orderLineId = fulfillment.orderLineId ?? fulfillment.lineId ?? "";
     const activeReservations = (workspace.inventoryReservations ?? []).filter(
       (reservation) => reservation.orderLineId === orderLineId && isReleasableInventoryReservation(reservation),
@@ -929,7 +1467,11 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     const inventoryLedgerEntries = [];
     const inventoryAdjustments = [];
     const projectedOnHandByItem = new Map();
-    const sourceType = input.action === "确认已拉走" ? "fulfillment_pickup" : "fulfillment_complete";
+    const sourceType = input.action === "确认已拉走"
+      ? "fulfillment_pickup"
+      : physicalOutbound
+        ? "warehouse_physical_outbound"
+        : "fulfillment_complete";
 
     for (const reservation of activeReservations) {
       const reservedQty = Math.max(0, Number(reservation.reservedQty ?? reservation.qty ?? 0));
@@ -966,8 +1508,8 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
         sourceId: fulfillment.id,
         operatorId: input.operatorId ?? "U-OFFICE-A",
         confirmedBy: input.operatorId ?? "U-OFFICE-A",
-        reason: "完成出库扣减库存",
-        remark: `释放占用 ${reservedQty}`,
+        reason: physicalOutbound ? "库房实物出库扣减库存" : "完成出库扣减库存",
+        remark: physicalOutbound ? `库房实物出库，释放占用 ${reservedQty}` : `释放占用 ${reservedQty}`,
       });
     }
 
@@ -1044,7 +1586,11 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
           qtyBefore: onHandBefore,
           qtyChange: -actualQty,
           qtyAfter: Math.max(0, onHandBefore - actualQty),
-          sourceType: input.action === "确认已拉走" ? "fulfillment_pickup_legacy" : "fulfillment_complete_legacy",
+          sourceType: input.action === "确认已拉走"
+            ? "fulfillment_pickup_legacy"
+            : input.physicalOutbound === true
+              ? "warehouse_physical_outbound_legacy"
+              : "fulfillment_complete_legacy",
           sourceId: fulfillmentId,
           operatorId: input.operatorId ?? "U-OFFICE-A",
           confirmedBy: input.operatorId ?? "U-OFFICE-A",
@@ -1115,6 +1661,8 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       type: "照片待重拍",
       customerId: fulfillment.customerId ?? "",
       ref: orderLineId || fulfillment.id,
+      refType: orderLineId ? "order_line" : "fulfillment",
+      refId: orderLineId || fulfillment.id,
       summary: `${customerName} ${goods}：${reason}`,
       latest: fulfillment.latest ?? fulfillment.latestNeededAt ?? "待确认",
       urgency: "异常",
@@ -1230,6 +1778,7 @@ function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine,
         ...eligibleStatement,
         receivable: roundMoney(Number(eligibleStatement.receivable ?? 0) + amount),
         lineIds: [...new Set([...(eligibleStatement.lineIds ?? []), orderLineId])],
+        revision: Math.max(1, Number(eligibleStatement.revision ?? 1) || 1) + 1,
       }
     : {
         id: statementId,
@@ -1241,6 +1790,7 @@ function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine,
         period: `${completedDate} 至 ${completedDate}`,
         lineIds: [orderLineId],
         sent: false,
+        revision: 1,
         createdBy: operatorId,
         createdAt: completedAt,
       };

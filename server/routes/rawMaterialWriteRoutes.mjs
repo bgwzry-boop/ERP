@@ -10,14 +10,22 @@ export async function handleRawMaterialWriteRoutes({
   requireActionPermission,
   getPermissionOperatorId,
   sendNotFound,
-  rawMaterialInboundActionRoute,
-  createRawMaterialSupplierStatementReviewDraftRoute,
-  confirmRawMaterialSupplierStatementReviewRoute,
-  confirmRawMaterialSupplierStatementRoute,
-  generateRawMaterialSupplierPayableDraftRoute,
-  confirmRawMaterialSupplierPaymentRoute,
+  sendJson,
+  sendBusinessError,
+  rawMaterialCommandService,
 }) {
   if (method !== "POST") return false;
+
+  if (url.pathname === "/api/raw-material-inbounds/recognize-delivery-note") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.reviewRawMaterialInbound)) return true;
+    const result = await rawMaterialCommandService.recognizeDeliveryNote({
+      workspace,
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    sendCommandResult({ response, result, sendJson, sendBusinessError });
+    return true;
+  }
 
   const inboundActionMatch = url.pathname.match(/^\/api\/raw-material-inbounds\/([^/]+)\/([^/]+)$/);
   if (inboundActionMatch) {
@@ -29,25 +37,25 @@ export async function handleRawMaterialWriteRoutes({
       return true;
     }
     if (!requireActionPermission(response, permissionContext, permission)) return true;
-    await rawMaterialInboundActionRoute({
-      response,
+    const result = await rawMaterialCommandService.recordInboundAction({
       workspace,
       inboundId,
       actionSlug,
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
     });
+    sendCommandResult({ response, result, sendJson, sendBusinessError });
     return true;
   }
 
   if (url.pathname === "/api/raw-material-supplier-statement-reviews") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.createRawMaterialSupplierStatementReview)) return true;
-    await createRawMaterialSupplierStatementReviewDraftRoute({
-      response,
+    const result = await rawMaterialCommandService.createSupplierStatementReviewDraft({
       workspace,
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
     });
+    sendCommandResult({ response, result, sendJson, sendBusinessError });
     return true;
   }
 
@@ -62,34 +70,42 @@ export async function handleRawMaterialWriteRoutes({
     "confirm-review": {
       permission: writeActionPermissions.confirmRawMaterialSupplierStatementReview,
       fallbackOperatorId: "U-OFFICE-A",
-      run: confirmRawMaterialSupplierStatementReviewRoute,
+      run: rawMaterialCommandService.confirmSupplierStatementReview,
     },
     "confirm-statement": {
       permission: writeActionPermissions.confirmRawMaterialSupplierStatement,
       fallbackOperatorId: "U-OFFICE-A",
-      run: confirmRawMaterialSupplierStatementRoute,
+      run: rawMaterialCommandService.confirmSupplierStatement,
     },
     "generate-payable": {
       permission: writeActionPermissions.generateRawMaterialSupplierPayableDraft,
       fallbackOperatorId: "U-FINANCE-A",
-      run: generateRawMaterialSupplierPayableDraftRoute,
+      run: rawMaterialCommandService.generateSupplierPayableDraft,
     },
     "confirm-payment": {
       permission: writeActionPermissions.confirmRawMaterialSupplierPayment,
       fallbackOperatorId: "U-FINANCE-A",
-      run: confirmRawMaterialSupplierPaymentRoute,
+      run: rawMaterialCommandService.confirmSupplierPayment,
     },
   };
   const route = routes[action];
   if (!requireActionPermission(response, permissionContext, route.permission)) return true;
-  await route.run({
-    response,
+  const result = await route.run({
     workspace,
     reviewId,
     body,
     operatorId: getPermissionOperatorId(permissionContext, authContext, route.fallbackOperatorId),
   });
+  sendCommandResult({ response, result, sendJson, sendBusinessError });
   return true;
+}
+
+function sendCommandResult({ response, result, sendJson, sendBusinessError }) {
+  if (result?.error) {
+    sendBusinessError(response, result.statusCode, result.code, result.message, result.details);
+    return;
+  }
+  sendJson(response, 200, result);
 }
 
 function getRawMaterialInboundActionPermission(actionSlug, writeActionPermissions) {
@@ -100,6 +116,10 @@ function getRawMaterialInboundActionPermission(actionSlug, writeActionPermission
     print_labels: writeActionPermissions.printRawMaterialInboundLabels,
     "attach-confirm": writeActionPermissions.confirmRawMaterialInboundAttachment,
     attach_confirm: writeActionPermissions.confirmRawMaterialInboundAttachment,
+    "void-label": writeActionPermissions.printRawMaterialInboundLabels,
+    void_label: writeActionPermissions.printRawMaterialInboundLabels,
+    "reprint-label": writeActionPermissions.printRawMaterialInboundLabels,
+    reprint_label: writeActionPermissions.printRawMaterialInboundLabels,
     "issue-to-machine": writeActionPermissions.issueRawMaterialToMachine,
     issue_to_machine: writeActionPermissions.issueRawMaterialToMachine,
     "confirm-consumption": writeActionPermissions.confirmRawMaterialConsumption,

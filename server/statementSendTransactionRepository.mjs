@@ -27,27 +27,33 @@ export function createLocalStatementSendTransactionRepository() {
     kind: "local_memory",
 
     markStatementSent(input) {
-      applyStatementSendWorkspaceMutation(input);
+      const statement = buildLocalSavedStatement(input);
+      const statements = replaceStatement(input.statements, statement);
+      applyStatementSendWorkspaceMutation({ ...input, statements, statement });
       return normalizeStatementSendTransactionResult({
-        statement: input.statement,
+        statement,
         sendRecord: input.sendRecord,
         operationLogId: input.operationLog?.id ?? "",
       });
     },
 
     markStatementSendReceipt(input) {
-      applyStatementSendReceiptWorkspaceMutation(input);
+      const sendRecord = buildLocalSavedSendRecord(input);
+      applyStatementSendReceiptWorkspaceMutation({ ...input, sendRecord });
       return normalizeStatementSendReceiptTransactionResult({
-        sendRecord: input.sendRecord,
+        sendRecord,
         operationLogId: input.operationLog?.id ?? "",
       });
     },
 
     recordStatementCustomerConfirmation(input) {
-      applyStatementCustomerConfirmationWorkspaceMutation(input);
+      const statement = buildLocalSavedStatement(input);
+      const sendRecord = buildLocalSavedSendRecord(input);
+      const statements = replaceStatement(input.statements, statement);
+      applyStatementCustomerConfirmationWorkspaceMutation({ ...input, statements, statement, sendRecord });
       return normalizeStatementCustomerConfirmationTransactionResult({
-        statement: input.statement,
-        sendRecord: input.sendRecord,
+        statement,
+        sendRecord,
         confirmationRecord: input.confirmationRecord,
         operationLogId: input.operationLog?.id ?? "",
       });
@@ -507,6 +513,35 @@ export function normalizeStatementCustomerConfirmationTransactionResult(value) {
     confirmationRecord: normalizeStatementConfirmationRecord(value.confirmationRecord),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
   };
+}
+
+function buildLocalSavedStatement(input) {
+  const expected = Number(input.statement?.revision ?? 0);
+  const current = (input.workspace?.statements ?? []).find((item) => item.id === input.statement?.id);
+  if (!current || Number(current.revision ?? 1) !== expected) throw statementWriteConflict(current?.revision);
+  return { ...input.statement, revision: expected + 1 };
+}
+
+function buildLocalSavedSendRecord(input) {
+  const expected = Number(input.sendRecord?.revision ?? 0);
+  const sendRecordId = input.sendRecord?.sendRecordId ?? input.sendRecord?.id;
+  const current = (input.workspace?.statementSendRecords ?? []).find(
+    (item) => (item.sendRecordId ?? item.id) === sendRecordId,
+  );
+  if (!current || Number(current.revision ?? 1) !== expected) throw statementWriteConflict(current?.revision);
+  return { ...input.sendRecord, revision: expected + 1 };
+}
+
+function replaceStatement(statements, saved) {
+  return (Array.isArray(statements) ? statements : []).map((item) => item.id === saved.id ? { ...item, ...saved } : item);
+}
+
+function statementWriteConflict(currentRevision) {
+  const error = new Error("该记录已被另一位办公室人员更新，请刷新后重新确认。");
+  error.statusCode = 409;
+  error.code = "BUSINESS_WRITE_CONFLICT";
+  error.details = { currentRevision: Number(currentRevision ?? 0) };
+  return error;
 }
 
 function applyStatementSendWorkspaceMutation({ workspace, statements, statement, sendRecord, operationLog }) {

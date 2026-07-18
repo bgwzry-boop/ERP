@@ -9,11 +9,8 @@ export async function handleInventoryReadRoutes({
   filterByValue,
   paginate,
   sendNotFound,
-  cleanServerText,
   findInventoryCorrectionDraft,
-  buildInventoryCorrectionDraftDetail,
-  filterInventoryCorrectionDraftSummaries,
-  toInventoryCorrectionDraftSummary,
+  inventoryCorrectionReadProjectionService,
   inventoryIntentRouteModule = defaultInventoryIntentRouteModule,
 }) {
   if (url.pathname === "/api/inventory/items") {
@@ -42,17 +39,13 @@ export async function handleInventoryReadRoutes({
   if (await inventoryIntentRouteModule.handleReadRoutes({ url, response, workspace, sendJson })) return true;
 
   if (url.pathname === "/api/inventory/correction-drafts") {
-    const items = filterInventoryCorrectionDraftSummaries(
-      (workspace.inventoryCorrectionDrafts ?? []).map((draft) => toInventoryCorrectionDraftSummary(workspace, draft)),
-      url.searchParams,
-    );
+    const projection = inventoryCorrectionReadProjectionService.listDraftSummaries({
+      workspace,
+      searchParams: url.searchParams,
+    });
     sendJson(response, 200, {
-      ...paginate(items, url.searchParams),
-      filters: {
-        status: cleanServerText(url.searchParams.get("status")) || "待确认生效",
-        inventoryItemId: cleanServerText(url.searchParams.get("inventoryItemId")),
-        keyword: cleanServerText(url.searchParams.get("keyword")),
-      },
+      ...paginate(projection.items, url.searchParams),
+      filters: projection.filters,
     });
     return true;
   }
@@ -62,6 +55,6 @@ export async function handleInventoryReadRoutes({
 
   const draft = findInventoryCorrectionDraft(workspace, decodeURIComponent(correctionDraftMatch[1]));
   if (!draft) sendNotFound(response, "INVENTORY_CORRECTION_DRAFT_NOT_FOUND");
-  else sendJson(response, 200, buildInventoryCorrectionDraftDetail(workspace, draft));
+  else sendJson(response, 200, inventoryCorrectionReadProjectionService.buildDraftDetail({ workspace, draft }));
   return true;
 }

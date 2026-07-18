@@ -10,6 +10,25 @@ const requiredAttachmentFields = [
   "uploadedBy",
 ];
 
+export function createAttachmentCommandService(dependencies = {}) {
+  const { parseDataUrl, buildOperationLog, nextId } = dependencies;
+  for (const [name, value] of Object.entries({ parseDataUrl, buildOperationLog, nextId })) {
+    if (typeof value !== "function") throw new TypeError(`${name} must be a function`);
+  }
+
+  return {
+    createAttachment({ workspace, body = {}, operatorId }) {
+      return createAttachmentRecord({
+        workspace,
+        body: { ...body, uploadedBy: operatorId },
+        parseDataUrl,
+        buildOperationLog,
+        nextId,
+      });
+    },
+  };
+}
+
 export async function createAttachmentRecord({
   workspace,
   body = {},
@@ -178,6 +197,13 @@ export function validateAttachmentUploadBody(body = {}, contentPayload = null) {
     };
   }
 
+  if (rule.requiresContent && !contentPayload) {
+    return {
+      code: "ATTACHMENT_CONTENT_REQUIRED",
+      message: `${rule.label} requires an uploaded file.`,
+    };
+  }
+
   return null;
 }
 
@@ -214,10 +240,20 @@ function getAttachmentPurposeRule(purpose) {
     maxBytes: 12 * 1024 * 1024,
   };
   const rules = {
+    raw_material_delivery_note: {
+      allowedFileTypes: ["image", "pdf"],
+      allowedMimePrefixes: ["image/"],
+      allowedMimeTypes: ["application/pdf"],
+      allowedLabel: "PNG、JPG、JPEG、BMP 图片或 PDF",
+      label: "原材料送货单",
+      maxBytes: 7.5 * 1024 * 1024,
+      requiresContent: true,
+    },
     payment_screenshot: {
       ...commonPhotoRule,
       label: "付款截图",
       maxBytes: 8 * 1024 * 1024,
+      requiresContent: true,
     },
     delivery_watermark_photo: {
       ...commonPhotoRule,
@@ -231,6 +267,11 @@ function getAttachmentPurposeRule(purpose) {
       ...commonPhotoRule,
       label: "定制成品图",
     },
+    maintenance_evidence: {
+      ...commonPhotoRule,
+      label: "设备检查照片",
+      requiresContent: true,
+    },
     statement_customer_confirmation: {
       allowedFileTypes: ["image", "pdf"],
       allowedMimePrefixes: ["image/"],
@@ -238,6 +279,7 @@ function getAttachmentPurposeRule(purpose) {
       allowedLabel: "图片或 PDF",
       label: "客户确认附件",
       maxBytes: 12 * 1024 * 1024,
+      requiresContent: true,
     },
     inventory_correction_evidence: {
       allowedFileTypes: ["image", "pdf"],
@@ -246,6 +288,21 @@ function getAttachmentPurposeRule(purpose) {
       allowedLabel: "图片或 PDF",
       label: "库存修正凭证",
       maxBytes: 12 * 1024 * 1024,
+    },
+    business_decision_evidence: {
+      allowedFileTypes: ["image", "pdf", "document", "spreadsheet"],
+      allowedMimePrefixes: ["image/", "text/"],
+      allowedMimeTypes: [
+        "application/pdf",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/msword",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      ],
+      allowedLabel: "图片、PDF、表格或文档",
+      label: "经营决定凭据",
+      maxBytes: 15 * 1024 * 1024,
+      requiresContent: true,
     },
   };
   return rules[purpose] ?? {

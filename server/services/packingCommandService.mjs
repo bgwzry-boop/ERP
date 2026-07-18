@@ -1,13 +1,19 @@
+import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
+
+const inventoryReservationPolicyService = createInventoryReservationPolicyService();
+
 export function createPackingCommandService({
   buildOperationLog,
-  distributeIntegerQty,
+  buildTodo,
+  distributeIntegerQty = distributeIntegerQuantity,
   findInventoryItem,
-  isReleasableInventoryReservation,
+  isReleasableInventoryReservation = inventoryReservationPolicyService.isReleasableInventoryReservation,
   resolvePersistableCreatedBy,
   now = () => new Date(),
 } = {}) {
   const dependencies = {
     buildOperationLog,
+    buildTodo,
     distributeIntegerQty,
     findInventoryItem,
     isReleasableInventoryReservation,
@@ -38,6 +44,8 @@ export function createPackingCommandService({
         packingTaskId,
         orderLineId,
         fulfillmentId: fulfillment?.id ?? fulfillment?.fulfillmentId ?? "",
+        fulfillment,
+        orderLine: beforeOrderLine,
         actualPackedQty,
         operatorId,
         createdAt: completedAt,
@@ -46,7 +54,6 @@ export function createPackingCommandService({
       const nextStatus = getPackingCompletionStatus({
         fulfillment,
         orderLine: beforeOrderLine,
-        labelsPrinted: body.labelsPrinted === true,
       });
       const packingTask = {
         ...beforeTask,
@@ -85,6 +92,38 @@ export function createPackingCommandService({
         findInventoryItem,
         isReleasableInventoryReservation,
       });
+      const todo = nextStatus.orderLineStatus === "待打印标签"
+        ? buildTodo(workspace, {
+            id: nextPlainId("T-PACK", packingTaskId),
+            type: updatedFulfillment ? "待打印标签" : "出库交付待补建",
+            customerId: updatedFulfillment?.customerId ?? beforeOrderLine.customerId ?? "",
+            ref: updatedFulfillment?.fulfillmentId ?? orderLineId,
+            refType: updatedFulfillment ? "fulfillment" : "order_line",
+            refId: updatedFulfillment?.fulfillmentId ?? orderLineId,
+            summary: updatedFulfillment
+              ? `${beforeOrderLine.product ?? beforeOrderLine.productName ?? orderLineId} 已打包 ${actualPackedQty} 个 / ${packages.length} 包，等待打印快递快运标签。`
+              : `${beforeOrderLine.product ?? beforeOrderLine.productName ?? orderLineId} 已打包，但缺少出库交付记录；补建前不能打印标签。`,
+            latest: beforeOrderLine.latest ?? beforeOrderLine.latestNeededAt ?? "待确认",
+            urgency: updatedFulfillment
+              ? (String(beforeOrderLine.latest ?? "").includes("今天") ? "今天" : "普通")
+              : "异常",
+            impact: updatedFulfillment ? "等待标签打印" : "缺少出库交付记录，无法进入可信打印",
+            createdBy: operatorId,
+            createdAt: completedAt,
+            updatedAt: completedAt,
+          })
+        : null;
+      const todoEvent = todo
+        ? {
+            eventId: nextPlainId("TE-PACK", packingTaskId),
+            todoId: todo.id,
+            eventType: "todo_source:packing_completed",
+            eventPayload: { packingTaskId, orderLineId, fulfillmentId: updatedFulfillment?.fulfillmentId ?? "", todo },
+            operatorId,
+            occurredAt: completedAt,
+            createdAt: completedAt,
+          }
+        : null;
       const operationLog = buildOperationLog(workspace, {
         targetType: "packing_task",
         targetId: packingTaskId,
@@ -95,7 +134,9 @@ export function createPackingCommandService({
           packingTask,
           packageIds: packages.map((record) => record.packageId),
           fulfillment: updatedFulfillment,
+          todoId: todo?.id ?? "",
           inventoryDeducted: false,
+          ignoredLegacyLabelsPrinted: body.labelsPrinted === true,
         },
         reason: body.remark ?? "打包完成",
       });
@@ -106,6 +147,8 @@ export function createPackingCommandService({
         fulfillment: updatedFulfillment,
         orderLine,
         inventoryLedgerEntries: inventoryTrace.inventoryLedgerEntries,
+        todo,
+        todoEvent,
         operationLog,
         idempotencyKey: body.idempotencyKey,
         idempotencyPayload: { ...body, operatorId },
@@ -122,10 +165,20 @@ export function createPackingCommandService({
         orderLineStatus: transaction.orderLine?.lineStatus ?? orderLine.status,
         inventoryDeducted: false,
         inventoryLedgerIds: transaction.inventoryLedgerEntries.map((entry) => entry.ledgerId),
+        todoId: transaction.todo?.todoId ?? todo?.id ?? "",
         operationLogId: transaction.operationLogId,
+        legacyLabelsPrintedIgnored: body.labelsPrinted === true,
       });
     },
   };
+}
+
+function distributeIntegerQuantity(totalQty, packageCount) {
+  const count = Math.max(1, Math.trunc(Number(packageCount)));
+  const total = Math.max(0, Math.trunc(Number(totalQty)));
+  const base = Math.floor(total / count);
+  const remainder = total % count;
+  return Array.from({ length: count }, (_, index) => base + (index < remainder ? 1 : 0));
 }
 
 function buildPackageRecordsForPacking(input) {
@@ -153,23 +206,30 @@ function buildPackageRecordsForPacking(input) {
       packageCount: recordCount,
       packedQty: Math.max(0, Math.trunc(Number(source.packedQty ?? source.qty ?? normalizedQuantities[index] ?? 0))),
       labelPrintRecordId: source.labelPrintRecordId ?? input.body.labelPrintRecordId ?? "",
-      status: source.status ?? (input.body.labelsPrinted === true ? "待提货" : "待打印标签"),
+      // A package cannot inherit a browser-reported print status. Its label becomes trusted only
+      // after the print-job lifecycle verifies a current printed/reprinted job on the server.
+      status: getInitialPackageStatus({ fulfillment: input.fulfillment, orderLine: input.orderLine }),
       createdBy: input.operatorId,
       createdAt: source.createdAt ?? input.createdAt,
     };
   });
 }
 
-function getPackingCompletionStatus({ fulfillment, orderLine, labelsPrinted }) {
+function getPackingCompletionStatus({ fulfillment, orderLine }) {
   const method = String(
     fulfillment?.method ?? fulfillment?.fulfillmentMethod ?? orderLine?.fulfillmentMethod ?? orderLine?.fulfillment ?? "",
   ).trim();
   if (method === "快递快运" || method === "express_ltl") {
-    return labelsPrinted
-      ? { orderLineStatus: "待快运拉走", fulfillmentStatus: "待确认拉走" }
-      : { orderLineStatus: "待打印标签", fulfillmentStatus: "待打印标签" };
+    return { orderLineStatus: "待打印标签", fulfillmentStatus: "待打印标签" };
   }
   return { orderLineStatus: "待出库", fulfillmentStatus: "已备货" };
+}
+
+function getInitialPackageStatus({ fulfillment, orderLine }) {
+  const method = String(
+    fulfillment?.method ?? fulfillment?.fulfillmentMethod ?? orderLine?.fulfillmentMethod ?? orderLine?.fulfillment ?? "",
+  ).trim();
+  return method === "快递快运" || method === "express_ltl" ? "待打印标签" : "待出库";
 }
 
 function buildPackingInventoryTrace(workspace, input) {

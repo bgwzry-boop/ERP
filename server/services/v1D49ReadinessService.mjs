@@ -9,12 +9,14 @@ import {
 } from "./v1ProductionEnvIntakePrecheckService.mjs";
 import { sanitizeV1ProductionEnvIntakeVerification } from "./v1ProductionStatusProjectionService.mjs";
 import { sanitizeV1SensitiveStatusText } from "./v1StatusTextSanitizer.mjs";
+import { buildV1D49EmployeeIntakeStatus } from "./v1D49EmployeeIntakeStatusService.mjs";
 
 export function buildV1D49Readiness({
   workspace = {},
   operatorId = "",
   now = () => new Date(),
   buildEmployeeReadiness = buildRuntimeEmployeeAccountReadiness,
+  buildEmployeeIntakeStatus = buildV1D49EmployeeIntakeStatus,
   resolveSetup = resolveV1ProductionEnvSetupSafeEnvFileForIntakeLivePrecheck,
   buildEnvFileAudit = buildProductionEnvFileAuditReport,
   buildPreviewEnvironment = buildV1ProductionEnvPreviewEnvironment,
@@ -24,7 +26,10 @@ export function buildV1D49Readiness({
 } = {}) {
   const checkedAt = now().toISOString();
   const employees = sanitizeEmployeeReadiness(
-    buildEmployeeReadiness({ users: workspace.users, nowMs: Date.parse(checkedAt) }),
+    buildEmployeeReadiness({ users: workspace.users, machines: workspace.machines, nowMs: Date.parse(checkedAt) }),
+  );
+  const employeeIntake = sanitizeEmployeeIntakeStatus(
+    buildEmployeeIntakeStatus({ now: () => new Date(checkedAt) }),
   );
   const setup = resolveSetup();
   const environment = buildEnvironmentReadiness({
@@ -52,7 +57,7 @@ export function buildV1D49Readiness({
   const blockers = [...employeeBlockers, ...environment.blockers];
   const ready = employees.ready === true && environment.ready === true && blockers.length === 0;
   return {
-    version: "p0-v1-d49-readiness-v1",
+    version: "p0-v1-d49-readiness-v3",
     scope: "v1_d49_readiness",
     status: ready ? "ready" : "blocked",
     ready,
@@ -66,6 +71,12 @@ export function buildV1D49Readiness({
       missingRoleCount: employees.missingRoleCount,
       formalAccountCount: employees.formalAccountCount,
       readyFormalAccountCount: employees.readyFormalAccountCount,
+      employeeIntakeAvailable: employeeIntake.available,
+      employeeIntakeFresh: employeeIntake.fresh,
+      employeeIntakeStatusLabel: employeeIntake.summary.label,
+      employeeIntakeRowCount: employeeIntake.summary.employeeRowCount,
+      employeeIntakeCoverageLabel: employeeIntake.summary.coverageLabel,
+      employeeNumberMissingCount: employeeIntake.summary.missingEmployeeNumberCount,
       envSetupReady: environment.setupReady,
       envAuditReady: environment.auditReady,
       envPreflightLabel: environment.preflightLabel,
@@ -79,6 +90,7 @@ export function buildV1D49Readiness({
       blocksRegardlessOfDemoMode: true,
     },
     employees,
+    employeeIntake,
     environment: {
       status: environment.status,
       ready: environment.ready,
@@ -96,14 +108,18 @@ export function buildV1D49Readiness({
       intakeWarningCount: environment.intakeWarningCount,
     },
     blockers,
-    nextAction: ready
-      ? "D49 已就绪；继续D50真实PostgreSQL、恢复库、对象存储和长驻API。"
-      : blockers[0]?.nextAction || "导入真实员工并补齐production env后重新刷新上线状态。",
+    nextAction: buildD49NextAction({ ready, employees, employeeIntake, blockers }),
     safeguards: {
       nonMutating: true,
       demoModeDoesNotBypassEmployeeReadiness: true,
       seedAccountsCountedAsFormal: false,
       rawEmployeeIdentifiersIncluded: false,
+      employeeIntakeNamesIncluded: false,
+      employeeIntakeNumbersIncluded: false,
+      employeeIntakeWorkbookPathIncluded: false,
+      employeeIntakeIssueRowsIncluded: false,
+      employeeIntakeRawIssuesIncluded: false,
+      employeeIntakeWorkbookDigestIncluded: false,
       loginNamesIncluded: false,
       passwordDataIncluded: false,
       envFilePathIncluded: false,
@@ -118,6 +134,94 @@ export function buildV1D49Readiness({
       runtimeEnvironmentMutated: false,
       releaseCandidateRefreshed: false,
       goLiveSuiteRefreshed: false,
+    },
+  };
+}
+
+function buildD49NextAction({ ready, employees, employeeIntake, blockers }) {
+  if (ready) return "D49 已就绪；继续D50真实PostgreSQL、恢复库、对象存储和长驻API。";
+  if (employees.ready !== true && employeeIntake.available) return employeeIntake.nextAction;
+  return blockers[0]?.nextAction || "导入真实员工并补齐production env后重新刷新上线状态。";
+}
+
+function sanitizeEmployeeIntakeStatus(value = {}) {
+  const safeBoundary = value.safeguards?.reportRedactionVerified === true
+    && value.safeguards?.employeeNamesIncluded === false
+    && value.safeguards?.employeeNumbersIncluded === false
+    && value.safeguards?.workbookPathIncluded === false
+    && value.safeguards?.issueRowsIncluded === false
+    && value.safeguards?.rawIssuesIncluded === false
+    && value.safeguards?.workbookDigestIncluded === false;
+  const available = value.available === true && safeBoundary;
+  const fresh = available && value.fresh === true;
+  const summary = value?.summary && typeof value.summary === "object" ? value.summary : {};
+  const freshness = value?.freshness && typeof value.freshness === "object" ? value.freshness : {};
+  const roles = available && Array.isArray(value.roles)
+    ? value.roles.map((role) => ({
+        roleKey: cleanKey(role.roleKey),
+        roleLabel: sanitizeText(role.roleLabel),
+        covered: role.covered === true,
+        rowCount: nonNegativeInteger(role.rowCount),
+      })).filter((role) => role.roleKey)
+    : [];
+  return {
+    version: cleanKey(value.version),
+    scope: cleanKey(value.scope),
+    available,
+    fresh,
+    status: available ? cleanKey(value.status) || "unavailable" : "unavailable",
+    ready: fresh && value.ready === true,
+    uploadAllowed: fresh && value.uploadAllowed === true,
+    checkedAt: sanitizeText(value.checkedAt),
+    freshness: {
+      fresh,
+      status: available ? cleanKey(freshness.status) || "unavailable" : "unavailable",
+      label: available ? sanitizeText(freshness.label) || "未验证" : "未验证",
+      checkedAtValid: freshness.checkedAtValid === true,
+      withinMaxAge: freshness.withinMaxAge === true,
+      sourceMatched: freshness.sourceMatched === true,
+      maxAgeHours: nonNegativeInteger(freshness.maxAgeHours, 72),
+      ageHours: Number.isFinite(Number(freshness.ageHours))
+        ? nonNegativeInteger(freshness.ageHours)
+        : null,
+    },
+    summary: {
+      label: available ? sanitizeText(summary.label) : "受控员工草稿预检结果不可用",
+      employeeRowCount: available ? nonNegativeInteger(summary.employeeRowCount) : 0,
+      coveredRoleCount: available ? nonNegativeInteger(summary.coveredRoleCount) : 0,
+      requiredRoleCount: nonNegativeInteger(summary.requiredRoleCount, 8),
+      missingRoleCount: available ? nonNegativeInteger(summary.missingRoleCount) : 8,
+      coverageLabel: available ? sanitizeText(summary.coverageLabel) || "0/8" : "0/8",
+      errorCount: available ? nonNegativeInteger(summary.errorCount) : 0,
+      warningCount: available ? nonNegativeInteger(summary.warningCount) : 0,
+      issueCount: available ? nonNegativeInteger(summary.issueCount) : 0,
+      missingEmployeeNumberCount: available ? nonNegativeInteger(summary.missingEmployeeNumberCount) : 0,
+      blockerCount: available ? nonNegativeInteger(summary.blockerCount) : 0,
+      blockerLabel: available ? sanitizeText(summary.blockerLabel) || "未读取" : "未读取",
+      freshnessLabel: available ? sanitizeText(summary.freshnessLabel) || "未验证" : "未验证",
+    },
+    roles,
+    missingRoleLabels: available && Array.isArray(value.missingRoleLabels)
+      ? value.missingRoleLabels.map(sanitizeText).filter(Boolean)
+      : [],
+    nextAction: available
+      ? sanitizeText(value.nextAction)
+      : "重新运行D49专用员工工作簿离线预检查；报告通过脱敏边界校验后才会显示聚合结果。",
+    safeguards: {
+      readOnly: value.safeguards?.readOnly === true,
+      reportRedactionVerified: safeBoundary,
+      formalDataWritten: false,
+      employeeNamesIncluded: false,
+      employeeNumbersIncluded: false,
+      workbookPathIncluded: false,
+      issueRowsIncluded: false,
+      rawIssuesIncluded: false,
+      stagedRowsIncluded: false,
+      passwordsIncluded: false,
+      seedAccountsCountedAsReady: false,
+      uploadStillRequiresServerPrecheck: true,
+      sourceEvidenceVerified: value.safeguards?.sourceEvidenceVerified === true,
+      workbookDigestIncluded: false,
     },
   };
 }

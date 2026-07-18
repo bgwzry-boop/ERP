@@ -1,6 +1,7 @@
 import { normalizeDriverDeviceFieldTestRecord } from "../driverDeviceFieldTestRepository.mjs";
 import {
   DRIVER_DEVICE_FIELD_TEST_ITEMS,
+  getDriverDeviceFieldTestAcceptance,
   getDriverDeviceFieldTestSummary,
   normalizeDriverDeviceFieldTestChecks,
   normalizeDriverPackageLabelScanSample,
@@ -22,6 +23,13 @@ export async function buildDriverV1Readiness({
   });
   const deliveryTasks = Array.isArray(deliveryTaskList.items) ? deliveryTaskList.items : [];
   const latestFieldTestRecord = getLatestFieldTestRecord({ workspace, deliveryTasks });
+  const latestFieldTestTask = deliveryTasks.find(
+    (item) => text(item?.fulfillmentId ?? item?.id) === text(latestFieldTestRecord?.fulfillmentId),
+  );
+  const fieldTestAcceptance = getDriverDeviceFieldTestAcceptance({
+    record: latestFieldTestRecord,
+    task: latestFieldTestTask,
+  });
   const fieldTestEvaluation = evaluateDeviceFieldTest(latestFieldTestRecord);
   const nativeDiagnostics = normalizeDriverNativeCapabilityDiagnostics(latestFieldTestRecord?.nativeBridgeDiagnostics);
   const nativePackageScanEvaluation = evaluateNativeCapability({
@@ -34,7 +42,10 @@ export async function buildDriverV1Readiness({
     key: "native_navigation",
     label: "原生导航桥接",
   });
-  const packageLabelScanEvaluation = evaluatePackageLabelScanSample(latestFieldTestRecord?.packageLabelScanSample);
+  const packageLabelScanEvaluation = evaluatePackageLabelScanSample(
+    latestFieldTestRecord?.packageLabelScanSample,
+    latestFieldTestTask,
+  );
   const criteria = [
     criterion({
       key: "driver-delivery-task-read-model",
@@ -52,9 +63,17 @@ export async function buildDriverV1Readiness({
     criterion({
       key: "driver-device-field-test-record",
       label: "司机真机现场验收记录",
-      passed: Boolean(latestFieldTestRecord),
-      detail: latestFieldTestRecord
-        ? `最新记录 ${latestFieldTestRecord.recordId} / ${latestFieldTestRecord.checkedAt}`
+      passed: Boolean(
+        latestFieldTestRecord &&
+          fieldTestAcceptance.taskLinked &&
+          fieldTestAcceptance.orderLineLinked &&
+          fieldTestAcceptance.driverLinked &&
+          fieldTestAcceptance.deviceIdentityReady,
+      ),
+      detail: latestFieldTestRecord && fieldTestAcceptance.taskLinked && fieldTestAcceptance.driverLinked
+        ? `最新记录 ${latestFieldTestRecord.recordId} / ${latestFieldTestRecord.checkedAt} 已绑定当前司机任务和真实手机信息`
+        : latestFieldTestRecord
+          ? "最新现场验收记录未绑定当前司机任务、分配司机或真实手机信息"
         : "尚未保存司机手机现场验收记录",
       evidence: {
         latestRecordId: latestFieldTestRecord?.recordId ?? "",
@@ -78,21 +97,25 @@ export async function buildDriverV1Readiness({
     criterion({
       key: "driver-native-package-scan",
       label: "原生扫码能力",
-      passed: nativePackageScanEvaluation.ready,
-      detail: nativePackageScanEvaluation.detail,
+      passed: nativePackageScanEvaluation.ready && fieldTestAcceptance.nativePackageScanReady,
+      detail: nativePackageScanEvaluation.ready && fieldTestAcceptance.nativePackageScanReady
+        ? nativePackageScanEvaluation.detail
+        : "原生扫码桥接缺少受支持桥接类型或当前协议版本证明",
       evidence: nativePackageScanEvaluation.evidence,
     }),
     criterion({
       key: "driver-native-navigation",
       label: "原生导航能力",
-      passed: nativeNavigationEvaluation.ready,
-      detail: nativeNavigationEvaluation.detail,
+      passed: nativeNavigationEvaluation.ready && fieldTestAcceptance.nativeNavigationReady && fieldTestAcceptance.navigationSampleReady,
+      detail: nativeNavigationEvaluation.ready && fieldTestAcceptance.nativeNavigationReady && fieldTestAcceptance.navigationSampleReady
+        ? `${nativeNavigationEvaluation.detail}；当前任务原生导航成功回执已保存`
+        : "原生导航必须由受支持桥接、当前协议版本和当前任务成功打开回执共同证明",
       evidence: nativeNavigationEvaluation.evidence,
     }),
     criterion({
       key: "driver-native-package-label-scan-sample",
       label: "纸质包裹标签原生扫码样本",
-      passed: packageLabelScanEvaluation.ready,
+      passed: packageLabelScanEvaluation.ready && fieldTestAcceptance.packageSampleReady,
       detail: packageLabelScanEvaluation.detail,
       evidence: packageLabelScanEvaluation.evidence,
     }),
@@ -113,6 +136,7 @@ export async function buildDriverV1Readiness({
     },
     latestFieldTestRecord: latestFieldTestRecord ?? null,
     latestFieldTestSummary: latestFieldTestRecord?.summary ?? null,
+    latestFieldTestAcceptance: fieldTestAcceptance,
     nativeBridgeDiagnostics: nativeDiagnostics,
     packageLabelScanSample: normalizeDriverPackageLabelScanSample(latestFieldTestRecord?.packageLabelScanSample),
     remainingV1Risks: buildRemainingRisks({ criteria, latestFieldTestRecord }),
@@ -129,6 +153,9 @@ export async function buildDriverV1Readiness({
 }
 
 function getLatestFieldTestRecord({ workspace, deliveryTasks }) {
+  const taskIds = new Set(
+    (deliveryTasks ?? []).map((item) => text(item?.fulfillmentId ?? item?.id)).filter(Boolean),
+  );
   const candidates = [
     ...(workspace.driverDeviceFieldTests ?? []),
     ...(workspace.fulfillments ?? []).map((item) => item?.deviceFieldTestRecord),
@@ -137,7 +164,7 @@ function getLatestFieldTestRecord({ workspace, deliveryTasks }) {
   const byId = new Map();
   for (const candidate of candidates) {
     const record = normalizeDriverDeviceFieldTestRecord(candidate);
-    if (record) byId.set(record.recordId, record);
+    if (record && taskIds.has(text(record.fulfillmentId))) byId.set(record.recordId, record);
   }
   return [...byId.values()].sort(compareCheckedAtDesc)[0] ?? null;
 }
@@ -207,7 +234,7 @@ function evaluateNativeCapability({ diagnostics, key, label }) {
   };
 }
 
-function evaluatePackageLabelScanSample(value) {
+function evaluatePackageLabelScanSample(value, task = null) {
   const sample = normalizeDriverPackageLabelScanSample(value);
   if (!sample) {
     return {
@@ -218,14 +245,26 @@ function evaluatePackageLabelScanSample(value) {
   }
   const matched = sample.result === "matched" || sample.result === "duplicate";
   const nativeMethod = sample.method === "native_sdk";
-  const packageMatched = Boolean(sample.expectedPackageId && sample.matchedPackageId);
+  const packageMatched = Boolean(
+    sample.expectedPackageId &&
+      sample.matchedPackageId &&
+      sample.expectedPackageId === sample.matchedPackageId,
+  );
+  const taskPackageIds = new Set(
+    (task?.packageChecklist ?? []).map((item) => text(item?.packageId ?? item?.id)).filter(Boolean),
+  );
+  const packageBelongsToTask = Boolean(sample.matchedPackageId && taskPackageIds.has(sample.matchedPackageId));
+  const fulfillmentMatches = Boolean(
+    sample.fulfillmentId && sample.fulfillmentId === text(task?.fulfillmentId ?? task?.id),
+  );
+  const nativeReceipt = sample.source === "native_sdk" && text(sample.requestId).startsWith("DNPS-");
   const scanTextPresent = Boolean(sample.scannedText);
-  const ready = matched && nativeMethod && packageMatched && scanTextPresent;
+  const ready = matched && nativeMethod && nativeReceipt && packageMatched && packageBelongsToTask && fulfillmentMatches && scanTextPresent;
   return {
     ready,
     detail: ready
       ? `原生扫码样本 ${sample.sampleId} 已匹配 ${sample.matchedPackageId}`
-      : "扫码样本未达到 V1 要求：必须是原生扫码 SDK、纸质标签文本已读回且匹配包裹",
+      : "扫码样本未达到 V1 要求：必须带原生 SDK 回执，严格匹配当前任务内的纸质包裹标签",
     evidence: {
       sampleId: sample.sampleId,
       fulfillmentId: sample.fulfillmentId,
@@ -238,7 +277,10 @@ function evaluatePackageLabelScanSample(value) {
       checkedAt: sample.checkedAt,
       scanTextPresent,
       nativeMethod,
+      nativeReceipt,
       packageMatched,
+      packageBelongsToTask,
+      fulfillmentMatches,
     },
   };
 }

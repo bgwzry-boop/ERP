@@ -171,7 +171,11 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       sessionVersion: authenticatedUser.sessionVersion,
       authSecret: securityPolicy.authSecret,
     });
-    return result(200, { session, permissions });
+    return result(200, {
+      session,
+      permissions,
+      ...getPendingPasswordChangeResponseFields(permissions),
+    });
   }
 
   async function changePassword({ workspace, body = {}, authContext = {} }) {
@@ -263,7 +267,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
         passwordChangedAt: updatedUser.passwordChangedAt,
         passwordExpiresAt: updatedUser.passwordExpiresAt,
       },
-      reason: cleanText(body.changeNote ?? body.note) || "员工首次登录后修改临时密码",
+      reason: cleanText(body.changeNote ?? body.note) || getRuntimePasswordChangeReason(runtimeUser),
       operatorId: userId,
       pageKey: "auth",
     });
@@ -275,7 +279,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       user: sanitizeRuntimeUserForResponse(updatedUser),
       permissions: getEffectivePermissions(userId, { runtimeUsers: workspace.users }),
       employeeAccountReview: updatedEmployee
-        ? toMasterDataEmployeeAccountReview(updatedEmployee, workspace.users)
+        ? toMasterDataEmployeeAccountReview(updatedEmployee, workspace.users, workspace.machines, workspace.operationLogs)
         : null,
       operationLogId: operationLog.id,
     });
@@ -295,6 +299,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       authenticated: true,
       session: authContext.session,
       permissions: permissionContext,
+      ...getPendingPasswordChangeResponseFields(permissionContext),
     });
   }
 
@@ -402,6 +407,18 @@ function getRuntimePasswordPolicyResponse() {
     ...runtimePasswordPolicy,
     description: "至少 10 位，必须同时包含字母和数字，不能包含空白字符，不能包含登录名、用户 ID 或员工 ID。",
   };
+}
+
+function getPendingPasswordChangeResponseFields(permissions) {
+  return permissions?.passwordChangeRequired === true
+    ? { passwordPolicy: getRuntimePasswordPolicyResponse() }
+    : {};
+}
+
+function getRuntimePasswordChangeReason(runtimeUser = {}) {
+  return String(runtimeUser.passwordStatus ?? "").trim() === "password_expired"
+    ? "员工密码过期后修改密码"
+    : "员工首次登录后修改临时密码";
 }
 
 function validateRuntimePasswordChange({ currentPassword, newPassword, user = {} }) {

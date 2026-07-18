@@ -1,12 +1,17 @@
-import {
-  getLineColorSpecLabel,
-  getLinePrintSide,
-  getLineRemark,
-  getOrderLineShortNo,
-  shortColorName,
-} from "../src/domain/officeRules.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { getLineRemark } from "../src/domain/officeRules.js";
+import {
+  buildDriverDeliveryTask,
+  buildDriverGoodsSummary,
+  findActiveDriverDeliveryDispatch,
+  findDriverDeliveryFulfillment,
+  getDriverDeliveryNextStep,
+  getDriverOrderTail,
+  getFulfillmentSortSequence,
+  inferDriverAddressArea,
+  mapDriverDeliveryStatus,
+} from "./services/driverDeliveryTaskProjectionService.mjs";
 
 export function createDriverDeliveryTaskReadRepository(options = {}) {
   const mode =
@@ -334,6 +339,7 @@ LEFT JOIN LATERAL (
       'summary', field_test.summary_json,
       'checks', field_test.checks_json,
       'packageLabelScanSample', field_test.summary_json->'packageLabelScanSample',
+      'nativeNavigationSample', field_test.summary_json->'nativeNavigationSample',
       'nativeBridgeDiagnostics', field_test.summary_json->'nativeBridgeDiagnostics',
       'note', field_test.note,
       'operationLogId', COALESCE(field_test.operation_log_id, ''),
@@ -618,72 +624,7 @@ function buildLocalDriverDeliveryTasks(workspace, options = {}) {
 }
 
 function buildLocalDriverDeliveryTask(workspace, fulfillment, options = {}) {
-  if (!fulfillment || fulfillment.method !== "送货") return null;
-  const orderLineId = fulfillment.orderLineId ?? fulfillment.lineId ?? "";
-  const orderLine = findOrderLine(workspace, orderLineId) ?? {};
-  const customer = (workspace.customers ?? []).find((item) => item.id === (fulfillment.customerId ?? orderLine.customerId)) ?? {};
-  const printRecord = findActiveFulfillmentPrintRecord(workspace, fulfillment);
-  const dispatch = findActiveDriverDeliveryDispatch(workspace, fulfillment.id ?? fulfillment.fulfillmentId);
-  return normalizeDriverDeliveryTask({
-    ...fulfillment,
-    driverTaskId: fulfillment.id,
-    fulfillmentId: fulfillment.id,
-    driverId: dispatch.driverId ?? fulfillment.driverId ?? options.driverId ?? "",
-    orderLineId,
-    orderTail: getDriverOrderTail(orderLine, orderLineId),
-    customerId: fulfillment.customerId ?? orderLine.customerId ?? "",
-    customerName: customer.name ?? "客户待确认",
-    contactName: customer.contact ?? "联系人待确认",
-    contactPhone: customer.phone ?? "电话待确认",
-    address: cleanText(customer.address ?? fulfillment.address) || "地址待补",
-    addressArea: inferDriverAddressArea(customer.address ?? fulfillment.address),
-    deliveryNoteNo:
-      fulfillment.deliveryNoteNo ??
-      fulfillment.printBatch ??
-      printRecord?.batchNo ??
-      printRecord?.printRecordId ??
-      "待打印/回填",
-    productName: orderLine.product ?? fulfillment.goods,
-    orderType: orderLine.orderType,
-    size: orderLine.size,
-    bagColor: orderLine.color,
-    handleType: orderLine.handle,
-    style: orderLine.style,
-    printFlag: orderLine.print === "是" || orderLine.printFlag === true,
-    printColor: orderLine.printColor,
-    printSide: orderLine.printSide,
-    handleColor: orderLine.handleColor,
-    exceptionTags: orderLine.exceptions ?? [],
-    note: orderLine.note ?? "",
-    packageSummary: fulfillment.packages,
-    packageCount: parsePackageCount(fulfillment.packages ?? fulfillment.packageSummary),
-    packageChecklist: buildLocalDriverPackageChecklist(workspace, {
-      fulfillment,
-      orderLineId,
-      packageCount: parsePackageCount(fulfillment.packages ?? fulfillment.packageSummary),
-      qty: Number(fulfillment.actualQty ?? fulfillment.qty ?? orderLine.qty ?? 0),
-    }),
-    qty: Number(fulfillment.actualQty ?? fulfillment.qty ?? orderLine.qty ?? 0),
-    expectedQty: Number(fulfillment.qty ?? orderLine.qty ?? 0),
-    latest: fulfillment.latest ?? orderLine.latest ?? "",
-    latestNeededAt: fulfillment.latestNeededAt ?? fulfillment.latest ?? orderLine.latest ?? "",
-    status: fulfillment.status,
-    inventorySource: [fulfillment.zone, fulfillment.source].filter(Boolean).join(" / "),
-    routeDate: dispatch.routeDate,
-    routeNo: dispatch.routeNo ?? dispatch.routeBatchNo,
-    routeSequence: dispatch.stopSequence ?? dispatch.routeSequence,
-    dispatchStatus: dispatch.dispatchStatus,
-    plannedDepartureAt: dispatch.plannedDepartureAt,
-    dispatchAssignedAt: dispatch.assignedAt ?? dispatch.dispatchAssignedAt,
-    customerNote: getLineRemark(orderLine) || fulfillment.customerNote || "无",
-    officeNote: fulfillment.exceptionReason || (Array.isArray(orderLine.exceptions) ? orderLine.exceptions.join("、") : "") || "无",
-    exceptionReasonCode: fulfillment.exceptionReasonCode ?? fulfillment.reasonCode ?? "",
-    exceptionReason: fulfillment.exceptionReason ?? "",
-    exceptionOccurredAt: fulfillment.exceptionOccurredAt ?? fulfillment.occurredAt ?? "",
-    completedAt: fulfillment.completedAt ?? fulfillment.deliveredAt ?? "",
-    loadedAt: fulfillment.loadedAt ?? "",
-    sortSequence: Number(options.sortSequence ?? getFulfillmentSortSequence(workspace, fulfillment.id)),
-  });
+  return normalizeDriverDeliveryTask(buildDriverDeliveryTask(workspace, fulfillment, options));
 }
 
 function buildDriverDeliveryMetrics(items = []) {
@@ -728,61 +669,11 @@ function normalizeDriverDeliveryTaskQuery(query = {}) {
   };
 }
 
-function findDriverDeliveryFulfillment(workspace, fulfillmentId) {
-  const id = cleanText(fulfillmentId);
-  return (workspace.fulfillments ?? []).find((item) => item.id === id && item.method === "送货");
-}
-
-function findOrderLine(workspace, orderLineId) {
-  const id = cleanText(orderLineId);
-  return (workspace.orderLines ?? []).find((item) => item.id === id || item.orderLineId === id);
-}
-
-function findActiveFulfillmentPrintRecord(workspace, fulfillment) {
-  const fulfillmentId = fulfillment.id ?? fulfillment.fulfillmentId;
-  return (workspace.printRecords ?? [])
-    .filter((record) => {
-      const targetId = record.targetId ?? record.fulfillmentId;
-      const status = cleanText(record.status);
-      return targetId === fulfillmentId && !["voided", "已作废"].includes(status);
-    })
-    .sort((a, b) => cleanText(b.printedAt ?? b.createdAt).localeCompare(cleanText(a.printedAt ?? a.createdAt)))[0];
-}
-
-function findActiveDriverDeliveryDispatch(workspace, fulfillmentId) {
-  const id = cleanText(fulfillmentId);
-  return (workspace.driverDeliveryDispatches ?? [])
-    .filter((dispatch) => {
-      const dispatchFulfillmentId = cleanText(dispatch.fulfillmentId ?? dispatch.fulfillment_id);
-      const status = cleanText(dispatch.dispatchStatus ?? dispatch.dispatch_status);
-      return dispatchFulfillmentId === id && !["已取消", "canceled", "voided"].includes(status);
-    })
-    .sort((a, b) => {
-      const dateDiff = cleanText(a.routeDate ?? a.route_date).localeCompare(cleanText(b.routeDate ?? b.route_date));
-      if (dateDiff) return dateDiff;
-      const routeDiff = cleanText(a.routeNo ?? a.routeBatchNo ?? a.route_batch_no).localeCompare(
-        cleanText(b.routeNo ?? b.routeBatchNo ?? b.route_batch_no),
-        "zh-Hans-CN",
-      );
-      if (routeDiff) return routeDiff;
-      const sequenceDiff =
-        toFiniteInteger(a.stopSequence ?? a.routeSequence ?? a.stop_sequence, 0) -
-        toFiniteInteger(b.stopSequence ?? b.routeSequence ?? b.stop_sequence, 0);
-      if (sequenceDiff) return sequenceDiff;
-      return cleanText(b.assignedAt ?? b.assigned_at ?? b.createdAt).localeCompare(cleanText(a.assignedAt ?? a.assigned_at ?? a.createdAt));
-    })[0] ?? {};
-}
-
 function isFulfillmentAssignedToDriver(workspace, fulfillment, driverId) {
   const safeDriverId = cleanText(driverId);
   if (!safeDriverId) return false;
   const dispatch = findActiveDriverDeliveryDispatch(workspace, fulfillment.id ?? fulfillment.fulfillmentId);
   return Boolean(cleanText(dispatch.dispatchId ?? dispatch.id)) && cleanText(dispatch.driverId) === safeDriverId;
-}
-
-function getFulfillmentSortSequence(workspace, fulfillmentId) {
-  const index = (workspace.fulfillments ?? []).findIndex((item) => item.id === fulfillmentId || item.fulfillmentId === fulfillmentId);
-  return index >= 0 ? index + 1 : 0;
 }
 
 function compareDriverDeliveryTasks(a, b) {
@@ -800,88 +691,6 @@ function compareDriverDeliveryTasks(a, b) {
   const sequenceDiff = Number(a.sortSequence ?? 0) - Number(b.sortSequence ?? 0);
   if (sequenceDiff) return sequenceDiff;
   return cleanText(a.latest).localeCompare(cleanText(b.latest), "zh-Hans-CN");
-}
-
-function mapDriverDeliveryStatus(value) {
-  const status = cleanText(value);
-  if (status === "配送中") return "配送中";
-  if (status === "已交付" || status === "已完成") return "已完成";
-  if (status.includes("异常") || status.includes("无法") || status.includes("数量")) return "送货异常";
-  return "待送货";
-}
-
-function buildDriverGoodsSummary({ fulfillment, orderLine = {}, qty }) {
-  const colorSpec = getDriverColorSpecLabel(orderLine);
-  const printSide = getLinePrintSide(orderLine);
-  const remark = getLineRemark(orderLine);
-  const parts = [
-    cleanText(orderLine.product ?? orderLine.productName) || cleanText(fulfillment.goods ?? fulfillment.productName),
-    cleanText(orderLine.size),
-    colorSpec && colorSpec !== "待确认" ? colorSpec : "",
-    printSide && printSide !== "无需印刷" ? printSide : "",
-    `${Number(qty || 0)}个`,
-    remark,
-  ];
-  return parts.filter(Boolean).join(" ");
-}
-
-function getDriverColorSpecLabel(line = {}) {
-  const labels = [];
-  if ((cleanText(line.print) === "是" || line.printFlag === true) && cleanText(line.printColor) && cleanText(line.printColor) !== "待确认") {
-    labels.push(`${shortColorName(line.color ?? line.bagColor)}印${shortColorName(line.printColor)}`);
-  }
-  if (cleanText(line.handleColor) && cleanText(line.handleColor) !== "待确认") {
-    labels.push(`${shortColorName(line.color ?? line.bagColor)}袋${shortColorName(line.handleColor)}提`);
-  }
-  return labels.length ? labels.join(" / ") : getLineColorSpecLabel(line);
-}
-
-function getDriverDeliveryNextStep(status) {
-  if (status === "配送中") return "到达客户处后提交水印照片，确认完成送货。";
-  if (status === "已完成") return "送货已完成，回单进入办公室复核和对账候选。";
-  if (status === "送货异常") return "异常已回到办公室处理，司机等待下一步通知。";
-  return "先确认已装车，出发后状态进入配送中。";
-}
-
-function inferDriverAddressArea(address) {
-  const text = cleanText(address);
-  if (!text) return "地址待补";
-  const firstToken = text.split(/\s+/)[0];
-  return firstToken.length > 8 ? firstToken.slice(0, 8) : firstToken;
-}
-
-function getDriverOrderTail(line = {}, orderLineId = "") {
-  if (line.orderNo && line.lineNo) return getOrderLineShortNo(line);
-  const id = cleanText(line.id ?? line.orderLineId ?? orderLineId);
-  const match = id.match(/ORD-\d{4}-(\d+)-(\d+)/);
-  if (match) return `#${match[1]}-${match[2]}`;
-  return id.slice(-5);
-}
-
-function buildLocalDriverPackageChecklist(workspace, { fulfillment, orderLineId, packageCount, qty }) {
-  const fulfillmentId = cleanText(fulfillment.id ?? fulfillment.fulfillmentId);
-  const packageRows = (workspace.packages ?? [])
-    .filter((item) => {
-      const itemFulfillmentId = cleanText(item.fulfillmentId);
-      const itemOrderLineId = cleanText(item.orderLineId);
-      return (fulfillmentId && itemFulfillmentId === fulfillmentId) || (!itemFulfillmentId && orderLineId && itemOrderLineId === orderLineId);
-    })
-    .sort((a, b) => Number(a.packageSeq ?? 0) - Number(b.packageSeq ?? 0));
-  if (packageRows.length) {
-    return packageRows.map((item, index) =>
-      normalizeDriverPackageChecklistItem(item, {
-        index,
-        packageCount: packageRows.length,
-        fulfillmentId,
-      }),
-    );
-  }
-  return normalizeDriverPackageChecklist([], {
-    fulfillmentId,
-    packageSummary: fulfillment.packages ?? fulfillment.packageSummary,
-    packageCount,
-    qty,
-  });
 }
 
 function normalizeDriverPackageChecklist(value, fallback = {}) {

@@ -1,15 +1,35 @@
-import { spawnSync } from "node:child_process";
-import { accessSync, constants, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
-import { delimiter, isAbsolute, join, resolve } from "node:path";
-
-const defaultCommandArgTemplate = [
-  "--print-job-id",
-  "{printJobId}",
-  "--print-device-id",
-  "{printDeviceId}",
-  "--print-device-name",
-  "{printDeviceName}",
-];
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join, resolve } from "node:path";
+import {
+  buildCupsDiagnosticRuntimeBlockers,
+  buildDiagnosticSpoolRecord,
+  buildSpoolDiagnosticRuntimeBlockers,
+  parseCupsPreflightStdout,
+  sanitizeCommandBridgeMessage,
+  summarizePollResultForDiagnostics,
+} from "./printDriverDiagnosticProjection.mjs";
+import {
+  buildCommandBridgeStatusMetadata,
+  normalizeCommandBridgeDriverStatus,
+  normalizeCommandBridgeSpoolStatus,
+  resolveCommandBridgePollResult,
+} from "./printDriverCommandBridgeStatusProjection.mjs";
+import {
+  buildCommandBridgeDispatchMetadata,
+  buildCommandBridgePayload,
+  byteLength,
+  defaultCommandArgTemplate,
+  extractCommandExternalJobId,
+  normalizeCommandArgs,
+  normalizeCommandRunnerResult,
+  normalizeOptionalInteger,
+  renderCommandArgs,
+} from "./printDriverCommandBridgeDispatchProjection.mjs";
+import {
+  inspectCommandAvailability,
+  inspectSpoolDirectory,
+  runSystemPrinterCommand,
+} from "./printDriverSystemCommandRuntime.mjs";
 
 export function createPrintDriverAdapter(options = {}) {
   const dryRunEnabled =
@@ -746,154 +766,6 @@ export function runCommandBridgeCupsDiagnostics({
   };
 }
 
-function buildDiagnosticSpoolRecord({ diagnosticExternalJobId, diagnosticPrintJob, status, now }) {
-  return {
-    bridgeJobId: diagnosticExternalJobId,
-    externalJobId: diagnosticExternalJobId,
-    status,
-    mode: "diagnostic_spool_only",
-    createdAt: now,
-    ...(status === "completed" ? { completedAt: now, updatedAt: now } : {}),
-    payloadDigest: "0".repeat(64),
-    printJobId: diagnosticPrintJob.printJobId,
-    printDeviceId: diagnosticPrintJob.printDeviceId,
-    documentType: "diagnostic",
-    targetType: "print_driver",
-    targetId: "command_bridge_spool",
-  };
-}
-
-function summarizePollResultForDiagnostics(result = {}) {
-  return {
-    adapterStatus: String(result.adapterStatus ?? "").trim(),
-    status: String(result.status ?? "").trim(),
-    driverStatus: String(result.driverStatus ?? "").trim(),
-    externalJobId: String(result.externalJobId ?? "").trim(),
-    errorCode: String(result.errorCode ?? "").trim(),
-    message: String(result.message ?? "").trim(),
-    metadata: {
-      commandBridge: {
-        statusReadback: result.metadata?.commandBridge?.statusReadback ?? "",
-        statusFileFound: Boolean(result.metadata?.commandBridge?.statusFileFound),
-        statusFileValid: Boolean(result.metadata?.commandBridge?.statusFileValid),
-        bridgeStatus: String(result.metadata?.commandBridge?.bridgeStatus ?? "").trim(),
-        bridgeDirectoryStatus: String(result.metadata?.commandBridge?.bridgeDirectoryStatus ?? "").trim(),
-        bridgeMode: String(result.metadata?.commandBridge?.bridgeMode ?? "").trim(),
-      },
-    },
-  };
-}
-
-function buildSpoolDiagnosticRuntimeBlockers({ writeOk, pendingPollOk, completedPollOk, cleanupOk, pendingPoll, completedPoll }) {
-  const blockers = [];
-  if (!writeOk) {
-    blockers.push({
-      key: "diagnostic-spool-write",
-      label: "诊断 spool 写入",
-      status: "failed",
-      tone: "danger",
-      blocking: true,
-      detail: "诊断状态文件未能写入或写入后不可见",
-    });
-  }
-  if (!pendingPollOk) {
-    blockers.push({
-      key: "diagnostic-pending-readback",
-      label: "pending 状态回读",
-      status: "failed",
-      tone: "danger",
-      blocking: true,
-      detail: pendingPoll?.message || "诊断 queued 状态无法按 sent/pending 回读",
-    });
-  }
-  if (!completedPollOk) {
-    blockers.push({
-      key: "diagnostic-completed-readback",
-      label: "completed 状态回读",
-      status: "failed",
-      tone: "danger",
-      blocking: true,
-      detail: completedPoll?.message || "诊断 completed 状态无法按 printed 回读",
-    });
-  }
-  if (!cleanupOk) {
-    blockers.push({
-      key: "diagnostic-cleanup",
-      label: "诊断文件清理",
-      status: "failed",
-      tone: "danger",
-      blocking: false,
-      detail: "诊断状态文件未能清理干净",
-    });
-  }
-  return blockers;
-}
-
-function parseCupsPreflightStdout(stdout) {
-  const raw = String(stdout ?? "").trim();
-  if (!raw) {
-    return {
-      status: "failed",
-      ready: false,
-      errorCode: "SYSTEM_PRINTER_CUPS_PREFLIGHT_NO_OUTPUT",
-      message: "CUPS queue preflight did not return a JSON result.",
-    };
-  }
-  try {
-    const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? parsed
-      : {
-          status: "failed",
-          ready: false,
-          errorCode: "SYSTEM_PRINTER_CUPS_PREFLIGHT_INVALID_OUTPUT",
-          message: "CUPS queue preflight returned invalid JSON.",
-        };
-  } catch {
-    return {
-      status: "failed",
-      ready: false,
-      errorCode: "SYSTEM_PRINTER_CUPS_PREFLIGHT_INVALID_OUTPUT",
-      message: "CUPS queue preflight returned invalid JSON.",
-    };
-  }
-}
-
-function buildCupsDiagnosticRuntimeBlockers({ result, parsed }) {
-  const blockers = [];
-  if (!result.ok) {
-    blockers.push({
-      key: "cups-preflight-command-bridge",
-      label: "CUPS 队列预检桥",
-      status: "failed",
-      tone: "danger",
-      blocking: true,
-      detail: result.message || "命令桥未能返回 CUPS 队列预检结果",
-    });
-  }
-  if (parsed.errorCode) {
-    blockers.push({
-      key: "cups-preflight-runtime",
-      label: "CUPS 队列状态",
-      status: "failed",
-      tone: "danger",
-      blocking: true,
-      detail: sanitizeCommandBridgeMessage(parsed.message) || "CUPS 队列预检未通过",
-    });
-  }
-  if (parsed.ready !== true && !parsed.errorCode) {
-    blockers.push({
-      key: "cups-preflight-ready",
-      label: "CUPS 队列可用性",
-      status: "pending",
-      tone: "warning",
-      blocking: true,
-      detail: sanitizeCommandBridgeMessage(parsed.message) || "CUPS 队列尚未证明可用",
-    });
-  }
-  return blockers;
-}
-
 function buildDispatchResult(input) {
   return {
     adapterName: "p0-print-driver-adapter",
@@ -1112,170 +984,21 @@ function buildPreflightItem({ key, label, passed, detail, blocking, failureTone 
   };
 }
 
-function inspectCommandAvailability(systemPrinterCommand) {
-  const command = String(systemPrinterCommand ?? "").trim();
-  if (!command) {
-    return {
-      configured: false,
-      executable: false,
-      detail: "未配置命令，未检查可执行文件",
-    };
-  }
-  const candidates = isAbsolute(command)
-    ? [command]
-    : String(process.env.PATH ?? "")
-        .split(delimiter)
-        .map((directory) => directory.trim())
-        .filter(Boolean)
-        .map((directory) => resolve(directory, command));
-  for (const candidate of candidates) {
-    try {
-      accessSync(candidate, constants.X_OK);
-      return {
-        configured: true,
-        executable: true,
-        detail: "命令存在且当前进程可执行",
-      };
-    } catch {
-      // Keep probing PATH candidates without exposing any candidate path.
-    }
-  }
-  return {
-    configured: true,
-    executable: false,
-    detail: "命令已配置但当前进程不可执行或未找到",
-  };
-}
-
-function inspectSpoolDirectory(commandBridgeSpoolDir) {
-  const spoolDir = String(commandBridgeSpoolDir ?? "").trim();
-  if (!spoolDir) {
-    return {
-      exists: false,
-      writable: false,
-      detail: "未配置 spool 状态目录",
-    };
-  }
-  if (!existsSync(spoolDir)) {
-    return {
-      exists: false,
-      writable: false,
-      detail: "spool 目录尚未创建，真实接入前需预创建并校验权限",
-    };
-  }
-  try {
-    const stat = statSync(spoolDir);
-    if (!stat.isDirectory()) {
-      return {
-        exists: true,
-        writable: false,
-        detail: "spool 目标存在但不是目录",
-      };
-    }
-    accessSync(spoolDir, constants.R_OK | constants.W_OK);
-    return {
-      exists: true,
-      writable: true,
-      detail: "spool 目录存在且当前进程可读写",
-    };
-  } catch {
-    return {
-      exists: true,
-      writable: false,
-      detail: "spool 目录当前进程不可读写",
-    };
-  }
-}
-
 function pollCommandBridgePrintJobStatus({ normalized, now, operatorId, reason, commandBridgeSpoolDir }) {
-  if (!normalized.externalJobId) {
-    return buildPollResult({
-      now,
-      operatorId,
-      reason,
-      adapterStatus: "poll_unavailable",
-      errorCode: "SYSTEM_PRINTER_COMMAND_BRIDGE_EXTERNAL_ID_MISSING",
-      message: "Command-bridge status readback requires the external bridge job id from dispatch.",
-    });
-  }
-  const bridgeStatus = readCommandBridgeSpoolStatus({
-    externalJobId: normalized.externalJobId,
-    spoolDir: commandBridgeSpoolDir,
-  });
-  if (!bridgeStatus.found) {
-    return buildPollResult({
-      now,
-      operatorId,
-      reason,
-      adapterStatus: "poll_unavailable",
-      errorCode: bridgeStatus.errorCode,
-      externalJobId: normalized.externalJobId,
-      message: bridgeStatus.message,
-      metadata: bridgeStatus.metadata,
-    });
-  }
-  if (!bridgeStatus.status) {
-    return buildPollResult({
-      now,
-      operatorId,
-      reason,
-      adapterStatus: "poll_unavailable",
-      errorCode: "SYSTEM_PRINTER_COMMAND_BRIDGE_STATUS_UNSUPPORTED",
-      externalJobId: normalized.externalJobId,
-      message: `Command-bridge spool status is not supported: ${bridgeStatus.rawStatus || "unknown"}.`,
-      metadata: bridgeStatus.metadata,
-    });
-  }
-  if (bridgeStatus.status === "sent") {
-    return buildPollResult({
-      now,
-      operatorId,
-      reason,
-      adapterStatus: "command_bridge_pending",
-      status: "sent",
-      driverStatus: bridgeStatus.driverStatus,
-      externalJobId: normalized.externalJobId,
-      message: "Command-bridge spool record is still pending; physical completion is not proven yet.",
-      metadata: bridgeStatus.metadata,
-    });
-  }
-  if (bridgeStatus.status === "printed") {
-    return buildPollResult({
-      now,
-      operatorId,
-      reason,
-      adapterStatus: "command_bridge_completed",
-      status: "printed",
-      driverStatus: "completed",
-      externalJobId: normalized.externalJobId,
-      message: "Command-bridge spool status reports the job as completed.",
-      metadata: bridgeStatus.metadata,
-    });
-  }
-  if (bridgeStatus.status === "failed") {
-    return buildPollResult({
-      now,
-      operatorId,
-      reason,
-      adapterStatus: "command_bridge_failed",
-      status: "failed",
-      driverStatus: "failed",
-      errorCode: bridgeStatus.errorCode || "SYSTEM_PRINTER_COMMAND_BRIDGE_REPORTED_FAILED",
-      externalJobId: normalized.externalJobId,
-      message: bridgeStatus.message || "Command-bridge spool status reports the job as failed.",
-      metadata: bridgeStatus.metadata,
-    });
-  }
+  const bridgeStatus = normalized.externalJobId
+    ? readCommandBridgeSpoolStatus({
+        externalJobId: normalized.externalJobId,
+        spoolDir: commandBridgeSpoolDir,
+      })
+    : undefined;
   return buildPollResult({
     now,
     operatorId,
     reason,
-    adapterStatus: "command_bridge_canceled",
-    status: "canceled",
-    driverStatus: "canceled",
-    externalJobId: normalized.externalJobId,
-    message: bridgeStatus.message || "Command-bridge spool status reports the job as canceled.",
-    metadata: bridgeStatus.metadata,
+    ...resolveCommandBridgePollResult({
+      externalJobId: normalized.externalJobId,
+      bridgeStatus,
+    }),
   });
 }
 
@@ -1288,7 +1011,7 @@ function readCommandBridgeSpoolStatus({ externalJobId, spoolDir }) {
     if (!existsSync(spoolPath)) continue;
     try {
       const record = JSON.parse(readFileSync(spoolPath, "utf8"));
-      const rawStatus = String(record.status ?? directoryStatus).trim();
+      const rawStatus = sanitizeCommandBridgeMessage(record.status ?? directoryStatus);
       const status = normalizeCommandBridgeSpoolStatus(rawStatus);
       return {
         found: true,
@@ -1325,47 +1048,6 @@ function readCommandBridgeSpoolStatus({ externalJobId, spoolDir }) {
       },
     },
   };
-}
-
-function normalizeCommandBridgeSpoolStatus(value) {
-  const status = String(value ?? "").trim().toLowerCase();
-  if (["completed", "complete", "printed", "done", "success", "succeeded"].includes(status)) return "printed";
-  if (["failed", "error", "errored"].includes(status)) return "failed";
-  if (["canceled", "cancelled"].includes(status)) return "canceled";
-  if (["sent", "processing", "running", "submitted", "queued", "pending", "accepted"].includes(status)) return "sent";
-  return "";
-}
-
-function normalizeCommandBridgeDriverStatus(value) {
-  const status = String(value ?? "").trim().toLowerCase();
-  if (["completed", "complete", "printed", "done", "success", "succeeded"].includes(status)) return "completed";
-  if (["failed", "error", "errored"].includes(status)) return "failed";
-  if (["canceled", "cancelled"].includes(status)) return "canceled";
-  if (status) return status;
-  return "unknown";
-}
-
-function buildCommandBridgeStatusMetadata({ record, rawStatus, directoryStatus }) {
-  return {
-    commandBridge: {
-      statusReadback: "spool_file",
-      statusFileFound: true,
-      statusFileValid: true,
-      bridgeJobId: String(record.bridgeJobId ?? record.externalJobId ?? "").trim(),
-      bridgeStatus: rawStatus,
-      bridgeDirectoryStatus: directoryStatus,
-      bridgeMode: String(record.mode ?? "").trim(),
-      bridgeCreatedAt: String(record.createdAt ?? "").trim(),
-      bridgeUpdatedAt: String(record.updatedAt ?? record.completedAt ?? record.failedAt ?? record.canceledAt ?? "").trim(),
-      payloadDigest: String(record.payloadDigest ?? "").trim(),
-    },
-  };
-}
-
-function sanitizeCommandBridgeMessage(value) {
-  const message = String(value ?? "").trim();
-  if (!message) return "";
-  return message.slice(0, 200);
 }
 
 function getSystemPrinterBridgeGuardError(
@@ -1493,98 +1175,6 @@ function runCommandRunner({ commandRunner, command, args, stdin, timeoutMs, norm
   }
 }
 
-function runSystemPrinterCommand({ command, args, stdin, timeoutMs }) {
-  return spawnSync(command, args, {
-    input: stdin,
-    encoding: "utf8",
-    timeout: timeoutMs,
-    maxBuffer: 1024 * 1024,
-    shell: false,
-  });
-}
-
-function normalizeCommandRunnerResult(result = {}) {
-  if (result.error) {
-    const timedOut = result.error.code === "ETIMEDOUT";
-    return {
-      ok: false,
-      exitCode: null,
-      signal: String(result.signal ?? "").trim(),
-      stdout: String(result.stdout ?? "").trim(),
-      stderr: String(result.stderr ?? "").trim(),
-      errorCode: timedOut ? "SYSTEM_PRINTER_COMMAND_TIMEOUT" : "SYSTEM_PRINTER_COMMAND_FAILED",
-      message: timedOut ? "System printer command timed out." : "System printer command could not be started.",
-    };
-  }
-  const exitCode = normalizeOptionalInteger(result.status ?? result.exitCode ?? result.code, 0);
-  return {
-    ok: exitCode === 0,
-    exitCode,
-    signal: String(result.signal ?? "").trim(),
-    stdout: String(result.stdout ?? "").trim(),
-    stderr: String(result.stderr ?? "").trim(),
-    externalJobId: String(result.externalJobId ?? "").trim(),
-  };
-}
-
-function buildCommandBridgeDispatchMetadata(result) {
-  return {
-    commandBridge: {
-      commandValueExposed: false,
-      argsValueExposed: false,
-      exitCode: result.exitCode,
-      signal: result.signal,
-      stdoutBytes: byteLength(result.stdout),
-      stderrBytes: byteLength(result.stderr),
-    },
-  };
-}
-
-function buildCommandBridgePayload({ printJob, normalized }) {
-  return JSON.stringify({
-    printJobId: normalized.printJobId,
-    printDeviceId: normalized.printDeviceId,
-    printDeviceName: normalized.printDeviceName,
-    driverName: normalized.driverName,
-    connectionUri: normalized.connectionUri,
-    documentType: normalized.documentType,
-    targetType: normalized.targetType,
-    targetId: normalized.targetId,
-    payloadSnapshot: printJob?.payloadSnapshot ?? {},
-    printDeviceSnapshot: printJob?.printDeviceSnapshot ?? {},
-  });
-}
-
-function extractCommandExternalJobId(result, normalized) {
-  if (result.externalJobId) return result.externalJobId;
-  const stdout = String(result.stdout ?? "").trim();
-  if (stdout) {
-    try {
-      const parsed = JSON.parse(stdout);
-      const parsedExternalJobId = String(parsed.externalJobId ?? parsed.external_job_id ?? "").trim();
-      if (parsedExternalJobId) return parsedExternalJobId;
-    } catch {
-      const match = stdout.match(/\bexternalJobId=([A-Za-z0-9_.:-]+)/);
-      if (match?.[1]) return match[1];
-    }
-  }
-  return `CMD-${normalized.printJobId}`;
-}
-
-function renderCommandArgs(commandArgs, normalized) {
-  return normalizeCommandArgs(commandArgs).map((arg) =>
-    String(arg)
-      .replaceAll("{printJobId}", normalized.printJobId)
-      .replaceAll("{printDeviceId}", normalized.printDeviceId)
-      .replaceAll("{printDeviceName}", normalized.printDeviceName)
-      .replaceAll("{driverName}", normalized.driverName)
-      .replaceAll("{connectionUri}", normalized.connectionUri)
-      .replaceAll("{documentType}", normalized.documentType)
-      .replaceAll("{targetType}", normalized.targetType)
-      .replaceAll("{targetId}", normalized.targetId),
-  );
-}
-
 function isPrintDeviceAllowed(normalized, allowedPrinterNames) {
   const allowlist = normalizeStringList(allowedPrinterNames);
   if (allowlist.length === 0) return true;
@@ -1618,33 +1208,10 @@ function normalizeCommandBridgeSpoolDir({ spoolDir = "", localStorageDir = "" } 
   return resolve(configuredStorageDir, "print-command-bridge");
 }
 
-function normalizeCommandArgs(value) {
-  if (Array.isArray(value)) return value.map((item) => String(item ?? "").trim()).filter(Boolean);
-  const raw = String(value ?? "").trim();
-  if (!raw) return [...defaultCommandArgTemplate];
-  try {
-    const parsed = JSON.parse(raw);
-    if (Array.isArray(parsed)) return parsed.map((item) => String(item ?? "").trim()).filter(Boolean);
-  } catch {
-    return [raw];
-  }
-  return [...defaultCommandArgTemplate];
-}
-
 function normalizePositiveInteger(value, fallback, max) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return fallback;
   return Math.min(Math.floor(parsed), max);
-}
-
-function normalizeOptionalInteger(value, fallback) {
-  const parsed = Number(value);
-  if (!Number.isFinite(parsed)) return fallback;
-  return Math.floor(parsed);
-}
-
-function byteLength(value) {
-  return Buffer.byteLength(String(value ?? ""), "utf8");
 }
 
 function safeFileSegment(value) {

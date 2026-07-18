@@ -2,6 +2,9 @@ export function resolveTodoReference(workspace, todo = {}) {
   const refId = cleanText(todo.refId) || cleanText(todo.ref);
   const refType = normalizeRefType(todo.refType) || normalizeRefType(inferTodoRefType(todo, refId));
   if (!refId) return referenceResult("missing", refType, refId, "待办缺少业务引用");
+  if (supportedRefTypes.has(refType) && !getAllowedTodoReferenceTypes(todo).includes(refType)) {
+    return referenceResult("missing", refType, refId, "引用类型与当前待办业务不兼容");
+  }
 
   const target = findReferenceTarget(workspace, refType, refId);
   if (target) {
@@ -21,6 +24,7 @@ export const TODO_REFERENCE_TYPES = [
   "inventory_item",
   "inventory_correction",
   "production_task",
+  "maintenance_task",
 ];
 
 const supportedRefTypes = new Set(TODO_REFERENCE_TYPES);
@@ -32,19 +36,60 @@ const referenceTypeLabels = {
   inventory_item: "库存货品",
   inventory_correction: "库存修正",
   production_task: "生产任务",
+  maintenance_task: "设备任务",
 };
+
+export function getTodoReferenceTypeLabel(refType) {
+  return referenceTypeLabels[normalizeRefType(refType)] ?? "其他业务";
+}
+
+export function getAllowedTodoReferenceTypes(todo = {}) {
+  const type = cleanText(todo.type);
+  if (type.includes("订单草稿")) return ["order_draft"];
+  if (type.includes("库存修正")) return ["inventory_correction"];
+  if (type.includes("对账") || type.includes("收款")) return ["statement"];
+  if (type.includes("打印") || type.includes("标签") || type.includes("快递") || type.includes("快运") || type.includes("数量")) return ["fulfillment"];
+  if (type.includes("缺货") || type.includes("库存")) return ["order_line", "inventory_item"];
+  if (type.includes("生产") || type.includes("制袋") || type.includes("丝印")) return ["production_task"];
+  if (type.includes("设备") || type.includes("报修") || type.includes("巡检") || type.includes("维护")) return ["maintenance_task"];
+  const currentType = normalizeRefType(todo.refType) || normalizeRefType(inferTodoRefType(todo, cleanText(todo.refId ?? todo.ref)));
+  return supportedRefTypes.has(currentType) ? [currentType] : [...TODO_REFERENCE_TYPES];
+}
+
+export function normalizeTodoReferenceForWrite(workspace, todo = {}) {
+  const refId = cleanText(todo.refId) || cleanText(todo.ref);
+  const refType = normalizeRefType(todo.refType) || normalizeRefType(inferTodoRefType(todo, refId));
+  const normalized = { ...todo, ref: refId, refType, refId };
+  const resolution = resolveTodoReference(workspace, normalized);
+  if (resolution.referenceStatus === "valid") {
+    return {
+      ...normalized,
+      ref: resolution.resolvedRefId,
+      refType: resolution.resolvedRefType,
+      refId: resolution.resolvedRefId,
+    };
+  }
+
+  const error = new Error(resolution.referenceReason || "待办业务引用无效");
+  error.code = getTodoReferenceWriteErrorCode(resolution, refId, refType);
+  error.referenceStatus = resolution.referenceStatus;
+  error.refType = refType;
+  error.refId = refId;
+  throw error;
+}
 
 export function listTodoReferenceCandidates(workspace, todo = {}, limit = 20) {
   const current = resolveTodoReference(workspace, todo);
   if (current.referenceStatus === "valid") return [];
   const customerId = cleanText(todo.customerId);
-  const preferredType = normalizeRefType(todo.refType) || normalizeRefType(inferTodoRefType(todo, cleanText(todo.refId ?? todo.ref)));
-  const candidates = TODO_REFERENCE_TYPES.flatMap((refType) => referenceRows(workspace, refType).map((target) => {
+  const allowedRefTypes = getAllowedTodoReferenceTypes(todo);
+  const preferredType = allowedRefTypes[0];
+  const candidates = allowedRefTypes.flatMap((refType) => referenceRows(workspace, refType).map((target) => {
     const refId = referenceTargetId(target, refType);
     return refId ? {
       refType,
       refId,
-      label: `${referenceTypeLabels[refType]} · ${refId}${referenceTargetStatus(target) ? ` · ${referenceTargetStatus(target)}` : ""}`,
+      label: `${getTodoReferenceTypeLabel(refType)} · ${refId}${referenceTargetStatus(target) ? ` · ${referenceTargetStatus(target)}` : ""}`,
       sameCustomer: Boolean(customerId) && referenceCustomerId(workspace, target, refType) === customerId,
     } : null;
   }).filter(Boolean));
@@ -77,6 +122,7 @@ function findReferenceTarget(workspace, refType, refId) {
   if (refType === "inventory_item") return findById(workspace.inventories ?? workspace.inventoryRecords, refId, "inventoryKey");
   if (refType === "inventory_correction") return findById(workspace.inventoryCorrectionDrafts, refId, "correctionDraftId");
   if (refType === "production_task") return findById(workspace.productionTasks ?? workspace.productionPacking?.productionTasks, refId, "productionTaskId");
+  if (refType === "maintenance_task") return findById(workspace.maintenanceTasks, refId, "taskId");
   return null;
 }
 
@@ -88,6 +134,7 @@ function referenceRows(workspace, refType) {
   if (refType === "inventory_item") return workspace.inventories ?? workspace.inventoryRecords ?? [];
   if (refType === "inventory_correction") return workspace.inventoryCorrectionDrafts ?? [];
   if (refType === "production_task") return workspace.productionTasks ?? workspace.productionPacking?.productionTasks ?? [];
+  if (refType === "maintenance_task") return workspace.maintenanceTasks ?? [];
   return [];
 }
 
@@ -95,6 +142,7 @@ function referenceTargetId(target, refType) {
   if (refType === "inventory_item") return cleanText(target.id ?? target.inventoryKey);
   if (refType === "inventory_correction") return cleanText(target.id ?? target.correctionDraftId);
   if (refType === "production_task") return cleanText(target.id ?? target.productionTaskId);
+  if (refType === "maintenance_task") return cleanText(target.id ?? target.taskId);
   return cleanText(target.id);
 }
 
@@ -114,6 +162,7 @@ function referenceCustomerId(workspace, target, refType) {
 
 function inferTodoRefType(todo, refId) {
   const type = cleanText(todo.type);
+  if (type.includes("设备") || type.includes("报修") || type.includes("巡检") || type.includes("维护")) return "maintenance_task";
   if (type.includes("订单草稿")) return "order_draft";
   if (type.includes("对账") || type.includes("收款")) return "statement";
   if (type.includes("打印") || type.includes("标签") || type.includes("快递") || type.includes("快运") || type.includes("数量")) return "fulfillment";
@@ -121,7 +170,15 @@ function inferTodoRefType(todo, refId) {
   if (refId.startsWith("ST-")) return "statement";
   if (refId.startsWith("DRAFT")) return "order_draft";
   if (refId.startsWith("F")) return "fulfillment";
+  if (refId.startsWith("MT-")) return "maintenance_task";
   return "order_line";
+}
+
+function getTodoReferenceWriteErrorCode(resolution, refId, refType) {
+  if (!refId) return "TODO_REFERENCE_REQUIRED";
+  if (!supportedRefTypes.has(refType)) return "TODO_REFERENCE_TYPE_UNSUPPORTED";
+  if (resolution.referenceReason === "引用类型与当前待办业务不兼容") return "TODO_REFERENCE_TYPE_INCOMPATIBLE";
+  return "TODO_REFERENCE_TARGET_NOT_FOUND";
 }
 
 function normalizeRefType(value) {

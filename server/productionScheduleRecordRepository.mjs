@@ -2,6 +2,12 @@ import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import {
+  buildBusinessDecisionAttachmentLinksCte,
+  buildInsertBusinessDecisionCte,
+  buildSupersedeBusinessDecisionCte,
+  normalizeDecisionRecord,
+} from "./businessDecisionEvidenceRepository.mjs";
 
 export function createProductionScheduleRecordRepository(options = {}) {
   const mode =
@@ -43,16 +49,17 @@ export function createLocalProductionScheduleRecordRepository() {
       if (!records.length || !operationLog) {
         throw new Error("Production schedule records and operation log are required for resequencing");
       }
-      applyProductionScheduleRecordWorkspaceMutation({
-        workspace: input.workspace,
-        records,
-        operationLog: input.operationLog,
+      return commitLocalScheduleDecision({ ...input, idempotencyScope: "production.schedule.resequence" }, (stagedWorkspace) => {
+        applyProductionScheduleRecordWorkspaceMutation({
+          workspace: stagedWorkspace,
+          records,
+        });
+        return {
+          productionScheduleRecords: records,
+          transactionContext: normalizeTransactionContext(input.transactionContext),
+          operationLogId: operationLog.id,
+        };
       });
-      return {
-        productionScheduleRecords: records,
-        transactionContext: normalizeTransactionContext(input.transactionContext),
-        operationLogId: operationLog.id,
-      };
     },
 
     moveMachineQueueItem(input = {}) {
@@ -62,18 +69,19 @@ export function createLocalProductionScheduleRecordRepository() {
       if (!records.length || !productionTask || !operationLog) {
         throw new Error("Production task, schedule records, and operation log are required for moving a schedule item");
       }
-      applyProductionScheduleRecordWorkspaceMutation({
-        workspace: input.workspace,
-        records,
-        productionTask,
-        operationLog: input.operationLog,
+      return commitLocalScheduleDecision({ ...input, idempotencyScope: "production.schedule.move" }, (stagedWorkspace) => {
+        applyProductionScheduleRecordWorkspaceMutation({
+          workspace: stagedWorkspace,
+          records,
+          productionTask,
+        });
+        return {
+          productionTask,
+          productionScheduleRecords: records,
+          transactionContext: normalizeTransactionContext(input.transactionContext),
+          operationLogId: operationLog.id,
+        };
       });
-      return {
-        productionTask,
-        productionScheduleRecords: records,
-        transactionContext: normalizeTransactionContext(input.transactionContext),
-        operationLogId: operationLog.id,
-      };
     },
   };
 }
@@ -126,6 +134,7 @@ export function createPostgresProductionScheduleRecordRepository(options = {}) {
         records: result.productionScheduleRecords,
         operationLog: toSavedOperationLog(input.operationLog, result.operationLogId),
       });
+      applyDecisionWorkspaceMutation(input.workspace, result.businessDecision, input.attachmentLinks);
       return result;
     },
 
@@ -149,9 +158,52 @@ export function createPostgresProductionScheduleRecordRepository(options = {}) {
         productionTask: result.productionTask,
         operationLog: toSavedOperationLog(input.operationLog, result.operationLogId),
       });
+      applyDecisionWorkspaceMutation(input.workspace, result.businessDecision, input.attachmentLinks);
       return result;
     },
   };
+}
+
+function commitLocalScheduleDecision(input, applyMutation) {
+  if (!input.decisionRecord?.id || typeof applyMutation !== "function") {
+    throw new Error("A business decision is required for production schedule changes");
+  }
+  const committed = input.workspace.businessDecisionEvidenceRepository.commitDecisionBundle({
+    workspace: input.workspace,
+    decisionRecord: input.decisionRecord,
+    attachmentLinks: input.attachmentLinks,
+    operationLog: input.operationLog,
+    idempotencyScope: cleanText(input.idempotencyScope) || "production.schedule.change",
+    idempotencyKey: input.idempotencyKey,
+    idempotencyPayload: input.idempotencyPayload,
+    applyBusinessMutation(stagedWorkspace) {
+      assertLocalScheduleConcurrency(stagedWorkspace, input);
+      const result = applyMutation(stagedWorkspace);
+      return {
+        commitKeys: ["productionScheduleRecords", "productionTasks"],
+        result,
+      };
+    },
+  });
+  return {
+    ...committed.businessResult,
+    businessDecision: committed.businessDecision,
+    replayed: committed.replayed === true,
+  };
+}
+
+function buildScheduleDecisionCtes(input, parameters) {
+  const decisionRecord = normalizeDecisionRecord(input.decisionRecord);
+  if (!decisionRecord) throw new Error("A business decision is required for production schedule changes");
+  return `superseded_business_decision AS (
+  ${buildSupersedeBusinessDecisionCte(decisionRecord, parameters, "write_guard")}
+),
+inserted_business_decision AS (
+  ${buildInsertBusinessDecisionCte(decisionRecord, parameters, "write_guard")}
+),
+inserted_business_decision_attachment_links AS (
+  ${buildBusinessDecisionAttachmentLinksCte(input.attachmentLinks, parameters, "inserted_business_decision")}
+)`;
 }
 
 function executeIdempotentScheduleTransaction({ input, scope, query, idempotentTransactionJson, resourceLocks }) {
@@ -167,6 +219,57 @@ function executeIdempotentScheduleTransaction({ input, scope, query, idempotentT
       query,
     }),
   );
+}
+
+function applyDecisionWorkspaceMutation(workspace, businessDecision, attachmentLinks = []) {
+  const decision = normalizeDecisionRecord(businessDecision);
+  if (!workspace || !decision) return;
+  workspace.businessDecisionRecords = upsertById(workspace.businessDecisionRecords ?? [], decision);
+  for (const link of Array.isArray(attachmentLinks) ? attachmentLinks : []) {
+    workspace.attachmentLinks = upsertById(workspace.attachmentLinks ?? [], link);
+  }
+}
+
+function assertLocalScheduleConcurrency(workspace, input) {
+  const machineIds = normalizeMachineIds(input);
+  const currentRecords = normalizeProductionScheduleRecords(workspace.productionScheduleRecords ?? [])
+    .filter((record) => machineIds.includes(record.machineId));
+  if (Number.isInteger(Number(input.expectedQueueRevision))) {
+    const currentQueueRevision = currentRecords.reduce((sum, record) => sum + positiveRevision(record.revision), 0);
+    if (currentQueueRevision !== Number(input.expectedQueueRevision)) {
+      throw scheduleConflict({ currentRevision: currentQueueRevision });
+    }
+  }
+  const expectedRecords = normalizeExpectedScheduleRecords(input.expectedRecords ?? []);
+  if (expectedRecords.length !== currentRecords.length || expectedRecords.some((expected) => {
+    const current = currentRecords.find(
+      (record) => record.machineId === expected.machineId && record.productionTaskId === expected.productionTaskId,
+    );
+    return !current || current.revision !== expected.revision;
+  })) {
+    throw scheduleConflict({ currentRecords: currentRecords.map((record) => ({
+      productionTaskId: record.productionTaskId,
+      machineId: record.machineId,
+      revision: record.revision,
+    })) });
+  }
+  const expectedTask = normalizeProductionTaskForMachineMove(input.productionTask);
+  if (expectedTask) {
+    const currentTask = (workspace.productionTasks ?? []).find(
+      (task) => cleanText(task.productionTaskId ?? task.id) === expectedTask.productionTaskId,
+    );
+    if (!currentTask || positiveRevision(currentTask.revision) !== expectedTask.revision) {
+      throw scheduleConflict({ currentRevision: positiveRevision(currentTask?.revision) });
+    }
+  }
+}
+
+function scheduleConflict(details) {
+  const error = new Error("排产记录已被另一位办公室人员更新，请刷新后重新确认。");
+  error.statusCode = 409;
+  error.code = "BUSINESS_WRITE_CONFLICT";
+  error.details = details;
+  return error;
 }
 
 function buildScheduleResourceLocks(input) {
@@ -199,17 +302,48 @@ export function buildResequenceProductionScheduleRecordsTransactionQuery(input =
   }
 
   const parameters = createPostgresParameterBinder();
-  const scheduleRecordValues = records.map((record) => buildProductionScheduleRecordValuesSql(record, parameters)).join(",\n    ");
   const machineIds = normalizeMachineIds({ ...input, records, expectedRecords });
-  const writeGuardCtes = buildScheduleWriteGuardCtes({ expectedRecords, machineIds }, parameters);
+  const writeGuardCtes = buildScheduleWriteGuardCtes({
+    expectedRecords,
+    machineIds,
+    expectedQueueRevision: input.expectedQueueRevision,
+  }, parameters);
   const operationLogSql = buildInsertOperationLogSql(operationLog, parameters, "write_guard");
+  const decisionCtes = buildScheduleDecisionCtes(input, parameters);
   const transactionContext = parameters.json(normalizeTransactionContext(input.transactionContext));
   return {
     text: `
 BEGIN;
 WITH ${writeGuardCtes}
 upserted_schedule_records AS (
-  INSERT INTO production_schedule_records (
+  ${buildUpsertProductionScheduleRecordsSql(records, parameters, "write_guard")}
+),
+inserted_operation_log AS (
+  ${operationLogSql}
+),
+${decisionCtes}
+SELECT json_build_object(
+  'productionScheduleRecords', (
+    SELECT COALESCE(json_agg(result ORDER BY (result->>'machineId'), (result->>'queueSeq')::int, result->>'productionTaskId'), '[]'::json)
+    FROM upserted_schedule_records
+  ),
+  'transactionContext', ${transactionContext},
+  'businessDecision', (SELECT result FROM inserted_business_decision),
+  'operationLogId', (SELECT id FROM inserted_operation_log)
+) AS result;
+COMMIT;
+`.trim(),
+    values: parameters.values,
+  };
+}
+
+export function buildUpsertProductionScheduleRecordsSql(records, parameters, dependency = "") {
+  const normalized = normalizeProductionScheduleRecords(records ?? []);
+  if (!normalized.length) return "SELECT NULL::json AS result WHERE false";
+  const values = normalized
+    .map((record) => buildProductionScheduleRecordValuesSql(record, parameters))
+    .join(",\n    ");
+  return `INSERT INTO production_schedule_records (
     id,
     biz_no,
     production_task_id,
@@ -228,7 +362,7 @@ upserted_schedule_records AS (
     created_by,
     created_at,
     updated_at
-  ) ${buildScheduleRecordsInsertSource(scheduleRecordValues, "write_guard")}
+  ) ${buildScheduleRecordsInsertSource(values, dependency)}
   ON CONFLICT (machine_id, production_task_id) DO UPDATE SET
     order_line_id = EXCLUDED.order_line_id,
     published_schedule_id = EXCLUDED.published_schedule_id,
@@ -242,23 +376,7 @@ upserted_schedule_records AS (
     sequence_updated_by = EXCLUDED.sequence_updated_by,
     remark = EXCLUDED.remark,
     updated_at = now()
-  RETURNING ${productionScheduleRecordJsonExpression("production_schedule_records")} AS result
-),
-inserted_operation_log AS (
-  ${operationLogSql}
-)
-SELECT json_build_object(
-  'productionScheduleRecords', (
-    SELECT COALESCE(json_agg(result ORDER BY (result->>'machineId'), (result->>'queueSeq')::int, result->>'productionTaskId'), '[]'::json)
-    FROM upserted_schedule_records
-  ),
-  'transactionContext', ${transactionContext},
-  'operationLogId', (SELECT id FROM inserted_operation_log)
-) AS result;
-COMMIT;
-`.trim(),
-    values: parameters.values,
-  };
+  RETURNING ${productionScheduleRecordJsonExpression("production_schedule_records")} AS result`;
 }
 
 export function buildMoveProductionScheduleQueueItemTransactionSql(input = {}) {
@@ -281,6 +399,7 @@ export function buildMoveProductionScheduleQueueItemTransactionQuery(input = {})
   const machineIds = normalizeMachineIds({ ...input, records, expectedRecords });
   const writeGuardCtes = buildScheduleWriteGuardCtes({ expectedRecords, machineIds, productionTask }, parameters);
   const operationLogSql = buildInsertOperationLogSql(operationLog, parameters, "write_guard");
+  const decisionCtes = buildScheduleDecisionCtes(input, parameters);
   const transactionContext = parameters.json(normalizeTransactionContext(input.transactionContext));
   return {
     text: `
@@ -334,7 +453,8 @@ upserted_schedule_records AS (
 ),
 inserted_operation_log AS (
   ${operationLogSql}
-)
+),
+${decisionCtes}
 SELECT json_build_object(
   'productionTask', (SELECT result FROM updated_production_task),
   'productionScheduleRecords', (
@@ -342,6 +462,7 @@ SELECT json_build_object(
     FROM upserted_schedule_records
   ),
   'transactionContext', ${transactionContext},
+  'businessDecision', (SELECT result FROM inserted_business_decision),
   'operationLogId', (SELECT id FROM inserted_operation_log)
 ) AS result;
 COMMIT;
@@ -377,6 +498,7 @@ export function normalizeProductionScheduleResequenceResult(value) {
       value?.productionScheduleRecords ?? value?.production_schedule_records ?? [],
     ),
     transactionContext: normalizeTransactionContext(value?.transactionContext ?? value?.transaction_context),
+    businessDecision: normalizeDecisionRecord(value?.businessDecision ?? value?.business_decision),
     operationLogId: cleanText(value?.operationLogId ?? value?.operation_log_id),
   };
 }
@@ -388,6 +510,7 @@ export function normalizeProductionScheduleMoveResult(value) {
       value?.productionScheduleRecords ?? value?.production_schedule_records ?? [],
     ),
     transactionContext: normalizeTransactionContext(value?.transactionContext ?? value?.transaction_context),
+    businessDecision: normalizeDecisionRecord(value?.businessDecision ?? value?.business_decision),
     operationLogId: cleanText(value?.operationLogId ?? value?.operation_log_id),
   };
 }
@@ -395,6 +518,43 @@ export function normalizeProductionScheduleMoveResult(value) {
 export function normalizeProductionScheduleRecords(value) {
   if (!Array.isArray(value)) return [];
   return value.map((record) => normalizeProductionScheduleRecord(record)).filter(Boolean);
+}
+
+export function ensurePublishedTaskScheduleRecords({ productionTasks = [], records = [] } = {}) {
+  const normalized = normalizeProductionScheduleRecords(records);
+  const existingKeys = new Set(
+    normalized.map((record) => `${record.machineId}::${record.productionTaskId}`),
+  );
+  for (const task of Array.isArray(productionTasks) ? productionTasks : []) {
+    const productionTaskId = cleanText(task?.productionTaskId ?? task?.id);
+    const machineId = cleanText(task?.machineId ?? task?.machine_id);
+    const publishedScheduleId = cleanText(task?.publishedScheduleId ?? task?.published_schedule_id);
+    const key = `${machineId}::${productionTaskId}`;
+    if (!productionTaskId || !machineId || !publishedScheduleId || existingKeys.has(key)) continue;
+    const createdAt = cleanText(task?.createdAt ?? task?.created_at) || new Date().toISOString();
+    const updatedAt = cleanText(task?.updatedAt ?? task?.updated_at) || createdAt;
+    const scheduleRecordId = `SQR-BACKFILL-${scheduleRecordPart(machineId)}-${scheduleRecordPart(productionTaskId)}`;
+    normalized.push(normalizeProductionScheduleRecord({
+      id: scheduleRecordId,
+      scheduleRecordId,
+      productionTaskId,
+      orderLineId: cleanText(task?.orderLineId ?? task?.order_line_id ?? task?.lineId),
+      publishedScheduleId,
+      machineId,
+      queueSeq: 0,
+      status: "active",
+      sourceKind: "schedule_publish_backfill",
+      revision: 1,
+      sequenceUpdatedAt: updatedAt,
+      sequenceUpdatedBy: cleanText(task?.createdBy ?? task?.created_by),
+      remark: "已发布排产记录补齐",
+      createdBy: cleanText(task?.createdBy ?? task?.created_by),
+      createdAt,
+      updatedAt,
+    }));
+    existingKeys.add(key);
+  }
+  return normalized.filter(Boolean);
 }
 
 function normalizeExpectedScheduleRecords(value) {
@@ -506,7 +666,7 @@ function buildProductionScheduleRecordWhereClause(filters = {}, parameters) {
   return clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
 }
 
-function buildScheduleWriteGuardCtes({ expectedRecords, machineIds, productionTask }, parameters) {
+function buildScheduleWriteGuardCtes({ expectedRecords, machineIds, productionTask, expectedQueueRevision }, parameters) {
   const expectedPayload = expectedRecords.map((record) => ({
     machine_id: record.machineId,
     production_task_id: record.productionTaskId,
@@ -518,6 +678,9 @@ function buildScheduleWriteGuardCtes({ expectedRecords, machineIds, productionTa
       WHERE revision = ${parameters.integer(productionTask.revision)}
         AND task_status <> '已完成'
     )`
+    : "TRUE";
+  const queueRevisionCondition = Number.isInteger(Number(expectedQueueRevision))
+    ? `(SELECT COALESCE(SUM(revision), 0) FROM locked_schedule_records) = ${parameters.integer(Number(expectedQueueRevision))}`
     : "TRUE";
   return `expected_schedule_records AS MATERIALIZED (
   SELECT
@@ -556,6 +719,7 @@ write_guard AS MATERIALIZED (
     ),
     'ERP_PRODUCTION_SCHEDULE_QUEUE_CONCURRENCY_CONFLICT'
   )
+  AND erp_require(${queueRevisionCondition}, 'ERP_PRODUCTION_SCHEDULE_QUEUE_CONCURRENCY_CONFLICT')
   AND erp_require(${productionTaskCondition}, 'ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT') AS ok
 ),`;
 }
@@ -804,6 +968,10 @@ function toFiniteInteger(value, fallback = 0) {
 function positiveRevision(value) {
   const revision = Number(value);
   return Number.isInteger(revision) && revision >= 1 ? revision : 1;
+}
+
+function scheduleRecordPart(value) {
+  return cleanText(value).replace(/[^a-z0-9_-]/gi, "").slice(-36) || "UNKNOWN";
 }
 
 function cleanText(value) {

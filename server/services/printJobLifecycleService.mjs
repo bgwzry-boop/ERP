@@ -8,6 +8,10 @@ export function createPrintJobLifecycleService({
     printJobBusinessProjectionService?.syncPrintJobBusinessProjection,
     "printJobBusinessProjectionService.syncPrintJobBusinessProjection",
   );
+  assertFunction(
+    printJobBusinessProjectionService?.persistFulfillmentPrintJobProjection,
+    "printJobBusinessProjectionService.persistFulfillmentPrintJobProjection",
+  );
 
   async function updatePrintJobStatus({ workspace, printJobId, body = {}, operatorId }) {
     const before = await findPrintJob(workspace, printJobId);
@@ -47,24 +51,21 @@ export function createPrintJobLifecycleService({
       after,
       reason: body.reason ?? body.errorMessage ?? "",
     });
-    const transaction = await workspace.printJobRepository.updatePrintJob({
+    const persisted = await persistPrintJobWithBusinessProjection({
       workspace,
       printJob: after,
-      operationLog,
-      idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, operatorId },
-    });
-    const printProjection = await syncBusinessProjection({
-      workspace,
-      printJob: transaction.printJob,
+      printJobOperationLog: operationLog,
+      printJobWriteMode: "update",
       operatorId,
       reason: body.reason ?? body.errorMessage ?? "",
       idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: { ...body, operatorId },
     });
+    if (persisted.error) return persisted;
     return {
-      printJob: transaction.printJob,
-      operationLogId: transaction.operationLogId,
-      ...printProjection,
+      printJob: persisted.printJob,
+      operationLogId: persisted.operationLogId,
+      ...persisted.printProjection,
     };
   }
 
@@ -101,25 +102,22 @@ export function createPrintJobLifecycleService({
       after,
       reason: body.reason ?? dispatchResult.message ?? "",
     });
-    const transaction = await workspace.printJobRepository.updatePrintJob({
+    const persisted = await persistPrintJobWithBusinessProjection({
       workspace,
       printJob: after,
-      operationLog,
-      idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, operatorId },
-    });
-    const printProjection = await syncBusinessProjection({
-      workspace,
-      printJob: transaction.printJob,
+      printJobOperationLog: operationLog,
+      printJobWriteMode: "update",
       operatorId,
       reason: body.reason ?? dispatchResult.message ?? "",
       idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: { ...body, operatorId },
     });
+    if (persisted.error) return persisted;
     return {
-      printJob: transaction.printJob,
+      printJob: persisted.printJob,
       dispatchResult,
-      operationLogId: transaction.operationLogId,
-      ...printProjection,
+      operationLogId: persisted.operationLogId,
+      ...persisted.printProjection,
     };
   }
 
@@ -224,25 +222,22 @@ export function createPrintJobLifecycleService({
       after,
       reason,
     });
-    const transaction = await workspace.printJobRepository.updatePrintJob({
+    const persisted = await persistPrintJobWithBusinessProjection({
       workspace,
       printJob: after,
-      operationLog,
-      idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, operatorId },
-    });
-    const printProjection = await syncBusinessProjection({
-      workspace,
-      printJob: transaction.printJob,
+      printJobOperationLog: operationLog,
+      printJobWriteMode: "update",
       operatorId: driverStatusEvent.operatorId,
       reason,
       idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: { ...body, operatorId },
     });
+    if (persisted.error) return persisted;
     return {
-      printJob: transaction.printJob,
+      printJob: persisted.printJob,
       driverStatusEvent,
-      operationLogId: transaction.operationLogId,
-      ...printProjection,
+      operationLogId: persisted.operationLogId,
+      ...persisted.printProjection,
     };
   }
 
@@ -266,30 +261,79 @@ export function createPrintJobLifecycleService({
       after: retryJob,
       reason: body.retryReason ?? body.reason ?? "",
     });
-    const transaction = await workspace.printJobRepository.createPrintJob({
+    const persisted = await persistPrintJobWithBusinessProjection({
       workspace,
       printJob: retryJob,
-      operationLog,
-      idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, operatorId },
-    });
-    const printProjection = await syncBusinessProjection({
-      workspace,
-      printJob: transaction.printJob,
+      printJobOperationLog: operationLog,
+      printJobWriteMode: "create",
       operatorId,
       reason: body.retryReason ?? body.reason ?? "",
       idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: { ...body, operatorId },
     });
+    if (persisted.error) return persisted;
     return {
       sourcePrintJob: before,
-      printJob: transaction.printJob,
-      operationLogId: transaction.operationLogId,
-      ...printProjection,
+      printJob: persisted.printJob,
+      operationLogId: persisted.operationLogId,
+      ...persisted.printProjection,
     };
   }
 
   function syncBusinessProjection(input) {
     return printJobBusinessProjectionService.syncPrintJobBusinessProjection(input);
+  }
+
+  async function persistPrintJobWithBusinessProjection({
+    workspace,
+    printJob,
+    printJobOperationLog,
+    printJobWriteMode,
+    operatorId,
+    reason,
+    idempotencyKey,
+    idempotencyPayload,
+  }) {
+    const atomicProjection = await printJobBusinessProjectionService.persistFulfillmentPrintJobProjection({
+      workspace,
+      printJob,
+      printJobOperationLog,
+      printJobWriteMode,
+      operatorId,
+      reason,
+      idempotencyKey,
+    });
+    if (atomicProjection?.error) return atomicProjection;
+    if (atomicProjection?.handled) {
+      const { handled: _handled, printJob: savedPrintJob, operationLogId, ...printProjection } = atomicProjection;
+      return {
+        printJob: savedPrintJob,
+        operationLogId,
+        printProjection,
+      };
+    }
+
+    const transaction = await workspace.printJobRepository[
+      printJobWriteMode === "create" ? "createPrintJob" : "updatePrintJob"
+    ]({
+      workspace,
+      printJob,
+      operationLog: printJobOperationLog,
+      idempotencyKey,
+      idempotencyPayload,
+    });
+    const printProjection = await syncBusinessProjection({
+      workspace,
+      printJob: transaction.printJob,
+      operatorId,
+      reason,
+      idempotencyKey,
+    });
+    return {
+      printJob: transaction.printJob,
+      operationLogId: transaction.operationLogId,
+      printProjection,
+    };
   }
 
   return {

@@ -292,9 +292,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
-    const expectedRevision = parseDraftExpectedRevision(body.clientRevision);
+    const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) {
-      return businessError(422, "VALIDATION_ERROR", "clientRevision must be a positive integer");
+      return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
     }
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
@@ -343,8 +343,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function restoreShortageCancelledDraftLine({ workspace, draftId, body = {}, operatorId }) {
-    const expectedRevision = parseDraftExpectedRevision(body.clientRevision);
-    if (!expectedRevision) return businessError(422, "VALIDATION_ERROR", "clientRevision must be a positive integer");
+    const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
+    if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
     const draftLineId = cleanCommandText(body.draftLineId);
     if (!draftLineId) return businessError(422, "VALIDATION_ERROR", "draftLineId is required");
     const reason = cleanCommandText(body.reason);
@@ -439,8 +439,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function linkCrossDraftShortageCancellation({ workspace, draftId, body = {}, operatorId }) {
-    const expectedRevision = parseDraftExpectedRevision(body.clientRevision);
-    if (!expectedRevision) return businessError(422, "VALIDATION_ERROR", "clientRevision must be a positive integer");
+    const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
+    if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
     const draftLineId = cleanCommandText(body.draftLineId);
     const intentId = cleanCommandText(body.intentId);
     const reason = cleanCommandText(body.reason);
@@ -548,9 +548,9 @@ export function createOrderDraftCommandService(dependencies = {}) {
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
     }
-    const expectedRevision = parseDraftExpectedRevision(body.clientRevision);
+    const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
     if (!expectedRevision) {
-      return businessError(422, "VALIDATION_ERROR", "clientRevision must be a positive integer");
+      return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
     }
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
@@ -666,7 +666,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       inventoryReservations,
       operatorId,
     );
-    const todos = buildConfirmationTodos(workspace, confirmation.shortageTodoInputs, operatorId);
+    const todos = buildConfirmationTodos(workspace, confirmation.shortageTodoInputs, operatorId, confirmation.newLines);
     const transaction = await workspace.orderConfirmationTransactionRepository.confirmOrder({
       workspace,
       idempotencyKey: body.idempotencyKey,
@@ -720,8 +720,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
   async function previewOrderDraftSplit({ workspace, draftId, body = {} }) {
     const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
-    const expectedRevision = parseDraftExpectedRevision(body.clientRevision);
-    if (!expectedRevision) return businessError(422, "VALIDATION_ERROR", "clientRevision must be a positive integer");
+    const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
+    if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) {
@@ -740,8 +740,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
   async function confirmSplitOrderDraft({ workspace, draftId, body = {}, operatorId }) {
     let lines = normalizeDraftRows(body.lines ?? [], workspace, body);
     if (!lines.length) return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
-    const expectedRevision = parseDraftExpectedRevision(body.clientRevision);
-    if (!expectedRevision) return businessError(422, "VALIDATION_ERROR", "clientRevision must be a positive integer");
+    const expectedRevision = parseDraftExpectedRevision(body.expectedRevision);
+    if (!expectedRevision) return businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision must be a positive integer");
     const idempotencyPayload = {
       ...body,
       operatorId,
@@ -863,6 +863,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       workspace,
       confirmations.flatMap((item) => item.confirmation.shortageTodoInputs),
       operatorId,
+      newLines,
     );
     const commandResponse = {
       orderId: orders[0]?.orderId ?? "",
@@ -1130,7 +1131,14 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   function buildDraftTodo(workspace, draft, lines, operatorId) {
-    return buildTodo(workspace, {
+    const draftWorkspace = {
+      ...workspace,
+      orderDrafts: [
+        ...(workspace.orderDrafts ?? []).filter((item) => (item.id ?? item.draftId) !== draft.id),
+        draft,
+      ],
+    };
+    return buildTodo(draftWorkspace, {
       id: nextPlainId("T-DRAFT", draft.id),
       type: "订单草稿待确认",
       customerId: draft.customerId || "C001",
@@ -1298,12 +1306,13 @@ export function createOrderDraftCommandService(dependencies = {}) {
     });
   }
 
-  function buildConfirmationTodos(workspace, todoInputs, operatorId) {
+  function buildConfirmationTodos(workspace, todoInputs, operatorId, orderLines = []) {
     const todos = [];
+    const referenceWorkspace = { ...workspace, orderLines: [...(workspace.orderLines ?? []), ...orderLines] };
     for (const todoInput of todoInputs) {
       todos.push(
         buildTodo(
-          { ...workspace, todos: [...(workspace.todos ?? []), ...todos] },
+          { ...referenceWorkspace, todos: [...(workspace.todos ?? []), ...todos] },
           { ...todoInput, createdBy: operatorId },
         ),
       );

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -68,9 +68,9 @@ export function createPostgresRuntimeIdentityRepository(options = {}) {
       return normalizeRuntimeIdentityState(await queryJson(query.text, query.values));
     },
 
-    async saveState({ workspace } = {}) {
+    async saveState({ workspace, identityEmployeeUpdates = [] } = {}) {
       const state = normalizeRuntimeIdentityStateFromWorkspace(workspace);
-      const query = buildSaveRuntimeIdentityStateQuery(state);
+      const query = buildSaveRuntimeIdentityStateQuery(state, { identityEmployeeUpdates });
       const saved = (await transactionJson(query.text, query.values)) ?? {};
       return {
         savedUserCount: Number(saved.savedUserCount ?? state.users.length) || 0,
@@ -80,6 +80,7 @@ export function createPostgresRuntimeIdentityRepository(options = {}) {
         savedEmployeeAccountCount: state.employeeAccounts.length,
         updatedEmployeeCount: Number(saved.updatedEmployeeCount) || 0,
         updatedEmployeeAssignmentCount: Number(saved.updatedEmployeeAssignmentCount) || 0,
+        updatedEmployeeIdentityCount: Number(saved.updatedEmployeeIdentityCount) || 0,
       };
     },
   };
@@ -136,13 +137,17 @@ export function normalizeRuntimeIdentityStateFromWorkspace(workspace = {}) {
       ? workspace.revokedSeedSessions
       : (workspace.revokedSeedSessionJtis ?? []).map((jti) => ({ jti })),
   );
+  const operationLogs = normalizeRuntimeIdentityOperationLogs(workspace.operationLogs);
   return {
     schemaVersion: 1,
     users,
-    employeeAccounts: normalizeRuntimeIdentityEmployeeAccounts(workspace.employees, users),
+    employeeAccounts: applyLatestEmployeeAssignmentAudit(
+      normalizeRuntimeIdentityEmployeeAccounts(workspace.employees, users),
+      operationLogs,
+    ),
     revokedSeedSessions,
     revokedSeedSessionJtis: revokedSeedSessions.map((item) => item.jti),
-    operationLogs: normalizeRuntimeIdentityOperationLogs(workspace.operationLogs),
+    operationLogs,
   };
 }
 
@@ -201,7 +206,8 @@ SELECT json_build_object(
     WHERE target_type IN (
       'master_data_employee_account_review',
       'master_data_employee_account_password',
-      'master_data_employee_assignment'
+      'master_data_employee_assignment',
+      'master_data_employee_identity_confirmation'
     )
   ), '[]'::json)
 ) AS result;
@@ -210,16 +216,19 @@ SELECT json_build_object(
   };
 }
 
-export function buildSaveRuntimeIdentityStateSql(state = {}) {
-  return buildSaveRuntimeIdentityStateQuery(state).text;
+export function buildSaveRuntimeIdentityStateSql(state = {}, options = {}) {
+  return buildSaveRuntimeIdentityStateQuery(state, options).text;
 }
 
-export function buildSaveRuntimeIdentityStateQuery(state = {}) {
+export function buildSaveRuntimeIdentityStateQuery(state = {}, options = {}) {
   const normalized = normalizeRuntimeIdentityState(state);
   const parameters = createPostgresParameterBinder();
   const userRows = normalized.users.map((user) => runtimeUserSqlRow(user, parameters)).filter(Boolean);
   const employeeAssignmentRows = normalized.employeeAccounts
     .map((record) => runtimeEmployeeAssignmentSqlRow(record, parameters))
+    .filter(Boolean);
+  const employeeIdentityRows = normalizeRuntimeIdentityEmployeeUpdates(options.identityEmployeeUpdates)
+    .map((record) => runtimeEmployeeIdentitySqlRow(record, parameters))
     .filter(Boolean);
   const revokedRows = normalized.revokedSeedSessions.map((record) => revokedSeedSessionSqlRow(record, parameters)).filter(Boolean);
   const operationLogRows = normalized.operationLogs
@@ -248,6 +257,24 @@ updated_employee_assignments AS (
   WHERE employees.id = employee_assignment_updates.id
   RETURNING employees.id
 ),
+employee_identity_updates (id, name, account_enabled, profile_status, requested_enabled, remark, updated_at) AS (
+  ${employeeIdentityRows.length > 0
+    ? `VALUES\n${employeeIdentityRows.join(",\n")}`
+    : "SELECT NULL::TEXT, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT, NULL::TIMESTAMPTZ WHERE FALSE"}
+),
+updated_employee_identities AS (
+  UPDATE employees
+  SET
+    name = employee_identity_updates.name,
+    account_enabled = employee_identity_updates.account_enabled,
+    profile_status = employee_identity_updates.profile_status,
+    requested_enabled = employee_identity_updates.requested_enabled,
+    remark = employee_identity_updates.remark,
+    updated_at = employee_identity_updates.updated_at
+  FROM employee_identity_updates
+  WHERE employees.id = employee_identity_updates.id
+  RETURNING employees.id
+),
 updated_employees AS (
   UPDATE employees
   SET
@@ -269,6 +296,7 @@ SELECT json_build_object(
   'revokedSessionCount', (SELECT COUNT(*) FROM saved_revoked_sessions),
   'updatedEmployeeCount', (SELECT COUNT(*) FROM updated_employees),
   'updatedEmployeeAssignmentCount', (SELECT COUNT(*) FROM updated_employee_assignments),
+  'updatedEmployeeIdentityCount', (SELECT COUNT(*) FROM updated_employee_identities),
   'savedOperationLogCount', (SELECT COUNT(*) FROM saved_operation_logs)
 ) AS result;
 `,
@@ -471,6 +499,32 @@ function runtimeEmployeeAssignmentSqlRow(record, parameters) {
   )`;
 }
 
+function normalizeRuntimeIdentityEmployeeUpdates(records = []) {
+  return (Array.isArray(records) ? records : [])
+    .map((record) => ({
+      id: cleanText(record?.id),
+      name: cleanText(record?.name),
+      accountEnabled: record?.accountEnabled === true,
+      profileStatus: cleanText(record?.profileStatus),
+      requestedEnabled: record?.requestedEnabled === true,
+      remark: cleanText(record?.remark),
+      updatedAt: cleanText(record?.updatedAt) || new Date().toISOString(),
+    }))
+    .filter((record) => record.id && record.name && record.profileStatus);
+}
+
+function runtimeEmployeeIdentitySqlRow(record, parameters) {
+  return `(
+    ${parameters.text(record.id)},
+    ${parameters.text(record.name)},
+    ${parameters.boolean(record.accountEnabled)},
+    ${parameters.text(record.profileStatus)},
+    ${parameters.boolean(record.requestedEnabled)},
+    ${parameters.nullableText(record.remark)},
+    ${parameters.timestamp(record.updatedAt)}
+  )`;
+}
+
 function runtimeUserJsonExpression(alias) {
   return `json_build_object(
     'id', ${alias}.id,
@@ -536,7 +590,9 @@ function loadPersistentRuntimeIdentityState(storageRoot) {
 
 function persistPersistentRuntimeIdentityState(storageRoot, state) {
   const storePath = getStorePath(storageRoot);
-  mkdirSync(dirname(storePath), { recursive: true });
+  const storeDirectory = dirname(storePath);
+  mkdirSync(storeDirectory, { recursive: true, mode: 0o700 });
+  chmodSync(storeDirectory, 0o700);
   writeFileSync(
     storePath,
     `${JSON.stringify(
@@ -550,7 +606,9 @@ function persistPersistentRuntimeIdentityState(storageRoot, state) {
       null,
       2,
     )}\n`,
+    { mode: 0o600 },
   );
+  chmodSync(storePath, 0o600);
 }
 
 function normalizeRuntimeIdentityState(value = {}) {
@@ -560,13 +618,17 @@ function normalizeRuntimeIdentityState(value = {}) {
       value.revokedSessions ??
       (value.revokedSeedSessionJtis ?? []).map((jti) => ({ jti })),
   );
+  const operationLogs = normalizeRuntimeIdentityOperationLogs(value.operationLogs);
   return {
     schemaVersion: 1,
     users,
-    employeeAccounts: normalizeRuntimeIdentityEmployeeAccounts(value.employeeAccounts, users),
+    employeeAccounts: applyLatestEmployeeAssignmentAudit(
+      normalizeRuntimeIdentityEmployeeAccounts(value.employeeAccounts, users),
+      operationLogs,
+    ),
     revokedSeedSessions,
     revokedSeedSessionJtis: revokedSeedSessions.map((item) => item.jti),
-    operationLogs: normalizeRuntimeIdentityOperationLogs(value.operationLogs),
+    operationLogs,
   };
 }
 
@@ -617,6 +679,36 @@ function normalizeRuntimeIdentityEmployeeAccount(record = {}) {
     remark: cleanText(record.remark),
     updatedAt: cleanText(record.updatedAt ?? record.updated_at) || new Date().toISOString(),
   };
+}
+
+function applyLatestEmployeeAssignmentAudit(employeeAccounts = [], operationLogs = []) {
+  const latestLogByEmployeeId = new Map();
+  for (const log of operationLogs) {
+    if (log.targetType !== "master_data_employee_assignment" || !log.targetId) continue;
+    const current = latestLogByEmployeeId.get(log.targetId);
+    if (!current || compareOperationLogRecency(log, current) > 0) {
+      latestLogByEmployeeId.set(log.targetId, log);
+    }
+  }
+  return employeeAccounts.map((account) => {
+    const latestLog = latestLogByEmployeeId.get(account.id);
+    if (!latestLog) return account;
+    return {
+      ...account,
+      assignmentUpdatedBy: latestLog.operatorId,
+      assignmentUpdatedAt: latestLog.occurredAt,
+      assignmentNote: latestLog.reason,
+    };
+  });
+}
+
+function compareOperationLogRecency(left = {}, right = {}) {
+  const leftTime = Date.parse(left.occurredAt || left.createdAt || "");
+  const rightTime = Date.parse(right.occurredAt || right.createdAt || "");
+  const normalizedLeftTime = Number.isFinite(leftTime) ? leftTime : 0;
+  const normalizedRightTime = Number.isFinite(rightTime) ? rightTime : 0;
+  if (normalizedLeftTime !== normalizedRightTime) return normalizedLeftTime - normalizedRightTime;
+  return cleanText(left.id).localeCompare(cleanText(right.id));
 }
 
 function normalizeRuntimeUser(user = {}) {
@@ -677,7 +769,13 @@ function normalizeRuntimeIdentityOperationLog(record = {}) {
   const targetType = cleanText(record.targetType ?? record.target_type);
   if (
     !id ||
-    !["master_data_employee_account_review", "master_data_employee_account_password", "master_data_employee_assignment"].includes(
+    ![
+      "master_data_employee_account_review",
+      "master_data_employee_account_password",
+      "master_data_employee_assignment",
+      "master_data_employee_identity_merge",
+      "master_data_employee_identity_confirmation",
+    ].includes(
       targetType,
     )
   ) {

@@ -59,9 +59,9 @@ export function nextRuntimeSessionVersion(currentVersion) {
   return (Number(currentVersion) || 0) + 1;
 }
 
-export async function persistRuntimeIdentityState(workspace) {
+export async function persistRuntimeIdentityState(workspace, options = {}) {
   if (!workspace?.runtimeIdentityRepository?.saveState) return null;
-  return await workspace.runtimeIdentityRepository.saveState({ workspace });
+  return await workspace.runtimeIdentityRepository.saveState({ workspace, ...options });
 }
 
 export function sanitizeRuntimeUserForResponse(user = {}) {

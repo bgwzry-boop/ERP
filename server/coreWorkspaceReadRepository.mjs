@@ -26,8 +26,11 @@ export const coreWorkspaceCollectionKeys = Object.freeze([
   "inventoryCorrectionDrafts",
   "productionTasks",
   "workshopReports",
+  "productionExceptions",
   "packingTasks",
   "fulfillments",
+  "paperOutboundDocuments",
+  "warehouseOutboundExecutions",
   "fulfillmentExceptions",
   "packages",
   "printRecords",
@@ -67,8 +70,11 @@ const sourceTables = Object.freeze({
   inventoryCorrectionDrafts: "inventory_correction_drafts",
   productionTasks: "production_tasks",
   workshopReports: "workshop_reports",
+  productionExceptions: "production_exception_records",
   packingTasks: "packing_tasks",
   fulfillments: "fulfillment_records",
+  paperOutboundDocuments: "paper_outbound_documents",
+  warehouseOutboundExecutions: "warehouse_outbound_executions",
   fulfillmentExceptions: "fulfillment_exceptions",
   packages: "packages",
   printRecords: "print_records",
@@ -140,6 +146,8 @@ export function normalizeCoreWorkspaceState(value) {
   const priceSnapshotsByOrderLine = groupBy(rows.priceSnapshots, (row) => row.order_line_id);
   const reservationsByOrderLine = groupBy(rows.inventoryReservations, (row) => row.order_line_id);
   const packagesByFulfillment = groupBy(rows.packages, (row) => row.fulfillment_id);
+  const paperDocumentsByFulfillment = groupBy(rows.paperOutboundDocuments, (row) => row.fulfillment_id);
+  const warehouseExecutionsByFulfillment = groupBy(rows.warehouseOutboundExecutions, (row) => row.fulfillment_id);
   const colorsById = new Map(rows.standardColors.map((row) => [clean(row.id), row]));
   const inventoryById = new Map(rows.inventories.map((row) => [clean(row.id), row]));
   const orderLinesById = new Map(rows.orderLines.map((row) => [clean(row.id), row]));
@@ -185,6 +193,7 @@ export function normalizeCoreWorkspaceState(value) {
     inventoryCorrectionDrafts: rows.inventoryCorrectionDrafts.map(toInventoryCorrectionDraft),
     productionTasks: rows.productionTasks.map(toProductionTask),
     workshopReports: rows.workshopReports.map(toWorkshopReport),
+    productionExceptions: rows.productionExceptions.map(toProductionException),
     packingTasks: rows.packingTasks.map(toPackingTask),
     fulfillments: rows.fulfillments.map((row) =>
       toFulfillment(
@@ -193,8 +202,12 @@ export function normalizeCoreWorkspaceState(value) {
         packagesByFulfillment.get(clean(row.id)) ?? [],
         reservationsByOrderLine.get(clean(row.order_line_id)) ?? [],
         inventoryById,
+        paperDocumentsByFulfillment.get(clean(row.id)) ?? [],
+        warehouseExecutionsByFulfillment.get(clean(row.id)) ?? [],
       ),
     ),
+    paperOutboundDocuments: rows.paperOutboundDocuments.map(toPaperOutboundDocument),
+    warehouseOutboundExecutions: rows.warehouseOutboundExecutions.map(toWarehouseOutboundExecution),
     fulfillmentExceptions: rows.fulfillmentExceptions.map(toFulfillmentException),
     packages: rows.packages.map(toPackage),
     printRecords: rows.printRecords.map(toPrintRecord),
@@ -728,6 +741,32 @@ function toWorkshopReport(row) {
   };
 }
 
+function toProductionException(row) {
+  return {
+    id: clean(row.id),
+    productionExceptionId: clean(row.id),
+    bizNo: clean(row.biz_no),
+    productionTaskId: clean(row.production_task_id),
+    orderLineId: clean(row.order_line_id),
+    processType: clean(row.process_type),
+    machineId: clean(row.machine_id),
+    operatorId: clean(row.operator_id),
+    exceptionType: clean(row.exception_type),
+    continuationMode: clean(row.continuation_mode),
+    status: clean(row.status),
+    resolutionCode: clean(row.resolution_code),
+    resolutionNote: clean(row.resolution_note),
+    resolvedBy: clean(row.resolved_by),
+    resolvedAt: timestamp(row.resolved_at),
+    estimatedLossQty: integer(row.estimated_loss_qty),
+    affectsDelivery: boolean(row.affects_delivery),
+    remark: clean(row.remark),
+    evidence: object(row.evidence_json),
+    occurredAt: timestamp(row.occurred_at),
+    createdAt: timestamp(row.created_at),
+  };
+}
+
 function toPackingTask(row) {
   return {
     id: clean(row.id),
@@ -744,8 +783,10 @@ function toPackingTask(row) {
   };
 }
 
-function toFulfillment(row, orderLine, packageRows, reservations, inventoryById) {
+function toFulfillment(row, orderLine, packageRows, reservations, inventoryById, paperDocuments = [], warehouseExecutions = []) {
   const packages = packageRows.map(toPackage);
+  const currentPaperDocument = latestRow(paperDocuments);
+  const latestWarehouseExecution = latestRow(warehouseExecutions);
   const activeReservation = reservations.find(isActiveReservation);
   const inventory = inventoryById.get(clean(activeReservation?.inventory_item_id));
   const qty = integer(row.expected_qty);
@@ -768,9 +809,68 @@ function toFulfillment(row, orderLine, packageRows, reservations, inventoryById)
     goods: [clean(orderLine?.size), clean(orderLine?.bag_color), clean(orderLine?.product_name)].filter(Boolean).join(" "),
     packages: packages.length ? `${packages.length}包` : "",
     packageRecords: packages,
+    paperOutboundDocumentId: clean(row.paper_outbound_document_id) || clean(currentPaperDocument?.id),
+    paperOutboundDocumentVersion: integer(currentPaperDocument?.document_version ?? row.physical_outbound_document_version, 0),
+    paperOutboundStatus: clean(row.paper_outbound_status) || "待生成纸单",
+    physicalOutboundAt: timestamp(row.physical_outbound_at),
+    physicalExecutorEmployeeId: clean(row.physical_executor_employee_id),
+    physicalOutboundDocumentId: clean(row.physical_outbound_document_id),
+    physicalOutboundDocumentVersion: integer(row.physical_outbound_document_version, 0),
+    finalDeliveryStatus: clean(row.final_delivery_status) || "待最终交付",
+    finalDeliveryAt: timestamp(row.final_delivery_at),
+    legacyStateReviewRequired: boolean(row.legacy_state_review_required),
+    latestWarehouseExecutionId: clean(latestWarehouseExecution?.id),
+    latestWarehouseExecutionResult: clean(latestWarehouseExecution?.result),
     zone: clean(inventory?.zone),
     source: "PostgreSQL",
     revision: integer(row.revision, 1),
+  };
+}
+
+function toPaperOutboundDocument(row) {
+  return {
+    ...camelizeRecord(row),
+    id: clean(row.id),
+    paperOutboundDocumentId: clean(row.id),
+    fulfillmentId: clean(row.fulfillment_id),
+    printRecordId: clean(row.print_record_id),
+    documentType: clean(row.document_type),
+    documentVersion: integer(row.document_version, 1),
+    status: clean(row.status) || "待打印确认",
+    printedBy: clean(row.printed_by),
+    printedAt: timestamp(row.printed_at),
+    handedToWarehouseBy: clean(row.handed_to_warehouse_by),
+    handedToWarehouseAt: timestamp(row.handed_to_warehouse_at),
+    handoverNote: clean(row.handover_note),
+    voidedBy: clean(row.voided_by),
+    voidedAt: timestamp(row.voided_at),
+    voidReason: clean(row.void_reason),
+    revision: integer(row.revision, 1),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
+  };
+}
+
+function toWarehouseOutboundExecution(row) {
+  return {
+    ...camelizeRecord(row),
+    id: clean(row.id),
+    warehouseOutboundExecutionId: clean(row.id),
+    fulfillmentId: clean(row.fulfillment_id),
+    paperOutboundDocumentId: clean(row.paper_outbound_document_id),
+    paperDocumentVersion: integer(row.paper_document_version, 0),
+    result: clean(row.result),
+    expectedQty: integer(row.expected_qty),
+    actualQty: nullableInteger(row.actual_qty),
+    physicalExecutorEmployeeId: clean(row.physical_executor_employee_id),
+    feedbackChannel: clean(row.feedback_channel),
+    executedAt: timestamp(row.executed_at),
+    note: clean(row.note),
+    authenticatedOperatorId: clean(row.authenticated_operator_id),
+    recordedAt: timestamp(row.recorded_at),
+    revision: integer(row.revision, 1),
+    createdAt: timestamp(row.created_at),
+    updatedAt: timestamp(row.updated_at),
   };
 }
 

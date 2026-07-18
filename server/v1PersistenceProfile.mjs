@@ -31,9 +31,15 @@ const postgresRepositoryOptionKeys = [
   "printerDeviceFieldTestRepositoryOptions",
   "masterDataImportReviewRepositoryOptions",
   "masterDataImportTransactionRepositoryOptions",
+  "masterDataMachineConfigurationRepositoryOptions",
   "rawMaterialInboundRepositoryOptions",
   "rawMaterialSupplierStatementReviewRepositoryOptions",
+  "rawMaterialPurchaseRepositoryOptions",
+  "maintenanceTaskRepositoryOptions",
   "runtimeIdentityRepositoryOptions",
+  "businessDecisionEvidenceRepositoryOptions",
+  "businessDecisionAuthorizationRepositoryOptions",
+  "businessDecisionEvidenceDraftRepositoryOptions",
 ];
 
 const objectStorageOptionKeys = ["attachmentObjectStorageOptions", "statementExportObjectStorageOptions"];
@@ -71,9 +77,15 @@ const repositoryObjectKeysByOptionKey = {
   printerDeviceFieldTestRepositoryOptions: "printerDeviceFieldTestRepository",
   masterDataImportReviewRepositoryOptions: "masterDataImportReviewRepository",
   masterDataImportTransactionRepositoryOptions: "masterDataImportTransactionRepository",
+  masterDataMachineConfigurationRepositoryOptions: "masterDataMachineConfigurationRepository",
   rawMaterialInboundRepositoryOptions: "rawMaterialInboundRepository",
   rawMaterialSupplierStatementReviewRepositoryOptions: "rawMaterialSupplierStatementReviewRepository",
+  rawMaterialPurchaseRepositoryOptions: "rawMaterialPurchaseRepository",
+  maintenanceTaskRepositoryOptions: "maintenanceTaskRepository",
   runtimeIdentityRepositoryOptions: "runtimeIdentityRepository",
+  businessDecisionEvidenceRepositoryOptions: "businessDecisionEvidenceRepository",
+  businessDecisionAuthorizationRepositoryOptions: "businessDecisionAuthorizationRepository",
+  businessDecisionEvidenceDraftRepositoryOptions: "businessDecisionEvidenceDraftRepository",
 };
 
 const storageObjectKeysByOptionKey = {

@@ -9,10 +9,9 @@ export async function handleDriverWriteRoutes({
   writeActionPermissions,
   requireActionPermission,
   getPermissionOperatorId,
-  confirmDriverDeliveryLoadedRoute,
-  recordDriverDeviceFieldTestRoute,
-  completeDriverDeliveryTaskRoute,
-  reportDriverDeliveryExceptionRoute,
+  fulfillmentActionCommandService,
+  driverDeviceFieldTestCommandService,
+  sendCommandResponse,
 }) {
   if (method !== "POST") return false;
 
@@ -24,29 +23,25 @@ export async function handleDriverWriteRoutes({
   const routes = {
     "load-confirm": {
       permission: writeActionPermissions.confirmDriverDeliveryLoaded,
-      run: confirmDriverDeliveryLoadedRoute,
+      run: (operatorId) => fulfillmentActionCommandService.confirmDriverDeliveryLoaded({ workspace, fulfillmentId, body, operatorId }),
     },
     "device-field-tests": {
       permission: writeActionPermissions.recordDriverDeviceFieldTest,
-      run: recordDriverDeviceFieldTestRoute,
+      run: (operatorId) => driverDeviceFieldTestCommandService.recordDriverDeviceFieldTest({ workspace, fulfillmentId, body, operatorId }),
     },
     complete: {
       permission: writeActionPermissions.completeDriverDelivery,
-      run: completeDriverDeliveryTaskRoute,
+      run: (operatorId) => fulfillmentActionCommandService.completeDriverDelivery({ workspace, fulfillmentId, body, operatorId }),
     },
     exception: {
       permission: writeActionPermissions.createDriverDeliveryException,
-      run: reportDriverDeliveryExceptionRoute,
+      run: (operatorId) => fulfillmentActionCommandService.reportDriverDeliveryException({ workspace, fulfillmentId, body, operatorId }),
     },
   };
   const route = routes[action];
   if (!requireActionPermission(response, permissionContext, route.permission)) return true;
-  await route.run({
-    response,
-    workspace,
-    fulfillmentId,
-    body,
-    operatorId: getPermissionOperatorId(permissionContext, authContext, "U-DRIVER-A"),
-  });
+  const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-DRIVER-A");
+  const result = await route.run(operatorId);
+  sendCommandResponse(response, result);
   return true;
 }

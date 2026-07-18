@@ -11,28 +11,25 @@ export async function handlePrintReadRoutes({
   sendNotFound,
   paginate,
   findPrintJob,
-  getPrintDriverConfigurationResponse,
-  getPrintDriverSpoolDiagnosticsResponse,
-  getPrintDriverCupsDiagnosticsResponse,
-  getPrintDriverV1ReadinessResponse,
-  listPrinterDeviceFieldTestsRoute,
+  findPrintDevice,
+  printDriverDiagnosticsService,
 }) {
   if (url.pathname === "/api/print-driver/config") {
-    sendJson(response, 200, getPrintDriverConfigurationResponse(workspace));
+    sendJson(response, 200, printDriverDiagnosticsService.getConfiguration({ workspace }));
     return true;
   }
 
-  const driverRoute = {
-    "/api/print-driver/spool-diagnostics": getPrintDriverSpoolDiagnosticsResponse,
-    "/api/print-driver/cups-diagnostics": getPrintDriverCupsDiagnosticsResponse,
-    "/api/print-driver/v1-readiness": getPrintDriverV1ReadinessResponse,
+  const driverMethod = {
+    "/api/print-driver/spool-diagnostics": "getSpoolDiagnostics",
+    "/api/print-driver/cups-diagnostics": "getCupsDiagnostics",
+    "/api/print-driver/v1-readiness": "getV1Readiness",
   }[url.pathname];
-  if (driverRoute) {
+  if (driverMethod) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.printFulfillment)) return true;
     sendJson(
       response,
       200,
-      driverRoute({
+      printDriverDiagnosticsService[driverMethod]({
         workspace,
         operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
       }),
@@ -83,11 +80,26 @@ export async function handlePrintReadRoutes({
   const deviceFieldTestsMatch = url.pathname.match(/^\/api\/print-devices\/([^/]+)\/field-tests$/);
   if (deviceFieldTestsMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.recordPrintDeviceFieldTest)) return true;
-    await listPrinterDeviceFieldTestsRoute({
-      response,
+    const printDeviceId = decodeURIComponent(deviceFieldTestsMatch[1]);
+    const printDevice = await findPrintDevice(workspace, printDeviceId);
+    if (!printDevice) {
+      sendNotFound(response, "PRINT_DEVICE_NOT_FOUND");
+      return true;
+    }
+    const items = await workspace.printerDeviceFieldTestRepository.listPrinterDeviceFieldTests({
       workspace,
-      printDeviceId: decodeURIComponent(deviceFieldTestsMatch[1]),
-      searchParams: url.searchParams,
+      filters: {
+        printDeviceId,
+        printJobId: url.searchParams.get("printJobId"),
+        documentType: url.searchParams.get("documentType"),
+        operatorId: url.searchParams.get("operatorId"),
+        limit: url.searchParams.get("pageSize"),
+      },
+    });
+    sendJson(response, 200, {
+      ...paginate(items, url.searchParams),
+      printDevice,
+      latestRecord: items[0] ?? null,
     });
     return true;
   }

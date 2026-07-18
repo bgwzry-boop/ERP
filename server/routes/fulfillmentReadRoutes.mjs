@@ -4,20 +4,17 @@ export async function handleFulfillmentReadRoutes({
   workspace,
   sendJson,
   sendNotFound,
-  filterByKeyword,
-  filterByValue,
   paginate,
-  toFulfillmentListItem,
-  buildFulfillmentMetrics,
+  fulfillmentReadProjectionService,
 }) {
   if (url.pathname === "/api/fulfillments") {
-    let items = workspace.fulfillments;
-    items = filterByKeyword(items, url.searchParams.get("keyword"), ["id", "lineId", "goods", "status", "method"]);
-    items = filterByValue(items, url.searchParams.get("method"), "method");
-    items = filterByValue(items, url.searchParams.get("status"), "status");
+    const projection = fulfillmentReadProjectionService.listFulfillments({
+      workspace,
+      searchParams: url.searchParams,
+    });
     sendJson(response, 200, {
-      ...paginate(items.map((item) => toFulfillmentListItem(workspace, item)), url.searchParams),
-      metrics: buildFulfillmentMetrics(workspace.fulfillments),
+      ...paginate(projection.items, url.searchParams),
+      metrics: projection.metrics,
     });
     return true;
   }
@@ -25,7 +22,10 @@ export async function handleFulfillmentReadRoutes({
   const fulfillmentMatch = url.pathname.match(/^\/api\/fulfillments\/([^/]+)$/);
   if (!fulfillmentMatch) return false;
 
-  const item = workspace.fulfillments.find((row) => row.id === decodeURIComponent(fulfillmentMatch[1]));
+  const item = fulfillmentReadProjectionService.getFulfillment({
+    workspace,
+    fulfillmentId: decodeURIComponent(fulfillmentMatch[1]),
+  });
   if (item) sendJson(response, 200, item);
   else sendNotFound(response, "FULFILLMENT_NOT_FOUND");
   return true;

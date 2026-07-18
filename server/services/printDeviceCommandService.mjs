@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 import {
+  getPrinterDeviceFieldTestAcceptance,
   getPrinterDeviceFieldTestEvidenceSummary,
   getPrinterDeviceFieldTestSummary,
   normalizePrinterDeviceFieldTestChecks,
@@ -107,6 +108,7 @@ export function createPrintDeviceCommandService({ buildOperationLog, now = () =>
         deviceLabel: body.deviceLabel ?? printDevice.name,
         driverLabel: body.driverLabel ?? printDevice.driverName ?? printDevice.connectionType,
         paperLabel: body.paperLabel ?? getPrintDevicePaperLabel(printDevice),
+        printJob,
       },
       now,
     );
@@ -116,6 +118,10 @@ export function createPrintDeviceCommandService({ buildOperationLog, now = () =>
         "PRINTER_DEVICE_FIELD_TEST_RECORD_REQUIRED",
         "Printer device field-test record is required.",
       );
+    }
+    const acceptance = record.summary.acceptance;
+    if (acceptance.checksComplete && acceptance.evidenceComplete && !acceptance.ready) {
+      return buildPrinterDeviceFieldTestAcceptanceError(acceptance);
     }
     const operationLog = buildOperationLog(workspace, {
       targetType: "print_device",
@@ -141,6 +147,17 @@ export function createPrintDeviceCommandService({ buildOperationLog, now = () =>
       printJob,
       record: savedRecord,
       summary: savedRecord.summary,
+      acceptance: savedRecord.summary?.acceptance ?? acceptance,
+      resultStatus: {
+        recordSaved: true,
+        onsiteAcceptancePassed: acceptance.ready,
+        physicalPrinterCalledByRequest: false,
+        printJobStatusChangedByRequest: false,
+      },
+      safeguards: {
+        nonPrinting: true,
+        physicalPrinterCalled: false,
+      },
       operationLogId: transaction.operationLogId || operationLog.id,
     };
   }
@@ -157,6 +174,14 @@ function normalizePrinterDeviceFieldTestApiRecord(value, now) {
     ...getPrinterDeviceFieldTestSummary(checks),
     evidenceSummary: getPrinterDeviceFieldTestEvidenceSummary(evidence),
   };
+  const acceptance = getPrinterDeviceFieldTestAcceptance({
+    checks,
+    evidence,
+    printJob: value.printJob,
+    printJobId: value.printJobId,
+    printDeviceId,
+    documentType: value.documentType,
+  });
   const recordId =
     normalizeText(value.recordId) ||
     `PDQA-${compactTimestamp(checkedAt)}-${safeRecordPart(printDeviceId || "PRINT")}`;
@@ -171,11 +196,47 @@ function normalizePrinterDeviceFieldTestApiRecord(value, now) {
     deviceLabel: normalizeText(value.deviceLabel),
     driverLabel: normalizeText(value.driverLabel),
     paperLabel: normalizeText(value.paperLabel),
-    summary,
+    summary: { ...summary, acceptance },
     checks,
     evidence,
     note: normalizeText(value.note),
   };
+}
+
+function buildPrinterDeviceFieldTestAcceptanceError(acceptance) {
+  if (acceptance.blockers.includes("print_job_required")) {
+    return businessError(
+      422,
+      "PRINTER_DEVICE_FIELD_TEST_PRINTED_JOB_REQUIRED",
+      "六项通过且证据完整时，必须关联一条状态为已打印的作业。",
+    );
+  }
+  if (acceptance.blockers.includes("print_job_not_printed")) {
+    return businessError(
+      409,
+      "PRINTER_DEVICE_FIELD_TEST_PRINT_JOB_NOT_PRINTED",
+      "关联作业尚未回读为已打印，不能通过现场验收。",
+    );
+  }
+  if (acceptance.blockers.includes("print_device_mismatch")) {
+    return businessError(
+      422,
+      "PRINTER_DEVICE_FIELD_TEST_PRINT_DEVICE_MISMATCH",
+      "关联作业与当前打印设备不一致。",
+    );
+  }
+  if (acceptance.blockers.includes("document_type_mismatch")) {
+    return businessError(
+      422,
+      "PRINTER_DEVICE_FIELD_TEST_DOCUMENT_TYPE_MISMATCH",
+      "关联作业的单据类型与本次验收不一致。",
+    );
+  }
+  return businessError(
+    422,
+    "PRINTER_DEVICE_FIELD_TEST_ACCEPTANCE_BLOCKED",
+    "当前记录尚未满足现场验收条件。",
+  );
 }
 
 async function findPrintDevice(workspace, printDeviceId) {

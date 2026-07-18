@@ -20,7 +20,9 @@ export function createProductionFinishedGoodsPhotoCommandService({
       });
       if (!beforeTask) return notFound("PRODUCTION_TASK_NOT_FOUND");
       if (body.productionTaskId && body.productionTaskId !== productionTaskId) return pathMismatch();
-      const orderLineId = text(body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId);
+      const orderLineId = text(
+        body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.order_line_id ?? beforeTask.lineId,
+      );
       const orderLine = findOrderLine(workspace, orderLineId);
       if (!orderLine) return notFound("ORDER_LINE_NOT_FOUND");
       const attachmentId = text(body.attachmentId);
@@ -48,7 +50,7 @@ export function createProductionFinishedGoodsPhotoCommandService({
         reviewedBy: "",
         rejectedReason: "",
         history: [
-          ...normalizeHistory(beforeTask.finishedGoodsPhotoHistory ?? beforeTask.finishedGoodsPhoto?.history),
+          ...normalizeHistory(getTaskPhotoHistory(beforeTask)),
           {
             status: "待确认",
             attachmentId,
@@ -88,7 +90,9 @@ export function createProductionFinishedGoodsPhotoCommandService({
       });
       if (!beforeTask) return notFound("PRODUCTION_TASK_NOT_FOUND");
       if (body.productionTaskId && body.productionTaskId !== productionTaskId) return pathMismatch();
-      const orderLineId = text(body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.lineId);
+      const orderLineId = text(
+        body.orderLineId ?? beforeTask.orderLineId ?? beforeTask.order_line_id ?? beforeTask.lineId,
+      );
       const orderLine = findOrderLine(workspace, orderLineId);
       if (!orderLine) return notFound("ORDER_LINE_NOT_FOUND");
       const beforePhoto = buildPhotoSummary(workspace, beforeTask, orderLine);
@@ -114,7 +118,7 @@ export function createProductionFinishedGoodsPhotoCommandService({
         reviewedBy: operatorId,
         rejectedReason: reviewStatus === "需重拍" ? reason || "办公室退回重拍" : "",
         history: [
-          ...normalizeHistory(beforeTask.finishedGoodsPhotoHistory ?? beforeTask.finishedGoodsPhoto?.history),
+          ...normalizeHistory(getTaskPhotoHistory(beforeTask)),
           {
             status: reviewStatus,
             attachmentId: beforePhoto.attachmentId,
@@ -222,7 +226,12 @@ function taskWithPhoto(beforeTask, productionTaskId, orderLineId, photo, timesta
 
 function resolveOpenRetakeTodos(todos = [], orderLineId, operatorId, timestamp) {
   return todos
-    .filter((todo) => todo.type === "成品图需重拍" && todo.ref === orderLineId && !todo.handled)
+    .filter(
+      (todo) =>
+        todo.type === "成品图需重拍" &&
+        text(todo.ref ?? todo.refId ?? todo.ref_id) === orderLineId &&
+        !todo.handled,
+    )
     .map((todo) => ({
       ...todo,
       status: "已处理",
@@ -232,6 +241,15 @@ function resolveOpenRetakeTodos(todos = [], orderLineId, operatorId, timestamp) 
       handlingResult: "成品图已重新上传并确认通过",
       updatedAt: timestamp,
     }));
+}
+
+function getTaskPhotoHistory(task = {}) {
+  return (
+    task.finishedGoodsPhotoHistory ??
+    task.finished_goods_photo_history ??
+    task.finishedGoodsPhoto?.history ??
+    task.finished_goods_photo?.history
+  );
 }
 
 function uniqueTodos(todos) {

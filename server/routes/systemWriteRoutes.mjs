@@ -35,7 +35,26 @@ export async function handleSystemWriteRoutes({
   requireActionPermission,
   getPermissionOperatorId,
   sendJson,
-  handlers,
+  v1FieldEvidenceDraftService,
+  v1FieldEvidenceStagingService,
+  precheckV1ProductionEnv,
+  runV1ProductionEnvSetup,
+  v1LocalCommandRunnerService,
+  precheckV1ProductionEnvIntake,
+  precheckV1ProductionEnvFileAudit,
+  precheckV1ProductionEnvFilePreview,
+  v1ProductionGoLivePrecheckService,
+  v1ProductionPersistenceEvidenceLiveRunService,
+  v1ProductionFirstStageExecutionLiveRunService,
+  v1ProductionFirstStageValuesDryRunLivePrecheckService,
+  v1ProductionEnvValuesApplyService,
+  precheckV1Persistence,
+  precheckV1AttachmentRetention,
+  precheckV1DriverReadiness,
+  precheckV1RuntimeReadiness,
+  v1V2BoundaryService,
+  v1ReleaseCandidateRefreshPrecheckService,
+  v1ReleaseCandidateRefreshService,
 }) {
   if (method !== "POST") return false;
 
@@ -51,7 +70,95 @@ export async function handleSystemWriteRoutes({
   if (inputKind === "request") input.request = request;
   if (inputKind === "workspace") input.workspace = workspace;
 
+  const handlers = createSystemWriteHandlers({
+    v1FieldEvidenceDraftService,
+    v1FieldEvidenceStagingService,
+    precheckV1ProductionEnv,
+    runV1ProductionEnvSetup,
+    v1LocalCommandRunnerService,
+    precheckV1ProductionEnvIntake,
+    precheckV1ProductionEnvFileAudit,
+    precheckV1ProductionEnvFilePreview,
+    v1ProductionGoLivePrecheckService,
+    v1ProductionPersistenceEvidenceLiveRunService,
+    v1ProductionFirstStageExecutionLiveRunService,
+    v1ProductionFirstStageValuesDryRunLivePrecheckService,
+    v1ProductionEnvValuesApplyService,
+    precheckV1Persistence,
+    precheckV1AttachmentRetention,
+    precheckV1DriverReadiness,
+    precheckV1RuntimeReadiness,
+    v1V2BoundaryService,
+    v1ReleaseCandidateRefreshPrecheckService,
+    v1ReleaseCandidateRefreshService,
+  });
   const result = await handlers[handlerName](input);
   sendJson(response, result.httpStatus, result.body);
   return true;
+}
+
+function createSystemWriteHandlers(dependencies) {
+  const {
+    v1FieldEvidenceDraftService,
+    v1FieldEvidenceStagingService,
+    precheckV1ProductionEnv,
+    runV1ProductionEnvSetup,
+    v1LocalCommandRunnerService,
+    precheckV1ProductionEnvIntake,
+    precheckV1ProductionEnvFileAudit,
+    precheckV1ProductionEnvFilePreview,
+    v1ProductionGoLivePrecheckService,
+    v1ProductionPersistenceEvidenceLiveRunService,
+    v1ProductionFirstStageExecutionLiveRunService,
+    v1ProductionFirstStageValuesDryRunLivePrecheckService,
+    v1ProductionEnvValuesApplyService,
+    precheckV1Persistence,
+    precheckV1AttachmentRetention,
+    precheckV1DriverReadiness,
+    precheckV1RuntimeReadiness,
+    v1V2BoundaryService,
+    v1ReleaseCandidateRefreshPrecheckService,
+    v1ReleaseCandidateRefreshService,
+  } = dependencies;
+
+  return {
+    generateFieldEvidenceDraftManifest: ({ operatorId }) =>
+      v1FieldEvidenceDraftService.generateDraft({ operatorId }),
+    validateFieldEvidenceDraftManifest: ({ operatorId }) =>
+      v1FieldEvidenceDraftService.validateDraft({ operatorId }),
+    stageFieldEvidenceRow: ({ body, operatorId }) =>
+      v1FieldEvidenceStagingService.stageRow({ body, operatorId }),
+    precheckProductionEnv: ({ operatorId }) => precheckV1ProductionEnv({ operatorId }),
+    runProductionEnvSetup: ({ operatorId }) =>
+      runV1ProductionEnvSetup({
+        operatorId,
+        runCommand: v1LocalCommandRunnerService.runV1ProductionEnvSetupCommand,
+      }),
+    precheckProductionEnvIntake: ({ operatorId }) => precheckV1ProductionEnvIntake({ operatorId }),
+    precheckProductionEnvFileAudit: ({ operatorId }) => precheckV1ProductionEnvFileAudit({ operatorId }),
+    precheckProductionEnvFilePreview: ({ operatorId }) => precheckV1ProductionEnvFilePreview({ operatorId }),
+    precheckProductionGoLive: ({ request, operatorId }) =>
+      v1ProductionGoLivePrecheckService.precheck({ request, operatorId }),
+    runProductionPersistenceEvidence: ({ operatorId }) =>
+      v1ProductionPersistenceEvidenceLiveRunService.run({ operatorId }),
+    runProductionFirstStageExecution: ({ request, operatorId }) =>
+      v1ProductionFirstStageExecutionLiveRunService.run({ request, operatorId }),
+    precheckProductionFirstStageValuesDryRun: ({ operatorId }) =>
+      v1ProductionFirstStageValuesDryRunLivePrecheckService.precheck({ operatorId }),
+    runProductionFirstStageValuesApply: ({ operatorId }) =>
+      v1ProductionEnvValuesApplyService.run({ operatorId }),
+    precheckPersistence: ({ workspace, operatorId }) => precheckV1Persistence({ workspace, operatorId }),
+    precheckAttachmentRetention: ({ workspace, operatorId }) =>
+      precheckV1AttachmentRetention({ workspace, operatorId }),
+    precheckDriverReadiness: ({ workspace, operatorId }) =>
+      precheckV1DriverReadiness({ workspace, operatorId }),
+    precheckRuntimeReadiness: ({ request, operatorId }) =>
+      precheckV1RuntimeReadiness({ request, operatorId }),
+    precheckV1V2Boundary: ({ operatorId }) => v1V2BoundaryService.precheck({ operatorId }),
+    refreshV1V2ScopeBrief: ({ operatorId }) => v1V2BoundaryService.refreshScopeBrief({ operatorId }),
+    precheckV1ReleaseCandidateRefresh: ({ request, operatorId }) =>
+      v1ReleaseCandidateRefreshPrecheckService.precheck({ request, operatorId }),
+    refreshV1ReleaseCandidate: ({ request, operatorId }) =>
+      v1ReleaseCandidateRefreshService.refresh({ request, operatorId }),
+  };
 }

@@ -9,151 +9,98 @@ export async function handlePrintWriteRoutes({
   writeActionPermissions,
   requireActionPermission,
   getPermissionOperatorId,
-  createPrintBatchRoute,
-  upsertPrintDeviceRoute,
-  updatePrintDeviceDriverModeRoute,
-  recordPrinterDeviceFieldTestRoute,
-  updatePrintJobStatusRoute,
-  dispatchPrintJobRoute,
-  pollPrintJobsRoute,
-  recordPrintJobDriverStatusRoute,
-  pollPrintJobDriverStatusRoute,
-  retryPrintJobRoute,
+  printBatchCommandService,
+  printDeviceCommandService,
+  printJobLifecycleService,
+  sendJson,
+  sendCommandRecord,
 }) {
   if (method !== "POST") return false;
 
   const directRoutes = {
     "/api/print-batches": {
       permission: writeActionPermissions.printFulfillment,
-      run: () => {
-        const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A");
-        return createPrintBatchRoute({
-          response,
+      fallbackOperatorId: "U-OFFICE-A",
+      responseMode: "json",
+      run: (operatorId) =>
+        printBatchCommandService.createPrintBatch({
           workspace,
           body,
           operatorId,
           operatorName: permissionContext?.user?.displayName ?? operatorId,
-        });
-      },
+        }),
     },
     "/api/print-devices": {
       permission: writeActionPermissions.printFulfillment,
-      run: () =>
-        upsertPrintDeviceRoute({
-          response,
-          workspace,
-          body,
-          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
-        }),
+      fallbackOperatorId: "U-OFFICE-A",
+      responseMode: "json",
+      run: (operatorId) => printDeviceCommandService.upsertPrintDevice({ workspace, body, operatorId }),
     },
     "/api/print-jobs/status-poll": {
       permission: writeActionPermissions.printJobDriverCallback,
-      run: () =>
-        pollPrintJobsRoute({
-          response,
-          workspace,
-          body,
-          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-PRINT-DRIVER-A"),
-        }),
+      fallbackOperatorId: "U-PRINT-DRIVER-A",
+      run: (operatorId) => printJobLifecycleService.pollPrintJobs({ workspace, body, operatorId }),
     },
   };
   const directRoute = directRoutes[url.pathname];
-  if (directRoute) {
-    if (!requireActionPermission(response, permissionContext, directRoute.permission)) return true;
-    await directRoute.run();
-    return true;
-  }
+  if (directRoute) return runRoute(directRoute);
 
   const deviceMatch = url.pathname.match(/^\/api\/print-devices\/([^/]+)\/(driver-mode|field-tests)$/);
   if (deviceMatch) {
     const printDeviceId = decodeURIComponent(deviceMatch[1]);
-    const action = deviceMatch[2];
     const routes = {
       "driver-mode": {
         permission: writeActionPermissions.printFulfillment,
-        run: updatePrintDeviceDriverModeRoute,
+        fallbackOperatorId: "U-OFFICE-A",
+        run: (operatorId) =>
+          printDeviceCommandService.updatePrintDeviceDriverMode({ workspace, printDeviceId, body, operatorId }),
       },
       "field-tests": {
         permission: writeActionPermissions.recordPrintDeviceFieldTest,
-        run: recordPrinterDeviceFieldTestRoute,
+        fallbackOperatorId: "U-OFFICE-A",
+        run: (operatorId) =>
+          printDeviceCommandService.recordPrinterDeviceFieldTest({ workspace, printDeviceId, body, operatorId }),
       },
     };
-    const route = routes[action];
-    if (!requireActionPermission(response, permissionContext, route.permission)) return true;
-    await route.run({
-      response,
-      workspace,
-      printDeviceId,
-      body,
-      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
-    });
-    return true;
+    return runRoute(routes[deviceMatch[2]]);
   }
 
   const jobMatch = url.pathname.match(/^\/api\/print-jobs\/([^/]+)\/(status|dispatch|driver-status|poll-status|retry)$/);
   if (!jobMatch) return false;
 
   const printJobId = decodeURIComponent(jobMatch[1]);
-  const action = jobMatch[2];
+  const officeJobRoute = (run) => ({
+    permission: writeActionPermissions.printFulfillment,
+    fallbackOperatorId: "U-OFFICE-A",
+    options: { notFoundCode: "PRINT_JOB_NOT_FOUND" },
+    run,
+  });
+  const driverJobRoute = (run) => ({
+    permission: writeActionPermissions.printJobDriverCallback,
+    fallbackOperatorId: "U-PRINT-DRIVER-A",
+    options: { notFoundCode: "PRINT_JOB_NOT_FOUND" },
+    run,
+  });
   const routes = {
-    status: {
-      permission: writeActionPermissions.printFulfillment,
-      run: () =>
-        updatePrintJobStatusRoute({
-          response,
-          workspace,
-          printJobId,
-          body,
-          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
-        }),
-    },
-    dispatch: {
-      permission: writeActionPermissions.printFulfillment,
-      run: () =>
-        dispatchPrintJobRoute({
-          response,
-          workspace,
-          printJobId,
-          body,
-          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
-        }),
-    },
-    "driver-status": {
-      permission: writeActionPermissions.printJobDriverCallback,
-      run: () =>
-        recordPrintJobDriverStatusRoute({
-          response,
-          workspace,
-          printJobId,
-          body,
-          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-PRINT-DRIVER-A"),
-        }),
-    },
-    "poll-status": {
-      permission: writeActionPermissions.printJobDriverCallback,
-      run: () =>
-        pollPrintJobDriverStatusRoute({
-          response,
-          workspace,
-          printJobId,
-          body,
-          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-PRINT-DRIVER-A"),
-        }),
-    },
-    retry: {
-      permission: writeActionPermissions.printFulfillment,
-      run: () =>
-        retryPrintJobRoute({
-          response,
-          workspace,
-          printJobId,
-          body,
-          operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
-        }),
-    },
+    status: officeJobRoute((operatorId) =>
+      printJobLifecycleService.updatePrintJobStatus({ workspace, printJobId, body, operatorId })),
+    dispatch: officeJobRoute((operatorId) =>
+      printJobLifecycleService.dispatchPrintJob({ workspace, printJobId, body, operatorId })),
+    "driver-status": driverJobRoute((operatorId) =>
+      printJobLifecycleService.recordPrintJobDriverStatus({ workspace, printJobId, body, operatorId })),
+    "poll-status": driverJobRoute((operatorId) =>
+      printJobLifecycleService.pollPrintJobById({ workspace, printJobId, body, operatorId })),
+    retry: officeJobRoute((operatorId) =>
+      printJobLifecycleService.retryPrintJob({ workspace, printJobId, body, operatorId })),
   };
-  const route = routes[action];
-  if (!requireActionPermission(response, permissionContext, route.permission)) return true;
-  await route.run();
-  return true;
+  return runRoute(routes[jobMatch[2]]);
+
+  async function runRoute(route) {
+    if (!requireActionPermission(response, permissionContext, route.permission)) return true;
+    const operatorId = getPermissionOperatorId(permissionContext, authContext, route.fallbackOperatorId);
+    const result = await route.run(operatorId);
+    if (route.responseMode === "json") sendJson(response, 200, result);
+    else sendCommandRecord(response, result, route.options);
+    return true;
+  }
 }

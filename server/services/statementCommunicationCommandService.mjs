@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
+import { createStatementPolicyService } from "./statementPolicyService.mjs";
+
+const statementPolicyService = createStatementPolicyService();
 
 export function createStatementCommunicationCommandService(dependencies = {}) {
   const {
@@ -9,11 +12,11 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     findAttachment,
     findStatement,
     getStatementExcelTemplateId,
-    mapStatementApiStatus,
+    mapStatementApiStatus = statementPolicyService.mapStatementApiStatus,
     markStatementSent,
     nextId,
     nextPlainId,
-    normalizeStatementSendReceiptStatus,
+    normalizeStatementSendReceiptStatus = statementPolicyService.normalizeStatementSendReceiptStatus,
     recordStatementCustomerConfirmation,
     storeStatementExportFile,
     toStatementExportSummary,
@@ -95,7 +98,7 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
         operatorId,
       },
     });
-    const lines = transaction.statementLines.length > 0 ? transaction.statementLines : initialLines;
+    const lines = mergeStatementPreviewLines(initialLines, transaction.statementLines);
     const savedTemplateId = transaction.exportFile.metadata?.templateId ?? templateId;
 
     return success({
@@ -113,6 +116,8 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
   async function markSent({ workspace, statementId, body = {}, operatorId }) {
     const before = findStatement(workspace, statementId);
     if (!before) return notFound("STATEMENT_NOT_FOUND");
+    const expectedRevision = requireExpectedRevision(body.expectedRevision);
+    if (expectedRevision.error) return expectedRevision.error;
     const latestCustomerExport =
       (await workspace.statementExportRepository.findLatestExportFile({
         workspace,
@@ -148,7 +153,11 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
       remark: sendRecord.remark,
       exportRecord: latestCustomerExport ? toStatementExportSummary(latestCustomerExport) : null,
     });
-    const after = nextStatements.find((item) => item.id === statementId);
+    const after = {
+      ...nextStatements.find((item) => item.id === statementId),
+      revision: expectedRevision.value,
+    };
+    const versionedStatements = nextStatements.map((item) => item.id === statementId ? after : item);
     const operationLog = buildOperationLog(workspace, {
       id: buildStableCommandId({
         prefix: "LOG",
@@ -165,7 +174,7 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     });
     const transaction = await workspace.statementSendTransactionRepository.markStatementSent({
       workspace,
-      statements: nextStatements,
+      statements: versionedStatements,
       statement: after,
       sendRecord,
       operationLog,
@@ -197,12 +206,15 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     if (!before) {
       return conflict("STATEMENT_SEND_RECORD_NOT_FOUND", "当前对账单还没有可登记回执的发送记录。");
     }
+    const expectedRevision = requireExpectedRevision(body.expectedRevision);
+    if (expectedRevision.error) return expectedRevision.error;
 
     const receiptStatus = normalizeStatementSendReceiptStatus(body.receiptStatus ?? "read");
     const receiptAt = body.receiptAt ?? now();
     const receiptNote = body.remark ?? "";
     const after = {
       ...before,
+      revision: expectedRevision.value,
       receiptStatus,
       receiptAt,
       receiptBy: operatorId,
@@ -250,6 +262,8 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
   async function recordCustomerConfirmation({ workspace, statementId, body = {}, operatorId }) {
     const beforeStatement = findStatement(workspace, statementId);
     if (!beforeStatement) return notFound("STATEMENT_NOT_FOUND");
+    const expectedRevision = requireExpectedRevision(body.expectedRevision);
+    if (expectedRevision.error) return expectedRevision.error;
     const beforeSendRecord = findRequestedSendRecord(workspace, statementId, body.sendRecordId);
     if (!beforeSendRecord) {
       return conflict("STATEMENT_SEND_RECORD_NOT_FOUND", "当前对账单还没有可登记客户确认的发送记录。");
@@ -302,7 +316,11 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
       attachmentIds,
       operatorName: getAuthenticatedOperatorName(workspace, operatorId),
     });
-    const afterStatement = nextStatements.find((item) => item.id === statementId);
+    const afterStatement = {
+      ...nextStatements.find((item) => item.id === statementId),
+      revision: expectedRevision.value,
+    };
+    const versionedStatements = nextStatements.map((item) => item.id === statementId ? afterStatement : item);
     const operationLog = buildOperationLog(workspace, {
       id: buildStableCommandId({
         prefix: "LOG",
@@ -319,7 +337,7 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     });
     const transaction = await workspace.statementSendTransactionRepository.recordStatementCustomerConfirmation({
       workspace,
-      statements: nextStatements,
+      statements: versionedStatements,
       statement: afterStatement,
       sendRecord: afterSendRecord,
       confirmationRecord,
@@ -385,6 +403,29 @@ function buildStableCommandId({ prefix, scope, idempotencyKey, fallback }) {
   if (!key) return fallback ? fallback() : undefined;
   const digest = createHash("sha256").update(`${scope}:${key}`).digest("hex").slice(0, 24).toUpperCase();
   return `${prefix}-${digest}`;
+}
+
+function requireExpectedRevision(value) {
+  const revision = Number(value);
+  if (!Number.isInteger(revision) || revision < 1) {
+    return { error: businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision 必须是当前记录的正整数版本号。") };
+  }
+  return { value: revision };
+}
+
+function mergeStatementPreviewLines(initialLines, persistedLines) {
+  if (!Array.isArray(persistedLines) || persistedLines.length === 0) return initialLines;
+  const persistedById = new Map();
+  for (const line of persistedLines) {
+    if (line.statementLineId) persistedById.set(`statement:${line.statementLineId}`, line);
+    if (line.orderLineId) persistedById.set(`order:${line.orderLineId}`, line);
+  }
+  return initialLines.map((line) => {
+    const persisted =
+      persistedById.get(`statement:${line.statementLineId}`) ??
+      persistedById.get(`order:${line.orderLineId}`);
+    return persisted ? { ...line, ...persisted } : line;
+  });
 }
 
 function buildStatementSummary(statement, lineCount) {

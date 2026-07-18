@@ -442,7 +442,7 @@ function buildPrintJobWhereClause(filters = {}, parameters) {
   return clauses.length ? `WHERE ${clauses.join("\n  AND ")}` : "";
 }
 
-function printJobJsonExpression(alias) {
+export function printJobJsonExpression(alias) {
   return `json_build_object(
     'printJobId', ${alias}.id,
     'bizNo', ${alias}.biz_no,

@@ -75,7 +75,7 @@ export function createLocalMasterDataImportTransactionRepository() {
   return {
     kind: "local_memory",
 
-    applyImportExecution(input) {
+    async applyImportExecution(input) {
       assertExecutionCanBeWritten(input.importExecution);
       const snapshot = snapshotWorkspace(input.workspace);
       try {
@@ -88,6 +88,7 @@ export function createLocalMasterDataImportTransactionRepository() {
           writeSummary,
         });
         upsertOperationLog(input.workspace, input.operationLog);
+        await persistLocalRuntimeIdentityState(input.workspace, snapshot);
         return {
           importExecution: committedExecution,
           operationLogId: cleanText(input.operationLog?.id),
@@ -99,6 +100,41 @@ export function createLocalMasterDataImportTransactionRepository() {
       }
     },
   };
+}
+
+async function persistLocalRuntimeIdentityState(workspace = {}, snapshot = {}) {
+  const repository = workspace.runtimeIdentityRepository;
+  if (!repository?.saveState) return null;
+  if (repository.kind !== "local_json") {
+    throw new Error("Local master-data import requires the local runtime identity repository.");
+  }
+  const machineRepository = workspace.masterDataMachineConfigurationRepository;
+  try {
+    const identityResult = await repository.saveState({ workspace });
+    await machineRepository?.saveState?.({ workspace });
+    return identityResult;
+  } catch (error) {
+    const rollbackWorkspace = { ...workspace };
+    restoreWorkspace(rollbackWorkspace, snapshot);
+    const rollbackErrors = [];
+    try {
+      await repository.saveState({ workspace: rollbackWorkspace });
+    } catch (rollbackError) {
+      rollbackErrors.push(rollbackError);
+    }
+    try {
+      await machineRepository?.saveState?.({ workspace: rollbackWorkspace });
+    } catch (rollbackError) {
+      rollbackErrors.push(rollbackError);
+    }
+    if (rollbackErrors.length) {
+      throw new AggregateError(
+        [error, ...rollbackErrors],
+        `Local master-data persistence failed and rollback was incomplete: ${error?.message ?? String(error)}`,
+      );
+    }
+    throw error;
+  }
 }
 
 export function createPostgresMasterDataImportTransactionRepository(options = {}) {

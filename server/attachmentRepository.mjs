@@ -36,6 +36,10 @@ export function createLocalAttachmentRepository(options = {}) {
       return loadPersistentAttachmentState(storageRoot);
     },
 
+    saveState({ workspace } = {}) {
+      persistPersistentAttachmentState(storageRoot, workspace);
+    },
+
     createAttachment({ workspace, attachment, link, operationLog }) {
       const existing = findAttachmentByDigestInMemory(workspace.attachments, attachment);
       const result = {
@@ -58,6 +62,19 @@ export function createLocalAttachmentRepository(options = {}) {
 
     findAttachmentByDigest({ workspace, ownerType, ownerId, purpose, contentDigest }) {
       return findAttachmentByDigestInMemory(workspace.attachments, { ownerType, ownerId, purpose, contentDigest });
+    },
+
+    voidAttachment({ workspace, attachmentId, ownerType, ownerId, purpose, operationLog }) {
+      const current = (workspace.attachments ?? []).find((item) => item.attachmentId === attachmentId);
+      if (!current || current.ownerType !== ownerType || current.ownerId !== ownerId || current.purpose !== purpose) {
+        throw attachmentMutationError(404, "ATTACHMENT_NOT_FOUND", "附件不存在或不属于当前业务对象。");
+      }
+      if (current.status !== "uploaded") throw attachmentMutationError(409, "ATTACHMENT_NOT_ACTIVE", "附件已失效，不能重复删除。");
+      const attachment = { ...current, status: "voided" };
+      workspace.attachments = [attachment, ...(workspace.attachments ?? []).filter((item) => item.attachmentId !== attachmentId)];
+      if (operationLog) workspace.operationLogs = [operationLog, ...(workspace.operationLogs ?? []).filter((item) => item.id !== operationLog.id)];
+      persistPersistentAttachmentState(storageRoot, workspace);
+      return { attachment, operationLogId: operationLog?.id ?? "", replayed: false };
     },
   };
 }
@@ -82,6 +99,10 @@ export function createPostgresAttachmentRepository(options = {}) {
         attachments: normalizeAttachmentList(await queryJson(query.text, query.values)),
         attachmentLinks: [],
       };
+    },
+
+    async saveState() {
+      return null;
     },
 
     async createAttachment(input) {
@@ -131,6 +152,67 @@ export function createPostgresAttachmentRepository(options = {}) {
       const query = buildFindAttachmentByDigestQuery({ ownerType, ownerId, purpose, contentDigest });
       return normalizePersistentAttachment(await queryJson(query.text, query.values));
     },
+
+    async voidAttachment(input = {}) {
+      const query = buildVoidAttachmentQuery(input);
+      const value = await idempotentTransactionJson(buildPostgresIdempotencyRequest({
+        scope: "attachment.void",
+        idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+        payload: input.idempotencyPayload,
+        operatorId: input.operationLog?.operatorId,
+        targetType: input.ownerType,
+        targetId: input.ownerId,
+        resourceLocks: [`attachment:${String(input.attachmentId ?? "").trim()}`],
+        query,
+      }));
+      const attachment = normalizePersistentAttachment(value?.attachment);
+      if (attachment && input.workspace) {
+        input.workspace.attachments = [attachment, ...(input.workspace.attachments ?? []).filter((item) => item.attachmentId !== attachment.attachmentId)];
+        if (input.operationLog && !value?.replayed) input.workspace.operationLogs = [input.operationLog, ...(input.workspace.operationLogs ?? []).filter((item) => item.id !== input.operationLog.id)];
+      }
+      return { attachment, operationLogId: String(value?.operationLogId ?? "").trim(), replayed: value?.replayed === true };
+    },
+  };
+}
+
+export function buildVoidAttachmentQuery(input = {}) {
+  const p = createPostgresParameterBinder();
+  const log = input.operationLog;
+  if (!log?.id) throw new Error("An operation log is required to void an attachment.");
+  return {
+    text: `BEGIN;
+WITH locked_attachment AS MATERIALIZED (
+  SELECT attachment.* FROM attachments AS attachment
+  JOIN attachment_links AS link ON link.attachment_id = attachment.id
+  WHERE attachment.id = ${p.text(input.attachmentId)}
+    AND link.owner_type = ${p.text(input.ownerType)} AND link.owner_id = ${p.text(input.ownerId)}
+    AND link.purpose = ${p.text(input.purpose)}
+  FOR UPDATE OF attachment
+),
+write_guard AS MATERIALIZED (
+  SELECT erp_require(EXISTS (SELECT 1 FROM locked_attachment WHERE status = 'uploaded'), 'ERP_ATTACHMENT_VOID_CONFLICT') AS ok
+),
+updated_attachment AS (
+  UPDATE attachments SET status = 'voided', updated_at = now()
+  FROM write_guard WHERE attachments.id = ${p.text(input.attachmentId)}
+  RETURNING attachments.*
+),
+inserted_log AS (
+  INSERT INTO operation_logs (id, target_type, target_id, action, before_json, after_json, reason, operator_id, page_key, occurred_at, created_at)
+  SELECT ${p.text(log.id)}, ${p.text(log.targetType)}, ${p.text(log.targetId)}, ${p.text(log.action)},
+    ${p.json(log.before ?? null)}, ${p.json(log.after ?? null)}, ${p.text(log.reason ?? "")}, ${p.text(log.operatorId)},
+    ${p.text(log.pageKey ?? "api")}, ${p.timestamp(log.occurredAt)}, ${p.timestamp(log.createdAt)} FROM write_guard
+  ON CONFLICT (id) DO NOTHING RETURNING id
+)
+SELECT json_build_object(
+  'attachment', ${attachmentJsonExpression("updated_attachment", "link")},
+  'operationLogId', (SELECT id FROM inserted_log), 'replayed', false
+) AS result
+FROM updated_attachment
+LEFT JOIN attachment_links AS link ON link.attachment_id = updated_attachment.id
+LIMIT 1;
+COMMIT;`,
+    values: p.values,
   };
 }
 
@@ -754,4 +836,11 @@ function isSafeAttachmentStorageKey(storageKey) {
 
 function getLocalStorageRoot() {
   return process.env.ERP_LOCAL_STORAGE_DIR ?? join(process.cwd(), ".erp-local-storage");
+}
+
+function attachmentMutationError(statusCode, code, message) {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  error.code = code;
+  return error;
 }

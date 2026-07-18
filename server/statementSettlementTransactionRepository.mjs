@@ -1,6 +1,12 @@
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import {
+  buildBusinessDecisionAttachmentLinksCte,
+  buildInsertBusinessDecisionCte,
+  buildSupersedeBusinessDecisionCte,
+  normalizeDecisionRecord,
+} from "./businessDecisionEvidenceRepository.mjs";
 
 export function createStatementSettlementTransactionRepository(options = {}) {
   const mode =
@@ -27,20 +33,50 @@ export function createLocalStatementSettlementTransactionRepository() {
     kind: "local_memory",
 
     handleStatementVariance(input) {
-      applySettlementWorkspaceMutation(input);
-      return normalizeVarianceTransactionResult({
-        statement: input.statement,
+      const statement = buildLocalSavedStatement(input);
+      const transaction = normalizeVarianceTransactionResult({
+        statement,
         varianceRecord: input.varianceRecord,
         todo: input.todo ?? null,
         operationLogId: input.operationLog?.id ?? "",
       });
+      return commitLocalSettlementDecision({
+        input,
+        scope: "statement.variance.handle",
+        transaction,
+        apply(stagedWorkspace) {
+          applySettlementWorkspaceMutation({
+            ...input,
+            workspace: stagedWorkspace,
+            statements: replaceStatement(input.statements, statement),
+            statement,
+            operationLog: null,
+          });
+        },
+      });
     },
 
     writeOffStatement(input) {
-      applySettlementWorkspaceMutation(input);
-      return normalizeWriteOffTransactionResult({
-        statement: input.statement,
+      const statement = buildLocalSavedStatement(input);
+      const transaction = normalizeWriteOffTransactionResult({
+        statement,
+        writeOffRecord: input.writeOffRecord,
         operationLogId: input.operationLog?.id ?? "",
+      });
+      return commitLocalSettlementDecision({
+        input,
+        scope: "statement.write_off",
+        transaction,
+        apply(stagedWorkspace) {
+          applySettlementWorkspaceMutation({
+            ...input,
+            workspace: stagedWorkspace,
+            statements: replaceStatement(input.statements, statement),
+            statement,
+            writeOffRecord: input.writeOffRecord,
+            operationLog: null,
+          });
+        },
       });
     },
   };
@@ -83,6 +119,7 @@ export function createPostgresStatementSettlementTransactionRepository(options =
         todo: saved.todo ? { ...input.todo, ...saved.todo } : null,
         operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
+      applyDecisionWorkspaceMutation(input.workspace, saved.businessDecision, input.attachmentLinks);
       return saved;
     },
 
@@ -109,8 +146,10 @@ export function createPostgresStatementSettlementTransactionRepository(options =
       applySettlementWorkspaceMutation({
         ...input,
         statement: { ...input.statement, ...saved.statement },
+        writeOffRecord: saved.writeOffRecord,
         operationLog: saved.operationLogId === input.operationLog?.id ? input.operationLog : null,
       });
+      applyDecisionWorkspaceMutation(input.workspace, saved.businessDecision, input.attachmentLinks);
       return saved;
     },
   };
@@ -133,10 +172,12 @@ function buildHandleStatementVarianceTransactionText(input, parameters) {
   const varianceRecord = normalizeVarianceRecord(input.varianceRecord);
   const todo = normalizeTodoForPersistence(input.todo, input.operationLog?.operatorId);
   const operationLog = normalizeOperationLogForPersistence(input.operationLog);
-  if (!statement || !varianceRecord || !operationLog) {
-    throw new Error("Statement, variance record, and operation log are required for statement variance transaction");
+  const decisionRecord = normalizeDecisionRecord(input.decisionRecord);
+  if (!statement || !varianceRecord || !operationLog || !decisionRecord) {
+    throw new Error("Statement, variance record, business decision, and operation log are required for statement variance transaction");
   }
   const insertedTodoCte = todo ? buildInsertTodoSql(todo, parameters) : "SELECT NULL::json AS result WHERE false";
+  const decisionCtes = buildStatementDecisionCtes(decisionRecord, input.attachmentLinks, parameters);
   return `
 BEGIN;
 WITH locked_statement AS MATERIALIZED (
@@ -206,11 +247,13 @@ inserted_todo AS (
 ),
 inserted_operation_log AS (
   ${buildInsertOperationLogSql(operationLog, parameters)}
-)
+),
+${decisionCtes}
 SELECT json_build_object(
   'statement', (SELECT result FROM updated_statement),
   'varianceRecord', (SELECT result FROM inserted_variance),
   'todo', (SELECT result FROM inserted_todo LIMIT 1),
+  'businessDecision', (SELECT result FROM inserted_business_decision),
   'operationLogId', (SELECT id FROM inserted_operation_log),
   'writeGuard', (SELECT ok FROM statement_write_guard)
 ) AS result;
@@ -233,10 +276,13 @@ export function buildWriteOffStatementTransactionQuery(input) {
 function buildWriteOffStatementTransactionText(input, parameters) {
   const statement = normalizeStatementForPersistence(input.statement);
   const operationLog = normalizeOperationLogForPersistence(input.operationLog);
-  if (!statement || !operationLog) {
-    throw new Error("Statement and operation log are required for statement write-off transaction");
+  const decisionRecord = normalizeDecisionRecord(input.decisionRecord);
+  const writeOffRecord = normalizeStatementWriteOffRecord(input.writeOffRecord);
+  if (!statement || !operationLog || !decisionRecord || !writeOffRecord) {
+    throw new Error("Statement, write-off record, business decision, and operation log are required for statement write-off transaction");
   }
   const settledAtAssignment = statement.status === "已核销" ? "now()" : "settled_at";
+  const decisionCtes = buildStatementDecisionCtes(decisionRecord, input.attachmentLinks, parameters);
   return `
 BEGIN;
 WITH locked_statement AS MATERIALIZED (
@@ -267,9 +313,28 @@ statement_write_guard AS MATERIALIZED (
 ),
 inserted_operation_log AS (
   ${buildInsertOperationLogSql(operationLog, parameters)}
+),
+${decisionCtes},
+inserted_statement_write_off AS (
+  INSERT INTO statement_write_off_records (
+    id, statement_id, receivable_snapshot, received_snapshot, variance_snapshot,
+    write_off_amount, handling_result, business_decision_id, recorded_by,
+    revision, operation_log_id, created_at
+  ) SELECT
+    ${parameters.text(writeOffRecord.id)}, ${parameters.text(writeOffRecord.statementId)},
+    ${parameters.number(writeOffRecord.receivableSnapshot)}, ${parameters.number(writeOffRecord.receivedSnapshot)},
+    ${parameters.number(writeOffRecord.varianceSnapshot)}, ${parameters.number(writeOffRecord.writeOffAmount)},
+    ${parameters.text(writeOffRecord.handlingResult)}, ${parameters.text(writeOffRecord.businessDecisionId)},
+    ${parameters.text(writeOffRecord.recordedBy)}, 1, ${parameters.text(writeOffRecord.operationLogId)},
+    ${parameters.timestamp(writeOffRecord.createdAt)}
+  WHERE EXISTS (SELECT 1 FROM inserted_business_decision)
+  ON CONFLICT (id) DO NOTHING
+  RETURNING ${statementWriteOffJsonExpression("statement_write_off_records")} AS result
 )
 SELECT json_build_object(
   'statement', (SELECT result FROM updated_statement),
+  'writeOffRecord', (SELECT result FROM inserted_statement_write_off),
+  'businessDecision', (SELECT result FROM inserted_business_decision),
   'operationLogId', (SELECT id FROM inserted_operation_log),
   'writeGuard', (SELECT ok FROM statement_write_guard)
 ) AS result;
@@ -358,29 +423,108 @@ ON CONFLICT (id) DO UPDATE SET
 RETURNING id`;
 }
 
+function commitLocalSettlementDecision({ input, scope, transaction, apply }) {
+  const decisionRecord = normalizeDecisionRecord(input.decisionRecord);
+  if (!decisionRecord || typeof apply !== "function") {
+    throw new Error("A business decision is required for statement settlement changes");
+  }
+  const committed = input.workspace.businessDecisionEvidenceRepository.commitDecisionBundle({
+    workspace: input.workspace,
+    decisionRecord,
+    attachmentLinks: input.attachmentLinks,
+    operationLog: input.operationLog,
+    idempotencyScope: scope,
+    idempotencyKey: input.idempotencyKey,
+    idempotencyPayload: input.idempotencyPayload,
+    applyBusinessMutation(stagedWorkspace) {
+      const current = (stagedWorkspace.statements ?? []).find((statement) => statement.id === input.statement?.id);
+      const expectedRevision = Number(input.statement?.revision ?? 0);
+      if (!current || Number(current.revision ?? 1) !== expectedRevision) {
+        const error = new Error("对账单已被另一位办公室人员更新，请刷新后重新确认。");
+        error.statusCode = 409;
+        error.code = "BUSINESS_WRITE_CONFLICT";
+        error.details = { currentRevision: Number(current?.revision ?? 0) };
+        throw error;
+      }
+      apply(stagedWorkspace);
+      return {
+        commitKeys: ["statements", "varianceRecords", "todos", "statementWriteOffRecords"],
+        result: transaction,
+      };
+    },
+  });
+  return {
+    ...committed.businessResult,
+    businessDecision: committed.businessDecision,
+    replayed: committed.replayed === true,
+  };
+}
+
+function buildLocalSavedStatement(input) {
+  const statement = normalizeStatementForApi(input.statement);
+  if (!statement) throw new Error("A valid statement is required");
+  return { ...input.statement, ...statement, revision: statement.revision + 1 };
+}
+
+function replaceStatement(statements, savedStatement) {
+  return (Array.isArray(statements) ? statements : []).map((statement) =>
+    statement.id === savedStatement.id ? { ...statement, ...savedStatement } : statement,
+  );
+}
+
+function buildStatementDecisionCtes(decisionRecord, attachmentLinks, parameters) {
+  return `superseded_business_decision AS (
+  ${buildSupersedeBusinessDecisionCte(decisionRecord, parameters, "statement_write_guard")}
+),
+inserted_business_decision AS (
+  ${buildInsertBusinessDecisionCte(decisionRecord, parameters, "statement_write_guard")}
+),
+inserted_business_decision_attachment_links AS (
+  ${buildBusinessDecisionAttachmentLinksCte(attachmentLinks, parameters, "inserted_business_decision")}
+)`;
+}
+
+function applyDecisionWorkspaceMutation(workspace, businessDecision, attachmentLinks = []) {
+  const decision = normalizeDecisionRecord(businessDecision);
+  if (!workspace || !decision) return;
+  workspace.businessDecisionRecords = [
+    decision,
+    ...(workspace.businessDecisionRecords ?? []).filter((item) => String(item.id ?? item.businessDecisionId ?? "") !== decision.id),
+  ];
+  for (const link of Array.isArray(attachmentLinks) ? attachmentLinks : []) {
+    workspace.attachmentLinks = [
+      link,
+      ...(workspace.attachmentLinks ?? []).filter((item) => String(item.id ?? "") !== String(link.id ?? "")),
+    ];
+  }
+}
+
 export function normalizeVarianceTransactionResult(value) {
   if (!value || typeof value !== "object") {
-    return { statement: null, varianceRecord: null, todo: null, operationLogId: "" };
+    return { statement: null, varianceRecord: null, todo: null, businessDecision: null, operationLogId: "" };
   }
   return {
     statement: normalizeStatementForApi(value.statement),
     varianceRecord: normalizeVarianceRecord(value.varianceRecord),
     todo: normalizeTodoForApi(value.todo),
+    businessDecision: normalizeDecisionRecord(value.businessDecision ?? value.business_decision),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
   };
 }
 
 export function normalizeWriteOffTransactionResult(value) {
   if (!value || typeof value !== "object") {
-    return { statement: null, operationLogId: "" };
+    return { statement: null, writeOffRecord: null, businessDecision: null, operationLogId: "" };
   }
   return {
     statement: normalizeStatementForApi(value.statement),
+    writeOffRecord: normalizeStatementWriteOffRecord(value.writeOffRecord ?? value.write_off_record),
+    businessDecision: normalizeDecisionRecord(value.businessDecision ?? value.business_decision),
     operationLogId: String(value.operationLogId ?? value.operation_log_id ?? "").trim(),
   };
 }
 
-function applySettlementWorkspaceMutation({ workspace, statements, statement, varianceRecord, todo, operationLog }) {
+function applySettlementWorkspaceMutation({ workspace, statements, statement, varianceRecord, writeOffRecord, todo, operationLog }) {
   if (Array.isArray(statements)) {
     workspace.statements = statements.map((item) => (item.id === statement?.id ? { ...item, ...statement } : item));
   } else if (statement?.id) {
@@ -396,6 +540,13 @@ function applySettlementWorkspaceMutation({ workspace, statements, statement, va
     ];
   }
   if (todo) workspace.todos = [todo, ...(workspace.todos ?? []).filter((item) => item.id !== todo.id)];
+  const normalizedWriteOff = normalizeStatementWriteOffRecord(writeOffRecord);
+  if (normalizedWriteOff) {
+    workspace.statementWriteOffRecords = [
+      normalizedWriteOff,
+      ...(workspace.statementWriteOffRecords ?? []).filter((item) => String(item.id ?? item.statementWriteOffRecordId ?? "") !== normalizedWriteOff.id),
+    ];
+  }
   if (operationLog) {
     workspace.operationLogs = [
       operationLog,
@@ -449,6 +600,28 @@ function normalizeVarianceRecord(record) {
     status: String(record.status ?? "recorded").trim() || "recorded",
     attachmentId: String(record.attachmentId ?? record.attachment_id ?? "").trim(),
     operatorId: String(record.operatorId ?? record.createdBy ?? record.created_by ?? "").trim(),
+  };
+}
+
+function normalizeStatementWriteOffRecord(record) {
+  if (!record || typeof record !== "object") return null;
+  const id = String(record.id ?? record.statementWriteOffRecordId ?? record.statement_write_off_record_id ?? "").trim();
+  const statementId = String(record.statementId ?? record.statement_id ?? "").trim();
+  if (!id || !statementId) return null;
+  return {
+    id,
+    statementWriteOffRecordId: id,
+    statementId,
+    receivableSnapshot: Number(record.receivableSnapshot ?? record.receivable_snapshot ?? 0),
+    receivedSnapshot: Number(record.receivedSnapshot ?? record.received_snapshot ?? 0),
+    varianceSnapshot: Number(record.varianceSnapshot ?? record.variance_snapshot ?? 0),
+    writeOffAmount: Number(record.writeOffAmount ?? record.write_off_amount ?? 0),
+    handlingResult: String(record.handlingResult ?? record.handling_result ?? "").trim(),
+    businessDecisionId: String(record.businessDecisionId ?? record.business_decision_id ?? "").trim(),
+    recordedBy: String(record.recordedBy ?? record.recorded_by ?? "").trim(),
+    revision: Math.max(1, Number(record.revision ?? 1) || 1),
+    operationLogId: String(record.operationLogId ?? record.operation_log_id ?? "").trim(),
+    createdAt: String(record.createdAt ?? record.created_at ?? "").trim(),
   };
 }
 
@@ -526,6 +699,23 @@ function varianceRecordJsonExpression(alias) {
     'status', ${alias}.status,
     'attachmentId', ${alias}.attachment_id,
     'operatorId', ${alias}.created_by
+  )`;
+}
+
+function statementWriteOffJsonExpression(alias) {
+  return `json_build_object(
+    'statementWriteOffRecordId', ${alias}.id,
+    'statementId', ${alias}.statement_id,
+    'receivableSnapshot', ${alias}.receivable_snapshot,
+    'receivedSnapshot', ${alias}.received_snapshot,
+    'varianceSnapshot', ${alias}.variance_snapshot,
+    'writeOffAmount', ${alias}.write_off_amount,
+    'handlingResult', ${alias}.handling_result,
+    'businessDecisionId', ${alias}.business_decision_id,
+    'recordedBy', ${alias}.recorded_by,
+    'revision', ${alias}.revision,
+    'operationLogId', ${alias}.operation_log_id,
+    'createdAt', ${alias}.created_at
   )`;
 }
 

@@ -226,6 +226,12 @@ export function normalizeDriverDeviceFieldTestRecord(value = {}) {
       summary.nativeBridgeDiagnostics ??
       summary.native_bridge_diagnostics,
   );
+  const nativeNavigationSample = normalizeObject(
+    value.nativeNavigationSample ??
+      value.native_navigation_sample ??
+      summary.nativeNavigationSample ??
+      summary.native_navigation_sample,
+  );
   const checkedAt = cleanText(value.checkedAt ?? value.checked_at) || new Date().toISOString();
   const createdAt = cleanText(value.createdAt ?? value.created_at) || checkedAt;
   return {
@@ -245,6 +251,7 @@ export function normalizeDriverDeviceFieldTestRecord(value = {}) {
     summary,
     checks,
     packageLabelScanSample,
+    nativeNavigationSample,
     nativeBridgeDiagnostics,
     note: cleanText(value.note),
     operationLogId: cleanText(value.operationLogId ?? value.operation_log_id),
@@ -260,6 +267,9 @@ function buildDriverDeviceFieldTestSummaryForPersistence(record = {}) {
   }
   if (record.nativeBridgeDiagnostics && Object.keys(record.nativeBridgeDiagnostics).length) {
     summary.nativeBridgeDiagnostics = record.nativeBridgeDiagnostics;
+  }
+  if (record.nativeNavigationSample && Object.keys(record.nativeNavigationSample).length) {
+    summary.nativeNavigationSample = record.nativeNavigationSample;
   }
   return summary;
 }
@@ -337,6 +347,7 @@ function driverDeviceFieldTestJsonExpression(alias) {
     'summary', ${alias}.summary_json,
     'checks', ${alias}.checks_json,
     'packageLabelScanSample', ${alias}.summary_json->'packageLabelScanSample',
+    'nativeNavigationSample', ${alias}.summary_json->'nativeNavigationSample',
     'nativeBridgeDiagnostics', ${alias}.summary_json->'nativeBridgeDiagnostics',
     'note', ${alias}.note,
     'operationLogId', COALESCE(${alias}.operation_log_id, ''),

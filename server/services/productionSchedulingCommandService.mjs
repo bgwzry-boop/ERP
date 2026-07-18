@@ -1,4 +1,5 @@
 export function createProductionSchedulingCommandService({
+  businessDecisionEvidenceService,
   buildMachineQueueResponse,
   buildOperationLog,
   buildProductionTaskFromBody,
@@ -13,6 +14,9 @@ export function createProductionSchedulingCommandService({
   summarizeOrderLineForChange,
   now = () => new Date(),
 } = {}) {
+  if (typeof businessDecisionEvidenceService?.prepareDecision !== "function") {
+    throw new TypeError("businessDecisionEvidenceService.prepareDecision must be a function");
+  }
   const dependencies = {
     buildMachineQueueResponse,
     buildOperationLog,
@@ -30,7 +34,7 @@ export function createProductionSchedulingCommandService({
   for (const [name, value] of Object.entries(dependencies)) requireFunction(value, name);
 
   return {
-    async publishSchedule({ workspace, productionTaskId, body = {}, operatorId }) {
+    async publishSchedule({ workspace, productionTaskId, body = {}, operatorId, actionPermissions = [] }) {
       const beforeTask =
         findProductionTask(workspace, productionTaskId) ??
         buildProductionTaskFromBody(workspace, productionTaskId, body);
@@ -57,7 +61,9 @@ export function createProductionSchedulingCommandService({
         );
       }
 
-      const publishedAt = body.publishedAt ?? nowIso(now);
+      const expectedRevision = requirePositiveExpectedRevision(body.expectedRevision);
+      if (expectedRevision.error) return expectedRevision.error;
+      const publishedAt = nowIso(now);
       const taskType =
         cleanText(body.processType ?? beforeTask.taskType) || inferProductionTaskTypeFromOrderLine(beforeOrderLine);
       const machineId =
@@ -91,6 +97,7 @@ export function createProductionSchedulingCommandService({
         taskStatus,
         status: taskStatus,
         publishedScheduleId,
+        revision: expectedRevision.value,
         createdBy: resolvePersistableCreatedBy(workspace, beforeTask.createdBy, operatorId),
         createdAt: beforeTask.createdAt ?? publishedAt,
         updatedAt: publishedAt,
@@ -121,11 +128,44 @@ export function createProductionSchedulingCommandService({
         },
         reason: body.remark ?? "办公室发布排产到车间任务池",
       });
+      const productionScheduleRecord = {
+        id: `SQR-${safeRecordPart(machineId)}-${safeRecordPart(publishedScheduleId || productionTaskId)}`,
+        scheduleRecordId: `SQR-${safeRecordPart(machineId)}-${safeRecordPart(publishedScheduleId || productionTaskId)}`,
+        productionTaskId,
+        orderLineId,
+        publishedScheduleId,
+        machineId,
+        queueSeq: 0,
+        status: "active",
+        sourceKind: "schedule_publish",
+        revision: 1,
+        sequenceUpdatedAt: publishedAt,
+        sequenceUpdatedBy: operatorId,
+        remark: cleanText(body.remark) || "办公室发布排产到车间任务池",
+        createdBy: operatorId,
+        createdAt: publishedAt,
+        updatedAt: publishedAt,
+      };
+      const decision = prepareScheduleDecision({
+        businessDecisionEvidenceService,
+        workspace,
+        businessType: "production_task",
+        businessId: productionTaskId,
+        operatorId,
+        actionPermissions,
+        body,
+        operationLog,
+      });
+      if (decision.error) return decision;
+      operationLog.after.businessDecisionId = decision.record.id;
       const transaction = await workspace.productionPackingTransactionRepository.publishProductionSchedule({
         workspace,
         productionTask,
+        productionScheduleRecord,
         orderLine,
         operationLog,
+        decisionRecord: decision.record,
+        attachmentLinks: decision.attachmentLinks,
         idempotencyKey: body.idempotencyKey,
         idempotencyPayload: { ...body, operatorId },
       });
@@ -142,15 +182,17 @@ export function createProductionSchedulingCommandService({
         plannedQty: transaction.productionTask.plannedQty,
         publishedAt: transaction.productionTask.updatedAt || publishedAt,
         productionTask: transaction.productionTask,
+        productionScheduleRecord: transaction.productionScheduleRecord,
         orderLine: transaction.orderLine,
         inventoryCreated: false,
         reservationCreated: false,
         packingTaskCreated: false,
         operationLogId: transaction.operationLogId,
+        businessDecision: businessDecisionEvidenceService.toProjection(transaction.businessDecision ?? decision.record),
       });
     },
 
-    async resequenceMachineQueue({ workspace, body = {}, operatorId }) {
+    async resequenceMachineQueue({ workspace, body = {}, operatorId, actionPermissions = [] }) {
       const machineId = cleanText(body.machineId);
       const orderedProductionTaskIds = normalizeStringArray(body.orderedProductionTaskIds ?? body.productionTaskIds);
       if (!machineId) {
@@ -170,6 +212,14 @@ export function createProductionSchedulingCommandService({
       const beforeQueue = await buildMachineQueueResponse({ workspace, query: { machineId, status: "open" } });
       const machineQueueItems = beforeQueue.items.filter((item) => item.machineId === machineId);
       const queueByTaskId = new Map(machineQueueItems.map((item) => [item.productionTaskId, item]));
+      const businessDecisionTargetId = cleanText(body.businessDecisionTargetId);
+      if (businessDecisionTargetId && !queueByTaskId.has(businessDecisionTargetId)) {
+        return businessError(
+          422,
+          "BUSINESS_DECISION_EVIDENCE_DRAFT_TARGET_MISMATCH",
+          "经营决定与凭据必须绑定当前机台队列中的生产任务。",
+        );
+      }
       const unknownIds = orderedProductionTaskIds.filter((productionTaskId) => !queueByTaskId.has(productionTaskId));
       if (unknownIds.length) {
         return businessError(
@@ -189,7 +239,30 @@ export function createProductionSchedulingCommandService({
         );
       }
 
-      const updatedAt = cleanText(body.updatedAt) || nowIso(now);
+      const expectedRevision = requireNonNegativeExpectedRevision(body.expectedRevision);
+      if (expectedRevision.error) return expectedRevision.error;
+      const affectedRevisions = normalizeAffectedRevisions(body.affectedRevisions);
+      if (
+        affectedRevisions.length !== machineQueueItems.length ||
+        machineQueueItems.some((item) => !affectedRevisions.some(
+          (affected) => affected.productionTaskId === item.productionTaskId,
+        ))
+      ) {
+        return businessError(
+          422,
+          "PRODUCTION_SCHEDULE_AFFECTED_REVISIONS_REQUIRED",
+          "重排机台队列必须提交全部受影响任务的版本集合。",
+        );
+      }
+      const submittedQueueRevision = affectedRevisions.reduce((sum, item) => sum + item.revision, 0);
+      if (submittedQueueRevision !== expectedRevision.value) {
+        return businessError(
+          422,
+          "PRODUCTION_SCHEDULE_QUEUE_REVISION_MISMATCH",
+          "expectedRevision 必须等于受影响任务版本集合之和。",
+        );
+      }
+      const updatedAt = nowIso(now);
       const remark = cleanText(body.remark) || "办公室调整同机台排产队列顺序";
       const beforeRecords = cloneJson(workspace.productionScheduleRecords ?? []);
       const nextRecords = buildProductionScheduleRecordsForSequence({
@@ -222,10 +295,23 @@ export function createProductionSchedulingCommandService({
         },
         reason: remark,
       });
+      const decision = prepareScheduleDecision({
+        businessDecisionEvidenceService,
+        workspace,
+        businessType: businessDecisionTargetId ? "production_task" : "production_schedule_queue",
+        businessId: businessDecisionTargetId || machineId,
+        operatorId,
+        actionPermissions,
+        body,
+        operationLog,
+      });
+      if (decision.error) return decision;
+      operationLog.after.businessDecisionId = decision.record.id;
       const transaction = await workspace.productionScheduleRecordRepository.resequenceMachineQueue({
         workspace,
         records: nextRecords,
-        expectedRecords: beforeRecords.filter((record) => cleanText(record.machineId) === machineId),
+        expectedRecords: affectedRevisions.map((item) => ({ ...item, machineId })),
+        expectedQueueRevision: expectedRevision.value,
         lockedMachineIds: [machineId],
         transactionContext: {
           machineId,
@@ -234,6 +320,8 @@ export function createProductionSchedulingCommandService({
           updatedCount: orderedProductionTaskIds.length,
         },
         operationLog,
+        decisionRecord: decision.record,
+        attachmentLinks: decision.attachmentLinks,
         idempotencyKey: body.idempotencyKey,
         idempotencyPayload: { ...body, operatorId },
       });
@@ -245,7 +333,9 @@ export function createProductionSchedulingCommandService({
         updatedAt: cleanText(transaction.transactionContext.updatedAt) || updatedAt,
         updatedBy: cleanText(transaction.transactionContext.updatedBy) || operatorId,
         operationLogId: transaction.operationLogId,
+        businessDecision: businessDecisionEvidenceService.toProjection(transaction.businessDecision ?? decision.record),
         productionScheduleRecords: transaction.productionScheduleRecords,
+        revision: calculateQueueRevision(transaction.productionScheduleRecords.filter((record) => cleanText(record.machineId) === machineId)),
         inventoryCreated: false,
         reservationCreated: false,
         packingTaskCreated: false,
@@ -253,7 +343,7 @@ export function createProductionSchedulingCommandService({
       });
     },
 
-    async moveMachineQueueItem({ workspace, body = {}, operatorId }) {
+    async moveMachineQueueItem({ workspace, body = {}, operatorId, actionPermissions = [] }) {
       const productionTaskId = cleanText(body.productionTaskId);
       const targetMachineId = cleanText(body.targetMachineId ?? body.machineId);
       if (!productionTaskId) {
@@ -290,7 +380,9 @@ export function createProductionSchedulingCommandService({
         return businessError(422, positionedTargetQueue.error.code, positionedTargetQueue.error.message);
       }
 
-      const updatedAt = cleanText(body.updatedAt) || nowIso(now);
+      const expectedRevision = requirePositiveExpectedRevision(body.expectedRevision);
+      if (expectedRevision.error) return expectedRevision.error;
+      const updatedAt = nowIso(now);
       const remark =
         cleanText(body.remark) ||
         (sourceMachineId === targetMachineId
@@ -348,6 +440,7 @@ export function createProductionSchedulingCommandService({
         id: productionTaskId,
         productionTaskId,
         machineId: targetMachineId,
+        revision: expectedRevision.value,
         updatedAt,
       };
       const movedTargetItem = targetQueueAfterMove.find((item) => item.productionTaskId === productionTaskId);
@@ -383,6 +476,18 @@ export function createProductionSchedulingCommandService({
         },
         reason: remark,
       });
+      const decision = prepareScheduleDecision({
+        businessDecisionEvidenceService,
+        workspace,
+        businessType: "production_task",
+        businessId: productionTaskId,
+        operatorId,
+        actionPermissions,
+        body,
+        operationLog,
+      });
+      if (decision.error) return decision;
+      operationLog.after.businessDecisionId = decision.record.id;
       const transaction = await workspace.productionScheduleRecordRepository.moveMachineQueueItem({
         workspace,
         productionTask,
@@ -401,6 +506,8 @@ export function createProductionSchedulingCommandService({
           updatedBy: operatorId,
         },
         operationLog,
+        decisionRecord: decision.record,
+        attachmentLinks: decision.attachmentLinks,
         idempotencyKey: body.idempotencyKey,
         idempotencyPayload: { ...body, operatorId },
       });
@@ -415,6 +522,7 @@ export function createProductionSchedulingCommandService({
         updatedAt: cleanText(transaction.transactionContext.updatedAt) || updatedAt,
         updatedBy: cleanText(transaction.transactionContext.updatedBy) || operatorId,
         operationLogId: transaction.operationLogId,
+        businessDecision: businessDecisionEvidenceService.toProjection(transaction.businessDecision ?? decision.record),
         productionTask: transaction.productionTask,
         productionScheduleRecords: transaction.productionScheduleRecords,
         inventoryCreated: false,
@@ -424,6 +532,31 @@ export function createProductionSchedulingCommandService({
       });
     },
   };
+}
+
+function prepareScheduleDecision({
+  businessDecisionEvidenceService,
+  workspace,
+  businessType,
+  businessId,
+  operatorId,
+  actionPermissions,
+  body,
+  operationLog,
+}) {
+  return businessDecisionEvidenceService.prepareDecision({
+    workspace,
+    businessType,
+    businessId,
+    decisionScope: "production_schedule",
+    operatorId,
+    actionPermissions,
+    delegatedDecision: body.delegatedDecision,
+    directDecisionContent: body.directDecisionContent,
+    operationLogId: operationLog.id,
+    supersedesDecisionId: cleanText(body.supersedesDecisionId),
+    idempotencyKey: body.idempotencyKey,
+  });
 }
 
 function buildProductionScheduleRecordsForSequence({
@@ -455,6 +588,7 @@ function buildProductionScheduleRecordsForSequence({
       queueSeq: item.queueSeq,
       status,
       source: sourceKind,
+      sourceKind,
       createdAt: cleanText(current.createdAt) || updatedAt,
       createdBy: cleanText(current.createdBy) || operatorId,
       updatedAt,
@@ -490,6 +624,7 @@ function buildMovedProductionScheduleRecord({ records, item, sourceMachineId, op
     queueSeq: 0,
     status: "moved",
     source: "machine_reassignment",
+    sourceKind: "machine_reassignment",
     createdAt: cleanText(current.createdAt) || updatedAt,
     createdBy: cleanText(current.createdBy) || operatorId,
     updatedAt,
@@ -585,9 +720,41 @@ function businessError(statusCode, code, message) {
   return { error: true, statusCode, code, message };
 }
 
+function requirePositiveExpectedRevision(value) {
+  const revision = Number(value);
+  if (!Number.isInteger(revision) || revision < 1) {
+    return { error: businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision 必须是当前记录的正整数版本号。") };
+  }
+  return { value: revision };
+}
+
+function requireNonNegativeExpectedRevision(value) {
+  const revision = Number(value);
+  if (!Number.isInteger(revision) || revision < 0) {
+    return { error: businessError(422, "EXPECTED_REVISION_REQUIRED", "expectedRevision 必须是当前队列的非负整数版本号。") };
+  }
+  return { value: revision };
+}
+
+function calculateQueueRevision(records) {
+  return (Array.isArray(records) ? records : []).reduce(
+    (total, record) => total + Math.max(1, Math.trunc(Number(record?.revision ?? 1) || 1)),
+    0,
+  );
+}
+
 function normalizeStringArray(value) {
   if (!Array.isArray(value)) return [];
   return value.map((item) => cleanText(item)).filter(Boolean);
+}
+
+function normalizeAffectedRevisions(value) {
+  return (Array.isArray(value) ? value : [])
+    .map((item) => ({
+      productionTaskId: cleanText(item?.productionTaskId ?? item?.id),
+      revision: Math.max(0, Math.trunc(Number(item?.revision ?? 0))),
+    }))
+    .filter((item) => item.productionTaskId && item.revision > 0);
 }
 
 function cloneJson(value) {

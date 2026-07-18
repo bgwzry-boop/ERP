@@ -1,10 +1,14 @@
 import { issueRuntimeUserTemporaryPassword } from "../authSeed.mjs";
 import { getWorkspaceSecurityPolicy } from "../apiSecurityPolicy.mjs";
 import {
+  getInvalidEmployeeAccountRoleInputs,
+  getEmployeeAccountIdentityConfirmation,
   getEmployeeAccountDepartment,
   getEmployeeAccountRoleLabel,
   normalizeEmployeeAccountRoleKey,
+  normalizeEmployeeAccountRoleKeys,
   validateEmployeeAccountIdentity,
+  validateEmployeeAccountIdentityConfirmation,
   validateEnabledEmployeeAccountReview,
 } from "./runtimeEmployeeAccountPolicy.mjs";
 import {
@@ -15,19 +19,10 @@ import {
   sanitizeRuntimeUserForResponse,
   upsertRuntimeUser,
 } from "./runtimeIdentityWorkspace.mjs";
+import { normalizeMasterDataMachines } from "../masterDataMachineConfigurationRepository.mjs";
+import { resolveConfiguredMasterDataMachine } from "../../shared/masterDataMachineIdentity.js";
 
 const employeeAssignmentModes = new Set(["fixed_machine", "general_worker", "unassigned"]);
-const defaultEmployeeAssignmentMachines = Object.freeze(
-  Array.from({ length: 9 }, (_, index) => {
-    const machineNumber = index + 1;
-    return Object.freeze({
-      machineId: `BAG-${String(machineNumber).padStart(2, "0")}`,
-      machineLabel: `${machineNumber}号机`,
-      workshop: `${Math.ceil(machineNumber / 3)}号车间`,
-      enabled: true,
-    });
-  }),
-);
 
 export function createMasterDataEmployeeAccountCommandService(dependencies = {}) {
   const {
@@ -40,10 +35,222 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
 
   return {
     enableEmployeeAccount,
+    enableEmployeeAccounts,
     issueEmployeeTemporaryPassword,
     revokeEmployeePassword,
+    confirmEmployeeIdentity,
+    mergeEmployeeIdentity,
     updateEmployeeAssignment,
   };
+
+  async function confirmEmployeeIdentity({ workspace, employeeId, body = {}, operatorId }) {
+    if (body.confirmed !== true) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_REQUIRED",
+        "Employee identity confirmation requires explicit confirmation.",
+      );
+    }
+    const context = getEmployeeContext(workspace, employeeId);
+    if (context.result) return context.result;
+    const { before } = context;
+    if (isMergedDuplicate(before)) {
+      return businessError(409, "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_MERGED", "Merged employee records cannot be confirmed.");
+    }
+    if (hasFormalRuntimeUser(workspace, before) || isEmployeeAccountEnabled(before)) {
+      return businessError(409, "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_ACCOUNT_EXISTS", "Identity confirmation must be completed before account enablement.");
+    }
+    const confirmedEmployeeId = cleanText(body.confirmedEmployeeId).toUpperCase();
+    if (!confirmedEmployeeId || confirmedEmployeeId !== context.employeeId.toUpperCase()) {
+      return businessError(400, "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_ID_MISMATCH", "Confirmed employee ID does not match the selected employee.");
+    }
+    const confirmedName = cleanText(body.confirmedName);
+    if (!confirmedName || confirmedName !== cleanText(before.name)) {
+      return businessError(409, "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_NAME_MISMATCH", "Confirmed display name must match the current formal employee record.");
+    }
+    const reason = cleanText(body.reason);
+    if (!reason) {
+      return businessError(400, "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_REASON_REQUIRED", "An identity confirmation reason is required.");
+    }
+    const roleKey = normalizeEmployeeAccountRoleKey(before.reviewedRoleKey, before.roleName);
+    const roleKeys = normalizeEmployeeAccountRoleKeys(
+      before.reviewedRoleKeys ?? before.roleKeys ?? before.roleName,
+      roleKey,
+      before.roleName,
+    );
+    const existingConfirmation = getEmployeeAccountIdentityConfirmation(before, roleKeys, workspace.operationLogs);
+    if (!existingConfirmation.required) {
+      return businessError(409, "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_NOT_REQUIRED", "This employee does not require identity confirmation.");
+    }
+    if (existingConfirmation.confirmed) {
+      return success({
+        employeeAccountReview: toMasterDataEmployeeAccountReview(before, workspace.users, workspace.machines, workspace.operationLogs),
+        operationLogId: "",
+        identityAlreadyConfirmed: true,
+      });
+    }
+
+    const confirmedAt = now().toISOString();
+    const stagedWorkspace = stageWorkspace(workspace);
+    const operationLog = buildOperationLog(stagedWorkspace, {
+      targetType: "master_data_employee_identity_confirmation",
+      targetId: context.employeeId,
+      action: "master_data_employee_identity_confirmed",
+      before: {
+        employeeId: context.employeeId,
+        name: cleanText(before.name),
+        roleKeys,
+        status: existingConfirmation.status,
+      },
+      after: {
+        employeeId: context.employeeId,
+        name: confirmedName,
+        primaryRoleKey: roleKey,
+        roleKeys,
+        status: "confirmed",
+      },
+      reason,
+      operatorId,
+      pageKey: "master_data",
+      occurredAt: confirmedAt,
+    });
+    stagedWorkspace.operationLogs.unshift(operationLog);
+    await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace);
+    return success({
+      employeeAccountReview: toMasterDataEmployeeAccountReview(before, stagedWorkspace.users, stagedWorkspace.machines, stagedWorkspace.operationLogs),
+      operationLogId: operationLog.id,
+      identityAlreadyConfirmed: false,
+    });
+  }
+
+  async function mergeEmployeeIdentity({ workspace, employeeId, body = {}, operatorId }) {
+    if (body.confirmed !== true) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_CONFIRMATION_REQUIRED",
+        "Employee identity merge requires explicit confirmation.",
+      );
+    }
+    const sourceContext = getEmployeeContext(workspace, employeeId);
+    if (sourceContext.result) return sourceContext.result;
+    const targetEmployeeId = cleanText(body.targetEmployeeId);
+    if (!targetEmployeeId) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_TARGET_REQUIRED",
+        "A retained employee ID is required.",
+      );
+    }
+    if (targetEmployeeId === sourceContext.employeeId) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_SAME_EMPLOYEE",
+        "Source and retained employee IDs must be different.",
+      );
+    }
+    const targetContext = getEmployeeContext(workspace, targetEmployeeId);
+    if (targetContext.result) return targetContext.result;
+    if (isMergedDuplicate(sourceContext.before) || isMergedDuplicate(targetContext.before)) {
+      return businessError(
+        409,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_ALREADY_RESOLVED",
+        "Merged employee records cannot be merged again.",
+      );
+    }
+    if (hasFormalRuntimeUser(workspace, sourceContext.before) || hasFormalRuntimeUser(workspace, targetContext.before)) {
+      return businessError(
+        409,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_ACCOUNT_EXISTS",
+        "Identity merge is blocked after a formal runtime account exists.",
+      );
+    }
+    if (isEmployeeAccountEnabled(sourceContext.before) || isEmployeeAccountEnabled(targetContext.before)) {
+      return businessError(
+        409,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_ACCOUNT_ENABLED",
+        "Identity merge is blocked after either employee account is enabled.",
+      );
+    }
+    const canonicalName = cleanText(body.canonicalName);
+    if (!canonicalName) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_CANONICAL_NAME_REQUIRED",
+        "A confirmed canonical employee name is required.",
+      );
+    }
+    const reason = cleanText(body.reason);
+    if (!reason) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_REASON_REQUIRED",
+        "A merge reason is required.",
+      );
+    }
+
+    const mergedAt = cleanText(body.mergedAt) || now().toISOString();
+    const retainedAssignment = resolveRetainedIdentityAssignment({
+      sourceEmployee: sourceContext.before,
+      targetEmployee: targetContext.before,
+    });
+    if (retainedAssignment.error) return retainedAssignment.error;
+    const stagedWorkspace = stageWorkspace(workspace);
+    const retainedEmployee = {
+      ...targetContext.before,
+      name: canonicalName,
+      defaultWorkshop: retainedAssignment.defaultWorkshop,
+      defaultMachineId: retainedAssignment.defaultMachineId,
+      assignmentMode: retainedAssignment.assignmentMode,
+      updatedAt: mergedAt,
+    };
+    const retiredEmployee = {
+      ...sourceContext.before,
+      accountEnabled: false,
+      requestedEnabled: false,
+      profileStatus: "merged_duplicate",
+      identityMergedIntoEmployeeId: targetEmployeeId,
+      identityMergedAt: mergedAt,
+      identityMergedBy: operatorId,
+      identityMergeReason: reason,
+      remark: `已合并至 ${targetEmployeeId}`,
+      updatedAt: mergedAt,
+    };
+    stagedWorkspace.employees[targetContext.employeeIndex] = retainedEmployee;
+    stagedWorkspace.employees[sourceContext.employeeIndex] = retiredEmployee;
+    const operationLog = buildOperationLog(stagedWorkspace, {
+      targetType: "master_data_employee_identity_merge",
+      targetId: sourceContext.employeeId,
+      action: "master_data_employee_identity_merged",
+      before: {
+        sourceEmployeeId: sourceContext.employeeId,
+        targetEmployeeId,
+        sourceProfileStatus: cleanText(sourceContext.before.profileStatus),
+        targetName: cleanText(targetContext.before.name),
+        targetDefaultMachineId: cleanText(targetContext.before.defaultMachineId),
+        sourceDefaultMachineId: cleanText(sourceContext.before.defaultMachineId),
+      },
+      after: {
+        sourceEmployeeId: sourceContext.employeeId,
+        sourceProfileStatus: retiredEmployee.profileStatus,
+        targetEmployeeId,
+        canonicalName,
+        retainedDefaultMachineId: retainedEmployee.defaultMachineId,
+      },
+      reason,
+      operatorId,
+      pageKey: "master_data",
+    });
+    stagedWorkspace.operationLogs.unshift(operationLog);
+    await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace, {
+      identityEmployeeUpdates: [retainedEmployee, retiredEmployee],
+    });
+
+    return success({
+      retainedEmployee: toMasterDataEmployeeAccountReview(retainedEmployee, stagedWorkspace.users, stagedWorkspace.machines, stagedWorkspace.operationLogs),
+      retiredEmployeeId: sourceContext.employeeId,
+      operationLogId: operationLog.id,
+    });
+  }
 
   async function updateEmployeeAssignment({ workspace, employeeId, body = {}, operatorId }) {
     const context = getEmployeeContext(workspace, employeeId);
@@ -60,14 +267,17 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     let defaultWorkshop = "";
     let defaultMachineId = "";
     if (assignmentMode === "fixed_machine") {
+      if (!requestedWorkshop) {
+        return businessError(400, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_REQUIRED", "Workshop is required for a fixed-machine assignment.");
+      }
+      if (!assignmentOptions.workshops.includes(requestedWorkshop)) {
+        return businessError(409, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_NOT_FOUND", "Selected workshop is unavailable.");
+      }
       const machine = assignmentOptions.machines.find((item) => item.machineId === requestedMachineId && item.enabled !== false);
       if (!machine) {
         return businessError(409, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_MACHINE_NOT_FOUND", "Selected machine is unavailable.");
       }
-      defaultWorkshop = requestedWorkshop || machine.workshop;
-      if (!defaultWorkshop) {
-        return businessError(400, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_REQUIRED", "Workshop is required for a fixed-machine assignment.");
-      }
+      defaultWorkshop = requestedWorkshop;
       if (machine.workshop && machine.workshop !== defaultWorkshop) {
         return businessError(409, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_MISMATCH", "Selected machine does not belong to the selected workshop.");
       }
@@ -76,10 +286,13 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       if (!requestedWorkshop) {
         return businessError(400, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_REQUIRED", "Workshop is required for a general-worker assignment.");
       }
+      if (!assignmentOptions.workshops.includes(requestedWorkshop)) {
+        return businessError(409, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_WORKSHOP_NOT_FOUND", "Selected workshop is unavailable.");
+      }
       defaultWorkshop = requestedWorkshop;
     }
 
-    const changedAt = cleanText(body.changedAt) || now().toISOString();
+    const changedAt = now().toISOString();
     const reason = cleanText(body.reason) || "管理员手动调整员工车间 / 机台";
     const updatedEmployee = {
       ...before,
@@ -130,20 +343,136 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace);
 
     return success({
-      employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, stagedWorkspace.users),
+      employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, stagedWorkspace.users, stagedWorkspace.machines, stagedWorkspace.operationLogs),
       assignmentOptions,
       operationLogId: operationLog.id,
     });
   }
 
   async function enableEmployeeAccount({ workspace, employeeId, body = {}, operatorId }) {
-    const context = getEmployeeContext(workspace, employeeId);
-    if (context.result) return context.result;
-    const { before, employeeIndex } = context;
-    const existingUser = resolveEmployeeRuntimeUser(workspace, before);
     const reviewedAt = cleanText(body.reviewedAt) || now().toISOString();
+    const stagedWorkspace = stageWorkspace(workspace);
+    const staged = stageEmployeeAccountEnable({
+      stagedWorkspace,
+      employeeId,
+      body,
+      operatorId,
+      reviewedAt,
+    });
+    if (staged.result) return staged.result;
+    await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace);
+
+    return success({
+      employeeAccountReview: toMasterDataEmployeeAccountReview(staged.updatedEmployee, stagedWorkspace.users, stagedWorkspace.machines, stagedWorkspace.operationLogs),
+      employee: staged.updatedEmployee,
+      user: sanitizeRuntimeUserForResponse(staged.user),
+      operationLogId: staged.operationLog.id,
+    });
+  }
+
+  async function enableEmployeeAccounts({ workspace, body = {}, operatorId }) {
+    if (body.confirmed !== true) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_CONFIRMATION_REQUIRED",
+        "Batch employee account enablement requires explicit confirmation.",
+      );
+    }
+    if (!Array.isArray(body.employeeIds)) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_IDS_REQUIRED",
+        "employeeIds must be an array.",
+      );
+    }
+    const employeeIds = [...new Set(body.employeeIds.map(cleanText).filter(Boolean))];
+    if (!employeeIds.length) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_IDS_REQUIRED",
+        "At least one employeeId is required.",
+      );
+    }
+    if (employeeIds.length > 100) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_LIMIT_EXCEEDED",
+        "A batch may enable at most 100 employee accounts.",
+      );
+    }
+
+    const reviewedAt = cleanText(body.reviewedAt) || now().toISOString();
+    const reviewNote = cleanText(body.reviewNote ?? body.note) || "管理员批量复核导入员工岗位、机台和角色";
+    const stagedWorkspace = stageWorkspace(workspace);
+    const enabled = [];
+    const skipped = [];
+    const operationLogIds = [];
+
+    for (const employeeId of employeeIds) {
+      const context = getEmployeeContext(stagedWorkspace, employeeId);
+      if (context.result) {
+        return batchValidationError(employeeId, context.result);
+      }
+      const existingUser = resolveEmployeeRuntimeUser(stagedWorkspace, context.before);
+      if (isEmployeeAccountEnabled(buildEffectiveEmployeeAccount(context.before, existingUser))) {
+        skipped.push(toMasterDataEmployeeAccountReview(context.before, stagedWorkspace.users, stagedWorkspace.machines, stagedWorkspace.operationLogs));
+        continue;
+      }
+      const staged = stageEmployeeAccountEnable({
+        stagedWorkspace,
+        employeeId,
+        body: { reviewNote },
+        operatorId,
+        reviewedAt,
+      });
+      if (staged.result) {
+        return batchValidationError(employeeId, staged.result);
+      }
+      enabled.push(toMasterDataEmployeeAccountReview(staged.updatedEmployee, stagedWorkspace.users, stagedWorkspace.machines, stagedWorkspace.operationLogs));
+      operationLogIds.push(staged.operationLog.id);
+    }
+
+    if (enabled.length) {
+      await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace);
+    }
+
+    return success({
+      employeeAccountReviews: enabled,
+      requestedCount: employeeIds.length,
+      enabledCount: enabled.length,
+      skippedCount: skipped.length,
+      skippedEmployeeIds: skipped.map((review) => review.employeeId),
+      operationLogIds,
+      reviewedAt,
+      atomic: true,
+    });
+  }
+
+  function stageEmployeeAccountEnable({ stagedWorkspace, employeeId, body, operatorId, reviewedAt }) {
+    const context = getEmployeeContext(stagedWorkspace, employeeId);
+    if (context.result) return { result: context.result };
+    const { before, employeeIndex } = context;
+    const existingUser = resolveEmployeeRuntimeUser(stagedWorkspace, before);
     const roleKey = normalizeEmployeeAccountRoleKey(
       body.roleKey || existingUser?.defaultRole,
+      before.roleName,
+    );
+    const requestedRoleInputs = body.roleKeys === undefined
+      ? (existingUser?.roles?.length ? existingUser.roles : before.roleKeys ?? before.roleName)
+      : body.roleKeys;
+    const invalidRoleInputs = getInvalidEmployeeAccountRoleInputs(requestedRoleInputs);
+    if (invalidRoleInputs.length) {
+      return {
+        result: businessError(
+          400,
+          "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLES_INVALID",
+          `Unknown employee account roles: ${invalidRoleInputs.join(", ")}.`,
+        ),
+      };
+    }
+    const roleKeys = normalizeEmployeeAccountRoleKeys(
+      requestedRoleInputs,
+      roleKey,
       before.roleName,
     );
     const userId =
@@ -163,17 +492,32 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       userId,
       loginName,
       roleKey,
+      roleKeys,
     });
-    if (reviewLockError) return businessError(409, reviewLockError.code, reviewLockError.message);
-    const identityError = validateEmployeeAccountIdentity(workspace, {
+    if (reviewLockError) return { result: businessError(409, reviewLockError.code, reviewLockError.message) };
+    const identityConfirmationError = validateEmployeeAccountIdentityConfirmation(
+      effectiveBefore,
+      roleKeys,
+      stagedWorkspace.operationLogs,
+    );
+    if (identityConfirmationError) {
+      return { result: businessError(409, identityConfirmationError.code, identityConfirmationError.message) };
+    }
+    const machineReview = resolveEmployeeMachineConfiguration(stagedWorkspace, effectiveBefore, roleKeys);
+    if (machineReview.error) {
+      return { result: businessError(409, machineReview.error.code, machineReview.error.message) };
+    }
+    const identityError = validateEmployeeAccountIdentity(stagedWorkspace, {
       employeeId: context.employeeId,
       userId,
       loginName,
     });
-    if (identityError) return businessError(409, identityError.code, identityError.message);
+    if (identityError) return { result: businessError(409, identityError.code, identityError.message) };
 
     const updatedEmployee = {
       ...before,
+      defaultWorkshop: machineReview.machine?.workshop || before.defaultWorkshop,
+      defaultMachineId: machineReview.machine?.machineId || before.defaultMachineId,
       userId,
       loginName,
       accountEnabled: true,
@@ -181,13 +525,14 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       reviewedBy: operatorId,
       reviewedAt,
       reviewedRoleKey: roleKey,
+      reviewedRoleKeys: roleKeys,
       reviewNote,
       updatedAt: reviewedAt,
     };
-    const stagedWorkspace = stageWorkspace(workspace);
     stagedWorkspace.employees[employeeIndex] = updatedEmployee;
     const user = upsertMasterDataEmployeeUser(stagedWorkspace, updatedEmployee, {
       roleKey,
+      roleKeys,
       reviewedAt,
       existingUser,
       reviewedBy: operatorId,
@@ -210,20 +555,15 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
         accountEnabled: true,
         profileStatus: updatedEmployee.profileStatus,
         reviewedRoleKey: roleKey,
+        reviewedRoleKeys: roleKeys,
+        defaultMachineId: updatedEmployee.defaultMachineId,
       },
       reason: reviewNote,
       operatorId,
       pageKey: "master_data",
     });
     stagedWorkspace.operationLogs.unshift(operationLog);
-    await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace);
-
-    return success({
-      employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, stagedWorkspace.users),
-      employee: updatedEmployee,
-      user: sanitizeRuntimeUserForResponse(user),
-      operationLogId: operationLog.id,
-    });
+    return { updatedEmployee, user, operationLog };
   }
 
   async function issueEmployeeTemporaryPassword({
@@ -247,8 +587,24 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
 
     const issuedAt = cleanText(body.issuedAt) || now().toISOString();
     const roleKey = normalizeEmployeeAccountRoleKey(
-      "",
-      effectiveBefore.reviewedRoleKey || before.roleName,
+      effectiveBefore.reviewedRoleKey || existingUser?.defaultRole,
+      before.roleName,
+    );
+    const requestedRoleInputs = body.roleKeys === undefined
+      ? (existingUser?.roles?.length ? existingUser.roles : effectiveBefore.reviewedRoleKeys ?? before.roleKeys ?? before.roleName)
+      : body.roleKeys;
+    const invalidRoleInputs = getInvalidEmployeeAccountRoleInputs(requestedRoleInputs);
+    if (invalidRoleInputs.length) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_ACCOUNT_ROLES_INVALID",
+        `Unknown employee account roles: ${invalidRoleInputs.join(", ")}.`,
+      );
+    }
+    const roleKeys = normalizeEmployeeAccountRoleKeys(
+      requestedRoleInputs,
+      roleKey,
+      before.roleName,
     );
     const userId = cleanText(effectiveBefore.userId) || buildEmployeeAccountUserId(before);
     const loginName =
@@ -257,6 +613,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       userId: cleanText(body.userId) || userId,
       loginName: cleanText(body.loginName) || loginName,
       roleKey: cleanText(body.roleKey) || roleKey,
+      roleKeys,
     });
     if (reviewLockError) return businessError(409, reviewLockError.code, reviewLockError.message);
     const identityError = validateEmployeeAccountIdentity(workspace, {
@@ -283,6 +640,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       accountEnabled: true,
       profileStatus: "account_enabled",
       reviewedRoleKey: roleKey,
+      reviewedRoleKeys: roleKeys,
       loginEnabled: true,
       passwordStatus: issuedPassword.passwordStatus,
       passwordIssuedBy: operatorId,
@@ -301,6 +659,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     stagedWorkspace.employees[employeeIndex] = updatedEmployee;
     const baseUser = upsertMasterDataEmployeeUser(stagedWorkspace, updatedEmployee, {
       roleKey,
+      roleKeys,
       reviewedAt: issuedPassword.passwordIssuedAt,
       existingUser,
     });
@@ -350,7 +709,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace);
 
     return success({
-      employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, stagedWorkspace.users),
+      employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, stagedWorkspace.users, stagedWorkspace.machines, stagedWorkspace.operationLogs),
       issuedCredential: {
         userId,
         loginName,
@@ -390,6 +749,11 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       profileStatus: "account_enabled",
       reviewedRoleKey:
         cleanText(before.reviewedRoleKey) || cleanText(runtimeUser?.defaultRole),
+      reviewedRoleKeys: normalizeEmployeeAccountRoleKeys(
+        runtimeUser?.roles ?? before.reviewedRoleKeys ?? before.roleKeys ?? before.roleName,
+        cleanText(before.reviewedRoleKey) || cleanText(runtimeUser?.defaultRole),
+        before.roleName,
+      ),
       loginEnabled: false,
       passwordStatus: "password_revoked",
       mustChangePassword: false,
@@ -458,7 +822,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
 
     return success({
       revoked: true,
-      employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, stagedWorkspace.users),
+      employeeAccountReview: toMasterDataEmployeeAccountReview(updatedEmployee, stagedWorkspace.users, stagedWorkspace.machines, stagedWorkspace.operationLogs),
       user: updatedUser ? sanitizeRuntimeUserForResponse(updatedUser) : null,
       sessionsRevokedAfter: revokedAt,
       operationLogId: operationLog.id,
@@ -466,7 +830,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
   }
 }
 
-export function toMasterDataEmployeeAccountReview(employee = {}, users = []) {
+export function toMasterDataEmployeeAccountReview(employee = {}, users = [], machines = [], operationLogs = []) {
   const employeeId = cleanText(employee.id);
   const user = findEmployeeReviewUser(employee, users);
   const userId = cleanText(employee.userId) || cleanText(user?.userId ?? user?.id);
@@ -478,8 +842,15 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = []) {
     cleanText(employee.reviewedRoleKey) ||
     cleanText(user?.defaultRole) ||
     normalizeEmployeeAccountRoleKey("", employee.roleName);
+  const roleKeys = normalizeEmployeeAccountRoleKeys(
+    user?.roles ?? employee.reviewedRoleKeys ?? employee.roleKeys ?? employee.roleName,
+    roleKey,
+    employee.roleName,
+  );
   const userPasswordStatus = cleanText(user?.passwordStatus);
   const employeePasswordStatus = cleanText(employee.passwordStatus);
+  const machineConfiguration = buildEmployeeMachineConfigurationProjection(employee, roleKeys, machines);
+  const identityConfirmation = getEmployeeAccountIdentityConfirmation(employee, roleKeys, operationLogs);
   return {
     employeeId,
     bizNo: cleanText(employee.bizNo) || employeeId,
@@ -487,6 +858,10 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = []) {
     roleName: cleanText(employee.roleName),
     defaultWorkshop: cleanText(employee.defaultWorkshop),
     defaultMachineId: cleanText(employee.defaultMachineId),
+    configuredMachineId: machineConfiguration.machineId,
+    configuredMachineLabel: machineConfiguration.machineLabel,
+    machineConfigurationStatus: machineConfiguration.status,
+    machineConfigurationStatusLabel: machineConfiguration.statusLabel,
     assignmentMode: getEmployeeAssignmentMode(employee),
     assignmentUpdatedBy: cleanText(employee.assignmentUpdatedBy),
     assignmentUpdatedAt: cleanText(employee.assignmentUpdatedAt),
@@ -497,10 +872,16 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = []) {
       accountEnabled
         ? "account_enabled"
         : cleanText(employee.profileStatus) || "pending_admin_review",
-    status: accountEnabled ? "account_enabled" : "pending_admin_review",
-    statusLabel: accountEnabled ? "已启用" : "待管理员复核",
+    status: accountEnabled
+      ? "account_enabled"
+      : identityConfirmation.activationBlocked ? "identity_confirmation_required" : "pending_admin_review",
+    statusLabel: accountEnabled
+      ? "已启用"
+      : identityConfirmation.activationBlocked ? "身份待确认" : "待管理员复核",
     recommendedRoleKey: roleKey,
     recommendedRoleLabel: getEmployeeAccountRoleLabel(roleKey),
+    recommendedRoleKeys: roleKeys,
+    recommendedRoleLabels: roleKeys.map(getEmployeeAccountRoleLabel),
     loginName:
       cleanText(employee.loginName) ||
       cleanText(user?.loginName) ||
@@ -527,33 +908,104 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = []) {
     failedLoginCount: Number(user?.failedLoginCount ?? employee.failedLoginCount) || 0,
     lastFailedLoginAt: cleanText(user?.lastFailedLoginAt) || cleanText(employee.lastFailedLoginAt),
     lockedUntil: cleanText(user?.lockedUntil) || cleanText(employee.lockedUntil),
+    identityConfirmationRequired: identityConfirmation.required,
+    identityConfirmed: identityConfirmation.confirmed,
+    identityConfirmationStatus: identityConfirmation.status,
+    identityConfirmationStatusLabel: identityConfirmation.statusLabel,
+    identityConfirmedBy: identityConfirmation.confirmedBy,
+    identityConfirmedAt: identityConfirmation.confirmedAt,
+    identityConfirmationNote: identityConfirmation.confirmationNote,
+    accountActivationBlocked: identityConfirmation.activationBlocked,
+    accountActivationBlockerCode: identityConfirmation.blockerCode,
+    accountActivationBlockerLabel: identityConfirmation.blockerLabel,
     remark: cleanText(employee.remark),
     actionRequired: !accountEnabled,
   };
 }
 
-export function buildEmployeeAssignmentOptions(workspace = {}) {
-  const byMachineId = new Map(defaultEmployeeAssignmentMachines.map((machine) => [machine.machineId, { ...machine }]));
-  for (const machine of workspace.machines ?? []) {
-    const machineId = cleanText(machine?.machineId ?? machine?.id);
-    if (!machineId) continue;
-    byMachineId.set(machineId, {
-      machineId,
-      machineLabel: cleanText(machine?.machineLabel ?? machine?.name) || machineId,
-      workshop: cleanText(machine?.workshop),
-      enabled: machine?.enabled !== false && cleanText(machine?.status) !== "inactive",
+export function listMasterDataEmployeeAccountReviews(workspace = {}, filters = {}) {
+  const statusFilter = cleanText(filters.status);
+  const employeeIdFilter = cleanText(filters.employeeId);
+  const keyword = cleanText(filters.keyword).toLowerCase();
+  const users = new Map((workspace.users ?? []).map((user) => [cleanText(user.userId ?? user.id), user]));
+  return (Array.isArray(workspace.employees) ? workspace.employees : [])
+    .filter((employee) => !isMergedDuplicate(employee))
+    .map((employee) => toMasterDataEmployeeAccountReview(employee, users, workspace.machines, workspace.operationLogs))
+    .filter((review) => {
+      if (employeeIdFilter && review.employeeId !== employeeIdFilter) return false;
+      if (statusFilter && review.status !== statusFilter && review.profileStatus !== statusFilter) return false;
+      if (!keyword) return true;
+      return [
+        review.employeeId,
+        review.bizNo,
+        review.name,
+        review.roleName,
+        review.defaultWorkshop,
+        review.defaultMachineId,
+        review.loginName,
+      ].some((value) => cleanText(value).toLowerCase().includes(keyword));
     });
-  }
-  const machines = [...byMachineId.values()].sort((left, right) =>
+}
+
+export function buildEmployeeAssignmentOptions(workspace = {}) {
+  const machines = normalizeMasterDataMachines(workspace.machines).map((machine) => ({
+    ...machine,
+    machineLabel: machine.name || machine.machineId,
+    enabled: machine.enabled !== false && machine.status === "active",
+  })).sort((left, right) =>
     left.machineLabel.localeCompare(right.machineLabel, "zh-CN", { numeric: true }),
   );
-  const workshops = [...new Set([
-    "1号车间",
-    "2号车间",
-    "3号车间",
-    ...machines.map((machine) => machine.workshop).filter(Boolean),
-  ])];
+  const workshops = [...new Set(machines.map((machine) => machine.workshop).filter(Boolean))];
   return { workshops, machines };
+}
+
+function resolveEmployeeMachineConfiguration(workspace, employee, roleKeys) {
+  if (!roleKeys.includes("workshop")) return { machine: null };
+  const machineId = cleanText(employee.defaultMachineId);
+  if (!machineId) {
+    return { error: { code: "MASTER_DATA_EMPLOYEE_ACCOUNT_MACHINE_REQUIRED", message: "Workshop employees require a configured default machine before account enablement." } };
+  }
+  const machine = resolveConfiguredMasterDataMachine(workspace.machines, machineId);
+  if (!machine) {
+    return { error: { code: "MASTER_DATA_EMPLOYEE_ACCOUNT_MACHINE_NOT_CONFIGURED", message: "The employee default machine is not in authoritative machine configuration." } };
+  }
+  if (machine.enabled === false || machine.status !== "active") {
+    return { error: { code: "MASTER_DATA_EMPLOYEE_ACCOUNT_MACHINE_NOT_ACTIVE", message: "The employee default machine is not active." } };
+  }
+  const workshop = cleanText(employee.defaultWorkshop);
+  if (!workshop) {
+    return { error: { code: "MASTER_DATA_EMPLOYEE_ACCOUNT_WORKSHOP_REQUIRED", message: "Workshop employees require a configured workshop before account enablement." } };
+  }
+  if (cleanText(machine.workshop) !== workshop) {
+    return { error: { code: "MASTER_DATA_EMPLOYEE_ACCOUNT_MACHINE_WORKSHOP_MISMATCH", message: "The employee workshop does not match the configured machine workshop." } };
+  }
+  return { machine };
+}
+
+function buildEmployeeMachineConfigurationProjection(employee, roleKeys, machines) {
+  if (!roleKeys.includes("workshop")) {
+    return { machineId: "", machineLabel: "", status: "not_required", statusLabel: "无需机台" };
+  }
+  const machineId = cleanText(employee.defaultMachineId);
+  if (!machineId) {
+    return { machineId: "", machineLabel: "", status: "missing", statusLabel: "待分配机台" };
+  }
+  const machine = resolveConfiguredMasterDataMachine(machines, machineId);
+  if (!machine) {
+    return { machineId: "", machineLabel: "", status: "not_configured", statusLabel: "机台资料不存在" };
+  }
+  if (machine.enabled === false || machine.status !== "active") {
+    return { machineId: machine.machineId, machineLabel: machine.name || machine.machineId, status: "not_active", statusLabel: "机台未启用" };
+  }
+  if (!cleanText(employee.defaultWorkshop) || cleanText(machine.workshop) !== cleanText(employee.defaultWorkshop)) {
+    return { machineId: machine.machineId, machineLabel: machine.name || machine.machineId, status: "workshop_mismatch", statusLabel: "车间与机台不一致" };
+  }
+  return {
+    machineId: machine.machineId,
+    machineLabel: machine.name || machine.machineId,
+    status: machine.machineId === machineId ? "active" : "legacy_alias",
+    statusLabel: machine.machineId === machineId ? "机台已配置" : "历史编号已匹配",
+  };
 }
 
 function getEmployeeAssignmentMode(employee = {}) {
@@ -592,7 +1044,50 @@ function resolveEmployeeRuntimeUser(workspace, employee) {
   );
 }
 
+function hasFormalRuntimeUser(workspace, employee) {
+  return Boolean(resolveEmployeeRuntimeUser(workspace, employee));
+}
+
+function isMergedDuplicate(employee = {}) {
+  return cleanText(employee.profileStatus) === "merged_duplicate";
+}
+
+function resolveRetainedIdentityAssignment({ sourceEmployee = {}, targetEmployee = {} }) {
+  const sourceMachineId = cleanText(sourceEmployee.defaultMachineId);
+  const targetMachineId = cleanText(targetEmployee.defaultMachineId);
+  if (sourceMachineId && targetMachineId && sourceMachineId !== targetMachineId) {
+    return {
+      error: businessError(
+        409,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_ASSIGNMENT_CONFLICT",
+        "Identity merge is blocked because the two employee records have different default machines.",
+      ),
+    };
+  }
+  const sourceWorkshop = cleanText(sourceEmployee.defaultWorkshop);
+  const targetWorkshop = cleanText(targetEmployee.defaultWorkshop);
+  if (sourceWorkshop && targetWorkshop && sourceWorkshop !== targetWorkshop) {
+    return {
+      error: businessError(
+        409,
+        "MASTER_DATA_EMPLOYEE_IDENTITY_MERGE_ASSIGNMENT_CONFLICT",
+        "Identity merge is blocked because the two employee records have different default workshops.",
+      ),
+    };
+  }
+  const defaultMachineId = targetMachineId || sourceMachineId;
+  const defaultWorkshop = targetWorkshop || sourceWorkshop;
+  const assignmentMode = defaultMachineId
+    ? "fixed_machine"
+    : defaultWorkshop
+      ? "general_worker"
+      : "unassigned";
+  return { defaultWorkshop, defaultMachineId, assignmentMode };
+}
+
 function buildEffectiveEmployeeAccount(employee, runtimeUser) {
+  const reviewedRoleKey =
+    cleanText(employee.reviewedRoleKey) || cleanText(runtimeUser?.defaultRole);
   return {
     ...employee,
     userId: cleanText(employee.userId) || cleanText(runtimeUser?.userId),
@@ -602,8 +1097,12 @@ function buildEffectiveEmployeeAccount(employee, runtimeUser) {
       isEmployeeAccountEnabled(employee) || runtimeUser?.enabled
         ? "account_enabled"
         : cleanText(employee.profileStatus),
-    reviewedRoleKey:
-      cleanText(employee.reviewedRoleKey) || cleanText(runtimeUser?.defaultRole),
+    reviewedRoleKey,
+    reviewedRoleKeys: normalizeEmployeeAccountRoleKeys(
+      runtimeUser?.roles ?? employee.reviewedRoleKeys ?? employee.roleKeys ?? employee.roleName,
+      reviewedRoleKey,
+      employee.roleName,
+    ),
   };
 }
 
@@ -616,6 +1115,11 @@ function isEmployeeAccountEnabled(employee) {
 
 function upsertMasterDataEmployeeUser(workspace, employee, options = {}) {
   const roleKey = normalizeEmployeeAccountRoleKey(options.roleKey, employee.roleName);
+  const roleKeys = normalizeEmployeeAccountRoleKeys(
+    options.roleKeys ?? options.existingUser?.roles ?? employee.reviewedRoleKeys ?? employee.roleKeys ?? employee.roleName,
+    roleKey,
+    employee.roleName,
+  );
   const reviewedAt = cleanText(options.reviewedAt) || new Date().toISOString();
   const userId = cleanText(employee.userId) || buildEmployeeAccountUserId(employee);
   return upsertRuntimeUser(workspace, {
@@ -628,7 +1132,7 @@ function upsertMasterDataEmployeeUser(workspace, employee, options = {}) {
     department: getEmployeeAccountDepartment(roleKey),
     defaultMachineId: cleanText(employee.defaultMachineId),
     enabled: true,
-    roles: [roleKey],
+    roles: roleKeys,
     employeeId: cleanText(employee.id),
     source: "master_data_import_review",
     accountReviewedBy:
@@ -641,8 +1145,8 @@ function upsertMasterDataEmployeeUser(workspace, employee, options = {}) {
   });
 }
 
-async function persistAndCommitIdentityWorkspace(workspace, stagedWorkspace) {
-  await persistRuntimeIdentityState(stagedWorkspace);
+async function persistAndCommitIdentityWorkspace(workspace, stagedWorkspace, options = {}) {
+  await persistRuntimeIdentityState(stagedWorkspace, options);
   workspace.employees = stagedWorkspace.employees;
   workspace.users = stagedWorkspace.users;
   workspace.operationLogs = stagedWorkspace.operationLogs;
@@ -700,6 +1204,18 @@ function notFound(code) {
   return { notFound: true, code };
 }
 
-function businessError(statusCode, code, message) {
-  return { error: true, statusCode, code, message };
+function batchValidationError(employeeId, result = {}) {
+  return businessError(
+    409,
+    "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_VALIDATION_FAILED",
+    "Batch employee account enablement failed validation; no account was changed.",
+    {
+      employeeId: cleanText(employeeId),
+      causeCode: cleanText(result.code) || "MASTER_DATA_EMPLOYEE_ACCOUNT_BATCH_MEMBER_INVALID",
+    },
+  );
+}
+
+function businessError(statusCode, code, message, details = undefined) {
+  return { error: true, statusCode, code, message, ...(details ? { details } : {}) };
 }

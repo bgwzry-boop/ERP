@@ -1,9 +1,13 @@
+import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
+
+const inventoryReservationPolicyService = createInventoryReservationPolicyService();
+
 export function createOrderLineMutationCommandService(dependencies = {}) {
   const {
     buildOperationLog,
     findInventoryItem,
     findOrderLine,
-    isReleasableInventoryReservation,
+    isReleasableInventoryReservation = inventoryReservationPolicyService.isReleasableInventoryReservation,
     nextPlainId,
     summarizeOrderLineForChange,
     toInventoryQuantitySnapshot,

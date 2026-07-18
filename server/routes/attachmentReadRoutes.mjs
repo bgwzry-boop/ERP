@@ -7,28 +7,44 @@ export async function handleAttachmentReadRoutes({
   writeActionPermissions,
   requireActionPermission,
   getPermissionOperatorId,
+  sendJson,
+  sendNotFound,
   sendBusinessError,
-  listAttachmentsRoute,
-  getAttachmentStorageDiagnosticsRoute,
-  getAttachmentV1ReadinessRoute,
-  createAttachmentAccessUrlRoute,
-  listAttachmentAccessLogsRoute,
-  getAttachmentContentRoute,
+  sendInlineFile,
+  paginate,
+  attachmentFileAccessService,
+  runAttachmentStorageDiagnostics,
+  buildAttachmentV1Readiness,
 }) {
   const directRoutes = {
     "/api/attachments": {
-      run: () => listAttachmentsRoute({ response, workspace, searchParams: url.searchParams }),
+      run: async () => {
+        const result = await attachmentFileAccessService.listAttachments({
+          workspace,
+          filters: {
+            ownerType: url.searchParams.get("ownerType"),
+            ownerId: url.searchParams.get("ownerId"),
+            purpose: url.searchParams.get("purpose"),
+            fileType: url.searchParams.get("fileType"),
+            keyword: url.searchParams.get("keyword"),
+          },
+        });
+        sendJson(response, 200, paginate(result.items, url.searchParams));
+      },
     },
     "/api/attachments/storage-diagnostics": {
-      run: () => getAttachmentStorageDiagnosticsRoute({ response, workspace }),
+      run: async () => sendJson(response, 200, await runAttachmentStorageDiagnostics(workspace.attachmentObjectStorage)),
     },
     "/api/attachments/v1-readiness": {
-      run: () =>
-        getAttachmentV1ReadinessRoute({
+      run: async () =>
+        sendJson(
           response,
+          200,
+          await buildAttachmentV1Readiness({
           workspace,
           operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
-        }),
+          }),
+        ),
     },
   };
   const directRoute = directRoutes[url.pathname];
@@ -41,25 +57,27 @@ export async function handleAttachmentReadRoutes({
   const accessUrlMatch = url.pathname.match(/^\/api\/attachments\/([^/]+)\/access-url$/);
   if (accessUrlMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.viewAttachment)) return true;
-    await createAttachmentAccessUrlRoute({
-      response,
+    const result = await attachmentFileAccessService.createAccessUrl({
       workspace,
       attachmentId: decodeURIComponent(accessUrlMatch[1]),
-      searchParams: url.searchParams,
-      authContext,
+      ttlSeconds: url.searchParams.get("ttlSeconds"),
+      operatorId: authContext.userId,
     });
+    if (result.notFound) sendNotFound(response, result.code);
+    else sendJson(response, 200, result.response);
     return true;
   }
 
   const accessLogsMatch = url.pathname.match(/^\/api\/attachments\/([^/]+)\/access-logs$/);
   if (accessLogsMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.viewAttachment)) return true;
-    await listAttachmentAccessLogsRoute({
-      response,
+    const result = await attachmentFileAccessService.listAccessLogs({
       workspace,
       attachmentId: decodeURIComponent(accessLogsMatch[1]),
-      searchParams: url.searchParams,
+      limit: url.searchParams.get("limit"),
     });
+    if (result.notFound) sendNotFound(response, result.code);
+    else sendJson(response, 200, result.response);
     return true;
   }
 
@@ -79,12 +97,13 @@ export async function handleAttachmentReadRoutes({
     }
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.viewAttachment)) return true;
   }
-  await getAttachmentContentRoute({
-    response,
+  const result = await attachmentFileAccessService.getContent({
     workspace,
     attachmentId,
-    authContext,
+    operatorId: authContext.userId,
     accessMode: signedAccess.valid ? "signed_url" : "permission",
   });
+  if (result.notFound) sendNotFound(response, result.code);
+  else sendInlineFile(response, 200, result.file.body, result.file.options);
   return true;
 }

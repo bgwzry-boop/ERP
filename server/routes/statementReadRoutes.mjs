@@ -13,46 +13,55 @@ export async function handleStatementReadRoutes({
   filterByKeyword,
   filterByValue,
   paginate,
-  getStatementExportStorageDiagnosticsRoute,
-  getStatementExportV1ReadinessRoute,
-  listStatementExportsRoute,
-  downloadStatementExportRoute,
+  statementExportFileService,
+  runStatementExportStorageDiagnostics,
+  buildStatementExportV1Readiness,
+  sendCommandResponse,
+  sendFile,
 }) {
   const requirePreviewPermission = () =>
     requireActionPermission(response, permissionContext, writeActionPermissions.previewStatement);
 
   if (url.pathname === "/api/statements/export-storage-diagnostics") {
     if (!requirePreviewPermission()) return true;
-    await getStatementExportStorageDiagnosticsRoute({ response, workspace });
+    sendJson(response, 200, await runStatementExportStorageDiagnostics(workspace.statementExportObjectStorage));
     return true;
   }
 
   if (url.pathname === "/api/statements/export-v1-readiness") {
     if (!requirePreviewPermission()) return true;
-    await getStatementExportV1ReadinessRoute({
+    sendJson(
       response,
-      workspace,
-      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
-    });
+      200,
+      await buildStatementExportV1Readiness({
+        workspace,
+        operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+      }),
+    );
     return true;
   }
 
   const exportListMatch = url.pathname.match(/^\/api\/statements\/([^/]+)\/exports$/);
   if (exportListMatch) {
     if (!requirePreviewPermission()) return true;
-    await listStatementExportsRoute({ response, workspace, statementId: decodeURIComponent(exportListMatch[1]) });
+    const result = await statementExportFileService.listExports({
+      workspace,
+      statementId: decodeURIComponent(exportListMatch[1]),
+    });
+    sendCommandResponse(response, result);
     return true;
   }
 
   const exportDownloadMatch = url.pathname.match(/^\/api\/statements\/([^/]+)\/exports\/([^/]+)$/);
   if (exportDownloadMatch) {
     if (!requirePreviewPermission()) return true;
-    await downloadStatementExportRoute({
-      response,
+    const result = await statementExportFileService.getExportDownload({
       workspace,
       statementId: decodeURIComponent(exportDownloadMatch[1]),
       downloadToken: decodeURIComponent(exportDownloadMatch[2]),
     });
+    if (result.notFound) sendNotFound(response, result.code);
+    else sendFile(response, 200, result.response.body, result.response.options);
     return true;
   }
 

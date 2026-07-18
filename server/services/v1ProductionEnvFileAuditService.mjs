@@ -111,6 +111,13 @@ export function getConfiguredV1ProductionEnvApplicationFileConfig(
   return buildConfiguredV1ProductionEnvFileConfig(sources, { env });
 }
 
+export function getConfiguredV1ProductionEnvApplicationFiles(options = {}) {
+  return getConfiguredV1ProductionEnvApplicationFileConfig({
+    ...options,
+    allowAuditOnlyFallback: false,
+  }).envFiles;
+}
+
 export function getConfiguredV1ProductionEnvValuesFileConfig(env = process.env) {
   return buildConfiguredV1ProductionEnvFileConfig(VALUES_CONFIG_SOURCES, { env });
 }

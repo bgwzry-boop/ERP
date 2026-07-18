@@ -1,13 +1,16 @@
-import { loadSyntheticOfficeSeed } from "./seeds/syntheticOfficeSeed.mjs";
+import { loadOfficeSeedWorkspace } from "./seeds/officeSeedLoader.mjs";
 import { getEffectivePermissionsForRuntimeUser, getEffectivePermissionsForUser } from "./authSeed.mjs";
 
-export function loadSeedWorkspace(scenarioId) {
-  return loadSyntheticOfficeSeed(scenarioId);
+export function loadSeedWorkspace(input = {}) {
+  const options = typeof input === "object" && input !== null ? input : { scenarioId: input };
+  return loadOfficeSeedWorkspace(options);
 }
 
 export function getEffectivePermissions(userId, options = {}) {
   const runtimeUser = (Array.isArray(options.runtimeUsers) ? options.runtimeUsers : []).find(
-    (user) => String(user?.userId ?? user?.id ?? "").trim() === String(userId ?? "").trim(),
+    (user) =>
+      String(user?.userId ?? user?.id ?? "").trim() === String(userId ?? "").trim() &&
+      String(user?.identityKind ?? "").trim() !== "seed_fixture",
   );
   if (runtimeUser) return getEffectivePermissionsForRuntimeUser(runtimeUser, userId);
   return getEffectivePermissionsForUser(userId);
@@ -26,6 +29,7 @@ export function getStatementCustomers(workspace) {
       lastStatementAt: customer.lastStatement,
       status: mapStatementCustomerStatus(statement),
       statementId: statement.id,
+      revision: Math.max(1, Number(statement.revision ?? 1) || 1),
     };
   });
 }

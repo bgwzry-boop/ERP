@@ -16,7 +16,38 @@ export function createMasterDataImportCommandService(dependencies = {}) {
     createConfirmationPlan,
     createFailedRowsCorrectionDraft,
     createImportExecution,
+    getFailedRowsDownload,
   };
+
+  async function getFailedRowsDownload({ workspace, executionId }) {
+    const safeExecutionId = cleanText(executionId);
+    if (!safeExecutionId) {
+      return businessError(400, "MASTER_DATA_IMPORT_EXECUTION_ID_REQUIRED", "executionId is required.");
+    }
+    const importExecution = (await workspace.masterDataImportReviewRepository.listImportExecutions({
+      workspace,
+      filters: { executionId: safeExecutionId },
+    }))[0];
+    if (!importExecution) return notFound("MASTER_DATA_IMPORT_EXECUTION_NOT_FOUND");
+
+    const failedRowsDownload = importExecution.failedRowsDownload ?? importExecution.importPayload?.failedRowsDownload;
+    if (failedRowsDownload?.required !== true || !cleanText(failedRowsDownload.content)) {
+      return businessError(
+        409,
+        "MASTER_DATA_IMPORT_FAILED_ROWS_NOT_AVAILABLE",
+        "This import execution has no failed rows to download.",
+      );
+    }
+    return {
+      file: {
+        body: failedRowsDownload.content,
+        options: {
+          contentType: failedRowsDownload.contentType || "text/csv; charset=utf-8",
+          fileName: failedRowsDownload.fileName || `master-data-import-failed-rows-${safeExecutionId}.csv`,
+        },
+      },
+    };
+  }
 
   async function createFailedRowsCorrectionDraft({ workspace, executionId, body = {}, operatorId }) {
     const safeExecutionId = cleanText(executionId);

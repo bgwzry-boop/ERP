@@ -1,11 +1,77 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
-import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
-import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import {
+  buildPostgresIdempotencyRequest,
+  readPostgresIdempotencyReplay,
+  resolveRepositoryIdempotencyKey,
+} from "./idempotency.mjs";
+import {
+  buildRawMaterialActionIdempotencyScope,
+  rawMaterialWriteConflict,
+  readLocalRawMaterialActionReplay,
+  recordLocalRawMaterialActionResult,
+} from "./rawMaterialInboundConcurrency.mjs";
+import {
+  createRawMaterialInboundLocalStore,
+  rawMaterialInboundStoreKey,
+} from "./rawMaterialInboundLocalStore.mjs";
+import {
+  buildFindRawMaterialInboundPayloadQuery,
+  buildFindRawMaterialInboundPayloadSql,
+  buildInsertRawMaterialInboundDraftTransactionQuery,
+  buildInsertRawMaterialInboundDraftTransactionSql,
+  buildListRawMaterialInboundPayloadsQuery,
+  buildListRawMaterialInboundPayloadsSql,
+  buildUpsertRawMaterialInboundPayloadTransactionQuery,
+  buildUpsertRawMaterialInboundPayloadTransactionSql,
+} from "./rawMaterialInboundPostgresQueryBuilder.mjs";
+import { buildRawMaterialInboundListResponse } from "./services/rawMaterialInboundReadProjectionService.mjs";
+import { applyRawMaterialOcrReparse, applyRawMaterialOcrReview } from "./rawMaterialInboundOcrSupport.mjs";
+import {
+  buildRawMaterialProductionTaskGoodsSpec,
+  findRawMaterialCustomer,
+  findRawMaterialOrderLine,
+  findRawMaterialProductionTask,
+  normalizeOperationLog,
+  normalizeRawMaterialInbound,
+  normalizeRawMaterialInboundActionResult,
+  normalizeRawMaterialInbounds,
+  resolveRawMaterialProductionTaskMatch,
+} from "./rawMaterialInboundRecordService.mjs";
+import { createRawMaterialCostMarginBuilder } from "./rawMaterialCostMarginBuilderService.mjs";
+import {
+  normalizeRawMaterialCostAllocationConfirmations,
+  normalizeRawMaterialCostAllocationDrafts,
+  normalizeRawMaterialCostAllocationWarnings,
+  normalizeRawMaterialCostLossCalibrations,
+  normalizeRawMaterialOrderMarginReports,
+  normalizeRawMaterialOrderMarginSnapshots,
+} from "./rawMaterialCostMarginRecordNormalizer.mjs";
+import {
+  normalizeRawMaterialConsumptionRecords,
+  normalizeRawMaterialIssueRecords,
+  normalizeRawMaterialLeftoverReturnRecords,
+  normalizeRawMaterialLeftoverReviewRecords,
+  normalizeRawMaterialSplitRecords,
+} from "./rawMaterialTraceabilityRecordNormalizer.mjs";
+export { rawMaterialInboundStoreKey, normalizeRawMaterialInbounds, buildRawMaterialInboundListResponse };
+export {
+  buildFindRawMaterialInboundPayloadQuery,
+  buildFindRawMaterialInboundPayloadSql,
+  buildInsertRawMaterialInboundDraftTransactionQuery,
+  buildInsertRawMaterialInboundDraftTransactionSql,
+  buildListRawMaterialInboundPayloadsQuery,
+  buildListRawMaterialInboundPayloadsSql,
+  buildUpsertRawMaterialInboundPayloadTransactionQuery,
+  buildUpsertRawMaterialInboundPayloadTransactionSql,
+};
 
-export const rawMaterialInboundStoreKey = "metadata/raw-material-inbounds.json";
+const rawMaterialCostMarginBuilder = createRawMaterialCostMarginBuilder({
+  findProductionTask: findRawMaterialProductionTask,
+  findOrderLine: findRawMaterialOrderLine,
+  findCustomer: findRawMaterialCustomer,
+  buildGoodsSpec: buildRawMaterialProductionTaskGoodsSpec,
+});
 
 export function createRawMaterialInboundRepository(options = {}) {
   const mode =
@@ -36,13 +102,13 @@ export function createRawMaterialInboundRepository(options = {}) {
 }
 
 export function createLocalRawMaterialInboundRepository(options = {}) {
-  const storageRoot = options.storageRoot ?? getLocalStorageRoot();
+  const store = createRawMaterialInboundLocalStore({ storageRoot: options.storageRoot });
 
   return {
     kind: "local_json",
 
     loadState({ seedInbounds = [] } = {}) {
-      return loadPersistentRawMaterialInboundState(storageRoot, seedInbounds);
+      return store.load({ seedInbounds });
     },
 
     listRawMaterialInbounds({ workspace, query } = {}) {
@@ -53,8 +119,29 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
       return findRawMaterialInbound(workspace, inboundId);
     },
 
+    createRawMaterialInboundDraft({ workspace, inbound, operationLog }) {
+      const safeInbound = normalizeRawMaterialInbound(inbound);
+      if (!safeInbound?.id) throw Object.assign(new Error("Raw material inbound id is required"), { statusCode: 422 });
+      const existing = findRawMaterialInbound(workspace, safeInbound.id);
+      if (existing) {
+        if (existing.ocrSourceDigest && existing.ocrSourceDigest === safeInbound.ocrSourceDigest) {
+          return { inbound: existing, operationLog: null, deduplicated: true };
+        }
+        throw Object.assign(new Error(`Raw material inbound already exists: ${safeInbound.id}`), {
+          statusCode: 409,
+          code: "RAW_MATERIAL_INBOUND_ALREADY_EXISTS",
+        });
+      }
+      const safeOperationLog = normalizeOperationLog(operationLog);
+      workspace.rawMaterialInbounds = [safeInbound, ...normalizeRawMaterialInbounds(workspace.rawMaterialInbounds)];
+      store.save(workspace.rawMaterialInbounds);
+      return { inbound: safeInbound, operationLog: safeOperationLog, deduplicated: false };
+    },
+
     recordRawMaterialInboundAction(input = {}) {
-      const { workspace, inboundId, action, body = {}, operatorName, operatorId } = input;
+      const replay = readLocalRawMaterialActionReplay(input);
+      if (replay) return replay;
+      const { workspace, inboundId, action, body = {}, operatorName, operatorId, serverNow } = input;
       const result = applyRawMaterialInboundAction({
         workspace,
         inbounds: workspace?.rawMaterialInbounds,
@@ -63,12 +150,14 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
         body,
         operatorId,
         operatorName,
+        serverNow,
       });
       if (!result.inbound) {
         throw Object.assign(new Error(`Raw material inbound not found: ${inboundId}`), { statusCode: 404 });
       }
       workspace.rawMaterialInbounds = result.inbounds;
-      persistRawMaterialInboundState(storageRoot, workspace.rawMaterialInbounds);
+      recordLocalRawMaterialActionResult(input, result);
+      store.save(workspace.rawMaterialInbounds);
       return {
         inbound: result.inbound,
         operationLog: result.operationLog,
@@ -108,7 +197,61 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
       return normalizeRawMaterialInbound(await queryJson(builtQuery.text, builtQuery.values));
     },
 
+    async createRawMaterialInboundDraft(input = {}) {
+      const safeInbound = normalizeRawMaterialInbound(input.inbound);
+      if (!safeInbound?.id) throw Object.assign(new Error("Raw material inbound id is required"), { statusCode: 422 });
+      const existing = normalizeRawMaterialInbounds(input.workspace?.rawMaterialInbounds).find(
+        (item) => item.id === safeInbound.id,
+      );
+      if (existing?.ocrSourceDigest && existing.ocrSourceDigest === safeInbound.ocrSourceDigest) {
+        return { inbound: existing, operationLog: null, operationLogId: "", deduplicated: true };
+      }
+      const operationLog = normalizeOperationLog(input.operationLog);
+      const builtQuery = buildInsertRawMaterialInboundDraftTransactionQuery(safeInbound, operationLog);
+      const saved = normalizeRawMaterialInboundActionResult(
+        await idempotentTransactionJson(
+          buildPostgresIdempotencyRequest({
+            scope: `raw-material.ocr.create.${safeInbound.id}`,
+            idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, operationLog?.id ?? safeInbound.id),
+            payload: input.idempotencyPayload ?? { inboundId: safeInbound.id, ocrSourceDigest: safeInbound.ocrSourceDigest },
+            operatorId: input.operatorId,
+            targetType: "raw_material_inbound",
+            targetId: safeInbound.id,
+            resourceLocks: [`raw-material:${safeInbound.id}`],
+            query: builtQuery,
+          }),
+        ),
+      );
+      const savedInbound = saved.inbound ?? safeInbound;
+      input.workspace.rawMaterialInbounds = [
+        savedInbound,
+        ...normalizeRawMaterialInbounds(input.workspace.rawMaterialInbounds).filter((item) => item.id !== savedInbound.id),
+      ];
+      return {
+        inbound: savedInbound,
+        operationLog: saved.operationLogId === operationLog?.id ? operationLog : null,
+        operationLogId: saved.operationLogId,
+        deduplicated: false,
+      };
+    },
+
     async recordRawMaterialInboundAction(input = {}) {
+      const scope = buildRawMaterialActionIdempotencyScope(input);
+      const replay = await readPostgresIdempotencyReplay({
+        queryJson,
+        scope,
+        idempotencyKey: input.idempotencyKey,
+        payload: input.idempotencyPayload ?? input.body ?? {},
+      });
+      if (replay) {
+        const savedReplay = normalizeRawMaterialInboundActionResult(replay);
+        if (savedReplay.inbound) {
+          input.workspace.rawMaterialInbounds = normalizeRawMaterialInbounds(input.workspace.rawMaterialInbounds).map((item) =>
+            item.id === savedReplay.inbound.id ? savedReplay.inbound : item,
+          );
+        }
+        return { ...savedReplay, replayed: true };
+      }
       const result = applyRawMaterialInboundAction({
         workspace: input.workspace,
         inbounds: input.workspace?.rawMaterialInbounds,
@@ -117,15 +260,19 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
         body: input.body,
         operatorId: input.operatorId,
         operatorName: input.operatorName,
+        serverNow: input.serverNow,
       });
       if (!result.inbound) {
         throw Object.assign(new Error(`Raw material inbound not found: ${input.inboundId}`), { statusCode: 404 });
       }
-      const builtQuery = buildUpsertRawMaterialInboundPayloadTransactionQuery(result.inbound, result.operationLog);
+      const builtQuery = buildUpsertRawMaterialInboundPayloadTransactionQuery(
+        { ...result.inbound, revision: result.expectedRevision },
+        result.operationLog,
+      );
       const saved = normalizeRawMaterialInboundActionResult(
         await idempotentTransactionJson(
           buildPostgresIdempotencyRequest({
-            scope: `raw-material.${normalizeAction(input.action)}.${cleanText(input.inboundId)}`,
+            scope,
             idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, result.operationLog?.id),
             payload: input.idempotencyPayload ?? input.body ?? {},
             operatorId: input.operatorId,
@@ -149,256 +296,248 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
   };
 }
 
-export function buildListRawMaterialInboundPayloadsSql({ query } = {}) {
-  return buildListRawMaterialInboundPayloadsQuery({ query }).text;
-}
-
-export function buildListRawMaterialInboundPayloadsQuery({ query } = {}) {
-  const filters = normalizeQuery(query);
-  const parameters = createPostgresParameterBinder();
-  const where = [];
-  if (filters.status && filters.status !== "全部") {
-    where.push(`status = ${parameters.text(filters.status)}`);
-  }
-  if (filters.keyword) {
-    where.push(`payload_json::text ILIKE ${parameters.text(`%${filters.keyword}%`)}`);
-  }
-  return {
-    text: `
-SELECT COALESCE(
-  json_agg(payload_json || jsonb_build_object('revision', revision) ORDER BY updated_at DESC, id DESC),
-  '[]'::json
-) AS result
-FROM raw_material_inbounds
-${where.length ? `WHERE ${where.join(" AND ")}` : ""};
-`.trim(),
-    values: parameters.values,
-  };
-}
-
-export function buildFindRawMaterialInboundPayloadSql(inboundId) {
-  return buildFindRawMaterialInboundPayloadQuery(inboundId).text;
-}
-
-export function buildFindRawMaterialInboundPayloadQuery(inboundId) {
-  const safeInboundId = cleanText(inboundId);
-  if (!safeInboundId) throw new Error("raw material inbound id is required");
-  const parameters = createPostgresParameterBinder();
-  return {
-    text: `
-SELECT payload_json || jsonb_build_object('revision', revision) AS result
-FROM raw_material_inbounds
-WHERE id = ${parameters.text(safeInboundId)}
-LIMIT 1;
-`.trim(),
-    values: parameters.values,
-  };
-}
-
-export function buildUpsertRawMaterialInboundPayloadTransactionSql(inbound, operationLog = null) {
-  return buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, operationLog).text;
-}
-
-export function buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, operationLog = null) {
-  const safeInbound = normalizeRawMaterialInbound(inbound);
-  if (!safeInbound?.id) throw new Error("raw material inbound id is required");
-  const safeOperationLog = normalizeOperationLog(operationLog);
-  const expectedRevision = Math.max(1, Number(safeInbound.revision) || 1);
-  const nextInbound = { ...safeInbound, revision: expectedRevision + 1 };
-  const parameters = createPostgresParameterBinder();
-  const operationLogSql = safeOperationLog ? buildInsertOperationLogSql(safeOperationLog, parameters) : "";
-  return {
-    text: `
-BEGIN;
-WITH locked_inbound AS MATERIALIZED (
-  SELECT id, revision
-  FROM raw_material_inbounds
-  WHERE id = ${parameters.text(safeInbound.id)}
-  FOR UPDATE
-),
-updated_inbound AS (
-  UPDATE raw_material_inbounds
-  SET
-    delivery_note_no = ${parameters.text(safeInbound.deliveryNoteNo)},
-    supplier_name = ${parameters.text(safeInbound.supplierName)},
-    status = ${parameters.text(safeInbound.status)},
-    payload_json = ${parameters.json(nextInbound)},
-    revision = raw_material_inbounds.revision + 1,
-    updated_at = now()
-  FROM locked_inbound AS locked
-  WHERE raw_material_inbounds.id = locked.id
-    AND locked.revision = ${parameters.integer(expectedRevision)}
-  RETURNING payload_json || jsonb_build_object('revision', revision) AS result
-),
-inbound_write_guard AS MATERIALIZED (
-  SELECT erp_require(
-    (SELECT COUNT(*) FROM updated_inbound) = 1,
-    'ERP_RAW_MATERIAL_INBOUND_CONCURRENCY_CONFLICT'
-  ) AS ok
-)
-${safeOperationLog ? `, inserted_operation_log AS (${operationLogSql})` : ""}
-SELECT json_build_object(
-  'inbound', (SELECT result FROM updated_inbound),
-  'operationLogId', ${safeOperationLog ? "(SELECT id FROM inserted_operation_log)" : "NULL"},
-  'writeGuard', (SELECT ok FROM inbound_write_guard)
-) AS result;
-COMMIT;
-`.trim(),
-    values: parameters.values,
-  };
-}
-
-function buildInsertOperationLogSql(operationLog, parameters) {
-  return `INSERT INTO operation_logs (
-  id,
-  target_type,
-  target_id,
-  action,
-  before_json,
-  after_json,
-  reason,
-  operator_id,
-  page_key,
-  occurred_at,
-  created_at
-) VALUES (
-  ${parameters.text(operationLog.id)},
-  ${parameters.text(operationLog.targetType)},
-  ${parameters.text(operationLog.targetId)},
-  ${parameters.text(operationLog.action)},
-  ${parameters.json(operationLog.before)},
-  ${parameters.json(operationLog.after)},
-  ${parameters.text(operationLog.reason)},
-  ${parameters.nullableText(operationLog.operatorId)},
-  ${parameters.text(operationLog.pageKey)},
-  ${parameters.timestamp(operationLog.occurredAt)},
-  ${parameters.timestamp(operationLog.createdAt)}
-)
-ON CONFLICT (id) DO NOTHING
-RETURNING id`;
-}
-
-export function buildRawMaterialInboundListResponse(inbounds = [], query = new URLSearchParams()) {
-  const filters = normalizeQuery(query);
-  let items = normalizeRawMaterialInbounds(inbounds);
-  if (filters.status && filters.status !== "全部") {
-    items = items.filter((item) => item.status === filters.status);
-  }
-  if (filters.keyword) {
-    const keyword = filters.keyword.toLowerCase();
-    items = items.filter((item) =>
-      [
-        item.id,
-        item.supplierName,
-        item.deliveryNoteNo,
-        item.materialType,
-        item.productName,
-        item.supplierColor,
-        item.factoryColor,
-        item.spec,
-        item.status,
-        item.location,
-        item.statementStatus,
-        ...(item.rolls ?? []).flatMap((roll) => [roll.id, roll.supplierRollNo, roll.labelStatus, roll.inventoryStatus]),
-      ]
-        .join(" ")
-        .toLowerCase()
-        .includes(keyword),
-    );
-  }
-  items = items.sort((left, right) => compareDateDesc(left.receivedAt, right.receivedAt) || String(right.id).localeCompare(String(left.id)));
-  const total = items.length;
-  const page = Math.max(1, Number(filters.page) || 1);
-  const pageSize = Math.max(1, Math.min(200, Number(filters.pageSize) || 50));
-  const start = (page - 1) * pageSize;
-  return {
-    items: items.slice(start, start + pageSize),
-    page,
-    pageSize,
-    total,
-    metrics: buildRawMaterialInboundMetrics(inbounds),
-  };
-}
-
 export function applyRawMaterialInboundAction(input = {}) {
   const workspace = input.workspace ?? {};
-  const inbounds = normalizeRawMaterialInbounds(input.inbounds);
+  const inbounds = normalizeRawMaterialInbounds(input.inbounds ?? workspace.rawMaterialInbounds);
   const inboundId = cleanText(input.inboundId);
   const index = inbounds.findIndex((item) => item.id === inboundId);
   if (index < 0) return { inbounds, inbound: null, operationLog: null };
 
   const action = normalizeAction(input.action);
   const before = inbounds[index];
-  const now = cleanText(input.body?.now ?? input.body?.actedAt) || new Date().toISOString();
-  const operatorName = cleanText(input.operatorName ?? input.body?.operatorName ?? input.operatorId ?? "U-OFFICE-A");
-  const operatorId = cleanText(input.operatorId ?? input.body?.operatorId ?? "");
+  const expectedRevision = Number(input.body?.expectedRevision);
+  if (!Number.isInteger(expectedRevision) || expectedRevision < 1) {
+    throw Object.assign(new Error("expectedRevision 必须是当前原材料入库单的正整数版本号。"), {
+      statusCode: 422,
+      code: "EXPECTED_REVISION_REQUIRED",
+    });
+  }
+  if (expectedRevision !== Number(before.revision ?? 1)) {
+    throw rawMaterialWriteConflict(before.revision);
+  }
+  const now = cleanText(input.serverNow) || new Date().toISOString();
+  // Authentication owns the operator identity. Request fields may describe the physical check, never the system operator.
+  const operatorId = cleanText(input.operatorId);
+  const operatorName = cleanText(input.operatorName ?? operatorId ?? "U-OFFICE-A");
   let after = before;
 
+  if (action === "reparse_ocr") {
+    after = applyRawMaterialOcrReparse({ before, reparsedInbound: input.body?.reparsedInbound });
+  }
+
   if (action === "review") {
-    after = {
-      ...before,
-      status: "已复核待打印标签",
-      ocrStatus: "人工复核已通过",
-      reviewedBy: operatorName,
-      reviewedByUserId: operatorId,
-      reviewedAt: now,
-      nextStep: "打印系统卷标；标签打印后仍需贴标扫码才算可用原料。",
-      rolls: (before.rolls ?? []).map((roll) => ({
-        ...roll,
-        labelStatus: roll.inventoryStatus === "可用" ? roll.labelStatus : "待打印标签",
-      })),
-    };
+    after = applyRawMaterialOcrReview({
+      before,
+      reviewFields: input.body?.reviewFields,
+      lineReviews: input.body?.lineReviews,
+      operatorName,
+      operatorId,
+      now,
+    });
   }
 
   if (action === "print_labels") {
+    if (before.status !== "已复核待打印标签") {
+      throw Object.assign(new Error("送货单必须先完成办公室人工复核，才能打印一卷一标。"), {
+        statusCode: 409, code: "RAW_MATERIAL_LABEL_PRINT_REQUIRES_REVIEW",
+      });
+    }
     after = {
       ...before,
       status: "已打印待贴标",
       labelPrintedBy: operatorName,
       labelPrintedByUserId: operatorId,
       labelPrintedAt: now,
-      nextStep: "把标签贴到对应卷料，手机扫码并上传签单信息后再入库可用。",
+      nextStep: "逐卷将标签贴到实物后，人工核对重量、颜色、规格和库位并确认。",
       rolls: (before.rolls ?? []).map((roll) => ({
         ...roll,
         labelStatus: roll.inventoryStatus === "可用" ? roll.labelStatus : "已打印待贴标",
+        labelVersion: roll.inventoryStatus === "可用" ? roll.labelVersion : nextRawMaterialLabelVersion(roll),
+        labelPrintedAt: roll.inventoryStatus === "可用" ? roll.labelPrintedAt : now,
+        labelPrintedBy: roll.inventoryStatus === "可用" ? roll.labelPrintedBy : operatorName,
+        labelPrintedByUserId: roll.inventoryStatus === "可用" ? roll.labelPrintedByUserId : operatorId,
       })),
     };
   }
 
   if (action === "attach_confirm") {
     const rollId = cleanText(input.body?.rollId);
+    if (!rollId) {
+      throw Object.assign(new Error("每次贴标确认必须明确选择一卷或一件原材料。"), {
+        statusCode: 422,
+        code: "RAW_MATERIAL_ATTACH_ROLL_REQUIRED",
+      });
+    }
+    const targetRoll = (before.rolls ?? []).find((roll) => roll.id === rollId);
+    if (!targetRoll) {
+      throw Object.assign(new Error(`Raw material roll not found: ${rollId}`), {
+        statusCode: 404,
+        code: "RAW_MATERIAL_ROLL_NOT_FOUND",
+      });
+    }
+    if (targetRoll.inventoryStatus === "可用") {
+      throw Object.assign(new Error("该卷/件已经是可用库存，不能重复确认贴标。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_ROLL_ALREADY_AVAILABLE",
+      });
+    }
+    if (action === "void_label" && targetRoll.labelStatus !== "标签或实物不符/待确认") {
+      throw Object.assign(new Error("只有标签或实物不符的异常卷/件可以作废当前标签。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_LABEL_VOID_REQUIRES_MISMATCH",
+      });
+    }
+    if (action === "reprint_label" && targetRoll.labelStatus !== "标签已作废/待重打") {
+      throw Object.assign(new Error("请先作废当前异常标签，再重打该卷/件标签。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_LABEL_REPRINT_REQUIRES_VOIDED_LABEL",
+      });
+    }
+    if (targetRoll.labelStatus !== "已打印待贴标") {
+      throw Object.assign(new Error("该卷/件必须先完成当前标签打印，才能进行贴标核对。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_ATTACH_REQUIRES_CURRENT_LABEL",
+      });
+    }
+    const matchResult = normalizeRawMaterialLabelMatchResult(input.body?.matchResult);
+    if (!matchResult) {
+      throw Object.assign(new Error("请明确选择标签与实物是否匹配。"), {
+        statusCode: 422,
+        code: "RAW_MATERIAL_LABEL_MATCH_RESULT_REQUIRED",
+      });
+    }
+    const verification = buildRawMaterialLabelVerification({
+      inbound: before,
+      roll: targetRoll,
+      body: input.body,
+      matchResult,
+      operatorId,
+      operatorName,
+      now,
+    });
     const nextRolls = (before.rolls ?? []).map((roll) => {
-      if (rollId && roll.id !== rollId) return roll;
-      if (roll.inventoryStatus === "可用") return roll;
+      if (roll.id !== rollId) return roll;
+      if (matchResult === "matched") {
+        return {
+          ...roll,
+          labelStatus: "已贴标/可用库存",
+          inventoryStatus: "可用",
+          labelVerification: verification,
+          labelVerifiedAt: now,
+          labelVerifiedBy: operatorName,
+          labelVerifiedByUserId: operatorId,
+          location: verification.location,
+        };
+      }
       return {
         ...roll,
-        labelStatus: "已贴标入库/可用",
-        inventoryStatus: "可用",
-        signedNoteStatus: "已扫码/签单",
-        scannedAt: now,
-        scannedBy: operatorName,
-        scannedByUserId: operatorId,
-        location: cleanText(roll.location).includes("待") ? "原料库-可用区" : roll.location,
+        labelStatus: "标签或实物不符/待确认",
+        inventoryStatus: "待确认",
+        labelVerification: verification,
+        labelVerifiedAt: now,
+        labelVerifiedBy: operatorName,
+        labelVerifiedByUserId: operatorId,
+        location: verification.location || "原料隔离区",
       };
     });
     const availableCount = nextRolls.filter((roll) => roll.inventoryStatus === "可用").length;
-    const nextStatus = nextRolls.length > 0 && availableCount === nextRolls.length ? "已贴标入库/可用" : "部分贴标";
+    const mismatchCount = nextRolls.filter((roll) => roll.labelStatus === "标签或实物不符/待确认").length;
+    const nextStatus = buildRawMaterialInboundLabelStatus({ nextRolls, availableCount, mismatchCount });
     after = {
       ...before,
       status: nextStatus,
-      signedNoteStatus: nextStatus === "已贴标入库/可用" ? "已扫码/签单" : "部分签单已上传",
       confirmedBy: operatorName,
       confirmedByUserId: operatorId,
       confirmedAt: now,
-      nextStep: nextStatus === "已贴标入库/可用" ? "可领料；后续进入供应商月结对账。" : "继续贴标扫码剩余卷/件。",
+      labelVerificationSummary: {
+        availableRollCount: availableCount,
+        mismatchRollCount: mismatchCount,
+        lastVerifiedRollId: rollId,
+        lastMatchResult: matchResult,
+      },
+      nextStep:
+        mismatchCount > 0
+          ? "异常卷已隔离；可单独作废或重打该卷标签后重新核对，不影响已确认可用卷。"
+          : availableCount === nextRolls.length
+            ? "可领料；后续进入供应商月结对账。"
+            : "继续逐卷核对剩余标签和实物。",
+      rolls: nextRolls,
+    };
+  }
+
+  if (action === "void_label" || action === "reprint_label") {
+    const rollId = cleanText(input.body?.rollId);
+    if (!rollId) {
+      throw Object.assign(new Error("作废或重打标签必须明确选择一卷或一件原材料。"), {
+        statusCode: 422,
+        code: "RAW_MATERIAL_LABEL_ROLL_REQUIRED",
+      });
+    }
+    const targetRoll = (before.rolls ?? []).find((roll) => roll.id === rollId);
+    if (!targetRoll) {
+      throw Object.assign(new Error(`Raw material roll not found: ${rollId}`), {
+        statusCode: 404,
+        code: "RAW_MATERIAL_ROLL_NOT_FOUND",
+      });
+    }
+    if (targetRoll.inventoryStatus === "可用") {
+      throw Object.assign(new Error("已确认可用的卷/件不能通过标签作废或重打直接改变库存状态。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_AVAILABLE_ROLL_LABEL_CHANGE_BLOCKED",
+      });
+    }
+    const nextRolls = (before.rolls ?? []).map((roll) => {
+      if (roll.id !== rollId) return roll;
+      if (action === "void_label") {
+        return {
+          ...roll,
+          labelStatus: "标签已作废/待重打",
+          inventoryStatus: "待确认",
+          labelVoidedAt: now,
+          labelVoidedBy: operatorName,
+          labelVoidedByUserId: operatorId,
+          labelVoidReason: cleanText(input.body?.reason) || "标签或实物不符",
+        };
+      }
+      return {
+        ...roll,
+        labelStatus: "已打印待贴标",
+        inventoryStatus: "待贴标",
+        labelVersion: nextRawMaterialLabelVersion(roll),
+        labelPrintedAt: now,
+        labelPrintedBy: operatorName,
+        labelPrintedByUserId: operatorId,
+        labelVerification: null,
+      };
+    });
+    const mismatchCount = nextRolls.filter((roll) => roll.labelStatus === "标签或实物不符/待确认").length;
+    const availableCount = nextRolls.filter((roll) => roll.inventoryStatus === "可用").length;
+    after = {
+      ...before,
+      status: buildRawMaterialInboundLabelStatus({ nextRolls, availableCount, mismatchCount }),
+      nextStep:
+        action === "void_label"
+          ? "该异常卷标签已作废；确认后可单独重打并重新核对。"
+          : "新标签已生成待贴标；请将其贴到本卷/件并重新人工核对。",
       rolls: nextRolls,
     };
   }
 
   if (action === "issue_to_machine") {
     const rollId = cleanText(input.body?.rollId);
-    const machineId = cleanText(input.body?.machineId) || "机边待分配";
+    const machineId = cleanText(input.body?.machineId);
     const productionTaskId = cleanText(input.body?.productionTaskId);
+    if (!rollId) {
+      throw Object.assign(new Error("机边领料必须选择已确认可用的单卷/件。"), {
+        statusCode: 422,
+        code: "RAW_MATERIAL_ISSUE_ROLL_REQUIRED",
+      });
+    }
+    if (!machineId) {
+      throw Object.assign(new Error("扫码出库必须填写领用机台或区域。"), {
+        statusCode: 422, code: "RAW_MATERIAL_ISSUE_MACHINE_REQUIRED",
+      });
+    }
     const productionTaskMatch = resolveRawMaterialProductionTaskMatch({
       workspace,
       inbound: before,
@@ -408,7 +547,8 @@ export function applyRawMaterialInboundAction(input = {}) {
     const issuePurpose = cleanText(input.body?.issuePurpose) || "生产领料";
     const requestedWeightKg = Number(input.body?.issuedWeightKg ?? input.body?.weightKg);
     const requestedQuantity = Number(input.body?.issuedQuantity ?? input.body?.quantity);
-    const availableRolls = (before.rolls ?? []).filter((roll) => roll.inventoryStatus === "可用");
+    const availableRolls = (before.rolls ?? []).filter((roll) =>
+      roll.inventoryStatus === "可用" && String(roll.labelStatus || "").includes("已贴标"));
     const targetAvailableRolls = rollId ? availableRolls.filter((roll) => roll.id === rollId) : availableRolls;
     if (rollId && !(before.rolls ?? []).some((roll) => roll.id === rollId)) {
       throw Object.assign(new Error(`Raw material roll not found: ${rollId}`), { statusCode: 404 });
@@ -601,7 +741,8 @@ export function applyRawMaterialInboundAction(input = {}) {
       productionTaskOrderLineId: productionTaskMatch.orderLineId,
       productionTaskMachineId: productionTaskMatch.machineId,
       productionTaskGoodsSpec: productionTaskMatch.goodsSpec,
-      nextStep: "等待生产报工时确认原材料消耗；机台计数仍只作凭证，不直接生成成品或成本分摊。",
+      nextStep: productionTaskId ? "等待生产报工时确认原材料消耗；机台计数仍只作凭证，不直接生成成品或成本分摊。"
+        : "已扫码出库并记录机台、颜色、规格、宽幅和重量；首发阶段暂不关联订单或生产任务。",
       rawMaterialIssueRecords: [
         ...normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords),
         ...issueRecords,
@@ -966,7 +1107,7 @@ export function applyRawMaterialInboundAction(input = {}) {
       return {
         ...roll,
         weightKg: record.reviewedWeightKg > 0 ? record.reviewedWeightKg : roll.weightKg,
-        labelStatus: "已贴标入库/可用",
+          labelStatus: "已贴标/可用库存",
         inventoryStatus: "可用",
         location: reviewLocation,
         signedNoteStatus: "余料复核已扫码/签单",
@@ -1040,7 +1181,7 @@ export function applyRawMaterialInboundAction(input = {}) {
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     const existingConsumptionRecords = normalizeRawMaterialConsumptionRecords(before.rawMaterialConsumptionRecords);
     const existingCostDrafts = normalizeRawMaterialCostAllocationDrafts(before.rawMaterialCostAllocationDrafts);
-    const result = buildRawMaterialCostAllocationDrafts({
+    const result = rawMaterialCostMarginBuilder.buildCostAllocationDrafts({
       workspace,
       inbound: before,
       issueRecords: existingIssueRecords,
@@ -1123,7 +1264,7 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_COST_CONFIRM_ALREADY_CONFIRMED",
       });
     }
-    const confirmation = buildRawMaterialCostAllocationConfirmation({
+    const confirmation = rawMaterialCostMarginBuilder.buildCostAllocationConfirmation({
       inbound: before,
       drafts: confirmableDrafts,
       operatorId,
@@ -1225,7 +1366,7 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_LOSS_CALIBRATION_ALREADY_DONE",
       });
     }
-    const calibration = buildRawMaterialCostLossCalibration({
+    const calibration = rawMaterialCostMarginBuilder.buildCostLossCalibration({
       inbound: before,
       confirmations: calibratableConfirmations,
       drafts: existingCostDrafts,
@@ -1346,7 +1487,7 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_MARGIN_SNAPSHOT_ALREADY_GENERATED",
       });
     }
-    const snapshot = buildRawMaterialOrderMarginSnapshot({
+    const snapshot = rawMaterialCostMarginBuilder.buildOrderMarginSnapshot({
       workspace,
       inbound: before,
       calibrations: eligibleCalibrations,
@@ -1503,7 +1644,7 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_MARGIN_REVIEW_REQUIRES_ORDER_REVENUE",
       });
     }
-    const report = buildRawMaterialOrderMarginReport({
+    const report = rawMaterialCostMarginBuilder.buildOrderMarginReport({
       inbound: before,
       snapshots: reviewableSnapshots,
       operatorId,
@@ -1645,6 +1786,12 @@ export function applyRawMaterialInboundAction(input = {}) {
     throw Object.assign(new Error(`Unsupported raw material inbound action: ${input.action}`), { statusCode: 400 });
   }
 
+  after = {
+    ...after,
+    revision: expectedRevision + 1,
+    updatedAt: now,
+  };
+
   const operationLog = {
     id: `RMI-LOG-${Date.now().toString(36).toUpperCase()}`,
     targetType: "raw_material_inbound",
@@ -1665,677 +1812,8 @@ export function applyRawMaterialInboundAction(input = {}) {
   return {
     inbounds: nextInbounds,
     inbound: after,
+    expectedRevision,
     operationLog,
-  };
-}
-
-function resolveRawMaterialProductionTaskMatch(input = {}) {
-  const workspace = input.workspace ?? {};
-  const inbound = input.inbound ?? {};
-  const productionTaskId = cleanText(input.productionTaskId);
-  const issueMachineId = cleanText(input.machineId);
-  if (!productionTaskId) {
-    return {
-      status: "未关联生产任务",
-      reason: "V1 允许先领到机边，但后续成本分摊前必须补关联生产任务。",
-      orderLineId: "",
-      machineId: "",
-      goodsSpec: "",
-    };
-  }
-
-  const productionTask = findRawMaterialProductionTask(workspace, productionTaskId);
-  if (!productionTask) {
-    throw Object.assign(new Error(`Raw-material issue production task not found: ${productionTaskId}`), {
-      statusCode: 422,
-      code: "RAW_MATERIAL_PRODUCTION_TASK_NOT_FOUND",
-    });
-  }
-
-  const taskMachineId = cleanText(productionTask.machineId ?? productionTask.machine_id);
-  if (
-    issueMachineId &&
-    taskMachineId &&
-    normalizeRawMaterialMachineId(issueMachineId) !== normalizeRawMaterialMachineId(taskMachineId)
-  ) {
-    throw Object.assign(
-      new Error(`Raw-material issue machine ${issueMachineId} does not match production task machine ${taskMachineId}`),
-      {
-        statusCode: 422,
-        code: "RAW_MATERIAL_PRODUCTION_TASK_MACHINE_MISMATCH",
-      },
-    );
-  }
-
-  const orderLineId = cleanText(productionTask.orderLineId ?? productionTask.order_line_id ?? productionTask.lineId);
-  const orderLine = findRawMaterialOrderLine(workspace, orderLineId);
-  if (!orderLineId || !orderLine) {
-    throw Object.assign(new Error(`Raw-material issue production task has no order line: ${productionTaskId}`), {
-      statusCode: 422,
-      code: "RAW_MATERIAL_PRODUCTION_TASK_ORDER_LINE_NOT_FOUND",
-    });
-  }
-
-  const materialType = cleanText(inbound.materialType);
-  const productName = cleanText(inbound.productName);
-  const factoryColor = cleanText(inbound.factoryColor ?? inbound.supplierColor);
-  const taskBagColor = cleanText(orderLine.bagColor ?? orderLine.bag_color ?? orderLine.color);
-  const materialColorKey = normalizeRawMaterialColorKey(factoryColor);
-  const taskBagColorKey = normalizeRawMaterialColorKey(taskBagColor);
-  const goodsSpec = buildRawMaterialProductionTaskGoodsSpec(productionTask, orderLine);
-
-  if (
-    isRawMaterialBagBodyMaterial(materialType, productName) &&
-    materialColorKey &&
-    taskBagColorKey &&
-    materialColorKey !== taskBagColorKey
-  ) {
-    throw Object.assign(
-      new Error(`Raw-material color ${factoryColor} does not match production task bag color ${taskBagColor}`),
-      {
-        statusCode: 422,
-        code: "RAW_MATERIAL_PRODUCTION_TASK_COLOR_MISMATCH",
-      },
-    );
-  }
-
-  if (isRawMaterialHandleMaterial(materialType, productName)) {
-    return {
-      status: "需复核",
-      reason: "生产任务已关联；提手颜色和提手类型仍需按现场实物或订单备注人工复核。",
-      orderLineId,
-      machineId: taskMachineId,
-      goodsSpec,
-    };
-  }
-
-  return {
-    status: "已匹配",
-    reason: "生产任务存在，机台一致，布料颜色与订单袋色一致；仍不生成成品数量或成本分摊。",
-    orderLineId,
-    machineId: taskMachineId,
-    goodsSpec,
-  };
-}
-
-function findRawMaterialProductionTask(workspace = {}, productionTaskId = "") {
-  const id = cleanText(productionTaskId);
-  if (!id) return null;
-  return (
-    (workspace.productionTasks ?? []).find((task) => {
-      const taskId = cleanText(task?.productionTaskId ?? task?.production_task_id ?? task?.id);
-      return taskId === id;
-    }) ?? null
-  );
-}
-
-function findRawMaterialOrderLine(workspace = {}, orderLineId = "") {
-  const id = cleanText(orderLineId);
-  if (!id) return null;
-  return (
-    (workspace.orderLines ?? []).find((line) => {
-      const lineId = cleanText(line?.orderLineId ?? line?.order_line_id ?? line?.id);
-      return lineId === id;
-    }) ?? null
-  );
-}
-
-function normalizeRawMaterialMachineId(value) {
-  const text = cleanText(value).toUpperCase();
-  if (!text) return "";
-  if (text === "制袋机-01" || text === "制袋-01" || text === "1号制袋机") return "BAG-01";
-  if (text === "丝印机-01" || text === "丝印-01" || text === "1号丝印机") return "PRINT-01";
-  return text;
-}
-
-function isRawMaterialBagBodyMaterial(materialType, productName) {
-  const text = `${cleanText(materialType)} ${cleanText(productName)}`;
-  return text.includes("布") || text.includes("无纺") || text.includes("卷料");
-}
-
-function isRawMaterialHandleMaterial(materialType, productName) {
-  const text = `${cleanText(materialType)} ${cleanText(productName)}`;
-  return text.includes("提手");
-}
-
-function normalizeRawMaterialColorKey(value) {
-  const text = cleanText(value)
-    .replace(/本白/g, "白")
-    .replace(/大红/g, "红")
-    .replace(/浅黄/g, "黄")
-    .replace(/深黄/g, "黄")
-    .replace(/色/g, "")
-    .replace(/\s+/g, "");
-  if (!text) return "";
-  const colorMap = [
-    ["白", "白"],
-    ["黑", "黑"],
-    ["红", "红"],
-    ["黄", "黄"],
-    ["蓝", "蓝"],
-    ["绿", "绿"],
-    ["灰", "灰"],
-    ["粉", "粉"],
-    ["紫", "紫"],
-    ["橙", "橙"],
-  ];
-  const found = colorMap.find(([token]) => text.includes(token));
-  return found ? found[1] : text;
-}
-
-function buildRawMaterialProductionTaskGoodsSpec(productionTask = {}, orderLine = {}) {
-  const productName = cleanText(orderLine.productName ?? orderLine.product_name ?? orderLine.product) || "生产任务";
-  const size = cleanText(orderLine.size);
-  const color = cleanText(orderLine.bagColor ?? orderLine.bag_color ?? orderLine.color);
-  const qty = Number(productionTask.plannedQty ?? productionTask.planned_qty ?? productionTask.qty ?? orderLine.qty ?? orderLine.originalQty ?? 0) || 0;
-  return [productName, size, color, qty ? `${qty}个` : ""].filter(Boolean).join(" ");
-}
-
-function buildRawMaterialCostAllocationDrafts(input = {}) {
-  const inbound = input.inbound ?? {};
-  const issueRecords = normalizeRawMaterialIssueRecords(input.issueRecords);
-  const consumptionRecords = normalizeRawMaterialConsumptionRecords(input.consumptionRecords);
-  const existingCostDrafts = normalizeRawMaterialCostAllocationDrafts(input.existingCostDrafts);
-  const existingConsumptionIds = new Set(existingCostDrafts.map((record) => record.consumptionRecordId).filter(Boolean));
-  const unitPrice = Number(inbound.unitPrice ?? inbound.unit_price ?? 0) || 0;
-  const warnings = [];
-  const skipped = [];
-  if (!unitPrice) {
-    return {
-      drafts: [],
-      warnings,
-      blockedCode: "RAW_MATERIAL_COST_DRAFT_REQUIRES_UNIT_PRICE",
-      blockedReason: "Raw-material unit price is required before generating a cost allocation draft",
-    };
-  }
-  const baseId = `RMCA-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
-  const drafts = [];
-  for (const record of consumptionRecords) {
-    if (existingConsumptionIds.has(record.consumptionRecordId)) {
-      skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "已生成成本草稿" });
-      continue;
-    }
-    const issueRecord =
-      issueRecords.find((item) => item.issueRecordId === record.issueRecordId) ??
-      issueRecords.find((item) => item.rollId === record.rollId);
-    if (!issueRecord) {
-      skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "缺少领料记录" });
-      continue;
-    }
-    const productionTaskId = cleanText(record.productionTaskId || issueRecord.productionTaskId);
-    const matchStatus = cleanText(issueRecord.productionTaskMatchStatus);
-    if (!productionTaskId || matchStatus !== "已匹配") {
-      skipped.push({
-        consumptionRecordId: record.consumptionRecordId,
-        reason: productionTaskId ? `生产任务匹配状态为 ${matchStatus || "未确认"}` : "未关联生产任务",
-      });
-      continue;
-    }
-    const orderLineId = cleanText(issueRecord.productionTaskOrderLineId);
-    const productionTask = findRawMaterialProductionTask(input.workspace, productionTaskId);
-    const orderLine = findRawMaterialOrderLine(input.workspace, orderLineId);
-    const allocatedWeightKg = roundWeight(record.consumedWeightKg || 0);
-    const allocatedQuantity = allocatedWeightKg > 0 ? 0 : Number(record.consumedQuantity || 0) || 1;
-    if (allocatedWeightKg <= 0 && allocatedQuantity <= 0) {
-      skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "缺少已消耗重量或件数" });
-      continue;
-    }
-    const allocatedCostAmount = roundMoney((allocatedWeightKg > 0 ? allocatedWeightKg : allocatedQuantity) * unitPrice);
-    const goodsSpec =
-      cleanText(issueRecord.productionTaskGoodsSpec) ||
-      buildRawMaterialProductionTaskGoodsSpec(productionTask ?? {}, orderLine ?? {});
-    const unit = record.unit || inbound.unit || (allocatedWeightKg > 0 ? "kg" : "件");
-    const draftIndex = drafts.length + 1;
-    drafts.push({
-      costAllocationDraftId: `${baseId}-${String(draftIndex).padStart(2, "0")}`,
-      inboundId: inbound.id,
-      consumptionRecordId: record.consumptionRecordId,
-      issueRecordId: issueRecord.issueRecordId,
-      rollId: record.rollId,
-      sourceRollId: issueRecord.sourceRollId,
-      splitRecordId: issueRecord.splitRecordId,
-      supplierName: inbound.supplierName,
-      deliveryNoteNo: inbound.deliveryNoteNo,
-      materialType: inbound.materialType,
-      productName: inbound.productName,
-      spec: inbound.spec,
-      factoryColor: inbound.factoryColor,
-      unit,
-      unitPrice,
-      allocatedWeightKg,
-      allocatedQuantity,
-      allocatedCostAmount,
-      productionTaskId,
-      orderLineId,
-      productionTaskMachineId: cleanText(issueRecord.productionTaskMachineId || issueRecord.machineId),
-      productionTaskGoodsSpec: goodsSpec,
-      allocationBasis:
-        allocatedWeightKg > 0
-          ? `${allocatedWeightKg}kg * ${unitPrice}元/kg`
-          : `${allocatedQuantity}${unit} * ${unitPrice}元/${unit}`,
-      allocationStatus: "草稿/待成本复核",
-      costEffect: "draft_only",
-      marginEffect: "none",
-      lossCalibrationStatus: "待损耗校准",
-      generatedBy: input.operatorName,
-      generatedByUserId: input.operatorId,
-      generatedAt: input.now,
-      note: cleanText(input.note) || "V1 原材料成本分摊草稿；不直接确认订单毛利，需成本/管理复核。",
-    });
-  }
-  if (skipped.length) {
-    warnings.push(...skipped.map((item) => `${item.consumptionRecordId || "消耗记录"}：${item.reason}`));
-  }
-  return {
-    drafts,
-    warnings,
-    blockedCode: consumptionRecords.length
-      ? "RAW_MATERIAL_COST_DRAFT_NO_ELIGIBLE_CONSUMPTION"
-      : "RAW_MATERIAL_COST_DRAFT_REQUIRES_CONSUMPTION",
-    blockedReason: consumptionRecords.length
-      ? "No matched raw-material consumption records are eligible for cost allocation draft"
-      : "Raw-material consumption confirmation is required before generating a cost allocation draft",
-  };
-}
-
-function buildRawMaterialCostAllocationConfirmation(input = {}) {
-  const inbound = input.inbound ?? {};
-  const drafts = normalizeRawMaterialCostAllocationDrafts(input.drafts);
-  const confirmedAmount = roundMoney(drafts.reduce((sum, record) => sum + Number(record.allocatedCostAmount || 0), 0));
-  const confirmedWeightKg = roundWeight(drafts.reduce((sum, record) => sum + Number(record.allocatedWeightKg || 0), 0));
-  const confirmedQuantity = drafts.reduce((sum, record) => sum + Number(record.allocatedQuantity || 0), 0);
-  return {
-    costConfirmationId: `RMCC-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`,
-    inboundId: inbound.id,
-    supplierName: inbound.supplierName,
-    deliveryNoteNo: inbound.deliveryNoteNo,
-    costAllocationDraftIds: drafts.map((record) => record.costAllocationDraftId).filter(Boolean),
-    consumptionRecordIds: drafts.map((record) => record.consumptionRecordId).filter(Boolean),
-    issueRecordIds: drafts.map((record) => record.issueRecordId).filter(Boolean),
-    productionTaskIds: [...new Set(drafts.map((record) => record.productionTaskId).filter(Boolean))],
-    orderLineIds: [...new Set(drafts.map((record) => record.orderLineId).filter(Boolean))],
-    confirmedCount: drafts.length,
-    confirmedWeightKg,
-    confirmedQuantity,
-    confirmedCostAmount: confirmedAmount,
-    reviewStatus: "已复核/待损耗校准",
-    costEffect: "confirmed_material_cost_snapshot",
-    marginEffect: "none",
-    lossCalibrationStatus: "待损耗校准",
-    confirmedBy: input.operatorName,
-    confirmedByUserId: input.operatorId,
-    confirmedAt: input.now,
-    note: cleanText(input.note) || "V1 成本草稿复核确认；只形成原材料成本快照，不自动更新订单毛利。",
-  };
-}
-
-function buildRawMaterialCostLossCalibration(input = {}) {
-  const inbound = input.inbound ?? {};
-  const confirmations = normalizeRawMaterialCostAllocationConfirmations(input.confirmations);
-  const draftIds = new Set(confirmations.flatMap((record) => record.costAllocationDraftIds ?? []));
-  const drafts = normalizeRawMaterialCostAllocationDrafts(input.drafts).filter((record) =>
-    draftIds.has(record.costAllocationDraftId),
-  );
-  const confirmedAmount = roundMoney(confirmations.reduce((sum, record) => sum + Number(record.confirmedCostAmount || 0), 0));
-  const confirmedWeightKg = roundWeight(confirmations.reduce((sum, record) => sum + Number(record.confirmedWeightKg || 0), 0));
-  const confirmedQuantity = confirmations.reduce((sum, record) => sum + Number(record.confirmedQuantity || 0), 0);
-  const body = input.body ?? {};
-  const actualQualifiedOutputQuantity =
-    Number(body.actualQualifiedOutputQuantity ?? body.actualOutputQuantity ?? body.qualifiedOutputQuantity ?? 0) || 0;
-  const expectedOutputQuantity =
-    Number(body.expectedOutputQuantity ?? body.plannedOutputQuantity ?? body.estimatedOutputQuantity ?? 0) || 0;
-  const explicitLossQuantity = Number(body.lossQuantity ?? body.lossOutputQuantity ?? 0) || 0;
-  const lossQuantity =
-    explicitLossQuantity > 0
-      ? explicitLossQuantity
-      : expectedOutputQuantity > 0 && actualQualifiedOutputQuantity >= 0
-        ? Math.max(0, expectedOutputQuantity - actualQualifiedOutputQuantity)
-        : 0;
-  const lossRatePercent =
-    expectedOutputQuantity > 0
-      ? Math.round((lossQuantity / expectedOutputQuantity) * 10000) / 100
-      : 0;
-  return {
-    lossCalibrationId: `RMCL-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`,
-    inboundId: inbound.id,
-    supplierName: inbound.supplierName,
-    deliveryNoteNo: inbound.deliveryNoteNo,
-    costConfirmationId: confirmations[0]?.costConfirmationId || "",
-    costConfirmationIds: confirmations.map((record) => record.costConfirmationId).filter(Boolean),
-    costAllocationDraftIds: confirmations.flatMap((record) => record.costAllocationDraftIds ?? []).filter(Boolean),
-    consumptionRecordIds: confirmations.flatMap((record) => record.consumptionRecordIds ?? []).filter(Boolean),
-    issueRecordIds: confirmations.flatMap((record) => record.issueRecordIds ?? []).filter(Boolean),
-    productionTaskIds: [...new Set(confirmations.flatMap((record) => record.productionTaskIds ?? []).filter(Boolean))],
-    orderLineIds: [...new Set(confirmations.flatMap((record) => record.orderLineIds ?? []).filter(Boolean))],
-    confirmedCount: confirmations.reduce((sum, record) => sum + Number(record.confirmedCount || 0), 0),
-    confirmedWeightKg,
-    confirmedQuantity,
-    confirmedCostAmount: confirmedAmount || roundMoney(drafts.reduce((sum, record) => sum + Number(record.confirmedCostAmount || record.allocatedCostAmount || 0), 0)),
-    expectedOutputQuantity,
-    actualQualifiedOutputQuantity,
-    lossQuantity,
-    lossRatePercent,
-    calibrationBasis:
-      expectedOutputQuantity > 0
-        ? `${actualQualifiedOutputQuantity}/${expectedOutputQuantity} 合格产量，损耗 ${lossQuantity}，损耗率 ${lossRatePercent}%`
-        : "V1 手工损耗校准；现场尚未提供预计合格产量，先记录成本快照待毛利确认。",
-    calibrationStatus: "已校准/待毛利确认",
-    costEffect: "loss_calibrated_material_cost_snapshot",
-    marginEffect: "pending_margin_snapshot",
-    calibratedBy: input.operatorName,
-    calibratedByUserId: input.operatorId,
-    calibratedAt: input.now,
-    note: cleanText(body.note) || "V1 损耗校准第一版；只形成待毛利确认的成本校准快照。",
-  };
-}
-
-function buildRawMaterialOrderMarginSnapshot(input = {}) {
-  const inbound = input.inbound ?? {};
-  const calibrations = normalizeRawMaterialCostLossCalibrations(input.calibrations);
-  const calibrationIds = new Set(calibrations.map((record) => record.lossCalibrationId).filter(Boolean));
-  const draftIds = new Set(calibrations.flatMap((record) => record.costAllocationDraftIds ?? []).filter(Boolean));
-  const drafts = normalizeRawMaterialCostAllocationDrafts(input.drafts).filter((record) =>
-    draftIds.has(record.costAllocationDraftId),
-  );
-  const confirmations = normalizeRawMaterialCostAllocationConfirmations(input.confirmations).filter((record) =>
-    calibrations.some((calibration) => (calibration.costConfirmationIds ?? []).includes(record.costConfirmationId)),
-  );
-  const orderLineIds = [
-    ...new Set(
-      [
-        ...calibrations.flatMap((record) => record.orderLineIds ?? []),
-        ...drafts.map((record) => record.orderLineId),
-      ].filter(Boolean),
-    ),
-  ];
-  const totalCalibratedCostAmount = roundMoney(
-    calibrations.reduce((sum, record) => sum + Number(record.confirmedCostAmount || 0), 0) ||
-      drafts.reduce((sum, record) => sum + Number(record.calibratedCostAmount || record.confirmedCostAmount || record.allocatedCostAmount || 0), 0),
-  );
-  const warnings = [];
-  const lineItems = orderLineIds.map((orderLineId) => {
-    const orderLine = findRawMaterialOrderLine(input.workspace, orderLineId) ?? {};
-    const customer = findRawMaterialCustomer(input.workspace, orderLine.customerId ?? orderLine.customer_id);
-    const lineDrafts = drafts.filter((record) => record.orderLineId === orderLineId);
-    const lineMaterialCostAmount = roundMoney(
-      lineDrafts.reduce(
-        (sum, record) =>
-          sum + Number(record.calibratedCostAmount || record.confirmedCostAmount || record.allocatedCostAmount || 0),
-        0,
-      ) || (orderLineIds.length ? totalCalibratedCostAmount / orderLineIds.length : totalCalibratedCostAmount),
-    );
-    const salesAmount = roundMoney(
-      Number(
-        orderLine.amount ??
-          orderLine.finalAmount ??
-          orderLine.totalAmount ??
-          orderLine.priceSnapshot?.finalAmount ??
-          orderLine.priceSnapshot?.amount ??
-          0,
-      ) || 0,
-    );
-    const grossProfitAmount = salesAmount > 0 ? roundMoney(salesAmount - lineMaterialCostAmount) : 0;
-    const grossMarginRatePercent = salesAmount > 0 ? Math.round((grossProfitAmount / salesAmount) * 10000) / 100 : 0;
-    if (!salesAmount) warnings.push(`${orderLineId}：缺少订单销售金额，毛利率待补订单收入后复核`);
-    return {
-      orderLineId,
-      orderNo: cleanText(orderLine.orderNo ?? orderLine.order_no),
-      customerId: cleanText(orderLine.customerId ?? orderLine.customer_id),
-      customerName: cleanText(customer?.name ?? customer?.customerName ?? orderLine.customerName),
-      productName: cleanText(orderLine.productName ?? orderLine.product_name ?? orderLine.product),
-      goodsSpec: buildRawMaterialProductionTaskGoodsSpec({}, orderLine),
-      quantity: Number(orderLine.qty ?? orderLine.quantity ?? orderLine.originalQty ?? 0) || 0,
-      salesAmount,
-      materialCostAmount: lineMaterialCostAmount,
-      grossProfitAmount,
-      grossMarginRatePercent,
-      marginStatus: salesAmount > 0 ? "已生成/待财务复核" : "需补订单收入",
-      costAllocationDraftIds: lineDrafts.map((record) => record.costAllocationDraftId).filter(Boolean),
-      productionTaskIds: [...new Set(lineDrafts.map((record) => record.productionTaskId).filter(Boolean))],
-    };
-  });
-  const totalSalesAmount = roundMoney(lineItems.reduce((sum, record) => sum + Number(record.salesAmount || 0), 0));
-  const totalMaterialCostAmount = roundMoney(lineItems.reduce((sum, record) => sum + Number(record.materialCostAmount || 0), 0));
-  const grossProfitAmount = totalSalesAmount > 0 ? roundMoney(totalSalesAmount - totalMaterialCostAmount) : 0;
-  const grossMarginRatePercent = totalSalesAmount > 0 ? Math.round((grossProfitAmount / totalSalesAmount) * 10000) / 100 : 0;
-  return {
-    marginSnapshotId: `RMMG-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`,
-    inboundId: inbound.id,
-    supplierName: inbound.supplierName,
-    deliveryNoteNo: inbound.deliveryNoteNo,
-    lossCalibrationIds: [...calibrationIds],
-    costConfirmationIds: confirmations.map((record) => record.costConfirmationId).filter(Boolean),
-    costAllocationDraftIds: [...draftIds],
-    consumptionRecordIds: [...new Set(calibrations.flatMap((record) => record.consumptionRecordIds ?? []).filter(Boolean))],
-    issueRecordIds: [...new Set(calibrations.flatMap((record) => record.issueRecordIds ?? []).filter(Boolean))],
-    productionTaskIds: [...new Set(calibrations.flatMap((record) => record.productionTaskIds ?? []).filter(Boolean))],
-    orderLineIds,
-    lineItems,
-    totalSalesAmount,
-    totalMaterialCostAmount,
-    grossProfitAmount,
-    grossMarginRatePercent,
-    reviewStatus: "已生成/待财务复核",
-    costEffect: "loss_calibrated_material_cost_snapshot",
-    marginEffect: "margin_snapshot_pending_review",
-    generatedBy: input.operatorName,
-    generatedByUserId: input.operatorId,
-    generatedAt: input.now,
-    note: cleanText(input.note) || "V1 订单毛利快照第一版；只供财务复核，不自动写客户对账或最终结算。",
-    warnings,
-  };
-}
-
-function buildRawMaterialOrderMarginReport(input = {}) {
-  const inbound = input.inbound ?? {};
-  const snapshots = normalizeRawMaterialOrderMarginSnapshots(input.snapshots);
-  const lineItems = snapshots.flatMap((snapshot) =>
-    (snapshot.lineItems ?? []).map((line) => ({
-      ...line,
-      marginSnapshotId: snapshot.marginSnapshotId,
-      marginStatus: "已财务复核/报表可用",
-    })),
-  );
-  const totalSalesAmount = roundMoney(lineItems.reduce((sum, record) => sum + Number(record.salesAmount || 0), 0));
-  const totalMaterialCostAmount = roundMoney(lineItems.reduce((sum, record) => sum + Number(record.materialCostAmount || 0), 0));
-  const grossProfitAmount = roundMoney(totalSalesAmount - totalMaterialCostAmount);
-  const grossMarginRatePercent = totalSalesAmount > 0 ? Math.round((grossProfitAmount / totalSalesAmount) * 10000) / 100 : 0;
-  return {
-    marginReportId: `RMMR-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`,
-    inboundId: inbound.id,
-    supplierName: inbound.supplierName,
-    deliveryNoteNo: inbound.deliveryNoteNo,
-    marginSnapshotIds: snapshots.map((record) => record.marginSnapshotId).filter(Boolean),
-    lossCalibrationIds: [...new Set(snapshots.flatMap((record) => record.lossCalibrationIds ?? []).filter(Boolean))],
-    costConfirmationIds: [...new Set(snapshots.flatMap((record) => record.costConfirmationIds ?? []).filter(Boolean))],
-    costAllocationDraftIds: [...new Set(snapshots.flatMap((record) => record.costAllocationDraftIds ?? []).filter(Boolean))],
-    consumptionRecordIds: [...new Set(snapshots.flatMap((record) => record.consumptionRecordIds ?? []).filter(Boolean))],
-    issueRecordIds: [...new Set(snapshots.flatMap((record) => record.issueRecordIds ?? []).filter(Boolean))],
-    productionTaskIds: [...new Set(snapshots.flatMap((record) => record.productionTaskIds ?? []).filter(Boolean))],
-    orderLineIds: [...new Set(snapshots.flatMap((record) => record.orderLineIds ?? []).filter(Boolean))],
-    lineItems,
-    totalSalesAmount,
-    totalMaterialCostAmount,
-    grossProfitAmount,
-    grossMarginRatePercent,
-    reviewStatus: "已财务复核/报表可用",
-    reportStatus: "已生成内部毛利报表",
-    costEffect: "loss_calibrated_material_cost_snapshot",
-    marginEffect: "reviewed_margin_report_snapshot",
-    reviewedBy: input.operatorName,
-    reviewedByUserId: input.operatorId,
-    reviewedAt: input.now,
-    note: cleanText(input.note) || "V1 毛利快照财务复核第一版；生成内部毛利报表，不自动写客户对账或收款结算。",
-    warnings: [],
-  };
-}
-
-function findRawMaterialCustomer(workspace = {}, customerId = "") {
-  const id = cleanText(customerId);
-  if (!id) return null;
-  return (
-    (workspace.customers ?? []).find((customer) => {
-      const customerRecordId = cleanText(customer?.id ?? customer?.customerId ?? customer?.customer_id);
-      return customerRecordId === id;
-    }) ?? null
-  );
-}
-
-export function normalizeRawMaterialInbounds(inbounds = []) {
-  return (Array.isArray(inbounds) ? inbounds : [])
-    .map(normalizeRawMaterialInbound)
-    .filter((item) => item?.id);
-}
-
-function normalizeRawMaterialInbound(input = {}) {
-  if (!input || typeof input !== "object") return null;
-  const item = { ...input };
-  item.id = cleanText(item.id);
-  item.revision = Math.max(1, Number(item.revision) || 1);
-  item.supplierName = cleanText(item.supplierName);
-  item.deliveryNoteNo = cleanText(item.deliveryNoteNo);
-  item.status = cleanText(item.status) || "已识别待复核";
-  item.issueStatus = cleanText(item.issueStatus);
-  item.machineId = cleanText(item.machineId);
-  item.productionTaskId = cleanText(item.productionTaskId);
-  item.productionTaskMatchStatus = cleanText(item.productionTaskMatchStatus);
-  item.productionTaskMatchReason = cleanText(item.productionTaskMatchReason);
-  item.productionTaskOrderLineId = cleanText(item.productionTaskOrderLineId);
-  item.productionTaskMachineId = cleanText(item.productionTaskMachineId);
-  item.productionTaskGoodsSpec = cleanText(item.productionTaskGoodsSpec);
-  item.costAllocationStatus = cleanText(item.costAllocationStatus);
-  item.costAllocationDraftedBy = cleanText(item.costAllocationDraftedBy);
-  item.costAllocationDraftedByUserId = cleanText(item.costAllocationDraftedByUserId);
-  item.costAllocationDraftedAt = cleanText(item.costAllocationDraftedAt);
-  item.costAllocationDraftCount = Number(item.costAllocationDraftCount) || 0;
-  item.costAllocationDraftAmount = Number(item.costAllocationDraftAmount) || 0;
-  item.costAllocationReviewStatus = cleanText(item.costAllocationReviewStatus);
-  item.costAllocationConfirmedBy = cleanText(item.costAllocationConfirmedBy);
-  item.costAllocationConfirmedByUserId = cleanText(item.costAllocationConfirmedByUserId);
-  item.costAllocationConfirmedAt = cleanText(item.costAllocationConfirmedAt);
-  item.costAllocationConfirmedCount = Number(item.costAllocationConfirmedCount) || 0;
-  item.costAllocationConfirmedAmount = Number(item.costAllocationConfirmedAmount) || 0;
-  item.costAllocationConfirmationId = cleanText(item.costAllocationConfirmationId);
-  item.lossCalibrationStatus = cleanText(item.lossCalibrationStatus);
-  item.lossCalibratedBy = cleanText(item.lossCalibratedBy);
-  item.lossCalibratedByUserId = cleanText(item.lossCalibratedByUserId);
-  item.lossCalibratedAt = cleanText(item.lossCalibratedAt);
-  item.lossCalibrationCount = Number(item.lossCalibrationCount) || 0;
-  item.lossCalibrationId = cleanText(item.lossCalibrationId);
-  item.lossCalibrationRatePercent = Number(item.lossCalibrationRatePercent) || 0;
-  item.lossCalibrationActualOutputQuantity = Number(item.lossCalibrationActualOutputQuantity) || 0;
-  item.lossCalibrationExpectedOutputQuantity = Number(item.lossCalibrationExpectedOutputQuantity) || 0;
-  item.lossCalibrationAmount = Number(item.lossCalibrationAmount) || 0;
-  item.marginSnapshotStatus = cleanText(item.marginSnapshotStatus);
-  item.marginSnapshotCount = Number(item.marginSnapshotCount) || 0;
-  item.marginSnapshotId = cleanText(item.marginSnapshotId);
-  item.marginSnapshotTotalSalesAmount = Number(item.marginSnapshotTotalSalesAmount) || 0;
-  item.marginSnapshotMaterialCostAmount = Number(item.marginSnapshotMaterialCostAmount) || 0;
-  item.marginSnapshotGrossProfitAmount = Number(item.marginSnapshotGrossProfitAmount) || 0;
-  item.marginSnapshotGrossMarginRatePercent = Number(item.marginSnapshotGrossMarginRatePercent) || 0;
-  item.marginSnapshotGeneratedBy = cleanText(item.marginSnapshotGeneratedBy);
-  item.marginSnapshotGeneratedByUserId = cleanText(item.marginSnapshotGeneratedByUserId);
-  item.marginSnapshotGeneratedAt = cleanText(item.marginSnapshotGeneratedAt);
-  item.marginReportStatus = cleanText(item.marginReportStatus);
-  item.marginReportCount = Number(item.marginReportCount) || 0;
-  item.marginReportId = cleanText(item.marginReportId);
-  item.marginReportTotalSalesAmount = Number(item.marginReportTotalSalesAmount) || 0;
-  item.marginReportMaterialCostAmount = Number(item.marginReportMaterialCostAmount) || 0;
-  item.marginReportGrossProfitAmount = Number(item.marginReportGrossProfitAmount) || 0;
-  item.marginReportGrossMarginRatePercent = Number(item.marginReportGrossMarginRatePercent) || 0;
-  item.marginReviewedBy = cleanText(item.marginReviewedBy);
-  item.marginReviewedByUserId = cleanText(item.marginReviewedByUserId);
-  item.marginReviewedAt = cleanText(item.marginReviewedAt);
-  item.rawMaterialCostAllocationWarnings = normalizeRawMaterialCostAllocationWarnings(item.rawMaterialCostAllocationWarnings);
-  item.rolls = (Array.isArray(item.rolls) ? item.rolls : []).map((roll) => ({
-    ...roll,
-    id: cleanText(roll.id),
-    supplierRollNo: cleanText(roll.supplierRollNo),
-    weightKg: Number(roll.weightKg) || 0,
-    originalWeightKg: Number(roll.originalWeightKg) || 0,
-    labelStatus: cleanText(roll.labelStatus) || "待生成标签",
-    inventoryStatus: cleanText(roll.inventoryStatus) || "不可用",
-    location: cleanText(roll.location),
-    scannedAt: cleanText(roll.scannedAt),
-    signedNoteStatus: cleanText(roll.signedNoteStatus) || (roll.scannedAt ? "已扫码/签单" : "待扫码/签单"),
-    parentRollId: cleanText(roll.parentRollId),
-    sourceRollId: cleanText(roll.sourceRollId),
-    splitRecordId: cleanText(roll.splitRecordId),
-    splitStatus: cleanText(roll.splitStatus),
-    splitAt: cleanText(roll.splitAt),
-    splitBy: cleanText(roll.splitBy),
-    splitByUserId: cleanText(roll.splitByUserId),
-    splitIssuedWeightKg: Number(roll.splitIssuedWeightKg) || 0,
-    splitRemainingWeightKg: Number(roll.splitRemainingWeightKg) || 0,
-    issueRecordId: cleanText(roll.issueRecordId),
-    issuedAt: cleanText(roll.issuedAt),
-    issuedBy: cleanText(roll.issuedBy),
-    issuedByUserId: cleanText(roll.issuedByUserId),
-    machineId: cleanText(roll.machineId),
-    productionTaskId: cleanText(roll.productionTaskId),
-    productionTaskMatchStatus: cleanText(roll.productionTaskMatchStatus),
-    productionTaskMatchReason: cleanText(roll.productionTaskMatchReason),
-    productionTaskOrderLineId: cleanText(roll.productionTaskOrderLineId),
-    productionTaskMachineId: cleanText(roll.productionTaskMachineId),
-    productionTaskGoodsSpec: cleanText(roll.productionTaskGoodsSpec),
-    issuePurpose: cleanText(roll.issuePurpose),
-    consumptionStatus: cleanText(roll.consumptionStatus),
-    consumptionRecordId: cleanText(roll.consumptionRecordId),
-    consumedAt: cleanText(roll.consumedAt),
-    consumedBy: cleanText(roll.consumedBy),
-    consumedByUserId: cleanText(roll.consumedByUserId),
-    lastConsumedWeightKg: Number(roll.lastConsumedWeightKg) || 0,
-    remainingMachineSideWeightKg: Number(roll.remainingMachineSideWeightKg) || 0,
-    leftoverReturnRecordId: cleanText(roll.leftoverReturnRecordId),
-    leftoverWeightKg: Number(roll.leftoverWeightKg) || 0,
-    leftoverQuantity: Number(roll.leftoverQuantity) || 0,
-    returnedAt: cleanText(roll.returnedAt),
-    returnedBy: cleanText(roll.returnedBy),
-    returnedByUserId: cleanText(roll.returnedByUserId),
-    leftoverReviewRecordId: cleanText(roll.leftoverReviewRecordId),
-    leftoverReviewedWeightKg: Number(roll.leftoverReviewedWeightKg) || 0,
-    leftoverReviewedQuantity: Number(roll.leftoverReviewedQuantity) || 0,
-    leftoverReviewedAt: cleanText(roll.leftoverReviewedAt),
-    leftoverReviewedBy: cleanText(roll.leftoverReviewedBy),
-    leftoverReviewedByUserId: cleanText(roll.leftoverReviewedByUserId),
-  }));
-  item.rawMaterialIssueRecords = normalizeRawMaterialIssueRecords(item.rawMaterialIssueRecords);
-  item.rawMaterialConsumptionRecords = normalizeRawMaterialConsumptionRecords(item.rawMaterialConsumptionRecords);
-  item.rawMaterialLeftoverReturnRecords = normalizeRawMaterialLeftoverReturnRecords(item.rawMaterialLeftoverReturnRecords);
-  item.rawMaterialLeftoverReviewRecords = normalizeRawMaterialLeftoverReviewRecords(item.rawMaterialLeftoverReviewRecords);
-  item.rawMaterialSplitRecords = normalizeRawMaterialSplitRecords(item.rawMaterialSplitRecords);
-  item.rawMaterialCostAllocationDrafts = normalizeRawMaterialCostAllocationDrafts(item.rawMaterialCostAllocationDrafts);
-  item.rawMaterialCostAllocationConfirmations = normalizeRawMaterialCostAllocationConfirmations(item.rawMaterialCostAllocationConfirmations);
-  item.rawMaterialCostLossCalibrations = normalizeRawMaterialCostLossCalibrations(item.rawMaterialCostLossCalibrations);
-  item.rawMaterialOrderMarginSnapshots = normalizeRawMaterialOrderMarginSnapshots(item.rawMaterialOrderMarginSnapshots);
-  item.rawMaterialOrderMarginReports = normalizeRawMaterialOrderMarginReports(item.rawMaterialOrderMarginReports);
-  return item;
-}
-
-function normalizeRawMaterialInboundActionResult(value) {
-  if (!value || typeof value !== "object") return { inbound: null, operationLogId: "" };
-  return {
-    inbound: normalizeRawMaterialInbound(value.inbound),
-    operationLogId: cleanText(value.operationLogId),
-  };
-}
-
-function normalizeOperationLog(value) {
-  if (!value || typeof value !== "object") return null;
-  const id = cleanText(value.id);
-  if (!id) return null;
-  return {
-    id,
-    targetType: cleanText(value.targetType),
-    targetId: cleanText(value.targetId),
-    action: cleanText(value.action),
-    before: value.before ?? {},
-    after: value.after ?? {},
-    reason: cleanText(value.reason),
-    operatorId: cleanText(value.operatorId),
-    pageKey: cleanText(value.pageKey) || "rawMaterials",
-    occurredAt: cleanText(value.occurredAt),
-    createdAt: cleanText(value.createdAt),
   };
 }
 
@@ -2344,55 +1822,60 @@ function findRawMaterialInbound(workspace, inboundId) {
   return normalizeRawMaterialInbounds(workspace?.rawMaterialInbounds).find((item) => item.id === safeInboundId) ?? null;
 }
 
-function buildRawMaterialInboundMetrics(inbounds = []) {
-  const items = normalizeRawMaterialInbounds(inbounds);
+function normalizeRawMaterialLabelMatchResult(value) {
+  const normalized = cleanText(value).toLowerCase();
+  if (["matched", "match", "一致", "匹配"].includes(normalized)) return "matched";
+  if (["mismatched", "mismatch", "不一致", "不匹配"].includes(normalized)) return "mismatched";
+  return "";
+}
+
+function buildRawMaterialLabelVerification({ inbound, roll, body, matchResult, operatorId, operatorName, now }) {
+  const expectedWeightKg = finiteRawMaterialNumber(roll.weightKg);
+  const checkedWeightKg = finiteRawMaterialNumber(body?.checkedWeightKg ?? body?.actualWeightKg ?? expectedWeightKg);
+  const expectedColor = cleanText(roll.factoryColor ?? inbound.factoryColor ?? inbound.supplierColor);
+  const expectedSpec = cleanText(roll.spec ?? inbound.spec);
+  const location = cleanText(body?.location) || (matchResult === "matched" ? "原料库-可用区" : "原料隔离区");
   return {
-    totalCount: items.length,
-    pendingReviewCount: items.filter((item) => item.status.includes("待复核")).length,
-    pendingLabelCount: items.filter((item) => item.status.includes("待打印") || item.status.includes("待贴标")).length,
-    partiallyLabeledCount: items.filter((item) => item.status === "部分贴标").length,
-    availableCount: items.filter((item) => item.status === "已贴标入库/可用").length,
-    issuedCount: items.filter((item) => item.status.includes("领料/机边")).length,
-    consumptionConfirmedCount: items.filter((item) => item.status.includes("消耗确认")).length,
-    leftoverPendingCount: items.filter((item) => item.status.includes("余料")).length,
-    leftoverReviewedCount: items.filter((item) => item.status.includes("余料已复核")).length,
-    splitRollCount: items.reduce((sum, item) => sum + (item.rawMaterialSplitRecords ?? []).length, 0),
-    costAllocationDraftCount: items.reduce((sum, item) => sum + (item.rawMaterialCostAllocationDrafts ?? []).length, 0),
-    costAllocationConfirmedCount: items.reduce((sum, item) => sum + (item.rawMaterialCostAllocationConfirmations ?? []).length, 0),
-    lossCalibrationCount: items.reduce((sum, item) => sum + (item.rawMaterialCostLossCalibrations ?? []).length, 0),
-    marginSnapshotCount: items.reduce((sum, item) => sum + (item.rawMaterialOrderMarginSnapshots ?? []).length, 0),
-    marginReportCount: items.reduce((sum, item) => sum + (item.rawMaterialOrderMarginReports ?? []).length, 0),
-    exceptionCount: items.filter((item) => item.status.includes("异常")).length,
-    availableRollCount: items.reduce(
-      (sum, item) => sum + (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "可用").length,
-      0,
-    ),
-    machineSideRollCount: items.reduce(
-      (sum, item) => sum + (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "机边领用").length,
-      0,
-    ),
-    consumedRollCount: items.reduce(
-      (sum, item) => sum + (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "已消耗").length,
-      0,
-    ),
-    leftoverPendingRollCount: items.reduce(
-      (sum, item) => sum + (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "余料待复核").length,
-      0,
-    ),
-    leftoverReviewedRollCount: items.reduce(
-      (sum, item) => sum + (item.rolls ?? []).filter((roll) => roll.leftoverReviewRecordId).length,
-      0,
-    ),
-    unavailableRollCount: items.reduce(
-      (sum, item) => sum + (item.rolls ?? []).filter((roll) => roll.inventoryStatus !== "可用").length,
-      0,
-    ),
+    result: matchResult === "matched" ? "匹配" : "不匹配",
+    resultCode: matchResult,
+    labelVersion: currentRawMaterialLabelVersion(roll),
+    expected: {
+      weightKg: expectedWeightKg,
+      color: expectedColor,
+      spec: expectedSpec,
+    },
+    checked: {
+      weightKg: checkedWeightKg,
+      color: cleanText(body?.checkedColor ?? body?.actualColor) || expectedColor,
+      spec: cleanText(body?.checkedSpec ?? body?.actualSpec) || expectedSpec,
+    },
+    location,
+    note: cleanText(body?.verificationNote ?? body?.note),
+    verifiedBy: operatorName,
+    verifiedByUserId: operatorId,
+    verifiedAt: now,
   };
 }
+
+function buildRawMaterialInboundLabelStatus({ nextRolls, availableCount, mismatchCount }) {
+  if (mismatchCount > 0) return `部分入库，${mismatchCount}卷异常`;
+  if (nextRolls.length > 0 && availableCount === nextRolls.length) return "已贴标/可用库存";
+  if (availableCount > 0) return "部分贴标";
+  return "已打印待贴标";
+}
+
+function nextRawMaterialLabelVersion(roll = {}) {
+  return Math.max(0, Math.trunc(Number(roll.labelVersion) || 0)) + 1;
+}
+
+function currentRawMaterialLabelVersion(roll = {}) { return Math.max(1, Math.trunc(Number(roll.labelVersion) || 1)); }
+
+function finiteRawMaterialNumber(value) { const number = Number(value); return Number.isFinite(number) ? number : 0; }
 
 function normalizeAction(action) {
   const value = cleanText(action);
   const actionMap = new Map([
+    ["reparse_ocr", "reparse_ocr"],
     ["复核送货单", "review"],
     ["review", "review"],
     ["打印卷标", "print_labels"],
@@ -2401,7 +1884,14 @@ function normalizeAction(action) {
     ["确认贴标入库", "attach_confirm"],
     ["attach_confirm", "attach_confirm"],
     ["attach-confirm", "attach_confirm"],
+    ["作废卷标", "void_label"],
+    ["void_label", "void_label"],
+    ["void-label", "void_label"],
+    ["重打卷标", "reprint_label"],
+    ["reprint_label", "reprint_label"],
+    ["reprint-label", "reprint_label"],
     ["机边领料", "issue_to_machine"],
+    ["扫码出库", "issue_to_machine"],
     ["issue_to_machine", "issue_to_machine"],
     ["issue-to-machine", "issue_to_machine"],
     ["确认消耗", "confirm_consumption"],
@@ -2439,10 +1929,13 @@ function normalizeAction(action) {
 }
 
 function getRawMaterialActionReason(action) {
+  if (action === "reparse_ocr") return "使用已保存的 OCR 表格升级解析结果，未再次请求云端 OCR";
   if (action === "review") return "人工复核原材料送货单、OCR 字段和实物原标签";
-  if (action === "print_labels") return "打印一卷一标，等待贴到对应卷/件";
-  if (action === "attach_confirm") return "手机扫码确认标签已贴到对应卷/件，并上传签单信息";
-  if (action === "issue_to_machine") return "整卷/整件或拆卷机边领料，等待生产报工确认消耗";
+  if (action === "print_labels") return "打印一卷一标，等待逐卷贴标和人工核对";
+  if (action === "attach_confirm") return "逐卷人工核对标签、实物重量、颜色、规格和库位";
+  if (action === "void_label") return "单独作废异常卷/件的旧标签，不影响其他已确认卷/件";
+  if (action === "reprint_label") return "单独重打异常卷/件标签，等待重新贴标和人工核对";
+  if (action === "issue_to_machine") return "按卷码扫码出库并记录机台；生产任务可在后续阶段关联";
   if (action === "confirm_consumption") return "确认整卷/整件或部分原材料已被生产消耗，不生成成品数量或成本分摊";
   if (action === "return_leftover") return "机边余料退回待复核，不自动转可用库存";
   if (action === "review_leftover") return "余料复核通过后转回可用原材料库存，不做成本分摊";
@@ -2473,614 +1966,11 @@ function summarizeRawMaterialInbound(item = {}) {
     marginSnapshotCount: (item.rawMaterialOrderMarginSnapshots ?? []).length,
     marginReportCount: (item.rawMaterialOrderMarginReports ?? []).length,
     rollCount: (item.rolls ?? []).length,
+    ocrParserVersion: Number(item.ocrParserVersion) || 0,
+    ocrLineCount: (item.ocrLines ?? []).length,
+    ocrReviewedLineCount: (item.ocrLines ?? []).filter((line) => line.reviewedAt).length,
+    ocrModifiedLineCount: (item.ocrLines ?? []).filter((line) => line.reviewStatus === "人工修改").length,
   };
-}
-
-function normalizeRawMaterialIssueRecords(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      issueRecordId: cleanText(record.issueRecordId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      rollId: cleanText(record.rollId),
-      sourceRollId: cleanText(record.sourceRollId),
-      splitRecordId: cleanText(record.splitRecordId),
-      supplierRollNo: cleanText(record.supplierRollNo),
-      materialType: cleanText(record.materialType),
-      productName: cleanText(record.productName),
-      spec: cleanText(record.spec),
-      factoryColor: cleanText(record.factoryColor),
-      issuedWeightKg: Number(record.issuedWeightKg) || 0,
-      issuedQuantity: Number(record.issuedQuantity) || 0,
-      sourceWeightKg: Number(record.sourceWeightKg) || 0,
-      remainingWeightKg: Number(record.remainingWeightKg) || 0,
-      remainingMachineSideWeightKg: Number(record.remainingMachineSideWeightKg) || 0,
-      unit: cleanText(record.unit),
-      machineId: cleanText(record.machineId),
-      productionTaskId: cleanText(record.productionTaskId),
-      productionTaskMatchStatus: cleanText(record.productionTaskMatchStatus),
-      productionTaskMatchReason: cleanText(record.productionTaskMatchReason),
-      productionTaskOrderLineId: cleanText(record.productionTaskOrderLineId),
-      productionTaskMachineId: cleanText(record.productionTaskMachineId),
-      productionTaskGoodsSpec: cleanText(record.productionTaskGoodsSpec),
-      issuePurpose: cleanText(record.issuePurpose) || "生产领料",
-      issueMode: cleanText(record.issueMode) || "整卷/整件领料",
-      consumptionStatus: cleanText(record.consumptionStatus) || "待生产消耗确认",
-      issuedBy: cleanText(record.issuedBy),
-      issuedByUserId: cleanText(record.issuedByUserId),
-      issuedAt: cleanText(record.issuedAt),
-      consumptionRecordId: cleanText(record.consumptionRecordId),
-      consumedWeightKg: Number(record.consumedWeightKg) || 0,
-      consumedAt: cleanText(record.consumedAt),
-      consumedBy: cleanText(record.consumedBy),
-      consumedByUserId: cleanText(record.consumedByUserId),
-      leftoverReturnRecordId: cleanText(record.leftoverReturnRecordId),
-      returnedAt: cleanText(record.returnedAt),
-      returnedBy: cleanText(record.returnedBy),
-      returnedByUserId: cleanText(record.returnedByUserId),
-      leftoverReviewRecordId: cleanText(record.leftoverReviewRecordId),
-      leftoverReviewedAt: cleanText(record.leftoverReviewedAt),
-      leftoverReviewedBy: cleanText(record.leftoverReviewedBy),
-      leftoverReviewedByUserId: cleanText(record.leftoverReviewedByUserId),
-      costAllocationStatus: cleanText(record.costAllocationStatus),
-      costAllocationDraftId: cleanText(record.costAllocationDraftId),
-      allocatedCostAmount: Number(record.allocatedCostAmount) || 0,
-      allocatedWeightKg: Number(record.allocatedWeightKg) || 0,
-      allocatedQuantity: Number(record.allocatedQuantity) || 0,
-      costConfirmationId: cleanText(record.costConfirmationId),
-      confirmedCostAmount: Number(record.confirmedCostAmount) || 0,
-      costConfirmedAt: cleanText(record.costConfirmedAt),
-      costConfirmedBy: cleanText(record.costConfirmedBy),
-      costConfirmedByUserId: cleanText(record.costConfirmedByUserId),
-      lossCalibrationId: cleanText(record.lossCalibrationId),
-      lossRatePercent: Number(record.lossRatePercent) || 0,
-      lossCalibratedAt: cleanText(record.lossCalibratedAt),
-      lossCalibratedBy: cleanText(record.lossCalibratedBy),
-      lossCalibratedByUserId: cleanText(record.lossCalibratedByUserId),
-      marginSnapshotId: cleanText(record.marginSnapshotId),
-      marginSnapshotGeneratedAt: cleanText(record.marginSnapshotGeneratedAt),
-      marginSnapshotGeneratedBy: cleanText(record.marginSnapshotGeneratedBy),
-      marginSnapshotGeneratedByUserId: cleanText(record.marginSnapshotGeneratedByUserId),
-      marginReportId: cleanText(record.marginReportId),
-      marginReviewedAt: cleanText(record.marginReviewedAt),
-      marginReviewedBy: cleanText(record.marginReviewedBy),
-      marginReviewedByUserId: cleanText(record.marginReviewedByUserId),
-      note: cleanText(record.note),
-    }))
-    .filter((record) => record.issueRecordId && record.rollId);
-}
-
-function normalizeRawMaterialConsumptionRecords(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      consumptionRecordId: cleanText(record.consumptionRecordId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      issueRecordId: cleanText(record.issueRecordId),
-      rollId: cleanText(record.rollId),
-      supplierRollNo: cleanText(record.supplierRollNo),
-      materialType: cleanText(record.materialType),
-      productName: cleanText(record.productName),
-      spec: cleanText(record.spec),
-      factoryColor: cleanText(record.factoryColor),
-      consumedWeightKg: Number(record.consumedWeightKg) || 0,
-      consumedQuantity: Number(record.consumedQuantity) || 0,
-      consumedFromWeightKg: Number(record.consumedFromWeightKg) || 0,
-      remainingMachineSideWeightKg: Number(record.remainingMachineSideWeightKg) || 0,
-      partialConsumption: Boolean(record.partialConsumption),
-      unit: cleanText(record.unit),
-      machineId: cleanText(record.machineId),
-      productionTaskId: cleanText(record.productionTaskId),
-      machineCount: cleanText(record.machineCount),
-      qualifiedOutputQuantity: Number(record.qualifiedOutputQuantity) || 0,
-      consumptionStatus: cleanText(record.consumptionStatus) || "已确认消耗",
-      confirmedBy: cleanText(record.confirmedBy),
-      confirmedByUserId: cleanText(record.confirmedByUserId),
-      confirmedAt: cleanText(record.confirmedAt),
-      costAllocationStatus: cleanText(record.costAllocationStatus),
-      costAllocationDraftId: cleanText(record.costAllocationDraftId),
-      allocatedCostAmount: Number(record.allocatedCostAmount) || 0,
-      allocatedWeightKg: Number(record.allocatedWeightKg) || 0,
-      allocatedQuantity: Number(record.allocatedQuantity) || 0,
-      costConfirmationId: cleanText(record.costConfirmationId),
-      confirmedCostAmount: Number(record.confirmedCostAmount) || 0,
-      costConfirmedAt: cleanText(record.costConfirmedAt),
-      costConfirmedBy: cleanText(record.costConfirmedBy),
-      costConfirmedByUserId: cleanText(record.costConfirmedByUserId),
-      lossCalibrationId: cleanText(record.lossCalibrationId),
-      lossRatePercent: Number(record.lossRatePercent) || 0,
-      lossCalibratedAt: cleanText(record.lossCalibratedAt),
-      lossCalibratedBy: cleanText(record.lossCalibratedBy),
-      lossCalibratedByUserId: cleanText(record.lossCalibratedByUserId),
-      marginSnapshotId: cleanText(record.marginSnapshotId),
-      marginSnapshotGeneratedAt: cleanText(record.marginSnapshotGeneratedAt),
-      marginSnapshotGeneratedBy: cleanText(record.marginSnapshotGeneratedBy),
-      marginSnapshotGeneratedByUserId: cleanText(record.marginSnapshotGeneratedByUserId),
-      marginReportId: cleanText(record.marginReportId),
-      marginReviewedAt: cleanText(record.marginReviewedAt),
-      marginReviewedBy: cleanText(record.marginReviewedBy),
-      marginReviewedByUserId: cleanText(record.marginReviewedByUserId),
-      note: cleanText(record.note),
-    }))
-    .filter((record) => record.consumptionRecordId && record.rollId);
-}
-
-function normalizeRawMaterialLeftoverReturnRecords(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      leftoverReturnRecordId: cleanText(record.leftoverReturnRecordId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      issueRecordId: cleanText(record.issueRecordId),
-      rollId: cleanText(record.rollId),
-      supplierRollNo: cleanText(record.supplierRollNo),
-      materialType: cleanText(record.materialType),
-      productName: cleanText(record.productName),
-      spec: cleanText(record.spec),
-      factoryColor: cleanText(record.factoryColor),
-      issuedWeightKg: Number(record.issuedWeightKg) || 0,
-      machineSideWeightKg: Number(record.machineSideWeightKg) || 0,
-      leftoverWeightKg: Number(record.leftoverWeightKg) || 0,
-      leftoverQuantity: Number(record.leftoverQuantity) || 0,
-      unit: cleanText(record.unit),
-      machineId: cleanText(record.machineId),
-      productionTaskId: cleanText(record.productionTaskId),
-      returnLocation: cleanText(record.returnLocation) || "余料区",
-      returnReason: cleanText(record.returnReason) || "机边余料退回",
-      consumptionStatus: cleanText(record.consumptionStatus) || "已退回余料/待复核",
-      returnedBy: cleanText(record.returnedBy),
-      returnedByUserId: cleanText(record.returnedByUserId),
-      returnedAt: cleanText(record.returnedAt),
-      leftoverReviewRecordId: cleanText(record.leftoverReviewRecordId),
-      reviewStatus: cleanText(record.reviewStatus),
-      reviewedAt: cleanText(record.reviewedAt),
-      reviewedBy: cleanText(record.reviewedBy),
-      reviewedByUserId: cleanText(record.reviewedByUserId),
-      note: cleanText(record.note),
-    }))
-    .filter((record) => record.leftoverReturnRecordId && record.rollId);
-}
-
-function normalizeRawMaterialLeftoverReviewRecords(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      leftoverReviewRecordId: cleanText(record.leftoverReviewRecordId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      leftoverReturnRecordId: cleanText(record.leftoverReturnRecordId),
-      issueRecordId: cleanText(record.issueRecordId),
-      rollId: cleanText(record.rollId),
-      supplierRollNo: cleanText(record.supplierRollNo),
-      materialType: cleanText(record.materialType),
-      productName: cleanText(record.productName),
-      spec: cleanText(record.spec),
-      factoryColor: cleanText(record.factoryColor),
-      returnedWeightKg: Number(record.returnedWeightKg) || 0,
-      returnedQuantity: Number(record.returnedQuantity) || 0,
-      reviewedWeightKg: Number(record.reviewedWeightKg) || 0,
-      reviewedQuantity: Number(record.reviewedQuantity) || 0,
-      unit: cleanText(record.unit),
-      reviewLocation: cleanText(record.reviewLocation) || "原料库-余料可用区",
-      reviewStatus: cleanText(record.reviewStatus) || "复核通过/可用",
-      reviewedBy: cleanText(record.reviewedBy),
-      reviewedByUserId: cleanText(record.reviewedByUserId),
-      reviewedAt: cleanText(record.reviewedAt),
-      note: cleanText(record.note),
-    }))
-    .filter((record) => record.leftoverReviewRecordId && record.rollId);
-}
-
-function normalizeRawMaterialSplitRecords(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      splitRecordId: cleanText(record.splitRecordId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      sourceRollId: cleanText(record.sourceRollId),
-      issuedRollId: cleanText(record.issuedRollId),
-      supplierRollNo: cleanText(record.supplierRollNo),
-      materialType: cleanText(record.materialType),
-      productName: cleanText(record.productName),
-      spec: cleanText(record.spec),
-      factoryColor: cleanText(record.factoryColor),
-      sourceWeightKg: Number(record.sourceWeightKg) || 0,
-      issuedWeightKg: Number(record.issuedWeightKg) || 0,
-      remainingWeightKg: Number(record.remainingWeightKg) || 0,
-      unit: cleanText(record.unit),
-      splitMode: cleanText(record.splitMode) || "部分领料/拆卷",
-      machineId: cleanText(record.machineId),
-      productionTaskId: cleanText(record.productionTaskId),
-      productionTaskMatchStatus: cleanText(record.productionTaskMatchStatus),
-      productionTaskMatchReason: cleanText(record.productionTaskMatchReason),
-      productionTaskOrderLineId: cleanText(record.productionTaskOrderLineId),
-      productionTaskMachineId: cleanText(record.productionTaskMachineId),
-      productionTaskGoodsSpec: cleanText(record.productionTaskGoodsSpec),
-      splitBy: cleanText(record.splitBy),
-      splitByUserId: cleanText(record.splitByUserId),
-      splitAt: cleanText(record.splitAt),
-      note: cleanText(record.note),
-    }))
-    .filter((record) => record.splitRecordId && record.sourceRollId && record.issuedRollId);
-}
-
-function normalizeRawMaterialCostAllocationDrafts(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      costAllocationDraftId: cleanText(record.costAllocationDraftId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      consumptionRecordId: cleanText(record.consumptionRecordId),
-      issueRecordId: cleanText(record.issueRecordId),
-      rollId: cleanText(record.rollId),
-      sourceRollId: cleanText(record.sourceRollId),
-      splitRecordId: cleanText(record.splitRecordId),
-      supplierName: cleanText(record.supplierName),
-      deliveryNoteNo: cleanText(record.deliveryNoteNo),
-      materialType: cleanText(record.materialType),
-      productName: cleanText(record.productName),
-      spec: cleanText(record.spec),
-      factoryColor: cleanText(record.factoryColor),
-      unit: cleanText(record.unit),
-      unitPrice: Number(record.unitPrice) || 0,
-      allocatedWeightKg: Number(record.allocatedWeightKg) || 0,
-      allocatedQuantity: Number(record.allocatedQuantity) || 0,
-      allocatedCostAmount: Number(record.allocatedCostAmount) || 0,
-      productionTaskId: cleanText(record.productionTaskId),
-      orderLineId: cleanText(record.orderLineId),
-      productionTaskMachineId: cleanText(record.productionTaskMachineId),
-      productionTaskGoodsSpec: cleanText(record.productionTaskGoodsSpec),
-      allocationBasis: cleanText(record.allocationBasis),
-      allocationStatus: cleanText(record.allocationStatus) || "草稿/待成本复核",
-      costEffect: cleanText(record.costEffect) || "draft_only",
-      marginEffect: cleanText(record.marginEffect) || "none",
-      lossCalibrationStatus: cleanText(record.lossCalibrationStatus) || "待损耗校准",
-      generatedBy: cleanText(record.generatedBy),
-      generatedByUserId: cleanText(record.generatedByUserId),
-      generatedAt: cleanText(record.generatedAt),
-      confirmedCostAmount: Number(record.confirmedCostAmount) || 0,
-      confirmedBy: cleanText(record.confirmedBy),
-      confirmedByUserId: cleanText(record.confirmedByUserId),
-      confirmedAt: cleanText(record.confirmedAt),
-      costConfirmationId: cleanText(record.costConfirmationId),
-      reviewNote: cleanText(record.reviewNote),
-      lossCalibrationId: cleanText(record.lossCalibrationId),
-      lossRatePercent: Number(record.lossRatePercent) || 0,
-      calibratedCostAmount: Number(record.calibratedCostAmount) || 0,
-      calibratedBy: cleanText(record.calibratedBy),
-      calibratedByUserId: cleanText(record.calibratedByUserId),
-      calibratedAt: cleanText(record.calibratedAt),
-      marginSnapshotId: cleanText(record.marginSnapshotId),
-      marginSnapshotStatus: cleanText(record.marginSnapshotStatus),
-      marginSnapshotGeneratedBy: cleanText(record.marginSnapshotGeneratedBy),
-      marginSnapshotGeneratedByUserId: cleanText(record.marginSnapshotGeneratedByUserId),
-      marginSnapshotGeneratedAt: cleanText(record.marginSnapshotGeneratedAt),
-      marginReportId: cleanText(record.marginReportId),
-      marginReviewStatus: cleanText(record.marginReviewStatus),
-      marginReviewedBy: cleanText(record.marginReviewedBy),
-      marginReviewedByUserId: cleanText(record.marginReviewedByUserId),
-      marginReviewedAt: cleanText(record.marginReviewedAt),
-      note: cleanText(record.note),
-    }))
-    .filter((record) => record.costAllocationDraftId && record.consumptionRecordId && record.issueRecordId);
-}
-
-function normalizeRawMaterialCostAllocationConfirmations(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      costConfirmationId: cleanText(record.costConfirmationId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      supplierName: cleanText(record.supplierName),
-      deliveryNoteNo: cleanText(record.deliveryNoteNo),
-      costAllocationDraftIds: Array.isArray(record.costAllocationDraftIds)
-        ? record.costAllocationDraftIds.map(cleanText).filter(Boolean)
-        : [],
-      consumptionRecordIds: Array.isArray(record.consumptionRecordIds)
-        ? record.consumptionRecordIds.map(cleanText).filter(Boolean)
-        : [],
-      issueRecordIds: Array.isArray(record.issueRecordIds)
-        ? record.issueRecordIds.map(cleanText).filter(Boolean)
-        : [],
-      productionTaskIds: Array.isArray(record.productionTaskIds)
-        ? record.productionTaskIds.map(cleanText).filter(Boolean)
-        : [],
-      orderLineIds: Array.isArray(record.orderLineIds)
-        ? record.orderLineIds.map(cleanText).filter(Boolean)
-        : [],
-      confirmedCount: Number(record.confirmedCount) || 0,
-      confirmedWeightKg: Number(record.confirmedWeightKg) || 0,
-      confirmedQuantity: Number(record.confirmedQuantity) || 0,
-      confirmedCostAmount: Number(record.confirmedCostAmount) || 0,
-      reviewStatus: cleanText(record.reviewStatus) || "已复核/待损耗校准",
-      costEffect: cleanText(record.costEffect) || "confirmed_material_cost_snapshot",
-      marginEffect: cleanText(record.marginEffect) || "none",
-      lossCalibrationStatus: cleanText(record.lossCalibrationStatus) || "待损耗校准",
-      lossCalibrationId: cleanText(record.lossCalibrationId),
-      lossRatePercent: Number(record.lossRatePercent) || 0,
-      calibratedBy: cleanText(record.calibratedBy),
-      calibratedByUserId: cleanText(record.calibratedByUserId),
-      calibratedAt: cleanText(record.calibratedAt),
-      marginSnapshotId: cleanText(record.marginSnapshotId),
-      marginSnapshotStatus: cleanText(record.marginSnapshotStatus),
-      marginSnapshotGeneratedBy: cleanText(record.marginSnapshotGeneratedBy),
-      marginSnapshotGeneratedByUserId: cleanText(record.marginSnapshotGeneratedByUserId),
-      marginSnapshotGeneratedAt: cleanText(record.marginSnapshotGeneratedAt),
-      marginReportId: cleanText(record.marginReportId),
-      marginReviewStatus: cleanText(record.marginReviewStatus),
-      marginReviewedBy: cleanText(record.marginReviewedBy),
-      marginReviewedByUserId: cleanText(record.marginReviewedByUserId),
-      marginReviewedAt: cleanText(record.marginReviewedAt),
-      confirmedBy: cleanText(record.confirmedBy),
-      confirmedByUserId: cleanText(record.confirmedByUserId),
-      confirmedAt: cleanText(record.confirmedAt),
-      note: cleanText(record.note),
-    }))
-    .filter((record) => record.costConfirmationId);
-}
-
-function normalizeRawMaterialCostLossCalibrations(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      lossCalibrationId: cleanText(record.lossCalibrationId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      supplierName: cleanText(record.supplierName),
-      deliveryNoteNo: cleanText(record.deliveryNoteNo),
-      costConfirmationId: cleanText(record.costConfirmationId),
-      costConfirmationIds: Array.isArray(record.costConfirmationIds)
-        ? record.costConfirmationIds.map(cleanText).filter(Boolean)
-        : [],
-      costAllocationDraftIds: Array.isArray(record.costAllocationDraftIds)
-        ? record.costAllocationDraftIds.map(cleanText).filter(Boolean)
-        : [],
-      consumptionRecordIds: Array.isArray(record.consumptionRecordIds)
-        ? record.consumptionRecordIds.map(cleanText).filter(Boolean)
-        : [],
-      issueRecordIds: Array.isArray(record.issueRecordIds)
-        ? record.issueRecordIds.map(cleanText).filter(Boolean)
-        : [],
-      productionTaskIds: Array.isArray(record.productionTaskIds)
-        ? record.productionTaskIds.map(cleanText).filter(Boolean)
-        : [],
-      orderLineIds: Array.isArray(record.orderLineIds)
-        ? record.orderLineIds.map(cleanText).filter(Boolean)
-        : [],
-      confirmedCount: Number(record.confirmedCount) || 0,
-      confirmedWeightKg: Number(record.confirmedWeightKg) || 0,
-      confirmedQuantity: Number(record.confirmedQuantity) || 0,
-      confirmedCostAmount: Number(record.confirmedCostAmount) || 0,
-      expectedOutputQuantity: Number(record.expectedOutputQuantity) || 0,
-      actualQualifiedOutputQuantity: Number(record.actualQualifiedOutputQuantity) || 0,
-      lossQuantity: Number(record.lossQuantity) || 0,
-      lossRatePercent: Number(record.lossRatePercent) || 0,
-      calibrationBasis: cleanText(record.calibrationBasis),
-      calibrationStatus: cleanText(record.calibrationStatus) || "已校准/待毛利确认",
-      costEffect: cleanText(record.costEffect) || "loss_calibrated_material_cost_snapshot",
-      marginEffect: cleanText(record.marginEffect) || "pending_margin_snapshot",
-      marginSnapshotId: cleanText(record.marginSnapshotId),
-      marginSnapshotStatus: cleanText(record.marginSnapshotStatus),
-      marginSnapshotGeneratedBy: cleanText(record.marginSnapshotGeneratedBy),
-      marginSnapshotGeneratedByUserId: cleanText(record.marginSnapshotGeneratedByUserId),
-      marginSnapshotGeneratedAt: cleanText(record.marginSnapshotGeneratedAt),
-      marginReportId: cleanText(record.marginReportId),
-      marginReviewStatus: cleanText(record.marginReviewStatus),
-      marginReviewedBy: cleanText(record.marginReviewedBy),
-      marginReviewedByUserId: cleanText(record.marginReviewedByUserId),
-      marginReviewedAt: cleanText(record.marginReviewedAt),
-      calibratedBy: cleanText(record.calibratedBy),
-      calibratedByUserId: cleanText(record.calibratedByUserId),
-      calibratedAt: cleanText(record.calibratedAt),
-      note: cleanText(record.note),
-    }))
-    .filter((record) => record.lossCalibrationId);
-}
-
-function normalizeRawMaterialOrderMarginSnapshots(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      marginSnapshotId: cleanText(record.marginSnapshotId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      supplierName: cleanText(record.supplierName),
-      deliveryNoteNo: cleanText(record.deliveryNoteNo),
-      lossCalibrationIds: Array.isArray(record.lossCalibrationIds)
-        ? record.lossCalibrationIds.map(cleanText).filter(Boolean)
-        : [],
-      costConfirmationIds: Array.isArray(record.costConfirmationIds)
-        ? record.costConfirmationIds.map(cleanText).filter(Boolean)
-        : [],
-      costAllocationDraftIds: Array.isArray(record.costAllocationDraftIds)
-        ? record.costAllocationDraftIds.map(cleanText).filter(Boolean)
-        : [],
-      consumptionRecordIds: Array.isArray(record.consumptionRecordIds)
-        ? record.consumptionRecordIds.map(cleanText).filter(Boolean)
-        : [],
-      issueRecordIds: Array.isArray(record.issueRecordIds)
-        ? record.issueRecordIds.map(cleanText).filter(Boolean)
-        : [],
-      productionTaskIds: Array.isArray(record.productionTaskIds)
-        ? record.productionTaskIds.map(cleanText).filter(Boolean)
-        : [],
-      orderLineIds: Array.isArray(record.orderLineIds) ? record.orderLineIds.map(cleanText).filter(Boolean) : [],
-      lineItems: Array.isArray(record.lineItems)
-        ? record.lineItems.map((line) => ({
-            ...line,
-            orderLineId: cleanText(line.orderLineId),
-            orderNo: cleanText(line.orderNo),
-            customerId: cleanText(line.customerId),
-            customerName: cleanText(line.customerName),
-            productName: cleanText(line.productName),
-            goodsSpec: cleanText(line.goodsSpec),
-            quantity: Number(line.quantity) || 0,
-            salesAmount: Number(line.salesAmount) || 0,
-            materialCostAmount: Number(line.materialCostAmount) || 0,
-            grossProfitAmount: Number(line.grossProfitAmount) || 0,
-            grossMarginRatePercent: Number(line.grossMarginRatePercent) || 0,
-            marginStatus: cleanText(line.marginStatus) || "已生成/待财务复核",
-            marginSnapshotId: cleanText(line.marginSnapshotId),
-            costAllocationDraftIds: Array.isArray(line.costAllocationDraftIds)
-              ? line.costAllocationDraftIds.map(cleanText).filter(Boolean)
-              : [],
-            productionTaskIds: Array.isArray(line.productionTaskIds)
-              ? line.productionTaskIds.map(cleanText).filter(Boolean)
-              : [],
-          })).filter((line) => line.orderLineId)
-        : [],
-      totalSalesAmount: Number(record.totalSalesAmount) || 0,
-      totalMaterialCostAmount: Number(record.totalMaterialCostAmount) || 0,
-      grossProfitAmount: Number(record.grossProfitAmount) || 0,
-      grossMarginRatePercent: Number(record.grossMarginRatePercent) || 0,
-      reviewStatus: cleanText(record.reviewStatus) || "已生成/待财务复核",
-      reportStatus: cleanText(record.reportStatus),
-      costEffect: cleanText(record.costEffect) || "loss_calibrated_material_cost_snapshot",
-      marginEffect: cleanText(record.marginEffect) || "margin_snapshot_pending_review",
-      marginReportId: cleanText(record.marginReportId),
-      generatedBy: cleanText(record.generatedBy),
-      generatedByUserId: cleanText(record.generatedByUserId),
-      generatedAt: cleanText(record.generatedAt),
-      reviewedBy: cleanText(record.reviewedBy),
-      reviewedByUserId: cleanText(record.reviewedByUserId),
-      reviewedAt: cleanText(record.reviewedAt),
-      note: cleanText(record.note),
-      warnings: normalizeRawMaterialCostAllocationWarnings(record.warnings),
-    }))
-    .filter((record) => record.marginSnapshotId);
-}
-
-function normalizeRawMaterialOrderMarginReports(records = []) {
-  return (Array.isArray(records) ? records : [])
-    .map((record) => ({
-      ...record,
-      marginReportId: cleanText(record.marginReportId ?? record.id),
-      inboundId: cleanText(record.inboundId),
-      supplierName: cleanText(record.supplierName),
-      deliveryNoteNo: cleanText(record.deliveryNoteNo),
-      marginSnapshotIds: Array.isArray(record.marginSnapshotIds)
-        ? record.marginSnapshotIds.map(cleanText).filter(Boolean)
-        : [],
-      lossCalibrationIds: Array.isArray(record.lossCalibrationIds)
-        ? record.lossCalibrationIds.map(cleanText).filter(Boolean)
-        : [],
-      costConfirmationIds: Array.isArray(record.costConfirmationIds)
-        ? record.costConfirmationIds.map(cleanText).filter(Boolean)
-        : [],
-      costAllocationDraftIds: Array.isArray(record.costAllocationDraftIds)
-        ? record.costAllocationDraftIds.map(cleanText).filter(Boolean)
-        : [],
-      consumptionRecordIds: Array.isArray(record.consumptionRecordIds)
-        ? record.consumptionRecordIds.map(cleanText).filter(Boolean)
-        : [],
-      issueRecordIds: Array.isArray(record.issueRecordIds)
-        ? record.issueRecordIds.map(cleanText).filter(Boolean)
-        : [],
-      productionTaskIds: Array.isArray(record.productionTaskIds)
-        ? record.productionTaskIds.map(cleanText).filter(Boolean)
-        : [],
-      orderLineIds: Array.isArray(record.orderLineIds) ? record.orderLineIds.map(cleanText).filter(Boolean) : [],
-      lineItems: Array.isArray(record.lineItems)
-        ? record.lineItems.map((line) => ({
-            ...line,
-            marginSnapshotId: cleanText(line.marginSnapshotId),
-            orderLineId: cleanText(line.orderLineId),
-            orderNo: cleanText(line.orderNo),
-            customerId: cleanText(line.customerId),
-            customerName: cleanText(line.customerName),
-            productName: cleanText(line.productName),
-            goodsSpec: cleanText(line.goodsSpec),
-            quantity: Number(line.quantity) || 0,
-            salesAmount: Number(line.salesAmount) || 0,
-            materialCostAmount: Number(line.materialCostAmount) || 0,
-            grossProfitAmount: Number(line.grossProfitAmount) || 0,
-            grossMarginRatePercent: Number(line.grossMarginRatePercent) || 0,
-            marginStatus: cleanText(line.marginStatus) || "已财务复核/报表可用",
-            costAllocationDraftIds: Array.isArray(line.costAllocationDraftIds)
-              ? line.costAllocationDraftIds.map(cleanText).filter(Boolean)
-              : [],
-            productionTaskIds: Array.isArray(line.productionTaskIds)
-              ? line.productionTaskIds.map(cleanText).filter(Boolean)
-              : [],
-          })).filter((line) => line.orderLineId)
-        : [],
-      totalSalesAmount: Number(record.totalSalesAmount) || 0,
-      totalMaterialCostAmount: Number(record.totalMaterialCostAmount) || 0,
-      grossProfitAmount: Number(record.grossProfitAmount) || 0,
-      grossMarginRatePercent: Number(record.grossMarginRatePercent) || 0,
-      reviewStatus: cleanText(record.reviewStatus) || "已财务复核/报表可用",
-      reportStatus: cleanText(record.reportStatus) || "已生成内部毛利报表",
-      costEffect: cleanText(record.costEffect) || "loss_calibrated_material_cost_snapshot",
-      marginEffect: cleanText(record.marginEffect) || "reviewed_margin_report_snapshot",
-      reviewedBy: cleanText(record.reviewedBy),
-      reviewedByUserId: cleanText(record.reviewedByUserId),
-      reviewedAt: cleanText(record.reviewedAt),
-      note: cleanText(record.note),
-      warnings: normalizeRawMaterialCostAllocationWarnings(record.warnings),
-    }))
-    .filter((record) => record.marginReportId);
-}
-
-function normalizeRawMaterialCostAllocationWarnings(warnings = []) {
-  return Array.isArray(warnings) ? warnings.map(cleanText).filter(Boolean) : [];
-}
-
-function normalizeQuery(query) {
-  return {
-    keyword: cleanText(getQueryValue(query, "keyword")),
-    status: cleanText(getQueryValue(query, "status")),
-    page: Number(getQueryValue(query, "page") || 1),
-    pageSize: Number(getQueryValue(query, "pageSize") || 50),
-  };
-}
-
-function getQueryValue(query, key) {
-  if (!query) return "";
-  if (typeof query.get === "function") return query.get(key) ?? "";
-  return query[key] ?? "";
-}
-
-function compareDateDesc(left, right) {
-  return (Date.parse(right) || 0) - (Date.parse(left) || 0);
-}
-
-function loadPersistentRawMaterialInboundState(storageRoot, seedInbounds = []) {
-  const filePath = getRawMaterialInboundFilePath(storageRoot);
-  if (!existsSync(filePath)) {
-    const seeded = normalizeRawMaterialInbounds(seedInbounds);
-    persistRawMaterialInboundState(storageRoot, seeded);
-    return { rawMaterialInbounds: seeded };
-  }
-  try {
-    const parsed = JSON.parse(readFileSync(filePath, "utf8"));
-    const persisted = normalizeRawMaterialInbounds(parsed.rawMaterialInbounds ?? parsed.items ?? []);
-    return { rawMaterialInbounds: persisted };
-  } catch {
-    const seeded = normalizeRawMaterialInbounds(seedInbounds);
-    return { rawMaterialInbounds: seeded };
-  }
-}
-
-function persistRawMaterialInboundState(storageRoot, rawMaterialInbounds = []) {
-  const filePath = getRawMaterialInboundFilePath(storageRoot);
-  mkdirSync(dirname(filePath), { recursive: true });
-  writeFileSync(
-    filePath,
-    `${JSON.stringify(
-      {
-        updatedAt: new Date().toISOString(),
-        rawMaterialInbounds: normalizeRawMaterialInbounds(rawMaterialInbounds),
-      },
-      null,
-      2,
-    )}\n`,
-    "utf8",
-  );
-}
-
-function getRawMaterialInboundFilePath(storageRoot) {
-  return join(storageRoot, rawMaterialInboundStoreKey);
-}
-
-function getLocalStorageRoot() {
-  return process.env.ERP_LOCAL_STORAGE_DIR || join(process.cwd(), ".erp-local-storage");
 }
 
 function buildRawMaterialSplitRollId(rolls = [], sourceRollId = "") {
@@ -3104,7 +1994,6 @@ function roundMoney(value) {
   if (!Number.isFinite(number)) return 0;
   return Math.round(number * 100) / 100;
 }
-
 function cleanText(value) {
   return String(value ?? "").trim();
 }

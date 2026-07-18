@@ -1,5 +1,6 @@
 import { roleCatalog } from "../../shared/auth/roleCatalog.js";
 import { getRuntimeUserSecurityState, isRuntimeUserPasswordHashCurrent } from "../authSeed.mjs";
+import { resolveConfiguredMasterDataMachine } from "../../shared/masterDataMachineIdentity.js";
 
 export const requiredV1RuntimeEmployeeRoles = Object.freeze([
   "office",
@@ -24,15 +25,18 @@ const blockerLabels = Object.freeze({
   password_expired: "密码已过期",
   account_locked: "账号仍被锁定",
   machine_scope_missing: "车间账号未绑定默认机器",
+  machine_configuration_missing: "默认机器不在权威机台资料中",
+  machine_not_active: "默认机器未启用",
+  machine_workshop_mismatch: "员工车间与默认机器不一致",
 });
 
-export function buildRuntimeEmployeeAccountReadiness({ users = [], nowMs = Date.now() } = {}) {
+export function buildRuntimeEmployeeAccountReadiness({ users = [], machines = [], nowMs = Date.now() } = {}) {
   const formalUsers = (Array.isArray(users) ? users : []).filter(
     (user) => String(user?.source ?? "").trim() === "master_data_import_review",
   );
   const roles = requiredV1RuntimeEmployeeRoles.map((roleKey) => {
-    const candidates = formalUsers.filter((user) => getPrimaryRole(user) === roleKey);
-    const evaluations = candidates.map((user) => evaluateRuntimeEmployeeAccount(user, { roleKey, nowMs }));
+    const candidates = formalUsers.filter((user) => getAssignedRoleKeys(user).includes(roleKey));
+    const evaluations = candidates.map((user) => evaluateRuntimeEmployeeAccount(user, { roleKey, machines, nowMs }));
     const readyAccountCount = evaluations.filter((item) => item.ready).length;
     return {
       roleKey,
@@ -50,14 +54,17 @@ export function buildRuntimeEmployeeAccountReadiness({ users = [], nowMs = Date.
     coveredRoleCount,
     missingRoleCount: roles.length - coveredRoleCount,
     formalAccountCount: formalUsers.length,
-    readyFormalAccountCount: formalUsers.filter((user) =>
-      evaluateRuntimeEmployeeAccount(user, { roleKey: getPrimaryRole(user), nowMs }).ready,
-    ).length,
+    readyFormalAccountCount: formalUsers.filter((user) => {
+      const assignedRoleKeys = getAssignedRoleKeys(user);
+      return assignedRoleKeys.length > 0 && assignedRoleKeys.every((roleKey) =>
+        evaluateRuntimeEmployeeAccount(user, { roleKey, machines, nowMs }).ready,
+      );
+    }).length,
     roles,
   };
 }
 
-function evaluateRuntimeEmployeeAccount(user, { roleKey, nowMs }) {
+function evaluateRuntimeEmployeeAccount(user, { roleKey, machines, nowMs }) {
   const blockers = [];
   const passwordHash = String(user?.passwordHash ?? "").trim();
   const passwordStatus = String(user?.passwordStatus ?? "").trim();
@@ -75,17 +82,29 @@ function evaluateRuntimeEmployeeAccount(user, { roleKey, nowMs }) {
   if (!Number.isFinite(passwordExpiresAtMs)) blockers.push("password_expiry_missing");
   if (securityState.passwordExpired) blockers.push("password_expired");
   if (securityState.locked) blockers.push("account_locked");
-  if (roleKey === "workshop" && !String(user?.defaultMachineId ?? "").trim()) {
-    blockers.push("machine_scope_missing");
+  if (roleKey === "workshop") {
+    const machineId = String(user?.defaultMachineId ?? "").trim();
+    const configuredMachine = resolveConfiguredMasterDataMachine(machines, machineId);
+    if (!machineId) blockers.push("machine_scope_missing");
+    else if (!configuredMachine) blockers.push("machine_configuration_missing");
+    else if (configuredMachine.enabled === false || configuredMachine.status !== "active") blockers.push("machine_not_active");
+    else {
+      const employeeWorkshop = String(user?.metadata?.defaultWorkshop ?? user?.defaultWorkshop ?? "").trim();
+      if (employeeWorkshop && employeeWorkshop !== String(configuredMachine.workshop ?? "").trim()) {
+        blockers.push("machine_workshop_mismatch");
+      }
+    }
   }
 
   return { ready: blockers.length === 0, blockers: [...new Set(blockers)] };
 }
 
-function getPrimaryRole(user = {}) {
+function getAssignedRoleKeys(user = {}) {
   const defaultRole = String(user.defaultRole ?? "").trim();
-  if (defaultRole) return defaultRole;
-  return String(Array.isArray(user.roles) ? user.roles[0] ?? "" : "").trim();
+  const roles = Array.isArray(user.roles) ? user.roles : [];
+  return [...new Set([defaultRole, ...roles]
+    .map((roleKey) => String(roleKey ?? "").trim())
+    .filter((roleKey) => requiredV1RuntimeEmployeeRoles.includes(roleKey)))];
 }
 
 function aggregateBlockers(blockers) {

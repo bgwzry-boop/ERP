@@ -456,6 +456,150 @@ export function sanitizeV1ProductionPersistenceEvidence(value = {}) {
   };
 }
 
+export function sanitizeV1TodoLoadPrecheck(value = {}, options = {}) {
+  const source = isPlainServerObject(value) ? value : {};
+  const validScope = cleanServerText(source.scope) === "v1_todo_load_precheck";
+  const summary = isPlainServerObject(source.summary) ? source.summary : {};
+  const target = isPlainServerObject(source.target) ? source.target : {};
+  const authentication = isPlainServerObject(source.authentication) ? source.authentication : {};
+  const safeguards = isPlainServerObject(source.safeguards) ? source.safeguards : {};
+  const maxAgeHours = normalizeV1NonNegativeNumber(options.maxAgeHours, 72);
+  const nowMs = resolveV1ProductionStatusTime(options.now);
+  const checkedAt = cleanServerText(source.checkedAt);
+  const checkedAtMs = Date.parse(checkedAt);
+  const checkedAtValid = Number.isFinite(checkedAtMs);
+  const ageHours = checkedAtValid ? Math.max(0, (nowMs - checkedAtMs) / 3_600_000) : null;
+  const fresh = validScope && checkedAtValid && (maxAgeHours === 0 || ageHours <= maxAgeHours);
+  const expiresAt = checkedAtValid && maxAgeHours > 0
+    ? new Date(checkedAtMs + maxAgeHours * 3_600_000).toISOString()
+    : "";
+  const targetReady =
+    target.loopback === false &&
+    cleanServerText(target.protocol) === "https" &&
+    target.apiPathValidated === true &&
+    target.embeddedCredentials === false &&
+    target.addressExposed === false;
+  const authenticationReady =
+    authentication.formalRuntimeSession === true &&
+    authentication.serverVerified === true &&
+    cleanServerText(authentication.sessionType) === "runtime" &&
+    authentication.identityExposed === false;
+  const safeguardsReady =
+    safeguards.explicitReadLoadConfirmation === true &&
+    safeguards.businessReadOnly === true &&
+    safeguards.businessDataMutated === false &&
+    safeguards.requestCountBounded === true &&
+    safeguards.concurrencyBounded === true &&
+    safeguards.responsePayloadStored === false &&
+    safeguards.todoIdentityStored === false &&
+    safeguards.credentialsExposed === false &&
+    safeguards.apiAddressExposed === false &&
+    safeguards.physicalPrinterCalled === false;
+  const available = validScope;
+  const ready = available && source.ready === true && fresh && targetReady && authenticationReady && safeguardsReady;
+  const sourceStatus = cleanServerText(source.status);
+  const status = !available ? "missing" : ready ? "ready" : sourceStatus === "error" ? "error" : "blocked";
+  const requestCount = normalizeV1NonNegativeInteger(summary.requestCount);
+  const successCount = normalizeV1NonNegativeInteger(summary.successCount);
+  const errorCount = normalizeV1NonNegativeInteger(summary.errorCount);
+  const errorRate = normalizeV1NonNegativeNumber(summary.errorRate);
+  const throughputPerSecond = normalizeV1NonNegativeNumber(summary.throughputPerSecond);
+  const p50 = normalizeV1NonNegativeNumber(summary.latencyMs?.p50);
+  const p95 = normalizeV1NonNegativeNumber(summary.latencyMs?.p95);
+  const max = normalizeV1NonNegativeNumber(summary.latencyMs?.max);
+  const nextAction = !available
+    ? "先在长驻生产 API 上使用正式 runtime 会话显式运行待办 GET-only 容量预检查，再刷新上线状态。"
+    : !fresh
+      ? `容量报告缺少有效时间或已超过 ${maxAgeHours} 小时；重新显式执行预检查。`
+      : !targetReady
+        ? "容量报告不是受控的非本机 HTTPS 生产目标；修正生产部署后重新执行。"
+        : !authenticationReady
+          ? "容量报告未使用服务端复核的正式 runtime 会话；用正式账号重新执行。"
+          : !safeguardsReady
+            ? "容量报告的只读、请求边界或脱敏护栏不完整；修正后重新执行。"
+            : source.ready !== true
+              ? "容量指标或服务端排序/提醒合同未达标；按阻塞项修正后重新执行。"
+              : "容量报告可供 D50 第一阶段 closeout 使用；继续补齐持久化和现场证据。";
+
+  return {
+    status,
+    ready,
+    available,
+    checkedAt,
+    summary: {
+      label: !available
+        ? "生产待办容量报告未生成"
+        : ready
+          ? sanitizeProductionStatusText(summary.label) || "生产待办容量预检查已通过"
+          : "生产待办容量报告仍有阻塞",
+      sourceLabel: sanitizeProductionStatusText(summary.label),
+      requestCount,
+      successCount,
+      errorCount,
+      successLabel: `${successCount}/${requestCount}`,
+      errorRate,
+      errorRateLabel: `${formatV1ProductionStatusPercent(errorRate)}%`,
+      throughputPerSecond,
+      throughputLabel: `${formatV1ProductionStatusNumber(throughputPerSecond)} 次/秒`,
+      latencyMs: { p50, p95, max },
+      snapshotChanged: summary.snapshotChanged === true,
+    },
+    thresholds: {
+      maxP95Ms: normalizeV1NonNegativeNumber(source.config?.maxP95Ms),
+      maxErrorRate: normalizeV1NonNegativeNumber(source.config?.maxErrorRate),
+    },
+    freshness: {
+      checkedAtValid,
+      fresh,
+      maxAgeHours,
+      ageHours: ageHours === null ? null : roundV1ProductionStatusNumber(ageHours),
+      remainingHours:
+        ageHours === null || maxAgeHours === 0
+          ? null
+          : roundV1ProductionStatusNumber(Math.max(0, maxAgeHours - ageHours)),
+      expiresAt,
+    },
+    target: {
+      ready: targetReady,
+      protocol: cleanServerText(target.protocol),
+      loopback: target.loopback === true,
+      apiPathValidated: target.apiPathValidated === true,
+      addressExposed: false,
+      embeddedCredentials: false,
+    },
+    authentication: {
+      ready: authenticationReady,
+      formalRuntimeSession: authentication.formalRuntimeSession === true,
+      serverVerified: authentication.serverVerified === true,
+      sessionType: cleanServerText(authentication.sessionType),
+      identityExposed: false,
+    },
+    blockingStageKeys: Array.isArray(source.blockingStages)
+      ? source.blockingStages.slice(0, 8).map((stage) => cleanServerText(stage?.key)).filter(Boolean)
+      : [],
+    warningKeys: Array.isArray(source.warnings)
+      ? source.warnings.slice(0, 8).map((warning) => cleanServerText(warning?.key)).filter(Boolean)
+      : [],
+    nextAction,
+    safeguards: {
+      ready: safeguardsReady,
+      explicitReadLoadConfirmation: safeguards.explicitReadLoadConfirmation === true,
+      businessReadOnly: safeguards.businessReadOnly === true,
+      businessDataMutated: safeguards.businessDataMutated === true,
+      requestCountBounded: safeguards.requestCountBounded === true,
+      concurrencyBounded: safeguards.concurrencyBounded === true,
+      responsePayloadStored: false,
+      todoIdentityStored: false,
+      credentialsExposed: false,
+      apiAddressExposed: false,
+      physicalPrinterCalled: safeguards.physicalPrinterCalled === true,
+      rawReportIncluded: false,
+      sourceReadyClaimTrustedWithoutRecheck: false,
+      artifactPathExposed: false,
+    },
+  };
+}
+
 function sanitizeV1ProductionPersistenceEvidenceStage(value = {}) {
   const source = isPlainServerObject(value) ? value : {};
   const label = sanitizeProductionStatusText(source.label);
@@ -979,6 +1123,29 @@ function normalizeV1NonNegativeInteger(value, fallback = 0) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return fallback;
   return Math.trunc(parsed);
+}
+
+function normalizeV1NonNegativeNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed < 0) return fallback;
+  return parsed;
+}
+
+function resolveV1ProductionStatusTime(value) {
+  const candidate = value instanceof Date ? value.getTime() : Date.parse(String(value ?? ""));
+  return Number.isFinite(candidate) ? candidate : Date.now();
+}
+
+function roundV1ProductionStatusNumber(value) {
+  return Math.round(Number(value) * 100) / 100;
+}
+
+function formatV1ProductionStatusNumber(value) {
+  return Number.isInteger(value) ? String(value) : String(roundV1ProductionStatusNumber(value));
+}
+
+function formatV1ProductionStatusPercent(value) {
+  return formatV1ProductionStatusNumber(Number(value) * 100);
 }
 
 function isPlainServerObject(value) {

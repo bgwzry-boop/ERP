@@ -117,6 +117,13 @@ list_items AS (
         ORDER BY report.completed_at DESC NULLS LAST, report.created_at DESC, report.id DESC
         LIMIT 1
       ),
+      'latestException', (
+        SELECT ${productionExceptionJsonExpression("exception_record")}
+        FROM production_exception_records AS exception_record
+        WHERE exception_record.production_task_id = task.id
+        ORDER BY exception_record.occurred_at DESC, exception_record.created_at DESC, exception_record.id DESC
+        LIMIT 1
+      ),
       'packingTask', (
         SELECT ${packingTaskJsonExpression("packing_task")}
         FROM packing_tasks AS packing_task
@@ -298,6 +305,11 @@ selected_reports AS (
   WHERE report.production_task_id = (SELECT id FROM selected_production_task)
      OR report.order_line_id = (SELECT order_line_id FROM selected_production_task)
 ),
+selected_production_exceptions AS (
+  SELECT COALESCE(json_agg(${productionExceptionJsonExpression("exception_record")} ORDER BY exception_record.occurred_at DESC, exception_record.created_at DESC, exception_record.id DESC), '[]'::json) AS result
+  FROM production_exception_records AS exception_record
+  WHERE exception_record.production_task_id = (SELECT id FROM selected_production_task)
+),
 selected_packing_task AS (
   SELECT task.*
   FROM packing_tasks AS task
@@ -376,6 +388,7 @@ SELECT CASE
     'productionTask', (SELECT ${productionTaskJsonExpression("task")} FROM selected_production_task AS task),
     'orderLine', (SELECT ${orderLineJsonExpression("line")} FROM selected_order_line AS line),
     'reports', (SELECT result FROM selected_reports),
+    'exceptions', (SELECT result FROM selected_production_exceptions),
     'latestReport', (
       SELECT ${workshopReportJsonExpression("report")}
       FROM workshop_reports AS report
@@ -499,6 +512,11 @@ export function normalizeProductionTaskDetail(value) {
   const productionTask = normalizeProductionTaskSummary(value.productionTask ?? value.production_task ?? value);
   if (!productionTask?.productionTaskId) return null;
   const reports = normalizeArray(value.reports).map(normalizeWorkshopReportSummary).filter(Boolean).sort(sortByLatestDate);
+  const exceptions = normalizeArray(value.exceptions ?? value.productionExceptions ?? value.production_exceptions)
+    .map(normalizeProductionExceptionSummary)
+    .filter(Boolean)
+    .sort(sortByLatestDate);
+  const latestException = normalizeProductionExceptionSummary(value.latestException ?? value.latest_exception) ?? exceptions[0] ?? null;
   const latestReport = normalizeWorkshopReportSummary(value.latestReport ?? value.latest_report) ?? reports[0] ?? null;
   const packingTask = normalizePackingTaskSummary(value.packingTask ?? value.packing_task);
   const reservations = normalizeArray(value.reservations).map(normalizeInventoryReservationSummary).filter(Boolean);
@@ -516,6 +534,8 @@ export function normalizeProductionTaskDetail(value) {
     ),
     reports,
     latestReport,
+    exceptions,
+    latestException,
     dailyProgress: normalizeProductionDailyProgressSummary(value.dailyProgress ?? value.daily_progress) ?? buildProductionDailyProgressSummary({
       productionTask,
       reports,
@@ -644,6 +664,11 @@ function buildProductionTaskDetailFromWorkspace(workspace = {}, productionTaskId
     .filter(Boolean)
     .sort(sortByLatestDate);
   const reportIds = new Set(reports.map((report) => report.reportId).filter(Boolean));
+  const exceptions = (workspace.productionExceptions ?? [])
+    .filter((record) => cleanText(record.productionTaskId ?? record.production_task_id) === resolvedProductionTaskId)
+    .map(normalizeProductionExceptionSummary)
+    .filter(Boolean)
+    .sort(sortByLatestDate);
   const packingTask =
     (workspace.packingTasks ?? []).find((task) => cleanText(task.orderLineId ?? task.lineId) === orderLineId) ?? null;
   const inventoryLedgerEntries = (workspace.inventoryLedgers ?? [])
@@ -685,6 +710,8 @@ function buildProductionTaskDetailFromWorkspace(workspace = {}, productionTaskId
     finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(productionTask, orderLine),
     reports,
     latestReport: reports[0] ?? null,
+    exceptions,
+    latestException: exceptions[0] ?? null,
     dailyProgress,
     packingTask: packingTask ? normalizePackingTaskSummary(packingTask) : null,
     inventoryItem: inventoryItem ? normalizeInventoryItemSummary(inventoryItem) : null,
@@ -1001,6 +1028,7 @@ function normalizeProductionTaskSummary(task, orderLine = {}) {
     plannedQty: toFiniteInteger(task.plannedQty ?? task.planned_qty ?? task.qty ?? orderLine?.qty),
     taskStatus: cleanText(task.taskStatus ?? task.task_status ?? task.status),
     status: cleanText(task.status ?? task.taskStatus ?? task.task_status),
+    revision: Math.max(1, toFiniteInteger(task.revision, 1)),
     finishedGoodsPhoto: buildFinishedGoodsPhotoSummary(task, orderLine),
     createdBy: cleanText(task.createdBy ?? task.created_by),
     createdAt: cleanText(task.createdAt ?? task.created_at),
@@ -1087,6 +1115,34 @@ function normalizeWorkshopReportSummary(report) {
     createdAt: cleanText(report.createdAt ?? report.created_at ?? report.completedAt ?? report.completed_at),
     remark: cleanText(report.remark),
     evidence: normalizeObject(report.evidence ?? report.evidence_json),
+  };
+}
+
+function normalizeProductionExceptionSummary(record) {
+  if (!record || typeof record !== "object") return null;
+  const productionExceptionId = cleanText(record.productionExceptionId ?? record.production_exception_id ?? record.id);
+  if (!productionExceptionId) return null;
+  return {
+    productionExceptionId,
+    bizNo: cleanText(record.bizNo ?? record.biz_no ?? productionExceptionId),
+    productionTaskId: cleanText(record.productionTaskId ?? record.production_task_id),
+    orderLineId: cleanText(record.orderLineId ?? record.order_line_id),
+    processType: cleanText(record.processType ?? record.process_type),
+    machineId: cleanText(record.machineId ?? record.machine_id),
+    operatorId: cleanText(record.operatorId ?? record.operator_id),
+    exceptionType: cleanText(record.exceptionType ?? record.exception_type),
+    continuationMode: cleanText(record.continuationMode ?? record.continuation_mode),
+    status: cleanText(record.status),
+    resolutionCode: cleanText(record.resolutionCode ?? record.resolution_code),
+    resolutionNote: cleanText(record.resolutionNote ?? record.resolution_note),
+    resolvedBy: cleanText(record.resolvedBy ?? record.resolved_by),
+    resolvedAt: cleanText(record.resolvedAt ?? record.resolved_at),
+    estimatedLossQty: Math.max(0, toFiniteInteger(record.estimatedLossQty ?? record.estimated_loss_qty)),
+    affectsDelivery: record.affectsDelivery === true || record.affects_delivery === true,
+    remark: cleanText(record.remark),
+    evidence: normalizeObject(record.evidence ?? record.evidence_json),
+    occurredAt: cleanText(record.occurredAt ?? record.occurred_at ?? record.createdAt ?? record.created_at),
+    createdAt: cleanText(record.createdAt ?? record.created_at ?? record.occurredAt ?? record.occurred_at),
   };
 }
 
@@ -1374,6 +1430,31 @@ function workshopReportJsonExpression(alias) {
     'createdAt', ${alias}.created_at,
     'remark', ${alias}.remark,
     'evidence', ${alias}.evidence_json
+  )`;
+}
+
+function productionExceptionJsonExpression(alias) {
+  return `json_build_object(
+    'productionExceptionId', ${alias}.id,
+    'bizNo', ${alias}.biz_no,
+    'productionTaskId', ${alias}.production_task_id,
+    'orderLineId', ${alias}.order_line_id,
+    'processType', ${alias}.process_type,
+    'machineId', ${alias}.machine_id,
+    'operatorId', ${alias}.operator_id,
+    'exceptionType', ${alias}.exception_type,
+    'continuationMode', ${alias}.continuation_mode,
+    'status', ${alias}.status,
+    'resolutionCode', ${alias}.resolution_code,
+    'resolutionNote', ${alias}.resolution_note,
+    'resolvedBy', ${alias}.resolved_by,
+    'resolvedAt', ${alias}.resolved_at,
+    'estimatedLossQty', ${alias}.estimated_loss_qty,
+    'affectsDelivery', ${alias}.affects_delivery,
+    'remark', ${alias}.remark,
+    'evidence', ${alias}.evidence_json,
+    'occurredAt', ${alias}.occurred_at,
+    'createdAt', ${alias}.created_at
   )`;
 }
 

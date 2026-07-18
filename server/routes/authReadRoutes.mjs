@@ -1,5 +1,16 @@
-export async function handleAuthReadRoutes({ url, response, permissionContext, authContext, getCurrentAuthSession }) {
+export async function handleAuthReadRoutes({
+  url,
+  response,
+  permissionContext,
+  authContext,
+  runtimeAuthCommandService,
+  sendCommandResponse,
+}) {
   if (url.pathname !== "/api/auth/me") return false;
-  await getCurrentAuthSession({ response, permissionContext, authContext });
+  const result = await runtimeAuthCommandService.getCurrentSession({
+    permissionContext,
+    authContext,
+  });
+  sendCommandResponse(response, result, { useResultStatusCode: true });
   return true;
 }

@@ -5,22 +5,21 @@ export async function handleAuthWriteRoutes({
   workspace,
   body,
   authContext,
-  loginSeedAuth,
-  loginPrototypeSeedAuth,
-  changeRuntimeUserPasswordRoute,
-  logoutSeedAuth,
+  runtimeAuthCommandService,
+  sendCommandResponse,
 }) {
   if (method !== "POST") return false;
 
   const routes = {
-    "/api/auth/login": () => loginSeedAuth({ response, workspace, body }),
-    "/api/auth/prototype-login": () => loginPrototypeSeedAuth({ response, workspace, body }),
-    "/api/auth/change-password": () => changeRuntimeUserPasswordRoute({ response, workspace, body, authContext }),
-    "/api/auth/logout": () => logoutSeedAuth({ response, workspace, authContext }),
+    "/api/auth/login": () => runtimeAuthCommandService.login({ workspace, body }),
+    "/api/auth/prototype-login": () => runtimeAuthCommandService.prototypeLogin({ workspace, body }),
+    "/api/auth/change-password": () => runtimeAuthCommandService.changePassword({ workspace, body, authContext }),
+    "/api/auth/logout": () => runtimeAuthCommandService.logout({ workspace, authContext }),
   };
   const route = routes[url.pathname];
   if (!route) return false;
 
-  await route();
+  const result = await route();
+  sendCommandResponse(response, result, { useResultStatusCode: true });
   return true;
 }
