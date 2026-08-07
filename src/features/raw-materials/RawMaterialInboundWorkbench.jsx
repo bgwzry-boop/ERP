@@ -53,12 +53,18 @@ export function RawMaterialInboundListPane({
   visibleRecords,
   records,
   firstReleaseMode = false,
+  onOpenInventory,
 }) {
   return (
     <OperationalPanel className="table-pane raw-material-list-panel" ariaLabel="原材料入库列表">
       <PanelHeader
-        title="原材料工作台"
+        title="收货录入"
         summary={meta.loading ? "正在同步" : meta.source === "api_error" ? "读取失败，请刷新" : undefined}
+        actions={onOpenInventory ? (
+          <button className="raw-material-open-inventory" onClick={onOpenInventory} type="button">
+            返回卷料库存
+          </button>
+        ) : null}
       />
       <RawMaterialViewTabs activeTab={activeTab} firstReleaseMode={firstReleaseMode} inbounds={inbounds} onChange={onTabChange} />
       <FilterBar

@@ -40,6 +40,7 @@ import {
 import { RawMaterialMobileReceiving } from "./RawMaterialMobileReceiving.jsx";
 import { RawMaterialLabelPrintSheet } from "./RawMaterialLabelPrintSheet.jsx";
 import { RawMaterialPurchasePanel } from "./RawMaterialPurchasePanel.jsx";
+import { RawMaterialRollInventoryWorkbench } from "./RawMaterialRollInventoryWorkbench.jsx";
 
 const RAW_MATERIAL_FIRST_RELEASE_DETAIL_TABS = ["入库标签", "扫码出库", "供应商账", "记录"];
 
@@ -94,6 +95,7 @@ export function RawMaterialInboundPage({
   const [labelVerification, setLabelVerification] = useState(null);
   const [issueSelection, setIssueSelection] = useState(null);
   const [printSheetInbound, setPrintSheetInbound] = useState(null);
+  const [desktopView, setDesktopView] = useState("卷料库存");
   const records = filterRawMaterialInboundsByTab(inbounds, activeTab);
   const visibleRecords = filterRawMaterialInboundsByKeyword(records, keyword);
   const selected = visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
@@ -137,6 +139,15 @@ export function RawMaterialInboundPage({
   function handleSelectInbound(inboundId) {
     setSelectedId(inboundId);
     prepareOcrReviewDraft(inbounds.find((item) => item.id === inboundId));
+  }
+
+  function handleOpenRollSource(roll) {
+    if (!roll?.inboundId) return;
+    setActiveTab("入库单");
+    setKeyword("");
+    setDetailTab("入库标签");
+    handleSelectInbound(roll.inboundId);
+    setDesktopView("收货录入");
   }
 
   async function handleDeliveryNoteRecognize(event) {
@@ -333,7 +344,7 @@ export function RawMaterialInboundPage({
   }
 
   return (
-    <section className={`page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench ${mobileDetailOpen ? "is-mobile-detail-open" : ""}`}>
+    <section className={`page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench ${desktopView === "卷料库存" ? "is-roll-inventory-view" : "is-receiving-view"} ${mobileDetailOpen ? "is-mobile-detail-open" : ""}`}>
       <RawMaterialLabelPrintSheet inbound={printSheetInbound} />
       <RawMaterialMobileReceiving
         attachState={attachState}
@@ -355,6 +366,12 @@ export function RawMaterialInboundPage({
         reviewState={reviewState}
         selected={selected}
       />
+      <RawMaterialRollInventoryWorkbench
+        inbounds={inbounds}
+        meta={meta}
+        onOpenReceiving={() => setDesktopView("收货录入")}
+        onOpenSource={handleOpenRollSource}
+      />
       <RawMaterialInboundListPane
         activeTab={activeTab}
         inbounds={inbounds}
@@ -368,6 +385,7 @@ export function RawMaterialInboundPage({
         selectedId={selected?.id}
         visibleRecords={visibleRecords}
         firstReleaseMode={firstReleaseMode}
+        onOpenInventory={() => setDesktopView("卷料库存")}
       />
       <DetailPane
         className="raw-material-detail-pane"
