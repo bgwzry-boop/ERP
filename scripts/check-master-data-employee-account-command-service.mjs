@@ -24,6 +24,8 @@ assert.match(commandServiceSource, /atomic: true/);
 assert.match(commandServiceSource, /mergeEmployeeIdentity/);
 assert.match(commandServiceSource, /merged_duplicate/);
 assert.match(commandServiceSource, /confirmEmployeeIdentity/);
+assert.match(commandServiceSource, /departEmployeeAccount/);
+assert.match(commandServiceSource, /master_data_employee_departed/);
 assert.match(commandServiceSource, /validateEmployeeAccountIdentityConfirmation/);
 
 const fixedNow = new Date("2026-07-12T09:00:00.000Z");
@@ -70,6 +72,51 @@ assert.deepEqual(
   ["EMP-WORKER-001"],
 );
 assert.doesNotMatch(apiServerSource, /function listMasterDataEmployeeAccountReviews/);
+
+{
+  const departureWorkspace = createWorkspace({
+    employees: [{
+      ...createEmployee("EMP-DEPART-001", "EMP0032", "张帅"),
+      roleName: "打包",
+      defaultWorkshop: "打包区",
+      defaultMachineId: "PACK-01",
+    }],
+  });
+  const missingConfirmation = await service.departEmployeeAccount({
+    workspace: departureWorkspace,
+    employeeId: "EMP-DEPART-001",
+    body: { reason: "员工已离职" },
+    operatorId: "U-MANAGER-A",
+  });
+  assert.equal(missingConfirmation.code, "MASTER_DATA_EMPLOYEE_DEPARTURE_CONFIRMATION_REQUIRED");
+
+  const departed = await service.departEmployeeAccount({
+    workspace: departureWorkspace,
+    employeeId: "EMP-DEPART-001",
+    body: { confirmed: true, reason: "员工已离职" },
+    operatorId: "U-MANAGER-A",
+  });
+  assert.equal(departed.statusCode, 200);
+  assert.equal(departed.response.employeeAccountReview.status, "departed");
+  assert.equal(departed.response.employeeAccountReview.statusLabel, "已离职");
+  assert.equal(departed.response.employeeAccountReview.actionRequired, false);
+  assert.equal(departureWorkspace.employees[0].profileStatus, "departed");
+  assert.equal(departureWorkspace.employees[0].requestedEnabled, false);
+  assert.equal(departureWorkspace.employees[0].defaultMachineId, "");
+  assert.equal(departureWorkspace.employees[0].defaultWorkshop, "");
+  assert.equal(departureWorkspace.operationLogs[0].action, "master_data_employee_departed");
+  assert.equal(departureWorkspace.persistedStates[0].identityEmployeeUpdates[0].profileStatus, "departed");
+  assert.deepEqual(
+    listMasterDataEmployeeAccountReviews(departureWorkspace, { status: "departed" }).map((item) => item.employeeId),
+    ["EMP-DEPART-001"],
+  );
+  const cannotEnable = await service.enableEmployeeAccount({
+    workspace: departureWorkspace,
+    employeeId: "EMP-DEPART-001",
+    operatorId: "U-MANAGER-A",
+  });
+  assert.equal(cannotEnable.code, "MASTER_DATA_EMPLOYEE_DEPARTED");
+}
 
 {
   const identityMergeWorkspace = createWorkspace({

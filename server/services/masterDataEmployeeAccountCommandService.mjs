@@ -36,6 +36,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
   return {
     enableEmployeeAccount,
     enableEmployeeAccounts,
+    departEmployeeAccount,
     issueEmployeeTemporaryPassword,
     revokeEmployeePassword,
     confirmEmployeeIdentity,
@@ -54,6 +55,9 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     const context = getEmployeeContext(workspace, employeeId);
     if (context.result) return context.result;
     const { before } = context;
+    if (isEmployeeDeparted(before)) {
+      return businessError(409, "MASTER_DATA_EMPLOYEE_DEPARTED", "Departed employee records cannot be confirmed or enabled.");
+    }
     if (isMergedDuplicate(before)) {
       return businessError(409, "MASTER_DATA_EMPLOYEE_IDENTITY_CONFIRMATION_MERGED", "Merged employee records cannot be confirmed.");
     }
@@ -252,10 +256,135 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     });
   }
 
+  async function departEmployeeAccount({ workspace, employeeId, body = {}, operatorId }) {
+    if (body.confirmed !== true) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_DEPARTURE_CONFIRMATION_REQUIRED",
+        "Employee departure requires explicit confirmation.",
+      );
+    }
+    const context = getEmployeeContext(workspace, employeeId);
+    if (context.result) return context.result;
+    const { before, employeeIndex } = context;
+    if (isMergedDuplicate(before)) {
+      return businessError(409, "MASTER_DATA_EMPLOYEE_DEPARTURE_MERGED", "Merged employee records cannot be marked as departed.");
+    }
+    const reason = cleanText(body.reason);
+    if (!reason) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_DEPARTURE_REASON_REQUIRED",
+        "An employee departure reason is required.",
+      );
+    }
+    if (isEmployeeDeparted(before)) {
+      return success({
+        departed: true,
+        alreadyDeparted: true,
+        employeeAccountReview: toMasterDataEmployeeAccountReview(
+          before,
+          workspace.users,
+          workspace.machines,
+          workspace.operationLogs,
+        ),
+        operationLogId: "",
+      });
+    }
+
+    const departedAt = now().toISOString();
+    const stagedWorkspace = stageWorkspace(workspace);
+    const runtimeUser = resolveEmployeeRuntimeUser(stagedWorkspace, before);
+    const updatedEmployee = {
+      ...before,
+      defaultWorkshop: "",
+      defaultMachineId: "",
+      assignmentMode: "unassigned",
+      assignmentUpdatedBy: operatorId,
+      assignmentUpdatedAt: departedAt,
+      assignmentNote: reason,
+      accountEnabled: false,
+      requestedEnabled: false,
+      profileStatus: "departed",
+      loginEnabled: false,
+      mustChangePassword: false,
+      departedAt,
+      departedBy: operatorId,
+      departureReason: reason,
+      remark: `已离职：${reason}`,
+      updatedAt: departedAt,
+    };
+    stagedWorkspace.employees[employeeIndex] = updatedEmployee;
+    const updatedUser = runtimeUser
+      ? upsertRuntimeUser(stagedWorkspace, {
+          ...runtimeUser,
+          enabled: false,
+          loginEnabled: false,
+          passwordHash: "",
+          passwordStatus: "password_revoked",
+          mustChangePassword: false,
+          defaultMachineId: "",
+          passwordRevokedBy: operatorId,
+          passwordRevokedAt: departedAt,
+          sessionValidAfter: departedAt,
+          sessionVersion: nextRuntimeSessionVersion(runtimeUser.sessionVersion),
+          updatedAt: departedAt,
+        })
+      : null;
+    const operationLog = buildOperationLog(stagedWorkspace, {
+      targetType: "master_data_employee_departure",
+      targetId: context.employeeId,
+      action: "master_data_employee_departed",
+      before: {
+        employeeId: context.employeeId,
+        profileStatus: cleanText(before.profileStatus),
+        accountEnabled: before.accountEnabled === true,
+        requestedEnabled: before.requestedEnabled === true,
+        defaultWorkshop: cleanText(before.defaultWorkshop),
+        defaultMachineId: cleanText(before.defaultMachineId),
+      },
+      after: {
+        employeeId: context.employeeId,
+        profileStatus: "departed",
+        accountEnabled: false,
+        requestedEnabled: false,
+        loginEnabled: false,
+        defaultWorkshop: "",
+        defaultMachineId: "",
+        departedAt,
+      },
+      reason,
+      operatorId,
+      pageKey: "master_data",
+      occurredAt: departedAt,
+    });
+    stagedWorkspace.operationLogs.unshift(operationLog);
+    await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace, {
+      identityEmployeeUpdates: [updatedEmployee],
+    });
+
+    return success({
+      departed: true,
+      alreadyDeparted: false,
+      employeeAccountReview: toMasterDataEmployeeAccountReview(
+        updatedEmployee,
+        stagedWorkspace.users,
+        stagedWorkspace.machines,
+        stagedWorkspace.operationLogs,
+      ),
+      user: updatedUser ? sanitizeRuntimeUserForResponse(updatedUser) : null,
+      sessionsRevokedAfter: runtimeUser ? departedAt : "",
+      operationLogId: operationLog.id,
+    });
+  }
+
   async function updateEmployeeAssignment({ workspace, employeeId, body = {}, operatorId }) {
     const context = getEmployeeContext(workspace, employeeId);
     if (context.result) return context.result;
     const { before, employeeIndex } = context;
+    if (isEmployeeDeparted(before)) {
+      return businessError(409, "MASTER_DATA_EMPLOYEE_DEPARTED", "Departed employees cannot receive workshop or machine assignments.");
+    }
     const assignmentMode = cleanText(body.assignmentMode) || "unassigned";
     if (!employeeAssignmentModes.has(assignmentMode)) {
       return businessError(400, "MASTER_DATA_EMPLOYEE_ASSIGNMENT_MODE_INVALID", "Unknown employee assignment mode.");
@@ -452,6 +581,9 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     const context = getEmployeeContext(stagedWorkspace, employeeId);
     if (context.result) return { result: context.result };
     const { before, employeeIndex } = context;
+    if (isEmployeeDeparted(before)) {
+      return { result: businessError(409, "MASTER_DATA_EMPLOYEE_DEPARTED", "Departed employees cannot be enabled.") };
+    }
     const existingUser = resolveEmployeeRuntimeUser(stagedWorkspace, before);
     const roleKey = normalizeEmployeeAccountRoleKey(
       body.roleKey || existingUser?.defaultRole,
@@ -834,10 +966,13 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = [], mac
   const employeeId = cleanText(employee.id);
   const user = findEmployeeReviewUser(employee, users);
   const userId = cleanText(employee.userId) || cleanText(user?.userId ?? user?.id);
+  const departed = isEmployeeDeparted(employee);
   const accountEnabled =
-    employee.accountEnabled === true ||
-    cleanText(employee.profileStatus) === "account_enabled" ||
-    Boolean(user && user.enabled !== false);
+    !departed && (
+      employee.accountEnabled === true ||
+      cleanText(employee.profileStatus) === "account_enabled" ||
+      Boolean(user && user.enabled !== false)
+    );
   const roleKey =
     cleanText(employee.reviewedRoleKey) ||
     cleanText(user?.defaultRole) ||
@@ -869,13 +1004,19 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = [], mac
     requestedEnabled: employee.requestedEnabled === true,
     accountEnabled,
     profileStatus:
-      accountEnabled
+      departed
+        ? "departed"
+        : accountEnabled
         ? "account_enabled"
         : cleanText(employee.profileStatus) || "pending_admin_review",
-    status: accountEnabled
+    status: departed
+      ? "departed"
+      : accountEnabled
       ? "account_enabled"
       : identityConfirmation.activationBlocked ? "identity_confirmation_required" : "pending_admin_review",
-    statusLabel: accountEnabled
+    statusLabel: departed
+      ? "已离职"
+      : accountEnabled
       ? "已启用"
       : identityConfirmation.activationBlocked ? "身份待确认" : "待管理员复核",
     recommendedRoleKey: roleKey,
@@ -891,7 +1032,7 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = [], mac
     reviewedBy: cleanText(employee.reviewedBy) || cleanText(user?.accountReviewedBy),
     reviewedAt: cleanText(employee.reviewedAt) || cleanText(user?.accountReviewedAt),
     reviewNote: cleanText(employee.reviewNote) || cleanText(user?.accountReviewNote),
-    loginEnabled: employee.loginEnabled === true || user?.loginEnabled === true,
+    loginEnabled: !departed && (employee.loginEnabled === true || user?.loginEnabled === true),
     passwordIssuedAt: cleanText(employee.passwordIssuedAt) || cleanText(user?.passwordIssuedAt),
     passwordStatus:
       userPasswordStatus === "password_expired"
@@ -919,7 +1060,7 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = [], mac
     accountActivationBlockerCode: identityConfirmation.blockerCode,
     accountActivationBlockerLabel: identityConfirmation.blockerLabel,
     remark: cleanText(employee.remark),
-    actionRequired: !accountEnabled,
+    actionRequired: !accountEnabled && !departed,
   };
 }
 
@@ -1052,6 +1193,12 @@ function isMergedDuplicate(employee = {}) {
   return cleanText(employee.profileStatus) === "merged_duplicate";
 }
 
+function isEmployeeDeparted(employee = {}) {
+  return ["departed", "left", "retired", "inactive_employee"].includes(
+    cleanText(employee.profileStatus).toLowerCase(),
+  );
+}
+
 function resolveRetainedIdentityAssignment({ sourceEmployee = {}, targetEmployee = {} }) {
   const sourceMachineId = cleanText(sourceEmployee.defaultMachineId);
   const targetMachineId = cleanText(targetEmployee.defaultMachineId);
@@ -1086,6 +1233,14 @@ function resolveRetainedIdentityAssignment({ sourceEmployee = {}, targetEmployee
 }
 
 function buildEffectiveEmployeeAccount(employee, runtimeUser) {
+  if (isEmployeeDeparted(employee)) {
+    return {
+      ...employee,
+      accountEnabled: false,
+      profileStatus: "departed",
+      loginEnabled: false,
+    };
+  }
   const reviewedRoleKey =
     cleanText(employee.reviewedRoleKey) || cleanText(runtimeUser?.defaultRole);
   return {
@@ -1107,6 +1262,7 @@ function buildEffectiveEmployeeAccount(employee, runtimeUser) {
 }
 
 function isEmployeeAccountEnabled(employee) {
+  if (isEmployeeDeparted(employee)) return false;
   return (
     employee?.accountEnabled === true ||
     cleanText(employee?.profileStatus) === "account_enabled"

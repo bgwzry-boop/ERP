@@ -40,6 +40,7 @@ for (const [serviceName, commandName, kind] of [
   ["masterDataEmployeeAccountCommandService", "enableEmployeeAccounts", "batch-enable"],
   ["masterDataEmployeeAccountCommandService", "updateEmployeeAssignment", "assignment"],
   ["masterDataEmployeeAccountCommandService", "mergeEmployeeIdentity", "merge"],
+  ["masterDataEmployeeAccountCommandService", "departEmployeeAccount", "depart"],
   ["masterDataEmployeeAccountCommandService", "confirmEmployeeIdentity", "identity-confirmation"],
   ["masterDataEmployeeAccountCommandService", "issueEmployeeTemporaryPassword", "password"],
   ["masterDataEmployeeAccountCommandService", "revokeEmployeePassword", "revoke"],
@@ -62,6 +63,7 @@ await expectHandled("/api/master-data/employee-account-reviews/batch-enable", "m
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/enable", "master_data.employee_account.review", "enable", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/assignment", "master_data.employee_account.review", "assignment", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/merge", "master_data.employee_account.review", "merge", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
+await expectHandled("/api/master-data/employee-account-reviews/EMP-1/depart", "master_data.employee_account.review", "depart", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/identity-confirmation", "master_data.employee_account.review", "identity-confirmation", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/password", "master_data.employee_account.password.issue", "password", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/password/revoke", "master_data.employee_account.password.issue", "revoke", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);

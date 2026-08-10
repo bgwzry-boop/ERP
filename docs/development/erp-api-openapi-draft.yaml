@@ -6288,6 +6288,42 @@ paths:
         "409":
           $ref: "#/components/responses/BusinessError"
 
+  /master-data/employee-account-reviews/{employeeId}/depart:
+    post:
+      tags: [MasterData]
+      summary: 将员工标记为离职并停用身份
+      description: >
+        管理账号显式确认员工离职。服务端保留员工及历史单据关联，取消待启用、清空当前车间和机台分配；
+        如已存在运行期账号，则同时停用登录、撤销密码并让旧会话失效。该动作记录认证操作人、服务端时间和原因。
+      operationId: departMasterDataEmployeeAccount
+      parameters:
+        - name: employeeId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DepartMasterDataEmployeeAccountRequest"
+      responses:
+        "200":
+          description: 员工已标记为离职，或此前已经完成离职处理
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DepartMasterDataEmployeeAccountResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/BusinessError"
+
   /master-data/employee-account-reviews/{employeeId}/password:
     post:
       tags: [MasterData]
@@ -26390,10 +26426,10 @@ components:
           type: boolean
         profileStatus:
           type: string
-          enum: [pending_admin_review, account_enabled]
+          enum: [pending_admin_review, account_enabled, departed]
         status:
           type: string
-          enum: [pending_admin_review, identity_confirmation_required, account_enabled]
+          enum: [pending_admin_review, identity_confirmation_required, account_enabled, departed]
         statusLabel:
           type: string
         recommendedRoleKey:
@@ -26791,6 +26827,38 @@ components:
           type: string
         identityAlreadyConfirmed:
           type: boolean
+
+    DepartMasterDataEmployeeAccountRequest:
+      type: object
+      required: [confirmed, reason]
+      properties:
+        confirmed:
+          type: boolean
+          const: true
+        reason:
+          type: string
+          minLength: 1
+
+    DepartMasterDataEmployeeAccountResponse:
+      type: object
+      required: [departed, alreadyDeparted, employeeAccountReview, operationLogId]
+      properties:
+        departed:
+          type: boolean
+          const: true
+        alreadyDeparted:
+          type: boolean
+        employeeAccountReview:
+          $ref: "#/components/schemas/MasterDataEmployeeAccountReview"
+        user:
+          nullable: true
+          type: object
+          additionalProperties: true
+        sessionsRevokedAfter:
+          type: string
+          format: date-time
+        operationLogId:
+          type: string
 
     EnableMasterDataEmployeeAccountsRequest:
       type: object

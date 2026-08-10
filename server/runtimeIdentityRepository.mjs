@@ -118,7 +118,10 @@ export function mergeRuntimeIdentityStateIntoWorkspace(workspace = {}, state = {
       ...employeeAccount,
     });
   }
-  workspace.employees = Array.from(employeesById.values());
+  workspace.employees = applyLatestEmployeeAssignmentAudit(
+    Array.from(employeesById.values()),
+    normalized.operationLogs,
+  );
   const operationLogsById = new Map(
     (Array.isArray(workspace.operationLogs) ? workspace.operationLogs : [])
       .map((log) => [cleanText(log?.id), log])
@@ -321,6 +324,7 @@ updated_employees AS (
   FROM users
   WHERE employees.id = users.employee_id
     AND users.source IN ('master_data_import_review', 'phone_self_registration')
+    AND users.enabled = TRUE
     AND EXISTS (SELECT 1 FROM saved_users WHERE saved_users.id = users.id)
   RETURNING employees.id
 ),
@@ -534,7 +538,7 @@ function runtimeUserSqlRow(user, parameters) {
     ${parameters.nullableText(safeUser.phoneE164)},
     ${parameters.nullableTimestamp(safeUser.phoneVerifiedAt)},
     ${parameters.text(safeUser.registrationStatus || "legacy_account")},
-    ${parameters.nullableText(safeUser.registrationSource)},
+    ${parameters.text(safeUser.registrationSource)},
     ${parameters.nullableTimestamp(safeUser.assignedAt)},
     ${parameters.nullableText(safeUser.assignedBy)},
     ${parameters.json(metadata)},
