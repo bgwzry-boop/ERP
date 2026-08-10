@@ -33,6 +33,10 @@ test("desktop workbenches consume formal APIs without fixture fallbacks", async 
   assert.match(adapterSource, /prepareRawMaterialDeliveryNoteFile/, "desktop OCR upload should retain source normalization and rotation evidence");
   assert.match(adapterSource, /recognizeOfficeRawMaterialDeliveryNote/, "desktop OCR upload should call the formal server action");
   assert.match(adapterSource, /updateOfficeRawMaterialInboundAction/, "raw-material review actions should persist through the formal API");
+  assert.doesNotMatch(appSource, /sourceRolls\s*=\s*rolls|useState\(rolls\[0\]\.id\)/, "desktop inventory must not reference removed demo roll data");
+  assert.match(appSource, /sourceRolls\s*=\s*\[\]/, "desktop inventory should begin from an empty formal-server result");
+  assert.match(appSource, /sourceRolls\[0\]\?\.id\s*\|\|\s*""/, "desktop inventory should tolerate the initial empty API state");
+  assert.match(appSource, /selectedRoll\s*\?\s*<>/, "desktop inventory trace should render an explicit empty state before formal data arrives");
 });
 
 test("supplier statement identifiers use collision-resistant entropy", async () => {

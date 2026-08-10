@@ -218,25 +218,27 @@ function DistributionRail({ activeBucket, distributionGroups, machineSideCount, 
     </section>
     <section className="trace-panel">
       <header><h2>选中卷料来源</h2></header>
-      <dl>
-        <div><dt>卷码</dt><dd>{selectedRoll.id}</dd></div>
-        <div><dt>卷料</dt><dd>{selectedRoll.color} · {selectedRoll.spec}</dd></div>
-        <div><dt>来源票据</dt><dd>{selectedRoll.source}</dd></div>
-        <div><dt>供应商</dt><dd>{selectedRoll.supplier}</dd></div>
-        <div><dt>入库日期</dt><dd>{selectedRoll.date}</dd></div>
-      </dl>
-      <button className="text-action" onClick={onOpenSource} type="button">查看来源票据 <RightOutlined /></button>
+      {selectedRoll ? <>
+        <dl>
+          <div><dt>卷码</dt><dd>{selectedRoll.id}</dd></div>
+          <div><dt>卷料</dt><dd>{selectedRoll.color} · {selectedRoll.spec}</dd></div>
+          <div><dt>来源票据</dt><dd>{selectedRoll.source}</dd></div>
+          <div><dt>供应商</dt><dd>{selectedRoll.supplier}</dd></div>
+          <div><dt>入库日期</dt><dd>{selectedRoll.date}</dd></div>
+        </dl>
+        <button className="text-action" onClick={onOpenSource} type="button">查看来源票据 <RightOutlined /></button>
+      </> : <div className="distribution-empty"><strong>暂无可追溯卷料</strong><span>正式服务器数据读取完成后显示来源票据。</span></div>}
     </section>
   </aside>;
 }
 
-function RollInventory({ onOpenSource, sourceRolls = rolls }) {
+function RollInventory({ onOpenSource, sourceRolls = [] }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("全部状态");
   const [width, setWidth] = useState("全部宽幅");
   const [color, setColor] = useState("全部颜色");
   const [location, setLocation] = useState("全部库位");
-  const [selectedId, setSelectedId] = useState(rolls[0].id);
+  const [selectedId, setSelectedId] = useState(() => sourceRolls[0]?.id || "");
   const [activeBucket, setActiveBucket] = useState("");
   const [page, setPage] = useState(1);
 
