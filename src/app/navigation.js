@@ -49,9 +49,9 @@ export const roleNavigationItems = Object.freeze([
     key: "officeMobile",
     label: "办公室手机",
     icon: "dashboard",
-    description: "离开电脑时处理共享待办、异常提醒、原料拍单和标签打印。",
+    description: "离开电脑后完成原材料拍单、整单核对、卷标打印和现场逐卷贴标。",
     allowedRoleKeys: ["office"],
-    permissionKeys: ["todo.handle"],
+    permissionKeys: ["raw_material.inbound.review", "raw_material.label.print", "raw_material.label.attach_confirm"],
   },
   {
     key: "decisionMobile",
@@ -227,7 +227,7 @@ export function isDedicatedMobileRolePage(pageKey) {
 
 export function getMobileViewportPage(activePage, permissionContext = {}) {
   const defaultRole = permissionContext.user?.defaultRole;
-  if (defaultRole === "office") return activePage === "rawMaterials" ? "rawMaterials" : "officeMobile";
+  if (defaultRole === "office") return "rawMaterials";
   if (defaultRole === "decision_maker") return "decisionMobile";
   if (defaultRole === "maintenance") return "maintenanceMobile";
   if (defaultRole === "warehouse") return "warehouseMobile";

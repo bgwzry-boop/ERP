@@ -1,4 +1,14 @@
 import { DatabaseOutlined, ReloadOutlined } from "@ant-design/icons";
+import { getSemanticTagDefinition } from "../labels.js";
+
+const semanticTagSizes = new Set(["compact", "standard", "prominent"]);
+const legacyStatusToneValues = Object.freeze({
+  neutral: "unknown",
+  blue: "normal",
+  success: "done",
+  warning: "pending",
+  danger: "blocked",
+});
 
 export function WorkspaceNotice({ children, tone = "info" }) {
   return (
@@ -177,8 +187,46 @@ export function Timeline({ items }) {
   );
 }
 
+/**
+ * Cross-surface business label. Pages provide a semantic kind and value;
+ * the shared catalog owns the wording fallback and every visual treatment.
+ */
+export function SemanticTag({
+  kind,
+  value,
+  size = "standard",
+  label,
+  className = "",
+  title,
+}) {
+  const definition = getSemanticTagDefinition(kind, value);
+  const resolvedSize = semanticTagSizes.has(size) ? size : "standard";
+  const resolvedLabel = definition.known ? label ?? definition.label : definition.label;
+  return (
+    <span
+      className={`erp-semantic-tag ${className}`.trim()}
+      data-kind={definition.kind}
+      data-known={definition.known ? "true" : "false"}
+      data-size={resolvedSize}
+      data-value={definition.value}
+      title={title}
+    >
+      {resolvedLabel}
+    </span>
+  );
+}
+
 export function StatusPill({ tone = "neutral", children }) {
-  return <span className={`status ${tone}`}>{children}</span>;
+  const normalizedTone = legacyStatusToneValues[tone] ? tone : "neutral";
+  return (
+    <SemanticTag
+      className={`status ${normalizedTone}`}
+      kind="state"
+      label={children}
+      size="compact"
+      value={legacyStatusToneValues[normalizedTone]}
+    />
+  );
 }
 
 export function Segmented({ value, onChange, items, ariaLabel = "视图切换" }) {

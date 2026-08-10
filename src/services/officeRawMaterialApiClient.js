@@ -100,7 +100,20 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
 }
 
 export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options = {}) {
-  const { authState, operatorId, fileName, mimeType, fileSize, contentDataUrl, pdfPageNumber, useNewModel } = input;
+  const {
+    authState,
+    operatorId,
+    fileName,
+    mimeType,
+    fileSize,
+    contentDataUrl,
+    sourceMimeType,
+    sourceFileSize,
+    sourceContentDataUrl,
+    sourceNormalizedForOcr,
+    pdfPageNumber,
+    useNewModel,
+  } = input;
   if (!cleanText(contentDataUrl)) {
     return {
       source: "api_error",
@@ -123,6 +136,10 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
         mimeType,
         fileSize,
         contentDataUrl,
+        sourceMimeType,
+        sourceFileSize,
+        sourceContentDataUrl,
+        sourceNormalizedForOcr: sourceNormalizedForOcr === true,
         pdfPageNumber,
         useNewModel: useNewModel === true,
       },
@@ -162,6 +179,10 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
     expectedRevision,
     action,
     rollId,
+    sourceReturnInboundId,
+    physicalReturnConfirmed,
+    confirmation,
+    shipmentReferenceNo,
     reason,
     operatorName,
     machineId,
@@ -215,6 +236,10 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
           operatorId,
           operatorName,
           rollId,
+          sourceReturnInboundId,
+          physicalReturnConfirmed,
+          confirmation,
+          shipmentReferenceNo,
           reason,
           machineId,
           productionTaskId,
@@ -373,7 +398,7 @@ export async function createOfficeRawMaterialSupplierStatementReviewDraft(input 
 }
 
 export async function confirmOfficeRawMaterialSupplierStatementReview(input = {}, options = {}) {
-  const { authState, operatorId, reviewId, decision, note } = input;
+  const { authState, operatorId, reviewId, decision, adjustments, note } = input;
   const safeReviewId = cleanText(reviewId);
   if (!safeReviewId) {
     return {
@@ -396,6 +421,7 @@ export async function confirmOfficeRawMaterialSupplierStatementReview(input = {}
         body: {
           operatorId,
           decision,
+          adjustments,
           note,
         },
       },
@@ -685,6 +711,15 @@ function normalizeRawMaterialInbound(input = {}) {
       reviewedBy: cleanText(line?.reviewedBy),
       reviewedByUserId: cleanText(line?.reviewedByUserId),
       reviewedAt: cleanText(line?.reviewedAt),
+      reviewDisposition: cleanText(line?.reviewDisposition) || "included",
+      reviewProjectedRollCount: Math.max(0, Math.trunc(Number(line?.reviewProjectedRollCount) || 0)),
+      excludedRollIndices: (Array.isArray(line?.excludedRollIndices) ? line.excludedRollIndices : [])
+        .map(Number)
+        .filter((value) => Number.isInteger(value) && value >= 0),
+      exclusionReason: cleanText(line?.exclusionReason),
+      excludedBy: cleanText(line?.excludedBy),
+      excludedByUserId: cleanText(line?.excludedByUserId),
+      excludedAt: cleanText(line?.excludedAt),
     };
   }).filter((line) => line.lineId);
   item.issueStatus = cleanText(item.issueStatus);
@@ -1288,6 +1323,8 @@ function toRawMaterialActionSlug(action) {
   if (value === "确认贴标入库" || value === "attach_confirm" || value === "attach-confirm") return "attach-confirm";
   if (value === "作废卷标" || value === "void_label" || value === "void-label") return "void-label";
   if (value === "重打卷标" || value === "reprint_label" || value === "reprint-label") return "reprint-label";
+  if (value === "供应商退货暂存" || value === "stage_supplier_return" || value === "stage-supplier-return") return "stage-supplier-return";
+  if (value === "确认退厂" || value === "confirm_supplier_return_shipment" || value === "confirm-supplier-return-shipment") return "confirm-supplier-return-shipment";
   if (value === "机边领料" || value === "扫码出库" || value === "issue_to_machine" || value === "issue-to-machine") return "issue-to-machine";
   if (value === "确认消耗" || value === "confirm_consumption" || value === "confirm-consumption") return "confirm-consumption";
   if (value === "余料退回" || value === "return_leftover" || value === "return-leftover") return "return-leftover";

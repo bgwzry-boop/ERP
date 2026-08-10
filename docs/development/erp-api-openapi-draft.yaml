@@ -1114,6 +1114,118 @@ paths:
         "422":
           $ref: "#/components/responses/ValidationError"
 
+  /auth/phone-registration/request-code:
+    post:
+      tags: [Authentication]
+      security: []
+      summary: 申请员工手机号注册验证码
+      description: >
+        仅当 `ERP_PHONE_REGISTRATION_ENABLED=true` 且短信发送器已配置时开放。
+        邀请不会代替本人注册，也不会在此步骤授予任何岗位或业务权限。
+      operationId: requestPhoneRegistrationCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhoneVerificationCodeRequest"
+      responses:
+        "202":
+          description: 验证码发送请求已接受
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhoneVerificationCodeAcceptedResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/BusinessError"
+        "503":
+          $ref: "#/components/responses/BusinessError"
+
+  /auth/phone-registration/complete:
+    post:
+      tags: [Authentication]
+      security: []
+      summary: 本人验证手机号并完成注册
+      description: >
+        验证成功后只创建 `pending_assignment` 账号并签发零业务权限会话。
+        人员管理必须另行绑定正式员工档案并分配岗位，权限才会生效。
+      operationId: completePhoneRegistration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompletePhoneRegistrationRequest"
+      responses:
+        "201":
+          description: 已注册并进入待分配岗位状态
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CompletePhoneRegistrationResponse"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /auth/phone-login/request-code:
+    post:
+      tags: [Authentication]
+      security: []
+      summary: 申请手机号登录验证码
+      description: 未注册手机号也返回同样的接受结果，但不会发送短信，避免通过接口枚举员工手机号。
+      operationId: requestPhoneLoginCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhoneVerificationCodeRequest"
+      responses:
+        "202":
+          description: 登录验证码请求已接受
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhoneVerificationCodeAcceptedResponse"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "429":
+          $ref: "#/components/responses/BusinessError"
+        "503":
+          $ref: "#/components/responses/BusinessError"
+
+  /auth/phone-login:
+    post:
+      tags: [Authentication]
+      security: []
+      summary: 使用手机号验证码登录
+      description: 待分配岗位账号可以登录查看等待状态，但服务端返回的业务权限为空。
+      operationId: loginWithPhoneCode
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PhoneCodeLoginRequest"
+      responses:
+        "200":
+          description: 手机号验证码登录成功
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhoneCodeLoginResponse"
+        "401":
+          $ref: "#/components/responses/AuthError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
   /auth/prototype-login:
     post:
       tags: [Authentication]
@@ -5146,6 +5258,98 @@ paths:
         "409":
           $ref: "#/components/responses/BusinessError"
 
+  /attachments/binary:
+    post:
+      tags: [Attachments]
+      summary: 二进制上传大型附件
+      description: >
+        用于不适合放入 Base64 JSON 的大型文件，当前主要承载 PSD、CDR、AI、PDF、PNG、JPG、JPEG
+        印刷定稿。请求体直接传文件二进制，业务元数据通过查询参数传递；文件内容仍写入统一附件对象存储。
+        印刷定稿单文件最大 200MB，照片类证据最大 30MB，普通文档证据最大 50MB。
+      operationId: uploadBinaryAttachment
+      parameters:
+        - in: header
+          name: Idempotency-Key
+          required: false
+          description: 生产业务写入必填；同一文件重试必须复用相同键。
+          schema:
+            type: string
+            minLength: 8
+            maxLength: 128
+        - name: ownerType
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: ownerId
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: fileType
+          in: query
+          required: true
+          schema:
+            type: string
+            enum: [image, pdf, spreadsheet, document, other]
+        - name: purpose
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: fileName
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: contentRef
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: mimeType
+          in: query
+          required: true
+          schema:
+            type: string
+        - name: fileSize
+          in: query
+          required: true
+          schema:
+            type: integer
+            maximum: 209715200
+        - name: metadata
+          in: query
+          schema:
+            type: string
+            description: JSON 编码的附件业务元数据。
+        - name: remark
+          in: query
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "200":
+          description: 附件已上传并登记
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CreateAttachmentResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "413":
+          $ref: "#/components/responses/BusinessError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+        "409":
+          $ref: "#/components/responses/BusinessError"
+
   /attachments/storage-diagnostics:
     get:
       tags: [Attachments]
@@ -5866,6 +6070,75 @@ paths:
           $ref: "#/components/responses/BusinessError"
         "409":
           $ref: "#/components/responses/BusinessError"
+
+  /master-data/personnel/registration-reviews:
+    get:
+      tags: [MasterData]
+      summary: 查询手机号自注册人员
+      description: 仅人员管理权限可读取；手机号是人员身份字段，待分配账号尚无业务权限。
+      operationId: listPhoneRegistrationReviews
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [pending_assignment, active, rejected]
+        - name: keyword
+          in: query
+          schema:
+            type: string
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 1, default: 1 }
+        - name: pageSize
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 20 }
+      responses:
+        "200":
+          description: 手机号注册人员分页列表
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PhoneRegistrationReviewListResponse"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+
+  /master-data/personnel/registration-reviews/{userId}/assign:
+    post:
+      tags: [MasterData]
+      summary: 绑定员工档案并分配岗位
+      description: >
+        仅允许对 `pending_assignment` 注册账号执行。员工档案绑定、岗位、车间/机台、
+        账号状态和操作日志一次提交；岗位权限由服务端角色目录派生。
+      operationId: assignPhoneRegistrationToEmployee
+      parameters:
+        - name: userId
+          in: path
+          required: true
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AssignPhoneRegistrationRequest"
+      responses:
+        "200":
+          description: 员工绑定和岗位分配已完成
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AssignPhoneRegistrationResponse"
+        "400":
+          $ref: "#/components/responses/BusinessError"
+        "403":
+          $ref: "#/components/responses/PermissionDenied"
+        "404":
+          $ref: "#/components/responses/BusinessError"
+        "409":
+          $ref: "#/components/responses/ConflictError"
+        "422":
+          $ref: "#/components/responses/ValidationError"
 
   /master-data/employee-account-reviews:
     get:
@@ -6705,7 +6978,7 @@ components:
         fileName: { type: string }
         fileType: { type: string, enum: [image, pdf, document, spreadsheet] }
         mimeType: { type: string }
-        fileSize: { type: integer, minimum: 1, maximum: 15728640 }
+        fileSize: { type: integer, minimum: 1, maximum: 52428800 }
         status: { type: string }
         uploadedBy: { type: string }
         uploadedAt: { type: string, format: date-time }
@@ -15122,6 +15395,100 @@ components:
           $ref: "#/components/schemas/AuthPasswordPolicy"
           description: 当 `permissions.passwordChangeRequired=true` 时返回，供首次或过期改密界面显示。
 
+    PhoneVerificationCodeRequest:
+      type: object
+      required: [phone]
+      properties:
+        phone:
+          type: string
+          description: 中国大陆手机号；服务端统一规范为 E.164 `+86...`。
+          pattern: '^(?:\+?86)?1[3-9][0-9]{9}$'
+
+    PhoneVerificationCodeAcceptedResponse:
+      type: object
+      required: [accepted, phone, expiresInSeconds, retryAfterSeconds]
+      properties:
+        accepted: { type: boolean, const: true }
+        phone:
+          type: string
+          description: 脱敏手机号。
+        expiresInSeconds: { type: integer, minimum: 1 }
+        retryAfterSeconds: { type: integer, minimum: 1 }
+
+    CompletePhoneRegistrationRequest:
+      type: object
+      required: [phone, code, displayName]
+      properties:
+        phone: { type: string }
+        code:
+          type: string
+          pattern: '^[0-9]{6}$'
+        displayName:
+          type: string
+          minLength: 2
+          maxLength: 40
+          description: 注册人本人填写的真实姓名；最终员工档案姓名由人员管理核对。
+        invitationCode:
+          type: string
+          description: 可选邀请凭据；仅记录来源，不创建账号、不绑定岗位、不授予权限。
+
+    PhoneRegistrationUser:
+      type: object
+      required: [userId, displayName, phoneE164, phoneVerifiedAt, registrationStatus, registrationSource]
+      properties:
+        userId: { type: string }
+        loginName: { type: string }
+        displayName: { type: string }
+        phoneE164: { type: string }
+        phoneVerifiedAt: { type: string, format: date-time }
+        registrationStatus:
+          type: string
+          enum: [pending_assignment, active, rejected]
+        registrationSource:
+          type: string
+          enum: [self_registration, invitation]
+        employeeId: { type: string }
+        roles:
+          type: array
+          items: { type: string }
+
+    CompletePhoneRegistrationResponse:
+      type: object
+      required: [registered, assignmentRequired, registrationStatus, session, permissions, user, operationLogId]
+      properties:
+        registered: { type: boolean, const: true }
+        assignmentRequired: { type: boolean, const: true }
+        registrationStatus: { type: string, enum: [pending_assignment] }
+        session:
+          $ref: "#/components/schemas/AuthSessionSummary"
+        permissions:
+          $ref: "#/components/schemas/EffectivePermissionsResponse"
+        user:
+          $ref: "#/components/schemas/PhoneRegistrationUser"
+        operationLogId: { type: string }
+
+    PhoneCodeLoginRequest:
+      type: object
+      required: [phone, code]
+      properties:
+        phone: { type: string }
+        code:
+          type: string
+          pattern: '^[0-9]{6}$'
+
+    PhoneCodeLoginResponse:
+      type: object
+      required: [session, permissions, assignmentRequired, registrationStatus]
+      properties:
+        session:
+          $ref: "#/components/schemas/AuthSessionSummary"
+        permissions:
+          $ref: "#/components/schemas/EffectivePermissionsResponse"
+        assignmentRequired: { type: boolean }
+        registrationStatus:
+          type: string
+          enum: [pending_assignment, active]
+
     AuthPasswordPolicy:
       type: object
       required: [minLength, requireLetter, requireNumber, allowWhitespace, disallowAccountIdentifiers, description]
@@ -16494,10 +16861,25 @@ components:
         fileSize:
           type: integer
           maximum: 7864320
+          description: 实际发送给 OCR 的处理后文件大小；图片超过该值时浏览器自动生成识别副本。
         contentDataUrl:
           type: string
           format: byte
-          description: 图片或 PDF 的 data URL；只传后端，不持久化到业务 JSON，不返回前端。
+          description: OCR 识别副本的 data URL；只传后端，不持久化到业务 JSON，不返回前端。
+        sourceMimeType:
+          type: string
+          description: 用户选择的原始照片或 PDF 类型。
+        sourceFileSize:
+          type: integer
+          maximum: 31457280
+          description: 用户选择的原始文件大小；照片原图最大 30MB。
+        sourceContentDataUrl:
+          type: string
+          format: byte
+          description: 仅当图片为 OCR 自动处理过时传原始照片，用于附件留档；最大 30MB。
+        sourceNormalizedForOcr:
+          type: boolean
+          description: true 表示 contentDataUrl 是从原图自动生成的 OCR 识别副本。
         pdfPageNumber:
           type: integer
           minimum: 1
@@ -24648,7 +25030,7 @@ components:
       properties:
         ownerType:
           type: string
-          enum: [order_line, production_task, fulfillment, statement, payment, inventory_correction]
+          enum: [order_line, order_draft_line, production_task, fulfillment, statement, payment, inventory_correction, maintenance_task, raw_material_inbound, business_decision, business_decision_evidence_draft, v1_field_evidence, v1_signoff_boundary]
         ownerId:
           type: string
         fileType:
@@ -24656,7 +25038,7 @@ components:
           enum: [image, pdf, spreadsheet, document, other]
         purpose:
           type: string
-          enum: [print_artwork, finished_goods_photo, payment_screenshot, delivery_watermark_photo, signature_photo, inventory_photo, other]
+          enum: [raw_material_delivery_note, print_artwork, finished_goods_photo, payment_screenshot, delivery_watermark_photo, signature_photo, statement_customer_confirmation, inventory_correction_evidence, maintenance_evidence, business_decision_evidence, v1_field_evidence, v1_signoff_boundary, other]
         fileName:
           type: string
         contentRef:
@@ -24666,6 +25048,8 @@ components:
           type: string
         fileSize:
           type: integer
+          maximum: 209715200
+          description: 按用途校验：照片 30MB、普通文档 50MB、印刷定稿 200MB。
         contentDataUrl:
           type: string
           description: 上传文件内容；后端校验后写入当前运行模式配置的文件存储，生产不持久化原始 data URL。
@@ -26105,6 +26489,62 @@ components:
           type: string
         actionRequired:
           type: boolean
+
+    PhoneRegistrationReview:
+      allOf:
+        - $ref: "#/components/schemas/PhoneRegistrationUser"
+        - type: object
+          required: [phoneMasked, assignedAt, assignedBy, registeredAt, actionRequired]
+          properties:
+            phoneMasked: { type: string }
+            defaultRole: { type: string }
+            department: { type: string }
+            assignedAt: { type: string }
+            assignedBy: { type: string }
+            registeredAt: { type: string, format: date-time }
+            actionRequired: { type: boolean }
+
+    PhoneRegistrationReviewListResponse:
+      type: object
+      required: [items, total, page, pageSize]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PhoneRegistrationReview"
+        total: { type: integer, minimum: 0 }
+        page: { type: integer, minimum: 1 }
+        pageSize: { type: integer, minimum: 1 }
+
+    AssignPhoneRegistrationRequest:
+      type: object
+      required: [confirmed, employeeId, roleKey, roleKeys]
+      properties:
+        confirmed: { type: boolean, const: true }
+        employeeId: { type: string }
+        roleKey: { type: string }
+        roleKeys:
+          type: array
+          minItems: 1
+          uniqueItems: true
+          items: { type: string }
+        defaultWorkshop: { type: string }
+        defaultMachineId: { type: string }
+        assignmentNote: { type: string }
+
+    AssignPhoneRegistrationResponse:
+      type: object
+      required: [assigned, registrationReview, employee, permissions, operationLogId]
+      properties:
+        assigned: { type: boolean, const: true }
+        registrationReview:
+          $ref: "#/components/schemas/PhoneRegistrationReview"
+        employee:
+          type: object
+          additionalProperties: true
+        permissions:
+          $ref: "#/components/schemas/EffectivePermissionsResponse"
+        operationLogId: { type: string }
 
     MasterDataEmployeeAccountReviewListResponse:
       type: object

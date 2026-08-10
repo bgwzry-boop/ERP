@@ -1,4 +1,8 @@
-import { enrichRawMaterialSpecValues, parseRawMaterialSpec } from "../../shared/rawMaterialSpec.js";
+import {
+  enrichRawMaterialSpecValues,
+  hasExplicitRawMaterialStripMarker,
+  parseRawMaterialSpec,
+} from "../../shared/rawMaterialSpec.js";
 
 const headerAliases = {
   productName: ["品名", "产品名称", "货品名称", "物料名称", "材料名称", "名称"],
@@ -22,7 +26,37 @@ const keyValueAliases = {
   receivedAt: ["送货日期", "单据日期", "日期"],
 };
 
-export const RAW_MATERIAL_OCR_PARSER_VERSION = 4;
+const supplierOcrProfiles = [
+  {
+    key: "renyi_zhengheng",
+    aliases: ["人意无纺布", "振恒"],
+    documentPriceReferenceOnly: true,
+  },
+  {
+    key: "daxiang_beichen",
+    aliases: ["宁晋县达翔塑料制品", "达翔塑料", "北陈", "河北北陈无纺布"],
+  },
+  {
+    key: "tengsheng",
+    aliases: ["宁晋县腾胜无纺布", "腾胜无纺布", "腾胜"],
+  },
+  {
+    key: "hongshang_baihou",
+    aliases: ["河北宏尚无纺布", "宏尚无纺布", "白候"],
+  },
+  {
+    key: "xinlonghong",
+    aliases: ["新乐市鑫隆宏无纺布", "鑫隆宏无纺布", "鑫隆宏"],
+    provisional: true,
+  },
+];
+
+export const RAW_MATERIAL_OCR_PARSER_VERSION = 14;
+
+export const RAW_MATERIAL_DOCUMENT_DIRECTIONS = {
+  delivery: "supplier_delivery",
+  return: "supplier_return",
+};
 
 export function createRawMaterialOcrParserService() {
   return {
@@ -35,41 +69,64 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
   const ocr = input.ocr ?? {};
   const inboundId = cleanText(input.inboundId);
   if (!inboundId) throw new TypeError("OCR inbound draft requires inboundId.");
-  const tables = normalizeTables(ocr.tables);
+  const tables = normalizeTables(ocr.tables, {
+    imageWidth: positiveNumber(ocr.imageWidth, 0),
+    imageHeight: positiveNumber(ocr.imageHeight, 0),
+  });
   const tableRows = tables.map((table) => buildRows(table.cells));
   const allRows = tableRows.flat();
   const allCells = tables.flatMap((table) => table.cells);
   const allText = allCells.map((cell) => cell.text).filter(Boolean).join("\n");
+  const documentDirection = inferDocumentDirection({ allRows, allText });
   const knownSupplierNames = uniqueText(input.knownSupplierNames);
   const supplierName = normalizeSupplierName(
     knownSupplierNames.find((name) => name && allText.includes(name)) ||
     findKeyValue(allRows, keyValueAliases.supplierName).value ||
     inferSupplierName(allText),
   );
-  const deliveryNoteNo =
-    findKeyValue(allRows, keyValueAliases.deliveryNoteNo).value ||
-    inferDeliveryNoteNo(allText);
+  const supplierProfile = findSupplierOcrProfile(supplierName);
+  const deliveryNoteNo = findDeliveryNoteNo(allRows, allText);
   const receivedAt = normalizeRecognizedDate(
     findKeyValue(allRows, keyValueAliases.receivedAt).value || inferRecognizedDate(allText),
   ) || cleanText(input.receivedAt);
-  const lineCandidates = tableRows.flatMap((rows, tableIndex) => extractTableLines(rows, tableIndex));
+  const lineCandidates = tableRows.flatMap((rows, tableIndex) => extractTableLines(rows, tableIndex, tables[tableIndex]));
   const lines = lineCandidates.length ? lineCandidates : [buildFallbackLine(allRows)];
   const validLines = lines
-    .map((line, index) => normalizeLine(line, index))
-    .filter((line) => Object.values(line.values).some((value) => cleanText(value)));
-  const firstLine = validLines[0] ?? normalizeLine({}, 0);
-  const summaryValues = extractSummaryValues(allRows);
+    .map((line, index) => normalizeLine(line, index, { documentDirection, supplierName }))
+    .filter(isReviewableOcrMaterialLine);
+  const firstLine = validLines[0] ?? normalizeLine({}, 0, { documentDirection, supplierName });
+  const summaryValues = extractSummaryValues(allRows, { documentDirection });
+  const calculatedLineWeightKg = roundNumber(sum(validLines.map((line) => line.values.totalWeightKg)), 3);
+  const calculatedLineAmount = roundNumber(sum(validLines.map((line) => line.values.amount)), 2);
+  const explicitlyDeclaredAmount = extractDeclaredDocumentAmount(allRows, { documentDirection });
+  const declaredAmount = explicitlyDeclaredAmount || summaryValues.amount;
   const totalWeightKg = summaryValues.totalWeightKg || roundNumber(sum(validLines.map((line) => line.values.totalWeightKg)), 3);
-  const amount = summaryValues.amount || roundNumber(sum(validLines.map((line) => line.values.amount)), 2);
+  const amount = declaredAmount || calculatedLineAmount;
+  const ocrReconciliationIssues = buildOcrReconciliationIssues({
+    declaredAmount,
+    calculatedLineAmount,
+    declaredWeightKg: summaryValues.totalWeightKg,
+    calculatedLineWeightKg,
+    amountReferenceOnly: supplierProfile?.documentPriceReferenceOnly === true,
+  });
   const rawRecognizedRollCount = Math.round(sum(validLines.map((line) => line.values.rollCount))) || 0;
-  const candidateRollCount = summaryValues.rollCount || rawRecognizedRollCount;
-  const recognizedRollCount = candidateRollCount > 0 && candidateRollCount <= 500 ? candidateRollCount : 0;
+  const recognizedRollCount = rawRecognizedRollCount > 0 && rawRecognizedRollCount <= 500 ? rawRecognizedRollCount : 0;
   const materialType = firstLine.values.materialType || inferMaterialTypeFromContext({ allText, lines: validLines });
   const productName = firstLine.values.productName || (materialType === "无纺布" ? "无纺布卷料" : materialType) || "待人工确认原材料";
   const supplierColor = firstLine.values.supplierColor;
   const spec = firstLine.values.spec;
-  const specStructure = parseRawMaterialSpec(spec);
-  const unit = firstLine.values.unit || (totalWeightKg > 0 ? "kg" : "件");
+  const parsedSpecStructure = parseRawMaterialSpec(spec);
+  const specStructure = {
+    ...parsedSpecStructure,
+    gramWeightGsm: positiveNumber(firstLine.values.gramWeightGsm, parsedSpecStructure.gramWeightGsm),
+    widthCm: positiveNumber(firstLine.values.widthCm, parsedSpecStructure.widthCm),
+    lengthM: positiveNumber(firstLine.values.lengthM, parsedSpecStructure.lengthM),
+    specDisplay: cleanText(firstLine.values.specDisplay) || parsedSpecStructure.specDisplay,
+    materialCategory: cleanText(firstLine.values.materialCategory) || parsedSpecStructure.materialCategory,
+    specNeedsReview: firstLine.values.specNeedsReview === true || parsedSpecStructure.specNeedsReview,
+    specReviewReason: cleanText(firstLine.values.specReviewReason) || parsedSpecStructure.specReviewReason,
+  };
+  const unit = firstLine.values.unit || (Math.abs(totalWeightKg) > 0 ? "kg" : "件");
   const unitPrice = firstLine.values.unitPrice;
   const reviewValues = {
     supplierName,
@@ -93,14 +150,26 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     value,
     confidence: fieldConfidence[key] ?? 0,
     reviewStatus: needsReview(key, value, fieldConfidence[key]) ? "待人工复核" : "待人工接受",
-    required: ["supplierName", "materialType", "productName", "spec", "rollCount", "unit"].includes(key),
+    required: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
+      ? ["supplierName", "materialType", "productName", "rollCount", "unit"].includes(key)
+      : ["supplierName", "materialType", "productName", "spec", "rollCount", "unit"].includes(key),
   }));
   const recognizedAt = cleanText(input.recognizedAt) || new Date().toISOString();
-  const rolls = buildOcrRolls({ inboundId, lines: validLines, recognizedRollCount, totalWeightKg });
+  const rolls = documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
+    ? []
+    : buildOcrRolls({ inboundId, lines: validLines });
 
   return {
     id: inboundId,
     revision: 1,
+    documentDirection,
+    documentTypeLabel: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return ? "退货单" : "送货单",
+    supplierOcrProfileKey: supplierProfile?.key ?? "generic",
+    supplierOcrProfileProvisional: supplierProfile?.provisional === true,
+    documentPriceReferenceOnly: supplierProfile?.documentPriceReferenceOnly === true,
+    priceAuthority: supplierProfile?.documentPriceReferenceOnly === true
+      ? "supplier_document_reference_only"
+      : "supplier_document_pending_reconciliation",
     ...reviewValues,
     ...specStructure,
     receivedAt: receivedAt || recognizedAt,
@@ -111,27 +180,43 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     ocrRequestId: cleanText(ocr.requestId),
     ocrStatus: `腾讯云表格识别V3已完成，${ocrReviewFields.filter((field) => field.reviewStatus === "待人工复核").length} 项需重点复核`,
     ocrAngle: finiteNumber(ocr.angle, 0),
+    ocrImageWidth: positiveNumber(ocr.imageWidth, 0),
+    ocrImageHeight: positiveNumber(ocr.imageHeight, 0),
     ocrParserVersion: RAW_MATERIAL_OCR_PARSER_VERSION,
     ocrRecognizedAt: recognizedAt,
     ocrRawText: allText.slice(0, 30_000),
     ocrReviewFields,
     ocrLines: validLines,
+    ocrDeclaredAmount: declaredAmount,
+    ocrCalculatedLineAmount: calculatedLineAmount,
+    ocrDeclaredWeightKg: summaryValues.totalWeightKg,
+    ocrCalculatedLineWeightKg: calculatedLineWeightKg,
+    ocrReconciliationIssues,
     ocrTableRows: tableRows.map((rows) => rows.map((row) => row.map((cell) => cell.text))),
-    photoStatus: "送货单照片已上传",
+    photoStatus: `${documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return ? "退货单" : "送货单"}照片已上传`,
     signedNoteStatus: "单据附件可选，尚未上传",
-    nextStep: "办公室对照原图逐项核对 OCR 字段；确认后才能打印一卷一标，逐卷人工贴标核对后才可用。",
-    note: "OCR只生成待复核草稿，不直接增加库存、不生成应付。",
+    nextStep: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
+      ? "办公室对照原图逐项核对退货明细；确认后保存负数厂家对账依据，不生成入库卷标、不增加库存。"
+      : "办公室对照原图逐项核对 OCR 字段；确认后才能打印一卷一标，逐卷人工贴标核对后才可用。",
+    note: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
+      ? "退货 OCR 只生成待复核草稿；复核后作为负数厂家对账依据，不生成入库卷标、不创建可用库存，实物退厂使用独立出库流程。"
+      : "OCR只生成待复核草稿，不直接增加库存、不生成应付。",
     location: "原料待检区",
     statementStatus: "待月结对账",
-    statementSummary: "OCR草稿尚未人工复核，不进入供应商应付。",
-    statementDifferences: ocrReviewFields
-      .filter((field) => field.reviewStatus === "待人工复核")
-      .map((field) => `${field.label}待复核`),
+    statementSummary: supplierProfile?.documentPriceReferenceOnly === true
+      ? "该厂家票面价格与实际价格可能不同；OCR价格只作原单证据，不进入实际结算或供应商应付。"
+      : "OCR草稿尚未人工复核，不进入供应商应付。",
+    statementDifferences: [
+      ...ocrReviewFields
+        .filter((field) => field.reviewStatus === "待人工复核")
+        .map((field) => `${field.label}待复核`),
+      ...ocrReconciliationIssues,
+    ],
     rolls,
   };
 }
 
-function extractTableLines(rows, tableIndex) {
+function extractTableLines(rows, tableIndex, table = {}) {
   if (!rows.length) return [];
   const header = rows
     .map((row, rowIndex) => ({ row, rowIndex, score: row.reduce((total, cell) => total + (matchHeaderKey(cell.text) ? 1 : 0), 0) }))
@@ -150,6 +235,7 @@ function extractTableLines(rows, tableIndex) {
       return {
         lineId: `OCR-T${tableIndex + 1}-R${header.rowIndex + offset + 2}`,
         sourceRowIndex: header.rowIndex + offset + 1,
+        sourceBounds: buildSourceBounds(row, table.imageWidth, table.imageHeight),
         ...sequential,
         sourceText: row.map((cell) => cell.text).join(" | "),
       };
@@ -165,6 +251,7 @@ function extractTableLines(rows, tableIndex) {
     return {
       lineId: `OCR-T${tableIndex + 1}-R${header.rowIndex + offset + 2}`,
       sourceRowIndex: header.rowIndex + offset + 1,
+      sourceBounds: buildSourceBounds(row, table.imageWidth, table.imageHeight),
       values,
       confidences,
       sourceText: row.map((cell) => cell.text).join(" | "),
@@ -174,6 +261,13 @@ function extractTableLines(rows, tableIndex) {
 
 function detectSequentialLayout(headerRow) {
   const labels = headerRow.map((cell) => normalizeHeader(cell.text));
+  if (labels.some((label) => label.includes("规格型号"))
+    && labels.some((label) => label.includes("件数"))
+    && labels.some((label) => label.includes("数量"))
+    && labels.some((label) => label.includes("金额"))
+    && labels.some((label) => label.includes("重量kg"))) {
+    return "count_total_amount_then_roll_weights";
+  }
   if (labels.some((label) => label.includes("序号")) && labels.some((label) => label.includes("件数")) && labels.some((label) => label.includes("重量kg"))) {
     return "count_then_total_then_roll_weights";
   }
@@ -194,7 +288,7 @@ function parseSequentialLine({ layout, row }) {
     if (texts.length < 7 || !looksLikeSpec(texts[2])) return null;
     const rollCount = parsePositiveInteger(texts[3]);
     if (!rollCount) return null;
-    const rollWeightsKg = texts.slice(7, 7 + rollCount).map(parseNumber).filter((value) => value > 0);
+    const rollWeightsKg = texts.slice(7, 7 + rollCount).map(parseNumber).filter(isNonZeroNumber);
     return {
       values: {
         productName: "无纺布卷料",
@@ -223,7 +317,7 @@ function parseSequentialLine({ layout, row }) {
     };
   }
   if (layout === "one_weighed_roll_per_row") {
-    if (texts.length < 7 || !looksLikeUnit(texts[3]) || parseNumber(texts[4]) <= 0) return null;
+    if (texts.length < 7 || !looksLikeUnit(texts[3]) || !isNonZeroNumber(parseNumber(texts[4]))) return null;
     return {
       values: {
         productName: "无纺布卷料",
@@ -236,7 +330,7 @@ function parseSequentialLine({ layout, row }) {
         unitPrice: parseNumber(texts[5]),
         amount: parseNumber(texts[6]),
         supplierRollNo: "",
-        rollWeightsKg: [parseNumber(texts[4])].filter((value) => value > 0),
+        rollWeightsKg: [parseNumber(texts[4])].filter(isNonZeroNumber),
       },
       confidences: buildSequentialConfidences(cells, {
         productName: 2,
@@ -252,23 +346,78 @@ function parseSequentialLine({ layout, row }) {
     };
   }
   if (layout === "variable_roll_weights") return parseVariableRollWeightLine(cells);
+  if (layout === "count_total_amount_then_roll_weights") return parseCountTotalAmountRollWeightLine(cells);
   return null;
+}
+
+function parseCountTotalAmountRollWeightLine(cells) {
+  const texts = cells.map((cell) => cell.text);
+  let specIndex = texts.findIndex(looksLikeSpec);
+  if (specIndex < 1 && hasExplicitRawMaterialStripMarker(texts[0]) && parseNumber(texts[1]) > 0) specIndex = 1;
+  if (specIndex < 1) return null;
+  const rollCountIndex = specIndex + 1;
+  const totalWeightIndex = specIndex + 2;
+  const unitPriceIndex = specIndex + 3;
+  const amountIndex = specIndex + 4;
+  const rollWeightStart = specIndex + 5;
+  const rollCount = parsePositiveInteger(texts[rollCountIndex]);
+  if (!rollCount || rollCount > 100) return null;
+  const rollWeightsKg = texts.slice(rollWeightStart, rollWeightStart + rollCount)
+    .map(parseNumber)
+    .filter(isNonZeroNumber);
+  const statedTotalWeightKg = parseNumber(texts[totalWeightIndex]);
+  const rollWeightTotal = roundNumber(sum(rollWeightsKg), 3);
+  if (rollWeightsKg.length === rollCount && isNonZeroNumber(statedTotalWeightKg) && !approximatelyEqual(statedTotalWeightKg, rollWeightTotal)) return null;
+  const rawSpec = texts[specIndex];
+  const supplierColor = texts[specIndex - 1];
+  return {
+    values: enrichRawMaterialSpecValues({
+      productName: "无纺布卷料",
+      materialType: "无纺布",
+      supplierColor,
+      spec: rawSpec,
+      rollCount,
+      totalWeightKg: statedTotalWeightKg || rollWeightTotal,
+      unit: "kg",
+      unitPrice: parseNumber(texts[unitPriceIndex]),
+      amount: parseNumber(texts[amountIndex]),
+      supplierRollNo: "",
+      rollWeightsKg,
+    }),
+    confidences: buildSequentialConfidences(cells, {
+      productName: specIndex - 1,
+      materialType: specIndex - 1,
+      supplierColor: specIndex - 1,
+      spec: specIndex,
+      rollCount: rollCountIndex,
+      totalWeightKg: totalWeightIndex,
+      unit: totalWeightIndex,
+      unitPrice: unitPriceIndex,
+      amount: amountIndex,
+    }),
+  };
 }
 
 function parseVariableRollWeightLine(cells) {
   const texts = cells.map((cell) => cell.text);
   let spec = texts[0];
   let supplierColor = texts[1];
+  let productName = "无纺布卷料";
   let rollCountIndex = 2;
   if (!looksLikeSpec(spec) && parsePositiveInteger(texts[1])) {
-    supplierColor = spec;
+    if (/^退/u.test(spec)) {
+      productName = spec;
+      supplierColor = "";
+    } else {
+      supplierColor = spec;
+    }
     spec = "";
     rollCountIndex = 1;
   }
   const rollCount = parsePositiveInteger(texts[rollCountIndex]);
   if (!rollCount || rollCount > 100) return null;
   const weightStart = rollCountIndex + 1;
-  const rollWeightsKg = texts.slice(weightStart, weightStart + rollCount).map(parseNumber).filter((value) => value > 0);
+  const rollWeightsKg = texts.slice(weightStart, weightStart + rollCount).map(parseNumber).filter(isNonZeroNumber);
   if (!rollWeightsKg.length) return null;
   const rollWeightTotal = roundNumber(sum(rollWeightsKg), 3);
   let remaining = texts.slice(weightStart + rollCount).map(parseNumber);
@@ -289,7 +438,7 @@ function parseVariableRollWeightLine(cells) {
   const confidenceIndex = Math.min(cells.length - 1, weightStart);
   return {
     values: enrichRawMaterialSpecValues({
-      productName: "无纺布卷料",
+      productName,
       materialType: "无纺布",
       supplierColor,
       spec,
@@ -327,19 +476,31 @@ function shouldSkipRecognizedRow(row) {
   return false;
 }
 
-function extractSummaryValues(rows) {
+function extractSummaryValues(rows, { documentDirection = RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery } = {}) {
   for (const row of rows) {
     const texts = row.map((cell) => cleanText(cell.text)).filter(Boolean);
     if (!texts.length) continue;
     const label = texts[0];
-    const numbers = texts.slice(1).map(parseNumber).filter((value) => value > 0);
+    const numbers = texts.slice(1).map(parseNumber).filter(isNonZeroNumber);
     if (/^(?:合计|合计:)/.test(label)) {
       const rollCount = Number.isInteger(numbers[0]) && numbers[0] <= 500 ? numbers[0] : 0;
-      if (numbers.length >= 3) return { rollCount, totalWeightKg: numbers.at(-2), amount: numbers.at(-1) };
-      if (numbers.length >= 2) return { rollCount, totalWeightKg: 0, amount: numbers.at(-1) };
+      if (numbers.length >= 3) return {
+        rollCount,
+        totalWeightKg: applyDocumentDirection(numbers.at(-2), documentDirection),
+        amount: applyDocumentDirection(numbers.at(-1), documentDirection),
+      };
+      if (numbers.length >= 2) return {
+        rollCount,
+        totalWeightKg: 0,
+        amount: applyDocumentDirection(numbers.at(-1), documentDirection),
+      };
     }
     if (/^(?:总计大写|页小计)/.test(label) && numbers.length >= 2) {
-      return { rollCount: 0, totalWeightKg: numbers.at(-2), amount: numbers.at(-1) };
+      return {
+        rollCount: 0,
+        totalWeightKg: applyDocumentDirection(numbers.at(-2), documentDirection),
+        amount: applyDocumentDirection(numbers.at(-1), documentDirection),
+      };
     }
   }
   return { rollCount: 0, totalWeightKg: 0, amount: 0 };
@@ -357,32 +518,51 @@ function buildFallbackLine(rows) {
   return { lineId: "OCR-FALLBACK-1", sourceRowIndex: 0, values, confidences, sourceText: "" };
 }
 
-function normalizeLine(input = {}, index) {
-  const values = input.values ?? {};
+function normalizeLine(input = {}, index, {
+  documentDirection = RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery,
+  supplierName = "",
+} = {}) {
+  const values = applySupplierLineAdapter(input.values ?? {}, supplierName);
+  const normalizedSpecValues = enrichRawMaterialSpecValues({
+    productName: cleanText(values.productName),
+    materialType: cleanText(values.materialType),
+    supplierColor: cleanText(values.supplierColor),
+    spec: cleanText(values.spec),
+    rollCount: positiveNumber(values.rollCount, 0),
+    totalWeightKg: applyDocumentDirection(values.totalWeightKg, documentDirection),
+    unit: normalizeUnit(values.unit, values.totalWeightKg),
+    unitPrice: positiveNumber(values.unitPrice, 0),
+    amount: applyDocumentDirection(values.amount, documentDirection),
+    supplierRollNo: cleanText(values.supplierRollNo),
+    rollWeightsKg: (Array.isArray(values.rollWeightsKg) ? values.rollWeightsKg : [])
+      .map((value) => applyDocumentDirection(value, documentDirection))
+      .filter(isNonZeroNumber),
+  });
+  if (cleanText(values.specRawAudit)) normalizedSpecValues.specRaw = cleanText(values.specRawAudit);
+  if (cleanText(values.specNormalizationReason)) normalizedSpecValues.specNormalizationReason = cleanText(values.specNormalizationReason);
   return {
     lineId: cleanText(input.lineId) || `OCR-LINE-${index + 1}`,
     sourceRowIndex: Math.max(0, Number(input.sourceRowIndex) || 0),
+    sourceBounds: normalizeSourceBounds(input.sourceBounds),
     sourceText: cleanText(input.sourceText),
     reviewStatus: "待人工复核",
-    values: enrichRawMaterialSpecValues({
-      productName: cleanText(values.productName),
-      materialType: cleanText(values.materialType),
-      supplierColor: cleanText(values.supplierColor),
-      spec: cleanText(values.spec),
-      rollCount: positiveNumber(values.rollCount, 0),
-      totalWeightKg: positiveNumber(values.totalWeightKg, 0),
-      unit: normalizeUnit(values.unit, values.totalWeightKg),
-      unitPrice: positiveNumber(values.unitPrice, 0),
-      amount: positiveNumber(values.amount, 0),
-      supplierRollNo: cleanText(values.supplierRollNo),
-      rollWeightsKg: (Array.isArray(values.rollWeightsKg) ? values.rollWeightsKg : [])
-        .map((value) => positiveNumber(value, 0))
-        .filter((value) => value > 0),
-    }),
+    values: normalizedSpecValues,
     confidences: Object.fromEntries(
       Object.entries(input.confidences ?? {}).map(([key, value]) => [key, clampConfidence(value)]),
     ),
   };
+}
+
+function isReviewableOcrMaterialLine(line = {}) {
+  const values = line.values ?? {};
+  if (!Object.values(values).some((value) => cleanText(value))) return false;
+  const identity = [values.productName, values.materialType, values.supplierColor].map(cleanText).join(" ");
+  const sourceText = cleanText(line.sourceText);
+  const hasMaterialIdentity = /[\p{Script=Han}A-Za-z]/u.test(identity) || /(?:提手条|把条|布条|条料|无纺布)/u.test(sourceText);
+  const hasMaterialMeasure = looksLikeSpec(values.spec) || (
+    parsePositiveInteger(values.rollCount) > 0 && Math.abs(finiteNumber(values.totalWeightKg, 0)) > 0
+  );
+  return hasMaterialIdentity && hasMaterialMeasure;
 }
 
 function buildRows(cells = []) {
@@ -397,17 +577,61 @@ function buildRows(cells = []) {
     .map(([, row]) => row.sort((left, right) => left.colTl - right.colTl));
 }
 
-function normalizeTables(tables = []) {
-  return (Array.isArray(tables) ? tables : []).map((table) => ({
-    cells: (Array.isArray(table?.cells) ? table.cells : []).map((cell) => ({
+function normalizeTables(tables = [], sourceImage = {}) {
+  return (Array.isArray(tables) ? tables : []).map((table) => {
+    const cells = (Array.isArray(table?.cells) ? table.cells : []).map((cell) => ({
       colTl: Math.max(0, Number(cell?.colTl) || 0),
       colBr: Math.max(0, Number(cell?.colBr) || 0),
       rowTl: Math.max(0, Number(cell?.rowTl) || 0),
       rowBr: Math.max(0, Number(cell?.rowBr) || 0),
       text: cleanText(cell?.text),
       confidence: clampConfidence(cell?.confidence),
-    })).filter((cell) => cell.text),
-  }));
+      polygon: (Array.isArray(cell?.polygon) ? cell.polygon : []).map((point) => ({
+        x: Math.max(0, Number(point?.x) || 0),
+        y: Math.max(0, Number(point?.y) || 0),
+      })),
+    })).filter((cell) => cell.text);
+    const points = cells.flatMap((cell) => cell.polygon);
+    return {
+      cells,
+      imageWidth: Math.max(Number(sourceImage.imageWidth) || 0, ...points.map((point) => point.x)),
+      imageHeight: Math.max(Number(sourceImage.imageHeight) || 0, ...points.map((point) => point.y)),
+    };
+  });
+}
+
+function buildSourceBounds(row = [], imageWidth = 0, imageHeight = 0) {
+  const points = row.flatMap((cell) => Array.isArray(cell?.polygon) ? cell.polygon : []);
+  if (!points.length) return null;
+  const left = Math.min(...points.map((point) => point.x));
+  const top = Math.min(...points.map((point) => point.y));
+  const right = Math.max(...points.map((point) => point.x));
+  const bottom = Math.max(...points.map((point) => point.y));
+  if (![left, top, right, bottom].every(Number.isFinite) || right <= left || bottom <= top) return null;
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    imageWidth: Math.max(Number(imageWidth) || 0, right),
+    imageHeight: Math.max(Number(imageHeight) || 0, bottom),
+  };
+}
+
+function normalizeSourceBounds(bounds) {
+  const left = Math.max(0, Number(bounds?.left) || 0);
+  const top = Math.max(0, Number(bounds?.top) || 0);
+  const right = Math.max(0, Number(bounds?.right) || 0);
+  const bottom = Math.max(0, Number(bounds?.bottom) || 0);
+  if (right <= left || bottom <= top) return null;
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    imageWidth: Math.max(right, Number(bounds?.imageWidth) || 0),
+    imageHeight: Math.max(bottom, Number(bounds?.imageHeight) || 0),
+  };
 }
 
 function findKeyValue(rows, aliases) {
@@ -425,6 +649,20 @@ function findKeyValue(rows, aliases) {
     }
   }
   return { value: "", confidence: 0 };
+}
+
+function findDeliveryNoteNo(rows, allText) {
+  const keyed = cleanText(findKeyValue(rows, keyValueAliases.deliveryNoteNo).value);
+  if (isPlausibleDeliveryNoteNo(keyed)) return keyed;
+  const inferred = cleanText(inferDeliveryNoteNo(allText));
+  return isPlausibleDeliveryNoteNo(inferred) ? inferred : "";
+}
+
+function isPlausibleDeliveryNoteNo(value) {
+  const text = cleanText(value);
+  if (!text || !/\d/u.test(text)) return false;
+  if (/^(?:商品全名|商品名称|货物名称|规格型号|颜色|数量|单位|单价|金额|备注)$/u.test(text)) return false;
+  return /^[A-Z0-9][A-Z0-9._/-]{3,}$/iu.test(text);
 }
 
 function matchHeaderKey(value) {
@@ -495,7 +733,81 @@ function inferRecognizedDate(allText) {
 }
 
 function normalizeSupplierName(value) {
-  return cleanText(value).replace(/(?:销货单|销售单|送货单)\s*$/u, "").trim();
+  return cleanText(value).replace(/(?:销货单|销售单|送货单|退货单|退料单)\s*$/u, "").trim();
+}
+
+function inferDocumentDirection({ allRows = [], allText = "" } = {}) {
+  if (/(?:退货单|退料单)/u.test(allText)) return RAW_MATERIAL_DOCUMENT_DIRECTIONS.return;
+  const hasNegativeMaterialLine = allRows.some((row) => {
+    const texts = row.map((cell) => cleanText(cell.text)).filter(Boolean);
+    if (!texts.length) return false;
+    const joined = texts.join(" ");
+    if (/^(?:合计|总计|上期欠款|本单金额|累计欠款)/u.test(joined)) return false;
+    const identity = texts.slice(0, 2).join(" ");
+    const hasMaterialIdentity = /(?:布|条|膜|纸|退带色|梦幻紫|彩色|废布)/u.test(identity) || looksLikeSpec(texts[0]);
+    return hasMaterialIdentity && texts.slice(1).some((text) => parseNumber(text) < 0);
+  });
+  return hasNegativeMaterialLine
+    ? RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
+    : RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery;
+}
+
+function extractDeclaredDocumentAmount(rows, { documentDirection = RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery } = {}) {
+  for (const row of rows) {
+    const texts = row.map((cell) => cleanText(cell.text));
+    for (let index = 0; index < texts.length; index += 1) {
+      const text = texts[index];
+      if (!/本单金额/u.test(text)) continue;
+      const amountLabelIndex = text.indexOf("本单金额");
+      const inline = text
+        .slice(amountLabelIndex + "本单金额".length)
+        .replace(/^[：:\s]*/u, "")
+        .split(/(?:本单收款|累计欠款)/u)[0];
+      const candidate = parseNumber(inline) || parseNumber(texts[index + 1]);
+      if (isNonZeroNumber(candidate)) return applyDocumentDirection(candidate, documentDirection);
+    }
+  }
+  return 0;
+}
+
+function buildOcrReconciliationIssues({
+  declaredAmount = 0,
+  calculatedLineAmount = 0,
+  declaredWeightKg = 0,
+  calculatedLineWeightKg = 0,
+  amountReferenceOnly = false,
+} = {}) {
+  const issues = [];
+  if (!amountReferenceOnly && isNonZeroNumber(declaredAmount) && isNonZeroNumber(calculatedLineAmount) && !approximatelyEqual(declaredAmount, calculatedLineAmount)) {
+    issues.push(`单据金额 ${declaredAmount} 与已识别明细合计 ${calculatedLineAmount} 不一致，必须对照原图复核`);
+  }
+  if (isNonZeroNumber(declaredWeightKg) && isNonZeroNumber(calculatedLineWeightKg) && !approximatelyEqual(declaredWeightKg, calculatedLineWeightKg)) {
+    issues.push(`单据总重量 ${declaredWeightKg}kg 与已识别明细合计 ${calculatedLineWeightKg}kg 不一致，必须对照原图复核`);
+  }
+  return issues;
+}
+
+function applySupplierLineAdapter(values = {}, supplierName = "") {
+  const adapted = { ...values };
+  const rawSpec = cleanText(adapted.spec);
+  const normalizedSpec = rawSpec.replace(/[＊×xX]/gu, "*").replace(/\s+/gu, "");
+  const supplierProfile = findSupplierOcrProfile(supplierName);
+  if (
+    supplierProfile?.key === "renyi_zhengheng"
+    && normalizedSpec === "78*1*1500"
+    && !hasExplicitRawMaterialStripMarker([adapted.productName, adapted.materialType, adapted.supplierColor].map(cleanText).join(" "))
+  ) {
+    adapted.specRawAudit = rawSpec;
+    adapted.spec = "78*100*1500";
+    adapted.specNormalizationReason = "人意单据该列按米表示宽幅；OCR 丢失‘米’字，依据供应商版式将 1米 归一为 100cm";
+  }
+  return adapted;
+}
+
+function findSupplierOcrProfile(supplierName) {
+  const normalizedSupplier = cleanText(supplierName).replace(/\s+/gu, "");
+  if (!normalizedSupplier) return null;
+  return supplierOcrProfiles.find((profile) => profile.aliases.some((alias) => normalizedSupplier.includes(alias))) ?? null;
 }
 
 function inferMaterialTypeFromContext({ allText, lines }) {
@@ -504,31 +816,36 @@ function inferMaterialTypeFromContext({ allText, lines }) {
   return inferMaterialType(productName);
 }
 
-function buildOcrRolls({ inboundId, lines, recognizedRollCount, totalWeightKg }) {
-  if (!recognizedRollCount) return [];
+function buildOcrRolls({ inboundId, lines }) {
+  const detailRollCount = Math.round(sum(
+    (Array.isArray(lines) ? lines : []).map((line) => parsePositiveInteger(line?.values?.rollCount)),
+  ));
+  if (!detailRollCount || detailRollCount > 500) return [];
   const rollInputs = [];
   for (const line of lines) {
     const count = parsePositiveInteger(line.values.rollCount);
     if (!count) continue;
-    const exactWeights = Array.isArray(line.values.rollWeightsKg) && line.values.rollWeightsKg.length === count
+    const recognizedWeights = Array.isArray(line.values.rollWeightsKg)
       ? line.values.rollWeightsKg
       : [];
-    const fallbackWeight = Number(line.values.totalWeightKg) > 0 ? roundNumber(Number(line.values.totalWeightKg) / count, 3) : 0;
     for (let index = 0; index < count; index += 1) {
-      rollInputs.push({ line, weightKg: positiveNumber(exactWeights[index], fallbackWeight) });
+      rollInputs.push({
+        line,
+        lineRollIndex: index,
+        weightKg: count === 1
+          ? positiveNumber(recognizedWeights[0], positiveNumber(line.values.totalWeightKg, 0))
+          : positiveNumber(recognizedWeights[index], 0),
+      });
     }
   }
-  while (rollInputs.length < recognizedRollCount) {
-    rollInputs.push({
-      line: lines[Math.min(rollInputs.length, Math.max(0, lines.length - 1))] ?? { values: {}, lineId: "" },
-      weightKg: totalWeightKg > 0 ? roundNumber(totalWeightKg / recognizedRollCount, 3) : 0,
-    });
-  }
-  return rollInputs.slice(0, recognizedRollCount).map(({ line, weightKg }, index) => ({
+  return rollInputs.map(({ line, lineRollIndex, weightKg }, index) => ({
     id: `RM-${inboundId.replace(/^RMI-/, "")}-${String(index + 1).padStart(2, "0")}`,
-    supplierRollNo: cleanText(line.values.supplierRollNo) || `OCR待核对${index + 1}`,
+    supplierRollNo: cleanText(line.values.supplierRollNo)
+      ? (lineRollIndex === 0 ? cleanText(line.values.supplierRollNo) : `${cleanText(line.values.supplierRollNo)}-${lineRollIndex + 1}`)
+      : `OCR待核对${index + 1}`,
     weightKg,
     originalWeightKg: weightKg,
+    weightReviewStatus: weightKg > 0 ? "OCR重量待人工复核" : "分卷重量待复核",
     labelStatus: "待人工复核",
     inventoryStatus: "不可用",
     location: "原料待检区",
@@ -551,7 +868,15 @@ function buildOcrRolls({ inboundId, lines, recognizedRollCount, totalWeightKg })
 }
 
 function looksLikeSpec(value) {
-  return /\d{2,4}\s*[*×xX]\s*\d{2,4}(?:\s*[*×xX]\s*\d{2,4})?/u.test(cleanText(value));
+  const parts = cleanText(value)
+    .replace(/[＊×xX]/gu, "*")
+    .split("*")
+    .map((part) => part.trim());
+  if (parts.length !== 3) return false;
+  return parts.every((part) => {
+    const numbers = part.match(/\d+(?:\.\d+)?/gu) ?? [];
+    return numbers.length === 1 && Number(numbers[0]) > 0;
+  });
 }
 
 function looksLikeUnit(value) {
@@ -618,6 +943,18 @@ function parseNumber(value) {
   const normalized = cleanText(value).replace(/[,，\s]/g, "");
   const number = Number(normalized.match(/-?\d+(?:\.\d+)?/)?.[0]);
   return Number.isFinite(number) ? number : 0;
+}
+
+function applyDocumentDirection(value, documentDirection) {
+  const number = finiteNumber(value, 0);
+  if (!number) return 0;
+  return documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
+    ? -Math.abs(number)
+    : Math.abs(number);
+}
+
+function isNonZeroNumber(value) {
+  return Number.isFinite(Number(value)) && Number(value) !== 0;
 }
 
 function sum(values) {

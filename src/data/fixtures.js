@@ -17,11 +17,11 @@ export const initialOrderLines = [
   line("ORD-0629-001", "01", "C001", "空白袋", "30*38*10", "红色", "普通提", "空白袋", "否", 500, "现货有货", "待出库", "自提", "今天 15:00", 180, [], "有货"),
   line("ORD-0629-001", "02", "C001", "空白袋", "30*38*10", "黑色", "普通提", "空白袋", "否", 100, "现货缺货", "缺货待处理", "自提", "今天 15:00", 36, ["库存不足"], "缺货"),
   line("ORD-0629-002", "01", "C002", "服装店白袋", "25*32*10", "白色", "加长提", "空白袋", "否", 1200, "现货有货", "已备货", "送货", "今天 16:30", 408, [], "已占用"),
-  line("ORD-0629-003", "01", "C004", "美的空调", "30*38*10", "白色", "普通提", "空白袋", "是", 1000, "定制印刷", "制袋中", "快递快运", "明天 18:00", 480, ["待打印标签"], "生产中", "双面", "黄色", ""),
+  { ...line("ORD-0629-003", "01", "C004", "美的空调", "30*38*10", "白色", "普通提", "空白袋", "是", 1000, "定制印刷", "制袋中", "快递快运", "明天 18:00", 480, ["待打印标签"], "生产中", "双面", "黄色", ""), machineId: "2号机" },
   line("ORD-0629-004", "01", "C005", "小熊袋", "25*23*8", "红色", "普通提", "小熊袋", "是", 800, "印刷通货", "待出库", "自提", "今天 17:00", 376, [], "有货"),
   line("ORD-0629-005", "01", "C006", "喜字袋", "30*37*10", "红色", "普通提", "喜", "是", 300, "印刷通货", "已交付", "自提", "昨天 11:00", 174, [], "已完成"),
   line("ORD-0629-006", "01", "C007", "福字袋", "35*41*12", "红色", "普通提", "福", "是", 500, "印刷通货", "待对账", "送货", "今天 14:00", 390, [], "已交付"),
-  line("ORD-0629-007", "01", "C008", "同行来料印刷", "40*32*10", "牛仔蓝", "普通提", "外加工", "是", 2600, "外加工印刷", "丝印中", "送货", "明天 10:00", 234, [], "不入库存"),
+  { ...line("ORD-0629-007", "01", "C008", "同行来料印刷", "40*32*10", "牛仔蓝", "普通提", "外加工", "是", 2600, "外加工印刷", "丝印中", "送货", "明天 10:00", 234, [], "不入库存"), machineId: "丝印1号台" },
   line("ORD-0629-008", "01", "C009", "空白袋", "30*38*10", "红色", "普通提", "空白袋", "否", 50, "现货有货", "待收款确认", "自提", "今天 12:00", 18, ["现场现结"], "已交付"),
   line("ORD-0629-009", "01", "C010", "黑马服装", "40*32*10", "黑色", "加长提", "空白袋", "是", 2000, "定制印刷", "待打包", "送货", "明天 17:00", 980, ["数量差异"], "生产完成", "单面", "白色", "加长提"),
   line("ORD-0629-010", "01", "C011", "白鲸活动袋", "35*27*10", "白色", "普通提", "空白袋", "是", 1500, "定制印刷", "待快运拉走", "快递快运", "今天 19:00", 600, ["待确认拉走"], "待提货锁定", "单面", "黑色", "", "黑色"),
@@ -36,7 +36,7 @@ export const initialOrderLines = [
   line("ORD-0629-019", "01", "C007", "福字袋", "30*37*10", "红色", "普通提", "福", "是", 400, "印刷通货", "待对账", "送货", "昨天 18:30", 232, [], "已交付"),
   line("ORD-0629-020", "01", "C012", "原料入库演示", "78*90*1500", "大红", "布料", "原材料", "否", 2, "原材料", "资料占位", "其他", "后续", 0, [], "占位"),
   line("ORD-0629-021", "01", "C003", "空白袋", "50*40*12", "白色", "普通提", "空白袋", "否", 200, "现货缺货", "缺货待处理", "自提", "明天 11:30", 124, ["建议排产"], "缺货"),
-  line("ORD-0629-022", "01", "C002", "外卖活动袋", "40*30*10", "黄色", "普通提", "空白袋", "是", 3000, "定制印刷", "丝印中", "送货", "明天 19:00", 1380, [], "生产中", "双面", "黑色", "", "红色"),
+  { ...line("ORD-0629-022", "01", "C002", "外卖活动袋", "40*30*10", "黄色", "普通提", "空白袋", "是", 3000, "定制印刷", "丝印中", "送货", "明天 19:00", 1380, [], "生产中", "双面", "黑色", "", "红色"), machineId: "丝印2号台" },
   line("ORD-0629-023", "01", "C004", "空白袋", "35*41*12", "白色", "普通提", "空白袋", "否", 600, "现货有货", "待出库", "快递快运", "今天 17:40", 300, ["待打印标签"], "已占用"),
   line("ORD-0629-024", "01", "C009", "空白袋", "25*32*10", "蓝色", "普通提", "空白袋", "否", 100, "现货有货", "已交付", "自提", "今天 09:10", 31, [], "已完成"),
   line("ORD-0629-025", "01", "C001", "空白袋", "30*38*10", "红色", "普通提", "空白袋", "否", 700, "现货有货", "待出库", "送货", "今天 16:00", 252, [], "有货"),
@@ -128,7 +128,93 @@ export const initialStatements = [
   statement("ST-0629-006", "C011", "收款待确认", 643.2, 43.2, 0, "06-22 至 06-29", ["ORD-0629-010-01", "ORD-0629-029-01"]),
 ];
 
+const mobileRawMaterialReviewRows = [
+  { code: "11", color: "本白", spec: "78*70*2000", weightKg: 109.9, unitPrice: 9.1, amount: 1000.09 },
+  { code: "11", color: "本白", spec: "78*70*2000", weightKg: 109.8, unitPrice: 9.1, amount: 999.18 },
+  { code: "14", color: "本白", spec: "78*80*2000", weightKg: 125.3, unitPrice: 9.1, amount: 1140.23 },
+  { code: "41", color: "枣红", spec: "78*80*1500", weightKg: 83.9, unitPrice: 9.5, amount: 797.05 },
+  { code: "01", color: "大红", spec: "70*78*2000", weightKg: 83.6, unitPrice: 9.5, amount: 794.2 },
+  { code: "01", color: "大红", spec: "70*78*2000", weightKg: 83.4, unitPrice: 9.5, amount: 792.3 },
+  { code: "17", color: "大红", spec: "条", weightKg: 74, unitPrice: 9.7, amount: 717.8, reviewPrefillSpec: "78克*5宽" },
+  { code: "19", color: "大红", spec: "76*78*1500", weightKg: 91.9, unitPrice: 9.5, amount: 873.05 },
+  { code: "19", color: "大红", spec: "76*78*1500", weightKg: 92, unitPrice: 9.5, amount: 874 },
+];
+
+const mobileRawMaterialReviewLines = mobileRawMaterialReviewRows.map((row, index) => {
+  const isStrip = row.spec === "条";
+  const lineId = `DEMO-OCR-RMI-260704-001-L${index + 1}`;
+  return {
+    lineId,
+    sourceText: `${row.code} ${row.color} ${row.spec} 公斤 ${row.weightKg} ${row.unitPrice} ${row.amount}`,
+    ...(row.reviewPrefillSpec ? { reviewPrefill: { spec: row.reviewPrefillSpec } } : {}),
+    values: {
+      productName: isStrip ? "提手条" : "无纺布卷料",
+      materialType: isStrip ? "提手" : "无纺布",
+      supplierColor: row.color,
+      spec: row.spec,
+      rollCount: 1,
+      totalWeightKg: row.weightKg,
+      unit: "kg",
+      unitPrice: row.unitPrice,
+      amount: row.amount,
+      supplierRollNo: row.code,
+      rollWeightsKg: [row.weightKg],
+    },
+  };
+});
+
 export const initialRawMaterialInbounds = [
+  rawMaterialInbound({
+    id: "RMI-260704-001",
+    supplierName: "腾胜无纺布",
+    deliveryNoteNo: "XS-2026-07-04-104",
+    receivedAt: "2026-07-04 09:20",
+    materialType: "无纺布",
+    productName: "无纺布卷料",
+    supplierColor: "多色",
+    factoryColor: "待逐卷确认",
+    spec: "多规格，见逐卷明细",
+    unit: "kg",
+    rollCount: 9,
+    totalWeightKg: 853.8,
+    unitPrice: 0,
+    amount: 7987.9,
+    status: "已识别待复核",
+    source: "手机拍照 / OCR 预填",
+    ocrProvider: "tencent_cloud_table_v3",
+    ocrRequestId: "DEMO-OCR-RMI-260704-001",
+    ocrStatus: "OCR 已拆分为 9 个物理卷，等待办公室逐卷核对",
+    ocrReviewFields: [
+      { key: "supplierName", label: "供应商", recognizedValue: "腾胜无纺布", value: "腾胜无纺布", confidence: 99, reviewStatus: "待人工复核", required: true },
+      { key: "deliveryNoteNo", label: "供应商单号", recognizedValue: "XS-2026-07-04-104", value: "XS-2026-07-04-104", confidence: 97, reviewStatus: "待人工复核", required: false },
+      { key: "materialType", label: "材料类型", recognizedValue: "无纺布", value: "无纺布", confidence: 98, reviewStatus: "待人工复核", required: true },
+      { key: "productName", label: "原料名称", recognizedValue: "无纺布卷料", value: "无纺布卷料", confidence: 98, reviewStatus: "待人工复核", required: true },
+      { key: "spec", label: "规格", recognizedValue: "多规格，见逐卷明细", value: "多规格，见逐卷明细", confidence: 99, reviewStatus: "待人工复核", required: true },
+      { key: "supplierColor", label: "供应商颜色", recognizedValue: "多色", value: "多色", confidence: 99, reviewStatus: "待人工复核", required: false },
+      { key: "factoryColor", label: "厂内颜色", recognizedValue: "待逐卷确认", value: "待逐卷确认", confidence: 90, reviewStatus: "待人工复核", required: false },
+      { key: "rollCount", label: "卷/件数", recognizedValue: 9, value: 9, confidence: 99, reviewStatus: "待人工复核", required: true },
+      { key: "totalWeightKg", label: "总重量kg", recognizedValue: 853.8, value: 853.8, confidence: 99, reviewStatus: "待人工复核", required: false },
+      { key: "unit", label: "单位", recognizedValue: "kg", value: "kg", confidence: 99, reviewStatus: "待人工复核", required: true },
+      { key: "unitPrice", label: "单价", recognizedValue: 0, value: 0, confidence: 99, reviewStatus: "待人工复核", required: false },
+      { key: "amount", label: "金额", recognizedValue: 7987.9, value: 7987.9, confidence: 99, reviewStatus: "待人工复核", required: false },
+    ],
+    ocrLines: mobileRawMaterialReviewLines,
+    photoStatus: "送货单照片已上传",
+    signedNoteStatus: "单据附件可选，尚未上传",
+    nextStep: "办公室对照原送货单逐卷核对；第 7 卷需确认完整规格。",
+    note: "演示记录与已批准手机流程图谱共用同一张真实送货单和九卷明细。",
+    location: "原料待检区",
+    statementStatus: "待月结对账",
+    statementSummary: "供应商月结 Excel 尚未上传。",
+    statementDifferences: [],
+    rolls: mobileRawMaterialReviewRows.map((row, index) => ({
+      ...rawMaterialRoll(`RM-260704-${String(index + 1).padStart(2, "0")}`, row.code, row.weightKg, "待生成标签", "不可用", "原料待检区"),
+      supplierColor: row.color,
+      factoryColor: row.color,
+      spec: row.reviewPrefillSpec || row.spec,
+      ocrLineId: `DEMO-OCR-RMI-260704-001-L${index + 1}`,
+    })),
+  }),
   rawMaterialInbound({
     id: "RMI-0704-001",
     supplierName: "宏尚布业",
@@ -146,7 +232,35 @@ export const initialRawMaterialInbounds = [
     amount: 1911.6,
     status: "已识别待复核",
     source: "手机拍照 / OCR 预填",
+    ocrProvider: "tencent_cloud_table_v3",
+    ocrRequestId: "DEMO-OCR-RMI-0704-001",
     ocrStatus: "OCR 预填，供应商未提供单号，待人工核对原材料送货单和实物原标签",
+    ocrReviewFields: [
+      { key: "supplierName", label: "供应商", recognizedValue: "宏尚布业", value: "宏尚布业", confidence: 98, reviewStatus: "待人工复核", required: true },
+      { key: "deliveryNoteNo", label: "供应商单号", recognizedValue: "", value: "", confidence: 0, reviewStatus: "待人工复核", required: false },
+      { key: "materialType", label: "材料类型", recognizedValue: "布料", value: "布料", confidence: 96, reviewStatus: "待人工复核", required: true },
+      { key: "productName", label: "原料名称", recognizedValue: "无纺布卷料", value: "无纺布卷料", confidence: 96, reviewStatus: "待人工复核", required: true },
+      { key: "spec", label: "规格", recognizedValue: "78*90g*1500m", value: "78*90g*1500m", confidence: 94, reviewStatus: "待人工复核", required: true },
+      { key: "supplierColor", label: "供应商颜色", recognizedValue: "大红", value: "大红", confidence: 93, reviewStatus: "待人工复核", required: false },
+      { key: "factoryColor", label: "厂内颜色", recognizedValue: "红色", value: "红色", confidence: 91, reviewStatus: "待人工复核", required: false },
+      { key: "rollCount", label: "卷/件数", recognizedValue: 2, value: 2, confidence: 99, reviewStatus: "待人工复核", required: true },
+      { key: "totalWeightKg", label: "总重量kg", recognizedValue: 212.4, value: 212.4, confidence: 99, reviewStatus: "待人工复核", required: false },
+      { key: "unit", label: "单位", recognizedValue: "kg", value: "kg", confidence: 99, reviewStatus: "待人工复核", required: true },
+      { key: "unitPrice", label: "单价", recognizedValue: 9, value: 9, confidence: 98, reviewStatus: "待人工复核", required: false },
+      { key: "amount", label: "金额", recognizedValue: 1911.6, value: 1911.6, confidence: 98, reviewStatus: "待人工复核", required: false },
+    ],
+    ocrLines: [
+      {
+        lineId: "DEMO-OCR-RMI-0704-001-L1",
+        sourceText: "大红 78*90g*1500m 重1 105.4kg",
+        values: { productName: "无纺布卷料", materialType: "布料", supplierColor: "大红", spec: "78*90g*1500m", rollCount: 1, totalWeightKg: 105.4, unit: "kg", unitPrice: 9, amount: 948.6, supplierRollNo: "重1", rollWeightsKg: [105.4] },
+      },
+      {
+        lineId: "DEMO-OCR-RMI-0704-001-L2",
+        sourceText: "大红 78*90g*1500m 重2 107kg",
+        values: { productName: "无纺布卷料", materialType: "布料", supplierColor: "大红", spec: "78*90g*1500m", rollCount: 1, totalWeightKg: 107, unit: "kg", unitPrice: 9, amount: 963, supplierRollNo: "重2", rollWeightsKg: [107] },
+      },
+    ],
     photoStatus: "送货单照片已上传",
     signedNoteStatus: "单据附件可选，尚未上传",
     nextStep: "客服/办公室核对原材料送货单、OCR 字段和实物原标签；无供应商单号时用系统入库单号追踪。",
@@ -156,8 +270,8 @@ export const initialRawMaterialInbounds = [
     statementSummary: "供应商月结 Excel 未上传；供应商无原始单号时优先用 ERP 入库单号、日期、规格、颜色和分卷重量候选匹配。",
     statementDifferences: ["供应商单号未提供", "待供应商月结单匹配"],
     rolls: [
-      rawMaterialRoll("RM-240704-001-01", "重1", 105.4, "待生成标签", "不可用", "原料待检区"),
-      rawMaterialRoll("RM-240704-001-02", "重2", 107, "待生成标签", "不可用", "原料待检区"),
+      { ...rawMaterialRoll("RM-240704-001-01", "重1", 105.4, "待生成标签", "不可用", "原料待检区"), ocrLineId: "DEMO-OCR-RMI-0704-001-L1" },
+      { ...rawMaterialRoll("RM-240704-001-02", "重2", 107, "待生成标签", "不可用", "原料待检区"), ocrLineId: "DEMO-OCR-RMI-0704-001-L2" },
     ],
   }),
   rawMaterialInbound({
@@ -314,7 +428,7 @@ export function createOfficeScenarioData(scenarioId = defaultOfficeScenarioId) {
 }
 
 export function makeOrderLine(input) {
-  return line(
+  const orderLine = line(
     input.orderNo,
     input.lineNo,
     input.customerId,
@@ -337,6 +451,11 @@ export function makeOrderLine(input) {
     input.note,
     input.handleColor,
   );
+  return {
+    ...orderLine,
+    ...(input.artworkStatus ? { artworkStatus: input.artworkStatus } : {}),
+    ...(input.artworkAttachment ? { artworkAttachment: input.artworkAttachment } : {}),
+  };
 }
 
 export function makeTodo(input) {
@@ -416,6 +535,11 @@ function cloneFixtureRows(rows) {
     if (Array.isArray(row.exceptions)) next.exceptions = [...row.exceptions];
     if (Array.isArray(row.lineIds)) next.lineIds = [...row.lineIds];
     if (Array.isArray(row.rolls)) next.rolls = row.rolls.map((roll) => ({ ...roll }));
+    if (Array.isArray(row.ocrReviewFields)) next.ocrReviewFields = row.ocrReviewFields.map((field) => ({ ...field }));
+    if (Array.isArray(row.ocrLines)) next.ocrLines = row.ocrLines.map((line) => ({
+      ...line,
+      values: { ...(line.values ?? {}), rollWeightsKg: [...(line.values?.rollWeightsKg ?? [])] },
+    }));
     if (Array.isArray(row.statementDifferences)) next.statementDifferences = [...row.statementDifferences];
     return next;
   });

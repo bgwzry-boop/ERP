@@ -29,6 +29,31 @@ const newLoginState = {
   permissions: { user: { userId: "U-EMP-002", displayName: "新登录用户" } },
 };
 
+const previewSeedSession = {
+  accessToken: "seed-session.staging-preview",
+  sessionType: "seed",
+  userId: "U-MANAGER-A",
+};
+const previewSeedState = {
+  authenticated: true,
+  source: "api_seed",
+  reason: "login_seed_session",
+  session: previewSeedSession,
+  permissions: { user: { userId: "U-MANAGER-A", displayName: "管理A" } },
+};
+const previewBootstrap = createAuthHarness({
+  authState: initialAuthState,
+  session: null,
+});
+assert.equal(applyRuntimeAuthInitializationResult({
+  expectedAuthState: initialAuthState,
+  expectedSession: null,
+  nextAuthState: previewSeedState,
+  ...previewBootstrap,
+}), true, "an explicit staging preview may install its newly issued signed seed session");
+assert.equal(previewBootstrap.state.auth, previewSeedState, "the staging preview seed state must become active");
+assert.deepEqual(previewBootstrap.readSession(), previewSeedSession, "the staging preview seed token must be retained");
+
 const matching = createAuthHarness({
   authState: initialAuthState,
   session: restoredSession,

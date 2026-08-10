@@ -14,9 +14,15 @@ import {
   OperationalPanel,
   PanelHeader,
   Segmented,
+  SemanticTag,
   StatusPill,
   Timeline,
 } from "../../shared/ui/operational.jsx";
+import {
+  getBusinessTypeTagValue,
+  getOperationalStateTagValue,
+  getStructuredRequirementTagValues,
+} from "../../shared/labels.js";
 import {
   buildPackingTaskRows,
   formatCompactDateTime,
@@ -35,6 +41,7 @@ import {
 } from "../production/productionPackingPresentation.js";
 import { buildPackingCompletionSummary } from "../../services/packingCompletionConfirmationClient.js";
 import { buildProductionReportSummary } from "../../services/productionReportConfirmationClient.js";
+import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
 
 const MOBILE_VIEWS = [
   ["current", "当前任务", InboxOutlined],
@@ -54,7 +61,6 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
     getUiActionState,
     currentUser,
     permissionContext,
-    statusTone,
   } = helpers;
   const roleKeys = new Set([...(permissionContext?.roles ?? []), currentUser?.defaultRole].filter(Boolean));
   const permissionKeys = new Set([...(permissionContext?.buttonPermissions ?? []), ...(permissionContext?.actionPermissions ?? [])]);
@@ -370,6 +376,11 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
 
   const pendingCount = mode === "打包任务" ? openPackingTasks.length : productionLines.length;
   const roleTitle = mode === "打包任务" ? "打包任务" : `${getProductionProcessLabel(selectedLine || productionLines[0]) || "车间"}报工`;
+  const selectedTaskStatus = mode === "打包任务"
+    ? selectedPackingTask?.status
+    : selectedInventoryItem
+      ? selectedProductionLine?.status
+      : "缺库存键";
 
   return (
     <section className={`guided-mobile-page workshop-mobile-workbench view-${mobileView}`}>
@@ -399,7 +410,10 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                     <span>{customer.name} · {line.product} {line.size}</span>
                     <small>{getLineColorSpecLabel(line)} · {line.qty} 个 · {formatProductionDailyProgressLabel(line) || line.latest}</small>
                   </div>
-                  <StatusPill tone={inventoryItem ? statusTone(line.status) : "danger"}>{inventoryItem ? line.status : "缺库存键"}</StatusPill>
+                  <WorkshopTaskTagGroup
+                    line={line}
+                    stateLabel={inventoryItem ? line.status : "缺库存键"}
+                  />
                 </button>
               );
             }) : <DataState title="暂无待报工生产任务" compact />
@@ -414,7 +428,7 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
                     <span>{customer.name} · {line.product} {line.size}</span>
                     <small>{getLineColorSpecLabel(line)} · 计划 {task.plannedQty} 个 · {task.packageCount ?? inferPackageCountFromQty(task.plannedQty)} 包</small>
                   </div>
-                  <StatusPill tone={statusTone(task.status)}>{task.status}</StatusPill>
+                  <WorkshopTaskTagGroup line={line} stateLabel={task.status} />
                 </button>
               );
             }) : <DataState title="暂无待打包任务" compact />
@@ -431,6 +445,12 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
             <div className="mobile-role-detail-tabs">
               <Segmented ariaLabel="车间任务详情" value={detailView} onChange={setDetailView} items={detailViews} />
             </div>
+            <WorkshopTaskTagGroup
+              className="workshop-current-task-tags"
+              line={selectedLine}
+              size="standard"
+              stateLabel={selectedTaskStatus}
+            />
             {detailView === "任务" ? (
               <section className="mobile-role-stage mobile-role-summary-stage">
                 <InfoGrid
@@ -723,14 +743,25 @@ export function WorkshopMobilePage({ orderLines, inventoryRecords, productionPac
         </section>
       ) : null}
 
-      <nav className="mobile-role-bottom-nav" aria-label="现场岗位手机导航">
-        {MOBILE_VIEWS.map(([key, label, Icon]) => (
-          <button aria-current={mobileView === key ? "page" : undefined} className={mobileView === key ? "active" : ""} key={key} onClick={() => setMobileView(key)} type="button">
-            <Icon aria-hidden="true" /><span>{label}</span>
-            {key === "pending" && pendingCount ? <b>{pendingCount}</b> : null}
-          </button>
-        ))}
-      </nav>
+      <MobileRoleBottomNavigation
+        ariaLabel="现场岗位手机导航"
+        badgeCount={(key) => key === "pending" ? pendingCount : 0}
+        items={MOBILE_VIEWS}
+        onChange={setMobileView}
+        value={mobileView}
+      />
     </section>
+  );
+}
+
+function WorkshopTaskTagGroup({ line, stateLabel, size = "compact", className = "" }) {
+  const requirementValue = getStructuredRequirementTagValues(line)[0];
+  const stateValue = getOperationalStateTagValue(stateLabel);
+  return (
+    <span className={`workshop-task-tag-group ${className}`.trim()} aria-label="任务标签">
+      <SemanticTag kind="business" size={size} value={getBusinessTypeTagValue(line?.orderType)} />
+      {requirementValue ? <SemanticTag kind="requirement" size={size} value={requirementValue} /> : null}
+      <SemanticTag kind="state" label={stateLabel} size={size} value={stateValue} />
+    </span>
   );
 }

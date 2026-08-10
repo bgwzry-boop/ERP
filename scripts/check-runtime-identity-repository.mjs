@@ -126,6 +126,22 @@ repository.saveState({
         updatedAt: assignmentOccurredAt,
       },
     ],
+    phoneVerificationChallenges: [
+      {
+        id: "PHONE-VERIFY-RUNTIME-CHECK",
+        phoneE164: "+8613800000001",
+        purpose: "registration",
+        codeHash: createHmac("sha256", authSecret).update("runtime-phone-code-check").digest("hex"),
+        requestedAt: issuedAt,
+        expiresAt: "2026-01-01T00:05:00.000Z",
+        failedAttempts: 0,
+        maxAttempts: 5,
+        deliveryStatus: "sent",
+        deliveryReference: "CHECK-DELIVERY-1",
+        createdAt: issuedAt,
+        updatedAt: issuedAt,
+      },
+    ],
     revokedSeedSessions: [],
     operationLogs: [
       {
@@ -357,6 +373,7 @@ try {
   assert.equal(expiredPersistedUser.mustChangePassword, false);
   assert(expiredPersistedUser.passwordExpiresAt);
   assert(reloaded.revokedSeedSessionJtis.includes(changedLoginAfterRestart.session.jti));
+  assert.equal(reloaded.phoneVerificationChallenges.length, 1);
   assert(reloaded.operationLogs.some((log) => log.id === accountOperationLogId));
   assert(reloaded.operationLogs.some((log) => log.id === assignmentOperationLogId));
   assert(reloaded.operationLogs.some((log) => log.id === mergeOperationLogId));
@@ -379,7 +396,8 @@ try {
 
   const loadSql = buildLoadRuntimeIdentityStateSql();
   assert(loadSql.includes("seed_session_revocations"));
-  assert(loadSql.includes("source = 'master_data_import_review'"));
+  assert(loadSql.includes("source IN ('master_data_import_review', 'phone_self_registration')"));
+  assert(loadSql.includes("phone_verification_challenges"));
   assert(loadSql.includes("master_data_employee_account_review"));
   assert(loadSql.includes("master_data_employee_account_password"));
   assert(loadSql.includes("master_data_employee_assignment"));
@@ -402,6 +420,7 @@ try {
   const saveSql = buildSaveRuntimeIdentityStateSql(reloaded, { identityEmployeeUpdates });
   assert(saveSql.includes("ON CONFLICT (id) DO UPDATE"));
   assert(saveSql.includes("ON CONFLICT (jti) DO UPDATE"));
+  assert(saveSql.includes("INSERT INTO phone_verification_challenges"));
   assert(saveSql.includes("UPDATE employees"));
   assert(saveSql.includes("employee_assignment_updates"));
   assert(saveSql.includes("employee_identity_updates"));

@@ -27,7 +27,8 @@ export async function requestOfficeApi(path, options = {}) {
     method,
     headers,
   };
-  if (options.body) init.body = JSON.stringify(options.body);
+  if (options.rawBody !== undefined) init.body = options.rawBody;
+  else if (options.body) init.body = JSON.stringify(options.body);
   const response = await fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, init);
   await notifyRuntimeAuthInvalidationForResponse(response, { authState: options.authState });
   return response;

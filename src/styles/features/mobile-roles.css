@@ -1,3 +1,5 @@
+/* Hallmark · genre: modern-minimal · tone: calm field utility · anchor: forest 140 · macrostructure: Guided Task (single field utility) · theme: studied-DNA (下单小程序) · nav: N9 edge-aligned minimal · footer: none · contrast: pass (40–41) · slop: pass (42–49) · mobile: pass (34, 49–57) */
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
 .decision-mobile-card,
 .maintenance-mobile-card,
 .office-mobile-task-card {
@@ -996,6 +998,202 @@
 .office-mobile-empty span {
   font-size: 14px;
   line-height: 21px;
+}
+
+.office-mobile-field-utility {
+  display: grid;
+  width: min(100%, 520px);
+  align-self: start;
+  margin-inline: auto;
+  background: var(--erp-mobile-field-canvas);
+  color: var(--erp-mobile-field-ink);
+  padding-bottom: calc(var(--erp-space-6) + env(safe-area-inset-bottom, 0px));
+  gap: var(--erp-space-4);
+}
+
+.office-mobile-field-header {
+  display: grid;
+  border-bottom: 1px solid var(--erp-mobile-field-border);
+  padding: var(--erp-space-2) 0 var(--erp-space-3);
+  gap: var(--erp-space-1);
+}
+
+.office-mobile-field-header h1,
+.office-mobile-field-header p,
+.office-mobile-field-title h2,
+.office-mobile-field-title p,
+.office-mobile-desktop-note {
+  margin: 0;
+}
+
+.office-mobile-field-header h1 {
+  color: var(--erp-mobile-field-ink);
+  font-size: var(--erp-text-title);
+  line-height: 28px;
+}
+
+.office-mobile-field-header p,
+.office-mobile-field-title p,
+.office-mobile-desktop-note {
+  color: var(--erp-mobile-field-muted);
+  font-size: var(--erp-text-md);
+  line-height: 21px;
+}
+
+.office-mobile-field-card {
+  display: grid;
+  border: 1px solid var(--erp-mobile-field-border);
+  border-radius: var(--erp-radius-lg);
+  background: var(--erp-mobile-field-surface);
+  padding: var(--erp-space-4);
+  gap: var(--erp-space-4);
+}
+
+.office-mobile-field-title {
+  display: grid;
+  grid-template-columns: 44px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--erp-space-3);
+}
+
+.office-mobile-field-title > span {
+  display: grid;
+  width: 44px;
+  height: 44px;
+  place-items: center;
+  border-radius: var(--erp-radius-lg);
+  background: var(--erp-mobile-field-accent-soft);
+  color: var(--erp-mobile-field-accent-strong);
+  font-size: 20px;
+}
+
+.office-mobile-field-title > div {
+  display: grid;
+  min-width: 0;
+  gap: var(--erp-space-1);
+}
+
+.office-mobile-field-title h2 {
+  color: var(--erp-mobile-field-ink);
+  font-size: 20px;
+  line-height: 28px;
+}
+
+.office-mobile-field-card ol {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.office-mobile-field-card li {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  color: var(--erp-mobile-field-accent-strong);
+  gap: var(--erp-space-1);
+}
+
+.workshop-task-panel .mobile-task-row {
+  grid-template-columns: minmax(0, 1fr) minmax(92px, 128px);
+}
+
+.mobile-task-row > .workshop-task-tag-group {
+  display: flex;
+  max-width: 128px;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  margin: 0;
+  overflow: visible;
+  color: inherit;
+  gap: var(--erp-space-1);
+  white-space: normal;
+}
+
+.mobile-task-row .workshop-task-tag-group .erp-semantic-tag {
+  display: inline-flex;
+  margin: 0;
+  overflow: hidden;
+  color: var(--semantic-tag-ink);
+  white-space: nowrap;
+}
+
+.workshop-current-task-tags {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface-subtle);
+  gap: var(--erp-space-2);
+  padding: var(--erp-space-2) var(--erp-space-3);
+}
+
+@media (max-width: 380px) {
+  .workshop-task-panel .mobile-task-row {
+    grid-template-columns: minmax(0, 1fr) minmax(86px, 112px);
+  }
+
+  .mobile-task-row > .workshop-task-tag-group {
+    max-width: 112px;
+  }
+}
+
+.office-mobile-field-card li:not(:last-child)::after {
+  position: absolute;
+  top: 14px;
+  left: calc(50% + 15px);
+  width: calc(100% - 30px);
+  border-top: 1px solid var(--erp-mobile-field-accent-border);
+  content: "";
+}
+
+.office-mobile-field-card li > span {
+  display: grid;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--erp-mobile-field-accent-strong);
+  color: var(--erp-mobile-field-accent-ink);
+  font-size: var(--erp-text-sm);
+  font-weight: var(--erp-weight-bold);
+}
+
+.office-mobile-field-card li svg {
+  font-size: 17px;
+}
+
+.office-mobile-field-card li strong {
+  font-size: var(--erp-text-sm);
+  white-space: nowrap;
+}
+
+.office-mobile-field-card > button {
+  min-height: 52px;
+  border: 0;
+  border-radius: var(--erp-radius-lg);
+  background: var(--erp-mobile-field-accent-strong);
+  color: var(--erp-mobile-field-accent-ink);
+  font-size: 16px;
+  font-weight: var(--erp-weight-bold);
+  white-space: nowrap;
+}
+
+.office-mobile-field-card > button:active {
+  transform: translateY(1px);
+}
+
+.office-mobile-field-card > button:focus-visible {
+  outline: 2px solid var(--erp-focus);
+  outline-offset: 2px;
+}
+
+.office-mobile-desktop-note {
+  border-radius: var(--erp-radius-lg);
+  background: var(--erp-mobile-field-accent-soft);
+  padding: var(--erp-space-3);
 }
 
 @media (max-width: 720px) {

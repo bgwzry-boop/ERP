@@ -11,6 +11,7 @@ import {
 } from "@ant-design/icons";
 import { useEffect, useMemo, useState } from "react";
 import { readFileAsDataUrl } from "../../app/browserFileActions.js";
+import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
 import {
   createMaintenanceEvidenceAttachmentInput,
   createOfficeAttachment,
@@ -292,9 +293,16 @@ export function MaintenanceMobilePage({ authState, currentUser = {}, tasks = DEF
         </div>
       </section> : null}
 
-      <nav className="mobile-role-bottom-nav" aria-label="现场机修手机导航">
-        {MOBILE_VIEWS.map(([key, label, Icon]) => <button aria-current={view === key ? "page" : undefined} className={view === key ? "active" : ""} key={key} onClick={() => { setQueueMode("pending"); setView(key); }} type="button"><Icon /><span>{label}</span>{key === "pending" && pendingTasks.length ? <b>{pendingTasks.length}</b> : null}</button>)}
-      </nav>
+      <MobileRoleBottomNavigation
+        ariaLabel="现场机修手机导航"
+        badgeCount={(key) => key === "pending" ? pendingTasks.length : 0}
+        items={MOBILE_VIEWS}
+        onChange={(key) => {
+          setQueueMode("pending");
+          setView(key);
+        }}
+        value={view}
+      />
     </section>
   );
 }

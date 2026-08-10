@@ -423,12 +423,13 @@ function buildSummary(rows, adjustments, issues) {
 }
 
 function normalizeStatementRow(input) {
+  const isReturn = input.lineType === "return";
   return {
     id: cleanText(input.id),
     sourceSheet: cleanText(input.sourceSheet),
     sourceRow: Number(input.sourceRow) || 0,
     adapterKey: cleanText(input.adapterKey),
-    lineType: input.lineType === "return" ? "return" : "shipment",
+    lineType: isReturn ? "return" : "shipment",
     supplierName: cleanText(input.supplierName),
     documentDate: cleanText(input.documentDate),
     documentNo: cleanText(input.documentNo),
@@ -436,17 +437,23 @@ function normalizeStatementRow(input) {
     productName: cleanText(input.productName),
     spec: cleanText(input.spec),
     color: cleanText(input.color),
-    quantity: nullableNumber(input.quantity),
+    quantity: signedStatementValue(input.quantity, isReturn),
     batchNo: cleanText(input.batchNo),
     rollIndex: Number(input.rollIndex) || null,
     rollLabel: cleanText(input.rollLabel),
-    rollWeightKg: nullableNumber(input.rollWeightKg),
-    totalWeightKg: nullableNumber(input.totalWeightKg),
+    rollWeightKg: signedStatementValue(input.rollWeightKg, isReturn),
+    totalWeightKg: signedStatementValue(input.totalWeightKg, isReturn),
     unitPrice: nullableNumber(input.unitPrice),
-    amount: nullableNumber(input.amount),
-    originalRowAmount: nullableNumber(input.originalRowAmount),
-    originalRowWeightKg: nullableNumber(input.originalRowWeightKg),
+    amount: signedStatementValue(input.amount, isReturn),
+    originalRowAmount: signedStatementValue(input.originalRowAmount, isReturn),
+    originalRowWeightKg: signedStatementValue(input.originalRowWeightKg, isReturn),
   };
+}
+
+function signedStatementValue(value, isReturn) {
+  const number = nullableNumber(value);
+  if (!Number.isFinite(number) || !isReturn || number === 0) return number;
+  return -Math.abs(number);
 }
 
 function hasBusinessValue(row) {

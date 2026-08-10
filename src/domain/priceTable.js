@@ -1,3 +1,9 @@
+export {
+  calculateSpecialBagPricing,
+  getPublicSpecialQuoteRules,
+  specialBagPricingRules,
+} from "../../shared/pricing/specialBagPricing.js";
+
 export const BAG_PRICE_TABLE_VERSION = "bag-price-2026-07-03";
 export const PRINT_PRICE_TABLE_VERSION = "silk-print-price-2026-07-03";
 export const P0_PRICE_SNAPSHOT_VERSION = "P0-PRICE-20260703";

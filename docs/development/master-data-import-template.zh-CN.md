@@ -123,6 +123,8 @@
 
 ## 已有员工账号复核
 
+> 兼容边界：本节保留已导入员工账号的旧式管理员启用 / 临时密码流程，用于现有账号维护；新员工的目标流程已改为下方“手机号本人注册与人员分配”，旧流程不得再被当成默认入职路径。
+
 - 员工导入后仍默认 `accountEnabled=false` / `pending_admin_review`，不会在导入时自动开通登录。
 - `GET /api/master-data/employee-account-reviews` 查询待复核 / 已启用员工账号资料。
 - `POST /api/master-data/employee-account-reviews/{employeeId}/enable` 由管理账号复核启用，写入 `account_enabled`、内部 user 投影和 `master_data_employee_account_review` 操作日志。
@@ -133,6 +135,18 @@
 - `master_data.employee_account.review` 权限目前只开放给管理角色；办公室 / 库房账号无权查看或启用导入员工账号。
 - `master_data.employee_account.password.issue` 权限目前只开放给管理角色；办公室 / 库房账号无权发放或撤销密码。
 - 当前动态登录已具备第一版运行期账号 / token 吊销持久化边界、V1 密码策略、账号锁定 / 密码过期策略和管理端重发 / 撤销入口，但尚不等同于完整生产级身份系统；真实生产部署、现场账号验收、更多真实 Excel 样本兼容和真实数据导入现场验收仍是后续工作。
+
+## 手机号本人注册与人员分配（默认关闭）
+
+- `ERP_PHONE_REGISTRATION_ENABLED` 默认关闭；当前第一轮测试部署继续使用独立的前端预览开关，新注册接口、数据库迁移和短信通道均未在该环境启用。
+- `POST /api/auth/phone-registration/request-code` 只在功能开关打开且真实短信发送器已配置时发送验证码；验证码只保存 HMAC 哈希，5 分钟过期、60 秒限流、最多尝试 5 次。
+- `POST /api/auth/phone-registration/complete` 要求本人提交手机号、验证码和真实姓名。邀请参数只记录来源，不创建账号、不绑定员工、不授予岗位。
+- 验证成功创建 `phone_self_registration` 账号，状态固定为 `pending_assignment`，认证方式为 `phone_otp`，岗位、部门、员工号和业务权限均为空。该账号可以登录查看等待状态，但所有业务 action/button 权限为空。
+- `GET /api/master-data/personnel/registration-reviews` 由人员管理权限查看待分配注册人；手机号在这里是身份核对和人员管理字段，不是可选联系方式。
+- `POST /api/master-data/personnel/registration-reviews/{userId}/assign` 必须显式确认，并把注册账号绑定到一个尚未占用的正式员工档案，分配至少一个岗位；车间岗位还必须分配匹配且已启用的车间 / 机台。
+- 分配动作把账号转为 `active`，权限只从服务端共享岗位目录派生，并写 `personnel_phone_registration_assignment` 操作日志。重复分配、重复手机号、重复员工绑定和未知岗位均失败关闭。
+- `POST /api/auth/phone-login/request-code` 对未知手机号返回相同接受结果但不发送短信，避免通过接口枚举员工手机号；`POST /api/auth/phone-login` 验证一次性验证码并签发运行时会话。
+- 数据库迁移 `0031_phone_registration_and_personnel_assignment.sql` 增加唯一手机号、注册状态 / 来源 / 分配审计字段和验证码挑战表。该迁移目前只进入代码与迁移检查集合，不应用到第一轮测试数据库。
 
 ## 已验证
 

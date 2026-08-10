@@ -8,6 +8,7 @@ export {
   OperationalPanel,
   PanelHeader,
   Segmented,
+  SemanticTag,
   StatusPill,
   Timeline,
   WorkspaceNotice,

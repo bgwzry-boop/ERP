@@ -12,6 +12,7 @@ import {
   getRawMaterialScanOutboundBlocker,
   RAW_MATERIAL_MACHINE_OPTIONS,
 } from "../../domain/rawMaterialScanOutbound.js";
+import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
 
 const MOBILE_VIEWS = [
   ["current", "当前任务", InboxOutlined],
@@ -193,14 +194,13 @@ export function RawMaterialScannerPage({ inbounds = [], onAction, helpers = {} }
         </section>
       ) : null}
 
-      <nav className="mobile-role-bottom-nav" aria-label="原材料经手人手机导航">
-        {MOBILE_VIEWS.map(([key, label, Icon]) => (
-          <button aria-current={mobileView === key ? "page" : undefined} className={mobileView === key ? "active" : ""} key={key} onClick={() => setMobileView(key)} type="button">
-            <Icon aria-hidden="true" /><span>{label}</span>
-            {key === "pending" && availableRolls.length ? <b>{availableRolls.length}</b> : null}
-          </button>
-        ))}
-      </nav>
+      <MobileRoleBottomNavigation
+        ariaLabel="原材料经手人手机导航"
+        badgeCount={(key) => key === "pending" ? availableRolls.length : 0}
+        items={MOBILE_VIEWS}
+        onChange={setMobileView}
+        value={mobileView}
+      />
     </section>
   );
 }

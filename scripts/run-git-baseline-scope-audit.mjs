@@ -69,6 +69,7 @@ const ROOT_DOCUMENTS = new Set([
   "02_问题或报错日志.md",
   "AGENTS.md",
   "DECISIONS.md",
+  "PRODUCT.md",
   "PROJECT_STATUS.md",
   "ROADMAP.md",
   "design.md",

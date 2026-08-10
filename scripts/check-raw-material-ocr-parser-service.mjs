@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
+import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
 import { buildRawMaterialInboundDraftFromOcr } from "../server/services/rawMaterialOcrParserService.mjs";
-import { parseRawMaterialSpec } from "../shared/rawMaterialSpec.js";
+import { RAW_MATERIAL_OCR_LINE_REVIEW_KEYS } from "../shared/rawMaterialOcrLineReview.js";
+import { enrichRawMaterialSpecValues, formatRawMaterialMobileSpec, parseRawMaterialSpec } from "../shared/rawMaterialSpec.js";
 
 assert.deepEqual(
   pickSpec(parseRawMaterialSpec("78克*宽幅80*米数1300米")),
@@ -9,10 +11,54 @@ assert.deepEqual(
 assert.deepEqual(pickSpec(parseRawMaterialSpec("78*090*1500")), ["78*090*1500", 78, 90, 1500, "布料", false]);
 assert.deepEqual(pickSpec(parseRawMaterialSpec("70*78*2000")), ["70*78*2000", 78, 70, 2000, "布料", false]);
 assert.deepEqual(pickSpec(parseRawMaterialSpec("5*78*1500")), ["5*78*1500", 78, 5, 1500, "提手条", false]);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("78*5*1500")), ["78*5*1500", 78, 5, 1500, "提手条", false]);
+assert.deepEqual(
+  pickSpec(parseRawMaterialSpec("78克*5宽*1500米")),
+  ["78克*5宽*1500米", 78, 5, 1500, "提手条", false],
+);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("条")), ["条", 78, 5, 0, "提手条", false]);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("宽5cm")), ["宽5cm", 78, 5, 0, "提手条", false]);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("78*5*1200")), ["78*5*1200", 78, 5, 1200, "提手条", false]);
+assert.equal(parseRawMaterialSpec("宽15cm").materialCategory, "", "15cm must not be misread as a 5cm handle strip");
+const explicitStripWithoutSpec = enrichRawMaterialSpecValues({
+  productName: "无纺布卷料",
+  materialType: "无纺布",
+  supplierColor: "天兰条",
+  spec: "",
+});
+assert.equal(explicitStripWithoutSpec.materialCategory, "提手条");
+assert.equal(explicitStripWithoutSpec.materialType, "提手");
+assert.equal(explicitStripWithoutSpec.productName, "提手条");
+assert.equal(explicitStripWithoutSpec.supplierColor, "天兰");
+assert.equal(explicitStripWithoutSpec.gramWeightGsm, 78, "the strip category uses the factory-standard GSM");
+assert.equal(explicitStripWithoutSpec.widthCm, 5, "the strip category uses the factory-standard width");
+assert.equal(explicitStripWithoutSpec.lengthM, 0, "an omitted strip meter length remains absent without blocking review");
+assert.equal(explicitStripWithoutSpec.spec, "78*5");
+assert.equal(explicitStripWithoutSpec.specNeedsReview, false);
+assert.equal(explicitStripWithoutSpec.specDisplay, "78克 × 5cm");
 assert.equal(parseRawMaterialSpec("70*82*2000").specNeedsReview, true);
 assert.equal(parseRawMaterialSpec("70*82*2000").widthCm, 0, "unlabeled non-standard pairs must not guess gram weight versus width");
 assert.equal(parseRawMaterialSpec("90克*1.6米").gramWeightGsm, 0, "legacy two-part specs must not be guessed into the three-part structure");
 assert.equal(parseRawMaterialSpec("").specNeedsReview, true, "missing specifications must stay pending review");
+assert.equal(formatRawMaterialMobileSpec("70*78*2000"), "78克*70宽*2000米");
+assert.equal(formatRawMaterialMobileSpec("76*78*1500"), "78克*76宽*1500米");
+assert.equal(formatRawMaterialMobileSpec("条"), "78克*5宽");
+
+const fixedStripDefaultsOverrideSupplierNumbers = enrichRawMaterialSpecValues({
+  supplierColor: "米黄条",
+  spec: "80*4*1500",
+});
+assert.equal(fixedStripDefaultsOverrideSupplierNumbers.specRaw, "80*4*1500", "supplier wording remains audit evidence");
+assert.deepEqual(
+  [
+    fixedStripDefaultsOverrideSupplierNumbers.supplierColor,
+    fixedStripDefaultsOverrideSupplierNumbers.gramWeightGsm,
+    fixedStripDefaultsOverrideSupplierNumbers.widthCm,
+    fixedStripDefaultsOverrideSupplierNumbers.lengthM,
+  ],
+  ["米黄", 78, 5, 1500],
+  "factory-authoritative handle-strip GSM and width do not change with omitted or conflicting supplier text",
+);
 
 const cells = [];
 addRow(0, ["供应商", "白侯无纺布有限公司"]);
@@ -47,6 +93,12 @@ assert.equal(draft.unitPrice, 8.2);
 assert.equal(draft.amount, 1230);
 assert.equal(draft.status, "已识别待复核");
 assert.equal(draft.rolls.length, 3);
+assert.deepEqual(
+  draft.rolls.map((roll) => roll.weightKg),
+  [0, 0, 0],
+  "a three-roll detail line with only a line total must not be silently averaged into physical-roll weights",
+);
+assert.equal(draft.rolls.every((roll) => roll.weightReviewStatus === "分卷重量待复核"), true);
 assert.equal(draft.rolls.every((roll) => roll.inventoryStatus === "不可用"), true);
 assert.equal(draft.rolls.every((roll) => roll.labelStatus === "待人工复核"), true);
 assert.equal(draft.ocrLines.length, 1);
@@ -85,12 +137,52 @@ assert.equal(variableWeightDraft.rollCount, 3);
 assert.equal(variableWeightDraft.totalWeightKg, 244.8);
 assert.equal(variableWeightDraft.amount, 2374.56);
 assert.deepEqual(variableWeightDraft.rolls.map((roll) => roll.weightKg), [80.8, 83.6, 80.4]);
+assert.equal(
+  variableWeightDraft.rolls.every((roll) => roll.weightReviewStatus === "OCR重量待人工复核"),
+  true,
+  "complete per-roll OCR weights may populate draft rolls but still require human review",
+);
 assert.deepEqual(variableWeightDraft.rolls.map((roll) => [roll.gramWeightGsm, roll.widthCm, roll.lengthM]), [
   [78, 80, 1300],
   [78, 70, 1300],
   [78, 70, 1300],
 ]);
 assert.equal(variableWeightDraft.ocrLines.some((line) => /合计/.test(line.sourceText)), false);
+
+const mixedBodyAndStripDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-MIXED-BODY-STRIP",
+  ocr: {
+    tables: [{ cells: buildCells([
+      ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+      ["78*80*1300", "豆沙绿", "1", "80.8", "80.8", "9.7", "783.76"],
+      ["78克*5宽*1500米", "大红", "1", "20", "20", "9.7", "194"],
+    ]) }],
+  },
+});
+assert.equal(mixedBodyAndStripDraft.rollCount, 2, "a 5cm strip row must not prevent normal rolls from being recognized");
+assert.deepEqual(
+  mixedBodyAndStripDraft.ocrLines.map((line) => line.values.spec),
+  ["78*80*1300", "78*5*1500"],
+  "handle strips should use the canonical fixed GSM/width while preserving a meter value that really exists",
+);
+assert.deepEqual(mixedBodyAndStripDraft.rolls.map((roll) => roll.widthCm), [80, 5]);
+assert.deepEqual(mixedBodyAndStripDraft.rolls.map((roll) => roll.materialCategory), ["布料", "提手条"]);
+assert.equal(mixedBodyAndStripDraft.rolls.every((roll) => roll.specNeedsReview === false), true);
+
+const fiveWidthCountDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-FIVE-WIDTH-COUNT",
+  ocr: {
+    tables: [{ cells: buildCells([
+      ["序号", "货物名称", "规格型号", "件数", "数量", "单价", "金额", "重量/KG"],
+      ["1", "大红", "5*78*1500", "2", "40", "9.7", "388", "20", "20"],
+    ]) }],
+  },
+});
+assert.equal(fiveWidthCountDraft.rollCount, 2);
+assert.equal(fiveWidthCountDraft.spec, "78*5*1500", "handle-strip specifications use one canonical GSM × width × meters order");
+assert.deepEqual(fiveWidthCountDraft.rolls.map((roll) => roll.weightKg), [20, 20]);
+assert.deepEqual(fiveWidthCountDraft.rolls.map((roll) => roll.widthCm), [5, 5]);
+assert.equal(fiveWidthCountDraft.rolls.every((roll) => roll.materialCategory === "提手条"), true);
 
 const trailingRollWeightsDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-REAL-LAYOUT-B",
@@ -117,9 +209,57 @@ assert.equal(trailingRollWeightsDraft.supplierColor, "黑色");
 assert.deepEqual(trailingRollWeightsDraft.rolls.map((roll) => roll.weightKg), [82, 81.8, 82, 82]);
 assert.equal(trailingRollWeightsDraft.ocrLines.length, 2);
 
+const numericFooterFalsePositiveDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-NUMERIC-FOOTER",
+  ocr: {
+    tables: [{ cells: buildCells([
+      ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+      ["78*70*1500", "大红", "1", "83.4", "83.4", "9.7", "808.98"],
+      ["426928.4"],
+    ]) }],
+  },
+});
+assert.equal(numericFooterFalsePositiveDraft.ocrLines.length, 1, "a numeric footer without material identity or measure must not become an OCR material line");
+assert.equal(numericFooterFalsePositiveDraft.rolls.length, 1, "a rejected numeric footer must not fabricate a physical roll");
+
+const partialRollWeightsDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-PARTIAL-ROLL-WEIGHTS",
+  ocr: {
+    tables: [{ cells: buildCells([
+      ["序号", "货物名称", "规格型号", "件数", "数量", "单价", "金额", "重量/KG"],
+      ["1", "黑色", "78*70*1500", "2", "163.8", "9.3", "1523.34", "82"],
+    ]) }],
+  },
+});
+assert.equal(partialRollWeightsDraft.rollCount, 2);
+assert.deepEqual(
+  partialRollWeightsDraft.rolls.map((roll) => roll.weightKg),
+  [82, 0],
+  "known physical-roll weights are preserved while a missing sibling weight stays zero",
+);
+assert.deepEqual(
+  partialRollWeightsDraft.rolls.map((roll) => roll.weightReviewStatus),
+  ["OCR重量待人工复核", "分卷重量待复核"],
+);
+
+const missingRollWeightsDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-MISSING-ROLL-WEIGHTS",
+  ocr: {
+    tables: [{ cells: buildCells([
+      ["序号", "货物名称", "规格型号", "件数", "数量", "单价", "金额", "重量/KG"],
+      ["1", "黑色", "78*70*1500", "2", "163.8", "9.3", "1523.34"],
+    ]) }],
+  },
+});
+assert.equal(missingRollWeightsDraft.rollCount, 2);
+assert.deepEqual(missingRollWeightsDraft.rolls.map((roll) => roll.weightKg), [0, 0]);
+assert.equal(missingRollWeightsDraft.rolls.every((roll) => roll.weightReviewStatus === "分卷重量待复核"), true);
+
 const oneRollPerRowDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-REAL-LAYOUT-C",
   ocr: {
+    imageWidth: 1200,
+    imageHeight: 900,
     tables: [{ cells: buildCells([
       ["编号", "商品全名", "规格", "单位", "数量", "单价", "金额", "备注"],
       ["11", "本白", "78*70*2000", "公斤", "109.9", "9.1", "1000.09"],
@@ -139,6 +279,31 @@ assert.deepEqual(
 );
 assert.deepEqual(oneRollPerRowDraft.rolls.map((roll) => roll.weightKg), [109.9, 109.8]);
 assert.equal(oneRollPerRowDraft.ocrLines.length, 2);
+assert.deepEqual(oneRollPerRowDraft.ocrLines[0].sourceBounds, {
+  left: 0,
+  top: 40,
+  right: 700,
+  bottom: 80,
+  imageWidth: 1200,
+  imageHeight: 900,
+}, "OCR line review should retain the real source-row crop coordinates");
+assert.equal(oneRollPerRowDraft.ocrImageWidth, 1200);
+assert.equal(oneRollPerRowDraft.ocrImageHeight, 900);
+
+const summaryMustNotCreateRollsDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-SUMMARY-NO-ROLLS",
+  ocr: {
+    tables: [{ cells: buildCells([
+      ["品名", "材质", "颜色", "规格", "卷数", "净重", "单位", "单价", "金额"],
+      ["无纺布", "无纺布", "米白", "90*80*1300", "1", "80", "kg", "8.2", "656"],
+      ["合计", "4", "320", "2624"],
+    ]) }],
+  },
+});
+assert.equal(summaryMustNotCreateRollsDraft.rollCount, 1, "physical-roll count must come from detail rows");
+assert.equal(summaryMustNotCreateRollsDraft.totalWeightKg, 320, "the whole-note total remains available only as a summary fact");
+assert.equal(summaryMustNotCreateRollsDraft.rolls.length, 1, "a whole-note count must never fabricate missing physical rolls");
+assert.deepEqual(summaryMustNotCreateRollsDraft.rolls.map((roll) => roll.weightKg), [80]);
 
 const implausibleCountDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-COUNT-GUARD",
@@ -177,6 +342,235 @@ assert.equal(handleStripDraft.materialType, "提手");
 assert.equal(handleStripDraft.productName, "提手条");
 assert.equal(handleStripDraft.materialCategory, "提手条");
 
+const supplierWrittenStripDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-SUPPLIER-WRITTEN-STRIP",
+  ocr: { tables: [{ cells: buildCells([
+    ["编号", "商品全名", "规格", "单位", "数量", "单价", "金额", "备注"],
+    ["17", "大红", "条", "公斤", "74", "9.7", "717.8", ""],
+  ]) }] },
+});
+assert.equal(supplierWrittenStripDraft.materialCategory, "提手条");
+assert.equal(supplierWrittenStripDraft.materialType, "提手");
+assert.equal(supplierWrittenStripDraft.productName, "提手条");
+assert.equal(supplierWrittenStripDraft.spec, "78*5");
+assert.equal(supplierWrittenStripDraft.gramWeightGsm, 78, "supplier text 条 applies the fixed handle-strip GSM");
+assert.equal(supplierWrittenStripDraft.widthCm, 5, "supplier text 条 applies the fixed handle-strip width");
+assert.equal(supplierWrittenStripDraft.lengthM, 0, "supplier text 条 keeps an omitted meter length absent");
+assert.equal(supplierWrittenStripDraft.specNeedsReview, false);
+assert.equal(supplierWrittenStripDraft.rolls[0].materialCategory, "提手条");
+
+const colorSuffixStripDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-COLOR-SUFFIX-STRIP",
+  ocr: { tables: [{ cells: buildCells([
+    ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+    ["天兰条", "1", "68", "68", "9.8"],
+  ]) }] },
+});
+assert.equal(colorSuffixStripDraft.materialCategory, "提手条");
+assert.equal(colorSuffixStripDraft.supplierColor, "天兰");
+assert.equal(colorSuffixStripDraft.gramWeightGsm, 78);
+assert.equal(colorSuffixStripDraft.widthCm, 5);
+assert.equal(colorSuffixStripDraft.lengthM, 0);
+assert.equal(colorSuffixStripDraft.specDisplay, "78克 × 5cm");
+assert.equal(colorSuffixStripDraft.specNeedsReview, false);
+
+const actualRenyiStripRowsDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RENYI-STRIP-ROWS",
+  ocr: { tables: [{ cells: buildCells([
+    ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+    ["米黄条", "2", "88", "100", "0"],
+    ["咖啡条", "1", "93.5", "281.5", "10.3", "2899.45"],
+  ]) }] },
+});
+assert.deepEqual(actualRenyiStripRowsDraft.ocrLines.map((line) => line.values.supplierColor), ["米黄", "咖啡"]);
+assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.materialCategory === "提手条"), true);
+assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.gramWeightGsm === 78), true);
+assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.widthCm === 5), true);
+assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.lengthM === 0), true);
+assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.spec === "78*5"), true);
+assert.deepEqual(actualRenyiStripRowsDraft.rolls.map((roll) => roll.weightKg), [88, 100, 93.5]);
+
+const daxiangMultiWeightDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-DAXIANG-MULTI-WEIGHT",
+  ocr: { tables: [{ cells: buildCells([
+    ["号", "货物名称", "规格型号", "件数", "数量", "单价", "金额", "重量/KG"],
+    ["1", "2", "3", "4", "5"],
+    ["消光白", "78*90*1500", "2", "209.8", "9.70", "2035.06", "105.4", "104.4"],
+    ["消光白", "78*76*1500", "2", "185", "9.70", "1794.5", "92", "93"],
+    ["消光白", "78*70*1500", "4", "334", "9.70", "3239.8", "83.6", "84", "82.8", "83.6"],
+    ["合计:", "8", "728.8", "7069.36"],
+  ]) }] },
+});
+assert.equal(daxiangMultiWeightDraft.rollCount, 8, "Daxiang piece counts must not be replaced by the 78 GSM value");
+assert.equal(daxiangMultiWeightDraft.totalWeightKg, 728.8, "Daxiang total quantity is the document weight");
+assert.equal(daxiangMultiWeightDraft.amount, 7069.36, "Daxiang amount must remain an amount instead of becoming weight");
+assert.deepEqual(daxiangMultiWeightDraft.ocrLines.map((line) => line.values.spec), ["78*90*1500", "78*76*1500", "78*70*1500"]);
+assert.deepEqual(daxiangMultiWeightDraft.ocrLines.map((line) => line.values.rollCount), [2, 2, 4]);
+assert.deepEqual(daxiangMultiWeightDraft.rolls.map((roll) => roll.weightKg), [105.4, 104.4, 92, 93, 83.6, 84, 82.8, 83.6]);
+
+const daxiangMultilineDebtFooterDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-DAXIANG-MULTILINE-DEBT-FOOTER",
+  knownSupplierNames: ["宁晋县达翔塑料制品有限公司"],
+  ocr: { tables: [{ cells: buildCells([
+    ["宁晋县达翔塑料制品有限公司销货单"],
+    ["号 货物名称", "规格型号", "件数", "数量", "单价", "金额", "重量/KG"],
+    ["浅紫", "78*70*1500", "4", "331.6", "10.1", "3349.16", "81.6", "82.4", "82.2", "85.4"],
+    ["合计:", "4", "331.6", "3349.16"],
+    ["期欠款:\n1197614.08\n本单金额:\n3349.16\n本单收款:\n0\n累计欠款:\n1200963.24"],
+    ["期欠款:", "1197614.08"],
+    ["本单金额:", "3349.16"],
+  ]) }] },
+});
+assert.equal(daxiangMultilineDebtFooterDraft.amount, 3349.16, "a multiline debt footer must use 本单金额, never the previous or cumulative balance");
+assert.equal(daxiangMultilineDebtFooterDraft.ocrDeclaredAmount, 3349.16);
+assert.deepEqual(daxiangMultilineDebtFooterDraft.ocrReconciliationIssues, []);
+const daxiangMultilineDebtFooterReviewed = applyRawMaterialInboundAction({
+  workspace: { users: [{ id: "U-OFFICE-A", displayName: "办公室A" }] },
+  inbounds: [daxiangMultilineDebtFooterDraft],
+  inboundId: daxiangMultilineDebtFooterDraft.id,
+  action: "review",
+  operatorId: "U-OFFICE-A",
+  operatorName: "办公室A",
+  body: {
+    expectedRevision: daxiangMultilineDebtFooterDraft.revision,
+    now: "2026-08-03T10:00:00.000Z",
+    reviewFields: Object.fromEntries(daxiangMultilineDebtFooterDraft.ocrReviewFields.map((field) => [field.key, field.value])),
+    lineReviews: daxiangMultilineDebtFooterDraft.ocrLines.map((line) => ({
+      lineId: line.lineId,
+      values: Object.fromEntries(RAW_MATERIAL_OCR_LINE_REVIEW_KEYS.map((key) => [key, line.values[key]])),
+    })),
+  },
+});
+assert.equal(daxiangMultilineDebtFooterReviewed.inbound.status, "已复核待打印标签", "the exact Daxiang debt-footer regression must complete the review write boundary");
+assert.equal(daxiangMultilineDebtFooterReviewed.inbound.amount, 3349.16);
+assert.equal(daxiangMultilineDebtFooterReviewed.inbound.rolls.length, 4);
+assert.equal(daxiangMultilineDebtFooterReviewed.inbound.rolls.every((roll) => roll.labelStatus === "待打印标签" && roll.inventoryStatus === "不可用"), true);
+
+const tengshengSeparatedNumberDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-TENGSHENG-DOC-NO",
+  knownSupplierNames: ["宁晋县腾胜无纺布有限公司"],
+  ocr: { tables: [
+    { cells: buildCells([["宁晋县腾胜无纺布有限公司销货单"]]) },
+    { cells: buildCells([["单据编号:"], ["XS-2026-08-02-408"]]) },
+    { cells: buildCells([
+      ["编号", "商品全名", "规格", "单位", "数量", "单价", "金额", "备注"],
+      ["12", "梅兰", "78*90*1500", "公斤", "107.9", "9.7", "1046.63", ""],
+      ["12", "梅兰", "78*90*1500", "公斤", "107.3", "9.7", "1040.81", ""],
+    ]) },
+    { cells: buildCells([["期欠款", "460680.52", "本单金额:", "19329.19\n累计欠款:", "480009.71"]]) },
+  ] },
+});
+assert.equal(tengshengSeparatedNumberDraft.deliveryNoteNo, "XS-2026-08-02-408", "a generic 编号 table header must not replace the separated document number");
+assert.equal(tengshengSeparatedNumberDraft.ocrDeclaredAmount, 19329.19);
+assert.equal(tengshengSeparatedNumberDraft.ocrCalculatedLineAmount, 2087.44);
+assert.equal(tengshengSeparatedNumberDraft.ocrReconciliationIssues.length, 1, "declared and recognized line amounts must fail closed instead of silently choosing one");
+
+const renyiSignedReturnDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RENYI-SIGNED-RETURN",
+  knownSupplierNames: ["人意无纺布有限公司"],
+  ocr: { tables: [{ cells: buildCells([
+    ["人意无纺布有限公司销售单"],
+    ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+    ["退带色布", "4", "-4.2", "-24.2", "-73.7", "-5.2", "-107.3", "9.6", "-1030.08"],
+    ["退带色条", "1", "-14.5", "-14.5", "9.8", "-142.1"],
+    ["合计", "5", "负壹仟壹佰柒拾贰.壹捌", "-1172.18"],
+  ]) }] },
+});
+assert.equal(renyiSignedReturnDraft.documentDirection, "supplier_return");
+assert.equal(renyiSignedReturnDraft.documentTypeLabel, "退货单");
+assert.equal(renyiSignedReturnDraft.supplierOcrProfileKey, "renyi_zhengheng");
+assert.equal(renyiSignedReturnDraft.documentPriceReferenceOnly, true, "人意/振恒 ticket prices are source evidence, not authoritative actual prices");
+assert.equal(renyiSignedReturnDraft.priceAuthority, "supplier_document_reference_only");
+assert.equal(renyiSignedReturnDraft.rollCount, 5);
+assert.equal(renyiSignedReturnDraft.totalWeightKg, -121.8);
+assert.equal(renyiSignedReturnDraft.amount, -1172.18);
+assert.deepEqual(renyiSignedReturnDraft.ocrLines.map((line) => line.values.rollWeightsKg), [
+  [-4.2, -24.2, -73.7, -5.2],
+  [-14.5],
+]);
+assert.equal(renyiSignedReturnDraft.rolls.length, 0, "supplier returns must never create inbound roll or label candidates");
+
+const renyiReferencePriceDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RENYI-REFERENCE-PRICE",
+  knownSupplierNames: ["振恒"],
+  ocr: { tables: [{ cells: buildCells([
+    ["人意无纺布销售单"],
+    ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+    ["78*80*1500", "大黄", "1", "100", "100", "1", "100"],
+    ["合计", "1", "100", "999"],
+  ]) }] },
+});
+assert.equal(renyiReferencePriceDraft.supplierOcrProfileKey, "renyi_zhengheng");
+assert.equal(renyiReferencePriceDraft.documentPriceReferenceOnly, true);
+assert.deepEqual(renyiReferencePriceDraft.ocrReconciliationIssues, [], "人意/振恒票面价格差异 is retained as evidence but does not block raw-material review");
+
+const beichenExplicitReturnDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-BEICHEN-EXPLICIT-RETURN",
+  ocr: { tables: [
+    { cells: buildCells([["河北北陈无纺布有限公司退货单"]]) },
+    { cells: buildCells([
+      ["行次", "货物名称", "规格型号", "件数", "数量", "单价", "金额", "重量/KG"],
+      ["1", "雾霾蓝", "78*80*1500", "1", "96.2", "10.40", "1000.48", "96.2"],
+      ["合计:", "1", "96.2", "1000.48"],
+    ]) },
+  ] },
+});
+assert.equal(beichenExplicitReturnDraft.supplierName, "河北北陈无纺布有限公司");
+assert.equal(beichenExplicitReturnDraft.supplierOcrProfileKey, "daxiang_beichen");
+assert.equal(beichenExplicitReturnDraft.documentDirection, "supplier_return");
+assert.equal(beichenExplicitReturnDraft.totalWeightKg, -96.2, "an explicit return title gives positive printed magnitudes a negative business direction");
+assert.equal(beichenExplicitReturnDraft.amount, -1000.48);
+assert.deepEqual(beichenExplicitReturnDraft.ocrLines[0].values.rollWeightsKg, [-96.2]);
+assert.equal(beichenExplicitReturnDraft.rolls.length, 0);
+
+const hongshangNegativeReturnDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-HONGSHANG-NEGATIVE-RETURN",
+  ocr: { tables: [{ cells: buildCells([
+    ["河北宏尚无纺布有限公司销货单"],
+    ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+    ["布", "彩色", "1", "-84.4", "-84.4", "10.1", "-852.44"],
+    ["布", "废布", "1", "-13", "-13", "10.1", "-131.3"],
+    ["78*90*1300", "梦幻紫", "1", "-92.8", "-92.8", "10.1", "-937.28"],
+    ["合计", "3", "-190.2", "-1921.02"],
+    ["退货单"],
+  ]) }] },
+});
+assert.equal(hongshangNegativeReturnDraft.documentDirection, "supplier_return");
+assert.equal(hongshangNegativeReturnDraft.supplierOcrProfileKey, "hongshang_baihou");
+assert.equal(hongshangNegativeReturnDraft.rollCount, 3);
+assert.equal(hongshangNegativeReturnDraft.totalWeightKg, -190.2);
+assert.equal(hongshangNegativeReturnDraft.amount, -1921.02);
+assert.deepEqual(hongshangNegativeReturnDraft.ocrLines.map((line) => line.values.totalWeightKg), [-84.4, -13, -92.8]);
+assert.equal(hongshangNegativeReturnDraft.rolls.length, 0);
+
+const renyiOneMeterWidthDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RENYI-ONE-METER-WIDTH",
+  knownSupplierNames: ["人意无纺布有限公司"],
+  ocr: { tables: [{ cells: buildCells([
+    ["人意无纺布有限公司销售单"],
+    ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+    ["78*1*1500", "大黄", "1", "120.8", "120.8", "10.1", "1220.08"],
+    ["78*1*1500", "大红", "2", "119.8", "118.3", "238.1", "10.1", "2404.81"],
+  ]) }] },
+});
+assert.deepEqual(renyiOneMeterWidthDraft.ocrLines.map((line) => line.values.spec), ["78*100*1500", "78*100*1500"]);
+assert.deepEqual(renyiOneMeterWidthDraft.ocrLines.map((line) => line.values.specRaw), ["78*1*1500", "78*1*1500"]);
+assert.equal(renyiOneMeterWidthDraft.ocrLines.every((line) => line.values.widthCm === 100), true);
+assert.match(renyiOneMeterWidthDraft.ocrLines[0].values.specNormalizationReason, /人意单据/);
+
+const otherSupplierOneWidthDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-OTHER-SUPPLIER-ONE-WIDTH",
+  knownSupplierNames: ["其他无纺布有限公司"],
+  ocr: { tables: [{ cells: buildCells([
+    ["其他无纺布有限公司销售单"],
+    ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+    ["78*1*1500", "测试色", "1", "100", "100", "10", "1000"],
+  ]) }] },
+});
+assert.equal(otherSupplierOneWidthDraft.ocrLines[0].values.widthCm, 1, "the 人意 1米 adapter must not contaminate other suppliers");
+assert.equal(otherSupplierOneWidthDraft.supplierOcrProfileKey, "generic");
+assert.equal(otherSupplierOneWidthDraft.documentPriceReferenceOnly, false);
+
 console.log("Raw-material OCR parser checks passed: table fields, supplier identity, roll expansion, review evidence, and unavailable-inventory defaults are covered.");
 
 function addRow(row, values) {
@@ -198,6 +592,12 @@ function buildCells(rows) {
     rowBr: row,
     text,
     confidence: 96,
+    polygon: [
+      { x: column * 100, y: row * 40 },
+      { x: (column + 1) * 100, y: row * 40 },
+      { x: (column + 1) * 100, y: (row + 1) * 40 },
+      { x: column * 100, y: (row + 1) * 40 },
+    ],
   })));
 }
 

@@ -306,7 +306,9 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 
 配置完整时，附件上传会生成 `storageProvider=object_storage`、`storageKey` 和 `contentDigest`；`GET /api/attachments/{attachmentId}/access-url` 会返回直连对象存储的短期签名 GET URL。配置缺失时，对象存储模式会显式返回未配置占位，不会假装写入成功。
 
-附件上传会先按业务用途做基础 V1 校验：付款截图只允许图片且不超过 8MB；送达水印、签收照片和定制成品图只允许图片且不超过 12MB；客户确认附件允许图片或 PDF 且不超过 12MB；其它附件默认限制为图片、PDF、表格或文档且不超过 15MB。该校验不替代真实对象存储 live 验证、病毒扫描、图片质量算法或断点续传。
+附件上传按统一用途规则校验：手机拍照原图、付款截图、送达水印、签收照片、成品图、维修照片、客户确认和库存修正凭证单文件最大 30MB；普通 PDF、表格、Word 等文档证据单文件最大 50MB；印刷定稿支持 PSD、CDR、AI、PDF、PNG、JPG、JPEG，单文件最大 200MB，并使用二进制 / 对象存储上传，不放入 Base64 JSON。原材料送货单照片同样接受 30MB 原图，浏览器会自动生成不超过 7.5MB 的 OCR 识别副本，以满足第三方 OCR Base64 编码不超过 10MB 的限制。该校验不替代真实对象存储 live 验证、病毒扫描、图片质量算法或断点续传。
+
+完整的用途、类型、上限和接口对照见 `docs/development/attachment-upload-limits.zh-CN.md`。
 
 附件对象存储可通过 `GET /api/attachments/storage-diagnostics` 做 V1 运行时基础预检。接口复用 `attachment.view` 权限，会写入小型诊断对象、读回内容、校验 sha256 摘要并尝试清理；响应包含 `storageKind`、`configured`、`missingConfigFields`、`writeOk`、`readOk`、`digestOk`、`cleanupOk` 和 `secretFieldsExposed=false`。`GET /api/attachments/v1-readiness` 是更高一层的 V1 留档上线门禁：默认本地 `local_fs` 只能证明读写可用，不自动算生产留档 ready；只有真实 `object_storage` 诊断通过，或服务端显式配置本地文件留档已被 V1 接受，门禁才会通过。两个接口都不会登记业务附件，也不暴露 access key、secret、authorization 或 session token；它们仍不替代真实 OSS/S3/COS bucket 凭证管理、网络策略、生命周期规则、病毒扫描、断点续传、备份巡检和现场附件验收。
 
@@ -430,7 +432,7 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 - 浏览器端会话 token 仅存 `sessionStorage`，不再写入 `localStorage`；认证初始化会清理旧 `erp.seedAuthSession.v1` 本地持久化键。该措施不替代 HttpOnly Cookie、refresh token、服务端会话撤销或生产身份提供方。
 - 生产启动必须使用 `ERP_AUTH_MODE=strict`（或 `NODE_ENV=production`）和非空 `ERP_AUTH_SECRET`；缺少密钥时 API 拒绝启动。严格模式下，除 `GET /api/health` 和 `POST /api/auth/login` 外，业务接口必须携带已验签的 Bearer session。
 - 严格模式禁用 seed 账号登录、`Authorization: Bearer seed:<userId>`、`x-erp-user-id`、`x-erp-action-permissions` 和未传身份时默认 `U-OFFICE-A` 的兼容行为。前述机制仅能在非严格的本地原型 / 回归模式使用。
-- 严格模式只对 `ERP_CORS_ALLOWED_ORIGINS` 中的来源返回 CORS 许可；JSON body 默认最多 `24 MiB`，可用 `ERP_API_MAX_JSON_BODY_BYTES` 调整。附件用途本身的大小校验仍是第二道业务限制。
+- 严格模式只对 `ERP_CORS_ALLOWED_ORIGINS` 中的来源返回 CORS 许可；JSON body 默认最多 `72 MiB`，可用 `ERP_API_MAX_JSON_BODY_BYTES` 调整，以容纳 Base64 编码后的 50 MiB 普通凭据。200 MiB 印刷定稿必须走二进制/对象存储上传，不得塞进 JSON；附件用途本身的大小校验仍是第二道业务限制。
 - `scripts/check-api-security-boundary.mjs` 覆盖严格模式密钥必填、伪造 Header 拒绝、seed 身份禁用、CORS 白名单和 JSON 超限返回 `413 REQUEST_BODY_TOO_LARGE`。
 - `POST /api/auth/login` 在 production 只接受已启用的正式导入员工账号，返回独立 `erp-runtime-session-v1`；非严格 demo/test 仍兼容 `office.a`、`warehouse.a` 等 seed 登录。签名 token 默认 8 小时有效。
 - `GET /api/auth/me` 接受已验签的 runtime session；非严格 demo/test 也接受 seed session。未登录、错误密码、类型与账号不匹配或无效 token 返回 `401`。

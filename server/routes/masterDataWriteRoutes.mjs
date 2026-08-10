@@ -12,6 +12,7 @@ export async function handleMasterDataWriteRoutes({
   masterDataImportCommandService,
   masterDataEmployeeAccountCommandService,
   masterDataMachineCommandService,
+  phoneIdentityCommandService,
   sendCommandResponse,
 }) {
   if (!["POST", "PATCH"].includes(method)) return false;
@@ -73,6 +74,21 @@ export async function handleMasterDataWriteRoutes({
       operatorId: getPermissionOperatorId(permissionContext, authContext, directRoute.fallbackOperatorId),
     });
     sendCommandResponse(response, result, directRoute.responseOptions);
+    return true;
+  }
+
+  const registrationAssignmentMatch = url.pathname.match(
+    /^\/api\/master-data\/personnel\/registration-reviews\/([^/]+)\/assign$/,
+  );
+  if (registrationAssignmentMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.reviewMasterDataEmployeeAccount)) return true;
+    const result = await phoneIdentityCommandService.assignRegistration({
+      workspace,
+      userId: decodeURIComponent(registrationAssignmentMatch[1]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
+    });
+    sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
     return true;
   }
 

@@ -12,6 +12,7 @@ export async function handleMasterDataReadRoutes({
   buildEmployeeAssignmentOptions,
   listMasterDataMachines,
   masterDataImportCommandService,
+  phoneIdentityCommandService,
   sendNotFound,
   sendBusinessError,
   sendFile,
@@ -70,6 +71,17 @@ export async function handleMasterDataReadRoutes({
           keyword: url.searchParams.get("keyword"),
           status: url.searchParams.get("status"),
           workshop: url.searchParams.get("workshop"),
+        }),
+    },
+    "/api/master-data/personnel/registration-reviews": {
+      permission: writeActionPermissions.reviewMasterDataEmployeeAccount,
+      list: () =>
+        phoneIdentityCommandService.listRegistrationReviews({
+          workspace,
+          filters: {
+            status: url.searchParams.get("status"),
+            keyword: url.searchParams.get("keyword"),
+          },
         }),
     },
   };

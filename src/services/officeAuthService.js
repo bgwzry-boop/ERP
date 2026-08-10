@@ -14,6 +14,22 @@ const legacySeedAuthStorageKey = "erp.seedAuthSession.v1";
 const defaultApiBaseUrl = "http://127.0.0.1:8787/api";
 
 export function isOfficeApiServerRequired(options = {}) {
+  const stagingAuthBypass =
+    options.stagingAuthBypass === true ||
+    String(import.meta.env?.VITE_ERP_STAGING_AUTH_BYPASS ?? "").trim().toLowerCase() === "true";
+  if (stagingAuthBypass) return false;
+  const runtimeMode = String(
+    options.runtimeMode ?? import.meta.env?.VITE_ERP_RUNTIME_MODE ?? import.meta.env?.VITE_ERP_OPERATION_MODE ?? "",
+  )
+    .trim()
+    .toLowerCase();
+  if (import.meta.env?.PROD === true || ["production", "strict", "server_required"].includes(runtimeMode)) return true;
+  if (options.serverRequired === true) return true;
+  if (options.serverRequired === false) return false;
+  return false;
+}
+
+export function isOfficeSharedDataServerRequired(options = {}) {
   const runtimeMode = String(
     options.runtimeMode ?? import.meta.env?.VITE_ERP_RUNTIME_MODE ?? import.meta.env?.VITE_ERP_OPERATION_MODE ?? "",
   )
@@ -28,7 +44,7 @@ export function isOfficeApiServerRequired(options = {}) {
 export function createInitialAuthState(options = {}) {
   return isOfficeApiServerRequired(options)
     ? createServerRequiredAuthState("initial_login_required")
-    : createLocalSeedAuthState(options.defaultUserId ?? defaultSeedUserId, "initial_load");
+    : createLocalSeedAuthState(resolveLocalPreviewUserId(options), "initial_load");
 }
 
 export function createServerRequiredAuthState(reason = "login_required", error = null) {
@@ -63,9 +79,12 @@ export async function initializeSeedAuth(options = {}) {
   const storage = options.storage ?? getBrowserStorage();
   const storedSession = readStoredSeedSession(storage);
   if (!storedSession?.accessToken) {
+    if (isStagingAuthBypassEnabled(options)) {
+      return loginSeedUser(resolveLocalPreviewUserId(options), options);
+    }
     return isOfficeApiServerRequired(options)
       ? createServerRequiredAuthState("no_stored_session")
-      : createLocalSeedAuthState(options.defaultUserId ?? defaultSeedUserId, "no_stored_session");
+      : createLocalSeedAuthState(resolveLocalPreviewUserId(options), "no_stored_session");
   }
 
   try {
@@ -80,6 +99,10 @@ export async function initializeSeedAuth(options = {}) {
       if (isOfficeApiServerRequired(options)) {
         return createServerRequiredAuthState(json?.code ?? "stored_session_invalid", json);
       }
+      if (isStagingAuthBypassEnabled(options)) {
+        clearStoredSeedSession(storage);
+        return loginSeedUser(resolveLocalPreviewUserId(options), options);
+      }
       return withAuthError(
         createLocalSeedAuthState(storedSession.userId ?? defaultSeedUserId, json?.code ?? "stored_session_invalid"),
         json,
@@ -90,6 +113,10 @@ export async function initializeSeedAuth(options = {}) {
       storedSession.sessionType === "runtime"
       && (json?.authenticated !== true || !isValidRuntimeAuthResponse(json, storedSession.userId))
     ) {
+      if (isStagingAuthBypassEnabled(options)) {
+        clearStoredSeedSession(storage);
+        return loginSeedUser(resolveLocalPreviewUserId(options), options);
+      }
       return createServerRequiredAuthState("stored_session_response_invalid", {
         code: "AUTH_RESTORE_RESPONSE_INVALID",
         message: "正式登录会话恢复响应无效，请重新登录。",
@@ -106,6 +133,21 @@ export async function initializeSeedAuth(options = {}) {
       error,
     );
   }
+}
+
+function resolveLocalPreviewUserId(options = {}) {
+  return String(
+    options.defaultUserId ??
+      import.meta.env?.VITE_ERP_STAGING_PREVIEW_USER_ID ??
+      defaultSeedUserId,
+  ).trim() || defaultSeedUserId;
+}
+
+function isStagingAuthBypassEnabled(options = {}) {
+  return (
+    options.stagingAuthBypass === true ||
+    String(import.meta.env?.VITE_ERP_STAGING_AUTH_BYPASS ?? "").trim().toLowerCase() === "true"
+  );
 }
 
 export async function loginSeedUser(userId = defaultSeedUserId, options = {}) {

@@ -1,5 +1,12 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import {
+  normalizeRawMaterialOcrAngle,
+  orientRawMaterialOcrSourceBounds,
+  resolveRawMaterialOcrSourceFrame,
+  shouldRotateRawMaterialSourcePreview,
+  tightenRawMaterialOcrSourceRowBounds,
+} from "../shared/rawMaterialOcrSourceCrop.js";
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const rawMaterialControllerSource = readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
@@ -12,8 +19,9 @@ const officePageEntrySource = readFileSync(new URL("../src/pages/office/index.js
 const rawMaterialPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
 const rawMaterialWorkbenchSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundWorkbench.jsx", import.meta.url), "utf8");
 const rawMaterialMobileSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileReceiving.jsx", import.meta.url), "utf8");
+const rawMaterialMobileOcrReviewSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileOcrReview.jsx", import.meta.url), "utf8");
 const rawMaterialPurchaseSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialPurchasePanel.jsx", import.meta.url), "utf8");
-const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}\n${rawMaterialWorkbenchSource}\n${rawMaterialMobileSource}`;
+const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}\n${rawMaterialWorkbenchSource}\n${rawMaterialMobileSource}\n${rawMaterialMobileOcrReviewSource}`;
 const rawMaterialListStateSource = readFileSync(new URL("../src/domain/rawMaterialInboundListState.js", import.meta.url), "utf8");
 const permissionSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
@@ -73,26 +81,187 @@ assertIncludes(officePageSource, "相册 / PDF", "page should retain gallery and
 assertIncludes(rawMaterialPageSource, "识别成功：", "successful mobile OCR should expose an inline draft result");
 assertIncludes(rawMaterialPageSource, 'setActiveTab("入库单")', "successful OCR should return to the inbound list view");
 assertIncludes(rawMaterialPageSource, 'setSelectedId(inbound.id)', "successful OCR should select the generated draft");
-assertIncludes(rawMaterialMobileSource, "原材料收货", "phone layout should expose a dedicated receiving title");
+assertIncludes(rawMaterialPageSource, "setMobileDetailOpen(true)", "successful mobile OCR should open the focused verification view automatically");
+assertIncludes(rawMaterialPageSource, "const updatedInbound = await onAction?.(\"复核送货单\"", "mobile OCR review should await the authoritative review result");
+assertIncludes(rawMaterialPageSource, "if (!updatedInbound?.id) {", "failed mobile OCR review should remain on the review page");
+assertIncludes(rawMaterialPageSource, "setOcrReviewSubmitError", "failed mobile OCR review should explain that the server did not save it");
+assertIncludes(rawMaterialPageSource, "meta.error || ocrReviewSubmitError", "mobile OCR review should show the backend validation reason instead of masking it with a generic save failure");
+assertIncludes(rawMaterialPageSource, "setMobileDetailOpen(false)", "successful mobile OCR review should return to the receiving flow");
+assertIncludes(rawMaterialPageSource, "mobileOcrReviewOpen ? \"is-mobile-detail-open\"", "mobile detail mode should remain scoped to an active OCR review");
+assertIncludes(rawMaterialPageSource, "RawMaterialMobileOcrReview", "raw-material page should mount the focused mobile OCR review flow");
+assertIncludes(rawMaterialMobileSource, "录原材料", "phone layout should expose the approved field-task title");
 assertIncludes(rawMaterialMobileSource, "拍单", "phone layout should expose the photo step");
 assertIncludes(rawMaterialMobileSource, "核对", "phone layout should expose the review step");
 assertIncludes(rawMaterialMobileSource, "打印", "phone layout should expose the print step");
 assertIncludes(rawMaterialMobileSource, "贴标", "phone layout should expose the attachment step");
+for (const [label, icon] of [
+  ["拍单", "CameraOutlined"],
+  ["核对", "CheckCircleOutlined"],
+  ["打印", "PrinterOutlined"],
+  ["贴标", "TagOutlined"],
+]) {
+  assertIncludes(rawMaterialMobileSource, `["${label}", ${icon}]`, `phone receiving step ${label} should retain its approved icon`);
+}
+assertExcludes(rawMaterialMobileSource, "TagsOutlined", "phone attachment actions should avoid the ambiguous overlapping-tags icon");
+assertIncludes(rawMaterialMobileSource, '<span><Icon aria-hidden="true" /></span>', "phone progress icons should remain decorative for assistive technology");
+assertIncludes(rawMaterialMobileSource, "逐卷无序贴标", "phone label verification should expose one unordered all-roll page");
+assertIncludes(rawMaterialMobileSource, "确认已贴", "each printable roll should expose an explicit success action");
+assertIncludes(rawMaterialMobileSource, "一键确认", "phone label verification should expose the approved batch attachment action");
+assertIncludes(rawMaterialMobileSource, "标签/实物不符", "each printable roll should expose an explicit mismatch action");
+assertIncludes(rawMaterialMobileSource, "只隔离这一卷", "a mismatched roll should not block correct rolls");
+assertIncludes(rawMaterialMobileSource, "张不同卷标", "print copy should explain that one unique label is printed per roll");
+assertIncludes(rawMaterialMobileSource, "raw-material-mobile-print-success", "normal print completion should use a compact modal on the print page");
+assertIncludes(rawMaterialMobileSource, "开始贴标", "normal print completion should expose one primary next action");
+assertIncludes(rawMaterialMobileSource, "mobilePrinterReady", "mobile printing should fail closed until a selected device passes field acceptance");
+for (const label of ["颜色", "规格 / 宽幅", "本卷重量 kg"]) {
+  assertIncludes(rawMaterialMobileOcrReviewSource, label, `focused mobile OCR review should expose ${label} on the first screen`);
+}
+assertIncludes(rawMaterialMobileOcrReviewSource, "核对送货单", "mobile OCR review should use the approved delivery-note verification title");
+assertIncludes(rawMaterialMobileOcrReviewSource, "核对退货单", "supplier returns should reuse the approved mobile review anatomy with return-specific copy");
+assertIncludes(rawMaterialMobileOcrReviewSource, "documentDirection", "mobile OCR review should project and validate rows with the server-authoritative document direction");
+assertIncludes(rawMaterialMobileOcrReviewSource, "原单未写规格", "supplier returns should keep absent specifications visible without inventing or blocking them");
+assertIncludes(rawMaterialMobileOcrReviewSource, "Math.abs(Number(roll.weightKg))", "supplier return rows should accept and preserve signed non-zero weights");
+assertIncludes(rawMaterialPageSource, 'setMobileStage(isSupplierReturn ? "return-complete" : "print")', "reviewed supplier returns must terminate before printing and inventory");
+assertIncludes(rawMaterialMobileSource, "退货单已复核", "the mobile receiving flow should expose a terminal reviewed-return result");
+assertIncludes(rawMaterialMobileSource, "不生成进货卷码、标签和库存；作为负数厂家对账依据", "the terminal return state should separate no-inbound effects from negative supplier reconciliation");
+assertIncludes(rawMaterialMobileOcrReviewSource, "放大查看", "mobile OCR review should keep the real delivery note as the evidence anchor");
+assertIncludes(rawMaterialMobileOcrReviewSource, "逐卷核对", "mobile OCR review should start with an all-roll verification ledger");
+assertIncludes(rawMaterialMobileOcrReviewSource, "projectRawMaterialOcrPhysicalRollReviewRows", "mobile OCR review should expand source lines into one row per physical roll");
+assertIncludes(rawMaterialMobileOcrReviewSource, "raw-material-mobile-review-line-summary", "every physical roll should expose color, specification, its own weight and status in the overview");
+assertIncludes(rawMaterialMobileOcrReviewSource, "raw-material-mobile-review-source-crop", "every physical roll should retain its source-row evidence when coordinates are available");
+assertExcludes(rawMaterialMobileOcrReviewSource, "厂家一行有多卷时会先拆开", "the default mobile ledger should not repeat routine instructional prose");
+assertIncludes(rawMaterialMobileOcrReviewSource, "formatRawMaterialMobileSpec", "mobile OCR review should use the shared 克重*宽度*米数 display grammar");
+assertIncludes(rawMaterialMobileOcrReviewSource, "厂家行总重 kg（不进入卷标）", "source-line totals should remain audit-only metadata");
+assertExcludes(rawMaterialMobileOcrReviewSource, 'className="line-roll-count"', "a physical-roll row should not display a roll-count field");
+assertExcludes(rawMaterialMobileOcrReviewSource, "确认并看下一卷", "mobile OCR review should not force a one-roll-at-a-time pager");
+assertIncludes(rawMaterialMobileOcrReviewSource, "其他字段与 OCR 原文", "secondary OCR fields should use progressive disclosure");
+assertIncludes(rawMaterialMobileOcrReviewSource, "单据信息", "supplier, document and audit metadata should be collapsed away from the primary review fields");
+assertIncludes(rawMaterialMobileOcrReviewSource, "reviewedCount === activeReviewRolls.length", "final OCR review submission should remain gated on every active physical roll being explicitly confirmed");
+assertIncludes(rawMaterialMobileOcrReviewSource, "核对正确", "complete physical rolls should expose a direct one-tap confirmation in the ledger");
+assertIncludes(rawMaterialMobileOcrReviewSource, "删除误识别卷", "false-positive OCR rolls should expose the approved audited removal path");
+assertIncludes(rawMaterialMobileOcrReviewSource, "excludedRolls", "removed OCR rows should stay explicit in the review submission contract");
+assertIncludes(rawMaterialMobileOcrReviewSource, "hasReviewableRawMaterialSpec", "mobile OCR review should not accept nonnumeric fragments as a material specification");
+assertIncludes(rawMaterialMobileOcrReviewSource, "规格没看清", "ambiguous material specifications should remain visibly blocked");
+assertExcludes(rawMaterialMobileOcrReviewSource, "米数待补", "an omitted handle-strip meter length should remain absent without blocking confirmation");
+assertExcludes(rawMaterialMobileOcrReviewSource, "待补米数", "fixed handle strips should remain on the direct confirmation path");
+assertIncludes(rawMaterialMobileOcrReviewSource, "orientRawMaterialSourcePreview", "OCR angle metadata should orient the real delivery note before preview and row evidence rendering");
+assertIncludes(rawMaterialMobileOcrReviewSource, "selected?.ocrAngle", "mobile evidence orientation should use the server-projected OCR angle");
+assertIncludes(rawMaterialMobileOcrReviewSource, "orientRawMaterialOcrSourceBounds", "row evidence bounds should rotate into the same coordinate space as the oriented delivery note");
+assertIncludes(rawMaterialMobileOcrReviewSource, 'preserveAspectRatio="none"', "source evidence should map the oriented image into the OCR coordinate space without off-screen percentage offsets");
+assertIncludes(rawMaterialMobileOcrReviewSource, "sourceCoordinateFrame", "legacy OCR rows should use the real OCR derivative frame instead of the table polygon extent");
+assert.equal(normalizeRawMaterialOcrAngle(90.54107), 90, "real OCR deskew angles should normalize to the displayed quarter turn");
+assert.deepEqual(
+  orientRawMaterialOcrSourceBounds({
+    top: 605,
+    left: 1184,
+    right: 1271,
+    bottom: 3072,
+    imageWidth: 1787,
+    imageHeight: 3080,
+  }, 90.54107, { imageWidth: 2400, imageHeight: 3200 }),
+  {
+    left: 605,
+    top: 1129,
+    right: 3072,
+    bottom: 1216,
+    imageWidth: 3200,
+    imageHeight: 2400,
+  },
+  "the deployed Renyi row evidence should remain visible after the portrait source is deskewed counter-clockwise",
+);
+const renyiLegacyLines = [
+  { sourceBounds: { top: 286, left: 1267, right: 1437, bottom: 3071, imageWidth: 1787, imageHeight: 3080 } },
+  { sourceBounds: { top: 284, left: 1267, right: 1349, bottom: 2667, imageWidth: 1787, imageHeight: 3080 } },
+  { sourceBounds: { top: 605, left: 1184, right: 1271, bottom: 3072, imageWidth: 1787, imageHeight: 3080 } },
+  { sourceBounds: { top: 605, left: 1098, right: 1191, bottom: 3074, imageWidth: 1787, imageHeight: 3080 } },
+];
+assert.deepEqual(
+  resolveRawMaterialOcrSourceFrame({
+    sourceWidth: 3072,
+    sourceHeight: 4096,
+    sourceFileSize: 8_996_691,
+    normalizedBinaryBytes: 7.5 * 1024 * 1024,
+    normalizedMaxEdge: 3200,
+    lines: renyiLegacyLines,
+  }),
+  { imageWidth: 2400, imageHeight: 3200 },
+  "the Renyi source image must use the 2400x3200 OCR derivative frame instead of its 3072x4096 attachment frame",
+);
+assert.deepEqual(
+  resolveRawMaterialOcrSourceFrame({
+    sourceWidth: 4096,
+    sourceHeight: 3072,
+    normalizedMaxEdge: 3200,
+    lines: renyiLegacyLines,
+  }),
+  { imageWidth: 2400, imageHeight: 3200 },
+  "legacy bounds should recover the OCR frame even when a mobile decoder reports auto-oriented dimensions",
+);
+assert.equal(shouldRotateRawMaterialSourcePreview({
+  sourceWidth: 3072,
+  sourceHeight: 4096,
+  sourceFrame: { imageWidth: 2400, imageHeight: 3200 },
+  rawAngle: 90.54107,
+}), true);
+assert.equal(shouldRotateRawMaterialSourcePreview({
+  sourceWidth: 4096,
+  sourceHeight: 3072,
+  sourceFrame: { imageWidth: 2400, imageHeight: 3200 },
+  rawAngle: 90.54107,
+}), false, "a decoder that already applied quarter-turn orientation must not be rotated twice");
+assert.deepEqual(
+  tightenRawMaterialOcrSourceRowBounds(
+    orientRawMaterialOcrSourceBounds(renyiLegacyLines[0].sourceBounds, 90.54107, { imageWidth: 2400, imageHeight: 3200 }),
+    orientRawMaterialOcrSourceBounds(renyiLegacyLines[1].sourceBounds, 90.54107, { imageWidth: 2400, imageHeight: 3200 }),
+  ),
+  { left: 286, top: 963, right: 3071, bottom: 1051, imageWidth: 3200, imageHeight: 2400 },
+  "a merged amount cell must not make the seventh roll crop include the next source row",
+);
+for (const angle of [0, 90, 180, 270]) {
+  const orientedBounds = orientRawMaterialOcrSourceBounds({
+    top: 284,
+    left: 1267,
+    right: 1349,
+    bottom: 2667,
+    imageWidth: 1787,
+    imageHeight: 3080,
+  }, angle, { imageWidth: 2400, imageHeight: 3200 });
+  assert.ok(orientedBounds, `source crop should survive ${angle}-degree orientation`);
+  assert.ok(orientedBounds.left >= 0 && orientedBounds.right <= orientedBounds.imageWidth, `${angle}-degree crop should stay inside the oriented image width`);
+  assert.ok(orientedBounds.top >= 0 && orientedBounds.bottom <= orientedBounds.imageHeight, `${angle}-degree crop should stay inside the oriented image height`);
+}
+assertIncludes(rawMaterialMobileOcrReviewSource, "确认送货单（", "mobile OCR review should keep one sticky progress-aware confirmation action");
 for (const label of ["确认创建采购请求", "本次变更", "业务决定人", "系统操作人", "决定渠道 / 时间", "决定内容", "授权依据", "预计影响"]) {
   assertIncludes(rawMaterialPurchaseSource, label, `raw-material purchase confirmation should retain ${label}`);
 }
 assertIncludes(rawMaterialPurchaseSource, "formatBusinessDecisionChannelAndTime", "purchase confirmation should convert internal decision channels to Chinese labels");
 assertIncludes(rawMaterialPurchaseSource, "确认取消采购请求", "purchase cancellation should use the same frozen high-risk confirmation boundary");
 assertIncludes(rawMaterialPurchaseSource, "buildPurchaseStatusIdempotencyKey", "purchase status writes should generate a stable per-attempt idempotency key");
-assertIncludes(rawMaterialMobileSource, "全部功能", "phone receiving surface should retain a role-scoped all-functions entry");
-assertIncludes(rawMaterialMobileSource, "mobile-role-bottom-nav", "phone receiving surface should use the shared current/pending/all role navigation");
-assertIncludes(rawMaterialMobileSource, "未完成收货单", "phone receiving surface should expose a resumable pending queue");
+assertIncludes(rawMaterialMobileSource, "未完成", "phone receiving surface should retain access to every unfinished note");
+assert.ok(
+  rawMaterialMobileSource.indexOf('aria-label="未完成的原材料收货单"')
+    < rawMaterialMobileSource.indexOf("<CaptureDeliveryNote"),
+  "phone receiving start page should place resumable notes before capture",
+);
+assert.ok(
+  rawMaterialMobileSource.indexOf("<CaptureDeliveryNote")
+    < rawMaterialMobileSource.indexOf('aria-label="最近完成的原材料收货单"'),
+  "phone receiving start page should place capture before recent completions",
+);
+for (const stage of ["print-success", "print-result", "receive-partial", "receive-complete"]) {
+  assertIncludes(rawMaterialMobileSource, stage, `phone receiving should retain the ${stage} result state`);
+}
+assertIncludes(rawMaterialMobileSource, "if (!updatedInbound?.id) return", "phone label verification should only advance after a server-authoritative update");
+assertExcludes(rawMaterialMobileSource, "全部功能", "raw-material field utility should not mix unrelated role navigation into the four-step flow");
+assertExcludes(rawMaterialMobileSource, "mobile-role-bottom-nav", "raw-material field utility should not retain the rejected current/pending/all bottom navigation");
 assertExcludes(rawMaterialMobileSource, "供应商对账", "phone receiving surface should omit supplier statement work");
 assertExcludes(rawMaterialMobileSource, "机边领料", "phone receiving surface should omit machine-side issue work");
 assertExcludes(rawMaterialMobileSource, "手机扫码", "phone receiving surface should not require scan as an inbound-availability gate");
 assertExcludes(rawMaterialMobileSource, "签单", "phone receiving surface should not require signed notes as an inbound-availability gate");
 assertIncludes(rawMaterialMobileSource, "if (canReviewRawMaterialInbound(selected)) return 2", "pending review should activate the second mobile step");
 assertIncludes(rawMaterialMobileSource, "if (canPrintRawMaterialLabels(selected)) return 3", "pending label print should activate the third mobile step");
+assertIncludes(rawMaterialPageSource, "printerDeviceQa={printerDeviceQa}", "raw-material mobile printing should receive dynamic printer state");
+assertIncludes(appSource, "printerDeviceQa={printerDeviceQa}", "App should pass dynamic printer state into raw-material receiving");
 assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
 assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
 assertIncludes(rawMaterialPageSource, "lineReviews", "page should submit every OCR line review with the header review");

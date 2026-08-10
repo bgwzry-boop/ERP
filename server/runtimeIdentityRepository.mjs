@@ -44,6 +44,7 @@ export function createLocalRuntimeIdentityRepository(options = {}) {
       persistPersistentRuntimeIdentityState(storageRoot, state);
       return {
         savedUserCount: state.users.length,
+        savedPhoneVerificationChallengeCount: state.phoneVerificationChallenges.length,
         revokedSessionCount: state.revokedSeedSessions.length,
         savedOperationLogCount: state.operationLogs.length,
         savedEmployeeAccountCount: state.employeeAccounts.length,
@@ -74,6 +75,8 @@ export function createPostgresRuntimeIdentityRepository(options = {}) {
       const saved = (await transactionJson(query.text, query.values)) ?? {};
       return {
         savedUserCount: Number(saved.savedUserCount ?? state.users.length) || 0,
+        savedPhoneVerificationChallengeCount:
+          Number(saved.savedPhoneVerificationChallengeCount ?? state.phoneVerificationChallenges.length) || 0,
         revokedSessionCount: Number(saved.revokedSessionCount ?? state.revokedSeedSessions.length) || 0,
         savedOperationLogCount:
           Number(saved.savedOperationLogCount ?? state.operationLogs.length) || 0,
@@ -103,6 +106,7 @@ export function mergeRuntimeIdentityStateIntoWorkspace(workspace = {}, state = {
   workspace.users = Array.from(usersById.values());
   workspace.revokedSeedSessions = normalized.revokedSeedSessions;
   workspace.revokedSeedSessionJtis = normalized.revokedSeedSessionJtis;
+  workspace.phoneVerificationChallenges = normalized.phoneVerificationChallenges;
   const employeesById = new Map(
     (Array.isArray(workspace.employees) ? workspace.employees : [])
       .map((employee) => [cleanText(employee?.id), employee])
@@ -139,8 +143,11 @@ export function normalizeRuntimeIdentityStateFromWorkspace(workspace = {}) {
   );
   const operationLogs = normalizeRuntimeIdentityOperationLogs(workspace.operationLogs);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     users,
+    phoneVerificationChallenges: normalizePhoneVerificationChallenges(
+      workspace.phoneVerificationChallenges,
+    ),
     employeeAccounts: applyLatestEmployeeAssignmentAudit(
       normalizeRuntimeIdentityEmployeeAccounts(workspace.employees, users),
       operationLogs,
@@ -164,7 +171,7 @@ SELECT json_build_object(
     FROM (
       SELECT ${runtimeUserJsonExpression("users")} AS record
       FROM users
-      WHERE source = 'master_data_import_review'
+      WHERE source IN ('master_data_import_review', 'phone_self_registration')
       ORDER BY updated_at DESC, id
     ) runtime_users
   ), '[]'::json),
@@ -186,7 +193,26 @@ SELECT json_build_object(
     ) ORDER BY employees.updated_at DESC, employees.id)
     FROM employees
     JOIN users ON users.employee_id = employees.id
-    WHERE users.source = 'master_data_import_review'
+    WHERE users.source IN ('master_data_import_review', 'phone_self_registration')
+  ), '[]'::json),
+  'phoneVerificationChallenges', COALESCE((
+    SELECT json_agg(json_build_object(
+      'id', id,
+      'phoneE164', phone_e164,
+      'purpose', purpose,
+      'codeHash', code_hash,
+      'requestedAt', requested_at::TEXT,
+      'expiresAt', expires_at::TEXT,
+      'consumedAt', COALESCE(consumed_at::TEXT, ''),
+      'failedAttempts', failed_attempts,
+      'maxAttempts', max_attempts,
+      'deliveryStatus', delivery_status,
+      'deliveryReference', delivery_reference,
+      'createdAt', created_at::TEXT,
+      'updatedAt', updated_at::TEXT
+    ) ORDER BY requested_at DESC, id)
+    FROM phone_verification_challenges
+    WHERE requested_at >= now() - INTERVAL '24 hours'
   ), '[]'::json),
   'revokedSeedSessions', COALESCE((
     SELECT json_agg(json_build_object(
@@ -207,7 +233,9 @@ SELECT json_build_object(
       'master_data_employee_account_review',
       'master_data_employee_account_password',
       'master_data_employee_assignment',
-      'master_data_employee_identity_confirmation'
+      'master_data_employee_identity_confirmation',
+      'phone_self_registration',
+      'personnel_phone_registration_assignment'
     )
   ), '[]'::json)
 ) AS result;
@@ -224,6 +252,9 @@ export function buildSaveRuntimeIdentityStateQuery(state = {}, options = {}) {
   const normalized = normalizeRuntimeIdentityState(state);
   const parameters = createPostgresParameterBinder();
   const userRows = normalized.users.map((user) => runtimeUserSqlRow(user, parameters)).filter(Boolean);
+  const phoneVerificationChallengeRows = normalized.phoneVerificationChallenges
+    .map((record) => phoneVerificationChallengeSqlRow(record, parameters))
+    .filter(Boolean);
   const employeeAssignmentRows = normalized.employeeAccounts
     .map((record) => runtimeEmployeeAssignmentSqlRow(record, parameters))
     .filter(Boolean);
@@ -241,6 +272,11 @@ WITH saved_users AS (
 ),
 saved_revoked_sessions AS (
   ${revokedRows.length > 0 ? buildUpsertRevokedSeedSessionsSql(revokedRows) : "SELECT NULL::TEXT AS jti WHERE FALSE"}
+),
+saved_phone_verification_challenges AS (
+  ${phoneVerificationChallengeRows.length > 0
+    ? buildUpsertPhoneVerificationChallengesSql(phoneVerificationChallengeRows)
+    : "SELECT NULL::TEXT AS id WHERE FALSE"}
 ),
 employee_assignment_updates (id, default_workshop, default_machine_id, updated_at) AS (
   ${employeeAssignmentRows.length > 0
@@ -284,7 +320,7 @@ updated_employees AS (
     updated_at = users.updated_at
   FROM users
   WHERE employees.id = users.employee_id
-    AND users.source = 'master_data_import_review'
+    AND users.source IN ('master_data_import_review', 'phone_self_registration')
     AND EXISTS (SELECT 1 FROM saved_users WHERE saved_users.id = users.id)
   RETURNING employees.id
 ),
@@ -293,6 +329,7 @@ saved_operation_logs AS (
 )
 SELECT json_build_object(
   'savedUserCount', (SELECT COUNT(*) FROM saved_users),
+  'savedPhoneVerificationChallengeCount', (SELECT COUNT(*) FROM saved_phone_verification_challenges),
   'revokedSessionCount', (SELECT COUNT(*) FROM saved_revoked_sessions),
   'updatedEmployeeCount', (SELECT COUNT(*) FROM updated_employees),
   'updatedEmployeeAssignmentCount', (SELECT COUNT(*) FROM updated_employee_assignments),
@@ -327,6 +364,12 @@ INSERT INTO users (
   password_revoked_at,
   session_valid_after,
   session_version,
+  phone_e164,
+  phone_verified_at,
+  registration_status,
+  registration_source,
+  assigned_at,
+  assigned_by,
   metadata_json,
   updated_at
 )
@@ -352,7 +395,42 @@ ON CONFLICT (id) DO UPDATE SET
   password_revoked_at = EXCLUDED.password_revoked_at,
   session_valid_after = EXCLUDED.session_valid_after,
   session_version = EXCLUDED.session_version,
+  phone_e164 = EXCLUDED.phone_e164,
+  phone_verified_at = EXCLUDED.phone_verified_at,
+  registration_status = EXCLUDED.registration_status,
+  registration_source = EXCLUDED.registration_source,
+  assigned_at = EXCLUDED.assigned_at,
+  assigned_by = EXCLUDED.assigned_by,
   metadata_json = EXCLUDED.metadata_json,
+  updated_at = EXCLUDED.updated_at
+RETURNING id
+`;
+}
+
+function buildUpsertPhoneVerificationChallengesSql(rows) {
+  return `
+INSERT INTO phone_verification_challenges (
+  id,
+  phone_e164,
+  purpose,
+  code_hash,
+  requested_at,
+  expires_at,
+  consumed_at,
+  failed_attempts,
+  max_attempts,
+  delivery_status,
+  delivery_reference,
+  created_at,
+  updated_at
+)
+VALUES
+${rows.join(",\n")}
+ON CONFLICT (id) DO UPDATE SET
+  consumed_at = EXCLUDED.consumed_at,
+  failed_attempts = EXCLUDED.failed_attempts,
+  delivery_status = EXCLUDED.delivery_status,
+  delivery_reference = EXCLUDED.delivery_reference,
   updated_at = EXCLUDED.updated_at
 RETURNING id
 `;
@@ -429,6 +507,8 @@ function runtimeUserSqlRow(user, parameters) {
     accountReviewedBy: safeUser.accountReviewedBy,
     accountReviewedAt: safeUser.accountReviewedAt,
     accountReviewNote: safeUser.accountReviewNote,
+    authMethods: safeUser.authMethods,
+    invitationReferenceHash: safeUser.invitationReferenceHash,
   };
   return `(
     ${parameters.text(safeUser.userId)},
@@ -451,8 +531,34 @@ function runtimeUserSqlRow(user, parameters) {
     ${parameters.nullableTimestamp(safeUser.passwordRevokedAt)},
     ${parameters.nullableTimestamp(safeUser.sessionValidAfter)},
     ${parameters.integer(safeUser.sessionVersion)},
+    ${parameters.nullableText(safeUser.phoneE164)},
+    ${parameters.nullableTimestamp(safeUser.phoneVerifiedAt)},
+    ${parameters.text(safeUser.registrationStatus || "legacy_account")},
+    ${parameters.nullableText(safeUser.registrationSource)},
+    ${parameters.nullableTimestamp(safeUser.assignedAt)},
+    ${parameters.nullableText(safeUser.assignedBy)},
     ${parameters.json(metadata)},
     ${parameters.timestamp(safeUser.updatedAt)}
+  )`;
+}
+
+function phoneVerificationChallengeSqlRow(record, parameters) {
+  const safeRecord = normalizePhoneVerificationChallenge(record);
+  if (!safeRecord) return null;
+  return `(
+    ${parameters.text(safeRecord.id)},
+    ${parameters.text(safeRecord.phoneE164)},
+    ${parameters.text(safeRecord.purpose)},
+    ${parameters.text(safeRecord.codeHash)},
+    ${parameters.timestamp(safeRecord.requestedAt)},
+    ${parameters.timestamp(safeRecord.expiresAt)},
+    ${parameters.nullableTimestamp(safeRecord.consumedAt)},
+    ${parameters.integer(safeRecord.failedAttempts)},
+    ${parameters.integer(safeRecord.maxAttempts)},
+    ${parameters.text(safeRecord.deliveryStatus)},
+    ${parameters.nullableText(safeRecord.deliveryReference)},
+    ${parameters.timestamp(safeRecord.createdAt)},
+    ${parameters.timestamp(safeRecord.updatedAt)}
   )`;
 }
 
@@ -550,6 +656,14 @@ function runtimeUserJsonExpression(alias) {
     'mustChangePassword', ${alias}.must_change_password,
     'sessionValidAfter', COALESCE(${alias}.session_valid_after::TEXT, ''),
     'sessionVersion', ${alias}.session_version,
+    'phoneE164', COALESCE(${alias}.phone_e164, ''),
+    'phoneVerifiedAt', COALESCE(${alias}.phone_verified_at::TEXT, ''),
+    'registrationStatus', COALESCE(${alias}.registration_status, 'legacy_account'),
+    'registrationSource', COALESCE(${alias}.registration_source, ''),
+    'assignedAt', COALESCE(${alias}.assigned_at::TEXT, ''),
+    'assignedBy', COALESCE(${alias}.assigned_by, ''),
+    'authMethods', COALESCE(${alias}.metadata_json->'authMethods', '[]'::jsonb),
+    'invitationReferenceHash', COALESCE(${alias}.metadata_json->>'invitationReferenceHash', ''),
     'failedLoginCount', COALESCE(NULLIF(${alias}.metadata_json->>'failedLoginCount', '')::INTEGER, 0),
     'lastFailedLoginAt', COALESCE(${alias}.metadata_json->>'lastFailedLoginAt', ''),
     'lockedUntil', COALESCE(${alias}.metadata_json->>'lockedUntil', ''),
@@ -597,8 +711,9 @@ function persistPersistentRuntimeIdentityState(storageRoot, state) {
     storePath,
     `${JSON.stringify(
       {
-        schemaVersion: 1,
+        schemaVersion: 2,
         users: state.users,
+        phoneVerificationChallenges: state.phoneVerificationChallenges,
         employeeAccounts: state.employeeAccounts,
         revokedSeedSessions: state.revokedSeedSessions,
         operationLogs: state.operationLogs,
@@ -620,8 +735,11 @@ function normalizeRuntimeIdentityState(value = {}) {
   );
   const operationLogs = normalizeRuntimeIdentityOperationLogs(value.operationLogs);
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     users,
+    phoneVerificationChallenges: normalizePhoneVerificationChallenges(
+      value.phoneVerificationChallenges,
+    ),
     employeeAccounts: applyLatestEmployeeAssignmentAudit(
       normalizeRuntimeIdentityEmployeeAccounts(value.employeeAccounts, users),
       operationLogs,
@@ -740,6 +858,17 @@ function normalizeRuntimeUser(user = {}) {
     mustChangePassword: user.mustChangePassword === true,
     sessionValidAfter: cleanText(user.sessionValidAfter),
     sessionVersion: Number(user.sessionVersion) || 0,
+    phoneE164: cleanText(user.phoneE164 ?? user.phone_e164),
+    phoneVerifiedAt: cleanText(user.phoneVerifiedAt ?? user.phone_verified_at),
+    registrationStatus:
+      cleanText(user.registrationStatus ?? user.registration_status) || "legacy_account",
+    registrationSource: cleanText(user.registrationSource ?? user.registration_source),
+    assignedAt: cleanText(user.assignedAt ?? user.assigned_at),
+    assignedBy: cleanText(user.assignedBy ?? user.assigned_by),
+    authMethods: Array.isArray(user.authMethods)
+      ? user.authMethods.map((method) => cleanText(method)).filter(Boolean)
+      : [],
+    invitationReferenceHash: cleanText(user.invitationReferenceHash),
     failedLoginCount: Math.max(0, Number(user.failedLoginCount) || 0),
     lastFailedLoginAt: cleanText(user.lastFailedLoginAt),
     lockedUntil: cleanText(user.lockedUntil),
@@ -775,6 +904,8 @@ function normalizeRuntimeIdentityOperationLog(record = {}) {
       "master_data_employee_assignment",
       "master_data_employee_identity_merge",
       "master_data_employee_identity_confirmation",
+      "phone_self_registration",
+      "personnel_phone_registration_assignment",
     ].includes(
       targetType,
     )
@@ -795,6 +926,45 @@ function normalizeRuntimeIdentityOperationLog(record = {}) {
     pageKey: cleanText(record.pageKey ?? record.page_key),
     occurredAt,
     createdAt: cleanText(record.createdAt ?? record.created_at) || occurredAt,
+  };
+}
+
+function normalizePhoneVerificationChallenges(records = []) {
+  const seen = new Set();
+  return (Array.isArray(records) ? records : [])
+    .map((record) => normalizePhoneVerificationChallenge(record))
+    .filter(Boolean)
+    .filter((record) => {
+      if (seen.has(record.id)) return false;
+      seen.add(record.id);
+      return true;
+    });
+}
+
+function normalizePhoneVerificationChallenge(record = {}) {
+  const id = cleanText(record.id);
+  const phoneE164 = cleanText(record.phoneE164 ?? record.phone_e164);
+  const purpose = cleanText(record.purpose);
+  const codeHash = cleanText(record.codeHash ?? record.code_hash);
+  const requestedAt = cleanText(record.requestedAt ?? record.requested_at);
+  const expiresAt = cleanText(record.expiresAt ?? record.expires_at);
+  if (!id || !phoneE164 || !["registration", "login"].includes(purpose) || !codeHash || !requestedAt || !expiresAt) {
+    return null;
+  }
+  return {
+    id,
+    phoneE164,
+    purpose,
+    codeHash,
+    requestedAt,
+    expiresAt,
+    consumedAt: cleanText(record.consumedAt ?? record.consumed_at),
+    failedAttempts: Math.max(0, Number(record.failedAttempts ?? record.failed_attempts) || 0),
+    maxAttempts: Math.max(1, Number(record.maxAttempts ?? record.max_attempts) || 5),
+    deliveryStatus: cleanText(record.deliveryStatus ?? record.delivery_status) || "sent",
+    deliveryReference: cleanText(record.deliveryReference ?? record.delivery_reference),
+    createdAt: cleanText(record.createdAt ?? record.created_at) || requestedAt,
+    updatedAt: cleanText(record.updatedAt ?? record.updated_at) || requestedAt,
   };
 }
 

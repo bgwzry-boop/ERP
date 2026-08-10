@@ -148,7 +148,10 @@ export function canReviewRawMaterialInbound(item = {}) {
 }
 
 export function canPrintRawMaterialLabels(item = {}) {
-  return item.status === "已复核待打印标签";
+  const printableRolls = (item.rolls ?? []).filter((roll) => roll.inventoryStatus !== "可用");
+  return item.status === "已复核待打印标签"
+    && printableRolls.length > 0
+    && printableRolls.every((roll) => Number(roll.weightKg) > 0);
 }
 
 export function canConfirmRawMaterialAttachment(item = {}) {

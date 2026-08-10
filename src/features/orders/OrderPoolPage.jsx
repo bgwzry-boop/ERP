@@ -15,9 +15,13 @@ import {
   FilterBar,
   OperationalPanel,
   Segmented,
-  StatusPill,
+  SemanticTag,
   Timeline,
 } from "../../shared/ui/operational.jsx";
+import {
+  getBusinessTypeTagValue,
+  getOperationalStateTagValue,
+} from "../../shared/labels.js";
 
 const ORDER_DETAIL_TABS = ["订单", "交付", "财务"];
 const ORDER_STATUS_FILTERS = ["全部", "待处理", "生产中", "待出库", "缺货", "已交付", "待对账"];
@@ -199,12 +203,22 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
               onClick: () => setSelectedOrderId(row.id),
               cells: [
                 <OrderCell primary={getOrderLineShortNo(row)} secondary={findCustomer(row.customerId).name} />,
-                <OrderCell primary={row.product} secondary={[row.size, rowColorSpec, rowRemark].filter(Boolean).join(" · ")} />,
+                <OrderCell
+                  primary={row.product}
+                  secondary={[row.size, rowColorSpec, rowRemark].filter(Boolean).join(" · ")}
+                  tags={(
+                    <SemanticTag
+                      kind="business"
+                      size="compact"
+                      value={getBusinessTypeTagValue(row.orderType)}
+                    />
+                  )}
+                />,
                 <span className="order-quantity-cell"><strong>{row.qty}</strong><small>个</small></span>,
-                <StatusPill tone={statusTone(row.status)}>{row.status}</StatusPill>,
+                <SemanticTag kind="state" label={row.status} size="compact" value={getOperationalStateTagValue(row.status)} />,
                 <OrderCell primary={row.fulfillment} secondary={row.latest} />,
-                <StatusPill tone={rowException === "正常" ? "success" : "danger"}>{rowException}</StatusPill>,
-                <StatusPill tone={getFinanceTone(rowFinance)}>{rowFinance}</StatusPill>,
+                <SemanticTag kind="state" label={rowException} size="compact" value={getOperationalStateTagValue(rowException)} />,
+                <SemanticTag kind="state" label={rowFinance} size="compact" value={getOperationalStateTagValue(rowFinance)} />,
               ],
             };
           })}
@@ -214,9 +228,13 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
         <div className="order-pool-detail-scroll">
           <div className="order-pool-detail-overview">
             <div className="order-detail-statuses" aria-label="当前订单状态">
-              <StatusPill tone={statusTone(selected.status)}>{selected.status}</StatusPill>
-              <StatusPill tone={exceptionState === "正常" ? "success" : "danger"}>{exceptionState}</StatusPill>
-              <StatusPill tone={getFinanceTone(financeState)}>{financeState}</StatusPill>
+              <SemanticTag kind="business" size="compact" value={getBusinessTypeTagValue(selected.orderType)} />
+              <SemanticTag kind="state" label={selected.status} size="compact" value={getOperationalStateTagValue(selected.status)} />
+              {exceptionState !== "正常" ? (
+                <SemanticTag kind="state" label={exceptionState} size="compact" value="blocked" />
+              ) : (
+                <SemanticTag kind="state" label={financeState} size="compact" value={getOperationalStateTagValue(financeState)} />
+              )}
             </div>
             <div className="order-detail-product">
               <div>
@@ -238,7 +256,7 @@ export function OrderPoolPage({ orderLines, fulfillments, statements, selectedOr
               <OrderDetailSection title="订单信息">
                 <OrderDetailFacts
                   rows={[
-                    ["订单类型", selected.orderType],
+                    ["订单类型", <SemanticTag kind="business" value={getBusinessTypeTagValue(selected.orderType)} />],
                     ["交付方式", selected.fulfillment],
                     ["最晚时间", selected.latest],
                     ["库存状态", getOrderDetailInventoryLabel(apiDetail, selected.inventory)],
@@ -321,11 +339,16 @@ function OrderStatusTabs({ value, counts, onChange }) {
   );
 }
 
-function OrderCell({ primary, secondary }) {
+function OrderCell({ primary, secondary, tags = null }) {
   return (
     <span className="order-cell-stack" title={[primary, secondary].filter(Boolean).join(" / ")}>
       <strong>{primary}</strong>
-      {secondary ? <small>{secondary}</small> : null}
+      {secondary || tags ? (
+        <span className="order-cell-support">
+          {secondary ? <small>{secondary}</small> : null}
+          {tags ? <span className="order-cell-tags">{tags}</span> : null}
+        </span>
+      ) : null}
     </span>
   );
 }
@@ -374,13 +397,6 @@ function orderMatchesQuery(line, query, findCustomer, getLineColorSpecLabel, get
 function getActiveFilterCount(filters, defaults, query) {
   const filterCount = Object.keys(defaults).filter((key) => filters[key] !== defaults[key]).length;
   return filterCount + (String(query ?? "").trim() ? 1 : 0);
-}
-
-function getFinanceTone(state = "") {
-  if (state.includes("差额") || state.includes("欠款")) return "danger";
-  if (state.includes("待")) return "warning";
-  if (state.includes("结清") || state.includes("无差额")) return "success";
-  return "neutral";
 }
 
 function getOrderActionState(getUiActionState, action, blocker) {

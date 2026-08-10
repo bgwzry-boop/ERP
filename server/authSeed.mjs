@@ -377,6 +377,10 @@ export function getEffectivePermissionsForRuntimeUser(user, fallbackUserId) {
     preferredPage: user.preferredPage,
     employeeId: user.employeeId,
     loginEnabled: user.loginEnabled,
+    authMethods: user.authMethods,
+    phoneE164: user.phoneE164,
+    phoneVerifiedAt: user.phoneVerifiedAt,
+    registrationStatus: user.registrationStatus,
     mustChangePassword: user.mustChangePassword,
     passwordStatus: user.passwordStatus,
   });
@@ -570,6 +574,9 @@ function buildEffectivePermissionContext(user) {
       loginEnabled: user.loginEnabled === true,
       mustChangePassword: user.mustChangePassword === true,
       passwordStatus: String(user.passwordStatus ?? "").trim(),
+      phoneE164: String(user.phoneE164 ?? "").trim(),
+      phoneVerifiedAt: String(user.phoneVerifiedAt ?? "").trim(),
+      registrationStatus: String(user.registrationStatus ?? "").trim(),
     },
     roles,
     grants,
@@ -583,7 +590,7 @@ function buildAuthenticationFailedResult() {
     authenticated: false,
     error: {
       code: "AUTHENTICATION_FAILED",
-      message: "Login name, user ID, or password is invalid.",
+      message: "登录名、用户编号或密码不正确。",
     },
   };
 }
@@ -604,7 +611,16 @@ function findRuntimeUser(runtimeUsers = [], identifiers = {}) {
 }
 
 function isRuntimeUserLoginEnabled(user = {}) {
-  return user.enabled !== false && user.loginEnabled === true && Boolean(String(user.passwordHash ?? "").trim());
+  const authMethods = Array.isArray(user.authMethods) ? user.authMethods : [];
+  const phoneOtpEnabled =
+    authMethods.includes("phone_otp") &&
+    Boolean(String(user.phoneE164 ?? "").trim()) &&
+    Boolean(String(user.phoneVerifiedAt ?? "").trim());
+  return (
+    user.enabled !== false &&
+    user.loginEnabled === true &&
+    (Boolean(String(user.passwordHash ?? "").trim()) || phoneOtpEnabled)
+  );
 }
 
 function buildRuntimeTemporaryPassword() {

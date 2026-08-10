@@ -181,6 +181,7 @@ export function buildProductionRemoteRecoveryReport(options = {}) {
       ...process.env,
       VITE_ERP_RUNTIME_MODE: "production",
       VITE_ERP_API_BASE_URL: "/api",
+      VITE_RAW_MATERIAL_FIRST_RELEASE: "true",
     },
   });
   run("migration-plan", "数据库迁移计划", process.execPath, ["scripts/run-db-migrations.mjs", "--dry-run"], {

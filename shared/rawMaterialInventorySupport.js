@@ -1,6 +1,6 @@
 import {
-  RAW_MATERIAL_HANDLE_WIDTH_CM,
   RAW_MATERIAL_STANDARD_FABRIC_GSM,
+  classifyRawMaterialCategory,
   parseRawMaterialSpec,
 } from "./rawMaterialSpec.js";
 
@@ -30,7 +30,10 @@ export function buildRawMaterialStockLookup(inbounds = [], filters = {}) {
     color,
     widthCm,
     gramWeightGsm,
-    materialCategory: widthCm === RAW_MATERIAL_HANDLE_WIDTH_CM ? "提手条" : widthCm ? "布料" : "",
+    materialCategory: classifyRawMaterialCategory({
+      widthCm,
+      texts: [filters.materialCategory, filters.productName, filters.materialType, color],
+    }),
     availableWeightKg: roundWeight(sumWeight(availableRolls)),
     availableRollCount: availableRolls.length,
     machineSideWeightKg: roundWeight(sumWeight(machineSideRolls)),

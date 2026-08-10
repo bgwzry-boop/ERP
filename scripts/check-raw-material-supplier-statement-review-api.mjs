@@ -7,6 +7,7 @@ import {
   buildListReviewsPayloadSql,
   createLocalRawMaterialSupplierStatementReviewRepository,
   createPostgresRawMaterialSupplierStatementReviewRepository,
+  createReviewDraftPayload,
 } from "../server/rawMaterialSupplierStatementReviewRepository.mjs";
 import {
   closeTestServer,
@@ -21,11 +22,36 @@ const repositoryStorageRoot = join(checkStorageRoot, "repository");
 const apiStorageRoot = join(checkStorageRoot, "api");
 rmSync(checkStorageRoot, { recursive: true, force: true });
 
+checkCollisionResistantReviewIds();
 await checkRepository();
+await checkSupplierReturnReconciliation();
 await checkPostgresRepositoryBoundary();
 await checkApi();
 
 console.log("raw-material supplier statement review API check passed");
+
+function checkCollisionResistantReviewIds() {
+  const sameMillisecond = "2026-07-04T03:00:00.000Z";
+  const reviewIds = new Set();
+  const operationLogIds = new Set();
+  for (let index = 0; index < 256; index += 1) {
+    const created = createReviewDraftPayload({
+      statementResult: buildStatementResult({ fileName: `same-millisecond-${index}.xlsx` }),
+      supplierName: "白侯无纺布",
+      fileName: `same-millisecond-${index}.xlsx`,
+      operatorId: "U-OFFICE-A",
+      operatorName: "办公室A",
+      now: sameMillisecond,
+    });
+    reviewIds.add(created.review.reviewId);
+    operationLogIds.add(created.operationLog.id);
+  }
+  assert.equal(reviewIds.size, 256, "review ids created in the same millisecond must remain unique");
+  assert.equal(operationLogIds.size, 256, "review operation-log ids created in the same millisecond must remain unique");
+  for (const reviewId of reviewIds) {
+    assert.match(reviewId, /^RMSR-20260704-[0-9A-F]{32}$/, "review id should retain its date prefix and use UUID entropy");
+  }
+}
 
 async function checkRepository() {
   const repository = createLocalRawMaterialSupplierStatementReviewRepository({ storageRoot: repositoryStorageRoot });
@@ -206,6 +232,187 @@ async function checkRepository() {
     /^RMSPAY-/,
     "payment confirmation id should persist",
   );
+}
+
+async function checkSupplierReturnReconciliation() {
+  const storageRoot = join(checkStorageRoot, "supplier-return-reconciliation");
+  const repository = createLocalRawMaterialSupplierStatementReviewRepository({ storageRoot });
+  const workspace = repository.loadState();
+  workspace.rawMaterialInbounds = [buildReviewedSupplierReturn()];
+
+  const added = repository.createReviewDraft({
+    workspace,
+    statementResult: buildStatementResult({ fileName: "baihou-2026-07.xlsx" }),
+    supplierName: "白侯无纺布",
+    fileName: "baihou-2026-07.xlsx",
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:00:00.000Z",
+  });
+  const returnAdjustment = added.review.adjustments.find((item) => item.sourceReturnInboundId === "RMI-RETURN-20260712-001");
+  assert.ok(returnAdjustment, "reviewed ERP supplier return should become a current-period reconciliation adjustment");
+  assert.equal(returnAdjustment.adjustmentType, "return_adjustment");
+  assert.equal(returnAdjustment.amount, -1172.18, "supplier return must reduce the current supplier payable");
+  assert.equal(returnAdjustment.sourceAttachmentId, "ATT-RETURN-001", "return adjustment should retain original document attachment");
+  assert.equal(returnAdjustment.sourceEvidence.lineEvidence[0].sourceBounds.x, 120, "return adjustment should retain OCR row crop coordinates");
+  assert.deepEqual(added.review.addedSupplierReturnIds, ["RMI-RETURN-20260712-001"]);
+  assert.equal(added.review.summary.erpReturnAdjustmentCount, 1);
+
+  repository.confirmReview({
+    workspace,
+    reviewId: added.review.reviewId,
+    decision: "一致",
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:01:00.000Z",
+  });
+  repository.confirmStatement({
+    workspace,
+    reviewId: added.review.reviewId,
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:02:00.000Z",
+  });
+  const payable = repository.generatePayableDraft({
+    workspace,
+    reviewId: added.review.reviewId,
+    operatorId: "U-FINANCE-A",
+    operatorName: "财务A",
+    now: "2026-08-03T05:03:00.000Z",
+  });
+  assert.equal(payable.payableDraft.lineSubtotal, 1826.64);
+  assert.equal(payable.payableDraft.currentAdjustmentSubtotal, -1182.68, "paper-tube and supplier-return deductions should both enter current adjustments");
+  assert.equal(payable.payableDraft.payableAmount, 643.96, "current payable should net purchases and reviewed supplier returns");
+  assert.equal(payable.payableDraft.currentAdjustments.filter((item) => item.sourceReturnInboundId).length, 1);
+
+  const duplicateReview = repository.createReviewDraft({
+    workspace,
+    statementResult: buildStatementResult({ fileName: "baihou-duplicate-2026-07.xlsx" }),
+    supplierName: "白侯无纺布",
+    fileName: "baihou-duplicate-2026-07.xlsx",
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:03:10.000Z",
+  });
+  repository.confirmReview({
+    workspace,
+    reviewId: duplicateReview.review.reviewId,
+    decision: "一致",
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:03:20.000Z",
+  });
+  assert.throws(
+    () => repository.confirmStatement({
+      workspace,
+      reviewId: duplicateReview.review.reviewId,
+      operatorId: "U-OFFICE-A",
+      operatorName: "办公室A",
+      now: "2026-08-03T05:03:30.000Z",
+    }),
+    /不能重复抵扣/,
+    "one reviewed supplier return must not enter two confirmed supplier statements",
+  );
+
+  const alreadyReported = repository.createReviewDraft({
+    workspace,
+    statementResult: buildStatementWithReportedReturn(),
+    supplierName: "白侯无纺布",
+    fileName: "baihou-return-row-2026-07.xlsx",
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:04:00.000Z",
+  });
+  const linkedReturnRows = alreadyReported.review.rows.filter((row) => row.sourceReturnInboundId === "RMI-RETURN-20260712-001");
+  assert.equal(linkedReturnRows.length, 1, "supplier statement return row should link to one ERP source return");
+  assert.equal(linkedReturnRows[0].amount, -1172.18, "positive printed magnitude in a return section should normalize to negative");
+  assert.equal(alreadyReported.review.adjustments.filter((item) => item.sourceReturnInboundId).length, 0, "matched supplier return must not be deducted a second time");
+  assert.deepEqual(alreadyReported.review.linkedSupplierReturnIds, ["RMI-RETURN-20260712-001"]);
+  assert.equal(alreadyReported.review.summary.totalAmount, -172.18, "statement summary should net purchase and return rows after sign normalization");
+
+  const footerReported = repository.createReviewDraft({
+    workspace,
+    statementResult: buildStatementWithReportedReturnAdjustment(),
+    supplierName: "白侯无纺布",
+    fileName: "baihou-return-adjustment-2026-07.xlsx",
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:04:30.000Z",
+  });
+  const linkedReturnAdjustments = footerReported.review.adjustments.filter((item) => item.sourceReturnInboundId === "RMI-RETURN-20260712-001");
+  assert.equal(linkedReturnAdjustments.length, 1, "supplier return footer should link to one ERP source return without adding another deduction");
+  assert.equal(linkedReturnAdjustments[0].amount, -1172.18, "positive return footer magnitude should normalize to negative");
+  assert.equal(footerReported.review.adjustments.length, 1, "matched supplier return footer must not create a duplicate adjustment");
+
+  const outsidePeriod = repository.createReviewDraft({
+    workspace,
+    statementResult: {
+      ...buildStatementResult({ fileName: "baihou-2026-08.xlsx" }),
+      fileName: "baihou-2026-08.xlsx",
+      rows: buildStatementResult().rows.map((row) => ({ ...row, documentDate: "2026-08-04" })),
+    },
+    supplierName: "白侯无纺布",
+    fileName: "baihou-2026-08.xlsx",
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:05:00.000Z",
+  });
+  assert.equal(outsidePeriod.review.adjustments.some((item) => item.sourceReturnInboundId), false, "a July return must not enter an August payable draft");
+
+  workspace.rawMaterialInbounds = [buildReviewedSupplierReturn({
+    id: "RMI-RETURN-RENYI-001",
+    supplierName: "人意无纺布销售单",
+    deliveryNoteNo: "RY-RET-20260715-001",
+    documentPriceReferenceOnly: true,
+    amount: -999,
+    ocrDeclaredAmount: -999,
+    ocrCalculatedLineAmount: -999,
+  })];
+  const referencePriceReturn = repository.createReviewDraft({
+    workspace,
+    statementResult: {
+      ...buildStatementResult({ fileName: "renyi-2026-07.xlsx" }),
+      supplierName: "振恒",
+      fileName: "renyi-2026-07.xlsx",
+      rows: buildStatementResult().rows.map((row) => ({ ...row, supplierName: "振恒", documentDate: "2026-07-04" })),
+      adjustments: [],
+    },
+    supplierName: "振恒",
+    fileName: "renyi-2026-07.xlsx",
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:06:00.000Z",
+  });
+  const referenceAdjustment = referencePriceReturn.review.adjustments.find((item) => item.sourceReturnInboundId === "RMI-RETURN-RENYI-001");
+  assert.equal(referenceAdjustment.amount, 0, "reference-only supplier ticket price must not silently become the actual payable deduction");
+  assert.equal(referenceAdjustment.calculationStatus, "missing_amount");
+  assert.match(referencePriceReturn.review.issues.at(-1).message, /实际抵扣金额/, "reference-only return should require finance to confirm the actual deduction");
+  assert.throws(
+    () => repository.confirmReview({
+      workspace,
+      reviewId: referencePriceReturn.review.reviewId,
+      decision: "一致",
+      operatorId: "U-OFFICE-A",
+      operatorName: "办公室A",
+      now: "2026-08-03T05:07:00.000Z",
+    }),
+    /实际抵扣金额未确认/,
+    "reference-only supplier return must block statement confirmation until the actual deduction is entered",
+  );
+  const confirmedReferencePrice = repository.confirmReview({
+    workspace,
+    reviewId: referencePriceReturn.review.reviewId,
+    decision: "一致",
+    adjustments: referencePriceReturn.review.adjustments.map((item) =>
+      item.id === referenceAdjustment.id ? { id: item.id, amount: 820, note: "按厂家月结确认实际退货抵扣" } : { id: item.id }),
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    now: "2026-08-03T05:08:00.000Z",
+  });
+  const confirmedReturnAdjustment = confirmedReferencePrice.review.adjustments.find((item) => item.id === referenceAdjustment.id);
+  assert.equal(confirmedReturnAdjustment.amount, -820, "manually confirmed actual return amount should remain a negative deduction");
+  assert.equal(confirmedReturnAdjustment.calculationStatus, "manual_confirmed");
+  assert.equal(confirmedReturnAdjustment.confirmedAmountByUserId, "U-OFFICE-A");
 }
 
 async function checkPostgresRepositoryBoundary() {
@@ -575,6 +782,150 @@ function buildStatementResult(overrides = {}) {
       },
     ],
     issues: [{ severity: "warning", severityLabel: "需确认", message: "纸管扣项需人工确认。" }],
+  };
+}
+
+function buildReviewedSupplierReturn(overrides = {}) {
+  return {
+    id: "RMI-RETURN-20260712-001",
+    documentDirection: "supplier_return",
+    documentTypeLabel: "退货单",
+    status: "退货单已复核",
+    supplierName: "河北宏尚无纺布有限公司",
+    deliveryNoteNo: "HS-RET-20260712-001",
+    receivedAt: "2026-07-12",
+    materialType: "退带色布",
+    productName: "退带色布",
+    spec: "",
+    supplierColor: "废布",
+    factoryColor: "废布",
+    rollCount: 5,
+    totalWeightKg: -121.8,
+    unit: "kg",
+    unitPrice: 9.6,
+    amount: -1172.18,
+    ocrDeclaredAmount: -1172.18,
+    ocrCalculatedLineAmount: -1172.18,
+    sourceAttachmentId: "ATT-RETURN-001",
+    sourceFileName: "宏尚退货单-20260712.jpg",
+    sourceMimeType: "image/jpeg",
+    ocrRawText: "河北宏尚无纺布有限公司退货单 退带色布 -121.8kg -1172.18元",
+    reviewedAt: "2026-07-12T03:00:00.000Z",
+    reviewedBy: "办公室A",
+    ocrLines: [
+      {
+        lineId: "OCR-RETURN-LINE-1",
+        sourceRowIndex: 1,
+        sourceText: "退带色布 废布 -121.8 -1172.18",
+        sourceBounds: { x: 120, y: 240, width: 900, height: 110 },
+        recognizedValues: { productName: "退带色布", totalWeightKg: -121.8, amount: -1172.18 },
+        values: { productName: "退带色布", totalWeightKg: -121.8, amount: -1172.18 },
+        reviewStatus: "人工接受",
+        reviewedAt: "2026-07-12T03:00:00.000Z",
+      },
+    ],
+    rolls: [],
+    ...overrides,
+  };
+}
+
+function buildStatementWithReportedReturn() {
+  return {
+    version: "p0-raw-material-supplier-statement-import-v1",
+    fileName: "baihou-return-row-2026-07.xlsx",
+    supplierName: "白侯无纺布",
+    adapter: { key: "baihou", label: "白侯对账单" },
+    recommendedAction: "核对进货与退货明细。",
+    summary: {
+      status: "review",
+      statusLabel: "需人工复核",
+      rowCount: 2,
+      shipmentRowCount: 1,
+      returnRowCount: 1,
+      matchedRowCount: 2,
+      candidateRowCount: 0,
+      unmatchedRowCount: 0,
+      adjustmentCount: 0,
+      totalWeightKg: 321.8,
+      totalAmount: 2172.18,
+    },
+    rows: [
+      {
+        id: "BH-SHIP-1",
+        documentDate: "2026-07-04",
+        documentNo: "BH-20260704-001",
+        productName: "无纺布",
+        spec: "78*90*1500",
+        color: "本白",
+        totalWeightKg: 200,
+        amount: 1000,
+        lineType: "shipment",
+        matchingStatus: "matched",
+        matchedInboundId: "RMI-SHIP-001",
+      },
+      {
+        id: "BH-RETURN-1",
+        documentDate: "2026-07-12",
+        documentNo: "HS-RET-20260712-001",
+        productName: "退带色布",
+        color: "废布",
+        totalWeightKg: 121.8,
+        amount: 1172.18,
+        lineType: "return",
+        matchingStatus: "matched",
+        matchedInboundId: "RMI-RETURN-20260712-001",
+      },
+    ],
+    adjustments: [],
+    issues: [],
+  };
+}
+
+function buildStatementWithReportedReturnAdjustment() {
+  return {
+    version: "p0-raw-material-supplier-statement-import-v1",
+    fileName: "baihou-return-adjustment-2026-07.xlsx",
+    supplierName: "白侯无纺布",
+    adapter: { key: "baihou", label: "白侯对账单" },
+    recommendedAction: "核对退货扣项。",
+    summary: {
+      status: "review",
+      statusLabel: "需人工复核",
+      rowCount: 1,
+      shipmentRowCount: 1,
+      returnRowCount: 0,
+      matchedRowCount: 1,
+      candidateRowCount: 0,
+      unmatchedRowCount: 0,
+      adjustmentCount: 1,
+      totalWeightKg: 200,
+      totalAmount: 1000,
+    },
+    rows: [{
+      id: "BH-SHIP-FOOTER-1",
+      documentDate: "2026-07-04",
+      documentNo: "BH-20260704-001",
+      productName: "无纺布",
+      spec: "78*90*1500",
+      color: "本白",
+      totalWeightKg: 200,
+      amount: 1000,
+      lineType: "shipment",
+      matchingStatus: "matched",
+      matchedInboundId: "RMI-SHIP-001",
+    }],
+    adjustments: [{
+      id: "BH-RETURN-FOOTER-1",
+      supplierName: "白侯无纺布",
+      label: "本期退货合计",
+      adjustmentType: "return_adjustment",
+      typeLabel: "退货调整",
+      isCurrentPeriod: true,
+      amount: 1172.18,
+      supplierReportedAmount: 1172.18,
+      requiresManualReview: true,
+    }],
+    issues: [],
   };
 }
 

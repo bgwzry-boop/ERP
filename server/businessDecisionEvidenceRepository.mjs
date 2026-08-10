@@ -1,6 +1,7 @@
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { attachmentUploadLimits } from "../shared/attachmentUploadPolicy.js";
 import {
   buildIdempotencyRequestHash,
   buildPostgresIdempotencyRequest,
@@ -561,7 +562,7 @@ function consumeLocalEvidenceDraft(workspace, decisionRecord) {
   }
   const validIds = (workspace.attachments ?? [])
     .filter((item) => cleanText(item.ownerType) === "business_decision_evidence_draft" && cleanText(item.ownerId) === draftId && cleanText(item.purpose) === "business_decision_evidence" && cleanText(item.status) === "uploaded")
-    .filter((item) => item.hasContent === true && cleanText(item.uploadedBy) && ["image", "pdf", "document", "spreadsheet"].includes(cleanText(item.fileType)) && Number(item.fileSize ?? 0) > 0 && Number(item.fileSize ?? 0) <= 15 * 1024 * 1024)
+    .filter((item) => item.hasContent === true && cleanText(item.uploadedBy) && ["image", "pdf", "document", "spreadsheet"].includes(cleanText(item.fileType)) && Number(item.fileSize ?? 0) > 0 && Number(item.fileSize ?? 0) <= attachmentUploadLimits.documentBytes)
     .map((item) => cleanText(item.attachmentId ?? item.id))
     .sort();
   if (attachmentIds.length > 5 || JSON.stringify([...attachmentIds].sort()) !== JSON.stringify(validIds)) {

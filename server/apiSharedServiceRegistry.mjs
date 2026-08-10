@@ -59,6 +59,7 @@ import { createOrderDraftCommandService } from "./services/orderDraftCommandServ
 import { createOrderLineMutationCommandService } from "./services/orderLineMutationCommandService.mjs";
 import { createOrderWorkflowProjectionService } from "./services/orderWorkflowProjectionService.mjs";
 import { createPackingCommandService } from "./services/packingCommandService.mjs";
+import { createPhoneIdentityCommandService } from "./services/phoneIdentityCommandService.mjs";
 import { createPrintBatchCommandService } from "./services/printBatchCommandService.mjs";
 import { createPrintDeviceCommandService } from "./services/printDeviceCommandService.mjs";
 import { createPrintDriverDiagnosticsService } from "./services/printDriverDiagnosticsService.mjs";
@@ -423,6 +424,7 @@ export function createApiSharedServiceRegistry() {
   });
   const masterDataMachineCommandService = createMasterDataMachineCommandService({ buildOperationLog });
   const runtimeAuthCommandService = createRuntimeAuthCommandService({ buildOperationLog });
+  const phoneIdentityCommandService = createPhoneIdentityCommandService({ buildOperationLog });
   const fulfillmentActionCommandService = createFulfillmentActionCommandService({
     businessDecisionEvidenceService,
     buildFulfillmentActionRecord,
@@ -497,6 +499,7 @@ export function createApiSharedServiceRegistry() {
     orderDraftCommandService,
     orderLineMutationCommandService,
     packingCommandService,
+    phoneIdentityCommandService,
     printBatchCommandService,
     printDeviceCommandService,
     printDriverDiagnosticsService,

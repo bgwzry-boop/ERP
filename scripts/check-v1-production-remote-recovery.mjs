@@ -18,7 +18,16 @@ try {
     envFile: join(root, "secure-production.env"),
     envAudit: { ready: true, summary: { blockingCount: 0 } },
     commandRunner(command, args, options) {
-      calls.push({ command, args, cwd: options.cwd });
+      calls.push({
+        command,
+        args,
+        cwd: options.cwd,
+        buildEnv: options.env ? {
+          runtimeMode: options.env.VITE_ERP_RUNTIME_MODE,
+          apiBaseUrl: options.env.VITE_ERP_API_BASE_URL,
+          firstRelease: options.env.VITE_RAW_MATERIAL_FIRST_RELEASE,
+        } : null,
+      });
       if (command === "git" && args[0] === "clone") mkdirSync(targetDir);
       if (command === "git" && args.at(-1) === "HEAD") return { status: 0, stdout: `${expectedCommit}\n` };
       return { status: 0, stdout: "{}\n" };
@@ -42,6 +51,10 @@ try {
   assert.doesNotMatch(serialized, /example\.invalid|fresh-clone|secure-production\.env/);
   assert.match(formatReport(ready), /9\/9/);
   assert.ok(calls.some((item) => item.command === "npm" && item.args.includes("--ignore-scripts")));
+  assert.deepEqual(
+    calls.find((item) => item.command === "npm" && item.args.join(" ") === "run build")?.buildEnv,
+    { runtimeMode: "production", apiBaseUrl: "/api", firstRelease: "true" },
+  );
   assert.ok(calls.some((item) => item.args.includes("--dry-run")));
   assert.ok(
     calls.some((item) => item.args.some((arg) => arg.endsWith("run-v1-production-runtime-smoke.mjs"))),

@@ -85,6 +85,14 @@ const customPrintResult = confirmDraftOrder({
     printColor: "黑色",
     printSide: "单面",
     artworkStatus: "已上传",
+    artworkAttachment: {
+      attachmentId: "ATT-ARTWORK-001",
+      fileName: "美的定稿.psd",
+      mimeType: "application/octet-stream",
+      fileSize: 12 * 1024 * 1024,
+      status: "uploaded",
+      version: 1,
+    },
     qty: 12,
     fulfillment: "快递快运",
     latest: "明天",
@@ -97,6 +105,7 @@ const customPrintResult = confirmDraftOrder({
 });
 assert.equal(customPrintResult.blocked, false);
 assert.equal(customPrintResult.newLines[0].status, "待排产");
+assert.equal(customPrintResult.newLines[0].artworkAttachment.attachmentId, "ATT-ARTWORK-001");
 assert.equal(customPrintResult.newFulfillments[0].lineId, customPrintResult.newLines[0].id);
 assert.equal(customPrintResult.newFulfillments[0].status, "待排产");
 

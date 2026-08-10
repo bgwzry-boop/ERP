@@ -495,6 +495,7 @@ export function mapRecognizedDraftRows(response, { inventories = [], sourceText 
         printColor: line.printColor ?? (print === "是" ? "待确认" : "非印刷"),
         printSide: mapApiPrintSide(line.printSide, print),
         artworkStatus: mapApiArtworkStatus(line.artworkStatus, print),
+        artworkAttachment: line.artworkAttachment,
         handleColor: line.handleColor ?? "",
         note,
         source: line.recognitionEvidence?.sourceText ?? draft.sourceText ?? sourceText,
@@ -553,6 +554,8 @@ function mapQueuedDraftRecord(draft, inventories) {
     printFlag: line.print === "是",
     printColor: line.printColor,
     printSide: line.printSide,
+    artworkStatus: line.artworkStatus,
+    artworkAttachment: line.artworkAttachment,
     customerNote: line.note,
     recognitionEvidence: {
       sourceText: line.source,
@@ -621,6 +624,7 @@ export function mapDraftRowsToApiLines(draftRows, sourceText = "") {
       printColor: printFlag ? row.printColor || "待确认" : undefined,
       printSide: printFlag ? mapDraftPrintSideToApi(row.printSide) : undefined,
       artworkStatus: printFlag ? mapDraftArtworkStatusToApi(row.artworkStatus) : undefined,
+      artworkAttachment: printFlag ? row.artworkAttachment : undefined,
       customerNote: row.note || "",
       officeNote: "",
       recognitionEvidence: {

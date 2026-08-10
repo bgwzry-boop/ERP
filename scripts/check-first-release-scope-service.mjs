@@ -80,6 +80,10 @@ const allowedRoutes = [
   "/api/raw-material-inbounds/RMI-1/void_label",
   "/api/raw-material-inbounds/RMI-1/reprint-label",
   "/api/raw-material-inbounds/RMI-1/reprint_label",
+  "/api/raw-material-inbounds/RMI-1/stage-supplier-return",
+  "/api/raw-material-inbounds/RMI-1/stage_supplier_return",
+  "/api/raw-material-inbounds/RMI-1/confirm-supplier-return-shipment",
+  "/api/raw-material-inbounds/RMI-1/confirm_supplier_return_shipment",
   "/api/raw-material-inbounds/RMI-1/issue-to-machine",
   "/api/raw-material-inbounds/RMI-1/issue_to_machine",
   "/api/raw-material-inbounds/RMI-1/exception",
@@ -90,7 +94,12 @@ const allowedRoutes = [
 for (const pathname of allowedRoutes) {
   assert.equal(evaluate(pathname).allowed, true, `first-release write should allow ${pathname}`);
 }
-for (const pathname of ["/api/auth/login", "/api/auth/logout", "/api/system/v1/readiness/refresh"]) {
+for (const pathname of [
+  "/api/auth/login",
+  "/api/auth/logout",
+  "/api/system/v1/readiness/refresh",
+  "/api/master-data/personnel/registration-reviews/U-PHONE-1/assign",
+]) {
   assert.equal(evaluate(pathname).allowed, true, `operational write should allow ${pathname}`);
 }
 assert.equal(evaluate("/api/order-drafts", "GET").allowed, true, "GET reads must remain available");

@@ -30,7 +30,9 @@ export function createRawMaterialCommandService(dependencies = {}) {
             message: "请选择原材料送货单照片或 PDF 后再识别。",
           };
         }
-        const sourceDigest = createHash("sha256").update(contentDataUrl).digest("hex");
+        const sourceContentDataUrl = cleanText(body.sourceContentDataUrl) || contentDataUrl;
+        const sourceDigest = createHash("sha256").update(sourceContentDataUrl).digest("hex");
+        const ocrPayloadDigest = createHash("sha256").update(contentDataUrl).digest("hex");
         const existingInbound = (Array.isArray(workspace.rawMaterialInbounds) ? workspace.rawMaterialInbounds : []).find(
           (item) => cleanText(item?.ocrSourceDigest) === sourceDigest,
         );
@@ -70,18 +72,22 @@ export function createRawMaterialCommandService(dependencies = {}) {
           body: {
             ownerType: "raw_material_inbound",
             ownerId: inboundId,
-            fileType: inferSourceFileType(body.mimeType, body.fileName),
+            fileType: inferSourceFileType(body.sourceMimeType || body.mimeType, body.fileName),
             purpose: "raw_material_delivery_note",
             fileName: cleanText(body.fileName) || `原材料送货单-${inboundId}`,
             contentRef: `raw-material-ocr-source:${sourceDigest}`,
-            contentDataUrl,
-            mimeType: cleanText(body.mimeType),
-            fileSize: Number(body.fileSize) || undefined,
+            contentDataUrl: sourceContentDataUrl,
+            mimeType: cleanText(body.sourceMimeType || body.mimeType),
+            fileSize: Number(body.sourceFileSize || body.fileSize) || undefined,
             idempotencyKey: `raw-material-ocr-source:${sourceDigest}`,
             metadata: {
               ocrProvider: draft.ocrProvider,
               ocrAction: draft.ocrAction,
               ocrRequestId: draft.ocrRequestId,
+              ocrPayloadDigest,
+              ocrPayloadMimeType: cleanText(body.mimeType),
+              ocrPayloadFileSize: Number(body.fileSize) || undefined,
+              sourceNormalizedForOcr: body.sourceNormalizedForOcr === true,
             },
             remark: "原材料送货单 OCR 原图；只用于办公室人工复核，不直接形成可用库存。",
           },
@@ -97,7 +103,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
           ocrSourceDigest: sourceDigest,
           sourceAttachmentId: attachmentResult.attachment?.attachmentId || "",
           sourceFileName: cleanText(body.fileName),
-          sourceMimeType: cleanText(body.mimeType),
+          sourceMimeType: cleanText(body.sourceMimeType || body.mimeType),
         };
         const operationLog = buildOperationLog(workspace, {
           id: nextId("LOG", workspace.operationLogs ?? []),
@@ -378,6 +384,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
         workspace,
         reviewId,
         decision: body.decision,
+        adjustments: body.adjustments,
         note: body.note,
         now: body.now,
         operatorId,
@@ -549,7 +556,7 @@ async function reparseStaleOcrDraft({
     existingInbound.ocrTableRows.length > 0;
   if (!canReparse) return { inbound: existingInbound, operationLogId: "" };
 
-  const reparsedDraft = rawMaterialOcrParserService.buildInboundDraft({
+  const reparsedDraft = preserveReparsedOcrEvidence(rawMaterialOcrParserService.buildInboundDraft({
     inboundId: existingInbound.id,
     knownSupplierNames: collectKnownSupplierNames(workspace),
     ocr: {
@@ -559,7 +566,7 @@ async function reparseStaleOcrDraft({
       tables: rebuildOcrTables(existingInbound.ocrTableRows),
     },
     recognizedAt: existingInbound.ocrRecognizedAt,
-  });
+  }), existingInbound);
   const saved = await workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction({
     workspace,
     inboundId: existingInbound.id,
@@ -578,6 +585,28 @@ async function reparseStaleOcrDraft({
   return {
     inbound: saved.inbound,
     operationLogId: saved.operationLogId ?? saved.operationLog?.id ?? "",
+  };
+}
+
+function preserveReparsedOcrEvidence(reparsedDraft, existingInbound) {
+  const existingLinesById = new Map((existingInbound?.ocrLines ?? []).map((line) => [cleanText(line?.lineId), line]));
+  return {
+    ...reparsedDraft,
+    ocrImageWidth: Number(reparsedDraft?.ocrImageWidth) > 0
+      ? reparsedDraft.ocrImageWidth
+      : Number(existingInbound?.ocrImageWidth) || 0,
+    ocrImageHeight: Number(reparsedDraft?.ocrImageHeight) > 0
+      ? reparsedDraft.ocrImageHeight
+      : Number(existingInbound?.ocrImageHeight) || 0,
+    ocrLines: (reparsedDraft?.ocrLines ?? []).map((line) => {
+      const existingLine = existingLinesById.get(cleanText(line?.lineId));
+      if (!existingLine) return line;
+      return {
+        ...line,
+        sourceBounds: line?.sourceBounds ?? existingLine.sourceBounds ?? null,
+        sourceText: cleanText(line?.sourceText) || cleanText(existingLine.sourceText),
+      };
+    }),
   };
 }
 

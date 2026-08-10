@@ -26,6 +26,7 @@ const dependencies = {
   masterDataImportCommandService: {},
   masterDataEmployeeAccountCommandService: {},
   masterDataMachineCommandService: {},
+  phoneIdentityCommandService: {},
   sendCommandResponse(response, result, options) {
     calls.push({ kind: "response", response, result, options });
     return "response-sent";
@@ -44,6 +45,7 @@ for (const [serviceName, commandName, kind] of [
   ["masterDataEmployeeAccountCommandService", "revokeEmployeePassword", "revoke"],
   ["masterDataMachineCommandService", "createMachine", "machine-create"],
   ["masterDataMachineCommandService", "updateMachine", "machine-update"],
+  ["phoneIdentityCommandService", "assignRegistration", "phone-registration-assign"],
 ]) {
   dependencies[serviceName][commandName] = async (input) => {
     calls.push({ kind, ...input });
@@ -65,6 +67,7 @@ await expectHandled("/api/master-data/employee-account-reviews/EMP-1/password", 
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/password/revoke", "master_data.employee_account.password.issue", "revoke", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/machines", "master_data.employee_account.review", "machine-create", {}, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/machines/BAG-10", "master_data.employee_account.review", "machine-update", { machineId: "BAG-10" }, "U-MANAGER-A", employeeOptions, "PATCH");
+await expectHandled("/api/master-data/personnel/registration-reviews/U-PHONE-1/assign", "master_data.employee_account.review", "phone-registration-assign", { userId: "U-PHONE-1" }, "U-MANAGER-A", employeeOptions);
 
 calls.length = 0;
 assert.equal(

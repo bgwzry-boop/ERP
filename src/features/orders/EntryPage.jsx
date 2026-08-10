@@ -19,9 +19,10 @@ const ENTRY_STEPS = [
   { id: 3, title: "第三步：库存与确认" },
 ];
 
-export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus, selectedDraftId, setSelectedDraftId, onRecognize, onQueueRecognize, onQueueRefresh, onQueueOpen, onQueueCancellationLink, onDraftFieldChange, onDraftCommand, onRestoreCancelledLine, onAction, helpers }) {
+export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus, selectedDraftId, setSelectedDraftId, onRecognize, onQueueRecognize, onQueueRefresh, onQueueOpen, onQueueCancellationLink, onDraftFieldChange, onArtworkUpload, onDraftCommand, onRestoreCancelledLine, onAction, helpers }) {
   const [splitPreview, setSplitPreview] = useState(null);
   const [splitConfirming, setSplitConfirming] = useState(false);
+  const [artworkUploading, setArtworkUploading] = useState(false);
   const [draftQueue, setDraftQueue] = useState({ batchId: "", items: [], summary: null, loading: false });
   const { editableColors, getDraftColorSpecLabel, getDraftMissingFields, getDraftTypeLabel, getUiActionState, money, sampleText } = helpers;
   const selected = draftRows.find((item) => item.id === selectedDraftId) ?? draftRows[0];
@@ -255,15 +256,24 @@ export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus
                 <Fact label="原文片段" value={selected.source} wide />
                 <Fact
                   label="印刷稿件"
-                  value={selected.artworkStatus ?? (selected.print === "是" ? "待上传" : "非印刷不需要")}
+                  value={getArtworkDisplayValue(selected)}
                   action={selected.print === "是" && !selectedCancelled ? (
                     <label className="entry-upload-action">
-                      上传
+                      {artworkUploading ? "上传中" : "上传"}
                       <input
                         type="file"
-                        accept="image/*,.pdf"
-                        onChange={(event) => {
-                          if (event.target.files?.length) onDraftFieldChange(selected.id, "artworkStatus", "已上传");
+                        accept=".psd,.cdr,.ai,.pdf,.png,.jpg,.jpeg"
+                        disabled={artworkUploading}
+                        onChange={async (event) => {
+                          const file = event.target.files?.[0];
+                          if (!file || !onArtworkUpload) return;
+                          setArtworkUploading(true);
+                          try {
+                            await onArtworkUpload(selected, file);
+                          } finally {
+                            setArtworkUploading(false);
+                            event.target.value = "";
+                          }
                         }}
                       />
                     </label>
@@ -435,6 +445,21 @@ export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus
       ) : null}
     </section>
   );
+}
+
+function getArtworkDisplayValue(row = {}) {
+  if (row.print !== "是") return "非印刷不需要";
+  const attachment = row.artworkAttachment;
+  if (!attachment?.fileName) return row.artworkStatus ?? "待上传";
+  const size = Number(attachment.fileSize);
+  const sizeLabel = Number.isFinite(size) && size > 0 ? ` · ${formatFileSize(size)}` : "";
+  return `${attachment.fileName}${sizeLabel} · 已上传`;
+}
+
+function formatFileSize(bytes) {
+  if (bytes >= 1024 * 1024) return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
+  if (bytes >= 1024) return `${Math.round((bytes / 1024) * 10) / 10}KB`;
+  return `${bytes}B`;
 }
 
 function ReviewMetric({ icon, label, value, tone }) {

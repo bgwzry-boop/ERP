@@ -13,7 +13,7 @@ const reparseBefore = {
   revision: 3,
   status: "已识别待复核",
   ocrProvider: "tencent_cloud_table_v3",
-  ocrParserVersion: 3,
+  ocrParserVersion: 4,
   sourceAttachmentId: "ATT-001",
   rolls: [{ id: "ROLL-001", inventoryStatus: "不可用" }],
 };
@@ -21,18 +21,18 @@ const reparsed = applyRawMaterialOcrReparse({
   before: reparseBefore,
   reparsedInbound: {
     id: "RMI-REPARSE-001",
-    ocrParserVersion: 4,
+    ocrParserVersion: 5,
     supplierName: "供应商A",
     rolls: [{ id: "ROLL-001", inventoryStatus: "不可用" }],
   },
 });
-assert.equal(reparsed.ocrParserVersion, 4);
+assert.equal(reparsed.ocrParserVersion, 5);
 assert.equal(reparsed.revision, 3);
 assert.equal(reparsed.sourceAttachmentId, "ATT-001");
 assert.throws(
   () => applyRawMaterialOcrReparse({
     before: reparseBefore,
-    reparsedInbound: { id: "RMI-REPARSE-001", ocrParserVersion: 4, rolls: [{ id: "ROLL-001", inventoryStatus: "可用" }] },
+    reparsedInbound: { id: "RMI-REPARSE-001", ocrParserVersion: 5, rolls: [{ id: "ROLL-001", inventoryStatus: "可用" }] },
   }),
   (error) => error.code === "RAW_MATERIAL_OCR_REPARSE_AVAILABLE_INVENTORY_FORBIDDEN",
 );
@@ -83,7 +83,7 @@ const service = createRawMaterialCommandService({
     return `${prefix}-${rows.length + 1}`;
   },
   rawMaterialOcrParserService: {
-    parserVersion: 4,
+    parserVersion: 5,
     buildInboundDraft({ inboundId, ocr }) {
       parserCalls += 1;
       return {
@@ -99,7 +99,7 @@ const service = createRawMaterialCommandService({
         ocrProvider: "tencent_cloud_table_v3",
         ocrAction: ocr.action,
         ocrRequestId: ocr.requestId,
-        ocrParserVersion: 4,
+        ocrParserVersion: 5,
         ocrReviewFields: [
           { key: "supplierName", label: "供应商", recognizedValue: "待复核供应商", value: "待复核供应商", confidence: 72, required: true },
           { key: "materialType", label: "材料", recognizedValue: "无纺布", value: "无纺布", confidence: 96, required: true },
@@ -118,12 +118,12 @@ const service = createRawMaterialCommandService({
             supplierColor: "",
             spec: "90克*1.6米",
             rollCount: 2,
-            totalWeightKg: 0,
+            totalWeightKg: 100,
             unit: "kg",
             unitPrice: 0,
             amount: 0,
             supplierRollNo: "",
-            rollWeightsKg: [],
+            rollWeightsKg: [50, 50],
           },
           confidences: {},
         }],
@@ -158,11 +158,11 @@ assert.equal(ocrCalls, 1);
 assert.equal(attachmentCalls, 1);
 assert.equal(workspace.operationLogs[0].action, "recognize_raw_material_delivery_note");
 
-created.inbound.ocrParserVersion = 3;
+created.inbound.ocrParserVersion = 4;
 const duplicate = await service.recognizeDeliveryNote({ workspace, body, operatorId: "U-OFFICE" });
 assert.equal(duplicate.deduplicated, true);
 assert.equal(duplicate.inbound.id, created.inbound.id);
-assert.equal(duplicate.inbound.ocrParserVersion, 4);
+assert.equal(duplicate.inbound.ocrParserVersion, 5);
 assert.equal(ocrCalls, 1, "duplicate source content must not consume another OCR call");
 assert.equal(attachmentCalls, 1, "duplicate source content must not store another attachment");
 assert.equal(parserCalls, 2, "stale duplicate must be reparsed from saved table rows");
@@ -211,12 +211,12 @@ const reviewed = applyRawMaterialInboundAction({
         supplierColor: "",
         spec: "90克*1.6米",
         rollCount: 2,
-        totalWeightKg: 0,
+        totalWeightKg: 100,
         unit: "kg",
         unitPrice: 0,
         amount: 0,
         supplierRollNo: "",
-        rollWeightsKg: [],
+        rollWeightsKg: [50, 50],
       },
     }],
   },
@@ -228,5 +228,96 @@ assert.equal(reviewed.inbound.ocrLines[0].reviewStatus, "人工接受");
 assert.equal(reviewed.inbound.ocrLines[0].recognizedValues.spec, "90克*1.6米");
 assert.equal(reviewed.inbound.rolls.every((roll) => roll.inventoryStatus === "不可用"), true);
 assert.equal(reviewed.inbound.rolls.every((roll) => roll.labelStatus === "待打印标签"), true);
+
+const returnDraft = {
+  id: "RMI-OCR-RETURN-1",
+  revision: 1,
+  status: "已识别待复核",
+  documentDirection: "supplier_return",
+  documentTypeLabel: "退货单",
+  supplierName: "人意无纺布有限公司",
+  deliveryNoteNo: "RETURN-20260701",
+  materialType: "无纺布",
+  productName: "退带色布",
+  spec: "",
+  supplierColor: "",
+  factoryColor: "",
+  rollCount: 2,
+  totalWeightKg: -28.4,
+  unit: "kg",
+  unitPrice: 9.6,
+  amount: -272.64,
+  ocrProvider: "tencent_cloud_table_v3",
+  ocrReviewFields: [
+    { key: "supplierName", recognizedValue: "人意无纺布有限公司", value: "人意无纺布有限公司" },
+    { key: "materialType", recognizedValue: "无纺布", value: "无纺布" },
+    { key: "productName", recognizedValue: "退带色布", value: "退带色布" },
+    { key: "spec", recognizedValue: "", value: "" },
+    { key: "rollCount", recognizedValue: 2, value: 2 },
+    { key: "totalWeightKg", recognizedValue: -28.4, value: -28.4 },
+    { key: "unit", recognizedValue: "kg", value: "kg" },
+    { key: "unitPrice", recognizedValue: 9.6, value: 9.6 },
+    { key: "amount", recognizedValue: -272.64, value: -272.64 },
+  ],
+  ocrLines: [{
+    lineId: "OCR-RETURN-LINE-1",
+    values: {
+      productName: "退带色布",
+      materialType: "无纺布",
+      supplierColor: "",
+      spec: "",
+      rollCount: 2,
+      totalWeightKg: -28.4,
+      unit: "kg",
+      unitPrice: 9.6,
+      amount: -272.64,
+      supplierRollNo: "",
+      rollWeightsKg: [-4.2, -24.2],
+    },
+  }],
+  rolls: [],
+};
+const returnWorkspace = { rawMaterialInbounds: [returnDraft], operationLogs: [] };
+const reviewedReturn = applyRawMaterialInboundAction({
+  workspace: returnWorkspace,
+  inbounds: returnWorkspace.rawMaterialInbounds,
+  inboundId: returnDraft.id,
+  action: "review",
+  operatorId: "U-OFFICE",
+  operatorName: "办公室复核员",
+  body: {
+    expectedRevision: 1,
+    reviewFields: {
+      supplierName: returnDraft.supplierName,
+      materialType: returnDraft.materialType,
+      productName: returnDraft.productName,
+      spec: "",
+      rollCount: 2,
+      totalWeightKg: -28.4,
+      unit: "kg",
+      unitPrice: 9.6,
+      amount: -272.64,
+    },
+    lineReviews: returnDraft.ocrLines.map((line) => ({ lineId: line.lineId, values: { ...line.values } })),
+  },
+});
+assert.equal(reviewedReturn.inbound.status, "退货单已复核");
+assert.equal(reviewedReturn.inbound.totalWeightKg, -28.4);
+assert.equal(reviewedReturn.inbound.amount, -272.64);
+assert.deepEqual(reviewedReturn.inbound.rolls, [], "reviewing a return must not create inbound rolls");
+assert.match(reviewedReturn.inbound.nextStep, /不进入入库打印和可用库存/);
+assert.throws(
+  () => applyRawMaterialInboundAction({
+    workspace: returnWorkspace,
+    inbounds: reviewedReturn.inbounds,
+    inboundId: returnDraft.id,
+    action: "print_labels",
+    operatorId: "U-OFFICE",
+    operatorName: "办公室复核员",
+    body: { expectedRevision: reviewedReturn.inbound.revision },
+  }),
+  (error) => error.code === "RAW_MATERIAL_RETURN_LABEL_PRINT_FORBIDDEN",
+  "supplier returns must be explicitly blocked from inbound label printing",
+);
 
 console.log("Raw-material OCR command checks passed: backend orchestration, attachment ownership, content deduplication, required human review, and unavailable inventory are covered.");

@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
+import { mergeReviewedSupplierReturnsIntoStatement } from "./services/rawMaterialSupplierReturnReconciliationService.mjs";
 
 export const rawMaterialSupplierStatementReviewStoreKey = "metadata/raw-material-supplier-statement-reviews.json";
 
@@ -344,12 +346,20 @@ export function buildReviewListResponse(reviews = [], query = new URLSearchParam
 }
 
 export function createReviewDraftPayload(input = {}) {
-  const statementResult = input.statementResult ?? input.result ?? {};
+  const rawStatementResult = input.statementResult ?? input.result ?? {};
+  const statementResult = mergeReviewedSupplierReturnsIntoStatement(
+    rawStatementResult,
+    input.workspace?.rawMaterialInbounds,
+    {
+      supplierName: input.supplierName ?? input.body?.supplierName ?? rawStatementResult.supplierName,
+      fileName: input.fileName ?? input.body?.fileName ?? rawStatementResult.fileName,
+    },
+  );
   const summary = statementResult.summary ?? {};
   const now = cleanText(input.now ?? input.createdAt ?? input.body?.now) || new Date().toISOString();
   const operatorId = cleanText(input.operatorId ?? input.body?.operatorId);
   const operatorName = cleanText(input.operatorName ?? input.body?.operatorName ?? operatorId);
-  const reviewId = cleanText(input.reviewId ?? input.body?.reviewId) || createReviewId(now);
+  const reviewId = cleanText(input.reviewId ?? input.body?.reviewId) || createReviewId(now, input.idFactory);
   const fileName = cleanText(input.fileName ?? input.body?.fileName ?? statementResult.fileName);
   const supplierName = cleanText(input.supplierName ?? input.body?.supplierName ?? statementResult.supplierName);
   const status = getDraftStatus(summary, statementResult);
@@ -371,6 +381,8 @@ export function createReviewDraftPayload(input = {}) {
     adjustments: normalizeAdjustments(statementResult.adjustments),
     issues: normalizeIssues(statementResult.issues),
     matchedInboundIds: Array.from(new Set(rows.map((row) => row.matchedInboundId).filter(Boolean))),
+    linkedSupplierReturnIds: statementResult.linkedSupplierReturnIds,
+    addedSupplierReturnIds: statementResult.addedSupplierReturnIds,
     accountingEffect: "none",
     inventoryEffect: "none",
     payableEffect: "none",
@@ -391,6 +403,7 @@ export function createReviewDraftPayload(input = {}) {
     after: summarizeReview(review),
     reason: "保存供应商月结 Excel 预检结果为人工复核草稿；不写库存、不生成应付、不确认付款。",
     now,
+    idFactory: input.idFactory,
   });
   return { review, operationLog, operationLogId: operationLog.id };
 }
@@ -410,9 +423,16 @@ export function applyReviewConfirmation(input = {}) {
   const operatorId = cleanText(input.operatorId ?? input.body?.operatorId);
   const operatorName = cleanText(input.operatorName ?? input.body?.operatorName ?? operatorId);
   const decision = cleanText(input.decision ?? input.body?.decision);
+  const reviewedAdjustments = resolveReviewedAdjustments(before.adjustments, input.adjustments ?? input.body?.adjustments, {
+    operatorId,
+    operatorName,
+    now,
+  });
+  validateReviewedSupplierReturnFacts(before.rows, reviewedAdjustments);
   const status = decision.includes("一致") ? "已人工复核/一致" : "已人工复核/有差异";
   const review = normalizeReview({
     ...before,
+    adjustments: reviewedAdjustments,
     status,
     reviewStatus: "reviewed",
     reviewedBy: operatorName,
@@ -434,6 +454,7 @@ export function applyReviewConfirmation(input = {}) {
     after: summarizeReview(review),
     reason: "人工复核供应商月结草稿；仍不写库存、不生成应付、不确认付款。",
     now,
+    idFactory: input.idFactory,
   });
   const nextReviews = [...reviews];
   nextReviews[index] = review;
@@ -443,6 +464,69 @@ export function applyReviewConfirmation(input = {}) {
     operationLog,
     operationLogId: operationLog.id,
   };
+}
+
+function resolveReviewedAdjustments(currentAdjustments = [], submittedAdjustments, context = {}) {
+  const current = normalizeAdjustments(currentAdjustments);
+  const submittedById = new Map(
+    (Array.isArray(submittedAdjustments) ? submittedAdjustments : [])
+      .map((item) => [cleanText(item?.id), item])
+      .filter(([id]) => id),
+  );
+  return current.map((adjustment) => {
+    const submitted = submittedById.get(adjustment.id);
+    if (!submitted) return adjustment;
+    const submittedAmount = nullableNumber(submitted.amount);
+    const isSupplierReturn = adjustment.adjustmentType === "return_adjustment" && Boolean(adjustment.sourceReturnInboundId);
+    const amount = isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0
+      ? -Math.abs(submittedAmount)
+      : Number.isFinite(submittedAmount)
+        ? submittedAmount
+        : adjustment.amount;
+    return normalizeAdjustments([{
+      ...adjustment,
+      amount,
+      calculationStatus: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0
+        ? "manual_confirmed"
+        : adjustment.calculationStatus,
+      requiresManualReview: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0
+        ? false
+        : adjustment.requiresManualReview,
+      note: cleanText(submitted.note) || adjustment.note,
+      confirmedAmountBy: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0 ? context.operatorName : "",
+      confirmedAmountByUserId: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0 ? context.operatorId : "",
+      confirmedAmountAt: isSupplierReturn && Number.isFinite(submittedAmount) && submittedAmount !== 0 ? context.now : "",
+    }])[0];
+  });
+}
+
+function validateReviewedSupplierReturnFacts(rows = [], adjustments = []) {
+  const missingRows = normalizePrecheckRows(rows).filter((row) =>
+    row.lineType === "return" && row.sourceReturnInboundId && !(Math.abs(Number(row.amount) || 0) > 0.001),
+  );
+  const missingAdjustments = normalizeAdjustments(adjustments).filter((item) =>
+    item.adjustmentType === "return_adjustment"
+      && item.sourceReturnInboundId
+      && !(Math.abs(Number(item.amount) || 0) > 0.001),
+  );
+  if (!missingRows.length && !missingAdjustments.length) return;
+  const sourceIds = [...missingRows, ...missingAdjustments]
+    .map((item) => item.sourceDocumentNo || item.sourceReturnInboundId)
+    .filter(Boolean)
+    .join("、");
+  throw Object.assign(new Error(`供应商退货实际抵扣金额未确认：${sourceIds || "退货调整"}`), {
+    statusCode: 422,
+    code: "RAW_MATERIAL_SUPPLIER_RETURN_AMOUNT_REQUIRED",
+  });
+}
+
+function collectSupplierReturnIds(review = {}) {
+  return Array.from(new Set([
+    ...(Array.isArray(review.linkedSupplierReturnIds) ? review.linkedSupplierReturnIds : []),
+    ...(Array.isArray(review.addedSupplierReturnIds) ? review.addedSupplierReturnIds : []),
+    ...(Array.isArray(review.rows) ? review.rows.map((row) => row?.sourceReturnInboundId) : []),
+    ...(Array.isArray(review.adjustments) ? review.adjustments.map((item) => item?.sourceReturnInboundId) : []),
+  ].map(cleanText).filter(Boolean)));
 }
 
 export function applyStatementConfirmation(input = {}) {
@@ -461,11 +545,28 @@ export function applyStatementConfirmation(input = {}) {
       statusCode: 409,
     });
   }
+  const returnIds = collectSupplierReturnIds(before);
+  const duplicateReview = reviews.find((item) =>
+    item.reviewId !== before.reviewId
+      && Boolean(item.statementConfirmationId || item.supplierPayableId)
+      && collectSupplierReturnIds(item).some((id) => returnIds.includes(id)),
+  );
+  if (duplicateReview) {
+    const duplicateIds = collectSupplierReturnIds(duplicateReview).filter((id) => returnIds.includes(id));
+    throw Object.assign(new Error(`供应商退货已进入其他已确认对账，不能重复抵扣：${duplicateIds.join("、")}`), {
+      statusCode: 409,
+      code: "RAW_MATERIAL_SUPPLIER_RETURN_ALREADY_RECONCILED",
+      details: {
+        duplicateReturnIds: duplicateIds,
+        existingReviewId: duplicateReview.reviewId,
+      },
+    });
+  }
   const now = cleanText(input.now ?? input.body?.now) || new Date().toISOString();
   const operatorId = cleanText(input.operatorId ?? input.body?.operatorId);
   const operatorName = cleanText(input.operatorName ?? input.body?.operatorName ?? operatorId);
   const statementConfirmationId =
-    cleanText(input.statementConfirmationId ?? input.body?.statementConfirmationId) || createStatementConfirmationId(now);
+    cleanText(input.statementConfirmationId ?? input.body?.statementConfirmationId) || createStatementConfirmationId(now, input.idFactory);
   const note = cleanText(input.note ?? input.body?.note);
   const review = normalizeReview({
     ...before,
@@ -493,6 +594,7 @@ export function applyStatementConfirmation(input = {}) {
     after: summarizeReview(review),
     reason: "确认供应商月结对账一致；只生成对账确认留痕和待付款状态，不写库存、不生成付款。",
     now,
+    idFactory: input.idFactory,
   });
   const nextReviews = [...reviews];
   nextReviews[index] = review;
@@ -523,7 +625,7 @@ export function applyPayableDraftGeneration(input = {}) {
   const now = cleanText(input.now ?? input.body?.now) || new Date().toISOString();
   const operatorId = cleanText(input.operatorId ?? input.body?.operatorId);
   const operatorName = cleanText(input.operatorName ?? input.body?.operatorName ?? operatorId);
-  const supplierPayableId = cleanText(input.supplierPayableId ?? input.body?.supplierPayableId) || createSupplierPayableId(now);
+  const supplierPayableId = cleanText(input.supplierPayableId ?? input.body?.supplierPayableId) || createSupplierPayableId(now, input.idFactory);
   const note = cleanText(input.note ?? input.body?.note);
   const payableDraft = buildSupplierPayableDraft(before, {
     supplierPayableId,
@@ -558,6 +660,7 @@ export function applyPayableDraftGeneration(input = {}) {
     after: summarizeReview(review),
     reason: "财务基于已确认供应商月结生成应付草稿；仍不写库存、不确认付款。",
     now,
+    idFactory: input.idFactory,
   });
   const nextReviews = [...reviews];
   nextReviews[index] = review;
@@ -600,7 +703,7 @@ export function applySupplierPaymentConfirmation(input = {}) {
   const operatorId = cleanText(input.operatorId ?? input.body?.operatorId);
   const operatorName = cleanText(input.operatorName ?? input.body?.operatorName ?? operatorId);
   const supplierPaymentConfirmationId =
-    cleanText(input.supplierPaymentConfirmationId ?? input.body?.supplierPaymentConfirmationId) || createSupplierPaymentConfirmationId(now);
+    cleanText(input.supplierPaymentConfirmationId ?? input.body?.supplierPaymentConfirmationId) || createSupplierPaymentConfirmationId(now, input.idFactory);
   const paymentRecord = normalizeSupplierPaymentRecord({
     supplierPaymentConfirmationId,
     sourceReviewId: before.reviewId,
@@ -644,6 +747,7 @@ export function applySupplierPaymentConfirmation(input = {}) {
     after: summarizeReview(review),
     reason: "财务确认供应商应付草稿已实际付款；记录付款确认号、金额和凭证，不写库存。",
     now,
+    idFactory: input.idFactory,
   });
   const nextReviews = [...reviews];
   nextReviews[index] = review;
@@ -684,6 +788,8 @@ function normalizeReview(input = {}) {
     adjustments: normalizeAdjustments(input.adjustments),
     issues: normalizeIssues(input.issues),
     matchedInboundIds: Array.isArray(input.matchedInboundIds) ? input.matchedInboundIds.map(cleanText).filter(Boolean) : [],
+    linkedSupplierReturnIds: Array.isArray(input.linkedSupplierReturnIds) ? input.linkedSupplierReturnIds.map(cleanText).filter(Boolean) : [],
+    addedSupplierReturnIds: Array.isArray(input.addedSupplierReturnIds) ? input.addedSupplierReturnIds.map(cleanText).filter(Boolean) : [],
     accountingEffect: cleanText(input.accountingEffect) || "none",
     inventoryEffect: cleanText(input.inventoryEffect) || "none",
     payableEffect: cleanText(input.payableEffect) || "none",
@@ -730,6 +836,8 @@ function normalizeSummary(input = {}) {
     unmatchedRowCount: toNumber(input.unmatchedRowCount),
     returnRowCount: toNumber(input.returnRowCount),
     adjustmentCount: toNumber(input.adjustmentCount),
+    linkedSupplierReturnCount: toNumber(input.linkedSupplierReturnCount),
+    erpReturnAdjustmentCount: toNumber(input.erpReturnAdjustmentCount),
     totalWeightKg: toNumber(input.totalWeightKg),
     totalAmount: toNumber(input.totalAmount),
   };
@@ -738,6 +846,10 @@ function normalizeSummary(input = {}) {
 function normalizePrecheckRows(rows = []) {
   return (Array.isArray(rows) ? rows : []).map((row, index) => ({
     id: cleanText(row.id) || `row-${index + 1}`,
+    sourceSheet: cleanText(row.sourceSheet),
+    sourceRow: toNumber(row.sourceRow),
+    supplierName: cleanText(row.supplierName),
+    documentDate: cleanText(row.documentDate),
     documentNo: cleanText(row.documentNo),
     batchNo: cleanText(row.batchNo),
     productName: cleanText(row.productName),
@@ -753,6 +865,7 @@ function normalizePrecheckRows(rows = []) {
     matchedRollId: cleanText(row.matchedRollId),
     confidence: cleanText(row.confidence),
     lineType: cleanText(row.lineType),
+    ...normalizeSupplierReturnTrace(row),
   }));
 }
 
@@ -771,6 +884,10 @@ function normalizeAdjustments(items = []) {
     configuredRule: normalizeAdjustmentRuleSummary(item.configuredRule),
     requiresManualReview: item.requiresManualReview !== false,
     note: cleanText(item.note),
+    confirmedAmountBy: cleanText(item.confirmedAmountBy),
+    confirmedAmountByUserId: cleanText(item.confirmedAmountByUserId),
+    confirmedAmountAt: cleanText(item.confirmedAmountAt),
+    ...normalizeSupplierReturnTrace(item),
   }));
 }
 
@@ -863,7 +980,43 @@ function normalizePayableAdjustmentRefs(items = []) {
     calculationBasis: normalizeAdjustmentCalculationBasis(item.calculationBasis),
     configuredRule: normalizeAdjustmentRuleSummary(item.configuredRule),
     note: cleanText(item.note),
+    confirmedAmountBy: cleanText(item.confirmedAmountBy),
+    confirmedAmountByUserId: cleanText(item.confirmedAmountByUserId),
+    confirmedAmountAt: cleanText(item.confirmedAmountAt),
+    ...normalizeSupplierReturnTrace(item),
   }));
+}
+
+function normalizeSupplierReturnTrace(input = {}) {
+  const sourceEvidence = input.sourceEvidence && typeof input.sourceEvidence === "object" && !Array.isArray(input.sourceEvidence)
+    ? {
+        ...input.sourceEvidence,
+        inboundId: cleanText(input.sourceEvidence.inboundId),
+        attachmentId: cleanText(input.sourceEvidence.attachmentId),
+        fileName: cleanText(input.sourceEvidence.fileName),
+        mimeType: cleanText(input.sourceEvidence.mimeType),
+        documentNo: cleanText(input.sourceEvidence.documentNo),
+        documentDate: cleanText(input.sourceEvidence.documentDate),
+        documentDirection: cleanText(input.sourceEvidence.documentDirection),
+        supplierName: cleanText(input.sourceEvidence.supplierName),
+        status: cleanText(input.sourceEvidence.status),
+        lineEvidence: Array.isArray(input.sourceEvidence.lineEvidence)
+          ? input.sourceEvidence.lineEvidence.map((line) => ({ ...line }))
+          : [],
+      }
+    : null;
+  return {
+    sourceReturnInboundId: cleanText(input.sourceReturnInboundId),
+    sourceAttachmentId: cleanText(input.sourceAttachmentId),
+    sourceFileName: cleanText(input.sourceFileName),
+    sourceMimeType: cleanText(input.sourceMimeType),
+    sourceDocumentNo: cleanText(input.sourceDocumentNo),
+    sourceDocumentDate: cleanText(input.sourceDocumentDate),
+    sourceDocumentDirection: cleanText(input.sourceDocumentDirection),
+    returnDedupeKey: cleanText(input.returnDedupeKey),
+    returnMatchStatus: cleanText(input.returnMatchStatus),
+    sourceEvidence,
+  };
 }
 
 function normalizeIssues(items = []) {
@@ -930,7 +1083,7 @@ function buildReviewMetrics(reviews = []) {
 function buildOperationLog(input = {}) {
   const now = cleanText(input.now) || new Date().toISOString();
   return normalizeOperationLog({
-    id: `RMSR-LOG-${Date.now().toString(36).toUpperCase()}`,
+    id: createCollisionResistantId("RMSR-LOG", now, input.idFactory),
     targetType: "raw_material_supplier_statement_review",
     targetId: input.targetId,
     action: input.action,
@@ -973,24 +1126,27 @@ function normalizeReviewTransactionResult(value) {
   };
 }
 
-function createReviewId(now) {
-  const compactDate = cleanText(now).slice(0, 10).replaceAll("-", "") || "LOCAL";
-  return `RMSR-${compactDate}-${Date.now().toString(36).toUpperCase()}`;
+function createReviewId(now, idFactory) {
+  return createCollisionResistantId("RMSR", now, idFactory);
 }
 
-function createStatementConfirmationId(now) {
-  const compactDate = cleanText(now).slice(0, 10).replaceAll("-", "") || "LOCAL";
-  return `RMSRC-${compactDate}-${Date.now().toString(36).toUpperCase()}`;
+function createStatementConfirmationId(now, idFactory) {
+  return createCollisionResistantId("RMSRC", now, idFactory);
 }
 
-function createSupplierPayableId(now) {
-  const compactDate = cleanText(now).slice(0, 10).replaceAll("-", "") || "LOCAL";
-  return `RMSP-${compactDate}-${Date.now().toString(36).toUpperCase()}`;
+function createSupplierPayableId(now, idFactory) {
+  return createCollisionResistantId("RMSP", now, idFactory);
 }
 
-function createSupplierPaymentConfirmationId(now) {
+function createSupplierPaymentConfirmationId(now, idFactory) {
+  return createCollisionResistantId("RMSPAY", now, idFactory);
+}
+
+function createCollisionResistantId(prefix, now, idFactory = randomUUID) {
   const compactDate = cleanText(now).slice(0, 10).replaceAll("-", "") || "LOCAL";
-  return `RMSPAY-${compactDate}-${Date.now().toString(36).toUpperCase()}`;
+  const entropy = cleanText(idFactory()).replaceAll("-", "").toUpperCase();
+  if (!entropy) throw new TypeError("idFactory must return a non-empty identifier");
+  return `${prefix}-${compactDate}-${entropy}`;
 }
 
 function buildSupplierPayableDraft(review = {}, input = {}) {

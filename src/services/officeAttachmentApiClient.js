@@ -1,5 +1,9 @@
 import { getAuthApiBaseUrl, isOfficeApiServerRequired } from "./officeAuthService.js";
 import { requestOfficeApi as requestAttachmentApi } from "./officeApiClientCore.js";
+import {
+  getAttachmentFileExtension,
+  getAttachmentUploadPolicy,
+} from "../../shared/attachmentUploadPolicy.js";
 
 export async function createOfficeAttachment(input, options = {}) {
   const {
@@ -77,6 +81,64 @@ export async function createOfficeAttachment(input, options = {}) {
   }
 }
 
+export async function uploadOfficeAttachmentFile(input, options = {}) {
+  const file = input.file;
+  const validationError = validateAttachmentUploadInput({
+    ...input,
+    fileSize: Number(file?.size ?? input.fileSize),
+    mimeType: file?.type || input.mimeType,
+    fileName: file?.name || input.fileName,
+    binaryContent: true,
+  });
+  if (validationError) return { source: "client_validation", blocked: true, error: validationError };
+  if (!file) {
+    return {
+      source: "client_validation",
+      blocked: true,
+      error: { code: "ATTACHMENT_CONTENT_REQUIRED", message: "请选择实际文件后上传。" },
+    };
+  }
+
+  const searchParams = new URLSearchParams();
+  const values = {
+    ownerType: input.ownerType,
+    ownerId: input.ownerId,
+    fileType: inferAttachmentFileType({ mimeType: file.type || input.mimeType, fileName: file.name || input.fileName }) || input.fileType,
+    purpose: input.purpose,
+    fileName: file.name || input.fileName,
+    contentRef: input.contentRef,
+    mimeType: file.type || input.mimeType || "application/octet-stream",
+    fileSize: String(file.size),
+    remark: input.remark || "",
+    metadata: JSON.stringify(isPlainObject(input.metadata) ? input.metadata : {}),
+  };
+  for (const [key, value] of Object.entries(values)) {
+    if (value !== undefined && value !== null && String(value) !== "") searchParams.set(key, String(value));
+  }
+  try {
+    const response = await requestAttachmentApi(`/attachments/binary?${searchParams.toString()}`, {
+      ...options,
+      authState: input.authState,
+      method: "POST",
+      operatorId: input.uploadedBy,
+      headers: { "content-type": values.mimeType },
+      rawBody: file,
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, "附件上传失败。") };
+    }
+    return { source: "api", attachment: mapAttachmentSummary(json) };
+  } catch (error) {
+    if (isOfficeApiServerRequired(options)) return buildServerRequiredWriteError("ATTACHMENT_API_UNAVAILABLE", error);
+    return {
+      source: "local_fallback",
+      blocked: true,
+      error: { code: "ATTACHMENT_BINARY_UPLOAD_API_UNAVAILABLE", message: error?.message ?? String(error) },
+    };
+  }
+}
+
 export function validateAttachmentUploadInput(input = {}) {
   const purpose = normalizeAttachmentText(input.purpose);
   const mimeType = normalizeAttachmentText(input.mimeType || inferContentDataUrlMimeType(input.contentDataUrl)).toLowerCase();
@@ -93,6 +155,13 @@ export function validateAttachmentUploadInput(input = {}) {
   }
 
   const rule = getAttachmentPurposeRule(purpose);
+  const fileExtension = getAttachmentFileExtension(fileName);
+  if (rule.allowedExtensions?.length && !rule.allowedExtensions.includes(fileExtension)) {
+    return {
+      code: "ATTACHMENT_FILE_EXTENSION_NOT_ALLOWED",
+      message: `${rule.label}只允许上传${rule.allowedLabel}，当前扩展名为${fileExtension || "未知"}。`,
+    };
+  }
   if (rule.allowedFileTypes.length && !rule.allowedFileTypes.includes(fileType)) {
     return {
       code: "ATTACHMENT_FILE_TYPE_NOT_ALLOWED",
@@ -117,7 +186,7 @@ export function validateAttachmentUploadInput(input = {}) {
     };
   }
 
-  if (rule.requiresContent && (!Number.isFinite(byteLength) || byteLength <= 0)) {
+  if (rule.requiresContent && input.binaryContent !== true && (!Number.isFinite(byteLength) || byteLength <= 0)) {
     return {
       code: "ATTACHMENT_CONTENT_REQUIRED",
       message: `${rule.label}必须选择实际文件后上传。`,
@@ -496,6 +565,28 @@ export function createMaintenanceEvidenceAttachmentInput({ taskId, operatorId, r
   };
 }
 
+export function createPrintArtworkAttachmentInput({ draftId, draftLine, operatorId, remark = "", file = null }) {
+  const draftLineId = normalizeAttachmentText(draftLine?.id ?? draftLine?.draftLineId);
+  const normalizedDraftId = normalizeAttachmentText(draftId);
+  const ownerId = normalizedDraftId && draftLineId ? `${normalizedDraftId}:${draftLineId}` : normalizedDraftId || draftLineId;
+  const selectedFileName = normalizeAttachmentText(file?.name) || `print-artwork-${draftLineId || Date.now()}.pdf`;
+  const mimeType = normalizeAttachmentText(file?.type) || "application/octet-stream";
+  return {
+    ownerType: "order_draft_line",
+    ownerId,
+    fileType: inferAttachmentFileType({ mimeType, fileName: selectedFileName }),
+    purpose: "print_artwork",
+    fileName: selectedFileName,
+    contentRef: `order-draft-artwork://${encodeURIComponent(ownerId)}/${encodeURIComponent(draftLineId || "line")}/${encodeURIComponent(selectedFileName)}`,
+    mimeType,
+    fileSize: Number.isFinite(file?.size) ? file.size : undefined,
+    file,
+    metadata: { draftId: normalizedDraftId, draftLineId, artworkVersion: 1 },
+    uploadedBy: operatorId,
+    remark,
+  };
+}
+
 export function createV1FieldEvidenceAttachmentInput({ evidenceItem, operatorId, remark = "", file = null }) {
   const { groupKey, itemKey, ownerId } = getV1FieldEvidenceAttachmentOwner(evidenceItem);
   const now = new Date();
@@ -627,87 +718,8 @@ export function inferAttachmentFileType({ mimeType = "", fileName = "" } = {}) {
   return "other";
 }
 
-function getAttachmentPurposeRule(purpose) {
-  const commonImageRule = {
-    allowedFileTypes: ["image"],
-    allowedMimePrefixes: ["image/"],
-    allowedMimeTypes: [],
-    allowedLabel: "图片",
-    maxBytes: 12 * 1024 * 1024,
-  };
-  const rules = {
-    payment_screenshot: {
-      ...commonImageRule,
-      label: "付款截图",
-      maxBytes: 8 * 1024 * 1024,
-      requiresContent: true,
-    },
-    delivery_watermark_photo: {
-      ...commonImageRule,
-      label: "送达水印照片",
-    },
-    signature_photo: {
-      ...commonImageRule,
-      label: "签收照片",
-    },
-    finished_goods_photo: {
-      ...commonImageRule,
-      label: "定制成品图",
-    },
-    maintenance_evidence: {
-      ...commonImageRule,
-      label: "设备检查照片",
-      requiresContent: true,
-    },
-    statement_customer_confirmation: {
-      allowedFileTypes: ["image", "pdf"],
-      allowedMimePrefixes: ["image/"],
-      allowedMimeTypes: ["application/pdf"],
-      allowedLabel: "图片或 PDF",
-      label: "客户确认附件",
-      maxBytes: 12 * 1024 * 1024,
-      requiresContent: true,
-    },
-    inventory_correction_evidence: {
-      allowedFileTypes: ["image", "pdf"],
-      allowedMimePrefixes: ["image/"],
-      allowedMimeTypes: ["application/pdf"],
-      allowedLabel: "图片或 PDF",
-      label: "库存修正凭证",
-      maxBytes: 12 * 1024 * 1024,
-    },
-    business_decision_evidence: {
-      allowedFileTypes: ["image", "pdf", "spreadsheet", "document"],
-      allowedMimePrefixes: ["image/", "text/"],
-      allowedMimeTypes: [
-        "application/pdf",
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      ],
-      allowedLabel: "图片、PDF、表格或文档",
-      label: "经营决定凭据",
-      maxBytes: 15 * 1024 * 1024,
-      requiresContent: true,
-    },
-  };
-  return (
-    rules[purpose] ?? {
-      allowedFileTypes: ["image", "pdf", "spreadsheet", "document"],
-      allowedMimePrefixes: ["image/", "text/"],
-      allowedMimeTypes: [
-        "application/pdf",
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      ],
-      allowedLabel: "图片、PDF、表格或文档",
-      label: "附件",
-      maxBytes: 15 * 1024 * 1024,
-    }
-  );
+export function getAttachmentPurposeRule(purpose) {
+  return getAttachmentUploadPolicy(purpose);
 }
 
 function isMimeTypeAllowed(mimeType, rule) {

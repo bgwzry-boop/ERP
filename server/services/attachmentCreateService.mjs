@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import {
+  getAttachmentFileExtension,
+  getAttachmentUploadPolicy,
+} from "../../shared/attachmentUploadPolicy.js";
 
 const requiredAttachmentFields = [
   "ownerType",
@@ -17,10 +21,11 @@ export function createAttachmentCommandService(dependencies = {}) {
   }
 
   return {
-    createAttachment({ workspace, body = {}, operatorId }) {
+    createAttachment({ workspace, body = {}, operatorId, contentPayload = null }) {
       return createAttachmentRecord({
         workspace,
         body: { ...body, uploadedBy: operatorId },
+        contentPayload,
         parseDataUrl,
         buildOperationLog,
         nextId,
@@ -32,6 +37,7 @@ export function createAttachmentCommandService(dependencies = {}) {
 export async function createAttachmentRecord({
   workspace,
   body = {},
+  contentPayload: providedContentPayload = null,
   parseDataUrl,
   buildOperationLog,
   nextId,
@@ -43,7 +49,7 @@ export async function createAttachmentRecord({
   }
 
   const contentDataUrl = typeof body.contentDataUrl === "string" ? body.contentDataUrl.trim() : "";
-  const contentPayload = contentDataUrl ? parseDataUrl(contentDataUrl) : null;
+  const contentPayload = normalizeProvidedContentPayload(providedContentPayload) ?? (contentDataUrl ? parseDataUrl(contentDataUrl) : null);
   if (contentDataUrl && !contentPayload) {
     return validationFailure("contentDataUrl must be a valid data URL");
   }
@@ -171,6 +177,13 @@ export function validateAttachmentUploadBody(body = {}, contentPayload = null) {
   }
 
   const rule = getAttachmentPurposeRule(purpose);
+  const fileExtension = getAttachmentFileExtension(fileName);
+  if (rule.allowedExtensions?.length && !rule.allowedExtensions.includes(fileExtension)) {
+    return {
+      code: "ATTACHMENT_FILE_EXTENSION_NOT_ALLOWED",
+      message: `${rule.label}只允许上传${rule.allowedLabel}，当前扩展名为${fileExtension || "未知"}。`,
+    };
+  }
   if (rule.allowedFileTypes.length && !rule.allowedFileTypes.includes(fileType)) {
     return {
       code: "ATTACHMENT_FILE_TYPE_NOT_ALLOWED",
@@ -231,93 +244,15 @@ export function inferAttachmentFileType({ mimeType = "", fileName = "", fallback
   return normalizeText(fallbackFileType) || "other";
 }
 
-function getAttachmentPurposeRule(purpose) {
-  const commonPhotoRule = {
-    allowedFileTypes: ["image"],
-    allowedMimePrefixes: ["image/"],
-    allowedMimeTypes: [],
-    allowedLabel: "图片",
-    maxBytes: 12 * 1024 * 1024,
-  };
-  const rules = {
-    raw_material_delivery_note: {
-      allowedFileTypes: ["image", "pdf"],
-      allowedMimePrefixes: ["image/"],
-      allowedMimeTypes: ["application/pdf"],
-      allowedLabel: "PNG、JPG、JPEG、BMP 图片或 PDF",
-      label: "原材料送货单",
-      maxBytes: 7.5 * 1024 * 1024,
-      requiresContent: true,
-    },
-    payment_screenshot: {
-      ...commonPhotoRule,
-      label: "付款截图",
-      maxBytes: 8 * 1024 * 1024,
-      requiresContent: true,
-    },
-    delivery_watermark_photo: {
-      ...commonPhotoRule,
-      label: "送达水印照片",
-    },
-    signature_photo: {
-      ...commonPhotoRule,
-      label: "签收照片",
-    },
-    finished_goods_photo: {
-      ...commonPhotoRule,
-      label: "定制成品图",
-    },
-    maintenance_evidence: {
-      ...commonPhotoRule,
-      label: "设备检查照片",
-      requiresContent: true,
-    },
-    statement_customer_confirmation: {
-      allowedFileTypes: ["image", "pdf"],
-      allowedMimePrefixes: ["image/"],
-      allowedMimeTypes: ["application/pdf"],
-      allowedLabel: "图片或 PDF",
-      label: "客户确认附件",
-      maxBytes: 12 * 1024 * 1024,
-      requiresContent: true,
-    },
-    inventory_correction_evidence: {
-      allowedFileTypes: ["image", "pdf"],
-      allowedMimePrefixes: ["image/"],
-      allowedMimeTypes: ["application/pdf"],
-      allowedLabel: "图片或 PDF",
-      label: "库存修正凭证",
-      maxBytes: 12 * 1024 * 1024,
-    },
-    business_decision_evidence: {
-      allowedFileTypes: ["image", "pdf", "document", "spreadsheet"],
-      allowedMimePrefixes: ["image/", "text/"],
-      allowedMimeTypes: [
-        "application/pdf",
-        "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/msword",
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-      ],
-      allowedLabel: "图片、PDF、表格或文档",
-      label: "经营决定凭据",
-      maxBytes: 15 * 1024 * 1024,
-      requiresContent: true,
-    },
-  };
-  return rules[purpose] ?? {
-    allowedFileTypes: ["image", "pdf", "spreadsheet", "document"],
-    allowedMimePrefixes: ["image/", "text/"],
-    allowedMimeTypes: [
-      "application/pdf",
-      "application/vnd.ms-excel",
-      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ],
-    allowedLabel: "图片、PDF、表格或文档",
-    label: "附件",
-    maxBytes: 15 * 1024 * 1024,
+export function getAttachmentPurposeRule(purpose) {
+  return getAttachmentUploadPolicy(purpose);
+}
+
+function normalizeProvidedContentPayload(value) {
+  if (!value || !Buffer.isBuffer(value.buffer)) return null;
+  return {
+    buffer: value.buffer,
+    contentType: normalizeText(value.contentType) || "application/octet-stream",
   };
 }
 

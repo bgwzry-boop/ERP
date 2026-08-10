@@ -4,19 +4,25 @@ export function findRuntimeUserById(workspace, userId) {
   return runtimeUsers(workspace).find(
     (user) =>
       cleanText(user?.userId ?? user?.id) === safeUserId &&
-      cleanText(user?.source) === "master_data_import_review",
+      isFormalRuntimeUserSource(user?.source),
   ) ?? null;
 }
 
 export function findRuntimeUserByIdentifiers(workspace, identifiers = {}) {
   const safeLoginName = cleanText(identifiers.loginName);
   const safeUserId = cleanText(identifiers.userId);
-  if (!safeLoginName && !safeUserId) return null;
+  const safePhoneE164 = cleanText(identifiers.phoneE164 ?? identifiers.phone);
+  if (!safeLoginName && !safeUserId && !safePhoneE164) return null;
   return runtimeUsers(workspace).find((user) => {
-    if (cleanText(user?.source) !== "master_data_import_review") return false;
+    if (!isFormalRuntimeUserSource(user?.source)) return false;
     const userId = cleanText(user?.userId ?? user?.id);
     const loginName = cleanText(user?.loginName);
-    return (safeUserId && userId === safeUserId) || (safeLoginName && loginName === safeLoginName);
+    const phoneE164 = cleanText(user?.phoneE164);
+    return (
+      (safeUserId && userId === safeUserId) ||
+      (safeLoginName && loginName === safeLoginName) ||
+      (safePhoneE164 && phoneE164 === safePhoneE164)
+    );
   }) ?? null;
 }
 
@@ -26,7 +32,7 @@ export function findRuntimeUserByEmployeeId(workspace, employeeId) {
   return runtimeUsers(workspace).find(
     (user) =>
       cleanText(user?.employeeId) === safeEmployeeId &&
-      cleanText(user?.source) === "master_data_import_review",
+      isFormalRuntimeUserSource(user?.source),
   ) ?? null;
 }
 
@@ -65,12 +71,16 @@ export async function persistRuntimeIdentityState(workspace, options = {}) {
 }
 
 export function sanitizeRuntimeUserForResponse(user = {}) {
-  const { seedPassword, passwordHash, ...safeUser } = user ?? {};
+  const { seedPassword, passwordHash, invitationReferenceHash, ...safeUser } = user ?? {};
   return safeUser;
 }
 
 function runtimeUsers(workspace) {
   return Array.isArray(workspace?.users) ? workspace.users : [];
+}
+
+function isFormalRuntimeUserSource(value) {
+  return ["master_data_import_review", "phone_self_registration"].includes(cleanText(value));
 }
 
 function cleanText(value) {

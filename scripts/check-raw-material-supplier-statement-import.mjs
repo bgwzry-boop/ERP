@@ -71,7 +71,7 @@ async function checkBeichenStatementImport() {
           ["2026-07-04", "BC-240704-029", "虎门工厂", "黑色加长提手", "5cm*加长提", "黑", 4, "批号BC029-1", 0, 0.18, 720],
           ["退货明细"],
           ["日期", "单号", "客户名称", "商品名称", "规格", "颜色", "数量", "批号", "总重", "单价", "金额"],
-          ["2026-07-05", "BC-240704-RET", "虎门工厂", "黑色加长提手", "5cm*加长提", "黑", -1, "批号BC029-4", 0, 0.18, -180],
+          ["2026-07-05", "BC-240704-RET", "虎门工厂", "黑色加长提手", "5cm*加长提", "黑", 1, "批号BC029-4", 0, 0.18, 180],
         ],
       },
       {
@@ -97,6 +97,7 @@ async function checkBeichenStatementImport() {
   assert.equal(result.summary.matchedRowCount, 2, "Beichen rows should match by document no or batch no");
   assert.equal(result.rows[0].matchedRollId, "RM-240704-003-01", "Beichen batch no should match roll label");
   assert.equal(result.rows[1].lineType, "return", "Beichen return row should keep return type");
+  assert.equal(result.rows[1].amount, -180, "positive printed return magnitude should normalize to negative direction");
   assert.equal(result.summary.totalAmount, 540, "Shipment and return amount should net in summary");
 }
 

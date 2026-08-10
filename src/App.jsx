@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { MenuFoldOutlined } from "@ant-design/icons";
+import bagwinSymbolUrl from "./assets/brand/BAGWIN_symbol_color.svg";
 import {
   EntryPage,
   FulfillmentPage,
@@ -66,6 +67,7 @@ import {
 import {
   createInitialAuthState,
   isOfficeApiServerRequired,
+  isOfficeSharedDataServerRequired,
 } from "./services/officeAuthService.js";
 import { getOfficeOrderLineDetail } from "./services/officeOrderPoolApiClient.js";
 import {
@@ -155,7 +157,8 @@ const orderMatchesFilters = (row, filters, statements) => orderMatchesFiltersRec
 const statementMatchesFilters = (statement, filters) => statementMatchesFiltersRecord(statement, filters, customers);
 
 export function App() {
-  const runtimeServerRequired = isOfficeApiServerRequired();
+  const formalLoginRequired = isOfficeApiServerRequired();
+  const runtimeServerRequired = isOfficeSharedDataServerRequired();
   const [activePage, setActivePage] = useState("todos");
   const [mobileViewport, setMobileViewport] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -332,7 +335,7 @@ export function App() {
   const dedicatedMobileRolePage = isDedicatedMobileRolePage(renderedPage);
   const roleFocusedShellPage = dedicatedMobileRolePage || renderedPage === roleBoundaryPage.key
     || (mobileViewport && renderedPage === "rawMaterials");
-  const authSourceLabel = authState.authenticated ? "后端认证" : runtimeServerRequired ? "等待登录" : "本地权限";
+  const authSourceLabel = authState.authenticated ? "后端认证" : formalLoginRequired ? "等待登录" : "本地权限";
   const unhandledTodos = todos.filter((item) => !item.handled).length;
 
   useEffect(() => {
@@ -583,7 +586,7 @@ export function App() {
     statements,
   });
 
-  useRuntimeAuthInitialization({ authState, serverRequired: runtimeServerRequired, setAuthState, setToast });
+  useRuntimeAuthInitialization({ authState, serverRequired: formalLoginRequired, setAuthState, setToast });
 
   useEffect(() => {
     let cancelled = false;
@@ -608,17 +611,28 @@ export function App() {
 
   useEffect(() => {
     if (activePage !== "rawMaterials" && activePage !== "rawMaterialScanner") return undefined;
-    let cancelled = false;
-    Promise.all([
-      refreshRawMaterialInbounds({ showToast: false }),
-      activePage === "rawMaterials"
-        ? refreshRawMaterialSupplierStatementReviews({ showToast: false })
-        : Promise.resolve(),
-    ]).then(() => {
-      if (cancelled) return;
-    });
+    let refreshPending = false;
+    const syncRawMaterialInbounds = () => {
+      if (refreshPending) return;
+      refreshPending = true;
+      void refreshRawMaterialInbounds({ showToast: false }).finally(() => {
+        refreshPending = false;
+      });
+    };
+    const syncWhenVisible = () => {
+      if (document.visibilityState === "visible") syncRawMaterialInbounds();
+    };
+    syncRawMaterialInbounds();
+    if (activePage === "rawMaterials") {
+      void refreshRawMaterialSupplierStatementReviews({ showToast: false });
+    }
+    window.addEventListener("focus", syncRawMaterialInbounds);
+    document.addEventListener("visibilitychange", syncWhenVisible);
+    const syncTimer = window.setInterval(syncRawMaterialInbounds, 15_000);
     return () => {
-      cancelled = true;
+      window.clearInterval(syncTimer);
+      window.removeEventListener("focus", syncRawMaterialInbounds);
+      document.removeEventListener("visibilitychange", syncWhenVisible);
     };
   }, [activePage, refreshRawMaterialInbounds, refreshRawMaterialSupplierStatementReviews]);
 
@@ -829,14 +843,14 @@ export function App() {
     authState,
     runtimeLoginForm, runtimeLoginLoading,
     runtimePasswordChangeForm, runtimePasswordChangeLoading,
-    runtimeServerRequired, runtimeLoginRequestRef,
+    runtimeServerRequired: formalLoginRequired, runtimeLoginRequestRef,
     setAuthState, setRuntimeLoginForm, setRuntimeLoginLoading,
     setRuntimePasswordChangeError, setRuntimePasswordChangeForm, setRuntimePasswordChangeLoading,
     setToast,
   });
-  useRuntimeSessionExpiry({ authState, enabled: runtimeServerRequired, onExpire: expireRuntimeUserSession });
-  useRuntimeAuthInvalidation({ enabled: runtimeServerRequired, onInvalidate: invalidateRuntimeUserSession });
-  useRuntimeSessionRevalidation({ authState, enabled: runtimeServerRequired, onRevalidate: revalidateRuntimeUserSession });
+  useRuntimeSessionExpiry({ authState, enabled: formalLoginRequired, onExpire: expireRuntimeUserSession });
+  useRuntimeAuthInvalidation({ enabled: formalLoginRequired, onInvalidate: invalidateRuntimeUserSession });
+  useRuntimeSessionRevalidation({ authState, enabled: formalLoginRequired, onRevalidate: revalidateRuntimeUserSession });
   const { refreshActivePage } = createOfficePageRefreshActions({
     activeMetaLabel: activeMeta.label,
     activePage,
@@ -891,7 +905,7 @@ export function App() {
     createOrderFromTopbar,
     entryAction,
     focusFulfillmentByRef, focusInventoryByRef, focusOrderDraft, focusOrderLine, focusStatementByRef,
-    handleDraftCommand, linkCancellationIntentToSelectedLine, openOrderLineAction, openQueueDraft, recognize, recognizeQueue, refreshDraftQueue, restoreCancelledDraftLine, updateDraftField,
+    handleDraftCommand, linkCancellationIntentToSelectedLine, openOrderLineAction, openQueueDraft, recognize, recognizeQueue, refreshDraftQueue, restoreCancelledDraftLine, uploadDraftArtwork, updateDraftField,
   } = createOfficeOrderActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
@@ -1051,7 +1065,7 @@ export function App() {
     setToast,
     statements,
   });
-  if (runtimeServerRequired && (!authState.authenticated || authState.permissions.passwordChangeRequired === true || authState.permissions.user?.mustChangePassword === true)) {
+  if (formalLoginRequired && (!authState.authenticated || authState.permissions.passwordChangeRequired === true || authState.permissions.user?.mustChangePassword === true)) {
     return (
       <RuntimeAuthBoundary
         authState={authState}
@@ -1071,7 +1085,7 @@ export function App() {
           onChange: (field, value) => setRuntimeLoginForm((current) => ({ ...current, [field]: value })),
           onSubmit: submitRuntimeLogin,
         }}
-        runtimeServerRequired={runtimeServerRequired}
+        runtimeServerRequired={formalLoginRequired}
         user={currentUser}
       />
     );
@@ -1081,10 +1095,10 @@ export function App() {
     <div className={`app-shell app-shell-${renderedPage}${roleFocusedShellPage ? " app-shell-mobile-role" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       {!roleFocusedShellPage ? <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark">ERP</div>
+          <img alt="袋袋赢 BAGWIN" className="brand-logo-symbol" src={bagwinSymbolUrl} />
           <div>
-            <strong>设计中心小工厂</strong>
-            <span>P0 办公室端</span>
+            <strong>袋袋赢 BAGWIN</strong>
+            <span>ERP 办公室端</span>
           </div>
         </div>
         <AppNavigation
@@ -1111,7 +1125,7 @@ export function App() {
           <MobileRoleShellHeader
             currentUser={currentUser}
             currentUserId={currentUserId}
-            demoMode={!runtimeServerRequired}
+            demoMode={!formalLoginRequired}
             logoutLoading={runtimeLoginLoading}
             onLogout={logoutRuntimeUserSession}
             onUserChange={switchSeedUser}
@@ -1122,11 +1136,11 @@ export function App() {
           authSourceLabel={authSourceLabel}
           currentUserId={currentUserId} currentUser={currentUser}
           firstReleaseMode={RAW_MATERIAL_FIRST_RELEASE_ENABLED}
-          onCreateOrder={createOrderFromTopbar} onLogout={runtimeServerRequired && authState.authenticated ? logoutRuntimeUserSession : undefined}
+          onCreateOrder={createOrderFromTopbar} onLogout={formalLoginRequired && authState.authenticated ? logoutRuntimeUserSession : undefined}
           onOpenTodos={() => setActivePage("todos")}
           onUserChange={switchSeedUser}
           logoutLoading={runtimeLoginLoading} todoCount={unhandledTodos}
-          userOptions={runtimeServerRequired ? [currentUser] : seedUserOptions}
+          userOptions={formalLoginRequired ? [currentUser] : seedUserOptions}
           getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
         />}
         <main className="content">
@@ -1153,14 +1167,7 @@ export function App() {
           )}
           {renderedPage === "officeMobile" && (
             <Suspense fallback={<DataState title="办公室手机工作台加载中" />}>
-              <OfficeMobilePage
-                todos={todos}
-                selectedTodoId={selectedTodoId}
-                setSelectedTodoId={setSelectedTodoId}
-                onAction={handleTodo}
-                onNavigate={setActivePage}
-                helpers={pageHelpers}
-              />
+              <OfficeMobilePage onNavigate={setActivePage} />
             </Suspense>
           )}
           {renderedPage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
@@ -1175,6 +1182,7 @@ export function App() {
               onRecognize={recognize}
               onQueueRecognize={recognizeQueue} onQueueRefresh={refreshDraftQueue} onQueueOpen={openQueueDraft} onQueueCancellationLink={linkCancellationIntentToSelectedLine}
               onDraftFieldChange={updateDraftField}
+              onArtworkUpload={uploadDraftArtwork}
               onDraftCommand={handleDraftCommand} onRestoreCancelledLine={restoreCancelledDraftLine}
               onAction={entryAction}
               helpers={pageHelpers}
@@ -1351,7 +1359,7 @@ export function App() {
               onStatementConfirm={confirmRawMaterialSupplierStatement}
               onPayableDraftGenerate={generateRawMaterialSupplierPayableDraft}
               onPaymentConfirm={confirmRawMaterialSupplierPayment}
-              onNavigate={setActivePage}
+              printerDeviceQa={printerDeviceQa}
               helpers={pageHelpers}
               firstReleaseMode={RAW_MATERIAL_FIRST_RELEASE_ENABLED}
             />

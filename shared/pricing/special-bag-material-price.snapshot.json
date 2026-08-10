@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "luxing-special-bag-material-price/v1",
+  "version": "MATERIAL-PRICE-SNAPSHOT-20260722-01",
+  "effectiveFrom": "2026-07-22T00:00:00+08:00",
+  "source": "manual_confirmed_snapshot",
+  "currency": "CNY",
+  "provisional": true,
+  "body": {
+    "materialType": "nonwoven_body",
+    "supplierId": "",
+    "batchId": "",
+    "yuanPerTon": 8900
+  },
+  "handle": {
+    "materialType": "nonwoven_handle_strip",
+    "supplierId": "",
+    "batchId": "",
+    "yuanPerTon": 8900
+  }
+}
