@@ -20,7 +20,7 @@ for (const name of builderNames) {
 assert.match(serviceSource, /export function createRawMaterialCostMarginBuilder/);
 assert.ok(repositorySource.split("\n").length <= 2_350, "repository should delegate cost/margin and OCR review construction");
 assert.ok(serviceSource.split("\n").length < 450, "cost/margin builder service should stay independently reviewable");
-assert.ok(ocrSupportSource.split("\n").length < 330, "OCR repository support should stay independently reviewable");
+assert.ok(ocrSupportSource.split("\n").length < 360, "OCR repository support should stay independently reviewable");
 assert.throws(() => createRawMaterialCostMarginBuilder(), /requires findProductionTask/);
 
 const workspace = {

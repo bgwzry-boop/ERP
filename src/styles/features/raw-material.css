@@ -3972,6 +3972,38 @@
     font-weight: 600;
   }
 
+  .raw-material-mobile-source-pages {
+    display: flex;
+    min-height: 40px;
+    align-items: center;
+    border-top: 1px solid var(--erp-mobile-field-border);
+    border-bottom: 1px solid var(--erp-mobile-field-border);
+    padding: 4px 12px;
+    gap: 6px;
+  }
+
+  .raw-material-mobile-source-pages button {
+    min-width: 74px;
+    min-height: 32px;
+    border: 1px solid var(--erp-mobile-field-border);
+    border-radius: 8px;
+    background: var(--erp-mobile-field-surface);
+    color: var(--erp-mobile-field-muted);
+    padding: 4px 10px;
+    font-size: 12px;
+  }
+
+  .raw-material-mobile-source-pages button.is-active {
+    border-color: var(--erp-mobile-field-accent-strong);
+    background: var(--erp-mobile-field-accent-soft);
+    color: var(--erp-mobile-field-accent-strong);
+    font-weight: var(--erp-weight-semibold);
+  }
+
+  .raw-material-mobile-source-pages.is-modal {
+    background: var(--erp-mobile-field-surface);
+  }
+
   .raw-material-mobile-source-preview {
     display: block;
     width: 100%;
@@ -5272,6 +5304,61 @@
     border: 1px solid var(--erp-mobile-field-border);
     border-radius: 12px;
     background: var(--erp-mobile-field-surface);
+  }
+
+  .raw-material-mobile-capture-actions.has-pages {
+    overflow: visible;
+  }
+
+  .raw-material-mobile-captured-pages {
+    display: flex;
+    grid-column: 1 / -1;
+    min-height: 56px;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--erp-mobile-field-border);
+    padding: 8px 10px;
+    gap: 12px;
+  }
+
+  .raw-material-mobile-captured-pages > div {
+    display: grid;
+    gap: 2px;
+  }
+
+  .raw-material-mobile-captured-pages strong {
+    color: var(--erp-mobile-field-accent-strong);
+    font-size: 14px;
+  }
+
+  .raw-material-mobile-captured-pages span {
+    color: var(--erp-mobile-field-muted);
+    font-size: 11px;
+  }
+
+  .raw-material-mobile-captured-pages button {
+    min-height: 40px;
+    border: 0;
+    background: transparent;
+    color: var(--erp-mobile-field-muted);
+    padding: 0 4px;
+    font-size: 12px;
+  }
+
+  .raw-material-mobile-start-ocr {
+    width: 100%;
+    min-height: 48px;
+    border: 0;
+    border-radius: 10px;
+    background: var(--erp-mobile-field-accent-strong);
+    color: var(--erp-mobile-field-accent-ink);
+    font-size: 15px;
+    font-weight: var(--erp-weight-semibold);
+  }
+
+  .raw-material-mobile-start-ocr:disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
   }
 
   .raw-material-mobile-camera,

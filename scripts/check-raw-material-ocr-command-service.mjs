@@ -73,7 +73,7 @@ const service = createRawMaterialCommandService({
       assert.equal(body.purpose, "raw_material_delivery_note");
       assert.equal(body.ownerType, "raw_material_inbound");
       assert.equal("secretId" in body.metadata, false);
-      return { ok: true, attachment: { attachmentId: "ATT-OCR-1" }, deduplicated: false };
+      return { ok: true, attachment: { attachmentId: `ATT-OCR-${attachmentCalls}` }, deduplicated: false };
     },
   },
   buildOperationLog(_workspace, input) {
@@ -100,6 +100,8 @@ const service = createRawMaterialCommandService({
         ocrAction: ocr.action,
         ocrRequestId: ocr.requestId,
         ocrParserVersion: 5,
+        ocrPageCount: ocr.pageCount ?? 1,
+        ocrPages: ocr.pages ?? [],
         ocrReviewFields: [
           { key: "supplierName", label: "供应商", recognizedValue: "待复核供应商", value: "待复核供应商", confidence: 72, required: true },
           { key: "materialType", label: "材料", recognizedValue: "无纺布", value: "无纺布", confidence: 96, required: true },
@@ -168,6 +170,26 @@ assert.equal(attachmentCalls, 1, "duplicate source content must not store anothe
 assert.equal(parserCalls, 2, "stale duplicate must be reparsed from saved table rows");
 assert.equal(reparseCalls, 1);
 assert.equal(workspace.operationLogs[0].action, "reparse_ocr");
+
+const multipageBody = {
+  pages: [
+    { fileName: "腾胜-第一页.jpg", mimeType: "image/jpeg", contentDataUrl: "data:image/jpeg;base64,cGFnZS0x" },
+    { fileName: "腾胜-第二页.jpg", mimeType: "image/jpeg", contentDataUrl: "data:image/jpeg;base64,cGFnZS0y" },
+  ],
+};
+const multipage = await service.recognizeDeliveryNote({ workspace, body: multipageBody, operatorId: "U-OFFICE" });
+assert.equal(multipage.inbound.ocrPageCount, 2);
+assert.deepEqual(multipage.attachmentIds, ["ATT-OCR-2", "ATT-OCR-3"]);
+assert.deepEqual(multipage.inbound.sourceFileNames, ["腾胜-第一页.jpg", "腾胜-第二页.jpg"]);
+assert.equal(ocrCalls, 3, "each physical page is sent to OCR once");
+assert.equal(attachmentCalls, 3, "each source page is preserved as its own audit attachment");
+const duplicatePage = await service.recognizeDeliveryNote({
+  workspace,
+  body: { pages: [multipageBody.pages[0], multipageBody.pages[0]] },
+  operatorId: "U-OFFICE",
+});
+assert.equal(duplicatePage.code, "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_PAGE");
+assert.equal(ocrCalls, 3, "a duplicate page set must fail before consuming OCR calls");
 
 assert.throws(
   () => applyRawMaterialInboundAction({

@@ -34,6 +34,7 @@ const RAW_MATERIAL_RETURN_STEPS = [
 
 export function RawMaterialMobileReceiving({
   attachState,
+  capturedPages = [],
   deliveryNoteOcrError,
   deliveryNoteOcrLoading,
   deliveryNoteOcrResult,
@@ -41,6 +42,8 @@ export function RawMaterialMobileReceiving({
   mobileStage = "home",
   onAttach,
   onDeliveryNoteRecognize,
+  onDeliveryNotePageSelect,
+  onDeliveryNotePagesClear,
   onPrint,
   onStageChange,
   printState,
@@ -117,7 +120,10 @@ export function RawMaterialMobileReceiving({
             deliveryNoteOcrError={deliveryNoteOcrError}
             deliveryNoteOcrLoading={deliveryNoteOcrLoading}
             deliveryNoteOcrResult={deliveryNoteOcrResult}
+            capturedPages={capturedPages}
             onDeliveryNoteRecognize={onDeliveryNoteRecognize}
+            onDeliveryNotePageSelect={onDeliveryNotePageSelect}
+            onDeliveryNotePagesClear={onDeliveryNotePagesClear}
             reviewState={reviewState}
           />
 
@@ -218,41 +224,65 @@ function MobilePageHeader({ onBack, pendingCount, stage }) {
 }
 
 function CaptureDeliveryNote({
+  capturedPages = [],
   deliveryNoteOcrError,
   deliveryNoteOcrLoading,
   deliveryNoteOcrResult,
   onDeliveryNoteRecognize,
+  onDeliveryNotePageSelect,
+  onDeliveryNotePagesClear,
   reviewState,
 }) {
   const disabled = reviewState.disabled || deliveryNoteOcrLoading;
+  const hasPages = capturedPages.length > 0;
   return (
     <section className="raw-material-mobile-capture-card" aria-label="拍摄厂家送货单">
       <header><h2>录入送货单</h2></header>
-      <div className="raw-material-mobile-capture-actions">
+      <div className={`raw-material-mobile-capture-actions ${hasPages ? "has-pages" : ""}`}>
+        {hasPages ? (
+          <section className="raw-material-mobile-captured-pages" aria-label={`已添加 ${capturedPages.length} 页送货单`}>
+            <div>
+              <strong>已拍 {capturedPages.length} 页</strong>
+              <span>{capturedPages.map((page, index) => `第${index + 1}页`).join(" · ")}</span>
+            </div>
+            <button disabled={disabled} onClick={onDeliveryNotePagesClear} type="button">清空重拍</button>
+          </section>
+        ) : null}
         <label className={`raw-material-mobile-camera ${disabled ? "is-disabled" : ""}`}>
           <i><CameraOutlined aria-hidden="true" /></i>
-          <span><strong>{deliveryNoteOcrLoading ? "正在识别" : "拍送货单"}</strong><small>打开相机</small></span>
+          <span><strong>{deliveryNoteOcrLoading ? "正在处理" : hasPages ? "还有第二页" : "拍送货单"}</strong><small>{hasPages ? "继续拍下一页" : "打开相机"}</small></span>
           <input
             accept="image/jpeg,image/png,image/bmp"
             capture="environment"
             disabled={disabled}
             hidden
-            onChange={onDeliveryNoteRecognize}
+            onChange={onDeliveryNotePageSelect}
             type="file"
           />
         </label>
         <label className={`raw-material-mobile-gallery ${disabled ? "is-disabled" : ""}`}>
           <i><FileImageOutlined aria-hidden="true" /></i>
-          <span><strong>相册 / PDF</strong><small>选择已有文件</small></span>
+          <span><strong>{hasPages ? "从相册加页" : "相册 / PDF"}</strong><small>{hasPages ? "可继续添加" : "选择已有文件"}</small></span>
           <input
             accept="image/png,image/jpeg,image/bmp,application/pdf"
             disabled={disabled}
             hidden
-            onChange={onDeliveryNoteRecognize}
+            multiple
+            onChange={onDeliveryNotePageSelect}
             type="file"
           />
         </label>
       </div>
+      {hasPages ? (
+        <button
+          className="raw-material-mobile-start-ocr"
+          disabled={disabled}
+          onClick={onDeliveryNoteRecognize}
+          type="button"
+        >
+          {deliveryNoteOcrLoading ? "正在识别整张送货单…" : capturedPages.length === 1 ? "没有第二页，开始识别" : `开始识别 ${capturedPages.length} 页`}
+        </button>
+      ) : null}
       {deliveryNoteOcrResult ? <p className="raw-material-mobile-success" role="status">{deliveryNoteOcrResult}</p> : null}
       {deliveryNoteOcrError ? (
         <div className="raw-material-mobile-action-message is-danger" role="alert">

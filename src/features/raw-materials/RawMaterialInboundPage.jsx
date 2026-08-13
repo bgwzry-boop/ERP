@@ -94,6 +94,7 @@ export function RawMaterialInboundPage({
   const [deliveryNoteOcrLoading, setDeliveryNoteOcrLoading] = useState(false);
   const [deliveryNoteOcrError, setDeliveryNoteOcrError] = useState("");
   const [deliveryNoteOcrResult, setDeliveryNoteOcrResult] = useState("");
+  const [deliveryNoteCapturePages, setDeliveryNoteCapturePages] = useState([]);
   const [deliveryNotePreviewByInboundId, setDeliveryNotePreviewByInboundId] = useState({});
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileStage, setMobileStage] = useState("home");
@@ -183,29 +184,52 @@ export function RawMaterialInboundPage({
     scrollRawMaterialMobileToTop();
   }
 
-  async function handleDeliveryNoteRecognize(event) {
-    const file = event.target.files?.[0];
+  async function handleDeliveryNotePageSelect(event) {
+    const files = Array.from(event.target.files ?? []);
     event.target.value = "";
-    if (!file) return;
+    if (!files.length) return;
     setDeliveryNoteOcrError("");
     setDeliveryNoteOcrResult("");
-    const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
-    if (!isSupportedDeliveryNoteFile(mimeType)) {
-      setDeliveryNoteOcrError("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
+    if (deliveryNoteCapturePages.length + files.length > 4) {
+      setDeliveryNoteOcrError("同一张送货单最多添加 4 页，请删除多余页面后重试。");
       return;
     }
     setDeliveryNoteOcrLoading(true);
     try {
-      const prepared = await prepareRawMaterialDeliveryNoteFile(file, { mimeType });
+      const preparedPages = [];
+      for (const file of files) {
+        const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
+        if (!isSupportedDeliveryNoteFile(mimeType)) throw new Error("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
+        const prepared = await prepareRawMaterialDeliveryNoteFile(file, { mimeType });
+        preparedPages.push({
+          fileName: file.name,
+          mimeType: prepared.mimeType,
+          fileSize: prepared.fileSize,
+          contentDataUrl: prepared.contentDataUrl,
+          sourceMimeType: prepared.sourceMimeType,
+          sourceFileSize: prepared.sourceFileSize,
+          sourceContentDataUrl: prepared.sourceContentDataUrl,
+          sourceNormalizedForOcr: prepared.normalized,
+        });
+      }
+      setDeliveryNoteCapturePages((current) => [...current, ...preparedPages]);
+    } catch (error) {
+      setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
+    } finally {
+      setDeliveryNoteOcrLoading(false);
+    }
+  }
+
+  async function handleDeliveryNoteRecognize(preparedPages = deliveryNoteCapturePages) {
+    if (!preparedPages.length) return;
+    setDeliveryNoteOcrError("");
+    setDeliveryNoteOcrResult("");
+    setDeliveryNoteOcrLoading(true);
+    try {
+      const firstPage = preparedPages[0];
       const inbound = await onDeliveryNoteRecognize?.({
-        fileName: file.name,
-        mimeType: prepared.mimeType,
-        fileSize: prepared.fileSize,
-        contentDataUrl: prepared.contentDataUrl,
-        sourceMimeType: prepared.sourceMimeType,
-        sourceFileSize: prepared.sourceFileSize,
-        sourceContentDataUrl: prepared.sourceContentDataUrl,
-        sourceNormalizedForOcr: prepared.normalized,
+        ...firstPage,
+        pages: preparedPages,
       });
       if (!inbound?.id) {
         setDeliveryNoteOcrError("后台没有生成识别草稿，请查看页面提示后重试。");
@@ -217,8 +241,9 @@ export function RawMaterialInboundPage({
       setSelectedId(inbound.id);
       setDeliveryNotePreviewByInboundId((current) => ({
         ...current,
-        [inbound.id]: prepared.sourceContentDataUrl || prepared.contentDataUrl,
+        [inbound.id]: preparedPages.map((page) => page.sourceContentDataUrl || page.contentDataUrl),
       }));
+      setDeliveryNoteCapturePages([]);
       setMobileRecordSnapshot(inbound);
       prepareOcrReviewDraft(inbound);
       setMobileStage("review");
@@ -229,6 +254,42 @@ export function RawMaterialInboundPage({
     } catch (error) {
       setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
     } finally {
+      setDeliveryNoteOcrLoading(false);
+    }
+  }
+
+  function handleDeliveryNotePagesClear() {
+    setDeliveryNoteCapturePages([]);
+    setDeliveryNoteOcrError("");
+    setDeliveryNoteOcrResult("");
+  }
+
+  async function handleDesktopDeliveryNoteRecognize(event) {
+    const files = Array.from(event.target.files ?? []);
+    event.target.value = "";
+    if (!files.length) return;
+    setDeliveryNoteOcrLoading(true);
+    setDeliveryNoteOcrError("");
+    try {
+      const preparedPages = [];
+      for (const file of files.slice(0, 4)) {
+        const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
+        if (!isSupportedDeliveryNoteFile(mimeType)) throw new Error("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
+        const prepared = await prepareRawMaterialDeliveryNoteFile(file, { mimeType });
+        preparedPages.push({
+          fileName: file.name,
+          mimeType: prepared.mimeType,
+          fileSize: prepared.fileSize,
+          contentDataUrl: prepared.contentDataUrl,
+          sourceMimeType: prepared.sourceMimeType,
+          sourceFileSize: prepared.sourceFileSize,
+          sourceContentDataUrl: prepared.sourceContentDataUrl,
+          sourceNormalizedForOcr: prepared.normalized,
+        });
+      }
+      await handleDeliveryNoteRecognize(preparedPages);
+    } catch (error) {
+      setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
       setDeliveryNoteOcrLoading(false);
     }
   }
@@ -463,10 +524,13 @@ export function RawMaterialInboundPage({
         deliveryNoteOcrError={deliveryNoteOcrError}
         deliveryNoteOcrLoading={deliveryNoteOcrLoading}
         deliveryNoteOcrResult={deliveryNoteOcrResult}
+        capturedPages={deliveryNoteCapturePages}
         mobileMessage={mobileMessage}
         mobileStage={mobileStage}
         onAttach={handleMobileAttach}
-        onDeliveryNoteRecognize={handleDeliveryNoteRecognize}
+        onDeliveryNotePageSelect={handleDeliveryNotePageSelect}
+        onDeliveryNotePagesClear={handleDeliveryNotePagesClear}
+        onDeliveryNoteRecognize={() => handleDeliveryNoteRecognize()}
         onPrint={handlePrintLabels}
         onStageChange={handleMobileStageChange}
         printState={printState}
@@ -522,7 +586,7 @@ export function RawMaterialInboundPage({
               onSubmit={handleOcrReviewConfirm}
               operatorId={currentUser?.userId}
               selected={selected}
-              sourcePreviewDataUrl={deliveryNotePreviewByInboundId[selected.id] ?? ""}
+              sourcePreviewDataUrls={deliveryNotePreviewByInboundId[selected.id]}
               submitError={meta.error || ocrReviewSubmitError}
               submitting={ocrReviewSubmitting}
             />
@@ -544,7 +608,7 @@ export function RawMaterialInboundPage({
                 capture="environment"
                 disabled={reviewState.disabled || deliveryNoteOcrLoading}
                 hidden
-                onChange={handleDeliveryNoteRecognize}
+                onChange={handleDesktopDeliveryNoteRecognize}
                 type="file"
               />
             </label>
@@ -557,7 +621,8 @@ export function RawMaterialInboundPage({
                 accept="image/png,image/jpeg,image/bmp,application/pdf"
                 disabled={reviewState.disabled || deliveryNoteOcrLoading}
                 hidden
-                onChange={handleDeliveryNoteRecognize}
+                multiple
+                onChange={handleDesktopDeliveryNoteRecognize}
                 type="file"
               />
             </label>

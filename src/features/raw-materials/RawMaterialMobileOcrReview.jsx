@@ -42,6 +42,7 @@ const RETURN_REVIEW_STEPS = [
 ];
 
 const DEMO_SOURCE_INBOUND_IDS = new Set(["RMI-260704-001", "RMI-0704-001"]);
+const EMPTY_SOURCE_PREVIEW_URLS = [];
 
 const PRIMARY_ROLL_FIELDS = [
   ["supplierColor", "颜色", "text", "例如：本白"],
@@ -71,7 +72,7 @@ export function RawMaterialMobileOcrReview({
   onSubmit,
   operatorId,
   selected,
-  sourcePreviewDataUrl = "",
+  sourcePreviewDataUrls = EMPTY_SOURCE_PREVIEW_URLS,
   submitError = "",
   submitting = false,
 }) {
@@ -84,10 +85,12 @@ export function RawMaterialMobileOcrReview({
   const [pendingExclusion, setPendingExclusion] = useState(null);
   const documentDetailsRef = useRef(null);
   const demoSourcePreviewUrl = DEMO_SOURCE_INBOUND_IDS.has(selected?.id) ? demoDeliveryNoteUrl : "";
-  const [sourcePreviewUrl, setSourcePreviewUrl] = useState(sourcePreviewDataUrl || demoSourcePreviewUrl);
-  const [sourceCoordinateFrame, setSourceCoordinateFrame] = useState(null);
+  const [sourcePreviews, setSourcePreviews] = useState([]);
+  const [activeSourcePageIndex, setActiveSourcePageIndex] = useState(0);
   const [sourcePreviewError, setSourcePreviewError] = useState("");
   const [sourcePreviewOpen, setSourcePreviewOpen] = useState(false);
+  const sourcePreview = sourcePreviews[activeSourcePageIndex] ?? sourcePreviews[0] ?? null;
+  const sourcePreviewUrl = sourcePreview?.url ?? "";
 
   useEffect(() => {
     setExpandedLineId("");
@@ -95,61 +98,74 @@ export function RawMaterialMobileOcrReview({
     setExcludedRolls([]);
     setPendingExclusion(null);
     setSourcePreviewOpen(false);
-    setSourceCoordinateFrame(null);
+    setActiveSourcePageIndex(0);
   }, [selected?.id]);
 
   useEffect(() => {
     let disposed = false;
-    let downloadedObjectUrl = "";
-    let orientedObjectUrl = "";
+    const objectUrls = [];
     setSourcePreviewError("");
-    async function showOrientedSource(url, sourceFileSize = 0) {
-      const oriented = await orientRawMaterialSourcePreview(url, selected?.ocrAngle, {
-        lines: selected?.ocrLines,
+    setSourcePreviews([]);
+    async function buildOrientedSource(url, sourceFileSize = 0, sourcePageIndex = 0) {
+      const pageMeta = getOcrPageMeta(selected, sourcePageIndex);
+      const pageLines = (selected?.ocrLines ?? []).filter((line) => getLineSourcePageIndex(line) === sourcePageIndex);
+      const oriented = await orientRawMaterialSourcePreview(url, pageMeta.angle, {
+        lines: pageLines,
         normalizedBinaryBytes: attachmentUploadLimits.rawMaterialOcrBinaryBytes,
         normalizedMaxEdge: RAW_MATERIAL_OCR_NORMALIZED_MAX_EDGE,
-        ocrImageHeight: selected?.ocrImageHeight,
-        ocrImageWidth: selected?.ocrImageWidth,
+        ocrImageHeight: pageMeta.imageHeight,
+        ocrImageWidth: pageMeta.imageWidth,
         sourceFileSize,
       });
       if (disposed) {
         if (oriented.revoke) URL.revokeObjectURL(oriented.url);
+        return null;
+      }
+      if (oriented.revoke) objectUrls.push(oriented.url);
+      return { ...oriented, sourcePageIndex };
+    }
+    async function loadSourcePreviews() {
+      const inlineUrls = normalizeSourcePreviewUrls(sourcePreviewDataUrls);
+      if (inlineUrls.length) {
+        const previews = await Promise.all(inlineUrls.map((url, sourcePageIndex) => (
+          buildOrientedSource(url, getDataUrlByteLength(url), sourcePageIndex)
+        )));
+        if (!disposed) setSourcePreviews(previews.filter(Boolean));
         return;
       }
-      if (oriented.revoke) orientedObjectUrl = oriented.url;
-      setSourceCoordinateFrame(oriented.sourceCoordinateFrame);
-      setSourcePreviewUrl(oriented.url);
-    }
-    if (sourcePreviewDataUrl) {
-      void showOrientedSource(sourcePreviewDataUrl, getDataUrlByteLength(sourcePreviewDataUrl));
-    } else if (!selected?.sourceAttachmentId) {
-      void showOrientedSource(demoSourcePreviewUrl);
-    } else {
-      setSourcePreviewUrl("");
-      void downloadOfficeAttachmentContent({
-        attachmentId: selected.sourceAttachmentId,
-        authState,
-        operatorId,
-      }).then(async (result) => {
+      const attachmentIds = getSourceAttachmentIds(selected);
+      if (!attachmentIds.length) {
+        const preview = await buildOrientedSource(demoSourcePreviewUrl, 0, 0);
+        if (!disposed && preview) setSourcePreviews([preview]);
+        return;
+      }
+      const previews = [];
+      for (const [sourcePageIndex, attachmentId] of attachmentIds.entries()) {
+        const result = await downloadOfficeAttachmentContent({ attachmentId, authState, operatorId });
         if (disposed) return;
         if (result.blocked || (!result.contentBlob && !result.content)) {
-          setSourcePreviewError("原单暂时无法打开");
-          return;
+          previews.push({ error: true, sourcePageIndex, sourceCoordinateFrame: null, url: "" });
+          continue;
         }
         if (result.contentBlob && typeof URL?.createObjectURL === "function") {
-          downloadedObjectUrl = URL.createObjectURL(result.contentBlob);
-          await showOrientedSource(downloadedObjectUrl, result.contentBlob.size);
-          return;
+          const downloadedObjectUrl = URL.createObjectURL(result.contentBlob);
+          objectUrls.push(downloadedObjectUrl);
+          previews.push(await buildOrientedSource(downloadedObjectUrl, result.contentBlob.size, sourcePageIndex));
+        } else {
+          previews.push(await buildOrientedSource(result.content || "", getDataUrlByteLength(result.content), sourcePageIndex));
         }
-        await showOrientedSource(result.content || "", getDataUrlByteLength(result.content));
-      });
+      }
+      if (!disposed) {
+        setSourcePreviews(previews);
+        if (previews.some((preview) => preview?.error)) setSourcePreviewError("部分原单页面暂时无法打开");
+      }
     }
+    void loadSourcePreviews();
     return () => {
       disposed = true;
-      if (orientedObjectUrl) URL.revokeObjectURL(orientedObjectUrl);
-      if (downloadedObjectUrl) URL.revokeObjectURL(downloadedObjectUrl);
+      for (const url of objectUrls) URL.revokeObjectURL(url);
     };
-  }, [authState, demoSourcePreviewUrl, operatorId, selected?.ocrAngle, selected?.sourceAttachmentId, sourcePreviewDataUrl]);
+  }, [authState, demoSourcePreviewUrl, operatorId, selected?.id, sourcePreviewDataUrls]);
 
   const reviewRolls = useMemo(
     () => projectRawMaterialOcrPhysicalRollReviewRows({ lines, lineDrafts, documentDirection }),
@@ -208,6 +224,7 @@ export function RawMaterialMobileOcrReview({
     const suggestedSpec = String(roll.line?.reviewPrefill?.spec || "").trim();
     const displaySpec = hasReviewableRawMaterialSpec(currentSpec) ? formatRawMaterialMobileSpec(currentSpec) : suggestedSpec;
     if (displaySpec && displaySpec !== currentSpec) updateLineField(roll.lineId, "spec", displaySpec);
+    setActiveSourcePageIndex(getLineSourcePageIndex(roll.line));
     setExpandedLineId(roll.reviewId);
   }
 
@@ -268,6 +285,20 @@ export function RawMaterialMobileOcrReview({
             {sourcePreviewError || (sourcePreviewUrl ? "放大查看" : "原单读取中")}
           </button>
         </header>
+        {sourcePreviews.length > 1 ? (
+          <nav className="raw-material-mobile-source-pages" aria-label="送货单页码">
+            {sourcePreviews.map((preview, index) => (
+              <button
+                aria-current={activeSourcePageIndex === index ? "page" : undefined}
+                className={activeSourcePageIndex === index ? "is-active" : ""}
+                disabled={!preview.url}
+                key={preview.sourcePageIndex}
+                onClick={() => setActiveSourcePageIndex(index)}
+                type="button"
+              >第 {index + 1} 页</button>
+            ))}
+          </nav>
+        ) : null}
         <button
           className={`raw-material-mobile-source-preview ${sourcePreviewUrl ? "has-image" : ""}`}
           disabled={!sourcePreviewUrl}
@@ -293,6 +324,10 @@ export function RawMaterialMobileOcrReview({
         </header>
         <div className="raw-material-mobile-review-list" role="list">
           {activeReviewRolls.map((roll, index) => {
+            const sourcePageIndex = getLineSourcePageIndex(roll.line);
+            const rollSourcePreview = sourcePreviews[sourcePageIndex] ?? null;
+            const sourcePageLines = lines.filter((line) => getLineSourcePageIndex(line) === sourcePageIndex);
+            const sourcePageLineIndex = sourcePageLines.findIndex((line) => line.lineId === roll.lineId);
             const blockers = getMobileOcrRollBlockers(roll, { documentDirection });
             const reviewed = reviewedRollIds.includes(roll.reviewId);
             const expanded = expandedLineId === roll.reviewId;
@@ -312,17 +347,15 @@ export function RawMaterialMobileOcrReview({
                 <div className="raw-material-mobile-review-evidence-row">
                   <span className="raw-material-mobile-review-line-number">{index + 1}</span>
                   <SourceLineEvidence
-                    index={roll.sourceLineIndex}
+                    index={sourcePageLineIndex < 0 ? roll.sourceLineIndex : sourcePageLineIndex}
                     line={roll.line}
-                    lineCount={lines.length}
-                    nextLine={lines[roll.sourceLineIndex + 1]}
-                    ocrAngle={selected?.ocrAngle}
+                    lineCount={sourcePageLines.length || lines.length}
+                    nextLine={sourcePageLines[sourcePageLineIndex + 1]}
+                    ocrAngle={getOcrPageMeta(selected, sourcePageIndex).angle}
                     rollInLine={roll.lineRollIndex + 1}
                     rollsInLine={roll.lineRollCount}
-                    sourceCoordinateFrame={Number(selected?.ocrImageWidth) > 0 && Number(selected?.ocrImageHeight) > 0
-                      ? { imageWidth: Number(selected.ocrImageWidth), imageHeight: Number(selected.ocrImageHeight) }
-                      : sourceCoordinateFrame}
-                    sourcePreviewUrl={sourcePreviewUrl}
+                    sourceCoordinateFrame={rollSourcePreview?.sourceCoordinateFrame}
+                    sourcePreviewUrl={rollSourcePreview?.url ?? ""}
                   />
                 </div>
 
@@ -463,7 +496,12 @@ export function RawMaterialMobileOcrReview({
 
       {sourcePreviewOpen && sourcePreviewUrl ? (
         <div className="raw-material-mobile-source-modal" role="dialog" aria-modal="true" aria-label={`${isSupplierReturn ? "退货单" : "送货单"}原单`}>
-          <header><strong>{isSupplierReturn ? "退货单" : "送货单"}原单</strong><button aria-label="关闭原单" onClick={() => setSourcePreviewOpen(false)} type="button"><CloseOutlined aria-hidden="true" /></button></header>
+          <header><strong>{isSupplierReturn ? "退货单" : "送货单"}原单{sourcePreviews.length > 1 ? ` · 第 ${activeSourcePageIndex + 1} 页` : ""}</strong><button aria-label="关闭原单" onClick={() => setSourcePreviewOpen(false)} type="button"><CloseOutlined aria-hidden="true" /></button></header>
+          {sourcePreviews.length > 1 ? (
+            <nav className="raw-material-mobile-source-pages is-modal" aria-label="原单页码">
+              {sourcePreviews.map((preview, index) => <button className={activeSourcePageIndex === index ? "is-active" : ""} disabled={!preview.url} key={preview.sourcePageIndex} onClick={() => setActiveSourcePageIndex(index)} type="button">第 {index + 1} 页</button>)}
+            </nav>
+          ) : null}
           <div><img alt={`${isSupplierReturn ? "退货单" : "送货单"}原单`} src={sourcePreviewUrl} /></div>
         </div>
       ) : null}
@@ -580,6 +618,34 @@ function SourceLineEvidence({ index, line, lineCount, nextLine, ocrAngle, rollIn
     return <span className="raw-material-mobile-review-source-crop"><img alt={`原单第 ${index + 1} 行${splitLabel}`} src={sourcePreviewUrl} style={{ objectPosition: `center ${sourcePosition}%` }} /></span>;
   }
   return <span className="raw-material-mobile-review-source-text">{line?.sourceText || "原单对应行暂不可预览"}</span>;
+}
+
+function normalizeSourcePreviewUrls(values) {
+  if (Array.isArray(values)) return values.map((value) => String(value || "").trim()).filter(Boolean);
+  const single = String(values || "").trim();
+  return single ? [single] : [];
+}
+
+function getSourceAttachmentIds(selected = {}) {
+  const values = (Array.isArray(selected.sourceAttachmentIds) ? selected.sourceAttachmentIds : [])
+    .map((value) => String(value || "").trim())
+    .filter(Boolean);
+  if (values.length) return values;
+  const single = String(selected.sourceAttachmentId || "").trim();
+  return single ? [single] : [];
+}
+
+function getLineSourcePageIndex(line = {}) {
+  return Math.max(0, Number(line.sourcePageIndex) || 0);
+}
+
+function getOcrPageMeta(selected = {}, sourcePageIndex = 0) {
+  const page = (Array.isArray(selected.ocrPages) ? selected.ocrPages : [])[sourcePageIndex] ?? {};
+  return {
+    angle: Number(page.angle ?? selected?.ocrAngle) || 0,
+    imageWidth: Math.max(0, Number(page.imageWidth ?? selected.ocrImageWidth) || 0),
+    imageHeight: Math.max(0, Number(page.imageHeight ?? selected.ocrImageHeight) || 0),
+  };
 }
 
 function getDataUrlByteLength(value) {

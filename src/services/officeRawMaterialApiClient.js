@@ -113,8 +113,14 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
     sourceNormalizedForOcr,
     pdfPageNumber,
     useNewModel,
+    pages,
   } = input;
-  if (!cleanText(contentDataUrl)) {
+  const normalizedPages = (Array.isArray(pages) ? pages : [])
+    .map(normalizeDeliveryNotePagePayload)
+    .filter((page) => page.contentDataUrl);
+  const fallbackPage = normalizeDeliveryNotePagePayload(input);
+  const deliveryNotePages = normalizedPages.length ? normalizedPages : (fallbackPage.contentDataUrl ? [fallbackPage] : []);
+  if (!deliveryNotePages.length) {
     return {
       source: "api_error",
       blocked: true,
@@ -142,6 +148,7 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
         sourceNormalizedForOcr: sourceNormalizedForOcr === true,
         pdfPageNumber,
         useNewModel: useNewModel === true,
+        pages: deliveryNotePages,
       },
     });
     const json = await readJson(response);
@@ -156,6 +163,7 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       source: "api",
       inbound: normalizeRawMaterialInbound(json?.inbound),
       attachmentId: cleanText(json?.attachmentId),
+      attachmentIds: (Array.isArray(json?.attachmentIds) ? json.attachmentIds : []).map(cleanText).filter(Boolean),
       deduplicated: json?.deduplicated === true,
       operationLogId: cleanText(json?.operationLogId),
     };
@@ -674,12 +682,20 @@ function normalizeRawMaterialInbound(input = {}) {
   item.ocrAction = cleanText(item.ocrAction);
   item.ocrRequestId = cleanText(item.ocrRequestId);
   item.ocrStatus = cleanText(item.ocrStatus);
+  item.ocrAngle = Number(item.ocrAngle) || 0;
+  item.ocrImageWidth = Math.max(0, Number(item.ocrImageWidth) || 0);
+  item.ocrImageHeight = Math.max(0, Number(item.ocrImageHeight) || 0);
+  item.ocrPageCount = Math.max(1, toNumber(item.ocrPageCount, 1));
+  item.ocrPages = normalizeOcrPages(item.ocrPages, item.ocrPageCount, item.ocrImageWidth, item.ocrImageHeight, item.ocrAngle);
   item.ocrSourceDigest = cleanText(item.ocrSourceDigest);
   item.ocrRecognizedAt = cleanText(item.ocrRecognizedAt);
   item.ocrRawText = cleanText(item.ocrRawText);
   item.sourceAttachmentId = cleanText(item.sourceAttachmentId);
+  item.sourceAttachmentIds = normalizeTextList(item.sourceAttachmentIds, item.sourceAttachmentId);
   item.sourceFileName = cleanText(item.sourceFileName);
+  item.sourceFileNames = normalizeTextList(item.sourceFileNames, item.sourceFileName);
   item.sourceMimeType = cleanText(item.sourceMimeType);
+  item.sourceMimeTypes = normalizeTextList(item.sourceMimeTypes, item.sourceMimeType);
   item.ocrReviewFields = (Array.isArray(item.ocrReviewFields) ? item.ocrReviewFields : []).map((field) => ({
     ...field,
     key: cleanText(field?.key),
@@ -696,6 +712,7 @@ function normalizeRawMaterialInbound(input = {}) {
     return {
       ...line,
       lineId: cleanText(line?.lineId),
+      sourcePageIndex: Math.max(0, toNumber(line?.sourcePageIndex, 0)),
       sourceText: cleanText(line?.sourceText),
       reviewStatus: cleanText(line?.reviewStatus),
       values,
@@ -1200,6 +1217,40 @@ function normalizeRawMaterialInbound(input = {}) {
       })).filter((record) => record.marginReportId)
     : [];
   return item;
+}
+
+function normalizeDeliveryNotePagePayload(input = {}) {
+  return {
+    fileName: cleanText(input.fileName),
+    mimeType: cleanText(input.mimeType),
+    fileSize: Number(input.fileSize) || undefined,
+    contentDataUrl: cleanText(input.contentDataUrl),
+    sourceMimeType: cleanText(input.sourceMimeType || input.mimeType),
+    sourceFileSize: Number(input.sourceFileSize || input.fileSize) || undefined,
+    sourceContentDataUrl: cleanText(input.sourceContentDataUrl || input.contentDataUrl),
+    sourceNormalizedForOcr: input.sourceNormalizedForOcr === true,
+    pdfPageNumber: Number(input.pdfPageNumber) || undefined,
+    useNewModel: input.useNewModel === true,
+  };
+}
+
+function normalizeOcrPages(pages, pageCount, imageWidth, imageHeight, angle) {
+  const source = Array.isArray(pages) ? pages : [];
+  return Array.from({ length: Math.max(pageCount, source.length) }, (_, sourcePageIndex) => ({
+    sourcePageIndex,
+    pageNumber: sourcePageIndex + 1,
+    angle: Number(source[sourcePageIndex]?.angle ?? angle) || 0,
+    imageWidth: Math.max(0, Number(source[sourcePageIndex]?.imageWidth ?? imageWidth) || 0),
+    imageHeight: Math.max(0, Number(source[sourcePageIndex]?.imageHeight ?? imageHeight) || 0),
+    requestId: cleanText(source[sourcePageIndex]?.requestId),
+  }));
+}
+
+function normalizeTextList(values, fallback) {
+  const normalized = (Array.isArray(values) ? values : []).map(cleanText).filter(Boolean);
+  if (normalized.length) return normalized;
+  const safeFallback = cleanText(fallback);
+  return safeFallback ? [safeFallback] : [];
 }
 
 function normalizeSupplierStatementReview(input = {}) {

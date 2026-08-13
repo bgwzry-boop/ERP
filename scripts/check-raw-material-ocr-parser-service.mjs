@@ -278,6 +278,43 @@ assert.deepEqual(
   [78, 70, 2000],
 );
 assert.deepEqual(oneRollPerRowDraft.rolls.map((roll) => roll.weightKg), [109.9, 109.8]);
+
+const tengshengTwoPageDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-TENGSHENG-TWO-PAGES",
+  knownSupplierNames: ["宁晋县腾胜无纺布有限公司"],
+  ocr: {
+    pageCount: 2,
+    pages: [
+      { sourcePageIndex: 0, angle: 90, imageWidth: 1200, imageHeight: 900, requestId: "tengsheng-page-1" },
+      { sourcePageIndex: 1, angle: 90, imageWidth: 1200, imageHeight: 900, requestId: "tengsheng-page-2" },
+    ],
+    tables: [
+      { sourcePageIndex: 0, imageWidth: 1200, imageHeight: 900, cells: buildCells([
+        ["宁晋县腾胜无纺布有限公司销货单"],
+        ["No: XS-2026-08-12-539"],
+        ["57", "商品全名", "规格", "单位", "数量", "单价", "金额", "备注"],
+        ["11", "本白", "78*70*1500", "公斤", "101.3", "9.588", "971.27"],
+        ["总计大写", "玖佰柒拾壹元贰角柒分", "101.3", "页小计", "971.27元"],
+        ["本单金额:", "1855.23"],
+      ]) },
+      { sourcePageIndex: 1, imageWidth: 1200, imageHeight: 900, cells: buildCells([
+        ["宁晋县腾胜无纺布有限公司销货单"],
+        ["No: XS-2026-08-12-539"],
+        ["号", "规格", "单位", "数量", "单价", "金额", "备注"],
+        ["11", "桔红", "78*80*1500", "公斤", "93", "9.505", "883.96"],
+        ["总计大写", "壹仟捌佰伍拾伍元贰角叁分", "194.3", "页小计", "883.96元"],
+        ["本单金额:", "1855.23"],
+      ]) },
+    ],
+  },
+});
+assert.equal(tengshengTwoPageDraft.ocrPageCount, 2);
+assert.equal(tengshengTwoPageDraft.ocrLines.length, 2, "both Tengsheng pages must survive displaced or missing leading header text");
+assert.deepEqual(tengshengTwoPageDraft.ocrLines.map((line) => line.sourcePageIndex), [0, 1]);
+assert.deepEqual(tengshengTwoPageDraft.ocrLines.map((line) => line.values.supplierColor), ["本白", "桔红"]);
+assert.equal(tengshengTwoPageDraft.totalWeightKg, 194.3, "full-document weight must win over either page subtotal");
+assert.equal(tengshengTwoPageDraft.amount, 1855.23, "the declared full-document amount must reconcile against both pages");
+assert.deepEqual(tengshengTwoPageDraft.ocrReconciliationIssues, []);
 assert.equal(oneRollPerRowDraft.ocrLines.length, 2);
 assert.deepEqual(oneRollPerRowDraft.ocrLines[0].sourceBounds, {
   left: 0,

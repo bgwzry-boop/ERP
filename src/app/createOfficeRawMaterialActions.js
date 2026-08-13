@@ -59,6 +59,7 @@ export function createOfficeRawMaterialActions({
       sourceNormalizedForOcr: file.sourceNormalizedForOcr === true,
       pdfPageNumber: file.pdfPageNumber,
       useNewModel: false,
+      pages: Array.isArray(file.pages) ? file.pages : undefined,
     });
     if (result.blocked || !result.inbound?.id) {
       const message = result.error?.message ?? "原材料送货单 OCR 识别失败。";
@@ -85,7 +86,7 @@ export function createOfficeRawMaterialActions({
     setToast(
       result.deduplicated
         ? `这张送货单已识别过，已打开草稿 ${result.inbound.id}，没有重复扣 OCR 次数。`
-        : `腾讯云 OCR 已生成草稿 ${result.inbound.id}；请对照原图完成人工复核，当前未增加可用库存。`,
+        : `腾讯云 OCR 已生成草稿 ${result.inbound.id}${result.inbound.ocrPageCount > 1 ? `（${result.inbound.ocrPageCount} 页）` : ""}；请对照原图完成人工复核，当前未增加可用库存。`,
     );
     return result.inbound;
   }

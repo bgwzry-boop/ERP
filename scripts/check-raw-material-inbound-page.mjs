@@ -40,7 +40,10 @@ assertIncludes(fixturesSource, "供应商单号未提供", "fixtures should cove
 
 assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expose the raw-material page");
 assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");
+assertIncludes(navigationSource, 'if (defaultRole === "office") return "rawMaterials";', "office phones should enter the existing raw-material mobile flow instead of a compressed PC table");
 assertIncludes(appSource, "<RawMaterialInboundPage", "App should render the raw-material inbound page");
+assertIncludes(appSource, "mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage", "App should preserve one business route with viewport-specific workbenches");
+assertIncludes(appSource, "onDeliveryNoteRecognize={recognizeRawMaterialDeliveryNote}", "desktop and phone raw-material entry should share the formal server OCR action");
 assertIncludes(appSource, "createOfficeRawMaterialActions", "App should compose the raw-material action controller");
 assertExcludes(appSource, "updateOfficeRawMaterialInboundAction", "App should not call the raw-material write client directly");
 assertIncludes(roleToolReadsSource, "listOfficeRawMaterialInbounds", "role-tool reads should refresh raw-material inbounds through API client");
@@ -89,6 +92,8 @@ assertIncludes(rawMaterialPageSource, "meta.error || ocrReviewSubmitError", "mob
 assertIncludes(rawMaterialPageSource, "setMobileDetailOpen(false)", "successful mobile OCR review should return to the receiving flow");
 assertIncludes(rawMaterialPageSource, "mobileOcrReviewOpen ? \"is-mobile-detail-open\"", "mobile detail mode should remain scoped to an active OCR review");
 assertIncludes(rawMaterialPageSource, "RawMaterialMobileOcrReview", "raw-material page should mount the focused mobile OCR review flow");
+assertIncludes(rawMaterialPageSource, "prepareRawMaterialDeliveryNoteFile", "mobile capture should preserve the source image while preparing the OCR derivative");
+assertExcludes(rawMaterialPageSource, "1500", "the shared business page must not restore the review prototype's blanket 1500-meter filler");
 assertIncludes(rawMaterialMobileSource, "录原材料", "phone layout should expose the approved field-task title");
 assertIncludes(rawMaterialMobileSource, "拍单", "phone layout should expose the photo step");
 assertIncludes(rawMaterialMobileSource, "核对", "phone layout should expose the review step");
@@ -145,7 +150,10 @@ assertIncludes(rawMaterialMobileOcrReviewSource, "规格没看清", "ambiguous m
 assertExcludes(rawMaterialMobileOcrReviewSource, "米数待补", "an omitted handle-strip meter length should remain absent without blocking confirmation");
 assertExcludes(rawMaterialMobileOcrReviewSource, "待补米数", "fixed handle strips should remain on the direct confirmation path");
 assertIncludes(rawMaterialMobileOcrReviewSource, "orientRawMaterialSourcePreview", "OCR angle metadata should orient the real delivery note before preview and row evidence rendering");
-assertIncludes(rawMaterialMobileOcrReviewSource, "selected?.ocrAngle", "mobile evidence orientation should use the server-projected OCR angle");
+assertIncludes(rawMaterialMobileOcrReviewSource, "getOcrPageMeta(selected, sourcePageIndex).angle", "mobile evidence orientation should use the server-projected angle for the exact source page");
+assertIncludes(rawMaterialMobileOcrReviewSource, "sourceAttachmentIds", "multi-page source evidence should retain every ordered source attachment");
+assertIncludes(rawMaterialMobileSource, "没有第二页，开始识别", "the ordinary one-page path should stay explicit while allowing a rare second page");
+assertIncludes(rawMaterialMobileSource, "还有第二页", "the mobile capture flow should allow another page without forcing it on every receipt");
 assertIncludes(rawMaterialMobileOcrReviewSource, "orientRawMaterialOcrSourceBounds", "row evidence bounds should rotate into the same coordinate space as the oriented delivery note");
 assertIncludes(rawMaterialMobileOcrReviewSource, 'preserveAspectRatio="none"', "source evidence should map the oriented image into the OCR coordinate space without off-screen percentage offsets");
 assertIncludes(rawMaterialMobileOcrReviewSource, "sourceCoordinateFrame", "legacy OCR rows should use the real OCR derivative frame instead of the table polygon extent");

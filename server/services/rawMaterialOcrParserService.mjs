@@ -51,7 +51,7 @@ const supplierOcrProfiles = [
   },
 ];
 
-export const RAW_MATERIAL_OCR_PARSER_VERSION = 14;
+export const RAW_MATERIAL_OCR_PARSER_VERSION = 15;
 
 export const RAW_MATERIAL_DOCUMENT_DIRECTIONS = {
   delivery: "supplier_delivery",
@@ -95,9 +95,13 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     .map((line, index) => normalizeLine(line, index, { documentDirection, supplierName }))
     .filter(isReviewableOcrMaterialLine);
   const firstLine = validLines[0] ?? normalizeLine({}, 0, { documentDirection, supplierName });
-  const summaryValues = extractSummaryValues(allRows, { documentDirection });
   const calculatedLineWeightKg = roundNumber(sum(validLines.map((line) => line.values.totalWeightKg)), 3);
   const calculatedLineAmount = roundNumber(sum(validLines.map((line) => line.values.amount)), 2);
+  const summaryValues = extractSummaryValues(allRows, {
+    calculatedLineAmount,
+    calculatedLineWeightKg,
+    documentDirection,
+  });
   const explicitlyDeclaredAmount = extractDeclaredDocumentAmount(allRows, { documentDirection });
   const declaredAmount = explicitlyDeclaredAmount || summaryValues.amount;
   const totalWeightKg = summaryValues.totalWeightKg || roundNumber(sum(validLines.map((line) => line.values.totalWeightKg)), 3);
@@ -182,6 +186,8 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     ocrAngle: finiteNumber(ocr.angle, 0),
     ocrImageWidth: positiveNumber(ocr.imageWidth, 0),
     ocrImageHeight: positiveNumber(ocr.imageHeight, 0),
+    ocrPageCount: Math.max(1, parsePositiveInteger(ocr.pageCount) || inferOcrPageCount(tables)),
+    ocrPages: normalizeOcrPageMetadata(ocr.pages, tables),
     ocrParserVersion: RAW_MATERIAL_OCR_PARSER_VERSION,
     ocrRecognizedAt: recognizedAt,
     ocrRawText: allText.slice(0, 30_000),
@@ -193,6 +199,7 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     ocrCalculatedLineWeightKg: calculatedLineWeightKg,
     ocrReconciliationIssues,
     ocrTableRows: tableRows.map((rows) => rows.map((row) => row.map((cell) => cell.text))),
+    ocrTableSourcePages: tables.map((table) => table.sourcePageIndex),
     photoStatus: `${documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return ? "退货单" : "送货单"}照片已上传`,
     signedNoteStatus: "单据附件可选，尚未上传",
     nextStep: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
@@ -234,6 +241,7 @@ function extractTableLines(rows, tableIndex, table = {}) {
     if (sequential) {
       return {
         lineId: `OCR-T${tableIndex + 1}-R${header.rowIndex + offset + 2}`,
+        sourcePageIndex: table.sourcePageIndex,
         sourceRowIndex: header.rowIndex + offset + 1,
         sourceBounds: buildSourceBounds(row, table.imageWidth, table.imageHeight),
         ...sequential,
@@ -250,6 +258,7 @@ function extractTableLines(rows, tableIndex, table = {}) {
     values.spec = buildSpec(values);
     return {
       lineId: `OCR-T${tableIndex + 1}-R${header.rowIndex + offset + 2}`,
+      sourcePageIndex: table.sourcePageIndex,
       sourceRowIndex: header.rowIndex + offset + 1,
       sourceBounds: buildSourceBounds(row, table.imageWidth, table.imageHeight),
       values,
@@ -271,7 +280,12 @@ function detectSequentialLayout(headerRow) {
   if (labels.some((label) => label.includes("序号")) && labels.some((label) => label.includes("件数")) && labels.some((label) => label.includes("重量kg"))) {
     return "count_then_total_then_roll_weights";
   }
-  if (labels.some((label) => label.includes("编号")) && labels.some((label) => label.includes("商品全名")) && labels.some((label) => label.includes("单位"))) {
+  const hasOneRollCommercialColumns = labels.some((label) => label.includes("规格"))
+    && labels.some((label) => label.includes("单位"))
+    && labels.some((label) => label.includes("数量"))
+    && labels.some((label) => label.includes("单价"))
+    && labels.some((label) => label.includes("金额"));
+  if (hasOneRollCommercialColumns) {
     return "one_weighed_roll_per_row";
   }
   if (labels.some((label) => label.includes("商品名称")) && labels.some((label) => label.includes("颜色")) && labels.some((label) => label.includes("重量"))) {
@@ -317,31 +331,42 @@ function parseSequentialLine({ layout, row }) {
     };
   }
   if (layout === "one_weighed_roll_per_row") {
-    if (texts.length < 7 || !looksLikeUnit(texts[3]) || !isNonZeroNumber(parseNumber(texts[4]))) return null;
+    const unitIndex = texts.findIndex(looksLikeUnit);
+    if (unitIndex < 2 || texts.length < unitIndex + 4) return null;
+    const specIndex = unitIndex - 1;
+    const colorIndex = specIndex - 1;
+    const rawSpec = texts[specIndex];
+    const supplierColor = texts[colorIndex];
+    if (!(looksLikeSpec(rawSpec) || hasExplicitRawMaterialStripMarker(`${supplierColor} ${rawSpec}`))) return null;
+    const weightIndex = unitIndex + 1;
+    const unitPriceIndex = unitIndex + 2;
+    const amountIndex = unitIndex + 3;
+    const weightKg = parseNumber(texts[weightIndex]);
+    if (!isNonZeroNumber(weightKg)) return null;
     return {
-      values: {
+      values: enrichRawMaterialSpecValues({
         productName: "无纺布卷料",
         materialType: "无纺布",
-        supplierColor: texts[1],
-        spec: texts[2],
+        supplierColor,
+        spec: rawSpec,
         rollCount: 1,
-        totalWeightKg: parseNumber(texts[4]),
-        unit: normalizeUnit(texts[3]),
-        unitPrice: parseNumber(texts[5]),
-        amount: parseNumber(texts[6]),
+        totalWeightKg: weightKg,
+        unit: normalizeUnit(texts[unitIndex]),
+        unitPrice: parseNumber(texts[unitPriceIndex]),
+        amount: parseNumber(texts[amountIndex]),
         supplierRollNo: "",
-        rollWeightsKg: [parseNumber(texts[4])].filter(isNonZeroNumber),
-      },
+        rollWeightsKg: [weightKg],
+      }),
       confidences: buildSequentialConfidences(cells, {
-        productName: 2,
-        materialType: 2,
-        supplierColor: 1,
-        spec: 2,
-        rollCount: 4,
-        totalWeightKg: 4,
-        unit: 3,
-        unitPrice: 5,
-        amount: 6,
+        productName: specIndex,
+        materialType: specIndex,
+        supplierColor: colorIndex,
+        spec: specIndex,
+        rollCount: weightIndex,
+        totalWeightKg: weightIndex,
+        unit: unitIndex,
+        unitPrice: unitPriceIndex,
+        amount: amountIndex,
       }),
     };
   }
@@ -476,7 +501,12 @@ function shouldSkipRecognizedRow(row) {
   return false;
 }
 
-function extractSummaryValues(rows, { documentDirection = RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery } = {}) {
+function extractSummaryValues(rows, {
+  calculatedLineAmount = 0,
+  calculatedLineWeightKg = 0,
+  documentDirection = RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery,
+} = {}) {
+  const candidates = [];
   for (const row of rows) {
     const texts = row.map((cell) => cleanText(cell.text)).filter(Boolean);
     if (!texts.length) continue;
@@ -484,26 +514,40 @@ function extractSummaryValues(rows, { documentDirection = RAW_MATERIAL_DOCUMENT_
     const numbers = texts.slice(1).map(parseNumber).filter(isNonZeroNumber);
     if (/^(?:合计|合计:)/.test(label)) {
       const rollCount = Number.isInteger(numbers[0]) && numbers[0] <= 500 ? numbers[0] : 0;
-      if (numbers.length >= 3) return {
+      if (numbers.length >= 3) candidates.push({
         rollCount,
         totalWeightKg: applyDocumentDirection(numbers.at(-2), documentDirection),
         amount: applyDocumentDirection(numbers.at(-1), documentDirection),
-      };
-      if (numbers.length >= 2) return {
+      });
+      else if (numbers.length >= 2) candidates.push({
         rollCount,
         totalWeightKg: 0,
         amount: applyDocumentDirection(numbers.at(-1), documentDirection),
-      };
+      });
     }
     if (/^(?:总计大写|页小计)/.test(label) && numbers.length >= 2) {
-      return {
+      candidates.push({
         rollCount: 0,
         totalWeightKg: applyDocumentDirection(numbers.at(-2), documentDirection),
         amount: applyDocumentDirection(numbers.at(-1), documentDirection),
-      };
+      });
     }
   }
-  return { rollCount: 0, totalWeightKg: 0, amount: 0 };
+  if (!candidates.length) return { rollCount: 0, totalWeightKg: 0, amount: 0 };
+  return candidates.sort((left, right) => (
+    summaryDistance(left, { calculatedLineAmount, calculatedLineWeightKg })
+    - summaryDistance(right, { calculatedLineAmount, calculatedLineWeightKg })
+  ))[0];
+}
+
+function summaryDistance(summary, { calculatedLineAmount = 0, calculatedLineWeightKg = 0 } = {}) {
+  const weightDistance = isNonZeroNumber(calculatedLineWeightKg) && isNonZeroNumber(summary?.totalWeightKg)
+    ? Math.abs(Math.abs(Number(summary.totalWeightKg)) - Math.abs(Number(calculatedLineWeightKg))) / Math.max(1, Math.abs(Number(calculatedLineWeightKg)))
+    : 1;
+  const amountDistance = isNonZeroNumber(calculatedLineAmount) && isNonZeroNumber(summary?.amount)
+    ? Math.abs(Math.abs(Number(summary.amount)) - Math.abs(Number(calculatedLineAmount))) / Math.max(1, Math.abs(Number(calculatedLineAmount)))
+    : 1;
+  return weightDistance + amountDistance;
 }
 
 function buildFallbackLine(rows) {
@@ -542,6 +586,7 @@ function normalizeLine(input = {}, index, {
   if (cleanText(values.specNormalizationReason)) normalizedSpecValues.specNormalizationReason = cleanText(values.specNormalizationReason);
   return {
     lineId: cleanText(input.lineId) || `OCR-LINE-${index + 1}`,
+    sourcePageIndex: Math.max(0, Number(input.sourcePageIndex) || 0),
     sourceRowIndex: Math.max(0, Number(input.sourceRowIndex) || 0),
     sourceBounds: normalizeSourceBounds(input.sourceBounds),
     sourceText: cleanText(input.sourceText),
@@ -594,8 +639,30 @@ function normalizeTables(tables = [], sourceImage = {}) {
     const points = cells.flatMap((cell) => cell.polygon);
     return {
       cells,
-      imageWidth: Math.max(Number(sourceImage.imageWidth) || 0, ...points.map((point) => point.x)),
-      imageHeight: Math.max(Number(sourceImage.imageHeight) || 0, ...points.map((point) => point.y)),
+      sourcePageIndex: Math.max(0, Number(table?.sourcePageIndex) || 0),
+      imageWidth: Math.max(Number(table?.imageWidth) || Number(sourceImage.imageWidth) || 0, ...points.map((point) => point.x)),
+      imageHeight: Math.max(Number(table?.imageHeight) || Number(sourceImage.imageHeight) || 0, ...points.map((point) => point.y)),
+    };
+  });
+}
+
+function inferOcrPageCount(tables = []) {
+  return Math.max(1, ...tables.map((table) => Math.max(0, Number(table?.sourcePageIndex) || 0) + 1));
+}
+
+function normalizeOcrPageMetadata(pages = [], tables = []) {
+  const sourcePages = Array.isArray(pages) ? pages : [];
+  const pageCount = Math.max(sourcePages.length, inferOcrPageCount(tables));
+  return Array.from({ length: pageCount }, (_, sourcePageIndex) => {
+    const source = sourcePages[sourcePageIndex] ?? {};
+    const pageTables = tables.filter((table) => table.sourcePageIndex === sourcePageIndex);
+    return {
+      sourcePageIndex,
+      pageNumber: sourcePageIndex + 1,
+      angle: finiteNumber(source.angle, 0),
+      imageWidth: Math.max(positiveNumber(source.imageWidth, 0), ...pageTables.map((table) => table.imageWidth)),
+      imageHeight: Math.max(positiveNumber(source.imageHeight, 0), ...pageTables.map((table) => table.imageHeight)),
+      requestId: cleanText(source.requestId),
     };
   });
 }

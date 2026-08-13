@@ -104,9 +104,9 @@ export function applyRawMaterialOcrReparse({ before = {}, reparsedInbound = {} }
     "supplierName", "deliveryNoteNo", "receivedAt", "materialType", "productName", "spec", "specRaw", "specDisplay",
     "gramWeightGsm", "widthCm", "lengthM", "materialCategory", "specNeedsReview", "specReviewReason",
     "supplierColor", "factoryColor", "rollCount", "totalWeightKg", "unit", "unitPrice", "amount",
-    "ocrStatus", "ocrAngle", "ocrImageWidth", "ocrImageHeight", "ocrParserVersion", "ocrRawText", "ocrReviewFields", "ocrLines",
+    "ocrStatus", "ocrAngle", "ocrImageWidth", "ocrImageHeight", "ocrPageCount", "ocrPages", "ocrParserVersion", "ocrRawText", "ocrReviewFields", "ocrLines",
     "ocrDeclaredAmount", "ocrCalculatedLineAmount", "ocrDeclaredWeightKg", "ocrCalculatedLineWeightKg", "ocrReconciliationIssues",
-    "ocrTableRows", "photoStatus", "signedNoteStatus", "nextStep", "note", "location",
+    "ocrTableRows", "ocrTableSourcePages", "photoStatus", "signedNoteStatus", "nextStep", "note", "location",
     "statementStatus", "statementSummary", "statementDifferences", "rolls",
   ];
   const replacements = Object.fromEntries(
@@ -124,8 +124,11 @@ export function applyRawMaterialOcrReparse({ before = {}, reparsedInbound = {} }
     ocrRecognizedAt: before.ocrRecognizedAt,
     ocrSourceDigest: before.ocrSourceDigest,
     sourceAttachmentId: before.sourceAttachmentId,
+    sourceAttachmentIds: before.sourceAttachmentIds,
     sourceFileName: before.sourceFileName,
+    sourceFileNames: before.sourceFileNames,
     sourceMimeType: before.sourceMimeType,
+    sourceMimeTypes: before.sourceMimeTypes,
   };
   if ((after.rolls ?? []).some((roll) => cleanText(roll.inventoryStatus) === "可用")) {
     throw Object.assign(new Error("Reparsed OCR drafts must not create available inventory."), {
@@ -150,6 +153,8 @@ export function normalizeRawMaterialOcrMetadata(item = {}) {
   item.ocrStatus = cleanText(item.ocrStatus);
   item.ocrImageWidth = Math.max(0, Number(item.ocrImageWidth) || 0);
   item.ocrImageHeight = Math.max(0, Number(item.ocrImageHeight) || 0);
+  item.ocrPageCount = Math.max(1, Number(item.ocrPageCount) || 1);
+  item.ocrPages = normalizeOcrPages(item.ocrPages, item.ocrPageCount, item.ocrImageWidth, item.ocrImageHeight, item.ocrAngle);
   item.ocrSourceDigest = cleanText(item.ocrSourceDigest);
   item.ocrRecognizedAt = cleanText(item.ocrRecognizedAt);
   item.ocrRawText = cleanText(item.ocrRawText);
@@ -161,8 +166,11 @@ export function normalizeRawMaterialOcrMetadata(item = {}) {
     .map(cleanText)
     .filter(Boolean);
   item.sourceAttachmentId = cleanText(item.sourceAttachmentId);
+  item.sourceAttachmentIds = normalizeTextList(item.sourceAttachmentIds, item.sourceAttachmentId);
   item.sourceFileName = cleanText(item.sourceFileName);
+  item.sourceFileNames = normalizeTextList(item.sourceFileNames, item.sourceFileName);
   item.sourceMimeType = cleanText(item.sourceMimeType);
+  item.sourceMimeTypes = normalizeTextList(item.sourceMimeTypes, item.sourceMimeType);
   item.ocrReviewFields = normalizeReviewFields(item.ocrReviewFields);
   item.ocrLines = normalizeLines(item.ocrLines);
   item.ocrTableRows = (Array.isArray(item.ocrTableRows) ? item.ocrTableRows : []).map((row) =>
@@ -170,6 +178,8 @@ export function normalizeRawMaterialOcrMetadata(item = {}) {
       (Array.isArray(cells) ? cells : []).map(cleanText).filter(Boolean),
     ),
   );
+  item.ocrTableSourcePages = (Array.isArray(item.ocrTableSourcePages) ? item.ocrTableSourcePages : [])
+    .map((value) => Math.max(0, Number(value) || 0));
   return item;
 }
 
@@ -265,6 +275,7 @@ function normalizeLines(lines) {
     return {
       ...line,
       lineId: cleanText(line?.lineId) || `OCR-LINE-${index + 1}`,
+      sourcePageIndex: Math.max(0, Number(line?.sourcePageIndex) || 0),
       sourceRowIndex: Math.max(0, Number(line?.sourceRowIndex) || 0),
       sourceText: cleanText(line?.sourceText),
       reviewStatus: cleanText(line?.reviewStatus) || "待人工复核",
@@ -291,6 +302,25 @@ function normalizeLines(lines) {
       excludedAt: cleanText(line?.excludedAt),
     };
   });
+}
+
+function normalizeOcrPages(pages, pageCount, imageWidth, imageHeight, angle) {
+  const source = Array.isArray(pages) ? pages : [];
+  return Array.from({ length: Math.max(pageCount, source.length) }, (_, sourcePageIndex) => ({
+    sourcePageIndex,
+    pageNumber: sourcePageIndex + 1,
+    angle: Number(source[sourcePageIndex]?.angle ?? angle) || 0,
+    imageWidth: Math.max(0, Number(source[sourcePageIndex]?.imageWidth ?? imageWidth) || 0),
+    imageHeight: Math.max(0, Number(source[sourcePageIndex]?.imageHeight ?? imageHeight) || 0),
+    requestId: cleanText(source[sourcePageIndex]?.requestId),
+  }));
+}
+
+function normalizeTextList(values, fallback) {
+  const normalized = (Array.isArray(values) ? values : []).map(cleanText).filter(Boolean);
+  if (normalized.length) return normalized;
+  const safeFallback = cleanText(fallback);
+  return safeFallback ? [safeFallback] : [];
 }
 
 function buildInsertOperationLogSql(operationLog, parameters) {

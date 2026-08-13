@@ -21,8 +21,8 @@ export function createRawMaterialCommandService(dependencies = {}) {
           rawMaterialOcrParserService,
           tencentCloudTableOcrService,
         });
-        const contentDataUrl = cleanText(body.contentDataUrl);
-        if (!contentDataUrl) {
+        const deliveryNotePages = normalizeDeliveryNotePages(body);
+        if (!deliveryNotePages.length) {
           return {
             error: true,
             statusCode: 422,
@@ -30,9 +30,18 @@ export function createRawMaterialCommandService(dependencies = {}) {
             message: "请选择原材料送货单照片或 PDF 后再识别。",
           };
         }
-        const sourceContentDataUrl = cleanText(body.sourceContentDataUrl) || contentDataUrl;
-        const sourceDigest = createHash("sha256").update(sourceContentDataUrl).digest("hex");
-        const ocrPayloadDigest = createHash("sha256").update(contentDataUrl).digest("hex");
+        const pageSourceDigests = deliveryNotePages.map((page) => createHash("sha256").update(page.sourceContentDataUrl).digest("hex"));
+        if (new Set(pageSourceDigests).size !== pageSourceDigests.length) {
+          return {
+            error: true,
+            statusCode: 422,
+            code: "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_PAGE",
+            message: "同一张照片被重复添加了，请删除重复页后再识别。",
+          };
+        }
+        const sourceDigest = deliveryNotePages.length === 1
+          ? pageSourceDigests[0]
+          : createHash("sha256").update(`raw-material-pages-v1\n${pageSourceDigests.join("\n")}`).digest("hex");
         const existingInbound = (Array.isArray(workspace.rawMaterialInbounds) ? workspace.rawMaterialInbounds : []).find(
           (item) => cleanText(item?.ocrSourceDigest) === sourceDigest,
         );
@@ -47,6 +56,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
           return {
             inbound: reparsed.inbound,
             attachmentId: cleanText(reparsed.inbound.sourceAttachmentId),
+            attachmentIds: normalizeTextArray(reparsed.inbound.sourceAttachmentIds, reparsed.inbound.sourceAttachmentId),
             deduplicated: true,
             operationLogId: reparsed.operationLogId,
           };
@@ -54,56 +64,76 @@ export function createRawMaterialCommandService(dependencies = {}) {
 
         const recognizedAt = new Date().toISOString();
         const inboundId = `RMI-OCR-${sourceDigest.slice(0, 12).toUpperCase()}`;
-        const ocr = await tencentCloudTableOcrService.recognizeTable({
-          contentDataUrl,
-          mimeType: body.mimeType,
-          pdfPageNumber: body.pdfPageNumber,
-          useNewModel: body.useNewModel === true,
-        });
+        const ocrPages = [];
+        for (const [sourcePageIndex, page] of deliveryNotePages.entries()) {
+          const pageOcr = await tencentCloudTableOcrService.recognizeTable({
+            contentDataUrl: page.contentDataUrl,
+            mimeType: page.mimeType,
+            pdfPageNumber: page.pdfPageNumber,
+            useNewModel: page.useNewModel === true,
+          });
+          ocrPages.push(normalizeOcrPageResult(pageOcr, sourcePageIndex));
+        }
+        const ocr = combineOcrPageResults(ocrPages);
         const draft = rawMaterialOcrParserService.buildInboundDraft({
           inboundId,
           knownSupplierNames: collectKnownSupplierNames(workspace),
           ocr,
           recognizedAt,
         });
-        const attachmentResult = await attachmentCreateCommandService.createAttachment({
-          workspace,
-          operatorId,
-          body: {
+        const attachmentResults = [];
+        for (const [sourcePageIndex, page] of deliveryNotePages.entries()) {
+          const ocrPayloadDigest = createHash("sha256").update(page.contentDataUrl).digest("hex");
+          const attachmentSourceKey = deliveryNotePages.length === 1
+            ? `raw-material-ocr-source:${sourceDigest}`
+            : `raw-material-ocr-source:${sourceDigest}:page:${sourcePageIndex + 1}:${pageSourceDigests[sourcePageIndex]}`;
+          const attachmentResult = await attachmentCreateCommandService.createAttachment({
+            workspace,
+            operatorId,
+            body: {
             ownerType: "raw_material_inbound",
             ownerId: inboundId,
-            fileType: inferSourceFileType(body.sourceMimeType || body.mimeType, body.fileName),
+            fileType: inferSourceFileType(page.sourceMimeType || page.mimeType, page.fileName),
             purpose: "raw_material_delivery_note",
-            fileName: cleanText(body.fileName) || `原材料送货单-${inboundId}`,
-            contentRef: `raw-material-ocr-source:${sourceDigest}`,
-            contentDataUrl: sourceContentDataUrl,
-            mimeType: cleanText(body.sourceMimeType || body.mimeType),
-            fileSize: Number(body.sourceFileSize || body.fileSize) || undefined,
-            idempotencyKey: `raw-material-ocr-source:${sourceDigest}`,
+            fileName: cleanText(page.fileName) || `原材料送货单-${inboundId}-第${sourcePageIndex + 1}页`,
+            contentRef: attachmentSourceKey,
+            contentDataUrl: page.sourceContentDataUrl,
+            mimeType: cleanText(page.sourceMimeType || page.mimeType),
+            fileSize: Number(page.sourceFileSize || page.fileSize) || undefined,
+            idempotencyKey: attachmentSourceKey,
             metadata: {
               ocrProvider: draft.ocrProvider,
               ocrAction: draft.ocrAction,
-              ocrRequestId: draft.ocrRequestId,
+              ocrRequestId: ocrPages[sourcePageIndex]?.requestId || draft.ocrRequestId,
               ocrPayloadDigest,
-              ocrPayloadMimeType: cleanText(body.mimeType),
-              ocrPayloadFileSize: Number(body.fileSize) || undefined,
-              sourceNormalizedForOcr: body.sourceNormalizedForOcr === true,
+              ocrPayloadMimeType: cleanText(page.mimeType),
+              ocrPayloadFileSize: Number(page.fileSize) || undefined,
+              sourceNormalizedForOcr: page.sourceNormalizedForOcr === true,
+              sourcePageIndex,
+              pageNumber: sourcePageIndex + 1,
+              pageCount: deliveryNotePages.length,
             },
-            remark: "原材料送货单 OCR 原图；只用于办公室人工复核，不直接形成可用库存。",
+            remark: `原材料送货单 OCR 原图第 ${sourcePageIndex + 1}/${deliveryNotePages.length} 页；只用于办公室人工复核，不直接形成可用库存。`,
           },
-        });
-        if (!attachmentResult?.ok) {
-          throw Object.assign(new Error(attachmentResult?.message || "原材料送货单附件保存失败。"), {
-            statusCode: attachmentResult?.statusCode || 422,
-            code: attachmentResult?.errorCode || "RAW_MATERIAL_DELIVERY_NOTE_ATTACHMENT_FAILED",
           });
+          if (!attachmentResult?.ok) {
+            throw Object.assign(new Error(attachmentResult?.message || `原材料送货单第 ${sourcePageIndex + 1} 页附件保存失败。`), {
+              statusCode: attachmentResult?.statusCode || 422,
+              code: attachmentResult?.errorCode || "RAW_MATERIAL_DELIVERY_NOTE_ATTACHMENT_FAILED",
+            });
+          }
+          attachmentResults.push(attachmentResult);
         }
+        const sourceAttachmentIds = attachmentResults.map((result) => cleanText(result.attachment?.attachmentId)).filter(Boolean);
         const inbound = {
           ...draft,
           ocrSourceDigest: sourceDigest,
-          sourceAttachmentId: attachmentResult.attachment?.attachmentId || "",
-          sourceFileName: cleanText(body.fileName),
-          sourceMimeType: cleanText(body.sourceMimeType || body.mimeType),
+          sourceAttachmentId: sourceAttachmentIds[0] || "",
+          sourceAttachmentIds,
+          sourceFileName: cleanText(deliveryNotePages[0]?.fileName),
+          sourceFileNames: deliveryNotePages.map((page) => cleanText(page.fileName)),
+          sourceMimeType: cleanText(deliveryNotePages[0]?.sourceMimeType || deliveryNotePages[0]?.mimeType),
+          sourceMimeTypes: deliveryNotePages.map((page) => cleanText(page.sourceMimeType || page.mimeType)),
         };
         const operationLog = buildOperationLog(workspace, {
           id: nextId("LOG", workspace.operationLogs ?? []),
@@ -115,6 +145,8 @@ export function createRawMaterialCommandService(dependencies = {}) {
           after: {
             inboundId,
             sourceAttachmentId: inbound.sourceAttachmentId,
+            sourceAttachmentIds,
+            ocrPageCount: deliveryNotePages.length,
             ocrProvider: inbound.ocrProvider,
             ocrAction: inbound.ocrAction,
             ocrRequestId: inbound.ocrRequestId,
@@ -136,7 +168,8 @@ export function createRawMaterialCommandService(dependencies = {}) {
         return {
           inbound: saved.inbound,
           attachmentId: inbound.sourceAttachmentId,
-          deduplicated: saved.deduplicated === true || attachmentResult.deduplicated === true,
+          attachmentIds: sourceAttachmentIds,
+          deduplicated: saved.deduplicated === true || attachmentResults.every((result) => result.deduplicated === true),
           operationLogId: saved.operationLogId ?? saved.operationLog?.id ?? "",
         };
       } catch (error) {
@@ -562,8 +595,16 @@ async function reparseStaleOcrDraft({
     ocr: {
       action: existingInbound.ocrAction,
       angle: existingInbound.ocrAngle,
+      imageWidth: existingInbound.ocrImageWidth,
+      imageHeight: existingInbound.ocrImageHeight,
+      pageCount: existingInbound.ocrPageCount,
+      pages: existingInbound.ocrPages,
       requestId: existingInbound.ocrRequestId,
-      tables: rebuildOcrTables(existingInbound.ocrTableRows),
+      tables: rebuildOcrTables(
+        existingInbound.ocrTableRows,
+        existingInbound.ocrTableSourcePages,
+        existingInbound.ocrPages,
+      ),
     },
     recognizedAt: existingInbound.ocrRecognizedAt,
   }), existingInbound);
@@ -610,8 +651,11 @@ function preserveReparsedOcrEvidence(reparsedDraft, existingInbound) {
   };
 }
 
-function rebuildOcrTables(tableRows = []) {
-  return tableRows.map((rows) => ({
+function rebuildOcrTables(tableRows = [], tableSourcePages = [], ocrPages = []) {
+  return tableRows.map((rows, tableIndex) => ({
+    sourcePageIndex: Math.max(0, Number(tableSourcePages[tableIndex]) || 0),
+    imageWidth: Number(ocrPages[Math.max(0, Number(tableSourcePages[tableIndex]) || 0)]?.imageWidth) || 0,
+    imageHeight: Number(ocrPages[Math.max(0, Number(tableSourcePages[tableIndex]) || 0)]?.imageHeight) || 0,
     cells: (Array.isArray(rows) ? rows : []).flatMap((row, rowIndex) =>
       (Array.isArray(row) ? row : []).map((value, colIndex) => ({
         rowTl: rowIndex,
@@ -623,6 +667,84 @@ function rebuildOcrTables(tableRows = []) {
       })),
     ),
   }));
+}
+
+function normalizeDeliveryNotePages(body = {}) {
+  const hasSuppliedPages = Array.isArray(body.pages) && body.pages.length > 0;
+  if (!hasSuppliedPages && !cleanText(body.contentDataUrl)) return [];
+  const suppliedPages = hasSuppliedPages ? body.pages : [body];
+  if (suppliedPages.length > 4) {
+    throw Object.assign(new Error("同一张送货单最多支持 4 页，请分开核对超出的附件。"), {
+      statusCode: 422,
+      code: "RAW_MATERIAL_DELIVERY_NOTE_PAGE_LIMIT_EXCEEDED",
+    });
+  }
+  return suppliedPages.map((input, sourcePageIndex) => {
+    const contentDataUrl = cleanText(input?.contentDataUrl);
+    if (!contentDataUrl) {
+      throw Object.assign(new Error(`送货单第 ${sourcePageIndex + 1} 页没有可识别内容。`), {
+        statusCode: 422,
+        code: "RAW_MATERIAL_DELIVERY_NOTE_PAGE_REQUIRED",
+      });
+    }
+    return {
+      fileName: cleanText(input.fileName),
+      mimeType: cleanText(input.mimeType),
+      fileSize: Number(input.fileSize) || undefined,
+      contentDataUrl,
+      sourceMimeType: cleanText(input.sourceMimeType || input.mimeType),
+      sourceFileSize: Number(input.sourceFileSize || input.fileSize) || undefined,
+      sourceContentDataUrl: cleanText(input.sourceContentDataUrl) || contentDataUrl,
+      sourceNormalizedForOcr: input.sourceNormalizedForOcr === true,
+      pdfPageNumber: Number(input.pdfPageNumber) || undefined,
+      useNewModel: input.useNewModel === true,
+    };
+  });
+}
+
+function normalizeOcrPageResult(ocr = {}, sourcePageIndex = 0) {
+  const imageWidth = Number(ocr.imageWidth) || 0;
+  const imageHeight = Number(ocr.imageHeight) || 0;
+  return {
+    ...ocr,
+    sourcePageIndex,
+    pageNumber: sourcePageIndex + 1,
+    tables: (Array.isArray(ocr.tables) ? ocr.tables : []).map((table) => ({
+      ...table,
+      sourcePageIndex,
+      imageWidth: Number(table?.imageWidth) || imageWidth,
+      imageHeight: Number(table?.imageHeight) || imageHeight,
+    })),
+  };
+}
+
+function combineOcrPageResults(pages = []) {
+  const first = pages[0] ?? {};
+  return {
+    action: cleanText(first.action),
+    provider: cleanText(first.provider),
+    requestId: pages.map((page) => cleanText(page.requestId)).filter(Boolean).join(","),
+    angle: Number(first.angle) || 0,
+    imageWidth: Number(first.imageWidth) || 0,
+    imageHeight: Number(first.imageHeight) || 0,
+    pageCount: pages.length,
+    pages: pages.map((page, sourcePageIndex) => ({
+      sourcePageIndex,
+      pageNumber: sourcePageIndex + 1,
+      angle: Number(page.angle) || 0,
+      imageWidth: Number(page.imageWidth) || 0,
+      imageHeight: Number(page.imageHeight) || 0,
+      requestId: cleanText(page.requestId),
+    })),
+    tables: pages.flatMap((page) => page.tables ?? []),
+  };
+}
+
+function normalizeTextArray(values, fallback = "") {
+  const normalized = (Array.isArray(values) ? values : []).map(cleanText).filter(Boolean);
+  if (normalized.length) return normalized;
+  const fallbackValue = cleanText(fallback);
+  return fallbackValue ? [fallbackValue] : [];
 }
 
 function requireOcrDependencies(dependencies) {
