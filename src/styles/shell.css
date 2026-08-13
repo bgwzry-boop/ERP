@@ -384,6 +384,9 @@ body:has(.runtime-login-shell) {
 }
 
 .mobile-role-shell-session {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   margin-left: auto;
 }
 

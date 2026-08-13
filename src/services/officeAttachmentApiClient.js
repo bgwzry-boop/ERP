@@ -456,6 +456,29 @@ export function createStatementCustomerConfirmationAttachmentInput({ statement, 
   };
 }
 
+export function createPayrollAdjustmentEvidenceAttachmentInput({ payrollRunId, employeeId, operatorId, remark = "", file = null }) {
+  const now = new Date();
+  const stamp = now.toISOString().replace(/[-:T.Z]/g, "").slice(0, 14);
+  const selectedFileName = typeof file?.name === "string" && file.name.trim() ? file.name.trim() : "";
+  const fileName = selectedFileName || `payroll-adjustment-${employeeId}-${stamp}.pdf`;
+  const mimeType = typeof file?.type === "string" && file.type.trim() ? file.type.trim() : "application/pdf";
+  const fileType = inferAttachmentFileType({ mimeType, fileName });
+  return {
+    ownerType: "payroll_run",
+    ownerId: payrollRunId,
+    fileType,
+    purpose: "payroll_adjustment_evidence",
+    fileName,
+    contentRef: `p0://payroll-adjustment/${payrollRunId}/${employeeId}/${stamp}/${encodeURIComponent(fileName)}`,
+    mimeType,
+    fileSize: Number.isFinite(file?.size) ? file.size : undefined,
+    contentDataUrl: typeof file?.contentDataUrl === "string" ? file.contentDataUrl : undefined,
+    metadata: { payrollRunId, employeeId },
+    uploadedBy: operatorId,
+    remark,
+  };
+}
+
 export function createInventoryCorrectionEvidenceAttachmentInput({ correctionDraftId, operatorId, remark = "", file = null }) {
   const ownerId = normalizeAttachmentText(correctionDraftId);
   const now = new Date();

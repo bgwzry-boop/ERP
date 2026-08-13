@@ -36,6 +36,7 @@ export function createMasterDataImportReviewDraft(input = {}) {
   const warningCount = getPrecheckWarningCount(precheckResult);
   const dataRowCount = toFiniteNumber(summary.dataRowCount);
   const employeeRoleCoverage = normalizeMasterDataEmployeeRoleCoverage(precheckResult.employeeRoleCoverage);
+  const employeePayrollAttendanceCoverage = normalizeMasterDataEmployeePayrollAttendanceCoverage(precheckResult.employeePayrollAttendanceCoverage);
 
   return {
     version: MASTER_DATA_IMPORT_REVIEW_VERSION,
@@ -69,8 +70,10 @@ export function createMasterDataImportReviewDraft(input = {}) {
       importAllowed: errorCount === 0,
       requiresManualReview: warningCount > 0,
       employeeRoleCoverageLabel: employeeRoleCoverage.coverageLabel,
+      employeePayrollAttendanceCoverageLabel: employeePayrollAttendanceCoverage.coverageLabel,
     },
     employeeRoleCoverage,
+    employeePayrollAttendanceCoverage,
     sheets,
     stagedRows,
     issues: issues.slice(0, 20),
@@ -217,6 +220,22 @@ export function normalizeMasterDataEmployeeRoleCoverage(value = {}) {
     coverageLabel: requiredRoleCount ? `${coveredRoleCount}/${requiredRoleCount}` : "0/8",
     missingRoleLabels: (Array.isArray(value.missingRoleLabels) ? value.missingRoleLabels : []).map(cleanText).filter(Boolean),
     roles,
+  };
+}
+
+export function normalizeMasterDataEmployeePayrollAttendanceCoverage(value = {}) {
+  const employeeCount = toFiniteNumber(value.employeeCount);
+  const completeCount = Math.min(employeeCount, toFiniteNumber(value.completeCount));
+  return {
+    available: value.available === true,
+    complete: value.complete === true && employeeCount > 0 && completeCount === employeeCount,
+    employeeCount,
+    completeCount,
+    incompleteCount: Math.max(0, employeeCount - completeCount),
+    profileReadyCount: Math.min(employeeCount, toFiniteNumber(value.profileReadyCount)),
+    wageReadyCount: Math.min(employeeCount, toFiniteNumber(value.wageReadyCount)),
+    attendanceMappingReadyCount: Math.min(employeeCount, toFiniteNumber(value.attendanceMappingReadyCount)),
+    coverageLabel: `${completeCount}/${employeeCount}`,
   };
 }
 

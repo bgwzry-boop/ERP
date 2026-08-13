@@ -1,31 +1,21 @@
-import { defineConfig, loadEnv } from "vite";
+import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-export function controlledReleaseHtmlPlugin(env = {}) {
-  const values = [
-    ["erp-release-target", env.VITE_ERP_RELEASE_TARGET],
-    ["erp-release-version", env.VITE_ERP_RELEASE_VERSION],
-    ["erp-release-commit", env.VITE_ERP_RELEASE_COMMIT],
-    ["erp-release-lock", env.VITE_ERP_RELEASE_LOCK_DIGEST],
-  ];
+export function enforceCompleteReviewPortPlugin() {
   return {
-    name: "erp-controlled-release-identity",
-    transformIndexHtml: {
-      order: "pre",
-      handler() {
-        return values.map(([name, content]) => ({
-          tag: "meta",
-          attrs: { name, content: String(content ?? "") },
-          injectTo: "head",
-        }));
-      },
+    name: "erp-enforce-complete-review-port",
+    configResolved(config) {
+      if (config.command !== "serve" || Number(config.server?.port) === 4174) return;
+      const error = new Error(
+        "The complete ERP review app has one local identity and must run on port 4174.",
+      );
+      error.code = "ERP_COMPLETE_REVIEW_PORT_REQUIRED";
+      throw error;
     },
   };
 }
 
-export default defineConfig(({ command, mode }) => {
-  const buildEnv = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
-  return ({
+export default defineConfig(({ command }) => ({
   build: {
     outDir: "dist/client",
     rollupOptions: {
@@ -58,12 +48,13 @@ export default defineConfig(({ command, mode }) => {
     dedupe: ["react", "react-dom"],
   },
   server: {
-    host: "0.0.0.0",
+    host: "127.0.0.1",
+    port: 4174,
+    strictPort: true,
     allowedHosts: ["terminal.local"],
     warmup: {
       clientFiles: ["./src/main.jsx"],
     },
   },
-    plugins: [react(), controlledReleaseHtmlPlugin(buildEnv)],
-  });
-});
+  plugins: [react(), enforceCompleteReviewPortPlugin()],
+}));

@@ -12,7 +12,7 @@ import {
 } from "../../shared/auth/roleCatalog.js";
 import { isValidEmployeeNumber } from "../../shared/auth/employeeIdentity.js";
 
-export const MASTER_DATA_IMPORT_PRECHECK_VERSION = "p0-master-data-import-precheck-v1";
+export const MASTER_DATA_IMPORT_PRECHECK_VERSION = "p0-master-data-import-precheck-v2";
 
 const severityOrder = {
   error: 3,
@@ -20,7 +20,7 @@ const severityOrder = {
   info: 1,
 };
 
-const importedDateFieldNames = new Set(["生效日期", "盘点日期"]);
+const importedDateFieldNames = new Set(["出生日期", "入职日期", "生效日期", "盘点日期"]);
 const excelDateMsPerDay = 24 * 60 * 60 * 1000;
 const excelDateBaseUtcMs = Date.UTC(1899, 11, 30);
 
@@ -64,6 +64,7 @@ export function precheckParsedMasterDataWorkbook(workbook, input = {}) {
   const dataRowCount = sheetResults.reduce((sum, sheet) => sum + sheet.dataRowCount, 0);
   const summaryStatus = errorCount ? "blocked" : warningCount ? "review" : "passed";
   const employeeRoleCoverage = buildEmployeeRoleCoverage(sheetResults);
+  const employeePayrollAttendanceCoverage = buildEmployeePayrollAttendanceCoverage(sheetResults);
   return {
     version: MASTER_DATA_IMPORT_PRECHECK_VERSION,
     templateVersion: MASTER_DATA_IMPORT_TEMPLATE_VERSION,
@@ -84,6 +85,7 @@ export function precheckParsedMasterDataWorkbook(workbook, input = {}) {
     sheets: sheetResults.map(({ rows, ...sheet }) => sheet),
     stagedRows: buildStagedRows(sheetResults),
     employeeRoleCoverage,
+    employeePayrollAttendanceCoverage,
     issues: sortedIssues,
   };
 }
@@ -126,6 +128,35 @@ function buildEmployeeRoleCoverage(sheetResults) {
     coverageLabel: `${coveredRoleCount}/${roles.length}`,
     missingRoleLabels: roles.filter((role) => !role.covered).map((role) => role.roleLabel),
     roles,
+  };
+}
+
+function buildEmployeePayrollAttendanceCoverage(sheetResults) {
+  const employeeSheet = sheetResults.find((sheet) => sheet.key === "employees_machines");
+  const rows = (employeeSheet?.rows ?? []).map((row) => {
+    const values = row.values ?? {};
+    const profileReady = Boolean(cleanText(values["出生日期"]) && cleanText(values["入职日期"]));
+    const wageReady = (parseNumber(values["基础时薪"]) ?? 0) > 0 && Boolean(cleanText(values["生效日期"]));
+    const attendanceMappingReady = Boolean(cleanText(values["考勤来源"]) && cleanText(values["考勤人员编号"]));
+    return {
+      profileReady,
+      wageReady,
+      attendanceMappingReady,
+      complete: profileReady && wageReady && attendanceMappingReady,
+    };
+  });
+  const employeeCount = rows.length;
+  const completeCount = rows.filter((row) => row.complete).length;
+  return {
+    available: employeeSheet?.present === true,
+    complete: employeeCount > 0 && completeCount === employeeCount,
+    employeeCount,
+    completeCount,
+    incompleteCount: Math.max(0, employeeCount - completeCount),
+    profileReadyCount: rows.filter((row) => row.profileReady).length,
+    wageReadyCount: rows.filter((row) => row.wageReady).length,
+    attendanceMappingReadyCount: rows.filter((row) => row.attendanceMappingReady).length,
+    coverageLabel: `${completeCount}/${employeeCount}`,
   };
 }
 
@@ -254,12 +285,29 @@ function checkBusinessRules(spec, row, sheetIssues, allIssues) {
     }
   }
   if (spec.key === "employees_machines") {
+    checkOptionalIsoDate(row, "出生日期", sheetIssues, allIssues);
+    checkOptionalIsoDate(row, "入职日期", sheetIssues, allIssues);
+    checkOptionalIsoDate(row, "生效日期", sheetIssues, allIssues);
     checkNonNegativeNumber(row, "基础时薪", false, sheetIssues, allIssues);
     checkNonNegativeNumber(row, "岗位补贴/小时", false, sheetIssues, allIssues);
     checkPositiveNumber(row, "粗略日产量", false, sheetIssues, allIssues);
     checkAllowedValue(row, "启用状态", ["启用", "停用"], "warning", sheetIssues, allIssues);
     const roleName = cleanText(row.values["角色"]);
     const employeeNumber = cleanText(row.values["员工编号"]);
+    const birthDate = cleanText(row.values["出生日期"]);
+    const hireDate = cleanText(row.values["入职日期"]);
+    const wageEffectiveFrom = cleanText(row.values["生效日期"]);
+    if (isValidIsoDate(birthDate) && isValidIsoDate(hireDate) && birthDate >= hireDate) {
+      addIssue("error", row, "入职日期", "入职日期必须晚于出生日期。", sheetIssues, allIssues);
+    }
+    if (isValidIsoDate(hireDate) && isValidIsoDate(wageEffectiveFrom) && wageEffectiveFrom < hireDate) {
+      addIssue("error", row, "生效日期", "工资生效日期不能早于入职日期。", sheetIssues, allIssues);
+    }
+    const attendanceProvider = cleanText(row.values["考勤来源"]);
+    const attendanceExternalId = cleanText(row.values["考勤人员编号"]);
+    if (Boolean(attendanceProvider) !== Boolean(attendanceExternalId)) {
+      addIssue("error", row, attendanceProvider ? "考勤人员编号" : "考勤来源", "考勤来源和考勤人员编号必须同时填写，或同时留空。", sheetIssues, allIssues);
+    }
     if (employeeNumber && !isValidEmployeeNumber(employeeNumber)) {
       addIssue("error", row, "员工编号", "员工编号须为1-32位字母、数字、下划线或短横线，且首位必须是字母或数字。", sheetIssues, allIssues);
     }
@@ -354,6 +402,7 @@ function getDuplicateKeyGroups(specKey) {
     ],
     employees_machines: [
       { label: "员工编号", fields: ["员工编号"], caseInsensitive: true },
+      { label: "考勤身份", fields: ["考勤来源", "考勤人员编号"], caseInsensitive: true },
     ],
   };
   return map[specKey] ?? [];
@@ -381,6 +430,19 @@ function checkNonNegativeNumber(row, field, required, sheetIssues, allIssues) {
   if (!Number.isFinite(number) || number < 0) {
     addIssue(required ? "error" : "warning", row, field, `${field} 应为不小于 0 的数字。`, sheetIssues, allIssues);
   }
+}
+
+function checkOptionalIsoDate(row, field, sheetIssues, allIssues) {
+  const value = cleanText(row.values[field]);
+  if (!value || isValidIsoDate(value)) return;
+  addIssue("error", row, field, `${field} 必须是有效的 YYYY-MM-DD 日期。`, sheetIssues, allIssues);
+}
+
+function isValidIsoDate(value) {
+  const text = cleanText(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const parsed = new Date(`${text}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
 }
 
 function getDataRows(rows, columnIndexes, columns, worksheetName) {
@@ -677,7 +739,7 @@ function convertExcelDateSerialToDateString(value) {
   if (!Number.isFinite(serial) || serial <= 0 || serial > 60000) return null;
   const date = new Date(excelDateBaseUtcMs + Math.floor(serial) * excelDateMsPerDay);
   const year = date.getUTCFullYear();
-  if (year < 1990 || year > 2100) return null;
+  if (year < 1900 || year > 2100) return null;
   return formatDateParts(year, date.getUTCMonth() + 1, date.getUTCDate());
 }
 

@@ -92,6 +92,8 @@ import { createRawMaterialInboundRepository } from "./rawMaterialInboundReposito
 import { createRawMaterialSupplierStatementReviewRepository } from "./rawMaterialSupplierStatementReviewRepository.mjs";
 import { createRawMaterialPurchaseRepository } from "./rawMaterialPurchaseRepository.mjs";
 import { createMaintenanceTaskRepository } from "./maintenanceTaskRepository.mjs";
+import { createAttendancePayrollRepository } from "./attendancePayrollRepository.mjs";
+import { createConfiguredAttendanceProvider } from "./attendanceProvider.mjs";
 import { createRuntimeIdentityRepository } from "./runtimeIdentityRepository.mjs";
 import { createBusinessDecisionEvidenceRepository } from "./businessDecisionEvidenceRepository.mjs";
 import { createBusinessDecisionAuthorizationRepository } from "./businessDecisionAuthorizationRepository.mjs";
@@ -155,6 +157,10 @@ import {
   handleMaintenanceTaskReadRoutes,
   handleMaintenanceTaskWriteRoutes,
 } from "./routes/maintenanceTaskRoutes.mjs";
+import {
+  handleAttendancePayrollReadRoutes,
+  handleAttendancePayrollWriteRoutes,
+} from "./routes/attendancePayrollRoutes.mjs";
 import { apiSharedServiceRegistry } from "./apiSharedServiceRegistry.mjs";
 import { releaseIdentityFromEnvironment } from "../shared/releaseIdentity.js";
 
@@ -303,6 +309,12 @@ export function createApiServer(options = {}) {
   const maintenanceTaskRepository =
     effectiveOptions.maintenanceTaskRepository ??
     createMaintenanceTaskRepository(effectiveOptions.maintenanceTaskRepositoryOptions);
+  const attendancePayrollRepository =
+    effectiveOptions.attendancePayrollRepository ??
+    createAttendancePayrollRepository(effectiveOptions.attendancePayrollRepositoryOptions);
+  const attendanceProvider =
+    effectiveOptions.attendanceProvider ??
+    createConfiguredAttendanceProvider(effectiveOptions.attendanceProviderOptions);
   const runtimeIdentityRepository =
     effectiveOptions.runtimeIdentityRepository ??
     createRuntimeIdentityRepository(effectiveOptions.runtimeIdentityRepositoryOptions);
@@ -357,6 +369,7 @@ export function createApiServer(options = {}) {
       rawMaterialSupplierStatementReviewRepository,
       rawMaterialPurchaseRepository,
       maintenanceTaskRepository,
+      attendancePayrollRepository,
       runtimeIdentityRepository,
       businessDecisionEvidenceRepository,
       businessDecisionAuthorizationRepository,
@@ -375,6 +388,14 @@ export function createApiServer(options = {}) {
   workspace.businessDecisionEvidenceDrafts = [];
   workspace.rawMaterialPurchaseRequests = [];
   workspace.maintenanceTasks = workspace.initialMaintenanceTasks ?? [];
+  workspace.attendanceImportBatches = [];
+  workspace.attendancePunches = [];
+  workspace.attendanceDayReviews = [];
+  workspace.payrollPolicyVersions = [];
+  workspace.payrollRuns = [];
+  workspace.payrollLines = [];
+  workspace.payrollLineAdjustments = [];
+  workspace.payrollExportEvents = [];
   workspace.fulfillmentQuantityVarianceResolutions = [];
   workspace.statementWriteOffRecords = [];
   workspace.fulfillmentExceptions = [];
@@ -459,6 +480,8 @@ export function createApiServer(options = {}) {
   workspace.rawMaterialSupplierStatementReviewRepository = rawMaterialSupplierStatementReviewRepository;
   workspace.rawMaterialPurchaseRepository = rawMaterialPurchaseRepository;
   workspace.maintenanceTaskRepository = maintenanceTaskRepository;
+  workspace.attendancePayrollRepository = attendancePayrollRepository;
+  workspace.attendanceProvider = attendanceProvider;
   workspace.runtimeIdentityRepository = runtimeIdentityRepository;
   workspace.businessDecisionEvidenceRepository = businessDecisionEvidenceRepository;
   workspace.businessDecisionAuthorizationRepository = businessDecisionAuthorizationRepository;
@@ -747,6 +770,21 @@ async function routeGet(context) {
       requireActionPermission,
       businessDecisionReadProjectionService,
       sendJson,
+    })
+  ) return;
+
+  if (
+    await handleAttendancePayrollReadRoutes({
+      url,
+      response,
+      workspace,
+      permissionContext,
+      authContext,
+      writeActionPermissions,
+      requireActionPermission,
+      attendancePayrollService,
+      sendJson,
+      sendNotFound,
     })
   ) return;
 
@@ -1175,6 +1213,23 @@ async function routeWrite(context) {
   }
 
   if (
+    await handleAttendancePayrollWriteRoutes({
+      method,
+      url,
+      response,
+      workspace,
+      body,
+      permissionContext,
+      authContext,
+      writeActionPermissions,
+      requireActionPermission,
+      getPermissionOperatorId,
+      attendancePayrollService,
+      sendJson,
+    })
+  ) return;
+
+  if (
     await handleMasterDataWriteRoutes({
       method,
       url,
@@ -1307,6 +1362,7 @@ function applyIsolatedE2eIdentityFixtures(workspace, runtimeConfig) {
 }
 
 const {
+  attendancePayrollService,
   attachmentCreateCommandService,
   attachmentFileAccessService,
   businessDecisionAuthorizationCommandService,

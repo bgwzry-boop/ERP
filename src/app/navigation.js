@@ -35,6 +35,14 @@ export const secondaryNavigationItems = Object.freeze([
     permissionPrefixes: ["master_data."],
   },
   {
+    key: "payroll",
+    label: "工资核算",
+    icon: "accountBook",
+    description: "按真实考勤、已发布计薪规则和员工工资档案生成、复核、锁定工资批次。",
+    allowedRoleKeys: ["management", "finance"],
+    permissionPrefixes: ["payroll."],
+  },
+  {
     key: "v1Status",
     label: "上线状态",
     icon: "checkCircle",
@@ -45,6 +53,14 @@ export const secondaryNavigationItems = Object.freeze([
 ]);
 
 export const roleNavigationItems = Object.freeze([
+  {
+    key: "attendanceMobile",
+    label: "我的考勤",
+    icon: "checkCircle",
+    description: "员工仅查看本人每日打卡时间、确认工时和截至当前的月度工资预估。",
+    allowedRoleKeys: ["office", "management", "finance", "technical_operations", "maintenance", "warehouse", "driver", "workshop", "packing"],
+    permissionKeys: ["attendance.self.read"],
+  },
   {
     key: "officeMobile",
     label: "办公室手机",
@@ -114,7 +130,7 @@ export const toolNavigationGroup = Object.freeze({
   key: "moreWorkbenches",
   label: "更多工作台",
   icon: "appstore",
-  itemKeys: Object.freeze(["packing", "rawMaterials", "masterData", "v1Status"]),
+  itemKeys: Object.freeze(["packing", "rawMaterials", "masterData", "payroll", "v1Status"]),
 });
 
 export const roleBoundaryPage = Object.freeze({
@@ -222,11 +238,12 @@ export function isNavigationPageVisible(pageKey, permissionContext = {}) {
 }
 
 export function isDedicatedMobileRolePage(pageKey) {
-  return pageKey === "officeMobile" || pageKey === "workshopMobile" || pageKey === "driverMobile" || pageKey === "rawMaterialScanner" || pageKey === "warehouseMobile" || pageKey === "decisionMobile" || pageKey === "maintenanceMobile" || pageKey === desktopRequiredMobilePage.key;
+  return pageKey === "attendanceMobile" || pageKey === "officeMobile" || pageKey === "workshopMobile" || pageKey === "driverMobile" || pageKey === "rawMaterialScanner" || pageKey === "warehouseMobile" || pageKey === "decisionMobile" || pageKey === "maintenanceMobile" || pageKey === desktopRequiredMobilePage.key;
 }
 
 export function getMobileViewportPage(activePage, permissionContext = {}) {
   const defaultRole = permissionContext.user?.defaultRole;
+  if (activePage === "attendanceMobile" && isNavigationPageVisible("attendanceMobile", permissionContext)) return "attendanceMobile";
   if (defaultRole === "office") return "rawMaterials";
   if (defaultRole === "decision_maker") return "decisionMobile";
   if (defaultRole === "maintenance") return "maintenanceMobile";

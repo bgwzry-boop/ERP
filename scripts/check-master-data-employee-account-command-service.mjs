@@ -90,22 +90,40 @@ assert.doesNotMatch(apiServerSource, /function listMasterDataEmployeeAccountRevi
   });
   assert.equal(missingConfirmation.code, "MASTER_DATA_EMPLOYEE_DEPARTURE_CONFIRMATION_REQUIRED");
 
-  const departed = await service.departEmployeeAccount({
+  const missingEffectiveDate = await service.departEmployeeAccount({
     workspace: departureWorkspace,
     employeeId: "EMP-DEPART-001",
     body: { confirmed: true, reason: "员工已离职" },
+    operatorId: "U-MANAGER-A",
+  });
+  assert.equal(missingEffectiveDate.code, "MASTER_DATA_EMPLOYEE_DEPARTURE_EFFECTIVE_DATE_REQUIRED");
+
+  const departed = await service.departEmployeeAccount({
+    workspace: departureWorkspace,
+    employeeId: "EMP-DEPART-001",
+    body: { confirmed: true, departureEffectiveDate: "2026-07-11", reason: "员工已离职" },
     operatorId: "U-MANAGER-A",
   });
   assert.equal(departed.statusCode, 200);
   assert.equal(departed.response.employeeAccountReview.status, "departed");
   assert.equal(departed.response.employeeAccountReview.statusLabel, "已离职");
   assert.equal(departed.response.employeeAccountReview.actionRequired, false);
+  assert.equal(departed.response.employeeAccountReview.departedAt, fixedNow.toISOString());
+  assert.equal(departed.response.employeeAccountReview.departureEffectiveDate, "2026-07-11");
+  assert.equal(departed.response.employeeAccountReview.departedBy, "U-MANAGER-A");
+  assert.equal(departed.response.employeeAccountReview.departureReason, "员工已离职");
   assert.equal(departureWorkspace.employees[0].profileStatus, "departed");
   assert.equal(departureWorkspace.employees[0].requestedEnabled, false);
   assert.equal(departureWorkspace.employees[0].defaultMachineId, "");
   assert.equal(departureWorkspace.employees[0].defaultWorkshop, "");
+  assert.equal(departureWorkspace.employees[0].departedAt, fixedNow.toISOString());
+  assert.equal(departureWorkspace.employees[0].departureEffectiveDate, "2026-07-11");
+  assert.equal(departureWorkspace.employees[0].departedBy, "U-MANAGER-A");
+  assert.equal(departureWorkspace.employees[0].departureReason, "员工已离职");
   assert.equal(departureWorkspace.operationLogs[0].action, "master_data_employee_departed");
   assert.equal(departureWorkspace.persistedStates[0].identityEmployeeUpdates[0].profileStatus, "departed");
+  assert.equal(departureWorkspace.persistedStates[0].identityEmployeeUpdates[0].departedAt, fixedNow.toISOString());
+  assert.equal(departureWorkspace.persistedStates[0].identityEmployeeUpdates[0].departureEffectiveDate, "2026-07-11");
   assert.deepEqual(
     listMasterDataEmployeeAccountReviews(departureWorkspace, { status: "departed" }).map((item) => item.employeeId),
     ["EMP-DEPART-001"],

@@ -15,6 +15,7 @@ import "../../../../src/styles/features/warehouse.css";
 import "../../../../src/styles/features/mobile-roles.css";
 import "../../../../src/styles/features/raw-material.css";
 import "../../../../src/styles/features/master-data.css";
+import "../../../../src/styles/features/payroll-attendance.css";
 import "../../../../src/styles/features/production-print.css";
 import "../../../../src/styles/features/print-documents.css";
 import "../../../../src/styles/features/attachments.css";

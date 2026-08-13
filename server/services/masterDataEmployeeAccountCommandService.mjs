@@ -42,7 +42,127 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     confirmEmployeeIdentity,
     mergeEmployeeIdentity,
     updateEmployeeAssignment,
+    updateEmployeeProfile,
   };
+
+  async function updateEmployeeProfile({ workspace, employeeId, body = {}, operatorId }) {
+    const context = getEmployeeContext(workspace, employeeId);
+    if (context.result) return context.result;
+    const { before, employeeIndex } = context;
+    const birthDate = normalizeOptionalIsoDate(body.birthDate, "birthDate");
+    if (birthDate.error) return birthDate.error;
+    const hireDate = normalizeOptionalIsoDate(body.hireDate, "hireDate");
+    if (hireDate.error) return hireDate.error;
+    const wageEffectiveFrom = normalizeOptionalIsoDate(
+      body.wageEffectiveFrom,
+      "wageEffectiveFrom",
+    );
+    if (wageEffectiveFrom.error) return wageEffectiveFrom.error;
+    if (birthDate.value && hireDate.value && birthDate.value >= hireDate.value) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_PROFILE_DATE_ORDER_INVALID",
+        "入职日期必须晚于出生日期。",
+      );
+    }
+    if (hireDate.value && wageEffectiveFrom.value && wageEffectiveFrom.value < hireDate.value) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_WAGE_EFFECTIVE_DATE_INVALID",
+        "工资生效日期不能早于入职日期。",
+      );
+    }
+    const baseHourlyWage = normalizeNonNegativeMoney(body.baseHourlyWage, "baseHourlyWage");
+    if (baseHourlyWage.error) return baseHourlyWage.error;
+    const positionAllowanceHourly = normalizeNonNegativeMoney(
+      body.positionAllowanceHourly,
+      "positionAllowanceHourly",
+    );
+    if (positionAllowanceHourly.error) return positionAllowanceHourly.error;
+
+    const attendanceProvider = cleanText(body.attendanceProvider).toLowerCase();
+    const attendanceExternalId = cleanText(body.attendanceExternalId);
+    if (Boolean(attendanceProvider) !== Boolean(attendanceExternalId)) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_ATTENDANCE_MAPPING_INCOMPLETE",
+        "考勤来源和考勤人员编号必须同时填写，或同时留空。",
+      );
+    }
+    if (attendanceProvider && attendanceExternalId) {
+      const duplicate = (workspace.employees ?? []).find(
+        (employee) =>
+          cleanText(employee.id) !== context.employeeId &&
+          cleanText(employee.attendanceProvider).toLowerCase() === attendanceProvider &&
+          cleanText(employee.attendanceExternalId) === attendanceExternalId,
+      );
+      if (duplicate) {
+        return businessError(
+          409,
+          "MASTER_DATA_EMPLOYEE_ATTENDANCE_MAPPING_CONFLICT",
+          "该考勤人员编号已经绑定到其他员工。",
+        );
+      }
+    }
+
+    const reason = cleanText(body.reason);
+    if (!reason) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_PROFILE_REASON_REQUIRED",
+        "维护员工档案必须填写原因。",
+      );
+    }
+
+    const changedAt = now().toISOString();
+    const attendanceMappingChanged =
+      attendanceProvider !== cleanText(before.attendanceProvider) ||
+      attendanceExternalId !== cleanText(before.attendanceExternalId);
+    const updatedEmployee = {
+      ...before,
+      birthDate: birthDate.value,
+      hireDate: hireDate.value,
+      baseHourlyWage: baseHourlyWage.value,
+      positionAllowanceHourly: positionAllowanceHourly.value,
+      wageEffectiveFrom: wageEffectiveFrom.value,
+      attendanceProvider,
+      attendanceExternalId,
+      attendanceMappingUpdatedBy: attendanceMappingChanged
+        ? operatorId
+        : cleanText(before.attendanceMappingUpdatedBy),
+      attendanceMappingUpdatedAt: attendanceMappingChanged
+        ? changedAt
+        : cleanText(before.attendanceMappingUpdatedAt),
+      remark: cleanText(body.remark ?? before.remark),
+      updatedAt: changedAt,
+    };
+    const stagedWorkspace = stageWorkspace(workspace);
+    stagedWorkspace.employees[employeeIndex] = updatedEmployee;
+    const operationLog = buildOperationLog(stagedWorkspace, {
+      targetType: "master_data_employee_profile",
+      targetId: context.employeeId,
+      action: "master_data_employee_profile_updated",
+      before: employeeProfileAuditSnapshot(before),
+      after: employeeProfileAuditSnapshot(updatedEmployee),
+      reason,
+      operatorId,
+      pageKey: "master_data",
+      occurredAt: changedAt,
+    });
+    stagedWorkspace.operationLogs.unshift(operationLog);
+    await persistAndCommitIdentityWorkspace(workspace, stagedWorkspace, {
+      identityEmployeeUpdates: [updatedEmployee],
+    });
+    return success({
+      employeeAccountReview: toMasterDataEmployeeAccountReview(
+        updatedEmployee,
+        stagedWorkspace.users,
+        stagedWorkspace.machines,
+        stagedWorkspace.operationLogs,
+      ),
+      operationLogId: operationLog.id,
+    });
+  }
 
   async function confirmEmployeeIdentity({ workspace, employeeId, body = {}, operatorId }) {
     if (body.confirmed !== true) {
@@ -292,7 +412,35 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       });
     }
 
-    const departedAt = now().toISOString();
+    const departureEffectiveDate = normalizeOptionalIsoDate(
+      body.departureEffectiveDate,
+      "departureEffectiveDate",
+    );
+    if (departureEffectiveDate.error) return departureEffectiveDate.error;
+    if (!departureEffectiveDate.value) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_DEPARTURE_EFFECTIVE_DATE_REQUIRED",
+        "离职必须填写实际最后工作日。",
+      );
+    }
+    if (cleanText(before.hireDate) && departureEffectiveDate.value < cleanText(before.hireDate)) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_DEPARTURE_EFFECTIVE_DATE_BEFORE_HIRE",
+        "实际最后工作日不能早于入职日期。",
+      );
+    }
+    const departureRecordedAt = now();
+    if (departureEffectiveDate.value > shanghaiDateOnly(departureRecordedAt)) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_DEPARTURE_EFFECTIVE_DATE_IN_FUTURE",
+        "实际最后工作日不能晚于今天；计划离职请在实际离厂后办理。",
+      );
+    }
+
+    const departedAt = departureRecordedAt.toISOString();
     const stagedWorkspace = stageWorkspace(workspace);
     const runtimeUser = resolveEmployeeRuntimeUser(stagedWorkspace, before);
     const updatedEmployee = {
@@ -309,6 +457,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       loginEnabled: false,
       mustChangePassword: false,
       departedAt,
+      departureEffectiveDate: departureEffectiveDate.value,
       departedBy: operatorId,
       departureReason: reason,
       remark: `已离职：${reason}`,
@@ -352,6 +501,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
         defaultWorkshop: "",
         defaultMachineId: "",
         departedAt,
+        departureEffectiveDate: departureEffectiveDate.value,
       },
       reason,
       operatorId,
@@ -993,6 +1143,25 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = [], mac
     roleName: cleanText(employee.roleName),
     defaultWorkshop: cleanText(employee.defaultWorkshop),
     defaultMachineId: cleanText(employee.defaultMachineId),
+    birthDate: cleanText(employee.birthDate),
+    age: calculateCompletedYears(employee.birthDate),
+    hireDate: cleanText(employee.hireDate),
+    seniorityYears: calculateCompletedYears(employee.hireDate),
+    baseHourlyWage: nonNegativeNumber(employee.baseHourlyWage),
+    positionAllowanceHourly: nonNegativeNumber(employee.positionAllowanceHourly),
+    wageEffectiveFrom: cleanText(employee.wageEffectiveFrom),
+    attendanceProvider: cleanText(employee.attendanceProvider),
+    attendanceExternalId: cleanText(employee.attendanceExternalId),
+    attendanceMappingUpdatedBy: cleanText(employee.attendanceMappingUpdatedBy),
+    attendanceMappingUpdatedAt: cleanText(employee.attendanceMappingUpdatedAt),
+    attendanceMapped: Boolean(
+      cleanText(employee.attendanceProvider) && cleanText(employee.attendanceExternalId),
+    ),
+    departedAt: cleanText(employee.departedAt),
+    departureEffectiveDate: cleanText(employee.departureEffectiveDate),
+    departedBy: cleanText(employee.departedBy),
+    departureReason: cleanText(employee.departureReason),
+    updatedAt: cleanText(employee.updatedAt),
     configuredMachineId: machineConfiguration.machineId,
     configuredMachineLabel: machineConfiguration.machineLabel,
     machineConfigurationStatus: machineConfiguration.status,
@@ -1350,6 +1519,76 @@ function safeRecordPart(value) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+function normalizeOptionalIsoDate(value, fieldName) {
+  const text = cleanText(value);
+  if (!text) return { value: "" };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    return {
+      error: businessError(400, "MASTER_DATA_EMPLOYEE_PROFILE_DATE_INVALID", `${fieldName} 必须是 YYYY-MM-DD。`),
+    };
+  }
+  const parsed = new Date(`${text}T00:00:00Z`);
+  if (Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text) {
+    return {
+      error: businessError(400, "MASTER_DATA_EMPLOYEE_PROFILE_DATE_INVALID", `${fieldName} 不是有效日期。`),
+    };
+  }
+  return { value: text };
+}
+
+function shanghaiDateOnly(value) {
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const values = Object.fromEntries(parts.map((part) => [part.type, part.value]));
+  return `${values.year}-${values.month}-${values.day}`;
+}
+
+function normalizeNonNegativeMoney(value, fieldName) {
+  if (value === undefined || value === null || value === "") return { value: 0 };
+  const number = Number(value);
+  if (!Number.isFinite(number) || number < 0) {
+    return {
+      error: businessError(400, "MASTER_DATA_EMPLOYEE_PROFILE_WAGE_INVALID", `${fieldName} 必须是非负数。`),
+    };
+  }
+  return { value: Math.round(number * 10000) / 10000 };
+}
+
+function employeeProfileAuditSnapshot(employee = {}) {
+  return {
+    employeeId: cleanText(employee.id),
+    birthDate: cleanText(employee.birthDate),
+    hireDate: cleanText(employee.hireDate),
+    baseHourlyWage: nonNegativeNumber(employee.baseHourlyWage),
+    positionAllowanceHourly: nonNegativeNumber(employee.positionAllowanceHourly),
+    wageEffectiveFrom: cleanText(employee.wageEffectiveFrom),
+    attendanceProvider: cleanText(employee.attendanceProvider),
+    attendanceExternalId: cleanText(employee.attendanceExternalId),
+  };
+}
+
+function calculateCompletedYears(value, now = new Date()) {
+  const text = cleanText(value);
+  if (!text) return null;
+  const date = new Date(`${text}T00:00:00Z`);
+  if (Number.isNaN(date.getTime()) || date > now) return null;
+  let years = now.getUTCFullYear() - date.getUTCFullYear();
+  const monthDelta = now.getUTCMonth() - date.getUTCMonth();
+  if (monthDelta < 0 || (monthDelta === 0 && now.getUTCDate() < date.getUTCDate())) years -= 1;
+  return Math.max(0, years);
+}
+
+function nonNegativeNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : 0;
 }
 
 function success(response) {

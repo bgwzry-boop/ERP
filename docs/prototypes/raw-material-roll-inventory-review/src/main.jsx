@@ -1,12 +1,11 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
-import { exposeReleaseIdentity } from "../../../../src/config/releaseIdentity.js";
+import { establishLocalPreviewIdentity } from "../../../../src/config/localPreviewIdentity.js";
 import "../../../../src/styles/tokens.css";
 import "../../../../src/styles/semantic-tags.css";
 
-exposeReleaseIdentity();
-
 const root = createRoot(document.getElementById("root"));
+establishLocalPreviewIdentity("bagwin-complete-review-4174");
 const isPhoneViewport = window.matchMedia("(max-width: 767px)").matches;
 
 async function bootstrap() {

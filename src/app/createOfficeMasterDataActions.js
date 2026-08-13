@@ -19,6 +19,7 @@ import {
   revokeOfficeMasterDataEmployeeAccountPassword as revokeOfficeMasterDataEmployeeAccountPasswordDefault,
   updateOfficeMasterDataMachine as updateOfficeMasterDataMachineDefault,
   updateOfficeMasterDataEmployeeAssignment as updateOfficeMasterDataEmployeeAssignmentDefault,
+  updateOfficeMasterDataEmployeeProfile as updateOfficeMasterDataEmployeeProfileDefault,
 } from "../services/officeMasterDataImportApiClient.js";
 import {
   mergeMasterDataEmployeeAccountReviews,
@@ -40,6 +41,7 @@ const defaultApi = {
   revokeOfficeMasterDataEmployeeAccountPassword: revokeOfficeMasterDataEmployeeAccountPasswordDefault,
   updateOfficeMasterDataMachine: updateOfficeMasterDataMachineDefault,
   updateOfficeMasterDataEmployeeAssignment: updateOfficeMasterDataEmployeeAssignmentDefault,
+  updateOfficeMasterDataEmployeeProfile: updateOfficeMasterDataEmployeeProfileDefault,
 };
 
 export function createOfficeMasterDataActions({
@@ -116,6 +118,8 @@ export function createOfficeMasterDataActions({
     callMasterDataWrite(masterDataApi.revokeOfficeMasterDataEmployeeAccountPassword, input, "撤销员工密码");
   const updateOfficeMasterDataEmployeeAssignment = (input) =>
     callMasterDataWrite(masterDataApi.updateOfficeMasterDataEmployeeAssignment, input, "保存员工车间 / 机台调配");
+  const updateOfficeMasterDataEmployeeProfile = (input) =>
+    callMasterDataWrite(masterDataApi.updateOfficeMasterDataEmployeeProfile, input, "保存员工档案");
   const createOfficeMasterDataMachine = (input) =>
     callMasterDataWrite(masterDataApi.createOfficeMasterDataMachine, input, "新增机台配置");
   const updateOfficeMasterDataMachine = (input) =>
@@ -155,6 +159,28 @@ export function createOfficeMasterDataActions({
     setMasterDataEmployeeAccountReviews((items) => upsertMasterDataEmployeeAccountReview(items, result.employeeAccountReview));
     setToast(`已更新员工调配：${result.employeeAccountReview.name || result.employeeAccountReview.employeeId}。`);
     await refreshEmployeeD49ReadModels();
+  }
+
+  async function updateMasterDataEmployeeProfile(review, profile = {}) {
+    const result = await updateOfficeMasterDataEmployeeProfile({
+      authState,
+      operatorId: currentUserId,
+      employeeId: review?.employeeId,
+      ...profile,
+    });
+    if (result.blocked) {
+      setToast(`保存员工档案失败：${result.error?.message || "权限或接口错误"}`);
+      return null;
+    }
+    if (!result.employeeAccountReview) {
+      setToast("保存员工档案失败：未返回员工记录。");
+      return null;
+    }
+    setMasterDataEmployeeAccountReviews((items) =>
+      upsertMasterDataEmployeeAccountReview(items, result.employeeAccountReview));
+    setToast(`已更新员工档案：${result.employeeAccountReview.name || result.employeeAccountReview.employeeId}。`);
+    await refreshEmployeeD49ReadModels();
+    return result.employeeAccountReview;
   }
 
   async function saveMasterDataMachine(machineDraft = {}) {
@@ -687,6 +713,7 @@ export function createOfficeMasterDataActions({
     revokeMasterDataEmployeeAccountPassword,
     saveMasterDataMachine,
     updateMasterDataEmployeeAssignment,
+    updateMasterDataEmployeeProfile,
     saveMasterDataMaintenanceDraft,
   };
 }

@@ -4,7 +4,6 @@ export { OrderPoolPage } from "../../features/orders/OrderPoolPage.jsx";
 export { InventoryPage } from "../../features/inventory/InventoryPage.jsx";
 export { RawMaterialInboundPage } from "../../features/raw-materials/RawMaterialInboundPage.jsx";
 export { RawMaterialScannerPage } from "../../features/raw-materials/RawMaterialScannerPage.jsx";
-export { MasterDataMaintenancePage } from "../../features/master-data/MasterDataMaintenancePage.jsx";
 export { FulfillmentPage } from "../../features/fulfillment/FulfillmentPage.jsx";
 export { ProductionPackingPage } from "../../features/production/ProductionPackingPage.jsx";
 export { WorkshopMobilePage } from "../../features/workshop/WorkshopMobilePage.jsx";

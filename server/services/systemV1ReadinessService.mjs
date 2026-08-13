@@ -29,6 +29,7 @@ export const v1SystemPersistenceGroups = Object.freeze([
       ["statementSettlementTransactionRepository", "对账核销交易"],
       ["statementSendTransactionRepository", "对账发送 / 回执交易"],
       ["statementExportRepository", "对账导出记录"],
+      ["attendancePayrollRepository", "考勤 / 工资交易"],
     ],
   },
   {

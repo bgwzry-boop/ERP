@@ -188,6 +188,19 @@ SELECT json_build_object(
       'roleName', employees.role_name,
       'defaultWorkshop', employees.default_workshop,
       'defaultMachineId', employees.default_machine_id,
+      'birthDate', COALESCE(employees.birth_date::TEXT, ''),
+      'hireDate', COALESCE(employees.hire_date::TEXT, ''),
+      'baseHourlyWage', employees.base_hourly_wage,
+      'positionAllowanceHourly', employees.position_allowance_hourly,
+      'wageEffectiveFrom', COALESCE(employees.wage_effective_from::TEXT, ''),
+      'attendanceProvider', employees.attendance_provider,
+      'attendanceExternalId', employees.attendance_external_id,
+      'attendanceMappingUpdatedBy', COALESCE(employees.attendance_mapping_updated_by, ''),
+      'attendanceMappingUpdatedAt', COALESCE(employees.attendance_mapping_updated_at::TEXT, ''),
+      'departedAt', COALESCE(employees.departed_at::TEXT, ''),
+      'departureEffectiveDate', COALESCE(employees.departure_effective_date::TEXT, ''),
+      'departedBy', COALESCE(employees.departed_by, ''),
+      'departureReason', employees.departure_reason,
       'accountEnabled', employees.account_enabled,
       'profileStatus', employees.profile_status,
       'requestedEnabled', employees.requested_enabled,
@@ -236,6 +249,7 @@ SELECT json_build_object(
       'master_data_employee_account_review',
       'master_data_employee_account_password',
       'master_data_employee_assignment',
+      'master_data_employee_profile',
       'master_data_employee_identity_confirmation',
       'phone_self_registration',
       'personnel_phone_registration_assignment'
@@ -296,10 +310,20 @@ updated_employee_assignments AS (
   WHERE employees.id = employee_assignment_updates.id
   RETURNING employees.id
 ),
-employee_identity_updates (id, name, account_enabled, profile_status, requested_enabled, remark, updated_at) AS (
+employee_identity_updates (
+  id, name, account_enabled, profile_status, requested_enabled, remark,
+  birth_date, hire_date, base_hourly_wage, position_allowance_hourly, wage_effective_from,
+  attendance_provider, attendance_external_id, attendance_mapping_updated_by,
+  attendance_mapping_updated_at, departed_at, departure_effective_date, departed_by, departure_reason, updated_at
+) AS (
   ${employeeIdentityRows.length > 0
     ? `VALUES\n${employeeIdentityRows.join(",\n")}`
-    : "SELECT NULL::TEXT, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT, NULL::TIMESTAMPTZ WHERE FALSE"}
+    : `SELECT
+        NULL::TEXT, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT,
+        NULL::DATE, NULL::DATE, NULL::NUMERIC, NULL::NUMERIC, NULL::DATE,
+        NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ,
+        NULL::TIMESTAMPTZ, NULL::DATE, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ
+      WHERE FALSE`}
 ),
 updated_employee_identities AS (
   UPDATE employees
@@ -309,6 +333,19 @@ updated_employee_identities AS (
     profile_status = employee_identity_updates.profile_status,
     requested_enabled = employee_identity_updates.requested_enabled,
     remark = employee_identity_updates.remark,
+    birth_date = employee_identity_updates.birth_date,
+    hire_date = employee_identity_updates.hire_date,
+    base_hourly_wage = employee_identity_updates.base_hourly_wage,
+    position_allowance_hourly = employee_identity_updates.position_allowance_hourly,
+    wage_effective_from = employee_identity_updates.wage_effective_from,
+    attendance_provider = employee_identity_updates.attendance_provider,
+    attendance_external_id = employee_identity_updates.attendance_external_id,
+    attendance_mapping_updated_by = employee_identity_updates.attendance_mapping_updated_by,
+    attendance_mapping_updated_at = employee_identity_updates.attendance_mapping_updated_at,
+    departed_at = employee_identity_updates.departed_at,
+    departure_effective_date = employee_identity_updates.departure_effective_date,
+    departed_by = employee_identity_updates.departed_by,
+    departure_reason = employee_identity_updates.departure_reason,
     updated_at = employee_identity_updates.updated_at
   FROM employee_identity_updates
   WHERE employees.id = employee_identity_updates.id
@@ -618,6 +655,31 @@ function normalizeRuntimeIdentityEmployeeUpdates(records = []) {
       profileStatus: cleanText(record?.profileStatus),
       requestedEnabled: record?.requestedEnabled === true,
       remark: cleanText(record?.remark),
+      birthDate: normalizeIsoDate(record?.birthDate ?? record?.birth_date),
+      hireDate: normalizeIsoDate(record?.hireDate ?? record?.hire_date),
+      baseHourlyWage: nonNegativeNumber(record?.baseHourlyWage ?? record?.base_hourly_wage),
+      positionAllowanceHourly: nonNegativeNumber(
+        record?.positionAllowanceHourly ?? record?.position_allowance_hourly,
+      ),
+      wageEffectiveFrom: normalizeIsoDate(
+        record?.wageEffectiveFrom ?? record?.wage_effective_from,
+      ),
+      attendanceProvider: cleanText(record?.attendanceProvider ?? record?.attendance_provider).toLowerCase(),
+      attendanceExternalId: cleanText(
+        record?.attendanceExternalId ?? record?.attendance_external_id,
+      ),
+      attendanceMappingUpdatedBy: cleanText(
+        record?.attendanceMappingUpdatedBy ?? record?.attendance_mapping_updated_by,
+      ),
+      attendanceMappingUpdatedAt: cleanText(
+        record?.attendanceMappingUpdatedAt ?? record?.attendance_mapping_updated_at,
+      ),
+      departedAt: cleanText(record?.departedAt ?? record?.departed_at),
+      departureEffectiveDate: normalizeIsoDate(
+        record?.departureEffectiveDate ?? record?.departure_effective_date,
+      ),
+      departedBy: cleanText(record?.departedBy ?? record?.departed_by),
+      departureReason: cleanText(record?.departureReason ?? record?.departure_reason),
       updatedAt: cleanText(record?.updatedAt) || new Date().toISOString(),
     }))
     .filter((record) => record.id && record.name && record.profileStatus);
@@ -631,6 +693,19 @@ function runtimeEmployeeIdentitySqlRow(record, parameters) {
     ${parameters.text(record.profileStatus)},
     ${parameters.boolean(record.requestedEnabled)},
     ${parameters.nullableText(record.remark)},
+    ${parameters.nullableText(record.birthDate)}::date,
+    ${parameters.nullableText(record.hireDate)}::date,
+    ${parameters.number(record.baseHourlyWage)},
+    ${parameters.number(record.positionAllowanceHourly)},
+    ${parameters.nullableText(record.wageEffectiveFrom)}::date,
+    ${parameters.text(record.attendanceProvider)},
+    ${parameters.text(record.attendanceExternalId)},
+    ${parameters.nullableText(record.attendanceMappingUpdatedBy)},
+    ${parameters.nullableTimestamp(record.attendanceMappingUpdatedAt)},
+    ${parameters.nullableTimestamp(record.departedAt)},
+    ${parameters.nullableText(record.departureEffectiveDate)}::date,
+    ${parameters.nullableText(record.departedBy)},
+    ${parameters.text(record.departureReason)},
     ${parameters.timestamp(record.updatedAt)}
   )`;
 }
@@ -790,6 +865,27 @@ function normalizeRuntimeIdentityEmployeeAccount(record = {}) {
     roleName: cleanText(record.roleName ?? record.role_name),
     defaultWorkshop: cleanText(record.defaultWorkshop ?? record.default_workshop),
     defaultMachineId: cleanText(record.defaultMachineId ?? record.default_machine_id),
+    birthDate: normalizeIsoDate(record.birthDate ?? record.birth_date),
+    hireDate: normalizeIsoDate(record.hireDate ?? record.hire_date),
+    baseHourlyWage: nonNegativeNumber(record.baseHourlyWage ?? record.base_hourly_wage),
+    positionAllowanceHourly: nonNegativeNumber(
+      record.positionAllowanceHourly ?? record.position_allowance_hourly,
+    ),
+    wageEffectiveFrom: normalizeIsoDate(record.wageEffectiveFrom ?? record.wage_effective_from),
+    attendanceProvider: cleanText(record.attendanceProvider ?? record.attendance_provider).toLowerCase(),
+    attendanceExternalId: cleanText(record.attendanceExternalId ?? record.attendance_external_id),
+    attendanceMappingUpdatedBy: cleanText(
+      record.attendanceMappingUpdatedBy ?? record.attendance_mapping_updated_by,
+    ),
+    attendanceMappingUpdatedAt: cleanText(
+      record.attendanceMappingUpdatedAt ?? record.attendance_mapping_updated_at,
+    ),
+    departedAt: cleanText(record.departedAt ?? record.departed_at),
+    departureEffectiveDate: normalizeIsoDate(
+      record.departureEffectiveDate ?? record.departure_effective_date,
+    ),
+    departedBy: cleanText(record.departedBy ?? record.departed_by),
+    departureReason: cleanText(record.departureReason ?? record.departure_reason),
     assignmentMode: cleanText(record.assignmentMode ?? record.assignment_mode),
     assignmentUpdatedBy: cleanText(record.assignmentUpdatedBy ?? record.assignment_updated_by),
     assignmentUpdatedAt: cleanText(record.assignmentUpdatedAt ?? record.assignment_updated_at),
@@ -1009,4 +1105,16 @@ function getLocalStorageRoot() {
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+function normalizeIsoDate(value) {
+  const text = cleanText(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return "";
+  const parsed = new Date(`${text}T00:00:00Z`);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== text ? "" : text;
+}
+
+function nonNegativeNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? number : 0;
 }

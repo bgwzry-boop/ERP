@@ -118,9 +118,6 @@ export function Topbar({ authSourceLabel, currentUserId, currentUser, firstRelea
   const currentRoleLabel = currentUserOption?.roleLabel || "正式账号";
   return (
     <header className="topbar">
-      <div className="factory-switcher">
-        虎门工厂
-      </div>
       {!firstReleaseMode ? <>
         <label className="search">
           <SearchOutlined aria-hidden="true" />

@@ -86,6 +86,7 @@ const uiActionPermissions = {
     刷新员工复核: { permissionKey: "master_data.employee_account.review", permissionType: "action" },
     复核启用员工账号: { permissionKey: "master_data.employee_account.review", permissionType: "action" },
     保存员工调配: { permissionKey: "master_data.employee_account.review", permissionType: "action" },
+    保存员工档案: { permissionKey: "master_data.employee_profile.manage", permissionType: "action" },
     保存机台配置: { permissionKey: "master_data.employee_account.review", permissionType: "action" },
     发放员工临时密码: { permissionKey: "master_data.employee_account.password.issue", permissionType: "action" },
     撤销员工密码: { permissionKey: "master_data.employee_account.password.issue", permissionType: "action" },

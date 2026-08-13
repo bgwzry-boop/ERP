@@ -197,7 +197,7 @@ export function normalizeV1GoLiveStatusForClient(value = {}) {
       ["P0/代码", cleanText(summary.p0Prototype) || "97-98%", "success"],
       ["V1 就绪", cleanText(summary.v1Readiness) || "80-83%", "warning"],
       ["发布门禁", releaseGateValue, releaseGateValue.startsWith("0/") ? "danger" : "warning"],
-      ["现场证据", fieldEvidenceValue || "0/34", fieldEvidenceValue?.startsWith("0/") ? "danger" : "warning"],
+      ["现场证据", fieldEvidenceValue || "0/40", fieldEvidenceValue?.startsWith("0/") ? "danger" : "warning"],
       ["负责人签字", signoffValue || "0/6", signoffValue?.startsWith("0/") ? "danger" : "warning"],
     ],
     gates: normalizeReleaseGates(releaseCandidate.gates, {
@@ -292,7 +292,7 @@ function normalizeOwnerDecisionBrief(value = {}) {
       v1Readiness: cleanText(completion.v1Readiness) || "80-83%",
       releaseGate: cleanText(completion.releaseGate) || "0/4 发布门禁通过",
       runtimeReadiness: cleanText(completion.runtimeReadiness) || "5/11 通过",
-      fieldEvidence: cleanText(completion.fieldEvidence) || "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: cleanText(completion.fieldEvidence) || "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
       fieldAcceptance: cleanText(completion.fieldAcceptance) || "5/11 通过",
       onsiteTaskCount,
       onsiteTaskLabel: onsiteTaskCount ? `${onsiteTaskCount} 项` : "",

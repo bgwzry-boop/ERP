@@ -69,6 +69,7 @@ export const pcNavGroups = [
     items: [
       { id: "customer-statements", label: "对账收款", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["statement.preview"] },
       { id: "supplier-month-end", label: "供应商月结", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["statement.preview", "raw_material.supplier_payable.create"] },
+      { id: "payroll-attendance", label: "工资核算", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["statement.preview"] },
     ],
   },
   {
@@ -105,6 +106,7 @@ export const navViewMap = Object.freeze({
   "laminated-inventory": "覆膜袋",
   "customer-statements": "对账收款",
   "supplier-month-end": "供应商月结",
+  "payroll-attendance": "工资核算",
   "customer-records": "客户档案",
   "general-prices": "成品资料",
   "people-machines": "员工机台",

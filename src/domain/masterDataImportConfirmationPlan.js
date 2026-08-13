@@ -1,4 +1,7 @@
-import { normalizeMasterDataEmployeeRoleCoverage } from "./masterDataImportReviewQueue.js";
+import {
+  normalizeMasterDataEmployeePayrollAttendanceCoverage,
+  normalizeMasterDataEmployeeRoleCoverage,
+} from "./masterDataImportReviewQueue.js";
 
 export const MASTER_DATA_IMPORT_CONFIRMATION_PLAN_VERSION = "p0-master-data-import-confirmation-plan-v1";
 
@@ -57,6 +60,7 @@ export function createMasterDataImportConfirmationPlan(input = {}) {
   const targetTables = unique(writeBatches.flatMap((batch) => batch.targetTables));
   const stagedRowCount = stagedRows.reduce((sum, sheet) => sum + sheet.rows.length, 0);
   const employeeRoleCoverage = normalizeMasterDataEmployeeRoleCoverage(reviewDraft.employeeRoleCoverage);
+  const employeePayrollAttendanceCoverage = normalizeMasterDataEmployeePayrollAttendanceCoverage(reviewDraft.employeePayrollAttendanceCoverage);
 
   return {
     version: MASTER_DATA_IMPORT_CONFIRMATION_PLAN_VERSION,
@@ -77,8 +81,10 @@ export function createMasterDataImportConfirmationPlan(input = {}) {
       requiresManualReview,
       stagedRowCount,
       employeeRoleCoverageLabel: employeeRoleCoverage.coverageLabel,
+      employeePayrollAttendanceCoverageLabel: employeePayrollAttendanceCoverage.coverageLabel,
     },
     employeeRoleCoverage,
+    employeePayrollAttendanceCoverage,
     writeBatches,
     stagedRows,
     targetTables,

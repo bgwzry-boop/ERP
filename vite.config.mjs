@@ -55,6 +55,20 @@ export function controlledReleaseHtmlPlugin(env = {}) {
   };
 }
 
+export function rejectCompleteReviewPortInRootAppPlugin() {
+  return {
+    name: "erp-reserve-complete-review-port",
+    configResolved(config) {
+      if (config.command !== "serve" || Number(config.server?.port) !== 4174) return;
+      const error = new Error(
+        "Port 4174 is reserved for docs/prototypes/raw-material-roll-inventory-review. Start the root ERP workbench on port 5173.",
+      );
+      error.code = "ERP_COMPLETE_REVIEW_PORT_RESERVED";
+      throw error;
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const buildEnv = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
   assertRawMaterialFirstReleaseBuildEnv(buildEnv);
@@ -91,6 +105,6 @@ export default defineConfig(({ mode }) => {
         clientFiles: ["./src/main.jsx"],
       },
     },
-    plugins: [react(), controlledReleaseHtmlPlugin(buildEnv)],
+    plugins: [react(), controlledReleaseHtmlPlugin(buildEnv), rejectCompleteReviewPortInRootAppPlugin()],
   };
 });

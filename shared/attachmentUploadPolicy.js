@@ -102,6 +102,16 @@ const purposePolicies = Object.freeze({
     label: "经营决定凭据",
     requiresContent: true,
   }),
+  payroll_adjustment_evidence: Object.freeze({
+    allowedFileTypes: imageOrPdfTypes,
+    allowedMimePrefixes: imageMimePrefixes,
+    allowedMimeTypes: imageOrPdfMimeTypes,
+    allowedExtensions: [],
+    allowedLabel: "图片或 PDF",
+    label: "工资调整凭证",
+    maxBytes: attachmentUploadLimits.documentBytes,
+    requiresContent: true,
+  }),
   v1_field_evidence: Object.freeze({ ...commonEvidencePolicy, label: "V1 现场凭据" }),
   v1_signoff_boundary: Object.freeze({ ...commonEvidencePolicy, label: "V1 签字或边界附件" }),
   print_artwork: Object.freeze({

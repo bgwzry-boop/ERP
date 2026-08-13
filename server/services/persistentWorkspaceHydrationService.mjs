@@ -120,6 +120,16 @@ export async function hydratePersistentWorkspaceState({
       ? []
       : toArray(workspace.initialMaintenanceTasks);
 
+  const attendancePayrollState = await loadState(workspace.attendancePayrollRepository);
+  workspace.attendanceImportBatches = toArray(attendancePayrollState.attendanceImportBatches);
+  workspace.attendancePunches = toArray(attendancePayrollState.attendancePunches);
+  workspace.attendanceDayReviews = toArray(attendancePayrollState.attendanceDayReviews);
+  workspace.payrollPolicyVersions = toArray(attendancePayrollState.payrollPolicyVersions);
+  workspace.payrollRuns = toArray(attendancePayrollState.payrollRuns);
+  workspace.payrollLines = toArray(attendancePayrollState.payrollLines);
+  workspace.payrollLineAdjustments = toArray(attendancePayrollState.payrollLineAdjustments);
+  workspace.payrollExportEvents = toArray(attendancePayrollState.payrollExportEvents);
+
   mergeRuntimeIdentityStateIntoWorkspace(
     workspace,
     await loadState(workspace.runtimeIdentityRepository),

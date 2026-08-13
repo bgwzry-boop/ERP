@@ -19,8 +19,12 @@ import {
 import { listOfficePrintJobs } from "../../../../src/services/officePrintJobApiClient.js";
 import { listOfficePrintDevices } from "../../../../src/services/officePrinterDeviceApiClient.js";
 import {
+  confirmOfficeMasterDataEmployeeIdentity,
+  enableOfficeMasterDataEmployeeAccount,
+  issueOfficeMasterDataEmployeeAccountPassword,
   listOfficeMasterDataEmployeeAccountReviews,
   listOfficeMasterDataMachines,
+  updateOfficeMasterDataEmployeeProfile,
 } from "../../../../src/services/officeMasterDataImportApiClient.js";
 import { prepareRawMaterialDeliveryNoteFile } from "../../../../src/services/rawMaterialDeliveryNoteImageClient.js";
 
@@ -73,6 +77,11 @@ function resultError(result, label) {
 
 function normalizeItems(result) {
   return result?.source === "api" && Array.isArray(result.items) ? result.items : [];
+}
+
+function replaceEmployeeReview(items, review) {
+  if (!review?.employeeId) return items;
+  return items.map((item) => item.employeeId === review.employeeId ? review : item);
 }
 
 export function useFormalDesktopWorkspace() {
@@ -191,14 +200,95 @@ export function useFormalDesktopWorkspace() {
     confirmMode: "confirm_now",
   }, readOptions), []);
 
+  const updateEmployeeProfile = useCallback(async (review, profile = {}) => {
+    const employeeId = String(review?.employeeId || "").trim();
+    if (!employeeId) return { source: "ui_error", blocked: true, error: { message: "缺少正式员工编号。" } };
+    const result = await updateOfficeMasterDataEmployeeProfile({
+      authState: authStateRef.current,
+      operatorId,
+      employeeId,
+      ...profile,
+    }, readOptions);
+    if (result.source === "api" && result.employeeAccountReview?.employeeId) {
+      setData((current) => ({
+        ...current,
+        employeeAccountReviews: replaceEmployeeReview(current.employeeAccountReviews, result.employeeAccountReview),
+      }));
+    }
+    return result;
+  }, []);
+
+  const confirmEmployeeIdentity = useCallback(async (review, confirmation = {}) => {
+    const result = await confirmOfficeMasterDataEmployeeIdentity({
+      authState: authStateRef.current,
+      operatorId,
+      employeeId: review?.employeeId,
+      confirmed: true,
+      confirmedEmployeeId: review?.employeeId,
+      confirmedName: confirmation.confirmedName,
+      reason: confirmation.reason,
+    }, readOptions);
+    if (result.source === "api" && result.employeeAccountReview?.employeeId) {
+      setData((current) => ({
+        ...current,
+        employeeAccountReviews: replaceEmployeeReview(current.employeeAccountReviews, result.employeeAccountReview),
+      }));
+    }
+    return result;
+  }, []);
+
+  const enableEmployeeAccount = useCallback(async (review) => {
+    const result = await enableOfficeMasterDataEmployeeAccount({
+      authState: authStateRef.current,
+      operatorId,
+      employeeId: review?.employeeId,
+      roleKey: review?.recommendedRoleKey,
+      roleKeys: review?.recommendedRoleKeys,
+      loginName: review?.loginName,
+      userId: review?.userId,
+      reviewNote: "管理员已复核员工身份、岗位、机台和账号角色。",
+    }, readOptions);
+    if (result.source === "api" && result.employeeAccountReview?.employeeId) {
+      setData((current) => ({
+        ...current,
+        employeeAccountReviews: replaceEmployeeReview(current.employeeAccountReviews, result.employeeAccountReview),
+      }));
+    }
+    return result;
+  }, []);
+
+  const issueEmployeePassword = useCallback(async (review) => {
+    const result = await issueOfficeMasterDataEmployeeAccountPassword({
+      authState: authStateRef.current,
+      operatorId,
+      employeeId: review?.employeeId,
+      roleKey: review?.recommendedRoleKey,
+      roleKeys: review?.recommendedRoleKeys,
+      loginName: review?.loginName,
+      userId: review?.userId,
+      issueNote: "管理员发放员工首次临时登录密码。",
+    }, readOptions);
+    if (result.source === "api" && result.employeeAccountReview?.employeeId) {
+      setData((current) => ({
+        ...current,
+        employeeAccountReviews: replaceEmployeeReview(current.employeeAccountReviews, result.employeeAccountReview),
+      }));
+    }
+    return result;
+  }, []);
+
   const actions = useMemo(() => ({
+    confirmEmployeeIdentity,
     confirmOrderDraft,
+    enableEmployeeAccount,
+    issueEmployeePassword,
     recognizeOrderText,
     recognizeRawMaterialFile,
     refreshAll,
     saveOrderDraft,
+    updateEmployeeProfile,
     updateRawMaterialInbound,
-  }), [confirmOrderDraft, recognizeOrderText, recognizeRawMaterialFile, refreshAll, saveOrderDraft, updateRawMaterialInbound]);
+  }), [confirmEmployeeIdentity, confirmOrderDraft, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
 
   return {
     actions,

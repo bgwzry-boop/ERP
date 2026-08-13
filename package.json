@@ -8,7 +8,10 @@
     "npm": ">=10"
   },
   "scripts": {
-    "dev": "vite --host 127.0.0.1",
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "review:dev": "node scripts/run-complete-review-dev.mjs",
+    "review:check": "node scripts/check-complete-review-preview.mjs",
+    "review:identity:check": "node scripts/check-complete-review-identity.mjs",
     "mobile-role-flow-atlas:check": "node scripts/check-mobile-role-flow-atlas.mjs",
     "order-parser:check": "node scripts/check-order-parser.mjs",
     "order-conversation-recognition:check": "node scripts/check-order-conversation-recognition.mjs",
@@ -133,7 +136,8 @@
     "master-data-review-repository:check": "node scripts/check-master-data-import-review-repository.mjs",
     "master-data-transaction:check": "node scripts/check-master-data-import-transaction-repository.mjs && node scripts/check-master-data-machine-configuration-repository.mjs",
     "master-data-import-command:check": "node scripts/check-master-data-import-command-service.mjs",
-    "master-data-employee-account-command:check": "node scripts/check-master-data-employee-account-command-service.mjs && node scripts/check-master-data-machine-command-service.mjs",
+    "master-data-employee-account-command:check": "node scripts/check-master-data-employee-account-command-service.mjs && node scripts/check-master-data-employee-profile-command-service.mjs && node scripts/check-master-data-machine-command-service.mjs",
+    "attendance-payroll:check": "node scripts/check-attendance-provider.mjs && node scripts/check-attendance-payroll-service.mjs && node scripts/check-attendance-payroll-routes.mjs && node scripts/check-payroll-attendance-page.mjs",
     "master-data-import-api:check": "npm run master-data-import-command:check && npm run master-data-employee-account-command:check && node scripts/check-master-data-read-routes.mjs && node scripts/check-master-data-write-routes.mjs && node scripts/check-master-data-import-api.mjs",
     "master-data-maintenance-page:check": "node scripts/check-master-data-maintenance-page.mjs",
     "raw-material-inbound-page:check": "node scripts/check-raw-material-inbound-page.mjs && node scripts/check-raw-material-delivery-note-image-client.mjs",

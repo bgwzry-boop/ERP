@@ -388,6 +388,32 @@ try {
   const merged = mergeRuntimeIdentityStateIntoWorkspace(mergedWorkspace, reloaded);
   assert(merged.operationLogs.some((log) => log.id === accountOperationLogId));
 
+  const pendingEmployeeWorkspace = {
+    users: [],
+    employees: [{ id: "EMP-PENDING-ASSIGNMENT-CHECK", name: "待开户员工", source: "master_data_import_review" }],
+    operationLogs: [],
+  };
+  mergeRuntimeIdentityStateIntoWorkspace(pendingEmployeeWorkspace, {
+    users: [],
+    employeeAccounts: [],
+    operationLogs: [{
+      id: "LOG-EMP-PENDING-ASSIGNMENT-CHECK",
+      targetType: "master_data_employee_assignment",
+      targetId: "EMP-PENDING-ASSIGNMENT-CHECK",
+      action: "master_data_employee_assignment_updated",
+      before: { defaultWorkshop: "" },
+      after: { defaultWorkshop: "2号车间" },
+      reason: "待开户员工调配审计读回检查",
+      operatorId: "U-MANAGER-A",
+      pageKey: "master_data",
+      occurredAt: assignmentOccurredAt,
+      createdAt: assignmentOccurredAt,
+    }],
+  });
+  assert.equal(pendingEmployeeWorkspace.employees[0].assignmentUpdatedBy, "U-MANAGER-A");
+  assert.equal(pendingEmployeeWorkspace.employees[0].assignmentUpdatedAt, assignmentOccurredAt);
+  assert.equal(pendingEmployeeWorkspace.employees[0].assignmentNote, "待开户员工调配审计读回检查");
+
   const persistedJson = readFileSync(join(storageRoot, runtimeIdentityStoreKey), "utf8");
   assert.equal(persistedJson.includes(temporaryPassword), false);
   assert.equal(persistedJson.includes(changedPasswordValue), false);
@@ -402,6 +428,8 @@ try {
   assert(loadSql.includes("master_data_employee_account_password"));
   assert(loadSql.includes("master_data_employee_assignment"));
   assert(loadSql.includes("master_data_employee_identity_confirmation"));
+  assert(loadSql.includes("employees.departed_at"));
+  assert(loadSql.includes("employees.departure_reason"));
   const loadQuery = buildLoadRuntimeIdentityStateQuery();
   assert.equal(loadQuery.text, loadSql);
   assert.deepEqual(loadQuery.values, []);
@@ -425,6 +453,9 @@ try {
   assert(saveSql.includes("employee_assignment_updates"));
   assert(saveSql.includes("employee_identity_updates"));
   assert(saveSql.includes("updated_employee_identities"));
+  assert(saveSql.includes("departed_at = employee_identity_updates.departed_at"));
+  assert(saveSql.includes("departure_effective_date = employee_identity_updates.departure_effective_date"));
+  assert(saveSql.includes("departure_reason = employee_identity_updates.departure_reason"));
   assert(saveSql.includes("default_workshop = employee_assignment_updates.default_workshop"));
   assert(saveSql.includes("INSERT INTO operation_logs"));
   assert(saveSql.includes("savedOperationLogCount"));
@@ -432,6 +463,9 @@ try {
   assert.match(saveSql, /\$\d+::jsonb/);
   assert.equal(saveQuery.text, saveSql);
   assert.ok(saveQuery.values.length > 30);
+  const registrationStatusIndex = saveQuery.values.indexOf("legacy_account");
+  assert.notEqual(registrationStatusIndex, -1);
+  assert.equal(saveQuery.values[registrationStatusIndex + 1], "");
 
 const postgresCalls = [];
 const postgresLoadState = {

@@ -20,7 +20,11 @@ import {
   getRequirementTagValue,
 } from "../../../../src/shared/labels.js";
 import { SemanticTag as SharedSemanticTag } from "../../../../src/shared/ui/operational.jsx";
+import { PayrollAttendancePage } from "../../../../src/features/payroll/PayrollAttendancePage.jsx";
+import { EmployeeProfileEditor } from "../../../../src/features/master-data/MasterDataMaintenancePage.jsx";
+import "../../../../src/styles/features/payroll-attendance.css";
 import { FactoryColorLabel } from "./FactoryColor.jsx";
+import { buildEmployeeProfile } from "./employee-profile.js";
 import { completedBusinessWorkspaceIds } from "./workspaceCoverage.js";
 
 const formatNumber = (value) => new Intl.NumberFormat("zh-CN").format(Number(value) || 0);
@@ -331,13 +335,36 @@ function buildCustomerRows(orderLines = [], statements = []) {
 
 function buildPeopleMachineRows(employees = [], machines = []) {
   const machineById = new Map(machines.map((machine) => [machine.machineId, machine]));
-  return employees.map((employee) => {
+  return employees.map((employee, employeeIndex) => {
     const machine = machineById.get(employee.configuredMachineId || employee.defaultMachineId);
+    const profile = buildEmployeeProfile(employee);
+    const roleLabel = employee.roleName || "待确认";
+    const workshopLabel = employee.defaultWorkshop || "未维护";
+    const machineLabel = machine?.machineLabel || employee.configuredMachineLabel || "未绑定";
+    const accountStatus = employee.loginName ? (employee.accountStatusLabel || "已分配") : "待分配";
     return {
       id: employee.employeeId,
-      cells: [employee.name, employee.loginName || "待分配", employee.roleName || "待确认", employee.defaultWorkshop || "—", machine?.machineLabel || employee.configuredMachineLabel || "未绑定", employee.statusLabel || employee.status],
+      cells: [String(employeeIndex + 1), employee.name, roleLabel, workshopLabel, machineLabel, employee.statusLabel || employee.status],
+      detailTitle: employee.name,
+      employeeReview: employee,
+      searchValues: [employee.loginName],
       status: employee.statusLabel || employee.status,
-      details: [["员工编号", employee.employeeId], ["姓名", employee.name], ["账号", employee.loginName || "待分配"], ["岗位", employee.roleName || "待确认"], ["车间", employee.defaultWorkshop || "—"], ["机台", machine?.machineLabel || employee.configuredMachineLabel || "未绑定"]],
+      target: "payroll-attendance",
+      detailSections: [
+        {
+          title: "员工档案",
+          facts: [["员工编号", employee.employeeId], ["姓名", employee.name], ["年龄", profile.age], ["入职时间", profile.hireDate], ["在厂工龄", profile.tenure], ["在职状态", profile.employmentStatus]],
+        },
+        {
+          title: "工作安排",
+          facts: [["岗位", roleLabel], ["所在车间", workshopLabel], ["当前机台", machineLabel], ["备注", employee.note || "—"]],
+        },
+        {
+          title: "账号信息",
+          facts: [["账号", employee.loginName || "待分配"], ["账号状态", accountStatus]],
+        },
+      ],
+      details: [["员工编号", employee.employeeId], ["姓名", employee.name], ["账号", employee.loginName || "待分配"], ["岗位", roleLabel], ["车间", workshopLabel], ["机台", machineLabel]],
     };
   });
 }
@@ -404,9 +431,17 @@ function buildWorkspaceConfigs(formal) {
   },
   "people-machines": {
     title: "员工机台",
-    columns: ["员工", "账号", "岗位", "车间", "机台", "状态"],
+    columns: ["序号", "员工", "岗位", "车间", "机台", "状态"],
+    gridTemplateColumns: "52px minmax(120px, 1.15fr) minmax(124px, 1.2fr) minmax(84px, .78fr) minmax(104px, .92fr) minmax(92px, .8fr)",
+    primaryCellIndex: 1,
     rows: buildPeopleMachineRows(data.employeeAccountReviews, data.machines),
-    primaryAction: "查看维护字段",
+    primaryAction: "查看考勤与工资",
+    profileMaintenance: true,
+    accountPreparation: true,
+    onConfirmEmployeeIdentity: formal.actions.confirmEmployeeIdentity,
+    onEnableEmployeeAccount: formal.actions.enableEmployeeAccount,
+    onIssueEmployeePassword: formal.actions.issueEmployeePassword,
+    onUpdateEmployeeProfile: formal.actions.updateEmployeeProfile,
     source: "正式员工账号与机台 API",
   },
   "launch-status": {
@@ -425,11 +460,14 @@ function GenericWorkspace({ config, onNavigate }) {
   const [mode, setMode] = useState(config.modes?.[0] || "全部");
   const [selectedId, setSelectedId] = useState(config.rows[0]?.id || "");
   const [notice, setNotice] = useState("");
+  const [profileOpen, setProfileOpen] = useState(false);
+  const [profileError, setProfileError] = useState("");
+  const [accountOpen, setAccountOpen] = useState(false);
   const statuses = useMemo(() => [...new Set(config.rows.map((row) => row.status).filter(Boolean))], [config.rows]);
   const rows = useMemo(() => config.rows.filter((row) => {
     const modeMatch = mode === "全部" || row.modes?.includes(mode) || row.cells.some((cell) => String(cell).includes(mode));
     const statusMatch = status === "全部状态" || row.status === status;
-    const queryMatch = !query.trim() || [...row.cells, row.id].join(" ").toLowerCase().includes(query.trim().toLowerCase());
+    const queryMatch = !query.trim() || [...row.cells, row.id, ...(row.searchValues || [])].join(" ").toLowerCase().includes(query.trim().toLowerCase());
     return modeMatch && statusMatch && queryMatch;
   }), [config.rows, mode, query, status]);
   const selected = rows.find((row) => row.id === selectedId) || rows[0] || null;
@@ -446,29 +484,89 @@ function GenericWorkspace({ config, onNavigate }) {
     setMode(config.modes?.[0] || "全部");
     setSelectedId(config.rows[0]?.id || "");
     setNotice("");
+    setProfileOpen(false);
+    setProfileError("");
+    setAccountOpen(false);
   }
 
-  return <div className="business-workbench source-grounded-workbench">
+  async function saveEmployeeProfile(review, profile) {
+    setProfileError("");
+    const result = await config.onUpdateEmployeeProfile?.(review, profile);
+    if (result?.source !== "api" || !result.employeeAccountReview) {
+      setProfileError(result?.error?.message || "正式员工档案接口没有返回保存结果。");
+      return null;
+    }
+    setProfileOpen(false);
+    setNotice(`已保存 ${result.employeeAccountReview.name || result.employeeAccountReview.employeeId} 的员工档案和考勤身份映射。`);
+    return result.employeeAccountReview;
+  }
+
+  return <><div className="business-workbench source-grounded-workbench">
     <section className="business-list-panel">
       <header className="business-panel-heading"><h2>{config.title}</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${config.rows.length} 条`} onRefresh={config.onRefresh} /></header>
       {config.modes ? <div aria-label={`${config.title}区域`} className="business-subtabs" role="tablist">{config.modes.map((item) => <button aria-selected={mode === item} key={item} onClick={() => { setMode(item); setSelectedId(""); }} role="tab" type="button">{item}</button>)}</div> : null}
       <div className="business-filter-row"><label><SearchOutlined /><input aria-label={`${config.title}搜索`} onChange={(event) => { setQuery(event.target.value); setSelectedId(""); }} placeholder="搜索当前工作台" value={query} /></label><select aria-label={`${config.title}状态`} onChange={(event) => { setStatus(event.target.value); setSelectedId(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态" && mode === (config.modes?.[0] || "全部")} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
       <div className="business-table" role="table" aria-label={`${config.title}列表`}>
         <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}>{config.columns.map((column) => <span key={column} role="columnheader">{column}</span>)}</div>
-        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`business-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button">{row.cells.map((cell, index) => <span key={`${row.id}-${index}`} role="cell">{index === row.cells.length - 1 ? <StateText>{cell}</StateText> : cell}</span>)}</button>) : <div className="business-empty"><SearchOutlined /><strong>没有匹配记录</strong><span>调整关键词、状态或区域后重试。</span></div>}</div>
+        <div className="business-table-body">{rows.length ? rows.map((row) => <button aria-pressed={selected?.id === row.id} className={`business-row${selected?.id === row.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button">{row.cells.map((cell, index) => <span className={index === (config.primaryCellIndex ?? 0) ? "business-primary-cell" : undefined} key={`${row.id}-${index}`} role="cell">{index === row.cells.length - 1 ? <StateText>{cell}</StateText> : cell}</span>)}</button>) : <div className="business-empty"><SearchOutlined /><strong>没有匹配记录</strong><span>调整关键词、状态或区域后重试。</span></div>}</div>
       </div>
     </section>
     <aside className="business-detail-panel">
       <header><span>{selected?.detailEyebrow || `当前选中 · ${config.title}`}</span><h2>{selected?.detailTitle || selected?.cells[0] || config.title}</h2>{selected ? <StateText>{selected.status}</StateText> : null}</header>
       <div className="business-detail-scroll">
         {config.showSourceEvidence === false ? null : <div className="source-provenance"><CheckCircleOutlined /><span>来源已对齐：{config.source}</span></div>}
-        <h3>业务事实</h3>
-        {selected ? <dl className="business-facts">{selected.details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{String(value || "—")}</dd></div>)}</dl> : <div className="business-empty"><FileTextOutlined /><strong>暂无记录</strong></div>}
+        {selected ? (selected.detailSections?.length
+          ? selected.detailSections.map((section) => <section className="business-detail-section" key={section.title}><h3>{section.title}</h3><dl className="business-facts">{section.facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{String(value || "—")}</dd></div>)}</dl></section>)
+          : <><h3>业务事实</h3><dl className="business-facts">{selected.details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{String(value || "—")}</dd></div>)}</dl></>)
+          : <div className="business-empty"><FileTextOutlined /><strong>暂无记录</strong></div>}
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </div>
-      <footer><button className="primary" disabled={!selected} onClick={runPrimary} type="button">{config.primaryAction}</button>{config.showSourceEvidence === false ? null : <button className="secondary-button" onClick={() => setNotice(`来源：${config.source}`)} type="button">查看数据来源</button>}</footer>
+      <footer><button className="primary" disabled={!selected} onClick={runPrimary} type="button">{config.primaryAction}</button>{config.profileMaintenance ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => { setProfileError(""); setProfileOpen(true); }} type="button">维护员工档案</button> : config.showSourceEvidence === false ? null : <button className="secondary-button" onClick={() => setNotice(`来源：${config.source}`)} type="button">查看数据来源</button>}{config.accountPreparation ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => setAccountOpen(true)} type="button">准备员工账号</button> : null}</footer>
     </aside>
-  </div>;
+  </div>{profileOpen && selected?.employeeReview ? <div className="dialog-backdrop employee-profile-dialog-backdrop" onMouseDown={() => setProfileOpen(false)} role="presentation"><section aria-labelledby="employee-profile-dialog-title" aria-modal="true" className="receive-dialog employee-profile-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>正式员工资料</span><h2 id="employee-profile-dialog-title">维护 {selected.employeeReview.name}</h2></div><button aria-label="关闭" onClick={() => setProfileOpen(false)} type="button">×</button></header><div className="employee-profile-dialog-body"><EmployeeProfileEditor actionState={{ disabled: false, title: "" }} onSave={saveEmployeeProfile} review={selected.employeeReview} />{profileError ? <p className="employee-profile-dialog-error" role="alert">{profileError}</p> : null}</div></section></div> : null}{accountOpen && selected?.employeeReview ? <EmployeeAccountPreparationDialog onClose={() => setAccountOpen(false)} onConfirmIdentity={config.onConfirmEmployeeIdentity} onEnableAccount={config.onEnableEmployeeAccount} onIssuePassword={config.onIssueEmployeePassword} review={selected.employeeReview} /> : null}</>;
+}
+
+function EmployeeAccountPreparationDialog({ review, onClose, onConfirmIdentity, onEnableAccount, onIssuePassword }) {
+  const [confirmedName, setConfirmedName] = useState(review.name || "");
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const [issuedCredential, setIssuedCredential] = useState(null);
+  const departed = ["departed", "inactive"].includes(String(review.profileStatus || review.status || "").toLowerCase());
+  const passwordReady = Boolean(review.passwordChangedAt) && review.mustChangePassword !== true;
+
+  async function runIdentityConfirmation() {
+    if (!confirmedName.trim() || !reason.trim() || busy) return;
+    if (!window.confirm(`确认 ${review.employeeId} 的正式身份为“${confirmedName.trim()}”？确认依据会写入审计记录。`)) return;
+    setBusy("identity");
+    setError("");
+    const result = await onConfirmIdentity?.(review, { confirmedName: confirmedName.trim(), reason: reason.trim() });
+    if (result?.source !== "api" || !result.employeeAccountReview) setError(result?.error?.message || "正式身份确认失败。");
+    setBusy("");
+  }
+
+  async function runEnable() {
+    if (busy || departed || review.accountActivationBlocked || review.accountEnabled) return;
+    if (!window.confirm(`确认启用 ${review.name || review.employeeId} 的员工账号？系统将使用已复核岗位、机台和角色。`)) return;
+    setBusy("enable");
+    setError("");
+    const result = await onEnableAccount?.(review);
+    if (result?.source !== "api" || !result.employeeAccountReview) setError(result?.error?.message || "员工账号启用失败。");
+    setBusy("");
+  }
+
+  async function runIssuePassword() {
+    if (busy || !review.accountEnabled || departed) return;
+    if (!window.confirm(`确认向 ${review.name || review.employeeId} 发放一次性临时密码？临时密码只在本次返回。`)) return;
+    setBusy("password");
+    setError("");
+    const result = await onIssuePassword?.(review);
+    if (result?.source === "api" && result.issuedCredential) setIssuedCredential(result.issuedCredential);
+    else setError(result?.error?.message || "临时密码发放失败。");
+    setBusy("");
+  }
+
+  return <div className="dialog-backdrop employee-account-dialog-backdrop" onMouseDown={onClose} role="presentation"><section aria-labelledby="employee-account-dialog-title" aria-modal="true" className="receive-dialog employee-account-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>员工本人账号</span><h2 id="employee-account-dialog-title">准备 {review.name}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><div className="employee-account-dialog-body"><p className="employee-account-boundary">账号启用只授予已复核岗位权限；员工手机“我的考勤”仍由登录账号绑定的员工编号决定，不能选择或查看同事。</p><dl className="employee-account-status"><div><dt>员工编号</dt><dd>{review.employeeId}</dd></div><div><dt>登录名</dt><dd>{review.loginName || "待生成"}</dd></div><div><dt>身份确认</dt><dd>{review.identityConfirmed ? "已确认" : review.accountActivationBlockerLabel || "待确认"}</dd></div><div><dt>账号状态</dt><dd>{departed ? "已离职，不可启用" : review.accountEnabled ? "已启用" : "待复核启用"}</dd></div><div><dt>首次改密</dt><dd>{passwordReady ? "已完成" : review.passwordIssuedAt ? "临时密码待改密" : "尚未发放密码"}</dd></div><div><dt>账号角色</dt><dd>{review.recommendedRoleLabels?.join("、") || review.recommendedRoleLabel || review.roleName || "待确认"}</dd></div></dl>{review.accountActivationBlocked && !departed ? <section className="employee-account-step"><h3>1. 确认正式身份</h3><label><span>正式显示名</span><input onChange={(event) => setConfirmedName(event.target.value)} value={confirmedName} /></label><label><span>确认依据</span><input onChange={(event) => setReason(event.target.value)} placeholder="例如：负责人当面核对身份证与工号" value={reason} /></label><button className="primary" disabled={busy || !confirmedName.trim() || !reason.trim()} onClick={runIdentityConfirmation} type="button">{busy === "identity" ? "确认中…" : "确认身份"}</button></section> : null}<section className="employee-account-step"><h3>{review.accountActivationBlocked ? "2" : "1"}. 复核启用账号</h3><p>{departed ? "离职员工保留历史记录，但不能重新启用。" : review.accountEnabled ? "账号已经启用；岗位和角色变更继续走正式管理员复核。" : "启用前由管理员核对岗位、车间、机台和账号角色。"}</p><button className="primary" disabled={busy || departed || review.accountActivationBlocked || review.accountEnabled} onClick={runEnable} type="button">{review.accountEnabled ? "账号已启用" : busy === "enable" ? "启用中…" : "复核启用账号"}</button></section><section className="employee-account-step"><h3>{review.accountActivationBlocked ? "3" : "2"}. 发放临时密码</h3><p>临时密码只显示一次；员工首次登录必须改密，完成后才计入本人账号就绪。</p><button className="primary" disabled={busy || departed || !review.accountEnabled} onClick={runIssuePassword} type="button">{busy === "password" ? "生成中…" : review.passwordIssuedAt ? "重新发放临时密码" : "发放临时密码"}</button>{issuedCredential ? <div className="employee-issued-credential" role="status"><strong>本次临时凭据（关闭后不再显示）</strong><code>{issuedCredential.loginName || issuedCredential.userId}</code><code>{issuedCredential.temporaryPassword}</code></div> : null}</section>{error ? <p className="employee-profile-dialog-error" role="alert">{error}</p> : null}</div></section></div>;
 }
 
 function FinishedGoodsClassificationFilters({ category, goodsType, onCategoryChange, onGoodsTypeChange }) {
@@ -701,6 +799,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate }) {
   if (navId === "inventory-query") return <FinishedGoodsInventoryWorkspace category="无纺布袋" formal={formal} onNavigate={onNavigate} title="无纺布袋库存" />;
   if (navId === "laminated-inventory") return <FinishedGoodsInventoryWorkspace category="覆膜无纺布袋" formal={formal} onNavigate={onNavigate} title="覆膜袋库存" />;
   if (navId === "general-prices" || navId === "spec-inventory") return <FinishedGoodsMasterWorkspace formal={formal} onNavigate={onNavigate} />;
+  if (navId === "payroll-attendance") return <PayrollAttendancePage authState={formal.authState} currentUser={formal.permissionContext?.user} permissionContext={formal.permissionContext} />;
   const configs = buildWorkspaceConfigs(formal);
   const config = configs[navId];
   if (!config) return <div className="business-missing"><WarningOutlined /><strong>当前 PC 代码没有这个独立页面</strong><span>{navId}</span></div>;

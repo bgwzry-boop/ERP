@@ -105,7 +105,7 @@ export async function handleMasterDataWriteRoutes({
     return true;
   }
 
-  const employeeActionMatch = url.pathname.match(/^\/api\/master-data\/employee-account-reviews\/([^/]+)\/(enable|assignment|merge|depart|identity-confirmation|password(?:\/revoke)?)$/);
+  const employeeActionMatch = url.pathname.match(/^\/api\/master-data\/employee-account-reviews\/([^/]+)\/(enable|assignment|profile|merge|depart|identity-confirmation|password(?:\/revoke)?)$/);
   if (!employeeActionMatch) return false;
 
   const employeeId = decodeURIComponent(employeeActionMatch[1]);
@@ -118,6 +118,10 @@ export async function handleMasterDataWriteRoutes({
     assignment: {
       permission: writeActionPermissions.reviewMasterDataEmployeeAccount,
       run: (input) => masterDataEmployeeAccountCommandService.updateEmployeeAssignment(input),
+    },
+    profile: {
+      permission: writeActionPermissions.manageEmployeeProfile,
+      run: (input) => masterDataEmployeeAccountCommandService.updateEmployeeProfile(input),
     },
     merge: {
       permission: writeActionPermissions.reviewMasterDataEmployeeAccount,

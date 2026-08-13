@@ -13,6 +13,7 @@ const dependencies = {
     createMasterDataImportConfirmationPlan: "master_data.import.plan.create",
     executeMasterDataImport: "master_data.import.execute",
     reviewMasterDataEmployeeAccount: "master_data.employee_account.review",
+    manageEmployeeProfile: "master_data.employee_profile.manage",
     issueMasterDataEmployeeAccountPassword: "master_data.employee_account.password.issue",
   },
   requireActionPermission(response, permissionContext, permission) {
@@ -39,6 +40,7 @@ for (const [serviceName, commandName, kind] of [
   ["masterDataEmployeeAccountCommandService", "enableEmployeeAccount", "enable"],
   ["masterDataEmployeeAccountCommandService", "enableEmployeeAccounts", "batch-enable"],
   ["masterDataEmployeeAccountCommandService", "updateEmployeeAssignment", "assignment"],
+  ["masterDataEmployeeAccountCommandService", "updateEmployeeProfile", "profile"],
   ["masterDataEmployeeAccountCommandService", "mergeEmployeeIdentity", "merge"],
   ["masterDataEmployeeAccountCommandService", "departEmployeeAccount", "depart"],
   ["masterDataEmployeeAccountCommandService", "confirmEmployeeIdentity", "identity-confirmation"],
@@ -62,6 +64,7 @@ await expectHandled("/api/master-data/import-executions/EX-1/failed-rows/correct
 await expectHandled("/api/master-data/employee-account-reviews/batch-enable", "master_data.employee_account.review", "batch-enable", {}, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/enable", "master_data.employee_account.review", "enable", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/assignment", "master_data.employee_account.review", "assignment", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
+await expectHandled("/api/master-data/employee-account-reviews/EMP-1/profile", "master_data.employee_profile.manage", "profile", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/merge", "master_data.employee_account.review", "merge", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/depart", "master_data.employee_account.review", "depart", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);
 await expectHandled("/api/master-data/employee-account-reviews/EMP-1/identity-confirmation", "master_data.employee_account.review", "identity-confirmation", { employeeId: "EMP-1" }, "U-MANAGER-A", employeeOptions);

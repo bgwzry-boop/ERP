@@ -10,7 +10,7 @@ import {
 } from "../../shared/auth/employeeIdentity.js";
 import { resolveImportedMasterDataMachineId } from "../../shared/masterDataMachineIdentity.js";
 
-export const MASTER_DATA_IMPORT_EXECUTION_PAYLOAD_VERSION = "p0-master-data-import-execution-payload-v1";
+export const MASTER_DATA_IMPORT_EXECUTION_PAYLOAD_VERSION = "p0-master-data-import-execution-payload-v2";
 
 const supportedSheetKeys = new Set(["customers", "product_specs", "price_tables", "inventory_items", "employees_machines"]);
 
@@ -22,6 +22,7 @@ export function buildMasterDataImportExecutionPayload(confirmationPlan = {}) {
   const failedRows = [];
   const writableRows = [];
   const seenEmployeeIds = new Set();
+  const seenAttendanceIdentities = new Set();
 
   for (const sheet of stagedSheets) {
     for (const row of sheet.rows) {
@@ -41,7 +42,16 @@ export function buildMasterDataImportExecutionPayload(confirmationPlan = {}) {
         failedRows.push(createFailedRow(sheet, row, mapped.failedReason));
         continue;
       }
+      const mappedEmployee = mapped.targetRecords?.employees?.[0];
+      const attendanceIdentityKey = mappedEmployee?.attendanceProvider && mappedEmployee?.attendanceExternalId
+        ? `${mappedEmployee.attendanceProvider}|${mappedEmployee.attendanceExternalId}`
+        : "";
+      if (attendanceIdentityKey && seenAttendanceIdentities.has(attendanceIdentityKey)) {
+        failedRows.push(createFailedRow(sheet, row, `考勤身份重复：${mappedEmployee.attendanceProvider} / ${mappedEmployee.attendanceExternalId}。`));
+        continue;
+      }
       if (employeeId) seenEmployeeIds.add(employeeId);
+      if (attendanceIdentityKey) seenAttendanceIdentities.add(attendanceIdentityKey);
       appendTargetRecords(targetRecords, mapped.targetRecords);
       writableRows.push({
         sheetKey: sheet.sheetKey,
@@ -315,11 +325,28 @@ function mapEmployeeMachineRow(row) {
   const employeeId = cleanText(row.values["员工编号"]);
   const employeeName = cleanText(row.values["员工姓名"]);
   const roleName = cleanText(row.values["角色"]);
+  const birthDate = cleanText(row.values["出生日期"]);
+  const hireDate = cleanText(row.values["入职日期"]);
+  const wageEffectiveFrom = cleanText(row.values["生效日期"]);
+  const attendanceProvider = cleanText(row.values["考勤来源"]).toLowerCase();
+  const attendanceExternalId = cleanText(row.values["考勤人员编号"]);
   const defaultWorkshop = cleanText(row.values["默认车间"]);
   if (!employeeId || !employeeName || !roleName) return { failedReason: "员工编号、员工姓名和角色必须完整。" };
   if (!isValidEmployeeNumber(employeeId)) {
     return { failedReason: "员工编号须为1-32位字母、数字、下划线或短横线，且首位必须是字母或数字。" };
   }
+  for (const [field, value] of [["出生日期", birthDate], ["入职日期", hireDate], ["生效日期", wageEffectiveFrom]]) {
+    if (value && !isValidIsoDate(value)) return { failedReason: `${field} 必须是有效的 YYYY-MM-DD 日期。` };
+  }
+  if (birthDate && hireDate && birthDate >= hireDate) return { failedReason: "入职日期必须晚于出生日期。" };
+  if (hireDate && wageEffectiveFrom && wageEffectiveFrom < hireDate) return { failedReason: "工资生效日期不能早于入职日期。" };
+  if (Boolean(attendanceProvider) !== Boolean(attendanceExternalId)) {
+    return { failedReason: "考勤来源和考勤人员编号必须同时填写，或同时留空。" };
+  }
+  const baseHourlyWage = parseOptionalNonNegativeNumber(row.values["基础时薪"]);
+  const positionAllowanceHourly = parseOptionalNonNegativeNumber(row.values["岗位补贴/小时"]);
+  if (baseHourlyWage.invalid) return { failedReason: "基础时薪必须是非负数。" };
+  if (positionAllowanceHourly.invalid) return { failedReason: "岗位补贴/小时必须是非负数。" };
   const roleKey = normalizeV1RuntimeEmployeeRoleKey("", roleName);
   if (!roleKey) return { failedReason: "角色无法映射到V1正式岗位。" };
   const additionalRoleInputs = splitV1RuntimeEmployeeRoleInputs(row.values["附加角色"]);
@@ -343,7 +370,7 @@ function mapEmployeeMachineRow(row) {
     : "";
   const capacitySize = cleanText(row.values["产能尺寸"]);
   const dailyCapacityQty = toFiniteNumber(row.values["粗略日产量"]);
-  const effectiveFrom = cleanText(row.values["生效日期"]);
+  const effectiveFrom = wageEffectiveFrom;
   const targetRecords = createEmptyTargetRecords();
 
   targetRecords.employees.push({
@@ -355,9 +382,23 @@ function mapEmployeeMachineRow(row) {
     roleKeys,
     defaultWorkshop,
     defaultMachineId: machineId,
-    baseHourlyWage: toNullableNumber(row.values["基础时薪"]) ?? 0,
-    positionAllowanceHourly: toNullableNumber(row.values["岗位补贴/小时"]) ?? 0,
+    birthDate,
+    hireDate,
+    baseHourlyWage: baseHourlyWage.value,
+    positionAllowanceHourly: positionAllowanceHourly.value,
     wageEffectiveFrom: effectiveFrom,
+    attendanceProvider,
+    attendanceExternalId,
+    attendanceMappingUpdatedBy: "",
+    attendanceMappingUpdatedAt: "",
+    profileFieldPresence: {
+      birthDate: Boolean(birthDate),
+      hireDate: Boolean(hireDate),
+      baseHourlyWage: cleanText(row.values["基础时薪"]) !== "",
+      positionAllowanceHourly: cleanText(row.values["岗位补贴/小时"]) !== "",
+      wageEffectiveFrom: Boolean(wageEffectiveFrom),
+      attendanceMapping: Boolean(attendanceProvider && attendanceExternalId),
+    },
     accountEnabled: false,
     profileStatus: "pending_admin_review",
     requestedEnabled: normalizeEnabled(row.values["启用状态"]),
@@ -524,6 +565,20 @@ function toNullableNumber(value) {
   if (!text) return null;
   const number = Number(text);
   return Number.isFinite(number) ? number : null;
+}
+
+function parseOptionalNonNegativeNumber(value) {
+  const parsed = toNullableNumber(value);
+  if (parsed === null) return { value: 0, invalid: false };
+  if (parsed < 0) return { value: 0, invalid: true };
+  return { value: parsed, invalid: false };
+}
+
+function isValidIsoDate(value) {
+  const text = cleanText(value);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const parsed = new Date(`${text}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === text;
 }
 
 function toFiniteNumber(value) {

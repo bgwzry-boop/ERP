@@ -5,7 +5,6 @@ import {
   EntryPage,
   FulfillmentPage,
   InventoryPage,
-  MasterDataMaintenancePage,
   OrderPoolPage,
   ProductionPackingPage,
   RawMaterialInboundPage,
@@ -133,6 +132,9 @@ const OfficeMobilePage = lazy(() => import("./features/office-mobile/OfficeMobil
 const DecisionMobilePage = lazy(() => import("./features/decisions/DecisionMobilePage.jsx").then((module) => ({ default: module.DecisionMobilePage })));
 const MaintenanceMobilePage = lazy(() => import("./features/maintenance/MaintenanceMobilePage.jsx").then((module) => ({ default: module.MaintenanceMobilePage })));
 const DesktopRequiredMobilePage = lazy(() => import("./features/mobile/DesktopRequiredMobilePage.jsx").then((module) => ({ default: module.DesktopRequiredMobilePage })));
+const MasterDataMaintenancePage = lazy(() => import("./features/master-data/MasterDataMaintenancePage.jsx").then((module) => ({ default: module.MasterDataMaintenancePage })));
+const PayrollAttendancePage = lazy(() => import("./features/payroll/PayrollAttendancePage.jsx").then((module) => ({ default: module.PayrollAttendancePage })));
+const EmployeeAttendanceMobilePage = lazy(() => import("./features/payroll/EmployeeAttendanceMobilePage.jsx").then((module) => ({ default: module.EmployeeAttendanceMobilePage })));
 
 const officeScenarioData = loadOfficeWorkspace();
 const {
@@ -434,6 +436,7 @@ export function App() {
     precheckMasterDataTemplate,
     revokeMasterDataEmployeeAccountPassword, saveMasterDataMachine,
     updateMasterDataEmployeeAssignment,
+    updateMasterDataEmployeeProfile,
     saveMasterDataMaintenanceDraft,
   } = createOfficeMasterDataActions({
     allowLocalFallback: !runtimeServerRequired,
@@ -1123,11 +1126,13 @@ export function App() {
       <div className="workspace">
         {roleFocusedShellPage ? (
           <MobileRoleShellHeader
+            canViewOwnAttendance={permissionContext.actionPermissions?.includes("attendance.self.read") === true}
             currentUser={currentUser}
             currentUserId={currentUserId}
             demoMode={!formalLoginRequired}
             logoutLoading={runtimeLoginLoading}
             onLogout={logoutRuntimeUserSession}
+            onNavigate={setActivePage}
             onUserChange={switchSeedUser}
             pageKey={renderedPage}
             userOptions={seedUserOptions}
@@ -1163,6 +1168,11 @@ export function App() {
           {renderedPage === "desktopRequiredMobile" && (
             <Suspense fallback={<DataState title="岗位终端说明加载中" />}>
               <DesktopRequiredMobilePage currentUser={currentUser} />
+            </Suspense>
+          )}
+          {renderedPage === "attendanceMobile" && (
+            <Suspense fallback={<DataState title="本人考勤加载中" />}>
+              <EmployeeAttendanceMobilePage authState={authState} currentUser={currentUser} />
             </Suspense>
           )}
           {renderedPage === "officeMobile" && (
@@ -1372,7 +1382,7 @@ export function App() {
             />
           )}
           {renderedPage === "masterData" && (
-            <MasterDataMaintenancePage
+            <Suspense fallback={<DataState title="基础资料工作台加载中" />}><MasterDataMaintenancePage
               authState={authState}
               currentUser={currentUser}
               customers={customers}
@@ -1385,10 +1395,15 @@ export function App() {
               maintenanceDrafts={masterDataMaintenanceDrafts}
               selectedTab={masterDataMaintenanceTab} setSelectedTab={setMasterDataMaintenanceTab}
               selectedId={selectedMasterDataId} setSelectedId={setSelectedMasterDataId}
-              onSaveDraft={saveMasterDataMaintenanceDraft} onUpdateEmployeeAssignment={updateMasterDataEmployeeAssignment} onSaveMachine={saveMasterDataMachine}
+              onSaveDraft={saveMasterDataMaintenanceDraft} onUpdateEmployeeAssignment={updateMasterDataEmployeeAssignment} onUpdateEmployeeProfile={updateMasterDataEmployeeProfile} onSaveMachine={saveMasterDataMachine}
               onBatchEnableEmployeeAccounts={enableMasterDataEmployeeAccounts} onOpenImportTemplate={openMasterDataTemplatePanel}
               helpers={pageHelpers}
-            />
+            /></Suspense>
+          )}
+          {renderedPage === "payroll" && (
+            <Suspense fallback={<DataState title="工资核算工作台加载中" />}>
+              <PayrollAttendancePage authState={authState} currentUser={currentUser} permissionContext={permissionContext} />
+            </Suspense>
           )}
           {renderedPage === "v1Status" && (
             <Suspense fallback={<DataState title="上线状态加载中" />}>
