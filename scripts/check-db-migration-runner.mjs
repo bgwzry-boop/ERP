@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseArgs, redactMigrationText, runDbMigrations } from "./run-db-migrations.mjs";
+import {
+  isCompatibleLegacyMigrationChecksum,
+  parseArgs,
+  redactMigrationText,
+  runDbMigrations,
+} from "./run-db-migrations.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "db-migration-runner");
 rmSync(storageRoot, { recursive: true, force: true });
@@ -54,6 +59,23 @@ assert.ok(applyCalls.some((call) => call.args[0] === sensitiveDatabaseUrl));
 assert.ok(applyCalls.every((call) => call.command === "/usr/local/bin/psql"));
 assertNoSensitive(applyLogs.join("\n"));
 
+const legacyMigration = {
+  id: "0030_miniapp_order_intake",
+  checksum: "423c48ebede1b1bf54a1e308c132fde00fd2268b62d342f70d3430ac3ea213ad",
+};
+assert.equal(
+  isCompatibleLegacyMigrationChecksum(
+    legacyMigration,
+    "d9333a508b2f6867cc913246cd0fbdde1e4de214fa2eda49f927043a6b3fd5d6",
+  ),
+  true,
+);
+assert.equal(isCompatibleLegacyMigrationChecksum(legacyMigration, "0".repeat(64)), false);
+assert.equal(
+  isCompatibleLegacyMigrationChecksum({ ...legacyMigration, checksum: "1".repeat(64) }, legacyMigration.checksum),
+  false,
+);
+
 const missingCalls = [];
 assert.throws(
   () =>
@@ -91,7 +113,7 @@ const redacted = redactMigrationText(
 assertNoSensitive(redacted);
 assert.match(redacted, /\[redacted-postgres-url\]/);
 
-console.log("DB migration runner check passed: env-file apply, dry-run isolation, source priority, and redaction are covered.");
+console.log("DB migration runner check passed: env-file apply, dry-run isolation, source priority, audited legacy checksum compatibility, and redaction are covered.");
 
 function buildSuccessfulPsqlRunner(calls) {
   return (command, args) => {

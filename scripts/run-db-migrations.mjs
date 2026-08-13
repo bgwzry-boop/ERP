@@ -9,6 +9,14 @@ import { redactSensitiveText } from "./run-v1-production-postgres-preflight.mjs"
 
 const defaultPsqlCommand = "psql";
 const databaseUrlSourceNames = ["ERP_V1_DATABASE_URL", "DATABASE_URL", "PGURL"];
+const compatibleLegacyMigrationChecksums = Object.freeze({
+  "0030_miniapp_order_intake": Object.freeze({
+    current: "423c48ebede1b1bf54a1e308c132fde00fd2268b62d342f70d3430ac3ea213ad",
+    applied: Object.freeze([
+      "d9333a508b2f6867cc913246cd0fbdde1e4de214fa2eda49f927043a6b3fd5d6",
+    ]),
+  }),
+});
 
 if (isCliEntrypoint()) runCli();
 
@@ -156,6 +164,10 @@ function runDbMigrations({
       continue;
     }
     if (appliedChecksum !== migration.checksum) {
+      if (isCompatibleLegacyMigrationChecksum(migration, appliedChecksum)) {
+        logger(`Accepted audited legacy checksum for ${migration.id}; migration history was not rewritten`);
+        continue;
+      }
       throw new Error(
         `Migration checksum mismatch for ${migration.id}. Existing ${appliedChecksum}, current ${migration.checksum}`,
       );
@@ -195,6 +207,15 @@ function runDbMigrations({
     pendingCount: 0,
     totalCount: migrations.length,
   };
+}
+
+function isCompatibleLegacyMigrationChecksum(migration, appliedChecksum) {
+  const compatibility = compatibleLegacyMigrationChecksums[migration.id];
+  return Boolean(
+    compatibility &&
+    migration.checksum === compatibility.current &&
+    compatibility.applied.includes(appliedChecksum),
+  );
 }
 
 function getDatabaseUrl(env) {
@@ -281,6 +302,7 @@ function redactMigrationText(value) {
 
 export {
   getDatabaseUrl,
+  isCompatibleLegacyMigrationChecksum,
   parseArgs,
   redactMigrationText,
   runDbMigrations,
