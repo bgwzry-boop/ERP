@@ -11,6 +11,20 @@ test("formal roll inventory resolves authoritative width before presentation", (
   assert.deepEqual(resolveRollWidth({}, { spec: "78*70*2000", widthCm: 70 }), { widthCm: 70, label: "70cm" });
   assert.deepEqual(resolveRollWidth({}, { materialCategory: "提手条", spec: "78*5" }), { widthCm: 5, label: "5cm 提手条" });
   assert.deepEqual(resolveRollWidth({ widthCm: 70 }, { materialCategory: "提手条", spec: "条" }), { widthCm: 5, label: "5cm 提手条" });
+  assert.deepEqual(
+    resolveRollWidth(
+      { supplierName: "人意无纺布", materialCategory: "布料", widthCm: 70 },
+      { materialCategory: "布料", spec: "78*1*1500", widthCm: 1, lengthM: 1500 },
+    ),
+    { widthCm: 100, label: "100cm" },
+  );
+  assert.deepEqual(
+    resolveRollWidth(
+      { supplierName: "其他供应商", materialCategory: "布料" },
+      { materialCategory: "布料", spec: "78*1*1500", widthCm: 1, lengthM: 1500 },
+    ),
+    { widthCm: 1, label: "1cm" },
+  );
   assert.deepEqual(resolveRollWidth({}, { spec: "特殊尺寸" }), { widthCm: 0, label: "宽幅待确认" });
 });
 

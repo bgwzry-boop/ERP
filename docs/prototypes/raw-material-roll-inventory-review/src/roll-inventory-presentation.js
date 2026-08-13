@@ -41,12 +41,18 @@ export function resolveRollWidth(inbound = {}, roll = {}) {
   const explicitWidthCm = positiveNumber(roll.widthCm)
     || positiveNumber(inbound.widthCm)
     || widthNumberFromLabel(roll.width);
+  const isRenyiOneMeterCloth = !isHandleStrip
+    && /(?:人意|仁意)/u.test(cleanText(inbound.supplierName || roll.supplierName))
+    && explicitWidthCm === 1
+    && positiveNumber(roll.lengthM || inbound.lengthM) > 0;
   const parsedSpec = parseRawMaterialSpec(
     cleanText(roll.specDisplay || roll.spec || inbound.specDisplay || inbound.spec),
   );
   const widthCm = isHandleStrip
     ? RAW_MATERIAL_HANDLE_WIDTH_CM
-    : explicitWidthCm || positiveNumber(parsedSpec.widthCm);
+    : isRenyiOneMeterCloth
+      ? 100
+      : explicitWidthCm || positiveNumber(parsedSpec.widthCm);
   const handleStrip = isHandleStrip || widthCm === RAW_MATERIAL_HANDLE_WIDTH_CM;
 
   return {
