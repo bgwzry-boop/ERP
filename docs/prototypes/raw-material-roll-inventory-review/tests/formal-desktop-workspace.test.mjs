@@ -13,6 +13,16 @@ test("4174 has one immutable local preview identity", async () => {
   assert.equal(identity.rootWorkbenchPort, 5173);
 });
 
+test("4174 embeds the same controlled release identity as the API", async () => {
+  const [mainSource, viteConfigSource] = await Promise.all([
+    readSource("../src/main.jsx"),
+    readSource("../vite.config.mjs"),
+  ]);
+  assert.match(mainSource, /exposeReleaseIdentity\(\)/);
+  assert.match(viteConfigSource, /controlledReleaseHtmlPlugin\(buildEnv\)/);
+  assert.match(viteConfigSource, /VITE_ERP_API_BASE_URL/);
+});
+
 test("desktop workbenches consume formal APIs without fixture fallbacks", async () => {
   const [appSource, workspacesSource, adapterSource] = await Promise.all([
     readSource("../src/App.jsx"),

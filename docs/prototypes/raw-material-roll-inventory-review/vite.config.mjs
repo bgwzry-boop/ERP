@@ -1,5 +1,6 @@
-import { defineConfig } from "vite";
+import { defineConfig, loadEnv } from "vite";
 import react from "@vitejs/plugin-react";
+import { controlledReleaseHtmlPlugin } from "../../../vite.config.mjs";
 
 export function enforceCompleteReviewPortPlugin() {
   return {
@@ -15,8 +16,10 @@ export function enforceCompleteReviewPortPlugin() {
   };
 }
 
-export default defineConfig(({ command }) => ({
-  build: {
+export default defineConfig(({ command, mode }) => {
+  const buildEnv = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
+  return {
+    build: {
     outDir: "dist/client",
     rollupOptions: {
       output: {
@@ -37,24 +40,25 @@ export default defineConfig(({ command }) => ({
         },
       },
     },
-  },
-  define: command === "build"
-    ? { "import.meta.env.VITE_ERP_API_BASE_URL": JSON.stringify(process.env.VITE_ERP_API_BASE_URL || "/api") }
-    : {},
-  optimizeDeps: {
-    include: ["react", "react-dom/client"],
-  },
-  resolve: {
-    dedupe: ["react", "react-dom"],
-  },
-  server: {
-    host: "127.0.0.1",
-    port: 4174,
-    strictPort: true,
-    allowedHosts: ["terminal.local"],
-    warmup: {
-      clientFiles: ["./src/main.jsx"],
     },
-  },
-  plugins: [react(), enforceCompleteReviewPortPlugin()],
-}));
+    define: command === "build"
+      ? { "import.meta.env.VITE_ERP_API_BASE_URL": JSON.stringify(buildEnv.VITE_ERP_API_BASE_URL || "/api") }
+      : {},
+    optimizeDeps: {
+      include: ["react", "react-dom/client"],
+    },
+    resolve: {
+      dedupe: ["react", "react-dom"],
+    },
+    server: {
+      host: "127.0.0.1",
+      port: 4174,
+      strictPort: true,
+      allowedHosts: ["terminal.local"],
+      warmup: {
+        clientFiles: ["./src/main.jsx"],
+      },
+    },
+    plugins: [react(), controlledReleaseHtmlPlugin(buildEnv), enforceCompleteReviewPortPlugin()],
+  };
+});
