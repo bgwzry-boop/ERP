@@ -126,7 +126,7 @@ export function createOfficeV1StatusActions({
         ? result.error?.requiredPermission
           ? `缺少权限 ${result.error.requiredPermission}`
           : result.error?.message || "仍需修正 CSV"
-        : `证据 ${draft.summary?.evidenceProgress || "0/34"}，签字 ${draft.summary?.signoffProgress || "0/6"}`;
+        : `证据 ${draft.summary?.evidenceProgress || "0/40"}，签字 ${draft.summary?.signoffProgress || "0/6"}`;
       return `现场证据 manifest 草稿：${draft.statusLabel || "草稿已处理"}；${suffix}。`;
     },
   });
@@ -141,7 +141,7 @@ export function createOfficeV1StatusActions({
         ? result.error?.requiredPermission
           ? `缺少权限 ${result.error.requiredPermission}`
           : result.error?.message || "草稿需修正"
-        : `证据 ${validation.summary?.evidenceProgress || "0/34"}，签字 ${validation.summary?.signoffProgress || "0/6"}`;
+        : `证据 ${validation.summary?.evidenceProgress || "0/40"}，签字 ${validation.summary?.signoffProgress || "0/6"}`;
       return `现场证据 manifest 草稿校验：${validation.statusLabel || "校验完成"}；${suffix}。`;
     },
   });
@@ -189,7 +189,7 @@ export function createOfficeV1StatusActions({
         ? result.error?.requiredPermission
           ? `缺少权限 ${result.error.requiredPermission}`
           : result.error?.message || "草稿行需修正"
-        : `证据 ${stage.summary?.evidenceProgress || "0/34"}，签字 ${stage.summary?.signoffProgress || "0/6"}`;
+        : `证据 ${stage.summary?.evidenceProgress || "0/40"}，签字 ${stage.summary?.signoffProgress || "0/6"}`;
       return `现场草稿行：${stage.summary?.rowLabel || "现场证据行"} ${stage.statusLabel || "草稿已处理"}；${suffix}。`;
     },
   });
@@ -455,7 +455,7 @@ export function createOfficeV1StatusActions({
     operation: api.precheckOfficeV1ReleaseCandidateRefresh,
     resultKey: "precheckResult",
     failureLabel: "刷新候选预检",
-    successMessage: (precheck) => `刷新候选预检：${precheck.statusLabel || "预检完成"}；证据 ${precheck.summary?.evidenceProgress || "0/34"}，生产 env ${precheck.summary?.productionEnvPreflightLabel || "0/10"}，阻塞 ${precheck.summary?.blockerLabel || "0 项"}。`,
+    successMessage: (precheck) => `刷新候选预检：${precheck.statusLabel || "预检完成"}；证据 ${precheck.summary?.evidenceProgress || "0/40"}，生产 env ${precheck.summary?.productionEnvPreflightLabel || "0/10"}，阻塞 ${precheck.summary?.blockerLabel || "0 项"}。`,
   });
 
   const refreshV1ReleaseCandidate = () => runStatusAction({

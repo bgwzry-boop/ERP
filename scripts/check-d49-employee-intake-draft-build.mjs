@@ -8,6 +8,7 @@ const root = join(process.cwd(), ".erp-local-storage", "checks", "d49-employee-i
 const runner = join(process.cwd(), "scripts", "run-d49-employee-intake-draft-build.mjs");
 const draftPath = join(root, "controlled-intake.json");
 const workbookPath = join(root, "controlled-intake.xlsx");
+const filteredWorkbookPath = join(root, "controlled-intake-filtered.xlsx");
 const privateValues = ["受控姓名甲", "受控姓名乙", "PRIVATE-001", "controlled-intake.json", root];
 
 rmSync(root, { recursive: true, force: true });
@@ -76,6 +77,62 @@ assert.equal(precheck.sheets[0].dataRowCount, 2);
 assert.equal(precheck.employeeRoleCoverage.coverageLabel, "3/8");
 assert.equal(precheck.issues.filter((item) => item.field === "员工编号").length, 1);
 
+const filteredRun = await runNode([
+  runner,
+  "--draft-json",
+  draftPath,
+  "--output-file",
+  filteredWorkbookPath,
+  "--exclude-employee-number",
+  "PRIVATE-001",
+  "--confirm-controlled-rebuild",
+  "--json",
+]);
+assert.equal(filteredRun.status, 0, filteredRun.stderr || filteredRun.stdout);
+const filteredResult = JSON.parse(filteredRun.stdout);
+assert.equal(filteredResult.summary.employeeRowCount, 1);
+assert.equal(filteredResult.summary.excludedEmployeeCount, 1);
+assert.equal(filteredResult.summary.missingEmployeeNumberCount, 1);
+assert.equal(statSync(filteredWorkbookPath).mode & 0o777, 0o600);
+assertNoPrivateData(filteredRun.stdout);
+const filteredPrecheck = await precheckMasterDataImportWorkbook({
+  bytes: readFileSync(filteredWorkbookPath),
+  checkedAt: "2026-07-14T00:00:00.000Z",
+});
+assert.equal(filteredPrecheck.sheets[0].dataRowCount, 1);
+
+const unknownExclusionRun = await runNode([
+  runner,
+  "--draft-json",
+  draftPath,
+  "--output-file",
+  join(root, "unknown-exclusion.xlsx"),
+  "--exclude-employee-number",
+  "PRIVATE-999",
+  "--confirm-controlled-rebuild",
+  "--json",
+]);
+assert.equal(unknownExclusionRun.status, 1);
+assert.equal(JSON.parse(unknownExclusionRun.stdout).error.code, "excluded_employee_number_unknown");
+assertNoPrivateData(unknownExclusionRun.stdout);
+
+const duplicateExclusionRun = await runNode([
+  runner,
+  "--draft-json",
+  draftPath,
+  "--output-file",
+  join(root, "duplicate-exclusion.xlsx"),
+  "--exclude-employee-number",
+  "PRIVATE-001",
+  "--exclude-employee-number",
+  "private-001",
+  "--confirm-controlled-rebuild",
+  "--json",
+]);
+assert.equal(duplicateExclusionRun.status, 1);
+assert.equal(JSON.parse(duplicateExclusionRun.stdout).error.code, "excluded_employee_number_duplicate");
+assertNoPrivateData(duplicateExclusionRun.stdout);
+
 const invalidRolePath = join(root, "invalid-role.json");
 writeFileSync(invalidRolePath, `${JSON.stringify(buildDraft({ invalidRole: true }), null, 2)}\n`, { mode: 0o600 });
 const invalidRoleRun = await runNode([
@@ -106,7 +163,7 @@ assert.equal(duplicateRun.status, 1);
 assert.equal(JSON.parse(duplicateRun.stdout).error.code, "employee_number_duplicate");
 assertNoPrivateData(duplicateRun.stdout);
 
-console.log("D49 controlled intake draft build passed: explicit confirmation, identity-redacted output, role validation, private file mode, workbook generation, and duplicate-number blocking are covered.");
+console.log("D49 controlled intake draft build passed: explicit confirmation, identity-redacted output, stable-ID exclusions, role validation, private file mode, workbook generation, and duplicate-number blocking are covered.");
 
 function buildDraft({ invalidRole = false, duplicateNumber = false } = {}) {
   return {

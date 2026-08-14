@@ -64,21 +64,28 @@ export function buildV1D49EmployeeIntakeStatus({
     const missingEmployeeNumberCount = (Array.isArray(report.issues) ? report.issues : [])
       .filter(isMissingEmployeeNumberIssue)
       .length;
+    const payrollAttendanceCoverage = normalizePayrollAttendanceCoverage(
+      report.payrollAttendanceReadiness,
+      employeeRowCount,
+    );
     const ready = freshness.fresh
       && report.ready === true
       && report.uploadAllowed === true
       && errorCount === 0
       && missingEmployeeNumberCount === 0
-      && coveredRoleCount === requiredRoleCount;
+      && coveredRoleCount === requiredRoleCount
+      && payrollAttendanceCoverage.ready === true;
     const status = !freshness.fresh
       ? "stale"
       : ready
       ? "ready_for_upload"
       : missingEmployeeNumberCount > 0
         ? "needs_employee_numbers"
-        : missingRoles.length > 0
-          ? "needs_role_coverage"
-          : "review_required";
+          : missingRoles.length > 0
+            ? "needs_role_coverage"
+            : payrollAttendanceCoverage.ready !== true
+              ? "needs_payroll_attendance_fields"
+              : "review_required";
 
     return {
       version: "p0-v1-d49-employee-intake-status-v2",
@@ -91,7 +98,14 @@ export function buildV1D49EmployeeIntakeStatus({
       checkedAt: safeIsoDate(report.checkedAt, fallbackCheckedAt),
       freshness,
       summary: {
-        label: buildStatusLabel({ freshness, ready, employeeRowCount, missingEmployeeNumberCount, missingRoles }),
+        label: buildStatusLabel({
+          freshness,
+          ready,
+          employeeRowCount,
+          missingEmployeeNumberCount,
+          missingRoles,
+          payrollAttendanceCoverage,
+        }),
         employeeRowCount,
         coveredRoleCount,
         requiredRoleCount,
@@ -104,10 +118,19 @@ export function buildV1D49EmployeeIntakeStatus({
         blockerCount: errorCount,
         blockerLabel: `${errorCount} 项`,
         freshnessLabel: freshness.label,
+        payrollAttendanceCoverageLabel: payrollAttendanceCoverage.coverageLabel,
       },
       roles,
+      payrollAttendanceCoverage,
       missingRoleLabels: missingRoles.map((role) => role.roleLabel),
-      nextAction: buildNextAction({ freshness, ready, employeeRowCount, missingEmployeeNumberCount, missingRoles }),
+      nextAction: buildNextAction({
+        freshness,
+        ready,
+        employeeRowCount,
+        missingEmployeeNumberCount,
+        missingRoles,
+        payrollAttendanceCoverage,
+      }),
       safeguards: safeOutputSafeguards(true, freshness.sourceMatched),
     };
   } catch {
@@ -174,17 +197,34 @@ function isMissingEmployeeNumberIssue(issue = {}) {
     && String(issue.message ?? "").includes("不能为空");
 }
 
-function buildStatusLabel({ freshness, ready, employeeRowCount, missingEmployeeNumberCount, missingRoles }) {
+function buildStatusLabel({
+  freshness,
+  ready,
+  employeeRowCount,
+  missingEmployeeNumberCount,
+  missingRoles,
+  payrollAttendanceCoverage,
+}) {
   if (!freshness.fresh) return `受控草稿上次预检不可作为当前结果：${freshness.label}`;
   if (ready) return `受控草稿 ${employeeRowCount} 人，已通过离线预检查`;
   if (missingEmployeeNumberCount > 0) {
     return `受控草稿 ${employeeRowCount} 人，仍缺 ${missingEmployeeNumberCount} 个员工编号`;
   }
   if (missingRoles.length > 0) return `受控草稿仍缺 ${missingRoles.length} 个正式岗位`;
+  if (payrollAttendanceCoverage?.ready !== true) {
+    return `受控草稿工资/考勤资料仅 ${payrollAttendanceCoverage?.coverageLabel || "未读取"} 完整`;
+  }
   return "受控草稿仍需人工复核";
 }
 
-function buildNextAction({ freshness, ready, employeeRowCount, missingEmployeeNumberCount, missingRoles }) {
+function buildNextAction({
+  freshness,
+  ready,
+  employeeRowCount,
+  missingEmployeeNumberCount,
+  missingRoles,
+  payrollAttendanceCoverage,
+}) {
   if (!freshness.fresh) {
     return "受控员工工作簿或预检时效已变化；重新运行D49专用离线预检查，确认新报告与当前工作簿一致后再继续。";
   }
@@ -197,6 +237,9 @@ function buildNextAction({ freshness, ready, employeeRowCount, missingEmployeeNu
   }
   if (missingRoles.length > 0) {
     return `补充${missingRoles.map((role) => role.roleLabel).join("、")}正式员工后重新预检查；未补齐前D49保持阻塞。`;
+  }
+  if (payrollAttendanceCoverage?.ready !== true) {
+    return `补齐全部 ${payrollAttendanceCoverage?.employeeCount || employeeRowCount} 名在职员工的出生/入职日期、基础时薪/生效日期和考勤来源/人员编号后，使用严格工资考勤参数重新预检查；未达到全员完整前D49保持阻塞。`;
   }
   return "按离线预检查结果修正受控草稿后重新预检查，uploadAllowed=true后再进入网页上传。";
 }
@@ -226,8 +269,10 @@ function unavailableStatus(checkedAt) {
       blockerCount: 0,
       blockerLabel: "未读取",
       freshnessLabel: "未验证",
+      payrollAttendanceCoverageLabel: "未读取",
     },
     roles: [],
+    payrollAttendanceCoverage: unavailablePayrollAttendanceCoverage(),
     missingRoleLabels: [],
     nextAction: "重新运行D49专用员工工作簿离线预检查；报告通过脱敏边界校验后才会显示聚合结果。",
     safeguards: safeOutputSafeguards(false, false),
@@ -303,6 +348,54 @@ function unavailableFreshness() {
     sourceMatched: false,
     maxAgeHours: MAX_REPORT_AGE_MS / (60 * 60 * 1000),
     ageHours: null,
+  };
+}
+
+function normalizePayrollAttendanceCoverage(value, employeeRowCount = 0) {
+  const source = value && typeof value === "object" ? value : null;
+  if (!source) return unavailablePayrollAttendanceCoverage();
+  const employeeCount = nonNegativeInteger(source.employeeCount, employeeRowCount);
+  const completeCount = Math.min(employeeCount, nonNegativeInteger(source.completeCount));
+  const incompleteCount = Math.max(0, employeeCount - completeCount);
+  const profileReadyCount = Math.min(employeeCount, nonNegativeInteger(source.profileReadyCount));
+  const wageReadyCount = Math.min(employeeCount, nonNegativeInteger(source.wageReadyCount));
+  const attendanceMappingReadyCount = Math.min(
+    employeeCount,
+    nonNegativeInteger(source.attendanceMappingReadyCount),
+  );
+  const complete = employeeCount > 0
+    && completeCount === employeeCount
+    && profileReadyCount === employeeCount
+    && wageReadyCount === employeeCount
+    && attendanceMappingReadyCount === employeeCount;
+  return {
+    available: true,
+    required: source.required === true,
+    ready: complete,
+    complete,
+    employeeCount,
+    completeCount,
+    incompleteCount,
+    profileReadyCount,
+    wageReadyCount,
+    attendanceMappingReadyCount,
+    coverageLabel: `${completeCount}/${employeeCount}`,
+  };
+}
+
+function unavailablePayrollAttendanceCoverage() {
+  return {
+    available: false,
+    required: false,
+    ready: false,
+    complete: false,
+    employeeCount: 0,
+    completeCount: 0,
+    incompleteCount: 0,
+    profileReadyCount: 0,
+    wageReadyCount: 0,
+    attendanceMappingReadyCount: 0,
+    coverageLabel: "未读取",
   };
 }
 

@@ -60,6 +60,12 @@ const dependencies = {
       return { file: { body: "row,error", options: { contentType: "text/csv", fileName: "failed.csv" } } };
     },
   },
+  phoneIdentityCommandService: {
+    listRegistrationReviews(input) {
+      calls.push({ kind: "phoneRegistrations", ...input });
+      return [{ userId: "U-PHONE-1" }];
+    },
+  },
   sendNotFound(response, code) {
     calls.push({ kind: "notFound", response, code });
   },
@@ -76,6 +82,7 @@ await expectList("/api/master-data/import-review-drafts?draftId=DRAFT-1&status=�
 await expectList("/api/master-data/import-executions?draftId=DRAFT-1&planId=PLAN-1&executionId=EX-1&status=已完成", "master_data.import.execute", "executions", { draftId: "DRAFT-1", planId: "PLAN-1", executionId: "EX-1", status: "已完成" }, { executionId: "EX-1" });
 await expectList("/api/master-data/employee-account-reviews?status=待启用&employeeId=EMP-1&keyword=张", "master_data.employee_account.review", "employees", { status: "待启用", employeeId: "EMP-1", keyword: "张" }, { employeeId: "EMP-1" });
 await expectList("/api/master-data/machines?keyword=1号&status=active&workshop=1号车间", "master_data.employee_account.review", "machines", { keyword: "1号", status: "active", workshop: "1号车间" }, { machineId: "BAG-01", workshop: "1号车间", status: "active" });
+await expectList("/api/master-data/personnel/registration-reviews?status=pending_assignment&keyword=138", "master_data.employee_account.review", "phoneRegistrations", { status: "pending_assignment", keyword: "138" }, { userId: "U-PHONE-1" });
 
 calls.length = 0;
 assert.equal(await handleMasterDataReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/master-data/import-executions/EX-1/failed-rows") }), true);
@@ -134,7 +141,11 @@ async function expectList(pathname, permission, kind, filters, item) {
   assert.equal(await handleMasterDataReadRoutes({ ...dependencies, url: new URL(`http://erp.test${pathname}`) }), true);
   const expectedCalls = [
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission },
-    ["employees", "machines"].includes(kind) ? { kind, sourceWorkspace: workspace, filters } : { kind, filters },
+    ["employees", "machines"].includes(kind)
+      ? { kind, sourceWorkspace: workspace, filters }
+      : kind === "phoneRegistrations"
+        ? { kind, workspace, filters }
+        : { kind, filters },
   ];
   const body = { items: [item], page: pathname.includes("page=2") ? 2 : 1 };
   if (kind === "employees") {

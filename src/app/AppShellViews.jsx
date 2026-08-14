@@ -6,6 +6,7 @@ import {
   SearchOutlined,
   UserOutlined,
 } from "@ant-design/icons";
+import bagwinDomesticLogoUrl from "../assets/brand/BAGWIN_domestic_horizontal_color.svg";
 import { getRuntimePasswordChangePresentation } from "./runtimeAuthPresentation.js";
 
 export function RuntimeLoginScreen({ error, form, loading, onChange, onSubmit }) {
@@ -13,11 +14,8 @@ export function RuntimeLoginScreen({ error, form, loading, onChange, onSubmit })
     <main className="runtime-login-shell">
       <form className="runtime-login-panel" onSubmit={onSubmit}>
         <div className="runtime-login-brand">
-          <div className="brand-mark">ERP</div>
-          <div>
-            <strong>设计中心小工厂</strong>
-            <span>生产系统</span>
-          </div>
+          <img alt="袋袋赢 BAGWIN" className="runtime-login-logo" src={bagwinDomesticLogoUrl} />
+          <span>ERP 生产系统</span>
         </div>
         <div className="runtime-login-heading">
           <h1>账号登录</h1>
@@ -62,11 +60,8 @@ export function RuntimePasswordChangeScreen({ error, form, loading, onChange, on
     <main className="runtime-login-shell">
       <form className="runtime-login-panel runtime-password-change-panel" onSubmit={onSubmit}>
         <div className="runtime-login-brand">
-          <div className="brand-mark">ERP</div>
-          <div>
-            <strong>设计中心小工厂</strong>
-            <span>生产系统</span>
-          </div>
+          <img alt="袋袋赢 BAGWIN" className="runtime-login-logo" src={bagwinDomesticLogoUrl} />
+          <span>ERP 生产系统</span>
         </div>
         <div className="runtime-login-heading">
           <h1>{presentation.title}</h1>
@@ -123,9 +118,6 @@ export function Topbar({ authSourceLabel, currentUserId, currentUser, firstRelea
   const currentRoleLabel = currentUserOption?.roleLabel || "正式账号";
   return (
     <header className="topbar">
-      <div className="factory-switcher">
-        虎门工厂
-      </div>
       {!firstReleaseMode ? <>
         <label className="search">
           <SearchOutlined aria-hidden="true" />

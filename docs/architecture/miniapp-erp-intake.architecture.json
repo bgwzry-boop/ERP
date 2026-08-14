@@ -1,0 +1,329 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "客户下单小程序 → ERP 接单架构",
+    "subtitle": "双渠道独立留痕、服务器权威复核、办公室 A/B 确认后形成正式订单",
+    "output": "miniapp-erp-intake-architecture.html",
+    "viewBox": [1680, 1080]
+  },
+  "components": [
+    {
+      "id": "miniapp_customer",
+      "type": "external",
+      "label": "已开放客户",
+      "sublabel": "逐步邀请 · 独立账号",
+      "tag": "小程序渠道",
+      "pos": [30, 340],
+      "size": [150, 72]
+    },
+    {
+      "id": "miniapp_client",
+      "type": "frontend",
+      "label": "微信下单小程序",
+      "sublabel": "复购 · 选品 · 提交",
+      "tag": "不持有 ERP 密钥",
+      "pos": [220, 340],
+      "size": [160, 72]
+    },
+    {
+      "id": "wechat_identity",
+      "type": "security",
+      "label": "微信身份与客户绑定",
+      "sublabel": "OpenID / UnionID → customer",
+      "tag": "未绑定默认拒绝",
+      "pos": [420, 130],
+      "size": [170, 72]
+    },
+    {
+      "id": "miniapp_bff",
+      "type": "backend",
+      "label": "Miniapp API / BFF",
+      "sublabel": "字段白名单 · 客户范围读取",
+      "tag": "独立公网边界",
+      "pos": [420, 340],
+      "size": [170, 72]
+    },
+    {
+      "id": "object_storage",
+      "type": "cloud",
+      "label": "私有对象存储",
+      "sublabel": "印刷稿件 · 内容摘要",
+      "tag": "短时上传凭证",
+      "pos": [420, 540],
+      "size": [170, 72]
+    },
+    {
+      "id": "intake_guard",
+      "type": "security",
+      "label": "接单门禁",
+      "sublabel": "绑定 · 幂等 · 哈希 · 重算",
+      "tag": "客户端金额不可信",
+      "pos": [630, 340],
+      "size": [160, 72]
+    },
+    {
+      "id": "intake_adapter",
+      "type": "backend",
+      "label": "ERP 接单适配器",
+      "sublabel": "规范化 · 主数据映射",
+      "tag": "不直接建正式订单",
+      "pos": [830, 340],
+      "size": [160, 72]
+    },
+    {
+      "id": "intake_submission",
+      "type": "database",
+      "label": "来源信封与订单草稿",
+      "sublabel": "原始提交 · 快照 · 行级来源",
+      "tag": "source 可追溯",
+      "pos": [1030, 340],
+      "size": [170, 72]
+    },
+    {
+      "id": "office_ab",
+      "type": "external",
+      "label": "办公室 A / B",
+      "sublabel": "公共待办 · 人工复核",
+      "tag": "共享任务池",
+      "pos": [1240, 130],
+      "size": [170, 72]
+    },
+    {
+      "id": "formal_order",
+      "type": "backend",
+      "label": "正式订单命令服务",
+      "sublabel": "价格 · 库存 · 交期再确认",
+      "tag": "一次性确认",
+      "pos": [1450, 340],
+      "size": [180, 72]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "订单 · 快照 · 审计 · 并发",
+      "tag": "生产事实源",
+      "pos": [1450, 560],
+      "size": [180, 72]
+    },
+    {
+      "id": "wechat_customer",
+      "type": "external",
+      "label": "未开放客户",
+      "sublabel": "继续在微信群下单",
+      "tag": "微信群渠道",
+      "pos": [30, 720],
+      "size": [150, 72]
+    },
+    {
+      "id": "wechat_group",
+      "type": "frontend",
+      "label": "微信群消息",
+      "sublabel": "原消息 · 人员 · 时间顺序",
+      "tag": "保留原始上下文",
+      "pos": [220, 720],
+      "size": [160, 72]
+    },
+    {
+      "id": "office_entry",
+      "type": "frontend",
+      "label": "办公室订单录入",
+      "sublabel": "粘贴识别 · 行级核对",
+      "tag": "人工操作",
+      "pos": [420, 720],
+      "size": [170, 72]
+    },
+    {
+      "id": "conversation_recognition",
+      "type": "backend",
+      "label": "会话识别与分组",
+      "sublabel": "消息组 → 独立草稿",
+      "tag": "source=wechat",
+      "pos": [630, 720],
+      "size": [160, 72]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "客户终端边界 · 所有客户端输入均不可信",
+      "wraps": ["miniapp_customer", "miniapp_client"],
+      "pad": 22
+    },
+    {
+      "kind": "region",
+      "label": "未来小程序公网服务边界 · 企业云、HTTPS 与备案完成后启用",
+      "wraps": ["wechat_identity", "miniapp_bff", "object_storage"],
+      "pad": 24
+    },
+    {
+      "kind": "security-group",
+      "label": "ERP 可信写入边界 · 业务规则、客户权限与服务端重算只在此执行",
+      "wraps": ["intake_guard", "intake_adapter", "intake_submission", "formal_order", "postgres"],
+      "pad": 24
+    },
+    {
+      "kind": "region",
+      "label": "微信群人工接单边界 · 与小程序渠道独立留痕，不静默合并",
+      "wraps": ["wechat_customer", "wechat_group", "office_entry", "conversation_recognition"],
+      "pad": 22
+    }
+  ],
+  "connections": [
+    {
+      "from": "miniapp_customer",
+      "to": "miniapp_client",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "miniapp_client",
+      "to": "miniapp_bff",
+      "label": "HTTPS",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [400, 326]
+    },
+    {
+      "from": "wechat_identity",
+      "to": "miniapp_bff",
+      "label": "短期会话",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight",
+      "labelAt": [505, 270]
+    },
+    {
+      "from": "miniapp_bff",
+      "to": "intake_guard",
+      "label": "结构化提交",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [610, 426]
+    },
+    {
+      "from": "miniapp_bff",
+      "to": "object_storage",
+      "label": "上传凭证",
+      "variant": "dashed",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight",
+      "labelAt": [505, 476]
+    },
+    {
+      "from": "intake_guard",
+      "to": "intake_adapter",
+      "label": "校验通过",
+      "variant": "security",
+      "route": "straight",
+      "labelAt": [810, 326]
+    },
+    {
+      "from": "intake_adapter",
+      "to": "intake_submission",
+      "label": "原子写入",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [1010, 426]
+    },
+    {
+      "from": "intake_submission",
+      "to": "office_ab",
+      "label": "待复核任务",
+      "variant": "dashed",
+      "fromSide": "top",
+      "toSide": "bottom",
+      "via": [[1115, 285], [1325, 285]],
+      "labelAt": [1210, 270]
+    },
+    {
+      "from": "office_ab",
+      "to": "formal_order",
+      "label": "确认 / 退回",
+      "variant": "emphasis",
+      "fromSide": "right",
+      "toSide": "top",
+      "via": [[1540, 166]],
+      "labelAt": [1465, 150]
+    },
+    {
+      "from": "formal_order",
+      "to": "postgres",
+      "label": "SQL 事务",
+      "variant": "emphasis",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight",
+      "labelAt": [1540, 486]
+    },
+    {
+      "from": "wechat_customer",
+      "to": "wechat_group",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "wechat_group",
+      "to": "office_entry",
+      "label": "人工粘贴",
+      "variant": "default",
+      "route": "straight",
+      "labelAt": [400, 706]
+    },
+    {
+      "from": "office_entry",
+      "to": "conversation_recognition",
+      "label": "消息上下文",
+      "variant": "default",
+      "route": "straight",
+      "labelAt": [610, 806]
+    },
+    {
+      "from": "conversation_recognition",
+      "to": "intake_adapter",
+      "label": "独立来源信封",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "bottom",
+      "via": [[910, 756], [910, 455]],
+      "labelAt": [925, 630]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "统一接单原则",
+      "items": [
+        "小程序与微信群最终进入同一办公室公共待办，但来源、原始证据和外部提交号始终分开",
+        "任何渠道都先形成订单草稿；办公室 A/B 复核后，正式订单命令才可执行一次"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "服务端权威",
+      "items": [
+        "客户身份、字段权限、幂等键、请求哈希、价格、库存、交期和文件归属由服务端判定",
+        "客户端报价与库存只作为客户当时所见快照，不可直接成为正式成交事实"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "客户可见投影",
+      "items": [
+        "BFF 只返回当前客户自己的目录、订单和简化状态，不暴露库位、成本、机台、内部待办或审计",
+        "公开状态由 ERP 内部节点映射生成，不要求客户理解工厂内部流程"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "上线边界",
+      "items": [
+        "该架构不阻塞原材料一期的本地现场试跑；小程序客户测试属于后续独立上线范围",
+        "正式开放前仍需企业云、域名与备案、HTTPS、PostgreSQL、对象存储和微信生产配置"
+      ]
+    }
+  ]
+}

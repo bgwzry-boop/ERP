@@ -63,13 +63,13 @@ export function createV1ReleaseCandidateRefreshPrecheckService({
       const evidenceProgress =
         cleanProgress(draftValidation?.summary?.evidenceProgress) ||
         cleanProgress(fieldEvidenceQuality?.summary?.evidenceProgress) ||
-        "0/34";
+        "0/40";
       const signoffProgress =
         cleanProgress(draftValidation?.summary?.signoffProgress) ||
         cleanProgress(fieldEvidenceQuality?.summary?.signoffProgress) ||
         "0/6";
       const evidenceGroupsReadyLabel =
-        cleanProgress(draftValidation?.summary?.evidenceGroupsReadyLabel) || "0/6";
+        cleanProgress(draftValidation?.summary?.evidenceGroupsReadyLabel) || "0/7";
       const boundaryReady = Boolean(
         draftValidation?.boundary?.ready || fieldEvidenceQuality?.summary?.boundaryReady,
       );
@@ -185,9 +185,9 @@ function missingDraftValidation() {
     ready: false,
     schemaValid: false,
     summary: {
-      evidenceProgress: "0/34",
+      evidenceProgress: "0/40",
       signoffProgress: "0/6",
-      evidenceGroupsReadyLabel: "0/6",
+      evidenceGroupsReadyLabel: "0/7",
       blockingIssueCount: 0,
     },
     boundary: { status: "pending", label: "待确认", ready: false },

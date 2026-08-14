@@ -5,9 +5,12 @@ import {
   createInventoryCorrectionEvidenceAttachmentInput,
   createMaintenanceEvidenceAttachmentInput,
   createPaymentScreenshotAttachmentInput,
+  createPayrollAdjustmentEvidenceAttachmentInput,
+  createPrintArtworkAttachmentInput,
   downloadOfficeAttachmentContent,
   listOfficeAttachmentAccessLogs,
   listOfficeAttachments,
+  uploadOfficeAttachmentFile,
   validateAttachmentUploadInput,
 } from "../src/services/officeAttachmentApiClient.js";
 import {
@@ -45,6 +48,28 @@ assert(validateAttachmentUploadInput(paymentInput) === null, "valid payment scre
 assert(
   validateAttachmentUploadInput({ ...paymentInput, contentDataUrl: "", fileSize: undefined })?.code === "ATTACHMENT_CONTENT_REQUIRED",
   "payment screenshot without a real file should fail frontend validation",
+);
+
+const payrollEvidenceInput = createPayrollAdjustmentEvidenceAttachmentInput({
+  payrollRunId: "PAY-2026-08-R1",
+  employeeId: "ERP-0001",
+  operatorId: "U-FINANCE-A",
+  remark: "本月绩效核定表",
+  file: {
+    name: "ERP-0001-绩效核定.pdf",
+    type: "application/pdf",
+    size: 4096,
+    contentDataUrl: "data:application/pdf;base64,JVBERi0xLjQ=",
+  },
+});
+assert(payrollEvidenceInput.ownerType === "payroll_run", "payroll adjustment evidence should bind the payroll run");
+assert(payrollEvidenceInput.ownerId === "PAY-2026-08-R1", "payroll adjustment evidence owner ID is incorrect");
+assert(payrollEvidenceInput.purpose === "payroll_adjustment_evidence", "payroll adjustment evidence purpose is incorrect");
+assert(payrollEvidenceInput.metadata.employeeId === "ERP-0001", "payroll adjustment evidence should retain employee identity");
+assert(validateAttachmentUploadInput(payrollEvidenceInput) === null, "payroll adjustment PDF should pass validation");
+assert(
+  validateAttachmentUploadInput({ ...payrollEvidenceInput, contentDataUrl: "", fileSize: undefined })?.code === "ATTACHMENT_CONTENT_REQUIRED",
+  "payroll adjustment evidence without file content should fail validation",
 );
 
 const correctionEvidenceInput = createInventoryCorrectionEvidenceAttachmentInput({
@@ -111,11 +136,57 @@ const tooLargePhotoValidation = validateAttachmentUploadInput({
   purpose: "finished_goods_photo",
   fileName: "finished-photo.jpg",
   mimeType: "image/jpeg",
-  fileSize: 13 * 1024 * 1024,
+  fileSize: 31 * 1024 * 1024,
   contentRef: "p0://production-finished-goods/PT-001/too-large",
   uploadedBy: "U-WORKSHOP-A",
 });
 assert(tooLargePhotoValidation?.code === "ATTACHMENT_FILE_TOO_LARGE", "oversized finished-goods photo should fail local validation");
+
+const artworkInput = createPrintArtworkAttachmentInput({
+  draftId: "DRAFT-ARTWORK-001",
+  draftLine: { id: "LINE-01" },
+  operatorId: "U-OFFICE-A",
+  file: { name: "客户定稿.psd", type: "application/octet-stream", size: 200 * 1024 * 1024 },
+});
+assert(artworkInput.ownerType === "order_draft_line", "print artwork should bind the draft line");
+assert(artworkInput.ownerId === "DRAFT-ARTWORK-001:LINE-01", "print artwork owner ID should include draft and line IDs");
+assert(validateAttachmentUploadInput({ ...artworkInput, binaryContent: true }) === null, "200MB PSD should pass validation");
+assert(
+  validateAttachmentUploadInput({ ...artworkInput, fileSize: 200 * 1024 * 1024 + 1, binaryContent: true })?.code === "ATTACHMENT_FILE_TOO_LARGE",
+  "PSD larger than 200MB should fail validation",
+);
+assert(
+  validateAttachmentUploadInput({ ...artworkInput, fileName: "客户定稿.zip", binaryContent: true })?.code === "ATTACHMENT_FILE_EXTENSION_NOT_ALLOWED",
+  "unsupported print artwork extension should fail validation",
+);
+let artworkBinaryCall = null;
+const artworkUploadResult = await uploadOfficeAttachmentFile(
+  { ...artworkInput, authState: { ...authState, session: { accessToken: "seed-session.artwork-check" } } },
+  {
+    apiBaseUrl: "http://127.0.0.1:8787/api",
+    fetchImpl: async (url, init) => {
+      artworkBinaryCall = { url, init };
+      return createJsonResponse(200, {
+        attachmentId: "ATT-ARTWORK-001",
+        ownerType: artworkInput.ownerType,
+        ownerId: artworkInput.ownerId,
+        fileType: artworkInput.fileType,
+        purpose: artworkInput.purpose,
+        fileName: artworkInput.fileName,
+        mimeType: artworkInput.mimeType,
+        fileSize: artworkInput.fileSize,
+        hasContent: true,
+        url: "/api/attachments/ATT-ARTWORK-001/content",
+        status: "uploaded",
+      });
+    },
+  },
+);
+assert(artworkUploadResult.attachment.attachmentId === "ATT-ARTWORK-001", "binary artwork response should be mapped");
+assert(artworkBinaryCall.url.startsWith("http://127.0.0.1:8787/api/attachments/binary?"), "artwork should use the binary endpoint");
+assert(artworkBinaryCall.init.body === artworkInput.file, "artwork binary body should be the selected file");
+assert(artworkBinaryCall.init.headers["content-type"] === "application/octet-stream", "artwork MIME should be sent as the binary content type");
+assert(artworkBinaryCall.init.headers.authorization === "Bearer seed-session.artwork-check", "artwork binary upload should use bearer auth");
 
 const maintenanceEvidenceInput = createMaintenanceEvidenceAttachmentInput({
   taskId: "MT-PRINT-01",

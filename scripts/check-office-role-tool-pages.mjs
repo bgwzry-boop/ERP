@@ -48,7 +48,7 @@ assert.match(masterDataStylesSource, /\.master-data-workbench\s*\{[^}]*minmax\(3
 assert.match(masterDataPageSource, /\?\? visibleRecords\[0\] \?\? null/);
 
 assert.match(officePageSource, /export \{ RawMaterialInboundPage \} from "\.\.\/\.\.\/features\/raw-materials\/RawMaterialInboundPage\.jsx";/);
-assert.match(officePageSource, /export \{ MasterDataMaintenancePage \} from "\.\.\/\.\.\/features\/master-data\/MasterDataMaintenancePage\.jsx";/);
+assert.doesNotMatch(officePageSource, /export \{ MasterDataMaintenancePage \}/, "master-data must stay lazy-loaded outside the shared office page chunk");
 assert.doesNotMatch(officePageSource, /function RawMaterialInboundPage/);
 assert.doesNotMatch(officePageSource, /function MasterDataMaintenancePage/);
 assert.doesNotMatch(officePageSource, /function buildRawMaterialIssueOptions/);

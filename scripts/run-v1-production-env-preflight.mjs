@@ -17,6 +17,14 @@ const objectStorageRequiredNames = [
   "ERP_ATTACHMENT_OBJECT_STORAGE_ACCESS_KEY_ID",
   "ERP_ATTACHMENT_OBJECT_STORAGE_SECRET_ACCESS_KEY",
 ];
+const attendancePayrollRequiredNames = [
+  "ERP_ATTENDANCE_PAYROLL_STORE",
+  "ERP_ATTENDANCE_PROVIDER_MODE",
+  "ERP_ATTENDANCE_PROVIDER_KEY",
+  "ERP_ATTENDANCE_PROVIDER_ENDPOINT",
+  "ERP_ATTENDANCE_PROVIDER_TOKEN",
+  "ERP_ATTENDANCE_PROVIDER_TIMEOUT_MS",
+];
 const preflightRelevantEnvNames = [
   "ERP_RUNTIME_MODE",
   "ERP_V1_PERSISTENCE_PROFILE",
@@ -24,6 +32,8 @@ const preflightRelevantEnvNames = [
   "ERP_V1_DATABASE_URL",
   "DATABASE_URL",
   "PGURL",
+  ...attendancePayrollRequiredNames,
+  "ERP_ATTENDANCE_PAYROLL_DATABASE_URL",
   "ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL",
   "ERP_V1_POSTGRES_RESTORE_RESET_ALLOWED",
   "ERP_V1_FILE_STORAGE_PROFILE",
@@ -199,6 +209,18 @@ const fixGuidanceByKey = {
       "git diff --check",
     ],
   },
+  "attendance-payroll-integration-env": {
+    valueGuidance: [
+      "正式工资必须使用 PostgreSQL，并通过独立 HTTPS 网关连接经过验证的考勤来源；不得把打卡机密钥放进前端。",
+      "当前唯一已验证的适配器来源键为 deli；若更换打卡机，必须另建稳定来源键和适配器，禁止冒充 deli 或按姓名匹配。",
+      "当前打卡机未确认可用 API 时应保持 provider disabled；一旦启用任一真实来源，缺 endpoint/token 等任一项都会阻断生产预检。",
+    ],
+    verificationSteps: [
+      "npm run attendance-payroll:check",
+      "node scripts/run-v1-production-env-preflight.mjs --use-production-env-setup-env-file",
+      "先执行只读 /api/attendance/sync-precheck，再允许正式导入。",
+    ],
+  },
 };
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
@@ -345,6 +367,7 @@ function buildProductionEnvPreflight({
   const criteria = [
     buildRuntimeModeCriterion(env),
     buildPersistenceCriterion(env),
+    buildAttendancePayrollIntegrationCriterion(env),
     buildPostgresRestoreValidationCriterion(env),
     buildObjectStorageCriterion(env),
     buildStatementExportStorageCriterion(env),
@@ -453,6 +476,62 @@ function buildPersistenceCriterion(env) {
         "DATABASE_URL",
         "ERP_V1_FILE_STORAGE_PROFILE",
       ]),
+    },
+  });
+}
+
+function buildAttendancePayrollIntegrationCriterion(env) {
+  const mode = cleanValue(env.ERP_ATTENDANCE_PROVIDER_MODE).toLowerCase();
+  const integrationEnabled = Boolean(mode) && !["disabled", "none"].includes(mode);
+  if (!integrationEnabled) {
+    return criterion({
+      key: "attendance-payroll-integration-env",
+      label: "工资 / 考勤生产集成",
+      status: "pending",
+      blocking: false,
+      detail: "未启用真实考勤来源；基础业务可继续预检，但正式工资 readiness 将保持阻塞。",
+      evidence: {
+        integrationEnabled: false,
+        payrollStorePostgres: cleanValue(env.ERP_ATTENDANCE_PAYROLL_STORE).toLowerCase() === "postgres",
+        providerModeSupported: !mode || ["disabled", "none"].includes(mode),
+        providerKeyDeli: false,
+        endpointHttps: false,
+        tokenConfigured: false,
+        timeoutValid: false,
+        configuredVariableCount: countPresent(env, attendancePayrollRequiredNames),
+      },
+    });
+  }
+  const payrollStorePostgres = cleanValue(env.ERP_ATTENDANCE_PAYROLL_STORE).toLowerCase() === "postgres";
+  const providerModeSupported = mode === "http_json";
+  const providerKeyDeli = cleanValue(env.ERP_ATTENDANCE_PROVIDER_KEY).toLowerCase() === "deli";
+  const endpointHttps = isHttpsUrl(env.ERP_ATTENDANCE_PROVIDER_ENDPOINT);
+  const tokenConfigured = hasValue(env, "ERP_ATTENDANCE_PROVIDER_TOKEN");
+  const timeoutValid = isPositiveIntegerString(env.ERP_ATTENDANCE_PROVIDER_TIMEOUT_MS);
+  const missing = [];
+  if (!payrollStorePostgres) missing.push("ERP_ATTENDANCE_PAYROLL_STORE=postgres");
+  if (!providerModeSupported) missing.push("ERP_ATTENDANCE_PROVIDER_MODE=http_json");
+  if (!providerKeyDeli) missing.push("ERP_ATTENDANCE_PROVIDER_KEY=deli");
+  if (!endpointHttps) missing.push("ERP_ATTENDANCE_PROVIDER_ENDPOINT HTTPS URL");
+  if (!tokenConfigured) missing.push("ERP_ATTENDANCE_PROVIDER_TOKEN");
+  if (!timeoutValid) missing.push("ERP_ATTENDANCE_PROVIDER_TIMEOUT_MS positive integer");
+  return criterion({
+    key: "attendance-payroll-integration-env",
+    label: "工资 / 考勤生产集成",
+    status: missing.length === 0 ? "passed" : "pending",
+    blocking: true,
+    detail: missing.length === 0
+      ? "PostgreSQL payroll store and the currently verified Deli HTTPS attendance gateway are configured."
+      : `已声明启用工资考勤，但缺少或格式不正确：${missing.join(", ")}`,
+    evidence: {
+      integrationEnabled: true,
+      payrollStorePostgres,
+      providerModeSupported,
+      providerKeyDeli,
+      endpointHttps,
+      tokenConfigured,
+      timeoutValid,
+      configuredVariableCount: countPresent(env, attendancePayrollRequiredNames),
     },
   });
 }
@@ -835,6 +914,7 @@ function buildFixChecklist({ env, criteria }) {
   return [
     buildRuntimeModeFixItem({ env, criterion: byKey.get("runtime-mode") }),
     buildPersistenceFixItem({ env, criterion: byKey.get("v1-persistence-profile") }),
+    buildAttendancePayrollIntegrationFixItem({ env, criterion: byKey.get("attendance-payroll-integration-env") }),
     buildPostgresRestoreValidationFixItem({ env, criterion: byKey.get("postgres-restore-validation-env") }),
     buildObjectStorageFixItem({ env, criterion: byKey.get("attachment-object-storage-env") }),
     buildStatementExportStorageFixItem({ env, criterion: byKey.get("statement-export-object-storage-env") }),
@@ -907,6 +987,44 @@ function buildPersistenceFixItem({ env, criterion }) {
       missingVariables.length === 0
         ? "保持 PostgreSQL 和对象存储 profile，继续启动 API 并跑 runtime readiness。"
         : "补齐 PostgreSQL 连接和 object_storage 文件 profile；不要把模板占位符原样取消注释。",
+  });
+}
+
+function buildAttendancePayrollIntegrationFixItem({ env, criterion }) {
+  const mode = cleanValue(env.ERP_ATTENDANCE_PROVIDER_MODE).toLowerCase();
+  const integrationEnabled = Boolean(mode) && !["disabled", "none"].includes(mode);
+  const missingVariables = [];
+  if (cleanValue(env.ERP_ATTENDANCE_PAYROLL_STORE).toLowerCase() !== "postgres") {
+    missingVariables.push("ERP_ATTENDANCE_PAYROLL_STORE=postgres");
+  }
+  if (mode !== "http_json") missingVariables.push("ERP_ATTENDANCE_PROVIDER_MODE=http_json");
+  if (cleanValue(env.ERP_ATTENDANCE_PROVIDER_KEY).toLowerCase() !== "deli") {
+    missingVariables.push("ERP_ATTENDANCE_PROVIDER_KEY=deli");
+  }
+  if (!isHttpsUrl(env.ERP_ATTENDANCE_PROVIDER_ENDPOINT)) {
+    missingVariables.push("ERP_ATTENDANCE_PROVIDER_ENDPOINT HTTPS URL");
+  }
+  if (!hasValue(env, "ERP_ATTENDANCE_PROVIDER_TOKEN")) missingVariables.push("ERP_ATTENDANCE_PROVIDER_TOKEN");
+  if (!isPositiveIntegerString(env.ERP_ATTENDANCE_PROVIDER_TIMEOUT_MS)) {
+    missingVariables.push("ERP_ATTENDANCE_PROVIDER_TIMEOUT_MS positive integer");
+  }
+  return fixItem({
+    criterion,
+    ownerRole: "技术/财务/管理",
+    requiredVariables: [...attendancePayrollRequiredNames],
+    recommendedVariables: ["ERP_ATTENDANCE_PAYROLL_DATABASE_URL only when payroll uses a dedicated PostgreSQL URL"],
+    configuredVariableCount: countPresent(env, attendancePayrollRequiredNames),
+    totalVariableCount: attendancePayrollRequiredNames.length,
+    missingVariables,
+    placeholderVariables: placeholderNames(env, [
+      ...attendancePayrollRequiredNames,
+      "ERP_ATTENDANCE_PAYROLL_DATABASE_URL",
+    ]),
+    nextAction: criterion?.status === "passed"
+      ? "保留脱敏配置；先运行考勤同步预检查并确认 29 人身份映射，再执行首个正式导入。"
+      : integrationEnabled
+        ? "补齐 PostgreSQL 工资仓储和当前已验证考勤适配器的 HTTPS 网关配置；token 只放安全 env 文件。"
+        : "当前打卡机未确认可用 API，保持 disabled；选定可接入来源后再补齐该组变量。未启用状态会继续阻止工资 readiness，但不阻塞原材料首发。",
   });
 }
 
@@ -1517,6 +1635,16 @@ function isHttpUrl(value) {
   try {
     const url = new URL(text);
     return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+function isHttpsUrl(value) {
+  const text = cleanValue(value);
+  if (!text || isPlaceholderValue(text)) return false;
+  try {
+    return new URL(text).protocol === "https:";
   } catch {
     return false;
   }

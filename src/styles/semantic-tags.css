@@ -1,0 +1,148 @@
+.erp-semantic-tag {
+  --semantic-tag-background: var(--erp-label-neutral-bg);
+  --semantic-tag-border: var(--erp-label-neutral-border);
+  --semantic-tag-ink: var(--erp-label-neutral);
+  display: inline-flex;
+  max-width: 100%;
+  min-width: 0;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border: 1px solid var(--semantic-tag-border);
+  border-radius: var(--erp-radius-sm);
+  background: var(--semantic-tag-background);
+  color: var(--semantic-tag-ink);
+  font-size: var(--erp-text-xs);
+  font-weight: var(--erp-weight-bold);
+  line-height: 1;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erp-semantic-tag[data-size="compact"] {
+  min-height: 20px;
+  padding: 1px 6px;
+  font-size: var(--erp-text-xxs);
+}
+
+.erp-semantic-tag[data-size="standard"] {
+  min-height: 26px;
+  padding: 3px 8px;
+}
+
+.erp-semantic-tag[data-size="prominent"] {
+  min-height: 34px;
+  padding: 5px 10px;
+  font-size: var(--erp-text-md);
+}
+
+.erp-semantic-tag[data-kind="business"][data-value="custom"],
+.erp-semantic-tag[data-kind="requirement"][data-value="double-sided"],
+.erp-semantic-tag[data-kind="state"][data-value="normal"] {
+  --semantic-tag-background: var(--erp-info-bg);
+  --semantic-tag-border: var(--erp-info-border);
+  --semantic-tag-ink: var(--erp-info);
+}
+
+.erp-semantic-tag[data-kind="business"][data-value="stock"],
+.erp-semantic-tag[data-kind="state"][data-value="running"] {
+  --semantic-tag-background: var(--erp-success-bg);
+  --semantic-tag-border: var(--erp-success-border);
+  --semantic-tag-ink: var(--erp-success);
+}
+
+.erp-semantic-tag[data-kind="business"][data-value="printed"],
+.erp-semantic-tag[data-kind="requirement"][data-value="snap"] {
+  --semantic-tag-background: var(--erp-label-purple-bg);
+  --semantic-tag-border: var(--erp-label-purple-border);
+  --semantic-tag-ink: var(--erp-label-purple);
+}
+
+.erp-semantic-tag[data-kind="business"][data-value="outsourced"],
+.erp-semantic-tag[data-kind="requirement"][data-value="supplied-material"] {
+  --semantic-tag-background: var(--erp-label-cyan-bg);
+  --semantic-tag-border: var(--erp-label-cyan-border);
+  --semantic-tag-ink: var(--erp-label-cyan);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="extended-handle"],
+.erp-semantic-tag[data-kind="state"][data-value="pending"] {
+  --semantic-tag-background: var(--erp-warning-bg);
+  --semantic-tag-border: var(--erp-warning-border);
+  --semantic-tag-ink: var(--erp-warning);
+}
+
+.erp-semantic-tag[data-kind="state"][data-value="carry"] {
+  --semantic-tag-background: var(--erp-label-carry-bg);
+  --semantic-tag-border: var(--erp-label-carry-border);
+  --semantic-tag-ink: var(--erp-label-carry);
+}
+
+.erp-semantic-tag[data-kind="state"][data-value="blocked"] {
+  --semantic-tag-background: var(--erp-danger-bg);
+  --semantic-tag-border: var(--erp-danger-border);
+  --semantic-tag-ink: var(--erp-danger);
+}
+
+.erp-semantic-tag[data-kind="state"][data-value="done"] {
+  --semantic-tag-background: var(--erp-label-done-bg);
+  --semantic-tag-border: var(--erp-label-done-border);
+  --semantic-tag-ink: var(--erp-label-done);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="urgent"] {
+  --semantic-tag-background: var(--erp-label-urgent-bg);
+  --semantic-tag-border: var(--erp-label-urgent-border);
+  --semantic-tag-ink: var(--erp-label-urgent);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="dual-color"] {
+  --semantic-tag-background: var(--erp-label-blue-solid);
+  --semantic-tag-border: var(--erp-label-blue-solid);
+  --semantic-tag-ink: var(--erp-label-solid-ink);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="multi-color"] {
+  --semantic-tag-background: var(--erp-label-violet-solid);
+  --semantic-tag-border: var(--erp-label-violet-solid);
+  --semantic-tag-ink: var(--erp-label-solid-ink);
+}
+
+.erp-semantic-tag[data-kind="owner"]::before {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  margin-right: 5px;
+  background: var(--erp-label-neutral);
+  content: "";
+}
+
+.erp-semantic-tag[data-kind="owner"][data-value="lane-1"]::before {
+  background: var(--erp-label-owner-1);
+}
+
+.erp-semantic-tag[data-kind="owner"][data-value="lane-2"]::before {
+  background: var(--erp-label-owner-2);
+}
+
+.erp-semantic-tag[data-kind="owner"][data-value="lane-3"]::before {
+  background: var(--erp-label-owner-3);
+}
+
+.erp-semantic-tag[data-kind="owner"][data-value="lane-4"]::before {
+  background: var(--erp-label-owner-4);
+}
+
+.erp-semantic-tag[data-kind="state"][data-value="voided"] {
+  text-decoration: line-through;
+}
+
+.erp-semantic-tag[data-known="false"],
+.erp-semantic-tag[data-value="idle"],
+.erp-semantic-tag[data-value="unknown"] {
+  --semantic-tag-background: var(--erp-label-neutral-bg);
+  --semantic-tag-border: var(--erp-label-neutral-border);
+  --semantic-tag-ink: var(--erp-label-neutral);
+}

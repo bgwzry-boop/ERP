@@ -7,6 +7,7 @@ import {
   WarningOutlined,
 } from "@ant-design/icons";
 import { useMemo, useState } from "react";
+import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
 
 const MOBILE_VIEWS = [
   ["current", "当前任务", InboxOutlined],
@@ -139,14 +140,13 @@ export function WarehouseMobilePage({
         </section>
       ) : null}
 
-      <nav className="mobile-role-bottom-nav" aria-label="成品库房手机导航">
-        {MOBILE_VIEWS.map(([key, label, Icon]) => (
-          <button aria-current={view === key ? "page" : undefined} className={view === key ? "active" : ""} key={key} onClick={() => setView(key)} type="button">
-            <Icon aria-hidden="true" /><span>{label}</span>
-            {key === "pending" && pendingTasks.length ? <b>{pendingTasks.length}</b> : null}
-          </button>
-        ))}
-      </nav>
+      <MobileRoleBottomNavigation
+        ariaLabel="成品库房手机导航"
+        badgeCount={(key) => key === "pending" ? pendingTasks.length : 0}
+        items={MOBILE_VIEWS}
+        onChange={setView}
+        value={view}
+      />
     </section>
   );
 }

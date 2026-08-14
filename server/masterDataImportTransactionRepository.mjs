@@ -80,6 +80,12 @@ export function createLocalMasterDataImportTransactionRepository() {
       const snapshot = snapshotWorkspace(input.workspace);
       try {
         const normalizedRecords = normalizeTargetRecords(input.importExecution.importPayload?.targetRecords);
+        assertImportedEmployeesEligible(input.workspace?.employees, normalizedRecords.employees);
+        normalizedRecords.employees = prepareImportedEmployeeProfiles(
+          input.workspace?.employees,
+          normalizedRecords.employees,
+          input.operationLog,
+        );
         const writeSummary = applyTargetRecordsToWorkspace(input.workspace, normalizedRecords);
         const committedExecution = buildCommittedImportExecution({
           importExecution: input.importExecution,
@@ -150,6 +156,13 @@ export function createPostgresMasterDataImportTransactionRepository(options = {}
     async applyImportExecution(input) {
       assertExecutionCanBeWritten(input.importExecution);
       const normalizedRecords = normalizeTargetRecords(input.importExecution.importPayload?.targetRecords);
+      assertImportedEmployeesEligible(input.workspace?.employees, normalizedRecords.employees);
+      normalizedRecords.employees = prepareImportedEmployeeProfiles(
+        input.workspace?.employees,
+        normalizedRecords.employees,
+        input.operationLog,
+      );
+      assertAttendanceIdentityUniqueness(input.workspace?.employees, normalizedRecords.employees);
       const builtQuery = buildMasterDataImportTransactionQuery({
         ...input,
         targetRecords: normalizedRecords,
@@ -251,6 +264,7 @@ function applyTargetRecordsToWorkspace(workspace = {}, targetRecords = {}) {
     recordTypeCounts: {},
   };
 
+  assertAttendanceIdentityUniqueness(workspace.employees, targetRecords.employees);
   for (const recordType of recordTypeWriteOrder) {
     const contract = recordTypeContracts[recordType];
     const records = targetRecords[recordType] ?? [];
@@ -262,7 +276,11 @@ function applyTargetRecordsToWorkspace(workspace = {}, targetRecords = {}) {
       assertExistingEmployeeIdentityKeys(workspace[contract.workspaceKey], records);
     }
     assertLocalReferences(workspace, recordType, records);
-    const result = upsertManyById(workspace[contract.workspaceKey], records);
+    const result = upsertManyById(workspace[contract.workspaceKey], records, {
+      preserveExistingFields: recordType === "employees"
+        ? ["userId", "accountEnabled", "profileStatus", "requestedEnabled"]
+        : [],
+    });
     workspace[contract.workspaceKey] = result.items;
     summary.appliedRecordCount += records.length;
     summary.affectedTableCount += 1;
@@ -303,6 +321,89 @@ function assertExistingEmployeeIdentityKeys(currentRecords = [], incomingRecords
       throw new Error(`employees record conflicts with existing employee number: ${record.id}`);
     }
   }
+}
+
+function assertAttendanceIdentityUniqueness(currentRecords = [], incomingRecords = []) {
+  const incomingIds = new Set(incomingRecords.map((record) => cleanText(record.id)));
+  const seen = new Map();
+  for (const record of [...currentRecords.filter((record) => !incomingIds.has(cleanText(record.id))), ...incomingRecords]) {
+    const provider = cleanText(record.attendanceProvider).toLowerCase();
+    const externalId = cleanText(record.attendanceExternalId);
+    if (!provider && !externalId) continue;
+    if (!provider || !externalId) {
+      throw new Error(`employees record has incomplete attendance identity: ${cleanText(record.id) || "missing"}`);
+    }
+    const key = `${provider}|${externalId}`;
+    if (seen.has(key)) {
+      throw new Error(`employees records contain duplicate attendance identity: ${provider} / ${externalId}`);
+    }
+    seen.set(key, cleanText(record.id));
+  }
+}
+
+function assertImportedEmployeesEligible(currentRecords = [], incomingRecords = []) {
+  const currentById = new Map(
+    (Array.isArray(currentRecords) ? currentRecords : []).map((record) => [cleanText(record.id), record]),
+  );
+  for (const incoming of incomingRecords) {
+    const current = currentById.get(cleanText(incoming.id));
+    const status = cleanText(current?.profileStatus).toLowerCase();
+    if (["departed", "left", "retired", "inactive_employee", "merged_duplicate"].includes(status)) {
+      throw new Error(`employees record is not eligible for active profile import: ${cleanText(incoming.id)}`);
+    }
+  }
+}
+
+function prepareImportedEmployeeProfiles(currentRecords = [], incomingRecords = [], operationLog = {}) {
+  const currentById = new Map(
+    (Array.isArray(currentRecords) ? currentRecords : []).map((record) => [cleanText(record.id), record]),
+  );
+  const changedAt = cleanText(operationLog.occurredAt ?? operationLog.createdAt) || new Date().toISOString();
+  const operatorId = cleanText(operationLog.operatorId);
+  return incomingRecords.map((record) => {
+    const existing = currentById.get(cleanText(record.id));
+    const presence = normalizeObject(record.profileFieldPresence);
+    if (!existing) {
+      const mappingPresent = presence.attendanceMapping === true;
+      return {
+        ...record,
+        attendanceMappingUpdatedBy: mappingPresent ? operatorId : "",
+        attendanceMappingUpdatedAt: mappingPresent ? changedAt : "",
+      };
+    }
+    const mappingProvided = presence.attendanceMapping === true;
+    const nextProvider = mappingProvided
+      ? cleanText(record.attendanceProvider).toLowerCase()
+      : cleanText(existing.attendanceProvider).toLowerCase();
+    const nextExternalId = mappingProvided
+      ? cleanText(record.attendanceExternalId)
+      : cleanText(existing.attendanceExternalId);
+    const mappingChanged =
+      nextProvider !== cleanText(existing.attendanceProvider).toLowerCase()
+      || nextExternalId !== cleanText(existing.attendanceExternalId);
+    return {
+      ...record,
+      birthDate: presence.birthDate === true ? record.birthDate : cleanText(existing.birthDate),
+      hireDate: presence.hireDate === true ? record.hireDate : cleanText(existing.hireDate),
+      baseHourlyWage: presence.baseHourlyWage === true
+        ? record.baseHourlyWage
+        : toFiniteNumber(existing.baseHourlyWage),
+      positionAllowanceHourly: presence.positionAllowanceHourly === true
+        ? record.positionAllowanceHourly
+        : toFiniteNumber(existing.positionAllowanceHourly),
+      wageEffectiveFrom: presence.wageEffectiveFrom === true
+        ? record.wageEffectiveFrom
+        : cleanText(existing.wageEffectiveFrom),
+      attendanceProvider: nextProvider,
+      attendanceExternalId: nextExternalId,
+      attendanceMappingUpdatedBy: mappingChanged
+        ? operatorId
+        : cleanText(existing.attendanceMappingUpdatedBy),
+      attendanceMappingUpdatedAt: mappingChanged
+        ? changedAt
+        : cleanText(existing.attendanceMappingUpdatedAt),
+    };
+  });
 }
 
 function assertLocalReferences(workspace, recordType, records) {
@@ -589,9 +690,16 @@ function normalizeRecord(recordType, record = {}) {
       roleName: cleanText(record.roleName),
       defaultWorkshop: cleanText(record.defaultWorkshop),
       defaultMachineId: cleanText(record.defaultMachineId),
+      birthDate: cleanText(record.birthDate),
+      hireDate: cleanText(record.hireDate),
       baseHourlyWage: toFiniteNumber(record.baseHourlyWage),
       positionAllowanceHourly: toFiniteNumber(record.positionAllowanceHourly),
       wageEffectiveFrom: cleanText(record.wageEffectiveFrom),
+      attendanceProvider: cleanText(record.attendanceProvider).toLowerCase(),
+      attendanceExternalId: cleanText(record.attendanceExternalId),
+      attendanceMappingUpdatedBy: cleanText(record.attendanceMappingUpdatedBy),
+      attendanceMappingUpdatedAt: cleanText(record.attendanceMappingUpdatedAt),
+      profileFieldPresence: normalizeObject(record.profileFieldPresence),
       accountEnabled: false,
       profileStatus: cleanText(record.profileStatus) || "pending_admin_review",
       requestedEnabled: record.requestedEnabled === true,
@@ -795,7 +903,7 @@ function buildInsertRecordsSql(recordType, records, operatorId, parameters) {
     ]);
   }
   if (recordType === "employees") {
-    return buildInsertSql("employees", ["id", "biz_no", "user_id", "name", "role_name", "default_workshop", "default_machine_id", "base_hourly_wage", "position_allowance_hourly", "wage_effective_from", "account_enabled", "profile_status", "requested_enabled", "remark", "created_by"], records, (record) => [
+    return buildInsertSql("employees", ["id", "biz_no", "user_id", "name", "role_name", "default_workshop", "default_machine_id", "birth_date", "hire_date", "base_hourly_wage", "position_allowance_hourly", "wage_effective_from", "attendance_provider", "attendance_external_id", "attendance_mapping_updated_by", "attendance_mapping_updated_at", "account_enabled", "profile_status", "requested_enabled", "remark", "created_by"], records, (record) => [
       sqlLiteral(record.id),
       sqlLiteral(record.bizNo),
       sqlNullableLiteral(record.userId),
@@ -803,15 +911,25 @@ function buildInsertRecordsSql(recordType, records, operatorId, parameters) {
       sqlLiteral(record.roleName),
       sqlLiteral(record.defaultWorkshop),
       sqlNullableLiteral(record.defaultMachineId),
+      sqlNullableDate(record.birthDate),
+      sqlNullableDate(record.hireDate),
       sqlNumber(record.baseHourlyWage),
       sqlNumber(record.positionAllowanceHourly),
       sqlNullableDate(record.wageEffectiveFrom),
+      sqlLiteral(record.attendanceProvider),
+      sqlLiteral(record.attendanceExternalId),
+      record.attendanceProvider && record.attendanceExternalId
+        ? sqlNullableLiteral(record.attendanceMappingUpdatedBy || operatorId)
+        : "NULL",
+      record.attendanceProvider && record.attendanceExternalId
+        ? `COALESCE(${sqlNullableTimestamp(record.attendanceMappingUpdatedAt)}, now())`
+        : "NULL",
       sqlBoolean(false),
       sqlLiteral(record.profileStatus),
       sqlBoolean(record.requestedEnabled),
       sqlLiteral(record.remark),
       sqlNullableLiteral(operatorId),
-    ]);
+    ], { excludedUpdateColumns: ["user_id", "account_enabled", "profile_status", "requested_enabled"] });
   }
   if (recordType === "employeeMachineAssignments") {
     return buildInsertSql("employee_machine_assignments", ["id", "employee_id", "machine_id", "assignment_type", "workshop", "effective_from", "enabled", "created_by"], records, (record) => [
@@ -843,7 +961,10 @@ function buildInsertRecordsSql(recordType, records, operatorId, parameters) {
 }
 
 function buildInsertSql(tableName, columns, records, toValues, options = {}) {
-  const updateColumns = columns.filter((column) => column !== "id" && column !== "created_by");
+  const excludedUpdateColumns = new Set(options.excludedUpdateColumns ?? []);
+  const updateColumns = columns.filter(
+    (column) => column !== "id" && column !== "created_by" && !excludedUpdateColumns.has(column),
+  );
   const updatedAt = options.updatedAt ?? true;
   const updateClause = [
     ...updateColumns.map((column) => `${column} = EXCLUDED.${column}`),
@@ -929,15 +1050,21 @@ function normalizeOperationLogForPersistence(operationLog) {
   };
 }
 
-function upsertManyById(currentItems, records) {
+function upsertManyById(currentItems, records, options = {}) {
   const byId = new Map((Array.isArray(currentItems) ? currentItems : []).map((item) => [cleanText(item?.id), item]));
+  const preserveExistingFields = Array.isArray(options.preserveExistingFields) ? options.preserveExistingFields : [];
   let insertedCount = 0;
   let updatedCount = 0;
   for (const record of records) {
     const id = cleanText(record.id);
     if (byId.has(id)) updatedCount += 1;
     else insertedCount += 1;
-    byId.set(id, { ...(byId.get(id) ?? {}), ...record });
+    const existing = byId.get(id);
+    const next = { ...(existing ?? {}), ...record };
+    if (existing) {
+      for (const field of preserveExistingFields) next[field] = existing[field];
+    }
+    byId.set(id, next);
   }
   return {
     items: [...byId.values()],

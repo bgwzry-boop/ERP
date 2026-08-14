@@ -14,9 +14,49 @@ ON CONFLICT (id) DO UPDATE SET
   department = EXCLUDED.department,
   updated_at = now();
 
+INSERT INTO employees (id, biz_no, name, role_name)
+VALUES ('EMP-LIVE-MANAGER-001', '031', '负责人', '管理')
+ON CONFLICT (id) DO UPDATE SET
+  biz_no = EXCLUDED.biz_no,
+  name = EXCLUDED.name,
+  role_name = EXCLUDED.role_name,
+  updated_at = now();
+
+INSERT INTO business_decision_authorizations (
+  id, employee_id, decision_scope, max_amount, active_from, status,
+  authorization_note, revision
+)
+VALUES
+  ('AUTH-STMT-VARIANCE-LIVE', 'EMP-LIVE-MANAGER-001', 'statement_variance', 50000, '2026-01-01T00:00:00.000Z', 'active', 'PostgreSQL live statement variance fixture', 1),
+  ('AUTH-STMT-WRITEOFF-LIVE', 'EMP-LIVE-MANAGER-001', 'statement_write_off', 50000, '2026-01-01T00:00:00.000Z', 'active', 'PostgreSQL live statement write-off fixture', 1),
+  ('AUTH-SCHEDULE-LIVE', 'EMP-LIVE-MANAGER-001', 'production_schedule', NULL, '2026-01-01T00:00:00.000Z', 'active', 'PostgreSQL live production schedule fixture', 1)
+ON CONFLICT (id) DO UPDATE SET
+  employee_id = EXCLUDED.employee_id,
+  decision_scope = EXCLUDED.decision_scope,
+  max_amount = EXCLUDED.max_amount,
+  active_from = EXCLUDED.active_from,
+  status = EXCLUDED.status,
+  authorization_note = EXCLUDED.authorization_note,
+  revision = EXCLUDED.revision,
+  updated_at = now();
+
+INSERT INTO machines (id, biz_no, name, machine_type, workshop, status, enabled, created_by)
+VALUES
+  ('BAG-03', 'BAG-03', 'API live 制袋机', 'bag_making', '1号车间', 'active', true, 'U-OFFICE-A'),
+  ('BAG-LIVE-WORKSHOP-02', 'BAG-LIVE-WORKSHOP-02', 'PostgreSQL live 二号车间制袋机', 'bag_making', '2号车间', 'active', true, 'U-OFFICE-A')
+ON CONFLICT (id) DO UPDATE SET
+  name = EXCLUDED.name,
+  machine_type = EXCLUDED.machine_type,
+  workshop = EXCLUDED.workshop,
+  status = EXCLUDED.status,
+  enabled = EXCLUDED.enabled,
+  updated_at = now();
+
 INSERT INTO print_templates (id, template_key, template_type, name, created_by)
 VALUES
   ('tpl-p0-fulfillment', 'p0.fulfillment', 'fulfillment', 'P0 出库交付单据', 'U-OFFICE-A'),
+  ('tpl-p0-pickup-note', 'p0.pickup-note', 'pickup_note', 'P0 自提出库单', 'U-OFFICE-A'),
+  ('tpl-p0-delivery-note', 'p0.delivery-note', 'delivery_note', 'P0 送货单', 'U-OFFICE-A'),
   ('tpl-p0-express-label', 'p0.express-label', 'fulfillment_label', 'P0 快运标签', 'U-OFFICE-A'),
   ('tpl-p0-express-ltl-label', 'p0.express-ltl-label', 'fulfillment_label', 'P0 快递快运包裹标签', 'U-OFFICE-A')
 ON CONFLICT (id) DO UPDATE SET

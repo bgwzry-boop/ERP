@@ -124,13 +124,13 @@ export function buildV1CompletionAudit({
         sanitizeV1SensitiveStatusText(summary.fieldEvidence) ||
         "现场证据仍未完成",
       proofRequirements: [
-        "34 项真实现场证据全部回填并通过草稿校验。",
+        "40 项真实现场证据（含工资/考勤真实闭环）全部回填并通过草稿校验。",
         "证据来自真实现场附件、记录或签单，不使用占位值。",
       ],
       proofGaps: fieldEvidenceGaps,
       nextAction: evidenceReady
         ? "现场证据已满足；继续确认签字和 V1/V2 边界。"
-        : "补齐 34 项真实现场证据并回填 evidence-items.csv / 附件引用。",
+        : "补齐 40 项真实现场证据并回填 evidence-items.csv / 附件引用，其中工资/考勤真实闭环6项不得缺失。",
     }),
     buildV1CompletionAuditCriterion({
       key: "owner_signoff",

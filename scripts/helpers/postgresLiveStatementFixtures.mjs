@@ -124,6 +124,73 @@ export function buildVarianceRecord({ varianceRecordId, statementId, amount, ope
   };
 }
 
+export function buildStatementDecisionRecord({
+  decisionId,
+  statementId,
+  decisionScope,
+  operationLogId,
+  amount = 73,
+  operatorId = "U-FINANCE-A",
+}) {
+  const authorizationId = decisionScope === "statement_write_off"
+    ? "AUTH-STMT-WRITEOFF-LIVE"
+    : "AUTH-STMT-VARIANCE-LIVE";
+  return {
+    id: decisionId,
+    businessType: "statement",
+    businessId: statementId,
+    decisionScope,
+    decisionType: "delegated",
+    decisionMakerEmployeeId: "EMP-LIVE-MANAGER-001",
+    decisionMakerEmployeeNoSnapshot: "031",
+    decisionMakerNameSnapshot: "负责人",
+    decisionChannel: "wechat",
+    decidedAt: "2026-07-01T10:20:00.000Z",
+    decisionContent: { summary: "确认财务差额处理" },
+    authorizationId,
+    authorizationSnapshot: { authorizationId, decisionScope, maxAmount: 50000 },
+    authorizationBasis: "微信确认",
+    amountSnapshot: amount,
+    currency: "CNY",
+    evidenceAttachmentIds: [],
+    enteredByUserId: operatorId,
+    enteredAt: "2026-07-01T10:30:00.000Z",
+    status: "active",
+    lateEntry: false,
+    lateEntryReason: "",
+    revision: 1,
+    operationLogId,
+    createdAt: "2026-07-01T10:30:00.000Z",
+    updatedAt: "2026-07-01T10:30:00.000Z",
+  };
+}
+
+export function buildStatementWriteOffRecord({
+  writeOffId,
+  statementId,
+  businessDecisionId,
+  operationLogId,
+  receivable = 273,
+  received = 200,
+  variance = 73,
+  operatorId = "U-FINANCE-A",
+}) {
+  return {
+    id: writeOffId,
+    statementId,
+    receivableSnapshot: receivable,
+    receivedSnapshot: received,
+    varianceSnapshot: variance,
+    writeOffAmount: variance,
+    handlingResult: "授权抹零并核销",
+    businessDecisionId,
+    recordedBy: operatorId,
+    revision: 1,
+    operationLogId,
+    createdAt: "2026-07-01T10:30:00.000Z",
+  };
+}
+
 export function buildSendRecord({ sendRecordId, statementId, exportFileId, operatorId }) {
   return {
     sendRecordId,

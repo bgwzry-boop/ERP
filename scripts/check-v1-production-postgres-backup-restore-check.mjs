@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import {
   buildProductionPostgresBackupRestoreCheck,
   formatProductionPostgresBackupRestoreCheck,
+  payrollAttendanceRestoreTables,
   redactSensitiveText,
 } from "./run-v1-production-postgres-backup-restore-check.mjs";
 import { requiredTables } from "./dbMigrationUtils.mjs";
@@ -50,6 +51,12 @@ assert.equal(readyReport.safeguards.restoreDatabaseMutated, true);
 assert.equal(readyReport.safeguards.dumpFilesRemoved, true);
 assert.equal(readyReport.safeguards.dumpContentIncluded, false);
 assert.equal(readyReport.criteria.find((item) => item.key === "restored-database-validated")?.evidence.missingTableCount, 0);
+assert.equal(readyReport.summary.payrollAttendanceRequiredTableCount, payrollAttendanceRestoreTables.length);
+assert.equal(
+  readyReport.criteria.find((item) => item.key === "restored-database-validated")?.evidence.existingPayrollAttendanceTableCount,
+  payrollAttendanceRestoreTables.length,
+);
+for (const table of payrollAttendanceRestoreTables) assert.ok(requiredTables.includes(table));
 assert.ok(readyReport.nextActions.some((item) => item.includes("恢复演练")));
 assertNoSensitiveOutput(JSON.stringify(readyReport));
 
@@ -118,6 +125,22 @@ const restoreValidation = missingRestoreTableReport.criteria.find((item) => item
 assert.equal(restoreValidation.status, "blocked");
 assert.equal(restoreValidation.evidence.firstMissingTables[0], requiredTables[0]);
 assertNoSensitiveOutput(JSON.stringify(missingRestoreTableReport));
+
+const missingPayrollTableReport = buildProductionPostgresBackupRestoreCheck({
+  env: {
+    ERP_V1_DATABASE_URL: sensitiveSourceUrl,
+    ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL: sensitiveRestoreUrl,
+    ERP_V1_POSTGRES_RESTORE_RESET_ALLOWED: "true",
+  },
+  commandRunner: fakePostgresToolsRunner({ missingRestoreTable: "payroll_export_events" }),
+  tempDirFactory: () => join(tempRoot, "missing-payroll-table-temp"),
+});
+assert.equal(missingPayrollTableReport.ready, false);
+const payrollRestoreValidation = missingPayrollTableReport.criteria.find((item) => item.key === "restored-database-validated");
+assert.equal(payrollRestoreValidation.status, "blocked");
+assert.equal(payrollRestoreValidation.evidence.missingPayrollAttendanceTableCount, 1);
+assert.deepEqual(payrollRestoreValidation.evidence.firstMissingPayrollAttendanceTables, ["payroll_export_events"]);
+assertNoSensitiveOutput(JSON.stringify(missingPayrollTableReport));
 
 const dumpErrorReport = buildProductionPostgresBackupRestoreCheck({
   env: {

@@ -363,7 +363,8 @@ function closeServer(server) {
 
 function assertNoSensitiveOutput(output) {
   assert.doesNotMatch(output, new RegExp(escapeRegExp(secretAccessKey)), "readiness output leaked secret access key");
-  assert.doesNotMatch(output, /authorization/i, "readiness output leaked authorization header text");
+  assert.doesNotMatch(output, /["']authorization["']\s*:/i, "readiness output leaked authorization header field");
+  assert.doesNotMatch(output, /\bBearer\s+[A-Za-z0-9._~+\/-]+=*/i, "readiness output leaked bearer credential text");
   assert.doesNotMatch(output, /x-amz-security-token/i, "readiness output leaked session-token header text");
 }
 

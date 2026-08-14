@@ -9,6 +9,7 @@ import { createBusinessDecisionEvidenceService } from "../server/services/busine
 import { createBusinessDecisionPolicyService } from "../server/services/businessDecisionPolicyService.mjs";
 import { validateBusinessAttachment } from "../server/services/businessAttachmentValidationService.mjs";
 import { roleCatalog } from "../shared/auth/roleCatalog.js";
+import { attachmentUploadLimits } from "../shared/attachmentUploadPolicy.js";
 
 const now = () => new Date("2026-07-17T04:00:00.000Z");
 let logSequence = 0;
@@ -81,7 +82,7 @@ assert.equal(crossBusiness.code, "BUSINESS_DECISION_EVIDENCE_DRAFT_TARGET_MISMAT
 for (const [patch, expectedCode] of [
   [{ status: "voided" }, "BUSINESS_DECISION_EVIDENCE_REQUIRED"],
   [{ hasContent: false }, "BUSINESS_DECISION_EVIDENCE_INVALID"],
-  [{ fileSize: 16 * 1024 * 1024 }, "BUSINESS_DECISION_EVIDENCE_INVALID"],
+  [{ fileSize: attachmentUploadLimits.documentBytes + 1 }, "BUSINESS_DECISION_EVIDENCE_INVALID"],
   [{ fileType: "binary" }, "BUSINESS_DECISION_EVIDENCE_INVALID"],
   [{ uploadedBy: "UNKNOWN-USER" }, "BUSINESS_DECISION_EVIDENCE_UPLOADER_INVALID"],
   [{ ownerId: "OTHER-DRAFT" }, "BUSINESS_DECISION_EVIDENCE_REQUIRED"],
@@ -110,7 +111,7 @@ const validation = validateBusinessAttachment({
   allowedFileTypes: ["image", "pdf", "document", "spreadsheet"],
   allowedMimePrefixes: ["image/"],
   requirePositiveSize: true,
-  maxBytes: 15 * 1024 * 1024,
+  maxBytes: attachmentUploadLimits.documentBytes,
 });
 assert.equal(validation.ok, true);
 

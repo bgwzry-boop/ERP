@@ -5,6 +5,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 import { buildProductionEnvFileAuditReport } from "./run-v1-production-env-file-audit.mjs";
+import {
+  readControlledReleaseLock,
+  verifyControlledReleaseLock,
+} from "./controlled-release-lock-lib.mjs";
 
 const defaultOutputDir = ".erp-local-storage/v1-production-remote-recovery";
 
@@ -14,12 +18,18 @@ function runCli() {
   try {
     const options = parseArgs(process.argv.slice(2));
     const envAudit = buildProductionEnvFileAuditReport({ envFiles: [options.envFile] });
+    const releaseLockVerification = verifyControlledReleaseLock({
+      lock: readControlledReleaseLock(options.releaseLock),
+      expectedCommit: options.expectedCommit,
+      expectedTarget: "tencent-production",
+    });
     const report = buildProductionRemoteRecoveryReport({
       repositoryUrl: options.repositoryUrl,
       expectedCommit: options.expectedCommit,
       targetDir: options.targetDir,
       envFile: options.envFile,
       envAudit,
+      releaseLockVerification,
       timeoutMs: options.timeoutMs,
     });
     const output = options.write
@@ -43,6 +53,7 @@ function parseArgs(args) {
     expectedCommit: "",
     targetDir: "",
     envFile: "",
+    releaseLock: "",
     outputDir: defaultOutputDir,
     timeoutMs: 15 * 60 * 1_000,
     write: true,
@@ -67,6 +78,11 @@ function parseArgs(args) {
     }
     if (arg === "--env-file") {
       options.envFile = resolve(readValue(args, index, arg));
+      index += 1;
+      continue;
+    }
+    if (arg === "--release-lock") {
+      options.releaseLock = resolve(readValue(args, index, arg));
       index += 1;
       continue;
     }
@@ -98,6 +114,7 @@ function parseArgs(args) {
   if (!/^[a-f0-9]{40}$/i.test(options.expectedCommit)) throw new Error("--expected-commit must be a full 40-character commit id.");
   if (!options.targetDir) throw new Error("--target-dir is required.");
   if (!options.envFile) throw new Error("--env-file is required.");
+  if (!options.releaseLock) throw new Error("--release-lock is required.");
   return options;
 }
 
@@ -122,6 +139,7 @@ function helpText() {
     "  --expected-commit <sha>      Full immutable 40-character release commit.",
     "  --target-dir <new-path>      Must not exist; this runner never deletes it.",
     "  --env-file <secure-path>     Audited production env file for runtime smoke.",
+    "  --release-lock <path>        Verified tencent-production release lock.",
     "",
     "Optional:",
     "  --timeout-ms <n>             Per-command timeout. Defaults to 15 minutes.",
@@ -129,7 +147,7 @@ function helpText() {
     "  --no-write                   Do not write evidence files.",
     "  --json                       Print JSON.",
     "",
-    "Stages: env audit, clone, detached checkout, commit verification, npm ci, build, migration plan, deployment manifest, production runtime smoke.",
+    "Stages: release lock, env audit, clone, detached checkout, commit verification, npm ci, build, migration plan, deployment manifest, production runtime smoke.",
   ].join("\n");
 }
 
@@ -144,11 +162,18 @@ export function buildProductionRemoteRecoveryReport(options = {}) {
   const commandRunner = options.commandRunner ?? defaultCommandRunner;
   const timeoutMs = positiveInteger(options.timeoutMs ?? 15 * 60 * 1_000, "timeoutMs");
   const envAudit = options.envAudit ?? { ready: false, summary: {} };
+  const releaseLockVerification = options.releaseLockVerification ?? { ready: false, release: {} };
   const stages = [];
   let stopped = false;
 
+  const releaseLockReady = releaseLockVerification.ready === true &&
+    releaseLockVerification.release?.target === "tencent-production" &&
+    releaseLockVerification.release?.commit === expectedCommit;
+  stages.push(stage("release-lock", "受控发布锁", releaseLockReady));
+  stopped = !releaseLockReady;
+
   stages.push(stage("env-audit", "安全生产 env 文件审计", envAudit.ready === true));
-  stopped = envAudit.ready !== true;
+  stopped = stopped || envAudit.ready !== true;
 
   const run = (key, label, command, args, commandOptions = {}) => {
     if (stopped) {
@@ -181,6 +206,12 @@ export function buildProductionRemoteRecoveryReport(options = {}) {
       ...process.env,
       VITE_ERP_RUNTIME_MODE: "production",
       VITE_ERP_API_BASE_URL: "/api",
+      VITE_RAW_MATERIAL_FIRST_RELEASE: "true",
+      VITE_ERP_RELEASE_TARGET: releaseLockVerification.release?.target,
+      VITE_ERP_RELEASE_COMMIT: releaseLockVerification.release?.commit,
+      VITE_ERP_RELEASE_VERSION: releaseLockVerification.release?.version,
+      VITE_ERP_RELEASE_LOCK_DIGEST: releaseLockVerification.release?.digest,
+      VITE_ERP_RELEASE_BUILT_AT: new Date().toISOString(),
     },
   });
   run("migration-plan", "数据库迁移计划", process.execPath, ["scripts/run-db-migrations.mjs", "--dry-run"], {
@@ -203,7 +234,7 @@ export function buildProductionRemoteRecoveryReport(options = {}) {
 
   const passedCount = stages.filter((item) => item.status === "passed").length;
   const blockingCount = stages.filter((item) => item.status === "blocked").length;
-  const ready = stages.length === 9 && passedCount === stages.length;
+  const ready = stages.length === 10 && passedCount === stages.length;
   return {
     scope: "v1_production_remote_recovery",
     status: ready ? "ready" : "blocked",
@@ -214,6 +245,7 @@ export function buildProductionRemoteRecoveryReport(options = {}) {
       repositoryUrlConfigured: true,
       targetWasNew: true,
       secureEnvAuditReady: envAudit.ready === true,
+      controlledReleaseLockReady: releaseLockReady,
     },
     summary: {
       passedCount,

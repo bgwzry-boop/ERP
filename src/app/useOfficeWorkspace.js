@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useOfficeCoreReads } from "./useOfficeCoreReads.js";
 import { useOfficeFulfillmentWrites } from "./useOfficeFulfillmentWrites.js";
 import { useOfficeInventoryDetailReads } from "./useOfficeInventoryDetailReads.js";
@@ -84,6 +84,7 @@ export function useOfficeWorkspace({
   sampleText,
   serverRequired = false,
 }) {
+  const isSharedServerRequired = useCallback(() => serverRequired, [serverRequired]);
   const initialWorkspaceRecords = serverRequired
     ? { fulfillments: [], inventories: [], orderLines: [], rawMaterialInbounds: [], statements: [], todos: [] }
     : {
@@ -450,6 +451,7 @@ export function useOfficeWorkspace({
     orderLinesRef,
     rawMaterialInboundsRef,
     selectedRawMaterialInboundIdRef,
+    serverRequired: isSharedServerRequired,
     setDriverDeliveryTasks,
     setSelectedDriverTaskId,
     setDriverDeliveryMeta,

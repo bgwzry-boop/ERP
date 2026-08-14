@@ -100,8 +100,27 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
 }
 
 export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options = {}) {
-  const { authState, operatorId, fileName, mimeType, fileSize, contentDataUrl, pdfPageNumber, useNewModel } = input;
-  if (!cleanText(contentDataUrl)) {
+  const {
+    authState,
+    operatorId,
+    fileName,
+    mimeType,
+    fileSize,
+    contentDataUrl,
+    sourceMimeType,
+    sourceFileSize,
+    sourceContentDataUrl,
+    sourceNormalizedForOcr,
+    pdfPageNumber,
+    useNewModel,
+    pages,
+  } = input;
+  const normalizedPages = (Array.isArray(pages) ? pages : [])
+    .map(normalizeDeliveryNotePagePayload)
+    .filter((page) => page.contentDataUrl);
+  const fallbackPage = normalizeDeliveryNotePagePayload(input);
+  const deliveryNotePages = normalizedPages.length ? normalizedPages : (fallbackPage.contentDataUrl ? [fallbackPage] : []);
+  if (!deliveryNotePages.length) {
     return {
       source: "api_error",
       blocked: true,
@@ -123,8 +142,13 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
         mimeType,
         fileSize,
         contentDataUrl,
+        sourceMimeType,
+        sourceFileSize,
+        sourceContentDataUrl,
+        sourceNormalizedForOcr: sourceNormalizedForOcr === true,
         pdfPageNumber,
         useNewModel: useNewModel === true,
+        pages: deliveryNotePages,
       },
     });
     const json = await readJson(response);
@@ -139,6 +163,7 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       source: "api",
       inbound: normalizeRawMaterialInbound(json?.inbound),
       attachmentId: cleanText(json?.attachmentId),
+      attachmentIds: (Array.isArray(json?.attachmentIds) ? json.attachmentIds : []).map(cleanText).filter(Boolean),
       deduplicated: json?.deduplicated === true,
       operationLogId: cleanText(json?.operationLogId),
     };
@@ -162,6 +187,10 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
     expectedRevision,
     action,
     rollId,
+    sourceReturnInboundId,
+    physicalReturnConfirmed,
+    confirmation,
+    shipmentReferenceNo,
     reason,
     operatorName,
     machineId,
@@ -215,6 +244,10 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
           operatorId,
           operatorName,
           rollId,
+          sourceReturnInboundId,
+          physicalReturnConfirmed,
+          confirmation,
+          shipmentReferenceNo,
           reason,
           machineId,
           productionTaskId,
@@ -373,7 +406,7 @@ export async function createOfficeRawMaterialSupplierStatementReviewDraft(input 
 }
 
 export async function confirmOfficeRawMaterialSupplierStatementReview(input = {}, options = {}) {
-  const { authState, operatorId, reviewId, decision, note } = input;
+  const { authState, operatorId, reviewId, decision, adjustments, note } = input;
   const safeReviewId = cleanText(reviewId);
   if (!safeReviewId) {
     return {
@@ -396,6 +429,7 @@ export async function confirmOfficeRawMaterialSupplierStatementReview(input = {}
         body: {
           operatorId,
           decision,
+          adjustments,
           note,
         },
       },
@@ -648,12 +682,20 @@ function normalizeRawMaterialInbound(input = {}) {
   item.ocrAction = cleanText(item.ocrAction);
   item.ocrRequestId = cleanText(item.ocrRequestId);
   item.ocrStatus = cleanText(item.ocrStatus);
+  item.ocrAngle = Number(item.ocrAngle) || 0;
+  item.ocrImageWidth = Math.max(0, Number(item.ocrImageWidth) || 0);
+  item.ocrImageHeight = Math.max(0, Number(item.ocrImageHeight) || 0);
+  item.ocrPageCount = Math.max(1, toNumber(item.ocrPageCount, 1));
+  item.ocrPages = normalizeOcrPages(item.ocrPages, item.ocrPageCount, item.ocrImageWidth, item.ocrImageHeight, item.ocrAngle);
   item.ocrSourceDigest = cleanText(item.ocrSourceDigest);
   item.ocrRecognizedAt = cleanText(item.ocrRecognizedAt);
   item.ocrRawText = cleanText(item.ocrRawText);
   item.sourceAttachmentId = cleanText(item.sourceAttachmentId);
+  item.sourceAttachmentIds = normalizeTextList(item.sourceAttachmentIds, item.sourceAttachmentId);
   item.sourceFileName = cleanText(item.sourceFileName);
+  item.sourceFileNames = normalizeTextList(item.sourceFileNames, item.sourceFileName);
   item.sourceMimeType = cleanText(item.sourceMimeType);
+  item.sourceMimeTypes = normalizeTextList(item.sourceMimeTypes, item.sourceMimeType);
   item.ocrReviewFields = (Array.isArray(item.ocrReviewFields) ? item.ocrReviewFields : []).map((field) => ({
     ...field,
     key: cleanText(field?.key),
@@ -670,6 +712,7 @@ function normalizeRawMaterialInbound(input = {}) {
     return {
       ...line,
       lineId: cleanText(line?.lineId),
+      sourcePageIndex: Math.max(0, toNumber(line?.sourcePageIndex, 0)),
       sourceText: cleanText(line?.sourceText),
       reviewStatus: cleanText(line?.reviewStatus),
       values,
@@ -685,6 +728,15 @@ function normalizeRawMaterialInbound(input = {}) {
       reviewedBy: cleanText(line?.reviewedBy),
       reviewedByUserId: cleanText(line?.reviewedByUserId),
       reviewedAt: cleanText(line?.reviewedAt),
+      reviewDisposition: cleanText(line?.reviewDisposition) || "included",
+      reviewProjectedRollCount: Math.max(0, Math.trunc(Number(line?.reviewProjectedRollCount) || 0)),
+      excludedRollIndices: (Array.isArray(line?.excludedRollIndices) ? line.excludedRollIndices : [])
+        .map(Number)
+        .filter((value) => Number.isInteger(value) && value >= 0),
+      exclusionReason: cleanText(line?.exclusionReason),
+      excludedBy: cleanText(line?.excludedBy),
+      excludedByUserId: cleanText(line?.excludedByUserId),
+      excludedAt: cleanText(line?.excludedAt),
     };
   }).filter((line) => line.lineId);
   item.issueStatus = cleanText(item.issueStatus);
@@ -1167,6 +1219,40 @@ function normalizeRawMaterialInbound(input = {}) {
   return item;
 }
 
+function normalizeDeliveryNotePagePayload(input = {}) {
+  return {
+    fileName: cleanText(input.fileName),
+    mimeType: cleanText(input.mimeType),
+    fileSize: Number(input.fileSize) || undefined,
+    contentDataUrl: cleanText(input.contentDataUrl),
+    sourceMimeType: cleanText(input.sourceMimeType || input.mimeType),
+    sourceFileSize: Number(input.sourceFileSize || input.fileSize) || undefined,
+    sourceContentDataUrl: cleanText(input.sourceContentDataUrl || input.contentDataUrl),
+    sourceNormalizedForOcr: input.sourceNormalizedForOcr === true,
+    pdfPageNumber: Number(input.pdfPageNumber) || undefined,
+    useNewModel: input.useNewModel === true,
+  };
+}
+
+function normalizeOcrPages(pages, pageCount, imageWidth, imageHeight, angle) {
+  const source = Array.isArray(pages) ? pages : [];
+  return Array.from({ length: Math.max(pageCount, source.length) }, (_, sourcePageIndex) => ({
+    sourcePageIndex,
+    pageNumber: sourcePageIndex + 1,
+    angle: Number(source[sourcePageIndex]?.angle ?? angle) || 0,
+    imageWidth: Math.max(0, Number(source[sourcePageIndex]?.imageWidth ?? imageWidth) || 0),
+    imageHeight: Math.max(0, Number(source[sourcePageIndex]?.imageHeight ?? imageHeight) || 0),
+    requestId: cleanText(source[sourcePageIndex]?.requestId),
+  }));
+}
+
+function normalizeTextList(values, fallback) {
+  const normalized = (Array.isArray(values) ? values : []).map(cleanText).filter(Boolean);
+  if (normalized.length) return normalized;
+  const safeFallback = cleanText(fallback);
+  return safeFallback ? [safeFallback] : [];
+}
+
 function normalizeSupplierStatementReview(input = {}) {
   const item = { ...(input ?? {}) };
   item.reviewId = cleanText(item.reviewId ?? item.id);
@@ -1288,6 +1374,8 @@ function toRawMaterialActionSlug(action) {
   if (value === "确认贴标入库" || value === "attach_confirm" || value === "attach-confirm") return "attach-confirm";
   if (value === "作废卷标" || value === "void_label" || value === "void-label") return "void-label";
   if (value === "重打卷标" || value === "reprint_label" || value === "reprint-label") return "reprint-label";
+  if (value === "供应商退货暂存" || value === "stage_supplier_return" || value === "stage-supplier-return") return "stage-supplier-return";
+  if (value === "确认退厂" || value === "confirm_supplier_return_shipment" || value === "confirm-supplier-return-shipment") return "confirm-supplier-return-shipment";
   if (value === "机边领料" || value === "扫码出库" || value === "issue_to_machine" || value === "issue-to-machine") return "issue-to-machine";
   if (value === "确认消耗" || value === "confirm_consumption" || value === "confirm-consumption") return "confirm-consumption";
   if (value === "余料退回" || value === "return_leftover" || value === "return-leftover") return "return-leftover";

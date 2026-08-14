@@ -45,14 +45,28 @@ assert.equal(
     { purpose: "raw_material_delivery_note", fileName: "note.xlsx", fileType: "spreadsheet", mimeType: "application/vnd.ms-excel" },
     null,
   )?.code,
-  "ATTACHMENT_FILE_TYPE_NOT_ALLOWED",
+  "ATTACHMENT_FILE_EXTENSION_NOT_ALLOWED",
 );
 assert.equal(
   validateAttachmentUploadBody(
-    { purpose: "payment_screenshot", fileName: "proof.png", fileType: "image", fileSize: 9 * 1024 * 1024 },
+    { purpose: "payment_screenshot", fileName: "proof.png", fileType: "image", fileSize: 31 * 1024 * 1024 },
     null,
   )?.code,
   "ATTACHMENT_FILE_TOO_LARGE",
+);
+assert.equal(
+  validateAttachmentUploadBody(
+    { purpose: "print_artwork", fileName: "approved.psd", fileType: "other", mimeType: "application/octet-stream", fileSize: 200 * 1024 * 1024 },
+    { buffer: Buffer.alloc(1), contentType: "application/octet-stream" },
+  ),
+  null,
+);
+assert.equal(
+  validateAttachmentUploadBody(
+    { purpose: "print_artwork", fileName: "approved.zip", fileType: "other", mimeType: "application/octet-stream", fileSize: 1024 },
+    { buffer: Buffer.alloc(1), contentType: "application/octet-stream" },
+  )?.code,
+  "ATTACHMENT_FILE_EXTENSION_NOT_ALLOWED",
 );
 
 const missing = await createAttachmentRecord({

@@ -29,6 +29,8 @@ const sensitiveValues = [
   "ftp://bad-object-storage.internal",
   "bad/bucket",
   "timeout-secret",
+  "https://attendance-gateway-secret.example.com/v1/punches/query",
+  "attendance-provider-token-secret",
 ];
 
 rmSync(storageRoot, { recursive: true, force: true });
@@ -49,8 +51,9 @@ assert.equal(setupReport.audit.ready, true);
 assert.equal(setupReport.envPreflight.ready, false);
 assert.ok(setupReport.envPreflight.remainingFixItems.some((item) => item.key === "v1-persistence-profile"));
 assert.equal(setupReport.productionEnvFixChecklist.included, true);
-assert.equal(setupReport.productionEnvFixChecklist.fixItemCount, 11);
-assert.equal(setupReport.productionEnvFixChecklist.blockingItemCount, 6);
+assert.equal(setupReport.productionEnvFixChecklist.fixItemCount, 12);
+assert.equal(setupReport.productionEnvFixChecklist.blockingItemCount, 7);
+assert.equal(setupReport.productionEnvFixChecklist.warningItemCount, 2);
 assert.equal(
   setupReport.productionEnvFixChecklist.items.find((item) => item.key === "runtime-mode")?.status,
   "passed",
@@ -58,9 +61,9 @@ assert.equal(
 assert.equal(setupReport.productionEnvValueIntakeChecklist.included, true);
 assert.ok(setupReport.productionEnvValueIntakeChecklist.rowCount > 0);
 assert.equal(setupReport.productionEnvMinimumValueIntakeChecklist.included, true);
-assert.equal(setupReport.productionEnvMinimumValueIntakeChecklist.rowCount, 11);
+assert.equal(setupReport.productionEnvMinimumValueIntakeChecklist.rowCount, 16);
 assert.equal(setupReport.productionEnvMinimumValueIntakeChecklist.sourceRowCount, setupReport.productionEnvValueIntakeChecklist.rowCount);
-assert.equal(setupReport.productionEnvMinimumValueIntakeChecklist.chooseOneGroupCount, 1);
+assert.equal(setupReport.productionEnvMinimumValueIntakeChecklist.chooseOneGroupCount, 4);
 assert.equal(setupReport.productionEnvMinimumValueIntakeChecklist.safeguards.onlyBlockingRowsIncluded, true);
 assert.equal(setupReport.productionEnvMinimumValueIntakeChecklist.safeguards.safeLiteralRowsExcluded, true);
 assert.ok(
@@ -80,6 +83,30 @@ assert.ok(
       row.status === "optional_fallback",
   ),
   "statement-export independent bucket rows should be optional when no explicit statement storage is configured",
+);
+const attendanceIntakeRows = setupReport.productionEnvValueIntakeChecklist.rows.filter(
+  (row) => row.itemKey === "attendance-payroll-integration-env",
+);
+assert.equal(attendanceIntakeRows.length, 6);
+assert.ok(attendanceIntakeRows.every((row) => row.severity === "warning"));
+assert.ok(attendanceIntakeRows.every((row) => row.sourceSystem === "工资 PostgreSQL / 得力考勤 HTTPS 网关"));
+assert.equal(
+  attendanceIntakeRows.find((row) => row.variableKey === "ERP_ATTENDANCE_PAYROLL_STORE")?.safeLiteralValue,
+  "postgres",
+);
+assert.equal(
+  attendanceIntakeRows.find((row) => row.variableKey === "ERP_ATTENDANCE_PROVIDER_MODE")?.safeLiteralValue,
+  "http_json",
+);
+assert.equal(
+  attendanceIntakeRows.find((row) => row.variableKey === "ERP_ATTENDANCE_PROVIDER_KEY")?.safeLiteralValue,
+  "deli",
+);
+assert.ok(
+  setupReport.productionEnvMinimumValueIntakeChecklist.rows.every(
+    (row) => row.itemKey !== "attendance-payroll-integration-env",
+  ),
+  "attendance/payroll integration should remain outside the raw-material first-release minimum blocking path",
 );
 const setupCommands = new Map(setupReport.commands.map((command) => [command.key, command.command]));
 assert.equal(setupCommands.get("server-apply"), "ERP_V1_PRODUCTION_ENV_FILE=<secure-env-file> npm run api:dev");
@@ -137,9 +164,11 @@ assert.match(draftText, /ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS=<secure-env-file
 assert.match(draftText, /ERP_V1_PERSISTENCE_PROFILE=postgres/);
 assert.match(draftText, /ERP_AUTH_MODE=strict/);
 assert.match(draftText, /ERP_AUTH_SECRET=\n/);
-assert.match(draftText, /ERP_API_MAX_JSON_BODY_BYTES=25165824/);
+assert.match(draftText, /ERP_API_MAX_JSON_BODY_BYTES=75497472/);
 assert.match(draftText, /VITE_ERP_RUNTIME_MODE=production/);
 assert.match(draftText, /ERP_V1_DATABASE_URL=\n/);
+assert.match(draftText, /ERP_ATTENDANCE_PROVIDER_MODE=\n/);
+assert.match(draftText, /ERP_ATTENDANCE_PROVIDER_TOKEN=\n/);
 assert.match(draftText, /ERP_ATTACHMENT_OBJECT_STORAGE_SECRET_ACCESS_KEY=\n/);
 assert.match(draftText, /ERP_SYSTEM_PRINTER_ALLOWLIST=\n/);
 assert.match(draftText, /ERP_PRINT_COMMAND_BRIDGE_CUPS_ALLOWLIST=\n/);
@@ -190,6 +219,9 @@ assert.match(setupArtifactsText, /任选其一，优先使用 ERP_V1_DATABASE_UR
 assert.match(setupArtifactsText, /ERP_V1_DATABASE_URL \/ DATABASE_URL \/ PGURL/);
 assert.match(setupArtifactsText, /Choose one: ERP_V1_DATABASE_URL or DATABASE_URL or PGURL/);
 assert.match(setupArtifactsText, /PostgreSQL 生产库 \/ 持久化 profile/);
+assert.match(setupArtifactsText, /工资 PostgreSQL \/ 得力考勤 HTTPS 网关/);
+assert.match(setupArtifactsText, /ERP_ATTENDANCE_PROVIDER_MODE=http_json/);
+assert.match(setupArtifactsText, /ERP_ATTENDANCE_PROVIDER_KEY=deli/);
 assert.match(setupArtifactsText, /WARNING \| 技术\/管理 \| 对账导出对象存储环境变量/);
 assert.match(setupArtifactsText, /可选独立 bucket；附件对象存储 fallback 完整时本变量组可不填/);
 assert.match(setupArtifactsText, /"filled","verified","evidenceRef"/);
@@ -225,6 +257,7 @@ assert.match(
   /# ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_COMMAND=<REPLACE_WITH_ERP_PRINT_COMMAND_BRIDGE_CUPS_STATUS_COMMAND>/,
 );
 assert.doesNotMatch(minimumValuesFragmentTemplate, /ERP_STATEMENT_EXPORT_OBJECT_STORAGE_ENDPOINT/);
+assert.doesNotMatch(minimumValuesFragmentTemplate, /ERP_ATTENDANCE_PROVIDER_TOKEN/);
 assert.match(minimumValuesFragmentTemplate, /secure-minimum-values-env-fragment/);
 
 writeFileSync(draftEnvPath, `${draftText}\nERP_V1_DATABASE_URL=postgres://keep-existing\n`, { mode: 0o600 });
@@ -386,6 +419,12 @@ function buildReadyEnv() {
     "ERP_V1_FILE_STORAGE_PROFILE=object_storage",
     "ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL=postgres://restore_user:restore-pass@restore-db.internal:5432/erp_restore",
     "ERP_V1_POSTGRES_RESTORE_RESET_ALLOWED=false",
+    "ERP_ATTENDANCE_PAYROLL_STORE=postgres",
+    "ERP_ATTENDANCE_PROVIDER_MODE=http_json",
+    "ERP_ATTENDANCE_PROVIDER_KEY=deli",
+    `ERP_ATTENDANCE_PROVIDER_ENDPOINT=${sensitiveValues[13]}`,
+    `ERP_ATTENDANCE_PROVIDER_TOKEN=${sensitiveValues[14]}`,
+    "ERP_ATTENDANCE_PROVIDER_TIMEOUT_MS=5000",
     "ERP_ATTACHMENT_OBJECT_STORAGE_PROVIDER=s3_compatible",
     `ERP_ATTACHMENT_OBJECT_STORAGE_ENDPOINT=${sensitiveValues[1]}`,
     `ERP_ATTACHMENT_OBJECT_STORAGE_BUCKET=${sensitiveValues[2]}`,

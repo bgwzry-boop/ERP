@@ -12,6 +12,7 @@ export async function handleMasterDataWriteRoutes({
   masterDataImportCommandService,
   masterDataEmployeeAccountCommandService,
   masterDataMachineCommandService,
+  phoneIdentityCommandService,
   sendCommandResponse,
 }) {
   if (!["POST", "PATCH"].includes(method)) return false;
@@ -76,6 +77,21 @@ export async function handleMasterDataWriteRoutes({
     return true;
   }
 
+  const registrationAssignmentMatch = url.pathname.match(
+    /^\/api\/master-data\/personnel\/registration-reviews\/([^/]+)\/assign$/,
+  );
+  if (registrationAssignmentMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.reviewMasterDataEmployeeAccount)) return true;
+    const result = await phoneIdentityCommandService.assignRegistration({
+      workspace,
+      userId: decodeURIComponent(registrationAssignmentMatch[1]),
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
+    });
+    sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
+    return true;
+  }
+
   const failedRowsMatch = url.pathname.match(/^\/api\/master-data\/import-executions\/([^/]+)\/failed-rows\/correction-draft$/);
   if (failedRowsMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.createMasterDataImportConfirmationPlan)) return true;
@@ -89,7 +105,7 @@ export async function handleMasterDataWriteRoutes({
     return true;
   }
 
-  const employeeActionMatch = url.pathname.match(/^\/api\/master-data\/employee-account-reviews\/([^/]+)\/(enable|assignment|merge|identity-confirmation|password(?:\/revoke)?)$/);
+  const employeeActionMatch = url.pathname.match(/^\/api\/master-data\/employee-account-reviews\/([^/]+)\/(enable|assignment|profile|merge|depart|identity-confirmation|password(?:\/revoke)?)$/);
   if (!employeeActionMatch) return false;
 
   const employeeId = decodeURIComponent(employeeActionMatch[1]);
@@ -103,9 +119,17 @@ export async function handleMasterDataWriteRoutes({
       permission: writeActionPermissions.reviewMasterDataEmployeeAccount,
       run: (input) => masterDataEmployeeAccountCommandService.updateEmployeeAssignment(input),
     },
+    profile: {
+      permission: writeActionPermissions.manageEmployeeProfile,
+      run: (input) => masterDataEmployeeAccountCommandService.updateEmployeeProfile(input),
+    },
     merge: {
       permission: writeActionPermissions.reviewMasterDataEmployeeAccount,
       run: (input) => masterDataEmployeeAccountCommandService.mergeEmployeeIdentity(input),
+    },
+    depart: {
+      permission: writeActionPermissions.reviewMasterDataEmployeeAccount,
+      run: (input) => masterDataEmployeeAccountCommandService.departEmployeeAccount(input),
     },
     "identity-confirmation": {
       permission: writeActionPermissions.reviewMasterDataEmployeeAccount,

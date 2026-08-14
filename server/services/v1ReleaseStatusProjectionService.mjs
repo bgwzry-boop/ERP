@@ -121,7 +121,7 @@ export function sanitizeV1OwnerDecisionBrief(value = {}, completion = {}, suite 
       runtimeReadiness: sanitizeV1SensitiveStatusText(completionSource.runtimeReadiness) || "5/11 通过",
       fieldEvidence:
         sanitizeV1SensitiveStatusText(completionSource.fieldEvidence) ||
-        "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+        "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
       fieldAcceptance: sanitizeV1SensitiveStatusText(completionSource.fieldAcceptance) || "5/11 通过",
       onsiteTaskCount,
     },

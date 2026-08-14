@@ -35,6 +35,9 @@ assert.equal(validResult.employeeRoleCoverage.coverageLabel, "1/8");
 assert.equal(validResult.employeeRoleCoverage.coveredRoleCount, 1);
 assert.equal(validResult.employeeRoleCoverage.missingRoleCount, 7);
 assert.equal(validResult.employeeRoleCoverage.roles.find((role) => role.roleKey === "workshop")?.rowCount, 1);
+assert.equal(validResult.employeePayrollAttendanceCoverage.available, true);
+assert.equal(validResult.employeePayrollAttendanceCoverage.coverageLabel, "1/1");
+assert.equal(validResult.employeePayrollAttendanceCoverage.complete, true);
 assert(validResult.sheets.every((sheet) => sheet.status === "ok"), "valid template sheets should pass");
 assert.equal(validResult.stagedRows.length, 5);
 assert(validResult.stagedRows.some((sheet) => sheet.sheetKey === "customers" && sheet.rows[0].values["客户名称"] === "张三服饰"));
@@ -76,6 +79,10 @@ const officeOnlyResult = await precheckMasterDataImportWorkbook({
 assert.equal(officeOnlyResult.summary.status, "passed");
 assert.equal(officeOnlyResult.summary.importAllowed, true);
 assert.equal(officeOnlyResult.employeeRoleCoverage.roles.find((role) => role.roleKey === "office")?.rowCount, 1);
+assert.equal(officeOnlyResult.employeePayrollAttendanceCoverage.coverageLabel, "0/1");
+assert.equal(officeOnlyResult.employeePayrollAttendanceCoverage.profileReadyCount, 0);
+assert.equal(officeOnlyResult.employeePayrollAttendanceCoverage.wageReadyCount, 0);
+assert.equal(officeOnlyResult.employeePayrollAttendanceCoverage.attendanceMappingReadyCount, 0);
 assert(!officeOnlyResult.issues.some((issue) => issue.field === "默认车间" || issue.field === "默认机台"));
 
 const ownerMultiRoleResult = await precheckMasterDataImportWorkbook({
@@ -119,6 +126,41 @@ const duplicateEmployeeResult = await precheckMasterDataImportWorkbook({
 });
 assert.equal(duplicateEmployeeResult.summary.status, "blocked");
 assert(duplicateEmployeeResult.issues.some((issue) => issue.message.includes("员工编号 重复")));
+
+const employeePayrollProfileResult = await precheckMasterDataImportWorkbook({
+  bytes: buildEmployeeOnlyWorkbook(employeeSpec, {
+    员工编号: "EMP-PAY-001",
+    员工姓名: "工资员工",
+    出生日期: "1988-06-01",
+    入职日期: "2020-03-02",
+    角色: "财务 / 对账",
+    基础时薪: 15.5,
+    "岗位补贴/小时": 2,
+    生效日期: "2026-08-01",
+    考勤来源: "deli",
+    考勤人员编号: "D5FN-1001",
+  }),
+  fileName: "employee-payroll-profile.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(employeePayrollProfileResult.summary.status, "passed");
+assert.equal(employeePayrollProfileResult.stagedRows[0].rows[0].values["出生日期"], "1988-06-01");
+assert.equal(employeePayrollProfileResult.stagedRows[0].rows[0].values["考勤人员编号"], "D5FN-1001");
+
+const invalidEmployeePayrollProfiles = await precheckMasterDataImportWorkbook({
+  bytes: buildEmployeeOnlyWorkbook(employeeSpec, [
+    { 员工编号: "EMP-PAY-002", 员工姓名: "映射甲", 角色: "办公室", 出生日期: "2026-02-30", 考勤来源: "deli", 考勤人员编号: "D5FN-DUP" },
+    { 员工编号: "EMP-PAY-003", 员工姓名: "映射乙", 角色: "办公室", 出生日期: "1990-01-01", 入职日期: "1989-01-01", 考勤来源: "DELI", 考勤人员编号: "D5FN-DUP" },
+    { 员工编号: "EMP-PAY-004", 员工姓名: "映射丙", 角色: "办公室", 考勤来源: "deli" },
+  ]),
+  fileName: "invalid-employee-payroll-profiles.xlsx",
+  checkedAt: generatedAt,
+});
+assert.equal(invalidEmployeePayrollProfiles.summary.status, "blocked");
+assert(invalidEmployeePayrollProfiles.issues.some((issue) => issue.field === "出生日期" && issue.message.includes("有效")));
+assert(invalidEmployeePayrollProfiles.issues.some((issue) => issue.message.includes("入职日期必须晚于出生日期")));
+assert(invalidEmployeePayrollProfiles.issues.some((issue) => issue.message.includes("考勤身份 重复")));
+assert(invalidEmployeePayrollProfiles.issues.some((issue) => issue.message.includes("必须同时填写")));
 
 const copiedExampleResult = await precheckMasterDataImportWorkbook({
   bytes: buildEmployeeOnlyWorkbook(employeeSpec, {

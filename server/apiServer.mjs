@@ -92,6 +92,8 @@ import { createRawMaterialInboundRepository } from "./rawMaterialInboundReposito
 import { createRawMaterialSupplierStatementReviewRepository } from "./rawMaterialSupplierStatementReviewRepository.mjs";
 import { createRawMaterialPurchaseRepository } from "./rawMaterialPurchaseRepository.mjs";
 import { createMaintenanceTaskRepository } from "./maintenanceTaskRepository.mjs";
+import { createAttendancePayrollRepository } from "./attendancePayrollRepository.mjs";
+import { createConfiguredAttendanceProvider } from "./attendanceProvider.mjs";
 import { createRuntimeIdentityRepository } from "./runtimeIdentityRepository.mjs";
 import { createBusinessDecisionEvidenceRepository } from "./businessDecisionEvidenceRepository.mjs";
 import { createBusinessDecisionAuthorizationRepository } from "./businessDecisionAuthorizationRepository.mjs";
@@ -155,7 +157,12 @@ import {
   handleMaintenanceTaskReadRoutes,
   handleMaintenanceTaskWriteRoutes,
 } from "./routes/maintenanceTaskRoutes.mjs";
+import {
+  handleAttendancePayrollReadRoutes,
+  handleAttendancePayrollWriteRoutes,
+} from "./routes/attendancePayrollRoutes.mjs";
 import { apiSharedServiceRegistry } from "./apiSharedServiceRegistry.mjs";
+import { releaseIdentityFromEnvironment } from "../shared/releaseIdentity.js";
 
 export function createApiServer(options = {}) {
   const productionEnvFileApplication =
@@ -182,6 +189,15 @@ export function createApiServer(options = {}) {
   }));
   workspace.securityPolicy = securityPolicy;
   workspace.firstReleaseScope = firstReleaseScope;
+  workspace.phoneVerificationSender = effectiveOptions.phoneVerificationSender;
+  if (
+    securityPolicy.phoneRegistrationEnabled === true &&
+    typeof workspace.phoneVerificationSender !== "function"
+  ) {
+    throw new Error(
+      "ERP_PHONE_REGISTRATION_ENABLED requires a configured phoneVerificationSender.",
+    );
+  }
   const attachmentRepository =
     effectiveOptions.attachmentRepository ?? createAttachmentRepository(effectiveOptions.attachmentRepositoryOptions);
   const attachmentAccessAuditRepository =
@@ -293,6 +309,12 @@ export function createApiServer(options = {}) {
   const maintenanceTaskRepository =
     effectiveOptions.maintenanceTaskRepository ??
     createMaintenanceTaskRepository(effectiveOptions.maintenanceTaskRepositoryOptions);
+  const attendancePayrollRepository =
+    effectiveOptions.attendancePayrollRepository ??
+    createAttendancePayrollRepository(effectiveOptions.attendancePayrollRepositoryOptions);
+  const attendanceProvider =
+    effectiveOptions.attendanceProvider ??
+    createConfiguredAttendanceProvider(effectiveOptions.attendanceProviderOptions);
   const runtimeIdentityRepository =
     effectiveOptions.runtimeIdentityRepository ??
     createRuntimeIdentityRepository(effectiveOptions.runtimeIdentityRepositoryOptions);
@@ -347,6 +369,7 @@ export function createApiServer(options = {}) {
       rawMaterialSupplierStatementReviewRepository,
       rawMaterialPurchaseRepository,
       maintenanceTaskRepository,
+      attendancePayrollRepository,
       runtimeIdentityRepository,
       businessDecisionEvidenceRepository,
       businessDecisionAuthorizationRepository,
@@ -365,6 +388,14 @@ export function createApiServer(options = {}) {
   workspace.businessDecisionEvidenceDrafts = [];
   workspace.rawMaterialPurchaseRequests = [];
   workspace.maintenanceTasks = workspace.initialMaintenanceTasks ?? [];
+  workspace.attendanceImportBatches = [];
+  workspace.attendancePunches = [];
+  workspace.attendanceDayReviews = [];
+  workspace.payrollPolicyVersions = [];
+  workspace.payrollRuns = [];
+  workspace.payrollLines = [];
+  workspace.payrollLineAdjustments = [];
+  workspace.payrollExportEvents = [];
   workspace.fulfillmentQuantityVarianceResolutions = [];
   workspace.statementWriteOffRecords = [];
   workspace.fulfillmentExceptions = [];
@@ -410,6 +441,7 @@ export function createApiServer(options = {}) {
   workspace.systemV1ReadinessOptions = options.systemV1ReadinessOptions ?? {};
   workspace.productionEnvFileApplication = productionEnvFileApplication;
   workspace.runtimeConfig = buildRuntimeConfigSummary(runtimeConfig);
+  workspace.releaseIdentity = releaseIdentityFromEnvironment(process.env);
   workspace.productionPersistenceValidation = productionPersistenceValidation;
   workspace.v1PersistenceProfile = v1PersistenceProfile.summary;
   workspace.paymentRecordRepository = paymentRecordRepository;
@@ -448,6 +480,8 @@ export function createApiServer(options = {}) {
   workspace.rawMaterialSupplierStatementReviewRepository = rawMaterialSupplierStatementReviewRepository;
   workspace.rawMaterialPurchaseRepository = rawMaterialPurchaseRepository;
   workspace.maintenanceTaskRepository = maintenanceTaskRepository;
+  workspace.attendancePayrollRepository = attendancePayrollRepository;
+  workspace.attendanceProvider = attendanceProvider;
   workspace.runtimeIdentityRepository = runtimeIdentityRepository;
   workspace.businessDecisionEvidenceRepository = businessDecisionEvidenceRepository;
   workspace.businessDecisionAuthorizationRepository = businessDecisionAuthorizationRepository;
@@ -495,7 +529,9 @@ export function createApiServer(options = {}) {
         if (!firstReleaseWrite.allowed) {
           return sendJson(response, 403, buildFirstReleaseBlockedResponse(firstReleaseScope));
         }
-        const body = await readJsonRequestBody(request, securityPolicy.maxJsonBodyBytes);
+        const body = url.pathname === "/api/attachments/binary"
+          ? readBinaryAttachmentMetadata(url)
+          : await readJsonRequestBody(request, securityPolicy.maxJsonBodyBytes);
         return await routeWrite({ method: request.method, request, url, response, workspace, body, permissionContext, authContext });
       }
       return sendJson(response, 405, {
@@ -738,6 +774,21 @@ async function routeGet(context) {
   ) return;
 
   if (
+    await handleAttendancePayrollReadRoutes({
+      url,
+      response,
+      workspace,
+      permissionContext,
+      authContext,
+      writeActionPermissions,
+      requireActionPermission,
+      attendancePayrollService,
+      sendJson,
+      sendNotFound,
+    })
+  ) return;
+
+  if (
     await handleMasterDataReadRoutes({
       url,
       response,
@@ -752,6 +803,7 @@ async function routeGet(context) {
       buildEmployeeAssignmentOptions,
       listMasterDataMachines,
       masterDataImportCommandService,
+      phoneIdentityCommandService,
       sendNotFound,
       sendBusinessError,
       sendFile,
@@ -799,6 +851,7 @@ async function routeWrite(context) {
       body,
       authContext,
       runtimeAuthCommandService,
+      phoneIdentityCommandService,
       sendCommandResponse,
     })
   ) {
@@ -862,6 +915,7 @@ async function routeWrite(context) {
   if (
     await handleAttachmentWriteRoutes({
       method,
+      request,
       url,
       response,
       workspace,
@@ -1159,6 +1213,23 @@ async function routeWrite(context) {
   }
 
   if (
+    await handleAttendancePayrollWriteRoutes({
+      method,
+      url,
+      response,
+      workspace,
+      body,
+      permissionContext,
+      authContext,
+      writeActionPermissions,
+      requireActionPermission,
+      getPermissionOperatorId,
+      attendancePayrollService,
+      sendJson,
+    })
+  ) return;
+
+  if (
     await handleMasterDataWriteRoutes({
       method,
       url,
@@ -1173,6 +1244,7 @@ async function routeWrite(context) {
       masterDataImportCommandService,
       masterDataEmployeeAccountCommandService,
       masterDataMachineCommandService,
+      phoneIdentityCommandService,
       sendCommandResponse,
     })
   ) {
@@ -1180,6 +1252,34 @@ async function routeWrite(context) {
   }
 
   return sendNotFound(response, "ROUTE_NOT_FOUND");
+}
+
+function readBinaryAttachmentMetadata(url) {
+  const metadataText = url.searchParams.get("metadata") ?? "";
+  let metadata = {};
+  if (metadataText) {
+    try {
+      const parsed = JSON.parse(metadataText);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) metadata = parsed;
+    } catch {
+      const error = new Error("附件 metadata 必须是有效 JSON。");
+      error.statusCode = 400;
+      error.code = "ATTACHMENT_METADATA_INVALID";
+      throw error;
+    }
+  }
+  return {
+    ownerType: url.searchParams.get("ownerType") ?? "",
+    ownerId: url.searchParams.get("ownerId") ?? "",
+    fileType: url.searchParams.get("fileType") ?? "",
+    purpose: url.searchParams.get("purpose") ?? "",
+    fileName: url.searchParams.get("fileName") ?? "",
+    contentRef: url.searchParams.get("contentRef") ?? "",
+    mimeType: url.searchParams.get("mimeType") ?? "application/octet-stream",
+    fileSize: Number(url.searchParams.get("fileSize")),
+    remark: url.searchParams.get("remark") ?? "",
+    metadata,
+  };
 }
 
 export function normalizeExpectedRevisionAtApiBoundary(body = {}) {
@@ -1262,6 +1362,7 @@ function applyIsolatedE2eIdentityFixtures(workspace, runtimeConfig) {
 }
 
 const {
+  attendancePayrollService,
   attachmentCreateCommandService,
   attachmentFileAccessService,
   businessDecisionAuthorizationCommandService,
@@ -1288,6 +1389,7 @@ const {
   orderDraftCommandService,
   orderLineMutationCommandService,
   packingCommandService,
+  phoneIdentityCommandService,
   printBatchCommandService,
   printDeviceCommandService,
   printDriverDiagnosticsService,

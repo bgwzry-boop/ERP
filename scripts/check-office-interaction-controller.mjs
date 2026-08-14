@@ -317,7 +317,7 @@ assert.match(runtimeAuthPresentationSource, /password_expired/);
 assert.match(runtimeSessionExpirySource, /getRuntimeSessionExpiryDecision/);
 assert.match(appShellViewsSource, /getRuntimePasswordChangePresentation/);
 assert.match(appSource, /RuntimeAuthBoundary/);
-assert.match(appSource, /onLogout=\{runtimeServerRequired && authState\.authenticated \? logoutRuntimeUserSession : undefined\}/);
+assert.match(appSource, /onLogout=\{formalLoginRequired && authState\.authenticated \? logoutRuntimeUserSession : undefined\}/);
 assert.match(appSource, /useRuntimeSessionExpiry\(/);
 assert.match(appViewsSource, /RuntimePasswordChangeScreen/);
 assert.match(attachmentViewUtilsSource, /export function isInlineImageAttachment\(/);

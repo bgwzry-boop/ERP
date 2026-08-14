@@ -38,7 +38,15 @@ try {
     const draftPath = resolve(options.draftJson || DEFAULT_DRAFT_PATH);
     const workbookPath = resolve(options.outputFile || DEFAULT_WORKBOOK_PATH);
     const draft = loadControlledDraft(draftPath);
-    const employees = normalizeEmployees(draft.employees);
+    const allEmployees = normalizeEmployees(draft.employees);
+    const excludedEmployeeNumbers = normalizeExcludedEmployeeNumbers(options.excludeEmployeeNumbers);
+    const knownEmployeeNumbers = new Set(allEmployees.map((employee) => normalizeEmployeeNumberKey(employee.employeeNumber)).filter(Boolean));
+    if (excludedEmployeeNumbers.some((employeeNumber) => !knownEmployeeNumbers.has(normalizeEmployeeNumberKey(employeeNumber)))) {
+      throw new Error("excluded_employee_number_unknown");
+    }
+    const excludedKeys = new Set(excludedEmployeeNumbers.map(normalizeEmployeeNumberKey));
+    const employees = allEmployees.filter((employee) => !excludedKeys.has(normalizeEmployeeNumberKey(employee.employeeNumber)));
+    if (!employees.length) throw new Error("draft_row_count_invalid");
     const identityMigrationCount = validateIdentityMigrations(draft.identityMigrations, employees);
     const workbook = buildMasterDataImportTemplateWorkbook({
       templateKey: "workshop",
@@ -49,7 +57,7 @@ try {
       },
     });
     writePrivateWorkbook(workbookPath, workbook);
-    const result = buildResult(employees, workbook.length, identityMigrationCount);
+    const result = buildResult(employees, workbook.length, identityMigrationCount, excludedEmployeeNumbers.length);
     process.stdout.write(options.json ? `${JSON.stringify(result, null, 2)}\n` : formatResult(result));
   }
 } catch (error) {
@@ -128,6 +136,8 @@ function projectEmployeeRow(employee) {
   return {
     员工编号: employee.employeeNumber,
     员工姓名: employee.employeeName,
+    出生日期: "",
+    入职日期: "",
     角色: employee.roleLabel,
     附加角色: employee.additionalRoleLabels.join("、"),
     默认车间: employee.defaultWorkshop,
@@ -135,6 +145,8 @@ function projectEmployeeRow(employee) {
     基础时薪: "",
     "岗位补贴/小时": "",
     生效日期: "",
+    考勤来源: "",
+    考勤人员编号: "",
     机台编号: "",
     机台名称: "",
     机台车间: "",
@@ -173,7 +185,7 @@ function writePrivateWorkbook(path, bytes) {
   chmodSync(path, 0o600);
 }
 
-function buildResult(employees, workbookByteLength, identityMigrationCount) {
+function buildResult(employees, workbookByteLength, identityMigrationCount, excludedEmployeeCount = 0) {
   const roleCounts = Object.fromEntries(v1RuntimeEmployeeRoleKeys.map((roleKey) => [roleKey, 0]));
   let missingEmployeeNumberCount = 0;
   for (const employee of employees) {
@@ -193,6 +205,7 @@ function buildResult(employees, workbookByteLength, identityMigrationCount) {
       coverageLabel: `${coveredRoleCount}/${v1RuntimeEmployeeRoleKeys.length}`,
       missingEmployeeNumberCount,
       identityMigrationCount,
+      excludedEmployeeCount,
       workbookByteLength,
     },
     roles: v1RuntimeEmployeeRoleKeys.map((roleKey) => ({
@@ -221,7 +234,7 @@ function buildSafeguards() {
 }
 
 function parseArgs(args) {
-  const options = {};
+  const options = { excludeEmployeeNumbers: [] };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (arg === "--help" || arg === "-h") options.help = true;
@@ -229,9 +242,22 @@ function parseArgs(args) {
     else if (arg === "--confirm-controlled-rebuild") options.confirmControlledRebuild = true;
     else if (arg === "--draft-json") options.draftJson = readArgValue(args, ++index, arg);
     else if (arg === "--output-file") options.outputFile = readArgValue(args, ++index, arg);
+    else if (arg === "--exclude-employee-number") options.excludeEmployeeNumbers.push(readArgValue(args, ++index, arg));
     else throw new Error("unknown_argument");
   }
   return options;
+}
+
+function normalizeExcludedEmployeeNumbers(values = []) {
+  const seen = new Set();
+  return values.map((value) => {
+    const employeeNumber = normalizeEmployeeNumber(value);
+    if (!isValidEmployeeNumber(employeeNumber)) throw new Error("employee_number_invalid");
+    const key = normalizeEmployeeNumberKey(employeeNumber);
+    if (seen.has(key)) throw new Error("excluded_employee_number_duplicate");
+    seen.add(key);
+    return employeeNumber;
+  });
 }
 
 function readArgValue(args, index, label) {
@@ -247,6 +273,7 @@ function formatHelp() {
     "Options:",
     "  --draft-json <file>            Controlled Git-excluded intake draft JSON",
     "  --output-file <file>           Controlled Git-excluded employee-machine XLSX",
+    "  --exclude-employee-number <id> Exclude one confirmed departed/merged stable employee number; repeatable",
     "  --confirm-controlled-rebuild   Required before replacing the controlled XLSX",
     "  --json                         Print an identity-redacted result",
     "  --help                         Show this help",
@@ -262,6 +289,7 @@ function formatResult(result) {
     `Rows: ${result.summary.employeeRowCount}`,
     `Role coverage: ${result.summary.coverageLabel}`,
     `Missing employee numbers: ${result.summary.missingEmployeeNumberCount}`,
+    `Excluded employee rows: ${result.summary.excludedEmployeeCount}`,
     "",
   ].join("\n");
 }
@@ -282,6 +310,8 @@ function errorMessage(code) {
     employee_role_invalid: "受控员工草稿存在未知岗位。",
     employee_number_invalid: "受控员工草稿存在格式不合规的员工编号。",
     employee_number_duplicate: "受控员工草稿存在重复员工编号。",
+    excluded_employee_number_duplicate: "同一个排除员工编号被重复提交。",
+    excluded_employee_number_unknown: "排除员工编号不在当前受控草稿中。",
     identity_migrations_invalid: "受控员工草稿的身份迁移证据不完整或与当前编号不一致。",
   };
   return messages[code] || "受控员工工作簿重建失败，请检查草稿格式后重试。";

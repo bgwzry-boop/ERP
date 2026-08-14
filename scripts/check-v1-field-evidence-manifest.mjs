@@ -37,7 +37,9 @@ const summaryRun = await runNode([generatorScript, "--json"]);
 assert.equal(summaryRun.status, 0, runFailureMessage("generator summary should succeed", summaryRun));
 const summary = JSON.parse(summaryRun.stdout);
 assert.equal(summary.status, "ready");
-assert.equal(summary.schema, "erp-v1-field-evidence-manifest-v1");
+assert.equal(summary.schema, "erp-v1-field-evidence-manifest-v2");
+assert.equal(summary.summary.evidenceGroupCount, 7);
+assert.equal(summary.summary.requiredEvidenceItemCount, 40);
 assert.equal(summary.safeguards.templateContainsRealSecrets, false);
 assert.equal(summary.safeguards.allRequiredEvidenceDefaultsPending, true);
 
@@ -62,7 +64,7 @@ assert.equal(tempManifest, checkedManifest, "checked-in field evidence manifest 
 assert.equal(tempChecklist, checkedChecklist, "checked-in field evidence checklist is not in sync with generator");
 
 const manifest = JSON.parse(checkedManifest);
-assert.equal(manifest.schema, "erp-v1-field-evidence-manifest-v1");
+assert.equal(manifest.schema, "erp-v1-field-evidence-manifest-v2");
 assert.deepEqual(
   manifest.evidenceGroups.map((group) => group.key),
   requiredEvidenceGroupKeys,
@@ -81,6 +83,8 @@ assert.ok(
 );
 assert.match(checkedChecklist, /node scripts\/validate-v1-field-evidence-manifest\.mjs/);
 assert.match(checkedChecklist, /V1 \/ V2 边界确认/);
+assert.match(checkedChecklist, /工资 \/ 考勤真实闭环/);
+assert.match(checkedChecklist, /首期工资草稿、会计复核、管理锁定、不可变导出和发薪确认已闭环/);
 assert.match(checkedChecklist, /清单生成不等于验收通过/);
 
 const templateValidationRun = await runNode([

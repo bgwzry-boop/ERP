@@ -14,7 +14,7 @@ const readyResult = await ready.service.precheck({ request, operatorId });
 assert.equal(readyResult.httpStatus, 200);
 assert.equal(readyResult.body.status, "ready_to_refresh");
 assert.equal(readyResult.body.ready, true);
-assert.equal(readyResult.body.summary.evidenceProgress, "34/34");
+assert.equal(readyResult.body.summary.evidenceProgress, "40/40");
 assert.equal(readyResult.body.summary.signoffProgress, "6/6");
 assert.equal(readyResult.body.summary.releaseCandidateRefreshAllowed, true);
 assert.equal(readyResult.body.summary.releaseCandidateRefreshed, false);
@@ -26,7 +26,7 @@ for (const scenario of [
   { options: { draftStatus: "missing" }, key: "field-evidence-draft-missing" },
   { options: { draftFresh: false }, key: "field-evidence-draft-stale" },
   { options: { draftSchemaValid: false }, key: "field-evidence-draft-invalid" },
-  { options: { draftReady: false, evidenceProgress: "20/34" }, key: "field-evidence-draft-blocked" },
+  { options: { draftReady: false, evidenceProgress: "20/40" }, key: "field-evidence-draft-blocked" },
   { options: { productionEnvReady: false }, key: "production-env-preflight-blocked" },
   { options: { productionGoLiveReady: false }, key: "production-go-live-combo-blocked" },
   { options: { signoffProgress: "5/6" }, key: "signoff-incomplete" },
@@ -83,7 +83,7 @@ function createHarness({
   draftFreshnessLabel = draftFresh ? "当前版本" : "需重生成",
   draftReady = true,
   draftSchemaValid = true,
-  evidenceProgress = "34/34",
+  evidenceProgress = "40/40",
   signoffProgress = "6/6",
   boundaryReady = true,
   boundaryLabel = boundaryReady ? "已确认" : "待确认",
@@ -152,7 +152,7 @@ function createHarness({
         status: draftReady ? "ready" : "blocked",
         ready: draftReady,
         schemaValid: draftSchemaValid,
-        summary: { evidenceProgress, signoffProgress, evidenceGroupsReadyLabel: "6/6" },
+        summary: { evidenceProgress, signoffProgress, evidenceGroupsReadyLabel: "7/7" },
         boundary: { ready: boundaryReady, label: boundaryLabel },
       };
     },

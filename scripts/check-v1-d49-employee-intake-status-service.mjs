@@ -29,21 +29,48 @@ assert.equal(blocked.uploadAllowed, false);
 assert.equal(blocked.summary.employeeRowCount, 19);
 assert.equal(blocked.summary.coverageLabel, "6/8");
 assert.equal(blocked.summary.missingEmployeeNumberCount, 19);
+assert.equal(blocked.summary.payrollAttendanceCoverageLabel, "6/19");
+assert.equal(blocked.payrollAttendanceCoverage.completeCount, 6);
+assert.equal(blocked.payrollAttendanceCoverage.profileReadyCount, 12);
+assert.equal(blocked.payrollAttendanceCoverage.wageReadyCount, 9);
+assert.equal(blocked.payrollAttendanceCoverage.attendanceMappingReadyCount, 8);
+assert.equal(blocked.payrollAttendanceCoverage.ready, false);
 assert.deepEqual(blocked.missingRoleLabels, ["财务 / 对账", "管理"]);
 assert.equal(blocked.roles.length, 8);
 assert.match(blocked.nextAction, /补齐 19 个员工编号/);
 assert.match(blocked.nextAction, /可暂不填写，但D49会继续保持阻塞/);
 assertSafeProjection(blocked);
 
-const ready = buildV1D49EmployeeIntakeStatus({
+const payrollFieldsBlocked = buildV1D49EmployeeIntakeStatus({
   now: () => new Date(checkedAt),
   loadReport: () => buildReport({ ready: true, employeeNumberIssueCount: 0, coveredRoleCount: 8 }),
+  loadWorkbookEvidence: () => buildWorkbookEvidence(),
+});
+assert.equal(payrollFieldsBlocked.status, "needs_payroll_attendance_fields");
+assert.equal(payrollFieldsBlocked.ready, false);
+assert.equal(payrollFieldsBlocked.uploadAllowed, false);
+assert.equal(payrollFieldsBlocked.summary.coverageLabel, "8/8");
+assert.equal(payrollFieldsBlocked.summary.payrollAttendanceCoverageLabel, "6/19");
+assert.equal(payrollFieldsBlocked.payrollAttendanceCoverage.ready, false);
+assert.match(payrollFieldsBlocked.nextAction, /出生\/入职日期/);
+assert.match(payrollFieldsBlocked.nextAction, /严格工资考勤参数/);
+assertSafeProjection(payrollFieldsBlocked);
+
+const ready = buildV1D49EmployeeIntakeStatus({
+  now: () => new Date(checkedAt),
+  loadReport: () => buildReport({
+    ready: true,
+    employeeNumberIssueCount: 0,
+    coveredRoleCount: 8,
+    payrollAttendanceComplete: true,
+  }),
   loadWorkbookEvidence: () => buildWorkbookEvidence(),
 });
 assert.equal(ready.status, "ready_for_upload");
 assert.equal(ready.ready, true);
 assert.equal(ready.uploadAllowed, true);
-assert.equal(ready.summary.coverageLabel, "8/8");
+assert.equal(ready.summary.payrollAttendanceCoverageLabel, "19/19");
+assert.equal(ready.payrollAttendanceCoverage.ready, true);
 assert.match(ready.nextAction, /网页端仍会再次执行服务端预检查/);
 assertSafeProjection(ready);
 
@@ -133,6 +160,7 @@ function buildReport({
   employeeNumberIssueCount = 19,
   coveredRoleCount = 6,
   reportCheckedAt = checkedAt,
+  payrollAttendanceComplete = false,
 } = {}) {
   const missingRoleKeys = coveredRoleCount === 8 ? [] : ["finance", "management"];
   const roles = roleKeys.map((roleKey, index) => ({
@@ -159,6 +187,18 @@ function buildReport({
       warningCount: 0,
     },
     roleCoverage: { roles },
+    payrollAttendanceReadiness: {
+      required: true,
+      ready: payrollAttendanceComplete,
+      complete: payrollAttendanceComplete,
+      employeeCount: 19,
+      completeCount: payrollAttendanceComplete ? 19 : 6,
+      incompleteCount: payrollAttendanceComplete ? 0 : 13,
+      profileReadyCount: payrollAttendanceComplete ? 19 : 12,
+      wageReadyCount: payrollAttendanceComplete ? 19 : 9,
+      attendanceMappingReadyCount: payrollAttendanceComplete ? 19 : 8,
+      coverageLabel: "untrusted-label",
+    },
     sourceEvidence: {
       version: "v1-d49-workbook-source-evidence-v1",
       digestAlgorithm: "sha256",

@@ -189,7 +189,7 @@ assert.equal(
     },
   });
   const result = await harness.actions.updateRawMaterialInbound("打印卷标", "RMI-1");
-  assert.equal(result.status, "已打印待贴标");
+  assert.equal(result.status, "已贴标入库/可用", "local fallback must not reprint or downgrade an already available roll");
   assert.equal(harness.rawMaterialInbounds[0].rolls[0].inventoryStatus, "可用");
   assert.equal(harness.rawMaterialInboundMeta.source, "local_fallback");
 }
@@ -292,8 +292,13 @@ for (const [actionName, apiName, guardAction] of supplierActionCases) {
 
 const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const controllerSource = fs.readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
+const autoRefreshSource = fs.readFileSync(new URL("../src/app/useRawMaterialInboundAutoRefresh.js", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeRawMaterialActions\(\{/);
+assert.match(appSource, /const runtimeServerRequired = isOfficeSharedDataServerRequired\(\)/);
 assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
+assert.match(appSource, /useRawMaterialInboundAutoRefresh\(\{/);
+assert.match(autoRefreshSource, /windowRef\.addEventListener\("focus", syncRawMaterialInbounds\)/);
+assert.match(autoRefreshSource, /windowRef\.setInterval\(syncRawMaterialInbounds, intervalMs\)/);
 assert.doesNotMatch(appSource, /function applyRawMaterialInboundLocalAction/);
 assert.doesNotMatch(appSource, /updateOfficeRawMaterialInboundAction/);
 assert.ok(appSource.split("\n").length < 4_000, "App.jsx should meet the B6.5 intermediate ceiling");

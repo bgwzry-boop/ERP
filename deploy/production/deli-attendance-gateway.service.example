@@ -1,0 +1,29 @@
+[Unit]
+Description=ERP Deli D5FN attendance gateway
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erp
+Group=erp
+WorkingDirectory=/opt/erp/current
+EnvironmentFile=/etc/erp/deli-attendance-gateway.env
+ExecStartPre=/usr/bin/npm run deli-attendance-gateway:production-preflight -- --env-file /etc/erp/deli-attendance-gateway.env
+ExecStart=/usr/bin/npm run deli-attendance-gateway:production
+Restart=on-failure
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+
+[Install]
+WantedBy=multi-user.target

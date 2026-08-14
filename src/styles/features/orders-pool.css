@@ -127,7 +127,7 @@
   min-width: 0;
 }
 
-.order-pool-list-panel .order-table .status {
+.order-pool-list-panel .order-table .erp-semantic-tag {
   max-width: 100%;
   overflow: hidden;
   justify-content: center;
@@ -161,6 +161,27 @@
   color: var(--erp-text-muted);
   font-size: 11px;
   line-height: 16px;
+}
+
+.order-cell-support {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 5px;
+}
+
+.order-cell-support > small {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.order-cell-tags {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.order-cell-tags .erp-semantic-tag {
+  max-width: 82px;
 }
 
 .order-quantity-cell {
@@ -222,7 +243,7 @@
   gap: 5px;
 }
 
-.order-detail-statuses .status {
+.order-detail-statuses .erp-semantic-tag {
   min-height: 20px;
   font-size: 11px;
   padding: 0 7px;
@@ -347,6 +368,10 @@
   font-size: 12px;
   font-weight: 600;
   line-height: 17px;
+}
+
+.order-detail-facts .erp-semantic-tag {
+  min-height: 22px;
 }
 
 .order-flow-section .timeline {

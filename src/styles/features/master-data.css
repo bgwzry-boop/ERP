@@ -1439,6 +1439,33 @@
   line-height: 1.6;
 }
 
+.employee-profile-editor {
+  margin-top: 18px;
+  border-top: 1px solid var(--erp-border);
+  padding-top: 14px;
+}
+
+.employee-profile-editor-intro {
+  margin: -4px 0 12px;
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.employee-profile-form {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.employee-profile-form .employee-profile-reason {
+  grid-column: 1 / -1;
+}
+
+.employee-profile-form input:disabled {
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-faint);
+  cursor: not-allowed;
+}
+
 .master-data-workbench {
   grid-template-columns: minmax(480px, 1fr) minmax(360px, 390px) !important;
   gap: 10px;
@@ -2138,6 +2165,14 @@
 
   .employee-assignment-mode .segmented {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .employee-profile-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .employee-profile-form .employee-profile-reason {
+    grid-column: auto;
   }
 
   .employee-assignment-mode .segmented button {

@@ -14,7 +14,7 @@ const blocked = createHarness({
     status: "blocked",
     ready: false,
     summary: {
-      evidenceProgress: "0/34",
+      evidenceProgress: "0/40",
       signoffProgress: "0/6",
       productionEnvPreflightLabel: "1/10",
       productionGoLiveReadinessLabel: "1/5",
@@ -38,7 +38,7 @@ const blocked = createHarness({
 const blockedResult = await blocked.service.refresh({ request, operatorId });
 assert.equal(blockedResult.httpStatus, 409);
 assert.equal(blockedResult.body.status, "blocked_by_precheck");
-assert.equal(blockedResult.body.summary.evidenceProgress, "0/34");
+assert.equal(blockedResult.body.summary.evidenceProgress, "0/40");
 assert.equal(blockedResult.body.summary.releaseCandidateRefreshed, false);
 assert.equal(blockedResult.body.safeguards.serverConfiguredEnvFileCount, 1);
 assert.equal(blocked.calls.command, 0);
@@ -151,7 +151,7 @@ function buildCommandResult({ ready }) {
       ownerDecision: `不可上线 ${sensitiveText}`,
       p0Prototype: "97-98%",
       v1Readiness: "80-83%",
-      fieldEvidence: "0/34",
+      fieldEvidence: "0/40",
       onsiteTasks: 53,
       v2DifferenceCount: 5,
     },

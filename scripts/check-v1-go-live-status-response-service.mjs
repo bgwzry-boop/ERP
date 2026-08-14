@@ -113,7 +113,7 @@ function buildArtifacts() {
         p0Prototype: "97-98%",
         v1Readiness: "80-83%",
         releaseGate: "0/4",
-        fieldEvidence: "0/34",
+        fieldEvidence: "0/40",
         onsiteTaskCount: 53,
       },
       releaseCandidate: { status: "blocked", ready: false, summary: {} },

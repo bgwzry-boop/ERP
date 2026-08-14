@@ -6,7 +6,7 @@
 
 员工 / 机台维护页默认只展示正式导入账号；内置 seed 员工必须通过明确标注的 `seed演示` 页签查看。seed 数据只用于原型演示，不得计入八岗位覆盖、正式账号数量或上线门禁。正式账号为空时，页面应引导完成模板导入、管理复核、账号启用、首次改密和车间默认机台绑定。
 
-本轮已完成第一版基础资料 Excel 导入模板生成能力、生产数据Sheet与演示资料隔离、上传预检查入口、第一轮外部 Excel 兼容、Excel 日期序列号归一化、导入确认队列草稿、导入确认计划草稿、确认计划 API / 本地持久化边界、执行记录边界、第一版正式事务 writer 边界、正式导入页面入口、失败行下载链路、失败行修正草稿再导入入口、失败行页面内联字段修正入口、员工账号复核启用入口、员工临时密码发放、动态员工登录、首次登录强制改密 API 边界、管理员重置 / 撤销密码、运行期账号 / token 吊销持久化边界、导入员工账号锁定和密码过期策略第一版。模板格式为真实 `.xlsx` Office Open XML，版本为 `p0-master-data-import-template-v1`；预检查版本为 `p0-master-data-import-precheck-v1`；确认队列草稿版本为 `p0-master-data-import-review-v1`；确认计划版本为 `p0-master-data-import-confirmation-plan-v1`；执行记录版本为 `p0-master-data-import-execution-v1`。
+本轮已完成基础资料 Excel 导入模板生成能力、生产数据Sheet与演示资料隔离、上传预检查入口、外部 Excel 兼容、Excel 日期序列号归一化、导入确认队列/计划、正式事务 writer、失败行修正，以及员工账号生命周期。员工表第二版新增出生日期、入职日期、基础时薪、岗位补贴、生效日期、考勤来源和考勤人员编号，使用稳定员工编号批量接入工资考勤资料。模板格式为真实 `.xlsx` Office Open XML，版本为 `p0-master-data-import-template-v2`；预检查版本为 `p0-master-data-import-precheck-v2`；确认队列草稿版本为 `p0-master-data-import-review-v1`；确认计划版本为 `p0-master-data-import-confirmation-plan-v1`；执行 payload 版本为 `p0-master-data-import-execution-payload-v2`。
 
 当前实现负责生成可填写模板、页面下载入口、上传读取模板、生成预检查结果，在预检查无阻断时生成待确认导入草稿，从草稿生成审计 / 事务保护计划，并允许管理账号从已保存计划生成 `MDE-*` 执行记录或正式导入；确认草稿、确认计划和执行记录都会优先通过 API 保存，API 会写本地 JSON 和操作日志。预检查读取器已支持外部工具另存时常见的压缩 ZIP、local header 尺寸为 0 / data descriptor、sharedStrings 富文本、公式缓存值、单引号 XML 属性、带属性的 `<v>` 值标签、缺省单元格坐标的顺序列和 workbook relationship target 归一化；`生效日期`、`盘点日期` 会把 Excel serial number 或常见日期文本归一化为 `YYYY-MM-DD`，但数量、单价、库存、机台计数等数字字段不会被当成日期。预检查后的 Excel 行数据会作为 `stagedRows` 进入草稿和计划，执行记录会生成导入 payload 与失败行报告。执行接口默认不写正式数据；管理账号在页面点击 `正式导入` 时会显式传入 `officialImportEnabled=true` 和本地事务 writer，API 仍支持 PostgreSQL writer 配置，且 PostgreSQL writer 已纳入 Docker live 冒烟验证。执行记录生成失败行时，可通过页面或 `GET /api/master-data/import-executions/{executionId}/failed-rows` 下载 CSV，也可先点击 `修正字段` 展开失败行内联编辑，再点击 `生成修正草稿` 调用 `POST /api/master-data/import-executions/{executionId}/failed-rows/correction-draft`；只有实际编辑过的行会作为 `rowCorrections` 计入 `correctedRowCount`，未编辑行仍计入 `unresolvedRowCount`。草稿仍是新的 `MDI-*` 非写入确认草稿，并回到现有生成计划 / 正式导入路径。正式导入员工后，管理账号可通过 `员工账号复核` 区把导入员工从 `pending_admin_review` 复核启用为 `account_enabled`，再发放本次可见临时密码；员工可用该临时密码进入独立的 `erp-runtime-session-v1` 正式会话，首次登录时业务权限为空，必须调用改密接口后才恢复对应角色权限；正式员工不再由 `seed-session` 表示。管理员可在同一区域重发临时密码或撤销密码，旧密码和旧 session 会失效；`runtimeIdentityRepository` 会持久化导入员工运行期账号和已吊销 token，默认本地 JSON 可重启恢复，生产 profile 可写入 PostgreSQL `users` / `seed_session_revocations`。V1 改密策略已固定为至少 10 位、包含字母和数字、不含空白字符、不能包含登录名 / 用户 ID / 员工 ID；连续 5 次失败登录会锁定 15 分钟，正式密码 90 天过期后会进入 `password_expired` 待改密状态。后续仍必须补更多真实 Excel 样本兼容、真实生产部署和真实数据导入现场验收。
 
@@ -17,7 +17,7 @@
 - 每个单模块模板可独立上传预检查；价格表和初始库存仍必须带配套的`尺寸颜色款式` sheet，避免绕过规格键校验。
 - 正式业务Sheet默认没有演示行；参考资料位于独立`示例-*`页，不参与预检查。复制示例时必须替换`示例-请替换`和全部演示值。
 - 弹窗可上传填写后的 `.xlsx` 做预检查，显示状态、数据行、阻断项、需确认项、sheet 行数和前几条问题。
-- D49员工机台专用模板填写后，可先运行`node scripts/run-d49-employee-workbook-precheck.mjs --file <filled-workbook.xlsx> --json`做离线只读预检查；只有`uploadAllowed=true`才进入网页上传，但网页仍会重新执行服务端权威预检查。
+- D49员工机台专用模板填写后，运行`node scripts/run-d49-employee-workbook-precheck.mjs --file <filled-workbook.xlsx> --require-payroll-attendance-fields --json`做离线只读严格预检查；允许工作簿分批导入，但只有8类岗位、稳定员工编号以及全员出生/入职日期、基础时薪/生效日期、考勤来源/人员编号同时完整，D49才可放行。网页仍会重新执行服务端权威预检查。
 - 预检查无阻断时可点击 `加入确认队列`，生成当前会话内的 `MDI-*` 待确认草稿；草稿明确不写正式客户、价格、规格、库存、员工或机台数据。
 - 确认队列草稿可点击 `生成计划`，生成 `MDP-*` 导入确认计划；计划列出目标表、写入模式、操作日志草稿、事务保护项和失败行下载要求。
 - `生成计划` 优先调用 `POST /api/master-data/import-confirmation-plans`，办公室 / 管理账号有权限，库房账号会被拒绝；API 不可用时才保留为本地草稿。
@@ -76,11 +76,11 @@
 - 必填字段：检查客户名称、联系人、手机号、价格表名称、尺寸、单价、库存数量、员工姓名等必填项。
 - 空表 / 示例：业务Sheet至少填写1行；未替换的`示例-请替换`标记直接阻断，演示资料不能进入确认队列。
 - 字段结构：检查本次上传的业务 sheet 和字段是否缺失；单模块模板不要求无关sheet，价格/库存仍要求配套规格sheet。
-- 重复数据：检查客户名称、价格项、规格键、库存键和员工编号等重复；重复员工编号在预检查和执行payload两层阻断，不静默合并。
+- 重复数据：检查客户名称、价格项、规格键、库存键、员工编号和 `考勤来源 + 考勤人员编号`；重复员工编号和考勤身份在预检查、执行 payload、事务 writer 与数据库唯一索引多层阻断，不按姓名静默合并。
 - 价格风险：检查单价、阶梯起量、加长提加价，并提示明显偏高价格和非待审核状态。
 - 库存风险：检查在库数量、占用、锁定、待处理数量，阻断占用合计大于在库数量。
 - 规格匹配：价格表和初始库存中的尺寸 / 颜色 / 提手 / 款式必须能在 `尺寸颜色款式` sheet 找到。
-- 员工机台：检查基础时薪、岗位补贴和粗略日产量等数字字段；同时阻断未知岗位，以及车间岗位缺默认车间或默认机台。
+- 员工机台：检查出生/入职/工资生效日期、基础时薪、岗位补贴和粗略日产量；出生日期必须早于入职日期，工资生效日期不能早于入职日期，考勤来源和外部人员编号必须成对填写。来源键统一小写，首个正式来源使用 `deli`。批量表中留空的新增档案字段不会清除已有正式资料；需要清空或解绑时必须进入单个员工详情执行有审计的维护动作。重复导入也不会关闭已启用账号、重置账号状态或恢复待复核状态；已离职或已合并档案拒绝进入在职工资考勤批量更新。
 - 外部 Excel 兼容：读取器可处理外部另存后的压缩 ZIP、sharedStrings / 富文本、公式缓存值和部分单元格坐标省略场景；日期字段支持 Excel serial number 和常见文本格式归一化。
 - 预检查通过后会保留 `stagedRows` 行数据，供后续确认计划、执行 payload 和正式写入器使用。
 
@@ -112,7 +112,7 @@
 ## 已有执行记录 API
 
 - `src/domain/masterDataImportExecution.js` 生成 `p0-master-data-import-execution-v1` 执行记录。
-- `src/domain/masterDataImportExecutionPayload.js` 生成 `p0-master-data-import-execution-payload-v1`，把客户、规格颜色、价格表、初始库存、员工和机台行映射成正式目标记录。
+- `src/domain/masterDataImportExecutionPayload.js` 生成 `p0-master-data-import-execution-payload-v2`，把客户、规格颜色、价格表、初始库存、员工、工资考勤档案和机台行映射成正式目标记录。
 - `POST /api/master-data/import-executions` 必须传已保存的 `planId`，服务端会重新读取 `MDP-*` 计划，不接受前端直接传入的旧计划作为写入依据。
 - `GET /api/master-data/import-executions` 可按 `draftId`、`planId`、`executionId`、`status` 查询执行记录列表。
 - `GET /api/master-data/import-executions/{executionId}/failed-rows` 可下载执行记录生成的失败行 CSV；无失败行时返回业务错误。
@@ -122,6 +122,8 @@
 - 默认执行记录仍保持 `officialWriteAttempted: false` 和 `officialWriteScope: none`，不会写正式主数据。管理账号显式传 `officialImportEnabled=true` 且 writer kind 为 `local_transaction` 或 `postgres` 时，执行记录可进入正式事务 writer；成功返回 `committed`，失败会记录回滚 / 失败状态。如果旧计划缺少 `stagedRows`，状态为 `缺少导入行数据`；如果存在未来暂未支持的行，状态为 `已生成失败行` 并返回 CSV 内容；5 类业务 Sheet 填写真实行并通过预检查后均可生成目标记录。
 
 ## 已有员工账号复核
+
+> 兼容边界：本节保留已导入员工账号的旧式管理员启用 / 临时密码流程，用于现有账号维护；新员工的目标流程已改为下方“手机号本人注册与人员分配”，旧流程不得再被当成默认入职路径。
 
 - 员工导入后仍默认 `accountEnabled=false` / `pending_admin_review`，不会在导入时自动开通登录。
 - `GET /api/master-data/employee-account-reviews` 查询待复核 / 已启用员工账号资料。
@@ -133,6 +135,18 @@
 - `master_data.employee_account.review` 权限目前只开放给管理角色；办公室 / 库房账号无权查看或启用导入员工账号。
 - `master_data.employee_account.password.issue` 权限目前只开放给管理角色；办公室 / 库房账号无权发放或撤销密码。
 - 当前动态登录已具备第一版运行期账号 / token 吊销持久化边界、V1 密码策略、账号锁定 / 密码过期策略和管理端重发 / 撤销入口，但尚不等同于完整生产级身份系统；真实生产部署、现场账号验收、更多真实 Excel 样本兼容和真实数据导入现场验收仍是后续工作。
+
+## 手机号本人注册与人员分配（默认关闭）
+
+- `ERP_PHONE_REGISTRATION_ENABLED` 默认关闭；当前第一轮测试部署继续使用独立的前端预览开关，新注册接口、数据库迁移和短信通道均未在该环境启用。
+- `POST /api/auth/phone-registration/request-code` 只在功能开关打开且真实短信发送器已配置时发送验证码；验证码只保存 HMAC 哈希，5 分钟过期、60 秒限流、最多尝试 5 次。
+- `POST /api/auth/phone-registration/complete` 要求本人提交手机号、验证码和真实姓名。邀请参数只记录来源，不创建账号、不绑定员工、不授予岗位。
+- 验证成功创建 `phone_self_registration` 账号，状态固定为 `pending_assignment`，认证方式为 `phone_otp`，岗位、部门、员工号和业务权限均为空。该账号可以登录查看等待状态，但所有业务 action/button 权限为空。
+- `GET /api/master-data/personnel/registration-reviews` 由人员管理权限查看待分配注册人；手机号在这里是身份核对和人员管理字段，不是可选联系方式。
+- `POST /api/master-data/personnel/registration-reviews/{userId}/assign` 必须显式确认，并把注册账号绑定到一个尚未占用的正式员工档案，分配至少一个岗位；车间岗位还必须分配匹配且已启用的车间 / 机台。
+- 分配动作把账号转为 `active`，权限只从服务端共享岗位目录派生，并写 `personnel_phone_registration_assignment` 操作日志。重复分配、重复手机号、重复员工绑定和未知岗位均失败关闭。
+- `POST /api/auth/phone-login/request-code` 对未知手机号返回相同接受结果但不发送短信，避免通过接口枚举员工手机号；`POST /api/auth/phone-login` 验证一次性验证码并签发运行时会话。
+- 数据库迁移 `0031_phone_registration_and_personnel_assignment.sql` 增加唯一手机号、注册状态 / 来源 / 分配审计字段和验证码挑战表。该迁移目前只进入代码与迁移检查集合，不应用到第一轮测试数据库。
 
 ## 已验证
 

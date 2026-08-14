@@ -68,6 +68,15 @@ export function applyRuntimeAuthInitializationResult({
 }
 
 function isCompatibleInitializationResult(expectedSession, nextAuthState) {
+  if (
+    !hasSessionToken(expectedSession) &&
+    nextAuthState?.authenticated === true &&
+    nextAuthState?.source === "api_seed" &&
+    nextAuthState?.reason === "login_seed_session" &&
+    hasSessionToken(nextAuthState.session)
+  ) {
+    return true;
+  }
   if (nextAuthState?.authenticated !== true) return !hasSessionToken(nextAuthState?.session);
   return isSameSession(expectedSession, nextAuthState.session);
 }

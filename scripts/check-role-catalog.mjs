@@ -99,6 +99,20 @@ assert.deepEqual(
   ["management", "finance"],
 );
 
+for (const roleKey of ["office", "warehouse", "finance", "management", "technical_operations", "driver", "workshop", "packing", "decision_maker", "decision_maker_primary", "maintenance"]) {
+  assert.equal(roleCatalog[roleKey].actionPermissions.includes("attendance.self.read"), true, `${roleKey} must be able to read only its own attendance`);
+}
+for (const roleKey of ["office", "warehouse", "technical_operations", "driver", "workshop", "packing", "decision_maker", "decision_maker_primary", "maintenance"]) {
+  assert.equal(roleCatalog[roleKey].actionPermissions.includes("payroll.preview"), false, `${roleKey} must not gain coworker payroll access`);
+}
+assert.equal(roleCatalog.finance.actionPermissions.includes("payroll.preview"), true);
+assert.equal(roleCatalog.management.actionPermissions.includes("payroll.preview"), true);
+assert.equal(roleCatalog.finance.actionPermissions.includes("payroll.export"), true);
+assert.equal(roleCatalog.management.actionPermissions.includes("payroll.export"), true);
+for (const roleKey of ["office", "warehouse", "technical_operations", "driver", "workshop", "packing", "decision_maker", "decision_maker_primary", "maintenance"]) {
+  assert.equal(roleCatalog[roleKey].actionPermissions.includes("payroll.export"), false, `${roleKey} must not gain payroll export access`);
+}
+
 for (const [roleKey, definition] of Object.entries(roleCatalog)) {
   assert.equal(new Set(definition.buttonPermissions).size, definition.buttonPermissions.length, `${roleKey} has duplicate button permissions`);
   assert.equal(new Set(definition.actionPermissions).size, definition.actionPermissions.length, `${roleKey} has duplicate action permissions`);

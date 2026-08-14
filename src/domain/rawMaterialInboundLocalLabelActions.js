@@ -1,6 +1,8 @@
 export function applyLocalRawMaterialInboundLabelAction(item = {}, input = {}) {
   const { action, now, operatorName, options = {} } = input;
   if (action === "打印卷标") {
+    const printableRolls = (item.rolls ?? []).filter((roll) => roll.inventoryStatus !== "可用");
+    if (!printableRolls.length || printableRolls.some((roll) => !(Number(roll.weightKg) > 0))) return item;
     return {
       ...item,
       status: "已打印待贴标",

@@ -19,6 +19,10 @@ const rawMaterialInboundActions = new Set([
   "void_label",
   "reprint-label",
   "reprint_label",
+  "stage-supplier-return",
+  "stage_supplier_return",
+  "confirm-supplier-return-shipment",
+  "confirm_supplier_return_shipment",
   "issue-to-machine",
   "issue_to_machine",
   "exception",
@@ -115,7 +119,10 @@ export function buildFirstReleaseBlockedResponse(scope) {
 }
 
 function isOperationalWrite(pathname) {
-  return /^\/api\/(?:auth|system)(?:\/|$)/.test(pathname);
+  return (
+    /^\/api\/(?:auth|system)(?:\/|$)/.test(pathname) ||
+    /^\/api\/master-data\/personnel(?:\/|$)/.test(pathname)
+  );
 }
 
 function isRawMaterialFirstReleaseWrite(method, pathname) {

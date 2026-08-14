@@ -277,7 +277,14 @@ export function normalizeRawMaterialInbound(input = {}) {
     leftoverReviewedWeightKg: Number(roll.leftoverReviewedWeightKg) || 0, leftoverReviewedQuantity: Number(roll.leftoverReviewedQuantity) || 0,
     leftoverReviewedAt: cleanText(roll.leftoverReviewedAt), leftoverReviewedBy: cleanText(roll.leftoverReviewedBy),
     leftoverReviewedByUserId: cleanText(roll.leftoverReviewedByUserId),
+    supplierReturnStatus: cleanText(roll.supplierReturnStatus), supplierReturnRecordId: cleanText(roll.supplierReturnRecordId),
+    sourceReturnInboundId: cleanText(roll.sourceReturnInboundId), supplierReturnStagedAt: cleanText(roll.supplierReturnStagedAt),
+    supplierReturnStagedBy: cleanText(roll.supplierReturnStagedBy), supplierReturnStagedByUserId: cleanText(roll.supplierReturnStagedByUserId),
+    supplierReturnShippedAt: cleanText(roll.supplierReturnShippedAt), supplierReturnShippedBy: cleanText(roll.supplierReturnShippedBy),
+    supplierReturnShippedByUserId: cleanText(roll.supplierReturnShippedByUserId),
   }));
+  item.supplierReturnStatus = cleanText(item.supplierReturnStatus);
+  item.rawMaterialSupplierReturnRecords = normalizeRawMaterialSupplierReturnRecords(item.rawMaterialSupplierReturnRecords);
   item.rawMaterialIssueRecords = normalizeRawMaterialIssueRecords(item.rawMaterialIssueRecords);
   item.rawMaterialConsumptionRecords = normalizeRawMaterialConsumptionRecords(item.rawMaterialConsumptionRecords);
   item.rawMaterialLeftoverReturnRecords = normalizeRawMaterialLeftoverReturnRecords(item.rawMaterialLeftoverReturnRecords);
@@ -289,6 +296,31 @@ export function normalizeRawMaterialInbound(input = {}) {
   item.rawMaterialOrderMarginSnapshots = normalizeRawMaterialOrderMarginSnapshots(item.rawMaterialOrderMarginSnapshots);
   item.rawMaterialOrderMarginReports = normalizeRawMaterialOrderMarginReports(item.rawMaterialOrderMarginReports);
   return item;
+}
+
+function normalizeRawMaterialSupplierReturnRecords(records = []) {
+  return (Array.isArray(records) ? records : []).map((record) => ({
+    ...record,
+    supplierReturnRecordId: cleanText(record.supplierReturnRecordId),
+    sourceReturnInboundId: cleanText(record.sourceReturnInboundId),
+    sourceAttachmentId: cleanText(record.sourceAttachmentId),
+    sourceDocumentNo: cleanText(record.sourceDocumentNo),
+    sourceDocumentDate: cleanText(record.sourceDocumentDate),
+    stockInboundId: cleanText(record.stockInboundId),
+    rollId: cleanText(record.rollId),
+    supplierName: cleanText(record.supplierName),
+    weightKg: Math.abs(Number(record.weightKg) || 0),
+    status: cleanText(record.status),
+    location: cleanText(record.location),
+    stagedBy: cleanText(record.stagedBy),
+    stagedByUserId: cleanText(record.stagedByUserId),
+    stagedAt: cleanText(record.stagedAt),
+    shippedBy: cleanText(record.shippedBy),
+    shippedByUserId: cleanText(record.shippedByUserId),
+    shippedAt: cleanText(record.shippedAt),
+    shipmentReferenceNo: cleanText(record.shipmentReferenceNo),
+    note: cleanText(record.note),
+  })).filter((record) => record.supplierReturnRecordId && record.sourceReturnInboundId && record.rollId);
 }
 
 export function normalizeRawMaterialInboundActionResult(value) {

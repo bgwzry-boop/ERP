@@ -195,7 +195,7 @@ writeFileSync(
   "# ERP V1 最小解除阻塞清单\n\n- 待处理总数：52 项\n- 第一阶段：先补生产环境和持久化\n",
 );
 writeFileSync(join(fieldEvidenceIntakeDir, "intake-manifest.json"), `${JSON.stringify(buildBlockedFieldEvidenceIntake(), null, 2)}\n`);
-writeFileSync(join(fieldEvidenceIntakeDir, "intake-summary.zh-CN.md"), "# ERP V1 现场证据采集包\n\n- 必填证据完成：0/34\n");
+writeFileSync(join(fieldEvidenceIntakeDir, "intake-summary.zh-CN.md"), "# ERP V1 现场证据采集包\n\n- 必填证据完成：0/40\n");
 writeFileSync(join(fieldEvidenceIntakeDir, "evidence-items.csv"), '"groupKey","itemKey","evidenceRefFilled"\n"print_hardware","cups_lpstat_checked","no"\n');
 writeFileSync(
   join(fieldEvidenceIntakeDir, "intake-rules.zh-CN.md"),
@@ -391,7 +391,7 @@ assert.equal(blockedResult.onsiteTaskBoard.roleMarkdownFiles.length, 2);
 assert.equal(blockedResult.completionSnapshot.included, true);
 assert.equal(blockedResult.completionSnapshot.summary.v1Readiness, "76-79%");
 assert.equal(blockedResult.fieldEvidenceIntake.included, true);
-assert.equal(blockedResult.fieldEvidenceIntake.summary.requiredEvidenceItems, "0/34");
+assert.equal(blockedResult.fieldEvidenceIntake.summary.requiredEvidenceItems, "0/40");
 assert.equal(blockedResult.fieldEvidenceIntake.groupMarkdownFiles.length, 1);
 assert.equal(blockedResult.ownerDecisionBrief.included, true);
 assert.equal(blockedResult.ownerDecisionBrief.canDeclareV1Complete, false);
@@ -766,7 +766,7 @@ assert.match(summaryMarkdown, /先补生产环境和持久化/);
 assert.match(summaryMarkdown, /V1 真实上线就绪度：76-79%/);
 assert.match(summaryMarkdown, /是否可以宣布 V1 完成：不可以/);
 assert.match(summaryMarkdown, /V2 主题：企微 \/ 客户自动化、AI \/ OCR \/ 图片识别/);
-assert.match(summaryMarkdown, /必填证据完成：0\/34/);
+assert.match(summaryMarkdown, /必填证据完成：0\/40/);
 assert.match(summaryMarkdown, /岗位任务文件：2 个/);
 assert.match(summaryMarkdown, /技术\/管理/);
 assert.match(summaryMarkdown, /V2 计划差异/);
@@ -833,7 +833,11 @@ assert.match(d49EmployeeIntakeGuide, /D49 正式员工账号导入与验收/);
 assert.match(d49EmployeeIntakeGuide, /一名真实员工填写一行/);
 assert.match(d49EmployeeIntakeGuide, /临时密码不得写回本工作簿/);
 assert.match(d49EmployeeIntakeGuide, /岗位矩阵达到8\/8/);
-assert.match(d49EmployeeIntakeGuide, /run-d49-employee-workbook-precheck\.mjs --file <filled-workbook\.xlsx> --json/);
+assert.match(
+  d49EmployeeIntakeGuide,
+  /run-d49-employee-workbook-precheck\.mjs --file <filled-workbook\.xlsx> --require-payroll-attendance-fields --json/,
+);
+assert.match(d49EmployeeIntakeGuide, /全员出生\/入职日期、基础时薪\/生效日期及考勤来源\/人员编号/);
 assert.match(d49EmployeeIntakeGuide, /只有`uploadAllowed=true`才进入网页上传/);
 assert.match(d49WorkbookXml, /name="员工机台"/);
 assert.match(d49WorkbookXml, /name="示例-员工机台"/);
@@ -1166,7 +1170,7 @@ function buildBlockedReleaseCandidate() {
       totalGateCount: 4,
       blockingCount: 3,
       envPreflight: "2/10 通过",
-      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
       runtimeReadiness: "5/11 通过",
       fieldAcceptance: "5/11 通过",
     },
@@ -1341,7 +1345,7 @@ function buildBlockedReleaseCandidate() {
         label: "现场证据 manifest",
         status: "blocked",
         ready: false,
-        summary: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+        summary: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
         detail: "现场证据 manifest 仍未填满，不能作为 V1 现场签字依据。",
       },
       {
@@ -1398,7 +1402,7 @@ function buildBlockedTaskBoard() {
       label: "V1 现场仍有 52 个待处理任务",
       taskCount: 52,
       releaseTaskCount: 11,
-      evidenceTaskCount: 34,
+      evidenceTaskCount: 40,
       signoffTaskCount: 6,
       boundaryTaskCount: 1,
       roleCount: 6,
@@ -1466,7 +1470,7 @@ function buildBlockedOwnerDecisionBrief() {
       v1Readiness: "76-79%",
       releaseGate: "0/4 发布门禁通过",
       runtimeReadiness: "5/11 通过",
-      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
       fieldAcceptance: "5/11 通过",
       onsiteTaskCount: 52,
     },
@@ -1501,7 +1505,7 @@ function buildBlockedV1V2ScopeBrief() {
       p0Prototype: "97-98%",
       v1Readiness: "76-79%",
       releaseGate: "0/4 发布门禁通过",
-      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
     },
     v2Categories: ["企微 / 客户自动化", "AI / OCR / 图片识别"],
     v1MustContinue: ["真实生产配置和现场证据必须在 V1 完成。"],
@@ -2080,7 +2084,7 @@ function buildFirstStageEvidenceSuggestions() {
     conclusion: "已生成第一阶段现场证据回填建议；该结果必须经现场负责人复核后再应用，不能替代真实现场证据、签字或 V1/V2 边界确认。",
     summary: {
       label: "7 项可建议自动接受，2 项只有部分自动化支撑，1 项仍需人工证据",
-      sourceEvidenceRows: 34,
+      sourceEvidenceRows: 40,
       firstStageEvidenceRows: 10,
       autoAcceptedSuggestionCount: 7,
       partialSuggestionCount: 2,
@@ -2715,7 +2719,7 @@ function buildBlockedUnblockPlan() {
       label: "V1 解除阻塞仍有 52 项待处理",
       taskCount: 52,
       releaseTaskCount: 11,
-      evidenceTaskCount: 34,
+      evidenceTaskCount: 40,
       signoffTaskCount: 6,
       boundaryTaskCount: 1,
       phaseCount: 5,
@@ -2789,9 +2793,9 @@ function buildBlockedFieldEvidenceIntake() {
     conclusion: "现场证据仍未完成；该采集包用于按证据组补齐材料、签字和 V1/V2 边界确认。",
     summary: {
       label: "V1 现场证据采集包：BLOCKED",
-      evidence: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
-      evidenceGroups: "0/6",
-      requiredEvidenceItems: "0/34",
+      evidence: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
+      evidenceGroups: "0/7",
+      requiredEvidenceItems: "0/40",
       signoffs: "0/6",
       boundary: "pending",
       releaseCandidate: "0/4 发布门禁通过",

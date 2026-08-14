@@ -191,3 +191,43 @@ export function buildProductionScheduleOperationLog(overrides = {}) {
     ...overrides,
   };
 }
+
+export function buildProductionScheduleDecisionRecord({
+  decisionId,
+  businessId,
+  operationLogId,
+  operatorId = "U-OFFICE-A",
+}) {
+  return {
+    id: decisionId,
+    businessType: "production_schedule_queue",
+    businessId,
+    decisionScope: "production_schedule",
+    decisionType: "delegated",
+    decisionMakerEmployeeId: "EMP-LIVE-MANAGER-001",
+    decisionMakerEmployeeNoSnapshot: "031",
+    decisionMakerNameSnapshot: "负责人",
+    decisionChannel: "wechat",
+    decidedAt: "2026-07-02T12:30:00.000Z",
+    decisionContent: { summary: "确认排产顺序" },
+    authorizationId: "AUTH-SCHEDULE-LIVE",
+    authorizationSnapshot: {
+      authorizationId: "AUTH-SCHEDULE-LIVE",
+      decisionScope: "production_schedule",
+      maxAmount: null,
+    },
+    authorizationBasis: "微信确认",
+    amountSnapshot: null,
+    currency: "CNY",
+    evidenceAttachmentIds: [],
+    enteredByUserId: operatorId,
+    enteredAt: "2026-07-02T12:35:00.000Z",
+    status: "active",
+    lateEntry: false,
+    lateEntryReason: "",
+    revision: 1,
+    operationLogId,
+    createdAt: "2026-07-02T12:35:00.000Z",
+    updatedAt: "2026-07-02T12:35:00.000Z",
+  };
+}

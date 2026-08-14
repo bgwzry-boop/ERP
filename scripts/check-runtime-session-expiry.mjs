@@ -64,7 +64,7 @@ try {
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const hookSource = readFileSync(new URL("../src/app/useRuntimeSessionExpiry.js", import.meta.url), "utf8");
-assert.match(appSource, /useRuntimeSessionExpiry\(\{ authState, enabled: runtimeServerRequired, onExpire: expireRuntimeUserSession \}\)/);
+assert.match(appSource, /useRuntimeSessionExpiry\(\{ authState, enabled: formalLoginRequired, onExpire: expireRuntimeUserSession \}\)/);
 assert.match(hookSource, /setTimeout\(scheduleNextCheck, decision\.delayMs\)/);
 assert.match(hookSource, /clearTimeout\(timeoutId\)/);
 

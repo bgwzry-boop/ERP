@@ -88,6 +88,7 @@ export function buildSystemHealthResponse({ workspace = {}, openapi = {}, now = 
     status: "ok",
     service: "erp-p0-api",
     now: toIsoTimestamp(now()),
+    release: projectReleaseIdentity(workspace.releaseIdentity),
     firstReleaseScope: projectFirstReleaseScope(workspace.firstReleaseScope),
     openapi: {
       valid: openapi.valid === true,
@@ -96,6 +97,20 @@ export function buildSystemHealthResponse({ workspace = {}, openapi = {}, now = 
       refCount: nonNegativeInteger(openapi.refCount),
     },
     seed,
+  };
+}
+
+function projectReleaseIdentity(value = {}) {
+  const commit = /^[a-f0-9]{40}$/.test(value.commit ?? "") ? value.commit : "";
+  const lockDigest = /^[a-f0-9]{64}$/.test(value.lockDigest ?? "") ? value.lockDigest : "";
+  return {
+    ready: value.ready === true && Boolean(commit && lockDigest),
+    target: safeKind(value.target),
+    version: safeIdentifier(value.version),
+    commit,
+    shortCommit: commit.slice(0, 12),
+    lockDigest,
+    builtAt: safeTimestamp(value.builtAt),
   };
 }
 

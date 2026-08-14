@@ -493,7 +493,8 @@ export function createProductionSchedulingCommandService({
         productionTask,
         records: nextRecords,
         expectedRecords: beforeRecords.filter((record) =>
-          [sourceMachineId, targetMachineId].includes(cleanText(record.machineId)),
+          [sourceMachineId, targetMachineId].includes(cleanText(record.machineId)) &&
+          cleanText(record.status ?? record.scheduleStatus) === "active",
         ),
         lockedMachineIds: [sourceMachineId, targetMachineId],
         transactionContext: {

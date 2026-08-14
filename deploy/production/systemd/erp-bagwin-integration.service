@@ -1,0 +1,28 @@
+[Unit]
+Description=ERP Bagwin miniapp server-to-server intake
+After=network-online.target erp-api.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=erp
+Group=erp
+WorkingDirectory=/opt/erp/current
+Environment=NODE_ENV=production
+Environment=ERP_RUNTIME_MODE=production
+EnvironmentFile=/etc/erp/erp-service.env
+ExecStartPre=/usr/bin/test -r /etc/erp/erp.production.env
+ExecStart=/usr/bin/node server/miniapp/startBagwinErpIntegrationServer.mjs
+Restart=on-failure
+RestartSec=5s
+KillSignal=SIGTERM
+TimeoutStopSec=15s
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/erp
+
+[Install]
+WantedBy=multi-user.target

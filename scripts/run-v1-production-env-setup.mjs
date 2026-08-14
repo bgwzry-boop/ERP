@@ -648,7 +648,7 @@ function formatReport(report) {
       "- `production-env-real-value-intake.zh-CN.md`：给现场负责人填写 / 复核真实值来源、替代变量组和证据编号的脱敏清单。",
       "- `production-env-real-value-intake.csv`：同一真实值填写 / 验收清单的表格版本，可直接按行跟进。",
       "- `production-env-minimum-real-value-intake.zh-CN.md`：只列当前最小 blocking 补值路径的填写 / 验收清单。",
-      "- `production-env-minimum-real-value-intake.csv`：同一最小补值清单的表格版本，便于先分派 11 项真实值。",
+      "- `production-env-minimum-real-value-intake.csv`：同一最小补值清单的表格版本，便于先分派当前最小阻塞路径的真实值。",
       "- `production-env-minimum-values-fragment.template.env.example`：只含当前最小 blocking 补值路径，可先复制成安全片段 dry-run。",
       "- `production-env-values-fragment.template.env.example`：可复制成安全未跟踪真实值片段，并传给第一阶段执行器的 `--production-env-values-file`。",
       "- `production-env-fill-template.env.example`：只含注释占位符的填写骨架，真实值仍必须写入安全 env 文件。",
@@ -1260,7 +1260,7 @@ function buildEnvTemplateAssignment(key, configuredValue = "") {
 function safeEnvLiteralValue(key, value) {
   const configuredValue = stringValue(value).trim();
   if (!configuredValue) return "";
-  if (/^(postgres|object_storage|false|true|command_bridge|cups_lp|s3_compatible)$/i.test(configuredValue)) {
+  if (/^(postgres|object_storage|false|true|command_bridge|cups_lp|s3_compatible|http_json|deli)$/i.test(configuredValue)) {
     return configuredValue;
   }
   if (/^\d+$/.test(configuredValue) && /_TIMEOUT_MS$/.test(key)) return configuredValue;
@@ -1279,6 +1279,7 @@ function sourceSystemForEnvFixItem(key) {
   return (
     {
       "v1-persistence-profile": "PostgreSQL 生产库 / 持久化 profile",
+      "attendance-payroll-integration-env": "工资 PostgreSQL / 得力考勤 HTTPS 网关",
       "postgres-restore-validation-env": "PostgreSQL 专用恢复验证库",
       "attachment-object-storage-env": "附件对象存储 bucket",
       "statement-export-object-storage-env": "对账导出对象存储 bucket",
@@ -1293,6 +1294,7 @@ function sourceSystemForEnvFixItem(key) {
 
 function expectedValueTypeForVariable(key, sourceText) {
   const text = `${key} ${sourceText}`;
+  if (/ERP_ATTENDANCE_PAYROLL_STORE|ERP_ATTENDANCE_PROVIDER_KEY/i.test(key)) return "固定字面值";
   if (/DATABASE_URL|POSTGRES/i.test(text)) return "PostgreSQL 连接串";
   if (/ENDPOINT|BASE_URL/i.test(key)) return "http/https URL";
   if (/BUCKET/i.test(key)) return "bucket 名称";

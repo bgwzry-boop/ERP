@@ -233,7 +233,7 @@ function applyDecisionWorkspaceMutation(workspace, businessDecision, attachmentL
 function assertLocalScheduleConcurrency(workspace, input) {
   const machineIds = normalizeMachineIds(input);
   const currentRecords = normalizeProductionScheduleRecords(workspace.productionScheduleRecords ?? [])
-    .filter((record) => machineIds.includes(record.machineId));
+    .filter((record) => machineIds.includes(record.machineId) && record.status === "active");
   if (Number.isInteger(Number(input.expectedQueueRevision))) {
     const currentQueueRevision = currentRecords.reduce((sum, record) => sum + positiveRevision(record.revision), 0);
     if (currentQueueRevision !== Number(input.expectedQueueRevision)) {
@@ -697,6 +697,7 @@ locked_schedule_records AS MATERIALIZED (
   SELECT id, machine_id, production_task_id, revision
   FROM production_schedule_records
   WHERE machine_id = ANY(${parameters.textArray(machineIds)})
+    AND schedule_status = 'active'
   FOR UPDATE
 ),
 locked_production_task AS MATERIALIZED (

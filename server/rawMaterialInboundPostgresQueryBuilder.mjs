@@ -92,7 +92,8 @@ updated_inbound AS (
   FROM locked_inbound AS locked
   WHERE raw_material_inbounds.id = locked.id
     AND locked.revision = ${parameters.integer(expectedRevision)}
-  RETURNING payload_json || jsonb_build_object('revision', revision) AS result
+  RETURNING raw_material_inbounds.payload_json
+    || jsonb_build_object('revision', raw_material_inbounds.revision) AS result
 ),
 inbound_write_guard AS MATERIALIZED (
   SELECT erp_require(

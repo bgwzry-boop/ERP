@@ -51,7 +51,7 @@ assert.ok(blockedResult.v2Categories.includes("企微 / 客户自动化"));
 assert.ok(blockedResult.v2Categories.includes("AI / OCR / 图片识别"));
 assert.ok(blockedResult.v2Categories.includes("路线 / 排产优化"));
 assert.ok(blockedResult.v2Categories.includes("原材料 / 成本毛利"));
-assert.ok(blockedResult.v2Categories.includes("售后 / 责任 / 工资"));
+assert.ok(blockedResult.v2Categories.includes("售后 / 责任 / 绩效扣款"));
 assert.ok(blockedResult.files.latestMarkdown);
 assert.ok(blockedResult.files.latestJson);
 const blockedMarkdown = readGeneratedFile(blockedResult.files.latestMarkdown);
@@ -135,7 +135,7 @@ function buildScopeMarkdown() {
     "| 企微 / 客户群 | 人工复制、人工发送、人工确认。 | 企业微信自动发送、会话存档、自动回复辅助。 |",
     "| 生产 / 排产 | 人工排产、手工调序、移动原因和影响预览。 | 路线 / 排产优化、自动插单、产能预测。 |",
     "| 原材料 / 成本 | 只做必要字段和接口预留。 | 原材料批次、领料扫码、成本分摊、订单毛利。 |",
-    "| 售后 / 工资 | 记录关键异常线索，不自动扣款。 | 售后责任、绩效扣款、考勤导入和工资草稿。 |",
+    "| 售后 / 责任 / 绩效扣款 | 记录关键异常线索，不自动扣款。 | 售后责任、绩效扣款审批和工资联动。 |",
     "| BI 报表 | 基础经营数据留档。 | BI 分析、客户画像和预测。 |",
     "",
     "## V1 当前必须继续补的能力",
@@ -156,13 +156,13 @@ function buildSnapshot({ ready }) {
       p0Prototype: "97-98%",
       v1Readiness: ready ? "100%" : "76-79%",
       releaseGate: ready ? "4/4 发布门禁通过" : "0/4 发布门禁通过",
-      fieldEvidence: ready ? "V1 现场证据清单已通过" : "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: ready ? "V1 现场证据清单已通过" : "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
     },
     completion: {
       p0Prototype: "97-98%",
       v1Readiness: ready ? "100%" : "76-79%",
       releaseGate: ready ? "4/4 发布门禁通过" : "0/4 发布门禁通过",
-      fieldEvidence: ready ? "V1 现场证据清单已通过" : "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: ready ? "V1 现场证据清单已通过" : "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
     },
     v2Differences: ["企业微信自动发送。", "AI / OCR 识别图片订单。"],
     v1MustContinue: ["真实生产配置和现场证据必须在 V1 完成。"],

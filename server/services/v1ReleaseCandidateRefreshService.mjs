@@ -72,7 +72,7 @@ function buildBlockedBody({ checkedAt, operatorId, precheck = {}, envFileCount =
     summary: {
       label: "未满足刷新 release candidate 条件",
       precheckStatus: cleanStatus(precheck.status) || "blocked",
-      evidenceProgress: cleanProgress(summary.evidenceProgress, "0/34"),
+      evidenceProgress: cleanProgress(summary.evidenceProgress, "0/40"),
       signoffProgress: cleanProgress(summary.signoffProgress, "0/6"),
       productionEnvPreflightLabel: cleanProgress(summary.productionEnvPreflightLabel, "0/10"),
       productionGoLiveReadinessLabel: cleanProgress(summary.productionGoLiveReadinessLabel, "0/5"),

@@ -61,6 +61,8 @@ assert.ok(insertQuery.values.includes(inbound.id));
 const updateQuery = buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, operationLog);
 assert.match(updateQuery.text, /FOR UPDATE/);
 assert.match(updateQuery.text, /revision = raw_material_inbounds\.revision \+ 1/);
+assert.match(updateQuery.text, /jsonb_build_object\('revision', raw_material_inbounds\.revision\)/);
+assert.doesNotMatch(updateQuery.text, /jsonb_build_object\('revision', revision\)/);
 assert.match(updateQuery.text, /ERP_RAW_MATERIAL_INBOUND_CONCURRENCY_CONFLICT/);
 assert.match(updateQuery.text, /INSERT INTO operation_logs/);
 assert.ok(!updateQuery.text.includes("已复核待打印标签"));

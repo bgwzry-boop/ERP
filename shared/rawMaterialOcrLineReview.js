@@ -14,10 +14,51 @@ export const RAW_MATERIAL_OCR_LINE_REVIEW_KEYS = [
   "rollWeightsKg",
 ];
 
+export function hasReviewableRawMaterialSpec(value) {
+  return (cleanText(value).match(/\d+(?:\.\d+)?/gu) ?? []).length >= 2;
+}
+
+export function projectRawMaterialOcrPhysicalRollReviewRows({ lines = [], lineDrafts = {}, documentDirection = "supplier_delivery" } = {}) {
+  let physicalRollIndex = 0;
+  return (Array.isArray(lines) ? lines : []).flatMap((line, sourceLineIndex) => {
+    const lineId = cleanText(line?.lineId) || `source-line-${sourceLineIndex + 1}`;
+    const lineDraft = enrichRawMaterialSpecValues(lineDrafts?.[lineId] ?? line?.values ?? {});
+    const parsedCount = Number(lineDraft.rollCount);
+    const lineRollCount = Number.isInteger(parsedCount) && parsedCount > 0 ? parsedCount : 1;
+    const rollWeights = normalizeRollWeightDraft(lineDraft.rollWeightsKg, lineRollCount);
+    const singleRollWeight = lineRollCount === 1 ? directionalNumber(lineDraft.totalWeightKg, documentDirection, 0) : 0;
+    return Array.from({ length: lineRollCount }, (_, lineRollIndex) => {
+      physicalRollIndex += 1;
+      const exactWeight = directionalNumber(rollWeights[lineRollIndex], documentDirection, 0);
+      return {
+        reviewId: `${lineId}:${lineRollIndex}`,
+        physicalRollIndex,
+        line,
+        lineId,
+        lineDraft,
+        sourceLineIndex,
+        lineRollIndex,
+        lineRollCount,
+        supplierColor: cleanText(lineDraft.supplierColor),
+        spec: cleanText(lineDraft.spec),
+        weightKg: exactWeight || singleRollWeight || "",
+        weightStatus: Math.abs(exactWeight) > 0 ? "逐卷重量" : Math.abs(singleRollWeight) > 0 ? "单卷行重量" : "本卷重量待补",
+      };
+    });
+  });
+}
+
 const textKeys = new Set(["productName", "materialType", "supplierColor", "spec", "unit", "supplierRollNo"]);
 const numericKeys = new Set(["rollCount", "totalWeightKg", "unitPrice", "amount"]);
 
-export function applyRawMaterialOcrLineReviews({ lines = [], lineReviews, operatorId = "", operatorName = "", now = "" } = {}) {
+export function applyRawMaterialOcrLineReviews({
+  lines = [],
+  lineReviews,
+  operatorId = "",
+  operatorName = "",
+  now = "",
+  documentDirection = "supplier_delivery",
+} = {}) {
   const sourceLines = Array.isArray(lines) ? lines : [];
   if (sourceLines.length === 0) {
     throw reviewError(
@@ -45,21 +86,39 @@ export function applyRawMaterialOcrLineReviews({ lines = [], lineReviews, operat
   return sourceLines.map((line) => {
     const lineId = cleanText(line?.lineId);
     const submitted = submittedByLineId.get(lineId);
-    const recognizedValues = normalizeLineValues(resolveRecognizedValues(line), {});
-    const values = normalizeLineValues(line?.values ?? {}, submitted.values);
-    validateLineValues(values, lineId);
+    const recognizedValues = normalizeLineValues(resolveRecognizedValues(line), {}, { documentDirection });
+    const values = normalizeLineValues(line?.values ?? {}, submitted.values, { documentDirection });
+    const projectedRollCount = positiveInteger(values.rollCount, 0) || 1;
+    const excludedRollIndices = normalizeExcludedRollIndices(submitted.excludedRollIndices, projectedRollCount, lineId);
+    const exclusionReason = cleanText(submitted.exclusionReason);
+    if (excludedRollIndices.length && !exclusionReason) {
+      throw reviewError(
+        "RAW_MATERIAL_OCR_REVIEW_EXCLUSION_REASON_REQUIRED",
+        `OCR 明细行 ${lineId || "待确认"} 排除误识别卷时必须填写原因。`,
+      );
+    }
+    validateLineValues(values, lineId, { excludedRollIndices, projectedRollCount, documentDirection });
     const reviewedFields = RAW_MATERIAL_OCR_LINE_REVIEW_KEYS.map((key) => ({
       key,
       recognizedValue: recognizedValues[key],
       value: values[key],
       reviewStatus: areValuesEqual(values[key], recognizedValues[key]) ? "人工接受" : "人工修改",
     }));
+    const activeRollCount = projectedRollCount - excludedRollIndices.length;
+    const fieldStatus = reviewedFields.every((field) => field.reviewStatus === "人工接受") ? "人工接受" : "人工修改";
     return {
       ...line,
       recognizedValues,
       values,
       reviewedFields,
-      reviewStatus: reviewedFields.every((field) => field.reviewStatus === "人工接受") ? "人工接受" : "人工修改",
+      reviewStatus: activeRollCount === 0 ? "人工排除" : excludedRollIndices.length ? "人工修改并排除" : fieldStatus,
+      reviewDisposition: activeRollCount === 0 ? "excluded_not_material" : "included",
+      reviewProjectedRollCount: projectedRollCount,
+      excludedRollIndices,
+      exclusionReason,
+      excludedBy: excludedRollIndices.length ? cleanText(operatorName) : "",
+      excludedByUserId: excludedRollIndices.length ? cleanText(operatorId) : "",
+      excludedAt: excludedRollIndices.length ? cleanText(now) : "",
       reviewedBy: cleanText(operatorName),
       reviewedByUserId: cleanText(operatorId),
       reviewedAt: cleanText(now),
@@ -67,27 +126,33 @@ export function applyRawMaterialOcrLineReviews({ lines = [], lineReviews, operat
   });
 }
 
-export function validateRawMaterialOcrLineReviewSummary({ lines = [], reviewValues = {} } = {}) {
+export function validateRawMaterialOcrLineReviewSummary({
+  lines = [],
+  reviewValues = {},
+  documentDirection = "supplier_delivery",
+  amountReferenceOnly = false,
+} = {}) {
   const reviewedLines = Array.isArray(lines) ? lines : [];
   const expectedRollCount = positiveInteger(reviewValues.rollCount, 0);
-  const actualRollCount = reviewedLines.reduce((total, line) => total + positiveInteger(line?.values?.rollCount, 0), 0);
+  const actualRollCount = reviewedLines.reduce((total, line) => total + getActiveReviewedRollCount(line), 0);
   if (!expectedRollCount || actualRollCount !== expectedRollCount) {
     throw reviewError(
       "RAW_MATERIAL_OCR_REVIEW_LINE_ROLL_COUNT_MISMATCH",
       `单据卷/件数与逐行复核不一致：汇总 ${expectedRollCount || 0}，明细 ${actualRollCount}。`,
     );
   }
-  const expectedWeightKg = nonNegativeNumber(reviewValues.totalWeightKg, 0);
-  const actualWeightKg = roundNumber(reviewedLines.reduce((total, line) => total + nonNegativeNumber(line?.values?.totalWeightKg, 0), 0), 3);
-  if (expectedWeightKg > 0 && actualWeightKg > 0 && !approximatelyEqual(expectedWeightKg, actualWeightKg)) {
+  const expectedWeightKg = directionalNumber(reviewValues.totalWeightKg, documentDirection, 0);
+  const activeLines = reviewedLines.filter((line) => getActiveReviewedRollCount(line) > 0);
+  const actualWeightKg = roundNumber(activeLines.reduce((total, line) => total + directionalNumber(line?.values?.totalWeightKg, documentDirection, 0), 0), 3);
+  if (Math.abs(expectedWeightKg) > 0 && Math.abs(actualWeightKg) > 0 && !approximatelyEqual(expectedWeightKg, actualWeightKg)) {
     throw reviewError(
       "RAW_MATERIAL_OCR_REVIEW_LINE_WEIGHT_MISMATCH",
       `单据总重量与逐行复核不一致：汇总 ${expectedWeightKg}kg，明细 ${actualWeightKg}kg。`,
     );
   }
-  const expectedAmount = nonNegativeNumber(reviewValues.amount, 0);
-  const actualAmount = roundNumber(reviewedLines.reduce((total, line) => total + nonNegativeNumber(line?.values?.amount, 0), 0), 2);
-  if (expectedAmount > 0 && actualAmount > 0 && !approximatelyEqual(expectedAmount, actualAmount)) {
+  const expectedAmount = directionalNumber(reviewValues.amount, documentDirection, 0);
+  const actualAmount = roundNumber(activeLines.reduce((total, line) => total + directionalNumber(line?.values?.amount, documentDirection, 0), 0), 2);
+  if (!amountReferenceOnly && Math.abs(expectedAmount) > 0 && Math.abs(actualAmount) > 0 && !approximatelyEqual(expectedAmount, actualAmount)) {
     throw reviewError(
       "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_MISMATCH",
       `单据金额与逐行复核不一致：汇总 ${expectedAmount}，明细 ${actualAmount}。`,
@@ -95,7 +160,13 @@ export function validateRawMaterialOcrLineReviewSummary({ lines = [], reviewValu
   }
 }
 
-export function buildRawMaterialOcrReviewedRolls({ inboundId = "", existingRolls = [], lines = [] } = {}) {
+export function buildRawMaterialOcrReviewedRolls({
+  inboundId = "",
+  existingRolls = [],
+  lines = [],
+  documentDirection = "supplier_delivery",
+} = {}) {
+  if (documentDirection === "supplier_return") return [];
   const existingByLineId = new Map();
   for (const roll of Array.isArray(existingRolls) ? existingRolls : []) {
     const lineId = cleanText(roll?.ocrLineId);
@@ -106,17 +177,24 @@ export function buildRawMaterialOcrReviewedRolls({ inboundId = "", existingRolls
   }
   const inputs = (Array.isArray(lines) ? lines : []).flatMap((line) => {
     const values = line?.values ?? {};
-    const rollCount = positiveInteger(values.rollCount, 0);
-    const exactWeights = Array.isArray(values.rollWeightsKg) && values.rollWeightsKg.length === rollCount
+    const rollCount = positiveInteger(line?.reviewProjectedRollCount, 0) || positiveInteger(values.rollCount, 0);
+    const excludedRollIndices = new Set(normalizePersistedExcludedRollIndices(line?.excludedRollIndices, rollCount));
+    const submittedWeights = Array.isArray(values.rollWeightsKg)
       ? values.rollWeightsKg.map((weight) => nonNegativeNumber(weight, 0))
       : [];
-    const fallbackWeight = rollCount > 0
-      ? roundNumber(nonNegativeNumber(values.totalWeightKg, 0) / rollCount, 3)
-      : 0;
-    return Array.from({ length: rollCount }, (_, index) => ({
+    const activeRollIndices = Array.from({ length: rollCount }, (_, index) => index).filter((index) => !excludedRollIndices.has(index));
+    if (rollCount > 1 && activeRollIndices.some((index) => !(submittedWeights[index] > 0))) {
+      throw reviewError(
+        "RAW_MATERIAL_OCR_REVIEW_LINE_WEIGHT_COUNT_MISMATCH",
+        `OCR 明细行 ${cleanText(line?.lineId) || "待确认"} 必须逐卷填写 ${rollCount} 个分卷重量，不能用行总重平均代替。`,
+      );
+    }
+    return activeRollIndices.map((index) => ({
       line,
       lineRollIndex: index,
-      weightKg: exactWeights[index] ?? fallbackWeight,
+      weightKg: rollCount === 1
+        ? nonNegativeNumber(submittedWeights[0], nonNegativeNumber(values.totalWeightKg, 0))
+        : nonNegativeNumber(submittedWeights[index], 0),
     }));
   });
   return inputs.map(({ line, lineRollIndex, weightKg }, index) => {
@@ -132,6 +210,8 @@ export function buildRawMaterialOcrReviewedRolls({ inboundId = "", existingRolls
       supplierRollNo,
       weightKg,
       originalWeightKg: weightKg,
+      weightReviewStatus: "单卷重量已人工确认",
+      sourceLineRollIndex: lineRollIndex,
       labelStatus: "待打印标签",
       inventoryStatus: "不可用",
       location: cleanText(existing.location) || "原料待检区",
@@ -177,7 +257,7 @@ function resolveRecognizedValues(line = {}) {
   return line?.values ?? {};
 }
 
-function normalizeLineValues(baseValues = {}, submittedValues = {}) {
+function normalizeLineValues(baseValues = {}, submittedValues = {}, { documentDirection = "supplier_delivery" } = {}) {
   const submittedKeys = Object.keys(submittedValues ?? {});
   const unknownKeys = submittedKeys.filter((key) => !RAW_MATERIAL_OCR_LINE_REVIEW_KEYS.includes(key));
   if (unknownKeys.length) {
@@ -190,16 +270,23 @@ function normalizeLineValues(baseValues = {}, submittedValues = {}) {
   for (const key of RAW_MATERIAL_OCR_LINE_REVIEW_KEYS) {
     const rawValue = Object.hasOwn(submittedValues ?? {}, key) ? submittedValues[key] : baseValues?.[key];
     if (textKeys.has(key)) values[key] = cleanText(rawValue);
-    if (numericKeys.has(key)) values[key] = reviewedNonNegativeNumber(rawValue, key);
-    if (key === "rollWeightsKg") values[key] = normalizeRollWeights(rawValue);
+    if (numericKeys.has(key)) values[key] = reviewedDirectionalNumber(rawValue, key, documentDirection);
+    if (key === "rollWeightsKg") values[key] = normalizeRollWeights(rawValue, documentDirection);
   }
   return enrichRawMaterialSpecValues(values);
 }
 
-function validateLineValues(values, lineId) {
+function validateLineValues(values, lineId, {
+  excludedRollIndices = [],
+  projectedRollCount = 0,
+  documentDirection = "supplier_delivery",
+} = {}) {
+  const excluded = new Set(excludedRollIndices);
+  const activeRollIndices = Array.from({ length: projectedRollCount }, (_, index) => index).filter((index) => !excluded.has(index));
+  if (activeRollIndices.length === 0) return;
   const missing = [];
   if (!cleanText(values.productName) && !cleanText(values.materialType)) missing.push("材料/品名");
-  if (!cleanText(values.spec)) missing.push("规格");
+  if (documentDirection !== "supplier_return" && !hasReviewableRawMaterialSpec(values.spec)) missing.push("规格");
   if (!cleanText(values.unit)) missing.push("单位");
   if (!positiveInteger(values.rollCount, 0) || positiveInteger(values.rollCount, 0) > 500) missing.push("卷/件数（1-500）");
   if (missing.length) {
@@ -208,15 +295,22 @@ function validateLineValues(values, lineId) {
       `OCR 明细行 ${lineId || "待确认"} 缺少：${missing.join("、")}。`,
     );
   }
-  if (values.rollWeightsKg.length) {
-    if (values.rollWeightsKg.length !== values.rollCount) {
-      throw reviewError(
-        "RAW_MATERIAL_OCR_REVIEW_LINE_WEIGHT_COUNT_MISMATCH",
-        `OCR 明细行 ${lineId || "待确认"} 的分卷重量数量与卷数不一致。`,
-      );
-    }
-    const weightTotal = roundNumber(values.rollWeightsKg.reduce((total, weight) => total + weight, 0), 3);
-    if (values.totalWeightKg > 0 && !approximatelyEqual(values.totalWeightKg, weightTotal)) {
+  const rollCount = positiveInteger(values.rollCount, 0);
+  if (projectedRollCount === 1 && !(Math.abs(directionalNumber(values.rollWeightsKg[0], documentDirection, 0)) > 0 || Math.abs(directionalNumber(values.totalWeightKg, documentDirection, 0)) > 0)) {
+    throw reviewError(
+      "RAW_MATERIAL_OCR_REVIEW_ROLL_WEIGHT_REQUIRED",
+      `OCR 明细行 ${lineId || "待确认"} 缺少本卷独立重量，不能用整单汇总代替。`,
+    );
+  }
+  if (projectedRollCount > 1 && activeRollIndices.some((index) => !(Math.abs(directionalNumber(values.rollWeightsKg[index], documentDirection, 0)) > 0))) {
+    throw reviewError(
+      "RAW_MATERIAL_OCR_REVIEW_LINE_WEIGHT_COUNT_MISMATCH",
+      `OCR 明细行 ${lineId || "待确认"} 必须逐卷填写 ${rollCount} 个分卷重量，不能用行总重平均代替。`,
+    );
+  }
+  if (values.rollWeightsKg.length && activeRollIndices.length) {
+    const weightTotal = roundNumber(activeRollIndices.reduce((total, index) => total + directionalNumber(values.rollWeightsKg[index], documentDirection, 0), 0), 3);
+    if (Math.abs(values.totalWeightKg) > 0 && !approximatelyEqual(values.totalWeightKg, weightTotal)) {
       throw reviewError(
         "RAW_MATERIAL_OCR_REVIEW_LINE_WEIGHT_TOTAL_MISMATCH",
         `OCR 明细行 ${lineId || "待确认"} 的分卷重量与行总重不一致。`,
@@ -225,17 +319,53 @@ function validateLineValues(values, lineId) {
   }
 }
 
-function normalizeRollWeights(value) {
+function normalizeRollWeights(value, documentDirection = "supplier_delivery") {
   const entries = Array.isArray(value)
     ? value
     : cleanText(value)
       ? cleanText(value).split(/[,，\s]+/u)
       : [];
-  const weights = entries.map((entry) => Number(entry));
-  if (weights.some((weight) => !Number.isFinite(weight) || weight <= 0)) {
-    throw reviewError("RAW_MATERIAL_OCR_REVIEW_LINE_WEIGHT_INVALID", "分卷重量必须是大于 0 的数字。");
+  const weights = entries.map((entry) => cleanText(entry) ? Number(entry) : 0);
+  if (weights.some((weight) => !Number.isFinite(weight))) {
+    throw reviewError("RAW_MATERIAL_OCR_REVIEW_LINE_WEIGHT_INVALID", "分卷重量必须是数字。");
   }
-  return weights.map((weight) => roundNumber(weight, 3));
+  return weights.map((weight) => roundNumber(
+    documentDirection === "supplier_return" ? -Math.abs(weight) : Math.abs(weight),
+    3,
+  ));
+}
+
+function normalizeExcludedRollIndices(value, projectedRollCount, lineId) {
+  if (value == null) return [];
+  if (!Array.isArray(value)) {
+    throw reviewError("RAW_MATERIAL_OCR_REVIEW_EXCLUSION_INVALID", `OCR 明细行 ${lineId || "待确认"} 的误识别卷排除格式无效。`);
+  }
+  const normalized = [...new Set(value.map(Number))].sort((left, right) => left - right);
+  if (normalized.some((index) => !Number.isInteger(index) || index < 0 || index >= projectedRollCount)) {
+    throw reviewError("RAW_MATERIAL_OCR_REVIEW_EXCLUSION_INVALID", `OCR 明细行 ${lineId || "待确认"} 的误识别卷序号无效。`);
+  }
+  return normalized;
+}
+
+function normalizePersistedExcludedRollIndices(value, projectedRollCount) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.map(Number))].filter(
+    (index) => Number.isInteger(index) && index >= 0 && index < projectedRollCount,
+  );
+}
+
+function getActiveReviewedRollCount(line = {}) {
+  const projectedRollCount = positiveInteger(line.reviewProjectedRollCount, 0) || positiveInteger(line?.values?.rollCount, 0);
+  return Math.max(0, projectedRollCount - normalizePersistedExcludedRollIndices(line.excludedRollIndices, projectedRollCount).length);
+}
+
+function normalizeRollWeightDraft(value, count) {
+  const entries = Array.isArray(value)
+    ? value
+    : cleanText(value)
+      ? cleanText(value).split(/[,，\s]+/u)
+      : [];
+  return Array.from({ length: Math.max(1, count) }, (_, index) => entries[index] ?? "");
 }
 
 function positiveInteger(value, fallback) {
@@ -250,11 +380,23 @@ function nonNegativeNumber(value, fallback) {
   return Number.isFinite(number) && number >= 0 ? number : fallback;
 }
 
-function reviewedNonNegativeNumber(value, key) {
+function directionalNumber(value, documentDirection, fallback) {
+  const text = cleanText(value);
+  if (!text) return fallback;
+  const number = Number(text);
+  if (!Number.isFinite(number)) return fallback;
+  return documentDirection === "supplier_return" ? -Math.abs(number) : Math.abs(number);
+}
+
+function reviewedDirectionalNumber(value, key, documentDirection) {
   const text = cleanText(value);
   if (!text) return 0;
   const number = Number(text);
-  if (!Number.isFinite(number) || number < 0) {
+  if (!Number.isFinite(number)) {
+    throw reviewError("RAW_MATERIAL_OCR_REVIEW_LINE_NUMBER_INVALID", `OCR 明细行的${key}必须是数字。`);
+  }
+  if (["totalWeightKg", "amount"].includes(key) && documentDirection === "supplier_return") return -Math.abs(number);
+  if (number < 0) {
     throw reviewError("RAW_MATERIAL_OCR_REVIEW_LINE_NUMBER_INVALID", `OCR 明细行的${key}必须是非负数字。`);
   }
   return number;

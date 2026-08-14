@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>原材料退货单核对 · 手机评审稿</title>
+    <link rel="stylesheet" href="../mobile-role-flow-atlas/tokens.css" />
+    <link rel="stylesheet" href="../mobile-role-flow-atlas/styles.css" />
+    <link rel="stylesheet" href="../mobile-role-flow-atlas/mobile-miniapp-redesign.css" />
+    <style>
+      html,
+      body,
+      #app { min-height: 100%; }
+
+      body { margin: 0; background: var(--color-canvas); }
+
+      #app { display: grid; place-items: start center; }
+
+      .return-review.mobile-surface {
+        display: flex;
+        flex-direction: column;
+        min-height: 100dvh;
+        border: 0;
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      .icon {
+        width: 1.25rem;
+        height: 1.25rem;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 1.8;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+      }
+
+      .return-review .mobile-content {
+        flex: 1 0 auto;
+        min-height: 0;
+      }
+
+      .return-review .delivery-note-section > header > div { min-width: 0; }
+
+      .return-review .delivery-note-section > header span {
+        display: block;
+        margin-block-start: 0.1rem;
+        overflow: hidden;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .return-review .delivery-note-image {
+        display: block;
+        width: 100%;
+        padding: 0;
+        border: 0;
+        background: var(--color-surface);
+      }
+
+      .return-review .delivery-note-image img {
+        width: 100%;
+        height: 6.25rem;
+        object-fit: cover;
+        object-position: center 29%;
+        filter: saturate(0.88) contrast(0.98);
+      }
+
+      .return-review .roll-ledger > header h3 { letter-spacing: 0.01em; }
+
+      .return-review .roll-source {
+        grid-template-columns: 1.75rem minmax(0, 1fr);
+        gap: var(--space-2xs);
+        min-height: 2rem;
+        padding: var(--space-3xs) var(--space-2xs);
+      }
+
+      .return-review .return-crop {
+        position: relative;
+        display: block;
+        width: 100%;
+        height: 1.5rem;
+        overflow: hidden;
+        border-radius: 0.35rem;
+        background: #efe5dd;
+      }
+
+      .return-review .return-crop img {
+        position: absolute;
+        inset: 0;
+        display: block;
+        width: 100%;
+        height: 100%;
+        border-radius: inherit;
+        object-fit: cover;
+        filter: saturate(0.82) contrast(1.02);
+      }
+
+      .return-review .return-crop img { object-position: center; }
+
+      .return-review .roll-facts {
+        grid-template-columns: 1rem 4.4rem minmax(0, 1fr) auto auto 2.75rem;
+        gap: 0.25rem;
+        min-height: 2.75rem;
+      }
+
+      .return-review .roll-facts > strong { font-weight: 650; }
+
+      .return-review .roll-facts > span { color: var(--color-ink-soft); }
+
+      .return-review .roll-facts > b {
+        font-size: var(--text-sm);
+        font-variant-numeric: tabular-nums;
+      }
+
+      .return-review .roll-facts > .status { display: inline-flex; }
+
+      .return-review .roll-facts > button {
+        min-width: 2.75rem;
+        min-height: 2.75rem;
+      }
+
+      .return-review .roll-row.is-confirmed .roll-source b {
+        background: var(--color-success-ink);
+      }
+
+      .return-review .roll-row.is-confirmed .roll-facts > button { color: var(--color-muted); }
+
+      .return-review .mobile-action-bar {
+        position: sticky;
+        inset-block-end: 0;
+      }
+
+      .return-review .mobile-action-bar .primary:disabled {
+        border-color: color-mix(in oklch, var(--color-accent) 34%, var(--color-paper));
+        background: color-mix(in oklch, var(--color-accent) 42%, var(--color-paper));
+        color: var(--color-paper);
+      }
+
+      .return-dialog {
+        width: min(32rem, calc(100% - 2rem));
+        max-height: calc(100dvh - 2rem);
+        padding: 0;
+        overflow: hidden;
+        border: 0;
+        border-radius: var(--radius-lg);
+        background: var(--color-paper);
+        color: var(--color-ink);
+        box-shadow: 0 1.5rem 4rem color-mix(in oklch, var(--color-board) 24%, transparent);
+      }
+
+      .return-dialog::backdrop { background: rgb(16 34 22 / 0.48); }
+
+      .return-dialog > header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: var(--space-md);
+        padding: var(--space-md);
+        border-block-end: 1px solid var(--color-rule);
+      }
+
+      .return-dialog > header span {
+        display: block;
+        color: var(--color-muted);
+        font-size: var(--text-xs);
+      }
+
+      .return-dialog > header h2 { margin: 0.15rem 0 0; font-size: var(--text-lg); }
+
+      .return-dialog > header button {
+        width: 2.5rem;
+        height: 2.5rem;
+        border: 0;
+        border-radius: var(--radius-sm);
+        background: var(--color-surface);
+        color: var(--color-ink-soft);
+        font-size: 1.5rem;
+      }
+
+      .return-dialog .dialog-body { padding: var(--space-md); }
+
+      .return-dialog .dialog-body p {
+        margin: 0;
+        color: var(--color-muted);
+        font-size: var(--text-sm);
+        line-height: 1.65;
+      }
+
+      .return-dialog .dialog-body p + p { margin-block-start: var(--space-sm); }
+
+      .return-dialog .dialog-action {
+        width: calc(100% - 2rem);
+        min-height: var(--control-height);
+        margin: 0 1rem 1rem;
+        border: 0;
+        border-radius: var(--radius-sm);
+        background: var(--color-accent);
+        color: var(--color-accent-ink);
+        font-weight: 700;
+      }
+
+      .source-dialog.return-source-dialog img {
+        display: block;
+        width: 100%;
+        height: auto;
+      }
+
+      @media (min-width: 40rem) {
+        #app { padding: var(--space-lg); }
+
+        .return-review.mobile-surface {
+          width: min(100%, var(--screen-width));
+          min-height: calc(100dvh - 3rem);
+          max-height: calc(100dvh - 3rem);
+          overflow-y: auto;
+          border: 1px solid var(--color-rule);
+          border-radius: var(--radius-lg);
+          box-shadow: 0 1.5rem 4rem color-mix(in oklch, var(--color-board) 13%, transparent);
+        }
+      }
+
+      @media (max-width: 23rem) {
+        .return-review .roll-facts {
+          grid-template-columns: 1rem 3.8rem minmax(0, 1fr) auto 2.5rem;
+        }
+
+        .return-review .roll-facts > .status { display: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app">
+      <article class="mobile-surface layout-feed is-interactive has-task-actions return-review" data-flow="office" data-screen="review">
+        <header class="mobile-role-bar">
+          <span class="mobile-role-mark" data-icon="briefcase"></span>
+          <div><strong>办公室</strong><small>手机工作台</small></div>
+          <button type="button" id="menuButton" aria-label="打开菜单" data-icon="menu"></button>
+        </header>
+
+        <header class="mobile-screen-heading">
+          <button type="button" id="backButton" aria-label="返回上一页" data-icon="arrow-left"></button>
+          <div><h2>核对退货单</h2></div>
+          <span class="heading-spacer"></span>
+        </header>
+
+        <ol class="mobile-progress" aria-label="退货单处理进度">
+          <li class="done"><span data-icon="camera"></span><small>拍单</small></li>
+          <li class="active"><span data-icon="check-circle"></span><small>核对</small></li>
+          <li><span data-icon="check-circle"></span><small>完成</small></li>
+        </ol>
+
+        <div class="mobile-content">
+          <section class="content-section delivery-note-section">
+            <header>
+              <div><h3>原退货单</h3><span>振恒（人意无纺布销售单）· 2026-07-01</span></div>
+              <button type="button" id="zoomButton">放大查看</button>
+            </header>
+            <button class="delivery-note-image" type="button" id="sourceImageButton" aria-label="放大查看原退货单">
+              <img data-return-image alt="人意无纺布退货单原图" width="1440" height="810" />
+            </button>
+          </section>
+
+          <section class="roll-ledger">
+            <header><h3>识别到 5 件，共 -121.8 kg</h3><span id="count">已确认 0/5</span></header>
+            <div id="rows"></div>
+          </section>
+        </div>
+
+        <aside class="mobile-action-bar">
+          <button class="action-button secondary" type="button" id="infoButton">查看单据信息</button>
+          <button class="action-button primary" type="button" id="submitButton" disabled>已确认 0/5 · 确认退货</button>
+        </aside>
+      </article>
+
+      <dialog class="source-dialog return-source-dialog" id="sourceDialog" aria-labelledby="sourceDialogTitle">
+        <header><div><span>振恒（人意无纺布销售单）· 2026-07-01</span><h2 id="sourceDialogTitle">原退货单</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></header>
+        <img data-return-image width="1440" height="810" alt="人意无纺布退货单放大原图" />
+      </dialog>
+
+      <dialog class="return-dialog" id="infoDialog" aria-labelledby="infoDialogTitle">
+        <header><div><span>退货业务规则</span><h2 id="infoDialogTitle">这张退货单怎么保存</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></header>
+        <div class="dialog-body">
+          <p>原单没有写规格或米数，就保持为空，不要求补写，也不影响退货复核。</p>
+          <p>重量与金额按退货方向保存；票面价格只保留为原单证据，不覆盖系统实际价格。</p>
+          <p>确认后只生成退货复核记录，不打印卷标、不增加库存。</p>
+        </div>
+        <button class="dialog-action" type="button" data-close-dialog>知道了</button>
+      </dialog>
+
+      <dialog class="return-dialog" id="completeDialog" aria-labelledby="completeDialogTitle">
+        <header><div><span>退货复核完成</span><h2 id="completeDialogTitle">退货单已确认</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></header>
+        <div class="dialog-body"><p>5 件退货事实已留档。系统不会生成入库卷码、打印标签或增加原料库存。</p></div>
+        <button class="dialog-action" type="button" data-close-dialog>返回退货记录</button>
+      </dialog>
+    </div>
+
+    <script>
+      const iconPaths = {
+        "arrow-left": '<path d="m15 18-6-6 6-6"/>',
+        briefcase: '<rect width="20" height="14" x="2" y="7" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M12 12v.01"/><path d="M2 12a18 18 0 0 0 20 0"/>',
+        camera: '<path d="M14.5 4 16 6h3a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h3l1.5-2z"/><circle cx="12" cy="13" r="3"/>',
+        "check-circle": '<path d="M22 11.1V12a10 10 0 1 1-5.9-9.1"/><path d="m9 11 3 3L22 4"/>',
+        menu: '<path d="M4 6h16M4 12h16M4 18h16"/>',
+      };
+
+      function icon(name) {
+        return `<svg class="icon" aria-hidden="true" viewBox="0 0 24 24">${iconPaths[name] || iconPaths["check-circle"]}</svg>`;
+      }
+
+      document.querySelectorAll("[data-icon]").forEach((node) => { node.innerHTML = icon(node.dataset.icon); });
+
+      const defaultImage = "./assets/return-note-upright.jpg";
+      const imageSource = defaultImage;
+      document.querySelectorAll("[data-return-image]").forEach((image) => { image.src = imageSource; });
+
+      const items = [
+        { name: "退带色布", spec: "原单未写规格", weight: "-4.2 kg", sourceLine: "one", dot: "" },
+        { name: "退带色布", spec: "原单未写规格", weight: "-24.2 kg", sourceLine: "one", dot: "" },
+        { name: "退带色布", spec: "原单未写规格", weight: "-73.7 kg", sourceLine: "one", dot: "" },
+        { name: "退带色布", spec: "原单未写规格", weight: "-5.2 kg", sourceLine: "one", dot: "" },
+        { name: "退带色条", spec: "78克*5宽", weight: "-14.5 kg", sourceLine: "two", dot: "" },
+      ];
+
+      const confirmed = new Set();
+      const rows = document.querySelector("#rows");
+      const count = document.querySelector("#count");
+      const submitButton = document.querySelector("#submitButton");
+
+      function renderRows() {
+        rows.innerHTML = items.map((item, index) => {
+          const isConfirmed = confirmed.has(index);
+          return `
+            <article class="roll-row ${isConfirmed ? "is-confirmed" : ""}" data-index="${index}">
+              <div class="roll-source">
+                <b>${index + 1}</b>
+                <span class="return-crop source-line-${item.sourceLine}"><img src="./assets/return-line-${item.sourceLine}.jpg" alt="原退货单第 ${index + 1} 件对应行" /></span>
+              </div>
+              <div class="roll-facts">
+                <i class="color-dot ${item.dot}" aria-hidden="true"></i>
+                <strong>${item.name}</strong>
+                <span>${item.spec}</span>
+                <b>${item.weight}</b>
+                <em class="status ${isConfirmed ? "success" : "warning"}">${isConfirmed ? "已确认" : "待确认"}</em>
+                <button type="button" data-review-index="${index}">${isConfirmed ? "修改" : "核对"}</button>
+              </div>
+            </article>
+          `;
+        }).join("");
+
+        count.textContent = `已确认 ${confirmed.size}/${items.length}`;
+        submitButton.textContent = `已确认 ${confirmed.size}/${items.length} · 确认退货`;
+        submitButton.disabled = confirmed.size !== items.length;
+      }
+
+      rows.addEventListener("click", (event) => {
+        const button = event.target.closest("button[data-review-index]");
+        if (!button) return;
+        const index = Number(button.dataset.reviewIndex);
+        if (confirmed.has(index)) confirmed.delete(index); else confirmed.add(index);
+        renderRows();
+      });
+
+      function show(dialog) { if (!dialog.open) dialog.showModal(); }
+      function close(dialog) { if (dialog.open) dialog.close(); }
+
+      const sourceDialog = document.querySelector("#sourceDialog");
+      const infoDialog = document.querySelector("#infoDialog");
+      const completeDialog = document.querySelector("#completeDialog");
+
+      document.querySelector("#zoomButton").addEventListener("click", () => show(sourceDialog));
+      document.querySelector("#sourceImageButton").addEventListener("click", () => show(sourceDialog));
+      document.querySelector("#infoButton").addEventListener("click", () => show(infoDialog));
+      document.querySelector("#menuButton").addEventListener("click", () => show(infoDialog));
+      document.querySelector("#backButton").addEventListener("click", () => history.length > 1 ? history.back() : show(infoDialog));
+      submitButton.addEventListener("click", () => show(completeDialog));
+      document.querySelectorAll("[data-close-dialog]").forEach((button) => button.addEventListener("click", () => close(button.closest("dialog"))));
+      document.querySelectorAll("dialog").forEach((dialog) => dialog.addEventListener("click", (event) => { if (event.target === dialog) close(dialog); }));
+
+      renderRows();
+    </script>
+  </body>
+</html>

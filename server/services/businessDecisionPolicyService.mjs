@@ -5,6 +5,7 @@ import {
   getBusinessDecisionScopeLabel,
   normalizeBusinessDecisionChannel,
 } from "../../shared/businessDecisionCatalog.js";
+import { attachmentUploadLimits } from "../../shared/attachmentUploadPolicy.js";
 
 const permissionByScope = Object.freeze({
   order_priority: Object.freeze({ direct: "order.priority.direct", delegated: "order.priority.record_delegated" }),
@@ -297,7 +298,7 @@ function resolveEvidenceDraft({ workspace, delegatedDecision, businessType, busi
     if (!uploaderId || !findUser(workspace, uploaderId)) {
       return { error: validation("BUSINESS_DECISION_EVIDENCE_UPLOADER_INVALID", "决定凭据缺少有效的认证上传人。") };
     }
-    if (attachment.hasContent !== true || !["image", "pdf", "document", "spreadsheet"].includes(fileType) || !Number.isFinite(size) || size <= 0 || size > 15 * 1024 * 1024) {
+    if (attachment.hasContent !== true || !["image", "pdf", "document", "spreadsheet"].includes(fileType) || !Number.isFinite(size) || size <= 0 || size > attachmentUploadLimits.documentBytes) {
       return { error: validation("BUSINESS_DECISION_EVIDENCE_INVALID", "决定凭据内容、类型或大小不符合要求。", { attachmentId: cleanText(attachment.attachmentId ?? attachment.id) }) };
     }
   }

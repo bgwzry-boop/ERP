@@ -2,6 +2,7 @@ node_modules/
 dist/
 .erp-local-storage/
 .hallmark/
+.impeccable/
 screenshots/
 .env
 .env.*
@@ -14,3 +15,11 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+# Added by code-review-graph
+.code-review-graph/
+screenlog.*
+
+# Local review/export artifacts: preserve on disk, never include in a release commit.
+/outputs/019fda6f-1e15-73d3-8678-9ac8f85ece03/工资考勤正式规则确认表.xlsx
+/outputs/019fda6f-1e15-73d3-8678-9ac8f85ece03/工资考勤正式规则确认表.xlsx.inspect.ndjson
+/work/erp-staging-frontend-sync-fix-20260728.tgz

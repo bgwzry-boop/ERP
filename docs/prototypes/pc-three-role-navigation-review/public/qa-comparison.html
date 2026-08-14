@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>方案 1 视觉对照</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 22px; color: #182333; background: #e9edf3; font-family: "PingFang SC", "Microsoft YaHei", sans-serif; }
+      header { display: flex; align-items: baseline; justify-content: space-between; margin: 0 0 15px; }
+      h1 { margin: 0; font-size: 20px; }
+      header span { color: #6f7b8d; font-size: 12px; }
+      main { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+      figure { margin: 0; overflow: hidden; background: #fff; border: 1px solid #cfd7e3; border-radius: 6px; }
+      figcaption { display: flex; align-items: center; justify-content: space-between; height: 42px; padding: 0 13px; border-bottom: 1px solid #dce2ea; font-size: 13px; font-weight: 600; }
+      figcaption small { color: #738095; font-size: 10px; font-weight: 400; }
+      .viewport { width: 100%; aspect-ratio: 16 / 9; overflow: hidden; background: #f4f6fa; }
+      img { display: block; width: 100%; height: 100%; object-fit: cover; object-position: top left; }
+      footer { margin-top: 14px; color: #657286; font-size: 11px; line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <header><h1>方案 1：同一桌面视口视觉对照</h1><span>1280 × 720 · 顶部视口</span></header>
+    <main>
+      <figure>
+        <figcaption>选定效果图 <small>ImageGen 来源</small></figcaption>
+        <div class="viewport"><img src="/@fs/Users/xu/Documents/ERP/docs/prototypes/pc-three-role-navigation-review/qa/source-option-1.png" alt="选定方案 1 效果图" /></div>
+      </figure>
+      <figure>
+        <figcaption>当前实现 <small>本地 React 原型</small></figcaption>
+        <div class="viewport"><img src="/@fs/Users/xu/Documents/ERP/docs/prototypes/pc-three-role-navigation-review/qa/final-owner-overview-1280x720.png" alt="当前实现截图" /></div>
+      </figure>
+    </main>
+    <footer>核对重点：190px 单列业务树、60px 顶栏、四指标、左侧决策队列、右侧同对象详情，以及 active 导航 / tab / row 的三层选中关系。</footer>
+  </body>
+</html>

@@ -7,7 +7,11 @@ import {
   normalizeRawMaterialScanCode,
 } from "../src/domain/rawMaterialScanOutbound.js";
 import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
-import { assertRawMaterialFirstReleaseBuildEnv } from "../vite.config.mjs";
+import {
+  assertControlledReleaseBuildEnv,
+  assertRawMaterialFirstReleaseBuildEnv,
+  controlledReleaseHtmlPlugin,
+} from "../vite.config.mjs";
 
 assert.doesNotThrow(() => assertRawMaterialFirstReleaseBuildEnv({ VITE_ERP_RUNTIME_MODE: "test" }));
 assert.doesNotThrow(() => assertRawMaterialFirstReleaseBuildEnv({
@@ -92,11 +96,60 @@ assert.equal(issued.inbound.rawMaterialIssueRecords[0].factoryColor, "红色");
 assert.equal(issued.inbound.rawMaterialIssueRecords[0].issuedWeightKg, 96.5);
 assert.match(issued.inbound.nextStep, /首发阶段暂不关联订单或生产任务/);
 
+const missingRollWeightInbound = {
+  ...availableInbound,
+  id: "RMI-FIRST-MISSING-WEIGHT",
+  status: "已复核待打印标签",
+  rolls: [{
+    ...availableInbound.rolls[0],
+    id: "RM-FIRST-MISSING-WEIGHT-01",
+    inventoryStatus: "不可用",
+    labelStatus: "待打印标签",
+    weightKg: 0,
+  }],
+};
+assert.throws(
+  () => applyRawMaterialInboundAction({
+    inbounds: [missingRollWeightInbound],
+    workspace: { rawMaterialInbounds: [missingRollWeightInbound] },
+    inboundId: missingRollWeightInbound.id,
+    action: "打印卷标",
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    serverNow: "2026-07-17T08:10:00.000Z",
+    body: { expectedRevision: 1 },
+  }),
+  (error) => error?.code === "RAW_MATERIAL_LABEL_PRINT_ROLL_WEIGHT_REQUIRED",
+  "a roll without its own weight must be blocked before label printing",
+);
+
+assert.doesNotThrow(() => assertControlledReleaseBuildEnv({ VITE_ERP_RUNTIME_MODE: "test" }));
+assert.doesNotThrow(() => assertControlledReleaseBuildEnv({
+  VITE_ERP_RUNTIME_MODE: "production",
+  VITE_ERP_RELEASE_TARGET: "tencent-production",
+  VITE_ERP_RELEASE_COMMIT: "1234567890abcdef1234567890abcdef12345678",
+  VITE_ERP_RELEASE_VERSION: "prod-2026.08.09-r1",
+  VITE_ERP_RELEASE_LOCK_DIGEST: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+}));
+assert.throws(
+  () => assertControlledReleaseBuildEnv({ VITE_ERP_RUNTIME_MODE: "production" }),
+  (error) => error?.code === "VITE_CONTROLLED_RELEASE_IDENTITY_REQUIRED",
+);
+const releaseMetaTags = controlledReleaseHtmlPlugin({
+  VITE_ERP_RELEASE_TARGET: "review-site",
+  VITE_ERP_RELEASE_VERSION: "review-r1",
+  VITE_ERP_RELEASE_COMMIT: "1234567890abcdef1234567890abcdef12345678",
+  VITE_ERP_RELEASE_LOCK_DIGEST: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+}).transformIndexHtml.handler();
+assert.equal(releaseMetaTags.length, 4);
+assert.deepEqual(releaseMetaTags[0].attrs, { name: "erp-release-target", content: "review-site" });
+
 const scannerPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialScannerPage.jsx", import.meta.url), "utf8");
 const labelSheetSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx", import.meta.url), "utf8");
 const inboundPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
 const frontendBuildEnv = readFileSync(new URL("../deploy/production/frontend-build.env.example", import.meta.url), "utf8");
 const backendServiceEnv = readFileSync(new URL("../deploy/production/erp-service.env.example", import.meta.url), "utf8");
+const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
 for (const contract of ["扫描标签上的卷码", "选择机台", "确认扫码出库", "暂不关联订单", "不需要再手抄"]) {
   assert.equal(scannerPageSource.includes(contract), true, `scanner page should retain ${contract}`);
 }
@@ -105,6 +158,10 @@ for (const contract of ["RawMaterialCode39", "出库时扫描本卷码", "宽幅
   assert.equal(labelSheetSource.includes(contract), true, `label print sheet should retain ${contract}`);
 }
 assert.match(frontendBuildEnv, /VITE_RAW_MATERIAL_FIRST_RELEASE=true/);
+assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_RAW_MATERIAL_FIRST_RELEASE=true/);
+assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_ERP_API_BASE_URL=\/api/);
+assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_ERP_STAGING_AUTH_BYPASS=true/);
+assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_ERP_STAGING_PREVIEW_USER_ID=U-MANAGER-A/);
 assert.match(backendServiceEnv, /^ERP_FIRST_RELEASE_SCOPE=raw_material$/m);
 assert.match(inboundPageSource, /系统不会标记为已打印/);
 

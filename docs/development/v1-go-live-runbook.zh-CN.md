@@ -19,7 +19,7 @@
 
 ```bash
 # D49正式员工表填写后，先做离线只读预检查；报告不包含姓名、员工编号原值、密码或工作簿路径。只有uploadAllowed=true才进入网页上传，服务端仍会再次预检查：
-node scripts/run-d49-employee-workbook-precheck.mjs --file <filled-workbook.xlsx> --json
+node scripts/run-d49-employee-workbook-precheck.mjs --file <filled-workbook.xlsx> --require-payroll-attendance-fields --json
 # 先生成安全 env 草稿和生产 env 修正清单 / 填写骨架；该命令不会写真实值，生成后仍必须人工填写并通过预检：
 node -- scripts/run-v1-production-env-setup.mjs --target <secure-env-file>
 # 如果真实值已经在另一份安全 env 文件中，先审计来源并导入到统一安全草稿；target 已存在时必须显式 --force：
@@ -131,13 +131,13 @@ node scripts/run-v1-go-live-handoff-pack.mjs --field-evidence-manifest <filled-f
 - Go-live suite：生成 `.erp-local-storage/v1-go-live-suite/`，汇总发布候选、现场任务、完成度快照、负责人摘要、证据采集包、最小解除阻塞清单和交接包；带 `--sync-canonical-latest` 时会同步刷新顶层 latest 目录，避免不同入口状态不一致。
 - 生产环境修正清单 / env 填写草稿：同步后读取 `.erp-local-storage/v1-go-live-handoff/production-env-fix-checklist.zh-CN.md`、`.csv`、`production-env-real-value-intake.csv`、`production-env-minimum-values-fragment.template.env.example`、`production-env-values-fragment.template.env.example` 和 `production-env-fill-template.env.example`；真实值可填入统一安全 env 文件，也可先填最小 blocking 安全真实值片段；片段先 dry-run 预检后再传给 `--production-env-values-file`。
 - 最小解除阻塞清单：先读 `.erp-local-storage/v1-go-live-suite/v1-unblock-plan.zh-CN.md`；如果已经同步顶层 latest，也可以直接读 `.erp-local-storage/v1-go-live-handoff/v1-unblock-plan.latest.zh-CN.md`。按生产环境 / 持久化、真实打印、司机真机、真实业务试跑、安全运维 / 签字 / V1-V2 边界的顺序处理；该清单只排序 blocker，不代表任何 pending 证据已通过。
-- 现场证据采集包：生成 `.erp-local-storage/v1-field-evidence-intake/`，把 6 个证据组、`intake-rules.zh-CN.md`、`evidence-items.csv`、`signoff-boundary.csv`、签字和 V1/V2 边界确认单分发给现场负责人；先看规则文件再填写 CSV。
+- 现场证据采集包：生成 `.erp-local-storage/v1-field-evidence-intake/`，把 7 个证据组（含工资/考勤真实闭环）、`intake-rules.zh-CN.md`、`evidence-items.csv`、`signoff-boundary.csv`、签字和 V1/V2 边界确认单分发给现场负责人；先看规则文件再填写 CSV。
 - 负责人决策摘要：生成 `.erp-local-storage/v1-owner-decision-brief/`，直接说明当前是否可以宣布 V1 完成、已完成 / 未完成项和 V2 差异。
 
 ## V1 与 V2 边界
 
 - V1：核心 ERP 闭环、人工确认、生产级持久化、真实打印、司机真机、对象存储和现场 QA。
-- V2：企业微信自动化、AI/OCR、路线 / 排产优化、原材料成本毛利、售后工资和 BI 深化。
+- V2：企业微信自动化、AI/OCR、路线 / 排产优化、原材料成本毛利、售后责任 / 绩效扣款自动化和 BI 深化。
 
 ## 禁止误判
 

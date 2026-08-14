@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>库存结构配色对比</title>
+    <style>
+      :root {
+        color: #25313d;
+        background: #f3f6f9;
+        font-family: Geist, "PingFang SC", "Microsoft YaHei", sans-serif;
+        font-synthesis: none;
+      }
+      * { box-sizing: border-box; }
+      body { min-width: 960px; margin: 0; padding: 40px 48px; }
+      header { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin-bottom: 24px; }
+      h1 { margin: 0 0 7px; font-size: 24px; letter-spacing: -.02em; }
+      header p { margin: 0; color: #647181; font-size: 13px; }
+      .legend { display: flex; gap: 16px; color: #647181; font-size: 12px; }
+      .legend span { display: inline-flex; align-items: center; gap: 6px; }
+      .legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--tone); }
+      main { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+      section { overflow: hidden; border: 1px solid #d7e0e8; border-radius: 10px; background: white; }
+      section.recommended { border-color: #b8cbc0; box-shadow: 0 12px 30px rgba(26, 54, 39, .08); }
+      section > header { min-height: 72px; align-items: center; margin: 0; padding: 0 20px; border-bottom: 1px solid #dde5ec; }
+      section h2 { margin: 0; font-size: 17px; }
+      section header span { color: #7a8794; font-size: 12px; }
+      section.recommended header span { color: #3f7458; font-weight: 700; }
+      .table-head,
+      .row { display: grid; grid-template-columns: 150px 86px minmax(260px, 1fr); align-items: center; gap: 14px; padding: 0 18px; }
+      .table-head { min-height: 38px; border-bottom: 1px solid #dde5ec; background: #f8fafc; color: #6b7885; font-size: 11px; }
+      .row { min-height: 76px; border-bottom: 1px solid #e3e9ef; }
+      .row:last-child { border-bottom: 0; }
+      .row > span { color: #52606d; font-size: 12px; }
+      .type-tag { min-height: 22px; display: inline-flex; align-items: center; justify-content: center; padding: 0 8px; border: 1px solid #acd9ba; border-radius: 4px; background: #edf8f1; color: #237346 !important; font-size: 11px !important; font-weight: 700; white-space: nowrap; }
+      .type-tag.print { border-color: #dbb9e9; background: #f8eefb; color: #7d3c91 !important; }
+      .current .type-tag { width: 100%; }
+      .recommended .type-tag { width: auto; justify-self: start; }
+      .allocation { display: grid; gap: 7px; }
+      .allocation-top { display: flex; align-items: center; gap: 10px; font-size: 12px; }
+      .allocation-top strong { font-size: 13px; }
+      .allocation-top b { margin-left: auto; color: var(--available); }
+      .allocation-top em { color: var(--pending); font-size: 11px; font-style: normal; font-weight: 700; }
+      .track { height: 8px; display: flex; overflow: hidden; border-radius: 4px; background: var(--track); }
+      .track i { height: 100%; }
+      .track .available { background: var(--available); }
+      .track .reserved { background: var(--reserved); }
+      .track .locked { background: var(--locked); }
+      .track .pending { background: var(--pending); }
+      .allocation small { display: flex; gap: 12px; color: #74808c; font-size: 10px; }
+      .allocation small .pending-text { color: var(--pending); font-weight: 650; }
+      .current {
+        --available: #22834b;
+        --reserved: #b56612;
+        --locked: #1f75e8;
+        --pending: #c6342b;
+        --track: #f0f3f6;
+      }
+      .recommended {
+        --available: #3f7f61;
+        --reserved: #bac8bf;
+        --locked: #8796a5;
+        --pending: #c76b62;
+        --track: #e8edea;
+      }
+      footer { margin-top: 18px; color: #647181; font-size: 12px; line-height: 1.6; }
+      footer strong { color: #34424f; }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div>
+        <h1>库存结构配色对比</h1>
+        <p>同一组数据同时比较标签宽度和进度条配色。</p>
+      </div>
+      <div class="legend" aria-label="推荐配色图例">
+        <span style="--tone:#3f7f61"><i></i>可用</span>
+        <span style="--tone:#bac8bf"><i></i>占用</span>
+        <span style="--tone:#8796a5"><i></i>锁定</span>
+        <span style="--tone:#c76b62"><i></i>待处理</span>
+      </div>
+    </header>
+    <main>
+      <section class="current">
+        <header><h2>当前配色</h2><span>颜色对比偏强</span></header>
+        <div class="table-head"><span>通货类型</span><span>在库</span><span>库存结构</span></div>
+        <div class="row"><span class="type-tag">纯色通货</span><span>2,480</span><div class="allocation"><div class="allocation-top"><strong>可用 1,040</strong><b>42%</b></div><div class="track"><i class="available" style="width:42%"></i><i class="reserved" style="width:53%"></i><i class="locked" style="width:5%"></i></div><small><span>占用 1,320</span><span>锁定 120</span></small></div></div>
+        <div class="row"><span class="type-tag">纯色通货</span><span>1,005</span><div class="allocation"><div class="allocation-top"><strong>可用 0</strong><b>0%</b></div><div class="track"><i class="locked" style="width:100%"></i></div><small><span>占用 0</span><span>锁定 1,005</span></small></div></div>
+        <div class="row"><span class="type-tag print">印刷通货</span><span>260</span><div class="allocation"><div class="allocation-top"><strong>可用 220</strong><b>85%</b><em>待复核</em></div><div class="track"><i class="available" style="width:85%"></i><i class="pending" style="width:15%"></i></div><small><span>占用 0</span><span>锁定 0</span><span class="pending-text">待处理 40</span></small></div></div>
+      </section>
+      <section class="recommended">
+        <header><h2>舒缓配色</h2><span>推荐</span></header>
+        <div class="table-head"><span>通货类型</span><span>在库</span><span>库存结构</span></div>
+        <div class="row"><span class="type-tag">纯色通货</span><span>2,480</span><div class="allocation"><div class="allocation-top"><strong>可用 1,040</strong><b>42%</b></div><div class="track"><i class="available" style="width:42%"></i><i class="reserved" style="width:53%"></i><i class="locked" style="width:5%"></i></div><small><span>占用 1,320</span><span>锁定 120</span></small></div></div>
+        <div class="row"><span class="type-tag">纯色通货</span><span>1,005</span><div class="allocation"><div class="allocation-top"><strong>可用 0</strong><b>0%</b></div><div class="track"><i class="locked" style="width:100%"></i></div><small><span>占用 0</span><span>锁定 1,005</span></small></div></div>
+        <div class="row"><span class="type-tag print">印刷通货</span><span>260</span><div class="allocation"><div class="allocation-top"><strong>可用 220</strong><b>85%</b><em>待复核</em></div><div class="track"><i class="available" style="width:85%"></i><i class="pending" style="width:15%"></i></div><small><span>占用 0</span><span>锁定 0</span><span class="pending-text">待处理 40</span></small></div></div>
+      </section>
+    </main>
+    <footer><strong>推荐方向：</strong>类型标签按文字收口，不再横铺整列；可用保留低饱和绿色；占用改为浅灰绿；锁定改为灰蓝；只有待处理使用柔和红色。</footer>
+  </body>
+</html>

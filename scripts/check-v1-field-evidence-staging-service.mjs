@@ -56,7 +56,7 @@ const service = createV1FieldEvidenceStagingService({
       operatorId,
       summary: {
         invalidRowCount: 0,
-        evidenceProgress: "1/34",
+        evidenceProgress: "1/40",
         signoffProgress: "0/6",
         boundaryLabel: "待确认",
       },
@@ -182,7 +182,7 @@ console.log(
 function validationFixture() {
   return {
     summary: {
-      requiredEvidenceItemsTotal: 34,
+      requiredEvidenceItemsTotal: 40,
       requiredEvidenceItemsCompleted: 1,
       requiredSignoffsTotal: 6,
       requiredSignoffsCompleted: 0,

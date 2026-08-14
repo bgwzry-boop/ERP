@@ -56,11 +56,6 @@ textarea,
   font-size: 14px;
 }
 
-.brand-mark {
-  background: var(--erp-accent);
-  color: var(--erp-accent-ink);
-}
-
 .nav-item,
 .nav-group-trigger,
 .collapse-menu {

@@ -1,0 +1,228 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "ERP 整体运行架构",
+    "subtitle": "前端、API、PostgreSQL、腾讯云 OCR、S3 兼容对象存储与信任边界",
+    "output": "erp-overall-runtime-architecture.html",
+    "viewBox": [1340, 980]
+  },
+  "components": [
+    {
+      "id": "operator_devices",
+      "type": "external",
+      "label": "办公室 / 角色终端",
+      "sublabel": "3 台 PC + 专用手机 / PDA",
+      "tag": "个人正式账号",
+      "pos": [40, 340],
+      "size": [170, 72]
+    },
+    {
+      "id": "frontend",
+      "type": "frontend",
+      "label": "React / Vite 前端",
+      "sublabel": "浏览器运行 · 桌面与角色页",
+      "tag": "React 19 · Vite 6",
+      "pos": [255, 340],
+      "size": [175, 72]
+    },
+    {
+      "id": "nginx",
+      "type": "cloud",
+      "label": "Nginx HTTPS 入口",
+      "sublabel": "SPA 静态资源 + /api 反代",
+      "tag": "TLS :443",
+      "pos": [475, 340],
+      "size": [160, 72]
+    },
+    {
+      "id": "api_gate",
+      "type": "security",
+      "label": "鉴权与写入门禁",
+      "sublabel": "会话 · 权限 · 幂等 · 版本",
+      "tag": "默认拒绝",
+      "pos": [680, 340],
+      "size": [165, 72]
+    },
+    {
+      "id": "api",
+      "type": "backend",
+      "label": "Node.js ERP API",
+      "sublabel": "路由 · 服务 · 仓储 · 事务",
+      "tag": ":8787",
+      "pos": [890, 340],
+      "size": [170, 72]
+    },
+    {
+      "id": "postgres",
+      "type": "database",
+      "label": "PostgreSQL",
+      "sublabel": "业务状态 · 审计 · 并发控制",
+      "tag": "生产唯一事实源",
+      "pos": [1110, 340],
+      "size": [180, 72]
+    },
+    {
+      "id": "runtime_secrets",
+      "type": "security",
+      "label": "生产环境私密配置",
+      "sublabel": "DB / OCR / 对象存储凭据",
+      "tag": "服务端 0600",
+      "pos": [890, 150],
+      "size": [170, 72]
+    },
+    {
+      "id": "object_storage",
+      "type": "cloud",
+      "label": "S3 兼容对象存储",
+      "sublabel": "私有桶 · 附件 / 导出文件",
+      "tag": "SigV4 + 短时 URL",
+      "pos": [1110, 520],
+      "size": [180, 72]
+    },
+    {
+      "id": "tencent_ocr",
+      "type": "external",
+      "label": "腾讯云表格 OCR V3",
+      "sublabel": "RecognizeTableAccurateOCR",
+      "tag": "ap-guangzhou",
+      "pos": [880, 690],
+      "size": [190, 72]
+    }
+  ],
+  "boundaries": [
+    {
+      "kind": "security-group",
+      "label": "用户设备信任边界 · 浏览器输入不可信，终端不持有服务端密钥",
+      "wraps": ["operator_devices", "frontend"],
+      "pad": 24
+    },
+    {
+      "kind": "region",
+      "label": "工厂 ERP 生产部署边界",
+      "wraps": ["nginx", "api_gate", "api", "postgres", "runtime_secrets", "object_storage"],
+      "pad": 30
+    },
+    {
+      "kind": "security-group",
+      "label": "服务端可信执行边界 · 认证、授权、业务规则与密钥使用只在此发生",
+      "wraps": ["api_gate", "api", "runtime_secrets"],
+      "pad": 24
+    },
+    {
+      "kind": "security-group",
+      "label": "受控数据边界 · PostgreSQL 与对象存储均不直接接受匿名业务写入",
+      "wraps": ["postgres", "object_storage"],
+      "pad": 24
+    },
+    {
+      "kind": "region",
+      "label": "第三方云服务边界",
+      "wraps": ["tencent_ocr"],
+      "pad": 24
+    }
+  ],
+  "connections": [
+    {
+      "from": "operator_devices",
+      "to": "frontend",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "frontend",
+      "to": "nginx",
+      "label": "HTTPS :443",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [453, 326]
+    },
+    {
+      "from": "nginx",
+      "to": "api_gate",
+      "label": "/api 反向代理",
+      "variant": "emphasis",
+      "route": "straight",
+      "labelAt": [658, 426]
+    },
+    {
+      "from": "api_gate",
+      "to": "api",
+      "label": "通过后执行",
+      "variant": "security",
+      "route": "straight",
+      "labelAt": [868, 326]
+    },
+    {
+      "from": "api",
+      "to": "postgres",
+      "label": "SQL 事务",
+      "variant": "emphasis",
+      "route": "straight"
+    },
+    {
+      "from": "runtime_secrets",
+      "to": "api",
+      "label": "仅进程读取",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight",
+      "labelAt": [1020, 280]
+    },
+    {
+      "from": "api",
+      "to": "object_storage",
+      "label": "S3 SigV4",
+      "variant": "dashed",
+      "fromSide": "right",
+      "toSide": "left",
+      "via": [[1082, 376], [1082, 556]],
+      "labelAt": [1060, 482]
+    },
+    {
+      "from": "api",
+      "to": "tencent_ocr",
+      "label": "TC3 签名 HTTPS",
+      "variant": "security",
+      "fromSide": "bottom",
+      "toSide": "top",
+      "route": "straight",
+      "labelAt": [1020, 620]
+    }
+  ],
+  "cards": [
+    {
+      "dot": "cyan",
+      "title": "入口与前端",
+      "items": [
+        "Nginx 同源提供 Vite 构建产物，并把 /api 反向代理到 127.0.0.1:8787",
+        "桌面工作台与手机角色页共用 API，但终端设备与权限范围按个人账号隔离"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "服务端信任",
+      "items": [
+        "API 是业务写入唯一入口；会话、权限、首发范围、幂等键和版本冲突均由服务端判定",
+        "数据库、OCR 和对象存储凭据只从 0600 私密环境文件进入服务进程，不下发浏览器"
+      ]
+    },
+    {
+      "dot": "emerald",
+      "title": "持久化与文件",
+      "items": [
+        "生产模式强制 PostgreSQL；本地或内存仓储不得替代生产事实源",
+        "附件和对账导出进入 S3 兼容私有对象存储；数据库保存对象键、摘要、元数据与访问审计"
+      ]
+    },
+    {
+      "dot": "amber",
+      "title": "OCR 数据路径",
+      "items": [
+        "送货单由 API 计算 SHA-256 去重后，以 TC3 签名请求腾讯云表格识别 V3",
+        "原图写入对象存储；OCR 表格行、请求标识和复核证据写入 PostgreSQL，人工核对前不形成可用库存"
+      ]
+    }
+  ]
+}

@@ -11,6 +11,7 @@ const shared = {
   permissionContext: { user: { userId: "U-OFFICE-A" } },
   authContext: { authenticated: true, userId: "U-OFFICE-A" },
   runtimeAuthCommandService: {},
+  phoneIdentityCommandService: {},
   sendCommandResponse(response, result, options) {
     calls.push({ kind: "response", response, result, options });
     return "response-sent";
@@ -24,6 +25,17 @@ for (const [commandName, kind] of [
   ["logout", "logout"],
 ]) {
   shared.runtimeAuthCommandService[commandName] = async (input) => {
+    calls.push({ kind, ...input });
+    return { statusCode: 423, response: { command: kind } };
+  };
+}
+for (const [commandName, kind] of [
+  ["requestRegistrationCode", "phone-registration-code"],
+  ["completeRegistration", "phone-registration-complete"],
+  ["requestLoginCode", "phone-login-code"],
+  ["loginWithPhoneCode", "phone-login"],
+]) {
+  shared.phoneIdentityCommandService[commandName] = async (input) => {
     calls.push({ kind, ...input });
     return { statusCode: 423, response: { command: kind } };
   };
@@ -60,6 +72,10 @@ for (const [pathname, kind] of [
   ["/api/auth/prototype-login", "prototype"],
   ["/api/auth/change-password", "password"],
   ["/api/auth/logout", "logout"],
+  ["/api/auth/phone-registration/request-code", "phone-registration-code"],
+  ["/api/auth/phone-registration/complete", "phone-registration-complete"],
+  ["/api/auth/phone-login/request-code", "phone-login-code"],
+  ["/api/auth/phone-login", "phone-login"],
 ]) {
   calls.length = 0;
   assert.equal(

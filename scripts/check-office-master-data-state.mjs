@@ -97,7 +97,7 @@ assert.deepEqual(
   filterMasterDataMaintenanceRecords([{ label: "张三服饰", searchText: "C001 张三服饰" }, { label: "李四电商" }], "c001"),
   [{ label: "张三服饰", searchText: "C001 张三服饰" }],
 );
-assert.deepEqual(getMasterDataMaintenanceColumns("员工机台"), ["员工", "账号", "岗位", "车间", "机台 / 安排", "状态"]);
+assert.deepEqual(getMasterDataMaintenanceColumns("员工机台"), ["序号", "员工", "岗位", "车间", "机台", "状态"]);
 assert.equal(getMasterDataMaintenanceTableClass("规格库存"), "stock");
 assert.match(getMasterDataSearchPlaceholder("价格表"), /品名/);
 

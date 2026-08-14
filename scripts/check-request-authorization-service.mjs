@@ -73,6 +73,7 @@ const attachmentCases = [
   [{ ownerType: "fulfillment", purpose: "delivery_watermark_photo" }, "attachment.delivery_evidence.create"],
   [{ ownerType: "fulfillment", purpose: "signature_photo" }, "attachment.delivery_evidence.create"],
   [{ ownerType: "maintenance_task", purpose: "maintenance_evidence" }, "attachment.maintenance.create"],
+  [{ ownerType: "payroll_run", purpose: "payroll_adjustment_evidence" }, writeActionPermissions.reviewPayroll],
 ];
 for (const [body, permission] of attachmentCases) {
   assert.equal(

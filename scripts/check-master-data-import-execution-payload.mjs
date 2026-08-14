@@ -50,6 +50,10 @@ assert(payload.targetRecords.inventoryItems.some((record) => record.onHandQty ==
 assert(payload.targetRecords.inventoryLedgerEntries.some((record) => record.changeType === "initial_import"));
 assert(payload.targetRecords.employees.some((record) => (
   record.name === "王师傅"
+    && record.birthDate === "1990-03-01"
+    && record.hireDate === "2020-02-01"
+    && record.attendanceProvider === "deli"
+    && record.attendanceExternalId === "DL-1001"
     && record.accountEnabled === false
     && record.profileStatus === "pending_admin_review"
 )));
@@ -96,6 +100,28 @@ assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("角色�
 assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("员工编号重复")));
 assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("员工编号、员工姓名和角色必须完整")));
 assert(employeeRolePayload.failedRows.some((row) => row.reason.includes("员工编号须为1-32位")));
+
+const attendanceMappingPayload = buildMasterDataImportExecutionPayload({
+  planId: "MDP-ATTENDANCE-MAPPING",
+  draftId: "MDI-ATTENDANCE-MAPPING",
+  stagedRows: [{
+    sheetKey: "employees_machines",
+    worksheetName: "员工机台",
+    rows: [
+      { rowNumber: 3, values: { 员工编号: "EMP-ATT-001", 员工姓名: "员工甲", 角色: "办公室", 出生日期: "1991-01-02", 入职日期: "2020-02-03", 基础时薪: "12.5", "岗位补贴/小时": "2", 生效日期: "2026-08-01", 考勤来源: "DELI", 考勤人员编号: "D5FN-001" } },
+      { rowNumber: 4, values: { 员工编号: "EMP-ATT-002", 员工姓名: "员工乙", 角色: "办公室", 考勤来源: "deli", 考勤人员编号: "D5FN-001" } },
+      { rowNumber: 5, values: { 员工编号: "EMP-ATT-003", 员工姓名: "员工丙", 角色: "办公室", 考勤来源: "deli" } },
+      { rowNumber: 6, values: { 员工编号: "EMP-ATT-004", 员工姓名: "员工丁", 角色: "办公室", 出生日期: "2026-02-30" } },
+    ],
+  }],
+});
+assert.equal(attendanceMappingPayload.summary.writableRowCount, 1);
+assert.equal(attendanceMappingPayload.summary.failedRowCount, 3);
+assert.equal(attendanceMappingPayload.targetRecords.employees[0].attendanceProvider, "deli");
+assert.equal(attendanceMappingPayload.targetRecords.employees[0].baseHourlyWage, 12.5);
+assert(attendanceMappingPayload.failedRows.some((row) => row.reason.includes("考勤身份重复")));
+assert(attendanceMappingPayload.failedRows.some((row) => row.reason.includes("必须同时填写")));
+assert(attendanceMappingPayload.failedRows.some((row) => row.reason.includes("有效的 YYYY-MM-DD")));
 
 const execution = createMasterDataImportExecution({
   confirmationPlan: readyPlan,

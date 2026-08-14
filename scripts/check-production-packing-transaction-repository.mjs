@@ -500,6 +500,8 @@ async function checkPostgresSqlBoundary() {
   assert.match(capturedScheduleQuery.text, /UPDATE order_lines/);
   assert.match(capturedScheduleQuery.text, /INSERT INTO operation_logs/);
   assert.match(capturedScheduleQuery.text, /write_guard AS MATERIALIZED/);
+  assert.match(capturedScheduleQuery.text, /JOIN write_guard ON write_guard\.ok/);
+  assert.doesNotMatch(capturedScheduleQuery.text, /JOIN upserted_production_task ON upserted_production_task\.ok/);
   assert.match(capturedScheduleQuery.text, /FOR UPDATE/);
   assert.match(capturedScheduleQuery.text, /ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT/);
   assert.match(capturedScheduleQuery.text, /ERP_ORDER_LINE_CONCURRENCY_CONFLICT/);

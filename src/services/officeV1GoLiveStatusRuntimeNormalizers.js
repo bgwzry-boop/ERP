@@ -65,7 +65,7 @@ export function normalizeV1D49Readiness(value = {}) {
       employeeNumberMissingCount: Number(summary.employeeNumberMissingCount) || employeeIntake.summary.missingEmployeeNumberCount,
       envSetupReady: summary.envSetupReady === true,
       envAuditReady: summary.envAuditReady === true,
-      envPreflightLabel: cleanText(summary.envPreflightLabel) || "0/11",
+      envPreflightLabel: cleanText(summary.envPreflightLabel) || "0/12",
       envIntakeReady: summary.envIntakeReady === true,
       envIntakeConfiguredLabel: cleanText(summary.envIntakeConfiguredLabel) || "0/0",
       blockerCount: Number(summary.blockerCount) || blockers.length,
@@ -84,7 +84,7 @@ export function normalizeV1D49Readiness(value = {}) {
       setupReady: environment.setupReady === true,
       auditReady: environment.auditReady === true,
       preflightReady: environment.preflightReady === true,
-      preflightLabel: cleanText(environment.preflightLabel) || "0/11",
+      preflightLabel: cleanText(environment.preflightLabel) || "0/12",
       intakeReady: environment.intakeReady === true,
       intakeConfiguredLabel: cleanText(environment.intakeConfiguredLabel) || "0/0",
     },
@@ -101,6 +101,7 @@ function normalizeV1D49EmployeeIntakeStatus(value = {}) {
   const available = source.available === true && cleanText(source.scope) === "v1_d49_employee_intake_status";
   const fresh = available && source.fresh === true;
   const freshness = isPlainObject(source.freshness) ? source.freshness : {};
+  const payrollAttendanceCoverage = normalizeV1D49PayrollAttendanceCoverage(source.payrollAttendanceCoverage);
   const roles = Array.isArray(source.roles)
     ? source.roles.map((role) => ({
         roleKey: cleanText(role.roleKey),
@@ -151,11 +152,38 @@ function normalizeV1D49EmployeeIntakeStatus(value = {}) {
       blockerCount: Number(summary.blockerCount) || 0,
       blockerLabel: cleanText(summary.blockerLabel) || "未读取",
       freshnessLabel: cleanText(summary.freshnessLabel) || "未验证",
+      payrollAttendanceCoverageLabel: cleanText(summary.payrollAttendanceCoverageLabel)
+        || payrollAttendanceCoverage.coverageLabel,
     },
     roles,
+    payrollAttendanceCoverage,
     missingRoleLabels: normalizeStringList(source.missingRoleLabels),
     nextAction: cleanText(source.nextAction),
     safeguards: isPlainObject(source.safeguards) ? source.safeguards : {},
+  };
+}
+
+function normalizeV1D49PayrollAttendanceCoverage(value = {}) {
+  const source = isPlainObject(value) ? value : {};
+  const available = source.available === true;
+  const employeeCount = available ? Math.max(0, Number(source.employeeCount) || 0) : 0;
+  const completeCount = Math.min(employeeCount, Math.max(0, Number(source.completeCount) || 0));
+  return {
+    available,
+    required: available && source.required === true,
+    ready: available && source.ready === true,
+    complete: available && source.complete === true,
+    employeeCount,
+    completeCount,
+    incompleteCount: available
+      ? Math.max(0, Number(source.incompleteCount) || employeeCount - completeCount)
+      : 0,
+    profileReadyCount: available ? Math.min(employeeCount, Math.max(0, Number(source.profileReadyCount) || 0)) : 0,
+    wageReadyCount: available ? Math.min(employeeCount, Math.max(0, Number(source.wageReadyCount) || 0)) : 0,
+    attendanceMappingReadyCount: available
+      ? Math.min(employeeCount, Math.max(0, Number(source.attendanceMappingReadyCount) || 0))
+      : 0,
+    coverageLabel: available ? `${completeCount}/${employeeCount}` : "未读取",
   };
 }
 

@@ -5,6 +5,7 @@ import {
   changeSeedUserPassword,
   initializeSeedAuth,
   isOfficeApiServerRequired,
+  isOfficeSharedDataServerRequired,
   loginRuntimeUser,
   loginSeedUser,
   logoutRuntimeUser,
@@ -18,6 +19,87 @@ const storage = createMemoryStorage();
 const apiBaseUrl = "http://127.0.0.1:8787/api";
 
 assert(isOfficeApiServerRequired({ runtimeMode: "production", serverRequired: false }) === true, "production mode must not allow callers to disable the server requirement");
+assert(
+  isOfficeApiServerRequired({ runtimeMode: "production", serverRequired: true, stagingAuthBypass: true }) === false,
+  "the explicit staging preview flag must bypass only the frontend login boundary",
+);
+assert(
+  isOfficeSharedDataServerRequired({ runtimeMode: "production", stagingAuthBypass: true }) === true,
+  "staging login bypass must not allow shared business data to fall back to browser-local state",
+);
+assert(
+  isOfficeSharedDataServerRequired({ runtimeMode: "test", serverRequired: false }) === false,
+  "an explicit local test runtime may retain local prototype data",
+);
+const stagingPreviewInitialState = createInitialAuthState({ runtimeMode: "production", stagingAuthBypass: true });
+assert(stagingPreviewInitialState.source === "local_seed", "staging preview must use a local non-authoritative identity");
+assert(stagingPreviewInitialState.session === null, "staging preview must not fabricate an authenticated server session");
+const fullFeatureStagingPreview = createInitialAuthState({
+  runtimeMode: "test",
+  defaultUserId: "U-MANAGER-A",
+});
+assert(fullFeatureStagingPreview.permissions.user.userId === "U-MANAGER-A", "full-feature staging must select the configured preview user");
+assert(fullFeatureStagingPreview.permissions.actionPermissions.includes("order.confirm"), "full-feature staging preview must expose order permissions");
+assert(fullFeatureStagingPreview.permissions.actionPermissions.includes("statement.write_off"), "full-feature staging preview must expose finance permissions");
+const previewBootstrapStorage = createMemoryStorage();
+const previewBootstrapCalls = [];
+const previewBootstrap = await initializeSeedAuth({
+  runtimeMode: "test",
+  stagingAuthBypass: true,
+  defaultUserId: "U-MANAGER-A",
+  apiBaseUrl,
+  storage: previewBootstrapStorage,
+  fetchImpl: async (url, init) => {
+    previewBootstrapCalls.push({ url, body: JSON.parse(init.body) });
+    return createJsonResponse(200, {
+      session: {
+        accessToken: "seed-session.staging-preview-check",
+        tokenType: "Bearer",
+        sessionType: "seed",
+        userId: "U-MANAGER-A",
+      },
+      permissions: fullFeatureStagingPreview.permissions,
+    });
+  },
+});
+assert(previewBootstrap.authenticated === true, "staging preview must bootstrap a signed backend seed session");
+assert(previewBootstrapCalls[0]?.url === `${apiBaseUrl}/auth/prototype-login`, "staging preview called the wrong session bootstrap endpoint");
+assert(previewBootstrapCalls[0]?.body.userId === "U-MANAGER-A", "staging preview bootstrapped the wrong user");
+assert(readStoredSeedSession(previewBootstrapStorage)?.accessToken === "seed-session.staging-preview-check", "staging preview did not retain its signed seed session");
+const stalePreviewStorage = createMemoryStorage();
+stalePreviewStorage.setItem(seedAuthStorageKey, JSON.stringify({
+  accessToken: "erp-runtime-session-v1.stale-preview-session",
+  sessionType: "runtime",
+  userId: "U-OLD-PREVIEW",
+}));
+let stalePreviewRequestCount = 0;
+const recoveredPreview = await initializeSeedAuth({
+  runtimeMode: "test",
+  stagingAuthBypass: true,
+  defaultUserId: "U-MANAGER-A",
+  apiBaseUrl,
+  storage: stalePreviewStorage,
+  fetchImpl: async (url, init) => {
+    stalePreviewRequestCount += 1;
+    if (url === `${apiBaseUrl}/auth/me`) {
+      return createJsonResponse(401, { code: "AUTH_TOKEN_INVALID", message: "Stale preview token." });
+    }
+    assert(url === `${apiBaseUrl}/auth/prototype-login`, "stale staging preview called the wrong recovery endpoint");
+    assert(JSON.parse(init.body).userId === "U-MANAGER-A", "stale staging preview recovered as the wrong user");
+    return createJsonResponse(200, {
+      session: {
+        accessToken: "seed-session.staging-preview-recovered",
+        tokenType: "Bearer",
+        sessionType: "seed",
+        userId: "U-MANAGER-A",
+      },
+      permissions: fullFeatureStagingPreview.permissions,
+    });
+  },
+});
+assert(stalePreviewRequestCount === 2, "staging preview must replace one stale session through the backend");
+assert(recoveredPreview.authenticated === true && recoveredPreview.session.userId === "U-MANAGER-A", "staging preview did not recover from a stale session");
+assert(readStoredSeedSession(stalePreviewStorage)?.accessToken === "seed-session.staging-preview-recovered", "staging preview did not replace the stale token");
 const productionInitialState = createInitialAuthState({ runtimeMode: "production" });
 assert(productionInitialState.source === "server_required", "production initial auth state must require formal login");
 assert(productionInitialState.permissions.actionPermissions.length === 0, "production initial auth state must not expose seed permissions");

@@ -21,6 +21,18 @@ const restoreUrlEnvKeys = [
   "ERP_V1_RESTORE_TEST_DATABASE_URL",
   "ERP_V1_POSTGRES_RESTORE_DATABASE_URL",
 ];
+export const payrollAttendanceRestoreTables = Object.freeze([
+  "attendance_import_batches",
+  "attendance_punches",
+  "deli_attendance_gateway_cursors",
+  "deli_attendance_gateway_punches",
+  "attendance_day_reviews",
+  "payroll_policy_versions",
+  "payroll_runs",
+  "payroll_lines",
+  "payroll_line_adjustments",
+  "payroll_export_events",
+]);
 
 if (isCliEntrypoint()) runCli();
 
@@ -282,6 +294,7 @@ function buildProductionPostgresBackupRestoreCheck({
       blockingCount: blockingCriteria.length,
       warningCount,
       requiredTableCount: requiredTables.length,
+      payrollAttendanceRequiredTableCount: payrollAttendanceRestoreTables.length,
       schemaDumpBytes: state.schemaDumpBytes,
       migrationDataDumpBytes: state.migrationDataDumpBytes,
       envFileSource,
@@ -676,6 +689,7 @@ function validateRestoredDatabase({ commandRunner, psqlCommand, state }) {
   }
   const existing = new Set(String(tableResult.stdout || "").split("\n").map((line) => line.trim()).filter(Boolean));
   const missing = requiredTables.filter((table) => !existing.has(table));
+  const missingPayrollAttendanceTables = payrollAttendanceRestoreTables.filter((table) => !existing.has(table));
   const migrationResult = runPsql(commandRunner, psqlCommand, state.restoreUrl, "SELECT COUNT(*) FROM schema_migrations;", {
     capture: true,
   });
@@ -689,14 +703,14 @@ function validateRestoredDatabase({ commandRunner, psqlCommand, state }) {
     });
   }
   const migrationRowCount = Number(String(migrationResult.stdout || "").trim());
-  const passed = missing.length === 0 && migrationRowCount > 0;
+  const passed = missing.length === 0 && missingPayrollAttendanceTables.length === 0 && migrationRowCount > 0;
   return criterion({
     key: "restored-database-validated",
     label: "恢复结果抽样校验",
     status: passed ? "passed" : "blocked",
     detail: passed
-      ? `恢复验证库表结构和 schema_migrations 抽样通过：核心表 ${requiredTables.length}/${requiredTables.length}，迁移记录 ${migrationRowCount} 行。`
-      : `恢复验证库抽样未通过：缺核心表 ${missing.length} 个，迁移记录 ${Number.isFinite(migrationRowCount) ? migrationRowCount : 0} 行。`,
+      ? `恢复验证库表结构和 schema_migrations 抽样通过：核心表 ${requiredTables.length}/${requiredTables.length}，考勤/工资表 ${payrollAttendanceRestoreTables.length}/${payrollAttendanceRestoreTables.length}，迁移记录 ${migrationRowCount} 行。`
+      : `恢复验证库抽样未通过：缺核心表 ${missing.length} 个，其中考勤/工资表 ${missingPayrollAttendanceTables.length} 个；迁移记录 ${Number.isFinite(migrationRowCount) ? migrationRowCount : 0} 行。`,
     nextAction: passed ? "" : "重新执行 schema dump / 恢复验证，确认恢复验证库为空库且迁移记录 data dump 可恢复。",
     evidence: {
       validated: passed,
@@ -704,6 +718,10 @@ function validateRestoredDatabase({ commandRunner, psqlCommand, state }) {
       existingRequiredTableCount: requiredTables.length - missing.length,
       missingTableCount: missing.length,
       firstMissingTables: missing.slice(0, 8),
+      expectedPayrollAttendanceTableCount: payrollAttendanceRestoreTables.length,
+      existingPayrollAttendanceTableCount: payrollAttendanceRestoreTables.length - missingPayrollAttendanceTables.length,
+      missingPayrollAttendanceTableCount: missingPayrollAttendanceTables.length,
+      firstMissingPayrollAttendanceTables: missingPayrollAttendanceTables.slice(0, 8),
       migrationRowCount: Number.isFinite(migrationRowCount) ? migrationRowCount : 0,
     },
   });

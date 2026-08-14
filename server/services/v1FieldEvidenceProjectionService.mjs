@@ -16,7 +16,7 @@ export function sanitizeV1FieldEvidenceProgress(
   const groups = Array.isArray(source.groups)
     ? source.groups.map(sanitizeV1FieldEvidenceGroup).filter(Boolean)
     : [];
-  const groupRows = groups.slice(0, 6);
+  const groupRows = groups.slice(0, 7);
   const missingItems = parseV1FieldEvidenceMissingItems(fieldEvidenceItemsCsv);
   const groupSummaries = buildV1FieldEvidenceGroupSummariesForStatus(groupRows, missingItems.items);
   const signoffs = Array.isArray(source.signoffs)

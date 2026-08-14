@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>工资调整凭证区评审</title>
+  <style>
+    :root { color-scheme: light; --ink:#172033; --soft:#6d788b; --line:#dbe2ec; --blue:#2878e4; --orange:#ff5b24; --nav:#0d1d28; --bg:#f4f7fb; --green:#18794e; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-width:900px; min-height:100vh; color:var(--ink); background:var(--bg); font:13px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+    .shell { display:grid; grid-template-columns:150px 1fr; min-height:100vh; }
+    aside { color:#dce6ed; background:var(--nav); }
+    .brand { height:58px; display:flex; align-items:center; padding:0 18px; color:white; background:#fff; border-right:1px solid var(--line); }
+    .brand strong { color:#111827; font-size:20px; letter-spacing:1px; }
+    .brand i { color:var(--orange); font-size:28px; font-style:normal; font-weight:900; margin-right:7px; }
+    nav { padding:12px 6px; }
+    nav p { margin:0 0 4px; padding:9px 12px; }
+    nav .sub { padding-left:32px; font-size:12px; }
+    nav .active { border-radius:4px; color:white; background:var(--orange); box-shadow:0 6px 18px #ff5b2438; }
+    main { min-width:0; }
+    .topbar { height:58px; display:flex; align-items:center; gap:14px; padding:0 16px; background:white; border-bottom:1px solid var(--line); }
+    .search { width:min(420px,48vw); padding:9px 12px; border:1px solid var(--line); border-radius:5px; color:#8994a5; }
+    .user { margin-left:auto; font-weight:600; }
+    .canvas { display:grid; grid-template-columns:minmax(0,1fr) 300px; gap:8px; height:calc(100vh - 58px); padding:10px; }
+    .panel { overflow:hidden; background:white; border:1px solid var(--line); border-radius:7px; }
+    .heading { height:52px; display:flex; align-items:center; padding:0 14px; border-bottom:1px solid var(--line); }
+    .heading h1 { margin:0; font-size:17px; }
+    .heading span { margin-left:auto; color:var(--soft); }
+    .filters { display:flex; gap:8px; padding:10px 12px; border-bottom:1px solid var(--line); }
+    .filters div { flex:1; padding:8px 10px; border:1px solid var(--line); border-radius:5px; color:#8b95a4; }
+    .filters .select { flex:0 0 130px; color:var(--ink); }
+    .table-head,.row { display:grid; grid-template-columns:1fr .8fr .75fr .9fr .9fr; align-items:center; gap:6px; padding:0 12px; }
+    .table-head { height:36px; color:var(--soft); font-size:11px; background:#fafbfd; border-bottom:1px solid var(--line); }
+    .row { height:54px; border-bottom:1px solid var(--line); }
+    .row.selected { background:#eaf3ff; outline:1px solid #98c5fa; outline-offset:-1px; }
+    .row b { font-size:12px; }
+    .row small { color:var(--soft); }
+    .status { color:#b76500; font-weight:600; }
+    .detail { display:flex; flex-direction:column; min-height:0; color:var(--ink); }
+    .detail-title { padding:14px; border-bottom:1px solid var(--line); }
+    .detail-title small { color:var(--soft); }
+    .detail-title h2 { margin:4px 0 0; font-size:18px; }
+    .scroll { overflow:auto; padding:0 14px 20px; }
+    .section { padding:14px 0; border-bottom:1px solid var(--line); }
+    .section h3 { margin:0 0 10px; font-size:13px; }
+    dl { display:grid; grid-template-columns:1fr 1fr; gap:10px 12px; margin:0; }
+    dt { color:var(--soft); font-size:10px; }
+    dd { margin:2px 0 0; font-weight:600; }
+    .adjust { display:grid; gap:9px; margin-top:14px; padding:12px; border:1px solid var(--line); border-radius:6px; background:#f8fafc; }
+    .adjust header { display:flex; align-items:baseline; justify-content:space-between; }
+    .adjust header h3 { margin:0; }
+    .adjust header span { color:var(--soft); font-size:10px; }
+    .amounts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; }
+    label { display:grid; gap:4px; color:var(--soft); font-size:9px; }
+    input,textarea { width:100%; border:1px solid #cfd7e3; border-radius:5px; background:white; color:var(--ink); font:inherit; }
+    input { height:34px; padding:0 8px; }
+    textarea { min-height:58px; padding:8px; resize:none; }
+    .evidence { display:grid; gap:7px; padding:9px; border:1px solid #c9d8e9; border-radius:5px; background:white; }
+    .evidence-top { display:flex; align-items:center; gap:8px; }
+    .evidence-top strong { font-size:11px; }
+    .required { color:#c53a2d; font-size:10px; }
+    .pick { margin-left:auto; padding:6px 9px; border:1px solid #9bbde8; border-radius:4px; color:#1768c4; background:#f1f7ff; font-weight:600; }
+    .file { display:flex; align-items:center; gap:7px; padding:7px 8px; border-radius:4px; background:#edf7f1; color:#24543a; font-size:10px; }
+    .file span:last-child { margin-left:auto; color:var(--green); }
+    .hint { color:var(--soft); font-size:9px; }
+    .save { min-height:35px; border:0; border-radius:5px; color:white; background:var(--blue); font-weight:700; }
+    .note { position:fixed; right:18px; bottom:14px; padding:8px 12px; border-radius:5px; color:#15542f; background:#e8f5ed; box-shadow:0 4px 18px #19324d1a; font-size:11px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside>
+      <div class="brand"><i>W</i><strong>袋袋赢</strong></div>
+      <nav>
+        <p>工作台</p><p>订单管理</p><p>原料管理</p><p>生产交付</p><p>库存管理</p><p>财务管理</p>
+        <p class="sub active">工资核算</p><p>基础资料</p><p class="sub">员工机台</p>
+      </nav>
+    </aside>
+    <main>
+      <div class="topbar"><b>工资与考勤</b><div class="search">搜索员工 / 工号 / 岗位 / 车间</div><div class="user">会计A</div></div>
+      <div class="canvas">
+        <section class="panel">
+          <div class="heading"><h1>工资核算</h1><span>2026年7月 · 工资草稿</span></div>
+          <div class="filters"><div>搜索当前员工</div><div class="select">全部状态⌄</div></div>
+          <div class="table-head"><span>员工</span><span>岗位</span><span>考勤工时</span><span>预计实发</span><span>状态</span></div>
+          <div class="row selected"><b>徐鹏浩</b><span>管理 / 财务</span><span>176小时</span><b>¥6,842.00</b><span class="status">工资草稿</span></div>
+          <div class="row"><b>孔孝扬</b><span>办公室</span><span>172小时</span><b>¥5,420.00</b><small>资料完整</small></div>
+          <div class="row"><b>张瑞娜</b><span>办公室</span><span>168小时</span><b>¥5,180.00</b><small>资料完整</small></div>
+          <div class="row"><b>张巧俊</b><span>车间报工</span><span>181小时</span><b>¥6,106.00</b><small>资料完整</small></div>
+        </section>
+        <aside class="panel detail">
+          <div class="detail-title"><small>当前员工 · 工资草稿</small><h2>徐鹏浩</h2></div>
+          <div class="scroll">
+            <section class="section"><h3>本期工资构成</h3><dl><div><dt>基础工资</dt><dd>¥5,680.00</dd></div><div><dt>岗位补贴</dt><dd>¥880.00</dd></div><div><dt>加班工资</dt><dd>¥282.00</dd></div><div><dt>实发工资</dt><dd>¥6,842.00</dd></div></dl></section>
+            <form class="adjust">
+              <header><h3>调整工资草稿</h3><span>复核后不可修改</span></header>
+              <div class="amounts"><label><span>绩效/奖励</span><input value="300.00" /></label><label><span>请假/缺勤扣款</span><input value="0.00" /></label><label><span>其他扣款</span><input value="0.00" /></label></div>
+              <textarea>7月绩效考核A档，经主管确认。</textarea>
+              <div class="evidence">
+                <div class="evidence-top"><strong>调整凭证</strong><span class="required">必填</span><button class="pick" type="button">＋ 选择图片 / PDF</button></div>
+                <div class="file"><span>📎</span><span>2026-07绩效确认单.pdf</span><span>已上传</span></div>
+                <div class="hint">金额发生变化时至少上传1份，最多5份；凭证与本次调整一起留痕。</div>
+              </div>
+              <button class="save" type="button">保存调整并留痕</button>
+            </form>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+  <div class="note">评审范围：仅新增“调整凭证”，其他工资页面结构不变</div>
+</body>
+</html>

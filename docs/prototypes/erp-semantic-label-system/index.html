@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="ERP 全系统语义标签语言：业务类型、特殊要求、运行状态和人员机台归属的跨端规范。"
+    />
+    <title>ERP 全系统语义标签语言</title>
+    <link rel="stylesheet" href="./semantic-tags.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <a class="skip-link" href="#main">跳到主要内容</a>
+
+    <header class="topbar">
+      <div class="brand-lockup">
+        <span class="brand-mark" aria-hidden="true">语</span>
+        <div>
+          <strong>禄兴 ERP · 标签语言</strong>
+          <span>跨端语义组件规范</span>
+        </div>
+      </div>
+      <div class="topbar-meta">
+        <span class="version-chip">候选规范 v1.0</span>
+        <span>PC · 手机 · 电视</span>
+      </div>
+    </header>
+
+    <main id="main">
+      <section class="intro" aria-labelledby="page-title">
+        <div class="intro-copy">
+          <p class="kicker">语义先于颜色</p>
+          <h1 id="page-title"><span>一套标签语言，</span><span>贯穿 ERP 的每一种屏幕</span></h1>
+          <p>
+            标签先回答“这是什么”，再说明“要注意什么、现在到哪一步、由谁负责”。
+            同一业务含义在 PC、手机和电视上保持相同文字、颜色与顺序，只改变密度。
+          </p>
+        </div>
+        <dl class="intro-facts">
+          <div><dt>4</dt><dd>类独立语义</dd></div>
+          <div><dt>3</dt><dd>种跨端密度</dd></div>
+          <div><dt>1</dt><dd>个共享组件入口</dd></div>
+        </dl>
+      </section>
+
+      <section class="rule-strip" aria-label="核心规则">
+        <p><strong>文字优先</strong><span>颜色永远不替代标签文字</span></p>
+        <p><strong>红色克制</strong><span>只用于阻塞下一步的异常</span></p>
+        <p><strong>顺序固定</strong><span>类型 → 要求 → 状态；归属单列</span></p>
+        <p><strong>未知中性</strong><span>未确认就显示“待确认”</span></p>
+      </section>
+
+      <section class="catalog-layout" aria-labelledby="catalog-title">
+        <article class="catalog-panel">
+          <header class="section-heading">
+            <div>
+              <p class="section-kicker">Semantic catalog</p>
+              <h2 id="catalog-title">四类标签各自只回答一个问题</h2>
+            </div>
+            <p>禁止通过任意 tone 临时配色；业务值必须映射到稳定语义。</p>
+          </header>
+          <div id="catalogRows" class="catalog-rows"></div>
+        </article>
+
+        <aside class="usage-panel" aria-labelledby="usage-title">
+          <div class="usage-panel__head">
+            <p class="section-kicker">Composition rule</p>
+            <h2 id="usage-title">一行最多三个业务标签</h2>
+          </div>
+          <div class="order-example">
+            <div class="order-example__identity">
+              <strong>王芳</strong>
+              <span>京东电器 · 30×38×10 · 1,000 个</span>
+            </div>
+            <div class="erp-semantic-tag-group" aria-label="订单关键信息">
+              <span class="erp-semantic-tag" data-kind="business" data-value="custom">定制单</span>
+              <span class="erp-semantic-tag" data-kind="requirement" data-value="snap">按扣</span>
+              <span class="erp-semantic-tag" data-kind="state" data-value="running">生产中</span>
+            </div>
+          </div>
+          <ol class="composition-list">
+            <li><strong>业务类型</strong><span>回答订单或任务本质，始终优先。</span></li>
+            <li><strong>特殊要求</strong><span>只显示会改变生产动作的要求。</span></li>
+            <li><strong>运行状态</strong><span>只表达服务器权威的当前阶段。</span></li>
+            <li><strong>人员/机台</strong><span>单独呈现，颜色不参与状态判断。</span></li>
+          </ol>
+        </aside>
+      </section>
+
+      <section class="preview-section" aria-labelledby="preview-title">
+        <header class="section-heading preview-heading">
+          <div>
+            <p class="section-kicker">Responsive proof</p>
+            <h2 id="preview-title">同一语义，适应三种使用距离</h2>
+          </div>
+          <div class="device-switcher" role="tablist" aria-label="预览设备">
+            <button type="button" role="tab" aria-selected="true" data-device-button="pc">PC 工作台</button>
+            <button type="button" role="tab" aria-selected="false" data-device-button="mobile">手机任务</button>
+            <button type="button" role="tab" aria-selected="false" data-device-button="tv">电视队列</button>
+          </div>
+        </header>
+
+        <div class="preview-stage" id="previewStage" data-device="pc">
+          <article class="device-preview device-preview--pc" data-device-preview="pc" aria-label="PC 工作台标签示例">
+            <div class="pc-shell">
+              <aside class="pc-nav" aria-hidden="true">
+                <strong>ERP</strong><span></span><span></span><span></span><span></span>
+              </aside>
+              <div class="pc-workbench">
+                <header><div><span>订单 / 订单池</span><strong>生产订单</strong></div><button type="button">导出</button></header>
+                <div class="pc-filters"><span>近 30 天</span><span>全部状态</span><span>搜索客户、订单号</span></div>
+                <div class="pc-table" role="table" aria-label="生产订单示例">
+                  <div class="pc-row pc-row--head" role="row"><span>订单</span><span>客户 / 货品</span><span>关键信息</span><span>归属</span><span>交期</span></div>
+                  <div class="pc-row" role="row">
+                    <strong>ORD-0729-018</strong><span>王芳 · 京东电器</span>
+                    <span class="erp-semantic-tag-group">
+                      <span class="erp-semantic-tag" data-kind="business" data-value="custom" data-size="compact">定制单</span>
+                      <span class="erp-semantic-tag" data-kind="requirement" data-value="snap" data-size="compact">按扣</span>
+                      <span class="erp-semantic-tag" data-kind="state" data-value="running" data-size="compact">生产中</span>
+                    </span>
+                    <span class="erp-semantic-tag" data-kind="owner" data-value="lane-1" data-size="compact">制1-03</span><span>今天 18:00</span>
+                  </div>
+                  <div class="pc-row" role="row">
+                    <strong>ORD-0729-021</strong><span>陈敏 · 春季女装</span>
+                    <span class="erp-semantic-tag-group">
+                      <span class="erp-semantic-tag" data-kind="business" data-value="printed" data-size="compact">印刷通货</span>
+                      <span class="erp-semantic-tag" data-kind="requirement" data-value="double-sided" data-size="compact">双面印</span>
+                      <span class="erp-semantic-tag" data-kind="state" data-value="pending" data-size="compact">待复核</span>
+                    </span>
+                    <span class="erp-semantic-tag" data-kind="owner" data-value="lane-2" data-size="compact">印2-02</span><span>明天 10:00</span>
+                  </div>
+                  <div class="pc-row" role="row">
+                    <strong>ORD-0728-036</strong><span>林悦 · 夏装促销</span>
+                    <span class="erp-semantic-tag-group">
+                      <span class="erp-semantic-tag" data-kind="business" data-value="outsourced" data-size="compact">外加工</span>
+                      <span class="erp-semantic-tag" data-kind="state" data-value="blocked" data-size="compact">异常暂停</span>
+                    </span>
+                    <span class="erp-semantic-tag" data-kind="owner" data-value="lane-4" data-size="compact">外协-01</span><span>已超时 2 小时</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="device-preview device-preview--mobile" data-device-preview="mobile" aria-label="手机任务标签示例" hidden>
+            <div class="phone-frame">
+              <header class="phone-header"><span>制袋工 · 当前任务</span><strong>制袋 3 号机</strong></header>
+              <main class="phone-content">
+                <section class="mobile-task">
+                  <div class="mobile-task__top"><span>今日第 4 单</span><span>计划 1,000 个</span></div>
+                  <h3>王芳</h3><p>京东电器 · 30×38×10</p>
+                  <div class="erp-semantic-tag-group">
+                    <span class="erp-semantic-tag" data-kind="business" data-value="custom" data-size="prominent">定制单</span>
+                    <span class="erp-semantic-tag" data-kind="requirement" data-value="snap" data-size="prominent">按扣</span>
+                    <span class="erp-semantic-tag" data-kind="state" data-value="running" data-size="prominent">生产中</span>
+                  </div>
+                  <dl><div><dt>袋身</dt><dd>白色</dd></div><div><dt>提手</dt><dd>红色 · 普通提</dd></div><div><dt>印刷</dt><dd>红色 · 双面</dd></div></dl>
+                </section>
+                <section class="mobile-next"><span>下一步</span><strong>完成后报工，异常时先说明原因</strong></section>
+              </main>
+              <footer class="phone-action"><button type="button">查看并报工</button></footer>
+            </div>
+          </article>
+
+          <article class="device-preview device-preview--tv" data-device-preview="tv" aria-label="电视队列标签示例" hidden>
+            <div class="tv-frame">
+              <header><div><span>3 号车间</span><strong>制袋任务队列</strong></div><time>14:36</time></header>
+              <section class="tv-machine">
+                <div class="tv-machine__identity"><span>制袋 8 号机</span><strong>王芳 · 京东电器</strong></div>
+                <div class="erp-semantic-tag-group">
+                  <span class="erp-semantic-tag" data-kind="business" data-value="custom" data-size="prominent">定制单</span>
+                  <span class="erp-semantic-tag" data-kind="requirement" data-value="snap" data-size="prominent">按扣</span>
+                  <span class="erp-semantic-tag" data-kind="state" data-value="running" data-size="prominent">生产中</span>
+                </div>
+                <div class="tv-progress"><strong>已完成 640</strong><span>计划 1,000 · 剩余 360 · 预计下午完成</span></div>
+              </section>
+              <div class="tv-queue">
+                <span>今日第 5 单</span><strong>陈敏 · 春季女装 · 32×40×10 · 2,000 个</strong>
+                <span class="erp-semantic-tag-group">
+                  <span class="erp-semantic-tag" data-kind="business" data-value="printed" data-size="standard">印刷通货</span>
+                  <span class="erp-semantic-tag" data-kind="requirement" data-value="extended-handle" data-size="standard">加长提</span>
+                  <span class="erp-semantic-tag" data-kind="state" data-value="pending" data-size="standard">待复核</span>
+                </span>
+              </div>
+            </div>
+          </article>
+        </div>
+      </section>
+
+      <section class="playground-section" aria-labelledby="playground-title">
+        <div class="playground-copy">
+          <p class="section-kicker">Component contract</p>
+          <h2 id="playground-title">组件不接受随意颜色，只接受业务语义</h2>
+          <p>选择类别和值，得到稳定标签和可复制的 React 调用。未知值统一回落为“待确认”，不会猜测颜色。</p>
+          <div class="playground-controls">
+            <label>类别<select id="kindSelect"></select></label>
+            <label>业务值<select id="valueSelect"></select></label>
+            <label>密度<select id="sizeSelect"><option value="compact">紧凑</option><option value="standard" selected>标准</option><option value="prominent">醒目</option></select></label>
+          </div>
+        </div>
+        <div class="playground-output">
+          <div class="playground-preview" id="playgroundPreview"></div>
+          <pre><code id="componentCode"></code></pre>
+          <button class="copy-button" id="copyButton" type="button">复制组件代码</button>
+          <p id="copyFeedback" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section class="density-section" aria-labelledby="density-title">
+        <header class="section-heading">
+          <div><p class="section-kicker">Density scale</p><h2 id="density-title">只改变尺寸，不改变语义</h2></div>
+          <p>不同端共享同一映射；密度由容器选择，不由业务页面重新配色。</p>
+        </header>
+        <div class="density-table">
+          <div><strong>紧凑 · 20px</strong><span>PC 表格、电视后续队列</span><span class="erp-semantic-tag" data-kind="state" data-value="running" data-size="compact">生产中</span></div>
+          <div><strong>标准 · 26px</strong><span>PC 详情、大屏主要信息</span><span class="erp-semantic-tag" data-kind="state" data-value="running">生产中</span></div>
+          <div><strong>醒目 · 34px</strong><span>手机关键事实、远距焦点</span><span class="erp-semantic-tag" data-kind="state" data-value="running" data-size="prominent">生产中</span></div>
+        </div>
+      </section>
+    </main>
+
+    <footer class="page-footer">
+      <span>候选规范 · 生产页面尚未迁移</span>
+      <span>确认后进入共享组件与逐页替换阶段</span>
+    </footer>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>

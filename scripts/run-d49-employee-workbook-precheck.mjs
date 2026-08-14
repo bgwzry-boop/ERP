@@ -22,6 +22,7 @@ try {
     });
     const report = buildD49EmployeeWorkbookPrecheck(precheck, {
       sourceEvidence: buildWorkbookSourceEvidence(workbookBytes),
+      requirePayrollAttendanceFields: options.requirePayrollAttendanceFields === true,
     });
     const files = writeReport(report, resolve(options.outputDir || defaultOutputDir));
     const result = { ...projectCommandReport(report), files };
@@ -45,7 +46,7 @@ try {
   process.exitCode = 1;
 }
 
-export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence } = {}) {
+export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence, requirePayrollAttendanceFields = false } = {}) {
   const safeSourceEvidence = normalizeSourceEvidence(sourceEvidence);
   const employeeSheets = (precheck.sheets ?? []).filter((sheet) => sheet.key === "employees_machines");
   const dedicatedWorkbook = precheck.sheets?.length === 1 && employeeSheets.length === 1;
@@ -63,8 +64,11 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence
   const errorCount = projectedIssues.filter((issue) => issue.severity === "error").length;
   const warningCount = projectedIssues.filter((issue) => issue.severity === "warning").length;
   const coverage = projectCoverage(precheck.employeeRoleCoverage);
+  const payrollAttendanceReadiness = projectPayrollAttendanceReadiness(precheck, {
+    required: requirePayrollAttendanceFields === true,
+  });
   const uploadAllowed = dedicatedWorkbook && precheck.summary?.importAllowed === true;
-  const ready = uploadAllowed && coverage.complete && warningCount === 0;
+  const ready = uploadAllowed && coverage.complete && warningCount === 0 && payrollAttendanceReadiness.ready;
   const status = uploadAllowed ? (ready ? "passed" : "review_required") : "blocked";
   return {
     scope: "v1_d49_employee_workbook_precheck",
@@ -75,9 +79,11 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence
     checkedAt: String(precheck.checkedAt || new Date().toISOString()),
     summary: {
       label: uploadAllowed
-        ? coverage.complete
-          ? "员工机台工作簿可上传，8类岗位已覆盖"
-          : `员工机台工作簿可上传，岗位覆盖 ${coverage.coverageLabel}`
+        ? payrollAttendanceReadiness.required && !payrollAttendanceReadiness.complete
+          ? `员工机台工作簿可上传；工资/考勤资料仅 ${payrollAttendanceReadiness.coverageLabel} 完整`
+          : coverage.complete
+            ? "员工机台工作簿可上传，8类岗位已覆盖"
+            : `员工机台工作簿可上传，岗位覆盖 ${coverage.coverageLabel}`
         : `员工机台工作簿被阻断：${errorCount}项错误`,
       employeeRowCount: Number(coverage.employeeRowCount || 0),
       coveredRoleCount: coverage.coveredRoleCount,
@@ -87,8 +93,12 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence
       warningCount,
       issueCount: projectedIssues.length,
       dedicatedWorkbook,
+      payrollAttendanceCompleteCount: payrollAttendanceReadiness.completeCount,
+      payrollAttendanceEmployeeCount: payrollAttendanceReadiness.employeeCount,
+      payrollAttendanceCoverageLabel: payrollAttendanceReadiness.coverageLabel,
     },
     roleCoverage: coverage,
+    payrollAttendanceReadiness,
     sheets: (precheck.sheets ?? []).map((sheet) => ({
       key: String(sheet.key || ""),
       label: String(sheet.label || sheet.worksheetName || ""),
@@ -104,6 +114,9 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence
             ? "在基础资料的员工机台入口上传同一工作簿并再次执行服务端预检查。"
             : `可分批上传；正式上线前仍需补齐：${coverage.missingRoleLabels.join("、") || "其余岗位"}。`,
           "正式导入后继续完成管理员复核、账号启用、临时密码发放和员工首次改密。",
+          payrollAttendanceReadiness.complete
+            ? "本工作簿中的员工档案、工资基础和考勤身份映射均已填写；正式导入后仍需服务端再次校验。"
+            : `工资/考勤资料仅 ${payrollAttendanceReadiness.coverageLabel} 完整；补齐出生/入职日期、基础时薪/生效日期和考勤来源/人员编号后再生成工资。`,
           "只有D49岗位矩阵达到8/8且账号未锁定、未过期，车间岗已绑定默认机台，才算身份侧就绪。",
         ]
       : [
@@ -111,6 +124,52 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence
           "不要用全量主数据模板代替D49专用员工机台模板。",
         ],
     safeguards: buildSafeguards(Boolean(safeSourceEvidence.workbookDigest)),
+  };
+}
+
+function projectPayrollAttendanceReadiness(precheck = {}, { required = false } = {}) {
+  const formalCoverage = precheck.employeePayrollAttendanceCoverage;
+  if (formalCoverage?.available === true) {
+    const employeeCount = Number(formalCoverage.employeeCount || 0);
+    const completeCount = Number(formalCoverage.completeCount || 0);
+    const complete = formalCoverage.complete === true && employeeCount > 0 && completeCount === employeeCount;
+    return {
+      required,
+      ready: required ? complete : true,
+      complete,
+      employeeCount,
+      completeCount,
+      incompleteCount: Math.max(0, employeeCount - completeCount),
+      profileReadyCount: Number(formalCoverage.profileReadyCount || 0),
+      wageReadyCount: Number(formalCoverage.wageReadyCount || 0),
+      attendanceMappingReadyCount: Number(formalCoverage.attendanceMappingReadyCount || 0),
+      coverageLabel: `${completeCount}/${employeeCount}`,
+    };
+  }
+  const employeeRows = (precheck.stagedRows ?? [])
+    .find((sheet) => sheet.sheetKey === "employees_machines")
+    ?.rows ?? [];
+  const rowStates = employeeRows.map((row) => {
+    const values = row.values ?? {};
+    const profileReady = Boolean(cleanText(values["出生日期"]) && cleanText(values["入职日期"]));
+    const wageReady = Number(values["基础时薪"]) > 0 && Boolean(cleanText(values["生效日期"]));
+    const attendanceReady = Boolean(cleanText(values["考勤来源"]) && cleanText(values["考勤人员编号"]));
+    return { profileReady, wageReady, attendanceReady, complete: profileReady && wageReady && attendanceReady };
+  });
+  const employeeCount = rowStates.length;
+  const completeCount = rowStates.filter((row) => row.complete).length;
+  const complete = employeeCount > 0 && completeCount === employeeCount;
+  return {
+    required,
+    ready: required ? complete : true,
+    complete,
+    employeeCount,
+    completeCount,
+    incompleteCount: Math.max(0, employeeCount - completeCount),
+    profileReadyCount: rowStates.filter((row) => row.profileReady).length,
+    wageReadyCount: rowStates.filter((row) => row.wageReady).length,
+    attendanceMappingReadyCount: rowStates.filter((row) => row.attendanceReady).length,
+    coverageLabel: `${completeCount}/${employeeCount}`,
   };
 }
 
@@ -241,6 +300,14 @@ function formatMarkdown(report) {
     "| --- | --- | ---: |",
     ...report.roleCoverage.roles.map((role) => `| ${escapeMarkdown(role.roleLabel)} | ${role.covered ? "已覆盖" : "缺少"} | ${role.rowCount} |`),
     "",
+    "## 工资与考勤资料完整度",
+    "",
+    `- 完整：${report.payrollAttendanceReadiness.coverageLabel}`,
+    `- 出生/入职日期完整：${report.payrollAttendanceReadiness.profileReadyCount}/${report.payrollAttendanceReadiness.employeeCount}`,
+    `- 基础时薪/生效日期完整：${report.payrollAttendanceReadiness.wageReadyCount}/${report.payrollAttendanceReadiness.employeeCount}`,
+    `- 考勤来源/人员编号完整：${report.payrollAttendanceReadiness.attendanceMappingReadyCount}/${report.payrollAttendanceReadiness.employeeCount}`,
+    `- 本次检查${report.payrollAttendanceReadiness.required ? "要求" : "不要求"}工资与考勤资料全部完整；不完整时仍可分批导入，但不得生成工资或声称工资就绪。`,
+    "",
     "## 问题",
     "",
     ...(report.issues.length
@@ -276,6 +343,7 @@ function parseArgs(args) {
     if (arg === "--help" || arg === "-h") options.help = true;
     else if (arg === "--json") options.json = true;
     else if (arg === "--allow-blocked-exit-zero") options.allowBlockedExitZero = true;
+    else if (arg === "--require-payroll-attendance-fields") options.requirePayrollAttendanceFields = true;
     else if (arg === "--file") options.file = readArgValue(args, ++index, "--file");
     else if (arg === "--output-dir") options.outputDir = readArgValue(args, ++index, "--output-dir");
     else throw new Error("unknown_argument");
@@ -297,6 +365,7 @@ function formatHelp() {
     "  --output-dir <dir>          Report directory; defaults to .erp-local-storage/v1-d49-employee-workbook-precheck",
     "  --json                      Print a redacted machine-readable result",
     "  --allow-blocked-exit-zero   Return exit 0 for a blocked workbook so automation can inspect the report",
+    "  --require-payroll-attendance-fields  Mark readiness incomplete until every employee has profile dates, wage basis, and attendance mapping",
     "  --help                      Show this help",
     "",
     "The command is read-only and never prints employee names, employee-number values, passwords, workbook paths, or staged rows.",
@@ -312,4 +381,8 @@ function displayOutputPath(path) {
 
 function escapeMarkdown(value) {
   return String(value ?? "").replace(/\|/g, "\\|").replace(/\r?\n/g, " ");
+}
+
+function cleanText(value) {
+  return String(value ?? "").trim();
 }

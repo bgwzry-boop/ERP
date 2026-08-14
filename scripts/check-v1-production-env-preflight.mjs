@@ -25,6 +25,8 @@ const sensitiveValues = [
   "../secret-prefix",
   "SUPER_SECRET_OFFICE_READINESS_PASSWORD",
   "SUPER_SECRET_DRIVER_READINESS_PASSWORD",
+  "https://attendance-gateway.internal/v1/punches/query",
+  "SUPER_SECRET_ATTENDANCE_TOKEN",
 ];
 
 rmSync(storageRoot, { recursive: true, force: true });
@@ -40,6 +42,12 @@ const productionEnv = {
   ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL: sensitiveValues[1],
   ERP_V1_POSTGRES_RESTORE_RESET_ALLOWED: "false",
   ERP_V1_FILE_STORAGE_PROFILE: "object_storage",
+  ERP_ATTENDANCE_PAYROLL_STORE: "postgres",
+  ERP_ATTENDANCE_PROVIDER_MODE: "http_json",
+  ERP_ATTENDANCE_PROVIDER_KEY: "deli",
+  ERP_ATTENDANCE_PROVIDER_ENDPOINT: sensitiveValues[17],
+  ERP_ATTENDANCE_PROVIDER_TOKEN: sensitiveValues[18],
+  ERP_ATTENDANCE_PROVIDER_TIMEOUT_MS: "10000",
   ERP_ATTACHMENT_OBJECT_STORAGE_PROVIDER: "s3_compatible",
   ERP_ATTACHMENT_OBJECT_STORAGE_ENDPOINT: sensitiveValues[2],
   ERP_ATTACHMENT_OBJECT_STORAGE_BUCKET: sensitiveValues[3],
@@ -109,6 +117,7 @@ assert.equal(readyReport.ready, true);
 assert.equal(readyReport.summary.blockingCount, 0);
 assert.equal(readyReport.criteria.find((item) => item.key === "runtime-mode")?.status, "passed");
 assert.equal(readyReport.criteria.find((item) => item.key === "v1-persistence-profile")?.status, "passed");
+assert.equal(readyReport.criteria.find((item) => item.key === "attendance-payroll-integration-env")?.status, "passed");
 assert.equal(readyReport.criteria.find((item) => item.key === "postgres-restore-validation-env")?.status, "passed");
 assert.equal(
   readyReport.criteria.find((item) => item.key === "postgres-restore-validation-env")?.evidence
@@ -139,6 +148,42 @@ assert.equal(
 assert.equal(readyReport.safeguards.connectionStringExposed, false);
 assert.equal(readyReport.safeguards.commandValueExposed, false);
 assertNoSensitiveOutput(readyRun.stdout + readyRun.stderr);
+
+const incompleteAttendanceRun = await runPreflight({
+  env: {
+    ...baseEnv,
+    ...productionEnv,
+    ERP_ATTENDANCE_PROVIDER_TOKEN: "",
+  },
+});
+assert.equal(incompleteAttendanceRun.status, 2, runFailureMessage("enabled attendance integration without token should block", incompleteAttendanceRun));
+const incompleteAttendanceReport = JSON.parse(incompleteAttendanceRun.stdout);
+const incompleteAttendanceCriterion = incompleteAttendanceReport.criteria.find(
+  (item) => item.key === "attendance-payroll-integration-env",
+);
+assert.equal(incompleteAttendanceCriterion?.blocking, true);
+assert.equal(incompleteAttendanceCriterion?.status, "pending");
+assert.equal(incompleteAttendanceCriterion?.evidence.tokenConfigured, false);
+assertNoSensitiveOutput(incompleteAttendanceRun.stdout + incompleteAttendanceRun.stderr);
+
+const disabledAttendanceRun = await runPreflight({
+  env: {
+    ...baseEnv,
+    ...productionEnv,
+    ERP_ATTENDANCE_PROVIDER_MODE: "disabled",
+    ERP_ATTENDANCE_PROVIDER_ENDPOINT: "",
+    ERP_ATTENDANCE_PROVIDER_TOKEN: "",
+  },
+});
+assert.equal(disabledAttendanceRun.status, 0, runFailureMessage("explicitly disabled attendance should remain a warning for raw-material first release", disabledAttendanceRun));
+const disabledAttendanceReport = JSON.parse(disabledAttendanceRun.stdout);
+const disabledAttendanceCriterion = disabledAttendanceReport.criteria.find(
+  (item) => item.key === "attendance-payroll-integration-env",
+);
+assert.equal(disabledAttendanceCriterion?.blocking, false);
+assert.equal(disabledAttendanceCriterion?.status, "pending");
+assert.equal(disabledAttendanceReport.summary.warningCount, 1);
+assertNoSensitiveOutput(disabledAttendanceRun.stdout + disabledAttendanceRun.stderr);
 
 const textRun = await runPreflight({ env: { ...baseEnv, ...productionEnv }, json: false });
 assert.equal(textRun.status, 0, runFailureMessage("complete production env text output should be ready", textRun));

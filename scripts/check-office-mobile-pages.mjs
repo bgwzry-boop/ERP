@@ -9,9 +9,11 @@ const driverLoadStageSource = readFileSync(new URL("../src/features/driver/Drive
 const driverDeviceStageSource = readFileSync(new URL("../src/features/driver/DriverDeviceStage.jsx", import.meta.url), "utf8");
 const driverDeliveryStageSource = readFileSync(new URL("../src/features/driver/DriverDeliveryStage.jsx", import.meta.url), "utf8");
 const warehousePageSource = readFileSync(new URL("../src/features/warehouse/WarehouseMobilePage.jsx", import.meta.url), "utf8");
-const officeMobilePageSource = readFileSync(new URL("../src/features/office-mobile/OfficeMobilePage.jsx", import.meta.url), "utf8");
+const rawMaterialMobilePageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileReceiving.jsx", import.meta.url), "utf8");
+const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const decisionMobilePageSource = readFileSync(new URL("../src/features/decisions/DecisionMobilePage.jsx", import.meta.url), "utf8");
 const maintenanceMobilePageSource = readFileSync(new URL("../src/features/maintenance/MaintenanceMobilePage.jsx", import.meta.url), "utf8");
+const employeeAttendanceMobilePageSource = readFileSync(new URL("../src/features/payroll/EmployeeAttendanceMobilePage.jsx", import.meta.url), "utf8");
 const desktopRequiredMobilePageSource = readFileSync(new URL("../src/features/mobile/DesktopRequiredMobilePage.jsx", import.meta.url), "utf8");
 const driverFeatureSources = [
   driverPageSource,
@@ -28,6 +30,8 @@ const shellStyleSource = readFileSync(new URL("../src/styles/shell.css", import.
 const driverStyleSource = readFileSync(new URL("../src/styles/features/driver.css", import.meta.url), "utf8");
 const warehouseStyleSource = readFileSync(new URL("../src/styles/features/warehouse.css", import.meta.url), "utf8");
 const mobileRoleStyleSource = readFileSync(new URL("../src/styles/features/mobile-roles.css", import.meta.url), "utf8");
+const payrollAttendanceStyleSource = readFileSync(new URL("../src/styles/features/payroll-attendance.css", import.meta.url), "utf8");
+const sharedMobileNavigationSource = readFileSync(new URL("../src/shared/ui/MobileRoleBottomNavigation.jsx", import.meta.url), "utf8");
 
 assert.match(workshopPageSource, /export function WorkshopMobilePage/);
 for (const contract of ["生产任务", "生产报工", "打包任务", "机器计数\/动作次数", "报当日数量", "不入库", "上传成品图", "提交打包完成"]) {
@@ -83,8 +87,16 @@ assert.match(warehousePageSource, /paperOutboundStatus === "已交库房"/);
 assert.match(warehousePageSource, /!item\.physicalOutboundAt/);
 assert.match(mainSource, /import "\.\/styles\/features\/warehouse\.css";/);
 assert.match(warehouseStyleSource, /\.warehouse-mobile-page/);
-for (const contract of ["随手处理", "工单待办", "异常提醒", "原料拍单", "卷标打印", "办公室共享任务"]) {
-  assert.equal(officeMobilePageSource.includes(contract), true, `office mobile companion should retain ${contract}`);
+assert.match(navigationSource, /if \(defaultRole === "office"\) return "rawMaterials"/);
+for (const contract of ["录原材料", "拍单", "核对", "打印", "贴标", "未完成", "最近完成"]) {
+  assert.equal(rawMaterialMobilePageSource.includes(contract), true, `office mobile raw-material flow should retain ${contract}`);
+}
+for (const desktopWorkbenchCopy of ["工单待办", "异常提醒", "办公室共享任务", "全部功能"]) {
+  assert.equal(rawMaterialMobilePageSource.includes(desktopWorkbenchCopy), false, `office mobile raw-material flow should omit desktop workbench copy ${desktopWorkbenchCopy}`);
+}
+assert.match(sharedMobileNavigationSource, /export function MobileRoleBottomNavigation/);
+for (const source of [workshopPageSource, driverPageSource, warehousePageSource, decisionMobilePageSource, maintenanceMobilePageSource]) {
+  assert.match(source, /MobileRoleBottomNavigation/, "mobile roles with bottom navigation should use the shared component");
 }
 for (const contract of ["主要决策人", "辅助决策人", "订单优先级", "生产排期", "抹零核销", "重大异常", "确认并生成待办", "正式账号登录后提交", "决定历史", "BusinessDecisionHistoryPanel", "recordOfficeBusinessDecision"]) {
   assert.equal(decisionMobilePageSource.includes(contract), true, `decision mobile page should retain ${contract}`);
@@ -93,6 +105,13 @@ for (const contract of ["设备任务", "设备报修", "日常巡检", "预防�
   assert.equal(maintenanceMobilePageSource.includes(contract), true, `maintenance mobile page should retain ${contract}`);
 }
 assert.doesNotMatch(maintenanceMobilePageSource, /尚未写入服务器/);
+assert.match(employeeAttendanceMobilePageSource, /export function EmployeeAttendanceMobilePage/);
+for (const contract of ["当日已打", "当日确认工时", "本月暂估工资", "每日打卡与工时", "原始打卡记录不能由员工修改", "工资只采用确认后的工时"]) {
+  assert.equal(employeeAttendanceMobilePageSource.includes(contract), true, `employee attendance mobile page should retain ${contract}`);
+}
+assert.match(employeeAttendanceMobilePageSource, /getMyOfficeAttendance/);
+assert.match(employeeAttendanceMobilePageSource, /day\.status === "pending_review" \? 0 : day\.workMinutes/);
+assert.doesNotMatch(employeeAttendanceMobilePageSource, /mockAttendance|demoAttendance|fixtureAttendance/);
 for (const contract of ["请使用老板电脑", "请使用财务工作台", "请使用部署电脑", "不会显示压缩后的办公室菜单"]) {
   assert.equal(desktopRequiredMobilePageSource.includes(contract), true, `desktop-required mobile boundary should retain ${contract}`);
 }
@@ -100,6 +119,9 @@ assert.match(mainSource, /import "\.\/styles\/features\/mobile-roles\.css";/);
 assert.match(mobileRoleStyleSource, /\.office-mobile-task-card/);
 assert.match(mobileRoleStyleSource, /\.decision-mobile-card/);
 assert.match(mobileRoleStyleSource, /\.maintenance-mobile-card/);
+assert.match(mobileRoleStyleSource, /\.office-mobile-field-utility/);
+assert.match(payrollAttendanceStyleSource, /\.attendance-mobile-hero/);
+assert.match(payrollAttendanceStyleSource, /\.attendance-mobile-days article/);
 assert.match(mainSource, /import "\.\/styles\/features\/driver\.css";/);
 assert.equal(
   mainSource.indexOf('import "./styles/features/role-tools.css";') < mainSource.indexOf('import "./styles/features/driver.css";'),

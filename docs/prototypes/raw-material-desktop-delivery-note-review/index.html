@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>原材料入库 · 桌面核对送货单评审原型</title>
+    <link rel="stylesheet" href="./styles.css?v=20260725-1" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="product-nav" aria-label="ERP 主导航">
+        <a class="brand" href="#" aria-label="ERP 首页">
+          <span>ERP</span>
+          <strong>设计中心小工厂</strong>
+          <small>P0 办公室端</small>
+        </a>
+        <nav>
+          <a href="#">公共待办 <span>0</span></a>
+          <a href="#">订单录入</a>
+          <a href="#">库存查询</a>
+          <a href="#">出库交付</a>
+          <a href="#">对账收款</a>
+          <p>角色工具</p>
+          <a href="#">打包 / 标签</a>
+          <a class="is-active" href="#" aria-current="page">原材料</a>
+          <a href="#">基础资料</a>
+        </nav>
+        <button class="collapse-button" type="button">收起菜单</button>
+      </aside>
+
+      <div class="workspace">
+        <header class="topbar">
+          <strong>虎门工厂</strong>
+          <label class="global-search">
+            <span>搜索</span>
+            <input type="search" placeholder="客户 / 订单 / 单据" />
+          </label>
+          <span class="sync-state">后端已同步</span>
+          <button class="quiet-button" type="button">办公室 A</button>
+        </header>
+
+        <main>
+          <header class="page-heading">
+            <div>
+              <button class="back-link" type="button">返回入库单列表</button>
+              <h1>核对送货单</h1>
+              <p>对照原单逐行检查颜色、规格和重量；全部确认后才能打印卷标。</p>
+            </div>
+            <span class="state-badge">待人工核对</span>
+          </header>
+
+          <ol class="workflow" aria-label="原材料入库进度">
+            <li class="is-done"><span>1</span><strong>拍单</strong><small>原单已识别</small></li>
+            <li class="is-active"><span>2</span><strong>核对</strong><small>逐行确认</small></li>
+            <li><span>3</span><strong>打印</strong><small>每卷一张</small></li>
+            <li><span>4</span><strong>贴标</strong><small>实物核对</small></li>
+          </ol>
+
+          <section class="document-strip" aria-label="当前送货单摘要">
+            <div class="document-identity">
+              <strong>宁晋县腾胜无纺布有限公司</strong>
+              <span>送货单 XS-2026-07-04-104 · 2026-07-04</span>
+            </div>
+            <dl>
+              <div><dt>识别结果</dt><dd><b>9</b> 卷</dd></div>
+              <div><dt>合计重量</dt><dd><b>853.8</b> kg</dd></div>
+              <div class="has-issue"><dt>待处理</dt><dd><b id="stripIssueCount">1</b> 处缺项</dd></div>
+            </dl>
+            <span class="save-state" id="saveState">已自动保存</span>
+          </section>
+
+          <div class="review-layout">
+            <section class="evidence-pane" aria-labelledby="evidenceTitle">
+              <header class="pane-heading">
+                <div>
+                  <h2 id="evidenceTitle">原始送货单</h2>
+                  <p>核对时始终保留原单证据。</p>
+                </div>
+                <button class="text-button" id="openSource" type="button">放大查看</button>
+              </header>
+              <button class="source-preview" id="openSourceImage" type="button" aria-label="放大查看原始送货单">
+                <img src="../raw-material-ocr-hallmark/assets/delivery-note-upright.jpg" width="1536" height="864" alt="宁晋县腾胜无纺布有限公司销货单" />
+              </button>
+              <div class="evidence-actions">
+                <button class="secondary-button" type="button" id="replaceSource">更换照片或 PDF</button>
+                <button class="text-button" type="button" id="recognizeAgain">重新识别</button>
+              </div>
+              <section class="focus-evidence" id="focusEvidence" aria-live="polite"></section>
+              <details>
+                <summary>单据信息</summary>
+                <dl class="detail-list">
+                  <div><dt>ERP 草稿</dt><dd>RMI-OCR-D3C0DAE800E8</dd></div>
+                  <div><dt>收货位置</dt><dd>原料待检区</dd></div>
+                  <div><dt>建单人</dt><dd>办公室 A</dd></div>
+                  <div><dt>建单时间</dt><dd>2026-07-25 12:12</dd></div>
+                </dl>
+              </details>
+            </section>
+
+            <section class="ledger-pane" aria-labelledby="ledgerTitle">
+              <header class="pane-heading ledger-heading">
+                <div>
+                  <h2 id="ledgerTitle">逐行核对</h2>
+                  <p>来源行和识别结果放在一起；有问题的行直接补全。</p>
+                </div>
+                <button class="filter-button" id="pendingFilter" type="button" aria-pressed="false">只看待处理</button>
+              </header>
+              <div class="ledger-columns" aria-hidden="true">
+                <span>行</span><span>原单对应行</span><span>颜色 / 规格</span><span>重量</span><span>卷数</span><span>状态</span><span>操作</span>
+              </div>
+              <div class="roll-ledger" id="rollLedger" aria-live="polite"></div>
+            </section>
+
+            <aside class="review-rail" aria-labelledby="progressTitle">
+              <section class="progress-section">
+                <header>
+                  <div>
+                    <h2 id="progressTitle">核对进度</h2>
+                    <p id="progressCopy">还需处理 1 行</p>
+                  </div>
+                  <strong><span id="confirmedCount">8</span>/9</strong>
+                </header>
+                <div class="progress-track" aria-hidden="true"><span id="progressFill"></span></div>
+                <dl class="progress-facts">
+                  <div><dt>已确认</dt><dd id="confirmedFact">8 行</dd></div>
+                  <div><dt>缺少信息</dt><dd id="issueFact">1 行</dd></div>
+                  <div><dt>识别重量</dt><dd>853.8 kg</dd></div>
+                </dl>
+              </section>
+
+              <section class="blocker" id="blockerCard">
+                <span>阻断项</span>
+                <strong>第 7 行规格没看清</strong>
+                <p>原单这一格是“条”，请按纸单补成实际规格后确认。</p>
+                <button class="secondary-button" id="fixBlocker" type="button">补全第 7 行</button>
+              </section>
+
+              <p class="next-step-note">全部核对后将生成 <strong>9 张不同卷标</strong>，每卷一张；打印机和标签预览在下一步显示。</p>
+
+              <details>
+                <summary>其他字段与 OCR 原文</summary>
+                <dl class="detail-list">
+                  <div><dt>识别方式</dt><dd>表格识别</dd></div>
+                  <div><dt>原始行数</dt><dd>9 行</dd></div>
+                  <div><dt>请求记录</dt><dd>已保存</dd></div>
+                  <div><dt>金额字段</dt><dd>随行保存，不参与本次判断</dd></div>
+                </dl>
+              </details>
+
+              <div class="rail-actions">
+                <button class="secondary-button" id="saveLater" type="button">保存，稍后继续</button>
+                <button class="primary-button" id="primaryAction" type="button">补全第 7 行</button>
+              </div>
+            </aside>
+          </div>
+        </main>
+      </div>
+    </div>
+
+    <dialog class="source-dialog" id="sourceDialog" aria-labelledby="sourceDialogTitle">
+      <header>
+        <div><h2 id="sourceDialogTitle">原始送货单</h2><p>可滚动查看完整原单。</p></div>
+        <button class="quiet-button" id="closeSource" type="button">关闭</button>
+      </header>
+      <div><img src="../raw-material-ocr-hallmark/assets/delivery-note-upright.jpg" width="1536" height="864" alt="宁晋县腾胜无纺布有限公司销货单放大图" /></div>
+    </dialog>
+
+    <dialog class="complete-dialog" id="completeDialog" aria-labelledby="completeTitle">
+      <span class="complete-mark">完成</span>
+      <h2 id="completeTitle">9 行已经全部核对</h2>
+      <p>正式流程下一步会打开标签预览，并显示当前打印机；共打印 9 张不同卷标，每卷一张。</p>
+      <div>
+        <button class="secondary-button" id="stayReview" type="button">留在核对页</button>
+        <button class="primary-button" id="previewPrint" type="button">预览打印步骤</button>
+      </div>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+    <script type="module" src="./app.js?v=20260725-1"></script>
+  </body>
+</html>

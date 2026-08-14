@@ -350,7 +350,7 @@ When failed rows are corrected inline, only rows the user actually edits should 
 
 Initial master-data imports should first run in a test tenant or test environment. After fields, error rows, and duplicate handling are confirmed, the same import can be applied to the formal database.
 
-Incomplete customer records may be imported as long as the customer name exists. Bag price table defaults to `price table 1`, print price table defaults to `print price table 1`, and settlement defaults to `cash / not set` until office staff fills in more detail.
+Incomplete customer records may be imported as long as the customer name exists. Every customer uses the currently effective general bag price table and shared print-pricing rules; customer profiles do not store a price-table number. Settlement defaults to `cash / not set` until office staff fills in more detail.
 
 The standard color catalog should be imported or maintained before initial inventory. If an inventory import contains an unknown color, that row enters `color pending confirmation` and must not become available inventory for automatic customer promises, outbound, or replenishment decisions.
 
@@ -374,13 +374,13 @@ Before the later production-summary sheet is imported, machine capacity may be m
 
 Import error handling uses risk-based behavior. Ordinary master data such as customers, contacts, and color aliases can import valid rows while outputting an error report for failed rows. High-risk data such as inventory, prices, and permissions should run a full pre-check and become effective only after no high-risk errors remain or an authorized user confirms the batch.
 
-Price-table import is high-risk. It must run a full-table pre-check and require confirmation of price-table number, version, effective date/time, reviewer, and changed values before an account with price-table review permission can approve it. Failed rows must not be skipped while the remaining rows semi-automatically go live.
+General-price-table import is high-risk. It must run a full-table pre-check and require confirmation of version, effective date/time, reviewer, and changed values before an account with price-table review permission can approve it. Failed rows must not be skipped while the remaining rows semi-automatically go live.
 
 The first actual V1 master-data templates should be generated in this order: customers, colors / aliases, sizes / finished-goods styles, employees, machine capacity, and initial finished-goods inventory. Suppliers and raw-material batches can follow as the second batch.
 
 The initial customer-profile workbook should use three sheets: `customer entity`, `contacts / phones / addresses`, and `customer notes / preferences`.
 
-The `customer entity` sheet should include customer name, customer short name, customer source, default fulfillment method, statement cycle, payment due rule, linked bag price table, linked print price table, risk state, and whether the customer has an order group.
+The `customer entity` sheet should include customer name, customer short name, customer source, default fulfillment method, statement cycle, payment due rule, risk state, and whether the customer has an order group. It should not contain bag- or print-price-table linkage fields.
 
 The `contacts / phones / addresses` sheet should include customer name or customer code, contact name, contact role, phone, address, default order contact flag, default statement contact flag, default delivery contact flag, third-party pickup eligibility, and notes. Contact roles should support customer owner, finance, family, worker, third-party pickup person, third-party print worker, and other.
 
@@ -631,11 +631,11 @@ Attachment records should include file type, business purpose, original file / p
 
 Evidence attachments such as payment proofs are deduplicated by `business type + business ID + purpose + SHA-256 content digest`. Retrying one upload must replay its idempotent result. Uploading the same content again should add a reuse audit action without storing the file or creating a second business proof. Historical duplicate metadata remains available for audit, while business lists show only the canonical attachment.
 
-V1 attachment uploads should be constrained by business purpose. Payment screenshots must be images up to 8 MB. Delivery watermark photos, signature photos, and custom printed finished-goods photos must be images up to 12 MB. Statement customer-confirmation attachments may be images or PDFs up to 12 MB. Other generic attachments default to images, PDFs, spreadsheets, or documents up to 15 MB. Attachment storage should have a pre-launch runtime preflight that confirms the active storage adapter is configured, writable, readable, digest-consistent, and able to clean up its diagnostic object without exposing access keys, secrets, authorization headers, or session tokens. Virus scanning, automatic image-quality checks, resumable uploads, and real object-storage acceptance can be added on top of these baseline rules.
+V1 attachment uploads use one shared purpose policy. Current-camera photos and photo/PDF evidence accept source files up to 30 MB; general PDF, spreadsheet, and document evidence accepts files up to 50 MB. Customer print artwork explicitly supports PSD, CDR, AI, PDF, PNG, JPG, and JPEG up to 200 MB and must use binary/object-storage upload rather than Base64 JSON. Raw-material delivery-note photos also accept 30 MB sources; the browser automatically creates an OCR derivative no larger than 7.5 MB so its Base64 payload remains within the provider's 10 MB limit, while the original attachment remains the audit source. Attachment storage should have a pre-launch runtime preflight that confirms the active storage adapter is configured, writable, readable, digest-consistent, and able to clean up its diagnostic object without exposing access keys, secrets, authorization headers, or session tokens. Virus scanning, automatic image-quality checks, resumable uploads, and real object-storage acceptance can be added on top of these baseline rules.
 
 Order lines preserve bag price snapshot, print price snapshot, other fees, manual override reason, adjustment amount, and final receivable. Later price-table changes must not modify historical order prices.
 
-Price snapshots should link to the matched price version, customer price table, order time / price effective time, and manual override record, so future statement checks can explain why that price was used.
+Price snapshots should link to the matched general bag-price version, shared print-pricing version, order time / price effective time, and manual override record, so future statement checks can explain why that price was used.
 
 Formal order quantity adjustment must not overwrite the original price snapshot created at formal-order confirmation. The system should create a `quantity adjustment price snapshot` or equivalent amount-calculation record, preserve the original unit-price basis, recalculate final receivable from the new chargeable quantity, and record previous quantity, new quantity, reason, operator, and time. If statement lines or a statement already exist for that order line, the adjustment transaction should update the affected statement-line amount and statement receivable / variance so the order pool, printed documents, and reconciliation stay consistent.
 
@@ -3123,7 +3123,7 @@ Customer notification for unpicked express / less-than-truckload:
 
 Customer profiles should separate the `customer entity` from `contacts`.
 
-The customer entity stores customer name, short name, default settlement rules, default price tables, risk state, customer-group record, and long-term business preferences.
+The customer entity stores customer name, short name, default settlement rules, risk state, customer-group record, and long-term business preferences. It does not store a bag- or print-price-table number.
 
 Contacts belong under the customer entity. A customer can have multiple contacts for ordering, payment, statements, pickup, delivery communication, or after-sales communication.
 
@@ -3165,9 +3165,9 @@ Every order / fulfillment record should store snapshots of the confirmed contact
 
 Customer profiles should store default settlement and payment-term settings. Supported defaults include immediate settlement, every 5 days, every 7 days, every 15 days, monthly, and custom terms. Orders / statements prefill from the customer profile, but authorized accounts can adjust per order when actual handling differs.
 
-Customer profiles should link to default bag price table `1/2/3` and print price table `1/2/3`. New customers default to bag price table `1` and print price table `1`.
+Every customer uses the currently effective factory-wide general bag price table and shared print-pricing rules; customer profiles do not link to numbered `1/2/3` price tables.
 
-Order entry should auto-load the customer's linked bag price table and print price table, then save order price snapshots. Later customer-profile price-table changes or price-version changes must not rewrite historical order prices.
+Order entry should auto-load the currently effective general bag price and shared print-pricing result, then save order price snapshots. Later price-version changes must not rewrite historical order prices.
 
 Customer profiles can store default packing preferences, such as usual pieces per package, whether weighing is required, whether there is a transfer-warehouse / ocean-shipping single-package weight limit, and common notes.
 
@@ -3196,7 +3196,7 @@ Recommended note areas:
 
 The customer list should show at least customer name, short name, default fulfillment method, statement cycle, debt balance, overdue amount, risk state, latest order time, common sizes / colors, customer-group record status, and latest after-sales / complaint marker.
 
-The customer list should support filters for risk state, debt / overdue status, settlement cycle, price table, whether customer-group info is recorded, latest order time, and common fulfillment method.
+The customer list should support filters for risk state, debt / overdue status, settlement cycle, whether customer-group info is recorded, latest order time, and common fulfillment method. It should not expose a customer price-table filter that no longer represents a real business distinction.
 
 Customer profiles should show customer risk state and risk sources: current debt, overdue debt, unresolved after-sales, recent complaint count, recent temporary packing changes, historical disputes, management manual marks, and similar signals.
 
@@ -3896,27 +3896,19 @@ V1 default threshold: discount/allowance amount over 100 CNY, or discount/allowa
 
 ## Pricing Requirements
 
-Customer profile links to:
+V1 has exactly one factory-wide `general price table` for common-goods bags. It is not split into numbered `1/2/3` tables or by customer, region, or business source.
 
-- bag price table
-- print step price table
+Each general-price row represents one shared `flat category + canonical size` price item and stores only the normal/default-handle unit price, applicable second price, and price-version/effective-state facts. It does not store minimum-order quantity, customer scope, customer/order identity, source order, or custom-print order prices.
 
-Defaults:
+General-price classification uses five flat peer categories: `无纺布袋 / 覆膜无纺布袋 / 小狗袋 / 福字袋 / 喜字袋`. Price master data has no separate product-type or pattern field; `小狗袋 / 福字袋 / 喜字袋` are categories themselves rather than patterns nested under another type. The ordering mini-program's deeper catalog hierarchy is not reproduced in the general price table.
 
-- bag price table 1
-- print price table 1
+Labels such as `竖款小号 / 竖款中号 / 竖款大号 / 横款小号 / 横款中号 / 横款大号 / 横款加大号` are size-derived `bag style` display metadata rather than price categories. The price table may show `bag style / size`, while editing derives the bag-style label from the canonical size.
 
-Bag price tables and print step price tables should use the same price-version, mobile review, effective-time, and history retention rules.
+The mini-program's `广告袋 / 服装店袋` values are customer-facing selection series for orientation, color-palette, and default-handle guidance; they are not price-master dimensions. Master data displays canonical size `30×37×10`; `30×38 / 30×38×10 / 30×37` are accepted input, history, and customer-wording aliases only and must not appear as one slash-joined master-data size.
 
-The factory does not use one-off special unit prices for individual customers. The owner's own online stores also use the same unified price rules.
+Legacy price lists contribute only their `category section → specification → price` information structure; their compound naming and deeper hierarchy do not become price-master dimensions. Print fees remain a separate shared rule set rather than being mixed into the general bag price table. The general bag price table and print-pricing rules use the same price-version, mobile-review, effective-time, and history-retention rules.
 
-V1 price tables should use numbered names such as `price table 1`, `price table 2`, and `price table 3`, rather than names based on customer region or business source.
-
-When creating a customer profile, the default bag price table is `price table 1`; if a customer needs a higher product unit price, the profile can be linked to `price table 2/3`.
-
-For customers priced higher, the higher price is the bag product unit price and should be represented in the linked unified bag price table.
-
-For example, if `price table 1` has a unit price of 0.35 CNY for a size, `price table 2` can have 0.36 CNY for the same size; customers linked to `price table 2` automatically use 0.36 CNY.
+Every customer, including the owner's own online stores, uses the same currently effective general price table. Customer profiles do not link to a price-table number.
 
 Freight, express, less-than-truckload, and delivery fees should be separate order fee items and should not be mixed into bag unit price. This is a rare customer scenario.
 
@@ -3928,7 +3920,7 @@ Order entry:
 
 - V1 manual order entry should allow office staff to set the customer order time to the actual customer order time.
 - If future customer-group automation through conversation archive reading, ERP recognition, and an Enterprise WeChat employee-account sending agent supports customer self-confirmed order entry, the system can use customer message / order confirmation time directly, reducing the gap between customer order time and system entry time.
-- load prices from the customer's linked tables
+- load prices from the currently effective general bag price table and shared print-pricing rules
 - price-table changes should create a new price version
 - publishing mode should support `effective immediately` or `specified effective date and time`
 - specified effective time should include date and time
@@ -3943,7 +3935,7 @@ Order entry:
 - if the approver taps `return for edits`, the price version returns to draft state and office staff revise and resubmit it; return notes are optional and not required
 - the back office should record entry operator, reviewer account, reviewer name, review time, review result, and notes
 - price versions not confirmed in the mobile review flow cannot become effective and cannot be used for automatic pricing on new orders
-- V1 should retain price-version history; users can view by price table what sizes or print step rules changed, old price, new price, effective time, entry operator, reviewer, and review time
+- V1 should retain price-version history; users can view which general-price sizes or print-pricing rules changed, old price, new price, effective time, entry operator, reviewer, and review time
 - draft price versions can be deleted
 - reviewed, published, or effective price versions cannot be deleted, to preserve historical order price snapshots and reconciliation evidence
 - if a price version is reviewed but not yet effective, it can be disabled/voided; if already effective, create a new price version to override it
@@ -3953,7 +3945,7 @@ Order entry:
 - shipment date, delivery date, or split-delivery dates should not automatically change order price; use current-order manual override when adjustment is needed
 - store a price snapshot
 - later price-table changes must not modify historical order prices; for example, if 30*38 changes from 0.36 CNY to 0.40 CNY on the 6th, orders saved before the change still reconcile at 0.36 CNY, while new orders use 0.40 CNY
-- record price source in the snapshot: customer's linked unified price table, or current-order manual override, plus matched price version and effective time
+- record price source in the snapshot: the factory-wide general price table, shared print-pricing rules, or current-order manual override, plus matched price version and effective time
 - treat the order price snapshot as the original pricing basis; do not overwrite it because of later abnormal discounts/allowances
 - allow manual override for the current order
 - current-order manual override is for temporary negotiated pricing only; it does not create a long-term special customer price
@@ -3965,7 +3957,7 @@ Order entry:
 - current-order manual override should not block order flow, scheduling, delivery, or statement generation
 - if the manual override exceeds threshold, enter `boss review queue`; V1 defaults to amount difference over 50 CNY or difference percentage over 5% of original amount, with either condition triggering review
 - manual overrides below threshold should only be recorded and should not alert the boss
-- show a clear marker when actual order price differs from linked price table
+- show a clear marker when actual order price differs from the general price table
 
 Bag handle pricing:
 
@@ -3977,51 +3969,55 @@ Bag handle pricing:
 Current price/size table:
 
 - current plain-bag price-table image asset: `docs/product/assets/bag-price-table-2026-07-16.jpg`
+- source-image and OCR terms such as `裸布 / 覆膜 / 小熊小狗 / 喜 / 福` remain unchanged in attachment and audit evidence; ERP maps them respectively to `无纺布袋 / 覆膜无纺布袋 / 小狗袋 / 喜字袋 / 福字袋` plus the canonical size
 - current table date: 2026-07-16
 - this price table explicitly lists normal/default-handle and extended-handle prices for plain bags
 - normal/default handle length is 38cm; current extended-handle length is 50cm
 - extended-handle price uses the table's extended-handle column, currently base price + 0.03 CNY
 
-| Size / style | Base price | Extended / metallic / rule |
-| --- | ---: | --- |
-| Plain 25*32*10 | 0.29 | extended handle 0.32 |
-| Plain 30*36*8 | 0.34 | extended handle 0.37 |
-| Plain 30*38*10 / 30*37*10 | 0.34 | extended handle 0.37 |
-| Plain 35*41*12 | 0.48 | extended handle 0.51 |
-| Special 25*23*8 | 0.29 | extended handle 0.32 |
-| Special 26*27*10 | 0.28 | extended handle 0.31 |
-| Plain 35*27*10 | 0.30 | extended handle 0.33 |
-| Plain 40*30*10 | 0.36 | extended handle 0.39 |
-| Plain 40*32*10 | 0.37 | extended handle 0.40 |
-| Plain 45*37*10 | 0.47 | extended handle 0.50 |
-| Plain 50*40*12 | 0.60 | extended handle 0.63 |
-| Laminated 30*27*10 | 0.60 | metallic 0.63 |
-| Laminated 32*25*10 | 0.45 | metallic 0.49 |
-| Laminated 40*30*10 | 0.58 | metallic 0.62 |
-| Laminated 45*35*10 | 0.72 | metallic 0.76 |
-| Laminated 50*40*12 | 1.00 | metallic 1.03 |
-| Bear/dog 25*23*8 | 0.45 | snap/button style |
-| Bear/dog 30*27*10 | 0.51 | snap/button style |
-| Bear/dog 35*32*10 | 0.57 | snap/button style |
-| Bear/dog 40*35*12 | 0.69 | snap/button style |
-| Bear/dog 50*40*12 | 0.80 | snap/button style |
-| 喜/福 25*30*10 | 0.51 | reduce 0.05 for 1000+ pieces |
-| 喜/福 30*37*10 | 0.56 | reduce 0.05 for 1000+ pieces |
-| 喜/福 35*41*12 | 0.76 | reduce 0.05 for 1000+ pieces |
-| 福 30*30 | 0.53 | Fu only |
+| Category | Canonical size (W×H×gusset) | General price | Surcharge / rule |
+| --- | --- | ---: | --- |
+| 无纺布袋 | 25×32×10 | 0.29 | extended handle 0.32 |
+| 无纺布袋 | 30×36×8 | 0.34 | extended handle 0.37 |
+| 无纺布袋 | 30×37×10 | 0.34 | extended handle 0.37 |
+| 无纺布袋 | 35×41×12 | 0.48 | extended handle 0.51 |
+| 无纺布袋 | 25×23×8 | 0.29 | extended handle 0.32 |
+| 无纺布袋 | 26×27×10 | 0.28 | extended handle 0.31 |
+| 无纺布袋 | 35×27×10 | 0.30 | extended handle 0.33 |
+| 无纺布袋 | 40×30×10 | 0.36 | extended handle 0.39 |
+| 无纺布袋 | 40×32×10 | 0.37 | extended handle 0.40 |
+| 无纺布袋 | 45×37×10 | 0.47 | extended handle 0.50 |
+| 无纺布袋 | 50×40×12 | 0.60 | extended handle 0.63 |
+| 覆膜无纺布袋 | 30×27×10 | 0.60 | metallic 0.63 |
+| 覆膜无纺布袋 | 32×25×10 | 0.45 | metallic 0.49 |
+| 覆膜无纺布袋 | 40×30×10 | 0.58 | metallic 0.62 |
+| 覆膜无纺布袋 | 45×35×10 | 0.72 | metallic 0.76 |
+| 覆膜无纺布袋 | 50×40×12 | 1.00 | metallic 1.03 |
+| 小狗袋 | 25×23×8 | 0.45 | snap/button separately priced |
+| 小狗袋 | 30×27×10 | 0.51 | snap/button separately priced |
+| 小狗袋 | 35×32×10 | 0.57 | snap/button separately priced |
+| 小狗袋 | 40×35×12 | 0.69 | snap/button separately priced |
+| 小狗袋 | 50×40×12 | 0.80 | snap/button separately priced |
+| 喜字袋 | 25×30×10 | 0.51 | reduce 0.05 each for 1000+ pieces |
+| 喜字袋 | 30×37×10 | 0.56 | reduce 0.05 each for 1000+ pieces |
+| 喜字袋 | 35×41×12 | 0.76 | reduce 0.05 each for 1000+ pieces |
+| 福字袋 | 25×30×10 | 0.51 | reduce 0.05 each for 1000+ pieces |
+| 福字袋 | 30×37×10 | 0.56 | reduce 0.05 each for 1000+ pieces |
+| 福字袋 | 35×41×12 | 0.76 | reduce 0.05 each for 1000+ pieces |
+| 福字袋 | 30×30 | 0.53 | — |
 
-Special finished-goods style notes:
+The `reduce 0.05 each for 1000+ pieces` entry is a discount rule, not a minimum-order quantity. Orders below 1000 pieces may still use the general price, and the general price table has no MOQ field.
 
-- `小熊小狗`, `喜`, and `福` are printed stock/common-goods bags.
-- `覆膜` is another product category, more often sold in clothing-related use cases, but the factory currently does not do much of this style.
-- `小熊小狗`, `喜`, `福`, and `覆膜` currently use normal/default handle length.
-- These prefixes are not ordinary colors or sizes; the system should recognize them as finished-goods style / process type.
-- V1 can offer these as stock finished-goods style candidates during order entry instead of requiring customers to restate print content.
-- Each finished-goods style has its own allowed size range, and order entry / inventory setup must validate it.
-- Current 小熊小狗 sizes: `25*23*8`, `30*27*10`, `35*32*10`, `40*35*12`, `50*40*12`.
-- Current 喜 sizes: `25*30*10`, `30*37*10`, `35*41*12`.
-- Current 福 sizes: `25*30*10`, `30*37*10`, `35*41*12`, plus `30*30` for Fu only.
-- Current 覆膜 price-table sizes: `30*27*10`, `32*25*10`, `40*30*10`, `45*35*10`, `50*40*12`, with ordinary 覆膜 and 覆膜金银 variants.
+Category and allowed-size notes:
+
+- `无纺布袋 / 覆膜无纺布袋 / 小狗袋 / 福字袋 / 喜字袋` are the five flat peer categories in price master data; there is no separate product-type or pattern hierarchy.
+- An order for `小狗袋 / 福字袋 / 喜字袋` may carry the printed-common-goods business attribute, but that attribute is not another price-table classification layer.
+- `覆膜无纺布袋 / 小狗袋 / 福字袋 / 喜字袋` currently use normal/default handle length. Metallic laminate, snap/button, and quantity-discount rules stay in the corresponding category's surcharge/rule value.
+- Each category has its own allowed size range, which order entry and inventory setup must validate.
+- Current 小狗袋 sizes: `25×23×8`, `30×27×10`, `35×32×10`, `40×35×12`, `50×40×12`.
+- Current 喜字袋 sizes: `25×30×10`, `30×37×10`, `35×41×12`.
+- Current 福字袋 sizes: `25×30×10`, `30×37×10`, `35×41×12`, plus `30×30` for 福字袋 only.
+- Current 覆膜无纺布袋 price-table sizes: `30×27×10`, `32×25×10`, `40×30×10`, `45×35×10`, `50×40×12`, with ordinary and metallic prices.
 
 ## Bag Cost And Gross-Margin Estimate
 
@@ -4061,6 +4057,9 @@ Special finished-goods style notes:
   - `body cost CNY/piece = body required width m * body material length m * (body GSM / 1000000) * fabric unit price CNY/ton`
 - Handle inputs should include handle width, handle length, handle GSM, handle unit price, handle count, and handle raw-material batch.
 - Handle formula: `handle cost CNY/piece = (handle width cm / 100) * (handle length cm / 100) * (handle GSM / 1000000) * handle unit price CNY/ton * handle count`.
+- Special-model sales estimates must use one versioned rule: `bag-body material + ordinary-handle material + temporary labor/electricity + special-customization fee`. Version `BAG-SPECIAL-COST-20260722-V2` uses `0.08 CNY/piece` for 5,000–9,999 and `0.06 CNY/piece` from 10,000; an extended handle is the actual 50cm-versus-38cm handle-material delta, not the standard finished-goods table's fixed `0.03 CNY/piece` surcharge.
+- `shared/pricing/special-bag-pricing-rules.json` is the single source for ERP, the quotation domain, and the mini-program server snapshot. Body and handle prices are not fixed rule constants: use the latest confirmed exact-spec ERP supplier/inbound batch price, and use the versioned published fallback snapshot only when no eligible batch exists. Quotes are recalculated until order creation; the order preserves rule, material-price, and server-quote snapshots and later price changes must not rewrite it. Customer APIs expose only versions, input limits, and price results, never supplier/batch identity, GSM, ton prices, material-cost components, or margin.
+- Snap buttons cost `0.10 CNY/piece` for every model without exceptions. Private/silk-screen printing prices include plate making; freight and tax remain excluded from the quote.
 - Single-piece material cost = bag body cost + handle cost.
 - Single-piece material gross margin excluding labor/electricity = bag sales unit price - single-piece material cost.
 - Total material gross margin must show the quantity basis: revenue uses chargeable quantity and the order price snapshot; material cost can use actual produced/delivered quantity, actual material-issue allocation, or estimated quantity, and the UI must mark the result as `actual`, `estimated`, or `machine-allocated`.
@@ -4204,24 +4203,24 @@ Add-on order merge:
 - Raw-material purchase cost excludes freight. Freight should not be allocated into the raw-material cost snapshot; if freight needs to be tracked later, it should be recorded as a separate fee item or note.
 - The current fabric and handle raw-material supplier delivery/sales-note structure should support photo recognition and manual entry for supplier, raw-material delivery-note number/date, goods name/color, specification model, piece/roll count, total weight in kg, unit price, amount, per-piece/per-roll weight, notes, handler, and receiver.
 - The real fabric / nonwoven raw-material delivery/sales-note samples received on 2026-07-04 show common fields such as customer/receiver, document number, document date, goods name or full product name, color, specification model such as `78*70*1500`, `78*90*1300`, and `70*82*2000`, piece/roll count, total weight in kg, unit price, amount, per-roll weight columns, notes, delivery handler, receiver signature, and supplier terms. Recognition and monthly reconciliation should tolerate narrow table layouts, portrait or landscape photos, fingers covering the paper, skewed paper, and supplier template differences.
-- These four real notes represent the delivery-note formats of the factory's four main current raw-material suppliers. They are the durable regression corpus and the field go-live gate for the raw-material OCR/inbound module, covering count-plus-total-plus-per-roll-weight rows, one-weighed-roll-per-row layouts, variable per-roll-weight columns, and a missing supplier document number. The module may enter real operation only after all four formats are recognized accurately and consistently. Parsing must preserve supplier, optional supplier document number, date, line-level specification, supplier color, roll/piece count, exact per-roll weights, total weight, unit price, line amount, and document amount. Current bare/nonwoven fabric temporarily uses 78 GSM as the standard, but suppliers may put `78` in either of the first two specification positions: both `78*80*1300` and `80*78*1300` mean 78 GSM, 80cm width, and 1300m. Preserve the raw supplier specification and persist `gramWeightGsm`, `widthCm`, and `lengthM`; when neither unlabeled leading value is 78, do not guess. A confirmed 5cm width is handle strip raw material; every other confirmed width is body-fabric raw material. Summary rows, prior/cumulative debt, bank details, and supplier terms must never become purchase lines or synthetic rolls. Missing or shifted columns, such as the `天兰条` line with no recognized specification and ambiguous price/amount columns, must remain pending line-level human review instead of being accepted through whole-document review. Every parsed line must explicitly submit its review values for goods/material, specification, count, weight, unit, unit price, amount, roll number, and per-roll weights; only a server-owned field whitelist is editable, and the recognized value, modified fields, reviewer, and review time remain auditable. Aggregate line counts, weights, and amounts must reconcile to the document before label preparation; incomplete line review or a mismatch blocks labels and available inventory. Beyond the four baseline notes, every format also needs one independent second private holdout note that did not influence parser-rule changes; the gate reruns only saved Tencent table-OCR rows against office-confirmed line/document expectations, and passes only when all four formats are present with internally consistent expectations. Empty templates, missing cases, or reused baseline notes remain blocked, and this gate does not replace source-image OCR, physical one-to-one label reconciliation, issue-time scanning, or ERP-wide D49-D53 release gates.
+- These four real notes represent the delivery-note formats of the factory's four main current raw-material suppliers. They are the durable regression corpus and the field go-live gate for the raw-material OCR/inbound module, covering count-plus-total-plus-per-roll-weight rows, one-weighed-roll-per-row layouts, variable per-roll-weight columns, and a missing supplier document number. The module may enter real operation only after all four formats are recognized accurately and consistently. Parsing must preserve supplier, optional supplier document number, date, line-level specification, supplier color, roll/piece count, exact per-roll weights, total weight, unit price, line amount, and document amount. Current bare/nonwoven fabric temporarily uses 78 GSM as the standard, but suppliers may put `78` in either of the first two specification positions: both `78*80*1300` and `80*78*1300` mean 78 GSM, 80cm width, and 1300m. Preserve the raw supplier specification and persist `gramWeightGsm`, `widthCm`, and `lengthM`; when neither unlabeled leading value is 78, do not guess. Explicit supplier wording `条 / 条料 / 提手条` (including combined values such as `天兰条`) or a confirmed 5cm width classifies the line as handle strip; combined color/category text is split into the color and `提手条` category. The factory-authoritative handle-strip defaults are fixed at 78 GSM and 5cm width, so explicit strip wording applies those values even when the supplier omits them. Every other confirmed width is body-fabric raw material. An omitted meter length remains pending and is never inferred from the category word. The UI must distinguish `classified as handle strip with fixed 78 GSM / 5cm; meter length pending` from a true low-confidence/unreadable OCR result and must not ask for handle-strip width again. Summary rows, prior/cumulative debt, bank details, and supplier terms must never become purchase lines or synthetic rolls. Missing or shifted columns, such as the `天兰条` line whose category is known but whose meter length and price/amount columns remain incomplete, must stay pending line-level human review instead of being accepted through whole-document review. Every parsed line must explicitly submit its review values for goods/material, specification, count, weight, unit, unit price, amount, roll number, and per-roll weights; only a server-owned field whitelist is editable, and the recognized value, modified fields, reviewer, and review time remain auditable. Aggregate line counts, weights, and amounts must reconcile to the document before label preparation; incomplete line review or a mismatch blocks labels and available inventory. Beyond the four baseline notes, every format also needs one independent second private holdout note that did not influence parser-rule changes; the gate reruns only saved Tencent table-OCR rows against office-confirmed line/document expectations, and passes only when all four formats are present with internally consistent expectations. Empty templates, missing cases, or reused baseline notes remain blocked, and this gate does not replace source-image OCR, physical one-to-one label reconciliation, issue-time scanning, or ERP-wide D49-D53 release gates.
 - In this raw-material section, `delivery note` means the supplier document sent with incoming raw materials. It must not be linked to this factory's finished-goods outbound notes, customer delivery notes, pickup notes, express labels, or less-than-truckload documents.
 - Raw-material inbound numbering should have two layers: `supplier original document number` and `ERP internal inbound number`. The supplier number is an external reconciliation clue and source-document reference; if it exists, OCR should prefill it or staff should enter it. If the supplier does not provide one, it must stay blank and be marked as `supplier did not provide a number`; staff should not invent a supplier number just to fill the field. The ERP internal inbound ID, line ID, and roll/piece IDs are mandatory system-owned identifiers for internal search, labeling, scanning, inventory ledger, material issue, and cost traceability.
 - The phone raw-material OCR entry must expose two explicit actions: `take photo directly` and `gallery / PDF`. Direct capture should request the rear-facing camera instead of forcing the operator through a generic file picker first. Both inputs create only an OCR review draft and must never create labels or available inventory directly.
-- Office staff handling raw-material receiving on a phone use a dedicated lightweight `photo -> review -> print -> attach` surface rather than a desktop workbench compressed into a narrow viewport. Its default view shows only the current note and one next action; inventory inquiry, supplier statements, cost/margin, machine-side issue, and dense history remain outside the default phone surface. Detailed OCR fields appear only after explicit review entry. The attach step is manual confirmation after one-to-one physical matching and does not add an inbound scan or signed-note gate; desktop retains complete management and exception handling.
+- Office staff handling raw-material receiving on a phone use a dedicated lightweight `capture -> review -> print -> attach` field utility rather than a desktop workbench compressed into a narrow viewport. It has no `current / pending / all functions` bottom navigation. One continuous start page prioritizes resumable unfinished notes, then capture, then recent completions; upload success opens the all-roll review overview automatically, and detailed roll fields expand only for the selected physical roll while source-line split/count correction remains a separate source-line-level action. Printing states that it produces N different roll labels, one per roll, and shows dynamic device, connection, and acceptance state. Attachment lists every roll together without imposing physical order; each roll exposes `confirmed attached` and `label / physical roll mismatch`, and a mismatch isolates only that roll while correct rolls continue. Inventory inquiry, supplier statements, cost/margin, machine-side issue, and dense history remain on desktop. No inbound scan or signed-note gate is added.
 - When the supplier provides no original document number, reconciliation should not be auto-confirmed by time and quantity alone. Received date/time and piece/roll count are candidate clues only; matching should also use supplier, source photo attachment, specification, color, total weight, per-roll weight, roll sequence, unit price, and amount. Same-day similar deliveries from the same supplier should become low-confidence / manual-review candidates.
 - The Baihou supplier Excel statement samples received on 2026-07-04, covering the first and second halves of June, use a single sheet named `对账单` with columns `制单日期`, `单号`, `客户名称`, `商品名称`, `颜色`, `数量`, `重1` to `重5`, `总重`, `单价`, and `金额`. The document date may be text, and amount is a `total weight * unit price` formula. `数量` is roll/piece count, while `重1` to `重5` are per-roll weights, so the importer should split each row into roll-level rows for one-label-per-roll matching. Footer rows may include blank rows, total roll count / amount, `减退货减纸管合计`, historical arrears, and total arrears; these must not be treated as purchase detail rows.
 - The Baihou samples show that payable subtotal is not always just detail amount. They include a tube/core deduction such as `116 pieces -> 406` and `99 pieces -> 346.5`, which equals `pieces * 3.5`. The importer should classify this as a supplier-specific reconciliation adjustment and keep the rate configurable instead of applying it to all suppliers. The first V1 rule enables a default Baihou `3.5 CNY / piece` tube/core deduction and should preserve adjustment type, rule, piece count, unit rate, calculated amount, supplier-reported footer amount, and manual-review status. If a footer combines returns and tube/core deduction and the supplier-reported amount differs from the rule amount, the system must flag it for manual split review.
 - The Beichen supplier Excel statement sample received on 2026-07-04 contains `每日发货明细` and `每日发货统计` sheets. The first section of `每日发货明细` has columns such as document ID, date, business type, document number, warehouse, customer, invoice type, material code, material name, specification, batch number, unit, piece count, quantity, unit price, and amount. The `批号` column can be used as a supplier roll/batch number for ERP label matching. The same sheet may include a returns section near the bottom with a shifted header layout and no batch number, so the importer should parse by detected section headers rather than fixed column positions. `每日发货统计` is a daily validation summary, not a replacement for line-level reconciliation.
 - Fabric and handle raw materials are purchased primarily by `kg/weight`. The delivery note's `quantity` can be treated as total kg, `unit price` as price per kg, and `amount = total kg x unit price`. Width, GSM/fabric weight, and meters in the specification model should feed production material estimates, labels, and later gross-margin calculations.
 - The primary raw-material lookup key is `factory standard color + width`. Results show currently available kg, available rolls, the latest authorized yuan/kg price, machine-side weight, and whether the stock supports a selected order. Support requires matching color, an exact match to the order-calculated body-fabric width, the current 78 GSM standard, and enough available kg. Pending-review, unlabeled, machine-side, and consumed material must not count as available order-support stock.
-- Handle width is usually `5cm`, while main fabric roll widths are usually two-digit centimeter widths, such as `78cm`. Specification parsing must distinguish `material type = handle` from `material type = fabric`, so a small width value is not incorrectly treated as an abnormal fabric specification.
+- Handle-strip width is fixed at `5cm` and its GSM is fixed at `78`; main fabric roll widths are usually two-digit centimeter widths, such as `78cm`. Specification parsing must distinguish `material type = handle` from `material type = fabric`. Supplier wording that explicitly says strip or a confirmed 5cm width both classify the line as strip and apply those two fixed defaults; only an omitted meter length remains pending.
 - Handle labels and issue details should explicitly show `handle`, color, `5cm` width, GSM/specification, weight, and roll/batch number to avoid confusion with main fabric rolls.
 - Example: a line such as `red 78*90g*1500`, `2 pieces`, `212.4kg`, `9 yuan/kg`, `1911.6 yuan` should allow the system to also keep the two per-piece weights, such as `105.4kg` and `107kg`, for roll/piece labeling and later material issue.
 - The raw-material inbound document should save a cost snapshot: ERP raw-material inbound number, supplier, optional supplier original document number (enter it when present; do not invent one when absent), document date, line number, material type, supplier original color name, factory standard color, specification model, piece/roll count, per-roll/per-piece weight, total kg, pricing unit, purchase unit price, line amount, freight-included flag, original photo/OCR result, manual confirmer, and confirmation time.
 - The first raw-material inbound workflow is fixed as: receive and photograph the supplier delivery/sales note, let OCR create a review draft, have customer-service / office staff review the note details, confirm the physical roll count, create one system roll/piece ID per physical roll/piece, print one label per roll/piece, and manually match each label to its physical roll by weight, color, specification, and other identifying facts before attaching it. Matching rolls are confirmed inbound individually; mismatched rolls are isolated for exception handling. No phone scan or signed-note upload is required for inbound registration.
 - Label printing is only a `pending label attachment` state. It does not complete inbound. After one-to-one physical reconciliation, record the confirmer, confirmation time, and warehouse or temporary location. Matching rolls become `labeled / available`; mismatched rolls become `label or physical material mismatch / pending confirmation`. An inbound document may be `partially inbound, N rolls exceptional`, and correct rolls are not blocked. A signed-note image, if retained, is only a document attachment and never an inbound gate.
-- If a raw-material supplier delivery-note line provides roll/piece count and per-roll weight columns, the system should prefer those per-roll weights when generating labels. If per-roll weights are missing, the system may generate estimated labels from total weight divided by roll count, but the labels and records should be marked `per-roll weight pending review` and must not treat estimated weight as actual weighed weight.
+- Raw-material review, roll labels, scanning, and material issue must always be indexed by physical roll: the review ledger shows one physical roll per row, and each roll card and label shows only that roll's independently confirmed weight without displaying or editing roll count. A supplier/OCR source line may contain several rolls; the system expands it into separate physical-roll review rows while retaining source-line roll count, line total weight, and document total weight for audit and supplier reconciliation. Split count and count corrections remain source-line-level actions. A source-line or document total must never be divided, copied, or backfilled as an individual roll's weight. Any physical roll without its own weight remains blocked from review completion, label generation/printing, scanning/material issue, and available inventory.
 - Suggested raw-material inbound states are: `photo uploaded pending recognition`, `recognized pending review`, `pending completion / pending confirmation`, `reviewed pending label print`, `printed pending attachment`, `partially attached`, `labeled / available`, `label or physical material mismatch / pending confirmation`, `partially inbound, N rolls exceptional`, and `voided / rebuilt`.
 - Office staff can enter raw-material inbound documents. After confirmation, kg unit price, purchase unit price, amount, and cost-snapshot fields can be changed only by accounts with purchasing / cost / raw-material-price permission or through a correction workflow.
 - Ordinary label-attachment/inbound-reconciliation and helper material-issue accounts cannot change confirmed inbound prices.
@@ -4232,6 +4231,7 @@ Add-on order merge:
 - Recommended automatic matching priority is: supplier + supplier batch/roll number; then supplier + supplier original document number + line/roll sequence; if the supplier did not provide a document number, use ERP inbound ID / source photo attachment plus supplier + received date/time + specification + color + piece/roll count + per-roll weight + roll sequence as a candidate; then supplier + document date + specification + color + total/per-roll weight + unit price/amount; lastly total weight / amount as low-confidence candidates. Low-confidence candidates may be suggested but must not be auto-confirmed.
 - Supplier monthly reconciliation results should distinguish: fully matched, ERP inbound exists but supplier omitted it, supplier row exists but ERP has no confirmed inbound, specification/color/GSM/width/meter mismatch, weight/quantity mismatch, unit-price mismatch, amount mismatch, and possible duplicate rows. Difference rows should be highlighted in red or yellow and require manual handling notes.
 - Reconciliation adjustments should be shown separately, such as returns, tube/core deductions, supplier historical arrears, current-period payable subtotal, and total arrears. Only current-period purchases, returns, and deduction items participate in the current-period reconciliation; historical arrears and total arrears are reference balances and should not overwrite current inbound cost. Adjustment records should preserve structured fields such as `adjustmentType`, `isCurrentPeriod`, `amount`, `supplierReportedAmount`, `calculatedAmount`, and `calculationBasis`; historical arrears / balances must be marked `isCurrentPeriod=false`.
+- A manually reviewed supplier return note must create or match exactly one current-period negative `return_adjustment` reconciliation fact. That fact retains the source return record ID, original attachment ID, document number/date, OCR text, reviewed values, and row crop bounds; if the supplier workbook already contains the same return, it links to the ERP fact instead of deducting it twice. Reviewing the return note itself never changes inventory. Returning existing stock uses a separate scanned `supplier return holding area → shipped back` outbound flow and reduces inventory exactly once only when the physical return is confirmed.
 - Supplier reconciliation confirmation is not payment. The first V1 formal confirmation should only allow a manually reviewed consistent supplier statement draft to receive an `RMSRC-*` reconciliation confirmation id, move to `statement confirmed / pending payment`, and set payment status to `pending finance payment confirmation`. This confirmation may act as purchasing reconciliation evidence and later cost-basis input, but it must not create usable inventory, must not directly create payment, and must not bypass supplier deduction / tube-core rules or finance review.
 - The first V1 supplier payable draft must be generated separately by a finance / management account from an already confirmed reconciliation record. It receives an `RMSP-*` payable draft id and status `pending finance review`. The draft amount is current-period statement line subtotal plus current-period adjustments; historical arrears, total balances, and opening balances remain reference adjustments and must not be silently included in the current-period payable draft. Payable draft generation should prefer structured `isCurrentPeriod=false` / `reference_balance` markers over footer-text guessing when excluding historical balances.
 - The first V1 supplier payment confirmation must be a separate finance / management action based on an existing `RMSP-*` payable draft. It receives an `RMSPAY-*` payment confirmation id and records paid amount, method, bank reference / voucher, confirmer, and confirmation time. V1 requires the paid amount to equal the payable draft amount; partial payments, multiple payments, prepayments, payable aging, and complex variance carry-forward stay out of this first version. Payment confirmation updates supplier statement / payable payment status and operation logs only; it must not write raw-material inventory or customer statement payment records.

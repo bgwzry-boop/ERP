@@ -1,4 +1,4 @@
-export const manifestSchema = "erp-v1-field-evidence-manifest-v1";
+export const manifestSchema = "erp-v1-field-evidence-manifest-v2";
 export const manifestGeneratedAt = "2026-07-04T00:00:00.000+08:00";
 
 const completionItemStatuses = new Set(["passed", "accepted"]);
@@ -13,6 +13,7 @@ export const requiredEvidenceGroupKeys = [
   "print_hardware",
   "driver_native_device",
   "business_workflow_pilot",
+  "payroll_attendance_pilot",
   "security_operations",
 ];
 
@@ -69,6 +70,14 @@ export function buildV1FieldEvidenceManifestTemplate() {
         ["real_statement_payment_checked", "真实对账、收款、差额和核销流程已通过"],
         ["exception_todo_checked", "异常待办责任人、提醒和处理闭环已确认"],
       ]),
+      buildGroup("payroll_attendance_pilot", "工资 / 考勤真实闭环", "财务 / 管理", [
+        ["employee_payroll_profile_coverage_checked", "全部在职员工档案、计薪基础和得力身份映射已通过严格预检"],
+        ["deli_attendance_first_sync_checked", "得力初始化、首次只读同步和稳定员工映射已核对"],
+        ["closed_month_attendance_review_checked", "完整自然月考勤已导入且未匹配身份和异常均已清零"],
+        ["payroll_policy_version_approved", "首月正式计薪规则已由负责人审批并发布生效版本"],
+        ["payroll_closeout_checked", "首期工资草稿、会计复核、管理锁定、不可变导出和发薪确认已闭环"],
+        ["employee_self_service_checked", "正式员工账号只能查看本人打卡、工时、月度预估和历史工资"],
+      ]),
       buildGroup("security_operations", "账号 / 权限 / 运维", "技术 / 管理", [
         ["production_users_checked", "生产用户、岗位、角色和禁用名单已确认"],
         ["password_reset_plan_checked", "初始密码、强制改密、重置和撤销流程已确认"],
@@ -88,10 +97,11 @@ export function buildV1FieldEvidenceManifestTemplate() {
     v1V2BoundaryConfirmed: {
       v1: [
         "核心 ERP 闭环、人工确认、生产级持久化、真实打印、司机真机、对象存储和现场 QA。",
+        "正式员工档案、得力考勤身份与完整自然月工资闭环，以及员工本人考勤和历史工资查询。",
         "客户通知、成品图确认、异常处理和对账发送仍以人工确认闭环为主。",
       ],
       v2: [
-        "企业微信自动发送、自动回执抓取、AI/OCR、路线优化、自动排产、原材料成本毛利、售后工资和 BI 深化。",
+        "企业微信自动发送、自动回执抓取、AI/OCR、路线优化、自动排产、原材料成本毛利、售后责任与绩效扣款和 BI 深化。",
       ],
       confirmedBy: "",
       confirmedAt: "",

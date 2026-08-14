@@ -1,5 +1,9 @@
 import { findStockForDraft } from "../domain/officeRules.js";
 import { getOfficeDraft as getOfficeDraftDefault } from "../services/officeOrderApiClient.js";
+import {
+  createPrintArtworkAttachmentInput,
+  uploadOfficeAttachmentFile,
+} from "../services/officeAttachmentApiClient.js";
 
 const persistentEntryActions = new Set(["保存草稿", "保存并确认", "确认拆单", "作废草稿"]);
 const orderLineActions = new Map([
@@ -301,6 +305,37 @@ export function createOfficeOrderActions({
     updateOrderDraftField(id, field, value);
   }
 
+  async function uploadDraftArtwork(draftLine, file) {
+    if (!draftLine?.id || !file) return null;
+    setToast(`正在上传印刷稿件：${file.name || "未命名文件"}…`);
+    const result = await uploadOfficeAttachmentFile(
+      createPrintArtworkAttachmentInput({
+        draftId: draftApiMeta.draftId,
+        draftLine,
+        operatorId: currentUserId,
+        file,
+        remark: "办公室订单草稿上传印刷定稿；稿件版本随草稿行绑定。",
+      }),
+      { authState },
+    );
+    if (result?.blocked || !result?.attachment?.attachmentId) {
+      setToast(`印刷稿件上传失败：${result?.error?.message || "请稍后重试"}`);
+      return result;
+    }
+    const artworkAttachment = {
+      attachmentId: result.attachment.attachmentId,
+      fileName: result.attachment.fileName || file.name,
+      mimeType: result.attachment.mimeType || file.type || "application/octet-stream",
+      fileSize: Number(result.attachment.fileSize ?? file.size ?? 0),
+      status: result.attachment.status || "uploaded",
+      version: 1,
+    };
+    updateOrderDraftField(draftLine.id, "artworkAttachment", artworkAttachment);
+    updateOrderDraftField(draftLine.id, "artworkStatus", "已上传");
+    setToast(`印刷稿件已上传：${artworkAttachment.fileName}。保存草稿后将绑定到当前明细。`);
+    return result;
+  }
+
   function handleDraftCommand(action) {
     const result = runOrderDraftCommand(action);
     if (result?.feedback) setToast(result.feedback);
@@ -356,6 +391,7 @@ export function createOfficeOrderActions({
     recognizeQueue,
     refreshDraftQueue,
     restoreCancelledDraftLine,
+    uploadDraftArtwork,
     updateDraftField,
   };
 }

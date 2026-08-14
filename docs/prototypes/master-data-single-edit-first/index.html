@@ -1,0 +1,1833 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>通用价格表 · 单条维护优先预览</title>
+    <style>
+      /*
+       * Hallmark · genre: modern-minimal · tone: technical · anchor: blue
+       * Hallmark · macrostructure: Workbench (category index + on-demand detail)
+       * Hallmark · design-system: design.md · designed-as-app
+       * Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
+       */
+      :root {
+        color-scheme: light;
+        --canvas: oklch(97.1% 0.007 252);
+        --surface: oklch(99.6% 0.002 252);
+        --surface-subtle: oklch(98.1% 0.005 252);
+        --surface-muted: oklch(95.4% 0.009 252);
+        --ink: oklch(26% 0.035 258);
+        --muted: oklch(46% 0.032 255);
+        --faint: oklch(61% 0.022 255);
+        --border: oklch(88.5% 0.014 252);
+        --border-strong: oklch(81% 0.025 252);
+        --accent: oklch(59% 0.205 255);
+        --accent-strong: oklch(47% 0.19 255);
+        --accent-soft: oklch(94.2% 0.034 252);
+        --accent-softer: oklch(97.2% 0.018 252);
+        --success: oklch(46% 0.12 155);
+        --success-soft: oklch(95.3% 0.025 155);
+        --warning: oklch(49% 0.115 77);
+        --warning-soft: oklch(96% 0.045 85);
+        --danger: oklch(50% 0.17 28);
+        --sidebar: oklch(24% 0.055 255);
+        --sidebar-ink: oklch(95% 0.014 252);
+        --sidebar-muted: oklch(72% 0.035 252);
+        --sidebar-rule: oklch(100% 0 0 / 0.08);
+        --overlay: oklch(18% 0.025 255 / 0.32);
+        --shadow: oklch(24% 0.03 255 / 0.12);
+        --focus: oklch(59% 0.205 255 / 0.24);
+        --font-ui: "Geist", "PingFang SC", "Noto Sans SC", "Microsoft YaHei", sans-serif;
+        --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+        --ease-in: cubic-bezier(0.7, 0, 0.84, 0);
+        --dur-micro: 120ms;
+        --dur-short: 180ms;
+        font-family: var(--font-ui);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        overflow-x: clip;
+      }
+
+      body {
+        overflow-y: hidden;
+        background: var(--canvas);
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      button,
+      input,
+      select,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        cursor: pointer;
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      select:focus-visible,
+      textarea:focus-visible {
+        outline: 3px solid var(--focus);
+        outline-offset: 1px;
+      }
+
+      .app {
+        display: grid;
+        width: 100%;
+        height: 100dvh;
+        grid-template-columns: 140px minmax(0, 1fr);
+        grid-template-rows: 50px minmax(0, 1fr);
+      }
+
+      .sidebar {
+        display: flex;
+        grid-row: 1 / -1;
+        min-height: 0;
+        flex-direction: column;
+        background: var(--sidebar);
+        color: var(--sidebar-ink);
+      }
+
+      .brand {
+        display: flex;
+        height: 50px;
+        align-items: center;
+        gap: 9px;
+        border-bottom: 1px solid var(--sidebar-rule);
+        padding: 0 12px;
+      }
+
+      .brand-mark {
+        display: grid;
+        width: 25px;
+        height: 25px;
+        place-items: center;
+        border-radius: 5px;
+        background: var(--accent);
+        color: var(--surface);
+        font-size: 10px;
+        font-weight: 800;
+      }
+
+      .brand strong {
+        display: block;
+        font-size: 12px;
+        line-height: 1.2;
+      }
+
+      .brand small {
+        display: block;
+        margin-top: 2px;
+        color: var(--sidebar-muted);
+        font-size: 9px;
+      }
+
+      .nav {
+        display: grid;
+        gap: 4px;
+        padding: 10px 7px;
+      }
+
+      .nav-section {
+        margin-top: 3px;
+        padding: 8px 7px 3px;
+        color: var(--sidebar-muted);
+        font-size: 10px;
+      }
+
+      .nav button {
+        display: flex;
+        min-height: 34px;
+        align-items: center;
+        gap: 9px;
+        border: 0;
+        border-radius: 6px;
+        background: transparent;
+        color: var(--sidebar-muted);
+        padding: 0 10px;
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      .nav button.group-active {
+        background: var(--sidebar-rule);
+        color: var(--sidebar-ink);
+      }
+
+      .nav button.active {
+        background: var(--accent);
+        color: var(--surface);
+        font-weight: 700;
+      }
+
+      .nav-icon {
+        width: 16px;
+        color: currentColor;
+        font-size: 12px;
+        text-align: center;
+      }
+
+      .sidebar-footer {
+        margin-top: auto;
+        border-top: 1px solid var(--sidebar-rule);
+        padding: 10px 12px;
+        color: var(--sidebar-muted);
+        font-size: 11px;
+      }
+
+      .topbar {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface);
+        padding: 0 12px;
+      }
+
+      .factory {
+        flex: 0 0 auto;
+        font-weight: 700;
+      }
+
+      .global-search {
+        width: min(360px, 36vw);
+        height: 30px;
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        background: var(--surface);
+        padding: 0 10px;
+        color: var(--ink);
+      }
+
+      .top-spacer {
+        flex: 1;
+      }
+
+      .new-order {
+        min-height: 30px;
+        border: 1px solid var(--accent);
+        border-radius: 5px;
+        background: var(--accent);
+        color: var(--surface);
+        padding: 0 12px;
+        font-weight: 700;
+      }
+
+      .notification {
+        position: relative;
+        width: 30px;
+        height: 30px;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: var(--surface);
+        color: var(--muted);
+      }
+
+      .notification b {
+        position: absolute;
+        top: -4px;
+        right: -4px;
+        display: grid;
+        width: 16px;
+        height: 16px;
+        place-items: center;
+        border-radius: 50%;
+        background: var(--danger);
+        color: var(--surface);
+        font-size: 9px;
+      }
+
+      .account {
+        display: grid;
+        gap: 1px;
+        padding-left: 2px;
+        min-width: 95px;
+      }
+
+      .account strong {
+        font-size: 12px;
+      }
+
+      .account small {
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      main {
+        display: grid;
+        min-width: 0;
+        min-height: 0;
+        grid-template-rows: 45px minmax(0, 1fr);
+        padding: 0 12px 12px;
+      }
+
+      .page-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      .page-heading h1 {
+        margin: 0;
+        font-size: 20px;
+        letter-spacing: -0.02em;
+      }
+
+      .refresh {
+        min-height: 29px;
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        background: var(--surface);
+        color: var(--ink);
+        padding: 0 10px;
+      }
+
+      .workspace {
+        display: grid;
+        min-width: 0;
+        min-height: 0;
+        grid-template-columns: 206px minmax(0, 1fr);
+        gap: 10px;
+      }
+
+      .workspace.detail-open {
+        grid-template-columns: 190px minmax(510px, 1fr) minmax(350px, 390px);
+      }
+
+      .workspace.customer-mode {
+        grid-template-columns: minmax(0, 1fr);
+      }
+
+      .workspace.customer-mode.detail-open {
+        grid-template-columns: minmax(510px, 1fr) minmax(350px, 390px);
+      }
+
+      .panel {
+        min-width: 0;
+        min-height: 0;
+        overflow: hidden;
+        border: 1px solid var(--border-strong);
+        border-radius: 6px;
+        background: var(--surface);
+      }
+
+      .list-panel {
+        display: grid;
+        grid-template-rows: 42px 42px 39px 34px minmax(0, 1fr);
+      }
+
+      .category-panel {
+        display: grid;
+        grid-template-rows: 42px minmax(0, 1fr) auto auto;
+      }
+
+      .category-panel[hidden],
+      .detail-panel[hidden],
+      .release-record[hidden] {
+        display: none;
+      }
+
+      .category-heading {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-subtle);
+        padding: 0 12px;
+      }
+
+      .category-heading h2 {
+        margin: 0;
+        font-size: 13px;
+      }
+
+      .create-price-button {
+        display: grid;
+        width: 28px;
+        height: 28px;
+        place-items: center;
+        border: 1px solid var(--accent);
+        border-radius: 5px;
+        background: var(--accent);
+        color: var(--surface);
+        padding: 0;
+        font-size: 19px;
+        line-height: 1;
+        transition: background-color var(--dur-short) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+      }
+
+      .create-price-button:active {
+        transform: translateY(1px);
+      }
+
+      .category-nav {
+        min-height: 0;
+        overflow-y: auto;
+        padding: 6px;
+      }
+
+      .category-group + .category-group {
+        margin-top: 6px;
+      }
+
+      .category-parent,
+      .category-child {
+        display: flex;
+        width: 100%;
+        min-height: 36px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--ink);
+        padding: 0 8px;
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      .category-parent {
+        min-height: 40px;
+        font-weight: 750;
+      }
+
+      .category-parent span,
+      .category-child span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .category-parent b,
+      .category-child b {
+        color: var(--muted);
+        font-size: 10px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .category-child {
+        min-height: 34px;
+        color: var(--muted);
+        padding-inline-start: 20px;
+        font-size: 11px;
+      }
+
+      .category-parent.active,
+      .category-child.active {
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+      }
+
+      .category-parent.active b,
+      .category-child.active b {
+        color: var(--accent-strong);
+      }
+
+      .release-toggle {
+        min-height: 40px;
+        border: 0;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--muted);
+        padding: 0 10px;
+        text-align: left;
+        white-space: nowrap;
+      }
+
+      .release-toggle:hover,
+      .release-toggle[aria-expanded="true"] {
+        color: var(--accent-strong);
+        background: var(--surface-subtle);
+      }
+
+      .release-record {
+        display: grid;
+        gap: 7px;
+        border-top: 1px solid var(--border);
+        background: var(--surface-subtle);
+        padding: 10px;
+      }
+
+      .release-record strong {
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .release-record dl {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 5px 8px;
+        margin: 0;
+        font-size: 10px;
+      }
+
+      .release-record dt {
+        color: var(--muted);
+      }
+
+      .release-record dd {
+        min-width: 0;
+        margin: 0;
+        color: var(--ink);
+      }
+
+      .panel-header {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-subtle);
+        padding: 0 11px;
+      }
+
+      .panel-header h2 {
+        margin: 0;
+        font-size: 13px;
+      }
+
+      .bulk-button {
+        min-height: 28px;
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        background: var(--surface);
+        color: var(--muted);
+        padding: 0 9px;
+        font-size: 11px;
+      }
+
+      .bulk-button:hover {
+        color: var(--accent-strong);
+        border-color: var(--accent);
+      }
+
+      .filterbar {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 8px;
+        border-bottom: 1px solid var(--border);
+        padding: 5px 10px;
+      }
+
+      .search-wrap {
+        position: relative;
+        flex: 1;
+        min-width: 0;
+      }
+
+      .search-wrap span {
+        position: absolute;
+        top: 7px;
+        left: 9px;
+        color: var(--faint);
+      }
+
+      .search-wrap input {
+        width: 100%;
+        height: 30px;
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        background: var(--surface);
+        padding: 0 9px 0 28px;
+      }
+
+      .result-count {
+        flex: 0 0 auto;
+        color: var(--muted);
+        font-size: 11px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .status-strip {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-subtle);
+        padding: 0 10px;
+      }
+
+      .status-fact {
+        display: flex;
+        min-width: 0;
+        align-items: center;
+        gap: 6px;
+        color: var(--muted);
+        font-size: 11px;
+        white-space: nowrap;
+      }
+
+      .status-fact + .status-fact {
+        margin-inline-start: 20px;
+        border-inline-start: 1px solid var(--border);
+        padding-inline-start: 20px;
+      }
+
+      .status-strip strong {
+        color: var(--ink);
+        font-size: 13px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .status-strip .pending {
+        color: var(--warning);
+        font-weight: 700;
+      }
+
+      .table-head,
+      .data-row {
+        display: grid;
+        min-width: 0;
+        align-items: center;
+        gap: 10px;
+        padding: 0 10px;
+      }
+
+      .price-grid {
+        grid-template-columns: minmax(130px, 1.1fr) minmax(72px, 0.55fr) minmax(150px, 1.35fr);
+      }
+
+      .price-grid > span:nth-child(2) {
+        text-align: right;
+      }
+
+      .category-row {
+        display: flex;
+        min-height: 34px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-muted);
+        color: var(--ink);
+        padding: 0 10px;
+        font-size: 11px;
+        font-weight: 750;
+      }
+
+      .category-row span {
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 500;
+      }
+
+      .empty-price-row {
+        display: flex;
+        min-height: 70px;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        border-bottom: 1px solid var(--border);
+        padding: 12px 10px;
+        color: var(--muted);
+      }
+
+      .empty-price-row strong,
+      .empty-price-row span {
+        display: block;
+      }
+
+      .empty-price-row strong {
+        color: var(--ink);
+        font-size: 12px;
+      }
+
+      .empty-price-row span {
+        margin-top: 3px;
+        font-size: 10px;
+      }
+
+      .empty-price-row button {
+        min-height: 32px;
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        background: var(--surface);
+        color: var(--accent-strong);
+        padding: 0 9px;
+        white-space: nowrap;
+      }
+
+      .customer-grid {
+        grid-template-columns: minmax(110px, 1.05fr) minmax(72px, 0.7fr) minmax(85px, 0.78fr) minmax(105px, 0.9fr) minmax(78px, 0.7fr) minmax(115px, 1fr);
+      }
+
+      .table-head {
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-subtle);
+        color: var(--muted);
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .table-body {
+        min-height: 0;
+        overflow-y: auto;
+      }
+
+      .data-row {
+        width: 100%;
+        min-height: 39px;
+        border: 0;
+        border-bottom: 1px solid var(--border);
+        border-radius: 0;
+        background: var(--surface);
+        color: var(--ink);
+        text-align: left;
+      }
+
+      .data-row.selected {
+        background: var(--accent-soft);
+        outline: 1px solid var(--accent);
+        outline-offset: -1px;
+      }
+
+      .data-row span {
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .data-row .money,
+      .data-row .number {
+        font-variant-numeric: tabular-nums;
+      }
+
+      .detail-panel {
+        display: grid;
+        grid-template-rows: auto auto minmax(0, 1fr) auto;
+      }
+
+      .detail-head {
+        display: flex;
+        min-width: 0;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        border-bottom: 1px solid var(--border);
+        background: var(--surface-subtle);
+        padding: 11px 12px 10px;
+      }
+
+      .detail-head small {
+        display: block;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .detail-head h2 {
+        margin: 3px 0 0;
+        font-size: 16px;
+        line-height: 1.25;
+        overflow-wrap: anywhere;
+      }
+
+      .detail-head-actions {
+        display: flex;
+        flex: 0 0 auto;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .edit-mode {
+        border-radius: 4px;
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        padding: 4px 7px;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .close-detail {
+        min-height: 28px;
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        background: var(--surface);
+        color: var(--muted);
+        padding: 0 8px;
+        font-size: 10px;
+        white-space: nowrap;
+      }
+
+      .edit-summary {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 6px;
+        border-bottom: 1px solid var(--border);
+        padding: 8px 10px;
+      }
+
+      .edit-summary[hidden] {
+        display: none;
+      }
+
+      .edit-summary div {
+        min-width: 0;
+        border: 1px solid var(--border);
+        border-radius: 5px;
+        background: var(--surface-subtle);
+        padding: 6px 7px;
+      }
+
+      .edit-summary span {
+        display: block;
+        margin-bottom: 2px;
+        color: var(--muted);
+        font-size: 10px;
+      }
+
+      .edit-summary strong {
+        display: block;
+        overflow: hidden;
+        font-size: 12px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .edit-scroll {
+        min-height: 0;
+        overflow-y: auto;
+        padding: 12px;
+      }
+
+      .edit-intro {
+        display: flex;
+        align-items: flex-start;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+
+      .edit-intro h3 {
+        margin: 0 0 3px;
+        font-size: 13px;
+      }
+
+      .edit-intro p {
+        margin: 0;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.5;
+      }
+
+      .review-pill {
+        flex: 0 0 auto;
+        border-radius: 4px;
+        background: var(--warning-soft);
+        color: var(--warning);
+        padding: 4px 6px;
+        font-size: 10px;
+        font-weight: 700;
+      }
+
+      .form-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .form-grid label {
+        display: grid;
+        min-width: 0;
+        gap: 5px;
+      }
+
+      .form-grid label.full {
+        grid-column: 1 / -1;
+      }
+
+      .form-grid label > span {
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
+      .form-grid input,
+      .form-grid select,
+      .form-grid textarea {
+        width: 100%;
+        min-width: 0;
+        min-height: 34px;
+        border: 1px solid var(--border-strong);
+        border-radius: 5px;
+        background: var(--surface);
+        color: var(--ink);
+        padding: 6px 8px;
+        outline: 2px solid transparent;
+        outline-offset: 1px;
+      }
+
+      .form-grid textarea {
+        min-height: 62px;
+        resize: vertical;
+      }
+
+      .detail-footer {
+        display: grid;
+        grid-template-columns: 1fr auto auto;
+        align-items: center;
+        gap: 8px;
+        border-top: 1px solid var(--border);
+        background: var(--surface);
+        padding: 9px 12px;
+      }
+
+      .save-status {
+        min-width: 0;
+        color: var(--muted);
+        font-size: 10px;
+        line-height: 1.4;
+      }
+
+      .secondary-action,
+      .primary-action {
+        min-height: 34px;
+        border-radius: 5px;
+        padding: 0 12px;
+        font-weight: 700;
+        white-space: nowrap;
+        transition: background-color var(--dur-short) var(--ease-out), transform var(--dur-micro) var(--ease-out);
+      }
+
+      .secondary-action {
+        border: 1px solid var(--border-strong);
+        background: var(--surface);
+        color: var(--ink);
+      }
+
+      .primary-action {
+        border: 1px solid var(--accent);
+        background: var(--accent);
+        color: var(--surface);
+      }
+
+      .secondary-action:active,
+      .primary-action:active,
+      .bulk-button:active,
+      .empty-price-row button:active {
+        transform: translateY(1px);
+      }
+
+      .primary-action:disabled {
+        cursor: not-allowed;
+        border-color: var(--border);
+        background: var(--surface-muted);
+        color: var(--faint);
+      }
+
+      .modal-backdrop {
+        position: fixed;
+        z-index: 20;
+        inset: 0;
+        display: none;
+        place-items: center;
+        background: var(--overlay);
+        padding: 20px;
+      }
+
+      .modal-backdrop.open {
+        display: grid;
+      }
+
+      .modal {
+        width: min(520px, 100%);
+        border: 1px solid var(--border-strong);
+        border-radius: 10px;
+        background: var(--surface);
+        box-shadow: 0 14px 32px var(--shadow);
+      }
+
+      .modal header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        border-bottom: 1px solid var(--border);
+        padding: 13px 15px;
+      }
+
+      .modal h2 {
+        margin: 0;
+        font-size: 16px;
+      }
+
+      .modal-close {
+        width: 30px;
+        height: 30px;
+        border: 0;
+        border-radius: 5px;
+        background: transparent;
+        color: var(--muted);
+        font-size: 18px;
+      }
+
+      .modal-body {
+        padding: 15px;
+      }
+
+      .modal-body p {
+        margin: 0 0 12px;
+        color: var(--muted);
+        line-height: 1.65;
+      }
+
+      .bulk-choice {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 10px;
+      }
+
+      .bulk-choice button {
+        min-height: 76px;
+        border: 1px solid var(--border-strong);
+        border-radius: 7px;
+        background: var(--surface-subtle);
+        color: var(--ink);
+        padding: 10px;
+        text-align: left;
+      }
+
+      .bulk-choice strong,
+      .bulk-choice span {
+        display: block;
+      }
+
+      .bulk-choice span {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.45;
+      }
+
+      .toast {
+        position: fixed;
+        z-index: 30;
+        right: 18px;
+        bottom: 18px;
+        display: none;
+        max-width: 360px;
+        border: 1px solid var(--border-strong);
+        border-radius: 7px;
+        background: var(--surface);
+        box-shadow: 0 8px 24px var(--shadow);
+        padding: 10px 12px;
+        color: var(--ink);
+      }
+
+      .toast.show {
+        display: block;
+      }
+
+      .toast strong,
+      .toast span {
+        display: block;
+      }
+
+      .toast span {
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      @media (hover: hover) and (pointer: fine) {
+        .data-row:hover,
+        .category-parent:hover,
+        .category-child:hover {
+          background: var(--accent-softer);
+        }
+
+        .create-price-button:hover {
+          background: var(--accent-strong);
+        }
+
+        .form-grid input:hover,
+        .form-grid select:hover,
+        .form-grid textarea:hover {
+          background: var(--surface-subtle);
+        }
+      }
+
+      @media (max-width: 1180px) {
+        .workspace.detail-open {
+          grid-template-columns: minmax(500px, 1fr) 360px;
+        }
+
+        .workspace.detail-open .category-panel {
+          display: none;
+        }
+      }
+
+      @media (max-width: 1040px) {
+        .app {
+          grid-template-columns: 72px minmax(0, 1fr);
+        }
+
+        .brand {
+          justify-content: center;
+          padding: 0;
+        }
+
+        .brand > div:last-child,
+        .nav button span:last-child,
+        .nav-section,
+        .sidebar-footer {
+          display: none;
+        }
+
+        .nav button {
+          justify-content: center;
+          padding: 0;
+        }
+
+        .workspace,
+        .workspace.customer-mode {
+          grid-template-columns: 184px minmax(0, 1fr);
+        }
+
+        .workspace.detail-open,
+        .workspace.customer-mode.detail-open {
+          grid-template-columns: minmax(0, 1fr);
+        }
+
+        .workspace.detail-open .list-panel,
+        .workspace.customer-mode.detail-open .list-panel {
+          min-width: 0;
+        }
+
+        .detail-panel:not([hidden]) {
+          position: fixed;
+          z-index: 20;
+          top: 60px;
+          right: 10px;
+          bottom: 10px;
+          width: min(390px, calc(100% - 92px));
+          box-shadow: 0 14px 32px var(--shadow);
+        }
+      }
+
+      @media (max-width: 700px) {
+        .app {
+          grid-template-columns: 52px minmax(0, 1fr);
+        }
+
+        .brand-mark {
+          width: 30px;
+        }
+
+        .topbar {
+          gap: 6px;
+          padding-inline: 8px;
+        }
+
+        .global-search,
+        .account,
+        .notification {
+          display: none;
+        }
+
+        .new-order {
+          margin-inline-start: auto;
+        }
+
+        main {
+          padding-inline: 8px;
+        }
+
+        .workspace,
+        .workspace.customer-mode {
+          grid-template-columns: minmax(0, 1fr);
+          grid-template-rows: auto minmax(0, 1fr);
+        }
+
+        .category-panel {
+          grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+          grid-template-rows: 40px auto auto;
+        }
+
+        .category-heading {
+          grid-column: 1 / -1;
+        }
+
+        .category-nav {
+          max-height: 112px;
+          border-top: 0;
+          padding: 4px 8px;
+        }
+
+        .category-child {
+          display: none;
+        }
+
+        .release-toggle,
+        .release-record {
+          grid-column: 1 / -1;
+        }
+
+        .release-record {
+          max-height: 112px;
+          overflow-y: auto;
+        }
+
+        .detail-panel:not([hidden]) {
+          top: 56px;
+          right: 8px;
+          bottom: 8px;
+          width: calc(100% - 68px);
+        }
+
+        .price-grid {
+          grid-template-columns: minmax(96px, 1fr) minmax(62px, 0.55fr) minmax(112px, 1fr);
+        }
+
+        .status-fact + .status-fact {
+          margin-inline-start: 10px;
+          padding-inline-start: 10px;
+        }
+
+        .detail-footer {
+          grid-template-columns: minmax(0, 1fr) auto;
+        }
+
+        .save-status {
+          grid-column: 1 / -1;
+        }
+      }
+
+      @media (pointer: coarse) {
+        .category-parent,
+        .category-child,
+        .release-toggle,
+        .create-price-button,
+        .secondary-action,
+        .primary-action,
+        .close-detail,
+        .empty-price-row button {
+          min-height: 44px;
+        }
+
+        .create-price-button {
+          width: 44px;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        *,
+        *::before,
+        *::after {
+          animation-duration: 150ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 150ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar" aria-label="主导航">
+        <div class="brand">
+          <div class="brand-mark">ERP</div>
+          <div>
+            <strong>设计中心小工厂</strong>
+            <small>P0 办公室端</small>
+          </div>
+        </div>
+        <nav class="nav">
+          <button><span class="nav-icon">◷</span><span>今日工作</span></button>
+          <button><span class="nav-icon">◉</span><span>公共待办</span></button>
+          <button><span class="nav-icon">▾</span><span>订单</span></button>
+          <button><span class="nav-icon">▤</span><span>库存交付</span></button>
+          <button><span class="nav-icon">▣</span><span>对账</span></button>
+          <button class="group-active"><span class="nav-icon">▦</span><span>更多工作台</span></button>
+          <div class="nav-section">工作台</div>
+          <button><span class="nav-icon">☷</span><span>打包/标签</span></button>
+          <button><span class="nav-icon">⇩</span><span>原材料</span></button>
+          <button type="button" data-workbench="customer" aria-label="客户档案" title="客户档案"><span class="nav-icon">客</span><span>客户档案</span></button>
+          <button type="button" data-workbench="price" class="active" aria-current="page" aria-label="通用价格表" title="通用价格表"><span class="nav-icon">价</span><span>通用价格表</span></button>
+          <button type="button" data-workbench="stock" aria-label="规格库存" title="规格库存"><span class="nav-icon">规</span><span>规格库存</span></button>
+          <button type="button" data-workbench="employee" aria-label="员工机台" title="员工机台"><span class="nav-icon">机</span><span>员工机台</span></button>
+        </nav>
+        <div class="sidebar-footer">☰ &nbsp;收起菜单</div>
+      </aside>
+
+      <header class="topbar">
+        <div class="factory">虎门工厂</div>
+        <input class="global-search" aria-label="全局搜索" placeholder="搜索客户 / 订单 / 尺寸 / 颜色 / 单据" />
+        <div class="top-spacer"></div>
+        <button class="new-order">＋ 新建订单</button>
+        <button class="notification" aria-label="公共待办">♢<b>8</b></button>
+        <div class="account">
+          <strong>办公室A</strong>
+          <small>办公室A · 录单 / 对账</small>
+        </div>
+      </header>
+
+      <main>
+        <div class="page-heading">
+          <h1 id="pageTitle">通用价格表</h1>
+          <button class="refresh">↻ 刷新</button>
+        </div>
+
+        <div class="workspace" id="workspace">
+          <aside class="panel category-panel" id="categoryPanel" aria-label="袋子分类">
+            <div class="category-heading">
+              <h2>袋子分类</h2>
+              <button class="create-price-button" id="createPriceButton" type="button" aria-label="新建袋子价格" title="新建袋子价格" aria-controls="detailPanel" aria-expanded="false">＋</button>
+            </div>
+            <nav class="category-nav" id="categoryNav" aria-label="价格分类筛选"></nav>
+            <button class="release-toggle" id="releaseToggle" type="button" aria-expanded="false" aria-controls="releaseRecord">查看统一发布记录</button>
+            <div class="release-record" id="releaseRecord" hidden>
+              <strong>2026-07-16 07:30</strong>
+              <dl>
+                <dt>发布人</dt><dd>办公室A</dd>
+                <dt>更新内容</dt><dd>25 条袋子通用价格</dd>
+                <dt>发布方式</dt><dd>复核完成后统一发布</dd>
+              </dl>
+            </div>
+          </aside>
+
+          <section class="panel list-panel" id="listPanel" aria-label="通用价格表列表">
+            <div class="panel-header">
+              <h2 id="panelTitle">无纺布袋</h2>
+              <button class="bulk-button" id="openBulk">⇧ 首次建库 / 批量导入</button>
+            </div>
+
+            <div class="filterbar">
+              <div class="search-wrap">
+                <span>⌕</span>
+                <input id="searchInput" placeholder="搜索品类 / 规格 / 价格" />
+              </div>
+              <span class="result-count" id="resultCount">20 / 25 条</span>
+            </div>
+
+            <div class="status-strip" id="statusStrip" aria-label="价格维护摘要">
+              <div class="status-fact"><span id="currentLabel">当前使用</span><strong id="currentCount">25 条</strong></div>
+              <div class="status-fact pending"><span id="pendingSummary">其中 2 条有修改待复核</span></div>
+            </div>
+
+            <div class="table-head price-grid" id="tableHead"></div>
+            <div class="table-body" id="tableBody"></div>
+          </section>
+
+          <aside class="panel detail-panel" id="detailPanel" aria-label="单条资料编辑" hidden>
+            <div class="detail-head">
+              <div>
+                <small id="detailKicker">通用价格表 · 单条维护</small>
+                <h2 id="detailTitle">选择尺寸后查看详情</h2>
+              </div>
+              <div class="detail-head-actions">
+                <span class="edit-mode" id="editMode">单条维护</span>
+                <button class="close-detail" type="button" id="closeDetail">关闭详情</button>
+              </div>
+            </div>
+            <div class="edit-summary" id="editSummary"></div>
+            <div class="edit-scroll">
+              <div class="edit-intro">
+                <div>
+                  <h3 id="formTitle">编辑价格</h3>
+                  <p id="formHint">修改当前这一条；提交复核前不影响正在使用的价格。</p>
+                </div>
+                <span class="review-pill">提交后复核</span>
+              </div>
+              <form class="form-grid" id="editForm"></form>
+            </div>
+            <div class="detail-footer">
+              <span class="save-status" id="saveStatus">尚未修改 · 提交后进入统一发布前的复核</span>
+              <button class="secondary-action" type="button" id="cancelEdit">取消修改</button>
+              <button class="primary-action" type="button" id="saveEdit" disabled>保存并提交复核</button>
+            </div>
+          </aside>
+        </div>
+      </main>
+    </div>
+
+    <div class="modal-backdrop" id="bulkModal" role="dialog" aria-modal="true" aria-labelledby="bulkTitle">
+      <div class="modal">
+        <header>
+          <h2 id="bulkTitle">首次建库 / 批量导入</h2>
+          <button class="modal-close" id="closeBulk" aria-label="关闭">×</button>
+        </header>
+        <div class="modal-body">
+          <p>这里只处理第一次建立资料或一次修改很多条。日常维护先选择具体尺寸，再在展开的详情里修改。</p>
+          <div class="bulk-choice">
+            <button type="button"><strong>下载建库模板</strong><span>第一次把现有资料批量导入系统。</span></button>
+            <button type="button"><strong>上传批量修改</strong><span>一次更新多条资料，并统一进入复核。</span></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="toast" id="toast" role="status" aria-live="polite">
+      <strong id="toastTitle">已提交单条修改</strong>
+      <span id="toastText">价格修改已进入复核，当前生效价格保持不变。</span>
+    </div>
+
+    <script>
+      const priceTaxonomy = [
+        { category: "无纺布袋", bagTypes: ["纯色袋", "印刷通货袋"] },
+        { category: "覆膜无纺布袋", bagTypes: ["纯色袋", "印刷通货袋"] },
+      ];
+
+      const priceRecords = [
+        { id: "P-NW-PLAIN-25238", category: "无纺布袋", bagType: "纯色袋", size: "25×23×8", price: "¥0.29", alternateLabel: "加长提价", alternatePrice: "¥0.32", note: "普通提手；加长提按附加价维护" },
+        { id: "P-NW-PLAIN-262710", category: "无纺布袋", bagType: "纯色袋", size: "26×27×10", price: "¥0.28", alternateLabel: "加长提价", alternatePrice: "¥0.31", note: "特殊尺寸" },
+        { id: "P-NW-PLAIN-253210", category: "无纺布袋", bagType: "纯色袋", size: "25×32×10", price: "¥0.29", alternateLabel: "加长提价", alternatePrice: "¥0.32", note: "普通提手；加长提按附加价维护" },
+        { id: "P-NW-PLAIN-30368", category: "无纺布袋", bagType: "纯色袋", size: "30×36×8", price: "¥0.34", alternateLabel: "加长提价", alternatePrice: "¥0.37", note: "普通提手；加长提按附加价维护" },
+        { id: "P-NW-PLAIN-303710", category: "无纺布袋", bagType: "纯色袋", size: "30×37×10", price: "¥0.34", alternateLabel: "加长提价", alternatePrice: "¥0.37", note: "30×38、30×38×10、30×37 仅作为识别别名" },
+        { id: "P-NW-PLAIN-352710", category: "无纺布袋", bagType: "纯色袋", size: "35×27×10", price: "¥0.30", alternateLabel: "加长提价", alternatePrice: "¥0.33", note: "横向规格" },
+        { id: "P-NW-PLAIN-354112", category: "无纺布袋", bagType: "纯色袋", size: "35×41×12", price: "¥0.48", alternateLabel: "加长提价", alternatePrice: "¥0.51", note: "普通提手；加长提按附加价维护" },
+        { id: "P-NW-PLAIN-403010", category: "无纺布袋", bagType: "纯色袋", size: "40×30×10", price: "¥0.36", alternateLabel: "加长提价", alternatePrice: "¥0.39", note: "横向规格" },
+        { id: "P-NW-PLAIN-403210", category: "无纺布袋", bagType: "纯色袋", size: "40×32×10", price: "¥0.37", alternateLabel: "加长提价", alternatePrice: "¥0.40", note: "横向规格" },
+        { id: "P-NW-PLAIN-453710", category: "无纺布袋", bagType: "纯色袋", size: "45×37×10", price: "¥0.47", alternateLabel: "加长提价", alternatePrice: "¥0.50", note: "横向规格" },
+        { id: "P-NW-PLAIN-504012", category: "无纺布袋", bagType: "纯色袋", size: "50×40×12", price: "¥0.60", alternateLabel: "加长提价", alternatePrice: "¥0.63", note: "横向特大规格" },
+        { id: "P-NW-PRINT-25238", category: "无纺布袋", bagType: "印刷通货袋", size: "25×23×8", price: "¥0.45", alternateLabel: "附加价 / 规则", alternatePrice: "—", note: "图案不作为价格分类" },
+        { id: "P-NW-PRINT-253010", category: "无纺布袋", bagType: "印刷通货袋", size: "25×30×10", price: "¥0.51", alternateLabel: "附加价 / 规则", alternatePrice: "—", note: "图案不作为价格分类" },
+        { id: "P-NW-PRINT-302710", category: "无纺布袋", bagType: "印刷通货袋", size: "30×27×10", price: "¥0.51", alternateLabel: "附加价 / 规则", alternatePrice: "—", note: "图案不作为价格分类" },
+        { id: "P-NW-PRINT-3030", category: "无纺布袋", bagType: "印刷通货袋", size: "30×30", price: "¥0.53", alternateLabel: "附加价 / 规则", alternatePrice: "—", note: "图案不作为价格分类" },
+        { id: "P-NW-PRINT-303710", category: "无纺布袋", bagType: "印刷通货袋", size: "30×37×10", price: "¥0.56", alternateLabel: "附加价 / 规则", alternatePrice: "—", note: "图案不作为价格分类" },
+        { id: "P-NW-PRINT-353210", category: "无纺布袋", bagType: "印刷通货袋", size: "35×32×10", price: "¥0.57", alternateLabel: "附加价 / 规则", alternatePrice: "—", note: "图案不作为价格分类" },
+        { id: "P-NW-PRINT-354112", category: "无纺布袋", bagType: "印刷通货袋", size: "35×41×12", price: "¥0.76", alternateLabel: "附加价 / 规则", alternatePrice: "—", note: "图案不作为价格分类" },
+        { id: "P-NW-PRINT-403512", category: "无纺布袋", bagType: "印刷通货袋", size: "40×35×12", price: "¥0.69", alternateLabel: "附加价 / 规则", alternatePrice: "—", note: "图案不作为价格分类" },
+        { id: "P-NW-PRINT-504012", category: "无纺布袋", bagType: "印刷通货袋", size: "50×40×12", price: "¥0.80", alternateLabel: "附加价 / 规则", alternatePrice: "—", note: "图案不作为价格分类" },
+        { id: "P-LAM-PLAIN-322510", category: "覆膜无纺布袋", bagType: "纯色袋", size: "32×25×10", price: "¥0.45", alternateLabel: "金银款价", alternatePrice: "¥0.49", note: "普通覆膜价；金银款按附加价维护" },
+        { id: "P-LAM-PLAIN-302710", category: "覆膜无纺布袋", bagType: "纯色袋", size: "30×27×10", price: "¥0.60", alternateLabel: "金银款价", alternatePrice: "¥0.63", note: "普通覆膜价；金银款按附加价维护" },
+        { id: "P-LAM-PLAIN-403010", category: "覆膜无纺布袋", bagType: "纯色袋", size: "40×30×10", price: "¥0.58", alternateLabel: "金银款价", alternatePrice: "¥0.62", note: "普通覆膜价；金银款按附加价维护" },
+        { id: "P-LAM-PLAIN-453510", category: "覆膜无纺布袋", bagType: "纯色袋", size: "45×35×10", price: "¥0.72", alternateLabel: "金银款价", alternatePrice: "¥0.76", note: "普通覆膜价；金银款按附加价维护" },
+        { id: "P-LAM-PLAIN-504012", category: "覆膜无纺布袋", bagType: "纯色袋", size: "50×40×12", price: "¥1.00", alternateLabel: "金银款价", alternatePrice: "¥1.03", note: "普通覆膜价；金银款按附加价维护" },
+      ];
+
+      const customerRecords = [
+        { id: "C001", name: "周美玲", settlement: "7天一结", contact: "周姐", phone: "138****1234", debt: "¥2,400", tags: "自提多 / 常用30×38", address: "虎门镇人民路 8 号" },
+        { id: "C002", name: "陈慧敏", settlement: "15天一结", contact: "陈女士", phone: "139****6221", debt: "¥8,800", tags: "送货 / 欠款关注", address: "南栅社区文明路 16 号" },
+        { id: "C003", name: "梁志强", settlement: "现结", contact: "梁先生", phone: "136****7709", debt: "¥0", tags: "现场付款", address: "博美工业区 3 栋" },
+        { id: "C004", name: "林秋燕", settlement: "月结", contact: "林会计", phone: "137****5510", debt: "¥12,600", tags: "快运 / 定制多", address: "龙眼路 22 号" },
+        { id: "C005", name: "赵琪", settlement: "5天一结", contact: "赵姐", phone: "135****9901", debt: "¥0", tags: "加长提", address: "怀德社区新村路 5 号" },
+        { id: "C006", name: "刘晨", settlement: "现结", contact: "刘先生", phone: "132****4468", debt: "¥0", tags: "印刷通货", address: "北栅仁中岗大道 18 号" },
+      ];
+
+      const state = {
+        workbench: "price",
+        selectedId: null,
+        detailMode: null,
+        activeCategory: "无纺布袋",
+        activeBagType: null,
+        createDefaults: {},
+        initialValues: {},
+        lastTrigger: null,
+      };
+
+      const workbenchMeta = {
+        customer: { pageTitle: "客户档案", panelTitle: "客户列表", searchPlaceholder: "搜索客户 / 联系人 / 电话 / 标签" },
+        price: { pageTitle: "通用价格表", panelTitle: "袋子通用价格", searchPlaceholder: "搜索袋型 / 尺寸 / 价格" },
+      };
+
+      const workspace = document.getElementById("workspace");
+      const categoryPanel = document.getElementById("categoryPanel");
+      const categoryNav = document.getElementById("categoryNav");
+      const createPriceButton = document.getElementById("createPriceButton");
+      const releaseToggle = document.getElementById("releaseToggle");
+      const releaseRecord = document.getElementById("releaseRecord");
+      const tableHead = document.getElementById("tableHead");
+      const tableBody = document.getElementById("tableBody");
+      const pageTitle = document.getElementById("pageTitle");
+      const panelTitle = document.getElementById("panelTitle");
+      const listPanel = document.getElementById("listPanel");
+      const detailPanel = document.getElementById("detailPanel");
+      const detailTitle = document.getElementById("detailTitle");
+      const detailKicker = document.getElementById("detailKicker");
+      const editMode = document.getElementById("editMode");
+      const editSummary = document.getElementById("editSummary");
+      const formTitle = document.getElementById("formTitle");
+      const formHint = document.getElementById("formHint");
+      const editForm = document.getElementById("editForm");
+      const saveButton = document.getElementById("saveEdit");
+      const cancelButton = document.getElementById("cancelEdit");
+      const saveStatus = document.getElementById("saveStatus");
+      const resultCount = document.getElementById("resultCount");
+      const statusStrip = document.getElementById("statusStrip");
+      const currentLabel = document.getElementById("currentLabel");
+      const currentCount = document.getElementById("currentCount");
+      const pendingSummary = document.getElementById("pendingSummary");
+      const searchInput = document.getElementById("searchInput");
+      const toast = document.getElementById("toast");
+      const toastTitle = document.getElementById("toastTitle");
+      const toastText = document.getElementById("toastText");
+
+      function priceCount(category, bagType = null) {
+        return priceRecords.filter((record) => record.category === category && (!bagType || record.bagType === bagType)).length;
+      }
+
+      function selectedRecord() {
+        return state.workbench === "price"
+          ? priceRecords.find((record) => record.id === state.selectedId) || null
+          : customerRecords.find((record) => record.id === state.selectedId) || null;
+      }
+
+      function renderCategoryNav() {
+        categoryNav.innerHTML = "";
+        priceTaxonomy.forEach(({ category, bagTypes }) => {
+          const group = document.createElement("div");
+          group.className = "category-group";
+
+          const parent = document.createElement("button");
+          parent.type = "button";
+          parent.className = `category-parent${state.activeCategory === category && !state.activeBagType ? " active" : ""}`;
+          parent.innerHTML = `<span>${category}</span><b>${priceCount(category)}</b>`;
+          parent.addEventListener("click", () => setPriceFilter(category, null, parent));
+          group.appendChild(parent);
+
+          bagTypes.forEach((bagType) => {
+            const child = document.createElement("button");
+            child.type = "button";
+            child.className = `category-child${state.activeCategory === category && state.activeBagType === bagType ? " active" : ""}`;
+            child.innerHTML = `<span>${bagType}</span><b>${priceCount(category, bagType)}</b>`;
+            child.addEventListener("click", () => setPriceFilter(category, bagType, child));
+            group.appendChild(child);
+          });
+          categoryNav.appendChild(group);
+        });
+      }
+
+      function setPriceFilter(category, bagType, trigger) {
+        state.activeCategory = category;
+        state.activeBagType = bagType;
+        closeDetail(false);
+        renderTable();
+        trigger?.focus({ preventScroll: true });
+      }
+
+      function priceSearchText(record) {
+        return [record.category, record.bagType, record.size, record.price, record.alternateLabel, record.alternatePrice, record.note].join(" ").toLowerCase();
+      }
+
+      function appendPriceRow(record) {
+        const button = document.createElement("button");
+        button.type = "button";
+        button.className = `data-row price-grid${record.id === state.selectedId ? " selected" : ""}`;
+        button.setAttribute("aria-pressed", String(record.id === state.selectedId));
+        button.setAttribute("aria-label", `${record.category} ${record.bagType} ${record.size} ${record.price}`);
+        const rule = record.alternatePrice === "—" ? "—" : `${record.alternateLabel} ${record.alternatePrice}`;
+        button.innerHTML = `<span>${record.size}</span><span class="money">${record.price}</span><span>${rule}</span>`;
+        button.addEventListener("click", () => openDetail("edit", record.id, {}, button));
+        tableBody.appendChild(button);
+      }
+
+      function appendEmptyPriceRow(category, bagType, query) {
+        const empty = document.createElement("div");
+        empty.className = "empty-price-row";
+        const message = query
+          ? `<div><strong>没有匹配的价格</strong><span>换一个尺寸或价格关键词试试</span></div>`
+          : `<div><strong>暂无已发布价格</strong><span>该袋型还没有独立价格资料</span></div>`;
+        empty.innerHTML = `${message}<button type="button">新建该类价格</button>`;
+        empty.querySelector("button").addEventListener("click", (event) => openDetail("create", null, { category, bagType }, event.currentTarget));
+        tableBody.appendChild(empty);
+      }
+
+      function renderPriceTable() {
+        const query = searchInput.value.trim().toLowerCase();
+        const bagTypes = state.activeBagType ? [state.activeBagType] : ["纯色袋", "印刷通货袋"];
+        const scope = priceRecords.filter((record) => record.category === state.activeCategory && (!state.activeBagType || record.bagType === state.activeBagType));
+        const visible = scope.filter((record) => !query || priceSearchText(record).includes(query));
+
+        panelTitle.textContent = state.activeBagType ? `${state.activeCategory} · ${state.activeBagType}` : state.activeCategory;
+        tableHead.className = "table-head price-grid";
+        tableHead.innerHTML = ["尺寸（宽×高×侧）", "通用价", "附加价 / 规则"].map((label) => `<span>${label}</span>`).join("");
+        tableBody.innerHTML = "";
+
+        bagTypes.forEach((bagType) => {
+          const rows = visible.filter((record) => record.bagType === bagType);
+          if (query && rows.length === 0 && bagTypes.length > 1) return;
+          const group = document.createElement("div");
+          group.className = "category-row";
+          group.innerHTML = `<strong>${bagType}</strong><span>${rows.length} 条</span>`;
+          tableBody.appendChild(group);
+          rows.forEach(appendPriceRow);
+          if (rows.length === 0) appendEmptyPriceRow(state.activeCategory, bagType, query);
+        });
+
+        if (query && visible.length === 0 && bagTypes.length > 1) appendEmptyPriceRow(state.activeCategory, state.activeBagType || "纯色袋", query);
+        resultCount.textContent = `${visible.length} / ${priceRecords.length} 条`;
+        statusStrip.setAttribute("aria-label", "价格维护摘要");
+        currentLabel.textContent = "当前使用";
+        currentCount.textContent = `${priceRecords.length} 条`;
+        pendingSummary.textContent = "其中 2 条有修改待复核";
+        renderCategoryNav();
+      }
+
+      function renderCustomerTable() {
+        const query = searchInput.value.trim().toLowerCase();
+        const visible = customerRecords.filter((record) => [record.name, record.settlement, record.contact, record.phone, record.debt, record.tags, record.address].join(" ").toLowerCase().includes(query));
+        panelTitle.textContent = "客户列表";
+        tableHead.className = "table-head customer-grid";
+        tableHead.innerHTML = ["客户", "结算", "联系人", "电话", "欠款", "标签"].map((label) => `<span>${label}</span>`).join("");
+        tableBody.innerHTML = "";
+        visible.forEach((record) => {
+          const button = document.createElement("button");
+          button.type = "button";
+          button.className = `data-row customer-grid${record.id === state.selectedId ? " selected" : ""}`;
+          button.setAttribute("aria-pressed", String(record.id === state.selectedId));
+          button.innerHTML = `<span>${record.name}</span><span>${record.settlement}</span><span>${record.contact}</span><span>${record.phone}</span><span class="money">${record.debt}</span><span>${record.tags}</span>`;
+          button.addEventListener("click", () => openDetail("edit", record.id, {}, button));
+          tableBody.appendChild(button);
+        });
+        resultCount.textContent = `${visible.length} / 12 条`;
+        statusStrip.setAttribute("aria-label", "客户档案维护摘要");
+        currentLabel.textContent = "客户档案";
+        currentCount.textContent = "12 位";
+        pendingSummary.textContent = "暂无待复核修改";
+      }
+
+      function renderTable() {
+        if (state.workbench === "price") renderPriceTable();
+        else renderCustomerTable();
+      }
+
+      function field(label, key, value, options = {}) {
+        const wrapper = document.createElement("label");
+        if (options.full) wrapper.className = "full";
+        const labelSpan = document.createElement("span");
+        labelSpan.textContent = label;
+        wrapper.appendChild(labelSpan);
+        let control;
+        if (options.type === "textarea") {
+          control = document.createElement("textarea");
+          control.rows = 2;
+        } else if (options.choices) {
+          control = document.createElement("select");
+          options.choices.forEach((choice) => {
+            const option = document.createElement("option");
+            option.value = choice;
+            option.textContent = choice;
+            control.appendChild(option);
+          });
+        } else {
+          control = document.createElement("input");
+          control.type = options.type || "text";
+        }
+        control.name = key;
+        control.value = value;
+        if (options.step) control.step = options.step;
+        if (options.placeholder) control.placeholder = options.placeholder;
+        if (options.required) control.required = true;
+        control.addEventListener("input", updateDirtyState);
+        control.addEventListener("change", updateDirtyState);
+        wrapper.appendChild(control);
+        return wrapper;
+      }
+
+      function openDetail(mode, id = null, defaults = {}, trigger = null) {
+        state.detailMode = mode;
+        state.selectedId = id;
+        state.createDefaults = defaults;
+        state.lastTrigger = trigger;
+        detailPanel.hidden = false;
+        workspace.classList.add("detail-open");
+        createPriceButton.setAttribute("aria-expanded", String(mode === "create"));
+        renderTable();
+        renderDetail();
+        window.requestAnimationFrame(() => editForm.querySelector("input, select, textarea")?.focus({ preventScroll: true }));
+      }
+
+      function closeDetail(restoreFocus = true) {
+        if (detailPanel.hidden) return;
+        detailPanel.hidden = true;
+        workspace.classList.remove("detail-open");
+        state.selectedId = null;
+        state.detailMode = null;
+        state.createDefaults = {};
+        createPriceButton.setAttribute("aria-expanded", "false");
+        renderTable();
+        if (restoreFocus) state.lastTrigger?.focus({ preventScroll: true });
+      }
+
+      function renderDetail() {
+        const record = selectedRecord();
+        const isPrice = state.workbench === "price";
+        const isCreate = isPrice && state.detailMode === "create";
+        editForm.innerHTML = "";
+        editSummary.hidden = isCreate;
+
+        if (isCreate) {
+          const defaults = { category: state.activeCategory, bagType: state.activeBagType || "纯色袋", ...state.createDefaults };
+          detailKicker.textContent = "通用价格表 · 新建";
+          detailTitle.textContent = "新建袋子价格";
+          editMode.textContent = "新建";
+          formTitle.textContent = "填写通用价格";
+          formHint.textContent = "新价格先进入复核，统一发布后才会进入正在使用的价格表。";
+          cancelButton.textContent = "取消新建";
+          saveButton.textContent = "保存并提交复核";
+          [
+            field("分类", "category", defaults.category, { choices: ["无纺布袋", "覆膜无纺布袋"], required: true }),
+            field("袋型", "bagType", defaults.bagType, { choices: ["纯色袋", "印刷通货袋"], required: true }),
+            field("尺寸（宽×高×侧）", "size", "", { placeholder: "例如 30×37×10", required: true }),
+            field("通用单价（元/个）", "price", "", { type: "number", step: "0.01", required: true }),
+            field("附加价或规则名称", "alternateLabel", ""),
+            field("附加价或规则内容", "alternatePrice", ""),
+            field("价格说明", "note", "", { full: true, type: "textarea" }),
+            field("新建说明", "reason", "", { full: true, type: "textarea", required: true }),
+          ].forEach((node) => editForm.appendChild(node));
+          editSummary.innerHTML = "";
+          saveStatus.textContent = "填写完成后提交复核";
+        } else if (isPrice && record) {
+          detailKicker.textContent = "通用价格表 · 单条维护";
+          detailTitle.textContent = `${record.category} · ${record.bagType} · ${record.size}`;
+          editMode.textContent = "单条维护";
+          formTitle.textContent = "编辑袋子价格";
+          formHint.textContent = "只修改当前尺寸；历史订单的成交价格不会改变。";
+          editSummary.innerHTML = `<div><span>当前通用价</span><strong>${record.price}</strong></div><div><span>附加价 / 规则</span><strong>${record.alternatePrice === "—" ? "—" : `${record.alternateLabel} ${record.alternatePrice}`}</strong></div>`;
+          cancelButton.textContent = "还原修改";
+          saveButton.textContent = "保存并提交复核";
+          [
+            field("分类", "category", record.category, { choices: ["无纺布袋", "覆膜无纺布袋"] }),
+            field("袋型", "bagType", record.bagType, { choices: ["纯色袋", "印刷通货袋"] }),
+            field("尺寸（宽×高×侧）", "size", record.size),
+            field("通用单价（元/个）", "price", record.price.replace("¥", ""), { type: "number", step: "0.01" }),
+            field("附加价或规则名称", "alternateLabel", record.alternateLabel),
+            field("附加价或规则内容", "alternatePrice", record.alternatePrice.replace("¥", "")),
+            field("价格说明", "note", record.note, { full: true, type: "textarea" }),
+            field("修改原因", "reason", "", { full: true, type: "textarea" }),
+          ].forEach((node) => editForm.appendChild(node));
+          saveStatus.textContent = "尚未修改 · 提交后进入统一发布前的复核";
+        } else if (record) {
+          detailKicker.textContent = "客户档案 · 单条维护";
+          detailTitle.textContent = record.name;
+          editMode.textContent = "单条维护";
+          formTitle.textContent = "编辑客户资料";
+          formHint.textContent = "修改当前客户；需要复核的字段通过后生效。";
+          editSummary.innerHTML = `<div><span>客户编号</span><strong>${record.id}</strong></div><div><span>结算周期</span><strong>${record.settlement}</strong></div><div><span>应收 / 欠款</span><strong>${record.debt}</strong></div><div><span>联系人</span><strong>${record.contact}</strong></div>`;
+          cancelButton.textContent = "还原修改";
+          saveButton.textContent = "保存并提交复核";
+          [
+            field("客户名称", "name", record.name),
+            field("结算周期", "settlement", record.settlement, { choices: ["现结", "5天一结", "7天一结", "15天一结", "月结"] }),
+            field("联系人", "contact", record.contact),
+            field("联系电话", "phone", record.phone),
+            field("收货地址", "address", record.address, { full: true }),
+            field("客户标签", "tags", record.tags, { full: true }),
+            field("修改原因", "reason", "", { full: true, type: "textarea" }),
+          ].forEach((node) => editForm.appendChild(node));
+          saveStatus.textContent = "尚未修改 · 客户敏感字段变更会进入复核";
+        }
+
+        state.initialValues = Object.fromEntries(new FormData(editForm).entries());
+        saveButton.disabled = true;
+      }
+
+      function updateDirtyState() {
+        const current = Object.fromEntries(new FormData(editForm).entries());
+        const changed = Object.keys(current).some((key) => current[key] !== state.initialValues[key]);
+        const reasonReady = Boolean(String(current.reason || "").trim());
+        const requiredReady = state.detailMode !== "create" || ["category", "bagType", "size", "price", "reason"].every((key) => Boolean(String(current[key] || "").trim()));
+        saveButton.disabled = !changed || !reasonReady || !requiredReady;
+        saveStatus.textContent = !changed
+          ? state.detailMode === "create" ? "填写完成后提交复核" : "尚未修改"
+          : !requiredReady
+            ? "还有必填内容未完成"
+            : !reasonReady
+              ? "已修改 · 请填写说明"
+              : "可以提交复核";
+      }
+
+      function showToast(title, text) {
+        toastTitle.textContent = title;
+        toastText.textContent = text;
+        toast.classList.add("show");
+        window.setTimeout(() => toast.classList.remove("show"), 2800);
+      }
+
+      function changeWorkbench(workbench) {
+        if (!workbenchMeta[workbench]) {
+          const label = workbench === "stock" ? "规格库存" : "员工机台";
+          showToast("独立工作台", `${label}已拆为独立工作台；本次评审先展示通用价格表与客户档案。`);
+          return;
+        }
+        if (!detailPanel.hidden) closeDetail(false);
+        state.workbench = workbench;
+        state.selectedId = null;
+        searchInput.value = "";
+        const isPrice = workbench === "price";
+        const meta = workbenchMeta[workbench];
+        categoryPanel.hidden = !isPrice;
+        workspace.classList.toggle("customer-mode", !isPrice);
+        pageTitle.textContent = meta.pageTitle;
+        panelTitle.textContent = isPrice ? state.activeCategory : meta.panelTitle;
+        listPanel.setAttribute("aria-label", `${meta.pageTitle}列表`);
+        searchInput.placeholder = meta.searchPlaceholder;
+        document.title = `${meta.pageTitle} · 单条维护优先预览`;
+        document.querySelectorAll("[data-workbench]").forEach((button) => {
+          const active = button.dataset.workbench === workbench;
+          button.classList.toggle("active", active);
+          if (active) button.setAttribute("aria-current", "page");
+          else button.removeAttribute("aria-current");
+        });
+        renderTable();
+      }
+
+      document.querySelectorAll("[data-workbench]").forEach((button) => {
+        button.addEventListener("click", () => changeWorkbench(button.dataset.workbench));
+      });
+
+      searchInput.addEventListener("input", renderTable);
+      createPriceButton.addEventListener("click", (event) => openDetail("create", null, {}, event.currentTarget));
+      document.getElementById("closeDetail").addEventListener("click", () => closeDetail());
+      cancelButton.addEventListener("click", () => {
+        if (state.detailMode === "create") closeDetail();
+        else renderDetail();
+      });
+
+      saveButton.addEventListener("click", () => {
+        if (saveButton.disabled) return;
+        const current = Object.fromEntries(new FormData(editForm).entries());
+        state.initialValues = current;
+        saveButton.disabled = true;
+        editMode.textContent = "待复核";
+        saveStatus.textContent = "已提交复核 · 统一发布前不改变当前价格";
+        if (state.workbench === "price" && state.detailMode === "create") {
+          showToast("新价格已提交复核", "复核通过并统一发布后，才会加入正在使用的袋子价格表。");
+        } else if (state.workbench === "price") {
+          showToast("价格修改已提交复核", "当前价格保持不变，复核完成后统一发布。");
+        } else {
+          showToast("客户修改已提交复核", "客户资料复核通过后生效。");
+        }
+      });
+
+      releaseToggle.addEventListener("click", () => {
+        const expanded = releaseToggle.getAttribute("aria-expanded") === "true";
+        releaseToggle.setAttribute("aria-expanded", String(!expanded));
+        releaseToggle.textContent = expanded ? "查看统一发布记录" : "收起统一发布记录";
+        releaseRecord.hidden = expanded;
+      });
+
+      const bulkModal = document.getElementById("bulkModal");
+      document.getElementById("openBulk").addEventListener("click", () => bulkModal.classList.add("open"));
+      document.getElementById("closeBulk").addEventListener("click", () => bulkModal.classList.remove("open"));
+      bulkModal.addEventListener("click", (event) => {
+        if (event.target === bulkModal) bulkModal.classList.remove("open");
+      });
+
+      document.addEventListener("keydown", (event) => {
+        if (event.key !== "Escape") return;
+        if (bulkModal.classList.contains("open")) bulkModal.classList.remove("open");
+        else if (!detailPanel.hidden) closeDetail();
+      });
+
+      renderTable();
+    </script>
+  </body>
+</html>

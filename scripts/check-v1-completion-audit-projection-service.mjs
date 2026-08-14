@@ -120,11 +120,11 @@ const failClosedAudit = buildV1CompletionAudit({
   },
   fieldEvidenceProgress: {
     summary: {
-      requiredEvidenceItemsTotal: 34,
+      requiredEvidenceItemsTotal: 40,
       requiredEvidenceItemsCompleted: 0,
       requiredSignoffsTotal: 6,
       requiredSignoffsCompleted: 0,
-      evidenceItemsLabel: "0/34",
+      evidenceItemsLabel: "0/40",
       signoffLabel: "0/6",
     },
     groupSummaries: [{ key: "devices", label: unsafeText, ready: false, missingCount: 34, requiredTotal: 34 }],
@@ -156,7 +156,7 @@ assert.equal(failClosedAudit.safeguards.completionRequiresAllCriteria, true);
 
 const readyAudit = buildV1CompletionAudit({
   ready: true,
-  summary: { releaseGate: "4/4", runtimeReadiness: "11/11", fieldEvidence: "34/34", fieldAcceptance: "11/11" },
+  summary: { releaseGate: "4/4", runtimeReadiness: "11/11", fieldEvidence: "40/40", fieldAcceptance: "11/11" },
   releaseCandidate: { ready: true, summary: { label: "4/4 发布门禁通过" }, gates: [] },
   ownerDecisionBrief: { completion: { onsiteTaskCount: 0 } },
   runtimeReadinessBlockers: { ready: true, summary: { label: "11/11", readinessLabel: "11/11" }, blockers: [] },
@@ -164,11 +164,11 @@ const readyAudit = buildV1CompletionAudit({
   productionEnvGate: { ready: true, summary: { label: "10/10", readinessLabel: "10/10" }, checks: [] },
   fieldEvidenceProgress: {
     summary: {
-      requiredEvidenceItemsTotal: 34,
-      requiredEvidenceItemsCompleted: 34,
+      requiredEvidenceItemsTotal: 40,
+      requiredEvidenceItemsCompleted: 40,
       requiredSignoffsTotal: 6,
       requiredSignoffsCompleted: 6,
-      evidenceItemsLabel: "34/34",
+      evidenceItemsLabel: "40/40",
       signoffLabel: "6/6",
     },
     groupSummaries: [],

@@ -27,6 +27,7 @@ import {
 } from "./rawMaterialInboundPostgresQueryBuilder.mjs";
 import { buildRawMaterialInboundListResponse } from "./services/rawMaterialInboundReadProjectionService.mjs";
 import { applyRawMaterialOcrReparse, applyRawMaterialOcrReview } from "./rawMaterialInboundOcrSupport.mjs";
+import { applyConfirmRawMaterialSupplierReturnShipment, applyStageRawMaterialSupplierReturn } from "./services/rawMaterialSupplierReturnInventoryService.mjs";
 import {
   buildRawMaterialProductionTaskGoodsSpec,
   findRawMaterialCustomer,
@@ -65,14 +66,12 @@ export {
   buildUpsertRawMaterialInboundPayloadTransactionQuery,
   buildUpsertRawMaterialInboundPayloadTransactionSql,
 };
-
 const rawMaterialCostMarginBuilder = createRawMaterialCostMarginBuilder({
   findProductionTask: findRawMaterialProductionTask,
   findOrderLine: findRawMaterialOrderLine,
   findCustomer: findRawMaterialCustomer,
   buildGoodsSpec: buildRawMaterialProductionTaskGoodsSpec,
 });
-
 export function createRawMaterialInboundRepository(options = {}) {
   const mode =
     options.mode ??
@@ -320,11 +319,9 @@ export function applyRawMaterialInboundAction(input = {}) {
   const operatorId = cleanText(input.operatorId);
   const operatorName = cleanText(input.operatorName ?? operatorId ?? "U-OFFICE-A");
   let after = before;
-
   if (action === "reparse_ocr") {
     after = applyRawMaterialOcrReparse({ before, reparsedInbound: input.body?.reparsedInbound });
   }
-
   if (action === "review") {
     after = applyRawMaterialOcrReview({
       before,
@@ -335,13 +332,15 @@ export function applyRawMaterialInboundAction(input = {}) {
       now,
     });
   }
-
   if (action === "print_labels") {
-    if (before.status !== "已复核待打印标签") {
-      throw Object.assign(new Error("送货单必须先完成办公室人工复核，才能打印一卷一标。"), {
-        statusCode: 409, code: "RAW_MATERIAL_LABEL_PRINT_REQUIRES_REVIEW",
-      });
-    }
+    if (cleanText(before.documentDirection) === "supplier_return") throw Object.assign(new Error("退货单只保存退货复核，不生成入库卷标、不增加库存。"), {
+      statusCode: 409, code: "RAW_MATERIAL_RETURN_LABEL_PRINT_FORBIDDEN",
+    });
+    if (before.status !== "已复核待打印标签") throw Object.assign(new Error("送货单必须先完成办公室人工复核，才能打印一卷一标。"), {
+      statusCode: 409, code: "RAW_MATERIAL_LABEL_PRINT_REQUIRES_REVIEW",
+    });
+    const unprintableRolls = (before.rolls ?? []).filter((roll) => roll.inventoryStatus !== "可用" && !(Number(roll.weightKg) > 0));
+    if (!(before.rolls ?? []).length || unprintableRolls.length) throw Object.assign(new Error(`${unprintableRolls.map((roll) => cleanText(roll.id)).filter(Boolean).join("、") || "当前入库单"} 缺少本卷独立重量，不能打印卷标。`), { statusCode: 422, code: "RAW_MATERIAL_LABEL_PRINT_ROLL_WEIGHT_REQUIRED" });
     after = {
       ...before,
       status: "已打印待贴标",
@@ -522,6 +521,9 @@ export function applyRawMaterialInboundAction(input = {}) {
       rolls: nextRolls,
     };
   }
+
+  if (action === "stage_supplier_return") after = applyStageRawMaterialSupplierReturn({ before, inbounds, body: input.body, operatorId, operatorName, now });
+  if (action === "confirm_supplier_return_shipment") after = applyConfirmRawMaterialSupplierReturnShipment({ before, body: input.body, operatorId, operatorName, now });
 
   if (action === "issue_to_machine") {
     const rollId = cleanText(input.body?.rollId);
@@ -1871,7 +1873,6 @@ function nextRawMaterialLabelVersion(roll = {}) {
 function currentRawMaterialLabelVersion(roll = {}) { return Math.max(1, Math.trunc(Number(roll.labelVersion) || 1)); }
 
 function finiteRawMaterialNumber(value) { const number = Number(value); return Number.isFinite(number) ? number : 0; }
-
 function normalizeAction(action) {
   const value = cleanText(action);
   const actionMap = new Map([
@@ -1887,13 +1888,10 @@ function normalizeAction(action) {
     ["作废卷标", "void_label"],
     ["void_label", "void_label"],
     ["void-label", "void_label"],
-    ["重打卷标", "reprint_label"],
-    ["reprint_label", "reprint_label"],
-    ["reprint-label", "reprint_label"],
-    ["机边领料", "issue_to_machine"],
-    ["扫码出库", "issue_to_machine"],
-    ["issue_to_machine", "issue_to_machine"],
-    ["issue-to-machine", "issue_to_machine"],
+    ["重打卷标", "reprint_label"], ["reprint_label", "reprint_label"], ["reprint-label", "reprint_label"],
+    ["供应商退货暂存", "stage_supplier_return"], ["stage_supplier_return", "stage_supplier_return"], ["stage-supplier-return", "stage_supplier_return"],
+    ["确认退厂", "confirm_supplier_return_shipment"], ["confirm_supplier_return_shipment", "confirm_supplier_return_shipment"], ["confirm-supplier-return-shipment", "confirm_supplier_return_shipment"],
+    ["机边领料", "issue_to_machine"], ["扫码出库", "issue_to_machine"], ["issue_to_machine", "issue_to_machine"], ["issue-to-machine", "issue_to_machine"],
     ["确认消耗", "confirm_consumption"],
     ["confirm_consumption", "confirm_consumption"],
     ["confirm-consumption", "confirm_consumption"],
@@ -1927,7 +1925,6 @@ function normalizeAction(action) {
   ]);
   return actionMap.get(value) ?? value;
 }
-
 function getRawMaterialActionReason(action) {
   if (action === "reparse_ocr") return "使用已保存的 OCR 表格升级解析结果，未再次请求云端 OCR";
   if (action === "review") return "人工复核原材料送货单、OCR 字段和实物原标签";
@@ -1935,6 +1932,8 @@ function getRawMaterialActionReason(action) {
   if (action === "attach_confirm") return "逐卷人工核对标签、实物重量、颜色、规格和库位";
   if (action === "void_label") return "单独作废异常卷/件的旧标签，不影响其他已确认卷/件";
   if (action === "reprint_label") return "单独重打异常卷/件标签，等待重新贴标和人工核对";
+  if (action === "stage_supplier_return") return "扫描已有库存卷码并关联已复核退货单，转入供应商退货暂存区";
+  if (action === "confirm_supplier_return_shipment") return "确认暂存卷/件已经交还供应商，完成一次实物库存退厂";
   if (action === "issue_to_machine") return "按卷码扫码出库并记录机台；生产任务可在后续阶段关联";
   if (action === "confirm_consumption") return "确认整卷/整件或部分原材料已被生产消耗，不生成成品数量或成本分摊";
   if (action === "return_leftover") return "机边余料退回待复核，不自动转可用库存";
@@ -1970,6 +1969,7 @@ function summarizeRawMaterialInbound(item = {}) {
     ocrLineCount: (item.ocrLines ?? []).length,
     ocrReviewedLineCount: (item.ocrLines ?? []).filter((line) => line.reviewedAt).length,
     ocrModifiedLineCount: (item.ocrLines ?? []).filter((line) => line.reviewStatus === "人工修改").length,
+    ocrExcludedLineCount: (item.ocrLines ?? []).filter((line) => (line.excludedRollIndices ?? []).length > 0).length, ocrExcludedRollCount: (item.ocrLines ?? []).flatMap((line) => Array.isArray(line.excludedRollIndices) ? line.excludedRollIndices : []).length,
   };
 }
 
@@ -1988,7 +1988,6 @@ function roundWeight(value) {
   if (!Number.isFinite(number)) return 0;
   return Math.round(number * 1000) / 1000;
 }
-
 function roundMoney(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;

@@ -51,7 +51,7 @@ export function assertV1ProductionReleaseGate({
   const evidence = validateV1FieldEvidenceManifest(fieldEvidenceManifest);
   requireCondition(evidence.schemaValid === true, "field evidence manifest schema is invalid");
   requireCondition(evidence.ready === true, "field evidence manifest is not ready");
-  requireCondition(evidence.summary.requiredEvidenceItemsTotal >= 34, "field evidence manifest has fewer than 34 required items");
+  requireCondition(evidence.summary.requiredEvidenceItemsTotal >= 40, "field evidence manifest has fewer than 40 required items");
   requireCondition(
     evidence.summary.requiredEvidenceItemsCompleted === evidence.summary.requiredEvidenceItemsTotal,
     "field evidence manifest has incomplete required items",

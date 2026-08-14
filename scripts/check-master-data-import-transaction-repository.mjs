@@ -26,6 +26,9 @@ assert.equal(readyExecution.officialImportEnabled, true);
 assert.equal(readyExecution.officialWriteScope, "master_data_import_v1");
 
 await checkLocalMasterDataImportTransaction();
+await checkLocalEmployeeProfileReimportPreservesAccountLifecycle();
+await checkLocalAttendanceIdentityConflictRollback();
+await checkDepartedEmployeeProfileImportBlocked();
 await checkLocalRollback();
 await checkLocalEmployeeIdentityRollback();
 await checkLocalIdentityPersistenceRollback();
@@ -91,11 +94,115 @@ async function checkLocalMasterDataImportTransaction() {
   assert(workspace.inventoryLedgerEntries.some((record) => record.changeType === "initial_import"));
   assert(workspace.inventories.some((record) => record.inStock === 2480));
   assert(workspace.employees.some((record) => record.accountEnabled === false && record.profileStatus === "pending_admin_review"));
+  assert(workspace.employees.some((record) => record.birthDate === "1990-03-01" && record.hireDate === "2020-02-01"));
+  assert(workspace.employees.some((record) => record.attendanceProvider === "deli" && record.attendanceExternalId === "DL-1001"));
   assert(workspace.machines.some((record) => record.name === "1号制袋机"));
   assert(workspace.employeeMachineAssignments.some((record) => record.assignmentType === "default"));
   assert(workspace.machineCapacityBaselines.some((record) => record.dailyCapacityQty === 12000));
   assert.equal(workspace.operationLogs[0].id, "LOG-MD-IMPORT-COMMIT-001");
   assert.deepEqual(savedEmployeeCounts, [readyExecution.importPayload.targetRecords.employees.length]);
+}
+
+async function checkLocalEmployeeProfileReimportPreservesAccountLifecycle() {
+  const repository = createLocalMasterDataImportTransactionRepository();
+  const importedEmployee = readyExecution.importPayload.targetRecords.employees[0];
+  const blankProfileExecution = {
+    ...readyExecution,
+    executionId: "MDE-PROFILE-REIMPORT",
+    importPayload: {
+      ...readyExecution.importPayload,
+      targetRecords: {
+        ...readyExecution.importPayload.targetRecords,
+        employees: readyExecution.importPayload.targetRecords.employees.map((employee) => ({
+          ...employee,
+          birthDate: "",
+          hireDate: "",
+          baseHourlyWage: 0,
+          positionAllowanceHourly: 0,
+          wageEffectiveFrom: "",
+          attendanceProvider: "",
+          attendanceExternalId: "",
+          profileFieldPresence: {},
+        })),
+      },
+    },
+  };
+  const workspace = {
+    employees: [{
+      ...importedEmployee,
+      userId: "U-EMP-IMPORT-001",
+      accountEnabled: true,
+      profileStatus: "account_enabled",
+      requestedEnabled: true,
+      birthDate: "1980-04-05",
+      hireDate: "2019-06-07",
+      baseHourlyWage: 18,
+      positionAllowanceHourly: 3,
+      wageEffectiveFrom: "2025-01-01",
+      attendanceProvider: "deli",
+      attendanceExternalId: "D5FN-EXISTING",
+    }],
+    operationLogs: [],
+  };
+  await repository.applyImportExecution({
+    workspace,
+    importExecution: blankProfileExecution,
+    operationLog: buildOperationLog("LOG-MD-PROFILE-REIMPORT"),
+  });
+  const employee = workspace.employees.find((record) => record.id === importedEmployee.id);
+  assert.equal(employee.userId, "U-EMP-IMPORT-001");
+  assert.equal(employee.accountEnabled, true);
+  assert.equal(employee.profileStatus, "account_enabled");
+  assert.equal(employee.birthDate, "1980-04-05");
+  assert.equal(employee.hireDate, "2019-06-07");
+  assert.equal(employee.baseHourlyWage, 18);
+  assert.equal(employee.attendanceExternalId, "D5FN-EXISTING");
+}
+
+async function checkLocalAttendanceIdentityConflictRollback() {
+  const repository = createLocalMasterDataImportTransactionRepository();
+  const existingEmployee = {
+    id: "ERP-OTHER-001",
+    bizNo: "ERP-OTHER-001",
+    name: "既有考勤员工",
+    roleName: "办公室",
+    attendanceProvider: "DELI",
+    attendanceExternalId: "DL-1001",
+  };
+  const workspace = { employees: [existingEmployee], operationLogs: [] };
+  await assert.rejects(
+    repository.applyImportExecution({
+      workspace,
+      importExecution: readyExecution,
+      operationLog: buildOperationLog("LOG-MD-ATTENDANCE-CONFLICT"),
+    }),
+    /duplicate attendance identity: deli \/ DL-1001/,
+  );
+  assert.deepEqual(workspace.employees, [existingEmployee]);
+  assert.deepEqual(workspace.operationLogs, []);
+}
+
+async function checkDepartedEmployeeProfileImportBlocked() {
+  const repository = createLocalMasterDataImportTransactionRepository();
+  const importedEmployee = readyExecution.importPayload.targetRecords.employees[0];
+  const departedEmployee = {
+    ...importedEmployee,
+    profileStatus: "departed",
+    accountEnabled: false,
+    attendanceProvider: "",
+    attendanceExternalId: "",
+  };
+  const workspace = { employees: [departedEmployee], operationLogs: [] };
+  await assert.rejects(
+    repository.applyImportExecution({
+      workspace,
+      importExecution: readyExecution,
+      operationLog: buildOperationLog("LOG-MD-DEPARTED-PROFILE-BLOCKED"),
+    }),
+    /not eligible for active profile import: EMP-IMPORT-001/,
+  );
+  assert.deepEqual(workspace.employees, [departedEmployee]);
+  assert.deepEqual(workspace.operationLogs, []);
 }
 
 async function checkLocalRollback() {
@@ -274,6 +381,10 @@ async function checkPostgresSqlBoundary() {
   assert.match(builtQuery.text, /INSERT INTO inventory_items/);
   assert.match(builtQuery.text, /INSERT INTO inventory_ledger_entries/);
   assert.match(builtQuery.text, /INSERT INTO employees/);
+  assert.match(builtQuery.text, /birth_date/);
+  assert.match(builtQuery.text, /attendance_provider/);
+  assert.doesNotMatch(builtQuery.text, /account_enabled = EXCLUDED\.account_enabled/);
+  assert.doesNotMatch(builtQuery.text, /profile_status = EXCLUDED\.profile_status/);
   assert.match(builtQuery.text, /INSERT INTO machines/);
   assert.match(builtQuery.text, /INSERT INTO employee_machine_assignments/);
   assert.match(builtQuery.text, /INSERT INTO machine_capacity_baselines/);

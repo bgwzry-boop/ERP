@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { Readable } from "node:stream";
 import { handleAttachmentWriteRoutes } from "../server/routes/attachmentWriteRoutes.mjs";
 
 const calls = [];
@@ -93,6 +94,30 @@ assert.equal(
   true,
 );
 assert.deepEqual(calls, [{ kind: "denied" }]);
+
+calls.length = 0;
+const binaryContent = Buffer.from("8BPS-print-artwork");
+const binaryRequest = Readable.from([binaryContent]);
+binaryRequest.headers = {
+  "content-length": String(binaryContent.length),
+  "content-type": "application/octet-stream",
+};
+const binaryBody = {
+  ownerType: "order_draft_line",
+  ownerId: "DRAFT-001:LINE-01",
+  fileType: "other",
+  purpose: "print_artwork",
+  fileName: "approved.psd",
+  contentRef: "order-draft-artwork://DRAFT-001/LINE-01/approved.psd",
+  mimeType: "application/octet-stream",
+  fileSize: binaryContent.length,
+};
+assert.equal(await run("POST", "/api/attachments/binary", { request: binaryRequest, body: binaryBody }), true);
+const binaryCreate = calls.find((call) => call.kind === "create");
+assert.equal(binaryCreate.body, binaryBody);
+assert.deepEqual(binaryCreate.contentPayload.buffer, binaryContent);
+assert.equal(binaryCreate.contentPayload.contentType, "application/octet-stream");
+
 assert.equal(await run("GET", "/api/attachments"), false);
 assert.equal(await run("POST", "/api/attachments/ATT-1"), false);
 

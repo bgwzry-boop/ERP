@@ -613,22 +613,6 @@ button:disabled,
   line-height: 24px;
 }
 
-.status {
-  display: inline-flex;
-  align-items: center;
-  min-height: 22px;
-  border-radius: 999px;
-  font-size: 12px;
-  font-weight: 700;
-  padding: 0 8px;
-}
-
-.status.neutral { background: #eef2f7; color: #536178; }
-.status.success { background: #e8f7ef; color: #16784b; }
-.status.warning { background: #fff2d5; color: #9a6200; }
-.status.danger { background: #ffe4e2; color: #bd2e2e; }
-.status.blue { background: #e9f2ff; color: #0b62c4; }
-
 .toast {
   flex: 0 0 auto;
   width: 100%;

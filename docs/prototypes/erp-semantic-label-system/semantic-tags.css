@@ -1,0 +1,246 @@
+:root {
+  /* Primitive ramps: component consumers should use the semantic aliases below. */
+  --erp-tag-blue-bg: oklch(97% 0.018 255);
+  --erp-tag-blue-border: oklch(82.5% 0.075 255);
+  --erp-tag-blue-ink: oklch(39% 0.155 255);
+  --erp-tag-green-bg: oklch(97.5% 0.018 155);
+  --erp-tag-green-border: oklch(84% 0.07 155);
+  --erp-tag-green-ink: oklch(35% 0.095 155);
+  --erp-tag-amber-bg: oklch(97.8% 0.03 82);
+  --erp-tag-amber-border: oklch(84% 0.075 82);
+  --erp-tag-amber-ink: oklch(39% 0.09 72);
+  --erp-tag-red-bg: oklch(97.5% 0.02 28);
+  --erp-tag-red-border: oklch(83% 0.075 28);
+  --erp-tag-red-ink: oklch(42% 0.15 28);
+  --erp-tag-violet-bg: oklch(96.5% 0.03 315);
+  --erp-tag-violet-border: oklch(83% 0.07 315);
+  --erp-tag-violet-ink: oklch(37% 0.11 315);
+  --erp-tag-cyan-bg: oklch(96.5% 0.025 205);
+  --erp-tag-cyan-border: oklch(83% 0.055 205);
+  --erp-tag-cyan-ink: oklch(37% 0.08 205);
+  --erp-tag-neutral-bg: oklch(95.5% 0.009 252);
+  --erp-tag-neutral-border: oklch(86% 0.015 252);
+  --erp-tag-neutral-ink: oklch(42% 0.025 255);
+  --erp-tag-finished-bg: oklch(96% 0.013 155);
+  --erp-tag-finished-border: oklch(87% 0.04 155);
+  --erp-tag-finished-ink: oklch(42% 0.065 155);
+
+  /* Strong variants are reserved for operationally important secondary facts. */
+  --erp-tag-urgent-bg: oklch(82% 0.14 82);
+  --erp-tag-urgent-border: oklch(70% 0.14 76);
+  --erp-tag-urgent-ink: oklch(27% 0.06 65);
+  --erp-tag-dual-bg: oklch(43% 0.17 255);
+  --erp-tag-dual-border: oklch(35% 0.15 255);
+  --erp-tag-dual-ink: oklch(99% 0.003 255);
+  --erp-tag-multi-bg: oklch(42% 0.15 310);
+  --erp-tag-multi-border: oklch(34% 0.13 310);
+  --erp-tag-multi-ink: oklch(99% 0.003 310);
+
+  --erp-tag-radius: 4px;
+  --erp-tag-font: Geist, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+}
+
+.erp-semantic-tag {
+  --tag-bg: var(--erp-tag-neutral-bg);
+  --tag-border: var(--erp-tag-neutral-border);
+  --tag-ink: var(--erp-tag-neutral-ink);
+  display: inline-flex;
+  min-width: 0;
+  min-height: 26px;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--tag-border);
+  border-radius: var(--erp-tag-radius);
+  background: var(--tag-bg);
+  color: var(--tag-ink);
+  font-family: var(--erp-tag-font);
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  padding: 3px 8px;
+  white-space: nowrap;
+}
+
+.erp-semantic-tag[data-size="compact"] {
+  min-height: 20px;
+  font-size: 11px;
+  padding: 2px 6px;
+}
+
+.erp-semantic-tag[data-size="prominent"] {
+  min-height: 34px;
+  font-size: 14px;
+  padding: 5px 11px;
+}
+
+.erp-semantic-tag-group {
+  display: inline-flex;
+  min-width: 0;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* Business type: answers “what kind of order/task is this?” */
+.erp-semantic-tag[data-kind="business"][data-value="custom"] {
+  --tag-bg: var(--erp-tag-blue-bg);
+  --tag-border: var(--erp-tag-blue-border);
+  --tag-ink: var(--erp-tag-blue-ink);
+}
+
+.erp-semantic-tag[data-kind="business"][data-value="stock"] {
+  --tag-bg: var(--erp-tag-green-bg);
+  --tag-border: var(--erp-tag-green-border);
+  --tag-ink: var(--erp-tag-green-ink);
+}
+
+.erp-semantic-tag[data-kind="business"][data-value="printed"] {
+  --tag-bg: var(--erp-tag-violet-bg);
+  --tag-border: var(--erp-tag-violet-border);
+  --tag-ink: var(--erp-tag-violet-ink);
+}
+
+.erp-semantic-tag[data-kind="business"][data-value="outsourced"] {
+  --tag-bg: var(--erp-tag-cyan-bg);
+  --tag-border: var(--erp-tag-cyan-border);
+  --tag-ink: var(--erp-tag-cyan-ink);
+}
+
+/* Special requirement: only facts that change the work. */
+.erp-semantic-tag[data-kind="requirement"][data-value="extended-handle"] {
+  --tag-bg: var(--erp-tag-amber-bg);
+  --tag-border: var(--erp-tag-amber-border);
+  --tag-ink: var(--erp-tag-amber-ink);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="snap"] {
+  --tag-bg: var(--erp-tag-violet-bg);
+  --tag-border: var(--erp-tag-violet-border);
+  --tag-ink: var(--erp-tag-violet-ink);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="supplied-material"] {
+  --tag-bg: var(--erp-tag-cyan-bg);
+  --tag-border: var(--erp-tag-cyan-border);
+  --tag-ink: var(--erp-tag-cyan-ink);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="double-sided"] {
+  --tag-bg: var(--erp-tag-blue-bg);
+  --tag-border: var(--erp-tag-blue-border);
+  --tag-ink: var(--erp-tag-blue-ink);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="urgent"] {
+  --tag-bg: var(--erp-tag-urgent-bg);
+  --tag-border: var(--erp-tag-urgent-border);
+  --tag-ink: var(--erp-tag-urgent-ink);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="dual-color"] {
+  --tag-bg: var(--erp-tag-dual-bg);
+  --tag-border: var(--erp-tag-dual-border);
+  --tag-ink: var(--erp-tag-dual-ink);
+}
+
+.erp-semantic-tag[data-kind="requirement"][data-value="multi-color"] {
+  --tag-bg: var(--erp-tag-multi-bg);
+  --tag-border: var(--erp-tag-multi-border);
+  --tag-ink: var(--erp-tag-multi-ink);
+}
+
+/* Operational state: answers “where is the work now?” */
+.erp-semantic-tag[data-kind="state"][data-value="normal"] {
+  --tag-bg: var(--erp-tag-blue-bg);
+  --tag-border: var(--erp-tag-blue-border);
+  --tag-ink: var(--erp-tag-blue-ink);
+}
+
+.erp-semantic-tag[data-kind="state"][data-value="running"] {
+  --tag-bg: var(--erp-tag-green-bg);
+  --tag-border: var(--erp-tag-green-border);
+  --tag-ink: var(--erp-tag-green-ink);
+}
+
+.erp-semantic-tag[data-kind="state"][data-value="pending"] {
+  --tag-bg: var(--erp-tag-amber-bg);
+  --tag-border: var(--erp-tag-amber-border);
+  --tag-ink: var(--erp-tag-amber-ink);
+}
+
+.erp-semantic-tag[data-kind="state"][data-value="blocked"] {
+  --tag-bg: var(--erp-tag-red-bg);
+  --tag-border: var(--erp-tag-red-border);
+  --tag-ink: var(--erp-tag-red-ink);
+}
+
+.erp-semantic-tag[data-kind="state"][data-value="done"] {
+  --tag-bg: var(--erp-tag-finished-bg);
+  --tag-border: var(--erp-tag-finished-border);
+  --tag-ink: var(--erp-tag-finished-ink);
+}
+
+.erp-semantic-tag[data-kind="state"][data-value="voided"] {
+  --tag-bg: var(--erp-tag-neutral-bg);
+  --tag-border: var(--erp-tag-neutral-border);
+  --tag-ink: var(--erp-tag-neutral-ink);
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+}
+
+/* Ownership: color is an indexing aid; the written code remains mandatory. */
+.erp-semantic-tag[data-kind="owner"] {
+  gap: 6px;
+}
+
+.erp-semantic-tag[data-kind="owner"]::before {
+  width: 7px;
+  height: 7px;
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: var(--owner-dot, var(--erp-tag-neutral-ink));
+  content: "";
+}
+
+.erp-semantic-tag[data-kind="owner"][data-value="lane-1"] {
+  --tag-bg: oklch(96% 0.025 255);
+  --tag-border: oklch(83% 0.07 255);
+  --tag-ink: oklch(35% 0.08 255);
+  --owner-dot: oklch(52% 0.18 255);
+}
+
+.erp-semantic-tag[data-kind="owner"][data-value="lane-2"] {
+  --tag-bg: oklch(96% 0.025 315);
+  --tag-border: oklch(83% 0.07 315);
+  --tag-ink: oklch(35% 0.08 315);
+  --owner-dot: oklch(51% 0.17 315);
+}
+
+.erp-semantic-tag[data-kind="owner"][data-value="lane-3"] {
+  --tag-bg: oklch(96% 0.022 170);
+  --tag-border: oklch(83% 0.06 170);
+  --tag-ink: oklch(35% 0.07 170);
+  --owner-dot: oklch(47% 0.13 170);
+}
+
+.erp-semantic-tag[data-kind="owner"][data-value="lane-4"] {
+  --tag-bg: oklch(96% 0.026 80);
+  --tag-border: oklch(83% 0.07 78);
+  --tag-ink: oklch(36% 0.075 72);
+  --owner-dot: oklch(57% 0.14 78);
+}
+
+/* Unknown or unmapped business values always fail to a written neutral state. */
+.erp-semantic-tag[data-kind="unknown"],
+.erp-semantic-tag[data-value="unknown"] {
+  --tag-bg: var(--erp-tag-neutral-bg);
+  --tag-border: var(--erp-tag-neutral-border);
+  --tag-ink: var(--erp-tag-neutral-ink);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .erp-semantic-tag {
+    transition: none;
+  }
+}

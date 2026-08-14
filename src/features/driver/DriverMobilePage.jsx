@@ -16,6 +16,7 @@ import {
   Segmented,
   Timeline,
 } from "../../shared/ui/operational.jsx";
+import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
 import {
   applyDriverPackageScan,
   getDriverLoadPackageCheckState,
@@ -1135,14 +1136,13 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
         </section>
       ) : null}
 
-      <nav className="mobile-role-bottom-nav" aria-label="司机手机导航">
-        {MOBILE_VIEWS.map(([key, label, Icon]) => (
-          <button aria-current={mobileView === key ? "page" : undefined} className={mobileView === key ? "active" : ""} key={key} onClick={() => setMobileView(key)} type="button">
-            <Icon aria-hidden="true" /><span>{label}</span>
-            {key === "pending" && pendingCount ? <b>{pendingCount}</b> : null}
-          </button>
-        ))}
-      </nav>
+      <MobileRoleBottomNavigation
+        ariaLabel="司机手机导航"
+        badgeCount={(key) => key === "pending" ? pendingCount : 0}
+        items={MOBILE_VIEWS}
+        onChange={setMobileView}
+        value={mobileView}
+      />
     </section>
   );
 }

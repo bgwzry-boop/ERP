@@ -36,6 +36,8 @@ import { createPostgresMasterDataImportReviewRepository } from "../server/master
 import { createPostgresMasterDataImportTransactionRepository } from "../server/masterDataImportTransactionRepository.mjs";
 import { createPostgresCoreWorkspaceReadRepository } from "../server/coreWorkspaceReadRepository.mjs";
 import { createPostgresRuntimeIdentityRepository } from "../server/runtimeIdentityRepository.mjs";
+import { createPostgresAttendancePayrollRepository } from "../server/attendancePayrollRepository.mjs";
+import { createPostgresDeliAttendanceGatewayRepository } from "../server/deliAttendanceGatewayRepository.mjs";
 import { buildRuntimeEmployeeAccountReadiness } from "../server/services/runtimeEmployeeAccountReadiness.mjs";
 import { createPrintDriverAdapter } from "../server/printDriverAdapter.mjs";
 import { v1PersistencePostgresRepositoryOptionKeys } from "../server/v1PersistenceProfile.mjs";
@@ -46,8 +48,10 @@ import {
   buildPaymentRecord,
   buildSendRecord,
   buildStatement,
+  buildStatementDecisionRecord,
   buildStatementExportFile,
   buildStatementExportLines,
+  buildStatementWriteOffRecord,
   buildTodo,
   buildVarianceRecord,
 } from "./helpers/postgresLiveStatementFixtures.mjs";
@@ -60,6 +64,7 @@ import {
   buildProductionOperationLog,
   buildProductionOrderLineRecord,
   buildProductionReservationRecord,
+  buildProductionScheduleDecisionRecord,
   buildProductionScheduleOperationLog,
   buildProductionScheduleRecord,
   buildProductionTaskRecord,
@@ -101,6 +106,7 @@ import {
 } from "./helpers/postgresLiveOrderConfirmationFixtures.mjs";
 import { buildLiveRuntimeUser } from "./helpers/postgresLiveRuntimeIdentityFixtures.mjs";
 import { seedPostgresLiveBusinessRows } from "./helpers/postgresLiveBusinessSeed.mjs";
+import { checkPostgresLiveAttendancePayrollScenario } from "./helpers/postgresLiveAttendancePayrollScenario.mjs";
 import { orderConversationCorpus } from "../shared/orderConversationCorpus.mjs";
 
 const dockerImage = process.env.ERP_POSTGRES_DOCKER_IMAGE || "postgres:16-alpine";
@@ -131,7 +137,7 @@ try {
   await checkPostgresRepositories();
   await checkApiWithPostgresRepositories();
   console.log(
-    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository/formal two-session conflict, inventory correction transaction repository, inventory intent/temporary-hold transaction repository, production finished-goods photo transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, core workspace/master-data restart snapshot, runtime identity repository/formal login/logout revocation, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
+    `PostgreSQL live check passed: migrations, attachment repository, access-audit repository, payment repository, todo action repository/formal two-session conflict, inventory correction transaction repository, inventory intent/temporary-hold transaction repository, production finished-goods photo transaction repository, order draft repository, order confirmation transaction repository, order pool read repository, fulfillment action transaction repository, driver delivery dispatch repository, driver device field-test repository, driver delivery task read repository, inventory ledger read repository, inventory reservation release transaction repository, order line void transaction repository, order line quantity adjustment transaction repository, production packing transaction, production packing read repository, production schedule record repository, print batch repository, print device repository, print job repository, master-data import review repository, master-data import transaction repository, core workspace/master-data restart snapshot, runtime identity repository/formal login/logout revocation, Deli attendance gateway cursor/cache, attendance/payroll import plus concurrent draft/adjustment/state guards, statement payment transaction repository, statement settlement transaction repository, statement send transaction repository, statement export repository, and API routes executed against ${dockerImage}.`,
   );
 } finally {
   if (server) await closeServer(server);
@@ -346,6 +352,12 @@ async function checkPostgresRepositories() {
   const masterDataImportTransactionRepository = createPostgresMasterDataImportTransactionRepository({ queryJson });
   const coreWorkspaceReadRepository = createPostgresCoreWorkspaceReadRepository({ queryJson });
   const runtimeIdentityRepository = createPostgresRuntimeIdentityRepository({ postgresClient: statementPostgresClient });
+  const attendancePayrollRepository = createPostgresAttendancePayrollRepository({
+    postgresClient: statementPostgresClient,
+  });
+  const deliAttendanceGatewayRepository = createPostgresDeliAttendanceGatewayRepository({
+    postgresClient: statementPostgresClient,
+  });
   const runtimeIdentitySave = await runtimeIdentityRepository.saveState({
     workspace: {
       users: [
@@ -399,6 +411,47 @@ async function checkPostgresRepositories() {
   const persistedTechnicalRole = persistedRuntimeReadiness.roles.find((role) => role.roleKey === "technical_operations");
   assert.equal(persistedTechnicalRole?.ready, true);
   assert.equal(persistedTechnicalRole?.readyAccountCount, 1);
+
+  await checkPostgresLiveAttendancePayrollScenario({
+    repository: attendancePayrollRepository,
+    runPsql,
+  });
+
+  assert.equal(await deliAttendanceGatewayRepository.readCursor(), 0);
+  const deliGatewayPunch = {
+    externalPunchId: "DELI-GATEWAY-LIVE-001",
+    externalEmployeeId: "ERP-0001",
+    punchedAt: "2026-08-10T00:01:00.000Z",
+    localWorkDate: "2026-08-10",
+    eventType: "fa",
+    raw: {
+      id: "DELI-GATEWAY-LIVE-001",
+      ext_id: "ERP-0001",
+      check_type: "fa",
+      check_time: Date.parse("2026-08-10T00:01:00.000Z") / 1000,
+      check_data: "must-not-persist",
+    },
+  };
+  assert.deepEqual(
+    await deliAttendanceGatewayRepository.saveBatch({ expectedNextId: 0, nextId: 7, records: [deliGatewayPunch] }),
+    { nextId: 7, acceptedRecordCount: 1, insertedRecordCount: 1 },
+  );
+  assert.equal(await deliAttendanceGatewayRepository.readCursor(), 7);
+  assert.deepEqual(
+    await deliAttendanceGatewayRepository.saveBatch({ expectedNextId: 7, nextId: 8, records: [deliGatewayPunch] }),
+    { nextId: 8, acceptedRecordCount: 1, insertedRecordCount: 0 },
+  );
+  const cachedDeliPunches = await deliAttendanceGatewayRepository.queryPunches({
+    rangeStart: "2026-08-10T00:00:00.000Z",
+    rangeEnd: "2026-08-11T00:00:00.000Z",
+  });
+  assert.equal(cachedDeliPunches.length, 1);
+  assert.equal(cachedDeliPunches[0].externalPunchId, "DELI-GATEWAY-LIVE-001");
+  assert.equal(JSON.stringify(cachedDeliPunches).includes("must-not-persist"), false);
+  assert.throws(
+    () => runPsql("UPDATE deli_attendance_gateway_punches SET event_type = 'fp' WHERE external_punch_id = 'DELI-GATEWAY-LIVE-001';"),
+    /immutable/i,
+  );
 
   await checkPostgresLiveAttachmentRepositoryScenario({
     attachmentRepository,
@@ -560,6 +613,13 @@ async function checkPostgresRepositories() {
       statementId: "ST-LIVE-VAR-001",
     }),
     operationLog: buildOperationLog({ logId: "LOG-LIVE-VAR-TXN-001", action: "handle_statement_variance", before: varianceBefore, after: varianceAfter }),
+    decisionRecord: buildStatementDecisionRecord({
+      decisionId: "BD-LIVE-VARIANCE-001",
+      statementId: "ST-LIVE-VAR-001",
+      decisionScope: "statement_variance",
+      operationLogId: "LOG-LIVE-VAR-TXN-001",
+      amount: 73,
+    }),
   });
   assert.equal(varianceTransaction.varianceRecord.reason, "未收差额转欠款");
   assert.equal(queryJson("SELECT json_build_object('status', status, 'variance', variance_amount) AS result FROM statements WHERE id = 'ST-LIVE-VAR-001';").status, "有欠款");
@@ -579,6 +639,19 @@ async function checkPostgresRepositories() {
       action: "write_off_statement",
       before: varianceCommitted,
       after: writtenOff,
+    }),
+    decisionRecord: buildStatementDecisionRecord({
+      decisionId: "BD-LIVE-WRITEOFF-001",
+      statementId: "ST-LIVE-VAR-001",
+      decisionScope: "statement_write_off",
+      operationLogId: "LOG-LIVE-WRITE-TXN-001",
+      amount: 73,
+    }),
+    writeOffRecord: buildStatementWriteOffRecord({
+      writeOffId: "SWO-LIVE-WRITEOFF-001",
+      statementId: "ST-LIVE-VAR-001",
+      businessDecisionId: "BD-LIVE-WRITEOFF-001",
+      operationLogId: "LOG-LIVE-WRITE-TXN-001",
     }),
   });
   assert.equal(writeOffTransaction.statement.status, "已确认欠款");
@@ -1672,6 +1745,28 @@ ON CONFLICT (id) DO UPDATE SET
       '制袋中', 'SCH-LIVE-SCHEDULE-001', 'U-OFFICE-A'
     ) ON CONFLICT (id) DO NOTHING;`,
   );
+  runPsql(`
+    INSERT INTO print_records (
+      id, biz_no, target_type, target_id, template_id, print_action, status, printed_by, printed_at
+    ) VALUES (
+      'PR-LIVE-F008-001', 'PR-LIVE-F008-001', 'fulfillment', 'F008',
+      'tpl-p0-fulfillment', 'first_print', 'printed', 'U-OFFICE-A', '2026-07-02T08:40:00.000Z'
+    ) ON CONFLICT (id) DO NOTHING;
+
+    INSERT INTO paper_outbound_documents (
+      id, fulfillment_id, print_record_id, document_type, document_version,
+      status, printed_by, printed_at, revision
+    ) VALUES (
+      'POD-LIVE-F008-001', 'F008', 'PR-LIVE-F008-001', 'fulfillment', 1,
+      '已打印', 'U-OFFICE-A', '2026-07-02T08:40:00.000Z', 1
+    ) ON CONFLICT (id) DO NOTHING;
+
+    UPDATE fulfillment_records
+    SET paper_outbound_status = '已打印',
+        paper_outbound_document_id = 'POD-LIVE-F008-001',
+        updated_at = now()
+    WHERE id = 'F008';
+  `);
   const scheduleRecordWorkspace = { productionScheduleRecords: [], operationLogs: [] };
   const scheduleRecordResult = await productionScheduleRecordRepository.resequenceMachineQueue({
     workspace: scheduleRecordWorkspace,
@@ -1685,6 +1780,11 @@ ON CONFLICT (id) DO UPDATE SET
       }),
     ],
     operationLog: buildProductionScheduleOperationLog(),
+    decisionRecord: buildProductionScheduleDecisionRecord({
+      decisionId: "BD-LIVE-SCHEDULE-RESEQ-001",
+      businessId: "BAG-LIVE-01",
+      operationLogId: "LOG-LIVE-SCHEDULE-RESEQ-001",
+    }),
   });
   assert.equal(scheduleRecordResult.productionScheduleRecords[0].productionTaskId, scheduleProductionTaskId);
   assert.equal(scheduleRecordResult.productionScheduleRecords[0].queueSeq, 1);
@@ -1749,6 +1849,11 @@ ON CONFLICT (id) DO UPDATE SET
       },
       reason: "Postgres live production schedule move",
     }),
+    decisionRecord: buildProductionScheduleDecisionRecord({
+      decisionId: "BD-LIVE-SCHEDULE-MOVE-001",
+      businessId: scheduleProductionTaskId,
+      operationLogId: "LOG-LIVE-SCHEDULE-MOVE-001",
+    }),
   });
   assert.equal(movedScheduleRecordResult.productionTask.machineId, "BAG-LIVE-02");
   assert.equal(scheduleRecordWorkspace.productionTasks[0].machineId, "BAG-LIVE-02");
@@ -1786,6 +1891,11 @@ ON CONFLICT (id) DO UPDATE SET
         logId: "LOG-LIVE-SCHEDULE-STALE-001",
         targetId: "BAG-LIVE-02",
         reason: "Postgres live stale schedule snapshot",
+      }),
+      decisionRecord: buildProductionScheduleDecisionRecord({
+        decisionId: "BD-LIVE-SCHEDULE-STALE-001",
+        businessId: "BAG-LIVE-02",
+        operationLogId: "LOG-LIVE-SCHEDULE-STALE-001",
       }),
     }),
     /ERP_PRODUCTION_SCHEDULE_QUEUE_CONCURRENCY_CONFLICT/,
@@ -2349,6 +2459,33 @@ ON CONFLICT (id) DO UPDATE SET
     Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-LIVE-PRINT-DEVICE-001';", { capture: true }).trim()),
     1,
   );
+  const paperPrintDevice = {
+    ...buildPrintDeviceRecord({
+      printDeviceId: "PRN-LIVE-PAPER-001",
+      name: "Postgres live 针式出库单打印机",
+    }),
+    deviceType: "dot_matrix_printer",
+    connectionUri: "system://postgres-live-paper",
+    supportedDocumentTypes: ["pickup_note", "delivery_note", "outbound_note"],
+    defaultDocumentTypes: ["pickup_note"],
+    paperWidthMm: 241,
+    paperHeightMm: 140,
+    paperName: "241x140 连续纸",
+    isContinuous: true,
+    settings: {
+      driverMode: "system_printer",
+      source: "postgres-live-paper",
+    },
+  };
+  const paperPrintDeviceTransaction = await printDeviceRepository.upsertPrintDevice({
+    workspace: printDeviceWorkspace,
+    printDevice: paperPrintDevice,
+    operationLog: buildPrintDeviceOperationLog({
+      logId: "LOG-LIVE-PRINT-DEVICE-PAPER-001",
+      printDevice: paperPrintDevice,
+    }),
+  });
+  assert.equal(paperPrintDeviceTransaction.printDevice.printDeviceId, "PRN-LIVE-PAPER-001");
   const listedPrintDevices = await printDeviceRepository.listPrintDevices({
     filters: { documentType: "express_ltl_label", status: "active" },
   });
@@ -2695,6 +2832,10 @@ async function checkApiWithPostgresRepositories() {
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   const apiServerOptions = {
+    // This suite exercises every PostgreSQL-backed route. Production-scope allowlisting
+    // is covered separately by the production-profile live gate.
+    runtimeMode: "test",
+    firstReleaseScope: null,
     authSecret: liveRuntimeAuthSecret,
     v1PersistenceProfile: { repositoryMode: "postgres", queryJson },
     orderDraftRepository,
@@ -2826,11 +2967,100 @@ async function checkApiWithPostgresRepositories() {
     Number(runPsql(`SELECT COUNT(*) FROM seed_session_revocations WHERE jti = ${sqlLiteral(formalRuntimeLogin.session.jti)};`, { capture: true }).trim()),
     1,
   );
+  const formalManagerScheduleLogin = await postJson(baseUrl, "/api/auth/login", {
+    loginName: liveManagerRuntimeLoginName,
+    password: liveManagerRuntimePassword,
+  });
+  const scheduleHeaders = {
+    authorization: `Bearer ${formalManagerScheduleLogin.session.accessToken}`,
+  };
+  const payrollEvidenceWithoutEmployee = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "payroll_run",
+      ownerId: "PAY-LIVE-API-EVIDENCE-202608",
+      purpose: "payroll_adjustment_evidence",
+      fileType: "pdf",
+      fileName: "payroll-adjustment-missing-employee-live.pdf",
+      mimeType: "application/pdf",
+      contentRef: "p0://payroll-adjustment/PAY-LIVE-API-EVIDENCE-202608/missing-employee",
+      contentDataUrl: "data:application/pdf;base64,JVBERi0xLjQtbWlzc2luZy1lbXBsb3llZQ==",
+      metadata: {},
+      uploadedBy: "U-SPOOFED",
+      idempotencyKey: "payroll-adjustment-missing-employee-live-001",
+    },
+    { headers: scheduleHeaders },
+  );
+  assert.equal(payrollEvidenceWithoutEmployee.uploadedBy, liveManagerRuntimeUserId);
+  const rejectedPayrollEvidenceWithoutEmployee = await postJson(
+    baseUrl,
+    "/api/payroll/runs/PAY-LIVE-API-EVIDENCE-202608/lines/EMP-LIVE-MANAGER-001/adjustment",
+    {
+      performanceAward: 320,
+      leaveDeduction: 40,
+      otherDeduction: 10,
+      reason: "PostgreSQL live missing employee evidence must fail closed",
+      evidenceAttachmentIds: [payrollEvidenceWithoutEmployee.attachmentId],
+    },
+    { headers: scheduleHeaders, expectedStatus: 422 },
+  );
+  assert.equal(rejectedPayrollEvidenceWithoutEmployee.code, "PAYROLL_ADJUSTMENT_EVIDENCE_EMPLOYEE_REQUIRED");
+  const payrollEvidenceAttachment = await postJson(
+    baseUrl,
+    "/api/attachments",
+    {
+      ownerType: "payroll_run",
+      ownerId: "PAY-LIVE-API-EVIDENCE-202608",
+      purpose: "payroll_adjustment_evidence",
+      fileType: "pdf",
+      fileName: "payroll-adjustment-EMP-LIVE-MANAGER-001-live.pdf",
+      mimeType: "application/pdf",
+      contentRef: "p0://payroll-adjustment/PAY-LIVE-API-EVIDENCE-202608/EMP-LIVE-MANAGER-001",
+      contentDataUrl: "data:application/pdf;base64,JVBERi0xLjQtcGF5cm9sbC1ldmlkZW5jZQ==",
+      metadata: {
+        payrollRunId: "PAY-LIVE-API-EVIDENCE-202608",
+        employeeId: "EMP-LIVE-MANAGER-001",
+      },
+      uploadedBy: "U-SPOOFED",
+      idempotencyKey: "payroll-adjustment-evidence-live-001",
+    },
+    { headers: scheduleHeaders },
+  );
+  assert.equal(payrollEvidenceAttachment.uploadedBy, liveManagerRuntimeUserId);
+  const apiPayrollAdjustment = await postJson(
+    baseUrl,
+    "/api/payroll/runs/PAY-LIVE-API-EVIDENCE-202608/lines/EMP-LIVE-MANAGER-001/adjustment",
+    {
+      performanceAward: 320,
+      leaveDeduction: 40,
+      otherDeduction: 10,
+      reason: "PostgreSQL live authenticated payroll adjustment evidence",
+      evidenceAttachmentIds: [payrollEvidenceAttachment.attachmentId],
+    },
+    { headers: scheduleHeaders },
+  );
+  assert.deepEqual(apiPayrollAdjustment.adjustment.evidenceAttachmentIds, [payrollEvidenceAttachment.attachmentId]);
+  assert.equal(
+    runPsql(
+      `SELECT evidence_attachment_ids_json->>0 FROM payroll_line_adjustments WHERE id = ${sqlLiteral(apiPayrollAdjustment.adjustment.id)};`,
+      { capture: true },
+    ).trim(),
+    payrollEvidenceAttachment.attachmentId,
+  );
   const apiScheduleTaskId = "PT-LIVE-API-SCHEDULE-001";
+  const apiScheduleTaskRevision = Number(
+    runPsql(
+      `SELECT revision FROM production_tasks WHERE id = '${apiScheduleTaskId}';`,
+      { capture: true },
+    ).trim(),
+  );
   const apiSchedulePublishBody = {
     orderLineId: "OL-LIVE-PROD-001",
     machineId: "BAG-LIVE-01",
     plannedQty: 80,
+    expectedRevision: apiScheduleTaskRevision,
+    directDecisionContent: { summary: "负责人确认发布排产" },
     operatorId: "U-SPOOFED",
     publishedAt: "2026-07-02T12:45:00.000Z",
     remark: "postgres live schedule publish",
@@ -2840,13 +3070,13 @@ async function checkApiWithPostgresRepositories() {
     baseUrl,
     `/api/production-tasks/${apiScheduleTaskId}/publish-schedule`,
     apiSchedulePublishBody,
-    { headers },
+    { headers: scheduleHeaders },
   );
   const replayedApiSchedulePublish = await postJson(
     baseUrl,
     `/api/production-tasks/${apiScheduleTaskId}/publish-schedule`,
     apiSchedulePublishBody,
-    { headers },
+    { headers: scheduleHeaders },
   );
   assert.equal(replayedApiSchedulePublish.operationLogId, apiSchedulePublish.operationLogId);
   assert.equal(replayedApiSchedulePublish.publishedScheduleId, apiSchedulePublish.publishedScheduleId);
@@ -2855,12 +3085,23 @@ async function checkApiWithPostgresRepositories() {
     queryJson(
       `SELECT json_build_object('operatorId', operator_id) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiSchedulePublish.operationLogId)};`,
     ).operatorId,
-    "U-OFFICE-A",
+    liveManagerRuntimeUserId,
   );
 
+  const apiScheduleQueueRevision = Number(
+    runPsql(
+      `SELECT revision FROM production_schedule_records
+       WHERE production_task_id = '${apiScheduleTaskId}' AND schedule_status = 'active';`,
+      { capture: true },
+    ).trim(),
+  );
   const apiScheduleResequenceBody = {
     machineId: "BAG-LIVE-01",
     orderedProductionTaskIds: [apiScheduleTaskId],
+    expectedRevision: apiScheduleQueueRevision,
+    affectedRevisions: [{ productionTaskId: apiScheduleTaskId, revision: apiScheduleQueueRevision }],
+    businessDecisionTargetId: apiScheduleTaskId,
+    directDecisionContent: { summary: "负责人确认调整排产顺序" },
     operatorId: "U-SPOOFED",
     updatedAt: "2026-07-02T12:50:00.000Z",
     remark: "postgres live schedule resequence",
@@ -2870,22 +3111,30 @@ async function checkApiWithPostgresRepositories() {
     baseUrl,
     "/api/production-schedules/machine-queue/resequence",
     apiScheduleResequenceBody,
-    { headers },
+    { headers: scheduleHeaders },
   );
   const replayedApiScheduleResequence = await postJson(
     baseUrl,
     "/api/production-schedules/machine-queue/resequence",
     apiScheduleResequenceBody,
-    { headers },
+    { headers: scheduleHeaders },
   );
   assert.equal(replayedApiScheduleResequence.operationLogId, apiScheduleResequence.operationLogId);
   assert.equal(replayedApiScheduleResequence.updatedAt, apiScheduleResequence.updatedAt);
-  assert.equal(replayedApiScheduleResequence.updatedBy, "U-OFFICE-A");
+  assert.equal(replayedApiScheduleResequence.updatedBy, liveManagerRuntimeUserId);
 
+  const apiScheduleMoveTaskRevision = Number(
+    runPsql(
+      `SELECT revision FROM production_tasks WHERE id = '${apiScheduleTaskId}';`,
+      { capture: true },
+    ).trim(),
+  );
   const apiScheduleMoveBody = {
     productionTaskId: apiScheduleTaskId,
     targetMachineId: "BAG-LIVE-02",
     targetQueueSeq: 2,
+    expectedRevision: apiScheduleMoveTaskRevision,
+    directDecisionContent: { summary: "负责人确认调整生产机台" },
     operatorId: "U-SPOOFED",
     updatedAt: "2026-07-02T12:55:00.000Z",
     remark: "postgres live schedule move",
@@ -2895,19 +3144,19 @@ async function checkApiWithPostgresRepositories() {
     baseUrl,
     "/api/production-schedules/machine-queue/move",
     apiScheduleMoveBody,
-    { headers },
+    { headers: scheduleHeaders },
   );
   const replayedApiScheduleMove = await postJson(
     baseUrl,
     "/api/production-schedules/machine-queue/move",
     apiScheduleMoveBody,
-    { headers },
+    { headers: scheduleHeaders },
   );
   assert.equal(replayedApiScheduleMove.operationLogId, apiScheduleMove.operationLogId);
   assert.equal(replayedApiScheduleMove.sourceMachineId, "BAG-LIVE-01");
   assert.equal(replayedApiScheduleMove.targetMachineId, "BAG-LIVE-02");
   assert.equal(replayedApiScheduleMove.targetQueueSeq, apiScheduleMove.targetQueueSeq);
-  assert.equal(replayedApiScheduleMove.updatedBy, "U-OFFICE-A");
+  assert.equal(replayedApiScheduleMove.updatedBy, liveManagerRuntimeUserId);
   assert.equal(
     Number(
       runPsql(
@@ -3011,7 +3260,7 @@ async function checkApiWithPostgresRepositories() {
     { headers },
   );
   assert.equal(customerPendingAction.todo.handled, false);
-  assert.equal(customerPendingAction.todo.status, "snoozed");
+  assert.equal(customerPendingAction.todo.status, "open");
   assert.equal(customerPendingAction.todo.reminder, "等待客户回复");
   const persistedCustomerPending = queryJson(
     `SELECT json_build_object(
@@ -3370,6 +3619,45 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(coldStartAfterDriverException.exceptionReason, "客户不在");
   assert.equal(new Date(coldStartAfterDriverException.exceptionOccurredAt).toISOString(), driverExceptionOccurredAt);
 
+  const driverPaperReady = await getJson(baseUrl, "/api/fulfillments/F008", { headers });
+  const driverPaperDocument = driverPaperReady.paperOutboundDocument;
+  const driverPaperHandoff = await postJson(
+    baseUrl,
+    "/api/fulfillments/F008/paper-handoff",
+    {
+      expectedRevision: driverPaperReady.revision,
+      paperOutboundDocumentId: driverPaperDocument.paperOutboundDocumentId,
+      paperDocumentVersion: driverPaperDocument.documentVersion,
+      paperDocumentRevision: driverPaperDocument.revision,
+      note: "PostgreSQL live 纸单交库房",
+      idempotencyKey: "driver-paper-handoff-f008-live-001",
+    },
+    { headers },
+  );
+  assert.equal(driverPaperHandoff.paperOutboundDocument.status, "已交库房");
+  const driverBeforeWarehouseExecution = await getJson(baseUrl, "/api/fulfillments/F008", { headers });
+  const handedDriverPaperDocument = driverBeforeWarehouseExecution.paperOutboundDocument;
+  const driverWarehouseExecution = await postJson(
+    baseUrl,
+    "/api/fulfillments/F008/warehouse-execution",
+    {
+      expectedRevision: driverBeforeWarehouseExecution.revision,
+      paperOutboundDocumentId: handedDriverPaperDocument.paperOutboundDocumentId,
+      paperDocumentVersion: handedDriverPaperDocument.documentVersion,
+      paperDocumentRevision: handedDriverPaperDocument.revision,
+      result: "实物已出库",
+      actualQty: 3000,
+      physicalExecutorEmployeeId: "EMP-MD-LIVE-001",
+      feedbackChannel: "纸面",
+      executedAt: "2026-07-02T08:50:00.000Z",
+      note: "库房按纸单完成规格和数量核对",
+      idempotencyKey: "driver-warehouse-execution-f008-live-001",
+    },
+    { headers },
+  );
+  assert.equal(driverWarehouseExecution.status, "待司机装车");
+  assert.equal(driverWarehouseExecution.warehouseOutboundExecution.result, "实物已出库");
+
   const driverLoadAt = "2026-07-02T09:05:00.000Z";
   const driverLoadRemark = "postgres live driver load check；装车核对：6/6包";
   const apiDriverLoad = await postJson(
@@ -3492,7 +3780,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(apiDriverComplete.task.paperNoteStatus, "已交回");
   assert.equal(apiDriverComplete.task.watermarkedPhotoAttachmentId, driverWatermarkAttachment.attachmentId);
   assert.equal(apiDriverComplete.task.signaturePhotoAttachmentId, driverSignatureAttachment.attachmentId);
-  assert.equal(apiDriverComplete.inventoryDeductionMode, "skipped_no_reservation");
+  assert.equal(apiDriverComplete.inventoryDeductionMode, "already_physical_outbound");
   assert.ok(apiDriverComplete.operationLogId);
   const persistedDriverComplete = queryJson(
     "SELECT json_build_object('status', status, 'loadedAt', loaded_at, 'loadedBy', loaded_by, 'driverRemark', driver_remark, 'receiverName', receiver_name, 'paperNoteStatus', paper_note_status, 'watermarkId', watermark_id) AS result FROM fulfillment_records WHERE id = 'F008';",
@@ -4347,12 +4635,79 @@ async function checkApiWithPostgresRepositories() {
     1326,
   );
 
+  const finalFulfillmentId = confirmedOrder.fulfillmentTasks[0].fulfillmentId;
+  const finalOutboundPrint = await postJson(
+    baseUrl,
+    `/api/fulfillments/${finalFulfillmentId}/print`,
+    {
+      templateId: "tpl-p0-pickup-note",
+      documentType: "pickup_note",
+      printDeviceId: "PRN-LIVE-PAPER-001",
+      printAction: "first_print",
+      operatorId: "U-SPOOFED",
+    },
+    { headers },
+  );
+  const finalOutboundPrintCallback = await postJson(
+    baseUrl,
+    `/api/print-jobs/${finalOutboundPrint.printJob.printJobId}/driver-status`,
+    {
+      status: "printed",
+      adapterName: "postgres-live-dot-matrix",
+      eventSource: "driver_callback",
+      driverStatus: "completed",
+      eventAt: "2026-07-02T10:30:00.000Z",
+      operatorId: "PRINT-DRIVER",
+    },
+    { headers: printDriverHeaders },
+  );
+  assert.equal(finalOutboundPrintCallback.printRecord.status, "printed");
+  const finalPaperReady = await getJson(baseUrl, `/api/fulfillments/${finalFulfillmentId}`, { headers });
+  const finalPaperDocument = finalPaperReady.paperOutboundDocument;
+  const finalPaperHandoff = await postJson(
+    baseUrl,
+    `/api/fulfillments/${finalFulfillmentId}/paper-handoff`,
+    {
+      expectedRevision: finalPaperReady.revision,
+      paperOutboundDocumentId: finalPaperDocument.paperOutboundDocumentId,
+      paperDocumentVersion: finalPaperDocument.documentVersion,
+      paperDocumentRevision: finalPaperDocument.revision,
+      note: "PostgreSQL live 自提纸单交库房",
+      idempotencyKey: "final-paper-handoff-live-api-001",
+    },
+    { headers },
+  );
+  assert.equal(finalPaperHandoff.paperOutboundDocument.status, "已交库房");
+  const finalBeforeWarehouseExecution = await getJson(baseUrl, `/api/fulfillments/${finalFulfillmentId}`, { headers });
+  const finalHandedPaperDocument = finalBeforeWarehouseExecution.paperOutboundDocument;
+  const finalWarehouseExecution = await postJson(
+    baseUrl,
+    `/api/fulfillments/${finalFulfillmentId}/warehouse-execution`,
+    {
+      expectedRevision: finalBeforeWarehouseExecution.revision,
+      paperOutboundDocumentId: finalHandedPaperDocument.paperOutboundDocumentId,
+      paperDocumentVersion: finalHandedPaperDocument.documentVersion,
+      paperDocumentRevision: finalHandedPaperDocument.revision,
+      result: "实物已出库",
+      actualQty: 10,
+      physicalExecutorEmployeeId: "EMP-MD-LIVE-001",
+      feedbackChannel: "纸面",
+      executedAt: "2026-07-02T10:40:00.000Z",
+      note: "库房按当前纸单完成实物出库",
+      idempotencyKey: "final-warehouse-execution-live-api-001",
+    },
+    { headers },
+  );
+  assert.equal(finalWarehouseExecution.status, "待确认自提交付");
+  const finalDeliveryReady = await getJson(baseUrl, `/api/fulfillments/${finalFulfillmentId}`, { headers });
   const completedFulfillment = await postJson(
     baseUrl,
-    `/api/fulfillments/${confirmedOrder.fulfillmentTasks[0].fulfillmentId}/complete`,
+    `/api/fulfillments/${finalFulfillmentId}/complete`,
     {
-      fulfillmentId: confirmedOrder.fulfillmentTasks[0].fulfillmentId,
+      fulfillmentId: finalFulfillmentId,
       actualQty: 10,
+      expectedRevision: finalDeliveryReady.revision,
+      confirmedFinalDelivery: true,
       operatorId: "U-SPOOFED",
       completedAt: "2026-07-02T11:00:00.000Z",
       remark: "postgres live fulfillment action route",
@@ -4362,7 +4717,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(completedFulfillment.status, "已交付");
   assert.ok(completedFulfillment.operationLogId);
   assertPostgresOperationLogOperator(queryJson, completedFulfillment.operationLogId);
-  assert.equal(completedFulfillment.inventoryLedgerIds.length, 1);
+  assert.equal(completedFulfillment.inventoryDeductionMode, "already_deducted_at_physical_outbound");
   assert.equal(
     queryJson(
       `SELECT json_build_object('status', status, 'actualQty', actual_qty) AS result FROM fulfillment_records WHERE id = ${sqlLiteral(
@@ -4376,7 +4731,7 @@ async function checkApiWithPostgresRepositories() {
       runPsql(
         `SELECT COUNT(*) FROM operation_logs WHERE target_type = 'fulfillment' AND target_id = ${sqlLiteral(
           confirmedOrder.fulfillmentTasks[0].fulfillmentId,
-        )} AND action = 'complete_fulfillment';`,
+        )} AND action = 'confirm_self_pickup_final_delivery';`,
         { capture: true },
       ).trim(),
     ),
@@ -4398,7 +4753,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(
     Number(
       runPsql(
-        `SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_type = 'fulfillment_complete' AND source_id = ${sqlLiteral(
+        `SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_type = 'warehouse_physical_outbound' AND source_id = ${sqlLiteral(
           confirmedOrder.fulfillmentTasks[0].fulfillmentId,
         )};`,
         { capture: true },
@@ -4408,9 +4763,34 @@ async function checkApiWithPostgresRepositories() {
   );
 
   runPsql(
-    `UPDATE fulfillment_records
-SET status = '已备货', actual_qty = 1200, revision = 1, updated_at = now()
-WHERE id = 'F002';`,
+    `INSERT INTO print_records (
+       id, biz_no, target_type, target_id, template_id, print_action, status, printed_by, printed_at
+     ) VALUES (
+       'PR-LIVE-F002-LEGACY-001', 'PR-LIVE-F002-LEGACY-001', 'fulfillment', 'F002',
+       'tpl-p0-fulfillment', 'first_print', 'printed', 'U-OFFICE-A', '2026-07-02T11:30:00.000Z'
+     ) ON CONFLICT (id) DO NOTHING;
+
+     INSERT INTO paper_outbound_documents (
+       id, fulfillment_id, print_record_id, document_type, document_version,
+       status, printed_by, printed_at, revision
+     ) VALUES (
+       'POD-LIVE-F002-LEGACY-001', 'F002', 'PR-LIVE-F002-LEGACY-001', 'delivery_note', 99,
+       '已打印', 'U-OFFICE-A', '2026-07-02T11:30:00.000Z', 1
+     ) ON CONFLICT (id) DO NOTHING;
+
+     UPDATE fulfillment_records
+     SET status = '已备货', actual_qty = 1200, revision = 1,
+         paper_outbound_status = '已打印',
+         paper_outbound_document_id = 'POD-LIVE-F002-LEGACY-001',
+         physical_outbound_at = NULL,
+         physical_executor_employee_id = NULL,
+         physical_outbound_document_id = NULL,
+         physical_outbound_document_version = NULL,
+         final_delivery_status = '待最终交付',
+         final_delivery_at = NULL,
+         legacy_state_review_required = false,
+         updated_at = now()
+     WHERE id = 'F002';`,
   );
   await closeServer(server);
   server = null;
@@ -4436,23 +4816,46 @@ WHERE id = 'F002';`,
   );
   assert.equal(restartedHoldIntents.items[0].intentStatus, "已转订单");
   assert.equal(restartedHoldIntents.items[0].relatedOrderLineId, convertedHoldOrder.orderLines[0].id);
-  const completedLegacyFulfillment = await postJson(
+  const legacyPaperReady = await getJson(baseUrl, "/api/fulfillments/F002", { headers });
+  const legacyPaperDocument = legacyPaperReady.paperOutboundDocument;
+  const legacyPaperHandoff = await postJson(
     baseUrl,
-    "/api/fulfillments/F002/complete",
+    "/api/fulfillments/F002/paper-handoff",
     {
-      fulfillmentId: "F002",
-      actualQty: 1200,
-      operatorId: "U-SPOOFED",
-      completedAt: "2026-07-02T12:00:00.000Z",
-      remark: "postgres live legacy fulfillment deduction",
-      allowUnreservedInventoryDeduction: true,
+      expectedRevision: legacyPaperReady.revision,
+      paperOutboundDocumentId: legacyPaperDocument.paperOutboundDocumentId,
+      paperDocumentVersion: legacyPaperDocument.documentVersion,
+      paperDocumentRevision: legacyPaperDocument.revision,
+      note: "PostgreSQL live 历史订单纸单交库房",
+      idempotencyKey: "legacy-paper-handoff-f002-live-001",
     },
     { headers },
   );
-  assert.equal(completedLegacyFulfillment.status, "已交付");
-  assert.equal(completedLegacyFulfillment.inventoryDeductionMode, "legacy_reserved_stock_match");
-  assert.equal(completedLegacyFulfillment.inventoryLedgerIds.length, 1);
-  assertPostgresOperationLogOperator(queryJson, completedLegacyFulfillment.operationLogId);
+  assert.equal(legacyPaperHandoff.paperOutboundDocument.status, "已交库房");
+  const legacyBeforeWarehouseExecution = await getJson(baseUrl, "/api/fulfillments/F002", { headers });
+  const legacyHandedPaperDocument = legacyBeforeWarehouseExecution.paperOutboundDocument;
+  const legacyWarehouseExecution = await postJson(
+    baseUrl,
+    "/api/fulfillments/F002/warehouse-execution",
+    {
+      expectedRevision: legacyBeforeWarehouseExecution.revision,
+      paperOutboundDocumentId: legacyHandedPaperDocument.paperOutboundDocumentId,
+      paperDocumentVersion: legacyHandedPaperDocument.documentVersion,
+      paperDocumentRevision: legacyHandedPaperDocument.revision,
+      result: "实物已出库",
+      actualQty: 1200,
+      physicalExecutorEmployeeId: "EMP-MD-LIVE-001",
+      feedbackChannel: "纸面",
+      executedAt: "2026-07-02T12:00:00.000Z",
+      note: "PostgreSQL live 历史库存匹配",
+      allowUnreservedInventoryDeduction: true,
+      idempotencyKey: "legacy-warehouse-execution-f002-live-001",
+    },
+    { headers },
+  );
+  assert.equal(legacyWarehouseExecution.status, "待司机装车");
+  assert.equal(legacyWarehouseExecution.inventoryDeductionMode, "legacy_reserved_stock_match");
+  assertPostgresOperationLogOperator(queryJson, legacyWarehouseExecution.operationLogId);
   const legacyInventoryAfterFulfillment = queryJson(
     "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '25*32*10-白色-加长提-空白袋-B区-服装';",
   );
@@ -4470,7 +4873,7 @@ WHERE id = 'F002';`,
   assert.equal(
     Number(
       runPsql(
-        "SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_type = 'fulfillment_complete_legacy' AND source_id = 'F002';",
+        "SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_type = 'warehouse_physical_outbound_legacy' AND source_id = 'F002';",
         { capture: true },
       ).trim(),
     ),
@@ -4939,17 +5342,28 @@ WHERE id = 'F002';`,
   });
   assert.ok(apiTrustedPrintFulfillment?.fulfillmentId, "postgres live needs one unprinted fulfillment");
   const apiTrustedPrintInitialStatus = apiTrustedPrintFulfillment.status;
+  const apiTrustedPrintMethod =
+    apiTrustedPrintFulfillment.method === "express" || apiTrustedPrintFulfillment.method === "快递快运"
+      ? "express"
+      : apiTrustedPrintFulfillment.method === "delivery" || apiTrustedPrintFulfillment.method === "送货"
+        ? "delivery"
+        : "pickup";
   const apiTrustedPrintExpectedStatus =
-    apiTrustedPrintFulfillment.method === "快递快运" ? "待确认拉走" : apiTrustedPrintInitialStatus;
+    apiTrustedPrintMethod === "express" ? "待确认拉走" : apiTrustedPrintInitialStatus;
   const apiTrustedPrintRequest = await postJson(
     baseUrl,
     `/api/fulfillments/${apiTrustedPrintFulfillment.fulfillmentId}/print`,
     {
-      templateId: "tpl-p0-express-label",
+      templateId:
+        apiTrustedPrintMethod === "express"
+          ? "tpl-p0-express-ltl-label"
+          : apiTrustedPrintMethod === "delivery"
+            ? "tpl-p0-delivery-note"
+            : "tpl-p0-pickup-note",
       documentType:
-        apiTrustedPrintFulfillment.method === "快递快运"
+        apiTrustedPrintMethod === "express"
           ? "express_ltl_label"
-          : apiTrustedPrintFulfillment.method === "送货"
+          : apiTrustedPrintMethod === "delivery"
             ? "delivery_note"
             : "pickup_note",
       printDeviceId: "PRN-LIVE-API-001",
@@ -5668,7 +6082,11 @@ WHERE id = 'F002';`,
   assert.equal(exportList.items[0].storageKeyStored, true);
   assert.equal(exportList.items[0].content, undefined);
 
+  const statementSendExpectedRevision = Number(
+    queryJson("SELECT json_build_object('revision', revision) AS result FROM statements WHERE id = 'ST-0629-001';").revision,
+  );
   const statementSendBody = {
+    expectedRevision: statementSendExpectedRevision,
     channel: "wechat",
     sentTo: "张三服饰财务",
     sentAt: "2026-07-01T10:35:00.000Z",
@@ -5714,7 +6132,13 @@ WHERE id = 'F002';`,
     1,
   );
 
+  const statementReceiptExpectedRevision = Number(
+    queryJson(
+      `SELECT json_build_object('revision', revision) AS result FROM statement_send_records WHERE id = ${sqlLiteral(markedSent.sendRecordId)};`,
+    ).revision,
+  );
   const statementReceiptBody = {
+    expectedRevision: statementReceiptExpectedRevision,
     sendRecordId: markedSent.sendRecordId,
     receiptStatus: "read",
     receiptAt: "2026-07-01T11:05:00.000Z",
@@ -5765,7 +6189,11 @@ WHERE id = 'F002';`,
     { headers },
   );
   assert.equal(statementConfirmationAttachment.uploadedBy, "U-OFFICE-A");
+  const statementConfirmationExpectedRevision = Number(
+    queryJson("SELECT json_build_object('revision', revision) AS result FROM statements WHERE id = 'ST-0629-001';").revision,
+  );
   const statementConfirmationBody = {
+    expectedRevision: statementConfirmationExpectedRevision,
     sendRecordId: markedSent.sendRecordId,
     confirmationType: "customer_reply",
     channel: "wechat",
@@ -5837,10 +6265,14 @@ WHERE id = 'F002';`,
     { headers },
   );
   assert.equal(statementPaymentAttachment.uploadedBy, "U-OFFICE-A");
+  const statementPaymentExpectedRevision = Number(
+    queryJson("SELECT json_build_object('revision', revision) AS result FROM statements WHERE id = 'ST-0629-001';").revision,
+  );
   const payment = await postJson(
     baseUrl,
     "/api/statements/ST-0629-001/payments",
     {
+      expectedRevision: statementPaymentExpectedRevision,
       amount: 273,
       paidAt: "2026-07-01T10:30:00.000Z",
       method: "wechat",
@@ -5876,16 +6308,21 @@ WHERE id = 'F002';`,
     1,
   );
 
+  const statementVarianceExpectedRevision = Number(
+    queryJson("SELECT json_build_object('revision', revision) AS result FROM statements WHERE id = 'ST-0629-002';").revision,
+  );
   const variance = await postJson(
     baseUrl,
     "/api/statements/ST-0629-002/variance",
     {
+      expectedRevision: statementVarianceExpectedRevision,
       varianceAmount: 28000,
       handlingResult: "carry_to_debt",
       reason: "未收差额转欠款",
-      operatorId: "U-OFFICE-A",
+      directDecisionContent: { summary: "负责人确认差额转欠款" },
+      operatorId: "U-SPOOFED",
     },
-    { headers },
+    { headers: scheduleHeaders },
   );
   assert.equal(variance.statementStatus, "有欠款");
   assert.equal(variance.debtAmount, 28000);
@@ -5900,10 +6337,12 @@ WHERE id = 'F002';`,
     baseUrl,
     "/api/statements/ST-0629-002/write-off",
     {
+      expectedRevision: variance.statementRevision,
       confirmReason: "确认差额转欠款",
-      operatorId: "U-OFFICE-A",
+      directDecisionContent: { summary: "负责人确认欠款核销" },
+      operatorId: "U-SPOOFED",
     },
-    { headers },
+    { headers: scheduleHeaders },
   );
   assert.equal(writeOff.status, "已确认欠款");
   assert.equal(writeOff.debtAmount, 28000);

@@ -11,6 +11,8 @@ async function runCli() {
     const report = await buildProductionServiceHealthReport({
       apiBaseUrl: options.apiBaseUrl,
       timeoutMs: options.timeoutMs,
+      expectedCommit: options.expectedCommit,
+      expectedTarget: options.expectedTarget,
     });
     process.stdout.write(options.json ? `${JSON.stringify(report)}\n` : formatReport(report));
     process.exitCode = report.ready ? 0 : 2;
@@ -28,6 +30,8 @@ function parseArgs(args) {
   const options = {
     apiBaseUrl: "http://127.0.0.1:8787/api",
     timeoutMs: 5_000,
+    expectedCommit: "",
+    expectedTarget: "tencent-production",
     json: false,
   };
   for (let index = 0; index < args.length; index += 1) {
@@ -39,6 +43,17 @@ function parseArgs(args) {
     }
     if (arg === "--timeout-ms") {
       options.timeoutMs = parsePositiveInteger(readValue(args, index, arg), arg);
+      index += 1;
+      continue;
+    }
+    if (arg === "--expected-commit") {
+      options.expectedCommit = readValue(args, index, arg).toLowerCase();
+      if (!/^[a-f0-9]{40}$/.test(options.expectedCommit)) throw new Error("--expected-commit must be a full commit id.");
+      index += 1;
+      continue;
+    }
+    if (arg === "--expected-target") {
+      options.expectedTarget = readValue(args, index, arg);
       index += 1;
       continue;
     }
@@ -75,6 +90,8 @@ function helpText() {
     "Options:",
     "  --api-base-url <url>  API base URL. Defaults to the loopback production API.",
     "  --timeout-ms <n>      Request timeout. Defaults to 5000.",
+    "  --expected-commit <sha> Require the API to expose this full release commit.",
+    "  --expected-target <name> Require this release target. Defaults to tencent-production.",
     "  --json                Print one redacted JSON line.",
     "  --no-write            Accepted for systemd compatibility; this runner never writes files.",
     "",
@@ -110,6 +127,11 @@ export async function buildProductionServiceHealthReport(options = {}) {
   const checks = [
     check("http", "API health 可访问", requestSucceeded),
     check("status", "API health 状态正常", payload?.status === "ok"),
+    check("release-identity", "受控发布身份完整", payload?.release?.ready === true),
+    check("release-target", "发布目标一致", payload?.release?.target === (options.expectedTarget ?? "tencent-production")),
+    ...(options.expectedCommit
+      ? [check("release-commit", "服务器提交与发布锁一致", payload?.release?.commit === options.expectedCommit)]
+      : []),
     check("runtime", "生产运行模式", payload?.seed?.runtimeConfig?.production === true),
     check("env-file", "安全 env 已在启动时应用", payload?.seed?.productionEnvFileApplication?.applied === true),
     check("postgres", "PostgreSQL 持久化 profile", payload?.seed?.v1PersistenceProfile?.repositoryProfile === "postgres"),

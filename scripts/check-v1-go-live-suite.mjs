@@ -70,7 +70,7 @@ function buildFirstStageEvidenceSuggestions() {
     conclusion: "已生成第一阶段现场证据回填建议；该结果必须经现场负责人复核后再应用，不能替代真实现场证据、签字或 V1/V2 边界确认。",
     summary: {
       label: "7 项可建议自动接受，2 项只有部分自动化支撑，1 项仍需人工证据",
-      sourceEvidenceRows: 34,
+      sourceEvidenceRows: 40,
       firstStageEvidenceRows: 10,
       autoAcceptedSuggestionCount: 7,
       partialSuggestionCount: 2,
@@ -444,15 +444,15 @@ assert.ok(
   "suite should carry module completion rows",
 );
 assert.ok(blockedResult.summary.onsiteTasks > 0, "blocked fixture should produce onsite tasks");
-assert.equal(blockedResult.summary.unblockPlan, "V1 解除阻塞仍有 42 项待处理");
+assert.equal(blockedResult.summary.unblockPlan, "V1 解除阻塞仍有 48 项待处理");
 assert.ok(blockedResult.summary.unblockPhaseCount >= 4, "suite should summarize unblock phases");
 assert.ok(
   blockedResult.summary.unblockFirstActions.some((item) => item.includes("生产环境变量预检 / 统一 V1 持久化 profile")),
   "suite should expose first unblock actions",
 );
-assert.equal(blockedResult.unblockPlan.summary.taskCount, 42);
+assert.equal(blockedResult.unblockPlan.summary.taskCount, 48);
 assert.equal(blockedResult.unblockPlan.summary.releaseTaskCount, 1);
-assert.equal(blockedResult.unblockPlan.summary.evidenceTaskCount, 34);
+assert.equal(blockedResult.unblockPlan.summary.evidenceTaskCount, 40);
 assert.equal(blockedResult.unblockPlan.summary.signoffTaskCount, 6);
 assert.equal(blockedResult.unblockPlan.summary.boundaryTaskCount, 1);
 assert.ok(
@@ -845,7 +845,7 @@ assert.match(handoffSummary, /司机真机阶段执行/);
 assert.match(handoffSummary, /1\/2 步骤通过，仍有阻塞/);
 assert.match(handoffSummary, /司机真机/);
 assert.match(handoffSummary, /最小解除阻塞清单/);
-assert.match(handoffSummary, /V1 解除阻塞仍有 42 项待处理/);
+assert.match(handoffSummary, /V1 解除阻塞仍有 48 项待处理/);
 assert.match(handoffManifest, /productionFirstStageExecution/);
 assert.match(handoffManifest, /productionFirstStageEvidenceSuggestions/);
 assert.match(handoffManifest, /productionPersistenceEvidence/);
@@ -986,10 +986,10 @@ assert.equal(csvResult.steps[0].summary.appliedRowCount, 3);
 assert.equal(csvResult.steps[0].summary.appliedEvidenceRowCount, 1);
 assert.equal(csvResult.steps[0].summary.appliedSignoffRowCount, 1);
 assert.equal(csvResult.steps[0].summary.appliedBoundaryRowCount, 1);
-assert.equal(csvResult.steps[0].summary.requiredEvidenceItems, "1/34");
+assert.equal(csvResult.steps[0].summary.requiredEvidenceItems, "1/40");
 assert.equal(csvResult.steps[0].summary.signoffs, "1/6");
 assert.equal(csvResult.steps[0].summary.boundary, "confirmed");
-assert.equal(csvResult.summary.fieldEvidence, "V1 现场证据清单仍阻塞：证据 1/34，签字 1/6");
+assert.equal(csvResult.summary.fieldEvidence, "V1 现场证据清单仍阻塞：证据 1/40，签字 1/6");
 assert.equal(csvResult.summary.releaseCandidate, "0/4 发布门禁通过");
 assert.equal(csvResult.safeguards.sourceManifestMutated, false);
 assert.equal(csvResult.safeguards.releaseCandidateRefreshRecommendedAfterDraftApply, true);
@@ -1005,7 +1005,7 @@ const csvSuiteSummary = readGeneratedFile(csvResult.files.summaryMarkdown);
 assert.match(csvSuiteSummary, /现场 CSV 回填/);
 assert.match(csvSuiteSummary, /签字 \/ 边界 CSV：已应用/);
 assert.match(csvSuiteSummary, /release-candidate 使用的是现有 JSON/);
-assert.match(readFileSync(join(csvOutputRoot, "field-evidence-intake", "intake-summary.zh-CN.md"), "utf8"), /必填证据完成：1\/34/);
+assert.match(readFileSync(join(csvOutputRoot, "field-evidence-intake", "intake-summary.zh-CN.md"), "utf8"), /必填证据完成：1\/40/);
 assert.match(readFileSync(join(csvOutputRoot, "field-evidence-intake", "intake-summary.zh-CN.md"), "utf8"), /负责人签字完成：1\/6/);
 assert.doesNotMatch(csvRun.stdout + csvRun.stderr + csvSuiteSummary, /办公室负责人|总负责人/);
 assertNoSensitiveOutput(csvRun.stdout + csvRun.stderr + csvSuiteSummary);
@@ -1111,11 +1111,11 @@ try {
   assert.equal(csvRefreshResult.steps.length, 8);
   assert.equal(csvRefreshResult.steps[0].key, "fieldEvidenceApply");
   assert.equal(csvRefreshResult.steps[1].key, "releaseCandidate");
-  assert.equal(csvRefreshResult.steps[0].summary.requiredEvidenceItems, "1/34");
+  assert.equal(csvRefreshResult.steps[0].summary.requiredEvidenceItems, "1/40");
   assert.equal(csvRefreshResult.steps[0].summary.signoffs, "1/6");
   assert.equal(csvRefreshResult.steps[0].summary.boundary, "confirmed");
-  assert.equal(csvRefreshResult.steps[1].summary.fieldEvidence, "V1 现场证据清单仍阻塞：证据 1/34，签字 1/6");
-  assert.equal(csvRefreshResult.summary.fieldEvidence, "V1 现场证据清单仍阻塞：证据 1/34，签字 1/6");
+  assert.equal(csvRefreshResult.steps[1].summary.fieldEvidence, "V1 现场证据清单仍阻塞：证据 1/40，签字 1/6");
+  assert.equal(csvRefreshResult.summary.fieldEvidence, "V1 现场证据清单仍阻塞：证据 1/40，签字 1/6");
   assert.equal(csvRefreshResult.safeguards.sourceManifestMutated, false);
   assert.equal(csvRefreshResult.safeguards.releaseCandidateRefreshRecommendedAfterDraftApply, false);
   const csvRefreshSuite = JSON.parse(readGeneratedFile(csvRefreshResult.files.latestJson));
@@ -1130,7 +1130,7 @@ try {
   assert.equal(csvRefreshSuite.safeguards.releaseCandidateEnvFileValuesIncluded, false);
   assert.equal(csvRefreshSuite.safeguards.releaseCandidateEnvFileFromProductionSetup, true);
   const refreshedReleaseCandidate = JSON.parse(readFileSync(join(csvRefreshOutputRoot, "release-candidate", "latest.json"), "utf8"));
-  assert.equal(refreshedReleaseCandidate.summary.fieldEvidence, "V1 现场证据清单仍阻塞：证据 1/34，签字 1/6");
+  assert.equal(refreshedReleaseCandidate.summary.fieldEvidence, "V1 现场证据清单仍阻塞：证据 1/40，签字 1/6");
   assert.equal(refreshedReleaseCandidate.envFileAudit?.included, true);
   assert.equal(refreshedReleaseCandidate.envFileAudit?.ready, true);
   const csvRefreshSummary = readGeneratedFile(csvRefreshResult.files.summaryMarkdown);
@@ -1178,7 +1178,7 @@ function buildBlockedReleaseCandidate() {
       totalGateCount: 4,
       blockingCount: 3,
       envPreflight: "2/10 通过",
-      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
       runtimeReadiness: "5/11 通过",
       fieldAcceptance: "5/11 通过",
     },
@@ -1257,7 +1257,7 @@ function buildBlockedReleaseCandidate() {
         label: "现场证据 manifest",
         status: "blocked",
         ready: false,
-        summary: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+        summary: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
         detail: "现场证据 manifest 仍未填满，不能作为 V1 现场签字依据。",
       },
       {

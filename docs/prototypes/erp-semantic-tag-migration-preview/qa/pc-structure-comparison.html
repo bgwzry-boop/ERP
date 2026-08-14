@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>PC 当前结构 · 设计 QA 对照</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 24px; background: #eef2f6; color: #17212b; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+    h1 { margin: 0 0 18px; font-size: 22px; }
+    section { margin: 0 0 24px; padding: 14px; border: 1px solid #d7dee7; border-radius: 10px; background: white; }
+    header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; margin-bottom: 10px; }
+    h2 { margin: 0; font-size: 15px; }
+    p { margin: 0; color: #667382; font-size: 12px; }
+    .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: start; }
+    figure { min-width: 0; margin: 0; }
+    figcaption { margin-bottom: 6px; color: #526170; font-size: 11px; font-weight: 700; }
+    img { width: 100%; display: block; border: 1px solid #d9e0e8; background: #f5f7fa; object-fit: contain; object-position: top; }
+  </style>
+</head>
+<body>
+  <h1>PC 当前信息架构 · 对照评审</h1>
+  <section>
+    <header><h2>订单池外壳与当前导航</h2><p>同一 1280 × 720 状态；主体保持，信息架构换成当前五业务域</p></header>
+    <div class="pair">
+      <figure><figcaption>调整前：历史模块分类</figcaption><img src="pc-structure-before-order-pool-1280x720.png" alt="调整前订单池" /></figure>
+      <figure><figcaption>调整后：当前 ERP 分类</figcaption><img src="pc-structure-after-order-pool-1280x720.png" alt="调整后订单池" /></figure>
+    </div>
+  </section>
+  <section>
+    <header><h2>原材料工作台</h2><p>沿用当前任务聚焦、连续台账和一项主动作的方向</p></header>
+    <div class="pair">
+      <figure><figcaption>来源：已批准原材料桌面核对方向 · 1440 × 900</figcaption><img src="reference-raw-material-1440x900.png" alt="原材料来源设计" /></figure>
+      <figure><figcaption>实现：全流程原材料总工作台 · 1280 × 720</figcaption><img src="pc-structure-after-raw-materials-1280x720.png" alt="原材料工作台实现" /></figure>
+    </div>
+  </section>
+  <section>
+    <header><h2>独立资料工作台</h2><p>历史基础资料内容拆成当前独立入口，保持列表＋单条维护</p></header>
+    <div class="pair">
+      <figure><figcaption>来源：既有基础资料列表＋详情 · 1600 × 1000</figcaption><img src="reference-master-data-1600x1000.jpg" alt="基础资料来源设计" /></figure>
+      <figure><figcaption>实现：客户档案独立工作台 · 1280 × 720</figcaption><img src="pc-structure-after-customer-1280x720.png" alt="客户档案工作台实现" /></figure>
+    </div>
+  </section>
+  <section>
+    <header><h2>通用价格表</h2><p>全表浏览优先，点击具体尺寸后才出现单条维护详情</p></header>
+    <div class="pair">
+      <figure><figcaption>来源：已选通用价格表方向 · 1487 × 1058</figcaption><img src="reference-price-selected.png" alt="通用价格表来源设计" /></figure>
+      <figure><figcaption>实现：全表默认浏览 · 1280 × 720</figcaption><img src="pc-structure-after-price-table-1280x720.png" alt="通用价格表实现" /></figure>
+    </div>
+  </section>
+</body>
+</html>

@@ -115,40 +115,49 @@ function buildMasterDataInventoryRecords({ inventoryRecords = [], helpers = {} }
 }
 
 function buildMasterDataEmployeeMachineRecords({ employeeAccountReviews = [], seedUserOptions = [] }) {
-  const importedEmployees = employeeAccountReviews.map((review) => ({
-    id: `EMP-${review.employeeId || review.userId || review.loginName}`,
-    label: review.name || review.loginName || review.employeeId,
-    statusLabel: review.accountEnabled ? getEmployeePasswordStatusLabel(review.passwordStatus) : "待复核启用",
-    tone: review.passwordStatus === "password_revoked" ? "danger" : review.passwordStatus === "password_expired" ? "warning" : review.accountEnabled ? "success" : "warning",
-    cells: [review.name || review.employeeId, review.loginName || review.userId, review.roleName || review.roleKey || "岗位待补", review.defaultWorkshop || "未分配", formatEmployeeAssignmentLabel(review), review.accountEnabled ? "已启用" : requiresMachineReview(review) ? "待机台复核" : "待启用"],
-    detailRows: [
-      ["员工", review.name || review.employeeId],
-      ["登录名", review.loginName || review.userId || "待生成"],
-      ["岗位", review.roleName || review.roleKey || "岗位待补"],
-      ["负责车间", review.defaultWorkshop || "未分配"],
-      ["默认机台", review.configuredMachineLabel || review.defaultMachineId || "未绑定"],
-      ["机台资料", review.machineConfigurationStatusLabel || (review.defaultMachineId ? "待同步" : "待分配机台")],
-      ["工作安排", formatEmployeeAssignmentLabel(review)],
-      ["账号状态", review.accountEnabled ? "已启用" : "待复核启用"],
-      ["密码状态", getEmployeePasswordStatusLabel(review.passwordStatus)],
-    ],
-    fields: [
-      { key: "role", label: "岗位", currentValue: review.roleName || review.roleKey || "" },
-      { key: "defaultMachineId", label: "默认机台", currentValue: review.defaultMachineId || "" },
-      { key: "loginName", label: "登录名", currentValue: review.loginName || "" },
-      { key: "accountEnabled", label: "账号启用", currentValue: review.accountEnabled ? "是" : "否" },
-    ],
-    searchText: [review.employeeId, review.name, review.loginName, review.userId, review.roleName, review.roleKey, review.defaultWorkshop, review.defaultMachineId, review.configuredMachineId, review.configuredMachineLabel, review.machineConfigurationStatusLabel, formatEmployeeAssignmentLabel(review)].join(" "),
-    reviewRule: "员工和机台资料影响权限、车间任务可见性和报工归属。账号启用、密码发放和撤销仍必须在员工账号复核区完成。",
-    sourceType: "formal",
-    employeeReview: review,
-  }));
-  const seedEmployees = seedUserOptions.map((user) => ({
+  const importedEmployees = employeeAccountReviews.map((review, index) => {
+    const profileStatus = String(review.profileStatus ?? review.status ?? "").trim().toLowerCase();
+    const departed = ["departed", "inactive", "inactive_employee", "left", "retired", "离职", "已离职"].includes(profileStatus);
+    return {
+      id: `EMP-${review.employeeId || review.userId || review.loginName}`,
+      label: review.name || review.loginName || review.employeeId,
+      statusLabel: departed ? "已离职" : review.accountEnabled ? getEmployeePasswordStatusLabel(review.passwordStatus) : "待复核启用",
+      tone: departed ? "neutral" : review.passwordStatus === "password_revoked" ? "danger" : review.passwordStatus === "password_expired" ? "warning" : review.accountEnabled ? "success" : "warning",
+      cells: [index + 1, review.name || review.employeeId, review.roleName || review.roleKey || "岗位待补", departed ? "—" : review.defaultWorkshop || "未分配", departed ? "—" : formatEmployeeAssignmentLabel(review), departed ? "已离职" : review.accountEnabled ? "已启用" : requiresMachineReview(review) ? "待机台复核" : "待启用"],
+      detailRows: [
+        ["员工", review.name || review.employeeId],
+        ["员工编号", review.employeeId],
+        ["年龄", review.age === null || review.age === undefined ? "未维护" : `${review.age} 岁`],
+        ["入职时间", review.hireDate || "未维护"],
+        ["在厂工龄", review.seniorityYears === null || review.seniorityYears === undefined ? "待维护入职日期" : `${review.seniorityYears} 年`],
+        ["岗位", review.roleName || review.roleKey || "岗位待补"],
+        ["所在车间", review.defaultWorkshop || "未分配"],
+        ["当前机台", review.configuredMachineLabel || review.defaultMachineId || "未绑定"],
+        ["机台资料", review.machineConfigurationStatusLabel || (review.defaultMachineId ? "待同步" : "待分配机台")],
+        ["工作安排", formatEmployeeAssignmentLabel(review)],
+        ["考勤关联", review.attendanceMapped ? `${review.attendanceProvider} / ${review.attendanceExternalId}` : "未绑定"],
+        ["登录账号", review.loginName || review.userId || "待生成"],
+        ["账号状态", departed ? "已离职 / 已停用" : review.accountEnabled ? "已启用" : "待复核启用"],
+        ["密码状态", getEmployeePasswordStatusLabel(review.passwordStatus)],
+      ],
+      fields: [
+        { key: "role", label: "岗位", currentValue: review.roleName || review.roleKey || "" },
+        { key: "defaultMachineId", label: "默认机台", currentValue: review.defaultMachineId || "" },
+        { key: "loginName", label: "登录名", currentValue: review.loginName || "" },
+        { key: "accountEnabled", label: "账号启用", currentValue: review.accountEnabled ? "是" : "否" },
+      ],
+      searchText: [review.employeeId, review.name, review.loginName, review.userId, review.roleName, review.roleKey, review.defaultWorkshop, review.defaultMachineId, review.configuredMachineId, review.configuredMachineLabel, review.machineConfigurationStatusLabel, formatEmployeeAssignmentLabel(review)].join(" "),
+      reviewRule: "员工和机台资料影响权限、车间任务可见性和报工归属。账号启用、密码发放和撤销仍必须在员工账号复核区完成。",
+      sourceType: "formal",
+      employeeReview: review,
+    };
+  });
+  const seedEmployees = seedUserOptions.map((user, index) => ({
     id: `SEED-${user.userId}`,
     label: user.displayName,
     statusLabel: user.defaultMachineId ? "seed账号 / 已绑定机台" : "seed账号",
     tone: "neutral",
-    cells: [user.displayName, user.userId, user.roleLabel, "演示", user.defaultMachineId || "未绑定", "seed只读"],
+    cells: [index + 1, user.displayName, user.roleLabel, "演示", user.defaultMachineId || "未绑定", "seed只读"],
     detailRows: [
       ["用户 ID", user.userId],
       ["显示名", user.displayName],

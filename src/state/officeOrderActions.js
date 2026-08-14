@@ -62,6 +62,8 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
       inventory: row.inventory,
       printSide: row.printSide === "非印刷" ? "" : row.printSide,
       printColor: row.printColor === "非印刷" ? "" : row.printColor,
+      artworkStatus: row.artworkStatus,
+      artworkAttachment: row.artworkAttachment,
       note: getDraftNote(row),
       handleColor: getOptionalColor(row.handleColor),
     }),

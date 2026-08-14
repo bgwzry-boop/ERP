@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { spawn, spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import { mkdirSync, rmSync } from "node:fs";
 import { createServer } from "node:http";
 import { join } from "node:path";
@@ -60,6 +59,7 @@ try {
 
   apiServer = createApiServer({
     runtimeMode: "production",
+    firstReleaseScope: "raw_material",
     authSecret: runtimeAuthSecret,
     v1PersistenceProfile: {
       repositoryMode: "postgres",
@@ -76,7 +76,7 @@ try {
   await checkHealthProfile(apiBaseUrl);
   await checkPostgresBackedReadRoutes(apiBaseUrl);
   await checkSystemPersistenceReadiness(apiBaseUrl);
-  await checkAttachmentObjectStorageReadiness(apiBaseUrl, objectStorageEndpoint);
+  await checkAttachmentObjectStorageReadiness(apiBaseUrl);
   await checkTopLevelReadinessRunner(apiBaseUrl);
 
   await closeServer(apiServer);
@@ -84,8 +84,7 @@ try {
   seedMinimalFieldGateBusinessRows();
   prepareFieldGateLocalStorage();
 
-  apiServer = createApiServer({
-    runtimeMode: "production",
+  const fieldGateApiOptions = {
     authSecret: runtimeAuthSecret,
     v1PersistenceProfile: {
       repositoryMode: "postgres",
@@ -110,11 +109,28 @@ try {
       commandBridgeSpoolDir: fieldGateSpoolRoot,
       allowedPrinterNames: ["PRN-LABEL-A", "PRN-DOT-A", "标签机A", "针式打印机A"],
     },
+  };
+  apiServer = createApiServer({
+    ...fieldGateApiOptions,
+    runtimeMode: "test",
+    firstReleaseScope: null,
   });
   await listen(apiServer);
-  const fieldGateApiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/api`;
-  await authenticateFormalActors(fieldGateApiBaseUrl);
-  await checkAutomatedFieldGateReadiness(fieldGateApiBaseUrl);
+  const fieldGateSetupApiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/api`;
+  await authenticateFormalActors(fieldGateSetupApiBaseUrl);
+  await preparePositiveV1FieldGateEvidence(fieldGateSetupApiBaseUrl);
+  await closeServer(apiServer);
+  apiServer = null;
+
+  apiServer = createApiServer({
+    ...fieldGateApiOptions,
+    runtimeMode: "production",
+    firstReleaseScope: "raw_material",
+  });
+  await listen(apiServer);
+  const fieldGateVerificationApiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/api`;
+  await authenticateFormalActors(fieldGateVerificationApiBaseUrl);
+  await checkAutomatedFieldGateReadiness(fieldGateVerificationApiBaseUrl);
 
   console.log(
     "V1 production profile live check passed: strict runtime sessions, 8-role formal-account coverage, PostgreSQL repository profile, object-storage file profile, attachment readiness, baseline 7/11 field-gate blocking, and automated 11/11 readiness evidence boundaries are covered.",
@@ -249,41 +265,33 @@ async function checkSystemPersistenceReadiness(apiBaseUrl) {
   assertNoSensitiveOutput(JSON.stringify(readiness));
 }
 
-async function checkAttachmentObjectStorageReadiness(apiBaseUrl, objectStorageEndpoint) {
+async function checkAttachmentObjectStorageReadiness(apiBaseUrl) {
   const attachmentText = "v1 production profile attachment object proof";
-  const attachment = await postJson(apiBaseUrl, "/attachments", {
-    ownerType: "statement",
-    ownerId: "ST-V1-PROFILE-LIVE-001",
-    fileType: "image",
-    purpose: "payment_screenshot",
-    fileName: "v1 production profile proof.png",
-    contentRef: "v1-production-profile-live",
-    uploadedBy: "U-OFFICE-A",
-    mimeType: "image/png",
-    fileSize: Buffer.byteLength(attachmentText),
-    contentDataUrl: `data:image/png;base64,${Buffer.from(attachmentText, "utf8").toString("base64")}`,
+  const blockedAttachmentResponse = await fetchWithTimeout(`${apiBaseUrl}/attachments`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${officeSessionToken}`,
+      "idempotency-key": `v1-profile-live-office-${++idempotencySequence}`,
+      connection: "close",
+    },
+    body: JSON.stringify({
+      ownerType: "statement",
+      ownerId: "ST-V1-PROFILE-LIVE-001",
+      fileType: "image",
+      purpose: "payment_screenshot",
+      fileName: "v1 production profile proof.png",
+      contentRef: "v1-production-profile-live",
+      uploadedBy: "U-OFFICE-A",
+      mimeType: "image/png",
+      fileSize: Buffer.byteLength(attachmentText),
+      contentDataUrl: `data:image/png;base64,${Buffer.from(attachmentText, "utf8").toString("base64")}`,
+    }),
   });
-  const expectedDigest = createHash("sha256").update(attachmentText).digest("hex");
-  assert.equal(attachment.storageProvider, "object_storage");
-  assert.equal(
-    attachment.storageKey,
-    `${objectStorageKeyPrefix}/sha256/${expectedDigest.slice(0, 2)}/${expectedDigest}`,
-  );
-  assert.equal(attachment.contentDigest, expectedDigest);
-
-  const permissionRead = await getText(apiBaseUrl, `/attachments/${attachment.attachmentId}/content`);
-  assert.equal(permissionRead.status, 200);
-  assert.equal(permissionRead.text, attachmentText);
-
-  const access = await getJson(apiBaseUrl, `/attachments/${attachment.attachmentId}/access-url?ttlSeconds=300`);
-  assert.equal(access.deliveryMode, "object_storage_signed_url");
-  assert.equal(access.storageProvider, "object_storage");
-  assert.match(access.accessUrl, new RegExp(`^${escapeRegExp(objectStorageEndpoint)}/${escapeRegExp(bucketName)}/`));
-  assert.doesNotMatch(access.accessUrl, new RegExp(escapeRegExp(objectStorageSecretAccessKey)));
-
-  const directRead = await fetchText(access.accessUrl);
-  assert.equal(directRead.status, 200);
-  assert.equal(directRead.text, attachmentText);
+  const blockedAttachment = await blockedAttachmentResponse.json();
+  assert.equal(blockedAttachmentResponse.status, 403);
+  assert.equal(blockedAttachment.code, "FIRST_RELEASE_SCOPE_BLOCKED");
+  assert.equal(blockedAttachment.allowedBusinessDomain, "raw_material");
 
   const diagnosticsRequestCount = objectStorageServer.requests.length;
   const diagnostics = await getJson(apiBaseUrl, "/attachments/storage-diagnostics");
@@ -341,7 +349,6 @@ async function checkTopLevelReadinessRunner(apiBaseUrl) {
 async function checkAutomatedFieldGateReadiness(apiBaseUrl) {
   await checkHealthProfile(apiBaseUrl);
   await checkSystemPersistenceReadiness(apiBaseUrl);
-  await preparePositiveV1FieldGateEvidence(apiBaseUrl);
 
   const run = await runReadinessRunner(apiBaseUrl);
   assert.equal(run.status, 0, runFailureMessage("top-level V1 runner should pass with automated field-gate evidence", run));
@@ -759,6 +766,17 @@ ON CONFLICT (id) DO UPDATE SET
   department = EXCLUDED.department,
   enabled = EXCLUDED.enabled,
   source = EXCLUDED.source,
+  updated_at = now();
+
+INSERT INTO machines (id, biz_no, name, machine_type, workshop, status, enabled)
+VALUES ('BAG-01', 'MACHINE-BAG-01', '制袋机 1', 'bag_making', 'workshop', 'active', true)
+ON CONFLICT (id) DO UPDATE SET
+  biz_no = EXCLUDED.biz_no,
+  name = EXCLUDED.name,
+  machine_type = EXCLUDED.machine_type,
+  workshop = EXCLUDED.workshop,
+  status = EXCLUDED.status,
+  enabled = EXCLUDED.enabled,
   updated_at = now();
 `);
 }
@@ -1209,24 +1227,6 @@ async function fetchJson(url, options = {}) {
   return json;
 }
 
-async function getText(apiBaseUrl, path) {
-  return fetchText(`${apiBaseUrl}${path}`, {
-    headers: {
-      authorization: `Bearer ${officeSessionToken}`,
-      connection: "close",
-    },
-  });
-}
-
-async function fetchText(url, options = {}) {
-  const response = await fetchWithTimeout(url, options);
-  return {
-    status: response.status,
-    text: await response.text(),
-    contentType: response.headers.get("content-type") ?? "",
-  };
-}
-
 async function fetchWithTimeout(url, options = {}) {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 10000);
@@ -1291,7 +1291,8 @@ function assertNoSensitiveOutput(output) {
   assert.doesNotMatch(output, new RegExp(escapeRegExp(fieldGateSpoolRoot)), "output leaked field-gate spool root");
   assert.doesNotMatch(output, new RegExp(escapeRegExp(printCommandBridgeScript)), "output leaked print bridge command path");
   assert.doesNotMatch(output, new RegExp(escapeRegExp(fakeCupsStatusScript)), "output leaked fake CUPS command path");
-  assert.doesNotMatch(output, /authorization/i, "output leaked authorization header text");
+  assert.doesNotMatch(output, /["']authorization["']\s*:/i, "output leaked authorization header field");
+  assert.doesNotMatch(output, /\bBearer\s+[A-Za-z0-9._~+\/-]+=*/i, "output leaked bearer credential text");
   assert.doesNotMatch(output, /x-amz-security-token/i, "output leaked session-token header text");
 }
 

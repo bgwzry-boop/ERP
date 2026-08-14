@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>4174 左栏合并设计 QA</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: #111d26; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+      body { width: 2912px; padding: 12px; color: #f5f7f9; }
+      .comparison { display: grid; grid-template-columns: 1440px 1440px; gap: 8px; }
+      figure { margin: 0; overflow: hidden; border: 1px solid #344653; background: white; }
+      figcaption { height: 38px; display: flex; align-items: center; padding: 0 12px; background: #192833; font-size: 14px; font-weight: 700; }
+      .viewport { position: relative; width: 1440px; height: 1024px; overflow: hidden; background: white; }
+      .target-nav { position: absolute; inset: 0 auto 0 0; width: 188px; overflow: hidden; }
+      .target-nav img { width: 1442px; height: 1024px; max-width: none; }
+      .target-workspace { position: absolute; inset: 0 0 0 188px; overflow: hidden; }
+      .target-workspace img { position: absolute; top: 0; left: -188px; width: 1440px; height: 1024px; max-width: none; }
+      .viewport > img { display: block; width: 1440px; height: 1024px; }
+    </style>
+  </head>
+  <body>
+    <main class="comparison">
+      <figure>
+        <figcaption>目标合并：方案 1 左栏格式 + 4174 原右侧</figcaption>
+        <div class="viewport">
+          <div class="target-nav"><img alt="方案 1 左栏参考" src="./selected-navigation-option-1.png" /></div>
+          <div class="target-workspace"><img alt="4174 原右侧参考" src="./implementation-final-1440x1024.png" /></div>
+        </div>
+      </figure>
+      <figure>
+        <figcaption>当前实现：三岗位折叠菜单 + 原卷料工作台</figcaption>
+        <div class="viewport"><img alt="当前合并实现" src="./hybrid-navigation-1440x1024.png" /></div>
+      </figure>
+    </main>
+  </body>
+</html>

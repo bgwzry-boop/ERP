@@ -24,6 +24,7 @@ import { parseDataUrl } from "./attachmentObjectStorage.mjs";
 import { buildPrintDeviceSnapshot } from "./printDeviceRepository.mjs";
 import { writeActionPermissions } from "./writeActionPermissions.mjs";
 import { createAttachmentCommandService } from "./services/attachmentCreateService.mjs";
+import { createAttendancePayrollService } from "./services/attendancePayrollService.mjs";
 import { createAttachmentFileAccessService } from "./services/attachmentFileAccessService.mjs";
 import { createBusinessDecisionEvidenceService } from "./services/businessDecisionEvidenceService.mjs";
 import { createBusinessDecisionDirectiveCommandService } from "./services/businessDecisionDirectiveCommandService.mjs";
@@ -59,6 +60,7 @@ import { createOrderDraftCommandService } from "./services/orderDraftCommandServ
 import { createOrderLineMutationCommandService } from "./services/orderLineMutationCommandService.mjs";
 import { createOrderWorkflowProjectionService } from "./services/orderWorkflowProjectionService.mjs";
 import { createPackingCommandService } from "./services/packingCommandService.mjs";
+import { createPhoneIdentityCommandService } from "./services/phoneIdentityCommandService.mjs";
 import { createPrintBatchCommandService } from "./services/printBatchCommandService.mjs";
 import { createPrintDeviceCommandService } from "./services/printDeviceCommandService.mjs";
 import { createPrintDriverDiagnosticsService } from "./services/printDriverDiagnosticsService.mjs";
@@ -150,6 +152,7 @@ export function createApiSharedServiceRegistry() {
     buildOperationLog,
   });
   const maintenanceTaskCommandService = createMaintenanceTaskCommandService({ buildOperationLog });
+  const attendancePayrollService = createAttendancePayrollService();
   const orderWorkflowProjectionService = createOrderWorkflowProjectionService({ calculateLinePricing });
   const {
     findMatchingInventory,
@@ -423,6 +426,7 @@ export function createApiSharedServiceRegistry() {
   });
   const masterDataMachineCommandService = createMasterDataMachineCommandService({ buildOperationLog });
   const runtimeAuthCommandService = createRuntimeAuthCommandService({ buildOperationLog });
+  const phoneIdentityCommandService = createPhoneIdentityCommandService({ buildOperationLog });
   const fulfillmentActionCommandService = createFulfillmentActionCommandService({
     businessDecisionEvidenceService,
     buildFulfillmentActionRecord,
@@ -463,6 +467,7 @@ export function createApiSharedServiceRegistry() {
     addOperationLog,
     attachmentCreateCommandService,
     attachmentFileAccessService,
+    attendancePayrollService,
     buildOperationLog,
     buildTodo,
     businessDecisionAuthorizationCommandService,
@@ -497,6 +502,7 @@ export function createApiSharedServiceRegistry() {
     orderDraftCommandService,
     orderLineMutationCommandService,
     packingCommandService,
+    phoneIdentityCommandService,
     printBatchCommandService,
     printDeviceCommandService,
     printDriverDiagnosticsService,

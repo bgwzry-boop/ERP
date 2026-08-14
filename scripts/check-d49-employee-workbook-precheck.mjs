@@ -14,10 +14,12 @@ const validPath = join(root, "private-valid.xlsx");
 const emptyPath = join(root, "private-empty.xlsx");
 const allTemplatePath = join(root, "private-all.xlsx");
 const duplicatePath = join(root, "private-duplicate.xlsx");
+const incompletePayrollPath = join(root, "private-payroll-incomplete.xlsx");
 writeFileSync(validPath, buildMasterDataImportTemplateWorkbook({ templateKey: "workshop", includeFixtureRows: true }));
 writeFileSync(emptyPath, buildMasterDataImportTemplateWorkbook({ templateKey: "workshop" }));
 writeFileSync(allTemplatePath, buildMasterDataImportTemplateWorkbook({ templateKey: "all", includeFixtureRows: true }));
 writeFileSync(duplicatePath, buildDuplicateEmployeeWorkbook());
+writeFileSync(incompletePayrollPath, buildIncompletePayrollEmployeeWorkbook());
 
 const validRun = await runNode([runner, "--file", validPath, "--output-dir", join(root, "valid-report"), "--json"]);
 assert.equal(validRun.status, 0, validRun.stderr || validRun.stdout);
@@ -28,6 +30,9 @@ assert.equal(validResult.status, "review_required");
 assert.equal(validResult.uploadAllowed, true);
 assert.equal(validResult.summary.employeeRowCount, 1);
 assert.equal(validResult.summary.coverageLabel, "1/8");
+assert.equal(validResult.payrollAttendanceReadiness.required, false);
+assert.equal(validResult.payrollAttendanceReadiness.ready, true);
+assert.equal(validResult.payrollAttendanceReadiness.employeeCount, 1);
 assert.equal(validResult.safeguards.readOnly, true);
 assert.equal(validResult.safeguards.formalDataWritten, false);
 assert.equal(validResult.safeguards.stagedRowsIncluded, false);
@@ -46,6 +51,27 @@ assert.equal(storedValidReport.safeguards.workbookDigestIncluded, true);
 assert.equal(validRun.stdout.includes(storedValidReport.sourceEvidence.workbookDigest), false);
 assertNoPrivateData(storedValidReportSource);
 assertNoPrivateData(readFileSync(join(root, "valid-report", "latest.zh-CN.md"), "utf8"));
+
+const payrollRequiredRun = await runNode([
+  runner,
+  "--file",
+  incompletePayrollPath,
+  "--output-dir",
+  join(root, "payroll-required-report"),
+  "--require-payroll-attendance-fields",
+  "--json",
+]);
+assert.equal(payrollRequiredRun.status, 0, payrollRequiredRun.stderr || payrollRequiredRun.stdout);
+const payrollRequiredResult = JSON.parse(payrollRequiredRun.stdout);
+assert.equal(payrollRequiredResult.status, "review_required");
+assert.equal(payrollRequiredResult.uploadAllowed, true);
+assert.equal(payrollRequiredResult.ready, false);
+assert.equal(payrollRequiredResult.payrollAttendanceReadiness.required, true);
+assert.equal(payrollRequiredResult.payrollAttendanceReadiness.completeCount, 0);
+assert.equal(payrollRequiredResult.payrollAttendanceReadiness.incompleteCount, 1);
+assert.equal(payrollRequiredResult.payrollAttendanceReadiness.coverageLabel, "0/1");
+assert.match(readFileSync(join(root, "payroll-required-report", "latest.zh-CN.md"), "utf8"), /工资与考勤资料完整度/);
+assertNoPrivateData(payrollRequiredRun.stdout);
 
 const emptyRun = await runNode([
   runner,
@@ -119,8 +145,25 @@ function buildDuplicateEmployeeWorkbook() {
   });
 }
 
+function buildIncompletePayrollEmployeeWorkbook() {
+  const spec = getMasterDataImportWorksheetSpecs().find((item) => item.key === "employees_machines");
+  const row = Object.fromEntries(spec.columns.map((column) => [column, ""]));
+  Object.assign(row, { 员工编号: "PRIVATE-EMP-INCOMPLETE", 员工姓名: "隐私姓名未完成", 角色: "办公室", 启用状态: "启用" });
+  return buildXlsxWorkbookFromWorksheets({
+    title: "D49 incomplete payroll fixture",
+    worksheets: [{
+      name: "员工机台",
+      rows: [
+        spec.columns.map((column) => cell(column)),
+        spec.columns.map((column) => cell(spec.requiredFields.includes(column) ? "必填" : spec.conditionalRequiredFields.includes(column) ? "车间岗必填" : spec.deferredFields.includes(column) ? "可后补" : "可选")),
+        spec.columns.map((column) => cell(row[column])),
+      ],
+    }],
+  });
+}
+
 function assertNoPrivateData(output) {
-  for (const privateValue of ["王师傅", "EMP-IMPORT-001", "隐私姓名甲", "隐私姓名乙", "PRIVATE-EMP-001", "private-emp-001", "private-valid.xlsx", root]) {
+  for (const privateValue of ["王师傅", "EMP-IMPORT-001", "隐私姓名甲", "隐私姓名乙", "隐私姓名未完成", "PRIVATE-EMP-001", "private-emp-001", "PRIVATE-EMP-INCOMPLETE", "private-valid.xlsx", "private-payroll-incomplete.xlsx", root]) {
     assert.equal(output.includes(privateValue), false, `report leaked private value: ${privateValue}`);
   }
 }

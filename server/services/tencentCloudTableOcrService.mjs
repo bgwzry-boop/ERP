@@ -1,9 +1,10 @@
 import { createHash, createHmac } from "node:crypto";
+import { attachmentUploadLimits } from "../../shared/attachmentUploadPolicy.js";
 
 export const TENCENT_TABLE_OCR_ACTION = "RecognizeTableAccurateOCR";
 export const TENCENT_TABLE_OCR_VERSION = "2018-11-19";
 export const TENCENT_TABLE_OCR_ENDPOINT = "ocr.tencentcloudapi.com";
-export const TENCENT_TABLE_OCR_MAX_BASE64_BYTES = 10 * 1024 * 1024;
+export const TENCENT_TABLE_OCR_MAX_BASE64_BYTES = attachmentUploadLimits.rawMaterialOcrEncodedBytes;
 
 const supportedMimeTypes = new Set([
   "image/png",
@@ -104,7 +105,10 @@ export function createTencentCloudTableOcrService(options = {}) {
           { cloudCode, requestId: cleanText(cloudResponse.RequestId) },
         );
       }
-      return normalizeTencentTableOcrResponse(cloudResponse);
+      return normalizeTencentTableOcrResponse(cloudResponse, {
+        imageWidth: image.imageWidth,
+        imageHeight: image.imageHeight,
+      });
     },
   };
 }
@@ -167,21 +171,30 @@ export function normalizeTencentOcrImage(input = {}) {
   }
   const encodedBytes = Buffer.byteLength(base64, "utf8");
   if (encodedBytes > TENCENT_TABLE_OCR_MAX_BASE64_BYTES) {
-    throw buildOcrError(413, "TENCENT_OCR_IMAGE_TOO_LARGE", "送货单照片编码后不能超过 10MB，请压缩后重试。");
+    throw buildOcrError(413, "TENCENT_OCR_IMAGE_TOO_LARGE", "送货单识别副本编码后不能超过 10MB，系统未能自动处理，请重新拍摄或选择文件。");
   }
   const buffer = Buffer.from(base64, "base64");
   if (!buffer.length) {
     throw buildOcrError(422, "TENCENT_OCR_IMAGE_EMPTY", "送货单照片内容为空，请重新选择文件。");
   }
-  return { base64, buffer, mimeType };
+  const dimensions = readTencentOcrImageDimensions(buffer, mimeType);
+  return {
+    base64,
+    buffer,
+    mimeType,
+    imageWidth: dimensions.width,
+    imageHeight: dimensions.height,
+  };
 }
 
-export function normalizeTencentTableOcrResponse(response = {}) {
+export function normalizeTencentTableOcrResponse(response = {}, image = {}) {
   return {
     provider: "tencent_cloud_table_v3",
     action: TENCENT_TABLE_OCR_ACTION,
     requestId: cleanText(response.RequestId),
     angle: finiteNumber(response.Angle, 0),
+    imageWidth: Math.max(0, Number(image.imageWidth) || 0),
+    imageHeight: Math.max(0, Number(image.imageHeight) || 0),
     pdfPageSize: Math.max(0, Number(response.PdfPageSize) || 0),
     tables: (Array.isArray(response.TableDetections) ? response.TableDetections : []).map((table, tableIndex) => ({
       tableIndex,
@@ -201,6 +214,48 @@ export function normalizeTencentTableOcrResponse(response = {}) {
       })).filter((cell) => cell.text),
     })),
   };
+}
+
+export function readTencentOcrImageDimensions(buffer, mimeType = "") {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 10) return { width: 0, height: 0 };
+  const type = cleanText(mimeType).toLowerCase();
+  if (type === "image/png" && buffer.length >= 24 && buffer.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]))) {
+    return normalizeImageDimensions(buffer.readUInt32BE(16), buffer.readUInt32BE(20));
+  }
+  if (type === "image/bmp" && buffer.length >= 26 && buffer[0] === 0x42 && buffer[1] === 0x4d) {
+    return normalizeImageDimensions(buffer.readInt32LE(18), Math.abs(buffer.readInt32LE(22)));
+  }
+  if ((type === "image/jpeg" || type === "image/jpg") && buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 8 < buffer.length) {
+      if (buffer[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      while (offset < buffer.length && buffer[offset] === 0xff) offset += 1;
+      const marker = buffer[offset];
+      offset += 1;
+      if (marker === 0xd8 || marker === 0xd9 || (marker >= 0xd0 && marker <= 0xd7)) continue;
+      if (offset + 2 > buffer.length) break;
+      const segmentLength = buffer.readUInt16BE(offset);
+      if (segmentLength < 2 || offset + segmentLength > buffer.length) break;
+      if (isJpegStartOfFrame(marker) && segmentLength >= 7) {
+        return normalizeImageDimensions(buffer.readUInt16BE(offset + 5), buffer.readUInt16BE(offset + 3));
+      }
+      offset += segmentLength;
+    }
+  }
+  return { width: 0, height: 0 };
+}
+
+function isJpegStartOfFrame(marker) {
+  return [0xc0, 0xc1, 0xc2, 0xc3, 0xc5, 0xc6, 0xc7, 0xc9, 0xca, 0xcb, 0xcd, 0xce, 0xcf].includes(marker);
+}
+
+function normalizeImageDimensions(widthValue, heightValue) {
+  const width = Math.max(0, Number(widthValue) || 0);
+  const height = Math.max(0, Number(heightValue) || 0);
+  return width > 0 && height > 0 ? { width, height } : { width: 0, height: 0 };
 }
 
 export function resolveTencentCloudOcrConfig(env = {}) {

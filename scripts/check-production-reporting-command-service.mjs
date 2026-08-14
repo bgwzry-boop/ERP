@@ -59,8 +59,11 @@ const workspace = {
   todoEvents: [],
   operationLogs: [],
 };
-const calls = { daily: [], exception: [], exceptionResolution: [], report: [] };
+const calls = { daily: [], exception: [], exceptionResolution: [], report: [], reportReplay: null };
 workspace.productionPackingTransactionRepository = {
+  async findProductionReportIdempotentReplay(input) {
+    return calls.reportReplay?.idempotencyKey === input.idempotencyKey ? calls.reportReplay.transaction : null;
+  },
   async recordProductionDailyProgress(input) {
     calls.daily.push(input);
     return {
@@ -71,7 +74,7 @@ workspace.productionPackingTransactionRepository = {
   },
   async recordProductionReport(input) {
     calls.report.push(input);
-    return {
+    const transaction = {
       productionTask: { ...input.productionTask, revision: input.productionTask.revision + 1 },
       workshopReport: input.workshopReport,
       orderLine: { ...input.orderLine, revision: input.orderLine.revision + 1 },
@@ -81,6 +84,8 @@ workspace.productionPackingTransactionRepository = {
       inventoryLedgerEntries: input.inventoryLedgerEntries,
       operationLogId: input.operationLog.id,
     };
+    calls.reportReplay = { idempotencyKey: input.idempotencyKey, transaction };
+    return transaction;
   },
   async recordProductionException(input) {
     calls.exception.push(input);
@@ -291,19 +296,20 @@ const completedExceptionBlocked = await service.recordProductionException({
 assert.equal(completedExceptionBlocked.code, "PRODUCTION_TASK_ALREADY_COMPLETED");
 workspace.productionTasks[0].taskStatus = "制袋中";
 
+const completedBody = {
+  productionTaskId: "PT-1",
+  inventoryItemId: "INV-1",
+  qualifiedQty: 40,
+  machineCount: 8888,
+  packages: [{ createdBy: "U-SPOOFED" }],
+  operatorId: "U-SPOOFED",
+  idempotencyKey: "production-report-service-001",
+};
 const completed = await service.completeProductionReport({
   workspace,
   productionTaskId: "PT-1",
   operatorId: "U-WORKSHOP",
-  body: {
-    productionTaskId: "PT-1",
-    inventoryItemId: "INV-1",
-    qualifiedQty: 40,
-    machineCount: 8888,
-    packages: [{ createdBy: "U-SPOOFED" }],
-    operatorId: "U-SPOOFED",
-    idempotencyKey: "production-report-service-001",
-  },
+  body: completedBody,
 });
 assert.equal(completed.response.qualifiedQty, 40);
 assert.equal(completed.response.machineCount, 8888);
@@ -320,6 +326,17 @@ assert.equal(calls.report[0].inventoryLedgerEntries[0].qtyChange, 40);
 assert.match(calls.report[0].inventoryLedgerEntries[0].remark, /机器计数 8888 不参与库存/);
 assert.equal(calls.report[0].operationLog.operatorId, "U-WORKSHOP");
 assert.equal(calls.report[0].idempotencyPayload.operatorId, "U-WORKSHOP");
+workspace.productionTasks[0].taskStatus = "已完成";
+const replayedCompleted = await service.completeProductionReport({
+  workspace,
+  productionTaskId: "PT-1",
+  operatorId: "U-WORKSHOP",
+  body: completedBody,
+});
+assert.equal(replayedCompleted.response.reportId, completed.response.reportId);
+assert.equal(replayedCompleted.response.operationLogId, completed.response.operationLogId);
+assert.equal(calls.report.length, 1, "an idempotent completion retry must not execute another production report");
+workspace.productionTasks[0].taskStatus = "制袋中";
 
 workspace.orderLines[0].orderType = "外加工印刷";
 const externalReport = await service.completeProductionReport({

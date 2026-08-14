@@ -194,7 +194,7 @@ function classifyV2Categories(items) {
     if (/AI|OCR|识别|图片质量/.test(item)) categories.add("AI / OCR / 图片识别");
     if (/路线|排产|插单|产能|换模|优化/.test(item)) categories.add("路线 / 排产优化");
     if (/原材料|成本|毛利|损耗|领料/.test(item)) categories.add("原材料 / 成本毛利");
-    if (/售后|责任|绩效|扣款|工资|考勤/.test(item)) categories.add("售后 / 责任 / 工资");
+    if (/售后|责任|绩效|扣款/.test(item)) categories.add("售后 / 责任 / 绩效扣款");
     if (/报表|BI|分析|画像|预测/.test(item)) categories.add("BI / 经营分析");
     if (/承运商|接口|追踪|多仓|库位/.test(item)) categories.add("外部接口 / 运营深化");
   }

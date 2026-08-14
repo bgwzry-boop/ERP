@@ -33,14 +33,14 @@ assert.match(staleEmployeeIntake.nextAction, /重新运行D49专用离线预检�
 assertSensitiveTextAbsent(staleEmployeeIntake);
 
 const employeesBlocked = buildHarness({ employeeReady: false, setupReady: true, envReady: true }).result;
-assert.equal(employeesBlocked.summary.envPreflightLabel, "11/11");
+assert.equal(employeesBlocked.summary.envPreflightLabel, "12/12");
 assert.equal(employeesBlocked.environment.ready, true);
 assert.equal(employeesBlocked.ready, false);
 
 const envBlockedHarness = buildHarness({ employeeReady: true, setupReady: true, envReady: false });
 const envBlocked = envBlockedHarness.result;
 assert.equal(envBlocked.summary.employeeRoleLabel, "8/8");
-assert.equal(envBlocked.summary.envPreflightLabel, "2/11");
+assert.equal(envBlocked.summary.envPreflightLabel, "2/12");
 assert.equal(envBlocked.environment.intakeReady, false);
 assert.equal(envBlocked.ready, false);
 assert.equal(envBlockedHarness.calls.preview, 1);
@@ -53,10 +53,11 @@ const manyBlockers = buildHarness({
   envPreflightBlockerCount: 15,
 }).result;
 assert.equal(manyBlockers.blockers.filter((item) => item.category === "employee").length, 8);
+assert.equal(manyBlockers.blockers.filter((item) => item.category === "employee-intake").length, 1);
 assert.equal(manyBlockers.blockers.filter((item) => item.category === "env-preflight").length, 15);
 assert.equal(manyBlockers.blockers.filter((item) => item.category === "env-intake").length, 1);
-assert.equal(manyBlockers.blockers.length, 24);
-assert.equal(manyBlockers.summary.blockerCount, 24);
+assert.equal(manyBlockers.blockers.length, 25);
+assert.equal(manyBlockers.summary.blockerCount, 25);
 assertSensitiveTextAbsent(manyBlockers);
 
 const readyHarness = buildHarness({ employeeReady: true, setupReady: true, envReady: true });
@@ -64,7 +65,9 @@ const ready = readyHarness.result;
 assert.equal(ready.status, "ready");
 assert.equal(ready.ready, true);
 assert.equal(ready.summary.employeeRoleLabel, "8/8");
-assert.equal(ready.summary.envPreflightLabel, "11/11");
+assert.equal(ready.summary.employeeIntakeReady, true);
+assert.equal(ready.summary.employeePayrollAttendanceCoverageLabel, "19/19");
+assert.equal(ready.summary.envPreflightLabel, "12/12");
 assert.equal(ready.summary.envIntakeReady, true);
 assert.equal(ready.employeeIntake.ready, true);
 assert.equal(ready.blockers.length, 0);
@@ -147,8 +150,8 @@ function buildHarness({ employeeReady, setupReady, envReady = false, envError = 
       return {
         ready: envReady,
         summary: {
-          passedCount: envReady ? 11 : 2,
-          totalCount: envReady ? 11 : Math.max(11, 2 + envPreflightBlockerCount),
+          passedCount: envReady ? 12 : 2,
+          totalCount: envReady ? 12 : Math.max(12, 2 + envPreflightBlockerCount),
           blockingCount: envReady ? 0 : envPreflightBlockerCount,
           warningCount: envReady ? 0 : 1,
         },
@@ -220,6 +223,20 @@ function buildEmployeeIntakeStatus(ready, fresh = true) {
       blockerCount: ready ? 0 : 19,
       blockerLabel: ready ? "0 项" : "19 项",
       freshnessLabel: fresh ? "当前工作簿与预检报告一致" : "工作簿已变化，需重新预检",
+      payrollAttendanceCoverageLabel: ready ? "19/19" : "0/19",
+    },
+    payrollAttendanceCoverage: {
+      available: true,
+      required: true,
+      ready: fresh && ready,
+      complete: fresh && ready,
+      employeeCount: 19,
+      completeCount: ready ? 19 : 0,
+      incompleteCount: ready ? 0 : 19,
+      profileReadyCount: ready ? 19 : 0,
+      wageReadyCount: ready ? 19 : 0,
+      attendanceMappingReadyCount: ready ? 19 : 0,
+      coverageLabel: ready ? "19/19" : "0/19",
     },
     roles: [],
     missingRoleLabels: ready ? [] : ["财务 / 对账", "管理"],

@@ -368,7 +368,7 @@ function formatIntakeRulesMarkdown({ report }) {
     "",
     "## 适用文件",
     "",
-    "- `evidence-items.csv`：逐项填写 34 项现场证据。",
+    "- `evidence-items.csv`：逐项填写 40 项现场证据。",
     "- `signoff-boundary.csv`：填写 6 个负责人签字和 V1/V2 边界确认。",
     "- `filled-manifest.draft.json`：由脚本生成，不手工编辑。",
     "",

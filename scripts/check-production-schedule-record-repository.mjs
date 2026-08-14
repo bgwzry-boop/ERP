@@ -31,7 +31,10 @@ console.log(
 async function checkLocalRepository() {
   const repository = createLocalProductionScheduleRecordRepository();
   const workspace = {
-    productionScheduleRecords: [buildScheduleRecord({ scheduleRecordId: "SQR-OTHER", machineId: "PRINT-01", productionTaskId: "PT-PRINT-001", queueSeq: 1 })],
+    productionScheduleRecords: [
+      buildScheduleRecord({ scheduleRecordId: "SQR-OTHER", machineId: "PRINT-01", productionTaskId: "PT-PRINT-001", queueSeq: 1 }),
+      buildScheduleRecord({ scheduleRecordId: "SQR-BAG-HISTORY", machineId: "BAG-01", productionTaskId: "PT-BAG-HISTORY", queueSeq: 0, status: "moved", sourceKind: "machine_reassignment" }),
+    ],
     operationLogs: [],
     businessDecisionRecords: [],
     businessDecisionAuthorizations: [],
@@ -54,13 +57,17 @@ async function checkLocalRepository() {
   assert.equal(result.operationLogId, "LOG-SCHEDULE-RESEQ-001");
   assert.equal(result.productionScheduleRecords.length, 2);
   assert.equal(result.transactionContext.machineId, "BAG-01");
-  assert.equal(workspace.productionScheduleRecords.length, 3);
+  assert.equal(workspace.productionScheduleRecords.length, 4);
   assert.equal(
     workspace.productionScheduleRecords
-      .filter((item) => item.machineId === "BAG-01")
+      .filter((item) => item.machineId === "BAG-01" && item.status === "active")
       .map((item) => `${item.queueSeq}:${item.productionTaskId}`)
       .join("|"),
     "1:PT-BAG-002|2:PT-BAG-001",
+  );
+  assert.equal(
+    workspace.productionScheduleRecords.find((item) => item.scheduleRecordId === "SQR-BAG-HISTORY")?.status,
+    "moved",
   );
   assert.equal(workspace.operationLogs[0].action, "resequence_production_schedule_queue");
 
@@ -78,7 +85,9 @@ async function checkLocalRepository() {
     ],
     operationLog: buildOperationLog({ id: "LOG-SCHEDULE-MOVE-001", action: "move_production_schedule_queue_item" }),
     decisionRecord: buildDecisionRecord("BD-SCHEDULE-MOVE-LOCAL"),
-    expectedRecords: workspace.productionScheduleRecords.filter((record) => ["BAG-01", "BAG-02"].includes(record.machineId)),
+    expectedRecords: workspace.productionScheduleRecords.filter((record) =>
+      ["BAG-01", "BAG-02"].includes(record.machineId) && record.status === "active",
+    ),
   });
   assert.equal(moveResult.productionTask.machineId, "BAG-02");
   assert.equal(workspace.productionTasks[0].machineId, "BAG-02");
@@ -99,6 +108,7 @@ async function checkPostgresSqlBoundary() {
   assert.match(transactionSql, /INSERT INTO production_schedule_records/);
   assert.match(transactionSql, /ON CONFLICT \(machine_id, production_task_id\) DO UPDATE SET/);
   assert.match(transactionSql, /locked_schedule_records AS MATERIALIZED/);
+  assert.match(transactionSql, /schedule_status = 'active'/);
   assert.match(transactionSql, /FOR UPDATE/);
   assert.match(transactionSql, /ERP_PRODUCTION_SCHEDULE_QUEUE_CONCURRENCY_CONFLICT/);
   assert.match(transactionSql, /revision = production_schedule_records\.revision \+ 1/);

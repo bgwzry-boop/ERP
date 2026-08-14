@@ -1,0 +1,4 @@
+# Copy to /etc/erp/nginx/miniapp-integration-allowlist.conf and replace the
+# documentation-only range with the Miniapp BFF's fixed outbound CIDR.
+allow 192.0.2.10/32;
+deny all;

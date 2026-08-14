@@ -39,6 +39,7 @@ const sensitiveValues = [
   "/usr/local/bin/node-secret",
   "/var/spool/erp-secret",
   "/usr/bin/lpstat-secret",
+  "DELI_ATTENDANCE_TOKEN_SECRET",
 ];
 const officeDemoToken = createSeedSession("U-OFFICE-A").accessToken;
 const driverDemoToken = createSeedSession("U-DRIVER-A").accessToken;
@@ -58,6 +59,12 @@ const productionEnv = {
   ERP_RUNTIME_MODE: "production",
   ERP_V1_PERSISTENCE_PROFILE: "postgres",
   ERP_V1_DATABASE_URL: sensitiveValues[0],
+  ERP_ATTENDANCE_PAYROLL_STORE: "postgres",
+  ERP_ATTENDANCE_PROVIDER_MODE: "http_json",
+  ERP_ATTENDANCE_PROVIDER_KEY: "deli",
+  ERP_ATTENDANCE_PROVIDER_ENDPOINT: "https://attendance.example.com/punches",
+  ERP_ATTENDANCE_PROVIDER_TOKEN: sensitiveValues[9],
+  ERP_ATTENDANCE_PROVIDER_TIMEOUT_MS: "5000",
   ERP_V1_POSTGRES_RESTORE_TEST_DATABASE_URL: sensitiveValues[1],
   ERP_V1_POSTGRES_RESTORE_RESET_ALLOWED: "false",
   ERP_V1_FILE_STORAGE_PROFILE: "object_storage",
@@ -223,7 +230,7 @@ try {
   assert.equal(envFileResult.envFileAudit?.safeguards?.envFilePathExposed, false);
   assert.equal(envFileResult.envFileAudit?.files?.[0]?.path, "env 文件 1");
   assert.equal(envFileResult.envFileAudit?.files?.[0]?.pathRedacted, true);
-  assert.equal(envFileResult.summary.envPreflight, "11/11 通过");
+  assert.equal(envFileResult.summary.envPreflight, "12/12 通过");
   const envFileMarkdown = readGeneratedFile(envFileResult.files.markdown);
   assert.match(envFileMarkdown, /生产 env 文件安全审计/);
   assert.doesNotMatch(envFileRun.stdout + envFileRun.stderr + envFileMarkdown, new RegExp(escapeRegExp(envFilePath)));
@@ -304,7 +311,7 @@ try {
   assert.equal(unsafeEnvFileResult.status, "blocked");
   assert.equal(unsafeEnvFileResult.ready, false);
   assert.equal(unsafeEnvFileResult.summary.label, "3/4 发布门禁通过");
-  assert.equal(unsafeEnvFileResult.summary.envPreflight, "11/11 通过");
+  assert.equal(unsafeEnvFileResult.summary.envPreflight, "12/12 通过");
   assert.equal(unsafeEnvFileResult.envPreflight?.ready, true);
   assert.equal(unsafeEnvFileResult.envFileAudit?.included, true);
   assert.equal(unsafeEnvFileResult.envFileAudit?.ready, false);

@@ -256,6 +256,18 @@ function buildD49EmployeeIntakePrecheckFixture({ workbookBytes, checkedAt }) {
         rowCount,
       })),
     },
+    payrollAttendanceReadiness: {
+      required: true,
+      ready: false,
+      complete: false,
+      employeeCount: 19,
+      completeCount: 0,
+      incompleteCount: 19,
+      profileReadyCount: 0,
+      wageReadyCount: 0,
+      attendanceMappingReadyCount: 0,
+      coverageLabel: "0/19",
+    },
     sourceEvidence: {
       version: "v1-d49-workbook-source-evidence-v1",
       digestAlgorithm: "sha256",

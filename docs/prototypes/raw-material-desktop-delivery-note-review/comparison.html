@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>桌面工作台视觉对照</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 18px; background: #dfe7ef; color: #182530; font: 13px -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC", sans-serif; }
+      main { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; min-height: calc(100vh - 36px); }
+      figure { display: grid; grid-template-rows: auto 1fr; min-width: 0; margin: 0; overflow: hidden; border: 1px solid #c5d0dc; border-radius: 8px; background: white; }
+      figcaption { padding: 10px 12px; border-bottom: 1px solid #dbe3eb; font-weight: 700; }
+      .image-frame { min-height: 0; overflow: auto; background: #eef3f8; }
+      img { display: block; width: 100%; height: auto; }
+      .reference img { height: 100%; object-fit: cover; object-position: top; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <figure class="reference">
+        <figcaption>既有桌面设计语言：紧凑工作台、清晰步骤、固定主操作</figcaption>
+        <div class="image-frame"><img src="/screenshots/ui-audit-2026-07-11/09-selected-hybrid-redesign.png" alt="已选桌面工作台设计参考" /></div>
+      </figure>
+      <figure>
+        <figcaption>本次方案：原单证据、连续核对台账、进度与唯一下一步</figcaption>
+        <div class="image-frame"><img src="/screenshots/raw-material-desktop-review-2026-07-25/04-final-review-1440x900.png" alt="原材料核对送货单新方案" /></div>
+      </figure>
+    </main>
+  </body>
+</html>

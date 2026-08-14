@@ -47,7 +47,14 @@ assert.equal(canIssueRawMaterialRoll({ inventoryStatus: "可用", labelStatus: "
 assert.equal(canConfirmRawMaterialConsumptionRoll({ inventoryStatus: "机边领用" }), true);
 assert.equal(canReturnRawMaterialLeftoverRoll({ inventoryStatus: "机边领用" }), true);
 assert.equal(canReviewRawMaterialLeftoverRoll({ inventoryStatus: "余料待复核" }), true);
-assert.equal(canPrintRawMaterialLabels({ status: "已复核待打印标签" }), true);
+assert.equal(canPrintRawMaterialLabels({
+  status: "已复核待打印标签",
+  rolls: [{ id: "ROLL-PRINT-1", inventoryStatus: "不可用", weightKg: 106.2 }],
+}), true);
+assert.equal(canPrintRawMaterialLabels({
+  status: "已复核待打印标签",
+  rolls: [{ id: "ROLL-PRINT-2", inventoryStatus: "不可用", weightKg: 0 }],
+}), false);
 assert.equal(canReviewRawMaterialInbound(inbounds[1]), true);
 assert.equal(getRawMaterialInboundTone("已消耗确认"), "success");
 assert.equal(getSupplierStatementReviewTone("存在差异"), "danger");

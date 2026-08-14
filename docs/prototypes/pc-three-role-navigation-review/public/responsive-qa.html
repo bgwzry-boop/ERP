@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PC 响应式边界核对</title>
+    <style>
+      * { box-sizing: border-box; }
+      body { margin: 0; padding: 20px; color: #1b2738; background: #e9edf3; font-family: "PingFang SC", sans-serif; }
+      h1 { margin: 0 0 15px; font-size: 20px; }
+      main { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; }
+      figure { margin: 0; overflow: hidden; background: white; border: 1px solid #cbd5e1; border-radius: 6px; }
+      figcaption { height: 39px; padding: 10px 12px; border-bottom: 1px solid #d9e0e8; font-size: 12px; font-weight: 600; }
+      .desktop { width: 100%; height: 540px; overflow: hidden; }
+      .desktop iframe { width: 1024px; height: 768px; border: 0; transform: scale(.665); transform-origin: top left; }
+      .boundary { width: 100%; height: 380px; overflow: hidden; }
+      .boundary iframe { width: 880px; height: 720px; border: 0; transform: scale(.49); transform-origin: top left; }
+      p { margin: 12px 0 0; color: #687589; font-size: 11px; }
+    </style>
+  </head>
+  <body>
+    <h1>响应式边界核对</h1>
+    <main>
+      <figure><figcaption>1024 × 768 · 桌面工作台自动改为上下详情</figcaption><div class="desktop"><iframe src="/" title="1024 桌面评审"></iframe></div></figure>
+      <figure><figcaption>880 × 720 · 明确电脑端边界</figcaption><div class="boundary"><iframe src="/" title="880 边界评审"></iframe></div></figure>
+    </main>
+    <p>设计原则：1024px 仍保留完整业务树与工作台；低于 900px 不把办公室 PC 页面硬挤成现场手机页面。</p>
+  </body>
+</html>

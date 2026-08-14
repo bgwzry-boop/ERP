@@ -31,7 +31,7 @@ const service = createV1FieldEvidenceDraftService({
       summary: {
         appliedRowCount: 2,
         invalidRowCount: 0,
-        requiredEvidenceItems: "1/34",
+        requiredEvidenceItems: "1/40",
         signoffs: "0/6",
         boundary: "pending",
       },
@@ -72,7 +72,7 @@ try {
   });
   assert.equal(readyProjection.status, "ready");
   assert.equal(readyProjection.ready, true);
-  assert.equal(readyProjection.summary.evidenceProgress, "34/34");
+  assert.equal(readyProjection.summary.evidenceProgress, "40/40");
   assert.equal(readyProjection.summary.signoffProgress, "6/6");
   assert.doesNotMatch(JSON.stringify(readyProjection), /办公室负责人A|原始证据/);
 
@@ -146,12 +146,12 @@ function validationFixture() {
     schemaValid: true,
     summary: {
       label: "全部满足",
-      requiredEvidenceItemsCompleted: 34,
-      requiredEvidenceItemsTotal: 34,
+      requiredEvidenceItemsCompleted: 40,
+      requiredEvidenceItemsTotal: 40,
       requiredSignoffsCompleted: 6,
       requiredSignoffsTotal: 6,
-      evidenceGroupsReady: 6,
-      evidenceGroupsTotal: 6,
+      evidenceGroupsReady: 7,
+      evidenceGroupsTotal: 7,
       blockingCount: 0,
     },
     groups: [{ label: "真实打印", ownerRole: "仓库", ready: true, completedRequired: 6, requiredTotal: 6 }],

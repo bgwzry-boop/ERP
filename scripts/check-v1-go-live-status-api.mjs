@@ -89,9 +89,9 @@ try {
   assert.equal(json.summary.p0Prototype, "97-98%");
   assert.equal(json.summary.v1Readiness, "80-83%");
   assert.match(json.summary.releaseGate, /0\/4/);
-  assert.equal(json.summary.onsiteTaskCount, 53);
+  assert.equal(json.summary.onsiteTaskCount, 59);
   assert.equal(json.summary.v2DifferenceCount, 17);
-  assert.equal(json.d49Readiness.version, "p0-v1-d49-readiness-v3");
+  assert.equal(json.d49Readiness.version, "p0-v1-d49-readiness-v4");
   assert.equal(json.d49Readiness.scope, "v1_d49_readiness");
   assert.equal(json.d49Readiness.status, "blocked");
   assert.equal(json.d49Readiness.ready, false);
@@ -103,6 +103,11 @@ try {
   assert.equal(json.d49Readiness.employeeIntake.freshness.sourceMatched, true);
   assert.equal(json.d49Readiness.employeeIntake.summary.employeeRowCount, 19);
   assert.equal(json.d49Readiness.employeeIntake.summary.coverageLabel, "6/8");
+  assert.equal(json.d49Readiness.employeeIntake.summary.payrollAttendanceCoverageLabel, "0/19");
+  assert.equal(json.d49Readiness.employeeIntake.payrollAttendanceCoverage.available, true);
+  assert.equal(json.d49Readiness.employeeIntake.payrollAttendanceCoverage.completeCount, 0);
+  assert.equal(json.d49Readiness.employeeIntake.payrollAttendanceCoverage.employeeCount, 19);
+  assert.equal(json.d49Readiness.employeeIntake.payrollAttendanceCoverage.ready, false);
   assert.equal(json.d49Readiness.employeeIntake.summary.missingEmployeeNumberCount, 19);
   assert.equal(json.d49Readiness.employeeIntake.safeguards.employeeNamesIncluded, false);
   assert.equal(json.d49Readiness.employeeIntake.safeguards.employeeNumbersIncluded, false);
@@ -138,8 +143,8 @@ try {
   assert.match(json.ownerDecisionBrief.decision.ownerQuestion, /是否继续按阻塞清单补齐后再评审/);
   assert.equal(json.ownerDecisionBrief.completion.releaseGate, "0/4 发布门禁通过");
   assert.equal(json.ownerDecisionBrief.completion.runtimeReadiness, "5/11 通过");
-  assert.equal(json.ownerDecisionBrief.completion.onsiteTaskCount, 53);
-  assert.match(json.ownerDecisionBrief.completion.fieldEvidence, /证据 0\/34，签字 0\/6/);
+  assert.equal(json.ownerDecisionBrief.completion.onsiteTaskCount, 59);
+  assert.match(json.ownerDecisionBrief.completion.fieldEvidence, /证据 0\/40，签字 0\/6/);
   assert.equal(json.ownerDecisionBrief.summary.unfinishedItemCount, 12);
   assert.equal(json.ownerDecisionBrief.summary.shownUnfinishedItemCount, 8);
   assert.equal(json.ownerDecisionBrief.summary.releaseGateCount, 4);
@@ -177,11 +182,11 @@ try {
   assert.equal(json.completionAudit.summary.passedCriteriaCount, 0);
   assert.equal(json.completionAudit.summary.blockingCriteriaCount, 7);
   assert.equal(json.completionAudit.summary.blockingCriteriaLabel, "7/7");
-  assert.equal(json.completionAudit.summary.onsiteTaskCount, 53);
+  assert.equal(json.completionAudit.summary.onsiteTaskCount, 59);
   assert.equal(json.completionAudit.summary.v2DifferenceCount, 17);
   assert.equal(json.completionAudit.criteria.length, 7);
   assert.ok(json.completionAudit.criteria.some((item) => item.key === "release_candidate" && item.evidenceLabel === "0/4 发布门禁通过"));
-  assert.ok(json.completionAudit.criteria.some((item) => item.key === "field_evidence" && item.evidenceLabel === "0/34"));
+  assert.ok(json.completionAudit.criteria.some((item) => item.key === "field_evidence" && item.evidenceLabel === "0/40"));
   assert.ok(json.completionAudit.criteria.some((item) => item.key === "owner_signoff" && item.evidenceLabel === "0/6"));
   assert.ok(json.completionAudit.criteria.some((item) => item.key === "v1_v2_boundary" && item.ready === false));
   assert.ok(
@@ -206,9 +211,9 @@ try {
   assert.equal(productionEnvCriterion?.proofGapShownCount, 4);
   assert.equal(productionEnvCriterion?.proofGapCountLabel, `4/${productionEnvCriterion?.proofGapTotalCount}`);
   assert.equal(fieldEvidenceCriterion?.proofGaps.length, 4);
-  assert.equal(fieldEvidenceCriterion?.proofGapTotalCount, 6);
+  assert.equal(fieldEvidenceCriterion?.proofGapTotalCount, 7);
   assert.equal(fieldEvidenceCriterion?.proofGapShownCount, 4);
-  assert.equal(fieldEvidenceCriterion?.proofGapCountLabel, "4/6");
+  assert.equal(fieldEvidenceCriterion?.proofGapCountLabel, "4/7");
   assert.equal(ownerSignoffCriterion?.proofGaps.length, 4);
   assert.equal(ownerSignoffCriterion?.proofGapTotalCount, 6);
   assert.equal(ownerSignoffCriterion?.proofGapShownCount, 4);
@@ -274,13 +279,21 @@ try {
   assert.equal(json.productionEnvGate.summary.passedCount, 2);
   assert.equal(json.productionEnvGate.summary.totalCount, json.productionEnvGate.checks.length);
   assert.ok(json.productionEnvGate.summary.blockingCount >= 6);
-  assert.equal(json.productionEnvGate.summary.warningCount, 1);
+  assert.equal(json.productionEnvGate.summary.warningCount, 2);
   assert.equal(json.productionEnvGate.summary.auditStatus, "passed");
   assert.equal(json.productionEnvGate.summary.auditLabel, "已通过");
   assert.equal(json.productionEnvGate.audit.included, true);
   assert.equal(json.productionEnvGate.audit.envFileCount, 1);
   assert.match(json.productionEnvGate.audit.summary.label, /1 个 env 文件安全审计通过/);
   assert.ok(json.productionEnvGate.checks.length >= 10);
+  assert.ok(
+    json.productionEnvGate.checks.some((item) =>
+      item.key === "attendance-payroll-integration-env" &&
+      item.status === "pending" &&
+      item.blocking === false &&
+      item.severity === "warning"
+    ),
+  );
   assert.ok(
     json.productionEnvGate.checks.some((item) =>
       item.key === "v1-persistence-profile" &&
@@ -460,20 +473,20 @@ try {
   assert.equal(json.productionFirstStageExecution.safeguards.declaresFullV1Complete, false);
   assert.ok(json.moduleCompletion.length >= 16);
   assert.ok(json.moduleCompletion.some((row) => row.module === "原材料 / 成本 / 毛利"));
-  assert.equal(json.unblockPlan.summary.taskCount, 53);
+  assert.equal(json.unblockPlan.summary.taskCount, 59);
   assert.ok(json.unblockPlan.phases.some((phase) => phase.key === "production_environment"));
   assert.ok(
     json.unblockPlan.phases.some((phase) =>
       phase.firstTasks.some((task) => task.title === "附件对象存储环境变量"),
     ),
   );
-  assert.ok(json.unblockPlan.roleBuckets.some((bucket) => bucket.role === "技术/管理" && bucket.taskCount === 35));
+  assert.ok(json.unblockPlan.roleBuckets.some((bucket) => bucket.role === "技术/管理" && bucket.taskCount === 41));
   assert.equal(json.roleTaskBoard.status, "blocked");
   assert.equal(json.roleTaskBoard.ready, false);
   assert.equal(json.roleTaskBoard.available, true);
-  assert.equal(json.roleTaskBoard.summary.taskCount, 53);
+  assert.equal(json.roleTaskBoard.summary.taskCount, 59);
   assert.equal(json.roleTaskBoard.summary.releaseTaskCount, 12);
-  assert.equal(json.roleTaskBoard.summary.evidenceTaskCount, 34);
+  assert.equal(json.roleTaskBoard.summary.evidenceTaskCount, 40);
   assert.equal(json.roleTaskBoard.summary.signoffTaskCount, 6);
   assert.equal(json.roleTaskBoard.summary.boundaryTaskCount, 1);
   assert.equal(json.roleTaskBoard.summary.roleCount, 6);
@@ -490,7 +503,7 @@ try {
   assert.ok(
     json.roleTaskBoard.categorySummaries.some((category) =>
       category.key === "evidence" &&
-      category.count === 34 &&
+      category.count === 40 &&
       category.firstTasks.length > 0 &&
       category.nextAction.includes("真实 PostgreSQL")
     ),
@@ -499,7 +512,7 @@ try {
   assert.ok(
     json.roleTaskBoard.roles.some((role) =>
       role.role === "技术/管理" &&
-      role.taskCount === 35 &&
+      role.taskCount === 41 &&
       role.releaseTaskCount === 12 &&
       role.evidenceTaskCount >= 21 &&
       role.signoffTaskCount === 1 &&
@@ -543,21 +556,21 @@ try {
   assert.equal(json.fieldEvidenceProgress.status, "blocked");
   assert.equal(json.fieldEvidenceProgress.ready, false);
   assert.equal(json.fieldEvidenceProgress.available, true);
-  assert.equal(json.fieldEvidenceProgress.summary.evidenceGroupsTotal, 6);
+  assert.equal(json.fieldEvidenceProgress.summary.evidenceGroupsTotal, 7);
   assert.equal(json.fieldEvidenceProgress.summary.evidenceGroupsReady, 0);
-  assert.equal(json.fieldEvidenceProgress.summary.requiredEvidenceItemsTotal, 34);
+  assert.equal(json.fieldEvidenceProgress.summary.requiredEvidenceItemsTotal, 40);
   assert.equal(json.fieldEvidenceProgress.summary.requiredEvidenceItemsCompleted, 0);
   assert.equal(json.fieldEvidenceProgress.summary.requiredSignoffsTotal, 6);
   assert.equal(json.fieldEvidenceProgress.summary.requiredSignoffsCompleted, 0);
-  assert.equal(json.fieldEvidenceProgress.summary.missingEvidenceItemCount, 34);
-  assert.equal(json.fieldEvidenceProgress.summary.missingEvidenceItemsShown, 34);
-  assert.equal(json.fieldEvidenceProgress.summary.groupSummaryCount, 6);
+  assert.equal(json.fieldEvidenceProgress.summary.missingEvidenceItemCount, 40);
+  assert.equal(json.fieldEvidenceProgress.summary.missingEvidenceItemsShown, 40);
+  assert.equal(json.fieldEvidenceProgress.summary.groupSummaryCount, 7);
   assert.equal(json.fieldEvidenceProgress.summary.signoffBoundaryActionCount, 7);
   assert.equal(json.fieldEvidenceProgress.summary.signoffBoundaryActionsShown, 7);
   assert.equal(json.fieldEvidenceProgress.summary.boundaryStatus, "pending");
   assert.ok(json.fieldEvidenceProgress.summary.blockingCount >= 41);
-  assert.equal(json.fieldEvidenceProgress.groups.length, 6);
-  assert.equal(json.fieldEvidenceProgress.groupSummaries.length, 6);
+  assert.equal(json.fieldEvidenceProgress.groups.length, 7);
+  assert.equal(json.fieldEvidenceProgress.groupSummaries.length, 7);
   assert.ok(
     json.fieldEvidenceProgress.groups.some((group) =>
       group.key === "production_persistence" &&
@@ -581,7 +594,7 @@ try {
       group.firstMissingItems.some((item) => item.label === "标签机真实样张已出纸并留档")
     ),
   );
-  assert.equal(json.fieldEvidenceProgress.missingItems.length, 34);
+  assert.equal(json.fieldEvidenceProgress.missingItems.length, 40);
   assert.equal(json.fieldEvidenceProgress.signoffBoundarySummary.status, "blocked");
   assert.equal(json.fieldEvidenceProgress.signoffBoundarySummary.ready, false);
   assert.equal(json.fieldEvidenceProgress.signoffBoundarySummary.signoffProgressLabel, "0/6");
@@ -644,7 +657,7 @@ try {
     ),
   );
   assert.equal(json.fieldEvidenceProgress.boundary.status, "pending");
-  assert.equal(json.fieldEvidenceProgress.boundary.v1ItemCount, 2);
+  assert.equal(json.fieldEvidenceProgress.boundary.v1ItemCount, 3);
   assert.equal(json.fieldEvidenceProgress.boundary.v2ItemCount, 1);
   assert.equal(json.fieldEvidenceProgress.safeguards.rawEvidenceRefsIncluded, false);
   assert.equal(json.fieldEvidenceProgress.safeguards.rawSignersIncluded, false);
@@ -657,7 +670,7 @@ try {
   assert.equal(json.fieldEvidenceIntakeGuidance.available, true);
   assert.equal(json.fieldEvidenceIntakeGuidance.summary.evidenceCsvStatus, "present");
   assert.equal(json.fieldEvidenceIntakeGuidance.summary.signoffCsvStatus, "present");
-  assert.equal(json.fieldEvidenceIntakeGuidance.summary.evidenceRows, 34);
+  assert.equal(json.fieldEvidenceIntakeGuidance.summary.evidenceRows, 40);
   assert.equal(json.fieldEvidenceIntakeGuidance.summary.filledEvidenceRows, 0);
   assert.equal(json.fieldEvidenceIntakeGuidance.summary.completedEvidenceRows, 0);
   assert.equal(json.fieldEvidenceIntakeGuidance.summary.signoffRows, 6);
@@ -677,7 +690,7 @@ try {
   assert.equal(json.fieldEvidenceDraftFreshness.safeguards.rawCsvIncluded, false);
   assert.equal(json.fieldEvidenceIntakeGuidance.summary.rulesAvailable, true);
   assert.equal(json.fieldEvidenceIntakeGuidance.summary.commandCount, 3);
-  assert.ok(json.fieldEvidenceIntakeGuidance.blockedReason.includes("现场证据 0/34"));
+  assert.ok(json.fieldEvidenceIntakeGuidance.blockedReason.includes("现场证据 0/40"));
   assert.ok(json.fieldEvidenceIntakeGuidance.commands.some((item) => item.key === "apply-draft" && item.command.includes("apply-v1-field-evidence-intake.mjs")));
   assert.ok(json.fieldEvidenceIntakeGuidance.commands.some((item) => item.key === "validate-draft" && item.command.includes("validate-v1-field-evidence-manifest.mjs")));
   assert.ok(json.fieldEvidenceIntakeGuidance.commands.some((item) => item.key === "refresh-suite" && item.command.includes("run-v1-go-live-suite.mjs")));
@@ -695,9 +708,9 @@ try {
   assert.equal(json.fieldEvidenceIntakeQuality.status, "blocked");
   assert.equal(json.fieldEvidenceIntakeQuality.ready, false);
   assert.equal(json.fieldEvidenceIntakeQuality.available, true);
-  assert.equal(json.fieldEvidenceIntakeQuality.summary.evidenceProgress, "0/34");
+  assert.equal(json.fieldEvidenceIntakeQuality.summary.evidenceProgress, "0/40");
   assert.equal(json.fieldEvidenceIntakeQuality.summary.signoffProgress, "0/6");
-  assert.equal(json.fieldEvidenceIntakeQuality.summary.missingEvidenceRows, 34);
+  assert.equal(json.fieldEvidenceIntakeQuality.summary.missingEvidenceRows, 40);
   assert.equal(json.fieldEvidenceIntakeQuality.summary.missingSignoffRows, 6);
   assert.equal(json.fieldEvidenceIntakeQuality.summary.boundaryLabel, "待确认");
   assert.equal(json.fieldEvidenceIntakeQuality.summary.draftManifestStatus, initialDraftManifestStatus);
@@ -713,7 +726,7 @@ try {
   assert.ok(json.fieldEvidenceIntakeQuality.checks.some((item) => item.key === "evidence-csv" && item.ready === true));
   assert.ok(json.fieldEvidenceIntakeQuality.checks.some((item) => item.key === "draft-manifest" && item.ready === initialDraftManifestAvailable));
   assert.ok(json.fieldEvidenceIntakeQuality.checks.some((item) => item.key === "draft-freshness"));
-  assert.ok(json.fieldEvidenceIntakeQuality.checks.some((item) => item.key === "evidence-completion" && item.detail.includes("0/34")));
+  assert.ok(json.fieldEvidenceIntakeQuality.checks.some((item) => item.key === "evidence-completion" && item.detail.includes("0/40")));
   assert.ok(json.fieldEvidenceIntakeQuality.checks.some((item) => item.key === "v1-v2-boundary" && item.nextAction.includes("确认人")));
   assert.equal(json.fieldEvidenceIntakeQuality.safeguards.nonMutating, true);
   assert.equal(json.fieldEvidenceIntakeQuality.safeguards.rawEvidenceRefsIncluded, false);
@@ -1422,12 +1435,12 @@ try {
   assert.equal(draftJson.ready, false);
   assert.equal(draftJson.summary.appliedRowCount, 0);
   assert.equal(draftJson.summary.invalidRowCount, 0);
-  assert.equal(draftJson.summary.evidenceProgress, "0/34");
+  assert.equal(draftJson.summary.evidenceProgress, "0/40");
   assert.equal(draftJson.summary.signoffProgress, "0/6");
   assert.equal(draftJson.summary.draftManifestStatus, "available");
   assert.equal(draftJson.summary.inputSnapshot.schema, "erp-v1-field-evidence-intake-snapshot-v1");
   assert.equal(draftJson.summary.inputSnapshot.evidenceCsvIncluded, true);
-  assert.equal(draftJson.summary.inputSnapshot.evidenceRowCount, 34);
+  assert.equal(draftJson.summary.inputSnapshot.evidenceRowCount, 40);
   assert.equal(draftJson.summary.inputSnapshot.signoffBoundaryCsvIncluded, true);
   assert.equal(draftJson.summary.inputSnapshot.signoffBoundaryRowCount, 7);
   assert.equal(draftJson.summary.inputSnapshot.rawCsvIncluded, false);
@@ -1459,10 +1472,10 @@ try {
   assert.equal(clientDraftResult.source, "api");
   assert.equal(clientDraftResult.blocked, false);
   assert.equal(clientDraftResult.draftResult.statusLabel, "草稿已生成");
-  assert.equal(clientDraftResult.draftResult.summary.evidenceProgress, "0/34");
+  assert.equal(clientDraftResult.draftResult.summary.evidenceProgress, "0/40");
   assert.equal(clientDraftResult.draftResult.summary.signoffProgress, "0/6");
   assert.equal(clientDraftResult.draftResult.summary.draftManifestLabel, "已生成");
-  assert.equal(clientDraftResult.draftResult.summary.inputSnapshot.evidenceRowCount, 34);
+  assert.equal(clientDraftResult.draftResult.summary.inputSnapshot.evidenceRowCount, 40);
   assert.equal(clientDraftResult.draftResult.summary.inputSnapshot.signoffBoundaryRowCount, 7);
   assert.equal(clientDraftResult.draftResult.output.draftWritten, true);
   assert.equal(clientDraftResult.draftResult.output.releaseCandidateRefreshed, false);
@@ -1482,9 +1495,9 @@ try {
   assert.equal(validationJson.status, "blocked");
   assert.equal(validationJson.ready, false);
   assert.equal(validationJson.schemaValid, true);
-  assert.equal(validationJson.summary.evidenceProgress, "0/34");
+  assert.equal(validationJson.summary.evidenceProgress, "0/40");
   assert.equal(validationJson.summary.signoffProgress, "0/6");
-  assert.equal(validationJson.summary.evidenceGroupsReadyLabel, "0/6");
+  assert.equal(validationJson.summary.evidenceGroupsReadyLabel, "0/7");
   assert.equal(validationJson.summary.draftManifestStatus, "available");
   assert.equal(validationJson.summary.draftFreshnessStatus, "fresh");
   assert.equal(validationJson.summary.draftFreshnessLabel, "已匹配");
@@ -1519,9 +1532,9 @@ try {
   assert.equal(clientValidationResult.source, "api");
   assert.equal(clientValidationResult.blocked, false);
   assert.equal(clientValidationResult.validationResult.statusLabel, "校验未通过");
-  assert.equal(clientValidationResult.validationResult.summary.evidenceProgress, "0/34");
+  assert.equal(clientValidationResult.validationResult.summary.evidenceProgress, "0/40");
   assert.equal(clientValidationResult.validationResult.summary.signoffProgress, "0/6");
-  assert.equal(clientValidationResult.validationResult.summary.evidenceGroupsReadyLabel, "0/6");
+  assert.equal(clientValidationResult.validationResult.summary.evidenceGroupsReadyLabel, "0/7");
   assert.equal(clientValidationResult.validationResult.summary.draftManifestLabel, "已生成");
   assert.equal(clientValidationResult.validationResult.summary.draftFreshnessLabel, "已匹配");
   assert.equal(clientValidationResult.validationResult.summary.releaseCandidateRefreshed, false);
@@ -1595,18 +1608,18 @@ try {
   assert.equal(productionEnvPrecheckJson.scope, "v1_production_env_live_precheck");
   assert.equal(productionEnvPrecheckJson.status, "blocked");
   assert.equal(productionEnvPrecheckJson.ready, false);
-  assert.equal(productionEnvPrecheckJson.summary.readinessLabel, "2/11");
+  assert.equal(productionEnvPrecheckJson.summary.readinessLabel, "2/12");
   assert.equal(productionEnvPrecheckJson.summary.passedCount, 2);
-  assert.equal(productionEnvPrecheckJson.summary.totalCount, 11);
+  assert.equal(productionEnvPrecheckJson.summary.totalCount, 12);
   assert.equal(productionEnvPrecheckJson.summary.blockingCount, 8);
-  assert.equal(productionEnvPrecheckJson.summary.warningCount, 1);
+  assert.equal(productionEnvPrecheckJson.summary.warningCount, 2);
   assert.equal(productionEnvPrecheckJson.summary.currentRuntime, true);
   assert.equal(productionEnvPrecheckJson.summary.envFilePathAccepted, false);
   assert.equal(productionEnvPrecheckJson.summary.releaseCandidateRefreshed, false);
   assert.equal(productionEnvPrecheckJson.summary.goLiveSuiteRefreshed, false);
-  assert.equal(productionEnvPrecheckJson.checks.length, 11);
+  assert.equal(productionEnvPrecheckJson.checks.length, 12);
   assert.equal(productionEnvPrecheckJson.blockingChecks.length, 8);
-  assert.equal(productionEnvPrecheckJson.warningChecks.length, 1);
+  assert.equal(productionEnvPrecheckJson.warningChecks.length, 2);
   assert.ok(
     productionEnvPrecheckJson.blockingChecks.some((item) =>
       item.key === "v1-persistence-profile" &&
@@ -1650,7 +1663,7 @@ try {
   assert.equal(clientProductionEnvPrecheckResult.source, "api");
   assert.equal(clientProductionEnvPrecheckResult.blocked, false);
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.statusLabel, "仍未通过");
-  assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.readinessLabel, "2/11");
+  assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.readinessLabel, "2/12");
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.currentRuntime, true);
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.envFilePathAccepted, false);
   assert.equal(clientProductionEnvPrecheckResult.precheckResult.summary.releaseCandidateRefreshed, false);
@@ -2964,11 +2977,11 @@ try {
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.scope, "v1_production_env_file_preview_live_precheck");
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.status, "ready");
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.ready, true);
-  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.readinessLabel, "11/11");
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.readinessLabel, "11/12");
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.passedCount, 11);
-  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.totalCount, 11);
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.totalCount, 12);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.blockingCount, 0);
-  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.warningCount, 0);
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.warningCount, 1);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.configuredEnvFileCount, 1);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.envFilePathConfigured, true);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.summary.selectedEnvVariable, "ERP_V1_PRODUCTION_ENV_FILE");
@@ -3008,9 +3021,10 @@ try {
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.stageDiagnosis.ignoredConfiguredFallbackVariableCount, 1);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.stageDiagnosis.sourceStatuses.length, 3);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.stageDiagnosis.pathValueExposed, false);
-  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.checks.length, 11);
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.checks.length, 12);
   assert.deepEqual(configuredProductionEnvFilePreviewPrecheckJson.blockingChecks, []);
-  assert.deepEqual(configuredProductionEnvFilePreviewPrecheckJson.warningChecks, []);
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.warningChecks.length, 1);
+  assert.equal(configuredProductionEnvFilePreviewPrecheckJson.warningChecks[0].key, "attendance-payroll-integration-env");
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.safeguards.nonMutating, true);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.safeguards.requestBodyIgnored, true);
   assert.equal(configuredProductionEnvFilePreviewPrecheckJson.safeguards.envFilePathAccepted, false);
@@ -3038,7 +3052,7 @@ try {
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.source, "api");
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.blocked, false);
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.statusLabel, "已通过");
-  assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.readinessLabel, "11/11");
+  assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.readinessLabel, "11/12");
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.envFilePathConfigured, true);
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.selectedSourceKind, "primary");
   assert.equal(configuredClientProductionEnvFilePreviewPrecheckResult.precheckResult.summary.appliedInMemory, true);
@@ -3652,9 +3666,9 @@ try {
   assert.equal(refreshPrecheckJson.summary.draftFreshnessLabel, "已匹配");
   assert.equal(refreshPrecheckJson.summary.draftFreshnessReady, true);
   assert.equal(refreshPrecheckJson.summary.draftValidationStatus, "blocked");
-  assert.equal(refreshPrecheckJson.summary.evidenceProgress, "0/34");
+  assert.equal(refreshPrecheckJson.summary.evidenceProgress, "0/40");
   assert.equal(refreshPrecheckJson.summary.signoffProgress, "0/6");
-  assert.equal(refreshPrecheckJson.summary.evidenceGroupsReadyLabel, "0/6");
+  assert.equal(refreshPrecheckJson.summary.evidenceGroupsReadyLabel, "0/7");
   assert.equal(refreshPrecheckJson.summary.productionEnvPreflightLabel, `2/${json.productionEnvGate.summary.totalCount}`);
   assert.equal(
     refreshPrecheckJson.summary.productionEnvBlockingCount,
@@ -3720,7 +3734,7 @@ try {
   assert.equal(clientRefreshPrecheckResult.source, "api");
   assert.equal(clientRefreshPrecheckResult.blocked, false);
   assert.equal(clientRefreshPrecheckResult.precheckResult.statusLabel, "暂不能刷新");
-  assert.equal(clientRefreshPrecheckResult.precheckResult.summary.evidenceProgress, "0/34");
+  assert.equal(clientRefreshPrecheckResult.precheckResult.summary.evidenceProgress, "0/40");
   assert.equal(clientRefreshPrecheckResult.precheckResult.summary.signoffProgress, "0/6");
   assert.equal(
     clientRefreshPrecheckResult.precheckResult.summary.productionEnvPreflightLabel,
@@ -3766,7 +3780,7 @@ try {
   assert.equal(refreshCandidateJson.summary.releaseCandidateRefreshAllowed, false);
   assert.equal(refreshCandidateJson.summary.releaseCandidateRefreshed, false);
   assert.equal(refreshCandidateJson.summary.goLiveSuiteRefreshed, false);
-  assert.equal(refreshCandidateJson.summary.evidenceProgress, "0/34");
+  assert.equal(refreshCandidateJson.summary.evidenceProgress, "0/40");
   assert.equal(refreshCandidateJson.summary.signoffProgress, "0/6");
   assert.equal(refreshCandidateJson.summary.productionEnvPreflightLabel, `2/${json.productionEnvGate.summary.totalCount}`);
   assert.equal(refreshCandidateJson.summary.productionGoLiveReadinessLabel, "0/5");
@@ -3840,10 +3854,10 @@ try {
   assert.equal(clientStatus.todoLoadPrecheck.summary.p95Label, "240 ms");
   assert.equal(clientStatus.todoLoadPrecheck.freshness.statusLabel, "时效有效");
   assert.ok(clientStatus.metrics.some(([label, value]) => label === "发布门禁" && value === "0/4"));
-  assert.ok(clientStatus.metrics.some(([label, value]) => label === "现场证据" && value === "0/34"));
+  assert.ok(clientStatus.metrics.some(([label, value]) => label === "现场证据" && value === "0/40"));
   assert.ok(clientStatus.metrics.some(([label, value]) => label === "负责人签字" && value === "0/6"));
   assert.ok(clientStatus.moduleCompletionRows.some((row) => row.module === "原材料 / 成本 / 毛利"));
-  assert.equal(clientStatus.unblockPlan.summary.taskCount, "53 项");
+  assert.equal(clientStatus.unblockPlan.summary.taskCount, "59 项");
   assert.ok(clientStatus.unblockPlan.phases.some((phase) => phase.label.includes("先补生产环境和持久化")));
   const productionPhase = clientStatus.unblockPlan.phases.find((phase) => phase.key === "production_environment");
   assert.ok(productionPhase, "client should expose production environment unblock phase");
@@ -3866,7 +3880,7 @@ try {
   assert.equal(clientStatus.ownerDecisionBrief.available, true);
   assert.equal(clientStatus.ownerDecisionBrief.canDeclareV1Complete, false);
   assert.equal(clientStatus.ownerDecisionBrief.decision.label, "不能宣布 V1 已完成");
-  assert.equal(clientStatus.ownerDecisionBrief.completion.onsiteTaskLabel, "53 项");
+  assert.equal(clientStatus.ownerDecisionBrief.completion.onsiteTaskLabel, "59 项");
   assert.equal(clientStatus.ownerDecisionBrief.summary.unfinishedItemLabel, "8/12");
   assert.equal(clientStatus.ownerDecisionBrief.summary.releaseGateLabel, "4 项");
   assert.equal(clientStatus.ownerDecisionBrief.summary.nextActionLabel, "8/8");
@@ -3891,7 +3905,7 @@ try {
   assert.equal(clientStatus.productionEnvGate.available, true);
   assert.equal(clientStatus.productionEnvGate.summary.passedLabel, `2/${json.productionEnvGate.summary.totalCount}`);
   assert.equal(clientStatus.productionEnvGate.summary.blockingLabel, `${json.productionEnvGate.summary.blockingCount} 项`);
-  assert.equal(clientStatus.productionEnvGate.summary.warningLabel, "1 项");
+  assert.equal(clientStatus.productionEnvGate.summary.warningLabel, "2 项");
   assert.equal(clientStatus.productionEnvGate.summary.auditStatusLabel, "已通过");
   assert.equal(clientStatus.productionEnvGate.audit.statusLabel, "已通过");
   assert.ok(clientStatus.productionEnvGate.blockingChecks.some((item) => item.label === "统一 V1 持久化 profile"));
@@ -3965,14 +3979,14 @@ try {
   );
   assert.equal(clientStatus.productionFirstStageExecution.safeguards.rawStageCommandsIncluded, false);
   assert.equal(clientStatus.roleTaskBoard.available, true);
-  assert.equal(clientStatus.roleTaskBoard.summary.taskCountLabel, "53 项");
+  assert.equal(clientStatus.roleTaskBoard.summary.taskCountLabel, "59 项");
   assert.equal(clientStatus.roleTaskBoard.summary.roleCountLabel, "6 个角色");
   assert.equal(clientStatus.roleTaskBoard.summary.categoryCount, 4);
-  assert.match(clientStatus.roleTaskBoard.summary.shownTaskLabel, /^\d+\/53$/);
+  assert.match(clientStatus.roleTaskBoard.summary.shownTaskLabel, /^\d+\/59$/);
   assert.equal(clientStatus.roleTaskBoard.categorySummaries.length, 4);
   assert.ok(clientStatus.roleTaskBoard.categorySummaries.some((category) => category.key === "release" && category.countLabel === "12 项"));
   assert.ok(clientStatus.roleTaskBoard.categorySummaries.some((category) => category.key === "boundary" && category.statusLabel === "待处理"));
-  assert.ok(clientStatus.roleTaskBoard.roles.some((role) => role.role === "技术/管理" && role.taskCount === 35));
+  assert.ok(clientStatus.roleTaskBoard.roles.some((role) => role.role === "技术/管理" && role.taskCount === 41));
   assert.ok(clientStatus.roleTaskBoard.roles.some((role) => role.role === "司机" && role.taskCount > 0));
   assert.equal(clientStatus.completionAudit.available, true);
   assert.equal(clientStatus.completionAudit.summary.criteriaCount, 7);
@@ -3980,7 +3994,7 @@ try {
   assert.equal(clientStatus.completionAudit.summary.v2DifferenceLabel, "17 项");
   assert.equal(clientStatus.completionAudit.criteria.length, 7);
   assert.ok(clientStatus.completionAudit.criteria.some((item) => item.key === "production_env" && item.statusLabel === "阻塞"));
-  assert.ok(clientStatus.completionAudit.criteria.some((item) => item.key === "field_evidence" && item.evidenceLabel === "0/34"));
+  assert.ok(clientStatus.completionAudit.criteria.some((item) => item.key === "field_evidence" && item.evidenceLabel === "0/40"));
   assert.ok(
     clientStatus.completionAudit.criteria.every((item) => item.proofRequirements.length > 0),
     "client completion audit criteria should preserve proof requirements",
@@ -3991,7 +4005,7 @@ try {
   );
   assert.equal(
     clientStatus.completionAudit.criteria.find((item) => item.key === "field_evidence")?.proofGapCountLabel,
-    "4/6",
+    "4/7",
   );
   assert.equal(
     clientStatus.completionAudit.criteria.find((item) => item.key === "owner_signoff")?.proofGapTotalCount,
@@ -4007,18 +4021,18 @@ try {
   assert.ok(clientStatus.v1V2BoundaryBrief.v2Categories.includes("AI / OCR / 图片识别"));
   assert.ok(clientStatus.v1V2BoundaryBrief.moduleDifferences.some((item) => item.module === "司机端"));
   assert.equal(clientStatus.fieldEvidenceProgress.available, true);
-  assert.equal(clientStatus.fieldEvidenceProgress.summary.evidenceGroupsLabel, "0/6");
-  assert.equal(clientStatus.fieldEvidenceProgress.summary.evidenceItemsLabel, "0/34");
+  assert.equal(clientStatus.fieldEvidenceProgress.summary.evidenceGroupsLabel, "0/7");
+  assert.equal(clientStatus.fieldEvidenceProgress.summary.evidenceItemsLabel, "0/40");
   assert.equal(clientStatus.fieldEvidenceProgress.summary.signoffLabel, "0/6");
-  assert.equal(clientStatus.fieldEvidenceProgress.summary.missingEvidenceItemsLabel, "34/34");
+  assert.equal(clientStatus.fieldEvidenceProgress.summary.missingEvidenceItemsLabel, "40/40");
   assert.equal(clientStatus.fieldEvidenceProgress.summary.signoffBoundaryActionsLabel, "7/7");
-  assert.equal(clientStatus.fieldEvidenceProgress.summary.groupSummaryCount, 6);
+  assert.equal(clientStatus.fieldEvidenceProgress.summary.groupSummaryCount, 7);
   assert.equal(clientStatus.fieldEvidenceProgress.signoffBoundarySummary.signoffProgressLabel, "0/6");
   assert.equal(clientStatus.fieldEvidenceProgress.signoffBoundarySummary.actionLabel, "7/7");
   assert.equal(clientStatus.fieldEvidenceProgress.signoffBoundarySummary.previewActions.length, 3);
   assert.equal(clientStatus.fieldEvidenceProgress.boundary.label, "待确认");
   assert.ok(clientStatus.fieldEvidenceProgress.groups.some((group) => group.label === "生产持久化"));
-  assert.equal(clientStatus.fieldEvidenceProgress.groupSummaries.length, 6);
+  assert.equal(clientStatus.fieldEvidenceProgress.groupSummaries.length, 7);
   assert.ok(
     clientStatus.fieldEvidenceProgress.groupSummaries.some((group) =>
       group.key === "production_persistence" &&
@@ -4036,7 +4050,7 @@ try {
   assert.ok(clientStatus.fieldEvidenceProgress.missingItems.some((item) => item.label === "PostgreSQL 迁移已在生产库执行"));
   assert.ok(clientStatus.fieldEvidenceProgress.signoffBoundaryActions.some((item) => item.label === "V1/V2 边界确认"));
   assert.equal(clientStatus.fieldEvidenceIntakeGuidance.available, true);
-  assert.equal(clientStatus.fieldEvidenceIntakeGuidance.summary.evidenceProgressLabel, "0/34");
+  assert.equal(clientStatus.fieldEvidenceIntakeGuidance.summary.evidenceProgressLabel, "0/40");
   assert.equal(clientStatus.fieldEvidenceIntakeGuidance.summary.signoffProgressLabel, "0/6");
   assert.equal(clientStatus.fieldEvidenceIntakeGuidance.summary.boundaryLabel, "待确认");
   assert.equal(clientStatus.fieldEvidenceIntakeGuidance.summary.draftManifestLabel, initialDraftManifestAvailable ? "已生成" : "未生成");
@@ -4045,7 +4059,7 @@ try {
   assert.ok(clientStatus.fieldEvidenceIntakeGuidance.commands.some((item) => item.label === "生成现场证据 manifest 草稿"));
   assert.ok(clientStatus.fieldEvidenceIntakeGuidance.commands.some((item) => item.command.includes("<filled-field-evidence-manifest-draft>")));
   assert.equal(clientStatus.fieldEvidenceIntakeQuality.available, true);
-  assert.equal(clientStatus.fieldEvidenceIntakeQuality.summary.evidenceProgress, "0/34");
+  assert.equal(clientStatus.fieldEvidenceIntakeQuality.summary.evidenceProgress, "0/40");
   assert.equal(clientStatus.fieldEvidenceIntakeQuality.summary.signoffProgress, "0/6");
   assert.equal(
     clientStatus.fieldEvidenceIntakeQuality.summary.blockingIssueLabel,

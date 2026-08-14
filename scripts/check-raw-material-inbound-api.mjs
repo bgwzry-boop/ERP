@@ -21,10 +21,16 @@ import {
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "raw-material-inbound-api");
 const repositoryStorageRoot = join(checkStorageRoot, "repository");
 const apiStorageRoot = join(checkStorageRoot, "api");
+const seededReviewInbound = initialRawMaterialInbounds.find((item) => item.id === "RMI-0704-001");
+const seededOcrReviewPayload = {
+  reviewFields: Object.fromEntries((seededReviewInbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value])),
+  lineReviews: (seededReviewInbound?.ocrLines ?? []).map((line) => ({ lineId: line.lineId, values: line.values })),
+};
 rmSync(checkStorageRoot, { recursive: true, force: true });
 
 await checkRepository();
 checkPerRollLabelGate();
+checkSupplierReturnPhysicalFlow();
 await checkPostgresRepositoryBoundary();
 await checkApi();
 
@@ -78,7 +84,7 @@ async function checkRepository() {
     action: "review",
     operatorId: "U-OFFICE-A",
     operatorName: "办公室A",
-    body: { expectedRevision: 1, now: "2026-07-04T01:00:00.000Z" },
+    body: { expectedRevision: 1, now: "2026-07-04T01:00:00.000Z", ...seededOcrReviewPayload },
   });
   assert.equal(review.inbound.status, "已复核待打印标签", "review should move inbound to pending label print");
   assert.equal(review.inbound.rolls[0].labelStatus, "待打印标签", "review should not mark roll labels as printed");
@@ -503,23 +509,122 @@ function checkPerRollLabelGate() {
   assert.equal(current.rolls.filter((roll) => roll.inventoryStatus === "可用").length, 8);
 }
 
+function checkSupplierReturnPhysicalFlow() {
+  const stockInbound = {
+    id: "RMI-STOCK-RETURN-001",
+    revision: 1,
+    documentDirection: "supplier_delivery",
+    supplierName: "河北宏尚无纺布有限公司",
+    status: "已贴标/可用库存",
+    rolls: [{
+      id: "ROLL-STOCK-RETURN-001",
+      supplierRollNo: "HS-ROLL-001",
+      weightKg: 121.8,
+      labelStatus: "已贴标/可用库存",
+      inventoryStatus: "可用",
+      location: "原料库-可用区",
+    }],
+  };
+  const sourceReturn = {
+    id: "RMI-RETURN-EVIDENCE-001",
+    revision: 1,
+    documentDirection: "supplier_return",
+    documentTypeLabel: "退货单",
+    supplierName: "白侯无纺布",
+    deliveryNoteNo: "HS-RET-001",
+    receivedAt: "2026-07-12",
+    status: "退货单已复核",
+    rollCount: 1,
+    totalWeightKg: -121.8,
+    amount: -1172.18,
+    sourceAttachmentId: "ATT-HS-RET-001",
+    rolls: [],
+  };
+  const staged = applyRawMaterialInboundAction({
+    inbounds: [stockInbound, sourceReturn],
+    inboundId: stockInbound.id,
+    action: "stage-supplier-return",
+    body: {
+      expectedRevision: 1,
+      rollId: "ROLL-STOCK-RETURN-001",
+      sourceReturnInboundId: sourceReturn.id,
+      location: "供应商退货暂存区",
+    },
+    operatorId: "U-WAREHOUSE-A",
+    operatorName: "库房A",
+    serverNow: "2026-07-12T04:00:00.000Z",
+  });
+  assert.equal(staged.inbound.rolls[0].inventoryStatus, "供应商退货暂存", "stock roll should leave available inventory and enter the supplier-return holding area");
+  assert.equal(staged.inbound.rolls[0].location, "供应商退货暂存区");
+  assert.equal(staged.inbound.rawMaterialSupplierReturnRecords.length, 1);
+  assert.equal(staged.inbound.rawMaterialSupplierReturnRecords[0].sourceReturnInboundId, sourceReturn.id, "physical return must link the reviewed return note");
+  assert.equal(staged.inbound.rawMaterialSupplierReturnRecords[0].sourceAttachmentId, sourceReturn.sourceAttachmentId, "physical return must retain original return-note evidence");
+  assert.equal(staged.inbounds.find((item) => item.id === sourceReturn.id).status, "退货单已复核", "staging stock must not mutate the financial return-note record");
+
+  assert.throws(
+    () => applyRawMaterialInboundAction({
+      inbounds: staged.inbounds,
+      inboundId: stockInbound.id,
+      action: "confirm-supplier-return-shipment",
+      body: { expectedRevision: 2, rollId: "ROLL-STOCK-RETURN-001" },
+      operatorId: "U-WAREHOUSE-A",
+      operatorName: "库房A",
+      serverNow: "2026-07-12T04:05:00.000Z",
+    }),
+    /明确确认实物已经交还供应商/,
+    "supplier return must not reduce owned stock without explicit physical handoff confirmation",
+  );
+
+  const shipped = applyRawMaterialInboundAction({
+    inbounds: staged.inbounds,
+    inboundId: stockInbound.id,
+    action: "confirm-supplier-return-shipment",
+    body: {
+      expectedRevision: 2,
+      rollId: "ROLL-STOCK-RETURN-001",
+      physicalReturnConfirmed: true,
+      shipmentReferenceNo: "RET-SHIP-001",
+    },
+    operatorId: "U-WAREHOUSE-A",
+    operatorName: "库房A",
+    serverNow: "2026-07-12T04:06:00.000Z",
+  });
+  assert.equal(shipped.inbound.rolls[0].inventoryStatus, "已退厂", "confirmed physical handoff should close the stock-return direction once");
+  assert.equal(shipped.inbound.rawMaterialSupplierReturnRecords[0].status, "已退厂");
+  assert.equal(shipped.inbound.rawMaterialSupplierReturnRecords[0].shipmentReferenceNo, "RET-SHIP-001");
+  assert.throws(
+    () => applyRawMaterialInboundAction({
+      inbounds: shipped.inbounds,
+      inboundId: stockInbound.id,
+      action: "confirm-supplier-return-shipment",
+      body: { expectedRevision: 3, rollId: "ROLL-STOCK-RETURN-001", physicalReturnConfirmed: true },
+      operatorId: "U-WAREHOUSE-A",
+      operatorName: "库房A",
+      serverNow: "2026-07-12T04:07:00.000Z",
+    }),
+    /只有供应商退货暂存区内/,
+    "a physically shipped roll must not be deducted twice",
+  );
+}
+
 async function checkPostgresRepositoryBoundary() {
   const calls = [];
+  const repositoryInbound = initialRawMaterialInbounds.find((item) => item.id === "RMI-0704-001");
   const repository = createPostgresRawMaterialInboundRepository({
     queryJson(text, values) {
       calls.push({ kind: "query", text, values });
       if (text.includes("FROM operation_idempotency_keys")) return null;
-      if (text.includes("WHERE id =")) return initialRawMaterialInbounds[0];
-      return [initialRawMaterialInbounds[0]];
+      if (text.includes("WHERE id =")) return repositoryInbound;
+      return [repositoryInbound];
     },
     idempotentTransactionJson(request) {
       calls.push({ kind: "idempotent", ...request });
       return {
         inbound: {
-          ...initialRawMaterialInbounds[0],
+          ...repositoryInbound,
           revision: 2,
           status: "已复核待打印标签",
-          rolls: initialRawMaterialInbounds[0].rolls.map((roll) => ({ ...roll, labelStatus: "待打印标签" })),
+          rolls: repositoryInbound.rolls.map((roll) => ({ ...roll, labelStatus: "待打印标签" })),
         },
         operationLogId: "RMI-LOG-PG-001",
       };
@@ -540,7 +645,7 @@ async function checkPostgresRepositoryBoundary() {
     query: { keyword: "O'Brien", status: "已打印待贴标" },
   }).values, ["已打印待贴标", "%O'Brien%"]);
 
-  const workspace = { rawMaterialInbounds: [initialRawMaterialInbounds[0]] };
+  const workspace = { rawMaterialInbounds: [repositoryInbound] };
   const saved = await repository.recordRawMaterialInboundAction({
     workspace,
     inboundId: "RMI-0704-001",
@@ -548,7 +653,7 @@ async function checkPostgresRepositoryBoundary() {
     operatorId: "U-OFFICE-A",
     operatorName: "办公室A",
     idempotencyKey: "idem-raw-material-review-001",
-    body: { expectedRevision: 1, now: "2026-07-04T01:00:00.000Z" },
+    body: { expectedRevision: 1, now: "2026-07-04T01:00:00.000Z", ...seededOcrReviewPayload },
   });
   const transactionQuery = calls.find((call) => call.kind === "idempotent");
   assert.equal(saved.inbound.status, "已复核待打印标签", "postgres action should return saved inbound payload");
@@ -560,6 +665,8 @@ async function checkPostgresRepositoryBoundary() {
   assert.match(transactionQuery.text, /FOR UPDATE/);
   assert.match(transactionQuery.text, /ERP_RAW_MATERIAL_INBOUND_CONCURRENCY_CONFLICT/);
   assert.match(transactionQuery.text, /revision = raw_material_inbounds\.revision \+ 1/);
+  assert.match(transactionQuery.text, /jsonb_build_object\('revision', raw_material_inbounds\.revision\)/);
+  assert.doesNotMatch(transactionQuery.text, /jsonb_build_object\('revision', revision\)/);
   assert.match(transactionQuery.text, /INSERT INTO operation_logs/, "postgres action should write operation log");
   assert.ok(!transactionQuery.text.includes("已复核待打印标签"));
   assert.equal(transactionQuery.values.includes("已复核待打印标签"), true);
@@ -602,7 +709,7 @@ async function checkApi() {
 
     const review = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/review`, {
       userId: "U-OFFICE-A",
-      body: { now: "2026-07-04T02:00:00.000Z" },
+      body: { now: "2026-07-04T02:00:00.000Z", ...seededOcrReviewPayload },
     });
     assert.equal(review.status, 200, "office user should be allowed to review raw-material inbound");
     assert.equal(review.json.inbound.status, "已复核待打印标签", "review route should update status");
@@ -650,7 +757,7 @@ async function checkApi() {
     assert.equal(unknownTaskIssue.status, 422, "issue should reject unknown production task ids");
     assert.equal(unknownTaskIssue.json.code, "RAW_MATERIAL_PRODUCTION_TASK_NOT_FOUND", "unknown task issue should return a stable code");
 
-    const colorMismatchIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/issue-to-machine`, {
+    const incompatibleTaskIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/issue-to-machine`, {
       userId: "U-WAREHOUSE-A",
       body: {
         rollId: "RM-240704-001-01",
@@ -658,8 +765,8 @@ async function checkApi() {
         productionTaskId: "PT-ORD-0629-003-01",
       },
     });
-    assert.equal(colorMismatchIssue.status, 422, "red raw material should not issue against a white bag production task");
-    assert.equal(colorMismatchIssue.json.code, "RAW_MATERIAL_PRODUCTION_TASK_COLOR_MISMATCH", "color mismatch should return a stable code");
+    assert.equal(incompatibleTaskIssue.status, 422, "reviewed raw material should not issue against a production task with an incompatible required width");
+    assert.equal(incompatibleTaskIssue.json.code, "RAW_MATERIAL_PRODUCTION_TASK_WIDTH_MISMATCH", "width mismatch should return a stable code");
 
     const deniedIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/issue-to-machine`, {
       userId: "U-OFFICE-A",

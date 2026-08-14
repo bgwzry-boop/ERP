@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>方案 1 工作区细节对照</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: #111820; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+      main { width: 1440px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
+      figure { min-width: 0; margin: 0; overflow: hidden; border: 1px solid #334155; background: #fff; }
+      figcaption { height: 38px; display: flex; align-items: center; padding: 0 12px; background: #18222d; color: #e2e8f0; font-size: 14px; font-weight: 650; }
+      .crop { position: relative; height: 510px; overflow: hidden; background: #f6f8fb; }
+      img { position: absolute; display: block; max-width: none; }
+      .source img { top: -37px; left: -106px; width: 813px; height: 579px; }
+      .implementation img { top: -36px; left: -106px; width: 814px; height: 579px; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <figure class="source">
+        <figcaption>左：方案 1 工作区</figcaption>
+        <div class="crop"><img src="./source-option-1.png" alt="方案 1 工作区" /></div>
+      </figure>
+      <figure class="implementation">
+        <figcaption>右：原型工作区</figcaption>
+        <div class="crop"><img src="./implementation-final-1440x1024.png" alt="原型工作区" /></div>
+      </figure>
+    </main>
+  </body>
+</html>

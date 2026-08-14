@@ -20,6 +20,133 @@ test.beforeAll(async ({ request }) => {
   }
 });
 
+test("原材料手机四步流程图标一致且逐卷贴标支持无序确认", async ({ page }) => {
+  const browserErrors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+  await switchAccount(page, officeOperatorId);
+
+  await expect(page.getByRole("heading", { name: "录原材料", exact: true })).toBeVisible();
+  await expect(page.getByRole("button", { name: "进入原材料录入", exact: true })).toHaveCount(0);
+  const progress = page.getByRole("list", { name: "原材料收货进度" });
+  const expectedSteps = [
+    ["拍单", "camera"],
+    ["核对", "check-circle"],
+    ["打印", "printer"],
+    ["贴标", "tag"],
+  ];
+  await expect(progress.locator("li")).toHaveCount(expectedSteps.length);
+  for (const [index, [label, iconName]] of expectedSteps.entries()) {
+    const step = progress.locator("li").nth(index);
+    await expect(step.getByText(label, { exact: true })).toBeVisible();
+    await expect(step.locator("svg")).toHaveAttribute("data-icon", iconName);
+    await expect(step.locator(".anticon")).toHaveAttribute("aria-hidden", "true");
+    await expect(step.getByRole("img")).toHaveCount(0);
+  }
+
+  await page.getByText(/其他 \d+ 单/, { exact: true }).click();
+  const pendingLabels = page.getByRole("button", { name: /继续贴标/ }).first();
+  await expect(pendingLabels).toBeEnabled();
+  await pendingLabels.click();
+
+  const labelVerification = page.getByRole("region", { name: "逐卷无序贴标" });
+  await expect(labelVerification.getByRole("button", { name: /一键确认 \d+ 卷已贴/ })).toBeVisible();
+  const confirmRoll = labelVerification.getByRole("button", { name: "确认已贴", exact: true }).first();
+  const mismatchRoll = labelVerification.getByRole("button", { name: "标签/实物不符", exact: true }).first();
+  await expect(confirmRoll).toBeVisible();
+  await expect(mismatchRoll).toBeVisible();
+  await expect(confirmRoll.locator("svg")).toHaveAttribute("data-icon", "check-circle");
+  await expect(confirmRoll.locator(".anticon")).toHaveAttribute("aria-hidden", "true");
+  for (const width of [360, 390, 412, 600]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect(page.getByRole("heading", { name: "录原材料", exact: true })).toBeVisible();
+    await expect(progress).toBeVisible();
+    await expect(confirmRoll).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+
+    for (const control of [confirmRoll, mismatchRoll]) {
+      expect((await control.boundingBox())?.height ?? 0).toBeGreaterThanOrEqual(44);
+    }
+  }
+  expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
+});
+
+test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", async ({ page }) => {
+  const browserErrors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+
+  await page.setViewportSize({ width: 1280, height: 844 });
+  await page.goto("/");
+  await switchAccount(page, officeOperatorId);
+  await navigateToPage(page, "原材料", "更多工作台");
+  await page.setViewportSize({ width: 390, height: 844 });
+
+  await page.getByRole("button", { name: "核对全部卷材", exact: true }).click();
+  const review = page.getByRole("region", { name: "全部卷料核对" });
+  await expect(review.getByText("识别到 9 卷，共 853.8 kg", { exact: true })).toBeVisible();
+  const lineSummaries = review.locator(".raw-material-mobile-review-line-summary");
+  await expect(lineSummaries).toHaveCount(9);
+  await expect(lineSummaries.nth(0).locator(".line-color")).toHaveText("本白");
+  await expect(lineSummaries.nth(0).locator(".line-spec")).toHaveText("78克*70宽*2000米");
+  await expect(lineSummaries.nth(0).locator(".line-weight")).toHaveText("109.9 kg");
+  await expect(lineSummaries.nth(6).locator(".line-spec")).toHaveText("条类 · 宽幅待确认");
+  await expect(lineSummaries.nth(8).locator(".line-weight")).toHaveText("92 kg");
+  await expect(review.getByRole("textbox", { name: "第 1 卷颜色", exact: true })).not.toBeVisible();
+  await expect(review.getByLabel("供应商 OCR 复核值", { exact: true })).not.toBeVisible();
+  await expect(review.getByRole("button", { name: "已确认 0/9 · 进入打印", exact: true })).toBeDisabled();
+
+  for (let index = 0; index < 9; index += 1) {
+    await lineSummaries.nth(index).getByRole("button").click();
+    if (index === 0) {
+      await expect(review.getByRole("textbox", { name: "第 1 卷颜色", exact: true })).toHaveValue("本白");
+      await expect(review.getByRole("textbox", { name: "第 1 卷规格 / 宽幅", exact: true })).toHaveValue("78克*70宽*2000米");
+      await expect(review.getByRole("spinbutton", { name: "第 1 卷重量 kg", exact: true })).toHaveValue("109.9");
+    }
+    if (index === 6) {
+      await expect(review.getByRole("textbox", { name: "第 7 卷规格 / 宽幅", exact: true })).toHaveValue("78克*5宽*1500米");
+    }
+    await review.getByRole("button", { name: "这卷正确", exact: true }).click();
+  }
+  const submitReview = review.getByRole("button", { name: "确认送货单（9/9）", exact: true });
+  await expect(submitReview).toBeEnabled();
+
+  const [reviewResponse] = await Promise.all([
+    page.waitForResponse((response) => (
+      response.request().method() === "POST"
+      && response.url().includes("/raw-material-inbounds/RMI-260704-001/review")
+    )),
+    submitReview.click(),
+  ]);
+  expect(reviewResponse.ok()).toBe(true);
+
+  await expect(review).toHaveCount(0);
+  await expect(page.getByRole("heading", { name: "录原材料", exact: true })).toBeVisible();
+  const receivingProgress = page.getByRole("list", { name: "原材料收货进度" });
+  await expect(receivingProgress.locator("li").filter({ hasText: "核对" })).toHaveClass(/done/);
+  await expect(receivingProgress.locator("li").filter({ hasText: "打印" })).toHaveClass(/active/);
+  const printStep = page.getByRole("region", { name: "卷标打印设置" });
+  await expect(printStep).toBeVisible();
+  await expect(printStep).toContainText("9 张不同卷标");
+  await expect(printStep.locator(".raw-material-mobile-print-list > div")).toHaveCount(9);
+  const printStepBox = await printStep.boundingBox();
+  expect(printStepBox?.y ?? Number.POSITIVE_INFINITY).toBeGreaterThanOrEqual(0);
+  expect(printStepBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(844);
+
+  for (const width of [360, 390, 412]) {
+    await page.setViewportSize({ width, height: 844 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
+  }
+  expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
+});
+
 test("默认公共待办引用真实业务并可打开保存草稿", async ({ page, request }) => {
   const browserErrors = [];
   page.on("console", (message) => {

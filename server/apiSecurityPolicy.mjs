@@ -1,4 +1,6 @@
-export const defaultMaxJsonBodyBytes = 24 * 1024 * 1024;
+// Base64-backed evidence uploads may carry a 50 MiB source file (~66.7 MiB encoded).
+// Print artwork uses the dedicated binary/object-storage path and never relies on this ceiling.
+export const defaultMaxJsonBodyBytes = 72 * 1024 * 1024;
 const strictCorsRequestHeaders = ["content-type", "authorization", "idempotency-key"];
 const prototypeCorsRequestHeaders = [
   ...strictCorsRequestHeaders,
@@ -29,6 +31,9 @@ export function buildApiSecurityPolicy(options = {}, env = process.env) {
     allowLegacyIdentityHeaders: !strictAuth && options.allowLegacyIdentityHeaders !== false,
     allowActionPermissionOverride: !strictAuth && options.allowActionPermissionOverride !== false,
     allowDefaultSeedUser: !strictAuth && options.allowDefaultSeedUser !== false,
+    phoneRegistrationEnabled: parseBooleanFlag(
+      options.phoneRegistrationEnabled ?? env.ERP_PHONE_REGISTRATION_ENABLED,
+    ),
     corsAllowedOrigins: normalizeCorsAllowedOrigins(options.corsAllowedOrigins ?? env.ERP_CORS_ALLOWED_ORIGINS),
     maxJsonBodyBytes: resolveMaxJsonBodyBytes(options.maxJsonBodyBytes ?? env.ERP_API_MAX_JSON_BODY_BYTES),
   };
@@ -44,6 +49,7 @@ export function getWorkspaceSecurityPolicy(workspace = {}) {
       allowLegacyIdentityHeaders: true,
       allowActionPermissionOverride: true,
       allowDefaultSeedUser: true,
+      phoneRegistrationEnabled: false,
       corsAllowedOrigins: [],
       maxJsonBodyBytes: defaultMaxJsonBodyBytes,
     }
@@ -63,8 +69,19 @@ export function isPublicApiRoute(method, pathname, securityPolicy = {}) {
   return (
     (method === "GET" && pathname === "/api/health") ||
     (method === "POST" && pathname === "/api/auth/login") ||
-    (method === "POST" && pathname === "/api/auth/prototype-login" && securityPolicy.strictAuth !== true)
+    (method === "POST" && pathname === "/api/auth/prototype-login" && securityPolicy.strictAuth !== true) ||
+    (method === "POST" && securityPolicy.phoneRegistrationEnabled === true && [
+      "/api/auth/phone-registration/request-code",
+      "/api/auth/phone-registration/complete",
+      "/api/auth/phone-login/request-code",
+      "/api/auth/phone-login",
+    ].includes(pathname))
   );
+}
+
+function parseBooleanFlag(value) {
+  if (typeof value === "boolean") return value;
+  return ["1", "true", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
 }
 
 function normalizeCorsAllowedOrigins(value) {

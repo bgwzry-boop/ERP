@@ -15,6 +15,9 @@ const result = seedPostgresLiveBusinessRows({
 assert.equal(result, "seeded");
 assert.deepEqual(executions, [postgresLiveBusinessSeedSql]);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO users \(id, login_name, display_name, department\)/);
+assert.match(postgresLiveBusinessSeedSql, /INSERT INTO employees \(id, biz_no, name, role_name\)/);
+assert.match(postgresLiveBusinessSeedSql, /INSERT INTO business_decision_authorizations/);
+assert.match(postgresLiveBusinessSeedSql, /INSERT INTO machines/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO print_templates/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO customers/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO inventory_items/);
@@ -26,7 +29,13 @@ assert.match(postgresLiveBusinessSeedSql, /INSERT INTO driver_delivery_dispatche
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO packages/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO statements/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO statement_lines/);
-assert.equal((postgresLiveBusinessSeedSql.match(/ON CONFLICT \(id\) DO UPDATE SET/g) ?? []).length, 14);
+const insertedTableCount = (postgresLiveBusinessSeedSql.match(/^INSERT INTO /gm) ?? []).length;
+assert.equal(insertedTableCount, 17);
+assert.equal(
+  (postgresLiveBusinessSeedSql.match(/^ON CONFLICT \(id\) DO UPDATE SET/gm) ?? []).length,
+  insertedTableCount,
+  "every live business fixture table must keep an idempotent primary-key upsert",
+);
 assert.throws(
   () => seedPostgresLiveBusinessRows(),
   /requires runPsql\(sql\)/,

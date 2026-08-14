@@ -26,6 +26,11 @@ assert.equal(ready.summary.blockingCount, 0);
 assert.equal(ready.release.commit, "1234567890ab");
 assert.equal(ready.checks.find((item) => item.key === "service-env")?.ready, true);
 assert.equal(ready.checks.find((item) => item.key === "frontend-env")?.ready, true);
+assert.equal(ready.checks.find((item) => item.key === "miniapp-integration-services")?.ready, true);
+assert.equal(ready.checks.find((item) => item.key === "miniapp-integration-health")?.ready, true);
+assert.equal(ready.checks.find((item) => item.key === "miniapp-integration-nginx")?.ready, true);
+assert.equal(ready.checks.find((item) => item.key === "miniapp-integration-env-template")?.ready, true);
+assert.equal(ready.checks.find((item) => item.key === "deli-attendance-gateway")?.ready, true);
 assert.match(formatReport(ready), /受控远端：已配置/);
 assert.doesNotMatch(JSON.stringify(ready), new RegExp(rootDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
 

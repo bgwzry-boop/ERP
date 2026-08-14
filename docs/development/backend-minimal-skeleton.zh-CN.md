@@ -2,6 +2,22 @@
 
 最后更新：2026-07-14
 
+## 2026-08-12 员工考勤与计薪正式边界
+
+工资考勤运行态使用稳定 ERP 员工编号关联外部考勤人员编号，禁止按姓名匹配。首次配置 `ERP_ATTENDANCE_PROVIDER_*` 后，管理人员应先调用 `POST /api/attendance/sync-precheck`，提交明确的 `rangeStart / rangeEnd`。该请求会真实调用已配置考勤网关，但只返回来源格式、批次内重复、身份映射覆盖和已导入/新增数量；它不写考勤批次或打卡记录，也不返回员工、外部人员、打卡编号、原始载荷、令牌或连接信息。只有预检 `ready=true` 且 `importRecommended=true` 时才建议执行 `POST /api/attendance/sync`。正式写入会再次拉取并复核新响应；无效或越界日期、重复打卡编号、未匹配/重复匹配、在职人员映射不完整都会整批阻断，且不落导入批次或打卡。
+
+独立得力网关在 systemd 启动前执行 `deli-attendance-gateway:production-preflight`。该检查只读取一个权限收紧的专用 env 文件，不连接得力或数据库；占位/短令牌、三类身份复用、非官方上游、分页/超时越界、非 PostgreSQL 游标仓储、公网Node监听、查询路径漂移、符号链接或group/other可访问的env文件全部失败关闭。通过只表示部署配置可进入现场只读联调，不表示D5FN真实连通或考勤验收完成。
+
+工资按中国工厂自然月结算，次月 `1–5` 日核对上月。正式工资草稿只允许在所选月份结束后生成；一个或多个已完成、非空、零未匹配导入批次的时间范围，经裁剪和合并后必须无缺口覆盖所选月 `1 日 00:00 +08:00` 到次月 `1 日 00:00 +08:00`。只读预检、部分月导入、区间留缝、尚未闭期或其他月份批次均不计入正式就绪。生成工资草稿还要求该月每一名在职员工至少存在一天已确认考勤；没有关联打卡的员工会阻断整批，不生成零工时工资行，也不展示工龄奖预计值。
+
+计薪规则先保存草稿，再按管理权限发布。规则输入对标准日分钟数、加班倍率和工龄奖档位严格校验，不会把错误值静默改成零。创建人、复核人和时间由服务端身份及时钟写入；已发布或已停用版本在服务、本地仓储和 PostgreSQL 触发器三层不可覆盖，改规则必须创建新版本。迁移 `0039_payroll_policy_immutability.sql` 增加状态约束和数据库不可变门禁。真实金额、正式生效日期和考勤凭据仍须在受控生产环境中由负责人确认，文档和测试不得填入真实令牌。
+
+工资草稿创建、明细调整和状态流转必须使用数据库比较后提交，不能读取旧 workspace 后无条件覆盖。草稿只接受所选月份的下一连续 revision；同月并发创建只允许一个成功。绩效、请假和其他扣款调整同时比较数据库中的前值，两个会计并发修改同一行时后到请求返回冲突。复核、锁定和发薪只执行 `draft → reviewed → locked → paid` 的单向状态更新，不重新写入工资明细。迁移 `0040_payroll_run_state_guards.sql` 在 PostgreSQL 层冻结工资批次身份、生成依据和各阶段审计字段，并在复核后拒绝工资明细的插入、修改或删除。
+
+正式工资表导出使用独立 `payroll.export` 权限和 `POST /api/payroll/runs/{payrollRunId}/export`。草稿不能导出正式工资表；已复核、已锁定或已发薪批次每次导出都写一条不可变的摘要级 `payroll_export_events` 审计，只保存批次版本/状态、安全文件名、SHA-256、行数、操作人和服务端时间，不复制工资明细。迁移 `0041_payroll_export_audit.sql` 阻止审计记录修改/删除，PostgreSQL 写入会比较当前批次快照并拒绝陈旧请求。
+
+考勤异常复核中，`rejected` 的业务含义固定为`暂不计薪`：原始打卡和原始配对分钟继续作为审计证据，确认工时及工资计算工时强制为零，且该日不再算待复核。
+
 ## 2026-07-12 存储 live precheck 边界
 
 系统持久化与附件留档的当前运行时预检已集中到 `server/services/v1StorageLivePrecheckService.mjs`。该服务只读取注入的 readiness 结果并生成固定、脱敏的 API 投影；它不会刷新 release candidate、写业务数据、执行设备动作，也不会返回连接串、本地路径、诊断 storage key、摘要或原始异常。`server/apiServer.mjs` 只负责授权后的 handler 装配，运行时总门禁复用同一个 criterion 清洗函数。
@@ -306,7 +322,9 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 
 配置完整时，附件上传会生成 `storageProvider=object_storage`、`storageKey` 和 `contentDigest`；`GET /api/attachments/{attachmentId}/access-url` 会返回直连对象存储的短期签名 GET URL。配置缺失时，对象存储模式会显式返回未配置占位，不会假装写入成功。
 
-附件上传会先按业务用途做基础 V1 校验：付款截图只允许图片且不超过 8MB；送达水印、签收照片和定制成品图只允许图片且不超过 12MB；客户确认附件允许图片或 PDF 且不超过 12MB；其它附件默认限制为图片、PDF、表格或文档且不超过 15MB。该校验不替代真实对象存储 live 验证、病毒扫描、图片质量算法或断点续传。
+附件上传按统一用途规则校验：手机拍照原图、付款截图、送达水印、签收照片、成品图、维修照片、客户确认和库存修正凭证单文件最大 30MB；普通 PDF、表格、Word 等文档证据单文件最大 50MB；印刷定稿支持 PSD、CDR、AI、PDF、PNG、JPG、JPEG，单文件最大 200MB，并使用二进制 / 对象存储上传，不放入 Base64 JSON。原材料送货单照片同样接受 30MB 原图，浏览器会自动生成不超过 7.5MB 的 OCR 识别副本，以满足第三方 OCR Base64 编码不超过 10MB 的限制。该校验不替代真实对象存储 live 验证、病毒扫描、图片质量算法或断点续传。
+
+完整的用途、类型、上限和接口对照见 `docs/development/attachment-upload-limits.zh-CN.md`。
 
 附件对象存储可通过 `GET /api/attachments/storage-diagnostics` 做 V1 运行时基础预检。接口复用 `attachment.view` 权限，会写入小型诊断对象、读回内容、校验 sha256 摘要并尝试清理；响应包含 `storageKind`、`configured`、`missingConfigFields`、`writeOk`、`readOk`、`digestOk`、`cleanupOk` 和 `secretFieldsExposed=false`。`GET /api/attachments/v1-readiness` 是更高一层的 V1 留档上线门禁：默认本地 `local_fs` 只能证明读写可用，不自动算生产留档 ready；只有真实 `object_storage` 诊断通过，或服务端显式配置本地文件留档已被 V1 接受，门禁才会通过。两个接口都不会登记业务附件，也不暴露 access key、secret、authorization 或 session token；它们仍不替代真实 OSS/S3/COS bucket 凭证管理、网络策略、生命周期规则、病毒扫描、断点续传、备份巡检和现场附件验收。
 
@@ -430,7 +448,7 @@ ERP_SYSTEM_PRINTER_ALLOWLIST=PRN-LABEL-A,标签机A
 - 浏览器端会话 token 仅存 `sessionStorage`，不再写入 `localStorage`；认证初始化会清理旧 `erp.seedAuthSession.v1` 本地持久化键。该措施不替代 HttpOnly Cookie、refresh token、服务端会话撤销或生产身份提供方。
 - 生产启动必须使用 `ERP_AUTH_MODE=strict`（或 `NODE_ENV=production`）和非空 `ERP_AUTH_SECRET`；缺少密钥时 API 拒绝启动。严格模式下，除 `GET /api/health` 和 `POST /api/auth/login` 外，业务接口必须携带已验签的 Bearer session。
 - 严格模式禁用 seed 账号登录、`Authorization: Bearer seed:<userId>`、`x-erp-user-id`、`x-erp-action-permissions` 和未传身份时默认 `U-OFFICE-A` 的兼容行为。前述机制仅能在非严格的本地原型 / 回归模式使用。
-- 严格模式只对 `ERP_CORS_ALLOWED_ORIGINS` 中的来源返回 CORS 许可；JSON body 默认最多 `24 MiB`，可用 `ERP_API_MAX_JSON_BODY_BYTES` 调整。附件用途本身的大小校验仍是第二道业务限制。
+- 严格模式只对 `ERP_CORS_ALLOWED_ORIGINS` 中的来源返回 CORS 许可；JSON body 默认最多 `72 MiB`，可用 `ERP_API_MAX_JSON_BODY_BYTES` 调整，以容纳 Base64 编码后的 50 MiB 普通凭据。200 MiB 印刷定稿必须走二进制/对象存储上传，不得塞进 JSON；附件用途本身的大小校验仍是第二道业务限制。
 - `scripts/check-api-security-boundary.mjs` 覆盖严格模式密钥必填、伪造 Header 拒绝、seed 身份禁用、CORS 白名单和 JSON 超限返回 `413 REQUEST_BODY_TOO_LARGE`。
 - `POST /api/auth/login` 在 production 只接受已启用的正式导入员工账号，返回独立 `erp-runtime-session-v1`；非严格 demo/test 仍兼容 `office.a`、`warehouse.a` 等 seed 登录。签名 token 默认 8 小时有效。
 - `GET /api/auth/me` 接受已验签的 runtime session；非严格 demo/test 也接受 seed session。未登录、错误密码、类型与账号不匹配或无效 token 返回 `401`。

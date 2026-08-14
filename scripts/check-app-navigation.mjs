@@ -34,8 +34,8 @@ assert.deepEqual(primaryNavigationGroups.map((group) => group.itemKeys), [
   ["statements"],
 ]);
 assert.equal(toolNavigationGroup.label, "更多工作台");
-assert.deepEqual(toolNavigationGroup.itemKeys, ["packing", "rawMaterials", "masterData", "v1Status"]);
-assert.deepEqual(roleNavigationItems.map((item) => item.key), ["officeMobile", "decisionMobile", "maintenanceMobile", "rawMaterialScanner", "warehouseMobile", "workshopMobile", "driverMobile"]);
+assert.deepEqual(toolNavigationGroup.itemKeys, ["packing", "rawMaterials", "masterData", "payroll", "v1Status"]);
+assert.deepEqual(roleNavigationItems.map((item) => item.key), ["attendanceMobile", "officeMobile", "decisionMobile", "maintenanceMobile", "rawMaterialScanner", "warehouseMobile", "workshopMobile", "driverMobile"]);
 
 assert.deepEqual(visiblePrimaryKeys("office"), ["todos", "entry", "orders", "inventory", "fulfillment", "statements"]);
 assert.deepEqual(visiblePrimaryKeys("management"), ["todos", "entry", "orders", "inventory", "fulfillment", "statements"]);
@@ -52,19 +52,20 @@ assert.deepEqual(
   visibleKeys("office"),
   ["packing", "rawMaterials", "masterData"],
 );
-assert.deepEqual(visibleKeys("management"), ["packing", "rawMaterials", "masterData", "v1Status"]);
+assert.deepEqual(visibleKeys("management"), ["packing", "rawMaterials", "masterData", "payroll", "v1Status"]);
+assert.deepEqual(visibleKeys("finance"), ["rawMaterials", "payroll"]);
 assert.deepEqual(visibleKeys("technical_operations"), ["v1Status"]);
 assert.deepEqual(visibleKeys("driver"), []);
 assert.deepEqual(visibleKeys("workshop"), []);
 assert.deepEqual(visibleKeys("packing"), []);
 assert.deepEqual(visibleKeys("warehouse"), []);
-assert.deepEqual(visibleRoleKeys("driver"), ["driverMobile"]);
-assert.deepEqual(visibleRoleKeys("office"), ["officeMobile"]);
+assert.deepEqual(visibleRoleKeys("driver"), ["attendanceMobile", "driverMobile"]);
+assert.deepEqual(visibleRoleKeys("office"), ["attendanceMobile", "officeMobile"]);
 assert.deepEqual(visibleRoleKeys("decision_maker"), ["decisionMobile"]);
-assert.deepEqual(visibleRoleKeys("maintenance"), ["maintenanceMobile"]);
-assert.deepEqual(visibleRoleKeys("workshop"), ["rawMaterialScanner", "workshopMobile"]);
-assert.deepEqual(visibleRoleKeys("packing"), ["rawMaterialScanner", "workshopMobile"]);
-assert.deepEqual(visibleRoleKeys("warehouse"), ["warehouseMobile"]);
+assert.deepEqual(visibleRoleKeys("maintenance"), ["attendanceMobile", "maintenanceMobile"]);
+assert.deepEqual(visibleRoleKeys("workshop"), ["attendanceMobile", "rawMaterialScanner", "workshopMobile"]);
+assert.deepEqual(visibleRoleKeys("packing"), ["attendanceMobile", "rawMaterialScanner", "workshopMobile"]);
+assert.deepEqual(visibleRoleKeys("warehouse"), ["attendanceMobile", "warehouseMobile"]);
 assert.equal(isNavigationPageVisible("statements", contextFor("driver")), false);
 assert.equal(isNavigationPageVisible("v1Status", contextFor("office")), false);
 assert.equal(isNavigationPageVisible("v1Status", contextFor("technical_operations")), true);
@@ -86,9 +87,11 @@ assert.equal(isDedicatedMobileRolePage("warehouseMobile"), true);
 assert.equal(isDedicatedMobileRolePage("officeMobile"), true);
 assert.equal(isDedicatedMobileRolePage("decisionMobile"), true);
 assert.equal(isDedicatedMobileRolePage("maintenanceMobile"), true);
+assert.equal(isDedicatedMobileRolePage("attendanceMobile"), true);
 assert.equal(isDedicatedMobileRolePage("desktopRequiredMobile"), true);
 assert.equal(isDedicatedMobileRolePage("todos"), false);
-assert.equal(getMobileViewportPage("orders", contextFor("office")), "officeMobile");
+assert.equal(getMobileViewportPage("todos", contextFor("office")), "rawMaterials");
+assert.equal(getMobileViewportPage("orders", contextFor("office")), "rawMaterials");
 assert.equal(getMobileViewportPage("rawMaterials", contextFor("office")), "rawMaterials");
 assert.equal(getMobileViewportPage("inventory", contextFor("management")), desktopRequiredMobilePage.key);
 assert.equal(getMobileViewportPage("statements", contextFor("finance")), desktopRequiredMobilePage.key);
@@ -97,6 +100,7 @@ assert.equal(getMobileViewportPage("packing", contextFor("driver")), "driverMobi
 assert.equal(getMobileViewportPage("packing", contextFor("warehouse")), "warehouseMobile");
 assert.equal(getMobileViewportPage("packing", contextFor("workshop")), "workshopMobile");
 assert.equal(getMobileViewportPage("rawMaterialScanner", contextFor("packing")), "rawMaterialScanner");
+assert.equal(getMobileViewportPage("attendanceMobile", contextFor("packing")), "attendanceMobile");
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const navigationComponentSource = readFileSync(new URL("../src/app/AppNavigation.jsx", import.meta.url), "utf8");

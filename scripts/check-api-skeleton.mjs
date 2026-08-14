@@ -3822,7 +3822,7 @@ try {
       fileName: "finished-goods-too-large.jpg",
       contentRef: "p0://production-finished-goods/PT-ORD-0629-003-01/too-large",
       mimeType: "image/jpeg",
-      fileSize: 13 * 1024 * 1024,
+      fileSize: 31 * 1024 * 1024,
       uploadedBy: "U-WORKSHOP-A",
       remark: "API skeleton oversized finished-goods photo check",
     },
@@ -3833,6 +3833,45 @@ try {
   );
   if (blockedOversizedFinishedPhoto.code !== "ATTACHMENT_FILE_TOO_LARGE") {
     throw new Error("/api/attachments did not reject an oversized finished-goods photo");
+  }
+
+  const artworkBinary = Buffer.from("8BPS-api-binary-check");
+  const artworkQuery = new URLSearchParams({
+    ownerType: "order_draft_line",
+    ownerId: "DRAFT-API-BINARY:LINE-01",
+    fileType: "other",
+    purpose: "print_artwork",
+    fileName: "api-artwork.psd",
+    contentRef: "order-draft-artwork://DRAFT-API-BINARY/LINE-01/api-artwork.psd",
+    mimeType: "application/octet-stream",
+    fileSize: String(artworkBinary.length),
+    metadata: JSON.stringify({ draftId: "DRAFT-API-BINARY", draftLineId: "LINE-01", artworkVersion: 1 }),
+    remark: "API skeleton binary print artwork check",
+  });
+  const artworkBinaryResponse = await fetch(`${baseUrl}/api/attachments/binary?${artworkQuery.toString()}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/octet-stream",
+      "idempotency-key": "api-skeleton-binary-artwork-check",
+      "x-erp-user-id": "U-OFFICE-A",
+    },
+    body: artworkBinary,
+  });
+  if (artworkBinaryResponse.status !== 200) {
+    throw new Error(`/api/attachments/binary returned ${artworkBinaryResponse.status}: ${await artworkBinaryResponse.text()}`);
+  }
+  const artworkBinaryAttachment = await artworkBinaryResponse.json();
+  if (
+    artworkBinaryAttachment.purpose !== "print_artwork" ||
+    artworkBinaryAttachment.fileName !== "api-artwork.psd" ||
+    artworkBinaryAttachment.fileSize !== artworkBinary.length ||
+    artworkBinaryAttachment.hasContent !== true
+  ) {
+    throw new Error("/api/attachments/binary did not preserve print artwork metadata and content state");
+  }
+  const artworkBinaryContent = await getText(baseUrl, `/api/attachments/${artworkBinaryAttachment.attachmentId}/content`);
+  if (artworkBinaryContent.text !== artworkBinary.toString("utf8")) {
+    throw new Error("/api/attachments/binary content could not be read back from attachment storage");
   }
 
   const wrongOwnerCustomerConfirmationAttachment = await postJson(baseUrl, "/api/attachments", {

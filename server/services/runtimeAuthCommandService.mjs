@@ -49,6 +49,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     const matchedRuntimeUser = findRuntimeUserByIdentifiers(workspace, {
       loginName: body.loginName,
       userId: body.userId,
+      phone: body.phone ?? body.phoneNumber,
     });
     if (matchedRuntimeUser) {
       return await loginRuntimeUser({
@@ -62,7 +63,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     if (!securityPolicy.allowSeedUsers) {
       return result(403, {
         code: "AUTH_SEED_LOGIN_DISABLED",
-        message: "Seed-user login is disabled by the ERP API security policy.",
+        message: "生产模式已禁用演示账号登录。",
       });
     }
 
@@ -88,7 +89,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     if (securityPolicy.strictAuth || !securityPolicy.allowSeedUsers) {
       return result(403, {
         code: "AUTH_SEED_LOGIN_DISABLED",
-        message: "Prototype seed login is disabled by the ERP API security policy.",
+        message: "生产模式已禁用演示账号登录。",
       });
     }
 
@@ -133,7 +134,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       }
       return result(401, {
         code: "AUTHENTICATION_FAILED",
-        message: "Login name, user ID, or password is invalid.",
+        message: "登录名、用户编号或密码不正确。",
         securityPolicy: getRuntimeAccountSecurityPolicyResponse(),
       });
     }
@@ -182,7 +183,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     if (!authContext.authenticated || authContext.source !== "runtime_session") {
       return result(401, {
         code: authContext.authError ?? "AUTH_SESSION_REQUIRED",
-        message: "A valid formal employee session bearer token is required before changing password.",
+        message: "修改密码前需要有效的正式员工登录会话。",
       });
     }
 
@@ -192,7 +193,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     if (!runtimeUser) {
       return result(409, {
         code: "PASSWORD_CHANGE_NOT_SUPPORTED_FOR_SEED_USER",
-        message: "Password changes are only supported for imported runtime employee accounts in the P0 skeleton.",
+        message: "当前账号不支持修改密码，请使用正式员工账号登录。",
       });
     }
 
@@ -214,13 +215,13 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     if (!verifyRuntimeUserPassword(runtimeUser, currentPassword, { authSecret })) {
       return result(401, {
         code: "CURRENT_PASSWORD_INVALID",
-        message: "Current password is invalid.",
+        message: "当前密码不正确，请重新输入。",
       });
     }
     if (verifyRuntimeUserPassword(runtimeUser, newPassword, { authSecret })) {
       return result(422, {
         code: "NEW_PASSWORD_MUST_DIFFER",
-        message: "New password must be different from the current password.",
+        message: "新密码不能与当前密码相同。",
       });
     }
 
@@ -292,7 +293,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
     ) {
       return result(401, {
         code: authContext.authError ?? "AUTH_SESSION_REQUIRED",
-        message: "A valid signed ERP session bearer token is required.",
+        message: "需要有效的 ERP 登录会话。",
       });
     }
     return result(200, {
@@ -331,8 +332,8 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       tokenRevoked: Boolean(sessionJti),
       sessionUserId: authContext.authenticated ? authContext.userId : null,
       message: sessionJti
-        ? "ERP session token has been revoked."
-        : "No valid ERP session token was provided; discard the token on the client.",
+        ? "ERP 登录会话已退出。"
+        : "未提供有效的 ERP 登录会话，本地会话可以清除。",
     });
   }
 }
@@ -340,7 +341,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
 function buildRuntimeAccountLockedError(securityState = {}) {
   return {
     code: "AUTH_ACCOUNT_LOCKED",
-    message: "Runtime employee account is temporarily locked after repeated failed login attempts.",
+    message: "连续登录失败次数过多，账号已暂时锁定，请稍后再试。",
     lockedUntil: securityState.lockedUntil,
     retryAfterSeconds: securityState.retryAfterSeconds,
     failedLoginCount: securityState.failedLoginCount,
@@ -423,33 +424,33 @@ function getRuntimePasswordChangeReason(runtimeUser = {}) {
 
 function validateRuntimePasswordChange({ currentPassword, newPassword, user = {} }) {
   if (!currentPassword) {
-    return { code: "CURRENT_PASSWORD_REQUIRED", message: "Current password is required." };
+    return { code: "CURRENT_PASSWORD_REQUIRED", message: "请输入当前密码。" };
   }
   if (!newPassword) {
-    return { code: "NEW_PASSWORD_REQUIRED", message: "New password is required." };
+    return { code: "NEW_PASSWORD_REQUIRED", message: "请输入新密码。" };
   }
   if (newPassword.length < runtimePasswordPolicy.minLength) {
     return {
       code: "NEW_PASSWORD_TOO_SHORT",
-      message: `New password must be at least ${runtimePasswordPolicy.minLength} characters.`,
+      message: `新密码至少需要 ${runtimePasswordPolicy.minLength} 位。`,
     };
   }
   if (/\s/.test(newPassword)) {
     return {
       code: "NEW_PASSWORD_CONTAINS_SPACE",
-      message: "New password must not contain spaces.",
+      message: "新密码不能包含空白字符。",
     };
   }
   if (!/[A-Za-z]/.test(newPassword)) {
     return {
       code: "NEW_PASSWORD_REQUIRES_LETTER",
-      message: "New password must contain at least one letter.",
+      message: "新密码至少需要包含一个字母。",
     };
   }
   if (!/[0-9]/.test(newPassword)) {
     return {
       code: "NEW_PASSWORD_REQUIRES_NUMBER",
-      message: "New password must contain at least one number.",
+      message: "新密码至少需要包含一个数字。",
     };
   }
   const normalizedNewPassword = newPassword.toLowerCase();
@@ -459,7 +460,7 @@ function validateRuntimePasswordChange({ currentPassword, newPassword, user = {}
   if (blockedIdentifiers.some((item) => normalizedNewPassword.includes(item))) {
     return {
       code: "NEW_PASSWORD_CONTAINS_ACCOUNT_IDENTIFIER",
-      message: "New password must not contain the login name, user ID, or employee ID.",
+      message: "新密码不能包含登录名、用户 ID 或员工编号。",
     };
   }
   return null;

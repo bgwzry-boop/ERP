@@ -20,7 +20,6 @@ const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8
 const controllerSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
 const apiClientSource = readFileSync(new URL("../src/services/officeMasterDataImportApiClient.js", import.meta.url), "utf8");
-const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const featurePageSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenancePage.jsx", import.meta.url), "utf8");
 const featureWorkbenchSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenanceWorkbench.jsx", import.meta.url), "utf8");
@@ -49,7 +48,7 @@ assertIncludes(importModalSource, "EmployeeAccountRoleSelector", "employee accou
 assertIncludes(importModalSource, "账号角色", "employee account review should label its role-set selector");
 assertIncludes(importModalSource, "导入的主角色或附加角色，启用时不可删除", "imported account roles should remain locked during review");
 
-assertIncludes(officePageSource, "MasterDataMaintenancePage", "office pages should export MasterDataMaintenancePage");
+assertIncludes(appSource, 'lazy(() => import("./features/master-data/MasterDataMaintenancePage.jsx")', "App should lazy-load MasterDataMaintenancePage outside the large office page chunk");
 assertIncludes(featurePageSource, "export function MasterDataMaintenancePage", "master-data feature should own the page");
 assertIncludes(featureSource, "客户档案", "master-data page should include customer maintenance");
 assertIncludes(featureSource, "价格表", "master-data page should include price maintenance");
@@ -81,7 +80,7 @@ assertIncludes(featureSource, "正式员工岗位上线就绪", "employee mainte
 assertIncludes(featureSource, "尚未导入待启用账号", "missing formal roles should remain explicit");
 assertIncludes(featureSource, "待复核启用", "imported but disabled employee accounts should remain distinct from missing accounts");
 assertIncludes(featureSource, "员工账号来源", "employee maintenance should separate formal and seed views");
-assertIncludes(featureSource, "演示账号不计正式岗位就绪", "seed accounts should be isolated behind an explicit view");
+assertIncludes(featureSource, "演示账号只读", "seed accounts should be isolated behind an explicit read-only view");
 assertIncludes(featureSource, "尚未导入正式员工账号", "formal employee view should have an explicit empty state");
 assertIncludes(featureSource, "正式员工账号状态待同步", "formal employee view should distinguish an unavailable projection from a true empty import");
 assertIncludes(featureSource, "失败或无权限时不展示旧投影", "employee readiness should explain the fail-closed projection boundary");
@@ -211,6 +210,16 @@ const searchFixtures = {
       accountActivationBlocked: true,
       accountActivationBlockerLabel: "负责人身份和正式显示名待确认",
     },
+    {
+      employeeId: "ERP-DEPARTED",
+      name: "已离职员工",
+      roleName: "打包",
+      recommendedRoleKey: "packing",
+      machineConfigurationStatus: "not_required",
+      profileStatus: "departed",
+      status: "departed",
+      accountEnabled: false,
+    },
   ],
   seedUserOptions: [{
     userId: "U-SEED-SEARCH",
@@ -241,7 +250,7 @@ assert.deepEqual(
 assert.equal(getMasterDataSearchPlaceholder("客户档案"), "搜索客户 / 联系人 / 手机 / 地址 / 标签");
 assert.equal(getMasterDataSearchPlaceholder("价格表"), "搜索品名 / 尺寸 / 颜色 / 客户 / 订单");
 assert.equal(getMasterDataSearchPlaceholder("规格库存"), "搜索尺寸 / 颜色 / 款式 / 库区 / 状态");
-assert.equal(getMasterDataSearchPlaceholder("员工机台"), "搜索员工 / 账号 / 岗位 / 车间 / 机台");
+assert.equal(getMasterDataSearchPlaceholder("员工机台"), "搜索员工 / 员工编号 / 账号 / 岗位 / 车间 / 机台");
 for (const query of ["白鲸自营店", "店铺客服", "17700001160", "人民路8号", "定制多"]) {
   assert.equal(filterMasterDataMaintenanceRecords(recordsByTab.客户档案, query)[0]?.id, "C-SEARCH-1", `customer search should match ${query}`);
 }
@@ -255,14 +264,17 @@ for (const query of ["高彦芹", "EMP.ERP.0042", "车间报工", "2号车间", 
   assert.equal(filterMasterDataMaintenanceRecords(recordsByTab.员工机台, query)[0]?.id, "EMP-EMP-SEARCH-42", `employee search should match ${query}`);
 }
 const formalEmployeeRecords = recordsByTab.员工机台.filter((record) => record.sourceType === "formal");
-assert.deepEqual(recordsByTab.员工机台.map((record) => record.sourceType), ["formal", "formal", "formal", "formal", "formal", "seed"]);
+assert.deepEqual(recordsByTab.员工机台.map((record) => record.sourceType), ["formal", "formal", "formal", "formal", "formal", "formal", "seed"]);
 assert.deepEqual(buildMasterDataEmployeeReviewFilterCounts(recordsByTab.员工机台), {
-  全部: 5,
+  在职: 5,
   可启用: 2,
   待身份: 1,
   待机台: 1,
   已启用: 1,
+  已离职: 1,
 });
+assert.deepEqual(filterMasterDataEmployeeReviewRecords(formalEmployeeRecords, "在职").map((record) => record.label), ["高彦芹", "任靖云", "郝蒙蒙", "朱江斌", "负责人"]);
+assert.deepEqual(filterMasterDataEmployeeReviewRecords(formalEmployeeRecords, "已离职").map((record) => record.label), ["已离职员工"]);
 assert.deepEqual(filterMasterDataEmployeeReviewRecords(formalEmployeeRecords, "可启用").map((record) => record.label), ["高彦芹", "郝蒙蒙"]);
 assert.deepEqual(filterMasterDataEmployeeReviewRecords(formalEmployeeRecords, "待机台").map((record) => record.label), ["任靖云"]);
 assert.deepEqual(filterMasterDataEmployeeReviewRecords(formalEmployeeRecords, "待身份").map((record) => record.label), ["负责人"]);
@@ -272,6 +284,7 @@ assert.equal(isMasterDataEmployeeEnableCandidate(formalEmployeeRecords[1]), fals
 assert.equal(isMasterDataEmployeeEnableCandidate(formalEmployeeRecords[2]), true);
 assert.equal(isMasterDataEmployeeEnableCandidate(formalEmployeeRecords[3]), false);
 assert.equal(isMasterDataEmployeeEnableCandidate(formalEmployeeRecords[4]), false);
+assert.equal(isMasterDataEmployeeEnableCandidate(formalEmployeeRecords[5]), false, "departed employees must never re-enter account enablement");
 assert.equal(requiresMasterDataEmployeeIdentityConfirmation(formalEmployeeRecords[4]), true);
 assert.equal(requiresMasterDataEmployeeMachineReview({
   recommendedRoleKey: "management",

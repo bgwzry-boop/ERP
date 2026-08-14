@@ -64,6 +64,7 @@ export function MasterDataMaintenancePage({
   onSaveDraft,
   onSaveMachine,
   onUpdateEmployeeAssignment,
+  onUpdateEmployeeProfile,
   onBatchEnableEmployeeAccounts,
   onOpenImportTemplate,
   helpers,
@@ -121,6 +122,7 @@ export function MasterDataMaintenancePage({
   const draftReasonReady = Boolean(draftReason.trim());
   const draftState = getUiActionState("masterData", "生成维护草稿");
   const assignmentState = getUiActionState("masterData", "保存员工调配");
+  const profileState = getUiActionState("masterData", "保存员工档案");
   const machineState = getUiActionState("masterData", "保存机台配置");
   const batchEnableState = getUiActionState("masterData", "复核启用员工账号");
   const batchEnableCandidates = activeTab === "员工机台" && employeeView === "正式账号"
@@ -140,10 +142,12 @@ export function MasterDataMaintenancePage({
   const tabDrafts = maintenanceDrafts.filter((draft) => draft.tab === activeTab);
   const blockedExecutions = importExecutions.filter((execution) => String(execution.status ?? "").includes("failed") || String(execution.statusLabel ?? "").includes("失败"));
   const employeeReviewPending = employeeAccountReviews.filter(
-    (review) => !review.accountEnabled || ["temporary_password_issued", "password_expired"].includes(review.passwordStatus),
+    (review) => !["departed", "inactive"].includes(String(review.profileStatus ?? review.status ?? "").trim().toLowerCase()) && (
+      !review.accountEnabled || ["temporary_password_issued", "password_expired"].includes(review.passwordStatus)
+    ),
   ).length;
   const stats = [
-    ["当前资料", employeeScopedRecords.length, "blue"],
+    ["当前资料", activeTab === "员工机台" && employeeView === "正式账号" ? (employeeReviewFilterCounts.在职 ?? 0) : employeeScopedRecords.length, "blue"],
     ["维护草稿", tabDrafts.length, tabDrafts.length ? "warning" : "success"],
     ["导入草稿", importReviewDrafts.length, importReviewDrafts.length ? "blue" : "success"],
     ["待复核", employeeReviewPending + blockedExecutions.length, employeeReviewPending + blockedExecutions.length ? "warning" : "success"],
@@ -258,7 +262,7 @@ export function MasterDataMaintenancePage({
         keyword={keyword}
         batchEnableState={batchEnableState}
         batchEnableCandidates={batchEnableCandidates}
-        pendingAccountReviews={employeeAccountReviews.filter((review) => !review.accountEnabled)}
+        pendingAccountReviews={employeeAccountReviews.filter((review) => !review.accountEnabled && !["departed", "inactive"].includes(String(review.profileStatus ?? review.status ?? "").trim().toLowerCase()))}
         batchSelectedEmployeeIds={batchSelectedEmployeeIds}
         selectedBatchReviews={selectedBatchReviews}
         onToggleBatchEmployee={toggleBatchEmployee}
@@ -288,12 +292,19 @@ export function MasterDataMaintenancePage({
                 <InfoGrid rows={selected.detailRows} />
                 {activeTab === "员工机台" ? (
                   selected.sourceType === "formal" ? (
-                    <EmployeeAssignmentEditor
-                      review={selected.employeeReview}
-                      options={employeeAssignmentOptions}
-                      actionState={assignmentState}
-                      onSave={onUpdateEmployeeAssignment}
-                    />
+                    <>
+                      <EmployeeAssignmentEditor
+                        review={selected.employeeReview}
+                        options={employeeAssignmentOptions}
+                        actionState={assignmentState}
+                        onSave={onUpdateEmployeeAssignment}
+                      />
+                      <EmployeeProfileEditor
+                        review={selected.employeeReview}
+                        actionState={profileState}
+                        onSave={onUpdateEmployeeProfile}
+                      />
+                    </>
                   ) : (
                     <DataState title="演示账号不可调配" detail="请切换到正式账号后维护车间和机台。" compact />
                   )
@@ -380,6 +391,108 @@ export function MasterDataMaintenancePage({
       )}
     </section>
   );
+}
+
+export function EmployeeProfileEditor({ review, actionState, onSave }) {
+  const [draft, setDraft] = useState(() => employeeProfileDraft(review));
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setDraft(employeeProfileDraft(review));
+  }, [review?.employeeId, review?.updatedAt]);
+
+  function update(field, value) {
+    setDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  async function save() {
+    if (saving || actionState.disabled) return;
+    setSaving(true);
+    try {
+      await onSave?.(review, {
+        ...draft,
+        baseHourlyWage: Number(draft.baseHourlyWage || 0),
+        positionAllowanceHourly: Number(draft.positionAllowanceHourly || 0),
+      });
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <section className="employee-profile-editor" aria-label="员工档案与考勤身份">
+      <h3>员工档案</h3>
+      <p className="employee-profile-editor-intro">
+        员工编号是工资、打卡和历史记录的唯一身份。考勤机人员编号只作为外部映射，不按姓名自动匹配。
+      </p>
+      <div className="detail-form employee-profile-form">
+        <label>
+          <span>出生日期</span>
+          <input type="date" value={draft.birthDate} onChange={(event) => update("birthDate", event.target.value)} />
+        </label>
+        <label>
+          <span>入职日期</span>
+          <input type="date" value={draft.hireDate} onChange={(event) => update("hireDate", event.target.value)} />
+        </label>
+        <label>
+          <span>基础时薪</span>
+          <input type="number" min="0" step="0.01" value={draft.baseHourlyWage} onChange={(event) => update("baseHourlyWage", event.target.value)} />
+        </label>
+        <label>
+          <span>岗位补贴 / 小时</span>
+          <input type="number" min="0" step="0.01" value={draft.positionAllowanceHourly} onChange={(event) => update("positionAllowanceHourly", event.target.value)} />
+        </label>
+        <label>
+          <span>工资生效日期</span>
+          <input type="date" value={draft.wageEffectiveFrom} onChange={(event) => update("wageEffectiveFrom", event.target.value)} />
+        </label>
+        <label>
+          <span>考勤来源</span>
+          <select value={draft.attendanceProvider} onChange={(event) => update("attendanceProvider", event.target.value)}>
+            <option value="">暂未绑定</option>
+            <option value="deli">得力考勤</option>
+          </select>
+        </label>
+        <label>
+          <span>考勤人员编号</span>
+          <input value={draft.attendanceExternalId} disabled={!draft.attendanceProvider} placeholder="填写打卡机中的人员编号" onChange={(event) => update("attendanceExternalId", event.target.value)} />
+        </label>
+        <label>
+          <span>档案备注</span>
+          <input value={draft.remark} onChange={(event) => update("remark", event.target.value)} />
+        </label>
+        <label className="employee-profile-reason">
+          <span>维护原因</span>
+          <textarea rows={2} value={draft.reason} onChange={(event) => update("reason", event.target.value)} />
+        </label>
+      </div>
+      <div className="action-row master-data-maintenance-actions operational-detail-actions">
+        <button
+          type="button"
+          className="primary-action"
+          disabled={saving || actionState.disabled || !draft.reason.trim() || Boolean(draft.attendanceProvider) !== Boolean(draft.attendanceExternalId.trim())}
+          title={actionState.title}
+          onClick={save}
+        >
+          {saving ? "保存中…" : "保存员工档案"}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+function employeeProfileDraft(review = {}) {
+  return {
+    birthDate: review.birthDate || "",
+    hireDate: review.hireDate || "",
+    baseHourlyWage: String(review.baseHourlyWage ?? 0),
+    positionAllowanceHourly: String(review.positionAllowanceHourly ?? 0),
+    wageEffectiveFrom: review.wageEffectiveFrom || "",
+    attendanceProvider: review.attendanceProvider || "",
+    attendanceExternalId: review.attendanceExternalId || "",
+    remark: review.remark || "",
+    reason: "维护员工档案与考勤身份映射",
+  };
 }
 
 function EmployeeAssignmentEditor({ review, options, actionState, onSave }) {

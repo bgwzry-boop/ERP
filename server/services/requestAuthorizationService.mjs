@@ -69,6 +69,12 @@ export function createRequestAuthorizationService({
     if (ownerType === "business_decision_evidence_draft" && purpose === "business_decision_evidence") {
       return requireActionPermission(response, permissionContext, actionPermissions.recordDelegatedBusinessDecision);
     }
+    if (ownerType === "payroll_run" && purpose === "payroll_adjustment_evidence") {
+      return requireAnyActionPermission(response, permissionContext, [
+        actionPermissions.reviewPayroll,
+        generalPermission,
+      ]);
+    }
     return requireActionPermission(response, permissionContext, generalPermission);
   }
 

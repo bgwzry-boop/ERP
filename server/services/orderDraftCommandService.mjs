@@ -1032,6 +1032,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         printColor: line.printColor ?? (printFlag ? "待确认" : "非印刷"),
         printSide: mapPrintSide(line.printSide),
         artworkStatus: mapArtworkStatus(line.artworkStatus, printFlag),
+        artworkAttachment: normalizeArtworkAttachment(line.artworkAttachment),
         handleColor: line.handleColor ?? "",
         note: line.officeNote ?? line.customerNote ?? line.note ?? "",
         source: body.sourceText ?? line.source ?? "",
@@ -1082,6 +1083,8 @@ export function createOrderDraftCommandService(dependencies = {}) {
       printFlag: row.print === "是",
       printColor: row.printColor,
       printSide: mapPrintSide(row.printSide),
+      artworkStatus: mapArtworkStatus(row.artworkStatus, row.print === "是"),
+      artworkAttachment: normalizeArtworkAttachment(row.artworkAttachment),
       customerNote: row.note,
       officeNote: "",
       recognitionStatus:
@@ -1115,6 +1118,20 @@ export function createOrderDraftCommandService(dependencies = {}) {
         crossDraftCancellation: row.crossDraftCancellation,
         excludedFromConfirmation: row.excludedFromConfirmation === true,
       },
+    };
+  }
+
+  function normalizeArtworkAttachment(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+    const attachmentId = cleanCommandText(value.attachmentId);
+    if (!attachmentId) return undefined;
+    return {
+      attachmentId,
+      fileName: cleanCommandText(value.fileName),
+      mimeType: cleanCommandText(value.mimeType),
+      fileSize: Number.isFinite(Number(value.fileSize)) ? Number(value.fileSize) : 0,
+      status: cleanCommandText(value.status) || "uploaded",
+      version: Math.max(1, Number(value.version) || 1),
     };
   }
 

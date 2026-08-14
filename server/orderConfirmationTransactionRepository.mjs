@@ -238,6 +238,19 @@ order_draft_write_guard AS MATERIALIZED (
     'ERP_ORDER_DRAFT_CONCURRENCY_CONFLICT'
   ) AS ok
 ),
+miniapp_artwork_write_guard AS MATERIALIZED (
+  SELECT erp_require(
+    NOT EXISTS (
+      SELECT 1
+      FROM order_intake_submissions AS submission
+      JOIN miniapp_artwork_transfer_jobs AS artwork_job
+        ON artwork_job.submission_id = submission.id
+      WHERE submission.draft_id = ${parameters.text(orderDraft.id)}
+        AND artwork_job.status <> 'succeeded'
+    ),
+    'ERP_MINIAPP_ARTWORK_NOT_READY'
+  ) AS ok
+),
 updated_order_draft AS (
   UPDATE order_drafts AS draft
   SET source_text = ${parameters.text(orderDraft.sourceText)},
@@ -253,8 +266,9 @@ updated_order_draft AS (
       revision = draft.revision + 1,
       updated_at = now()
   FROM order_draft_write_guard AS guard
+  CROSS JOIN miniapp_artwork_write_guard AS artwork_guard
   WHERE draft.id = ${parameters.text(orderDraft.id)}
-    AND guard.ok
+    AND guard.ok AND artwork_guard.ok
   RETURNING draft.id, ${orderDraftJsonExpression("draft")} AS result
 ),
 deleted_order_draft_lines AS (
@@ -389,6 +403,7 @@ SELECT json_build_object(
   'commandResponse', ${parameters.json(input.commandResponse ?? null)},
   'writeGuard', (SELECT inventory_ok AND hold_ok FROM inventory_write_guard),
   'draftWriteGuard', (SELECT ok FROM order_draft_write_guard),
+  'miniappArtworkWriteGuard', (SELECT ok FROM miniapp_artwork_write_guard),
   'businessIdWriteGuard', (SELECT ok FROM business_id_write_guard)
 ) AS result;
 COMMIT;

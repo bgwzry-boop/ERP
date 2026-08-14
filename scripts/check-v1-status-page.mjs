@@ -388,7 +388,7 @@ assertIncludes(v1StatusPageSource, "85-90%", "page should show requirement compl
 assertIncludes(v1StatusPageSource, "97-98%", "page should show P0/code completion");
 assertIncludes(v1StatusPageSource, "80-83%", "page should show V1 readiness");
 assertIncludes(v1StatusPageSource, "0/4", "page should show release gate status");
-assertIncludes(v1StatusPageSource, "0/34", "page should show field evidence status");
+assertIncludes(v1StatusPageSource, "0/40", "page should show field evidence status");
 assertIncludes(v1StatusPageSource, "0/6", "page should show signoff status");
 assertIncludes(v1StatusPageSource, "原材料 / 成本 / 毛利", "page should include raw-material module completion");
 assertIncludes(v1StatusPageSource, "计划 V2 差异", "page should include V2 difference section");
@@ -421,7 +421,7 @@ assertIncludes(v1StatusPageSource, "首批阻塞", "page should show owner decis
 assertIncludes(v1StatusPageSource, "v1-owner-action-plan", "page should render owner decision action plan");
 assertIncludes(v1StatusPageSource, "topBlockers", "page should render owner decision top blockers");
 assertIncludes(v1StatusPageSource, "最小解除阻塞路径", "page should include the unblock path");
-assertIncludes(v1StatusPageSource, "V1 解除阻塞仍有 52 项待处理", "page should show unblock task count");
+assertIncludes(v1StatusPageSource, "V1 解除阻塞仍有 59 项待处理", "page should show unblock task count");
 assertIncludes(v1StatusPageSource, "先补生产环境和持久化", "page should show the first unblock phase");
 assertIncludes(v1StatusPageSource, "selectedPhaseGroups", "page should render selected unblock phase groups");
 assertIncludes(v1StatusPageSource, "selectedPhaseTasks", "page should render structured unblock phase tasks");

@@ -13,9 +13,66 @@ export function assertRawMaterialFirstReleaseBuildEnv(env = {}) {
   throw error;
 }
 
+export function assertControlledReleaseBuildEnv(env = {}) {
+  const runtimeMode = String(env.VITE_ERP_RUNTIME_MODE ?? "").trim().toLowerCase();
+  if (runtimeMode !== "production") return;
+  const target = String(env.VITE_ERP_RELEASE_TARGET ?? "").trim();
+  const commit = String(env.VITE_ERP_RELEASE_COMMIT ?? "").trim().toLowerCase();
+  const version = String(env.VITE_ERP_RELEASE_VERSION ?? "").trim();
+  const lockDigest = String(env.VITE_ERP_RELEASE_LOCK_DIGEST ?? "").trim().toLowerCase();
+  if (
+    target === "tencent-production" &&
+    /^[a-f0-9]{40}$/.test(commit) &&
+    /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/.test(version) &&
+    /^[a-f0-9]{64}$/.test(lockDigest)
+  ) return;
+  const error = new Error(
+    "Production frontend builds require a verified tencent-production release identity from the controlled release lock.",
+  );
+  error.code = "VITE_CONTROLLED_RELEASE_IDENTITY_REQUIRED";
+  throw error;
+}
+
+export function controlledReleaseHtmlPlugin(env = {}) {
+  const values = [
+    ["erp-release-target", env.VITE_ERP_RELEASE_TARGET],
+    ["erp-release-version", env.VITE_ERP_RELEASE_VERSION],
+    ["erp-release-commit", env.VITE_ERP_RELEASE_COMMIT],
+    ["erp-release-lock", env.VITE_ERP_RELEASE_LOCK_DIGEST],
+  ];
+  return {
+    name: "erp-controlled-release-identity",
+    transformIndexHtml: {
+      order: "pre",
+      handler() {
+        return values.map(([name, content]) => ({
+          tag: "meta",
+          attrs: { name, content: String(content ?? "") },
+          injectTo: "head",
+        }));
+      },
+    },
+  };
+}
+
+export function rejectCompleteReviewPortInRootAppPlugin() {
+  return {
+    name: "erp-reserve-complete-review-port",
+    configResolved(config) {
+      if (config.command !== "serve" || Number(config.server?.port) !== 4174) return;
+      const error = new Error(
+        "Port 4174 is reserved for docs/prototypes/raw-material-roll-inventory-review. Start the root ERP workbench on port 5173.",
+      );
+      error.code = "ERP_COMPLETE_REVIEW_PORT_RESERVED";
+      throw error;
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const buildEnv = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
   assertRawMaterialFirstReleaseBuildEnv(buildEnv);
+  assertControlledReleaseBuildEnv(buildEnv);
 
   return {
     build: {
@@ -48,6 +105,6 @@ export default defineConfig(({ mode }) => {
         clientFiles: ["./src/main.jsx"],
       },
     },
-    plugins: [react()],
+    plugins: [react(), controlledReleaseHtmlPlugin(buildEnv), rejectCompleteReviewPortInRootAppPlugin()],
   };
 });

@@ -144,7 +144,7 @@ assert.equal(partialResult.summary.appliedEvidenceRowCount, 2);
 assert.equal(partialResult.summary.appliedSignoffRowCount, 1);
 assert.equal(partialResult.summary.appliedBoundaryRowCount, 1);
 assert.equal(partialResult.summary.invalidRowCount, 0);
-assert.equal(partialResult.summary.requiredEvidenceItems, "2/34");
+assert.equal(partialResult.summary.requiredEvidenceItems, "2/40");
 assert.equal(partialResult.summary.signoffs, "1/6");
 assert.equal(partialResult.summary.boundary, "confirmed");
 assert.equal(partialResult.summary.inputSnapshot.schema, "erp-v1-field-evidence-intake-snapshot-v1");

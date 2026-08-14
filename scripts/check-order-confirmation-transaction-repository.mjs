@@ -345,6 +345,8 @@ async function checkPostgresOrderConfirmationTransactionSqlBoundary() {
   assert.match(sql, /^BEGIN;/);
   assert.match(sql, /FROM order_drafts[\s\S]*FOR UPDATE/);
   assert.match(sql, /ERP_ORDER_DRAFT_CONCURRENCY_CONFLICT/);
+  assert.match(sql, /ERP_MINIAPP_ARTWORK_NOT_READY/);
+  assert.match(sql, /miniapp_artwork_transfer_jobs/);
   assert.match(sql, /ERP_ORDER_CONFIRMATION_ID_CONCURRENCY_CONFLICT/);
   assert.match(sql, /business_id_write_guard/);
   assert.match(sql, /ON CONFLICT \(id\) DO NOTHING/);

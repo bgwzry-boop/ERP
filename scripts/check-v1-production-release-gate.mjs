@@ -25,7 +25,7 @@ try {
   });
   assert.equal(attestation.ready, true);
   assert.equal(attestation.summary.releaseGates, "4/4");
-  assert.equal(attestation.summary.requiredEvidence, "34/34");
+  assert.equal(attestation.summary.requiredEvidence, "40/40");
   assert.equal(attestation.summary.requiredSignoffs, "6/6");
   assert.equal(JSON.stringify(attestation).includes("签字人"), false);
   assert.equal(JSON.stringify(attestation).includes("EVIDENCE-"), false);

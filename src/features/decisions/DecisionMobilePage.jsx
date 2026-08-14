@@ -10,6 +10,7 @@ import {
 } from "@ant-design/icons";
 import { useEffect, useMemo, useState } from "react";
 import { BusinessDecisionHistoryPanel } from "../../components/BusinessDecisionHistoryPanel.jsx";
+import { MobileRoleBottomNavigation } from "../../shared/ui/MobileRoleBottomNavigation.jsx";
 import {
   listOfficeBusinessDecisions,
   recordOfficeBusinessDecision,
@@ -243,11 +244,13 @@ export function DecisionMobilePage({
         </section>
       ) : null}
 
-      <nav className="mobile-role-bottom-nav" aria-label="经营决策手机导航">
-        {MOBILE_VIEWS.map(([key, label, Icon]) => <button aria-current={view === key ? "page" : undefined} className={view === key ? "active" : ""} key={key} onClick={() => setView(key)} type="button">
-          <Icon aria-hidden="true" /><span>{label}</span>{key === "pending" && tasks.length ? <b>{tasks.length}</b> : null}
-        </button>)}
-      </nav>
+      <MobileRoleBottomNavigation
+        ariaLabel="经营决策手机导航"
+        badgeCount={(key) => key === "pending" ? tasks.length : 0}
+        items={MOBILE_VIEWS}
+        onChange={setView}
+        value={view}
+      />
     </section>
   );
 }

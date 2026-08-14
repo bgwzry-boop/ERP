@@ -117,7 +117,7 @@ function buildBlockedReleaseCandidate() {
       totalGateCount: 4,
       blockingCount: 4,
       envPreflight: "2/10 通过",
-      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
       runtimeReadiness: "5/11 通过",
       fieldAcceptance: "5/11 通过",
     },

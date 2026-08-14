@@ -1,0 +1,42 @@
+{
+  "schemaVersion": "luxing-special-bag-pricing/v1",
+  "version": "BAG-SPECIAL-COST-20260722-V2",
+  "effectiveFrom": "2026-07-22T00:00:00+08:00",
+  "materialType": "nonwoven",
+  "currency": "CNY",
+  "bounds": {
+    "minWidthCm": 20,
+    "maxWidthCm": 50,
+    "minHeightCm": 20,
+    "maxHeightCm": 42,
+    "minGussetCm": 6,
+    "maxGussetCm": 18,
+    "minQuantity": 5000,
+    "maxQuantity": 1000000
+  },
+  "defaults": {
+    "foldCm": 3,
+    "seamCm": 2,
+    "bodyGsm": 78,
+    "handleWidthCm": 5,
+    "handleGsm": 60,
+    "handleCount": 2,
+    "regularHandleLengthCm": 38,
+    "extendedHandleLengthCm": 50,
+    "laborElectricityUnitCost": 0.03
+  },
+  "specialCustomizationFeeTiers": [
+    { "minQuantity": 5000, "unitFee": 0.08 },
+    { "minQuantity": 10000, "unitFee": 0.06 }
+  ],
+  "materialPricePolicy": {
+    "source": "latest_confirmed_supplier_batch",
+    "fallbackMode": "published_snapshot",
+    "refreshUntil": "order_created",
+    "lockAt": "order_creation"
+  },
+  "rounding": {
+    "customerUnitPriceDecimals": 2,
+    "internalCostDecimals": 6
+  }
+}

@@ -54,10 +54,15 @@ export function buildV1D49Readiness({
         ? `处理：${role.blockers.map((item) => item.label).join("、")}。`
         : "导入该岗位正式员工，完成账号启用、首次改密和有效期复核。",
     }));
-  const blockers = [...employeeBlockers, ...environment.blockers];
-  const ready = employees.ready === true && environment.ready === true && blockers.length === 0;
+  const employeeIntakeBlockers = buildEmployeeIntakeBlockers(employeeIntake);
+  const blockers = [...employeeBlockers, ...employeeIntakeBlockers, ...environment.blockers];
+  const ready = employees.ready === true
+    && employeeIntake.ready === true
+    && employeeIntake.payrollAttendanceCoverage.ready === true
+    && environment.ready === true
+    && blockers.length === 0;
   return {
-    version: "p0-v1-d49-readiness-v3",
+    version: "p0-v1-d49-readiness-v4",
     scope: "v1_d49_readiness",
     status: ready ? "ready" : "blocked",
     ready,
@@ -73,9 +78,11 @@ export function buildV1D49Readiness({
       readyFormalAccountCount: employees.readyFormalAccountCount,
       employeeIntakeAvailable: employeeIntake.available,
       employeeIntakeFresh: employeeIntake.fresh,
+      employeeIntakeReady: employeeIntake.ready,
       employeeIntakeStatusLabel: employeeIntake.summary.label,
       employeeIntakeRowCount: employeeIntake.summary.employeeRowCount,
       employeeIntakeCoverageLabel: employeeIntake.summary.coverageLabel,
+      employeePayrollAttendanceCoverageLabel: employeeIntake.summary.payrollAttendanceCoverageLabel,
       employeeNumberMissingCount: employeeIntake.summary.missingEmployeeNumberCount,
       envSetupReady: environment.setupReady,
       envAuditReady: environment.auditReady,
@@ -140,8 +147,49 @@ export function buildV1D49Readiness({
 
 function buildD49NextAction({ ready, employees, employeeIntake, blockers }) {
   if (ready) return "D49 已就绪；继续D50真实PostgreSQL、恢复库、对象存储和长驻API。";
+  if (employeeIntake.ready !== true) return employeeIntake.nextAction;
   if (employees.ready !== true && employeeIntake.available) return employeeIntake.nextAction;
   return blockers[0]?.nextAction || "导入真实员工并补齐production env后重新刷新上线状态。";
+}
+
+function buildEmployeeIntakeBlockers(employeeIntake) {
+  if (employeeIntake.available !== true) {
+    return [blocker({
+      key: "employee-intake-unavailable",
+      category: "employee-intake",
+      label: "受控员工工作簿预检结果不可用",
+      detail: "无法证明当前受控工作簿已通过脱敏、来源指纹和正式字段完整度检查。",
+      nextAction: employeeIntake.nextAction,
+    })];
+  }
+  if (employeeIntake.fresh !== true) {
+    return [blocker({
+      key: "employee-intake-stale",
+      category: "employee-intake",
+      label: "受控员工工作簿预检结果已失效",
+      detail: "工作簿已变化、预检已过期或预检时间异常，不能作为D49放行证据。",
+      nextAction: employeeIntake.nextAction,
+    })];
+  }
+  if (employeeIntake.payrollAttendanceCoverage.ready !== true) {
+    return [blocker({
+      key: "employee-payroll-attendance-incomplete",
+      category: "employee-intake",
+      label: "员工工资与考勤资料未全员完整",
+      detail: `出生/入职日期、基础时薪/生效日期及考勤身份映射完整度为 ${employeeIntake.payrollAttendanceCoverage.coverageLabel}。`,
+      nextAction: employeeIntake.nextAction,
+    })];
+  }
+  if (employeeIntake.ready !== true) {
+    return [blocker({
+      key: "employee-intake-review-required",
+      category: "employee-intake",
+      label: "受控员工工作簿尚未通过严格预检",
+      detail: employeeIntake.summary.label,
+      nextAction: employeeIntake.nextAction,
+    })];
+  }
+  return [];
 }
 
 function sanitizeEmployeeIntakeStatus(value = {}) {
@@ -156,6 +204,10 @@ function sanitizeEmployeeIntakeStatus(value = {}) {
   const fresh = available && value.fresh === true;
   const summary = value?.summary && typeof value.summary === "object" ? value.summary : {};
   const freshness = value?.freshness && typeof value.freshness === "object" ? value.freshness : {};
+  const payrollAttendanceCoverage = sanitizeEmployeePayrollAttendanceCoverage(
+    value.payrollAttendanceCoverage,
+    available,
+  );
   const roles = available && Array.isArray(value.roles)
     ? value.roles.map((role) => ({
         roleKey: cleanKey(role.roleKey),
@@ -199,8 +251,12 @@ function sanitizeEmployeeIntakeStatus(value = {}) {
       blockerCount: available ? nonNegativeInteger(summary.blockerCount) : 0,
       blockerLabel: available ? sanitizeText(summary.blockerLabel) || "未读取" : "未读取",
       freshnessLabel: available ? sanitizeText(summary.freshnessLabel) || "未验证" : "未验证",
+      payrollAttendanceCoverageLabel: available
+        ? sanitizeText(summary.payrollAttendanceCoverageLabel) || payrollAttendanceCoverage.coverageLabel
+        : "未读取",
     },
     roles,
+    payrollAttendanceCoverage,
     missingRoleLabels: available && Array.isArray(value.missingRoleLabels)
       ? value.missingRoleLabels.map(sanitizeText).filter(Boolean)
       : [],
@@ -226,6 +282,34 @@ function sanitizeEmployeeIntakeStatus(value = {}) {
   };
 }
 
+function sanitizeEmployeePayrollAttendanceCoverage(value, intakeAvailable) {
+  const source = intakeAvailable && value && typeof value === "object" ? value : null;
+  const available = source?.available === true;
+  const employeeCount = available ? nonNegativeInteger(source.employeeCount) : 0;
+  const completeCount = available
+    ? Math.min(employeeCount, nonNegativeInteger(source.completeCount))
+    : 0;
+  return {
+    available,
+    required: available && source.required === true,
+    ready: available && source.ready === true && completeCount === employeeCount && employeeCount > 0,
+    complete: available && source.complete === true && completeCount === employeeCount && employeeCount > 0,
+    employeeCount,
+    completeCount,
+    incompleteCount: available ? Math.max(0, employeeCount - completeCount) : 0,
+    profileReadyCount: available
+      ? Math.min(employeeCount, nonNegativeInteger(source.profileReadyCount))
+      : 0,
+    wageReadyCount: available
+      ? Math.min(employeeCount, nonNegativeInteger(source.wageReadyCount))
+      : 0,
+    attendanceMappingReadyCount: available
+      ? Math.min(employeeCount, nonNegativeInteger(source.attendanceMappingReadyCount))
+      : 0,
+    coverageLabel: available ? `${completeCount}/${employeeCount}` : "未读取",
+  };
+}
+
 function buildEnvironmentReadiness({
   checkedAt,
   setup,
@@ -245,9 +329,9 @@ function buildEnvironmentReadiness({
       setupReady: false,
       auditReady: false,
       preflightReady: false,
-      preflightLabel: "0/11",
+      preflightLabel: "0/12",
       preflightPassedCount: 0,
-      preflightTotalCount: 11,
+      preflightTotalCount: 12,
       preflightBlockingCount: 1,
       preflightWarningCount: 0,
       intakeReady: false,
@@ -311,9 +395,9 @@ function buildEnvironmentReadiness({
       setupReady: true,
       auditReady: false,
       preflightReady: false,
-      preflightLabel: "0/11",
+      preflightLabel: "0/12",
       preflightPassedCount: 0,
-      preflightTotalCount: 11,
+      preflightTotalCount: 12,
       preflightBlockingCount: 1,
       preflightWarningCount: 0,
       intakeReady: false,

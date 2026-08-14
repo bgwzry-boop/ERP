@@ -22,7 +22,7 @@ assert.equal(v1UnblockPlan.phases.length, 6);
 
 const fallbackSummary = buildV1StatusSummaryForPage(null);
 assert.equal(fallbackSummary.statusLabel, "V1 仍未完成");
-assert.deepEqual(fallbackSummary.metrics.slice(3).map((item) => item[1]), ["0/4", "0/34", "0/6"]);
+assert.deepEqual(fallbackSummary.metrics.slice(3).map((item) => item[1]), ["0/4", "0/40", "0/6"]);
 
 const apiSummary = buildV1StatusSummaryForPage({
   statusLabel: "后端阻塞",

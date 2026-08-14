@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>方案 1 视觉对照</title>
+    <style>
+      * { box-sizing: border-box; }
+      html, body { margin: 0; background: #111820; color: #f8fafc; font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif; }
+      main { width: 1440px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; padding: 12px; }
+      figure { min-width: 0; margin: 0; overflow: hidden; border: 1px solid #334155; background: #fff; }
+      figcaption { height: 38px; display: flex; align-items: center; padding: 0 12px; background: #18222d; color: #e2e8f0; font-size: 14px; font-weight: 650; }
+      img { display: block; width: 100%; aspect-ratio: 1440 / 1024; object-fit: fill; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <figure>
+        <figcaption>左：选定的方案 1 效果图</figcaption>
+        <img src="./source-option-1.png" alt="选定方案 1" />
+      </figure>
+      <figure>
+        <figcaption>右：可点击原型实现</figcaption>
+        <img src="./implementation-final-1440x1024.png" alt="原型实现" />
+      </figure>
+    </main>
+  </body>
+</html>

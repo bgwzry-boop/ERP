@@ -69,6 +69,8 @@ for (const [action, permission] of [
   ["print-labels", "raw_material.label.print"],
   ["void-label", "raw_material.label.print"],
   ["reprint-label", "raw_material.label.print"],
+  ["stage-supplier-return", "raw_material.leftover.return"],
+  ["confirm-supplier-return-shipment", "raw_material.leftover.review"],
   ["attach-confirm", "raw_material.label.attach_confirm"],
   ["issue-to-machine", "raw_material.issue.create"],
   ["confirm-consumption", "raw_material.consumption.confirm"],

@@ -51,6 +51,7 @@ import {
   buildIdempotencyConflictError,
   buildIdempotencyRequestHash,
   buildPostgresIdempotencyRequest,
+  readPostgresIdempotencyReplay,
   resolveRepositoryIdempotencyKey,
 } from "./idempotency.mjs";
 import {
@@ -78,11 +79,18 @@ export function createProductionPackingTransactionRepository(options = {}) {
 }
 
 export function createLocalProductionPackingTransactionRepository() {
+  const productionReportResults = new Map();
   const productionExceptionResults = new Map();
   return {
     kind: "local_memory",
 
+    findProductionReportIdempotentReplay(input = {}) {
+      return readLocalProductionTransactionReplay(productionReportResults, input, "production.report.complete");
+    },
+
     recordProductionReport(input) {
+      const replay = readLocalProductionTransactionReplay(productionReportResults, input, "production.report.complete");
+      if (replay) return replay;
       const transaction = normalizeProductionReportTransactionResult({
         productionTask: input.productionTask,
         workshopReport: input.workshopReport,
@@ -105,6 +113,7 @@ export function createLocalProductionPackingTransactionRepository() {
         inventoryAdjustments: input.inventoryAdjustments ?? [],
         operationLog: input.operationLog,
       });
+      saveLocalProductionTransactionReplay(productionReportResults, input, transaction, "production.report.complete");
       return transaction;
     },
 
@@ -124,7 +133,7 @@ export function createLocalProductionPackingTransactionRepository() {
     },
 
     recordProductionException(input) {
-      const replay = readLocalProductionExceptionReplay(productionExceptionResults, input, "production.exception.record");
+      const replay = readLocalProductionTransactionReplay(productionExceptionResults, input, "production.exception.record");
       if (replay) return replay;
       const transaction = normalizeProductionExceptionTransactionResult({
         productionTask: input.productionTask,
@@ -141,12 +150,12 @@ export function createLocalProductionPackingTransactionRepository() {
         todoEvent: transaction.todoEvent,
         operationLog: input.operationLog,
       });
-      saveLocalProductionExceptionReplay(productionExceptionResults, input, transaction, "production.exception.record");
+      saveLocalProductionTransactionReplay(productionExceptionResults, input, transaction, "production.exception.record");
       return transaction;
     },
 
     resolveProductionException(input) {
-      const replay = readLocalProductionExceptionReplay(productionExceptionResults, input, "production.exception.resolve");
+      const replay = readLocalProductionTransactionReplay(productionExceptionResults, input, "production.exception.resolve");
       if (replay) return replay;
       const transaction = normalizeProductionExceptionTransactionResult({
         productionTask: input.productionTask,
@@ -163,7 +172,7 @@ export function createLocalProductionPackingTransactionRepository() {
         todoEvent: transaction.todoEvent,
         operationLog: input.operationLog,
       });
-      saveLocalProductionExceptionReplay(productionExceptionResults, input, transaction, "production.exception.resolve");
+      saveLocalProductionTransactionReplay(productionExceptionResults, input, transaction, "production.exception.resolve");
       return transaction;
     },
 
@@ -266,7 +275,7 @@ export function createPostgresProductionPackingTransactionRepository(options = {
   const databaseUrl = options.databaseUrl;
   const postgresClient =
     options.postgresClient ?? (options.queryJson || options.transactionJson ? null : createPostgresPoolClient({ databaseUrl }));
-  const { idempotentTransactionJson } = createPostgresTransactionExecutor({
+  const { queryJson, idempotentTransactionJson } = createPostgresTransactionExecutor({
     ...options,
     databaseUrl,
     postgresClient,
@@ -274,6 +283,16 @@ export function createPostgresProductionPackingTransactionRepository(options = {
 
   return {
     kind: "postgres",
+
+    async findProductionReportIdempotentReplay(input = {}) {
+      const replay = await readPostgresIdempotencyReplay({
+        queryJson,
+        scope: "production.report.complete",
+        idempotencyKey: input.idempotencyKey,
+        payload: input.idempotencyPayload,
+      });
+      return replay ? normalizeProductionReportTransactionResult(replay) : null;
+    },
 
     async recordProductionReport(input) {
       const builtQuery = buildRecordProductionReportTransactionQuery(input);
@@ -458,7 +477,7 @@ function executeIdempotentProductionTransaction({ input, scope, query, idempoten
   );
 }
 
-function readLocalProductionExceptionReplay(store, input = {}, scope) {
+function readLocalProductionTransactionReplay(store, input = {}, scope) {
   const key = resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id);
   const existing = store.get(`${scope}:${key}`);
   if (!existing) return null;
@@ -468,7 +487,7 @@ function readLocalProductionExceptionReplay(store, input = {}, scope) {
   return structuredClone(existing.result);
 }
 
-function saveLocalProductionExceptionReplay(store, input = {}, result, scope) {
+function saveLocalProductionTransactionReplay(store, input = {}, result, scope) {
   const key = resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id);
   store.set(`${scope}:${key}`, {
     requestHash: buildIdempotencyRequestHash(input.idempotencyPayload ?? {}),
@@ -747,7 +766,7 @@ upserted_production_task AS (
   ${buildUpsertProductionTaskSql(productionTask, parameters, "write_guard")}
 ),
 upserted_schedule_record AS (
-  ${buildUpsertProductionScheduleRecordsSql([productionScheduleRecord], parameters, "upserted_production_task")}
+  ${buildUpsertProductionScheduleRecordsSql([productionScheduleRecord], parameters, "write_guard")}
 ),
 updated_order_line AS (
   ${buildUpdateOrderLineSql(orderLine, parameters, "write_guard")}

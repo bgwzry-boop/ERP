@@ -59,6 +59,18 @@ assert.equal(
   true,
 );
 
+const payrollEvidencePreview = buildGitBaselineScopeReport({
+  entries: [
+    { status: " M", path: "index.html" },
+    { status: "??", path: "qa/payroll-adjustment-evidence-preview.html" },
+    { status: "??", path: "qa/payroll-position-rate-preview.html" },
+  ],
+  remoteCount: 1,
+});
+assert.equal(payrollEvidencePreview.scopeSafe, true);
+assert.equal(payrollEvidencePreview.groups.find((group) => group.key === "frontend_ui")?.count, 1);
+assert.equal(payrollEvidencePreview.groups.find((group) => group.key === "verification")?.count, 2);
+
 const cleanReady = buildGitBaselineScopeReport({
   entries: [],
   remoteCount: 1,

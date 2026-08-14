@@ -15,6 +15,16 @@ const workspace = {
   fulfillments: [{ id: "F-1" }],
   statements: [{ id: "ST-1" }],
   firstReleaseScope: "raw_material_only",
+  releaseIdentity: {
+    ready: true,
+    target: "tencent-production",
+    version: "prod-2026.08.09-r1",
+    commit: "1234567890abcdef1234567890abcdef12345678",
+    shortCommit: "1234567890ab",
+    lockDigest: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+    builtAt: "2026-08-09T10:30:00+08:00",
+    secret: secretToken,
+  },
   runtimeConfig: {
     mode: "production",
     dataPartition: "production",
@@ -125,6 +135,15 @@ const response = buildSystemHealthResponse({
 assert.equal(response.status, "ok");
 assert.equal(response.service, "erp-p0-api");
 assert.equal(response.now, "2026-07-14T01:00:00.000Z");
+assert.deepEqual(response.release, {
+  ready: true,
+  target: "tencent-production",
+  version: "prod-2026.08.09-r1",
+  commit: "1234567890abcdef1234567890abcdef12345678",
+  shortCommit: "1234567890ab",
+  lockDigest: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890",
+  builtAt: "2026-08-09T02:30:00.000Z",
+});
 assert.deepEqual(response.firstReleaseScope, {
   enabled: true,
   scope: "raw_material_only",
@@ -175,6 +194,8 @@ assert.match(response.seed.productionEnvFileApplication.nextAction, /本地路�
 
 const empty = buildSystemHealthResponse({ now: () => "invalid" });
 assert.equal(empty.now, "1970-01-01T00:00:00.000Z");
+assert.equal(empty.release.ready, false);
+assert.equal(empty.release.target, "unknown");
 assert.deepEqual(empty.firstReleaseScope, {
   enabled: false,
   scope: "none",

@@ -26,12 +26,15 @@ const GROUPS = Object.freeze([
   {
     key: "frontend_ui",
     label: "前端业务、交互与样式",
-    owns: (path) => path.startsWith("src/"),
+    owns: (path) => path === "index.html" || path.startsWith("src/"),
   },
   {
     key: "verification",
     label: "业务与结构回归脚本",
-    owns: (path) => path.startsWith("scripts/") || path.startsWith("e2e/"),
+    owns: (path) =>
+      path.startsWith("scripts/") ||
+      path.startsWith("e2e/") ||
+      path.startsWith("qa/"),
   },
 ]);
 
@@ -69,6 +72,7 @@ const ROOT_DOCUMENTS = new Set([
   "02_问题或报错日志.md",
   "AGENTS.md",
   "DECISIONS.md",
+  "PRODUCT.md",
   "PROJECT_STATUS.md",
   "ROADMAP.md",
   "design.md",

@@ -21,6 +21,26 @@ const forbiddenPatterns = [
   /\/var\/spool\/erp-secret/i,
   /\/usr\/bin\/lpstat-secret/i,
 ];
+const authoritativeModuleCompletion = readFileSync(
+  new URL("../docs/development/module-completion-status.zh-CN.md", import.meta.url),
+  "utf8",
+);
+
+assert.match(
+  authoritativeModuleCompletion,
+  /\| 工资 \/ 考勤 \/ 人事 \| 88% \| 93% \| 28% \|[^\n]*正式员工档案[^\n]*工资草稿[^\n]*发薪确认[^\n]*CHECKIN \/ checkin_query/,
+  "authoritative module completion must describe the implemented formal attendance/payroll flow",
+);
+assert.doesNotMatch(
+  authoritativeModuleCompletion,
+  /\| 工资 \/ 考勤 \/ 人事 \|[^\n]*主要未完成项[^\n]*工资草稿页面/,
+  "the formal payroll page must not remain listed as missing",
+);
+assert.match(
+  authoritativeModuleCompletion,
+  /\| 工资 \/ 考勤 \/ 人事 \|[^\n]*29名在职员工[^\n]*得力 API[^\n]*负责人批准版本[^\n]*生产 PostgreSQL[^\n]*首个完整自然月/,
+  "live employee data, Deli access, approved rules, production persistence and first real payroll must remain explicit blockers",
+);
 
 rmSync(tempRoot, { recursive: true, force: true });
 mkdirSync(sourceRoot, { recursive: true });
@@ -113,7 +133,7 @@ function buildBlockedReleaseCandidate() {
       totalGateCount: 4,
       blockingCount: 3,
       envPreflight: "2/10 通过",
-      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
       runtimeReadiness: "5/11 通过",
       fieldAcceptance: "5/11 通过",
     },
@@ -131,7 +151,7 @@ function buildBlockedReleaseCandidate() {
         label: "现场证据 manifest",
         status: "blocked",
         ready: false,
-        summary: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+        summary: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
         detail: "现场证据 manifest 仍未填满。",
       },
     ],

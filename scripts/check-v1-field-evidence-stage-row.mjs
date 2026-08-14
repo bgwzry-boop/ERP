@@ -123,12 +123,12 @@ try {
   assert.equal(evidenceJson.row.evidenceRefFilled, true);
   assert.equal(evidenceJson.summary.csvUpdated, true);
   assert.equal(evidenceJson.summary.draftWritten, true);
-  assert.equal(evidenceJson.summary.evidenceProgress, "1/34");
+  assert.equal(evidenceJson.summary.evidenceProgress, "1/40");
   assert.equal(evidenceJson.summary.signoffProgress, "0/6");
   assert.equal(evidenceJson.summary.releaseCandidateRefreshed, false);
-  assert.equal(evidenceJson.evidenceCloseout.evidenceProgress, "1/34");
+  assert.equal(evidenceJson.evidenceCloseout.evidenceProgress, "1/40");
   assert.equal(evidenceJson.evidenceCloseout.ready, false);
-  assert.equal(evidenceJson.evidenceCloseout.missingEvidenceRows, 33);
+  assert.equal(evidenceJson.evidenceCloseout.missingEvidenceRows, 39);
   assert.equal(evidenceJson.evidenceCloseout.invalidEvidenceRows, 0);
   assert.ok(evidenceJson.evidenceCloseout.actionCount > 0, "remaining evidence closeout should expose draft-manifest actions");
   assert.ok(evidenceJson.evidenceCloseout.actions.length > 0, "remaining evidence closeout should include visible action rows");
@@ -156,7 +156,7 @@ try {
   );
   assert.ok(evidenceJson.closeout.actions[0].type, "signoff/boundary actions should keep type for fill-to-draft");
   assert.ok(evidenceJson.closeout.actions[0].key, "signoff/boundary actions should keep key for fill-to-draft");
-  assert.equal(evidenceJson.draftManifest.summary.evidenceProgress, "1/34");
+  assert.equal(evidenceJson.draftManifest.summary.evidenceProgress, "1/40");
   assert.equal(evidenceJson.safeguards.sourceManifestMutated, false);
   assert.equal(evidenceJson.safeguards.rawEvidenceRefsIncluded, false);
   assert.equal(evidenceJson.safeguards.rawSignersIncluded, false);
@@ -242,9 +242,9 @@ try {
     { apiBaseUrl },
   );
   assert.equal(attachmentStageResult.source, "api");
-  assert.equal(attachmentStageResult.stageResult.summary.evidenceProgress, "1/34");
-  assert.equal(attachmentStageResult.stageResult.evidenceCloseout.evidenceProgress, "1/34");
-  assert.equal(attachmentStageResult.stageResult.evidenceCloseout.missingEvidenceRows, 33);
+  assert.equal(attachmentStageResult.stageResult.summary.evidenceProgress, "1/40");
+  assert.equal(attachmentStageResult.stageResult.evidenceCloseout.evidenceProgress, "1/40");
+  assert.equal(attachmentStageResult.stageResult.evidenceCloseout.missingEvidenceRows, 39);
   assert.ok(attachmentStageResult.stageResult.evidenceCloseout.actions.length > 0);
   assert.equal(attachmentStageResult.stageResult.evidenceCloseout.safeguards.rawEvidenceRefsIncluded, false);
   assert.equal(attachmentStageResult.stageResult.safeguards.rawEvidenceRefsIncluded, false);
@@ -331,19 +331,19 @@ try {
   assert.equal(clientSignoffResult.stageResult.row.type, "signoff");
   assert.equal(clientSignoffResult.stageResult.row.personFilled, true);
   assert.equal(clientSignoffResult.stageResult.row.timeFilled, true);
-  assert.equal(clientSignoffResult.stageResult.summary.evidenceProgress, "1/34");
+  assert.equal(clientSignoffResult.stageResult.summary.evidenceProgress, "1/40");
   assert.equal(clientSignoffResult.stageResult.summary.signoffProgress, "1/6");
   assert.equal(clientSignoffResult.stageResult.summary.releaseCandidateRefreshed, false);
-  assert.equal(clientSignoffResult.stageResult.evidenceCloseout.evidenceProgress, "1/34");
+  assert.equal(clientSignoffResult.stageResult.evidenceCloseout.evidenceProgress, "1/40");
   assert.equal(clientSignoffResult.stageResult.evidenceCloseout.ready, false);
-  assert.equal(clientSignoffResult.stageResult.evidenceCloseout.missingEvidenceRows, 33);
+  assert.equal(clientSignoffResult.stageResult.evidenceCloseout.missingEvidenceRows, 39);
   assert.ok(clientSignoffResult.stageResult.evidenceCloseout.actionCount > 0);
   assert.ok(clientSignoffResult.stageResult.evidenceCloseout.actions.length > 0);
   assert.equal(
     clientSignoffResult.stageResult.evidenceCloseout.actionShownCount,
     clientSignoffResult.stageResult.evidenceCloseout.actions.length,
   );
-  assert.equal(clientSignoffResult.stageResult.evidenceCloseout.actionLabel, "5/33");
+  assert.equal(clientSignoffResult.stageResult.evidenceCloseout.actionLabel, "5/39");
   assert.equal(clientSignoffResult.stageResult.closeout.signoffProgress, "1/6");
   assert.equal(clientSignoffResult.stageResult.closeout.missingSignoffRows, 5);
   assert.equal(clientSignoffResult.stageResult.closeout.boundaryReady, false);

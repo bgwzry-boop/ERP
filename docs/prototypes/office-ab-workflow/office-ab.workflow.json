@@ -1,0 +1,101 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "办公室 A/B 岗位操作动线",
+    "subtitle": "手机伴随端、PC 完整工作台、跨岗位协同与异常交接",
+    "output": "index.html",
+    "animation": "none"
+  },
+  "lanes": [
+    { "id": "phone", "label": "办公室手机伴随端" },
+    { "id": "raw", "label": "原料收货 · 手机完整闭环" },
+    { "id": "pc", "label": "办公室 PC · 完整工作台" },
+    { "id": "cross", "label": "决策人 / 仓库协同" },
+    { "id": "exceptions", "label": "异常、冲突与 A/B 交接", "variant": "exception" }
+  ],
+  "phases": [
+    { "id": "enter", "label": "01 / 进入", "fromCol": 0, "toCol": 0 },
+    { "id": "accept", "label": "02 / 识别与接手", "fromCol": 1, "toCol": 1 },
+    { "id": "execute", "label": "03 / 核对与处理", "fromCol": 2, "toCol": 3, "variant": "emphasis" },
+    { "id": "close", "label": "04 / 提交、回执与完成", "fromCol": 4, "toCol": 5, "variant": "dashed" }
+  ],
+  "groups": [
+    { "id": "raw_flow", "label": "首期生产主线", "lane": "raw", "fromCol": 1, "toCol": 5, "variant": "emphasis" },
+    { "id": "pc_flow", "label": "完整业务处理", "lane": "pc", "fromCol": 1, "toCol": 5 },
+    { "id": "cross_flow", "label": "有权角色决定与现场回执", "lane": "cross", "fromCol": 1, "toCol": 5, "variant": "security" }
+  ],
+  "mainPath": ["entry", "pool", "capture", "review", "print", "attach"],
+  "nodes": [
+    { "id": "entry", "lane": "phone", "col": 0, "type": "frontend", "label": "岗位首页", "sublabel": "当前任务 / 待处理" },
+    { "id": "pool", "lane": "phone", "col": 1, "type": "messagebus", "label": "共享待办", "sublabel": "A/B 同权限任务池" },
+    { "id": "attach", "lane": "phone", "col": 5, "type": "frontend", "label": "贴标完成", "sublabel": "逐卷核物并收尾" },
+
+    { "id": "capture", "lane": "raw", "col": 1, "type": "frontend", "label": "拍送货单", "sublabel": "照片 / PDF" },
+    { "id": "review", "lane": "raw", "col": 3, "type": "backend", "label": "逐卷核对", "sublabel": "一次看全并补缺" },
+    { "id": "print", "lane": "raw", "col": 5, "type": "messagebus", "label": "可信打印", "sublabel": "预览、设备与回执" },
+
+    { "id": "pc_open", "lane": "pc", "col": 2, "type": "frontend", "label": "转到电脑", "sublabel": "打开同一业务编号" },
+    { "id": "pc_action", "lane": "pc", "col": 3, "type": "backend", "label": "完整处理", "sublabel": "订单 / 出库 / 对账" },
+    { "id": "pc_output", "lane": "pc", "col": 5, "type": "database", "label": "打印并更新", "sublabel": "新纸单 / 任务状态" },
+
+    { "id": "variance", "lane": "cross", "col": 1, "type": "security", "label": "出货差异", "sublabel": "核纸单与现场实物" },
+    { "id": "decision", "lane": "cross", "col": 4, "type": "external", "label": "授权决定", "sublabel": "妈妈优先、首个生效" },
+    { "id": "warehouse", "lane": "cross", "col": 5, "type": "backend", "label": "仓库接手", "sublabel": "拿到新纸单后出库" },
+
+    { "id": "handoff", "lane": "exceptions", "col": 1, "type": "messagebus", "label": "A/B 交接", "sublabel": "未完状态 + 下一步" },
+    { "id": "conflict", "lane": "exceptions", "col": 3, "type": "security", "label": "版本冲突", "sublabel": "刷新或显式接手" },
+    { "id": "print_fail", "lane": "exceptions", "col": 5, "type": "security", "label": "打印失败", "sublabel": "同一作业安全重试" }
+  ],
+  "edges": [
+    { "from": "entry", "to": "pool", "variant": "emphasis" },
+    { "from": "pool", "to": "capture", "label": "原料收货", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "drop", "labelSegment": 1, "labelDx": 34 },
+    { "from": "capture", "to": "review", "variant": "emphasis" },
+    { "from": "review", "to": "print", "variant": "emphasis" },
+    { "from": "print", "to": "attach", "label": "打印成功", "variant": "emphasis", "role": "return", "fromSide": "top", "toSide": "bottom", "route": "up-channel", "labelSegment": 1 },
+
+    { "from": "pool", "to": "pc_open", "label": "需完整处理", "variant": "default", "fromSide": "right", "toSide": "top", "via": [[300, 119], [300, 321]], "labelAt": [326, 284] },
+    { "from": "pc_open", "to": "pc_action", "variant": "default" },
+    { "from": "pc_action", "to": "pc_output", "variant": "default" },
+
+    { "from": "pool", "to": "variance", "label": "出货异常", "variant": "security", "role": "branch", "fromSide": "left", "toSide": "left", "route": "return-left", "labelAt": [116, 449] },
+    { "from": "variance", "to": "decision", "label": "提交授权", "variant": "security" },
+    { "from": "decision", "to": "pc_output", "label": "决定回执", "variant": "security", "role": "return", "fromSide": "top", "toSide": "bottom", "route": "up-channel", "labelSegment": 1 },
+    { "from": "pc_output", "to": "warehouse", "label": "新纸单", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "drop", "labelSegment": 1, "labelDx": 28 },
+
+    { "from": "pc_action", "to": "conflict", "label": "旧版本提交", "variant": "security", "role": "error", "fromSide": "bottom", "toSide": "top", "route": "drop", "labelAt": [410, 535] },
+    { "from": "print", "to": "print_fail", "label": "失败 / 超时", "variant": "security", "role": "error", "fromSide": "right", "toSide": "right", "route": "outside-right", "labelSegment": 1, "labelDy": 22 }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "办公室 A/B 的真实边界",
+      "items": [
+        "两人同权限、同一共享任务池，不按订单或原料拆岗",
+        "手机是伴随端；订单、对账、完整出库处理仍在 PC",
+        "每人独立账号与设备，所有提交记录实际操作者",
+        "未完成事项保留当前状态、备注和明确下一步"
+      ]
+    },
+    {
+      "dot": "cyan",
+      "title": "首期原料主线",
+      "items": [
+        "拍单后直接进入全部卷料核对，不回到首页",
+        "每卷都要确认；缺规格先补齐，不能跳过",
+        "手机可信打印必须等设备回执，失败使用同一作业重试",
+        "打印完成后逐卷核对标签与实物，最后完成整单收货"
+      ]
+    },
+    {
+      "dot": "rose",
+      "title": "请重点核对这些业务点",
+      "items": [
+        "出货差异在手机只查看，还是允许办公室直接补充证据？",
+        "决定生效后由谁、在哪台电脑打印新版纸单？",
+        "打印失败时 A/B 是否可直接接力，还是必须显式交接？",
+        "版本冲突出现时，允许接手还是必须回到原操作者？"
+      ]
+    }
+  ]
+}

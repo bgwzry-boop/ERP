@@ -730,6 +730,61 @@ export async function updateOfficeMasterDataEmployeeAssignment(input = {}, optio
   }
 }
 
+export async function updateOfficeMasterDataEmployeeProfile(input = {}, options = {}) {
+  const safeEmployeeId = cleanText(input.employeeId);
+  if (!safeEmployeeId) {
+    return {
+      source: "client",
+      blocked: true,
+      error: { code: "MASTER_DATA_EMPLOYEE_ID_REQUIRED", message: "缺少员工 ID。" },
+    };
+  }
+  try {
+    const response = await requestMasterDataImportApi(
+      `/master-data/employee-account-reviews/${encodeURIComponent(safeEmployeeId)}/profile`,
+      {
+        ...options,
+        authState: input.authState,
+        method: "POST",
+        operatorId: input.operatorId,
+        body: {
+          birthDate: cleanText(input.birthDate),
+          hireDate: cleanText(input.hireDate),
+          baseHourlyWage: input.baseHourlyWage,
+          positionAllowanceHourly: input.positionAllowanceHourly,
+          wageEffectiveFrom: cleanText(input.wageEffectiveFrom),
+          attendanceProvider: cleanText(input.attendanceProvider),
+          attendanceExternalId: cleanText(input.attendanceExternalId),
+          remark: cleanText(input.remark),
+          reason: cleanText(input.reason),
+        },
+      },
+    );
+    const json = await readJson(response);
+    if (!response.ok) {
+      return {
+        source: "api_error",
+        blocked: true,
+        error: toApiError(json, response.status, "员工档案保存 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      employeeAccountReview: normalizeEmployeeAccountReview(json?.employeeAccountReview),
+      operationLogId: cleanText(json?.operationLogId),
+    };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      error: {
+        code: "MASTER_DATA_EMPLOYEE_PROFILE_API_UNAVAILABLE",
+        message: error?.message ?? String(error),
+      },
+    };
+  }
+}
+
 export async function listOfficeMasterDataMachines(input = {}, options = {}) {
   const { authState, operatorId, filters = {}, page = 1, pageSize = 100 } = input;
   try {
@@ -1090,6 +1145,24 @@ function normalizeEmployeeAccountReview(review, extra = {}) {
     roleName: cleanText(review.roleName),
     defaultWorkshop: cleanText(review.defaultWorkshop),
     defaultMachineId: cleanText(review.defaultMachineId),
+    birthDate: cleanText(review.birthDate),
+    age: review.age === null || review.age === undefined ? null : Number(review.age),
+    hireDate: cleanText(review.hireDate),
+    seniorityYears: review.seniorityYears === null || review.seniorityYears === undefined
+      ? null
+      : Number(review.seniorityYears),
+    baseHourlyWage: Number(review.baseHourlyWage) || 0,
+    positionAllowanceHourly: Number(review.positionAllowanceHourly) || 0,
+    wageEffectiveFrom: cleanText(review.wageEffectiveFrom),
+    attendanceProvider: cleanText(review.attendanceProvider),
+    attendanceExternalId: cleanText(review.attendanceExternalId),
+    attendanceMappingUpdatedBy: cleanText(review.attendanceMappingUpdatedBy),
+    attendanceMappingUpdatedAt: cleanText(review.attendanceMappingUpdatedAt),
+    attendanceMapped: review.attendanceMapped === true,
+    departedAt: cleanText(review.departedAt),
+    departureEffectiveDate: cleanText(review.departureEffectiveDate),
+    departedBy: cleanText(review.departedBy),
+    departureReason: cleanText(review.departureReason),
     configuredMachineId: cleanText(review.configuredMachineId),
     configuredMachineLabel: cleanText(review.configuredMachineLabel),
     machineConfigurationStatus: cleanText(review.machineConfigurationStatus),

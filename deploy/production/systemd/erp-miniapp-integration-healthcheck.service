@@ -1,0 +1,21 @@
+[Unit]
+Description=ERP miniapp integration and queue health check
+After=erp-bagwin-integration.service erp-price-release-worker.service erp-miniapp-artwork-worker.service
+Wants=erp-bagwin-integration.service erp-price-release-worker.service erp-miniapp-artwork-worker.service
+
+[Service]
+Type=oneshot
+User=erp
+Group=erp
+WorkingDirectory=/opt/erp/current
+Environment=NODE_ENV=production
+Environment=ERP_RUNTIME_MODE=production
+EnvironmentFile=/etc/erp/erp-service.env
+ExecStartPre=/usr/bin/test -r /etc/erp/erp.production.env
+ExecStart=/usr/bin/node scripts/run-miniapp-integration-health-check.mjs
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/var/lib/erp

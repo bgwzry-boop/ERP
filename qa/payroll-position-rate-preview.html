@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>岗位定薪评审稿</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --canvas: oklch(97.1% 0.007 252);
+      --surface: oklch(99.6% 0.002 252);
+      --subtle: oklch(98.1% 0.005 252);
+      --selected: oklch(95.4% 0.025 252);
+      --ink: oklch(26% 0.035 258);
+      --muted: oklch(46% 0.032 255);
+      --border: oklch(88.5% 0.014 252);
+      --border-strong: oklch(82.5% 0.075 252);
+      --blue: oklch(59% 0.205 255);
+      --blue-strong: oklch(51% 0.19 255);
+      --blue-soft: oklch(97% 0.018 252);
+      --success: oklch(47% 0.12 155);
+      --success-soft: oklch(97.5% 0.018 155);
+      --warning: oklch(49% 0.115 77);
+      --warning-soft: oklch(98.2% 0.025 83);
+      --orange: oklch(64% 0.22 42);
+      --nav: oklch(21% 0.04 250);
+      --nav-text: oklch(91% 0.024 250);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-width: 1060px;
+      min-height: 100vh;
+      color: var(--ink);
+      background: var(--canvas);
+      font: 13px/1.5 Geist, "PingFang SC", "Noto Sans SC", "Microsoft YaHei", system-ui, sans-serif;
+    }
+    button, input { font: inherit; }
+    button:focus-visible, input:focus-visible { outline: 3px solid var(--blue); outline-offset: 2px; }
+    .shell { display: grid; grid-template-columns: 164px minmax(0, 1fr); min-height: 100vh; }
+    .sidebar { color: var(--nav-text); background: var(--nav); }
+    .brand {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 18px;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+    }
+    .brand-mark { color: var(--orange); font-size: 30px; font-weight: 800; letter-spacing: -3px; }
+    .brand-name { color: var(--ink); font-size: 19px; font-weight: 800; }
+    nav { padding: 12px 7px; }
+    nav div { padding: 9px 12px; }
+    nav .child { padding-left: 32px; font-size: 12px; }
+    nav .active { color: white; background: var(--orange); border-radius: 4px; }
+    main { min-width: 0; }
+    .topbar {
+      height: 60px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 0 18px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }
+    .search {
+      width: min(460px, 50vw);
+      height: 36px;
+      display: flex;
+      align-items: center;
+      padding: 0 12px;
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+    }
+    .user { margin-left: auto; font-weight: 600; }
+    .workspace {
+      height: calc(100vh - 60px);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 320px;
+      gap: 8px;
+      padding: 10px;
+    }
+    .panel { min-width: 0; overflow: hidden; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; }
+    .main-panel { display: flex; flex-direction: column; }
+    .heading {
+      min-height: 54px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 0 14px;
+      border-bottom: 1px solid var(--border);
+    }
+    .heading h1 { margin: 0; font-size: 18px; }
+    .heading .count { margin-left: auto; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .rule-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 48px;
+      padding: 8px 14px;
+      color: var(--blue-strong);
+      background: var(--blue-soft);
+      border-bottom: 1px solid var(--border-strong);
+    }
+    .rule-bar strong { color: var(--ink); }
+    .pilot { margin-left: auto; padding: 3px 8px; color: var(--warning); background: var(--warning-soft); border: 1px solid var(--border); border-radius: 4px; font-size: 11px; font-weight: 700; }
+    .toolbar { display: flex; gap: 8px; padding: 10px 12px; border-bottom: 1px solid var(--border); }
+    .tabs { display: flex; gap: 4px; }
+    .tab { min-width: 112px; height: 34px; color: var(--muted); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; }
+    .tab.active { color: var(--blue-strong); background: var(--blue-soft); border-color: var(--border-strong); font-weight: 700; }
+    .toolbar .search { flex: 1; width: auto; margin-left: 8px; }
+    .primary { height: 34px; padding: 0 14px; color: white; background: var(--blue); border: 0; border-radius: 5px; font-weight: 700; }
+    .table-head, .row {
+      display: grid;
+      grid-template-columns: 108px minmax(156px, 1fr) 92px 100px 116px 108px 82px;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+    }
+    .table-head { min-height: 38px; color: var(--muted); background: var(--subtle); border-bottom: 1px solid var(--border); font-size: 11px; }
+    .row { min-height: 58px; border-bottom: 1px solid var(--border); font-variant-numeric: tabular-nums; }
+    .row.selected { background: var(--selected); box-shadow: inset 0 0 0 1px var(--border-strong); }
+    .row b { font-size: 12px; }
+    .row small { display: block; color: var(--muted); }
+    .money { font-weight: 700; }
+    .pending { color: var(--warning); font-weight: 700; }
+    .enabled { color: var(--success); font-weight: 700; }
+    .empty { color: var(--muted); }
+    .footnote { margin-top: auto; padding: 12px 14px; color: var(--muted); background: var(--subtle); border-top: 1px solid var(--border); }
+    .detail { display: flex; flex-direction: column; min-height: 0; }
+    .detail-head { padding: 14px; border-bottom: 1px solid var(--border); }
+    .detail-head small { color: var(--muted); }
+    .detail-head h2 { margin: 3px 0 0; font-size: 19px; }
+    .detail-scroll { overflow: auto; padding: 0 14px 18px; }
+    .section { padding: 14px 0; border-bottom: 1px solid var(--border); }
+    .section h3 { margin: 0 0 10px; font-size: 13px; }
+    dl { display: grid; grid-template-columns: 1fr 1fr; gap: 10px 14px; margin: 0; }
+    dt { color: var(--muted); font-size: 11px; }
+    dd { margin: 2px 0 0; font-weight: 650; }
+    .form { display: grid; gap: 10px; padding-top: 14px; }
+    label { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
+    input { height: 35px; padding: 0 9px; color: var(--ink); background: var(--surface); border: 1px solid var(--border); border-radius: 5px; }
+    .money-fields { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .scope { padding: 10px; color: var(--muted); background: var(--subtle); border: 1px solid var(--border); border-radius: 6px; font-size: 11px; }
+    .scope strong { display: block; margin-bottom: 3px; color: var(--ink); }
+    .save { height: 38px; color: white; background: var(--blue); border: 0; border-radius: 5px; font-weight: 750; }
+    .legend { margin-top: 8px; color: var(--muted); font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="brand"><span class="brand-mark">W</span><span class="brand-name">袋袋赢</span></div>
+      <nav>
+        <div>工作台</div><div>订单管理</div><div>原料管理</div><div>生产交付</div><div>库存管理</div><div>财务管理</div>
+        <div class="child active">工资核算</div><div>基础资料</div><div class="child">员工机台</div>
+      </nav>
+    </aside>
+    <main>
+      <header class="topbar"><div class="search">⌕　搜索岗位 / 员工 / 工号</div><div class="user">会计A</div></header>
+      <div class="workspace">
+        <section class="panel main-panel">
+          <div class="heading"><h1>岗位工资标准</h1><span class="count">原表：9 类当前时薪 · 1 类日薪</span></div>
+          <div class="rule-bar"><strong>已读取原工资表</strong><span>当前标准来自《26年工资 (2).xlsx》；调薪按生效日期新增版本，不覆盖历史月份。</span><span class="pilot">1 人功能试运行</span></div>
+          <div class="toolbar">
+            <div class="tabs"><button class="tab active">岗位工资标准</button><button class="tab">员工岗位关联</button></div>
+            <div class="search">搜索当前岗位</div><button class="primary">＋ 新建岗位标准</button>
+          </div>
+          <div class="table-head"><span>岗位编号</span><span>工资表岗位</span><span>表内员工</span><span>基础工资</span><span>岗位补贴/小时</span><span>当前合计</span><span>来源</span></div>
+          <div class="row selected"><b>PAY-BAG</b><span><b>制袋机-理袋女工</b><small>1–9 号机共用岗位标准</small></span><span>10 人</span><span class="money">¥10/时</span><span class="money">¥5/时</span><span class="money">¥15/时</span><span class="enabled">原表</span></div>
+          <div class="row"><b>PAY-PRINT</b><span><b>印刷机-男工</b><small>1–4 号机共用岗位标准</small></span><span>4 人</span><span class="money">¥15/时</span><span class="money">¥5/时</span><span class="money">¥20/时</span><span class="enabled">原表</span></div>
+          <div class="row"><b>PAY-MALE</b><span><b>普工-男杂工</b><small>岗位工资，不按个人重复维护</small></span><span>4 人</span><span class="money">¥15/时</span><span class="money">¥3/时</span><span class="money">¥18/时</span><span class="enabled">原表</span></div>
+          <div class="row"><b>PAY-LEAD</b><span><b>普工组长</b><small>岗位工资，不等同账号权限</small></span><span>1 人</span><span class="money">¥15/时</span><span class="money">¥5/时</span><span class="money">¥20/时</span><span class="enabled">原表</span></div>
+          <div class="row"><b>PAY-WARE</b><span><b>库管-女</b><small>工资表原岗位名称</small></span><span>1 人</span><span class="money">¥10/时</span><span class="money">¥5/时</span><span class="money">¥15/时</span><span class="enabled">原表</span></div>
+          <div class="row"><b>PAY-OFFICE</b><span><b>办公室-女</b><small>工资表原岗位名称</small></span><span>2 人</span><span class="money">¥10/时</span><span class="money">¥2/时</span><span class="money">¥12/时</span><span class="enabled">原表</span></div>
+          <div class="row"><b>PAY-DRIVER</b><span><b>送货司机</b><small>此岗位按出勤天数计薪</small></span><span>2 人</span><span class="money">¥180/天</span><span class="empty">不适用</span><span class="money">¥180/天</span><span class="enabled">原表</span></div>
+          <div class="footnote">当前时薪岗位还包含女杂工、提手-拿袋、技术工；原表另保留早期“提手”岗位及调薪前记录。正式工资草稿按员工、岗位和当期标准保存不可变快照。</div>
+        </section>
+        <aside class="panel detail">
+          <div class="detail-head"><small>当前选中 · 工资表岗位</small><h2>制袋机-理袋女工</h2></div>
+          <div class="detail-scroll">
+            <section class="section">
+              <h3>岗位定义</h3>
+              <dl><div><dt>岗位编号</dt><dd>PAY-BAG</dd></div><div><dt>表内员工</dt><dd>10 人</dd></div><div><dt>适用机台</dt><dd>1–9 号制袋机</dd></div><div><dt>计薪方式</dt><dd>按工时</dd></div></dl>
+            </section>
+            <section class="section">
+              <h3>原工资表标准</h3>
+              <div class="form">
+                <div class="money-fields"><label>基础时薪（元/小时）<input readonly value="10" /></label><label>岗位补贴（元/小时）<input readonly value="5" /></label></div>
+                <label>当前小时合计<input readonly value="15 元/小时" /></label>
+                <div class="scope"><strong>工资计算</strong>工时 ×（基础时薪＋岗位补贴）＋综合绩效＋工龄奖。绩效允许负数；调薪必须新建生效版本。</div>
+                <button class="save">生成岗位工资版本草稿</button>
+                <div class="legend">来源：原工资表 2026 年 3 月 14 日起的制袋机岗位记录；发布前仍需会计核对生效日期。</div>
+              </div>
+            </section>
+            <section class="section">
+              <h3>共同工资构成</h3>
+              <dl><div><dt>综合绩效</dt><dd>按月录入</dd></div><div><dt>工龄奖</dt><dd>满 1 年 ¥30</dd></div><div><dt>工龄递增</dt><dd>每多 1 年 +¥15</dd></div><div><dt>试运行账号</dt><dd>1 人</dd></div></dl>
+            </section>
+          </div>
+        </aside>
+      </div>
+    </main>
+  </div>
+</body>
+</html>

@@ -52,13 +52,13 @@ const blockedResult = JSON.parse(blockedRun.stdout);
 assert.equal(blockedResult.scope, "v1_field_evidence_intake_pack");
 assert.equal(blockedResult.status, "blocked_pack_written");
 assert.equal(blockedResult.ready, false);
-assert.equal(blockedResult.summary.requiredEvidenceItems, "0/34");
+assert.equal(blockedResult.summary.requiredEvidenceItems, "0/40");
 assert.equal(blockedResult.summary.signoffs, "0/6");
 assert.equal(blockedResult.summary.releaseCandidate, "0/4 发布门禁通过");
 assert.equal(blockedResult.summary.v1Readiness, "76-79%");
 assert.equal(blockedResult.summary.onsiteTasks, 52);
-assert.equal(blockedResult.groups.length, 6);
-assert.equal(blockedResult.files.groupMarkdownFiles.length, 6);
+assert.equal(blockedResult.groups.length, 7);
+assert.equal(blockedResult.files.groupMarkdownFiles.length, 7);
 assert.equal(blockedResult.safeguards.rawEvidenceRefsIncluded, false);
 assert.equal(blockedResult.safeguards.possibleSensitiveEvidenceRefCount, 5);
 assert.ok(existsSync(join(blockedOutputRoot, "groups", "print_hardware.zh-CN.md")));
@@ -106,7 +106,7 @@ assert.equal(readyRun.status, 0, runFailureMessage("ready intake pack should be 
 const readyResult = JSON.parse(readyRun.stdout);
 assert.equal(readyResult.status, "ready_pack_written");
 assert.equal(readyResult.ready, true);
-assert.equal(readyResult.summary.requiredEvidenceItems, "34/34");
+assert.equal(readyResult.summary.requiredEvidenceItems, "40/40");
 assert.equal(readyResult.summary.signoffs, "6/6");
 assert.equal(readyResult.summary.boundary, "confirmed");
 assert.equal(readyResult.groups.every((group) => group.ready), true);
@@ -182,7 +182,7 @@ function buildBlockedReleaseCandidate() {
       totalGateCount: 4,
       blockingCount: 52,
       envPreflight: "2/10 通过",
-      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
       runtimeReadiness: "5/11 通过",
       fieldAcceptance: "5/11 通过",
     },
@@ -197,7 +197,7 @@ function buildBlockedTaskBoard() {
     summary: {
       label: "V1 现场仍有 52 个待处理任务",
       taskCount: 52,
-      evidenceTaskCount: 34,
+      evidenceTaskCount: 40,
       signoffTaskCount: 6,
       boundaryTaskCount: 1,
     },
@@ -228,7 +228,7 @@ function buildBlockedCompletionSnapshot() {
       v1Readiness: "76-79%",
       releaseGate: "0/4 发布门禁通过",
       runtimeReadiness: "5/11 通过",
-      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/34，签字 0/6",
+      fieldEvidence: "V1 现场证据清单仍阻塞：证据 0/40，签字 0/6",
       fieldAcceptance: "5/11 通过",
       onsiteTaskCount: 52,
       v2DifferenceCount: 17,

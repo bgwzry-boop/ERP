@@ -504,6 +504,14 @@ export function createProductionReportingCommandService({
       if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
         return businessError(422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
       }
+      const idempotencyPayload = { ...body, operatorId };
+      if (body.idempotencyKey) {
+        const replay = await workspace.productionPackingTransactionRepository.findProductionReportIdempotentReplay?.({
+          idempotencyKey: body.idempotencyKey,
+          idempotencyPayload,
+        });
+        if (replay) return success(buildProductionReportResponse(replay, { productionTaskId }));
+      }
       if (isProductionTaskCompletedStatus(beforeTask.taskStatus ?? beforeTask.status)) {
         return businessError(409, "PRODUCTION_TASK_ALREADY_COMPLETED", "Completed production tasks cannot submit another completion report.");
       }
@@ -679,38 +687,51 @@ export function createProductionReportingCommandService({
         inventoryLedgerEntries,
         operationLog,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { ...body, operatorId },
+        idempotencyPayload,
       });
 
-      return success({
-        productionTaskId,
-        reportId: transaction.workshopReport.reportId,
-        orderLineId,
-        status: transaction.productionTask.taskStatus,
-        orderLineStatus: transaction.orderLine?.lineStatus ?? orderLine.status,
-        qualifiedQty: transaction.workshopReport.qualifiedQty,
-        machineCount: transaction.workshopReport.machineCount ?? null,
-        machineCountAffectsInventory: false,
-        capacityCalibrationCreated: Boolean(transaction.machineCapacityBaseline?.capacityBaselineId),
-        capacityBaselineId: transaction.machineCapacityBaseline?.capacityBaselineId ?? "",
-        capacityCalibration: transaction.machineCapacityBaseline
-          ? {
-              capacityBaselineId: transaction.machineCapacityBaseline.capacityBaselineId,
-              machineId: transaction.machineCapacityBaseline.machineId,
-              sizeKey: transaction.machineCapacityBaseline.sizeKey,
-              dailyCapacityQty: transaction.machineCapacityBaseline.dailyCapacityQty,
-              sourceKind: transaction.machineCapacityBaseline.sourceKind,
-              confidence: transaction.machineCapacityBaseline.confidence,
-              effectiveFrom: transaction.machineCapacityBaseline.effectiveFrom,
-            }
-          : null,
-        inventoryItemId: inventoryItem.id,
-        reservationId: transaction.inventoryReservations[0]?.reservationId ?? reservation.reservationId,
-        packingTaskId: transaction.packingTask?.packingTaskId ?? "",
-        inventoryLedgerIds: transaction.inventoryLedgerEntries.map((entry) => entry.ledgerId),
-        operationLogId: transaction.operationLogId,
-      });
+      return success(buildProductionReportResponse(transaction, { productionTaskId, orderLineId, inventoryItemId: inventoryItem.id }));
     },
+  };
+}
+
+function buildProductionReportResponse(transaction, fallbacks = {}) {
+  const productionTask = transaction.productionTask ?? {};
+  const workshopReport = transaction.workshopReport ?? {};
+  const orderLine = transaction.orderLine ?? {};
+  const capacityBaseline = transaction.machineCapacityBaseline ?? null;
+  const inventoryItemId =
+    fallbacks.inventoryItemId ??
+    transaction.inventoryItems?.[0]?.id ??
+    transaction.inventoryLedgerEntries?.[0]?.inventoryItemId ??
+    "";
+  return {
+    productionTaskId: productionTask.productionTaskId ?? productionTask.id ?? fallbacks.productionTaskId ?? "",
+    reportId: workshopReport.reportId ?? "",
+    orderLineId: workshopReport.orderLineId ?? productionTask.orderLineId ?? orderLine.orderLineId ?? orderLine.id ?? fallbacks.orderLineId ?? "",
+    status: productionTask.taskStatus ?? productionTask.status ?? "",
+    orderLineStatus: orderLine.lineStatus ?? orderLine.status ?? "",
+    qualifiedQty: workshopReport.qualifiedQty ?? 0,
+    machineCount: workshopReport.machineCount ?? null,
+    machineCountAffectsInventory: false,
+    capacityCalibrationCreated: Boolean(capacityBaseline?.capacityBaselineId),
+    capacityBaselineId: capacityBaseline?.capacityBaselineId ?? "",
+    capacityCalibration: capacityBaseline
+      ? {
+          capacityBaselineId: capacityBaseline.capacityBaselineId,
+          machineId: capacityBaseline.machineId,
+          sizeKey: capacityBaseline.sizeKey,
+          dailyCapacityQty: capacityBaseline.dailyCapacityQty,
+          sourceKind: capacityBaseline.sourceKind,
+          confidence: capacityBaseline.confidence,
+          effectiveFrom: capacityBaseline.effectiveFrom,
+        }
+      : null,
+    inventoryItemId,
+    reservationId: transaction.inventoryReservations?.[0]?.reservationId ?? "",
+    packingTaskId: transaction.packingTask?.packingTaskId ?? "",
+    inventoryLedgerIds: (transaction.inventoryLedgerEntries ?? []).map((entry) => entry.ledgerId),
+    operationLogId: transaction.operationLogId ?? "",
   };
 }
 

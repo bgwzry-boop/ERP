@@ -110,7 +110,7 @@ try {
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const authServiceSource = readFileSync(new URL("../src/services/officeAuthService.js", import.meta.url), "utf8");
-assert.match(appSource, /useRuntimeAuthInvalidation\(\{ enabled: runtimeServerRequired, onInvalidate: invalidateRuntimeUserSession \}\)/);
+assert.match(appSource, /useRuntimeAuthInvalidation\(\{ enabled: formalLoginRequired, onInvalidate: invalidateRuntimeUserSession \}\)/);
 assert.match(authServiceSource, /notifyRuntimeAuthInvalidationForResponse\(response/);
 
 console.log("Runtime auth invalidation checks passed: authoritative 401 revocation/disable handling clears the formal browser workspace without treating ordinary denials as logout.");

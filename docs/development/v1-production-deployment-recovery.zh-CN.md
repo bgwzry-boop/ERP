@@ -1,6 +1,6 @@
 # V1 生产部署、恢复与回滚手册
 
-更新日期：2026-07-11
+更新日期：2026-08-04
 
 ## 一、适用范围
 
@@ -22,6 +22,14 @@
         -> erp-api.service
            -> PostgreSQL
            -> OSS / S3 / COS
+     -> /api/v1/integrations/bagwin/orders*：127.0.0.1:8790
+        -> erp-bagwin-integration.service（HMAC 接单、状态、对账）
+
+erp-price-release-worker.service
+  -> 小程序价格接收器（ERP 权威价格发布）
+
+erp-miniapp-artwork-worker.service
+  -> 小程序稿件接收器（一次性 HMAC 拉取、SHA-256 复核）
 ```
 
 生产目录：
@@ -50,6 +58,11 @@ sudo install -o root -g erp -m 0640 deploy/production/erp-service.env.example /e
 sudo install -o root -g root -m 0644 deploy/production/systemd/erp-api.service /etc/systemd/system/erp-api.service
 sudo install -o root -g root -m 0644 deploy/production/systemd/erp-api-healthcheck.service /etc/systemd/system/erp-api-healthcheck.service
 sudo install -o root -g root -m 0644 deploy/production/systemd/erp-api-healthcheck.timer /etc/systemd/system/erp-api-healthcheck.timer
+sudo install -o root -g root -m 0644 deploy/production/systemd/erp-bagwin-integration.service /etc/systemd/system/erp-bagwin-integration.service
+sudo install -o root -g root -m 0644 deploy/production/systemd/erp-price-release-worker.service /etc/systemd/system/erp-price-release-worker.service
+sudo install -o root -g root -m 0644 deploy/production/systemd/erp-miniapp-artwork-worker.service /etc/systemd/system/erp-miniapp-artwork-worker.service
+sudo install -o root -g root -m 0644 deploy/production/systemd/erp-miniapp-integration-healthcheck.service /etc/systemd/system/erp-miniapp-integration-healthcheck.service
+sudo install -o root -g root -m 0644 deploy/production/systemd/erp-miniapp-integration-healthcheck.timer /etc/systemd/system/erp-miniapp-integration-healthcheck.timer
 ```
 
 把审核后的生产 env 安装为：
@@ -68,11 +81,15 @@ node scripts/run-v1-production-env-preflight.mjs --env-file /etc/erp/erp.product
 
 任一报告 blocked 时停止部署。
 
+小程序接入启用时，安全 env 还必须提供三组互不复用的 HMAC 凭据：订单接单、价格发布、稿件拉取。ERP 的 `BAGWIN_ERP_HMAC_*` 与小程序的 `ERP_HTTP_*` 成对；ERP 的 `MINIAPP_PRICE_RELEASE_HMAC_*` 与小程序的 `PRICE_RELEASE_HMAC_*` 成对；ERP 的 `MINIAPP_ARTWORK_HMAC_*` 与小程序的 `ARTWORK_TRANSFER_HMAC_*` 成对。两条 ERP 到小程序的 base URL 在生产模式必须是 HTTPS。
+
 生产 env 的 `ERP_PRINT_COMMAND_BRIDGE_SPOOL_DIR` 必须使用 `/var/spool/erp-print`；systemd 的 `ProtectSystem=strict` 只对白名单目录开放写权限。若现场打印桥在独立 Windows 主机上使用其他共享目录，必须先由技术运维调整 unit 的 `ReadWritePaths` 并重新执行部署清单检查，不能直接放宽整个文件系统。
 
 ## 四、候选提交和全新目录恢复检查
 
 发布必须固定到完整 40 位 commit，禁止只按可移动分支名部署。
+
+先按照[《ERP 单一版本与受控发布规则》](./controlled-release-governance.zh-CN.md)从干净、已推送且与上游一致的候选分支生成 `tencent-production` 发布锁。工作区脏、提交未推送或锁与候选提交不一致时禁止继续。
 
 先在当前候选仓库检查部署清单：
 
@@ -88,6 +105,7 @@ node scripts/run-v1-production-deployment-manifest.mjs --json
 node scripts/run-v1-production-remote-recovery.mjs \
   --repository-url <controlled-git-remote> \
   --expected-commit <full-40-char-commit> \
+  --release-lock <tencent-production-release-lock> \
   --target-dir /opt/erp/releases/<full-40-char-commit> \
   --env-file /etc/erp/erp.production.env \
   --json
@@ -95,14 +113,15 @@ node scripts/run-v1-production-remote-recovery.mjs \
 
 该检查固定执行：
 
-1. 安全 env 审计。
-2. 在不存在的新目录 clone。
-3. detached checkout 固定 commit 并复核一致性。
-4. `npm ci --ignore-scripts --no-audit --no-fund`。
-5. 以 `VITE_ERP_RUNTIME_MODE=production`、`VITE_ERP_API_BASE_URL=/api` 构建。
-6. 数据库迁移 dry-run。
-7. 部署清单复核。
-8. 从安全 env 启动临时生产 API，执行只读 runtime smoke 后停止。
+1. 复核 `tencent-production` 发布锁、目标、完整提交和摘要。
+2. 安全 env 审计。
+3. 在不存在的新目录 clone。
+4. detached checkout 固定 commit 并复核一致性。
+5. `npm ci --ignore-scripts --no-audit --no-fund`。
+6. 以同一发布锁身份执行生产前端构建。
+7. 数据库迁移 dry-run。
+8. 部署清单复核。
+9. 从安全 env 启动临时生产 API，执行只读 runtime smoke 后停止。
 
 失败目录不会自动删除或覆盖，保留给技术运维排查。报告不包含远端地址、目标路径、env 路径、命令输出或密钥。
 
@@ -141,7 +160,11 @@ sudo ln -s /opt/erp/releases/<full-40-char-commit> /opt/erp/current.next
 sudo mv -Tf /opt/erp/current.next /opt/erp/current
 sudo systemctl daemon-reload
 sudo systemctl restart erp-api.service
+sudo systemctl restart erp-bagwin-integration.service
+sudo systemctl restart erp-price-release-worker.service
+sudo systemctl restart erp-miniapp-artwork-worker.service
 sudo systemctl enable --now erp-api-healthcheck.timer
+sudo systemctl enable --now erp-miniapp-integration-healthcheck.timer
 ```
 
 API 只监听 `127.0.0.1:8787`。systemd 发送 `SIGTERM` 时，API 停止接收新请求，等待在途请求结束，关闭共享 PostgreSQL 连接池；25 秒未完成时强制退出，systemd 总停止上限为 30 秒。
@@ -152,9 +175,13 @@ API 只监听 `127.0.0.1:8787`。systemd 发送 `SIGTERM` 时，API 停止接收
 
 ```bash
 sudo install -o root -g root -m 0644 deploy/production/nginx/erp.conf /etc/nginx/conf.d/erp.conf
+sudo install -d -o root -g root -m 0755 /etc/erp/nginx
+sudo install -o root -g root -m 0644 deploy/production/nginx/miniapp-integration-allowlist.conf.example /etc/erp/nginx/miniapp-integration-allowlist.conf
 sudo nginx -t
 sudo systemctl reload nginx
 ```
+
+安装 allowlist 后必须先把文档专用的 `192.0.2.10/32` 替换为小程序 BFF 的真实固定出口 CIDR，并保留最后一行 `deny all`；未取得固定出口时不得开放该入口。订单接入公网路径只转发到回环 `8790`，不能落到普通 ERP API 进程。
 
 验收：
 
@@ -172,6 +199,8 @@ curl --fail --silent --show-error https://<erp-host>/healthz
 systemctl status erp-api-healthcheck.timer
 systemctl list-timers erp-api-healthcheck.timer
 systemctl status erp-api-healthcheck.service
+systemctl status erp-miniapp-integration-healthcheck.timer
+systemctl status erp-miniapp-integration-healthcheck.service
 ```
 
 探针检查 8 项：HTTP、health 状态、production 模式、安全 env 已应用、PostgreSQL profile、无不支持仓储、附件对象存储、对账导出对象存储。它不输出 API URL、响应正文、业务数量、env 路径或密钥。
@@ -181,13 +210,21 @@ systemctl status erp-api-healthcheck.service
 ```bash
 journalctl -u erp-api.service --since today
 journalctl -u erp-api-healthcheck.service --since today
+journalctl -u erp-bagwin-integration.service --since today
+journalctl -u erp-price-release-worker.service --since today
+journalctl -u erp-miniapp-artwork-worker.service --since today
+journalctl -u erp-miniapp-integration-healthcheck.service --since today
 tail -n 200 /var/log/nginx/error.log
 ```
+
+小程序接入健康检查只输出服务布尔状态和队列计数，不输出订单号、客户、稿件 ID、价格摘要、连接串或密钥。任一 dead job、过期租约或超过 15 分钟仍到期未处理的任务都会使检查失败；稿件 dead job 还会在 ERP 待办中产生 `小程序稿件传输失败`，正式订单确认继续被数据库门禁阻止。
 
 正式放行前，技术运维必须把以下事件接入工厂现有受控告警渠道，并保留一次测试告警记录：
 
 - `erp-api.service` 进入 failed 或连续重启。
 - `erp-api-healthcheck.service` 失败。
+- `erp-bagwin-integration.service`、价格 worker 或稿件 worker 进入 failed / 连续重启。
+- `erp-miniapp-integration-healthcheck.service` 失败，或价格 / 稿件队列出现 dead、过期租约、持续积压。
 - nginx 5xx 超阈值。
 - PostgreSQL 连接、容量或备份任务异常。
 - 对象存储访问、容量、生命周期或加密策略异常。
@@ -207,6 +244,8 @@ curl --fail --silent --show-error http://127.0.0.1:8787/api/health
 ```
 
 迁移采用向前兼容策略，应用回滚不自动执行数据库 down migration。若新迁移与旧应用不兼容，停止业务流量，按已批准的数据库恢复方案恢复到独立新库，复核后再切换连接；禁止直接重置生产库。
+
+若仅回滚小程序接入能力，先在 Nginx allowlist 中关闭小程序来源并 reload，再停止三个接入服务；已进入 ERP 的草稿、价格发布记录和稿件任务不得删除。恢复服务后由幂等接单、价格 outbox 和租约任务继续处理。当前 `ERP_FIRST_RELEASE_SCOPE=raw_material` 仍是正式业务写入边界：在另行批准扩大范围前，小程序仅允许 Staging / UAT 验证到 ERP 草稿和待办，不得据此开放真实订单流量。
 
 回滚后执行：
 

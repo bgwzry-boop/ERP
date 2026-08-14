@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import {
   createTencentCloudTableOcrService,
   normalizeTencentOcrImage,
+  readTencentOcrImageDimensions,
   TENCENT_TABLE_OCR_ACTION,
   TENCENT_TABLE_OCR_VERSION,
 } from "../server/services/tencentCloudTableOcrService.mjs";
@@ -62,6 +63,16 @@ await assert.rejects(
 assert.throws(
   () => normalizeTencentOcrImage({ contentDataUrl: "data:text/plain;base64,YQ==", mimeType: "text/plain" }),
   (error) => error.code === "TENCENT_OCR_FILE_TYPE_NOT_SUPPORTED",
+);
+
+const pngHeader = Buffer.alloc(24);
+Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]).copy(pngHeader, 0);
+pngHeader.writeUInt32BE(2400, 16);
+pngHeader.writeUInt32BE(3200, 20);
+assert.deepEqual(
+  readTencentOcrImageDimensions(pngHeader, "image/png"),
+  { width: 2400, height: 3200 },
+  "OCR input dimensions should be retained as the source-row coordinate frame",
 );
 assert.throws(
   () => normalizeTencentOcrImage({ contentDataUrl: "data:image/png;base64,%%%", mimeType: "image/png" }),

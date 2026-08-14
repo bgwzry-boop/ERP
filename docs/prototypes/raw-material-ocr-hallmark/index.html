@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>原材料收货 · 核对送货单 · Hallmark 原型</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@600;700&family=IBM+Plex+Sans:wght@400;500&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="./tokens.css" />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="app-shell" id="appShell">
+      <header class="task-bar">
+        <button class="icon-button" type="button" aria-label="返回拍单" id="backButton">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m15 18-6-6 6-6" /></svg>
+        </button>
+        <div class="task-title">
+          <h1>核对送货单</h1>
+          <p>原材料收货</p>
+        </div>
+        <span class="step-count" aria-label="第 2 步，共 4 步">2 / 4</span>
+      </header>
+
+      <div class="step-line" aria-label="拍单已完成，正在核对，之后打印和贴标">
+        <span class="is-done"></span><span class="is-current"></span><span></span><span></span>
+      </div>
+
+      <main>
+        <section class="source-section" aria-labelledby="sourceHeading">
+          <div class="section-heading">
+            <div>
+              <h2 id="sourceHeading">原送货单</h2>
+              <p>腾胜无纺布 · 2026-07-04</p>
+            </div>
+            <button class="text-button" type="button" id="openSource">放大查看</button>
+          </div>
+
+          <button class="delivery-note" type="button" id="openSourceImage" aria-label="放大查看原送货单">
+            <img src="./assets/delivery-note-upright.jpg" width="1536" height="864" fetchpriority="high" alt="宁晋县腾胜无纺布有限公司销货单原图" />
+          </button>
+
+          <div class="document-total" aria-label="识别汇总">
+            <strong><span class="tnum">9</span> 卷</strong>
+            <span class="document-total__rule" aria-hidden="true"></span>
+            <strong><span class="tnum">853.8</span> kg</strong>
+            <span>已识别 9 行</span>
+          </div>
+        </section>
+
+        <section class="review-section" aria-labelledby="reviewHeading">
+          <div class="review-heading">
+            <div>
+              <h2 id="reviewHeading">核对 9 卷</h2>
+              <p>9 卷一次看全；不对的直接点那一行。</p>
+            </div>
+            <span class="issue-count" id="issueCount">1 处待补</span>
+          </div>
+
+          <div class="column-head" aria-hidden="true">
+            <span>卷</span><span>颜色 / 规格</span><span>重量</span>
+          </div>
+          <div class="roll-list" id="rollList" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <aside class="action-bar" aria-live="polite">
+        <div class="action-copy">
+          <strong id="actionTitle">还差第 7 卷规格</strong>
+          <span id="actionHint">补完就能打印 9 张标签</span>
+        </div>
+        <button class="primary-button" type="button" id="primaryAction">补第 7 卷</button>
+      </aside>
+    </div>
+
+    <dialog class="source-dialog" id="sourceDialog" aria-labelledby="sourceDialogTitle">
+      <div class="dialog-bar">
+        <div>
+          <h2 id="sourceDialogTitle">原送货单</h2>
+          <p>双指缩放或左右拖动查看</p>
+        </div>
+        <button class="icon-button" type="button" id="closeSource" aria-label="关闭原送货单">
+          <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12" /></svg>
+        </button>
+      </div>
+      <div class="source-zoom">
+        <img src="./assets/delivery-note-upright.jpg" width="1536" height="864" alt="宁晋县腾胜无纺布有限公司销货单放大图" />
+      </div>
+    </dialog>
+
+    <dialog class="edit-dialog" id="editDialog" aria-labelledby="editDialogTitle">
+      <form method="dialog" id="editForm">
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div class="dialog-bar dialog-bar--sheet">
+          <div>
+            <p class="sheet-kicker" id="editDialogKicker">第 1 卷</p>
+            <h2 id="editDialogTitle">核对这一卷</h2>
+          </div>
+          <button class="icon-button" type="button" id="closeEdit" aria-label="关闭编辑">
+            <svg aria-hidden="true" viewBox="0 0 24 24"><path d="m18 6-12 12M6 6l12 12" /></svg>
+          </button>
+        </div>
+
+        <figure class="row-evidence">
+          <div class="row-crop" id="rowCrop" role="img" aria-label="原送货单对应行截图"></div>
+          <figcaption>原单对应行</figcaption>
+        </figure>
+
+        <div class="edit-grid">
+          <label>
+            <span>颜色</span>
+            <input id="editColor" name="color" autocomplete="off" />
+            <small class="field-help"></small>
+          </label>
+          <label>
+            <span>规格</span>
+            <input id="editSpec" name="spec" autocomplete="off" aria-describedby="specHelp" />
+            <small class="field-help" id="specHelp"></small>
+          </label>
+          <label>
+            <span>重量 kg</span>
+            <input id="editWeight" name="weight" inputmode="decimal" autocomplete="off" />
+            <small class="field-help"></small>
+          </label>
+          <label>
+            <span>卷数</span>
+            <input id="editCount" name="count" inputmode="numeric" autocomplete="off" />
+            <small class="field-help"></small>
+          </label>
+        </div>
+
+        <div class="sheet-actions">
+          <button class="secondary-button" type="button" id="cancelEdit">不改了</button>
+          <button class="primary-button primary-button--wide" type="submit" id="saveEdit">保存这一卷</button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog class="complete-dialog" id="completeDialog" aria-labelledby="completeTitle">
+      <div class="complete-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="m5 12 4 4L19 6" /></svg>
+      </div>
+      <h2 id="completeTitle">9 卷已经核对</h2>
+      <p>下一步打印 9 张原材料标签。</p>
+      <button class="primary-button primary-button--block" type="button" id="closeComplete">返回核对页</button>
+    </dialog>
+
+    <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
