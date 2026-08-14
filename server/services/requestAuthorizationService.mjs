@@ -75,6 +75,12 @@ export function createRequestAuthorizationService({
         generalPermission,
       ]);
     }
+    if (ownerType === "raw_material_inbound_capture" && purpose === "raw_material_delivery_note") {
+      return requireAnyActionPermission(response, permissionContext, [
+        actionPermissions.reviewRawMaterialInbound,
+        generalPermission,
+      ]);
+    }
     return requireActionPermission(response, permissionContext, generalPermission);
   }
 

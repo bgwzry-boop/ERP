@@ -521,17 +521,19 @@ export function createApiServer(options = {}) {
         return await routeGet({ url, response, workspace, openapi, permissionContext, authContext });
       }
       if (request.method === "POST" || request.method === "PATCH") {
+        const binaryAttachmentBody = url.pathname === "/api/attachments/binary"
+          ? readBinaryAttachmentMetadata(url)
+          : null;
         const firstReleaseWrite = evaluateFirstReleaseWrite({
           scope: firstReleaseScope,
           method: request.method,
           pathname: url.pathname,
+          body: binaryAttachmentBody ?? {},
         });
         if (!firstReleaseWrite.allowed) {
           return sendJson(response, 403, buildFirstReleaseBlockedResponse(firstReleaseScope));
         }
-        const body = url.pathname === "/api/attachments/binary"
-          ? readBinaryAttachmentMetadata(url)
-          : await readJsonRequestBody(request, securityPolicy.maxJsonBodyBytes);
+        const body = binaryAttachmentBody ?? await readJsonRequestBody(request, securityPolicy.maxJsonBodyBytes);
         return await routeWrite({ method: request.method, request, url, response, workspace, body, permissionContext, authContext });
       }
       return sendJson(response, 405, {

@@ -17,31 +17,34 @@ export async function prepareRawMaterialDeliveryNoteFile(file, options = {}) {
     );
   }
 
-  const sourceContentDataUrl = await readBlobAsDataUrl(file, options);
   if (sourceMimeType === "application/pdf") {
-    if (sourceSize > attachmentUploadLimits.rawMaterialOcrBinaryBytes) {
+    if (sourceSize > attachmentUploadLimits.rawMaterialOcrRequestPageBytes) {
       throw uploadError(
         "RAW_MATERIAL_DELIVERY_NOTE_PDF_TOO_LARGE",
-        "PDF 暂不能自动压缩，单个 PDF 请控制在 7.5MB 内；手机照片可直接选择，系统会自动处理。",
+        "PDF 暂不能自动压缩，单页 PDF 请控制在 4MB 内；手机照片可直接选择，系统会自动处理。",
       );
     }
+    const contentDataUrl = await readBlobAsDataUrl(file, options);
     return {
-      contentDataUrl: sourceContentDataUrl,
+      contentDataUrl,
       fileSize: sourceSize,
       mimeType: sourceMimeType,
       sourceContentDataUrl: "",
+      sourceFile: file,
       sourceFileSize: sourceSize,
       sourceMimeType,
       normalized: false,
     };
   }
 
-  if (sourceSize <= attachmentUploadLimits.rawMaterialOcrBinaryBytes) {
+  if (sourceSize <= attachmentUploadLimits.rawMaterialOcrRequestPageBytes) {
+    const contentDataUrl = await readBlobAsDataUrl(file, options);
     return {
-      contentDataUrl: sourceContentDataUrl,
+      contentDataUrl,
       fileSize: sourceSize,
       mimeType: sourceMimeType || "image/jpeg",
       sourceContentDataUrl: "",
+      sourceFile: file,
       sourceFileSize: sourceSize,
       sourceMimeType: sourceMimeType || "image/jpeg",
       normalized: false,
@@ -49,7 +52,7 @@ export async function prepareRawMaterialDeliveryNoteFile(file, options = {}) {
   }
 
   const normalizedBlob = await normalizeImageForOcr(file, options);
-  if (!normalizedBlob || normalizedBlob.size > attachmentUploadLimits.rawMaterialOcrBinaryBytes) {
+  if (!normalizedBlob || normalizedBlob.size > attachmentUploadLimits.rawMaterialOcrRequestPageBytes) {
     throw uploadError(
       "RAW_MATERIAL_DELIVERY_NOTE_NORMALIZE_FAILED",
       "系统未能把照片处理到可识别大小，请重新拍摄；不需要手工压缩。",
@@ -59,7 +62,8 @@ export async function prepareRawMaterialDeliveryNoteFile(file, options = {}) {
     contentDataUrl: await readBlobAsDataUrl(normalizedBlob, options),
     fileSize: normalizedBlob.size,
     mimeType: "image/jpeg",
-    sourceContentDataUrl,
+    sourceContentDataUrl: "",
+    sourceFile: file,
     sourceFileSize: sourceSize,
     sourceMimeType: sourceMimeType || "image/jpeg",
     normalized: true,
@@ -82,7 +86,7 @@ async function normalizeImageForOcr(file, options) {
       context.drawImage(image.source, 0, 0, dimensions.width, dimensions.height);
       for (const quality of JPEG_QUALITIES) {
         const blob = await canvasToBlob(canvas, "image/jpeg", quality);
-        if (blob?.size && blob.size <= attachmentUploadLimits.rawMaterialOcrBinaryBytes) return blob;
+        if (blob?.size && blob.size <= attachmentUploadLimits.rawMaterialOcrRequestPageBytes) return blob;
       }
       maxEdge = Math.max(1200, Math.floor(maxEdge * 0.82));
     }

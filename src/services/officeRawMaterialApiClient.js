@@ -1,4 +1,6 @@
 import { requestOfficeApi as requestRawMaterialApi } from "./officeApiClientCore.js";
+import { uploadOfficeAttachmentFile } from "./officeAttachmentApiClient.js";
+import { attachmentUploadLimits } from "../../shared/attachmentUploadPolicy.js";
 
 export async function listOfficeRawMaterialPurchaseRequests(input = {}, options = {}) {
   const { authState, operatorId } = input;
@@ -100,21 +102,7 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
 }
 
 export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options = {}) {
-  const {
-    authState,
-    operatorId,
-    fileName,
-    mimeType,
-    fileSize,
-    contentDataUrl,
-    sourceMimeType,
-    sourceFileSize,
-    sourceContentDataUrl,
-    sourceNormalizedForOcr,
-    pdfPageNumber,
-    useNewModel,
-    pages,
-  } = input;
+  const { authState, operatorId, useNewModel, pages } = input;
   const normalizedPages = (Array.isArray(pages) ? pages : [])
     .map(normalizeDeliveryNotePagePayload)
     .filter((page) => page.contentDataUrl);
@@ -130,33 +118,42 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       },
     };
   }
+  const requestSizeError = validateDeliveryNoteOcrRequestSize({
+    operatorId,
+    useNewModel: useNewModel === true,
+    pages: deliveryNotePages,
+  });
+  if (requestSizeError) {
+    return { source: "client_validation", blocked: true, error: requestSizeError };
+  }
   try {
+    const uploadedPages = await uploadDeliveryNoteSourcePages({
+      authState,
+      operatorId,
+      pages: deliveryNotePages,
+      options,
+    });
+    if (uploadedPages.error) {
+      return { source: uploadedPages.source, blocked: true, error: uploadedPages.error };
+    }
+    const requestBody = buildDeliveryNoteOcrRequestBody({
+      operatorId,
+      useNewModel: useNewModel === true,
+      pages: uploadedPages.pages,
+    });
     const response = await requestRawMaterialApi("/raw-material-inbounds/recognize-delivery-note", {
       ...options,
       authState,
       operatorId,
       method: "POST",
-      body: {
-        operatorId,
-        fileName,
-        mimeType,
-        fileSize,
-        contentDataUrl,
-        sourceMimeType,
-        sourceFileSize,
-        sourceContentDataUrl,
-        sourceNormalizedForOcr: sourceNormalizedForOcr === true,
-        pdfPageNumber,
-        useNewModel: useNewModel === true,
-        pages: deliveryNotePages,
-      },
+      body: requestBody,
     });
     const json = await readJson(response);
     if (!response.ok) {
       return {
         source: "api_error",
         blocked: true,
-        error: toApiError(json, response.status, "原材料送货单 OCR 识别失败。"),
+        error: toDeliveryNoteOcrApiError(json, response.status),
       };
     }
     return {
@@ -1227,11 +1224,103 @@ function normalizeDeliveryNotePagePayload(input = {}) {
     contentDataUrl: cleanText(input.contentDataUrl),
     sourceMimeType: cleanText(input.sourceMimeType || input.mimeType),
     sourceFileSize: Number(input.sourceFileSize || input.fileSize) || undefined,
-    sourceContentDataUrl: cleanText(input.sourceContentDataUrl || input.contentDataUrl),
+    sourceContentDataUrl: cleanText(input.sourceContentDataUrl),
+    sourceFile: input.sourceFile ?? null,
+    sourceAttachmentId: cleanText(input.sourceAttachmentId),
+    captureId: cleanText(input.captureId),
     sourceNormalizedForOcr: input.sourceNormalizedForOcr === true,
     pdfPageNumber: Number(input.pdfPageNumber) || undefined,
     useNewModel: input.useNewModel === true,
   };
+}
+
+async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, options }) {
+  const captureId = cleanText(pages[0]?.captureId) || createDeliveryNoteCaptureId();
+  const uploadedPages = [];
+  for (const [sourcePageIndex, page] of pages.entries()) {
+    if (page.sourceAttachmentId) {
+      uploadedPages.push(page);
+      continue;
+    }
+    if (!page.sourceFile) {
+      uploadedPages.push(page);
+      continue;
+    }
+    const result = await uploadOfficeAttachmentFile({
+      authState,
+      uploadedBy: operatorId,
+      file: page.sourceFile,
+      ownerType: "raw_material_inbound_capture",
+      ownerId: captureId,
+      purpose: "raw_material_delivery_note",
+      contentRef: `raw-material-capture:${captureId}:page:${sourcePageIndex + 1}`,
+      remark: `原材料送货单待识别原图第 ${sourcePageIndex + 1}/${pages.length} 页。`,
+      metadata: {
+        captureId,
+        sourcePageIndex,
+        pageNumber: sourcePageIndex + 1,
+        pageCount: pages.length,
+      },
+    }, options);
+    if (result.blocked || !result.attachment?.attachmentId) {
+      return {
+        source: result.source || "api_error",
+        error: result.error || {
+          code: "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_UPLOAD_FAILED",
+          message: `送货单第 ${sourcePageIndex + 1} 页原图没有保存成功，请重试。`,
+        },
+      };
+    }
+    uploadedPages.push({ ...page, sourceAttachmentId: result.attachment.attachmentId });
+  }
+  return { source: "api", pages: uploadedPages };
+}
+
+function buildDeliveryNoteOcrRequestBody({ operatorId, useNewModel, pages }) {
+  return {
+    operatorId,
+    useNewModel,
+    pages: pages.map((page) => ({
+      fileName: page.fileName,
+      mimeType: page.mimeType,
+      fileSize: page.fileSize,
+      contentDataUrl: page.contentDataUrl,
+      sourceMimeType: page.sourceMimeType,
+      sourceFileSize: page.sourceFileSize,
+      sourceContentDataUrl: page.sourceAttachmentId ? "" : page.sourceContentDataUrl,
+      sourceAttachmentId: page.sourceAttachmentId,
+      sourceNormalizedForOcr: page.sourceNormalizedForOcr,
+      pdfPageNumber: page.pdfPageNumber,
+      useNewModel: page.useNewModel,
+    })),
+  };
+}
+
+function validateDeliveryNoteOcrRequestSize(input) {
+  const body = buildDeliveryNoteOcrRequestBody(input);
+  const byteLength = new TextEncoder().encode(JSON.stringify(body)).byteLength;
+  if (byteLength <= attachmentUploadLimits.rawMaterialOcrRequestJsonBytes) return null;
+  return {
+    code: "RAW_MATERIAL_DELIVERY_NOTE_REQUEST_TOO_LARGE",
+    message: "这几页送货单处理后仍然过大，系统没有提交识别。请清空后重新拍摄；原图会单独保存，不需要手工压缩。",
+  };
+}
+
+function toDeliveryNoteOcrApiError(json, status) {
+  if (status === 413 || json?.code === "REQUEST_BODY_TOO_LARGE") {
+    return {
+      status,
+      code: "RAW_MATERIAL_DELIVERY_NOTE_REQUEST_TOO_LARGE",
+      message: "送货单照片数据仍然过大，系统没有生成草稿。请清空后重新拍摄，原图会单独保存。",
+    };
+  }
+  return toApiError(json, status, "原材料送货单 OCR 识别失败。");
+}
+
+function createDeliveryNoteCaptureId() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `RMCAP-${uuid}`;
+  return `RMCAP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function normalizeOcrPages(pages, pageCount, imageWidth, imageHeight, angle) {

@@ -7,6 +7,8 @@ export const attachmentUploadLimits = Object.freeze({
   rawMaterialOcrSourceBytes: 30 * ATTACHMENT_MEBIBYTE,
   rawMaterialOcrEncodedBytes: 10 * ATTACHMENT_MEBIBYTE,
   rawMaterialOcrBinaryBytes: 7.5 * ATTACHMENT_MEBIBYTE,
+  rawMaterialOcrRequestPageBytes: 4 * ATTACHMENT_MEBIBYTE,
+  rawMaterialOcrRequestJsonBytes: 23 * ATTACHMENT_MEBIBYTE,
 });
 
 const imageTypes = ["image"];

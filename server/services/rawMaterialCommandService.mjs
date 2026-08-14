@@ -30,7 +30,10 @@ export function createRawMaterialCommandService(dependencies = {}) {
             message: "请选择原材料送货单照片或 PDF 后再识别。",
           };
         }
-        const pageSourceDigests = deliveryNotePages.map((page) => createHash("sha256").update(page.sourceContentDataUrl).digest("hex"));
+        const sourceEvidence = await Promise.all(deliveryNotePages.map((page, sourcePageIndex) =>
+          resolveDeliveryNoteSourceEvidence({ workspace, page, sourcePageIndex, operatorId })
+        ));
+        const pageSourceDigests = sourceEvidence.map((item) => item.contentDigest);
         if (new Set(pageSourceDigests).size !== pageSourceDigests.length) {
           return {
             error: true,
@@ -83,6 +86,11 @@ export function createRawMaterialCommandService(dependencies = {}) {
         });
         const attachmentResults = [];
         for (const [sourcePageIndex, page] of deliveryNotePages.entries()) {
+          const uploadedSource = sourceEvidence[sourcePageIndex]?.attachment;
+          if (uploadedSource) {
+            attachmentResults.push({ ok: true, attachment: uploadedSource, deduplicated: false, reusedSource: true });
+            continue;
+          }
           const ocrPayloadDigest = createHash("sha256").update(page.contentDataUrl).digest("hex");
           const attachmentSourceKey = deliveryNotePages.length === 1
             ? `raw-material-ocr-source:${sourceDigest}`
@@ -169,7 +177,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
           inbound: saved.inbound,
           attachmentId: inbound.sourceAttachmentId,
           attachmentIds: sourceAttachmentIds,
-          deduplicated: saved.deduplicated === true || attachmentResults.every((result) => result.deduplicated === true),
+          deduplicated: saved.deduplicated === true,
           operationLogId: saved.operationLogId ?? saved.operationLog?.id ?? "",
         };
       } catch (error) {
@@ -693,11 +701,46 @@ function normalizeDeliveryNotePages(body = {}) {
       sourceMimeType: cleanText(input.sourceMimeType || input.mimeType),
       sourceFileSize: Number(input.sourceFileSize || input.fileSize) || undefined,
       sourceContentDataUrl: cleanText(input.sourceContentDataUrl) || contentDataUrl,
+      sourceAttachmentId: cleanText(input.sourceAttachmentId),
       sourceNormalizedForOcr: input.sourceNormalizedForOcr === true,
       pdfPageNumber: Number(input.pdfPageNumber) || undefined,
       useNewModel: input.useNewModel === true,
     };
   });
+}
+
+async function resolveDeliveryNoteSourceEvidence({ workspace, page, sourcePageIndex, operatorId }) {
+  if (!page.sourceAttachmentId) {
+    return {
+      attachment: null,
+      contentDigest: createHash("sha256").update(page.sourceContentDataUrl).digest("hex"),
+    };
+  }
+  const attachment = await workspace.attachmentRepository?.findAttachmentById?.({
+    workspace,
+    attachmentId: page.sourceAttachmentId,
+  });
+  const pageLabel = `送货单第 ${sourcePageIndex + 1} 页`;
+  if (!attachment) {
+    throw Object.assign(new Error(`${pageLabel}原图附件不存在，请重新上传。`), {
+      statusCode: 422,
+      code: "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_ATTACHMENT_NOT_FOUND",
+    });
+  }
+  if (
+    attachment.ownerType !== "raw_material_inbound_capture" ||
+    attachment.purpose !== "raw_material_delivery_note" ||
+    attachment.status !== "uploaded" ||
+    attachment.uploadedBy !== operatorId ||
+    attachment.hasContent !== true ||
+    !cleanText(attachment.contentDigest)
+  ) {
+    throw Object.assign(new Error(`${pageLabel}原图附件无效或不属于当前操作人，请重新上传。`), {
+      statusCode: 422,
+      code: "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_ATTACHMENT_INVALID",
+    });
+  }
+  return { attachment, contentDigest: cleanText(attachment.contentDigest) };
 }
 
 function normalizeOcrPageResult(ocr = {}, sourcePageIndex = 0) {

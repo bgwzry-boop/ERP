@@ -4,7 +4,7 @@ import { prepareRawMaterialDeliveryNoteFile } from "../src/services/rawMaterialD
 const smallPhoto = {
   name: "delivery-note.jpg",
   type: "image/jpeg",
-  size: 6 * 1024 * 1024,
+  size: 3 * 1024 * 1024,
   contentDataUrl: "data:image/jpeg;base64,c21hbGw=",
 };
 const smallPrepared = await prepareRawMaterialDeliveryNoteFile(smallPhoto);
@@ -21,7 +21,7 @@ await assert.rejects(
     ...smallPhoto,
     name: "delivery-note.pdf",
     type: "application/pdf",
-    size: 8 * 1024 * 1024,
+    size: 5 * 1024 * 1024,
     contentDataUrl: "data:application/pdf;base64,JVBERi0=",
   }),
   (error) => error.code === "RAW_MATERIAL_DELIVERY_NOTE_PDF_TOO_LARGE",
@@ -37,15 +37,16 @@ const normalizedPrepared = await prepareRawMaterialDeliveryNoteFile(largePhoto, 
   createCanvas: () => ({
     getContext: () => ({ fillRect() {}, drawImage() {} }),
     toBlob: (callback) => callback({
-      size: 6 * 1024 * 1024,
+      size: 3.5 * 1024 * 1024,
       contentDataUrl: "data:image/jpeg;base64,bm9ybWFsaXplZA==",
     }),
   }),
 });
 assert.equal(normalizedPrepared.normalized, true);
 assert.equal(normalizedPrepared.sourceFileSize, largePhoto.size);
-assert.equal(normalizedPrepared.sourceContentDataUrl, largePhoto.contentDataUrl);
-assert.equal(normalizedPrepared.fileSize, 6 * 1024 * 1024);
+assert.equal(normalizedPrepared.sourceContentDataUrl, "");
+assert.equal(normalizedPrepared.sourceFile, largePhoto);
+assert.equal(normalizedPrepared.fileSize, 3.5 * 1024 * 1024);
 assert.match(normalizedPrepared.contentDataUrl, /^data:image\/jpeg/);
 
-console.log("Raw-material delivery-note image client check passed: 30MB source photos are accepted and OCR derivatives remain within 7.5MB.");
+console.log("Raw-material delivery-note image client check passed: original files stay binary and OCR derivatives remain within 4MB.");

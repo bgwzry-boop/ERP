@@ -104,6 +104,18 @@ for (const pathname of [
 }
 assert.equal(evaluate("/api/order-drafts", "GET").allowed, true, "GET reads must remain available");
 assert.equal(evaluate("/api/order-drafts", "OPTIONS").allowed, true, "OPTIONS must remain available");
+assert.equal(evaluateFirstReleaseWrite({
+  scope: RAW_MATERIAL_FIRST_RELEASE_SCOPE,
+  method: "POST",
+  pathname: "/api/attachments/binary",
+  body: { ownerType: "raw_material_inbound_capture", purpose: "raw_material_delivery_note" },
+}).allowed, true, "raw-material source binaries must be accepted during first release");
+assert.equal(evaluateFirstReleaseWrite({
+  scope: RAW_MATERIAL_FIRST_RELEASE_SCOPE,
+  method: "POST",
+  pathname: "/api/attachments/binary",
+  body: { ownerType: "production_task", purpose: "finished_goods_photo" },
+}).allowed, false, "unrelated binary attachments must remain blocked during first release");
 
 const blockedRoutes = [
   "/api/order-drafts/recognize",
@@ -224,6 +236,40 @@ async function checkApiBoundary() {
       expectedStatus: 422,
     });
     assert.equal(ocrValidation.body.code, "RAW_MATERIAL_DELIVERY_NOTE_PAGE_REQUIRED");
+
+    const captureQuery = new URLSearchParams({
+      ownerType: "raw_material_inbound_capture",
+      ownerId: "RMCAP-FIRST-RELEASE-CHECK",
+      fileType: "image",
+      purpose: "raw_material_delivery_note",
+      fileName: "送货单.jpg",
+      contentRef: "raw-material-capture:RMCAP-FIRST-RELEASE-CHECK:page:1",
+      mimeType: "image/jpeg",
+      fileSize: "4",
+      metadata: JSON.stringify({ pageNumber: 1, pageCount: 1 }),
+    });
+    const captureResponse = await fetch(`${baseUrl}/api/attachments/binary?${captureQuery.toString()}`, {
+      method: "POST",
+      headers: { ...officeHeaders, "content-type": "image/jpeg" },
+      body: Buffer.from("test"),
+    });
+    assert.equal(captureResponse.status, 200, await captureResponse.text());
+
+    const blockedAttachment = await fetch(`${baseUrl}/api/attachments/binary?${new URLSearchParams({
+      ownerType: "production_task",
+      ownerId: "PT-BLOCKED",
+      purpose: "finished_goods_photo",
+      fileName: "blocked.jpg",
+      contentRef: "blocked",
+      mimeType: "image/jpeg",
+      fileSize: "4",
+    }).toString()}`, {
+      method: "POST",
+      headers: { ...managerHeaders, "content-type": "image/jpeg" },
+      body: Buffer.from("test"),
+    });
+    assert.equal(blockedAttachment.status, 403);
+    assert.equal((await blockedAttachment.json()).code, "FIRST_RELEASE_SCOPE_BLOCKED");
 
     const draftsAfter = await requestJson(baseUrl, "/api/order-drafts?pageSize=200", {
       headers: officeHeaders,

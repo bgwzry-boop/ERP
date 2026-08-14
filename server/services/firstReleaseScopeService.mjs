@@ -80,7 +80,7 @@ function buildProductionFirstReleaseScopeRequiredError() {
   return error;
 }
 
-export function evaluateFirstReleaseWrite({ scope, method, pathname } = {}) {
+export function evaluateFirstReleaseWrite({ scope, method, pathname, body = {} } = {}) {
   const releaseScope = normalizeFirstReleaseScope(scope, "scope");
   const requestMethod = String(method ?? "").trim().toUpperCase();
   const requestPathname = normalizePathname(pathname);
@@ -99,7 +99,7 @@ export function evaluateFirstReleaseWrite({ scope, method, pathname } = {}) {
   }
 
   const allowed = isOperationalWrite(requestPathname)
-    || isRawMaterialFirstReleaseWrite(requestMethod, requestPathname);
+    || isRawMaterialFirstReleaseWrite(requestMethod, requestPathname, body);
   return {
     allowed,
     scope: releaseScope,
@@ -125,9 +125,14 @@ function isOperationalWrite(pathname) {
   );
 }
 
-function isRawMaterialFirstReleaseWrite(method, pathname) {
+function isRawMaterialFirstReleaseWrite(method, pathname, body = {}) {
   if (method !== "POST") return false;
   if (pathname === "/api/raw-material-inbounds/recognize-delivery-note") return true;
+  if (
+    pathname === "/api/attachments/binary" &&
+    String(body.ownerType ?? "").trim() === "raw_material_inbound_capture" &&
+    String(body.purpose ?? "").trim() === "raw_material_delivery_note"
+  ) return true;
   if (pathname === "/api/raw-material-supplier-statement-reviews") return true;
 
   const inboundActionMatch = pathname.match(/^\/api\/raw-material-inbounds\/[^/]+\/([^/]+)$/);

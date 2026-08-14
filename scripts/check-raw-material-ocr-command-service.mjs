@@ -43,8 +43,14 @@ let parserCalls = 0;
 let reparseCalls = 0;
 const workspace = {
   users: [{ id: "U-OFFICE", displayName: "办公室复核员" }],
+  attachments: [],
   operationLogs: [],
   rawMaterialInbounds: [],
+  attachmentRepository: {
+    async findAttachmentById({ attachmentId }) {
+      return workspace.attachments.find((item) => item.attachmentId === attachmentId) ?? null;
+    },
+  },
   rawMaterialInboundRepository: {
     async createRawMaterialInboundDraft(input) {
       workspace.rawMaterialInbounds.unshift(input.inbound);
@@ -183,13 +189,55 @@ assert.deepEqual(multipage.attachmentIds, ["ATT-OCR-2", "ATT-OCR-3"]);
 assert.deepEqual(multipage.inbound.sourceFileNames, ["腾胜-第一页.jpg", "腾胜-第二页.jpg"]);
 assert.equal(ocrCalls, 3, "each physical page is sent to OCR once");
 assert.equal(attachmentCalls, 3, "each source page is preserved as its own audit attachment");
+
+workspace.attachments.push(
+  {
+    attachmentId: "ATT-CAPTURE-1",
+    ownerType: "raw_material_inbound_capture",
+    purpose: "raw_material_delivery_note",
+    status: "uploaded",
+    uploadedBy: "U-OFFICE",
+    hasContent: true,
+    contentDigest: "1".repeat(64),
+  },
+  {
+    attachmentId: "ATT-CAPTURE-2",
+    ownerType: "raw_material_inbound_capture",
+    purpose: "raw_material_delivery_note",
+    status: "uploaded",
+    uploadedBy: "U-OFFICE",
+    hasContent: true,
+    contentDigest: "2".repeat(64),
+  },
+);
+const binarySource = await service.recognizeDeliveryNote({
+  workspace,
+  operatorId: "U-OFFICE",
+  body: {
+    pages: [
+      { fileName: "原图一.jpg", mimeType: "image/jpeg", contentDataUrl: "data:image/jpeg;base64,b2NyLTE=", sourceAttachmentId: "ATT-CAPTURE-1" },
+      { fileName: "原图二.jpg", mimeType: "image/jpeg", contentDataUrl: "data:image/jpeg;base64,b2NyLTI=", sourceAttachmentId: "ATT-CAPTURE-2" },
+    ],
+  },
+});
+assert.deepEqual(binarySource.attachmentIds, ["ATT-CAPTURE-1", "ATT-CAPTURE-2"]);
+assert.equal(attachmentCalls, 3, "pre-uploaded original binaries must not be copied into JSON attachments again");
+assert.equal(binarySource.deduplicated, false, "a new inbound must not be reported as a duplicate merely because its sources were pre-uploaded");
+
+const foreignSource = await service.recognizeDeliveryNote({
+  workspace,
+  operatorId: "U-OTHER",
+  body: { pages: [{ contentDataUrl: "data:image/jpeg;base64,b2NyLTM=", sourceAttachmentId: "ATT-CAPTURE-1" }] },
+});
+assert.equal(foreignSource.code, "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_ATTACHMENT_INVALID");
+const ocrCallsBeforeDuplicatePage = ocrCalls;
 const duplicatePage = await service.recognizeDeliveryNote({
   workspace,
   body: { pages: [multipageBody.pages[0], multipageBody.pages[0]] },
   operatorId: "U-OFFICE",
 });
 assert.equal(duplicatePage.code, "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_PAGE");
-assert.equal(ocrCalls, 3, "a duplicate page set must fail before consuming OCR calls");
+assert.equal(ocrCalls, ocrCallsBeforeDuplicatePage, "a duplicate page set must fail before consuming OCR calls");
 
 assert.throws(
   () => applyRawMaterialInboundAction({

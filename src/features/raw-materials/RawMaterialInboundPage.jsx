@@ -196,6 +196,7 @@ export function RawMaterialInboundPage({
     }
     setDeliveryNoteOcrLoading(true);
     try {
+      const captureId = deliveryNoteCapturePages[0]?.captureId || createRawMaterialDeliveryNoteCaptureId();
       const preparedPages = [];
       for (const file of files) {
         const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
@@ -209,6 +210,8 @@ export function RawMaterialInboundPage({
           sourceMimeType: prepared.sourceMimeType,
           sourceFileSize: prepared.sourceFileSize,
           sourceContentDataUrl: prepared.sourceContentDataUrl,
+          sourceFile: prepared.sourceFile,
+          captureId,
           sourceNormalizedForOcr: prepared.normalized,
         });
       }
@@ -271,6 +274,7 @@ export function RawMaterialInboundPage({
     setDeliveryNoteOcrLoading(true);
     setDeliveryNoteOcrError("");
     try {
+      const captureId = createRawMaterialDeliveryNoteCaptureId();
       const preparedPages = [];
       for (const file of files.slice(0, 4)) {
         const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
@@ -284,6 +288,8 @@ export function RawMaterialInboundPage({
           sourceMimeType: prepared.sourceMimeType,
           sourceFileSize: prepared.sourceFileSize,
           sourceContentDataUrl: prepared.sourceContentDataUrl,
+          sourceFile: prepared.sourceFile,
+          captureId,
           sourceNormalizedForOcr: prepared.normalized,
         });
       }
@@ -1734,6 +1740,12 @@ function inferDeliveryNoteMimeType(fileName) {
 
 function isSupportedDeliveryNoteFile(mimeType) {
   return ["image/png", "image/jpeg", "image/jpg", "image/bmp", "application/pdf"].includes(String(mimeType ?? "").toLowerCase());
+}
+
+function createRawMaterialDeliveryNoteCaptureId() {
+  const uuid = globalThis.crypto?.randomUUID?.();
+  if (uuid) return `RMCAP-${uuid}`;
+  return `RMCAP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function isNumericOcrField(key) {
