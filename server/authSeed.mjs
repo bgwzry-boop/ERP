@@ -80,6 +80,16 @@ const seedUsers = [
     roles: ["office", "warehouse", "finance", "management"],
   },
   {
+    userId: "U-STAGING-TEST",
+    loginName: "a006688b",
+    seedPassword: "a006688b",
+    displayName: "测试账号",
+    defaultRole: "management",
+    department: "management",
+    enabled: true,
+    roles: ["office", "warehouse", "finance", "management"],
+  },
+  {
     userId: "U-DECISION-MOTHER",
     loginName: "decision.mother",
     seedPassword: "decisionmother123",

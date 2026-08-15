@@ -1,5 +1,5 @@
 import { loadSyntheticOfficeSeed } from "../server/seeds/syntheticOfficeSeed.mjs";
-import { getEffectivePermissionsForUser } from "../server/authSeed.mjs";
+import { authenticateSeedUser, getEffectivePermissionsForUser } from "../server/authSeed.mjs";
 import { getEffectivePermissions } from "../server/seedData.mjs";
 import { systemV1ActionPermissions } from "../shared/auth/roleCatalog.js";
 import { calculateLinePricing, p0BagPriceRows } from "../src/domain/priceTable.js";
@@ -11,6 +11,10 @@ const officePermissions = getEffectivePermissionsForUser("U-OFFICE-A");
 const warehousePermissions = getEffectivePermissionsForUser("U-WAREHOUSE-A");
 const financePermissions = getEffectivePermissionsForUser("U-FINANCE-A");
 const managementPermissions = getEffectivePermissionsForUser("U-MANAGER-A");
+const stagingTestAuthentication = authenticateSeedUser({
+  loginName: "a006688b",
+  password: "a006688b",
+});
 const technicalPermissions = getEffectivePermissionsForUser("U-TECH-A");
 const workshopPermissions = getEffectivePermissionsForUser("U-WORKSHOP-A");
 const packingPermissions = getEffectivePermissionsForUser("U-PACKING-A");
@@ -115,6 +119,15 @@ const checks = [
       managementPermissions.actionPermissions.includes("system.v1_runtime_readiness.precheck") &&
       managementPermissions.actionPermissions.includes("system.v1_v2_boundary.precheck") &&
       managementPermissions.actionPermissions.includes("system.v1_release_candidate.refresh_precheck"),
+  ],
+  [
+    "stagingTestAccount",
+    stagingTestAuthentication.authenticated === true &&
+      stagingTestAuthentication.permissions.user.userId === "U-STAGING-TEST" &&
+      stagingTestAuthentication.permissions.roles.includes("office") &&
+      stagingTestAuthentication.permissions.roles.includes("warehouse") &&
+      stagingTestAuthentication.permissions.roles.includes("finance") &&
+      stagingTestAuthentication.permissions.roles.includes("management"),
   ],
   [
     "driverPermissions",
