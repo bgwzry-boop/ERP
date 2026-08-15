@@ -8,6 +8,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
     nextId,
     now = () => new Date(),
     rawMaterialOcrParserService,
+    sleep = defaultSleep,
     tencentCloudTableOcrService,
   } = dependencies;
 
@@ -67,19 +68,19 @@ export function createRawMaterialCommandService(dependencies = {}) {
 
         const recognizedAt = new Date().toISOString();
         const inboundId = `RMI-OCR-${sourceDigest.slice(0, 12).toUpperCase()}`;
-        // A delivery note contains at most four physical pages. Recognize the
-        // independent pages concurrently so a three-page note does not stack
-        // three 30-second cloud calls behind the 60-second reverse-proxy limit.
-        // Promise.all preserves the original page order for row evidence.
-        const ocrPages = await Promise.all(deliveryNotePages.map(async (page, sourcePageIndex) => {
-          const pageOcr = await tencentCloudTableOcrService.recognizeTable({
-            contentDataUrl: page.contentDataUrl,
-            mimeType: page.mimeType,
-            pdfPageNumber: page.pdfPageNumber,
-            useNewModel: page.useNewModel === true,
+        // Tencent's table OCR endpoint applies a low request-rate limit. Keep
+        // the physical pages in source order and retry only transient provider
+        // throttling; concurrent multi-page calls can otherwise reject a valid
+        // delivery note before a draft is created.
+        const ocrPages = [];
+        for (const [sourcePageIndex, page] of deliveryNotePages.entries()) {
+          const pageOcr = await recognizeDeliveryNotePageWithRetry({
+            page,
+            sleep,
+            tencentCloudTableOcrService,
           });
-          return normalizeOcrPageResult(pageOcr, sourcePageIndex);
-        }));
+          ocrPages.push(normalizeOcrPageResult(pageOcr, sourcePageIndex));
+        }
         const ocr = combineOcrPageResults(ocrPages);
         const draft = rawMaterialOcrParserService.buildInboundDraft({
           inboundId,
@@ -497,6 +498,33 @@ export function createRawMaterialCommandService(dependencies = {}) {
       };
     },
   };
+}
+
+async function recognizeDeliveryNotePageWithRetry({ page, sleep, tencentCloudTableOcrService }) {
+  const maximumAttempts = 3;
+  for (let attempt = 1; attempt <= maximumAttempts; attempt += 1) {
+    try {
+      return await tencentCloudTableOcrService.recognizeTable({
+        contentDataUrl: page.contentDataUrl,
+        mimeType: page.mimeType,
+        pdfPageNumber: page.pdfPageNumber,
+        useNewModel: page.useNewModel === true,
+      });
+    } catch (error) {
+      if (!isTencentOcrRateLimitError(error) || attempt === maximumAttempts) throw error;
+      await sleep(700 * attempt);
+    }
+  }
+  throw new Error("腾讯云 OCR 多页识别重试失败。");
+}
+
+function isTencentOcrRateLimitError(error) {
+  return Number(error?.statusCode) === 429 ||
+    /RequestLimitExceeded|LimitExceeded/i.test(cleanText(error?.details?.cloudCode));
+}
+
+function defaultSleep(milliseconds) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 const purchaseStatusTransitions = Object.freeze({

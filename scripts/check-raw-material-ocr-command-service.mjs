@@ -145,6 +145,7 @@ const service = createRawMaterialCommandService({
       };
     },
   },
+  async sleep() {},
   tencentCloudTableOcrService: {
     async recognizeTable() {
       ocrCalls += 1;
@@ -195,8 +196,70 @@ assert.equal(multipage.inbound.ocrPageCount, 2);
 assert.deepEqual(multipage.attachmentIds, ["ATT-OCR-2", "ATT-OCR-3"]);
 assert.deepEqual(multipage.inbound.sourceFileNames, ["腾胜-第一页.jpg", "腾胜-第二页.jpg"]);
 assert.equal(ocrCalls, 3, "each physical page is sent to OCR once");
-assert.equal(maxConcurrentOcrCalls, 2, "independent physical pages should be recognized concurrently");
+assert.equal(maxConcurrentOcrCalls, 1, "physical pages must be recognized sequentially to stay below Tencent OCR rate limits");
 assert.equal(attachmentCalls, 3, "each source page is preserved as its own audit attachment");
+
+let throttledAttempts = 0;
+const throttledService = createRawMaterialCommandService({
+  attachmentCreateCommandService: {
+    async createAttachment() {
+      throw new Error("the pre-uploaded source attachment must be reused");
+    },
+  },
+  buildOperationLog() {
+    return { id: "OP-THROTTLED", action: "recognize_raw_material_delivery_note" };
+  },
+  nextId(prefix) {
+    return `${prefix}-THROTTLED`;
+  },
+  rawMaterialOcrParserService: {
+    buildInboundDraft({ inboundId, ocr }) {
+      return {
+        id: inboundId,
+        status: "已识别待复核",
+        ocrProvider: "tencent_cloud_table_v3",
+        ocrAction: ocr.action,
+        ocrRequestId: ocr.requestId,
+        ocrPageCount: ocr.pageCount,
+        ocrPages: ocr.pages,
+        ocrReviewFields: [],
+        ocrLines: [],
+        ocrTableRows: [],
+        rolls: [],
+      };
+    },
+  },
+  async sleep() {},
+  tencentCloudTableOcrService: {
+    async recognizeTable() {
+      throttledAttempts += 1;
+      if (throttledAttempts === 1) {
+        throw Object.assign(new Error("腾讯云 OCR 调用频率或额度已受限，请稍后重试。"), {
+          statusCode: 429,
+          code: "TENCENT_OCR_REQUEST_FAILED",
+          details: { cloudCode: "RequestLimitExceeded" },
+        });
+      }
+      return { action: "RecognizeTableAccurateOCR", requestId: "req-after-retry", tables: [] };
+    },
+  },
+});
+workspace.attachments.push({
+  attachmentId: "ATT-THROTTLED",
+  ownerType: "raw_material_inbound_capture",
+  purpose: "raw_material_delivery_note",
+  status: "uploaded",
+  uploadedBy: "U-OFFICE",
+  hasContent: true,
+  contentDigest: "a".repeat(64),
+});
+const throttled = await throttledService.recognizeDeliveryNote({
+  workspace,
+  operatorId: "U-OFFICE",
+  body: { pages: [{ contentDataUrl: "data:image/jpeg;base64,dGhyb3R0bGVk", sourceAttachmentId: "ATT-THROTTLED" }] },
+});
+assert.equal(throttled.inbound.status, "已识别待复核");
+assert.equal(throttledAttempts, 2, "a transient Tencent rate limit must retry automatically");
 
 workspace.attachments.push(
   {

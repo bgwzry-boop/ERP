@@ -11,8 +11,11 @@ const fetchImpl = async (url, init) => {
   calls.push({ url, init });
   if (url.includes("/attachments/binary?")) {
     const pageNumber = calls.filter((item) => item.url.includes("/attachments/binary?")).length;
+    const uploadUrl = new URL(url);
     assert.equal(init.body, sourceFiles[pageNumber - 1], "the original File must be uploaded as binary content");
     assert.equal(init.headers["content-type"], "image/jpeg");
+    assert.equal(uploadUrl.searchParams.get("ownerId"), "RMCAP-TEST:U-OFFICE-A", "capture attachment ownership must be scoped to the current operator");
+    assert.equal(JSON.parse(uploadUrl.searchParams.get("metadata")).captureOwnerId, "RMCAP-TEST:U-OFFICE-A");
     return jsonResponse({
       attachmentId: `ATT-SOURCE-${pageNumber}`,
       ownerType: "raw_material_inbound_capture",

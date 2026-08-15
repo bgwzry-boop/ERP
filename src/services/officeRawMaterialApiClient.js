@@ -1249,6 +1249,7 @@ function normalizeDeliveryNotePagePayload(input = {}) {
 
 async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, options, onProgress }) {
   const captureId = cleanText(pages[0]?.captureId) || createDeliveryNoteCaptureId();
+  const captureOwnerId = buildDeliveryNoteCaptureOwnerId(captureId, operatorId);
   const uploadedPages = [];
   for (const [sourcePageIndex, page] of pages.entries()) {
     if (page.sourceAttachmentId) {
@@ -1270,12 +1271,14 @@ async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, opt
       uploadedBy: operatorId,
       file: page.sourceFile,
       ownerType: "raw_material_inbound_capture",
-      ownerId: captureId,
+      ownerId: captureOwnerId,
       purpose: "raw_material_delivery_note",
-      contentRef: `raw-material-capture:${captureId}:page:${sourcePageIndex + 1}`,
+      contentRef: `raw-material-capture:${captureOwnerId}:page:${sourcePageIndex + 1}`,
       remark: `原材料送货单待识别原图第 ${sourcePageIndex + 1}/${pages.length} 页。`,
       metadata: {
         captureId,
+        captureOwnerId,
+        capturedBy: operatorId,
         sourcePageIndex,
         pageNumber: sourcePageIndex + 1,
         pageCount: pages.length,
@@ -1293,6 +1296,12 @@ async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, opt
     uploadedPages.push({ ...page, sourceAttachmentId: result.attachment.attachmentId });
   }
   return { source: "api", pages: uploadedPages };
+}
+
+function buildDeliveryNoteCaptureOwnerId(captureId, operatorId) {
+  const safeCaptureId = cleanText(captureId);
+  const safeOperatorId = cleanText(operatorId);
+  return `${safeCaptureId}:${safeOperatorId}`;
 }
 
 function notifyDeliveryNoteProgress(listener, progress) {
