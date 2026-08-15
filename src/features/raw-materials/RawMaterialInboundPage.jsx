@@ -93,6 +93,7 @@ export function RawMaterialInboundPage({
   const [statementReviewSaving, setStatementReviewSaving] = useState(false);
   const [deliveryNoteOcrLoading, setDeliveryNoteOcrLoading] = useState(false);
   const [deliveryNoteOcrError, setDeliveryNoteOcrError] = useState("");
+  const [deliveryNoteOcrProgress, setDeliveryNoteOcrProgress] = useState("");
   const [deliveryNoteOcrResult, setDeliveryNoteOcrResult] = useState("");
   const [deliveryNoteCapturePages, setDeliveryNoteCapturePages] = useState([]);
   const [deliveryNotePreviewByInboundId, setDeliveryNotePreviewByInboundId] = useState({});
@@ -189,6 +190,7 @@ export function RawMaterialInboundPage({
     event.target.value = "";
     if (!files.length) return;
     setDeliveryNoteOcrError("");
+    setDeliveryNoteOcrProgress("");
     setDeliveryNoteOcrResult("");
     if (deliveryNoteCapturePages.length + files.length > 4) {
       setDeliveryNoteOcrError("同一张送货单最多添加 4 页，请删除多余页面后重试。");
@@ -198,7 +200,8 @@ export function RawMaterialInboundPage({
     try {
       const captureId = deliveryNoteCapturePages[0]?.captureId || createRawMaterialDeliveryNoteCaptureId();
       const preparedPages = [];
-      for (const file of files) {
+      for (const [fileIndex, file] of files.entries()) {
+        setDeliveryNoteOcrProgress(`正在准备第 ${deliveryNoteCapturePages.length + fileIndex + 1} 页预览…`);
         const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
         if (!isSupportedDeliveryNoteFile(mimeType)) throw new Error("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
         const prepared = await prepareRawMaterialDeliveryNoteFile(file, { mimeType });
@@ -219,6 +222,7 @@ export function RawMaterialInboundPage({
     } catch (error) {
       setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
     } finally {
+      setDeliveryNoteOcrProgress("");
       setDeliveryNoteOcrLoading(false);
     }
   }
@@ -226,6 +230,7 @@ export function RawMaterialInboundPage({
   async function handleDeliveryNoteRecognize(preparedPages = deliveryNoteCapturePages) {
     if (!preparedPages.length) return;
     setDeliveryNoteOcrError("");
+    setDeliveryNoteOcrProgress(`正在保存第 1/${preparedPages.length} 页原图…`);
     setDeliveryNoteOcrResult("");
     setDeliveryNoteOcrLoading(true);
     try {
@@ -233,6 +238,7 @@ export function RawMaterialInboundPage({
       const inbound = await onDeliveryNoteRecognize?.({
         ...firstPage,
         pages: preparedPages,
+        onProgress: (progress) => setDeliveryNoteOcrProgress(progress?.message || "正在识别送货单…"),
       });
       if (!inbound?.id) {
         setDeliveryNoteOcrError("后台没有生成识别草稿，请查看页面提示后重试。");
@@ -257,6 +263,7 @@ export function RawMaterialInboundPage({
     } catch (error) {
       setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
     } finally {
+      setDeliveryNoteOcrProgress("");
       setDeliveryNoteOcrLoading(false);
     }
   }
@@ -264,6 +271,14 @@ export function RawMaterialInboundPage({
   function handleDeliveryNotePagesClear() {
     setDeliveryNoteCapturePages([]);
     setDeliveryNoteOcrError("");
+    setDeliveryNoteOcrProgress("");
+    setDeliveryNoteOcrResult("");
+  }
+
+  function handleDeliveryNotePageRemove(sourcePageIndex) {
+    setDeliveryNoteCapturePages((current) => current.filter((_, index) => index !== sourcePageIndex));
+    setDeliveryNoteOcrError("");
+    setDeliveryNoteOcrProgress("");
     setDeliveryNoteOcrResult("");
   }
 
@@ -529,12 +544,14 @@ export function RawMaterialInboundPage({
         attachState={attachState}
         deliveryNoteOcrError={deliveryNoteOcrError}
         deliveryNoteOcrLoading={deliveryNoteOcrLoading}
+        deliveryNoteOcrProgress={deliveryNoteOcrProgress}
         deliveryNoteOcrResult={deliveryNoteOcrResult}
         capturedPages={deliveryNoteCapturePages}
         mobileMessage={mobileMessage}
         mobileStage={mobileStage}
         onAttach={handleMobileAttach}
         onDeliveryNotePageSelect={handleDeliveryNotePageSelect}
+        onDeliveryNotePageRemove={handleDeliveryNotePageRemove}
         onDeliveryNotePagesClear={handleDeliveryNotePagesClear}
         onDeliveryNoteRecognize={() => handleDeliveryNoteRecognize()}
         onPrint={handlePrintLabels}

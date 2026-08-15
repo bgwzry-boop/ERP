@@ -67,16 +67,19 @@ export function createRawMaterialCommandService(dependencies = {}) {
 
         const recognizedAt = new Date().toISOString();
         const inboundId = `RMI-OCR-${sourceDigest.slice(0, 12).toUpperCase()}`;
-        const ocrPages = [];
-        for (const [sourcePageIndex, page] of deliveryNotePages.entries()) {
+        // A delivery note contains at most four physical pages. Recognize the
+        // independent pages concurrently so a three-page note does not stack
+        // three 30-second cloud calls behind the 60-second reverse-proxy limit.
+        // Promise.all preserves the original page order for row evidence.
+        const ocrPages = await Promise.all(deliveryNotePages.map(async (page, sourcePageIndex) => {
           const pageOcr = await tencentCloudTableOcrService.recognizeTable({
             contentDataUrl: page.contentDataUrl,
             mimeType: page.mimeType,
             pdfPageNumber: page.pdfPageNumber,
             useNewModel: page.useNewModel === true,
           });
-          ocrPages.push(normalizeOcrPageResult(pageOcr, sourcePageIndex));
-        }
+          return normalizeOcrPageResult(pageOcr, sourcePageIndex);
+        }));
         const ocr = combineOcrPageResults(ocrPages);
         const draft = rawMaterialOcrParserService.buildInboundDraft({
           inboundId,

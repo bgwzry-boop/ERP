@@ -38,6 +38,8 @@ assert.throws(
 );
 
 let ocrCalls = 0;
+let activeOcrCalls = 0;
+let maxConcurrentOcrCalls = 0;
 let attachmentCalls = 0;
 let parserCalls = 0;
 let reparseCalls = 0;
@@ -146,7 +148,12 @@ const service = createRawMaterialCommandService({
   tencentCloudTableOcrService: {
     async recognizeTable() {
       ocrCalls += 1;
-      return { action: "RecognizeTableAccurateOCR", requestId: "req-ocr-1", tables: [] };
+      const callNumber = ocrCalls;
+      activeOcrCalls += 1;
+      maxConcurrentOcrCalls = Math.max(maxConcurrentOcrCalls, activeOcrCalls);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      activeOcrCalls -= 1;
+      return { action: "RecognizeTableAccurateOCR", requestId: `req-ocr-${callNumber}`, tables: [] };
     },
   },
 });
@@ -188,6 +195,7 @@ assert.equal(multipage.inbound.ocrPageCount, 2);
 assert.deepEqual(multipage.attachmentIds, ["ATT-OCR-2", "ATT-OCR-3"]);
 assert.deepEqual(multipage.inbound.sourceFileNames, ["腾胜-第一页.jpg", "腾胜-第二页.jpg"]);
 assert.equal(ocrCalls, 3, "each physical page is sent to OCR once");
+assert.equal(maxConcurrentOcrCalls, 2, "independent physical pages should be recognized concurrently");
 assert.equal(attachmentCalls, 3, "each source page is preserved as its own audit attachment");
 
 workspace.attachments.push(

@@ -34,6 +34,9 @@ const fetchImpl = async (url, init) => {
 
 const result = await recognizeOfficeRawMaterialDeliveryNote({
   operatorId: "U-OFFICE-A",
+  onProgress(progress) {
+    assert.match(progress.message, /第 \d\/2 页|识别 2 页|识别完成/u);
+  },
   pages: sourceFiles.map((sourceFile, index) => ({
     fileName: sourceFile.name,
     mimeType: "image/jpeg",
@@ -73,7 +76,20 @@ const rejected = await recognizeOfficeRawMaterialDeliveryNote({
 assert.equal(rejected.error.code, "RAW_MATERIAL_DELIVERY_NOTE_REQUEST_TOO_LARGE");
 assert.doesNotMatch(rejected.error.message, /25165824|Request body/u);
 
-console.log("Frontend raw-material OCR API client check passed: originals use binary upload, OCR JSON stays light, and 413 errors are readable Chinese.");
+const disconnected = await recognizeOfficeRawMaterialDeliveryNote({
+  operatorId: "U-OFFICE-A",
+  pages: [
+    { contentDataUrl: "data:image/jpeg;base64,b2NyLTE=", mimeType: "image/jpeg" },
+    { contentDataUrl: "data:image/jpeg;base64,b2NyLTI=", mimeType: "image/jpeg" },
+  ],
+}, {
+  fetchImpl: async () => { throw new TypeError("Load failed"); },
+});
+assert.equal(disconnected.error.code, "RAW_MATERIAL_DELIVERY_NOTE_OCR_API_UNAVAILABLE");
+assert.match(disconnected.error.message, /2 页送货单.*连接中断/u);
+assert.match(disconnected.error.message, /不用重拍/u);
+
+console.log("Frontend raw-material OCR API client check passed: originals use binary upload, OCR JSON stays light, progress is explicit, and network errors are readable Chinese.");
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {

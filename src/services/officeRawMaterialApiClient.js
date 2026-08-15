@@ -102,7 +102,7 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
 }
 
 export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options = {}) {
-  const { authState, operatorId, useNewModel, pages } = input;
+  const { authState, operatorId, useNewModel, pages, onProgress } = input;
   const normalizedPages = (Array.isArray(pages) ? pages : [])
     .map(normalizeDeliveryNotePagePayload)
     .filter((page) => page.contentDataUrl);
@@ -132,6 +132,7 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       operatorId,
       pages: deliveryNotePages,
       options,
+      onProgress,
     });
     if (uploadedPages.error) {
       return { source: uploadedPages.source, blocked: true, error: uploadedPages.error };
@@ -140,6 +141,12 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       operatorId,
       useNewModel: useNewModel === true,
       pages: uploadedPages.pages,
+    });
+    notifyDeliveryNoteProgress(onProgress, {
+      phase: "recognizing",
+      current: deliveryNotePages.length,
+      total: deliveryNotePages.length,
+      message: `原图已保存，正在识别 ${deliveryNotePages.length} 页送货单…`,
     });
     const response = await requestRawMaterialApi("/raw-material-inbounds/recognize-delivery-note", {
       ...options,
@@ -156,6 +163,12 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
         error: toDeliveryNoteOcrApiError(json, response.status),
       };
     }
+    notifyDeliveryNoteProgress(onProgress, {
+      phase: "complete",
+      current: deliveryNotePages.length,
+      total: deliveryNotePages.length,
+      message: "识别完成，正在打开核对页面…",
+    });
     return {
       source: "api",
       inbound: normalizeRawMaterialInbound(json?.inbound),
@@ -170,7 +183,7 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       blocked: true,
       error: {
         code: "RAW_MATERIAL_DELIVERY_NOTE_OCR_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
+        message: toDeliveryNoteNetworkErrorMessage(error, deliveryNotePages.length),
       },
     };
   }
@@ -1234,7 +1247,7 @@ function normalizeDeliveryNotePagePayload(input = {}) {
   };
 }
 
-async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, options }) {
+async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, options, onProgress }) {
   const captureId = cleanText(pages[0]?.captureId) || createDeliveryNoteCaptureId();
   const uploadedPages = [];
   for (const [sourcePageIndex, page] of pages.entries()) {
@@ -1246,6 +1259,12 @@ async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, opt
       uploadedPages.push(page);
       continue;
     }
+    notifyDeliveryNoteProgress(onProgress, {
+      phase: "uploading",
+      current: sourcePageIndex + 1,
+      total: pages.length,
+      message: `正在保存第 ${sourcePageIndex + 1}/${pages.length} 页原图…`,
+    });
     const result = await uploadOfficeAttachmentFile({
       authState,
       uploadedBy: operatorId,
@@ -1274,6 +1293,19 @@ async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, opt
     uploadedPages.push({ ...page, sourceAttachmentId: result.attachment.attachmentId });
   }
   return { source: "api", pages: uploadedPages };
+}
+
+function notifyDeliveryNoteProgress(listener, progress) {
+  if (typeof listener !== "function") return;
+  listener(progress);
+}
+
+function toDeliveryNoteNetworkErrorMessage(error, pageCount) {
+  const original = cleanText(error?.message ?? error);
+  if (/load failed|failed to fetch|network(?:error| request failed)|fetch failed|网络请求失败/iu.test(original)) {
+    return `${pageCount > 1 ? `${pageCount} 页送货单` : "送货单"}上传或识别时连接中断。已选页面仍保留，请检查网络后直接重新识别，不用重拍。`;
+  }
+  return original || "送货单识别服务暂时无法连接。已选页面仍保留，请稍后直接重新识别。";
 }
 
 function buildDeliveryNoteOcrRequestBody({ operatorId, useNewModel, pages }) {

@@ -5345,6 +5345,101 @@
     font-size: 12px;
   }
 
+  .raw-material-mobile-capture-previews {
+    display: grid;
+    grid-auto-columns: minmax(96px, 30%);
+    grid-auto-flow: column;
+    grid-column: 1 / -1;
+    overflow-x: auto;
+    border-bottom: 1px solid var(--erp-mobile-field-border);
+    padding: 10px;
+    gap: 8px;
+    overscroll-behavior-inline: contain;
+    scroll-snap-type: inline proximity;
+  }
+
+  .raw-material-mobile-capture-previews article {
+    position: relative;
+    min-width: 0;
+    scroll-snap-align: start;
+  }
+
+  .raw-material-mobile-capture-preview-open {
+    display: grid;
+    width: 100%;
+    min-height: 132px;
+    grid-template-rows: 104px 28px;
+    overflow: hidden;
+    border: 1px solid var(--erp-mobile-field-border);
+    border-radius: 8px;
+    background: var(--erp-mobile-field-surface);
+    color: var(--erp-mobile-field-ink);
+    padding: 0;
+  }
+
+  .raw-material-mobile-capture-preview-open:focus-visible,
+  .raw-material-mobile-capture-preview-remove:focus-visible {
+    outline: 2px solid var(--erp-focus);
+    outline-offset: 2px;
+  }
+
+  .raw-material-mobile-capture-preview-open img {
+    width: 100%;
+    height: 104px;
+    object-fit: cover;
+    object-position: center top;
+  }
+
+  .raw-material-mobile-capture-preview-open > strong {
+    align-self: center;
+    color: var(--erp-mobile-field-ink);
+    font-size: 12px;
+    line-height: 18px;
+  }
+
+  .raw-material-mobile-capture-pdf {
+    display: grid;
+    height: 104px;
+    place-content: center;
+    background: var(--erp-mobile-field-accent-soft);
+    color: var(--erp-mobile-field-accent-strong);
+    font-size: 12px;
+    font-weight: var(--erp-weight-semibold);
+    gap: 6px;
+  }
+
+  .raw-material-mobile-capture-pdf svg {
+    margin-inline: auto;
+    font-size: 24px;
+  }
+
+  .raw-material-mobile-capture-preview-remove {
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: grid;
+    width: 44px;
+    min-height: 44px;
+    place-items: center;
+    border: 0;
+    border-radius: 0 8px 0 8px;
+    background: var(--erp-mobile-field-overlay);
+    color: var(--erp-mobile-field-accent-ink);
+    font-size: 15px;
+  }
+
+  .raw-material-mobile-capture-preview-remove:disabled {
+    opacity: 0.45;
+  }
+
+  .raw-material-mobile-capture-preview-modal iframe {
+    display: block;
+    width: 100%;
+    min-height: calc(100dvh - 92px);
+    border: 0;
+    background: var(--erp-mobile-field-surface);
+  }
+
   .raw-material-mobile-start-ocr {
     width: 100%;
     min-height: 48px;

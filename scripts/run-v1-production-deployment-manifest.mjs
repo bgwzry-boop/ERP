@@ -240,6 +240,8 @@ export function buildProductionDeploymentManifestReport(options = {}) {
         "proxy_pass http://127.0.0.1:8787/api/health",
         "location /api/",
         "client_max_body_size 75m",
+        "location = /api/raw-material-inbounds/recognize-delivery-note",
+        "proxy_read_timeout 180s",
         "location = /api/attachments/binary",
         "client_max_body_size 210m",
         "try_files $uri $uri/ /index.html",

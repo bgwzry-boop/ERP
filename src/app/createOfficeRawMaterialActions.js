@@ -63,6 +63,7 @@ export function createOfficeRawMaterialActions({
       pdfPageNumber: file.pdfPageNumber,
       useNewModel: false,
       pages: Array.isArray(file.pages) ? file.pages : undefined,
+      onProgress: file.onProgress,
     });
     if (result.blocked || !result.inbound?.id) {
       const message = result.error?.message ?? "原材料送货单 OCR 识别失败。";
@@ -72,7 +73,9 @@ export function createOfficeRawMaterialActions({
         error: message,
       }));
       setToast(`送货单没有生成草稿：${message}`);
-      return null;
+      throw Object.assign(new Error(message), {
+        code: result.error?.code || "RAW_MATERIAL_DELIVERY_NOTE_OCR_FAILED",
+      });
     }
     setRawMaterialInbounds((current) => [
       result.inbound,

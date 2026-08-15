@@ -154,6 +154,11 @@ assertIncludes(rawMaterialMobileOcrReviewSource, "getOcrPageMeta(selected, sourc
 assertIncludes(rawMaterialMobileOcrReviewSource, "sourceAttachmentIds", "multi-page source evidence should retain every ordered source attachment");
 assertIncludes(rawMaterialMobileSource, "没有第二页，开始识别", "the ordinary one-page path should stay explicit while allowing a rare second page");
 assertIncludes(rawMaterialMobileSource, "还有第二页", "the mobile capture flow should allow another page without forcing it on every receipt");
+assertIncludes(rawMaterialMobileSource, "送货单逐页预览", "captured pages should expose immediate ordered thumbnail previews");
+assertIncludes(rawMaterialMobileSource, "查看送货单第", "each captured page should open a readable full preview before OCR");
+assertIncludes(rawMaterialMobileSource, "删除送货单第", "each captured page should be removable before OCR");
+assertIncludes(rawMaterialMobileSource, "请确认同一张单的页面没有遗漏", "multi-page capture should explicitly prevent partial-note recognition");
+assertIncludes(rawMaterialPageSource, "handleDeliveryNotePageRemove", "the capture flow should remove only the selected page without clearing the receipt");
 assertIncludes(rawMaterialMobileOcrReviewSource, "orientRawMaterialOcrSourceBounds", "row evidence bounds should rotate into the same coordinate space as the oriented delivery note");
 assertIncludes(rawMaterialMobileOcrReviewSource, 'preserveAspectRatio="none"', "source evidence should map the oriented image into the OCR coordinate space without off-screen percentage offsets");
 assertIncludes(rawMaterialMobileOcrReviewSource, "sourceCoordinateFrame", "legacy OCR rows should use the real OCR derivative frame instead of the table polygon extent");

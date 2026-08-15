@@ -37,12 +37,14 @@ export function RawMaterialMobileReceiving({
   capturedPages = [],
   deliveryNoteOcrError,
   deliveryNoteOcrLoading,
+  deliveryNoteOcrProgress,
   deliveryNoteOcrResult,
   mobileMessage,
   mobileStage = "home",
   onAttach,
   onDeliveryNoteRecognize,
   onDeliveryNotePageSelect,
+  onDeliveryNotePageRemove,
   onDeliveryNotePagesClear,
   onPrint,
   onStageChange,
@@ -119,10 +121,12 @@ export function RawMaterialMobileReceiving({
           <CaptureDeliveryNote
             deliveryNoteOcrError={deliveryNoteOcrError}
             deliveryNoteOcrLoading={deliveryNoteOcrLoading}
+            deliveryNoteOcrProgress={deliveryNoteOcrProgress}
             deliveryNoteOcrResult={deliveryNoteOcrResult}
             capturedPages={capturedPages}
             onDeliveryNoteRecognize={onDeliveryNoteRecognize}
             onDeliveryNotePageSelect={onDeliveryNotePageSelect}
+            onDeliveryNotePageRemove={onDeliveryNotePageRemove}
             onDeliveryNotePagesClear={onDeliveryNotePagesClear}
             reviewState={reviewState}
           />
@@ -227,14 +231,18 @@ function CaptureDeliveryNote({
   capturedPages = [],
   deliveryNoteOcrError,
   deliveryNoteOcrLoading,
+  deliveryNoteOcrProgress,
   deliveryNoteOcrResult,
   onDeliveryNoteRecognize,
   onDeliveryNotePageSelect,
+  onDeliveryNotePageRemove,
   onDeliveryNotePagesClear,
   reviewState,
 }) {
+  const [previewPageIndex, setPreviewPageIndex] = useState(null);
   const disabled = reviewState.disabled || deliveryNoteOcrLoading;
   const hasPages = capturedPages.length > 0;
+  const previewPage = Number.isInteger(previewPageIndex) ? capturedPages[previewPageIndex] : null;
   return (
     <section className="raw-material-mobile-capture-card" aria-label="拍摄厂家送货单">
       <header><h2>录入送货单</h2></header>
@@ -243,10 +251,48 @@ function CaptureDeliveryNote({
           <section className="raw-material-mobile-captured-pages" aria-label={`已添加 ${capturedPages.length} 页送货单`}>
             <div>
               <strong>已拍 {capturedPages.length} 页</strong>
-              <span>{capturedPages.map((page, index) => `第${index + 1}页`).join(" · ")}</span>
+              <span>请确认同一张单的页面没有遗漏</span>
             </div>
             <button disabled={disabled} onClick={onDeliveryNotePagesClear} type="button">清空重拍</button>
           </section>
+        ) : null}
+        {hasPages ? (
+          <div className="raw-material-mobile-capture-previews" aria-label="送货单逐页预览">
+            {capturedPages.map((page, index) => {
+              const previewUrl = getDeliveryNoteCapturePreviewUrl(page);
+              const isPdf = String(page?.mimeType || page?.sourceMimeType).toLowerCase() === "application/pdf";
+              return (
+                <article key={`${page.captureId || "capture"}-${index}-${page.fileName || "page"}`}>
+                  <button
+                    aria-label={`查看送货单第 ${index + 1} 页大图`}
+                    className="raw-material-mobile-capture-preview-open"
+                    disabled={!previewUrl}
+                    onClick={() => setPreviewPageIndex(index)}
+                    type="button"
+                  >
+                    {isPdf ? (
+                      <span className="raw-material-mobile-capture-pdf"><FileImageOutlined aria-hidden="true" />PDF</span>
+                    ) : (
+                      <img alt={`送货单第 ${index + 1} 页缩略图`} src={previewUrl} />
+                    )}
+                    <strong>第 {index + 1} 页</strong>
+                  </button>
+                  <button
+                    aria-label={`删除送货单第 ${index + 1} 页`}
+                    className="raw-material-mobile-capture-preview-remove"
+                    disabled={disabled}
+                    onClick={() => {
+                      if (previewPageIndex === index) setPreviewPageIndex(null);
+                      onDeliveryNotePageRemove?.(index);
+                    }}
+                    type="button"
+                  >
+                    <CloseOutlined aria-hidden="true" />
+                  </button>
+                </article>
+              );
+            })}
+          </div>
         ) : null}
         <label className={`raw-material-mobile-camera ${disabled ? "is-disabled" : ""}`}>
           <i><CameraOutlined aria-hidden="true" /></i>
@@ -280,7 +326,7 @@ function CaptureDeliveryNote({
           onClick={onDeliveryNoteRecognize}
           type="button"
         >
-          {deliveryNoteOcrLoading ? "正在识别整张送货单…" : capturedPages.length === 1 ? "没有第二页，开始识别" : `开始识别 ${capturedPages.length} 页`}
+          {deliveryNoteOcrLoading ? (deliveryNoteOcrProgress || "正在识别整张送货单…") : capturedPages.length === 1 ? "没有第二页，开始识别" : `开始识别 ${capturedPages.length} 页`}
         </button>
       ) : null}
       {deliveryNoteOcrResult ? <p className="raw-material-mobile-success" role="status">{deliveryNoteOcrResult}</p> : null}
@@ -290,8 +336,27 @@ function CaptureDeliveryNote({
           <div><strong>这张送货单没有识别成功</strong><span>{deliveryNoteOcrError}</span></div>
         </div>
       ) : null}
+      {previewPage ? (
+        <div className="raw-material-mobile-source-modal raw-material-mobile-capture-preview-modal" role="dialog" aria-modal="true" aria-label={`送货单第 ${previewPageIndex + 1} 页预览`}>
+          <header>
+            <strong>送货单 · 第 {previewPageIndex + 1} 页</strong>
+            <button aria-label="关闭送货单预览" onClick={() => setPreviewPageIndex(null)} type="button"><CloseOutlined aria-hidden="true" /></button>
+          </header>
+          <div>
+            {String(previewPage.mimeType || previewPage.sourceMimeType).toLowerCase() === "application/pdf" ? (
+              <iframe src={getDeliveryNoteCapturePreviewUrl(previewPage)} title={`送货单第 ${previewPageIndex + 1} 页 PDF 预览`} />
+            ) : (
+              <img alt={`送货单第 ${previewPageIndex + 1} 页预览`} src={getDeliveryNoteCapturePreviewUrl(previewPage)} />
+            )}
+          </div>
+        </div>
+      ) : null}
     </section>
   );
+}
+
+function getDeliveryNoteCapturePreviewUrl(page = {}) {
+  return String(page.contentDataUrl || page.sourceContentDataUrl || "");
 }
 
 function ReceivingProgress({ currentStep, isSupplierReturn = false }) {
