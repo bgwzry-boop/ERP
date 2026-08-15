@@ -490,6 +490,7 @@ export function createApiServer(options = {}) {
   const workspaceReady = hydratePersistentWorkspaceState({
     workspace,
     seedDemoPrintJobs: demoWorkspaceSeedService.seedPrintJobs,
+    seedUsers: getSeedUsers(),
   }).then(() => applyIsolatedE2eIdentityFixtures(workspace, runtimeConfig));
   const openapi = tryValidateOpenApi();
 

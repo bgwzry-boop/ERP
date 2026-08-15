@@ -10,6 +10,7 @@ export function isProductionWorkspaceRuntime(workspace = {}) {
 export async function hydratePersistentWorkspaceState({
   workspace,
   seedDemoPrintJobs = async () => {},
+  seedUsers = [],
 } = {}) {
   if (!workspace || typeof workspace !== "object") {
     throw new TypeError("A workspace is required to hydrate persistent ERP state.");
@@ -134,6 +135,11 @@ export async function hydratePersistentWorkspaceState({
     workspace,
     await loadState(workspace.runtimeIdentityRepository),
   );
+  await ensureNonProductionSeedUserReferences({
+    workspace,
+    seedUsers,
+    productionRuntime,
+  });
   workspace.productionScheduleRecords = toArray(
     (await loadState(workspace.productionScheduleRecordRepository)).productionScheduleRecords,
   );
@@ -173,6 +179,56 @@ export async function hydratePersistentWorkspaceState({
 
   if (!productionRuntime) await seedDemoPrintJobs(workspace);
   return workspace;
+}
+
+async function ensureNonProductionSeedUserReferences({
+  workspace,
+  seedUsers,
+  productionRuntime,
+}) {
+  if (productionRuntime || !Array.isArray(seedUsers) || seedUsers.length === 0) return;
+
+  const usersById = new Map(
+    toArray(workspace.users)
+      .map((user) => [cleanText(user?.userId ?? user?.id), user])
+      .filter(([userId]) => userId),
+  );
+  const seedUserReferences = seedUsers
+    .map((user) => {
+      const userId = cleanText(user?.userId ?? user?.id);
+      if (!userId) return null;
+      const reference = {
+        ...user,
+        id: userId,
+        userId,
+        source: "seed",
+        identityKind: "seed_fixture",
+        loginEnabled: false,
+      };
+      usersById.set(userId, {
+        ...reference,
+        ...(usersById.get(userId) ?? {}),
+      });
+      return reference;
+    })
+    .filter(Boolean);
+  workspace.users = Array.from(usersById.values());
+
+  if (
+    workspace.runtimeIdentityRepository?.kind !== "postgres" ||
+    typeof workspace.runtimeIdentityRepository.saveState !== "function"
+  ) {
+    return;
+  }
+  await workspace.runtimeIdentityRepository.saveState({
+    workspace: {
+      users: seedUserReferences,
+      employees: [],
+      operationLogs: [],
+      phoneVerificationChallenges: [],
+      revokedSeedSessions: [],
+    },
+  });
 }
 
 async function loadState(repository, options) {

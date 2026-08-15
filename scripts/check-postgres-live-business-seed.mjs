@@ -15,6 +15,7 @@ const result = seedPostgresLiveBusinessRows({
 assert.equal(result, "seeded");
 assert.deepEqual(executions, [postgresLiveBusinessSeedSql]);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO users \(id, login_name, display_name, department\)/);
+assert.match(postgresLiveBusinessSeedSql, /'U-OFFICE-B', 'office\.b', '办公室B', 'office'/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO employees \(id, biz_no, name, role_name\)/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO business_decision_authorizations/);
 assert.match(postgresLiveBusinessSeedSql, /INSERT INTO machines/);

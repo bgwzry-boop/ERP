@@ -2,6 +2,7 @@ export const postgresLiveBusinessSeedSql = `
 INSERT INTO users (id, login_name, display_name, department)
 VALUES
   ('U-OFFICE-A', 'office.a', '办公室A', 'office'),
+  ('U-OFFICE-B', 'office.b', '办公室B', 'office'),
   ('U-FINANCE-A', 'finance.a', '财务A', 'finance'),
   ('U-WAREHOUSE-A', 'warehouse.a', '仓库A', 'warehouse'),
   ('U-MANAGER-A', 'manager.a', '管理A', 'management'),

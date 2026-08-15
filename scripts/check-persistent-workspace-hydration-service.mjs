@@ -76,17 +76,69 @@ const persistedDemo = buildWorkspace({
 await hydratePersistentWorkspaceState({ workspace: persistedDemo.workspace });
 assert.deepEqual(persistedDemo.workspace.rawMaterialInbounds, []);
 
+const postgresDemo = buildWorkspace({
+  runtimeConfig: { production: false, mode: "test" },
+  coreState: {},
+  rawMaterialState: { rawMaterialInbounds: [] },
+  runtimeIdentityState: {},
+  runtimeIdentityKind: "postgres",
+});
+await hydratePersistentWorkspaceState({
+  workspace: postgresDemo.workspace,
+  seedUsers: [
+    { userId: "U-OFFICE-A", loginName: "office.a", displayName: "办公室A", department: "office" },
+    { userId: "U-OFFICE-B", loginName: "office.b", displayName: "办公室B", department: "office" },
+  ],
+});
+const seedIdentitySave = postgresDemo.calls.find((call) => call.name === "runtimeIdentity:save");
+assert(seedIdentitySave, "test PostgreSQL startup must persist seed users required by business foreign keys");
+assert.deepEqual(
+  seedIdentitySave.input.workspace.users.map((user) => user.userId),
+  ["U-OFFICE-A", "U-OFFICE-B"],
+);
+assert.equal(
+  postgresDemo.workspace.users.find((user) => user.userId === "U-OFFICE-B")?.identityKind,
+  "seed_fixture",
+);
+
+const postgresProduction = buildWorkspace({
+  runtimeConfig: { production: true, mode: "production" },
+  coreState: {},
+  rawMaterialState: {},
+  runtimeIdentityState: {},
+  runtimeIdentityKind: "postgres",
+});
+await hydratePersistentWorkspaceState({
+  workspace: postgresProduction.workspace,
+  seedUsers: [{ userId: "U-OFFICE-B", loginName: "office.b", displayName: "办公室B" }],
+});
+assert.equal(
+  postgresProduction.calls.some((call) => call.name === "runtimeIdentity:save"),
+  false,
+  "production startup must never persist prototype seed users",
+);
+
 console.log(
   "persistent workspace hydration checks passed: production empty-state authority, demo-only fallback, raw-material seed isolation, and identity merge are locked",
 );
 
-function buildWorkspace({ runtimeConfig, coreState, rawMaterialState, runtimeIdentityState }) {
+function buildWorkspace({
+  runtimeConfig,
+  coreState,
+  rawMaterialState,
+  runtimeIdentityState,
+  runtimeIdentityKind = "local_json",
+}) {
   const calls = [];
   const repository = (name, state = {}, kind = "local_json") => ({
     kind,
     async loadState(options) {
       calls.push({ name, options });
       return state;
+    },
+    async saveState(input) {
+      calls.push({ name: `${name}:save`, input });
+      return {};
     },
   });
   const workspace = Object.fromEntries(
@@ -111,7 +163,7 @@ function buildWorkspace({ runtimeConfig, coreState, rawMaterialState, runtimeIde
     masterDataImportReviewRepository: repository("masterDataReview"),
     rawMaterialInboundRepository: repository("rawMaterial", rawMaterialState),
     rawMaterialSupplierStatementReviewRepository: repository("supplierStatementReview"),
-    runtimeIdentityRepository: repository("runtimeIdentity", runtimeIdentityState),
+    runtimeIdentityRepository: repository("runtimeIdentity", runtimeIdentityState, runtimeIdentityKind),
     productionScheduleRecordRepository: repository("productionSchedule"),
     paymentRecordRepository: repository("payment"),
     statementExportRepository: repository("statementExport"),

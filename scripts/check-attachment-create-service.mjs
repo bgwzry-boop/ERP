@@ -149,14 +149,51 @@ const commandResult = await attachmentCommandService.createAttachment({
 });
 assert.equal(commandResult.ok, true);
 assert.equal(commandResult.attachment.uploadedBy, "U-AUTHENTICATED");
+
+const unknownPostgresUploader = await createAttachmentRecord({
+  workspace: createWorkspace({ repositoryKind: "postgres", users: [] }),
+  body: { ...baseBody, uploadedBy: "U-OFFICE-B", idempotencyKey: "attachment-unknown-uploader" },
+  parseDataUrl,
+  buildOperationLog,
+  nextId,
+});
+assert.equal(unknownPostgresUploader.ok, false);
+assert.equal(unknownPostgresUploader.statusCode, 409);
+assert.equal(unknownPostgresUploader.errorCode, "ATTACHMENT_UPLOADER_NOT_REGISTERED");
+assert.doesNotMatch(unknownPostgresUploader.message, /foreign key|attachments_uploaded_by_fkey/i);
+
+const foreignKeyFailure = await createAttachmentRecord({
+  workspace: createWorkspace({
+    repositoryKind: "postgres",
+    users: [{ userId: "U-OFFICE-B" }],
+    createAttachmentError: Object.assign(
+      new Error('insert or update on table "attachments" violates foreign key constraint "attachments_uploaded_by_fkey"'),
+      { code: "23503", constraint: "attachments_uploaded_by_fkey" },
+    ),
+  }),
+  body: { ...baseBody, uploadedBy: "U-OFFICE-B", idempotencyKey: "attachment-fk-uploader" },
+  parseDataUrl,
+  buildOperationLog,
+  nextId,
+});
+assert.equal(foreignKeyFailure.ok, false);
+assert.equal(foreignKeyFailure.errorCode, "ATTACHMENT_UPLOADER_NOT_REGISTERED");
+assert.doesNotMatch(foreignKeyFailure.message, /foreign key|attachments_uploaded_by_fkey/i);
 assert.throws(() => createAttachmentCommandService(), /parseDataUrl must be a function/);
 
 console.log("Attachment create service check passed: validation, authenticated ownership, digesting, object storage, deduplication, and idempotent IDs are covered.");
 
-function createWorkspace({ storageCalls = [], existingAttachment = null } = {}) {
+function createWorkspace({
+  storageCalls = [],
+  existingAttachment = null,
+  repositoryKind = "local_memory",
+  users = [],
+  createAttachmentError = null,
+} = {}) {
   return {
     attachments: [],
     operationLogs: [],
+    users,
     attachmentObjectStorage: {
       async putObject(input) {
         storageCalls.push(input);
@@ -168,10 +205,12 @@ function createWorkspace({ storageCalls = [], existingAttachment = null } = {}) 
       },
     },
     attachmentRepository: {
+      kind: repositoryKind,
       async findAttachmentByDigest() {
         return existingAttachment;
       },
       async createAttachment(input) {
+        if (createAttachmentError) throw createAttachmentError;
         return {
           attachment: existingAttachment ?? input.attachment,
           deduplicated: Boolean(existingAttachment),

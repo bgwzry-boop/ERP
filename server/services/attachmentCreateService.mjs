@@ -64,6 +64,10 @@ export async function createAttachmentRecord({
     };
   }
 
+  if (!isAttachmentUploaderKnown(workspace, body.uploadedBy)) {
+    return attachmentUploaderFailure();
+  }
+
   const attachmentId = buildAttachmentRecordId(workspace, body.idempotencyKey, nextId);
   const uploadedAt = new Date(typeof now === "function" ? now() : now).toISOString();
   const contentUrl = `/api/attachments/${encodeURIComponent(attachmentId)}/content`;
@@ -135,14 +139,20 @@ export async function createAttachmentRecord({
     },
     reason: body.remark,
   });
-  const transaction = await workspace.attachmentRepository.createAttachment({
-    workspace,
-    attachment,
-    link: attachmentLink,
-    operationLog,
-    idempotencyKey: body.idempotencyKey,
-    idempotencyPayload: body,
-  });
+  let transaction;
+  try {
+    transaction = await workspace.attachmentRepository.createAttachment({
+      workspace,
+      attachment,
+      link: attachmentLink,
+      operationLog,
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload: body,
+    });
+  } catch (error) {
+    if (isAttachmentUploaderForeignKeyError(error)) return attachmentUploaderFailure();
+    throw error;
+  }
 
   return {
     ok: true,
@@ -150,6 +160,32 @@ export async function createAttachmentRecord({
     deduplicated: transaction.deduplicated,
     duplicateOfAttachmentId: transaction.deduplicated ? transaction.attachment.attachmentId : "",
     operationLogId: transaction.operationLogId,
+  };
+}
+
+function isAttachmentUploaderKnown(workspace, uploaderId) {
+  if (workspace?.attachmentRepository?.kind !== "postgres") return true;
+  const normalizedUploaderId = normalizeText(uploaderId);
+  return (Array.isArray(workspace?.users) ? workspace.users : []).some(
+    (user) => normalizeText(user?.userId ?? user?.id) === normalizedUploaderId,
+  );
+}
+
+function isAttachmentUploaderForeignKeyError(error) {
+  const constraint = normalizeText(error?.constraint);
+  const message = normalizeText(error?.message);
+  return (
+    normalizeText(error?.code) === "23503" &&
+    (constraint === "attachments_uploaded_by_fkey" || message.includes("attachments_uploaded_by_fkey"))
+  );
+}
+
+function attachmentUploaderFailure() {
+  return {
+    ok: false,
+    statusCode: 409,
+    errorCode: "ATTACHMENT_UPLOADER_NOT_REGISTERED",
+    message: "当前登录账号尚未完成附件上传身份同步，请刷新页面后重试。",
   };
 }
 
