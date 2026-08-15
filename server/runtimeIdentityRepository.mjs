@@ -562,7 +562,9 @@ function runtimeUserSqlRow(user, parameters) {
     ${parameters.nullableText(safeUser.defaultMachineId)},
     ${parameters.boolean(safeUser.loginEnabled === true)},
     ${parameters.nullableText(safeUser.passwordHash)},
-    ${parameters.nullableText(safeUser.passwordStatus)},
+    ${parameters.text(
+      safeUser.passwordStatus || (safeUser.loginEnabled ? "password_revoked" : "not_applicable"),
+    )},
     ${parameters.boolean(safeUser.mustChangePassword === true)},
     ${parameters.nullableText(safeUser.passwordIssuedBy)},
     ${parameters.nullableTimestamp(safeUser.passwordIssuedAt)},

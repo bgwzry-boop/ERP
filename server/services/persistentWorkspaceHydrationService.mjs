@@ -204,6 +204,8 @@ async function ensureNonProductionSeedUserReferences({
         source: "seed",
         identityKind: "seed_fixture",
         loginEnabled: false,
+        passwordStatus: "not_applicable",
+        mustChangePassword: false,
       };
       usersById.set(userId, {
         ...reference,

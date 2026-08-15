@@ -100,6 +100,10 @@ assert.equal(
   postgresDemo.workspace.users.find((user) => user.userId === "U-OFFICE-B")?.identityKind,
   "seed_fixture",
 );
+assert.equal(
+  seedIdentitySave.input.workspace.users.find((user) => user.userId === "U-OFFICE-B")?.passwordStatus,
+  "not_applicable",
+);
 
 const postgresProduction = buildWorkspace({
   runtimeConfig: { production: true, mode: "production" },

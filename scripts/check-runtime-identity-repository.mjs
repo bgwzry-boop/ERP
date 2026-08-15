@@ -467,6 +467,21 @@ try {
   assert.notEqual(registrationStatusIndex, -1);
   assert.equal(saveQuery.values[registrationStatusIndex + 1], "");
 
+  const seedReferenceQuery = buildSaveRuntimeIdentityStateQuery({
+    users: [{
+      userId: "U-OFFICE-B",
+      loginName: "office.b",
+      displayName: "办公室B",
+      source: "seed",
+      loginEnabled: false,
+      passwordStatus: "",
+    }],
+  });
+  assert(
+    seedReferenceQuery.values.includes("not_applicable"),
+    "PostgreSQL seed references must receive a non-null, non-login password status",
+  );
+
 const postgresCalls = [];
 const postgresLoadState = {
   ...reloaded,
