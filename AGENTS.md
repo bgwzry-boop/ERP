@@ -14,6 +14,8 @@ When implementing from a selected generated mock, treat that image as the source
 
 Prototype-specific design decisions:
 
+- The public staging/review URL uses one passwordless but still authenticated test identity on both desktop and mobile. The review shell must explicitly exchange that fixed preview identity for a backend-signed seed session; it must not expose the account/password screen, fabricate a client-only identity, or remove operator attribution. This exception is limited to the review wrapper and test data. Formal production entry keeps runtime account authentication. A served review document also compares its embedded release commit with uncached origin HTML and reloads when the controlled release changes, so a phone restored from an old browser page cannot silently return to a stale login flow.
+
 - 原材料手机拍单默认按一页保持轻量，但拍完第一页后必须提供明确的“没有第二页，开始识别 / 还有第二页，继续拍”分支；同一张厂家送货单最多按顺序附加 4 页并作为一个入库草稿、一个单号和一组汇总一起识别复核，不能把少见的两页单据默认为两张独立单据，也不能事后仅凭供应商或单号自动合并已经建立的草稿。每页原图分别作为不可替代的审计附件保存，OCR 表格和每条明细保留 `sourcePageIndex`，手机逐行核对与放大原图必须切到该行真实来源页。分页页小计不得冒充全单汇总；整单明细、总重量和声明金额不一致时继续显式阻断人工复核。厂家表头的 `编号 / 商品全名` 出现 `57 / 号 / 空白` 等轻微 OCR 漂移时，只要 `规格 / 单位 / 数量 / 单价 / 金额` 的业务列仍完整，就按厂家逐卷版式恢复解析，禁止因首列表头漂移而丢弃整页。
 - 原材料手机拍单选择或拍摄页面后，必须立即显示按顺序排列的逐页缩略预览、明确页码，并允许在开始识别前查看大图或删除单页；预览使用 OCR 副本以控制手机内存，正式审计仍保存每页未经替代的原图。同一张单有多页时，界面需明确提醒全部添加后再识别，不能只用“已拍 N 页”的文字替代视觉核对。
 

@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { MenuFoldOutlined } from "@ant-design/icons";
 import bagwinSymbolUrl from "./assets/brand/BAGWIN_symbol_color.svg";
 import {
@@ -158,13 +158,13 @@ const getStatementFinancialSummary = (statement) => getStatementFinancialSummary
 const getStatementBucket = (statement) => getStatementBucketRecord(statement, customers);
 const orderMatchesFilters = (row, filters, statements) => orderMatchesFiltersRecord(row, filters, statements, customers);
 const statementMatchesFilters = (statement, filters) => statementMatchesFiltersRecord(statement, filters, customers);
-export function App() {
-  const formalLoginRequired = isOfficeApiServerRequired();
+export function App({ signedPreviewUserId = "" } = {}) { const signedPreviewAuthOptions = useMemo(() => String(signedPreviewUserId ?? "").trim() ? Object.freeze({ defaultUserId: String(signedPreviewUserId).trim(), serverRequired: false, stagingAuthBypass: true }) : null, [signedPreviewUserId]);
+  const formalLoginRequired = isOfficeApiServerRequired(signedPreviewAuthOptions ?? undefined);
   const runtimeServerRequired = isOfficeSharedDataServerRequired();
   const [activePage, setActivePage] = useState("todos");
   const [mobileViewport, setMobileViewport] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [authState, setAuthState] = useState(() => createInitialAuthState()); const [runtimeLoginForm, setRuntimeLoginForm] = useState({ loginName: "", password: "" });
+  const [authState, setAuthState] = useState(() => createInitialAuthState(signedPreviewAuthOptions ?? undefined)); const [runtimeLoginForm, setRuntimeLoginForm] = useState({ loginName: "", password: "" });
   const [runtimeLoginLoading, setRuntimeLoginLoading] = useState(false);
   const runtimeLoginRequestRef = useRef(0);
   const [runtimePasswordChangeForm, setRuntimePasswordChangeForm] = useState({
@@ -589,7 +589,7 @@ export function App() {
     statements,
   });
 
-  useRuntimeAuthInitialization({ authState, serverRequired: formalLoginRequired, setAuthState, setToast });
+  useRuntimeAuthInitialization({ authOptions: signedPreviewAuthOptions, authState, serverRequired: formalLoginRequired, setAuthState, setToast });
 
   useEffect(() => {
     let cancelled = false;

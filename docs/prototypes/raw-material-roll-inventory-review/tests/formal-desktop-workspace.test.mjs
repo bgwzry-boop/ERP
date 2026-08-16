@@ -13,6 +13,19 @@ test("4174 has one immutable local preview identity", async () => {
   assert.equal(identity.rootWorkbenchPort, 5173);
 });
 
+test("4174 mobile review uses a signed passwordless preview session", async () => {
+  const [mobileEntrySource, appSource, authInitializationSource] = await Promise.all([
+    readSource("../src/FormalMobileEntry.jsx"),
+    readSource("../../../../src/App.jsx"),
+    readSource("../../../../src/app/useRuntimeAuthInitialization.js"),
+  ]);
+
+  assert.match(mobileEntrySource, /<App signedPreviewUserId="U-MANAGER-A" \/>/, "mobile review should explicitly request the fixed signed preview identity");
+  assert.match(appSource, /stagingAuthBypass:\s*true/, "the signed preview identity should bypass only the visible password boundary");
+  assert.match(appSource, /createInitialAuthState\(signedPreviewAuthOptions \?\? undefined\)/, "the initial mobile state should use the same preview auth contract");
+  assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
+});
+
 test("desktop workbenches consume formal APIs without fixture fallbacks", async () => {
   const [appSource, workspacesSource, adapterSource] = await Promise.all([
     readSource("../src/App.jsx"),
@@ -159,5 +172,5 @@ test("4174 phone bootstrap includes the formal employee attendance styles", asyn
   const mobileEntrySource = await readSource("../src/FormalMobileEntry.jsx");
 
   assert.match(mobileEntrySource, /import "\.\.\/\.\.\/\.\.\/\.\.\/src\/styles\/features\/payroll-attendance\.css"/, "the 4174 mobile bootstrap must load the same formal attendance styles as the main application");
-  assert.match(mobileEntrySource, /return <App \/>/, "the 4174 phone entry must reuse the formal application instead of mounting a prototype phone page");
+  assert.match(mobileEntrySource, /return <App signedPreviewUserId="U-MANAGER-A" \/>/, "the 4174 phone entry must reuse the formal application with the signed review identity instead of mounting a prototype phone page");
 });

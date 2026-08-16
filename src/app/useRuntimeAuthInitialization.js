@@ -6,7 +6,7 @@ import {
   writeStoredSeedSession,
 } from "../services/officeAuthService.js";
 
-export function useRuntimeAuthInitialization({ authState, serverRequired, setAuthState, setToast }) {
+export function useRuntimeAuthInitialization({ authOptions, authState, serverRequired, setAuthState, setToast }) {
   const currentAuthStateRef = useRef(authState);
   const setToastRef = useRef(setToast);
   currentAuthStateRef.current = authState;
@@ -16,7 +16,7 @@ export function useRuntimeAuthInitialization({ authState, serverRequired, setAut
     let cancelled = false;
     const expectedAuthState = currentAuthStateRef.current;
     const expectedSession = readStoredSeedSession();
-    initializeSeedAuth({ serverRequired }).then((nextAuthState) => {
+    initializeSeedAuth({ ...(authOptions ?? {}), serverRequired }).then((nextAuthState) => {
       if (cancelled) return;
       const applied = applyRuntimeAuthInitializationResult({
         expectedAuthState,
@@ -35,7 +35,7 @@ export function useRuntimeAuthInitialization({ authState, serverRequired, setAut
     return () => {
       cancelled = true;
     };
-  }, [serverRequired, setAuthState]);
+  }, [authOptions, serverRequired, setAuthState]);
 }
 
 export function applyRuntimeAuthInitializationResult({
