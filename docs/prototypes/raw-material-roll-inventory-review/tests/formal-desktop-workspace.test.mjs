@@ -26,6 +26,22 @@ test("4174 mobile review uses a signed passwordless preview session", async () =
   assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
 });
 
+test("staging preview refuses restored sessions from a different identity", async () => {
+  const authServiceSource = await readSource("../../../../src/services/officeAuthService.js");
+
+  assert.match(authServiceSource, /String\(storedSession\.userId \?\? ""\)\.trim\(\) !== stagingPreviewUserId/, "preview startup should reject an old session for another user");
+  assert.match(authServiceSource, /json\?\.session\?\.userId \?\? json\?\.permissions\?\.user\?\.userId/, "preview startup should verify the restored server identity too");
+  assert.match(authServiceSource, /return loginSeedUser\(stagingPreviewUserId, options\)/, "preview startup should replace mismatched sessions with its fixed signed identity");
+});
+
+test("4174 cannot keep the phone workbench mounted after widening to desktop", async () => {
+  const entrySource = await readSource("../src/complete-review-entry.jsx");
+
+  assert.match(entrySource, /phoneViewportQuery\.addEventListener\("change", reloadForViewportFamily\)/, "the review entry should observe phone/desktop viewport-family changes");
+  assert.match(entrySource, /nextUrl\.searchParams\.set\("erpViewport", event\.matches \? "mobile" : "desktop"\)/, "a viewport-family change should create a cache-busted canonical review URL");
+  assert.match(entrySource, /window\.location\.replace\(nextUrl\.toString\(\)\)/, "crossing the phone breakpoint should reload the unique review entry instead of expanding the phone app into the old desktop shell");
+});
+
 test("desktop workbenches consume formal APIs without fixture fallbacks", async () => {
   const [appSource, workspacesSource, adapterSource] = await Promise.all([
     readSource("../src/App.jsx"),
