@@ -128,6 +128,47 @@ assert.equal(draft.ocrLines.length, 1);
 assert.equal(draft.ocrReviewFields.some((field) => field.key === "supplierName" && field.required), true);
 assert.match(draft.note, /不直接增加库存/);
 
+const priceWithLeadingSeparatorDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-PRICE-LEADING-SEPARATOR",
+  knownSupplierNames: ["宁晋县腾胜无纺布有限公司"],
+  ocr: {
+    tables: [{ cells: buildCells([
+      ["编号", "商品全名", "规格", "单位", "数量", "单价", "金额", "备注"],
+      ["184", "—— 白", "78*90*1500", "公斤", "108.2", "-9.3", "1006.26", ""],
+    ]) }],
+  },
+});
+assert.equal(
+  priceWithLeadingSeparatorDraft.ocrLines[0].values.unitPrice,
+  9.3,
+  "a visual table separator attached to the supplier price must not turn the unit price into zero",
+);
+assert.equal(priceWithLeadingSeparatorDraft.ocrLines[0].values.totalWeightKg, 108.2);
+assert.equal(priceWithLeadingSeparatorDraft.ocrLines[0].values.amount, 1006.26);
+assert.equal(
+  Number((
+    priceWithLeadingSeparatorDraft.ocrLines[0].values.totalWeightKg
+    * priceWithLeadingSeparatorDraft.ocrLines[0].values.unitPrice
+  ).toFixed(2)),
+  priceWithLeadingSeparatorDraft.ocrLines[0].values.amount,
+  "the recovered price must still reconcile against weight × price = amount",
+);
+
+const returnPriceWithLeadingSeparatorDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RETURN-PRICE-LEADING-SEPARATOR",
+  documentDirectionHint: "supplier_return",
+  knownSupplierNames: ["宁晋县腾胜无纺布有限公司"],
+  ocr: {
+    tables: [{ cells: buildCells([
+      ["编号", "商品全名", "规格", "单位", "数量", "单价", "金额", "备注"],
+      ["184", "—— 白", "78*90*1500", "公斤", "108.2", "-9.3", "1006.26", ""],
+    ]) }],
+  },
+});
+assert.equal(returnPriceWithLeadingSeparatorDraft.ocrLines[0].values.totalWeightKg, -108.2);
+assert.equal(returnPriceWithLeadingSeparatorDraft.ocrLines[0].values.unitPrice, 9.3);
+assert.equal(returnPriceWithLeadingSeparatorDraft.ocrLines[0].values.amount, -1006.26);
+
 const variableWeightDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-REAL-LAYOUT-A",
   recognizedAt: "2026-07-16T09:00:00.000Z",

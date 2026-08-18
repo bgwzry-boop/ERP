@@ -52,7 +52,7 @@ const supplierOcrProfiles = [
   },
 ];
 
-export const RAW_MATERIAL_OCR_PARSER_VERSION = 19;
+export const RAW_MATERIAL_OCR_PARSER_VERSION = 20;
 
 export const RAW_MATERIAL_DOCUMENT_DIRECTIONS = {
   delivery: "supplier_delivery",
@@ -620,7 +620,12 @@ function normalizeLine(input = {}, index, {
     rollCount: positiveNumber(values.rollCount, 0),
     totalWeightKg: applyDocumentDirection(values.totalWeightKg, documentDirection),
     unit: normalizeUnit(values.unit, values.totalWeightKg),
-    unitPrice: positiveNumber(values.unitPrice, 0),
+    // Supplier table OCR sometimes keeps the visual column separator attached to
+    // the price (for example `-9.3`). Unit prices are always positive business
+    // values; the document direction is carried by weight and amount instead.
+    // Normalising the sign here preserves real return quantities while avoiding
+    // a separator glyph turning a valid price into zero during review.
+    unitPrice: positiveNumber(Math.abs(finiteNumber(values.unitPrice, 0)), 0),
     amount: applyDocumentDirection(values.amount, documentDirection),
     supplierRollNo: cleanText(values.supplierRollNo),
     rollWeightsKg: (Array.isArray(values.rollWeightsKg) ? values.rollWeightsKg : [])
