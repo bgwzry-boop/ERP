@@ -2,6 +2,7 @@ export function MobileRoleShellHeader({
   currentUser,
   currentUserId,
   demoMode = false,
+  fixedPreviewMode = false,
   logoutLoading = false,
   onLogout,
   onNavigate,
@@ -22,7 +23,9 @@ export function MobileRoleShellHeader({
         {canViewOwnAttendance ? <button onClick={() => onNavigate?.(pageKey === "attendanceMobile" ? getRoleHomePage(currentUser) : "attendanceMobile")} type="button">
           {pageKey === "attendanceMobile" ? "返回任务" : "我的考勤"}
         </button> : null}
-        {demoMode ? (
+        {fixedPreviewMode ? (
+          <span className="mobile-role-fixed-preview">内测固定身份</span>
+        ) : demoMode ? (
           <label className="mobile-role-demo-switcher">
             <span>演示角色</span>
             <select aria-label="切换演示角色" value={currentUserId} onChange={(event) => onUserChange?.(event.target.value)}>

@@ -415,6 +415,13 @@ body:has(.runtime-login-shell) {
   padding: 0 10px;
 }
 
+.mobile-role-fixed-preview {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
 .mobile-role-demo-switcher {
   display: flex;
   align-items: center;

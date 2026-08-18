@@ -341,7 +341,14 @@ export function App({ signedPreviewUserId = "" } = {}) {
   });
 
   const defaultNavigationPage = getDefaultNavigationPage(permissionContext);
-  const requestedPage = mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage;
+  const signedPreviewMobilePage = mobileViewport
+    && signedPreviewAuthOptions
+    && isNavigationPageVisible("rawMaterials", permissionContext)
+      ? "rawMaterials"
+      : "";
+  const requestedPage = mobileViewport
+    ? signedPreviewMobilePage || getMobileViewportPage(activePage, permissionContext)
+    : activePage;
   const renderedPage = requestedPage === desktopRequiredMobilePage.key || isNavigationPageVisible(requestedPage, permissionContext) ? requestedPage : defaultNavigationPage;
   const activeMeta = allNavigationItems.find((item) => item.key === renderedPage) ?? roleBoundaryPage;
   const dedicatedMobileRolePage = isDedicatedMobileRolePage(renderedPage);
@@ -1121,7 +1128,8 @@ export function App({ signedPreviewUserId = "" } = {}) {
             canViewOwnAttendance={permissionContext.actionPermissions?.includes("attendance.self.read") === true}
             currentUser={currentUser}
             currentUserId={currentUserId}
-            demoMode={!formalLoginRequired}
+            demoMode={!formalLoginRequired && !signedPreviewAuthOptions}
+            fixedPreviewMode={Boolean(signedPreviewAuthOptions)}
             logoutLoading={runtimeLoginLoading}
             onLogout={logoutRuntimeUserSession}
             onNavigate={setActivePage}

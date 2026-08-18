@@ -30,6 +30,8 @@ test("4174 mobile review uses a signed passwordless preview session", async () =
   assert.match(mobileEntrySource, /<App signedPreviewUserId="U-MANAGER-A" \/>/, "mobile review should explicitly request the fixed signed preview identity");
   assert.match(appSource, /stagingAuthBypass:\s*true/, "the signed preview identity should bypass only the visible password boundary");
   assert.match(appSource, /createInitialAuthState\(signedPreviewAuthOptions \?\? undefined\)/, "the initial mobile state should use the same preview auth contract");
+  assert.match(appSource, /signedPreviewMobilePage[\s\S]*isNavigationPageVisible\("rawMaterials", permissionContext\)[\s\S]*\? "rawMaterials"/, "the fixed preview identity should enter the formal raw-material phone route even though its desktop role is management");
+  assert.match(appSource, /fixedPreviewMode=\{Boolean\(signedPreviewAuthOptions\)\}/, "the fixed preview identity should not expose the demo role switcher");
   assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
 });
 

@@ -42,7 +42,8 @@ assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expos
 assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");
 assertIncludes(navigationSource, 'if (defaultRole === "office") return "rawMaterials";', "office phones should enter the existing raw-material mobile flow instead of a compressed PC table");
 assertIncludes(appSource, "<RawMaterialInboundPage", "App should render the raw-material inbound page");
-assertIncludes(appSource, "mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage", "App should preserve one business route with viewport-specific workbenches");
+assertIncludes(appSource, "signedPreviewMobilePage || getMobileViewportPage(activePage, permissionContext)", "App should preserve one business route with viewport-specific workbenches while the signed review identity enters raw-material receiving");
+assertIncludes(appSource, 'isNavigationPageVisible("rawMaterials", permissionContext)', "the signed review phone route should remain permission-gated");
 assertIncludes(appSource, "onDeliveryNoteRecognize={recognizeRawMaterialDeliveryNote}", "desktop and phone raw-material entry should share the formal server OCR action");
 assertIncludes(appSource, "createOfficeRawMaterialActions", "App should compose the raw-material action controller");
 assertExcludes(appSource, "updateOfficeRawMaterialInboundAction", "App should not call the raw-material write client directly");
