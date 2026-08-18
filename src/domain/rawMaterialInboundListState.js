@@ -1,9 +1,10 @@
-export const RAW_MATERIAL_INBOUND_VIEW_KEYS = ["入库单", "待贴标", "机边领料", "供应商对账"];
+export const RAW_MATERIAL_INBOUND_VIEW_KEYS = ["入库单", "退货单", "待贴标", "机边领料", "供应商对账"];
 
 export function buildRawMaterialInboundMetrics(inbounds = []) {
   const pendingReview = inbounds.filter((item) => ["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(item.status)).length;
-  const pendingPrint = inbounds.filter((item) => item.status === "已复核待打印标签").length;
+  const pendingPrint = inbounds.filter((item) => ["已复核待打印标签", "已入库待补打标签"].includes(item.status)).length;
   const pendingAttach = inbounds.filter((item) => item.status === "已打印待贴标" || item.status === "部分贴标").length;
+  const supplierReturnCount = inbounds.filter((item) => item.documentDirection === "supplier_return").length;
   const availablePieces = inbounds.reduce(
     (total, item) => total + (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "可用").length,
     0,
@@ -34,6 +35,7 @@ export function buildRawMaterialInboundMetrics(inbounds = []) {
     ["待复核", pendingReview, pendingReview ? "warning" : "success"],
     ["待打印", pendingPrint, pendingPrint ? "blue" : "success"],
     ["待贴标", pendingAttach, pendingAttach ? "warning" : "success"],
+    ["退货单", supplierReturnCount, supplierReturnCount ? "warning" : "neutral"],
     ["可用卷/件", availablePieces, availablePieces ? "success" : "warning"],
     ["机边领料", machineSidePieces, machineSidePieces ? "warning" : "neutral"],
     ["拆卷", splitCount, splitCount ? "warning" : "neutral"],
@@ -93,8 +95,14 @@ export function getRawMaterialInboundSourceLabel(meta = {}) {
 
 export function getRawMaterialNextActionLabel(item = {}) {
   const status = String(item.status || "");
+  if (item.documentDirection === "supplier_return") {
+    if (["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(status)) return "核对退货单";
+    if (status === "退货单已复核") return "查看退货凭证";
+    return "查看退货详情";
+  }
   if (["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(status)) return "核对送货单";
   if (status === "已复核待打印标签") return "打印卷标";
+  if (status === "已入库待补打标签") return "补打卷标";
   if (status === "已打印待贴标") return "贴标并核对";
   if (status === "部分贴标") return "继续贴标";
   if (status.includes("余料待复核")) return "复核余料";
@@ -105,21 +113,23 @@ export function getRawMaterialNextActionLabel(item = {}) {
 }
 
 export function formatRawMaterialDeliveryNoteNo(item = {}) {
-  return item.deliveryNoteNo || `供应商未提供单号 / ${item.id || "系统入库单待生成"}`;
+  const fallbackLabel = item.documentDirection === "supplier_return" ? "退货单" : "入库单";
+  return item.deliveryNoteNo || `供应商未提供单号 / ${item.id || `系统${fallbackLabel}待生成`}`;
 }
 
 export function filterRawMaterialInboundsByTab(inbounds = [], tab) {
-  if (tab === "待贴标") return inbounds.filter((item) => item.status === "已打印待贴标" || item.status === "部分贴标");
+  if (tab === "退货单") return inbounds.filter((item) => item.documentDirection === "supplier_return");
+  if (tab === "待贴标") return inbounds.filter((item) => item.documentDirection !== "supplier_return" && (item.status === "已打印待贴标" || item.status === "部分贴标"));
   if (tab === "机边领料") {
-    return inbounds.filter((item) =>
+    return inbounds.filter((item) => item.documentDirection !== "supplier_return" && (
       item.status.includes("领料/机边") ||
       item.status.includes("消耗确认") ||
       item.status.includes("余料") ||
-      (item.rolls ?? []).some((roll) => ["机边领用", "已消耗", "余料待复核"].includes(roll.inventoryStatus) || roll.leftoverReviewRecordId),
-    );
+      (item.rolls ?? []).some((roll) => ["机边领用", "已消耗", "余料待复核"].includes(roll.inventoryStatus) || roll.leftoverReviewRecordId)
+    ));
   }
   if (tab === "供应商对账") return inbounds;
-  return inbounds;
+  return inbounds.filter((item) => item.documentDirection !== "supplier_return");
 }
 
 export function filterRawMaterialInboundsByKeyword(inbounds = [], keyword = "") {
@@ -149,7 +159,7 @@ export function canReviewRawMaterialInbound(item = {}) {
 
 export function canPrintRawMaterialLabels(item = {}) {
   const printableRolls = (item.rolls ?? []).filter((roll) => roll.inventoryStatus !== "可用");
-  return item.status === "已复核待打印标签"
+  return ["已复核待打印标签", "已入库待补打标签"].includes(item.status)
     && printableRolls.length > 0
     && printableRolls.every((roll) => Number(roll.weightKg) > 0);
 }

@@ -30,10 +30,12 @@ import "./styles/features/v1-status.css";
 import "./styles/interface-polish.css";
 
 exposeReleaseIdentity();
-establishLocalPreviewIdentity("bagwin-formal-workbench-root");
+const identityGuard = establishLocalPreviewIdentity("bagwin-formal-workbench-root");
 
-createRoot(document.getElementById("root")).render(
-  <React.StrictMode>
-    <App />
-  </React.StrictMode>,
-);
+if (identityGuard) {
+  createRoot(document.getElementById("root")).render(
+    <React.StrictMode>
+      <App />
+    </React.StrictMode>,
+  );
+}

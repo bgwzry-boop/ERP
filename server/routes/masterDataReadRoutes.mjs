@@ -12,11 +12,25 @@ export async function handleMasterDataReadRoutes({
   buildEmployeeAssignmentOptions,
   listMasterDataMachines,
   masterDataImportCommandService,
+  rawMaterialSupplierColorMappingService,
   phoneIdentityCommandService,
   sendNotFound,
   sendBusinessError,
   sendFile,
 }) {
+  if (url.pathname === "/api/master-data/raw-material-supplier-colors") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageRawMaterialSupplierColors)) return true;
+    sendJson(response, 200, {
+      items: rawMaterialSupplierColorMappingService.listMappings(workspace, {
+        supplierName: url.searchParams.get("supplierName"),
+        supplierSourceId: url.searchParams.get("supplierSourceId"),
+        keyword: url.searchParams.get("keyword"),
+      }),
+      options: rawMaterialSupplierColorMappingService.listOptions(workspace),
+    });
+    return true;
+  }
+
   const listRoutes = {
     "/api/master-data/import-confirmation-plans": {
       permission: writeActionPermissions.createMasterDataImportConfirmationPlan,

@@ -24,19 +24,36 @@ const fetchImpl = async (url, init) => {
       status: "uploaded",
     });
   }
-  const body = JSON.parse(init.body);
-  assert.equal("contentDataUrl" in body, false, "the first page must not be duplicated at the request top level");
-  assert.equal(body.pages.length, 2);
-  assert.deepEqual(body.pages.map((page) => page.sourceAttachmentId), ["ATT-SOURCE-1", "ATT-SOURCE-2"]);
-  assert.equal(body.pages.every((page) => page.sourceContentDataUrl === ""), true, "original images must not be repeated inside OCR JSON");
-  return jsonResponse({
-    inbound: { id: "RMI-OCR-BINARY", status: "已识别待复核", sourceAttachmentIds: ["ATT-SOURCE-1", "ATT-SOURCE-2"] },
-    attachmentIds: ["ATT-SOURCE-1", "ATT-SOURCE-2"],
-  });
+  if (url.endsWith("/raw-material-inbounds/ocr-jobs")) {
+    const body = JSON.parse(init.body);
+    assert.equal(body.documentDirectionHint, "supplier_return");
+    assert.equal(body.supplierNameHint, "腾胜无纺布");
+    assert.equal("contentDataUrl" in body, false, "the first page must not be duplicated at the request top level");
+    assert.equal(body.pages.length, 2);
+    assert.deepEqual(body.pages.map((page) => page.sourceAttachmentId), ["ATT-SOURCE-1", "ATT-SOURCE-2"]);
+    assert.deepEqual(body.pages.map((page) => page.ocrAttachmentId), ["ATT-SOURCE-1", "ATT-SOURCE-2"]);
+    assert.equal(body.pages.every((page) => !("contentDataUrl" in page)), true, "OCR JSON must contain attachment ids instead of base64 images");
+    return jsonResponse({ job: { jobId: "RMOJ-TEST", status: "queued", pageCount: 2 } });
+  }
+  if (url.endsWith("/raw-material-inbounds/ocr-jobs/RMOJ-TEST/status")) {
+    return jsonResponse({ job: {
+      jobId: "RMOJ-TEST",
+      status: "completed",
+      currentPage: 2,
+      pageCount: 2,
+      result: {
+        inbound: { id: "RMI-OCR-BINARY", status: "已识别待复核", sourceAttachmentIds: ["ATT-SOURCE-1", "ATT-SOURCE-2"] },
+        attachmentIds: ["ATT-SOURCE-1", "ATT-SOURCE-2"],
+      },
+    } });
+  }
+  throw new Error(`unexpected request ${url}`);
 };
 
 const result = await recognizeOfficeRawMaterialDeliveryNote({
   operatorId: "U-OFFICE-A",
+  documentDirectionHint: "supplier_return",
+  supplierNameHint: "腾胜无纺布",
   onProgress(progress) {
     assert.match(progress.message, /第 \d\/2 页|识别 2 页|识别完成/u);
   },
@@ -50,10 +67,11 @@ const result = await recognizeOfficeRawMaterialDeliveryNote({
     sourceFile,
     captureId: "RMCAP-TEST",
   })),
-}, { fetchImpl, apiBaseUrl: "http://erp.test/api" });
+}, { fetchImpl, apiBaseUrl: "http://erp.test/api", deliveryNoteJobPollIntervalMs: 0 });
 assert.equal(result.inbound.id, "RMI-OCR-BINARY");
 assert.equal(calls.filter((item) => item.url.includes("/attachments/binary?")).length, 2);
-assert.equal(calls.filter((item) => item.url.endsWith("/raw-material-inbounds/recognize-delivery-note")).length, 1);
+assert.equal(calls.filter((item) => item.url.endsWith("/raw-material-inbounds/ocr-jobs")).length, 1);
+assert.equal(calls.filter((item) => item.url.endsWith("/raw-material-inbounds/ocr-jobs/RMOJ-TEST/status")).length, 1);
 
 let oversizeFetchCount = 0;
 const oversize = await recognizeOfficeRawMaterialDeliveryNote({

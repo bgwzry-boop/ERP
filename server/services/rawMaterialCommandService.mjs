@@ -1,4 +1,4 @@
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
 export function createRawMaterialCommandService(dependencies = {}) {
   const {
@@ -7,13 +7,16 @@ export function createRawMaterialCommandService(dependencies = {}) {
     buildOperationLog,
     nextId,
     now = () => new Date(),
+    logger = console,
     rawMaterialOcrParserService,
+    scheduleTask = (task) => queueMicrotask(task),
     sleep = defaultSleep,
     tencentCloudTableOcrService,
   } = dependencies;
+  const deliveryNoteOcrJobs = new Map();
 
-  return {
-    async recognizeDeliveryNote({ workspace, body = {}, operatorId }) {
+  const service = {
+    async recognizeDeliveryNote({ workspace, body = {}, operatorId, ocrPageCache = [], onPageProgress }) {
       try {
         requireOcrDependencies({
           attachmentCreateCommandService,
@@ -22,7 +25,10 @@ export function createRawMaterialCommandService(dependencies = {}) {
           rawMaterialOcrParserService,
           tencentCloudTableOcrService,
         });
-        const deliveryNotePages = normalizeDeliveryNotePages(body);
+        const normalizedPages = normalizeDeliveryNotePages(body);
+        const deliveryNotePages = await Promise.all(normalizedPages.map((page, sourcePageIndex) =>
+          resolveDeliveryNoteOcrPage({ workspace, page, sourcePageIndex, operatorId })
+        ));
         if (!deliveryNotePages.length) {
           return {
             error: true,
@@ -51,6 +57,8 @@ export function createRawMaterialCommandService(dependencies = {}) {
         );
         if (existingInbound) {
           const reparsed = await reparseStaleOcrDraft({
+            documentDirectionHint: body.documentDirectionHint,
+            supplierNameHint: body.supplierNameHint,
             existingInbound,
             operatorId,
             rawMaterialOcrParserService,
@@ -74,20 +82,76 @@ export function createRawMaterialCommandService(dependencies = {}) {
         // delivery note before a draft is created.
         const ocrPages = [];
         for (const [sourcePageIndex, page] of deliveryNotePages.entries()) {
-          const pageOcr = await recognizeDeliveryNotePageWithRetry({
-            page,
-            sleep,
-            tencentCloudTableOcrService,
+          onPageProgress?.({
+            phase: "recognizing",
+            current: sourcePageIndex + 1,
+            total: deliveryNotePages.length,
+            message: `第 ${sourcePageIndex + 1}/${deliveryNotePages.length} 页处理中…`,
           });
-          ocrPages.push(normalizeOcrPageResult(pageOcr, sourcePageIndex));
+          const cachedPage = ocrPageCache[sourcePageIndex];
+          if (cachedPage) {
+            ocrPages.push(cachedPage);
+            continue;
+          }
+          try {
+            const pageOcr = await recognizeDeliveryNotePageWithRetry({
+              page,
+              sleep,
+              tencentCloudTableOcrService,
+            });
+            const normalizedPage = normalizeOcrPageResult(pageOcr, sourcePageIndex);
+            ocrPageCache[sourcePageIndex] = normalizedPage;
+            ocrPages.push(normalizedPage);
+          } catch (error) {
+            throw Object.assign(new Error(`送货单第 ${sourcePageIndex + 1} 页识别失败，可只重试这一页，不需要重新上传整张单。`), {
+              statusCode: 502,
+              code: "RAW_MATERIAL_DELIVERY_NOTE_PAGE_OCR_FAILED",
+              cause: error,
+              details: { failedPageNumber: sourcePageIndex + 1, pageCount: deliveryNotePages.length },
+            });
+          }
         }
         const ocr = combineOcrPageResults(ocrPages);
         const draft = rawMaterialOcrParserService.buildInboundDraft({
+          colorAliases: workspace.colorAliases,
+          documentDirectionHint: body.documentDirectionHint,
           inboundId,
           knownSupplierNames: collectKnownSupplierNames(workspace),
           ocr,
           recognizedAt,
+          standardColors: workspace.standardColors,
+          supplierNameHint: body.supplierNameHint,
         });
+        const documentDuplicateKey = buildRawMaterialDeliveryNoteDuplicateKey(draft);
+        const duplicateCandidates = findRawMaterialDeliveryNoteDuplicates(
+          workspace.rawMaterialInbounds,
+          draft,
+        );
+        const duplicateConfirmation = validateRawMaterialDeliveryNoteDuplicateConfirmation({
+          body,
+          documentDuplicateKey,
+          duplicateCandidates,
+          sourceDigest,
+        });
+        if (duplicateCandidates.length && !duplicateConfirmation.confirmed) {
+          return {
+            error: true,
+            statusCode: 409,
+            code: "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_CONFIRMATION_REQUIRED",
+            message: `供应商“${cleanText(draft.supplierName)}”的单据 ${cleanText(draft.deliveryNoteNo)} 已录入过，请确认是否确为另一张需要保留的送货单。系统不会自动合并。`,
+            details: {
+              supplierName: cleanText(draft.supplierName),
+              deliveryNoteNo: cleanText(draft.deliveryNoteNo),
+              duplicateInboundIds: duplicateCandidates.map((item) => cleanText(item.id)).filter(Boolean),
+              duplicateStatuses: duplicateCandidates.map((item) => cleanText(item.status)).filter(Boolean),
+              confirmationToken: buildRawMaterialDeliveryNoteDuplicateConfirmationToken({
+                documentDuplicateKey,
+                duplicateCandidates,
+                sourceDigest,
+              }),
+            },
+          };
+        }
         const attachmentResults = [];
         for (const [sourcePageIndex, page] of deliveryNotePages.entries()) {
           const uploadedSource = sourceEvidence[sourcePageIndex]?.attachment;
@@ -139,6 +203,15 @@ export function createRawMaterialCommandService(dependencies = {}) {
         const sourceAttachmentIds = attachmentResults.map((result) => cleanText(result.attachment?.attachmentId)).filter(Boolean);
         const inbound = {
           ...draft,
+          documentDuplicateKey,
+          duplicateDocumentConfirmation: duplicateConfirmation.confirmed
+            ? {
+                confirmed: true,
+                confirmedBy: cleanText(operatorId),
+                confirmedAt: recognizedAt,
+                duplicateInboundIds: duplicateCandidates.map((item) => cleanText(item.id)).filter(Boolean),
+              }
+            : null,
           ocrSourceDigest: sourceDigest,
           sourceAttachmentId: sourceAttachmentIds[0] || "",
           sourceAttachmentIds,
@@ -185,14 +258,76 @@ export function createRawMaterialCommandService(dependencies = {}) {
           operationLogId: saved.operationLogId ?? saved.operationLog?.id ?? "",
         };
       } catch (error) {
-        const statusCode = normalizeStatusCode(error?.statusCode);
+        const safeError = toSafeRawMaterialOcrError(error);
+        if (safeError.redacted || safeError.statusCode >= 500) {
+          logger?.error?.("Raw-material delivery-note OCR failed", {
+            code: cleanText(error?.code),
+            message: cleanText(error?.message),
+            causeCode: cleanText(error?.cause?.code),
+            causeMessage: cleanText(error?.cause?.message),
+          });
+        }
         return {
           error: true,
-          statusCode,
-          code: cleanText(error?.code) || "RAW_MATERIAL_DELIVERY_NOTE_OCR_FAILED",
-          message: cleanText(error?.message) || "原材料送货单 OCR 识别失败。",
-          details: sanitizeOcrErrorDetails(error?.details),
+          statusCode: safeError.statusCode,
+          code: safeError.code,
+          message: safeError.message,
+          details: safeError.details,
         };
+      }
+    },
+
+    async startDeliveryNoteRecognitionJob({ workspace, body = {}, operatorId }) {
+      pruneDeliveryNoteOcrJobs(deliveryNoteOcrJobs, now());
+      await cleanupAbandonedRawMaterialCaptureAttachments({ workspace, now: now(), buildOperationLog, nextId, operatorId, logger });
+      const jobId = `RMOJ-${randomUUID()}`;
+      const job = {
+        jobId,
+        operatorId: cleanText(operatorId),
+        status: "queued",
+        body: cloneJobBody(body),
+        ocrPageCache: [],
+        currentPage: 0,
+        pageCount: Array.isArray(body.pages) ? body.pages.length : 1,
+        createdAt: toIsoTimestamp(now()),
+        updatedAt: toIsoTimestamp(now()),
+        result: null,
+      };
+      deliveryNoteOcrJobs.set(jobId, job);
+      scheduleTask(() => runDeliveryNoteOcrJob({ service, workspace, job, now, logger }));
+      return { job: projectDeliveryNoteOcrJob(job) };
+    },
+
+    async getDeliveryNoteRecognitionJob({ jobId, operatorId }) {
+      try {
+        const job = requireOwnedDeliveryNoteOcrJob(deliveryNoteOcrJobs, jobId, operatorId);
+        return { job: projectDeliveryNoteOcrJob(job) };
+      } catch (error) {
+        return toRawMaterialOcrCommandError(error);
+      }
+    },
+
+    async retryDeliveryNoteRecognitionJob({ workspace, jobId, body = {}, operatorId }) {
+      try {
+        const job = requireOwnedDeliveryNoteOcrJob(deliveryNoteOcrJobs, jobId, operatorId);
+        if (!["failed", "needs_confirmation"].includes(job.status)) {
+          return {
+            error: true,
+            statusCode: 409,
+            code: "RAW_MATERIAL_DELIVERY_NOTE_JOB_NOT_RETRYABLE",
+            message: "当前识别任务不需要重试。",
+          };
+        }
+        if (cleanText(body.duplicateConfirmationToken)) {
+          job.body.duplicateConfirmationToken = cleanText(body.duplicateConfirmationToken);
+        }
+        job.status = "queued";
+        job.error = null;
+        job.updatedAt = toIsoTimestamp(now());
+        scheduleTask(() => runDeliveryNoteOcrJob({ service, workspace, job, now, logger }));
+        return { job: projectDeliveryNoteOcrJob(job) };
+      } catch (error) {
+        return toRawMaterialOcrCommandError(error);
       }
     },
 
@@ -498,6 +633,173 @@ export function createRawMaterialCommandService(dependencies = {}) {
       };
     },
   };
+  return service;
+}
+
+async function runDeliveryNoteOcrJob({ service, workspace, job, now, logger }) {
+  if (job.running) return;
+  job.running = true;
+  job.status = "recognizing";
+  job.updatedAt = toIsoTimestamp(now());
+  try {
+    const result = await service.recognizeDeliveryNote({
+      workspace,
+      body: job.body,
+      operatorId: job.operatorId,
+      ocrPageCache: job.ocrPageCache,
+      onPageProgress(progress) {
+        job.currentPage = Number(progress?.current) || job.currentPage;
+        job.pageCount = Number(progress?.total) || job.pageCount;
+        job.message = cleanText(progress?.message);
+        job.updatedAt = toIsoTimestamp(now());
+      },
+    });
+    job.result = result;
+    job.error = result?.error ? {
+      statusCode: result.statusCode,
+      code: result.code,
+      message: result.message,
+      details: { ...(result.details ?? {}), jobId: job.jobId },
+    } : null;
+    job.status = result?.error
+      ? result.code === "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_CONFIRMATION_REQUIRED"
+        ? "needs_confirmation"
+        : "failed"
+      : "completed";
+    if (job.status === "completed") job.currentPage = job.pageCount;
+  } catch (error) {
+    logger?.error?.("Raw-material delivery-note OCR job crashed", {
+      jobId: job.jobId,
+      code: cleanText(error?.code),
+      message: cleanText(error?.message),
+    });
+    job.status = "failed";
+    job.error = {
+      statusCode: 500,
+      code: "RAW_MATERIAL_DELIVERY_NOTE_JOB_FAILED",
+      message: "送货单后台识别任务异常，请直接重试，不需要重新上传。",
+      details: { jobId: job.jobId },
+    };
+  } finally {
+    job.running = false;
+    job.updatedAt = toIsoTimestamp(now());
+  }
+}
+
+function projectDeliveryNoteOcrJob(job) {
+  return {
+    jobId: job.jobId,
+    status: job.status,
+    currentPage: Number(job.currentPage) || 0,
+    pageCount: Number(job.pageCount) || 0,
+    message: cleanText(job.message),
+    createdAt: job.createdAt,
+    updatedAt: job.updatedAt,
+    error: job.error ?? undefined,
+    result: job.status === "completed" ? job.result : undefined,
+  };
+}
+
+function requireOwnedDeliveryNoteOcrJob(jobs, jobId, operatorId) {
+  const job = jobs.get(cleanText(jobId));
+  if (!job || cleanText(job.operatorId) !== cleanText(operatorId)) {
+    throw Object.assign(new Error("识别任务不存在或不属于当前操作人，请重新选择送货单。"), {
+      statusCode: 404,
+      code: "RAW_MATERIAL_DELIVERY_NOTE_JOB_NOT_FOUND",
+    });
+  }
+  return job;
+}
+
+function pruneDeliveryNoteOcrJobs(jobs, nowValue) {
+  const cutoff = new Date(nowValue).getTime() - 24 * 60 * 60 * 1000;
+  for (const [jobId, job] of jobs.entries()) {
+    if (Date.parse(job.updatedAt || job.createdAt) < cutoff) jobs.delete(jobId);
+  }
+}
+
+function cloneJobBody(body) {
+  return JSON.parse(JSON.stringify(body ?? {}));
+}
+
+async function cleanupAbandonedRawMaterialCaptureAttachments({ workspace, now: nowValue, buildOperationLog, nextId, operatorId, logger }) {
+  const repository = workspace?.attachmentRepository;
+  if (typeof repository?.listAttachments !== "function" || typeof repository?.voidAttachment !== "function") return;
+  const nowMs = new Date(nowValue).getTime();
+  const fallbackCutoff = nowMs - 48 * 60 * 60 * 1000;
+  const referencedIds = new Set((workspace.rawMaterialInbounds ?? []).flatMap((item) =>
+    normalizeTextArray(item?.sourceAttachmentIds, item?.sourceAttachmentId)
+  ));
+  try {
+    const candidates = await repository.listAttachments({ workspace, filters: {
+      ownerType: "raw_material_inbound_capture",
+      purpose: "raw_material_delivery_note",
+    } });
+    const expired = (Array.isArray(candidates) ? candidates : []).filter((attachment) => {
+      if (attachment.status !== "uploaded" || referencedIds.has(cleanText(attachment.attachmentId))) return false;
+      const explicitExpiry = Date.parse(cleanText(attachment.metadata?.expiresAt));
+      const uploadedAt = Date.parse(cleanText(attachment.uploadedAt));
+      return Number.isFinite(explicitExpiry)
+        ? explicitExpiry <= nowMs
+        : Number.isFinite(uploadedAt) && uploadedAt <= fallbackCutoff;
+    }).slice(0, 50);
+    for (const attachment of expired) {
+      const operationLog = buildOperationLog(workspace, {
+        id: nextId("LOG", workspace.operationLogs ?? []),
+        targetType: "raw_material_inbound_capture",
+        targetId: attachment.ownerId,
+        action: "cleanup_abandoned_raw_material_capture",
+        operatorId,
+        before: { attachmentId: attachment.attachmentId, status: attachment.status },
+        after: { attachmentId: attachment.attachmentId, status: "voided" },
+        reason: "送货单临时附件超过 48 小时且未关联入库草稿，按临时附件保留规则清理。",
+      });
+      await repository.voidAttachment({
+        workspace,
+        attachmentId: attachment.attachmentId,
+        ownerType: attachment.ownerType,
+        ownerId: attachment.ownerId,
+        purpose: attachment.purpose,
+        operationLog,
+        idempotencyKey: `raw-material-capture-cleanup:${attachment.attachmentId}`,
+        idempotencyPayload: { attachmentId: attachment.attachmentId, uploadedAt: attachment.uploadedAt },
+      });
+      if (attachment.storageKey) {
+        await workspace.attachmentObjectStorage?.deleteObject?.({ storageKey: attachment.storageKey });
+      }
+    }
+  } catch (error) {
+    logger?.error?.("Raw-material capture cleanup failed", {
+      code: cleanText(error?.code),
+      message: cleanText(error?.message),
+    });
+  }
+}
+
+function toSafeRawMaterialOcrError(error) {
+  const statusCode = normalizeStatusCode(error?.statusCode);
+  const rawCode = cleanText(error?.code) || "RAW_MATERIAL_DELIVERY_NOTE_OCR_FAILED";
+  const rawMessage = cleanText(error?.message);
+  const unsafe = /(?:foreign key|constraint|sqlstate|insert\s+or\s+update|relation\s+.+does not exist|request body exceeds|load failed|failed to fetch)/iu.test(rawMessage) ||
+    /^(?:23|42)[0-9A-Z]{3}$/u.test(rawCode);
+  return {
+    statusCode,
+    code: unsafe ? "RAW_MATERIAL_DELIVERY_NOTE_OCR_FAILED" : rawCode,
+    message: unsafe ? "送货单没有生成识别草稿，请刷新登录状态后直接重试。" : rawMessage || "原材料送货单 OCR 识别失败。",
+    details: unsafe ? undefined : sanitizeOcrErrorDetails(error?.details),
+    redacted: unsafe,
+  };
+}
+
+function toRawMaterialOcrCommandError(error) {
+  const safeError = toSafeRawMaterialOcrError(error);
+  return {
+    error: true,
+    statusCode: safeError.statusCode,
+    code: safeError.code,
+    message: safeError.message,
+    ...(safeError.details ? { details: safeError.details } : {}),
+  };
 }
 
 async function recognizeDeliveryNotePageWithRetry({ page, sleep, tencentCloudTableOcrService }) {
@@ -612,6 +914,8 @@ function toIsoTimestamp(value) {
 }
 
 async function reparseStaleOcrDraft({
+  documentDirectionHint,
+  supplierNameHint,
   existingInbound,
   operatorId,
   rawMaterialOcrParserService,
@@ -620,15 +924,21 @@ async function reparseStaleOcrDraft({
 }) {
   const parserVersion = Number(rawMaterialOcrParserService?.parserVersion) || 1;
   const existingParserVersion = Number(existingInbound?.ocrParserVersion) || 1;
+  const normalizedDirectionHint = normalizeDocumentDirectionHint(documentDirectionHint);
+  const normalizedSupplierNameHint = cleanText(supplierNameHint);
+  const directionChanged = normalizedDirectionHint && normalizedDirectionHint !== cleanText(existingInbound?.documentDirection);
+  const supplierHintChanged = normalizedSupplierNameHint && normalizedSupplierNameHint !== cleanText(existingInbound?.supplierName);
   const canReparse =
     cleanText(existingInbound?.ocrProvider) === "tencent_cloud_table_v3" &&
     cleanText(existingInbound?.status) === "已识别待复核" &&
-    existingParserVersion < parserVersion &&
+    (existingParserVersion < parserVersion || directionChanged || supplierHintChanged) &&
     Array.isArray(existingInbound?.ocrTableRows) &&
     existingInbound.ocrTableRows.length > 0;
   if (!canReparse) return { inbound: existingInbound, operationLogId: "" };
 
   const reparsedDraft = preserveReparsedOcrEvidence(rawMaterialOcrParserService.buildInboundDraft({
+    colorAliases: workspace.colorAliases,
+    documentDirectionHint: normalizedDirectionHint,
     inboundId: existingInbound.id,
     knownSupplierNames: collectKnownSupplierNames(workspace),
     ocr: {
@@ -646,6 +956,8 @@ async function reparseStaleOcrDraft({
       ),
     },
     recognizedAt: existingInbound.ocrRecognizedAt,
+    standardColors: workspace.standardColors,
+    supplierNameHint: normalizedSupplierNameHint,
   }), existingInbound);
   const saved = await workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction({
     workspace,
@@ -656,8 +968,13 @@ async function reparseStaleOcrDraft({
       reparsedInbound: reparsedDraft,
       reason: `使用已保存的 OCR 表格按解析器 V${parserVersion} 重新解析；未请求云端 OCR。`,
     },
-    idempotencyKey: `raw-material-ocr-reparse:${sourceDigest}:v${parserVersion}`,
-    idempotencyPayload: { sourceDigest, parserVersion },
+    idempotencyKey: `raw-material-ocr-reparse:${sourceDigest}:v${parserVersion}:${normalizedDirectionHint || "infer"}:${normalizedSupplierNameHint || "ocr"}`,
+    idempotencyPayload: {
+      sourceDigest,
+      parserVersion,
+      documentDirectionHint: normalizedDirectionHint,
+      supplierNameHint: normalizedSupplierNameHint,
+    },
     operatorId,
     operatorName: getOperatorName(workspace, operatorId),
   });
@@ -718,7 +1035,8 @@ function normalizeDeliveryNotePages(body = {}) {
   }
   return suppliedPages.map((input, sourcePageIndex) => {
     const contentDataUrl = cleanText(input?.contentDataUrl);
-    if (!contentDataUrl) {
+    const ocrAttachmentId = cleanText(input?.ocrAttachmentId || input?.sourceAttachmentId);
+    if (!contentDataUrl && !ocrAttachmentId) {
       throw Object.assign(new Error(`送货单第 ${sourcePageIndex + 1} 页没有可识别内容。`), {
         statusCode: 422,
         code: "RAW_MATERIAL_DELIVERY_NOTE_PAGE_REQUIRED",
@@ -733,11 +1051,40 @@ function normalizeDeliveryNotePages(body = {}) {
       sourceFileSize: Number(input.sourceFileSize || input.fileSize) || undefined,
       sourceContentDataUrl: cleanText(input.sourceContentDataUrl) || contentDataUrl,
       sourceAttachmentId: cleanText(input.sourceAttachmentId),
+      ocrAttachmentId,
       sourceNormalizedForOcr: input.sourceNormalizedForOcr === true,
       pdfPageNumber: Number(input.pdfPageNumber) || undefined,
       useNewModel: input.useNewModel === true,
     };
   });
+}
+
+async function resolveDeliveryNoteOcrPage({ workspace, page, sourcePageIndex, operatorId }) {
+  if (page.contentDataUrl) return page;
+  const attachment = await workspace.attachmentRepository?.findAttachmentById?.({
+    workspace,
+    attachmentId: page.ocrAttachmentId,
+  });
+  const pageLabel = `送货单第 ${sourcePageIndex + 1} 页`;
+  if (!isValidRawMaterialCaptureAttachment(attachment, operatorId)) {
+    throw Object.assign(new Error(`${pageLabel}识别附件无效或不属于当前操作人，请重新上传。`), {
+      statusCode: 422,
+      code: "RAW_MATERIAL_DELIVERY_NOTE_OCR_ATTACHMENT_INVALID",
+    });
+  }
+  const stored = await workspace.attachmentObjectStorage?.readObject?.({ attachment });
+  if (!stored?.buffer?.length) {
+    throw Object.assign(new Error(`${pageLabel}识别附件内容不存在，请重新上传。`), {
+      statusCode: 422,
+      code: "RAW_MATERIAL_DELIVERY_NOTE_OCR_ATTACHMENT_CONTENT_MISSING",
+    });
+  }
+  return {
+    ...page,
+    contentDataUrl: toDataUrl(stored.buffer, stored.contentType || attachment.mimeType),
+    mimeType: cleanText(stored.contentType || attachment.mimeType || page.mimeType),
+    fileSize: stored.buffer.length,
+  };
 }
 
 async function resolveDeliveryNoteSourceEvidence({ workspace, page, sourcePageIndex, operatorId }) {
@@ -758,20 +1105,28 @@ async function resolveDeliveryNoteSourceEvidence({ workspace, page, sourcePageIn
       code: "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_ATTACHMENT_NOT_FOUND",
     });
   }
-  if (
-    attachment.ownerType !== "raw_material_inbound_capture" ||
-    attachment.purpose !== "raw_material_delivery_note" ||
-    attachment.status !== "uploaded" ||
-    attachment.uploadedBy !== operatorId ||
-    attachment.hasContent !== true ||
-    !cleanText(attachment.contentDigest)
-  ) {
+  if (!isValidRawMaterialCaptureAttachment(attachment, operatorId) || !cleanText(attachment.contentDigest)) {
     throw Object.assign(new Error(`${pageLabel}原图附件无效或不属于当前操作人，请重新上传。`), {
       statusCode: 422,
       code: "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_ATTACHMENT_INVALID",
     });
   }
   return { attachment, contentDigest: cleanText(attachment.contentDigest) };
+}
+
+function isValidRawMaterialCaptureAttachment(attachment, operatorId) {
+  return Boolean(
+    attachment &&
+    attachment.ownerType === "raw_material_inbound_capture" &&
+    attachment.purpose === "raw_material_delivery_note" &&
+    attachment.status === "uploaded" &&
+    cleanText(attachment.uploadedBy) === cleanText(operatorId) &&
+    attachment.hasContent === true
+  );
+}
+
+function toDataUrl(buffer, mimeType = "application/octet-stream") {
+  return `data:${cleanText(mimeType) || "application/octet-stream"};base64,${Buffer.from(buffer).toString("base64")}`;
 }
 
 function normalizeOcrPageResult(ocr = {}, sourcePageIndex = 0) {
@@ -859,6 +1214,53 @@ function sanitizeOcrErrorDetails(details) {
   return Object.values(safeDetails).some(Boolean) ? safeDetails : undefined;
 }
 
+function buildRawMaterialDeliveryNoteDuplicateKey(draft = {}) {
+  const supplierName = normalizeRawMaterialDuplicateText(draft.supplierName);
+  const deliveryNoteNo = normalizeRawMaterialDuplicateText(draft.deliveryNoteNo);
+  if (!supplierName || !deliveryNoteNo) return "";
+  return `${supplierName}::${deliveryNoteNo}`;
+}
+
+function findRawMaterialDeliveryNoteDuplicates(inbounds = [], draft = {}) {
+  const duplicateKey = buildRawMaterialDeliveryNoteDuplicateKey(draft);
+  if (!duplicateKey) return [];
+  return (Array.isArray(inbounds) ? inbounds : []).filter((item) => {
+    if (cleanText(item?.status) === "已作废") return false;
+    return (cleanText(item?.documentDuplicateKey) || buildRawMaterialDeliveryNoteDuplicateKey(item)) === duplicateKey;
+  });
+}
+
+function validateRawMaterialDeliveryNoteDuplicateConfirmation({
+  body = {},
+  documentDuplicateKey = "",
+  duplicateCandidates = [],
+  sourceDigest = "",
+} = {}) {
+  if (!duplicateCandidates.length) return { confirmed: false };
+  const expectedToken = buildRawMaterialDeliveryNoteDuplicateConfirmationToken({
+    documentDuplicateKey,
+    duplicateCandidates,
+    sourceDigest,
+  });
+  const submittedToken = cleanText(body.duplicateConfirmationToken);
+  return { confirmed: Boolean(submittedToken && submittedToken === expectedToken) };
+}
+
+function buildRawMaterialDeliveryNoteDuplicateConfirmationToken({
+  documentDuplicateKey = "",
+  duplicateCandidates = [],
+  sourceDigest = "",
+} = {}) {
+  const duplicateIds = duplicateCandidates.map((item) => cleanText(item?.id)).filter(Boolean).sort();
+  return createHash("sha256")
+    .update(`raw-material-delivery-note-duplicate-v1\n${documentDuplicateKey}\n${sourceDigest}\n${duplicateIds.join("\n")}`)
+    .digest("hex");
+}
+
+function normalizeRawMaterialDuplicateText(value) {
+  return cleanText(value).normalize("NFKC").replace(/[\s\-—_]+/gu, "").toLocaleLowerCase("zh-CN");
+}
+
 function appendOperationLog(workspace, operationLog) {
   if (!operationLog || typeof operationLog !== "object") return;
   const rows = Array.isArray(workspace.operationLogs) ? workspace.operationLogs : [];
@@ -884,6 +1286,11 @@ function getOperatorName(workspace, operatorId) {
 function normalizeStatusCode(value) {
   const statusCode = Number(value);
   return Number.isInteger(statusCode) && statusCode >= 400 && statusCode <= 599 ? statusCode : 500;
+}
+
+function normalizeDocumentDirectionHint(value) {
+  const direction = cleanText(value);
+  return ["supplier_delivery", "supplier_return"].includes(direction) ? direction : "";
 }
 
 function cleanText(value) {

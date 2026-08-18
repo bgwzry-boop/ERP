@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { MenuFoldOutlined } from "@ant-design/icons";
+import bagwinSidebarLogoUrl from "./assets/brand/BAGWIN_ERP_sidebar_horizontal_color.svg";
 import bagwinSymbolUrl from "./assets/brand/BAGWIN_symbol_color.svg";
 import {
   EntryPage,
@@ -158,7 +159,16 @@ const getStatementFinancialSummary = (statement) => getStatementFinancialSummary
 const getStatementBucket = (statement) => getStatementBucketRecord(statement, customers);
 const orderMatchesFilters = (row, filters, statements) => orderMatchesFiltersRecord(row, filters, statements, customers);
 const statementMatchesFilters = (statement, filters) => statementMatchesFiltersRecord(statement, filters, customers);
-export function App({ signedPreviewUserId = "" } = {}) { const signedPreviewAuthOptions = useMemo(() => String(signedPreviewUserId ?? "").trim() ? Object.freeze({ defaultUserId: String(signedPreviewUserId).trim(), serverRequired: false, stagingAuthBypass: true }) : null, [signedPreviewUserId]);
+export function App({ signedPreviewUserId = "" } = {}) {
+  const signedPreviewAuthOptions = useMemo(() => {
+    const normalizedPreviewUserId = String(signedPreviewUserId ?? "").trim();
+    if (!normalizedPreviewUserId) return null;
+    return Object.freeze({
+      defaultUserId: normalizedPreviewUserId,
+      serverRequired: false,
+      stagingAuthBypass: true,
+    });
+  }, [signedPreviewUserId]);
   const formalLoginRequired = isOfficeApiServerRequired(signedPreviewAuthOptions ?? undefined);
   const runtimeServerRequired = isOfficeSharedDataServerRequired();
   const [activePage, setActivePage] = useState("todos");
@@ -589,7 +599,13 @@ export function App({ signedPreviewUserId = "" } = {}) { const signedPreviewAuth
     statements,
   });
 
-  useRuntimeAuthInitialization({ authOptions: signedPreviewAuthOptions, authState, serverRequired: formalLoginRequired, setAuthState, setToast });
+  useRuntimeAuthInitialization({
+    authOptions: signedPreviewAuthOptions,
+    authState,
+    serverRequired: formalLoginRequired,
+    setAuthState,
+    setToast,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -1077,11 +1093,8 @@ export function App({ signedPreviewUserId = "" } = {}) { const signedPreviewAuth
     <div className={`app-shell app-shell-${renderedPage}${roleFocusedShellPage ? " app-shell-mobile-role" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       {!roleFocusedShellPage ? <aside className="sidebar">
         <div className="brand">
+          <img alt="袋袋赢 BAGWIN" className="brand-logo-horizontal" src={bagwinSidebarLogoUrl} />
           <img alt="袋袋赢 BAGWIN" className="brand-logo-symbol" src={bagwinSymbolUrl} />
-          <div>
-            <strong>袋袋赢 BAGWIN</strong>
-            <span>ERP 办公室端</span>
-          </div>
         </div>
         <AppNavigation
           activePage={renderedPage}

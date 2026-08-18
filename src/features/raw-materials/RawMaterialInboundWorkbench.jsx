@@ -36,6 +36,7 @@ export const RAW_MATERIAL_DETAIL_TABS = ["入库标签", "领料成本", "供应
 
 const RAW_MATERIAL_METRIC_LABELS = {
   入库单: ["待复核", "待打印", "待贴标", "可用卷/件"],
+  退货单: ["退货单", "待复核", "可用卷/件", "机边领料"],
   待贴标: ["待打印", "待贴标", "可用卷/件", "余料待复核"],
   机边领料: ["机边领料", "已消耗", "余料待复核", "余料已复核"],
   供应商对账: ["待复核", "可用卷/件", "机边领料", "待贴标"],
@@ -43,6 +44,7 @@ const RAW_MATERIAL_METRIC_LABELS = {
 
 const RAW_MATERIAL_FIRST_RELEASE_VIEW_LABELS = Object.freeze({
   入库单: "入库核对",
+  退货单: "退货记录",
   待贴标: "待贴标",
   机边领料: "扫码出库",
   供应商对账: "月结对账",
@@ -117,6 +119,8 @@ export function RawMaterialInboundListPane({
 export function RawMaterialRollInventoryWorkbench({
   inbounds = [],
   meta = {},
+  colorMappingState = { disabled: false, title: "" },
+  onOpenColorMappings,
   onOpenReceiving,
   onOpenSource,
 }) {
@@ -185,6 +189,13 @@ export function RawMaterialRollInventoryWorkbench({
         <RawMaterialRollStatusCards summary={summary} />
         <div className="raw-material-roll-dock-actions">
           <span>{formatRawMaterialRollSource(meta)}</span>
+          <button
+            className="raw-material-color-mapping-entry"
+            disabled={colorMappingState.disabled}
+            onClick={onOpenColorMappings}
+            title={colorMappingState.title}
+            type="button"
+          >厂家颜色资料</button>
           <button className="raw-material-receiving-entry" onClick={onOpenReceiving} type="button">
             <PlusOutlined />收货录入
           </button>
@@ -400,6 +411,7 @@ function getRawMaterialColorValue(color) {
 
 export function RawMaterialDetailOverview({ selected }) {
   const rolls = selected.rolls ?? [];
+  const isSupplierReturn = selected.documentDirection === "supplier_return";
   const availableCount = rolls.filter((roll) => roll.inventoryStatus === "可用").length;
   const totalCount = selected.rollCount || rolls.length || 0;
   const unitLabel = selected.materialType === "提手" ? "件" : "卷";
@@ -411,10 +423,10 @@ export function RawMaterialDetailOverview({ selected }) {
       </div>
       <div className="raw-material-detail-facts" aria-label="原材料关键事实">
         <RawMaterialFact label="供应商单号" value={selected.deliveryNoteNo || "未提供"} />
-        <RawMaterialFact label="ERP 入库单" value={selected.id || "待生成"} />
-        <RawMaterialFact label="卷/重量" value={`${totalCount}${unitLabel} / ${formatRawMaterialWeight(selected)}`} />
-        <RawMaterialFact label="可用卷/件" value={`${availableCount}/${totalCount}`} />
-        <RawMaterialFact label="库位" value={selected.location || "待分配"} />
+        <RawMaterialFact label={isSupplierReturn ? "ERP 退货单" : "ERP 入库单"} value={selected.id || "待生成"} />
+        <RawMaterialFact label={isSupplierReturn ? "退回/重量" : "卷/重量"} value={`${totalCount}${isSupplierReturn ? "件" : unitLabel} / ${formatRawMaterialWeight(selected)}`} />
+        <RawMaterialFact label={isSupplierReturn ? "退货金额" : "可用卷/件"} value={isSupplierReturn ? formatRawMaterialAmount(selected.amount) : `${availableCount}/${totalCount}`} />
+        <RawMaterialFact label={isSupplierReturn ? "库存处理" : "库位"} value={isSupplierReturn ? "不生成卷码、不增加库存" : selected.location || "待分配"} />
       </div>
     </div>
   );
@@ -453,7 +465,8 @@ function RawMaterialInboundTable({ inbounds, records, selectedId, onSelect }) {
       className="raw-material-inbound-table"
       columns={["供应商 / 单号", "原料 / 规格", "卷 / 重量", "状态", "下一步"]}
       rows={records.map((item) => {
-        const stock = buildRawMaterialStockLookup(inbounds, {
+        const isSupplierReturn = item.documentDirection === "supplier_return";
+        const stock = isSupplierReturn ? null : buildRawMaterialStockLookup(inbounds, {
           color: item.factoryColor || item.supplierColor,
           widthCm: item.widthCm,
           gramWeightGsm: item.gramWeightGsm,
@@ -467,11 +480,13 @@ function RawMaterialInboundTable({ inbounds, records, selectedId, onSelect }) {
           <RawMaterialTableCell primary={item.supplierName} secondary={formatRawMaterialDeliveryNoteNo(item)} />,
           <RawMaterialTableCell
             primary={item.productName || item.materialType}
-            secondary={`${item.factoryColor || item.supplierColor} / ${item.widthCm || "?"}cm / 可用${stock.availableWeightKg}kg`}
+            secondary={isSupplierReturn
+              ? `${item.factoryColor || item.supplierColor || "颜色待确认"} / ${item.spec || "规格待确认"}`
+              : `${item.factoryColor || item.supplierColor} / ${item.widthCm || "?"}cm / 可用${stock.availableWeightKg}kg`}
           />,
           <RawMaterialTableCell
-            primary={`${item.rollCount || item.rolls?.length || 0}${item.materialType === "提手" ? "件" : "卷"}`}
-            secondary={formatRawMaterialWeight(item)}
+            primary={`${item.rollCount || item.rolls?.length || 0}${isSupplierReturn || item.materialType === "提手" ? "件" : "卷"}`}
+            secondary={isSupplierReturn ? `${formatRawMaterialWeight(item)} / ${formatRawMaterialAmount(item.amount)}` : formatRawMaterialWeight(item)}
           />,
           <StatusPill tone={getRawMaterialInboundTone(item.status)}>{item.status}</StatusPill>,
           <span className="raw-material-next-step">{getRawMaterialNextActionLabel(item)}</span>,
@@ -480,6 +495,12 @@ function RawMaterialInboundTable({ inbounds, records, selectedId, onSelect }) {
       })}
     />
   );
+}
+
+function formatRawMaterialAmount(value) {
+  const amount = Number(value);
+  if (!Number.isFinite(amount) || amount === 0) return "金额待确认";
+  return `${amount < 0 ? "-" : ""}¥${Math.abs(amount).toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 }
 
 function RawMaterialTableCell({ primary, secondary }) {

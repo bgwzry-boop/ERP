@@ -57,6 +57,7 @@ export const writeActionPermissions = Object.freeze({
   reviewMasterDataEmployeeAccount: "master_data.employee_account.review",
   issueMasterDataEmployeeAccountPassword: "master_data.employee_account.password.issue",
   manageEmployeeProfile: "master_data.employee_profile.manage",
+  manageRawMaterialSupplierColors: "master_data.raw_material_color.manage",
   viewOwnAttendance: "attendance.self.read",
   syncAttendance: "attendance.sync",
   reviewAttendance: "attendance.review",

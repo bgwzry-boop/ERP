@@ -47,6 +47,7 @@ export const CHECK_GROUPS = Object.freeze({
     "graceful-shutdown:check",
     "role-catalog:check",
     "app-navigation:check",
+    "review:identity:check",
     "office-workspace-hook:check",
     "office-core-reads:check",
     "office-role-tool-reads:check",

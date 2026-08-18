@@ -27,6 +27,29 @@ export async function handleRawMaterialWriteRoutes({
     return true;
   }
 
+  if (url.pathname === "/api/raw-material-inbounds/ocr-jobs") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.reviewRawMaterialInbound)) return true;
+    const result = await rawMaterialCommandService.startDeliveryNoteRecognitionJob({
+      workspace,
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
+    });
+    sendCommandResult({ response, result, sendJson, sendBusinessError });
+    return true;
+  }
+
+  const ocrJobMatch = url.pathname.match(/^\/api\/raw-material-inbounds\/ocr-jobs\/([^/]+)\/(status|retry)$/u);
+  if (ocrJobMatch) {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.reviewRawMaterialInbound)) return true;
+    const jobId = decodeURIComponent(ocrJobMatch[1]);
+    const operatorId = getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A");
+    const result = ocrJobMatch[2] === "retry"
+      ? await rawMaterialCommandService.retryDeliveryNoteRecognitionJob({ workspace, jobId, body, operatorId })
+      : await rawMaterialCommandService.getDeliveryNoteRecognitionJob({ jobId, operatorId });
+    sendCommandResult({ response, result, sendJson, sendBusinessError });
+    return true;
+  }
+
   const inboundActionMatch = url.pathname.match(/^\/api\/raw-material-inbounds\/([^/]+)\/([^/]+)$/);
   if (inboundActionMatch) {
     const inboundId = decodeURIComponent(inboundActionMatch[1]);
@@ -112,8 +135,12 @@ function getRawMaterialInboundActionPermission(actionSlug, writeActionPermission
   const action = String(actionSlug ?? "").trim();
   const permissions = {
     review: writeActionPermissions.reviewRawMaterialInbound,
+    "void-draft": writeActionPermissions.reviewRawMaterialInbound,
+    void_draft: writeActionPermissions.reviewRawMaterialInbound,
     "print-labels": writeActionPermissions.printRawMaterialInboundLabels,
     print_labels: writeActionPermissions.printRawMaterialInboundLabels,
+    "defer-labels": writeActionPermissions.printRawMaterialInboundLabels,
+    defer_labels: writeActionPermissions.printRawMaterialInboundLabels,
     "attach-confirm": writeActionPermissions.confirmRawMaterialInboundAttachment,
     attach_confirm: writeActionPermissions.confirmRawMaterialInboundAttachment,
     "void-label": writeActionPermissions.printRawMaterialInboundLabels,

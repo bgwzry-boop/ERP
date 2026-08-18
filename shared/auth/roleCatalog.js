@@ -347,6 +347,7 @@ const definitions = {
       "master_data.employee_account.review",
       "master_data.employee_account.password.issue",
       "master_data.employee_profile.manage",
+      "master_data.raw_material_color.manage",
       "attendance.self.read",
       "attendance.sync",
       "attendance.review",

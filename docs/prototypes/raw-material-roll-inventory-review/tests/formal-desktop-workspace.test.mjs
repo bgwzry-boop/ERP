@@ -13,6 +13,13 @@ test("4174 has one immutable local preview identity", async () => {
   assert.equal(identity.rootWorkbenchPort, 5173);
 });
 
+test("bare root workbench navigation cannot masquerade as the 4174 review", async () => {
+  const rootViteSource = await readFile(new URL("../../../../vite.config.mjs", import.meta.url), "utf8");
+  assert.match(rootViteSource, /ERP_INTERNAL_WORKBENCH_EXPLICIT_ACCESS_REQUIRED/);
+  assert.match(rootViteSource, /searchParams\.get\("internalWorkbench"\) === "1"/);
+  assert.match(rootViteSource, /http:\/\/127\.0\.0\.1:4174\/\?source=review-guard/);
+});
+
 test("4174 mobile review uses a signed passwordless preview session", async () => {
   const [mobileEntrySource, appSource, authInitializationSource] = await Promise.all([
     readSource("../src/FormalMobileEntry.jsx"),
@@ -39,6 +46,8 @@ test("4174 cannot keep the phone workbench mounted after widening to desktop", a
 
   assert.match(entrySource, /phoneViewportQuery\.addEventListener\("change", reloadForViewportFamily\)/, "the review entry should observe phone/desktop viewport-family changes");
   assert.match(entrySource, /nextUrl\.searchParams\.set\("erpViewport", event\.matches \? "mobile" : "desktop"\)/, "a viewport-family change should create a cache-busted canonical review URL");
+  assert.match(entrySource, /declaredViewportFamily !== expectedViewportFamily/, "a stale viewport marker should be corrected before either shell renders");
+  assert.match(entrySource, /本地修改稿 · 未部署/, "the local review must never masquerade as a deployed release");
   assert.match(entrySource, /window\.location\.replace\(nextUrl\.toString\(\)\)/, "crossing the phone breakpoint should reload the unique review entry instead of expanding the phone app into the old desktop shell");
 });
 

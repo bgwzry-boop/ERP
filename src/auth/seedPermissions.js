@@ -92,8 +92,11 @@ const uiActionPermissions = {
     撤销员工密码: { permissionKey: "master_data.employee_account.password.issue", permissionType: "action" },
   },
   rawMaterial: {
+    维护厂家颜色: { permissionKey: "master_data.raw_material_color.manage", permissionType: "action" },
     复核送货单: { permissionKey: "raw_material.inbound.review", permissionType: "action" },
+    作废误录草稿: { permissionKey: "raw_material.inbound.review", permissionType: "action" },
     打印卷标: { permissionKey: "raw_material.label.print", permissionType: "action" },
+    暂缓打印卷标: { permissionKey: "raw_material.label.print", permissionType: "action" },
     作废卷标: { permissionKey: "raw_material.label.print", permissionType: "action" },
     重打卷标: { permissionKey: "raw_material.label.print", permissionType: "action" },
     确认贴标入库: { permissionKey: "raw_material.label.attach_confirm", permissionType: "action" },

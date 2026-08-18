@@ -78,6 +78,29 @@ const draft = buildRawMaterialInboundDraftFromOcr({
 });
 
 assert.equal(draft.supplierName, "白侯无纺布有限公司");
+const supplierMappedDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-SUPPLIER-COLOR-CHECK",
+  knownSupplierNames: ["白侯无纺布有限公司"],
+  recognizedAt: "2026-07-16T08:00:00.000Z",
+  standardColors: [{ id: "SC-FACTORY-WHITE", name: "本白", enabled: true }],
+  colorAliases: [{
+    id: "CA-BAIHOU-MIBEI",
+    alias: "米白",
+    standardColorId: "SC-FACTORY-WHITE",
+    sourceType: "supplier",
+    sourceId: "白侯无纺布有限公司",
+    enabled: true,
+  }],
+  ocr: {
+    action: "RecognizeTableAccurateOCR",
+    requestId: "ocr-request-supplier-color-check",
+    tables: [{ cells }],
+  },
+});
+assert.equal(supplierMappedDraft.ocrLines[0].values.supplierColor, "米白", "supplier ticket wording remains audit evidence");
+assert.equal(supplierMappedDraft.ocrLines[0].values.factoryColor, "本白", "supplier-scoped mapping resolves the factory standard color");
+assert.equal(supplierMappedDraft.ocrLines[0].factoryColorResolution.status, "supplier_rule");
+assert.equal(supplierMappedDraft.rolls[0].factoryColorMappingAliasId, "CA-BAIHOU-MIBEI");
 assert.equal(draft.deliveryNoteNo, "BH-20260716-01");
 assert.equal(draft.productName, "无纺布");
 assert.equal(draft.materialType, "无纺布");
@@ -221,6 +244,22 @@ const numericFooterFalsePositiveDraft = buildRawMaterialInboundDraftFromOcr({
 });
 assert.equal(numericFooterFalsePositiveDraft.ocrLines.length, 1, "a numeric footer without material identity or measure must not become an OCR material line");
 assert.equal(numericFooterFalsePositiveDraft.rolls.length, 1, "a rejected numeric footer must not fabricate a physical roll");
+
+const debtFooterFalsePositiveDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-DEBT-FOOTER-FALSE-POSITIVE",
+  knownSupplierNames: ["人意无纺布"],
+  ocr: {
+    tables: [{ cells: buildCells([
+      ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+      ["78*70*1500", "玫红", "2", "82.8", "83.8", "166.6", "9.7", "1616.02"],
+      ["欠款", "13", "壹万贰仟零柒.捌玖", "12007.89"],
+    ]) }],
+  },
+});
+assert.equal(debtFooterFalsePositiveDraft.ocrLines.length, 1, "a debt summary row must never become a material line");
+assert.equal(debtFooterFalsePositiveDraft.rolls.length, 2, "a debt summary count must not fabricate physical rolls");
+assert.deepEqual(debtFooterFalsePositiveDraft.rolls.map((roll) => roll.weightKg), [82.8, 83.8]);
+assert.equal(debtFooterFalsePositiveDraft.rolls.some((roll) => roll.weightKg === 12007.89), false);
 
 const partialRollWeightsDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-PARTIAL-ROLL-WEIGHTS",
@@ -560,6 +599,21 @@ assert.equal(beichenExplicitReturnDraft.amount, -1000.48);
 assert.deepEqual(beichenExplicitReturnDraft.ocrLines[0].values.rollWeightsKg, [-96.2]);
 assert.equal(beichenExplicitReturnDraft.rolls.length, 0);
 
+const operatorSelectedReturnDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-OPERATOR-SELECTED-RETURN",
+  documentDirectionHint: "supplier_return",
+  ocr: { tables: [{ cells: buildCells([
+    ["宁晋县腾胜无纺布有限公司销货单"],
+    ["编号", "商品全名", "规格", "单位", "数量", "单价", "金额", "备注"],
+    ["16", "大红", "78*90*1500", "公斤", "107.7", "9.7", "1044.69", ""],
+  ]) }] },
+});
+assert.equal(operatorSelectedReturnDraft.documentDirection, "supplier_return", "the operator's capture-time return selection must override OCR wording");
+assert.equal(operatorSelectedReturnDraft.documentDirectionSource, "operator_capture_selection");
+assert.equal(operatorSelectedReturnDraft.totalWeightKg, -107.7);
+assert.equal(operatorSelectedReturnDraft.amount, -1044.69);
+assert.equal(operatorSelectedReturnDraft.rolls.length, 0, "an explicitly selected supplier return must not allocate new roll codes");
+
 const hongshangNegativeReturnDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-HONGSHANG-NEGATIVE-RETURN",
   ocr: { tables: [{ cells: buildCells([
@@ -607,6 +661,46 @@ const otherSupplierOneWidthDraft = buildRawMaterialInboundDraftFromOcr({
 assert.equal(otherSupplierOneWidthDraft.ocrLines[0].values.widthCm, 1, "the 人意 1米 adapter must not contaminate other suppliers");
 assert.equal(otherSupplierOneWidthDraft.supplierOcrProfileKey, "generic");
 assert.equal(otherSupplierOneWidthDraft.documentPriceReferenceOnly, false);
+
+const renyiCompactReturnDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RENYI-COMPACT-RETURN",
+  documentDirectionHint: "supplier_return",
+  knownSupplierNames: ["人意无纺布"],
+  supplierNameHint: "人意无纺布",
+  ocr: { tables: [{ cells: buildCells([
+    ["人意无纺布销售单"],
+    ["品名称", "颜色", "数量", "重\n量\n单位:千克\n单价", "金额"],
+    ["退带色布", "1", "-58", "-58", "10.1", "-585.8"],
+    ["计", "1", "负伍佰捌拾伍.捌", "-585.8"],
+  ]) }] },
+});
+assert.equal(renyiCompactReturnDraft.supplierName, "人意无纺布");
+assert.equal(renyiCompactReturnDraft.supplierNameSource, "operator_capture_selection");
+assert.equal(renyiCompactReturnDraft.ocrLines.length, 1, "the compact 计 footer must never become a second return material line");
+assert.equal(renyiCompactReturnDraft.ocrLines[0].values.productName, "退带色布");
+assert.equal(renyiCompactReturnDraft.totalWeightKg, -58, "the printed quantity 1 must not replace the -58kg return detail");
+assert.equal(renyiCompactReturnDraft.amount, -585.8);
+assert.deepEqual(renyiCompactReturnDraft.ocrReconciliationIssues, []);
+
+const tengshengDetachedDocumentNumberReturnDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-TENGSHENG-DETACHED-DOC-NO",
+  documentDirectionHint: "supplier_return",
+  knownSupplierNames: ["宁晋县腾胜无纺布有限公司"],
+  supplierNameHint: "宁晋县腾胜无纺布有限公司",
+  ocr: { tables: [
+    { cells: buildCells([["销售退货单"], ["录单日期:", "2026-08-08"], ["单据编号:"]]) },
+    { cells: buildCells([["XT-2026-08-08-027"]]) },
+    { cells: buildCells([
+      ["商品全名", "商品规格", "单位", "数量", "单价", "金额", "备注"],
+      ["黑", "78*76*1500", "公斤", "3.8", "9.7", "36.86", ""],
+      ["页小计", "3.8", "36.86元"],
+    ]) },
+  ] },
+});
+assert.equal(tengshengDetachedDocumentNumberReturnDraft.deliveryNoteNo, "XT-2026-08-08-027");
+assert.equal(tengshengDetachedDocumentNumberReturnDraft.supplierName, "宁晋县腾胜无纺布有限公司");
+assert.equal(tengshengDetachedDocumentNumberReturnDraft.totalWeightKg, -3.8);
+assert.equal(tengshengDetachedDocumentNumberReturnDraft.rolls.length, 0);
 
 console.log("Raw-material OCR parser checks passed: table fields, supplier identity, roll expansion, review evidence, and unavailable-inventory defaults are covered.");
 

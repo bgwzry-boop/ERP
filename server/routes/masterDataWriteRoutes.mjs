@@ -12,6 +12,7 @@ export async function handleMasterDataWriteRoutes({
   masterDataImportCommandService,
   masterDataEmployeeAccountCommandService,
   masterDataMachineCommandService,
+  rawMaterialSupplierColorMappingService,
   phoneIdentityCommandService,
   sendCommandResponse,
 }) {
@@ -44,6 +45,17 @@ export async function handleMasterDataWriteRoutes({
   }
 
   if (method !== "POST") return false;
+
+  if (url.pathname === "/api/master-data/raw-material-supplier-colors") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageRawMaterialSupplierColors)) return true;
+    const result = await rawMaterialSupplierColorMappingService.saveMapping({
+      workspace,
+      body,
+      operatorId: getPermissionOperatorId(permissionContext, authContext, "U-MANAGER-A"),
+    });
+    sendCommandResponse(response, result, EMPLOYEE_RESPONSE_OPTIONS);
+    return true;
+  }
 
   const directRoutes = {
     "/api/master-data/import-confirmation-plans": {

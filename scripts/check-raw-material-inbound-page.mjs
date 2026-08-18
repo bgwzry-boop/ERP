@@ -92,7 +92,7 @@ assertIncludes(rawMaterialPageSource, "meta.error || ocrReviewSubmitError", "mob
 assertIncludes(rawMaterialPageSource, "setMobileDetailOpen(false)", "successful mobile OCR review should return to the receiving flow");
 assertIncludes(rawMaterialPageSource, "mobileOcrReviewOpen ? \"is-mobile-detail-open\"", "mobile detail mode should remain scoped to an active OCR review");
 assertIncludes(rawMaterialPageSource, "RawMaterialMobileOcrReview", "raw-material page should mount the focused mobile OCR review flow");
-assertIncludes(rawMaterialPageSource, "prepareRawMaterialDeliveryNoteFile", "mobile capture should preserve the source image while preparing the OCR derivative");
+assertIncludes(rawMaterialPageSource, "prepareRawMaterialDeliveryNotePages", "mobile capture should split PDF pages while preserving per-page source images and OCR derivatives");
 assertExcludes(rawMaterialPageSource, "1500", "the shared business page must not restore the review prototype's blanket 1500-meter filler");
 assertIncludes(rawMaterialMobileSource, "录原材料", "phone layout should expose the approved field-task title");
 assertIncludes(rawMaterialMobileSource, "拍单", "phone layout should expose the photo step");
@@ -126,7 +126,8 @@ assertIncludes(rawMaterialMobileOcrReviewSource, "核对退货单", "supplier re
 assertIncludes(rawMaterialMobileOcrReviewSource, "documentDirection", "mobile OCR review should project and validate rows with the server-authoritative document direction");
 assertIncludes(rawMaterialMobileOcrReviewSource, "原单未写规格", "supplier returns should keep absent specifications visible without inventing or blocking them");
 assertIncludes(rawMaterialMobileOcrReviewSource, "Math.abs(Number(roll.weightKg))", "supplier return rows should accept and preserve signed non-zero weights");
-assertIncludes(rawMaterialPageSource, 'setMobileStage(isSupplierReturn ? "return-complete" : "print")', "reviewed supplier returns must terminate before printing and inventory");
+assertIncludes(rawMaterialPageSource, 'completedInbound.status === "已入库待补打标签" ? "label-deferred" : "print"', "reviewed delivery notes should automatically bypass unavailable onsite printing and remain pending label completion");
+assertIncludes(rawMaterialPageSource, 'isSupplierReturn ? "return-complete"', "reviewed supplier returns must terminate before printing and inventory");
 assertIncludes(rawMaterialMobileSource, "退货单已复核", "the mobile receiving flow should expose a terminal reviewed-return result");
 assertIncludes(rawMaterialMobileSource, "不生成进货卷码、标签和库存；作为负数厂家对账依据", "the terminal return state should separate no-inbound effects from negative supplier reconciliation");
 assertIncludes(rawMaterialMobileOcrReviewSource, "放大查看", "mobile OCR review should keep the real delivery note as the evidence anchor");
@@ -154,10 +155,13 @@ assertIncludes(rawMaterialMobileOcrReviewSource, "getOcrPageMeta(selected, sourc
 assertIncludes(rawMaterialMobileOcrReviewSource, "sourceAttachmentIds", "multi-page source evidence should retain every ordered source attachment");
 assertIncludes(rawMaterialMobileSource, "没有第二页，开始识别", "the ordinary one-page path should stay explicit while allowing a rare second page");
 assertIncludes(rawMaterialMobileSource, "还有第二页", "the mobile capture flow should allow another page without forcing it on every receipt");
-assertIncludes(rawMaterialMobileSource, "送货单逐页预览", "captured pages should expose immediate ordered thumbnail previews");
-assertIncludes(rawMaterialMobileSource, "查看送货单第", "each captured page should open a readable full preview before OCR");
-assertIncludes(rawMaterialMobileSource, "删除送货单第", "each captured page should be removable before OCR");
-assertIncludes(rawMaterialMobileSource, "请确认同一张单的页面没有遗漏", "multi-page capture should explicitly prevent partial-note recognition");
+assertIncludes(rawMaterialMobileSource, "raw-material-mobile-capture-previews", "captured delivery or return pages should expose immediate ordered thumbnail previews");
+assertIncludes(rawMaterialMobileSource, "查看${isSupplierReturn ? \"退货单\" : \"送货单\"}第", "each captured page should open a readable full preview before OCR");
+assertIncludes(rawMaterialMobileSource, "删除${isSupplierReturn ? \"退货单\" : \"送货单\"}第", "each captured page should be removable before OCR");
+assertIncludes(rawMaterialMobileSource, "页面没有遗漏", "multi-page capture should explicitly prevent partial-note recognition");
+assertIncludes(rawMaterialMobileSource, "供应商退货", "the operator must explicitly choose the supplier-return direction before capture");
+assertIncludes(rawMaterialMobileSource, "暂不打印，保存为待补标", "printing may be deferred without falsely marking labels as printed");
+assertIncludes(rawMaterialMobileOcrReviewSource, "厂内标准色", "inventory color should require an explicit canonical factory-color confirmation");
 assertIncludes(rawMaterialPageSource, "handleDeliveryNotePageRemove", "the capture flow should remove only the selected page without clearing the receipt");
 assertIncludes(rawMaterialMobileOcrReviewSource, "orientRawMaterialOcrSourceBounds", "row evidence bounds should rotate into the same coordinate space as the oriented delivery note");
 assertIncludes(rawMaterialMobileOcrReviewSource, 'preserveAspectRatio="none"', "source evidence should map the oriented image into the OCR coordinate space without off-screen percentage offsets");

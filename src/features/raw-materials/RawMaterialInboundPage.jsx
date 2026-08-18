@@ -9,7 +9,7 @@ import {
   Timeline,
 } from "../../shared/ui/operational.jsx";
 import { precheckRawMaterialSupplierStatementWorkbook } from "../../domain/rawMaterialSupplierStatementImport.js";
-import { prepareRawMaterialDeliveryNoteFile } from "../../services/rawMaterialDeliveryNoteImageClient.js";
+import { prepareRawMaterialDeliveryNotePages } from "../../services/rawMaterialDeliveryNoteImageClient.js";
 import {
   buildRawMaterialStockLookup,
   evaluateRawMaterialOrderSupport,
@@ -46,6 +46,9 @@ import { RawMaterialPurchasePanel } from "./RawMaterialPurchasePanel.jsx";
 const RawMaterialMobileOcrReview = lazy(() => import("./RawMaterialMobileOcrReview.jsx").then((module) => ({
   default: module.RawMaterialMobileOcrReview,
 })));
+const RawMaterialSupplierColorMappingDialog = lazy(() => import("./RawMaterialSupplierColorMappingDialog.jsx").then((module) => ({
+  default: module.RawMaterialSupplierColorMappingDialog,
+})));
 
 const RAW_MATERIAL_FIRST_RELEASE_DETAIL_TABS = ["入库标签", "扫码出库", "供应商账", "记录"];
 
@@ -53,6 +56,7 @@ const OCR_LINE_REVIEW_FIELDS = [
   ["productName", "品名"],
   ["materialType", "材料"],
   ["supplierColor", "供应商颜色"],
+  ["factoryColor", "厂内标准色 *"],
   ["spec", "规格 *"],
   ["rollCount", "卷/件数 *"],
   ["totalWeightKg", "行总重 kg"],
@@ -96,6 +100,8 @@ export function RawMaterialInboundPage({
   const [deliveryNoteOcrProgress, setDeliveryNoteOcrProgress] = useState("");
   const [deliveryNoteOcrResult, setDeliveryNoteOcrResult] = useState("");
   const [deliveryNoteCapturePages, setDeliveryNoteCapturePages] = useState([]);
+  const [deliveryNoteDirectionHint, setDeliveryNoteDirectionHint] = useState("supplier_delivery");
+  const [deliveryNoteSupplierHint, setDeliveryNoteSupplierHint] = useState("");
   const [deliveryNotePreviewByInboundId, setDeliveryNotePreviewByInboundId] = useState({});
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileStage, setMobileStage] = useState("home");
@@ -109,6 +115,10 @@ export function RawMaterialInboundPage({
   const [issueSelection, setIssueSelection] = useState(null);
   const [printSheetInbound, setPrintSheetInbound] = useState(null);
   const [desktopView, setDesktopView] = useState("卷料库存");
+  const [colorMappingOpen, setColorMappingOpen] = useState(false);
+  const deliveryNoteSupplierOptions = Array.from(new Set(
+    inbounds.map((item) => String(item?.supplierName || "").trim()).filter(Boolean),
+  )).sort((left, right) => left.localeCompare(right, "zh-CN"));
   const records = filterRawMaterialInboundsByTab(inbounds, activeTab);
   const visibleRecords = filterRawMaterialInboundsByKeyword(records, keyword);
   const selected = visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
@@ -124,6 +134,7 @@ export function RawMaterialInboundPage({
   const costState = getUiActionState("rawMaterial", "查看成本");
   const canViewCost = !costState.disabled;
   const reviewState = getUiActionState("rawMaterial", "复核送货单");
+  const voidDraftState = getUiActionState("rawMaterial", "作废误录草稿");
   const printState = getUiActionState("rawMaterial", "打印卷标");
   const attachState = getUiActionState("rawMaterial", "确认贴标入库");
   const issueState = getUiActionState("rawMaterial", "机边领料");
@@ -138,6 +149,7 @@ export function RawMaterialInboundPage({
   const marginReviewState = getUiActionState("rawMaterial", "复核毛利快照");
   const payableState = getUiActionState("rawMaterial", "生成应付");
   const paymentState = getUiActionState("rawMaterial", "确认付款");
+  const colorMappingState = getUiActionState("rawMaterial", "维护厂家颜色");
   const metrics = selectRawMaterialInboundMetrics(buildRawMaterialInboundMetrics(inbounds), activeTab);
   const mobileOcrReviewActive = selected?.ocrProvider === "tencent_cloud_table_v3" && canReviewRawMaterialInbound(selected);
   const mobileOcrReviewOpen = mobileDetailOpen && mobileOcrReviewActive;
@@ -204,19 +216,13 @@ export function RawMaterialInboundPage({
         setDeliveryNoteOcrProgress(`正在准备第 ${deliveryNoteCapturePages.length + fileIndex + 1} 页预览…`);
         const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
         if (!isSupportedDeliveryNoteFile(mimeType)) throw new Error("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
-        const prepared = await prepareRawMaterialDeliveryNoteFile(file, { mimeType });
-        preparedPages.push({
-          fileName: file.name,
-          mimeType: prepared.mimeType,
-          fileSize: prepared.fileSize,
-          contentDataUrl: prepared.contentDataUrl,
-          sourceMimeType: prepared.sourceMimeType,
-          sourceFileSize: prepared.sourceFileSize,
-          sourceContentDataUrl: prepared.sourceContentDataUrl,
-          sourceFile: prepared.sourceFile,
-          captureId,
-          sourceNormalizedForOcr: prepared.normalized,
-        });
+        const preparedFilePages = await prepareRawMaterialDeliveryNotePages(file, { mimeType });
+        if (deliveryNoteCapturePages.length + preparedPages.length + preparedFilePages.length > 4) {
+          throw new Error("同一张送货单最多添加 4 页，请删除多余页面后重试。");
+        }
+        preparedPages.push(...preparedFilePages.map((prepared, pageOffset) =>
+          toDeliveryNoteCapturePage({ prepared, file, captureId, pageOffset })
+        ));
       }
       setDeliveryNoteCapturePages((current) => [...current, ...preparedPages]);
     } catch (error) {
@@ -229,6 +235,10 @@ export function RawMaterialInboundPage({
 
   async function handleDeliveryNoteRecognize(preparedPages = deliveryNoteCapturePages) {
     if (!preparedPages.length) return;
+    if (deliveryNoteDirectionHint === "supplier_return" && !deliveryNoteSupplierHint) {
+      setDeliveryNoteOcrError("退货单请先选择退给哪一家供应商，再开始识别。");
+      return;
+    }
     setDeliveryNoteOcrError("");
     setDeliveryNoteOcrProgress(`正在保存第 1/${preparedPages.length} 页原图…`);
     setDeliveryNoteOcrResult("");
@@ -237,6 +247,8 @@ export function RawMaterialInboundPage({
       const firstPage = preparedPages[0];
       const inbound = await onDeliveryNoteRecognize?.({
         ...firstPage,
+        documentDirectionHint: deliveryNoteDirectionHint,
+        supplierNameHint: deliveryNoteSupplierHint,
         pages: preparedPages,
         onProgress: (progress) => setDeliveryNoteOcrProgress(progress?.message || "正在识别送货单…"),
       });
@@ -253,6 +265,8 @@ export function RawMaterialInboundPage({
         [inbound.id]: preparedPages.map((page) => page.sourceContentDataUrl || page.contentDataUrl),
       }));
       setDeliveryNoteCapturePages([]);
+      setDeliveryNoteDirectionHint("supplier_delivery");
+      setDeliveryNoteSupplierHint("");
       setMobileRecordSnapshot(inbound);
       prepareOcrReviewDraft(inbound);
       setMobileStage("review");
@@ -294,19 +308,13 @@ export function RawMaterialInboundPage({
       for (const file of files.slice(0, 4)) {
         const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
         if (!isSupportedDeliveryNoteFile(mimeType)) throw new Error("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
-        const prepared = await prepareRawMaterialDeliveryNoteFile(file, { mimeType });
-        preparedPages.push({
-          fileName: file.name,
-          mimeType: prepared.mimeType,
-          fileSize: prepared.fileSize,
-          contentDataUrl: prepared.contentDataUrl,
-          sourceMimeType: prepared.sourceMimeType,
-          sourceFileSize: prepared.sourceFileSize,
-          sourceContentDataUrl: prepared.sourceContentDataUrl,
-          sourceFile: prepared.sourceFile,
-          captureId,
-          sourceNormalizedForOcr: prepared.normalized,
-        });
+        const preparedFilePages = await prepareRawMaterialDeliveryNotePages(file, { mimeType });
+        if (preparedPages.length + preparedFilePages.length > 4) {
+          throw new Error("同一张送货单最多添加 4 页，请删除多余页面后重试。");
+        }
+        preparedPages.push(...preparedFilePages.map((prepared, pageOffset) =>
+          toDeliveryNoteCapturePage({ prepared, file, captureId, pageOffset })
+        ));
       }
       await handleDeliveryNoteRecognize(preparedPages);
     } catch (error) {
@@ -341,18 +349,33 @@ export function RawMaterialInboundPage({
         reason: `办公室对照原始${isSupplierReturn ? "退货单" : "送货单"}人工核对并确认腾讯云 OCR 字段。`,
         note: isSupplierReturn
           ? "退货 OCR 字段已人工复核；不生成入库卷码、标签或可用库存，金额作为负数厂家对账依据。"
-          : "OCR 字段已人工复核；仍需打印、实物贴标和逐卷人工核对后才能形成可用库存。",
+          : "OCR 字段已人工复核；每卷独立卷码生成后先保存为待补标，补打并逐卷贴标核对后才能形成可用库存。",
       });
       if (!updatedInbound?.id) {
         setOcrReviewSubmitError(`${isSupplierReturn ? "退货单" : "送货单"}没有保存到服务器。当前填写内容仍保留，请稍后重试；如果持续失败，请联系管理员，不要重复拍单。`);
         return;
       }
-      setMobileRecordSnapshot(updatedInbound);
-      setMobileStage(isSupplierReturn ? "return-complete" : "print");
-      setMobileMessage(null);
+      let completedInbound = updatedInbound;
+      if (!isSupplierReturn) {
+        const deferredInbound = await onAction?.("暂缓打印卷标", updatedInbound.id, {
+          reason: "当前试运行阶段略过现场打印；逐卷卷码已经生成，先保存到原料待补标区。",
+        });
+        if (deferredInbound?.id) completedInbound = deferredInbound;
+      }
+      setMobileRecordSnapshot(completedInbound);
+      setMobileStage(isSupplierReturn ? "return-complete" : completedInbound.status === "已入库待补打标签" ? "label-deferred" : "print");
+      if (!isSupplierReturn && completedInbound.status !== "已入库待补打标签") {
+        setMobileMessage({
+          tone: "warning",
+          title: "卷码已生成，但待补标状态没有保存",
+          body: "单据仍停留在打印步骤；请点“暂不打印，保存为待补标”，不要把未贴标卷料当作可用库存。",
+        });
+      } else {
+        setMobileMessage(null);
+      }
       setMobileDetailOpen(false);
       scrollRawMaterialMobileToTop();
-      return updatedInbound;
+      return completedInbound;
     } finally {
       setOcrReviewSubmitting(false);
     }
@@ -394,6 +417,27 @@ export function RawMaterialInboundPage({
     setMobileRecordSnapshot(result);
     setMobileMessage(null);
     setMobileStage("print-success");
+    scrollRawMaterialMobileToTop();
+    return result;
+  }
+
+  async function handleDeferLabels() {
+    const activeInbound = mobileSelected ?? selected;
+    if (!activeInbound || activeInbound.status !== "已复核待打印标签" || printState.disabled || !canPrintRawMaterialLabels(activeInbound)) return null;
+    const result = await onAction?.("暂缓打印卷标", activeInbound.id, {
+      reason: "现场打印设备暂不可用；逐卷卷码已经生成，先保存到原料待补标区。",
+    });
+    if (!result?.id) {
+      setMobileMessage({
+        tone: "danger",
+        title: "待补标状态没有保存",
+        body: "当前单据仍停留在打印步骤，请不要把未贴标卷料当作可用库存。",
+      });
+      return null;
+    }
+    setMobileRecordSnapshot(result);
+    setMobileMessage(null);
+    setMobileStage("label-deferred");
     scrollRawMaterialMobileToTop();
     return result;
   }
@@ -540,6 +584,15 @@ export function RawMaterialInboundPage({
   return (
     <section className={`page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench ${desktopView === "卷料库存" ? "is-roll-inventory-view" : "is-receiving-view"} ${mobileOcrReviewOpen ? "is-mobile-detail-open" : ""}`}>
       <RawMaterialLabelPrintSheet inbound={printSheetInbound} />
+      {colorMappingOpen ? (
+        <Suspense fallback={null}>
+          <RawMaterialSupplierColorMappingDialog
+            authState={authState}
+            currentUser={currentUser}
+            onClose={() => setColorMappingOpen(false)}
+          />
+        </Suspense>
+      ) : null}
       <RawMaterialMobileReceiving
         attachState={attachState}
         deliveryNoteOcrError={deliveryNoteOcrError}
@@ -549,10 +602,19 @@ export function RawMaterialInboundPage({
         capturedPages={deliveryNoteCapturePages}
         mobileMessage={mobileMessage}
         mobileStage={mobileStage}
+        documentDirectionHint={deliveryNoteDirectionHint}
+        supplierNameHint={deliveryNoteSupplierHint}
+        supplierOptions={deliveryNoteSupplierOptions}
         onAttach={handleMobileAttach}
         onDeliveryNotePageSelect={handleDeliveryNotePageSelect}
         onDeliveryNotePageRemove={handleDeliveryNotePageRemove}
         onDeliveryNotePagesClear={handleDeliveryNotePagesClear}
+        onDocumentDirectionHintChange={(direction) => {
+          setDeliveryNoteDirectionHint(direction);
+          if (direction !== "supplier_return") setDeliveryNoteSupplierHint("");
+        }}
+        onSupplierNameHintChange={setDeliveryNoteSupplierHint}
+        onDeferPrint={handleDeferLabels}
         onDeliveryNoteRecognize={() => handleDeliveryNoteRecognize()}
         onPrint={handlePrintLabels}
         onStageChange={handleMobileStageChange}
@@ -563,8 +625,10 @@ export function RawMaterialInboundPage({
         selected={mobileSelected}
       />
       <RawMaterialRollInventoryWorkbench
+        colorMappingState={colorMappingState}
         inbounds={inbounds}
         meta={meta}
+        onOpenColorMappings={() => setColorMappingOpen(true)}
         onOpenReceiving={() => setDesktopView("收货录入")}
         onOpenSource={handleOpenRollSource}
       />
@@ -752,6 +816,18 @@ export function RawMaterialInboundPage({
                     onClick={selected.ocrProvider === "tencent_cloud_table_v3" ? handleOcrReviewConfirm : () => onAction?.("复核送货单", selected.id)}
                   >
                     复核送货单
+                  </button>
+                  <button
+                    disabled={voidDraftState.disabled || selected.status !== "已识别待复核"}
+                    title={voidDraftState.title || (selected.status !== "已识别待复核" ? "只有未复核、未打印、未形成库存的误录草稿可以作废" : "保留原图和操作审计，不形成库存")}
+                    onClick={() => {
+                      const reason = globalThis.prompt?.("请输入作废误录草稿的原因（必填）：", "");
+                      if (!String(reason ?? "").trim()) return;
+                      onAction?.("作废误录草稿", selected.id, { reason: String(reason).trim() });
+                    }}
+                    type="button"
+                  >
+                    作废误录草稿
                   </button>
                   <button
                     disabled={printState.disabled || !canPrintRawMaterialLabels(selected)}
@@ -1757,6 +1833,24 @@ function inferDeliveryNoteMimeType(fileName) {
 
 function isSupportedDeliveryNoteFile(mimeType) {
   return ["image/png", "image/jpeg", "image/jpg", "image/bmp", "application/pdf"].includes(String(mimeType ?? "").toLowerCase());
+}
+
+function toDeliveryNoteCapturePage({ prepared, file, captureId }) {
+  return {
+    fileName: prepared.sourceFile?.name || (prepared.pdfPageNumber
+      ? `${String(file?.name || "送货单.pdf").replace(/\.pdf$/iu, "")}-第${prepared.pdfPageNumber}页.jpg`
+      : file?.name),
+    mimeType: prepared.mimeType,
+    fileSize: prepared.fileSize,
+    contentDataUrl: prepared.contentDataUrl,
+    sourceMimeType: prepared.sourceMimeType,
+    sourceFileSize: prepared.sourceFileSize,
+    sourceContentDataUrl: prepared.sourceContentDataUrl,
+    sourceFile: prepared.sourceFile,
+    captureId,
+    sourceNormalizedForOcr: prepared.normalized,
+    pdfPageNumber: prepared.pdfPageNumber || undefined,
+  };
 }
 
 function createRawMaterialDeliveryNoteCaptureId() {

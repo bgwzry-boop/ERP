@@ -43,6 +43,7 @@ let maxConcurrentOcrCalls = 0;
 let attachmentCalls = 0;
 let parserCalls = 0;
 let reparseCalls = 0;
+let parsedDeliveryNoteNo = "";
 const workspace = {
   users: [{ id: "U-OFFICE", displayName: "办公室复核员" }],
   attachments: [],
@@ -97,12 +98,16 @@ const service = createRawMaterialCommandService({
       return {
         id: inboundId,
         supplierName: "待复核供应商",
-        deliveryNoteNo: "",
+        deliveryNoteNo: parsedDeliveryNoteNo,
         materialType: "无纺布",
         productName: "无纺布",
+        supplierColor: "本白",
         spec: "90克*1.6米",
         rollCount: 2,
+        totalWeightKg: 100,
         unit: "kg",
+        unitPrice: 9.5,
+        amount: 950,
         status: "已识别待复核",
         ocrProvider: "tencent_cloud_table_v3",
         ocrAction: ocr.action,
@@ -125,13 +130,13 @@ const service = createRawMaterialCommandService({
           values: {
             productName: "无纺布",
             materialType: "无纺布",
-            supplierColor: "",
+            supplierColor: "本白",
             spec: "90克*1.6米",
             rollCount: 2,
             totalWeightKg: 100,
             unit: "kg",
-            unitPrice: 0,
-            amount: 0,
+            unitPrice: 9.5,
+            amount: 950,
             supplierRollNo: "",
             rollWeightsKg: [50, 50],
           },
@@ -310,6 +315,71 @@ const duplicatePage = await service.recognizeDeliveryNote({
 assert.equal(duplicatePage.code, "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_PAGE");
 assert.equal(ocrCalls, ocrCallsBeforeDuplicatePage, "a duplicate page set must fail before consuming OCR calls");
 
+parsedDeliveryNoteNo = "XS-2026-08-14-573";
+workspace.rawMaterialInbounds.push({
+  id: "RMI-HISTORICAL-573",
+  revision: 2,
+  status: "已复核待打印标签",
+  supplierName: "待复核供应商",
+  deliveryNoteNo: "XS 2026-08-14-573",
+  rolls: [],
+});
+const duplicateDocumentBody = {
+  fileName: "另一张同号送货单.jpg",
+  mimeType: "image/jpeg",
+  contentDataUrl: "data:image/jpeg;base64,YW5vdGhlci1kb2N1bWVudA==",
+};
+const duplicateDocumentBlocked = await service.recognizeDeliveryNote({
+  workspace,
+  body: duplicateDocumentBody,
+  operatorId: "U-OFFICE",
+});
+assert.equal(duplicateDocumentBlocked.code, "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_CONFIRMATION_REQUIRED");
+assert.deepEqual(duplicateDocumentBlocked.details.duplicateInboundIds, ["RMI-HISTORICAL-573"]);
+assert.match(duplicateDocumentBlocked.message, /已录入过/);
+const duplicateDocumentConfirmed = await service.recognizeDeliveryNote({
+  workspace,
+  operatorId: "U-OFFICE",
+  body: {
+    ...duplicateDocumentBody,
+    duplicateConfirmationToken: duplicateDocumentBlocked.details.confirmationToken,
+  },
+});
+assert.equal(duplicateDocumentConfirmed.inbound.duplicateDocumentConfirmation.confirmed, true);
+assert.deepEqual(duplicateDocumentConfirmed.inbound.duplicateDocumentConfirmation.duplicateInboundIds, ["RMI-HISTORICAL-573"]);
+assert.notEqual(duplicateDocumentConfirmed.inbound.id, "RMI-HISTORICAL-573", "confirmed duplicates stay separate and are never auto-merged");
+
+assert.throws(
+  () => applyRawMaterialInboundAction({
+    workspace,
+    inbounds: workspace.rawMaterialInbounds,
+    inboundId: duplicateDocumentConfirmed.inbound.id,
+    action: "void_draft",
+    operatorId: "U-OFFICE",
+    operatorName: "办公室复核员",
+    body: { expectedRevision: Number(duplicateDocumentConfirmed.inbound.revision) || 1 },
+  }),
+  (error) => error.code === "RAW_MATERIAL_INBOUND_DRAFT_VOID_REASON_REQUIRED",
+);
+const voidedDraft = applyRawMaterialInboundAction({
+  workspace,
+  inbounds: workspace.rawMaterialInbounds,
+  inboundId: duplicateDocumentConfirmed.inbound.id,
+  action: "void_draft",
+  operatorId: "U-OFFICE",
+  operatorName: "办公室复核员",
+  serverNow: "2026-08-16T08:00:00.000Z",
+  body: {
+    expectedRevision: Number(duplicateDocumentConfirmed.inbound.revision) || 1,
+    reason: "测试时误拍了同一张单据，确认该草稿不应形成库存。",
+  },
+});
+assert.equal(voidedDraft.inbound.status, "已作废");
+assert.equal(voidedDraft.inbound.voidedByUserId, "U-OFFICE");
+assert.equal(voidedDraft.inbound.voidReason, "测试时误拍了同一张单据，确认该草稿不应形成库存。");
+assert.equal(voidedDraft.inbound.rolls.every((roll) => roll.inventoryStatus === "不可用"), true);
+parsedDeliveryNoteNo = "";
+
 assert.throws(
   () => applyRawMaterialInboundAction({
     workspace,
@@ -341,6 +411,7 @@ const reviewed = applyRawMaterialInboundAction({
       materialType: "无纺布",
       productName: "无纺布",
       spec: "90克*1.6米",
+      factoryColor: "本白",
       rollCount: 2,
       unit: "kg",
     },
@@ -349,13 +420,14 @@ const reviewed = applyRawMaterialInboundAction({
       values: {
         productName: "无纺布",
         materialType: "无纺布",
-        supplierColor: "",
+        supplierColor: "本白",
+        factoryColor: "本白",
         spec: "90克*1.6米",
         rollCount: 2,
         totalWeightKg: 100,
         unit: "kg",
-        unitPrice: 0,
-        amount: 0,
+        unitPrice: 9.5,
+        amount: 950,
         supplierRollNo: "",
         rollWeightsKg: [50, 50],
       },
@@ -365,7 +437,7 @@ const reviewed = applyRawMaterialInboundAction({
 assert.equal(reviewed.inbound.status, "已复核待打印标签");
 assert.equal(reviewed.inbound.supplierName, "白侯无纺布有限公司");
 assert.equal(reviewed.inbound.ocrReviewFields.find((field) => field.key === "supplierName").reviewStatus, "人工修改");
-assert.equal(reviewed.inbound.ocrLines[0].reviewStatus, "人工接受");
+assert.equal(reviewed.inbound.ocrLines[0].reviewStatus, "人工修改", "selecting the authoritative factory colour must remain visible as a human correction");
 assert.equal(reviewed.inbound.ocrLines[0].recognizedValues.spec, "90克*1.6米");
 assert.equal(reviewed.inbound.rolls.every((roll) => roll.inventoryStatus === "不可用"), true);
 assert.equal(reviewed.inbound.rolls.every((roll) => roll.labelStatus === "待打印标签"), true);
@@ -381,7 +453,7 @@ const returnDraft = {
   materialType: "无纺布",
   productName: "退带色布",
   spec: "",
-  supplierColor: "",
+  supplierColor: "带色",
   factoryColor: "",
   rollCount: 2,
   totalWeightKg: -28.4,
@@ -405,7 +477,7 @@ const returnDraft = {
     values: {
       productName: "退带色布",
       materialType: "无纺布",
-      supplierColor: "",
+      supplierColor: "带色",
       spec: "",
       rollCount: 2,
       totalWeightKg: -28.4,
@@ -461,4 +533,163 @@ assert.throws(
   "supplier returns must be explicitly blocked from inbound label printing",
 );
 
+const scheduledOcrJobs = [];
+const voidedCaptureIds = [];
+const deletedStorageKeys = [];
+const jobOcrCalls = [];
+let secondPageShouldFail = true;
+const jobWorkspace = {
+  users: [{ id: "U-JOB", displayName: "后台识别测试员" }],
+  attachments: [
+    buildCaptureAttachment("ATT-JOB-1", "1".repeat(64), "job/page-1"),
+    buildCaptureAttachment("ATT-JOB-2", "2".repeat(64), "job/page-2"),
+    {
+      ...buildCaptureAttachment("ATT-EXPIRED", "3".repeat(64), "job/expired"),
+      ownerId: "CAPTURE-EXPIRED",
+      uploadedAt: "2026-08-13T07:00:00.000Z",
+      metadata: { expiresAt: "2026-08-15T07:00:00.000Z" },
+    },
+  ],
+  operationLogs: [],
+  rawMaterialInbounds: [],
+  attachmentRepository: {
+    async findAttachmentById({ attachmentId }) {
+      return jobWorkspace.attachments.find((item) => item.attachmentId === attachmentId) ?? null;
+    },
+    async listAttachments() {
+      return jobWorkspace.attachments;
+    },
+    async voidAttachment({ attachmentId, operationLog }) {
+      voidedCaptureIds.push(attachmentId);
+      jobWorkspace.operationLogs.unshift(operationLog);
+      jobWorkspace.attachments = jobWorkspace.attachments.map((item) =>
+        item.attachmentId === attachmentId ? { ...item, status: "voided" } : item
+      );
+      return { attachment: jobWorkspace.attachments.find((item) => item.attachmentId === attachmentId) };
+    },
+  },
+  attachmentObjectStorage: {
+    async readObject({ attachment }) {
+      const page = attachment.attachmentId.endsWith("1") ? "page-one" : "page-two";
+      return { buffer: Buffer.from(page), contentType: "image/jpeg" };
+    },
+    async deleteObject({ storageKey }) {
+      deletedStorageKeys.push(storageKey);
+    },
+  },
+  rawMaterialInboundRepository: {
+    async createRawMaterialInboundDraft({ inbound, operationLog }) {
+      jobWorkspace.rawMaterialInbounds.unshift(inbound);
+      return { inbound, operationLog, deduplicated: false };
+    },
+  },
+};
+const backgroundService = createRawMaterialCommandService({
+  attachmentCreateCommandService: {
+    async createAttachment() {
+      throw new Error("background OCR must reuse the uploaded binary source attachment");
+    },
+  },
+  buildOperationLog(_workspace, input) {
+    return { ...input, occurredAt: "2026-08-16T08:00:00.000Z", createdAt: "2026-08-16T08:00:00.000Z" };
+  },
+  nextId(prefix, rows) {
+    return `${prefix}-JOB-${rows.length + 1}`;
+  },
+  now: () => new Date("2026-08-16T08:00:00.000Z"),
+  scheduleTask(task) {
+    scheduledOcrJobs.push(task);
+  },
+  rawMaterialOcrParserService: {
+    buildInboundDraft({ inboundId, ocr }) {
+      return {
+        id: inboundId,
+        supplierName: "后台测试供应商",
+        deliveryNoteNo: "JOB-20260816-001",
+        status: "已识别待复核",
+        ocrProvider: "tencent_cloud_table_v3",
+        ocrAction: ocr.action,
+        ocrRequestId: ocr.requestId,
+        ocrPageCount: ocr.pageCount,
+        ocrPages: ocr.pages,
+        ocrReviewFields: [],
+        ocrLines: [],
+        ocrTableRows: [],
+        rolls: [],
+      };
+    },
+  },
+  tencentCloudTableOcrService: {
+    async recognizeTable({ contentDataUrl }) {
+      const pageText = Buffer.from(contentDataUrl.split(",")[1], "base64").toString("utf8");
+      jobOcrCalls.push(pageText);
+      if (pageText === "page-two" && secondPageShouldFail) {
+        secondPageShouldFail = false;
+        throw new Error('insert or update on table "attachments" violates foreign key constraint');
+      }
+      return { action: "RecognizeTableAccurateOCR", requestId: `REQ-${pageText}`, tables: [] };
+    },
+  },
+  logger: { error() {} },
+});
+const backgroundStarted = await backgroundService.startDeliveryNoteRecognitionJob({
+  workspace: jobWorkspace,
+  operatorId: "U-JOB",
+  body: {
+    pages: [
+      { fileName: "第1页.jpg", mimeType: "image/jpeg", sourceAttachmentId: "ATT-JOB-1", ocrAttachmentId: "ATT-JOB-1" },
+      { fileName: "第2页.jpg", mimeType: "image/jpeg", sourceAttachmentId: "ATT-JOB-2", ocrAttachmentId: "ATT-JOB-2" },
+    ],
+  },
+});
+assert.equal(backgroundStarted.job.status, "queued");
+assert.deepEqual(voidedCaptureIds, ["ATT-EXPIRED"], "expired unlinked capture must be voided before a new job starts");
+assert.deepEqual(deletedStorageKeys, ["job/expired"], "expired capture binary must be deleted from object storage");
+await scheduledOcrJobs.shift()();
+const failedBackgroundJob = await backgroundService.getDeliveryNoteRecognitionJob({
+  jobId: backgroundStarted.job.jobId,
+  operatorId: "U-JOB",
+});
+assert.equal(failedBackgroundJob.job.status, "failed");
+assert.equal(failedBackgroundJob.job.error.code, "RAW_MATERIAL_DELIVERY_NOTE_PAGE_OCR_FAILED");
+assert.match(failedBackgroundJob.job.error.message, /第 2 页识别失败/);
+assert.doesNotMatch(failedBackgroundJob.job.error.message, /foreign key|constraint/i, "raw database errors must not reach the phone");
+assert.deepEqual(jobOcrCalls, ["page-one", "page-two"]);
+const queuedRetry = await backgroundService.retryDeliveryNoteRecognitionJob({
+  workspace: jobWorkspace,
+  jobId: backgroundStarted.job.jobId,
+  operatorId: "U-JOB",
+});
+assert.equal(queuedRetry.job.status, "queued");
+await scheduledOcrJobs.shift()();
+const completedBackgroundJob = await backgroundService.getDeliveryNoteRecognitionJob({
+  jobId: backgroundStarted.job.jobId,
+  operatorId: "U-JOB",
+});
+assert.equal(completedBackgroundJob.job.status, "completed");
+assert.equal(completedBackgroundJob.job.result.inbound.status, "已识别待复核");
+assert.deepEqual(jobOcrCalls, ["page-one", "page-two", "page-two"], "retry must reuse successful page 1 and OCR only failed page 2");
+const foreignBackgroundJob = await backgroundService.getDeliveryNoteRecognitionJob({
+  jobId: backgroundStarted.job.jobId,
+  operatorId: "U-OTHER",
+});
+assert.equal(foreignBackgroundJob.code, "RAW_MATERIAL_DELIVERY_NOTE_JOB_NOT_FOUND");
+assert.match(foreignBackgroundJob.message, /不属于当前操作人/);
+
 console.log("Raw-material OCR command checks passed: backend orchestration, attachment ownership, content deduplication, required human review, and unavailable inventory are covered.");
+
+function buildCaptureAttachment(attachmentId, contentDigest, storageKey) {
+  return {
+    attachmentId,
+    ownerType: "raw_material_inbound_capture",
+    ownerId: `CAPTURE-${attachmentId}`,
+    purpose: "raw_material_delivery_note",
+    status: "uploaded",
+    uploadedBy: "U-JOB",
+    uploadedAt: "2026-08-16T07:00:00.000Z",
+    hasContent: true,
+    contentDigest,
+    mimeType: "image/jpeg",
+    storageKey,
+  };
+}

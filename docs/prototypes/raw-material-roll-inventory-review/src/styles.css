@@ -93,7 +93,37 @@ h1, h2, h3, p, dl, dd, ul { margin: 0; }
 .dock-actions { position: relative; top: 2px; display: flex; align-items: center; gap: 12px; }
 .page-refresh { min-height: 36px; display: inline-flex; align-items: center; gap: 6px; padding: 0 8px; border: 0; border-radius: 4px; background: transparent; font-size: 12px; }
 .page-refresh:hover { background: var(--surface-soft); }
+.factory-color-entry { min-height: 34px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 4px; background: white; color: var(--ink); font-size: 12px; font-weight: 650; }
+.factory-color-entry:hover { border-color: var(--blue); color: var(--blue); }
 .receive-entry { width: 112px; min-height: 38px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; padding: 0 13px; border: 1px solid var(--blue); border-radius: 5px; background: var(--blue); color: white; font-size: 12px; font-weight: 650; }
+
+.raw-material-color-mapping-backdrop { position: fixed; inset: 0; z-index: 1300; display: grid; place-items: center; padding: 18px; background: rgb(15 23 42 / 42%); }
+.raw-material-color-mapping-dialog { width: min(820px, 100%); max-height: calc(100vh - 36px); overflow: auto; border-radius: 8px; background: var(--surface); box-shadow: 0 24px 64px rgb(15 23 42 / 24%); }
+.raw-material-color-mapping-dialog > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); padding: 18px 20px 14px; }
+.raw-material-color-mapping-dialog h2, .raw-material-color-mapping-dialog p { margin: 0; }
+.raw-material-color-mapping-dialog h2 { color: var(--ink); font-size: 18px; }
+.raw-material-color-mapping-dialog header p { margin-top: 5px; color: var(--ink-soft); font-size: 12px; }
+.raw-material-color-mapping-dialog > header > button { border: 0; background: transparent; color: var(--ink-soft); font-size: 20px; }
+.raw-material-color-mapping-dialog > form { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 12px; padding: 16px 20px; background: var(--surface-soft); }
+.raw-material-color-mapping-dialog label { display: grid; gap: 5px; color: var(--ink-soft); font-size: 11px; }
+.raw-material-color-mapping-dialog input, .raw-material-color-mapping-dialog select { min-height: 36px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); padding: 0 10px; color: var(--ink); font: inherit; }
+.raw-material-color-mapping-dialog .reason { grid-column: 1 / 3; }
+.raw-material-color-mapping-dialog .enabled { display: flex; min-height: 36px; flex-direction: row; align-items: center; align-self: end; }
+.raw-material-color-mapping-dialog .enabled input { min-height: auto; }
+.raw-material-color-mapping-dialog form .primary { min-height: 36px; align-self: end; }
+.raw-material-color-mapping-message { margin: 12px 20px 0 !important; border-radius: 5px; padding: 9px 11px; font-size: 12px; }
+.raw-material-color-mapping-message.error { background: var(--red-soft); color: var(--red); }
+.raw-material-color-mapping-message.success { background: var(--green-soft); color: var(--green); }
+.raw-material-color-mapping-list { padding: 14px 20px 20px; }
+.raw-material-color-mapping-list > header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.raw-material-color-mapping-list > header button { display: inline-flex; min-height: 30px; align-items: center; gap: 5px; border: 1px solid var(--line-strong); border-radius: 5px; background: var(--surface); padding: 0 10px; }
+.raw-material-color-mapping-list .head, .raw-material-color-mapping-list .row { display: grid; grid-template-columns: 1.7fr 1fr 1fr 72px; align-items: center; gap: 12px; }
+.raw-material-color-mapping-list .head { min-height: 32px; border-bottom: 1px solid var(--line); color: var(--ink-soft); font-size: 11px; }
+.raw-material-color-mapping-list .row { width: 100%; min-height: 42px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; }
+.raw-material-color-mapping-list .row:hover { background: var(--blue-soft); }
+.raw-material-color-mapping-list .row .enabled { color: var(--green); }
+.raw-material-color-mapping-list .row .disabled, .raw-material-color-mapping-list .empty { color: var(--ink-soft); }
+.raw-material-color-mapping-list .empty { padding: 22px 0; text-align: center; }
 
 .inventory-workbench { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(720px,1fr) 328px; grid-template-rows: minmax(0,1fr); column-gap: 8px; padding-top: 6px; }
 .ledger-panel, .distribution-panel, .trace-panel, .secondary-list, .secondary-detail { min-width: 0; min-height: 0; overflow: hidden; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
@@ -137,15 +167,15 @@ button.roll-row.selected { background: #eaf3ff; box-shadow: inset 0 0 0 1px #b6d
 .table-footer button.current { border-color: var(--blue); color: var(--blue); }
 .table-footer input { width: 38px; border-color: var(--line); text-align: center; }
 
-.distribution-rail { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; display: grid; grid-template-rows: minmax(0,1fr) 194px; gap: 8px; }
-.distribution-panel { display: grid; grid-template-rows: 54px minmax(0,1fr) 42px; }
+.distribution-rail { grid-column: 2; grid-row: 1; min-width: 0; min-height: 0; display: grid; grid-auto-rows: max-content; align-content: start; gap: 8px; }
+.distribution-panel { max-height: 360px; display: grid; grid-template-rows: 48px auto 38px; }
 .distribution-panel > header, .trace-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 0 13px; border-bottom: 1px solid var(--line); }
 .distribution-panel h2, .trace-panel h2 { font-size: 15px; }
 .distribution-panel header > div { display: flex; align-items: baseline; gap: 12px; }
 .distribution-panel header small { color: var(--ink-soft); font-size: 11px; }
 .distribution-panel header > svg { color: var(--ink-faint); }
-.distribution-scroll { min-height: 0; overflow: auto; padding: 0 12px; scrollbar-width: thin; }
-.distribution-empty { min-height: 180px; display: grid; place-content: center; gap: 5px; padding: 18px; color: var(--ink-soft); text-align: center; }
+.distribution-scroll { min-height: 0; max-height: 274px; overflow: auto; padding: 0 12px; scrollbar-width: thin; }
+.distribution-empty { min-height: 96px; display: grid; place-content: center; gap: 5px; padding: 18px; color: var(--ink-soft); text-align: center; }
 .distribution-empty strong { color: var(--ink); font-size: 13px; }
 .distribution-empty span { font-size: 11px; }
 .distribution-group { padding: 12px 0 7px; border-bottom: 1px solid var(--line); }
@@ -161,12 +191,14 @@ button.roll-row.selected { background: #eaf3ff; box-shadow: inset 0 0 0 1px #b6d
 .distribution-count { color: #566576; font-size: 11px; text-align: right; white-space: nowrap; }
 .machine-side-disclosure { display: flex; align-items: center; justify-content: space-between; padding: 0 13px; border: 0; border-top: 1px solid var(--line); background: var(--surface-soft); color: var(--ink-soft); font-size: 11px; text-align: left; }
 .machine-side-disclosure span { display: flex; align-items: center; gap: 5px; }
-.trace-panel { display: grid; grid-template-rows: 41px minmax(0,1fr) 38px; }
-.trace-panel dl { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 10px; padding: 10px 13px 6px; }
-.trace-panel dl > div { min-width: 0; display: grid; gap: 2px; }
-.trace-panel dl > div:nth-child(3) { grid-column: 1 / -1; }
+.trace-panel { display: grid; grid-template-rows: 41px auto 38px; }
+.trace-panel dl { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 10px; padding: 14px 13px 12px; }
+.trace-panel dl > div { min-width: 0; display: grid; gap: 4px; }
+.trace-panel dl > .trace-wide { grid-column: 1 / -1; }
 .trace-panel dt { color: var(--ink-soft); font-size: 10px; }
-.trace-panel dd { overflow: hidden; color: #364759; font-size: 11px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.trace-panel dd { overflow: hidden; color: #364759; font-size: 12px; font-weight: 620; text-overflow: ellipsis; white-space: nowrap; }
+.trace-panel .trace-color { display: flex; align-items: center; gap: 6px; }
+.trace-panel .trace-color .color-chip { width: 12px; height: 12px; }
 .text-action { display: flex; align-items: center; gap: 5px; justify-self: start; margin-left: 13px; padding: 0; border: 0; background: transparent; color: var(--blue); font-size: 11px; font-weight: 650; }
 
 .secondary-workbench { min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(680px,1fr) 360px; gap: 8px; padding-top: 3px; }

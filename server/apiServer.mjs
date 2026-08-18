@@ -806,6 +806,7 @@ async function routeGet(context) {
       buildEmployeeAssignmentOptions,
       listMasterDataMachines,
       masterDataImportCommandService,
+      rawMaterialSupplierColorMappingService,
       phoneIdentityCommandService,
       sendNotFound,
       sendBusinessError,
@@ -1247,6 +1248,7 @@ async function routeWrite(context) {
       masterDataImportCommandService,
       masterDataEmployeeAccountCommandService,
       masterDataMachineCommandService,
+      rawMaterialSupplierColorMappingService,
       phoneIdentityCommandService,
       sendCommandResponse,
     })
@@ -1404,6 +1406,7 @@ const {
   productionSchedulingCommandService,
   rawMaterialCommandService,
   rawMaterialPurchaseCommandService,
+  rawMaterialSupplierColorMappingService,
   requireActionPermission,
   requireAnyActionPermission,
   requireAttachmentCreatePermission,
