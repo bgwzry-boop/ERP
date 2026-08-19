@@ -6,14 +6,14 @@ const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.
 
 test("phone viewport reuses the formal ERP mobile raw-material flow", async () => {
   const [mainSource, mobileEntrySource, formalAppSource, formalNavigationSource, formalRawMaterialPageSource] = await Promise.all([
-    readSource("../src/main.jsx"),
+    readSource("../src/complete-review-entry.jsx"),
     readSource("../src/FormalMobileEntry.jsx"),
     readSource("../../../../src/App.jsx"),
     readSource("../../../../src/app/navigation.js"),
     readSource("../../../../src/features/raw-materials/RawMaterialInboundPage.jsx"),
   ]);
 
-  assert.match(mainSource, /matchMedia\("\(max-width: 767px\)"\)/, "phone entry should use the formal app breakpoint");
+  assert.match(mainSource, /detectCompleteReviewRuntimeFamily\(window\)/, "phone entry should use real handset detection instead of desktop window width");
   assert.match(mainSource, /await import\("\.\/FormalMobileEntry\.jsx"\)/, "phone entry should load the shared formal mobile app");
   assert.match(mainSource, /await import\("\.\/App\.jsx"\)/, "desktop entry should keep the approved review app");
   assert.match(mobileEntrySource, /import \{ App \} from "\.\.\/\.\.\/\.\.\/\.\.\/src\/App\.jsx"/, "mobile entry should reuse the formal ERP App rather than copy phone screens");
@@ -30,7 +30,7 @@ test("formal mobile OCR keeps evidence, return and server-save boundaries", asyn
     readSource("../../../../shared/rawMaterialSpec.js"),
   ]);
 
-  for (const required of ["documentDirection", "selected?.ocrAngle", "orientRawMaterialOcrSourceBounds", "sourceBounds", "excludedRolls"]) {
+  for (const required of ["documentDirection", "selected.ocrAngle", "orientRawMaterialOcrSourceBounds", "sourceBounds", "excludedRolls"]) {
     assert.ok(reviewSource.includes(required), `formal OCR review should retain ${required}`);
   }
   assert.match(rawMaterialActionSource, /recognizeOfficeRawMaterialDeliveryNote/, "recognition must remain an API operation");
