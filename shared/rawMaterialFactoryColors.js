@@ -4,6 +4,9 @@ export const RAW_MATERIAL_FACTORY_COLORS = [
   "酒红",
   "枣红",
   "焦糖",
+  "酱黄",
+  "米黄",
+  "咖啡",
   "桔红",
   "黑色",
   "宝兰",
@@ -14,6 +17,8 @@ export const RAW_MATERIAL_FACTORY_COLORS = [
   "翠绿",
   "果绿",
   "墨绿",
+  "橄榄绿",
+  "湖蓝",
 ];
 
 export const RAW_MATERIAL_SUPPLIER_COLOR_SOURCE_TYPE = "supplier";
@@ -24,6 +29,9 @@ const RAW_MATERIAL_FACTORY_COLOR_ALIASES = [
   [/酒红/u, "酒红"],
   [/枣红/u, "枣红"],
   [/焦糖/u, "焦糖"],
+  [/(?:酱黄|酱黄色)/u, "酱黄"],
+  [/米黄/u, "米黄"],
+  [/(?:咖啡|咖色)/u, "咖啡"],
   [/(?:桔红|橘红)/u, "桔红"],
   [/^(?:黑|黑色)$/u, "黑色"],
   [/(?:宝兰|宝蓝)/u, "宝兰"],
@@ -34,6 +42,8 @@ const RAW_MATERIAL_FACTORY_COLOR_ALIASES = [
   [/翠绿/u, "翠绿"],
   [/果绿/u, "果绿"],
   [/墨绿/u, "墨绿"],
+  [/橄榄绿/u, "橄榄绿"],
+  [/湖蓝/u, "湖蓝"],
 ];
 
 export function normalizeRawMaterialFactoryColor(value) {
@@ -57,7 +67,7 @@ export function normalizeRawMaterialSupplierSourceId(value) {
     .normalize("NFKC")
     .trim()
     .replace(/[\s·•()（）]+/gu, "")
-    .replace(/(?:销货单|销售单|送货单|退货单|退料单)$/u, "");
+    .replace(/(?:销售退货单|销货退货单|销售退料单|销货退料单|销货单|销售单|送货单|退货单|退料单|退库单)$/u, "");
 }
 
 export function resolveRawMaterialFactoryColor({

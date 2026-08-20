@@ -63,6 +63,37 @@ assert.equal(
   "supplier_rule",
 );
 
+const returnTitleSupplierMapping = resolveRawMaterialFactoryColor({
+  supplierName: "宁晋县腾胜无纺布有限公司销售退货单",
+  supplierColor: "184",
+  standardColors: workspace.standardColors,
+  colorAliases: workspace.colorAliases,
+});
+assert.equal(returnTitleSupplierMapping.status, "supplier_rule");
+assert.equal(returnTitleSupplierMapping.factoryColor, "本白");
+
+for (const [supplierColor, factoryColor] of [
+  ["酱黄色", "酱黄"],
+  ["米黄", "米黄"],
+  ["咖啡", "咖啡"],
+  ["橄榄绿", "橄榄绿"],
+  ["湖蓝", "湖蓝"],
+]) {
+  const resolution = resolveRawMaterialFactoryColor({
+    supplierName: "真实厂家",
+    supplierColor,
+  });
+  assert.equal(resolution.factoryColor, factoryColor);
+}
+assert.equal(
+  resolveRawMaterialFactoryColor({
+    supplierName: "真实厂家",
+    supplierColor: "彩色",
+  }).status,
+  "unmapped",
+  "笼统的彩色必须保留给人工选择厂内标准色",
+);
+
 console.log("Raw-material supplier color mapping checks passed: supplier scope, audited maintenance, and OCR resolution are covered.");
 
 function upsert(records, record) {

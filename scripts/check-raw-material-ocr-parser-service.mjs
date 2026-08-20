@@ -711,8 +711,8 @@ const renyiCompactReturnDraft = buildRawMaterialInboundDraftFromOcr({
   ocr: { tables: [{ cells: buildCells([
     ["人意无纺布销售单"],
     ["品名称", "颜色", "数量", "重\n量\n单位:千克\n单价", "金额"],
-    ["退带色布", "1", "-58", "-58", "10.1", "-585.8"],
-    ["计", "1", "负伍佰捌拾伍.捌", "-585.8"],
+    ["退带色布", "1", "−58", "−58", "10.1", "−585.8"],
+    ["计", "1", "负伍佰捌拾伍.捌", "−585.8"],
   ]) }] },
 });
 assert.equal(renyiCompactReturnDraft.supplierName, "人意无纺布");
@@ -742,6 +742,40 @@ assert.equal(tengshengDetachedDocumentNumberReturnDraft.deliveryNoteNo, "XT-2026
 assert.equal(tengshengDetachedDocumentNumberReturnDraft.supplierName, "宁晋县腾胜无纺布有限公司");
 assert.equal(tengshengDetachedDocumentNumberReturnDraft.totalWeightKg, -3.8);
 assert.equal(tengshengDetachedDocumentNumberReturnDraft.rolls.length, 0);
+
+const tengshengReturnTitleDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-TENGSHENG-RETURN-TITLE",
+  knownSupplierNames: ["宁晋县腾胜无纺布有限公司"],
+  ocr: { tables: [
+    { cells: buildCells([["宁晋县腾胜无纺布有限公司销售退货单"]]) },
+    { cells: buildCells([
+      ["商品全名", "商品规格", "单位", "数量", "单价", "金额", "备注"],
+      ["宝兰", "78*80*1500", "公斤", "37", "9.7", "358.9", ""],
+    ]) },
+  ] },
+});
+assert.equal(tengshengReturnTitleDraft.supplierName, "宁晋县腾胜无纺布有限公司");
+assert.equal(tengshengReturnTitleDraft.documentDirection, "supplier_return");
+assert.equal(tengshengReturnTitleDraft.ocrLines.length, 1, "78克规格不能误算成 78 卷");
+assert.equal(tengshengReturnTitleDraft.totalWeightKg, -37);
+assert.equal(tengshengReturnTitleDraft.amount, -358.9);
+assert.equal(tengshengReturnTitleDraft.rolls.length, 0);
+
+const hongshangUnicodeMinusReturnDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-HONGSHANG-UNICODE-MINUS",
+  ocr: { tables: [{ cells: buildCells([
+    ["河北宏尚无纺布有限公司销货单"],
+    ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+    ["布", "彩色", "1", "−16", "−16", "10.1", "−161.6"],
+    ["布", "白色", "1", "−14", "−14", "9.7", "−135.8"],
+    ["合计", "2", "−30", "−297.4"],
+  ]) }] },
+});
+assert.equal(hongshangUnicodeMinusReturnDraft.documentDirection, "supplier_return");
+assert.equal(hongshangUnicodeMinusReturnDraft.ocrLines.length, 2);
+assert.equal(hongshangUnicodeMinusReturnDraft.totalWeightKg, -30);
+assert.equal(hongshangUnicodeMinusReturnDraft.amount, -297.4);
+assert.equal(hongshangUnicodeMinusReturnDraft.rolls.length, 0);
 
 console.log("Raw-material OCR parser checks passed: table fields, supplier identity, roll expansion, review evidence, and unavailable-inventory defaults are covered.");
 
