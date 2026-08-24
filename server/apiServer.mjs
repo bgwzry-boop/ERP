@@ -183,6 +183,9 @@ export function createApiServer(options = {}) {
     realSampleSeedFile: options.realSampleSeedFile ?? process.env.ERP_REAL_SAMPLE_SEED_FILE,
     runtimeMode: runtimeConfig.mode,
   });
+  if (Array.isArray(options.rawMaterialSupplierStatementReviewSeeds)) {
+    workspace.initialRawMaterialSupplierStatementReviews = structuredClone(options.rawMaterialSupplierStatementReviewSeeds);
+  }
   workspace.statements = (Array.isArray(workspace.statements) ? workspace.statements : []).map((statement) => ({
     ...statement,
     revision: Math.max(1, Number(statement.revision ?? 1) || 1),
@@ -410,7 +413,7 @@ export function createApiServer(options = {}) {
   workspace.masterDataImportConfirmationPlans = [];
   workspace.masterDataImportExecutions = [];
   workspace.rawMaterialInbounds = workspace.initialRawMaterialInbounds ?? [];
-  workspace.rawMaterialSupplierStatementReviews = [];
+  workspace.rawMaterialSupplierStatementReviews = workspace.initialRawMaterialSupplierStatementReviews ?? [];
   workspace.inventoryCorrectionDrafts = [];
   workspace.inventoryIntents = [];
   workspace.inventoryReservations = [];

@@ -62,6 +62,7 @@ function buildInventoryRolls(inbounds = []) {
       materialCategory: resolvedWidth.materialCategory,
       materialUsage: resolvedWidth.materialUsage || "用途待确认",
       weight: Number(roll.remainingMachineSideWeightKg || roll.leftoverReviewedWeightKg || roll.weightKg || 0),
+      unitLabel: inbound.unit === "件" ? "件" : "卷",
       status: resolveInventoryRollStatus(inbound, roll),
       supplier: inbound.supplierName || "供应商待确认",
       date: String(inbound.receivedAt || "").slice(0, 10),
@@ -73,6 +74,7 @@ function buildInventoryRolls(inbounds = []) {
 }
 
 const formatWeight = (value) => `${value.toLocaleString("zh-CN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}kg`;
+const formatInventoryRollAmount = (roll) => roll.weight > 0 ? formatWeight(roll.weight) : `1${roll.unitLabel}`;
 const formatMoney = (value) => {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount === 0) return "金额待确认";
@@ -111,15 +113,16 @@ function buildDistribution(sourceRolls) {
     const unit = width.includes("提手条") ? "件" : "卷";
     const items = Array.from(groups.get(width).values());
     const maxWeight = Math.max(...items.map((item) => item.weightValue));
+    const maxCount = Math.max(...items.map((item) => item.countValue));
     const countValue = items.reduce((sum, item) => sum + item.countValue, 0);
     const weightValue = items.reduce((sum, item) => sum + item.weightValue, 0);
     return {
       width,
-      total: `${countValue}${unit} / ${formatWeight(weightValue)}`,
+      total: weightValue > 0 ? `${countValue}${unit} / ${formatWeight(weightValue)}` : `${countValue}${unit}`,
       items: items.map((item) => ({
         color: item.color,
-        count: `${item.countValue}${unit} / ${formatWeight(item.weightValue)}`,
-        percent: Math.max(18, Math.round((item.weightValue / maxWeight) * 100)),
+        count: item.weightValue > 0 ? `${item.countValue}${unit} / ${formatWeight(item.weightValue)}` : `${item.countValue}${unit}`,
+        percent: Math.max(18, Math.round(((maxWeight > 0 ? item.weightValue / maxWeight : item.countValue / maxCount) || 0) * 100)),
       })),
     };
   });
@@ -302,7 +305,7 @@ function RollInventory({ onOpenSource, sourceRolls = [] }) {
         <div className="roll-row roll-head" role="row"><span aria-sort="ascending" role="columnheader" title="默认按宽幅从小到大排列">规格（宽幅）</span><span role="columnheader">厂内颜色</span><span role="columnheader">当前重量</span><span role="columnheader">库位</span><span role="columnheader">状态</span><span role="columnheader">供应商 / 入库日期</span><span role="columnheader">卷码（追溯）</span></div>
         <div className="roll-table-body">
           {visibleRolls.length ? visibleRolls.map((roll) => <button aria-pressed={selectedRoll.id === roll.id} className={`roll-row${selectedRoll.id === roll.id ? " selected" : ""}`} key={roll.id} onClick={() => setSelectedId(roll.id)} role="row" type="button">
-            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.spec}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.color} />{roll.color}</span><span className="weight" role="cell">{roll.weight.toFixed(1)} kg</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
+            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.spec}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.color} />{roll.color}</span><span className="weight" role="cell">{formatInventoryRollAmount(roll)}</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
           </button>) : <div className="empty-state"><SearchOutlined /><strong>没有符合条件的卷料</strong><button onClick={resetFilters} type="button">清除筛选</button></div>}
         </div>
       </div>
@@ -438,7 +441,7 @@ function ReceiveDialog({ busy, error, onClose, onFile }) {
 }
 
 function SourceDialog({ roll, onClose }) {
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><section aria-labelledby="source-title" aria-modal="true" className="receive-dialog source-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>来源追溯</span><h2 id="source-title">{roll.source}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><dl><div><dt>当前卷码</dt><dd>{roll.id}</dd></div><div><dt>供应商</dt><dd>{roll.supplier}</dd></div><div><dt>供应商单号</dt><dd>未提供</dd></div><div><dt>OCR 来源</dt><dd>第 1 行 · 第 1 卷</dd></div><div><dt>权威卷料事实</dt><dd>{roll.color} · {roll.spec} · {roll.weight.toFixed(1)}kg</dd></div></dl><p className="source-disclosure">票据与 OCR 原文仅用于追溯；卷料库存以逐卷人工确认后的颜色、规格和重量为准。</p></section></div>;
+  return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><section aria-labelledby="source-title" aria-modal="true" className="receive-dialog source-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>来源追溯</span><h2 id="source-title">{roll.source}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><dl><div><dt>当前卷码</dt><dd>{roll.id}</dd></div><div><dt>供应商</dt><dd>{roll.supplier}</dd></div><div><dt>供应商单号</dt><dd>未提供</dd></div><div><dt>OCR 来源</dt><dd>第 1 行 · 第 1 卷</dd></div><div><dt>权威卷料事实</dt><dd>{roll.color} · {roll.spec} · {formatInventoryRollAmount(roll)}</dd></div></dl><p className="source-disclosure">票据与 OCR 原文仅用于追溯；卷料库存以逐卷人工确认后的颜色、规格和重量为准。</p></section></div>;
 }
 
 export function App({ permissionContext = defaultPermissionContext }) {

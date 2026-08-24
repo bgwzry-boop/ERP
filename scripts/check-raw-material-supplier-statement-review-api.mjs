@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
+import { initialRawMaterialSupplierStatementReviews } from "../src/data/fixtures.js";
 import {
   buildListReviewsPayloadQuery,
   buildListReviewsPayloadSql,
@@ -54,6 +55,11 @@ function checkCollisionResistantReviewIds() {
 }
 
 async function checkRepository() {
+  const seededRepository = createLocalRawMaterialSupplierStatementReviewRepository({ storageRoot: join(checkStorageRoot, "seeded-read-only") });
+  const seededState = seededRepository.loadState({ seedReviews: initialRawMaterialSupplierStatementReviews });
+  assert.equal(seededState.rawMaterialSupplierStatementReviews[0].demoReadOnly, true, "demo review must expose a clearly marked read-only filled settlement sample");
+  assert.equal(seededState.rawMaterialSupplierStatementReviews[0].supplierPaymentRecord.paidAmount, 94040, "the read-only sample should cover the full statement-to-payment chain");
+
   const repository = createLocalRawMaterialSupplierStatementReviewRepository({ storageRoot: repositoryStorageRoot });
   const workspace = repository.loadState();
   const created = repository.createReviewDraft({
@@ -558,6 +564,7 @@ async function checkPostgresRepositoryBoundary() {
 async function checkApi() {
   const server = createApiServer({
     rawMaterialSupplierStatementReviewRepositoryOptions: { storageRoot: apiStorageRoot },
+    rawMaterialSupplierStatementReviewSeeds: [],
   });
   await listenTestServer(server);
   const baseUrl = getTestServerBaseUrl(server);
@@ -683,6 +690,7 @@ async function checkApi() {
 
     const restartedServer = createApiServer({
       rawMaterialSupplierStatementReviewRepositoryOptions: { storageRoot: apiStorageRoot },
+      rawMaterialSupplierStatementReviewSeeds: [],
     });
     await listenTestServer(restartedServer);
     try {

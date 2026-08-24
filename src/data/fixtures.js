@@ -341,6 +341,55 @@ export const initialRawMaterialInbounds = [
   }),
 ];
 
+export const initialRawMaterialSupplierStatementReviews = [
+  {
+    id: "RMSR-DEMO-202607-RENYI",
+    reviewId: "RMSR-DEMO-202607-RENYI",
+    supplierName: "人意无纺布",
+    fileName: "人意无纺布_2026年7月月结.xlsx",
+    statementPeriod: "2026年07月",
+    status: "已确认付款/已完成",
+    reviewStatus: "statement_confirmed",
+    summary: {
+      rowCount: 18,
+      matchedRowCount: 18,
+      candidateRowCount: 0,
+      unmatchedRowCount: 0,
+      totalWeightKg: 9328.4,
+      totalAmount: 94040,
+    },
+    summaryText: "18 行已全部匹配 ERP 收货事实；对账、应付和付款证据链完整。",
+    statementConfirmationId: "RMSRC-DEMO-202607-RENYI",
+    statementConfirmedAt: "2026-08-03T09:10:00.000Z",
+    supplierPayableId: "RMSP-DEMO-202607-RENYI",
+    supplierPayableDraft: {
+      supplierPayableId: "RMSP-DEMO-202607-RENYI",
+      sourceReviewId: "RMSR-DEMO-202607-RENYI",
+      statementConfirmationId: "RMSRC-DEMO-202607-RENYI",
+      supplierName: "人意无纺布",
+      status: "已复核待付款",
+      payableAmount: 94040,
+      generatedAt: "2026-08-03T09:20:00.000Z",
+    },
+    paymentStatus: "已确认付款",
+    supplierPaymentConfirmationId: "RMSPAY-DEMO-202607-RENYI",
+    supplierPaymentRecord: {
+      supplierPaymentConfirmationId: "RMSPAY-DEMO-202607-RENYI",
+      sourceReviewId: "RMSR-DEMO-202607-RENYI",
+      supplierPayableId: "RMSP-DEMO-202607-RENYI",
+      supplierName: "人意无纺布",
+      paidAmount: 94040,
+      paymentMethod: "银行转账",
+      paymentReferenceNo: "DEMO-READONLY-202607",
+      paidAt: "2026-08-03T10:00:00.000Z",
+      confirmedAt: "2026-08-03T10:05:00.000Z",
+    },
+    demoReadOnly: true,
+    createdAt: "2026-08-03T08:45:00.000Z",
+    updatedAt: "2026-08-03T10:05:00.000Z",
+  },
+];
+
 export const sampleText = "张三服饰，30*38红500个明天下午自提，30*38黑100个明天下午自提；外卖活动袋40*30黄印黑黄袋红提双面3000个明天送货；35*27白色普通提1500个周五快运；25*32白色加长提1200个后天送货；30*38白色普通提1000个周五快运";
 const customPrintShorthandSampleText = "张三服饰，30*38红500个明天下午自提，30*38黑100个；美的空调 30*38 白袋 黄印 双面 1000个 周五快运；白鲸自营店 35*27 白印黑 白袋黑提 单面 1500个 今天快运；李四电商 外卖活动袋 40*30 黄印黑 黄袋红提 双面 3000个 明天送货；小熊童装 25*32 白色加长提 1200个送货";
 
@@ -423,6 +472,7 @@ export function createOfficeScenarioData(scenarioId = defaultOfficeScenarioId) {
     initialFulfillments: cloneFixtureRows(initialFulfillments),
     initialStatements: cloneFixtureRows(initialStatements),
     initialRawMaterialInbounds: cloneFixtureRows(initialRawMaterialInbounds),
+    initialRawMaterialSupplierStatementReviews: cloneFixtureRows(initialRawMaterialSupplierStatementReviews),
     sampleText: scenario.sampleText ?? sampleText,
   };
 }

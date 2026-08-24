@@ -71,6 +71,7 @@ export function loadSyntheticOfficeSeed(scenarioId = defaultOfficeScenarioId) {
     initialDriverDeliveryDispatches,
     statements: data.initialStatements,
     initialRawMaterialInbounds: data.initialRawMaterialInbounds,
+    initialRawMaterialSupplierStatementReviews: data.initialRawMaterialSupplierStatementReviews,
     initialMaintenanceTasks,
     sampleText: data.sampleText,
     defaultSelections: {

@@ -3,6 +3,13 @@ import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepos
 import { buildRawMaterialInboundDraftFromOcr } from "../server/services/rawMaterialOcrParserService.mjs";
 import { hasReviewableRawMaterialSpec, RAW_MATERIAL_OCR_LINE_REVIEW_KEYS } from "../shared/rawMaterialOcrLineReview.js";
 import { enrichRawMaterialSpecValues, formatRawMaterialMobileSpec, parseRawMaterialSpec } from "../shared/rawMaterialSpec.js";
+import { listRawMaterialCaptureSupplierOptions } from "../shared/rawMaterialSupplierProfiles.js";
+
+assert.deepEqual(
+  listRawMaterialCaptureSupplierOptions(),
+  ["振恒", "北陈", "腾胜", "宏尚", "鑫隆宏"],
+  "return capture must offer every maintained supplier profile even before that supplier has a recent inbound",
+);
 
 assert.deepEqual(
   pickSpec(parseRawMaterialSpec("78克*宽幅80*米数1300米")),

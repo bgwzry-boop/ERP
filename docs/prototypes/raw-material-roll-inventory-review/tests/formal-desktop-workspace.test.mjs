@@ -119,6 +119,7 @@ test("desktop workbenches consume formal APIs without fixture fallbacks", async 
   assert.match(appSource, /sourceRolls\[0\]\?\.id \|\| ""/, "roll selection must not dereference an undefined legacy fixture");
   assert.doesNotMatch(appSource, /sourceRolls = rolls/, "roll inventory must not reference the removed fixture variable");
   assert.match(appSource, /selectedRoll \? <><dl>/, "the source rail must render an explicit empty state before formal rolls arrive");
+  assert.match(appSource, /formatInventoryRollAmount\(roll\)/, "piece-counted handle stock must display a piece quantity instead of 0kg");
 });
 
 test("outbound delivery and supplier month-end share the complete review list-detail shell", async () => {
@@ -140,6 +141,7 @@ test("outbound delivery and supplier month-end share the complete review list-de
   for (const label of ["对账确认", "生成应付", "付款登记", "付款确认"]) {
     assert.ok(workspacesSource.includes(label), `supplier settlement should retain ${label}`);
   }
+  assert.match(workspacesSource, /本地评审只读样例/, "the filled settlement chain should be explicitly non-writing in the local review");
   assert.match(stylesSource, /\.fulfillment-progress-facts/, "outbound progress facts should be styled inside the selected detail rail");
   assert.match(stylesSource, /\.supplier-settlement-flow/, "supplier settlement stages should be styled inside the selected detail rail");
 });

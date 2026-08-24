@@ -40,8 +40,10 @@ export function createLocalRawMaterialSupplierStatementReviewRepository(options 
   return {
     kind: "local_json",
 
-    loadState() {
-      return loadPersistentReviewState(storageRoot);
+    loadState(loadOptions = {}) {
+      const state = loadPersistentReviewState(storageRoot);
+      if (state.rawMaterialSupplierStatementReviews.length || !Array.isArray(loadOptions.seedReviews)) return state;
+      return { rawMaterialSupplierStatementReviews: normalizeReviews(loadOptions.seedReviews) };
     },
 
     listReviews({ workspace, query } = {}) {

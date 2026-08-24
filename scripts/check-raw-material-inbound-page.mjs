@@ -27,6 +27,7 @@ const permissionSource = readFileSync(new URL("../src/auth/seedPermissions.js", 
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const roleToolStyleSource = readFileSync(new URL("../src/styles/features/role-tools.css", import.meta.url), "utf8");
 const rawMaterialStyleSource = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
+const rawMaterialSupplierProfilesSource = readFileSync(new URL("../shared/rawMaterialSupplierProfiles.js", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const styleSource = `${roleToolStyleSource}\n${rawMaterialStyleSource}`;
 
@@ -37,6 +38,9 @@ assertIncludes(fixturesSource, "已贴标/可用库存", "fixtures should includ
 assertIncludes(fixturesSource, "白侯模板月结时需拆重1-重5", "fixtures should preserve supplier statement matching notes");
 assertIncludes(fixturesSource, "北陈月结 Excel 用批号强匹配", "fixtures should preserve batch matching notes");
 assertIncludes(fixturesSource, "供应商单号未提供", "fixtures should cover suppliers without delivery-note numbers");
+assertIncludes(rawMaterialWorkbenchSource, "return `1${roll.unitLabel}`", "piece-counted handle material must display as one piece instead of a misleading zero-kilogram roll");
+assertIncludes(rawMaterialSupplierProfilesSource, 'captureName: "振恒"', "the maintained return-supplier choices must include Zhenheng without relying on recent inbounds");
+assertIncludes(rawMaterialPageSource, "listRawMaterialCaptureSupplierOptions", "return capture supplier choices should come from maintained supplier profiles");
 
 assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expose the raw-material page");
 assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");

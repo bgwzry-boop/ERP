@@ -44,6 +44,7 @@ import {
 import { RawMaterialMobileReceiving } from "./RawMaterialMobileReceiving.jsx";
 import { RawMaterialLabelPrintSheet } from "./RawMaterialLabelPrintSheet.jsx";
 import { RawMaterialPurchasePanel } from "./RawMaterialPurchasePanel.jsx";
+import { listRawMaterialCaptureSupplierOptions } from "../../../shared/rawMaterialSupplierProfiles.js";
 
 const RawMaterialMobileOcrReview = lazy(() => import("./RawMaterialMobileOcrReview.jsx").then((module) => ({
   default: module.RawMaterialMobileOcrReview,
@@ -123,7 +124,10 @@ export function RawMaterialInboundPage({
   const [colorMappingOpen, setColorMappingOpen] = useState(false);
   const [colorMappingContext, setColorMappingContext] = useState(null);
   const deliveryNoteSupplierOptions = Array.from(new Set(
-    inbounds.map((item) => String(item?.supplierName || "").trim()).filter(Boolean),
+    [
+      ...listRawMaterialCaptureSupplierOptions(),
+      ...inbounds.map((item) => String(item?.supplierName || "").trim()).filter(Boolean),
+    ],
   )).sort((left, right) => left.localeCompare(right, "zh-CN"));
   const records = filterRawMaterialInboundsByTab(inbounds, activeTab);
   const visibleRecords = filterRawMaterialInboundsByKeyword(records, keyword);

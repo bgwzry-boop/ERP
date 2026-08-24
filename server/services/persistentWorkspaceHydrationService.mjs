@@ -100,6 +100,7 @@ export async function hydratePersistentWorkspaceState({
 
   const persistedRawMaterialSupplierStatementReviewState = await loadState(
     workspace.rawMaterialSupplierStatementReviewRepository,
+    productionRuntime ? undefined : { seedReviews: toArray(workspace.initialRawMaterialSupplierStatementReviews) },
   );
   workspace.rawMaterialSupplierStatementReviews = toArray(
     persistedRawMaterialSupplierStatementReviewState.rawMaterialSupplierStatementReviews,

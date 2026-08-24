@@ -5,6 +5,7 @@ import {
 } from "../../shared/rawMaterialSpec.js";
 import { resolveRawMaterialFactoryColor } from "../../shared/rawMaterialFactoryColors.js";
 import { classifyRawMaterialSupplierReturnCategory } from "../../shared/rawMaterialSupplierReturn.js";
+import { RAW_MATERIAL_SUPPLIER_PROFILES } from "../../shared/rawMaterialSupplierProfiles.js";
 
 const headerAliases = {
   productName: ["品名", "品名称", "商品名称", "商品全名", "产品名称", "货品名称", "物料名称", "材料名称", "名称"],
@@ -27,31 +28,6 @@ const keyValueAliases = {
   deliveryNoteNo: ["送货单号", "销货单号", "单据编号", "单号", "编号", "No"],
   receivedAt: ["送货日期", "单据日期", "日期"],
 };
-
-const supplierOcrProfiles = [
-  {
-    key: "renyi_zhengheng",
-    aliases: ["人意无纺布", "振恒"],
-    documentPriceReferenceOnly: true,
-  },
-  {
-    key: "daxiang_beichen",
-    aliases: ["宁晋县达翔塑料制品", "达翔塑料", "北陈", "河北北陈无纺布"],
-  },
-  {
-    key: "tengsheng",
-    aliases: ["宁晋县腾胜无纺布", "腾胜无纺布", "腾胜"],
-  },
-  {
-    key: "hongshang_baihou",
-    aliases: ["河北宏尚无纺布", "宏尚无纺布", "白候"],
-  },
-  {
-    key: "xinlonghong",
-    aliases: ["新乐市鑫隆宏无纺布", "鑫隆宏无纺布", "鑫隆宏"],
-    provisional: true,
-  },
-];
 
 export const RAW_MATERIAL_OCR_PARSER_VERSION = 20;
 
@@ -947,7 +923,7 @@ function applySupplierLineAdapter(values = {}, supplierName = "") {
 function findSupplierOcrProfile(supplierName) {
   const normalizedSupplier = cleanText(supplierName).replace(/\s+/gu, "");
   if (!normalizedSupplier) return null;
-  return supplierOcrProfiles.find((profile) => profile.aliases.some((alias) => normalizedSupplier.includes(alias))) ?? null;
+  return RAW_MATERIAL_SUPPLIER_PROFILES.find((profile) => profile.aliases.some((alias) => normalizedSupplier.includes(alias))) ?? null;
 }
 
 function inferMaterialTypeFromContext({ allText, lines }) {
