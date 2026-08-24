@@ -200,7 +200,7 @@ function Topbar({ onCreateOrder, permissionContext }) {
     <div className="topbar-actions">
       {canCreateOrder ? <button className="primary top-new-order" onClick={onCreateOrder} type="button"><PlusOutlined />新建订单</button> : null}
       <button aria-label="通知" className="notification" type="button"><BellOutlined /><b>8</b></button>
-      <button className="account" type="button"><span><strong>{account.displayName}</strong><small>{account.roleLabel || "按账号权限"}</small></span><DownOutlined /></button>
+      <div aria-label={`当前账号：${account.displayName}，${account.roleLabel || "按账号权限"}`} className="account" role="status"><span><strong>{account.displayName}</strong><small>{account.roleLabel || "按账号权限"}</small></span></div>
     </div>
   </header>;
 }

@@ -36,6 +36,14 @@ test("4174 mobile review uses a signed passwordless preview session", async () =
   assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
 });
 
+test("4174 desktop account identity is read-only instead of a fake dropdown", async () => {
+  const appSource = await readSource("../src/App.jsx");
+
+  assert.match(appSource, /aria-label=\{`当前账号：\$\{account\.displayName\}/, "the desktop shell should name the signed current account explicitly");
+  assert.match(appSource, /className="account" role="status"/, "the desktop account identity should be announced as read-only status");
+  assert.doesNotMatch(appSource, /<button className="account"/, "an account menu that does not exist must not be presented as a button");
+});
+
 test("staging preview refuses restored sessions from a different identity", async () => {
   const authServiceSource = await readSource("../../../../src/services/officeAuthService.js");
 
