@@ -43,6 +43,8 @@ Current decision baseline: `V8.306` plus the verified employee/payroll/Deli chan
 
 ## Product, Order And Inventory
 
+- A mobile raw-material OCR draft is not abandoned merely because the operator navigates back. The review page must offer explicit discard, continue-review and keep-draft choices. Discard is an audited server-confirmed void, never a client deletion; voided drafts retain source images and operator/time/reason evidence but are excluded from operational inbound, unfinished, search, metrics and supplier-reconciliation views and create no inventory, payable or reconciliation effect.
+- A still-pending raw-material OCR draft with strong return evidence may be explicitly corrected from delivery to supplier return by reparsing its persisted OCR table under the audited server command, without another cloud OCR call. Return specification may remain blank; Hongshang/Baihou fabric returns retain the price-affecting `黑白布 / 彩布 / 废布` category and stay blocked only when that category, unit price, amount or other return facts are unresolved.
 - ERP is the sole authority for price editing/review/publication. The Miniapp activates only a complete validated version and submitted orders retain immutable price/version snapshots.
 - Miniapp and ERP keep separate databases. Server-to-server intake is HMAC/idempotent, creates only an intake envelope/review draft/evidence/todo, and office confirmation alone creates formal orders and downstream effects.
 - Custom sizes remain order-only: produce and deliver the ordered quantity, create no common-goods master row and retain no finished-goods stock.

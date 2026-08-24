@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-12 — current baseline remains `V8.306` plus verified attendance/payroll and Deli-gateway hardening.
+Last updated: 2026-08-24 — current baseline remains `V8.306`; raw-material mobile OCR abandonment is now audited and excluded from operational lists, while release metrics remain unchanged.
 
 ## Current Verdict
 
@@ -21,6 +21,7 @@ The generated [go-live suite](/Users/xu/Documents/ERP/.erp-local-storage/v1-go-l
 
 ## Implemented
 
+- Mobile raw-material OCR review now makes back navigation explicit: discard and reshoot, continue review, or keep the draft and return home. Server-confirmed voided drafts retain evidence but are excluded from operational inbound, unfinished, search, metric and supplier-reconciliation views. Seeded inbound rows now carry a valid optimistic revision before the first API refresh, so the audited discard action cannot fail solely because the initial browser fixture omitted its version.
 - Local preview identity is now explicit and fail-closed: the complete review app owns `bagwin-complete-review-4174 @ 4174`, the root workbench is fixed to `5173`, both Vite configs reject cross-port launches, one canonical launcher starts the review/API pair, and live verification checks app identity, full navigation and API health. Development documents reload when the server identity behind their origin changes.
 - The accepted `4174` desktop mounts the formal `PayrollAttendancePage`; employee detail uses the formal profile/account commands, and phone bootstrap reuses `EmployeeAttendanceMobilePage`. Review fixtures and invented wage/punch values are no longer reachable from business routes.
 - Employee identity, attendance mapping and payroll remain keyed by stable ERP employee number. Names are display fields only. Departed employees retain audit/history and are excluded from active onboarding.
@@ -51,6 +52,8 @@ The generated [go-live suite](/Users/xu/Documents/ERP/.erp-local-storage/v1-go-l
 
 ## Latest Verification
 
+- On 2026-08-24 supplier-return OCR review was corrected locally: a pending draft with strong return evidence can be explicitly reparsed from its saved table rows as `supplier_return` without another cloud OCR call; missing return specification no longer blocks Zhengheng/Renyi or Hongshang/Baihou, while Hongshang/Baihou retains the price-affecting `黑白布 / 彩布 / 废布` category plus required unit price and amount. The phone review names exact missing fields and terminates returns before printing, labels or inventory. Full raw-material API/page/action checks, production build/chunk budget, current-doc check, review identity, targeted ESLint, the one required UI detector pass, 390×844 browser inspection and diff validation passed. This remains a local undeployed change.
+- On 2026-08-24 the local 4174 phone flow voided one pending OCR draft through the audited server action: the unfinished count changed from four to three, the success state rendered on the capture home, and no browser error was added. Focused list/page/OCR-command checks, targeted ESLint, `review:check`, the UI detector and diff validation passed. This was local demo-state verification only; no deployment or release-gate number changed.
 - The complete core gate passes `117/117`. The current controlled D49 workbook was rechecked with `29` active rows and full `8/8` role coverage, but strict payroll/attendance completeness remains `0/29`; this separates usable employee/role intake from missing profile, wage and Deli mapping data. Payroll/attendance is recalibrated to `93% code / 28% live`; release evidence is `40` items in `7` groups, including the first real attendance/payroll closeout, with zero completed evidence.
 - The prior status-document length failure is closed: current files are concise, full 2026-08-12 snapshots and V8.80 archives remain linked, and the original thresholds were not weakened.
 - No live Deli request, real attendance/payroll write, production migration, physical print, deployment, release refresh or gate increase was performed.
