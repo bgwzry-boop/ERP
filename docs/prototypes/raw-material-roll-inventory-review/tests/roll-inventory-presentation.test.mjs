@@ -10,10 +10,21 @@ import {
 } from "../src/roll-inventory-presentation.js";
 
 test("formal roll inventory resolves authoritative width before presentation", () => {
-  assert.deepEqual(resolveRollWidth({}, { spec: "78*70*2000", widthCm: 70 }), { widthCm: 70, label: "70cm" });
-  assert.deepEqual(resolveRollWidth({}, { materialCategory: "提手条", spec: "78*5" }), { widthCm: 5, label: "5cm 提手条" });
-  assert.deepEqual(resolveRollWidth({ widthCm: 70 }, { materialCategory: "提手条", spec: "条" }), { widthCm: 5, label: "5cm 提手条" });
-  assert.deepEqual(resolveRollWidth({}, { spec: "特殊尺寸" }), { widthCm: 0, label: "宽幅待确认" });
+  assert.deepEqual(resolveRollWidth({}, { spec: "78*70*2000", widthCm: 70 }), {
+    widthCm: 70, label: "70cm", materialCategory: "布料", materialUsage: "袋身原材料",
+  });
+  assert.deepEqual(resolveRollWidth({}, { materialCategory: "提手条", spec: "78*5" }), {
+    widthCm: 5, label: "5cm 提手条", materialCategory: "提手条", materialUsage: "提手原材料",
+  });
+  assert.deepEqual(resolveRollWidth({ widthCm: 70 }, { materialCategory: "提手条", spec: "条" }), {
+    widthCm: 70, label: "70cm", materialCategory: "布料", materialUsage: "袋身原材料",
+  });
+  assert.deepEqual(resolveRollWidth({}, { spec: "5cm*加长提" }), {
+    widthCm: 5, label: "5cm 提手条", materialCategory: "提手条", materialUsage: "提手原材料",
+  });
+  assert.deepEqual(resolveRollWidth({}, { spec: "特殊尺寸" }), {
+    widthCm: 0, label: "宽幅待确认", materialCategory: "", materialUsage: "",
+  });
 });
 
 test("formal roll inventory sorts by numeric width and leaves unknown widths last", () => {

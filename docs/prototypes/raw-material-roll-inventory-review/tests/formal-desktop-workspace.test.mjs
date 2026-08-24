@@ -121,6 +121,29 @@ test("desktop workbenches consume formal APIs without fixture fallbacks", async 
   assert.match(appSource, /selectedRoll \? <><dl>/, "the source rail must render an explicit empty state before formal rolls arrive");
 });
 
+test("outbound delivery and supplier month-end share the complete review list-detail shell", async () => {
+  const [appSource, workspacesSource, stylesSource] = await Promise.all([
+    readSource("../src/App.jsx"),
+    readSource("../src/BusinessWorkspaces.jsx"),
+    readSource("../src/business-workspaces.css"),
+  ]);
+
+  assert.doesNotMatch(appSource, /function StatementWorkspace/, "supplier month-end must not retain its older standalone list shell");
+  assert.match(appSource, /!isRawMaterialView \? <BusinessWorkspace/, "all non-raw-material pages should route through the same complete review workbench surface");
+  assert.match(workspacesSource, /navId === "outbound-delivery"\) return <FulfillmentWorkspace/, "outbound delivery should use its current-shell workspace");
+  assert.match(workspacesSource, /navId === "supplier-month-end"\) return <SupplierSettlementWorkspace/, "supplier month-end should use its current-shell workspace");
+  assert.match(workspacesSource, /className="business-workbench fulfillment-workbench"/, "outbound delivery should reuse the standard list-detail anatomy");
+  assert.match(workspacesSource, /className="business-workbench supplier-settlement-workbench"/, "supplier month-end should reuse the standard list-detail anatomy");
+  for (const label of ["订货数量", "已发数量", "本次发货", "剩余未发", "历史欠款", "本单应收", "累计待收"]) {
+    assert.ok(workspacesSource.includes(label), `outbound detail should retain ${label}`);
+  }
+  for (const label of ["对账确认", "生成应付", "付款登记", "付款确认"]) {
+    assert.ok(workspacesSource.includes(label), `supplier settlement should retain ${label}`);
+  }
+  assert.match(stylesSource, /\.fulfillment-progress-facts/, "outbound progress facts should be styled inside the selected detail rail");
+  assert.match(stylesSource, /\.supplier-settlement-flow/, "supplier settlement stages should be styled inside the selected detail rail");
+});
+
 test("supplier statement identifiers use collision-resistant entropy", async () => {
   const repositorySource = await readSource("../../../../server/rawMaterialSupplierStatementReviewRepository.mjs");
 

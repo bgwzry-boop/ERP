@@ -28,6 +28,13 @@ import { buildEmployeeProfile } from "./employee-profile.js";
 import { completedBusinessWorkspaceIds } from "./workspaceCoverage.js";
 
 const formatNumber = (value) => new Intl.NumberFormat("zh-CN").format(Number(value) || 0);
+const optionalNumber = (value) => {
+  if (value === null || value === undefined || value === "") return null;
+  const resolved = Number(value);
+  return Number.isFinite(resolved) ? resolved : null;
+};
+const quantityText = (value) => value === null ? "待确认" : `${formatNumber(value)}个`;
+const moneyText = (value) => value === null ? "待对账" : money(value);
 const customerName = (value, customerNames = new Map()) => {
   if (value && typeof value === "object") return value.customerName || customerNames.get(value.customerId) || value.customerId || "客户待确认";
   return customerNames.get(value) || value || "客户待确认";
@@ -85,7 +92,7 @@ function miniappProgressLabel(line = {}) {
 
 function stateTone(value) {
   if (/异常|差异|阻塞|失败|缺货|冻结|待补|未就绪/.test(value)) return "danger";
-  if (/已完成|正常|有效|通过|可用|可出库|已核算|在线|已清点|已交付|已启用/.test(value)) return "success";
+  if (/已完成|正常|有效|通过|可用|可出库|已核算|在线|已清点|已交付|已启用|已付款|已结算|已确认/.test(value)) return "success";
   if (/生产中|印刷中|制袋中|打包中|配送中|已备货/.test(value)) return "info";
   return "warning";
 }
@@ -261,28 +268,57 @@ function InventoryAllocation({ stock, variant = "compact" }) {
   </div>;
 }
 
-function buildFulfillmentRows(items = []) {
-  return items.map((item) => ({
-  id: item.id || item.fulfillmentId,
-  cells: [
-    `${customerName(item)} · ${item.lineId || item.orderLineId}`,
-    item.goods || item.goodsSpec,
-    item.methodLabel || item.method,
-    `${formatNumber(item.qty ?? item.expectedQty)}个 / ${item.packages || item.package || `${item.packageCount || 0}包`}`,
-    item.status,
-  ],
-  status: item.status,
-  details: [
-    ["交付任务", item.id || item.fulfillmentId],
-    ["客户", customerName(item)],
-    ["订单明细", item.lineId || item.orderLineId],
-    ["货品", item.goods || item.goodsSpec],
-    ["数量与包装", `${formatNumber(item.qty ?? item.expectedQty)}个 / ${item.packages || item.package || `${item.packageCount || 0}包`}`],
-    ["交付方式", item.methodLabel || item.method],
-    ["要求时间", item.latest || item.latestNeededAt || "待确认"],
-    ["库位", item.zone || "待确认"],
-  ],
-  }));
+function buildFulfillmentRows(items = [], orderLines = [], statements = []) {
+  const orderLineById = new Map(orderLines.map((line) => [line.id || line.orderLineId, line]));
+  const statementByCustomerId = new Map(statements.map((statement) => [statement.customerId, statement]));
+
+  return items.map((item) => {
+    const id = item.id || item.fulfillmentId;
+    const orderLineId = item.lineId || item.orderLineId;
+    const orderLine = orderLineById.get(orderLineId) || {};
+    const customerId = item.customerId || orderLine.customerId;
+    const customerStatement = statementByCustomerId.get(customerId);
+    const status = item.status || "待确认";
+    const goods = item.goods || item.goodsSpec || orderLine.productName || orderLine.product || "货品待确认";
+    const orderedQty = optionalNumber(item.orderedQty ?? item.orderQty ?? orderLine.originalQty ?? orderLine.qty ?? item.expectedQty ?? item.qty);
+    const currentQty = optionalNumber(item.currentShipmentQty ?? item.actualQty ?? item.qty ?? item.expectedQty);
+    const deliveredTotal = optionalNumber(item.deliveredQty ?? orderLine.deliveredQty);
+    const explicitShippedBefore = optionalNumber(item.shippedBeforeQty ?? item.priorDeliveredQty);
+    const shippedBeforeQty = explicitShippedBefore ?? Math.max(0, (deliveredTotal ?? 0) - (/已出库|已交付|已完成/.test(status) ? (currentQty ?? 0) : 0));
+    const remainingQty = optionalNumber(item.remainingQty) ?? (orderedQty === null || currentQty === null
+      ? null
+      : Math.max(0, orderedQty - shippedBeforeQty - currentQty));
+    const orderAmount = optionalNumber(orderLine.finalAmount ?? orderLine.amount ?? item.orderAmount);
+    const currentReceivable = orderAmount === null
+      ? null
+      : orderedQty && currentQty !== null
+        ? Math.round(orderAmount * currentQty / orderedQty * 100) / 100
+        : orderAmount;
+    const historicalDebt = customerStatement ? optionalNumber(customerStatement.debtAmount) : null;
+    const cumulativeReceivable = historicalDebt === null || currentReceivable === null ? null : historicalDebt + currentReceivable;
+    const packageLabel = item.packages || item.package || (item.packageCount ? `${item.packageCount}包` : "待打包");
+
+    return {
+      id,
+      customerId,
+      orderLineId,
+      customer: customerName({ ...orderLine, ...item }),
+      goods,
+      method: item.methodLabel || item.method || "待确认",
+      packageLabel,
+      latestNeededAt: item.latest || item.latestNeededAt || "待确认",
+      zone: item.zone || "待确认",
+      status,
+      orderedQty,
+      shippedBeforeQty,
+      currentQty,
+      remainingQty,
+      historicalDebt,
+      currentReceivable,
+      cumulativeReceivable,
+      searchValues: [id, orderLineId, item.orderNo, customerId],
+    };
+  });
 }
 
 function statementStatusLabel(status) {
@@ -376,7 +412,7 @@ function buildWorkspaceConfigs(formal) {
   const productionRows = buildProductionRows(data.productionTasks, data.orderLines, customerNames, machineLabels);
   const packingRows = buildPackingRows(data.packingTasks, data.orderLines, customerNames);
   const printRows = buildPrintRows(data.printJobs, data.printDevices);
-  const fulfillmentRows = buildFulfillmentRows(data.fulfillments);
+  const fulfillmentRows = buildFulfillmentRows(data.fulfillments, data.orderLines, data.statements);
   const statementRows = buildStatementRows(data.statements);
   return {
   "production-tasks": {
@@ -524,6 +560,127 @@ function GenericWorkspace({ config, onNavigate }) {
       <footer><button className="primary" disabled={!selected} onClick={runPrimary} type="button">{config.primaryAction}</button>{config.profileMaintenance ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => { setProfileError(""); setProfileOpen(true); }} type="button">维护员工档案</button> : config.showSourceEvidence === false ? null : <button className="secondary-button" onClick={() => setNotice(`来源：${config.source}`)} type="button">查看数据来源</button>}{config.accountPreparation ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => setAccountOpen(true)} type="button">准备员工账号</button> : null}</footer>
     </aside>
   </div>{profileOpen && selected?.employeeReview ? <div className="dialog-backdrop employee-profile-dialog-backdrop" onMouseDown={() => setProfileOpen(false)} role="presentation"><section aria-labelledby="employee-profile-dialog-title" aria-modal="true" className="receive-dialog employee-profile-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>正式员工资料</span><h2 id="employee-profile-dialog-title">维护 {selected.employeeReview.name}</h2></div><button aria-label="关闭" onClick={() => setProfileOpen(false)} type="button">×</button></header><div className="employee-profile-dialog-body"><EmployeeProfileEditor actionState={{ disabled: false, title: "" }} onSave={saveEmployeeProfile} review={selected.employeeReview} />{profileError ? <p className="employee-profile-dialog-error" role="alert">{profileError}</p> : null}</div></section></div> : null}{accountOpen && selected?.employeeReview ? <EmployeeAccountPreparationDialog onClose={() => setAccountOpen(false)} onConfirmIdentity={config.onConfirmEmployeeIdentity} onEnableAccount={config.onEnableEmployeeAccount} onIssuePassword={config.onIssueEmployeePassword} review={selected.employeeReview} /> : null}</>;
+}
+
+function FulfillmentWorkspace({ formal }) {
+  const records = useMemo(
+    () => buildFulfillmentRows(formal.data.fulfillments, formal.data.orderLines, formal.data.statements),
+    [formal.data.fulfillments, formal.data.orderLines, formal.data.statements],
+  );
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("全部状态");
+  const [selectedId, setSelectedId] = useState(records[0]?.id || "");
+  const [notice, setNotice] = useState("");
+  const statuses = useMemo(() => [...new Set(records.map((record) => record.status).filter(Boolean))], [records]);
+  const rows = useMemo(() => records.filter((record) => {
+    const statusMatch = status === "全部状态" || record.status === status;
+    const queryMatch = !query.trim() || [record.customer, record.goods, record.method, ...record.searchValues]
+      .join(" ")
+      .toLowerCase()
+      .includes(query.trim().toLowerCase());
+    return statusMatch && queryMatch;
+  }), [query, records, status]);
+  const selected = rows.find((record) => record.id === selectedId) || rows[0] || null;
+  const gridTemplateColumns = "minmax(150px, 1.22fr) minmax(180px, 1.45fr) minmax(74px, .66fr) minmax(138px, 1fr) minmax(86px, .72fr)";
+  const reset = () => { setQuery(""); setStatus("全部状态"); setSelectedId(records[0]?.id || ""); setNotice(""); };
+
+  return <div className="business-workbench fulfillment-workbench">
+    <section className="business-list-panel">
+      <header className="business-panel-heading"><h2>出库交付</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <div className="business-filter-row"><label><SearchOutlined /><input aria-label="出库交付搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setNotice(""); }} placeholder="搜索客户 / 订单 / 货品 / 交付方式" value={query} /></label><select aria-label="出库交付状态" onChange={(event) => { setStatus(event.target.value); setSelectedId(""); setNotice(""); }} value={status}><option>全部状态</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部状态"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
+      <div aria-label="出库交付列表" className="business-table" role="table">
+        <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}><span role="columnheader">客户 / 订单</span><span role="columnheader">货品</span><span role="columnheader">方式</span><span role="columnheader">本次 / 包装</span><span role="columnheader">状态</span></div>
+        <div className="business-table-body">{rows.length ? rows.map((record) => <button aria-pressed={selected?.id === record.id} className={`business-row${selected?.id === record.id ? " selected" : ""}`} key={record.id} onClick={() => { setSelectedId(record.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button"><span className="business-primary-cell" role="cell">{record.customer}<small>{record.orderLineId || record.id}</small></span><span role="cell">{record.goods}</span><span role="cell">{record.method}</span><span role="cell">{quantityText(record.currentQty)} / {record.packageLabel}</span><span role="cell"><StateText>{record.status}</StateText></span></button>) : <div className="business-empty"><SearchOutlined /><strong>没有匹配的交付任务</strong><span>调整关键词或状态后重试。</span></div>}</div>
+      </div>
+    </section>
+    <aside className="business-detail-panel fulfillment-detail">
+      <header><span>{selected ? `${selected.customer} · ${selected.orderLineId || selected.id}` : "当前选中 · 出库交付"}</span><h2>{selected?.goods || "暂无交付任务"}</h2>{selected ? <StateText>{selected.status}</StateText> : null}</header>
+      <div className="business-detail-scroll">{selected ? <>
+        <section className="business-detail-section"><h3>交付数量</h3><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>已发数量</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>本次发货</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未发</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
+        <section className="business-detail-section"><h3>交付事实</h3><dl className="business-facts"><div><dt>交付方式</dt><dd>{selected.method}</dd></div><div><dt>包装</dt><dd>{selected.packageLabel}</dd></div><div><dt>要求时间</dt><dd>{selected.latestNeededAt}</dd></div><div><dt>出库库位</dt><dd>{selected.zone}</dd></div></dl></section>
+        <section className="business-detail-section"><h3>收款关联（只读）</h3><dl className="fulfillment-receivable-facts"><div><dt>历史欠款</dt><dd>{moneyText(selected.historicalDebt)}</dd></div><div><dt>本单应收</dt><dd>{moneyText(selected.currentReceivable)}</dd></div><div><dt>累计待收</dt><dd>{moneyText(selected.cumulativeReceivable)}</dd></div></dl><div className="business-boundary"><InfoCircleOutlined /><div><strong>出库与收款保持分离</strong><p>这里仅提示对账关联；交付完成不会在本页直接核销客户欠款。</p></div></div></section>
+        {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
+      </> : <div className="business-empty"><FileTextOutlined /><strong>暂无交付任务</strong></div>}</div>
+      <footer><button className="primary" disabled={!selected} onClick={() => setNotice("已展开当前交付任务的正式只读事实；业务状态未发生变化。") } type="button">查看交付依据</button></footer>
+    </aside>
+  </div>;
+}
+
+const supplierSettlementSteps = ["对账确认", "生成应付", "付款登记", "付款确认"];
+
+function supplierSettlementPeriod(record = {}) {
+  const explicit = String(record.statementPeriod || record.period || record.settlementPeriod || "").trim();
+  if (explicit) return explicit;
+  const source = `${record.fileName || ""} ${record.createdAt || ""}`;
+  const match = source.match(/(20\d{2})[年._/-]?(0?[1-9]|1[0-2])/);
+  return match ? `${match[1]}年${String(match[2]).padStart(2, "0")}月` : "账期待确认";
+}
+
+function supplierSettlementState(record = {}) {
+  const statementConfirmed = Boolean(record.statementConfirmationId) || record.reviewStatus === "statement_confirmed";
+  const payableReady = Boolean(record.supplierPayableId || record.supplierPayableDraft);
+  const paymentRegistered = Boolean(record.supplierPaymentRecord);
+  const paymentConfirmed = Boolean(record.supplierPaymentConfirmationId) || record.paymentStatus === "已确认付款";
+  const completedCount = paymentConfirmed ? 4 : paymentRegistered ? 3 : payableReady ? 2 : statementConfirmed ? 1 : 0;
+  const label = paymentConfirmed ? "已付款" : paymentRegistered ? "付款待确认" : payableReady ? "待付款登记" : statementConfirmed ? "待生成应付" : "待对账确认";
+  return { completedCount, label };
+}
+
+function SettlementFlow({ completedCount }) {
+  return <ol aria-label="供应商结算进度" className="supplier-settlement-flow">{supplierSettlementSteps.map((label, index) => {
+    const done = completedCount > index;
+    const current = completedCount === index;
+    return <li aria-current={current ? "step" : undefined} className={done ? "done" : current ? "current" : "pending"} key={label}>{done ? <CheckCircleOutlined /> : <span>{index + 1}</span>}<div><strong>{label}</strong><small>{done ? "已完成" : current ? "当前阶段" : "尚未开始"}</small></div></li>;
+  })}</ol>;
+}
+
+function SupplierSettlementWorkspace({ formal }) {
+  const records = useMemo(() => formal.data.supplierStatementReviews.map((record) => ({
+    ...record,
+    id: record.reviewId || record.id,
+    supplierName: record.supplierName || "供应商待确认",
+    period: supplierSettlementPeriod(record),
+    settlementState: supplierSettlementState(record),
+    payableAmount: optionalNumber(record.supplierPayableDraft?.payableAmount ?? record.payableAmount),
+    paidAmount: optionalNumber(record.supplierPaymentRecord?.paidAmount),
+  })), [formal.data.supplierStatementReviews]);
+  const [query, setQuery] = useState("");
+  const [status, setStatus] = useState("全部阶段");
+  const [selectedId, setSelectedId] = useState(records[0]?.id || "");
+  const [notice, setNotice] = useState("");
+  const statuses = useMemo(() => [...new Set(records.map((record) => record.settlementState.label))], [records]);
+  const rows = useMemo(() => records.filter((record) => {
+    const statusMatch = status === "全部阶段" || record.settlementState.label === status;
+    const queryMatch = !query.trim() || [record.supplierName, record.fileName, record.id, record.period]
+      .join(" ")
+      .toLowerCase()
+      .includes(query.trim().toLowerCase());
+    return statusMatch && queryMatch;
+  }), [query, records, status]);
+  const selected = rows.find((record) => record.id === selectedId) || rows[0] || null;
+  const gridTemplateColumns = "minmax(132px, 1.15fr) minmax(92px, .8fr) minmax(132px, 1.1fr) minmax(92px, .8fr) minmax(98px, .82fr)";
+  const reset = () => { setQuery(""); setStatus("全部阶段"); setSelectedId(records[0]?.id || ""); setNotice(""); };
+
+  return <div className="business-workbench supplier-settlement-workbench">
+    <section className="business-list-panel">
+      <header className="business-panel-heading"><h2>供应商月结</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${records.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
+      <div className="business-filter-row"><label><SearchOutlined /><input aria-label="供应商月结搜索" onChange={(event) => { setQuery(event.target.value); setSelectedId(""); setNotice(""); }} placeholder="搜索供应商 / 月份 / 文件 / 复核单" value={query} /></label><select aria-label="供应商月结阶段" onChange={(event) => { setStatus(event.target.value); setSelectedId(""); setNotice(""); }} value={status}><option>全部阶段</option>{statuses.map((item) => <option key={item}>{item}</option>)}</select><button disabled={!query && status === "全部阶段"} onClick={reset} type="button"><ReloadOutlined />重置</button></div>
+      <div aria-label="供应商月结列表" className="business-table" role="table">
+        <div className="business-row business-head" role="row" style={{ gridTemplateColumns }}><span role="columnheader">供应商</span><span role="columnheader">对账期间</span><span role="columnheader">匹配结果</span><span role="columnheader">应付金额</span><span role="columnheader">结算阶段</span></div>
+        <div className="business-table-body">{rows.length ? rows.map((record) => { const summary = record.summary || {}; return <button aria-pressed={selected?.id === record.id} className={`business-row${selected?.id === record.id ? " selected" : ""}`} key={record.id} onClick={() => { setSelectedId(record.id); setNotice(""); }} role="row" style={{ gridTemplateColumns }} type="button"><span className="business-primary-cell" role="cell">{record.supplierName}<small>{record.fileName || record.id}</small></span><span role="cell">{record.period}</span><span role="cell">匹配 {summary.matchedRowCount || 0} / 差异 {(summary.unmatchedRowCount || 0) + (summary.candidateRowCount || 0)}</span><span role="cell">{moneyText(record.payableAmount)}</span><span role="cell"><StateText>{record.settlementState.label}</StateText></span></button>; }) : <div className="business-empty"><SearchOutlined /><strong>没有匹配的供应商结算</strong><span>{records.length ? "调整关键词或结算阶段后重试。" : "服务器暂无供应商月结复核草稿。"}</span></div>}</div>
+      </div>
+    </section>
+    <aside className="business-detail-panel supplier-settlement-detail">
+      <header><span>{selected?.id || "当前选中 · 供应商月结"}</span><h2>{selected?.supplierName || "暂无月结复核"}</h2>{selected ? <StateText>{selected.settlementState.label}</StateText> : null}</header>
+      <div className="business-detail-scroll">{selected ? <>
+        <section className="business-detail-section"><h3>结算进度</h3><SettlementFlow completedCount={selected.settlementState.completedCount} /></section>
+        <section className="business-detail-section"><h3>对账事实</h3><dl className="business-facts"><div><dt>对账期间</dt><dd>{selected.period}</dd></div><div><dt>对账文件</dt><dd>{selected.fileName || "待确认"}</dd></div><div><dt>匹配结果</dt><dd>{selected.summaryText || `匹配 ${selected.summary?.matchedRowCount || 0}，差异 ${(selected.summary?.unmatchedRowCount || 0) + (selected.summary?.candidateRowCount || 0)}`}</dd></div><div><dt>当前状态</dt><dd>{selected.status || selected.reviewStatus || "待复核"}</dd></div></dl></section>
+        <section className="business-detail-section"><h3>应付与付款</h3><dl className="business-facts"><div><dt>应付草稿</dt><dd>{selected.supplierPayableId || "尚未生成"}</dd></div><div><dt>应付金额</dt><dd>{moneyText(selected.payableAmount)}</dd></div><div><dt>付款金额</dt><dd>{moneyText(selected.paidAmount)}</dd></div><div><dt>付款凭证</dt><dd>{selected.supplierPaymentRecord?.paymentReferenceNo || selected.supplierPaymentRecord?.paymentVoucherNo || "尚未登记"}</dd></div></dl><div className="business-boundary"><InfoCircleOutlined /><div><strong>一张月结单对应一个结算对象</strong><p>对账确认、生成应付、付款登记和付款确认是四个独立阶段；本页只展示服务器已有证据，不代替财务操作。</p></div></div></section>
+        {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
+      </> : <div className="business-empty"><FileTextOutlined /><strong>暂无月结复核草稿</strong></div>}</div>
+      <footer><button className="primary" disabled={!selected} onClick={() => setNotice(selected.summaryText || "当前结算对象暂无额外差异摘要。") } type="button">查看差异摘要</button></footer>
+    </aside>
+  </div>;
 }
 
 function EmployeeAccountPreparationDialog({ review, onClose, onConfirmIdentity, onEnableAccount, onIssuePassword }) {
@@ -796,6 +953,8 @@ export function BusinessWorkspace({ formal, navId, onNavigate }) {
   if (navId === "shared-todos") return <TodoWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-entry") return <OrderEntryWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-pool") return <OrderPoolWorkspace formal={formal} onNavigate={onNavigate} />;
+  if (navId === "outbound-delivery") return <FulfillmentWorkspace formal={formal} />;
+  if (navId === "supplier-month-end") return <SupplierSettlementWorkspace formal={formal} />;
   if (navId === "inventory-query") return <FinishedGoodsInventoryWorkspace category="无纺布袋" formal={formal} onNavigate={onNavigate} title="无纺布袋库存" />;
   if (navId === "laminated-inventory") return <FinishedGoodsInventoryWorkspace category="覆膜无纺布袋" formal={formal} onNavigate={onNavigate} title="覆膜袋库存" />;
   if (navId === "general-prices" || navId === "spec-inventory") return <FinishedGoodsMasterWorkspace formal={formal} onNavigate={onNavigate} />;

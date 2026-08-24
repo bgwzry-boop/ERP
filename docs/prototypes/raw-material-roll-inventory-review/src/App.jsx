@@ -59,6 +59,8 @@ function buildInventoryRolls(inbounds = []) {
       color: roll.factoryColor || inbound.factoryColor || inbound.supplierColor || "颜色待确认",
       width: resolvedWidth.label,
       widthCm: resolvedWidth.widthCm,
+      materialCategory: resolvedWidth.materialCategory,
+      materialUsage: resolvedWidth.materialUsage || "用途待确认",
       weight: Number(roll.remainingMachineSideWeightKg || roll.leftoverReviewedWeightKg || roll.weightKg || 0),
       status: resolveInventoryRollStatus(inbound, roll),
       supplier: inbound.supplierName || "供应商待确认",
@@ -232,6 +234,7 @@ function DistributionRail({ activeBucket, distributionGroups, machineSideCount, 
         <div className="trace-wide"><dt>入库日期</dt><dd>{selectedRoll.date}</dd></div>
         <div><dt>颜色</dt><dd className="trace-color"><ColorChip color={selectedRoll.color} />{selectedRoll.color}</dd></div>
         <div><dt>规格</dt><dd title={selectedRoll.spec}>{selectedRoll.spec}</dd></div>
+        <div><dt>原料用途</dt><dd>{selectedRoll.materialUsage}</dd></div>
         <div className="trace-wide"><dt>来源票据</dt><dd>{selectedRoll.source}</dd></div>
         <div className="trace-wide"><dt>供应商</dt><dd title={selectedRoll.supplier}>{selectedRoll.supplier}</dd></div>
       </dl>
@@ -428,15 +431,6 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
   </div><ReceiptFlowDialog flow={flow} onClose={() => setFlow(null)} onConfirm={confirmFlow} row={selected} /></>;
 }
 
-function StatementWorkspace({ records }) {
-  const [selectedId, setSelectedId] = useState(records[0]?.reviewId || records[0]?.id || "");
-  const selected = records.find((row) => (row.reviewId || row.id) === selectedId) || records[0] || null;
-  return <div className="secondary-workbench">
-    <section className="secondary-list"><header><h2>供应商月结</h2><button className="primary" disabled type="button"><FileImageOutlined />上传月结 Excel</button></header><div className="statement-table"><div className="statement-row head"><span>供应商</span><span>文件</span><span>明细</span><span>匹配结果</span><span>状态</span></div>{records.length ? records.map((row) => { const id = row.reviewId || row.id; const summary = row.summary || {}; return <button className={`statement-row${id === (selected?.reviewId || selected?.id) ? " selected" : ""}`} key={id} onClick={() => setSelectedId(id)} type="button"><strong>{row.supplierName || "供应商待确认"}</strong><span>{row.fileName || "—"}</span><span>{summary.rowCount || row.rows?.length || 0}行</span><span>匹配{summary.matchedRowCount || 0} / 差异{summary.unmatchedRowCount || summary.candidateRowCount || 0}</span><StatusText>{row.status || row.reviewStatus || "待复核"}</StatusText></button>; }) : <div className="receipt-empty-state"><CheckCircleFilled /><strong>服务器暂无月结复核草稿</strong><span>月结 Excel 正式上传入口尚未接入本工作台。</span></div>}</div></section>
-    <aside className="secondary-detail">{selected ? <><span className="detail-kicker">{selected.reviewId || selected.id}</span><h2>{selected.supplierName}</h2><p>{selected.fileName || "文件名待确认"}</p><dl className="statement-facts"><div><dt>匹配结果</dt><dd>{selected.summaryText || "待复核"}</dd></div><div><dt>当前状态</dt><dd>{selected.status || selected.reviewStatus || "待复核"}</dd></div><div><dt>库存影响</dt><dd>无</dd></div><div><dt>付款影响</dt><dd>{selected.paymentStatus || "尚未生成"}</dd></div></dl><section className="month-note"><InfoCircleOutlined /><p>月结只核对供应商 Excel 与已记录的卷料事实，不会再次生成卷料，也不等于已付款。</p></section><button className="primary full" type="button">打开差异明细</button></> : <div className="receipt-empty-state"><FileTextOutlined /><strong>暂无复核草稿</strong></div>}</aside>
-  </div>;
-}
-
 function ReceiveDialog({ busy, error, onClose, onFile }) {
   const cameraRef = useRef(null);
   const fileRef = useRef(null);
@@ -541,8 +535,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
       </header> : null}
       {activeView === "卷料库存" ? <RollInventory onOpenSource={setSourceRoll} sourceRolls={currentInventoryRolls} /> : null}
       {activeView === "收货录入" ? <ReceiptWorkspace focusId={receiptFocusId} formal={formal} onOpenInventory={() => navigate("roll-inventory")} onOpenReceive={() => setReceiveOpen(true)} records={receiptRecords} /> : null}
-      {activeView === "供应商月结" ? <StatementWorkspace records={formal.data.supplierStatementReviews} /> : null}
-      {!isRawMaterialView && activeView !== "供应商月结" ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} /> : null}
+      {!isRawMaterialView ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} /> : null}
     </main>
     {receiveOpen ? <ReceiveDialog busy={receiveBusy} error={receiveError} onClose={() => { if (!receiveBusy) setReceiveOpen(false); }} onFile={recognizeReceiptFile} /> : null}
     {sourceRoll ? <SourceDialog onClose={() => setSourceRoll(null)} roll={sourceRoll} /> : null}

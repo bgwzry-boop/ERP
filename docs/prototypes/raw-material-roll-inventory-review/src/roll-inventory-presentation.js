@@ -1,7 +1,7 @@
 import {
   RAW_MATERIAL_HANDLE_WIDTH_CM,
-  hasExplicitRawMaterialStripMarker,
   parseRawMaterialSpec,
+  resolveRawMaterialUsage,
 } from "../../../../shared/rawMaterialSpec.js";
 
 const textCollator = new Intl.Collator("zh-CN", { numeric: true, sensitivity: "base" });
@@ -59,23 +59,25 @@ export function resolveRollWidth(inbound = {}, roll = {}) {
     inbound.specDisplay,
     inbound.spec,
   ].map(cleanText).filter(Boolean);
-  const isHandleStrip = evidence.some((value) => value === "提手条" || hasExplicitRawMaterialStripMarker(value));
   const explicitWidthCm = positiveNumber(roll.widthCm)
     || positiveNumber(inbound.widthCm)
     || widthNumberFromLabel(roll.width);
   const parsedSpec = parseRawMaterialSpec(
     cleanText(roll.specDisplay || roll.spec || inbound.specDisplay || inbound.spec),
   );
-  const widthCm = isHandleStrip
-    ? RAW_MATERIAL_HANDLE_WIDTH_CM
-    : explicitWidthCm || positiveNumber(parsedSpec.widthCm);
-  const handleStrip = isHandleStrip || widthCm === RAW_MATERIAL_HANDLE_WIDTH_CM;
+  const confirmedWidthCm = explicitWidthCm || positiveNumber(parsedSpec.widthCm);
+  const resolvedUsage = resolveRawMaterialUsage({ widthCm: confirmedWidthCm, texts: evidence });
+  const widthCm = confirmedWidthCm || (resolvedUsage.materialCategory === "提手条" ? RAW_MATERIAL_HANDLE_WIDTH_CM : 0);
+  const materialUsage = resolveRawMaterialUsage({ widthCm, texts: evidence });
+  const handleStrip = materialUsage.materialCategory === "提手条";
 
   return {
     widthCm,
     label: widthCm
       ? `${formatWidthNumber(widthCm)}cm${handleStrip ? " 提手条" : ""}`
       : "宽幅待确认",
+    materialCategory: materialUsage.materialCategory,
+    materialUsage: materialUsage.materialUsage,
   };
 }
 
