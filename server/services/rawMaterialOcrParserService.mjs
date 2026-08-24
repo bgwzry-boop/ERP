@@ -4,6 +4,7 @@ import {
   parseRawMaterialSpec,
 } from "../../shared/rawMaterialSpec.js";
 import { resolveRawMaterialFactoryColor } from "../../shared/rawMaterialFactoryColors.js";
+import { classifyRawMaterialSupplierReturnCategory } from "../../shared/rawMaterialSupplierReturn.js";
 
 const headerAliases = {
   productName: ["品名", "品名称", "商品名称", "商品全名", "产品名称", "货品名称", "物料名称", "材料名称", "名称"],
@@ -631,6 +632,14 @@ function normalizeLine(input = {}, index, {
     rollWeightsKg: (Array.isArray(values.rollWeightsKg) ? values.rollWeightsKg : [])
       .map((value) => applyDocumentDirection(value, documentDirection))
       .filter(isNonZeroNumber),
+    returnMaterialCategory: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
+      ? classifyRawMaterialSupplierReturnCategory({
+          productName: values.productName,
+          materialType: values.materialType,
+          supplierColor: values.supplierColor,
+          sourceText: input.sourceText,
+        })
+      : "",
   });
   if (cleanText(values.specRawAudit)) normalizedSpecValues.specRaw = cleanText(values.specRawAudit);
   if (cleanText(values.specNormalizationReason)) normalizedSpecValues.specNormalizationReason = cleanText(values.specNormalizationReason);
@@ -875,7 +884,7 @@ function inferDocumentDirection({ allRows = [], allText = "" } = {}) {
     const joined = texts.join(" ");
     if (/^(?:合计|总计|上期欠款|本单金额|累计欠款)/u.test(joined)) return false;
     const identity = texts.slice(0, 2).join(" ");
-    const hasMaterialIdentity = /(?:布|条|膜|纸|退带色|梦幻紫|彩色|废布)/u.test(identity) || looksLikeSpec(texts[0]);
+    const hasMaterialIdentity = /(?:布|条|膜|纸|退带色|彩色|废布)/u.test(identity) || looksLikeSpec(texts[0]);
     return hasMaterialIdentity && texts.slice(1).some((text) => parseNumber(text) < 0);
   });
   return hasNegativeMaterialLine

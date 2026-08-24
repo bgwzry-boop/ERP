@@ -1,47 +1,35 @@
-export const RAW_MATERIAL_FACTORY_COLORS = [
-  "本白",
-  "大红",
-  "酒红",
-  "枣红",
-  "焦糖",
-  "桔红",
-  "黑色",
-  "宝兰",
-  "天兰",
-  "浅紫",
-  "深灰",
-  "豆沙绿",
-  "翠绿",
-  "果绿",
-  "墨绿",
-];
+import {
+  FACTORY_STANDARD_COLORS,
+  normalizeFactoryStandardColor,
+} from "./factoryStandardColors.js";
+
+export const RAW_MATERIAL_FACTORY_COLORS = FACTORY_STANDARD_COLORS;
 
 export const RAW_MATERIAL_SUPPLIER_COLOR_SOURCE_TYPE = "supplier";
-
-const RAW_MATERIAL_FACTORY_COLOR_ALIASES = [
-  [/^(?:本白|白|白色|日白|曰白|口白)$/u, "本白"],
-  [/大红/u, "大红"],
-  [/酒红/u, "酒红"],
-  [/枣红/u, "枣红"],
-  [/焦糖/u, "焦糖"],
-  [/(?:桔红|橘红)/u, "桔红"],
-  [/^(?:黑|黑色)$/u, "黑色"],
-  [/(?:宝兰|宝蓝)/u, "宝兰"],
-  [/(?:天兰|天蓝)/u, "天兰"],
-  [/浅紫/u, "浅紫"],
-  [/深灰/u, "深灰"],
-  [/豆沙绿/u, "豆沙绿"],
-  [/翠绿/u, "翠绿"],
-  [/果绿/u, "果绿"],
-  [/墨绿/u, "墨绿"],
-];
 
 export function normalizeRawMaterialFactoryColor(value) {
   const color = String(value ?? "").normalize("NFKC").trim().replace(/[\s·•]+/gu, "");
   if (!color || /^(?:-|—|_|\.|待确认|未识别|未知|无)$/u.test(color)) return "";
-  const exact = RAW_MATERIAL_FACTORY_COLORS.find((item) => item === color);
-  if (exact) return exact;
-  return RAW_MATERIAL_FACTORY_COLOR_ALIASES.find(([pattern]) => pattern.test(color))?.[1] ?? "";
+  return normalizeFactoryStandardColor(color);
+}
+
+export function normalizeRawMaterialFactoryColorName(value) {
+  const color = String(value ?? "").normalize("NFKC").trim().replace(/[\s·•]+/gu, "");
+  if (
+    !color
+    || color.length > 24
+    || /[\u0000-\u001f\u007f]/u.test(color)
+    || /^(?:-|—|_|\.|待确认|未识别|未知|无)$/u.test(color)
+  ) return "";
+  return color;
+}
+
+export function listRawMaterialFactoryColors(standardColors = []) {
+  const maintainedColors = (Array.isArray(standardColors) ? standardColors : [])
+    .filter((item) => item?.enabled !== false)
+    .map((item) => normalizeRawMaterialFactoryColorName(item?.name))
+    .filter(Boolean);
+  return [...new Set([...RAW_MATERIAL_FACTORY_COLORS, ...maintainedColors])];
 }
 
 export function normalizeRawMaterialSupplierColor(value) {
@@ -115,7 +103,8 @@ export function resolveRawMaterialFactoryColor({
     });
   }
 
-  const exactFactoryColor = RAW_MATERIAL_FACTORY_COLORS.find((item) => item === normalizedSupplierColor);
+  const exactFactoryColor = listRawMaterialFactoryColors(standardColors)
+    .find((item) => normalizeRawMaterialFactoryColorName(item) === normalizedSupplierColor);
   if (exactFactoryColor) {
     return buildResolution({
       factoryColor: exactFactoryColor,
@@ -142,8 +131,13 @@ export function resolveRawMaterialFactoryColor({
   });
 }
 
-export function isRawMaterialFactoryColor(value) {
-  return RAW_MATERIAL_FACTORY_COLORS.includes(String(value ?? "").trim());
+export function isRawMaterialFactoryColor(value, standardColors = []) {
+  const color = normalizeRawMaterialFactoryColorName(value);
+  if (!color) return false;
+  const availableColors = listRawMaterialFactoryColors(standardColors);
+  if (availableColors.some((item) => normalizeRawMaterialFactoryColorName(item) === color)) return true;
+  const canonicalColor = normalizeRawMaterialFactoryColor(color);
+  return Boolean(canonicalColor) && availableColors.includes(canonicalColor);
 }
 
 function buildResolution(value = {}) {

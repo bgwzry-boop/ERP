@@ -314,6 +314,7 @@ export function applyRawMaterialInboundAction(input = {}) {
       operatorName,
       operatorId,
       now,
+      standardColors: workspace.standardColors,
     });
   }
   if (action === "void_draft") {

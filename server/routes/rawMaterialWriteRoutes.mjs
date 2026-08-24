@@ -135,6 +135,8 @@ function getRawMaterialInboundActionPermission(actionSlug, writeActionPermission
   const action = String(actionSlug ?? "").trim();
   const permissions = {
     review: writeActionPermissions.reviewRawMaterialInbound,
+    "reparse-ocr": writeActionPermissions.reviewRawMaterialInbound,
+    reparse_ocr: writeActionPermissions.reviewRawMaterialInbound,
     "void-draft": writeActionPermissions.reviewRawMaterialInbound,
     void_draft: writeActionPermissions.reviewRawMaterialInbound,
     "print-labels": writeActionPermissions.printRawMaterialInboundLabels,

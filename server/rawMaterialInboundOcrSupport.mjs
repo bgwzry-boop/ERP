@@ -10,7 +10,7 @@ import {
   normalizeRawMaterialOcrTextList,
 } from "./rawMaterialOcrMetadataNormalizers.mjs";
 
-export function applyRawMaterialOcrReview({ before = {}, reviewFields, lineReviews, operatorName, operatorId, now }) {
+export function applyRawMaterialOcrReview({ before = {}, reviewFields, lineReviews, operatorName, operatorId, now, standardColors = [] }) {
   const isOcrDraft = cleanText(before.ocrProvider) === "tencent_cloud_table_v3";
   const documentDirection = cleanText(before.documentDirection) || "supplier_delivery";
   const isSupplierReturn = documentDirection === "supplier_return";
@@ -30,7 +30,7 @@ export function applyRawMaterialOcrReview({ before = {}, reviewFields, lineRevie
         operatorName,
         operatorId,
         now,
-        documentDirection,
+        documentDirection, standardColors,
       })
     : before.ocrLines;
   if (isOcrDraft) validateRawMaterialOcrLineReviewSummary({
@@ -86,12 +86,12 @@ export function applyRawMaterialOcrReview({ before = {}, reviewFields, lineRevie
 export function applyRawMaterialOcrReparse({ before = {}, reparsedInbound = {} }) {
   const currentVersion = Number(before.ocrParserVersion) || 1;
   const nextVersion = Number(reparsedInbound?.ocrParserVersion) || 0;
-  if (
-    cleanText(before.ocrProvider) !== "tencent_cloud_table_v3" ||
-    cleanText(before.status) !== "已识别待复核" ||
-    nextVersion <= currentVersion
+  const directionChanged = cleanText(reparsedInbound.documentDirection) && cleanText(reparsedInbound.documentDirection) !== cleanText(before.documentDirection);
+  const supplierChanged = cleanText(reparsedInbound.supplierName) && cleanText(reparsedInbound.supplierName) !== cleanText(before.supplierName);
+  const isParserUpgrade = nextVersion > currentVersion, isSameVersionCorrection = nextVersion === currentVersion && (directionChanged || supplierChanged);
+  if (cleanText(before.ocrProvider) !== "tencent_cloud_table_v3" || cleanText(before.status) !== "已识别待复核" || (!isParserUpgrade && !isSameVersionCorrection)
   ) {
-    throw Object.assign(new Error("Only stale pending OCR drafts can be reparsed."), {
+    throw Object.assign(new Error("Only stale pending OCR drafts or pending direction/supplier corrections can be reparsed."), {
       statusCode: 409,
       code: "RAW_MATERIAL_OCR_REPARSE_NOT_ALLOWED",
     });
@@ -103,7 +103,7 @@ export function applyRawMaterialOcrReparse({ before = {}, reparsedInbound = {} }
     });
   }
   const replacementKeys = [
-    "documentDirection", "documentTypeLabel", "supplierOcrProfileKey", "supplierOcrProfileProvisional",
+    "documentDirection", "documentDirectionSource", "documentTypeLabel", "supplierOcrProfileKey", "supplierOcrProfileProvisional",
     "documentPriceReferenceOnly", "priceAuthority",
     "supplierName", "deliveryNoteNo", "receivedAt", "materialType", "productName", "spec", "specRaw", "specDisplay",
     "gramWeightGsm", "widthCm", "lengthM", "materialCategory", "specNeedsReview", "specReviewReason",

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 import {
-  RAW_MATERIAL_FACTORY_COLORS,
   RAW_MATERIAL_SUPPLIER_COLOR_SOURCE_TYPE,
+  listRawMaterialFactoryColors,
+  normalizeRawMaterialFactoryColorName,
   normalizeRawMaterialSupplierColor,
   normalizeRawMaterialSupplierSourceId,
 } from "../../shared/rawMaterialFactoryColors.js";
@@ -20,18 +21,19 @@ export function createRawMaterialSupplierColorMappingService(dependencies = {}) 
     const supplierName = cleanText(body.supplierName);
     const supplierSourceId = normalizeRawMaterialSupplierSourceId(body.supplierSourceId || supplierName);
     const supplierColor = normalizeRawMaterialSupplierColor(body.supplierColor);
-    const factoryColor = cleanText(body.factoryColor);
+    const factoryColor = normalizeRawMaterialFactoryColorName(body.factoryColor);
     const reason = cleanText(body.reason);
     if (!supplierName || !supplierSourceId) return businessError(400, "RAW_MATERIAL_COLOR_SUPPLIER_REQUIRED", "请选择供应商。");
     if (!supplierColor) return businessError(400, "RAW_MATERIAL_COLOR_ALIAS_REQUIRED", "请填写该厂家票面颜色。");
-    if (!RAW_MATERIAL_FACTORY_COLORS.includes(factoryColor)) {
-      return businessError(400, "RAW_MATERIAL_FACTORY_COLOR_INVALID", "请选择有效的厂内标准色。");
-    }
+    if (!factoryColor) return businessError(400, "RAW_MATERIAL_FACTORY_COLOR_INVALID", "请输入 1–24 个字的有效厂内标准色名称。");
     if (!reason) return businessError(400, "RAW_MATERIAL_COLOR_MAPPING_REASON_REQUIRED", "请填写修改原因。");
 
     const timestamp = now().toISOString();
     const standardColors = Array.isArray(workspace.standardColors) ? workspace.standardColors : [];
-    const existingStandardColor = standardColors.find((item) => cleanText(item?.name) === factoryColor);
+    const existingStandardColor = standardColors.find((item) => normalizeRawMaterialFactoryColorName(item?.name) === factoryColor);
+    if (existingStandardColor?.enabled === false) {
+      return businessError(409, "RAW_MATERIAL_FACTORY_COLOR_DISABLED", "这个厂内标准色已经停用，请先在颜色资料中启用，或输入新的标准色。");
+    }
     const standardColor = existingStandardColor ?? {
       id: stableId("SC-RM", factoryColor),
       colorKey: stableId("rm-color", factoryColor).toLowerCase(),
@@ -142,7 +144,7 @@ export function listSupplierColorMappingOptions(workspace = {}) {
     if (!suppliers.has(mapping.supplierSourceId)) suppliers.set(mapping.supplierSourceId, mapping.supplierSourceId);
   }
   return {
-    factoryColors: [...RAW_MATERIAL_FACTORY_COLORS],
+    factoryColors: listRawMaterialFactoryColors(workspace.standardColors),
     suppliers: [...suppliers.entries()]
       .map(([supplierSourceId, supplierName]) => ({ supplierSourceId, supplierName }))
       .sort((left, right) => left.supplierName.localeCompare(right.supplierName, "zh-CN")),

@@ -1,10 +1,12 @@
 import { enrichRawMaterialSpecValues } from "./rawMaterialSpec.js";
 import { isRawMaterialFactoryColor } from "./rawMaterialFactoryColors.js";
+import { isRawMaterialSupplierReturnFabric } from "./rawMaterialSupplierReturn.js";
 
 export const RAW_MATERIAL_OCR_LINE_REVIEW_KEYS = [
   "productName",
   "materialType",
   "supplierColor",
+  "returnMaterialCategory",
   "factoryColor",
   "spec",
   "rollCount",
@@ -51,7 +53,7 @@ export function projectRawMaterialOcrPhysicalRollReviewRows({ lines = [], lineDr
   });
 }
 
-const textKeys = new Set(["productName", "materialType", "supplierColor", "factoryColor", "spec", "unit", "supplierRollNo"]);
+const textKeys = new Set(["productName", "materialType", "supplierColor", "returnMaterialCategory", "factoryColor", "spec", "unit", "supplierRollNo"]);
 const numericKeys = new Set(["rollCount", "totalWeightKg", "unitPrice", "amount"]);
 
 export function applyRawMaterialOcrLineReviews({
@@ -61,6 +63,7 @@ export function applyRawMaterialOcrLineReviews({
   operatorName = "",
   now = "",
   documentDirection = "supplier_delivery",
+  standardColors = [],
 } = {}) {
   const sourceLines = Array.isArray(lines) ? lines : [];
   if (sourceLines.length === 0) {
@@ -100,7 +103,7 @@ export function applyRawMaterialOcrLineReviews({
         `OCR 明细行 ${lineId || "待确认"} 排除误识别卷时必须填写原因。`,
       );
     }
-    validateLineValues(values, lineId, { excludedRollIndices, projectedRollCount, documentDirection });
+    validateLineValues(values, lineId, { excludedRollIndices, projectedRollCount, documentDirection, standardColors });
     const reviewedFields = RAW_MATERIAL_OCR_LINE_REVIEW_KEYS.map((key) => ({
       key,
       recognizedValue: recognizedValues[key],
@@ -284,14 +287,16 @@ function validateLineValues(values, lineId, {
   excludedRollIndices = [],
   projectedRollCount = 0,
   documentDirection = "supplier_delivery",
+  standardColors = [],
 } = {}) {
   const excluded = new Set(excludedRollIndices);
   const activeRollIndices = Array.from({ length: projectedRollCount }, (_, index) => index).filter((index) => !excluded.has(index));
   if (activeRollIndices.length === 0) return;
   const missing = [];
   if (!cleanText(values.productName) && !cleanText(values.materialType)) missing.push("材料/品名");
-  if (documentDirection !== "supplier_return" && !isRawMaterialFactoryColor(values.factoryColor)) missing.push("厂内标准色（需人工确认）");
+  if (documentDirection !== "supplier_return" && !isRawMaterialFactoryColor(values.factoryColor, standardColors)) missing.push("厂内标准色（需人工确认）");
   if (documentDirection !== "supplier_return" && !hasReviewableRawMaterialSpec(values.spec)) missing.push("规格");
+  if (documentDirection === "supplier_return" && isRawMaterialSupplierReturnFabric(values) && !cleanText(values.returnMaterialCategory)) missing.push("退货布料类别（黑白布/彩布）");
   if (!cleanText(values.unit)) missing.push("单位");
   if (!positiveInteger(values.rollCount, 0) || positiveInteger(values.rollCount, 0) > 500) missing.push("卷/件数（1-500）");
   if (missing.length) {

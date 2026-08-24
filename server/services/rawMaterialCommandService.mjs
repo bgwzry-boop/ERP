@@ -334,6 +334,40 @@ export function createRawMaterialCommandService(dependencies = {}) {
     async recordInboundAction({ workspace, inboundId, actionSlug, body = {}, operatorId }) {
       try {
         const expectedRevision = requireExpectedRevision(body.expectedRevision);
+        if (["reparse-ocr", "reparse_ocr"].includes(cleanText(actionSlug))) {
+          const existingInbound = (Array.isArray(workspace.rawMaterialInbounds) ? workspace.rawMaterialInbounds : []).find(
+            (item) => cleanText(item?.id) === cleanText(inboundId),
+          );
+          if (!existingInbound) {
+            throw Object.assign(new Error(`Raw material inbound not found: ${cleanText(inboundId)}`), {
+              statusCode: 404,
+              code: "RAW_MATERIAL_INBOUND_NOT_FOUND",
+            });
+          }
+          if (expectedRevision !== Number(existingInbound.revision ?? 1)) {
+            throw Object.assign(new Error("这张原材料单已经被其他人更新，请刷新后再纠正单据方向。"), {
+              statusCode: 409,
+              code: "RAW_MATERIAL_INBOUND_WRITE_CONFLICT",
+              currentRevision: Number(existingInbound.revision ?? 1),
+            });
+          }
+          const reparsed = await reparseStaleOcrDraft({
+            documentDirectionHint: body.documentDirectionHint,
+            supplierNameHint: body.supplierNameHint,
+            existingInbound,
+            operatorId,
+            rawMaterialOcrParserService,
+            sourceDigest: cleanText(existingInbound.ocrSourceDigest) || cleanText(existingInbound.id),
+            workspace,
+          });
+          if (!reparsed.operationLogId) {
+            throw Object.assign(new Error("这张旧草稿没有可重新解析的 OCR 表格，请返回后按“供应商退货”重新拍摄。"), {
+              statusCode: 409,
+              code: "RAW_MATERIAL_OCR_REPARSE_NOT_AVAILABLE",
+            });
+          }
+          return reparsed;
+        }
         const serverNow = toIsoTimestamp(now());
         const result = await workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction({
           workspace,
