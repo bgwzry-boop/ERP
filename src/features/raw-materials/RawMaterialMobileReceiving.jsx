@@ -62,13 +62,14 @@ export function RawMaterialMobileReceiving({
 }) {
   const pendingRecords = useMemo(
     () => records.filter((item) => {
+      if (item.status === "已作废") return false;
       const step = getReceivingStep(item);
       return step >= 2 && step <= 4;
     }),
     [records],
   );
   const completedRecords = useMemo(
-    () => records.filter((item) => getReceivingStep(item) === 5).slice(0, 2),
+    () => records.filter((item) => item.status !== "已作废" && getReceivingStep(item) === 5).slice(0, 2),
     [records],
   );
   const resumableRecord = pendingRecords[0] ?? null;
@@ -91,6 +92,8 @@ export function RawMaterialMobileReceiving({
 
       {stage === "home" ? (
         <>
+          {mobileMessage ? <MobileActionMessage message={mobileMessage} /> : null}
+
           {resumableRecord ? (
             <section className="raw-material-mobile-resume" aria-label="未完成的原材料收货单">
               <header>

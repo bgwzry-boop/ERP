@@ -14,6 +14,8 @@ import {
   buildRawMaterialStockLookup,
   evaluateRawMaterialOrderSupport,
 } from "../../../shared/rawMaterialInventorySupport.js";
+import { normalizeRawMaterialSupplierColor } from "../../../shared/rawMaterialFactoryColors.js";
+import { classifyRawMaterialSupplierReturnCategory } from "../../../shared/rawMaterialSupplierReturn.js";
 import {
   buildRawMaterialInboundMetrics,
   canConfirmRawMaterialConsumptionRoll,
@@ -56,6 +58,7 @@ const OCR_LINE_REVIEW_FIELDS = [
   ["productName", "品名"],
   ["materialType", "材料"],
   ["supplierColor", "供应商颜色"],
+  ["returnMaterialCategory", "退货布料类别"],
   ["factoryColor", "厂内标准色 *"],
   ["spec", "规格 *"],
   ["rollCount", "卷/件数 *"],
@@ -108,6 +111,8 @@ export function RawMaterialInboundPage({
   const [mobileMessage, setMobileMessage] = useState(null);
   const [mobileRecordSnapshot, setMobileRecordSnapshot] = useState(null);
   const [ocrReviewSubmitting, setOcrReviewSubmitting] = useState(false);
+  const [ocrDraftDiscarding, setOcrDraftDiscarding] = useState(false);
+  const [ocrDirectionCorrecting, setOcrDirectionCorrecting] = useState(false);
   const [ocrReviewSubmitError, setOcrReviewSubmitError] = useState("");
   const [ocrReviewDraft, setOcrReviewDraft] = useState({});
   const [ocrLineReviewDraft, setOcrLineReviewDraft] = useState({});
@@ -116,6 +121,7 @@ export function RawMaterialInboundPage({
   const [printSheetInbound, setPrintSheetInbound] = useState(null);
   const [desktopView, setDesktopView] = useState("卷料库存");
   const [colorMappingOpen, setColorMappingOpen] = useState(false);
+  const [colorMappingContext, setColorMappingContext] = useState(null);
   const deliveryNoteSupplierOptions = Array.from(new Set(
     inbounds.map((item) => String(item?.supplierName || "").trim()).filter(Boolean),
   )).sort((left, right) => left.localeCompare(right, "zh-CN"));
@@ -161,8 +167,38 @@ export function RawMaterialInboundPage({
       Object.fromEntries((inbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value ?? field.recognizedValue ?? ""])),
     );
     setOcrLineReviewDraft(
-      Object.fromEntries((inbound?.ocrLines ?? []).map((line) => [line.lineId, buildOcrLineReviewDraft(line)])),
+      Object.fromEntries((inbound?.ocrLines ?? []).map((line) => [line.lineId, buildOcrLineReviewDraft(line, inbound.documentDirection)])),
     );
+  }
+
+  function openSupplierColorMapping(context = null) {
+    setColorMappingContext(context);
+    setColorMappingOpen(true);
+  }
+
+  function closeSupplierColorMapping() {
+    setColorMappingOpen(false);
+    setColorMappingContext(null);
+  }
+
+  function applySavedSupplierColorMapping(mapping = {}) {
+    const factoryColor = String(mapping.factoryColor || "").trim();
+    const supplierColor = normalizeRawMaterialSupplierColor(colorMappingContext?.supplierColor);
+    if (!factoryColor || !supplierColor) {
+      closeSupplierColorMapping();
+      return;
+    }
+    setOcrLineReviewDraft((current) => Object.fromEntries(Object.entries(current).map(([lineId, draft]) => [
+      lineId,
+      normalizeRawMaterialSupplierColor(draft?.supplierColor) === supplierColor
+        ? { ...draft, factoryColor }
+        : draft,
+    ])));
+    setOcrReviewDraft((current) => ({
+      ...current,
+      factoryColor: String(current.factoryColor || "").trim() || factoryColor,
+    }));
+    closeSupplierColorMapping();
   }
 
   function handleSelectInbound(inboundId) {
@@ -195,6 +231,64 @@ export function RawMaterialInboundPage({
     setMobileDetailOpen(stage === "review" && Boolean(inbound?.id));
     if (stage === "review") setDetailTab("入库标签");
     scrollRawMaterialMobileToTop();
+  }
+
+  async function handleDiscardMobileOcrDraft() {
+    if (!selected?.id || selected.status !== "已识别待复核") {
+      return { ok: false, message: "当前草稿状态已经变化，请返回首页刷新后再处理。" };
+    }
+    if (voidDraftState.disabled) {
+      return { ok: false, message: voidDraftState.title || "当前账号无权放弃这张识别草稿。" };
+    }
+    setOcrDraftDiscarding(true);
+    try {
+      const voidedInbound = await onAction?.("作废误录草稿", selected.id, {
+        reason: "手机拍单核对时发现颜色或明细识别不正确，放弃当前草稿并重新拍摄下一张单据。",
+      });
+      if (!voidedInbound?.id || voidedInbound.status !== "已作废") {
+        return { ok: false, message: "后台没有确认放弃这张草稿。请重试；当前草稿仍保留，不会误删。" };
+      }
+      setMobileRecordSnapshot(null);
+      setMobileDetailOpen(false);
+      setMobileStage("home");
+      setMobileMessage({
+        tone: "success",
+        title: "上一张已放弃",
+        body: "它不会再出现在正常收货列表；原图和作废记录仅用于审计。现在可以拍下一张单据。",
+      });
+      setOcrReviewDraft({});
+      setOcrLineReviewDraft({});
+      scrollRawMaterialMobileToTop();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error?.message || "放弃草稿失败，请检查网络后重试。" };
+    } finally {
+      setOcrDraftDiscarding(false);
+    }
+  }
+
+  async function handleCorrectMobileOcrToSupplierReturn() {
+    if (!selected?.id || selected.status !== "已识别待复核") return null;
+    if (reviewState.disabled) return null;
+    setOcrDirectionCorrecting(true);
+    setOcrReviewSubmitError("");
+    try {
+      const supplierName = String(selected.supplierName || "").trim();
+      const correctedInbound = await onAction?.("纠正为供应商退货", selected.id, {
+        documentDirectionHint: "supplier_return",
+        supplierNameHint: /待确认|未知/u.test(supplierName) ? "" : supplierName,
+        reason: "核对原图发现该 OCR 草稿实际为供应商退货单，使用已保存的 OCR 表格按退货方向重新解析。",
+      });
+      if (!correctedInbound?.id || correctedInbound.documentDirection !== "supplier_return") return null;
+      setMobileRecordSnapshot(correctedInbound);
+      prepareOcrReviewDraft(correctedInbound);
+      setMobileStage("review");
+      setMobileDetailOpen(true);
+      scrollRawMaterialMobileToTop();
+      return correctedInbound;
+    } finally {
+      setOcrDirectionCorrecting(false);
+    }
   }
 
   async function handleDeliveryNotePageSelect(event) {
@@ -341,7 +435,7 @@ export function RawMaterialInboundPage({
           const exclusions = exclusionsByLineId.get(line.lineId) ?? [];
           return {
             lineId: line.lineId,
-            values: ocrLineReviewDraft[line.lineId] ?? buildOcrLineReviewDraft(line),
+            values: ocrLineReviewDraft[line.lineId] ?? buildOcrLineReviewDraft(line, selected.documentDirection),
             excludedRollIndices: exclusions.map((entry) => entry.lineRollIndex),
             exclusionReason: exclusions[0]?.reason ?? "",
           };
@@ -589,7 +683,9 @@ export function RawMaterialInboundPage({
           <RawMaterialSupplierColorMappingDialog
             authState={authState}
             currentUser={currentUser}
-            onClose={() => setColorMappingOpen(false)}
+            initialValues={colorMappingContext}
+            onClose={closeSupplierColorMapping}
+            onSaved={colorMappingContext ? applySavedSupplierColorMapping : undefined}
           />
         </Suspense>
       ) : null}
@@ -628,7 +724,7 @@ export function RawMaterialInboundPage({
         colorMappingState={colorMappingState}
         inbounds={inbounds}
         meta={meta}
-        onOpenColorMappings={() => setColorMappingOpen(true)}
+        onOpenColorMappings={() => openSupplierColorMapping()}
         onOpenReceiving={() => setDesktopView("收货录入")}
         onOpenSource={handleOpenRollSource}
       />
@@ -658,18 +754,33 @@ export function RawMaterialInboundPage({
             <RawMaterialMobileOcrReview
               authState={authState}
               disabled={reviewState.disabled}
+              directionCorrectionDisabled={reviewState.disabled}
+              directionCorrecting={ocrDirectionCorrecting}
               documentDraft={ocrReviewDraft}
-              key={selected.id}
+              key={`${selected.id}:${selected.documentDirection || "supplier_delivery"}`}
               lineDrafts={ocrLineReviewDraft}
+              discardDisabled={voidDraftState.disabled}
+              discardDisabledReason={voidDraftState.title}
+              discarding={ocrDraftDiscarding}
               onBack={() => handleMobileStageChange("home")}
               onDocumentFieldChange={(key, value) => setOcrReviewDraft((current) => ({ ...current, [key]: value }))}
               onLineFieldChange={(lineId, key, value) => setOcrLineReviewDraft((current) => ({
                 ...current,
                 [lineId]: {
-                  ...(current[lineId] ?? buildOcrLineReviewDraft(selected.ocrLines?.find((line) => line.lineId === lineId))),
+                  ...(current[lineId] ?? buildOcrLineReviewDraft(selected.ocrLines?.find((line) => line.lineId === lineId), selected.documentDirection)),
                   [key]: value,
                 },
               }))}
+              colorMappingDisabled={colorMappingState.disabled}
+              colorMappingDisabledReason={colorMappingState.title}
+              onOpenColorMapping={({ lineId, supplierColor }) => openSupplierColorMapping({
+                lineId,
+                supplierColor,
+                supplierName: selected.supplierName,
+                reason: "首次确认该厂家票面颜色与厂内标准色的对应关系",
+              })}
+              onCorrectDirection={handleCorrectMobileOcrToSupplierReturn}
+              onDiscard={handleDiscardMobileOcrDraft}
               onSubmit={handleOcrReviewConfirm}
               operatorId={currentUser?.userId}
               selected={selected}
@@ -761,7 +872,7 @@ export function RawMaterialInboundPage({
                     {(selected.ocrLines ?? []).length ? (
                       <div className="raw-material-ocr-lines" aria-label="OCR 逐行复核">
                         {(selected.ocrLines ?? []).map((line, index) => {
-                          const lineDraft = ocrLineReviewDraft[line.lineId] ?? buildOcrLineReviewDraft(line);
+                          const lineDraft = ocrLineReviewDraft[line.lineId] ?? buildOcrLineReviewDraft(line, selected.documentDirection);
                           const recognizedValues = line.recognizedValues ?? line.values ?? {};
                           return (
                             <div className="raw-material-ocr-line-review" key={line.lineId}>
@@ -781,7 +892,7 @@ export function RawMaterialInboundPage({
                                       onChange={(event) => setOcrLineReviewDraft((current) => ({
                                         ...current,
                                         [line.lineId]: {
-                                          ...(current[line.lineId] ?? buildOcrLineReviewDraft(line)),
+                                          ...(current[line.lineId] ?? buildOcrLineReviewDraft(line, selected.documentDirection)),
                                           [key]: event.target.value,
                                         },
                                       }))}
@@ -1867,11 +1978,16 @@ function isNumericOcrLineField(key) {
   return ["rollCount", "totalWeightKg", "unitPrice", "amount"].includes(key);
 }
 
-function buildOcrLineReviewDraft(line = {}) {
+function buildOcrLineReviewDraft(line = {}, documentDirection = "supplier_delivery") {
   const values = line.values ?? {};
+  const returnMaterialCategory = documentDirection === "supplier_return"
+    ? values.returnMaterialCategory || classifyRawMaterialSupplierReturnCategory({ ...values, sourceText: line.sourceText })
+    : "";
   return Object.fromEntries(OCR_LINE_REVIEW_FIELDS.map(([key]) => [
     key,
-    key === "rollWeightsKg" && Array.isArray(values[key]) ? values[key].join(", ") : values[key] ?? "",
+    key === "returnMaterialCategory"
+      ? returnMaterialCategory
+      : key === "rollWeightsKg" && Array.isArray(values[key]) ? values[key].join(", ") : values[key] ?? "",
   ]));
 }
 

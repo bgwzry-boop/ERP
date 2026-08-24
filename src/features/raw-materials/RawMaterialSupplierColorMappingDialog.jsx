@@ -14,7 +14,7 @@ const EMPTY_FORM = Object.freeze({
   supplierName: "",
 });
 
-export function RawMaterialSupplierColorMappingDialog({ authState, currentUser, onClose }) {
+export function RawMaterialSupplierColorMappingDialog({ authState, currentUser, initialValues = null, onClose, onSaved }) {
   const [form, setForm] = useState(EMPTY_FORM);
   const [items, setItems] = useState([]);
   const [options, setOptions] = useState({ suppliers: [], factoryColors: RAW_MATERIAL_FACTORY_COLORS });
@@ -30,6 +30,17 @@ export function RawMaterialSupplierColorMappingDialog({ authState, currentUser, 
     void loadMappings();
   }, []);
 
+  useEffect(() => {
+    if (!initialValues) return;
+    setForm({
+      ...EMPTY_FORM,
+      enabled: true,
+      factoryColor: initialValues.factoryColor ?? "",
+      reason: initialValues.reason || "首次确认该厂家票面颜色与厂内标准色的对应关系",
+      supplierColor: initialValues.supplierColor ?? "",
+      supplierName: initialValues.supplierName ?? "",
+    });
+  }, [initialValues]);
   async function loadMappings() {
     setLoading(true);
     setError("");
@@ -74,6 +85,10 @@ export function RawMaterialSupplierColorMappingDialog({ authState, currentUser, 
       return;
     }
     setMessage("已保存。以后识别该厂家票面颜色时，会优先换算成所选厂内标准色。");
+    if (typeof onSaved === "function") {
+      onSaved(result.mapping);
+      return;
+    }
     setForm(EMPTY_FORM);
     await loadMappings();
     setSaving(false);
@@ -115,14 +130,17 @@ export function RawMaterialSupplierColorMappingDialog({ authState, currentUser, 
           </label>
           <label>
             <span>厂内标准色</span>
-            <select
+            <input
+              list="raw-material-factory-color-options"
               onChange={(event) => setForm((current) => ({ ...current, factoryColor: event.target.value }))}
+              placeholder="选择或输入标准色"
               required
               value={form.factoryColor}
-            >
-              <option value="">请选择</option>
+            />
+            <datalist id="raw-material-factory-color-options">
               {options.factoryColors.map((color) => <option key={color} value={color}>{color}</option>)}
-            </select>
+            </datalist>
+            <small>列表中没有时可直接输入新的厂内标准色；保存后纳入资料并用于后续自动识别。</small>
           </label>
           <label className="reason">
             <span>修改原因</span>

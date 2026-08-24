@@ -1,14 +1,8 @@
-import {
-  applyRawMaterialCostMarginLocalAction,
-  buildRawMaterialCostMarginToastText,
-} from "./rawMaterialCostMarginLocalActions.js";
+import { applyRawMaterialCostMarginLocalAction, buildRawMaterialCostMarginToastText } from "./rawMaterialCostMarginLocalActions.js";
 import { roundLocalRawMaterialWeight } from "./rawMaterialLocalActionMath.js";
-import {
-  applyRawMaterialOcrLineReviews,
-  buildRawMaterialOcrReviewedRolls,
-  validateRawMaterialOcrLineReviewSummary,
-} from "../../shared/rawMaterialOcrLineReview.js";
+import { applyRawMaterialOcrLineReviews, buildRawMaterialOcrReviewedRolls, validateRawMaterialOcrLineReviewSummary } from "../../shared/rawMaterialOcrLineReview.js";
 import { applyLocalRawMaterialInboundLabelAction } from "./rawMaterialInboundLocalLabelActions.js";
+import { applyRawMaterialInboundLocalDraftAction } from "./rawMaterialInboundLocalDraftActions.js";
 
 export function buildRawMaterialInboundToastText(action, target, options = {}) {
   const reference = formatRawMaterialInboundReference(target);
@@ -17,6 +11,9 @@ export function buildRawMaterialInboundToastText(action, target, options = {}) {
   }
   if (action === "作废误录草稿") {
     return `已作废误录草稿 ${reference}；原图和操作记录继续保留，不形成库存。`;
+  }
+  if (action === "纠正为供应商退货") {
+    return `已把 ${reference} 按供应商退货单重新解析；缺少规格不阻断，不生成卷码、标签或库存。`;
   }
   if (action === "打印卷标") {
     return `已打印 ${reference} 的卷标；打印只是待贴标状态，不能直接作为可用库存。`;
@@ -97,23 +94,10 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
   let updatedItem = null;
   const nextItems = items.map((item) => {
     if (item.id !== inboundId) return item;
-    if (action === "作废误录草稿") {
-      const reason = String(options.reason ?? "").trim();
-      if (item.status !== "已识别待复核" || !reason || (item.rolls ?? []).some((roll) => roll.inventoryStatus === "可用")) return item;
-      updatedItem = {
-        ...item,
-        status: "已作废",
-        voidReason: reason,
-        voidedBy: operatorName,
-        voidedAt: now,
-        nextStep: "误录草稿已作废；原图和操作记录继续保留用于审计，不形成库存。",
-        rolls: (item.rolls ?? []).map((roll) => ({
-          ...roll,
-          inventoryStatus: "不可用",
-          labelStatus: "草稿已作废",
-        })),
-      };
-      return updatedItem;
+    const draftAction = applyRawMaterialInboundLocalDraftAction(item, input);
+    if (draftAction.handled) {
+      updatedItem = draftAction.updatedItem;
+      return updatedItem ?? item;
     }
     if (action === "复核送货单") {
       if (item.ocrProvider === "tencent_cloud_table_v3") {
@@ -124,6 +108,7 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
           operatorName,
           now,
           documentDirection: item.documentDirection || "supplier_delivery",
+          standardColors: options.standardColors,
         });
         validateRawMaterialOcrLineReviewSummary({
           lines: reviewedLines,

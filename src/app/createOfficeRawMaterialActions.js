@@ -170,6 +170,8 @@ export function createOfficeRawMaterialActions({
       location: options.location,
       verificationNote: options.verificationNote,
       note: options.note,
+      documentDirectionHint: options.documentDirectionHint,
+      supplierNameHint: options.supplierNameHint,
     });
 
     if (!result.blocked && result.inbound?.id) {

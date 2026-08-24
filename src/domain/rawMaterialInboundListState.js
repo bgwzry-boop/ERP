@@ -1,6 +1,7 @@
 export const RAW_MATERIAL_INBOUND_VIEW_KEYS = ["入库单", "退货单", "待贴标", "机边领料", "供应商对账"];
 
 export function buildRawMaterialInboundMetrics(inbounds = []) {
+  inbounds = getOperationalRawMaterialInbounds(inbounds);
   const pendingReview = inbounds.filter((item) => ["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(item.status)).length;
   const pendingPrint = inbounds.filter((item) => ["已复核待打印标签", "已入库待补打标签"].includes(item.status)).length;
   const pendingAttach = inbounds.filter((item) => item.status === "已打印待贴标" || item.status === "部分贴标").length;
@@ -118,24 +119,26 @@ export function formatRawMaterialDeliveryNoteNo(item = {}) {
 }
 
 export function filterRawMaterialInboundsByTab(inbounds = [], tab) {
-  if (tab === "退货单") return inbounds.filter((item) => item.documentDirection === "supplier_return");
-  if (tab === "待贴标") return inbounds.filter((item) => item.documentDirection !== "supplier_return" && (item.status === "已打印待贴标" || item.status === "部分贴标"));
+  const operationalInbounds = getOperationalRawMaterialInbounds(inbounds);
+  if (tab === "退货单") return operationalInbounds.filter((item) => item.documentDirection === "supplier_return");
+  if (tab === "待贴标") return operationalInbounds.filter((item) => item.documentDirection !== "supplier_return" && (item.status === "已打印待贴标" || item.status === "部分贴标"));
   if (tab === "机边领料") {
-    return inbounds.filter((item) => item.documentDirection !== "supplier_return" && (
+    return operationalInbounds.filter((item) => item.documentDirection !== "supplier_return" && (
       item.status.includes("领料/机边") ||
       item.status.includes("消耗确认") ||
       item.status.includes("余料") ||
       (item.rolls ?? []).some((roll) => ["机边领用", "已消耗", "余料待复核"].includes(roll.inventoryStatus) || roll.leftoverReviewRecordId)
     ));
   }
-  if (tab === "供应商对账") return inbounds;
-  return inbounds.filter((item) => item.documentDirection !== "supplier_return");
+  if (tab === "供应商对账") return operationalInbounds;
+  return operationalInbounds.filter((item) => item.documentDirection !== "supplier_return");
 }
 
 export function filterRawMaterialInboundsByKeyword(inbounds = [], keyword = "") {
+  const operationalInbounds = getOperationalRawMaterialInbounds(inbounds);
   const query = String(keyword ?? "").trim().toLowerCase();
-  if (!query) return inbounds;
-  return inbounds.filter((item) =>
+  if (!query) return operationalInbounds;
+  return operationalInbounds.filter((item) =>
     [
       item.id, item.supplierName, item.deliveryNoteNo, item.materialType, item.productName, item.supplierColor,
       item.factoryColor, item.spec, item.status, item.note,
@@ -143,6 +146,10 @@ export function filterRawMaterialInboundsByKeyword(inbounds = [], keyword = "") 
       ...(item.rolls ?? []).flatMap((roll) => [roll.id, roll.supplierRollNo, roll.labelStatus, roll.location, roll.widthCm, roll.weightKg]),
     ].some((value) => String(value ?? "").toLowerCase().includes(query)),
   );
+}
+
+function getOperationalRawMaterialInbounds(inbounds = []) {
+  return (Array.isArray(inbounds) ? inbounds : []).filter((item) => item?.status !== "已作废");
 }
 
 export function getRawMaterialInboundTone(status = "") {

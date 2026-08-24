@@ -44,7 +44,7 @@ export function getWorkshopMobileMachineId(user = {}, userId = "") {
 }
 
 export function buildProductionTaskListQueryForPage(activePage, currentUser, currentUserId) {
-  if (activePage !== "workshopMobile") return { pageSize: 200 };
+  if (!["workshopMobile", "rawMaterialScanner"].includes(activePage)) return { pageSize: 200 };
   const machineId = getWorkshopMobileMachineId(currentUser, currentUserId);
   return {
     pageSize: 200,

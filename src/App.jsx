@@ -730,7 +730,7 @@ export function App({ signedPreviewUserId = "" } = {}) {
   }, [activePage, refreshInventoryLedgerEntries, selectedStockId]);
 
   useEffect(() => {
-    if (activePage !== "packing" && activePage !== "workshopMobile") return undefined;
+    if (!["packing", "workshopMobile", "rawMaterialScanner"].includes(activePage)) return undefined;
     let cancelled = false;
     refreshProductionPackingTaskLists({ showToast: false }).then(() => {
       if (cancelled) return;
@@ -1377,6 +1377,7 @@ export function App({ signedPreviewUserId = "" } = {}) {
           {renderedPage === "rawMaterialScanner" && (
             <RawMaterialScannerPage
               inbounds={rawMaterialInbounds}
+              productionState={productionPacking}
               onAction={updateRawMaterialInbound}
               helpers={pageHelpers}
             />

@@ -1,27 +1,19 @@
 import { getFulfillmentMethodLabel } from "../shared/labels.js";
 import { getPendingDraftFieldReviews } from "../../shared/orderDraftFieldReview.mjs";
+import {
+  FACTORY_STANDARD_COLORS,
+  FACTORY_STANDARD_COLOR_INPUT_ALIASES,
+} from "../../shared/factoryStandardColors.js";
 
 export const money = (value) => `¥${Number(value).toLocaleString("zh-CN", { maximumFractionDigits: 2 })}`;
 
 export const editableColors = [
-  "黄色",
-  "红色",
-  "黑色",
-  "白色",
+  ...FACTORY_STANDARD_COLORS,
+  ...FACTORY_STANDARD_COLOR_INPUT_ALIASES,
+  // 历史订单仍可能带来下面这些模糊叫法；新厂内标准色不使用它们。
   "蓝色",
   "绿色",
-  "米白",
-  "米白色",
-  "米色",
-  "咖色",
-  "橘色",
-  "宝蓝色",
-  "焦糖色",
-  "安哥拉红",
   "浅蓝",
-  "牛仔蓝",
-  "大红",
-  "粉色",
 ];
 
 export function findCustomer(customers, id) {

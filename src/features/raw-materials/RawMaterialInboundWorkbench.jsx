@@ -23,6 +23,7 @@ import {
   RAW_MATERIAL_INBOUND_VIEW_KEYS,
 } from "../../domain/rawMaterialInboundListState.js";
 import { buildRawMaterialStockLookup } from "../../../shared/rawMaterialInventorySupport.js";
+import { getFactoryStandardColorSwatch } from "../../../shared/factoryStandardColors.js";
 import {
   buildRawMaterialAvailableDistribution,
   buildRawMaterialRollLedger,
@@ -311,6 +312,7 @@ export function RawMaterialRollInventoryWorkbench({
                 <dl>
                   <div><dt>卷码</dt><dd>{selectedRoll.id}</dd></div>
                   <div><dt>卷料</dt><dd>{selectedRoll.color} · {selectedRoll.specDisplay}</dd></div>
+                  <div><dt>原料用途</dt><dd>{selectedRoll.materialUsage}</dd></div>
                   <div><dt>来源票据</dt><dd>{selectedRoll.inboundId}</dd></div>
                   <div><dt>供应商</dt><dd>{selectedRoll.supplierName}</dd></div>
                   <div><dt>入库日期</dt><dd>{selectedRoll.receivedDate}</dd></div>
@@ -389,24 +391,7 @@ function getRawMaterialRollStatusKey(status) {
 }
 
 function getRawMaterialColorValue(color) {
-  const map = {
-    本白: "#f8f8f2",
-    白色: "#f8f8f2",
-    黑: "#17191c",
-    黑色: "#17191c",
-    大红: "#d8232a",
-    红色: "#d8232a",
-    枣红: "#8f2535",
-    宝兰: "#183f92",
-    蓝色: "#2466ad",
-    天兰: "#25a8dc",
-    深灰: "#62676c",
-    浅紫: "#c4a7da",
-    翠绿: "#188d2a",
-    果绿: "#8ccb2c",
-    豆沙绿: "#9ebd84",
-  };
-  return map[color] || "#9aa6b2";
+  return getFactoryStandardColorSwatch(color, "#9aa6b2");
 }
 
 export function RawMaterialDetailOverview({ selected }) {
