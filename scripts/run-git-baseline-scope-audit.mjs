@@ -16,7 +16,7 @@ const GROUPS = Object.freeze([
   {
     key: "engineering_tooling",
     label: "测试编排与发布审计工具",
-    owns: (path) => path === ".gitignore" || path === "package.json" || path === "vite.config.mjs" || path.startsWith("deploy/") || TOOLING_PATH_PATTERN.test(path),
+    owns: (path) => path === ".gitignore" || path === "package.json" || path === "package-lock.json" || path === "vite.config.mjs" || path.startsWith("deploy/") || TOOLING_PATH_PATTERN.test(path),
   },
   {
     key: "runtime_domain",

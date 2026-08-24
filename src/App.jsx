@@ -51,6 +51,12 @@ import { createOfficeTodoActions, createOfficeTodoAppender } from "./app/createO
 import { createOfficeV1StatusActions } from "./app/createOfficeV1StatusActions.js";
 import { createRuntimeAuthActions } from "./app/createRuntimeAuthActions.js";
 import {
+  customers, defaultSelections, findCustomer, getOrderFinanceState,
+  getStatementBlockingAmount, getStatementBucket, getStatementDisplayDebt, getStatementFinancialSummary,
+  initialFulfillments, initialInventories, initialOrderLines, initialRawMaterialInbounds,
+  initialStatements, initialTodos, orderMatchesFilters, sampleText, statementMatchesFilters,
+} from "./app/officeScenarioContext.js";
+import {
   copyTextToClipboard,
   downloadMasterDataImportTemplateWorkbook,
   downloadStatementExcelWorkbook,
@@ -76,13 +82,11 @@ import {
   buildProductionTaskId,
   findProductionInventoryItem,
 } from "./services/officeProductionPackingApiClient.js";
-import { loadOfficeWorkspace } from "./services/officeMockService.js";
 import {
   availableQty,
   defaultOrderFilters,
   defaultStatementFilters,
   editableColors,
-  findCustomer as findCustomerRecord,
   findOrderLine,
   formatStockKey,
   getDraftColorSpecLabel,
@@ -101,12 +105,7 @@ import {
   getLinePrintSide,
   getLineRemark,
   getOrderExceptionState,
-  getOrderFinanceState as getOrderFinanceStateRecord,
   getOrderLineShortNo,
-  getStatementBlockingAmount as getStatementBlockingAmountRecord,
-  getStatementBucket as getStatementBucketRecord,
-  getStatementDisplayDebt as getStatementDisplayDebtRecord,
-  getStatementFinancialSummary as getStatementFinancialSummaryRecord,
   getStatementForLine,
   getStockStateGroup,
   getStockStateTone,
@@ -120,11 +119,9 @@ import {
   isPendingStock,
   isPrintTodo,
   money,
-  orderMatchesFilters as orderMatchesFiltersRecord,
   resolveLineFromRef,
   sortTodos,
   statementFilterOptions,
-  statementMatchesFilters as statementMatchesFiltersRecord,
   statusTone,
   uniqueStockOptions,
 } from "./domain/officeRules.js";
@@ -138,27 +135,6 @@ const MasterDataMaintenancePage = lazy(() => import("./features/master-data/Mast
 const PayrollAttendancePage = lazy(() => import("./features/payroll/PayrollAttendancePage.jsx").then((module) => ({ default: module.PayrollAttendancePage })));
 const EmployeeAttendanceMobilePage = lazy(() => import("./features/payroll/EmployeeAttendanceMobilePage.jsx").then((module) => ({ default: module.EmployeeAttendanceMobilePage })));
 
-const officeScenarioData = loadOfficeWorkspace();
-const {
-  customers,
-  defaultSelections,
-  initialFulfillments,
-  initialInventories,
-  initialOrderLines,
-  initialRawMaterialInbounds,
-  initialStatements,
-  initialTodos,
-  sampleText,
-} = officeScenarioData;
-
-const findCustomer = (id) => findCustomerRecord(customers, id);
-const getOrderFinanceState = (row, statements) => getOrderFinanceStateRecord(row, statements, customers);
-const getStatementBlockingAmount = (statement) => getStatementBlockingAmountRecord(statement, customers);
-const getStatementDisplayDebt = (statement) => getStatementDisplayDebtRecord(statement, customers);
-const getStatementFinancialSummary = (statement) => getStatementFinancialSummaryRecord(statement, customers);
-const getStatementBucket = (statement) => getStatementBucketRecord(statement, customers);
-const orderMatchesFilters = (row, filters, statements) => orderMatchesFiltersRecord(row, filters, statements, customers);
-const statementMatchesFilters = (statement, filters) => statementMatchesFiltersRecord(statement, filters, customers);
 export function App({ signedPreviewUserId = "" } = {}) {
   const signedPreviewAuthOptions = useMemo(() => {
     const normalizedPreviewUserId = String(signedPreviewUserId ?? "").trim();

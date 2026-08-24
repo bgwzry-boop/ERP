@@ -26,6 +26,7 @@ const classified = buildGitBaselineScopeReport({
     { status: " M", path: ".gitignore" },
     { status: "??", path: "design.md" },
     { status: " M", path: "package.json" },
+    { status: " M", path: "package-lock.json" },
     { status: " M", path: "vite.config.mjs" },
     { status: "??", path: "server/services/example.mjs" },
     { status: " M", path: "src/App.jsx" },
@@ -39,8 +40,8 @@ const classified = buildGitBaselineScopeReport({
 });
 assert.equal(classified.scopeSafe, true);
 assert.equal(classified.releaseReady, false);
-assert.equal(classified.summary.changedFileCount, 10);
-assert.equal(classified.summary.classifiedCount, 10);
+assert.equal(classified.summary.changedFileCount, 11);
+assert.equal(classified.summary.classifiedCount, 11);
 assert.equal(classified.summary.unclassifiedCount, 0);
 assert.deepEqual(classified.blockers, ["controlled_git_remote_missing", "worktree_not_clean"]);
 assert.equal(classified.stagingReview.readOnly, true);
@@ -51,7 +52,7 @@ assert.deepEqual(
 );
 assert.equal(classified.stagingReview.batches.find((batch) => batch.key === "verification")?.count, 2);
 assert.equal(classified.groups.find((group) => group.key === "verification")?.count, 2);
-assert.equal(classified.groups.find((group) => group.key === "engineering_tooling")?.count, 4);
+assert.equal(classified.groups.find((group) => group.key === "engineering_tooling")?.count, 5);
 assert.equal(
   classified.groups
     .filter((group) => !["verification", "engineering_tooling"].includes(group.key))
