@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { recognizeOfficeRawMaterialDeliveryNote } from "../src/services/officeRawMaterialApiClient.js";
+import {
+  recognizeOfficeRawMaterialDeliveryNote,
+  updateOfficeRawMaterialInboundAction,
+} from "../src/services/officeRawMaterialApiClient.js";
 
 const mebibyte = 1024 * 1024;
 const sourceFiles = [
@@ -72,6 +75,27 @@ assert.equal(result.inbound.id, "RMI-OCR-BINARY");
 assert.equal(calls.filter((item) => item.url.includes("/attachments/binary?")).length, 2);
 assert.equal(calls.filter((item) => item.url.endsWith("/raw-material-inbounds/ocr-jobs")).length, 1);
 assert.equal(calls.filter((item) => item.url.endsWith("/raw-material-inbounds/ocr-jobs/RMOJ-TEST/status")).length, 1);
+
+const corrected = await updateOfficeRawMaterialInboundAction({
+  action: "纠正为供应商退货",
+  documentDirectionHint: "supplier_return",
+  expectedRevision: 3,
+  inboundId: "RMI-OCR-OLD-RETURN",
+  operatorId: "U-OFFICE-A",
+  reason: "原图为销售退货单",
+  supplierNameHint: "河北宏尚无纺布有限公司",
+}, {
+  apiBaseUrl: "http://erp.test/api",
+  fetchImpl: async (url, init) => {
+    assert.equal(url, "http://erp.test/api/raw-material-inbounds/RMI-OCR-OLD-RETURN/reparse-ocr");
+    const body = JSON.parse(init.body);
+    assert.equal(body.documentDirectionHint, "supplier_return");
+    assert.equal(body.supplierNameHint, "河北宏尚无纺布有限公司");
+    assert.equal(body.expectedRevision, 3);
+    return jsonResponse({ inbound: { id: "RMI-OCR-OLD-RETURN", documentDirection: "supplier_return" } });
+  },
+});
+assert.equal(corrected.inbound.documentDirection, "supplier_return");
 
 let oversizeFetchCount = 0;
 const oversize = await recognizeOfficeRawMaterialDeliveryNote({

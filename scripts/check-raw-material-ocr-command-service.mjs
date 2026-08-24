@@ -36,6 +36,18 @@ assert.throws(
   }),
   (error) => error.code === "RAW_MATERIAL_OCR_REPARSE_AVAILABLE_INVENTORY_FORBIDDEN",
 );
+const sameVersionDirectionCorrection = applyRawMaterialOcrReparse({
+  before: { ...reparseBefore, ocrParserVersion: 5, documentDirection: "supplier_delivery" },
+  reparsedInbound: {
+    id: reparseBefore.id,
+    ocrParserVersion: 5,
+    documentDirection: "supplier_return",
+    documentDirectionSource: "operator_capture_selection",
+    rolls: [],
+  },
+});
+assert.equal(sameVersionDirectionCorrection.documentDirection, "supplier_return");
+assert.equal(sameVersionDirectionCorrection.documentDirectionSource, "operator_capture_selection");
 
 let ocrCalls = 0;
 let activeOcrCalls = 0;
@@ -93,21 +105,25 @@ const service = createRawMaterialCommandService({
   },
   rawMaterialOcrParserService: {
     parserVersion: 5,
-    buildInboundDraft({ inboundId, ocr }) {
+    buildInboundDraft({ documentDirectionHint, inboundId, ocr }) {
       parserCalls += 1;
+      const isSupplierReturn = documentDirectionHint === "supplier_return";
       return {
         id: inboundId,
+        documentDirection: isSupplierReturn ? "supplier_return" : "supplier_delivery",
+        documentDirectionSource: isSupplierReturn ? "operator_capture_selection" : "ocr_inference",
+        documentTypeLabel: isSupplierReturn ? "退货单" : "送货单",
         supplierName: "待复核供应商",
         deliveryNoteNo: parsedDeliveryNoteNo,
         materialType: "无纺布",
-        productName: "无纺布",
-        supplierColor: "本白",
-        spec: "90克*1.6米",
+        productName: isSupplierReturn ? "布" : "无纺布",
+        supplierColor: isSupplierReturn ? "彩色" : "本白",
+        spec: isSupplierReturn ? "" : "90克*1.6米",
         rollCount: 2,
-        totalWeightKg: 100,
+        totalWeightKg: isSupplierReturn ? -100 : 100,
         unit: "kg",
         unitPrice: 9.5,
-        amount: 950,
+        amount: isSupplierReturn ? -950 : 950,
         status: "已识别待复核",
         ocrProvider: "tencent_cloud_table_v3",
         ocrAction: ocr.action,
@@ -118,32 +134,33 @@ const service = createRawMaterialCommandService({
         ocrReviewFields: [
           { key: "supplierName", label: "供应商", recognizedValue: "待复核供应商", value: "待复核供应商", confidence: 72, required: true },
           { key: "materialType", label: "材料", recognizedValue: "无纺布", value: "无纺布", confidence: 96, required: true },
-          { key: "productName", label: "品名", recognizedValue: "无纺布", value: "无纺布", confidence: 96, required: true },
-          { key: "spec", label: "规格", recognizedValue: "90克*1.6米", value: "90克*1.6米", confidence: 96, required: true },
+          { key: "productName", label: "品名", recognizedValue: isSupplierReturn ? "布" : "无纺布", value: isSupplierReturn ? "布" : "无纺布", confidence: 96, required: true },
+          { key: "spec", label: "规格", recognizedValue: isSupplierReturn ? "" : "90克*1.6米", value: isSupplierReturn ? "" : "90克*1.6米", confidence: 96, required: !isSupplierReturn },
           { key: "rollCount", label: "卷数", recognizedValue: 2, value: 2, confidence: 96, required: true },
           { key: "unit", label: "单位", recognizedValue: "kg", value: "kg", confidence: 96, required: true },
         ],
         ocrLines: [{
           lineId: "OCR-1",
-          sourceText: "无纺布",
+          sourceText: isSupplierReturn ? "布 彩色 -100 9.5 -950" : "无纺布",
           reviewStatus: "待人工复核",
           values: {
-            productName: "无纺布",
+            productName: isSupplierReturn ? "布" : "无纺布",
             materialType: "无纺布",
-            supplierColor: "本白",
-            spec: "90克*1.6米",
+            supplierColor: isSupplierReturn ? "彩色" : "本白",
+            returnMaterialCategory: isSupplierReturn ? "彩布" : "",
+            spec: isSupplierReturn ? "" : "90克*1.6米",
             rollCount: 2,
-            totalWeightKg: 100,
+            totalWeightKg: isSupplierReturn ? -100 : 100,
             unit: "kg",
             unitPrice: 9.5,
-            amount: 950,
+            amount: isSupplierReturn ? -950 : 950,
             supplierRollNo: "",
-            rollWeightsKg: [50, 50],
+            rollWeightsKg: isSupplierReturn ? [-50, -50] : [50, 50],
           },
           confidences: {},
         }],
         ocrTableRows: [[[["规格", "数量"], ["90克*1.6米", "2"]]]],
-        rolls: [
+        rolls: isSupplierReturn ? [] : [
           { id: "RM-1", inventoryStatus: "不可用", labelStatus: "待人工复核" },
           { id: "RM-2", inventoryStatus: "不可用", labelStatus: "待人工复核" },
         ],
@@ -189,6 +206,35 @@ assert.equal(attachmentCalls, 1, "duplicate source content must not store anothe
 assert.equal(parserCalls, 2, "stale duplicate must be reparsed from saved table rows");
 assert.equal(reparseCalls, 1);
 assert.equal(workspace.operationLogs[0].action, "reparse_ocr");
+
+const oldReturnCandidate = {
+  ...duplicate.inbound,
+  id: "RMI-OCR-OLD-RETURN-DIRECTION",
+  revision: 1,
+  documentDirection: "supplier_delivery",
+  documentDirectionSource: "operator_capture_selection",
+  ocrSourceDigest: "old-return-direction-correction-test",
+};
+workspace.rawMaterialInbounds.unshift(oldReturnCandidate);
+const ocrCallsBeforeDirectionCorrection = ocrCalls;
+const correctedReturn = await service.recordInboundAction({
+  workspace,
+  inboundId: oldReturnCandidate.id,
+  actionSlug: "reparse-ocr",
+  operatorId: "U-OFFICE",
+  body: {
+    expectedRevision: oldReturnCandidate.revision,
+    documentDirectionHint: "supplier_return",
+  },
+});
+assert.equal(correctedReturn.inbound.documentDirection, "supplier_return");
+assert.equal(correctedReturn.inbound.documentDirectionSource, "operator_capture_selection");
+assert.equal(correctedReturn.inbound.spec, "", "old return drafts may remain without a printed specification");
+assert.equal(correctedReturn.inbound.ocrLines[0].values.returnMaterialCategory, "彩布");
+assert.equal(correctedReturn.inbound.totalWeightKg, -100);
+assert.equal(correctedReturn.inbound.rolls.length, 0);
+assert.equal(ocrCalls, ocrCallsBeforeDirectionCorrection, "direction correction must reparse saved tables without another cloud OCR call");
+assert.equal(parserCalls, 3);
 
 const multipageBody = {
   pages: [
@@ -478,6 +524,7 @@ const returnDraft = {
       productName: "退带色布",
       materialType: "无纺布",
       supplierColor: "带色",
+      returnMaterialCategory: "彩布",
       spec: "",
       rollCount: 2,
       totalWeightKg: -28.4,

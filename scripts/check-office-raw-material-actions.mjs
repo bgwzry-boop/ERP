@@ -93,6 +93,38 @@ assert.equal(
 );
 
 {
+  const correctedReturn = applyRawMaterialInboundLocalAction([{
+    ...baseInbound,
+    status: "已识别待复核",
+    documentDirection: "supplier_delivery",
+    totalWeightKg: 58,
+    amount: 585.8,
+    ocrReviewFields: [{ key: "spec", required: true }, { key: "supplierName", required: true }],
+    ocrLines: [{
+      lineId: "OCR-RETURN-LOCAL",
+      sourceText: "退带色布 1 -58 10.1 -585.8",
+      values: {
+        productName: "退带色布",
+        materialType: "无纺布",
+        supplierColor: "带色",
+        spec: "",
+        totalWeightKg: 58,
+        amount: 585.8,
+        rollWeightsKg: [58],
+      },
+    }],
+  }], {
+    action: "纠正为供应商退货",
+    inboundId: "RMI-1",
+  }).updatedItem;
+  assert.equal(correctedReturn.documentDirection, "supplier_return");
+  assert.equal(correctedReturn.totalWeightKg, -58);
+  assert.equal(correctedReturn.ocrReviewFields.find((field) => field.key === "spec").required, false);
+  assert.equal(correctedReturn.ocrLines[0].values.returnMaterialCategory, "彩布");
+  assert.deepEqual(correctedReturn.rolls, []);
+}
+
+{
   const reviewed = applyRawMaterialInboundLocalAction([baseInbound], {
     action: "复核送货单",
     inboundId: "RMI-1",

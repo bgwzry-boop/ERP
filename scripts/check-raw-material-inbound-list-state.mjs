@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { initialRawMaterialInbounds } from "../src/data/fixtures.js";
 import {
   buildRawMaterialInboundMetrics,
   buildRawMaterialInboundViewItems,
@@ -20,6 +21,12 @@ import {
   getSupplierStatementReviewTone,
 } from "../src/domain/rawMaterialInboundListState.js";
 
+assert.equal(
+  initialRawMaterialInbounds.every((item) => Number.isInteger(item.revision) && item.revision >= 1),
+  true,
+  "seeded raw-material inbounds should carry a valid optimistic revision before the API refresh completes",
+);
+
 const inbounds = [
   {
     id: "RMI-1", supplierName: "白侯供应商", status: "已打印待贴标", materialType: "袋料",
@@ -35,6 +42,14 @@ const inbounds = [
     status: "已识别待复核",
     totalWeightKg: -3.8,
     amount: -36.86,
+    rolls: [],
+  },
+  {
+    id: "RMI-VOIDED-1",
+    supplierName: "放弃颜色识别的供应商",
+    status: "已作废",
+    rollCount: 0,
+    totalWeightKg: 0,
     rolls: [],
   },
 ];
@@ -54,6 +69,7 @@ assert.deepEqual(filterRawMaterialInboundsByTab(inbounds, "机边领料").map((i
 assert.deepEqual(filterRawMaterialInboundsByTab(inbounds, "退货单").map((item) => item.id), ["RMI-RETURN-1"]);
 assert.deepEqual(filterRawMaterialInboundsByTab(inbounds, "入库单").map((item) => item.id), ["RMI-1", "RMI-2"]);
 assert.deepEqual(filterRawMaterialInboundsByKeyword(inbounds, "白侯").map((item) => item.id), ["RMI-1"]);
+assert.deepEqual(filterRawMaterialInboundsByKeyword(inbounds, "放弃颜色识别").map((item) => item.id), []);
 assert.equal(canConfirmRawMaterialAttachment({ rolls: [{ labelStatus: "已打印待贴标", inventoryStatus: "待贴标" }] }), true);
 assert.equal(canIssueRawMaterialToMachine(inbounds[0]), true);
 assert.equal(canIssueRawMaterialRoll({ inventoryStatus: "可用", labelStatus: "已贴标/可用库存" }), true);

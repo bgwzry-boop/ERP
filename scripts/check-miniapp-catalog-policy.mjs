@@ -25,8 +25,11 @@ assert.equal(catalog.printedPatterns.length, miniappCatalogPolicyCounts.printedP
 assert.equal(catalog.colors.regular.length, miniappCatalogPolicyCounts.regularColors);
 assert.equal(catalog.colors.fashion.length, miniappCatalogPolicyCounts.fashionColors);
 assert.equal(catalog.colors.counts.regular, 21);
-assert.equal(catalog.colors.counts.fashion, 29);
-assert.equal(catalog.colorCardColors.length, 50);
+assert.equal(catalog.colors.counts.fashion, 26);
+assert.equal(catalog.colorCardColors.length, 47);
+for (const nonexistentColor of ["云雅绿", "天池蓝", "梦幻紫"]) {
+  assert.ok(!catalog.colorCardColors.some((item) => item.name === nonexistentColor), `${nonexistentColor} does not exist and must not be offered by the ERP Miniapp policy`);
+}
 assert.ok(catalog.singleColorCardColors.every((item) => !/[袋提]/.test(item.name)));
 assert.equal(catalog.specialQuotePresetColors.length, 8);
 assert.ok(catalog.specialQuotePresetColors.some((item) => item.name === "墨绿"));
@@ -64,4 +67,4 @@ const redOnly = createMiniappCatalogPolicy({
 });
 assert.deepEqual(redOnly.colors.regular.map((item) => item.id), ["red"], "ERP enabled colors must constrain customer choices");
 
-console.log("Miniapp catalog policy checks passed: product taxonomy, confirmed sizes, 50-color cards, combination-color semantics, and ERP price aliases are stable.");
+console.log("Miniapp catalog policy checks passed: product taxonomy, confirmed sizes, 47 valid color cards, nonexistent-color exclusions, combination-color semantics, and ERP price aliases are stable.");

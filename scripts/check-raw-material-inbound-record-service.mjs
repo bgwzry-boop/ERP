@@ -40,6 +40,13 @@ assert.throws(
   }),
   (error) => error.code === "RAW_MATERIAL_PRODUCTION_TASK_WIDTH_MISMATCH",
 );
+const fiveCentimeterHandleMatch = resolveRawMaterialProductionTaskMatch({
+  workspace,
+  inbound: { materialType: "无纺布", productName: "无纺布卷料", factoryColor: "白色", widthCm: 5 },
+  productionTaskId: "TASK-1",
+  machineId: "BAG-01",
+});
+assert.equal(fiveCentimeterHandleMatch.status, "需复核", "5cm material is handle raw material even if stale text still says nonwoven roll");
 
 const normalized = normalizeRawMaterialInbound({
   id: " RMI-001 ",

@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
+import { getRolePermissionSet } from "../shared/auth/roleCatalog.js";
 import {
+  isRawMaterialFactoryColor,
+  listRawMaterialFactoryColors,
   resolveRawMaterialFactoryColor,
 } from "../shared/rawMaterialFactoryColors.js";
 import {
@@ -14,6 +17,12 @@ const colorAliases = [
   { id: "CA-A-184", alias: "184", standardColorId: "SC-WHITE", sourceType: "supplier", sourceId: "A厂", enabled: true },
   { id: "CA-B-184", alias: "184", standardColorId: "SC-RED", sourceType: "supplier", sourceId: "B厂", enabled: true },
 ];
+
+assert.equal(
+  getRolePermissionSet(["office"]).actionPermissions.includes("master_data.raw_material_color.manage"),
+  true,
+  "the office receiving role needs limited audited color-rule maintenance so an unmapped receipt is not blocked on the phone",
+);
 
 assert.equal(resolveRawMaterialFactoryColor({ supplierName: "A厂", supplierColor: "184", standardColors, colorAliases }).factoryColor, "本白");
 assert.equal(resolveRawMaterialFactoryColor({ supplierName: "B厂", supplierColor: "184", standardColors, colorAliases }).factoryColor, "大红");
@@ -63,7 +72,32 @@ assert.equal(
   "supplier_rule",
 );
 
-console.log("Raw-material supplier color mapping checks passed: supplier scope, audited maintenance, and OCR resolution are covered.");
+const customColorSaved = await service.saveMapping({
+  workspace,
+  operatorId: "U-MANAGER-A",
+  body: {
+    supplierName: "宁晋县腾胜无纺布有限公司",
+    supplierColor: "海水蓝",
+    factoryColor: "湖蓝",
+    reason: "现场色卡首次确认，建立厂家专属规则",
+  },
+});
+assert.equal(customColorSaved.statusCode, 200);
+assert.equal(customColorSaved.response.mapping.factoryColor, "湖蓝");
+assert.equal(isRawMaterialFactoryColor("湖蓝", workspace.standardColors), true);
+assert.equal(listRawMaterialFactoryColors(workspace.standardColors).includes("湖蓝"), true);
+assert.equal(service.listOptions(workspace).factoryColors.includes("湖蓝"), true);
+assert.equal(
+  resolveRawMaterialFactoryColor({
+    supplierName: "宁晋县腾胜无纺布有限公司",
+    supplierColor: "海水蓝",
+    standardColors: workspace.standardColors,
+    colorAliases: workspace.colorAliases,
+  }).factoryColor,
+  "湖蓝",
+);
+
+console.log("Raw-material supplier color mapping checks passed: supplier scope, extensible standard colors, audited maintenance, and OCR resolution are covered.");
 
 function upsert(records, record) {
   const index = records.findIndex((item) => item.id === record.id);

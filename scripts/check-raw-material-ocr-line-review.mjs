@@ -215,6 +215,19 @@ assert.throws(
   "each physical material line requires a human-confirmed canonical factory color",
 );
 
+const reviewedWithMaintainedFactoryColor = applyRawMaterialOcrLineReviews({
+  lines,
+  lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
+    ? { ...entry, values: { ...entry.values, factoryColor: "湖蓝" } }
+    : entry),
+  standardColors: [{ id: "SC-LAKE-BLUE", name: "湖蓝", enabled: true }],
+});
+assert.equal(
+  reviewedWithMaintainedFactoryColor.find((line) => line.lineId === "OCR-T1-R3")?.values.factoryColor,
+  "湖蓝",
+  "an audited factory-standard color outside the seed suggestions should remain valid during OCR review",
+);
+
 assert.throws(
   () => applyRawMaterialOcrLineReviews({
     lines,
@@ -295,6 +308,7 @@ const returnLines = [{
     productName: "退带色布",
     materialType: "无纺布",
     supplierColor: "带色",
+    returnMaterialCategory: "彩布",
     spec: "",
     rollCount: 2,
     totalWeightKg: -28.4,
@@ -319,6 +333,7 @@ const reviewedReturnLines = applyRawMaterialOcrLineReviews({
   now: "2026-08-03T12:00:00.000Z",
 });
 assert.equal(reviewedReturnLines[0].values.spec, "", "a supplier return without a printed specification must not be forced to invent one");
+assert.equal(reviewedReturnLines[0].values.returnMaterialCategory, "彩布", "the return pricing category must survive review even when specification is blank");
 assert.equal(reviewedReturnLines[0].values.totalWeightKg, -28.4);
 assert.deepEqual(reviewedReturnLines[0].values.rollWeightsKg, [-4.2, -24.2]);
 validateRawMaterialOcrLineReviewSummary({
@@ -340,6 +355,18 @@ assert.deepEqual(
   }),
   [],
   "a reviewed return must never create inbound roll or label candidates",
+);
+assert.throws(
+  () => applyRawMaterialOcrLineReviews({
+    lines: returnLines,
+    lineReviews: returnLines.map((line) => ({
+      lineId: line.lineId,
+      values: { ...line.values, returnMaterialCategory: "" },
+    })),
+    documentDirection: "supplier_return",
+  }),
+  (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_REQUIRED_FIELDS_MISSING" && /黑白布\/彩布/u.test(error.message),
+  "a fabric return with an unknown black-white/colour price category must remain blocked",
 );
 
 console.log("Raw-material OCR line-review checks passed: all lines are explicit, original values are preserved, summaries reconcile, and rolls stay unavailable.");

@@ -40,8 +40,10 @@ const inbounds = [
 const ledger = buildRawMaterialRollLedger(inbounds);
 assert.deepEqual(ledger.map((roll) => roll.id), ["RM-001", "RM-002", "RM-003", "RM-005"], "pending receiving rolls must stay out of the confirmed inventory ledger");
 assert.equal(ledger[0].specDisplay, "78克*80宽*2000米");
+assert.equal(ledger[0].materialUsage, "袋身原材料");
 assert.equal(ledger[2].currentWeightKg, 31.2, "machine-side remaining weight must be the current ledger weight");
 assert.equal(ledger[3].widthLabel, "5cm 提手条");
+assert.equal(ledger[3].materialUsage, "提手原材料");
 
 assert.deepEqual(summarizeRawMaterialRollLedger(ledger), {
   available: { count: 2, weightKg: 191.4 },

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
 import { buildRawMaterialInboundDraftFromOcr } from "../server/services/rawMaterialOcrParserService.mjs";
-import { RAW_MATERIAL_OCR_LINE_REVIEW_KEYS } from "../shared/rawMaterialOcrLineReview.js";
+import { hasReviewableRawMaterialSpec, RAW_MATERIAL_OCR_LINE_REVIEW_KEYS } from "../shared/rawMaterialOcrLineReview.js";
 import { enrichRawMaterialSpecValues, formatRawMaterialMobileSpec, parseRawMaterialSpec } from "../shared/rawMaterialSpec.js";
 
 assert.deepEqual(
@@ -18,8 +18,20 @@ assert.deepEqual(
 );
 assert.deepEqual(pickSpec(parseRawMaterialSpec("条")), ["条", 78, 5, 0, "提手条", false]);
 assert.deepEqual(pickSpec(parseRawMaterialSpec("宽5cm")), ["宽5cm", 78, 5, 0, "提手条", false]);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("5cm*加长提")), ["5cm*加长提", 78, 5, 0, "提手条", false]);
 assert.deepEqual(pickSpec(parseRawMaterialSpec("78*5*1200")), ["78*5*1200", 78, 5, 1200, "提手条", false]);
-assert.equal(parseRawMaterialSpec("宽15cm").materialCategory, "", "15cm must not be misread as a 5cm handle strip");
+assert.deepEqual(
+  pickSpec(parseRawMaterialSpec("宽15cm")),
+  ["宽15cm", 0, 15, 0, "布料", true],
+  "every confirmed positive width other than 5cm is bag-body material, even when the rest of the spec is incomplete",
+);
+const confirmedBodyWidthOverridesStripText = enrichRawMaterialSpecValues({
+  supplierColor: "天兰条",
+  spec: "78*60*1500",
+});
+assert.equal(confirmedBodyWidthOverridesStripText.widthCm, 60);
+assert.equal(confirmedBodyWidthOverridesStripText.materialCategory, "布料", "confirmed 60cm width must not be changed into handle material by stray strip text");
+assert.equal(confirmedBodyWidthOverridesStripText.materialType, "无纺布");
 const explicitStripWithoutSpec = enrichRawMaterialSpecValues({
   productName: "无纺布卷料",
   materialType: "无纺布",
@@ -528,6 +540,7 @@ assert.deepEqual(daxiangMultiWeightDraft.rolls.map((roll) => roll.weightKg), [10
 const daxiangMultilineDebtFooterDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-DAXIANG-MULTILINE-DEBT-FOOTER",
   knownSupplierNames: ["宁晋县达翔塑料制品有限公司"],
+  standardColors: [{ id: "SC-MAINTAINED-LIGHT-PURPLE", name: "浅紫", enabled: true }],
   ocr: { tables: [{ cells: buildCells([
     ["宁晋县达翔塑料制品有限公司销货单"],
     ["号 货物名称", "规格型号", "件数", "数量", "单价", "金额", "重量/KG"],
@@ -542,7 +555,10 @@ assert.equal(daxiangMultilineDebtFooterDraft.amount, 3349.16, "a multiline debt 
 assert.equal(daxiangMultilineDebtFooterDraft.ocrDeclaredAmount, 3349.16);
 assert.deepEqual(daxiangMultilineDebtFooterDraft.ocrReconciliationIssues, []);
 const daxiangMultilineDebtFooterReviewed = applyRawMaterialInboundAction({
-  workspace: { users: [{ id: "U-OFFICE-A", displayName: "办公室A" }] },
+  workspace: {
+    users: [{ id: "U-OFFICE-A", displayName: "办公室A" }],
+    standardColors: [{ id: "SC-MAINTAINED-LIGHT-PURPLE", name: "浅紫", enabled: true }],
+  },
   inbounds: [daxiangMultilineDebtFooterDraft],
   inboundId: daxiangMultilineDebtFooterDraft.id,
   action: "review",
@@ -605,6 +621,11 @@ assert.deepEqual(renyiSignedReturnDraft.ocrLines.map((line) => line.values.rollW
   [-4.2, -24.2, -73.7, -5.2],
   [-14.5],
 ]);
+assert.deepEqual(
+  renyiSignedReturnDraft.ocrLines.map((line) => line.values.returnMaterialCategory),
+  ["彩布", "提手条"],
+  "振恒/人意的无规格退带色布和退带色条 must retain their return pricing categories",
+);
 assert.equal(renyiSignedReturnDraft.rolls.length, 0, "supplier returns must never create inbound roll or label candidates");
 
 const renyiReferencePriceDraft = buildRawMaterialInboundDraftFromOcr({
@@ -662,7 +683,7 @@ const hongshangNegativeReturnDraft = buildRawMaterialInboundDraftFromOcr({
     ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
     ["布", "彩色", "1", "-84.4", "-84.4", "10.1", "-852.44"],
     ["布", "废布", "1", "-13", "-13", "10.1", "-131.3"],
-    ["78*90*1300", "梦幻紫", "1", "-92.8", "-92.8", "10.1", "-937.28"],
+    ["78*90*1300", "酒红", "1", "-92.8", "-92.8", "10.1", "-937.28"],
     ["合计", "3", "-190.2", "-1921.02"],
     ["退货单"],
   ]) }] },
@@ -673,6 +694,16 @@ assert.equal(hongshangNegativeReturnDraft.rollCount, 3);
 assert.equal(hongshangNegativeReturnDraft.totalWeightKg, -190.2);
 assert.equal(hongshangNegativeReturnDraft.amount, -1921.02);
 assert.deepEqual(hongshangNegativeReturnDraft.ocrLines.map((line) => line.values.totalWeightKg), [-84.4, -13, -92.8]);
+assert.deepEqual(
+  hongshangNegativeReturnDraft.ocrLines.map((line) => line.values.returnMaterialCategory),
+  ["彩布", "废布", "彩布"],
+  "宏尚 return rows must preserve 彩布/废布 pricing categories instead of treating them as missing specifications",
+);
+assert.deepEqual(
+  hongshangNegativeReturnDraft.ocrLines.map((line) => hasReviewableRawMaterialSpec(line.values.spec)),
+  [false, false, true],
+  "宏尚的“布”不是规格；无规格退货仍由退货规则放行",
+);
 assert.equal(hongshangNegativeReturnDraft.rolls.length, 0);
 
 const renyiOneMeterWidthDraft = buildRawMaterialInboundDraftFromOcr({
@@ -741,6 +772,7 @@ const tengshengDetachedDocumentNumberReturnDraft = buildRawMaterialInboundDraftF
 assert.equal(tengshengDetachedDocumentNumberReturnDraft.deliveryNoteNo, "XT-2026-08-08-027");
 assert.equal(tengshengDetachedDocumentNumberReturnDraft.supplierName, "宁晋县腾胜无纺布有限公司");
 assert.equal(tengshengDetachedDocumentNumberReturnDraft.totalWeightKg, -3.8);
+assert.equal(tengshengDetachedDocumentNumberReturnDraft.ocrLines[0].values.returnMaterialCategory, "黑白布");
 assert.equal(tengshengDetachedDocumentNumberReturnDraft.rolls.length, 0);
 
 console.log("Raw-material OCR parser checks passed: table fields, supplier identity, roll expansion, review evidence, and unavailable-inventory defaults are covered.");
