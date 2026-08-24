@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { CloseOutlined, ReloadOutlined } from "@ant-design/icons";
 import { RAW_MATERIAL_FACTORY_COLORS } from "../../../shared/rawMaterialFactoryColors.js";
 import {
@@ -15,6 +15,9 @@ const EMPTY_FORM = Object.freeze({
 });
 
 export function RawMaterialSupplierColorMappingDialog({ authState, currentUser, initialValues = null, onClose, onSaved }) {
+  const dialogRef = useRef(null);
+  const firstFieldRef = useRef(null);
+  const returnFocusRef = useRef(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [items, setItems] = useState([]);
   const [options, setOptions] = useState({ suppliers: [], factoryColors: RAW_MATERIAL_FACTORY_COLORS });
@@ -28,6 +31,16 @@ export function RawMaterialSupplierColorMappingDialog({ authState, currentUser, 
 
   useEffect(() => {
     void loadMappings();
+  }, []);
+
+  useEffect(() => {
+    returnFocusRef.current = document.activeElement;
+    const focusFrame = window.requestAnimationFrame(() => firstFieldRef.current?.focus());
+
+    return () => {
+      window.cancelAnimationFrame(focusFrame);
+      if (returnFocusRef.current?.isConnected) returnFocusRef.current.focus();
+    };
   }, []);
 
   useEffect(() => {
@@ -94,13 +107,51 @@ export function RawMaterialSupplierColorMappingDialog({ authState, currentUser, 
     setSaving(false);
   }
 
+  function handleDialogKeyDown(event) {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      onClose?.();
+      return;
+    }
+    if (event.key !== "Tab") return;
+
+    const focusableElements = Array.from(dialogRef.current?.querySelectorAll(
+      'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+    ) ?? []);
+    if (!focusableElements.length) {
+      event.preventDefault();
+      dialogRef.current?.focus();
+      return;
+    }
+
+    const firstElement = focusableElements[0];
+    const lastElement = focusableElements.at(-1);
+    if (event.shiftKey && document.activeElement === firstElement) {
+      event.preventDefault();
+      lastElement.focus();
+    } else if (!event.shiftKey && document.activeElement === lastElement) {
+      event.preventDefault();
+      firstElement.focus();
+    }
+  }
+
   return (
     <div className="raw-material-color-mapping-backdrop" role="presentation">
-      <section aria-label="厂家颜色资料" aria-modal="true" className="raw-material-color-mapping-dialog" role="dialog">
+      <section
+        aria-busy={saving}
+        aria-describedby="raw-material-color-mapping-description"
+        aria-labelledby="raw-material-color-mapping-title"
+        aria-modal="true"
+        className="raw-material-color-mapping-dialog"
+        onKeyDown={handleDialogKeyDown}
+        ref={dialogRef}
+        role="dialog"
+        tabIndex={-1}
+      >
         <header>
           <div>
-            <h2>厂家颜色资料</h2>
-            <p>保存厂家票面叫法与厂内标准色的对应关系。OCR 保留原文，再按厂家规则统一。</p>
+            <h2 id="raw-material-color-mapping-title">厂家颜色资料</h2>
+            <p id="raw-material-color-mapping-description">保存厂家票面叫法与厂内标准色的对应关系。OCR 保留原文，再按厂家规则统一。</p>
           </div>
           <button aria-label="关闭厂家颜色资料" onClick={onClose} type="button"><CloseOutlined /></button>
         </header>
@@ -112,6 +163,7 @@ export function RawMaterialSupplierColorMappingDialog({ authState, currentUser, 
               list="raw-material-supplier-color-options"
               onChange={(event) => setForm((current) => ({ ...current, supplierName: event.target.value }))}
               placeholder="选择或输入供应商全名"
+              ref={firstFieldRef}
               required
               value={form.supplierName}
             />

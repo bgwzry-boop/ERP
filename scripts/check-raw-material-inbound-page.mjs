@@ -17,6 +17,7 @@ const fixturesSource = readFileSync(new URL("../src/data/fixtures.js", import.me
 const roleToolReadsSource = readFileSync(new URL("../src/app/useOfficeRoleToolReads.js", import.meta.url), "utf8");
 const officePageEntrySource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 const rawMaterialPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
+const rawMaterialSupplierColorMappingDialogSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx", import.meta.url), "utf8");
 const rawMaterialWorkbenchSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundWorkbench.jsx", import.meta.url), "utf8");
 const rawMaterialMobileSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileReceiving.jsx", import.meta.url), "utf8");
 const rawMaterialMobileOcrReviewSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileOcrReview.jsx", import.meta.url), "utf8");
@@ -41,6 +42,11 @@ assertIncludes(fixturesSource, "供应商单号未提供", "fixtures should cove
 assertIncludes(rawMaterialWorkbenchSource, "return `1${roll.unitLabel}`", "piece-counted handle material must display as one piece instead of a misleading zero-kilogram roll");
 assertIncludes(rawMaterialSupplierProfilesSource, 'captureName: "振恒"', "the maintained return-supplier choices must include Zhenheng without relying on recent inbounds");
 assertIncludes(rawMaterialPageSource, "listRawMaterialCaptureSupplierOptions", "return capture supplier choices should come from maintained supplier profiles");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, "returnFocusRef", "the supplier-color dialog should restore focus to its opener when it closes");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, "window.requestAnimationFrame", "the supplier-color dialog should move initial focus after it mounts");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, 'event.key === "Escape"', "the supplier-color dialog should close from the Escape key");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, 'event.key !== "Tab"', "the supplier-color dialog should trap keyboard focus while open");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, 'aria-labelledby="raw-material-color-mapping-title"', "the supplier-color dialog should expose its visible title as its accessible name");
 
 assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expose the raw-material page");
 assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");

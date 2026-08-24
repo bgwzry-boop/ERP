@@ -331,6 +331,24 @@
 }
 
 @media (max-width: 720px) {
+  .raw-material-color-mapping-backdrop {
+    align-items: end;
+    padding: 10px;
+  }
+
+  .raw-material-color-mapping-dialog {
+    max-height: calc(100dvh - 20px);
+  }
+
+  .raw-material-color-mapping-dialog > header > button {
+    display: grid;
+    width: 44px;
+    min-width: 44px;
+    min-height: 44px;
+    place-items: center;
+    padding: 0;
+  }
+
   .raw-material-color-mapping-dialog > form {
     grid-template-columns: 1fr;
   }
@@ -341,7 +359,7 @@
   }
 
   .raw-material-color-mapping-dialog label {
-    font-size: 13px;
+    font-size: 14px;
   }
 
   .raw-material-color-mapping-dialog input,
@@ -351,8 +369,21 @@
   }
 
   .raw-material-color-mapping-dialog label > small {
-    font-size: 13px;
-    line-height: 19px;
+    font-size: 14px;
+    line-height: 21px;
+  }
+
+  .raw-material-color-mapping-dialog form .primary,
+  .raw-material-color-mapping-list > header button,
+  .raw-material-color-mapping-list .row {
+    min-height: 44px;
+    font-size: 14px;
+  }
+
+  .raw-material-color-mapping-message,
+  .raw-material-color-mapping-list .head,
+  .raw-material-color-mapping-list .empty {
+    font-size: 14px;
   }
   .raw-material-color-mapping-dialog .reason {
     grid-column: auto;
@@ -6714,6 +6745,75 @@
     font-size: 11px;
     font-weight: var(--erp-weight-regular);
     line-height: 16px;
+  }
+
+  /* Field-floor copy and controls remain readable without zoom on a phone. */
+  .raw-material-mobile-header > strong,
+  .raw-material-mobile-resume > header span,
+  .raw-material-mobile-recent > header span,
+  .raw-material-mobile-resume article > div span,
+  .raw-material-mobile-resume-more > summary,
+  .raw-material-mobile-captured-pages span,
+  .raw-material-mobile-captured-pages button,
+  .raw-material-mobile-capture-preview-open > strong,
+  .raw-material-mobile-capture-pdf,
+  .raw-material-mobile-camera small,
+  .raw-material-mobile-gallery small,
+  .raw-material-mobile-stage-heading em,
+  .raw-material-mobile-print-list > header span,
+  .raw-material-mobile-print-list > div > span,
+  .raw-material-mobile-print-list > div > strong,
+  .raw-material-mobile-print-list > div > small,
+  .raw-material-mobile-printer-facts > div small,
+  .raw-material-mobile-printer-facts > div span,
+  .raw-material-mobile-print-success span,
+  .raw-material-mobile-direction-note,
+  .raw-material-mobile-defer-note,
+  .raw-material-mobile-return-supplier small,
+  .raw-material-mobile-stage-note,
+  .raw-material-mobile-action-message span,
+  .raw-material-mobile-result-banner span,
+  .raw-material-mobile-roll-list > article > header span,
+  .raw-material-mobile-roll-warning,
+  .raw-material-mobile-review-progress small,
+  .raw-material-mobile-delivery-note > header span,
+  .raw-material-mobile-delivery-note > header button,
+  .raw-material-mobile-source-pages button,
+  .raw-material-mobile-review-source-text,
+  .raw-material-mobile-review-overview > header span,
+  .raw-material-mobile-review-line-summary > span:not(.raw-material-mobile-review-color),
+  .raw-material-mobile-review-line-summary > button,
+  .raw-material-mobile-review-line-summary .line-actions button,
+  .raw-material-mobile-review-key-fields label,
+  .raw-material-mobile-review-secondary-fields label,
+  .raw-material-mobile-review-document label,
+  .raw-material-mobile-review-key-fields label small,
+  .raw-material-mobile-review-more summary,
+  .raw-material-mobile-review-document summary,
+  .raw-material-mobile-review-document dt,
+  .raw-material-mobile-review-document dd,
+  .raw-material-mobile-review-submit-error,
+  .raw-material-mobile-exclusion-backdrop p,
+  .raw-material-mobile-exclusion-backdrop small {
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .raw-material-mobile-review-progress li > span {
+    font-size: 14px;
+  }
+
+  .raw-material-mobile-captured-pages button,
+  .raw-material-mobile-source-pages button,
+  .raw-material-mobile-review-line-summary .line-status,
+  .raw-material-mobile-review-line-summary .line-edit,
+  .raw-material-mobile-review-line-summary .line-actions button {
+    min-height: 44px;
+  }
+
+  .raw-material-mobile-review-line-summary {
+    height: auto;
+    min-height: 52px;
   }
 }
 
