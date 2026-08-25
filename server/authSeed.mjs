@@ -1,7 +1,7 @@
 import { createHmac, randomBytes, randomUUID, scryptSync, timingSafeEqual } from "node:crypto";
 import {
   createDisabledPermissionContext,
-  getRolePermissionSet,
+  resolvePermissionAssignment,
   roleCatalog,
 } from "../shared/auth/roleCatalog.js";
 
@@ -393,6 +393,8 @@ export function getEffectivePermissionsForRuntimeUser(user, fallbackUserId) {
     registrationStatus: user.registrationStatus,
     mustChangePassword: user.mustChangePassword,
     passwordStatus: user.passwordStatus,
+    permissionAllowlist: user.permissionAllowlist,
+    permissionDenylist: user.permissionDenylist,
   });
 
   const passwordChangeRequired = user.mustChangePassword === true || String(user.passwordStatus ?? "").trim() === "password_expired";
@@ -562,11 +564,16 @@ function decodeCanonicalBase64UrlBuffer(value, expectedLength) {
 }
 
 function buildEffectivePermissionContext(user) {
-  const { roles, buttonPermissions, actionPermissions } = getRolePermissionSet(
-    user.roles?.length ? user.roles : [user.defaultRole],
-  );
+  const { roles, buttonPermissions, actionPermissions, allowPermissions } = resolvePermissionAssignment({
+    roles: user.roles?.length ? user.roles : [user.defaultRole],
+    permissionAllowlist: user.permissionAllowlist,
+    permissionDenylist: user.permissionDenylist,
+  });
+  const explicitAllowSet = new Set(allowPermissions);
   const grants = unique([...buttonPermissions, ...actionPermissions]).map((permissionKey) =>
-    buildGrant(permissionKey, findGrantSourceRole(permissionKey, roles)),
+    explicitAllowSet.has(permissionKey) && !findGrantSourceRole(permissionKey, roles)
+      ? buildExplicitGrant(permissionKey)
+      : buildGrant(permissionKey, findGrantSourceRole(permissionKey, roles)),
   );
 
   return {
@@ -592,6 +599,14 @@ function buildEffectivePermissionContext(user) {
     grants,
     buttonPermissions,
     actionPermissions,
+  };
+}
+
+function buildExplicitGrant(permissionKey) {
+  return {
+    permissionKey,
+    scope: "subaccount",
+    source: "explicit:allow",
   };
 }
 
@@ -645,7 +660,7 @@ function buildGrant(permissionKey, roleKey) {
   return {
     permissionKey,
     scope: roleCatalog[roleKey]?.department ?? "seed",
-    source: `role:${roleKey}`,
+    source: roleKey ? `role:${roleKey}` : "role:unknown",
   };
 }
 

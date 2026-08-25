@@ -71,7 +71,7 @@ export async function persistRuntimeIdentityState(workspace, options = {}) {
 }
 
 export function sanitizeRuntimeUserForResponse(user = {}) {
-  const { seedPassword, passwordHash, invitationReferenceHash, ...safeUser } = user ?? {};
+  const { seedPassword, temporaryPassword, passwordHash, invitationReferenceHash, ...safeUser } = user ?? {};
   return safeUser;
 }
 
@@ -80,7 +80,7 @@ function runtimeUsers(workspace) {
 }
 
 function isFormalRuntimeUserSource(value) {
-  return ["master_data_import_review", "phone_self_registration"].includes(cleanText(value));
+  return ["master_data_import_review", "phone_self_registration", "subaccount_admin_created"].includes(cleanText(value));
 }
 
 function cleanText(value) {

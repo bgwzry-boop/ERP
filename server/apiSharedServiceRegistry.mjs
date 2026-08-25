@@ -53,6 +53,7 @@ import {
 } from "./services/inventoryCorrectionReadProjectionService.mjs";
 import { createInventoryReservationReleaseCommandService } from "./services/inventoryReservationReleaseCommandService.mjs";
 import { createMasterDataEmployeeAccountCommandService } from "./services/masterDataEmployeeAccountCommandService.mjs";
+import { createMasterDataSubaccountCommandService } from "./services/masterDataSubaccountCommandService.mjs";
 import { createMasterDataImportCommandService } from "./services/masterDataImportCommandService.mjs";
 import { createMasterDataMachineCommandService } from "./services/masterDataMachineCommandService.mjs";
 import { createMaintenanceTaskCommandService } from "./services/maintenanceTaskCommandService.mjs";
@@ -426,6 +427,7 @@ export function createApiSharedServiceRegistry() {
   const masterDataEmployeeAccountCommandService = createMasterDataEmployeeAccountCommandService({
     buildOperationLog,
   });
+  const masterDataSubaccountCommandService = createMasterDataSubaccountCommandService({ buildOperationLog });
   const masterDataMachineCommandService = createMasterDataMachineCommandService({ buildOperationLog });
   const runtimeAuthCommandService = createRuntimeAuthCommandService({ buildOperationLog });
   const phoneIdentityCommandService = createPhoneIdentityCommandService({ buildOperationLog });
@@ -497,6 +499,7 @@ export function createApiSharedServiceRegistry() {
     inventoryCorrectionReadProjectionService,
     inventoryReservationReleaseCommandService,
     masterDataEmployeeAccountCommandService,
+    masterDataSubaccountCommandService,
     masterDataImportCommandService,
     masterDataMachineCommandService,
     maintenanceTaskCommandService,

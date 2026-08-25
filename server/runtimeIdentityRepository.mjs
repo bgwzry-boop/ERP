@@ -174,7 +174,7 @@ SELECT json_build_object(
     FROM (
       SELECT ${runtimeUserJsonExpression("users")} AS record
       FROM users
-      WHERE source IN ('master_data_import_review', 'phone_self_registration')
+      WHERE source IN ('master_data_import_review', 'phone_self_registration', 'subaccount_admin_created')
       ORDER BY updated_at DESC, id
     ) runtime_users
   ), '[]'::json),
@@ -253,7 +253,10 @@ SELECT json_build_object(
       'master_data_employee_profile',
       'master_data_employee_identity_confirmation',
       'phone_self_registration',
-      'personnel_phone_registration_assignment'
+      'personnel_phone_registration_assignment',
+      'master_data_subaccount',
+      'master_data_subaccount_permission',
+      'master_data_subaccount_password'
     )
   ), '[]'::json)
 ) AS result;
@@ -552,6 +555,18 @@ function runtimeUserSqlRow(user, parameters) {
     accountReviewNote: safeUser.accountReviewNote,
     authMethods: safeUser.authMethods,
     invitationReferenceHash: safeUser.invitationReferenceHash,
+    accountType: safeUser.accountType,
+    accountStatus: safeUser.accountStatus,
+    permissionAllowlist: safeUser.permissionAllowlist,
+    permissionDenylist: safeUser.permissionDenylist,
+    permissionRevision: safeUser.permissionRevision,
+    permissionsUpdatedBy: safeUser.permissionsUpdatedBy,
+    permissionsUpdatedAt: safeUser.permissionsUpdatedAt,
+    accountCreatedBy: safeUser.accountCreatedBy,
+    accountCreatedAt: safeUser.accountCreatedAt,
+    accountStatusUpdatedBy: safeUser.accountStatusUpdatedBy,
+    accountStatusUpdatedAt: safeUser.accountStatusUpdatedAt,
+    accountStatusReason: safeUser.accountStatusReason,
   };
   return `(
     ${parameters.text(safeUser.userId)},
@@ -757,6 +772,18 @@ function runtimeUserJsonExpression(alias) {
     'accountReviewedBy', COALESCE(${alias}.metadata_json->>'accountReviewedBy', ''),
     'accountReviewedAt', COALESCE(${alias}.metadata_json->>'accountReviewedAt', ''),
     'accountReviewNote', COALESCE(${alias}.metadata_json->>'accountReviewNote', ''),
+    'accountType', COALESCE(${alias}.metadata_json->>'accountType', ''),
+    'accountStatus', COALESCE(${alias}.metadata_json->>'accountStatus', ''),
+    'permissionAllowlist', COALESCE(${alias}.metadata_json->'permissionAllowlist', '[]'::jsonb),
+    'permissionDenylist', COALESCE(${alias}.metadata_json->'permissionDenylist', '[]'::jsonb),
+    'permissionRevision', COALESCE(NULLIF(${alias}.metadata_json->>'permissionRevision', '')::INTEGER, 0),
+    'permissionsUpdatedBy', COALESCE(${alias}.metadata_json->>'permissionsUpdatedBy', ''),
+    'permissionsUpdatedAt', COALESCE(${alias}.metadata_json->>'permissionsUpdatedAt', ''),
+    'accountCreatedBy', COALESCE(${alias}.metadata_json->>'accountCreatedBy', ''),
+    'accountCreatedAt', COALESCE(${alias}.metadata_json->>'accountCreatedAt', ''),
+    'accountStatusUpdatedBy', COALESCE(${alias}.metadata_json->>'accountStatusUpdatedBy', ''),
+    'accountStatusUpdatedAt', COALESCE(${alias}.metadata_json->>'accountStatusUpdatedAt', ''),
+    'accountStatusReason', COALESCE(${alias}.metadata_json->>'accountStatusReason', ''),
     'updatedAt', COALESCE(${alias}.updated_at::TEXT, '')
   )`;
 }
@@ -984,6 +1011,22 @@ function normalizeRuntimeUser(user = {}) {
     accountReviewedBy: cleanText(user.accountReviewedBy),
     accountReviewedAt: cleanText(user.accountReviewedAt),
     accountReviewNote: cleanText(user.accountReviewNote),
+    accountType: cleanText(user.accountType),
+    accountStatus: cleanText(user.accountStatus),
+    permissionAllowlist: Array.isArray(user.permissionAllowlist)
+      ? user.permissionAllowlist.map((permission) => cleanText(permission)).filter(Boolean)
+      : [],
+    permissionDenylist: Array.isArray(user.permissionDenylist)
+      ? user.permissionDenylist.map((permission) => cleanText(permission)).filter(Boolean)
+      : [],
+    permissionRevision: Math.max(0, Number(user.permissionRevision) || 0),
+    permissionsUpdatedBy: cleanText(user.permissionsUpdatedBy),
+    permissionsUpdatedAt: cleanText(user.permissionsUpdatedAt),
+    accountCreatedBy: cleanText(user.accountCreatedBy),
+    accountCreatedAt: cleanText(user.accountCreatedAt),
+    accountStatusUpdatedBy: cleanText(user.accountStatusUpdatedBy),
+    accountStatusUpdatedAt: cleanText(user.accountStatusUpdatedAt),
+    accountStatusReason: cleanText(user.accountStatusReason),
     updatedAt: cleanText(user.updatedAt) || new Date().toISOString(),
   };
 }
@@ -1013,6 +1056,9 @@ function normalizeRuntimeIdentityOperationLog(record = {}) {
       "master_data_employee_identity_confirmation",
       "phone_self_registration",
       "personnel_phone_registration_assignment",
+      "master_data_subaccount",
+      "master_data_subaccount_permission",
+      "master_data_subaccount_password",
     ].includes(
       targetType,
     )

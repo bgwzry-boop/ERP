@@ -487,6 +487,114 @@ export async function listOfficeMasterDataEmployeeAccountReviews(input = {}, opt
   }
 }
 
+export async function listOfficeMasterDataSubaccounts(input = {}, options = {}) {
+  try {
+    const [accountsResponse, catalogResponse] = await Promise.all([
+      requestMasterDataImportApi("/master-data/subaccounts", {
+        ...options,
+        authState: input.authState,
+        operatorId: input.operatorId,
+      }),
+      requestMasterDataImportApi("/master-data/permission-catalog", {
+        ...options,
+        authState: input.authState,
+        operatorId: input.operatorId,
+      }),
+    ]);
+    const [accountsJson, catalogJson] = await Promise.all([readJson(accountsResponse), readJson(catalogResponse)]);
+    if (!accountsResponse.ok || !catalogResponse.ok) {
+      const response = !accountsResponse.ok ? accountsResponse : catalogResponse;
+      const json = !accountsResponse.ok ? accountsJson : catalogJson;
+      return {
+        source: "api_error",
+        blocked: true,
+        items: [],
+        catalog: { roles: [], permissions: [] },
+        error: toApiError(json, response.status, "子账号权限工作台 API 返回错误。"),
+      };
+    }
+    return {
+      source: "api",
+      items: (Array.isArray(accountsJson?.items) ? accountsJson.items : []).map(normalizeSubaccount).filter(Boolean),
+      catalog: normalizePermissionCatalog(catalogJson),
+    };
+  } catch (error) {
+    return {
+      source: "api_error",
+      blocked: true,
+      items: [],
+      catalog: { roles: [], permissions: [] },
+      error: { code: "SUBACCOUNT_API_UNAVAILABLE", message: error?.message ?? String(error) },
+    };
+  }
+}
+
+export async function createOfficeMasterDataSubaccount(input = {}, options = {}) {
+  return mutateOfficeMasterDataSubaccount("/master-data/subaccounts", "POST", input, options, "创建子账号");
+}
+
+export async function updateOfficeMasterDataSubaccount(input = {}, options = {}) {
+  return mutateOfficeMasterDataSubaccount(
+    `/master-data/subaccounts/${encodeURIComponent(cleanText(input.userId))}`,
+    "PATCH",
+    input,
+    options,
+    "保存子账号权限",
+  );
+}
+
+export async function actOfficeMasterDataSubaccount(input = {}, options = {}) {
+  const action = cleanText(input.action);
+  if (!["temporary-password", "suspend", "reactivate", "disable"].includes(action)) {
+    return { source: "client", blocked: true, error: { code: "SUBACCOUNT_ACTION_INVALID", message: "未知的子账号操作。" } };
+  }
+  return mutateOfficeMasterDataSubaccount(
+    `/master-data/subaccounts/${encodeURIComponent(cleanText(input.userId))}/${action}`,
+    "POST",
+    input,
+    options,
+    "更新子账号状态",
+  );
+}
+
+async function mutateOfficeMasterDataSubaccount(pathname, method, input, options, fallbackMessage) {
+  try {
+    const response = await requestMasterDataImportApi(pathname, {
+      ...options,
+      authState: input.authState,
+      method,
+      operatorId: input.operatorId,
+      body: {
+        displayName: cleanText(input.displayName),
+        loginName: cleanText(input.loginName),
+        employeeId: cleanText(input.employeeId),
+        roleKeys: Array.isArray(input.roleKeys) ? input.roleKeys.map(cleanText).filter(Boolean) : [],
+        permissionAllowlist: Array.isArray(input.permissionAllowlist) ? input.permissionAllowlist.map(cleanText).filter(Boolean) : [],
+        permissionDenylist: Array.isArray(input.permissionDenylist) ? input.permissionDenylist.map(cleanText).filter(Boolean) : [],
+        expectedRevision: input.expectedRevision,
+        reason: cleanText(input.reason),
+      },
+    });
+    const json = await readJson(response);
+    if (!response.ok) {
+      return { source: "api_error", blocked: true, error: toApiError(json, response.status, `${fallbackMessage} API 返回错误。`) };
+    }
+    return {
+      source: "api",
+      subaccount: normalizeSubaccount(json?.subaccount),
+      credential: json?.credential ? {
+        userId: cleanText(json.credential.userId),
+        loginName: cleanText(json.credential.loginName),
+        temporaryPassword: cleanText(json.credential.temporaryPassword),
+        issuedAt: cleanText(json.credential.issuedAt),
+      } : null,
+      operationLogId: cleanText(json?.operationLogId),
+    };
+  } catch (error) {
+    return { source: "api_error", blocked: true, error: { code: "SUBACCOUNT_API_UNAVAILABLE", message: error?.message ?? String(error) } };
+  }
+}
+
 export async function enableOfficeMasterDataEmployeeAccount(input = {}, options = {}) {
   const { authState, operatorId, employeeId, roleKey, roleKeys, loginName, userId, reviewNote } = input;
   const safeEmployeeId = cleanText(employeeId);
@@ -1319,6 +1427,49 @@ function normalizeIssuedEmployeeCredential(credential) {
     passwordStatus: cleanText(credential.passwordStatus),
     mustChangePassword: credential.mustChangePassword === true,
     visibleOnce: credential.visibleOnce !== false,
+  };
+}
+
+function normalizeSubaccount(value) {
+  if (!value || typeof value !== "object") return null;
+  const userId = cleanText(value.userId ?? value.id);
+  if (!userId) return null;
+  return {
+    ...value,
+    id: userId,
+    userId,
+    loginName: cleanText(value.loginName),
+    displayName: cleanText(value.displayName) || userId,
+    employeeId: cleanText(value.employeeId),
+    employeeName: cleanText(value.employeeName),
+    accountStatus: cleanText(value.accountStatus),
+    accountStatusLabel: cleanText(value.accountStatusLabel),
+    roles: Array.isArray(value.roles) ? value.roles.map(cleanText).filter(Boolean) : [],
+    roleLabels: Array.isArray(value.roleLabels) ? value.roleLabels.map(cleanText).filter(Boolean) : [],
+    permissionAllowlist: Array.isArray(value.permissionAllowlist) ? value.permissionAllowlist.map(cleanText).filter(Boolean) : [],
+    permissionDenylist: Array.isArray(value.permissionDenylist) ? value.permissionDenylist.map(cleanText).filter(Boolean) : [],
+    effectiveButtonPermissions: Array.isArray(value.effectiveButtonPermissions) ? value.effectiveButtonPermissions.map(cleanText).filter(Boolean) : [],
+    effectiveActionPermissions: Array.isArray(value.effectiveActionPermissions) ? value.effectiveActionPermissions.map(cleanText).filter(Boolean) : [],
+    permissionRevision: Number(value.permissionRevision) || 0,
+    effectivePermissionCount: Number(value.effectivePermissionCount) || 0,
+    updatedAt: cleanText(value.updatedAt),
+  };
+}
+
+function normalizePermissionCatalog(value) {
+  return {
+    roles: (Array.isArray(value?.roles) ? value.roles : []).map((role) => ({
+      roleKey: cleanText(role.roleKey),
+      displayName: cleanText(role.displayName),
+      department: cleanText(role.department),
+      permissionCount: Number(role.permissionCount) || 0,
+    })).filter((role) => role.roleKey),
+    permissions: (Array.isArray(value?.permissions) ? value.permissions : []).map((permission) => ({
+      permissionKey: cleanText(permission.permissionKey),
+      groupKey: cleanText(permission.groupKey),
+      kinds: Array.isArray(permission.kinds) ? permission.kinds.map(cleanText).filter(Boolean) : [],
+      roleKeys: Array.isArray(permission.roleKeys) ? permission.roleKeys.map(cleanText).filter(Boolean) : [],
+    })).filter((permission) => permission.permissionKey),
   };
 }
 

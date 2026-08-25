@@ -22,7 +22,9 @@ import {
 import { SemanticTag as SharedSemanticTag } from "../../../../src/shared/ui/operational.jsx";
 import { PayrollAttendancePage } from "../../../../src/features/payroll/PayrollAttendancePage.jsx";
 import { EmployeeProfileEditor } from "../../../../src/features/master-data/MasterDataMaintenancePage.jsx";
+import { SubaccountPermissionWorkbench } from "../../../../src/features/master-data/SubaccountPermissionWorkbench.jsx";
 import "../../../../src/styles/features/payroll-attendance.css";
+import "../../../../src/styles/features/master-data.css";
 import { FactoryColorLabel } from "./FactoryColor.jsx";
 import { buildEmployeeProfile } from "./employee-profile.js";
 import { completedBusinessWorkspaceIds } from "./workspaceCoverage.js";
@@ -562,6 +564,21 @@ function GenericWorkspace({ config, onNavigate }) {
   </div>{profileOpen && selected?.employeeReview ? <div className="dialog-backdrop employee-profile-dialog-backdrop" onMouseDown={() => setProfileOpen(false)} role="presentation"><section aria-labelledby="employee-profile-dialog-title" aria-modal="true" className="receive-dialog employee-profile-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>正式员工资料</span><h2 id="employee-profile-dialog-title">维护 {selected.employeeReview.name}</h2></div><button aria-label="关闭" onClick={() => setProfileOpen(false)} type="button">×</button></header><div className="employee-profile-dialog-body"><EmployeeProfileEditor actionState={{ disabled: false, title: "" }} onSave={saveEmployeeProfile} review={selected.employeeReview} />{profileError ? <p className="employee-profile-dialog-error" role="alert">{profileError}</p> : null}</div></section></div> : null}{accountOpen && selected?.employeeReview ? <EmployeeAccountPreparationDialog onClose={() => setAccountOpen(false)} onConfirmIdentity={config.onConfirmEmployeeIdentity} onEnableAccount={config.onEnableEmployeeAccount} onIssuePassword={config.onIssueEmployeePassword} review={selected.employeeReview} /> : null}</>;
 }
 
+function PeopleMachinesWorkspace({ formal, onNavigate }) {
+  const [view, setView] = useState("员工档案");
+  const canManageSubaccounts = formal.permissionContext?.actionPermissions?.includes("permission.manage") === true;
+  const config = buildWorkspaceConfigs(formal)["people-machines"];
+  return <div className="people-machines-workspace">
+    <nav aria-label="员工机台工作区" className="employee-master-secondary-nav">
+      <button className={view === "员工档案" ? "is-active" : ""} onClick={() => setView("员工档案")} type="button">员工档案</button>
+      {canManageSubaccounts ? <button className={view === "账号权限" ? "is-active" : ""} onClick={() => setView("账号权限")} type="button">账号权限</button> : null}
+    </nav>
+    {view === "账号权限" && canManageSubaccounts
+      ? <SubaccountPermissionWorkbench authState={formal.authState} currentUser={formal.permissionContext?.user} employeeAccountReviews={formal.data.employeeAccountReviews} />
+      : <GenericWorkspace config={{ ...config, onRefresh: formal.actions.refreshAll }} onNavigate={onNavigate} />}
+  </div>;
+}
+
 function FulfillmentWorkspace({ formal }) {
   const records = useMemo(
     () => buildFulfillmentRows(formal.data.fulfillments, formal.data.orderLines, formal.data.statements),
@@ -959,6 +976,7 @@ export function BusinessWorkspace({ formal, navId, onNavigate }) {
   if (navId === "laminated-inventory") return <FinishedGoodsInventoryWorkspace category="覆膜无纺布袋" formal={formal} onNavigate={onNavigate} title="覆膜袋库存" />;
   if (navId === "general-prices" || navId === "spec-inventory") return <FinishedGoodsMasterWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "payroll-attendance") return <PayrollAttendancePage authState={formal.authState} currentUser={formal.permissionContext?.user} permissionContext={formal.permissionContext} />;
+  if (navId === "people-machines") return <PeopleMachinesWorkspace formal={formal} onNavigate={onNavigate} />;
   const configs = buildWorkspaceConfigs(formal);
   const config = configs[navId];
   if (!config) return <div className="business-missing"><WarningOutlined /><strong>当前 PC 代码没有这个独立页面</strong><span>{navId}</span></div>;

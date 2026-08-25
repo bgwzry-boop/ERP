@@ -12,12 +12,19 @@ export async function handleMasterDataReadRoutes({
   buildEmployeeAssignmentOptions,
   listMasterDataMachines,
   masterDataImportCommandService,
+  masterDataSubaccountCommandService,
   rawMaterialSupplierColorMappingService,
   phoneIdentityCommandService,
   sendNotFound,
   sendBusinessError,
   sendFile,
 }) {
+  if (url.pathname === "/api/master-data/permission-catalog") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageSubaccounts)) return true;
+    sendJson(response, 200, masterDataSubaccountCommandService.getPermissionCatalog());
+    return true;
+  }
+
   if (url.pathname === "/api/master-data/raw-material-supplier-colors") {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.manageRawMaterialSupplierColors)) return true;
     sendJson(response, 200, {
@@ -77,6 +84,13 @@ export async function handleMasterDataReadRoutes({
           employeeId: url.searchParams.get("employeeId"),
           keyword: url.searchParams.get("keyword"),
         }),
+    },
+    "/api/master-data/subaccounts": {
+      permission: writeActionPermissions.manageSubaccounts,
+      list: () => masterDataSubaccountCommandService.listSubaccounts(workspace, {
+        status: url.searchParams.get("status"),
+        keyword: url.searchParams.get("keyword"),
+      }),
     },
     "/api/master-data/machines": {
       permission: writeActionPermissions.reviewMasterDataEmployeeAccount,

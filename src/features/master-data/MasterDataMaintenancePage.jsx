@@ -25,6 +25,7 @@ import {
   MasterDataMaintenanceListPane,
 } from "./MasterDataMaintenanceWorkbench.jsx";
 import { BusinessDecisionAuthorizationWorkbench } from "./BusinessDecisionAuthorizationWorkbench.jsx";
+import { SubaccountPermissionWorkbench } from "./SubaccountPermissionWorkbench.jsx";
 import {
   PAYROLL_POSITION_CATALOG,
   suggestPayrollPosition,
@@ -158,7 +159,9 @@ export function MasterDataMaintenancePage({
   ];
   const detailTabs = activeTab === "员工机台" ? EMPLOYEE_MACHINE_DETAIL_TABS : MASTER_DATA_DETAIL_TABS;
   const canManageBusinessDecisionAuthorization = authState?.permissions?.actionPermissions?.includes("business_decision.authorization.manage") === true;
+  const canManageSubaccounts = authState?.permissions?.actionPermissions?.includes("permission.manage") === true;
   const showBusinessDecisionAuthorization = activeTab === "员工机台" && employeeWorkbench === "业务决定授权" && canManageBusinessDecisionAuthorization;
+  const showSubaccountPermissions = activeTab === "员工机台" && employeeWorkbench === "账号权限" && canManageSubaccounts;
 
   useEffect(() => {
     if (!selected) return;
@@ -245,13 +248,15 @@ export function MasterDataMaintenancePage({
     <section className="page-grid split-detail operational-split-workbench master-data-maintenance-page master-data-workbench">
       {activeTab === "员工机台" ? (
         <nav className="employee-master-secondary-nav" aria-label="员工与机台二级工作台">
-          {["正式员工", "账号准备", ...(canManageBusinessDecisionAuthorization ? ["业务决定授权"] : []), "演示数据"].map((item) => (
+          {["正式员工", "账号准备", ...(canManageSubaccounts ? ["账号权限"] : []), ...(canManageBusinessDecisionAuthorization ? ["业务决定授权"] : []), "演示数据"].map((item) => (
             <button key={item} className={employeeWorkbench === item ? "is-active" : ""} onClick={() => changeEmployeeWorkbench(item)}>{item}</button>
           ))}
         </nav>
       ) : null}
       {showBusinessDecisionAuthorization ? (
         <BusinessDecisionAuthorizationWorkbench authState={authState} currentUser={currentUser} employeeAccountReviews={employeeAccountReviews} />
+      ) : showSubaccountPermissions ? (
+        <SubaccountPermissionWorkbench authState={authState} currentUser={currentUser} employeeAccountReviews={employeeAccountReviews} />
       ) : (
         <>
       <MasterDataMaintenanceListPane

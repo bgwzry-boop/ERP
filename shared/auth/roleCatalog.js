@@ -552,6 +552,57 @@ export function getRolePermissionSet(roles = []) {
   };
 }
 
+export function getPermissionCatalog() {
+  const entries = new Map();
+  for (const [roleKey, definition] of Object.entries(roleCatalog)) {
+    for (const [kind, permissions] of [
+      ["button", definition.buttonPermissions],
+      ["action", definition.actionPermissions],
+    ]) {
+      for (const permissionKey of permissions) {
+        const current = entries.get(permissionKey) ?? {
+          permissionKey,
+          groupKey: permissionKey.split(".")[0] || "other",
+          kinds: [],
+          roleKeys: [],
+        };
+        current.kinds = unique([...current.kinds, kind]);
+        current.roleKeys = unique([...current.roleKeys, roleKey]);
+        entries.set(permissionKey, current);
+      }
+    }
+  }
+  return [...entries.values()].sort((left, right) =>
+    left.groupKey.localeCompare(right.groupKey) || left.permissionKey.localeCompare(right.permissionKey),
+  );
+}
+
+export function resolvePermissionAssignment(input = {}) {
+  const roleSet = getRolePermissionSet(input.roles ?? input.roleKeys ?? []);
+  const catalog = getPermissionCatalog();
+  const knownPermissions = new Set(catalog.map((item) => item.permissionKey));
+  const allowPermissions = unique(input.allowPermissions ?? input.permissionAllowlist ?? [])
+    .filter((permissionKey) => knownPermissions.has(permissionKey));
+  const denyPermissions = unique(input.denyPermissions ?? input.permissionDenylist ?? [])
+    .filter((permissionKey) => knownPermissions.has(permissionKey));
+  const denied = new Set(denyPermissions);
+  const buttonPermissionKeys = new Set(catalog.filter((item) => item.kinds.includes("button")).map((item) => item.permissionKey));
+  const actionPermissionKeys = new Set(catalog.filter((item) => item.kinds.includes("action")).map((item) => item.permissionKey));
+  return {
+    roles: roleSet.roles,
+    allowPermissions,
+    denyPermissions,
+    buttonPermissions: unique([
+      ...roleSet.buttonPermissions,
+      ...allowPermissions.filter((permissionKey) => buttonPermissionKeys.has(permissionKey)),
+    ]).filter((permissionKey) => !denied.has(permissionKey)),
+    actionPermissions: unique([
+      ...roleSet.actionPermissions,
+      ...allowPermissions.filter((permissionKey) => actionPermissionKeys.has(permissionKey)),
+    ]).filter((permissionKey) => !denied.has(permissionKey)),
+  };
+}
+
 export function createDisabledPermissionContext(userId = "UNAUTHENTICATED") {
   const normalizedUserId = String(userId || "UNAUTHENTICATED").trim() || "UNAUTHENTICATED";
   return {
