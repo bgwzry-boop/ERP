@@ -82,6 +82,8 @@ assert.ok(
   "checked-in manifest should default every required evidence item to pending with no evidenceRef",
 );
 assert.match(checkedChecklist, /node scripts\/validate-v1-field-evidence-manifest\.mjs/);
+assert.match(checkedChecklist, /upgrade-v1-field-evidence-manifest\.mjs/);
+assert.match(checkedChecklist, /升级不会覆盖旧文件/);
 assert.match(checkedChecklist, /V1 \/ V2 边界确认/);
 assert.match(checkedChecklist, /工资 \/ 考勤真实闭环/);
 assert.match(checkedChecklist, /首期工资草稿、会计复核、管理锁定、不可变导出和发薪确认已闭环/);
