@@ -55,6 +55,10 @@ assertIncludes(featureSource, "价格表", "master-data page should include pric
 assertIncludes(featureSource, "规格库存", "master-data page should include inventory specification maintenance");
 assertIncludes(featureSource, "员工机台", "master-data page should include employee/machine maintenance");
 assertIncludes(featureSource, "车间 / 机台调配", "employee maintenance should expose manual assignment controls");
+assertIncludes(featurePageSource, "suggestPayrollPosition", "employee profiles should consume the non-name payroll-position suggestion contract");
+assertIncludes(featurePageSource, "系统工资岗位候选", "employee profiles should explain the suggested payroll position");
+assertIncludes(featurePageSource, "采用该候选", "a responsible reviewer should be able to fill, but not auto-save, the suggested position");
+assertIncludes(featurePageSource, "系统不按员工姓名猜测", "unmatched employees must remain explicit instead of being matched by name");
 assertIncludes(featureSource, "车间 / 机台配置", "employee maintenance should expose machine configuration controls");
 assertIncludes(featureSource, "新增机台", "machine configuration should support adding a machine");
 assertIncludes(featureSource, "停用或搬迁前必须先解除正式员工绑定", "machine configuration should explain its occupancy guard");

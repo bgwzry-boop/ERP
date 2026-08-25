@@ -1452,6 +1452,73 @@
   line-height: 1.6;
 }
 
+.employee-payroll-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 12px;
+  border: 1px solid var(--erp-border);
+  border-radius: 10px;
+  background: var(--erp-neutral-bg);
+  padding: 11px 12px;
+}
+
+.employee-payroll-suggestion.is-suggested {
+  border-color: color-mix(in srgb, var(--erp-success) 32%, var(--erp-border));
+  background: color-mix(in srgb, var(--erp-success) 7%, var(--erp-surface));
+}
+
+.employee-payroll-suggestion.is-unmatched,
+.employee-payroll-suggestion.is-ambiguous {
+  border-color: color-mix(in srgb, var(--erp-warning) 40%, var(--erp-border));
+  background: color-mix(in srgb, var(--erp-warning) 8%, var(--erp-surface));
+}
+
+.employee-payroll-suggestion > div {
+  min-width: 0;
+}
+
+.employee-payroll-suggestion-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--erp-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.employee-payroll-suggestion strong {
+  display: block;
+  color: var(--erp-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.employee-payroll-suggestion p {
+  margin: 3px 0 0;
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.employee-payroll-suggestion-action {
+  flex: 0 0 auto;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--erp-success) 48%, var(--erp-border));
+  border-radius: 8px;
+  background: var(--erp-surface);
+  color: var(--erp-success);
+  padding: 0 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.employee-payroll-suggestion-action:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .employee-profile-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -2173,6 +2240,15 @@
 
   .employee-profile-form .employee-profile-reason {
     grid-column: auto;
+  }
+
+  .employee-payroll-suggestion {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .employee-payroll-suggestion-action {
+    width: 100%;
   }
 
   .employee-assignment-mode .segmented button {

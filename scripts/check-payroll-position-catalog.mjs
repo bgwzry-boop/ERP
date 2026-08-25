@@ -24,6 +24,9 @@ assert.equal("baseHourlyWage" in rates.find((item) => item.payrollPositionKey ==
 assert.deepEqual(suggestPayrollPosition({ roleName: "司机" }).candidates, ["PAY-DRIVER"]);
 assert.deepEqual(suggestPayrollPosition({ defaultWorkshop: "丝印车间", defaultMachineId: "PRINT-03" }).candidates, ["PAY-PRINT"]);
 assert.deepEqual(suggestPayrollPosition({ defaultMachine: "6号机" }).candidates, ["PAY-BAG"]);
+assert.deepEqual(suggestPayrollPosition({ configuredMachineLabel: "6号制袋机" }).candidates, ["PAY-BAG"]);
+assert.deepEqual(suggestPayrollPosition({ configuredMachineLabel: "3号丝印机" }).candidates, ["PAY-PRINT"]);
+assert.deepEqual(suggestPayrollPosition({ configuredMachineLabel: "", defaultMachineId: "PRINT-02" }).candidates, ["PAY-PRINT"]);
 assert.equal(suggestPayrollPosition({ roleName: "库房 / 出库" }).status, "unmatched");
 assert.equal(suggestPayrollPosition({ baseHourlyWage: 10, positionAllowanceHourly: 5 }).status, "ambiguous");
 assert.equal(suggestPayrollPosition({ payrollPositionKey: "PAY-TECH" }).status, "confirmed");

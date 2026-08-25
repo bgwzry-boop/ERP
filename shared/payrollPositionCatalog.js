@@ -55,18 +55,25 @@ export function suggestPayrollPosition(employee = {}) {
 
   const role = cleanText(employee.roleName ?? employee.role);
   const workshop = cleanText(employee.defaultWorkshop ?? employee.workshop);
-  const machine = cleanText(employee.defaultMachineId ?? employee.defaultMachine ?? employee.machineId ?? employee.machine);
+  const machine = firstText(
+    employee.configuredMachineLabel,
+    employee.defaultMachineLabel,
+    employee.defaultMachineId,
+    employee.defaultMachine,
+    employee.machineId,
+    employee.machine,
+  );
   const combined = `${role} ${workshop} ${machine}`;
   const deterministic = [];
   const reasons = [];
 
   if (/司机/.test(role)) addSuggestion(deterministic, reasons, "PAY-DRIVER", "权限岗位明确为司机");
   if (/技术|机修|运维/.test(role)) addSuggestion(deterministic, reasons, "PAY-TECH", "权限岗位明确为技术/机修/运维");
-  if (/丝印/.test(workshop) || /^PRINT-0[1-4]$/i.test(machine)) {
+  if (/丝印/.test(workshop) || /^PRINT-0[1-4]$/i.test(machine) || /^[1-4]号(?:丝印|印刷)机$/.test(machine)) {
     addSuggestion(deterministic, reasons, "PAY-PRINT", "丝印车间或固定印刷机台");
   }
   if (/提手/.test(combined)) addSuggestion(deterministic, reasons, "PAY-HANDLE", "工作安排明确为提手工序");
-  if (/^[1-9]号机$/.test(machine)) addSuggestion(deterministic, reasons, "PAY-BAG", "固定绑定1–9号制袋机");
+  if (/^[1-9]号(?:制袋)?机$/.test(machine)) addSuggestion(deterministic, reasons, "PAY-BAG", "固定绑定1–9号制袋机");
 
   const exact = unique(deterministic);
   if (exact.length === 1) {
@@ -116,4 +123,12 @@ function finiteOrNull(value) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
+}
+
+function firstText(...values) {
+  for (const value of values) {
+    const text = cleanText(value);
+    if (text) return text;
+  }
+  return "";
 }
