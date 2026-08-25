@@ -417,6 +417,7 @@ function toEmployee(row) {
     defaultMachineId: clean(row.default_machine_id),
     birthDate: clean(row.birth_date),
     hireDate: clean(row.hire_date),
+    payrollPositionKey: clean(row.payroll_position_key),
     baseHourlyWage: number(row.base_hourly_wage),
     positionAllowanceHourly: number(row.position_allowance_hourly),
     wageEffectiveFrom: clean(row.wage_effective_from),

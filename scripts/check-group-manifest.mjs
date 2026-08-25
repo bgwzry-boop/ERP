@@ -151,6 +151,7 @@ export const CHECK_GROUPS = Object.freeze({
     "driver-delivery-dispatch:check",
     "driver-device-field-test:check",
     "driver-delivery-task-read:check",
+    "attendance-payroll:check",
     "runtime-identity:check",
     "build",
     "controlled-release:check",

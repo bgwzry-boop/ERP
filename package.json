@@ -128,7 +128,7 @@
     "deli-attendance-gateway:production": "node server/startDeliAttendanceGatewayServer.mjs",
     "deli-attendance-gateway:production-preflight": "node scripts/run-deli-attendance-gateway-production-preflight.mjs",
     "deli-attendance-gateway:production-preflight:check": "node scripts/check-deli-attendance-gateway-production-preflight.mjs",
-    "attendance-payroll:check": "node scripts/check-attendance-provider.mjs && node scripts/check-deli-eplus-attendance-gateway.mjs && node scripts/check-deli-attendance-gateway-production-preflight.mjs && node scripts/check-attendance-payroll-service.mjs && node scripts/check-attendance-payroll-routes.mjs && node scripts/check-payroll-attendance-page.mjs",
+    "attendance-payroll:check": "node scripts/check-payroll-position-catalog.mjs && node scripts/check-attendance-provider.mjs && node scripts/check-deli-eplus-attendance-gateway.mjs && node scripts/check-deli-attendance-gateway-production-preflight.mjs && node scripts/check-attendance-payroll-service.mjs && node scripts/check-attendance-payroll-routes.mjs && node scripts/check-payroll-attendance-page.mjs",
     "raw-material-inbound-list-state:check": "node scripts/check-raw-material-inbound-list-state.mjs",
     "raw-material-roll-inventory-state:check": "node scripts/check-raw-material-roll-inventory-state.mjs",
     "workshop-mobile-api:check": "node scripts/check-workshop-mobile-production-packing.mjs",

@@ -4,6 +4,7 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { precheckMasterDataImportWorkbook } from "../src/domain/masterDataImportPrecheck.js";
+import { findPayrollPosition, suggestPayrollPosition } from "../shared/payrollPositionCatalog.js";
 
 const defaultOutputDir = join(".erp-local-storage", "v1-d49-employee-workbook-precheck");
 
@@ -67,12 +68,13 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence
   const payrollAttendanceReadiness = projectPayrollAttendanceReadiness(precheck, {
     required: requirePayrollAttendanceFields === true,
   });
+  const payrollPositionMapping = projectPayrollPositionMapping(precheck);
   const uploadAllowed = dedicatedWorkbook && precheck.summary?.importAllowed === true;
   const ready = uploadAllowed && coverage.complete && warningCount === 0 && payrollAttendanceReadiness.ready;
   const status = uploadAllowed ? (ready ? "passed" : "review_required") : "blocked";
   return {
     scope: "v1_d49_employee_workbook_precheck",
-    version: "v1-d49-employee-workbook-precheck-v2",
+    version: "v1-d49-employee-workbook-precheck-v3",
     status,
     ready,
     uploadAllowed,
@@ -96,9 +98,12 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence
       payrollAttendanceCompleteCount: payrollAttendanceReadiness.completeCount,
       payrollAttendanceEmployeeCount: payrollAttendanceReadiness.employeeCount,
       payrollAttendanceCoverageLabel: payrollAttendanceReadiness.coverageLabel,
+      payrollPositionConfirmedCount: payrollPositionMapping.confirmedCount,
+      payrollPositionSuggestedCount: payrollPositionMapping.suggestedCount,
     },
     roleCoverage: coverage,
     payrollAttendanceReadiness,
+    payrollPositionMapping,
     sheets: (precheck.sheets ?? []).map((sheet) => ({
       key: String(sheet.key || ""),
       label: String(sheet.label || sheet.worksheetName || ""),
@@ -115,8 +120,11 @@ export function buildD49EmployeeWorkbookPrecheck(precheck = {}, { sourceEvidence
             : `可分批上传；正式上线前仍需补齐：${coverage.missingRoleLabels.join("、") || "其余岗位"}。`,
           "正式导入后继续完成管理员复核、账号启用、临时密码发放和员工首次改密。",
           payrollAttendanceReadiness.complete
-            ? "本工作簿中的员工档案、工资基础和考勤身份映射均已填写；正式导入后仍需服务端再次校验。"
-            : `工资/考勤资料仅 ${payrollAttendanceReadiness.coverageLabel} 完整；补齐出生/入职日期、基础时薪/生效日期和考勤来源/人员编号后再生成工资。`,
+            ? "本工作簿中的员工档案、工资岗位和考勤身份映射均已填写；正式导入后仍需服务端再次校验。"
+            : `工资/考勤资料仅 ${payrollAttendanceReadiness.coverageLabel} 完整；补齐出生/入职日期、工资岗位键和考勤来源/人员编号后再生成工资。`,
+          payrollPositionMapping.suggestedCount
+            ? `已有 ${payrollPositionMapping.suggestedCount} 行可按岗位/车间/机台或旧工资字段生成候选；负责人逐行复核后再填写工资岗位键，不按姓名自动确认。`
+            : "工资岗位无法确定的行由负责人选择，不按员工姓名或模糊岗位静默匹配。",
           "只有D49岗位矩阵达到8/8且账号未锁定、未过期，车间岗已绑定默认机台，才算身份侧就绪。",
         ]
       : [
@@ -142,6 +150,7 @@ function projectPayrollAttendanceReadiness(precheck = {}, { required = false } =
       incompleteCount: Math.max(0, employeeCount - completeCount),
       profileReadyCount: Number(formalCoverage.profileReadyCount || 0),
       wageReadyCount: Number(formalCoverage.wageReadyCount || 0),
+      payrollPositionReadyCount: Number(formalCoverage.payrollPositionReadyCount ?? formalCoverage.wageReadyCount ?? 0),
       attendanceMappingReadyCount: Number(formalCoverage.attendanceMappingReadyCount || 0),
       coverageLabel: `${completeCount}/${employeeCount}`,
     };
@@ -152,7 +161,7 @@ function projectPayrollAttendanceReadiness(precheck = {}, { required = false } =
   const rowStates = employeeRows.map((row) => {
     const values = row.values ?? {};
     const profileReady = Boolean(cleanText(values["出生日期"]) && cleanText(values["入职日期"]));
-    const wageReady = Number(values["基础时薪"]) > 0 && Boolean(cleanText(values["生效日期"]));
+    const wageReady = Boolean(findPayrollPosition(values["工资岗位键"]));
     const attendanceReady = Boolean(cleanText(values["考勤来源"]) && cleanText(values["考勤人员编号"]));
     return { profileReady, wageReady, attendanceReady, complete: profileReady && wageReady && attendanceReady };
   });
@@ -168,8 +177,41 @@ function projectPayrollAttendanceReadiness(precheck = {}, { required = false } =
     incompleteCount: Math.max(0, employeeCount - completeCount),
     profileReadyCount: rowStates.filter((row) => row.profileReady).length,
     wageReadyCount: rowStates.filter((row) => row.wageReady).length,
+    payrollPositionReadyCount: rowStates.filter((row) => row.wageReady).length,
     attendanceMappingReadyCount: rowStates.filter((row) => row.attendanceReady).length,
     coverageLabel: `${completeCount}/${employeeCount}`,
+  };
+}
+
+function projectPayrollPositionMapping(precheck = {}) {
+  const employeeRows = (precheck.stagedRows ?? [])
+    .find((sheet) => sheet.sheetKey === "employees_machines")
+    ?.rows ?? [];
+  const suggestions = employeeRows.map((row) => {
+    const values = row.values ?? {};
+    return suggestPayrollPosition({
+      payrollPositionKey: values["工资岗位键"],
+      roleName: values["角色"],
+      defaultWorkshop: values["默认车间"],
+      defaultMachine: values["默认机台"],
+      baseHourlyWage: values["基础时薪"],
+      positionAllowanceHourly: values["岗位补贴/小时"],
+    });
+  });
+  const suggestedByPosition = {};
+  for (const suggestion of suggestions.filter((item) => item.status === "suggested")) {
+    const key = cleanText(suggestion.payrollPositionKey);
+    if (key) suggestedByPosition[key] = (suggestedByPosition[key] ?? 0) + 1;
+  }
+  return {
+    employeeCount: employeeRows.length,
+    confirmedCount: suggestions.filter((item) => item.status === "confirmed").length,
+    suggestedCount: suggestions.filter((item) => item.status === "suggested").length,
+    ambiguousCount: suggestions.filter((item) => item.status === "ambiguous").length,
+    unmatchedCount: suggestions.filter((item) => item.status === "unmatched").length,
+    suggestedByPosition,
+    namesExposed: false,
+    automaticPersistenceAllowed: false,
   };
 }
 
@@ -304,9 +346,17 @@ function formatMarkdown(report) {
     "",
     `- 完整：${report.payrollAttendanceReadiness.coverageLabel}`,
     `- 出生/入职日期完整：${report.payrollAttendanceReadiness.profileReadyCount}/${report.payrollAttendanceReadiness.employeeCount}`,
-    `- 基础时薪/生效日期完整：${report.payrollAttendanceReadiness.wageReadyCount}/${report.payrollAttendanceReadiness.employeeCount}`,
+    `- 工资岗位键已确认：${report.payrollAttendanceReadiness.payrollPositionReadyCount}/${report.payrollAttendanceReadiness.employeeCount}`,
     `- 考勤来源/人员编号完整：${report.payrollAttendanceReadiness.attendanceMappingReadyCount}/${report.payrollAttendanceReadiness.employeeCount}`,
     `- 本次检查${report.payrollAttendanceReadiness.required ? "要求" : "不要求"}工资与考勤资料全部完整；不完整时仍可分批导入，但不得生成工资或声称工资就绪。`,
+    "",
+    "## 工资岗位映射",
+    "",
+    `- 已确认：${report.payrollPositionMapping.confirmedCount}`,
+    `- 可生成待复核候选：${report.payrollPositionMapping.suggestedCount}`,
+    `- 多候选：${report.payrollPositionMapping.ambiguousCount}`,
+    `- 无法匹配：${report.payrollPositionMapping.unmatchedCount}`,
+    "- 候选不按姓名生成，也不会自动写入；负责人逐行复核后才可保存。",
     "",
     "## 问题",
     "",

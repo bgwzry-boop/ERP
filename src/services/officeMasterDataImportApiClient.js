@@ -750,6 +750,7 @@ export async function updateOfficeMasterDataEmployeeProfile(input = {}, options 
         body: {
           birthDate: cleanText(input.birthDate),
           hireDate: cleanText(input.hireDate),
+          payrollPositionKey: cleanText(input.payrollPositionKey),
           baseHourlyWage: input.baseHourlyWage,
           positionAllowanceHourly: input.positionAllowanceHourly,
           wageEffectiveFrom: cleanText(input.wageEffectiveFrom),
@@ -1148,6 +1149,7 @@ function normalizeEmployeeAccountReview(review, extra = {}) {
     birthDate: cleanText(review.birthDate),
     age: review.age === null || review.age === undefined ? null : Number(review.age),
     hireDate: cleanText(review.hireDate),
+    payrollPositionKey: cleanText(review.payrollPositionKey),
     seniorityYears: review.seniorityYears === null || review.seniorityYears === undefined
       ? null
       : Number(review.seniorityYears),

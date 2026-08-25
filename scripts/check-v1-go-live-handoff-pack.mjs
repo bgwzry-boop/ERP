@@ -837,7 +837,7 @@ assert.match(
   d49EmployeeIntakeGuide,
   /run-d49-employee-workbook-precheck\.mjs --file <filled-workbook\.xlsx> --require-payroll-attendance-fields --json/,
 );
-assert.match(d49EmployeeIntakeGuide, /全员出生\/入职日期、基础时薪\/生效日期及考勤来源\/人员编号/);
+assert.match(d49EmployeeIntakeGuide, /全员出生\/入职日期、工资岗位键及考勤来源\/人员编号/);
 assert.match(d49EmployeeIntakeGuide, /只有`uploadAllowed=true`才进入网页上传/);
 assert.match(d49WorkbookXml, /name="员工机台"/);
 assert.match(d49WorkbookXml, /name="示例-员工机台"/);

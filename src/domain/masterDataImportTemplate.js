@@ -11,7 +11,7 @@ import {
   v1RuntimeEmployeeRoleKeys,
 } from "../../shared/auth/roleCatalog.js";
 
-export const MASTER_DATA_IMPORT_TEMPLATE_VERSION = "p0-master-data-import-template-v2";
+export const MASTER_DATA_IMPORT_TEMPLATE_VERSION = "p0-master-data-import-template-v3";
 export const MASTER_DATA_IMPORT_WORKBOOK_FORMAT = "XLSX Office Open XML";
 export const MASTER_DATA_IMPORT_CONTENT_TYPE = XLSX_CONTENT_TYPE;
 export const MASTER_DATA_IMPORT_FILE_EXTENSION = XLSX_FILE_EXTENSION;
@@ -182,7 +182,7 @@ const templateDefinitions = [
   {
     key: "employees_machines",
     label: "员工机台",
-    description: "员工编号是稳定身份；主岗位必填，兼任岗位填在附加角色；可批量维护出生/入职日期、工资基础和外部考勤编号，绝不按姓名关联打卡。",
+    description: "员工编号是稳定身份；主岗位与工资岗位分开维护；可批量维护出生/入职日期、工资岗位键和外部考勤编号，绝不按姓名关联打卡。旧工资字段仅兼容历史表，不作为正式费率权威。",
     worksheetName: "员工机台",
     requiredFields: ["员工编号", "员工姓名", "角色"],
     conditionalRequiredFields: [],
@@ -196,6 +196,7 @@ const templateDefinitions = [
       "附加角色",
       "默认车间",
       "默认机台",
+      "工资岗位键",
       "基础时薪",
       "岗位补贴/小时",
       "生效日期",
@@ -218,6 +219,7 @@ const templateDefinitions = [
       "",
       "1号车间",
       "1号机",
+      "PAY-BAG",
       10,
       5,
       "2026-07-01",

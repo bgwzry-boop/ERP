@@ -441,6 +441,7 @@ try {
       profileStatus: "merged_duplicate",
       requestedEnabled: false,
       remark: "已合并至 EMP-RUNTIME-CANONICAL-CHECK",
+      payrollPositionKey: "PAY-OFFICE",
       updatedAt: issuedAt,
     },
   ];
@@ -452,6 +453,7 @@ try {
   assert(saveSql.includes("UPDATE employees"));
   assert(saveSql.includes("employee_assignment_updates"));
   assert(saveSql.includes("employee_identity_updates"));
+  assert(saveSql.includes("payroll_position_key = employee_identity_updates.payroll_position_key"));
   assert(saveSql.includes("updated_employee_identities"));
   assert(saveSql.includes("departed_at = employee_identity_updates.departed_at"));
   assert(saveSql.includes("departure_effective_date = employee_identity_updates.departure_effective_date"));

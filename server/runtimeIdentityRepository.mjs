@@ -190,6 +190,7 @@ SELECT json_build_object(
       'defaultMachineId', employees.default_machine_id,
       'birthDate', COALESCE(employees.birth_date::TEXT, ''),
       'hireDate', COALESCE(employees.hire_date::TEXT, ''),
+      'payrollPositionKey', employees.payroll_position_key,
       'baseHourlyWage', employees.base_hourly_wage,
       'positionAllowanceHourly', employees.position_allowance_hourly,
       'wageEffectiveFrom', COALESCE(employees.wage_effective_from::TEXT, ''),
@@ -312,7 +313,7 @@ updated_employee_assignments AS (
 ),
 employee_identity_updates (
   id, name, account_enabled, profile_status, requested_enabled, remark,
-  birth_date, hire_date, base_hourly_wage, position_allowance_hourly, wage_effective_from,
+  birth_date, hire_date, payroll_position_key, base_hourly_wage, position_allowance_hourly, wage_effective_from,
   attendance_provider, attendance_external_id, attendance_mapping_updated_by,
   attendance_mapping_updated_at, departed_at, departure_effective_date, departed_by, departure_reason, updated_at
 ) AS (
@@ -320,7 +321,7 @@ employee_identity_updates (
     ? `VALUES\n${employeeIdentityRows.join(",\n")}`
     : `SELECT
         NULL::TEXT, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT,
-        NULL::DATE, NULL::DATE, NULL::NUMERIC, NULL::NUMERIC, NULL::DATE,
+        NULL::DATE, NULL::DATE, NULL::TEXT, NULL::NUMERIC, NULL::NUMERIC, NULL::DATE,
         NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ,
         NULL::TIMESTAMPTZ, NULL::DATE, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ
       WHERE FALSE`}
@@ -335,6 +336,7 @@ updated_employee_identities AS (
     remark = employee_identity_updates.remark,
     birth_date = employee_identity_updates.birth_date,
     hire_date = employee_identity_updates.hire_date,
+    payroll_position_key = employee_identity_updates.payroll_position_key,
     base_hourly_wage = employee_identity_updates.base_hourly_wage,
     position_allowance_hourly = employee_identity_updates.position_allowance_hourly,
     wage_effective_from = employee_identity_updates.wage_effective_from,
@@ -659,6 +661,7 @@ function normalizeRuntimeIdentityEmployeeUpdates(records = []) {
       remark: cleanText(record?.remark),
       birthDate: normalizeIsoDate(record?.birthDate ?? record?.birth_date),
       hireDate: normalizeIsoDate(record?.hireDate ?? record?.hire_date),
+      payrollPositionKey: cleanText(record?.payrollPositionKey ?? record?.payroll_position_key),
       baseHourlyWage: nonNegativeNumber(record?.baseHourlyWage ?? record?.base_hourly_wage),
       positionAllowanceHourly: nonNegativeNumber(
         record?.positionAllowanceHourly ?? record?.position_allowance_hourly,
@@ -697,6 +700,7 @@ function runtimeEmployeeIdentitySqlRow(record, parameters) {
     ${parameters.nullableText(record.remark)},
     ${parameters.nullableText(record.birthDate)}::date,
     ${parameters.nullableText(record.hireDate)}::date,
+    ${parameters.text(record.payrollPositionKey)},
     ${parameters.number(record.baseHourlyWage)},
     ${parameters.number(record.positionAllowanceHourly)},
     ${parameters.nullableText(record.wageEffectiveFrom)}::date,
@@ -869,6 +873,7 @@ function normalizeRuntimeIdentityEmployeeAccount(record = {}) {
     defaultMachineId: cleanText(record.defaultMachineId ?? record.default_machine_id),
     birthDate: normalizeIsoDate(record.birthDate ?? record.birth_date),
     hireDate: normalizeIsoDate(record.hireDate ?? record.hire_date),
+    payrollPositionKey: cleanText(record.payrollPositionKey ?? record.payroll_position_key),
     baseHourlyWage: nonNegativeNumber(record.baseHourlyWage ?? record.base_hourly_wage),
     positionAllowanceHourly: nonNegativeNumber(
       record.positionAllowanceHourly ?? record.position_allowance_hourly,

@@ -9,6 +9,7 @@ const clientSource = readFileSync(new URL("../src/services/officeAttendancePayro
 const openApiSource = readFileSync(new URL("../docs/development/erp-api-openapi-draft.yaml", import.meta.url), "utf8");
 const reviewMobileEntrySource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/FormalMobileEntry.jsx", import.meta.url), "utf8");
 const adjustmentEvidencePreviewSource = readFileSync(new URL("../qa/payroll-adjustment-evidence-preview.html", import.meta.url), "utf8");
+const payrollCatalogSource = readFileSync(new URL("../shared/payrollPositionCatalog.js", import.meta.url), "utf8");
 
 assert.match(appSource, /renderedPage === "payroll"/);
 assert.match(appSource, /<PayrollAttendancePage[\s\S]*authState=\{authState\}/);
@@ -66,11 +67,13 @@ assert.match(pageSource, /金额变化时必填/);
 assert.match(pageSource, /accept="image\/\*,\.pdf,application\/pdf"/);
 assert.match(pageSource, /岗位工资标准/);
 assert.match(pageSource, /已读取《26年工资 \(2\)\.xlsx》的岗位与薪资构成/);
-assert.match(pageSource, /制袋机-理袋女工[\s\S]*?baseRate: 10[\s\S]*?allowanceRate: 5/);
-assert.match(pageSource, /送货司机[\s\S]*?mode: "daily"[\s\S]*?baseRate: 180/);
+assert.match(pageSource, /PAYROLL_POSITION_CATALOG/);
+assert.match(pageSource, /positionRates: payrollPositionPolicyRates\(\)/);
+assert.match(payrollCatalogSource, /制袋机-理袋女工[\s\S]*?baseHourlyWage: 10[\s\S]*?positionAllowanceHourly: 5/);
+assert.match(payrollCatalogSource, /送货司机[\s\S]*?mode: "daily"[\s\S]*?dailyWage: 180/);
 assert.match(pageSource, /工资＝日薪 × 出勤天数＋综合绩效＋工龄奖/);
-assert.match(pageSource, /years: 1, amount: 30/);
-assert.match(pageSource, /years: 8, amount: 135/);
+assert.match(payrollCatalogSource, /minYears: 1, monthlyAmount: 30/);
+assert.match(payrollCatalogSource, /minYears: 8, monthlyAmount: 135/);
 assert.match(openApiSource, /operationId: getPayrollRun[\s\S]*?#\/components\/schemas\/PayrollRunDetailResponse/);
 assert.match(openApiSource, /operationId: getEmployeePayrollHistory[\s\S]*?#\/components\/schemas\/PayrollHistoryResponse/);
 assert.match(openApiSource, /operationId: adjustPayrollDraftLine[\s\S]*?#\/components\/schemas\/PayrollLineAdjustmentResponse/);

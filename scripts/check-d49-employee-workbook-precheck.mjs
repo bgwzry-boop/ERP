@@ -25,7 +25,7 @@ const validRun = await runNode([runner, "--file", validPath, "--output-dir", joi
 assert.equal(validRun.status, 0, validRun.stderr || validRun.stdout);
 const validResult = JSON.parse(validRun.stdout);
 assert.equal(validResult.scope, "v1_d49_employee_workbook_precheck");
-assert.equal(validResult.version, "v1-d49-employee-workbook-precheck-v2");
+assert.equal(validResult.version, "v1-d49-employee-workbook-precheck-v3");
 assert.equal(validResult.status, "review_required");
 assert.equal(validResult.uploadAllowed, true);
 assert.equal(validResult.summary.employeeRowCount, 1);
@@ -33,6 +33,10 @@ assert.equal(validResult.summary.coverageLabel, "1/8");
 assert.equal(validResult.payrollAttendanceReadiness.required, false);
 assert.equal(validResult.payrollAttendanceReadiness.ready, true);
 assert.equal(validResult.payrollAttendanceReadiness.employeeCount, 1);
+assert.equal(validResult.payrollPositionMapping.confirmedCount, 1);
+assert.equal(validResult.payrollPositionMapping.suggestedCount, 0);
+assert.equal(validResult.payrollPositionMapping.namesExposed, false);
+assert.equal(validResult.payrollPositionMapping.automaticPersistenceAllowed, false);
 assert.equal(validResult.safeguards.readOnly, true);
 assert.equal(validResult.safeguards.formalDataWritten, false);
 assert.equal(validResult.safeguards.stagedRowsIncluded, false);
@@ -70,6 +74,7 @@ assert.equal(payrollRequiredResult.payrollAttendanceReadiness.required, true);
 assert.equal(payrollRequiredResult.payrollAttendanceReadiness.completeCount, 0);
 assert.equal(payrollRequiredResult.payrollAttendanceReadiness.incompleteCount, 1);
 assert.equal(payrollRequiredResult.payrollAttendanceReadiness.coverageLabel, "0/1");
+assert.equal(payrollRequiredResult.payrollPositionMapping.unmatchedCount, 1);
 assert.match(readFileSync(join(root, "payroll-required-report", "latest.zh-CN.md"), "utf8"), /工资与考勤资料完整度/);
 assertNoPrivateData(payrollRequiredRun.stdout);
 

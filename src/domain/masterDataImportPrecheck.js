@@ -11,8 +11,9 @@ import {
   v1RuntimeEmployeeRoleKeys,
 } from "../../shared/auth/roleCatalog.js";
 import { isValidEmployeeNumber } from "../../shared/auth/employeeIdentity.js";
+import { PAYROLL_POSITION_CATALOG, findPayrollPosition } from "../../shared/payrollPositionCatalog.js";
 
-export const MASTER_DATA_IMPORT_PRECHECK_VERSION = "p0-master-data-import-precheck-v2";
+export const MASTER_DATA_IMPORT_PRECHECK_VERSION = "p0-master-data-import-precheck-v3";
 
 const severityOrder = {
   error: 3,
@@ -136,7 +137,7 @@ function buildEmployeePayrollAttendanceCoverage(sheetResults) {
   const rows = (employeeSheet?.rows ?? []).map((row) => {
     const values = row.values ?? {};
     const profileReady = Boolean(cleanText(values["出生日期"]) && cleanText(values["入职日期"]));
-    const wageReady = (parseNumber(values["基础时薪"]) ?? 0) > 0 && Boolean(cleanText(values["生效日期"]));
+    const wageReady = Boolean(findPayrollPosition(values["工资岗位键"]));
     const attendanceMappingReady = Boolean(cleanText(values["考勤来源"]) && cleanText(values["考勤人员编号"]));
     return {
       profileReady,
@@ -155,6 +156,7 @@ function buildEmployeePayrollAttendanceCoverage(sheetResults) {
     incompleteCount: Math.max(0, employeeCount - completeCount),
     profileReadyCount: rows.filter((row) => row.profileReady).length,
     wageReadyCount: rows.filter((row) => row.wageReady).length,
+    payrollPositionReadyCount: rows.filter((row) => row.wageReady).length,
     attendanceMappingReadyCount: rows.filter((row) => row.attendanceMappingReady).length,
     coverageLabel: `${completeCount}/${employeeCount}`,
   };
@@ -297,6 +299,17 @@ function checkBusinessRules(spec, row, sheetIssues, allIssues) {
     const birthDate = cleanText(row.values["出生日期"]);
     const hireDate = cleanText(row.values["入职日期"]);
     const wageEffectiveFrom = cleanText(row.values["生效日期"]);
+    const payrollPositionKey = cleanText(row.values["工资岗位键"]);
+    if (payrollPositionKey && !findPayrollPosition(payrollPositionKey)) {
+      addIssue(
+        "error",
+        row,
+        "工资岗位键",
+        `工资岗位键不在已确认目录中，允许值：${PAYROLL_POSITION_CATALOG.map((position) => position.key).join("、")}。`,
+        sheetIssues,
+        allIssues,
+      );
+    }
     if (isValidIsoDate(birthDate) && isValidIsoDate(hireDate) && birthDate >= hireDate) {
       addIssue("error", row, "入职日期", "入职日期必须晚于出生日期。", sheetIssues, allIssues);
     }

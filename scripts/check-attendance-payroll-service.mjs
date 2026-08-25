@@ -9,8 +9,10 @@ import {
   createLocalAttendancePayrollRepository,
 } from "../server/attendancePayrollRepository.mjs";
 import { createAttendancePayrollService } from "../server/services/attendancePayrollService.mjs";
+import { payrollPositionPolicyRates } from "../shared/payrollPositionCatalog.js";
 
 const fixedNow = new Date("2026-09-02T10:00:00+08:00");
+const testPositionRates = payrollPositionPolicyRates();
 const sourcePunches = [
   ["P-1", "2026-08-10T07:55:00+08:00"],
   ["P-2", "2026-08-10T12:00:00+08:00"],
@@ -38,6 +40,7 @@ const workspace = {
       profileStatus: "active",
       birthDate: "1990-03-01",
       hireDate: "2021-09-01",
+      payrollPositionKey: "PAY-OFFICE",
       baseHourlyWage: 10,
       positionAllowanceHourly: 2,
       wageEffectiveFrom: "2026-01-01",
@@ -287,6 +290,44 @@ await assert.rejects(
   service.savePayrollPolicyVersion({
     workspace,
     body: {
+      versionLabel: "缺少岗位费率",
+      effectiveFrom: "2026-08-01",
+      status: "draft",
+      policy: { regularMinutesPerDay: 480, overtimeMultiplier: 1, seniorityAwards: [] },
+    },
+    operatorId: "U-MANAGER-A",
+  }),
+  (error) => error.code === "PAYROLL_POLICY_POSITION_RATES_INVALID",
+);
+await assert.rejects(
+  service.savePayrollPolicyVersion({
+    workspace,
+    body: {
+      versionLabel: "日薪岗位混入时薪",
+      effectiveFrom: "2026-08-01",
+      status: "draft",
+      policy: {
+        regularMinutesPerDay: 480,
+        overtimeMultiplier: 1,
+        seniorityAwards: [],
+        positionRates: [{
+          payrollPositionKey: "PAY-DRIVER",
+          positionName: "送货司机",
+          mode: "daily",
+          dailyWage: 180,
+          baseHourlyWage: 10,
+        }],
+      },
+    },
+    operatorId: "U-MANAGER-A",
+  }),
+  (error) => error.code === "PAYROLL_POLICY_DAILY_HOURLY_FIELDS_REJECTED",
+);
+
+await assert.rejects(
+  service.savePayrollPolicyVersion({
+    workspace,
+    body: {
       versionLabel: "试图跳过草稿直接发布",
       effectiveFrom: "2026-08-01",
       status: "published",
@@ -294,6 +335,7 @@ await assert.rejects(
         regularMinutesPerDay: 480,
         overtimeMultiplier: 1.5,
         seniorityAwards: [{ minYears: 5, monthlyAmount: 200 }],
+        positionRates: testPositionRates,
       },
     },
     operatorId: "U-MANAGER-A",
@@ -310,6 +352,7 @@ const savedPolicyDraft = await service.savePayrollPolicyVersion({
       regularMinutesPerDay: 480,
       overtimeMultiplier: 1.5,
       seniorityAwards: [{ minYears: 5, monthlyAmount: 200 }],
+      positionRates: testPositionRates,
     },
   },
   operatorId: "U-MANAGER-A",
@@ -326,7 +369,7 @@ const savedPolicy = await service.savePayrollPolicyVersion({
   operatorId: "U-MANAGER-A",
 });
 assert.equal(savedPolicy.policyVersion.createdBy, "U-MANAGER-A");
-assert.equal(savedPolicy.policyVersion.policy.schemaVersion, "payroll-policy-v1");
+assert.equal(savedPolicy.policyVersion.policy.schemaVersion, "payroll-policy-v2");
 assert.match(savedPolicy.policyVersion.integrityDigest, /^[a-f0-9]{64}$/);
 const idempotentPolicyRetry = await service.savePayrollPolicyVersion({
   workspace,
@@ -339,6 +382,7 @@ const idempotentPolicyRetry = await service.savePayrollPolicyVersion({
       regularMinutesPerDay: 480,
       overtimeMultiplier: 1.5,
       seniorityAwards: [{ minYears: 5, monthlyAmount: 200 }],
+      positionRates: testPositionRates,
     },
   },
   operatorId: "U-MANAGER-A",
@@ -363,6 +407,7 @@ await assert.rejects(
         regularMinutesPerDay: 420,
         overtimeMultiplier: 2,
         seniorityAwards: [],
+        positionRates: testPositionRates,
       },
     },
     operatorId: "U-MANAGER-A",
@@ -375,7 +420,7 @@ const conflictingPolicyDraft = await service.savePayrollPolicyVersion({
     versionLabel: "冲突生效日期",
     effectiveFrom: "2026-08-01",
     status: "draft",
-    policy: { regularMinutesPerDay: 480, overtimeMultiplier: 1.5 },
+    policy: { regularMinutesPerDay: 480, overtimeMultiplier: 1.5, positionRates: testPositionRates },
   },
   operatorId: "U-MANAGER-A",
 });
@@ -397,7 +442,7 @@ const draftPolicy = await service.savePayrollPolicyVersion({
     status: "draft",
     createdBy: "U-SPOOFED-CREATOR",
     createdAt: "2000-01-01T00:00:00.000Z",
-    policy: { regularMinutesPerDay: 480, overtimeMultiplier: 1.5, seniorityAwards: [] },
+    policy: { regularMinutesPerDay: 480, overtimeMultiplier: 1.5, seniorityAwards: [], positionRates: testPositionRates },
   },
   operatorId: "U-MANAGER-A",
 });
@@ -410,7 +455,7 @@ const publishedDraftPolicy = await service.savePayrollPolicyVersion({
     versionLabel: "2027 年计薪规则草稿",
     effectiveFrom: "2027-01-01",
     status: "published",
-    policy: { regularMinutesPerDay: 480, overtimeMultiplier: 1.5, seniorityAwards: [] },
+    policy: { regularMinutesPerDay: 480, overtimeMultiplier: 1.5, seniorityAwards: [], positionRates: testPositionRates },
   },
   operatorId: "U-MANAGER-A",
 });
@@ -427,6 +472,35 @@ const selfBeforeReview = service.buildOwnAttendance({
 assert.equal(selfBeforeReview.summary.pendingExceptionCount, 1);
 assert.equal(selfBeforeReview.summary.estimatedExcludedDayCount, 1);
 assert.equal(selfBeforeReview.payrollEstimate.totalWorkMinutes, 550);
+
+const dailyEmployeeId = "ERP-DRIVER-DAILY";
+const dailyAttendance = service.buildEmployeeAttendance({
+  workspace: {
+    employees: [{
+      id: dailyEmployeeId,
+      name: "日薪司机",
+      roleName: "司机",
+      profileStatus: "active",
+      birthDate: "1990-01-01",
+      hireDate: "2020-01-01",
+      payrollPositionKey: "PAY-DRIVER",
+      attendanceProvider: "deli",
+      attendanceExternalId: "DL-DRIVER-DAILY",
+    }],
+    attendancePunches: workspace.attendancePunches
+      .filter((punch) => cleanPunchDate(punch) === "2026-08-10")
+      .map((punch) => ({ ...punch, employeeId: dailyEmployeeId })),
+    attendanceDayReviews: [],
+    payrollPolicyVersions: [savedPolicy.policyVersion],
+  },
+  employeeId: dailyEmployeeId,
+  month: "2026-08",
+});
+assert.equal(dailyAttendance.payrollEstimate.calculationMode, "daily");
+assert.equal(dailyAttendance.payrollEstimate.attendanceDayCount, 1);
+assert.equal(dailyAttendance.payrollEstimate.baseWage, 180);
+assert.equal(dailyAttendance.payrollEstimate.positionAllowance, 0);
+assert.equal(dailyAttendance.payrollEstimate.overtimeWage, 0);
 
 await service.reviewAttendanceDay({
   workspace,
@@ -632,7 +706,7 @@ assert.equal(workspace.payrollLineAdjustments.length, 0);
 
 const adjusted = await adjustmentAttempt(["ATT-PAYROLL-ADJUSTMENT-1"]);
 assert.equal(adjusted.payrollLine.performanceAward, 300);
-assert.equal(adjusted.payrollLine.netWage, originalNetWage + 225);
+assert.equal(adjusted.payrollLine.netWage, Number((originalNetWage + 225).toFixed(2)));
 assert.equal(workspace.payrollLineAdjustments.length, 1);
 assert.deepEqual(workspace.payrollLineAdjustments[0].evidenceAttachmentIds, ["ATT-PAYROLL-ADJUSTMENT-1"]);
 assert.deepEqual(workspace.payrollLineAdjustments[0].previousValues, {
@@ -655,13 +729,13 @@ assert.ok(adjustmentQuery.values.includes("本月绩效确认；请假与其他�
 const history = service.buildPayrollHistory({ workspace, employeeId: "ERP-0001" });
 assert.equal(history.total, 1);
 assert.equal(history.items[0].adjustments.length, 1);
-assert.equal(history.items[0].payrollLine.netWage, originalNetWage + 225);
+assert.equal(history.items[0].payrollLine.netWage, Number((originalNetWage + 225).toFixed(2)));
 
 const payrollExport = service.buildPayrollExport({ workspace, payrollRunId: draft.payrollRun.id });
 assert.match(payrollExport.fileName, /工资表-2026-08-第1版-draft\.csv/);
 assert.equal(payrollExport.rows.length, 1);
 assert.equal(payrollExport.rows[0].name, "测试员工");
-assert.equal(payrollExport.rows[0].netWage, originalNetWage + 225);
+assert.equal(payrollExport.rows[0].netWage, Number((originalNetWage + 225).toFixed(2)));
 assert.match(payrollExport.digest, /^[a-f0-9]{64}$/);
 await assert.rejects(
   service.createPayrollExport({
@@ -782,6 +856,7 @@ const employmentBoundaryWorkspace = {
       profileStatus: "departed",
       birthDate: "1990-01-01",
       hireDate: "2020-01-01",
+      payrollPositionKey: "PAY-OFFICE",
       departedAt: "2026-08-25T09:30:00+08:00",
       departureEffectiveDate: "2026-08-20",
       baseHourlyWage: 10,
@@ -797,6 +872,7 @@ const employmentBoundaryWorkspace = {
       profileStatus: "active",
       birthDate: "1995-01-01",
       hireDate: "2026-09-01",
+      payrollPositionKey: "PAY-OFFICE",
       baseHourlyWage: 10,
       positionAllowanceHourly: 0,
       wageEffectiveFrom: "2026-09-01",
@@ -836,7 +912,7 @@ const boundaryPolicyDraft = await employmentBoundaryService.savePayrollPolicyVer
     versionLabel: "八月离职结算规则",
     effectiveFrom: "2026-08-01",
     status: "draft",
-    policy: { regularMinutesPerDay: 480, overtimeMultiplier: 1.5, seniorityAwards: [] },
+    policy: { regularMinutesPerDay: 480, overtimeMultiplier: 1.5, seniorityAwards: [], positionRates: testPositionRates },
   },
   operatorId: "U-MANAGER-A",
 });
@@ -919,3 +995,7 @@ assert.match(employmentWindowMigration, /employees_departure_boundary_required/)
 assert.match(employmentWindowMigration, /idx_employees_employment_window/);
 
 console.log("Attendance and payroll service checks passed.");
+
+function cleanPunchDate(punch = {}) {
+  return String(punch.localWorkDate || punch.local_work_date || punch.workDate || punch.work_date || punch.punchedAt || punch.punched_at || "").slice(0, 10);
+}

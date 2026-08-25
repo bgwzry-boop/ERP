@@ -25,6 +25,7 @@ import {
   MasterDataMaintenanceListPane,
 } from "./MasterDataMaintenanceWorkbench.jsx";
 import { BusinessDecisionAuthorizationWorkbench } from "./BusinessDecisionAuthorizationWorkbench.jsx";
+import { PAYROLL_POSITION_CATALOG } from "../../../shared/payrollPositionCatalog.js";
 
 const MASTER_DATA_DETAIL_TABS = ["维护", "关联草稿", "复核规则"];
 const EMPLOYEE_MACHINE_DETAIL_TABS = ["维护", "机台配置", "关联草稿", "复核规则"];
@@ -423,7 +424,7 @@ export function EmployeeProfileEditor({ review, actionState, onSave }) {
     <section className="employee-profile-editor" aria-label="员工档案与考勤身份">
       <h3>员工档案</h3>
       <p className="employee-profile-editor-intro">
-        员工编号是工资、打卡和历史记录的唯一身份。考勤机人员编号只作为外部映射，不按姓名自动匹配。
+        员工编号是工资、打卡和历史记录的唯一身份。员工只绑定工资岗位，岗位费率由版本化计薪规则统一维护；考勤人员编号不按姓名自动匹配。
       </p>
       <div className="detail-form employee-profile-form">
         <label>
@@ -435,16 +436,11 @@ export function EmployeeProfileEditor({ review, actionState, onSave }) {
           <input type="date" value={draft.hireDate} onChange={(event) => update("hireDate", event.target.value)} />
         </label>
         <label>
-          <span>基础时薪</span>
-          <input type="number" min="0" step="0.01" value={draft.baseHourlyWage} onChange={(event) => update("baseHourlyWage", event.target.value)} />
-        </label>
-        <label>
-          <span>岗位补贴 / 小时</span>
-          <input type="number" min="0" step="0.01" value={draft.positionAllowanceHourly} onChange={(event) => update("positionAllowanceHourly", event.target.value)} />
-        </label>
-        <label>
-          <span>工资生效日期</span>
-          <input type="date" value={draft.wageEffectiveFrom} onChange={(event) => update("wageEffectiveFrom", event.target.value)} />
+          <span>工资岗位</span>
+          <select value={draft.payrollPositionKey} onChange={(event) => update("payrollPositionKey", event.target.value)}>
+            <option value="">待负责人复核</option>
+            {PAYROLL_POSITION_CATALOG.map((position) => <option key={position.key} value={position.key}>{position.name} · {position.key}</option>)}
+          </select>
         </label>
         <label>
           <span>考勤来源</span>
@@ -485,6 +481,7 @@ function employeeProfileDraft(review = {}) {
   return {
     birthDate: review.birthDate || "",
     hireDate: review.hireDate || "",
+    payrollPositionKey: review.payrollPositionKey || "",
     baseHourlyWage: String(review.baseHourlyWage ?? 0),
     positionAllowanceHourly: String(review.positionAllowanceHourly ?? 0),
     wageEffectiveFrom: review.wageEffectiveFrom || "",

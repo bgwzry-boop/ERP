@@ -7045,10 +7045,27 @@ components:
     PayrollPolicyDefinition:
       type: object
       additionalProperties: false
-      required: [regularMinutesPerDay, overtimeMultiplier]
+      required: [regularMinutesPerDay, overtimeMultiplier, positionRates]
       properties:
+        schemaVersion: { type: string, enum: [payroll-policy-v2] }
         regularMinutesPerDay: { type: integer, minimum: 1, maximum: 1440 }
         overtimeMultiplier: { type: number, minimum: 1, maximum: 5 }
+        positionRates:
+          type: array
+          minItems: 1
+          maxItems: 100
+          description: 每个稳定工资岗位只配置一次；hourly 使用基础时薪和小时岗位补贴，daily 仅使用日薪。
+          items:
+            type: object
+            additionalProperties: false
+            required: [payrollPositionKey, positionName, mode]
+            properties:
+              payrollPositionKey: { type: string, pattern: "^[A-Z0-9][A-Z0-9_-]{0,63}$" }
+              positionName: { type: string, minLength: 1, maxLength: 120 }
+              mode: { type: string, enum: [hourly, daily] }
+              baseHourlyWage: { type: number, exclusiveMinimum: 0, maximum: 100000 }
+              positionAllowanceHourly: { type: number, minimum: 0, maximum: 100000 }
+              dailyWage: { type: number, exclusiveMinimum: 0, maximum: 1000000 }
         seniorityAwards:
           type: array
           maxItems: 20
@@ -27092,6 +27109,9 @@ components:
         hireDate:
           type: string
           format: date
+        payrollPositionKey:
+          type: string
+          pattern: "^[A-Z0-9][A-Z0-9_-]{0,63}$"
         seniorityYears:
           type: integer
           nullable: true
@@ -27389,6 +27409,7 @@ components:
       properties:
         birthDate: { type: string, format: date }
         hireDate: { type: string, format: date }
+        payrollPositionKey: { type: string, pattern: "^[A-Z0-9][A-Z0-9_-]{0,63}$" }
         baseHourlyWage: { type: number, minimum: 0 }
         positionAllowanceHourly: { type: number, minimum: 0 }
         wageEffectiveFrom: { type: string, format: date }

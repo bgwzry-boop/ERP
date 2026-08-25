@@ -33,6 +33,7 @@ const saved = await service.updateEmployeeProfile({
   body: {
     birthDate: "1992-05-06",
     hireDate: "2020-03-01",
+    payrollPositionKey: "PAY-OFFICE",
     baseHourlyWage: 12.5,
     positionAllowanceHourly: 3,
     wageEffectiveFrom: "2026-08-01",
@@ -46,12 +47,22 @@ assert.equal(saved.statusCode, 200);
 assert.equal(saved.response.employeeAccountReview.employeeId, "ERP-0001");
 assert.equal(saved.response.employeeAccountReview.attendanceMapped, true);
 assert.equal(saved.response.employeeAccountReview.baseHourlyWage, 12.5);
+assert.equal(saved.response.employeeAccountReview.payrollPositionKey, "PAY-OFFICE");
 assert.equal(workspace.employees[0].attendanceExternalId, "DL-0001");
 assert.equal(workspace.employees[0].attendanceProvider, "deli");
 assert.equal(workspace.employees[0].attendanceMappingUpdatedBy, "U-MANAGER-A");
 assert.equal(persisted.length, 1);
 assert.equal(persisted[0].identityEmployeeUpdates[0].id, "ERP-0001");
 assert.equal(workspace.operationLogs[0].targetType, "master_data_employee_profile");
+assert.equal(workspace.operationLogs[0].after.payrollPositionKey, "PAY-OFFICE");
+
+const invalidPayrollPosition = await service.updateEmployeeProfile({
+  workspace,
+  employeeId: "ERP-0001",
+  operatorId: "U-MANAGER-A",
+  body: { payrollPositionKey: "PAY-NOT-REAL" },
+});
+assert.equal(invalidPayrollPosition.code, "MASTER_DATA_EMPLOYEE_PAYROLL_POSITION_INVALID");
 
 const conflict = await service.updateEmployeeProfile({
   workspace,

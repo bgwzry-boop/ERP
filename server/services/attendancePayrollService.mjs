@@ -53,7 +53,7 @@ export function createAttendancePayrollService(dependencies = {}) {
     const totalWorkMinutes = confirmedDays.reduce((sum, day) => sum + day.workMinutes, 0);
     const pendingExceptionCount = days.filter((day) => day.status === "pending_review").length;
     const activePolicy = findActivePayrollPolicy(workspace, `${safeMonth}-01`);
-    const estimate = activePolicy && confirmedDays.length
+    const estimate = activePolicy && confirmedDays.length && resolvePayrollPositionRate(activePolicy, employee.payrollPositionKey)
       ? calculatePayrollEstimate({ employee, days: confirmedDays, policyVersion: activePolicy, asOf: calculationAsOf })
       : null;
     return {
@@ -88,10 +88,10 @@ export function createAttendancePayrollService(dependencies = {}) {
         const confirmedDays = days.filter((day) => day.status !== "pending_review");
         const totalWorkMinutes = confirmedDays.reduce((sum, day) => sum + day.workMinutes, 0);
         const pendingExceptionCount = days.filter((day) => day.status === "pending_review").length;
-        const estimate = activePolicy && confirmedDays.length
+        const estimate = activePolicy && confirmedDays.length && resolvePayrollPositionRate(activePolicy, employee.payrollPositionKey)
           ? calculatePayrollEstimate({ employee, days: confirmedDays, policyVersion: activePolicy, asOf: calculationAsOf })
           : null;
-        const blockers = employeePayrollInputBlockers(employee, days, safeMonth);
+        const blockers = employeePayrollInputBlockers(employee, days, safeMonth, activePolicy);
         if (!activePolicy) blockers.push("计薪规则未发布");
         if (pendingExceptionCount) blockers.push(`${pendingExceptionCount} 天考勤待复核`);
         if (!attendanceImportCoverage.periodClosed) blockers.push("计薪月份尚未结束");
@@ -138,6 +138,7 @@ export function createAttendancePayrollService(dependencies = {}) {
 
   function buildPayrollReadiness({ workspace, month } = {}) {
     const workbench = buildPayrollWorkbench({ workspace, month });
+    const activePolicy = findActivePayrollPolicy(workspace, `${workbench.month}-01`);
     const employees = employeesForPayrollMonth(workspace, workbench.month);
     const activeEmployees = (workspace?.employees ?? []).filter(isCurrentPayrollEmployee);
     const hasPayrollEmployees = employees.length > 0;
@@ -151,8 +152,11 @@ export function createAttendancePayrollService(dependencies = {}) {
     const profileCompleteCount = employees.filter(
       (employee) => cleanText(employee.birthDate) && cleanText(employee.hireDate),
     ).length;
-    const wageCompleteCount = employees.filter(
-      (employee) => nonNegativeNumber(employee.baseHourlyWage) > 0 && cleanText(employee.wageEffectiveFrom),
+    const payrollPositionCompleteCount = employees.filter(
+      (employee) => cleanText(employee.payrollPositionKey),
+    ).length;
+    const policyRateCompleteCount = employees.filter(
+      (employee) => resolvePayrollPositionRate(activePolicy, employee.payrollPositionKey),
     ).length;
     const attendanceMappedCount = employees.filter(
       (employee) => cleanText(employee.attendanceProvider) && cleanText(employee.attendanceExternalId),
@@ -169,16 +173,18 @@ export function createAttendancePayrollService(dependencies = {}) {
         readyCount: profileCompleteCount,
         totalCount: employees.length,
       }),
-      readinessCriterion("wage_profiles", "本月计薪员工计薪基数和生效日期完整", hasPayrollEmployees && wageCompleteCount === employees.length, {
-        readyCount: wageCompleteCount,
+      readinessCriterion("payroll_positions", "本月计薪员工工资岗位映射完整", hasPayrollEmployees && payrollPositionCompleteCount === employees.length, {
+        readyCount: payrollPositionCompleteCount,
         totalCount: employees.length,
       }),
       readinessCriterion("attendance_mappings", "本月计薪员工考勤身份映射完整", hasPayrollEmployees && attendanceMappedCount === employees.length, {
         readyCount: attendanceMappedCount,
         totalCount: employees.length,
       }),
-      readinessCriterion("payroll_policy", "本月计薪规则已发布", Boolean(workbench.policyVersion), {
+      readinessCriterion("payroll_policy", "本月岗位费率规则已发布且覆盖全部计薪岗位", Boolean(workbench.policyVersion) && hasPayrollEmployees && policyRateCompleteCount === employees.length, {
         versionId: workbench.policyVersion?.id || "",
+        readyCount: policyRateCompleteCount,
+        totalCount: employees.length,
       }),
       readinessCriterion("attendance_import", "本月自然月考勤已整月同步且无未匹配身份", attendanceImportCoverage.complete, {
         verifiedBatchCount: attendanceImportCoverage.verifiedImports.length,
@@ -482,7 +488,7 @@ export function createAttendancePayrollService(dependencies = {}) {
     const prepared = employees.map((employee) => {
       const days = buildAttendanceDays({ workspace, employee, month });
       const pending = days.filter((day) => day.status === "pending_review");
-      for (const message of employeePayrollInputBlockers(employee, days, month)) {
+      for (const message of employeePayrollInputBlockers(employee, days, month, activePolicy)) {
         blockers.push({ employeeId: employee.id, message });
       }
       if (pending.length) blockers.push({ employeeId: employee.id, message: `${pending.length} 天考勤待复核` });
@@ -843,24 +849,41 @@ function calculatePayrollEstimate({ employee, days, policyVersion, asOf }) {
   const policy = policyVersion.policy ?? {};
   const regularMinutesPerDay = Number(policy.regularMinutesPerDay);
   const overtimeMultiplier = Number(policy.overtimeMultiplier);
+  const positionRate = resolvePayrollPositionRate(policyVersion, employee.payrollPositionKey);
+  if (!positionRate) {
+    throw businessError(409, "PAYROLL_POSITION_RATE_REQUIRED", "员工工资岗位未在当前计薪规则中配置费率。");
+  }
   const totalWorkMinutes = days.reduce((sum, day) => sum + day.workMinutes, 0);
   const regularMinutes = days.reduce(
     (sum, day) => sum + Math.min(day.workMinutes, regularMinutesPerDay),
     0,
   );
   const overtimeMinutes = Math.max(0, totalWorkMinutes - regularMinutes);
-  const hourlyWage = nonNegativeNumber(employee.baseHourlyWage);
-  const allowanceHourly = nonNegativeNumber(employee.positionAllowanceHourly);
-  const baseWage = round((regularMinutes / 60) * hourlyWage, 2);
-  const positionAllowance = round((regularMinutes / 60) * allowanceHourly, 2);
-  const overtimeWage = round((overtimeMinutes / 60) * hourlyWage * overtimeMultiplier, 2);
+  const attendanceDayCount = days.filter((day) => nonNegativeNumber(day.workMinutes) > 0).length;
+  const isDaily = positionRate.mode === "daily";
+  const hourlyWage = isDaily ? 0 : nonNegativeNumber(positionRate.baseHourlyWage);
+  const allowanceHourly = isDaily ? 0 : nonNegativeNumber(positionRate.positionAllowanceHourly);
+  const baseWage = isDaily
+    ? round(attendanceDayCount * nonNegativeNumber(positionRate.dailyWage), 2)
+    : round((totalWorkMinutes / 60) * hourlyWage, 2);
+  const positionAllowance = isDaily ? 0 : round((totalWorkMinutes / 60) * allowanceHourly, 2);
+  const overtimeWage = isDaily
+    ? 0
+    : round((overtimeMinutes / 60) * hourlyWage * Math.max(0, overtimeMultiplier - 1), 2);
   const seniorityYears = completedYears(employee.hireDate, asOf);
   const seniorityAward = resolveSeniorityAward(policy.seniorityAwards, seniorityYears);
   const grossWage = round(baseWage + positionAllowance + overtimeWage + seniorityAward, 2);
   return {
     totalWorkMinutes,
+    attendanceDayCount,
     regularMinutes,
     overtimeMinutes,
+    payrollPositionKey: positionRate.payrollPositionKey,
+    positionName: positionRate.positionName,
+    calculationMode: positionRate.mode,
+    baseHourlyWage: isDaily ? null : hourlyWage,
+    positionAllowanceHourly: isDaily ? null : allowanceHourly,
+    dailyWage: isDaily ? nonNegativeNumber(positionRate.dailyWage) : null,
     baseWage,
     positionAllowance,
     overtimeWage,
@@ -905,12 +928,76 @@ function validatePolicy(value) {
     usedYears.add(minYears);
     return { minYears, monthlyAmount: round(monthlyAmount, 2) };
   }).sort((left, right) => left.minYears - right.minYears);
+  const sourcePositionRates = policy.positionRates;
+  if (!Array.isArray(sourcePositionRates) || sourcePositionRates.length < 1 || sourcePositionRates.length > 100) {
+    throw businessError(400, "PAYROLL_POLICY_POSITION_RATES_INVALID", "岗位费率必须是 1 到 100 个岗位的规则列表。");
+  }
+  const usedPositionKeys = new Set();
+  const positionRates = sourcePositionRates.map((item) => {
+    const payrollPositionKey = cleanText(item?.payrollPositionKey);
+    const positionName = cleanText(item?.positionName);
+    const mode = cleanText(item?.mode).toLowerCase();
+    if (!/^[A-Z0-9][A-Z0-9_-]{0,63}$/.test(payrollPositionKey)) {
+      throw businessError(400, "PAYROLL_POLICY_POSITION_KEY_INVALID", "工资岗位键必须是 1 到 64 位大写字母、数字、下划线或连字符。");
+    }
+    if (usedPositionKeys.has(payrollPositionKey)) {
+      throw businessError(400, "PAYROLL_POLICY_POSITION_KEY_DUPLICATE", "同一个工资岗位键不能重复配置。");
+    }
+    usedPositionKeys.add(payrollPositionKey);
+    if (!positionName || positionName.length > 120) {
+      throw businessError(400, "PAYROLL_POLICY_POSITION_NAME_INVALID", "工资岗位名称必填且不能超过 120 个字符。");
+    }
+    if (mode === "hourly") {
+      const baseHourlyWage = Number(item?.baseHourlyWage);
+      const positionAllowanceHourly = Number(item?.positionAllowanceHourly);
+      if (!Number.isFinite(baseHourlyWage) || baseHourlyWage <= 0 || baseHourlyWage > 100000) {
+        throw businessError(400, "PAYROLL_POLICY_HOURLY_BASE_INVALID", "时薪岗位的基础时薪必须大于 0 且不超过 100000 元。");
+      }
+      if (!Number.isFinite(positionAllowanceHourly) || positionAllowanceHourly < 0 || positionAllowanceHourly > 100000) {
+        throw businessError(400, "PAYROLL_POLICY_HOURLY_ALLOWANCE_INVALID", "时薪岗位的每小时岗位补贴必须在 0 到 100000 元之间。");
+      }
+      if (hasPolicyRateValue(item?.dailyWage)) {
+        throw businessError(400, "PAYROLL_POLICY_HOURLY_DAILY_WAGE_REJECTED", "时薪岗位不能同时配置日薪。");
+      }
+      return {
+        payrollPositionKey,
+        positionName,
+        mode,
+        baseHourlyWage: round(baseHourlyWage, 2),
+        positionAllowanceHourly: round(positionAllowanceHourly, 2),
+      };
+    }
+    if (mode === "daily") {
+      const dailyWage = Number(item?.dailyWage);
+      if (!Number.isFinite(dailyWage) || dailyWage <= 0 || dailyWage > 1000000) {
+        throw businessError(400, "PAYROLL_POLICY_DAILY_WAGE_INVALID", "日薪岗位的日薪必须大于 0 且不超过 1000000 元。");
+      }
+      if (hasPolicyRateValue(item?.baseHourlyWage) || hasPolicyRateValue(item?.positionAllowanceHourly)) {
+        throw businessError(400, "PAYROLL_POLICY_DAILY_HOURLY_FIELDS_REJECTED", "日薪岗位不能同时配置时薪字段。");
+      }
+      return { payrollPositionKey, positionName, mode, dailyWage: round(dailyWage, 2) };
+    }
+    throw businessError(400, "PAYROLL_POLICY_POSITION_MODE_INVALID", "工资岗位计薪方式只能是 hourly 或 daily。");
+  }).sort((left, right) => left.payrollPositionKey.localeCompare(right.payrollPositionKey));
   return {
-    schemaVersion: "payroll-policy-v1",
+    schemaVersion: "payroll-policy-v2",
     regularMinutesPerDay,
     overtimeMultiplier,
     seniorityAwards,
+    positionRates,
   };
+}
+
+function hasPolicyRateValue(value) {
+  return value !== undefined && value !== null && cleanText(value) !== "";
+}
+
+function resolvePayrollPositionRate(policyVersion, payrollPositionKey) {
+  const key = cleanText(payrollPositionKey);
+  if (!key) return null;
+  const rates = policyVersion?.policy?.positionRates;
+  if (!Array.isArray(rates)) return null;
+  return rates.find((rate) => cleanText(rate?.payrollPositionKey) === key) ?? null;
 }
 
 function buildAttendanceMappingIndex(workspace, providerKey, rangeStart, rangeEnd) {
@@ -1057,6 +1144,7 @@ function employeeProjection(employee = {}, asOf = new Date()) {
     roleName: cleanText(employee.roleName),
     workshop: cleanText(employee.defaultWorkshop),
     machineId: cleanText(employee.defaultMachineId),
+    payrollPositionKey: cleanText(employee.payrollPositionKey),
     hireDate: cleanText(employee.hireDate),
     seniorityYears: completedYears(employee.hireDate, asOf),
     profileStatus: cleanText(employee.profileStatus),
@@ -1204,30 +1292,22 @@ function employeeDepartureDate(employee = {}) {
   return normalizeSourceLocalDate("", departedAt);
 }
 
-function employeePayrollInputBlockers(employee = {}, days = [], month) {
+function employeePayrollInputBlockers(employee = {}, days = [], month, policyVersion = null) {
   const blockers = [];
-  const { endDate } = payrollMonthDateBounds(month);
   const hireDate = cleanText(employee.hireDate);
-  const wageEffectiveFrom = cleanText(employee.wageEffectiveFrom);
   const departureDate = employeeDepartureDate(employee);
   if (!cleanText(employee.attendanceProvider) || !cleanText(employee.attendanceExternalId)) {
     blockers.push("考勤身份未绑定");
   }
   if (!hireDate) blockers.push("入职日期未维护");
   if (isDeparted(employee) && !departureDate) blockers.push("离职时间未维护");
-  if (nonNegativeNumber(employee.baseHourlyWage) <= 0) blockers.push("基础时薪未维护");
-  if (!wageEffectiveFrom) blockers.push("工资生效日期未维护");
-  else if (wageEffectiveFrom > endDate) blockers.push("工资尚未在本月生效");
+  if (!cleanText(employee.payrollPositionKey)) blockers.push("工资岗位未维护");
+  else if (policyVersion && !resolvePayrollPositionRate(policyVersion, employee.payrollPositionKey)) {
+    blockers.push("工资岗位未包含在本月计薪规则中");
+  }
   if (!days.length) blockers.push("本月无已关联打卡");
   if (hireDate && days.some((day) => day.workDate < hireDate)) blockers.push("存在入职日期前的打卡");
   if (departureDate && days.some((day) => day.workDate > departureDate)) blockers.push("存在离职日期后的打卡");
-  if (
-    wageEffectiveFrom &&
-    wageEffectiveFrom <= endDate &&
-    days.some((day) => day.workDate < wageEffectiveFrom)
-  ) {
-    blockers.push("存在工资生效日期前的打卡");
-  }
   return blockers;
 }
 
