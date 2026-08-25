@@ -74,7 +74,7 @@ function buildInventoryRolls(inbounds = []) {
 }
 
 const formatWeight = (value) => `${value.toLocaleString("zh-CN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}kg`;
-const formatInventoryRollAmount = (roll) => roll.weight > 0 ? formatWeight(roll.weight) : `1${roll.unitLabel}`;
+const formatInventoryRollAmount = (roll) => roll.weight > 0 ? formatWeight(roll.weight) : "待补重量";
 const formatMoney = (value) => {
   const amount = Number(value);
   if (!Number.isFinite(amount) || amount === 0) return "金额待确认";
@@ -91,8 +91,8 @@ function summarizeInventory(sourceRolls) {
 
 function InventoryStatusCards({ summary }) {
   return <div aria-label="卷料状态概览" className="dock-status-cards" role="list">
-    <div className="dock-status-card available" role="listitem"><span className="dock-status-line"><span className="dock-status-label">可用</span><span className="dock-status-value"><strong>{summary.available.count}</strong>卷/件</span><small>{formatWeight(summary.available.weight)}</small></span></div>
-    <div className="dock-status-card machine-side" role="listitem"><span className="dock-status-line"><span className="dock-status-label">机边</span><span className="dock-status-value"><strong>{summary.machineSide.count}</strong>卷</span><small>{formatWeight(summary.machineSide.weight)}</small></span></div>
+    <div className="dock-status-card available" role="listitem"><span className="dock-status-line"><span className="dock-status-label">可用</span><span className="dock-status-value"><strong>{summary.available.count}</strong>卷/件</span><small>{summary.available.count > 0 ? formatWeight(summary.available.weight) : "暂无"}</small></span></div>
+    <div className="dock-status-card machine-side" role="listitem"><span className="dock-status-line"><span className="dock-status-label">机边</span><span className="dock-status-value"><strong>{summary.machineSide.count}</strong>卷</span><small>{summary.machineSide.count > 0 ? formatWeight(summary.machineSide.weight) : "暂无"}</small></span></div>
     <div className="dock-status-card review" role="listitem"><span className="dock-status-line"><span className="dock-status-label">余料待复核</span><span className="dock-status-value"><strong>{summary.review.count}</strong>卷</span></span></div>
   </div>;
 }
@@ -129,12 +129,15 @@ function buildDistribution(sourceRolls) {
 }
 
 const receiptTabs = ["待核对", "退货单", "待打印", "待贴标", "异常"];
+const isPieceCountedInbound = (row = {}) => row.unit === "件" || row.materialType === "提手";
 const receiptFacts = (row = {}) => {
   const count = row.rollCount || row.rolls?.length || 0;
   const totalWeightKg = Number(row.totalWeightKg) || 0;
+  const unitLabel = isPieceCountedInbound(row) || row.documentDirection === "supplier_return" ? "件" : "卷";
+  const weightLabel = Math.abs(totalWeightKg) > 0 ? formatWeight(Math.abs(totalWeightKg)) : "重量待补";
   return row.documentDirection === "supplier_return"
-    ? `退回 ${count} 件 / ${formatWeight(totalWeightKg)}`
-    : `${count}卷 / ${formatWeight(totalWeightKg)}`;
+    ? `退回 ${count}${unitLabel} / ${weightLabel}`
+    : `${count}${unitLabel} / ${weightLabel}`;
 };
 const receiptTabFor = (row = {}) => {
   const status = String(row.status || "");
@@ -343,11 +346,13 @@ function ReceiptStage({ row }) {
 }
 
 function ReceiptRollList({ onRollAction, row }) {
-  return <section className="receipt-roll-section"><div className="receipt-section-heading"><h3>逐卷状态</h3><span>{row.rolls.filter((roll) => roll.inventoryStatus === "可用").length} / {row.rolls.length} 卷已入库</span></div><div className="receipt-roll-list">{row.rolls.map((roll) => {
+  const unitLabel = isPieceCountedInbound(row) ? "件" : "卷";
+  return <section className="receipt-roll-section"><div className="receipt-section-heading"><h3>逐{unitLabel}状态</h3><span>{row.rolls.filter((roll) => roll.inventoryStatus === "可用").length} / {row.rolls.length} {unitLabel}已入库</span></div><div className="receipt-roll-list">{row.rolls.map((roll) => {
     const canVerify = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用";
     const canVoid = roll.labelStatus === "标签或实物不符/待确认";
     const canReprint = roll.labelStatus === "标签已作废/待重打";
-    return <div className="receipt-roll-row" key={roll.id}><div><strong>{roll.id}</strong><small>{roll.supplierRollNo} · {roll.weightKg}kg</small></div><span className={roll.inventoryStatus === "可用" ? "roll-state-success" : canVoid || canReprint ? "roll-state-danger" : "roll-state-pending"}>{roll.inventoryStatus === "可用" ? "已贴标/可用" : roll.labelStatus}</span>{canVerify ? <button onClick={() => onRollAction("verify", roll)} type="button">核对本卷</button> : null}{canVoid ? <button onClick={() => onRollAction("void", roll)} type="button">作废旧标签</button> : null}{canReprint ? <button onClick={() => onRollAction("reprint", roll)} type="button">重打本卷</button> : null}</div>;
+    const weightLabel = Number(roll.weightKg) > 0 ? `${roll.weightKg}kg` : "重量待补";
+    return <div className="receipt-roll-row" key={roll.id}><div><strong>{roll.id}</strong><small>{roll.supplierRollNo} · {weightLabel}</small></div><span className={roll.inventoryStatus === "可用" ? "roll-state-success" : canVoid || canReprint ? "roll-state-danger" : "roll-state-pending"}>{roll.inventoryStatus === "可用" ? "已贴标/可用" : roll.labelStatus}</span>{canVerify ? <button onClick={() => onRollAction("verify", roll)} type="button">核对本{unitLabel}</button> : null}{canVoid ? <button onClick={() => onRollAction("void", roll)} type="button">作废旧标签</button> : null}{canReprint ? <button onClick={() => onRollAction("reprint", roll)} type="button">重打本{unitLabel}</button> : null}</div>;
   })}</div></section>;
 }
 
@@ -358,11 +363,12 @@ function ReceiptDetail({ activeTab, notice, onOpenInventory, onPrimaryAction, on
   const printable = canPrintRawMaterialLabels(row);
   const attachable = canConfirmRawMaterialAttachment(row) || row.status === "部分贴标";
   const reviewable = canReviewRawMaterialInbound(row);
+  const missingWeightRoll = row.rolls.find((roll) => !(Number(roll.weightKg) > 0) && roll.labelStatus === "待补真实重量");
   const abnormalRoll = row.rolls.find((roll) => ["标签或实物不符/待确认", "标签已作废/待重打"].includes(roll.labelStatus));
   const primaryLabel = duplicate ? "对照两张票据" : isSupplierReturn && reviewable ? "确认退货单复核" : reviewable ? "确认逐卷核对完成" : printable ? `预览并打印 ${row.rolls.length} 张卷标` : abnormalRoll?.labelStatus === "标签或实物不符/待确认" ? "作废异常卷旧标签" : abnormalRoll ? "重打异常卷标签" : attachable ? "开始逐卷贴标核对" : "查看处理结果";
-  const bannerTitle = duplicate ? "疑似同一张票据" : isSupplierReturn && reviewable ? "退货草稿待人工核对" : isSupplierReturn ? "退货凭证已留档" : reviewable ? "业务查重已通过" : printable ? "人工核对已经完成" : row.status.includes("异常") ? "异常卷已隔离" : attachable ? "卷标已经打印" : "当前状态已确认";
-  const bannerText = duplicate ? row.duplicate : isSupplierReturn && reviewable ? "请核对供应商、退回重量、金额和原图；确认后只形成负数对账依据。" : isSupplierReturn ? "本退货单不生成卷码、不增加可用库存；供应商月结仅引用这张退货凭证冲减。" : reviewable ? "原图摘要、供应商、票据字段和逐卷重量未命中已有记录。" : printable ? "每个物理卷已经生成唯一卷码，打印后仍不能直接进入可用库存。" : row.status.includes("异常") ? "异常只影响对应卷；其他卷仍可继续逐卷核对，正确卷不被整单阻塞。" : attachable ? "请按重量、颜色和规格逐卷对应实物；确认一致后，该卷才进入可用库存。" : "当前处理结果已经记录。";
-  return <aside className="secondary-detail receipt-detail"><span className="detail-kicker">{row.id}</span><h2>{row.supplier}</h2><p>{row.note} · {receiptFacts(row)}</p><ReceiptStage row={row} /><section className={duplicate || row.status.includes("异常") ? "duplicate-warning" : "dedupe-clear"}>{duplicate || row.status.includes("异常") ? <WarningOutlined /> : <CheckCircleFilled />}<div><strong>{bannerTitle}</strong><p>{bannerText}</p></div></section><dl className="receipt-facts"><div><dt>原料 / 厂内颜色</dt><dd>{row.productName} · {row.factoryColor || row.supplierColor || "待确认"}</dd></div><div><dt>规格</dt><dd>{row.spec || "原单未写规格"}</dd></div><div><dt>{isSupplierReturn ? "退货金额" : "当前库位"}</dt><dd>{isSupplierReturn ? formatMoney(row.amount) : row.location}</dd></div><div><dt>当前状态</dt><dd>{row.status}</dd></div></dl>{!isSupplierReturn && (reviewable || printable || attachable || abnormalRoll) ? <ReceiptRollList onRollAction={onRollAction} row={row} /> : null}<p aria-live="polite" className={`receipt-flow-notice${notice ? " visible" : ""}`}>{notice}</p><p className="secondary-note">{isSupplierReturn ? "这里保存退货原图、逐行明细与审核记录；供应商月结只汇总冲减金额，卷料库存只显示库存结果。" : "打印只进入待贴标；逐卷确认标签与实物一致后才进入“卷料库存”。月结仍在“财务管理 → 供应商月结”处理。"}</p>{reviewable || duplicate || printable || attachable || abnormalRoll ? <button className="primary full" onClick={() => onPrimaryAction({ abnormalRoll, attachable, duplicate, printable, reviewable })} type="button">{primaryLabel}</button> : null}</aside>;
+  const bannerTitle = duplicate ? "疑似同一张票据" : isSupplierReturn && reviewable ? "退货草稿待人工核对" : isSupplierReturn ? "退货凭证已留档" : missingWeightRoll ? "缺少真实重量，尚未入库" : reviewable ? "业务查重已通过" : printable ? "人工核对已经完成" : row.status.includes("异常") ? "异常卷已隔离" : attachable ? "卷标已经打印" : "当前状态已确认";
+  const bannerText = duplicate ? row.duplicate : isSupplierReturn && reviewable ? "请核对供应商、退回重量、金额和原图；确认后只形成负数对账依据。" : isSupplierReturn ? "本退货单不生成卷码、不增加可用库存；供应商月结仅引用这张退货凭证冲减。" : missingWeightRoll ? "请逐件称重并记录真实重量；补齐前不能贴标确认、领料或进入卷料库存。" : reviewable ? "原图摘要、供应商、票据字段和逐卷重量未命中已有记录。" : printable ? "每个物理卷已经生成唯一卷码，打印后仍不能直接进入可用库存。" : row.status.includes("异常") ? "异常只影响对应卷；其他卷仍可继续逐卷核对，正确卷不被整单阻塞。" : attachable ? "请按重量、颜色和规格逐卷对应实物；确认一致后，该卷才进入可用库存。" : "当前处理结果已经记录。";
+  return <aside className="secondary-detail receipt-detail"><span className="detail-kicker">{row.id}</span><h2>{row.supplier}</h2><p>{row.note} · {receiptFacts(row)}</p><ReceiptStage row={row} /><section className={duplicate || row.status.includes("异常") ? "duplicate-warning" : "dedupe-clear"}>{duplicate || row.status.includes("异常") ? <WarningOutlined /> : <CheckCircleFilled />}<div><strong>{bannerTitle}</strong><p>{bannerText}</p></div></section><dl className="receipt-facts"><div><dt>原料 / 厂内颜色</dt><dd>{row.productName} · {row.factoryColor || row.supplierColor || "待确认"}</dd></div><div><dt>规格</dt><dd>{row.spec || "原单未写规格"}</dd></div><div><dt>{isSupplierReturn ? "退货金额" : "当前库位"}</dt><dd>{isSupplierReturn ? formatMoney(row.amount) : row.location}</dd></div><div><dt>当前状态</dt><dd>{row.status}</dd></div></dl>{!isSupplierReturn && (reviewable || printable || attachable || abnormalRoll || missingWeightRoll) ? <ReceiptRollList onRollAction={onRollAction} row={row} /> : null}<p aria-live="polite" className={`receipt-flow-notice${notice ? " visible" : ""}`}>{notice}</p><p className="secondary-note">{isSupplierReturn ? "这里保存退货原图、逐行明细与审核记录；供应商月结只汇总冲减金额，卷料库存只显示库存结果。" : "打印只进入待贴标；逐卷确认标签与实物一致后才进入“卷料库存”。月结仍在“财务管理 → 供应商月结”处理。"}</p>{reviewable || duplicate || printable || attachable || abnormalRoll ? <button className="primary full" onClick={() => onPrimaryAction({ abnormalRoll, attachable, duplicate, printable, reviewable })} type="button">{primaryLabel}</button> : null}</aside>;
 }
 
 function ReceiptFlowDialog({ flow, onClose, onConfirm, row }) {

@@ -127,7 +127,8 @@ test("desktop workbenches consume formal APIs without fixture fallbacks", async 
   assert.match(appSource, /sourceRolls\[0\]\?\.id \|\| ""/, "roll selection must not dereference an undefined legacy fixture");
   assert.doesNotMatch(appSource, /sourceRolls = rolls/, "roll inventory must not reference the removed fixture variable");
   assert.match(appSource, /selectedRoll \? <><dl>/, "the source rail must render an explicit empty state before formal rolls arrive");
-  assert.match(appSource, /formatInventoryRollAmount\(roll\)/, "piece-counted handle stock must display a piece quantity instead of 0kg");
+  assert.match(appSource, /formatInventoryRollAmount\(roll\)/, "confirmed inventory amounts should use the shared weight formatter");
+  assert.match(appSource, /"待补重量"/, "a missing weight must stay explicit instead of becoming an invented piece amount");
 });
 
 test("outbound delivery and supplier month-end share the complete review list-detail shell", async () => {

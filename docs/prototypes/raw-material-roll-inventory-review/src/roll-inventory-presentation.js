@@ -117,7 +117,10 @@ export function compactRollCode(value, maxLength = 18) {
 }
 
 export function resolveInventoryRollStatus(inbound = {}, roll = {}) {
-  if (cleanText(roll.inventoryStatus) === "可用") return "可用";
+  const currentWeightKg = positiveNumber(roll.remainingMachineSideWeightKg)
+    || positiveNumber(roll.leftoverReviewedWeightKg)
+    || positiveNumber(roll.weightKg);
+  if (cleanText(roll.inventoryStatus) === "可用") return currentWeightKg > 0 ? "可用" : "";
   if (
     roll.machineId
     || /机边|领用|消耗中/u.test(`${cleanText(roll.inventoryStatus)} ${cleanText(roll.labelStatus)}`)

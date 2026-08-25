@@ -72,6 +72,7 @@ test("unreviewed OCR drafts never masquerade as leftover inventory", () => {
     { status: "余料待复核" },
     { inventoryStatus: "余料待复核", labelStatus: "待复核" },
   ), "余料待复核");
-  assert.equal(resolveInventoryRollStatus({}, { inventoryStatus: "可用" }), "可用");
+  assert.equal(resolveInventoryRollStatus({}, { inventoryStatus: "可用", weightKg: 12.5 }), "可用");
+  assert.equal(resolveInventoryRollStatus({}, { inventoryStatus: "可用", weightKg: 0 }), "", "legacy zero-weight rows must not enter available inventory");
   assert.equal(resolveInventoryRollStatus({}, { inventoryStatus: "不可用", machineId: "PRINT-01" }), "机边领用");
 });

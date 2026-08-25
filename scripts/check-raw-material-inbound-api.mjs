@@ -310,54 +310,66 @@ async function checkRepository() {
   assert.equal(marginReview.inbound.rawMaterialConsumptionRecords[0].marginReportId, marginReview.inbound.rawMaterialOrderMarginReports[0].marginReportId, "consumption record should link margin report");
   assert.equal(marginReview.inbound.costAllocationStatus, "毛利已复核/报表可用", "inbound should expose reviewed margin report state");
 
-  const handleIssued = repository.recordRawMaterialInboundAction({
+  const invalidLegacyHandle = {
+    ...structuredClone(workspace.rawMaterialInbounds.find((item) => item.id === "RMI-0704-003")),
+    id: "RMI-TEST-ZERO-WEIGHT-HANDLE",
+    revision: 1,
+    rolls: [{
+      ...structuredClone(workspace.rawMaterialInbounds.find((item) => item.id === "RMI-0704-003")?.rolls?.[0]),
+      id: "RM-TEST-ZERO-WEIGHT-HANDLE-01",
+      labelStatus: "已贴标/可用库存",
+      inventoryStatus: "可用",
+    }],
+  };
+  workspace.rawMaterialInbounds.push(invalidLegacyHandle);
+  assert.throws(() => repository.recordRawMaterialInboundAction({
     workspace,
-    inboundId: "RMI-0704-003",
+    inboundId: invalidLegacyHandle.id,
     action: "issue-to-machine",
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
     body: {
       expectedRevision: 1,
-      rollId: "RM-240704-003-01",
+      rollId: invalidLegacyHandle.rolls[0].id,
       machineId: "BAG-01",
       productionTaskId: "PT-RMI-001",
       now: "2026-07-04T01:30:00.000Z",
     },
-  });
-  assert.equal(handleIssued.inbound.rolls[0].inventoryStatus, "机边领用", "available handle piece should move to machine-side state");
+  }), (error) => error?.code === "RAW_MATERIAL_ISSUE_WEIGHT_REQUIRED", "a legacy zero-weight handle must fail closed before machine-side issue");
+  workspace.rawMaterialInbounds.pop();
   const returned = repository.recordRawMaterialInboundAction({
     workspace,
-    inboundId: "RMI-0704-003",
+    inboundId: "RMI-0704-001",
     action: "return-leftover",
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
     body: {
-      expectedRevision: 2,
-      rollId: "RM-240704-003-01",
+      expectedRevision: 11,
+      rollId: "RM-240704-001-01-S01",
       returnLocation: "余料区",
       now: "2026-07-04T01:35:00.000Z",
     },
   });
   assert.equal(returned.inbound.status, "余料待复核", "returned leftover should move inbound to pending leftover review");
-  assert.equal(returned.inbound.rolls[0].inventoryStatus, "余料待复核", "returned leftover should not become available inventory");
+  assert.equal(returned.inbound.rolls[1].inventoryStatus, "余料待复核", "returned leftover should not become available inventory");
   assert.match(returned.inbound.rawMaterialLeftoverReturnRecords[0].leftoverReturnRecordId, /^RMI-RET-/, "leftover return should create a traceable record");
 
   const reviewedLeftover = repository.recordRawMaterialInboundAction({
     workspace,
-    inboundId: "RMI-0704-003",
+    inboundId: "RMI-0704-001",
     action: "review-leftover",
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
     body: {
-      expectedRevision: 3,
-      rollId: "RM-240704-003-01",
+      expectedRevision: 12,
+      rollId: "RM-240704-001-01-S01",
       reviewLocation: "原料库-余料可用区",
       now: "2026-07-04T01:40:00.000Z",
     },
   });
   assert.equal(reviewedLeftover.inbound.status, "部分余料复核", "reviewed leftover should keep inbound partial when other rolls are not available");
-  assert.equal(reviewedLeftover.inbound.rolls[0].inventoryStatus, "可用", "reviewed leftover should become available raw-material inventory");
-  assert.equal(reviewedLeftover.inbound.rolls[0].consumptionStatus, "余料已复核/可用", "reviewed leftover roll should keep review status");
+  assert.equal(reviewedLeftover.inbound.rolls[1].inventoryStatus, "可用", "reviewed leftover should become available raw-material inventory");
+  assert.equal(reviewedLeftover.inbound.rolls[1].consumptionStatus, "余料已复核/可用", "reviewed leftover roll should keep review status");
   assert.match(reviewedLeftover.inbound.rawMaterialLeftoverReviewRecords[0].leftoverReviewRecordId, /^RMI-LREV-/, "leftover review should create a traceable review record");
   assert.equal(
     reviewedLeftover.inbound.rawMaterialLeftoverReturnRecords[0].reviewStatus,
@@ -368,7 +380,7 @@ async function checkRepository() {
   const reloaded = createLocalRawMaterialInboundRepository({ storageRoot: repositoryStorageRoot }).loadState();
   assert.equal(
     reloaded.rawMaterialInbounds.find((item) => item.id === "RMI-0704-001")?.status,
-    "部分消耗确认",
+    "部分余料复核",
     "repository should persist raw-material inbound state",
   );
   assert.equal(
@@ -412,7 +424,7 @@ async function checkRepository() {
     "repository should persist raw-material reviewed margin report gross profit",
   );
   assert.equal(
-    reloaded.rawMaterialInbounds.find((item) => item.id === "RMI-0704-003")?.rolls[0].inventoryStatus,
+    reloaded.rawMaterialInbounds.find((item) => item.id === "RMI-0704-001")?.rolls[1].inventoryStatus,
     "可用",
     "repository should persist reviewed leftover available status",
   );
@@ -461,6 +473,70 @@ function checkDeferredLabelFlow() {
 }
 
 function checkPerRollLabelGate() {
+  const missingWeightInbound = {
+    id: "RMI-PER-ROLL-ZERO-WEIGHT",
+    revision: 1,
+    supplierName: "测试供应商",
+    factoryColor: "黑色",
+    spec: "5cm 提手条",
+    unit: "件",
+    status: "已打印待贴标",
+    rolls: [{
+      id: "RMI-PER-ROLL-ZERO-WEIGHT-1",
+      weightKg: 0,
+      labelVersion: 1,
+      labelStatus: "已打印待贴标",
+      inventoryStatus: "不可用",
+      location: "提手区待称重",
+    }],
+  };
+  assert.throws(
+    () => applyRawMaterialInboundAction({
+      workspace: { rawMaterialInbounds: [missingWeightInbound] },
+      inboundId: missingWeightInbound.id,
+      action: "attach_confirm",
+      body: { expectedRevision: 1, rollId: missingWeightInbound.rolls[0].id, matchResult: "matched" },
+      operatorId: "U-OFFICE-A",
+      operatorName: "办公室A",
+    }),
+    (error) => error?.code === "RAW_MATERIAL_ATTACH_WEIGHT_REQUIRED",
+    "a zero-weight handle must remain unavailable until the real checked weight is supplied",
+  );
+  const zeroWeightLeftover = {
+    ...missingWeightInbound,
+    id: "RMI-LEFTOVER-ZERO-WEIGHT",
+    status: "余料待复核",
+    rolls: [{
+      ...missingWeightInbound.rolls[0],
+      id: "RMI-LEFTOVER-ZERO-WEIGHT-1",
+      labelStatus: "待复核",
+      inventoryStatus: "余料待复核",
+      leftoverQuantity: 1,
+    }],
+  };
+  assert.throws(
+    () => applyRawMaterialInboundAction({
+      workspace: { rawMaterialInbounds: [zeroWeightLeftover] },
+      inboundId: zeroWeightLeftover.id,
+      action: "review_leftover",
+      body: { expectedRevision: 1, rollId: zeroWeightLeftover.rolls[0].id },
+      operatorId: "U-WAREHOUSE-A",
+      operatorName: "库房出库A",
+    }),
+    (error) => error?.code === "RAW_MATERIAL_LEFTOVER_REVIEW_WEIGHT_REQUIRED",
+    "zero-weight leftovers must stay pending until reweighing supplies a real value",
+  );
+  const weighedLeftover = applyRawMaterialInboundAction({
+    workspace: { rawMaterialInbounds: [zeroWeightLeftover] },
+    inboundId: zeroWeightLeftover.id,
+    action: "review_leftover",
+    body: { expectedRevision: 1, rollId: zeroWeightLeftover.rolls[0].id, reviewedWeightKg: 8.4 },
+    operatorId: "U-WAREHOUSE-A",
+    operatorName: "库房出库A",
+  }).inbound;
+  assert.equal(weighedLeftover.rolls[0].weightKg, 8.4, "the authenticated reweigh result should become the available weight");
+  assert.equal(weighedLeftover.rolls[0].inventoryStatus, "可用");
+
   const inbound = {
     id: "RMI-PER-ROLL-001",
     supplierName: "测试供应商",
@@ -1164,7 +1240,7 @@ async function checkApi() {
       "duplicate loss calibration should return stable already-calibrated code",
     );
 
-    const handleIssued = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-003/issue-to-machine`, {
+    const zeroWeightHandleIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-003/issue-to-machine`, {
       userId: "U-WAREHOUSE-A",
       body: {
         rollId: "RM-240704-003-01",
@@ -1173,10 +1249,11 @@ async function checkApi() {
         now: "2026-07-04T02:30:00.000Z",
       },
     });
-    assert.equal(handleIssued.status, 200, "warehouse user should be allowed to issue handle material");
-    const deniedLeftover = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-003/return-leftover`, {
+    assert.equal(zeroWeightHandleIssue.status, 409, "zero-weight handle samples must not issue to machine side");
+    assert.equal(zeroWeightHandleIssue.json.code, "RAW_MATERIAL_ISSUE_REQUIRES_AVAILABLE_ROLL", "the corrected handle sample must remain unavailable");
+    const deniedLeftover = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/return-leftover`, {
       userId: "U-OFFICE-A",
-      body: { rollId: "RM-240704-003-01", returnLocation: "余料区" },
+      body: { rollId: "RM-240704-001-01-S01", returnLocation: "余料区" },
     });
     assert.equal(deniedLeftover.status, 403, "office user should not return raw-material leftovers");
     assert.equal(
@@ -1185,22 +1262,22 @@ async function checkApi() {
       "leftover denial should return required permission",
     );
 
-    const returned = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-003/return-leftover`, {
+    const returned = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/return-leftover`, {
       userId: "U-WAREHOUSE-A",
       body: {
-        rollId: "RM-240704-003-01",
+        rollId: "RM-240704-001-01-S01",
         returnLocation: "余料区",
         now: "2026-07-04T02:35:00.000Z",
       },
     });
     assert.equal(returned.status, 200, "warehouse user should be allowed to return machine-side leftovers");
     assert.equal(returned.json.inbound.status, "余料待复核", "leftover route should move inbound to pending review");
-    assert.equal(returned.json.inbound.rolls[0].inventoryStatus, "余料待复核", "leftover route must not restore available inventory");
+    assert.equal(returned.json.inbound.rolls[1].inventoryStatus, "余料待复核", "leftover route must not restore available inventory");
     assert.match(returned.json.inbound.rawMaterialLeftoverReturnRecords[0].leftoverReturnRecordId, /^RMI-RET-/, "leftover route should create RMI-RET record");
 
-    const deniedLeftoverReview = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-003/review-leftover`, {
+    const deniedLeftoverReview = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/review-leftover`, {
       userId: "U-OFFICE-A",
-      body: { rollId: "RM-240704-003-01", reviewLocation: "原料库-余料可用区" },
+      body: { rollId: "RM-240704-001-01-S01", reviewLocation: "原料库-余料可用区" },
     });
     assert.equal(deniedLeftoverReview.status, 403, "office user should not review raw-material leftovers back to available");
     assert.equal(
@@ -1209,17 +1286,17 @@ async function checkApi() {
       "leftover review denial should return required permission",
     );
 
-    const reviewedLeftover = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-003/review-leftover`, {
+    const reviewedLeftover = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/review-leftover`, {
       userId: "U-WAREHOUSE-A",
       body: {
-        rollId: "RM-240704-003-01",
+        rollId: "RM-240704-001-01-S01",
         reviewLocation: "原料库-余料可用区",
         now: "2026-07-04T02:40:00.000Z",
       },
     });
     assert.equal(reviewedLeftover.status, 200, "warehouse user should be allowed to review leftovers back to available");
     assert.equal(reviewedLeftover.json.inbound.status, "部分余料复核", "leftover review route should keep inbound partial when other rolls are not available");
-    assert.equal(reviewedLeftover.json.inbound.rolls[0].inventoryStatus, "可用", "leftover review route should restore available inventory after review");
+    assert.equal(reviewedLeftover.json.inbound.rolls[1].inventoryStatus, "可用", "leftover review route should restore available inventory after review");
     assert.match(reviewedLeftover.json.inbound.rawMaterialLeftoverReviewRecords[0].leftoverReviewRecordId, /^RMI-LREV-/, "leftover review route should create RMI-LREV record");
 
     await closeTestServer(server);
@@ -1231,7 +1308,7 @@ async function checkApi() {
     try {
       const restartedBaseUrl = `${getTestServerBaseUrl(restartedServer)}/api`;
       const persisted = await getJson(restartedBaseUrl, "raw-material-inbounds/RMI-0704-001");
-      assert.equal(persisted.inbound.status, "部分消耗确认", "API should reload persisted raw-material inbound status");
+      assert.equal(persisted.inbound.status, "部分余料复核", "API should reload persisted raw-material inbound status");
       assert.equal(
         persisted.inbound.rolls[0].inventoryStatus,
         "可用",
@@ -1240,7 +1317,7 @@ async function checkApi() {
       assert.equal(
         persisted.inbound.rolls[1].weightKg,
         20,
-        "API should reload persisted partial consumption remaining machine-side weight",
+        "API should reload persisted reviewed leftover weight",
       );
       const persistedCostDraft = await getJson(restartedBaseUrl, "raw-material-inbounds/RMI-0704-002");
       assert.equal(
@@ -1273,9 +1350,9 @@ async function checkApi() {
         308,
         "API should reload persisted raw-material reviewed margin report gross profit",
       );
-      const persistedLeftover = await getJson(restartedBaseUrl, "raw-material-inbounds/RMI-0704-003");
+      const persistedLeftover = await getJson(restartedBaseUrl, "raw-material-inbounds/RMI-0704-001");
       assert.equal(
-        persistedLeftover.inbound.rolls[0].inventoryStatus,
+        persistedLeftover.inbound.rolls[1].inventoryStatus,
         "可用",
         "API should reload persisted reviewed leftover status",
       );

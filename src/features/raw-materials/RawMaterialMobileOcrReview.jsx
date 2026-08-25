@@ -855,7 +855,7 @@ function getRollColor(value) {
 
 function formatWeight(value, withSpace = false) {
   const number = Number(value);
-  if (!Number.isFinite(number)) return "0kg";
+  if (!Number.isFinite(number) || Math.abs(number) < 0.0005) return "重量待补";
   return `${Number(number.toFixed(3))}${withSpace ? " " : ""}kg`;
 }
 

@@ -112,6 +112,10 @@ function buildRollRecord(inbound = {}, roll = {}) {
   });
   const isHandle = materialCategory === "提手条";
   const currentWeightKg = positiveNumber(roll.remainingMachineSideWeightKg) || positiveNumber(roll.weightKg);
+  const recordedStatus = cleanText(roll.inventoryStatus);
+  const status = recordedStatus === "可用" && !(currentWeightKg > 0)
+    ? "待补真实重量"
+    : recordedStatus;
   return {
     id: cleanText(roll.id),
     inboundId: cleanText(inbound.id),
@@ -129,7 +133,7 @@ function buildRollRecord(inbound = {}, roll = {}) {
     materialUsage: materialUsage || "用途待确认",
     currentWeightKg,
     location: cleanText(roll.location || inbound.location) || "库位待确认",
-    status: cleanText(roll.inventoryStatus),
+    status,
     labelStatus: cleanText(roll.labelStatus),
     unitLabel: isPiece ? "件" : "卷",
     ocrLineId: cleanText(roll.ocrLineId),
