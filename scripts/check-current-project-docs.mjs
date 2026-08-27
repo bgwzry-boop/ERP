@@ -45,7 +45,7 @@ assert.ok(lineCount(currentDocs.roadmap) <= 90, "Roadmap should stay concise");
 assert.ok(lineCount(currentDocs.decisions) <= 130, "Active decisions should stay concise");
 
 for (const source of [currentDocs.chineseStatus, currentDocs.projectStatus]) {
-  for (const truth of ["97-98%", "80-83%", "0/4", "1/5", "5/11", "0/40", "0/6", "59"]) {
+  for (const truth of ["97-98%", "80-83%", "0/4", "1/5", "7/11", "0/40", "0/6", "58"]) {
     assert.equal(source.includes(truth), true, `current status should include ${truth}`);
   }
 }

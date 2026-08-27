@@ -154,6 +154,7 @@ export function buildProductionDeploymentManifestReport(options = {}) {
       "systemd 非密钥接线",
       includesAll(serviceEnv, [
         "ERP_V1_PRODUCTION_ENV_FILE=/etc/erp/erp.production.env",
+        "ERP_V1_GO_LIVE_ARTIFACT_ROOT=/var/lib/erp/v1-go-live-artifacts",
         "ERP_API_PORT=8787",
         "ERP_API_SHUTDOWN_TIMEOUT_MS=25000",
         "ERP_FIRST_RELEASE_SCOPE=raw_material",
