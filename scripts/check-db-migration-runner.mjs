@@ -50,6 +50,12 @@ const byteEquivalentLegacyChecksum = "d9333a508b2f6867cc913246cd0fbdde1e4de214fa
 const canonicalMiniappIntakeMigration = loadMigrationFiles().find(
   (migration) => migration.id === "0030_miniapp_order_intake",
 );
+const canonicalMiniappArtworkTransferChecksum = "9d48beae57346bdc7e643419502cf0dd2596d20a9a4394cb293cb3242b5caf6b";
+const byteEquivalentLegacyArtworkTransferChecksum =
+  "fe934e65e551e908f45751b545e09135e3de0df7bb93bf429e78a6e13bfd72e3";
+const canonicalMiniappArtworkTransferMigration = loadMigrationFiles().find(
+  (migration) => migration.id === "0035_miniapp_artwork_transfer",
+);
 assert.equal(canonicalMiniappIntakeMigration?.checksum, canonicalMiniappIntakeChecksum);
 assert.equal(
   isAcceptedAppliedMigrationChecksum(canonicalMiniappIntakeMigration, byteEquivalentLegacyChecksum),
@@ -63,6 +69,25 @@ assert.equal(
   isAcceptedAppliedMigrationChecksum(
     { ...canonicalMiniappIntakeMigration, id: "0031_attachment_upload_limits" },
     byteEquivalentLegacyChecksum,
+  ),
+  false,
+);
+assert.equal(canonicalMiniappArtworkTransferMigration?.checksum, canonicalMiniappArtworkTransferChecksum);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(
+    canonicalMiniappArtworkTransferMigration,
+    byteEquivalentLegacyArtworkTransferChecksum,
+  ),
+  true,
+);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(canonicalMiniappArtworkTransferMigration, "unknown"),
+  false,
+);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(
+    { ...canonicalMiniappArtworkTransferMigration, id: "0036_price_release_delivery" },
+    byteEquivalentLegacyArtworkTransferChecksum,
   ),
   false,
 );

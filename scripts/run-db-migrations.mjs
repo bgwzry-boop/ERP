@@ -19,6 +19,15 @@ const legacyMigrationChecksumAliases = new Map([
       ],
     ]),
   ],
+  [
+    "0035_miniapp_artwork_transfer",
+    new Map([
+      [
+        "fe934e65e551e908f45751b545e09135e3de0df7bb93bf429e78a6e13bfd72e3",
+        "9d48beae57346bdc7e643419502cf0dd2596d20a9a4394cb293cb3242b5caf6b",
+      ],
+    ]),
+  ],
 ]);
 
 if (isCliEntrypoint()) runCli();
