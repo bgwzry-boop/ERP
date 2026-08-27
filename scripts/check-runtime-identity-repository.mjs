@@ -10,6 +10,7 @@ import {
   verifyRuntimeUserPassword,
 } from "../server/authSeed.mjs";
 import {
+  buildEnsureSeedUserReferencesQuery,
   buildLoadRuntimeIdentityStateQuery,
   buildLoadRuntimeIdentityStateSql,
   buildRuntimeUserJsonExpression,
@@ -486,7 +487,7 @@ try {
   assert.notEqual(registrationStatusIndex, -1);
   assert.equal(saveQuery.values[registrationStatusIndex + 1], "");
 
-  const seedReferenceQuery = buildSaveRuntimeIdentityStateQuery({
+const seedReferenceQuery = buildSaveRuntimeIdentityStateQuery({
     users: [{
       userId: "U-OFFICE-B",
       loginName: "office.b",
@@ -500,6 +501,20 @@ try {
     seedReferenceQuery.values.includes("not_applicable"),
     "PostgreSQL seed references must receive a non-null, non-login password status",
   );
+
+  const insertOnlySeedReferenceQuery = buildEnsureSeedUserReferencesQuery([{
+    userId: "U-OFFICE-B",
+    loginName: "office.b",
+    displayName: "办公室B",
+    source: "master_data_import_review",
+    loginEnabled: true,
+    passwordHash: "must-not-be-persisted",
+  }]);
+  assert.match(insertOnlySeedReferenceQuery.text, /ON CONFLICT \(id\) DO NOTHING/);
+  assert.doesNotMatch(insertOnlySeedReferenceQuery.text, /DO UPDATE/);
+  assert(insertOnlySeedReferenceQuery.values.includes("seed"));
+  assert(insertOnlySeedReferenceQuery.values.includes("not_applicable"));
+  assert.equal(insertOnlySeedReferenceQuery.values.includes("must-not-be-persisted"), false);
 
 const postgresCalls = [];
 const postgresLoadState = {
@@ -538,6 +553,11 @@ const postgresSaved = await postgresRepository.saveState({
   },
   identityEmployeeUpdates,
 });
+const seedReferencesEnsured = await postgresRepository.ensureSeedUserReferences([{
+  userId: "U-OFFICE-B",
+  loginName: "office.b",
+  displayName: "办公室B",
+}]);
 assert.equal(postgresRepository.kind, "postgres");
 assert.equal(postgresState.users.length, reloaded.users.length);
 assert.equal(postgresState.employeeAccounts[0].assignmentUpdatedBy, "U-MANAGER-A");
@@ -549,8 +569,10 @@ assert.equal(postgresSaved.savedOperationLogCount, reloaded.operationLogs.length
 assert.equal(postgresSaved.updatedEmployeeCount, 1);
 assert.equal(postgresSaved.updatedEmployeeAssignmentCount, 1);
 assert.equal(postgresSaved.updatedEmployeeIdentityCount, identityEmployeeUpdates.length);
+assert.equal(seedReferencesEnsured.insertedCount, 0);
 assert.equal(postgresCalls[0].kind, "query");
 assert.equal(postgresCalls[1].kind, "transaction");
+assert.equal(postgresCalls[2].kind, "transaction");
 assert.match(postgresCalls[1].text, /^\s*WITH saved_users AS/);
 assert.match(postgresCalls[1].text, /saved_revoked_sessions AS/);
 assert.match(postgresCalls[1].text, /updated_employees AS/);
@@ -560,6 +582,8 @@ assert.match(postgresCalls[1].text, /saved_operation_logs AS/);
 assert.match(postgresCalls[1].text, /AS result;\s*$/);
 assert.doesNotMatch(postgresCalls[1].text, /\bBEGIN\b|\bCOMMIT\b/);
 assert.ok(postgresCalls[1].values.length > 30);
+assert.match(postgresCalls[2].text, /ON CONFLICT \(id\) DO NOTHING/);
+assert.doesNotMatch(postgresCalls[2].text, /DO UPDATE/);
 } finally {
   await closeTestServer(server);
   await closeTestServer(restartedServer);

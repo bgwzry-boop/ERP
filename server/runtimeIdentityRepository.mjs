@@ -50,6 +50,10 @@ export function createLocalRuntimeIdentityRepository(options = {}) {
         savedEmployeeAccountCount: state.employeeAccounts.length,
       };
     },
+
+    ensureSeedUserReferences() {
+      return { insertedCount: 0 };
+    },
   };
 }
 
@@ -85,6 +89,13 @@ export function createPostgresRuntimeIdentityRepository(options = {}) {
         updatedEmployeeAssignmentCount: Number(saved.updatedEmployeeAssignmentCount) || 0,
         updatedEmployeeIdentityCount: Number(saved.updatedEmployeeIdentityCount) || 0,
       };
+    },
+
+    async ensureSeedUserReferences(users = []) {
+      const query = buildEnsureSeedUserReferencesQuery(users);
+      if (query.values.length === 0) return { insertedCount: 0 };
+      const saved = (await transactionJson(query.text, query.values)) ?? {};
+      return { insertedCount: Number(saved.insertedCount) || 0 };
     },
   };
 }
@@ -387,6 +398,33 @@ SELECT json_build_object(
   };
 }
 
+export function buildEnsureSeedUserReferencesQuery(users = []) {
+  const parameters = createPostgresParameterBinder();
+  const rows = normalizeRuntimeUsers(users)
+    .map((user) => runtimeUserSqlRow({
+      ...user,
+      source: "seed",
+      employeeId: "",
+      loginEnabled: false,
+      passwordHash: "",
+      passwordStatus: "not_applicable",
+      mustChangePassword: false,
+    }, parameters))
+    .filter(Boolean);
+  if (rows.length === 0) return { text: "", values: [] };
+  return {
+    text: `
+WITH inserted_seed_users AS (
+  ${buildInsertRuntimeUsersIfMissingSql(rows)}
+)
+SELECT json_build_object(
+  'insertedCount', (SELECT COUNT(*) FROM inserted_seed_users)
+) AS result;
+`,
+    values: parameters.values,
+  };
+}
+
 function buildUpsertRuntimeUsersSql(rows) {
   return `
 INSERT INTO users (
@@ -449,6 +487,45 @@ ON CONFLICT (id) DO UPDATE SET
   assigned_by = EXCLUDED.assigned_by,
   metadata_json = EXCLUDED.metadata_json,
   updated_at = EXCLUDED.updated_at
+RETURNING id
+`;
+}
+
+function buildInsertRuntimeUsersIfMissingSql(rows) {
+  return `
+INSERT INTO users (
+  id,
+  login_name,
+  display_name,
+  department,
+  enabled,
+  source,
+  employee_id,
+  default_machine_id,
+  login_enabled,
+  password_hash,
+  password_status,
+  must_change_password,
+  password_issued_by,
+  password_issued_at,
+  password_changed_by,
+  password_changed_at,
+  password_revoked_by,
+  password_revoked_at,
+  session_valid_after,
+  session_version,
+  phone_e164,
+  phone_verified_at,
+  registration_status,
+  registration_source,
+  assigned_at,
+  assigned_by,
+  metadata_json,
+  updated_at
+)
+VALUES
+${rows.join(",\n")}
+ON CONFLICT (id) DO NOTHING
 RETURNING id
 `;
 }
