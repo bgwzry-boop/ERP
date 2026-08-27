@@ -12,6 +12,7 @@ import {
 import {
   buildLoadRuntimeIdentityStateQuery,
   buildLoadRuntimeIdentityStateSql,
+  buildRuntimeUserJsonExpression,
   buildSaveRuntimeIdentityStateQuery,
   buildSaveRuntimeIdentityStateSql,
   createRuntimeIdentityRepository,
@@ -430,6 +431,22 @@ try {
   assert(loadSql.includes("master_data_employee_identity_confirmation"));
   assert(loadSql.includes("employees.departed_at"));
   assert(loadSql.includes("employees.departure_reason"));
+  const runtimeUserJsonExpression = buildRuntimeUserJsonExpression("users");
+  const runtimeUserJsonChunks = runtimeUserJsonExpression.split(" || ");
+  assert.equal(runtimeUserJsonChunks.length, 2);
+  assert.equal(
+    runtimeUserJsonChunks.reduce(
+      (count, chunk) => count + [...chunk.matchAll(/^\s*'[^']+',/gm)].length,
+      0,
+    ),
+    52,
+  );
+  for (const chunk of runtimeUserJsonChunks) {
+    assert(
+      [...chunk.matchAll(/^\s*'[^']+',/gm)].length <= 50,
+      "PostgreSQL JSON object fragments must stay within the 100-function-argument limit",
+    );
+  }
   const loadQuery = buildLoadRuntimeIdentityStateQuery();
   assert.equal(loadQuery.text, loadSql);
   assert.deepEqual(loadQuery.values, []);

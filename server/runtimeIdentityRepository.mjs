@@ -172,7 +172,7 @@ SELECT json_build_object(
   'users', COALESCE((
     SELECT json_agg(record ORDER BY record->>'updatedAt' DESC, record->>'userId')
     FROM (
-      SELECT ${runtimeUserJsonExpression("users")} AS record
+      SELECT ${buildRuntimeUserJsonExpression("users")} AS record
       FROM users
       WHERE source IN ('master_data_import_review', 'phone_self_registration', 'subaccount_admin_created')
       ORDER BY updated_at DESC, id
@@ -731,8 +731,8 @@ function runtimeEmployeeIdentitySqlRow(record, parameters) {
   )`;
 }
 
-function runtimeUserJsonExpression(alias) {
-  return `json_build_object(
+export function buildRuntimeUserJsonExpression(alias) {
+  return `(jsonb_build_object(
     'id', ${alias}.id,
     'userId', ${alias}.id,
     'loginName', ${alias}.login_name,
@@ -759,7 +759,8 @@ function runtimeUserJsonExpression(alias) {
     'phoneE164', COALESCE(${alias}.phone_e164, ''),
     'phoneVerifiedAt', COALESCE(${alias}.phone_verified_at::TEXT, ''),
     'registrationStatus', COALESCE(${alias}.registration_status, 'legacy_account'),
-    'registrationSource', COALESCE(${alias}.registration_source, ''),
+    'registrationSource', COALESCE(${alias}.registration_source, '')
+  ) || jsonb_build_object(
     'assignedAt', COALESCE(${alias}.assigned_at::TEXT, ''),
     'assignedBy', COALESCE(${alias}.assigned_by, ''),
     'authMethods', COALESCE(${alias}.metadata_json->'authMethods', '[]'::jsonb),
@@ -785,7 +786,7 @@ function runtimeUserJsonExpression(alias) {
     'accountStatusUpdatedAt', COALESCE(${alias}.metadata_json->>'accountStatusUpdatedAt', ''),
     'accountStatusReason', COALESCE(${alias}.metadata_json->>'accountStatusReason', ''),
     'updatedAt', COALESCE(${alias}.updated_at::TEXT, '')
-  )`;
+  ))`;
 }
 
 function runtimeIdentityOperationLogJsonExpression(alias) {
