@@ -565,15 +565,15 @@ function GenericWorkspace({ config, onNavigate }) {
 }
 
 function PeopleMachinesWorkspace({ formal, onNavigate }) {
-  const [view, setView] = useState("员工档案");
+  const [view, setView] = useState(() => new URL(window.location.href).searchParams.get("peopleView") === "positions" ? "岗位分配" : "员工档案");
   const canManageSubaccounts = formal.permissionContext?.actionPermissions?.includes("permission.manage") === true;
   const config = buildWorkspaceConfigs(formal)["people-machines"];
   return <div className="people-machines-workspace">
     <nav aria-label="员工机台工作区" className="employee-master-secondary-nav">
       <button className={view === "员工档案" ? "is-active" : ""} onClick={() => setView("员工档案")} type="button">员工档案</button>
-      {canManageSubaccounts ? <button className={view === "账号权限" ? "is-active" : ""} onClick={() => setView("账号权限")} type="button">账号权限</button> : null}
+      {canManageSubaccounts ? <button className={view === "岗位分配" ? "is-active" : ""} onClick={() => setView("岗位分配")} type="button">岗位分配</button> : null}
     </nav>
-    {view === "账号权限" && canManageSubaccounts
+    {view === "岗位分配" && canManageSubaccounts
       ? <SubaccountPermissionWorkbench authState={formal.authState} currentUser={formal.permissionContext?.user} employeeAccountReviews={formal.data.employeeAccountReviews} />
       : <GenericWorkspace config={{ ...config, onRefresh: formal.actions.refreshAll }} onNavigate={onNavigate} />}
   </div>;

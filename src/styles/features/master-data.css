@@ -2182,8 +2182,7 @@
   line-height: 1.45;
 }
 
-.subaccount-search,
-.subaccount-permission-search {
+.subaccount-search {
   display: grid;
   gap: 4px;
 }
@@ -2194,7 +2193,6 @@
 }
 
 .subaccount-search > span,
-.subaccount-permission-search > span,
 .subaccount-form-grid label > span {
   color: var(--erp-text-muted);
   font-size: var(--erp-text-xxs);
@@ -2202,10 +2200,8 @@
 }
 
 .subaccount-search input,
-.subaccount-permission-search input,
 .subaccount-form-grid input,
 .subaccount-form-grid select,
-.subaccount-permission-group select,
 .subaccount-reason-section textarea {
   min-width: 0;
   min-height: 34px;
@@ -2218,7 +2214,6 @@
 }
 
 .subaccount-search input,
-.subaccount-permission-search input,
 .subaccount-form-grid input,
 .subaccount-form-grid select {
   padding: 0 9px;
@@ -2234,8 +2229,7 @@
 }
 
 .subaccount-list-scroll,
-.subaccount-editor-scroll,
-.subaccount-permission-body {
+.subaccount-editor-scroll {
   min-height: 0;
   overflow: auto;
 }
@@ -2350,21 +2344,29 @@
 .subaccount-role-grid {
   display: grid;
   min-width: 0;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 7px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
 }
 
 .subaccount-role-grid label {
-  display: flex;
+  position: relative;
+  display: grid;
   min-width: 0;
-  min-height: 48px;
-  align-items: center;
-  gap: 8px;
+  min-height: 112px;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
   border: 1px solid var(--erp-border);
-  border-radius: 7px;
+  border-radius: 10px;
   background: var(--erp-surface);
-  padding: 7px 8px;
+  padding: 12px;
   cursor: pointer;
+  transition: border-color 120ms var(--erp-ease-out), background-color 120ms var(--erp-ease-out);
+}
+
+.subaccount-role-grid label:hover {
+  border-color: var(--erp-accent-border);
+  background: var(--erp-surface-hover);
 }
 
 .subaccount-role-grid label.is-selected {
@@ -2373,121 +2375,144 @@
 }
 
 .subaccount-role-grid input {
-  width: 15px;
-  height: 15px;
-  margin: 0;
-  accent-color: var(--erp-accent);
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
 }
 
-.subaccount-role-grid span {
+.subaccount-role-grid label:has(input:focus-visible) {
+  outline: 2px solid var(--erp-focus);
+  outline-offset: 2px;
+}
+
+.subaccount-role-grid label:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.subaccount-position-picker,
+.subaccount-position-copy {
   display: flex;
   min-width: 0;
   flex-direction: column;
-  gap: 2px;
 }
 
-.subaccount-role-grid strong {
-  overflow: hidden;
+.subaccount-position-picker {
+  gap: 16px;
+}
+
+.subaccount-position-copy {
+  gap: 4px;
+}
+
+.subaccount-position-copy strong {
   color: var(--erp-text);
-  font-size: var(--erp-text-xs);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: var(--erp-text-sm);
+  line-height: 20px;
 }
 
-.subaccount-role-grid small {
+.subaccount-position-copy > small {
   color: var(--erp-text-muted);
   font-size: var(--erp-text-xxs);
+  line-height: 17px;
 }
 
-.subaccount-permission-details {
-  border-bottom: 1px solid var(--erp-border-subtle);
-}
-
-.subaccount-permission-details > summary {
+.subaccount-position-summary {
   display: flex;
-  min-height: 60px;
+  min-height: 52px;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
-  padding: 10px 16px;
-  cursor: pointer;
+  gap: 12px;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  padding-bottom: 12px;
 }
 
-.subaccount-permission-details > summary::marker {
-  display: none;
-}
-
-.subaccount-permission-details > summary > span:first-child {
+.subaccount-position-summary > span:first-child {
   display: flex;
   flex-direction: column;
   gap: 3px;
 }
 
-.subaccount-permission-details > summary strong {
+.subaccount-position-summary strong {
+  color: var(--erp-text);
   font-size: var(--erp-text-sm);
 }
 
-.subaccount-permission-details > summary small,
-.subaccount-permission-details > summary > span:last-child {
+.subaccount-position-summary.has-selection strong {
+  color: var(--erp-accent-strong);
+}
+
+.subaccount-position-summary small {
   color: var(--erp-text-muted);
   font-size: var(--erp-text-xxs);
 }
 
-.subaccount-permission-body {
-  max-height: 390px;
-  border-top: 1px solid var(--erp-border-subtle);
-  background: var(--erp-surface-subtle);
-  padding: 12px 16px 18px;
-}
-
-.subaccount-permission-search {
-  position: sticky;
-  z-index: 1;
-  top: -12px;
-  background: var(--erp-surface-subtle);
-  padding: 8px 0;
-}
-
-.subaccount-permission-group {
-  margin-top: 15px;
-}
-
-.subaccount-permission-group h4 {
-  margin: 0 0 5px;
-  color: var(--erp-text-muted);
-  font-size: var(--erp-text-xxs);
-}
-
-.subaccount-permission-group > label {
-  display: grid;
-  min-height: 43px;
-  align-items: center;
-  grid-template-columns: minmax(0, 1fr) 112px;
-  gap: 12px;
-  border-top: 1px solid var(--erp-border-subtle);
-  background: var(--erp-surface);
-  padding: 5px 8px;
-}
-
-.subaccount-permission-group > label > span {
+.subaccount-selected-positions,
+.subaccount-position-scopes {
   display: flex;
   min-width: 0;
-  flex-direction: column;
-  gap: 2px;
+  flex-wrap: wrap;
+  gap: 4px;
 }
 
-.subaccount-permission-group strong {
-  overflow: hidden;
-  color: var(--erp-text);
-  font-size: var(--erp-text-xxs);
-  font-weight: 650;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.subaccount-selected-positions {
+  justify-content: flex-end;
 }
 
-.subaccount-permission-group small {
+.subaccount-selected-positions em,
+.subaccount-position-scopes em {
+  border-radius: 999px;
+  background: var(--erp-neutral-bg);
   color: var(--erp-text-muted);
   font-size: 10px;
+  font-style: normal;
+  line-height: 18px;
+  padding: 0 6px;
+}
+
+.subaccount-selected-positions em {
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
+  font-weight: 700;
+}
+
+.subaccount-position-group h4 {
+  margin: 0 0 7px;
+  color: var(--erp-text-muted);
+  font-size: var(--erp-text-xxs);
+}
+
+.subaccount-position-scopes {
+  margin-top: 3px;
+}
+
+.subaccount-position-choice {
+  color: var(--erp-text-faint);
+  font-size: var(--erp-text-xxs);
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.subaccount-role-grid label.is-selected .subaccount-position-choice {
+  color: var(--erp-accent-strong);
+}
+
+.subaccount-special-permission-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--erp-warning-border);
+  border-radius: 8px;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
+  padding: 9px 10px;
+  font-size: var(--erp-text-xxs);
+}
+
+.subaccount-special-permission-note span {
+  text-align: right;
 }
 
 .subaccount-reason-section textarea {
@@ -2542,10 +2567,6 @@
 @media (max-width: 1240px) {
   .subaccount-permission-workbench {
     grid-template-columns: minmax(290px, 0.64fr) minmax(480px, 1.36fr);
-  }
-
-  .subaccount-role-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .master-data-workbench {
@@ -2636,6 +2657,20 @@
   .subaccount-form-grid,
   .subaccount-role-grid {
     grid-template-columns: minmax(0, 1fr);
+  }
+
+  .subaccount-position-summary,
+  .subaccount-special-permission-note {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .subaccount-selected-positions {
+    justify-content: flex-start;
+  }
+
+  .subaccount-special-permission-note span {
+    text-align: left;
   }
 
   .subaccount-form-grid label:last-child {

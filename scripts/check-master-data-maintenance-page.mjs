@@ -22,6 +22,8 @@ const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js",
 const apiClientSource = readFileSync(new URL("../src/services/officeMasterDataImportApiClient.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const featurePageSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenancePage.jsx", import.meta.url), "utf8");
+const subaccountWorkbenchSource = readFileSync(new URL("../src/features/master-data/SubaccountPermissionWorkbench.jsx", import.meta.url), "utf8");
+const completeReviewWorkspaceSource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/BusinessWorkspaces.jsx", import.meta.url), "utf8");
 const featureWorkbenchSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenanceWorkbench.jsx", import.meta.url), "utf8");
 const importModalSource = readFileSync(new URL("../src/app/MasterDataImportTemplateModal.jsx", import.meta.url), "utf8");
 const recordProjectionSource = readFileSync(new URL("../src/domain/masterDataMaintenanceRecords.js", import.meta.url), "utf8");
@@ -54,6 +56,13 @@ assertIncludes(featureSource, "客户档案", "master-data page should include c
 assertIncludes(featureSource, "价格表", "master-data page should include price maintenance");
 assertIncludes(featureSource, "规格库存", "master-data page should include inventory specification maintenance");
 assertIncludes(featureSource, "员工机台", "master-data page should include employee/machine maintenance");
+assertIncludes(featurePageSource, "岗位分配", "employee maintenance should expose position-first subaccount assignment");
+assertIncludes(subaccountWorkbenchSource, "系统会自动带出这个岗位需要的功能", "position assignment should explain automatic permission derivation");
+assertIncludes(subaccountWorkbenchSource, "subaccount-position-scopes", "position cards should preview business scopes in plain language");
+assertIncludes(subaccountWorkbenchSource, "保存岗位分配", "position assignment should expose one clear save action");
+assert.equal(subaccountWorkbenchSource.includes("单项权限调整"), false, "everyday position assignment must not expose the technical permission table");
+assert.equal(subaccountWorkbenchSource.includes("输入权限键"), false, "everyday position assignment must not require permission-key knowledge");
+assertIncludes(completeReviewWorkspaceSource, 'get("peopleView") === "positions"', "complete review should support a direct position-assignment preview");
 assertIncludes(featureSource, "车间 / 机台调配", "employee maintenance should expose manual assignment controls");
 assertIncludes(featurePageSource, "suggestPayrollPosition", "employee profiles should consume the non-name payroll-position suggestion contract");
 assertIncludes(featurePageSource, "系统工资岗位候选", "employee profiles should explain the suggested payroll position");

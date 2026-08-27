@@ -278,7 +278,7 @@ export function createMasterDataSubaccountCommandService(dependencies = {}) {
 
 function validateAssignment(body, operatorPermissions) {
   const roles = normalizeRoleKeys(body.roleKeys).filter((roleKey) => humanRoleKeys.includes(roleKey));
-  if (!roles.length) return { error: businessError(400, "SUBACCOUNT_ROLE_REQUIRED", "请至少选择一个权限模板。") };
+  if (!roles.length) return { error: businessError(400, "SUBACCOUNT_ROLE_REQUIRED", "请至少选择一个岗位。") };
   const catalog = getPermissionCatalog();
   const known = new Set(catalog.map((item) => item.permissionKey));
   const allowPermissions = unique(body.permissionAllowlist).map(cleanText);
