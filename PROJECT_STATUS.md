@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-27 — baseline `V8.306`; the controlled Staging release is `staging-20260827-audit-remediation-r6` at commit `2fb1a899ceb85c68f17273625f5584fab760bbdc`.
+Last updated: 2026-08-27 — baseline `V8.306`. The last verified release before this artifact-root rollout was `staging-20260827-audit-remediation-r6` at commit `2fb1a899ceb85c68f17273625f5584fab760bbdc`; the live release identity supersedes this static checkpoint after rollout.
 
 ## Current Verdict
 
