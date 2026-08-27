@@ -9,6 +9,17 @@ import { redactSensitiveText } from "./run-v1-production-postgres-preflight.mjs"
 
 const defaultPsqlCommand = "psql";
 const databaseUrlSourceNames = ["ERP_V1_DATABASE_URL", "DATABASE_URL", "PGURL"];
+const legacyMigrationChecksumAliases = new Map([
+  [
+    "0030",
+    new Map([
+      [
+        "d9333a508b2f6867cc913246cd0fbdde1e4de214fa2eda49f927043a6b3fd5d6",
+        "423c48ebede1b1bf54a1e308c132fde00fd2268b62d342f70d3430ac3ea213ad",
+      ],
+    ]),
+  ],
+]);
 
 if (isCliEntrypoint()) runCli();
 
@@ -155,10 +166,13 @@ function runDbMigrations({
       pendingMigrations.push(migration);
       continue;
     }
-    if (appliedChecksum !== migration.checksum) {
+    if (!isAcceptedAppliedMigrationChecksum(migration, appliedChecksum)) {
       throw new Error(
         `Migration checksum mismatch for ${migration.id}. Existing ${appliedChecksum}, current ${migration.checksum}`,
       );
+    }
+    if (appliedChecksum !== migration.checksum) {
+      logger(`Accepted byte-equivalent legacy checksum for ${migration.id}`);
     }
   }
 
@@ -195,6 +209,11 @@ function runDbMigrations({
     pendingCount: 0,
     totalCount: migrations.length,
   };
+}
+
+export function isAcceptedAppliedMigrationChecksum(migration, appliedChecksum) {
+  if (appliedChecksum === migration?.checksum) return true;
+  return legacyMigrationChecksumAliases.get(migration?.id)?.get(appliedChecksum) === migration?.checksum;
 }
 
 function getDatabaseUrl(env) {

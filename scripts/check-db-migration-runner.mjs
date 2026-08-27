@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseArgs, redactMigrationText, runDbMigrations } from "./run-db-migrations.mjs";
+import {
+  isAcceptedAppliedMigrationChecksum,
+  parseArgs,
+  redactMigrationText,
+  runDbMigrations,
+} from "./run-db-migrations.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "db-migration-runner");
 rmSync(storageRoot, { recursive: true, force: true });
@@ -38,6 +43,27 @@ const dryRunResult = runDbMigrations({
 assert.equal(dryRunResult.mode, "dry-run");
 assert.equal(dryRunCalls.length, 0);
 assert.ok(dryRunLogs.some((line) => line.includes("Dry-run only")));
+
+const canonicalMiniappIntakeChecksum = "423c48ebede1b1bf54a1e308c132fde00fd2268b62d342f70d3430ac3ea213ad";
+const byteEquivalentLegacyChecksum = "d9333a508b2f6867cc913246cd0fbdde1e4de214fa2eda49f927043a6b3fd5d6";
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(
+    { id: "0030", checksum: canonicalMiniappIntakeChecksum },
+    byteEquivalentLegacyChecksum,
+  ),
+  true,
+);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum({ id: "0030", checksum: canonicalMiniappIntakeChecksum }, "unknown"),
+  false,
+);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(
+    { id: "0031", checksum: canonicalMiniappIntakeChecksum },
+    byteEquivalentLegacyChecksum,
+  ),
+  false,
+);
 
 const applyCalls = [];
 const applyLogs = [];
