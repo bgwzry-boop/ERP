@@ -11,7 +11,7 @@ const defaultPsqlCommand = "psql";
 const databaseUrlSourceNames = ["ERP_V1_DATABASE_URL", "DATABASE_URL", "PGURL"];
 const legacyMigrationChecksumAliases = new Map([
   [
-    "0030",
+    "0030_miniapp_order_intake",
     new Map([
       [
         "d9333a508b2f6867cc913246cd0fbdde1e4de214fa2eda49f927043a6b3fd5d6",
