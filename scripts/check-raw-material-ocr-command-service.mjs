@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { normalizeIdempotencyKey } from "../server/idempotency.mjs";
 import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
 import { applyRawMaterialOcrReparse } from "../server/rawMaterialInboundOcrSupport.mjs";
 import { createRawMaterialCommandService } from "../server/services/rawMaterialCommandService.mjs";
@@ -55,6 +56,7 @@ let maxConcurrentOcrCalls = 0;
 let attachmentCalls = 0;
 let parserCalls = 0;
 let reparseCalls = 0;
+let lastReparseIdempotencyKey = "";
 let parsedDeliveryNoteNo = "";
 const workspace = {
   users: [{ id: "U-OFFICE", displayName: "办公室复核员" }],
@@ -72,7 +74,9 @@ const workspace = {
       return { inbound: input.inbound, operationLog: input.operationLog, deduplicated: false };
     },
     async recordRawMaterialInboundAction(input) {
+      normalizeIdempotencyKey(input.idempotencyKey);
       reparseCalls += 1;
+      lastReparseIdempotencyKey = input.idempotencyKey;
       const result = applyRawMaterialInboundAction({
         workspace,
         inbounds: workspace.rawMaterialInbounds,
@@ -105,7 +109,7 @@ const service = createRawMaterialCommandService({
   },
   rawMaterialOcrParserService: {
     parserVersion: 5,
-    buildInboundDraft({ documentDirectionHint, inboundId, ocr }) {
+    buildInboundDraft({ documentDirectionHint, inboundId, ocr, supplierNameHint }) {
       parserCalls += 1;
       const isSupplierReturn = documentDirectionHint === "supplier_return";
       return {
@@ -113,7 +117,7 @@ const service = createRawMaterialCommandService({
         documentDirection: isSupplierReturn ? "supplier_return" : "supplier_delivery",
         documentDirectionSource: isSupplierReturn ? "operator_capture_selection" : "ocr_inference",
         documentTypeLabel: isSupplierReturn ? "退货单" : "送货单",
-        supplierName: "待复核供应商",
+        supplierName: supplierNameHint || "待复核供应商",
         deliveryNoteNo: parsedDeliveryNoteNo,
         materialType: "无纺布",
         productName: isSupplierReturn ? "布" : "无纺布",
@@ -235,6 +239,30 @@ assert.equal(correctedReturn.inbound.totalWeightKg, -100);
 assert.equal(correctedReturn.inbound.rolls.length, 0);
 assert.equal(ocrCalls, ocrCallsBeforeDirectionCorrection, "direction correction must reparse saved tables without another cloud OCR call");
 assert.equal(parserCalls, 3);
+
+const oldSupplierCandidate = {
+  ...correctedReturn.inbound,
+  id: "RMI-OCR-OLD-CHINESE-SUPPLIER",
+  revision: 1,
+  supplierName: "待复核供应商",
+  ocrSourceDigest: "chinese-supplier-correction-test",
+};
+workspace.rawMaterialInbounds.unshift(oldSupplierCandidate);
+const correctedSupplier = await service.recordInboundAction({
+  workspace,
+  inboundId: oldSupplierCandidate.id,
+  actionSlug: "reparse-ocr",
+  operatorId: "U-OFFICE",
+  body: {
+    expectedRevision: oldSupplierCandidate.revision,
+    documentDirectionHint: "supplier_return",
+    supplierNameHint: "宁晋县腾胜无纺布有限公司",
+  },
+});
+assert.equal(correctedSupplier.inbound.supplierName, "宁晋县腾胜无纺布有限公司");
+assert.match(lastReparseIdempotencyKey, /^[A-Za-z0-9][A-Za-z0-9._:-]{7,127}$/u);
+assert.doesNotMatch(lastReparseIdempotencyKey, /[\p{Script=Han}]/u, "Chinese supplier names must stay in the hashed idempotency payload, not the key");
+assert.ok(lastReparseIdempotencyKey.length <= 128);
 
 const multipageBody = {
   pages: [

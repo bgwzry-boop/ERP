@@ -993,6 +993,12 @@ async function reparseStaleOcrDraft({
     standardColors: workspace.standardColors,
     supplierNameHint: normalizedSupplierNameHint,
   }), existingInbound);
+  const idempotencyPayload = {
+    sourceDigest,
+    parserVersion,
+    documentDirectionHint: normalizedDirectionHint,
+    supplierNameHint: normalizedSupplierNameHint,
+  };
   const saved = await workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction({
     workspace,
     inboundId: existingInbound.id,
@@ -1002,13 +1008,8 @@ async function reparseStaleOcrDraft({
       reparsedInbound: reparsedDraft,
       reason: `使用已保存的 OCR 表格按解析器 V${parserVersion} 重新解析；未请求云端 OCR。`,
     },
-    idempotencyKey: `raw-material-ocr-reparse:${sourceDigest}:v${parserVersion}:${normalizedDirectionHint || "infer"}:${normalizedSupplierNameHint || "ocr"}`,
-    idempotencyPayload: {
-      sourceDigest,
-      parserVersion,
-      documentDirectionHint: normalizedDirectionHint,
-      supplierNameHint: normalizedSupplierNameHint,
-    },
+    idempotencyKey: buildRawMaterialOcrReparseIdempotencyKey(idempotencyPayload),
+    idempotencyPayload,
     operatorId,
     operatorName: getOperatorName(workspace, operatorId),
   });
@@ -1017,6 +1018,19 @@ async function reparseStaleOcrDraft({
     inbound: saved.inbound,
     operationLogId: saved.operationLogId ?? saved.operationLog?.id ?? "",
   };
+}
+
+function buildRawMaterialOcrReparseIdempotencyKey(payload = {}) {
+  const parserVersion = Math.max(1, Number(payload.parserVersion) || 1);
+  const digest = createHash("sha256")
+    .update(JSON.stringify({
+      sourceDigest: cleanText(payload.sourceDigest),
+      parserVersion,
+      documentDirectionHint: cleanText(payload.documentDirectionHint),
+      supplierNameHint: cleanText(payload.supplierNameHint),
+    }))
+    .digest("hex");
+  return `raw-material-ocr-reparse:v${parserVersion}:${digest}`;
 }
 
 function preserveReparsedOcrEvidence(reparsedDraft, existingInbound) {
