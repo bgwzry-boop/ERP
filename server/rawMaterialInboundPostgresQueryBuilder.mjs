@@ -10,7 +10,7 @@ export function buildListRawMaterialInboundPayloadsSql({ query } = {}) {
 export function buildListRawMaterialInboundPayloadsQuery({ query } = {}) {
   const filters = normalizeRawMaterialInboundListQuery(query);
   const parameters = createPostgresParameterBinder();
-  const where = [];
+  const where = [`status <> ${parameters.text("已作废")}`];
   if (filters.status && filters.status !== "全部") {
     where.push(`status = ${parameters.text(filters.status)}`);
   }

@@ -763,12 +763,13 @@ async function checkPostgresRepositoryBoundary() {
   const filteredSql = buildListRawMaterialInboundPayloadsSql({
     query: { keyword: "O'Brien", status: "已打印待贴标" },
   });
-  assert.match(filteredSql, /payload_json::text ILIKE \$2::text/, "postgres list SQL should bind keyword");
-  assert.match(filteredSql, /status = \$1::text/, "postgres list SQL should bind status");
+  assert.match(filteredSql, /status <> \$1::text/, "postgres list SQL should exclude voided drafts");
+  assert.match(filteredSql, /payload_json::text ILIKE \$3::text/, "postgres list SQL should bind keyword");
+  assert.match(filteredSql, /status = \$2::text/, "postgres list SQL should bind status");
   assert.ok(!filteredSql.includes("O'Brien"));
   assert.deepEqual(buildListRawMaterialInboundPayloadsQuery({
     query: { keyword: "O'Brien", status: "已打印待贴标" },
-  }).values, ["已打印待贴标", "%O'Brien%"]);
+  }).values, ["已作废", "已打印待贴标", "%O'Brien%"]);
 
   const workspace = { rawMaterialInbounds: [repositoryInbound] };
   const saved = await repository.recordRawMaterialInboundAction({

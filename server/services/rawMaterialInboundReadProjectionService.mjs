@@ -2,7 +2,7 @@ import { normalizeRawMaterialInbounds } from "../rawMaterialInboundRecordService
 
 export function buildRawMaterialInboundListResponse(inbounds = [], query = new URLSearchParams()) {
   const filters = normalizeRawMaterialInboundListQuery(query);
-  let items = normalizeRawMaterialInbounds(inbounds);
+  let items = getOperationalRawMaterialInbounds(inbounds);
   if (filters.status && filters.status !== "全部") {
     items = items.filter((item) => item.status === filters.status);
   }
@@ -34,7 +34,7 @@ export function normalizeRawMaterialInboundListQuery(query) {
 }
 
 export function buildRawMaterialInboundMetrics(inbounds = []) {
-  const items = normalizeRawMaterialInbounds(inbounds);
+  const items = getOperationalRawMaterialInbounds(inbounds);
   return {
     totalCount: items.length,
     pendingReviewCount: items.filter((item) => item.status.includes("待复核")).length,
@@ -82,6 +82,10 @@ function buildSearchText(item) {
 
 function countRolls(items, predicate) {
   return items.reduce((sum, item) => sum + (item.rolls ?? []).filter(predicate).length, 0);
+}
+
+function getOperationalRawMaterialInbounds(inbounds = []) {
+  return normalizeRawMaterialInbounds(inbounds).filter((item) => item.status !== "已作废");
 }
 
 function getQueryValue(query, key) {
