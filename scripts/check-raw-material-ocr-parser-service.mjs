@@ -232,6 +232,41 @@ assert.deepEqual(variableWeightDraft.rolls.map((roll) => [roll.gramWeightGsm, ro
 ]);
 assert.equal(variableWeightDraft.ocrLines.some((line) => /合计/.test(line.sourceText)), false);
 
+const renyiMergedFooterWeightDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RENYI-MERGED-FOOTER-WEIGHT",
+  knownSupplierNames: ["人意无纺布"],
+  supplierNameHint: "人意无纺布",
+  ocr: {
+    tables: [
+      { cells: buildCells([
+        ["人意无纺布销货单"],
+        ["填单日期", "2026.8.29"],
+        ["商品名称", "颜色", "数量", "重量", "单位:千克", "总重", "单价", "金额"],
+        ["米黄条", "1", "95.5"],
+        ["桔红条", "1", "72.5"],
+        ["梅红条", "1", "95"],
+        ["大红条", "2", "94", "93.5", "450.5", "10.3"],
+        ["合计", "5"],
+        ["本单金额", "4640.15"],
+        ["累计欠款", "498140.1"],
+      ]) },
+    ],
+  },
+});
+assert.equal(renyiMergedFooterWeightDraft.supplierOcrProfileKey, "renyi_zhengheng");
+assert.equal(renyiMergedFooterWeightDraft.receivedAt, "2026-08-29");
+assert.equal(renyiMergedFooterWeightDraft.rollCount, 5);
+assert.equal(renyiMergedFooterWeightDraft.totalWeightKg, 450.5);
+assert.equal(renyiMergedFooterWeightDraft.amount, 4640.15, "the declared document amount remains the ticket-level evidence");
+assert.equal(renyiMergedFooterWeightDraft.ocrCalculatedLineAmount, 0, "the merged document weight must not masquerade as a line amount");
+assert.deepEqual(renyiMergedFooterWeightDraft.rolls.map((roll) => roll.weightKg), [95.5, 72.5, 95, 94, 93.5]);
+assert.equal(renyiMergedFooterWeightDraft.ocrLines[3].values.unitPrice, 10.3);
+assert.equal(renyiMergedFooterWeightDraft.ocrLines[3].values.amount, 0);
+assert.equal(renyiMergedFooterWeightDraft.ocrLines[3].values.amountRawAudit, 450.5);
+assert.match(renyiMergedFooterWeightDraft.ocrLines[3].values.amountNormalizationReason, /卷重合计×单价不一致/);
+assert.equal(renyiMergedFooterWeightDraft.ocrLines[3].confidences.amount, 0, "a rejected amount candidate must stay visibly unconfirmed");
+assert.deepEqual(renyiMergedFooterWeightDraft.ocrReconciliationIssues, [], "reference-price tickets stay reviewable while retaining the original text for audit");
+
 const mixedBodyAndStripDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-MIXED-BODY-STRIP",
   ocr: {

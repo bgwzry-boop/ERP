@@ -457,6 +457,8 @@ function parseVariableRollWeightLine(cells) {
   }
   let unitPrice = 0;
   let amount = 0;
+  let amountRawAudit = 0;
+  let amountNormalizationReason = "";
   if (remaining.length >= 2) {
     unitPrice = remaining.at(-2);
     amount = remaining.at(-1);
@@ -464,7 +466,25 @@ function parseVariableRollWeightLine(cells) {
   } else if (remaining.length === 1) {
     amount = remaining[0];
   }
+  const expectedLineAmount = roundNumber(rollWeightTotal * unitPrice, 2);
+  if (unitPrice > 0 && amount > 0 && !approximatelyEqual(amount, expectedLineAmount)) {
+    amountRawAudit = amount;
+    amount = 0;
+    amountNormalizationReason = "尾部数值与该行卷重合计×单价不一致，未作为行金额；原始数值保留用于人工复核";
+  }
   const confidenceIndex = Math.min(cells.length - 1, weightStart);
+  const confidences = buildSequentialConfidences(cells, {
+    productName: 0,
+    materialType: 0,
+    supplierColor: rollCountIndex === 2 ? 1 : 0,
+    spec: 0,
+    rollCount: rollCountIndex,
+    totalWeightKg: confidenceIndex,
+    unit: confidenceIndex,
+    unitPrice: Math.max(0, cells.length - 2),
+    amount: Math.max(0, cells.length - 1),
+  });
+  if (amountNormalizationReason) confidences.amount = 0;
   return {
     values: enrichRawMaterialSpecValues({
       productName,
@@ -476,20 +496,12 @@ function parseVariableRollWeightLine(cells) {
       unit: "kg",
       unitPrice,
       amount,
+      amountRawAudit,
+      amountNormalizationReason,
       supplierRollNo: "",
       rollWeightsKg,
     }),
-    confidences: buildSequentialConfidences(cells, {
-      productName: 0,
-      materialType: 0,
-      supplierColor: rollCountIndex === 2 ? 1 : 0,
-      spec: 0,
-      rollCount: rollCountIndex,
-      totalWeightKg: confidenceIndex,
-      unit: confidenceIndex,
-      unitPrice: Math.max(0, cells.length - 2),
-      amount: Math.max(0, cells.length - 1),
-    }),
+    confidences,
   };
 }
 
@@ -604,6 +616,8 @@ function normalizeLine(input = {}, index, {
     // a separator glyph turning a valid price into zero during review.
     unitPrice: positiveNumber(Math.abs(finiteNumber(values.unitPrice, 0)), 0),
     amount: applyDocumentDirection(values.amount, documentDirection),
+    amountRawAudit: positiveNumber(Math.abs(finiteNumber(values.amountRawAudit, 0)), 0),
+    amountNormalizationReason: cleanText(values.amountNormalizationReason),
     supplierRollNo: cleanText(values.supplierRollNo),
     rollWeightsKg: (Array.isArray(values.rollWeightsKg) ? values.rollWeightsKg : [])
       .map((value) => applyDocumentDirection(value, documentDirection))
