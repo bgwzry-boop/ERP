@@ -36,7 +36,7 @@ await assertCompleteReviewStaticIdentity();
 const [htmlResource, navigationSource, appSource, legacyEntryResource, reviewEntryResource, apiResponse] = await Promise.all([
   fetchResource(`${frontendBaseUrl}/`),
   fetchText(`${frontendBaseUrl}/src/navigation.js`),
-  fetchText(`${frontendBaseUrl}/src/OfficeWorkbench.jsx`),
+  fetchText(`${frontendBaseUrl}/src/App.jsx`),
   fetchResource(`${frontendBaseUrl}/src/main.jsx`),
   fetchResource(`${frontendBaseUrl}/src/complete-review-entry.jsx`),
   fetch(apiHealthUrl, { cache: "no-store", headers: { "cache-control": "no-cache" } }),
