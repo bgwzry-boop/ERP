@@ -6,7 +6,7 @@ import {
   linkOfficeInventoryCorrectionAttachments,
   releaseOfficeTemporaryInventoryHold,
   extendOfficeTemporaryInventoryHold,
-} from "../services/officeInventoryApiClient.js";
+} from "../services/officeInventoryLazyApi.js";
 import {
   createInventoryCorrectionEvidenceAttachmentInput,
   createOfficeAttachment,

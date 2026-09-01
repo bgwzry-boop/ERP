@@ -2,7 +2,7 @@ import { useCallback, useRef } from "react";
 import {
   listOfficeMasterDataEmployeeAccountReviews,
   listOfficeMasterDataImportReviewDrafts,
-} from "../services/officeMasterDataImportApiClient.js";
+} from "../services/officeMasterDataLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 import { getUiActionState } from "../auth/seedPermissions.js";
 

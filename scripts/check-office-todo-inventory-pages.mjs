@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 const todoPageSource = readFileSync(new URL("../src/features/todos/TodoPage.jsx", import.meta.url), "utf8");
 const inventoryPageSource = readFileSync(new URL("../src/features/inventory/InventoryPage.jsx", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
+const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const todoStyleSource = readFileSync(new URL("../src/styles/features/todos.css", import.meta.url), "utf8");
@@ -34,12 +35,8 @@ assert.match(todoPageSource, /allowedRefTypes/);
 assert.match(todoPageSource, /resolvedRefTypeLabel/);
 assert.match(todoPageSource, /referenceStatus === "unverifiable"/);
 assert.match(todoStyleSource, /\.todo-reference-repair/);
-assert.match(mainSource, /import "\.\/styles\/features\/todos\.css";/);
-assert.equal(
-  mainSource.indexOf('import "./styles/components.css";') < mainSource.indexOf('import "./styles/features/todos.css";'),
-  true,
-  "todo styles should load after shared components",
-);
+assert.doesNotMatch(mainSource, /styles\/features\/todos\.css/, "Todo styles should not load with the shell");
+assert.match(appSource, /import\("\.\/styles\/features\/todos\.css"\)/, "Todo styles should load with the Todo route");
 for (const selector of [
   ".todo-list",
   ".todo-status-tabs",

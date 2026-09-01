@@ -1,4 +1,8 @@
-import { requestOfficeApi as requestPrintDriverConfigApi } from "./officeApiClientCore.js";
+import {
+  readOfficeApiJson as readJson,
+  requestOfficeApi as requestPrintDriverConfigApi,
+  toOfficeApiError as toApiError,
+} from "./officeApiClientCore.js";
 
 export async function getOfficePrintDriverConfig(input = {}, options = {}) {
   const { authState, operatorId } = input;
@@ -10,7 +14,7 @@ export async function getOfficePrintDriverConfig(input = {}, options = {}) {
       method: "GET",
       operatorId,
     });
-    const json = await readJson(response);
+    const json = await readJson(response, {});
     if (!response.ok) {
       return {
         source: "api_error",
@@ -47,7 +51,7 @@ export async function getOfficePrintDriverV1Readiness(input = {}, options = {}) 
       method: "GET",
       operatorId,
     });
-    const json = await readJson(response);
+    const json = await readJson(response, {});
     if (!response.ok) {
       return {
         source: "api_error",
@@ -84,7 +88,7 @@ export async function getOfficePrintDriverCupsDiagnostics(input = {}, options = 
       method: "GET",
       operatorId,
     });
-    const json = await readJson(response);
+    const json = await readJson(response, {});
     if (!response.ok) {
       return {
         source: "api_error",
@@ -121,7 +125,7 @@ export async function getOfficePrintDriverSpoolDiagnostics(input = {}, options =
       method: "GET",
       operatorId,
     });
-    const json = await readJson(response);
+    const json = await readJson(response, {});
     if (!response.ok) {
       return {
         source: "api_error",
@@ -732,24 +736,6 @@ function normalizeCount(value, fallback = 0) {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) return fallback;
   return Math.trunc(parsed);
-}
-
-function toApiError(json, status, fallbackMessage) {
-  const error = json?.error ?? json ?? {};
-  return {
-    code: cleanText(error.code) || `HTTP_${status}`,
-    message: cleanText(error.message) || fallbackMessage,
-    requiredPermission: cleanText(error.requiredPermission),
-    status,
-  };
-}
-
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return {};
-  }
 }
 
 function normalizeStringList(value) {

@@ -1,5 +1,10 @@
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
-import { requestOfficeApi as requestFulfillmentApi } from "./officeApiClientCore.js";
+import {
+  buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
+  readOfficeApiJson as readJson,
+  requestOfficeApi as requestFulfillmentApi,
+  toOfficeApiError as toApiError,
+} from "./officeApiClientCore.js";
 import { getFulfillmentMethodLabel, getFulfillmentMethodValue } from "../shared/labels.js";
 
 const defaultFulfillmentPageSize = 200;
@@ -848,33 +853,6 @@ function getFulfillmentTemplateId(fulfillment, action = "") {
   if (fulfillment?.method === "快递快运") return "tpl-p0-express-ltl-label";
   if (fulfillment?.method === "送货") return "tpl-p0-delivery-note";
   return "tpl-p0-pickup-note";
-}
-
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function toApiError(json, status, fallbackMessage) {
-  return {
-    code: json?.code ?? `HTTP_${status}`,
-    message: json?.message ?? fallbackMessage,
-    requiredPermission: json?.requiredPermission,
-  };
-}
-
-function buildServerRequiredWriteError(code, error) {
-  return {
-    source: "api_error",
-    blocked: true,
-    error: {
-      code,
-      message: `生产模式要求后端事务，未执行本地降级：${error?.message ?? String(error)}`,
-    },
-  };
 }
 
 function cleanText(value) {

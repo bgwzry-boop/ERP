@@ -20,7 +20,7 @@ import {
   updateOfficeMasterDataMachine as updateOfficeMasterDataMachineDefault,
   updateOfficeMasterDataEmployeeAssignment as updateOfficeMasterDataEmployeeAssignmentDefault,
   updateOfficeMasterDataEmployeeProfile as updateOfficeMasterDataEmployeeProfileDefault,
-} from "../services/officeMasterDataImportApiClient.js";
+} from "../services/officeMasterDataLazyApi.js";
 import {
   mergeMasterDataEmployeeAccountReviews,
   upsertMasterDataEmployeeAccountReview,

@@ -1,6 +1,7 @@
 import { expect, test } from "@playwright/test";
+import { openInternalWorkbench } from "./helpers/openInternalWorkbench.mjs";
 
-test("D49完整展示八岗位和环境阻塞且桌面手机无横向溢出", async ({ page }) => {
+test("D49桌面完整展示八岗位和环境阻塞，管理岗手机受控提示无横向溢出", async ({ page }) => {
   const browserErrors = [];
   page.on("console", (message) => {
     if (message.type() === "error" && !message.text().includes("403 (Forbidden)")) browserErrors.push(message.text());
@@ -8,35 +9,44 @@ test("D49完整展示八岗位和环境阻塞且桌面手机无横向溢出", as
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
   await page.setViewportSize({ width: 1280, height: 720 });
-  await page.goto("/");
+  await openInternalWorkbench(page);
   await switchAccount(page, "U-MANAGER-A");
   const mainNavigation = page.getByRole("navigation", { name: "主导航" });
+  await mainNavigation.getByRole("button", { name: "更多工作台", exact: true }).click();
   await mainNavigation.getByRole("button", { name: /上线状态/ }).click();
   await page.getByRole("tab", { name: "生产配置", exact: true }).click();
   await page.getByRole("tab", { name: "真实值校验", exact: true }).click();
 
+  const d49Workbench = page.getByLabel("D49员工与环境联合预检");
+  const d49Tabs = page.getByRole("tablist", { name: "D49预检视图" });
+  await d49Tabs.getByRole("tab", { name: /八岗位/ }).click();
   const roleMatrix = page.getByLabel("D49八岗位就绪矩阵");
-  const d49Panel = roleMatrix.locator("..");
   await expect(roleMatrix).toBeVisible();
   await expect(roleMatrix.locator(".v1-d49-role-row")).toHaveCount(8);
   for (const roleLabel of ["办公室", "库房 / 出库", "财务 / 对账", "车间报工", "打包", "司机", "管理", "技术运维"]) {
     await expect(roleMatrix.getByText(roleLabel, { exact: true })).toBeVisible();
   }
+  await expectNoInternalClipping(roleMatrix);
+  await expectNoHorizontalOverflow(page);
+  await page.screenshot({ path: ".erp-local-storage/e2e/v1-d49-roles-desktop.png", fullPage: true });
+  await d49Workbench.screenshot({ path: ".erp-local-storage/e2e/v1-d49-panel-roles-desktop.png" });
+
+  await d49Tabs.getByRole("tab", { name: /环境门禁/ }).click();
   const environmentBlockers = page.getByLabel("D49环境阻塞");
   await expect(environmentBlockers).toBeVisible();
   await expect(environmentBlockers.locator("p")).not.toHaveCount(0);
   await expectNoInternalClipping(environmentBlockers);
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: ".erp-local-storage/e2e/v1-d49-desktop.png", fullPage: true });
-  await d49Panel.screenshot({ path: ".erp-local-storage/e2e/v1-d49-panel-desktop.png" });
+  await page.screenshot({ path: ".erp-local-storage/e2e/v1-d49-environment-desktop.png", fullPage: true });
+  await d49Workbench.screenshot({ path: ".erp-local-storage/e2e/v1-d49-panel-environment-desktop.png" });
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await expect(roleMatrix).toBeVisible();
-  await expect(roleMatrix.locator(".v1-d49-role-row")).toHaveCount(8);
-  await expectNoInternalClipping(environmentBlockers);
+  const desktopRequired = page.getByRole("region", { name: "电脑端使用说明" });
+  await expect(desktopRequired).toBeVisible();
+  await expect(desktopRequired.getByRole("heading", { name: "请使用老板电脑", exact: true })).toBeVisible();
+  await expectNoInternalClipping(desktopRequired);
   await expectNoHorizontalOverflow(page);
-  await page.screenshot({ path: ".erp-local-storage/e2e/v1-d49-mobile.png", fullPage: true });
-  await d49Panel.screenshot({ path: ".erp-local-storage/e2e/v1-d49-panel-mobile.png" });
+  await page.screenshot({ path: ".erp-local-storage/e2e/v1-d49-management-mobile-boundary.png", fullPage: true });
 
   expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
 });

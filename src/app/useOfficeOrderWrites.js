@@ -14,7 +14,7 @@ import {
 import {
   adjustOfficeOrderLineQuantity,
   voidOfficeOrderLine,
-} from "../services/officeOrderPoolApiClient.js";
+} from "../services/officeOrderPoolLazyApi.js";
 import {
   confirmOfficeDraftOrder,
   createDraftSaveTodo,

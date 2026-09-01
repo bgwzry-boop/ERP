@@ -3,6 +3,7 @@ import {
   buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
   readOfficeApiJson as readJson,
   requestOfficeApi as requestMasterDataImportApi,
+  toOfficeApiError as toApiError,
 } from "./officeApiClientCore.js";
 import { createMasterDataImportConfirmationPlan } from "../domain/masterDataImportConfirmationPlan.js";
 import { createMasterDataImportExecution } from "../domain/masterDataImportExecution.js";
@@ -1317,15 +1318,6 @@ function normalizeIssuedEmployeeCredential(credential) {
     passwordStatus: cleanText(credential.passwordStatus),
     mustChangePassword: credential.mustChangePassword === true,
     visibleOnce: credential.visibleOnce !== false,
-  };
-}
-
-function toApiError(json, status, fallbackMessage) {
-  return {
-    code: cleanText(json?.code) || `HTTP_${status}`,
-    message: cleanText(json?.message) || fallbackMessage,
-    requiredPermission: cleanText(json?.requiredPermission),
-    status,
   };
 }
 

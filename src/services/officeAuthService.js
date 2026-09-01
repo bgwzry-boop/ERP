@@ -7,6 +7,10 @@ import {
   getRuntimeAuthInvalidation,
   notifyRuntimeAuthInvalidationForResponse,
 } from "./runtimeAuthInvalidation.js";
+import {
+  createOfficeRequestAbort,
+  createOfficeRequestAbortError,
+} from "./officeRequestAbort.js";
 
 export const seedAuthStorageKey = "erp.authSession.v1";
 const legacySeedAuthStorageKey = "erp.seedAuthSession.v1";
@@ -78,13 +82,26 @@ export function createLocalSeedAuthState(userId = defaultSeedUserId, reason = "l
 export async function initializeSeedAuth(options = {}) {
   const storage = options.storage ?? getBrowserStorage();
   const storedSession = readStoredSeedSession(storage);
+  const stagingPreviewUserId = resolveLocalPreviewUserId(options);
+  const stagingAuthBypassEnabled = isStagingAuthBypassEnabled(options);
   if (!storedSession?.accessToken) {
-    if (isStagingAuthBypassEnabled(options)) {
-      return loginSeedUser(resolveLocalPreviewUserId(options), options);
+    if (stagingAuthBypassEnabled) {
+      return loginSeedUser(stagingPreviewUserId, options);
     }
     return isOfficeApiServerRequired(options)
       ? createServerRequiredAuthState("no_stored_session")
-      : createLocalSeedAuthState(resolveLocalPreviewUserId(options), "no_stored_session");
+      : createLocalSeedAuthState(stagingPreviewUserId, "no_stored_session");
+  }
+
+  if (
+    stagingAuthBypassEnabled
+    && (
+      String(storedSession.userId ?? "").trim() !== stagingPreviewUserId
+      || storedSession.sessionType === "runtime"
+    )
+  ) {
+    clearStoredSeedSession(storage);
+    return loginSeedUser(stagingPreviewUserId, options);
   }
 
   try {
@@ -99,9 +116,9 @@ export async function initializeSeedAuth(options = {}) {
       if (isOfficeApiServerRequired(options)) {
         return createServerRequiredAuthState(json?.code ?? "stored_session_invalid", json);
       }
-      if (isStagingAuthBypassEnabled(options)) {
+      if (stagingAuthBypassEnabled) {
         clearStoredSeedSession(storage);
-        return loginSeedUser(resolveLocalPreviewUserId(options), options);
+        return loginSeedUser(stagingPreviewUserId, options);
       }
       return withAuthError(
         createLocalSeedAuthState(storedSession.userId ?? defaultSeedUserId, json?.code ?? "stored_session_invalid"),
@@ -110,12 +127,23 @@ export async function initializeSeedAuth(options = {}) {
     }
 
     if (
+      stagingAuthBypassEnabled
+      && (
+        json?.session?.sessionType === "runtime"
+        || String(json?.session?.userId ?? json?.permissions?.user?.userId ?? "").trim() !== stagingPreviewUserId
+      )
+    ) {
+      clearStoredSeedSession(storage);
+      return loginSeedUser(stagingPreviewUserId, options);
+    }
+
+    if (
       storedSession.sessionType === "runtime"
       && (json?.authenticated !== true || !isValidRuntimeAuthResponse(json, storedSession.userId))
     ) {
-      if (isStagingAuthBypassEnabled(options)) {
+      if (stagingAuthBypassEnabled) {
         clearStoredSeedSession(storage);
-        return loginSeedUser(resolveLocalPreviewUserId(options), options);
+        return loginSeedUser(stagingPreviewUserId, options);
       }
       return createServerRequiredAuthState("stored_session_response_invalid", {
         code: "AUTH_RESTORE_RESPONSE_INVALID",
@@ -518,16 +546,25 @@ async function requestAuthApi(path, options = {}) {
     "content-type": "application/json",
     ...(options.headers ?? {}),
   };
-  const response = await fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, {
-    method: options.method ?? "GET",
-    headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  await notifyRuntimeAuthInvalidationForResponse(response, {
-    authState: options.authState,
-    session: options.session,
-  });
-  return response;
+  const requestAbort = createOfficeRequestAbort({ signal: options.signal, timeoutMs: options.timeoutMs });
+  try {
+    const response = await fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: requestAbort.signal,
+    });
+    await notifyRuntimeAuthInvalidationForResponse(response, {
+      authState: options.authState,
+      session: options.session,
+    });
+    return response;
+  } catch (error) {
+    if (requestAbort.signal.aborted) throw createOfficeRequestAbortError(requestAbort.reason, error);
+    throw error;
+  } finally {
+    requestAbort.dispose();
+  }
 }
 
 async function readJson(response) {

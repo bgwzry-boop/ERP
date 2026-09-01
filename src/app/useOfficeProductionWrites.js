@@ -6,8 +6,6 @@ import {
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 import {
   completeOfficePackingTask,
-  buildProductionTaskId,
-  findProductionInventoryItem,
   moveOfficeProductionMachineQueueItem,
   publishOfficeProductionSchedule,
   reportOfficeProductionComplete,
@@ -17,7 +15,11 @@ import {
   resequenceOfficeProductionMachineQueue,
   reviewOfficeProductionFinishedGoodsPhoto,
   uploadOfficeProductionFinishedGoodsPhoto,
-} from "../services/officeProductionPackingApiClient.js";
+} from "../services/officeProductionPackingLazyApi.js";
+import {
+  buildProductionTaskId,
+  findProductionInventoryItem,
+} from "../services/officeProductionPackingSelectors.js";
 import { createOfficeTodo } from "../services/officeMockService.js";
 import { estimateDataUrlByteSize } from "../services/driverWatermarkImageClient.js";
 import { readAttachmentFileAsDataUrl } from "../features/attachments/readAttachmentFile.js";

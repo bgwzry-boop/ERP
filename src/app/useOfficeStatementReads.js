@@ -2,8 +2,8 @@ import { useCallback } from "react";
 import {
   getOfficeStatementDetail,
   listOfficeStatementCustomers,
-  mapStatementCustomerSummaryToLocal,
-} from "../services/officeStatementApiClient.js";
+} from "../services/officeStatementLazyApi.js";
+import { mapStatementCustomerSummaryToLocal } from "../services/officeStatementApiClient.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 
 function formatSyncTime() {

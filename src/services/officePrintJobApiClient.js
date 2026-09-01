@@ -1,4 +1,8 @@
-import { requestOfficeApi as requestPrintJobApi } from "./officeApiClientCore.js";
+import {
+  readOfficeApiJson as readJson,
+  requestOfficeApi as requestPrintJobApi,
+  toOfficeApiError as toApiError,
+} from "./officeApiClientCore.js";
 
 export async function listOfficePrintJobs(input = {}, options = {}) {
   const { authState, query = {}, operatorId, localPrintJobs = [] } = input;
@@ -10,7 +14,7 @@ export async function listOfficePrintJobs(input = {}, options = {}) {
       method: "GET",
       operatorId,
     });
-    const json = await readJson(response);
+    const json = await readJson(response, {});
     if (!response.ok) {
       return {
         source: "api_error",
@@ -59,7 +63,7 @@ export async function dispatchOfficePrintJob(input = {}, options = {}) {
         reason,
       },
     });
-    const json = await readJson(response);
+    const json = await readJson(response, {});
     if (!response.ok) {
       return {
         source: "api_error",
@@ -102,7 +106,7 @@ export async function retryOfficePrintJob(input = {}, options = {}) {
         retryReason,
       },
     });
-    const json = await readJson(response);
+    const json = await readJson(response, {});
     if (!response.ok) {
       return {
         source: "api_error",
@@ -221,24 +225,6 @@ function invalidPrintJobInput(code, message) {
     blocked: true,
     error: { code, message },
   };
-}
-
-function toApiError(json, status, fallbackMessage) {
-  const error = json?.error ?? json ?? {};
-  return {
-    code: cleanText(error.code) || `HTTP_${status}`,
-    message: cleanText(error.message) || fallbackMessage,
-    requiredPermission: cleanText(error.requiredPermission),
-    status,
-  };
-}
-
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return {};
-  }
 }
 
 function cleanText(value) {

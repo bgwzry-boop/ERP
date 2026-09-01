@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { printOfficeFulfillment, voidOfficePrintRecord } from "../services/officeFulfillmentApiClient.js";
+import { printOfficeFulfillment, voidOfficePrintRecord } from "../services/officeFulfillmentLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 import { createOfficePrintBatchRecord } from "../services/officePrintBatchApiClient.js";
 import { dispatchOfficePrintJob, retryOfficePrintJob } from "../services/officePrintJobApiClient.js";

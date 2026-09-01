@@ -1,7 +1,11 @@
 import { enrichDraftRow } from "../lib/orderParser.js";
 import { recognizeOrderConversation } from "../lib/orderConversationRecognition.js";
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
-import { requestOfficeApi as requestOrderApi } from "./officeApiClientCore.js";
+import {
+  readOfficeApiJson as readJson,
+  requestOfficeApi as requestOrderApi,
+  toOfficeApiError as toApiError,
+} from "./officeApiClientCore.js";
 
 const defaultDraftStatus = "待补充信息";
 
@@ -26,11 +30,7 @@ export async function recognizeOfficeDraft(input, options = {}) {
       return {
         source: "api_error",
         blocked: true,
-        error: {
-          code: json?.code ?? `HTTP_${response.status}`,
-          message: json?.message ?? "订单识别 API 返回错误。",
-          requiredPermission: json?.requiredPermission,
-        },
+        error: toApiError(json, response.status, "订单识别 API 返回错误。"),
         rows: [],
       };
     }
@@ -657,22 +657,6 @@ export function mapDraftRowsToApiLines(draftRows, sourceText = "") {
 
 export function createClientDraftId() {
   return `DRAFT-FE-${Date.now().toString(36)}-${Math.floor(Math.random() * 1000)}`;
-}
-
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function toApiError(json, status, fallbackMessage) {
-  return {
-    code: json?.code ?? `HTTP_${status}`,
-    message: json?.message ?? fallbackMessage,
-    requiredPermission: json?.requiredPermission,
-  };
 }
 
 function getPrimaryCustomerId(draftRows) {

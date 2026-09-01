@@ -1,20 +1,7 @@
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { MenuFoldOutlined } from "@ant-design/icons";
+import bagwinSidebarLogoUrl from "./assets/brand/BAGWIN_ERP_sidebar_horizontal_color.svg";
 import bagwinSymbolUrl from "./assets/brand/BAGWIN_symbol_color.svg";
-import {
-  EntryPage,
-  FulfillmentPage,
-  InventoryPage,
-  OrderPoolPage,
-  ProductionPackingPage,
-  RawMaterialInboundPage,
-  RawMaterialScannerPage,
-  StatementPage,
-  TodoPage,
-  DriverMobilePage,
-  WarehouseMobilePage,
-  WorkshopMobilePage,
-} from "./pages/office/index.jsx";
 import { RAW_MATERIAL_FIRST_RELEASE_ENABLED } from "./config/rawMaterialFirstRelease.js";
 import {
   allNavigationItems,
@@ -28,7 +15,7 @@ import {
 import { AppNavigation, ContextNavigationStrip } from "./app/AppNavigation.jsx";
 import { MobileRoleShellHeader } from "./app/MobileRoleShellHeader.jsx";
 import { Topbar } from "./app/AppViews.jsx";
-import { WorkspaceOverlays } from "./app/WorkspaceOverlays.jsx";
+import { WorkspaceOverlayController } from "./app/WorkspaceOverlayController.jsx";
 import { RuntimeAuthBoundary } from "./app/RuntimeAuthBoundary.jsx";
 import { useRuntimeAuthInitialization } from "./app/useRuntimeAuthInitialization.js";
 import { useRuntimeAuthInvalidation, useRuntimeSessionExpiry, useRuntimeSessionRevalidation } from "./app/useRuntimeSessionExpiry.js";
@@ -69,12 +56,12 @@ import {
   isOfficeApiServerRequired,
   isOfficeSharedDataServerRequired,
 } from "./services/officeAuthService.js";
-import { getOfficeOrderLineDetail } from "./services/officeOrderPoolApiClient.js";
+import { getOfficeOrderLineDetail } from "./services/officeOrderPoolLazyApi.js";
 import {
   buildPackingTaskId,
   buildProductionTaskId,
   findProductionInventoryItem,
-} from "./services/officeProductionPackingApiClient.js";
+} from "./services/officeProductionPackingSelectors.js";
 import { loadOfficeWorkspace } from "./services/officeMockService.js";
 import {
   availableQty,
@@ -128,14 +115,40 @@ import {
   uniqueStockOptions,
 } from "./domain/officeRules.js";
 
-const V1StatusPage = lazy(() => import("./features/v1-status/V1StatusPage.jsx").then((module) => ({ default: module.V1StatusPage })));
-const OfficeMobilePage = lazy(() => import("./features/office-mobile/OfficeMobilePage.jsx").then((module) => ({ default: module.OfficeMobilePage })));
-const DecisionMobilePage = lazy(() => import("./features/decisions/DecisionMobilePage.jsx").then((module) => ({ default: module.DecisionMobilePage })));
-const MaintenanceMobilePage = lazy(() => import("./features/maintenance/MaintenanceMobilePage.jsx").then((module) => ({ default: module.MaintenanceMobilePage })));
-const DesktopRequiredMobilePage = lazy(() => import("./features/mobile/DesktopRequiredMobilePage.jsx").then((module) => ({ default: module.DesktopRequiredMobilePage })));
-const MasterDataMaintenancePage = lazy(() => import("./features/master-data/MasterDataMaintenancePage.jsx").then((module) => ({ default: module.MasterDataMaintenancePage })));
-const PayrollAttendancePage = lazy(() => import("./features/payroll/PayrollAttendancePage.jsx").then((module) => ({ default: module.PayrollAttendancePage })));
-const EmployeeAttendanceMobilePage = lazy(() => import("./features/payroll/EmployeeAttendanceMobilePage.jsx").then((module) => ({ default: module.EmployeeAttendanceMobilePage })));
+function lazyNamedPage(loadModule, exportName, loadStyles = []) {
+  return lazy(async () => {
+    const [module] = await Promise.all([loadModule(), ...loadStyles.map((loadStyle) => loadStyle())]);
+    return { default: module[exportName] };
+  });
+}
+
+function PageLoader({ component: Component, fallback, ...props }) {
+  return (
+    <Suspense fallback={<DataState title={fallback} />}>
+      <Component {...props} />
+    </Suspense>
+  );
+}
+
+const TodoPage = lazyNamedPage(() => import("./features/todos/TodoPage.jsx"), "TodoPage", [() => import("./styles/features/todos.css")]);
+const EntryPage = lazyNamedPage(() => import("./features/orders/EntryPage.jsx"), "EntryPage", [() => import("./styles/features/orders-entry.css")]);
+const OrderPoolPage = lazyNamedPage(() => import("./features/orders/OrderPoolPage.jsx"), "OrderPoolPage", [() => import("./styles/features/orders-pool.css")]);
+const InventoryPage = lazyNamedPage(() => import("./features/inventory/InventoryPage.jsx"), "InventoryPage", [() => import("./styles/features/inventory.css")]);
+const FulfillmentPage = lazyNamedPage(() => import("./features/fulfillment/FulfillmentPage.jsx"), "FulfillmentPage", [() => import("./styles/features/fulfillment.css")]);
+const ProductionPackingPage = lazyNamedPage(() => import("./features/production/ProductionPackingPage.jsx"), "ProductionPackingPage", [() => import("./styles/features/production-print.css"), () => import("./styles/features/print-documents.css")]);
+const WorkshopMobilePage = lazyNamedPage(() => import("./features/workshop/WorkshopMobilePage.jsx"), "WorkshopMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/production-print.css")]);
+const DriverMobilePage = lazyNamedPage(() => import("./features/driver/DriverMobilePage.jsx"), "DriverMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/driver.css")]);
+const WarehouseMobilePage = lazyNamedPage(() => import("./features/warehouse/WarehouseMobilePage.jsx"), "WarehouseMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/warehouse.css")]);
+const StatementPage = lazyNamedPage(() => import("./features/statements/StatementPage.jsx"), "StatementPage", [() => import("./styles/features/statements.css")]);
+const RawMaterialRoute = lazyNamedPage(() => import("./app/routes/RawMaterialRoute.jsx"), "RawMaterialRoute");
+const MasterDataRoute = lazyNamedPage(() => import("./app/routes/MasterDataRoute.jsx"), "MasterDataRoute");
+const V1StatusRoute = lazyNamedPage(() => import("./app/routes/V1StatusRoute.jsx"), "V1StatusRoute");
+const OfficeMobilePage = lazyNamedPage(() => import("./features/office-mobile/OfficeMobilePage.jsx"), "OfficeMobilePage", [() => import("./styles/features/mobile-roles.css")]);
+const DecisionMobilePage = lazyNamedPage(() => import("./features/decisions/DecisionMobilePage.jsx"), "DecisionMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/role-tools.css")]);
+const MaintenanceMobilePage = lazyNamedPage(() => import("./features/maintenance/MaintenanceMobilePage.jsx"), "MaintenanceMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/role-tools.css")]);
+const DesktopRequiredMobilePage = lazyNamedPage(() => import("./features/mobile/DesktopRequiredMobilePage.jsx"), "DesktopRequiredMobilePage", [() => import("./styles/features/mobile-roles.css")]);
+const PayrollAttendancePage = lazyNamedPage(() => import("./features/payroll/PayrollAttendancePage.jsx"), "PayrollAttendancePage", [() => import("./styles/features/payroll-attendance.css")]);
+const EmployeeAttendanceMobilePage = lazyNamedPage(() => import("./features/payroll/EmployeeAttendanceMobilePage.jsx"), "EmployeeAttendanceMobilePage", [() => import("./styles/features/payroll-attendance.css")]);
 
 const officeScenarioData = loadOfficeWorkspace();
 const {
@@ -158,13 +171,22 @@ const getStatementFinancialSummary = (statement) => getStatementFinancialSummary
 const getStatementBucket = (statement) => getStatementBucketRecord(statement, customers);
 const orderMatchesFilters = (row, filters, statements) => orderMatchesFiltersRecord(row, filters, statements, customers);
 const statementMatchesFilters = (statement, filters) => statementMatchesFiltersRecord(statement, filters, customers);
-export function App() {
-  const formalLoginRequired = isOfficeApiServerRequired();
+export function App({ signedPreviewUserId = "" } = {}) {
+  const signedPreviewAuthOptions = useMemo(() => {
+    const normalizedPreviewUserId = String(signedPreviewUserId ?? "").trim();
+    if (!normalizedPreviewUserId) return null;
+    return Object.freeze({
+      defaultUserId: normalizedPreviewUserId,
+      serverRequired: false,
+      stagingAuthBypass: true,
+    });
+  }, [signedPreviewUserId]);
+  const formalLoginRequired = isOfficeApiServerRequired(signedPreviewAuthOptions ?? undefined);
   const runtimeServerRequired = isOfficeSharedDataServerRequired();
   const [activePage, setActivePage] = useState("todos");
   const [mobileViewport, setMobileViewport] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
-  const [authState, setAuthState] = useState(() => createInitialAuthState()); const [runtimeLoginForm, setRuntimeLoginForm] = useState({ loginName: "", password: "" });
+  const [authState, setAuthState] = useState(() => createInitialAuthState(signedPreviewAuthOptions ?? undefined)); const [runtimeLoginForm, setRuntimeLoginForm] = useState({ loginName: "", password: "" });
   const [runtimeLoginLoading, setRuntimeLoginLoading] = useState(false);
   const runtimeLoginRequestRef = useRef(0);
   const [runtimePasswordChangeForm, setRuntimePasswordChangeForm] = useState({
@@ -235,35 +257,7 @@ export function App() {
     rawMaterialSupplierStatementReviews, setRawMaterialSupplierStatementReviews,
     rawMaterialSupplierStatementReviewMeta, setRawMaterialSupplierStatementReviewMeta,
     selectedRawMaterialInboundId, setSelectedRawMaterialInboundId,
-    v1GoLiveStatusState,
-    v1FieldEvidenceDraftAction, setV1FieldEvidenceDraftAction,
-    v1FieldEvidenceValidationAction, setV1FieldEvidenceValidationAction,
-    v1FieldEvidenceStageRowAction, setV1FieldEvidenceStageRowAction,
-    v1FieldEvidenceAttachmentAction, setV1FieldEvidenceAttachmentAction,
-    v1FieldEvidenceAttachmentListAction, setV1FieldEvidenceAttachmentListAction,
-    v1SignoffBoundaryAttachmentAction, setV1SignoffBoundaryAttachmentAction,
-    v1SignoffBoundaryAttachmentListAction, setV1SignoffBoundaryAttachmentListAction,
-    v1ProductionEnvPrecheckAction, setV1ProductionEnvPrecheckAction,
-    v1ProductionEnvSetupAction, setV1ProductionEnvSetupAction,
-    v1ProductionEnvIntakePrecheckAction, setV1ProductionEnvIntakePrecheckAction,
-    v1ProductionEnvFileAuditPrecheckAction, setV1ProductionEnvFileAuditPrecheckAction,
-    v1ProductionEnvFilePreviewPrecheckAction, setV1ProductionEnvFilePreviewPrecheckAction,
-    v1ProductionGoLivePrecheckAction, setV1ProductionGoLivePrecheckAction,
-    v1ProductionPersistenceEvidenceAction, setV1ProductionPersistenceEvidenceAction,
-    v1ProductionFirstStageExecutionAction, setV1ProductionFirstStageExecutionAction,
-    v1ProductionFirstStageValuesDryRunAction, setV1ProductionFirstStageValuesDryRunAction,
-    v1ProductionFirstStageValuesApplyAction, setV1ProductionFirstStageValuesApplyAction,
-    v1PersistencePrecheckAction, setV1PersistencePrecheckAction,
-    v1AttachmentRetentionPrecheckAction, setV1AttachmentRetentionPrecheckAction,
-    v1PrintSpoolPrecheckAction, setV1PrintSpoolPrecheckAction,
-    v1PrintCupsPrecheckAction, setV1PrintCupsPrecheckAction,
-    v1PrintReadinessPrecheckAction, setV1PrintReadinessPrecheckAction,
-    v1DriverReadinessPrecheckAction, setV1DriverReadinessPrecheckAction,
-    v1RuntimeReadinessPrecheckAction, setV1RuntimeReadinessPrecheckAction,
-    v1V2BoundaryPrecheckAction, setV1V2BoundaryPrecheckAction,
-    v1V2ScopeBriefRefreshAction, setV1V2ScopeBriefRefreshAction,
-    v1ReleaseCandidateRefreshPrecheckAction, setV1ReleaseCandidateRefreshPrecheckAction,
-    v1ReleaseCandidateRefreshAction, setV1ReleaseCandidateRefreshAction,
+    v1StatusRouteState, v1StatusActionSetters,
     orderLinesRef, rawMaterialInboundsRef,
     rawMaterialSupplierStatementReviewsRef,
     selectedStockIdRef, printerDeviceQaSelectedIdRef,
@@ -354,66 +348,8 @@ export function App() {
     return () => media.removeEventListener("change", syncViewport);
   }, []);
 
-  const {
-    applyV1ProductionFirstStageValues,
-    generateV1FieldEvidenceDraftManifest,
-    listV1FieldEvidenceAttachments,
-    listV1SignoffBoundaryAttachments,
-    precheckV1AttachmentRetention,
-    precheckV1DriverReadiness,
-    precheckV1Persistence,
-    precheckV1PrintCups,
-    precheckV1PrintReadiness,
-    precheckV1PrintSpool,
-    precheckV1ProductionEnv,
-    precheckV1ProductionEnvFileAudit,
-    precheckV1ProductionEnvFilePreview,
-    precheckV1ProductionEnvIntake,
-    precheckV1ProductionFirstStageValuesDryRun,
-    precheckV1ProductionGoLive,
-    precheckV1ReleaseCandidateRefresh,
-    precheckV1RuntimeReadiness,
-    precheckV1V2Boundary,
-    refreshV1ReleaseCandidate,
-    refreshV1V2ScopeBrief,
-    runV1ProductionEnvSetup,
-    runV1ProductionFirstStageExecution,
-    runV1ProductionPersistenceEvidence,
-    stageV1FieldEvidenceIntakeRow,
-    uploadV1FieldEvidenceAttachment,
-    uploadV1SignoffBoundaryAttachment,
-    validateV1FieldEvidenceDraftManifest,
-  } = createOfficeV1StatusActions({
-    actionSetters: {
-      attachmentRetentionPrecheck: setV1AttachmentRetentionPrecheckAction,
-      driverReadinessPrecheck: setV1DriverReadinessPrecheckAction,
-      fieldEvidenceAttachment: setV1FieldEvidenceAttachmentAction,
-      fieldEvidenceAttachmentList: setV1FieldEvidenceAttachmentListAction,
-      fieldEvidenceDraft: setV1FieldEvidenceDraftAction,
-      fieldEvidenceStageRow: setV1FieldEvidenceStageRowAction,
-      fieldEvidenceValidation: setV1FieldEvidenceValidationAction,
-      persistencePrecheck: setV1PersistencePrecheckAction,
-      printCupsPrecheck: setV1PrintCupsPrecheckAction,
-      printReadinessPrecheck: setV1PrintReadinessPrecheckAction,
-      printSpoolPrecheck: setV1PrintSpoolPrecheckAction,
-      productionEnvFileAuditPrecheck: setV1ProductionEnvFileAuditPrecheckAction,
-      productionEnvFilePreviewPrecheck: setV1ProductionEnvFilePreviewPrecheckAction,
-      productionEnvIntakePrecheck: setV1ProductionEnvIntakePrecheckAction,
-      productionEnvPrecheck: setV1ProductionEnvPrecheckAction,
-      productionEnvSetup: setV1ProductionEnvSetupAction,
-      productionFirstStageExecution: setV1ProductionFirstStageExecutionAction,
-      productionFirstStageValuesApply: setV1ProductionFirstStageValuesApplyAction,
-      productionFirstStageValuesDryRun: setV1ProductionFirstStageValuesDryRunAction,
-      productionGoLivePrecheck: setV1ProductionGoLivePrecheckAction,
-      productionPersistenceEvidence: setV1ProductionPersistenceEvidenceAction,
-      releaseCandidateRefresh: setV1ReleaseCandidateRefreshAction,
-      releaseCandidateRefreshPrecheck: setV1ReleaseCandidateRefreshPrecheckAction,
-      runtimeReadinessPrecheck: setV1RuntimeReadinessPrecheckAction,
-      signoffBoundaryAttachment: setV1SignoffBoundaryAttachmentAction,
-      signoffBoundaryAttachmentList: setV1SignoffBoundaryAttachmentListAction,
-      v1V2BoundaryPrecheck: setV1V2BoundaryPrecheckAction,
-      v1V2ScopeBriefRefresh: setV1V2ScopeBriefRefreshAction,
-    },
+  const v1StatusActions = createOfficeV1StatusActions({
+    actionSetters: v1StatusActionSetters,
     authState,
     currentUserId,
     readFileAsDataUrl,
@@ -589,7 +525,13 @@ export function App() {
     statements,
   });
 
-  useRuntimeAuthInitialization({ authState, serverRequired: formalLoginRequired, setAuthState, setToast });
+  useRuntimeAuthInitialization({
+    authOptions: signedPreviewAuthOptions,
+    authState,
+    serverRequired: formalLoginRequired,
+    setAuthState,
+    setToast,
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -707,7 +649,7 @@ export function App() {
   }, [activePage, refreshInventoryLedgerEntries, selectedStockId]);
 
   useEffect(() => {
-    if (activePage !== "packing" && activePage !== "workshopMobile") return undefined;
+    if (!["packing", "workshopMobile", "rawMaterialScanner"].includes(activePage)) return undefined;
     let cancelled = false;
     refreshProductionPackingTaskLists({ showToast: false }).then(() => {
       if (cancelled) return;
@@ -1077,11 +1019,8 @@ export function App() {
     <div className={`app-shell app-shell-${renderedPage}${roleFocusedShellPage ? " app-shell-mobile-role" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       {!roleFocusedShellPage ? <aside className="sidebar">
         <div className="brand">
+          <img alt="袋袋赢 BAGWIN" className="brand-logo-horizontal" src={bagwinSidebarLogoUrl} />
           <img alt="袋袋赢 BAGWIN" className="brand-logo-symbol" src={bagwinSymbolUrl} />
-          <div>
-            <strong>袋袋赢 BAGWIN</strong>
-            <span>ERP 办公室端</span>
-          </div>
         </div>
         <AppNavigation
           activePage={renderedPage}
@@ -1159,9 +1098,9 @@ export function App() {
               <OfficeMobilePage onNavigate={setActivePage} />
             </Suspense>
           )}
-          {renderedPage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
+          {renderedPage === "todos" && <PageLoader component={TodoPage} fallback="待办加载中" todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
           {renderedPage === "entry" && (
-            <EntryPage
+            <PageLoader component={EntryPage} fallback="订单录入加载中"
               entryText={entryText}
               onEntryTextChange={updateOrderEntryText}
               draftRows={draftRows}
@@ -1178,7 +1117,7 @@ export function App() {
             />
           )}
           {renderedPage === "orders" && (
-            <OrderPoolPage
+            <PageLoader component={OrderPoolPage} fallback="订单池加载中"
               orderLines={orderLines}
               fulfillments={fulfillments}
               statements={statements}
@@ -1196,7 +1135,7 @@ export function App() {
             />
           )}
           {renderedPage === "inventory" && (
-            <InventoryPage
+            <PageLoader component={InventoryPage} fallback="成品库存加载中"
               inventoryRecords={inventoryRecords}
               inventoryMeta={inventoryMeta}
               inventoryLedgerEntries={inventoryLedgerState.items}
@@ -1221,7 +1160,7 @@ export function App() {
             />
           )}
           {renderedPage === "fulfillment" && (
-            <FulfillmentPage
+            <PageLoader component={FulfillmentPage} fallback="出库工作台加载中"
               authState={authState}
               currentUser={currentUser}
               tab={fulfillmentTab}
@@ -1236,7 +1175,7 @@ export function App() {
             />
           )}
           {renderedPage === "packing" && (
-            <ProductionPackingPage
+            <PageLoader component={ProductionPackingPage} fallback="生产打包加载中"
               authState={authState}
               currentUser={currentUser}
               orderLines={orderLines}
@@ -1268,7 +1207,7 @@ export function App() {
             />
           )}
           {renderedPage === "workshopMobile" && (
-            <WorkshopMobilePage
+            <PageLoader component={WorkshopMobilePage} fallback="车间工作台加载中"
               orderLines={orderLines}
               inventoryRecords={inventoryRecords}
               productionPacking={productionPacking}
@@ -1278,7 +1217,7 @@ export function App() {
             />
           )}
           {renderedPage === "driverMobile" && (
-            <DriverMobilePage
+            <PageLoader component={DriverMobilePage} fallback="司机工作台加载中"
               tasks={driverDeliveryTasks}
               selectedTaskId={selectedDriverTaskId}
               setSelectedTaskId={setSelectedDriverTaskId}
@@ -1288,7 +1227,7 @@ export function App() {
             />
           )}
           {renderedPage === "warehouseMobile" && (
-            <WarehouseMobilePage
+            <PageLoader component={WarehouseMobilePage} fallback="库房工作台加载中"
               fulfillments={fulfillments}
               orderLines={orderLines}
               selectedId={selectedFulfillmentId}
@@ -1317,7 +1256,7 @@ export function App() {
             </Suspense>
           )}
           {renderedPage === "statements" && (
-            <StatementPage
+            <PageLoader component={StatementPage} fallback="对账工作台加载中"
               authState={authState}
               currentUser={currentUser}
               statements={statements}
@@ -1331,52 +1270,67 @@ export function App() {
             />
           )}
           {renderedPage === "rawMaterials" && (
-            <RawMaterialInboundPage
-              authState={authState}
-              currentUser={currentUser}
-              inbounds={rawMaterialInbounds}
-              meta={rawMaterialInboundMeta}
-              productionTasks={productionPacking.productionTasks}
-              statementReviews={rawMaterialSupplierStatementReviews}
-              statementReviewMeta={rawMaterialSupplierStatementReviewMeta}
-              selectedId={selectedRawMaterialInboundId}
-              setSelectedId={setSelectedRawMaterialInboundId}
-              onAction={updateRawMaterialInbound}
-              onDeliveryNoteRecognize={recognizeRawMaterialDeliveryNote}
-              onStatementReviewDraftCreate={saveRawMaterialSupplierStatementReviewDraft}
-              onStatementReviewConfirm={confirmRawMaterialSupplierStatementReviewDraft}
-              onStatementConfirm={confirmRawMaterialSupplierStatement}
-              onPayableDraftGenerate={generateRawMaterialSupplierPayableDraft}
-              onPaymentConfirm={confirmRawMaterialSupplierPayment}
-              printerDeviceQa={printerDeviceQa}
-              helpers={pageHelpers}
+            <PageLoader component={RawMaterialRoute} fallback="原材料工作台加载中" view="inbound"
               firstReleaseMode={RAW_MATERIAL_FIRST_RELEASE_ENABLED}
+              state={{
+                authState,
+                currentUser,
+                helpers: pageHelpers,
+                inbounds: rawMaterialInbounds,
+                meta: rawMaterialInboundMeta,
+                printerDeviceQa,
+                productionTasks: productionPacking.productionTasks,
+                selectedId: selectedRawMaterialInboundId,
+                statementReviewMeta: rawMaterialSupplierStatementReviewMeta,
+                statementReviews: rawMaterialSupplierStatementReviews,
+              }}
+              actions={{
+                onAction: updateRawMaterialInbound,
+                onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote,
+                onPayableDraftGenerate: generateRawMaterialSupplierPayableDraft,
+                onPaymentConfirm: confirmRawMaterialSupplierPayment,
+                onStatementConfirm: confirmRawMaterialSupplierStatement,
+                onStatementReviewConfirm: confirmRawMaterialSupplierStatementReviewDraft,
+                onStatementReviewDraftCreate: saveRawMaterialSupplierStatementReviewDraft,
+                setSelectedId: setSelectedRawMaterialInboundId,
+              }}
             />
           )}
           {renderedPage === "rawMaterialScanner" && (
-            <RawMaterialScannerPage
-              inbounds={rawMaterialInbounds}
-              onAction={updateRawMaterialInbound}
-              helpers={pageHelpers}
+            <PageLoader component={RawMaterialRoute} fallback="原材料扫码加载中" view="scanner"
+              state={{ helpers: pageHelpers, inbounds: rawMaterialInbounds, productionState: productionPacking }}
+              actions={{ onAction: updateRawMaterialInbound }}
             />
           )}
           {renderedPage === "masterData" && (
-            <Suspense fallback={<DataState title="基础资料工作台加载中" />}><MasterDataMaintenancePage
-              authState={authState}
-              currentUser={currentUser}
-              customers={customers}
-              orderLines={orderLines}
-              inventoryRecords={inventoryRecords}
-              statements={statements}
-              employeeAccountReviews={masterDataEmployeeAccountReviews} employeeAccountReadiness={masterDataEmployeeAccountReadiness} employeeAssignmentOptions={masterDataEmployeeAssignmentOptions}
-              importReviewDrafts={masterDataImportReviewDrafts}
-              importExecutions={masterDataImportExecutions}
-              maintenanceDrafts={masterDataMaintenanceDrafts}
-              selectedTab={masterDataMaintenanceTab} setSelectedTab={setMasterDataMaintenanceTab}
-              selectedId={selectedMasterDataId} setSelectedId={setSelectedMasterDataId}
-              onSaveDraft={saveMasterDataMaintenanceDraft} onUpdateEmployeeAssignment={updateMasterDataEmployeeAssignment} onUpdateEmployeeProfile={updateMasterDataEmployeeProfile} onSaveMachine={saveMasterDataMachine}
-              onBatchEnableEmployeeAccounts={enableMasterDataEmployeeAccounts} onOpenImportTemplate={openMasterDataTemplatePanel}
-              helpers={pageHelpers}
+            <Suspense fallback={<DataState title="基础资料工作台加载中" />}><MasterDataRoute
+              state={{
+                authState,
+                currentUser,
+                customers,
+                employeeAccountReadiness: masterDataEmployeeAccountReadiness,
+                employeeAccountReviews: masterDataEmployeeAccountReviews,
+                employeeAssignmentOptions: masterDataEmployeeAssignmentOptions,
+                helpers: pageHelpers,
+                importExecutions: masterDataImportExecutions,
+                importReviewDrafts: masterDataImportReviewDrafts,
+                inventoryRecords,
+                maintenanceDrafts: masterDataMaintenanceDrafts,
+                orderLines,
+                selectedId: selectedMasterDataId,
+                selectedTab: masterDataMaintenanceTab,
+                statements,
+              }}
+              actions={{
+                onBatchEnableEmployeeAccounts: enableMasterDataEmployeeAccounts,
+                onOpenImportTemplate: openMasterDataTemplatePanel,
+                onSaveDraft: saveMasterDataMaintenanceDraft,
+                onSaveMachine: saveMasterDataMachine,
+                onUpdateEmployeeAssignment: updateMasterDataEmployeeAssignment,
+                onUpdateEmployeeProfile: updateMasterDataEmployeeProfile,
+                setSelectedId: setSelectedMasterDataId,
+                setSelectedTab: setMasterDataMaintenanceTab,
+              }}
             /></Suspense>
           )}
           {renderedPage === "payroll" && (
@@ -1386,65 +1340,9 @@ export function App() {
           )}
           {renderedPage === "v1Status" && (
             <Suspense fallback={<DataState title="上线状态加载中" />}>
-              <V1StatusPage
-                fieldEvidenceDraftAction={v1FieldEvidenceDraftAction}
-                fieldEvidenceValidationAction={v1FieldEvidenceValidationAction}
-                fieldEvidenceStageRowAction={v1FieldEvidenceStageRowAction}
-                fieldEvidenceAttachmentAction={v1FieldEvidenceAttachmentAction}
-                fieldEvidenceAttachmentListAction={v1FieldEvidenceAttachmentListAction}
-                signoffBoundaryAttachmentAction={v1SignoffBoundaryAttachmentAction}
-                signoffBoundaryAttachmentListAction={v1SignoffBoundaryAttachmentListAction}
-                productionEnvPrecheckAction={v1ProductionEnvPrecheckAction}
-                productionEnvSetupAction={v1ProductionEnvSetupAction}
-                productionEnvIntakePrecheckAction={v1ProductionEnvIntakePrecheckAction}
-                productionEnvFileAuditPrecheckAction={v1ProductionEnvFileAuditPrecheckAction}
-                productionEnvFilePreviewPrecheckAction={v1ProductionEnvFilePreviewPrecheckAction}
-                productionGoLivePrecheckAction={v1ProductionGoLivePrecheckAction}
-                productionPersistenceEvidenceAction={v1ProductionPersistenceEvidenceAction}
-                productionFirstStageExecutionAction={v1ProductionFirstStageExecutionAction}
-                productionFirstStageValuesDryRunAction={v1ProductionFirstStageValuesDryRunAction}
-                productionFirstStageValuesApplyAction={v1ProductionFirstStageValuesApplyAction}
-                persistencePrecheckAction={v1PersistencePrecheckAction}
-                attachmentRetentionPrecheckAction={v1AttachmentRetentionPrecheckAction}
-                printSpoolPrecheckAction={v1PrintSpoolPrecheckAction}
-                printCupsPrecheckAction={v1PrintCupsPrecheckAction}
-                printReadinessPrecheckAction={v1PrintReadinessPrecheckAction}
-                driverReadinessPrecheckAction={v1DriverReadinessPrecheckAction}
-                runtimeReadinessPrecheckAction={v1RuntimeReadinessPrecheckAction}
-                v1V2BoundaryPrecheckAction={v1V2BoundaryPrecheckAction}
-                v1V2ScopeBriefRefreshAction={v1V2ScopeBriefRefreshAction}
-                releaseCandidateRefreshPrecheckAction={v1ReleaseCandidateRefreshPrecheckAction}
-                releaseCandidateRefreshAction={v1ReleaseCandidateRefreshAction}
-                goLiveMeta={v1GoLiveStatusState}
-                goLiveStatus={v1GoLiveStatusState.statusData}
-                onGenerateFieldEvidenceDraft={generateV1FieldEvidenceDraftManifest}
-                onStageFieldEvidenceRow={stageV1FieldEvidenceIntakeRow}
-                onUploadFieldEvidenceAttachment={uploadV1FieldEvidenceAttachment}
-                onListFieldEvidenceAttachments={listV1FieldEvidenceAttachments}
-                onUploadSignoffBoundaryAttachment={uploadV1SignoffBoundaryAttachment}
-                onListSignoffBoundaryAttachments={listV1SignoffBoundaryAttachments}
-                onPrecheckProductionEnv={precheckV1ProductionEnv}
-                onRunProductionEnvSetup={runV1ProductionEnvSetup}
-                onPrecheckProductionEnvIntake={precheckV1ProductionEnvIntake}
-                onPrecheckProductionEnvFileAudit={precheckV1ProductionEnvFileAudit}
-                onPrecheckProductionEnvFilePreview={precheckV1ProductionEnvFilePreview}
-                onPrecheckProductionGoLive={precheckV1ProductionGoLive}
-                onRunProductionPersistenceEvidence={runV1ProductionPersistenceEvidence}
-                onRunProductionFirstStageExecution={runV1ProductionFirstStageExecution}
-                onPrecheckProductionFirstStageValuesDryRun={precheckV1ProductionFirstStageValuesDryRun}
-                onApplyProductionFirstStageValues={applyV1ProductionFirstStageValues}
-                onPrecheckV1Persistence={precheckV1Persistence}
-                onPrecheckV1AttachmentRetention={precheckV1AttachmentRetention}
-                onPrecheckV1PrintSpool={precheckV1PrintSpool}
-                onPrecheckV1PrintCups={precheckV1PrintCups}
-                onPrecheckV1PrintReadiness={precheckV1PrintReadiness}
-                onPrecheckV1DriverReadiness={precheckV1DriverReadiness}
-                onPrecheckRuntimeReadiness={precheckV1RuntimeReadiness}
-                onPrecheckV1V2Boundary={precheckV1V2Boundary}
-                onRefreshV1V2ScopeBrief={refreshV1V2ScopeBrief}
-                onPrecheckReleaseCandidateRefresh={precheckV1ReleaseCandidateRefresh}
-                onRefreshReleaseCandidate={refreshV1ReleaseCandidate}
-                onValidateFieldEvidenceDraft={validateV1FieldEvidenceDraftManifest}
+              <V1StatusRoute
+                actions={v1StatusActions.pageActions}
+                state={v1StatusRouteState}
                 onOpenEmployeeImport={isNavigationPageVisible("masterData", permissionContext) ? () => { setMasterDataMaintenanceTab("员工机台"); setActivePage("masterData"); openMasterDataTemplatePanel("员工机台"); } : undefined}
               />
             </Suspense>
@@ -1452,7 +1350,7 @@ export function App() {
         </main>
       </div>
 
-      <WorkspaceOverlays
+      <WorkspaceOverlayController
         attachmentViewer={attachmentViewer}
         closeAttachmentViewer={closeAttachmentViewer}
         closeMasterDataTemplatePanel={closeMasterDataTemplatePanel}

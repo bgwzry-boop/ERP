@@ -13,12 +13,11 @@ import { useOfficeProductionWrites } from "./useOfficeProductionWrites.js";
 import { useOfficeRoleToolReads } from "./useOfficeRoleToolReads.js";
 import { useOfficeStatementReads } from "./useOfficeStatementReads.js";
 import { useOfficeV1StatusReads } from "./useOfficeV1StatusReads.js";
-import { buildPackingTaskId } from "../services/officeProductionPackingApiClient.js";
+import { buildPackingTaskId } from "../services/officeProductionPackingSelectors.js";
 import {
   createPrinterDeviceFieldTestChecks,
   createPrinterDeviceFieldTestEvidence,
 } from "../services/printerDeviceFieldTestClient.js";
-import { buildLocalDriverDeliveryTasks } from "../services/driverMobileApiClient.js";
 import { parseOrderText } from "../lib/orderParser.js";
 import { defaultOrderFilters } from "../domain/officeRules.js";
 import {
@@ -219,14 +218,7 @@ export function useOfficeWorkspace({
     createInitialPrintDriverCupsDiagnosticsState,
   );
 
-  const [driverDeliveryTasks, setDriverDeliveryTasks] = useState(() =>
-    buildLocalDriverDeliveryTasks({
-      fulfillments: initialWorkspaceRecords.fulfillments,
-      orderLines: initialWorkspaceRecords.orderLines,
-      customers,
-      driverId: "U-DRIVER-A",
-    }),
-  );
+  const [driverDeliveryTasks, setDriverDeliveryTasks] = useState([]);
   const [driverDeliveryMeta, setDriverDeliveryMeta] = useState({
     source: initialSource,
     total: initialWorkspaceRecords.fulfillments.filter((item) => item.method === "送货").length,
@@ -627,6 +619,69 @@ export function useOfficeWorkspace({
     setTodos,
   });
 
+  const v1StatusRouteState = {
+    goLiveMeta: v1GoLiveStatusState,
+    goLiveStatus: v1GoLiveStatusState.statusData,
+    fieldEvidenceDraftAction: v1FieldEvidenceDraftAction,
+    fieldEvidenceValidationAction: v1FieldEvidenceValidationAction,
+    fieldEvidenceStageRowAction: v1FieldEvidenceStageRowAction,
+    fieldEvidenceAttachmentAction: v1FieldEvidenceAttachmentAction,
+    fieldEvidenceAttachmentListAction: v1FieldEvidenceAttachmentListAction,
+    signoffBoundaryAttachmentAction: v1SignoffBoundaryAttachmentAction,
+    signoffBoundaryAttachmentListAction: v1SignoffBoundaryAttachmentListAction,
+    productionEnvPrecheckAction: v1ProductionEnvPrecheckAction,
+    productionEnvSetupAction: v1ProductionEnvSetupAction,
+    productionEnvIntakePrecheckAction: v1ProductionEnvIntakePrecheckAction,
+    productionEnvFileAuditPrecheckAction: v1ProductionEnvFileAuditPrecheckAction,
+    productionEnvFilePreviewPrecheckAction: v1ProductionEnvFilePreviewPrecheckAction,
+    productionGoLivePrecheckAction: v1ProductionGoLivePrecheckAction,
+    productionPersistenceEvidenceAction: v1ProductionPersistenceEvidenceAction,
+    productionFirstStageExecutionAction: v1ProductionFirstStageExecutionAction,
+    productionFirstStageValuesDryRunAction: v1ProductionFirstStageValuesDryRunAction,
+    productionFirstStageValuesApplyAction: v1ProductionFirstStageValuesApplyAction,
+    persistencePrecheckAction: v1PersistencePrecheckAction,
+    attachmentRetentionPrecheckAction: v1AttachmentRetentionPrecheckAction,
+    printSpoolPrecheckAction: v1PrintSpoolPrecheckAction,
+    printCupsPrecheckAction: v1PrintCupsPrecheckAction,
+    printReadinessPrecheckAction: v1PrintReadinessPrecheckAction,
+    driverReadinessPrecheckAction: v1DriverReadinessPrecheckAction,
+    runtimeReadinessPrecheckAction: v1RuntimeReadinessPrecheckAction,
+    v1V2BoundaryPrecheckAction: v1V2BoundaryPrecheckAction,
+    v1V2ScopeBriefRefreshAction: v1V2ScopeBriefRefreshAction,
+    releaseCandidateRefreshPrecheckAction: v1ReleaseCandidateRefreshPrecheckAction,
+    releaseCandidateRefreshAction: v1ReleaseCandidateRefreshAction,
+  };
+  const v1StatusActionSetters = {
+    attachmentRetentionPrecheck: setV1AttachmentRetentionPrecheckAction,
+    driverReadinessPrecheck: setV1DriverReadinessPrecheckAction,
+    fieldEvidenceAttachment: setV1FieldEvidenceAttachmentAction,
+    fieldEvidenceAttachmentList: setV1FieldEvidenceAttachmentListAction,
+    fieldEvidenceDraft: setV1FieldEvidenceDraftAction,
+    fieldEvidenceStageRow: setV1FieldEvidenceStageRowAction,
+    fieldEvidenceValidation: setV1FieldEvidenceValidationAction,
+    persistencePrecheck: setV1PersistencePrecheckAction,
+    printCupsPrecheck: setV1PrintCupsPrecheckAction,
+    printReadinessPrecheck: setV1PrintReadinessPrecheckAction,
+    printSpoolPrecheck: setV1PrintSpoolPrecheckAction,
+    productionEnvFileAuditPrecheck: setV1ProductionEnvFileAuditPrecheckAction,
+    productionEnvFilePreviewPrecheck: setV1ProductionEnvFilePreviewPrecheckAction,
+    productionEnvIntakePrecheck: setV1ProductionEnvIntakePrecheckAction,
+    productionEnvPrecheck: setV1ProductionEnvPrecheckAction,
+    productionEnvSetup: setV1ProductionEnvSetupAction,
+    productionFirstStageExecution: setV1ProductionFirstStageExecutionAction,
+    productionFirstStageValuesApply: setV1ProductionFirstStageValuesApplyAction,
+    productionFirstStageValuesDryRun: setV1ProductionFirstStageValuesDryRunAction,
+    productionGoLivePrecheck: setV1ProductionGoLivePrecheckAction,
+    productionPersistenceEvidence: setV1ProductionPersistenceEvidenceAction,
+    releaseCandidateRefresh: setV1ReleaseCandidateRefreshAction,
+    releaseCandidateRefreshPrecheck: setV1ReleaseCandidateRefreshPrecheckAction,
+    runtimeReadinessPrecheck: setV1RuntimeReadinessPrecheckAction,
+    signoffBoundaryAttachment: setV1SignoffBoundaryAttachmentAction,
+    signoffBoundaryAttachmentList: setV1SignoffBoundaryAttachmentListAction,
+    v1V2BoundaryPrecheck: setV1V2BoundaryPrecheckAction,
+    v1V2ScopeBriefRefresh: setV1V2ScopeBriefRefreshAction,
+  };
+
   return {
     ...coreReads,
     ...roleToolReads,
@@ -681,35 +736,7 @@ export function useOfficeWorkspace({
     rawMaterialSupplierStatementReviews, setRawMaterialSupplierStatementReviews,
     rawMaterialSupplierStatementReviewMeta, setRawMaterialSupplierStatementReviewMeta,
     selectedRawMaterialInboundId, setSelectedRawMaterialInboundId,
-    v1GoLiveStatusState, setV1GoLiveStatusState,
-    v1FieldEvidenceDraftAction, setV1FieldEvidenceDraftAction,
-    v1FieldEvidenceValidationAction, setV1FieldEvidenceValidationAction,
-    v1FieldEvidenceStageRowAction, setV1FieldEvidenceStageRowAction,
-    v1FieldEvidenceAttachmentAction, setV1FieldEvidenceAttachmentAction,
-    v1FieldEvidenceAttachmentListAction, setV1FieldEvidenceAttachmentListAction,
-    v1SignoffBoundaryAttachmentAction, setV1SignoffBoundaryAttachmentAction,
-    v1SignoffBoundaryAttachmentListAction, setV1SignoffBoundaryAttachmentListAction,
-    v1ProductionEnvPrecheckAction, setV1ProductionEnvPrecheckAction,
-    v1ProductionEnvSetupAction, setV1ProductionEnvSetupAction,
-    v1ProductionEnvIntakePrecheckAction, setV1ProductionEnvIntakePrecheckAction,
-    v1ProductionEnvFileAuditPrecheckAction, setV1ProductionEnvFileAuditPrecheckAction,
-    v1ProductionEnvFilePreviewPrecheckAction, setV1ProductionEnvFilePreviewPrecheckAction,
-    v1ProductionGoLivePrecheckAction, setV1ProductionGoLivePrecheckAction,
-    v1ProductionPersistenceEvidenceAction, setV1ProductionPersistenceEvidenceAction,
-    v1ProductionFirstStageExecutionAction, setV1ProductionFirstStageExecutionAction,
-    v1ProductionFirstStageValuesDryRunAction, setV1ProductionFirstStageValuesDryRunAction,
-    v1ProductionFirstStageValuesApplyAction, setV1ProductionFirstStageValuesApplyAction,
-    v1PersistencePrecheckAction, setV1PersistencePrecheckAction,
-    v1AttachmentRetentionPrecheckAction, setV1AttachmentRetentionPrecheckAction,
-    v1PrintSpoolPrecheckAction, setV1PrintSpoolPrecheckAction,
-    v1PrintCupsPrecheckAction, setV1PrintCupsPrecheckAction,
-    v1PrintReadinessPrecheckAction, setV1PrintReadinessPrecheckAction,
-    v1DriverReadinessPrecheckAction, setV1DriverReadinessPrecheckAction,
-    v1RuntimeReadinessPrecheckAction, setV1RuntimeReadinessPrecheckAction,
-    v1V2BoundaryPrecheckAction, setV1V2BoundaryPrecheckAction,
-    v1V2ScopeBriefRefreshAction, setV1V2ScopeBriefRefreshAction,
-    v1ReleaseCandidateRefreshPrecheckAction, setV1ReleaseCandidateRefreshPrecheckAction,
-    v1ReleaseCandidateRefreshAction, setV1ReleaseCandidateRefreshAction,
+    v1StatusRouteState, v1StatusActionSetters,
     todosRef, orderLinesRef, inventoryRecordsRef, fulfillmentsRef, productionPackingRef, rawMaterialInboundsRef,
     rawMaterialSupplierStatementReviewsRef, inventoryCorrectionDraftsRef, inventoryLedgerEntriesRef,
     selectedStockIdRef, inventoryLedgerFiltersRef, printerDeviceQaSelectedIdRef, printerDeviceQaRef,

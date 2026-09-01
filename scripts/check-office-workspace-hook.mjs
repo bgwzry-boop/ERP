@@ -41,8 +41,8 @@ assert.equal(workspace.draftRows.length > 0, true);
 assert.equal(Array.isArray(workspace.productionPacking.productionTasks), true);
 assert.equal(Array.isArray(workspace.driverDeliveryTasks), true);
 assert.equal(workspace.printJobQueue.source, "idle");
-assert.equal(workspace.v1GoLiveStatusState.source, "unavailable");
-assert.equal(workspace.v1FieldEvidenceAttachmentListAction.ownerId, "");
+assert.equal(workspace.v1StatusRouteState.goLiveMeta.source, "unavailable");
+assert.equal(workspace.v1StatusRouteState.fieldEvidenceAttachmentListAction.ownerId, "");
 assert.equal(workspace.todosRef.current, workspace.todos);
 assert.equal(workspace.orderLinesRef.current, workspace.orderLines);
 assert.equal(workspace.inventoryRecordsRef.current, workspace.inventoryRecords);
@@ -85,10 +85,12 @@ const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8
 const browserFileActionsSource = readFileSync(new URL("../src/app/browserFileActions.js", import.meta.url), "utf8");
 const hookSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
 const workspaceOverlaysSource = readFileSync(new URL("../src/app/WorkspaceOverlays.jsx", import.meta.url), "utf8");
+const workspaceOverlayControllerSource = readFileSync(new URL("../src/app/WorkspaceOverlayController.jsx", import.meta.url), "utf8");
 assert.match(appSource, /useOfficeWorkspace\(\{/);
 assert.match(appSource, /serverRequired: runtimeServerRequired/);
 assert.match(appSource, /from "\.\/app\/browserFileActions\.js"/);
-assert.match(appSource, /from "\.\/app\/WorkspaceOverlays\.jsx"/);
+assert.match(appSource, /from "\.\/app\/WorkspaceOverlayController\.jsx"/);
+assert.match(workspaceOverlayControllerSource, /WorkspaceOverlays/);
 for (const overlayName of ["ActionModal", "OrderLineActionModal", "AttachmentViewerModal", "MasterDataImportTemplateModal"]) {
   assert.doesNotMatch(appSource, new RegExp(`<${overlayName}`));
   assert.match(workspaceOverlaysSource, new RegExp(`<${overlayName}`));

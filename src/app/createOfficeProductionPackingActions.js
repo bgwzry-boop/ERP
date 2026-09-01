@@ -1,8 +1,8 @@
 import {
-  findProductionInventoryItem,
   getOfficePackingTaskDetail as getOfficePackingTaskDetailDefault,
   getOfficeProductionTaskDetail as getOfficeProductionTaskDetailDefault,
-} from "../services/officeProductionPackingApiClient.js";
+} from "../services/officeProductionPackingLazyApi.js";
+import { findProductionInventoryItem } from "../services/officeProductionPackingSelectors.js";
 
 const defaultApi = {
   getOfficePackingTaskDetail: getOfficePackingTaskDetailDefault,

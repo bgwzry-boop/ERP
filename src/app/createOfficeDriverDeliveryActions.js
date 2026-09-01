@@ -8,7 +8,7 @@ import {
   getDriverLoadPackageCheckState as getDriverLoadPackageCheckStateDefault,
   recordDriverDeviceFieldTest as recordDriverDeviceFieldTestDefault,
   reportDriverDeliveryException as reportDriverDeliveryExceptionDefault,
-} from "../services/driverMobileApiClient.js";
+} from "../services/driverMobileLazyApi.js";
 import {
   createWatermarkedDeliveryImageDataUrl as createWatermarkedDeliveryImageDataUrlDefault,
   estimateDataUrlByteSize as estimateDataUrlByteSizeDefault,
@@ -175,7 +175,7 @@ export function createOfficeDriverDeliveryActions({
       const routeRemark = [payload.routeLabel, payload.routeStopLabel]
         .filter((item) => item && item !== "未排路线" && item !== "未排站序")
         .join(" ");
-      const packageCheckState = getDriverLoadPackageCheckState(task, payload.checkedPackageIds ?? []);
+      const packageCheckState = await getDriverLoadPackageCheckState(task, payload.checkedPackageIds ?? []);
       if (!packageCheckState.allChecked) {
         setToast(`请先核对全部包裹：当前 ${packageCheckState.summary}，还有 ${packageCheckState.missingCount} 包未确认。`);
         return;

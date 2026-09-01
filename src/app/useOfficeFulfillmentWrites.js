@@ -9,7 +9,7 @@ import {
   resolveOfficeFulfillmentQuantityVariance,
   reviewOfficeDeliveryEvidence,
   updateOfficeFulfillmentDispatch,
-} from "../services/officeFulfillmentApiClient.js";
+} from "../services/officeFulfillmentLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 import { createOfficeTodo } from "../services/officeMockService.js";
 import { confirmFulfillmentException, updateFulfillmentsForAction } from "../state/officeFulfillmentActions.js";

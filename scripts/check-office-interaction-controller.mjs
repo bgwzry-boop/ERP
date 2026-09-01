@@ -271,6 +271,7 @@ const runtimeSessionExpirySource = fs.readFileSync(new URL("../src/app/useRuntim
 const attachmentViewerSource = fs.readFileSync(new URL("../src/app/AttachmentViewerModal.jsx", import.meta.url), "utf8");
 const masterDataTemplateModalSource = fs.readFileSync(new URL("../src/app/MasterDataImportTemplateModal.jsx", import.meta.url), "utf8");
 const actionModalsSource = fs.readFileSync(new URL("../src/app/ActionModals.jsx", import.meta.url), "utf8");
+const workspaceOverlayControllerSource = fs.readFileSync(new URL("../src/app/WorkspaceOverlayController.jsx", import.meta.url), "utf8");
 const attachmentViewUtilsSource = fs.readFileSync(new URL("../src/app/attachmentViewUtils.js", import.meta.url), "utf8");
 const mainSource = fs.readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStylesSource = fs.readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
@@ -323,22 +324,13 @@ assert.match(appViewsSource, /RuntimePasswordChangeScreen/);
 assert.match(attachmentViewUtilsSource, /export function isInlineImageAttachment\(/);
 assert.match(sharedStylesSource, /\.form-grid label \{[\s\S]*?min-width: 0;/);
 assert.match(sharedStylesSource, /@media \(max-width: 720px\) \{[\s\S]*?\.form-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/);
-assert.match(mainSource, /import "\.\/styles\/features\/print-documents\.css";/);
-assert.equal(
-  mainSource.indexOf('import "./styles/features/production-print.css";') < mainSource.indexOf('import "./styles/features/print-documents.css";'),
-  true,
-  "print-document styles should load after the production/print workbench layer",
-);
+assert.doesNotMatch(mainSource, /styles\/features\/(print-documents|attachments)\.css/, "print and overlay styles should not load with the shell");
+assert.match(appSource, /import\("\.\/styles\/features\/print-documents\.css"\)/, "print-document styles should load with their route");
 for (const selector of [".print-batch-record", ".print-sheet", ".print-package-checklist", ".print-template-sheet", ".label-header", ".print-line-table", ".label-barcode"]) {
   assert.equal(printDocumentStylesSource.includes(selector), true, `print-document styles should own ${selector}`);
   assert.equal(sharedStylesSource.includes(selector), false, `shared styles should not retain ${selector}`);
 }
-assert.match(mainSource, /import "\.\/styles\/features\/attachments\.css";/);
-assert.equal(
-  mainSource.indexOf('import "./styles/features/print-documents.css";') < mainSource.indexOf('import "./styles/features/attachments.css";'),
-  true,
-  "attachment styles should load after print-document styles",
-);
+assert.match(workspaceOverlayControllerSource, /import\("\.\.\/styles\/features\/attachments\.css"\)/, "attachment styles should load only when an overlay opens");
 for (const selector of [".payment-proof-row", ".attachment-preview", ".attachment-viewer-modal", ".attachment-viewer-body", ".attachment-viewer-meta", ".attachment-viewer-audit-row"]) {
   assert.equal(attachmentStylesSource.includes(selector), true, `attachment styles should own ${selector}`);
   assert.equal(sharedStylesSource.includes(selector), false, `shared styles should not retain ${selector}`);

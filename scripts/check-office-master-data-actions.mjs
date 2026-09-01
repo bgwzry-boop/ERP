@@ -569,6 +569,6 @@ for (const functionName of [
 }
 assert.doesNotMatch(serverSource, /cleanText\(body\.officialWriterKind\)/);
 assert.match(actionsSource, /Promise\.allSettled\(\[/, "successful employee writes should settle read-model refreshes independently");
-assert.match(appSource, /onSaveMachine=\{saveMasterDataMachine\}/);
+assert.match(appSource, /onSaveMachine: saveMasterDataMachine/, "App should pass machine writes through the master-data route action adapter");
 
 console.log("Office master-data actions check passed: imports and employee accounts are isolated, formal writes fail closed, and the server owns writer selection.");

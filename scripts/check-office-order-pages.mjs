@@ -44,7 +44,8 @@ assert.match(entryPageSource, /拆单预览/);
 assert.match(entryPageSource, /splitPlanHash/);
 assert.match(entryPageSource, /确认生成.*张订单/);
 assert.doesNotMatch(entryPageSource, /const columns = \["序号", "客户"/);
-assert.match(mainSource, /import "\.\/styles\/features\/orders-entry\.css";/);
+assert.doesNotMatch(mainSource, /styles\/features\/orders-entry\.css/, "order-entry styles should not load with the shell");
+assert.match(appSource, /import\("\.\/styles\/features\/orders-entry\.css"\)/, "order-entry styles should load with the entry route");
 for (const selector of [".entry-actions button", ".entry-table .data-row", ".entry-edit-row", "::-webkit-inner-spin-button"]) {
   assert.equal(entryStyleSource.includes(selector), true, `order-entry feature styles should own ${selector}`);
 }

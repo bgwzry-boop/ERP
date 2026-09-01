@@ -1,7 +1,7 @@
 import { isInlineImageAttachment } from "./attachmentViewUtils.js";
 import { downloadOfficeAttachmentContent as downloadOfficeAttachmentContentDefault } from "../services/officeAttachmentApiClient.js";
+import { buildStatementExcelWorkbook } from "../services/officeStatementApiClient.js";
 import {
-  buildStatementExcelWorkbook,
   downloadOfficeStatementExport as downloadOfficeStatementExportDefault,
   handleOfficeStatementVariance as handleOfficeStatementVarianceDefault,
   listOfficeStatementExports as listOfficeStatementExportsDefault,
@@ -9,7 +9,7 @@ import {
   previewOfficeStatement as previewOfficeStatementDefault,
   recordOfficeStatementSendReceipt as recordOfficeStatementSendReceiptDefault,
   writeOffOfficeStatement as writeOffOfficeStatementDefault,
-} from "../services/officeStatementApiClient.js";
+} from "../services/officeStatementLazyApi.js";
 import {
   confirmOfficeStatementWriteOff,
   markOfficeStatementSent,

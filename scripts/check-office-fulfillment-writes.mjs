@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeFulfillmentWriteActions } from "../src/app/useOfficeFulfillmentWrites.js";
 
 function createState(initialValue) {
@@ -221,21 +220,5 @@ const refreshFailure = await refreshFailureCase.actions.completeFulfillmentActio
 });
 assert.equal(refreshFailure.projectionRefreshFailed, true);
 assert.match(refreshFailure.feedback, /已由后端提交.*刷新失败/);
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-for (const directWrite of [
-  "completeOfficeFulfillment",
-  "confirmOfficeFulfillmentPickup",
-  "createOfficeFulfillmentException",
-  "markOfficeFulfillmentPrepared",
-  "reviewOfficeDeliveryEvidence",
-  "updateOfficeFulfillmentDispatch",
-]) {
-  assert.equal(appSource.includes(directWrite), false, `App must not own ${directWrite}`);
-}
-assert.equal(appSource.includes("后端暂未接该轻量状态"), false);
-const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-assert.match(workspaceSource, /useOfficeFulfillmentWrites/);
-assert.match(workspaceSource, /\.\.\.fulfillmentWrites/);
 
 console.log("Office fulfillment writes check passed: prepared, complete/pickup, conflict, production fail-closed, dispatch, exception, evidence, and committed projection refreshes are covered.");

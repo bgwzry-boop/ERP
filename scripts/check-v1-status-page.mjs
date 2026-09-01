@@ -10,6 +10,7 @@ const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js",
 const v1StatusReadSource = readFileSync(new URL("../src/app/useOfficeV1StatusReads.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
+const v1StatusRouteSource = readFileSync(new URL("../src/app/routes/V1StatusRoute.jsx", import.meta.url), "utf8");
 const v1StatusPageEntrySource = readFileSync(new URL("../src/features/v1-status/V1StatusPage.jsx", import.meta.url), "utf8");
 const v1StatusOverviewSource = readFileSync(new URL("../src/features/v1-status/V1StatusOverview.jsx", import.meta.url), "utf8");
 const v1StatusDecisionSource = readFileSync(new URL("../src/features/v1-status/V1StatusDecisionWorkspace.jsx", import.meta.url), "utf8");
@@ -63,10 +64,10 @@ assertIncludes(navigationSource, 'label: "上线状态"', "navigation should lab
 assertIncludes(navigationSource, 'permissionPrefixes: ["system.v1_"]', "V1 status navigation should require system permissions");
 assertExcludes(officePageSource, "V1StatusPage", "office barrel should not statically import the V1 status page");
 assertExcludes(officePageSource, "function V1StatusPage", "office pages should no longer define the V1 status page");
-assertIncludes(appSource, 'lazy(() =>', "App should lazy-load the V1 status page");
-assertIncludes(appSource, 'import("./features/v1-status/V1StatusPage.jsx")', "App should import the V1 status feature dynamically");
+assertIncludes(appSource, 'lazyNamedPage(() => import("./app/routes/V1StatusRoute.jsx"), "V1StatusRoute")', "App should lazy-load the V1 status route");
+assertIncludes(v1StatusRouteSource, 'import { V1StatusPage } from "../../features/v1-status/V1StatusPage.jsx";', "V1 status route should import the feature only after the route is requested");
 assertIncludes(appSource, "<Suspense", "App should expose a loading boundary for V1 status");
-assertIncludes(appSource, "<V1StatusPage", "App should render V1 status page");
+assertIncludes(appSource, "<V1StatusRoute", "App should render the V1 status route");
 assertIncludes(v1StatusReadSource, "当前仍以发布门禁、现场证据和签字作为完成标准", "refresh toast should keep V1 completion boundary explicit");
 assertIncludes(v1StatusReadSource, "getOfficeV1GoLiveStatus", "V1 read hook should refresh go-live status from API artifacts");
 assertExcludes(appSource, "getOfficeV1GoLiveStatus", "App should no longer call the V1 status read client directly");
@@ -91,59 +92,71 @@ assertIncludes(workspaceSource, "v1GoLiveStatusState", "workspace should keep V1
 assertIncludes(workspaceSource, "lastSuccessfulAt", "workspace should retain the timestamp of the latest successful V1 status snapshot");
 assertIncludes(workspaceSource, "lastAttemptedAt", "workspace should retain the timestamp of the latest V1 status refresh attempt");
 assertIncludes(v1StatusReadSource, "当前不展示固定门禁数据", "V1 read hook should not claim static gates when the status API is unavailable");
-assertIncludes(appSource, "v1FieldEvidenceDraftAction", "App should keep field evidence draft generation state");
-assertIncludes(appSource, "v1FieldEvidenceValidationAction", "App should keep field evidence draft validation state");
-assertIncludes(appSource, "v1FieldEvidenceAttachmentAction", "App should keep field evidence attachment upload state");
-assertIncludes(appSource, "v1FieldEvidenceAttachmentListAction", "App should keep field evidence attachment list state");
-assertIncludes(appSource, "v1SignoffBoundaryAttachmentAction", "App should keep signoff/boundary attachment upload state");
-assertIncludes(appSource, "v1SignoffBoundaryAttachmentListAction", "App should keep signoff/boundary attachment list state");
-assertIncludes(appSource, "uploadV1FieldEvidenceAttachment", "App should upload backend V1 field evidence attachments");
-assertIncludes(appSource, "listV1FieldEvidenceAttachments", "App should list backend V1 field evidence attachments");
-assertIncludes(appSource, "uploadV1SignoffBoundaryAttachment", "App should upload backend V1 signoff/boundary attachments");
-assertIncludes(appSource, "listV1SignoffBoundaryAttachments", "App should list backend V1 signoff/boundary attachments");
+assertIncludes(workspaceSource, "const v1StatusRouteState", "workspace should group V1 route state at its ownership boundary");
+for (const stateName of [
+  "v1FieldEvidenceDraftAction",
+  "v1FieldEvidenceValidationAction",
+  "v1FieldEvidenceAttachmentAction",
+  "v1FieldEvidenceAttachmentListAction",
+  "v1SignoffBoundaryAttachmentAction",
+  "v1SignoffBoundaryAttachmentListAction",
+  "v1ProductionEnvPrecheckAction",
+  "v1ProductionEnvSetupAction",
+  "v1ProductionEnvIntakePrecheckAction",
+  "v1ProductionEnvFileAuditPrecheckAction",
+  "v1ProductionEnvFilePreviewPrecheckAction",
+  "v1ProductionGoLivePrecheckAction",
+  "v1ProductionPersistenceEvidenceAction",
+  "v1AttachmentRetentionPrecheckAction",
+  "v1PrintSpoolPrecheckAction",
+  "v1PrintCupsPrecheckAction",
+  "v1PrintReadinessPrecheckAction",
+  "v1DriverReadinessPrecheckAction",
+  "v1RuntimeReadinessPrecheckAction",
+  "v1ReleaseCandidateRefreshPrecheckAction",
+  "v1ReleaseCandidateRefreshAction",
+]) {
+  assertIncludes(workspaceSource, stateName, `workspace should retain V1 state ${stateName}`);
+}
+for (const actionName of [
+  "uploadV1FieldEvidenceAttachment",
+  "listV1FieldEvidenceAttachments",
+  "uploadV1SignoffBoundaryAttachment",
+  "listV1SignoffBoundaryAttachments",
+]) {
+  assertIncludes(v1StatusActionsSource, actionName, `V1 action controller should own ${actionName}`);
+}
 assertIncludes(v1StatusActionsSource, "createV1FieldEvidenceAttachmentInput", "V1 action controller should build field evidence attachment inputs");
 assertIncludes(v1StatusActionsSource, "createV1FieldEvidenceAttachmentListInput", "V1 action controller should build field evidence attachment list inputs");
 assertIncludes(v1StatusActionsSource, "createV1SignoffBoundaryAttachmentInput", "V1 action controller should build signoff/boundary attachment inputs");
 assertIncludes(v1StatusActionsSource, "createV1SignoffBoundaryAttachmentListInput", "V1 action controller should build signoff/boundary attachment list inputs");
-assertIncludes(appSource, "v1ProductionEnvPrecheckAction", "App should keep production env precheck state");
-assertIncludes(appSource, "v1ProductionEnvSetupAction", "App should keep production env setup action state");
-assertIncludes(appSource, "v1ProductionEnvIntakePrecheckAction", "App should keep production env intake precheck state");
-assertIncludes(appSource, "v1ProductionEnvFileAuditPrecheckAction", "App should keep production env file audit precheck state");
-assertIncludes(appSource, "v1ProductionEnvFilePreviewPrecheckAction", "App should keep production env file application precheck state");
-assertIncludes(appSource, "v1ProductionGoLivePrecheckAction", "App should keep production go-live precheck state");
-assertIncludes(appSource, "v1ProductionPersistenceEvidenceAction", "App should keep production persistence evidence state");
-assertIncludes(appSource, "v1AttachmentRetentionPrecheckAction", "App should keep attachment retention precheck state");
-assertIncludes(appSource, "v1PrintSpoolPrecheckAction", "App should keep print spool diagnostics precheck state");
-assertIncludes(appSource, "v1PrintCupsPrecheckAction", "App should keep print CUPS diagnostics precheck state");
-assertIncludes(appSource, "v1PrintReadinessPrecheckAction", "App should keep print V1 readiness precheck state");
-assertIncludes(appSource, "v1DriverReadinessPrecheckAction", "App should keep driver V1 readiness precheck state");
-assertIncludes(appSource, "v1RuntimeReadinessPrecheckAction", "App should keep runtime readiness precheck state");
-assertIncludes(appSource, "v1ReleaseCandidateRefreshPrecheckAction", "App should keep release candidate refresh precheck state");
-assertIncludes(appSource, "v1ReleaseCandidateRefreshAction", "App should keep release candidate refresh action state");
-assertIncludes(appSource, "goLiveStatus={v1GoLiveStatusState.statusData}", "V1 status page should receive API data");
-assertIncludes(appSource, "onGenerateFieldEvidenceDraft={generateV1FieldEvidenceDraftManifest}", "V1 status page should receive draft generation action");
-assertIncludes(appSource, "onValidateFieldEvidenceDraft={validateV1FieldEvidenceDraftManifest}", "V1 status page should receive draft validation action");
-assertIncludes(appSource, "onUploadFieldEvidenceAttachment={uploadV1FieldEvidenceAttachment}", "V1 status page should receive field evidence attachment upload action");
-assertIncludes(appSource, "onListFieldEvidenceAttachments={listV1FieldEvidenceAttachments}", "V1 status page should receive field evidence attachment list action");
-assertIncludes(appSource, "onUploadSignoffBoundaryAttachment={uploadV1SignoffBoundaryAttachment}", "V1 status page should receive signoff/boundary attachment upload action");
-assertIncludes(appSource, "onListSignoffBoundaryAttachments={listV1SignoffBoundaryAttachments}", "V1 status page should receive signoff/boundary attachment list action");
-assertIncludes(appSource, "onPrecheckProductionEnv={precheckV1ProductionEnv}", "V1 status page should receive production env precheck action");
-assertIncludes(appSource, "onRunProductionEnvSetup={runV1ProductionEnvSetup}", "V1 status page should receive production env setup action");
-assertIncludes(appSource, "productionEnvSetupAction={v1ProductionEnvSetupAction}", "V1 status page should receive production env setup state");
-assertIncludes(appSource, "onPrecheckProductionEnvIntake={precheckV1ProductionEnvIntake}", "V1 status page should receive production env intake precheck action");
-assertIncludes(appSource, "onPrecheckProductionEnvFileAudit={precheckV1ProductionEnvFileAudit}", "V1 status page should receive production env file audit precheck action");
-assertIncludes(appSource, "onPrecheckProductionEnvFilePreview={precheckV1ProductionEnvFilePreview}", "V1 status page should receive production env file application precheck action");
-assertIncludes(appSource, "onPrecheckProductionGoLive={precheckV1ProductionGoLive}", "V1 status page should receive production go-live precheck action");
-assertIncludes(appSource, "productionPersistenceEvidenceAction={v1ProductionPersistenceEvidenceAction}", "V1 status page should receive production persistence evidence state");
-assertIncludes(appSource, "onRunProductionPersistenceEvidence={runV1ProductionPersistenceEvidence}", "V1 status page should receive production persistence evidence action");
-assertIncludes(appSource, "onPrecheckRuntimeReadiness={precheckV1RuntimeReadiness}", "V1 status page should receive runtime readiness precheck action");
-assertIncludes(appSource, "onPrecheckV1AttachmentRetention={precheckV1AttachmentRetention}", "V1 status page should receive attachment retention precheck action");
-assertIncludes(appSource, "onPrecheckV1PrintSpool={precheckV1PrintSpool}", "V1 status page should receive print spool diagnostics precheck action");
-assertIncludes(appSource, "onPrecheckV1PrintCups={precheckV1PrintCups}", "V1 status page should receive print CUPS diagnostics precheck action");
-assertIncludes(appSource, "onPrecheckV1PrintReadiness={precheckV1PrintReadiness}", "V1 status page should receive print V1 readiness precheck action");
-assertIncludes(appSource, "onPrecheckV1DriverReadiness={precheckV1DriverReadiness}", "V1 status page should receive driver V1 readiness precheck action");
-assertIncludes(appSource, "onPrecheckReleaseCandidateRefresh={precheckV1ReleaseCandidateRefresh}", "V1 status page should receive refresh precheck action");
-assertIncludes(appSource, "onRefreshReleaseCandidate={refreshV1ReleaseCandidate}", "V1 status page should receive controlled refresh action");
+assertIncludes(appSource, "state={v1StatusRouteState}", "App should pass grouped V1 state into the lazy route");
+assertIncludes(appSource, "actions={v1StatusActions.pageActions}", "App should pass the V1 action adapter into the lazy route");
+for (const actionProp of [
+  "onGenerateFieldEvidenceDraft",
+  "onValidateFieldEvidenceDraft",
+  "onUploadFieldEvidenceAttachment",
+  "onListFieldEvidenceAttachments",
+  "onUploadSignoffBoundaryAttachment",
+  "onListSignoffBoundaryAttachments",
+  "onPrecheckProductionEnv",
+  "onRunProductionEnvSetup",
+  "onPrecheckProductionEnvIntake",
+  "onPrecheckProductionEnvFileAudit",
+  "onPrecheckProductionEnvFilePreview",
+  "onPrecheckProductionGoLive",
+  "onRunProductionPersistenceEvidence",
+  "onPrecheckRuntimeReadiness",
+  "onPrecheckV1AttachmentRetention",
+  "onPrecheckV1PrintSpool",
+  "onPrecheckV1PrintCups",
+  "onPrecheckV1PrintReadiness",
+  "onPrecheckV1DriverReadiness",
+  "onPrecheckReleaseCandidateRefresh",
+  "onRefreshReleaseCandidate",
+]) {
+  assertIncludes(v1StatusActionsSource, actionProp, `V1 route adapter should expose ${actionProp}`);
+}
 
 assertIncludes(v1StatusPageSource, "export function V1StatusPage", "office pages should export V1StatusPage");
 assertIncludes(v1StatusPageEntrySource, 'from "./V1StatusOverview.jsx"', "V1 status page should compose the extracted overview");
@@ -364,13 +377,9 @@ assertIncludes(v1StatusPageEntrySource, "v1StatusWorkspaceSections", "V1 status 
 assertIncludes(v1StatusPageEntrySource, "v1-status-section-${workspaceSection}", "V1 status page should expose only the selected business section");
 assertIncludes(featureStyleSource, ".page-grid.two-col.v1-status-workbench", "V1 status feature styles should own the responsive split");
 assertIncludes(featureStyleSource, ".v1-status-page .v1-workspace-panel", "V1 status feature styles should hide inactive workflow sections");
-assertIncludes(mainSource, 'import "./styles/features/v1-status-base.css";', "main should import the V1 base feature styles");
-assertIncludes(mainSource, 'import "./styles/features/v1-status.css";', "main should import the V1 workbench overrides");
-assert.equal(
-  mainSource.indexOf('import "./styles/features/v1-status-base.css";') < mainSource.indexOf('import "./styles/features/v1-status.css";'),
-  true,
-  "V1 base styles should load before workbench overrides",
-);
+assert.equal(mainSource.includes('import "./styles/features/v1-status-base.css";'), false, "V1 styles should not load with the initial shell");
+assertIncludes(v1StatusRouteSource, 'import "../../styles/features/v1-status-base.css";', "V1 route should load base styles with the workbench");
+assertIncludes(v1StatusRouteSource, 'import "../../styles/features/v1-status.css";', "V1 route should load workbench overrides with the feature");
 assertExcludes(sharedStyleSource, ".v1-status-page", "shared styles should not retain the V1 status page base");
 assertExcludes(sharedStyleSource, ".v1-section-title-row", "shared styles should not retain V1 section title rules");
 assertExcludes(sharedStyleSource, ".v1-field-stage-row", "shared styles should not retain V1 mobile field-stage rules");

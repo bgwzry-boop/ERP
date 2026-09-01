@@ -12,7 +12,7 @@ import {
   handleOfficeStatementVariance,
   recordOfficeStatementCustomerConfirmation,
   recordOfficeStatementPayment,
-} from "../services/officeStatementApiClient.js";
+} from "../services/officeStatementLazyApi.js";
 import { confirmOfficeModal } from "../state/officeModalActions.js";
 import { recordStatementCustomerConfirmation } from "../state/officeStatementActions.js";
 
