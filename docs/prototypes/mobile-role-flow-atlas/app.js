@@ -71,7 +71,7 @@ function flowStartScreen(flow) {
 
 function createRawDraft(sequence = 1, sourceRolls = rawMaterialRolls) {
   return {
-    draftId: `RM-DRAFT-260704-${String(sequence).padStart(2, "0")}`,
+    draftId: sequence === 1 ? "RMI-OCR-D6BCA7541B6E" : `RM-DRAFT-20260818-${String(sequence).padStart(2, "0")}`,
     rolls: sourceRolls.map((roll) => {
       const confirmed = roll.confirmed === true;
       return {
@@ -85,17 +85,81 @@ function createRawDraft(sequence = 1, sourceRolls = rawMaterialRolls) {
   };
 }
 
+function renderOfficeRoleBar(flow, board) {
+  const boardTabIndex = board ? 'tabindex="-1"' : "";
+  return `
+    <header class="mobile-role-bar office-mobile-role-bar">
+      <div class="office-mobile-role-identity">
+        <span>${esc(flow.mobileHeaderTitle || "办公室手机")}</span>
+        <strong>${esc(flow.fixedPreviewIdentity || "管理A")}</strong>
+      </div>
+      <div class="office-mobile-role-actions">
+        <button type="button" data-action="show-office-attendance" ${boardTabIndex}>我的考勤</button>
+        <span class="mobile-role-fixed-preview">${esc(flow.fixedPreviewBadge || "内测固定身份")}</span>
+      </div>
+    </header>
+  `;
+}
+
+function officeStageStatus(screen) {
+  if (screen.id === "capture") {
+    const pendingCount = screen.blocks?.[0]?.items?.length || 0;
+    return pendingCount ? `${pendingCount} 单未完成` : "可开始拍单";
+  }
+  return {
+    attach: "第 4 步",
+    "label-deferred": "已保存待补标",
+    print: "第 3 步",
+    "print-result": "打印待重试",
+    "print-success": "打印完成",
+    "receive-complete": "收货完成",
+    "receive-partial": "部分完成",
+    "return-complete": "退货已复核",
+  }[screen.id] || "处理中";
+}
+
+function renderOfficeScreenHeading(screen, board) {
+  const boardTabIndex = board ? 'tabindex="-1"' : "";
+  if (screen.id === "review") {
+    return `
+      <header class="mobile-screen-heading office-mobile-review-heading">
+        <button type="button" data-action="go-back" aria-label="返回录原材料" ${boardTabIndex}>${icon("arrow-left")}</button>
+        <div><h2>${esc(screen.title)}</h2></div>
+        <span class="heading-spacer"></span>
+      </header>
+    `;
+  }
+  return `
+    <header class="mobile-screen-heading office-mobile-stage-heading">
+      ${screen.id === "capture"
+        ? '<span class="heading-spacer"></span>'
+        : `<button type="button" data-action="go-back" aria-label="返回录原材料" ${boardTabIndex}>${icon("arrow-left")}</button>`}
+      <div><h2>录原材料</h2></div>
+      <em>${esc(officeStageStatus(screen))}</em>
+    </header>
+  `;
+}
+
+function renderOfficeOcrNotice(screen) {
+  if (screen.id !== "review" || !screen.ocrNotice) return "";
+  return `<p class="office-mobile-ocr-notice" role="status"><span aria-hidden="true"></span>${esc(screen.ocrNotice)}</p>`;
+}
+
 const initialFlow = getFlow(pageParams.get("role") || "office");
 const requestedInitialScreen = pageParams.get("screen");
+const requestedInitialVariant = pageParams.get("variant") || "";
 const initialScreenId = initialFlow.screens.some((screen) => screen.id === requestedInitialScreen) ? requestedInitialScreen : flowStartScreen(initialFlow);
-const reviewedOfficeScreens = new Set(["print", "print-result", "print-retry", "attach", "receive-partial", "receive-complete"]);
+const reviewedOfficeScreens = new Set(["label-deferred", "print", "print-success", "print-result", "attach", "receive-partial", "receive-complete"]);
 const initialRawRolls = initialFlow.id !== "office"
   ? rawMaterialRolls
+  : initialScreenId === "review" && requestedInitialVariant === "two-confirmed"
+    ? rawMaterialRolls.map((roll) => ({ ...roll, confirmed: roll.index <= 2, status: roll.index <= 2 ? "已确认" : roll.status, tone: roll.index <= 2 ? "success" : roll.tone }))
   : reviewedOfficeScreens.has(initialScreenId)
     ? reviewedRawMaterialRolls
-    : initialScreenId === "review-edit"
-      ? rawMaterialRolls.map((roll) => ({ ...roll, confirmed: roll.index !== 7 }))
-      : rawMaterialRolls;
+    : rawMaterialRolls;
+const initialCaptureVariant = initialFlow.id === "office" && initialScreenId === "capture"
+  ? getScreen(initialFlow, "capture").variants?.[requestedInitialVariant]?.blocks?.find((item) => item.type === "office-mobile-capture")
+  : null;
 
 const state = {
   mode: pageParams.get("mode") === "board" ? "board" : "prototype",
@@ -106,11 +170,11 @@ const state = {
   evidenceAttempts: {},
   rawDraftSequence: 1,
   rawDraft: createRawDraft(1, initialRawRolls),
+  officeDocumentDirection: initialCaptureVariant?.direction || "supplier_delivery",
+  officeCapturePages: initialCaptureVariant?.pages?.map((page) => ({ ...page })) || [],
+  officeReturnSupplier: initialCaptureVariant?.supplierNameHint || "",
   selectedRollIndex: null,
   attachRollStatus: {},
-  officePrintCompleted: false,
-  officePrintRetryCompleted: false,
-  officeReceiveVariant: null,
   roleReceipts: {},
   materialIssue: { rollId: "RM-260704-08", destination: "制袋 3 号机" },
   silkClaimed: false,
@@ -327,9 +391,9 @@ function resetRawDraft() {
   state.rawDraftSequence += 1;
   state.rawDraft = createRawDraft(state.rawDraftSequence);
   state.selectedRollIndex = null;
-  state.officePrintCompleted = false;
-  state.officePrintRetryCompleted = false;
-  state.officeReceiveVariant = null;
+  state.officeDocumentDirection = "supplier_delivery";
+  state.officeCapturePages = [];
+  state.officeReturnSupplier = "";
 }
 
 function prepareScreenTransition(nextFlowId, nextScreenId) {
@@ -338,8 +402,7 @@ function prepareScreenTransition(nextFlowId, nextScreenId) {
     return status === "confirmed" || status === "mismatch";
   });
   const leavingCompletedRawDraft = state.flowId === "office"
-    && (["receive-partial", "receive-complete"].includes(state.screenId)
-      || (state.screenId === "attach" && Boolean(state.officeReceiveVariant)))
+    && ["receive-partial", "receive-complete", "return-complete"].includes(state.screenId)
     && nextFlowId === "office"
     && nextScreenId === "capture";
   const returningAfterRoleSwitch = state.flowId !== "office"
@@ -411,7 +474,7 @@ function syncCurrentView() {
 }
 
 function goBack() {
-  if (state.flowId === "office" && state.screenId === "review-edit") state.selectedRollIndex = null;
+  if (state.flowId === "office" && state.screenId === "review") state.selectedRollIndex = null;
   const previous = navigationStack.pop();
   if (!previous) {
     setScreen(flowStartScreen(getFlow(state.flowId)), { remember: false });
@@ -593,36 +656,55 @@ function renderPrototype() {
 }
 
 function renderMobileSurface(flow, screen, { board, boardPosition, boardVariant }) {
+  const interactiveVariant = !board && flow.id === "office"
+    ? requestedInitialVariant || (state.officeDocumentDirection === "supplier_return" ? "supplier-return" : "")
+    : "";
+  const resolvedVariant = boardVariant || interactiveVariant;
+  const variant = resolvedVariant ? screen.variants?.[resolvedVariant] : null;
+  const surfaceScreen = variant ? { ...screen, ...variant, id: screen.id } : screen;
   const currentIndex = flow.screens.findIndex((item) => item.id === screen.id);
   const displayIndex = boardPosition?.index ?? currentIndex;
   const displayTotal = boardPosition?.total ?? flow.screens.length;
-  const layout = screenLayout(screen);
-  const bottomNav = renderBottomNav(flow, screen, board);
-  const headingStatus = mobileScreenStatus(flow, screen, board);
-  return `
-    <article class="mobile-surface layout-${layout} ${board ? "is-board" : "is-interactive"} ${bottomNav ? "has-bottom-nav" : "has-task-actions"}" data-flow="${esc(flow.id)}" data-role-color="${esc(flow.color)}" data-screen="${esc(screen.id)}" ${board && screen.boardFocus ? `data-board-focus="${esc(screen.boardFocus)}"` : ""} ${board ? `tabindex="0" aria-label="${esc(`${flow.shortTitle} · ${screen.title}，可上下滚动查看完整页面`)}"` : ""}>
+  const layout = screenLayout(surfaceScreen);
+  const bottomNav = renderBottomNav(flow, surfaceScreen, board);
+  const headingStatus = mobileScreenStatus(flow, surfaceScreen, board);
+  const officeSurface = flow.id === "office";
+  const roleBar = officeSurface
+    ? surfaceScreen.id === "review" ? "" : renderOfficeRoleBar(flow, board)
+    : `
       <header class="mobile-role-bar">
         <span class="mobile-role-mark">${icon(flow.icon)}</span>
-        <div><strong>${esc(flow.shortTitle)}</strong><small>手机工作台</small></div>
-        ${board ? `<span class="screen-count">${displayIndex + 1}/${displayTotal}</span>` : `<button type="button" data-action="open-role-switcher" aria-label="切换角色">${icon("menu")}</button>`}
+        <div><strong>${esc(flow.mobileHeaderTitle || flow.shortTitle)}</strong><small>${flow.fixedPreviewIdentity ? esc(flow.fixedPreviewIdentity) : "手机工作台"}</small></div>
+        ${board
+          ? `<span class="screen-count">${displayIndex + 1}/${displayTotal}</span>`
+          : flow.fixedPreviewIdentity
+            ? `<span class="mobile-role-fixed-preview">${esc(flow.fixedPreviewBadge || "内测固定身份")}</span>`
+            : `<button type="button" data-action="open-role-switcher" aria-label="切换角色">${icon("menu")}</button>`}
       </header>
+    `;
+  const screenHeading = officeSurface
+    ? renderOfficeScreenHeading(surfaceScreen, board)
+    : `
       <header class="mobile-screen-heading">
         ${currentIndex > 0 && !bottomNav ? `<button type="button" data-action="go-back" aria-label="返回上一页" ${board ? "tabindex=\"-1\"" : ""}>${icon("arrow-left")}</button>` : `<span class="heading-spacer"></span>`}
-        <div><h2>${esc(screen.title)}</h2></div>
+        <div><h2>${esc(surfaceScreen.title)}</h2></div>
         ${headingStatus.label ? `<em class="status ${esc(headingStatus.tone)}">${esc(headingStatus.label)}</em>` : `<span class="heading-spacer"></span>`}
       </header>
-      ${screen.progress ? renderProgress(screen.progress) : ""}
+    `;
+  return `
+    <article class="mobile-surface layout-${layout} ${board ? "is-board" : "is-interactive"} ${bottomNav ? "has-bottom-nav" : "has-task-actions"}${officeSurface && surfaceScreen.id === "review" ? " has-office-ocr-notice" : ""}" data-flow="${esc(flow.id)}" data-role-color="${esc(flow.color)}" data-screen="${esc(screen.id)}" ${board && surfaceScreen.boardFocus ? `data-board-focus="${esc(surfaceScreen.boardFocus)}"` : ""} ${board ? `tabindex="0" aria-label="${esc(`${flow.shortTitle} · ${surfaceScreen.title}，可上下滚动查看完整页面`)}"` : ""}>
+      ${roleBar}
+      ${officeSurface ? renderOfficeOcrNotice(surfaceScreen) : ""}
+      ${screenHeading}
+      ${surfaceScreen.progress ? renderProgress(surfaceScreen.progress) : ""}
       <div class="mobile-content">
-        ${renderRoleReceipt(flow, screen, board)}
-        ${renderScreenBlocks(flow, screen, board, boardVariant)}
+        ${renderRoleReceipt(flow, surfaceScreen, board)}
+        ${renderScreenBlocks(flow, surfaceScreen, board, resolvedVariant)}
       </div>
-      ${renderActionBar(flow, screen, board, boardVariant)}
+      ${renderActionBar(flow, surfaceScreen, board, resolvedVariant)}
       ${bottomNav}
-      ${board && flow.id === "office" && screen.id === "print" && boardVariant === "success-dialog"
-        ? renderOfficePrintSuccessBoardState(screen)
-        : ""}
-      ${board && flow.id === "office" && screen.id === "attach" && boardVariant === "complete-dialog"
-        ? renderOfficeReceiveBoardState(flow, "complete")
+      ${flow.id === "office" && screen.id === "print-success"
+        ? renderOfficePrintSuccessBoardState(surfaceScreen, board)
         : ""}
     </article>
   `;
@@ -630,17 +712,18 @@ function renderMobileSurface(flow, screen, { board, boardPosition, boardVariant 
 
 function renderScreenBlocks(flow, screen, board, boardVariant) {
   if (flow.id === "office" && screen.id === "capture") {
-    return renderOfficeCaptureHome(flow, screen, board);
+    return renderOfficeCaptureHome(flow, screen, board, boardVariant);
   }
   if (flow.id === "office") {
     const officeRenderers = {
-      "capture-failed": renderOfficeCaptureFailure,
+      "label-deferred": renderOfficeLabelDeferred,
       print: renderOfficePrintBatch,
+      "print-success": renderOfficePrintBatch,
       "print-result": renderOfficePrintFailure,
-      "print-retry": renderOfficePrintRetry,
       attach: renderOfficeAttach,
       "receive-partial": renderOfficeReceiveResult,
       "receive-complete": renderOfficeReceiveResult,
+      "return-complete": renderOfficeReturnResult,
     };
     const renderer = officeRenderers[screen.id];
     if (renderer) return renderer(flow, screen, board, boardVariant);
@@ -648,13 +731,84 @@ function renderScreenBlocks(flow, screen, board, boardVariant) {
   return screen.blocks.map((item, blockIndex) => renderBlock(item, board, screen, blockIndex, flow, boardVariant)).join("");
 }
 
+function renderOfficeCaptureDirection(item = {}, board) {
+  const isReturn = item.direction === "supplier_return";
+  const disabled = item.pages?.length ? "disabled" : "";
+  const boardTabIndex = board ? 'tabindex="-1"' : "";
+  const supplierOptions = item.supplierOptions || [];
+  const supplierNameHint = item.supplierNameHint || "";
+  return `
+    <div class="office-mobile-direction" role="group" aria-label="单据方向">
+      <button aria-pressed="${isReturn ? "false" : "true"}" class="${isReturn ? "" : "is-active"}" type="button" data-action="set-office-delivery-direction" ${disabled} ${boardTabIndex}>收货入库</button>
+      <button aria-pressed="${isReturn ? "true" : "false"}" class="${isReturn ? "is-active is-return" : ""}" type="button" data-action="set-office-return-direction" ${disabled} ${boardTabIndex}>供应商退货</button>
+    </div>
+    <p class="office-mobile-direction-note">${esc(isReturn ? "退货只保存负数对账证据，不生成卷码、不增加库存。" : "请选择实际业务方向后再拍单；拍摄后不可切换。")}</p>
+    ${isReturn ? `
+      <label class="office-mobile-return-supplier">
+        <span>退给哪家供应商</span>
+        <select aria-label="退货供应商" data-office-return-supplier required ${disabled} ${board ? "disabled" : ""}>
+          <option value="">请选择供应商</option>
+          ${supplierOptions.map((supplierName) => `<option value="${esc(supplierName)}" ${supplierName === supplierNameHint ? "selected" : ""}>${esc(supplierName)}</option>`).join("")}
+        </select>
+        <small>有些退货单不印厂家名称；这里的选择作为正式退货归属，OCR 不再猜厂家。</small>
+      </label>
+    ` : ""}
+  `;
+}
+
+function renderOfficeCapturePanel(item = {}, board) {
+  const pages = item.pages || [];
+  const hasPages = pages.length > 0;
+  const isReturn = item.direction === "supplier_return";
+  const documentName = isReturn ? "退货单" : "送货单";
+  const boardTabIndex = board ? 'tabindex="-1"' : "";
+  return `
+    <section class="office-mobile-capture-panel" aria-label="${esc(`录入${documentName}`)}">
+      <header class="office-mobile-capture-heading"><h2>录入${esc(documentName)}</h2></header>
+      ${renderOfficeCaptureDirection(item, board)}
+      <div class="office-mobile-capture-stack${hasPages ? " has-pages" : ""}">
+        ${hasPages ? `
+          <div class="office-mobile-capture-summary">
+            <span><strong>已拍 ${pages.length} 页</strong><small>请确认同一张${esc(documentName)}的页面没有遗漏</small></span>
+            <button type="button" data-action="clear-office-capture-pages" ${boardTabIndex}>清空重拍</button>
+          </div>
+          <div class="office-mobile-page-previews" aria-label="${esc(`${documentName}逐页预览`)}">
+            ${pages.map((page) => `
+              <article>
+                <button class="office-mobile-page-open" type="button" data-action="open-source" ${boardTabIndex}>
+                  <img alt="${esc(`${documentName}第 ${page.index} 页缩略图`)}" src="${esc(page.image)}" />
+                  <strong>${esc(page.label || `第 ${page.index} 页`)}</strong>
+                </button>
+                <button class="office-mobile-page-remove" aria-label="${esc(`删除${documentName}第 ${page.index} 页`)}" type="button" data-action="remove-capture-page" data-page-index="${page.index - 1}" ${boardTabIndex}>×</button>
+              </article>
+            `).join("")}
+          </div>
+        ` : ""}
+        <div class="office-mobile-source-group" role="group" aria-label="${esc(`${documentName}来源`)}">
+          <button type="button" data-action="capture-office-document-page" ${boardTabIndex}>
+            ${icon("camera")}<span><strong>${hasPages ? "还有第二页" : `拍${documentName}`}</strong><small>${hasPages ? "继续拍下一页" : "打开相机"}</small></span>
+          </button>
+          <button type="button" data-action="capture-office-document-page" ${boardTabIndex}>
+            ${icon("file-text")}<span><strong>${hasPages ? "从相册加页" : "相册 / PDF"}</strong><small>${hasPages ? "可继续添加" : "选择已有文件"}</small></span>
+          </button>
+        </div>
+      </div>
+      ${item.note ? `<p class="office-mobile-capture-note">${esc(item.note)}</p>` : ""}
+      ${hasPages ? `<button class="office-mobile-start-ocr" type="button" data-action="start-office-ocr" ${boardTabIndex}>${pages.length === 1 ? "没有第二页，开始识别" : `开始识别 ${pages.length} 页`}</button>` : ""}
+    </section>
+  `;
+}
+
 function renderOfficeCaptureHome(flow, screen, board) {
   const resumeItems = screen.blocks[0]?.items || [];
-  const evidenceItem = screen.blocks[1] || {};
+  const configuredCaptureItem = screen.blocks[1] || {};
+  const captureItem = board ? configuredCaptureItem : {
+    ...configuredCaptureItem,
+    direction: state.officeDocumentDirection,
+    supplierNameHint: state.officeReturnSupplier,
+    pages: state.officeCapturePages,
+  };
   const historyItems = screen.blocks[2]?.items || [];
-  const evidenceIndex = 1;
-  const evidenceKey = blockStateKey("evidence", flow, screen, evidenceIndex);
-  const evidenceStatus = evidenceItem.previewState || (board ? "idle" : state.evidenceStatus[evidenceKey] || "idle");
   const boardTabIndex = board ? "tabindex=\"-1\"" : "";
 
   const resumeRows = resumeItems.map((row) => `
@@ -667,37 +821,7 @@ function renderOfficeCaptureHome(flow, screen, board) {
     </button>
   `).join("");
 
-  let sourceContent = "";
-  if (evidenceStatus === "saved") {
-    sourceContent = `
-      <div class="office-home-source-state is-saved">
-        <span>${icon("check-circle")}</span>
-        <div><strong>送货单已保存</strong><small>下一步核对全部卷料</small></div>
-        <button type="button" data-action="evidence-retake" data-evidence-key="${esc(evidenceKey)}" ${boardTabIndex}>重拍</button>
-      </div>
-    `;
-  } else if (evidenceStatus === "failed") {
-    sourceContent = `
-      <div class="office-home-source-state is-failed">
-        <span>${icon("alert-triangle")}</span>
-        <div><strong>上传失败</strong><small>照片仍保留在本机</small></div>
-        <button type="button" data-action="evidence-retry" data-evidence-key="${esc(evidenceKey)}" ${boardTabIndex}>重新上传</button>
-      </div>
-    `;
-  } else {
-    sourceContent = `
-      <div class="office-home-source-group" role="group" aria-label="选择送货单来源">
-        <button class="office-home-source-option" type="button" data-action="evidence-capture" data-evidence-key="${esc(evidenceKey)}" data-evidence-fail-once="${evidenceItem.demoFailure ? "true" : "false"}" ${boardTabIndex}>
-          <span>${icon("camera")}</span>
-          <span><strong>拍送货单</strong><small>打开相机</small></span>
-        </button>
-        <button class="office-home-source-option" type="button" ${navigationAttributes(screen.secondary)} ${boardTabIndex}>
-          <span>${icon("file-text")}</span>
-          <span><strong>相册 / PDF</strong><small>选择已有文件</small></span>
-        </button>
-      </div>
-    `;
-  }
+  const sourceContent = renderOfficeCapturePanel(captureItem, board);
 
   const historyRows = historyItems.map((row) => `
     <li>
@@ -708,26 +832,27 @@ function renderOfficeCaptureHome(flow, screen, board) {
 
   return `
     <div class="office-home">
-      <section class="office-home-section office-home-resume" aria-labelledby="office-home-resume-heading">
-        <header class="office-home-section-heading">
-          <h3 id="office-home-resume-heading">继续未完成</h3>
-          <span>${resumeItems.length} 单</span>
-        </header>
-        <div class="office-home-resume-list">${resumeRows}</div>
-      </section>
-      <section class="office-home-section office-home-intake" aria-labelledby="office-home-intake-heading">
-        <header class="office-home-section-heading">
-          <h3 id="office-home-intake-heading">录入送货单</h3>
-        </header>
+      ${resumeItems.length ? `
+        <section class="office-home-section office-home-resume" aria-labelledby="office-home-resume-heading">
+          <header class="office-home-section-heading">
+            <h3 id="office-home-resume-heading">继续未完成</h3>
+            <span>${resumeItems.length} 单</span>
+          </header>
+          <div class="office-home-resume-list">${resumeRows}</div>
+        </section>
+      ` : ""}
+      <section class="office-home-section office-home-intake" aria-label="录入送货单或退货单">
         ${sourceContent}
       </section>
-      <section class="office-home-section office-home-history" aria-labelledby="office-home-history-heading">
-        <header class="office-home-section-heading">
-          <h3 id="office-home-history-heading">最近完成</h3>
-          <span>${historyItems.length} 条</span>
-        </header>
-        <ul class="office-home-history-list">${historyRows}</ul>
-      </section>
+      ${historyItems.length ? `
+        <section class="office-home-section office-home-history" aria-labelledby="office-home-history-heading">
+          <header class="office-home-section-heading">
+            <h3 id="office-home-history-heading">最近完成</h3>
+            <span>${historyItems.length} 条</span>
+          </header>
+          <ul class="office-home-history-list">${historyRows}</ul>
+        </section>
+      ` : ""}
     </div>
   `;
 }
@@ -800,24 +925,34 @@ function renderOfficeRecordDisclosure(title, rows = [], board) {
   `;
 }
 
-function renderOfficeCaptureFailure(_flow, screen, board) {
-  const item = officeScreenBlock(screen, "office-capture-failure");
-  const media = item.image
-    ? `<img src="${esc(item.image)}" alt="已保留的送货单照片" width="96" height="72" />`
-    : icon("camera");
+function renderOfficeLabelDeferred(_flow, screen, board) {
+  const item = officeScreenBlock(screen, "office-label-deferred");
   return `
-    <div class="office-task-page office-capture-failure">
-      <section class="office-task-section" aria-labelledby="office-${esc(screen.id)}-source-heading">
-        ${renderOfficeSectionHeading(screen, "source", "这张送货单")}
-        ${renderOfficeObjectCard({
-          title: item.title,
-          meta: item.state,
-          media,
-          action: { label: "查看", action: "view-evidence" },
-        }, board)}
-      </section>
-      <div class="office-safety-note is-danger">${icon("alert-triangle")}<span><strong>${esc(item.blocker)}</strong><small>${esc(item.note)}</small></span></div>
-      ${renderOfficeRecordDisclosure("上传详情", item.details, board)}
+    <div class="office-task-page office-label-deferred-page">
+      <div class="office-result-banner is-warning">${icon("check-circle")}<span><strong>${esc(`${item.rollCount} 卷已保存，标签待补打`)}</strong><small>每卷独立卷码已经生成，原单和核对记录也已保存。</small></span></div>
+      <dl class="office-result-facts">
+        <div><dt>供应商</dt><dd>${esc(item.supplier)}</dd></div>
+        <div><dt>收货单</dt><dd>${esc(item.inboundId)}</dd></div>
+        <div><dt>卷码</dt><dd>${esc(`${item.rollCount} 个独立编号`)}</dd></div>
+        <div><dt>当前库位</dt><dd>${esc(item.location)}</dd></div>
+        <div><dt>库存状态</dt><dd>${esc(item.status)}</dd></div>
+      </dl>
+    </div>
+  `;
+}
+
+function renderOfficeReturnResult(_flow, screen, board) {
+  const item = officeScreenBlock(screen, "office-return-result");
+  return `
+    <div class="office-task-page office-return-result-page">
+      <div class="office-result-banner is-success">${icon("check-circle")}<span><strong>退货单已复核</strong><small>本单只保存退货复核和原单证据，不进入原材料入库流程。</small></span></div>
+      <dl class="office-result-facts">
+        <div><dt>供应商</dt><dd>${esc(item.supplier)}</dd></div>
+        <div><dt>退货单</dt><dd>${esc(item.returnId)}</dd></div>
+        <div><dt>退货合计</dt><dd>${esc(`${item.itemCount} 件 · ${item.totalWeight}`)}</dd></div>
+        <div><dt>票面金额</dt><dd>${esc(item.amount)}</dd></div>
+        <div><dt>后续处理</dt><dd>不生成进货卷码、标签和库存；作为负数厂家对账依据</dd></div>
+      </dl>
     </div>
   `;
 }
@@ -830,7 +965,7 @@ function renderOfficePrintBatch(flow, screen, board) {
   return `
     <div class="office-task-page office-print-page">
       <section class="office-task-section office-label-batch" aria-labelledby="office-${esc(screen.id)}-batch-heading">
-        ${renderOfficeSectionHeading(screen, "batch", "本次打印", `${rolls.length} 张 · 每卷一张`)}
+        ${renderOfficeSectionHeading(screen, "batch", "打印卷标", `${rolls.length} 张不同卷标`)}
         ${renderLabelPreview({ ...previewRoll, supplier: item.supplier }, board, screen, 0, flow)}
         <div class="office-print-roll-heading"><strong>送货单逐卷明细</strong><span>已核对</span></div>
         ${renderOfficePrintRollList(rolls)}
@@ -839,13 +974,9 @@ function renderOfficePrintBatch(flow, screen, board) {
         ${renderOfficeSectionHeading(screen, "device", "打印设备")}
         ${renderOfficePrinterRow(printer, board)}
       </section>
+      <p class="office-mobile-defer-note">每卷独立卷码已经生成。暂缓打印后卷料保存在待补标区，补打并贴标核对前不计入可用库存。</p>
     </div>
   `;
-}
-
-function officePrintSuccessReceipt(flow) {
-  const printScreen = flow?.screens.find((screen) => screen.id === "print");
-  return printScreen ? officeScreenBlock(printScreen, "office-print-batch")?.successReceipt || {} : {};
 }
 
 function renderOfficePrintSuccessReceipt(receipt, { board = false, titleId = "", deviceId = "" } = {}) {
@@ -866,86 +997,28 @@ function renderOfficePrintSuccessReceipt(receipt, { board = false, titleId = "",
   `;
 }
 
-function renderOfficePrintSuccessBoardState(screen) {
+function renderOfficePrintSuccessBoardState(screen, board) {
   const receipt = officeScreenBlock(screen, "office-print-batch")?.successReceipt || {};
   return `
     <div class="office-print-success-board-state" aria-label="${esc(receipt.title)}弹窗状态">
       <section class="office-print-success-board-panel">
-        ${renderOfficePrintSuccessReceipt(receipt, { board: true })}
+        ${renderOfficePrintSuccessReceipt(receipt, { board })}
       </section>
     </div>
   `;
 }
 
-function renderOfficePrintFailure(_flow, screen, board, boardVariant) {
-  if ((!board && state.officePrintRetryCompleted) || boardVariant === "retry-complete") {
-    const retryScreen = _flow.screens.find((item) => item.id === "print-retry");
-    return renderOfficePrintRetry(_flow, retryScreen, board);
-  }
+function renderOfficePrintFailure(_flow, screen) {
   const item = officeScreenBlock(screen, "office-print-failure");
   return `
     <div class="office-task-page office-print-result-page">
-      <section class="office-task-section" aria-labelledby="office-${esc(screen.id)}-failure-heading">
-        ${renderOfficeSectionHeading(screen, "failure", "需要重新打印", "1 张")}
-        ${renderOfficeObjectCard({
-          tone: "danger",
-          iconName: "printer",
-          title: item.rollId,
-          meta: `第 ${item.rollIndex} 卷 · ${item.reason}`,
-          status: "待重试",
-        }, board)}
-      </section>
-      <div class="office-safety-note is-success">${icon("check-circle")}<span><strong>其余 ${esc(item.succeeded)} 张已成功</strong><small>本次只重新打印这一张。</small></span></div>
-      ${renderOfficeRecordDisclosure("打印记录", [["作业", item.jobId], ["设备", item.device]], board)}
-    </div>
-  `;
-}
-
-function officeReceiveScreen(flow, variant) {
-  return flow?.screens.find((screen) => screen.id === (variant === "partial" ? "receive-partial" : "receive-complete"));
-}
-
-function renderOfficeReceiveBoardState(flow, variant) {
-  const resultScreen = officeReceiveScreen(flow, variant);
-  return `
-    <div class="office-print-success-board-state office-receive-board-state" aria-label="${esc(resultScreen?.title || "收货完成")}弹窗状态">
-      <section class="office-print-success-board-panel office-receive-board-panel">
-        ${resultScreen ? renderOfficeReceiveResult(flow, resultScreen, true) : ""}
-        ${resultScreen?.primary ? `<span class="office-print-success-primary">${esc(resultScreen.primary.label)}</span>` : ""}
-      </section>
-    </div>
-  `;
-}
-
-function renderOfficeReceiveDialog(flow) {
-  const resultScreen = officeReceiveScreen(flow, state.officeReceiveVariant || "complete");
-  if (!resultScreen) return "";
-  return `
-    <dialog class="office-receive-dialog" id="receiveResultDialog" aria-labelledby="receiveResultDialogTitle">
-      <button class="office-print-success-close" type="button" data-close-dialog aria-label="关闭收货结果">×</button>
-      <h2 id="receiveResultDialogTitle">${esc(resultScreen.title)}</h2>
-      ${renderOfficeReceiveResult(flow, resultScreen, false)}
-      <div class="office-receive-dialog-actions">
-        ${resultScreen.secondary ? `<button type="button" class="secondary" ${navigationAttributes(resultScreen.secondary)}>${esc(resultScreen.secondary.label)}</button>` : ""}
-        ${resultScreen.primary ? `<button type="button" class="primary" ${navigationAttributes(resultScreen.primary)}>${esc(resultScreen.primary.label)}</button>` : ""}
-      </div>
-    </dialog>
-  `;
-}
-
-function renderOfficePrintRetry(_flow, screen, board) {
-  const item = officeScreenBlock(screen, "office-print-retry");
-  return `
-    <div class="office-task-page office-print-result-page">
-      ${renderOfficeObjectCard({
-        tone: "success",
-        iconName: "check-circle",
-        title: `第 ${item.rollIndex} 卷补打成功`,
-        meta: `${item.rollId} · ${item.device}`,
-        status: `${item.total}/${item.total}`,
-      }, board)}
-      <div class="office-safety-note is-success">${icon("shield")}<span><strong>全部 ${esc(item.total)} 张可以贴标</strong><small>仅补打 1 张，其他 8 张未重复。</small></span></div>
-      ${renderOfficeRecordDisclosure("打印记录", [["原作业", item.originalJobId], ["补打作业", item.retryJobId]], board)}
+      <div class="office-result-banner is-warning">${icon("alert-triangle")}<span><strong>本次打印没有确认成功</strong><small>${esc(item.message)}</small></span></div>
+      <dl class="office-result-facts">
+        <div><dt>收货单</dt><dd>${esc(item.inboundId)}</dd></div>
+        <div><dt>打印机</dt><dd>${esc(item.device)}</dd></div>
+        <div><dt>标签数</dt><dd>${esc(`${item.count} 张不同卷标`)}</dd></div>
+        <div><dt>下一步</dt><dd>检查连接后重新打印</dd></div>
+      </dl>
     </div>
   `;
 }
@@ -971,59 +1044,39 @@ function renderOfficeAttach(flow, screen, board, boardVariant) {
 function renderOfficeReceiveResult(_flow, screen, board) {
   const item = officeScreenBlock(screen, "office-receive-result");
   if (item.variant === "partial") {
-    const isolatedRoll = reviewedRawMaterialRolls.find((roll) => roll.rollId === item.isolatedRollId) || {};
     return `
       <div class="office-task-page office-receive-page">
-        <section class="office-task-section" aria-labelledby="office-${esc(screen.id)}-received-heading">
-          ${renderOfficeSectionHeading(screen, "received", "收货结果", item.inboundId)}
-          ${renderOfficeObjectCard({
-            tone: "success",
-            iconName: "check-circle",
-            title: `${item.receivedCount} 卷已入库`,
-            meta: `${item.availableWeight} · 库存状态：可用`,
-            status: "完成",
-          }, board)}
-        </section>
-        <section class="office-task-section" aria-labelledby="office-${esc(screen.id)}-isolated-heading">
-          ${renderOfficeSectionHeading(screen, "isolated", "待处理卷", `${item.isolatedCount} 卷`)}
-          ${renderOfficeObjectCard({
-            tone: "warning",
-            iconName: "alert-triangle",
-            title: item.isolatedRollId,
-            meta: `${isolatedRoll.color || "大红"} · ${formatRawMaterialSpec(isolatedRoll.spec)} · ${item.isolatedWeight}`,
-            detail: "标签/实物不符 · 其他 8 卷不受影响",
-            status: "已隔离",
-          }, board)}
-        </section>
-        ${renderOfficeRecordDisclosure("收货记录", [["收货单", item.inboundId], ["已入库", `${item.receivedCount} 卷`], ["已隔离", `${item.isolatedCount} 卷`]], board)}
+        <div class="office-result-banner is-warning">${icon("alert-triangle")}<span><strong>${esc(`${item.receivedCount} 卷已入库，${item.isolatedCount} 卷已隔离`)}</strong><small>异常卷单独等待处理，已确认的正确卷可以正常使用。</small></span></div>
+        <dl class="office-result-facts">
+          <div><dt>供应商</dt><dd>${esc(item.supplier)}</dd></div>
+          <div><dt>收货单</dt><dd>${esc(item.inboundId)}</dd></div>
+          <div><dt>可用库存</dt><dd>${esc(`${item.receivedCount} 卷`)}</dd></div>
+          <div><dt>异常隔离</dt><dd>${esc(`${item.isolatedCount} 卷`)}</dd></div>
+        </dl>
       </div>
     `;
   }
   return `
     <div class="office-task-page office-receive-page">
-      <section class="office-task-section" aria-labelledby="office-${esc(screen.id)}-receipt-heading">
-        ${renderOfficeSectionHeading(screen, "receipt", "收货单", item.inboundId)}
-        ${renderOfficeObjectCard({
-          tone: "success",
-          iconName: "check-circle",
-          title: item.supplier,
-          meta: `${item.receivedCount} 卷 · ${item.totalWeight}`,
-          detail: `库存状态：${item.inventoryStatus} · 收货位置：${item.location}`,
-          status: "已入库",
-        }, board)}
-      </section>
-      ${renderOfficeRecordDisclosure("收货记录", [["收货单", item.inboundId], ["完成时间", item.completedAt], ["收货位置", item.location]], board)}
+      <div class="office-result-banner is-success">${icon("check-circle")}<span><strong>${esc(`${item.receivedCount} 卷全部入库完成`)}</strong><small>标签、实物、操作人和时间均已由后台留痕。</small></span></div>
+      <dl class="office-result-facts">
+        <div><dt>供应商</dt><dd>${esc(item.supplier)}</dd></div>
+        <div><dt>收货单</dt><dd>${esc(item.inboundId)}</dd></div>
+        <div><dt>可用库存</dt><dd>${esc(`${item.receivedCount} 卷`)}</dd></div>
+        <div><dt>异常隔离</dt><dd>0 卷</dd></div>
+      </dl>
     </div>
   `;
 }
 
 function mobileScreenStatus(flow, screen, board) {
-  if (!board && flow.id === "office" && screen.id === "review-edit") {
+  if (!board && flow.id === "office" && screen.id === "review" && state.selectedRollIndex) {
     const roll = currentExpandedReviewRoll(screen);
     if (roll) {
-      const blockers = rollReviewBlockers(editableRollValues(roll, { useReviewDraft: true }));
+      const isSupplierReturn = state.officeDocumentDirection === "supplier_return";
+      const blockers = rollReviewBlockers(editableRollValues(roll, { isSupplierReturn, useReviewDraft: true }), { isSupplierReturn });
       return {
-        label: blockers.length ? `第 ${roll.index} 卷需补全` : `第 ${roll.index} 卷待确认`,
+        label: blockers.length ? `第 ${roll.index} ${isSupplierReturn ? "件" : "卷"}需补全` : `第 ${roll.index} ${isSupplierReturn ? "件" : "卷"}待确认`,
         tone: "warning",
       };
     }
@@ -1060,7 +1113,7 @@ function renderProgress(progress) {
 }
 
 function recordScope(flow, screen) {
-  const rawMaterialScreens = new Set(["capture", "capture-failed", "review", "review-edit", "print", "print-result", "print-retry", "attach", "receive-partial", "receive-complete"]);
+  const rawMaterialScreens = new Set(["capture", "review", "label-deferred", "print", "print-success", "print-result", "attach", "receive-partial", "receive-complete", "return-complete"]);
   return flow.id === "office" && rawMaterialScreens.has(screen.id) ? state.rawDraft.draftId : "default";
 }
 
@@ -1097,16 +1150,21 @@ function evidenceRequiresGate(item) {
   );
 }
 
-function rawReviewStats(board = false) {
-  const rolls = board ? rawMaterialRolls : state.rawDraft.rolls;
-  const confirmed = board ? 0 : rolls.filter((roll) => roll.confirmed).length;
+function rawReviewStats(board = false, screen = getScreen(getFlow(state.flowId), state.screenId)) {
+  const rollsBlock = screen?.blocks?.find((item) => item.type === "rolls");
+  const rolls = board ? rollsBlock?.items || rawMaterialRolls : state.rawDraft.rolls;
+  const boardConfirmed = new Set(rollsBlock?.confirmedRollIndices || []);
+  const confirmed = board
+    ? rolls.filter((roll) => roll.confirmed || boardConfirmed.has(roll.index)).length
+    : rolls.filter((roll) => roll.confirmed).length;
   return { confirmed, total: rolls.length };
 }
 
 function screenGateStatus(flow, screen, board = false) {
   if (flow.id === "office" && screen.id === "review") {
-    const stats = rawReviewStats(board);
-    if (stats.confirmed < stats.total) return { blocked: true, reason: `还要确认 ${stats.total - stats.confirmed} 卷` };
+    const stats = rawReviewStats(board, screen);
+    const isSupplierReturn = screen.documentDirection === "supplier_return";
+    if (stats.confirmed < stats.total) return { blocked: true, reason: `还要确认 ${stats.total - stats.confirmed} ${isSupplierReturn ? "件" : "卷"}` };
   }
   for (let blockIndex = 0; blockIndex < screen.blocks.length; blockIndex += 1) {
     const item = screen.blocks[blockIndex];
@@ -1138,21 +1196,15 @@ function renderActionBar(flow, screen, board, boardVariant) {
     if (!evidenceSaved) primary = null;
   }
   if (flow.id === "office" && screen.id === "review") {
-    const stats = rawReviewStats(board);
-    primary = { label: `已确认 ${stats.confirmed}/${stats.total} · 进入打印`, action: "complete-roll-review" };
-  }
-  if (flow.id === "office" && screen.id === "review-edit") {
-    const stats = board ? screen.demoReviewStats : rawReviewStats(false);
-    const nextIndex = board ? screen.demoReviewStats?.nextIndex : state.selectedRollIndex || screen.demoReviewStats?.nextIndex;
-    primary = { label: `确认送货单（${stats?.confirmed || 0}/${stats?.total || 0}）`, disabled: true };
-    actionNote = `还要确认第 ${nextIndex || 1} 卷`;
-  }
-  if (!board && flow.id === "office" && screen.id === "print" && state.officePrintCompleted) {
-    primary = { label: "查看打印结果", action: "show-print-success" };
-  }
-  if (flow.id === "office" && screen.id === "print-result" && ((!board && state.officePrintRetryCompleted) || boardVariant === "retry-complete")) {
-    primary = { label: "开始贴标", target: "attach" };
-    candidateSecondary = null;
+    const stats = rawReviewStats(board, screen);
+    const isSupplierReturn = screen.documentDirection === "supplier_return";
+    const ready = stats.total > 0 && stats.confirmed === stats.total;
+    primary = {
+      label: ready
+        ? `确认${isSupplierReturn ? "退货" : "送货"}单（${stats.confirmed}/${stats.total}）`
+        : `已确认 ${stats.confirmed}/${stats.total} · ${isSupplierReturn ? "确认退货" : "进入打印"}`,
+      action: isSupplierReturn ? "complete-supplier-return" : "complete-roll-review",
+    };
   }
   if (!board && flow.id === "silk" && screen.id === "task" && state.silkPaused) {
     primary = { label: "等待办公室处理", disabled: true };
@@ -1171,10 +1223,9 @@ function renderActionBar(flow, screen, board, boardVariant) {
 
 function renderActionButton(action, variant, board, flow, screen, boardVariant) {
   const attrs = navigationAttributes(action);
-  const attachStats = action.action === "complete-attach" ? getAttachStats(board, boardVariant) : null;
-  const label = attachStats ? `完成整单 · ${attachStats.processed}/${attachStats.total}` : action.label;
+  const label = action.label;
   const gate = variant === "primary" ? screenGateStatus(flow, screen, board) : { blocked: false, reason: "" };
-  const attachBlocked = Boolean(attachStats && attachStats.processed < attachStats.total);
+  const attachBlocked = false;
   const isDisabled = action.disabled || attachBlocked || gate.blocked;
   const disabled = isDisabled ? "disabled aria-disabled=\"true\"" : "";
   const gateReason = gate.reason ? `data-gate-reason="${esc(gate.reason)}" title="${esc(gate.reason)}"` : "";
@@ -1252,6 +1303,7 @@ function renderBlock(item, board, screen, blockIndex, flow, boardVariant) {
     timeline: renderTimeline,
     evidence: renderEvidence,
     "delivery-note": renderDeliveryNote,
+    "delivery-note-pages": renderDeliveryNotePages,
     rolls: renderRolls,
     "material-issue-summary": renderMaterialIssueSummary,
     "attach-rolls": renderAttachRolls,
@@ -1908,18 +1960,33 @@ function renderDeliveryNote(item, board) {
   return `<section class="content-section delivery-note-section"><header><div><h3>${esc(item.title)}</h3><span>${esc(item.meta)}</span></div><button type="button" data-action="open-source" ${board ? "tabindex=\"-1\"" : ""}>放大查看</button></header><button class="delivery-note-image" type="button" data-action="open-source" ${board ? "tabindex=\"-1\"" : ""}><img src="${esc(item.image)}" alt="原材料送货单演示原图" width="1536" height="864" /></button></section>`;
 }
 
+function renderDeliveryNotePages(item, board) {
+  const pages = item.pages || [];
+  const activePage = pages.find((page) => page.index === item.activePage) || pages[0] || {};
+  return `
+    <section class="content-section delivery-note-section delivery-note-pages">
+      <header><div><h3>${esc(item.title)}</h3><span>${esc(item.meta)}</span></div><button type="button" data-action="open-source" ${board ? 'tabindex="-1"' : ""}>放大查看</button></header>
+      ${pages.length > 1 ? `<nav aria-label="原单页码">${pages.map((page) => `<button class="${page.index === activePage.index ? "is-active" : ""}" type="button" ${board ? 'tabindex="-1"' : ""}>第 ${page.index} 页</button>`).join("")}</nav>` : ""}
+      <button class="delivery-note-image" type="button" data-action="open-source" ${board ? 'tabindex="-1"' : ""}>
+        <img src="${esc(activePage.image)}" alt="${esc(`${item.title}第 ${activePage.index || 1} 页`)}" width="1536" height="864" />
+      </button>
+    </section>
+  `;
+}
+
 function numericRollValue(value) {
   const match = String(value ?? "").replace(",", ".").match(/\d+(?:\.\d+)?/);
   return match ? match[0] : "";
 }
 
-function editableRollValues(roll, { useReviewDraft = false } = {}) {
+function editableRollValues(roll, { isSupplierReturn = false, useReviewDraft = false } = {}) {
   const sourceSpec = String(useReviewDraft && roll.reviewDraftSpec ? roll.reviewDraftSpec : roll.spec || "").trim();
   const rawSpec = isStripRoll(roll) && !/\d/.test(sourceSpec)
     ? String(roll.reviewDraftSpec || "78克*5宽").trim()
     : sourceSpec;
   return {
-    color: String(roll.color || "").trim(),
+    color: String((isSupplierReturn ? roll.supplierColor : roll.factoryColor || roll.color) || "").trim(),
+    supplierColor: String(roll.supplierColor || roll.color || "").trim(),
     spec: /没看清|不清楚/.test(rawSpec) ? "" : formatRawMaterialSpec(rawSpec),
     weight: numericRollValue(roll.weight),
   };
@@ -1935,29 +2002,38 @@ function rollSpecSummary(roll = {}) {
   return formatRawMaterialSpec(rawSpec);
 }
 
-function rollReviewBlockers(values) {
+function rollReviewBlockers(values, { isSupplierReturn = false } = {}) {
   const blockers = [];
   const spec = String(values.spec || "").trim();
   const weight = Number(values.weight);
-  if (!String(values.color || "").trim()) blockers.push("颜色");
-  if (!spec || !/\d/.test(spec) || /没看清|不清楚/.test(spec)) blockers.push("规格 / 宽幅");
-  if (!Number.isFinite(weight) || weight <= 0) blockers.push("重量");
+  if (!isSupplierReturn && !String(values.color || "").trim()) blockers.push("厂内标准色");
+  if (!isSupplierReturn && (!spec || !/\d/.test(spec) || /没看清|不清楚/.test(spec))) blockers.push("规格 / 宽幅");
+  if (!Number.isFinite(weight) || weight <= 0) blockers.push("本卷重量");
   return blockers;
 }
 
 function currentExpandedReviewRoll(screen = getScreen(getFlow(state.flowId), state.screenId)) {
   const rollsBlock = screen?.blocks?.find((item) => item.type === "rolls");
   const rollIndex = state.selectedRollIndex || rollsBlock?.expandedRollIndex;
-  return state.rawDraft.rolls.find((roll) => roll.index === rollIndex) || null;
+  const rolls = rollsBlock?.useItemsInPrototype ? rollsBlock.items : state.rawDraft.rolls;
+  return rolls?.find((roll) => roll.index === rollIndex) || null;
 }
 
-function renderExpandedRollEditor(roll, board) {
-  const values = editableRollValues(roll, { useReviewDraft: true });
-  const blockers = rollReviewBlockers(values);
+function factoryColorMappingHint(roll, supplierColor) {
+  if (roll.mappingStatus === "global_rule") return `票面：${supplierColor} · 按通用规则预填，请核对实物`;
+  if (roll.mappingStatus === "ambiguous") return `票面：${supplierColor} · 厂家规则冲突，必须人工选择`;
+  if (roll.mappingStatus === "canonical_exact") return `票面：${supplierColor} · 与厂内标准色同名`;
+  if (!roll.factoryColor) return `票面：${supplierColor || "未识别"} · 该厂家尚无规则，本次需人工选择`;
+  return `票面：${supplierColor} · 已按该厂家颜色资料换算`;
+}
+
+function renderExpandedRollEditor(roll, board, { isSupplierReturn = false } = {}) {
+  const values = editableRollValues(roll, { isSupplierReturn, useReviewDraft: true });
+  const blockers = rollReviewBlockers(values, { isSupplierReturn });
   const blockerId = `roll-editor-blocker-${roll.index}`;
   const boardInputAttrs = board ? 'readonly tabindex="-1"' : "";
   const field = (key, label, value, options = {}) => {
-    const blockerLabel = { color: "颜色", spec: "规格 / 宽幅", weight: "重量" }[key];
+    const blockerLabel = { color: "厂内标准色", spec: "规格 / 宽幅", weight: "本卷重量" }[key];
     return `
     <label>
       <span>${esc(label)}</span>
@@ -1975,10 +2051,19 @@ function renderExpandedRollEditor(roll, board) {
   return `
     <section id="roll-editor-${roll.index}" class="roll-inline-editor" aria-label="第 ${roll.index} 卷编辑" tabindex="-1">
       ${isStripRoll(roll) ? `<div class="roll-classification"><span>系统归类</span><strong>提手条 · 固定 78克 / 5cm宽</strong><small>依据：${esc(roll.classificationBasis || "厂家文字含“条”")}</small></div>` : ""}
+      ${isSupplierReturn ? "" : `
+        <label class="roll-factory-color-field">
+          <span>厂内标准色</span>
+          <select data-roll-edit-field="color" ${board ? 'disabled tabindex="-1"' : ""}>
+            <option value="">请选择标准色</option>
+            ${["本白", "大红", "枣红", "宝兰", "翠绿", "黑色", "黄色"].map((color) => `<option value="${esc(color)}" ${color === values.color ? "selected" : ""}>${esc(color)}</option>`).join("")}
+          </select>
+          <small>${esc(factoryColorMappingHint(roll, values.supplierColor))}</small>
+        </label>
+      `}
       <div class="roll-editor-key-fields">
-        ${field("color", "颜色", values.color)}
         ${field("spec", "规格 / 宽幅", values.spec, { placeholder: isStripRoll(roll) ? "78克*5宽；有米数时再追加" : "例如：78克*76宽*1500米" })}
-        ${field("weight", "重量 kg", values.weight, { inputMode: "decimal" })}
+        ${field("weight", isSupplierReturn ? "本件重量 kg" : "本卷重量 kg", values.weight, { inputMode: "decimal" })}
       </div>
       <p class="roll-editor-blocker" id="${blockerId}" role="alert" ${blockers.length ? "" : "hidden"}>${blockers.length ? `还需填写：${esc(blockers.join("、"))}` : "资料已补齐，可以确认这一卷"}</p>
       <details class="roll-editor-more">
@@ -1992,13 +2077,14 @@ function renderExpandedRollEditor(roll, board) {
       </details>
       <div class="roll-editor-actions">
         <button type="button" data-action="collapse-roll-editor" ${board ? 'tabindex="-1"' : ""}>收起</button>
-        <button class="primary" type="button" data-action="confirm-expanded-roll" ${blockers.length ? "disabled aria-disabled=\"true\"" : ""} ${board ? 'tabindex="-1"' : ""}>${icon("check-circle")}这卷正确</button>
+        <button class="primary" type="button" data-action="confirm-expanded-roll" ${blockers.length ? "disabled aria-disabled=\"true\"" : ""} ${board ? 'tabindex="-1"' : ""}>${icon("check-circle")}这${isSupplierReturn ? "件" : "卷"}正确</button>
       </div>
     </section>
   `;
 }
 
 function renderRolls(item, board) {
+  const isSupplierReturn = item.itemUnit === "件";
   const confirmedRollIndices = new Set(item.confirmedRollIndices || []);
   const rolls = board
     ? item.items.map((roll) => {
@@ -2012,32 +2098,38 @@ function renderRolls(item, board) {
     })
     : state.rawDraft.rolls;
   const stats = { confirmed: rolls.filter((roll) => roll.confirmed).length, total: rolls.length };
-  const expandedRollIndex = item.expandedRollIndex
-    ? board ? item.expandedRollIndex : state.selectedRollIndex || item.expandedRollIndex
-    : null;
+  const expandedRollIndex = board ? item.expandedRollIndex : state.selectedRollIndex || item.expandedRollIndex;
   return `<section class="roll-ledger"><header><h3>${esc(item.title)}</h3><span>已确认 ${stats.confirmed}/${stats.total}</span></header>${rolls.map((roll) => {
     const expanded = roll.index === expandedRollIndex;
-    const reviewValues = editableRollValues(roll, { useReviewDraft: expanded });
+    const reviewValues = editableRollValues(roll, { isSupplierReturn, useReviewDraft: expanded });
     const compactSpec = expanded && reviewValues.spec
       ? rollSpecSummary({ ...roll, spec: reviewValues.spec })
       : rollSpecSummary(roll);
-    const blockers = rollReviewBlockers(reviewValues);
+    const blockers = rollReviewBlockers(reviewValues, { isSupplierReturn });
     const compactStatus = roll.confirmed
       ? "已确认"
-      : blockers.length === 1 && blockers[0] === "规格 / 宽幅"
-        ? "缺规格"
-        : blockers.length ? `缺 ${blockers.length} 项` : "待确认";
-    const actionLabel = expanded ? "收起" : roll.confirmed ? "修改" : blockers.length ? "补全" : "核对";
+      : blockers.includes("规格 / 宽幅")
+        ? "待补宽幅"
+        : blockers.includes("本卷重量") ? "待补重量" : blockers.length ? "待补资料" : "待确认";
+    const actionLabel = expanded ? "收起" : roll.confirmed ? "修改" : blockers.length ? "补全" : "修改";
     const action = expanded ? "collapse-roll-editor" : "edit-roll";
     const tone = roll.confirmed ? "success" : "warning";
+    const compactStatusMarkup = roll.confirmed
+      ? `${icon("check-circle")}<span>${esc(compactStatus)}</span>`
+      : `<span>${esc(compactStatus)}</span>`;
     const rowState = `${blockers.length ? "needs-review" : roll.confirmed ? "is-confirmed" : ""} ${expanded ? "is-expanded" : ""}`;
-    return `<article class="roll-row ${rowState}" data-roll-index="${roll.index}"><div class="roll-source"><b>${roll.index}</b><img src="./assets/roll-crops/roll-${String(roll.index).padStart(2, "0")}.jpg" alt="原送货单第 ${roll.index} 行" /></div><div class="roll-facts"><i class="color-dot ${roll.color.includes("红") ? "red" : "white"}" aria-hidden="true"></i><strong>${esc(roll.color)}</strong><span>${esc(compactSpec)}</span><b>${esc(roll.weight)}</b><em class="status ${tone}">${esc(compactStatus)}</em><button type="button" aria-expanded="${expanded ? "true" : "false"}" ${expanded ? `aria-controls="roll-editor-${roll.index}"` : ""} data-action="${action}" data-roll-index="${roll.index}" ${board ? "tabindex=\"-1\"" : ""}>${esc(actionLabel)}</button></div>${expanded ? renderExpandedRollEditor(roll, board) : ""}</article>`;
+    const factoryColor = (isSupplierReturn ? roll.supplierColor : roll.factoryColor || roll.color) || "颜色待补";
+    const confirmButton = !roll.confirmed && !blockers.length && !expanded
+      ? `<button class="line-confirm" type="button" data-action="confirm-review-roll" data-roll-index="${roll.index}" ${board ? 'tabindex="-1"' : ""}>核对正确</button>`
+      : "";
+    const cropIndex = ((Number(roll.index) - 1) % 9) + 1;
+    return `<article class="roll-row ${rowState}" data-roll-index="${roll.index}"><div class="roll-source"><b>${roll.index}</b><img src="./assets/roll-crops/roll-${String(cropIndex).padStart(2, "0")}.jpg" alt="原${isSupplierReturn ? "退货单" : "送货单"}第 ${Number(roll.sourcePageIndex || 0) + 1} 页第 ${roll.index} 行" /></div><div class="roll-facts"><i class="color-dot ${factoryColor.includes("红") ? "red" : "white"}" aria-hidden="true"></i><strong>${esc(factoryColor)}</strong><span>${esc(compactSpec)}</span><b>${esc(roll.weight)}</b><em class="status ${tone}">${compactStatusMarkup}</em><span class="roll-line-actions">${confirmButton}<button type="button" aria-expanded="${expanded ? "true" : "false"}" ${expanded ? `aria-controls="roll-editor-${roll.index}"` : ""} data-action="${action}" data-roll-index="${roll.index}" ${board ? "tabindex=\"-1\"" : ""}>${esc(actionLabel)}</button></span></div>${expanded ? renderExpandedRollEditor(roll, board, { isSupplierReturn }) : ""}</article>`;
   }).join("")}</section>`;
 }
 
 function getAttachRollStatus(roll, board, boardVariant) {
   if (board) {
-    if (boardVariant === "mismatch") return roll.index === 7 ? "mismatch" : "confirmed";
+    if (boardVariant === "mismatch") return roll.index === 9 ? "mismatch" : "confirmed";
     if (boardVariant === "complete-dialog") return "confirmed";
     if (roll.index === 1) return "pending";
     return "confirmed";
@@ -2179,25 +2271,15 @@ function renderUnknown(item) {
 }
 
 function renderDialogs(flow) {
-  const printReceipt = flow.id === "office" ? officePrintSuccessReceipt(flow) : null;
+  const returnSource = flow.id === "office" && state.officeDocumentDirection === "supplier_return";
   return `
-    ${printReceipt ? `
-      <dialog class="office-print-success-dialog" id="printSuccessDialog" aria-labelledby="printSuccessDialogTitle" aria-describedby="printSuccessDialogDevice">
-        <button class="office-print-success-close" type="button" data-close-dialog aria-label="关闭打印完成弹窗">×</button>
-        ${renderOfficePrintSuccessReceipt(printReceipt, {
-          titleId: "printSuccessDialogTitle",
-          deviceId: "printSuccessDialogDevice",
-        })}
-      </dialog>
-    ` : ""}
-    ${flow.id === "office" ? renderOfficeReceiveDialog(flow) : ""}
     <dialog class="role-dialog" id="roleDialog" aria-labelledby="roleDialogTitle">
       <header><div><span>切换岗位</span><h2 id="roleDialogTitle">手机流程</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></header>
       <div class="role-dialog-list">${flows.map((item) => `<button class="${item.id === flow.id ? "active" : ""}" type="button" data-role="${esc(item.id)}" data-screen="${esc(flowStartScreen(item))}"><span>${icon(item.icon)}</span><span><strong>${esc(item.title)}</strong><small>${esc(item.summary)}</small></span><b>${boardScreenCountForFlow(item)} 状态</b></button>`).join("")}</div>
     </dialog>
     <dialog class="source-dialog" id="sourceDialog" aria-labelledby="sourceDialogTitle">
-      <header><div><span>腾胜无纺布 · 2026-07-04</span><h2 id="sourceDialogTitle">原送货单</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></header>
-      <img src="../raw-material-ocr-hallmark/assets/delivery-note-upright.jpg" width="1536" height="864" alt="原材料送货单演示原图放大查看" />
+      <header><div><span>${returnSource ? "腾胜无纺布 · 2026-07-04" : "宁晋县腾胜无纺布有限公司 · 2026-08-14"}</span><h2 id="sourceDialogTitle">${returnSource ? "原退货单" : "原送货单"}</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></header>
+      <img src="${returnSource ? "../raw-material-return-review/assets/return-note-upright.jpg" : "../raw-material-ocr-hallmark/assets/delivery-note-upright.jpg"}" width="1536" height="864" alt="${returnSource ? "原材料退货单" : "原材料送货单"}演示原图放大查看" />
     </dialog>
     <dialog class="artwork-dialog" id="artworkDialog" aria-labelledby="artworkDialogTitle">
       <header><div><span>logo_final.pdf · 第 3 版 · 办公室已复核</span><h2 id="artworkDialogTitle">印刷稿件</h2></div><button type="button" data-close-dialog aria-label="关闭">×</button></header>
@@ -2221,11 +2303,12 @@ function syncExpandedRollEditor() {
   const editor = document.querySelector(".roll-inline-editor");
   if (!editor) return;
   const values = readExpandedRollEditor();
-  const blockers = rollReviewBlockers(values);
+  const isSupplierReturn = state.officeDocumentDirection === "supplier_return";
+  const blockers = rollReviewBlockers(values, { isSupplierReturn });
   const blockerFields = {
-    "颜色": "color",
+    "厂内标准色": "color",
     "规格 / 宽幅": "spec",
-    "重量": "weight",
+    "本卷重量": "weight",
   };
   const blocker = editor.querySelector(".roll-editor-blocker");
   const button = editor.querySelector('[data-action="confirm-expanded-roll"]');
@@ -2240,7 +2323,7 @@ function syncExpandedRollEditor() {
   });
   if (blocker) {
     blocker.hidden = blockers.length === 0;
-    blocker.textContent = blockers.length ? `还需填写：${blockers.join("、")}` : "资料已补齐，可以确认这一卷";
+    blocker.textContent = blockers.length ? `还需填写：${blockers.join("、")}` : `资料已补齐，可以确认这一${isSupplierReturn ? "件" : "卷"}`;
   }
   if (button) {
     button.disabled = blockers.length > 0;
@@ -2253,14 +2336,18 @@ function syncExpandedRollDraft(event) {
   const roll = currentExpandedReviewRoll();
   if (!roll) return;
   const values = readExpandedRollEditor();
-  const blockers = rollReviewBlockers(values);
+  const isSupplierReturn = state.officeDocumentDirection === "supplier_return";
+  const blockers = rollReviewBlockers(values, { isSupplierReturn });
   if (!String(roll.rawSpec || "").trim()) roll.rawSpec = String(roll.spec || "").trim();
-  roll.color = values.color;
+  if (!isSupplierReturn) {
+    roll.color = values.color;
+    roll.factoryColor = values.color;
+  }
   roll.spec = values.spec;
   delete roll.reviewDraftSpec;
   roll.weight = values.weight ? `${values.weight} kg` : "";
   roll.confirmed = false;
-  roll.status = blockers.includes("规格 / 宽幅") ? "待补规格" : blockers.length ? "待补资料" : "待确认";
+  roll.status = blockers.includes("规格 / 宽幅") ? "待补宽幅" : blockers.includes("本卷重量") ? "待补重量" : blockers.length ? "待补资料" : "待确认";
   roll.tone = "warning";
 }
 
@@ -2269,9 +2356,10 @@ function saveExpandedRoll() {
   const roll = state.rawDraft.rolls.find((item) => item.index === rollIndex);
   if (!roll) return false;
   const values = readExpandedRollEditor();
-  const blockers = rollReviewBlockers(values);
+  const isSupplierReturn = state.officeDocumentDirection === "supplier_return";
+  const blockers = rollReviewBlockers(values, { isSupplierReturn });
   if (blockers.length) {
-    const fieldKey = blockers[0] === "规格 / 宽幅" ? "spec" : blockers[0] === "重量" ? "weight" : "color";
+    const fieldKey = blockers[0] === "规格 / 宽幅" ? "spec" : blockers[0] === "本卷重量" ? "weight" : "color";
     const invalid = document.querySelector(`[data-roll-edit-field="${fieldKey}"]`);
     invalid?.setAttribute("aria-invalid", "true");
     invalid?.focus();
@@ -2279,7 +2367,10 @@ function saveExpandedRoll() {
     return false;
   }
   if (!String(roll.rawSpec || "").trim()) roll.rawSpec = String(roll.spec || "").trim();
-  roll.color = values.color;
+  if (!isSupplierReturn) {
+    roll.color = values.color;
+    roll.factoryColor = values.color;
+  }
   roll.spec = formatRawMaterialSpec(values.spec);
   delete roll.reviewDraftSpec;
   roll.weight = `${Number(values.weight)} kg`;
@@ -2343,6 +2434,7 @@ function bindEvents() {
     if (actionButton && app.contains(actionButton)) handleAction(actionButton.dataset.action, actionButton);
   };
   app.oninput = (event) => {
+    if (event.target.matches("[data-office-return-supplier]")) state.officeReturnSupplier = event.target.value;
     handleSilkReportInput(event);
     handleBagReportInput(event);
     syncExpandedRollDraft(event);
@@ -2616,15 +2708,12 @@ function handleAction(action, actionButton) {
     document.querySelector("#roleDialog")?.showModal();
     return;
   }
-  if (action === "show-print-success") {
-    state.officePrintCompleted = true;
-    render();
-    requestAnimationFrame(() => document.querySelector("#printSuccessDialog")?.showModal());
+  if (action === "show-office-attendance") {
+    showToast("我的考勤沿用已部署办公室手机入口；流程图只同步原材料作业。", "info");
     return;
   }
-  if (action === "retry-office-print") {
-    state.officePrintRetryCompleted = true;
-    render();
+  if (action === "show-print-success") {
+    setScreen("print-success");
     return;
   }
   if (action === "material-scan") {
@@ -2657,20 +2746,30 @@ function handleAction(action, actionButton) {
     const rollIndex = Number(actionButton?.dataset.rollIndex || state.selectedRollIndex || 1);
     if (!state.rawDraft.rolls.some((roll) => roll.index === rollIndex)) return;
     state.selectedRollIndex = rollIndex;
-    setScreen("review-edit");
+    render();
     return;
   }
   if (action === "collapse-roll-editor") {
     state.selectedRollIndex = null;
-    setScreen("review");
+    render();
+    return;
+  }
+  if (action === "confirm-review-roll") {
+    const rollIndex = Number(actionButton?.dataset.rollIndex);
+    const roll = state.rawDraft.rolls.find((item) => item.index === rollIndex);
+    if (!roll) return;
+    roll.confirmed = true;
+    roll.status = "已确认";
+    roll.tone = "success";
+    render();
     return;
   }
   if (action === "confirm-expanded-roll") {
     const confirmedIndex = state.selectedRollIndex || 7;
     if (!saveExpandedRoll()) return;
     state.selectedRollIndex = null;
-    setScreen("review");
-    requestAnimationFrame(() => showToast(`第 ${confirmedIndex} 卷已确认，继续核对其他卷。`, "info"));
+    render();
+    requestAnimationFrame(() => showToast(`第 ${confirmedIndex} ${state.officeDocumentDirection === "supplier_return" ? "件" : "卷"}已确认，继续核对。`, "info"));
     return;
   }
   if (action === "complete-roll-review") {
@@ -2679,12 +2778,66 @@ function handleAction(action, actionButton) {
       showToast(`还有 ${stats.total - stats.confirmed} 卷没有逐卷确认。`, "warning");
       return;
     }
-    setScreen("print");
+    setScreen("label-deferred");
     return;
   }
-  if (action === "retry-raw-capture-upload") {
-    setFlow("office", "review");
-    requestAnimationFrame(() => showToast("原照片已安全重传，服务器已生成同一份 OCR 草稿。", "info"));
+  if (action === "complete-supplier-return") {
+    const stats = rawReviewStats(false);
+    if (stats.confirmed < stats.total) {
+      showToast(`还有 ${stats.total - stats.confirmed} 件没有逐件确认。`, "warning");
+      return;
+    }
+    setScreen("return-complete");
+    return;
+  }
+  if (action === "set-office-delivery-direction" || action === "set-office-return-direction") {
+    if (state.officeCapturePages.length) return;
+    state.officeDocumentDirection = action === "set-office-return-direction" ? "supplier_return" : "supplier_delivery";
+    render();
+    return;
+  }
+  if (action === "capture-office-document-page" || action === "add-capture-page") {
+    if (state.officeCapturePages.length >= 4) {
+      showToast("同一张票据最多添加 4 页。", "warning");
+      return;
+    }
+    const isReturn = state.officeDocumentDirection === "supplier_return";
+    const nextIndex = state.officeCapturePages.length + 1;
+    state.officeCapturePages.push({
+      index: nextIndex,
+      image: isReturn ? "../raw-material-return-review/assets/return-note-upright.jpg" : "../raw-material-ocr-hallmark/assets/delivery-note-upright.jpg",
+      label: `第 ${nextIndex} 页`,
+    });
+    render();
+    return;
+  }
+  if (action === "remove-capture-page") {
+    const pageIndex = Number(actionButton?.dataset.pageIndex);
+    state.officeCapturePages.splice(pageIndex, 1);
+    state.officeCapturePages = state.officeCapturePages.map((page, index) => ({ ...page, index: index + 1, label: `第 ${index + 1} 页` }));
+    render();
+    return;
+  }
+  if (action === "clear-office-capture-pages") {
+    state.officeCapturePages = [];
+    render();
+    return;
+  }
+  if (action === "start-office-ocr") {
+    if (!state.officeCapturePages.length) return;
+    if (state.officeDocumentDirection === "supplier_return" && !state.officeReturnSupplier) {
+      showToast("退货单请先选择退给哪一家供应商，再开始识别。", "warning");
+      return;
+    }
+    const reviewScreen = getScreen(getFlow("office"), "review");
+    const variant = reviewScreen.variants?.["supplier-return"];
+    const sourceRolls = state.officeDocumentDirection === "supplier_return"
+      ? variant?.blocks?.find((item) => item.type === "rolls")?.items || []
+      : rawMaterialRolls;
+    state.rawDraftSequence += 1;
+    state.rawDraft = createRawDraft(state.rawDraftSequence, sourceRolls);
+    state.selectedRollIndex = null;
+    setScreen("review");
     return;
   }
   if (action === "import-raw-document") {
@@ -2852,6 +3005,11 @@ function handleAction(action, actionButton) {
     if (!roll) return;
     const key = `${state.rawDraft.draftId}:${roll.rollId}`;
     state.attachRollStatus[key] = action === "confirm-attach-roll" ? "confirmed" : action === "mark-attach-mismatch" ? "mismatch" : "pending";
+    const stats = getAttachStats(false);
+    if (action !== "reset-attach-roll" && stats.processed === stats.total) {
+      setScreen(stats.mismatch ? "receive-partial" : "receive-complete");
+      return;
+    }
     render();
     requestAnimationFrame(() => showToast(
       action === "confirm-attach-roll" ? `第 ${rollIndex} 卷已确认，可继续处理任意一卷。` : action === "mark-attach-mismatch" ? `第 ${rollIndex} 卷已标记异常，其他卷继续贴标。` : `第 ${rollIndex} 卷已恢复为待核对。`,
@@ -2865,18 +3023,7 @@ function handleAction(action, actionButton) {
     pendingRolls.forEach((roll) => {
       state.attachRollStatus[`${state.rawDraft.draftId}:${roll.rollId}`] = "confirmed";
     });
-    render();
-    return;
-  }
-  if (action === "complete-attach") {
-    const stats = getAttachStats(false);
-    if (stats.processed < stats.total) {
-      showToast(`还有 ${stats.total - stats.processed} 卷未处理。`, "warning");
-      return;
-    }
-    state.officeReceiveVariant = stats.mismatch ? "partial" : "complete";
-    render();
-    requestAnimationFrame(() => document.querySelector("#receiveResultDialog")?.showModal());
+    setScreen("receive-complete");
     return;
   }
   if (action === "maintenance-submit") {

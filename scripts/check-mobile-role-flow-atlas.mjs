@@ -78,7 +78,7 @@ for (const flow of flows) {
 }
 
 const requiredScreens = {
-  office: ["capture", "capture-failed", "review", "review-edit", "print", "print-result", "print-retry", "attach", "receive-partial", "receive-complete"],
+  office: ["capture", "review", "label-deferred", "print", "print-success", "print-result", "attach", "receive-partial", "receive-complete", "return-complete"],
   silk: ["queue", "my-plan", "task", "started", "report", "confirm-daily", "confirm", "exception", "resolution"],
   bag: ["resolution", "resolution-ready"],
   packing: ["resolution", "resolution-ready"],
@@ -129,68 +129,89 @@ const decisionConflictScreen = decision?.screens.find((screen) => screen.id === 
 assert(!JSON.stringify(decisionConflictScreen?.blocks.find((item) => item.type === "checklist") || {}).includes("不能覆盖原决定"), "冲突页可执行操作不得再次重复顶部已说明的覆盖限制");
 assert(office.hideBottomNav === true, "办公室原材料手机动线必须隐藏通用底部导航");
 assert(office.boardTracks.length === 1 && office.boardTracks[0].key === "raw-material", "办公室手机端只能保留原材料录入业务动线");
-const captureScreen = office.screens.find((screen) => screen.id === "capture");
+assert(office.mobileHeaderTitle === "办公室手机"
+  && office.fixedPreviewIdentity === "管理A"
+  && office.fixedPreviewBadge === "内测固定身份", "办公室内测入口必须展示后端签发的固定预览身份，不能退回岗位切换器");
+const officeScreenMap = new Map(office.screens.map((screen) => [screen.id, screen]));
+const deployedOfficeStages = ["capture", "review", "label-deferred", "print", "print-success", "print-result", "attach", "receive-partial", "receive-complete", "return-complete"];
+assert(JSON.stringify([...officeScreenMap.keys()]) === JSON.stringify(deployedOfficeStages), "办公室图谱必须只保留当前部署版的 10 个真实 mobileStage，顺序也要一致");
+assert(office.deployedBaseline?.commit === "fa45ed0f127cf73f8877ad5eb184c0d817dc4fb0"
+  && office.deployedBaseline?.version === "v0.8.307-preview.28", "办公室图谱必须记录本次同步的不可变部署提交和版本");
+const forbiddenOfficePages = ["capture-pages", "capture-failed", "review-edit", "review-color", "print-retry", "return-capture", "return-review"];
+for (const screenId of forbiddenOfficePages) assert(!officeScreenMap.has(screenId), `办公室不得把部署版同页状态另造为 ${screenId} 页面`);
+const officeTrack = office.boardTracks[0];
+assert(JSON.stringify(officeTrack.screenIds) === JSON.stringify(deployedOfficeStages), "办公室画板的页面集合必须与部署版 mobileStage 完全一致");
+
+const captureScreen = officeScreenMap.get("capture");
+const capturePages = captureScreen?.variants?.["delivery-pages"]?.blocks.find((block) => block.type === "office-mobile-capture");
+assert(capturePages?.direction === "supplier_delivery"
+  && capturePages?.maxPages === 4
+  && capturePages?.pages?.length === 3, "收货拍单必须在同一个 capture 页面还原部署版 3 页逐页预览");
+const supplierReturnGroup = office.boardTracks[0].groups.find((group) => group.key === "supplier-return");
+const returnCapture = captureScreen?.variants?.["supplier-return"]?.blocks.find((block) => block.type === "office-mobile-capture");
+const returnResult = officeScreenMap.get("return-complete")?.blocks.find((block) => block.type === "office-return-result");
+assert(supplierReturnGroup?.screenIds?.join(",") === "capture,review,return-complete"
+  && supplierReturnGroup?.screenVariants?.capture === "supplier-return"
+  && supplierReturnGroup?.screenVariants?.review === "supplier-return", "供应商退货必须复用部署版 capture/review 页面，只在画板中切换同页变体");
+assert(returnCapture?.direction === "supplier_return"
+  && returnCapture?.supplierNameHint === "腾胜无纺布"
+  && returnCapture?.supplierOptions?.includes("腾胜无纺布"), "当前部署版退货必须在 capture 页面先选择正式供应商归属");
+const returnReviewVariant = officeScreenMap.get("review")?.variants?.["supplier-return"];
+const returnReview = returnReviewVariant?.blocks.find((block) => block.type === "rolls");
+const returnReviewSource = returnReviewVariant?.blocks.find((block) => block.type === "delivery-note-pages");
+assert(returnReviewVariant?.documentDirection === "supplier_return"
+  && returnReview?.itemUnit === "件"
+  && returnReview?.items?.length === 3, "同一个 review 页面必须按部署版切换为退货逐件核对");
+assert(returnReviewSource?.pages?.length === 1, "退货核对页必须在供应商确认前保留可放大的原退货单图片");
+assert(returnReview?.items?.every((item) => item.weight && item.unitPrice), "退货逐件数据必须保留重量和部署版折叠字段中的单价");
+assert(returnResult
+  && supplierReturnGroup?.summary?.includes("负数对账证据"), "供应商退货结果必须明确只留负数对账证据");
+const deliveryReview = officeScreenMap.get("review");
+const deliveryPages = deliveryReview?.blocks.find((block) => block.type === "delivery-note-pages");
+assert(deliveryPages?.pages?.length === 3 && deliveryPages?.activePage === 1, "OCR 核对必须还原部署版 3 页原单和当前来源页");
+assert(deliveryPages?.meta === "宁晋县腾胜无纺布有限公司 · 2026-08-14"
+  && deliveryReview?.ocrNotice?.includes("RMI-OCR-D6BCA7541B6E（3 页）"), "OCR 核对必须显示当前部署单的供应商、日期、草稿号和页数");
+const twoConfirmedReview = deliveryReview?.variants?.["two-confirmed"];
+const twoConfirmedRolls = twoConfirmedReview?.blocks?.find((block) => block.type === "rolls");
+assert(JSON.stringify(twoConfirmedRolls?.confirmedRollIndices) === JSON.stringify([1, 2])
+  && twoConfirmedReview?.primary?.label === "已确认 2/22 · 进入打印", "当前内测画板必须还原真机截图中的 2/22 核对状态");
+assert(rawMaterialRolls.every((roll) => Number.isInteger(roll.sourcePageIndex)
+  && roll.supplierColor
+  && Object.prototype.hasOwnProperty.call(roll, "factoryColor")), "每个物理卷必须保留来源页、厂家票面颜色与厂内标准色字段");
+assert(rawMaterialRolls.some((roll) => !roll.factoryColor && roll.mappingStatus === "unmatched"), "部署版未匹配颜色必须保留为空并阻断人工核对");
 const resumeItems = captureScreen?.blocks[0]?.items || [];
 const resumeReceipt = resumeItems[0] || {};
 assert(resumeItems.length === 1, "拍单首页必须只突出一张可续办送货单");
-assert(resumeReceipt.title === "腾胜无纺布" && resumeReceipt.meta === "9 卷", "未完成卡只保留供应商身份与卷数");
-assert(resumeReceipt.badge === "继续贴标" && resumeReceipt.target === "attach", "未完成卡必须直接进入继续贴标");
+assert(resumeReceipt.title === "宁晋县腾胜无纺布有限公司" && resumeReceipt.meta === "22 卷", "未完成卡只保留当前部署单的供应商身份与卷数");
+assert(resumeReceipt.badge === "补打卷标" && resumeReceipt.target === "print", "当前部署版未完成卡必须直接进入打印阶段补打卷标");
 assert(!Object.prototype.hasOwnProperty.call(resumeReceipt, "status"), "未完成卡不得重复显示待贴标状态");
 assert(!JSON.stringify(resumeReceipt).includes("标签已打印"), "未完成卡不得用打印里程碑重复继续贴标动作");
-const distilledOfficeScreens = new Map([
-  ["capture-failed", "office-capture-failure"],
-  ["print", "office-print-batch"],
-  ["print-result", "office-print-failure"],
-  ["print-retry", "office-print-retry"],
-  ["receive-partial", "office-receive-result"],
-  ["receive-complete", "office-receive-result"],
-]);
+const distilledOfficeScreens = new Map([["print", "office-print-batch"], ["print-success", "office-print-batch"], ["print-result", "office-print-failure"], ["receive-partial", "office-receive-result"], ["receive-complete", "office-receive-result"]]);
 for (const [screenId, blockType] of distilledOfficeScreens) {
   const screen = office.screens.find((item) => item.id === screenId);
-  assert(screen?.blocks.length === 1 && screen.blocks[0].type === blockType, `${screenId} 必须使用 01 同源的专属精简模块，不能退回通用提示卡堆叠`);
+  assert(screen?.blocks.length === 1 && screen.blocks[0].type === blockType, `${screenId} 必须使用部署版对应阶段模块`);
 }
-assert(!office.screens.find((screen) => screen.id === "print")?.secondary, "打印页的设备选择必须进入设备模块，底栏只保留打印主动作");
-assert(!office.screens.some((screen) => screen.id === "print-success"), "打印完成必须是打印页内的小弹窗，不能继续占用独立页面");
-assert(!office.screens.find((screen) => screen.id === "print-retry")?.secondary, "补打成功后不得返回失败页");
-assert(office.screens.find((screen) => screen.id === "receive-partial")?.primary?.target === "attach", "部分收货完成后的主动作必须直接处理异常卷");
+assert(officeScreenMap.get("print")?.secondary?.target === "label-deferred", "部署版打印页必须保留暂不打印并保存待补标动作");
+assert(officeScreenMap.get("print-success")?.blocks[0]?.successReceipt?.target === "attach", "部署版 print-success 必须显示开始贴标动作");
+assert(officeScreenMap.get("print-result")?.primary?.target === "print", "部署版打印未确认结果必须返回打印页重试");
+assert(officeScreenMap.get("receive-partial")?.secondary?.target === "attach", "部分收货结果必须能查看贴标清单");
 assert(office.screens.find((screen) => screen.id === "attach")?.blocks.find((block) => block.type === "attach-rolls")?.compact === true, "逐卷贴标必须使用连续紧凑清单");
-const reviewEdit = office.screens.find((screen) => screen.id === "review-edit");
-const reviewEditRolls = reviewEdit?.blocks.find((block) => block.type === "rolls");
-const reviewErrorGroup = office.boardTracks[0].groups.find((group) => group.key === "review-error");
-const normalReceiptGroup = office.boardTracks[0].groups.find((group) => group.key === "happy");
-const printErrorGroup = office.boardTracks[0].groups.find((group) => group.key === "print-error");
+const labelResumeGroup = office.boardTracks[0].groups.find((group) => group.key === "label-resume");
 const printScreen = office.screens.find((screen) => screen.id === "print");
 const printBatch = printScreen?.blocks.find((block) => block.type === "office-print-batch");
 const printBatchPrinter = printBatch?.printer || {};
 const printSuccessReceipt = printBatch?.successReceipt || {};
-assert(reviewEdit?.progress?.current === 1, "异常行展开必须仍属于核对阶段，不能新增业务步骤");
-assert(reviewEditRolls?.expandedRollIndex === 7, "异常行展开页必须明确展示第 7 卷的行内编辑状态");
-const reviewEditConfirmedIndices = reviewEditRolls?.confirmedRollIndices || [];
-assert(reviewEditConfirmedIndices.length === 8
-  && new Set(reviewEditConfirmedIndices).size === 8
-  && reviewEditConfirmedIndices.every((index) => index >= 1 && index <= 9 && index !== 7), "异常行展开演示必须只保留第 7 卷以外的 8 卷确认结果");
-assert(reviewErrorGroup?.screenIds?.length === 1 && reviewErrorGroup.screenIds[0] === "review-edit", "OCR 缺项状态必须在画板中独立展示");
-const supplierWrittenStripRoll = rawMaterialRolls.find((roll) => roll.index === 7);
-assert(supplierWrittenStripRoll?.spec === "条", "第 7 卷必须保留厂家原文“条”，不能改写成 OCR 没看清");
-assert(supplierWrittenStripRoll?.reviewDraftSpec === "78克*5宽", "第 7 卷展开编辑时只带入固定78克/5cm宽，不虚构米数");
-assert(supplierWrittenStripRoll?.materialCategory === "提手条", "厂家明确写“条”时必须归到条类");
-assert(supplierWrittenStripRoll?.status === "待确认", "写“条”时应自动带入固定78克/5cm宽并进入直接确认，米数可为空");
-assert(supplierWrittenStripRoll?.classificationBasis === "厂家原文“条”", "条类判断必须显示来自厂家原文的依据");
+const unmatchedColorRoll = rawMaterialRolls.find((roll) => roll.index === 9);
+assert(unmatchedColorRoll?.supplierColor === "白"
+  && unmatchedColorRoll?.factoryColor === ""
+  && unmatchedColorRoll?.status === "待补资料", "第 9 卷必须忠实保留部署版未匹配厂内标准色状态");
 assert(!printBatch?.groups, "打印页不得再使用按颜色合并的抽象卷号范围");
-assert(printScreen?.primary?.action === "show-print-success" && !printScreen?.primary?.target, "打印主动作必须在当前页打开完成弹窗，不能导航到新页面");
-assert(printSuccessReceipt.title === "9 张卷标已打印"
+assert(printScreen?.primary?.action === "show-print-success" && !printScreen?.primary?.target, "打印主动作必须进入部署版 print-success 状态");
+assert(printSuccessReceipt.title === "22 张卷标已打印"
   && printSuccessReceipt.device === "BT-TT-01"
   && printSuccessReceipt.actionLabel === "开始贴标"
   && printSuccessReceipt.target === "attach", "打印完成弹窗必须只保留完成数量、打印机身份和开始贴标动作");
-assert(normalReceiptGroup?.screenVariants?.print === "success-dialog", "正常收货画板必须在打印页内展示完成弹窗状态");
-assert(normalReceiptGroup?.screenVariants?.attach === "complete-dialog", "正常收货画板必须在贴标页内展示收货完成弹窗状态");
-assert(printErrorGroup?.screenIds?.length === 1
-  && printErrorGroup?.screenVariants?.["print-result"] === "retry-complete", "打印失败补打成功必须收在同一失败页状态，不能再占一个页面");
-for (const screenId of ["print-retry", "receive-partial", "receive-complete"]) {
-  assert(office.screens.find((screen) => screen.id === screenId)?.atlasHidden === true, `${screenId} 只能作为兼容深链保留，不能再进入流程画板`);
-}
-assert(!office.boardTracks[0].screenIds.includes("print-success")
-  && !normalReceiptGroup?.screenIds?.includes("print-success"), "流程图谱不得残留独立打印成功节点");
+assert(labelResumeGroup?.screenIds?.join(",") === "capture,print,print-success,attach,receive-complete", "待补标续办必须按部署版真实阶段完整展示");
 assert(printBatchPrinter.model === "BT-TT-01", "打印设备主行必须把 BT-TT-01 明确作为型号数据");
 assert(printBatchPrinter.connectionState === "connected" && printBatchPrinter.connectionLabel === "蓝牙已连接", "打印设备主行必须只显示一个明确的书面连接状态");
 for (const legacyField of ["status", "meta", "consumable"]) {
@@ -199,14 +220,14 @@ for (const legacyField of ["status", "meta", "consumable"]) {
 for (const forbiddenCopy of ["已验收", "防水面材", "树脂碳带", "可打印"]) {
   assert(!JSON.stringify(printBatchPrinter).includes(forbiddenCopy), `打印设备主行不得出现“${forbiddenCopy}”`);
 }
-assert(rawMaterialRolls.length === 9, "OCR 核对示例必须拆成 9 个物理卷记录");
+assert(rawMaterialRolls.length === 22, "OCR 核对必须还原部署版 22 个物理卷记录");
 assert(new Set(rawMaterialRolls.map((roll) => roll.rollId)).size === rawMaterialRolls.length, "每个物理卷必须有唯一卷码");
 assert(rawMaterialRolls.every((roll) => !Object.prototype.hasOwnProperty.call(roll, "count")), "逐卷记录不应再保留可编辑卷数；一条记录固定代表一卷");
 const rawMaterialRollWeightTotal = rawMaterialRolls.reduce((total, roll) => total + Number.parseFloat(roll.weight), 0);
-assert(Math.abs(rawMaterialRollWeightTotal - 853.8) < 0.001, "9 个物理卷的本卷重量合计必须等于整单 853.8 kg");
-assert(reviewedRawMaterialRolls.length === rawMaterialRolls.length, "正常打印与贴标必须沿用全部 9 个已核对物理卷");
+assert(Math.abs(rawMaterialRollWeightTotal - 2192.1) < 0.001, "22 个物理卷的本卷重量合计必须等于整单 2192.1 kg");
+assert(reviewedRawMaterialRolls.length === rawMaterialRolls.length, "正常打印与贴标必须沿用全部 22 个已核对物理卷");
 assert(reviewedRawMaterialRolls.every((roll) => roll.confirmed === true && roll.status === "已确认"), "正常打印与贴标不能复用待确认卷数据");
-assert(reviewedRawMaterialRolls.find((roll) => roll.index === 7)?.spec === "78克*5宽", "正常打印与贴标中的第 7 卷不得虚构米数");
+assert(reviewedRawMaterialRolls.find((roll) => roll.index === 9)?.factoryColor === "本白", "第 9 卷经人工核对后才可带入本白厂内标准色");
 assert(formatRawMaterialSpec("78 × 30 × 2000") === "78克*30宽*2000米", "原材料规格必须支持克重*宽度*米数的明确展示格式");
 assert(formatRawMaterialSpec("78 × 70 × 2000") === "78克*70宽*2000米", "克重在第一段时必须显示为克重*宽度*米数");
 assert(formatRawMaterialSpec("70 × 78 × 2000") === "78克*70宽*2000米", "克重在第二段时必须调回克重*宽度*米数");
@@ -217,6 +238,11 @@ assert(formatRawMaterialSpec("条") === "条", "厂家未写完整规格时必�
 const attachScreen = office.screens.find((screen) => screen.id === "attach");
 const attachRolls = attachScreen?.blocks.find((block) => block.type === "attach-rolls")?.items || [];
 assert(attachRolls === reviewedRawMaterialRolls, "正常贴标页必须复用已核对卷数据，不能回退到第 7 卷待补状态");
+
+const officeSerialized = JSON.stringify(office);
+for (const forbiddenCopy of ["厂家少写字段时", "厂家颜色没有匹配时", "直接拍退货单", "确认供应商及 3 件退货"]) {
+  assert(!officeSerialized.includes(forbiddenCopy), `办公室同步版不得保留自增文案“${forbiddenCopy}”`);
+}
 assert(!flowMap.get("silk").screens.some((screen) => screen.id === "done"), "丝印完成不得恢复为冗余独立成功页");
 
 for (const roleId of ["silk", "bag", "packing", "warehouse", "driver", "maintenance"]) {
@@ -247,9 +273,18 @@ const solutionSource = fs.readFileSync(path.join(atlasDir, "SOLUTION.md"), "utf8
 assert(appSource.includes("function boardScreenCountForFlow")
   && appSource.includes('track.hideFromBoard')
   && appSource.includes('flow.atlasSection !== "appendix"'), "流程图谱统计必须排除工具页、同页状态和平台附录");
-assert(appSource.includes('document.querySelector("#receiveResultDialog")?.showModal()')
-  && appSource.includes('state.screenId === "attach" && Boolean(state.officeReceiveVariant)'), "贴标完成必须在当前页显示结果弹窗，并在返回首页时重置已完成草稿");
-assert(cssSource.includes(".office-receive-dialog") && cssSource.includes(".office-receive-board-panel"), "贴标完成同页弹窗缺少原型和画板样式");
+assert(appSource.includes('pageParams.get("variant")')
+  && appSource.includes('requestedInitialVariant === "two-confirmed"'), "办公室真机状态必须支持用深链单独验收拍单和 2/22 核对变体");
+assert(appSource.includes("office-mobile-role-bar")
+  && appSource.includes("office-mobile-ocr-notice")
+  && cssSource.includes('[data-flow="office"] > .office-mobile-role-bar')
+  && cssSource.includes('[data-flow="office"] > .office-mobile-ocr-notice'), "办公室拍单页身份区与核对页 OCR 提示必须使用真机同构结构，并限制在办公室作用域");
+assert(appSource.includes('setScreen("print-success")')
+  && appSource.includes('setScreen(stats.mismatch ? "receive-partial" : "receive-complete")'), "办公室交互必须进入部署版真实打印/收货结果阶段");
+for (const forbiddenPage of ["review-edit", "review-color", "return-review", "capture-failed", "print-retry"]) {
+  assert(!appSource.includes(`setScreen("${forbiddenPage}")`), `办公室交互不得导航到自增页面 ${forbiddenPage}`);
+}
+assert(cssSource.includes(".office-result-banner") && cssSource.includes(".office-result-facts"), "部署版结果阶段缺少统一结果结构样式");
 
 const decisionSummaryRendererSource = appSource.match(/function renderDecisionSummary\([\s\S]*?(?=\nfunction selectedDecision)/)?.[0] || "";
 assert(decisionSummaryRendererSource.includes('item.variant === "impact-brief"')
@@ -308,10 +343,10 @@ assert(/display:\s*flex/.test(resumeCopyCss) && /align-items:\s*baseline/.test(r
 assert(appSource.includes('tabindex="0"') && appSource.includes("可上下滚动查看完整页面"), "画板手机框缺少键盘滚动入口");
 assert(/\.mobile-surface\.is-board\s*>\s*\.mobile-content[\s\S]*?overflow-y:\s*auto/.test(cssSource), "画板长页面没有内部纵向滚动");
 assert(appSource.includes("boardActionOutcomes") && appSource.includes("board-flow-outcome"), "画板没有统一展示提交后去向与后台留痕");
-for (const label of ["颜色", "规格 / 宽幅", "重量 kg", "其他字段与 OCR 原文", "这卷正确"]) {
+for (const label of ["厂内标准色", "规格 / 宽幅", "本卷重量 kg", "其他字段与 OCR 原文", "isSupplierReturn ? \"件\" : \"卷\""]) {
   assert(appSource.includes(label), `异常行编辑缺少 ${label}`);
 }
-for (const label of ["厂家一行有多卷时先拆成物理卷", "核对清单一卷一行", "卷标只写本卷重量", "不写整单总重", "一张卡固定一卷"]) {
+for (const label of ["卷标只写本卷重量", "不写整单总重", "一张卡固定一卷"]) {
   assert(appSource.includes(label) || JSON.stringify(office).includes(label), `逐卷规则说明缺少 ${label}`);
 }
 assert(!appSource.includes('field("count", "卷数"'), "异常行编辑不应出现卷数输入；一张卡固定一卷");
@@ -320,8 +355,9 @@ for (const label of ["系统归类", "提手条", "固定 78克 / 5cm宽", "依�
   assert(appSource.includes(label), `条类缺项说明缺少 ${label}`);
 }
 assert(!appSource.includes("规格没看清"), "图谱不应再把厂家未写完整规格误称为 OCR 没看清");
-assert(appSource.includes('setScreen("review-edit")'), "点击卷料补全/修改后没有进入行内展开状态");
-assert(appSource.includes('roll.index === 7 ? "mismatch" : "confirmed"'), "贴标不符演示必须与部分收货结果一致地指向第 7 卷");
+assert(appSource.includes("state.selectedRollIndex = rollIndex")
+  && appSource.includes("state.selectedRollIndex = null"), "点击卷料补全/修改后必须只切换 review 页内展开状态");
+assert(appSource.includes('roll.index === 9 ? "mismatch" : "confirmed"'), "贴标不符演示必须与部分收货结果一致地指向第 9 卷");
 const labelRendererSource = appSource.match(/function renderRawMaterialCode39\([\s\S]*?(?=\nfunction renderFunctionGrid)/)?.[0] || "";
 assert(appSource.includes('import { buildRawMaterialCode39Bars } from "../../../src/domain/rawMaterialLabelBarcode.js"'), "手机图谱卷标必须复用系统真实 Code 39 编码器");
 assert(labelRendererSource.includes("buildRawMaterialCode39Bars(value)") && labelRendererSource.includes("quietZone = 10"), "卷标条码必须使用真实编码并保留左右静区");
@@ -340,9 +376,8 @@ assert(appSource.includes("return board ? reviewedRawMaterialRolls : state.rawDr
 assert(appSource.includes('aria-label="核对完成的送货单卷料"') && appSource.includes("formatRawMaterialSpec(roll.spec)"), "打印页必须逐卷显示送货单颜色、规范规格和本卷重量");
 const printReceiptRendererSource = appSource.match(/function renderOfficePrintSuccessReceipt\([\s\S]*?(?=\nfunction renderOfficePrintSuccessBoardState)/)?.[0] || "";
 const printSuccessActionSource = appSource.match(/if \(action === "show-print-success"\)[\s\S]*?return;\n {2}\}/)?.[0] || "";
-assert(appSource.includes('id="printSuccessDialog"')
-  && appSource.includes('aria-labelledby="printSuccessDialogTitle"')
-  && appSource.includes('aria-describedby="printSuccessDialogDevice"'), "打印完成必须使用有明确标题和设备说明的原生小弹窗");
+assert(officeScreenMap.has("print-success")
+  && appSource.includes('screen.id === "print-success"'), "打印完成必须使用部署版真实 print-success 阶段");
 assert(printReceiptRendererSource.includes("office-print-success-mark")
   && printReceiptRendererSource.includes("receipt.title")
   && printReceiptRendererSource.includes("receipt.device")
@@ -350,17 +385,8 @@ assert(printReceiptRendererSource.includes("office-print-success-mark")
 assert(!printReceiptRendererSource.includes("renderOfficePrintRollList")
   && !printReceiptRendererSource.includes("jobId")
   && !printReceiptRendererSource.includes("送货单逐卷明细"), "完成弹窗不得重复逐卷明细或审计记录");
-assert(printSuccessActionSource.includes('state.officePrintCompleted = true')
-  && printSuccessActionSource.includes('querySelector("#printSuccessDialog")?.showModal()')
-  && !printSuccessActionSource.includes("setScreen("), "打印成功必须留在当前打印页打开弹窗，不能写入页面跳转");
-assert(appSource.includes('primary = { label: "查看打印结果", action: "show-print-success" }')
-  && appSource.includes("state.officePrintCompleted = false"), "关闭弹窗后必须保留可查看的完成状态，并在新收货草稿开始时重置");
-assert(appSource.includes("renderOfficePrintSuccessBoardState(screen)")
-  && appSource.includes('boardVariant === "success-dialog"')
-  && appSource.includes("boardScreenCaption"), "流程画板必须在同一个打印手机框内展示完成弹窗状态");
-assert(!appSource.includes('"print-success": renderOfficePrintSuccess')
-  && !appSource.includes("function renderOfficePrintSuccess("), "独立打印成功页 renderer 不得残留");
-assert(/\.office-print-success-dialog,[\s\S]*?width:\s*min\(calc\(100% - 2rem\), 19rem\)/.test(cssSource), "打印完成弹窗必须保持紧凑宽度");
+assert(printSuccessActionSource.includes('setScreen("print-success")'), "打印成功必须进入部署版 print-success 阶段");
+assert(appSource.includes('renderOfficePrintSuccessBoardState(surfaceScreen, board)'), "流程画板必须展示部署版打印完成状态");
 assert(cssSource.includes(".office-print-success-board-state")
   && cssSource.includes("z-index: var(--z-modal)"), "画板缺少手机框内的弹窗遮罩层");
 const printerRendererSource = appSource.match(/function renderOfficePrinterRow\([\s\S]*?(?=\nfunction renderOfficeQuietList)/)?.[0] || "";
@@ -371,12 +397,12 @@ assert(!printerRendererSource.includes("printer.status") && !printerRendererSour
 assert(/\.office-printer-row\s*\{[\s\S]*?grid-template-columns:\s*2\.5rem minmax\(0, 1fr\) auto/.test(cssSource), "打印设备主行必须沿用小程序的图标、身份状态、更换三列结构");
 assert(/\[data-flow="office"\] \.office-label-batch \.label-paper\s*\{[\s\S]*?grid-template-columns:\s*minmax\(0, 1fr\)/.test(cssSource), "办公室卷标预览必须使用适合线性条码的单列结构");
 assert(/\[data-flow="office"\] \.office-label-batch \.label-barcode\s*\{[\s\S]*?width:\s*100%/.test(cssSource), "办公室卷标必须给线性条码完整可扫描宽度");
-assert(appSource.includes('"capture-failed": renderOfficeCaptureFailure')
-  && appSource.includes('"receive-complete": renderOfficeReceiveResult'), "除 02 外的办公室原材料页没有完整接入专属精简渲染器");
+assert(appSource.includes('"print-success": renderOfficePrintBatch')
+  && appSource.includes('"receive-complete": renderOfficeReceiveResult')
+  && !appSource.includes('"capture-failed": renderOfficeCaptureFailure'), "办公室真实阶段必须接入部署版渲染器，且不得恢复自增失败页");
 assert(appSource.includes("syncExpandedRollDraft(event)"), "异常行输入没有保存到当前草稿，收起后会丢失");
-assert(appSource.includes("screen.boardFocus ? content?.querySelector(screen.boardFocus)")
-  && appSource.includes("surface.scrollTop = Math.max")
-  && appSource.includes("window.scrollTo({ top: Math.max"), "交互原型进入异常行后没有兼容桌面框与手机整页的自动定位");
+assert(appSource.includes("surface.scrollTop = Math.max")
+  && appSource.includes("window.scrollTo({ top: Math.max"), "交互原型没有兼容桌面框与手机整页的自动定位");
 assert(appSource.includes('input?.setAttribute("aria-describedby", blocker?.id || "")'), "异常字段的实时校验没有关联说明文字");
 assert(!appSource.includes('id="rollDialog"') && !appSource.includes('querySelector("#rollDialog")'), "图谱仍残留旧的单卷弹窗编辑入口");
 assert(solutionSource.includes(`${screenCount} 个状态页`), `SOLUTION.md 页面总数未更新为 ${screenCount}`);
