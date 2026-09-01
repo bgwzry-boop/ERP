@@ -552,7 +552,10 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
   assert.equal(harness.getV1StatusRefreshCount(), 1);
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const actionsSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
 const serverSource = readFileSync(new URL("../server/services/masterDataImportCommandService.mjs", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeMasterDataActions\(\{/);

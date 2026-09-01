@@ -139,7 +139,10 @@ function createHarness({ allowLocalFallback = false, api = {}, downloadResult = 
   assert.equal(updated[0].paymentAttachmentFiles[0].contentSource, "api");
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const statementActionsSource = readFileSync(new URL("../src/app/createOfficeStatementActions.js", import.meta.url), "utf8");
 const fulfillmentActionsSource = readFileSync(new URL("../src/app/createOfficeFulfillmentActions.js", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeAttachmentActions\(\{/);

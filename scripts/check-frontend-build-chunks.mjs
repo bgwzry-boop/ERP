@@ -13,6 +13,13 @@ const [entryKey, entryAsset] = entry;
 assert.match(indexHtml, new RegExp(`/${escapeRegExp(entryAsset.file)}`), "index.html should load the manifest entry module");
 
 const initialAssets = collectInitialAssets(manifest, entryKey);
+const workbenchAsset = Object.values(manifest).find((asset) => asset.name === "OfficeWorkbench");
+assert.ok(workbenchAsset?.isDynamicEntry, "authenticated OfficeWorkbench must remain a dynamic entry behind the login shell");
+assert.equal(
+  initialAssets.has(workbenchAsset.file),
+  false,
+  "authenticated OfficeWorkbench must not return to the initial HTML dependency graph",
+);
 const measuredAssets = await Promise.all([...initialAssets].sort().map(async (file) => {
   const source = await readFile(resolve(distRoot, file));
   return {
@@ -22,7 +29,7 @@ const measuredAssets = await Promise.all([...initialAssets].sort().map(async (fi
   };
 }));
 const initialGzipBytes = measuredAssets.reduce((total, asset) => total + asset.gzipBytes, 0);
-const maxInitialGzipBytes = 450 * 1024;
+const maxInitialGzipBytes = 150 * 1024;
 assert.ok(
   initialGzipBytes <= maxInitialGzipBytes,
   `initial HTML dependency graph is ${formatBytes(initialGzipBytes)} gzip; budget is ${formatBytes(maxInitialGzipBytes)} gzip`,

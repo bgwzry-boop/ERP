@@ -4,7 +4,10 @@ import { readFileSync } from "node:fs";
 const todoPageSource = readFileSync(new URL("../src/features/todos/TodoPage.jsx", import.meta.url), "utf8");
 const inventoryPageSource = readFileSync(new URL("../src/features/inventory/InventoryPage.jsx", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const todoStyleSource = readFileSync(new URL("../src/styles/features/todos.css", import.meta.url), "utf8");

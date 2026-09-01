@@ -4,7 +4,10 @@ import { createV1StatusBlockerActionBuilders } from "../src/features/v1-status/c
 import { createV1StatusFieldRoleActionBuilders } from "../src/features/v1-status/createV1StatusFieldRoleActionBuilders.js";
 import { createV1StatusPhaseActionBuilders } from "../src/features/v1-status/createV1StatusPhaseActionBuilders.js";
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const v1StatusActionsSource = readFileSync(new URL("../src/app/createOfficeV1StatusActions.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
 const v1StatusReadSource = readFileSync(new URL("../src/app/useOfficeV1StatusReads.js", import.meta.url), "utf8");

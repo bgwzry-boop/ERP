@@ -322,7 +322,10 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
   assert.equal(harness.getRefreshCount(), 0, "demo fallback should not pretend to refresh an API read model");
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const todoServiceSource = readFileSync(new URL("../server/services/todoCommandService.mjs", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeTodoActions\(\{/);
 assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);

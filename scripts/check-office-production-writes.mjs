@@ -560,7 +560,10 @@ const unsupportedResult = await unsupportedCase.actions.executeProductionPacking
 assert.equal(unsupportedResult.blocked, true);
 assert.deepEqual(unsupportedCase.states.production.value, unsupportedBefore);
 
-const appSource = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  await readFile(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  await readFile(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 for (const directClient of [
   "completeOfficePackingTask",
   "moveOfficeProductionMachineQueueItem",

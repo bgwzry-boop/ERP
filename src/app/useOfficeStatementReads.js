@@ -3,7 +3,7 @@ import {
   getOfficeStatementDetail,
   listOfficeStatementCustomers,
 } from "../services/officeStatementLazyApi.js";
-import { mapStatementCustomerSummaryToLocal } from "../services/officeStatementApiClient.js";
+import { mapStatementCustomerSummaryToLocal } from "../services/officeStatementSelectors.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 
 function formatSyncTime() {

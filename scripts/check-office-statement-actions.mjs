@@ -186,7 +186,10 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmAction = (
   assert.match(harness.toasts.at(-1), /未识别对账操作/);
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 assert.match(appSource, /createOfficeStatementActions\(\{/);
 assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
 assert.match(appSource, /confirmAction: \(message\) => window\.confirm\(message\)/);

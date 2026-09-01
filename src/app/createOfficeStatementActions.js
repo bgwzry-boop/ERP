@@ -1,7 +1,7 @@
 import { isInlineImageAttachment } from "./attachmentViewUtils.js";
 import { downloadOfficeAttachmentContent as downloadOfficeAttachmentContentDefault } from "../services/officeAttachmentApiClient.js";
-import { buildStatementExcelWorkbook } from "../services/officeStatementApiClient.js";
 import {
+  buildStatementExcelWorkbook,
   downloadOfficeStatementExport as downloadOfficeStatementExportDefault,
   handleOfficeStatementVariance as handleOfficeStatementVarianceDefault,
   listOfficeStatementExports as listOfficeStatementExportsDefault,
@@ -403,7 +403,7 @@ export function createOfficeStatementActions({
       const workbookContent =
         exportResult.source === "api"
           ? exportResult.workbookData
-          : buildStatementExcelWorkbook(apiResult.preview, { statement: selected, customer });
+          : await buildStatementExcelWorkbook(apiResult.preview, { statement: selected, customer });
       const downloaded = downloadStatementExcelWorkbook(workbookContent, selected, customer, {
         fileName: exportResult.fileName,
         contentType: exportResult.contentType,

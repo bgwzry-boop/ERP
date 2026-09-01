@@ -229,7 +229,10 @@ for (const [actionName, apiName, resultKey, stateKey] of statusActionCases) {
   assert.equal(harness.toast, "现场证据附件已查询：6 个可复用后端附件。");
 }
 
-const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const controllerSource = fs.readFileSync(new URL("../src/app/createOfficeV1StatusActions.js", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeV1StatusActions\(\{/);
 assert.doesNotMatch(appSource, /from "\.\/services\/officeV1GoLiveStatusApiClient\.js"/);

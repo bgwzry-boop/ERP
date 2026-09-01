@@ -261,7 +261,10 @@ assert.equal(
   assert.match(result.toast, /未识别打印操作/);
 }
 
-const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const appViewsSource = fs.readFileSync(new URL("../src/app/AppViews.jsx", import.meta.url), "utf8");
 const appShellViewsSource = fs.readFileSync(new URL("../src/app/AppShellViews.jsx", import.meta.url), "utf8");
 const runtimeAuthBoundarySource = fs.readFileSync(new URL("../src/app/RuntimeAuthBoundary.jsx", import.meta.url), "utf8");

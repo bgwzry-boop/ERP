@@ -2,6 +2,7 @@ import { createLazyApiClient } from "./createLazyApiClient.js";
 
 const lazyApiCall = createLazyApiClient(() => import("./officeStatementApiClient.js"));
 
+export const buildStatementExcelWorkbook = lazyApiCall("buildStatementExcelWorkbook");
 export const downloadOfficeStatementExport = lazyApiCall("downloadOfficeStatementExport");
 export const getOfficeStatementDetail = lazyApiCall("getOfficeStatementDetail");
 export const handleOfficeStatementVariance = lazyApiCall("handleOfficeStatementVariance");

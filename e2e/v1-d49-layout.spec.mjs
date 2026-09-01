@@ -53,7 +53,7 @@ test("D49桌面完整展示八岗位和环境阻塞，管理岗手机受控提�
 
 async function switchAccount(page, userId) {
   const accountSwitcher = page.getByRole("combobox", { name: "切换当前账号" });
-  if (!await accountSwitcher.count()) return;
+  await expect(accountSwitcher, "业务工作台应完成异步加载后再切换测试账号").toBeVisible();
   await accountSwitcher.selectOption(userId);
   await expect(accountSwitcher).toHaveValue(userId);
 }

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import {
   DataState,
@@ -60,9 +60,6 @@ import {
   PrintWorkspaceListHeader,
   PrintWorkspaceNavigation,
 } from "./ProductionPackingNavigation.jsx";
-import { PrinterDeviceQaPanel, PrintJobQueuePanel } from "./ProductionPrintDevicePanels.jsx";
-import { PrintDriverV1ReadinessPanel } from "./ProductionPrintReadinessPanel.jsx";
-import { PrintDriverDiagnosticsPanel } from "./ProductionPrintDiagnosticsPanel.jsx";
 import {
   buildProductionExceptionResolutionEffects,
   isTerminalProductionException,
@@ -89,6 +86,10 @@ const PACKING_TASK_FILTERS = [
   { value: "completed", label: "已完成" },
   { value: "all", label: "全部" },
 ];
+
+const ProductionPrintWorkspaceDetail = lazy(() => import("./ProductionPrintWorkspaceDetail.jsx").then((module) => ({
+  default: module.ProductionPrintWorkspaceDetail,
+})));
 
 export function ProductionPackingPage({
   authState,
@@ -1089,55 +1090,30 @@ export function ProductionPackingPage({
         subtitle={activeWorkbenchTab === "print" ? "设备验收、驱动状态与打印作业" : detailLine ? `${findCustomer(detailLine.customerId).name} · ${detailLine.id}` : "未选择"}
       >
         {activeWorkbenchTab === "print" ? (
-          <>
-            <div className="production-print-overview">
-              <div>
-                <span>打印管理</span>
-                <strong>{activePrintWorkspace.label}</strong>
-                <p>{activePrintWorkspace.summary}</p>
-              </div>
-              <StatusPill tone={activePrintWorkspace.tone}>{activePrintWorkspace.status}</StatusPill>
-            </div>
-            <div className="production-detail-scroll production-print-detail-scroll">
-              <div role="tabpanel" aria-label="设备验收" hidden={activePrintWorkspaceTab !== "qa"}>
-                <PrinterDeviceQaPanel
-                  qaState={printerDeviceQa}
-                  saveState={getUiActionState("productionPacking", "保存打印验收")}
-                  deviceModeSaveState={getUiActionState("productionPacking", "保存设备模式")}
-                  onRefresh={onRefreshPrinterDeviceQa}
-                  onSelectDevice={onSelectPrinterDeviceQaDevice}
-                  onChangeField={onChangePrinterDeviceQaField}
-                  onChangeCheck={onChangePrinterDeviceQaCheck}
-                  onChangeEvidence={onChangePrinterDeviceQaEvidenceField}
-                  onSaveDeviceMode={onSavePrinterDeviceMode}
-                  onSave={onSavePrinterDeviceQa}
-                />
-              </div>
-              <div role="tabpanel" aria-label="上线门禁" hidden={activePrintWorkspaceTab !== "readiness"}>
-                <PrintDriverV1ReadinessPanel
-                  readinessState={printDriverReadiness}
-                  onRefresh={onRefreshPrintDriverReadiness}
-                />
-              </div>
-              <div role="tabpanel" aria-label="驱动诊断" hidden={activePrintWorkspaceTab !== "diagnostics"}>
-                <PrintDriverDiagnosticsPanel
-                  driverState={printDriverConfig}
-                  cupsDiagnosticsState={printDriverCupsDiagnostics}
-                  onRefresh={onRefreshPrintDriverConfig}
-                />
-              </div>
-              <div role="tabpanel" aria-label="打印作业" hidden={activePrintWorkspaceTab !== "jobs"}>
-                <PrintJobQueuePanel
-                  queueState={printJobQueue}
-                  dispatchState={getUiActionState("productionPacking", "派发打印作业")}
-                  retryState={getUiActionState("productionPacking", "重试打印作业")}
-                  onRefresh={onRefreshPrintJobs}
-                  onDispatch={onDispatchPrintJob}
-                  onRetry={onRetryPrintJob}
-                />
-              </div>
-            </div>
-          </>
+          <Suspense fallback={<DataState title="打印与设备工作台加载中" compact />}>
+            <ProductionPrintWorkspaceDetail
+              activePrintWorkspace={activePrintWorkspace}
+              activePrintWorkspaceTab={activePrintWorkspaceTab}
+              getUiActionState={getUiActionState}
+              onChangePrinterDeviceQaCheck={onChangePrinterDeviceQaCheck}
+              onChangePrinterDeviceQaEvidenceField={onChangePrinterDeviceQaEvidenceField}
+              onChangePrinterDeviceQaField={onChangePrinterDeviceQaField}
+              onDispatchPrintJob={onDispatchPrintJob}
+              onRefreshPrintDriverConfig={onRefreshPrintDriverConfig}
+              onRefreshPrintDriverReadiness={onRefreshPrintDriverReadiness}
+              onRefreshPrintJobs={onRefreshPrintJobs}
+              onRefreshPrinterDeviceQa={onRefreshPrinterDeviceQa}
+              onRetryPrintJob={onRetryPrintJob}
+              onSavePrinterDeviceMode={onSavePrinterDeviceMode}
+              onSavePrinterDeviceQa={onSavePrinterDeviceQa}
+              onSelectPrinterDeviceQaDevice={onSelectPrinterDeviceQaDevice}
+              printDriverConfig={printDriverConfig}
+              printDriverCupsDiagnostics={printDriverCupsDiagnostics}
+              printDriverReadiness={printDriverReadiness}
+              printJobQueue={printJobQueue}
+              printerDeviceQa={printerDeviceQa}
+            />
+          </Suspense>
         ) : detailLine ? (
           <>
             <div className="production-detail-fixed">

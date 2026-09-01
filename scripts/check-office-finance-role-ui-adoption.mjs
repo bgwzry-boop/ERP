@@ -7,9 +7,13 @@ function read(relativePath) {
 
 const sharedUiSource = read("src/shared/ui/operational.jsx");
 const statementSource = read("src/features/statements/StatementPage.jsx");
-const productionSource = read("src/features/production/ProductionPackingPage.jsx");
+const productionSource = `${read("src/features/production/ProductionPackingPage.jsx")}\n${read("src/features/production/ProductionPrintWorkspaceDetail.jsx")}`;
 const productionPresentationSource = read("src/features/production/productionPackingPresentation.js");
-const rawMaterialSource = read("src/features/raw-materials/RawMaterialInboundPage.jsx");
+const rawMaterialSource = [
+  read("src/features/raw-materials/RawMaterialInboundPage.jsx"),
+  read("src/features/raw-materials/RawMaterialSupplierStatementReview.jsx"),
+  read("src/features/raw-materials/rawMaterialInboundWorkflow.js"),
+].join("\n");
 const rawMaterialWorkbenchSource = read("src/features/raw-materials/RawMaterialInboundWorkbench.jsx");
 const masterDataSource = read("src/features/master-data/MasterDataMaintenancePage.jsx");
 const masterDataWorkbenchSource = read("src/features/master-data/MasterDataMaintenanceWorkbench.jsx");
@@ -23,12 +27,12 @@ const driverSource = [
   read("src/features/driver/DriverDeviceStage.jsx"),
   read("src/features/driver/DriverDeliveryStage.jsx"),
 ].join("\n");
-const appSource = read("src/App.jsx");
+const appSource = [read("src/App.jsx"), read("src/OfficeWorkbench.jsx")].join("\n");
 const mainSource = read("src/main.jsx");
 const componentStyles = read("src/styles/components.css");
 const statementStyles = read("src/styles/features/statements.css");
 const roleStyles = read("src/styles/features/role-tools.css");
-const rawMaterialStyles = read("src/styles/features/raw-material.css");
+const rawMaterialStyles = `${read("src/styles/features/raw-material.css")}\n${read("src/styles/features/raw-material-color-mapping.css")}`;
 const masterDataStyles = read("src/styles/features/master-data.css");
 const sharedStyles = read("src/styles/shared.css");
 

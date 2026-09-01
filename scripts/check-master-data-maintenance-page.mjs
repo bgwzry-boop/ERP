@@ -16,7 +16,10 @@ import {
   requiresMasterDataEmployeeMachineReview,
 } from "../src/domain/masterDataMaintenanceListState.js";
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const controllerSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
 const apiClientSource = readFileSync(new URL("../src/services/officeMasterDataImportApiClient.js", import.meta.url), "utf8");

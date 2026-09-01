@@ -295,7 +295,10 @@ function createHarness({
   assert.equal(harness.calls.entry.length, 0);
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 assert.match(appSource, /createOfficeOrderActions\(\{/);
 assert.match(appSource, /fulfillmentSource: fulfillmentMeta\.source/);
 assert.match(appSource, /orderPoolSource: orderPoolMeta\.source/);

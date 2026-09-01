@@ -1,5 +1,6 @@
 import "../../styles/features/print-documents.css";
 import "../../styles/features/raw-material.css";
+import "../../styles/features/raw-material-color-mapping.css";
 import { RawMaterialInboundPage } from "../../features/raw-materials/RawMaterialInboundPage.jsx";
 import { RawMaterialScannerPage } from "../../features/raw-materials/RawMaterialScannerPage.jsx";
 

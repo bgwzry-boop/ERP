@@ -1,14 +1,21 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const rawMaterialPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
+const rawMaterialPageSource = [
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierStatementReview.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundWorkflow.js", import.meta.url), "utf8"),
+].join("\n");
 const rawMaterialWorkbenchSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundWorkbench.jsx", import.meta.url), "utf8");
 const masterDataPageSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenancePage.jsx", import.meta.url), "utf8");
 const masterDataWorkbenchSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenanceWorkbench.jsx", import.meta.url), "utf8");
 const masterDataListStateSource = readFileSync(new URL("../src/domain/masterDataMaintenanceListState.js", import.meta.url), "utf8");
 const masterDataRecordSource = readFileSync(new URL("../src/domain/masterDataMaintenanceRecords.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const rawMaterialStylesSource = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
+const rawMaterialStylesSource = [
+  readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-color-mapping.css", import.meta.url), "utf8"),
+].join("\n");
 const masterDataStylesSource = readFileSync(new URL("../src/styles/features/master-data.css", import.meta.url), "utf8");
 
 assert.match(rawMaterialPageSource, /export function RawMaterialInboundPage/);

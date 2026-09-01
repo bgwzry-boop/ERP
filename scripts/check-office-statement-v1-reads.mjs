@@ -180,7 +180,10 @@ assert.match(staleResult.feedback, /不展示固定门禁数据/);
 const statementPageSource = readFileSync(new URL("../src/features/statements/StatementPage.jsx", import.meta.url), "utf8");
 assert.match(statementPageSource, /当前账期暂无客户对账单/);
 assert.match(statementPageSource, /后端对账/);
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 assert.equal(appSource.includes("getOfficeV1GoLiveStatus"), false);
 assert.equal(appSource.includes("async function refreshV1GoLiveStatus"), false);
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");

@@ -316,7 +316,10 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
   assert.match(harness.toast, /正式后端模式禁止司机写操作使用本地降级结果/);
 }
 
-const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const controllerSource = fs.readFileSync(new URL("../src/app/createOfficeDriverDeliveryActions.js", import.meta.url), "utf8");
 const driverPageSource = fs.readFileSync(new URL("../src/features/driver/DriverMobilePage.jsx", import.meta.url), "utf8");
 const driverDeliveryStageSource = fs.readFileSync(new URL("../src/features/driver/DriverDeliveryStage.jsx", import.meta.url), "utf8");

@@ -6,7 +6,7 @@ function read(relativePath) {
 }
 
 const sharedUiSource = read("src/shared/ui/operational.jsx");
-const appSource = read("src/App.jsx");
+const appSource = [read("src/App.jsx"), read("src/OfficeWorkbench.jsx")].join("\n");
 const appShellViewsSource = read("src/app/AppShellViews.jsx");
 const navigationSource = read("src/app/navigation.js");
 const mainSource = read("src/main.jsx");

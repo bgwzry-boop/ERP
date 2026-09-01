@@ -292,7 +292,10 @@ for (const [actionName, apiName, guardAction] of supplierActionCases) {
   assert.match(harness.toast, /仍不写库存、不生成应付、不确认付款/);
 }
 
-const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const controllerSource = fs.readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
 const autoRefreshSource = fs.readFileSync(new URL("../src/app/useRawMaterialInboundAutoRefresh.js", import.meta.url), "utf8");
 assert.match(appSource, /createOfficeRawMaterialActions\(\{/);

@@ -107,7 +107,10 @@ function createHarness({ activePage, allowLocalFallback = false, results = {} } 
   assert.equal((await harness.controller.refreshActivePage()).source, "local_fallback");
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 assert.match(appSource, /createOfficePageRefreshActions\(\{/);
 assert.doesNotMatch(appSource, /function refreshActivePage\(/);
 assert.equal(appSource.split("\n").length < 1500, true, "App should remain below the V8.42 composition-root target");

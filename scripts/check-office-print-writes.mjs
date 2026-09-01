@@ -242,7 +242,10 @@ function createHarness(overrides = {}) {
   assert.equal(harness.fulfillments[0].printRecordStatus, "voided");
 }
 
-const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 for (const directWriteName of [
   "createOfficePrintBatchRecord",
   "dispatchOfficePrintJob",

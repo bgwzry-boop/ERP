@@ -102,7 +102,10 @@ assert.equal(getMobileViewportPage("packing", contextFor("workshop")), "workshop
 assert.equal(getMobileViewportPage("rawMaterialScanner", contextFor("packing")), "rawMaterialScanner");
 assert.equal(getMobileViewportPage("attendanceMobile", contextFor("packing")), "attendanceMobile");
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+].join("\n");
 const navigationComponentSource = readFileSync(new URL("../src/app/AppNavigation.jsx", import.meta.url), "utf8");
 const mobileRoleHeaderSource = readFileSync(new URL("../src/app/MobileRoleShellHeader.jsx", import.meta.url), "utf8");
 assert.match(appSource, /<AppNavigation/);
