@@ -13,6 +13,44 @@ test("4174 has one immutable local preview identity", async () => {
   assert.equal(identity.rootWorkbenchPort, 5173);
 });
 
+test("bare root workbench navigation cannot masquerade as the 4174 review", async () => {
+  const rootViteSource = await readFile(new URL("../../../../vite.config.mjs", import.meta.url), "utf8");
+  assert.match(rootViteSource, /ERP_INTERNAL_WORKBENCH_EXPLICIT_ACCESS_REQUIRED/);
+  assert.match(rootViteSource, /searchParams\.get\("internalWorkbench"\) === "1"/);
+  assert.match(rootViteSource, /http:\/\/127\.0\.0\.1:4174\/\?source=review-guard/);
+});
+
+test("4174 mobile review uses a signed passwordless preview session", async () => {
+  const [mobileEntrySource, appSource, authInitializationSource] = await Promise.all([
+    readSource("../src/FormalMobileEntry.jsx"),
+    readSource("../../../../src/App.jsx"),
+    readSource("../../../../src/app/useRuntimeAuthInitialization.js"),
+  ]);
+
+  assert.match(mobileEntrySource, /<App signedPreviewUserId="U-MANAGER-A" \/>/, "mobile review should explicitly request the fixed signed preview identity");
+  assert.match(appSource, /stagingAuthBypass:\s*true/, "the signed preview identity should bypass only the visible password boundary");
+  assert.match(appSource, /createInitialAuthState\(signedPreviewAuthOptions \?\? undefined\)/, "the initial mobile state should use the same preview auth contract");
+  assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
+});
+
+test("staging preview refuses restored sessions from a different identity", async () => {
+  const authServiceSource = await readSource("../../../../src/services/officeAuthService.js");
+
+  assert.match(authServiceSource, /String\(storedSession\.userId \?\? ""\)\.trim\(\) !== stagingPreviewUserId/, "preview startup should reject an old session for another user");
+  assert.match(authServiceSource, /json\?\.session\?\.userId \?\? json\?\.permissions\?\.user\?\.userId/, "preview startup should verify the restored server identity too");
+  assert.match(authServiceSource, /return loginSeedUser\(stagingPreviewUserId, options\)/, "preview startup should replace mismatched sessions with its fixed signed identity");
+});
+
+test("4174 cannot keep the phone workbench mounted after widening to desktop", async () => {
+  const entrySource = await readSource("../src/complete-review-entry.jsx");
+
+  assert.match(entrySource, /phoneViewportQuery\.addEventListener\("change", reloadForViewportFamily\)/, "the review entry should observe phone/desktop viewport-family changes");
+  assert.match(entrySource, /nextUrl\.searchParams\.set\("erpViewport", event\.matches \? "mobile" : "desktop"\)/, "a viewport-family change should create a cache-busted canonical review URL");
+  assert.match(entrySource, /declaredViewportFamily !== expectedViewportFamily/, "a stale viewport marker should be corrected before either shell renders");
+  assert.match(entrySource, /本地修改稿 · 未部署/, "the local review must never masquerade as a deployed release");
+  assert.match(entrySource, /window\.location\.replace\(nextUrl\.toString\(\)\)/, "crossing the phone breakpoint should reload the unique review entry instead of expanding the phone app into the old desktop shell");
+});
+
 test("desktop workbenches consume formal APIs without fixture fallbacks", async () => {
   const [appSource, workspacesSource, adapterSource] = await Promise.all([
     readSource("../src/App.jsx"),
@@ -159,5 +197,5 @@ test("4174 phone bootstrap includes the formal employee attendance styles", asyn
   const mobileEntrySource = await readSource("../src/FormalMobileEntry.jsx");
 
   assert.match(mobileEntrySource, /import "\.\.\/\.\.\/\.\.\/\.\.\/src\/styles\/features\/payroll-attendance\.css"/, "the 4174 mobile bootstrap must load the same formal attendance styles as the main application");
-  assert.match(mobileEntrySource, /return <App \/>/, "the 4174 phone entry must reuse the formal application instead of mounting a prototype phone page");
+  assert.match(mobileEntrySource, /return <App signedPreviewUserId="U-MANAGER-A" \/>/, "the 4174 phone entry must reuse the formal application with the signed review identity instead of mounting a prototype phone page");
 });

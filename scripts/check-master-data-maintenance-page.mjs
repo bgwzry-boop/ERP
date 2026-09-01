@@ -23,6 +23,7 @@ const apiClientSource = readFileSync(new URL("../src/services/officeMasterDataIm
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const featurePageSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenancePage.jsx", import.meta.url), "utf8");
 const featureWorkbenchSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenanceWorkbench.jsx", import.meta.url), "utf8");
+const masterDataRouteSource = readFileSync(new URL("../src/app/routes/MasterDataRoute.jsx", import.meta.url), "utf8");
 const importModalSource = readFileSync(new URL("../src/app/MasterDataImportTemplateModal.jsx", import.meta.url), "utf8");
 const recordProjectionSource = readFileSync(new URL("../src/domain/masterDataMaintenanceRecords.js", import.meta.url), "utf8");
 const featureSource = `${featurePageSource}\n${featureWorkbenchSource}`;
@@ -34,10 +35,10 @@ const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "ut
 
 assertIncludes(navigationSource, 'key: "masterData"', "navigation should expose the master-data maintenance page");
 assertIncludes(navigationSource, 'label: "基础资料"', "navigation should label the master-data maintenance page");
-assertIncludes(appSource, "<MasterDataMaintenancePage", "App should render the master-data maintenance page");
+assertIncludes(masterDataRouteSource, "<MasterDataMaintenancePage", "master-data route should render the maintenance page");
 assertIncludes(appSource, "saveMasterDataMaintenanceDraft", "App should wire the maintenance draft controller action");
 assertIncludes(appSource, "updateMasterDataEmployeeAssignment", "App should wire the employee assignment action");
-assertIncludes(appSource, "onSaveMachine={saveMasterDataMachine}", "App should wire the machine configuration action");
+assertIncludes(appSource, "onSaveMachine: saveMasterDataMachine", "App should wire the machine configuration action through the route adapter");
 assertIncludes(appSource, "onBatchEnableEmployeeAccounts", "App should wire atomic batch account enablement");
 assertIncludes(controllerSource, "function saveMasterDataMaintenanceDraft", "master-data controller should own maintenance drafts");
 assertIncludes(controllerSource, "function saveMasterDataMachine", "master-data controller should own machine configuration writes");
@@ -48,7 +49,7 @@ assertIncludes(importModalSource, "EmployeeAccountRoleSelector", "employee accou
 assertIncludes(importModalSource, "账号角色", "employee account review should label its role-set selector");
 assertIncludes(importModalSource, "导入的主角色或附加角色，启用时不可删除", "imported account roles should remain locked during review");
 
-assertIncludes(appSource, 'lazy(() => import("./features/master-data/MasterDataMaintenancePage.jsx")', "App should lazy-load MasterDataMaintenancePage outside the large office page chunk");
+assertIncludes(appSource, 'lazyNamedPage(() => import("./app/routes/MasterDataRoute.jsx"), "MasterDataRoute")', "App should lazy-load the master-data route outside the initial shell");
 assertIncludes(featurePageSource, "export function MasterDataMaintenancePage", "master-data feature should own the page");
 assertIncludes(featureSource, "客户档案", "master-data page should include customer maintenance");
 assertIncludes(featureSource, "价格表", "master-data page should include price maintenance");
@@ -311,12 +312,8 @@ assertIncludes(importModalSource, "accountActivationBlocked", "identity-blocked 
 assertIncludes(controllerSource, "confirmMasterDataEmployeeIdentity", "the office controller should own the identity confirmation write");
 assertIncludes(apiClientSource, "/identity-confirmation", "the client should use the formal identity confirmation endpoint");
 assertIncludes(featureWorkbenchSource, "待身份", "the employee workbench should count identity-blocked candidates separately");
-assertIncludes(mainSource, 'import "./styles/features/master-data.css";', "main should import master-data overlay styles");
-assert.equal(
-  mainSource.indexOf('import "./styles/features/role-tools.css";') < mainSource.indexOf('import "./styles/features/master-data.css";'),
-  true,
-  "master-data overlays should load after the role-tool workbench layer",
-);
+assert.equal(mainSource.includes('import "./styles/features/master-data.css";'), false, "master-data styles should not load with the initial shell");
+assertIncludes(masterDataRouteSource, 'import "../../styles/features/master-data.css";', "master-data route should load its styles with the workbench");
 for (const selector of [
   ".master-data-template-modal",
   ".master-data-precheck-panel",

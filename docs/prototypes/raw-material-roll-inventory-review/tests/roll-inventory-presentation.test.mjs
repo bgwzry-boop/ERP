@@ -3,6 +3,8 @@ import test from "node:test";
 import {
   buildInventoryWidthOptions,
   compactRollCode,
+  compactSupplierName,
+  resolveInventoryRollStatus,
   resolveRollWidth,
   sortInventoryRollsByWidth,
 } from "../src/roll-inventory-presentation.js";
@@ -39,4 +41,26 @@ test("width filters follow the same warehouse ordering and roll codes stay trace
   assert.deepEqual(buildInventoryWidthOptions(rows), ["全部宽幅", "5cm 提手条", "70cm", "90cm", "宽幅待确认"]);
   assert.equal(compactRollCode("RM-OCR-D8CBC5812426-01"), "RM-…8CBC5812426-01");
   assert.equal(compactRollCode("RM-240704-003-01"), "RM-240704-003-01");
+});
+
+test("roll list uses compact supplier aliases without changing authoritative legal names", () => {
+  assert.equal(compactSupplierName("宁晋县腾胜无纺布有限公司"), "腾胜无纺布");
+  assert.equal(compactSupplierName("宁晋县达翔塑料制品有限公司"), "北陈无纺布");
+  assert.equal(compactSupplierName("北陈辅料"), "北陈无纺布");
+  assert.equal(compactSupplierName("河北宏尚无纺布有限公司"), "宏尚无纺布");
+  assert.equal(compactSupplierName("河北某某包装制品有限公司"), "某某包装制品");
+  assert.equal(compactSupplierName(""), "供应商待确认");
+});
+
+test("unreviewed OCR drafts never masquerade as leftover inventory", () => {
+  assert.equal(resolveInventoryRollStatus(
+    { status: "已识别待复核" },
+    { inventoryStatus: "不可用", labelStatus: "待人工复核" },
+  ), "");
+  assert.equal(resolveInventoryRollStatus(
+    { status: "余料待复核" },
+    { inventoryStatus: "余料待复核", labelStatus: "待复核" },
+  ), "余料待复核");
+  assert.equal(resolveInventoryRollStatus({}, { inventoryStatus: "可用" }), "可用");
+  assert.equal(resolveInventoryRollStatus({}, { inventoryStatus: "不可用", machineId: "PRINT-01" }), "机边领用");
 });

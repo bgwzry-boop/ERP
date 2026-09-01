@@ -52,11 +52,12 @@ for (const styleImport of [
   "./styles/shared.css",
   "./styles/shell.css",
   "./styles/components.css",
-  "./styles/features/todos.css",
-  "./styles/features/orders-entry.css",
 ]) {
   assert.match(mainSource, new RegExp(styleImport.replaceAll(".", "\\.")));
 }
+assert.doesNotMatch(mainSource, /styles\/features\/(todos|orders-entry)\.css/, "route-owned styles must not inflate the initial shell");
+assert.match(appSource, /import\("\.\/styles\/features\/todos\.css"\)/, "Todo styles should load with the Todo route");
+assert.match(appSource, /import\("\.\/styles\/features\/orders-entry\.css"\)/, "Entry styles should load with the Entry route");
 
 const styleImportOrder = [
   './styles/tokens.css',

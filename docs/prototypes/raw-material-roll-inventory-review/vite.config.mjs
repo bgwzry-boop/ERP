@@ -1,5 +1,41 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const COMPLETE_REVIEW_APP_ID = "bagwin-complete-review-4174";
+const repositoryRoot = fileURLToPath(new URL("../../../", import.meta.url));
+
+function readGitValue(args, fallback = "") {
+  try {
+    return execFileSync("git", args, {
+      cwd: repositoryRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return fallback;
+  }
+}
+
+function createLocalReviewProvenance() {
+  const baseCommit = readGitValue(["rev-parse", "HEAD"], "unknown").toLowerCase();
+  const worktreeStatus = readGitValue(["status", "--porcelain=v1", "--untracked-files=all"]);
+  const dirty = Boolean(worktreeStatus);
+  let revision = 0;
+  const state = () => createHash("sha256")
+    .update(`${baseCommit}\0${worktreeStatus}\0${process.pid}\0${revision}`)
+    .digest("hex");
+  return {
+    baseCommit,
+    dirty,
+    state,
+    advance() {
+      revision += 1;
+    },
+  };
+}
 
 export function enforceCompleteReviewPortPlugin() {
   return {
@@ -11,6 +47,57 @@ export function enforceCompleteReviewPortPlugin() {
       );
       error.code = "ERP_COMPLETE_REVIEW_PORT_REQUIRED";
       throw error;
+    },
+  };
+}
+
+export function disableCompleteReviewBootstrapCachingPlugin(options = {}) {
+  const provenance = options.provenance ?? createLocalReviewProvenance();
+  const bootstrapPaths = new Set([
+    "/",
+    "/index.html",
+    "/src/main.jsx",
+    "/src/complete-review-entry.jsx",
+  ]);
+  return {
+    name: "erp-disable-complete-review-bootstrap-caching",
+    transformIndexHtml() {
+      return [
+        { tag: "meta", attrs: { name: "erp-preview-kind", content: "local-unreleased" }, injectTo: "head" },
+        { tag: "meta", attrs: { name: "erp-preview-base-commit", content: provenance.baseCommit }, injectTo: "head" },
+        { tag: "meta", attrs: { name: "erp-preview-state", content: provenance.state() }, injectTo: "head" },
+        { tag: "meta", attrs: { name: "erp-preview-dirty", content: provenance.dirty ? "true" : "false" }, injectTo: "head" },
+      ];
+    },
+    configureServer(server) {
+      let refreshTimer = null;
+      server.watcher.on("all", (_event, changedPath) => {
+        if (String(changedPath).includes("/node_modules/")) return;
+        clearTimeout(refreshTimer);
+        refreshTimer = setTimeout(() => provenance.advance(), 40);
+      });
+      server.middlewares.use((request, response, next) => {
+        const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+        if (bootstrapPaths.has(requestUrl.pathname)) {
+          const forceIdentityHeaders = () => {
+            response.setHeader("cache-control", "no-store, no-cache, must-revalidate, max-age=0");
+            response.setHeader("pragma", "no-cache");
+            response.setHeader("expires", "0");
+            response.setHeader("x-erp-app-id", COMPLETE_REVIEW_APP_ID);
+            response.setHeader("x-erp-preview-kind", "local-unreleased");
+            response.setHeader("x-erp-preview-base-commit", provenance.baseCommit);
+            response.setHeader("x-erp-preview-state", provenance.state());
+            response.setHeader("x-erp-preview-dirty", provenance.dirty ? "true" : "false");
+          };
+          const writeHead = response.writeHead.bind(response);
+          response.writeHead = (...args) => {
+            forceIdentityHeaders();
+            return writeHead(...args);
+          };
+          forceIdentityHeaders();
+        }
+        next();
+      });
     },
   };
 }
@@ -53,8 +140,12 @@ export default defineConfig(({ command }) => ({
     strictPort: true,
     allowedHosts: ["terminal.local"],
     warmup: {
-      clientFiles: ["./src/main.jsx"],
+      clientFiles: ["./src/complete-review-entry.jsx"],
     },
   },
-  plugins: [react(), enforceCompleteReviewPortPlugin()],
+  plugins: [
+    ...(command === "serve" ? [disableCompleteReviewBootstrapCachingPlugin()] : []),
+    react(),
+    enforceCompleteReviewPortPlugin(),
+  ],
 }));

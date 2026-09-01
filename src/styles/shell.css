@@ -41,14 +41,33 @@ body:has(.runtime-login-shell) {
 
 .runtime-login-logo {
   display: block;
-  width: 156px;
+  width: min(250px, 100%);
   height: auto;
 }
 
-.runtime-login-brand span {
-  color: #728096;
+.runtime-login-brand-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  min-width: 0;
+  white-space: nowrap;
   font-size: 12px;
   line-height: 16px;
+}
+
+.runtime-login-company {
+  color: #202428;
+  font-weight: 600;
+}
+
+.runtime-login-separator {
+  color: #a5aaad;
+}
+
+.runtime-login-system {
+  color: #728096;
+  font-size: 11px;
+  font-weight: 600;
 }
 
 .runtime-login-heading {
@@ -127,39 +146,26 @@ body:has(.runtime-login-shell) {
 .brand {
   display: flex;
   align-items: center;
-  gap: 9px;
   height: 58px;
-  padding: 0 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  justify-content: center;
+  padding: 0 14px;
+  border-bottom: 1px solid #e7ebef;
+  background: #fff;
+}
+
+.brand-logo-horizontal {
+  display: block;
+  width: min(136px, 100%);
+  height: 44px;
+  object-fit: contain;
 }
 
 .brand-logo-symbol {
-  display: block;
+  display: none;
   width: 30px;
   height: 30px;
   flex: 0 0 auto;
   object-fit: contain;
-}
-
-.brand strong,
-.brand span {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.brand strong {
-  max-width: 88px;
-  color: #fff;
-  font-size: 13px;
-  line-height: 18px;
-}
-
-.brand span {
-  color: #98b5d4;
-  font-size: 11px;
-  line-height: 15px;
 }
 
 .nav-list {
@@ -317,6 +323,14 @@ body:has(.runtime-login-shell) {
 .sidebar-collapsed .brand {
   justify-content: center;
   padding-inline: 0;
+}
+
+.sidebar-collapsed .brand-logo-horizontal {
+  display: none;
+}
+
+.sidebar-collapsed .brand-logo-symbol {
+  display: block;
 }
 
 .sidebar-collapsed .brand > div:last-child,

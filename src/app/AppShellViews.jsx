@@ -6,17 +6,27 @@ import {
   SearchOutlined,
   UserOutlined,
 } from "@ant-design/icons";
-import bagwinDomesticLogoUrl from "../assets/brand/BAGWIN_domestic_horizontal_color.svg";
+import bagwinLoginLogoUrl from "../assets/brand/BAGWIN_ERP_login_brand_624x204.svg";
 import { getRuntimePasswordChangePresentation } from "./runtimeAuthPresentation.js";
+
+function RuntimeBrandHeader() {
+  return (
+    <div className="runtime-login-brand">
+      <img alt="袋袋赢 BAGWIN" className="runtime-login-logo" src={bagwinLoginLogoUrl} />
+      <div className="runtime-login-brand-meta">
+        <span className="runtime-login-company">河北禄兴包装制品有限公司</span>
+        <span aria-hidden="true" className="runtime-login-separator">·</span>
+        <span className="runtime-login-system">ERP 生产系统</span>
+      </div>
+    </div>
+  );
+}
 
 export function RuntimeLoginScreen({ error, form, loading, onChange, onSubmit }) {
   return (
     <main className="runtime-login-shell">
       <form className="runtime-login-panel" onSubmit={onSubmit}>
-        <div className="runtime-login-brand">
-          <img alt="袋袋赢 BAGWIN" className="runtime-login-logo" src={bagwinDomesticLogoUrl} />
-          <span>ERP 生产系统</span>
-        </div>
+        <RuntimeBrandHeader />
         <div className="runtime-login-heading">
           <h1>账号登录</h1>
           <p>使用已启用的正式员工账号。</p>
@@ -59,10 +69,7 @@ export function RuntimePasswordChangeScreen({ error, form, loading, onChange, on
   return (
     <main className="runtime-login-shell">
       <form className="runtime-login-panel runtime-password-change-panel" onSubmit={onSubmit}>
-        <div className="runtime-login-brand">
-          <img alt="袋袋赢 BAGWIN" className="runtime-login-logo" src={bagwinDomesticLogoUrl} />
-          <span>ERP 生产系统</span>
-        </div>
+        <RuntimeBrandHeader />
         <div className="runtime-login-heading">
           <h1>{presentation.title}</h1>
           <p>{user?.displayName || user?.loginName || "当前账号"}{presentation.description}</p>
