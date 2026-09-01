@@ -75,6 +75,7 @@ import { createProductionTaskProjectionService } from "./services/productionTask
 import { createRawMaterialCommandService } from "./services/rawMaterialCommandService.mjs";
 import { createRawMaterialPurchaseCommandService } from "./services/rawMaterialPurchaseCommandService.mjs";
 import { createRawMaterialOcrParserService } from "./services/rawMaterialOcrParserService.mjs";
+import { createRawMaterialSupplierColorMappingService } from "./services/rawMaterialSupplierColorMappingService.mjs";
 import { createRequestAuthorizationService } from "./services/requestAuthorizationService.mjs";
 import { createRuntimeAuthCommandService } from "./services/runtimeAuthCommandService.mjs";
 import { createStatementCommunicationCommandService } from "./services/statementCommunicationCommandService.mjs";
@@ -390,6 +391,7 @@ export function createApiSharedServiceRegistry() {
     tencentCloudTableOcrService,
   });
   const rawMaterialPurchaseCommandService = createRawMaterialPurchaseCommandService({ rawMaterialCommandService });
+  const rawMaterialSupplierColorMappingService = createRawMaterialSupplierColorMappingService({ buildOperationLog });
   const orderLineMutationCommandService = createOrderLineMutationCommandService({
     buildOperationLog,
     findInventoryItem,
@@ -516,6 +518,7 @@ export function createApiSharedServiceRegistry() {
     rawMaterialCommandService,
     rawMaterialPurchaseCommandService,
     rawMaterialOcrParserService,
+    rawMaterialSupplierColorMappingService,
     requireActionPermission,
     requireAnyActionPermission,
     requireAttachmentCreatePermission,

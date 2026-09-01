@@ -1,4 +1,10 @@
-import { requestOfficeApi as requestRawMaterialApi } from "./officeApiClientCore.js";
+import {
+  isOfficeApiRequestAbort,
+  readOfficeApiJson as readJson,
+  requestOfficeApi as requestRawMaterialApi,
+  toOfficeApiError,
+  toOfficeApiTransportError,
+} from "./officeApiClientCore.js";
 import { uploadOfficeAttachmentFile } from "./officeAttachmentApiClient.js";
 import { attachmentUploadLimits } from "../../shared/attachmentUploadPolicy.js";
 
@@ -7,7 +13,7 @@ export async function listOfficeRawMaterialPurchaseRequests(input = {}, options 
   try {
     const response = await requestRawMaterialApi("/raw-material-purchase-requests", { ...options, authState, operatorId });
     const json = await readJson(response);
-    if (!response.ok) return { source: "api_error", blocked: true, items: [], error: toApiError(json, response.status, "采购请求读取失败。") };
+    if (!response.ok) return { source: "api_error", blocked: true, items: [], error: toRawMaterialApiError(json, response.status, "采购请求读取失败。") };
     return { source: "api", items: Array.isArray(json?.items) ? json.items : [], total: Number(json?.total ?? 0) };
   } catch (error) {
     return { source: "api_error", blocked: true, items: [], error: { code: "RAW_MATERIAL_PURCHASE_LIST_UNAVAILABLE", message: error?.message ?? String(error) } };
@@ -40,7 +46,7 @@ async function writePurchaseRequest(path, options, fallbackMessage) {
   try {
     const response = await requestRawMaterialApi(path, { ...options, method: "POST" });
     const json = await readJson(response);
-    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, fallbackMessage) };
+    if (!response.ok) return { source: "api_error", blocked: true, error: toRawMaterialApiError(json, response.status, fallbackMessage) };
     return { source: "api", purchaseRequest: json?.purchaseRequest, businessDecision: json?.businessDecision, operationLogId: json?.operationLogId, replayed: json?.replayed === true };
   } catch (error) {
     return { source: "api_error", blocked: true, error: { code: "RAW_MATERIAL_PURCHASE_WRITE_UNAVAILABLE", message: error?.message ?? String(error) } };
@@ -69,7 +75,7 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
         pageSize,
         total: 0,
         metrics: buildRawMaterialInboundMetrics(localInbounds),
-        error: toApiError(json, response.status, "原材料入库列表 API 返回错误。"),
+        error: toRawMaterialApiError(json, response.status, "原材料入库列表 API 返回错误。"),
       };
     }
 
@@ -102,7 +108,8 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
 }
 
 export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options = {}) {
-  const { authState, operatorId, useNewModel, pages, onProgress } = input;
+  const { authState, operatorId, useNewModel, pages, onProgress, duplicateConfirmationToken, ocrJobId, documentDirectionHint, signal, supplierNameHint } = input;
+  const requestOptions = { ...options, signal: signal ?? options.signal };
   const normalizedPages = (Array.isArray(pages) ? pages : [])
     .map(normalizeDeliveryNotePagePayload)
     .filter((page) => page.contentDataUrl);
@@ -118,55 +125,79 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       },
     };
   }
-  const requestSizeError = validateDeliveryNoteOcrRequestSize({
-    operatorId,
-    useNewModel: useNewModel === true,
-    pages: deliveryNotePages,
-  });
-  if (requestSizeError) {
-    return { source: "client_validation", blocked: true, error: requestSizeError };
-  }
   try {
-    const uploadedPages = await uploadDeliveryNoteSourcePages({
-      authState,
-      operatorId,
-      pages: deliveryNotePages,
-      options,
-      onProgress,
-    });
-    if (uploadedPages.error) {
-      return { source: uploadedPages.source, blocked: true, error: uploadedPages.error };
+    let jobId = cleanText(ocrJobId);
+    if (!jobId) {
+      const pageSizeError = validateDeliveryNoteOcrPagePayloads(deliveryNotePages);
+      if (pageSizeError) return { source: "client_validation", blocked: true, error: pageSizeError };
+      const uploadedPages = await uploadDeliveryNoteSourcePages({
+        authState,
+        operatorId,
+        pages: deliveryNotePages,
+        options: requestOptions,
+        onProgress,
+      });
+      if (uploadedPages.error) {
+        return { source: uploadedPages.source, blocked: true, error: uploadedPages.error };
+      }
+      const requestBody = buildDeliveryNoteOcrRequestBody({
+        documentDirectionHint,
+        operatorId,
+        supplierNameHint,
+        useNewModel: useNewModel === true,
+        pages: uploadedPages.pages,
+      });
+      const requestSizeError = validateDeliveryNoteOcrRequestSize({
+        documentDirectionHint,
+        operatorId,
+        supplierNameHint,
+        useNewModel: useNewModel === true,
+        pages: uploadedPages.pages,
+      });
+      if (requestSizeError) return { source: "client_validation", blocked: true, error: requestSizeError };
+      const startResponse = await requestRawMaterialApi("/raw-material-inbounds/ocr-jobs", {
+        ...requestOptions,
+        authState,
+        operatorId,
+        method: "POST",
+        body: requestBody,
+      });
+      const startJson = await readJson(startResponse);
+      if (!startResponse.ok) {
+        return { source: "api_error", blocked: true, error: toDeliveryNoteOcrApiError(startJson, startResponse.status) };
+      }
+      jobId = cleanText(startJson?.job?.jobId);
+      if (!jobId) throw new Error("后台没有返回送货单识别任务编号。");
+    } else {
+      const retryResponse = await requestRawMaterialApi(`/raw-material-inbounds/ocr-jobs/${encodeURIComponent(jobId)}/retry`, {
+        ...requestOptions,
+        authState,
+        operatorId,
+        method: "POST",
+        body: { duplicateConfirmationToken: cleanText(duplicateConfirmationToken) },
+      });
+      const retryJson = await readJson(retryResponse);
+      if (!retryResponse.ok) {
+        return { source: "api_error", blocked: true, error: toDeliveryNoteOcrApiError(retryJson, retryResponse.status) };
+      }
     }
-    const requestBody = buildDeliveryNoteOcrRequestBody({
-      operatorId,
-      useNewModel: useNewModel === true,
-      pages: uploadedPages.pages,
-    });
-    notifyDeliveryNoteProgress(onProgress, {
-      phase: "recognizing",
-      current: deliveryNotePages.length,
-      total: deliveryNotePages.length,
-      message: `原图已保存，正在识别 ${deliveryNotePages.length} 页送货单…`,
-    });
-    const response = await requestRawMaterialApi("/raw-material-inbounds/recognize-delivery-note", {
-      ...options,
-      authState,
-      operatorId,
-      method: "POST",
-      body: requestBody,
-    });
-    const json = await readJson(response);
-    if (!response.ok) {
+    const job = await pollDeliveryNoteOcrJob({ authState, jobId, operatorId, onProgress, options: requestOptions });
+    if (job.error) {
       return {
         source: "api_error",
         blocked: true,
-        error: toDeliveryNoteOcrApiError(json, response.status),
+        error: {
+          ...job.error,
+          details: { ...(job.error.details ?? {}), jobId },
+        },
       };
     }
+    const json = job.result;
+    if (!json?.inbound?.id) throw new Error("后台识别任务没有生成入库草稿。");
     notifyDeliveryNoteProgress(onProgress, {
       phase: "complete",
-      current: deliveryNotePages.length,
-      total: deliveryNotePages.length,
+      current: job.pageCount,
+      total: job.pageCount,
       message: "识别完成，正在打开核对页面…",
     });
     return {
@@ -176,17 +207,79 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       attachmentIds: (Array.isArray(json?.attachmentIds) ? json.attachmentIds : []).map(cleanText).filter(Boolean),
       deduplicated: json?.deduplicated === true,
       operationLogId: cleanText(json?.operationLogId),
+      ocrJobId: jobId,
     };
   } catch (error) {
+    if (isOfficeApiRequestAbort(error)) {
+      return {
+        source: "cancelled",
+        blocked: true,
+        cancelled: true,
+        error: toOfficeApiTransportError(error, "送货单识别已取消。"),
+      };
+    }
     return {
       source: "api_error",
       blocked: true,
       error: {
         code: "RAW_MATERIAL_DELIVERY_NOTE_OCR_API_UNAVAILABLE",
         message: toDeliveryNoteNetworkErrorMessage(error, deliveryNotePages.length),
+        details: cleanText(ocrJobId) ? { jobId: cleanText(ocrJobId) } : undefined,
       },
     };
   }
+}
+
+async function pollDeliveryNoteOcrJob({ authState, jobId, operatorId, onProgress, options }) {
+  const maximumPolls = Number(options.deliveryNoteJobMaximumPolls) || 300;
+  for (let pollIndex = 0; pollIndex < maximumPolls; pollIndex += 1) {
+    const response = await requestRawMaterialApi(`/raw-material-inbounds/ocr-jobs/${encodeURIComponent(jobId)}/status`, {
+      ...options,
+      authState,
+      operatorId,
+      method: "POST",
+      body: {},
+    });
+    const json = await readJson(response);
+    if (!response.ok) throw Object.assign(new Error(toDeliveryNoteOcrApiError(json, response.status).message), { status: response.status });
+    const job = json?.job ?? {};
+    notifyDeliveryNoteProgress(onProgress, {
+      phase: job.status,
+      current: Number(job.currentPage) || 0,
+      total: Number(job.pageCount) || 0,
+      message: cleanText(job.message) || (job.status === "completed"
+        ? "识别完成，正在打开核对页面…"
+        : job.status === "queued"
+          ? "送货单已进入后台识别队列…"
+          : "正在后台识别送货单…"),
+    });
+    if (["completed", "failed", "needs_confirmation"].includes(job.status)) return job;
+    await waitForDeliveryNoteJob(options.deliveryNoteJobPollIntervalMs ?? 500, options);
+  }
+  throw new Error("送货单后台识别等待超时，请直接重试，不需要重新上传。");
+}
+
+function waitForDeliveryNoteJob(milliseconds, options = {}) {
+  if (typeof options.waitForDeliveryNoteJob === "function") return options.waitForDeliveryNoteJob(milliseconds);
+  return new Promise((resolve, reject) => {
+    const signal = options.signal;
+    let timeoutId = null;
+    const cancel = () => {
+      clearTimeout(timeoutId);
+      const error = new Error("请求已取消。");
+      error.code = "REQUEST_ABORTED";
+      reject(error);
+    };
+    if (signal?.aborted) {
+      cancel();
+      return;
+    }
+    timeoutId = setTimeout(() => {
+      signal?.removeEventListener("abort", cancel);
+      resolve();
+    }, Math.max(0, Number(milliseconds) || 0));
+    signal?.addEventListener("abort", cancel, { once: true });
+  });
 }
 
 export async function updateOfficeRawMaterialInboundAction(input = {}, options = {}) {
@@ -291,7 +384,7 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
       return {
         source: "api_error",
         blocked: true,
-        error: toApiError(json, response.status, "原材料入库动作 API 返回错误。"),
+        error: toRawMaterialApiError(json, response.status, "原材料入库动作 API 返回错误。"),
       };
     }
 
@@ -334,7 +427,7 @@ export async function listOfficeRawMaterialSupplierStatementReviews(input = {}, 
         pageSize,
         total: 0,
         metrics: {},
-        error: toApiError(json, response.status, "供应商月结复核草稿 API 返回错误。"),
+        error: toRawMaterialApiError(json, response.status, "供应商月结复核草稿 API 返回错误。"),
       };
     }
     const items = Array.isArray(json?.items) ? json.items.map(normalizeSupplierStatementReview).filter((item) => item.reviewId) : [];
@@ -395,7 +488,7 @@ export async function createOfficeRawMaterialSupplierStatementReviewDraft(input 
       return {
         source: "api_error",
         blocked: true,
-        error: toApiError(json, response.status, "保存供应商月结复核草稿失败。"),
+        error: toRawMaterialApiError(json, response.status, "保存供应商月结复核草稿失败。"),
       };
     }
     return {
@@ -449,7 +542,7 @@ export async function confirmOfficeRawMaterialSupplierStatementReview(input = {}
       return {
         source: "api_error",
         blocked: true,
-        error: toApiError(json, response.status, "确认供应商月结复核草稿失败。"),
+        error: toRawMaterialApiError(json, response.status, "确认供应商月结复核草稿失败。"),
       };
     }
     return {
@@ -501,7 +594,7 @@ export async function confirmOfficeRawMaterialSupplierStatement(input = {}, opti
       return {
         source: "api_error",
         blocked: true,
-        error: toApiError(json, response.status, "确认供应商月结对账失败。"),
+        error: toRawMaterialApiError(json, response.status, "确认供应商月结对账失败。"),
       };
     }
     return {
@@ -553,7 +646,7 @@ export async function generateOfficeRawMaterialSupplierPayableDraft(input = {}, 
       return {
         source: "api_error",
         blocked: true,
-        error: toApiError(json, response.status, "生成供应商应付草稿失败。"),
+        error: toRawMaterialApiError(json, response.status, "生成供应商应付草稿失败。"),
       };
     }
     return {
@@ -612,7 +705,7 @@ export async function confirmOfficeRawMaterialSupplierPayment(input = {}, option
       return {
         source: "api_error",
         blocked: true,
-        error: toApiError(json, response.status, "确认供应商付款失败。"),
+        error: toRawMaterialApiError(json, response.status, "确认供应商付款失败。"),
       };
     }
     return {
@@ -1240,6 +1333,7 @@ function normalizeDeliveryNotePagePayload(input = {}) {
     sourceContentDataUrl: cleanText(input.sourceContentDataUrl),
     sourceFile: input.sourceFile ?? null,
     sourceAttachmentId: cleanText(input.sourceAttachmentId),
+    ocrAttachmentId: cleanText(input.ocrAttachmentId),
     captureId: cleanText(input.captureId),
     sourceNormalizedForOcr: input.sourceNormalizedForOcr === true,
     pdfPageNumber: Number(input.pdfPageNumber) || undefined,
@@ -1252,50 +1346,141 @@ async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, opt
   const captureOwnerId = buildDeliveryNoteCaptureOwnerId(captureId, operatorId);
   const uploadedPages = [];
   for (const [sourcePageIndex, page] of pages.entries()) {
-    if (page.sourceAttachmentId) {
-      uploadedPages.push(page);
-      continue;
-    }
-    if (!page.sourceFile) {
-      uploadedPages.push(page);
-      continue;
-    }
-    notifyDeliveryNoteProgress(onProgress, {
-      phase: "uploading",
-      current: sourcePageIndex + 1,
-      total: pages.length,
-      message: `正在保存第 ${sourcePageIndex + 1}/${pages.length} 页原图…`,
-    });
-    const result = await uploadOfficeAttachmentFile({
-      authState,
-      uploadedBy: operatorId,
-      file: page.sourceFile,
-      ownerType: "raw_material_inbound_capture",
-      ownerId: captureOwnerId,
-      purpose: "raw_material_delivery_note",
-      contentRef: `raw-material-capture:${captureOwnerId}:page:${sourcePageIndex + 1}`,
-      remark: `原材料送货单待识别原图第 ${sourcePageIndex + 1}/${pages.length} 页。`,
-      metadata: {
-        captureId,
-        captureOwnerId,
-        capturedBy: operatorId,
-        sourcePageIndex,
-        pageNumber: sourcePageIndex + 1,
-        pageCount: pages.length,
-      },
-    }, options);
-    if (result.blocked || !result.attachment?.attachmentId) {
-      return {
-        source: result.source || "api_error",
-        error: result.error || {
-          code: "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_UPLOAD_FAILED",
-          message: `送货单第 ${sourcePageIndex + 1} 页原图没有保存成功，请重试。`,
+    let uploadedPage = { ...page };
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    if (!uploadedPage.sourceAttachmentId) {
+      notifyDeliveryNoteProgress(onProgress, {
+        phase: "uploading",
+        current: sourcePageIndex + 1,
+        total: pages.length,
+        message: `正在保存第 ${sourcePageIndex + 1}/${pages.length} 页原图…`,
+      });
+      const sourceFile = uploadedPage.sourceFile || dataUrlToUploadFile(
+        uploadedPage.contentDataUrl,
+        uploadedPage.fileName || `送货单-第${sourcePageIndex + 1}页.jpg`,
+        uploadedPage.mimeType,
+      );
+      const sourceResult = await uploadOfficeAttachmentFile({
+        authState,
+        uploadedBy: operatorId,
+        file: sourceFile,
+        ownerType: "raw_material_inbound_capture",
+        ownerId: captureOwnerId,
+        purpose: "raw_material_delivery_note",
+        contentRef: `raw-material-capture:${captureOwnerId}:page:${sourcePageIndex + 1}:source`,
+        remark: `原材料送货单待识别原图第 ${sourcePageIndex + 1}/${pages.length} 页。`,
+        metadata: {
+          captureId,
+          captureOwnerId,
+          captureKind: "source_original",
+          lifecycleState: "temporary_until_linked",
+          expiresAt,
+          capturedBy: operatorId,
+          sourcePageIndex,
+          pageNumber: sourcePageIndex + 1,
+          pageCount: pages.length,
         },
-      };
+      }, options);
+      if (sourceResult.blocked || !sourceResult.attachment?.attachmentId) {
+        return buildDeliveryNoteUploadFailure(sourceResult, sourcePageIndex, pages.length, "原图");
+      }
+      uploadedPage = { ...uploadedPage, sourceAttachmentId: sourceResult.attachment.attachmentId };
     }
-    uploadedPages.push({ ...page, sourceAttachmentId: result.attachment.attachmentId });
+
+    if (!uploadedPage.ocrAttachmentId) {
+      if (uploadedPage.sourceNormalizedForOcr !== true) {
+        uploadedPage.ocrAttachmentId = uploadedPage.sourceAttachmentId;
+      } else {
+        notifyDeliveryNoteProgress(onProgress, {
+          phase: "uploading_ocr_copy",
+          current: sourcePageIndex + 1,
+          total: pages.length,
+          message: `正在准备第 ${sourcePageIndex + 1}/${pages.length} 页识别副本…`,
+        });
+        const ocrFile = dataUrlToUploadFile(
+          uploadedPage.contentDataUrl,
+          replaceDeliveryNoteExtension(uploadedPage.fileName, `送货单-第${sourcePageIndex + 1}页-OCR.jpg`),
+          uploadedPage.mimeType || "image/jpeg",
+        );
+        const ocrResult = await uploadOfficeAttachmentFile({
+          authState,
+          uploadedBy: operatorId,
+          file: ocrFile,
+          ownerType: "raw_material_inbound_capture",
+          ownerId: captureOwnerId,
+          purpose: "raw_material_delivery_note",
+          contentRef: `raw-material-capture:${captureOwnerId}:page:${sourcePageIndex + 1}:ocr-copy`,
+          remark: `原材料送货单第 ${sourcePageIndex + 1}/${pages.length} 页 OCR 临时副本。`,
+          metadata: {
+            captureId,
+            captureOwnerId,
+            captureKind: "ocr_copy",
+            lifecycleState: "temporary",
+            expiresAt,
+            capturedBy: operatorId,
+            sourcePageIndex,
+            pageNumber: sourcePageIndex + 1,
+            pageCount: pages.length,
+          },
+        }, options);
+        if (ocrResult.blocked || !ocrResult.attachment?.attachmentId) {
+          return buildDeliveryNoteUploadFailure(ocrResult, sourcePageIndex, pages.length, "识别副本");
+        }
+        uploadedPage.ocrAttachmentId = ocrResult.attachment.attachmentId;
+      }
+    }
+    uploadedPages.push({ ...uploadedPage, contentDataUrl: "", sourceContentDataUrl: "" });
   }
   return { source: "api", pages: uploadedPages };
+}
+
+function buildDeliveryNoteUploadFailure(result, sourcePageIndex, pageCount, label) {
+  if (result?.error?.status === 413 || result?.error?.code === "REQUEST_BODY_TOO_LARGE") {
+    return {
+      source: result.source || "api_error",
+      error: {
+        code: "RAW_MATERIAL_DELIVERY_NOTE_REQUEST_TOO_LARGE",
+        message: `送货单第 ${sourcePageIndex + 1} 页过大，系统没有生成草稿，请重新拍摄这一页。`,
+      },
+    };
+  }
+  if (/UNAVAILABLE$/u.test(cleanText(result?.error?.code)) || /load failed|failed to fetch|network/iu.test(cleanText(result?.error?.message))) {
+    return {
+      source: result.source || "api_error",
+      error: {
+        code: "RAW_MATERIAL_DELIVERY_NOTE_OCR_API_UNAVAILABLE",
+        message: `${pageCount > 1 ? `${pageCount} 页送货单` : "送货单"}上传时连接中断。已选页面仍保留，请检查网络后直接重新识别，不用重拍。`,
+      },
+    };
+  }
+  return {
+    source: result.source || "api_error",
+    error: result.error || {
+      code: "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_UPLOAD_FAILED",
+      message: `送货单第 ${sourcePageIndex + 1} 页${label}没有保存成功，请重试。`,
+    },
+  };
+}
+
+function dataUrlToUploadFile(contentDataUrl, fileName, mimeType) {
+  const match = cleanText(contentDataUrl).match(/^data:([^;,]+)?(?:;base64)?,(.*)$/su);
+  if (!match) throw new Error("送货单识别副本无效，请重新拍摄。");
+  const type = cleanText(match[1]) || cleanText(mimeType) || "image/jpeg";
+  const isBase64 = cleanText(contentDataUrl).slice(0, cleanText(contentDataUrl).indexOf(",")).includes(";base64");
+  const binary = isBase64 ? globalThis.atob(match[2]) : decodeURIComponent(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  const safeName = replaceDeliveryNoteExtension(fileName, "送货单-OCR.jpg");
+  if (typeof globalThis.File === "function") return new globalThis.File([bytes], safeName, { type });
+  const blob = new Blob([bytes], { type });
+  Object.defineProperty(blob, "name", { value: safeName });
+  return blob;
+}
+
+function replaceDeliveryNoteExtension(fileName, fallback) {
+  const value = cleanText(fileName);
+  if (!value) return fallback;
+  return /\.[a-z0-9]+$/iu.test(value) ? value.replace(/\.[a-z0-9]+$/iu, "-OCR.jpg") : `${value}-OCR.jpg`;
 }
 
 function buildDeliveryNoteCaptureOwnerId(captureId, operatorId) {
@@ -1317,24 +1502,30 @@ function toDeliveryNoteNetworkErrorMessage(error, pageCount) {
   return original || "送货单识别服务暂时无法连接。已选页面仍保留，请稍后直接重新识别。";
 }
 
-function buildDeliveryNoteOcrRequestBody({ operatorId, useNewModel, pages }) {
+function buildDeliveryNoteOcrRequestBody({ documentDirectionHint, operatorId, supplierNameHint, useNewModel, pages }) {
   return {
+    documentDirectionHint: normalizeDocumentDirectionHint(documentDirectionHint),
     operatorId,
+    supplierNameHint: cleanText(supplierNameHint),
     useNewModel,
     pages: pages.map((page) => ({
       fileName: page.fileName,
       mimeType: page.mimeType,
       fileSize: page.fileSize,
-      contentDataUrl: page.contentDataUrl,
       sourceMimeType: page.sourceMimeType,
       sourceFileSize: page.sourceFileSize,
-      sourceContentDataUrl: page.sourceAttachmentId ? "" : page.sourceContentDataUrl,
       sourceAttachmentId: page.sourceAttachmentId,
+      ocrAttachmentId: page.ocrAttachmentId || page.sourceAttachmentId,
       sourceNormalizedForOcr: page.sourceNormalizedForOcr,
       pdfPageNumber: page.pdfPageNumber,
       useNewModel: page.useNewModel,
     })),
   };
+}
+
+function normalizeDocumentDirectionHint(value) {
+  const direction = cleanText(value);
+  return ["supplier_delivery", "supplier_return"].includes(direction) ? direction : "supplier_delivery";
 }
 
 function validateDeliveryNoteOcrRequestSize(input) {
@@ -1347,6 +1538,22 @@ function validateDeliveryNoteOcrRequestSize(input) {
   };
 }
 
+function validateDeliveryNoteOcrPagePayloads(pages) {
+  for (const [sourcePageIndex, page] of pages.entries()) {
+    const encoded = cleanText(page.contentDataUrl);
+    const commaIndex = encoded.indexOf(",");
+    const encodedLength = commaIndex >= 0 ? encoded.length - commaIndex - 1 : 0;
+    const approximateBytes = Math.floor(encodedLength * 0.75);
+    if (!encoded || approximateBytes > attachmentUploadLimits.rawMaterialOcrRequestPageBytes) {
+      return {
+        code: "RAW_MATERIAL_DELIVERY_NOTE_REQUEST_TOO_LARGE",
+        message: `送货单第 ${sourcePageIndex + 1} 页处理后仍然过大，请删除这一页后重新拍摄。`,
+      };
+    }
+  }
+  return null;
+}
+
 function toDeliveryNoteOcrApiError(json, status) {
   if (status === 413 || json?.code === "REQUEST_BODY_TOO_LARGE") {
     return {
@@ -1355,7 +1562,7 @@ function toDeliveryNoteOcrApiError(json, status) {
       message: "送货单照片数据仍然过大，系统没有生成草稿。请清空后重新拍摄，原图会单独保存。",
     };
   }
-  return toApiError(json, status, "原材料送货单 OCR 识别失败。");
+  return toRawMaterialApiError(json, status, "原材料送货单 OCR 识别失败。");
 }
 
 function createDeliveryNoteCaptureId() {
@@ -1500,7 +1707,9 @@ function buildRawMaterialInboundMetrics(inbounds = []) {
 function toRawMaterialActionSlug(action) {
   const value = cleanText(action);
   if (value === "复核送货单" || value === "review") return "review";
+  if (value === "作废误录草稿" || value === "void_draft" || value === "void-draft") return "void-draft";
   if (value === "打印卷标" || value === "print_labels" || value === "print-labels") return "print-labels";
+  if (value === "暂缓打印卷标" || value === "defer_labels" || value === "defer-labels") return "defer-labels";
   if (value === "确认贴标入库" || value === "attach_confirm" || value === "attach-confirm") return "attach-confirm";
   if (value === "作废卷标" || value === "void_label" || value === "void-label") return "void-label";
   if (value === "重打卷标" || value === "reprint_label" || value === "reprint-label") return "reprint-label";
@@ -1519,21 +1728,14 @@ function toRawMaterialActionSlug(action) {
   return "";
 }
 
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function toApiError(json, status, fallbackMessage) {
-  return {
-    status,
-    code: json?.code ?? `HTTP_${status}`,
-    message: json?.message ?? fallbackMessage,
-    requiredPermission: json?.requiredPermission,
-  };
+function toRawMaterialApiError(json, status, fallbackMessage) {
+  return toOfficeApiError(json, status, fallbackMessage, {
+    sanitizeMessage: ({ message }) => {
+      const rawMessage = cleanText(message);
+      const unsafe = /(?:foreign key|constraint|sqlstate|insert\s+or\s+update|relation\s+.+does not exist|request body exceeds|load failed|failed to fetch)/iu.test(rawMessage);
+      return unsafe ? fallbackMessage : rawMessage || fallbackMessage;
+    },
+  });
 }
 
 function toNumber(value, fallback) {

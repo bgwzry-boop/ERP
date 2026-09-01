@@ -21,6 +21,10 @@ import {
   projectRawMaterialOcrPhysicalRollReviewRows,
 } from "../../../shared/rawMaterialOcrLineReview.js";
 import {
+  isRawMaterialFactoryColor,
+  RAW_MATERIAL_FACTORY_COLORS,
+} from "../../../shared/rawMaterialFactoryColors.js";
+import {
   normalizeRawMaterialOcrAngle,
   orientRawMaterialOcrSourceBounds,
   resolveRawMaterialOcrSourceFrame,
@@ -45,7 +49,6 @@ const DEMO_SOURCE_INBOUND_IDS = new Set(["RMI-260704-001", "RMI-0704-001"]);
 const EMPTY_SOURCE_PREVIEW_URLS = [];
 
 const PRIMARY_ROLL_FIELDS = [
-  ["supplierColor", "颜色", "text", "例如：本白"],
   ["spec", "规格 / 宽幅", "text", "例如：78×70×2000"],
   ["weightKg", "本卷重量 kg", "number", "0"],
 ];
@@ -331,7 +334,8 @@ export function RawMaterialMobileOcrReview({
             const blockers = getMobileOcrRollBlockers(roll, { documentDirection });
             const reviewed = reviewedRollIds.includes(roll.reviewId);
             const expanded = expandedLineId === roll.reviewId;
-            const color = String(roll.supplierColor || "").trim();
+            const supplierColor = String(roll.supplierColor || "").trim();
+            const color = String((isSupplierReturn ? supplierColor : roll.factoryColor) || "").trim();
             const spec = String(roll.spec || "").trim();
             const specReady = hasReviewableRawMaterialSpec(spec);
             const recognizedSpecValues = roll.line?.values ?? {};
@@ -385,6 +389,22 @@ export function RawMaterialMobileOcrReview({
                 {expanded ? (
                   <section className="raw-material-mobile-review-line-editor" aria-label={`第 ${index + 1} 卷编辑`}>
                     <div className="raw-material-mobile-review-key-fields">
+                      {!isSupplierReturn ? (
+                        <label>
+                          <span>厂内标准色</span>
+                          <select
+                            aria-label={`第 ${index + 1} 卷厂内标准色`}
+                            onChange={(event) => updateLineField(roll.lineId, "factoryColor", event.target.value)}
+                            value={roll.lineDraft.factoryColor ?? ""}
+                          >
+                            <option value="">请选择标准色</option>
+                            {RAW_MATERIAL_FACTORY_COLORS.map((colorOption) => (
+                              <option key={colorOption} value={colorOption}>{colorOption}</option>
+                            ))}
+                          </select>
+                          <small>{getFactoryColorMappingHint(roll.line, supplierColor)}</small>
+                        </label>
+                      ) : null}
                       {PRIMARY_ROLL_FIELDS.map(([key, label, type, placeholder]) => (
                         <label key={key}>
                           <span>{label}</span>
@@ -697,12 +717,24 @@ function getRollBlockerStatus(blockers = []) {
   return "待补资料";
 }
 
+function getFactoryColorMappingHint(line = {}, supplierColor = "") {
+  const resolution = line.factoryColorResolution ?? {};
+  const sourceColor = supplierColor || resolution.supplierColor || "未识别";
+  if (resolution.status === "supplier_rule") return `票面：${sourceColor} · 已按该厂家颜色资料换算`;
+  if (resolution.status === "global_rule" || resolution.status === "legacy_global_fallback") {
+    return `票面：${sourceColor} · 按通用规则预填，请核对实物`;
+  }
+  if (resolution.status === "ambiguous") return `票面：${sourceColor} · 厂家规则冲突，必须人工选择`;
+  if (resolution.status === "canonical_exact") return `票面：${sourceColor} · 与厂内标准色同名`;
+  return `票面：${sourceColor} · 该厂家尚无规则，本次需人工选择`;
+}
+
 export function getMobileOcrRollBlockers(roll = {}, { documentDirection = "supplier_delivery" } = {}) {
   const blockers = [];
   const line = roll.lineDraft ?? roll;
   const isSupplierReturn = documentDirection === "supplier_return";
   const rollMaterial = String(line.unit ?? "").trim() === "kg" || /布|卷/u.test(`${line.materialType ?? ""}${line.productName ?? ""}`);
-  if (!isSupplierReturn && rollMaterial && !String(roll.supplierColor ?? line.supplierColor ?? "").trim()) blockers.push("颜色");
+  if (!isSupplierReturn && rollMaterial && !isRawMaterialFactoryColor(roll.factoryColor ?? line.factoryColor)) blockers.push("厂内标准色");
   if (!isSupplierReturn && !hasReviewableRawMaterialSpec(roll.spec ?? line.spec)) blockers.push("规格 / 宽幅");
   if (rollMaterial && !(Math.abs(Number(roll.weightKg)) > 0)) blockers.push("本卷重量");
   if (!String(line.productName || line.materialType || "").trim()) blockers.push("品名 / 材料");
@@ -714,6 +746,7 @@ export function getMobileOcrLineBlockers(line = {}, options = {}) {
   return getMobileOcrRollBlockers({
     lineDraft: line,
     supplierColor: line.supplierColor,
+    factoryColor: line.factoryColor,
     spec: line.spec,
     weightKg: Number(line.rollCount) === 1 ? line.totalWeightKg : "",
   }, options);

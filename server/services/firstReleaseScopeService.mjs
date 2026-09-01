@@ -13,6 +13,8 @@ const rawMaterialInboundActions = new Set([
   "review",
   "print-labels",
   "print_labels",
+  "defer-labels",
+  "defer_labels",
   "attach-confirm",
   "attach_confirm",
   "void-label",
@@ -128,6 +130,8 @@ function isOperationalWrite(pathname) {
 function isRawMaterialFirstReleaseWrite(method, pathname, body = {}) {
   if (method !== "POST") return false;
   if (pathname === "/api/raw-material-inbounds/recognize-delivery-note") return true;
+  if (pathname === "/api/raw-material-inbounds/ocr-jobs") return true;
+  if (/^\/api\/raw-material-inbounds\/ocr-jobs\/[^/]+\/(?:status|retry)$/u.test(pathname)) return true;
   if (
     pathname === "/api/attachments/binary" &&
     String(body.ownerType ?? "").trim() === "raw_material_inbound_capture" &&

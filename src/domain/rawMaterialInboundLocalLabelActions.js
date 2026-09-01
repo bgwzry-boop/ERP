@@ -1,5 +1,31 @@
 export function applyLocalRawMaterialInboundLabelAction(item = {}, input = {}) {
   const { action, now, operatorName, options = {} } = input;
+  if (action === "暂缓打印卷标") {
+    const pendingRolls = (item.rolls ?? []).filter((roll) => roll.inventoryStatus !== "可用");
+    const rollIds = pendingRolls.map((roll) => String(roll.id ?? "").trim());
+    if (
+      item.status !== "已复核待打印标签"
+      || !pendingRolls.length
+      || rollIds.some((rollId) => !rollId)
+      || new Set(rollIds).size !== rollIds.length
+      || pendingRolls.some((roll) => !(Number(roll.weightKg) > 0))
+    ) return item;
+    return {
+      ...item,
+      status: "已入库待补打标签",
+      labelDeferredBy: operatorName,
+      labelDeferredAt: now,
+      labelDeferredReason: String(options.reason ?? "现场打印机暂不可用").trim(),
+      nextStep: "逐卷卷码已经生成；卷料暂存原料待补标区，补打并贴标核对前不计入可用库存。",
+      rolls: (item.rolls ?? []).map((roll) => roll.inventoryStatus === "可用" ? roll : ({
+        ...roll,
+        inventoryStatus: "待补标",
+        labelStatus: "标签待补打",
+        location: "原料待补标区",
+      })),
+    };
+  }
+
   if (action === "打印卷标") {
     const printableRolls = (item.rolls ?? []).filter((roll) => roll.inventoryStatus !== "可用");
     if (!printableRolls.length || printableRolls.some((roll) => !(Number(roll.weightKg) > 0))) return item;
@@ -13,6 +39,8 @@ export function applyLocalRawMaterialInboundLabelAction(item = {}, input = {}) {
         ...roll,
         labelStatus: roll.inventoryStatus === "可用" ? roll.labelStatus : "已打印待贴标",
         labelVersion: roll.inventoryStatus === "可用" ? roll.labelVersion : nextLocalLabelVersion(roll),
+        inventoryStatus: roll.inventoryStatus === "待补标" ? "不可用" : roll.inventoryStatus,
+        location: roll.inventoryStatus === "待补标" ? "原料待检区" : roll.location,
       })),
     };
   }

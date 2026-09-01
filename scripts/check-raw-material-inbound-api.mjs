@@ -23,12 +23,19 @@ const repositoryStorageRoot = join(checkStorageRoot, "repository");
 const apiStorageRoot = join(checkStorageRoot, "api");
 const seededReviewInbound = initialRawMaterialInbounds.find((item) => item.id === "RMI-0704-001");
 const seededOcrReviewPayload = {
-  reviewFields: Object.fromEntries((seededReviewInbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value])),
-  lineReviews: (seededReviewInbound?.ocrLines ?? []).map((line) => ({ lineId: line.lineId, values: line.values })),
+  reviewFields: {
+    ...Object.fromEntries((seededReviewInbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value])),
+    factoryColor: "大红",
+  },
+  lineReviews: (seededReviewInbound?.ocrLines ?? []).map((line) => ({
+    lineId: line.lineId,
+    values: { ...line.values, factoryColor: "大红" },
+  })),
 };
 rmSync(checkStorageRoot, { recursive: true, force: true });
 
 await checkRepository();
+checkDeferredLabelFlow();
 checkPerRollLabelGate();
 checkSupplierReturnPhysicalFlow();
 await checkPostgresRepositoryBoundary();
@@ -409,6 +416,48 @@ async function checkRepository() {
     "可用",
     "repository should persist reviewed leftover available status",
   );
+}
+
+function checkDeferredLabelFlow() {
+  const inbound = {
+    id: "RMI-DEFER-001",
+    revision: 1,
+    documentDirection: "supplier_delivery",
+    supplierName: "测试供应商",
+    status: "已复核待打印标签",
+    rolls: [
+      { id: "RM-DEFER-001-01", weightKg: 101.2, labelStatus: "待打印标签", inventoryStatus: "不可用", location: "原料待检区" },
+      { id: "RM-DEFER-001-02", weightKg: 102.3, labelStatus: "待打印标签", inventoryStatus: "不可用", location: "原料待检区" },
+    ],
+  };
+  const deferred = applyRawMaterialInboundAction({
+    inbounds: [inbound],
+    inboundId: inbound.id,
+    action: "defer-labels",
+    body: { expectedRevision: 1, reason: "现场暂无可用打印机" },
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    serverNow: "2026-08-16T02:00:00.000Z",
+  }).inbound;
+  assert.equal(deferred.status, "已入库待补打标签", "deferred printing must remain visibly pending rather than being marked printed");
+  assert.equal(new Set(deferred.rolls.map((roll) => roll.id)).size, 2, "every physical roll must retain one unique canonical roll code");
+  assert.equal(deferred.rolls.every((roll) => roll.labelStatus === "标签待补打"), true);
+  assert.equal(deferred.rolls.every((roll) => roll.inventoryStatus === "待补标"), true, "unprinted rolls must not enter available inventory");
+  assert.equal(deferred.rolls.every((roll) => roll.location === "原料待补标区"), true);
+
+  const printed = applyRawMaterialInboundAction({
+    inbounds: [deferred],
+    inboundId: inbound.id,
+    action: "print-labels",
+    body: { expectedRevision: deferred.revision },
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    serverNow: "2026-08-16T02:05:00.000Z",
+  }).inbound;
+  assert.equal(printed.status, "已打印待贴标");
+  assert.equal(printed.rolls.every((roll) => roll.labelStatus === "已打印待贴标"), true);
+  assert.equal(printed.rolls.every((roll) => roll.inventoryStatus === "不可用"), true);
+  assert.equal(printed.rolls.every((roll) => roll.location === "原料待检区"), true);
 }
 
 function checkPerRollLabelGate() {

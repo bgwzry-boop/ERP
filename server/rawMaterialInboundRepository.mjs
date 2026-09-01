@@ -99,25 +99,19 @@ export function createRawMaterialInboundRepository(options = {}) {
   }
   throw new Error(`Unsupported raw material inbound repository mode: ${mode}`);
 }
-
 export function createLocalRawMaterialInboundRepository(options = {}) {
   const store = createRawMaterialInboundLocalStore({ storageRoot: options.storageRoot });
-
   return {
     kind: "local_json",
-
     loadState({ seedInbounds = [] } = {}) {
       return store.load({ seedInbounds });
     },
-
     listRawMaterialInbounds({ workspace, query } = {}) {
       return buildRawMaterialInboundListResponse(workspace?.rawMaterialInbounds, query);
     },
-
     getRawMaterialInbound({ workspace, inboundId }) {
       return findRawMaterialInbound(workspace, inboundId);
     },
-
     createRawMaterialInboundDraft({ workspace, inbound, operationLog }) {
       const safeInbound = normalizeRawMaterialInbound(inbound);
       if (!safeInbound?.id) throw Object.assign(new Error("Raw material inbound id is required"), { statusCode: 422 });
@@ -136,7 +130,6 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
       store.save(workspace.rawMaterialInbounds);
       return { inbound: safeInbound, operationLog: safeOperationLog, deduplicated: false };
     },
-
     recordRawMaterialInboundAction(input = {}) {
       const replay = readLocalRawMaterialActionReplay(input);
       if (replay) return replay;
@@ -164,7 +157,6 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
     },
   };
 }
-
 export function createPostgresRawMaterialInboundRepository(options = {}) {
   const databaseUrl = options.databaseUrl;
   const postgresClient = options.postgresClient ?? (options.queryJson ? null : createPostgresPoolClient({ databaseUrl }));
@@ -175,27 +167,22 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
     ...options,
     postgresClient,
   });
-
   return {
     kind: "postgres",
-
     async loadState() {
       const builtQuery = buildListRawMaterialInboundPayloadsQuery({});
       return {
         rawMaterialInbounds: normalizeRawMaterialInbounds(await queryJson(builtQuery.text, builtQuery.values)),
       };
     },
-
     async listRawMaterialInbounds({ query } = {}) {
       const builtQuery = buildListRawMaterialInboundPayloadsQuery({ query });
       return buildRawMaterialInboundListResponse(await queryJson(builtQuery.text, builtQuery.values), query);
     },
-
     async getRawMaterialInbound({ inboundId }) {
       const builtQuery = buildFindRawMaterialInboundPayloadQuery(inboundId);
       return normalizeRawMaterialInbound(await queryJson(builtQuery.text, builtQuery.values));
     },
-
     async createRawMaterialInboundDraft(input = {}) {
       const safeInbound = normalizeRawMaterialInbound(input.inbound);
       if (!safeInbound?.id) throw Object.assign(new Error("Raw material inbound id is required"), { statusCode: 422 });
@@ -233,7 +220,6 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
         deduplicated: false,
       };
     },
-
     async recordRawMaterialInboundAction(input = {}) {
       const scope = buildRawMaterialActionIdempotencyScope(input);
       const replay = await readPostgresIdempotencyReplay({
@@ -294,14 +280,12 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
     },
   };
 }
-
 export function applyRawMaterialInboundAction(input = {}) {
   const workspace = input.workspace ?? {};
   const inbounds = normalizeRawMaterialInbounds(input.inbounds ?? workspace.rawMaterialInbounds);
   const inboundId = cleanText(input.inboundId);
   const index = inbounds.findIndex((item) => item.id === inboundId);
   if (index < 0) return { inbounds, inbound: null, operationLog: null };
-
   const action = normalizeAction(input.action);
   const before = inbounds[index];
   const expectedRevision = Number(input.body?.expectedRevision);
@@ -332,11 +316,79 @@ export function applyRawMaterialInboundAction(input = {}) {
       now,
     });
   }
+  if (action === "void_draft") {
+    const reason = cleanText(input.body?.reason);
+    if (before.status !== "已识别待复核") {
+      throw Object.assign(new Error("只有尚未复核、尚未打印、尚未形成库存的误录草稿可以作废。已正式入库的卷料只能走冲销或退库。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_INBOUND_DRAFT_VOID_NOT_ALLOWED",
+      });
+    }
+    if (!reason) {
+      throw Object.assign(new Error("作废误录草稿必须填写原因。"), {
+        statusCode: 422,
+        code: "RAW_MATERIAL_INBOUND_DRAFT_VOID_REASON_REQUIRED",
+      });
+    }
+    if ((before.rolls ?? []).some((roll) => cleanText(roll.inventoryStatus) === "可用")) {
+      throw Object.assign(new Error("该单已经形成可用库存，不能删除或作废草稿；请走冲销或退库流程。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_INBOUND_DRAFT_VOID_AVAILABLE_INVENTORY_FORBIDDEN",
+      });
+    }
+    after = {
+      ...before,
+      status: "已作废",
+      voidReason: reason,
+      voidedBy: operatorName,
+      voidedByUserId: operatorId,
+      voidedAt: now,
+      nextStep: "误录草稿已作废；原图和操作记录继续保留用于审计，不形成库存。",
+      rolls: (before.rolls ?? []).map((roll) => ({
+        ...roll,
+        inventoryStatus: "不可用",
+        labelStatus: "草稿已作废",
+      })),
+    };
+  }
+  if (action === "defer_labels") {
+    if (cleanText(before.documentDirection) === "supplier_return") throw Object.assign(new Error("退货单不生成入库卷码或标签。"), {
+      statusCode: 409, code: "RAW_MATERIAL_RETURN_LABEL_DEFER_FORBIDDEN",
+    });
+    if (before.status !== "已复核待打印标签") throw Object.assign(new Error("只有已完成送货单复核的卷料可以保存为待补标。"), {
+      statusCode: 409, code: "RAW_MATERIAL_LABEL_DEFER_REQUIRES_REVIEW",
+    });
+    const rolls = before.rolls ?? [];
+    const rollIds = rolls.map((roll) => cleanText(roll.id));
+    if (!rolls.length || rollIds.some((rollId) => !rollId) || new Set(rollIds).size !== rollIds.length) {
+      throw Object.assign(new Error("每一卷必须先生成唯一卷码，才能暂缓打印。"), {
+        statusCode: 422, code: "RAW_MATERIAL_LABEL_DEFER_UNIQUE_ROLL_CODE_REQUIRED",
+      });
+    }
+    const invalidWeights = rolls.filter((roll) => !(Number(roll.weightKg) > 0));
+    if (invalidWeights.length) throw Object.assign(new Error("每一卷必须先确认独立重量，才能暂缓打印。"), {
+      statusCode: 422, code: "RAW_MATERIAL_LABEL_DEFER_ROLL_WEIGHT_REQUIRED",
+    });
+    after = {
+      ...before,
+      status: "已入库待补打标签",
+      labelDeferredBy: operatorName,
+      labelDeferredByUserId: operatorId,
+      labelDeferredAt: now,
+      nextStep: "逐卷卷码已生成，实体标签待补打；当前卷料保存在原料待补标区，补打并贴标核对前不计入可用库存。",
+      rolls: rolls.map((roll) => ({
+        ...roll,
+        inventoryStatus: roll.inventoryStatus === "可用" ? roll.inventoryStatus : "待补标",
+        labelStatus: roll.inventoryStatus === "可用" ? roll.labelStatus : "标签待补打",
+        location: roll.inventoryStatus === "可用" ? roll.location : "原料待补标区",
+      })),
+    };
+  }
   if (action === "print_labels") {
     if (cleanText(before.documentDirection) === "supplier_return") throw Object.assign(new Error("退货单只保存退货复核，不生成入库卷标、不增加库存。"), {
       statusCode: 409, code: "RAW_MATERIAL_RETURN_LABEL_PRINT_FORBIDDEN",
     });
-    if (before.status !== "已复核待打印标签") throw Object.assign(new Error("送货单必须先完成办公室人工复核，才能打印一卷一标。"), {
+    if (!["已复核待打印标签", "已入库待补打标签"].includes(before.status)) throw Object.assign(new Error("送货单必须先完成办公室人工复核，才能打印一卷一标。"), {
       statusCode: 409, code: "RAW_MATERIAL_LABEL_PRINT_REQUIRES_REVIEW",
     });
     const unprintableRolls = (before.rolls ?? []).filter((roll) => roll.inventoryStatus !== "可用" && !(Number(roll.weightKg) > 0));
@@ -355,10 +407,11 @@ export function applyRawMaterialInboundAction(input = {}) {
         labelPrintedAt: roll.inventoryStatus === "可用" ? roll.labelPrintedAt : now,
         labelPrintedBy: roll.inventoryStatus === "可用" ? roll.labelPrintedBy : operatorName,
         labelPrintedByUserId: roll.inventoryStatus === "可用" ? roll.labelPrintedByUserId : operatorId,
+        inventoryStatus: roll.inventoryStatus === "待补标" ? "不可用" : roll.inventoryStatus,
+        location: roll.inventoryStatus === "待补标" ? "原料待检区" : roll.location,
       })),
     };
   }
-
   if (action === "attach_confirm") {
     const rollId = cleanText(input.body?.rollId);
     if (!rollId) {
@@ -463,7 +516,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       rolls: nextRolls,
     };
   }
-
   if (action === "void_label" || action === "reprint_label") {
     const rollId = cleanText(input.body?.rollId);
     if (!rollId) {
@@ -521,10 +573,8 @@ export function applyRawMaterialInboundAction(input = {}) {
       rolls: nextRolls,
     };
   }
-
   if (action === "stage_supplier_return") after = applyStageRawMaterialSupplierReturn({ before, inbounds, body: input.body, operatorId, operatorName, now });
   if (action === "confirm_supplier_return_shipment") after = applyConfirmRawMaterialSupplierReturnShipment({ before, body: input.body, operatorId, operatorName, now });
-
   if (action === "issue_to_machine") {
     const rollId = cleanText(input.body?.rollId);
     const machineId = cleanText(input.body?.machineId);
@@ -756,7 +806,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       rolls: nextRolls,
     };
   }
-
   if (action === "confirm_consumption") {
     const rollId = cleanText(input.body?.rollId);
     const requestedWeightKg = Number(input.body?.consumedWeightKg ?? input.body?.weightKg);
@@ -778,7 +827,6 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_CONSUMPTION_MEASURE_REQUIRES_ROLL",
       });
     }
-
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     for (const roll of targetMachineSideRolls) {
       const issueRecord = existingIssueRecords.find((record) => record.rollId === roll.id);
@@ -798,7 +846,6 @@ export function applyRawMaterialInboundAction(input = {}) {
         });
       }
     }
-
     const consumptionRecordId = `RMI-CONS-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
     const consumedRollIds = new Set(targetMachineSideRolls.map((roll) => roll.id));
     const consumptionRecords = targetMachineSideRolls.map((roll, rollIndex) => {
@@ -913,7 +960,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       rolls: nextRolls,
     };
   }
-
   if (action === "return_leftover") {
     const rollId = cleanText(input.body?.rollId);
     const machineSideRolls = (before.rolls ?? []).filter((roll) => roll.inventoryStatus === "机边领用");
@@ -933,7 +979,6 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_LEFTOVER_MEASURE_REQUIRES_ROLL",
       });
     }
-
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     const returnRecordId = `RMI-RET-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
     const returnedRollIds = new Set(targetMachineSideRolls.map((roll) => roll.id));
@@ -1027,7 +1072,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       rolls: nextRolls,
     };
   }
-
   if (action === "review_leftover") {
     const rollId = cleanText(input.body?.rollId);
     const pendingLeftoverRolls = (before.rolls ?? []).filter((roll) => roll.inventoryStatus === "余料待复核");
@@ -1049,7 +1093,6 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_LEFTOVER_REVIEW_MEASURE_REQUIRES_ROLL",
       });
     }
-
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     const existingReturnRecords = normalizeRawMaterialLeftoverReturnRecords(before.rawMaterialLeftoverReturnRecords);
     const reviewRecordId = `RMI-LREV-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
@@ -1178,7 +1221,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       rolls: nextRolls,
     };
   }
-
   if (action === "generate_cost_draft") {
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     const existingConsumptionRecords = normalizeRawMaterialConsumptionRecords(before.rawMaterialConsumptionRecords);
@@ -1248,7 +1290,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       rawMaterialCostAllocationWarnings: result.warnings,
     };
   }
-
   if (action === "confirm_cost_draft") {
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     const existingConsumptionRecords = normalizeRawMaterialConsumptionRecords(before.rawMaterialConsumptionRecords);
@@ -1341,7 +1382,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       ],
     };
   }
-
   if (action === "calibrate_loss") {
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     const existingConsumptionRecords = normalizeRawMaterialConsumptionRecords(before.rawMaterialConsumptionRecords);
@@ -1463,7 +1503,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       rawMaterialCostLossCalibrations: nextCalibrations,
     };
   }
-
   if (action === "generate_margin_snapshot") {
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     const existingConsumptionRecords = normalizeRawMaterialConsumptionRecords(before.rawMaterialConsumptionRecords);
@@ -1605,7 +1644,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       ],
     };
   }
-
   if (action === "review_margin_snapshot") {
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     const existingConsumptionRecords = normalizeRawMaterialConsumptionRecords(before.rawMaterialConsumptionRecords);
@@ -1770,7 +1808,6 @@ export function applyRawMaterialInboundAction(input = {}) {
       rawMaterialOrderMarginReports: nextMarginReports,
     };
   }
-
   if (action === "exception") {
     const reason = cleanText(input.body?.reason) || "现场标记异常，待补充。";
     after = {
@@ -1783,17 +1820,14 @@ export function applyRawMaterialInboundAction(input = {}) {
       note: `${before.note || ""} 入库异常：${reason}`.trim(),
     };
   }
-
   if (after === before) {
     throw Object.assign(new Error(`Unsupported raw material inbound action: ${input.action}`), { statusCode: 400 });
   }
-
   after = {
     ...after,
     revision: expectedRevision + 1,
     updatedAt: now,
   };
-
   const operationLog = {
     id: `RMI-LOG-${Date.now().toString(36).toUpperCase()}`,
     targetType: "raw_material_inbound",
@@ -1808,7 +1842,6 @@ export function applyRawMaterialInboundAction(input = {}) {
     occurredAt: now,
     createdAt: now,
   };
-
   const nextInbounds = [...inbounds];
   nextInbounds[index] = after;
   return {
@@ -1818,19 +1851,16 @@ export function applyRawMaterialInboundAction(input = {}) {
     operationLog,
   };
 }
-
 function findRawMaterialInbound(workspace, inboundId) {
   const safeInboundId = cleanText(inboundId);
   return normalizeRawMaterialInbounds(workspace?.rawMaterialInbounds).find((item) => item.id === safeInboundId) ?? null;
 }
-
 function normalizeRawMaterialLabelMatchResult(value) {
   const normalized = cleanText(value).toLowerCase();
   if (["matched", "match", "一致", "匹配"].includes(normalized)) return "matched";
   if (["mismatched", "mismatch", "不一致", "不匹配"].includes(normalized)) return "mismatched";
   return "";
 }
-
 function buildRawMaterialLabelVerification({ inbound, roll, body, matchResult, operatorId, operatorName, now }) {
   const expectedWeightKg = finiteRawMaterialNumber(roll.weightKg);
   const checkedWeightKg = finiteRawMaterialNumber(body?.checkedWeightKg ?? body?.actualWeightKg ?? expectedWeightKg);
@@ -1858,30 +1888,30 @@ function buildRawMaterialLabelVerification({ inbound, roll, body, matchResult, o
     verifiedAt: now,
   };
 }
-
 function buildRawMaterialInboundLabelStatus({ nextRolls, availableCount, mismatchCount }) {
   if (mismatchCount > 0) return `部分入库，${mismatchCount}卷异常`;
   if (nextRolls.length > 0 && availableCount === nextRolls.length) return "已贴标/可用库存";
   if (availableCount > 0) return "部分贴标";
   return "已打印待贴标";
 }
-
 function nextRawMaterialLabelVersion(roll = {}) {
   return Math.max(0, Math.trunc(Number(roll.labelVersion) || 0)) + 1;
 }
-
 function currentRawMaterialLabelVersion(roll = {}) { return Math.max(1, Math.trunc(Number(roll.labelVersion) || 1)); }
-
 function finiteRawMaterialNumber(value) { const number = Number(value); return Number.isFinite(number) ? number : 0; }
 function normalizeAction(action) {
   const value = cleanText(action);
   const actionMap = new Map([
     ["reparse_ocr", "reparse_ocr"],
+    ["作废误录草稿", "void_draft"], ["void_draft", "void_draft"], ["void-draft", "void_draft"],
     ["复核送货单", "review"],
     ["review", "review"],
     ["打印卷标", "print_labels"],
     ["print_labels", "print_labels"],
     ["print-labels", "print_labels"],
+    ["暂缓打印卷标", "defer_labels"],
+    ["defer_labels", "defer_labels"],
+    ["defer-labels", "defer_labels"],
     ["确认贴标入库", "attach_confirm"],
     ["attach_confirm", "attach_confirm"],
     ["attach-confirm", "attach_confirm"],
@@ -1927,8 +1957,10 @@ function normalizeAction(action) {
 }
 function getRawMaterialActionReason(action) {
   if (action === "reparse_ocr") return "使用已保存的 OCR 表格升级解析结果，未再次请求云端 OCR";
+  if (action === "void_draft") return "作废尚未形成库存的误录原材料草稿，保留原图和操作审计";
   if (action === "review") return "人工复核原材料送货单、OCR 字段和实物原标签";
   if (action === "print_labels") return "打印一卷一标，等待逐卷贴标和人工核对";
+  if (action === "defer_labels") return "逐卷卷码已生成；现场暂缓打印，卷料保存为待补标且不计入可用库存";
   if (action === "attach_confirm") return "逐卷人工核对标签、实物重量、颜色、规格和库位";
   if (action === "void_label") return "单独作废异常卷/件的旧标签，不影响其他已确认卷/件";
   if (action === "reprint_label") return "单独重打异常卷/件标签，等待重新贴标和人工核对";
@@ -1946,7 +1978,6 @@ function getRawMaterialActionReason(action) {
   if (action === "exception") return "原材料入库异常，等待补充证据或供应商确认";
   return "原材料入库动作";
 }
-
 function summarizeRawMaterialInbound(item = {}) {
   return {
     inboundId: item.id,
@@ -1972,7 +2003,6 @@ function summarizeRawMaterialInbound(item = {}) {
     ocrExcludedLineCount: (item.ocrLines ?? []).filter((line) => (line.excludedRollIndices ?? []).length > 0).length, ocrExcludedRollCount: (item.ocrLines ?? []).flatMap((line) => Array.isArray(line.excludedRollIndices) ? line.excludedRollIndices : []).length,
   };
 }
-
 function buildRawMaterialSplitRollId(rolls = [], sourceRollId = "") {
   const safeSourceRollId = cleanText(sourceRollId);
   const existingIds = new Set((Array.isArray(rolls) ? rolls : []).map((roll) => cleanText(roll.id)));
@@ -1982,7 +2012,6 @@ function buildRawMaterialSplitRollId(rolls = [], sourceRollId = "") {
   }
   return `${safeSourceRollId}-S${Date.now().toString(36).toUpperCase()}`;
 }
-
 function roundWeight(value) {
   const number = Number(value);
   if (!Number.isFinite(number)) return 0;

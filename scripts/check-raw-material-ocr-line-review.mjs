@@ -15,6 +15,7 @@ const lines = [
       productName: "无纺布卷料",
       materialType: "无纺布",
       supplierColor: "白色",
+      factoryColor: "本白",
       spec: "90g*1.6米",
       rollCount: 2,
       totalWeightKg: 103.5,
@@ -32,6 +33,7 @@ const lines = [
       productName: "无纺布卷料",
       materialType: "无纺布",
       supplierColor: "天兰条",
+      factoryColor: "天兰",
       spec: "",
       rollCount: 1,
       totalWeightKg: 50,
@@ -82,6 +84,7 @@ assert.equal(reviewedLines[1].values.materialCategory, "提手条");
 assert.equal(reviewedLines[1].values.materialType, "提手");
 assert.equal(reviewedLines[1].values.productName, "提手条");
 assert.equal(reviewedLines[1].values.supplierColor, "天兰");
+assert.equal(reviewedLines[1].values.factoryColor, "天兰");
 assert.equal(reviewedLines[1].reviewedFields.find((field) => field.key === "spec").reviewStatus, "人工接受");
 
 validateRawMaterialOcrLineReviewSummary({
@@ -105,9 +108,10 @@ const falsePositiveLine = {
   lineId: "OCR-T1-FOOTER",
   sourceText: "426928.4",
   values: {
-    productName: "",
-    materialType: "",
-    supplierColor: "",
+      productName: "",
+      materialType: "",
+      supplierColor: "",
+      factoryColor: "",
     spec: "426928.4",
     rollCount: 0,
     totalWeightKg: 0,
@@ -200,6 +204,37 @@ assert.throws(
   () => applyRawMaterialOcrLineReviews({ lines, lineReviews: [lineReviews[0]] }),
   (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_REQUIRED",
 );
+assert.throws(
+  () => applyRawMaterialOcrLineReviews({
+    lines,
+    lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
+      ? { ...entry, values: { ...entry.values, factoryColor: "待确认" } }
+      : entry),
+  }),
+  (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_REQUIRED_FIELDS_MISSING",
+  "each physical material line requires a human-confirmed canonical factory color",
+);
+
+assert.throws(
+  () => applyRawMaterialOcrLineReviews({
+    lines,
+    lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
+      ? { ...entry, values: { ...entry.values, unitPrice: 0 } }
+      : entry),
+  }),
+  (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_UNIT_PRICE_REQUIRED",
+  "unit price must be positive",
+);
+assert.throws(
+  () => applyRawMaterialOcrLineReviews({
+    lines,
+    lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
+      ? { ...entry, values: { ...entry.values, amount: 499 } }
+      : entry),
+  }),
+  (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_CALCULATION_MISMATCH",
+  "weight multiplied by unit price must reconcile to the row amount",
+);
 const stripWithoutMeters = applyRawMaterialOcrLineReviews({
   lines,
   lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
@@ -259,7 +294,7 @@ const returnLines = [{
   values: {
     productName: "退带色布",
     materialType: "无纺布",
-    supplierColor: "",
+    supplierColor: "带色",
     spec: "",
     rollCount: 2,
     totalWeightKg: -28.4,

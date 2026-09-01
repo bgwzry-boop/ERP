@@ -6,7 +6,7 @@ import {
   generateOfficeRawMaterialSupplierPayableDraft,
   recognizeOfficeRawMaterialDeliveryNote,
   updateOfficeRawMaterialInboundAction,
-} from "../services/officeRawMaterialApiClient.js";
+} from "../services/officeRawMaterialLazyApi.js";
 import {
   applyRawMaterialInboundLocalAction,
   buildRawMaterialInboundToastText,
@@ -58,13 +58,42 @@ export function createOfficeRawMaterialActions({
       sourceContentDataUrl: file.sourceContentDataUrl,
       sourceFile: file.sourceFile,
       captureId: file.captureId,
+      documentDirectionHint: file.documentDirectionHint,
+      supplierNameHint: file.supplierNameHint,
       sourceAttachmentId: file.sourceAttachmentId,
       sourceNormalizedForOcr: file.sourceNormalizedForOcr === true,
       pdfPageNumber: file.pdfPageNumber,
       useNewModel: false,
       pages: Array.isArray(file.pages) ? file.pages : undefined,
       onProgress: file.onProgress,
+      signal: file.signal,
+      duplicateConfirmationToken: file.duplicateConfirmationToken,
+      ocrJobId: file.ocrJobId,
     });
+    if (
+      result.blocked &&
+      result.error?.code === "RAW_MATERIAL_DELIVERY_NOTE_DUPLICATE_CONFIRMATION_REQUIRED" &&
+      result.error?.details?.confirmationToken &&
+      globalThis.confirm?.(`${result.error.message}\n\n确认继续后会保留为另一张独立草稿，不会自动合并。`)
+    ) {
+      return recognizeRawMaterialDeliveryNote({
+        ...file,
+        duplicateConfirmationToken: result.error.details.confirmationToken,
+        ocrJobId: result.error.details.jobId,
+      });
+    }
+    if (
+      result.blocked &&
+      result.error?.code === "RAW_MATERIAL_DELIVERY_NOTE_PAGE_OCR_FAILED" &&
+      result.error?.details?.jobId &&
+      globalThis.confirm?.(`${result.error.message}\n\n确认后只重试失败页，已经成功的页面不会重新上传或重复识别。`)
+    ) {
+      return recognizeRawMaterialDeliveryNote({
+        ...file,
+        ocrJobId: result.error.details.jobId,
+      });
+    }
+    if (result.cancelled) return null;
     if (result.blocked || !result.inbound?.id) {
       const message = result.error?.message ?? "原材料送货单 OCR 识别失败。";
       setRawMaterialInboundMeta((current) => ({
@@ -111,7 +140,12 @@ export function createOfficeRawMaterialActions({
       operatorId: currentUserId,
       operatorName: operatorName(),
       inboundId,
-      expectedRevision: Number(target.revision ?? 0),
+      // A follow-up write in the same UI interaction (for example, reviewing
+      // OCR then deferring labels) must use the version returned by the first
+      // write. React state has not necessarily committed by then, so relying
+      // only on the ref here would submit the old version and cause a false
+      // optimistic-lock conflict.
+      expectedRevision: Number(options.expectedRevision ?? target.revision ?? 0),
       action,
       rollId: options.rollId,
       sourceReturnInboundId: options.sourceReturnInboundId,

@@ -150,10 +150,11 @@ const inboundPageSource = readFileSync(new URL("../src/features/raw-materials/Ra
 const frontendBuildEnv = readFileSync(new URL("../deploy/production/frontend-build.env.example", import.meta.url), "utf8");
 const backendServiceEnv = readFileSync(new URL("../deploy/production/erp-service.env.example", import.meta.url), "utf8");
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-for (const contract of ["扫描标签上的卷码", "选择机台", "确认扫码出库", "暂不关联订单", "不需要再手抄"]) {
+for (const contract of ["今日领料任务", "先选择要送料的任务", "扫描布卷标签", "为这个任务领料", "确认领到", "临时领料"]) {
   assert.equal(scannerPageSource.includes(contract), true, `scanner page should retain ${contract}`);
 }
-assert.match(scannerPageSource, /<select[\s\S]*RAW_MATERIAL_MACHINE_OPTIONS/);
+assert.match(scannerPageSource, /productionTaskId[\s\S]*machineId[\s\S]*按生产任务领料/);
+assert.match(scannerPageSource, /temporaryIssue[\s\S]*<select[\s\S]*RAW_MATERIAL_MACHINE_OPTIONS/);
 for (const contract of ["RawMaterialCode39", "出库时扫描本卷码", "宽幅", "重量"]) {
   assert.equal(labelSheetSource.includes(contract), true, `label print sheet should retain ${contract}`);
 }

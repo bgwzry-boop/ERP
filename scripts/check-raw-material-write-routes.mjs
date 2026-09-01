@@ -48,6 +48,9 @@ const dependencies = {
 };
 dependencies.rawMaterialCommandService = {
   recognizeDeliveryNote: createCommand("recognizeDeliveryNote"),
+  startDeliveryNoteRecognitionJob: createCommand("startOcrJob"),
+  getDeliveryNoteRecognitionJob: createCommand("getOcrJob"),
+  retryDeliveryNoteRecognitionJob: createCommand("retryOcrJob"),
   recordInboundAction: createCommand("inbound"),
   createSupplierStatementReviewDraft: createCommand("createReview"),
   confirmSupplierStatementReview: createCommand("confirmReview"),
@@ -63,10 +66,20 @@ await expectSupplierAction(
   undefined,
   "U-OFFICE-A",
 );
+await expectSupplierAction(
+  "/api/raw-material-inbounds/ocr-jobs",
+  "raw_material.inbound.review",
+  "startOcrJob",
+  undefined,
+  "U-OFFICE-A",
+);
+await expectOcrJobAction("/api/raw-material-inbounds/ocr-jobs/RMOJ-1/status", "getOcrJob");
+await expectOcrJobAction("/api/raw-material-inbounds/ocr-jobs/RMOJ-1/retry", "retryOcrJob");
 
 for (const [action, permission] of [
   ["review", "raw_material.inbound.review"],
   ["print-labels", "raw_material.label.print"],
+  ["defer-labels", "raw_material.label.print"],
   ["void-label", "raw_material.label.print"],
   ["reprint-label", "raw_material.label.print"],
   ["stage-supplier-return", "raw_material.leftover.return"],
@@ -173,6 +186,37 @@ async function expectSupplierAction(pathname, permission, kind, reviewId, fallba
       workspace: dependencies.workspace,
       body: dependencies.body,
       ...(reviewId ? { reviewId } : {}),
+      operatorId: "U-RESOLVED",
+    },
+    {
+      kind: "json",
+      response: dependencies.response,
+      statusCode: 200,
+      payload: { result: kind },
+    },
+  ]);
+}
+
+async function expectOcrJobAction(pathname, kind) {
+  calls.length = 0;
+  assert.equal(await handleRawMaterialWriteRoutes({ ...dependencies, method: "POST", url: new URL(`http://erp.test${pathname}`) }), true);
+  assert.deepEqual(calls, [
+    {
+      kind: "permission",
+      response: dependencies.response,
+      permissionContext: dependencies.permissionContext,
+      permission: "raw_material.inbound.review",
+    },
+    {
+      kind: "operator",
+      permissionContext: dependencies.permissionContext,
+      authContext: dependencies.authContext,
+      fallback: "U-OFFICE-A",
+    },
+    {
+      kind,
+      ...(kind === "retryOcrJob" ? { workspace: dependencies.workspace, body: dependencies.body } : {}),
+      jobId: "RMOJ-1",
       operatorId: "U-RESOLVED",
     },
     {

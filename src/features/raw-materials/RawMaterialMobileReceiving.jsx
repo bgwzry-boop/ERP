@@ -35,6 +35,7 @@ const RAW_MATERIAL_RETURN_STEPS = [
 export function RawMaterialMobileReceiving({
   attachState,
   capturedPages = [],
+  documentDirectionHint = "supplier_delivery",
   deliveryNoteOcrError,
   deliveryNoteOcrLoading,
   deliveryNoteOcrProgress,
@@ -46,6 +47,8 @@ export function RawMaterialMobileReceiving({
   onDeliveryNotePageSelect,
   onDeliveryNotePageRemove,
   onDeliveryNotePagesClear,
+  onDocumentDirectionHintChange,
+  onDeferPrint,
   onPrint,
   onStageChange,
   printState,
@@ -53,6 +56,9 @@ export function RawMaterialMobileReceiving({
   records = [],
   reviewState,
   selected,
+  supplierNameHint = "",
+  supplierOptions = [],
+  onSupplierNameHintChange,
 }) {
   const pendingRecords = useMemo(
     () => records.filter((item) => {
@@ -124,11 +130,16 @@ export function RawMaterialMobileReceiving({
             deliveryNoteOcrProgress={deliveryNoteOcrProgress}
             deliveryNoteOcrResult={deliveryNoteOcrResult}
             capturedPages={capturedPages}
+            documentDirectionHint={documentDirectionHint}
             onDeliveryNoteRecognize={onDeliveryNoteRecognize}
             onDeliveryNotePageSelect={onDeliveryNotePageSelect}
             onDeliveryNotePageRemove={onDeliveryNotePageRemove}
             onDeliveryNotePagesClear={onDeliveryNotePagesClear}
+            onDocumentDirectionHintChange={onDocumentDirectionHintChange}
+            onSupplierNameHintChange={onSupplierNameHintChange}
             reviewState={reviewState}
+            supplierNameHint={supplierNameHint}
+            supplierOptions={supplierOptions}
           />
 
           {completedRecords.length ? (
@@ -152,6 +163,7 @@ export function RawMaterialMobileReceiving({
         <MobilePrintStage
           mobileMessage={mobileMessage}
           onPrint={onPrint}
+          onDeferPrint={onDeferPrint}
           printState={printState}
           printerDeviceQa={printerDeviceQa}
           selected={selected}
@@ -162,6 +174,7 @@ export function RawMaterialMobileReceiving({
         <MobilePrintStage
           mobileMessage={mobileMessage}
           onPrint={onPrint}
+          onDeferPrint={onDeferPrint}
           onSuccessClose={() => onStageChange?.("print", selected?.id)}
           onSuccessNext={() => onStageChange?.("attach", selected?.id)}
           printState={printState}
@@ -203,6 +216,10 @@ export function RawMaterialMobileReceiving({
       {stage === "return-complete" ? (
         <MobileReturnComplete onHome={() => onStageChange?.("home")} selected={selected} />
       ) : null}
+
+      {stage === "label-deferred" ? (
+        <MobileLabelDeferred onHome={() => onStageChange?.("home")} selected={selected} />
+      ) : null}
     </section>
   );
 }
@@ -229,6 +246,7 @@ function MobilePageHeader({ onBack, pendingCount, stage }) {
 
 function CaptureDeliveryNote({
   capturedPages = [],
+  documentDirectionHint = "supplier_delivery",
   deliveryNoteOcrError,
   deliveryNoteOcrLoading,
   deliveryNoteOcrProgress,
@@ -237,34 +255,74 @@ function CaptureDeliveryNote({
   onDeliveryNotePageSelect,
   onDeliveryNotePageRemove,
   onDeliveryNotePagesClear,
+  onDocumentDirectionHintChange,
+  onSupplierNameHintChange,
   reviewState,
+  supplierNameHint = "",
+  supplierOptions = [],
 }) {
   const [previewPageIndex, setPreviewPageIndex] = useState(null);
   const disabled = reviewState.disabled || deliveryNoteOcrLoading;
   const hasPages = capturedPages.length > 0;
+  const isSupplierReturn = documentDirectionHint === "supplier_return";
   const previewPage = Number.isInteger(previewPageIndex) ? capturedPages[previewPageIndex] : null;
   return (
-    <section className="raw-material-mobile-capture-card" aria-label="拍摄厂家送货单">
-      <header><h2>录入送货单</h2></header>
+    <section className="raw-material-mobile-capture-card" aria-label={isSupplierReturn ? "拍摄厂家退货单" : "拍摄厂家送货单"}>
+      <header><h2>{isSupplierReturn ? "录入退货单" : "录入送货单"}</h2></header>
+      <div className="raw-material-mobile-direction" role="group" aria-label="单据方向">
+        <button
+          aria-pressed={!isSupplierReturn}
+          className={!isSupplierReturn ? "is-active" : ""}
+          disabled={disabled || hasPages}
+          onClick={() => onDocumentDirectionHintChange?.("supplier_delivery")}
+          type="button"
+        >收货入库</button>
+        <button
+          aria-pressed={isSupplierReturn}
+          className={isSupplierReturn ? "is-active is-return" : ""}
+          disabled={disabled || hasPages}
+          onClick={() => onDocumentDirectionHintChange?.("supplier_return")}
+          type="button"
+        >供应商退货</button>
+      </div>
+      <p className="raw-material-mobile-direction-note">
+        {isSupplierReturn ? "退货只保存负数对账证据，不生成卷码、不增加库存。" : "请选择实际业务方向后再拍单；拍摄后不可切换。"}
+      </p>
+      {isSupplierReturn ? (
+        <label className="raw-material-mobile-return-supplier">
+          <span>退给哪家供应商</span>
+          <select
+            aria-label="退货供应商"
+            disabled={disabled || hasPages}
+            onChange={(event) => onSupplierNameHintChange?.(event.target.value)}
+            required
+            value={supplierNameHint}
+          >
+            <option value="">请选择供应商</option>
+            {supplierOptions.map((supplierName) => <option key={supplierName} value={supplierName}>{supplierName}</option>)}
+          </select>
+          <small>有些退货单不印厂家名称；这里的选择作为正式退货归属，OCR 不再猜厂家。</small>
+        </label>
+      ) : null}
       <div className={`raw-material-mobile-capture-actions ${hasPages ? "has-pages" : ""}`}>
         {hasPages ? (
           <section className="raw-material-mobile-captured-pages" aria-label={`已添加 ${capturedPages.length} 页送货单`}>
             <div>
               <strong>已拍 {capturedPages.length} 页</strong>
-              <span>请确认同一张单的页面没有遗漏</span>
+              <span>请确认同一张{isSupplierReturn ? "退货单" : "送货单"}的页面没有遗漏</span>
             </div>
             <button disabled={disabled} onClick={onDeliveryNotePagesClear} type="button">清空重拍</button>
           </section>
         ) : null}
         {hasPages ? (
-          <div className="raw-material-mobile-capture-previews" aria-label="送货单逐页预览">
+          <div className="raw-material-mobile-capture-previews" aria-label={`${isSupplierReturn ? "退货单" : "送货单"}逐页预览`}>
             {capturedPages.map((page, index) => {
               const previewUrl = getDeliveryNoteCapturePreviewUrl(page);
               const isPdf = String(page?.mimeType || page?.sourceMimeType).toLowerCase() === "application/pdf";
               return (
                 <article key={`${page.captureId || "capture"}-${index}-${page.fileName || "page"}`}>
                   <button
-                    aria-label={`查看送货单第 ${index + 1} 页大图`}
+                    aria-label={`查看${isSupplierReturn ? "退货单" : "送货单"}第 ${index + 1} 页大图`}
                     className="raw-material-mobile-capture-preview-open"
                     disabled={!previewUrl}
                     onClick={() => setPreviewPageIndex(index)}
@@ -273,12 +331,12 @@ function CaptureDeliveryNote({
                     {isPdf ? (
                       <span className="raw-material-mobile-capture-pdf"><FileImageOutlined aria-hidden="true" />PDF</span>
                     ) : (
-                      <img alt={`送货单第 ${index + 1} 页缩略图`} src={previewUrl} />
+                      <img alt={`${isSupplierReturn ? "退货单" : "送货单"}第 ${index + 1} 页缩略图`} src={previewUrl} />
                     )}
                     <strong>第 {index + 1} 页</strong>
                   </button>
                   <button
-                    aria-label={`删除送货单第 ${index + 1} 页`}
+                    aria-label={`删除${isSupplierReturn ? "退货单" : "送货单"}第 ${index + 1} 页`}
                     className="raw-material-mobile-capture-preview-remove"
                     disabled={disabled}
                     onClick={() => {
@@ -296,7 +354,7 @@ function CaptureDeliveryNote({
         ) : null}
         <label className={`raw-material-mobile-camera ${disabled ? "is-disabled" : ""}`}>
           <i><CameraOutlined aria-hidden="true" /></i>
-          <span><strong>{deliveryNoteOcrLoading ? "正在处理" : hasPages ? "还有第二页" : "拍送货单"}</strong><small>{hasPages ? "继续拍下一页" : "打开相机"}</small></span>
+          <span><strong>{deliveryNoteOcrLoading ? "正在处理" : hasPages ? "还有第二页" : `拍${isSupplierReturn ? "退货单" : "送货单"}`}</strong><small>{hasPages ? "继续拍下一页" : "打开相机"}</small></span>
           <input
             accept="image/jpeg,image/png,image/bmp"
             capture="environment"
@@ -326,14 +384,14 @@ function CaptureDeliveryNote({
           onClick={onDeliveryNoteRecognize}
           type="button"
         >
-          {deliveryNoteOcrLoading ? (deliveryNoteOcrProgress || "正在识别整张送货单…") : capturedPages.length === 1 ? "没有第二页，开始识别" : `开始识别 ${capturedPages.length} 页`}
+          {deliveryNoteOcrLoading ? (deliveryNoteOcrProgress || `正在识别整张${isSupplierReturn ? "退货单" : "送货单"}…`) : capturedPages.length === 1 ? "没有第二页，开始识别" : `开始识别 ${capturedPages.length} 页`}
         </button>
       ) : null}
       {deliveryNoteOcrResult ? <p className="raw-material-mobile-success" role="status">{deliveryNoteOcrResult}</p> : null}
       {deliveryNoteOcrError ? (
         <div className="raw-material-mobile-action-message is-danger" role="alert">
           <ExclamationCircleOutlined aria-hidden="true" />
-          <div><strong>这张送货单没有识别成功</strong><span>{deliveryNoteOcrError}</span></div>
+          <div><strong>这张{isSupplierReturn ? "退货单" : "送货单"}没有识别成功</strong><span>{deliveryNoteOcrError}</span></div>
         </div>
       ) : null}
       {previewPage ? (
@@ -391,6 +449,7 @@ function StageHeading({ badge, description, title }) {
 
 function MobilePrintStage({
   mobileMessage,
+  onDeferPrint,
   onPrint,
   onSuccessClose,
   onSuccessNext,
@@ -451,6 +510,15 @@ function MobilePrintStage({
       >
         <PrinterOutlined aria-hidden="true" /> {pendingRolls.length ? `打印 ${pendingRolls.length} 张卷标` : "卷标已打印"}
       </button>
+      {pendingRolls.length && selected?.status === "已复核待打印标签" ? (
+        <button
+          className="raw-material-mobile-defer-print"
+          disabled={printState.disabled}
+          onClick={onDeferPrint}
+          type="button"
+        >暂不打印，保存为待补标</button>
+      ) : null}
+      <p className="raw-material-mobile-defer-note">每卷独立卷码已经生成。暂缓打印后卷料保存在待补标区，补打并贴标核对前不计入可用库存。</p>
       {showSuccess ? (
         <div className="raw-material-mobile-print-success" role="dialog" aria-modal="true" aria-label="打印完成">
           <section>
@@ -705,6 +773,32 @@ function MobileReturnComplete({ onHome, selected }) {
   );
 }
 
+function MobileLabelDeferred({ onHome, selected }) {
+  const rollCount = selected?.rolls?.length || Number(selected?.rollCount) || 0;
+  return (
+    <section className="raw-material-mobile-stage-sheet raw-material-mobile-result-sheet" aria-label="卷标待补打">
+      <div className="raw-material-mobile-result-banner is-warning">
+        <CheckCircleOutlined aria-hidden="true" />
+        <div>
+          <strong>{rollCount} 卷已保存，标签待补打</strong>
+          <span>每卷独立卷码已经生成，原单和核对记录也已保存。</span>
+        </div>
+      </div>
+      <dl className="raw-material-mobile-result-facts">
+        <div><dt>供应商</dt><dd>{selected?.supplierName || "供应商待确认"}</dd></div>
+        <div><dt>收货单</dt><dd>{formatRawMaterialDeliveryNoteNo(selected)}</dd></div>
+        <div><dt>卷码</dt><dd>{rollCount} 个独立编号</dd></div>
+        <div><dt>当前库位</dt><dd>原料待补标区</dd></div>
+        <div><dt>库存状态</dt><dd>补打并贴标核对前不可领料</dd></div>
+      </dl>
+      <div className="raw-material-mobile-result-actions">
+        <span />
+        <button onClick={onHome} type="button">继续拍下一张</button>
+      </div>
+    </section>
+  );
+}
+
 function MobileActionMessage({ message }) {
   if (!message) return null;
   return (
@@ -767,7 +861,7 @@ function countResolvedRolls(selected = {}) {
 function getRecordActionLabel(record) {
   const step = getReceivingStep(record);
   if (step === 2) return record?.documentDirection === "supplier_return" ? "核对退货明细" : "核对全部卷材";
-  if (step === 3) return "打印卷标";
+  if (step === 3) return record?.status === "已入库待补打标签" ? "补打卷标" : "打印卷标";
   if (step === 4) {
     return (record.rolls ?? []).some((roll) => roll.labelStatus === "已打印待贴标")
       ? "继续贴标"
@@ -799,11 +893,13 @@ function getStageLabel(stage) {
     "receive-complete": "收货完成",
     "receive-partial": "部分完成",
     "return-complete": "退货已复核",
+    "label-deferred": "已保存待补标",
   }[stage] || "处理中";
 }
 
 function getStageStep(stage) {
   if (stage === "return-complete") return 3;
+  if (stage === "label-deferred") return 4;
   if (stage === "print" || stage === "print-result") return 3;
   if (stage === "print-success" || stage === "attach" || stage === "receive-partial" || stage === "receive-complete") return 4;
   return 1;
