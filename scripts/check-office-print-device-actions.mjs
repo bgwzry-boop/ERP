@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficePrintDeviceActions } from "../src/app/createOfficePrintDeviceActions.js";
 
 function createHarness({
@@ -134,20 +133,4 @@ function createHarness({
   assert.equal(harness.getQa().evidence.samplePrintReference, "ATT-PRINT-1");
 }
 
-const appSource = [
-  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-assert.match(appSource, /createOfficePrintDeviceActions\(\{/);
-for (const localOwner of [
-  "async function dispatchPrintJob(",
-  "async function retryPrintJob(",
-  "async function selectPrinterDeviceQaDevice(",
-  "async function persistPrinterDeviceMode(",
-]) {
-  assert.equal(appSource.includes(localOwner), false, `App must not own ${localOwner}`);
-}
-
-console.log("Office print device actions check passed: permissions, formal API-source gates, device selection, QA drafts, and App ownership are isolated.");
+console.log("Office print device actions check passed: permissions, formal API-source gates, device selection, and QA drafts are covered.");

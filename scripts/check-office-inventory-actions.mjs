@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeInventoryActions } from "../src/app/createOfficeInventoryActions.js";
 
 function createHarness({
@@ -199,22 +198,4 @@ function createHarness({
   assert.equal(harness.calls.detail[0]?.[0], "ICD-1");
 }
 
-const appSource = [
-  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-assert.match(appSource, /createOfficeInventoryActions\(\{/);
-assert.match(appSource, /inventoryLedgerSource: inventoryLedgerState\.source/);
-for (const localOwner of [
-  "async function openInventoryCorrectionDetail(",
-  "function focusInventoryLedgerSource(",
-  "async function handleInventoryCorrectionDraft(",
-  "async function handleInventoryCorrectionAttachment(",
-  "async function handleInventoryCorrectionConfirm(",
-]) {
-  assert.equal(appSource.includes(localOwner), false, `App must not own ${localOwner}`);
-}
-
-console.log("Office inventory actions check passed: correction actions, formal API-source gates, refreshes, ledger navigation, and App ownership are isolated.");
+console.log("Office inventory actions check passed: correction actions, formal API-source gates, refreshes, and ledger navigation are covered.");

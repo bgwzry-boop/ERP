@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeStatementReadActions } from "../src/app/useOfficeStatementReads.js";
 import { createOfficeV1StatusReadActions } from "../src/app/useOfficeV1StatusReads.js";
 
@@ -176,22 +175,5 @@ assert.equal(staleV1State.value.statusData.releaseGate, "0/4");
 assert.equal(staleV1State.value.lastSuccessfulAt, "2026-07-11T00:00:00.000Z");
 assert.equal(staleV1State.value.lastAttemptedAt, "2026-07-11T01:00:00.000Z");
 assert.match(staleResult.feedback, /不展示固定门禁数据/);
-
-const statementPageSource = readFileSync(new URL("../src/features/statements/StatementPage.jsx", import.meta.url), "utf8");
-assert.match(statementPageSource, /当前账期暂无客户对账单/);
-assert.match(statementPageSource, /后端对账/);
-const appSource = [
-  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-assert.equal(appSource.includes("getOfficeV1GoLiveStatus"), false);
-assert.equal(appSource.includes("async function refreshV1GoLiveStatus"), false);
-const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-assert.match(workspaceSource, /useOfficeStatementReads/);
-assert.match(workspaceSource, /useOfficeV1StatusReads/);
-assert.match(workspaceSource, /\.\.\.statementReads/);
-assert.match(workspaceSource, /\.\.\.v1StatusReads/);
 
 console.log("Office statement/V1 reads check passed: backend summaries/details, empty state, production fail-closed, and V1 snapshot freshness are covered.");

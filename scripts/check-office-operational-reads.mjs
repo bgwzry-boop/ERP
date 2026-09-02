@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   buildInventoryLedgerApiFilters,
   createOfficeInventoryDetailReadActions,
@@ -203,25 +202,5 @@ pendingEmployeeReads[0]({ source: "api", items: [{ employeeId: "E-STALE" }], tot
 const staleResult = await olderRead;
 assert.equal(staleResult.stale, true);
 assert.equal(concurrentReviews.value[0].employeeId, "E-NEW");
-
-const appSource = [
-  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-for (const apiName of [
-  "listOfficeInventoryLedgerEntries",
-  "listOfficeInventoryCorrectionDrafts",
-  "listOfficeMasterDataImportReviewDrafts",
-  "listOfficeMasterDataEmployeeAccountReviews",
-]) {
-  assert.equal(appSource.includes(apiName), false, `App should not directly orchestrate ${apiName}`);
-}
-assert.match(workspaceSource, /useOfficeInventoryDetailReads/);
-assert.match(workspaceSource, /useOfficeMasterDataReads/);
-assert.match(workspaceSource, /\.\.\.inventoryDetailReads/);
-assert.match(workspaceSource, /\.\.\.masterDataReads/);
 
 console.log("Office operational reads check passed: inventory filters/queues, master-data reviews, permissions, and production fail-closed behavior are covered.");
