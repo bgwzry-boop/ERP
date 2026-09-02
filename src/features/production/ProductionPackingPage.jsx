@@ -3,31 +3,23 @@ import {
   DataState,
   DataTable,
   DetailPane,
-  InfoGrid,
   MetricStrip,
   OperationalPanel,
   PanelHeader,
-  StatusPill,
   Timeline,
 } from "../../shared/ui/operational.jsx";
 import {
   buildPackingTaskRows,
   buildPrintWorkspaceItems,
-  buildProductionPackingSourceDetailRows,
   findFocusedProductionLine,
   findScheduleQueueItemForLine,
-  formatCompactDateTime,
-  formatProductionDailyProgressLabel,
-  formatProductionFinishedGoodsPhotoLabel,
   getBooleanInput,
   getDefaultQueueMoveTargetMachineId,
   getNormalizedQueueMoveSeq,
   getNumericInput,
   getProductionDailyProgress,
   getProductionFinishedGoodsPhoto,
-  getProductionFinishedGoodsPhotoTone,
   getProductionMachineIdLabel,
-  getProductionPackingDetailSourceLabel,
   getProductionPackingFocusNotice,
   getProductionPackingTaskListStatusText,
   getProductionProcessLabel,
@@ -50,6 +42,15 @@ import {
   ProductionPackingTaskCards,
   ProductionPackingTaskTables,
 } from "./ProductionPackingTaskLists.jsx";
+import {
+  PackingCompletionSection,
+  ProductionFinishedGoodsPhotoSection,
+  ProductionPackingDetailHeader,
+  ProductionPackingSourceDetailCard,
+  ProductionReportConfirmationPanel,
+  ProductionScheduleDecisionSection,
+  ProductionTaskReportInputs,
+} from "./ProductionPackingDetailSections.jsx";
 import { ProductionScheduleActionConfirmationDialog } from "./ProductionScheduleActionConfirmationDialog.jsx";
 import { ProductionScheduleQueueSection } from "./ProductionScheduleQueueSection.jsx";
 import {
@@ -60,11 +61,7 @@ import {
 } from "./ProductionExceptionPanel.jsx";
 import { buildPackingCompletionSummary } from "../../services/packingCompletionConfirmationClient.js";
 import { buildProductionReportSummary } from "../../services/productionReportConfirmationClient.js";
-import {
-  DelegatedBusinessDecisionFields,
-  isDelegatedBusinessDecisionComplete,
-} from "../../components/DelegatedBusinessDecisionFields.jsx";
-import { BusinessDecisionHistoryPanel } from "../../components/BusinessDecisionHistoryPanel.jsx";
+import { isDelegatedBusinessDecisionComplete } from "../../components/DelegatedBusinessDecisionFields.jsx";
 
 const PRODUCTION_WORKBENCH_TABS = [
   { value: "production", label: "生产任务" },
@@ -933,30 +930,21 @@ export function ProductionPackingPage({
           </Suspense>
         ) : detailLine ? (
           <>
-            <div className="production-detail-fixed">
-              <div className="production-current-task">
-                <span>当前任务</span>
-                <strong>{detailMode === "packing" ? selectedPackingTask?.packingTaskId : buildProductionTaskId(selectedProductionLine)}</strong>
-                <p>{findCustomer(detailLine.customerId).name} · {detailLine.size} · {getLineColorSpecLabel(detailLine)} · {getLinePrintSide(detailLine)}</p>
-              </div>
-              <InfoGrid
-                rows={[
-                  ["计划数量", `${detailLine.qty} 个`],
-                  ["交付", detailLine.latest],
-                  ["交付方式", detailLine.fulfillment],
-                  ["状态", detailMode === "packing" ? selectedPackingTask.status : detailLine.status],
-                  ["机台", detailMode === "production" ? selectedProductionMachineId : "打包台待分配"],
-                  ["货品", `${detailLine.product} / ${detailLine.size}`],
-                  ["颜色/印刷/提手", `${getLineColorSpecLabel(detailLine)} / ${getLinePrintSide(detailLine)}`],
-                  ["排产发布", detailMode === "production" ? (selectedPublishedScheduleId ? `${selectedProductionMachineId} / ${selectedPublishedScheduleId}` : "未发布到车间任务池") : "生产完成后进入打包"],
-                  ["库存键", detailInventoryItem ? `${detailInventoryItem.id} / ${detailInventoryItem.zone}` : "未找到匹配库存键"],
-                  ["跨日进度", formatProductionDailyProgressLabel(detailLine) || "暂无日报数"],
-                  ["成品图", detailMode === "production" ? formatProductionFinishedGoodsPhotoLabel(selectedFinishedGoodsPhoto) : "生产侧确认"],
-                  ["生产异常", detailMode === "production" && latestProductionException ? `${latestProductionException.exceptionType} · ${latestProductionException.continuationMode}` : "无"],
-                  ["备注", getLineRemark(detailLine) || "无"],
-                ]}
-              />
-            </div>
+            <ProductionPackingDetailHeader
+              detailInventoryItem={detailInventoryItem}
+              detailLine={detailLine}
+              detailMode={detailMode}
+              findCustomer={findCustomer}
+              getLineColorSpecLabel={getLineColorSpecLabel}
+              getLinePrintSide={getLinePrintSide}
+              getLineRemark={getLineRemark}
+              latestProductionException={latestProductionException}
+              selectedFinishedGoodsPhoto={selectedFinishedGoodsPhoto}
+              selectedPackingTask={selectedPackingTask}
+              selectedProductionMachineId={selectedProductionMachineId}
+              selectedPublishedScheduleId={selectedPublishedScheduleId}
+              selectedProductionTaskId={buildProductionTaskId(selectedProductionLine)}
+            />
             <div className="production-detail-scroll">
             {visibleSourceDetail ? (
               <ProductionPackingSourceDetailCard detailState={visibleSourceDetail} detailMode={detailMode} />
@@ -964,54 +952,19 @@ export function ProductionPackingPage({
             {detailMode === "production" ? (
               <>
                 {!productionReportConfirmation ? (
-                  <>
-                <section className="detail-section production-machine-proof">
-                  <div className="section-title-row">
-                    <h3>机器计数 / 动作次数（仅作生产凭证）</h3>
-                    <button type="button" onClick={() => updateReportInput("machineCount", 0)}>清零计数</button>
-                  </div>
-                  <div className="machine-proof-metrics">
-                    <span>计划动作次数<strong>{Number(selectedProductionLine.qty || 0).toLocaleString("zh-CN")} 次</strong></span>
-                    <span>机器动作次数<strong>{Number(reportMachineCount || 0).toLocaleString("zh-CN")} 次</strong></span>
-                    <span>良品动作次数<strong>{Number(reportQualifiedQty || 0).toLocaleString("zh-CN")} 次</strong></span>
-                    <span>不良动作次数<strong>{Number(reportExceptionQty || 0).toLocaleString("zh-CN")} 次</strong></span>
-                  </div>
-                  <p>仅用于生产过程追溯，不作为合格数量、库存、履约数量或计费数量。</p>
-                </section>
-                <section className="detail-section">
-                  <h3>合格产出（用于交付与入库）</h3>
-                  <div className="detail-form">
-                    <label>
-                      <span>合格数量</span>
-                      <input type="number" min="1" value={reportQualifiedQty} onChange={(event) => updateReportInput("qualifiedQty", event.target.value)} />
-                    </label>
-                    <label>
-                      <span>异常/废品数</span>
-                      <input type="number" min="0" value={reportExceptionQty} onChange={(event) => updateReportInput("exceptionQty", event.target.value)} />
-                    </label>
-                    <label>
-                      <span>机器计数/动作次数</span>
-                      <input type="number" min="0" placeholder="只作凭证" value={reportMachineCount} onChange={(event) => updateReportInput("machineCount", event.target.value)} />
-                    </label>
-                  </div>
-                  <div className="action-row production-qualified-submit">
-                    <button
-                      className="primary-action"
-                      disabled={reportDisabled || Boolean(productionReportConfirmation)}
-                      ref={productionCompleteReportTriggerRef}
-                      title={reportTitle}
-                      onClick={() => requestProductionReportConfirmation("complete")}
-                    >
-                      提交合格数量
-                    </button>
-                  </div>
-                </section>
-                  </>
+                  <ProductionTaskReportInputs
+                    completeReportTriggerRef={productionCompleteReportTriggerRef}
+                    confirmationOpen={Boolean(productionReportConfirmation)}
+                    onChange={updateReportInput}
+                    onRequestComplete={() => requestProductionReportConfirmation("complete")}
+                    reportDisabled={reportDisabled}
+                    reportExceptionQty={reportExceptionQty}
+                    reportMachineCount={reportMachineCount}
+                    reportQualifiedQty={reportQualifiedQty}
+                    reportTitle={reportTitle}
+                    selectedProductionLine={selectedProductionLine}
+                  />
                 ) : null}
-                <section className="detail-section production-transaction-result">
-                  <h3>事务结果</h3>
-                  <p>报当日数量只记录跨日进度，不入库、不占用、不生成打包任务；报工完成才会把合格数量入库并占用给该订单。</p>
-                </section>
                 <ProductionExceptionPanel
                   affectsDelivery={productionExceptionAffectsDelivery}
                   estimatedLossQty={productionExceptionLossQty}
@@ -1044,89 +997,45 @@ export function ProductionPackingPage({
                     rows={[]}
                   />
                 </section>
-                <section className="detail-section finished-goods-photo-section">
-                  <div className="section-title-row">
-                    <h3>定制成品图</h3>
-                    <StatusPill tone={getProductionFinishedGoodsPhotoTone(selectedFinishedGoodsPhoto)}>
-                      {selectedFinishedGoodsPhoto.status}
-                    </StatusPill>
-                  </div>
-                  <InfoGrid
-                    rows={[
-                      ["附件", selectedFinishedGoodsPhoto.fileName || selectedFinishedGoodsPhoto.attachmentId || "未上传"],
-                      ["上传", selectedFinishedGoodsPhoto.uploadedAt ? formatCompactDateTime(selectedFinishedGoodsPhoto.uploadedAt) : "未上传"],
-                      ["复核", selectedFinishedGoodsPhoto.reviewedAt ? formatCompactDateTime(selectedFinishedGoodsPhoto.reviewedAt) : "待确认"],
-                      ["退回原因", selectedFinishedGoodsPhoto.rejectedReason || "无"],
-                    ]}
-                  />
-                  <div className="action-row">
-                    <button
-                      disabled={finishedPhotoUploadDisabled}
-                      title={finishedPhotoUploadTitle}
-                      onClick={() =>
-                        onAction("上传成品图", {
-                          orderLineId: selectedProductionLine.id,
-                          orderLine: selectedProductionLine,
-                          productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
-                        })
-                      }
-                    >
-                      上传成品图
-                    </button>
-                    <button
-                      className="primary-action"
-                      disabled={finishedPhotoReviewDisabled}
-                      title={finishedPhotoReviewTitle}
-                      onClick={() =>
-                        onAction("确认成品图", {
-                          orderLineId: selectedProductionLine.id,
-                          orderLine: selectedProductionLine,
-                          productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
-                        })
-                      }
-                    >
-                      确认成品图
-                    </button>
-                    <button
-                      disabled={finishedPhotoRejectDisabled}
-                      title={finishedPhotoRejectTitle}
-                      onClick={() =>
-                        onAction("退回成品图", {
-                          orderLineId: selectedProductionLine.id,
-                          orderLine: selectedProductionLine,
-                          productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
-                        })
-                      }
-                    >
-                      退回重拍
-                    </button>
-                  </div>
-                </section>
-                <section className="detail-section production-schedule-decision-section">
-                  <h3>排产经营决定</h3>
-                  {!scheduleDirectAllowed ? (
-                    <DelegatedBusinessDecisionFields
-                      scope="production_schedule"
-                      businessType="production_task"
-                      businessId={selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine)}
-                      authState={authState}
-                      operatorId={currentUser?.userId}
-                      operatorName={currentUser?.displayName}
-                      value={scheduleDecision}
-                      onChange={setScheduleDecision}
-                      title="排产决定代录"
-                      disabled={scheduleActionSubmitting || Boolean(scheduleActionConfirmation)}
-                    />
-                  ) : (
-                    <p className="form-note">当前管理账号直接决定；操作人、决定内容、目标任务和影响范围仍写入审计。</p>
-                  )}
-                  <BusinessDecisionHistoryPanel
-                    authState={authState}
-                    operatorId={currentUser?.userId}
-                    businessType="production_task"
-                    businessId={selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine)}
-                  />
-                </section>
+                <ProductionFinishedGoodsPhotoSection
+                  finishedGoodsPhoto={selectedFinishedGoodsPhoto}
+                  onAccept={() =>
+                    onAction("确认成品图", {
+                      orderLineId: selectedProductionLine.id,
+                      orderLine: selectedProductionLine,
+                      productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
+                    })
+                  }
+                  onReject={() =>
+                    onAction("退回成品图", {
+                      orderLineId: selectedProductionLine.id,
+                      orderLine: selectedProductionLine,
+                      productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
+                    })
+                  }
+                  onUpload={() =>
+                    onAction("上传成品图", {
+                      orderLineId: selectedProductionLine.id,
+                      orderLine: selectedProductionLine,
+                      productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
+                    })
+                  }
+                  rejectDisabled={finishedPhotoRejectDisabled}
+                  rejectTitle={finishedPhotoRejectTitle}
+                  reviewDisabled={finishedPhotoReviewDisabled}
+                  reviewTitle={finishedPhotoReviewTitle}
+                  uploadDisabled={finishedPhotoUploadDisabled}
+                  uploadTitle={finishedPhotoUploadTitle}
+                />
+                <ProductionScheduleDecisionSection
+                  authState={authState}
+                  businessId={selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine)}
+                  currentUser={currentUser}
+                  disabled={scheduleActionSubmitting || Boolean(scheduleActionConfirmation)}
+                  directAllowed={scheduleDirectAllowed}
+                  onChange={setScheduleDecision}
+                  scheduleDecision={scheduleDecision}
+                />
                 <div className="action-row">
                   <button
                     disabled={publishScheduleDisabled || Boolean(productionReportConfirmation) || Boolean(scheduleActionConfirmation)}
@@ -1158,123 +1067,31 @@ export function ProductionPackingPage({
                     报当日数量
                   </button>
                 </div>
-                {productionReportConfirmation ? (
-                  <section
-                    aria-describedby="production-report-confirmation-summary"
-                    aria-labelledby="production-report-confirmation-title"
-                    aria-live="assertive"
-                    className="production-report-confirmation"
-                    onKeyDown={handleProductionReportConfirmationKeyDown}
-                    ref={productionReportConfirmationRef}
-                    role="region"
-                    tabIndex={-1}
-                  >
-                    <div className="production-report-confirmation-head">
-                      <div>
-                        <strong id="production-report-confirmation-title">{productionReportConfirmation.summary.title}</strong>
-                        <span id="production-report-confirmation-summary">
-                          {productionReportConfirmation.kind === "daily"
-                            ? "确认后才会写入当日进度；按 Esc 可返回修改。"
-                            : "确认后才会完成生产、入库、占用并创建待打包任务；按 Esc 可返回修改。"}
-                        </span>
-                      </div>
-                      <StatusPill tone="warning">高风险写入</StatusPill>
-                    </div>
-                    <div className="production-report-confirmation-grid">
-                      {productionReportConfirmation.summary.fields.map((item) => (
-                        <div key={item.label}>
-                          <span>{item.label}</span>
-                          <strong>{item.value}</strong>
-                        </div>
-                      ))}
-                    </div>
-                    <ul className="production-report-confirmation-effects">
-                      {productionReportConfirmation.summary.effects.map((item) => <li key={item}>{item}</li>)}
-                    </ul>
-                    <div className="production-report-confirmation-actions">
-                      <button type="button" onClick={returnToProductionReportEdit}>返回修改</button>
-                      <button
-                        className="primary-action"
-                        type="button"
-                        disabled={productionReportConfirmation.kind === "daily" ? reportDailyDisabled : reportDisabled}
-                        onClick={confirmProductionReport}
-                      >
-                        {productionReportConfirmation.kind === "daily" ? "确认提交当日报数" : "确认完成生产报工"}
-                      </button>
-                    </div>
-                  </section>
-                ) : null}
+                <ProductionReportConfirmationPanel
+                  confirmation={productionReportConfirmation}
+                  confirmationRef={productionReportConfirmationRef}
+                  onConfirm={confirmProductionReport}
+                  onKeyDown={handleProductionReportConfirmationKeyDown}
+                  onReturnToEdit={returnToProductionReportEdit}
+                  reportDailyDisabled={reportDailyDisabled}
+                  reportDisabled={reportDisabled}
+                />
               </>
             ) : (
-              <>
-                {!packingCompletionConfirmation ? (
-                  <>
-                    <section className="detail-section">
-                      <h3>包裹明细</h3>
-                      <div className="detail-form">
-                        <label>
-                          <span>实际打包数量</span>
-                          <input type="number" min="1" value={packingActualQty} onChange={(event) => updatePackingInput("actualPackedQty", event.target.value)} />
-                        </label>
-                        <label>
-                          <span>包裹数</span>
-                          <input type="number" min="1" value={packingPackageCount} onChange={(event) => updatePackingInput("packageCount", event.target.value)} />
-                        </label>
-                      </div>
-                    </section>
-                    <section className="detail-section">
-                      <h3>事务结果</h3>
-                      <p>提交后生成包裹记录；快递快运统一进入待打印标签，只有服务端确认打印作业完成后才进入下一步。打包完成本身不扣库存。</p>
-                    </section>
-                  </>
-                ) : null}
-                <div className="action-row">
-                  <button
-                    className="primary-action"
-                    disabled={packingDisabled || Boolean(packingCompletionConfirmation)}
-                    ref={packingCompletionTriggerRef}
-                    title={packingTitle}
-                    onClick={requestPackingCompletion}
-                  >
-                    提交打包完成
-                  </button>
-                </div>
-                {packingCompletionConfirmation ? (
-                  <section
-                    aria-describedby="production-packing-completion-confirmation-summary"
-                    aria-labelledby="production-packing-completion-confirmation-title"
-                    aria-live="assertive"
-                    className="packing-completion-confirmation"
-                    onKeyDown={handlePackingCompletionConfirmationKeyDown}
-                    ref={packingCompletionConfirmationRef}
-                    role="region"
-                    tabIndex={-1}
-                  >
-                    <div className="packing-completion-confirmation-head">
-                      <div>
-                        <strong id="production-packing-completion-confirmation-title">{packingCompletionConfirmation.summary.title}</strong>
-                        <span id="production-packing-completion-confirmation-summary">确认后才会生成包裹并写入打包结果；按 Esc 可返回修改。</span>
-                      </div>
-                      <StatusPill tone="warning">高风险写入</StatusPill>
-                    </div>
-                    <div className="packing-completion-confirmation-grid">
-                      {packingCompletionConfirmation.summary.fields.map((item) => (
-                        <div key={item.label}>
-                          <span>{item.label}</span>
-                          <strong>{item.value}</strong>
-                        </div>
-                      ))}
-                    </div>
-                    <ul className="packing-completion-confirmation-effects">
-                      {packingCompletionConfirmation.summary.effects.map((item) => <li key={item}>{item}</li>)}
-                    </ul>
-                    <div className="packing-completion-confirmation-actions">
-                      <button type="button" onClick={returnToPackingCompletionEdit}>返回修改</button>
-                      <button className="primary-action" type="button" disabled={packingDisabled} onClick={confirmPackingCompletion}>确认提交打包完成</button>
-                    </div>
-                  </section>
-                ) : null}
-              </>
+              <PackingCompletionSection
+                confirmation={packingCompletionConfirmation}
+                confirmationRef={packingCompletionConfirmationRef}
+                confirmationTriggerRef={packingCompletionTriggerRef}
+                onChange={updatePackingInput}
+                onConfirm={confirmPackingCompletion}
+                onKeyDown={handlePackingCompletionConfirmationKeyDown}
+                onRequest={requestPackingCompletion}
+                onReturnToEdit={returnToPackingCompletionEdit}
+                packageCount={packingPackageCount}
+                packedQty={packingActualQty}
+                packingDisabled={packingDisabled}
+                packingTitle={packingTitle}
+              />
             )}
             <Timeline
               items={[
@@ -1302,22 +1119,6 @@ export function ProductionPackingPage({
       submitting={scheduleActionSubmitting}
     />
     </>
-  );
-}
-
-function ProductionPackingSourceDetailCard({ detailState, detailMode }) {
-  const sourceLabel = getProductionPackingDetailSourceLabel(detailState?.source);
-  const sourceTone = detailState?.source === "api" ? "success" : detailState?.error ? "danger" : "warning";
-  const rows = buildProductionPackingSourceDetailRows(detailState, detailMode);
-
-  return (
-    <section className="detail-section production-source-detail-section">
-      <div className="section-head-row">
-        <h3>来源详情</h3>
-        <StatusPill tone={sourceTone}>{sourceLabel}</StatusPill>
-      </div>
-      <InfoGrid rows={rows} />
-    </section>
   );
 }
 
