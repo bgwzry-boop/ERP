@@ -39,6 +39,16 @@ import {
 import { buildPackingCompletionSummary } from "../../services/packingCompletionConfirmationClient.js";
 import { buildProductionReportSummary } from "../../services/productionReportConfirmationClient.js";
 import { isDelegatedBusinessDecisionComplete } from "../../components/DelegatedBusinessDecisionFields.jsx";
+import {
+  buildPackingCompletionActionPayload,
+  buildProductionExceptionActionPayload,
+  buildProductionExceptionResolutionConfirmation,
+  buildProductionReportActionPayload,
+  buildScheduleActionIdempotencyKey,
+  buildScheduleMoveConfirmation,
+  buildScheduleResequenceConfirmation,
+  isProductionReportingBlocked,
+} from "./productionPackingActionBuilders.js";
 
 const PRODUCTION_WORKBENCH_TABS = [
   { value: "production", label: "生产任务" },
@@ -460,41 +470,29 @@ export function ProductionPackingPage({
   function moveSelectedScheduleQueue(direction) {
     if (!selectedScheduleQueueItem || !scheduleDecisionReady || scheduleActionConfirmation) return;
     const nextOrderedItems = moveScheduleQueueItem(selectedMachineScheduleQueueItems, selectedScheduleQueueItem.productionTaskId, direction);
-    if (!nextOrderedItems.length) return;
-    const summary = `${selectedScheduleQueueItem.machineId} 队列${direction === "up" ? "上移" : "下移"} ${selectedScheduleQueueItem.productionTaskId}`;
-    requestScheduleAction("调整排产顺序", {
-      ...scheduleDecisionPayload(summary),
-      machineId: selectedScheduleQueueItem.machineId,
-      businessDecisionTargetId: selectedScheduleQueueItem.productionTaskId,
-      orderedProductionTaskIds: nextOrderedItems.map((item) => item.productionTaskId),
-      affectedRevisions: selectedMachineScheduleQueueItems.map((item) => ({
-        productionTaskId: item.productionTaskId,
-        revision: Number(item.revision ?? 0),
-      })),
-      expectedRevision: selectedMachineScheduleQueueItems.reduce(
-        (sum, item) => sum + Number(item.revision ?? 0),
-        0,
-      ),
-      remark: `${selectedScheduleQueueItem.machineId} ${selectedScheduleQueueItem.productionTaskId} ${direction === "up" ? "上移" : "下移"}`,
-    }, summary, `将同机台 ${nextOrderedItems.length} 条任务按新顺序整体写入；不改库存、合格数量、打包或对账。`);
+    const confirmation = buildScheduleResequenceConfirmation({
+      selectedScheduleQueueItem,
+      selectedMachineScheduleQueueItems,
+      nextOrderedItems,
+      scheduleDecisionPayload,
+      direction,
+    });
+    if (!confirmation) return;
+    requestScheduleAction(confirmation.action, confirmation.payload, confirmation.summary, confirmation.effects);
   }
 
   function moveSelectedScheduleQueueToTarget() {
     if (queueMoveDisabled) return;
-    const summary = `${selectedScheduleQueueItem.productionTaskId} 调整到 ${queueMoveTargetMachineId} #${queueMoveTargetSeq}`;
-    requestScheduleAction("移动排产任务", {
-      ...scheduleDecisionPayload(summary),
-      productionTaskId: selectedScheduleQueueItem.productionTaskId,
-      expectedRevision: Number(selectedScheduleQueueItem.revision ?? 0),
-      orderLineId: selectedScheduleQueueItem.orderLineId,
-      sourceMachineId: selectedScheduleQueueItem.machineId,
-      targetMachineId: queueMoveTargetMachineId,
-      targetQueueSeq: queueMoveTargetSeq,
-      reasonCode: queueMoveReason.value,
-      reasonLabel: queueMoveReason.label,
-      impactSummary: queueMoveImpact.remark,
-      remark: `${queueMoveReason.label}：${selectedScheduleQueueItem.productionTaskId} 从 ${selectedScheduleQueueItem.machineId} 移到 ${queueMoveTargetMachineId} #${queueMoveTargetSeq}；${queueMoveImpact.remark}`,
-    }, summary, `${queueMoveImpact.remark}；更新受影响排产记录、决定证据和审计，不改库存、报工或对账。`);
+    const confirmation = buildScheduleMoveConfirmation({
+      selectedScheduleQueueItem,
+      queueMoveTargetMachineId,
+      queueMoveTargetSeq,
+      queueMoveReason,
+      queueMoveImpact,
+      scheduleDecisionPayload,
+    });
+    if (!confirmation) return;
+    requestScheduleAction(confirmation.action, confirmation.payload, confirmation.summary, confirmation.effects);
   }
 
   function updateQueueMoveTargetMachine(targetMachineId) {
@@ -565,73 +563,45 @@ export function ProductionPackingPage({
   }
 
   function buildProductionReportPayload(kind) {
-    if (!selectedProductionLine) return null;
-    const customer = findCustomer(selectedProductionLine.customerId);
-    const qualifiedQty = Number(reportQualifiedQty || 0);
-    return {
-      entryLabel: "生产/打包工作台",
-      productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
-      productionTask: selectedProductionLine.productionTask ?? selectedProductionLine,
-      orderLineId: selectedProductionLine.id,
-      orderLine: selectedProductionLine,
-      customerName: customer?.name ?? selectedProductionLine.customerName ?? "",
-      goodsSummary: [
-        selectedProductionLine.product ?? selectedProductionLine.productName,
-        selectedProductionLine.size,
-        getLineColorSpecLabel(selectedProductionLine),
-        getLinePrintSide(selectedProductionLine),
-        getLineRemark(selectedProductionLine),
-      ].filter(Boolean).join(" · "),
-      ...(kind === "daily" ? { dailyQualifiedQty: qualifiedQty } : { qualifiedQty }),
-      exceptionQty: Number(reportExceptionQty || 0),
-      machineCount: reportMachineCount === "" ? undefined : Number(reportMachineCount),
-    };
+    return buildProductionReportActionPayload({
+      kind,
+      selectedProductionLine,
+      findCustomer,
+      buildProductionTaskId,
+      getLineColorSpecLabel,
+      getLinePrintSide,
+      getLineRemark,
+      reportQualifiedQty,
+      reportExceptionQty,
+      reportMachineCount,
+    });
   }
 
   function submitProductionException(continuationMode) {
-    if (!selectedProductionLine || !productionExceptionType) return;
-    onAction("上报生产异常", {
-      entryLabel: "生产/打包工作台",
-      productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
-      orderLineId: selectedProductionLine.id,
-      orderLine: selectedProductionLine,
-      exceptionType: productionExceptionType,
+    const payload = buildProductionExceptionActionPayload({
+      selectedProductionLine,
+      buildProductionTaskId,
+      productionExceptionType,
       continuationMode,
-      estimatedLossQty: Number(productionExceptionLossQty || 0),
-      affectsDelivery: productionExceptionAffectsDelivery,
-      remark: productionExceptionRemark,
+      productionExceptionLossQty,
+      productionExceptionAffectsDelivery,
+      productionExceptionRemark,
     });
+    if (payload) onAction("上报生产异常", payload);
   }
 
   function requestProductionExceptionResolutionConfirmation() {
     if (!selectedProductionLine || !latestProductionException || productionExceptionResolutionDisabled) return;
-    const resolutionLabel =
-      productionExceptionResolutionOptions.find((item) => item.value === productionExceptionResolutionCode)?.label ??
-      productionExceptionResolutionCode;
-    setProductionExceptionResolutionConfirmation({
-      payload: {
-        entryLabel: "生产/打包工作台",
-        productionTaskId: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine),
-        orderLineId: selectedProductionLine.id,
-        orderLine: selectedProductionLine,
-        productionException: latestProductionException,
-        productionExceptionId: latestProductionException.productionExceptionId,
-        resolutionCode: productionExceptionResolutionCode,
-        resolutionNote: productionExceptionResolutionNote,
-      },
-      summary: {
-        title: `确认异常处理：${resolutionLabel}`,
-        fields: [
-          { label: "生产任务", value: selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine) },
-          { label: "客户", value: findCustomer(selectedProductionLine.customerId).name },
-          { label: "货品", value: `${selectedProductionLine.product ?? selectedProductionLine.productName ?? ""} / ${selectedProductionLine.size ?? ""}` },
-          { label: "异常", value: `${latestProductionException.exceptionType ?? "生产异常"} / ${latestProductionException.status ?? "待处理"}` },
-          { label: "处理结果", value: resolutionLabel },
-          { label: "处理说明", value: productionExceptionResolutionNote },
-        ],
-        effects: buildProductionExceptionResolutionEffects(productionExceptionResolutionCode),
-      },
-    });
+    setProductionExceptionResolutionConfirmation(buildProductionExceptionResolutionConfirmation({
+      selectedProductionLine,
+      latestProductionException,
+      productionExceptionResolutionCode,
+      productionExceptionResolutionNote,
+      buildProductionTaskId,
+      findCustomer,
+      resolutionOptions: productionExceptionResolutionOptions,
+      buildResolutionEffects: buildProductionExceptionResolutionEffects,
+    }));
   }
 
   function confirmProductionExceptionResolution() {
@@ -688,26 +658,15 @@ export function ProductionPackingPage({
   }
 
   function buildPackingCompletionPayload() {
-    if (!selectedPackingTask?.orderLine) return null;
-    const orderLine = selectedPackingTask.orderLine;
-    const customer = findCustomer(orderLine.customerId);
-    return {
-      entryLabel: "生产/打包工作台",
-      packingTaskId: selectedPackingTask.packingTaskId,
-      packingTask: selectedPackingTask,
-      orderLineId: selectedPackingTask.orderLineId,
-      orderLine,
-      customerName: customer?.name ?? orderLine.customerName ?? "",
-      goodsSummary: [
-        orderLine.product ?? orderLine.productName,
-        orderLine.size,
-        getLineColorSpecLabel(orderLine),
-        getLinePrintSide(orderLine),
-        getLineRemark(orderLine),
-      ].filter(Boolean).join(" · "),
-      actualPackedQty: Number(packingActualQty || 0),
-      packageCount: Number(packingPackageCount || 1),
-    };
+    return buildPackingCompletionActionPayload({
+      selectedPackingTask,
+      findCustomer,
+      getLineColorSpecLabel,
+      getLinePrintSide,
+      getLineRemark,
+      packingActualQty,
+      packingPackageCount,
+    });
   }
 
   function requestPackingCompletion() {
@@ -853,21 +812,4 @@ export function ProductionPackingPage({
     />
     </>
   );
-}
-
-function isProductionReportingBlocked(line) {
-  const status = String(line?.status ?? line?.lineStatus ?? "").trim();
-  return ["异常暂停", "数量差异待处理", "已作废"].includes(status);
-}
-
-function buildScheduleActionIdempotencyKey(action, payload = {}) {
-  const taskId = payload.productionTaskId || payload.machineId || "queue";
-  const revision = Number(payload.expectedRevision ?? 0);
-  const uuid = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-  const actionToken = {
-    发布排产: "publish",
-    移动排产任务: "move",
-    调整排产顺序: "resequence",
-  }[action] ?? "action";
-  return `production-schedule:${actionToken}:${taskId}:${revision}:${uuid}`;
 }

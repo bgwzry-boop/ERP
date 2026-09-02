@@ -5,6 +5,16 @@ import {
   buildProductionFinishedGoodsPhotoActionPayload,
   buildProductionSchedulePublishRequest,
 } from "../src/features/production/productionPackingPresentation.js";
+import {
+  buildPackingCompletionActionPayload,
+  buildProductionExceptionActionPayload,
+  buildProductionExceptionResolutionConfirmation,
+  buildProductionReportActionPayload,
+  buildScheduleActionIdempotencyKey,
+  buildScheduleMoveConfirmation,
+  buildScheduleResequenceConfirmation,
+  isProductionReportingBlocked,
+} from "../src/features/production/productionPackingActionBuilders.js";
 
 const pageSource = readFileSync(new URL("../src/features/production/ProductionPackingPage.jsx", import.meta.url), "utf8");
 const taskPaneSource = readFileSync(new URL("../src/features/production/ProductionPackingTaskPane.jsx", import.meta.url), "utf8");
@@ -95,7 +105,6 @@ assert.match(exceptionFeatureSource, /不会写库存、占用、打包或对账
 assert.match(pageSource, /submitProductionException/);
 assert.match(exceptionFeatureSource, /生产管理处理/);
 assert.match(pageSource, /处理生产异常/);
-assert.match(exceptionFeatureSource, /确认异常处理/);
 assert.match(pageSource, /productionExceptionResolutionConfirmation/);
 assert.match(pageSource, /resolutionConfirmed: true/);
 assert.match(pageSource, /buildProductionExceptionResolutionEffects/);
@@ -199,4 +208,123 @@ assert.deepEqual(productionLine, {
   status: "待生产",
 });
 
-console.log("Office production/packing page check passed: page ownership, independent print workspace, tab semantics, and machine-count safety labels remain intact.");
+const actionLine = {
+  ...productionLine,
+  customerId: "C-001",
+  productName: "印刷通货袋",
+  size: "40×50",
+};
+const actionHelpers = {
+  findCustomer: () => ({ name: "测试客户" }),
+  buildProductionTaskId,
+  getLineColorSpecLabel: () => "大红",
+  getLinePrintSide: () => "双面",
+  getLineRemark: () => "加急",
+};
+const dailyReportPayload = buildProductionReportActionPayload({
+  kind: "daily",
+  selectedProductionLine: actionLine,
+  ...actionHelpers,
+  reportQualifiedQty: "320",
+  reportExceptionQty: "5",
+  reportMachineCount: "340",
+});
+assert.equal(dailyReportPayload.productionTaskId, "PT-OL-TEST-01");
+assert.equal(dailyReportPayload.dailyQualifiedQty, 320);
+assert.equal(dailyReportPayload.qualifiedQty, undefined);
+assert.equal(dailyReportPayload.exceptionQty, 5);
+assert.equal(dailyReportPayload.machineCount, 340);
+assert.equal(dailyReportPayload.goodsSummary, "印刷通货袋 · 40×50 · 大红 · 双面 · 加急");
+assert.equal(buildProductionReportActionPayload({ selectedProductionLine: null }), null);
+
+const exceptionPayload = buildProductionExceptionActionPayload({
+  selectedProductionLine: actionLine,
+  buildProductionTaskId,
+  productionExceptionType: "机器问题",
+  continuationMode: "暂停等确认",
+  productionExceptionLossQty: "12",
+  productionExceptionAffectsDelivery: true,
+  productionExceptionRemark: "等待维修",
+});
+assert.equal(exceptionPayload.productionTaskId, "PT-OL-TEST-01");
+assert.equal(exceptionPayload.estimatedLossQty, 12);
+assert.equal(exceptionPayload.affectsDelivery, true);
+assert.equal(buildProductionExceptionActionPayload({ selectedProductionLine: actionLine, buildProductionTaskId }), null);
+
+const resolutionConfirmation = buildProductionExceptionResolutionConfirmation({
+  selectedProductionLine: actionLine,
+  latestProductionException: {
+    productionExceptionId: "PEX-001",
+    exceptionType: "机器问题",
+    status: "异常暂停",
+  },
+  productionExceptionResolutionCode: "继续生产",
+  productionExceptionResolutionNote: "维修完成",
+  buildProductionTaskId,
+  findCustomer: actionHelpers.findCustomer,
+  resolutionOptions: [{ value: "继续生产", label: "继续生产" }],
+  buildResolutionEffects: () => ["恢复生产", "不改库存"],
+});
+assert.equal(resolutionConfirmation.payload.productionExceptionId, "PEX-001");
+assert.equal(resolutionConfirmation.summary.title, "确认异常处理：继续生产");
+assert.deepEqual(resolutionConfirmation.summary.effects, ["恢复生产", "不改库存"]);
+assert.equal(buildProductionExceptionResolutionConfirmation({}), null);
+
+const packingTask = {
+  packingTaskId: "PACK-001",
+  orderLineId: actionLine.id,
+  orderLine: actionLine,
+};
+const packingPayload = buildPackingCompletionActionPayload({
+  selectedPackingTask: packingTask,
+  ...actionHelpers,
+  packingActualQty: "798",
+  packingPackageCount: "4",
+});
+assert.equal(packingPayload.customerName, "测试客户");
+assert.equal(packingPayload.actualPackedQty, 798);
+assert.equal(packingPayload.packageCount, 4);
+assert.equal(buildPackingCompletionActionPayload({}), null);
+
+const selectedQueueItem = {
+  productionTaskId: "PT-001",
+  orderLineId: "OL-001",
+  machineId: "BAG-01",
+  queueSeq: 2,
+  revision: 4,
+};
+const machineQueueItems = [
+  { productionTaskId: "PT-002", revision: 3 },
+  selectedQueueItem,
+];
+const resequenceConfirmation = buildScheduleResequenceConfirmation({
+  selectedScheduleQueueItem: selectedQueueItem,
+  selectedMachineScheduleQueueItems: machineQueueItems,
+  nextOrderedItems: [selectedQueueItem, machineQueueItems[0]],
+  scheduleDecisionPayload: (summary) => ({ decisionSummary: summary }),
+  direction: "up",
+});
+assert.equal(resequenceConfirmation.action, "调整排产顺序");
+assert.deepEqual(resequenceConfirmation.payload.orderedProductionTaskIds, ["PT-001", "PT-002"]);
+assert.equal(resequenceConfirmation.payload.expectedRevision, 7);
+assert.equal(resequenceConfirmation.payload.decisionSummary, resequenceConfirmation.summary);
+assert.match(resequenceConfirmation.effects, /不改库存/);
+
+const moveConfirmation = buildScheduleMoveConfirmation({
+  selectedScheduleQueueItem: selectedQueueItem,
+  queueMoveTargetMachineId: "BAG-02",
+  queueMoveTargetSeq: 1,
+  queueMoveReason: { value: "supervisor_order", label: "主管调整" },
+  queueMoveImpact: { remark: "BAG-02 原任务后移" },
+  scheduleDecisionPayload: (summary) => ({ decisionSummary: summary }),
+});
+assert.equal(moveConfirmation.action, "移动排产任务");
+assert.equal(moveConfirmation.payload.sourceMachineId, "BAG-01");
+assert.equal(moveConfirmation.payload.targetMachineId, "BAG-02");
+assert.equal(moveConfirmation.payload.reasonCode, "supervisor_order");
+assert.match(moveConfirmation.effects, /不改库存、报工或对账/);
+assert.match(buildScheduleActionIdempotencyKey("调整排产顺序", { machineId: "BAG-01", expectedRevision: 7 }), /^production-schedule:resequence:BAG-01:7:/);
+assert.equal(isProductionReportingBlocked({ status: "异常暂停" }), true);
+assert.equal(isProductionReportingBlocked({ status: "待生产" }), false);
+
+console.log("Office production/packing page check passed: page ownership, independent print workspace, action builders, tab semantics, and machine-count safety labels remain intact.");
