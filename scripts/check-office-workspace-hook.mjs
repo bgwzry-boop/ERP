@@ -12,9 +12,11 @@ import {
   sanitizeDownloadFileName,
 } from "../src/app/browserFileActions.js";
 import { createOfficePageHelpers } from "../src/app/createOfficePageHelpers.js";
+import { createOfficeWorkbenchRuntimes } from "../src/app/createOfficeWorkbenchRuntimes.js";
 import { useOfficeWorkspace } from "../src/app/useOfficeWorkspace.js";
 import { shouldRefreshMasterDataOnEntry } from "../src/app/useOfficeMasterDataEntryRefresh.js";
 import { loadOfficeWorkspace } from "../src/services/officeMockService.js";
+import { getRolePermissionSet } from "../shared/auth/roleCatalog.js";
 
 const scenarioData = loadOfficeWorkspace();
 let workspace;
@@ -100,6 +102,61 @@ assert.equal(pageHelpers.sampleText, "测试订单文本");
 assert.equal(pageHelpers.currentUser.userId, "U-OFFICE-A");
 assert.equal(pageHelpers.buildProductionTaskId({ id: "OL-1" }), "PT-OL-1");
 assert.equal(pageHelpers.sortTodos, pageHelperStubs.sortTodos);
+
+const runtimeFeedback = [];
+const handleTodo = () => "handled";
+const downloadViewedAttachment = () => "downloaded";
+const runtimeWorkspace = {
+  fulfillments: [{ id: "F-1" }],
+  lastIssuedEmployeeCredential: { userId: "U-1" },
+  masterDataEmployeeAccountReviews: [{ employeeId: "E-1" }],
+  masterDataImportConfirmationPlans: [{ planId: "P-1" }],
+  masterDataImportExecutions: [{ executionId: "X-1" }],
+  masterDataImportReviewDrafts: [{ draftId: "D-1" }],
+  masterDataPrecheckState: { status: "ready" },
+  orderLines: [{ id: "OL-1" }],
+  refreshMasterDataEmployeeAccountReviews: async () => ({ feedback: "账号复核已刷新" }),
+  statements: [{ id: "ST-1" }],
+  workspaceMarker: "preserved",
+};
+const runtimePermissionContext = {
+  ...getRolePermissionSet(["management"]),
+  user: { defaultRole: "management", userId: "U-1" },
+};
+const { overlayRuntime, pageRuntime } = createOfficeWorkbenchRuntimes({
+  attachmentActions: { downloadViewedAttachment },
+  authState: { authenticated: true },
+  currentUser: runtimePermissionContext.user,
+  customers: [{ id: "C-1" }],
+  driverDeliveryActions: {},
+  findCustomer: pageHelperStubs.findCustomer,
+  firstReleaseMode: true,
+  fulfillmentActions: {},
+  getStatementBlockingAmount: pageHelperStubs.getStatementBlockingAmount,
+  interaction: { setToast: (message) => runtimeFeedback.push(message) },
+  inventoryActions: {},
+  masterDataActions: {},
+  officeWorkspace: runtimeWorkspace,
+  orderActions: {},
+  pageHelpers,
+  permissionContext: runtimePermissionContext,
+  printDeviceActions: {},
+  productionPackingActions: {},
+  rawMaterialActions: {},
+  setActivePage: () => {},
+  statementActions: {},
+  todoActions: { handleTodo },
+  v1StatusActions: { refresh: () => {} },
+});
+assert.equal(pageRuntime.workspaceMarker, "preserved");
+assert.equal(pageRuntime.canOpenMasterData, true);
+assert.equal(pageRuntime.handleTodo, handleTodo);
+assert.equal(pageRuntime.firstReleaseMode, true);
+assert.equal(overlayRuntime.downloadViewedAttachment, downloadViewedAttachment);
+assert.equal(overlayRuntime.employeeAccountReviews, runtimeWorkspace.masterDataEmployeeAccountReviews);
+assert.equal(overlayRuntime.fulfillments, runtimeWorkspace.fulfillments);
+assert.equal((await overlayRuntime.onRefreshEmployeeAccountReviews()).feedback, "账号复核已刷新");
+assert.deepEqual(runtimeFeedback, ["账号复核已刷新"]);
 
 const masterDataEntryRef = { current: null };
 const masterDataAuth = { authenticated: true };

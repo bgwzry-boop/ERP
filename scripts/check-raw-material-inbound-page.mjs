@@ -7,11 +7,12 @@ import {
   shouldRotateRawMaterialSourcePreview,
   tightenRawMaterialOcrSourceRowBounds,
 } from "../shared/rawMaterialOcrSourceCrop.js";
+import { resolveOfficeWorkbenchNavigation } from "../src/app/useOfficeWorkbenchNavigation.js";
 import { updateOfficeRawMaterialPurchaseRequestStatus } from "../src/services/officeRawMaterialApiClient.js";
+import { getRolePermissionSet } from "../shared/auth/roleCatalog.js";
 
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
@@ -95,10 +96,20 @@ assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expos
 assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");
 assertIncludes(navigationSource, 'if (defaultRole === "office") return "rawMaterials";', "office phones should enter the existing raw-material mobile flow instead of a compressed PC table");
 assertIncludes(rawMaterialRouteSource, "<RawMaterialInboundPage", "raw-material route should render the inbound page");
-assertIncludes(appSource, "mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage", "App should preserve one business route with viewport-specific workbenches");
-assertIncludes(appSource, "onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote", "desktop and phone raw-material entry should share the formal server OCR action through the route adapter");
-assertIncludes(appSource, "createOfficeRawMaterialActions", "App should compose the raw-material action controller");
-assertExcludes(appSource, "updateOfficeRawMaterialInboundAction", "App should not call the raw-material write client directly");
+const officePermissionContext = {
+  ...getRolePermissionSet(["office"]),
+  user: { defaultRole: "office", userId: "U-OFFICE-A" },
+};
+assert.equal(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "orders",
+    mobileViewport: true,
+    permissionContext: officePermissionContext,
+  }).renderedPage,
+  "rawMaterials",
+  "office phones should reuse the raw-material business route",
+);
+assertIncludes(rawMaterialRouteSource, "onDeliveryNoteRecognize={actions.onDeliveryNoteRecognize}", "desktop and phone raw-material entry should share the formal server OCR action through the route adapter");
 assertIncludes(roleToolReadsSource, "listOfficeRawMaterialInbounds", "role-tool reads should refresh raw-material inbounds through API client");
 assertIncludes(roleToolReadsSource, "listOfficeRawMaterialSupplierStatementReviews", "role-tool reads should refresh supplier statement review drafts through API client");
 assertIncludes(rawMaterialControllerSource, "updateOfficeRawMaterialInboundAction", "raw-material controller should submit actions through API client");

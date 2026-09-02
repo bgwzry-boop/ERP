@@ -18,6 +18,7 @@ import {
   roleNavigationItems,
   toolNavigationGroup,
 } from "../src/app/navigation.js";
+import { resolveOfficeWorkbenchNavigation } from "../src/app/useOfficeWorkbenchNavigation.js";
 import { getRolePermissionSet } from "../shared/auth/roleCatalog.js";
 
 assert.deepEqual(
@@ -102,9 +103,49 @@ assert.equal(getMobileViewportPage("packing", contextFor("workshop")), "workshop
 assert.equal(getMobileViewportPage("rawMaterialScanner", contextFor("packing")), "rawMaterialScanner");
 assert.equal(getMobileViewportPage("attendanceMobile", contextFor("packing")), "attendanceMobile");
 
+assert.deepEqual(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "todos",
+    mobileViewport: false,
+    permissionContext: contextFor("office"),
+  }),
+  {
+    activeMeta: allNavigationItems.find((item) => item.key === "todos"),
+    renderedPage: "todos",
+    roleFocusedShellPage: false,
+  },
+);
+assert.deepEqual(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "orders",
+    mobileViewport: true,
+    permissionContext: contextFor("office"),
+  }),
+  {
+    activeMeta: allNavigationItems.find((item) => item.key === "rawMaterials"),
+    renderedPage: "rawMaterials",
+    roleFocusedShellPage: true,
+  },
+);
+assert.equal(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "inventory",
+    mobileViewport: true,
+    permissionContext: contextFor("management"),
+  }).renderedPage,
+  desktopRequiredMobilePage.key,
+);
+assert.equal(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "inventory",
+    mobileViewport: false,
+    permissionContext: contextFor("finance"),
+  }).renderedPage,
+  "statements",
+);
+
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/OfficeWorkbenchShell.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
@@ -113,8 +154,6 @@ const navigationComponentSource = readFileSync(new URL("../src/app/AppNavigation
 const mobileRoleHeaderSource = readFileSync(new URL("../src/app/MobileRoleShellHeader.jsx", import.meta.url), "utf8");
 assert.match(appSource, /<AppNavigation/);
 assert.match(appSource, /<MobileRoleShellHeader/);
-assert.match(appSource, /getDefaultNavigationPage\(permissionContext\)/);
-assert.match(appSource, /roleFocusedShellPage = dedicatedMobileRolePage \|\| renderedPage === roleBoundaryPage\.key/);
 assert.match(navigationComponentSource, /更多工作台/);
 assert.match(navigationComponentSource, /aria-label="主导航"/);
 assert.match(navigationComponentSource, /aria-current=/);

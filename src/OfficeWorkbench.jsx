@@ -1,15 +1,7 @@
-import { useEffect, useState } from "react";
 import { RAW_MATERIAL_FIRST_RELEASE_ENABLED } from "./config/rawMaterialFirstRelease.js";
-import {
-  allNavigationItems,
-  desktopRequiredMobilePage,
-  getDefaultNavigationPage,
-  getMobileViewportPage,
-  isDedicatedMobileRolePage,
-  isNavigationPageVisible,
-  roleBoundaryPage,
-} from "./app/navigation.js";
 import { OfficeWorkbenchShell } from "./app/OfficeWorkbenchShell.jsx";
+import { createOfficeWorkbenchRuntimes } from "./app/createOfficeWorkbenchRuntimes.js";
+import { useOfficeWorkbenchNavigation } from "./app/useOfficeWorkbenchNavigation.js";
 import { useOfficeInteractionController } from "./app/useOfficeInteractionController.js";
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
 import { useOfficeActivePageEffects } from "./app/useOfficeActivePageEffects.js";
@@ -89,13 +81,19 @@ export function OfficeWorkbench({
   runtimeServerRequired,
   switchSeedUser,
 } = {}) {
-  const [activePage, setActivePage] = useState("todos");
-  const [mobileViewport, setMobileViewport] = useState(() => typeof window !== "undefined" && window.matchMedia("(max-width: 767px)").matches);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const permissionContext = authState.permissions;
   const currentUser = permissionContext.user;
   const currentUserId = currentUser.userId ?? defaultSeedUserId;
   const canUsePrintDiagnostics = permissionContext.actionPermissions?.includes("fulfillment.print") === true;
+  const {
+    activeMeta,
+    activePage,
+    renderedPage,
+    roleFocusedShellPage,
+    setActivePage,
+    setSidebarCollapsed,
+    sidebarCollapsed,
+  } = useOfficeWorkbenchNavigation({ permissionContext });
   const officeWorkspace = useOfficeWorkspace({
     activePage,
     authState,
@@ -151,10 +149,10 @@ export function OfficeWorkbench({
     driverDeliveryTasks, setDriverDeliveryTasks,
     statements, setStatements, selectedStatementId, setSelectedStatementId, statementReadMeta,
     masterDataPrecheckState, setMasterDataPrecheckState,
-    masterDataImportReviewDrafts, setMasterDataImportReviewDrafts,
-    masterDataImportConfirmationPlans, setMasterDataImportConfirmationPlans,
-    masterDataImportExecutions, setMasterDataImportExecutions,
-    masterDataEmployeeAccountReviews, setMasterDataEmployeeAccountReviews,
+    setMasterDataImportReviewDrafts,
+    setMasterDataImportConfirmationPlans,
+    setMasterDataImportExecutions,
+    setMasterDataEmployeeAccountReviews,
     lastIssuedEmployeeCredential, setLastIssuedEmployeeCredential,
     setMasterDataMaintenanceDrafts,
     masterDataMaintenanceTab,
@@ -170,25 +168,7 @@ export function OfficeWorkbench({
   } = officeWorkspace;
   const addTodo = createOfficeTodoAppender({ setSelectedTodoId, setTodos });
 
-  const {
-    attachmentViewer,
-    closeAttachmentViewer,
-    closeMasterDataTemplatePanel,
-    closeModal,
-    closeOrderActionModal,
-    confirmModal,
-    confirmOrderLineAction,
-    guardUiAction,
-    masterDataTemplatePanel,
-    modal,
-    openAttachmentViewer,
-    openMasterDataTemplatePanel: showMasterDataTemplatePanel,
-    openModal,
-    openOrderActionModal,
-    orderActionModal,
-    setToast,
-    toast,
-  } = useOfficeInteractionController({
+  const interaction = useOfficeInteractionController({
     addTodo,
     authState,
     confirmBatchPrintResult,
@@ -213,30 +193,18 @@ export function OfficeWorkbench({
     todos,
     voidFulfillmentPrintRecord,
   });
+  const {
+    guardUiAction,
+    openAttachmentViewer,
+    openMasterDataTemplatePanel: showMasterDataTemplatePanel,
+    openModal,
+    openOrderActionModal,
+    setToast,
+    toast,
+  } = interaction;
 
-  const defaultNavigationPage = getDefaultNavigationPage(permissionContext);
-  const requestedPage = mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage;
-  const renderedPage = requestedPage === desktopRequiredMobilePage.key || isNavigationPageVisible(requestedPage, permissionContext) ? requestedPage : defaultNavigationPage;
-  const activeMeta = allNavigationItems.find((item) => item.key === renderedPage) ?? roleBoundaryPage;
-  const dedicatedMobileRolePage = isDedicatedMobileRolePage(renderedPage);
-  const roleFocusedShellPage = dedicatedMobileRolePage || renderedPage === roleBoundaryPage.key
-    || (mobileViewport && renderedPage === "rawMaterials");
   const authSourceLabel = authState.authenticated ? "后端认证" : formalLoginRequired ? "等待登录" : "本地权限";
   const unhandledTodos = todos.filter((item) => !item.handled).length;
-
-  useEffect(() => {
-    if (!isNavigationPageVisible(activePage, permissionContext)) {
-      setActivePage(getDefaultNavigationPage(permissionContext));
-    }
-  }, [activePage, permissionContext]);
-
-  useEffect(() => {
-    const media = window.matchMedia("(max-width: 767px)");
-    const syncViewport = () => setMobileViewport(media.matches);
-    syncViewport();
-    media.addEventListener("change", syncViewport);
-    return () => media.removeEventListener("change", syncViewport);
-  }, []);
 
   const v1StatusActions = createOfficeV1StatusActions({
     actionSetters: v1StatusActionSetters,
@@ -246,25 +214,7 @@ export function OfficeWorkbench({
     refreshV1GoLiveStatus,
     setToast,
   });
-  const {
-    commitMasterDataImportExecutionFromPlan,
-    confirmMasterDataEmployeeIdentity,
-    createMasterDataFailedRowsCorrectionDraft,
-    createMasterDataImportConfirmationPlanFromDraft,
-    createMasterDataImportExecutionFromPlan,
-    createMasterDataImportReviewDraftFromPrecheck,
-    downloadMasterDataImportFailedRows,
-    downloadMasterDataTemplate,
-    enableMasterDataEmployeeAccount,
-    enableMasterDataEmployeeAccounts,
-    issueMasterDataEmployeeAccountPassword,
-    openMasterDataTemplatePanel,
-    precheckMasterDataTemplate,
-    revokeMasterDataEmployeeAccountPassword, saveMasterDataMachine,
-    updateMasterDataEmployeeAssignment,
-    updateMasterDataEmployeeProfile,
-    saveMasterDataMaintenanceDraft,
-  } = createOfficeMasterDataActions({
+  const masterDataActions = createOfficeMasterDataActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     confirmAction: (message) => window.confirm(message),
@@ -287,15 +237,7 @@ export function OfficeWorkbench({
     setToast,
     showMasterDataTemplatePanel,
   });
-  const {
-    confirmRawMaterialSupplierPayment,
-    confirmRawMaterialSupplierStatement,
-    confirmRawMaterialSupplierStatementReviewDraft,
-    generateRawMaterialSupplierPayableDraft,
-    recognizeRawMaterialDeliveryNote,
-    saveRawMaterialSupplierStatementReviewDraft,
-    updateRawMaterialInbound,
-  } = createOfficeRawMaterialActions({
+  const rawMaterialActions = createOfficeRawMaterialActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     customers,
@@ -330,16 +272,7 @@ export function OfficeWorkbench({
   });
 
 
-  const {
-    changePrinterDeviceQaCheck,
-    changePrinterDeviceQaEvidenceField,
-    changePrinterDeviceQaField,
-    dispatchPrintJobQueueItem,
-    retryPrintJobQueueItem,
-    savePrinterDeviceMode,
-    savePrinterDeviceQaRecord,
-    selectPrinterDeviceQaDevice,
-  } = createOfficePrintDeviceActions({
+  const printDeviceActions = createOfficePrintDeviceActions({
     allowLocalFallback: !runtimeServerRequired,
     dispatchPrintJobQueueItem: executePrintJobDispatch,
     guardUiAction,
@@ -352,12 +285,7 @@ export function OfficeWorkbench({
     setPrinterDeviceQa,
     setToast,
   });
-  const {
-    downloadViewedAttachment,
-    loadAttachmentAccessAudit,
-    syncStatementCustomerAttachmentsFromSource,
-    syncStatementPaymentAttachmentsFromSource,
-  } = createOfficeAttachmentActions({
+  const attachmentActions = createOfficeAttachmentActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     currentUserId,
@@ -400,8 +328,8 @@ export function OfficeWorkbench({
     setOrderPoolMeta,
     setSelectedOrderDetail,
     statements,
-    syncStatementCustomerAttachmentsFromSource,
-    syncStatementPaymentAttachmentsFromSource,
+    syncStatementCustomerAttachmentsFromSource: attachmentActions.syncStatementCustomerAttachmentsFromSource,
+    syncStatementPaymentAttachmentsFromSource: attachmentActions.syncStatementPaymentAttachmentsFromSource,
   });
 
   const { refreshActivePage } = createOfficePageRefreshActions({
@@ -433,12 +361,7 @@ export function OfficeWorkbench({
     setToast,
   });
 
-  const {
-    handleProductionPackingAction,
-    loadProductionPackingSourceDetail,
-    refreshPrintDriverDiagnostics,
-    refreshPrintJobs,
-  } = createOfficeProductionPackingActions({
+  const productionPackingActions = createOfficeProductionPackingActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     currentUserId,
@@ -454,12 +377,7 @@ export function OfficeWorkbench({
     setToast,
   });
 
-  const {
-    createOrderFromTopbar,
-    entryAction,
-    focusFulfillmentByRef, focusInventoryByRef, focusOrderDraft, focusOrderLine, focusStatementByRef,
-    handleDraftCommand, linkCancellationIntentToSelectedLine, openOrderLineAction, openQueueDraft, recognize, recognizeQueue, refreshDraftQueue, restoreCancelledDraftLine, uploadDraftArtwork, updateDraftField,
-  } = createOfficeOrderActions({
+  const orderActions = createOfficeOrderActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     confirmDiscardDraft: (message) => window.confirm(message), defaultOrderFilters,
@@ -492,18 +410,18 @@ export function OfficeWorkbench({
     statements,
     updateOrderDraftField,
   });
-  const { handleTodo, repairTodoReference } = createOfficeTodoActions({
+  const todoActions = createOfficeTodoActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     copyTextToClipboard,
     currentUser,
     currentUserId,
     findCustomer,
-    focusFulfillmentByRef,
-    focusInventoryByRef,
-    focusOrderDraftByRef: focusOrderDraft,
-    focusOrderLine,
-    focusStatementByRef,
+    focusFulfillmentByRef: orderActions.focusFulfillmentByRef,
+    focusInventoryByRef: orderActions.focusInventoryByRef,
+    focusOrderDraftByRef: orderActions.focusOrderDraft,
+    focusOrderLine: orderActions.focusOrderLine,
+    focusStatementByRef: orderActions.focusStatementByRef,
     getTodoCustomerNotificationDraft,
     guardUiAction,
     isPrintTodo,
@@ -517,15 +435,7 @@ export function OfficeWorkbench({
     sortTodos,
     todos,
   });
-  const {
-    focusInventoryLedgerSource,
-    handleInventoryCorrectionAttachment,
-    handleInventoryCorrectionConfirm,
-    handleInventoryCorrectionDraft,
-    openInventoryCorrectionDetail,
-    refreshInventoryCorrectionQueueAction,
-    refreshInventoryLedgerAction,
-  } = createOfficeInventoryActions({
+  const inventoryActions = createOfficeInventoryActions({
     allowLocalFallback: !runtimeServerRequired,
     confirmInventoryCorrectionDraft,
     createInventoryCorrectionDraft,
@@ -535,7 +445,7 @@ export function OfficeWorkbench({
     inventoryLedgerSource: inventoryLedgerState.source,
     linkInventoryCorrectionAttachment,
     loadInventoryCorrectionDetail,
-    loadProductionPackingSourceDetail,
+    loadProductionPackingSourceDetail: productionPackingActions.loadProductionPackingSourceDetail,
     orderLines,
     productionPacking,
     refreshInventoryCorrectionQueue,
@@ -552,18 +462,18 @@ export function OfficeWorkbench({
     statements,
   });
 
-  const { updateFulfillment } = createOfficeFulfillmentActions({
+  const fulfillmentActions = createOfficeFulfillmentActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     completeFulfillmentAction,
     confirmAction: (message) => window.confirm(message),
     currentUserId,
     findCustomer,
-    focusOrderLine,
+    focusOrderLine: orderActions.focusOrderLine,
     fulfillments,
     getFulfillmentDocumentLabel,
     guardUiAction,
-    loadAttachmentAccessAudit,
+    loadAttachmentAccessAudit: attachmentActions.loadAttachmentAccessAudit,
     markFulfillmentPrepared,
     mergeAttachmentSummaries,
     openAttachmentViewer,
@@ -580,7 +490,7 @@ export function OfficeWorkbench({
     setToast,
     todos,
   });
-  const { handleDriverDeliveryAction } = createOfficeDriverDeliveryActions({
+  const driverDeliveryActions = createOfficeDriverDeliveryActions({
     addTodo,
     allowLocalFallback: !runtimeServerRequired,
     authState,
@@ -597,7 +507,7 @@ export function OfficeWorkbench({
     setToast,
     todos,
   });
-  const { statementAction } = createOfficeStatementActions({
+  const statementActions = createOfficeStatementActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
     confirmAction: (message) => window.confirm(message),
@@ -607,7 +517,7 @@ export function OfficeWorkbench({
     findCustomer,
     getStatementBlockingAmount,
     guardUiAction,
-    loadAttachmentAccessAudit,
+    loadAttachmentAccessAudit: attachmentActions.loadAttachmentAccessAudit,
     openAttachmentViewer,
     openModal,
     orderLines,
@@ -618,115 +528,36 @@ export function OfficeWorkbench({
     setToast,
     statements,
   });
-  const pageRuntime = {
-    ...officeWorkspace,
+  const { overlayRuntime, pageRuntime } = createOfficeWorkbenchRuntimes({
+    attachmentActions,
     authState,
-    canOpenMasterData: isNavigationPageVisible("masterData", permissionContext),
-    changePrinterDeviceQaCheck,
-    changePrinterDeviceQaEvidenceField,
-    changePrinterDeviceQaField,
-    confirmRawMaterialSupplierPayment,
-    confirmRawMaterialSupplierStatement,
-    confirmRawMaterialSupplierStatementReviewDraft,
     currentUser,
     customers,
-    dispatchPrintJobQueueItem,
-    enableMasterDataEmployeeAccounts,
-    entryAction,
+    driverDeliveryActions,
+    findCustomer,
     firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
-    focusFulfillmentByRef,
-    focusInventoryLedgerSource,
-    focusStatementByRef,
-    generateRawMaterialSupplierPayableDraft,
-    handleDraftCommand,
-    handleDriverDeliveryAction,
-    handleInventoryCorrectionAttachment,
-    handleInventoryCorrectionConfirm,
-    handleInventoryCorrectionDraft,
-    handleProductionPackingAction,
-    handleTodo,
-    linkCancellationIntentToSelectedLine,
-    openInventoryCorrectionDetail,
-    openMasterDataTemplatePanel,
-    openOrderLineAction,
-    openQueueDraft,
+    fulfillmentActions,
+    getStatementBlockingAmount,
+    interaction,
+    inventoryActions,
+    masterDataActions,
+    officeWorkspace,
+    orderActions,
     pageHelpers,
     permissionContext,
-    recognize,
-    recognizeQueue,
-    recognizeRawMaterialDeliveryNote,
-    refreshDraftQueue,
-    refreshInventoryCorrectionQueueAction,
-    refreshInventoryLedgerAction,
-    refreshPrintDriverDiagnostics,
-    refreshPrintJobs,
-    repairTodoReference,
-    restoreCancelledDraftLine,
-    retryPrintJobQueueItem,
-    roleBoundaryDescription: roleBoundaryPage.description,
-    saveMasterDataMachine,
-    saveMasterDataMaintenanceDraft,
-    savePrinterDeviceMode,
-    savePrinterDeviceQaRecord,
-    saveRawMaterialSupplierStatementReviewDraft,
-    selectPrinterDeviceQaDevice,
+    printDeviceActions,
+    productionPackingActions,
+    rawMaterialActions,
     setActivePage,
-    setToast,
-    statementAction,
-    updateDraftField,
-    updateFulfillment,
-    updateMasterDataEmployeeAssignment,
-    updateMasterDataEmployeeProfile,
-    updateRawMaterialInbound,
-    uploadDraftArtwork,
+    statementActions,
+    todoActions,
     v1StatusActions,
-  };
-  const overlayRuntime = {
-    attachmentViewer,
-    closeAttachmentViewer,
-    closeMasterDataTemplatePanel,
-    closeModal,
-    closeOrderActionModal,
-    confirmMasterDataEmployeeIdentity,
-    confirmModal,
-    confirmOrderLineAction,
-    commitMasterDataImportExecutionFromPlan,
-    createMasterDataFailedRowsCorrectionDraft,
-    createMasterDataImportConfirmationPlanFromDraft,
-    createMasterDataImportExecutionFromPlan,
-    createMasterDataImportReviewDraftFromPrecheck,
-    downloadMasterDataImportFailedRows,
-    downloadMasterDataTemplate,
-    downloadViewedAttachment,
-    employeeAccountReviews: masterDataEmployeeAccountReviews,
-    enableMasterDataEmployeeAccount,
-    findCustomer,
-    fulfillments,
-    getStatementBlockingAmount,
-    getUiActionState: (surface, action) => getUiActionState(permissionContext, surface, action),
-    importExecutions: masterDataImportExecutions,
-    issueMasterDataEmployeeAccountPassword,
-    lastIssuedEmployeeCredential,
-    masterDataConfirmationPlans: masterDataImportConfirmationPlans,
-    masterDataPrecheckState,
-    masterDataReviewDrafts: masterDataImportReviewDrafts,
-    masterDataTemplatePanel,
-    modal,
-    onPrecheckMasterDataTemplate: precheckMasterDataTemplate,
-    onRefreshEmployeeAccountReviews: (options) => refreshMasterDataEmployeeAccountReviews(options).then((result) => {
-      if (result?.feedback) setToast(result.feedback);
-      return result;
-    }),
-    orderActionModal,
-    orderLines,
-    revokeMasterDataEmployeeAccountPassword,
-    statements,
-  };
+  });
   return <OfficeWorkbenchShell runtime={{
     activeMeta,
     authSourceLabel,
     authState,
-    createOrderFromTopbar,
+    createOrderFromTopbar: orderActions.createOrderFromTopbar,
     currentUser,
     currentUserId,
     firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
