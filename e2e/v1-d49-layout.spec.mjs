@@ -12,8 +12,14 @@ test("D49桌面完整展示八岗位和环境阻塞，管理岗手机受控提�
   await openInternalWorkbench(page);
   await switchAccount(page, "U-MANAGER-A");
   const mainNavigation = page.getByRole("navigation", { name: "主导航" });
-  await mainNavigation.getByRole("button", { name: "更多工作台", exact: true }).click();
-  await mainNavigation.getByRole("button", { name: /上线状态/ }).click();
+  await expect(mainNavigation).toBeVisible();
+  const moreWorkbenches = mainNavigation.getByRole("button", { name: "更多工作台", exact: true });
+  await moreWorkbenches.click();
+  await expect(moreWorkbenches).toHaveAttribute("aria-expanded", "true");
+  const goLiveStatusButton = mainNavigation.getByRole("button", { name: /上线状态/ });
+  await goLiveStatusButton.click();
+  await expect(goLiveStatusButton).toHaveAttribute("aria-current", "page");
+  await expect(mainNavigation.getByRole("button", { name: "排产", exact: true })).toBeDisabled();
   await page.getByRole("tab", { name: "生产配置", exact: true }).click();
   await page.getByRole("tab", { name: "真实值校验", exact: true }).click();
 

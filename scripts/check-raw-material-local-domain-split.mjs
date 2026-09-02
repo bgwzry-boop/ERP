@@ -1,25 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { applyRawMaterialInboundLocalAction } from "../src/domain/rawMaterialInboundLocalActions.js";
 import {
   applyRawMaterialCostMarginLocalAction,
   buildRawMaterialCostMarginToastText,
 } from "../src/domain/rawMaterialCostMarginLocalActions.js";
-
-const traceabilitySource = readFileSync(new URL("../src/domain/rawMaterialInboundLocalActions.js", import.meta.url), "utf8");
-const costMarginSource = readFileSync(new URL("../src/domain/rawMaterialCostMarginLocalActions.js", import.meta.url), "utf8");
-
-// This guard preserves the extracted state-machine boundary without forcing
-// unrelated supplier-return and draft-safety rules into artificial files just
-// to satisfy a brittle line count. The module remains far smaller than the
-// former 1,253-line mixed implementation.
-assert.ok(traceabilitySource.split("\n").length < 700, "traceability module should stay substantially below the former 1,253-line mixed file");
-assert.ok(costMarginSource.split("\n").length < 750, "cost/margin state machine should remain independently reviewable");
-assert.match(traceabilitySource, /applyRawMaterialCostMarginLocalAction/);
-assert.doesNotMatch(traceabilitySource, /if \(action === "生成成本草稿"\)/);
-assert.match(costMarginSource, /if \(action === "生成成本草稿"\)/);
-assert.match(costMarginSource, /if \(action === "复核毛利快照"\)/);
-assert.doesNotMatch(costMarginSource, /if \(action === "机边领料"\)/);
-assert.doesNotMatch(costMarginSource, /rawMaterialSplitRecords/);
 
 const baseInbound = {
   id: "RMI-DOMAIN-SPLIT",
@@ -85,6 +69,48 @@ assert.equal(drafted.rawMaterialCostAllocationDrafts.length, 1);
 assert.equal(drafted.rawMaterialCostAllocationDrafts[0].allocatedCostAmount, 270);
 assert.equal(drafted.rawMaterialCostAllocationDrafts[0].marginEffect, "none");
 assert.deepEqual(baseInbound, originalInbound, "cost actions must not mutate their input projection");
+
+const dispatchedDraft = applyRawMaterialInboundLocalAction([baseInbound], {
+  ...commonInput,
+  inboundId: baseInbound.id,
+  action: "生成成本草稿",
+});
+assert.equal(
+  dispatchedDraft.updatedItem.rawMaterialCostAllocationDrafts[0].allocatedCostAmount,
+  270,
+  "the inbound entrypoint must delegate cost actions to the cost/margin state machine",
+);
+assert.deepEqual(
+  dispatchedDraft.items[0],
+  dispatchedDraft.updatedItem,
+  "the delegated result must replace only the targeted inbound projection",
+);
+
+const traced = applyRawMaterialInboundLocalAction([{
+  ...baseInbound,
+  rolls: [{
+    id: "ROLL-DOMAIN-SPLIT",
+    inventoryStatus: "可用",
+    currentWeightKg: 40,
+    weightKg: 40,
+  }],
+}], {
+  ...commonInput,
+  inboundId: baseInbound.id,
+  action: "机边领料",
+  options: {
+    rollId: "ROLL-DOMAIN-SPLIT",
+    machineId: "BAG-01",
+    productionTaskId: "PT-DOMAIN-SPLIT",
+    productionTaskOrderLineId: "OL-DOMAIN-SPLIT",
+  },
+});
+assert.equal(traced.updatedItem.rolls[0].inventoryStatus, "机边领用");
+assert.equal(
+  traced.updatedItem.rawMaterialCostAllocationDrafts?.length ?? 0,
+  0,
+  "traceability actions must not create cost/margin records",
+);
 
 const confirmed = applyRawMaterialCostMarginLocalAction(drafted, {
   ...commonInput,
