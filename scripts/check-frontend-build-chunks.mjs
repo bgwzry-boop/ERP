@@ -39,6 +39,36 @@ assert.ok(
 const workbenchSource = await readFile(resolve(distRoot, workbenchAsset.file));
 const workbenchBytes = (await stat(resolve(distRoot, workbenchAsset.file))).size;
 const workbenchGzipBytes = gzipSync(workbenchSource).length;
+const workspaceOverlayRouteKey = "src/app/WorkspaceOverlayRoute.jsx";
+const workspaceOverlayRouteAsset = manifest[workspaceOverlayRouteKey];
+assert.ok(
+  workbenchAsset.dynamicImports?.includes(workspaceOverlayRouteKey),
+  "OfficeWorkbench must lazy-load the workspace overlays",
+);
+assert.ok(workspaceOverlayRouteAsset?.isDynamicEntry, "workspace overlays must remain a dynamic entry");
+assert.equal(
+  initialAssets.has(workspaceOverlayRouteAsset.file),
+  false,
+  "workspace overlays must not return to the initial HTML dependency graph",
+);
+assert.ok(
+  (workspaceOverlayRouteAsset.css?.length ?? 0) > 0,
+  "attachment styles must load with the workspace overlay route",
+);
+for (const cssFile of workspaceOverlayRouteAsset.css) {
+  assert.equal(
+    initialAssets.has(cssFile),
+    false,
+    "workspace overlay styles must not return to the initial HTML dependency graph",
+  );
+}
+const printDocumentStyleAsset = manifest["src/styles/features/print-documents.css"];
+assert.ok(printDocumentStyleAsset?.file, "print-document styles must remain in the production build");
+assert.equal(
+  initialAssets.has(printDocumentStyleAsset.file),
+  false,
+  "print-document styles must not return to the initial HTML dependency graph",
+);
 const masterDataTemplateDownloadAsset = Object.values(manifest).find(
   (asset) => asset.name === "masterDataTemplateDownload",
 );

@@ -4,6 +4,7 @@ import {
   createOfficeInteractionActions,
   getOfficeActionFailureFeedback,
 } from "../src/app/useOfficeInteractionController.js";
+import { hasOpenWorkspaceOverlay } from "../src/app/workspaceOverlayState.js";
 import { confirmOfficeModal } from "../src/state/officeModalActions.js";
 
 function createHarness(overrides = {}) {
@@ -109,6 +110,16 @@ assert.equal(
   getOfficeActionFailureFeedback("确认出库", { error: { requiredPermission: "fulfillment.complete" } }),
   "后端拒绝确认出库：缺少权限 fulfillment.complete。",
 );
+
+assert.equal(hasOpenWorkspaceOverlay(), false);
+assert.equal(hasOpenWorkspaceOverlay({}), false);
+for (const key of ["attachmentViewer", "masterDataTemplatePanel", "modal", "orderActionModal"]) {
+  assert.equal(
+    hasOpenWorkspaceOverlay({ [key]: { id: `${key}-1` } }),
+    true,
+    `${key} should open the deferred workspace overlay boundary`,
+  );
+}
 
 {
   const harness = createHarness({
@@ -277,9 +288,7 @@ const runtimeSessionExpirySource = fs.readFileSync(new URL("../src/app/useRuntim
 const attachmentViewerSource = fs.readFileSync(new URL("../src/app/AttachmentViewerModal.jsx", import.meta.url), "utf8");
 const masterDataTemplateModalSource = fs.readFileSync(new URL("../src/app/MasterDataImportTemplateModal.jsx", import.meta.url), "utf8");
 const actionModalsSource = fs.readFileSync(new URL("../src/app/ActionModals.jsx", import.meta.url), "utf8");
-const workspaceOverlayControllerSource = fs.readFileSync(new URL("../src/app/WorkspaceOverlayController.jsx", import.meta.url), "utf8");
 const attachmentViewUtilsSource = fs.readFileSync(new URL("../src/app/attachmentViewUtils.js", import.meta.url), "utf8");
-const mainSource = fs.readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStylesSource = fs.readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const printDocumentStylesSource = fs.readFileSync(new URL("../src/styles/features/print-documents.css", import.meta.url), "utf8");
 const attachmentStylesSource = fs.readFileSync(new URL("../src/styles/features/attachments.css", import.meta.url), "utf8");
@@ -322,13 +331,10 @@ assert.match(appViewsSource, /RuntimePasswordChangeScreen/);
 assert.match(attachmentViewUtilsSource, /export function isInlineImageAttachment\(/);
 assert.match(sharedStylesSource, /\.form-grid label \{[\s\S]*?min-width: 0;/);
 assert.match(sharedStylesSource, /@media \(max-width: 720px\) \{[\s\S]*?\.form-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/);
-assert.doesNotMatch(mainSource, /styles\/features\/(print-documents|attachments)\.css/, "print and overlay styles should not load with the shell");
-assert.match(appSource, /import\("\.\.\/styles\/features\/print-documents\.css"\)/, "print-document styles should load with their route");
 for (const selector of [".print-batch-record", ".print-sheet", ".print-package-checklist", ".print-template-sheet", ".label-header", ".print-line-table", ".label-barcode"]) {
   assert.equal(printDocumentStylesSource.includes(selector), true, `print-document styles should own ${selector}`);
   assert.equal(sharedStylesSource.includes(selector), false, `shared styles should not retain ${selector}`);
 }
-assert.match(workspaceOverlayControllerSource, /import\("\.\.\/styles\/features\/attachments\.css"\)/, "attachment styles should load only when an overlay opens");
 for (const selector of [".payment-proof-row", ".attachment-preview", ".attachment-viewer-modal", ".attachment-viewer-body", ".attachment-viewer-meta", ".attachment-viewer-audit-row"]) {
   assert.equal(attachmentStylesSource.includes(selector), true, `attachment styles should own ${selector}`);
   assert.equal(sharedStylesSource.includes(selector), false, `shared styles should not retain ${selector}`);
