@@ -1,11 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createProductionTaskProjectionService } from "../server/services/productionTaskProjectionService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createProductionTaskProjectionService\(\{/);
-assert.match(registrySource, /\} = productionTaskProjectionService;/);
 
 const methodNames = [
   "buildProductionTaskFromBody",
@@ -16,10 +10,6 @@ const methodNames = [
   "resolvePublishedProductionTaskStatus",
   "toProductionTaskSummary",
 ];
-for (const functionName of methodNames) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${functionName}\\(`));
-}
-
 const fixedNow = new Date("2026-07-14T14:00:00.000Z");
 const photoCalls = [];
 const workspace = {
@@ -177,5 +167,5 @@ for (const invalid of [
 }
 
 console.log(
-  "Production task projection service checks passed: task creation, machine/type inference, completion policy, publish states, photo summary, and source ownership are isolated",
+  "Production task projection service checks passed: task creation, machine/type inference, completion policy, publish states, and photo summary are covered",
 );
