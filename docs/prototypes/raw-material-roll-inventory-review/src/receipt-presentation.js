@@ -1,4 +1,17 @@
+import {
+  RAW_MATERIAL_HANDLE_WIDTH_CM,
+  hasExplicitRawMaterialStripMarker,
+  parseRawMaterialSpec,
+} from "../../../../shared/rawMaterialSpec.js";
+
 const cleanText = (value) => String(value ?? "").trim();
+
+const positiveNumber = (value) => {
+  const number = Number(value);
+  return Number.isFinite(number) && number > 0 ? number : 0;
+};
+
+const formatMeasurement = (value) => Number.isInteger(value) ? String(value) : String(Number(value.toFixed(2)));
 
 export function formatReceiptArrivalTime(value) {
   const text = cleanText(value);
@@ -40,5 +53,25 @@ export function buildReceiptRowPresentation(row = {}) {
     reviewStatus,
     duplicateText,
     duplicateNeedsAttention: Boolean(cleanText(row.duplicate)) || reviewStatus.includes("异常"),
+  };
+}
+
+export function buildReceiptMaterialPresentation(row = {}) {
+  const sourceSpec = cleanText(row.specDisplay || row.spec);
+  const parsedSpec = parseRawMaterialSpec(sourceSpec);
+  const evidence = [row.materialCategory, row.productName, row.materialType, sourceSpec].map(cleanText).filter(Boolean);
+  const explicitWidthCm = positiveNumber(row.widthCm);
+  const isHandleStrip = evidence.some((value) => value === "提手条" || hasExplicitRawMaterialStripMarker(value))
+    || explicitWidthCm === RAW_MATERIAL_HANDLE_WIDTH_CM;
+  const widthCm = isHandleStrip
+    ? RAW_MATERIAL_HANDLE_WIDTH_CM
+    : explicitWidthCm || positiveNumber(parsedSpec.widthCm);
+  const materialType = isHandleStrip
+    ? "把条"
+    : cleanText(row.materialCategory || row.materialType || row.productName) || "类型待确认";
+
+  return {
+    materialType,
+    widthLabel: widthCm ? `${formatMeasurement(widthCm)}cm` : "宽幅待确认",
   };
 }

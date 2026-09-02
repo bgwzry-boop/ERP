@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildReceiptRowPresentation, formatReceiptArrivalTime } from "../src/receipt-presentation.js";
+import {
+  buildReceiptMaterialPresentation,
+  buildReceiptRowPresentation,
+  formatReceiptArrivalTime,
+} from "../src/receipt-presentation.js";
 
 test("receipt rows expose the six facts required for desktop scanning", () => {
   assert.deepEqual(buildReceiptRowPresentation({
@@ -50,4 +54,23 @@ test("duplicate review remains separate from inbound review status", () => {
   assert.equal(presentation.duplicateNeedsAttention, true);
   assert.equal(presentation.countLabel, "1件");
   assert.equal(presentation.totalWeightLabel, "-3.8kg");
+});
+
+test("receipt detail presents handle material as type and authoritative width", () => {
+  assert.deepEqual(buildReceiptMaterialPresentation({
+    materialCategory: "提手条",
+    productName: "提手条",
+    spec: "78克*5宽",
+    widthCm: 5,
+  }), {
+    materialType: "把条",
+    widthLabel: "5cm",
+  });
+  assert.deepEqual(buildReceiptMaterialPresentation({
+    materialType: "无纺布",
+    spec: "78*80*1300",
+  }), {
+    materialType: "无纺布",
+    widthLabel: "80cm",
+  });
 });
