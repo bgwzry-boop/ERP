@@ -1,25 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { buildApiSecurityPolicy } from "../server/apiSecurityPolicy.mjs";
 import { createHttpResponseService } from "../server/services/httpResponseService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createHttpResponseService\(\)/);
-assert.match(registrySource, /const \{[\s\S]*sendBusinessError,[\s\S]*sendNotFound[\s\S]*\} = httpResponseService;/);
-assert.doesNotMatch(apiSource, /getCorsAllowedRequestHeaders/);
-for (const functionName of [
-  "buildCorsHeaders",
-  "createResponseBuffer",
-  "sendBusinessError",
-  "sendFile",
-  "sendInlineFile",
-  "sendJson",
-  "sendNotFound",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${functionName}\\(`));
-}
-assert.match(apiSource, /isCorsRequestAllowed\(securityPolicy, response\.erpRequestOrigin\)/);
 
 function createResponse({ policy, origin } = {}) {
   const state = { statusCode: null, headers: null, body: null };

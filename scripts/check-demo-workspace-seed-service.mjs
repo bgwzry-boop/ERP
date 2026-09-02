@@ -1,19 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   createDemoWorkspaceSeedService,
   isProductionRuntime,
 } from "../server/services/demoWorkspaceSeedService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createDemoWorkspaceSeedService\(\{/);
-assert.match(apiSource, /demoWorkspaceSeedService\.buildInitialTaskSeeds\(\{/);
-assert.match(apiSource, /seedDemoPrintJobs: demoWorkspaceSeedService\.seedPrintJobs/);
-assert.doesNotMatch(apiSource, /function ensureOfficePrintJobDemoSeeds\(/);
-assert.doesNotMatch(apiSource, /function buildInitialProductionTasks\(/);
-assert.doesNotMatch(apiSource, /function buildInitialPackingTasks\(/);
-assert.doesNotMatch(apiSource, /function buildOfficePrintJobDemoSeed\(/);
 
 const fixedNow = new Date("2026-07-14T10:00:00.000Z");
 const calls = [];

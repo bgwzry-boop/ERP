@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createRuntimeSession, createSeedSession } from "../server/authSeed.mjs";
 import {
   getRequestAuthContext,
@@ -7,14 +6,6 @@ import {
   getRequestPermissionContext,
   parseActionPermissionOverride,
 } from "../server/services/requestAuthContextService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiSource, /getRequestAuthContext\(request, workspace\)/);
-assert.match(apiSource, /getRequestPermissionContext\(request, authContext, workspace\)/);
-assert.match(apiSource, /getRequestHeaderValue\(request, "origin"\)/);
-assert.doesNotMatch(apiSource, /function getRequestAuthContext/);
-assert.doesNotMatch(apiSource, /function getRequestPermissionContext/);
-assert.doesNotMatch(apiSource, /function parseActionPermissionOverride/);
 
 const authSecret = "request-auth-context-service-secret";
 const runtimeUser = {

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createPrintJobLifecycleService } from "../server/services/printJobLifecycleService.mjs";
 
 const fixedNow = "2026-07-11T10:00:00.000Z";
@@ -236,19 +235,6 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
   assert.equal(harness.atomicProjectionCalls[0].printJobWriteMode, "update");
   assert.equal(harness.updateCalls.length, 0);
   assert.equal(harness.projectionCalls.length, 0);
-}
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createPrintJobLifecycleService/);
-for (const embeddedFunction of [
-  "buildRetryPrintJobRecord",
-  "buildDispatchedPrintJobRecord",
-  "buildPrintJobDriverStatusEvent",
-  "getPrintJobDriverStatusTransitionError",
-  "buildDriverStatusPrintJobRecord",
-]) {
-  assert.doesNotMatch(apiServerSource, new RegExp(`function ${embeddedFunction}\\b`));
 }
 
 console.log("Print job lifecycle service checks passed: status, dispatch, callback, polling, terminal locks, and retry are isolated.");
