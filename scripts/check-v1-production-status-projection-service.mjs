@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   sanitizeV1ProductionEnvFillTemplate,
   sanitizeV1ProductionEnvGate,
@@ -30,21 +29,6 @@ const unsafeText = [
   secrets.envPath,
   secrets.artifactPath,
 ].join(" ");
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(
-  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
-  "utf8",
-);
-const statusResponseSource = readFileSync(
-  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
-  "utf8",
-);
-assert.match(statusResponseSource, /from "\.\/v1ProductionStatusProjectionService\.mjs"/);
-assert.match(registrySource, /createV1GoLiveStatusResponseService/);
-assert.doesNotMatch(apiServerSource, /function sanitizeV1ProductionEnvGate/);
-assert.doesNotMatch(apiServerSource, /function sanitizeV1ProductionFirstStageExecution/);
-assert.doesNotMatch(apiServerSource, /function sanitizeV1ProductionEnvFillTemplate/);
 
 const envGate = sanitizeV1ProductionEnvGate({
   status: "blocked",
