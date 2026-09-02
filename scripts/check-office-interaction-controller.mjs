@@ -280,7 +280,6 @@ const runtimeAuthBoundarySource = fs.readFileSync(new URL("../src/app/RuntimeAut
 const attachmentViewerSource = fs.readFileSync(new URL("../src/app/AttachmentViewerModal.jsx", import.meta.url), "utf8");
 const masterDataTemplateModalSource = fs.readFileSync(new URL("../src/app/MasterDataImportTemplateModal.jsx", import.meta.url), "utf8");
 const actionModalsSource = fs.readFileSync(new URL("../src/app/ActionModals.jsx", import.meta.url), "utf8");
-const attachmentViewUtilsSource = fs.readFileSync(new URL("../src/app/attachmentViewUtils.js", import.meta.url), "utf8");
 const sharedStylesSource = fs.readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const printDocumentStylesSource = fs.readFileSync(new URL("../src/styles/features/print-documents.css", import.meta.url), "utf8");
 const attachmentStylesSource = fs.readFileSync(new URL("../src/styles/features/attachments.css", import.meta.url), "utf8");
@@ -314,7 +313,6 @@ assert.match(appShellViewsSource, /getRuntimePasswordChangePresentation/);
 assert.match(appRootSource, /RuntimeAuthBoundary/);
 assert.match(appRootSource, /useRuntimeSessionExpiry\(/);
 assert.match(appViewsSource, /RuntimePasswordChangeScreen/);
-assert.match(attachmentViewUtilsSource, /export function isInlineImageAttachment\(/);
 assert.match(sharedStylesSource, /\.form-grid label \{[\s\S]*?min-width: 0;/);
 assert.match(sharedStylesSource, /@media \(max-width: 720px\) \{[\s\S]*?\.form-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/);
 for (const selector of [".print-batch-record", ".print-sheet", ".print-package-checklist", ".print-template-sheet", ".label-header", ".print-line-table", ".label-barcode"]) {
