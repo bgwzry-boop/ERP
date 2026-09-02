@@ -8,6 +8,7 @@ import {
   getAttachmentAccessModeLabel,
   isInlineImageAttachment,
 } from "../src/app/attachmentViewUtils.js";
+import { isInlineImageAttachment as isFeatureInlineImageAttachment } from "../src/features/attachments/attachmentPresentation.js";
 import { updateStatementPaymentAttachmentPreview } from "../src/state/officeStatementActions.js";
 
 assert.equal(formatFileSize(0), "0 B");
@@ -29,6 +30,11 @@ assert.equal(getAttachmentAccessModeLabel({}), "访问方式未记录");
 assert.equal(isInlineImageAttachment({ mimeType: "IMAGE/PNG" }), true);
 assert.equal(isInlineImageAttachment({ previewDataUrl: "DATA:IMAGE/JPEG;base64,AA==" }), true);
 assert.equal(isInlineImageAttachment({ mimeType: "application/pdf", previewDataUrl: "data:application/pdf;base64,AA==" }), false);
+assert.equal(
+  isFeatureInlineImageAttachment,
+  isInlineImageAttachment,
+  "workspace and feature attachment views must share one image-type contract",
+);
 
 assert.equal(downloadAttachmentPreview(), false);
 const originalDocument = globalThis.document;

@@ -1,3 +1,5 @@
+export { isInlineImageAttachment } from "../domain/attachmentFileType.js";
+
 export function formatFileSize(size) {
   const numericSize = Number(size || 0);
   const bytes = Number.isFinite(numericSize) && numericSize > 0 ? numericSize : 0;
@@ -31,12 +33,6 @@ export function getAttachmentAccessModeLabel(record) {
   if (record?.accessMode === "permission") return "权限读取";
   if (record?.deliveryMode === "object_storage_signed_url") return "对象存储直连";
   return record?.deliveryMode || "访问方式未记录";
-}
-
-export function isInlineImageAttachment(attachment = {}) {
-  const contentType = String(attachment.contentType || attachment.mimeType || "").toLowerCase();
-  const dataUrl = String(attachment.previewDataUrl || "").toLowerCase();
-  return contentType.startsWith("image/") || dataUrl.startsWith("data:image/");
 }
 
 export function downloadAttachmentPreview(attachment) {
