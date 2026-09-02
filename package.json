@@ -72,7 +72,7 @@
     "office-production-writes:check": "node scripts/check-office-production-writes.mjs",
     "office-interaction-controller:check": "node scripts/check-office-interaction-controller.mjs",
     "office-v1-status-actions:check": "node scripts/check-office-v1-status-actions.mjs",
-    "office-raw-material-actions:check": "node scripts/check-office-raw-material-actions.mjs && node scripts/check-office-raw-material-inbound-normalizer.mjs && node scripts/check-raw-material-local-domain-split.mjs && node scripts/check-raw-material-inbound-ocr-draft.mjs && node scripts/check-raw-material-inbound-page.mjs",
+    "office-raw-material-actions:check": "node scripts/check-office-raw-material-actions.mjs && node scripts/check-office-raw-material-inbound-normalizer.mjs && node scripts/check-office-raw-material-supplier-statement-api-client.mjs && node scripts/check-raw-material-local-domain-split.mjs && node scripts/check-raw-material-inbound-ocr-draft.mjs && node scripts/check-raw-material-inbound-page.mjs",
     "office-driver-delivery-actions:check": "node scripts/check-office-driver-delivery-actions.mjs",
     "office-statement-actions:check": "node scripts/check-office-statement-actions.mjs",
     "office-master-data-actions:check": "node scripts/check-office-master-data-actions.mjs",
