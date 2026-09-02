@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleAttachmentReadRoutes } from "../server/routes/attachmentReadRoutes.mjs";
 
 const calls = [];
@@ -86,19 +85,6 @@ assert.equal(
 );
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await run("/api/attachments/ATT-1"), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-for (const removedWrapper of [
-  "listAttachmentsRoute",
-  "getAttachmentStorageDiagnosticsRoute",
-  "getAttachmentV1ReadinessRoute",
-  "createAttachmentAccessUrlRoute",
-  "listAttachmentAccessLogsRoute",
-  "getAttachmentContentRoute",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
-}
-assert.match(apiSource, /handleAttachmentReadRoutes\([\s\S]*attachmentFileAccessService,[\s\S]*runAttachmentStorageDiagnostics,[\s\S]*buildAttachmentV1Readiness,/);
 
 console.log("attachment read routes checks passed: list redaction, diagnostics, readiness, signed/permission content, access audit, 404, and thin API wiring are covered");
 

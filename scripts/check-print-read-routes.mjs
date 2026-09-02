@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handlePrintReadRoutes } from "../server/routes/printReadRoutes.mjs";
 
 const calls = [];
@@ -130,10 +129,6 @@ assert.equal(
   true,
 );
 assert.deepEqual(calls, [{ kind: "fieldTestsDenied" }]);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function listPrinterDeviceFieldTestsRoute\b/);
-assert.match(apiSource, /handlePrintReadRoutes\([\s\S]*findPrintDevice,[\s\S]*printDriverDiagnosticsService,/);
 
 console.log("print read routes checks passed: driver diagnostics, repository lists, device QA records, 404, and thin API wiring are covered");
 

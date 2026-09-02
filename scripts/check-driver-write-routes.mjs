@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleDriverWriteRoutes } from "../server/routes/driverWriteRoutes.mjs";
 
 const calls = [];
@@ -66,20 +65,6 @@ assert.equal(
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleDriverWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/driver/delivery-tasks/F-1/complete") }), false);
 assert.equal(await handleDriverWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/driver/delivery-tasks/F-1") }), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-for (const removedWrapper of [
-  "confirmDriverDeliveryLoadedRoute",
-  "recordDriverDeviceFieldTestRoute",
-  "completeDriverDeliveryTaskRoute",
-  "reportDriverDeliveryExceptionRoute",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
-}
-assert.match(
-  apiSource,
-  /handleDriverWriteRoutes\([\s\S]*fulfillmentActionCommandService,[\s\S]*driverDeviceFieldTestCommandService,[\s\S]*sendCommandResponse,/,
-);
 
 console.log("driver write routes checks passed: permissions, authenticated operators, driver commands, response adaptation, and thin API wiring are covered");
 

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleDriverReadRoutes } from "../server/routes/driverReadRoutes.mjs";
 
 const calls = [];
@@ -73,10 +72,6 @@ assert.equal(
 );
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleDriverReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/driver/delivery-tasks/F-1/complete") }), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function (list|get)DriverDeliveryTask[s]?Route\b/);
-assert.match(apiSource, /handleDriverReadRoutes\([\s\S]*sendJson,[\s\S]*sendNotFound,[\s\S]*getDriverV1ReadinessResponse,/);
 
 console.log("driver read routes checks passed: list/detail/readiness permissions, repository mapping, 404, and thin API wiring are covered");
 

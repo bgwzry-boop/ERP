@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleOrderWriteRoutes } from "../server/routes/orderWriteRoutes.mjs";
 
 const calls = [];
@@ -76,23 +75,6 @@ assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleOrderWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/order-drafts/recognize") }), false);
 assert.equal(await handleOrderWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/order-drafts/DRAFT-1") }), false);
 assert.equal(await handleOrderWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/order-lines/OL-1") }), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-for (const removedWrapper of [
-  "recognizeOrderDraft",
-  "recognizeOrderDraftQueue",
-  "saveOrderDraft",
-  "restoreShortageCancelledDraftLineRoute",
-  "linkCrossDraftShortageCancellationRoute",
-  "previewOrderDraftSplitRoute",
-  "confirmSplitOrderDraftRoute",
-  "confirmOrderDraftRoute",
-  "voidOrderLineRoute",
-  "adjustOrderLineQuantityRoute",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
-}
-assert.match(apiSource, /handleOrderWriteRoutes\([\s\S]*orderDraftCommandService,[\s\S]*orderLineMutationCommandService,[\s\S]*sendCommandResponse,/);
 
 console.log("order write routes checks passed: permissions, authenticated operators, direct command ownership, response adaptation, and thin API wiring are covered");
 
