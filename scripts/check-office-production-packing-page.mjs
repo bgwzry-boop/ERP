@@ -1,6 +1,10 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildPrintWorkspaceItems } from "../src/features/production/productionPackingPresentation.js";
+import {
+  buildPrintWorkspaceItems,
+  buildProductionFinishedGoodsPhotoActionPayload,
+  buildProductionSchedulePublishRequest,
+} from "../src/features/production/productionPackingPresentation.js";
 
 const pageSource = readFileSync(new URL("../src/features/production/ProductionPackingPage.jsx", import.meta.url), "utf8");
 const taskPaneSource = readFileSync(new URL("../src/features/production/ProductionPackingTaskPane.jsx", import.meta.url), "utf8");
@@ -157,5 +161,43 @@ assert.deepEqual(printWorkspaceItems.map((item) => item.value), ["qa", "readines
 assert.equal(printWorkspaceItems.find((item) => item.value === "qa")?.meta, "2/6 通过");
 assert.equal(printWorkspaceItems.find((item) => item.value === "readiness")?.meta, "7 项阻塞");
 assert.equal(printWorkspaceItems.find((item) => item.value === "jobs")?.status, "存在失败");
+
+const productionLine = {
+  id: "OL-TEST-01",
+  orderType: "定制印刷",
+  productionTask: { revision: 4 },
+  qty: 800,
+  status: "待生产",
+};
+const buildProductionTaskId = (line) => `PT-${line.id}`;
+assert.deepEqual(
+  buildProductionFinishedGoodsPhotoActionPayload(productionLine, buildProductionTaskId),
+  {
+    orderLineId: "OL-TEST-01",
+    orderLine: productionLine,
+    productionTaskId: "PT-OL-TEST-01",
+  },
+);
+const publishRequest = buildProductionSchedulePublishRequest({
+  buildProductionTaskId,
+  scheduleDecisionPayload: (summary) => ({ decisionSummary: summary, operatorId: "USER-01" }),
+  selectedProductionLine: productionLine,
+  selectedProductionMachineId: "BAG-03",
+});
+assert.equal(publishRequest.action, "发布排产");
+assert.equal(publishRequest.summary, "发布 PT-OL-TEST-01 排产");
+assert.equal(publishRequest.payload.productionTaskId, "PT-OL-TEST-01");
+assert.equal(publishRequest.payload.machineId, "BAG-03");
+assert.equal(publishRequest.payload.plannedQty, 800);
+assert.equal(publishRequest.payload.expectedRevision, 4);
+assert.equal(publishRequest.payload.decisionSummary, publishRequest.summary);
+assert.equal(publishRequest.effects.includes("不直接生成库存、打包或对账"), true);
+assert.deepEqual(productionLine, {
+  id: "OL-TEST-01",
+  orderType: "定制印刷",
+  productionTask: { revision: 4 },
+  qty: 800,
+  status: "待生产",
+});
 
 console.log("Office production/packing page check passed: page ownership, independent print workspace, tab semantics, and machine-count safety labels remain intact.");

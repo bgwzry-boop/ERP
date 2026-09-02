@@ -497,6 +497,41 @@ export function getBooleanInput(inputs, id, field, fallback) {
   return inputs[id]?.[field] ?? Boolean(fallback);
 }
 
+export function buildProductionFinishedGoodsPhotoActionPayload(line, buildProductionTaskId) {
+  return {
+    orderLineId: line.id,
+    orderLine: line,
+    productionTaskId: line.productionTaskId || buildProductionTaskId(line),
+  };
+}
+
+export function buildProductionSchedulePublishRequest({
+  buildProductionTaskId,
+  scheduleDecisionPayload,
+  selectedProductionLine,
+  selectedProductionMachineId,
+}) {
+  const productionTaskId = selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine);
+  const summary = `发布 ${productionTaskId} 排产`;
+  return {
+    action: "发布排产",
+    effects: "创建/更新正式排产记录并进入车间任务池，写入决定证据和审计；不直接生成库存、打包或对账。",
+    payload: {
+      ...scheduleDecisionPayload(summary),
+      orderLineId: selectedProductionLine.id,
+      orderLine: selectedProductionLine,
+      productionTaskId,
+      processType: getProductionProcessLabel(selectedProductionLine),
+      machineId: selectedProductionMachineId,
+      plannedQty: selectedProductionLine.qty,
+      expectedRevision: Number(
+        selectedProductionLine.productionTask?.revision ?? selectedProductionLine.revision ?? 0,
+      ),
+    },
+    summary,
+  };
+}
+
 export function inferPackageCountFromQty(qty) {
   const amount = Number(qty || 0);
   if (amount >= 1800) return 4;

@@ -5,7 +5,10 @@ import {
   DetailPane,
   Timeline,
 } from "../../shared/ui/operational.jsx";
-import { getProductionProcessLabel } from "./productionPackingPresentation.js";
+import {
+  buildProductionFinishedGoodsPhotoActionPayload,
+  buildProductionSchedulePublishRequest,
+} from "./productionPackingPresentation.js";
 import {
   PackingCompletionSection,
   ProductionFinishedGoodsPhotoSection,
@@ -162,9 +165,9 @@ export function ProductionPackingDetailPane({ runtime }) {
               </section>
               <ProductionFinishedGoodsPhotoSection
                 finishedGoodsPhoto={selectedFinishedGoodsPhoto}
-                onAccept={() => submitFinishedGoodsPhotoAction("确认成品图", selectedProductionLine, buildProductionTaskId, onAction)}
-                onReject={() => submitFinishedGoodsPhotoAction("退回成品图", selectedProductionLine, buildProductionTaskId, onAction)}
-                onUpload={() => submitFinishedGoodsPhotoAction("上传成品图", selectedProductionLine, buildProductionTaskId, onAction)}
+                onAccept={() => onAction("确认成品图", buildProductionFinishedGoodsPhotoActionPayload(selectedProductionLine, buildProductionTaskId))}
+                onReject={() => onAction("退回成品图", buildProductionFinishedGoodsPhotoActionPayload(selectedProductionLine, buildProductionTaskId))}
+                onUpload={() => onAction("上传成品图", buildProductionFinishedGoodsPhotoActionPayload(selectedProductionLine, buildProductionTaskId))}
                 rejectDisabled={finishedPhotoRejectDisabled}
                 rejectTitle={finishedPhotoRejectTitle}
                 reviewDisabled={finishedPhotoReviewDisabled}
@@ -247,14 +250,6 @@ export function ProductionPackingDetailPane({ runtime }) {
   );
 }
 
-function submitFinishedGoodsPhotoAction(action, line, buildProductionTaskId, onAction) {
-  return onAction(action, {
-    orderLineId: line.id,
-    orderLine: line,
-    productionTaskId: line.productionTaskId || buildProductionTaskId(line),
-  });
-}
-
 function requestPublishSchedule({
   buildProductionTaskId,
   requestScheduleAction,
@@ -262,18 +257,11 @@ function requestPublishSchedule({
   selectedProductionLine,
   selectedProductionMachineId,
 }) {
-  const productionTaskId = selectedProductionLine.productionTaskId || buildProductionTaskId(selectedProductionLine);
-  const summary = `发布 ${productionTaskId} 排产`;
-  requestScheduleAction("发布排产", {
-    ...scheduleDecisionPayload(summary),
-    orderLineId: selectedProductionLine.id,
-    orderLine: selectedProductionLine,
-    productionTaskId,
-    processType: getProductionProcessLabel(selectedProductionLine),
-    machineId: selectedProductionMachineId,
-    plannedQty: selectedProductionLine.qty,
-    expectedRevision: Number(
-      selectedProductionLine.productionTask?.revision ?? selectedProductionLine.revision ?? 0,
-    ),
-  }, summary, "创建/更新正式排产记录并进入车间任务池，写入决定证据和审计；不直接生成库存、打包或对账。");
+  const request = buildProductionSchedulePublishRequest({
+    buildProductionTaskId,
+    scheduleDecisionPayload,
+    selectedProductionLine,
+    selectedProductionMachineId,
+  });
+  requestScheduleAction(request.action, request.payload, request.summary, request.effects);
 }
