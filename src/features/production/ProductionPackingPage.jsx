@@ -3,9 +3,6 @@ import {
   DataState,
   DataTable,
   DetailPane,
-  MetricStrip,
-  OperationalPanel,
-  PanelHeader,
   Timeline,
 } from "../../shared/ui/operational.jsx";
 import {
@@ -39,10 +36,6 @@ import {
   sortScheduleQueueItemsBySeq,
 } from "./productionPackingPresentation.js";
 import {
-  ProductionPackingTaskCards,
-  ProductionPackingTaskTables,
-} from "./ProductionPackingTaskLists.jsx";
-import {
   PackingCompletionSection,
   ProductionFinishedGoodsPhotoSection,
   ProductionPackingDetailHeader,
@@ -52,7 +45,7 @@ import {
   ProductionTaskReportInputs,
 } from "./ProductionPackingDetailSections.jsx";
 import { ProductionScheduleActionConfirmationDialog } from "./ProductionScheduleActionConfirmationDialog.jsx";
-import { ProductionScheduleQueueSection } from "./ProductionScheduleQueueSection.jsx";
+import { ProductionPackingTaskPane } from "./ProductionPackingTaskPane.jsx";
 import {
   buildProductionExceptionResolutionEffects,
   isTerminalProductionException,
@@ -67,12 +60,6 @@ const PRODUCTION_WORKBENCH_TABS = [
   { value: "production", label: "生产任务" },
   { value: "packing", label: "打包任务" },
   { value: "print", label: "打印与设备" },
-];
-
-const PACKING_TASK_FILTERS = [
-  { value: "pending", label: "待打包" },
-  { value: "completed", label: "已完成" },
-  { value: "all", label: "全部" },
 ];
 
 const ProductionPrintWorkspaceDetail = lazy(() => import("./ProductionPrintWorkspaceDetail.jsx").then((module) => ({
@@ -775,6 +762,40 @@ export function ProductionPackingPage({
     returnToPackingCompletionEdit();
   }
 
+  const taskPaneRuntime = {
+    activePrintWorkspaceTab, activeWorkbenchTab, authState, buildProductionTaskId,
+    canMoveScheduleDown, canMoveScheduleUp, completedPackingTaskCount, currentUser,
+    detailMode, findCustomer, focusNotice, getLineColorSpecLabel, getLinePrintSide,
+    onConflictBack: () => setScheduleWriteConflict(null),
+    onConflictRefresh: async () => {
+      await onRefreshProduction?.();
+      setScheduleWriteConflict(null);
+      setScheduleActionConfirmation(null);
+    },
+    onMoveDirection: moveSelectedScheduleQueue,
+    onMoveReasonChange: updateQueueMoveReason,
+    onMoveTargetMachineChange: updateQueueMoveTargetMachine,
+    onMoveTargetSeqChange: updateQueueMoveTargetSeq,
+    onMoveToTarget: moveSelectedScheduleQueueToTarget,
+    onPackingTaskFilterChange: setPackingTaskFilter,
+    onPrintWorkspaceTabChange: setActivePrintWorkspaceTab,
+    onProductionTaskPriorityChange: setProductionTaskPriority,
+    onScheduleDecisionChange: setScheduleDecision,
+    onSelectPackingTask: selectPackingTask,
+    onSelectProductionLine: selectProductionLine,
+    onSelectScheduleQueueItem: selectScheduleQueueItem,
+    packingTaskFilter, packingTasks, pendingPackingTaskCount, printWorkspaceItems,
+    productionAttentionCount, productionLines, productionPacking, productionTaskCards,
+    productionTaskPriority, queueMoveDisabled, queueMoveImpact, queueMovePositionOptions,
+    queueMoveReason, queueMoveTargetMachineId, queueMoveTargetSeq, queueMoveTitle,
+    resolveInventoryItem, scheduleActionConfirmationOpen: Boolean(scheduleActionConfirmation),
+    scheduleActionSubmitting, scheduleDecision, scheduleDecisionReady, scheduleDirectAllowed,
+    scheduleQueueItems, scheduleQueueMachineOptions, scheduleQueueStatusText,
+    scheduleWriteConflict, selectedPackingTask, selectedProductionLine,
+    selectedScheduleQueueItem, sequenceState, stats, statusTone, taskListStatusText,
+    visiblePackingTasks, workbenchTabs: PRODUCTION_WORKBENCH_TABS,
+  };
+
   return (
     <>
     <section className="page-stack production-packing-shell">
@@ -800,104 +821,7 @@ export function ProductionPackingPage({
         role="tabpanel"
         aria-labelledby={`production-workbench-tab-${activeWorkbenchTab}`}
       >
-      <OperationalPanel className="table-pane production-packing-list-panel" ariaLabel="生产与打包任务列表">
-        <MetricStrip items={stats} ariaLabel="生产与打包状态摘要" />
-        <PanelHeader
-          title="生产 / 打包任务池"
-          summary="生产报工只认合格数量；机器计数只做凭证。打包完成不扣库存。"
-          actions={(
-            <div className="production-status-hints">
-              <strong className="toolbar-focus-hint">{taskListStatusText}</strong>
-              <strong className="toolbar-focus-hint">{scheduleQueueStatusText}</strong>
-              {focusNotice ? <strong className="toolbar-focus-hint">{focusNotice}</strong> : null}
-            </div>
-          )}
-        />
-        <ProductionPackingTaskCards
-          activePrintWorkspaceTab={activePrintWorkspaceTab}
-          activeWorkbenchTab={activeWorkbenchTab}
-          buildProductionTaskId={buildProductionTaskId}
-          completedPackingTaskCount={completedPackingTaskCount}
-          findCustomer={findCustomer}
-          getLineColorSpecLabel={getLineColorSpecLabel}
-          getLinePrintSide={getLinePrintSide}
-          onPackingTaskFilterChange={setPackingTaskFilter}
-          onPrintWorkspaceTabChange={setActivePrintWorkspaceTab}
-          onProductionTaskPriorityChange={setProductionTaskPriority}
-          onSelectPackingTask={selectPackingTask}
-          onSelectProductionLine={selectProductionLine}
-          packingTaskFilter={packingTaskFilter}
-          packingTaskFilters={PACKING_TASK_FILTERS}
-          packingTasks={packingTasks}
-          pendingPackingTaskCount={pendingPackingTaskCount}
-          printWorkspaceItems={printWorkspaceItems}
-          productionAttentionCount={productionAttentionCount}
-          productionLines={productionLines}
-          productionTaskCards={productionTaskCards}
-          productionTaskPriority={productionTaskPriority}
-          resolveInventoryItem={resolveInventoryItem}
-          scheduleQueueMachineCount={scheduleQueueMachineOptions.length}
-          selectedPackingTask={selectedPackingTask}
-          selectedProductionLine={selectedProductionLine}
-          statusTone={statusTone}
-          visiblePackingTasks={visiblePackingTasks}
-          workbenchTabs={PRODUCTION_WORKBENCH_TABS}
-        />
-        <ProductionScheduleQueueSection
-          authState={authState}
-          buildProductionTaskId={buildProductionTaskId}
-          canMoveScheduleDown={canMoveScheduleDown}
-          canMoveScheduleUp={canMoveScheduleUp}
-          currentUser={currentUser}
-          detailMode={detailMode}
-          onConflictBack={() => setScheduleWriteConflict(null)}
-          onConflictRefresh={async () => {
-            await onRefreshProduction?.();
-            setScheduleWriteConflict(null);
-            setScheduleActionConfirmation(null);
-          }}
-          onMoveDirection={moveSelectedScheduleQueue}
-          onMoveReasonChange={updateQueueMoveReason}
-          onMoveTargetMachineChange={updateQueueMoveTargetMachine}
-          onMoveTargetSeqChange={updateQueueMoveTargetSeq}
-          onMoveToTarget={moveSelectedScheduleQueueToTarget}
-          onScheduleDecisionChange={setScheduleDecision}
-          onSelectScheduleQueueItem={selectScheduleQueueItem}
-          productionPacking={productionPacking}
-          queueMoveDisabled={queueMoveDisabled}
-          queueMoveImpact={queueMoveImpact}
-          queueMovePositionOptions={queueMovePositionOptions}
-          queueMoveReason={queueMoveReason}
-          queueMoveTargetMachineId={queueMoveTargetMachineId}
-          queueMoveTargetSeq={queueMoveTargetSeq}
-          queueMoveTitle={queueMoveTitle}
-          scheduleActionConfirmationOpen={Boolean(scheduleActionConfirmation)}
-          scheduleActionSubmitting={scheduleActionSubmitting}
-          scheduleDecision={scheduleDecision}
-          scheduleDecisionReady={scheduleDecisionReady}
-          scheduleDirectAllowed={scheduleDirectAllowed}
-          scheduleQueueItems={scheduleQueueItems}
-          scheduleQueueMachineOptions={scheduleQueueMachineOptions}
-          scheduleWriteConflict={scheduleWriteConflict}
-          selectedProductionLine={selectedProductionLine}
-          selectedScheduleQueueItem={selectedScheduleQueueItem}
-          sequenceState={sequenceState}
-        />
-        <ProductionPackingTaskTables
-          buildProductionTaskId={buildProductionTaskId}
-          detailMode={detailMode}
-          findCustomer={findCustomer}
-          getLineColorSpecLabel={getLineColorSpecLabel}
-          onSelectPackingTask={selectPackingTask}
-          onSelectProductionLine={selectProductionLine}
-          packingTasks={packingTasks}
-          productionLines={productionLines}
-          resolveInventoryItem={resolveInventoryItem}
-          selectedPackingTask={selectedPackingTask}
-          selectedProductionLine={selectedProductionLine}
-          statusTone={statusTone}
-        />
-      </OperationalPanel>
+      <ProductionPackingTaskPane runtime={taskPaneRuntime} />
       <DetailPane
         className="production-packing-detail-pane"
         title={activeWorkbenchTab === "print" ? "打印与设备" : detailMode === "packing" ? selectedPackingTask?.packingTaskId ?? "打包任务" : selectedProductionLine ? buildProductionTaskId(selectedProductionLine) : "生产报工"}
