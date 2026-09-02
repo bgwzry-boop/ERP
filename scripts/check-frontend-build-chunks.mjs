@@ -23,6 +23,27 @@ assert.equal(
 const workbenchSource = await readFile(resolve(distRoot, workbenchAsset.file));
 const workbenchBytes = (await stat(resolve(distRoot, workbenchAsset.file))).size;
 const workbenchGzipBytes = gzipSync(workbenchSource).length;
+const masterDataTemplateDownloadAsset = Object.values(manifest).find(
+  (asset) => asset.name === "masterDataTemplateDownload",
+);
+assert.ok(
+  masterDataTemplateDownloadAsset?.isDynamicEntry,
+  "master-data XLSX generation must remain behind its download action",
+);
+const masterDataTemplateDownloadSource = await readFile(
+  resolve(distRoot, masterDataTemplateDownloadAsset.file),
+  "utf8",
+);
+assert.doesNotMatch(
+  workbenchSource.toString("utf8"),
+  /\[Content_Types\]\.xml/,
+  "OfficeWorkbench must not eagerly contain the XLSX archive generator",
+);
+assert.match(
+  masterDataTemplateDownloadSource,
+  /\[Content_Types\]\.xml/,
+  "master-data template download chunk must contain the XLSX archive generator",
+);
 const maxWorkbenchBytes = 500_000;
 const maxWorkbenchGzipBytes = 150 * 1024;
 assert.ok(

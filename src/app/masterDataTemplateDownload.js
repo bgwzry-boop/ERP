@@ -1,8 +1,8 @@
 import {
   MASTER_DATA_IMPORT_CONTENT_TYPE,
   buildMasterDataImportTemplateMetadata,
-  buildMasterDataImportTemplateWorkbook,
-} from "../domain/masterDataImportTemplate.js";
+} from "../domain/masterDataImportTemplateCatalog.js";
+import { buildMasterDataImportTemplateWorkbook } from "../domain/masterDataImportWorkbook.js";
 
 export function downloadMasterDataImportTemplateWorkbook(templateKey, operatorName = "ERP") {
   if (typeof document === "undefined" || typeof Blob === "undefined" || typeof URL === "undefined") return null;
