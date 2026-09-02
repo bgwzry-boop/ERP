@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { DataState } from "../shared/ui/operational.jsx";
 import { buildMasterDataRouteContract } from "./buildMasterDataRouteContract.js";
+import { buildV1StatusRouteContract } from "./buildV1StatusRouteContract.js";
 
 function lazyNamedPage(loadModule, exportName, loadStyles = []) {
   return lazy(async () => {
@@ -39,9 +40,9 @@ const EmployeeAttendanceMobilePage = lazyNamedPage(() => import("../features/pay
 
 export function OfficeWorkspacePages({ renderedPage, runtime }) {
   const masterDataRouteContract = buildMasterDataRouteContract(runtime);
+  const v1StatusRouteContract = buildV1StatusRouteContract(runtime);
   const {
     authState,
-    canOpenMasterData,
     changePrinterDeviceQaCheck,
     changePrinterDeviceQaEvidenceField,
     changePrinterDeviceQaField,
@@ -80,7 +81,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     inventoryMeta,
     inventoryRecords,
     linkCancellationIntentToSelectedLine,
-    openMasterDataTemplatePanel,
     openInventoryCorrectionDetail,
     openOrderLineAction,
     openQueueDraft,
@@ -138,7 +138,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     setActivePage,
     setFulfillmentTab,
     setInventoryLedgerFilters,
-    setMasterDataMaintenanceTab,
     setOrderFilters,
     setSelectedDraftId,
     setSelectedDriverTaskId,
@@ -161,8 +160,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     updateFulfillment,
     updateRawMaterialInbound,
     uploadDraftArtwork,
-    v1StatusActions,
-    v1StatusRouteState,
   } = runtime;
   return (
     <>
@@ -400,11 +397,7 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
           )}
           {renderedPage === "v1Status" && (
             <Suspense fallback={<DataState title="上线状态加载中" />}>
-              <V1StatusRoute
-                actions={v1StatusActions.pageActions}
-                state={v1StatusRouteState}
-                onOpenEmployeeImport={canOpenMasterData ? () => { setMasterDataMaintenanceTab("员工机台"); setActivePage("masterData"); openMasterDataTemplatePanel("员工机台"); } : undefined}
-              />
+              <V1StatusRoute {...v1StatusRouteContract} />
             </Suspense>
           )}
 

@@ -20,6 +20,22 @@ assert.equal(
   false,
   "authenticated OfficeWorkbench must not return to the initial HTML dependency graph",
 );
+const v1StatusRouteKey = "src/app/routes/V1StatusRoute.jsx";
+const v1StatusRouteAsset = manifest[v1StatusRouteKey];
+assert.ok(
+  workbenchAsset.dynamicImports?.includes(v1StatusRouteKey),
+  "OfficeWorkbench must lazy-load the V1 status route",
+);
+assert.ok(v1StatusRouteAsset?.isDynamicEntry, "V1 status route must remain a dynamic entry");
+assert.equal(
+  initialAssets.has(v1StatusRouteAsset.file),
+  false,
+  "V1 status route must not return to the initial HTML dependency graph",
+);
+assert.ok(
+  (v1StatusRouteAsset.css?.length ?? 0) > 0,
+  "V1 status styles must remain deferred with the route",
+);
 const workbenchSource = await readFile(resolve(distRoot, workbenchAsset.file));
 const workbenchBytes = (await stat(resolve(distRoot, workbenchAsset.file))).size;
 const workbenchGzipBytes = gzipSync(workbenchSource).length;

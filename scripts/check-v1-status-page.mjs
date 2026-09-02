@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { buildV1StatusRouteContract } from "../src/app/buildV1StatusRouteContract.js";
 import { createV1StatusBlockerActionBuilders } from "../src/features/v1-status/createV1StatusBlockerActionBuilders.js";
 import { createV1StatusFieldRoleActionBuilders } from "../src/features/v1-status/createV1StatusFieldRoleActionBuilders.js";
 import { createV1StatusPhaseActionBuilders } from "../src/features/v1-status/createV1StatusPhaseActionBuilders.js";
@@ -10,17 +11,11 @@ import {
   createV1SignoffBoundaryAttachmentListInput,
 } from "../src/services/officeAttachmentInputs.js";
 
-const appSource = [
-  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
 const v1StatusActionsSource = readFileSync(new URL("../src/app/createOfficeV1StatusActions.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
 const v1StatusReadSource = readFileSync(new URL("../src/app/useOfficeV1StatusReads.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const v1StatusRouteSource = readFileSync(new URL("../src/app/routes/V1StatusRoute.jsx", import.meta.url), "utf8");
 const v1StatusPageEntrySource = readFileSync(new URL("../src/features/v1-status/V1StatusPage.jsx", import.meta.url), "utf8");
 const v1StatusOverviewSource = readFileSync(new URL("../src/features/v1-status/V1StatusOverview.jsx", import.meta.url), "utf8");
 const v1StatusDecisionSource = readFileSync(new URL("../src/features/v1-status/V1StatusDecisionWorkspace.jsx", import.meta.url), "utf8");
@@ -68,19 +63,38 @@ const v1StatusBaseStyleSource = readFileSync(new URL("../src/styles/features/v1-
 const v1StatusWorkbenchStyleSource = readFileSync(new URL("../src/styles/features/v1-status.css", import.meta.url), "utf8");
 const featureStyleSource = `${v1StatusBaseStyleSource}\n${v1StatusWorkbenchStyleSource}`;
 
+const routeState = { goLiveStatus: { status: "review" } };
+const routeActions = { onPrecheckProductionEnv: () => {} };
+const employeeImportCalls = [];
+const routeContract = buildV1StatusRouteContract({
+  canOpenMasterData: true,
+  openMasterDataTemplatePanel: (tab) => employeeImportCalls.push(["template", tab]),
+  setActivePage: (page) => employeeImportCalls.push(["page", page]),
+  setMasterDataMaintenanceTab: (tab) => employeeImportCalls.push(["tab", tab]),
+  v1StatusActions: { pageActions: routeActions },
+  v1StatusRouteState: routeState,
+});
+assert.equal(routeContract.actions, routeActions, "V1 route should receive the action adapter by identity");
+assert.equal(routeContract.state, routeState, "V1 route should receive grouped status state by identity");
+routeContract.onOpenEmployeeImport();
+assert.deepEqual(employeeImportCalls, [
+  ["tab", "员工机台"],
+  ["page", "masterData"],
+  ["template", "员工机台"],
+], "authorized D49 employee import should focus and open the employee-machine intake");
+assert.equal(
+  buildV1StatusRouteContract({ canOpenMasterData: false }).onOpenEmployeeImport,
+  undefined,
+  "D49 employee import must remain unavailable without master-data navigation permission",
+);
+
 assertIncludes(navigationSource, 'key: "v1Status"', "navigation should expose V1 status page");
 assertIncludes(navigationSource, 'label: "上线状态"', "navigation should label V1 status page");
 assertIncludes(navigationSource, 'permissionPrefixes: ["system.v1_"]', "V1 status navigation should require system permissions");
 assertExcludes(officePageSource, "V1StatusPage", "office barrel should not statically import the V1 status page");
 assertExcludes(officePageSource, "function V1StatusPage", "office pages should no longer define the V1 status page");
-assertIncludes(appSource, 'lazyNamedPage(() => import("./routes/V1StatusRoute.jsx"), "V1StatusRoute")', "The workspace pages should lazy-load the V1 status route");
-assertIncludes(v1StatusRouteSource, 'import { V1StatusPage } from "../../features/v1-status/V1StatusPage.jsx";', "V1 status route should import the feature only after the route is requested");
-assertIncludes(appSource, "<Suspense", "App should expose a loading boundary for V1 status");
-assertIncludes(appSource, "<V1StatusRoute", "App should render the V1 status route");
 assertIncludes(v1StatusReadSource, "当前仍以发布门禁、现场证据和签字作为完成标准", "refresh toast should keep V1 completion boundary explicit");
 assertIncludes(v1StatusReadSource, "getOfficeV1GoLiveStatus", "V1 read hook should refresh go-live status from API artifacts");
-assertExcludes(appSource, "getOfficeV1GoLiveStatus", "App should no longer call the V1 status read client directly");
-assertExcludes(appSource, "officeV1GoLiveStatusApiClient", "App should not call the V1 status action client directly");
 assertIncludes(v1StatusActionsSource, "generateOfficeV1FieldEvidenceDraftManifest", "V1 action controller should generate field evidence draft manifest through API");
 assertIncludes(v1StatusActionsSource, "validateOfficeV1FieldEvidenceDraftManifest", "V1 action controller should validate field evidence draft manifest through API");
 assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionEnv", "V1 action controller should precheck current production env through API");
@@ -138,8 +152,6 @@ assertIncludes(v1StatusActionsSource, "createV1FieldEvidenceAttachmentInput", "V
 assertIncludes(v1StatusActionsSource, "createV1FieldEvidenceAttachmentListInput", "V1 action controller should build field evidence attachment list inputs");
 assertIncludes(v1StatusActionsSource, "createV1SignoffBoundaryAttachmentInput", "V1 action controller should build signoff/boundary attachment inputs");
 assertIncludes(v1StatusActionsSource, "createV1SignoffBoundaryAttachmentListInput", "V1 action controller should build signoff/boundary attachment list inputs");
-assertIncludes(appSource, "state={v1StatusRouteState}", "App should pass grouped V1 state into the lazy route");
-assertIncludes(appSource, "actions={v1StatusActions.pageActions}", "App should pass the V1 action adapter into the lazy route");
 for (const actionProp of [
   "onGenerateFieldEvidenceDraft",
   "onValidateFieldEvidenceDraft",
@@ -363,9 +375,6 @@ assertIncludes(v1StatusD49ReadinessSource, "VIEW_KEYS.environment", "D49 project
 assertExcludes(v1StatusD49ReadinessSource, ".slice(", "D49 projection must not silently truncate role or environment blockers");
 assertIncludes(v1StatusD49ReadinessSource, "打开员工导入", "D49 projection should provide a direct formal employee import action");
 assertIncludes(v1StatusD49ReadinessSource, "onOpenEmployeeImport ?", "D49 employee import action should remain permission-scoped by its caller");
-assertIncludes(appSource, 'canOpenMasterData ? () =>', "The V1 route should expose D49 employee import only when master-data navigation is authorized");
-assertIncludes(appSource, 'setMasterDataMaintenanceTab("员工机台")', "D49 employee import should focus the employee-machine workspace");
-assertIncludes(appSource, 'openMasterDataTemplatePanel("员工机台")', "D49 employee import should open the employee-machine import template");
 assertIncludes(v1StatusProductionFirstStageSource, "export function V1StatusProductionFirstStage", "V1 production first-stage execution should have a dedicated component");
 assertIncludes(v1StatusProductionFirstStageSource, "<V1StatusProductionFirstStageReadiness", "V1 production first-stage coordinator should compose readiness results");
 assertIncludes(v1StatusProductionFirstStageSource, "<V1StatusProductionFirstStageActionResults", "V1 production first-stage coordinator should compose action results");
@@ -386,8 +395,6 @@ assertIncludes(v1StatusPageEntrySource, "v1-status-section-${workspaceSection}",
 assertIncludes(featureStyleSource, ".page-grid.two-col.v1-status-workbench", "V1 status feature styles should own the responsive split");
 assertIncludes(featureStyleSource, ".v1-status-page .v1-workspace-panel", "V1 status feature styles should hide inactive workflow sections");
 assert.equal(mainSource.includes('import "./styles/features/v1-status-base.css";'), false, "V1 styles should not load with the initial shell");
-assertIncludes(v1StatusRouteSource, 'import "../../styles/features/v1-status-base.css";', "V1 route should load base styles with the workbench");
-assertIncludes(v1StatusRouteSource, 'import "../../styles/features/v1-status.css";', "V1 route should load workbench overrides with the feature");
 assertExcludes(sharedStyleSource, ".v1-status-page", "shared styles should not retain the V1 status page base");
 assertExcludes(sharedStyleSource, ".v1-section-title-row", "shared styles should not retain V1 section title rules");
 assertExcludes(sharedStyleSource, ".v1-field-stage-row", "shared styles should not retain V1 mobile field-stage rules");
