@@ -5,6 +5,7 @@ import {
   BookOutlined,
   CameraOutlined,
   CheckCircleFilled,
+  CheckOutlined,
   DownOutlined,
   DollarCircleOutlined,
   FileTextOutlined,
@@ -325,14 +326,14 @@ function ReceiptStage({ row }) {
       const step = index + 1;
       const done = step === 1 || reviewed;
       const active = !reviewed && step === 2;
-      return <span className={done ? "done" : active ? "active" : ""} key={label}><b>{done ? <CheckCircleFilled /> : step}</b>{label}</span>;
+      return <span className={done ? "done" : active ? "active" : ""} key={label}><b>{done ? <CheckOutlined /> : step}</b>{label}</span>;
     })}</div>;
   }
   const activeStep = receiptStageIndex(row);
   return <div aria-label="收货处理进度" className="receipt-stage">{["核对", "打印", "贴标", "入库"].map((label, index) => {
     const step = index + 1;
     const done = step < activeStep || activeStep === 4;
-    return <span className={done ? "done" : step === activeStep ? "active" : ""} key={label}><b>{done ? <CheckCircleFilled /> : step}</b>{label}</span>;
+    return <span className={done ? "done" : step === activeStep ? "active" : ""} key={label}><b>{done ? <CheckOutlined /> : step}</b>{label}</span>;
   })}</div>;
 }
 
