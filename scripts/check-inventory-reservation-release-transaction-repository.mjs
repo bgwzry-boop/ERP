@@ -31,9 +31,6 @@ async function checkInventoryReservationReleaseCommandService() {
     findInventoryReservation(workspace, id) {
       return workspace.inventoryReservations.find((item) => item.id === id || item.reservationId === id) ?? null;
     },
-    isReleasableInventoryReservation(reservation) {
-      return ["生效", "部分释放", "active", "partially_released"].includes(reservation.status);
-    },
     nextPlainId(prefix, value) {
       return `${prefix}-${String(value).replace(/[^a-z0-9]+/gi, "-")}`;
     },

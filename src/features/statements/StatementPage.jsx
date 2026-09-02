@@ -32,14 +32,17 @@ import {
   formatBusinessDecisionChannelAndTime,
   getBusinessDecisionContentSummary,
 } from "../../components/businessDecisionPresentation.js";
-
-const STATEMENT_DETAIL_TABS = ["本期明细", "凭证/确认", "导出/归档"];
-const STATEMENT_QUICK_FILTERS = ["默认待处理", "欠款/差额", "收款待确认"];
-const STATEMENT_ACTIONS_BY_TAB = {
-  本期明细: ["生成对账单预览", "登记实收", "差额待确认", "确认核销"],
-  "凭证/确认": ["标记已发送", "标记已读回执", "登记客户确认", "登记实收"],
-  "导出/归档": ["生成对账单预览", "导出Excel"],
-};
+import {
+  STATEMENT_ACTIONS_BY_TAB,
+  STATEMENT_DETAIL_TABS,
+  STATEMENT_QUICK_FILTERS,
+  buildStatementDecisionIdempotencyKey,
+  createStatementDecisionDraft,
+  getStatementBucketTone,
+  getStatementExportTimeLabel,
+  getStatementExportTokenLabel,
+  getStatementExportTypeLabel,
+} from "./statementPageModel.js";
 
 export function StatementPage({ authState, currentUser, statements, orderLines, readMeta, selectedId, setSelectedId, onAction, onRefresh, helpers }) {
   const {
@@ -551,22 +554,6 @@ export function StatementPage({ authState, currentUser, statements, orderLines, 
   );
 }
 
-function createStatementDecisionDraft(type) {
-  return {
-    type,
-    handlingResult: "",
-    reason: "",
-    delegatedDecision: {
-      decisionChannel: "wechat",
-      decidedAt: new Date().toISOString(),
-      decisionContent: { summary: "" },
-      authorizationBasis: "",
-      evidenceDraftId: "",
-      evidenceAttachmentIds: [],
-    },
-  };
-}
-
 function StatementCustomerHeader({ count, source, summary }) {
   return (
     <div className="statement-customer-head">
@@ -636,35 +623,4 @@ function StatementActionIcon({ label }) {
   if (label.includes("实收")) return <WalletOutlined aria-hidden="true" />;
   if (label.includes("核销")) return <CheckCircleOutlined aria-hidden="true" />;
   return <WarningOutlined aria-hidden="true" />;
-}
-
-function getStatementBucketTone(bucket) {
-  if (bucket === "已结清") return "success";
-  if (bucket === "欠款/差额") return "danger";
-  if (bucket === "收款待确认") return "warning";
-  return "blue";
-}
-
-function getStatementExportTypeLabel(previewType) {
-  if (previewType === "customer_send") return "客户发送版";
-  if (previewType === "internal_archive") return "内部留档版";
-  return "导出文件";
-}
-
-function getStatementExportTimeLabel(value) {
-  const text = String(value ?? "");
-  if (!text) return "时间待补";
-  if (text.includes("T")) return text.slice(5, 16).replace("T", " ");
-  return text;
-}
-
-function getStatementExportTokenLabel(value) {
-  const text = String(value ?? "");
-  if (!text) return "待补";
-  return text.length > 10 ? `...${text.slice(-10)}` : text;
-}
-
-function buildStatementDecisionIdempotencyKey(type, statementId, revision) {
-  const uuid = globalThis.crypto?.randomUUID?.() ?? `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
-  return `statement-${type}:${statementId}:${revision}:${uuid}`;
 }

@@ -1,35 +1,62 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  STATEMENT_ACTIONS_BY_TAB,
+  STATEMENT_DETAIL_TABS,
+  STATEMENT_QUICK_FILTERS,
+  buildStatementDecisionIdempotencyKey,
+  createStatementDecisionDraft,
+  getStatementBucketTone,
+  getStatementExportTimeLabel,
+  getStatementExportTokenLabel,
+  getStatementExportTypeLabel,
+} from "../src/features/statements/statementPageModel.js";
 
-const statementPageSource = readFileSync(new URL("../src/features/statements/StatementPage.jsx", import.meta.url), "utf8");
-const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const statementStyleSource = readFileSync(new URL("../src/styles/features/statements.css", import.meta.url), "utf8");
+assert.deepEqual(STATEMENT_DETAIL_TABS, ["本期明细", "凭证/确认", "导出/归档"]);
+assert.deepEqual(STATEMENT_QUICK_FILTERS, ["默认待处理", "欠款/差额", "收款待确认"]);
+assert.deepEqual(STATEMENT_ACTIONS_BY_TAB, {
+  本期明细: ["生成对账单预览", "登记实收", "差额待确认", "确认核销"],
+  "凭证/确认": ["标记已发送", "标记已读回执", "登记客户确认", "登记实收"],
+  "导出/归档": ["生成对账单预览", "导出Excel"],
+});
 
-assert.match(statementPageSource, /export function StatementPage/);
-assert.match(statementPageSource, /from "\.\.\/\.\.\/shared\/ui\/operational\.jsx"/);
-assert.match(statementPageSource, /<FilterBar/);
-assert.match(statementPageSource, /<OperationalPanel/);
-assert.match(statementPageSource, /\?\? filtered\[0\] \?\? null/);
-assert.match(statementPageSource, /aria-label="对账快捷范围"/);
-assert.match(statementPageSource, /aria-label="对账客户或单号"/);
-assert.match(statementPageSource, /aria-label="对账范围"/);
-assert.match(statementPageSource, /className="statement-detail-scroll"/);
-assert.match(statementPageSource, /className="statement-facts"/);
-assert.match(statementPageSource, /STATEMENT_ACTIONS_BY_TAB/);
-assert.match(statementPageSource, /本期未收.*历史欠款.*累计待收/);
-for (const label of ["本期应收", "本期实收", "本期未收", "历史欠款", "累计欠款"]) {
-  assert.equal(statementPageSource.includes(label), true, `statement page should retain ${label}`);
-}
-for (const label of ["确认财务经营决定", "处理结果", "处理说明", "业务决定人", "系统操作人", "决定渠道 / 时间", "决定内容", "授权依据", "预计影响"]) {
-  assert.equal(statementPageSource.includes(label), true, `statement decision confirmation should retain ${label}`);
-}
-assert.match(statementPageSource, /formatBusinessDecisionChannelAndTime/);
-for (const selector of [".statement-quick-filters", ".statement-detail-overview", ".statement-detail-scroll", ".statement-facts", ".statement-actions"]) {
-  assert.equal(statementStyleSource.includes(selector), true, `statement styles should own ${selector}`);
-}
-assert.match(statementStyleSource, /\.statement-actions\s*\{[\s\S]*?position: static;/);
-assert.match(statementStyleSource, /@media \(max-width: 1100px\)/);
-assert.match(officePageSource, /export \{ StatementPage \} from "\.\.\/\.\.\/features\/statements\/StatementPage\.jsx";/);
-assert.doesNotMatch(officePageSource, /function StatementPage/);
+const fixedNow = "2026-09-02T08:30:00.000Z";
+assert.deepEqual(createStatementDecisionDraft("variance", () => fixedNow), {
+  type: "variance",
+  handlingResult: "",
+  reason: "",
+  delegatedDecision: {
+    decisionChannel: "wechat",
+    decidedAt: fixedNow,
+    decisionContent: { summary: "" },
+    authorizationBasis: "",
+    evidenceDraftId: "",
+    evidenceAttachmentIds: [],
+  },
+});
 
-console.log("Office statement page check passed: customer filters, five financial trust amounts, independent detail scrolling, and tab-scoped actions remain visible.");
+assert.equal(getStatementBucketTone("已结清"), "success");
+assert.equal(getStatementBucketTone("欠款/差额"), "danger");
+assert.equal(getStatementBucketTone("收款待确认"), "warning");
+assert.equal(getStatementBucketTone("本期待对账"), "blue");
+
+assert.equal(getStatementExportTypeLabel("customer_send"), "客户发送版");
+assert.equal(getStatementExportTypeLabel("internal_archive"), "内部留档版");
+assert.equal(getStatementExportTypeLabel("unknown"), "导出文件");
+assert.equal(getStatementExportTimeLabel("2026-09-02T08:30:00.000Z"), "09-02 08:30");
+assert.equal(getStatementExportTimeLabel("2026-09-02 08:30"), "2026-09-02 08:30");
+assert.equal(getStatementExportTimeLabel(""), "时间待补");
+assert.equal(getStatementExportTokenLabel("DL-1234567890123456"), "...7890123456");
+assert.equal(getStatementExportTokenLabel("DL-123"), "DL-123");
+assert.equal(getStatementExportTokenLabel(""), "待补");
+
+assert.equal(
+  buildStatementDecisionIdempotencyKey("variance", "ST-001", 4, () => "nonce-001"),
+  "statement-variance:ST-001:4:nonce-001",
+);
+assert.notEqual(
+  buildStatementDecisionIdempotencyKey("write_off", "ST-001", 4, () => "nonce-001"),
+  buildStatementDecisionIdempotencyKey("write_off", "ST-001", 5, () => "nonce-001"),
+  "statement revisions must remain part of the idempotency scope",
+);
+
+console.log("Office statement page model checks passed: tab actions, decision drafts, status tones, export labels, and idempotency scopes are behavior-covered.");

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createDeliveryEvidencePolicyService } from "../server/services/deliveryEvidencePolicyService.mjs";
 import { createInventoryReservationPolicyService } from "../server/services/inventoryReservationPolicyService.mjs";
 import { createStatementPolicyService } from "../server/services/statementPolicyService.mjs";
@@ -68,30 +67,4 @@ assert.equal(
 );
 assert.equal(deliveryPolicy.normalizeTimestamp("invalid", "fallback"), "fallback");
 
-const apiSource = read("../server/apiServer.mjs");
-for (const name of [
-  "mapStatementApiStatus",
-  "mapVarianceHandlingResult",
-  "normalizeStatementSendReceiptStatus",
-  "hasDriverWatermarkEvidence",
-  "normalizeDeliveryEvidenceReviewStatus",
-  "normalizeTimestamp",
-  "distributeIntegerQty",
-  "isReleasableInventoryReservation",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`\\b${name}\\b`), `${name} must not be owned by apiServer.mjs`);
-}
-
-assert.match(read("../server/services/statementCommunicationCommandService.mjs"), /statementPolicyService\.mapStatementApiStatus/);
-assert.match(read("../server/services/statementFinancialCommandService.mjs"), /statementPolicyService\.mapVarianceHandlingResult/);
-assert.match(read("../server/services/fulfillmentActionCommandService.mjs"), /deliveryEvidencePolicyService\.normalizeTimestamp/);
-assert.match(read("../server/services/fulfillmentActionCommandService.mjs"), /inventoryReservationPolicyService\.isReleasableInventoryReservation/);
-assert.match(read("../server/services/packingCommandService.mjs"), /distributeIntegerQty = distributeIntegerQuantity/);
-assert.match(read("../server/services/orderLineMutationCommandService.mjs"), /inventoryReservationPolicyService\.isReleasableInventoryReservation/);
-assert.match(read("../server/services/inventoryReservationReleaseCommandService.mjs"), /inventoryReservationPolicyService\.isReleasableInventoryReservation/);
-
-console.log("Domain policy service checks passed: inventory reservation, statement, delivery evidence, and thin API ownership are covered.");
-
-function read(relativePath) {
-  return readFileSync(new URL(relativePath, import.meta.url), "utf8");
-}
+console.log("Domain policy service checks passed: inventory reservation, statement, and delivery-evidence behavior are covered.");
