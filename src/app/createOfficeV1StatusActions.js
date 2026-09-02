@@ -1,16 +1,15 @@
 import {
-  createOfficeAttachment,
   createV1FieldEvidenceAttachmentInput,
   createV1FieldEvidenceAttachmentListInput,
   createV1SignoffBoundaryAttachmentInput,
   createV1SignoffBoundaryAttachmentListInput,
-  listOfficeAttachments,
-} from "../services/officeAttachmentApiClient.js";
+} from "../services/officeAttachmentInputs.js";
+import { createOfficeAttachment, listOfficeAttachments } from "../services/officeAttachmentLazyApi.js";
 import {
   getOfficePrintDriverCupsDiagnostics,
   getOfficePrintDriverSpoolDiagnostics,
   getOfficePrintDriverV1Readiness,
-} from "../services/officePrintDriverConfigApiClient.js";
+} from "../services/officePrintLazyApi.js";
 import {
   applyOfficeV1ProductionFirstStageValues,
   generateOfficeV1FieldEvidenceDraftManifest,

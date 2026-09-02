@@ -1,5 +1,5 @@
 import { isInlineImageAttachment } from "./attachmentViewUtils.js";
-import { downloadOfficeAttachmentContent as downloadOfficeAttachmentContentDefault } from "../services/officeAttachmentApiClient.js";
+import { downloadOfficeAttachmentContent as downloadOfficeAttachmentContentDefault } from "../services/officeAttachmentLazyApi.js";
 import { isFulfillmentPrintActionLabel } from "../services/officeFulfillmentSelectors.js";
 import { createOfficeTodo as createOfficeTodoDefault } from "../services/officeMockService.js";
 

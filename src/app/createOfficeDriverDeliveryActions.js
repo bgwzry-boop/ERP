@@ -1,7 +1,5 @@
-import {
-  createDeliveryEvidenceAttachmentInput as createDeliveryEvidenceAttachmentInputDefault,
-  createOfficeAttachment as createOfficeAttachmentDefault,
-} from "../services/officeAttachmentApiClient.js";
+import { createDeliveryEvidenceAttachmentInput as createDeliveryEvidenceAttachmentInputDefault } from "../services/officeAttachmentInputs.js";
+import { createOfficeAttachment as createOfficeAttachmentDefault } from "../services/officeAttachmentLazyApi.js";
 import {
   completeDriverDeliveryTask as completeDriverDeliveryTaskDefault,
   confirmDriverDeliveryLoaded as confirmDriverDeliveryLoadedDefault,

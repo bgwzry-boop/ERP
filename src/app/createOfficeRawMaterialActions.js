@@ -7,10 +7,13 @@ import {
   recognizeOfficeRawMaterialDeliveryNote,
   updateOfficeRawMaterialInboundAction,
 } from "../services/officeRawMaterialLazyApi.js";
-import {
-  applyRawMaterialInboundLocalAction,
-  buildRawMaterialInboundToastText,
-} from "../domain/rawMaterialInboundLocalActions.js";
+
+let rawMaterialInboundLocalActionsPromise;
+
+function loadRawMaterialInboundLocalActions() {
+  rawMaterialInboundLocalActionsPromise ??= import("../domain/rawMaterialInboundLocalActions.js");
+  return rawMaterialInboundLocalActionsPromise;
+}
 
 const defaultApi = {
   confirmOfficeRawMaterialSupplierPayment,
@@ -134,6 +137,10 @@ export function createOfficeRawMaterialActions({
       return null;
     }
     const actionAt = now();
+    const {
+      applyRawMaterialInboundLocalAction,
+      buildRawMaterialInboundToastText,
+    } = await loadRawMaterialInboundLocalActions();
     const toastText = buildRawMaterialInboundToastText(action, target, options);
     const result = await api.updateOfficeRawMaterialInboundAction({
       authState,

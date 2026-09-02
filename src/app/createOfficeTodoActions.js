@@ -2,7 +2,7 @@ import {
   handleOfficeTodoAction as handleOfficeTodoActionDefault,
   repairOfficeTodoFulfillment as repairOfficeTodoFulfillmentDefault,
   repairOfficeTodoReference as repairOfficeTodoReferenceDefault,
-} from "../services/officeTodoApiClient.js";
+} from "../services/officeTodoLazyApi.js";
 import { createOfficeTodo } from "../services/officeMockService.js";
 import {
   getBatchPrintPackageRows,

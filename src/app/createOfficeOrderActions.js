@@ -1,9 +1,9 @@
 import { findStockForDraft } from "../domain/officeRules.js";
-import { getOfficeDraft as getOfficeDraftDefault } from "../services/officeOrderApiClient.js";
+import { getOfficeDraft as getOfficeDraftDefault } from "../services/officeOrderLazyApi.js";
 import {
   createPrintArtworkAttachmentInput,
-  uploadOfficeAttachmentFile,
-} from "../services/officeAttachmentApiClient.js";
+} from "../services/officeAttachmentInputs.js";
+import { uploadOfficeAttachmentFile } from "../services/officeAttachmentLazyApi.js";
 
 const persistentEntryActions = new Set(["保存草稿", "保存并确认", "确认拆单", "作废草稿"]);
 const orderLineActions = new Map([

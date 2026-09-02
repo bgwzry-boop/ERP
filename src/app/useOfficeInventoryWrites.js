@@ -9,8 +9,8 @@ import {
 } from "../services/officeInventoryLazyApi.js";
 import {
   createInventoryCorrectionEvidenceAttachmentInput,
-  createOfficeAttachment,
-} from "../services/officeAttachmentApiClient.js";
+} from "../services/officeAttachmentInputs.js";
+import { createOfficeAttachment } from "../services/officeAttachmentLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 import { readAttachmentFileAsDataUrl } from "../features/attachments/readAttachmentFile.js";
 

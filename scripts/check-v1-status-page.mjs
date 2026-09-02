@@ -3,6 +3,12 @@ import { readFileSync } from "node:fs";
 import { createV1StatusBlockerActionBuilders } from "../src/features/v1-status/createV1StatusBlockerActionBuilders.js";
 import { createV1StatusFieldRoleActionBuilders } from "../src/features/v1-status/createV1StatusFieldRoleActionBuilders.js";
 import { createV1StatusPhaseActionBuilders } from "../src/features/v1-status/createV1StatusPhaseActionBuilders.js";
+import {
+  createV1FieldEvidenceAttachmentInput,
+  createV1FieldEvidenceAttachmentListInput,
+  createV1SignoffBoundaryAttachmentInput,
+  createV1SignoffBoundaryAttachmentListInput,
+} from "../src/services/officeAttachmentInputs.js";
 
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
@@ -55,7 +61,6 @@ const clientProductionTemplateNormalizersSource = readFileSync(new URL("../src/s
 const clientReleaseNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusReleaseNormalizers.js", import.meta.url), "utf8");
 const clientRuntimeNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusRuntimeNormalizers.js", import.meta.url), "utf8");
 const clientSource = [clientEntrySource, clientActionsSource, clientFieldEvidenceNormalizersSource, clientNormalizerUtilsSource, clientProductionEnvNormalizersSource, clientProductionFirstStageNormalizersSource, clientProductionTemplateNormalizersSource, clientReleaseNormalizersSource, clientRuntimeNormalizersSource].join("\n");
-const attachmentClientSource = readFileSync(new URL("../src/services/officeAttachmentApiClient.js", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const v1StatusBaseStyleSource = readFileSync(new URL("../src/styles/features/v1-status-base.css", import.meta.url), "utf8");
@@ -1009,12 +1014,19 @@ assertIncludes(clientActionsSource, "blockedWhenNotReady", "V1 status actions sh
 assertExcludes(clientEntrySource, "requestOfficeApi", "V1 status normalizer client should not issue HTTP requests directly");
 assertIncludes(clientSource, "/system/v1-field-evidence-intake/stage-row", "client should call field evidence staging API");
 assertIncludes(clientSource, "/system/v1-field-evidence-intake/validate-draft-manifest", "client should call field evidence draft validation API");
-assertIncludes(attachmentClientSource, "createV1FieldEvidenceAttachmentInput", "attachment client should build V1 field evidence upload input");
-assertIncludes(attachmentClientSource, "createV1FieldEvidenceAttachmentListInput", "attachment client should build V1 field evidence list input");
-assertIncludes(attachmentClientSource, "v1_field_evidence", "attachment client should link uploads to V1 field evidence");
-assertIncludes(attachmentClientSource, "createV1SignoffBoundaryAttachmentInput", "attachment client should build V1 signoff/boundary upload input");
-assertIncludes(attachmentClientSource, "createV1SignoffBoundaryAttachmentListInput", "attachment client should build V1 signoff/boundary list input");
-assertIncludes(attachmentClientSource, "v1_signoff_boundary", "attachment client should link uploads to V1 signoff/boundary rows");
+const evidenceItem = { groupKey: "printing", key: "physical-output", groupLabel: "打印", label: "真实出纸" };
+const evidenceAttachmentInput = createV1FieldEvidenceAttachmentInput({ evidenceItem, operatorId: "ERP-0001" });
+const evidenceAttachmentListInput = createV1FieldEvidenceAttachmentListInput({ evidenceItem, operatorId: "ERP-0001" });
+assert.equal(evidenceAttachmentInput.ownerType, "v1_field_evidence", "field evidence uploads should use the V1 evidence owner type");
+assert.equal(evidenceAttachmentInput.ownerId, "printing:physical-output", "field evidence uploads should bind the exact evidence row");
+assert.equal(evidenceAttachmentListInput.purpose, "v1_field_evidence", "field evidence reads should use the V1 evidence purpose");
+
+const signoffItem = { type: "owner_signoff", key: "management", label: "管理负责人签字" };
+const signoffAttachmentInput = createV1SignoffBoundaryAttachmentInput({ signoffItem, operatorId: "ERP-0001" });
+const signoffAttachmentListInput = createV1SignoffBoundaryAttachmentListInput({ signoffItem, operatorId: "ERP-0001" });
+assert.equal(signoffAttachmentInput.ownerType, "v1_signoff_boundary", "signoff uploads should use the V1 signoff owner type");
+assert.equal(signoffAttachmentInput.ownerId, "owner_signoff:management", "signoff uploads should bind the exact signoff row");
+assert.equal(signoffAttachmentListInput.purpose, "v1_signoff_boundary", "signoff reads should use the V1 signoff purpose");
 assertIncludes(featureStyleSource, ".v1-field-attachment-list", "styles should render reusable field evidence attachment list");
 assertIncludes(clientSource, "/system/v1-production-env/live-precheck", "client should call current production env precheck API");
 assertIncludes(clientSource, "/system/v1-production-env-intake/live-precheck", "client should call production env intake live precheck API");

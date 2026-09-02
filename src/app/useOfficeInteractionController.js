@@ -6,8 +6,8 @@ import {
 import {
   createPaymentScreenshotAttachmentInput,
   createStatementCustomerConfirmationAttachmentInput,
-  createOfficeAttachment,
-} from "../services/officeAttachmentApiClient.js";
+} from "../services/officeAttachmentInputs.js";
+import { createOfficeAttachment } from "../services/officeAttachmentLazyApi.js";
 import {
   handleOfficeStatementVariance,
   recordOfficeStatementCustomerConfirmation,

@@ -1,7 +1,6 @@
 import {
   canCreateMasterDataImportConfirmationPlan,
 } from "../domain/masterDataImportConfirmationPlan.js";
-import { precheckMasterDataImportWorkbook } from "../domain/masterDataImportPrecheck.js";
 import {
   canCreateMasterDataImportReviewDraft,
   createMasterDataImportReviewDraft,
@@ -27,6 +26,11 @@ import {
   upsertMasterDataImportExecution,
   upsertMasterDataImportReviewDraft,
 } from "../state/officeMasterDataState.js";
+
+const precheckMasterDataImportWorkbook = async (...args) => {
+  const module = await import("../domain/masterDataImportPrecheck.js");
+  return module.precheckMasterDataImportWorkbook(...args);
+};
 
 const defaultApi = {
   createOfficeMasterDataImportConfirmationPlan: createOfficeMasterDataImportConfirmationPlanDefault,
@@ -256,8 +260,8 @@ export function createOfficeMasterDataActions({
     return draft;
   }
 
-  function downloadMasterDataTemplate(templateKey) {
-    const metadata = downloadMasterDataImportTemplateWorkbook(
+  async function downloadMasterDataTemplate(templateKey) {
+    const metadata = await downloadMasterDataImportTemplateWorkbook(
       templateKey,
       currentUser.displayName || currentUser.name || currentUserId || "ERP",
     );

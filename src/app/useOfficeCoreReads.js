@@ -1,6 +1,6 @@
 import { useCallback } from "react";
 import { listOfficeOrderLines } from "../services/officeOrderPoolLazyApi.js";
-import { listOfficeTodos } from "../services/officeTodoApiClient.js";
+import { listOfficeTodos } from "../services/officeTodoLazyApi.js";
 import { listOfficeInventoryItems } from "../services/officeInventoryLazyApi.js";
 import { listOfficeFulfillments } from "../services/officeFulfillmentLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";

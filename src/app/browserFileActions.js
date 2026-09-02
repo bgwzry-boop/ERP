@@ -1,9 +1,3 @@
-import {
-  MASTER_DATA_IMPORT_CONTENT_TYPE,
-  buildMasterDataImportTemplateMetadata,
-  buildMasterDataImportTemplateWorkbook,
-} from "../domain/masterDataImportTemplate.js";
-
 export function readFileAsDataUrl(file) {
   if (!file || typeof FileReader === "undefined") return Promise.resolve("");
   if (typeof file.contentDataUrl === "string") return Promise.resolve(file.contentDataUrl);
@@ -95,27 +89,8 @@ export function downloadStatementExcelWorkbook(workbookContent, statement, custo
 
 export function downloadMasterDataImportTemplateWorkbook(templateKey, operatorName = "ERP") {
   if (typeof document === "undefined" || typeof Blob === "undefined" || typeof URL === "undefined") return null;
-  const generatedAt = new Date().toISOString();
-  const metadata = buildMasterDataImportTemplateMetadata({
-    templateKey,
-    generatedAt,
-    generatedBy: operatorName,
-  });
-  const workbook = buildMasterDataImportTemplateWorkbook({
-    templateKey,
-    generatedAt,
-    generatedBy: operatorName,
-  });
-  const blob = new Blob([workbook], { type: MASTER_DATA_IMPORT_CONTENT_TYPE });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = sanitizeDownloadFileName(metadata.fileName, "erp-master-data-import-template.xlsx");
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-  return metadata;
+  return import("./masterDataTemplateDownload.js").then((module) =>
+    module.downloadMasterDataImportTemplateWorkbook(templateKey, operatorName));
 }
 
 export function downloadTextFile(content, options = {}) {

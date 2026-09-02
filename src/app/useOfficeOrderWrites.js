@@ -7,10 +7,10 @@ import {
   previewOfficeDraftSplit,
   recognizeOfficeDraft,
   recognizeOfficeDraftQueue,
-  resolveOfficeOrderConfirmationStrategy,
   restoreOfficeDraftShortageCancellation,
   saveOfficeDraft,
-} from "../services/officeOrderApiClient.js";
+} from "../services/officeOrderLazyApi.js";
+import { resolveOfficeOrderConfirmationStrategy } from "../services/officeOrderSelectors.js";
 import {
   adjustOfficeOrderLineQuantity,
   voidOfficeOrderLine,
