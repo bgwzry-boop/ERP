@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import {
+  getRuntimeAuthBoundaryView,
   getTopbarLogoutAction,
   shouldShowRuntimeAuthBoundary,
 } from "../src/app/runtimeAuthViewState.js";
@@ -34,25 +35,38 @@ const newLoginState = {
 };
 
 assert.equal(shouldShowRuntimeAuthBoundary({ formalLoginRequired: false }), false);
-assert.equal(shouldShowRuntimeAuthBoundary({
+assert.equal(getRuntimeAuthBoundaryView({
   authState: { authenticated: false, permissions: {} },
-  formalLoginRequired: true,
-}), true, "formal unauthenticated users must remain on the login boundary");
+  runtimeServerRequired: true,
+}), "login", "formal unauthenticated users must remain on the login boundary");
+const passwordChangeAuthState = {
+  authenticated: true,
+  permissions: { passwordChangeRequired: true, user: { mustChangePassword: true } },
+  session: { sessionType: "runtime" },
+};
+assert.equal(getRuntimeAuthBoundaryView({
+  authState: passwordChangeAuthState,
+  runtimeServerRequired: true,
+}), "password_change", "an authoritative runtime password-change requirement must open the change screen");
 assert.equal(shouldShowRuntimeAuthBoundary({
-  authState: { authenticated: true, permissions: { passwordChangeRequired: true } },
-  currentUser: { mustChangePassword: false },
+  authState: passwordChangeAuthState,
   formalLoginRequired: true,
-}), true, "an authoritative password-change requirement must keep the formal auth boundary open");
-assert.equal(shouldShowRuntimeAuthBoundary({
-  authState: { authenticated: true, permissions: {} },
-  currentUser: { mustChangePassword: true },
-  formalLoginRequired: true,
-}), true, "a user-level password-change requirement must keep the formal auth boundary open");
-assert.equal(shouldShowRuntimeAuthBoundary({
-  authState: { authenticated: true, permissions: {} },
-  currentUser: { mustChangePassword: false },
-  formalLoginRequired: true,
-}), false, "a fully authenticated formal user must enter the workbench");
+}), true, "the root and child auth boundaries must agree on the password-change screen");
+assert.equal(getRuntimeAuthBoundaryView({
+  authState: {
+    ...passwordChangeAuthState,
+    session: { sessionType: "seed" },
+  },
+  runtimeServerRequired: true,
+}), "none", "a signed seed review session must not be trapped by formal password-change flags");
+assert.equal(getRuntimeAuthBoundaryView({
+  authState: {
+    authenticated: true,
+    permissions: { passwordChangeRequired: false, user: { mustChangePassword: false } },
+    session: { sessionType: "runtime" },
+  },
+  runtimeServerRequired: true,
+}), "none", "a fully authenticated formal user must enter the workbench");
 
 const logoutRuntimeUserSession = () => {};
 assert.equal(getTopbarLogoutAction({

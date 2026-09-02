@@ -82,7 +82,7 @@ export function App({ signedPreviewUserId = "" } = {}) {
   useRuntimeAuthInvalidation({ enabled: formalLoginRequired, onInvalidate: invalidateRuntimeUserSession });
   useRuntimeSessionRevalidation({ authState, enabled: formalLoginRequired, onRevalidate: revalidateRuntimeUserSession });
 
-  if (shouldShowRuntimeAuthBoundary({ authState, currentUser, formalLoginRequired })) {
+  if (shouldShowRuntimeAuthBoundary({ authState, formalLoginRequired })) {
     return (
       <RuntimeAuthBoundary
         authState={authState}

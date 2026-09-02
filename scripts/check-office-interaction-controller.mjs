@@ -276,7 +276,6 @@ const appRootSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url)
 const appViewsSource = fs.readFileSync(new URL("../src/app/AppViews.jsx", import.meta.url), "utf8");
 const officeWorkbenchShellSource = fs.readFileSync(new URL("../src/app/OfficeWorkbenchShell.jsx", import.meta.url), "utf8");
 const appShellViewsSource = fs.readFileSync(new URL("../src/app/AppShellViews.jsx", import.meta.url), "utf8");
-const runtimeAuthBoundarySource = fs.readFileSync(new URL("../src/app/RuntimeAuthBoundary.jsx", import.meta.url), "utf8");
 const attachmentViewerSource = fs.readFileSync(new URL("../src/app/AttachmentViewerModal.jsx", import.meta.url), "utf8");
 const masterDataTemplateModalSource = fs.readFileSync(new URL("../src/app/MasterDataImportTemplateModal.jsx", import.meta.url), "utf8");
 const actionModalsSource = fs.readFileSync(new URL("../src/app/ActionModals.jsx", import.meta.url), "utf8");
@@ -308,7 +307,6 @@ assert.match(appShellViewsSource, /name="confirmPassword"/);
 assert.match(appShellViewsSource, /export function Topbar\(/);
 assert.match(appShellViewsSource, /LogoutOutlined/);
 assert.match(appShellViewsSource, /aria-label="退出登录"/);
-assert.match(runtimeAuthBoundarySource, /requiresRuntimePasswordChange\(authState\)/);
 assert.match(appShellViewsSource, /getRuntimePasswordChangePresentation/);
 assert.match(appRootSource, /RuntimeAuthBoundary/);
 assert.match(appRootSource, /useRuntimeSessionExpiry\(/);
