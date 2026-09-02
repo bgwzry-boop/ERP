@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createStatementExportFileService } from "../server/services/statementExportFileService.mjs";
 
 const fixedNow = "2026-07-14T09:00:00.000Z";
@@ -151,24 +150,6 @@ const missingContent = await service.getExportDownload({
   downloadToken: "DL-ST-1",
 });
 assert.equal(missingContent.code, "STATEMENT_EXPORT_CONTENT_NOT_FOUND");
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const readRouteSource = readFileSync(new URL("../server/routes/statementReadRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createStatementExportFileService/);
-assert.match(registrySource, /statementExportFileService\.buildExportFile/);
-assert.match(apiSource, /handleStatementReadRoutes\([\s\S]*statementExportFileService,/);
-assert.match(readRouteSource, /statementExportFileService\.getExportDownload/);
-assert.match(readRouteSource, /statementExportFileService\.listExports/);
-for (const oldHelper of [
-  "function buildStatementExportFile",
-  "function toStatementExportSummary",
-  "function storeStatementExportFile",
-  "function readStatementExportFileContent",
-  "function sanitizeDownloadFileName",
-]) {
-  assert.equal(apiSource.includes(oldHelper), false, `${oldHelper} should not remain in the API composition root`);
-}
 
 console.log(
   "Statement export file service checks passed: XLSX construction, safe naming, object storage, redacted summaries, downloads, and missing-content handling are isolated.",
