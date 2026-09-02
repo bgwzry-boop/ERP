@@ -9,6 +9,10 @@ import {
 } from "../server/rawMaterialTraceabilityRecordNormalizer.mjs";
 
 const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
+const actionServiceSource = readFileSync(
+  new URL("../server/rawMaterialTraceabilityActionService.mjs", import.meta.url),
+  "utf8",
+);
 const normalizerSource = readFileSync(
   new URL("../server/rawMaterialTraceabilityRecordNormalizer.mjs", import.meta.url),
   "utf8",
@@ -21,12 +25,15 @@ const names = [
   "normalizeRawMaterialSplitRecords",
 ];
 
-assert.match(repositorySource, /from "\.\/rawMaterialTraceabilityRecordNormalizer\.mjs"/);
+assert.match(repositorySource, /from "\.\/rawMaterialTraceabilityActionService\.mjs"/);
+assert.match(actionServiceSource, /from "\.\/rawMaterialTraceabilityRecordNormalizer\.mjs"/);
 for (const name of names) {
   assert.doesNotMatch(repositorySource, new RegExp(`function ${name}\\(`));
+  assert.doesNotMatch(actionServiceSource, new RegExp(`function ${name}\\(`));
   assert.match(normalizerSource, new RegExp(`export function ${name}\\(`));
 }
-assert.ok(repositorySource.split("\n").length <= 2_600, "repository should not own traceability record schemas");
+assert.ok(repositorySource.split("\n").length <= 850, "repository should delegate traceability actions and record schemas");
+assert.ok(actionServiceSource.split("\n").length < 750, "traceability action service should stay independently reviewable");
 assert.ok(normalizerSource.split("\n").length < 300, "traceability normalizer should stay independently reviewable");
 
 const [issue] = normalizeRawMaterialIssueRecords([
