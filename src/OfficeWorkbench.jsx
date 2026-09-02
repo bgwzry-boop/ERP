@@ -31,7 +31,8 @@ import {
   getUiActionState,
   seedUserOptions,
 } from "./auth/seedPermissions.js";
-import { loadOfficeWorkspace } from "./services/officeMockService.js";
+import { DataState } from "./shared/ui/operational.jsx";
+import { useOfficeScenarioData } from "./app/useOfficeScenarioData.js";
 import {
   defaultOrderFilters,
   findCustomer as findCustomerRecord,
@@ -49,27 +50,6 @@ import {
   statementMatchesFilters as statementMatchesFiltersRecord,
 } from "./domain/officeRules.js";
 
-const officeScenarioData = loadOfficeWorkspace();
-const {
-  customers,
-  defaultSelections,
-  initialFulfillments,
-  initialInventories,
-  initialOrderLines,
-  initialRawMaterialInbounds,
-  initialStatements,
-  initialTodos,
-  sampleText,
-} = officeScenarioData;
-
-const findCustomer = (id) => findCustomerRecord(customers, id);
-const getOrderFinanceState = (row, statements) => getOrderFinanceStateRecord(row, statements, customers);
-const getStatementBlockingAmount = (statement) => getStatementBlockingAmountRecord(statement, customers);
-const getStatementDisplayDebt = (statement) => getStatementDisplayDebtRecord(statement, customers);
-const getStatementFinancialSummary = (statement) => getStatementFinancialSummaryRecord(statement, customers);
-const getStatementBucket = (statement) => getStatementBucketRecord(statement, customers);
-const orderMatchesFilters = (row, filters, statements) => orderMatchesFiltersRecord(row, filters, statements, customers);
-const statementMatchesFilters = (statement, filters) => statementMatchesFiltersRecord(statement, filters, customers);
 export function OfficeWorkbench({
   authState,
   formalLoginRequired,
@@ -79,6 +59,58 @@ export function OfficeWorkbench({
   runtimeServerRequired,
   switchSeedUser,
 } = {}) {
+  const scenarioState = useOfficeScenarioData(runtimeServerRequired);
+
+  if (!scenarioState.data) {
+    return (
+      <DataState
+        title={scenarioState.error ? "本地演示数据加载失败" : "业务数据加载中"}
+        detail={scenarioState.error || "正在按需加载本地演示场景。"}
+      />
+    );
+  }
+
+  return <OfficeWorkbenchRuntime
+    authState={authState}
+    formalLoginRequired={formalLoginRequired}
+    logoutRuntimeUserSession={logoutRuntimeUserSession}
+    officeScenarioData={scenarioState.data}
+    runtimeLoginLoading={runtimeLoginLoading}
+    runtimeNotice={runtimeNotice}
+    runtimeServerRequired={runtimeServerRequired}
+    switchSeedUser={switchSeedUser}
+  />;
+}
+
+function OfficeWorkbenchRuntime({
+  authState,
+  formalLoginRequired,
+  logoutRuntimeUserSession,
+  officeScenarioData,
+  runtimeLoginLoading,
+  runtimeNotice,
+  runtimeServerRequired,
+  switchSeedUser,
+}) {
+  const {
+    customers,
+    defaultSelections,
+    initialFulfillments,
+    initialInventories,
+    initialOrderLines,
+    initialRawMaterialInbounds,
+    initialStatements,
+    initialTodos,
+    sampleText,
+  } = officeScenarioData;
+  const findCustomer = (id) => findCustomerRecord(customers, id);
+  const getOrderFinanceState = (row, statements) => getOrderFinanceStateRecord(row, statements, customers);
+  const getStatementBlockingAmount = (statement) => getStatementBlockingAmountRecord(statement, customers);
+  const getStatementDisplayDebt = (statement) => getStatementDisplayDebtRecord(statement, customers);
+  const getStatementFinancialSummary = (statement) => getStatementFinancialSummaryRecord(statement, customers);
+  const getStatementBucket = (statement) => getStatementBucketRecord(statement, customers);
+  const orderMatchesFilters = (row, filters, statements) => orderMatchesFiltersRecord(row, filters, statements, customers);
+  const statementMatchesFilters = (statement, filters) => statementMatchesFiltersRecord(statement, filters, customers);
   const permissionContext = authState.permissions;
   const currentUser = permissionContext.user;
   const currentUserId = currentUser.userId ?? defaultSeedUserId;

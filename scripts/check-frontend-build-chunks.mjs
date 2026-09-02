@@ -37,6 +37,29 @@ assert.ok(
   "V1 status styles must remain deferred with the route",
 );
 const workbenchSource = await readFile(resolve(distRoot, workbenchAsset.file));
+const localScenarioKey = "src/services/officeMockScenarioService.js";
+const localScenarioAsset = manifest[localScenarioKey];
+assert.ok(
+  workbenchAsset.dynamicImports?.includes(localScenarioKey),
+  "OfficeWorkbench must load local demo fixtures only through the local scenario boundary",
+);
+assert.ok(localScenarioAsset?.isDynamicEntry, "local demo fixtures must remain a dynamic entry");
+assert.equal(
+  initialAssets.has(localScenarioAsset.file),
+  false,
+  "local demo fixtures must not return to the initial HTML dependency graph",
+);
+const localScenarioSource = await readFile(resolve(distRoot, localScenarioAsset.file), "utf8");
+assert.doesNotMatch(
+  workbenchSource.toString("utf8"),
+  /p0-shared-todo-priority/,
+  "formal OfficeWorkbench must not eagerly contain local scenario fixtures",
+);
+assert.match(
+  localScenarioSource,
+  /p0-shared-todo-priority/,
+  "local scenario chunk must retain the named demo fixtures",
+);
 const statementRouteKey = "src/app/routes/StatementRoute.jsx";
 const statementRouteAsset = manifest[statementRouteKey];
 assert.ok(
@@ -128,8 +151,8 @@ assert.match(
   /\[Content_Types\]\.xml/,
   "master-data template download chunk must contain the XLSX archive generator",
 );
-const maxWorkbenchBytes = 460_000;
-const maxWorkbenchGzipBytes = 135 * 1024;
+const maxWorkbenchBytes = 430_000;
+const maxWorkbenchGzipBytes = 125 * 1024;
 assert.ok(
   workbenchBytes <= maxWorkbenchBytes,
   `OfficeWorkbench is ${formatBytes(workbenchBytes)} raw; budget is ${formatBytes(maxWorkbenchBytes)} raw`,

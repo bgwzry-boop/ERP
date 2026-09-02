@@ -13,7 +13,7 @@ import {
 import {
   confirmOfficeStatementWriteOff,
   markOfficeStatementSent,
-} from "../services/officeMockService.js";
+} from "../services/officeLocalActions.js";
 import {
   getStatementWriteOffBlocker,
   recordStatementSendReceipt,
