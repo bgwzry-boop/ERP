@@ -10,6 +10,7 @@ const statementSource = read("src/features/statements/StatementPage.jsx");
 const productionSource = [
   read("src/features/production/ProductionPackingPage.jsx"),
   read("src/features/production/ProductionPackingTaskPane.jsx"),
+  read("src/features/production/ProductionPackingDetailPane.jsx"),
   read("src/features/production/ProductionPackingDetailSections.jsx"),
   read("src/features/production/ProductionPackingTaskLists.jsx"),
   read("src/features/production/ProductionScheduleActionConfirmationDialog.jsx"),
