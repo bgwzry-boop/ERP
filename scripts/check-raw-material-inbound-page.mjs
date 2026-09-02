@@ -10,6 +10,16 @@ import {
 import { resolveOfficeWorkbenchNavigation } from "../src/app/useOfficeWorkbenchNavigation.js";
 import { updateOfficeRawMaterialPurchaseRequestStatus } from "../src/services/officeRawMaterialApiClient.js";
 import { getRolePermissionSet } from "../shared/auth/roleCatalog.js";
+import {
+  assertRawMaterialDeliveryNotePageCapacity,
+  buildRawMaterialOcrReviewAction,
+  getRawMaterialOcrReviewSaveFailureMessage,
+  inferDeliveryNoteMimeType,
+  isSupportedDeliveryNoteFile,
+  prepareRawMaterialCapturePages,
+  resolveRawMaterialAttachStage,
+  resolveRawMaterialOcrReviewCompletion,
+} from "../src/features/raw-materials/rawMaterialInboundPageActions.js";
 
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
@@ -84,6 +94,112 @@ assert.deepEqual(JSON.parse(purchaseStatusRequest.init.body), {
   reason: "负责人已批准",
 });
 
+assert.doesNotThrow(() => assertRawMaterialDeliveryNotePageCapacity(3, 1));
+assert.throws(
+  () => assertRawMaterialDeliveryNotePageCapacity(3, 2),
+  /同一张送货单最多添加 4 页/,
+  "mobile and desktop delivery-note selection should share the same four-page limit",
+);
+assert.equal(inferDeliveryNoteMimeType("送货单.PDF"), "application/pdf");
+assert.equal(inferDeliveryNoteMimeType("photo.jpeg"), "image/jpeg");
+assert.equal(isSupportedDeliveryNoteFile("image/bmp"), true);
+assert.equal(isSupportedDeliveryNoteFile("text/plain"), false);
+
+const captureProgress = [];
+const capturePages = await prepareRawMaterialCapturePages({
+  files: [{ name: "送货单.pdf", type: "" }],
+  existingPages: [{ captureId: "RMCAP-EXISTING" }],
+  prepareFilePages: async (_file, options) => {
+    assert.equal(options.mimeType, "application/pdf");
+    return [1, 2].map((pdfPageNumber) => ({
+      mimeType: "image/jpeg",
+      fileSize: 100 + pdfPageNumber,
+      contentDataUrl: `data:ocr-${pdfPageNumber}`,
+      sourceMimeType: "application/pdf",
+      sourceFileSize: 999,
+      sourceContentDataUrl: "data:source-pdf",
+      sourceFile: { name: "送货单.pdf" },
+      normalized: true,
+      pdfPageNumber,
+    }));
+  },
+  onProgress: (message) => captureProgress.push(message),
+});
+assert.equal(captureProgress[0], "正在准备第 2 页预览…");
+assert.deepEqual(capturePages.map((page) => page.captureId), ["RMCAP-EXISTING", "RMCAP-EXISTING"]);
+assert.deepEqual(capturePages.map((page) => page.pdfPageNumber), [1, 2]);
+assert.deepEqual(capturePages.map((page) => page.fileName), ["送货单.pdf", "送货单.pdf"]);
+assert.equal(capturePages[0].sourceContentDataUrl, "data:source-pdf");
+await assert.rejects(
+  prepareRawMaterialCapturePages({
+    files: Array.from({ length: 5 }, (_, index) => ({ name: `${index + 1}.jpg`, type: "image/jpeg" })),
+    prepareFilePages: async () => [],
+  }),
+  /同一张送货单最多添加 4 页/,
+  "desktop capture must reject excess files instead of silently truncating them",
+);
+await assert.rejects(
+  prepareRawMaterialCapturePages({
+    files: [{ name: "说明.txt", type: "text/plain" }],
+    prepareFilePages: async () => [],
+  }),
+  /只支持 PNG、JPG、JPEG、BMP 图片或 PDF/,
+);
+
+const reviewSelected = {
+  id: "RMI-001",
+  documentDirection: "supplier_delivery",
+  ocrLines: [
+    { lineId: "LINE-1", value: "OCR-1" },
+    { lineId: "LINE-2", value: "OCR-2" },
+  ],
+};
+const reviewAction = buildRawMaterialOcrReviewAction({
+  selected: reviewSelected,
+  reviewFields: { supplierName: "测试供应商" },
+  lineReviewDraft: { "LINE-1": { color: "大红" } },
+  excludedRolls: [
+    { lineId: "LINE-2", lineRollIndex: 1, reason: "误识别" },
+    { lineId: "LINE-2", lineRollIndex: 3, reason: "误识别" },
+  ],
+  buildLineReviewDraft: (line) => ({ fallback: line.value }),
+});
+assert.equal(reviewAction.action, "复核送货单");
+assert.equal(reviewAction.inboundId, "RMI-001");
+assert.equal(reviewAction.isSupplierReturn, false);
+assert.deepEqual(reviewAction.payload.lineReviews[0].values, { color: "大红" });
+assert.deepEqual(reviewAction.payload.lineReviews[1], {
+  lineId: "LINE-2",
+  values: { fallback: "OCR-2" },
+  excludedRollIndices: [1, 3],
+  exclusionReason: "误识别",
+});
+assert.match(reviewAction.payload.note, /待补标/);
+const returnReviewAction = buildRawMaterialOcrReviewAction({
+  selected: { ...reviewSelected, documentDirection: "supplier_return" },
+  reviewFields: {},
+  lineReviewDraft: {},
+  buildLineReviewDraft: () => ({}),
+});
+assert.equal(returnReviewAction.isSupplierReturn, true);
+assert.match(returnReviewAction.payload.reason, /原始退货单/);
+assert.match(returnReviewAction.payload.note, /不生成入库卷码、标签或可用库存/);
+assert.match(getRawMaterialOcrReviewSaveFailureMessage(true), /退货单没有保存到服务器/);
+assert.deepEqual(
+  resolveRawMaterialOcrReviewCompletion({ isSupplierReturn: true, completedInbound: {} }),
+  { stage: "return-complete", message: null },
+);
+assert.deepEqual(
+  resolveRawMaterialOcrReviewCompletion({ isSupplierReturn: false, completedInbound: { status: "已入库待补打标签" } }),
+  { stage: "label-deferred", message: null },
+);
+const printCompletion = resolveRawMaterialOcrReviewCompletion({ isSupplierReturn: false, completedInbound: { status: "已复核待打印标签" } });
+assert.equal(printCompletion.stage, "print");
+assert.match(printCompletion.message.body, /不要把未贴标卷料当作可用库存/);
+assert.equal(resolveRawMaterialAttachStage({ rolls: [{ labelStatus: "已打印待贴标" }] }), null);
+assert.equal(resolveRawMaterialAttachStage({ rolls: [{ labelStatus: "标签或实物不符/待确认" }] }), "receive-partial");
+assert.equal(resolveRawMaterialAttachStage({ rolls: [{ inventoryStatus: "可用" }] }), "receive-complete");
+
 assertIncludes(fixturesSource, "initialRawMaterialInbounds", "fixtures should seed raw-material inbound records");
 assertIncludes(fixturesSource, "已识别待复核", "fixtures should include OCR review state");
 assertIncludes(fixturesSource, "已打印待贴标", "fixtures should include printed-but-not-attached state");
@@ -151,7 +267,6 @@ assertIncludes(rawMaterialPageSource, "识别成功：", "successful mobile OCR 
 assertIncludes(rawMaterialPageSource, 'setActiveTab("入库单")', "successful OCR should return to the inbound list view");
 assertIncludes(rawMaterialPageSource, 'setSelectedId(inbound.id)', "successful OCR should select the generated draft");
 assertIncludes(rawMaterialPageSource, "setMobileDetailOpen(true)", "successful mobile OCR should open the focused verification view automatically");
-assertIncludes(rawMaterialPageSource, "const updatedInbound = await onAction?.(\"复核送货单\"", "mobile OCR review should await the authoritative review result");
 assertIncludes(rawMaterialPageSource, "if (!updatedInbound?.id) {", "failed mobile OCR review should remain on the review page");
 assertIncludes(rawMaterialPageSource, "setOcrReviewSubmitError", "failed mobile OCR review should explain that the server did not save it");
 assertIncludes(rawMaterialPageSource, "meta.error || ocrReviewSubmitError", "mobile OCR review should show the backend validation reason instead of masking it with a generic save failure");
@@ -192,8 +307,6 @@ assertIncludes(rawMaterialMobileOcrReviewSource, "核对退货单", "supplier re
 assertIncludes(rawMaterialMobileOcrReviewSource, "documentDirection", "mobile OCR review should project and validate rows with the server-authoritative document direction");
 assertIncludes(rawMaterialMobileOcrReviewSource, "原单未写规格", "supplier returns should keep absent specifications visible without inventing or blocking them");
 assertIncludes(rawMaterialMobileOcrReviewSource, "Math.abs(Number(roll.weightKg))", "supplier return rows should accept and preserve signed non-zero weights");
-assertIncludes(rawMaterialPageSource, 'completedInbound.status === "已入库待补打标签" ? "label-deferred" : "print"', "reviewed delivery notes should automatically bypass unavailable onsite printing and remain pending label completion");
-assertIncludes(rawMaterialPageSource, 'isSupplierReturn ? "return-complete"', "reviewed supplier returns must terminate before printing and inventory");
 assertIncludes(rawMaterialMobileSource, "退货单已复核", "the mobile receiving flow should expose a terminal reviewed-return result");
 assertIncludes(rawMaterialMobileSource, "不生成进货卷码、标签和库存；作为负数厂家对账依据", "the terminal return state should separate no-inbound effects from negative supplier reconciliation");
 assertIncludes(rawMaterialMobileOcrReviewSource, "放大查看", "mobile OCR review should keep the real delivery note as the evidence anchor");
@@ -347,7 +460,6 @@ assertIncludes(rawMaterialPageSource, "printerDeviceQa={printerDeviceQa}", "raw-
 assertIncludes(appSource, "printerDeviceQa={printerDeviceQa}", "App should pass dynamic printer state into raw-material receiving");
 assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
 assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
-assertIncludes(rawMaterialPageSource, "lineReviews", "page should submit every OCR line review with the header review");
 assertIncludes(rawMaterialPageSource, "分卷重量 kg", "page should allow exact per-roll weights to be reviewed");
 assertIncludes(officePageSource, "识别不会直接入库", "page should keep OCR separate from inventory availability");
 assertIncludes(officePageSource, "打印标签只是待贴标", "page should keep print separate from attach confirmation");

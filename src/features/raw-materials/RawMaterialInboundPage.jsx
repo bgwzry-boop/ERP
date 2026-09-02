@@ -36,6 +36,14 @@ import { buildOcrLineReviewDraft } from "./rawMaterialInboundOcrDraft.js";
 import {
   findRawMaterialProductionTaskCandidate,
 } from "./rawMaterialInboundWorkflow.js";
+import {
+  assertRawMaterialDeliveryNotePageCapacity,
+  buildRawMaterialOcrReviewAction,
+  getRawMaterialOcrReviewSaveFailureMessage,
+  prepareRawMaterialCapturePages,
+  resolveRawMaterialAttachStage,
+  resolveRawMaterialOcrReviewCompletion,
+} from "./rawMaterialInboundPageActions.js";
 
 const RawMaterialMobileOcrReview = lazy(() => import("./RawMaterialMobileOcrReview.jsx").then((module) => ({
   default: module.RawMaterialMobileOcrReview,
@@ -193,26 +201,20 @@ export function RawMaterialInboundPage({
     setDeliveryNoteOcrError("");
     setDeliveryNoteOcrProgress("");
     setDeliveryNoteOcrResult("");
-    if (deliveryNoteCapturePages.length + files.length > 4) {
-      setDeliveryNoteOcrError("同一张送货单最多添加 4 页，请删除多余页面后重试。");
+    try {
+      assertRawMaterialDeliveryNotePageCapacity(deliveryNoteCapturePages.length, files.length);
+    } catch (error) {
+      setDeliveryNoteOcrError(error.message);
       return;
     }
     setDeliveryNoteOcrLoading(true);
     try {
-      const captureId = deliveryNoteCapturePages[0]?.captureId || createRawMaterialDeliveryNoteCaptureId();
-      const preparedPages = [];
-      for (const [fileIndex, file] of files.entries()) {
-        setDeliveryNoteOcrProgress(`正在准备第 ${deliveryNoteCapturePages.length + fileIndex + 1} 页预览…`);
-        const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
-        if (!isSupportedDeliveryNoteFile(mimeType)) throw new Error("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
-        const preparedFilePages = await prepareRawMaterialDeliveryNotePages(file, { mimeType });
-        if (deliveryNoteCapturePages.length + preparedPages.length + preparedFilePages.length > 4) {
-          throw new Error("同一张送货单最多添加 4 页，请删除多余页面后重试。");
-        }
-        preparedPages.push(...preparedFilePages.map((prepared, pageOffset) =>
-          toDeliveryNoteCapturePage({ prepared, file, captureId, pageOffset })
-        ));
-      }
+      const preparedPages = await prepareRawMaterialCapturePages({
+        files,
+        existingPages: deliveryNoteCapturePages,
+        prepareFilePages: prepareRawMaterialDeliveryNotePages,
+        onProgress: setDeliveryNoteOcrProgress,
+      });
       setDeliveryNoteCapturePages((current) => [...current, ...preparedPages]);
     } catch (error) {
       setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
@@ -308,19 +310,10 @@ export function RawMaterialInboundPage({
     setDeliveryNoteOcrLoading(true);
     setDeliveryNoteOcrError("");
     try {
-      const captureId = createRawMaterialDeliveryNoteCaptureId();
-      const preparedPages = [];
-      for (const file of files.slice(0, 4)) {
-        const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
-        if (!isSupportedDeliveryNoteFile(mimeType)) throw new Error("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
-        const preparedFilePages = await prepareRawMaterialDeliveryNotePages(file, { mimeType });
-        if (preparedPages.length + preparedFilePages.length > 4) {
-          throw new Error("同一张送货单最多添加 4 页，请删除多余页面后重试。");
-        }
-        preparedPages.push(...preparedFilePages.map((prepared, pageOffset) =>
-          toDeliveryNoteCapturePage({ prepared, file, captureId, pageOffset })
-        ));
-      }
+      const preparedPages = await prepareRawMaterialCapturePages({
+        files,
+        prepareFilePages: prepareRawMaterialDeliveryNotePages,
+      });
       await handleDeliveryNoteRecognize(preparedPages);
     } catch (error) {
       setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
@@ -333,31 +326,17 @@ export function RawMaterialInboundPage({
     setOcrReviewSubmitError("");
     setOcrReviewSubmitting(true);
     try {
-      const exclusionsByLineId = new Map();
-      for (const exclusion of excludedRolls) {
-        const current = exclusionsByLineId.get(exclusion.lineId) ?? [];
-        current.push(exclusion);
-        exclusionsByLineId.set(exclusion.lineId, current);
-      }
-      const isSupplierReturn = selected.documentDirection === "supplier_return";
-      const updatedInbound = await onAction?.("复核送货单", selected.id, {
+      const reviewAction = buildRawMaterialOcrReviewAction({
+        selected,
         reviewFields: ocrReviewDraft,
-        lineReviews: (selected.ocrLines ?? []).map((line) => {
-          const exclusions = exclusionsByLineId.get(line.lineId) ?? [];
-          return {
-            lineId: line.lineId,
-            values: ocrLineReviewDraft[line.lineId] ?? buildOcrLineReviewDraft(line),
-            excludedRollIndices: exclusions.map((entry) => entry.lineRollIndex),
-            exclusionReason: exclusions[0]?.reason ?? "",
-          };
-        }),
-        reason: `办公室对照原始${isSupplierReturn ? "退货单" : "送货单"}人工核对并确认腾讯云 OCR 字段。`,
-        note: isSupplierReturn
-          ? "退货 OCR 字段已人工复核；不生成入库卷码、标签或可用库存，金额作为负数厂家对账依据。"
-          : "OCR 字段已人工复核；每卷独立卷码生成后先保存为待补标，补打并逐卷贴标核对后才能形成可用库存。",
+        lineReviewDraft: ocrLineReviewDraft,
+        excludedRolls,
+        buildLineReviewDraft: buildOcrLineReviewDraft,
       });
+      const { isSupplierReturn } = reviewAction;
+      const updatedInbound = await onAction?.(reviewAction.action, reviewAction.inboundId, reviewAction.payload);
       if (!updatedInbound?.id) {
-        setOcrReviewSubmitError(`${isSupplierReturn ? "退货单" : "送货单"}没有保存到服务器。当前填写内容仍保留，请稍后重试；如果持续失败，请联系管理员，不要重复拍单。`);
+        setOcrReviewSubmitError(getRawMaterialOcrReviewSaveFailureMessage(isSupplierReturn));
         return;
       }
       let completedInbound = updatedInbound;
@@ -368,17 +347,10 @@ export function RawMaterialInboundPage({
         });
         if (deferredInbound?.id) completedInbound = deferredInbound;
       }
+      const completion = resolveRawMaterialOcrReviewCompletion({ isSupplierReturn, completedInbound });
       setMobileRecordSnapshot(completedInbound);
-      setMobileStage(isSupplierReturn ? "return-complete" : completedInbound.status === "已入库待补打标签" ? "label-deferred" : "print");
-      if (!isSupplierReturn && completedInbound.status !== "已入库待补打标签") {
-        setMobileMessage({
-          tone: "warning",
-          title: "卷码已生成，但待补标状态没有保存",
-          body: "单据仍停留在打印步骤；请点“暂不打印，保存为待补标”，不要把未贴标卷料当作可用库存。",
-        });
-      } else {
-        setMobileMessage(null);
-      }
+      setMobileStage(completion.stage);
+      setMobileMessage(completion.message);
       setMobileDetailOpen(false);
       scrollRawMaterialMobileToTop();
       return completedInbound;
@@ -472,12 +444,9 @@ export function RawMaterialInboundPage({
     const result = await onAction?.("确认贴标入库", activeInbound.id, options);
     if (!result?.id) return null;
     setMobileRecordSnapshot(result);
-    const rolls = result.rolls ?? [];
-    const pendingCount = rolls.filter((roll) => roll.labelStatus === "已打印待贴标").length;
-    const mismatchCount = rolls.filter((roll) => roll.labelStatus === "标签或实物不符/待确认").length;
-    const availableCount = rolls.filter((roll) => roll.inventoryStatus === "可用").length;
-    if (pendingCount === 0 && rolls.length > 0) {
-      setMobileStage(mismatchCount > 0 ? "receive-partial" : availableCount === rolls.length ? "receive-complete" : "attach");
+    const nextStage = resolveRawMaterialAttachStage(result);
+    if (nextStage) {
+      setMobileStage(nextStage);
       scrollRawMaterialMobileToTop();
     }
     return result;
@@ -801,43 +770,6 @@ export function RawMaterialInboundPage({
       </DetailPane>
     </section>
   );
-}
-
-function inferDeliveryNoteMimeType(fileName) {
-  const name = String(fileName ?? "").toLowerCase();
-  if (name.endsWith(".pdf")) return "application/pdf";
-  if (name.endsWith(".png")) return "image/png";
-  if (name.endsWith(".bmp")) return "image/bmp";
-  if (/\.jpe?g$/.test(name)) return "image/jpeg";
-  return "";
-}
-
-function isSupportedDeliveryNoteFile(mimeType) {
-  return ["image/png", "image/jpeg", "image/jpg", "image/bmp", "application/pdf"].includes(String(mimeType ?? "").toLowerCase());
-}
-
-function toDeliveryNoteCapturePage({ prepared, file, captureId }) {
-  return {
-    fileName: prepared.sourceFile?.name || (prepared.pdfPageNumber
-      ? `${String(file?.name || "送货单.pdf").replace(/\.pdf$/iu, "")}-第${prepared.pdfPageNumber}页.jpg`
-      : file?.name),
-    mimeType: prepared.mimeType,
-    fileSize: prepared.fileSize,
-    contentDataUrl: prepared.contentDataUrl,
-    sourceMimeType: prepared.sourceMimeType,
-    sourceFileSize: prepared.sourceFileSize,
-    sourceContentDataUrl: prepared.sourceContentDataUrl,
-    sourceFile: prepared.sourceFile,
-    captureId,
-    sourceNormalizedForOcr: prepared.normalized,
-    pdfPageNumber: prepared.pdfPageNumber || undefined,
-  };
-}
-
-function createRawMaterialDeliveryNoteCaptureId() {
-  const uuid = globalThis.crypto?.randomUUID?.();
-  if (uuid) return `RMCAP-${uuid}`;
-  return `RMCAP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
 function scrollRawMaterialMobileToTop() {
