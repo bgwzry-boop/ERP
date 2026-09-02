@@ -1,5 +1,6 @@
 import { lazy, Suspense } from "react";
 import { DataState } from "../shared/ui/operational.jsx";
+import { buildMasterDataRouteContract } from "./buildMasterDataRouteContract.js";
 
 function lazyNamedPage(loadModule, exportName, loadStyles = []) {
   return lazy(async () => {
@@ -37,6 +38,7 @@ const PayrollAttendancePage = lazyNamedPage(() => import("../features/payroll/Pa
 const EmployeeAttendanceMobilePage = lazyNamedPage(() => import("../features/payroll/EmployeeAttendanceMobilePage.jsx"), "EmployeeAttendanceMobilePage", [() => import("../styles/features/payroll-attendance.css")]);
 
 export function OfficeWorkspacePages({ renderedPage, runtime }) {
+  const masterDataRouteContract = buildMasterDataRouteContract(runtime);
   const {
     authState,
     canOpenMasterData,
@@ -48,13 +50,11 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     confirmRawMaterialSupplierStatementReviewDraft,
     createTemporaryInventoryHold,
     currentUser,
-    customers,
     dispatchPrintJobQueueItem,
     draftRows,
     draftStatus,
     driverDeliveryMeta,
     driverDeliveryTasks,
-    enableMasterDataEmployeeAccounts,
     entryAction,
     entryText,
     extendTemporaryInventoryHold,
@@ -80,13 +80,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     inventoryMeta,
     inventoryRecords,
     linkCancellationIntentToSelectedLine,
-    masterDataEmployeeAccountReadiness,
-    masterDataEmployeeAccountReviews,
-    masterDataEmployeeAssignmentOptions,
-    masterDataImportExecutions,
-    masterDataImportReviewDrafts,
-    masterDataMaintenanceDrafts,
-    masterDataMaintenanceTab,
     openMasterDataTemplatePanel,
     openInventoryCorrectionDetail,
     openOrderLineAction,
@@ -129,8 +122,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     restoreCancelledDraftLine,
     retryPrintJobQueueItem,
     roleBoundaryDescription,
-    saveMasterDataMachine,
-    saveMasterDataMaintenanceDraft,
     savePrinterDeviceMode,
     savePrinterDeviceQaRecord,
     saveRawMaterialSupplierStatementReviewDraft,
@@ -138,7 +129,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     selectedDraftId,
     selectedDriverTaskId,
     selectedFulfillmentId,
-    selectedMasterDataId,
     selectedOrderDetail,
     selectedOrderId,
     selectedRawMaterialInboundId,
@@ -153,7 +143,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     setSelectedDraftId,
     setSelectedDriverTaskId,
     setSelectedFulfillmentId,
-    setSelectedMasterDataId,
     setSelectedOrderId,
     setSelectedRawMaterialInboundId,
     setSelectedStatementId,
@@ -170,8 +159,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     updateDraftField,
     updateOrderEntryText,
     updateFulfillment,
-    updateMasterDataEmployeeAssignment,
-    updateMasterDataEmployeeProfile,
     updateRawMaterialInbound,
     uploadDraftArtwork,
     v1StatusActions,
@@ -403,33 +390,7 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
           )}
           {renderedPage === "masterData" && (
             <Suspense fallback={<DataState title="基础资料工作台加载中" />}><MasterDataRoute
-              state={{
-                authState,
-                currentUser,
-                customers,
-                employeeAccountReadiness: masterDataEmployeeAccountReadiness,
-                employeeAccountReviews: masterDataEmployeeAccountReviews,
-                employeeAssignmentOptions: masterDataEmployeeAssignmentOptions,
-                helpers: pageHelpers,
-                importExecutions: masterDataImportExecutions,
-                importReviewDrafts: masterDataImportReviewDrafts,
-                inventoryRecords,
-                maintenanceDrafts: masterDataMaintenanceDrafts,
-                orderLines,
-                selectedId: selectedMasterDataId,
-                selectedTab: masterDataMaintenanceTab,
-                statements,
-              }}
-              actions={{
-                onBatchEnableEmployeeAccounts: enableMasterDataEmployeeAccounts,
-                onOpenImportTemplate: openMasterDataTemplatePanel,
-                onSaveDraft: saveMasterDataMaintenanceDraft,
-                onSaveMachine: saveMasterDataMachine,
-                onUpdateEmployeeAssignment: updateMasterDataEmployeeAssignment,
-                onUpdateEmployeeProfile: updateMasterDataEmployeeProfile,
-                setSelectedId: setSelectedMasterDataId,
-                setSelectedTab: setMasterDataMaintenanceTab,
-              }}
+              {...masterDataRouteContract}
             /></Suspense>
           )}
           {renderedPage === "payroll" && (

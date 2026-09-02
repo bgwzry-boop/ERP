@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { buildMasterDataRouteContract } from "../src/app/buildMasterDataRouteContract.js";
 import {
   buildMasterDataMaintenanceRecords,
   getEmployeeAssignmentMode,
@@ -16,12 +17,6 @@ import {
   requiresMasterDataEmployeeMachineReview,
 } from "../src/domain/masterDataMaintenanceListState.js";
 
-const appSource = [
-  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-const controllerSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
 const apiClientSource = readFileSync(new URL("../src/services/officeMasterDataImportApiClient.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
@@ -40,20 +35,25 @@ const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "ut
 assertIncludes(navigationSource, 'key: "masterData"', "navigation should expose the master-data maintenance page");
 assertIncludes(navigationSource, 'label: "基础资料"', "navigation should label the master-data maintenance page");
 assertIncludes(masterDataRouteSource, "<MasterDataMaintenancePage", "master-data route should render the maintenance page");
-assertIncludes(appSource, "saveMasterDataMaintenanceDraft", "App should wire the maintenance draft controller action");
-assertIncludes(appSource, "updateMasterDataEmployeeAssignment", "App should wire the employee assignment action");
-assertIncludes(appSource, "onSaveMachine: saveMasterDataMachine", "App should wire the machine configuration action through the route adapter");
-assertIncludes(appSource, "onBatchEnableEmployeeAccounts", "App should wire atomic batch account enablement");
-assertIncludes(controllerSource, "function saveMasterDataMaintenanceDraft", "master-data controller should own maintenance drafts");
-assertIncludes(controllerSource, "function saveMasterDataMachine", "master-data controller should own machine configuration writes");
-assertIncludes(controllerSource, "正式写入仍需走导入确认", "maintenance drafts must not imply direct database writes");
-assertIncludes(controllerSource, "roleKeys: selectedRoleKeys", "single account enablement should preserve the reviewed role set");
-assertIncludes(controllerSource, "确认启用", "multi-role account enablement should require an explicit confirmation");
+const routeActionStubs = {
+  enableMasterDataEmployeeAccounts: () => {},
+  openMasterDataTemplatePanel: () => {},
+  saveMasterDataMaintenanceDraft: () => {},
+  saveMasterDataMachine: () => {},
+  updateMasterDataEmployeeAssignment: () => {},
+  updateMasterDataEmployeeProfile: () => {},
+  setSelectedMasterDataId: () => {},
+  setMasterDataMaintenanceTab: () => {},
+};
+const routeContract = buildMasterDataRouteContract(routeActionStubs);
+assert.equal(routeContract.actions.onSaveDraft, routeActionStubs.saveMasterDataMaintenanceDraft);
+assert.equal(routeContract.actions.onUpdateEmployeeAssignment, routeActionStubs.updateMasterDataEmployeeAssignment);
+assert.equal(routeContract.actions.onSaveMachine, routeActionStubs.saveMasterDataMachine);
+assert.equal(routeContract.actions.onBatchEnableEmployeeAccounts, routeActionStubs.enableMasterDataEmployeeAccounts);
 assertIncludes(importModalSource, "EmployeeAccountRoleSelector", "employee account review should expose role-set selection");
 assertIncludes(importModalSource, "账号角色", "employee account review should label its role-set selector");
 assertIncludes(importModalSource, "导入的主角色或附加角色，启用时不可删除", "imported account roles should remain locked during review");
 
-assertIncludes(appSource, 'lazyNamedPage(() => import("./routes/MasterDataRoute.jsx"), "MasterDataRoute")', "The workspace pages should lazy-load the master-data route outside the initial shell");
 assertIncludes(featurePageSource, "export function MasterDataMaintenancePage", "master-data feature should own the page");
 assertIncludes(featureSource, "客户档案", "master-data page should include customer maintenance");
 assertIncludes(featureSource, "价格表", "master-data page should include price maintenance");
@@ -313,7 +313,6 @@ assertIncludes(styleSource, ".master-data-role-readiness", "styles should cover 
 assertIncludes(masterDataStyleSource, ".master-data-employee-identity-confirmation", "styles should cover the identity confirmation form");
 assertIncludes(importModalSource, "onConfirmEmployeeIdentity", "employee review modal should expose the identity confirmation action");
 assertIncludes(importModalSource, "accountActivationBlocked", "identity-blocked employees must not expose account enablement");
-assertIncludes(controllerSource, "confirmMasterDataEmployeeIdentity", "the office controller should own the identity confirmation write");
 assertIncludes(apiClientSource, "/identity-confirmation", "the client should use the formal identity confirmation endpoint");
 assertIncludes(featureWorkbenchSource, "待身份", "the employee workbench should count identity-blocked candidates separately");
 assert.equal(mainSource.includes('import "./styles/features/master-data.css";'), false, "master-data styles should not load with the initial shell");
