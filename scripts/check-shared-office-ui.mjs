@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { toFiniteNumber } from "../src/features/orders/entryPageModel.js";
 
 function read(relativePath) {
   return fs.readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
@@ -123,6 +124,7 @@ assert.match(entrySource, /entry-confirm-footer/);
 assert.match(entrySource, /订单类型/);
 assert.match(entrySource, /const currentStep =/);
 assert.match(entrySource, /aria-current=\{step\.id === currentStep \? "step"/);
-assert.match(entrySource, /function toFiniteNumber/);
+assert.equal(toFiniteNumber("12.5"), 12.5);
+assert.equal(toFiniteNumber("not-a-number"), 0);
 
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");

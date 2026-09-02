@@ -1,85 +1,155 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import {
+  ENTRY_STEPS,
+  buildValidationIssues,
+  formatFileSize,
+  getArtworkDisplayValue,
+  getCancellationLinkState,
+  getConfidenceScore,
+  getEntryDraftRowDomId,
+  getQueueKindLabel,
+  getUnitPrice,
+  isCancelledDraftRow,
+  toFiniteNumber,
+  withCurrentColor,
+} from "../src/features/orders/entryPageModel.js";
+import {
+  ORDER_DETAIL_TABS,
+  ORDER_STATUS_FILTERS,
+  getActiveFilterCount,
+  getOrderActionState,
+  getOrderDetailInventoryLabel,
+  getOrderLineMutationBlocker,
+  getOrderPoolSourceLabel,
+  orderMatchesQuery,
+} from "../src/features/orders/orderPoolPageModel.js";
 
-const entryPageSource = readFileSync(new URL("../src/features/orders/EntryPage.jsx", import.meta.url), "utf8");
-const appSource = [
-  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-const orderPoolPageSource = readFileSync(new URL("../src/features/orders/OrderPoolPage.jsx", import.meta.url), "utf8");
-const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
-const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
-const entryStyleSource = readFileSync(new URL("../src/styles/features/orders-entry.css", import.meta.url), "utf8");
-const roleToolStyleSource = readFileSync(new URL("../src/styles/features/role-tools.css", import.meta.url), "utf8");
+assert.deepEqual(ENTRY_STEPS, [
+  { id: 1, title: "第一步：粘贴原文" },
+  { id: 2, title: "第二步：校对明细" },
+  { id: 3, title: "第三步：库存与确认" },
+]);
+assert.equal(getArtworkDisplayValue({ print: "否" }), "非印刷不需要");
+assert.equal(getArtworkDisplayValue({ print: "是", artworkStatus: "待上传" }), "待上传");
+assert.equal(
+  getArtworkDisplayValue({
+    print: "是",
+    artworkAttachment: { fileName: "front.pdf", fileSize: 1.5 * 1024 * 1024 },
+  }),
+  "front.pdf · 1.5MB · 已上传",
+);
+assert.equal(formatFileSize(512), "512B");
+assert.equal(formatFileSize(1536), "1.5KB");
+assert.equal(formatFileSize(2 * 1024 * 1024), "2MB");
+assert.equal(getConfidenceScore("high"), "0.96");
+assert.equal(getConfidenceScore("medium"), "0.92");
+assert.equal(getConfidenceScore("low"), "0.68");
+assert.equal(getUnitPrice({ qty: 200, amount: 350 }), "¥1.75");
+assert.equal(getUnitPrice({ qty: 0, amount: 350 }), "¥0.00");
+assert.equal(toFiniteNumber("12.5"), 12.5);
+assert.equal(toFiniteNumber("invalid"), 0);
+assert.equal(getQueueKindLabel("temporary_hold"), "临时留货");
+assert.equal(getQueueKindLabel("cancellation_review"), "取消复核");
+assert.equal(getQueueKindLabel("unknown"), "复核上下文");
+assert.equal(isCancelledDraftRow({ excludedFromConfirmation: true }), true);
+assert.equal(isCancelledDraftRow({ cancellationStatus: "库存不足取消" }), true);
+assert.equal(isCancelledDraftRow({ status: "待确认" }), false);
+assert.deepEqual(withCurrentColor(["大红", "黑色", "大红"], "黑色"), ["黑色", "大红"]);
+assert.equal(getEntryDraftRowDomId(0), "entry-draft-row-1");
+assert.equal(getEntryDraftRowDomId(3), "entry-draft-row-4");
 
-assert.match(entryPageSource, /export function EntryPage/);
-assert.match(entryPageSource, /识别入队/);
-assert.match(entryPageSource, /entry-capture-more/);
-assert.match(entryPageSource, /更多操作/);
-assert.match(entryPageSource, /草稿队列/);
-assert.match(entryPageSource, /item\.kind === "order_draft"/);
-assert.match(entryPageSource, /function EntryDraftTable/);
-assert.match(entryPageSource, /印刷颜色/);
-assert.match(entryPageSource, /提手颜色/);
-assert.match(entryPageSource, /缺字段检查/);
-assert.match(entryPageSource, /window\.confirm\("确认删除当前明细行/);
-assert.match(entryPageSource, /onEntryTextChange\(event\.target\.value\)/);
-assert.match(appSource, /onEntryTextChange=\{updateOrderEntryText\}/);
-assert.match(entryPageSource, /aria-label="订单汇总与确认"/);
-assert.match(entryPageSource, /window\.confirm\("确认客户已经恢复订购该明细/);
-assert.match(entryPageSource, /onRestoreCancelledLine\(selected\.id\)/);
-assert.match(entryPageSource, />恢复订购<\/button>/);
-assert.match(entryPageSource, /onQueueCancellationLink/);
-assert.match(entryPageSource, /确认将这条取消消息关联到当前选中明细/);
-assert.match(entryPageSource, />关联到当前行<\/button>/);
-assert.match(entryPageSource, /selected\?\.customerId === cancellationCustomerId/);
-assert.match(entryPageSource, /new Set\(draftRows\.map/);
-assert.match(entryPageSource, /data-draft-id=\{row\.id\}/);
-assert.match(entryPageSource, /aria-controls=\{getEntryDraftRowDomId\(issue\.rowIndex\)\}/);
-assert.match(entryPageSource, /onFocus=\{\(\) => onSelect\(row\.id\)\}/);
-assert.match(entryPageSource, /entry-select-arrow/);
-assert.match(entryPageSource, /scrollIntoView/);
-assert.match(entryPageSource, /本次订单客户/);
-assert.match(entryPageSource, /整张草稿归属一个客户/);
-assert.match(entryPageSource, /不同客户必须拆成独立草稿/);
-assert.match(entryPageSource, /拆单预览/);
-assert.match(entryPageSource, /splitPlanHash/);
-assert.match(entryPageSource, /确认生成.*张订单/);
-assert.doesNotMatch(entryPageSource, /const columns = \["序号", "客户"/);
-assert.doesNotMatch(mainSource, /styles\/features\/orders-entry\.css/, "order-entry styles should not load with the shell");
-assert.match(appSource, /import\("\.\.\/styles\/features\/orders-entry\.css"\)/, "order-entry styles should load with the entry route");
-for (const selector of [".entry-actions button", ".entry-table .data-row", ".entry-edit-row", "::-webkit-inner-spin-button"]) {
-  assert.equal(entryStyleSource.includes(selector), true, `order-entry feature styles should own ${selector}`);
-}
-assert.match(entryStyleSource, /@media \(max-width: 1040px\)[\s\S]*?\.entry-confirm-footer \{[\s\S]*?position: fixed;/);
-assert.match(entryStyleSource, /@media \(max-width: 720px\)[\s\S]*?\.entry-workbench \{[\s\S]*?padding-bottom: 148px;/);
-assert.match(entryStyleSource, /\.entry-table \.entry-edit-row:focus-within/);
-for (const selector of [".entry-actions", ".entry-table", ".entry-edit-row"]) {
-  assert.equal(sharedStyleSource.includes(selector), false, `shared styles should not retain ${selector}`);
-}
-assert.match(roleToolStyleSource, /\.toolbar-focus-hint/);
-assert.doesNotMatch(sharedStyleSource, /\.toolbar-focus-hint/);
-for (const deadSelector of [".footer-actions", ".filter-summary", ".panel-warning", ".entry-detail-grid"]) {
-  assert.equal(sharedStyleSource.includes(deadSelector), false, `shared styles should not retain unused ${deadSelector}`);
-}
-assert.match(sharedStyleSource, /\.filter-grid/);
-assert.match(sharedStyleSource, /\.data-row\.active/);
-assert.match(orderPoolPageSource, /export function OrderPoolPage/);
-assert.match(orderPoolPageSource, /getOrderLineMutationBlocker/);
-assert.match(orderPoolPageSource, /定位出库/);
-assert.match(orderPoolPageSource, /定位对账/);
-assert.match(orderPoolPageSource, /订单状态快捷筛选/);
-assert.match(orderPoolPageSource, /aria-label="订单池关键词"/);
-assert.match(orderPoolPageSource, /function orderMatchesQuery/);
-assert.match(orderPoolPageSource, /className="order-pool-detail-overview"/);
-assert.match(orderPoolPageSource, /className="order-pool-detail-scroll"/);
-assert.match(orderPoolPageSource, /aria-label="复制订单摘要"/);
-assert.doesNotMatch(orderPoolPageSource, /<MetricStrip/);
-assert.match(officePageSource, /export \{ EntryPage \} from "\.\.\/\.\.\/features\/orders\/EntryPage\.jsx";/);
-assert.match(officePageSource, /export \{ OrderPoolPage \} from "\.\.\/\.\.\/features\/orders\/OrderPoolPage\.jsx";/);
-assert.doesNotMatch(officePageSource, /function EntryPage/);
-assert.doesNotMatch(officePageSource, /function OrderPoolPage/);
+const draftRows = [
+  { id: "D-001", print: "是", artworkStatus: "待上传", inventory: "缺货 120", missing: ["尺寸"] },
+  { id: "D-002", print: "否", inventory: "可用", missing: [] },
+];
+const issues = buildValidationIssues({
+  draftRows,
+  missingRows: [draftRows[0]],
+  inventoryIssueRows: [draftRows[0]],
+  reviewRows: [draftRows[0]],
+  getDraftMissingFields: (row) => row.missing,
+});
+assert.deepEqual(issues.map(({ id, rowIndex, label, tone }) => ({ id, rowIndex, label, tone })), [
+  { id: "missing-D-001", rowIndex: 0, label: "缺 尺寸", tone: "danger" },
+  { id: "inventory-D-001", rowIndex: 0, label: "库存缺货 120", tone: "danger" },
+  { id: "review-D-001", rowIndex: 0, label: "印刷稿件待上传", tone: "warning" },
+]);
 
-console.log("Office order pages check passed: entry/order-pool behavior and styles are isolated with shared table safeguards intact.");
+const cancellationQueueItem = {
+  kind: "cancellation_review",
+  inventoryIntents: [{ id: "INT-001", intentType: "shortage_cancellation", customerId: "C-001" }],
+};
+assert.deepEqual(getCancellationLinkState(cancellationQueueItem, { id: "D-001", customerId: "C-001" }), {
+  cancellationIntent: cancellationQueueItem.inventoryIntents[0],
+  cancellationCustomerId: "C-001",
+  canLink: true,
+});
+assert.equal(getCancellationLinkState(cancellationQueueItem, { customerId: "C-002" }).canLink, false);
+assert.equal(
+  getCancellationLinkState(cancellationQueueItem, { customerId: "C-001", excludedFromConfirmation: true }).canLink,
+  false,
+);
+assert.equal(getCancellationLinkState({ kind: "order_draft" }, { customerId: "C-001" }).canLink, false);
+
+assert.deepEqual(ORDER_DETAIL_TABS, ["订单", "交付", "财务"]);
+assert.deepEqual(ORDER_STATUS_FILTERS, ["全部", "待处理", "生产中", "待出库", "缺货", "已交付", "待对账"]);
+const orderLine = {
+  id: "OL-001",
+  orderNo: "ORD-20260902",
+  lineNo: "02",
+  customerId: "C-001",
+  product: "定制印刷袋",
+  size: "30×38",
+  color: "红色",
+  status: "待生产",
+};
+const findCustomer = () => ({ name: "张三服饰" });
+const getColorSpec = () => "红印白 / 红袋黑提";
+const getRemark = () => "双面加长提";
+for (const query of ["ORD-20260902", "张三服饰", "定制印刷袋", "红印白", "双面加长提", "待生产"]) {
+  assert.equal(orderMatchesQuery(orderLine, query, findCustomer, getColorSpec, getRemark), true, query);
+}
+assert.equal(orderMatchesQuery(orderLine, "李四电商", findCustomer, getColorSpec, getRemark), false);
+assert.equal(orderMatchesQuery(orderLine, "", findCustomer, getColorSpec, getRemark), true);
+
+const defaultFilters = { status: "全部", customerId: "全部", orderType: "全部" };
+assert.equal(getActiveFilterCount(defaultFilters, defaultFilters, ""), 0);
+assert.equal(getActiveFilterCount({ ...defaultFilters, status: "待处理" }, defaultFilters, ""), 1);
+assert.equal(getActiveFilterCount({ ...defaultFilters, status: "待处理" }, defaultFilters, "张三"), 2);
+
+assert.equal(getOrderLineMutationBlocker(null), "没有选中的订单明细。");
+assert.equal(getOrderLineMutationBlocker({ status: "" }), "订单状态不完整，不能直接修改。");
+assert.match(getOrderLineMutationBlocker({ status: "已交付" }), /不能直接改量或作废/);
+assert.match(getOrderLineMutationBlocker({ status: "制袋中" }), /已进入生产或打包/);
+assert.equal(getOrderLineMutationBlocker({ status: "待生产" }), "");
+assert.deepEqual(
+  getOrderActionState(() => ({ disabled: true, title: "无权限" }), "调整正式单数量", "业务阻塞"),
+  { disabled: true, title: "无权限" },
+);
+assert.deepEqual(
+  getOrderActionState(() => ({ disabled: false, title: "" }), "调整正式单数量", "已进入生产"),
+  { disabled: true, title: "已进入生产" },
+);
+
+assert.equal(getOrderPoolSourceLabel({ loading: true }), "正在读取后端订单池");
+assert.equal(
+  getOrderPoolSourceLabel({ source: "api", total: 31, lastSyncedAt: "09:30" }),
+  "后端订单池 31 行，09:30 同步",
+);
+assert.equal(getOrderPoolSourceLabel({ source: "api_error" }), "后端订单池返回错误，保留当前列表");
+assert.equal(getOrderPoolSourceLabel({ source: "local_fallback" }), "后端未连接，使用本地演示数据");
+assert.equal(getOrderPoolSourceLabel(), "本地演示数据");
+
+assert.equal(getOrderDetailInventoryLabel({}, "可用"), "可用");
+assert.equal(
+  getOrderDetailInventoryLabel({
+    inventory: [
+      { state: "已占用", reservedQty: 100 },
+      { state: "已占用", reservedQty: 50 },
+      { state: "待补货", reservedQty: 0 },
+    ],
+  }, "可用"),
+  "已占用、待补货；占用 150",
+);
+
+console.log("Office order page model checks passed: draft review, cancellation linking, query, mutation gates, source state, and inventory summaries are behavior-covered.");
