@@ -24,8 +24,8 @@ const apiStorageRoot = join(checkStorageRoot, "api");
 const seededReviewInbound = initialRawMaterialInbounds.find((item) => item.id === "RMI-0704-001");
 const seededHandleStripInbound = initialRawMaterialInbounds.find((item) => item.id === "RMI-0704-003");
 assert.equal(seededHandleStripInbound?.productName, "提手条", "internal raw-material identity should use the canonical handle-strip name");
-assert.equal(seededHandleStripInbound?.spec, "78克*5宽", "handle-strip raw material should retain its authoritative GSM and width");
-assert.equal(seededHandleStripInbound?.gramWeightGsm, 78, "handle-strip raw material should retain the canonical GSM value");
+assert.equal(seededHandleStripInbound?.spec, "65克*5宽", "handle-strip raw material should use its authoritative default GSM and width");
+assert.equal(seededHandleStripInbound?.gramWeightGsm, 65, "handle-strip raw material should retain the canonical default GSM value");
 assert.equal(seededHandleStripInbound?.widthCm, 5, "handle-strip raw material should retain the canonical width value");
 assert.equal(seededHandleStripInbound?.materialCategory, "提手条", "handle-strip raw material should retain the canonical category");
 assert.doesNotMatch(

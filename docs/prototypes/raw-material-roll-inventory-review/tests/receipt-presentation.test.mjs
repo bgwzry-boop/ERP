@@ -60,7 +60,7 @@ test("receipt detail presents handle material as type and authoritative width", 
   assert.deepEqual(buildReceiptMaterialPresentation({
     materialCategory: "提手条",
     productName: "提手条",
-    spec: "78克*5宽",
+    spec: "65克*5宽",
     widthCm: 5,
   }), {
     materialType: "把条",

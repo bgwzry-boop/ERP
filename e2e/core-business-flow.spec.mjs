@@ -107,7 +107,7 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
   await expect(lineSummaries.nth(0).locator(".line-color")).toHaveText("颜色待补");
   await expect(lineSummaries.nth(0).locator(".line-spec")).toHaveText("78克*70宽*2000米");
   await expect(lineSummaries.nth(0).locator(".line-weight")).toHaveText("109.9 kg");
-  await expect(lineSummaries.nth(6).locator(".line-spec")).toHaveText("78克*5宽");
+  await expect(lineSummaries.nth(6).locator(".line-spec")).toHaveText("65克*5宽");
   await expect(lineSummaries.nth(8).locator(".line-weight")).toHaveText("92 kg");
   await expect(review.getByRole("textbox", { name: "第 1 卷颜色", exact: true })).not.toBeVisible();
   await expect(review.getByLabel("供应商 OCR 复核值", { exact: true })).not.toBeVisible();
@@ -122,7 +122,7 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
       await expect(review.getByRole("spinbutton", { name: "第 1 卷本卷重量 kg", exact: true })).toHaveValue("109.9");
     }
     if (index === 6) {
-      await expect(review.getByRole("textbox", { name: "第 7 卷规格 / 宽幅", exact: true })).toHaveValue("78*5");
+      await expect(review.getByRole("textbox", { name: "第 7 卷规格 / 宽幅", exact: true })).toHaveValue("65*5");
     }
     await review.getByRole("combobox", { name: `第 ${index + 1} 卷厂内标准色`, exact: true }).selectOption(reviewedFactoryColors[index]);
     await review.getByRole("button", { name: "这卷正确", exact: true }).click();

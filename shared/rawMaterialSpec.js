@@ -1,4 +1,5 @@
 export const RAW_MATERIAL_STANDARD_FABRIC_GSM = 78;
+export const RAW_MATERIAL_STANDARD_HANDLE_GSM = 65;
 export const RAW_MATERIAL_HANDLE_WIDTH_CM = 5;
 
 export function hasExplicitRawMaterialStripMarker(value) {
@@ -25,16 +26,16 @@ export function parseRawMaterialSpec(value) {
   const stripDefaultsApply = incompleteCategory === "提手条";
   const empty = {
     specRaw,
-    gramWeightGsm: stripDefaultsApply ? RAW_MATERIAL_STANDARD_FABRIC_GSM : 0,
+    gramWeightGsm: stripDefaultsApply ? RAW_MATERIAL_STANDARD_HANDLE_GSM : 0,
     widthCm: stripDefaultsApply ? RAW_MATERIAL_HANDLE_WIDTH_CM : 0,
     lengthM: 0,
     specDisplay: stripDefaultsApply
-      ? `${RAW_MATERIAL_STANDARD_FABRIC_GSM}克 × ${RAW_MATERIAL_HANDLE_WIDTH_CM}cm`
+      ? `${RAW_MATERIAL_STANDARD_HANDLE_GSM}克 × ${RAW_MATERIAL_HANDLE_WIDTH_CM}cm`
       : specRaw,
     materialCategory: incompleteCategory,
     specNeedsReview: !stripDefaultsApply,
     specReviewReason: stripDefaultsApply
-      ? `已识别为提手条并带入工厂固定${RAW_MATERIAL_STANDARD_FABRIC_GSM}克/${RAW_MATERIAL_HANDLE_WIDTH_CM}cm宽；厂家未写米数，按原单保留为空`
+      ? `已识别为提手条并带入工厂默认${RAW_MATERIAL_STANDARD_HANDLE_GSM}克/${RAW_MATERIAL_HANDLE_WIDTH_CM}cm宽；厂家未写米数，按原单保留为空`
       : specRaw ? "规格不是可确认的三段式克重/宽幅/米数" : "规格缺失",
   };
   if (!specRaw) return empty;
@@ -45,15 +46,17 @@ export function parseRawMaterialSpec(value) {
       const matches = part.match(/\d+(?:\.\d+)?/gu) ?? [];
       return matches.length === 1 ? Number(matches[0]) : 0;
     });
-    const isCanonicalStripWithoutMeters = numbers.includes(RAW_MATERIAL_STANDARD_FABRIC_GSM)
-      && numbers.includes(RAW_MATERIAL_HANDLE_WIDTH_CM);
+    const isCanonicalStripWithoutMeters = numbers.filter((number) => number === RAW_MATERIAL_HANDLE_WIDTH_CM).length === 1
+      && numbers.every((number) => Number.isFinite(number) && number > 0)
+      && numbers.some((number) => number !== RAW_MATERIAL_HANDLE_WIDTH_CM && isPlausibleGramWeight(number));
     if (isCanonicalStripWithoutMeters) {
+      const gramWeightGsm = numbers.find((number) => number !== RAW_MATERIAL_HANDLE_WIDTH_CM);
       return {
         specRaw,
-        gramWeightGsm: RAW_MATERIAL_STANDARD_FABRIC_GSM,
+        gramWeightGsm,
         widthCm: RAW_MATERIAL_HANDLE_WIDTH_CM,
         lengthM: 0,
-        specDisplay: `${RAW_MATERIAL_STANDARD_FABRIC_GSM}克 × ${RAW_MATERIAL_HANDLE_WIDTH_CM}cm`,
+        specDisplay: `${formatNumber(gramWeightGsm)}克 × ${RAW_MATERIAL_HANDLE_WIDTH_CM}cm`,
         materialCategory: "提手条",
         specNeedsReview: false,
         specReviewReason: "",
@@ -76,7 +79,11 @@ export function parseRawMaterialSpec(value) {
   let widthCm = 0;
   if (firstIsGram && secondIsWidth) [gramWeightGsm, widthCm] = [first, second];
   else if (secondIsGram && firstIsWidth) [gramWeightGsm, widthCm] = [second, first];
-  else if (first === RAW_MATERIAL_STANDARD_FABRIC_GSM && second !== RAW_MATERIAL_STANDARD_FABRIC_GSM) {
+  else if (first === RAW_MATERIAL_HANDLE_WIDTH_CM && second !== RAW_MATERIAL_HANDLE_WIDTH_CM) {
+    [gramWeightGsm, widthCm] = [second, first];
+  } else if (second === RAW_MATERIAL_HANDLE_WIDTH_CM && first !== RAW_MATERIAL_HANDLE_WIDTH_CM) {
+    [gramWeightGsm, widthCm] = [first, second];
+  } else if (first === RAW_MATERIAL_STANDARD_FABRIC_GSM && second !== RAW_MATERIAL_STANDARD_FABRIC_GSM) {
     [gramWeightGsm, widthCm] = [first, second];
   } else if (second === RAW_MATERIAL_STANDARD_FABRIC_GSM && first !== RAW_MATERIAL_STANDARD_FABRIC_GSM) {
     [gramWeightGsm, widthCm] = [second, first];
@@ -92,12 +99,12 @@ export function parseRawMaterialSpec(value) {
   if (materialCategory === "提手条") {
     return {
       specRaw,
-      gramWeightGsm: RAW_MATERIAL_STANDARD_FABRIC_GSM,
+      gramWeightGsm,
       widthCm: RAW_MATERIAL_HANDLE_WIDTH_CM,
       lengthM,
       specDisplay: lengthM > 0
-        ? `${RAW_MATERIAL_STANDARD_FABRIC_GSM}克 × ${RAW_MATERIAL_HANDLE_WIDTH_CM}cm × ${formatNumber(lengthM)}米`
-        : `${RAW_MATERIAL_STANDARD_FABRIC_GSM}克 × ${RAW_MATERIAL_HANDLE_WIDTH_CM}cm`,
+        ? `${formatNumber(gramWeightGsm)}克 × ${RAW_MATERIAL_HANDLE_WIDTH_CM}cm × ${formatNumber(lengthM)}米`
+        : `${formatNumber(gramWeightGsm)}克 × ${RAW_MATERIAL_HANDLE_WIDTH_CM}cm`,
       materialCategory,
       specNeedsReview: false,
       specReviewReason: "",
@@ -139,12 +146,17 @@ export function enrichRawMaterialSpecValues(values = {}) {
   if (hasExplicitRawMaterialStripMarker(enriched.supplierColor)) enriched.supplierColor = removeStripSuffix(enriched.supplierColor);
   if (hasExplicitRawMaterialStripMarker(enriched.factoryColor)) enriched.factoryColor = removeStripSuffix(enriched.factoryColor);
   if (enriched.materialCategory === "提手条") {
-    enriched.gramWeightGsm = RAW_MATERIAL_STANDARD_FABRIC_GSM;
+    const hasConfirmedStripSpec = parsed.materialCategory === "提手条"
+      && !parsed.specNeedsReview
+      && parsed.gramWeightGsm > 0;
+    enriched.gramWeightGsm = hasConfirmedStripSpec
+      ? parsed.gramWeightGsm
+      : RAW_MATERIAL_STANDARD_HANDLE_GSM;
     enriched.widthCm = RAW_MATERIAL_HANDLE_WIDTH_CM;
-    enriched.lengthM = parseThirdSpecNumber(values.spec);
+    enriched.lengthM = parsed.lengthM || parseThirdSpecNumber(values.spec);
     enriched.spec = enriched.lengthM > 0
-      ? `${RAW_MATERIAL_STANDARD_FABRIC_GSM}*${RAW_MATERIAL_HANDLE_WIDTH_CM}*${formatNumber(enriched.lengthM)}`
-      : `${RAW_MATERIAL_STANDARD_FABRIC_GSM}*${RAW_MATERIAL_HANDLE_WIDTH_CM}`;
+      ? `${formatNumber(enriched.gramWeightGsm)}*${RAW_MATERIAL_HANDLE_WIDTH_CM}*${formatNumber(enriched.lengthM)}`
+      : `${formatNumber(enriched.gramWeightGsm)}*${RAW_MATERIAL_HANDLE_WIDTH_CM}`;
     enriched.materialType = "提手";
     enriched.productName = "提手条";
     enriched.specDisplay = `${formatNumber(enriched.gramWeightGsm)}克 × ${formatNumber(enriched.widthCm)}cm × ${formatNumber(enriched.lengthM)}米`;
@@ -160,6 +172,10 @@ export function enrichRawMaterialSpecValues(values = {}) {
 
 function formatNumber(value) {
   return Number.isInteger(value) ? String(value) : String(Number(value));
+}
+
+function isPlausibleGramWeight(value) {
+  return Number.isFinite(Number(value)) && Number(value) >= 20 && Number(value) <= 300;
 }
 
 function cleanText(value) {

@@ -48,26 +48,27 @@ import {
   compactRollCode,
   compactSupplierName,
   resolveInventoryRollStatus,
-  resolveRollWidth,
+  resolveRollSpecification,
   sortInventoryRollsByWidth,
 } from "./roll-inventory-presentation.js";
 import { useFormalDesktopWorkspace } from "./useFormalDesktopWorkspace.js";
 
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
-    const resolvedWidth = resolveRollWidth(inbound, roll);
+    const resolvedSpec = resolveRollSpecification(inbound, roll);
     return {
       id: roll.id,
       color: roll.factoryColor || inbound.factoryColor || inbound.supplierColor || "颜色待确认",
-      width: resolvedWidth.label,
-      widthCm: resolvedWidth.widthCm,
+      width: resolvedSpec.widthLabel,
+      widthCm: resolvedSpec.widthCm,
+      gramWeight: resolvedSpec.gramWeightLabel,
       weight: Number(roll.remainingMachineSideWeightKg || roll.leftoverReviewedWeightKg || roll.weightKg || 0),
       status: resolveInventoryRollStatus(inbound, roll),
       supplier: inbound.supplierName || "供应商待确认",
       date: String(inbound.receivedAt || "").slice(0, 10),
       location: roll.location || (roll.machineId ? `${roll.machineId}机边` : inbound.location || "库位待确认"),
       source: inbound.id,
-      spec: roll.specDisplay || roll.spec || inbound.specDisplay || inbound.spec || "规格待确认",
+      spec: resolvedSpec.fullLabel,
     };
   })).filter((roll) => roll.id && roll.status);
 }
@@ -108,7 +109,7 @@ function buildDistribution(sourceRolls) {
 
   const widthOrder = buildInventoryWidthOptions(sourceRolls).slice(1).filter((width) => groups.has(width));
   return widthOrder.map((width) => {
-    const unit = width.includes("提手条") ? "件" : "卷";
+    const unit = width.includes("把条") ? "件" : "卷";
     const items = Array.from(groups.get(width).values());
     const maxWeight = Math.max(...items.map((item) => item.weightValue));
     const countValue = items.reduce((sum, item) => sum + item.countValue, 0);
@@ -297,10 +298,10 @@ function RollInventory({ onOpenSource, sourceRolls = [] }) {
       </div>
       {hasActiveFilters ? <div aria-live="polite" className="filter-feedback"><span>已筛选 {matchingRolls.length} 条</span>{activeBucket ? <button className="active-bucket" onClick={() => setBucket("")} type="button">{activeBucket.replace("::", " · ")} ×</button> : null}<button aria-label="重置筛选" className="reset-filter" onClick={resetFilters} type="button"><ReloadOutlined />重置</button></div> : null}
       <div className="roll-table" role="table" aria-label="物理卷料台账">
-        <div className="roll-row roll-head" role="row"><span aria-sort="ascending" role="columnheader" title="默认按宽幅从小到大排列">规格（宽幅）</span><span role="columnheader">厂内颜色</span><span role="columnheader">当前重量</span><span role="columnheader">库位</span><span role="columnheader">状态</span><span role="columnheader">供应商 / 入库日期</span><span role="columnheader">卷码（追溯）</span></div>
+        <div className="roll-row roll-head" role="row"><span aria-sort="ascending" role="columnheader" title="默认按宽幅从小到大排列">规格（宽幅/克重）</span><span role="columnheader">厂内颜色</span><span role="columnheader">当前重量</span><span role="columnheader">库位</span><span role="columnheader">状态</span><span role="columnheader">供应商 / 入库日期</span><span role="columnheader">卷码（追溯）</span></div>
         <div className="roll-table-body">
           {visibleRolls.length ? visibleRolls.map((roll) => <button aria-pressed={selectedRoll.id === roll.id} className={`roll-row${selectedRoll.id === roll.id ? " selected" : ""}`} key={roll.id} onClick={() => setSelectedId(roll.id)} role="row" type="button">
-            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.spec}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.color} />{roll.color}</span><span className="weight" role="cell">{roll.weight.toFixed(1)} kg</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
+            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.gramWeight}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.color} />{roll.color}</span><span className="weight" role="cell">{roll.weight.toFixed(1)} kg</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
           </button>) : <div className="empty-state"><SearchOutlined /><strong>没有符合条件的卷料</strong><button onClick={resetFilters} type="button">清除筛选</button></div>}
         </div>
       </div>

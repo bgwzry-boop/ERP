@@ -115,7 +115,7 @@ function buildRollRecord(inbound = {}, roll = {}) {
     specRaw,
     specDisplay: formatRawMaterialMobileSpec(specRaw) || "规格待补",
     widthCm,
-    widthLabel: widthCm > 0 ? `${formatNumber(widthCm)}cm${isHandle ? " 提手条" : ""}` : isHandle ? "提手" : "宽幅待补",
+    widthLabel: widthCm > 0 ? `${formatNumber(widthCm)}cm${isHandle ? " 把条" : ""}` : isHandle ? "把条" : "宽幅待补",
     currentWeightKg,
     location: cleanText(roll.location || inbound.location) || "库位待确认",
     status: cleanText(roll.inventoryStatus),

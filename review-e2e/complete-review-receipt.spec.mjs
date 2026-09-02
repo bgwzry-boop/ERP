@@ -26,3 +26,15 @@ test("4174 收货录入按业务字段扫描并显示把条宽幅", async ({ pag
   await expect(facts.nth(1).locator("dd")).toHaveText("5cm");
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 });
+
+test("4174 卷料库存按宽幅和克重显示把条默认规格", async ({ page }) => {
+  await page.goto("/?erpReviewCheck=playwright-roll-spec&erpViewport=desktop#roll-inventory");
+
+  await expect(page.getByRole("columnheader", { name: "规格（宽幅/克重）" })).toBeVisible();
+  const handleStripRow = page.getByRole("row", { name: /RM-240704-003-01/ });
+  await expect(handleStripRow).toBeVisible();
+  await expect(handleStripRow.locator(".roll-spec-cell > strong")).toHaveText("5cm 把条");
+  await expect(handleStripRow.locator(".roll-spec-cell > small")).toHaveText("65克");
+  await expect(handleStripRow.locator(".roll-spec-cell")).not.toContainText("78克");
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+});

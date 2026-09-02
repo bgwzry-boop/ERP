@@ -1,5 +1,7 @@
 import {
   RAW_MATERIAL_HANDLE_WIDTH_CM,
+  RAW_MATERIAL_STANDARD_FABRIC_GSM,
+  RAW_MATERIAL_STANDARD_HANDLE_GSM,
   hasExplicitRawMaterialStripMarker,
   parseRawMaterialSpec,
 } from "../../../../shared/rawMaterialSpec.js";
@@ -47,6 +49,11 @@ export function compactSupplierName(value) {
 }
 
 export function resolveRollWidth(inbound = {}, roll = {}) {
+  const specification = resolveRollSpecification(inbound, roll);
+  return { widthCm: specification.widthCm, label: specification.widthLabel };
+}
+
+export function resolveRollSpecification(inbound = {}, roll = {}) {
   const evidence = [
     roll.materialCategory,
     roll.productName,
@@ -70,12 +77,29 @@ export function resolveRollWidth(inbound = {}, roll = {}) {
     ? RAW_MATERIAL_HANDLE_WIDTH_CM
     : explicitWidthCm || positiveNumber(parsedSpec.widthCm);
   const handleStrip = isHandleStrip || widthCm === RAW_MATERIAL_HANDLE_WIDTH_CM;
+  const isKnownFabric = !handleStrip && (
+    widthCm > 0
+    || evidence.some((value) => value === "布料" || value.includes("无纺布"))
+  );
+  const gramWeightGsm = positiveNumber(roll.gramWeightGsm)
+    || positiveNumber(inbound.gramWeightGsm)
+    || positiveNumber(parsedSpec.gramWeightGsm)
+    || (handleStrip ? RAW_MATERIAL_STANDARD_HANDLE_GSM : isKnownFabric ? RAW_MATERIAL_STANDARD_FABRIC_GSM : 0);
+  const widthLabel = widthCm
+    ? `${formatWidthNumber(widthCm)}cm${handleStrip ? " 把条" : ""}`
+    : "宽幅待确认";
+  const gramWeightLabel = gramWeightGsm ? `${formatWidthNumber(gramWeightGsm)}克` : "克重待确认";
+  const parsedFullLabel = parsedSpec.specNeedsReview ? "" : cleanText(parsedSpec.specDisplay);
 
   return {
     widthCm,
-    label: widthCm
-      ? `${formatWidthNumber(widthCm)}cm${handleStrip ? " 提手条" : ""}`
-      : "宽幅待确认",
+    widthLabel,
+    gramWeightGsm,
+    gramWeightLabel,
+    fullLabel: parsedFullLabel || (widthCm && gramWeightGsm
+      ? `${gramWeightLabel} × ${formatWidthNumber(widthCm)}cm`
+      : cleanText(roll.specDisplay || roll.spec || inbound.specDisplay || inbound.spec) || "规格待确认"),
+    isHandleStrip: handleStrip,
   };
 }
 

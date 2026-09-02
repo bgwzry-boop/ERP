@@ -52,7 +52,7 @@ const supplierOcrProfiles = [
   },
 ];
 
-export const RAW_MATERIAL_OCR_PARSER_VERSION = 19;
+export const RAW_MATERIAL_OCR_PARSER_VERSION = 20;
 
 export const RAW_MATERIAL_DOCUMENT_DIRECTIONS = {
   delivery: "supplier_delivery",
