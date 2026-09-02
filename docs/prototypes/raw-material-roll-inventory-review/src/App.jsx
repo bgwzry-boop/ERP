@@ -42,6 +42,7 @@ import {
 import { BusinessWorkspace } from "./BusinessWorkspaces.jsx";
 import { RawMaterialSupplierColorMappingDialog } from "../../../../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx";
 import { ColorChip, FACTORY_COLORS, RAW_MATERIAL_COLOR_NAMES } from "./FactoryColor.jsx";
+import { buildReceiptRowPresentation } from "./receipt-presentation.js";
 import {
   buildInventoryWidthOptions,
   compactRollCode,
@@ -126,11 +127,10 @@ function buildDistribution(sourceRolls) {
 
 const receiptTabs = ["待核对", "退货单", "待打印", "待贴标", "异常"];
 const receiptFacts = (row = {}) => {
-  const count = row.rollCount || row.rolls?.length || 0;
-  const totalWeightKg = Number(row.totalWeightKg) || 0;
+  const presentation = buildReceiptRowPresentation(row);
   return row.documentDirection === "supplier_return"
-    ? `退回 ${count} 件 / ${formatWeight(totalWeightKg)}`
-    : `${count}卷 / ${formatWeight(totalWeightKg)}`;
+    ? `退回 ${presentation.countLabel} / ${presentation.totalWeightLabel}`
+    : `${presentation.countLabel} / ${presentation.totalWeightLabel}`;
 };
 const receiptTabFor = (row = {}) => {
   const status = String(row.status || "");
@@ -423,7 +423,20 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
     <section className="secondary-list">
       <header><h2>收货录入</h2><button className="primary" onClick={onOpenReceive} type="button"><PlusOutlined />录入送货/退货单</button></header>
       <div aria-label="收货状态" className="secondary-tabs" role="tablist">{receiptTabs.map((tab) => { const count = records.filter((row) => receiptTabFor(row) === tab).length; return <button aria-selected={activeTab === tab} className={activeTab === tab ? "active" : ""} key={tab} onClick={() => selectTab(tab)} role="tab" type="button">{tab} {count}</button>; })}</div>
-      <div className="receipt-table"><div className="receipt-row head"><span>供应商 / 票据</span><span>数量 / 重量</span><span>状态</span><span>查重结果</span></div>{tabRows.length ? tabRows.map((row) => <button aria-pressed={row.id === selected?.id} className={`receipt-row${row.id === selected?.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} type="button"><span><strong>{row.supplier}</strong><small>{row.note} · {row.id}</small></span><span>{receiptFacts(row)}</span><StatusText>{row.status}</StatusText><span className={row.duplicate || row.status.includes("异常") ? "danger-text" : "quiet-text"}>{row.duplicate || "未发现重复"}</span></button>) : <div className="receipt-empty-state"><CheckCircleFilled /><strong>{notice ? "本阶段处理完成" : `${activeTab}暂无单据`}</strong><span>{notice || "切换其他状态继续查看。"}</span></div>}</div>
+      <div className="receipt-table">
+        <div className="receipt-row head"><span>送货单位 / 票据</span><span>送货时间</span><span>卷/件数</span><span>总重量</span><span>复核入库</span><span>查重结果</span></div>
+        {tabRows.length ? tabRows.map((row) => {
+          const presentation = buildReceiptRowPresentation(row);
+          return <button aria-pressed={row.id === selected?.id} className={`receipt-row${row.id === selected?.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} type="button">
+            <span><strong>{presentation.supplierName}</strong><small>{presentation.ticketText} · {row.id}</small></span>
+            <time dateTime={row.receivedAt || undefined}>{presentation.arrivalTime}</time>
+            <span className="receipt-number">{presentation.countLabel}</span>
+            <span className="receipt-number">{presentation.totalWeightLabel}</span>
+            <StatusText>{presentation.reviewStatus}</StatusText>
+            <span className={presentation.duplicateNeedsAttention ? "danger-text" : "quiet-text"}>{presentation.duplicateText}</span>
+          </button>;
+        }) : <div className="receipt-empty-state"><CheckCircleFilled /><strong>{notice ? "本阶段处理完成" : `${activeTab}暂无单据`}</strong><span>{notice || "切换其他状态继续查看。"}</span></div>}
+      </div>
     </section>
     <ReceiptDetail activeTab={activeTab} notice={notice} onOpenInventory={onOpenInventory} onPrimaryAction={handlePrimaryAction} onRollAction={handleRollAction} row={selected} />
   </div><ReceiptFlowDialog flow={flow} onClose={() => setFlow(null)} onConfirm={confirmFlow} row={selected} /></>;
