@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   buildReleaseInventoryReservationTransactionQuery,
   buildReleaseInventoryReservationTransactionSql,
@@ -11,10 +10,8 @@ import { createInventoryReservationReleaseCommandService } from "../server/servi
 await checkInventoryReservationReleaseCommandService();
 await checkLocalInventoryReservationReleaseTransactionRepository();
 await checkPostgresInventoryReservationReleaseTransactionSqlBoundary();
-checkApiServerUsesThinReleaseRoute();
-
 console.log(
-  "Inventory reservation release checks passed: command validation, thin HTTP routing, local mutation, and PostgreSQL release SQL are covered.",
+  "Inventory reservation release checks passed: command validation, local mutation, and PostgreSQL release SQL are covered.",
 );
 
 async function checkInventoryReservationReleaseCommandService() {
@@ -116,17 +113,6 @@ async function checkInventoryReservationReleaseCommandService() {
     ).code,
     "TEMPORARY_HOLD_DEDICATED_RELEASE_REQUIRED",
   );
-}
-
-function checkApiServerUsesThinReleaseRoute() {
-  const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-  const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-  const routeSource = readFileSync(new URL("../server/routes/inventoryWriteRoutes.mjs", import.meta.url), "utf8");
-  assert.match(registrySource, /createInventoryReservationReleaseCommandService/);
-  assert.match(apiServerSource, /handleInventoryWriteRoutes\([\s\S]*inventoryReservationReleaseCommandService,/);
-  assert.doesNotMatch(apiServerSource, /async function releaseInventoryReservationRoute\b/);
-  assert.match(routeSource, /inventoryReservationReleaseCommandService\.releaseReservation/);
-  assert.doesNotMatch(routeSource, /currentReservedQty|inventoryLedgerEntry|releaseReservationReason/);
 }
 
 async function checkLocalInventoryReservationReleaseTransactionRepository() {

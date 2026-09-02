@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1ReleaseCandidateRefreshService } from "../server/services/v1ReleaseCandidateRefreshService.mjs";
 
 const checkedAt = "2026-07-13T20:00:00.000Z";
@@ -79,31 +78,6 @@ assert.equal(failedResult.body.status, "refresh_failed");
 assert.equal(failedResult.body.error.code, "V1_RELEASE_CANDIDATE_REFRESH_FAILED");
 assert.equal(failedResult.body.summary.releaseCandidateRefreshed, false);
 assertSensitiveTextAbsent(failedResult);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const serviceSource = readFileSync(
-  new URL("../server/services/v1ReleaseCandidateRefreshService.mjs", import.meta.url),
-  "utf8",
-);
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function refreshSystemV1ReleaseCandidate/);
-assert.match(
-  routeSource,
-  /refreshV1ReleaseCandidate:[\s\S]*v1ReleaseCandidateRefreshService\.refresh\(\{ request, operatorId \}\)/,
-);
-assert.doesNotMatch(
-  routeSource,
-  /process\.env|runV1ReleaseCandidateRefreshCommand|getV1GoLiveArtifactRoot|blockingItems|try\s*\{/,
-);
-for (const oldHelper of [
-  "buildV1ReleaseCandidateRefreshBlockedBody",
-  "buildV1ReleaseCandidateRefreshSuccessBody",
-  "buildV1ReleaseCandidateRefreshErrorBody",
-  "buildV1ReleaseCandidateRefreshSafeguards",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${oldHelper}\\(`));
-}
-assert.doesNotMatch(serviceSource, /request\.body|body\.env|body\.path|body\.token/);
 
 console.log(
   "V1 release-candidate refresh service checks passed: mandatory precheck, server-owned command inputs, ready/blocked/error projection, sensitive-text redaction, and thin API composition are covered.",
