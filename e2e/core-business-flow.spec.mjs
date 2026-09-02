@@ -160,6 +160,78 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
   expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
 });
 
+test("司机送达写入必须经过可访问确认并可返回修改", async ({ page }) => {
+  const browserErrors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+
+  await page.route("**/api/driver/delivery-tasks**", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          fulfillmentId: "F-E2E-DELIVERY-CONFIRM",
+          driverTaskId: "DT-E2E-DELIVERY-CONFIRM",
+          driverId: "U-DRIVER-A",
+          orderLineId: "ORD-E2E-DELIVERY-01",
+          customerName: "送达确认测试客户",
+          address: "测试工业园 1 号",
+          addressArea: "测试园区",
+          deliveryNoteNo: "DN-E2E-DELIVERY-01",
+          goodsSummary: "测试袋 100 个",
+          packageSummary: "1包",
+          packageCount: 1,
+          qty: 100,
+          expectedQty: 100,
+          status: "配送中",
+          watermarkedPhotoAttached: true,
+          watermarkedPhotoAttachmentId: "ATT-E2E-WATERMARK",
+          routeDate: "2026-09-02",
+          routeNo: "R-E2E-01",
+          routeSequence: 1,
+        }],
+        total: 1,
+      }),
+    });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openInternalWorkbench(page);
+  await switchAccount(page, "U-DRIVER-A");
+
+  const mobileNavigation = page.getByRole("navigation", { name: "司机手机导航" });
+  await mobileNavigation.getByRole("button", { name: /待处理/ }).click();
+  const statusTabs = page.getByRole("tablist", { name: "司机任务状态" });
+  await statusTabs.getByRole("tab", { name: "配送中", exact: true }).click();
+  const taskList = page.getByRole("region", { name: "司机送货任务列表" });
+  await taskList.getByRole("button", { name: /送达确认测试客户/ }).click();
+
+  const detailTabs = page.getByRole("tablist", { name: "司机任务详情" });
+  await detailTabs.getByRole("tab", { name: "送达", exact: true }).click();
+  const submit = page.getByRole("button", { name: "提交送达", exact: true });
+  await expect(submit).toBeEnabled();
+  await submit.click();
+
+  const confirmation = page.getByRole("region", { name: "确认提交送达" });
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toBeFocused();
+  await expect(confirmation).toHaveAttribute("aria-live", "assertive");
+  await expect(confirmation).toContainText("实际数量100 个");
+  await expect(confirmation).toContainText("水印照片已准备");
+  await expect(confirmation).toContainText("任务将标记为已完成");
+  await expect(confirmation.getByRole("button", { name: "确认提交送达", exact: true })).toBeVisible();
+
+  await confirmation.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  await expect(page.getByRole("spinbutton", { name: "实际数量" })).toHaveValue("100");
+  await expect(submit).toBeFocused();
+  expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
+});
+
 test("默认公共待办引用真实业务并可打开保存草稿", async ({ page, request }) => {
   const browserErrors = [];
   page.on("console", (message) => {
