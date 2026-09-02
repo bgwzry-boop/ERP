@@ -106,6 +106,7 @@ assert.equal(pageHelpers.sortTodos, pageHelperStubs.sortTodos);
 const runtimeFeedback = [];
 const handleTodo = () => "handled";
 const downloadViewedAttachment = () => "downloaded";
+const v1StatusActionController = { marker: "route-owned" };
 const runtimeWorkspace = {
   fulfillments: [{ id: "F-1" }],
   lastIssuedEmployeeCredential: { userId: "U-1" },
@@ -146,12 +147,13 @@ const { overlayRuntime, pageRuntime } = createOfficeWorkbenchRuntimes({
   setActivePage: () => {},
   statementActions: {},
   todoActions: { handleTodo },
-  v1StatusActions: { refresh: () => {} },
+  v1StatusActionController,
 });
 assert.equal(pageRuntime.workspaceMarker, "preserved");
 assert.equal(pageRuntime.canOpenMasterData, true);
 assert.equal(pageRuntime.handleTodo, handleTodo);
 assert.equal(pageRuntime.firstReleaseMode, true);
+assert.equal(pageRuntime.v1StatusActionController, v1StatusActionController);
 assert.equal(overlayRuntime.downloadViewedAttachment, downloadViewedAttachment);
 assert.equal(overlayRuntime.employeeAccountReviews, runtimeWorkspace.masterDataEmployeeAccountReviews);
 assert.equal(overlayRuntime.fulfillments, runtimeWorkspace.fulfillments);

@@ -18,7 +18,6 @@ import { createOfficeProductionPackingActions } from "./app/createOfficeProducti
 import { createOfficeRawMaterialActions } from "./app/createOfficeRawMaterialActions.js";
 import { createOfficeStatementActions } from "./app/createOfficeStatementActions.js";
 import { createOfficeTodoActions, createOfficeTodoAppender } from "./app/createOfficeTodoActions.js";
-import { createOfficeV1StatusActions } from "./app/createOfficeV1StatusActions.js";
 import {
   copyTextToClipboard,
   downloadMasterDataImportTemplateWorkbook,
@@ -206,14 +205,14 @@ export function OfficeWorkbench({
   const authSourceLabel = authState.authenticated ? "后端认证" : formalLoginRequired ? "等待登录" : "本地权限";
   const unhandledTodos = todos.filter((item) => !item.handled).length;
 
-  const v1StatusActions = createOfficeV1StatusActions({
+  const v1StatusActionController = {
     actionSetters: v1StatusActionSetters,
     authState,
     currentUserId,
     readFileAsDataUrl,
     refreshV1GoLiveStatus,
     setToast,
-  });
+  };
   const masterDataActions = createOfficeMasterDataActions({
     allowLocalFallback: !runtimeServerRequired,
     authState,
@@ -551,7 +550,7 @@ export function OfficeWorkbench({
     setActivePage,
     statementActions,
     todoActions,
-    v1StatusActions,
+    v1StatusActionController,
   });
   return <OfficeWorkbenchShell runtime={{
     activeMeta,

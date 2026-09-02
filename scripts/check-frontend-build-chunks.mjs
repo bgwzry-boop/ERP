@@ -37,6 +37,17 @@ assert.ok(
   "V1 status styles must remain deferred with the route",
 );
 const workbenchSource = await readFile(resolve(distRoot, workbenchAsset.file));
+const v1StatusRouteSource = await readFile(resolve(distRoot, v1StatusRouteAsset.file), "utf8");
+assert.doesNotMatch(
+  workbenchSource.toString("utf8"),
+  /现场证据 manifest 草稿生成/,
+  "OfficeWorkbench must not eagerly contain the V1 status action controller",
+);
+assert.match(
+  v1StatusRouteSource,
+  /现场证据 manifest 草稿生成/,
+  "V1 status action controller must load with its route",
+);
 const workbenchBytes = (await stat(resolve(distRoot, workbenchAsset.file))).size;
 const workbenchGzipBytes = gzipSync(workbenchSource).length;
 const workspaceOverlayRouteKey = "src/app/WorkspaceOverlayRoute.jsx";
@@ -90,8 +101,8 @@ assert.match(
   /\[Content_Types\]\.xml/,
   "master-data template download chunk must contain the XLSX archive generator",
 );
-const maxWorkbenchBytes = 500_000;
-const maxWorkbenchGzipBytes = 150 * 1024;
+const maxWorkbenchBytes = 475_000;
+const maxWorkbenchGzipBytes = 140 * 1024;
 assert.ok(
   workbenchBytes <= maxWorkbenchBytes,
   `OfficeWorkbench is ${formatBytes(workbenchBytes)} raw; budget is ${formatBytes(maxWorkbenchBytes)} raw`,

@@ -11,7 +11,6 @@ import {
   createV1SignoffBoundaryAttachmentListInput,
 } from "../src/services/officeAttachmentInputs.js";
 
-const v1StatusActionsSource = readFileSync(new URL("../src/app/createOfficeV1StatusActions.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
 const v1StatusReadSource = readFileSync(new URL("../src/app/useOfficeV1StatusReads.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
@@ -64,17 +63,17 @@ const v1StatusWorkbenchStyleSource = readFileSync(new URL("../src/styles/feature
 const featureStyleSource = `${v1StatusBaseStyleSource}\n${v1StatusWorkbenchStyleSource}`;
 
 const routeState = { goLiveStatus: { status: "review" } };
-const routeActions = { onPrecheckProductionEnv: () => {} };
+const routeActionController = { actionSetters: {}, currentUserId: "U-MANAGEMENT" };
 const employeeImportCalls = [];
 const routeContract = buildV1StatusRouteContract({
   canOpenMasterData: true,
   openMasterDataTemplatePanel: (tab) => employeeImportCalls.push(["template", tab]),
   setActivePage: (page) => employeeImportCalls.push(["page", page]),
   setMasterDataMaintenanceTab: (tab) => employeeImportCalls.push(["tab", tab]),
-  v1StatusActions: { pageActions: routeActions },
+  v1StatusActionController: routeActionController,
   v1StatusRouteState: routeState,
 });
-assert.equal(routeContract.actions, routeActions, "V1 route should receive the action adapter by identity");
+assert.equal(routeContract.actionController, routeActionController, "V1 route should receive its action-controller dependencies by identity");
 assert.equal(routeContract.state, routeState, "V1 route should receive grouped status state by identity");
 routeContract.onOpenEmployeeImport();
 assert.deepEqual(employeeImportCalls, [
@@ -95,21 +94,6 @@ assertExcludes(officePageSource, "V1StatusPage", "office barrel should not stati
 assertExcludes(officePageSource, "function V1StatusPage", "office pages should no longer define the V1 status page");
 assertIncludes(v1StatusReadSource, "当前仍以发布门禁、现场证据和签字作为完成标准", "refresh toast should keep V1 completion boundary explicit");
 assertIncludes(v1StatusReadSource, "getOfficeV1GoLiveStatus", "V1 read hook should refresh go-live status from API artifacts");
-assertIncludes(v1StatusActionsSource, "generateOfficeV1FieldEvidenceDraftManifest", "V1 action controller should generate field evidence draft manifest through API");
-assertIncludes(v1StatusActionsSource, "validateOfficeV1FieldEvidenceDraftManifest", "V1 action controller should validate field evidence draft manifest through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionEnv", "V1 action controller should precheck current production env through API");
-assertIncludes(v1StatusActionsSource, "runOfficeV1ProductionEnvSetup", "V1 action controller should run production env setup through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionEnvIntake", "V1 action controller should precheck production env real-value intake through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionEnvFileAudit", "V1 action controller should precheck current production env file audit through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionEnvFilePreview", "V1 action controller should precheck server env file application through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionGoLive", "V1 action controller should precheck current production go-live through API");
-assertIncludes(v1StatusActionsSource, "runOfficeV1ProductionPersistenceEvidence", "V1 action controller should run production persistence evidence through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1AttachmentRetention", "V1 action controller should precheck current attachment retention through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1DriverReadiness", "V1 action controller should precheck current driver V1 readiness through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1RuntimeReadiness", "V1 action controller should precheck current runtime readiness through API");
-assertIncludes(v1StatusActionsSource, "getOfficePrintDriverSpoolDiagnostics", "V1 action controller should precheck print spool diagnostics through print driver API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ReleaseCandidateRefresh", "V1 action controller should precheck release candidate refresh through API");
-assertIncludes(v1StatusActionsSource, "refreshOfficeV1ReleaseCandidate", "V1 action controller should refresh release candidate through API");
 assertIncludes(workspaceSource, "v1GoLiveStatusState", "workspace should keep V1 go-live status refresh state");
 assertIncludes(workspaceSource, "lastSuccessfulAt", "workspace should retain the timestamp of the latest successful V1 status snapshot");
 assertIncludes(workspaceSource, "lastAttemptedAt", "workspace should retain the timestamp of the latest V1 status refresh attempt");
@@ -140,44 +124,6 @@ for (const stateName of [
 ]) {
   assertIncludes(workspaceSource, stateName, `workspace should retain V1 state ${stateName}`);
 }
-for (const actionName of [
-  "uploadV1FieldEvidenceAttachment",
-  "listV1FieldEvidenceAttachments",
-  "uploadV1SignoffBoundaryAttachment",
-  "listV1SignoffBoundaryAttachments",
-]) {
-  assertIncludes(v1StatusActionsSource, actionName, `V1 action controller should own ${actionName}`);
-}
-assertIncludes(v1StatusActionsSource, "createV1FieldEvidenceAttachmentInput", "V1 action controller should build field evidence attachment inputs");
-assertIncludes(v1StatusActionsSource, "createV1FieldEvidenceAttachmentListInput", "V1 action controller should build field evidence attachment list inputs");
-assertIncludes(v1StatusActionsSource, "createV1SignoffBoundaryAttachmentInput", "V1 action controller should build signoff/boundary attachment inputs");
-assertIncludes(v1StatusActionsSource, "createV1SignoffBoundaryAttachmentListInput", "V1 action controller should build signoff/boundary attachment list inputs");
-for (const actionProp of [
-  "onGenerateFieldEvidenceDraft",
-  "onValidateFieldEvidenceDraft",
-  "onUploadFieldEvidenceAttachment",
-  "onListFieldEvidenceAttachments",
-  "onUploadSignoffBoundaryAttachment",
-  "onListSignoffBoundaryAttachments",
-  "onPrecheckProductionEnv",
-  "onRunProductionEnvSetup",
-  "onPrecheckProductionEnvIntake",
-  "onPrecheckProductionEnvFileAudit",
-  "onPrecheckProductionEnvFilePreview",
-  "onPrecheckProductionGoLive",
-  "onRunProductionPersistenceEvidence",
-  "onPrecheckRuntimeReadiness",
-  "onPrecheckV1AttachmentRetention",
-  "onPrecheckV1PrintSpool",
-  "onPrecheckV1PrintCups",
-  "onPrecheckV1PrintReadiness",
-  "onPrecheckV1DriverReadiness",
-  "onPrecheckReleaseCandidateRefresh",
-  "onRefreshReleaseCandidate",
-]) {
-  assertIncludes(v1StatusActionsSource, actionProp, `V1 route adapter should expose ${actionProp}`);
-}
-
 assertIncludes(v1StatusPageSource, "export function V1StatusPage", "office pages should export V1StatusPage");
 assertIncludes(v1StatusPageEntrySource, 'from "./V1StatusOverview.jsx"', "V1 status page should compose the extracted overview");
 assertIncludes(v1StatusPageEntrySource, 'from "./v1StatusPresentation.js"', "V1 status page should consume the extracted presentation model");

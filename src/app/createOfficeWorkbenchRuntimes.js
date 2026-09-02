@@ -24,7 +24,7 @@ export function createOfficeWorkbenchRuntimes({
   setActivePage,
   statementActions,
   todoActions,
-  v1StatusActions,
+  v1StatusActionController,
 }) {
   const pageRuntime = {
     ...officeWorkspace,
@@ -87,7 +87,7 @@ export function createOfficeWorkbenchRuntimes({
     updateMasterDataEmployeeProfile: masterDataActions.updateMasterDataEmployeeProfile,
     updateRawMaterialInbound: rawMaterialActions.updateRawMaterialInbound,
     uploadDraftArtwork: orderActions.uploadDraftArtwork,
-    v1StatusActions,
+    v1StatusActionController,
   };
 
   const overlayRuntime = {

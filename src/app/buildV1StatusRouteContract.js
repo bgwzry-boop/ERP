@@ -8,7 +8,7 @@ export function buildV1StatusRouteContract(runtime = {}) {
     : undefined;
 
   return {
-    actions: runtime.v1StatusActions?.pageActions,
+    actionController: runtime.v1StatusActionController,
     state: runtime.v1StatusRouteState,
     onOpenEmployeeImport,
   };
