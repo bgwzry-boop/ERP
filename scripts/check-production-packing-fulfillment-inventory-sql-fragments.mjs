@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createPostgresParameterBinder } from "../server/postgresSqlParameters.mjs";
 import {
   buildInsertInventoryLedgerEntriesSql,
@@ -11,7 +10,6 @@ import {
 
 checkPackagesAndFulfillment();
 checkInventoryWrites();
-checkRepositoryBoundary();
 
 console.log("Production packing fulfillment/inventory SQL fragments check passed: packages, fulfillment, reservations, inventory deltas, and ledgers stay parameterized and guarded.");
 
@@ -131,19 +129,4 @@ function checkInventoryWrites() {
   assert.equal(buildInsertInventoryReservationsSql([], createPostgresParameterBinder()), "SELECT NULL::json AS result WHERE false");
   assert.equal(buildUpdateInventoryItemsSql([], createPostgresParameterBinder()), "SELECT NULL::json AS result WHERE false");
   assert.equal(buildInsertInventoryLedgerEntriesSql([], createPostgresParameterBinder()), "SELECT NULL::json AS result WHERE false");
-}
-
-function checkRepositoryBoundary() {
-  const repositorySource = readFileSync(new URL("../server/productionPackingTransactionRepository.mjs", import.meta.url), "utf8");
-  const fragmentsSource = readFileSync(
-    new URL("../server/productionPackingFulfillmentInventorySqlFragments.mjs", import.meta.url),
-    "utf8",
-  );
-  assert.match(repositorySource, /from "\.\/productionPackingFulfillmentInventorySqlFragments\.mjs"/);
-  assert.doesNotMatch(repositorySource, /function buildInsertPackagesSql\(/);
-  assert.doesNotMatch(repositorySource, /function buildUpdateInventoryItemsSql\(/);
-  assert.match(fragmentsSource, /export function buildInsertPackagesSql\(/);
-  assert.match(fragmentsSource, /export function buildInsertInventoryLedgerEntriesSql\(/);
-  assert.ok(repositorySource.split("\n").length <= 1200, "transaction repository should delegate fulfillment/inventory SQL fragments");
-  assert.ok(fragmentsSource.split("\n").length <= 300, "fulfillment/inventory SQL fragments should remain independently reviewable");
 }

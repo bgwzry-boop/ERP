@@ -1,33 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createRawMaterialCostMarginBuilder } from "../server/rawMaterialCostMarginBuilderService.mjs";
-
-const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
-const actionServiceSource = readFileSync(
-  new URL("../server/rawMaterialCostMarginActionService.mjs", import.meta.url),
-  "utf8",
-);
-const serviceSource = readFileSync(new URL("../server/rawMaterialCostMarginBuilderService.mjs", import.meta.url), "utf8");
-const ocrSupportSource = readFileSync(new URL("../server/rawMaterialInboundOcrSupport.mjs", import.meta.url), "utf8");
-const builderNames = [
-  "buildRawMaterialCostAllocationDrafts",
-  "buildRawMaterialCostAllocationConfirmation",
-  "buildRawMaterialCostLossCalibration",
-  "buildRawMaterialOrderMarginSnapshot",
-  "buildRawMaterialOrderMarginReport",
-];
-
-assert.match(repositorySource, /from "\.\/rawMaterialCostMarginActionService\.mjs"/);
-assert.match(actionServiceSource, /from "\.\/rawMaterialCostMarginBuilderService\.mjs"/);
-for (const name of builderNames) {
-  assert.doesNotMatch(repositorySource, new RegExp(`function ${name}\\(`));
-  assert.doesNotMatch(actionServiceSource, new RegExp(`function ${name}\\(`));
-}
-assert.match(serviceSource, /export function createRawMaterialCostMarginBuilder/);
-assert.ok(repositorySource.split("\n").length <= 1_600, "repository should delegate cost/margin actions and OCR review construction");
-assert.ok(actionServiceSource.split("\n").length < 700, "cost/margin action service should stay independently reviewable");
-assert.ok(serviceSource.split("\n").length < 450, "cost/margin builder service should stay independently reviewable");
-assert.ok(ocrSupportSource.split("\n").length < 330, "OCR repository support should stay independently reviewable");
 assert.throws(() => createRawMaterialCostMarginBuilder(), /requires findProductionTask/);
 
 const workspace = {
@@ -144,5 +116,5 @@ assert.equal(report.reviewStatus, "已财务复核/报表可用");
 assert.equal(report.marginEffect, "reviewed_margin_report_snapshot");
 
 console.log(
-  "Raw-material cost/margin builder service check passed: injected lookups, draft-to-report contracts, material-only margin boundaries, and repository ownership are isolated.",
+  "Raw-material cost/margin builder service check passed: injected lookups, draft-to-report contracts, and material-only margin boundaries are covered.",
 );

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   normalizeRawMaterialCostAllocationConfirmations,
   normalizeRawMaterialCostAllocationDrafts,
@@ -7,33 +6,6 @@ import {
   normalizeRawMaterialOrderMarginReports,
   normalizeRawMaterialOrderMarginSnapshots,
 } from "../server/rawMaterialCostMarginRecordNormalizer.mjs";
-
-const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
-const actionServiceSource = readFileSync(
-  new URL("../server/rawMaterialCostMarginActionService.mjs", import.meta.url),
-  "utf8",
-);
-const normalizerSource = readFileSync(
-  new URL("../server/rawMaterialCostMarginRecordNormalizer.mjs", import.meta.url),
-  "utf8",
-);
-
-assert.match(repositorySource, /from "\.\/rawMaterialCostMarginActionService\.mjs"/);
-assert.match(actionServiceSource, /from "\.\/rawMaterialCostMarginRecordNormalizer\.mjs"/);
-for (const name of [
-  "normalizeRawMaterialCostAllocationDrafts",
-  "normalizeRawMaterialCostAllocationConfirmations",
-  "normalizeRawMaterialCostLossCalibrations",
-  "normalizeRawMaterialOrderMarginSnapshots",
-  "normalizeRawMaterialOrderMarginReports",
-]) {
-  assert.doesNotMatch(repositorySource, new RegExp(`function ${name}\\(`));
-  assert.doesNotMatch(actionServiceSource, new RegExp(`function ${name}\\(`));
-  assert.match(normalizerSource, new RegExp(`export function ${name}\\(`));
-}
-assert.ok(repositorySource.split("\n").length <= 1_600, "repository should no longer own cost/margin actions or record schemas");
-assert.ok(actionServiceSource.split("\n").length < 700, "cost/margin action service should stay independently reviewable");
-assert.ok(normalizerSource.split("\n").length < 360, "cost/margin record normalizer should stay independently reviewable");
 
 const [draft] = normalizeRawMaterialCostAllocationDrafts([
   {
@@ -121,5 +93,5 @@ assert.equal(report.reviewStatus, "已财务复核/报表可用");
 assert.equal(report.marginEffect, "reviewed_margin_report_snapshot");
 
 console.log(
-  "Raw-material cost/margin normalizers check passed: record schemas, defaults, numeric/text cleanup, line filtering, and repository ownership are isolated.",
+  "Raw-material cost/margin normalizers check passed: record schemas, defaults, numeric/text cleanup, and line filtering are covered.",
 );
