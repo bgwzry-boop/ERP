@@ -16,6 +16,8 @@ const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", i
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
@@ -98,8 +100,8 @@ assert.match(printDiagnosticsPanelSource, /不读取 payload、不生成打印�
 assert.match(printDiagnosticsPanelSource, /提交成功不等于纸张已打出/);
 assert.doesNotMatch(pageSource, /function PrintDriverDiagnosticsPanel/);
 assert.doesNotMatch(mainSource, /styles\/features\/(production-print|driver|role-tools)\.css/, "production and field-tool styles should not load with the shell");
-assert.match(appSource, /import\("\.\/styles\/features\/production-print\.css"\)/, "production/print styles should load with the production route");
-assert.match(appSource, /import\("\.\/styles\/features\/driver\.css"\)/, "driver styles should load with the driver route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/production-print\.css"\)/, "production/print styles should load with the production route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/driver\.css"\)/, "driver styles should load with the driver route");
 assert.match(printDevicePanelSource, /driver-field-test-form printer-device-qa-form/);
 assert.match(driverStyleSource, /\.driver-field-test-row/);
 for (const selector of [".production-schedule-queue-table", ".printer-device-qa-section", ".print-driver-diagnostics-section", ".print-job-queue-section", ".queue-move-controls"]) {

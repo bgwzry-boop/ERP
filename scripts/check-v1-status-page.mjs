@@ -13,6 +13,8 @@ import {
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const v1StatusActionsSource = readFileSync(new URL("../src/app/createOfficeV1StatusActions.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
@@ -72,7 +74,7 @@ assertIncludes(navigationSource, 'label: "上线状态"', "navigation should lab
 assertIncludes(navigationSource, 'permissionPrefixes: ["system.v1_"]', "V1 status navigation should require system permissions");
 assertExcludes(officePageSource, "V1StatusPage", "office barrel should not statically import the V1 status page");
 assertExcludes(officePageSource, "function V1StatusPage", "office pages should no longer define the V1 status page");
-assertIncludes(appSource, 'lazyNamedPage(() => import("./app/routes/V1StatusRoute.jsx"), "V1StatusRoute")', "App should lazy-load the V1 status route");
+assertIncludes(appSource, 'lazyNamedPage(() => import("./routes/V1StatusRoute.jsx"), "V1StatusRoute")', "The workspace pages should lazy-load the V1 status route");
 assertIncludes(v1StatusRouteSource, 'import { V1StatusPage } from "../../features/v1-status/V1StatusPage.jsx";', "V1 status route should import the feature only after the route is requested");
 assertIncludes(appSource, "<Suspense", "App should expose a loading boundary for V1 status");
 assertIncludes(appSource, "<V1StatusRoute", "App should render the V1 status route");
@@ -363,7 +365,7 @@ assertIncludes(v1StatusD49ReadinessSource, "VIEW_KEYS.environment", "D49 project
 assertExcludes(v1StatusD49ReadinessSource, ".slice(", "D49 projection must not silently truncate role or environment blockers");
 assertIncludes(v1StatusD49ReadinessSource, "打开员工导入", "D49 projection should provide a direct formal employee import action");
 assertIncludes(v1StatusD49ReadinessSource, "onOpenEmployeeImport ?", "D49 employee import action should remain permission-scoped by its caller");
-assertIncludes(appSource, 'isNavigationPageVisible("masterData", permissionContext) ? () =>', "App should expose D49 employee import only when master-data navigation is authorized");
+assertIncludes(appSource, 'canOpenMasterData ? () =>', "The V1 route should expose D49 employee import only when master-data navigation is authorized");
 assertIncludes(appSource, 'setMasterDataMaintenanceTab("员工机台")', "D49 employee import should focus the employee-machine workspace");
 assertIncludes(appSource, 'openMasterDataTemplatePanel("员工机台")', "D49 employee import should open the employee-machine import template");
 assertIncludes(v1StatusProductionFirstStageSource, "export function V1StatusProductionFirstStage", "V1 production first-stage execution should have a dedicated component");

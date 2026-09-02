@@ -10,7 +10,12 @@ const orderPoolSource = read("src/features/orders/OrderPoolPage.jsx");
 const inventorySource = read("src/features/inventory/InventoryPage.jsx");
 const fulfillmentSource = read("src/features/fulfillment/FulfillmentPage.jsx");
 const todoSource = read("src/features/todos/TodoPage.jsx");
-const appSource = [read("src/App.jsx"), read("src/OfficeWorkbench.jsx")].join("\n");
+const appSource = [
+  read("src/App.jsx"),
+  read("src/OfficeWorkbench.jsx"),
+  read("src/app/OfficeWorkspacePages.jsx"),
+  read("src/app/useOfficeActivePageEffects.js"),
+].join("\n");
 const mainSource = read("src/main.jsx");
 const componentStyles = read("src/styles/components.css");
 const orderStyles = read("src/styles/features/orders-pool.css");
@@ -72,7 +77,7 @@ assert.match(componentStyles, /grid-template-columns: minmax\(0, 1fr\) clamp\(27
 
 assert.doesNotMatch(mainSource, /styles\/features\/(orders-pool|inventory|fulfillment|todos)\.css/, "operational route styles must not load with the shell");
 for (const styleImport of ["orders-pool", "inventory", "fulfillment", "todos"]) {
-  assert.match(appSource, new RegExp(`import\\("\\.\\/styles\\/features\\/${styleImport}\\.css"\\)`));
+  assert.match(appSource, new RegExp(`import\\("\\.\\.\\/styles\\/features\\/${styleImport}\\.css"\\)`));
 }
 
 assert.match(orderStyles, /@media \(max-width: 720px\)/);

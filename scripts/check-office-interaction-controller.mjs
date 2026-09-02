@@ -264,6 +264,8 @@ assert.equal(
 const appSource = [
   fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const appViewsSource = fs.readFileSync(new URL("../src/app/AppViews.jsx", import.meta.url), "utf8");
 const appShellViewsSource = fs.readFileSync(new URL("../src/app/AppShellViews.jsx", import.meta.url), "utf8");
@@ -328,7 +330,7 @@ assert.match(attachmentViewUtilsSource, /export function isInlineImageAttachment
 assert.match(sharedStylesSource, /\.form-grid label \{[\s\S]*?min-width: 0;/);
 assert.match(sharedStylesSource, /@media \(max-width: 720px\) \{[\s\S]*?\.form-grid \{\s*grid-template-columns: minmax\(0, 1fr\);/);
 assert.doesNotMatch(mainSource, /styles\/features\/(print-documents|attachments)\.css/, "print and overlay styles should not load with the shell");
-assert.match(appSource, /import\("\.\/styles\/features\/print-documents\.css"\)/, "print-document styles should load with their route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/print-documents\.css"\)/, "print-document styles should load with their route");
 for (const selector of [".print-batch-record", ".print-sheet", ".print-package-checklist", ".print-template-sheet", ".label-header", ".print-line-table", ".label-barcode"]) {
   assert.equal(printDocumentStylesSource.includes(selector), true, `print-document styles should own ${selector}`);
   assert.equal(sharedStylesSource.includes(selector), false, `shared styles should not retain ${selector}`);

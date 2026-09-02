@@ -27,7 +27,12 @@ const driverSource = [
   read("src/features/driver/DriverDeviceStage.jsx"),
   read("src/features/driver/DriverDeliveryStage.jsx"),
 ].join("\n");
-const appSource = [read("src/App.jsx"), read("src/OfficeWorkbench.jsx")].join("\n");
+const appSource = [
+  read("src/App.jsx"),
+  read("src/OfficeWorkbench.jsx"),
+  read("src/app/OfficeWorkspacePages.jsx"),
+  read("src/app/useOfficeActivePageEffects.js"),
+].join("\n");
 const mainSource = read("src/main.jsx");
 const componentStyles = read("src/styles/components.css");
 const statementStyles = read("src/styles/features/statements.css");
@@ -108,8 +113,8 @@ assert.match(driverSource, /driver-load-stage/);
 assert.match(driverSource, /driver-delivery-stage/);
 
 assert.doesNotMatch(mainSource, /styles\/features\/(statements|role-tools)\.css/, "financial and role-tool styles should not load with the shell");
-assert.match(appSource, /import\("\.\/styles\/features\/statements\.css"\)/, "statement styles should load with the statement route");
-assert.match(appSource, /import\("\.\/styles\/features\/role-tools\.css"\)/, "role-tool styles should load with their mobile routes");
+assert.match(appSource, /import\("\.\.\/styles\/features\/statements\.css"\)/, "statement styles should load with the statement route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/role-tools\.css"\)/, "role-tool styles should load with their mobile routes");
 assert.match(statementStyles, /statement-table \.data-row span:nth-child\(6\)/);
 assert.match(statementStyles, /\.statement-actions\s*\{[\s\S]*?position: static;/);
 assert.match(statementStyles, /\.statement-facts/);

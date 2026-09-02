@@ -19,6 +19,8 @@ import {
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const controllerSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
@@ -52,7 +54,7 @@ assertIncludes(importModalSource, "EmployeeAccountRoleSelector", "employee accou
 assertIncludes(importModalSource, "账号角色", "employee account review should label its role-set selector");
 assertIncludes(importModalSource, "导入的主角色或附加角色，启用时不可删除", "imported account roles should remain locked during review");
 
-assertIncludes(appSource, 'lazyNamedPage(() => import("./app/routes/MasterDataRoute.jsx"), "MasterDataRoute")', "App should lazy-load the master-data route outside the initial shell");
+assertIncludes(appSource, 'lazyNamedPage(() => import("./routes/MasterDataRoute.jsx"), "MasterDataRoute")', "The workspace pages should lazy-load the master-data route outside the initial shell");
 assertIncludes(featurePageSource, "export function MasterDataMaintenancePage", "master-data feature should own the page");
 assertIncludes(featureSource, "客户档案", "master-data page should include customer maintenance");
 assertIncludes(featureSource, "价格表", "master-data page should include price maintenance");

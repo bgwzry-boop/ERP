@@ -6,7 +6,12 @@ function read(relativePath) {
 }
 
 const sharedUiSource = read("src/shared/ui/operational.jsx");
-const appSource = [read("src/App.jsx"), read("src/OfficeWorkbench.jsx")].join("\n");
+const appSource = [
+  read("src/App.jsx"),
+  read("src/OfficeWorkbench.jsx"),
+  read("src/app/OfficeWorkspacePages.jsx"),
+  read("src/app/useOfficeActivePageEffects.js"),
+].join("\n");
 const appShellViewsSource = read("src/app/AppShellViews.jsx");
 const navigationSource = read("src/app/navigation.js");
 const mainSource = read("src/main.jsx");
@@ -56,8 +61,8 @@ for (const styleImport of [
   assert.match(mainSource, new RegExp(styleImport.replaceAll(".", "\\.")));
 }
 assert.doesNotMatch(mainSource, /styles\/features\/(todos|orders-entry)\.css/, "route-owned styles must not inflate the initial shell");
-assert.match(appSource, /import\("\.\/styles\/features\/todos\.css"\)/, "Todo styles should load with the Todo route");
-assert.match(appSource, /import\("\.\/styles\/features\/orders-entry\.css"\)/, "Entry styles should load with the Entry route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/todos\.css"\)/, "Todo styles should load with the Todo route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/orders-entry\.css"\)/, "Entry styles should load with the Entry route");
 
 const styleImportOrder = [
   './styles/tokens.css',

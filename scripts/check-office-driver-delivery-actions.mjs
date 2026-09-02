@@ -319,6 +319,8 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
 const appSource = [
   fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const controllerSource = fs.readFileSync(new URL("../src/app/createOfficeDriverDeliveryActions.js", import.meta.url), "utf8");
 const driverPageSource = fs.readFileSync(new URL("../src/features/driver/DriverMobilePage.jsx", import.meta.url), "utf8");

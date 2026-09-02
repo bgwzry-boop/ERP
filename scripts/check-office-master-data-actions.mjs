@@ -555,6 +555,8 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const actionsSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
 const serverSource = readFileSync(new URL("../server/services/masterDataImportCommandService.mjs", import.meta.url), "utf8");

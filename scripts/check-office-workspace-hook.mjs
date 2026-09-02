@@ -84,6 +84,8 @@ assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "m
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const browserFileActionsSource = readFileSync(new URL("../src/app/browserFileActions.js", import.meta.url), "utf8");
 const hookSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");

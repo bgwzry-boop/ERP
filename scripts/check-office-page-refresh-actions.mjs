@@ -107,12 +107,15 @@ function createHarness({ activePage, allowLocalFallback = false, results = {} } 
   assert.equal((await harness.controller.refreshActivePage()).source, "local_fallback");
 }
 
+const workbenchSource = readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8");
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  workbenchSource,
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 assert.match(appSource, /createOfficePageRefreshActions\(\{/);
 assert.doesNotMatch(appSource, /function refreshActivePage\(/);
-assert.equal(appSource.split("\n").length < 1500, true, "App should remain below the V8.42 composition-root target");
+assert.equal(workbenchSource.split("\n").length < 1000, true, "OfficeWorkbench should remain below the split composition-root target");
 
 console.log("Office page refresh actions check passed: single/group refreshes, formal source gates, empty editor behavior, and App ownership are isolated.");

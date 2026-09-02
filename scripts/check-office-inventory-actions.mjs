@@ -202,6 +202,8 @@ function createHarness({
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 assert.match(appSource, /createOfficeInventoryActions\(\{/);
 assert.match(appSource, /inventoryLedgerSource: inventoryLedgerState\.source/);

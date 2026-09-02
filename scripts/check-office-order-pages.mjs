@@ -5,6 +5,8 @@ const entryPageSource = readFileSync(new URL("../src/features/orders/EntryPage.j
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const orderPoolPageSource = readFileSync(new URL("../src/features/orders/OrderPoolPage.jsx", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
@@ -48,7 +50,7 @@ assert.match(entryPageSource, /splitPlanHash/);
 assert.match(entryPageSource, /确认生成.*张订单/);
 assert.doesNotMatch(entryPageSource, /const columns = \["序号", "客户"/);
 assert.doesNotMatch(mainSource, /styles\/features\/orders-entry\.css/, "order-entry styles should not load with the shell");
-assert.match(appSource, /import\("\.\/styles\/features\/orders-entry\.css"\)/, "order-entry styles should load with the entry route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/orders-entry\.css"\)/, "order-entry styles should load with the entry route");
 for (const selector of [".entry-actions button", ".entry-table .data-row", ".entry-edit-row", "::-webkit-inner-spin-button"]) {
   assert.equal(entryStyleSource.includes(selector), true, `order-entry feature styles should own ${selector}`);
 }

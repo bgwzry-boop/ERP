@@ -7,6 +7,8 @@ const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", i
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
@@ -39,7 +41,7 @@ assert.match(todoPageSource, /resolvedRefTypeLabel/);
 assert.match(todoPageSource, /referenceStatus === "unverifiable"/);
 assert.match(todoStyleSource, /\.todo-reference-repair/);
 assert.doesNotMatch(mainSource, /styles\/features\/todos\.css/, "Todo styles should not load with the shell");
-assert.match(appSource, /import\("\.\/styles\/features\/todos\.css"\)/, "Todo styles should load with the Todo route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/todos\.css"\)/, "Todo styles should load with the Todo route");
 for (const selector of [
   ".todo-list",
   ".todo-status-tabs",

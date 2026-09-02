@@ -27,6 +27,8 @@ const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", i
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
@@ -90,7 +92,7 @@ for (const contract of ["任务可见", "备货", "纸单核对", "实物出库"
 assert.match(warehousePageSource, /paperOutboundStatus === "已交库房"/);
 assert.match(warehousePageSource, /!item\.physicalOutboundAt/);
 assert.doesNotMatch(mainSource, /styles\/features\/(warehouse|mobile-roles|driver)\.css/, "mobile-role styles should not load with the desktop shell");
-assert.match(appSource, /import\("\.\/styles\/features\/warehouse\.css"\)/, "warehouse styles should load with the warehouse route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/warehouse\.css"\)/, "warehouse styles should load with the warehouse route");
 assert.match(warehouseStyleSource, /\.warehouse-mobile-page/);
 assert.match(navigationSource, /if \(defaultRole === "office"\) return "rawMaterials"/);
 for (const contract of ["录原材料", "拍单", "核对", "打印", "贴标", "未完成", "最近完成"]) {
@@ -120,14 +122,14 @@ assert.doesNotMatch(employeeAttendanceMobilePageSource, /mockAttendance|demoAtte
 for (const contract of ["请使用老板电脑", "请使用财务工作台", "请使用部署电脑", "不会显示压缩后的办公室菜单"]) {
   assert.equal(desktopRequiredMobilePageSource.includes(contract), true, `desktop-required mobile boundary should retain ${contract}`);
 }
-assert.match(appSource, /import\("\.\/styles\/features\/mobile-roles\.css"\)/, "mobile shell styles should load with mobile routes");
+assert.match(appSource, /import\("\.\.\/styles\/features\/mobile-roles\.css"\)/, "mobile shell styles should load with mobile routes");
 assert.match(mobileRoleStyleSource, /\.office-mobile-task-card/);
 assert.match(mobileRoleStyleSource, /\.decision-mobile-card/);
 assert.match(mobileRoleStyleSource, /\.maintenance-mobile-card/);
 assert.match(mobileRoleStyleSource, /\.office-mobile-field-utility/);
 assert.match(payrollAttendanceStyleSource, /\.attendance-mobile-hero/);
 assert.match(payrollAttendanceStyleSource, /\.attendance-mobile-days article/);
-assert.match(appSource, /import\("\.\/styles\/features\/driver\.css"\)/, "driver styles should load with the driver route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/driver\.css"\)/, "driver styles should load with the driver route");
 for (const selector of [
   ".driver-route-section",
   ".driver-device-grid",

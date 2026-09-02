@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { MenuFoldOutlined } from "@ant-design/icons";
 import bagwinSidebarLogoUrl from "./assets/brand/BAGWIN_ERP_sidebar_horizontal_color.svg";
 import bagwinSymbolUrl from "./assets/brand/BAGWIN_symbol_color.svg";
@@ -18,7 +18,8 @@ import { Topbar } from "./app/AppViews.jsx";
 import { WorkspaceOverlayController } from "./app/WorkspaceOverlayController.jsx";
 import { useOfficeInteractionController } from "./app/useOfficeInteractionController.js";
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
-import { useRawMaterialInboundAutoRefresh } from "./app/useRawMaterialInboundAutoRefresh.js";
+import { useOfficeActivePageEffects } from "./app/useOfficeActivePageEffects.js";
+import { OfficeWorkspacePages } from "./app/OfficeWorkspacePages.jsx";
 import { createOfficeAttachmentActions } from "./app/createOfficeAttachmentActions.js";
 import { createOfficeDriverDeliveryActions } from "./app/createOfficeDriverDeliveryActions.js";
 import { createOfficeFulfillmentActions } from "./app/createOfficeFulfillmentActions.js";
@@ -41,13 +42,12 @@ import {
   readBlobAsDataUrl,
   readFileAsDataUrl,
 } from "./app/browserFileActions.js";
-import { DataState, WorkspaceNotice, WorkspacePageHeader } from "./shared/ui/operational.jsx";
+import { WorkspaceNotice, WorkspacePageHeader } from "./shared/ui/operational.jsx";
 import {
   defaultSeedUserId,
   getUiActionState,
   seedUserOptions,
 } from "./auth/seedPermissions.js";
-import { getOfficeOrderLineDetail } from "./services/officeOrderPoolLazyApi.js";
 import {
   buildPackingTaskId,
   buildProductionTaskId,
@@ -106,41 +106,6 @@ import {
   uniqueStockOptions,
 } from "./domain/officeRules.js";
 
-function lazyNamedPage(loadModule, exportName, loadStyles = []) {
-  return lazy(async () => {
-    const [module] = await Promise.all([loadModule(), ...loadStyles.map((loadStyle) => loadStyle())]);
-    return { default: module[exportName] };
-  });
-}
-
-function PageLoader({ component: Component, fallback, ...props }) {
-  return (
-    <Suspense fallback={<DataState title={fallback} />}>
-      <Component {...props} />
-    </Suspense>
-  );
-}
-
-const TodoPage = lazyNamedPage(() => import("./features/todos/TodoPage.jsx"), "TodoPage", [() => import("./styles/features/todos.css")]);
-const EntryPage = lazyNamedPage(() => import("./features/orders/EntryPage.jsx"), "EntryPage", [() => import("./styles/features/orders-entry.css")]);
-const OrderPoolPage = lazyNamedPage(() => import("./features/orders/OrderPoolPage.jsx"), "OrderPoolPage", [() => import("./styles/features/orders-pool.css")]);
-const InventoryPage = lazyNamedPage(() => import("./features/inventory/InventoryPage.jsx"), "InventoryPage", [() => import("./styles/features/inventory.css")]);
-const FulfillmentPage = lazyNamedPage(() => import("./features/fulfillment/FulfillmentPage.jsx"), "FulfillmentPage", [() => import("./styles/features/fulfillment.css")]);
-const ProductionPackingPage = lazyNamedPage(() => import("./features/production/ProductionPackingPage.jsx"), "ProductionPackingPage", [() => import("./styles/features/production-print.css"), () => import("./styles/features/print-documents.css")]);
-const WorkshopMobilePage = lazyNamedPage(() => import("./features/workshop/WorkshopMobilePage.jsx"), "WorkshopMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/production-print.css")]);
-const DriverMobilePage = lazyNamedPage(() => import("./features/driver/DriverMobilePage.jsx"), "DriverMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/driver.css")]);
-const WarehouseMobilePage = lazyNamedPage(() => import("./features/warehouse/WarehouseMobilePage.jsx"), "WarehouseMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/warehouse.css")]);
-const StatementPage = lazyNamedPage(() => import("./features/statements/StatementPage.jsx"), "StatementPage", [() => import("./styles/features/statements.css")]);
-const RawMaterialRoute = lazyNamedPage(() => import("./app/routes/RawMaterialRoute.jsx"), "RawMaterialRoute");
-const MasterDataRoute = lazyNamedPage(() => import("./app/routes/MasterDataRoute.jsx"), "MasterDataRoute");
-const V1StatusRoute = lazyNamedPage(() => import("./app/routes/V1StatusRoute.jsx"), "V1StatusRoute");
-const OfficeMobilePage = lazyNamedPage(() => import("./features/office-mobile/OfficeMobilePage.jsx"), "OfficeMobilePage", [() => import("./styles/features/mobile-roles.css")]);
-const DecisionMobilePage = lazyNamedPage(() => import("./features/decisions/DecisionMobilePage.jsx"), "DecisionMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/role-tools.css")]);
-const MaintenanceMobilePage = lazyNamedPage(() => import("./features/maintenance/MaintenanceMobilePage.jsx"), "MaintenanceMobilePage", [() => import("./styles/features/mobile-roles.css"), () => import("./styles/features/role-tools.css")]);
-const DesktopRequiredMobilePage = lazyNamedPage(() => import("./features/mobile/DesktopRequiredMobilePage.jsx"), "DesktopRequiredMobilePage", [() => import("./styles/features/mobile-roles.css")]);
-const PayrollAttendancePage = lazyNamedPage(() => import("./features/payroll/PayrollAttendancePage.jsx"), "PayrollAttendancePage", [() => import("./styles/features/payroll-attendance.css")]);
-const EmployeeAttendanceMobilePage = lazyNamedPage(() => import("./features/payroll/EmployeeAttendanceMobilePage.jsx"), "EmployeeAttendanceMobilePage", [() => import("./styles/features/payroll-attendance.css")]);
-
 const officeScenarioData = loadOfficeWorkspace();
 const {
   customers,
@@ -178,69 +143,7 @@ export function OfficeWorkbench({
   const currentUser = permissionContext.user;
   const currentUserId = currentUser.userId ?? defaultSeedUserId;
   const canUsePrintDiagnostics = permissionContext.actionPermissions?.includes("fulfillment.print") === true;
-  const {
-    refreshTodos, refreshOrderPool, refreshInventoryRecords, refreshFulfillments,
-    refreshDriverDeliveryTasks, refreshRawMaterialInbounds, refreshRawMaterialSupplierStatementReviews,
-    refreshProductionPackingTaskLists,
-    refreshOfficePrintJobQueue, refreshPrintDriverConfig, refreshPrintDriverCupsDiagnostics,
-    refreshPrintDriverReadiness, refreshPrinterDeviceQa,
-    confirmBatchPrintResult, dispatchPrintJobQueueItem: executePrintJobDispatch,
-    printFulfillmentDocument, retryPrintJobQueueItem: executePrintJobRetry,
-    savePrinterDeviceMode: executeSavePrinterDeviceMode,
-    savePrinterDeviceQaRecord: executeSavePrinterDeviceQaRecord,
-    voidFulfillmentPrintRecord,
-    refreshInventoryCorrectionQueue, refreshInventoryIntents, refreshInventoryLedgerEntries,
-    loadInventoryCorrectionDetail, createInventoryCorrectionDraft, linkInventoryCorrectionAttachment, confirmInventoryCorrectionDraft,
-    createTemporaryInventoryHold, releaseTemporaryInventoryHold, extendTemporaryInventoryHold,
-    completeFulfillmentAction, handoffPaperOutbound, markFulfillmentPrepared, recordWarehouseExecution, reviewFulfillmentDeliveryEvidence,
-    saveFulfillmentDispatch, submitFulfillmentException, resolveFulfillmentQuantityVariance,
-    executeProductionPackingAction,
-    refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
-    refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
-    executeOrderEntryAction, executeOrderLineAction, openQueuedOrderDraft,
-    recognizeOrderDraft, recognizeOrderDraftQueue, refreshOrderDraftQueue,
-    runOrderDraftCommand, updateOrderEntryText, updateOrderDraftField, prepareOrderDraftFromTemporaryHold, linkCrossDraftShortageCancellation, restoreShortageCancelledLine,
-    todos, setTodos, todoMeta, printBatchRecords,
-    selectedTodoId, setSelectedTodoId, todoView, setTodoView,
-    orderLines, orderPoolMeta, setOrderPoolMeta,
-    selectedOrderDetail, setSelectedOrderDetail, entryText, setEntryText,
-    draftRows, setDraftRows, draftStatus, setDraftStatus, draftApiMeta, setDraftApiMeta,
-    selectedDraftId, setSelectedDraftId, orderFilters, setOrderFilters,
-    selectedOrderId, setSelectedOrderId,
-    inventoryRecords, inventoryMeta,
-    inventoryLedgerState, inventoryLedgerFilters, setInventoryLedgerFilters,
-    inventoryCorrectionDetailState,
-    inventoryCorrectionQueueState,
-    inventoryIntentState,
-    selectedStockId, setSelectedStockId,
-    fulfillmentTab, setFulfillmentTab, fulfillments, setFulfillments, fulfillmentMeta,
-    selectedFulfillmentId, setSelectedFulfillmentId,
-    productionPacking, productionPackingFocus, setProductionPackingFocus,
-    productionPackingDetailState, setProductionPackingDetailState,
-    printerDeviceQa, setPrinterDeviceQa, printJobQueue,
-    printDriverConfig, printDriverReadiness, printDriverCupsDiagnostics,
-    driverDeliveryTasks, setDriverDeliveryTasks, driverDeliveryMeta,
-    selectedDriverTaskId, setSelectedDriverTaskId,
-    statements, setStatements, selectedStatementId, setSelectedStatementId, statementReadMeta,
-    masterDataPrecheckState, setMasterDataPrecheckState,
-    masterDataImportReviewDrafts, setMasterDataImportReviewDrafts,
-    masterDataImportConfirmationPlans, setMasterDataImportConfirmationPlans,
-    masterDataImportExecutions, setMasterDataImportExecutions,
-    masterDataEmployeeAccountReviews, setMasterDataEmployeeAccountReviews, masterDataEmployeeAccountReadiness, masterDataEmployeeAssignmentOptions,
-    lastIssuedEmployeeCredential, setLastIssuedEmployeeCredential,
-    masterDataMaintenanceDrafts, setMasterDataMaintenanceDrafts,
-    masterDataMaintenanceTab, setMasterDataMaintenanceTab,
-    selectedMasterDataId, setSelectedMasterDataId,
-    rawMaterialInbounds, setRawMaterialInbounds, rawMaterialInboundMeta, setRawMaterialInboundMeta,
-    rawMaterialSupplierStatementReviews, setRawMaterialSupplierStatementReviews,
-    rawMaterialSupplierStatementReviewMeta, setRawMaterialSupplierStatementReviewMeta,
-    selectedRawMaterialInboundId, setSelectedRawMaterialInboundId,
-    v1StatusRouteState, v1StatusActionSetters,
-    orderLinesRef, rawMaterialInboundsRef,
-    rawMaterialSupplierStatementReviewsRef,
-    selectedStockIdRef, printerDeviceQaSelectedIdRef,
-    paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
-  } = useOfficeWorkspace({
+  const officeWorkspace = useOfficeWorkspace({
     activePage,
     authState,
     customers,
@@ -256,6 +159,62 @@ export function OfficeWorkbench({
     sampleText,
     serverRequired: runtimeServerRequired,
   });
+  const {
+    refreshTodos, refreshOrderPool, refreshInventoryRecords, refreshFulfillments,
+    refreshDriverDeliveryTasks, refreshRawMaterialInbounds, refreshRawMaterialSupplierStatementReviews,
+    refreshProductionPackingTaskLists,
+    refreshOfficePrintJobQueue, refreshPrintDriverConfig, refreshPrintDriverCupsDiagnostics,
+    refreshPrintDriverReadiness, refreshPrinterDeviceQa,
+    confirmBatchPrintResult, dispatchPrintJobQueueItem: executePrintJobDispatch,
+    printFulfillmentDocument, retryPrintJobQueueItem: executePrintJobRetry,
+    savePrinterDeviceMode: executeSavePrinterDeviceMode,
+    savePrinterDeviceQaRecord: executeSavePrinterDeviceQaRecord,
+    voidFulfillmentPrintRecord,
+    refreshInventoryCorrectionQueue, refreshInventoryIntents, refreshInventoryLedgerEntries,
+    loadInventoryCorrectionDetail, createInventoryCorrectionDraft, linkInventoryCorrectionAttachment, confirmInventoryCorrectionDraft,
+    completeFulfillmentAction, handoffPaperOutbound, markFulfillmentPrepared, recordWarehouseExecution, reviewFulfillmentDeliveryEvidence,
+    saveFulfillmentDispatch, submitFulfillmentException, resolveFulfillmentQuantityVariance,
+    executeProductionPackingAction,
+    refreshMasterDataEmployeeAccountReviews, refreshMasterDataImportReviewDrafts,
+    refreshStatementDetail, refreshStatements, refreshV1GoLiveStatus,
+    executeOrderEntryAction, executeOrderLineAction, openQueuedOrderDraft,
+    recognizeOrderDraft, recognizeOrderDraftQueue, refreshOrderDraftQueue,
+    runOrderDraftCommand, updateOrderDraftField, linkCrossDraftShortageCancellation, restoreShortageCancelledLine,
+    todos, setTodos,
+    selectedTodoId, setSelectedTodoId, setTodoView,
+    orderLines, orderPoolMeta, setOrderPoolMeta,
+    setSelectedOrderDetail, entryText, setEntryText,
+    draftRows, setDraftRows, draftStatus, setDraftStatus, draftApiMeta, setDraftApiMeta,
+    setSelectedDraftId, setOrderFilters,
+    selectedOrderId, setSelectedOrderId,
+    inventoryRecords,
+    inventoryLedgerState,
+    selectedStockId, setSelectedStockId,
+    setFulfillmentTab, fulfillments, setFulfillments, fulfillmentMeta,
+    selectedFulfillmentId, setSelectedFulfillmentId,
+    productionPacking, setProductionPackingFocus,
+    setProductionPackingDetailState,
+    printerDeviceQa, setPrinterDeviceQa,
+    driverDeliveryTasks, setDriverDeliveryTasks,
+    statements, setStatements, selectedStatementId, setSelectedStatementId, statementReadMeta,
+    masterDataPrecheckState, setMasterDataPrecheckState,
+    masterDataImportReviewDrafts, setMasterDataImportReviewDrafts,
+    masterDataImportConfirmationPlans, setMasterDataImportConfirmationPlans,
+    masterDataImportExecutions, setMasterDataImportExecutions,
+    masterDataEmployeeAccountReviews, setMasterDataEmployeeAccountReviews,
+    lastIssuedEmployeeCredential, setLastIssuedEmployeeCredential,
+    setMasterDataMaintenanceDrafts,
+    masterDataMaintenanceTab,
+    setRawMaterialInbounds, setRawMaterialInboundMeta,
+    setRawMaterialSupplierStatementReviews,
+    setRawMaterialSupplierStatementReviewMeta,
+    setSelectedRawMaterialInboundId,
+    v1StatusActionSetters,
+    orderLinesRef, rawMaterialInboundsRef,
+    rawMaterialSupplierStatementReviewsRef,
+    selectedStockIdRef, printerDeviceQaSelectedIdRef,
+    paymentAttachmentSyncKeysRef, customerConfirmationAttachmentSyncKeysRef,
+  } = officeWorkspace;
   const addTodo = createOfficeTodoAppender({ setSelectedTodoId, setTodos });
 
   const {
@@ -460,10 +419,6 @@ export function OfficeWorkbench({
     uniqueStockOptions,
   };
 
-  useEffect(() => {
-    if (activePage !== "v1Status") return;
-    void refreshV1GoLiveStatus();
-  }, [activePage, refreshV1GoLiveStatus]);
 
   const {
     changePrinterDeviceQaCheck,
@@ -503,235 +458,41 @@ export function OfficeWorkbench({
     statements,
   });
 
-  useEffect(() => {
-    let cancelled = false;
-    refreshOrderPool({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [refreshOrderPool]);
-
-  useEffect(() => {
-    if (activePage !== "driverMobile") return undefined;
-    let cancelled = false;
-    refreshDriverDeliveryTasks({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshDriverDeliveryTasks]);
-
-  useRawMaterialInboundAutoRefresh({
+  useOfficeActivePageEffects({
     activePage,
+    authState,
+    canUsePrintDiagnostics,
+    currentUserId,
+    fulfillments,
+    orderLinesRef,
+    refreshDriverDeliveryTasks,
+    refreshFulfillments,
+    refreshInventoryCorrectionQueue,
+    refreshInventoryIntents,
+    refreshInventoryLedgerEntries,
+    refreshInventoryRecords,
+    refreshOfficePrintJobQueue,
+    refreshOrderPool,
+    refreshPrintDriverConfig,
+    refreshPrintDriverCupsDiagnostics,
+    refreshPrintDriverReadiness,
+    refreshPrinterDeviceQa,
+    refreshProductionPackingTaskLists,
     refreshRawMaterialInbounds,
     refreshRawMaterialSupplierStatementReviews,
+    refreshStatementDetail,
+    refreshStatements,
+    refreshTodos,
+    refreshV1GoLiveStatus,
+    selectedOrderId,
+    selectedStatementId,
+    selectedStockId,
+    setOrderPoolMeta,
+    setSelectedOrderDetail,
+    statements,
+    syncStatementCustomerAttachmentsFromSource,
+    syncStatementPaymentAttachmentsFromSource,
   });
-
-  useEffect(() => {
-    if (activePage !== "todos") return undefined;
-    let cancelled = false;
-    refreshTodos({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshTodos]);
-
-  useEffect(() => {
-    if (activePage !== "orders" || !selectedOrderId) return undefined;
-    let cancelled = false;
-    setOrderPoolMeta((current) => ({ ...current, detailLoading: true, detailError: "" }));
-    getOfficeOrderLineDetail({
-      authState,
-      orderLineId: selectedOrderId,
-      operatorId: currentUserId,
-      localOrderLines: orderLinesRef.current,
-      localFulfillments: fulfillments,
-      localStatements: statements,
-    }).then((result) => {
-      if (cancelled) return;
-      if (result.blocked) {
-        setSelectedOrderDetail(null);
-        setOrderPoolMeta((current) => ({
-          ...current,
-          detailSource: result.source,
-          detailLoading: false,
-          detailError: result.error?.message ?? "订单明细详情 API 返回错误。",
-        }));
-        return;
-      }
-      setSelectedOrderDetail(result.detail);
-      setOrderPoolMeta((current) => ({
-        ...current,
-        detailSource: result.source,
-        detailLoading: false,
-        detailError: result.error?.message ?? "",
-      }));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, authState, currentUserId, fulfillments, selectedOrderId, statements]);
-
-  useEffect(() => {
-    if (activePage !== "inventory") return undefined;
-    let cancelled = false;
-    refreshInventoryRecords({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshInventoryRecords]);
-
-  useEffect(() => {
-    if (activePage !== "fulfillment") return undefined;
-    let cancelled = false;
-    refreshFulfillments({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshFulfillments]);
-
-  useEffect(() => {
-    if (activePage !== "inventory") return undefined;
-    let cancelled = false;
-    Promise.all([refreshInventoryCorrectionQueue({ showToast: false }), refreshInventoryIntents({ showToast: false })])
-      .then(() => { if (cancelled) return; });
-    return () => { cancelled = true; };
-  }, [activePage, refreshInventoryCorrectionQueue, refreshInventoryIntents]);
-
-  useEffect(() => {
-    if (activePage !== "inventory" || !selectedStockId) return undefined;
-    let cancelled = false;
-    refreshInventoryLedgerEntries({ stockId: selectedStockId, showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshInventoryLedgerEntries, selectedStockId]);
-
-  useEffect(() => {
-    if (!["packing", "workshopMobile", "rawMaterialScanner"].includes(activePage)) return undefined;
-    let cancelled = false;
-    refreshProductionPackingTaskLists({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshProductionPackingTaskLists]);
-
-  useEffect(() => {
-    if (activePage !== "packing" || !canUsePrintDiagnostics) return undefined;
-    let cancelled = false;
-    refreshPrintDriverConfig({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, canUsePrintDiagnostics, refreshPrintDriverConfig]);
-
-  useEffect(() => {
-    if (activePage !== "packing" || !canUsePrintDiagnostics) return undefined;
-    let cancelled = false;
-    refreshPrintDriverReadiness({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, canUsePrintDiagnostics, refreshPrintDriverReadiness]);
-
-  useEffect(() => {
-    if (activePage !== "packing" || !canUsePrintDiagnostics) return undefined;
-    let cancelled = false;
-    refreshPrintDriverCupsDiagnostics({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, canUsePrintDiagnostics, refreshPrintDriverCupsDiagnostics]);
-
-  useEffect(() => {
-    if (activePage !== "packing") return undefined;
-    let cancelled = false;
-    refreshPrinterDeviceQa({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshPrinterDeviceQa]);
-
-  useEffect(() => {
-    if (activePage !== "packing") return undefined;
-    let cancelled = false;
-    refreshOfficePrintJobQueue({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshOfficePrintJobQueue]);
-
-  useEffect(() => {
-    if (activePage !== "statements") return undefined;
-    let cancelled = false;
-    refreshStatements({ showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshStatements]);
-
-  useEffect(() => {
-    if (activePage !== "statements" || !selectedStatementId) return undefined;
-    let cancelled = false;
-    refreshStatementDetail({ statementId: selectedStatementId, showToast: false }).then(() => {
-      if (cancelled) return;
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, refreshStatementDetail, selectedStatementId]);
-
-  const selectedStatementPaymentAttachmentKey = (statements.find(
-    (item) => item.id === selectedStatementId,
-  )?.paymentAttachmentIds ?? []).join("|");
-
-  useEffect(() => {
-    if (activePage !== "statements" || !selectedStatementId) return undefined;
-    let cancelled = false;
-    void syncStatementPaymentAttachmentsFromSource(selectedStatementId, {
-      isCancelled: () => cancelled,
-      cacheKey: selectedStatementPaymentAttachmentKey,
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, authState, currentUserId, selectedStatementId, selectedStatementPaymentAttachmentKey]);
-
-  useEffect(() => {
-    if (activePage !== "statements" || !selectedStatementId) return undefined;
-    let cancelled = false;
-    void syncStatementCustomerAttachmentsFromSource(selectedStatementId, {
-      isCancelled: () => cancelled,
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activePage, authState, currentUserId, selectedStatementId]);
 
   const { refreshActivePage } = createOfficePageRefreshActions({
     activeMetaLabel: activeMeta.label,
@@ -947,6 +708,69 @@ export function OfficeWorkbench({
     setToast,
     statements,
   });
+  const pageRuntime = {
+    ...officeWorkspace,
+    authState,
+    canOpenMasterData: isNavigationPageVisible("masterData", permissionContext),
+    changePrinterDeviceQaCheck,
+    changePrinterDeviceQaEvidenceField,
+    changePrinterDeviceQaField,
+    confirmRawMaterialSupplierPayment,
+    confirmRawMaterialSupplierStatement,
+    confirmRawMaterialSupplierStatementReviewDraft,
+    currentUser,
+    customers,
+    dispatchPrintJobQueueItem,
+    enableMasterDataEmployeeAccounts,
+    entryAction,
+    firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
+    focusFulfillmentByRef,
+    focusInventoryLedgerSource,
+    focusStatementByRef,
+    generateRawMaterialSupplierPayableDraft,
+    handleDraftCommand,
+    handleDriverDeliveryAction,
+    handleInventoryCorrectionAttachment,
+    handleInventoryCorrectionConfirm,
+    handleInventoryCorrectionDraft,
+    handleProductionPackingAction,
+    handleTodo,
+    linkCancellationIntentToSelectedLine,
+    openInventoryCorrectionDetail,
+    openMasterDataTemplatePanel,
+    openOrderLineAction,
+    openQueueDraft,
+    pageHelpers,
+    permissionContext,
+    recognize,
+    recognizeQueue,
+    recognizeRawMaterialDeliveryNote,
+    refreshDraftQueue,
+    refreshInventoryCorrectionQueueAction,
+    refreshInventoryLedgerAction,
+    refreshPrintDriverDiagnostics,
+    refreshPrintJobs,
+    repairTodoReference,
+    restoreCancelledDraftLine,
+    retryPrintJobQueueItem,
+    roleBoundaryDescription: roleBoundaryPage.description,
+    saveMasterDataMachine,
+    saveMasterDataMaintenanceDraft,
+    savePrinterDeviceMode,
+    savePrinterDeviceQaRecord,
+    saveRawMaterialSupplierStatementReviewDraft,
+    selectPrinterDeviceQaDevice,
+    setActivePage,
+    setToast,
+    statementAction,
+    updateDraftField,
+    updateFulfillment,
+    updateMasterDataEmployeeAssignment,
+    updateMasterDataEmployeeProfile,
+    updateRawMaterialInbound,
+    uploadDraftArtwork,
+    v1StatusActions,
+  };
   return (
     <div className={`app-shell app-shell-${renderedPage}${roleFocusedShellPage ? " app-shell-mobile-role" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
       {!roleFocusedShellPage ? <aside className="sidebar">
@@ -1013,273 +837,7 @@ export function OfficeWorkbench({
               todoCount={unhandledTodos}
             />
           ) : null}
-          {renderedPage === "roleBoundary" && (
-            <DataState title="当前岗位没有 ERP 操作菜单" detail={roleBoundaryPage.description} />
-          )}
-          {renderedPage === "desktopRequiredMobile" && (
-            <Suspense fallback={<DataState title="岗位终端说明加载中" />}>
-              <DesktopRequiredMobilePage currentUser={currentUser} />
-            </Suspense>
-          )}
-          {renderedPage === "attendanceMobile" && (
-            <Suspense fallback={<DataState title="本人考勤加载中" />}>
-              <EmployeeAttendanceMobilePage authState={authState} currentUser={currentUser} />
-            </Suspense>
-          )}
-          {renderedPage === "officeMobile" && (
-            <Suspense fallback={<DataState title="办公室手机工作台加载中" />}>
-              <OfficeMobilePage onNavigate={setActivePage} />
-            </Suspense>
-          )}
-          {renderedPage === "todos" && <PageLoader component={TodoPage} fallback="待办加载中" todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
-          {renderedPage === "entry" && (
-            <PageLoader component={EntryPage} fallback="订单录入加载中"
-              entryText={entryText}
-              onEntryTextChange={updateOrderEntryText}
-              draftRows={draftRows}
-              draftStatus={draftStatus}
-              selectedDraftId={selectedDraftId}
-              setSelectedDraftId={setSelectedDraftId}
-              onRecognize={recognize}
-              onQueueRecognize={recognizeQueue} onQueueRefresh={refreshDraftQueue} onQueueOpen={openQueueDraft} onQueueCancellationLink={linkCancellationIntentToSelectedLine}
-              onDraftFieldChange={updateDraftField}
-              onArtworkUpload={uploadDraftArtwork}
-              onDraftCommand={handleDraftCommand} onRestoreCancelledLine={restoreCancelledDraftLine}
-              onAction={entryAction}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "orders" && (
-            <PageLoader component={OrderPoolPage} fallback="订单池加载中"
-              orderLines={orderLines}
-              fulfillments={fulfillments}
-              statements={statements}
-              selectedOrderId={selectedOrderId}
-              setSelectedOrderId={setSelectedOrderId}
-              filters={orderFilters}
-              setFilters={setOrderFilters}
-              orderPoolMeta={orderPoolMeta}
-              selectedOrderDetail={selectedOrderDetail}
-              onLocateFulfillment={focusFulfillmentByRef}
-              onLocateStatement={focusStatementByRef}
-              onOrderAction={openOrderLineAction}
-              setToast={setToast}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "inventory" && (
-            <PageLoader component={InventoryPage} fallback="成品库存加载中"
-              inventoryRecords={inventoryRecords}
-              inventoryMeta={inventoryMeta}
-              inventoryLedgerEntries={inventoryLedgerState.items}
-              inventoryLedgerMeta={inventoryLedgerState}
-              inventoryLedgerFilters={inventoryLedgerFilters}
-              setInventoryLedgerFilters={setInventoryLedgerFilters}
-              inventoryCorrectionDetailState={inventoryCorrectionDetailState}
-              inventoryCorrectionQueueState={inventoryCorrectionQueueState} inventoryIntentState={inventoryIntentState}
-              selectedStockId={selectedStockId}
-              setSelectedStockId={setSelectedStockId}
-              setToast={setToast}
-              onCreateCorrectionDraft={handleInventoryCorrectionDraft}
-              onLinkCorrectionAttachment={handleInventoryCorrectionAttachment}
-              onConfirmCorrectionDraft={handleInventoryCorrectionConfirm}
-              onOpenCorrectionDraft={openInventoryCorrectionDetail}
-              onRefreshCorrectionQueue={refreshInventoryCorrectionQueueAction}
-              onRefreshInventoryLedger={refreshInventoryLedgerAction}
-              onRefreshInventoryIntents={refreshInventoryIntents} onCreateTemporaryHold={createTemporaryInventoryHold}
-              onReleaseTemporaryHold={releaseTemporaryInventoryHold} onExtendTemporaryHold={extendTemporaryInventoryHold} onConvertTemporaryHoldToOrder={async ({ hold, intent, candidate }) => { const result = await prepareOrderDraftFromTemporaryHold({ hold, intent, candidate }); if (!result?.blocked) setActivePage("entry"); return result; }}
-              onLocateInventoryLedgerSource={focusInventoryLedgerSource}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "fulfillment" && (
-            <PageLoader component={FulfillmentPage} fallback="出库工作台加载中"
-              authState={authState}
-              currentUser={currentUser}
-              tab={fulfillmentTab}
-              setTab={setFulfillmentTab}
-              fulfillments={fulfillments}
-              orderLines={orderLines}
-              selectedId={selectedFulfillmentId}
-              setSelectedId={setSelectedFulfillmentId}
-              onAction={updateFulfillment}
-              onRefresh={() => refreshFulfillments({ showToast: true })}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "packing" && (
-            <PageLoader component={ProductionPackingPage} fallback="生产打包加载中"
-              authState={authState}
-              currentUser={currentUser}
-              orderLines={orderLines}
-              fulfillments={fulfillments}
-              inventoryRecords={inventoryRecords}
-              productionPacking={productionPacking}
-              focusTarget={productionPackingFocus}
-              sourceDetailState={productionPackingDetailState}
-              printerDeviceQa={printerDeviceQa}
-              printJobQueue={printJobQueue}
-              printDriverConfig={printDriverConfig}
-              printDriverReadiness={printDriverReadiness}
-              printDriverCupsDiagnostics={printDriverCupsDiagnostics}
-              onAction={handleProductionPackingAction}
-              onRefreshProduction={() => refreshProductionPackingTaskLists({ showToast: false })}
-              onRefreshPrintDriverConfig={refreshPrintDriverDiagnostics}
-              onRefreshPrintDriverReadiness={() => refreshPrintDriverReadiness({ showToast: true })}
-              onRefreshPrinterDeviceQa={() => refreshPrinterDeviceQa({ showToast: true })}
-              onSelectPrinterDeviceQaDevice={selectPrinterDeviceQaDevice}
-              onChangePrinterDeviceQaField={changePrinterDeviceQaField}
-              onChangePrinterDeviceQaCheck={changePrinterDeviceQaCheck}
-              onChangePrinterDeviceQaEvidenceField={changePrinterDeviceQaEvidenceField}
-              onSavePrinterDeviceMode={savePrinterDeviceMode}
-              onSavePrinterDeviceQa={savePrinterDeviceQaRecord}
-              onRefreshPrintJobs={refreshPrintJobs}
-              onDispatchPrintJob={dispatchPrintJobQueueItem}
-              onRetryPrintJob={retryPrintJobQueueItem}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "workshopMobile" && (
-            <PageLoader component={WorkshopMobilePage} fallback="车间工作台加载中"
-              orderLines={orderLines}
-              inventoryRecords={inventoryRecords}
-              productionPacking={productionPacking}
-              onAction={handleProductionPackingAction}
-              onNavigate={setActivePage}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "driverMobile" && (
-            <PageLoader component={DriverMobilePage} fallback="司机工作台加载中"
-              tasks={driverDeliveryTasks}
-              selectedTaskId={selectedDriverTaskId}
-              setSelectedTaskId={setSelectedDriverTaskId}
-              meta={driverDeliveryMeta}
-              onAction={handleDriverDeliveryAction}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "warehouseMobile" && (
-            <PageLoader component={WarehouseMobilePage} fallback="库房工作台加载中"
-              fulfillments={fulfillments}
-              orderLines={orderLines}
-              selectedId={selectedFulfillmentId}
-              setSelectedId={setSelectedFulfillmentId}
-              onAction={updateFulfillment}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "decisionMobile" && (
-            <Suspense fallback={<DataState title="经营决策工作台加载中" />}>
-              <DecisionMobilePage
-                authState={authState}
-                currentUser={currentUser}
-                todos={todos}
-                orderLines={orderLines}
-                fulfillments={fulfillments}
-                statements={statements}
-                rawMaterialInbounds={rawMaterialInbounds}
-                helpers={pageHelpers}
-              />
-            </Suspense>
-          )}
-          {renderedPage === "maintenanceMobile" && (
-            <Suspense fallback={<DataState title="设备机修工作台加载中" />}>
-              <MaintenanceMobilePage authState={authState} currentUser={currentUser} />
-            </Suspense>
-          )}
-          {renderedPage === "statements" && (
-            <PageLoader component={StatementPage} fallback="对账工作台加载中"
-              authState={authState}
-              currentUser={currentUser}
-              statements={statements}
-              readMeta={statementReadMeta}
-              orderLines={orderLines}
-              selectedId={selectedStatementId}
-              setSelectedId={setSelectedStatementId}
-              onAction={statementAction}
-              onRefresh={() => refreshStatementDetail({ statementId: selectedStatementId, showToast: false })}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "rawMaterials" && (
-            <PageLoader component={RawMaterialRoute} fallback="原材料工作台加载中" view="inbound"
-              firstReleaseMode={RAW_MATERIAL_FIRST_RELEASE_ENABLED}
-              state={{
-                authState,
-                currentUser,
-                helpers: pageHelpers,
-                inbounds: rawMaterialInbounds,
-                meta: rawMaterialInboundMeta,
-                printerDeviceQa,
-                productionTasks: productionPacking.productionTasks,
-                selectedId: selectedRawMaterialInboundId,
-                statementReviewMeta: rawMaterialSupplierStatementReviewMeta,
-                statementReviews: rawMaterialSupplierStatementReviews,
-              }}
-              actions={{
-                onAction: updateRawMaterialInbound,
-                onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote,
-                onPayableDraftGenerate: generateRawMaterialSupplierPayableDraft,
-                onPaymentConfirm: confirmRawMaterialSupplierPayment,
-                onStatementConfirm: confirmRawMaterialSupplierStatement,
-                onStatementReviewConfirm: confirmRawMaterialSupplierStatementReviewDraft,
-                onStatementReviewDraftCreate: saveRawMaterialSupplierStatementReviewDraft,
-                setSelectedId: setSelectedRawMaterialInboundId,
-              }}
-            />
-          )}
-          {renderedPage === "rawMaterialScanner" && (
-            <PageLoader component={RawMaterialRoute} fallback="原材料扫码加载中" view="scanner"
-              state={{ helpers: pageHelpers, inbounds: rawMaterialInbounds, productionState: productionPacking }}
-              actions={{ onAction: updateRawMaterialInbound }}
-            />
-          )}
-          {renderedPage === "masterData" && (
-            <Suspense fallback={<DataState title="基础资料工作台加载中" />}><MasterDataRoute
-              state={{
-                authState,
-                currentUser,
-                customers,
-                employeeAccountReadiness: masterDataEmployeeAccountReadiness,
-                employeeAccountReviews: masterDataEmployeeAccountReviews,
-                employeeAssignmentOptions: masterDataEmployeeAssignmentOptions,
-                helpers: pageHelpers,
-                importExecutions: masterDataImportExecutions,
-                importReviewDrafts: masterDataImportReviewDrafts,
-                inventoryRecords,
-                maintenanceDrafts: masterDataMaintenanceDrafts,
-                orderLines,
-                selectedId: selectedMasterDataId,
-                selectedTab: masterDataMaintenanceTab,
-                statements,
-              }}
-              actions={{
-                onBatchEnableEmployeeAccounts: enableMasterDataEmployeeAccounts,
-                onOpenImportTemplate: openMasterDataTemplatePanel,
-                onSaveDraft: saveMasterDataMaintenanceDraft,
-                onSaveMachine: saveMasterDataMachine,
-                onUpdateEmployeeAssignment: updateMasterDataEmployeeAssignment,
-                onUpdateEmployeeProfile: updateMasterDataEmployeeProfile,
-                setSelectedId: setSelectedMasterDataId,
-                setSelectedTab: setMasterDataMaintenanceTab,
-              }}
-            /></Suspense>
-          )}
-          {renderedPage === "payroll" && (
-            <Suspense fallback={<DataState title="工资核算工作台加载中" />}>
-              <PayrollAttendancePage authState={authState} currentUser={currentUser} permissionContext={permissionContext} />
-            </Suspense>
-          )}
-          {renderedPage === "v1Status" && (
-            <Suspense fallback={<DataState title="上线状态加载中" />}>
-              <V1StatusRoute
-                actions={v1StatusActions.pageActions}
-                state={v1StatusRouteState}
-                onOpenEmployeeImport={isNavigationPageVisible("masterData", permissionContext) ? () => { setMasterDataMaintenanceTab("员工机台"); setActivePage("masterData"); openMasterDataTemplatePanel("员工机台"); } : undefined}
-              />
-            </Suspense>
-          )}
+          <OfficeWorkspacePages renderedPage={renderedPage} runtime={pageRuntime} />
         </main>
       </div>
 
