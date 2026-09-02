@@ -1,6 +1,7 @@
 import { lazy, Suspense, useMemo, useRef, useState } from "react";
 import { RuntimeAuthBoundary } from "./app/RuntimeAuthBoundary.jsx";
 import { createRuntimeAuthActions } from "./app/createRuntimeAuthActions.js";
+import { shouldShowRuntimeAuthBoundary } from "./app/runtimeAuthViewState.js";
 import { useRuntimeAuthInitialization } from "./app/useRuntimeAuthInitialization.js";
 import {
   useRuntimeAuthInvalidation,
@@ -81,11 +82,7 @@ export function App({ signedPreviewUserId = "" } = {}) {
   useRuntimeAuthInvalidation({ enabled: formalLoginRequired, onInvalidate: invalidateRuntimeUserSession });
   useRuntimeSessionRevalidation({ authState, enabled: formalLoginRequired, onRevalidate: revalidateRuntimeUserSession });
 
-  if (formalLoginRequired && (
-    !authState.authenticated
-    || authState.permissions.passwordChangeRequired === true
-    || currentUser?.mustChangePassword === true
-  )) {
+  if (shouldShowRuntimeAuthBoundary({ authState, currentUser, formalLoginRequired })) {
     return (
       <RuntimeAuthBoundary
         authState={authState}

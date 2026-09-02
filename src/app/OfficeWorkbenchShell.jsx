@@ -7,6 +7,7 @@ import { AppNavigation, ContextNavigationStrip } from "./AppNavigation.jsx";
 import { MobileRoleShellHeader } from "./MobileRoleShellHeader.jsx";
 import { Topbar } from "./AppViews.jsx";
 import { OfficeWorkspacePages } from "./OfficeWorkspacePages.jsx";
+import { getTopbarLogoutAction } from "./runtimeAuthViewState.js";
 import { WorkspaceOverlayController } from "./WorkspaceOverlayController.jsx";
 
 export function OfficeWorkbenchShell({ runtime }) {
@@ -82,7 +83,7 @@ export function OfficeWorkbenchShell({ runtime }) {
           currentUser={currentUser}
           firstReleaseMode={firstReleaseMode}
           onCreateOrder={createOrderFromTopbar}
-          onLogout={formalLoginRequired && authState.authenticated ? logoutRuntimeUserSession : undefined}
+          onLogout={getTopbarLogoutAction({ authState, formalLoginRequired, logoutRuntimeUserSession })}
           onOpenTodos={() => setActivePage("todos")}
           onUserChange={switchSeedUser}
           logoutLoading={runtimeLoginLoading}

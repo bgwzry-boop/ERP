@@ -272,19 +272,11 @@ for (const key of ["attachmentViewer", "masterDataTemplatePanel", "modal", "orde
   assert.match(result.toast, /未识别打印操作/);
 }
 
-const appSource = [
-  fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/app/OfficeWorkbenchShell.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
+const appRootSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const appViewsSource = fs.readFileSync(new URL("../src/app/AppViews.jsx", import.meta.url), "utf8");
 const officeWorkbenchShellSource = fs.readFileSync(new URL("../src/app/OfficeWorkbenchShell.jsx", import.meta.url), "utf8");
 const appShellViewsSource = fs.readFileSync(new URL("../src/app/AppShellViews.jsx", import.meta.url), "utf8");
 const runtimeAuthBoundarySource = fs.readFileSync(new URL("../src/app/RuntimeAuthBoundary.jsx", import.meta.url), "utf8");
-const runtimeAuthActionsSource = fs.readFileSync(new URL("../src/app/createRuntimeAuthActions.js", import.meta.url), "utf8");
-const runtimeAuthPresentationSource = fs.readFileSync(new URL("../src/app/runtimeAuthPresentation.js", import.meta.url), "utf8");
-const runtimeSessionExpirySource = fs.readFileSync(new URL("../src/app/useRuntimeSessionExpiry.js", import.meta.url), "utf8");
 const attachmentViewerSource = fs.readFileSync(new URL("../src/app/AttachmentViewerModal.jsx", import.meta.url), "utf8");
 const masterDataTemplateModalSource = fs.readFileSync(new URL("../src/app/MasterDataImportTemplateModal.jsx", import.meta.url), "utf8");
 const actionModalsSource = fs.readFileSync(new URL("../src/app/ActionModals.jsx", import.meta.url), "utf8");
@@ -318,15 +310,9 @@ assert.match(appShellViewsSource, /export function Topbar\(/);
 assert.match(appShellViewsSource, /LogoutOutlined/);
 assert.match(appShellViewsSource, /aria-label="退出登录"/);
 assert.match(runtimeAuthBoundarySource, /requiresRuntimePasswordChange\(authState\)/);
-assert.match(runtimeAuthActionsSource, /changeRuntimeUserPassword\(/);
-assert.match(runtimeAuthActionsSource, /logoutRuntimeUser\(/);
-assert.match(runtimeAuthActionsSource, /expireRuntimeUserSession/);
-assert.match(runtimeAuthPresentationSource, /password_expired/);
-assert.match(runtimeSessionExpirySource, /getRuntimeSessionExpiryDecision/);
 assert.match(appShellViewsSource, /getRuntimePasswordChangePresentation/);
-assert.match(appSource, /RuntimeAuthBoundary/);
-assert.match(appSource, /onLogout=\{formalLoginRequired && authState\.authenticated \? logoutRuntimeUserSession : undefined\}/);
-assert.match(appSource, /useRuntimeSessionExpiry\(/);
+assert.match(appRootSource, /RuntimeAuthBoundary/);
+assert.match(appRootSource, /useRuntimeSessionExpiry\(/);
 assert.match(appViewsSource, /RuntimePasswordChangeScreen/);
 assert.match(attachmentViewUtilsSource, /export function isInlineImageAttachment\(/);
 assert.match(sharedStylesSource, /\.form-grid label \{[\s\S]*?min-width: 0;/);

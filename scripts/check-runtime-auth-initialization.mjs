@@ -1,4 +1,8 @@
 import assert from "node:assert/strict";
+import {
+  getTopbarLogoutAction,
+  shouldShowRuntimeAuthBoundary,
+} from "../src/app/runtimeAuthViewState.js";
 import { applyRuntimeAuthInitializationResult } from "../src/app/useRuntimeAuthInitialization.js";
 
 const initialAuthState = {
@@ -28,6 +32,44 @@ const newLoginState = {
   session: newSession,
   permissions: { user: { userId: "U-EMP-002", displayName: "新登录用户" } },
 };
+
+assert.equal(shouldShowRuntimeAuthBoundary({ formalLoginRequired: false }), false);
+assert.equal(shouldShowRuntimeAuthBoundary({
+  authState: { authenticated: false, permissions: {} },
+  formalLoginRequired: true,
+}), true, "formal unauthenticated users must remain on the login boundary");
+assert.equal(shouldShowRuntimeAuthBoundary({
+  authState: { authenticated: true, permissions: { passwordChangeRequired: true } },
+  currentUser: { mustChangePassword: false },
+  formalLoginRequired: true,
+}), true, "an authoritative password-change requirement must keep the formal auth boundary open");
+assert.equal(shouldShowRuntimeAuthBoundary({
+  authState: { authenticated: true, permissions: {} },
+  currentUser: { mustChangePassword: true },
+  formalLoginRequired: true,
+}), true, "a user-level password-change requirement must keep the formal auth boundary open");
+assert.equal(shouldShowRuntimeAuthBoundary({
+  authState: { authenticated: true, permissions: {} },
+  currentUser: { mustChangePassword: false },
+  formalLoginRequired: true,
+}), false, "a fully authenticated formal user must enter the workbench");
+
+const logoutRuntimeUserSession = () => {};
+assert.equal(getTopbarLogoutAction({
+  authState: { authenticated: true },
+  formalLoginRequired: true,
+  logoutRuntimeUserSession,
+}), logoutRuntimeUserSession, "an authenticated formal user must receive the real logout action");
+assert.equal(getTopbarLogoutAction({
+  authState: { authenticated: false },
+  formalLoginRequired: true,
+  logoutRuntimeUserSession,
+}), undefined, "an unauthenticated formal user must not receive a topbar logout action");
+assert.equal(getTopbarLogoutAction({
+  authState: { authenticated: true },
+  formalLoginRequired: false,
+  logoutRuntimeUserSession,
+}), undefined, "the review seed switcher must not masquerade as formal logout");
 
 const previewSeedSession = {
   accessToken: "seed-session.staging-preview",
