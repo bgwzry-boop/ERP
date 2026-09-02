@@ -97,6 +97,40 @@ const rejected = await recognizeOfficeRawMaterialDeliveryNote({
 assert.equal(rejected.error.code, "RAW_MATERIAL_DELIVERY_NOTE_REQUEST_TOO_LARGE");
 assert.doesNotMatch(rejected.error.message, /25165824|Request body/u);
 
+const unavailableCalls = [];
+const unavailable = await recognizeOfficeRawMaterialDeliveryNote({
+  operatorId: "U-OFFICE-A",
+  pages: [{
+    fileName: "实测送货单.jpg",
+    mimeType: "image/jpeg",
+    contentDataUrl: "data:image/jpeg;base64,b2Ny",
+    sourceFile: { name: "实测送货单.jpg", type: "image/jpeg", size: 3 },
+  }],
+}, {
+  fetchImpl: async (url) => {
+    unavailableCalls.push(url);
+    if (url.includes("/attachments/binary?")) {
+      return jsonResponse({
+        attachmentId: "ATT-UNAVAILABLE",
+        ownerType: "raw_material_inbound_capture",
+        purpose: "raw_material_delivery_note",
+        hasContent: true,
+        status: "uploaded",
+      });
+    }
+    if (url.endsWith("/raw-material-inbounds/ocr-jobs")) {
+      return jsonResponse({
+        code: "TENCENT_OCR_CREDENTIALS_REQUIRED",
+        message: "腾讯云 OCR 密钥尚未配置，照片没有发送到腾讯云。请联系管理员配置后再识别。",
+      }, 503);
+    }
+    throw new Error(`unavailable OCR must not poll or retry: ${url}`);
+  },
+});
+assert.equal(unavailable.error.code, "TENCENT_OCR_CREDENTIALS_REQUIRED");
+assert.match(unavailable.error.message, /照片没有发送到腾讯云.*联系管理员/);
+assert.equal(unavailableCalls.filter((url) => url.includes("/ocr-jobs/")).length, 0, "configuration errors must not create a retry loop");
+
 const disconnected = await recognizeOfficeRawMaterialDeliveryNote({
   operatorId: "U-OFFICE-A",
   pages: [

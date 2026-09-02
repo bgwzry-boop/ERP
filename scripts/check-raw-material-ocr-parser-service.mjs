@@ -466,6 +466,40 @@ assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.leng
 assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.spec === "78*5"), true);
 assert.deepEqual(actualRenyiStripRowsDraft.rolls.map((roll) => roll.weightKg), [88, 100, 93.5]);
 
+const renyiSeptemberMixedMaterialDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RENYI-SEPTEMBER-MIXED",
+  knownSupplierNames: ["人意无纺布"],
+  ocr: { tables: [{ cells: buildCells([
+    ["人意无纺布销售单"],
+    ["客户：测试客户", "单据日期：", "2026.9.01", "送货人：测试送货员"],
+    ["商品名称", "颜色", "数量", "重量", "单位：千克", "总重", "单价", "金额"],
+    ["78*090*1500", "桔红", "3", "108.8", "108.3", "107.3", "0"],
+    ["78*070*1500", "桔红", "2", "85.3", "84.8", "494.5", "10.1", "4994.45"],
+    ["咖啡条", "1", "76.5", "0"],
+    ["海兰条", "1", "95", "171.5", "10.3", "1766.45"],
+    ["合计", "7", "陆仟柒佰陆拾.玖", "6760.9"],
+    ["本单金额", "6760.90"],
+  ]) }] },
+});
+assert.equal(renyiSeptemberMixedMaterialDraft.supplierName, "人意无纺布");
+assert.equal(renyiSeptemberMixedMaterialDraft.receivedAt, "2026-09-01");
+assert.equal(renyiSeptemberMixedMaterialDraft.supplierOcrProfileKey, "renyi_zhengheng");
+assert.equal(renyiSeptemberMixedMaterialDraft.documentPriceReferenceOnly, true);
+assert.equal(renyiSeptemberMixedMaterialDraft.rollCount, 7);
+assert.equal(renyiSeptemberMixedMaterialDraft.totalWeightKg, 666);
+assert.equal(renyiSeptemberMixedMaterialDraft.amount, 6760.9);
+assert.deepEqual(renyiSeptemberMixedMaterialDraft.rolls.map((roll) => roll.weightKg), [108.8, 108.3, 107.3, 85.3, 84.8, 76.5, 95]);
+assert.deepEqual(renyiSeptemberMixedMaterialDraft.rolls.map((roll) => roll.materialCategory), ["布料", "布料", "布料", "布料", "布料", "提手条", "提手条"]);
+assert.deepEqual(renyiSeptemberMixedMaterialDraft.ocrLines.slice(-2).map((line) => ({
+  color: line.values.supplierColor,
+  spec: line.values.specDisplay,
+  lengthM: line.values.lengthM,
+})), [
+  { color: "咖啡", spec: "78克 × 5cm", lengthM: 0 },
+  { color: "海兰", spec: "78克 × 5cm", lengthM: 0 },
+]);
+assert.deepEqual(renyiSeptemberMixedMaterialDraft.ocrReconciliationIssues, []);
+
 const daxiangMultiWeightDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-DAXIANG-MULTI-WEIGHT",
   ocr: { tables: [{ cells: buildCells([

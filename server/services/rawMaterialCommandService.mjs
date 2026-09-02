@@ -278,6 +278,8 @@ export function createRawMaterialCommandService(dependencies = {}) {
     },
 
     async startDeliveryNoteRecognitionJob({ workspace, body = {}, operatorId }) {
+      const readinessError = getTencentOcrReadinessError(tencentCloudTableOcrService);
+      if (readinessError) return readinessError;
       pruneDeliveryNoteOcrJobs(deliveryNoteOcrJobs, now());
       await cleanupAbandonedRawMaterialCaptureAttachments({ workspace, now: now(), buildOperationLog, nextId, operatorId, logger });
       const jobId = `RMOJ-${randomUUID()}`;
@@ -318,6 +320,8 @@ export function createRawMaterialCommandService(dependencies = {}) {
             message: "当前识别任务不需要重试。",
           };
         }
+        const readinessError = getTencentOcrReadinessError(tencentCloudTableOcrService);
+        if (readinessError) return readinessError;
         if (cleanText(body.duplicateConfirmationToken)) {
           job.body.duplicateConfirmationToken = cleanText(body.duplicateConfirmationToken);
         }
@@ -799,6 +803,17 @@ function toRawMaterialOcrCommandError(error) {
     code: safeError.code,
     message: safeError.message,
     ...(safeError.details ? { details: safeError.details } : {}),
+  };
+}
+
+function getTencentOcrReadinessError(service) {
+  const readiness = service?.getReadiness?.();
+  if (!readiness || readiness.configured !== false) return null;
+  return {
+    error: true,
+    statusCode: 503,
+    code: "TENCENT_OCR_CREDENTIALS_REQUIRED",
+    message: "腾讯云 OCR 密钥尚未配置，照片没有发送到腾讯云。请联系管理员配置后再识别。",
   };
 }
 
