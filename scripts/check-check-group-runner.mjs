@@ -14,8 +14,8 @@ const batchBScripts = resolveCheckGroup("batch-b");
 
 assert.deepEqual(listCheckGroups(), ["pretest", "test", "core", "batch-a", "batch-b"]);
 assert.equal(pretestScripts.length, 6);
-assert.equal(coreScripts.length, 118);
-assert.equal(testScripts.length, 145);
+assert.equal(coreScripts.length, 119);
+assert.equal(testScripts.length, 146);
 assert.equal(batchAScripts.length, 7);
 assert.equal(batchBScripts.length, 18);
 assert.equal(pretestScripts[0], "order-parser:check");
@@ -55,7 +55,7 @@ const dryRun = spawnSync(process.execPath, [runnerPath, "test", "--dry-run", "--
 assert.equal(dryRun.status, 0, dryRun.stderr);
 const dryRunSummary = JSON.parse(dryRun.stdout);
 assert.equal(dryRunSummary.ok, true);
-assert.equal(dryRunSummary.count, 145);
+assert.equal(dryRunSummary.count, 146);
 assert.deepEqual(dryRunSummary.scripts, testScripts);
 
 const unknown = spawnSync(process.execPath, [runnerPath, "missing-group"], { encoding: "utf8" });
