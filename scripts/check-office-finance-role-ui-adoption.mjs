@@ -11,6 +11,8 @@ const productionSource = `${read("src/features/production/ProductionPackingPage.
 const productionPresentationSource = read("src/features/production/productionPackingPresentation.js");
 const rawMaterialSource = [
   read("src/features/raw-materials/RawMaterialInboundPage.jsx"),
+  read("src/features/raw-materials/RawMaterialInboundReceivingSections.jsx"),
+  read("src/features/raw-materials/RawMaterialInboundSupportingSections.jsx"),
   read("src/features/raw-materials/RawMaterialSupplierStatementReview.jsx"),
   read("src/features/raw-materials/rawMaterialInboundWorkflow.js"),
 ].join("\n");

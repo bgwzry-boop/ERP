@@ -3,6 +3,8 @@ import { readFileSync } from "node:fs";
 
 const rawMaterialPageSource = [
   readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundReceivingSections.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundSupportingSections.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierStatementReview.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundWorkflow.js", import.meta.url), "utf8"),
 ].join("\n");

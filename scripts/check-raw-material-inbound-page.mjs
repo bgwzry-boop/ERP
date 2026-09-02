@@ -21,8 +21,12 @@ const navigationSource = readFileSync(new URL("../src/app/navigation.js", import
 const fixturesSource = readFileSync(new URL("../src/data/fixtures.js", import.meta.url), "utf8");
 const roleToolReadsSource = readFileSync(new URL("../src/app/useOfficeRoleToolReads.js", import.meta.url), "utf8");
 const officePageEntrySource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
+const rawMaterialInboundPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
 const rawMaterialPageSource = [
-  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8"),
+  rawMaterialInboundPageSource,
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundReceivingSections.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundSupportingSections.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundOcrDraft.js", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierStatementReview.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundWorkflow.js", import.meta.url), "utf8"),
 ].join("\n");
@@ -115,6 +119,9 @@ assertIncludes(rawMaterialLocalActionsSource, "供应商未提供单号", "raw-m
 assertIncludes(officePageSource, "export function RawMaterialInboundPage", "office pages should export RawMaterialInboundPage");
 assertIncludes(rawMaterialWorkbenchSource, "RawMaterialInboundListPane", "raw-material list composition should live outside the main page");
 assertIncludes(rawMaterialWorkbenchSource, "RawMaterialDetailOverview", "raw-material fixed detail facts should live outside the main page");
+assertIncludes(rawMaterialInboundPageSource, "RawMaterialInboundReceivingSections", "raw-material receiving actions should live outside the main page");
+assertIncludes(rawMaterialInboundPageSource, "RawMaterialInboundSupportingSections", "raw-material cost, traceability and statement sections should live outside the main page");
+assert.ok(rawMaterialInboundPageSource.split("\n").length <= 900, "raw-material main page should remain a compact composition layer");
 assertIncludes(rawMaterialWorkbenchSource, "raw-material-view-tabs", "raw-material views should expose count-bearing tabs");
 assertIncludes(rawMaterialWorkbenchSource, "buildRawMaterialInboundViewItems(inbounds)", "raw-material view counts should use the tested list-state projection");
 assertIncludes(rawMaterialPageSource, "raw-material-detail-scroll", "raw-material detail actions should scroll independently");
