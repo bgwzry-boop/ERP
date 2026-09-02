@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { buildStatementRouteContract } from "../src/app/buildStatementRouteContract.js";
 import { createOfficeStatementActions } from "../src/app/createOfficeStatementActions.js";
 
 const baseStatement = {
@@ -11,6 +12,31 @@ const baseStatement = {
   status: "待发送",
   lineIds: [],
 };
+
+{
+  const refreshCalls = [];
+  const actionController = { marker: "statement-route" };
+  const state = {
+    authState: { authenticated: true },
+    currentUser: { userId: "U-FINANCE-A" },
+    pageHelpers: { marker: "helpers" },
+    orderLines: [{ id: "OL-1" }],
+    statementActionController: actionController,
+    statementReadMeta: { source: "api" },
+    statements: [baseStatement],
+    selectedStatementId: baseStatement.id,
+    setSelectedStatementId: () => {},
+    refreshStatementDetail: async (input) => refreshCalls.push(input),
+  };
+  const contract = buildStatementRouteContract(state);
+  assert.equal(contract.actionController, actionController);
+  assert.equal(contract.state.statements, state.statements);
+  assert.equal(contract.state.orderLines, state.orderLines);
+  assert.equal(contract.state.selectedId, baseStatement.id);
+  assert.equal(contract.state.helpers, state.pageHelpers);
+  await contract.actions.onRefresh();
+  assert.deepEqual(refreshCalls, [{ statementId: baseStatement.id, showToast: false }]);
+}
 
 function createHarness({ allowLocalFallback = false, api = {}, confirmAction = () => true, statement = baseStatement } = {}) {
   let statements = [{ ...statement }];

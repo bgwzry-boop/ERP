@@ -37,6 +37,33 @@ assert.ok(
   "V1 status styles must remain deferred with the route",
 );
 const workbenchSource = await readFile(resolve(distRoot, workbenchAsset.file));
+const statementRouteKey = "src/app/routes/StatementRoute.jsx";
+const statementRouteAsset = manifest[statementRouteKey];
+assert.ok(
+  workbenchAsset.dynamicImports?.includes(statementRouteKey),
+  "OfficeWorkbench must lazy-load the statement route",
+);
+assert.ok(statementRouteAsset?.isDynamicEntry, "statement route must remain a dynamic entry");
+assert.equal(
+  initialAssets.has(statementRouteAsset.file),
+  false,
+  "statement route must not return to the initial HTML dependency graph",
+);
+assert.ok(
+  (statementRouteAsset.css?.length ?? 0) > 0,
+  "statement styles must remain deferred with the route",
+);
+const statementRouteSource = await readFile(resolve(distRoot, statementRouteAsset.file), "utf8");
+assert.doesNotMatch(
+  workbenchSource.toString("utf8"),
+  /未识别对账操作，未执行/,
+  "OfficeWorkbench must not eagerly contain the statement action controller",
+);
+assert.match(
+  statementRouteSource,
+  /未识别对账操作，未执行/,
+  "statement action controller must load with its route",
+);
 const v1StatusRouteSource = await readFile(resolve(distRoot, v1StatusRouteAsset.file), "utf8");
 assert.doesNotMatch(
   workbenchSource.toString("utf8"),
@@ -101,8 +128,8 @@ assert.match(
   /\[Content_Types\]\.xml/,
   "master-data template download chunk must contain the XLSX archive generator",
 );
-const maxWorkbenchBytes = 475_000;
-const maxWorkbenchGzipBytes = 140 * 1024;
+const maxWorkbenchBytes = 460_000;
+const maxWorkbenchGzipBytes = 135 * 1024;
 assert.ok(
   workbenchBytes <= maxWorkbenchBytes,
   `OfficeWorkbench is ${formatBytes(workbenchBytes)} raw; budget is ${formatBytes(maxWorkbenchBytes)} raw`,

@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { DataState } from "../shared/ui/operational.jsx";
 import { buildMasterDataRouteContract } from "./buildMasterDataRouteContract.js";
+import { buildStatementRouteContract } from "./buildStatementRouteContract.js";
 import { buildV1StatusRouteContract } from "./buildV1StatusRouteContract.js";
 
 function lazyNamedPage(loadModule, exportName, loadStyles = []) {
@@ -27,7 +28,7 @@ const ProductionPackingPage = lazyNamedPage(() => import("../features/production
 const WorkshopMobilePage = lazyNamedPage(() => import("../features/workshop/WorkshopMobilePage.jsx"), "WorkshopMobilePage", [() => import("../styles/features/mobile-roles.css"), () => import("../styles/features/production-print.css")]);
 const DriverMobilePage = lazyNamedPage(() => import("../features/driver/DriverMobilePage.jsx"), "DriverMobilePage", [() => import("../styles/features/mobile-roles.css"), () => import("../styles/features/driver.css")]);
 const WarehouseMobilePage = lazyNamedPage(() => import("../features/warehouse/WarehouseMobilePage.jsx"), "WarehouseMobilePage", [() => import("../styles/features/mobile-roles.css"), () => import("../styles/features/warehouse.css")]);
-const StatementPage = lazyNamedPage(() => import("../features/statements/StatementPage.jsx"), "StatementPage", [() => import("../styles/features/statements.css")]);
+const StatementRoute = lazyNamedPage(() => import("./routes/StatementRoute.jsx"), "StatementRoute");
 const RawMaterialRoute = lazyNamedPage(() => import("./routes/RawMaterialRoute.jsx"), "RawMaterialRoute");
 const MasterDataRoute = lazyNamedPage(() => import("./routes/MasterDataRoute.jsx"), "MasterDataRoute");
 const V1StatusRoute = lazyNamedPage(() => import("./routes/V1StatusRoute.jsx"), "V1StatusRoute");
@@ -40,6 +41,7 @@ const EmployeeAttendanceMobilePage = lazyNamedPage(() => import("../features/pay
 
 export function OfficeWorkspacePages({ renderedPage, runtime }) {
   const masterDataRouteContract = buildMasterDataRouteContract(runtime);
+  const statementRouteContract = buildStatementRouteContract(runtime);
   const v1StatusRouteContract = buildV1StatusRouteContract(runtime);
   const {
     authState,
@@ -116,7 +118,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     refreshPrinterDeviceQa,
     refreshPrintJobs,
     refreshProductionPackingTaskLists,
-    refreshStatementDetail,
     releaseTemporaryInventoryHold,
     repairTodoReference,
     restoreCancelledDraftLine,
@@ -132,7 +133,6 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     selectedOrderDetail,
     selectedOrderId,
     selectedRawMaterialInboundId,
-    selectedStatementId,
     selectedStockId,
     selectedTodoId,
     setActivePage,
@@ -144,13 +144,10 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
     setSelectedFulfillmentId,
     setSelectedOrderId,
     setSelectedRawMaterialInboundId,
-    setSelectedStatementId,
     setSelectedStockId,
     setToast,
     setTodoView,
     setSelectedTodoId,
-    statementAction,
-    statementReadMeta,
     statements,
     todos,
     todoMeta,
@@ -339,18 +336,7 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
             </Suspense>
           )}
           {renderedPage === "statements" && (
-            <PageLoader component={StatementPage} fallback="对账工作台加载中"
-              authState={authState}
-              currentUser={currentUser}
-              statements={statements}
-              readMeta={statementReadMeta}
-              orderLines={orderLines}
-              selectedId={selectedStatementId}
-              setSelectedId={setSelectedStatementId}
-              onAction={statementAction}
-              onRefresh={() => refreshStatementDetail({ statementId: selectedStatementId, showToast: false })}
-              helpers={pageHelpers}
-            />
+            <PageLoader component={StatementRoute} fallback="对账工作台加载中" {...statementRouteContract} />
           )}
           {renderedPage === "rawMaterials" && (
             <PageLoader component={RawMaterialRoute} fallback="原材料工作台加载中" view="inbound"

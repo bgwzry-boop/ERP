@@ -22,7 +22,7 @@ export function createOfficeWorkbenchRuntimes({
   productionPackingActions,
   rawMaterialActions,
   setActivePage,
-  statementActions,
+  statementActionController,
   todoActions,
   v1StatusActionController,
 }) {
@@ -80,7 +80,7 @@ export function createOfficeWorkbenchRuntimes({
     selectPrinterDeviceQaDevice: printDeviceActions.selectPrinterDeviceQaDevice,
     setActivePage,
     setToast: interaction.setToast,
-    statementAction: statementActions.statementAction,
+    statementActionController,
     updateDraftField: orderActions.updateDraftField,
     updateFulfillment: fulfillmentActions.updateFulfillment,
     updateMasterDataEmployeeAssignment: masterDataActions.updateMasterDataEmployeeAssignment,

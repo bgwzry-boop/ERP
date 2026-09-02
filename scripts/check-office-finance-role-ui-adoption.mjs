@@ -131,7 +131,6 @@ assert.match(driverSource, /driver-load-stage/);
 assert.match(driverSource, /driver-delivery-stage/);
 
 assert.doesNotMatch(mainSource, /styles\/features\/(statements|role-tools)\.css/, "financial and role-tool styles should not load with the shell");
-assert.match(appSource, /import\("\.\.\/styles\/features\/statements\.css"\)/, "statement styles should load with the statement route");
 assert.match(appSource, /import\("\.\.\/styles\/features\/role-tools\.css"\)/, "role-tool styles should load with their mobile routes");
 assert.match(statementStyles, /statement-table \.data-row span:nth-child\(6\)/);
 assert.match(statementStyles, /\.statement-actions\s*\{[\s\S]*?position: static;/);

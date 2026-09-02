@@ -16,7 +16,6 @@ import { createOfficePageRefreshActions } from "./app/createOfficePageRefreshAct
 import { createOfficePrintDeviceActions } from "./app/createOfficePrintDeviceActions.js";
 import { createOfficeProductionPackingActions } from "./app/createOfficeProductionPackingActions.js";
 import { createOfficeRawMaterialActions } from "./app/createOfficeRawMaterialActions.js";
-import { createOfficeStatementActions } from "./app/createOfficeStatementActions.js";
 import { createOfficeTodoActions, createOfficeTodoAppender } from "./app/createOfficeTodoActions.js";
 import {
   copyTextToClipboard,
@@ -506,7 +505,7 @@ export function OfficeWorkbench({
     setToast,
     todos,
   });
-  const statementActions = createOfficeStatementActions({
+  const statementActionController = {
     allowLocalFallback: !runtimeServerRequired,
     authState,
     confirmAction: (message) => window.confirm(message),
@@ -526,7 +525,7 @@ export function OfficeWorkbench({
     setStatements,
     setToast,
     statements,
-  });
+  };
   const { overlayRuntime, pageRuntime } = createOfficeWorkbenchRuntimes({
     attachmentActions,
     authState,
@@ -548,7 +547,7 @@ export function OfficeWorkbench({
     productionPackingActions,
     rawMaterialActions,
     setActivePage,
-    statementActions,
+    statementActionController,
     todoActions,
     v1StatusActionController,
   });
