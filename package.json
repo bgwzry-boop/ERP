@@ -43,7 +43,7 @@
     "check:core": "node scripts/run-check-group.mjs core",
     "business-decision-management:check": "node scripts/check-business-decision-authorization-management.mjs && node scripts/check-business-decision-evidence-drafts.mjs && node scripts/check-business-decision-policy-service.mjs && node scripts/check-business-decision-evidence-service.mjs && node scripts/check-business-decision-read-routes.mjs && node scripts/check-business-decision-transaction-repository.mjs && node scripts/check-business-decision-directive-command-service.mjs && node scripts/check-raw-material-purchase-business-decision.mjs",
     "test:checks": "node scripts/run-check-group.mjs test",
-    "e2e": "playwright test",
+    "e2e": "playwright test && playwright test --config playwright.review.config.mjs",
     "test": "npm run test:checks && npm run e2e",
     "check-group-runner:check": "node scripts/check-check-group-runner.mjs",
     "current-project-docs:check": "node scripts/check-current-project-docs.mjs",

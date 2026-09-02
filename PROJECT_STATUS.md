@@ -1,6 +1,6 @@
 # Project Status
 
-Last updated: 2026-08-12 — current baseline remains `V8.306` plus verified attendance/payroll and Deli-gateway hardening.
+Last updated: 2026-09-02 — current baseline remains `V8.306` plus verified attendance/payroll, Deli-gateway hardening and complete-review browser coverage.
 
 ## Current Verdict
 
@@ -51,7 +51,9 @@ The generated [go-live suite](/Users/xu/Documents/ERP/.erp-local-storage/v1-go-l
 
 ## Latest Verification
 
-- The complete core gate passes `117/117`. The current controlled D49 workbook was rechecked with `29` active rows and full `8/8` role coverage, but strict payroll/attendance completeness remains `0/29`; this separates usable employee/role intake from missing profile, wage and Deli mapping data. Payroll/attendance is recalibrated to `93% code / 28% live`; release evidence is `40` items in `7` groups, including the first real attendance/payroll closeout, with zero completed evidence.
+- Full automation passes pretest `6/6`, code/build/service checks `145/145`, core Playwright `9/9`, and the complete-review receipt Playwright `1/1`. Ordinary `npm test` now runs both browser entries and verifies the six receipt scan columns plus `类型 / 把条` and `宽幅 / 5cm` in the selected detail.
+- Current structure sizes are `App.jsx 124 / OfficeWorkbench.jsx 579 / RawMaterialInboundPage.jsx 780 / ProductionPackingPage.jsx 815 / rawMaterialInboundRepository.mjs 770 / raw-material.css 1591` lines. Of 410 `check-*.mjs` files, 80 read files; that screening count includes legitimate migration, build-artifact and output checks, so only implementation-text assertions should be replaced incrementally with behavior coverage.
+- The controlled D49 workbook still has `29` active rows and full `8/8` role coverage, but strict payroll/attendance completeness remains `0/29`; this separates usable employee/role intake from missing profile, wage and Deli mapping data. Payroll/attendance remains `93% code / 28% live`; release evidence is `40` items in `7` groups, including the first real attendance/payroll closeout, with zero completed evidence.
 - The prior status-document length failure is closed: current files are concise, full 2026-08-12 snapshots and V8.80 archives remain linked, and the original thresholds were not weakened.
 - No live Deli request, real attendance/payroll write, production migration, physical print, deployment, release refresh or gate increase was performed.
 

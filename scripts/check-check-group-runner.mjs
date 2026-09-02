@@ -39,6 +39,7 @@ for (const scriptName of new Set([...pretestScripts, ...testScripts, ...batchASc
 }
 assert.equal(packageScripts.pretest, "node scripts/run-check-group.mjs pretest");
 assert.equal(packageScripts["test:checks"], "node scripts/run-check-group.mjs test");
+assert.equal(packageScripts.e2e, "playwright test && playwright test --config playwright.review.config.mjs");
 assert.equal(packageScripts.test, "npm run test:checks && npm run e2e");
 assert.equal(packageScripts["check:core"], "node scripts/run-check-group.mjs core");
 assert.equal(packageScripts["batch-a:check"], "node scripts/run-check-group.mjs batch-a");
