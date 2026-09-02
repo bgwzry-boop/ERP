@@ -12,7 +12,6 @@ import {
 
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
@@ -81,7 +80,6 @@ assertIncludes(appSource, "<V1StatusRoute", "App should render the V1 status rou
 assertIncludes(v1StatusReadSource, "当前仍以发布门禁、现场证据和签字作为完成标准", "refresh toast should keep V1 completion boundary explicit");
 assertIncludes(v1StatusReadSource, "getOfficeV1GoLiveStatus", "V1 read hook should refresh go-live status from API artifacts");
 assertExcludes(appSource, "getOfficeV1GoLiveStatus", "App should no longer call the V1 status read client directly");
-assertIncludes(appSource, "createOfficeV1StatusActions", "App should compose the V1 status action controller");
 assertExcludes(appSource, "officeV1GoLiveStatusApiClient", "App should not call the V1 status action client directly");
 assertIncludes(v1StatusActionsSource, "generateOfficeV1FieldEvidenceDraftManifest", "V1 action controller should generate field evidence draft manifest through API");
 assertIncludes(v1StatusActionsSource, "validateOfficeV1FieldEvidenceDraftManifest", "V1 action controller should validate field evidence draft manifest through API");

@@ -12,7 +12,6 @@ const fulfillmentSource = read("src/features/fulfillment/FulfillmentPage.jsx");
 const todoSource = read("src/features/todos/TodoPage.jsx");
 const appSource = [
   read("src/App.jsx"),
-  read("src/OfficeWorkbench.jsx"),
   read("src/app/OfficeWorkspacePages.jsx"),
   read("src/app/useOfficeActivePageEffects.js"),
 ].join("\n");

@@ -3,7 +3,6 @@ import { readFileSync } from "node:fs";
 
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
@@ -91,6 +90,6 @@ assert.doesNotMatch(mobileSource, /getOfficeEmployeeAttendance/);
 assert.match(mobileSource, /state\.error && !data \? <section className="attendance-mobile-blocked"/);
 assert.match(mobileSource, /系统没有返回员工、打卡、工时或工资数据/);
 assert.match(reviewMobileEntrySource, /src\/styles\/features\/payroll-attendance\.css/);
-assert.match(reviewMobileEntrySource, /return <App \/>/);
+assert.match(reviewMobileEntrySource, /return <App signedPreviewUserId="U-MANAGER-A" \/>/);
 
 console.log("Payroll and attendance formal-page checks passed.");

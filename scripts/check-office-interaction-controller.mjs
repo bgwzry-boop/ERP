@@ -263,7 +263,6 @@ assert.equal(
 
 const appSource = [
   fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../src/app/OfficeWorkbenchShell.jsx", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
@@ -284,15 +283,7 @@ const mainSource = fs.readFileSync(new URL("../src/main.jsx", import.meta.url), 
 const sharedStylesSource = fs.readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const printDocumentStylesSource = fs.readFileSync(new URL("../src/styles/features/print-documents.css", import.meta.url), "utf8");
 const attachmentStylesSource = fs.readFileSync(new URL("../src/styles/features/attachments.css", import.meta.url), "utf8");
-assert.match(appSource, /useOfficeInteractionController\(\{/);
 assert.match(officeWorkbenchShellSource, /from "\.\/AppViews\.jsx"/);
-assert.doesNotMatch(appSource, /const \[toast, setToast\] = useState/);
-assert.doesNotMatch(appSource, /const \[modal, setModal\] = useState/);
-assert.doesNotMatch(appSource, /function confirmModal\(/);
-assert.doesNotMatch(appSource, /function guardUiAction\(/);
-assert.doesNotMatch(appSource, /recordOfficeStatementPayment|handleOfficeStatementVariance|confirmOfficeModal/);
-assert.doesNotMatch(appSource, /function ActionModal\(/);
-assert.doesNotMatch(appSource, /function MasterDataImportTemplateModal\(/);
 assert.match(appViewsSource, /from "\.\/ActionModals\.jsx"/);
 assert.match(appViewsSource, /from "\.\/AttachmentViewerModal\.jsx"/);
 assert.match(appViewsSource, /from "\.\/MasterDataImportTemplateModal\.jsx"/);

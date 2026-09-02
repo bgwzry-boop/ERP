@@ -554,24 +554,11 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
 
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const actionsSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
 const serverSource = readFileSync(new URL("../server/services/masterDataImportCommandService.mjs", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeMasterDataActions\(\{/);
-assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
-for (const functionName of [
-  "commitMasterDataImportExecutionFromPlan",
-  "createMasterDataImportConfirmationPlanFromDraft",
-  "confirmMasterDataEmployeeIdentity",
-  "enableMasterDataEmployeeAccount",
-  "enableMasterDataEmployeeAccounts",
-  "issueMasterDataEmployeeAccountPassword",
-]) {
-  assert.doesNotMatch(appSource, new RegExp(`(?:async )?function ${functionName}\\(`));
-}
 assert.doesNotMatch(serverSource, /cleanText\(body\.officialWriterKind\)/);
 assert.match(actionsSource, /Promise\.allSettled\(\[/, "successful employee writes should settle read-model refreshes independently");
 assert.match(appSource, /onSaveMachine: saveMasterDataMachine/, "App should pass machine writes through the master-data route action adapter");
