@@ -7,7 +7,13 @@ function read(relativePath) {
 
 const sharedUiSource = read("src/shared/ui/operational.jsx");
 const statementSource = read("src/features/statements/StatementPage.jsx");
-const productionSource = `${read("src/features/production/ProductionPackingPage.jsx")}\n${read("src/features/production/ProductionPrintWorkspaceDetail.jsx")}`;
+const productionSource = [
+  read("src/features/production/ProductionPackingPage.jsx"),
+  read("src/features/production/ProductionPackingTaskLists.jsx"),
+  read("src/features/production/ProductionScheduleActionConfirmationDialog.jsx"),
+  read("src/features/production/ProductionScheduleQueueSection.jsx"),
+  read("src/features/production/ProductionPrintWorkspaceDetail.jsx"),
+].join("\n");
 const productionPresentationSource = read("src/features/production/productionPackingPresentation.js");
 const rawMaterialSource = [
   read("src/features/raw-materials/RawMaterialInboundPage.jsx"),
