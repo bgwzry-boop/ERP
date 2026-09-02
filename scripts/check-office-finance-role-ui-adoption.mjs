@@ -48,6 +48,8 @@ const componentStyles = read("src/styles/components.css");
 const statementStyles = read("src/styles/features/statements.css");
 const roleStyles = read("src/styles/features/role-tools.css");
 const rawMaterialStyles = [
+  read("src/styles/features/raw-material-foundation.css"),
+  read("src/styles/features/raw-material-roll-inventory.css"),
   read("src/styles/features/raw-material.css"),
   read("src/styles/features/raw-material-mobile.css"),
   read("src/styles/features/raw-material-mobile-atlas.css"),

@@ -1,4 +1,6 @@
 import "../../styles/features/print-documents.css";
+import "../../styles/features/raw-material-foundation.css";
+import "../../styles/features/raw-material-roll-inventory.css";
 import "../../styles/features/raw-material.css";
 import "../../styles/features/raw-material-mobile.css";
 import "../../styles/features/raw-material-mobile-atlas.css";

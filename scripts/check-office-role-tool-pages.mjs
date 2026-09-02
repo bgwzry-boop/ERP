@@ -15,6 +15,8 @@ const masterDataListStateSource = readFileSync(new URL("../src/domain/masterData
 const masterDataRecordSource = readFileSync(new URL("../src/domain/masterDataMaintenanceRecords.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 const rawMaterialStylesSource = [
+  readFileSync(new URL("../src/styles/features/raw-material-foundation.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-roll-inventory.css", import.meta.url), "utf8"),
   readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8"),
   readFileSync(new URL("../src/styles/features/raw-material-mobile.css", import.meta.url), "utf8"),
   readFileSync(new URL("../src/styles/features/raw-material-mobile-atlas.css", import.meta.url), "utf8"),

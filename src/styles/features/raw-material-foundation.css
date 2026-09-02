@@ -1,0 +1,18 @@
+/* Hallmark · genre: modern-minimal · tone: calm field utility · anchor: forest 140 · macrostructure: Guided Task (resume-first, continuous ledger) · theme: studied-DNA (下单小程序 + approved OCR review) · nav: N9 edge-aligned minimal · footer: Ft2 fixed task action · contrast: pass (40–41) · slop: pass (42–49) · mobile: pass (34, 49–57) */
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
+
+.raw-material-workbench {
+  grid-template-columns: minmax(0, 1.62fr) minmax(420px, 1fr) !important;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.raw-material-workbench.is-roll-inventory-view {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.raw-material-workbench.is-roll-inventory-view > .raw-material-list-panel,
+.raw-material-workbench.is-roll-inventory-view > .raw-material-detail-pane,
+.raw-material-workbench.is-receiving-view > .raw-material-roll-inventory {
+  display: none;
+}
