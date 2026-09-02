@@ -1,7 +1,4 @@
 import { useEffect, useState } from "react";
-import { MenuFoldOutlined } from "@ant-design/icons";
-import bagwinSidebarLogoUrl from "./assets/brand/BAGWIN_ERP_sidebar_horizontal_color.svg";
-import bagwinSymbolUrl from "./assets/brand/BAGWIN_symbol_color.svg";
 import { RAW_MATERIAL_FIRST_RELEASE_ENABLED } from "./config/rawMaterialFirstRelease.js";
 import {
   allNavigationItems,
@@ -12,14 +9,10 @@ import {
   isNavigationPageVisible,
   roleBoundaryPage,
 } from "./app/navigation.js";
-import { AppNavigation, ContextNavigationStrip } from "./app/AppNavigation.jsx";
-import { MobileRoleShellHeader } from "./app/MobileRoleShellHeader.jsx";
-import { Topbar } from "./app/AppViews.jsx";
-import { WorkspaceOverlayController } from "./app/WorkspaceOverlayController.jsx";
+import { OfficeWorkbenchShell } from "./app/OfficeWorkbenchShell.jsx";
 import { useOfficeInteractionController } from "./app/useOfficeInteractionController.js";
 import { useOfficeWorkspace } from "./app/useOfficeWorkspace.js";
 import { useOfficeActivePageEffects } from "./app/useOfficeActivePageEffects.js";
-import { OfficeWorkspacePages } from "./app/OfficeWorkspacePages.jsx";
 import { createOfficeAttachmentActions } from "./app/createOfficeAttachmentActions.js";
 import { createOfficePageHelpers } from "./app/createOfficePageHelpers.js";
 import { createOfficeDriverDeliveryActions } from "./app/createOfficeDriverDeliveryActions.js";
@@ -43,7 +36,6 @@ import {
   readBlobAsDataUrl,
   readFileAsDataUrl,
 } from "./app/browserFileActions.js";
-import { WorkspaceNotice, WorkspacePageHeader } from "./shared/ui/operational.jsx";
 import {
   defaultSeedUserId,
   getUiActionState,
@@ -689,117 +681,70 @@ export function OfficeWorkbench({
     uploadDraftArtwork,
     v1StatusActions,
   };
-  return (
-    <div className={`app-shell app-shell-${renderedPage}${roleFocusedShellPage ? " app-shell-mobile-role" : ""}${sidebarCollapsed ? " sidebar-collapsed" : ""}`}>
-      {!roleFocusedShellPage ? <aside className="sidebar">
-        <div className="brand">
-          <img alt="袋袋赢 BAGWIN" className="brand-logo-horizontal" src={bagwinSidebarLogoUrl} />
-          <img alt="袋袋赢 BAGWIN" className="brand-logo-symbol" src={bagwinSymbolUrl} />
-        </div>
-        <AppNavigation
-          activePage={renderedPage}
-          collapsed={sidebarCollapsed}
-          permissionContext={permissionContext}
-          todoCount={unhandledTodos}
-          onNavigate={setActivePage}
-        />
-        <button
-          aria-expanded={!sidebarCollapsed}
-          className="collapse-menu"
-          onClick={() => setSidebarCollapsed((current) => !current)}
-          title={sidebarCollapsed ? "展开菜单" : "收起菜单"}
-          type="button"
-        >
-          <MenuFoldOutlined aria-hidden="true" />
-          <span>{sidebarCollapsed ? "展开菜单" : "收起菜单"}</span>
-        </button>
-      </aside> : null}
-
-      <div className="workspace">
-        {roleFocusedShellPage ? (
-          <MobileRoleShellHeader
-            canViewOwnAttendance={permissionContext.actionPermissions?.includes("attendance.self.read") === true}
-            currentUser={currentUser}
-            currentUserId={currentUserId}
-            demoMode={!formalLoginRequired}
-            logoutLoading={runtimeLoginLoading}
-            onLogout={logoutRuntimeUserSession}
-            onNavigate={setActivePage}
-            onUserChange={switchSeedUser}
-            pageKey={renderedPage}
-            userOptions={seedUserOptions}
-          />
-        ) : <Topbar
-          authSourceLabel={authSourceLabel}
-          currentUserId={currentUserId} currentUser={currentUser}
-          firstReleaseMode={RAW_MATERIAL_FIRST_RELEASE_ENABLED}
-          onCreateOrder={createOrderFromTopbar} onLogout={formalLoginRequired && authState.authenticated ? logoutRuntimeUserSession : undefined}
-          onOpenTodos={() => setActivePage("todos")}
-          onUserChange={switchSeedUser}
-          logoutLoading={runtimeLoginLoading} todoCount={unhandledTodos}
-          userOptions={formalLoginRequired ? [currentUser] : seedUserOptions}
-          getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
-        />}
-        <main className="content">
-          {runtimeNotice ? <WorkspaceNotice>{runtimeNotice}</WorkspaceNotice> : null}
-          {toast && toast !== runtimeNotice ? <WorkspaceNotice>{toast}</WorkspaceNotice> : null}
-          {!roleFocusedShellPage ? <WorkspacePageHeader
-            title={activeMeta.label}
-            onRefresh={renderedPage === "entry" ? undefined : refreshActivePage}
-          /> : null}
-          {!roleFocusedShellPage ? (
-            <ContextNavigationStrip
-              activePage={renderedPage}
-              onNavigate={setActivePage}
-              permissionContext={permissionContext}
-              todoCount={unhandledTodos}
-            />
-          ) : null}
-          <OfficeWorkspacePages renderedPage={renderedPage} runtime={pageRuntime} />
-        </main>
-      </div>
-
-      <WorkspaceOverlayController
-        attachmentViewer={attachmentViewer}
-        closeAttachmentViewer={closeAttachmentViewer}
-        closeMasterDataTemplatePanel={closeMasterDataTemplatePanel}
-        closeModal={closeModal}
-        closeOrderActionModal={closeOrderActionModal}
-        confirmMasterDataEmployeeIdentity={confirmMasterDataEmployeeIdentity}
-        confirmModal={confirmModal}
-        confirmOrderLineAction={confirmOrderLineAction}
-        commitMasterDataImportExecutionFromPlan={commitMasterDataImportExecutionFromPlan}
-        createMasterDataFailedRowsCorrectionDraft={createMasterDataFailedRowsCorrectionDraft}
-        createMasterDataImportConfirmationPlanFromDraft={createMasterDataImportConfirmationPlanFromDraft}
-        createMasterDataImportExecutionFromPlan={createMasterDataImportExecutionFromPlan}
-        createMasterDataImportReviewDraftFromPrecheck={createMasterDataImportReviewDraftFromPrecheck}
-        downloadMasterDataImportFailedRows={downloadMasterDataImportFailedRows}
-        downloadMasterDataTemplate={downloadMasterDataTemplate}
-        downloadViewedAttachment={downloadViewedAttachment}
-        employeeAccountReviews={masterDataEmployeeAccountReviews}
-        enableMasterDataEmployeeAccount={enableMasterDataEmployeeAccount}
-        findCustomer={findCustomer}
-        fulfillments={fulfillments}
-        getStatementBlockingAmount={getStatementBlockingAmount}
-        getUiActionState={(surface, action) => getUiActionState(permissionContext, surface, action)}
-        importExecutions={masterDataImportExecutions}
-        issueMasterDataEmployeeAccountPassword={issueMasterDataEmployeeAccountPassword}
-        lastIssuedEmployeeCredential={lastIssuedEmployeeCredential}
-        masterDataConfirmationPlans={masterDataImportConfirmationPlans}
-        masterDataPrecheckState={masterDataPrecheckState}
-        masterDataReviewDrafts={masterDataImportReviewDrafts}
-        masterDataTemplatePanel={masterDataTemplatePanel}
-        modal={modal}
-        onPrecheckMasterDataTemplate={precheckMasterDataTemplate}
-        onRefreshEmployeeAccountReviews={(options) => refreshMasterDataEmployeeAccountReviews(options).then((result) => {
-          if (result?.feedback) setToast(result.feedback);
-          return result;
-        })}
-        orderActionModal={orderActionModal}
-        orderLines={orderLines}
-        revokeMasterDataEmployeeAccountPassword={revokeMasterDataEmployeeAccountPassword}
-        statements={statements}
-      />
-    </div>
-  );
+  const overlayRuntime = {
+    attachmentViewer,
+    closeAttachmentViewer,
+    closeMasterDataTemplatePanel,
+    closeModal,
+    closeOrderActionModal,
+    confirmMasterDataEmployeeIdentity,
+    confirmModal,
+    confirmOrderLineAction,
+    commitMasterDataImportExecutionFromPlan,
+    createMasterDataFailedRowsCorrectionDraft,
+    createMasterDataImportConfirmationPlanFromDraft,
+    createMasterDataImportExecutionFromPlan,
+    createMasterDataImportReviewDraftFromPrecheck,
+    downloadMasterDataImportFailedRows,
+    downloadMasterDataTemplate,
+    downloadViewedAttachment,
+    employeeAccountReviews: masterDataEmployeeAccountReviews,
+    enableMasterDataEmployeeAccount,
+    findCustomer,
+    fulfillments,
+    getStatementBlockingAmount,
+    getUiActionState: (surface, action) => getUiActionState(permissionContext, surface, action),
+    importExecutions: masterDataImportExecutions,
+    issueMasterDataEmployeeAccountPassword,
+    lastIssuedEmployeeCredential,
+    masterDataConfirmationPlans: masterDataImportConfirmationPlans,
+    masterDataPrecheckState,
+    masterDataReviewDrafts: masterDataImportReviewDrafts,
+    masterDataTemplatePanel,
+    modal,
+    onPrecheckMasterDataTemplate: precheckMasterDataTemplate,
+    onRefreshEmployeeAccountReviews: (options) => refreshMasterDataEmployeeAccountReviews(options).then((result) => {
+      if (result?.feedback) setToast(result.feedback);
+      return result;
+    }),
+    orderActionModal,
+    orderLines,
+    revokeMasterDataEmployeeAccountPassword,
+    statements,
+  };
+  return <OfficeWorkbenchShell runtime={{
+    activeMeta,
+    authSourceLabel,
+    authState,
+    createOrderFromTopbar,
+    currentUser,
+    currentUserId,
+    firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
+    formalLoginRequired,
+    logoutRuntimeUserSession,
+    overlayRuntime,
+    pageRuntime,
+    permissionContext,
+    refreshActivePage,
+    renderedPage,
+    roleFocusedShellPage,
+    runtimeLoginLoading,
+    runtimeNotice,
+    setActivePage,
+    setSidebarCollapsed,
+    sidebarCollapsed,
+    switchSeedUser,
+    toast,
+    unhandledTodos,
+  }} />;
 }

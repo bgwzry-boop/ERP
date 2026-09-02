@@ -264,10 +264,12 @@ assert.equal(
 const appSource = [
   fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  fs.readFileSync(new URL("../src/app/OfficeWorkbenchShell.jsx", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
   fs.readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const appViewsSource = fs.readFileSync(new URL("../src/app/AppViews.jsx", import.meta.url), "utf8");
+const officeWorkbenchShellSource = fs.readFileSync(new URL("../src/app/OfficeWorkbenchShell.jsx", import.meta.url), "utf8");
 const appShellViewsSource = fs.readFileSync(new URL("../src/app/AppShellViews.jsx", import.meta.url), "utf8");
 const runtimeAuthBoundarySource = fs.readFileSync(new URL("../src/app/RuntimeAuthBoundary.jsx", import.meta.url), "utf8");
 const runtimeAuthActionsSource = fs.readFileSync(new URL("../src/app/createRuntimeAuthActions.js", import.meta.url), "utf8");
@@ -283,7 +285,7 @@ const sharedStylesSource = fs.readFileSync(new URL("../src/styles/shared.css", i
 const printDocumentStylesSource = fs.readFileSync(new URL("../src/styles/features/print-documents.css", import.meta.url), "utf8");
 const attachmentStylesSource = fs.readFileSync(new URL("../src/styles/features/attachments.css", import.meta.url), "utf8");
 assert.match(appSource, /useOfficeInteractionController\(\{/);
-assert.match(appSource, /from "\.\/app\/AppViews\.jsx"/);
+assert.match(officeWorkbenchShellSource, /from "\.\/AppViews\.jsx"/);
 assert.doesNotMatch(appSource, /const \[toast, setToast\] = useState/);
 assert.doesNotMatch(appSource, /const \[modal, setModal\] = useState/);
 assert.doesNotMatch(appSource, /function confirmModal\(/);

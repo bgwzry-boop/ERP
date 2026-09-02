@@ -9,6 +9,7 @@ const sharedUiSource = read("src/shared/ui/operational.jsx");
 const appSource = [
   read("src/App.jsx"),
   read("src/OfficeWorkbench.jsx"),
+  read("src/app/OfficeWorkbenchShell.jsx"),
   read("src/app/OfficeWorkspacePages.jsx"),
   read("src/app/useOfficeActivePageEffects.js"),
 ].join("\n");
