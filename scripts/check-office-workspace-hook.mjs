@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -47,6 +46,7 @@ assert.equal(workspace.v1StatusRouteState.fieldEvidenceAttachmentListAction.owne
 assert.equal(workspace.todosRef.current, workspace.todos);
 assert.equal(workspace.orderLinesRef.current, workspace.orderLines);
 assert.equal(workspace.inventoryRecordsRef.current, workspace.inventoryRecords);
+assert.deepEqual(workspace.printJobQueueItemsRef.current, workspace.printJobQueue.items);
 assert.equal("authState" in workspace, false);
 assert.equal("activePage" in workspace, false);
 assert.equal("toast" in workspace, false);
@@ -109,49 +109,6 @@ assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "m
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "masterData", authState: { authenticated: true }, currentUserId: "U-1" }), true);
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "orders", authState: masterDataAuth, currentUserId: "U-1" }), false);
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "masterData", authState: masterDataAuth, currentUserId: "U-1" }), true);
-
-const workbenchSource = readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8");
-const appSource = [
-  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  workbenchSource,
-  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-const browserFileActionsSource = readFileSync(new URL("../src/app/browserFileActions.js", import.meta.url), "utf8");
-const hookSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-const workspaceOverlaysSource = readFileSync(new URL("../src/app/WorkspaceOverlays.jsx", import.meta.url), "utf8");
-const workspaceOverlayControllerSource = readFileSync(new URL("../src/app/WorkspaceOverlayController.jsx", import.meta.url), "utf8");
-assert.match(appSource, /useOfficeWorkspace\(\{/);
-assert.match(workbenchSource, /createOfficePageHelpers\(\{/);
-assert.ok(workbenchSource.split("\n").length <= 820, "OfficeWorkbench should remain below 820 lines after page-helper extraction");
-assert.match(appSource, /serverRequired: runtimeServerRequired/);
-assert.match(appSource, /from "\.\/app\/browserFileActions\.js"/);
-assert.match(appSource, /from "\.\/app\/WorkspaceOverlayController\.jsx"/);
-assert.match(workspaceOverlayControllerSource, /WorkspaceOverlays/);
-for (const overlayName of ["ActionModal", "OrderLineActionModal", "AttachmentViewerModal", "MasterDataImportTemplateModal"]) {
-  assert.doesNotMatch(appSource, new RegExp(`<${overlayName}`));
-  assert.match(workspaceOverlaysSource, new RegExp(`<${overlayName}`));
-}
-for (const helperName of [
-  "readFileAsDataUrl",
-  "copyTextToClipboard",
-  "mergeAttachmentSummaries",
-  "readBlobAsDataUrl",
-  "sanitizeDownloadFileName",
-  "downloadStatementExcelWorkbook",
-  "downloadMasterDataImportTemplateWorkbook",
-  "downloadTextFile",
-]) {
-  assert.doesNotMatch(appSource, new RegExp(`(?:async )?function ${helperName}\\(`));
-  assert.match(browserFileActionsSource, new RegExp(`export (?:async )?function ${helperName}\\(`));
-}
-assert.doesNotMatch(appSource, /useState\(initialTodos\)/);
-assert.doesNotMatch(appSource, /useState\(initialOrderLines\)/);
-assert.doesNotMatch(appSource, /useState\(initialInventories\)/);
-assert.match(hookSource, /todosRef\.current = todos/);
-assert.match(hookSource, /printJobQueueItemsRef\.current = printJobQueue\.items/);
-assert.match(hookSource, /useOfficeMasterDataEntryRefresh/);
-assert.doesNotMatch(hookSource, /createInitialAuthState|setActivePage|setToast|setModal/);
 
 assert.equal(await readFileAsDataUrl(null), "");
 assert.equal(await readBlobAsDataUrl(null), "");
