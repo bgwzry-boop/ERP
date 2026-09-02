@@ -7,6 +7,7 @@ import {
   shouldRotateRawMaterialSourcePreview,
   tightenRawMaterialOcrSourceRowBounds,
 } from "../shared/rawMaterialOcrSourceCrop.js";
+import { updateOfficeRawMaterialPurchaseRequestStatus } from "../src/services/officeRawMaterialApiClient.js";
 
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
@@ -15,7 +16,6 @@ const appSource = [
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
 const rawMaterialControllerSource = readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
-const rawMaterialApiClientSource = readFileSync(new URL("../src/services/officeRawMaterialApiClient.js", import.meta.url), "utf8");
 const rawMaterialLocalActionsSource = readFileSync(new URL("../src/domain/rawMaterialInboundLocalActions.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const fixturesSource = readFileSync(new URL("../src/data/fixtures.js", import.meta.url), "utf8");
@@ -43,6 +43,35 @@ const rawMaterialStyleSource = [
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const styleSource = `${roleToolStyleSource}\n${rawMaterialStyleSource}`;
 
+let purchaseStatusRequest;
+const purchaseStatusResult = await updateOfficeRawMaterialPurchaseRequestStatus({
+  operatorId: "U-MANAGER-A",
+  requestId: "RMP-001",
+  expectedRevision: 7,
+  idempotencyKey: "purchase-status-001",
+  status: "approved",
+  reason: "负责人已批准",
+}, {
+  apiBaseUrl: "http://erp.test/api",
+  fetchImpl: async (url, init) => {
+    purchaseStatusRequest = { url, init };
+    return new Response(JSON.stringify({ purchaseRequest: { requestId: "RMP-001", status: "approved" } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  },
+});
+assert.equal(purchaseStatusResult.source, "api");
+assert.equal(purchaseStatusRequest.url, "http://erp.test/api/raw-material-purchase-requests/RMP-001/status");
+assert.equal(purchaseStatusRequest.init.method, "POST");
+assert.equal(purchaseStatusRequest.init.headers["idempotency-key"], "purchase-status-001");
+assert.deepEqual(JSON.parse(purchaseStatusRequest.init.body), {
+  expectedRevision: 7,
+  idempotencyKey: "purchase-status-001",
+  status: "approved",
+  reason: "负责人已批准",
+});
+
 assertIncludes(fixturesSource, "initialRawMaterialInbounds", "fixtures should seed raw-material inbound records");
 assertIncludes(fixturesSource, "已识别待复核", "fixtures should include OCR review state");
 assertIncludes(fixturesSource, "已打印待贴标", "fixtures should include printed-but-not-attached state");
@@ -69,7 +98,6 @@ assertIncludes(rawMaterialControllerSource, "confirmOfficeRawMaterialSupplierSta
 assertIncludes(rawMaterialControllerSource, "generateOfficeRawMaterialSupplierPayableDraft", "raw-material controller should generate supplier payable drafts through API client");
 assertIncludes(rawMaterialControllerSource, "confirmOfficeRawMaterialSupplierPayment", "raw-material controller should confirm supplier payments through API client");
 assertIncludes(rawMaterialControllerSource, "生产/正式后端模式禁止本地降级", "production raw-material actions should fail closed when the API is unavailable");
-assertIncludes(rawMaterialApiClientSource, "body: { expectedRevision, idempotencyKey, status, reason", "purchase status writes should send the frozen version and idempotency key together");
 assertIncludes(rawMaterialLocalActionsSource, "打印只是待贴标状态，不能直接作为可用库存", "print action must not imply available inventory");
 assertIncludes(rawMaterialLocalActionsSource, "贴标确认必须逐卷/逐件进行", "attach action should be required before availability");
 assertIncludes(rawMaterialLocalActionsSource, "机边领料", "raw-material projection should support machine-side issue actions");
