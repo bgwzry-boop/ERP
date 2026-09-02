@@ -12,6 +12,7 @@ import {
   readFileAsDataUrl,
   sanitizeDownloadFileName,
 } from "../src/app/browserFileActions.js";
+import { createOfficePageHelpers } from "../src/app/createOfficePageHelpers.js";
 import { useOfficeWorkspace } from "../src/app/useOfficeWorkspace.js";
 import { shouldRefreshMasterDataOnEntry } from "../src/app/useOfficeMasterDataEntryRefresh.js";
 import { loadOfficeWorkspace } from "../src/services/officeMockService.js";
@@ -72,6 +73,34 @@ for (const key of ["selectedTodoId", "selectedOrderId", "selectedStockId", "sele
 assert.deepEqual(productionWorkspace.productionPacking.productionTasks, []);
 assert.deepEqual(productionWorkspace.driverDeliveryTasks, []);
 
+const pageHelperStubs = {
+  findCustomer: (id) => ({ id, name: "测试客户" }),
+  getOrderFinanceState: () => ({ status: "待收款" }),
+  getStatementBlockingAmount: () => 100,
+  getStatementBucket: () => "current",
+  getStatementDisplayDebt: () => 50,
+  getStatementFinancialSummary: () => ({ receivable: 100 }),
+  orderMatchesFilters: () => true,
+  sortTodos: (items) => items,
+  statementMatchesFilters: () => true,
+};
+const pageHelpers = createOfficePageHelpers({
+  ...pageHelperStubs,
+  currentUser: { userId: "U-OFFICE-A" },
+  customers: [{ id: "C-1", name: "测试客户" }],
+  permissionContext: { actionPermissions: [] },
+  sampleText: "测试订单文本",
+  seedUserOptions: [{ value: "U-OFFICE-A", label: "办公室A" }],
+});
+assert.equal(pageHelpers.findCustomer("C-1").name, "测试客户");
+assert.deepEqual(pageHelpers.getOrderFinanceState(), { status: "待收款" });
+assert.equal(pageHelpers.getStatementBlockingAmount(), 100);
+assert.equal(pageHelpers.orderMatchesFilters(), true);
+assert.equal(pageHelpers.sampleText, "测试订单文本");
+assert.equal(pageHelpers.currentUser.userId, "U-OFFICE-A");
+assert.equal(pageHelpers.buildProductionTaskId({ id: "OL-1" }), "PT-OL-1");
+assert.equal(pageHelpers.sortTodos, pageHelperStubs.sortTodos);
+
 const masterDataEntryRef = { current: null };
 const masterDataAuth = { authenticated: true };
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "todos", authState: masterDataAuth, currentUserId: "U-1" }), false);
@@ -81,9 +110,10 @@ assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "m
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "orders", authState: masterDataAuth, currentUserId: "U-1" }), false);
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "masterData", authState: masterDataAuth, currentUserId: "U-1" }), true);
 
+const workbenchSource = readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8");
 const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
+  workbenchSource,
   readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
 ].join("\n");
@@ -92,6 +122,8 @@ const hookSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", impo
 const workspaceOverlaysSource = readFileSync(new URL("../src/app/WorkspaceOverlays.jsx", import.meta.url), "utf8");
 const workspaceOverlayControllerSource = readFileSync(new URL("../src/app/WorkspaceOverlayController.jsx", import.meta.url), "utf8");
 assert.match(appSource, /useOfficeWorkspace\(\{/);
+assert.match(workbenchSource, /createOfficePageHelpers\(\{/);
+assert.ok(workbenchSource.split("\n").length <= 820, "OfficeWorkbench should remain below 820 lines after page-helper extraction");
 assert.match(appSource, /serverRequired: runtimeServerRequired/);
 assert.match(appSource, /from "\.\/app\/browserFileActions\.js"/);
 assert.match(appSource, /from "\.\/app\/WorkspaceOverlayController\.jsx"/);
