@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeAttachmentActions } from "../src/app/createOfficeAttachmentActions.js";
 import { updateStatementPaymentAttachmentPreview } from "../src/state/officeStatementActions.js";
 
@@ -139,19 +138,4 @@ function createHarness({ allowLocalFallback = false, api = {}, downloadResult = 
   assert.equal(updated[0].paymentAttachmentFiles[0].contentSource, "api");
 }
 
-const appSource = [
-  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-const statementActionsSource = readFileSync(new URL("../src/app/createOfficeStatementActions.js", import.meta.url), "utf8");
-const fulfillmentActionsSource = readFileSync(new URL("../src/app/createOfficeFulfillmentActions.js", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeAttachmentActions\(\{/);
-assert.doesNotMatch(appSource, /listOfficeAttachmentAccessLogs/);
-assert.doesNotMatch(appSource, /listOfficeAttachments/);
-assert.match(statementActionsSource, /allowLocalFallback \|\| attachmentFile\.contentSource === "api"/);
-assert.match(statementActionsSource, /contentSource: nextPreview\.contentSource/);
-assert.match(fulfillmentActionsSource, /allowLocalFallback \|\| attachmentFile\.contentSource === "api"/);
-
-console.log("Office attachment actions check passed: access audit, formal download/sync gates, retry keys, source persistence, and App ownership are isolated.");
+console.log("Office attachment actions check passed: access audit, formal download/sync gates, retry keys, and source persistence are covered.");

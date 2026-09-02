@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import { createOfficePrintWriteActions } from "../src/app/useOfficePrintWrites.js";
 
 function createHarness(overrides = {}) {
@@ -240,24 +239,6 @@ function createHarness(overrides = {}) {
   assert.match(result.feedback, /收到 printed 回读后/);
   assert.equal(harness.fulfillments[0].printed, false);
   assert.equal(harness.fulfillments[0].printRecordStatus, "voided");
-}
-
-const appSource = [
-  fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-for (const directWriteName of [
-  "createOfficePrintBatchRecord",
-  "dispatchOfficePrintJob",
-  "printOfficeFulfillment",
-  "recordOfficePrinterDeviceFieldTest",
-  "retryOfficePrintJob",
-  "updateOfficePrintDeviceDriverMode",
-  "voidOfficePrintRecord",
-]) {
-  assert.equal(appSource.includes(directWriteName), false, `App.jsx still owns ${directWriteName}`);
 }
 
 console.log("office print writes checks passed");

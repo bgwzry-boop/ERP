@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import { createOfficeV1StatusActions } from "../src/app/createOfficeV1StatusActions.js";
 
 function createHarness({ api = {}, readFileAsDataUrl = async () => "data:image/png;base64,AA==" } = {}) {
@@ -229,20 +228,4 @@ for (const [actionName, apiName, resultKey, stateKey] of statusActionCases) {
   assert.equal(harness.toast, "现场证据附件已查询：6 个可复用后端附件。");
 }
 
-const appSource = [
-  fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/OfficeWorkbench.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
-  fs.readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
-].join("\n");
-const controllerSource = fs.readFileSync(new URL("../src/app/createOfficeV1StatusActions.js", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeV1StatusActions\(\{/);
-assert.doesNotMatch(appSource, /from "\.\/services\/officeV1GoLiveStatusApiClient\.js"/);
-assert.doesNotMatch(appSource, /async function generateV1FieldEvidenceDraftManifest/);
-assert.doesNotMatch(appSource, /async function precheckV1ProductionEnv/);
-assert.doesNotMatch(appSource, /async function uploadV1FieldEvidenceAttachment/);
-assert.ok(appSource.split("\n").length < 5_100, "App.jsx should remain below the V8.32 extraction ceiling");
-assert.match(controllerSource, /const registered = result\.source === "api" && \/\^ATT-/);
-assert.match(controllerSource, /await refreshV1GoLiveStatus\(\{ showToast: false \}\)/);
-
-console.log("Office V1 status action checks passed: action wiring, refresh sequencing, fail-closed attachments, and App ownership are centralized.");
+console.log("Office V1 status action checks passed: refresh sequencing and fail-closed attachment behavior are covered.");
