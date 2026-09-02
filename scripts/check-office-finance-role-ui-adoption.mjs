@@ -46,7 +46,13 @@ const mainSource = read("src/main.jsx");
 const componentStyles = read("src/styles/components.css");
 const statementStyles = read("src/styles/features/statements.css");
 const roleStyles = read("src/styles/features/role-tools.css");
-const rawMaterialStyles = `${read("src/styles/features/raw-material.css")}\n${read("src/styles/features/raw-material-color-mapping.css")}`;
+const rawMaterialStyles = [
+  read("src/styles/features/raw-material.css"),
+  read("src/styles/features/raw-material-mobile.css"),
+  read("src/styles/features/raw-material-mobile-atlas.css"),
+  read("src/styles/features/raw-material-print.css"),
+  read("src/styles/features/raw-material-color-mapping.css"),
+].join("\n");
 const masterDataStyles = read("src/styles/features/master-data.css");
 const sharedStyles = read("src/styles/shared.css");
 

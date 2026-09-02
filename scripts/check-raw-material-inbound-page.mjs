@@ -40,8 +40,15 @@ const rawMaterialListStateSource = readFileSync(new URL("../src/domain/rawMateri
 const permissionSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const roleToolStyleSource = readFileSync(new URL("../src/styles/features/role-tools.css", import.meta.url), "utf8");
+const rawMaterialBaseStyleSource = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
+const rawMaterialMobileStyleSource = readFileSync(new URL("../src/styles/features/raw-material-mobile.css", import.meta.url), "utf8");
+const rawMaterialMobileAtlasStyleSource = readFileSync(new URL("../src/styles/features/raw-material-mobile-atlas.css", import.meta.url), "utf8");
+const rawMaterialPrintStyleSource = readFileSync(new URL("../src/styles/features/raw-material-print.css", import.meta.url), "utf8");
 const rawMaterialStyleSource = [
-  readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8"),
+  rawMaterialBaseStyleSource,
+  rawMaterialMobileStyleSource,
+  rawMaterialMobileAtlasStyleSource,
+  rawMaterialPrintStyleSource,
   readFileSync(new URL("../src/styles/features/raw-material-color-mapping.css", import.meta.url), "utf8"),
 ].join("\n");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
@@ -399,7 +406,27 @@ assertIncludes(styleSource, ".supplier-statement-review-list", "styles should co
 assertIncludes(styleSource, ".supplier-statement-review-actions", "styles should cover supplier statement review actions");
 assert.equal(mainSource.includes('import "./styles/features/raw-material.css";'), false, "raw-material styles should not load with the initial shell");
 assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material.css";', "raw-material route should load its styles with the workbench");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-mobile.css";', "raw-material route should load mobile workflow styles with the workbench");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-mobile-atlas.css";', "raw-material route should load approved mobile atlas styles after base mobile styles");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-print.css";', "raw-material route should load roll-label print styles with the workbench");
 assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-color-mapping.css";', "raw-material route should load supplier color maintenance styles with the workbench");
+const rawMaterialRouteStyleImports = [
+  "raw-material.css",
+  "raw-material-mobile.css",
+  "raw-material-mobile-atlas.css",
+  "raw-material-print.css",
+  "raw-material-color-mapping.css",
+];
+for (let index = 1; index < rawMaterialRouteStyleImports.length; index += 1) {
+  assert.ok(
+    rawMaterialRouteSource.indexOf(rawMaterialRouteStyleImports[index - 1]) < rawMaterialRouteSource.indexOf(rawMaterialRouteStyleImports[index]),
+    `${rawMaterialRouteStyleImports[index]} should preserve the original raw-material cascade order`,
+  );
+}
+assert.ok(rawMaterialBaseStyleSource.split("\n").length <= 2300, "raw-material base styles should stay below 2300 lines");
+assert.ok(rawMaterialMobileStyleSource.split("\n").length <= 2700, "raw-material mobile compatibility styles should stay below 2700 lines");
+assert.ok(rawMaterialMobileAtlasStyleSource.split("\n").length <= 1500, "raw-material approved mobile atlas should stay below 1500 lines");
+assert.ok(rawMaterialPrintStyleSource.split("\n").length <= 150, "raw-material label print styles should stay below 150 lines");
 for (const selector of [
   ".raw-material-roll-row",
   ".raw-material-view-tabs",

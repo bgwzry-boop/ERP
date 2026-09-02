@@ -16,6 +16,9 @@ const masterDataRecordSource = readFileSync(new URL("../src/domain/masterDataMai
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 const rawMaterialStylesSource = [
   readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-mobile.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-mobile-atlas.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-print.css", import.meta.url), "utf8"),
   readFileSync(new URL("../src/styles/features/raw-material-color-mapping.css", import.meta.url), "utf8"),
 ].join("\n");
 const masterDataStylesSource = readFileSync(new URL("../src/styles/features/master-data.css", import.meta.url), "utf8");
