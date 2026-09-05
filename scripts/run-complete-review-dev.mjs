@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { assertCompleteReviewStaticIdentity } from "./completeReviewPreviewIdentity.mjs";
+import { buildCompleteReviewApiEnv, buildCompleteReviewFrontendEnv } from "./completeReviewOcrEnv.mjs";
 
 const rootDir = fileURLToPath(new URL("../", import.meta.url));
 const reviewDir = fileURLToPath(new URL("../docs/prototypes/raw-material-roll-inventory-review/", import.meta.url));
@@ -8,13 +9,15 @@ const viteBin = fileURLToPath(new URL("../node_modules/vite/bin/vite.js", import
 const apiEntry = fileURLToPath(new URL("../server/apiServer.mjs", import.meta.url));
 
 await assertCompleteReviewStaticIdentity();
+const apiEnv = buildCompleteReviewApiEnv({ rootDir });
+const frontendEnv = buildCompleteReviewFrontendEnv();
 
 const children = [
-  spawn(process.execPath, [apiEntry, "--mode", "demo"], { cwd: rootDir, stdio: "inherit", env: process.env }),
+  spawn(process.execPath, [apiEntry, "--mode", "demo"], { cwd: rootDir, stdio: "inherit", env: apiEnv }),
   spawn(process.execPath, [viteBin, "--host", "127.0.0.1", "--port", "4174", "--strictPort"], {
     cwd: reviewDir,
     stdio: "inherit",
-    env: process.env,
+    env: frontendEnv,
   }),
 ];
 

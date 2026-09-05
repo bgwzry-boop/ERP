@@ -1,13 +1,12 @@
 import { useCallback } from "react";
-import { printOfficeFulfillment, voidOfficePrintRecord } from "../services/officeFulfillmentApiClient.js";
+import { printOfficeFulfillment, voidOfficePrintRecord } from "../services/officeFulfillmentLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
-import { createOfficePrintBatchRecord } from "../services/officePrintBatchApiClient.js";
-import { dispatchOfficePrintJob, retryOfficePrintJob } from "../services/officePrintJobApiClient.js";
+import { createOfficePrintBatchRecord, dispatchOfficePrintJob, retryOfficePrintJob } from "../services/officePrintLazyApi.js";
 import {
   recordOfficePrinterDeviceFieldTest,
   updateOfficePrintDeviceDriverMode,
-} from "../services/officePrinterDeviceApiClient.js";
-import { handleOfficeTodoAction, handleOfficeTodoBatch } from "../services/officeTodoApiClient.js";
+} from "../services/officePrintLazyApi.js";
+import { handleOfficeTodoAction, handleOfficeTodoBatch } from "../services/officeTodoLazyApi.js";
 import { getFulfillmentDocumentLabel, isPrintTodo, sortTodos } from "../domain/officeRules.js";
 import { applyPrintRecordProjection } from "../state/officeProductionPackingState.js";
 import {

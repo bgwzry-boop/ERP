@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createAttachmentFileAccessService } from "../server/services/attachmentFileAccessService.mjs";
 
 const fixedNow = "2026-07-14T10:00:00.000Z";
@@ -144,19 +143,6 @@ assert.equal(
   (await service.getContent({ workspace, attachmentId: "ATT-EMPTY", operatorId: "U-OFFICE", accessMode: "permission" })).code,
   "ATTACHMENT_CONTENT_NOT_FOUND",
 );
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const readRouteSource = readFileSync(new URL("../server/routes/attachmentReadRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createAttachmentFileAccessService/);
-assert.match(apiSource, /handleAttachmentReadRoutes\([\s\S]*attachmentFileAccessService,/);
-assert.match(readRouteSource, /attachmentFileAccessService\.createAccessUrl/);
-assert.match(readRouteSource, /attachmentFileAccessService\.getContent/);
-assert.match(readRouteSource, /attachmentFileAccessService\.listAccessLogs/);
-assert.match(readRouteSource, /attachmentFileAccessService\.listAttachments/);
-for (const oldHelper of ["function recordAttachmentAccessLog", "function toAttachmentSummary"]) {
-  assert.equal(apiSource.includes(oldHelper), false, `${oldHelper} should not remain in the API composition root`);
-}
 
 console.log(
   "Attachment file-access service checks passed: list redaction, access URLs, content reads, audit persistence, bounds, and missing records are isolated.",

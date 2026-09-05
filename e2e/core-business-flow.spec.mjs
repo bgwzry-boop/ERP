@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { openInternalWorkbench } from "./helpers/openInternalWorkbench.mjs";
 
 const apiBaseUrl = `http://127.0.0.1:${process.env.ERP_E2E_API_PORT ?? 18787}/api`;
 const operatorId = "U-MANAGER-A";
@@ -28,7 +29,7 @@ test("原材料手机四步流程图标一致且逐卷贴标支持无序确认",
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto("/");
+  await openInternalWorkbench(page);
   await switchAccount(page, officeOperatorId);
 
   await expect(page.getByRole("heading", { name: "录原材料", exact: true })).toBeVisible();
@@ -84,35 +85,57 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
   await page.setViewportSize({ width: 1280, height: 844 });
-  await page.goto("/");
+  await openInternalWorkbench(page);
   await switchAccount(page, officeOperatorId);
   await navigateToPage(page, "原材料", "更多工作台");
   await page.setViewportSize({ width: 390, height: 844 });
 
-  await page.getByRole("button", { name: "核对全部卷材", exact: true }).click();
+  let reviewAllRolls = page.getByRole("button", { name: "核对全部卷材", exact: true }).first();
+  if (!(await reviewAllRolls.isVisible().catch(() => false))) {
+    const otherInbounds = page.locator("details.raw-material-mobile-resume-more");
+    await expect(otherInbounds).toBeVisible();
+    await otherInbounds.locator("summary").click();
+    await expect(otherInbounds).toHaveAttribute("open", "");
+    reviewAllRolls = otherInbounds.getByRole("button", { name: /腾胜无纺布.*核对全部卷材/ });
+  }
+  await expect(reviewAllRolls).toBeVisible();
+  await reviewAllRolls.click();
   const review = page.getByRole("region", { name: "全部卷料核对" });
   await expect(review.getByText("识别到 9 卷，共 853.8 kg", { exact: true })).toBeVisible();
   const lineSummaries = review.locator(".raw-material-mobile-review-line-summary");
   await expect(lineSummaries).toHaveCount(9);
-  await expect(lineSummaries.nth(0).locator(".line-color")).toHaveText("本白");
+  await expect(lineSummaries.nth(0).locator(".line-color")).toHaveText("颜色待补");
   await expect(lineSummaries.nth(0).locator(".line-spec")).toHaveText("78克*70宽*2000米");
   await expect(lineSummaries.nth(0).locator(".line-weight")).toHaveText("109.9 kg");
-  await expect(lineSummaries.nth(6).locator(".line-spec")).toHaveText("条类 · 宽幅待确认");
+  await expect(lineSummaries.nth(6).locator(".line-spec")).toHaveText("65克*5宽");
   await expect(lineSummaries.nth(8).locator(".line-weight")).toHaveText("92 kg");
   await expect(review.getByRole("textbox", { name: "第 1 卷颜色", exact: true })).not.toBeVisible();
   await expect(review.getByLabel("供应商 OCR 复核值", { exact: true })).not.toBeVisible();
   await expect(review.getByRole("button", { name: "已确认 0/9 · 进入打印", exact: true })).toBeDisabled();
 
+  const newSupplierRules = new Map([[0, "白色"], [3, "枣红"], [4, "红色"]]);
   for (let index = 0; index < 9; index += 1) {
-    await lineSummaries.nth(index).getByRole("button").click();
+    await lineSummaries.nth(index).locator(".line-edit").click();
     if (index === 0) {
-      await expect(review.getByRole("textbox", { name: "第 1 卷颜色", exact: true })).toHaveValue("本白");
+      await expect(review.getByRole("combobox", { name: "第 1 卷厂内标准色", exact: true })).toHaveCount(0);
       await expect(review.getByRole("textbox", { name: "第 1 卷规格 / 宽幅", exact: true })).toHaveValue("78克*70宽*2000米");
-      await expect(review.getByRole("spinbutton", { name: "第 1 卷重量 kg", exact: true })).toHaveValue("109.9");
+      await expect(review.getByRole("spinbutton", { name: "第 1 卷本卷重量 kg", exact: true })).toHaveValue("109.9");
     }
     if (index === 6) {
-      await expect(review.getByRole("textbox", { name: "第 7 卷规格 / 宽幅", exact: true })).toHaveValue("78克*5宽*1500米");
+      await expect(review.getByRole("textbox", { name: "第 7 卷规格 / 宽幅", exact: true })).toHaveValue("65*5");
     }
+    if (newSupplierRules.has(index)) {
+      await review.getByRole("button", { name: "建立一次规则，以后自动", exact: true }).click();
+      const mapping = page.getByRole("dialog", { name: "厂家颜色资料", exact: true });
+      await mapping.getByLabel("厂内标准色").fill(newSupplierRules.get(index));
+      const [savedRule] = await Promise.all([
+        page.waitForResponse((response) => response.request().method() === "POST" && response.url().endsWith("/master-data/raw-material-supplier-colors")),
+        mapping.getByRole("button", { name: "保存规则", exact: true }).click(),
+      ]);
+      expect(savedRule.ok()).toBe(true);
+      await expect(mapping).toHaveCount(0);
+    }
+    await expect(review.getByRole("button", { name: "这卷正确", exact: true })).toBeEnabled();
     await review.getByRole("button", { name: "这卷正确", exact: true }).click();
   }
   const submitReview = review.getByRole("button", { name: "确认送货单（9/9）", exact: true });
@@ -131,19 +154,92 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
   await expect(page.getByRole("heading", { name: "录原材料", exact: true })).toBeVisible();
   const receivingProgress = page.getByRole("list", { name: "原材料收货进度" });
   await expect(receivingProgress.locator("li").filter({ hasText: "核对" })).toHaveClass(/done/);
-  await expect(receivingProgress.locator("li").filter({ hasText: "打印" })).toHaveClass(/active/);
-  const printStep = page.getByRole("region", { name: "卷标打印设置" });
-  await expect(printStep).toBeVisible();
-  await expect(printStep).toContainText("9 张不同卷标");
-  await expect(printStep.locator(".raw-material-mobile-print-list > div")).toHaveCount(9);
-  const printStepBox = await printStep.boundingBox();
-  expect(printStepBox?.y ?? Number.POSITIVE_INFINITY).toBeGreaterThanOrEqual(0);
-  expect(printStepBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(844);
+  await expect(receivingProgress.locator("li").filter({ hasText: "打印" })).toHaveClass(/done/);
+  await expect(receivingProgress.locator("li").filter({ hasText: "贴标" })).toHaveClass(/active/);
+  const labelDeferred = page.getByRole("region", { name: "卷标待补打" });
+  await expect(labelDeferred).toBeVisible();
+  await expect(labelDeferred).toContainText("9 卷已保存，标签待补打");
+  await expect(labelDeferred).toContainText("补打并贴标核对前不可领料");
+  const labelDeferredBox = await labelDeferred.boundingBox();
+  expect(labelDeferredBox?.y ?? Number.POSITIVE_INFINITY).toBeGreaterThanOrEqual(0);
+  expect(labelDeferredBox?.y ?? Number.POSITIVE_INFINITY).toBeLessThan(844);
 
   for (const width of [360, 390, 412]) {
     await page.setViewportSize({ width, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(width);
   }
+  expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
+});
+
+test("司机送达写入必须经过可访问确认并可返回修改", async ({ page }) => {
+  const browserErrors = [];
+  page.on("console", (message) => {
+    if (message.type() === "error") browserErrors.push(message.text());
+  });
+  page.on("pageerror", (error) => browserErrors.push(error.message));
+
+  await page.route("**/api/driver/delivery-tasks**", async (route) => {
+    if (route.request().method() !== "GET") return route.continue();
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        items: [{
+          fulfillmentId: "F-E2E-DELIVERY-CONFIRM",
+          driverTaskId: "DT-E2E-DELIVERY-CONFIRM",
+          driverId: "U-DRIVER-A",
+          orderLineId: "ORD-E2E-DELIVERY-01",
+          customerName: "送达确认测试客户",
+          address: "测试工业园 1 号",
+          addressArea: "测试园区",
+          deliveryNoteNo: "DN-E2E-DELIVERY-01",
+          goodsSummary: "测试袋 100 个",
+          packageSummary: "1包",
+          packageCount: 1,
+          qty: 100,
+          expectedQty: 100,
+          status: "配送中",
+          watermarkedPhotoAttached: true,
+          watermarkedPhotoAttachmentId: "ATT-E2E-WATERMARK",
+          routeDate: "2026-09-02",
+          routeNo: "R-E2E-01",
+          routeSequence: 1,
+        }],
+        total: 1,
+      }),
+    });
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await openInternalWorkbench(page);
+  await switchAccount(page, "U-DRIVER-A");
+
+  const mobileNavigation = page.getByRole("navigation", { name: "司机手机导航" });
+  await mobileNavigation.getByRole("button", { name: /待处理/ }).click();
+  const statusTabs = page.getByRole("tablist", { name: "司机任务状态" });
+  await statusTabs.getByRole("tab", { name: "配送中", exact: true }).click();
+  const taskList = page.getByRole("region", { name: "司机送货任务列表" });
+  await taskList.getByRole("button", { name: /送达确认测试客户/ }).click();
+
+  const detailTabs = page.getByRole("tablist", { name: "司机任务详情" });
+  await detailTabs.getByRole("tab", { name: "送达", exact: true }).click();
+  const submit = page.getByRole("button", { name: "提交送达", exact: true });
+  await expect(submit).toBeEnabled();
+  await submit.click();
+
+  const confirmation = page.getByRole("region", { name: "确认提交送达" });
+  await expect(confirmation).toBeVisible();
+  await expect(confirmation).toBeFocused();
+  await expect(confirmation).toHaveAttribute("aria-live", "assertive");
+  await expect(confirmation).toContainText("实际数量100 个");
+  await expect(confirmation).toContainText("水印照片已准备");
+  await expect(confirmation).toContainText("任务将标记为已完成");
+  await expect(confirmation.getByRole("button", { name: "确认提交送达", exact: true })).toBeVisible();
+
+  await confirmation.press("Escape");
+  await expect(confirmation).toHaveCount(0);
+  await expect(page.getByRole("spinbutton", { name: "实际数量" })).toHaveValue("100");
+  await expect(submit).toBeFocused();
   expect(browserErrors, `浏览器控制台不应出现错误：\n${browserErrors.join("\n")}`).toEqual([]);
 });
 
@@ -154,7 +250,7 @@ test("默认公共待办引用真实业务并可打开保存草稿", async ({ pa
   });
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
-  await page.goto("/");
+  await openInternalWorkbench(page);
   await switchAccount(page, operatorId);
   const todoResponse = await apiGet(request, "/todos?status=open&pageSize=200");
   expect(todoResponse.items).toHaveLength(8);
@@ -221,7 +317,7 @@ test("订单录入危险操作确认可取消且已保存后修改原文仍阻�
   });
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
-  await page.goto("/");
+  await openInternalWorkbench(page);
   await switchAccount(page, operatorId);
   await navigateToPage(page, "订单录入", "订单");
   await expect(page.getByRole("heading", { name: "订单录入" })).toBeVisible();
@@ -266,7 +362,7 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   });
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
-  await page.goto("/");
+  await openInternalWorkbench(page);
   await switchAccount(page, operatorId);
   await navigateToPage(page, "订单录入", "订单");
   await expect(page.getByRole("heading", { name: "订单录入" })).toBeVisible();
@@ -396,7 +492,7 @@ test("定制印刷订单按岗位交接完成生产、可信打印、快运和�
     }
   });
 
-  await page.goto("/");
+  await openInternalWorkbench(page);
   await switchAccount(page, operatorId);
   await navigateToPage(page, "订单录入", "订单");
   const orderLinesBeforeConfirmation = await apiGet(request, "/order-lines?page=1&pageSize=200");

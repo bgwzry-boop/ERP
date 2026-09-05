@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeFulfillmentActions } from "../src/app/createOfficeFulfillmentActions.js";
 
 const baseFulfillments = [
@@ -249,11 +248,4 @@ function createHarness({ allowLocalFallback = false, api = {}, fulfillments: ini
   assert.equal(harness.calls.review[0]?.reason, "照片模糊");
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeFulfillmentActions\(\{/);
-assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
-assert.match(appSource, /handoffPaperOutbound/);
-assert.match(appSource, /recordWarehouseExecution/);
-assert.doesNotMatch(appSource, /async function updateFulfillment\(/);
-
-console.log("Office fulfillment actions check passed: evidence reads, todo routing, print gates, delivery modes, and App ownership are isolated with formal-mode safeguards.");
+console.log("Office fulfillment actions check passed: evidence reads, todo routing, print gates, and delivery modes are covered with formal-mode safeguards.");

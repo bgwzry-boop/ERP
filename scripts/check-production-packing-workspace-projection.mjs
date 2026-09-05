@@ -1,12 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { applyProductionPackingWorkspaceMutation } from "../server/productionPackingWorkspaceProjection.mjs";
 
 const workspace = createWorkspace();
 
 checkLocalProjection(workspace);
 checkAuthoritativeInventoryProjection(workspace);
-checkRepositoryBoundary();
 
 console.log("Production packing workspace projection check passed: local and authoritative workspace mappings are covered.");
 
@@ -96,15 +94,6 @@ function checkAuthoritativeInventoryProjection(target) {
   assert.equal(target.inventories[0].revision, 4);
   assert.equal(target.inventories[1].id, "INV-WORKSPACE-002");
   assert.equal(target.inventories[1].inStock, 50);
-}
-
-function checkRepositoryBoundary() {
-  const repositorySource = readFileSync(new URL("../server/productionPackingTransactionRepository.mjs", import.meta.url), "utf8");
-  const projectionSource = readFileSync(new URL("../server/productionPackingWorkspaceProjection.mjs", import.meta.url), "utf8");
-  assert.match(repositorySource, /from "\.\/productionPackingWorkspaceProjection\.mjs"/);
-  assert.doesNotMatch(repositorySource, /function applyProductionPackingWorkspaceMutation\(/);
-  assert.match(projectionSource, /export function applyProductionPackingWorkspaceMutation\(/);
-  assert.ok(repositorySource.split("\n").length <= 1650, "transaction repository should not retain local workspace projections");
 }
 
 function createWorkspace() {

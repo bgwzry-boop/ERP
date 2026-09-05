@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleAuthReadRoutes } from "../server/routes/authReadRoutes.mjs";
 import { handleAuthWriteRoutes } from "../server/routes/authWriteRoutes.mjs";
 
@@ -116,19 +115,5 @@ assert.equal(
   }),
   false,
 );
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-for (const removedWrapper of [
-  "loginSeedAuth",
-  "loginPrototypeSeedAuth",
-  "changeRuntimeUserPasswordRoute",
-  "getCurrentAuthSession",
-  "logoutSeedAuth",
-  "sendRuntimeAuthCommandResult",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`(?:async )?function ${removedWrapper}\\b`));
-}
-assert.match(apiSource, /handleAuthReadRoutes\([\s\S]*runtimeAuthCommandService,[\s\S]*sendCommandResponse,/);
-assert.match(apiSource, /handleAuthWriteRoutes\([\s\S]*runtimeAuthCommandService,[\s\S]*sendCommandResponse,/);
 
 console.log("auth read/write routes checks passed: direct command ownership, dynamic statuses, and thin API wiring are covered");

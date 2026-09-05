@@ -1,0 +1,15 @@
+.raw-material-workbench {
+  grid-template-columns: minmax(0, 1.62fr) minmax(420px, 1fr) !important;
+  gap: 10px;
+  overflow: hidden;
+}
+
+.raw-material-workbench.is-roll-inventory-view {
+  grid-template-columns: minmax(0, 1fr) !important;
+}
+
+.raw-material-workbench.is-roll-inventory-view > .raw-material-list-panel,
+.raw-material-workbench.is-roll-inventory-view > .raw-material-detail-pane,
+.raw-material-workbench.is-receiving-view > .raw-material-roll-inventory {
+  display: none;
+}

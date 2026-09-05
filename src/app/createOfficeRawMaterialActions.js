@@ -6,11 +6,14 @@ import {
   generateOfficeRawMaterialSupplierPayableDraft,
   recognizeOfficeRawMaterialDeliveryNote,
   updateOfficeRawMaterialInboundAction,
-} from "../services/officeRawMaterialApiClient.js";
-import {
-  applyRawMaterialInboundLocalAction,
-  buildRawMaterialInboundToastText,
-} from "../domain/rawMaterialInboundLocalActions.js";
+} from "../services/officeRawMaterialLazyApi.js";
+
+let rawMaterialInboundLocalActionsPromise;
+
+function loadRawMaterialInboundLocalActions() {
+  rawMaterialInboundLocalActionsPromise ??= import("../domain/rawMaterialInboundLocalActions.js");
+  return rawMaterialInboundLocalActionsPromise;
+}
 
 const defaultApi = {
   confirmOfficeRawMaterialSupplierPayment,
@@ -66,6 +69,7 @@ export function createOfficeRawMaterialActions({
       useNewModel: false,
       pages: Array.isArray(file.pages) ? file.pages : undefined,
       onProgress: file.onProgress,
+      signal: file.signal,
       duplicateConfirmationToken: file.duplicateConfirmationToken,
       ocrJobId: file.ocrJobId,
     });
@@ -92,6 +96,7 @@ export function createOfficeRawMaterialActions({
         ocrJobId: result.error.details.jobId,
       });
     }
+    if (result.cancelled) return null;
     if (result.blocked || !result.inbound?.id) {
       const message = result.error?.message ?? "原材料送货单 OCR 识别失败。";
       setRawMaterialInboundMeta((current) => ({
@@ -132,13 +137,22 @@ export function createOfficeRawMaterialActions({
       return null;
     }
     const actionAt = now();
+    const {
+      applyRawMaterialInboundLocalAction,
+      buildRawMaterialInboundToastText,
+    } = await loadRawMaterialInboundLocalActions();
     const toastText = buildRawMaterialInboundToastText(action, target, options);
     const result = await api.updateOfficeRawMaterialInboundAction({
       authState,
       operatorId: currentUserId,
       operatorName: operatorName(),
       inboundId,
-      expectedRevision: Number(target.revision ?? 0),
+      // A follow-up write in the same UI interaction (for example, reviewing
+      // OCR then deferring labels) must use the version returned by the first
+      // write. React state has not necessarily committed by then, so relying
+      // only on the ref here would submit the old version and cause a false
+      // optimistic-lock conflict.
+      expectedRevision: Number(options.expectedRevision ?? target.revision ?? 0),
       action,
       rollId: options.rollId,
       sourceReturnInboundId: options.sourceReturnInboundId,

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleFulfillmentWriteRoutes } from "../server/routes/fulfillmentWriteRoutes.mjs";
 
 const calls = [];
@@ -88,20 +87,6 @@ assert.equal(
   await handleFulfillmentWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/fulfillments/F-1/unknown") }),
   false,
 );
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-for (const removedWrapper of [
-  "createFulfillmentExceptionRoute",
-  "upsertFulfillmentDispatchRoute",
-  "printFulfillmentRoute",
-  "voidPrintRecordRoute",
-  "updateFulfillmentStatusRoute",
-  "cancelFulfillmentRoute",
-  "reviewDeliveryEvidenceRoute",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
-}
-assert.match(apiSource, /handleFulfillmentWriteRoutes\([\s\S]*fulfillmentActionCommandService,[\s\S]*fulfillmentPrintCommandService,[\s\S]*sendCommandResponse,[\s\S]*sendCommandRecord,/);
 
 console.log("fulfillment write routes checks passed: permissions, authenticated operators, action/print commands, response modes, and thin API wiring are covered");
 

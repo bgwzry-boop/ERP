@@ -1,7 +1,7 @@
 import {
   buildPackingTaskId,
   buildProductionTaskId,
-} from "../services/officeProductionPackingApiClient.js";
+} from "../services/officeProductionPackingSelectors.js";
 import { getProductionPackingFocusFromLedgerEntry } from "../domain/productionPackingSourceFocus.js";
 
 const fulfillmentSourceTypes = new Set([

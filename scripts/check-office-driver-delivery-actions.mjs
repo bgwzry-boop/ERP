@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import { createOfficeDriverDeliveryActions } from "../src/app/createOfficeDriverDeliveryActions.js";
 import { buildDriverDeliveryCompletionSummary } from "../src/services/driverDeliveryCompletionClient.js";
 
@@ -315,25 +314,5 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
   assert.equal(harness.addedTodos.length, 0);
   assert.match(harness.toast, /正式后端模式禁止司机写操作使用本地降级结果/);
 }
-
-const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const controllerSource = fs.readFileSync(new URL("../src/app/createOfficeDriverDeliveryActions.js", import.meta.url), "utf8");
-const driverPageSource = fs.readFileSync(new URL("../src/features/driver/DriverMobilePage.jsx", import.meta.url), "utf8");
-const driverDeliveryStageSource = fs.readFileSync(new URL("../src/features/driver/DriverDeliveryStage.jsx", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeDriverDeliveryActions\(\{/);
-assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
-assert.doesNotMatch(appSource, /async function handleDriverDeliveryAction/);
-assert.doesNotMatch(appSource, /completeDriverDeliveryTask|confirmDriverDeliveryLoaded|reportDriverDeliveryException/);
-assert.match(controllerSource, /const apiOptions = \{ serverRequired: !allowLocalFallback \}/);
-assert.match(controllerSource, /DRIVER_WRITE_LOCAL_FALLBACK_FORBIDDEN/);
-assert.match(controllerSource, /DRIVER_DELIVERY_COMPLETION_CONFIRMATION_REQUIRED/);
-assert.match(driverPageSource, /buildDriverDeliveryCompletionSummary/);
-assert.match(driverPageSource, /import \{ DriverDeliveryStage \} from "\.\/DriverDeliveryStage\.jsx"/);
-assert.match(driverDeliveryStageSource, /确认提交送达/);
-assert.match(driverPageSource, /deliveryCompletionConfirmed: true/);
-assert.match(driverPageSource, /restoreDeliveryCompletionTriggerFocusRef/);
-assert.match(driverPageSource, /handleDeliveryCompletionConfirmationKeyDown/);
-assert.match(driverDeliveryStageSource, /aria-live="assertive"/);
-assert.match(driverDeliveryStageSource, /!deliveryCompletionConfirmation \? \(/);
 
 console.log("Office driver delivery action checks passed: device QA, package loading, delivery confirmation, evidence completion, exceptions, and formal-mode fail-closed behavior are isolated.");

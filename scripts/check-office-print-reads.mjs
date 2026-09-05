@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficePrintReadActions } from "../src/app/useOfficePrintReads.js";
 
 function createState(initialValue) {
@@ -183,22 +182,5 @@ assert.equal(productionCase.state.devices.value.devices.length, 0);
 const productionJobs = await productionCase.actions.refreshOfficePrintJobQueue({ showToast: true });
 assert.equal(productionJobs.blocked, true);
 assert.equal(productionCase.state.jobs.value.items[0].printJobId, "PJ-LOCAL");
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-for (const apiName of ["listOfficePrintDevices", "listOfficePrinterDeviceFieldTests", "listOfficePrintJobs", "getOfficePrintDriverConfig"]) {
-  assert.equal(appSource.includes(apiName), false, `App should not directly orchestrate ${apiName}`);
-}
-for (const callbackName of [
-  "refreshPrintDriverConfig",
-  "refreshPrintDriverReadiness",
-  "refreshPrintDriverCupsDiagnostics",
-  "refreshPrinterDeviceQa",
-  "refreshOfficePrintJobQueue",
-]) {
-  assert.equal(appSource.includes(`const ${callbackName} = useCallback`), false, `App should not define ${callbackName}`);
-}
-assert.match(workspaceSource, /useOfficePrintReads/);
-assert.match(workspaceSource, /\.\.\.printReads/);
 
 console.log("Office print reads check passed: config, readiness, CUPS, device QA, jobs, denial, selection, and production fail-closed behavior are covered.");

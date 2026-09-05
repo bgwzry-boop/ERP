@@ -232,6 +232,33 @@ export function getDefaultNavigationPage(permissionContext = {}) {
   return roleBoundaryPage.key;
 }
 
+export function getMobileRoleTitle(pageKey, currentUser = {}) {
+  if (pageKey === "attendanceMobile") return "我的考勤";
+  if (pageKey === "officeMobile" || pageKey === "rawMaterials") return "办公室手机";
+  if (pageKey === "driverMobile") return "司机任务";
+  if (pageKey === "warehouseMobile") return "成品库房任务";
+  if (pageKey === "rawMaterialScanner") return "原材料扫码出库";
+  if (pageKey === "decisionMobile") return "经营决策";
+  if (pageKey === "maintenanceMobile") return "设备机修";
+  if (pageKey === desktopRequiredMobilePage.key) return "电脑端岗位";
+  if (pageKey === roleBoundaryPage.key) {
+    return currentUser.defaultRole === "warehouse" ? "纸质出库说明" : "岗位说明";
+  }
+  if (currentUser.defaultRole === "packing") return "打包任务";
+  if (String(currentUser.defaultMachineId || "").startsWith("PRINT-")) return "丝印任务";
+  return "制袋任务";
+}
+
+export function getMobileRoleHomePage(currentUser = {}) {
+  if (currentUser.defaultRole === "office") return "rawMaterials";
+  if (currentUser.defaultRole === "decision_maker") return "decisionMobile";
+  if (currentUser.defaultRole === "maintenance") return "maintenanceMobile";
+  if (currentUser.defaultRole === "warehouse") return "warehouseMobile";
+  if (currentUser.defaultRole === "driver") return "driverMobile";
+  if (currentUser.defaultRole === "workshop" || currentUser.defaultRole === "packing") return "workshopMobile";
+  return desktopRequiredMobilePage.key;
+}
+
 export function isNavigationPageVisible(pageKey, permissionContext = {}) {
   if (pageKey === roleBoundaryPage.key) return getVisibleNavigationItems(permissionContext).length === 0;
   return getVisibleNavigationItems(permissionContext).some((item) => item.key === pageKey);

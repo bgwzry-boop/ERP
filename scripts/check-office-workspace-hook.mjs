@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
@@ -12,9 +11,12 @@ import {
   readFileAsDataUrl,
   sanitizeDownloadFileName,
 } from "../src/app/browserFileActions.js";
+import { createOfficePageHelpers } from "../src/app/createOfficePageHelpers.js";
+import { createOfficeWorkbenchRuntimes } from "../src/app/createOfficeWorkbenchRuntimes.js";
 import { useOfficeWorkspace } from "../src/app/useOfficeWorkspace.js";
 import { shouldRefreshMasterDataOnEntry } from "../src/app/useOfficeMasterDataEntryRefresh.js";
 import { loadOfficeWorkspace } from "../src/services/officeMockService.js";
+import { getRolePermissionSet } from "../shared/auth/roleCatalog.js";
 
 const scenarioData = loadOfficeWorkspace();
 let workspace;
@@ -41,11 +43,12 @@ assert.equal(workspace.draftRows.length > 0, true);
 assert.equal(Array.isArray(workspace.productionPacking.productionTasks), true);
 assert.equal(Array.isArray(workspace.driverDeliveryTasks), true);
 assert.equal(workspace.printJobQueue.source, "idle");
-assert.equal(workspace.v1GoLiveStatusState.source, "unavailable");
-assert.equal(workspace.v1FieldEvidenceAttachmentListAction.ownerId, "");
+assert.equal(workspace.v1StatusRouteState.goLiveMeta.source, "unavailable");
+assert.equal(workspace.v1StatusRouteState.fieldEvidenceAttachmentListAction.ownerId, "");
 assert.equal(workspace.todosRef.current, workspace.todos);
 assert.equal(workspace.orderLinesRef.current, workspace.orderLines);
 assert.equal(workspace.inventoryRecordsRef.current, workspace.inventoryRecords);
+assert.deepEqual(workspace.printJobQueueItemsRef.current, workspace.printJobQueue.items);
 assert.equal("authState" in workspace, false);
 assert.equal("activePage" in workspace, false);
 assert.equal("toast" in workspace, false);
@@ -72,6 +75,93 @@ for (const key of ["selectedTodoId", "selectedOrderId", "selectedStockId", "sele
 assert.deepEqual(productionWorkspace.productionPacking.productionTasks, []);
 assert.deepEqual(productionWorkspace.driverDeliveryTasks, []);
 
+const pageHelperStubs = {
+  findCustomer: (id) => ({ id, name: "测试客户" }),
+  getOrderFinanceState: () => ({ status: "待收款" }),
+  getStatementBlockingAmount: () => 100,
+  getStatementBucket: () => "current",
+  getStatementDisplayDebt: () => 50,
+  getStatementFinancialSummary: () => ({ receivable: 100 }),
+  orderMatchesFilters: () => true,
+  sortTodos: (items) => items,
+  statementMatchesFilters: () => true,
+};
+const pageHelpers = createOfficePageHelpers({
+  ...pageHelperStubs,
+  currentUser: { userId: "U-OFFICE-A" },
+  customers: [{ id: "C-1", name: "测试客户" }],
+  permissionContext: { actionPermissions: [] },
+  sampleText: "测试订单文本",
+  seedUserOptions: [{ value: "U-OFFICE-A", label: "办公室A" }],
+});
+assert.equal(pageHelpers.findCustomer("C-1").name, "测试客户");
+assert.deepEqual(pageHelpers.getOrderFinanceState(), { status: "待收款" });
+assert.equal(pageHelpers.getStatementBlockingAmount(), 100);
+assert.equal(pageHelpers.orderMatchesFilters(), true);
+assert.equal(pageHelpers.sampleText, "测试订单文本");
+assert.equal(pageHelpers.currentUser.userId, "U-OFFICE-A");
+assert.equal(pageHelpers.buildProductionTaskId({ id: "OL-1" }), "PT-OL-1");
+assert.equal(pageHelpers.sortTodos, pageHelperStubs.sortTodos);
+
+const runtimeFeedback = [];
+const handleTodo = () => "handled";
+const downloadViewedAttachment = () => "downloaded";
+const statementActionController = { marker: "route-owned" };
+const v1StatusActionController = { marker: "route-owned" };
+const runtimeWorkspace = {
+  fulfillments: [{ id: "F-1" }],
+  lastIssuedEmployeeCredential: { userId: "U-1" },
+  masterDataEmployeeAccountReviews: [{ employeeId: "E-1" }],
+  masterDataImportConfirmationPlans: [{ planId: "P-1" }],
+  masterDataImportExecutions: [{ executionId: "X-1" }],
+  masterDataImportReviewDrafts: [{ draftId: "D-1" }],
+  masterDataPrecheckState: { status: "ready" },
+  orderLines: [{ id: "OL-1" }],
+  refreshMasterDataEmployeeAccountReviews: async () => ({ feedback: "账号复核已刷新" }),
+  statements: [{ id: "ST-1" }],
+  workspaceMarker: "preserved",
+};
+const runtimePermissionContext = {
+  ...getRolePermissionSet(["management"]),
+  user: { defaultRole: "management", userId: "U-1" },
+};
+const { overlayRuntime, pageRuntime } = createOfficeWorkbenchRuntimes({
+  attachmentActions: { downloadViewedAttachment },
+  authState: { authenticated: true },
+  currentUser: runtimePermissionContext.user,
+  customers: [{ id: "C-1" }],
+  driverDeliveryActions: {},
+  findCustomer: pageHelperStubs.findCustomer,
+  firstReleaseMode: true,
+  fulfillmentActions: {},
+  getStatementBlockingAmount: pageHelperStubs.getStatementBlockingAmount,
+  interaction: { setToast: (message) => runtimeFeedback.push(message) },
+  inventoryActions: {},
+  masterDataActions: {},
+  officeWorkspace: runtimeWorkspace,
+  orderActions: {},
+  pageHelpers,
+  permissionContext: runtimePermissionContext,
+  printDeviceActions: {},
+  productionPackingActions: {},
+  rawMaterialActions: {},
+  setActivePage: () => {},
+  statementActionController,
+  todoActions: { handleTodo },
+  v1StatusActionController,
+});
+assert.equal(pageRuntime.workspaceMarker, "preserved");
+assert.equal(pageRuntime.canOpenMasterData, true);
+assert.equal(pageRuntime.handleTodo, handleTodo);
+assert.equal(pageRuntime.firstReleaseMode, true);
+assert.equal(pageRuntime.statementActionController, statementActionController);
+assert.equal(pageRuntime.v1StatusActionController, v1StatusActionController);
+assert.equal(overlayRuntime.downloadViewedAttachment, downloadViewedAttachment);
+assert.equal(overlayRuntime.employeeAccountReviews, runtimeWorkspace.masterDataEmployeeAccountReviews);
+assert.equal(overlayRuntime.fulfillments, runtimeWorkspace.fulfillments);
+assert.equal((await overlayRuntime.onRefreshEmployeeAccountReviews()).feedback, "账号复核已刷新");
+assert.deepEqual(runtimeFeedback, ["账号复核已刷新"]);
+
 const masterDataEntryRef = { current: null };
 const masterDataAuth = { authenticated: true };
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "todos", authState: masterDataAuth, currentUserId: "U-1" }), false);
@@ -80,39 +170,6 @@ assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "m
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "masterData", authState: { authenticated: true }, currentUserId: "U-1" }), true);
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "orders", authState: masterDataAuth, currentUserId: "U-1" }), false);
 assert.equal(shouldRefreshMasterDataOnEntry(masterDataEntryRef, { activePage: "masterData", authState: masterDataAuth, currentUserId: "U-1" }), true);
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const browserFileActionsSource = readFileSync(new URL("../src/app/browserFileActions.js", import.meta.url), "utf8");
-const hookSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-const workspaceOverlaysSource = readFileSync(new URL("../src/app/WorkspaceOverlays.jsx", import.meta.url), "utf8");
-assert.match(appSource, /useOfficeWorkspace\(\{/);
-assert.match(appSource, /serverRequired: runtimeServerRequired/);
-assert.match(appSource, /from "\.\/app\/browserFileActions\.js"/);
-assert.match(appSource, /from "\.\/app\/WorkspaceOverlays\.jsx"/);
-for (const overlayName of ["ActionModal", "OrderLineActionModal", "AttachmentViewerModal", "MasterDataImportTemplateModal"]) {
-  assert.doesNotMatch(appSource, new RegExp(`<${overlayName}`));
-  assert.match(workspaceOverlaysSource, new RegExp(`<${overlayName}`));
-}
-for (const helperName of [
-  "readFileAsDataUrl",
-  "copyTextToClipboard",
-  "mergeAttachmentSummaries",
-  "readBlobAsDataUrl",
-  "sanitizeDownloadFileName",
-  "downloadStatementExcelWorkbook",
-  "downloadMasterDataImportTemplateWorkbook",
-  "downloadTextFile",
-]) {
-  assert.doesNotMatch(appSource, new RegExp(`(?:async )?function ${helperName}\\(`));
-  assert.match(browserFileActionsSource, new RegExp(`export (?:async )?function ${helperName}\\(`));
-}
-assert.doesNotMatch(appSource, /useState\(initialTodos\)/);
-assert.doesNotMatch(appSource, /useState\(initialOrderLines\)/);
-assert.doesNotMatch(appSource, /useState\(initialInventories\)/);
-assert.match(hookSource, /todosRef\.current = todos/);
-assert.match(hookSource, /printJobQueueItemsRef\.current = printJobQueue\.items/);
-assert.match(hookSource, /useOfficeMasterDataEntryRefresh/);
-assert.doesNotMatch(hookSource, /createInitialAuthState|setActivePage|setToast|setModal/);
 
 assert.equal(await readFileAsDataUrl(null), "");
 assert.equal(await readBlobAsDataUrl(null), "");

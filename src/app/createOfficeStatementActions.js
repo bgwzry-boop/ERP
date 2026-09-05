@@ -1,5 +1,5 @@
 import { isInlineImageAttachment } from "./attachmentViewUtils.js";
-import { downloadOfficeAttachmentContent as downloadOfficeAttachmentContentDefault } from "../services/officeAttachmentApiClient.js";
+import { downloadOfficeAttachmentContent as downloadOfficeAttachmentContentDefault } from "../services/officeAttachmentLazyApi.js";
 import {
   buildStatementExcelWorkbook,
   downloadOfficeStatementExport as downloadOfficeStatementExportDefault,
@@ -9,11 +9,11 @@ import {
   previewOfficeStatement as previewOfficeStatementDefault,
   recordOfficeStatementSendReceipt as recordOfficeStatementSendReceiptDefault,
   writeOffOfficeStatement as writeOffOfficeStatementDefault,
-} from "../services/officeStatementApiClient.js";
+} from "../services/officeStatementLazyApi.js";
 import {
   confirmOfficeStatementWriteOff,
   markOfficeStatementSent,
-} from "../services/officeMockService.js";
+} from "../services/officeLocalActions.js";
 import {
   getStatementWriteOffBlocker,
   recordStatementSendReceipt,
@@ -403,7 +403,7 @@ export function createOfficeStatementActions({
       const workbookContent =
         exportResult.source === "api"
           ? exportResult.workbookData
-          : buildStatementExcelWorkbook(apiResult.preview, { statement: selected, customer });
+          : await buildStatementExcelWorkbook(apiResult.preview, { statement: selected, customer });
       const downloaded = downloadStatementExcelWorkbook(workbookContent, selected, customer, {
         fileName: exportResult.fileName,
         contentType: exportResult.contentType,

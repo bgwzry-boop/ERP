@@ -1,7 +1,74 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeAttachmentActions } from "../src/app/createOfficeAttachmentActions.js";
+import {
+  downloadAttachmentPreview,
+  formatAttachmentAccessTime,
+  formatFileSize,
+  getAttachmentAccessActionLabel,
+  getAttachmentAccessModeLabel,
+  isInlineImageAttachment,
+} from "../src/app/attachmentViewUtils.js";
+import { isInlineImageAttachment as isFeatureInlineImageAttachment } from "../src/features/attachments/attachmentPresentation.js";
 import { updateStatementPaymentAttachmentPreview } from "../src/state/officeStatementActions.js";
+
+assert.equal(formatFileSize(0), "0 B");
+assert.equal(formatFileSize(512), "512 B");
+assert.equal(formatFileSize(1536), "1.5 KB");
+assert.equal(formatFileSize(2 * 1024 * 1024), "2.0 MB");
+for (const invalidSize of [-1, Number.NaN, Number.POSITIVE_INFINITY, "invalid"]) {
+  assert.equal(formatFileSize(invalidSize), "0 B", "invalid attachment sizes must not leak NaN or Infinity into the UI");
+}
+assert.equal(formatAttachmentAccessTime(""), "时间未记录");
+assert.equal(formatAttachmentAccessTime("not-a-date"), "not-a-date");
+assert.equal(getAttachmentAccessActionLabel("attachment_access_url_created"), "生成访问地址");
+assert.equal(getAttachmentAccessActionLabel("attachment_content_read"), "读取内容");
+assert.equal(getAttachmentAccessActionLabel("custom_action"), "custom_action");
+assert.equal(getAttachmentAccessModeLabel({ accessMode: "signed_url" }), "签名链接");
+assert.equal(getAttachmentAccessModeLabel({ accessMode: "permission" }), "权限读取");
+assert.equal(getAttachmentAccessModeLabel({ deliveryMode: "object_storage_signed_url" }), "对象存储直连");
+assert.equal(getAttachmentAccessModeLabel({}), "访问方式未记录");
+assert.equal(isInlineImageAttachment({ mimeType: "IMAGE/PNG" }), true);
+assert.equal(isInlineImageAttachment({ previewDataUrl: "DATA:IMAGE/JPEG;base64,AA==" }), true);
+assert.equal(isInlineImageAttachment({ mimeType: "application/pdf", previewDataUrl: "data:application/pdf;base64,AA==" }), false);
+assert.equal(
+  isFeatureInlineImageAttachment,
+  isInlineImageAttachment,
+  "workspace and feature attachment views must share one image-type contract",
+);
+
+assert.equal(downloadAttachmentPreview(), false);
+const originalDocument = globalThis.document;
+let appendedLink = null;
+let clicked = false;
+let removed = false;
+globalThis.document = {
+  body: {
+    appendChild(link) {
+      appendedLink = link;
+    },
+  },
+  createElement(tagName) {
+    assert.equal(tagName, "a");
+    return {
+      click() { clicked = true; },
+      remove() { removed = true; },
+    };
+  },
+};
+try {
+  assert.equal(downloadAttachmentPreview({
+    attachmentId: "ATT-1",
+    contentDisposition: "attachment; filename*=UTF-8''%E5%AF%B9%E8%B4%A6%2F%E5%87%AD%E8%AF%81.png",
+    previewDataUrl: "data:image/png;base64,AA==",
+  }), true);
+  assert.equal(appendedLink.href, "data:image/png;base64,AA==");
+  assert.equal(appendedLink.download, "对账-凭证.png");
+  assert.equal(clicked, true);
+  assert.equal(removed, true);
+} finally {
+  if (originalDocument === undefined) delete globalThis.document;
+  else globalThis.document = originalDocument;
+}
 
 function createHarness({ allowLocalFallback = false, api = {}, downloadResult = true } = {}) {
   let statements = [{
@@ -139,14 +206,4 @@ function createHarness({ allowLocalFallback = false, api = {}, downloadResult = 
   assert.equal(updated[0].paymentAttachmentFiles[0].contentSource, "api");
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const statementActionsSource = readFileSync(new URL("../src/app/createOfficeStatementActions.js", import.meta.url), "utf8");
-const fulfillmentActionsSource = readFileSync(new URL("../src/app/createOfficeFulfillmentActions.js", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeAttachmentActions\(\{/);
-assert.doesNotMatch(appSource, /listOfficeAttachmentAccessLogs/);
-assert.doesNotMatch(appSource, /listOfficeAttachments/);
-assert.match(statementActionsSource, /allowLocalFallback \|\| attachmentFile\.contentSource === "api"/);
-assert.match(statementActionsSource, /contentSource: nextPreview\.contentSource/);
-assert.match(fulfillmentActionsSource, /allowLocalFallback \|\| attachmentFile\.contentSource === "api"/);
-
-console.log("Office attachment actions check passed: access audit, formal download/sync gates, retry keys, source persistence, and App ownership are isolated.");
+console.log("Office attachment actions check passed: access audit, formal download/sync gates, retry keys, and source persistence are covered.");

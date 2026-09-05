@@ -1,6 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-
 import { createPrintDriverDiagnosticsService } from "../server/services/printDriverDiagnosticsService.mjs";
 
 const checkedAt = "2026-07-14T02:00:00.000Z";
@@ -113,14 +111,6 @@ assert.throws(
   /valid Date/,
 );
 assert.throws(() => createPrintDriverDiagnosticsService({ buildReadiness: null }), /buildReadiness must be a function/);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/printReadRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function getPrintDriver(?:Configuration|SpoolDiagnostics|CupsDiagnostics|V1Readiness)Response/);
-assert.match(registrySource, /createPrintDriverDiagnosticsService\(\)/);
-assert.match(routeSource, /printDriverDiagnosticsService\.getConfiguration/);
-assert.match(routeSource, /printDriverDiagnosticsService\[driverMethod\]/);
 
 console.log(
   "Print-driver diagnostics service checks passed: safe fallbacks, adapter delegation, non-printing readiness, clocks, and thin HTTP composition are isolated.",

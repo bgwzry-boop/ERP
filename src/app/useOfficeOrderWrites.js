@@ -7,19 +7,19 @@ import {
   previewOfficeDraftSplit,
   recognizeOfficeDraft,
   recognizeOfficeDraftQueue,
-  resolveOfficeOrderConfirmationStrategy,
   restoreOfficeDraftShortageCancellation,
   saveOfficeDraft,
-} from "../services/officeOrderApiClient.js";
+} from "../services/officeOrderLazyApi.js";
+import { resolveOfficeOrderConfirmationStrategy } from "../services/officeOrderSelectors.js";
 import {
   adjustOfficeOrderLineQuantity,
   voidOfficeOrderLine,
-} from "../services/officeOrderPoolApiClient.js";
+} from "../services/officeOrderPoolLazyApi.js";
 import {
   confirmOfficeDraftOrder,
   createDraftSaveTodo,
   createOfficeTodo,
-} from "../services/officeMockService.js";
+} from "../services/officeLocalActions.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 import {
   deleteDraftRow,

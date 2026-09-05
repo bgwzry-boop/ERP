@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildEmployeeProfile, formatEmployeeAge, formatEmployeeTenure } from "../src/employee-profile.js";
-import { detectCompleteReviewRuntimeFamily } from "../src/review-runtime-family.js";
 import { assertCompleteReviewStaticIdentity } from "../../../../scripts/completeReviewPreviewIdentity.mjs";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
@@ -31,7 +30,6 @@ test("4174 mobile review uses a signed passwordless preview session", async () =
   assert.match(mobileEntrySource, /<App signedPreviewUserId="U-MANAGER-A" \/>/, "mobile review should explicitly request the fixed signed preview identity");
   assert.match(appSource, /stagingAuthBypass:\s*true/, "the signed preview identity should bypass only the visible password boundary");
   assert.match(appSource, /createInitialAuthState\(signedPreviewAuthOptions \?\? undefined\)/, "the initial mobile state should use the same preview auth contract");
-  assert.match(appSource, /signedPreviewMobilePage[\s\S]*isNavigationPageVisible\("rawMaterials", permissionContext\)[\s\S]*\? "rawMaterials"/, "the fixed preview identity should enter the formal raw-material phone route even though its desktop role is management");
   assert.match(appSource, /fixedPreviewMode=\{Boolean\(signedPreviewAuthOptions\)\}/, "the fixed preview identity should not expose the demo role switcher");
   assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
 });
@@ -52,46 +50,14 @@ test("staging preview refuses restored sessions from a different identity", asyn
   assert.match(authServiceSource, /return loginSeedUser\(stagingPreviewUserId, options\)/, "preview startup should replace mismatched sessions with its fixed signed identity");
 });
 
-test("4174 keeps desktop browsers on the accepted shell regardless of narrow window width", async () => {
-  const [entrySource, runtimeFamilySource] = await Promise.all([
-    readSource("../src/complete-review-entry.jsx"),
-    readSource("../src/review-runtime-family.js"),
-  ]);
+test("4174 cannot keep the phone workbench mounted after widening to desktop", async () => {
+  const entrySource = await readSource("../src/complete-review-entry.jsx");
 
-  assert.match(entrySource, /detectCompleteReviewRuntimeFamily\(window\)/, "the review entry should detect the real runtime family instead of treating a narrow desktop window as a phone");
+  assert.match(entrySource, /phoneViewportQuery\.addEventListener\("change", reloadForViewportFamily\)/, "the review entry should observe phone/desktop viewport-family changes");
+  assert.match(entrySource, /nextUrl\.searchParams\.set\("erpViewport", event\.matches \? "mobile" : "desktop"\)/, "a viewport-family change should create a cache-busted canonical review URL");
   assert.match(entrySource, /declaredViewportFamily !== expectedViewportFamily/, "a stale viewport marker should be corrected before either shell renders");
-  assert.match(entrySource, /dataset\.erpRuntimeFamily = expectedViewportFamily/, "the mounted review should expose its runtime-family assertion for verification");
   assert.match(entrySource, /本地修改稿 · 未部署/, "the local review must never masquerade as a deployed release");
-  assert.doesNotMatch(entrySource, /matchMedia\("\(max-width: 767px\)"\)/, "viewport width alone must never select the historical formal shell");
-  assert.match(runtimeFamilySource, /userAgentData\?\.mobile/, "modern browser client hints should be the primary runtime-family signal");
-  assert.match(runtimeFamilySource, /Android\.\+Mobile\|iPhone/, "real handset user agents should retain the approved formal phone flow");
-});
-
-test("runtime family distinguishes office desktops from real handsets without viewport width", () => {
-  assert.equal(detectCompleteReviewRuntimeFamily({
-    navigator: {
-      userAgentData: { mobile: false },
-      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0",
-    },
-  }), "desktop");
-  assert.equal(detectCompleteReviewRuntimeFamily({
-    navigator: {
-      userAgentData: { mobile: true },
-      userAgent: "Mozilla/5.0 (Linux; Android 16; Pixel 9) Chrome/140.0 Mobile",
-    },
-  }), "mobile");
-  assert.equal(detectCompleteReviewRuntimeFamily({
-    navigator: {
-      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
-    },
-  }), "mobile");
-  assert.equal(detectCompleteReviewRuntimeFamily({
-    navigator: {
-      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140.0",
-      platform: "MacIntel",
-      maxTouchPoints: 0,
-    },
-  }), "desktop");
+  assert.match(entrySource, /window\.location\.replace\(nextUrl\.toString\(\)\)/, "crossing the phone breakpoint should reload the unique review entry instead of expanding the phone app into the old desktop shell");
 });
 
 test("desktop workbenches consume formal APIs without fixture fallbacks", async () => {

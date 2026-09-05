@@ -121,6 +121,40 @@ const rejected = await recognizeOfficeRawMaterialDeliveryNote({
 assert.equal(rejected.error.code, "RAW_MATERIAL_DELIVERY_NOTE_REQUEST_TOO_LARGE");
 assert.doesNotMatch(rejected.error.message, /25165824|Request body/u);
 
+const unavailableCalls = [];
+const unavailable = await recognizeOfficeRawMaterialDeliveryNote({
+  operatorId: "U-OFFICE-A",
+  pages: [{
+    fileName: "实测送货单.jpg",
+    mimeType: "image/jpeg",
+    contentDataUrl: "data:image/jpeg;base64,b2Ny",
+    sourceFile: { name: "实测送货单.jpg", type: "image/jpeg", size: 3 },
+  }],
+}, {
+  fetchImpl: async (url) => {
+    unavailableCalls.push(url);
+    if (url.includes("/attachments/binary?")) {
+      return jsonResponse({
+        attachmentId: "ATT-UNAVAILABLE",
+        ownerType: "raw_material_inbound_capture",
+        purpose: "raw_material_delivery_note",
+        hasContent: true,
+        status: "uploaded",
+      });
+    }
+    if (url.endsWith("/raw-material-inbounds/ocr-jobs")) {
+      return jsonResponse({
+        code: "TENCENT_OCR_CREDENTIALS_REQUIRED",
+        message: "腾讯云 OCR 密钥尚未配置，照片没有发送到腾讯云。请联系管理员配置后再识别。",
+      }, 503);
+    }
+    throw new Error(`unavailable OCR must not poll or retry: ${url}`);
+  },
+});
+assert.equal(unavailable.error.code, "TENCENT_OCR_CREDENTIALS_REQUIRED");
+assert.match(unavailable.error.message, /照片没有发送到腾讯云.*联系管理员/);
+assert.equal(unavailableCalls.filter((url) => url.includes("/ocr-jobs/")).length, 0, "configuration errors must not create a retry loop");
+
 const disconnected = await recognizeOfficeRawMaterialDeliveryNote({
   operatorId: "U-OFFICE-A",
   pages: [
@@ -134,7 +168,32 @@ assert.equal(disconnected.error.code, "RAW_MATERIAL_DELIVERY_NOTE_OCR_API_UNAVAI
 assert.match(disconnected.error.message, /2 页送货单.*连接中断/u);
 assert.match(disconnected.error.message, /不用重拍/u);
 
-console.log("Frontend raw-material OCR API client check passed: originals use binary upload, OCR JSON stays light, progress is explicit, and network errors are readable Chinese.");
+const cancellationController = new AbortController();
+const cancelledRequest = recognizeOfficeRawMaterialDeliveryNote({
+  operatorId: "U-OFFICE-A",
+  contentDataUrl: "data:image/jpeg;base64,b2Ny",
+  fileName: "cancel.jpg",
+  mimeType: "image/jpeg",
+  ocrJobId: "RMOJ-CANCEL",
+  signal: cancellationController.signal,
+}, {
+  fetchImpl: async (url, init) => {
+    if (url.endsWith("/raw-material-inbounds/ocr-jobs/RMOJ-CANCEL/retry")) {
+      return jsonResponse({ job: { jobId: "RMOJ-CANCEL", status: "queued", pageCount: 1 } });
+    }
+    if (url.endsWith("/raw-material-inbounds/ocr-jobs/RMOJ-CANCEL/status")) {
+      return new Promise((_, reject) => init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true }));
+    }
+    throw new Error(`unexpected cancellation request ${url}`);
+  },
+});
+await new Promise((resolve) => setTimeout(resolve, 0));
+cancellationController.abort();
+const cancelled = await cancelledRequest;
+assert.equal(cancelled.cancelled, true);
+assert.equal(cancelled.error.code, "REQUEST_ABORTED");
+
+console.log("Frontend raw-material OCR API client check passed: originals use binary upload, OCR JSON stays light, cancellation stops polling, and network errors are readable Chinese.");
 
 function jsonResponse(body, status = 200) {
   return new Response(JSON.stringify(body), {

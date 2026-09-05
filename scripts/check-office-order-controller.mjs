@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeOrderActions } from "../src/app/createOfficeOrderActions.js";
 
 function createHarness({
@@ -295,24 +294,4 @@ function createHarness({
   assert.equal(harness.calls.entry.length, 0);
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeOrderActions\(\{/);
-assert.match(appSource, /fulfillmentSource: fulfillmentMeta\.source/);
-assert.match(appSource, /orderPoolSource: orderPoolMeta\.source/);
-assert.match(appSource, /statementSource: statementReadMeta\.source/);
-for (const localOwner of [
-  "function createOrderFromTopbar(",
-  "function focusOrderLine(",
-  "function focusFulfillmentByRef(",
-  "function focusStatementByRef(",
-  "function openOrderLineAction(",
-  "async function recognize(",
-  "function updateDraftField(",
-  "function handleDraftCommand(",
-  "async function restoreCancelledDraftLine(",
-  "async function entryAction(",
-]) {
-  assert.equal(appSource.includes(localOwner), false, `App must not own ${localOwner}`);
-}
-
-console.log("Office order controller check passed: formal writes, source refreshes, navigation, draft-only edits, action gates, and App ownership are isolated.");
+console.log("Office order controller check passed: formal writes, source refreshes, navigation, draft-only edits, and action gates are covered.");

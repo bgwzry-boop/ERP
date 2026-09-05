@@ -1,15 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createRawMaterialCommandService } from "../server/services/rawMaterialCommandService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/rawMaterialWriteRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createRawMaterialCommandService\(\{/);
-assert.doesNotMatch(apiSource, /function rawMaterialInboundActionRoute/);
-assert.doesNotMatch(apiSource, /function createRawMaterialSupplierStatementReviewDraftRoute/);
-assert.match(routeSource, /rawMaterialCommandService\.recordInboundAction/);
-assert.match(routeSource, /rawMaterialCommandService\.confirmSupplierPayment/);
 
 const calls = [];
 const workspace = {

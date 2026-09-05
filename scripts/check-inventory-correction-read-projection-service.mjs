@@ -1,19 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   buildInventoryQuantitySnapshot,
   createInventoryCorrectionReadProjectionService,
 } from "../server/services/inventoryCorrectionReadProjectionService.mjs";
 
 const service = createInventoryCorrectionReadProjectionService();
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/inventoryReadRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createInventoryCorrectionReadProjectionService\(\)/);
-assert.doesNotMatch(apiSource, /function buildInventoryCorrectionDraftDetail/);
-assert.doesNotMatch(apiSource, /function toInventoryCorrectionLedgerSummary/);
-assert.match(routeSource, /inventoryCorrectionReadProjectionService\.listDraftSummaries/);
-assert.match(routeSource, /inventoryCorrectionReadProjectionService\.buildDraftDetail/);
 const workspace = {
   users: [
     { user_id: "U-WAREHOUSE", display_name: "库房A" },

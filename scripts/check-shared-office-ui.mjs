@@ -1,12 +1,18 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { toFiniteNumber } from "../src/features/orders/entryPageModel.js";
 
 function read(relativePath) {
   return fs.readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
 }
 
 const sharedUiSource = read("src/shared/ui/operational.jsx");
-const appSource = read("src/App.jsx");
+const appSource = [
+  read("src/App.jsx"),
+  read("src/app/OfficeWorkbenchShell.jsx"),
+  read("src/app/OfficeWorkspacePages.jsx"),
+  read("src/app/useOfficeActivePageEffects.js"),
+].join("\n");
 const appShellViewsSource = read("src/app/AppShellViews.jsx");
 const navigationSource = read("src/app/navigation.js");
 const mainSource = read("src/main.jsx");
@@ -52,11 +58,12 @@ for (const styleImport of [
   "./styles/shared.css",
   "./styles/shell.css",
   "./styles/components.css",
-  "./styles/features/todos.css",
-  "./styles/features/orders-entry.css",
 ]) {
   assert.match(mainSource, new RegExp(styleImport.replaceAll(".", "\\.")));
 }
+assert.doesNotMatch(mainSource, /styles\/features\/(todos|orders-entry)\.css/, "route-owned styles must not inflate the initial shell");
+assert.match(appSource, /import\("\.\.\/styles\/features\/todos\.css"\)/, "Todo styles should load with the Todo route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/orders-entry\.css"\)/, "Entry styles should load with the Entry route");
 
 const styleImportOrder = [
   './styles/tokens.css',
@@ -117,6 +124,7 @@ assert.match(entrySource, /entry-confirm-footer/);
 assert.match(entrySource, /订单类型/);
 assert.match(entrySource, /const currentStep =/);
 assert.match(entrySource, /aria-current=\{step\.id === currentStep \? "step"/);
-assert.match(entrySource, /function toFiniteNumber/);
+assert.equal(toFiniteNumber("12.5"), 12.5);
+assert.equal(toFiniteNumber("not-a-number"), 0);
 
 console.log("Shared office UI checks passed: shell, operational states, layered styles, and data-driven Todo/Entry adoption are locked.");

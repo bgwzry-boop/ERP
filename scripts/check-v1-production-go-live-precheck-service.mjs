@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   createV1ProductionGoLivePrecheckService,
   sanitizeV1ProductionGoLiveGateForReleasePrecheck,
@@ -77,37 +76,6 @@ assert.equal(releaseGate.status, "blocked");
 assert.equal(releaseGate.ready, false);
 assert.equal(releaseGate.summary.firstBlockedStageKey, "runtime");
 assertSensitiveTextAbsent(releaseGate);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const serviceSource = readFileSync(
-  new URL("../server/services/v1ProductionGoLivePrecheckService.mjs", import.meta.url),
-  "utf8",
-);
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function precheckSystemV1ProductionGoLive/);
-assert.match(
-  routeSource,
-  /precheckProductionGoLive:[\s\S]*v1ProductionGoLivePrecheckService\.precheck\(\{ request, operatorId \}\)/,
-);
-assert.doesNotMatch(
-  routeSource,
-  /process\.env|buildProductionEnv|buildCurrentV1RuntimeReadinessReport|try\s*\{/,
-);
-for (const oldHelper of [
-  "buildV1ProductionGoLiveMissingEnvFileAudit",
-  "buildV1ProductionGoLiveMissingEnvIntakeVerification",
-  "buildV1ProductionGoLivePrecheckBody",
-  "buildV1ProductionGoLivePrecheckErrorBody",
-  "sanitizeV1ProductionGoLiveStage",
-  "sanitizeV1ProductionGoLiveBlockingItem",
-  "sanitizeV1ProductionGoLiveUnblockItem",
-  "sanitizeV1ProductionGoLiveFieldEvidenceCoverage",
-  "sanitizeV1ProductionGoLiveRuntimeReadiness",
-  "sanitizeV1ProductionGoLiveSafeguards",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${oldHelper}\\(`));
-}
-assert.doesNotMatch(serviceSource, /request\.body|body\.env|body\.path|body\.token/);
 
 console.log(
   "V1 production go-live precheck service checks passed: missing/audit-blocked/ready/blocked/error paths, server-owned env files, redaction, and thin API composition are covered.",

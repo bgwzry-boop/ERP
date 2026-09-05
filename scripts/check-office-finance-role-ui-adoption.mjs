@@ -7,9 +7,24 @@ function read(relativePath) {
 
 const sharedUiSource = read("src/shared/ui/operational.jsx");
 const statementSource = read("src/features/statements/StatementPage.jsx");
-const productionSource = read("src/features/production/ProductionPackingPage.jsx");
+const productionSource = [
+  read("src/features/production/ProductionPackingPage.jsx"),
+  read("src/features/production/ProductionPackingTaskPane.jsx"),
+  read("src/features/production/ProductionPackingDetailPane.jsx"),
+  read("src/features/production/ProductionPackingDetailSections.jsx"),
+  read("src/features/production/ProductionPackingTaskLists.jsx"),
+  read("src/features/production/ProductionScheduleActionConfirmationDialog.jsx"),
+  read("src/features/production/ProductionScheduleQueueSection.jsx"),
+  read("src/features/production/ProductionPrintWorkspaceDetail.jsx"),
+].join("\n");
 const productionPresentationSource = read("src/features/production/productionPackingPresentation.js");
-const rawMaterialSource = read("src/features/raw-materials/RawMaterialInboundPage.jsx");
+const rawMaterialSource = [
+  read("src/features/raw-materials/RawMaterialInboundPage.jsx"),
+  read("src/features/raw-materials/RawMaterialInboundReceivingSections.jsx"),
+  read("src/features/raw-materials/RawMaterialInboundSupportingSections.jsx"),
+  read("src/features/raw-materials/RawMaterialSupplierStatementReview.jsx"),
+  read("src/features/raw-materials/rawMaterialInboundWorkflow.js"),
+].join("\n");
 const rawMaterialWorkbenchSource = read("src/features/raw-materials/RawMaterialInboundWorkbench.jsx");
 const masterDataSource = read("src/features/master-data/MasterDataMaintenancePage.jsx");
 const masterDataWorkbenchSource = read("src/features/master-data/MasterDataMaintenanceWorkbench.jsx");
@@ -23,11 +38,24 @@ const driverSource = [
   read("src/features/driver/DriverDeviceStage.jsx"),
   read("src/features/driver/DriverDeliveryStage.jsx"),
 ].join("\n");
+const appSource = [
+  read("src/App.jsx"),
+  read("src/app/OfficeWorkspacePages.jsx"),
+  read("src/app/useOfficeActivePageEffects.js"),
+].join("\n");
 const mainSource = read("src/main.jsx");
 const componentStyles = read("src/styles/components.css");
 const statementStyles = read("src/styles/features/statements.css");
 const roleStyles = read("src/styles/features/role-tools.css");
-const rawMaterialStyles = read("src/styles/features/raw-material.css");
+const rawMaterialStyles = [
+  read("src/styles/features/raw-material-foundation.css"),
+  read("src/styles/features/raw-material-roll-inventory.css"),
+  read("src/styles/features/raw-material.css"),
+  read("src/styles/features/raw-material-mobile.css"),
+  read("src/styles/features/raw-material-mobile-atlas.css"),
+  read("src/styles/features/raw-material-print.css"),
+  read("src/styles/features/raw-material-color-mapping.css"),
+].join("\n");
 const masterDataStyles = read("src/styles/features/master-data.css");
 const sharedStyles = read("src/styles/shared.css");
 
@@ -102,8 +130,8 @@ assert.match(driverPageSource, /ariaLabel="司机任务详情"/);
 assert.match(driverSource, /driver-load-stage/);
 assert.match(driverSource, /driver-delivery-stage/);
 
-assert.match(mainSource, /\.\/styles\/features\/statements\.css/);
-assert.match(mainSource, /\.\/styles\/features\/role-tools\.css/);
+assert.doesNotMatch(mainSource, /styles\/features\/(statements|role-tools)\.css/, "financial and role-tool styles should not load with the shell");
+assert.match(appSource, /import\("\.\.\/styles\/features\/role-tools\.css"\)/, "role-tool styles should load with their mobile routes");
 assert.match(statementStyles, /statement-table \.data-row span:nth-child\(6\)/);
 assert.match(statementStyles, /\.statement-actions\s*\{[\s\S]*?position: static;/);
 assert.match(statementStyles, /\.statement-facts/);

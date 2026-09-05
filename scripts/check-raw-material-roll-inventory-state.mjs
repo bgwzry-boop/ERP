@@ -30,7 +30,7 @@ const inbounds = [
     factoryColor: "大红",
     materialType: "提手",
     unit: "件",
-    spec: "78*5",
+    spec: "65*5",
     rolls: [
       { id: "RM-005", weightKg: 0, inventoryStatus: "余料待复核", labelStatus: "已贴标/可用库存", location: "余料区" },
       { id: "RM-006", weightKg: 0, inventoryStatus: "可用", labelStatus: "已贴标/可用库存", location: "提手区" },
@@ -46,6 +46,7 @@ assert.equal(ledger[0].materialUsage, "袋身原材料");
 assert.equal(ledger[2].currentWeightKg, 31.2, "machine-side remaining weight must be the current ledger weight");
 assert.equal(ledger[3].widthLabel, "5cm 提手条");
 assert.equal(ledger[3].materialUsage, "提手原材料");
+assert.equal(ledger[3].specDisplay, "65克*5宽");
 
 assert.deepEqual(summarizeRawMaterialRollLedger(ledger), {
   available: { count: 2, weightKg: 191.4 },
@@ -63,6 +64,6 @@ assert.equal(distribution[0].items[0].weightKg, 191.4);
 
 const options = getRawMaterialRollFilterOptions(ledger);
 assert.deepEqual(options.statuses, ["可用", "机边领用", "余料待复核"]);
-assert.deepEqual(options.widths, ["80cm", "5cm 提手条"]);
+assert.deepEqual(options.widths, ["80cm", "5cm 把条"]);
 
 console.log("raw-material roll inventory state checks passed");

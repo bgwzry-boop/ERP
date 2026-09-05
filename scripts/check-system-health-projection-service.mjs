@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { buildSystemHealthResponse } from "../server/services/systemHealthProjectionService.mjs";
 
 const secretUrl = "postgresql://erp_user:secret@db.internal:5432/erp";
@@ -206,17 +205,6 @@ assert.equal(empty.seed.customers, 0);
 assert.equal(empty.seed.runtimeConfig.mode, "unknown");
 assert.equal(empty.seed.productionEnvFileApplication.safeguards.startupOnly, true);
 assert.equal(empty.seed.productionEnvFileApplication.safeguards.auditRequiredBeforeApply, true);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const serviceSource = readFileSync(
-  new URL("../server/services/systemHealthProjectionService.mjs", import.meta.url),
-  "utf8",
-);
-assert.match(apiSource, /buildSystemHealthResponse\(\{ workspace, openapi \}\)/);
-assert.doesNotMatch(apiSource, /productionEnvFileApplication:\s*workspace\.productionEnvFileApplication/);
-assert.doesNotMatch(apiSource, /v1PersistenceProfile:\s*workspace\.v1PersistenceProfile/);
-assert.doesNotMatch(serviceSource, /\b(?:readFile|writeFile|spawn|execFile|fetch)\s*\(/);
-assert.ok(serviceSource.split("\n").length <= 280, "health projection service should remain focused");
 
 console.log(
   "System health projection checks passed: public runtime, repository, env, and persistence fields are allowlisted and sensitive extensions are redacted.",

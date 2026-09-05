@@ -5,6 +5,7 @@ import {
   BookOutlined,
   CameraOutlined,
   CheckCircleFilled,
+  CheckOutlined,
   DownOutlined,
   DollarCircleOutlined,
   FileTextOutlined,
@@ -41,26 +42,28 @@ import {
 import { BusinessWorkspace } from "./BusinessWorkspaces.jsx";
 import { RawMaterialSupplierColorMappingDialog } from "../../../../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx";
 import { ColorChip, FACTORY_COLORS, RAW_MATERIAL_COLOR_NAMES } from "./FactoryColor.jsx";
+import { buildReceiptMaterialPresentation, buildReceiptRowPresentation } from "./receipt-presentation.js";
 import {
   buildInventoryWidthOptions,
   compactRollCode,
   compactSupplierName,
   resolveInventoryRollStatus,
-  resolveRollWidth,
+  resolveRollSpecification,
   sortInventoryRollsByWidth,
 } from "./roll-inventory-presentation.js";
 import { useFormalDesktopWorkspace } from "./useFormalDesktopWorkspace.js";
 
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
-    const resolvedWidth = resolveRollWidth(inbound, roll);
+    const resolvedSpec = resolveRollSpecification(inbound, roll);
     return {
       id: roll.id,
       color: roll.factoryColor || inbound.factoryColor || inbound.supplierColor || "颜色待确认",
-      width: resolvedWidth.label,
-      widthCm: resolvedWidth.widthCm,
-      materialCategory: resolvedWidth.materialCategory,
-      materialUsage: resolvedWidth.materialUsage || "用途待确认",
+      width: resolvedSpec.widthLabel,
+      widthCm: resolvedSpec.widthCm,
+      materialCategory: resolvedSpec.materialCategory,
+      materialUsage: resolvedSpec.materialUsage || "用途待确认",
+      gramWeight: resolvedSpec.gramWeightLabel,
       weight: Number(roll.remainingMachineSideWeightKg || roll.leftoverReviewedWeightKg || roll.weightKg || 0),
       unitLabel: inbound.unit === "件" ? "件" : "卷",
       status: resolveInventoryRollStatus(inbound, roll),
@@ -68,7 +71,7 @@ function buildInventoryRolls(inbounds = []) {
       date: String(inbound.receivedAt || "").slice(0, 10),
       location: roll.location || (roll.machineId ? `${roll.machineId}机边` : inbound.location || "库位待确认"),
       source: inbound.id,
-      spec: roll.specDisplay || roll.spec || inbound.specDisplay || inbound.spec || "规格待确认",
+      spec: resolvedSpec.fullLabel,
     };
   })).filter((roll) => roll.id && roll.status);
 }
@@ -110,7 +113,7 @@ function buildDistribution(sourceRolls) {
 
   const widthOrder = buildInventoryWidthOptions(sourceRolls).slice(1).filter((width) => groups.has(width));
   return widthOrder.map((width) => {
-    const unit = width.includes("提手条") ? "件" : "卷";
+    const unit = width.includes("把条") ? "件" : "卷";
     const items = Array.from(groups.get(width).values());
     const maxWeight = Math.max(...items.map((item) => item.weightValue));
     const maxCount = Math.max(...items.map((item) => item.countValue));
@@ -131,13 +134,10 @@ function buildDistribution(sourceRolls) {
 const receiptTabs = ["待核对", "退货单", "待打印", "待贴标", "异常"];
 const isPieceCountedInbound = (row = {}) => row.unit === "件" || row.materialType === "提手";
 const receiptFacts = (row = {}) => {
-  const count = row.rollCount || row.rolls?.length || 0;
-  const totalWeightKg = Number(row.totalWeightKg) || 0;
-  const unitLabel = isPieceCountedInbound(row) || row.documentDirection === "supplier_return" ? "件" : "卷";
-  const weightLabel = Math.abs(totalWeightKg) > 0 ? formatWeight(Math.abs(totalWeightKg)) : "重量待补";
+  const presentation = buildReceiptRowPresentation(row);
   return row.documentDirection === "supplier_return"
-    ? `退回 ${count}${unitLabel} / ${weightLabel}`
-    : `${count}${unitLabel} / ${weightLabel}`;
+    ? `退回 ${presentation.countLabel} / ${presentation.totalWeightLabel}`
+    : `${presentation.countLabel} / ${presentation.totalWeightLabel}`;
 };
 const receiptTabFor = (row = {}) => {
   const status = String(row.status || "");
@@ -305,10 +305,10 @@ function RollInventory({ onOpenSource, sourceRolls = [] }) {
       </div>
       {hasActiveFilters ? <div aria-live="polite" className="filter-feedback"><span>已筛选 {matchingRolls.length} 条</span>{activeBucket ? <button className="active-bucket" onClick={() => setBucket("")} type="button">{activeBucket.replace("::", " · ")} ×</button> : null}<button aria-label="重置筛选" className="reset-filter" onClick={resetFilters} type="button"><ReloadOutlined />重置</button></div> : null}
       <div className="roll-table" role="table" aria-label="物理卷料台账">
-        <div className="roll-row roll-head" role="row"><span aria-sort="ascending" role="columnheader" title="默认按宽幅从小到大排列">规格（宽幅）</span><span role="columnheader">厂内颜色</span><span role="columnheader">当前重量</span><span role="columnheader">库位</span><span role="columnheader">状态</span><span role="columnheader">供应商 / 入库日期</span><span role="columnheader">卷码（追溯）</span></div>
+        <div className="roll-row roll-head" role="row"><span aria-sort="ascending" role="columnheader" title="默认按宽幅从小到大排列">规格（宽幅/克重）</span><span role="columnheader">厂内颜色</span><span role="columnheader">当前重量</span><span role="columnheader">库位</span><span role="columnheader">状态</span><span role="columnheader">供应商 / 入库日期</span><span role="columnheader">卷码（追溯）</span></div>
         <div className="roll-table-body">
           {visibleRolls.length ? visibleRolls.map((roll) => <button aria-pressed={selectedRoll.id === roll.id} className={`roll-row${selectedRoll.id === roll.id ? " selected" : ""}`} key={roll.id} onClick={() => setSelectedId(roll.id)} role="row" type="button">
-            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.spec}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.color} />{roll.color}</span><span className="weight" role="cell">{formatInventoryRollAmount(roll)}</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
+            <span className="roll-spec-cell" role="cell"><strong>{roll.width}</strong><small>{roll.gramWeight}</small></span><span className="roll-color" role="cell"><ColorChip color={roll.color} />{roll.color}</span><span className="weight" role="cell">{formatInventoryRollAmount(roll)}</span><span role="cell">{roll.location}</span><span role="cell"><StatusText>{roll.status}</StatusText></span><span className="supplier-cell" role="cell" title={roll.supplier}><b>{compactSupplierName(roll.supplier)}</b><small>{roll.date}</small></span><span className="roll-id" role="cell" title={roll.id}>{compactRollCode(roll.id)}</span>
           </button>) : <div className="empty-state"><SearchOutlined /><strong>没有符合条件的卷料</strong><button onClick={resetFilters} type="button">清除筛选</button></div>}
         </div>
       </div>
@@ -334,14 +334,14 @@ function ReceiptStage({ row }) {
       const step = index + 1;
       const done = step === 1 || reviewed;
       const active = !reviewed && step === 2;
-      return <span className={done ? "done" : active ? "active" : ""} key={label}><b>{done ? <CheckCircleFilled /> : step}</b>{label}</span>;
+      return <span className={done ? "done" : active ? "active" : ""} key={label}><b>{done ? <CheckOutlined /> : step}</b>{label}</span>;
     })}</div>;
   }
   const activeStep = receiptStageIndex(row);
   return <div aria-label="收货处理进度" className="receipt-stage">{["核对", "打印", "贴标", "入库"].map((label, index) => {
     const step = index + 1;
     const done = step < activeStep || activeStep === 4;
-    return <span className={done ? "done" : step === activeStep ? "active" : ""} key={label}><b>{done ? <CheckCircleFilled /> : step}</b>{label}</span>;
+    return <span className={done ? "done" : step === activeStep ? "active" : ""} key={label}><b>{done ? <CheckOutlined /> : step}</b>{label}</span>;
   })}</div>;
 }
 
@@ -368,7 +368,8 @@ function ReceiptDetail({ activeTab, notice, onOpenInventory, onPrimaryAction, on
   const primaryLabel = duplicate ? "对照两张票据" : isSupplierReturn && reviewable ? "确认退货单复核" : reviewable ? "确认逐卷核对完成" : printable ? `预览并打印 ${row.rolls.length} 张卷标` : abnormalRoll?.labelStatus === "标签或实物不符/待确认" ? "作废异常卷旧标签" : abnormalRoll ? "重打异常卷标签" : attachable ? "开始逐卷贴标核对" : "查看处理结果";
   const bannerTitle = duplicate ? "疑似同一张票据" : isSupplierReturn && reviewable ? "退货草稿待人工核对" : isSupplierReturn ? "退货凭证已留档" : missingWeightRoll ? "缺少真实重量，尚未入库" : reviewable ? "业务查重已通过" : printable ? "人工核对已经完成" : row.status.includes("异常") ? "异常卷已隔离" : attachable ? "卷标已经打印" : "当前状态已确认";
   const bannerText = duplicate ? row.duplicate : isSupplierReturn && reviewable ? "请核对供应商、退回重量、金额和原图；确认后只形成负数对账依据。" : isSupplierReturn ? "本退货单不生成卷码、不增加可用库存；供应商月结仅引用这张退货凭证冲减。" : missingWeightRoll ? "请逐件称重并记录真实重量；补齐前不能贴标确认、领料或进入卷料库存。" : reviewable ? "原图摘要、供应商、票据字段和逐卷重量未命中已有记录。" : printable ? "每个物理卷已经生成唯一卷码，打印后仍不能直接进入可用库存。" : row.status.includes("异常") ? "异常只影响对应卷；其他卷仍可继续逐卷核对，正确卷不被整单阻塞。" : attachable ? "请按重量、颜色和规格逐卷对应实物；确认一致后，该卷才进入可用库存。" : "当前处理结果已经记录。";
-  return <aside className="secondary-detail receipt-detail"><span className="detail-kicker">{row.id}</span><h2>{row.supplier}</h2><p>{row.note} · {receiptFacts(row)}</p><ReceiptStage row={row} /><section className={duplicate || row.status.includes("异常") ? "duplicate-warning" : "dedupe-clear"}>{duplicate || row.status.includes("异常") ? <WarningOutlined /> : <CheckCircleFilled />}<div><strong>{bannerTitle}</strong><p>{bannerText}</p></div></section><dl className="receipt-facts"><div><dt>原料 / 厂内颜色</dt><dd>{row.productName} · {row.factoryColor || row.supplierColor || "待确认"}</dd></div><div><dt>规格</dt><dd>{row.spec || "原单未写规格"}</dd></div><div><dt>{isSupplierReturn ? "退货金额" : "当前库位"}</dt><dd>{isSupplierReturn ? formatMoney(row.amount) : row.location}</dd></div><div><dt>当前状态</dt><dd>{row.status}</dd></div></dl>{!isSupplierReturn && (reviewable || printable || attachable || abnormalRoll || missingWeightRoll) ? <ReceiptRollList onRollAction={onRollAction} row={row} /> : null}<p aria-live="polite" className={`receipt-flow-notice${notice ? " visible" : ""}`}>{notice}</p><p className="secondary-note">{isSupplierReturn ? "这里保存退货原图、逐行明细与审核记录；供应商月结只汇总冲减金额，卷料库存只显示库存结果。" : "打印只进入待贴标；逐卷确认标签与实物一致后才进入“卷料库存”。月结仍在“财务管理 → 供应商月结”处理。"}</p>{reviewable || duplicate || printable || attachable || abnormalRoll ? <button className="primary full" onClick={() => onPrimaryAction({ abnormalRoll, attachable, duplicate, printable, reviewable })} type="button">{primaryLabel}</button> : null}</aside>;
+  const material = buildReceiptMaterialPresentation(row);
+  return <aside className="secondary-detail receipt-detail"><span className="detail-kicker">{row.id}</span><h2>{row.supplier}</h2><p>{row.note} · {receiptFacts(row)}</p><ReceiptStage row={row} /><section className={duplicate || row.status.includes("异常") ? "duplicate-warning" : "dedupe-clear"}>{duplicate || row.status.includes("异常") ? <WarningOutlined /> : <CheckCircleFilled />}<div><strong>{bannerTitle}</strong><p>{bannerText}</p></div></section><dl className="receipt-facts"><div><dt>类型</dt><dd>{material.materialType}</dd></div><div><dt>宽幅</dt><dd>{material.widthLabel}</dd></div><div><dt>{isSupplierReturn ? "退货金额" : "当前库位"}</dt><dd>{isSupplierReturn ? formatMoney(row.amount) : row.location}</dd></div><div><dt>当前状态</dt><dd>{row.status}</dd></div></dl>{!isSupplierReturn && (reviewable || printable || attachable || abnormalRoll || missingWeightRoll) ? <ReceiptRollList onRollAction={onRollAction} row={row} /> : null}<p aria-live="polite" className={`receipt-flow-notice${notice ? " visible" : ""}`}>{notice}</p><p className="secondary-note">{isSupplierReturn ? "这里保存退货原图、逐行明细与审核记录；供应商月结只汇总冲减金额，卷料库存只显示库存结果。" : "打印只进入待贴标；逐卷确认标签与实物一致后才进入“卷料库存”。月结仍在“财务管理 → 供应商月结”处理。"}</p>{reviewable || duplicate || printable || attachable || abnormalRoll ? <button className="primary full" onClick={() => onPrimaryAction({ abnormalRoll, attachable, duplicate, printable, reviewable })} type="button">{primaryLabel}</button> : null}</aside>;
 }
 
 function ReceiptFlowDialog({ flow, onClose, onConfirm, row }) {
@@ -434,7 +435,20 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
     <section className="secondary-list">
       <header><h2>收货录入</h2><button className="primary" onClick={onOpenReceive} type="button"><PlusOutlined />录入送货/退货单</button></header>
       <div aria-label="收货状态" className="secondary-tabs" role="tablist">{receiptTabs.map((tab) => { const count = records.filter((row) => receiptTabFor(row) === tab).length; return <button aria-selected={activeTab === tab} className={activeTab === tab ? "active" : ""} key={tab} onClick={() => selectTab(tab)} role="tab" type="button">{tab} {count}</button>; })}</div>
-      <div className="receipt-table"><div className="receipt-row head"><span>供应商 / 票据</span><span>数量 / 重量</span><span>状态</span><span>查重结果</span></div>{tabRows.length ? tabRows.map((row) => <button aria-pressed={row.id === selected?.id} className={`receipt-row${row.id === selected?.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} type="button"><span><strong>{row.supplier}</strong><small>{row.note} · {row.id}</small></span><span>{receiptFacts(row)}</span><StatusText>{row.status}</StatusText><span className={row.duplicate || row.status.includes("异常") ? "danger-text" : "quiet-text"}>{row.duplicate || "未发现重复"}</span></button>) : <div className="receipt-empty-state"><CheckCircleFilled /><strong>{notice ? "本阶段处理完成" : `${activeTab}暂无单据`}</strong><span>{notice || "切换其他状态继续查看。"}</span></div>}</div>
+      <div className="receipt-table">
+        <div className="receipt-row head"><span>送货单位 / 票据</span><span>送货时间</span><span>卷/件数</span><span>总重量</span><span>复核入库</span><span>查重结果</span></div>
+        {tabRows.length ? tabRows.map((row) => {
+          const presentation = buildReceiptRowPresentation(row);
+          return <button aria-pressed={row.id === selected?.id} className={`receipt-row${row.id === selected?.id ? " selected" : ""}`} key={row.id} onClick={() => { setSelectedId(row.id); setNotice(""); }} type="button">
+            <span><strong>{presentation.supplierName}</strong><small>{presentation.ticketText} · {row.id}</small></span>
+            <time dateTime={row.receivedAt || undefined}>{presentation.arrivalTime}</time>
+            <span className="receipt-number">{presentation.countLabel}</span>
+            <span className="receipt-number">{presentation.totalWeightLabel}</span>
+            <StatusText>{presentation.reviewStatus}</StatusText>
+            <span className={presentation.duplicateNeedsAttention ? "danger-text" : "quiet-text"}>{presentation.duplicateText}</span>
+          </button>;
+        }) : <div className="receipt-empty-state"><CheckCircleFilled /><strong>{notice ? "本阶段处理完成" : `${activeTab}暂无单据`}</strong><span>{notice || "切换其他状态继续查看。"}</span></div>}
+      </div>
     </section>
     <ReceiptDetail activeTab={activeTab} notice={notice} onOpenInventory={onOpenInventory} onPrimaryAction={handlePrimaryAction} onRollAction={handleRollAction} row={selected} />
   </div><ReceiptFlowDialog flow={flow} onClose={() => setFlow(null)} onConfirm={confirmFlow} row={selected} /></>;

@@ -18,9 +18,8 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: npx playwright install --with-deps chromium
       - run: npm test
       - run: npm audit --audit-level=high
       - run: npm run db:postgres-live:check
       - run: npm run object-storage:minio-live:check
-      - run: npx playwright install --with-deps chromium
-      - run: npm run e2e:core

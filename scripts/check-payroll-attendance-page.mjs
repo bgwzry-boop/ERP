@@ -1,7 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
+].join("\n");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const pageSource = readFileSync(new URL("../src/features/payroll/PayrollAttendancePage.jsx", import.meta.url), "utf8");
 const mobileSource = readFileSync(new URL("../src/features/payroll/EmployeeAttendanceMobilePage.jsx", import.meta.url), "utf8");

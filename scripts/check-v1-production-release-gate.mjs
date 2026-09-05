@@ -189,7 +189,8 @@ function checkWorkflow() {
     "npm audit --audit-level=high",
     "npm run db:postgres-live:check",
     "npm run object-storage:minio-live:check",
-    "npm run e2e:core",
+    "npm test",
+    "npx playwright install --with-deps chromium",
     "run-v1-release-candidate-check.mjs",
     "run-v1-go-live-suite.mjs",
     "assert-v1-production-release-gate.mjs",
@@ -197,6 +198,10 @@ function checkWorkflow() {
     "if: always()",
   ];
   for (const fragment of requiredFragments) assert.ok(workflow.includes(fragment), `workflow is missing ${fragment}`);
+  for (const source of [workflow, readFileSync(join(process.cwd(), ".github", "workflows", "ci.yml"), "utf8")]) {
+    assert.ok(source.indexOf("npx playwright install --with-deps chromium") < source.indexOf("npm test"), "CI must install browsers before npm test runs browser regressions");
+    assert.doesNotMatch(source, /npm run e2e:core/, "npm test already includes the browser suites; do not run the same regression twice");
+  }
   assert.doesNotMatch(workflow, /pull_request:/);
   assert.doesNotMatch(workflow, /push:/);
   assert.doesNotMatch(workflow, /continue-on-error:/);

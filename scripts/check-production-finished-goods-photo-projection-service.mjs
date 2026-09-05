@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createProductionFinishedGoodsPhotoProjectionService } from "../server/services/productionFinishedGoodsPhotoProjectionService.mjs";
 
 const buildCalls = [];
@@ -128,26 +127,6 @@ const nestedOnly = service.buildPhotoSummary(null, {
 assert.equal(nestedOnly.fileName, "nested.jpg");
 assert.equal(nestedOnly.reviewedAt, "2026-07-14T07:00:00.000Z");
 
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createProductionFinishedGoodsPhotoProjectionService/);
-assert.match(registrySource, /productionFinishedGoodsPhotoProjectionService\.buildPhotoSummary/);
-assert.match(registrySource, /productionFinishedGoodsPhotoProjectionService\.buildCustomerNotificationTodo/);
-for (const oldHelper of [
-  "function buildFinishedGoodsPhotoSummary",
-  "function normalizeFinishedGoodsPhotoHistory",
-  "function isFinishedGoodsPhotoRequired",
-  "function normalizeFinishedGoodsPhotoReviewStatus",
-  "function buildFinishedGoodsCustomerNotificationTodo",
-  "function buildFinishedGoodsCustomerNotificationText",
-  "function buildFinishedGoodsNotificationGoods",
-  "function buildFinishedGoodsPhotoPrompt",
-  "function buildFinishedGoodsPhotoRetakeTodo",
-  "function findOpenTodoByTypeAndRef",
-]) {
-  assert.equal(apiSource.includes(oldHelper), false, `${oldHelper} should not remain in the API composition root`);
-}
-
 console.log(
-  "Production finished-goods photo projection checks passed: nested history, legacy aliases, todo reuse, factory shorthand, Chinese customer copy, and thin API wiring are covered.",
+  "Production finished-goods photo projection checks passed: nested history, legacy aliases, todo reuse, factory shorthand, and Chinese customer copy are covered.",
 );

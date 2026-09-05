@@ -28,10 +28,12 @@ const classified = buildGitBaselineScopeReport({
     { status: " M", path: "package.json" },
     { status: " M", path: "package-lock.json" },
     { status: " M", path: "vite.config.mjs" },
+    { status: "??", path: "playwright.review.config.mjs" },
     { status: "??", path: "server/services/example.mjs" },
     { status: " M", path: "src/App.jsx" },
     { status: " M", path: "scripts/check-api-skeleton.mjs" },
     { status: "??", path: "e2e/v1-d49-layout.spec.mjs" },
+    { status: "??", path: "review-e2e/complete-review-receipt.spec.mjs" },
     { status: " M", path: "deploy/production/erp-service.env.example" },
   ],
   remoteCount: 0,
@@ -40,8 +42,8 @@ const classified = buildGitBaselineScopeReport({
 });
 assert.equal(classified.scopeSafe, true);
 assert.equal(classified.releaseReady, false);
-assert.equal(classified.summary.changedFileCount, 11);
-assert.equal(classified.summary.classifiedCount, 11);
+assert.equal(classified.summary.changedFileCount, 13);
+assert.equal(classified.summary.classifiedCount, 13);
 assert.equal(classified.summary.unclassifiedCount, 0);
 assert.deepEqual(classified.blockers, ["controlled_git_remote_missing", "worktree_not_clean"]);
 assert.equal(classified.stagingReview.readOnly, true);
@@ -50,9 +52,9 @@ assert.deepEqual(
   classified.stagingReview.batches.map((batch) => batch.key),
   ["runtime_domain", "frontend_ui", "verification", "engineering_tooling", "governance_docs"],
 );
-assert.equal(classified.stagingReview.batches.find((batch) => batch.key === "verification")?.count, 2);
-assert.equal(classified.groups.find((group) => group.key === "verification")?.count, 2);
-assert.equal(classified.groups.find((group) => group.key === "engineering_tooling")?.count, 5);
+assert.equal(classified.stagingReview.batches.find((batch) => batch.key === "verification")?.count, 3);
+assert.equal(classified.groups.find((group) => group.key === "verification")?.count, 3);
+assert.equal(classified.groups.find((group) => group.key === "engineering_tooling")?.count, 6);
 assert.equal(
   classified.groups
     .filter((group) => !["verification", "engineering_tooling"].includes(group.key))
@@ -140,7 +142,7 @@ assert.equal(live.safeguards.readOnly, true);
 assert.equal(live.safeguards.gitAddExecuted, false);
 assert.equal(live.safeguards.matchedContentIncluded, false);
 assert.equal(live.stagingReview.readOnly, true);
-assert.equal(live.stagingReview.readyToStartReview, true);
+assert.equal(live.stagingReview.readyToStartReview, live.summary.stagedCount === 0);
 assert.equal(live.stagingReview.batches.length, live.groups.filter((group) => group.count > 0).length);
 
 const latestOutputPath = writeGitBaselineScopeReport(live);

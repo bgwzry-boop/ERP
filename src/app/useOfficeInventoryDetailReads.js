@@ -5,7 +5,7 @@ import {
   listOfficeInventoryLedgerEntries,
   listOfficeInventoryIntents,
   listOfficeTemporaryInventoryHolds,
-} from "../services/officeInventoryApiClient.js";
+} from "../services/officeInventoryLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 
 function formatSyncTime() {

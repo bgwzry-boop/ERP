@@ -14,8 +14,8 @@ const batchBScripts = resolveCheckGroup("batch-b");
 
 assert.deepEqual(listCheckGroups(), ["pretest", "test", "core", "batch-a", "batch-b"]);
 assert.equal(pretestScripts.length, 6);
-assert.equal(coreScripts.length, 119);
-assert.equal(testScripts.length, 146);
+assert.equal(coreScripts.length, 120);
+assert.equal(testScripts.length, 147);
 assert.equal(batchAScripts.length, 7);
 assert.equal(batchBScripts.length, 18);
 assert.equal(pretestScripts[0], "order-parser:check");
@@ -38,7 +38,9 @@ for (const scriptName of new Set([...pretestScripts, ...testScripts, ...batchASc
   assert.equal(typeof packageScripts[scriptName], "string", `group entry should reference package script ${scriptName}`);
 }
 assert.equal(packageScripts.pretest, "node scripts/run-check-group.mjs pretest");
-assert.equal(packageScripts.test, "node scripts/run-check-group.mjs test");
+assert.equal(packageScripts["test:checks"], "node scripts/run-check-group.mjs test");
+assert.equal(packageScripts.e2e, "playwright test && playwright test --config playwright.review.config.mjs");
+assert.equal(packageScripts.test, "npm run test:checks && npm run e2e");
 assert.equal(packageScripts["check:core"], "node scripts/run-check-group.mjs core");
 assert.equal(packageScripts["batch-a:check"], "node scripts/run-check-group.mjs batch-a");
 assert.equal(packageScripts["batch-b:check"], "node scripts/run-check-group.mjs batch-b");
@@ -53,7 +55,7 @@ const dryRun = spawnSync(process.execPath, [runnerPath, "test", "--dry-run", "--
 assert.equal(dryRun.status, 0, dryRun.stderr);
 const dryRunSummary = JSON.parse(dryRun.stdout);
 assert.equal(dryRunSummary.ok, true);
-assert.equal(dryRunSummary.count, 146);
+assert.equal(dryRunSummary.count, 147);
 assert.deepEqual(dryRunSummary.scripts, testScripts);
 
 const unknown = spawnSync(process.execPath, [runnerPath, "missing-group"], { encoding: "utf8" });

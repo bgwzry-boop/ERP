@@ -1,7 +1,7 @@
 import {
   listOfficeAttachmentAccessLogs as listOfficeAttachmentAccessLogsDefault,
   listOfficeAttachments as listOfficeAttachmentsDefault,
-} from "../services/officeAttachmentApiClient.js";
+} from "../services/officeAttachmentLazyApi.js";
 import {
   syncStatementCustomerConfirmationAttachments,
   syncStatementPaymentAttachments,

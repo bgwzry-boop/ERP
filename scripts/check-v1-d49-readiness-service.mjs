@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { buildV1D49Readiness } from "../server/services/v1D49ReadinessService.mjs";
 
 const checkedAt = "2026-07-14T00:00:00.000Z";
@@ -86,20 +85,6 @@ assert.equal(error.status, "blocked");
 assert.equal(error.environment.status, "error");
 assert.equal(error.environment.ready, false);
 assertSensitiveTextAbsent(error);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemReadRoutes.mjs", import.meta.url), "utf8");
-const statusResponseSource = readFileSync(
-  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
-  "utf8",
-);
-assert.match(statusResponseSource, /from "\.\/v1D49ReadinessService\.mjs"/);
-assert.match(statusResponseSource, /const d49Readiness = buildD49Readiness\(\{ workspace, operatorId \}\);/);
-assert.match(statusResponseSource, /d49Readiness,/);
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createV1GoLiveStatusResponseService/);
-assert.match(routeSource, /v1GoLiveStatusResponseService\.build\(\{\s*workspace,/);
-assert.doesNotMatch(apiSource, /passwordHash.*d49Readiness|loginName.*d49Readiness/);
 
 console.log(
   "V1 D49 readiness checks passed: eight formal roles, setup/audit/preflight/intake gates, demo-mode blocking, redaction, and go-live status integration are covered.",

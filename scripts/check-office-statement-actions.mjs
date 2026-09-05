@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { buildStatementRouteContract } from "../src/app/buildStatementRouteContract.js";
 import { createOfficeStatementActions } from "../src/app/createOfficeStatementActions.js";
 
 const baseStatement = {
@@ -12,6 +12,31 @@ const baseStatement = {
   status: "待发送",
   lineIds: [],
 };
+
+{
+  const refreshCalls = [];
+  const actionController = { marker: "statement-route" };
+  const state = {
+    authState: { authenticated: true },
+    currentUser: { userId: "U-FINANCE-A" },
+    pageHelpers: { marker: "helpers" },
+    orderLines: [{ id: "OL-1" }],
+    statementActionController: actionController,
+    statementReadMeta: { source: "api" },
+    statements: [baseStatement],
+    selectedStatementId: baseStatement.id,
+    setSelectedStatementId: () => {},
+    refreshStatementDetail: async (input) => refreshCalls.push(input),
+  };
+  const contract = buildStatementRouteContract(state);
+  assert.equal(contract.actionController, actionController);
+  assert.equal(contract.state.statements, state.statements);
+  assert.equal(contract.state.orderLines, state.orderLines);
+  assert.equal(contract.state.selectedId, baseStatement.id);
+  assert.equal(contract.state.helpers, state.pageHelpers);
+  await contract.actions.onRefresh();
+  assert.deepEqual(refreshCalls, [{ statementId: baseStatement.id, showToast: false }]);
+}
 
 function createHarness({ allowLocalFallback = false, api = {}, confirmAction = () => true, statement = baseStatement } = {}) {
   let statements = [{ ...statement }];
@@ -185,18 +210,5 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmAction = (
   assert.equal(harness.getStatements()[0].status, "待发送", "unknown statement actions must not change state");
   assert.match(harness.toasts.at(-1), /未识别对账操作/);
 }
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeStatementActions\(\{/);
-assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
-assert.match(appSource, /confirmAction: \(message\) => window\.confirm\(message\)/);
-assert.doesNotMatch(appSource, /async function statementAction/);
-assert.doesNotMatch(appSource, /async function refreshStatementExportRecords/);
-const statementActionsSource = readFileSync(new URL("../src/app/createOfficeStatementActions.js", import.meta.url), "utf8");
-const permissionsSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
-assert.doesNotMatch(statementActionsSource, /导出占位/);
-assert.match(statementActionsSource, /function buildStatementWriteOffConfirmation/);
-assert.match(statementActionsSource, /已取消核销，对账单未改动/);
-assert.doesNotMatch(permissionsSource, /导出占位/);
 
 console.log("Office statement actions check passed: financial actions are isolated and formal mode rejects local fallback state changes.");

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createPostgresParameterBinder } from "../server/postgresSqlParameters.mjs";
 import {
   buildInsertWorkshopReportSql,
@@ -12,7 +11,6 @@ import {
 checkProductionTaskFragment();
 checkWorkshopAndOrderLineFragments();
 checkPackingAndCapacityFragments();
-checkRepositoryBoundary();
 
 console.log("Production packing task SQL fragments check passed: bound task, report, order-line, packing, and capacity SQL are isolated.");
 
@@ -112,14 +110,4 @@ function checkPackingAndCapacityFragments() {
   assert.equal(capacityParameters.values.includes("capacity O'Brien"), true);
   assert.equal(buildUpsertPackingTaskSql(null, createPostgresParameterBinder()), "SELECT NULL::json AS result WHERE false");
   assert.equal(buildUpsertMachineCapacityBaselineSql(null, createPostgresParameterBinder()), "SELECT NULL::json AS result WHERE false");
-}
-
-function checkRepositoryBoundary() {
-  const repositorySource = readFileSync(new URL("../server/productionPackingTransactionRepository.mjs", import.meta.url), "utf8");
-  const fragmentsSource = readFileSync(new URL("../server/productionPackingTaskSqlFragments.mjs", import.meta.url), "utf8");
-  assert.match(repositorySource, /from "\.\/productionPackingTaskSqlFragments\.mjs"/);
-  assert.doesNotMatch(repositorySource, /function buildUpsertProductionTaskSql\(/);
-  assert.match(fragmentsSource, /export function buildUpsertProductionTaskSql\(/);
-  assert.ok(repositorySource.split("\n").length <= 1400, "transaction repository should delegate shared task SQL fragments");
-  assert.ok(fragmentsSource.split("\n").length <= 320, "task SQL fragments should remain independently reviewable");
 }

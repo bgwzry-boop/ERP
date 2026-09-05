@@ -3,6 +3,7 @@ import {
   buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
   readOfficeApiJson as readJson,
   requestOfficeApi as requestMasterDataImportApi,
+  toOfficeApiError as toApiError,
 } from "./officeApiClientCore.js";
 import { createMasterDataImportConfirmationPlan } from "../domain/masterDataImportConfirmationPlan.js";
 import { createMasterDataImportExecution } from "../domain/masterDataImportExecution.js";
@@ -1470,15 +1471,6 @@ function normalizePermissionCatalog(value) {
       kinds: Array.isArray(permission.kinds) ? permission.kinds.map(cleanText).filter(Boolean) : [],
       roleKeys: Array.isArray(permission.roleKeys) ? permission.roleKeys.map(cleanText).filter(Boolean) : [],
     })).filter((permission) => permission.permissionKey),
-  };
-}
-
-function toApiError(json, status, fallbackMessage) {
-  return {
-    code: cleanText(json?.code) || `HTTP_${status}`,
-    message: cleanText(json?.message) || fallbackMessage,
-    requiredPermission: cleanText(json?.requiredPermission),
-    status,
   };
 }
 

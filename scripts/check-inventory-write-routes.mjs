@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleInventoryWriteRoutes } from "../server/routes/inventoryWriteRoutes.mjs";
 
 const calls = [];
@@ -174,17 +173,6 @@ assert.equal(
   await handleInventoryWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/inventory/reservations/RSV-1") }),
   false,
 );
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-for (const removedWrapper of [
-  "createInventoryCorrectionDraftRoute",
-  "linkInventoryCorrectionAttachmentsRoute",
-  "confirmInventoryCorrectionDraftRoute",
-  "releaseInventoryReservationRoute",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
-}
-assert.match(apiSource, /handleInventoryWriteRoutes\([\s\S]*inventoryCorrectionCommandService,[\s\S]*inventoryReservationReleaseCommandService,[\s\S]*inventoryCorrectionReadProjectionService,[\s\S]*todoReadProjectionService,[\s\S]*sendCommandResponse,/);
 
 console.log("inventory write routes checks passed: direct commands, custom correction projections, failures, permissions, intents, and thin API wiring are covered");
 

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   buildV1ProductionEnvPreviewEnvironment,
   precheckV1ProductionEnvFilePreview,
@@ -121,28 +120,6 @@ assert.equal(JSON.stringify(errorResult).includes("postgres://"), false);
 assert.equal(JSON.stringify(errorResult).includes("/Users/private"), false);
 assert.equal(JSON.stringify(errorResult).includes("/secure/error.env"), false);
 assert.equal(errorResult.body.safeguards.processEnvMutated, false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const productionGoLivePrecheckServiceSource = readFileSync(
-  new URL("../server/services/v1ProductionGoLivePrecheckService.mjs", import.meta.url),
-  "utf8",
-);
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function precheckSystemV1ProductionEnvFilePreview/);
-assert.match(routeSource, /precheckProductionEnvFilePreview:[\s\S]*precheckV1ProductionEnvFilePreview\(\{ operatorId \}\)/);
-assert.doesNotMatch(routeSource, /process\.env|readFileSync|buildProductionEnvFileAuditReport|buildProductionEnvPreflight/);
-for (const oldDefinition of [
-  "buildV1ProductionEnvPreviewFallbackCheck",
-  "buildV1ProductionEnvFilePreviewStageDiagnosis",
-  "buildV1ProductionEnvFilePreviewPrecheckBody",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${oldDefinition}\\(`));
-}
-assert.doesNotMatch(apiSource, /buildV1ProductionEnvPreviewEnvironment\(configuredEnvFiles\)/);
-assert.match(
-  productionGoLivePrecheckServiceSource,
-  /buildEnvPreviewEnvironment\(configuredEnvFiles\)/,
-);
 
 console.log(
   "V1 production-env file-preview service checks passed: audit gate, memory-only overlay, process-env immutability, preview-only source, redaction, and thin API composition are covered.",

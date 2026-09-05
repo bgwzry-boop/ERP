@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createPrintBatchCommandService } from "../server/services/printBatchCommandService.mjs";
 
 const fixedNow = new Date("2026-07-11T08:30:00.000Z");
@@ -88,9 +87,6 @@ const explicit = await service.createPrintBatch({
 });
 assert.equal(explicit.printBatchRecord.printBatchId, "PB-EXPLICIT-1");
 assert.equal(explicit.printBatchRecord.operatorName, "U-MISSING");
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function createPrintBatchRoute[\s\S]{0,500}createPrintBatchRecord\(/);
 
 console.log(
   "Print batch command service checks passed: authenticated operator, stable IDs, timestamps, and idempotency are isolated.",

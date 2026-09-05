@@ -1,5 +1,5 @@
-import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import assert from "node:assert/strict";
 import { initialRawMaterialInbounds } from "../src/data/fixtures.js";
 import {
   buildFindRawMaterialInboundPayloadQuery,

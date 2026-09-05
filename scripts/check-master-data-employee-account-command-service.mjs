@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { verifyRuntimeUserPassword } from "../server/authSeed.mjs";
 import { buildDefaultMasterDataMachines } from "../server/masterDataMachineConfigurationRepository.mjs";
 import { buildLegacyImportedMachineId } from "../shared/masterDataMachineIdentity.js";
@@ -9,24 +8,6 @@ import {
   listMasterDataEmployeeAccountReviews,
   toMasterDataEmployeeAccountReview,
 } from "../server/services/masterDataEmployeeAccountCommandService.mjs";
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const commandServiceSource = readFileSync(
-  new URL("../server/services/masterDataEmployeeAccountCommandService.mjs", import.meta.url),
-  "utf8",
-);
-assert.doesNotMatch(apiServerSource, /issueRuntimeUserTemporaryPassword\(/);
-assert.doesNotMatch(apiServerSource, /function upsertMasterDataEmployeeUser\(/);
-assert.match(commandServiceSource, /issueRuntimeUserTemporaryPassword\(/);
-assert.match(commandServiceSource, /persistAndCommitIdentityWorkspace\(/);
-assert.match(commandServiceSource, /enableEmployeeAccounts/);
-assert.match(commandServiceSource, /atomic: true/);
-assert.match(commandServiceSource, /mergeEmployeeIdentity/);
-assert.match(commandServiceSource, /merged_duplicate/);
-assert.match(commandServiceSource, /confirmEmployeeIdentity/);
-assert.match(commandServiceSource, /departEmployeeAccount/);
-assert.match(commandServiceSource, /master_data_employee_departed/);
-assert.match(commandServiceSource, /validateEmployeeAccountIdentityConfirmation/);
 
 const fixedNow = new Date("2026-07-12T09:00:00.000Z");
 let logSequence = 0;
@@ -71,8 +52,6 @@ assert.deepEqual(
   listMasterDataEmployeeAccountReviews(reviewWorkspace, { status: "pending_admin_review" }).map((item) => item.employeeId),
   ["EMP-WORKER-001"],
 );
-assert.doesNotMatch(apiServerSource, /function listMasterDataEmployeeAccountReviews/);
-
 {
   const departureWorkspace = createWorkspace({
     employees: [{

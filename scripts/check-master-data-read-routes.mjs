@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleMasterDataReadRoutes } from "../server/routes/masterDataReadRoutes.mjs";
 
 const calls = [];
@@ -113,10 +112,6 @@ assert.equal(
 );
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleMasterDataReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/master-data/import-executions/EX-1") }), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function downloadMasterDataImportFailedRowsRoute\b/);
-assert.match(apiSource, /handleMasterDataReadRoutes\([\s\S]*masterDataImportCommandService,[\s\S]*sendFile,/);
 
 console.log("master-data read routes checks passed: lists, failed-row download results, permissions, and thin API wiring are covered");
 

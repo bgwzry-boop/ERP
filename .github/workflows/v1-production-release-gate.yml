@@ -64,6 +64,9 @@ jobs:
       - name: Install locked dependencies
         run: npm ci
 
+      - name: Install browser regression dependencies
+        run: npx playwright install --with-deps chromium
+
       - name: Run code and infrastructure gates
         shell: bash
         run: |
@@ -73,13 +76,6 @@ jobs:
           npm run api:validate-openapi
           npm run db:postgres-live:check
           npm run object-storage:minio-live:check
-
-      - name: Run isolated browser release regression
-        shell: bash
-        run: |
-          set -euo pipefail
-          npx playwright install chromium
-          npm run e2e:core
 
       - name: Materialize protected release inputs
         shell: bash

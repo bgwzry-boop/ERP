@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   allNavigationItems,
   desktopRequiredMobilePage,
   getDefaultNavigationPage,
+  getMobileRoleHomePage,
+  getMobileRoleTitle,
   getMobileViewportPage,
   getNavigationGroupForPage,
   getVisibleNavigationGroups,
@@ -18,6 +19,7 @@ import {
   roleNavigationItems,
   toolNavigationGroup,
 } from "../src/app/navigation.js";
+import { resolveOfficeWorkbenchNavigation } from "../src/app/useOfficeWorkbenchNavigation.js";
 import { getRolePermissionSet } from "../shared/auth/roleCatalog.js";
 
 assert.deepEqual(
@@ -102,23 +104,57 @@ assert.equal(getMobileViewportPage("packing", contextFor("workshop")), "workshop
 assert.equal(getMobileViewportPage("rawMaterialScanner", contextFor("packing")), "rawMaterialScanner");
 assert.equal(getMobileViewportPage("attendanceMobile", contextFor("packing")), "attendanceMobile");
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const navigationComponentSource = readFileSync(new URL("../src/app/AppNavigation.jsx", import.meta.url), "utf8");
-const mobileRoleHeaderSource = readFileSync(new URL("../src/app/MobileRoleShellHeader.jsx", import.meta.url), "utf8");
-assert.match(appSource, /<AppNavigation/);
-assert.match(appSource, /<MobileRoleShellHeader/);
-assert.match(appSource, /getDefaultNavigationPage\(permissionContext\)/);
-assert.match(appSource, /roleFocusedShellPage = dedicatedMobileRolePage \|\| renderedPage === roleBoundaryPage\.key/);
-assert.match(navigationComponentSource, /更多工作台/);
-assert.match(navigationComponentSource, /aria-label="主导航"/);
-assert.match(navigationComponentSource, /aria-current=/);
-assert.match(navigationComponentSource, /aria-expanded=/);
-assert.match(navigationComponentSource, /disabled key=\{item\.label\}/);
-assert.match(mobileRoleHeaderSource, /成品库房任务/);
-assert.match(mobileRoleHeaderSource, /办公室手机/);
-assert.match(mobileRoleHeaderSource, /经营决策/);
-assert.match(mobileRoleHeaderSource, /设备机修/);
-assert.match(mobileRoleHeaderSource, /电脑端岗位/);
+assert.deepEqual(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "todos",
+    mobileViewport: false,
+    permissionContext: contextFor("office"),
+  }),
+  {
+    activeMeta: allNavigationItems.find((item) => item.key === "todos"),
+    renderedPage: "todos",
+    roleFocusedShellPage: false,
+  },
+);
+assert.deepEqual(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "orders",
+    mobileViewport: true,
+    permissionContext: contextFor("office"),
+  }),
+  {
+    activeMeta: allNavigationItems.find((item) => item.key === "rawMaterials"),
+    renderedPage: "rawMaterials",
+    roleFocusedShellPage: true,
+  },
+);
+assert.equal(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "inventory",
+    mobileViewport: true,
+    permissionContext: contextFor("management"),
+  }).renderedPage,
+  desktopRequiredMobilePage.key,
+);
+assert.equal(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "inventory",
+    mobileViewport: false,
+    permissionContext: contextFor("finance"),
+  }).renderedPage,
+  "statements",
+);
+
+assert.equal(getMobileRoleTitle("warehouseMobile"), "成品库房任务");
+assert.equal(getMobileRoleTitle("rawMaterials"), "办公室手机");
+assert.equal(getMobileRoleTitle("decisionMobile"), "经营决策");
+assert.equal(getMobileRoleTitle("maintenanceMobile"), "设备机修");
+assert.equal(getMobileRoleTitle(desktopRequiredMobilePage.key), "电脑端岗位");
+assert.equal(getMobileRoleTitle("roleBoundary", { defaultRole: "warehouse" }), "纸质出库说明");
+assert.equal(getMobileRoleTitle("workshopMobile", { defaultMachineId: "PRINT-03" }), "丝印任务");
+assert.equal(getMobileRoleHomePage({ defaultRole: "warehouse" }), "warehouseMobile");
+assert.equal(getMobileRoleHomePage({ defaultRole: "packing" }), "workshopMobile");
+assert.equal(getMobileRoleHomePage({ defaultRole: "management" }), desktopRequiredMobilePage.key);
 
 console.log("App navigation check passed: desktop pages, role surfaces, defaults, and future placeholders follow the terminal boundary.");
 

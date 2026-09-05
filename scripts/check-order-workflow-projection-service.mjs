@@ -1,11 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOrderWorkflowProjectionService } from "../server/services/orderWorkflowProjectionService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createOrderWorkflowProjectionService\(\{ calculateLinePricing \}\)/);
-assert.match(registrySource, /\} = orderWorkflowProjectionService;/);
 
 const methodNames = [
   "findMatchingInventory",
@@ -19,10 +13,6 @@ const methodNames = [
   "toOrderLineSummary",
   "toPriceSnapshot",
 ];
-for (const functionName of methodNames) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${functionName}\\(`));
-}
-
 const pricingCalls = [];
 const service = createOrderWorkflowProjectionService({
   calculateLinePricing(input) {

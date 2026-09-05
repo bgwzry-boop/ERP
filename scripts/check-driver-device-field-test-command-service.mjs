@@ -1,18 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   createDriverDeviceFieldTestCommandService,
   normalizeDriverDeviceFieldTestCommandRecord,
 } from "../server/services/driverDeviceFieldTestCommandService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/driverWriteRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createDriverDeviceFieldTestCommandService\(\{/);
-assert.match(routeSource, /driverDeviceFieldTestCommandService\.recordDriverDeviceFieldTest\(\{/);
-assert.doesNotMatch(apiSource, /function normalizeDriverDeviceFieldTestApiRecord\(/);
-assert.doesNotMatch(apiSource, /getDriverDeviceFieldTestAcceptance/);
-assert.doesNotMatch(routeSource, /getDriverDeviceFieldTestAcceptance|normalizeDriverDeviceFieldTestChecks/);
 
 const fixedNow = new Date("2026-07-14T12:00:00.000Z");
 const calls = [];

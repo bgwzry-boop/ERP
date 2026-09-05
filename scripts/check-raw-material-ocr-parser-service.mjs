@@ -23,9 +23,11 @@ assert.deepEqual(
   pickSpec(parseRawMaterialSpec("78克*5宽*1500米")),
   ["78克*5宽*1500米", 78, 5, 1500, "提手条", false],
 );
-assert.deepEqual(pickSpec(parseRawMaterialSpec("条")), ["条", 78, 5, 0, "提手条", false]);
-assert.deepEqual(pickSpec(parseRawMaterialSpec("宽5cm")), ["宽5cm", 78, 5, 0, "提手条", false]);
-assert.deepEqual(pickSpec(parseRawMaterialSpec("5cm*加长提")), ["5cm*加长提", 78, 5, 0, "提手条", false]);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("65*5*1500")), ["65*5*1500", 65, 5, 1500, "提手条", false]);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("5*65")), ["5*65", 65, 5, 0, "提手条", false]);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("条")), ["条", 65, 5, 0, "提手条", false]);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("宽5cm")), ["宽5cm", 65, 5, 0, "提手条", false]);
+assert.deepEqual(pickSpec(parseRawMaterialSpec("5cm*加长提")), ["5cm*加长提", 65, 5, 0, "提手条", false]);
 assert.deepEqual(pickSpec(parseRawMaterialSpec("78*5*1200")), ["78*5*1200", 78, 5, 1200, "提手条", false]);
 assert.deepEqual(
   pickSpec(parseRawMaterialSpec("宽15cm")),
@@ -49,19 +51,19 @@ assert.equal(explicitStripWithoutSpec.materialCategory, "提手条");
 assert.equal(explicitStripWithoutSpec.materialType, "提手");
 assert.equal(explicitStripWithoutSpec.productName, "提手条");
 assert.equal(explicitStripWithoutSpec.supplierColor, "天兰");
-assert.equal(explicitStripWithoutSpec.gramWeightGsm, 78, "the strip category uses the factory-standard GSM");
+assert.equal(explicitStripWithoutSpec.gramWeightGsm, 65, "the strip category uses the factory-default GSM");
 assert.equal(explicitStripWithoutSpec.widthCm, 5, "the strip category uses the factory-standard width");
 assert.equal(explicitStripWithoutSpec.lengthM, 0, "an omitted strip meter length remains absent without blocking review");
-assert.equal(explicitStripWithoutSpec.spec, "78*5");
+assert.equal(explicitStripWithoutSpec.spec, "65*5");
 assert.equal(explicitStripWithoutSpec.specNeedsReview, false);
-assert.equal(explicitStripWithoutSpec.specDisplay, "78克 × 5cm");
+assert.equal(explicitStripWithoutSpec.specDisplay, "65克 × 5cm");
 assert.equal(parseRawMaterialSpec("70*82*2000").specNeedsReview, true);
 assert.equal(parseRawMaterialSpec("70*82*2000").widthCm, 0, "unlabeled non-standard pairs must not guess gram weight versus width");
 assert.equal(parseRawMaterialSpec("90克*1.6米").gramWeightGsm, 0, "legacy two-part specs must not be guessed into the three-part structure");
 assert.equal(parseRawMaterialSpec("").specNeedsReview, true, "missing specifications must stay pending review");
 assert.equal(formatRawMaterialMobileSpec("70*78*2000"), "78克*70宽*2000米");
 assert.equal(formatRawMaterialMobileSpec("76*78*1500"), "78克*76宽*1500米");
-assert.equal(formatRawMaterialMobileSpec("条"), "78克*5宽");
+assert.equal(formatRawMaterialMobileSpec("条"), "65克*5宽");
 
 const fixedStripDefaultsOverrideSupplierNumbers = enrichRawMaterialSpecValues({
   supplierColor: "米黄条",
@@ -75,8 +77,8 @@ assert.deepEqual(
     fixedStripDefaultsOverrideSupplierNumbers.widthCm,
     fixedStripDefaultsOverrideSupplierNumbers.lengthM,
   ],
-  ["米黄", 78, 5, 1500],
-  "factory-authoritative handle-strip GSM and width do not change with omitted or conflicting supplier text",
+  ["米黄", 65, 5, 1500],
+  "factory-default handle-strip GSM and width apply when supplier text has no confirmed handle specification",
 );
 
 const cells = [];
@@ -523,8 +525,8 @@ const supplierWrittenStripDraft = buildRawMaterialInboundDraftFromOcr({
 assert.equal(supplierWrittenStripDraft.materialCategory, "提手条");
 assert.equal(supplierWrittenStripDraft.materialType, "提手");
 assert.equal(supplierWrittenStripDraft.productName, "提手条");
-assert.equal(supplierWrittenStripDraft.spec, "78*5");
-assert.equal(supplierWrittenStripDraft.gramWeightGsm, 78, "supplier text 条 applies the fixed handle-strip GSM");
+assert.equal(supplierWrittenStripDraft.spec, "65*5");
+assert.equal(supplierWrittenStripDraft.gramWeightGsm, 65, "supplier text 条 applies the default handle-strip GSM");
 assert.equal(supplierWrittenStripDraft.widthCm, 5, "supplier text 条 applies the fixed handle-strip width");
 assert.equal(supplierWrittenStripDraft.lengthM, 0, "supplier text 条 keeps an omitted meter length absent");
 assert.equal(supplierWrittenStripDraft.specNeedsReview, false);
@@ -539,10 +541,10 @@ const colorSuffixStripDraft = buildRawMaterialInboundDraftFromOcr({
 });
 assert.equal(colorSuffixStripDraft.materialCategory, "提手条");
 assert.equal(colorSuffixStripDraft.supplierColor, "天兰");
-assert.equal(colorSuffixStripDraft.gramWeightGsm, 78);
+assert.equal(colorSuffixStripDraft.gramWeightGsm, 65);
 assert.equal(colorSuffixStripDraft.widthCm, 5);
 assert.equal(colorSuffixStripDraft.lengthM, 0);
-assert.equal(colorSuffixStripDraft.specDisplay, "78克 × 5cm");
+assert.equal(colorSuffixStripDraft.specDisplay, "65克 × 5cm");
 assert.equal(colorSuffixStripDraft.specNeedsReview, false);
 
 const actualRenyiStripRowsDraft = buildRawMaterialInboundDraftFromOcr({
@@ -555,11 +557,45 @@ const actualRenyiStripRowsDraft = buildRawMaterialInboundDraftFromOcr({
 });
 assert.deepEqual(actualRenyiStripRowsDraft.ocrLines.map((line) => line.values.supplierColor), ["米黄", "咖啡"]);
 assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.materialCategory === "提手条"), true);
-assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.gramWeightGsm === 78), true);
+assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.gramWeightGsm === 65), true);
 assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.widthCm === 5), true);
 assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.lengthM === 0), true);
-assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.spec === "78*5"), true);
+assert.equal(actualRenyiStripRowsDraft.ocrLines.every((line) => line.values.spec === "65*5"), true);
 assert.deepEqual(actualRenyiStripRowsDraft.rolls.map((roll) => roll.weightKg), [88, 100, 93.5]);
+
+const renyiSeptemberMixedMaterialDraft = buildRawMaterialInboundDraftFromOcr({
+  inboundId: "RMI-OCR-RENYI-SEPTEMBER-MIXED",
+  knownSupplierNames: ["人意无纺布"],
+  ocr: { tables: [{ cells: buildCells([
+    ["人意无纺布销售单"],
+    ["客户：测试客户", "单据日期：", "2026.9.01", "送货人：测试送货员"],
+    ["商品名称", "颜色", "数量", "重量", "单位：千克", "总重", "单价", "金额"],
+    ["78*090*1500", "桔红", "3", "108.8", "108.3", "107.3", "0"],
+    ["78*070*1500", "桔红", "2", "85.3", "84.8", "494.5", "10.1", "4994.45"],
+    ["咖啡条", "1", "76.5", "0"],
+    ["海兰条", "1", "95", "171.5", "10.3", "1766.45"],
+    ["合计", "7", "陆仟柒佰陆拾.玖", "6760.9"],
+    ["本单金额", "6760.90"],
+  ]) }] },
+});
+assert.equal(renyiSeptemberMixedMaterialDraft.supplierName, "人意无纺布");
+assert.equal(renyiSeptemberMixedMaterialDraft.receivedAt, "2026-09-01");
+assert.equal(renyiSeptemberMixedMaterialDraft.supplierOcrProfileKey, "renyi_zhengheng");
+assert.equal(renyiSeptemberMixedMaterialDraft.documentPriceReferenceOnly, true);
+assert.equal(renyiSeptemberMixedMaterialDraft.rollCount, 7);
+assert.equal(renyiSeptemberMixedMaterialDraft.totalWeightKg, 666);
+assert.equal(renyiSeptemberMixedMaterialDraft.amount, 6760.9);
+assert.deepEqual(renyiSeptemberMixedMaterialDraft.rolls.map((roll) => roll.weightKg), [108.8, 108.3, 107.3, 85.3, 84.8, 76.5, 95]);
+assert.deepEqual(renyiSeptemberMixedMaterialDraft.rolls.map((roll) => roll.materialCategory), ["布料", "布料", "布料", "布料", "布料", "提手条", "提手条"]);
+assert.deepEqual(renyiSeptemberMixedMaterialDraft.ocrLines.slice(-2).map((line) => ({
+  color: line.values.supplierColor,
+  spec: line.values.specDisplay,
+  lengthM: line.values.lengthM,
+})), [
+  { color: "咖啡", spec: "65克 × 5cm", lengthM: 0 },
+  { color: "海兰", spec: "65克 × 5cm", lengthM: 0 },
+]);
+assert.deepEqual(renyiSeptemberMixedMaterialDraft.ocrReconciliationIssues, []);
 
 const daxiangMultiWeightDraft = buildRawMaterialInboundDraftFromOcr({
   inboundId: "RMI-OCR-DAXIANG-MULTI-WEIGHT",

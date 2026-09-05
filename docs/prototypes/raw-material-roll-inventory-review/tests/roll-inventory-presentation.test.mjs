@@ -5,6 +5,7 @@ import {
   compactRollCode,
   compactSupplierName,
   resolveInventoryRollStatus,
+  resolveRollSpecification,
   resolveRollWidth,
   sortInventoryRollsByWidth,
 } from "../src/roll-inventory-presentation.js";
@@ -14,13 +15,13 @@ test("formal roll inventory resolves authoritative width before presentation", (
     widthCm: 70, label: "70cm", materialCategory: "布料", materialUsage: "袋身原材料",
   });
   assert.deepEqual(resolveRollWidth({}, { materialCategory: "提手条", spec: "78*5" }), {
-    widthCm: 5, label: "5cm 提手条", materialCategory: "提手条", materialUsage: "提手原材料",
+    widthCm: 5, label: "5cm 把条", materialCategory: "提手条", materialUsage: "提手原材料",
   });
   assert.deepEqual(resolveRollWidth({ widthCm: 70 }, { materialCategory: "提手条", spec: "条" }), {
     widthCm: 70, label: "70cm", materialCategory: "布料", materialUsage: "袋身原材料",
   });
   assert.deepEqual(resolveRollWidth({}, { spec: "5cm*加长提" }), {
-    widthCm: 5, label: "5cm 提手条", materialCategory: "提手条", materialUsage: "提手原材料",
+    widthCm: 5, label: "5cm 把条", materialCategory: "提手条", materialUsage: "提手原材料",
   });
   assert.deepEqual(resolveRollWidth({}, { spec: "特殊尺寸" }), {
     widthCm: 0, label: "宽幅待确认", materialCategory: "", materialUsage: "",
@@ -45,11 +46,11 @@ test("width filters follow the same warehouse ordering and roll codes stay trace
   const rows = [
     { id: "RM-UNKNOWN", width: "宽幅待确认", widthCm: 0 },
     { id: "RM-90", width: "90cm", widthCm: 90 },
-    { id: "RM-5", width: "5cm 提手条", widthCm: 5 },
+    { id: "RM-5", width: "5cm 把条", widthCm: 5 },
     { id: "RM-70", width: "70cm", widthCm: 70 },
   ];
 
-  assert.deepEqual(buildInventoryWidthOptions(rows), ["全部宽幅", "5cm 提手条", "70cm", "90cm", "宽幅待确认"]);
+  assert.deepEqual(buildInventoryWidthOptions(rows), ["全部宽幅", "5cm 把条", "70cm", "90cm", "宽幅待确认"]);
   assert.equal(compactRollCode("RM-OCR-D8CBC5812426-01"), "RM-…8CBC5812426-01");
   assert.equal(compactRollCode("RM-240704-003-01"), "RM-240704-003-01");
 });

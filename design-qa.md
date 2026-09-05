@@ -157,7 +157,7 @@ final result: passed
 - Colors and tokens: forest/moss actions, neutral canvas, pale borders, red physical-colour swatches, and amber blocking state all use shared semantic tokens with written labels.
 - Image quality and assets: the real delivery-note image is reused for both the main preview and line evidence. No CSS-drawn document, QR placeholder, emoji, or fabricated asset replaces it.
 - Copy and content: the formal screen now uses the approved nine-roll data, canonical `克重*宽度*米数` grammar, one independent physical-roll weight, concise `待确认 / 已确认 / 待补宽幅` states, and direct `核对 / 补全 / 修改` actions. Source-line count and total remain outside the roll facts.
-- Interaction and accessibility: every row opens an inline editor; the seventh row is directly prefilled as `78克*5宽*1500米`; all nine rows must be explicitly confirmed before submit. Back, source preview, per-roll actions, footer actions, printer change, one-click attachment, and mismatch controls retain 44px-plus targets.
+- Interaction and accessibility: every row opens an inline editor; the seventh handle-strip row is directly prefilled from the factory default as `65克*5宽` and appends meters only when the ticket actually supplies them; all nine rows must be explicitly confirmed before submit. Back, source preview, per-roll actions, footer actions, printer change, one-click attachment, and mismatch controls retain 44px-plus targets.
 
 **Full-view comparison evidence**
 

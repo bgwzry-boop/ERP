@@ -1982,7 +1982,7 @@ function numericRollValue(value) {
 function editableRollValues(roll, { isSupplierReturn = false, useReviewDraft = false } = {}) {
   const sourceSpec = String(useReviewDraft && roll.reviewDraftSpec ? roll.reviewDraftSpec : roll.spec || "").trim();
   const rawSpec = isStripRoll(roll) && !/\d/.test(sourceSpec)
-    ? String(roll.reviewDraftSpec || "78克*5宽").trim()
+    ? String(roll.reviewDraftSpec || "65克*5宽").trim()
     : sourceSpec;
   return {
     color: String((isSupplierReturn ? roll.supplierColor : roll.factoryColor || roll.color) || "").trim(),
@@ -1998,7 +1998,7 @@ function isStripRoll(roll = {}) {
 
 function rollSpecSummary(roll = {}) {
   const rawSpec = String(roll.spec || "").trim();
-  if (isStripRoll(roll) && !/\d/.test(rawSpec)) return "78克 · 5cm宽";
+  if (isStripRoll(roll) && !/\d/.test(rawSpec)) return "65克 · 5cm宽";
   return formatRawMaterialSpec(rawSpec);
 }
 
@@ -2050,7 +2050,7 @@ function renderExpandedRollEditor(roll, board, { isSupplierReturn = false } = {}
   };
   return `
     <section id="roll-editor-${roll.index}" class="roll-inline-editor" aria-label="第 ${roll.index} 卷编辑" tabindex="-1">
-      ${isStripRoll(roll) ? `<div class="roll-classification"><span>系统归类</span><strong>提手条 · 固定 78克 / 5cm宽</strong><small>依据：${esc(roll.classificationBasis || "厂家文字含“条”")}</small></div>` : ""}
+      ${isStripRoll(roll) ? `<div class="roll-classification"><span>系统归类</span><strong>提手条 · 默认 65克 / 固定 5cm宽</strong><small>依据：${esc(roll.classificationBasis || "厂家文字含“条”")}</small></div>` : ""}
       ${isSupplierReturn ? "" : `
         <label class="roll-factory-color-field">
           <span>厂内标准色</span>
@@ -2062,7 +2062,7 @@ function renderExpandedRollEditor(roll, board, { isSupplierReturn = false } = {}
         </label>
       `}
       <div class="roll-editor-key-fields">
-        ${field("spec", "规格 / 宽幅", values.spec, { placeholder: isStripRoll(roll) ? "78克*5宽；有米数时再追加" : "例如：78克*76宽*1500米" })}
+        ${field("spec", "规格 / 宽幅", values.spec, { placeholder: isStripRoll(roll) ? "65克*5宽；票面有明确克重时按票面值" : "例如：78克*76宽*1500米" })}
         ${field("weight", isSupplierReturn ? "本件重量 kg" : "本卷重量 kg", values.weight, { inputMode: "decimal" })}
       </div>
       <p class="roll-editor-blocker" id="${blockerId}" role="alert" ${blockers.length ? "" : "hidden"}>${blockers.length ? `还需填写：${esc(blockers.join("、"))}` : "资料已补齐，可以确认这一卷"}</p>

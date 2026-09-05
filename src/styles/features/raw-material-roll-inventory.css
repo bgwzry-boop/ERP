@@ -1,0 +1,680 @@
+.raw-material-roll-inventory {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  grid-column: 1 / -1;
+  grid-template-rows: 58px minmax(0, 1fr);
+}
+
+.raw-material-roll-dock {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid var(--erp-border-subtle);
+  border-radius: var(--erp-radius-sm);
+  background: var(--erp-surface);
+  gap: 16px;
+  padding: 5px 9px;
+}
+
+.raw-material-roll-status-cards {
+  display: grid;
+  width: min(640px, 62%);
+  min-width: 480px;
+  height: 46px;
+  overflow: hidden;
+  border: 1px solid var(--erp-border);
+  border-radius: 10px;
+  background: var(--erp-surface);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  padding: 3px;
+  font-variant-numeric: tabular-nums;
+}
+
+.raw-material-roll-status-cards > div {
+  display: flex;
+  min-width: 0;
+  align-items: baseline;
+  justify-content: center;
+  border-left: 1px solid var(--erp-border-subtle);
+  gap: 6px;
+  padding: 0 10px;
+  white-space: nowrap;
+}
+
+.raw-material-roll-status-cards > div:first-child {
+  border-left: 0;
+}
+
+.raw-material-roll-status-cards span {
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.raw-material-roll-status-cards strong {
+  color: var(--erp-text);
+  font-size: 19px;
+  line-height: 28px;
+}
+
+.raw-material-roll-status-cards small {
+  overflow: hidden;
+  color: var(--erp-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+}
+
+.raw-material-roll-status-cards .available span {
+  color: var(--erp-success);
+}
+
+.raw-material-roll-status-cards .review span {
+  color: var(--erp-warning);
+}
+
+.raw-material-roll-dock-actions {
+  display: flex;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+
+.raw-material-roll-dock-actions > span {
+  overflow: hidden;
+  max-width: 160px;
+  color: var(--erp-text-muted);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raw-material-roll-refresh,
+.raw-material-color-mapping-entry,
+.raw-material-receiving-entry,
+.raw-material-open-inventory {
+  display: inline-flex;
+  min-height: 34px;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--erp-radius-sm);
+  gap: 6px;
+  padding: 0 11px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.raw-material-roll-refresh,
+.raw-material-color-mapping-entry,
+.raw-material-open-inventory {
+  border: 1px solid var(--erp-control-border);
+  background: var(--erp-surface);
+  color: var(--erp-text);
+}
+
+.raw-material-color-mapping-entry:disabled {
+  cursor: not-allowed;
+  opacity: 0.48;
+}
+
+.raw-material-receiving-entry {
+  min-width: 108px;
+  border: 1px solid var(--erp-accent);
+  background: var(--erp-accent);
+  color: #fff;
+}
+
+.raw-material-roll-workbench {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  gap: 8px;
+  grid-template-columns: minmax(680px, 1fr) 318px;
+  padding-top: 7px;
+}
+
+.raw-material-roll-ledger,
+.raw-material-distribution-panel,
+.raw-material-trace-panel {
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  border: 1px solid var(--erp-border);
+  border-radius: var(--erp-radius-sm);
+  background: var(--erp-surface);
+  box-shadow: var(--erp-shadow-panel);
+}
+
+.raw-material-roll-ledger {
+  display: grid;
+  grid-template-rows: 62px minmax(0, 1fr) 44px;
+}
+
+.raw-material-roll-ledger.has-filter-feedback {
+  grid-template-rows: 62px 32px minmax(0, 1fr) 44px;
+}
+
+.raw-material-roll-filters {
+  display: grid;
+  min-width: 0;
+  align-items: center;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  gap: 7px;
+  grid-template-columns: minmax(220px, 1fr) 116px 102px 108px 110px;
+  padding: 9px 10px;
+}
+
+.raw-material-roll-search {
+  display: flex;
+  min-width: 0;
+  height: 36px;
+  align-items: center;
+  border: 1px solid var(--erp-control-border);
+  border-radius: var(--erp-radius-sm);
+  color: var(--erp-text-muted);
+  gap: 8px;
+  padding: 0 10px;
+}
+
+.raw-material-roll-search input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  font-size: 12px;
+}
+
+.raw-material-roll-select {
+  min-width: 0;
+}
+
+.raw-material-roll-select .visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.raw-material-roll-select select {
+  width: 100%;
+  min-width: 0;
+  height: 36px;
+  border: 1px solid var(--erp-control-border);
+  border-radius: var(--erp-radius-sm);
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  font-size: 11px;
+  padding: 0 7px;
+}
+
+.raw-material-roll-filter-feedback {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text-muted);
+  gap: 7px;
+  padding: 0 10px;
+  font-size: 11px;
+}
+
+.raw-material-roll-filter-feedback button {
+  min-height: 23px;
+  border: 1px solid var(--erp-control-border);
+  border-radius: 4px;
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
+  font-size: 10px;
+  padding: 0 7px;
+}
+
+.raw-material-roll-filter-feedback .reset {
+  display: inline-flex;
+  margin-left: auto;
+  align-items: center;
+  border: 0;
+  background: transparent;
+  color: var(--erp-text-muted);
+  gap: 4px;
+}
+
+.raw-material-roll-table {
+  display: grid;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-rows: 40px minmax(0, 1fr);
+}
+
+.raw-material-roll-table-body {
+  min-height: 0;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
+.raw-material-roll-table .raw-material-roll-row {
+  display: grid;
+  min-width: 690px;
+  align-items: center;
+  gap: 6px;
+  grid-template-columns: 122px 72px minmax(100px, 1.05fr) 64px 82px 60px minmax(98px, 1fr);
+  padding: 0 8px;
+}
+
+.raw-material-roll-table .raw-material-roll-row.head {
+  min-height: 40px;
+  border-bottom: 1px solid var(--erp-border);
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text-muted);
+  font-size: 11px;
+}
+
+.raw-material-roll-table button.raw-material-roll-row {
+  width: 100%;
+  min-height: 52px;
+  border: 0;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  font-size: 12px;
+  text-align: left;
+}
+
+.raw-material-roll-table button.raw-material-roll-row:hover {
+  background: var(--erp-surface-subtle);
+}
+
+.raw-material-roll-table button.raw-material-roll-row.selected {
+  background: #eaf3ff;
+  box-shadow: inset 0 0 0 1px #b9d6f7;
+}
+
+.raw-material-roll-table .raw-material-roll-row > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raw-material-roll-table .raw-material-roll-row .roll-id,
+.raw-material-roll-table .raw-material-roll-row .roll-weight {
+  color: var(--erp-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.raw-material-roll-table .raw-material-roll-row .roll-id {
+  font-size: 11px;
+}
+
+.raw-material-roll-table .raw-material-roll-row .roll-color {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-weight: 700;
+}
+
+.raw-material-color-chip {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  flex: 0 0 auto;
+  border: 1px solid rgb(30 45 58 / 16%);
+  border-radius: 2px;
+  background: var(--raw-roll-color);
+  box-shadow: inset 0 0 0 1px rgb(255 255 255 / 36%);
+}
+
+.raw-material-roll-table .raw-material-roll-row .roll-supplier {
+  display: grid;
+  gap: 2px;
+}
+
+.raw-material-roll-table .raw-material-roll-row .roll-supplier strong {
+  overflow: hidden;
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raw-material-roll-table .raw-material-roll-row .roll-supplier small {
+  color: var(--erp-text-muted);
+  font-size: 10px;
+}
+
+.raw-material-roll-status {
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.raw-material-roll-status.status-available {
+  color: var(--erp-success);
+}
+
+.raw-material-roll-status.status-machine {
+  color: var(--erp-accent);
+}
+
+.raw-material-roll-status.status-review {
+  color: var(--erp-warning);
+}
+
+.raw-material-roll-status.status-consumed,
+.raw-material-roll-status.status-unknown {
+  color: var(--erp-text-muted);
+}
+
+.raw-material-roll-empty {
+  display: grid;
+  height: 100%;
+  place-content: center;
+  justify-items: center;
+  color: var(--erp-text-muted);
+  gap: 6px;
+  padding: 24px;
+  text-align: center;
+}
+
+.raw-material-roll-empty > svg {
+  font-size: 22px;
+}
+
+.raw-material-roll-empty strong {
+  color: var(--erp-text);
+  font-size: 13px;
+}
+
+.raw-material-roll-empty span {
+  font-size: 11px;
+}
+
+.raw-material-roll-empty button {
+  border: 0;
+  background: transparent;
+  color: var(--erp-accent);
+  font-size: 11px;
+}
+
+.raw-material-roll-pagination {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--erp-border-subtle);
+  color: var(--erp-text-muted);
+  gap: 10px;
+  padding: 0 10px;
+  font-size: 10px;
+}
+
+.raw-material-roll-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.raw-material-roll-pagination > div > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding-right: 5px;
+}
+
+.raw-material-roll-pagination button {
+  min-width: 26px;
+  height: 26px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--erp-text-muted);
+  font-size: 11px;
+}
+
+.raw-material-roll-pagination button.current {
+  border-color: var(--erp-accent);
+  color: var(--erp-accent);
+}
+
+.raw-material-roll-pagination button:disabled {
+  cursor: not-allowed;
+  opacity: 0.35;
+}
+
+.raw-material-roll-rail {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  gap: 8px;
+  grid-template-rows: minmax(0, 1fr) 194px;
+}
+
+.raw-material-distribution-panel {
+  display: grid;
+  grid-template-rows: 52px minmax(0, 1fr) 40px;
+}
+
+.raw-material-distribution-panel > header,
+.raw-material-trace-panel > header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  gap: 8px;
+  padding: 0 12px;
+}
+
+.raw-material-distribution-panel > header > div {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.raw-material-distribution-panel h2,
+.raw-material-trace-panel h2 {
+  margin: 0;
+  color: var(--erp-text);
+  font-size: 14px;
+}
+
+.raw-material-distribution-panel header small,
+.raw-material-distribution-panel header > svg {
+  color: var(--erp-text-muted);
+  font-size: 10px;
+}
+
+.raw-material-distribution-scroll {
+  min-height: 0;
+  overflow: auto;
+  padding: 0 11px;
+  scrollbar-width: thin;
+}
+
+.raw-material-distribution-group {
+  border-bottom: 1px solid var(--erp-border-subtle);
+  padding: 10px 0 6px;
+}
+
+.raw-material-distribution-group .group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 4px;
+}
+
+.raw-material-distribution-group .group-head strong {
+  color: var(--erp-text);
+  font-size: 13px;
+}
+
+.raw-material-distribution-group .group-head span {
+  color: var(--erp-text-muted);
+  font-size: 10px;
+}
+
+.raw-material-distribution-group > button {
+  display: grid;
+  width: 100%;
+  min-height: 35px;
+  align-items: center;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  gap: 6px;
+  grid-template-columns: 72px minmax(34px, 1fr) 94px;
+  padding: 0 3px;
+  text-align: left;
+}
+
+.raw-material-distribution-group > button:hover,
+.raw-material-distribution-group > button.active {
+  background: var(--erp-accent-soft);
+}
+
+.raw-material-distribution-group .distribution-label {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 6px;
+}
+
+.raw-material-distribution-group .distribution-label strong {
+  overflow: hidden;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raw-material-distribution-group .distribution-bar {
+  height: 5px;
+  overflow: hidden;
+  border-radius: 99px;
+  background: var(--erp-neutral-bg);
+}
+
+.raw-material-distribution-group .distribution-bar i {
+  display: block;
+  width: var(--distribution-width);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--raw-roll-color);
+}
+
+.raw-material-distribution-group .distribution-count {
+  color: var(--erp-text-muted);
+  font-size: 10px;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.raw-material-distribution-empty {
+  display: grid;
+  min-height: 160px;
+  place-content: center;
+  color: var(--erp-text-muted);
+  gap: 5px;
+  padding: 18px;
+  text-align: center;
+}
+
+.raw-material-distribution-empty strong {
+  color: var(--erp-text);
+  font-size: 12px;
+}
+
+.raw-material-distribution-empty span {
+  font-size: 10px;
+}
+
+.raw-material-machine-side-disclosure {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-top: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text-muted);
+  gap: 8px;
+  padding: 0 12px;
+  font-size: 10px;
+}
+
+.raw-material-machine-side-disclosure span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.raw-material-machine-side-disclosure strong {
+  color: var(--erp-text-muted);
+}
+
+.raw-material-trace-panel {
+  display: grid;
+  grid-template-rows: 40px minmax(0, 1fr) 34px;
+}
+
+.raw-material-trace-panel dl {
+  display: grid;
+  margin: 0;
+  gap: 6px 9px;
+  grid-template-columns: 1fr 1fr;
+  padding: 8px 12px 4px;
+}
+
+.raw-material-trace-panel dl > div {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
+.raw-material-trace-panel dl > div:nth-child(3) {
+  grid-column: 1 / -1;
+}
+
+.raw-material-trace-panel dt,
+.raw-material-trace-panel dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.raw-material-trace-panel dt {
+  color: var(--erp-text-muted);
+  font-size: 9px;
+}
+
+.raw-material-trace-panel dd {
+  color: var(--erp-text);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.raw-material-trace-action {
+  display: inline-flex;
+  align-items: center;
+  justify-self: start;
+  margin-left: 12px;
+  border: 0;
+  background: transparent;
+  color: var(--erp-accent);
+  gap: 4px;
+  padding: 0;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.raw-material-trace-empty {
+  display: grid;
+  place-content: center;
+  color: var(--erp-text-muted);
+  font-size: 11px;
+}

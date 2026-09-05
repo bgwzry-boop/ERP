@@ -1,17 +1,43 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { buildPrintWorkspaceItems } from "../src/features/production/productionPackingPresentation.js";
+import {
+  buildPrintWorkspaceItems,
+  buildProductionFinishedGoodsPhotoActionPayload,
+  buildProductionSchedulePublishRequest,
+} from "../src/features/production/productionPackingPresentation.js";
+import {
+  buildPackingCompletionActionPayload,
+  buildProductionExceptionActionPayload,
+  buildProductionExceptionResolutionConfirmation,
+  buildProductionReportActionPayload,
+  buildScheduleActionIdempotencyKey,
+  buildScheduleMoveConfirmation,
+  buildScheduleResequenceConfirmation,
+  isProductionReportingBlocked,
+} from "../src/features/production/productionPackingActionBuilders.js";
 
 const pageSource = readFileSync(new URL("../src/features/production/ProductionPackingPage.jsx", import.meta.url), "utf8");
+const taskPaneSource = readFileSync(new URL("../src/features/production/ProductionPackingTaskPane.jsx", import.meta.url), "utf8");
+const detailPaneSource = readFileSync(new URL("../src/features/production/ProductionPackingDetailPane.jsx", import.meta.url), "utf8");
+const detailSectionsSource = readFileSync(new URL("../src/features/production/ProductionPackingDetailSections.jsx", import.meta.url), "utf8");
+const taskListSource = readFileSync(new URL("../src/features/production/ProductionPackingTaskLists.jsx", import.meta.url), "utf8");
+const scheduleConfirmationSource = readFileSync(new URL("../src/features/production/ProductionScheduleActionConfirmationDialog.jsx", import.meta.url), "utf8");
+const scheduleQueueSource = readFileSync(new URL("../src/features/production/ProductionScheduleQueueSection.jsx", import.meta.url), "utf8");
+const printWorkspaceSource = readFileSync(new URL("../src/features/production/ProductionPrintWorkspaceDetail.jsx", import.meta.url), "utf8");
 const exceptionPanelSource = readFileSync(new URL("../src/features/production/ProductionExceptionPanel.jsx", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/features/production/ProductionPackingNavigation.jsx", import.meta.url), "utf8");
 const printDevicePanelSource = readFileSync(new URL("../src/features/production/ProductionPrintDevicePanels.jsx", import.meta.url), "utf8");
 const printReadinessPanelSource = readFileSync(new URL("../src/features/production/ProductionPrintReadinessPanel.jsx", import.meta.url), "utf8");
 const printDiagnosticsPanelSource = readFileSync(new URL("../src/features/production/ProductionPrintDiagnosticsPanel.jsx", import.meta.url), "utf8");
-const featureSource = `${pageSource}\n${exceptionPanelSource}\n${printDevicePanelSource}\n${printReadinessPanelSource}\n${printDiagnosticsPanelSource}`;
-const exceptionFeatureSource = `${pageSource}\n${exceptionPanelSource}`;
+const featureSource = `${pageSource}\n${taskPaneSource}\n${detailPaneSource}\n${detailSectionsSource}\n${taskListSource}\n${scheduleConfirmationSource}\n${scheduleQueueSource}\n${printWorkspaceSource}\n${exceptionPanelSource}\n${printDevicePanelSource}\n${printReadinessPanelSource}\n${printDiagnosticsPanelSource}`;
+const exceptionFeatureSource = `${pageSource}\n${detailPaneSource}\n${exceptionPanelSource}`;
 const presentationSource = readFileSync(new URL("../src/features/production/productionPackingPresentation.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
+].join("\n");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const driverStyleSource = readFileSync(new URL("../src/styles/features/driver.css", import.meta.url), "utf8");
@@ -22,36 +48,54 @@ assert.match(pageSource, /export function ProductionPackingPage/);
 for (const contract of ["生产任务", "打包任务", "机台排产队列", "机器计数/动作次数", "成品图", "打印设备验收", "V1 打印上线门禁", "打印作业池"]) {
   assert.equal(featureSource.includes(contract), true, `production/packing feature should retain ${contract}`);
 }
-assert.match(pageSource, /PrinterDeviceQaPanel/);
-assert.match(pageSource, /PrintDriverV1ReadinessPanel/);
-assert.match(pageSource, /PrintDriverDiagnosticsPanel/);
+assert.match(detailPaneSource, /ProductionPrintWorkspaceDetail/);
+assert.match(printWorkspaceSource, /PrinterDeviceQaPanel/);
+assert.match(printWorkspaceSource, /PrintDriverV1ReadinessPanel/);
+assert.match(printWorkspaceSource, /PrintDriverDiagnosticsPanel/);
 assert.match(pageSource, /const PRODUCTION_WORKBENCH_TABS/);
-assert.match(pageSource, /const PACKING_TASK_FILTERS/);
+assert.match(taskPaneSource, /const PACKING_TASK_FILTERS/);
 assert.match(presentationSource, /export const PRINT_WORKSPACE_TABS/);
 assert.match(presentationSource, /export function buildPrintWorkspaceItems/);
 assert.match(navigationSource, /export function PackingTaskFilterTabs/);
 assert.match(navigationSource, /export function PrintWorkspaceNavigation/);
-assert.match(pageSource, /from "\.\/ProductionPackingNavigation\.jsx"/);
+assert.match(taskListSource, /from "\.\/ProductionPackingNavigation\.jsx"/);
+assert.match(pageSource, /from "\.\/ProductionPackingTaskPane\.jsx"/);
+assert.match(taskPaneSource, /from "\.\/ProductionPackingTaskLists\.jsx"/);
+assert.match(pageSource, /from "\.\/ProductionPackingDetailPane\.jsx"/);
+assert.match(detailPaneSource, /from "\.\/ProductionPackingDetailSections\.jsx"/);
+assert.match(pageSource, /ProductionPackingTaskPane/);
+assert.match(pageSource, /ProductionPackingDetailPane/);
+assert.match(taskPaneSource, /ProductionPackingTaskCards/);
+assert.match(taskPaneSource, /ProductionPackingTaskTables/);
+assert.match(taskPaneSource, /ProductionScheduleQueueSection/);
+assert.match(detailPaneSource, /ProductionTaskReportInputs/);
+assert.match(detailPaneSource, /ProductionFinishedGoodsPhotoSection/);
+assert.match(detailPaneSource, /ProductionPackingDetailHeader/);
+assert.match(detailPaneSource, /ProductionReportConfirmationPanel/);
+assert.match(detailPaneSource, /ProductionScheduleDecisionSection/);
+assert.match(detailPaneSource, /PackingCompletionSection/);
+assert.ok(pageSource.split("\n").length <= 900, "production/packing main page should remain a compact composition layer");
 assert.match(pageSource, /const detailMode = activeWorkbenchTab === "packing" \? "packing" : "production"/);
-assert.match(pageSource, /className="production-detail-scroll"/);
+assert.match(detailPaneSource, /className="production-detail-scroll"/);
 assert.match(pageSource, /buildPackingCompletionSummary/);
-assert.match(pageSource, /确认提交打包完成/);
+assert.match(detailSectionsSource, /确认提交打包完成/);
 assert.match(pageSource, /packingCompletionConfirmed: true/);
 assert.match(pageSource, /restorePackingCompletionTriggerFocusRef/);
 assert.match(pageSource, /handlePackingCompletionConfirmationKeyDown/);
-assert.match(pageSource, /aria-live="assertive"/);
-assert.match(pageSource, /!packingCompletionConfirmation \? \(/);
+assert.match(detailSectionsSource, /aria-live="assertive"/);
+assert.match(detailSectionsSource, /!confirmation \? \(/);
 for (const label of ["确认排产经营决定", "原排产", "变更后", "业务决定人", "系统操作人", "决定渠道 / 时间", "决定证据内容", "授权依据", "预计影响"]) {
-  assert.equal(pageSource.includes(label), true, `schedule confirmation should retain ${label}`);
+  assert.equal(scheduleConfirmationSource.includes(label), true, `schedule confirmation should retain ${label}`);
 }
-assert.match(pageSource, /formatBusinessDecisionChannelAndTime/);
+assert.match(scheduleConfirmationSource, /formatBusinessDecisionChannelAndTime/);
+assert.match(pageSource, /ProductionScheduleActionConfirmationDialog/);
 assert.match(pageSource, /buildProductionReportSummary/);
-assert.match(pageSource, /确认完成生产报工/);
+assert.match(detailSectionsSource, /确认完成生产报工/);
 assert.match(pageSource, /productionReportConfirmed: true/);
 assert.match(pageSource, /restoreProductionReportTriggerKindRef/);
 assert.match(pageSource, /handleProductionReportConfirmationKeyDown/);
-assert.match(pageSource, /!productionReportConfirmation \? \(/);
-assert.match(pageSource, /ProductionExceptionPanel/);
+assert.match(detailPaneSource, /!productionReportConfirmation \? \(/);
+assert.match(detailPaneSource, /ProductionExceptionPanel/);
 assert.match(exceptionPanelSource, /export function ProductionExceptionPanel/);
 assert.match(exceptionFeatureSource, /生产异常/);
 assert.match(exceptionFeatureSource, /报异常并继续/);
@@ -61,44 +105,38 @@ assert.match(exceptionFeatureSource, /不会写库存、占用、打包或对账
 assert.match(pageSource, /submitProductionException/);
 assert.match(exceptionFeatureSource, /生产管理处理/);
 assert.match(pageSource, /处理生产异常/);
-assert.match(exceptionFeatureSource, /确认异常处理/);
 assert.match(pageSource, /productionExceptionResolutionConfirmation/);
 assert.match(pageSource, /resolutionConfirmed: true/);
 assert.match(pageSource, /buildProductionExceptionResolutionEffects/);
 assert.match(exceptionFeatureSource, /继续生产才会解除报工阻断/);
-assert.match(pageSource, /className="production-detail-scroll production-print-detail-scroll"/);
-assert.match(pageSource, /hidden=\{activePrintWorkspaceTab !== "qa"\}/);
-assert.match(pageSource, /hidden=\{activePrintWorkspaceTab !== "readiness"\}/);
-assert.match(pageSource, /hidden=\{activePrintWorkspaceTab !== "diagnostics"\}/);
-assert.match(pageSource, /hidden=\{activePrintWorkspaceTab !== "jobs"\}/);
+assert.match(printWorkspaceSource, /className="production-detail-scroll production-print-detail-scroll"/);
+assert.match(printWorkspaceSource, /hidden=\{activePrintWorkspaceTab !== "qa"\}/);
+assert.match(printWorkspaceSource, /hidden=\{activePrintWorkspaceTab !== "readiness"\}/);
+assert.match(printWorkspaceSource, /hidden=\{activePrintWorkspaceTab !== "diagnostics"\}/);
+assert.match(printWorkspaceSource, /hidden=\{activePrintWorkspaceTab !== "jobs"\}/);
 assert.match(pageSource, /activeWorkbenchTab === "print" \? null/);
-assert.match(pageSource, /activeWorkbenchTab === "print" \? \(/);
+assert.match(detailPaneSource, /activeWorkbenchTab === "print" \? \(/);
 assert.match(pageSource, /aria-controls="production-workbench-panel"/);
 assert.match(pageSource, /role="tabpanel"/);
 assert.doesNotMatch(pageSource, /setActiveDetail/);
-assert.match(pageSource, /from "\.\/ProductionPrintDevicePanels\.jsx"/);
+assert.match(printWorkspaceSource, /from "\.\/ProductionPrintDevicePanels\.jsx"/);
 assert.match(printDevicePanelSource, /export function PrinterDeviceQaPanel/);
 assert.match(printDevicePanelSource, /export function PrintJobQueuePanel/);
 assert.doesNotMatch(pageSource, /function PrinterDeviceQaPanel/);
 assert.doesNotMatch(pageSource, /function PrintJobQueuePanel/);
-assert.match(pageSource, /from "\.\/ProductionPrintReadinessPanel\.jsx"/);
+assert.match(printWorkspaceSource, /from "\.\/ProductionPrintReadinessPanel\.jsx"/);
 assert.match(printReadinessPanelSource, /export function PrintDriverV1ReadinessPanel/);
 assert.match(printReadinessPanelSource, /门禁检查不触发实体打印/);
 assert.match(printReadinessPanelSource, /真实出纸、纸张对位和扫码仍按现场 QA 记录保留/);
 assert.doesNotMatch(pageSource, /function PrintDriverV1ReadinessPanel/);
-assert.match(pageSource, /from "\.\/ProductionPrintDiagnosticsPanel\.jsx"/);
+assert.match(printWorkspaceSource, /from "\.\/ProductionPrintDiagnosticsPanel\.jsx"/);
 assert.match(printDiagnosticsPanelSource, /export function PrintDriverDiagnosticsPanel/);
 assert.match(printDiagnosticsPanelSource, /不读取 payload、不生成打印文件、不提交实体打印、不暴露命令或输出内容/);
 assert.match(printDiagnosticsPanelSource, /提交成功不等于纸张已打出/);
 assert.doesNotMatch(pageSource, /function PrintDriverDiagnosticsPanel/);
-assert.match(mainSource, /import "\.\/styles\/features\/production-print\.css";/);
-assert.match(mainSource, /import "\.\/styles\/features\/driver\.css";/);
-assert.equal(
-  mainSource.indexOf('import "./styles/features/role-tools.css";') < mainSource.indexOf('import "./styles/features/driver.css";') &&
-    mainSource.indexOf('import "./styles/features/driver.css";') < mainSource.indexOf('import "./styles/features/production-print.css";'),
-  true,
-  "production/print styles should load after shared role-tool and driver field-test base styles",
-);
+assert.doesNotMatch(mainSource, /styles\/features\/(production-print|driver|role-tools)\.css/, "production and field-tool styles should not load with the shell");
+assert.match(appSource, /import\("\.\.\/styles\/features\/production-print\.css"\)/, "production/print styles should load with the production route");
+assert.match(appSource, /import\("\.\.\/styles\/features\/driver\.css"\)/, "driver styles should load with the driver route");
 assert.match(printDevicePanelSource, /driver-field-test-form printer-device-qa-form/);
 assert.match(driverStyleSource, /\.driver-field-test-row/);
 for (const selector of [".production-schedule-queue-table", ".printer-device-qa-section", ".print-driver-diagnostics-section", ".print-job-queue-section", ".queue-move-controls"]) {
@@ -132,4 +170,161 @@ assert.equal(printWorkspaceItems.find((item) => item.value === "qa")?.meta, "2/6
 assert.equal(printWorkspaceItems.find((item) => item.value === "readiness")?.meta, "7 项阻塞");
 assert.equal(printWorkspaceItems.find((item) => item.value === "jobs")?.status, "存在失败");
 
-console.log("Office production/packing page check passed: page ownership, independent print workspace, tab semantics, and machine-count safety labels remain intact.");
+const productionLine = {
+  id: "OL-TEST-01",
+  orderType: "定制印刷",
+  productionTask: { revision: 4 },
+  qty: 800,
+  status: "待生产",
+};
+const buildProductionTaskId = (line) => `PT-${line.id}`;
+assert.deepEqual(
+  buildProductionFinishedGoodsPhotoActionPayload(productionLine, buildProductionTaskId),
+  {
+    orderLineId: "OL-TEST-01",
+    orderLine: productionLine,
+    productionTaskId: "PT-OL-TEST-01",
+  },
+);
+const publishRequest = buildProductionSchedulePublishRequest({
+  buildProductionTaskId,
+  scheduleDecisionPayload: (summary) => ({ decisionSummary: summary, operatorId: "USER-01" }),
+  selectedProductionLine: productionLine,
+  selectedProductionMachineId: "BAG-03",
+});
+assert.equal(publishRequest.action, "发布排产");
+assert.equal(publishRequest.summary, "发布 PT-OL-TEST-01 排产");
+assert.equal(publishRequest.payload.productionTaskId, "PT-OL-TEST-01");
+assert.equal(publishRequest.payload.machineId, "BAG-03");
+assert.equal(publishRequest.payload.plannedQty, 800);
+assert.equal(publishRequest.payload.expectedRevision, 4);
+assert.equal(publishRequest.payload.decisionSummary, publishRequest.summary);
+assert.equal(publishRequest.effects.includes("不直接生成库存、打包或对账"), true);
+assert.deepEqual(productionLine, {
+  id: "OL-TEST-01",
+  orderType: "定制印刷",
+  productionTask: { revision: 4 },
+  qty: 800,
+  status: "待生产",
+});
+
+const actionLine = {
+  ...productionLine,
+  customerId: "C-001",
+  productName: "印刷通货袋",
+  size: "40×50",
+};
+const actionHelpers = {
+  findCustomer: () => ({ name: "测试客户" }),
+  buildProductionTaskId,
+  getLineColorSpecLabel: () => "大红",
+  getLinePrintSide: () => "双面",
+  getLineRemark: () => "加急",
+};
+const dailyReportPayload = buildProductionReportActionPayload({
+  kind: "daily",
+  selectedProductionLine: actionLine,
+  ...actionHelpers,
+  reportQualifiedQty: "320",
+  reportExceptionQty: "5",
+  reportMachineCount: "340",
+});
+assert.equal(dailyReportPayload.productionTaskId, "PT-OL-TEST-01");
+assert.equal(dailyReportPayload.dailyQualifiedQty, 320);
+assert.equal(dailyReportPayload.qualifiedQty, undefined);
+assert.equal(dailyReportPayload.exceptionQty, 5);
+assert.equal(dailyReportPayload.machineCount, 340);
+assert.equal(dailyReportPayload.goodsSummary, "印刷通货袋 · 40×50 · 大红 · 双面 · 加急");
+assert.equal(buildProductionReportActionPayload({ selectedProductionLine: null }), null);
+
+const exceptionPayload = buildProductionExceptionActionPayload({
+  selectedProductionLine: actionLine,
+  buildProductionTaskId,
+  productionExceptionType: "机器问题",
+  continuationMode: "暂停等确认",
+  productionExceptionLossQty: "12",
+  productionExceptionAffectsDelivery: true,
+  productionExceptionRemark: "等待维修",
+});
+assert.equal(exceptionPayload.productionTaskId, "PT-OL-TEST-01");
+assert.equal(exceptionPayload.estimatedLossQty, 12);
+assert.equal(exceptionPayload.affectsDelivery, true);
+assert.equal(buildProductionExceptionActionPayload({ selectedProductionLine: actionLine, buildProductionTaskId }), null);
+
+const resolutionConfirmation = buildProductionExceptionResolutionConfirmation({
+  selectedProductionLine: actionLine,
+  latestProductionException: {
+    productionExceptionId: "PEX-001",
+    exceptionType: "机器问题",
+    status: "异常暂停",
+  },
+  productionExceptionResolutionCode: "继续生产",
+  productionExceptionResolutionNote: "维修完成",
+  buildProductionTaskId,
+  findCustomer: actionHelpers.findCustomer,
+  resolutionOptions: [{ value: "继续生产", label: "继续生产" }],
+  buildResolutionEffects: () => ["恢复生产", "不改库存"],
+});
+assert.equal(resolutionConfirmation.payload.productionExceptionId, "PEX-001");
+assert.equal(resolutionConfirmation.summary.title, "确认异常处理：继续生产");
+assert.deepEqual(resolutionConfirmation.summary.effects, ["恢复生产", "不改库存"]);
+assert.equal(buildProductionExceptionResolutionConfirmation({}), null);
+
+const packingTask = {
+  packingTaskId: "PACK-001",
+  orderLineId: actionLine.id,
+  orderLine: actionLine,
+};
+const packingPayload = buildPackingCompletionActionPayload({
+  selectedPackingTask: packingTask,
+  ...actionHelpers,
+  packingActualQty: "798",
+  packingPackageCount: "4",
+});
+assert.equal(packingPayload.customerName, "测试客户");
+assert.equal(packingPayload.actualPackedQty, 798);
+assert.equal(packingPayload.packageCount, 4);
+assert.equal(buildPackingCompletionActionPayload({}), null);
+
+const selectedQueueItem = {
+  productionTaskId: "PT-001",
+  orderLineId: "OL-001",
+  machineId: "BAG-01",
+  queueSeq: 2,
+  revision: 4,
+};
+const machineQueueItems = [
+  { productionTaskId: "PT-002", revision: 3 },
+  selectedQueueItem,
+];
+const resequenceConfirmation = buildScheduleResequenceConfirmation({
+  selectedScheduleQueueItem: selectedQueueItem,
+  selectedMachineScheduleQueueItems: machineQueueItems,
+  nextOrderedItems: [selectedQueueItem, machineQueueItems[0]],
+  scheduleDecisionPayload: (summary) => ({ decisionSummary: summary }),
+  direction: "up",
+});
+assert.equal(resequenceConfirmation.action, "调整排产顺序");
+assert.deepEqual(resequenceConfirmation.payload.orderedProductionTaskIds, ["PT-001", "PT-002"]);
+assert.equal(resequenceConfirmation.payload.expectedRevision, 7);
+assert.equal(resequenceConfirmation.payload.decisionSummary, resequenceConfirmation.summary);
+assert.match(resequenceConfirmation.effects, /不改库存/);
+
+const moveConfirmation = buildScheduleMoveConfirmation({
+  selectedScheduleQueueItem: selectedQueueItem,
+  queueMoveTargetMachineId: "BAG-02",
+  queueMoveTargetSeq: 1,
+  queueMoveReason: { value: "supervisor_order", label: "主管调整" },
+  queueMoveImpact: { remark: "BAG-02 原任务后移" },
+  scheduleDecisionPayload: (summary) => ({ decisionSummary: summary }),
+});
+assert.equal(moveConfirmation.action, "移动排产任务");
+assert.equal(moveConfirmation.payload.sourceMachineId, "BAG-01");
+assert.equal(moveConfirmation.payload.targetMachineId, "BAG-02");
+assert.equal(moveConfirmation.payload.reasonCode, "supervisor_order");
+assert.match(moveConfirmation.effects, /不改库存、报工或对账/);
+assert.match(buildScheduleActionIdempotencyKey("调整排产顺序", { machineId: "BAG-01", expectedRevision: 7 }), /^production-schedule:resequence:BAG-01:7:/);
+assert.equal(isProductionReportingBlocked({ status: "异常暂停" }), true);
+assert.equal(isProductionReportingBlocked({ status: "待生产" }), false);
+
+console.log("Office production/packing page check passed: page ownership, independent print workspace, action builders, tab semantics, and machine-count safety labels remain intact.");

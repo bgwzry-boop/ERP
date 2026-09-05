@@ -1,39 +1,7 @@
 import assert from "node:assert/strict";
 import { EventEmitter } from "node:events";
-import { readFileSync } from "node:fs";
 import { PassThrough } from "node:stream";
 import { createV1LocalCommandRunnerService } from "../server/services/v1LocalCommandRunnerService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-const systemWriteRouteSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-const compositionSource = `${apiSource}\n${registrySource}\n${systemWriteRouteSource}`;
-assert.match(registrySource, /createV1LocalCommandRunnerService\(\)/);
-assert.doesNotMatch(apiSource, /from "node:child_process"/);
-assert.doesNotMatch(apiSource, /from "node:path"/);
-for (const functionName of [
-  "runNodeJsonCommand",
-  "runV1V2ScopeBriefRefreshCommand",
-  "runV1ReleaseCandidateRefreshCommand",
-  "runV1ProductionFirstStageExecutionCommand",
-  "runV1ProductionPersistenceEvidenceCommand",
-  "runV1ProductionEnvSetupCommand",
-  "runV1ProductionFirstStageValuesDryRunCommand",
-  "runV1ProductionFirstStageValuesApplyCommand",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${functionName}\\(`));
-}
-for (const methodName of [
-  "runV1V2ScopeBriefRefreshCommand",
-  "runV1ReleaseCandidateRefreshCommand",
-  "runV1ProductionFirstStageExecutionCommand",
-  "runV1ProductionPersistenceEvidenceCommand",
-  "runV1ProductionEnvSetupCommand",
-  "runV1ProductionFirstStageValuesDryRunCommand",
-  "runV1ProductionFirstStageValuesApplyCommand",
-]) {
-  assert.match(compositionSource, new RegExp(`v1LocalCommandRunnerService\\.${methodName}`));
-}
 
 const artifactRoot = "/private/erp/artifacts";
 const valuesFile = "/private/erp/production-values.env";

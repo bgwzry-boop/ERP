@@ -48,6 +48,7 @@ export const CHECK_GROUPS = Object.freeze({
     "role-catalog:check",
     "app-navigation:check",
     "review:identity:check",
+    "review:ocr-env:check",
     "office-workspace-hook:check",
     "office-core-reads:check",
     "office-role-tool-reads:check",

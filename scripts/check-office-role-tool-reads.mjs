@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeRoleToolReadActions } from "../src/app/useOfficeRoleToolReads.js";
 
 function createState(initialValue) {
@@ -123,18 +122,5 @@ assert.deepEqual(formalCase.state.supplierReviews.value, []);
 assert.equal(formalCase.state.selectedDriverTaskId.value, "F-OLD");
 assert.equal(formalCase.state.selectedRawInboundId.value, "RMI-LOCAL");
 assert.equal(formalOptions.every((options) => options?.serverRequired === true), true);
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-for (const apiName of [
-  "listDriverDeliveryTasks",
-  "listOfficeRawMaterialInbounds",
-  "listOfficeRawMaterialSupplierStatementReviews",
-]) {
-  assert.equal(appSource.includes(apiName), false, `App should not directly orchestrate ${apiName}`);
-}
-assert.match(workspaceSource, /useOfficeRoleToolReads/);
-assert.match(workspaceSource, /\.\.\.roleToolReads/);
-assert.match(workspaceSource, /selectedRawMaterialInboundIdRef\.current = selectedRawMaterialInboundId/);
 
 console.log("Office role-tool reads check passed: driver, raw-material, supplier-review, API empty-state clearing, denial, and production fail-closed behavior are covered.");

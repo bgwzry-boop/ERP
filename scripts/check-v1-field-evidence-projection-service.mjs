@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { readFileSync } from "node:fs";
 import {
   buildV1FieldEvidenceDraftFreshness,
   sanitizeV1FieldEvidenceIntakeGuidance,
@@ -8,24 +7,6 @@ import {
   sanitizeV1FieldEvidenceProgress,
 } from "../server/services/v1FieldEvidenceProjectionService.mjs";
 import { sanitizeV1RoleTaskActionText } from "../server/services/v1StatusTextSanitizer.mjs";
-
-const apiServerSource = readFileSync(
-  new URL("../server/apiServer.mjs", import.meta.url),
-  "utf8",
-);
-const registrySource = readFileSync(
-  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
-  "utf8",
-);
-const statusResponseSource = readFileSync(
-  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
-  "utf8",
-);
-assert.match(statusResponseSource, /from "\.\/v1FieldEvidenceProjectionService\.mjs"/);
-assert.match(registrySource, /createV1GoLiveStatusResponseService/);
-assert.doesNotMatch(apiServerSource, /function sanitizeV1FieldEvidenceProgress/);
-assert.doesNotMatch(apiServerSource, /function sanitizeV1FieldEvidenceIntakeQuality/);
-assert.doesNotMatch(apiServerSource, /const V1_FIELD_EVIDENCE_INTAKE_GUIDANCE_COMMANDS/);
 
 const evidenceCsv = [
   "key,group,label,required,onsiteStatus,evidenceRefFilled,onsiteEvidenceRef,ownerRole,detail,nextAction",

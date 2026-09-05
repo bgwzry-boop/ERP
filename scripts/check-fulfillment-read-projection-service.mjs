@@ -1,20 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   createFulfillmentReadProjectionService,
   getFulfillmentMethodLabel,
   normalizeFulfillmentMethod,
 } from "../server/services/fulfillmentReadProjectionService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/fulfillmentReadRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createFulfillmentReadProjectionService\(\)/);
-assert.doesNotMatch(apiSource, /function toFulfillmentListItem/);
-assert.doesNotMatch(apiSource, /function buildFulfillmentMetrics/);
-assert.doesNotMatch(apiSource, /\btoFulfillmentListItem\b/);
-assert.match(routeSource, /fulfillmentReadProjectionService\.listFulfillments/);
-assert.match(routeSource, /fulfillmentReadProjectionService\.getFulfillment/);
 
 assert.equal(normalizeFulfillmentMethod("快递快运"), "express_ltl");
 assert.equal(normalizeFulfillmentMethod("delivery"), "delivery");

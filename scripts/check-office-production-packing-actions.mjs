@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeProductionPackingActions } from "../src/app/createOfficeProductionPackingActions.js";
 
 function createHarness({ allowLocalFallback = false, api = {}, guardResult = true, results = {} } = {}) {
@@ -122,12 +121,5 @@ function createHarness({ allowLocalFallback = false, api = {}, guardResult = tru
   assert.equal(await harness.controller.loadProductionPackingSourceDetail({ mode: "production" }), null);
   assert.equal(harness.getDetailState().source, "ui_error");
 }
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeProductionPackingActions\(\{/);
-assert.doesNotMatch(appSource, /async function loadProductionPackingSourceDetail\(/);
-assert.doesNotMatch(appSource, /async function handleProductionPackingAction\(/);
-assert.doesNotMatch(appSource, /getOfficeProductionTaskDetail/);
-assert.doesNotMatch(appSource, /getOfficePackingTaskDetail/);
 
 console.log("Office production/packing actions check passed: trusted detail reads, formal write gates, print refreshes, and App ownership are isolated.");

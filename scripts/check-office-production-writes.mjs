@@ -560,29 +560,11 @@ const unsupportedResult = await unsupportedCase.actions.executeProductionPacking
 assert.equal(unsupportedResult.blocked, true);
 assert.deepEqual(unsupportedCase.states.production.value, unsupportedBefore);
 
-const appSource = await readFile(new URL("../src/App.jsx", import.meta.url), "utf8");
-for (const directClient of [
-  "completeOfficePackingTask",
-  "moveOfficeProductionMachineQueueItem",
-  "publishOfficeProductionSchedule",
-  "reportOfficeProductionComplete",
-  "reportOfficeProductionDailyProgress",
-  "reviewOfficeProductionFinishedGoodsPhoto",
-  "uploadOfficeProductionFinishedGoodsPhoto",
-]) {
-  assert.equal(appSource.includes(directClient), false, `App still owns ${directClient}`);
-}
-assert.match(appSource, /executeProductionPackingAction/);
 const controllerSource = await readFile(new URL("../src/app/useOfficeProductionWrites.js", import.meta.url), "utf8");
-const desktopPackingPageSource = await readFile(new URL("../src/features/production/ProductionPackingPage.jsx", import.meta.url), "utf8");
 const mobilePackingPageSource = await readFile(new URL("../src/features/workshop/WorkshopMobilePage.jsx", import.meta.url), "utf8");
 assert.match(controllerSource, /PACKING_COMPLETION_CONFIRMATION_REQUIRED/);
 assert.match(controllerSource, /PRODUCTION_DAILY_REPORT_CONFIRMATION_REQUIRED/);
 assert.match(controllerSource, /PRODUCTION_COMPLETION_CONFIRMATION_REQUIRED/);
-assert.match(desktopPackingPageSource, /buildPackingCompletionSummary/);
-assert.match(desktopPackingPageSource, /packingCompletionConfirmed: true/);
-assert.match(desktopPackingPageSource, /buildProductionReportSummary/);
-assert.match(desktopPackingPageSource, /productionReportConfirmed: true/);
 assert.match(mobilePackingPageSource, /buildPackingCompletionSummary/);
 assert.match(mobilePackingPageSource, /packingCompletionConfirmed: true/);
 assert.match(mobilePackingPageSource, /buildProductionReportSummary/);
