@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
 
 function read(relativePath) {
   return readFileSync(new URL(`../${relativePath}`, import.meta.url), "utf8");
@@ -32,23 +33,36 @@ const currentVersion = "V8.306";
 const currentVersionPattern = new RegExp(currentVersion.replace(".", "\\."));
 
 for (const [name, source] of Object.entries(currentDocs)) {
-  assert.match(source, currentVersionPattern, `${name} should expose the current version`);
-  assert.match(source, /docs\/history\/status\//, `${name} should link its history archive`);
+  assert.match(source, /docs\/history\//, `${name} should link its dated history`);
 }
-for (const source of [currentDocs.chineseStatus, currentDocs.projectStatus, currentDocs.decisions]) {
-  assert.match(source, /through-2026-08-12\.md/, "compressed current docs should link the full 2026-08-12 snapshot");
+assert.match(currentDocs.chineseStatus, /[a-f0-9]{40}/, "current release facts require immutable commits");
+assert.match(currentDocs.chineseStatus, /codex\/staging-current/);
+assert.match(currentDocs.chineseStatus, /未部署/);
+assert.match(currentDocs.chineseStatus, /本轮没有部署/);
+assert.match(currentDocs.projectStatus, /01_当前状态与下一步\.md/, "English entry must reuse the canonical status");
+for (const source of [currentDocs.chineseStatus, currentDocs.projectStatus]) {
+  assert.doesNotMatch(source, /97-98%|80-83%/, "historical estimates must not masquerade as current evidence");
 }
+const ruleArchive = read("docs/history/audit-2026-09-05/AGENTS-before-reorganization.md");
+const originalRules = ruleArchive.slice(ruleArchive.indexOf("# Prototype Instructions"));
+const migration = JSON.parse(read("docs/history/audit-2026-09-05/rule-migration-index.json"));
+assert.equal(createHash("sha256").update(originalRules).digest("hex"), migration.sourceSha256, "original instructions must remain intact");
+const ruleBody = originalRules.split("Prototype-specific design decisions:")[1].split("Keep project-management context current:")[0];
+const ruleBlocks = ruleBody.trim().split(/\n(?=- )/u).map((block) => block.trim());
+assert.equal(ruleBlocks.length, migration.ruleCount);
+const routedRules = readdirSync(new URL("../docs/rules/", import.meta.url)).filter((name) => name.endsWith(".md")).map((name) => read(`docs/rules/${name}`));
+routedRules.push(read("docs/history/audit-2026-09-05/superseded-decisions.md"));
+for (const block of ruleBlocks) assert.equal(routedRules.filter((source) => source.includes(block)).length, 1, "each original rule must be retained exactly once in routed rules or explicit history");
+assert.ok(Buffer.byteLength(read("AGENTS.md")) < 16000, "global instructions should stay compact and route domain details");
+assert.match(read("README.md"), /npm run review:dev/);
+assert.match(read("README.md"), /npm run review:check/);
+assert.match(read("design.md"), /工作台 \/ 订单管理 \/ 原料管理 \/ 生产交付 \/ 库存管理 \/ 财务管理 \/ 基础资料 \/ 系统管理/);
 
 assert.ok(lineCount(currentDocs.chineseStatus) <= 110, "Chinese current status should stay concise");
 assert.ok(lineCount(currentDocs.projectStatus) <= 100, "Project status should stay concise");
 assert.ok(lineCount(currentDocs.roadmap) <= 90, "Roadmap should stay concise");
 assert.ok(lineCount(currentDocs.decisions) <= 130, "Active decisions should stay concise");
 
-for (const source of [currentDocs.chineseStatus, currentDocs.projectStatus]) {
-  for (const truth of ["97-98%", "80-83%", "0/4", "1/5", "7/11", "0/40", "0/6", "58"]) {
-    assert.equal(source.includes(truth), true, `current status should include ${truth}`);
-  }
-}
 for (const phase of ["D49", "D50", "D51", "D52", "D53"]) {
   assert.equal(currentDocs.roadmap.includes(phase), true, `roadmap should include ${phase}`);
 }
@@ -69,7 +83,8 @@ for (const source of Object.values(currentSnapshots)) {
   assert.match(source, currentVersionPattern, "each 2026-08-12 snapshot should preserve the current-version boundary");
 }
 
-assert.match(entrySource, new RegExp(`当前 ${currentVersionPattern.source} 可执行整改方案`));
+assert.match(entrySource, /01_当前状态与下一步\.md/);
+assert.match(entrySource, /历史执行方案/);
 assert.match(entrySource, /docs\/history\/status/);
 assert.match(rectificationPlan, new RegExp(`当前版本：${currentVersionPattern.source}`));
 assert.match(rectificationPlan, /发布门禁.*`0\/4`/);

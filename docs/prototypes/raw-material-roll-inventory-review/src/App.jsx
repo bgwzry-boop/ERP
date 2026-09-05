@@ -1,15 +1,18 @@
+import { ReceiptReviewDialog } from "./ReceiptReviewDialog.jsx";
+import { ReceiveDialog } from "./ReceiveDialog.jsx";
+import { ReceiptSourcePreview } from "./ReceiptSourcePreview.jsx";
+import { resolveRollSourceEvidence } from "./receipt-source.js";
+import { ReviewDialog } from "./ReviewDialog.jsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   AppstoreOutlined,
   BellOutlined,
   BookOutlined,
-  CameraOutlined,
   CheckCircleFilled,
   CheckOutlined,
   DownOutlined,
   DollarCircleOutlined,
   FileTextOutlined,
-  FileImageOutlined,
   HomeOutlined,
   InfoCircleOutlined,
   PlusOutlined,
@@ -71,6 +74,8 @@ function buildInventoryRolls(inbounds = []) {
       date: String(inbound.receivedAt || "").slice(0, 10),
       location: roll.location || (roll.machineId ? `${roll.machineId}机边` : inbound.location || "库位待确认"),
       source: inbound.id,
+      sourceInbound: inbound,
+      sourceEvidence: resolveRollSourceEvidence(inbound, roll),
       spec: resolvedSpec.fullLabel,
     };
   })).filter((roll) => roll.id && roll.status);
@@ -365,7 +370,7 @@ function ReceiptDetail({ activeTab, notice, onOpenInventory, onPrimaryAction, on
   const reviewable = canReviewRawMaterialInbound(row);
   const missingWeightRoll = row.rolls.find((roll) => !(Number(roll.weightKg) > 0) && roll.labelStatus === "待补真实重量");
   const abnormalRoll = row.rolls.find((roll) => ["标签或实物不符/待确认", "标签已作废/待重打"].includes(roll.labelStatus));
-  const primaryLabel = duplicate ? "对照两张票据" : isSupplierReturn && reviewable ? "确认退货单复核" : reviewable ? "确认逐卷核对完成" : printable ? `预览并打印 ${row.rolls.length} 张卷标` : abnormalRoll?.labelStatus === "标签或实物不符/待确认" ? "作废异常卷旧标签" : abnormalRoll ? "重打异常卷标签" : attachable ? "开始逐卷贴标核对" : "查看处理结果";
+  const primaryLabel = duplicate ? "对照两张票据" : isSupplierReturn && reviewable ? "确认退货单复核" : reviewable ? "对照原图逐卷复核" : printable ? `预览并打印 ${row.rolls.length} 张卷标` : abnormalRoll?.labelStatus === "标签或实物不符/待确认" ? "作废异常卷旧标签" : abnormalRoll ? "重打异常卷标签" : attachable ? "开始逐卷贴标核对" : "查看处理结果";
   const bannerTitle = duplicate ? "疑似同一张票据" : isSupplierReturn && reviewable ? "退货草稿待人工核对" : isSupplierReturn ? "退货凭证已留档" : missingWeightRoll ? "缺少真实重量，尚未入库" : reviewable ? "业务查重已通过" : printable ? "人工核对已经完成" : row.status.includes("异常") ? "异常卷已隔离" : attachable ? "卷标已经打印" : "当前状态已确认";
   const bannerText = duplicate ? row.duplicate : isSupplierReturn && reviewable ? "请核对供应商、退回重量、金额和原图；确认后只形成负数对账依据。" : isSupplierReturn ? "本退货单不生成卷码、不增加可用库存；供应商月结仅引用这张退货凭证冲减。" : missingWeightRoll ? "请逐件称重并记录真实重量；补齐前不能贴标确认、领料或进入卷料库存。" : reviewable ? "原图摘要、供应商、票据字段和逐卷重量未命中已有记录。" : printable ? "每个物理卷已经生成唯一卷码，打印后仍不能直接进入可用库存。" : row.status.includes("异常") ? "异常只影响对应卷；其他卷仍可继续逐卷核对，正确卷不被整单阻塞。" : attachable ? "请按重量、颜色和规格逐卷对应实物；确认一致后，该卷才进入可用库存。" : "当前处理结果已经记录。";
   const material = buildReceiptMaterialPresentation(row);
@@ -377,7 +382,7 @@ function ReceiptFlowDialog({ flow, onClose, onConfirm, row }) {
   const roll = flow.roll;
   const isSupplierReturn = row.documentDirection === "supplier_return";
   const title = flow.type === "print" ? "卷标打印预览" : flow.type === "verify" ? "标签与实物核对" : flow.type === "review" ? isSupplierReturn ? "确认退货单复核" : "确认送货单复核" : "疑似重复票据对照";
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><section aria-labelledby="receipt-flow-title" aria-modal="true" className="receive-dialog receipt-flow-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>收货录入</span><h2 id="receipt-flow-title">{title}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header>{flow.type === "review" ? <><p>{isSupplierReturn ? "请确认已对照退货原图核对供应商、规格、颜色、退回重量和金额。确认后保存负数对账依据，不打印卷标、不增加库存。" : "请确认已对照原始票据核对供应商、规格、颜色、逐卷重量和单据方向。确认后会保存到服务器，并进入待打印阶段。"}</p><dl className="receipt-verify-facts"><div><dt>{isSupplierReturn ? "退货单" : "入库单"}</dt><dd>{row.id}</dd></div><div><dt>供应商</dt><dd>{row.supplier}</dd></div><div><dt>规格</dt><dd>{row.spec || "原单未写规格"}</dd></div><div><dt>{isSupplierReturn ? "退回数量" : "卷数"}</dt><dd>{row.rollCount || row.rolls.length}{isSupplierReturn ? "件" : "卷"}</dd></div></dl><footer className="receipt-dialog-actions"><button onClick={onClose} type="button">返回继续核对</button><button className="primary" onClick={() => onConfirm("reviewed")} type="button">确认复核并保存</button></footer></> : null}{flow.type === "print" ? <><p>确认后提交正式卷标打印记录；打印不会直接增加可用库存，仍需逐卷贴标核对。</p><div className="label-preview-grid">{row.rolls.map((item) => <article className="label-preview-card" key={item.id}><TagOutlined /><div><strong>{item.id}</strong><span>{item.factoryColor || row.factoryColor} · {item.spec || row.spec}</span><small>{item.supplierRollNo} · {item.weightKg}kg · {row.supplier}</small></div></article>)}</div><footer className="receipt-dialog-actions"><button onClick={onClose} type="button">返回</button><button className="primary" onClick={() => onConfirm("printed")} type="button"><PrinterOutlined />确认提交打印</button></footer></> : null}{flow.type === "verify" ? <><p>逐卷核对，不允许整单一键入库；不一致时只隔离当前卷。</p><dl className="receipt-verify-facts"><div><dt>卷码</dt><dd>{roll.id}</dd></div><div><dt>供应商卷号</dt><dd>{roll.supplierRollNo}</dd></div><div><dt>标签规格</dt><dd>{roll.spec || row.spec}</dd></div><div><dt>标签颜色</dt><dd>{roll.factoryColor || row.factoryColor}</dd></div><div><dt>标签重量</dt><dd>{roll.weightKg}kg</dd></div><div><dt>确认后库位</dt><dd>原材料仓库</dd></div></dl><footer className="receipt-dialog-actions"><button className="danger-button" onClick={() => onConfirm("mismatched")} type="button">标签/实物不符</button><button className="primary" onClick={() => onConfirm("matched")} type="button">一致，确认本卷入库</button></footer></> : null}{flow.type === "duplicate" ? <><p>系统只提供相似候选，由办公室对照原图、供应商单号、日期和逐卷重量后确认。</p><div className="duplicate-compare"><article><span>当前票据</span><strong>{row.id}</strong><small>{row.supplier} · {receiptFacts(row)}</small></article><article><span>系统候选</span><strong>{row.duplicate || "相似票据待确认"}</strong><small>请以服务器保存的原图和票据事实为准</small></article></div><footer className="receipt-dialog-actions"><button onClick={onClose} type="button">返回继续核对</button><button className="primary" onClick={() => onConfirm("different")} type="button">确认为不同票据并复核</button></footer></> : null}</section></div>;
+  return <ReviewDialog labelledBy="receipt-flow-title" className="receive-dialog receipt-flow-dialog" onClose={onClose}><header><div><span>收货录入</span><h2 id="receipt-flow-title">{title}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header>{flow.type === "print" ? <><p>确认后提交正式卷标打印记录；打印不会直接增加可用库存，仍需逐卷贴标核对。</p><div className="label-preview-grid">{row.rolls.map((item) => <article className="label-preview-card" key={item.id}><TagOutlined /><div><strong>{item.id}</strong><span>{item.factoryColor || row.factoryColor} · {item.spec || row.spec}</span><small>{item.supplierRollNo} · {item.weightKg}kg · {row.supplier}</small></div></article>)}</div><footer className="receipt-dialog-actions"><button onClick={onClose} type="button">返回</button><button className="primary" onClick={() => onConfirm("printed")} type="button"><PrinterOutlined />确认提交打印</button></footer></> : null}{flow.type === "verify" ? <><p>逐卷核对，不允许整单一键入库；不一致时只隔离当前卷。</p><dl className="receipt-verify-facts"><div><dt>卷码</dt><dd>{roll.id}</dd></div><div><dt>供应商卷号</dt><dd>{roll.supplierRollNo}</dd></div><div><dt>标签规格</dt><dd>{roll.spec || row.spec}</dd></div><div><dt>标签颜色</dt><dd>{roll.factoryColor || row.factoryColor}</dd></div><div><dt>标签重量</dt><dd>{roll.weightKg}kg</dd></div><div><dt>确认后库位</dt><dd>原材料仓库</dd></div></dl><footer className="receipt-dialog-actions"><button className="danger-button" onClick={() => onConfirm("mismatched")} type="button">标签/实物不符</button><button className="primary" onClick={() => onConfirm("matched")} type="button">一致，确认本卷入库</button></footer></> : null}{flow.type === "duplicate" ? <><p>系统只提供相似候选，由办公室对照原图、供应商单号、日期和逐卷重量后确认。</p><div className="duplicate-compare"><article><span>当前票据</span><strong>{row.id}</strong><small>{row.supplier} · {receiptFacts(row)}</small></article><article><span>系统候选</span><strong>{row.duplicate || "相似票据待确认"}</strong><small>请以服务器保存的原图和票据事实为准</small></article></div><footer className="receipt-dialog-actions"><button onClick={onClose} type="button">返回继续核对</button><button className="primary" onClick={() => onConfirm("different")} type="button">不同票据，进入逐行复核</button></footer></> : null}</ReviewDialog>;
 }
 
 function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, records }) {
@@ -392,19 +397,20 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
     if (focusedTab) { setActiveTab(focusedTab); setSelectedId(focusId); setNotice("OCR 复核草稿已保存到服务器；人工复核前不会增加可用库存。"); }
   }, [focusId]);
   const tabRows = records.filter((row) => receiptTabFor(row) === activeTab);
-  const selected = selectedId ? tabRows.find((row) => row.id === selectedId) || tabRows[0] || null : notice ? null : tabRows[0] || null;
+  const selected = tabRows.find((row) => row.id === selectedId) || tabRows[0] || null;
   const selectTab = (tab) => { const rows = records.filter((row) => receiptTabFor(row) === tab); setActiveTab(tab); setSelectedId(rows[0]?.id || ""); setNotice(""); setFlow(null); };
   const applyAction = async (action, options = {}) => {
     if (!selected) return;
     setNotice("正在保存到服务器…");
     const result = await formal.actions.updateRawMaterialInbound(action, selected.id, options);
-    if (result.source !== "api" || !result.inbound?.id) { setNotice(`保存失败：${result.error?.message || "正式接口错误"}`); return; }
+    if (result.source !== "api" || !result.inbound?.id) { setNotice(`保存失败：${result.error?.message || "正式接口错误"}`); return result; }
     const updated = result.inbound;
     setNotice(updated.status === "已贴标/可用库存" ? `${updated.rollCount || updated.rolls.length}卷已完成逐卷核对并进入可用库存。` : `服务器已保存：${updated.status}`);
     setFlow(null);
     const nextTab = receiptTabFor(updated);
     setActiveTab(nextTab || "待贴标");
     setSelectedId(nextTab ? updated.id : "");
+    return result;
   };
   const handlePrimaryAction = ({ abnormalRoll, attachable, duplicate, printable, reviewable }) => {
     if (!selected) return;
@@ -421,13 +427,7 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
     if (action === "reprint") applyAction("重打卷标", { rollId: roll.id });
   };
   const confirmFlow = (result) => {
-    if (result === "different" || result === "reviewed") {
-      const isSupplierReturn = selected.documentDirection === "supplier_return";
-      const reviewFields = Object.fromEntries((selected.ocrReviewFields || []).map((field) => [field.key, field.value ?? field.recognizedValue ?? ""]));
-      const lineReviews = (selected.ocrLines || []).map((line) => ({ lineId: line.lineId, values: line.values || line.recognizedValues || {} }));
-      void applyAction("复核送货单", { reviewFields, lineReviews, reason: result === "different" ? "办公室确认与相似候选不是同一张票据，并完成字段复核。" : `办公室对照原始${isSupplierReturn ? "退货" : "送货"}票据完成人工复核。`, note: isSupplierReturn ? "PC 端退货复核已保存；作为负数供应商对账依据，不生成卷码、不增加库存。" : "PC 端复核已保存到服务器；仍需打印、贴标并逐卷核对后才进入可用库存。" });
-      return;
-    }
+    if (result === "different") { setFlow({ type: "review", duplicateAcknowledged: true }); return; }
     if (result === "printed") { void applyAction("打印卷标"); return; }
     if (flow?.type === "verify" && flow.roll) void applyAction("确认贴标入库", { rollId: flow.roll.id, matchResult: result, checkedWeightKg: flow.roll.weightKg, checkedColor: flow.roll.factoryColor || selected.factoryColor, checkedSpec: flow.roll.spec || selected.spec, location: result === "matched" ? "原材料仓库" : "原料隔离区" });
   };
@@ -451,18 +451,26 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
       </div>
     </section>
     <ReceiptDetail activeTab={activeTab} notice={notice} onOpenInventory={onOpenInventory} onPrimaryAction={handlePrimaryAction} onRollAction={handleRollAction} row={selected} />
-  </div><ReceiptFlowDialog flow={flow} onClose={() => setFlow(null)} onConfirm={confirmFlow} row={selected} /></>;
+  </div>{flow?.type === "review" && selected ? <ReceiptReviewDialog key={selected.id} inbound={selected} authState={formal.authState} duplicateAcknowledged={flow.duplicateAcknowledged} onClose={() => setFlow(null)} onSave={(payload) => applyAction("复核送货单", payload)} /> : <ReceiptFlowDialog flow={flow} onClose={() => setFlow(null)} onConfirm={confirmFlow} row={selected} />}</>;
 }
 
-function ReceiveDialog({ busy, error, onClose, onFile }) {
-  const cameraRef = useRef(null);
-  const fileRef = useRef(null);
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><section aria-labelledby="receive-title" aria-modal="true" className="receive-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>收货录入</span><h2 id="receive-title">选择送货单来源</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><p>照片或 PDF 会上传到正式服务器并调用腾讯云 OCR；识别后仍需人工复核，当前不会增加可用库存。</p><div className="source-actions"><button disabled={busy} onClick={() => cameraRef.current?.click()} type="button"><CameraOutlined /><span><strong>直接拍照</strong><small>调用相机并上传正式识别</small></span></button><button disabled={busy} onClick={() => fileRef.current?.click()} type="button"><FileImageOutlined /><span><strong>相册 / PDF</strong><small>选择文件并上传正式识别</small></span></button></div><input accept="image/*" capture="environment" hidden onChange={(event) => onFile(event.target.files?.[0])} ref={cameraRef} type="file" /><input accept="image/*,application/pdf" hidden onChange={(event) => onFile(event.target.files?.[0])} ref={fileRef} type="file" />{busy ? <p className="source-disclosure">正在上传并识别，请勿重复提交。</p> : null}{error ? <p className="danger-text">{error}</p> : null}<section className="dedupe-note"><InfoCircleOutlined /><div><strong>系统会进行两层查重</strong><p>先比较原始文件摘要；重拍或重新导出的票据，再比较供应商、单号、日期、规格、颜色和逐卷重量。</p></div></section></section></div>;
+function SourceDialog({ roll, authState, onClose }) {
+  const evidence = roll.sourceEvidence || {};
+  const [pageIndex, setPageIndex] = useState(evidence.pageIndex ?? 0);
+  const sourceLabel = [
+    evidence.pageIndex == null ? "来源页未记录" : `第 ${evidence.pageIndex + 1} 页`,
+    evidence.rowIndex == null ? "来源行未记录" : `OCR 表格第 ${evidence.rowIndex + 1} 行`,
+    evidence.rollIndex == null ? "行内卷序未记录" : `行内第 ${evidence.rollIndex + 1} 卷`,
+  ].join(" · ");
+  return <ReviewDialog labelledBy="source-title" className="receive-dialog source-dialog" onClose={onClose}>
+    <header><div><span>来源追溯</span><h2 id="source-title">{roll.source}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header>
+    <dl><div><dt>当前卷码</dt><dd>{roll.id}</dd></div><div><dt>供应商</dt><dd>{roll.supplier}</dd></div><div><dt>供应商单号</dt><dd>{evidence.deliveryNoteNo || "未记录"}</dd></div><div><dt>OCR 来源</dt><dd>{sourceLabel}</dd></div><div><dt>权威卷料事实</dt><dd>{roll.color} · {roll.spec} · {formatInventoryRollAmount(roll)}</dd></div></dl>
+    {evidence.sourceText ? <p className="source-disclosure">票面原文：{evidence.sourceText}</p> : null}
+    <ReceiptSourcePreview authState={authState} inbound={roll.sourceInbound} pageIndex={pageIndex} onPageChange={setPageIndex} />
+    <p className="source-disclosure">票据与 OCR 原文用于追溯；库存使用逐卷人工确认后的颜色、规格和重量。</p>
+  </ReviewDialog>;
 }
 
-function SourceDialog({ roll, onClose }) {
-  return <div className="dialog-backdrop" role="presentation" onMouseDown={onClose}><section aria-labelledby="source-title" aria-modal="true" className="receive-dialog source-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>来源追溯</span><h2 id="source-title">{roll.source}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><dl><div><dt>当前卷码</dt><dd>{roll.id}</dd></div><div><dt>供应商</dt><dd>{roll.supplier}</dd></div><div><dt>供应商单号</dt><dd>未提供</dd></div><div><dt>OCR 来源</dt><dd>第 1 行 · 第 1 卷</dd></div><div><dt>权威卷料事实</dt><dd>{roll.color} · {roll.spec} · {formatInventoryRollAmount(roll)}</dd></div></dl><p className="source-disclosure">票据与 OCR 原文仅用于追溯；卷料库存以逐卷人工确认后的颜色、规格和重量为准。</p></section></div>;
-}
 
 export function App({ permissionContext = defaultPermissionContext }) {
   const formal = useFormalDesktopWorkspace();
@@ -483,7 +491,6 @@ export function App({ permissionContext = defaultPermissionContext }) {
   const [colorMappingOpen, setColorMappingOpen] = useState(false);
   const activeView = visibleViews.includes(view) ? view : getDefaultWorkspaceView(permissionContext);
   const activeNavId = viewNavMap[activeView] || "";
-  const visibleNavGroups = useMemo(() => getVisiblePcNavGroups(resolvedPermissionContext), [resolvedPermissionContext]);
   const isRawMaterialView = visibleRawMaterialViews.includes(activeView);
   const canManageSupplierColors = hasEffectivePermission(
     resolvedPermissionContext,
@@ -504,6 +511,7 @@ export function App({ permissionContext = defaultPermissionContext }) {
       const nextView = navViewMap[hashNavId === "spec-inventory" ? "general-prices" : hashNavId];
       if (nextView && visibleViews.includes(nextView)) setView(nextView);
     };
+    handleHashChange();
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
   }, [visibleViews]);
@@ -523,12 +531,12 @@ export function App({ permissionContext = defaultPermissionContext }) {
       window.history.replaceState(null, "", `#${normalizedNavId}`);
     }
   };
-  const recognizeReceiptFile = async (file) => {
-    if (!file || receiveBusy) return;
+  const recognizeReceiptPages = async (pages, options) => {
+    if (!pages.length || receiveBusy) return;
     setReceiveBusy(true);
     setReceiveError("");
     try {
-      const result = await formal.actions.recognizeRawMaterialFile(file);
+      const result = await formal.actions.recognizeRawMaterialPages(pages, options);
       if (result.source !== "api" || !result.inbound?.id) {
         setReceiveError(result.error?.message || "正式 OCR 接口没有生成草稿。");
         return;
@@ -560,8 +568,8 @@ export function App({ permissionContext = defaultPermissionContext }) {
       {activeView === "收货录入" ? <ReceiptWorkspace focusId={receiptFocusId} formal={formal} onOpenInventory={() => navigate("roll-inventory")} onOpenReceive={() => setReceiveOpen(true)} records={receiptRecords} /> : null}
       {!isRawMaterialView ? <BusinessWorkspace formal={formal} navId={activeNavId} onNavigate={navigate} /> : null}
     </main>
-    {receiveOpen ? <ReceiveDialog busy={receiveBusy} error={receiveError} onClose={() => { if (!receiveBusy) setReceiveOpen(false); }} onFile={recognizeReceiptFile} /> : null}
-    {sourceRoll ? <SourceDialog onClose={() => setSourceRoll(null)} roll={sourceRoll} /> : null}
+    {receiveOpen ? <ReceiveDialog busy={receiveBusy} error={receiveError} onClose={() => { if (!receiveBusy) setReceiveOpen(false); }} onPages={recognizeReceiptPages} /> : null}
+    {sourceRoll ? <SourceDialog authState={formal.authState} onClose={() => setSourceRoll(null)} roll={sourceRoll} /> : null}
     {colorMappingOpen ? <RawMaterialSupplierColorMappingDialog
       authState={formal.authState}
       currentUser={resolvedPermissionContext.user}

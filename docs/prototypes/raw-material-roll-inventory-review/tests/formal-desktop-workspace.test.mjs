@@ -86,7 +86,9 @@ test("desktop workbenches consume formal APIs without fixture fallbacks", async 
   }
 
   assert.match(adapterSource, /serverRequired:\s*true/, "formal reads must fail closed instead of silently using demo data");
-  assert.match(adapterSource, /prepareRawMaterialDeliveryNoteFile/, "desktop OCR upload should retain source normalization and rotation evidence");
+  const captureSource = await readSource("../src/ReceiveDialog.jsx");
+  assert.match(captureSource, /prepareRawMaterialDeliveryNotePages/, "desktop capture should retain the shared PDF/image normalization and original page evidence");
+  assert.match(adapterSource, /recognizeRawMaterialPages/, "desktop OCR should recognize the complete prepared page set");
   assert.match(adapterSource, /recognizeOfficeRawMaterialDeliveryNote/, "desktop OCR upload should call the formal server action");
   assert.match(adapterSource, /updateOfficeRawMaterialInboundAction/, "raw-material review actions should persist through the formal API");
   assert.match(appSource, /function RollInventory\(\{ onOpenSource, sourceRolls = \[\] \}\)/, "roll inventory must render safely while formal data is still loading");

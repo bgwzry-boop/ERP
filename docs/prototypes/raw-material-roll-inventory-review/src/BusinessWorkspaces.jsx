@@ -1,3 +1,6 @@
+import { ReviewDialog } from "./ReviewDialog.jsx";
+import { LaunchStatusWorkspace } from "./LaunchStatusWorkspace.jsx";
+import { getPrintJobStatusLabel, getPrintJobDocumentLabel } from "../../../../shared/printJobPresentation.js";
 import { useMemo, useState } from "react";
 import {
   CheckCircleOutlined,
@@ -187,17 +190,17 @@ function buildPackingRows(tasks = [], orderLines = [], customerNames = new Map()
 function buildPrintRows(printJobs = [], printDevices = []) {
   const deviceRows = printDevices.map((device) => ({
     id: device.printDeviceId,
-    cells: ["设备验收", device.name, device.status === "active" ? "已启用" : device.status || "待确认", device.driverName || "驱动待确认", device.status === "active" ? "在线" : "待检查"],
-    status: device.status === "active" ? "在线" : "待检查",
+    cells: ["设备验收", device.name, device.status === "active" ? "已启用" : device.status === "disabled" ? "已停用" : "待确认", device.driverName || "驱动待确认", device.status === "active" ? "已启用 · 连通性待验" : "待检查"],
+    status: device.status === "active" ? "已启用 · 连通性待验" : "待检查",
     modes: ["全部", "设备验收"],
     details: [["设备编号", device.printDeviceId], ["设备名称", device.name], ["驱动", device.driverName || "待确认"], ["纸张", device.paperName || "待确认"]],
   }));
   const jobRows = printJobs.map((job) => ({
     id: job.printJobId,
-    cells: ["打印作业", job.documentType || "打印任务", job.jobStatus || "待确认", job.printDeviceSnapshot?.name || job.printDeviceId || "设备待确认", job.jobStatus || "待确认"],
-    status: job.jobStatus || "待确认",
+    cells: ["打印作业", getPrintJobDocumentLabel(job.documentType), getPrintJobStatusLabel(job.jobStatus), job.printDeviceSnapshot?.name || job.printDeviceId || "设备待确认", getPrintJobStatusLabel(job.jobStatus)],
+    status: getPrintJobStatusLabel(job.jobStatus),
     modes: ["全部", "打印作业"],
-    details: [["打印作业", job.printJobId], ["目标业务", `${job.targetType || "—"} · ${job.targetId || "—"}`], ["文档类型", job.documentType || "待确认"], ["设备", job.printDeviceSnapshot?.name || job.printDeviceId || "待确认"]],
+    details: [["打印作业", job.printJobId], ["失败原因", job.errorMessage || "无"], ["目标业务", job.targetId || "—"], ["文档类型", getPrintJobDocumentLabel(job.documentType)], ["设备", job.printDeviceSnapshot?.name || job.printDeviceId || "待确认"]],
   }));
   return [...deviceRows, ...jobRows];
 }
@@ -482,13 +485,6 @@ function buildWorkspaceConfigs(formal) {
     onUpdateEmployeeProfile: formal.actions.updateEmployeeProfile,
     source: "正式员工账号与机台 API",
   },
-  "launch-status": {
-    title: "上线状态",
-    columns: ["检查对象", "版本 / 范围", "环境", "最后动作", "状态"],
-    rows: [],
-    primaryAction: "查看发布状态",
-    source: "正式发布状态接口尚未提供",
-  },
   };
 };
 
@@ -561,7 +557,7 @@ function GenericWorkspace({ config, onNavigate }) {
       </div>
       <footer><button className="primary" disabled={!selected} onClick={runPrimary} type="button">{config.primaryAction}</button>{config.profileMaintenance ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => { setProfileError(""); setProfileOpen(true); }} type="button">维护员工档案</button> : config.showSourceEvidence === false ? null : <button className="secondary-button" onClick={() => setNotice(`来源：${config.source}`)} type="button">查看数据来源</button>}{config.accountPreparation ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => setAccountOpen(true)} type="button">准备员工账号</button> : null}</footer>
     </aside>
-  </div>{profileOpen && selected?.employeeReview ? <div className="dialog-backdrop employee-profile-dialog-backdrop" onMouseDown={() => setProfileOpen(false)} role="presentation"><section aria-labelledby="employee-profile-dialog-title" aria-modal="true" className="receive-dialog employee-profile-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>正式员工资料</span><h2 id="employee-profile-dialog-title">维护 {selected.employeeReview.name}</h2></div><button aria-label="关闭" onClick={() => setProfileOpen(false)} type="button">×</button></header><div className="employee-profile-dialog-body"><EmployeeProfileEditor actionState={{ disabled: false, title: "" }} onSave={saveEmployeeProfile} review={selected.employeeReview} />{profileError ? <p className="employee-profile-dialog-error" role="alert">{profileError}</p> : null}</div></section></div> : null}{accountOpen && selected?.employeeReview ? <EmployeeAccountPreparationDialog onClose={() => setAccountOpen(false)} onConfirmIdentity={config.onConfirmEmployeeIdentity} onEnableAccount={config.onEnableEmployeeAccount} onIssuePassword={config.onIssueEmployeePassword} review={selected.employeeReview} /> : null}</>;
+  </div>{profileOpen && selected?.employeeReview ? <ReviewDialog labelledBy="employee-profile-dialog-title" className="receive-dialog employee-profile-dialog" onClose={() => setProfileOpen(false)}><header><div><span>正式员工资料</span><h2 id="employee-profile-dialog-title">维护 {selected.employeeReview.name}</h2></div><button aria-label="关闭" onClick={() => setProfileOpen(false)} type="button">×</button></header><div className="employee-profile-dialog-body"><EmployeeProfileEditor actionState={{ disabled: false, title: "" }} onSave={saveEmployeeProfile} review={selected.employeeReview} />{profileError ? <p className="employee-profile-dialog-error" role="alert">{profileError}</p> : null}</div></ReviewDialog> : null}{accountOpen && selected?.employeeReview ? <EmployeeAccountPreparationDialog onClose={() => setAccountOpen(false)} onConfirmIdentity={config.onConfirmEmployeeIdentity} onEnableAccount={config.onEnableEmployeeAccount} onIssuePassword={config.onIssueEmployeePassword} review={selected.employeeReview} /> : null}</>;
 }
 
 function PeopleMachinesWorkspace({ formal, onNavigate }) {
@@ -740,7 +736,7 @@ function EmployeeAccountPreparationDialog({ review, onClose, onConfirmIdentity, 
     setBusy("");
   }
 
-  return <div className="dialog-backdrop employee-account-dialog-backdrop" onMouseDown={onClose} role="presentation"><section aria-labelledby="employee-account-dialog-title" aria-modal="true" className="receive-dialog employee-account-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>员工本人账号</span><h2 id="employee-account-dialog-title">准备 {review.name}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><div className="employee-account-dialog-body"><p className="employee-account-boundary">账号启用只授予已复核岗位权限；员工手机“我的考勤”仍由登录账号绑定的员工编号决定，不能选择或查看同事。</p><dl className="employee-account-status"><div><dt>员工编号</dt><dd>{review.employeeId}</dd></div><div><dt>登录名</dt><dd>{review.loginName || "待生成"}</dd></div><div><dt>身份确认</dt><dd>{review.identityConfirmed ? "已确认" : review.accountActivationBlockerLabel || "待确认"}</dd></div><div><dt>账号状态</dt><dd>{departed ? "已离职，不可启用" : review.accountEnabled ? "已启用" : "待复核启用"}</dd></div><div><dt>首次改密</dt><dd>{passwordReady ? "已完成" : review.passwordIssuedAt ? "临时密码待改密" : "尚未发放密码"}</dd></div><div><dt>账号角色</dt><dd>{review.recommendedRoleLabels?.join("、") || review.recommendedRoleLabel || review.roleName || "待确认"}</dd></div></dl>{review.accountActivationBlocked && !departed ? <section className="employee-account-step"><h3>1. 确认正式身份</h3><label><span>正式显示名</span><input onChange={(event) => setConfirmedName(event.target.value)} value={confirmedName} /></label><label><span>确认依据</span><input onChange={(event) => setReason(event.target.value)} placeholder="例如：负责人当面核对身份证与工号" value={reason} /></label><button className="primary" disabled={busy || !confirmedName.trim() || !reason.trim()} onClick={runIdentityConfirmation} type="button">{busy === "identity" ? "确认中…" : "确认身份"}</button></section> : null}<section className="employee-account-step"><h3>{review.accountActivationBlocked ? "2" : "1"}. 复核启用账号</h3><p>{departed ? "离职员工保留历史记录，但不能重新启用。" : review.accountEnabled ? "账号已经启用；岗位和角色变更继续走正式管理员复核。" : "启用前由管理员核对岗位、车间、机台和账号角色。"}</p><button className="primary" disabled={busy || departed || review.accountActivationBlocked || review.accountEnabled} onClick={runEnable} type="button">{review.accountEnabled ? "账号已启用" : busy === "enable" ? "启用中…" : "复核启用账号"}</button></section><section className="employee-account-step"><h3>{review.accountActivationBlocked ? "3" : "2"}. 发放临时密码</h3><p>临时密码只显示一次；员工首次登录必须改密，完成后才计入本人账号就绪。</p><button className="primary" disabled={busy || departed || !review.accountEnabled} onClick={runIssuePassword} type="button">{busy === "password" ? "生成中…" : review.passwordIssuedAt ? "重新发放临时密码" : "发放临时密码"}</button>{issuedCredential ? <div className="employee-issued-credential" role="status"><strong>本次临时凭据（关闭后不再显示）</strong><code>{issuedCredential.loginName || issuedCredential.userId}</code><code>{issuedCredential.temporaryPassword}</code></div> : null}</section>{error ? <p className="employee-profile-dialog-error" role="alert">{error}</p> : null}</div></section></div>;
+  return <ReviewDialog labelledBy="employee-account-dialog-title" className="receive-dialog employee-account-dialog" onClose={() => { if (!busy) onClose(); }}><header><div><span>员工本人账号</span><h2 id="employee-account-dialog-title">准备 {review.name}</h2></div><button aria-label="关闭" onClick={onClose} type="button">×</button></header><div className="employee-account-dialog-body"><p className="employee-account-boundary">账号启用只授予已复核岗位权限；员工手机“我的考勤”仍由登录账号绑定的员工编号决定，不能选择或查看同事。</p><dl className="employee-account-status"><div><dt>员工编号</dt><dd>{review.employeeId}</dd></div><div><dt>登录名</dt><dd>{review.loginName || "待生成"}</dd></div><div><dt>身份确认</dt><dd>{review.identityConfirmed ? "已确认" : review.accountActivationBlockerLabel || "待确认"}</dd></div><div><dt>账号状态</dt><dd>{departed ? "已离职，不可启用" : review.accountEnabled ? "已启用" : "待复核启用"}</dd></div><div><dt>首次改密</dt><dd>{passwordReady ? "已完成" : review.passwordIssuedAt ? "临时密码待改密" : "尚未发放密码"}</dd></div><div><dt>账号角色</dt><dd>{review.recommendedRoleLabels?.join("、") || review.recommendedRoleLabel || review.roleName || "待确认"}</dd></div></dl>{review.accountActivationBlocked && !departed ? <section className="employee-account-step"><h3>1. 确认正式身份</h3><label><span>正式显示名</span><input onChange={(event) => setConfirmedName(event.target.value)} value={confirmedName} /></label><label><span>确认依据</span><input onChange={(event) => setReason(event.target.value)} placeholder="例如：负责人当面核对身份证与工号" value={reason} /></label><button className="primary" disabled={busy || !confirmedName.trim() || !reason.trim()} onClick={runIdentityConfirmation} type="button">{busy === "identity" ? "确认中…" : "确认身份"}</button></section> : null}<section className="employee-account-step"><h3>{review.accountActivationBlocked ? "2" : "1"}. 复核启用账号</h3><p>{departed ? "离职员工保留历史记录，但不能重新启用。" : review.accountEnabled ? "账号已经启用；岗位和角色变更继续走正式管理员复核。" : "启用前由管理员核对岗位、车间、机台和账号角色。"}</p><button className="primary" disabled={busy || departed || review.accountActivationBlocked || review.accountEnabled} onClick={runEnable} type="button">{review.accountEnabled ? "账号已启用" : busy === "enable" ? "启用中…" : "复核启用账号"}</button></section><section className="employee-account-step"><h3>{review.accountActivationBlocked ? "3" : "2"}. 发放临时密码</h3><p>临时密码只显示一次；员工首次登录必须改密，完成后才计入本人账号就绪。</p><button className="primary" disabled={busy || departed || !review.accountEnabled} onClick={runIssuePassword} type="button">{busy === "password" ? "生成中…" : review.passwordIssuedAt ? "重新发放临时密码" : "发放临时密码"}</button>{issuedCredential ? <div className="employee-issued-credential" role="status"><strong>本次临时凭据（关闭后不再显示）</strong><code>{issuedCredential.loginName || issuedCredential.userId}</code><code>{issuedCredential.temporaryPassword}</code></div> : null}</section>{error ? <p className="employee-profile-dialog-error" role="alert">{error}</p> : null}</div></ReviewDialog>;
 }
 
 function FinishedGoodsClassificationFilters({ category, goodsType, onCategoryChange, onGoodsTypeChange }) {
@@ -967,6 +963,7 @@ function OrderEntryWorkspace({ formal, onNavigate }) {
 }
 
 export function BusinessWorkspace({ formal, navId, onNavigate }) {
+  if (navId === "launch-status") return <LaunchStatusWorkspace authState={formal.authState} />;
   if (navId === "shared-todos") return <TodoWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-entry") return <OrderEntryWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-pool") return <OrderPoolWorkspace formal={formal} onNavigate={onNavigate} />;

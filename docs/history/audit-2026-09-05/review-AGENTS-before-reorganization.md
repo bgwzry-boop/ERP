@@ -1,8 +1,6 @@
+# 历史评审指令快照
+
 # Prototype Instructions
-
-当前优先级说明（2026-09-05 审核整理）：根 AGENTS.md 的受控发布、签名评审身份、八组导航和分域业务规则同时适用。下文保留日期用于追溯；较早七组导航、独立价格表、页面只能演示且不得接现有 API 的阶段性范围，已分别被八组完整导航、统一成品资料和正式 API 接线取代。本次授权是修复审核问题，沿用现有服务规则与权限；不能自行新增业务公式或部署。
-
-窄桌面保持完整桌面，可上下重排列表与选中详情来避免裁切；手机边界依旧为 767px。完整整理前快照见 [历史记录](../../history/audit-2026-09-05/review-AGENTS-before-reorganization.md)。
 
 Run the local server yourself and open the preview in the browser available to this environment. Do not give the user server-start instructions when you can run it.
 

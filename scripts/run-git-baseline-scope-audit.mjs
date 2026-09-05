@@ -16,7 +16,7 @@ const GROUPS = Object.freeze([
   {
     key: "engineering_tooling",
     label: "测试编排与发布审计工具",
-    owns: (path) => path === ".gitignore" || path === "package.json" || path === "package-lock.json" || path === "vite.config.mjs" || PLAYWRIGHT_CONFIG_PATTERN.test(path) || path.startsWith("deploy/") || path.startsWith(".github/workflows/") || TOOLING_PATH_PATTERN.test(path),
+    owns: (path) => path === ".gitignore" || path === "package.json" || path === "package-lock.json" || path === "vite.config.mjs" || path === "eslint.config.mjs" || PLAYWRIGHT_CONFIG_PATTERN.test(path) || path.startsWith("deploy/") || path.startsWith(".github/workflows/") || TOOLING_PATH_PATTERN.test(path),
   },
   {
     key: "runtime_domain",
@@ -76,6 +76,8 @@ const ROOT_DOCUMENTS = new Set([
   "PRODUCT.md",
   "PROJECT_STATUS.md",
   "ROADMAP.md",
+  "README.md",
+  "DESIGN.md",
   "design.md",
   "design-qa.md",
 ]);

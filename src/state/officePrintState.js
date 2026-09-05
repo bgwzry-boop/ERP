@@ -92,18 +92,7 @@ export function mergeOfficePrintJobQueueItems(currentItems = [], incomingItems =
     .slice(0, safeLimit);
 }
 
-export function getPrintJobStatusLabel(status) {
-  const normalized = String(status ?? "").trim();
-  const labels = {
-    queued: "待派发",
-    sent: "已派发",
-    printed: "已打印",
-    failed: "失败",
-    canceled: "已取消",
-    preview_only: "仅预览",
-  };
-  return (labels[normalized] ?? normalized) || "状态待补";
-}
+export { getPrintJobStatusLabel } from "../../shared/printJobPresentation.js";
 
 export function getPrinterDeviceQaDriverLabel(printDevice = {}) {
   const device = printDevice && typeof printDevice === "object" ? printDevice : {};

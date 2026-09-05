@@ -1,3 +1,4 @@
+import { getPrintJobStatusLabel, getPrintJobDocumentLabel } from "../../../shared/printJobPresentation.js";
 import { StatusPill } from "../../shared/ui/operational.jsx";
 import { formatOperationalError } from "../../shared/ui/errorPresentation.js";
 import {
@@ -398,37 +399,12 @@ function getPrintJobQueueSourceLabel(queueState = {}) {
   return "待确认";
 }
 
-function getPrintJobStatusLabel(status) {
-  const normalized = String(status ?? "").trim();
-  const labels = {
-    queued: "待派发",
-    sent: "已派发",
-    printed: "已打印",
-    failed: "失败",
-    canceled: "已取消",
-    preview_only: "仅预览",
-  };
-  return (labels[normalized] ?? normalized) || "状态待补";
-}
-
 function getPrintJobStatusTone(status) {
   if (status === "printed") return "success";
   if (status === "sent") return "blue";
   if (status === "queued") return "warning";
   if (status === "failed") return "danger";
   return "neutral";
-}
-
-function getPrintJobDocumentLabel(documentType) {
-  const normalized = String(documentType ?? "").trim();
-  const labels = {
-    express_ltl_label: "包裹标签",
-    package_label: "包裹标签",
-    pickup_note: "自提单",
-    delivery_note: "送货单",
-    outbound_note: "出库单",
-  };
-  return (labels[normalized] ?? normalized) || "单据待补";
 }
 
 function getPrintJobSummary(printJob = {}) {

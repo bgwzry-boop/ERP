@@ -131,6 +131,11 @@ assert.deepEqual(blocked.sensitiveContentFindings, [
 assert.doesNotMatch(JSON.stringify(blocked), /must-not-leak/);
 assert.equal(blocked.blockers.includes("sensitive_content"), true);
 
+const auditTooling = buildGitBaselineScopeReport({ entries: [{ status: " M", path: "eslint.config.mjs" }, { status: " M", path: "README.md" }, { status: " M", path: "DESIGN.md" }], remoteCount: 1 });
+assert.equal(auditTooling.scopeSafe, true);
+assert.equal(auditTooling.groups.find((group) => group.key === "engineering_tooling")?.count, 1);
+assert.equal(auditTooling.groups.find((group) => group.key === "governance_docs")?.count, 2);
+
 const live = inspectGitBaselineScope();
 assert.equal(live.scopeSafe, true, JSON.stringify({ blockers: live.blockers, unclassified: live.unclassifiedPaths }));
 assert.equal(live.summary.changedFileCount, live.summary.classifiedCount);

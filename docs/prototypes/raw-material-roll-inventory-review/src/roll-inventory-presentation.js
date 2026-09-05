@@ -141,7 +141,7 @@ export function compactRollCode(value, maxLength = 18) {
   return `RM-…${code.slice(-suffixLength)}`;
 }
 
-export function resolveInventoryRollStatus(inbound = {}, roll = {}) {
+export function resolveInventoryRollStatus(_inbound = {}, roll = {}) {
   const currentWeightKg = positiveNumber(roll.remainingMachineSideWeightKg)
     || positiveNumber(roll.leftoverReviewedWeightKg)
     || positiveNumber(roll.weightKg);

@@ -1,10 +1,10 @@
 # Decisions
 
-Current decision baseline: `V8.306` plus the verified employee/payroll/Deli changes recorded below. Detailed UI and workflow invariants remain in `AGENTS.md`; the complete pre-compression decision set is preserved in [the 2026-08-12 snapshot](docs/history/status/DECISIONS-through-2026-08-12.md).
+Current decision baseline: `V8.306` plus the verified employee/payroll/Deli changes recorded below. Detailed UI and workflow invariants are routed by `AGENTS.md` into `docs/rules/`; the complete pre-compression decision set is preserved in [the 2026-08-12 snapshot](docs/history/status/DECISIONS-through-2026-08-12.md).
 
 ## Release Truth
 
-- Code/prototype readiness remains `97-98%`; V1 production readiness remains `80-83%`. Release truth is `0/4` gates, `1/5` production stages, `5/11` runtime gates, `0/40` field evidence, `0/6` signoff and `59` onsite tasks.
+- Current release and validation facts are recorded once in [当前状态与下一步](01_当前状态与下一步.md). Historical readiness percentages and counts are dated checkpoints, not current acceptance.
 - A review URL, local demo, passing unit test, generated report or deployment template is never production evidence. Only the generated go-live suite and accepted field records may change release truth.
 - The current execution order is exactly `D49 -> D50 -> D51 -> D52 -> D53`; later work never substitutes for an earlier incomplete gate.
 - The raw-material-first release boundary remains authoritative until a separately approved release changes it. Completed wider ERP work may remain available in staging/review without becoming the production V1 write scope.

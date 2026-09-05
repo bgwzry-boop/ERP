@@ -349,4 +349,3 @@ function isPlainObject(value) {
 function normalizeAttachmentText(value) {
   return String(value ?? "").trim();
 }
-

@@ -40,7 +40,7 @@
     "build:staging:full": "VITE_ERP_RUNTIME_MODE=test VITE_ERP_API_BASE_URL=/api VITE_ERP_STAGING_AUTH_BYPASS=true VITE_ERP_STAGING_PREVIEW_USER_ID=U-MANAGER-A VITE_RAW_MATERIAL_FIRST_RELEASE=false vite build --mode staging && npm run frontend-build-chunks:check && npm run staging-full-build:check",
     "build:staging:first-release": "VITE_ERP_RUNTIME_MODE=test VITE_ERP_API_BASE_URL=/api VITE_ERP_STAGING_AUTH_BYPASS=true VITE_ERP_STAGING_PREVIEW_USER_ID=U-MANAGER-A VITE_RAW_MATERIAL_FIRST_RELEASE=true vite build --mode staging && npm run frontend-build-chunks:check",
     "staging-full-build:check": "node scripts/check-staging-full-build.mjs",
-    "lint": "eslint src server shared scripts vite.config.mjs",
+    "lint": "eslint src server shared scripts vite.config.mjs docs/prototypes/raw-material-roll-inventory-review/src",
     "check:core": "node scripts/run-check-group.mjs core",
     "business-decision-management:check": "node scripts/check-business-decision-authorization-management.mjs && node scripts/check-business-decision-evidence-drafts.mjs && node scripts/check-business-decision-policy-service.mjs && node scripts/check-business-decision-evidence-service.mjs && node scripts/check-business-decision-read-routes.mjs && node scripts/check-business-decision-transaction-repository.mjs && node scripts/check-business-decision-directive-command-service.mjs && node scripts/check-raw-material-purchase-business-decision.mjs",
     "test:checks": "node scripts/run-check-group.mjs test",

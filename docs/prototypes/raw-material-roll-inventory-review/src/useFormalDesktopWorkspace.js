@@ -26,7 +26,6 @@ import {
   listOfficeMasterDataMachines,
   updateOfficeMasterDataEmployeeProfile,
 } from "../../../../src/services/officeMasterDataImportApiClient.js";
-import { prepareRawMaterialDeliveryNoteFile } from "../../../../src/services/rawMaterialDeliveryNoteImageClient.js";
 
 const operatorId = "U-MANAGER-A";
 const readOptions = Object.freeze({ serverRequired: true });
@@ -146,20 +145,13 @@ export function useFormalDesktopWorkspace() {
     return result;
   }, [data.rawMaterialInbounds]);
 
-  const recognizeRawMaterialFile = useCallback(async (file) => {
-    if (!file) return { source: "ui_error", blocked: true, error: { message: "请选择送货单照片或 PDF。" } };
-    const prepared = await prepareRawMaterialDeliveryNoteFile(file, { mimeType: file.type });
+  const recognizeRawMaterialPages = useCallback(async (pages, { documentDirectionHint = "supplier_delivery" } = {}) => {
+    if (!Array.isArray(pages) || !pages.length || pages.length > 4) return { source: "ui_error", blocked: true, error: { message: "请选择送货单照片或 PDF。" } };
     const result = await recognizeOfficeRawMaterialDeliveryNote({
       authState: authStateRef.current,
       operatorId,
-      fileName: file.name,
-      mimeType: prepared.mimeType,
-      fileSize: prepared.fileSize,
-      contentDataUrl: prepared.contentDataUrl,
-      sourceMimeType: prepared.sourceMimeType,
-      sourceFileSize: prepared.sourceFileSize,
-      sourceContentDataUrl: prepared.sourceContentDataUrl,
-      sourceNormalizedForOcr: prepared.normalized,
+      pages,
+      documentDirectionHint,
       useNewModel: false,
     }, readOptions);
     if (result.source === "api" && result.inbound?.id) {
@@ -283,12 +275,12 @@ export function useFormalDesktopWorkspace() {
     enableEmployeeAccount,
     issueEmployeePassword,
     recognizeOrderText,
-    recognizeRawMaterialFile,
+    recognizeRawMaterialPages,
     refreshAll,
     saveOrderDraft,
     updateEmployeeProfile,
     updateRawMaterialInbound,
-  }), [confirmEmployeeIdentity, confirmOrderDraft, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialFile, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
+  }), [confirmEmployeeIdentity, confirmOrderDraft, enableEmployeeAccount, issueEmployeePassword, recognizeOrderText, recognizeRawMaterialPages, refreshAll, saveOrderDraft, updateEmployeeProfile, updateRawMaterialInbound]);
 
   return {
     actions,

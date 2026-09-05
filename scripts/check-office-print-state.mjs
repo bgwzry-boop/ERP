@@ -28,8 +28,8 @@ assert.equal(createInitialPrintDriverCupsDiagnosticsState().diagnostics, null);
 assert.equal(getSortablePrintJobTime({ createdAt: "invalid" }), 0);
 assert.ok(getSortablePrintJobTime({ createdAt: "2026-07-10T09:00:00Z" }) > 0);
 assert.equal(getPrintJobStatusLabel("queued"), "待派发");
-assert.equal(getPrintJobStatusLabel("unknown"), "unknown");
-assert.equal(getPrintJobStatusLabel(""), "状态待补");
+assert.equal(getPrintJobStatusLabel("unknown"), "状态待确认");
+assert.equal(getPrintJobStatusLabel(""), "状态待确认");
 
 const printDevice = {
   driverName: "CUPS 标签驱动",

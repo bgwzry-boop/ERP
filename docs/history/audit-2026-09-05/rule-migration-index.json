@@ -1,0 +1,15 @@
+{
+  "sourceSha256": "61120dad003b4729adc0b58d8c334c5ee9ca2e945de2ccfda6779c123fd6cf2b",
+  "ruleCount": 266,
+  "currentCount": 263,
+  "supersededCount": 3,
+  "groups": {
+    "raw-materials": 72,
+    "people-payroll": 47,
+    "orders-pricing-miniapp": 76,
+    "production-fulfillment": 35,
+    "finance": 4,
+    "ui-navigation": 16,
+    "release-security": 13
+  }
+}
