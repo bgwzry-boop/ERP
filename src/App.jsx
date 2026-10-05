@@ -3,7 +3,6 @@ import { MenuFoldOutlined } from "@ant-design/icons";
 import bagwinSymbolUrl from "./assets/brand/BAGWIN_symbol_color.svg";
 import {
   EntryPage,
-  FulfillmentPage,
   InventoryPage,
   OrderPoolPage,
   ProductionPackingPage,
@@ -15,7 +14,7 @@ import {
   WorkshopMobilePage,
 } from "./pages/office/index.jsx";
 import { RAW_MATERIAL_FIRST_RELEASE_ENABLED } from "./config/rawMaterialFirstRelease.js";
-import { renderPageFromRegistry } from "./app/pageRegistry.js";
+import { renderRegisteredPage } from "./app/pageRegistry.js";
 import {
   allNavigationItems,
   desktopRequiredMobilePage,
@@ -1220,21 +1219,42 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {renderedPage === "fulfillment" && (
-            <FulfillmentPage
-              authState={authState}
-              currentUser={currentUser}
-              tab={fulfillmentTab}
-              setTab={setFulfillmentTab}
-              fulfillments={fulfillments}
-              orderLines={orderLines}
-              selectedId={selectedFulfillmentId}
-              setSelectedId={setSelectedFulfillmentId}
-              onAction={updateFulfillment}
-              onRefresh={() => refreshFulfillments({ showToast: true })}
-              helpers={pageHelpers}
-            />
-          )}
+          {renderRegisteredPage(renderedPage, {
+            fulfillment: {
+              authState,
+              currentUser,
+              tab: fulfillmentTab,
+              setTab: setFulfillmentTab,
+              fulfillments,
+              orderLines,
+              selectedId: selectedFulfillmentId,
+              setSelectedId: setSelectedFulfillmentId,
+              onAction: updateFulfillment,
+              onRefresh: () => refreshFulfillments({ showToast: true }),
+              helpers: pageHelpers,
+            },
+            rawMaterial: {
+              authState,
+              currentUser,
+              inbounds: rawMaterialInbounds,
+              meta: rawMaterialInboundMeta,
+              productionTasks: productionPacking.productionTasks,
+              statementReviews: rawMaterialSupplierStatementReviews,
+              statementReviewMeta: rawMaterialSupplierStatementReviewMeta,
+              selectedId: selectedRawMaterialInboundId,
+              setSelectedId: setSelectedRawMaterialInboundId,
+              onAction: updateRawMaterialInbound,
+              onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote,
+              onStatementReviewDraftCreate: saveRawMaterialSupplierStatementReviewDraft,
+              onStatementReviewConfirm: confirmRawMaterialSupplierStatementReviewDraft,
+              onStatementConfirm: confirmRawMaterialSupplierStatement,
+              onPayableDraftGenerate: generateRawMaterialSupplierPayableDraft,
+              onPaymentConfirm: confirmRawMaterialSupplierPayment,
+              printerDeviceQa,
+              helpers: pageHelpers,
+              firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
+            },
+          })}
           {renderedPage === "packing" && (
             <ProductionPackingPage
               authState={authState}
@@ -1330,27 +1350,6 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {renderPageFromRegistry(renderedPage, {
-            authState,
-            currentUser,
-            inbounds: rawMaterialInbounds,
-            meta: rawMaterialInboundMeta,
-            productionTasks: productionPacking.productionTasks,
-            statementReviews: rawMaterialSupplierStatementReviews,
-            statementReviewMeta: rawMaterialSupplierStatementReviewMeta,
-            selectedId: selectedRawMaterialInboundId,
-            setSelectedId: setSelectedRawMaterialInboundId,
-            onAction: updateRawMaterialInbound,
-            onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote,
-            onStatementReviewDraftCreate: saveRawMaterialSupplierStatementReviewDraft,
-            onStatementReviewConfirm: confirmRawMaterialSupplierStatementReviewDraft,
-            onStatementConfirm: confirmRawMaterialSupplierStatement,
-            onPayableDraftGenerate: generateRawMaterialSupplierPayableDraft,
-            onPaymentConfirm: confirmRawMaterialSupplierPayment,
-            printerDeviceQa,
-            helpers: pageHelpers,
-            firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
-          })}
           {renderedPage === "rawMaterialScanner" && (
             <RawMaterialScannerPage
               inbounds={rawMaterialInbounds}

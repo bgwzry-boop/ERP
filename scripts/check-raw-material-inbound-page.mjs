@@ -50,8 +50,8 @@ assertIncludes(fixturesSource, "供应商单号未提供", "fixtures should cove
 assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expose the raw-material page");
 assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");
 assertIncludes(navigationSource, 'if (defaultRole === "office") return "rawMaterials";', "office phones should enter the existing raw-material mobile flow instead of a compressed PC table");
-assertIncludes(appSource, "renderPageFromRegistry(renderedPage", "App should render the registered raw-material inbound page");
-assertIncludes(pageRegistrySource, "rawMaterials: RawMaterialInboundPage", "the page registry should own the raw-material route");
+assertIncludes(appSource, "renderRegisteredPage(renderedPage", "App should render the registered raw-material inbound page");
+assertIncludes(pageRegistrySource, "rawMaterials: (props) => createElement(RawMaterialInboundPage, props.rawMaterial)", "the page registry should own the raw-material route");
 assertIncludes(appSource, "mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage", "App should preserve one business route with viewport-specific workbenches");
 assertIncludes(appSource, "onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote", "desktop and phone raw-material entry should share the formal server OCR action");
 assertIncludes(appSource, "createOfficeRawMaterialActions", "App should compose the raw-material action controller");

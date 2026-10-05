@@ -1,11 +1,12 @@
 import { createElement } from "react";
 import { RawMaterialInboundPage } from "../pages/office/index.jsx";
+import { FulfillmentPage } from "../features/fulfillment/FulfillmentPage.jsx";
 
 export const pageRegistry = Object.freeze({
-  rawMaterials: RawMaterialInboundPage,
+  rawMaterials: (props) => createElement(RawMaterialInboundPage, props.rawMaterial),
+  fulfillment: (props) => createElement(FulfillmentPage, props.fulfillment),
 });
 
-export function renderPageFromRegistry(pageKey, props) {
-  const Page = pageRegistry[pageKey];
-  return Page ? createElement(Page, props) : null;
+export function renderRegisteredPage(pageKey, pageProps) {
+  return pageRegistry[pageKey]?.(pageProps) ?? null;
 }
