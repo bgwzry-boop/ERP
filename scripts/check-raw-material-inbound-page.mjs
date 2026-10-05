@@ -9,6 +9,7 @@ import {
 } from "../shared/rawMaterialOcrSourceCrop.js";
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const pageRegistrySource = readFileSync(new URL("../src/app/pageRegistry.js", import.meta.url), "utf8");
 const rawMaterialControllerSource = readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
 const rawMaterialApiClientSource = readFileSync(new URL("../src/services/officeRawMaterialApiClient.js", import.meta.url), "utf8");
 const rawMaterialLocalActionsSource = readFileSync(new URL("../src/domain/rawMaterialInboundLocalActions.js", import.meta.url), "utf8");
@@ -49,9 +50,10 @@ assertIncludes(fixturesSource, "供应商单号未提供", "fixtures should cove
 assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expose the raw-material page");
 assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");
 assertIncludes(navigationSource, 'if (defaultRole === "office") return "rawMaterials";', "office phones should enter the existing raw-material mobile flow instead of a compressed PC table");
-assertIncludes(appSource, "<RawMaterialInboundPage", "App should render the raw-material inbound page");
+assertIncludes(appSource, "renderPageFromRegistry(renderedPage", "App should render the registered raw-material inbound page");
+assertIncludes(pageRegistrySource, "rawMaterials: RawMaterialInboundPage", "the page registry should own the raw-material route");
 assertIncludes(appSource, "mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage", "App should preserve one business route with viewport-specific workbenches");
-assertIncludes(appSource, "onDeliveryNoteRecognize={recognizeRawMaterialDeliveryNote}", "desktop and phone raw-material entry should share the formal server OCR action");
+assertIncludes(appSource, "onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote", "desktop and phone raw-material entry should share the formal server OCR action");
 assertIncludes(appSource, "createOfficeRawMaterialActions", "App should compose the raw-material action controller");
 assertExcludes(appSource, "updateOfficeRawMaterialInboundAction", "App should not call the raw-material write client directly");
 assertIncludes(roleToolReadsSource, "listOfficeRawMaterialInbounds", "role-tool reads should refresh raw-material inbounds through API client");

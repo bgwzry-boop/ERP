@@ -7,7 +7,6 @@ import {
   InventoryPage,
   OrderPoolPage,
   ProductionPackingPage,
-  RawMaterialInboundPage,
   RawMaterialScannerPage,
   StatementPage,
   TodoPage,
@@ -16,6 +15,7 @@ import {
   WorkshopMobilePage,
 } from "./pages/office/index.jsx";
 import { RAW_MATERIAL_FIRST_RELEASE_ENABLED } from "./config/rawMaterialFirstRelease.js";
+import { renderPageFromRegistry } from "./app/pageRegistry.js";
 import {
   allNavigationItems,
   desktopRequiredMobilePage,
@@ -1330,29 +1330,27 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {renderedPage === "rawMaterials" && (
-            <RawMaterialInboundPage
-              authState={authState}
-              currentUser={currentUser}
-              inbounds={rawMaterialInbounds}
-              meta={rawMaterialInboundMeta}
-              productionTasks={productionPacking.productionTasks}
-              statementReviews={rawMaterialSupplierStatementReviews}
-              statementReviewMeta={rawMaterialSupplierStatementReviewMeta}
-              selectedId={selectedRawMaterialInboundId}
-              setSelectedId={setSelectedRawMaterialInboundId}
-              onAction={updateRawMaterialInbound}
-              onDeliveryNoteRecognize={recognizeRawMaterialDeliveryNote}
-              onStatementReviewDraftCreate={saveRawMaterialSupplierStatementReviewDraft}
-              onStatementReviewConfirm={confirmRawMaterialSupplierStatementReviewDraft}
-              onStatementConfirm={confirmRawMaterialSupplierStatement}
-              onPayableDraftGenerate={generateRawMaterialSupplierPayableDraft}
-              onPaymentConfirm={confirmRawMaterialSupplierPayment}
-              printerDeviceQa={printerDeviceQa}
-              helpers={pageHelpers}
-              firstReleaseMode={RAW_MATERIAL_FIRST_RELEASE_ENABLED}
-            />
-          )}
+          {renderPageFromRegistry(renderedPage, {
+            authState,
+            currentUser,
+            inbounds: rawMaterialInbounds,
+            meta: rawMaterialInboundMeta,
+            productionTasks: productionPacking.productionTasks,
+            statementReviews: rawMaterialSupplierStatementReviews,
+            statementReviewMeta: rawMaterialSupplierStatementReviewMeta,
+            selectedId: selectedRawMaterialInboundId,
+            setSelectedId: setSelectedRawMaterialInboundId,
+            onAction: updateRawMaterialInbound,
+            onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote,
+            onStatementReviewDraftCreate: saveRawMaterialSupplierStatementReviewDraft,
+            onStatementReviewConfirm: confirmRawMaterialSupplierStatementReviewDraft,
+            onStatementConfirm: confirmRawMaterialSupplierStatement,
+            onPayableDraftGenerate: generateRawMaterialSupplierPayableDraft,
+            onPaymentConfirm: confirmRawMaterialSupplierPayment,
+            printerDeviceQa,
+            helpers: pageHelpers,
+            firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
+          })}
           {renderedPage === "rawMaterialScanner" && (
             <RawMaterialScannerPage
               inbounds={rawMaterialInbounds}
