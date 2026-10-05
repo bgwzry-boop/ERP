@@ -158,7 +158,7 @@
     "test:raw-material": "npm run raw-material-inbound-api:check && npm run raw-material-inbound-page:check",
     "raw-material-ocr-holdout:check": "node scripts/check-raw-material-ocr-holdout-corpus.mjs",
     "raw-material-cost-margin-builder-service:check": "node scripts/check-raw-material-cost-margin-builder-service.mjs",
-    "raw-material-inbound-record-service:check": "node scripts/check-raw-material-inbound-record-service.mjs",
+    "raw-material-inbound-record-service:check": "npm run test:raw-material",
     "raw-material-cost-margin-normalizers:check": "node scripts/check-raw-material-cost-margin-normalizers.mjs",
     "raw-material-traceability-record-normalizers:check": "node scripts/check-raw-material-traceability-record-normalizers.mjs",
     "raw-material-supplier-statement-import:check": "node scripts/check-raw-material-supplier-statement-import.mjs",
