@@ -1,6 +1,6 @@
 # Decisions
 
-Current decision baseline: `V8.306` plus the verified employee/payroll/Deli changes recorded below. Detailed UI and workflow invariants remain in `AGENTS.md`; the complete pre-compression decision set is preserved in [the 2026-08-12 snapshot](docs/history/status/DECISIONS-through-2026-08-12.md).
+Current decision baseline: `V8.306` plus the verified employee/payroll/Deli changes recorded below. Detailed UI and workflow invariants remain in `AGENTS.md`; the complete pre-compression decision set is preserved in [the 2026-08-12 snapshot](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/DECISIONS-through-2026-08-12.md).
 
 ## Release Truth
 
@@ -85,5 +85,5 @@ Current decision baseline: `V8.306` plus the verified employee/payroll/Deli chan
 
 ## History
 
-- [Complete decisions through 2026-08-12](docs/history/status/DECISIONS-through-2026-08-12.md)
-- [Historical decisions through V8.80](docs/history/status/DECISIONS-through-v8.80.md)
+- [Complete decisions through 2026-08-12](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/DECISIONS-through-2026-08-12.md)
+- [Historical decisions through V8.80](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/DECISIONS-through-v8.80.md)

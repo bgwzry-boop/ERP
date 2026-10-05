@@ -61,5 +61,5 @@ Complete the position-based payroll contract from the already supplied wage work
 
 ## History
 
-- [Complete status snapshot through 2026-08-12](docs/history/status/PROJECT_STATUS-through-2026-08-12.md)
-- [Historical log through V8.80](docs/history/status/PROJECT_STATUS-through-v8.80.md)
+- [Complete status snapshot through 2026-08-12](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/PROJECT_STATUS-through-2026-08-12.md)
+- [Historical log through V8.80](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/PROJECT_STATUS-through-v8.80.md)

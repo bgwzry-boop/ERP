@@ -214,7 +214,7 @@ V8.54 已完成19:30后临时留货的安全处理：办公室必须确认未来
 - `docs/development/code-development-plan.zh-CN.md`
 - `PROJECT_STATUS.md`
 - `01_当前状态与下一步.md`
-- `02_问题或报错日志.md`
+- [已归档的问题日志](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/02_问题或报错日志.md)
 
 ## 最新代码审查修复
 

@@ -302,6 +302,6 @@ Requirements refinement cadence:
 
 Codex handoff documents:
 
-- Read `00_项目入口.md`, `01_当前状态与下一步.md`, and `02_问题或报错日志.md` before broader project searches.
+- Read `00_项目入口.md`, `01_当前状态与下一步.md`, and `DECISIONS.md` before broader project searches. The [archived issue log](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/02_问题或报错日志.md) is available for historical context.
 - Update `01_当前状态与下一步.md` when project state changes.
-- Update `02_问题或报错日志.md` when an error, verification issue, or repeated risk appears.
+- Record new errors, verification issues, and repeated risks in `01_当前状态与下一步.md`; the archived issue log is read-only.

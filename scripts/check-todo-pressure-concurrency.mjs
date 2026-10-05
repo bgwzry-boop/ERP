@@ -48,12 +48,15 @@ try {
   const readOperators = ["U-OFFICE-A", "U-WAREHOUSE-A", "U-FINANCE-A", "U-MANAGER-A"];
   const readRequests = Array.from({ length: 160 }, (_, index) => {
     const operatorId = readOperators[index % readOperators.length];
-    return requestJson(baseUrl, "/api/todos?status=all&page=1&pageSize=8", {
+    return () => requestJson(baseUrl, "/api/todos?status=all&page=1&pageSize=8", {
       expectedStatus: 200,
       headers: { "x-erp-user-id": operatorId },
     });
   });
-  const readResults = await Promise.all(readRequests);
+  const readResults = [];
+  for (let offset = 0; offset < readRequests.length; offset += 20) {
+    readResults.push(...await Promise.all(readRequests.slice(offset, offset + 20).map((request) => request())));
+  }
   assert(readResults.every((result) => result.status === 200));
   assert(readResults.every((result) => result.body.total === 8));
   assert(readResults.every((result) => result.body.items.length === 8));

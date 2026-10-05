@@ -288,20 +288,24 @@
     "office-seed:check": "node scripts/check-office-seed-loader.mjs",
     "real-sample-seed:template": "node scripts/run-real-sample-seed-template.mjs",
     "real-sample-seed:precheck": "node scripts/run-real-sample-seed-precheck.mjs",
-    "real-sample-seed-intake:check": "node scripts/check-real-sample-seed-intake.mjs"
+    "real-sample-seed-intake:check": "node scripts/check-real-sample-seed-intake.mjs",
+    "test:boot": "node scripts/check-production-boot-guard.mjs",
+    "test:api": "npm run api:check",
+    "test:security": "npm run api-security:check",
+    "preflight:prod": "npm run test:boot && node scripts/run-v1-production-env-preflight.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",
-    "@vitejs/plugin-react": "5.0.4",
     "pg": "^8.22.0",
     "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "vite": "6.4.3"
+    "react-dom": "19.2.0"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.61.1",
+    "@vitejs/plugin-react": "5.0.4",
     "eslint": "^10.6.0",
-    "globals": "^17.7.0"
+    "globals": "^17.7.0",
+    "vite": "6.4.3"
   }
 }
