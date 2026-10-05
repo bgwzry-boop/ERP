@@ -97,8 +97,8 @@ assert.throws(
       attachmentRepositoryOptions: { mode: "local" },
     }),
   (error) =>
-    error?.code === "ERP_PRODUCTION_PERSISTENCE_REQUIRED" &&
-    error?.details?.invalidRepositories?.includes("attachmentRepository"),
+    error?.code === "ERP_PRODUCTION_BOOT_REFUSED" &&
+    error?.details?.optionKeys?.includes("attachmentRepositoryOptions.mode"),
 );
 
 assert.throws(
