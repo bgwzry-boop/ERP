@@ -1,3 +1,5 @@
+import { createRawMaterialInboundOrchestrator } from "../services/rawMaterialInboundOrchestrator.mjs";
+
 export async function handleRawMaterialWriteRoutes({
   method,
   url,
@@ -37,7 +39,7 @@ export async function handleRawMaterialWriteRoutes({
       return true;
     }
     if (!requireActionPermission(response, permissionContext, permission)) return true;
-    const result = await rawMaterialCommandService.recordInboundAction({
+    const result = await createRawMaterialInboundOrchestrator(workspace.rawMaterialInboundRepository).recordInboundAction({
       workspace,
       inboundId,
       actionSlug,

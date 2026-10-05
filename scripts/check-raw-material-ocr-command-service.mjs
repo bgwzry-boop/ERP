@@ -57,7 +57,7 @@ const workspace = {
       workspace.rawMaterialInbounds.unshift(input.inbound);
       return { inbound: input.inbound, operationLog: input.operationLog, deduplicated: false };
     },
-    async recordRawMaterialInboundAction(input) {
+    async applyInboundAction(input) {
       reparseCalls += 1;
       const result = applyRawMaterialInboundAction({
         workspace,

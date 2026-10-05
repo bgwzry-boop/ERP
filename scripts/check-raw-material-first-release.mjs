@@ -6,7 +6,7 @@ import {
   getRawMaterialScanOutboundBlocker,
   normalizeRawMaterialScanCode,
 } from "../src/domain/rawMaterialScanOutbound.js";
-import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
+import { applyRawMaterialInboundAction } from "../server/services/rawMaterialInboundCommandService.mjs";
 import {
   assertControlledReleaseBuildEnv,
   assertRawMaterialFirstReleaseBuildEnv,

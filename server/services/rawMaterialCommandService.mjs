@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { createRawMaterialInboundOrchestrator } from "./rawMaterialInboundOrchestrator.mjs";
 
 export function createRawMaterialCommandService(dependencies = {}) {
   const {
@@ -197,40 +198,8 @@ export function createRawMaterialCommandService(dependencies = {}) {
     },
 
     async recordInboundAction({ workspace, inboundId, actionSlug, body = {}, operatorId }) {
-      try {
-        const expectedRevision = requireExpectedRevision(body.expectedRevision);
-        const serverNow = toIsoTimestamp(now());
-        const result = await workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction({
-          workspace,
-          inboundId,
-          action: actionSlug,
-          body: { ...body, expectedRevision },
-          idempotencyKey: body.idempotencyKey,
-          idempotencyPayload: body,
-          operatorId,
-          operatorName: getOperatorName(workspace, operatorId),
-          serverNow,
-        });
-        appendOperationLog(workspace, result.operationLog);
-        return {
-          inbound: result.inbound,
-          operationLogId: result.operationLogId ?? result.operationLog?.id ?? "",
-        };
-      } catch (error) {
-        const statusCode = normalizeStatusCode(error?.statusCode);
-        const details = error?.details ?? (error?.currentRevision ? { currentRevision: error.currentRevision } : undefined);
-        return {
-          error: true,
-          statusCode,
-          code:
-            cleanText(error?.code) ||
-            (statusCode === 404
-              ? "RAW_MATERIAL_INBOUND_NOT_FOUND"
-              : "RAW_MATERIAL_INBOUND_ACTION_FAILED"),
-          message: cleanText(error?.message) || "Raw material inbound action failed.",
-          ...(details ? { details } : {}),
-        };
-      }
+      return createRawMaterialInboundOrchestrator(workspace.rawMaterialInboundRepository, { now })
+        .recordInboundAction({ workspace, inboundId, actionSlug, body, operatorId });
     },
 
     async createPurchaseRequest({ workspace, body = {}, operatorId, actionPermissions = [] }) {
@@ -647,7 +616,7 @@ async function reparseStaleOcrDraft({
     },
     recognizedAt: existingInbound.ocrRecognizedAt,
   }), existingInbound);
-  const saved = await workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction({
+  const saved = await createRawMaterialInboundOrchestrator(workspace.rawMaterialInboundRepository).applyAction({
     workspace,
     inboundId: existingInbound.id,
     action: "reparse_ocr",

@@ -31,10 +31,10 @@ import {
   normalizeRawMaterialInboundActionResult,
   normalizeRawMaterialInbounds,
 } from "./rawMaterialInboundRecordService.mjs";
-import { applyRawMaterialInboundAction, findRawMaterialInbound } from "./services/rawMaterialInboundCommandService.mjs";
+import { findRawMaterialInbound } from "./services/rawMaterialInboundCommandService.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
 
-export { rawMaterialInboundStoreKey, normalizeRawMaterialInbounds, buildRawMaterialInboundListResponse, applyRawMaterialInboundAction };
+export { rawMaterialInboundStoreKey, normalizeRawMaterialInbounds, buildRawMaterialInboundListResponse };
 export {
   buildFindRawMaterialInboundPayloadQuery,
   buildFindRawMaterialInboundPayloadSql,
@@ -112,20 +112,11 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
       return { inbound: safeInbound, operationLog: safeOperationLog, deduplicated: false };
     },
 
-    recordRawMaterialInboundAction(input = {}) {
+    applyInboundAction(input = {}) {
       const replay = readLocalRawMaterialActionReplay(input);
       if (replay) return replay;
-      const { workspace, inboundId, action, body = {}, operatorName, operatorId, serverNow } = input;
-      const result = applyRawMaterialInboundAction({
-        workspace,
-        inbounds: workspace?.rawMaterialInbounds,
-        inboundId,
-        action,
-        body,
-        operatorId,
-        operatorName,
-        serverNow,
-      });
+      const { workspace, inboundId } = input;
+      const result = requireInboundDecision(input)({ workspace, inbounds: workspace?.rawMaterialInbounds });
       if (!result.inbound) {
         throw Object.assign(new Error(`Raw material inbound not found: ${inboundId}`), { statusCode: 404 });
       }
@@ -209,7 +200,7 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
       };
     },
 
-    async recordRawMaterialInboundAction(input = {}) {
+    async applyInboundAction(input = {}) {
       const scope = buildRawMaterialActionIdempotencyScope(input);
       const replay = await readPostgresIdempotencyReplay({
         queryJson,
@@ -226,15 +217,9 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
         }
         return { ...savedReplay, replayed: true };
       }
-      const result = applyRawMaterialInboundAction({
+      const result = requireInboundDecision(input)({
         workspace: input.workspace,
         inbounds: input.workspace?.rawMaterialInbounds,
-        inboundId: input.inboundId,
-        action: input.action,
-        body: input.body,
-        operatorId: input.operatorId,
-        operatorName: input.operatorName,
-        serverNow: input.serverNow,
       });
       if (!result.inbound) {
         throw Object.assign(new Error(`Raw material inbound not found: ${input.inboundId}`), { statusCode: 404 });
@@ -268,4 +253,11 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
       };
     },
   };
+}
+
+function requireInboundDecision(input) {
+  if (typeof input.decide !== "function") {
+    throw new TypeError("Raw material inbound action requires a service decision.");
+  }
+  return input.decide;
 }

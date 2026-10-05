@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
+import { applyRawMaterialInboundAction } from "../server/services/rawMaterialInboundCommandService.mjs";
 import { buildRawMaterialInboundDraftFromOcr } from "../server/services/rawMaterialOcrParserService.mjs";
 import { RAW_MATERIAL_OCR_LINE_REVIEW_KEYS } from "../shared/rawMaterialOcrLineReview.js";
 import { enrichRawMaterialSpecValues, formatRawMaterialMobileSpec, parseRawMaterialSpec } from "../shared/rawMaterialSpec.js";

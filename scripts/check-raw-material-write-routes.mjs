@@ -4,8 +4,15 @@ import { handleRawMaterialWriteRoutes } from "../server/routes/rawMaterialWriteR
 const calls = [];
 const dependencies = {
   response: {},
-  workspace: {},
-  body: { operatorId: "U-REQUESTED" },
+  workspace: {
+    rawMaterialInboundRepository: {
+      async applyInboundAction(input) {
+        calls.push({ kind: "inbound", inboundId: input.inboundId, actionSlug: input.action, operatorId: input.operatorId });
+        return { inbound: { id: input.inboundId }, operationLog: null };
+      },
+    },
+  },
+  body: { operatorId: "U-REQUESTED", expectedRevision: 1 },
   permissionContext: { actionPermissions: [] },
   authContext: { userId: "U-AUTH" },
   writeActionPermissions: {
@@ -48,7 +55,6 @@ const dependencies = {
 };
 dependencies.rawMaterialCommandService = {
   recognizeDeliveryNote: createCommand("recognizeDeliveryNote"),
-  recordInboundAction: createCommand("inbound"),
   createSupplierStatementReviewDraft: createCommand("createReview"),
   confirmSupplierStatementReview: createCommand("confirmReview"),
   confirmSupplierStatement: createCommand("confirmStatement"),
@@ -116,11 +122,12 @@ assert.equal(
     ...dependencies,
     method: "POST",
     url: new URL("http://erp.test/api/raw-material-inbounds/RMI-1/review"),
-    rawMaterialCommandService: {
-      ...dependencies.rawMaterialCommandService,
-      async recordInboundAction(input) {
-        calls.push({ kind: "inboundError", ...input });
-        return { error: true, statusCode: 409, code: "CONFLICT", message: "conflict", details: { retry: false } };
+    workspace: {
+      ...dependencies.workspace,
+      rawMaterialInboundRepository: {
+        async applyInboundAction() {
+          throw Object.assign(new Error("conflict"), { statusCode: 409, code: "CONFLICT", details: { retry: false } });
+        },
       },
     },
   }),
@@ -145,19 +152,12 @@ async function expectInboundAction(action, permission) {
   assert.deepEqual(calls, [
     { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission },
     { kind: "operator", permissionContext: dependencies.permissionContext, authContext: dependencies.authContext, fallback: "U-OFFICE-A" },
-    {
-      kind: "inbound",
-      workspace: dependencies.workspace,
-      inboundId: "RMI-1",
-      actionSlug: action,
-      body: dependencies.body,
-      operatorId: "U-RESOLVED",
-    },
+    { kind: "inbound", inboundId: "RMI-1", actionSlug: action, operatorId: "U-RESOLVED" },
     {
       kind: "json",
       response: dependencies.response,
       statusCode: 200,
-      payload: { result: "inbound" },
+      payload: { inbound: { id: "RMI-1" }, operationLogId: "" },
     },
   ]);
 }
