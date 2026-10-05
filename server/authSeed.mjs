@@ -687,6 +687,14 @@ function signSeedPayload(encodedPayload, options = {}) {
 
 function resolveAuthSecret(options = {}) {
   const configuredSecret = String(options.authSecret ?? process.env.ERP_AUTH_SECRET ?? "").trim();
+  const runtimeMode = String(
+    options.runtimeMode ?? process.env.ERP_RUNTIME_MODE ?? process.env.NODE_ENV ?? "",
+  ).trim().toLowerCase();
+  if ((runtimeMode === "production" || runtimeMode === "strict") && !configuredSecret) {
+    const error = new Error("Production runtime requires ERP_AUTH_SECRET.");
+    error.code = "ERP_AUTH_SECRET_REQUIRED";
+    throw error;
+  }
   return configuredSecret || prototypeSeedAuthSecret;
 }
 

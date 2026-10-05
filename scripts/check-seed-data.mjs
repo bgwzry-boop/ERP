@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { loadSyntheticOfficeSeed } from "../server/seeds/syntheticOfficeSeed.mjs";
-import { assertStagingTestCredentials, authenticateSeedUser, getEffectivePermissionsForUser, getSeedUser } from "../server/authSeed.mjs";
+import { assertStagingTestCredentials, authenticateSeedUser, createRuntimeSession, getEffectivePermissionsForUser, getSeedUser } from "../server/authSeed.mjs";
 import { getEffectivePermissions } from "../server/seedData.mjs";
 import { systemV1ActionPermissions } from "../shared/auth/roleCatalog.js";
 import { calculateLinePricing, p0BagPriceRows } from "../src/domain/priceTable.js";
@@ -14,6 +14,17 @@ const financePermissions = getEffectivePermissionsForUser("U-FINANCE-A");
 const managementPermissions = getEffectivePermissionsForUser("U-MANAGER-A");
 const stagingTestLogin = `staging-check-${process.pid}`;
 const stagingTestPassword = randomBytes(24).toString("base64url");
+for (const runtimeMode of ["production", "strict"]) {
+  try {
+    createRuntimeSession("U-OFFICE-A", { runtimeMode, authSecret: "" });
+    throw new Error(`${runtimeMode} must reject a missing auth secret.`);
+  } catch (error) {
+    if (error?.code !== "ERP_AUTH_SECRET_REQUIRED") throw error;
+  }
+  if (!createRuntimeSession("U-OFFICE-A", { runtimeMode, authSecret: "configured-test-secret" }).accessToken) {
+    throw new Error(`${runtimeMode} must accept an explicit auth secret.`);
+  }
+}
 process.env.ERP_STAGING_TEST_LOGIN = stagingTestLogin;
 process.env.ERP_STAGING_TEST_PASSWORD = stagingTestPassword;
 const stagingTestAuthentication = authenticateSeedUser({
