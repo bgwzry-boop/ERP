@@ -54,6 +54,8 @@ const localPolicy = buildApiSecurityPolicy({}, { ERP_API_MAX_JSON_BODY_BYTES: "i
 assert.equal(localPolicy.strictAuth, false);
 assert.equal(localPolicy.allowSeedUsers, true);
 assert.equal(localPolicy.maxJsonBodyBytes, defaultMaxJsonBodyBytes);
+assert.equal(localPolicy.fixedPreviewUserId, "");
+assert.equal(buildApiSecurityPolicy({ runtimeMode: "test" }, {}).fixedPreviewUserId, "U-MANAGER-A");
 assert.equal(isCorsRequestAllowed(localPolicy, "https://untrusted.example.test"), true);
 assert.equal(
   getCorsAllowedRequestHeaders(localPolicy),

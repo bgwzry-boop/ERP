@@ -29,6 +29,7 @@ export function assertProductionBootAllowed({ options = {}, env = process.env, r
 
   const forbiddenEnvironmentKeys = Object.keys(env).filter((key) => {
     if (key.startsWith("ERP_E2E_")) return true;
+    if (key.startsWith("ERP_STAGING_TEST_")) return true;
     if (seedEnvironmentKeys.has(key)) return String(env[key] ?? "").trim() !== "";
     if (fileStorageProfileEnvironmentKeys.has(key) || /^ERP_[A-Z0-9_]+_OBJECT_STORAGE$/.test(key)) {
       return isConflictingMode(env[key], "object_storage");

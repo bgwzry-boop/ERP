@@ -19,9 +19,9 @@ const runtimePasswordScryptOptions = Object.freeze({
   maxmem: 64 * 1024 * 1024,
 });
 const seedSessionTtlMs = 8 * 60 * 60 * 1000;
-// The fallback exists only for the local prototype. Production callers must pass
-// an explicit secret through the API server's strict security policy.
-const prototypeSeedAuthSecret = "erp-p0-local-seed-auth-secret";
+// Local prototype sessions are invalidated on restart unless an explicit secret is configured.
+// Production callers must pass an explicit secret through the strict security policy.
+const prototypeSeedAuthSecret = randomBytes(32).toString("base64url");
 const runtimeAccountSecurityPolicy = Object.freeze({
   maxFailedLoginAttempts: 5,
   lockoutMinutes: 15,
@@ -32,7 +32,6 @@ const seedUsers = [
   {
     userId: "U-OFFICE-A",
     loginName: "office.a",
-    seedPassword: "office123",
     displayName: "办公室A",
     defaultRole: "office",
     department: "office",
@@ -42,7 +41,6 @@ const seedUsers = [
   {
     userId: "U-OFFICE-B",
     loginName: "office.b",
-    seedPassword: "officeb123",
     displayName: "办公室B",
     defaultRole: "office",
     department: "office",
@@ -52,7 +50,6 @@ const seedUsers = [
   {
     userId: "U-WAREHOUSE-A",
     loginName: "warehouse.a",
-    seedPassword: "warehouse123",
     displayName: "库房出库A",
     defaultRole: "warehouse",
     department: "warehouse",
@@ -62,7 +59,6 @@ const seedUsers = [
   {
     userId: "U-FINANCE-A",
     loginName: "finance.a",
-    seedPassword: "finance123",
     displayName: "财务A",
     defaultRole: "finance",
     department: "finance",
@@ -72,18 +68,7 @@ const seedUsers = [
   {
     userId: "U-MANAGER-A",
     loginName: "manager.a",
-    seedPassword: "manager123",
     displayName: "管理A",
-    defaultRole: "management",
-    department: "management",
-    enabled: true,
-    roles: ["office", "warehouse", "finance", "management"],
-  },
-  {
-    userId: "U-STAGING-TEST",
-    loginName: "a006688b",
-    seedPassword: "a006688b",
-    displayName: "测试账号",
     defaultRole: "management",
     department: "management",
     enabled: true,
@@ -92,7 +77,6 @@ const seedUsers = [
   {
     userId: "U-DECISION-MOTHER",
     loginName: "decision.mother",
-    seedPassword: "decisionmother123",
     displayName: "经营决策（主要）",
     defaultRole: "decision_maker",
     department: "management",
@@ -104,7 +88,6 @@ const seedUsers = [
   {
     userId: "U-DECISION-AUNT",
     loginName: "decision.aunt",
-    seedPassword: "decisionaunt123",
     displayName: "经营决策（辅助）",
     defaultRole: "decision_maker",
     department: "management",
@@ -116,7 +99,6 @@ const seedUsers = [
   {
     userId: "U-TECH-A",
     loginName: "tech.a",
-    seedPassword: "tech123",
     displayName: "技术运维A",
     defaultRole: "technical_operations",
     department: "system",
@@ -126,7 +108,6 @@ const seedUsers = [
   {
     userId: "U-MAINTENANCE-A",
     loginName: "maintenance.a",
-    seedPassword: "maintenance123",
     displayName: "现场机修A",
     defaultRole: "maintenance",
     department: "maintenance",
@@ -137,7 +118,6 @@ const seedUsers = [
   {
     userId: "U-DRIVER-A",
     loginName: "driver.a",
-    seedPassword: "driver123",
     displayName: "司机A",
     defaultRole: "driver",
     department: "delivery",
@@ -147,7 +127,6 @@ const seedUsers = [
   {
     userId: "U-WORKSHOP-A",
     loginName: "workshop.a",
-    seedPassword: "workshop123",
     displayName: "车间A",
     defaultRole: "workshop",
     department: "workshop",
@@ -158,7 +137,6 @@ const seedUsers = [
   {
     userId: "U-WORKSHOP-PRINT-A",
     loginName: "workshop.print.a",
-    seedPassword: "workshopprint123",
     displayName: "丝印A",
     defaultRole: "workshop",
     department: "workshop",
@@ -169,7 +147,6 @@ const seedUsers = [
   {
     userId: "U-PACKING-A",
     loginName: "packing.a",
-    seedPassword: "packing123",
     displayName: "打包A",
     defaultRole: "packing",
     department: "packing",
@@ -180,7 +157,6 @@ const seedUsers = [
   {
     userId: "U-PRINT-DRIVER-A",
     loginName: "print.driver.a",
-    seedPassword: "printdriver123",
     displayName: "打印驱动服务账号A",
     defaultRole: "print_driver_service",
     department: "system",
@@ -189,12 +165,51 @@ const seedUsers = [
   },
 ];
 
+const localSeedPasswords = new Map(
+  seedUsers.map((user) => [user.userId, randomBytes(24).toString("base64url")]),
+);
+
+export function assertStagingTestCredentials(env = process.env) {
+  const loginName = String(env.ERP_STAGING_TEST_LOGIN ?? "").trim();
+  const password = String(env.ERP_STAGING_TEST_PASSWORD ?? "");
+  if (!loginName && !password) return null;
+  if (
+    !loginName ||
+    password.length < 12 ||
+    password !== password.trim() ||
+    loginName === password ||
+    seedUsers.some((user) => user.loginName === loginName || user.userId === loginName)
+  ) {
+    const error = new Error("Staging test credentials must be configured as distinct, nonempty environment values.");
+    error.code = "ERP_STAGING_TEST_CREDENTIALS_INVALID";
+    throw error;
+  }
+  return { loginName, password };
+}
+
+function getAvailableSeedUsers() {
+  const configured = assertStagingTestCredentials();
+  if (!configured) return seedUsers;
+  return [
+    ...seedUsers,
+    {
+      userId: "U-STAGING-TEST",
+      loginName: configured.loginName,
+      displayName: "测试账号",
+      defaultRole: "management",
+      department: "management",
+      enabled: true,
+      roles: ["office", "warehouse", "finance", "management"],
+    },
+  ];
+}
+
 export function getSeedUsers() {
-  return seedUsers.map(({ seedPassword, ...user }) => ({ ...user, roles: [...user.roles] }));
+  return getAvailableSeedUsers().map((user) => ({ ...user, roles: [...user.roles] }));
 }
 
 export function getSeedUser(userId = defaultSeedUserId) {
-  return seedUsers.find((user) => user.userId === userId) ?? null;
+  return getAvailableSeedUsers().find((user) => user.userId === userId) ?? null;
 }
 
 export function authenticatePrototypeSeedUser(userId) {
@@ -212,11 +227,14 @@ export function authenticateSeedUser({ loginName, userId, password }, options = 
   const normalizedLoginName = String(loginName ?? "").trim();
   const normalizedUserId = String(userId ?? "").trim();
   const user =
-    seedUsers.find((candidate) => candidate.loginName === normalizedLoginName || candidate.userId === normalizedUserId) ??
+    getAvailableSeedUsers().find((candidate) => candidate.loginName === normalizedLoginName || candidate.userId === normalizedUserId) ??
     null;
 
   if (user) {
-    if (user.enabled !== false && timingSafeEqualString(String(password ?? ""), user.seedPassword)) {
+    const seedPassword = user.userId === "U-STAGING-TEST"
+      ? assertStagingTestCredentials()?.password
+      : localSeedPasswords.get(user.userId);
+    if (user.enabled !== false && seedPassword && timingSafeEqualString(String(password ?? ""), seedPassword)) {
       return {
         authenticated: true,
         permissions: getEffectivePermissionsForUser(user.userId),

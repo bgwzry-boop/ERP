@@ -26,6 +26,7 @@ assertBootRefused({ env: { ERP_ORDER_STORE: "sqlite" } }, "ERP_ORDER_STORE", "en
 assertBootRefused({ env: { ERP_ATTACHMENT_OBJECT_STORAGE: "local_fs" } }, "ERP_ATTACHMENT_OBJECT_STORAGE", "environmentKeys");
 assertBootRefused({ env: { ERP_V1_FILE_STORAGE_PROFILE: "local_fs" } }, "ERP_V1_FILE_STORAGE_PROFILE", "environmentKeys");
 assertBootRefused({ env: { ERP_E2E_BUSINESS_DECISION_FIXTURES: "false" } }, "ERP_E2E_BUSINESS_DECISION_FIXTURES", "environmentKeys");
+assertBootRefused({ env: { ERP_STAGING_TEST_LOGIN: "configured-only-for-staging" } }, "ERP_STAGING_TEST_LOGIN", "environmentKeys");
 assertBootRefused({ env: { ERP_SCENARIO_ID: "secret-value" } }, "ERP_SCENARIO_ID", "environmentKeys");
 assertBootRefused({ env: { ERP_OFFICE_SEED_SOURCE: "synthetic" } }, "ERP_OFFICE_SEED_SOURCE", "environmentKeys");
 assertBootRefused({ env: {}, options: { attachmentRepositoryOptions: { mode: "local" } } }, "attachmentRepositoryOptions.mode", "optionKeys");

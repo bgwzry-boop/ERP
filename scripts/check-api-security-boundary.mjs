@@ -190,7 +190,7 @@ try {
   const seedLogin = await requestJson(strictBaseUrl, "/api/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ userId: "U-OFFICE-A", password: "office123" }),
+    body: JSON.stringify({ userId: "U-OFFICE-A", password: "invalid-seed-credential" }),
   });
   assert.equal(seedLogin.status, 403);
   assert.equal(seedLogin.body.code, "AUTH_SEED_LOGIN_DISABLED");
