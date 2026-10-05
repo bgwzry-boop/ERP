@@ -16,12 +16,20 @@ const navigationSource = readFileSync(new URL("../src/app/navigation.js", import
 const fixturesSource = readFileSync(new URL("../src/data/fixtures.js", import.meta.url), "utf8");
 const roleToolReadsSource = readFileSync(new URL("../src/app/useOfficeRoleToolReads.js", import.meta.url), "utf8");
 const officePageEntrySource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const rawMaterialPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
-const rawMaterialWorkbenchSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundWorkbench.jsx", import.meta.url), "utf8");
+const inboundDetailSource = readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8");
+const rawMaterialPageSource = [
+  "../src/features/raw-materials/RawMaterialInboundPage.jsx",
+  "../src/features/raw-materials/useInboundPageState.js",
+].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n") + `\n${inboundDetailSource}`;
+const rawMaterialWorkbenchSource = [
+  "../src/features/raw-materials/RawMaterialInboundWorkbench.jsx",
+  "../src/features/raw-materials/InboundFilters.jsx",
+  "../src/features/raw-materials/InboundTable.jsx",
+].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const rawMaterialMobileSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileReceiving.jsx", import.meta.url), "utf8");
 const rawMaterialMobileOcrReviewSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileOcrReview.jsx", import.meta.url), "utf8");
 const rawMaterialPurchaseSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialPurchasePanel.jsx", import.meta.url), "utf8");
-const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}\n${rawMaterialWorkbenchSource}\n${rawMaterialMobileSource}\n${rawMaterialMobileOcrReviewSource}`;
+const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}\n${inboundDetailSource}\n${rawMaterialWorkbenchSource}\n${rawMaterialMobileSource}\n${rawMaterialMobileOcrReviewSource}`;
 const rawMaterialListStateSource = readFileSync(new URL("../src/domain/rawMaterialInboundListState.js", import.meta.url), "utf8");
 const permissionSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
@@ -85,7 +93,7 @@ assertIncludes(rawMaterialPageSource, "识别成功：", "successful mobile OCR 
 assertIncludes(rawMaterialPageSource, 'setActiveTab("入库单")', "successful OCR should return to the inbound list view");
 assertIncludes(rawMaterialPageSource, 'setSelectedId(inbound.id)', "successful OCR should select the generated draft");
 assertIncludes(rawMaterialPageSource, "setMobileDetailOpen(true)", "successful mobile OCR should open the focused verification view automatically");
-assertIncludes(rawMaterialPageSource, "const updatedInbound = await onAction?.(\"复核送货单\"", "mobile OCR review should await the authoritative review result");
+assertIncludes(rawMaterialPageSource, "const updatedInbound = await submitInboundAction(onAction, selected, \"复核送货单\"", "mobile OCR review should await the authoritative review result");
 assertIncludes(rawMaterialPageSource, "if (!updatedInbound?.id) {", "failed mobile OCR review should remain on the review page");
 assertIncludes(rawMaterialPageSource, "setOcrReviewSubmitError", "failed mobile OCR review should explain that the server did not save it");
 assertIncludes(rawMaterialPageSource, "meta.error || ocrReviewSubmitError", "mobile OCR review should show the backend validation reason instead of masking it with a generic save failure");

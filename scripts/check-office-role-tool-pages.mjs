@@ -1,8 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const rawMaterialPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
-const rawMaterialWorkbenchSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundWorkbench.jsx", import.meta.url), "utf8");
+const rawMaterialPageSource = [
+  "../src/features/raw-materials/RawMaterialInboundPage.jsx",
+  "../src/features/raw-materials/useInboundPageState.js",
+  "../src/features/raw-materials/InboundDetail.jsx",
+].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
+const rawMaterialWorkbenchSource = [
+  "../src/features/raw-materials/RawMaterialInboundWorkbench.jsx",
+  "../src/features/raw-materials/InboundFilters.jsx",
+  "../src/features/raw-materials/InboundTable.jsx",
+].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const masterDataPageSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenancePage.jsx", import.meta.url), "utf8");
 const masterDataWorkbenchSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenanceWorkbench.jsx", import.meta.url), "utf8");
 const masterDataListStateSource = readFileSync(new URL("../src/domain/masterDataMaintenanceListState.js", import.meta.url), "utf8");

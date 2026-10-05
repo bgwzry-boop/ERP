@@ -9,8 +9,16 @@ const sharedUiSource = read("src/shared/ui/operational.jsx");
 const statementSource = read("src/features/statements/StatementPage.jsx");
 const productionSource = read("src/features/production/ProductionPackingPage.jsx");
 const productionPresentationSource = read("src/features/production/productionPackingPresentation.js");
-const rawMaterialSource = read("src/features/raw-materials/RawMaterialInboundPage.jsx");
-const rawMaterialWorkbenchSource = read("src/features/raw-materials/RawMaterialInboundWorkbench.jsx");
+const rawMaterialSource = [
+  "RawMaterialInboundPage.jsx",
+  "useInboundPageState.js",
+  "InboundDetail.jsx",
+].map((file) => read(`src/features/raw-materials/${file}`)).join("\n");
+const rawMaterialWorkbenchSource = [
+  "RawMaterialInboundWorkbench.jsx",
+  "InboundFilters.jsx",
+  "InboundTable.jsx",
+].map((file) => read(`src/features/raw-materials/${file}`)).join("\n");
 const masterDataSource = read("src/features/master-data/MasterDataMaintenancePage.jsx");
 const masterDataWorkbenchSource = read("src/features/master-data/MasterDataMaintenanceWorkbench.jsx");
 const workshopSource = read("src/features/workshop/WorkshopMobilePage.jsx");

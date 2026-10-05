@@ -1,4 +1,8 @@
 import { useMemo, useState } from "react";
+import { InboundFilters } from "./InboundFilters.jsx";
+import { InboundTable } from "./InboundTable.jsx";
+import { formatRawMaterialWeight } from "./rawMaterialWeight.js";
+export { formatRawMaterialWeight } from "./rawMaterialWeight.js";
 import {
   DownOutlined,
   InfoCircleOutlined,
@@ -8,21 +12,16 @@ import {
   SearchOutlined,
 } from "@ant-design/icons";
 import {
-  DataTable,
-  FilterBar,
   MetricStrip,
   OperationalPanel,
   PanelHeader,
   StatusPill,
 } from "../../shared/ui/operational.jsx";
 import {
-  buildRawMaterialInboundViewItems,
-  formatRawMaterialDeliveryNoteNo,
   getRawMaterialNextActionLabel,
   getRawMaterialInboundTone,
   RAW_MATERIAL_INBOUND_VIEW_KEYS,
 } from "../../domain/rawMaterialInboundListState.js";
-import { buildRawMaterialStockLookup } from "../../../shared/rawMaterialInventorySupport.js";
 import {
   buildRawMaterialAvailableDistribution,
   buildRawMaterialRollLedger,
@@ -40,13 +39,6 @@ const RAW_MATERIAL_METRIC_LABELS = {
   机边领料: ["机边领料", "已消耗", "余料待复核", "余料已复核"],
   供应商对账: ["待复核", "可用卷/件", "机边领料", "待贴标"],
 };
-
-const RAW_MATERIAL_FIRST_RELEASE_VIEW_LABELS = Object.freeze({
-  入库单: "入库核对",
-  待贴标: "待贴标",
-  机边领料: "扫码出库",
-  供应商对账: "月结对账",
-});
 
 export function selectRawMaterialInboundMetrics(metrics, activeTab) {
   const metricByLabel = new Map(metrics.map((metric) => [metric[0], metric]));
@@ -81,35 +73,18 @@ export function RawMaterialInboundListPane({
           </button>
         ) : null}
       />
-      <RawMaterialViewTabs activeTab={activeTab} firstReleaseMode={firstReleaseMode} inbounds={inbounds} onChange={onTabChange} />
-      <FilterBar
-        className="raw-material-filter-bar"
-        ariaLabel="原材料搜索"
-        summary={`${visibleRecords.length} / ${records.length} 条`}
-        actions={(
-          <button
-            className="icon-button"
-            type="button"
-            aria-label="重置原材料搜索"
-            title="重置搜索"
-            disabled={!keyword}
-            onClick={() => onKeywordChange("")}
-          >
-            <ReloadOutlined />
-          </button>
-        )}
-      >
-        <label className="search small">
-          <SearchOutlined />
-          <input
-            placeholder="搜索供应商 / 供应商单号 / ERP 入库单 / 原料 / 颜色 / 批号"
-            value={keyword}
-            onChange={(event) => onKeywordChange(event.target.value)}
-          />
-        </label>
-      </FilterBar>
+      <InboundFilters
+        activeTab={activeTab}
+        firstReleaseMode={firstReleaseMode}
+        inbounds={inbounds}
+        keyword={keyword}
+        onKeywordChange={onKeywordChange}
+        onTabChange={onTabChange}
+        recordCount={records.length}
+        visibleCount={visibleRecords.length}
+      />
       <MetricStrip items={metrics} ariaLabel="原材料状态摘要" />
-      <RawMaterialInboundTable inbounds={inbounds} records={visibleRecords} selectedId={selectedId} onSelect={onSelect} />
+      <InboundTable inbounds={inbounds} records={visibleRecords} selectedId={selectedId} onSelect={onSelect} />
     </OperationalPanel>
   );
 }
@@ -417,77 +392,6 @@ export function RawMaterialDetailOverview({ selected }) {
         <RawMaterialFact label="库位" value={selected.location || "待分配"} />
       </div>
     </div>
-  );
-}
-
-export function formatRawMaterialWeight(item = {}) {
-  const weight = Number(item.totalWeightKg || 0);
-  if (!weight) return item.unit === "件" ? `${item.rollCount || item.rolls?.length || 0}件` : "未填重量";
-  return `${weight}kg`;
-}
-
-function RawMaterialViewTabs({ activeTab, firstReleaseMode = false, inbounds, onChange }) {
-  const viewItems = buildRawMaterialInboundViewItems(inbounds);
-  return (
-    <div className="raw-material-view-tabs" role="tablist" aria-label="原材料视图">
-      {viewItems.map((item) => (
-          <button
-            type="button"
-            role="tab"
-            aria-selected={activeTab === item.key}
-            className={activeTab === item.key ? "active" : ""}
-            key={item.key}
-            onClick={() => onChange(item.key)}
-          >
-            <span>{firstReleaseMode ? RAW_MATERIAL_FIRST_RELEASE_VIEW_LABELS[item.key] : item.label}</span>
-            <strong>{item.count}</strong>
-          </button>
-      ))}
-    </div>
-  );
-}
-
-function RawMaterialInboundTable({ inbounds, records, selectedId, onSelect }) {
-  return (
-    <DataTable
-      className="raw-material-inbound-table"
-      columns={["供应商 / 单号", "原料 / 规格", "卷 / 重量", "状态", "下一步"]}
-      rows={records.map((item) => {
-        const stock = buildRawMaterialStockLookup(inbounds, {
-          color: item.factoryColor || item.supplierColor,
-          widthCm: item.widthCm,
-          gramWeightGsm: item.gramWeightGsm,
-        });
-        return {
-        id: item.id,
-        active: item.id === selectedId,
-        tone: getRawMaterialInboundTone(item.status),
-        onClick: () => onSelect(item.id),
-        cells: [
-          <RawMaterialTableCell primary={item.supplierName} secondary={formatRawMaterialDeliveryNoteNo(item)} />,
-          <RawMaterialTableCell
-            primary={item.productName || item.materialType}
-            secondary={`${item.factoryColor || item.supplierColor} / ${item.widthCm || "?"}cm / 可用${stock.availableWeightKg}kg`}
-          />,
-          <RawMaterialTableCell
-            primary={`${item.rollCount || item.rolls?.length || 0}${item.materialType === "提手" ? "件" : "卷"}`}
-            secondary={formatRawMaterialWeight(item)}
-          />,
-          <StatusPill tone={getRawMaterialInboundTone(item.status)}>{item.status}</StatusPill>,
-          <span className="raw-material-next-step">{getRawMaterialNextActionLabel(item)}</span>,
-        ],
-        };
-      })}
-    />
-  );
-}
-
-function RawMaterialTableCell({ primary, secondary }) {
-  return (
-    <span className="raw-material-table-cell">
-      <strong>{primary || "待补"}</strong>
-      <small>{secondary || "待补"}</small>
-    </span>
   );
 }
 
