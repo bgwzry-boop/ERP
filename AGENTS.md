@@ -1,5 +1,7 @@
 # Prototype Instructions
 
+Do not change the GitHub repository's visibility based on a completed review or an earlier temporary-public arrangement. Change visibility only when the owner explicitly requests that change at the time.
+
 Run the local server yourself and open the preview in the in-app browser. Do not give the user server-start instructions when you can run it.
 
 All ERP environments have one controlled deployment line independent of Codex conversations. A task may edit only its own branch/worktree; it must never deploy from the shared dirty working tree or treat an in-app preview as a release. Review Sites, staging, and Tencent production deployments must each use a clean, fully pushed, immutable 40-character Git commit and a verified `erp-controlled-release-lock-v1` for the exact target. The same lock identity must be embedded in the frontend and API, and deployment is complete only after the target reports the same commit, target, version, and lock digest. Only an explicit integration/release task may assemble changes from several conversations and promote them; ordinary modification tasks do not deploy, repoint production, or create a second “current version”.

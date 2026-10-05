@@ -1,5 +1,5 @@
 import { createApiServer } from "../server/apiServer.mjs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { assertStatementXlsxWorkbook } from "./xlsxTestUtils.mjs";
@@ -21,6 +21,8 @@ rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 process.env.ERP_E2E_BUSINESS_DECISION_FIXTURES = "true";
 process.env.ERP_E2E_WAREHOUSE_EMPLOYEE_ID = "E2E-WAREHOUSE-001";
+process.env.ERP_STAGING_TEST_LOGIN = `staging-check-${process.pid}`;
+process.env.ERP_STAGING_TEST_PASSWORD = randomBytes(24).toString("base64url");
 delete process.env.ERP_PRINT_DRIVER_DRY_RUN;
 delete process.env.ERP_SYSTEM_PRINTER_ENABLED;
 delete process.env.ERP_SYSTEM_PRINTER_ADAPTER;
@@ -398,49 +400,49 @@ try {
     throw new Error("/api/auth/login did not reject an invalid seed password");
   }
 
-  const financeLogin = await postJson(baseUrl, "/api/auth/login", {
-    loginName: "finance.a",
-    password: "finance123",
+  const stagingLogin = await postJson(baseUrl, "/api/auth/login", {
+    loginName: process.env.ERP_STAGING_TEST_LOGIN,
+    password: process.env.ERP_STAGING_TEST_PASSWORD,
   });
   if (
-    financeLogin.session?.tokenType !== "Bearer" ||
-    !financeLogin.session?.accessToken?.startsWith("seed-session.") ||
-    financeLogin.permissions?.user?.userId !== "U-FINANCE-A"
+    stagingLogin.session?.tokenType !== "Bearer" ||
+    !stagingLogin.session?.accessToken?.startsWith("seed-session.") ||
+    stagingLogin.permissions?.user?.userId !== "U-STAGING-TEST"
   ) {
     throw new Error("/api/auth/login returned an unexpected seed session payload");
   }
 
-  const prototypeLogin = await postJson(baseUrl, "/api/auth/prototype-login", { userId: "U-FINANCE-A" });
+  const prototypeLogin = await postJson(baseUrl, "/api/auth/prototype-login", { userId: "U-MANAGER-A" });
   if (
     prototypeLogin.session?.tokenType !== "Bearer" ||
     !prototypeLogin.session?.accessToken?.startsWith("seed-session.") ||
-    prototypeLogin.permissions?.user?.userId !== "U-FINANCE-A"
+    prototypeLogin.permissions?.user?.userId !== "U-MANAGER-A"
   ) {
     throw new Error("/api/auth/prototype-login returned an unexpected local prototype session payload");
   }
 
   const financeMe = await getJson(baseUrl, "/api/auth/me", {
-    headers: { authorization: `Bearer ${financeLogin.session.accessToken}` },
+    headers: { authorization: `Bearer ${stagingLogin.session.accessToken}` },
   });
   if (
     financeMe.authenticated !== true ||
-    financeMe.session?.userId !== "U-FINANCE-A" ||
+    financeMe.session?.userId !== "U-STAGING-TEST" ||
     !financeMe.permissions?.actionPermissions?.includes("statement.payment.record")
   ) {
-    throw new Error("/api/auth/me did not return the logged-in finance seed context");
+    throw new Error("/api/auth/me did not return the logged-in staging test context");
   }
 
   const logout = await postJson(
     baseUrl,
     "/api/auth/logout",
     {},
-    { headers: { authorization: `Bearer ${financeLogin.session.accessToken}` } },
+    { headers: { authorization: `Bearer ${stagingLogin.session.accessToken}` } },
   );
-  if (logout.loggedOut !== true || logout.sessionUserId !== "U-FINANCE-A" || logout.tokenRevoked !== true) {
+  if (logout.loggedOut !== true || logout.sessionUserId !== "U-STAGING-TEST" || logout.tokenRevoked !== true) {
     throw new Error("/api/auth/logout returned an unexpected payload");
   }
   const financeMeAfterLogout = await getJson(baseUrl, "/api/auth/me", {
-    headers: { authorization: `Bearer ${financeLogin.session.accessToken}` },
+    headers: { authorization: `Bearer ${stagingLogin.session.accessToken}` },
     expectedStatus: 401,
   });
   if (financeMeAfterLogout.code !== "AUTH_TOKEN_REVOKED") {
@@ -4685,6 +4687,8 @@ try {
   await close(restartedServer);
   delete process.env.ERP_E2E_BUSINESS_DECISION_FIXTURES;
   delete process.env.ERP_E2E_WAREHOUSE_EMPLOYEE_ID;
+  delete process.env.ERP_STAGING_TEST_LOGIN;
+  delete process.env.ERP_STAGING_TEST_PASSWORD;
 }
 
 async function assertOperationLogOperator(

@@ -224,10 +224,17 @@ async function checkApiBoundary() {
     const prototypeLogin = await requestJson(baseUrl, "/api/auth/prototype-login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: "U-OFFICE-A" }),
+      body: JSON.stringify({ userId: "U-MANAGER-A" }),
       expectedStatus: 200,
     });
-    assert.equal(prototypeLogin.body.permissions.user.userId, "U-OFFICE-A");
+    assert.equal(prototypeLogin.body.permissions.user.userId, "U-MANAGER-A");
+    const alternatePreviewLogin = await requestJson(baseUrl, "/api/auth/prototype-login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "U-OFFICE-A" }),
+      expectedStatus: 403,
+    });
+    assert.equal(alternatePreviewLogin.body.code, "AUTH_PREVIEW_IDENTITY_FIXED");
 
     const ocrValidation = await requestJson(baseUrl, "/api/raw-material-inbounds/recognize-delivery-note", {
       method: "POST",

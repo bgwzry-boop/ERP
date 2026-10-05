@@ -93,7 +93,15 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       });
     }
 
-    const authentication = authenticatePrototypeSeedUser(body.userId);
+    const requestedUserId = String(body.userId ?? "").trim();
+    if (securityPolicy.fixedPreviewUserId && requestedUserId !== securityPolicy.fixedPreviewUserId) {
+      return result(403, {
+        code: "AUTH_PREVIEW_IDENTITY_FIXED",
+        message: "公开评审只能使用固定测试身份。",
+      });
+    }
+
+    const authentication = authenticatePrototypeSeedUser(requestedUserId);
     if (!authentication.authenticated) return result(401, authentication.error);
 
     const runtimeUser = findRuntimeUserById(

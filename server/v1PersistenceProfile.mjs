@@ -140,11 +140,19 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
     for (const optionKey of postgresRepositoryOptionKeys) {
       const repositoryObjectKey = repositoryObjectKeysByOptionKey[optionKey];
       if (effectiveOptions[repositoryObjectKey]) {
+        if (
+          productionEnforced &&
+          String(effectiveOptions[repositoryObjectKey].kind ?? "").trim() !== "postgres"
+        ) {
+          throw productionPersistenceError("Production runtime requires PostgreSQL repositories.", {
+            invalidRepositories: [repositoryObjectKey],
+          });
+        }
         skippedRepositoryOptionKeys.push(optionKey);
         continue;
       }
       const current = normalizeObject(effectiveOptions[optionKey]);
-      if (current.mode !== undefined) {
+      if (current.mode !== undefined && !productionEnforced) {
         skippedRepositoryOptionKeys.push(optionKey);
         effectiveOptions[optionKey] = current;
         continue;
@@ -163,11 +171,19 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
     for (const optionKey of objectStorageOptionKeys) {
       const storageObjectKey = storageObjectKeysByOptionKey[optionKey];
       if (effectiveOptions[storageObjectKey]) {
+        if (
+          productionEnforced &&
+          String(effectiveOptions[storageObjectKey].kind ?? "").trim() !== "object_storage"
+        ) {
+          throw productionPersistenceError("Production runtime requires object storage.", {
+            invalidFileStorages: [storageObjectKey],
+          });
+        }
         skippedObjectStorageOptionKeys.push(optionKey);
         continue;
       }
       const current = normalizeObject(effectiveOptions[optionKey]);
-      if (current.mode !== undefined) {
+      if (current.mode !== undefined && !productionEnforced) {
         skippedObjectStorageOptionKeys.push(optionKey);
         effectiveOptions[optionKey] = current;
         continue;

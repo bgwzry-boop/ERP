@@ -84,7 +84,7 @@ try {
 
   assert.throws(
     () => loadOfficeSeedWorkspace({ source: "real_sample", realSampleSeedFile: privateFile, runtimeMode: "production" }),
-    (error) => error?.code === "ERP_REAL_SAMPLE_SEED_NOT_ALLOWED",
+    (error) => error?.code === "ERP_PRODUCTION_SEED_NOT_ALLOWED",
   );
 } finally {
   rmSync(root, { recursive: true, force: true });

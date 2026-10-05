@@ -20,6 +20,22 @@ const realSampleSchemaVersion = "erp-real-sample-office-seed-v1";
 const maxRealSampleFileBytes = 2 * 1024 * 1024;
 
 export function loadOfficeSeedWorkspace(options = {}) {
+  if (normalizeText(options.runtimeMode).toLowerCase() === "production") {
+    if (
+      normalizeText(options.source) ||
+      normalizeText(options.scenarioId) ||
+      normalizeText(options.realSampleSeedFile) ||
+      normalizeText(options.env?.ERP_OFFICE_SEED_SOURCE) ||
+      normalizeText(options.env?.ERP_SCENARIO_ID) ||
+      normalizeText(options.env?.ERP_REAL_SAMPLE_SEED_FILE)
+    ) {
+      throw createSeedError(
+        "ERP_PRODUCTION_SEED_NOT_ALLOWED",
+        "Production runtime cannot load an office scenario or seed dataset.",
+      );
+    }
+    return createEmptyProductionWorkspace();
+  }
   const source = normalizeOfficeSeedSource(options.source ?? options.env?.ERP_OFFICE_SEED_SOURCE);
   if (source === "synthetic") {
     return {
@@ -27,13 +43,28 @@ export function loadOfficeSeedWorkspace(options = {}) {
       seedDataset: { source: "synthetic", datasetId: "p0-synthetic-fixtures" },
     };
   }
-  if (normalizeText(options.runtimeMode).toLowerCase() === "production") {
-    throw createSeedError(
-      "ERP_REAL_SAMPLE_SEED_NOT_ALLOWED",
-      "Real-sample seed data is restricted to demo or test runtimes.",
-    );
-  }
   return loadRealSampleOfficeSeed(options);
+}
+
+function createEmptyProductionWorkspace() {
+  return {
+    scenario: { id: "", label: "" },
+    seedDataset: { source: "none", datasetId: "" },
+    customers: [],
+    orderLines: [],
+    inventories: [],
+    orderDrafts: [],
+    initialOrderDrafts: [],
+    todos: [],
+    fulfillments: [],
+    statements: [],
+    initialDriverDeliveryDispatches: [],
+    initialRawMaterialInbounds: [],
+    initialRawMaterialSupplierStatementReviews: [],
+    initialMaintenanceTasks: [],
+    sampleText: "",
+    defaultSelections: {},
+  };
 }
 
 export function loadRealSampleOfficeSeed(options = {}) {
