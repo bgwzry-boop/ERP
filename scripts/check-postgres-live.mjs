@@ -177,7 +177,7 @@ function startPostgresContainer() {
 async function waitForPostgres() {
   let lastOutput = "";
   for (let attempt = 0; attempt < 60; attempt += 1) {
-    const result = spawnSync("docker", ["exec", containerName, "pg_isready", "-U", "erp", "-d", "erp"], {
+    const result = spawnSync("docker", ["exec", containerName, "pg_isready", "-h", "127.0.0.1", "-U", "erp", "-d", "erp"], {
       encoding: "utf8",
     });
     if (result.status === 0) return;
