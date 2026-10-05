@@ -88,7 +88,7 @@ import { createPrinterDeviceFieldTestRepository } from "./printerDeviceFieldTest
 import { createMasterDataImportReviewRepository } from "./masterDataImportReviewRepository.mjs";
 import { createMasterDataImportTransactionRepository } from "./masterDataImportTransactionRepository.mjs";
 import { createMasterDataMachineConfigurationRepository } from "./masterDataMachineConfigurationRepository.mjs";
-import { createRawMaterialInboundRepository } from "./rawMaterialInboundRepository.mjs";
+import { createRawMaterialRepositories } from "./createRepositories.mjs";
 import { createRawMaterialSupplierStatementReviewRepository } from "./rawMaterialSupplierStatementReviewRepository.mjs";
 import { createRawMaterialPurchaseRepository } from "./rawMaterialPurchaseRepository.mjs";
 import { createMaintenanceTaskRepository } from "./maintenanceTaskRepository.mjs";
@@ -298,9 +298,7 @@ export function createApiServer(options = {}) {
   const masterDataMachineConfigurationRepository =
     effectiveOptions.masterDataMachineConfigurationRepository ??
     createMasterDataMachineConfigurationRepository(effectiveOptions.masterDataMachineConfigurationRepositoryOptions);
-  const rawMaterialInboundRepository =
-    effectiveOptions.rawMaterialInboundRepository ??
-    createRawMaterialInboundRepository(effectiveOptions.rawMaterialInboundRepositoryOptions);
+  const { rawMaterialInboundRepository } = createRawMaterialRepositories(effectiveOptions);
   const rawMaterialSupplierStatementReviewRepository =
     effectiveOptions.rawMaterialSupplierStatementReviewRepository ??
     createRawMaterialSupplierStatementReviewRepository(
