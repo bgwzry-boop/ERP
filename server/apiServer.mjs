@@ -68,7 +68,6 @@ import { createCoreWorkspaceReadRepository } from "./coreWorkspaceReadRepository
 import { createOrderDraftRepository } from "./orderDraftRepository.mjs";
 import { createOrderConfirmationTransactionRepository } from "./orderConfirmationTransactionRepository.mjs";
 import { createOrderPoolReadRepository } from "./orderPoolReadRepository.mjs";
-import { createFulfillmentActionTransactionRepository } from "./fulfillmentActionTransactionRepository.mjs";
 import { createDriverDeliveryDispatchRepository } from "./driverDeliveryDispatchRepository.mjs";
 import { createDriverDeviceFieldTestRepository } from "./driverDeviceFieldTestRepository.mjs";
 import { createDriverDeliveryTaskReadRepository } from "./driverDeliveryTaskReadRepository.mjs";
@@ -88,7 +87,7 @@ import { createPrinterDeviceFieldTestRepository } from "./printerDeviceFieldTest
 import { createMasterDataImportReviewRepository } from "./masterDataImportReviewRepository.mjs";
 import { createMasterDataImportTransactionRepository } from "./masterDataImportTransactionRepository.mjs";
 import { createMasterDataMachineConfigurationRepository } from "./masterDataMachineConfigurationRepository.mjs";
-import { createRawMaterialRepositories } from "./createRepositories.mjs";
+import { createRepositories } from "./createRepositories.mjs";
 import { createRawMaterialSupplierStatementReviewRepository } from "./rawMaterialSupplierStatementReviewRepository.mjs";
 import { createRawMaterialPurchaseRepository } from "./rawMaterialPurchaseRepository.mjs";
 import { createMaintenanceTaskRepository } from "./maintenanceTaskRepository.mjs";
@@ -245,9 +244,8 @@ export function createApiServer(options = {}) {
     createOrderConfirmationTransactionRepository(effectiveOptions.orderConfirmationTransactionRepositoryOptions);
   const orderPoolReadRepository =
     effectiveOptions.orderPoolReadRepository ?? createOrderPoolReadRepository(effectiveOptions.orderPoolReadRepositoryOptions);
-  const fulfillmentActionTransactionRepository =
-    effectiveOptions.fulfillmentActionTransactionRepository ??
-    createFulfillmentActionTransactionRepository(effectiveOptions.fulfillmentActionTransactionRepositoryOptions);
+  const repositories = createRepositories(effectiveOptions);
+  const { fulfillmentActionTransactionRepository } = repositories;
   const driverDeliveryDispatchRepository =
     effectiveOptions.driverDeliveryDispatchRepository ??
     createDriverDeliveryDispatchRepository(effectiveOptions.driverDeliveryDispatchRepositoryOptions);
@@ -299,7 +297,7 @@ export function createApiServer(options = {}) {
   const masterDataMachineConfigurationRepository =
     effectiveOptions.masterDataMachineConfigurationRepository ??
     createMasterDataMachineConfigurationRepository(effectiveOptions.masterDataMachineConfigurationRepositoryOptions);
-  const { rawMaterialInboundRepository } = createRawMaterialRepositories(effectiveOptions);
+  const { rawMaterialInboundRepository } = repositories;
   const rawMaterialSupplierStatementReviewRepository =
     effectiveOptions.rawMaterialSupplierStatementReviewRepository ??
     createRawMaterialSupplierStatementReviewRepository(
