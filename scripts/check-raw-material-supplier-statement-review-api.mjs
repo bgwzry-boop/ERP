@@ -16,6 +16,7 @@ import {
   listenTestServer,
   requestJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "raw-material-supplier-statement-review-api");
 const repositoryStorageRoot = join(checkStorageRoot, "repository");
@@ -556,9 +557,9 @@ async function checkPostgresRepositoryBoundary() {
 }
 
 async function checkApi() {
-  const server = createApiServer({ allowLocalFixture: true,
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     rawMaterialSupplierStatementReviewRepositoryOptions: { storageRoot: apiStorageRoot },
-  });
+  }));
   await listenTestServer(server);
   const baseUrl = getTestServerBaseUrl(server);
 
@@ -681,9 +682,9 @@ async function checkApi() {
 
     await closeTestServer(server);
 
-    const restartedServer = createApiServer({ allowLocalFixture: true,
+    const restartedServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
       rawMaterialSupplierStatementReviewRepositoryOptions: { storageRoot: apiStorageRoot },
-    });
+    }));
     await listenTestServer(restartedServer);
     try {
       const restartedBaseUrl = getTestServerBaseUrl(restartedServer);

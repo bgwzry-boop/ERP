@@ -17,10 +17,20 @@ assert.equal(defaultProfile.summary.postgresRepositoryDefaultsApplied, v1Persist
 assert.equal(defaultProfile.summary.objectStorageDefaultsApplied, 0);
 assert.equal(defaultProfile.options.attachmentRepositoryOptions.mode, "postgres");
 
-const fixtureProfile = applyV1PersistenceProfileOptions({ runtimeMode: "test", allowLocalFixture: true }, emptyEnv);
+const fixtureProfile = applyV1PersistenceProfileOptions({
+  runtimeMode: "test",
+  allowLocalFixture: true,
+  v1PersistenceRepositoryMode: "local",
+  attachmentRepositoryOptions: { mode: "local" },
+}, emptyEnv);
 assert.equal(fixtureProfile.summary.repositoryProfile, "local");
 assert.equal(fixtureProfile.options.attachmentRepositoryOptions.mode, "local");
 assert.equal(fixtureProfile.options.attachmentRepositoryOptions.allowLocalFixture, true);
+assert.equal(fixtureProfile.options.paymentRecordRepositoryOptions.mode, "postgres");
+
+const fixtureFlagWithoutMode = applyV1PersistenceProfileOptions({ runtimeMode: "test", allowLocalFixture: true }, emptyEnv);
+assert.equal(fixtureFlagWithoutMode.summary.repositoryProfile, "postgres");
+assert.equal(fixtureFlagWithoutMode.options.attachmentRepositoryOptions.mode, "postgres");
 
 const queryJson = () => [];
 const postgresProfile = applyV1PersistenceProfileOptions(

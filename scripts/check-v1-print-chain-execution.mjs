@@ -19,6 +19,7 @@ import {
   buildPassedPrinterDeviceFieldTest as buildPassedPrinterDeviceFieldTestFixture,
   seedPrintedPrintReadinessJobs,
 } from "./helpers/printReadinessTestFixture.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-print-chain-execution");
 const apiStorageRoot = join(storageRoot, "api-storage");
@@ -46,7 +47,7 @@ const printedPrintJobs = seedPrintedPrintReadinessJobs({
 writeJson(completeManifestPath, buildPrintManifest({ completePrintGroup: true }));
 writeJson(incompleteManifestPath, buildPrintManifest({ completePrintGroup: false, sensitiveEvidenceRef: true }));
 
-const server = createApiServer({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   printDeviceRepositoryOptions: { storageRoot: apiStorageRoot },
   printJobRepositoryOptions: { storageRoot: apiStorageRoot },
   printerDeviceFieldTestRepositoryOptions: { storageRoot: apiStorageRoot },
@@ -66,7 +67,7 @@ const server = createApiServer({ allowLocalFixture: true,
     commandBridgeSpoolDir: spoolRoot,
     allowedPrinterNames: ["PRN-LABEL-A", "PRN-DOT-A", "标签机A", "针式打印机A"],
   },
-});
+}));
 
 try {
   await listenTestServer(server);

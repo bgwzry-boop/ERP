@@ -15,6 +15,7 @@ import {
   formatDriverRealDeviceExecution,
   writeDriverRealDeviceExecutionArtifacts,
 } from "./run-v1-driver-real-device-execution.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-driver-real-device-execution");
 const apiStorageRoot = join(storageRoot, "api-storage");
@@ -36,9 +37,9 @@ mkdirSync(storageRoot, { recursive: true });
 writeJson(completeManifestPath, buildDriverManifest({ completeDriverGroup: true }));
 writeJson(incompleteManifestPath, buildDriverManifest({ completeDriverGroup: false, sensitiveEvidenceRef: true }));
 
-const server = createApiServer({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   driverDeviceFieldTestRepositoryOptions: { storageRoot: apiStorageRoot },
-});
+}));
 
 try {
   await listenTestServer(server);

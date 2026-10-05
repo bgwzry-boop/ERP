@@ -13,6 +13,7 @@ import {
   patchJson,
   postJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "api-skeleton");
 const printCommandBridgeScript = join(process.cwd(), "scripts", "print-command-bridge.mjs");
@@ -31,7 +32,7 @@ delete process.env.ERP_SYSTEM_PRINTER_COMMAND_ARGS_JSON;
 delete process.env.ERP_SYSTEM_PRINTER_COMMAND_TIMEOUT_MS;
 delete process.env.ERP_SYSTEM_PRINTER_ALLOWLIST;
 
-let server = createApiServer({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false });
+let server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false }));
 let restartedServer = null;
 
 try {
@@ -4611,7 +4612,7 @@ try {
 
   await close(server);
   server = null;
-  restartedServer = createApiServer({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false });
+  restartedServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false }));
   await listen(restartedServer);
   const restartedBaseUrl = `http://127.0.0.1:${restartedServer.address().port}`;
   const restartedPaymentAttachmentContent = await getText(

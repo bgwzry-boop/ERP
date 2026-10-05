@@ -36,6 +36,7 @@ import {
   runOfficeV1ProductionPersistenceEvidence,
   validateOfficeV1FieldEvidenceDraftManifest,
 } from "../src/services/officeV1GoLiveStatusApiClient.js";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const originalProductionEnvFileAuditPaths = process.env.ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS;
 const originalProductionEnvFile = process.env.ERP_V1_PRODUCTION_ENV_FILE;
@@ -60,7 +61,7 @@ const driverDemoReadinessToken = createSeedSession("U-DRIVER-A").accessToken;
 process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT = fixtureArtifactRoot;
 process.env.ERP_V1_D49_EMPLOYEE_INTAKE_PRECHECK_REPORT_PATH = fixtureD49EmployeeIntakePrecheckReportPath;
 process.env.ERP_V1_D49_EMPLOYEE_INTAKE_WORKBOOK_PATH = fixtureD49EmployeeIntakeWorkbookPath;
-const server = createApiServer({ allowLocalFixture: true });
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true }));
 
 try {
   await listen(server);

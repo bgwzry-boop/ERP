@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
 import { closeTestServer, getTestServerBaseUrl, listenTestServer } from "./helpers/apiIntegrationTestHarness.mjs";
 import { prepareV1GoLiveStatusFixture } from "./helpers/v1GoLiveStatusFixture.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const artifactRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-go-live-status-fixture");
 const reportPath = join(artifactRoot, "d49-employee-intake-precheck.json");
@@ -18,7 +19,7 @@ try {
   process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT = artifactRoot;
   process.env.ERP_V1_D49_EMPLOYEE_INTAKE_PRECHECK_REPORT_PATH = reportPath;
   process.env.ERP_V1_D49_EMPLOYEE_INTAKE_WORKBOOK_PATH = workbookPath;
-  server = createApiServer({ allowLocalFixture: true });
+  server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true }));
   await listenTestServer(server);
   const fixture = await prepareV1GoLiveStatusFixture(artifactRoot, {
     apiBaseUrl: `${getTestServerBaseUrl(server)}/api`,

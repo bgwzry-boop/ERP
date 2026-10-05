@@ -15,6 +15,7 @@ import { loadMigrationFiles, validateMigrationSet } from "./dbMigrationUtils.mjs
 import {
   buildPassedPrinterDeviceFieldTest as buildPassedPrinterDeviceFieldTestFixture,
 } from "./helpers/printReadinessTestFixture.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const dockerImage = process.env.ERP_POSTGRES_DOCKER_IMAGE || "postgres:16-alpine";
 const containerName = `erp-v1-profile-live-${process.pid}-${Date.now()}`;
@@ -57,7 +58,7 @@ try {
     forcePathStyle: true,
   };
 
-  apiServer = createApiServer({ allowLocalFixture: true,
+  apiServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     runtimeMode: "production",
     firstReleaseScope: "raw_material",
     authSecret: runtimeAuthSecret,
@@ -68,7 +69,7 @@ try {
       queryJson,
       objectStorageOptions,
     },
-  });
+  }));
   await listen(apiServer);
   const apiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/api`;
   await authenticateFormalActors(apiBaseUrl);
@@ -110,11 +111,11 @@ try {
       allowedPrinterNames: ["PRN-LABEL-A", "PRN-DOT-A", "标签机A", "针式打印机A"],
     },
   };
-  apiServer = createApiServer({ allowLocalFixture: true,
+  apiServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     ...fieldGateApiOptions,
     runtimeMode: "test",
     firstReleaseScope: null,
-  });
+  }));
   await listen(apiServer);
   const fieldGateSetupApiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/api`;
   await authenticateFormalActors(fieldGateSetupApiBaseUrl);
@@ -122,11 +123,11 @@ try {
   await closeServer(apiServer);
   apiServer = null;
 
-  apiServer = createApiServer({ allowLocalFixture: true,
+  apiServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     ...fieldGateApiOptions,
     runtimeMode: "production",
     firstReleaseScope: "raw_material",
-  });
+  }));
   await listen(apiServer);
   const fieldGateVerificationApiBaseUrl = `http://127.0.0.1:${apiServer.address().port}/api`;
   await authenticateFormalActors(fieldGateVerificationApiBaseUrl);

@@ -101,6 +101,7 @@ import { createBusinessDecisionEvidenceDraftRepository } from "./businessDecisio
 import {
   applyV1PersistenceProfileOptions,
   assertV1ProductionPersistenceRuntime,
+  v1PersistencePostgresRepositoryOptionKeys,
 } from "./v1PersistenceProfile.mjs";
 import {
   applyRuntimeConfigOptions,
@@ -1445,7 +1446,15 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
     if (allowLocalFixture && runtimeMode !== "test") {
       throw new Error("--local-fixture is only available with --mode test.");
     }
-    const server = createApiServer({ ...(runtimeMode ? { runtimeMode } : {}), allowLocalFixture });
+    const fixtureRepositoryOptions = allowLocalFixture
+      ? Object.fromEntries(v1PersistencePostgresRepositoryOptionKeys.map((key) => [key, { mode: "local", allowLocalFixture: true }]))
+      : {};
+    const server = createApiServer({
+      ...(runtimeMode ? { runtimeMode } : {}),
+      allowLocalFixture,
+      ...(allowLocalFixture ? { v1PersistenceRepositoryMode: "local" } : {}),
+      ...fixtureRepositoryOptions,
+    });
     await server.ready;
     const port = Number(process.env.ERP_API_PORT ?? 8787);
     const shutdownController = createGracefulShutdownController({

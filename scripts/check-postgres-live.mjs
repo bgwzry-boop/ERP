@@ -108,6 +108,7 @@ import { buildLiveRuntimeUser } from "./helpers/postgresLiveRuntimeIdentityFixtu
 import { seedPostgresLiveBusinessRows } from "./helpers/postgresLiveBusinessSeed.mjs";
 import { checkPostgresLiveAttendancePayrollScenario } from "./helpers/postgresLiveAttendancePayrollScenario.mjs";
 import { orderConversationCorpus } from "../shared/orderConversationCorpus.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const dockerImage = process.env.ERP_POSTGRES_DOCKER_IMAGE || "postgres:16-alpine";
 const { Pool } = pg;
@@ -6492,11 +6493,11 @@ INSERT INTO todos (
 );
 `);
   const strictTodoRepository = createTodoReadBarrierRepository(todoActionRepository, formalConcurrentTodoId);
-  server = createApiServer({ allowLocalFixture: true,
+  server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     ...apiServerOptions,
     strictAuth: true,
     todoActionRepository: strictTodoRepository,
-  });
+  }));
   await listen(server);
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   const [formalOfficeLogin, formalManagerLogin] = await Promise.all([

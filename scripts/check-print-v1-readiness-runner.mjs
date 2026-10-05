@@ -14,6 +14,7 @@ import {
   listenTestServer,
   postJson as postSharedJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "print-v1-readiness-runner");
 const spoolRoot = join(storageRoot, "spool");
@@ -24,7 +25,7 @@ rmSync(storageRoot, { recursive: true, force: true });
 mkdirSync(spoolRoot, { recursive: true });
 seedPrintedPrintReadinessJobs({ storageRoot, idPrefix: "PJ-RUNNER" });
 
-const server = createApiServer({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   printDeviceRepositoryOptions: { storageRoot },
   printJobRepositoryOptions: { storageRoot },
   printerDeviceFieldTestRepositoryOptions: { storageRoot },
@@ -44,7 +45,7 @@ const server = createApiServer({ allowLocalFixture: true,
     commandBridgeSpoolDir: spoolRoot,
     allowedPrinterNames: ["PRN-LABEL-A", "PRN-DOT-A", "标签机A", "针式打印机A"],
   },
-});
+}));
 await server.ready;
 await listenTestServer(server);
 
