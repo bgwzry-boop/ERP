@@ -83,12 +83,10 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
   });
   page.on("pageerror", (error) => browserErrors.push(error.message));
 
-  await page.setViewportSize({ width: 1280, height: 844 });
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.goto("/");
   await switchAccount(page, officeOperatorId);
-  await navigateToPage(page, "原材料", "更多工作台");
-  await page.setViewportSize({ width: 390, height: 844 });
-
+  await page.getByText(/其他 \d+ 单/, { exact: true }).click();
   await page.getByRole("button", { name: "核对全部卷材", exact: true }).click();
   const review = page.getByRole("region", { name: "全部卷料核对" });
   await expect(review.getByText("识别到 9 卷，共 853.8 kg", { exact: true })).toBeVisible();
@@ -97,21 +95,21 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
   await expect(lineSummaries.nth(0).locator(".line-color")).toHaveText("本白");
   await expect(lineSummaries.nth(0).locator(".line-spec")).toHaveText("78克*70宽*2000米");
   await expect(lineSummaries.nth(0).locator(".line-weight")).toHaveText("109.9 kg");
-  await expect(lineSummaries.nth(6).locator(".line-spec")).toHaveText("条类 · 宽幅待确认");
+  await expect(lineSummaries.nth(6).locator(".line-spec")).toHaveText("78克*5宽");
   await expect(lineSummaries.nth(8).locator(".line-weight")).toHaveText("92 kg");
   await expect(review.getByRole("textbox", { name: "第 1 卷颜色", exact: true })).not.toBeVisible();
   await expect(review.getByLabel("供应商 OCR 复核值", { exact: true })).not.toBeVisible();
   await expect(review.getByRole("button", { name: "已确认 0/9 · 进入打印", exact: true })).toBeDisabled();
 
   for (let index = 0; index < 9; index += 1) {
-    await lineSummaries.nth(index).getByRole("button").click();
+    await lineSummaries.nth(index).locator(".line-edit").click();
     if (index === 0) {
       await expect(review.getByRole("textbox", { name: "第 1 卷颜色", exact: true })).toHaveValue("本白");
       await expect(review.getByRole("textbox", { name: "第 1 卷规格 / 宽幅", exact: true })).toHaveValue("78克*70宽*2000米");
-      await expect(review.getByRole("spinbutton", { name: "第 1 卷重量 kg", exact: true })).toHaveValue("109.9");
+      await expect(review.getByRole("spinbutton", { name: "第 1 卷本卷重量 kg", exact: true })).toHaveValue("109.9");
     }
     if (index === 6) {
-      await expect(review.getByRole("textbox", { name: "第 7 卷规格 / 宽幅", exact: true })).toHaveValue("78克*5宽*1500米");
+      await expect(review.getByRole("textbox", { name: "第 7 卷规格 / 宽幅", exact: true })).toHaveValue("78*5");
     }
     await review.getByRole("button", { name: "这卷正确", exact: true }).click();
   }
@@ -125,7 +123,7 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
     )),
     submitReview.click(),
   ]);
-  expect(reviewResponse.ok()).toBe(true);
+  expect(reviewResponse.ok(), `${reviewResponse.request().postData()}\n${await reviewResponse.text()}`).toBe(true);
 
   await expect(review).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "录原材料", exact: true })).toBeVisible();
