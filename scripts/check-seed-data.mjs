@@ -1,5 +1,6 @@
+import { randomBytes } from "node:crypto";
 import { loadSyntheticOfficeSeed } from "../server/seeds/syntheticOfficeSeed.mjs";
-import { authenticateSeedUser, getEffectivePermissionsForUser } from "../server/authSeed.mjs";
+import { assertStagingTestCredentials, authenticateSeedUser, getEffectivePermissionsForUser, getSeedUser } from "../server/authSeed.mjs";
 import { getEffectivePermissions } from "../server/seedData.mjs";
 import { systemV1ActionPermissions } from "../shared/auth/roleCatalog.js";
 import { calculateLinePricing, p0BagPriceRows } from "../src/domain/priceTable.js";
@@ -11,10 +12,24 @@ const officePermissions = getEffectivePermissionsForUser("U-OFFICE-A");
 const warehousePermissions = getEffectivePermissionsForUser("U-WAREHOUSE-A");
 const financePermissions = getEffectivePermissionsForUser("U-FINANCE-A");
 const managementPermissions = getEffectivePermissionsForUser("U-MANAGER-A");
+const stagingTestLogin = `staging-check-${process.pid}`;
+const stagingTestPassword = randomBytes(24).toString("base64url");
+process.env.ERP_STAGING_TEST_LOGIN = stagingTestLogin;
+process.env.ERP_STAGING_TEST_PASSWORD = stagingTestPassword;
 const stagingTestAuthentication = authenticateSeedUser({
-  loginName: "a006688b",
-  password: "a006688b",
+  loginName: stagingTestLogin,
+  password: stagingTestPassword,
 });
+delete process.env.ERP_STAGING_TEST_LOGIN;
+delete process.env.ERP_STAGING_TEST_PASSWORD;
+if (getSeedUser("U-STAGING-TEST") !== null) throw new Error("Staging test user must not exist without environment credentials.");
+assertStagingTestCredentials({ ERP_STAGING_TEST_LOGIN: stagingTestLogin, ERP_STAGING_TEST_PASSWORD: stagingTestPassword });
+try {
+  assertStagingTestCredentials({ ERP_STAGING_TEST_LOGIN: stagingTestLogin, ERP_STAGING_TEST_PASSWORD: stagingTestLogin });
+  throw new Error("Matching staging credentials must be rejected.");
+} catch (error) {
+  if (error?.code !== "ERP_STAGING_TEST_CREDENTIALS_INVALID") throw error;
+}
 const technicalPermissions = getEffectivePermissionsForUser("U-TECH-A");
 const workshopPermissions = getEffectivePermissionsForUser("U-WORKSHOP-A");
 const packingPermissions = getEffectivePermissionsForUser("U-PACKING-A");

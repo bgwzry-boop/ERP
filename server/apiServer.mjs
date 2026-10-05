@@ -110,7 +110,7 @@ import {
 } from "./runtimeConfig.mjs";
 import { loadV1ProductionEnvFilesIntoProcess } from "./productionEnvFileLoader.mjs";
 import { assertProductionBootAllowed } from "./productionBootGuard.mjs";
-import { getSeedUsers } from "./authSeed.mjs";
+import { assertStagingTestCredentials, getSeedUsers } from "./authSeed.mjs";
 import { readJsonRequestBody } from "./httpJsonBody.mjs";
 import {
   isProductionBusinessWritePath,
@@ -173,6 +173,7 @@ export function createApiServer(options = {}) {
       : loadV1ProductionEnvFilesIntoProcess());
   const runtimeConfig = resolveRuntimeConfig(options);
   assertProductionBootAllowed({ options, runtimeConfig });
+  assertStagingTestCredentials();
   const runtimeOptions = applyRuntimeConfigOptions(options, runtimeConfig);
   const v1PersistenceProfile = applyV1PersistenceProfileOptions(runtimeOptions);
   const effectiveOptions = v1PersistenceProfile.options;
