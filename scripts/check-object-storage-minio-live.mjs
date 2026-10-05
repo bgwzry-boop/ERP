@@ -14,7 +14,7 @@ import {
 
 const image =
   process.env.ERP_MINIO_DOCKER_IMAGE ||
-  "quay.io/minio/minio@sha256:a1ea29fa28355559ef137d71fc570e508a214ec84ff8083e39bc5428980b015e";
+  "ghcr.io/coollabsio/minio@sha256:69b55a1c1c5dc285ce04db96689f5b2102317fc77a50680a1874ca6efd1c87f9";
 const containerName = `erp-minio-live-${process.pid}-${Date.now()}`;
 const accessKeyId = "erpminio";
 const secretAccessKey = "ERP_MINIO_LIVE_SECRET_2026";
