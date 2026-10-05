@@ -8,13 +8,13 @@ import {
   normalizeRawMaterialOrderMarginSnapshots,
 } from "../server/rawMaterialCostMarginRecordNormalizer.mjs";
 
-const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
+const commandSource = readFileSync(new URL("../server/services/rawMaterialInboundCommandService.mjs", import.meta.url), "utf8");
 const normalizerSource = readFileSync(
   new URL("../server/rawMaterialCostMarginRecordNormalizer.mjs", import.meta.url),
   "utf8",
 );
 
-assert.match(repositorySource, /from "\.\/rawMaterialCostMarginRecordNormalizer\.mjs"/);
+assert.match(commandSource, /rawMaterialCostMarginRecordNormalizer\.mjs/);
 for (const name of [
   "normalizeRawMaterialCostAllocationDrafts",
   "normalizeRawMaterialCostAllocationConfirmations",
@@ -22,10 +22,8 @@ for (const name of [
   "normalizeRawMaterialOrderMarginSnapshots",
   "normalizeRawMaterialOrderMarginReports",
 ]) {
-  assert.doesNotMatch(repositorySource, new RegExp(`function ${name}\\(`));
   assert.match(normalizerSource, new RegExp(`export function ${name}\\(`));
 }
-assert.ok(repositorySource.split("\n").length <= 2_800, "repository should no longer own cost/margin record schemas");
 assert.ok(normalizerSource.split("\n").length < 360, "cost/margin record normalizer should stay independently reviewable");
 
 const [draft] = normalizeRawMaterialCostAllocationDrafts([

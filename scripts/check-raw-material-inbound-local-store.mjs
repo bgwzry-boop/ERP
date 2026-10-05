@@ -11,7 +11,7 @@ const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepos
 const storeSource = readFileSync(new URL("../server/rawMaterialInboundLocalStore.mjs", import.meta.url), "utf8");
 
 assert.match(repositorySource, /from "\.\/rawMaterialInboundLocalStore\.mjs"/);
-assert.ok(repositorySource.split("\n").length <= 2_100, "repository should delegate local persistence while retaining the bounded action state machine");
+assert.ok(repositorySource.split("\n").length < 400, "repository should delegate the action state machine");
 assert.ok(storeSource.split("\n").length < 90, "local store should stay independently reviewable");
 
 const storageRoot = mkdtempSync(join(tmpdir(), "erp-raw-material-inbound-store-"));

@@ -1,12 +1,11 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
+import { applyRawMaterialInboundAction } from "../server/services/rawMaterialInboundCommandService.mjs";
 import { applyRawMaterialOcrReparse } from "../server/rawMaterialInboundOcrSupport.mjs";
 import { createRawMaterialCommandService } from "../server/services/rawMaterialCommandService.mjs";
 
-const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
-assert.match(repositorySource, /applyRawMaterialOcrReparse/);
-assert.ok(repositorySource.split("\n").length <= 2_100, "repository should keep OCR, storage, query, and concurrency rules delegated");
+const commandSource = readFileSync(new URL("../server/services/rawMaterialInboundCommandService.mjs", import.meta.url), "utf8");
+assert.match(commandSource, /applyRawMaterialOcrReparse/);
 
 const reparseBefore = {
   id: "RMI-REPARSE-001",
