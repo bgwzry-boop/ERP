@@ -51,6 +51,7 @@ export function createRawMaterialInboundRepository(options = {}) {
     explicitMode: options.mode,
     envKeys: ["ERP_RAW_MATERIAL_INBOUND_STORE", "ERP_RAW_MATERIAL_STORE"],
     runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
   });
   if (mode === "local") {
     return createLocalRawMaterialInboundRepository({

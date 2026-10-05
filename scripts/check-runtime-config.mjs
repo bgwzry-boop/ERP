@@ -65,7 +65,7 @@ assert.throws(
 
 assert.throws(
   () =>
-    createApiServer({
+    createApiServer({ allowLocalFixture: true,
       runtimeMode: "production",
       firstReleaseScope: "raw_material",
       applyProductionEnvFile: false,
@@ -84,7 +84,7 @@ const objectStorageOptions = {
 };
 assert.throws(
   () =>
-    createApiServer({
+    createApiServer({ allowLocalFixture: true,
       runtimeMode: "production",
       firstReleaseScope: "raw_material",
       applyProductionEnvFile: false,
@@ -102,7 +102,7 @@ assert.throws(
 );
 
 assert.throws(
-  () => createApiServer({
+  () => createApiServer({ allowLocalFixture: true,
     runtimeMode: "production",
     applyProductionEnvFile: false,
     authSecret: "runtime-config-check-secret",
@@ -116,7 +116,7 @@ assert.throws(
   "a production API with valid persistence wiring must still refuse startup without the first-release scope",
 );
 
-const productionServer = createApiServer({
+const productionServer = createApiServer({ allowLocalFixture: true,
   runtimeMode: "production",
   firstReleaseScope: "raw_material",
   applyProductionEnvFile: false,

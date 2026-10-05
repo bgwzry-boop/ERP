@@ -8,7 +8,7 @@ import {
   postJson as postSharedJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
 
-const server = createApiServer();
+const server = createApiServer({ allowLocalFixture: true });
 const headers = {
   "content-type": "application/json",
   "x-erp-user-id": "U-DRIVER-A",

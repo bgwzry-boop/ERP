@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -6,11 +7,12 @@ import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 export const masterDataImportReviewStoreKey = "metadata/master-data-import-review.json";
 
 export function createMasterDataImportReviewRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_MASTER_DATA_IMPORT_REVIEW_STORE ??
-    process.env.ERP_MASTER_DATA_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_MASTER_DATA_IMPORT_REVIEW_STORE", "ERP_MASTER_DATA_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresMasterDataImportReviewRepository({
       databaseUrl:

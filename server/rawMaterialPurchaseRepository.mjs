@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import {
@@ -22,7 +23,12 @@ export const rawMaterialPurchaseStatuses = Object.freeze([
 ]);
 
 export function createRawMaterialPurchaseRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_RAW_MATERIAL_PURCHASE_STORE ?? process.env.ERP_RAW_MATERIAL_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_RAW_MATERIAL_PURCHASE_STORE", "ERP_RAW_MATERIAL_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") return createPostgresRawMaterialPurchaseRepository(options);
   if (mode === "local") return createLocalRawMaterialPurchaseRepository();
   throw new Error(`Unsupported raw-material purchase repository mode: ${mode}`);

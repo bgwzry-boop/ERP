@@ -118,7 +118,7 @@ for (const [roleKey, definition] of Object.entries(roleCatalog)) {
   assert.equal(new Set(definition.actionPermissions).size, definition.actionPermissions.length, `${roleKey} has duplicate action permissions`);
 }
 
-const server = createApiServer({ runtimeMode: "test", runtimeStorageBaseDir: storageRoot });
+const server = createApiServer({ allowLocalFixture: true, runtimeMode: "test", runtimeStorageBaseDir: storageRoot });
 await server.ready;
 await listen(server);
 try {

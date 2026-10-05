@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 
 export const coreWorkspaceCollectionKeys = Object.freeze([
@@ -89,7 +90,12 @@ const sourceTables = Object.freeze({
 });
 
 export function createCoreWorkspaceReadRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_CORE_WORKSPACE_STORE ?? process.env.ERP_ORDER_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_CORE_WORKSPACE_STORE", "ERP_ORDER_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresCoreWorkspaceReadRepository({
       databaseUrl: options.databaseUrl ?? process.env.ERP_ORDER_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,

@@ -31,7 +31,7 @@ delete process.env.ERP_SYSTEM_PRINTER_COMMAND_ARGS_JSON;
 delete process.env.ERP_SYSTEM_PRINTER_COMMAND_TIMEOUT_MS;
 delete process.env.ERP_SYSTEM_PRINTER_ALLOWLIST;
 
-let server = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
+let server = createApiServer({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false });
 let restartedServer = null;
 
 try {
@@ -64,7 +64,7 @@ try {
         json.seed?.productionEnvFileApplication?.status === "not_configured" &&
         json.seed?.productionEnvFileApplication?.applied === false &&
         json.seed?.productionEnvFileApplication?.safeguards?.envValuesIncluded === false &&
-        json.seed?.v1PersistenceProfile?.repositoryProfile === "disabled" &&
+        json.seed?.v1PersistenceProfile?.repositoryProfile === "local" &&
         json.seed?.v1PersistenceProfile?.connectionStringExposed === false,
     ],
     ["/api/openapi/status", (json) => json.valid === true && json.pathCount >= 29],
@@ -79,7 +79,7 @@ try {
         json.runtimeEmployeeAccountReadiness?.requiredRoleCount === 8 &&
         json.runtimeEmployeeAccountReadiness?.coveredRoleCount === 0 &&
         json.localPersistenceAcceptance?.accepted === false &&
-        json.persistenceProfile?.repositoryProfile === "disabled" &&
+        json.persistenceProfile?.repositoryProfile === "local" &&
         json.persistenceProfile?.connectionStringExposed === false &&
         json.repositories?.some(
           (repository) =>
@@ -4611,7 +4611,7 @@ try {
 
   await close(server);
   server = null;
-  restartedServer = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
+  restartedServer = createApiServer({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false });
   await listen(restartedServer);
   const restartedBaseUrl = `http://127.0.0.1:${restartedServer.address().port}`;
   const restartedPaymentAttachmentContent = await getText(

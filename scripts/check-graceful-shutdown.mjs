@@ -82,7 +82,7 @@ assert.throws(
 );
 
 const projectRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const child = spawn(process.execPath, ["server/apiServer.mjs", "--mode", "test"], {
+const child = spawn(process.execPath, ["server/apiServer.mjs", "--mode", "test", "--local-fixture"], {
   cwd: projectRoot,
   env: { ...process.env, ERP_API_PORT: "0", ERP_API_SHUTDOWN_TIMEOUT_MS: "5000" },
   stdio: ["ignore", "pipe", "pipe"],
@@ -116,7 +116,7 @@ await new Promise((resolveListen, reject) => {
   occupiedPortServer.listen(0, "127.0.0.1", resolveListen);
 });
 const occupiedPort = occupiedPortServer.address().port;
-const conflictChild = spawn(process.execPath, ["server/apiServer.mjs", "--mode", "test"], {
+const conflictChild = spawn(process.execPath, ["server/apiServer.mjs", "--mode", "test", "--local-fixture"], {
   cwd: projectRoot,
   env: { ...process.env, ERP_API_PORT: String(occupiedPort), ERP_API_SHUTDOWN_TIMEOUT_MS: "5000" },
   stdio: ["ignore", "pipe", "pipe"],

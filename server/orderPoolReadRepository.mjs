@@ -1,9 +1,15 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { calculateLinePricing } from "../src/domain/priceTable.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 
 export function createOrderPoolReadRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_ORDER_POOL_READ_STORE ?? process.env.ERP_ORDER_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_ORDER_POOL_READ_STORE", "ERP_ORDER_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresOrderPoolReadRepository({
       databaseUrl:

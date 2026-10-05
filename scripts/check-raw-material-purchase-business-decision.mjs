@@ -126,7 +126,7 @@ function buildWorkspace() {
     operationLogs: [],
     operationIdempotencyRecords: [],
   };
-  workspace.businessDecisionEvidenceRepository = createBusinessDecisionEvidenceRepository({ mode: "local" });
-  workspace.rawMaterialPurchaseRepository = createRawMaterialPurchaseRepository({ mode: "local" });
+  workspace.businessDecisionEvidenceRepository = createBusinessDecisionEvidenceRepository({ mode: "local", allowLocalFixture: true });
+  workspace.rawMaterialPurchaseRepository = createRawMaterialPurchaseRepository({ mode: "local", allowLocalFixture: true });
   return workspace;
 }

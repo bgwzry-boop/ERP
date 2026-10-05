@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -7,12 +8,12 @@ import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor
 export const runtimeIdentityStoreKey = "metadata/runtime-identity.json";
 
 export function createRuntimeIdentityRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_RUNTIME_IDENTITY_STORE ??
-    process.env.ERP_IDENTITY_STORE ??
-    process.env.ERP_USER_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_RUNTIME_IDENTITY_STORE", "ERP_IDENTITY_STORE", "ERP_USER_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresRuntimeIdentityRepository({
       databaseUrl: options.databaseUrl ?? process.env.ERP_IDENTITY_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,

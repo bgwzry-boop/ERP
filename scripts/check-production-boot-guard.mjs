@@ -40,7 +40,7 @@ assertBootRefused({ env: {}, options: { attachmentObjectStorageOptions: { mode: 
 assertBootRefused({ env: {}, options: { attachmentRepository: { kind: "local_json" } } }, "attachmentRepository", "optionKeys");
 
 assert.throws(
-  () => createApiServer({ runtimeMode: "production", applyProductionEnvFile: false, scenarioId: "case-1" }),
+  () => createApiServer({ allowLocalFixture: true, runtimeMode: "production", applyProductionEnvFile: false, scenarioId: "case-1" }),
   (error) => error?.code === "ERP_PRODUCTION_SEED_NOT_ALLOWED",
 );
 
@@ -67,8 +67,13 @@ const profile = applyV1PersistenceProfileOptions({
 assert.equal(profile.options.attachmentRepositoryOptions.mode, "postgres");
 assert.equal(profile.options.attachmentObjectStorageOptions.mode, "object_storage");
 
-assert.equal(resolveStoreMode({ env: {}, runtimeMode: "demo" }), "local");
+assert.equal(resolveStoreMode({ env: {}, runtimeMode: "demo" }), "postgres");
 assert.equal(resolveStoreMode({ env: {}, runtimeMode: "production" }), "postgres");
+assert.throws(
+  () => resolveStoreMode({ explicitMode: "local", env: {}, runtimeMode: "demo" }),
+  (error) => error?.code === "ERP_LOCAL_STORE_FIXTURE_REQUIRED",
+);
+assert.equal(resolveStoreMode({ explicitMode: "local", env: {}, runtimeMode: "test", allowLocalFixture: true }), "local");
 assert.equal(resolveStoreMode({ env: { ERP_ORDER_STORE: "postgres" }, envKeys: ["ERP_ORDER_STORE"], runtimeMode: "production" }), "postgres");
 assert.throws(
   () => resolveStoreMode({ env: { ERP_ORDER_STORE: "local" }, envKeys: ["ERP_ORDER_STORE"], runtimeMode: "production" }),

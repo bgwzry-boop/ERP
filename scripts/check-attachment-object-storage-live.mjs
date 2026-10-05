@@ -19,7 +19,7 @@ const objectStorageServer = createFakeS3CompatibleServer({ bucketName });
 try {
   await listen(objectStorageServer.server);
   const endpoint = `http://127.0.0.1:${objectStorageServer.server.address().port}`;
-  const apiServer = createApiServer({
+  const apiServer = createApiServer({ allowLocalFixture: true,
     attachmentRepositoryOptions: { storageRoot },
     attachmentAccessAuditRepositoryOptions: { storageRoot },
     attachmentObjectStorageOptions: {

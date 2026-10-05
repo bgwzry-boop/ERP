@@ -21,7 +21,7 @@ delete process.env.ERP_SYSTEM_PRINTER_COMMAND_ARGS_JSON;
 delete process.env.ERP_SYSTEM_PRINTER_COMMAND_TIMEOUT_MS;
 delete process.env.ERP_SYSTEM_PRINTER_ALLOWLIST;
 
-const server = createApiServer();
+const server = createApiServer({ allowLocalFixture: true });
 
 try {
   await listenTestServer(server);
@@ -73,7 +73,7 @@ try {
     "queued list should include the new retry job",
   );
 
-  const restartedServer = createApiServer();
+  const restartedServer = createApiServer({ allowLocalFixture: true });
   await listenTestServer(restartedServer);
   const restartBaseUrl = getTestServerBaseUrl(restartedServer);
   try {

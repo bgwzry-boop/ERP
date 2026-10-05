@@ -24,7 +24,7 @@ rmSync(storageRoot, { recursive: true, force: true });
 mkdirSync(spoolRoot, { recursive: true });
 seedPrintedPrintReadinessJobs({ storageRoot, idPrefix: "PJ-RUNNER" });
 
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   printDeviceRepositoryOptions: { storageRoot },
   printJobRepositoryOptions: { storageRoot },
   printerDeviceFieldTestRepositoryOptions: { storageRoot },

@@ -42,7 +42,7 @@ try {
   assert.notEqual(realWorkspace.customers, validPayload.workspace.customers);
   assert.equal(loadSeedWorkspace({ source: "real_sample", realSampleSeedFile: privateFile, runtimeMode: "test" }).seedDataset?.source, "real_sample");
 
-  const server = createApiServer({
+  const server = createApiServer({ allowLocalFixture: true,
     runtimeMode: "test",
     seedSource: "real_sample",
     realSampleSeedFile: privateFile,

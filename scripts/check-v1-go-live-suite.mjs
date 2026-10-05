@@ -1010,7 +1010,7 @@ assert.match(readFileSync(join(csvOutputRoot, "field-evidence-intake", "intake-s
 assert.doesNotMatch(csvRun.stdout + csvRun.stderr + csvSuiteSummary, /办公室负责人|总负责人/);
 assertNoSensitiveOutput(csvRun.stdout + csvRun.stderr + csvSuiteSummary);
 
-const server = createApiServer();
+const server = createApiServer({ allowLocalFixture: true });
 try {
   await listen(server);
   const baseUrl = `${getTestServerBaseUrl(server)}/api`;

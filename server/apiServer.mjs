@@ -1441,8 +1441,13 @@ const {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const runtimeMode = parseRuntimeModeArg(process.argv.slice(2));
-    const server = createApiServer(runtimeMode ? { runtimeMode } : {});
+    const startupArgs = process.argv.slice(2);
+    const allowLocalFixture = startupArgs.includes("--local-fixture");
+    const runtimeMode = parseRuntimeModeArg(startupArgs.filter((arg) => arg !== "--local-fixture"));
+    if (allowLocalFixture && runtimeMode !== "test") {
+      throw new Error("--local-fixture is only available with --mode test.");
+    }
+    const server = createApiServer({ ...(runtimeMode ? { runtimeMode } : {}), allowLocalFixture });
     await server.ready;
     const port = Number(process.env.ERP_API_PORT ?? 8787);
     const shutdownController = createGracefulShutdownController({

@@ -99,7 +99,7 @@ const productionEnv = {
   ERP_V1_FIELD_ACCEPTANCE_API_BASE_URL: "http://127.0.0.1:8787/api",
 };
 
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   attachmentRepositoryOptions: { storageRoot },
   attachmentAccessAuditRepositoryOptions: { storageRoot },
   attachmentObjectStorageOptions: { storageRoot },

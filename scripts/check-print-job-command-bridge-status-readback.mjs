@@ -15,7 +15,7 @@ const bridgeScript = join(process.cwd(), "scripts", "print-command-bridge.mjs");
 rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   printDriverAdapterOptions: {
     dryRunEnabled: false,
     systemPrinterEnabled: true,

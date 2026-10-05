@@ -13,7 +13,7 @@ import {
 
 const pressureResult = runReminderPressureCheck();
 const concurrentRepository = createConcurrentTodoRepository();
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   runtimeMode: "test",
   applyProductionEnvFile: false,
   todoActionRepository: concurrentRepository,

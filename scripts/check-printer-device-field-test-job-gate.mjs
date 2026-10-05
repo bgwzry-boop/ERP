@@ -12,7 +12,7 @@ import {
 } from "./helpers/apiIntegrationTestHarness.mjs";
 
 const storageRoot = mkdtempSync(join(tmpdir(), "erp-printer-qa-gate-"));
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   printDeviceRepositoryOptions: { storageRoot },
   printJobRepositoryOptions: { storageRoot },
   printerDeviceFieldTestRepositoryOptions: { storageRoot },

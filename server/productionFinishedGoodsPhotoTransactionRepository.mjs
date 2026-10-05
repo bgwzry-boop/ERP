@@ -1,10 +1,16 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createProductionFinishedGoodsPhotoTransactionRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_PRODUCTION_PHOTO_STORE ?? process.env.ERP_PRODUCTION_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_PRODUCTION_PHOTO_STORE", "ERP_PRODUCTION_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") return createPostgresProductionFinishedGoodsPhotoTransactionRepository(options);
   if (mode === "local") return createLocalProductionFinishedGoodsPhotoTransactionRepository();
   throw new Error(`Unsupported production finished-goods photo repository mode: ${mode}`);

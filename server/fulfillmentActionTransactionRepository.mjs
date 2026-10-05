@@ -20,6 +20,7 @@ export function createFulfillmentActionTransactionRepository(options = {}) {
     explicitMode: options.mode,
     envKeys: ["ERP_FULFILLMENT_ACTION_TRANSACTION_STORE", "ERP_FULFILLMENT_STORE"],
     runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
   });
   if (mode === "postgres") {
     return createPostgresFulfillmentActionTransactionRepository({

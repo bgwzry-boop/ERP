@@ -10,6 +10,7 @@ export function createOrderDraftRepository(options = {}) {
     explicitMode: options.mode,
     envKeys: ["ERP_ORDER_DRAFT_STORE", "ERP_ORDER_STORE"],
     runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
   });
   if (mode === "postgres") {
     return createPostgresOrderDraftRepository({

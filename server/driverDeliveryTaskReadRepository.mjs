@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { getLineRemark } from "../src/domain/officeRules.js";
@@ -14,12 +15,12 @@ import {
 } from "./services/driverDeliveryTaskProjectionService.mjs";
 
 export function createDriverDeliveryTaskReadRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_DRIVER_DELIVERY_TASK_READ_STORE ??
-    process.env.ERP_DRIVER_TASK_STORE ??
-    process.env.ERP_FULFILLMENT_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_DRIVER_DELIVERY_TASK_READ_STORE", "ERP_DRIVER_TASK_STORE", "ERP_FULFILLMENT_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresDriverDeliveryTaskReadRepository({
       databaseUrl:

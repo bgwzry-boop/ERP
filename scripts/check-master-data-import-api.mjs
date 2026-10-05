@@ -82,7 +82,7 @@ const readyDraft = createMasterDataImportReviewDraft({
   createdAt: generatedAt,
 });
 
-let server = createApiServer();
+let server = createApiServer({ allowLocalFixture: true });
 let restartedServer = null;
 
 try {
@@ -1146,7 +1146,7 @@ try {
   await closeServer(server);
   server = null;
 
-  restartedServer = createApiServer();
+  restartedServer = createApiServer({ allowLocalFixture: true });
   await listen(restartedServer);
   const restartedBaseUrl = getTestServerBaseUrl(restartedServer);
   const restartedList = await getJson(

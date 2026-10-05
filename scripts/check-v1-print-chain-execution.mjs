@@ -46,7 +46,7 @@ const printedPrintJobs = seedPrintedPrintReadinessJobs({
 writeJson(completeManifestPath, buildPrintManifest({ completePrintGroup: true }));
 writeJson(incompleteManifestPath, buildPrintManifest({ completePrintGroup: false, sensitiveEvidenceRef: true }));
 
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   printDeviceRepositoryOptions: { storageRoot: apiStorageRoot },
   printJobRepositoryOptions: { storageRoot: apiStorageRoot },
   printerDeviceFieldTestRepositoryOptions: { storageRoot: apiStorageRoot },

@@ -168,7 +168,7 @@ function evaluate(pathname, method = "POST") {
 }
 
 async function checkApiBoundary() {
-  const server = createApiServer({
+  const server = createApiServer({ allowLocalFixture: true,
     firstReleaseScope: "raw_material",
     runtimeMode: "test",
     runtimeStorageRoot: join(checkStorageRoot, "api"),
@@ -294,7 +294,7 @@ async function checkApiBoundary() {
 }
 
 async function checkAuthenticationPrecedence() {
-  const server = createApiServer({
+  const server = createApiServer({ allowLocalFixture: true,
     firstReleaseScope: "raw_material",
     runtimeMode: "test",
     runtimeStorageRoot: join(checkStorageRoot, "strict-api"),

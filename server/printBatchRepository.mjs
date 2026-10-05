@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -8,7 +9,12 @@ import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from
 export const printBatchRecordStoreKey = "metadata/print-batch-records.json";
 
 export function createPrintBatchRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_PRINT_BATCH_STORE ?? process.env.ERP_PRINT_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_PRINT_BATCH_STORE", "ERP_PRINT_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresPrintBatchRepository({
       databaseUrl: options.databaseUrl ?? process.env.ERP_PRINT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,

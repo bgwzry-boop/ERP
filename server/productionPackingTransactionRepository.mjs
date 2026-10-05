@@ -67,6 +67,7 @@ export function createProductionPackingTransactionRepository(options = {}) {
     explicitMode: options.mode,
     envKeys: ["ERP_PRODUCTION_PACKING_TRANSACTION_STORE", "ERP_PRODUCTION_STORE"],
     runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
   });
   if (mode === "postgres") {
     return createPostgresProductionPackingTransactionRepository({

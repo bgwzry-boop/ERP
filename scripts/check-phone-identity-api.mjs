@@ -13,7 +13,7 @@ const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "phone-i
 rmSync(storageRoot, { recursive: true, force: true });
 
 assert.throws(
-  () => createApiServer({
+  () => createApiServer({ allowLocalFixture: true,
     runtimeMode: "test",
     phoneRegistrationEnabled: true,
     authSecret: "phone-identity-api-missing-sender-secret",
@@ -33,7 +33,7 @@ console.log(
 );
 
 async function checkDisabledBoundary() {
-  const server = createApiServer({
+  const server = createApiServer({ allowLocalFixture: true,
     runtimeMode: "test",
     applyProductionEnvFile: false,
     runtimeIdentityRepositoryOptions: { storageRoot: join(storageRoot, "disabled") },
@@ -53,7 +53,7 @@ async function checkDisabledBoundary() {
 }
 
 async function checkStrictDisabledBoundary() {
-  const server = createApiServer({
+  const server = createApiServer({ allowLocalFixture: true,
     runtimeMode: "test",
     strictAuth: true,
     authSecret: "phone-identity-api-strict-secret",
@@ -76,7 +76,7 @@ async function checkStrictDisabledBoundary() {
 
 async function checkPhoneIdentityFlow() {
   const sentMessages = [];
-  const server = createApiServer({
+  const server = createApiServer({ allowLocalFixture: true,
     runtimeMode: "test",
     firstReleaseScope: "raw_material",
     phoneRegistrationEnabled: true,

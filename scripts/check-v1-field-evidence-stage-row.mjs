@@ -44,7 +44,7 @@ writeFileSync(
 );
 
 process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT = artifactRoot;
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   attachmentRepositoryOptions: { storageRoot: join(artifactRoot, "attachment-metadata") },
   attachmentAccessAuditRepositoryOptions: { storageRoot: join(artifactRoot, "attachment-metadata") },
   attachmentObjectStorageOptions: { storageRoot: join(artifactRoot, "attachment-objects") },

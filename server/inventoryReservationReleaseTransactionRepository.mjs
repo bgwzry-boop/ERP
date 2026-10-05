@@ -1,12 +1,14 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 
 export function createInventoryReservationReleaseTransactionRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_INVENTORY_RESERVATION_RELEASE_TRANSACTION_STORE ??
-    process.env.ERP_INVENTORY_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_INVENTORY_RESERVATION_RELEASE_TRANSACTION_STORE", "ERP_INVENTORY_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresInventoryReservationReleaseTransactionRepository({
       databaseUrl: options.databaseUrl ?? process.env.ERP_INVENTORY_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,

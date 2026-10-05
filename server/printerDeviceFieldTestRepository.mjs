@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -12,12 +13,12 @@ import {
 export const printerDeviceFieldTestStoreKey = "metadata/printer-device-field-tests.json";
 
 export function createPrinterDeviceFieldTestRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_PRINTER_DEVICE_FIELD_TEST_STORE ??
-    process.env.ERP_PRINT_DEVICE_QA_STORE ??
-    process.env.ERP_PRINT_DEVICE_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_PRINTER_DEVICE_FIELD_TEST_STORE", "ERP_PRINT_DEVICE_QA_STORE", "ERP_PRINT_DEVICE_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresPrinterDeviceFieldTestRepository({
       databaseUrl:

@@ -556,7 +556,7 @@ async function checkPostgresRepositoryBoundary() {
 }
 
 async function checkApi() {
-  const server = createApiServer({
+  const server = createApiServer({ allowLocalFixture: true,
     rawMaterialSupplierStatementReviewRepositoryOptions: { storageRoot: apiStorageRoot },
   });
   await listenTestServer(server);
@@ -681,7 +681,7 @@ async function checkApi() {
 
     await closeTestServer(server);
 
-    const restartedServer = createApiServer({
+    const restartedServer = createApiServer({ allowLocalFixture: true,
       rawMaterialSupplierStatementReviewRepositoryOptions: { storageRoot: apiStorageRoot },
     });
     await listenTestServer(restartedServer);

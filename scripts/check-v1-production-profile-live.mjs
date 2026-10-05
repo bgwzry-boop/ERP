@@ -57,7 +57,7 @@ try {
     forcePathStyle: true,
   };
 
-  apiServer = createApiServer({
+  apiServer = createApiServer({ allowLocalFixture: true,
     runtimeMode: "production",
     firstReleaseScope: "raw_material",
     authSecret: runtimeAuthSecret,
@@ -110,7 +110,7 @@ try {
       allowedPrinterNames: ["PRN-LABEL-A", "PRN-DOT-A", "标签机A", "针式打印机A"],
     },
   };
-  apiServer = createApiServer({
+  apiServer = createApiServer({ allowLocalFixture: true,
     ...fieldGateApiOptions,
     runtimeMode: "test",
     firstReleaseScope: null,
@@ -122,7 +122,7 @@ try {
   await closeServer(apiServer);
   apiServer = null;
 
-  apiServer = createApiServer({
+  apiServer = createApiServer({ allowLocalFixture: true,
     ...fieldGateApiOptions,
     runtimeMode: "production",
     firstReleaseScope: "raw_material",

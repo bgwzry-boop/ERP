@@ -27,7 +27,7 @@ const printedPrintJobs = seedPrintedPrintReadinessJobs({
   idPrefix: "PJ-V1-RUNNER",
 });
 
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   attachmentRepositoryOptions: { storageRoot },
   attachmentAccessAuditRepositoryOptions: { storageRoot },
   attachmentObjectStorageOptions: { storageRoot },

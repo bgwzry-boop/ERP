@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import crypto from "node:crypto";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -5,7 +6,12 @@ import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createStatementExportRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_STATEMENT_EXPORT_STORE ?? process.env.ERP_STATEMENT_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_STATEMENT_EXPORT_STORE", "ERP_STATEMENT_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresStatementExportRepository({
       databaseUrl:

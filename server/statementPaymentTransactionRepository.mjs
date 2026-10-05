@@ -1,15 +1,16 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { normalizePaymentRecord } from "./paymentRecordRepository.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 
 export function createStatementPaymentTransactionRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_STATEMENT_PAYMENT_TRANSACTION_STORE ??
-    process.env.ERP_STATEMENT_STORE ??
-    process.env.ERP_PAYMENT_RECORD_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_STATEMENT_PAYMENT_TRANSACTION_STORE", "ERP_STATEMENT_STORE", "ERP_PAYMENT_RECORD_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresStatementPaymentTransactionRepository({
       databaseUrl:

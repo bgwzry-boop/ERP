@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -8,7 +9,12 @@ import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from
 export const printJobStoreKey = "metadata/print-jobs.json";
 
 export function createPrintJobRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_PRINT_JOB_STORE ?? process.env.ERP_PRINT_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_PRINT_JOB_STORE", "ERP_PRINT_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresPrintJobRepository({
       databaseUrl: options.databaseUrl ?? process.env.ERP_PRINT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,

@@ -11,11 +11,16 @@ import {
 const emptyEnv = {};
 
 const defaultProfile = applyV1PersistenceProfileOptions({}, emptyEnv);
-assert.equal(defaultProfile.summary.repositoryProfile, "disabled");
+assert.equal(defaultProfile.summary.repositoryProfile, "postgres");
 assert.equal(defaultProfile.summary.fileStorageProfile, "disabled");
-assert.equal(defaultProfile.summary.postgresRepositoryDefaultsApplied, 0);
+assert.equal(defaultProfile.summary.postgresRepositoryDefaultsApplied, v1PersistencePostgresRepositoryOptionKeys.length);
 assert.equal(defaultProfile.summary.objectStorageDefaultsApplied, 0);
-assert.equal(defaultProfile.options.attachmentRepositoryOptions, undefined);
+assert.equal(defaultProfile.options.attachmentRepositoryOptions.mode, "postgres");
+
+const fixtureProfile = applyV1PersistenceProfileOptions({ runtimeMode: "test", allowLocalFixture: true }, emptyEnv);
+assert.equal(fixtureProfile.summary.repositoryProfile, "local");
+assert.equal(fixtureProfile.options.attachmentRepositoryOptions.mode, "local");
+assert.equal(fixtureProfile.options.attachmentRepositoryOptions.allowLocalFixture, true);
 
 const queryJson = () => [];
 const postgresProfile = applyV1PersistenceProfileOptions(
@@ -77,6 +82,8 @@ assert.equal(JSON.stringify(objectStorageProfile.summary).includes("object-stora
 
 const explicitOverrideProfile = applyV1PersistenceProfileOptions(
   {
+    runtimeMode: "test",
+    allowLocalFixture: true,
     v1PersistenceProfile: "postgres",
     attachmentRepositoryOptions: { mode: "local", storageRoot: "/tmp/erp-local-override" },
     printDeviceRepository: { kind: "custom_print_device_repository" },

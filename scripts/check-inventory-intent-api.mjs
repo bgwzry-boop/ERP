@@ -8,7 +8,7 @@ import {
   postJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
 
-const server = createApiServer({ scenarioId: "inventory-intent-api-check" });
+const server = createApiServer({ allowLocalFixture: true, scenarioId: "inventory-intent-api-check" });
 await server.ready;
 await listenTestServer(server);
 

@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -12,7 +13,12 @@ const machineTypes = new Set(["bag_making", "screen_printing", "cutting", "packi
 const machineStatuses = new Set(["active", "maintenance", "inactive"]);
 
 export function createMasterDataMachineConfigurationRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_MASTER_DATA_MACHINE_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_MASTER_DATA_MACHINE_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresMasterDataMachineConfigurationRepository({
       ...options,

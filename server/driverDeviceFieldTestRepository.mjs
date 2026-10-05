@@ -1,14 +1,14 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 
 export function createDriverDeviceFieldTestRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_DRIVER_DEVICE_FIELD_TEST_STORE ??
-    process.env.ERP_DRIVER_DEVICE_QA_STORE ??
-    process.env.ERP_DRIVER_TASK_STORE ??
-    process.env.ERP_FULFILLMENT_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_DRIVER_DEVICE_FIELD_TEST_STORE", "ERP_DRIVER_DEVICE_QA_STORE", "ERP_DRIVER_TASK_STORE", "ERP_FULFILLMENT_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresDriverDeviceFieldTestRepository({
       databaseUrl:

@@ -135,7 +135,7 @@ try {
   delete process.env.ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS;
   process.env.ERP_V1_PRODUCTION_ENV_FILE = safeEnvPath;
   delete process.env.ERP_V1_ENV_FILE;
-  const server = createApiServer();
+  const server = createApiServer({ allowLocalFixture: true });
   try {
     await listen(server);
     const { port } = server.address();

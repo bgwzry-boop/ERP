@@ -29,7 +29,7 @@ export async function checkPositivePrintDriverReadiness({
     rmSync(readinessStorageRoot, { recursive: true, force: true });
     mkdirSync(readinessSpoolDir, { recursive: true });
     seedPrintedPrintReadinessJobs({ storageRoot: readinessStorageRoot, idPrefix: "PJ-READY" });
-    server = createApiServer({
+    server = createApiServer({ allowLocalFixture: true,
       printDeviceRepositoryOptions: { storageRoot: readinessStorageRoot },
       printJobRepositoryOptions: { storageRoot: readinessStorageRoot },
       printerDeviceFieldTestRepositoryOptions: { storageRoot: readinessStorageRoot },

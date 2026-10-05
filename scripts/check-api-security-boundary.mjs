@@ -49,7 +49,7 @@ process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 rmSync(checkStorageRoot, { recursive: true, force: true });
 
 assert.throws(
-  () => createApiServer({ strictAuth: true, authSecret: "", applyProductionEnvFile: false }),
+  () => createApiServer({ allowLocalFixture: true, strictAuth: true, authSecret: "", applyProductionEnvFile: false }),
   /ERP_AUTH_SECRET/,
   "strict mode must refuse to start without an authentication secret",
 );
@@ -58,7 +58,7 @@ let strictRuntimeServer = null;
 let strictServer = null;
 
 try {
-  strictRuntimeServer = createApiServer({
+  strictRuntimeServer = createApiServer({ allowLocalFixture: true,
     strictAuth: true,
     authSecret,
     allowSeedUsers: true,
@@ -179,7 +179,7 @@ try {
   assert.equal(tooLarge.status, 413);
   assert.equal(tooLarge.body.code, "REQUEST_BODY_TOO_LARGE");
 
-  strictServer = createApiServer({
+  strictServer = createApiServer({ allowLocalFixture: true,
     strictAuth: true,
     authSecret,
     corsAllowedOrigins: ["https://erp.example.test"],

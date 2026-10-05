@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { randomUUID } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -8,11 +9,12 @@ import { mergeReviewedSupplierReturnsIntoStatement } from "./services/rawMateria
 export const rawMaterialSupplierStatementReviewStoreKey = "metadata/raw-material-supplier-statement-reviews.json";
 
 export function createRawMaterialSupplierStatementReviewRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_RAW_MATERIAL_SUPPLIER_STATEMENT_REVIEW_STORE ??
-    process.env.ERP_RAW_MATERIAL_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_RAW_MATERIAL_SUPPLIER_STATEMENT_REVIEW_STORE", "ERP_RAW_MATERIAL_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "local") {
     return createLocalRawMaterialSupplierStatementReviewRepository({
       storageRoot: options.storageRoot,

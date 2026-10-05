@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -6,11 +7,12 @@ import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 export const attachmentAccessAuditStoreKey = "metadata/attachment-access-logs.json";
 
 export function createAttachmentAccessAuditRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_ATTACHMENT_ACCESS_AUDIT_STORE ??
-    process.env.ERP_ATTACHMENT_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_ATTACHMENT_ACCESS_AUDIT_STORE", "ERP_ATTACHMENT_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresAttachmentAccessAuditRepository({
       databaseUrl:

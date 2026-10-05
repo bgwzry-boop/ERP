@@ -18,7 +18,7 @@ try {
   process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT = artifactRoot;
   process.env.ERP_V1_D49_EMPLOYEE_INTAKE_PRECHECK_REPORT_PATH = reportPath;
   process.env.ERP_V1_D49_EMPLOYEE_INTAKE_WORKBOOK_PATH = workbookPath;
-  server = createApiServer();
+  server = createApiServer({ allowLocalFixture: true });
   await listenTestServer(server);
   const fixture = await prepareV1GoLiveStatusFixture(artifactRoot, {
     apiBaseUrl: `${getTestServerBaseUrl(server)}/api`,

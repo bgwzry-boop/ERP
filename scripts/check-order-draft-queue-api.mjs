@@ -10,7 +10,7 @@ import {
   postJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
 
-const server = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
+const server = createApiServer({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false });
 await server.ready;
 await listenTestServer(server);
 

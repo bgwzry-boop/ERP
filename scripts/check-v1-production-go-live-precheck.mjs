@@ -253,7 +253,7 @@ assert.ok(
 assert.match(formatProductionGoLivePrecheckReport(syntheticReady), /Stage unblock checklist/);
 assert.match(formatProductionGoLivePrecheckReport(syntheticReady), /Field evidence coverage: 2\/10/);
 
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   attachmentRepositoryOptions: { storageRoot },
   attachmentAccessAuditRepositoryOptions: { storageRoot },
   attachmentObjectStorageOptions: { storageRoot },

@@ -6492,7 +6492,7 @@ INSERT INTO todos (
 );
 `);
   const strictTodoRepository = createTodoReadBarrierRepository(todoActionRepository, formalConcurrentTodoId);
-  server = createApiServer({
+  server = createApiServer({ allowLocalFixture: true,
     ...apiServerOptions,
     strictAuth: true,
     todoActionRepository: strictTodoRepository,

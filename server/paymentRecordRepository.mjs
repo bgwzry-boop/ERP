@@ -1,7 +1,13 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 
 export function createPaymentRecordRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_PAYMENT_RECORD_STORE ?? process.env.ERP_STATEMENT_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_PAYMENT_RECORD_STORE", "ERP_STATEMENT_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresPaymentRecordRepository({
       databaseUrl: options.databaseUrl ?? process.env.ERP_PAYMENT_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,

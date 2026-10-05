@@ -11,7 +11,7 @@ let paymentStateLoadStarted = false;
 const paymentStateLoaded = new Promise((resolve) => {
   releasePaymentState = resolve;
 });
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   paymentRecordRepository: {
     kind: "async_startup_fixture",
     async loadState() {
@@ -48,7 +48,7 @@ try {
   await close(server);
 }
 
-const authoritativeEmptyDraftServer = createApiServer({
+const authoritativeEmptyDraftServer = createApiServer({ allowLocalFixture: true,
   runtimeMode: "test",
   orderDraftRepository: {
     kind: "postgres",

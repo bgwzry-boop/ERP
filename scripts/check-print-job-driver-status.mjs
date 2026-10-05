@@ -13,7 +13,7 @@ const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "pr
 rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 
-const server = createApiServer({
+const server = createApiServer({ allowLocalFixture: true,
   printDriverAdapterOptions: {
     dryRunEnabled: true,
   },

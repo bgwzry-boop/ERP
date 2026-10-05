@@ -8,6 +8,7 @@ export function createAttendancePayrollRepository(options = {}) {
     explicitMode: options.mode,
     envKeys: ["ERP_ATTENDANCE_PAYROLL_STORE", "ERP_V1_STORE"],
     runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
   });
   if (mode === "postgres") return createPostgresAttendancePayrollRepository(options);
   if (mode === "local") return createLocalAttendancePayrollRepository();
