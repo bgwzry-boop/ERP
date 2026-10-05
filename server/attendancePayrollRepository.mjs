@@ -1,10 +1,14 @@
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+import { resolveStoreMode } from "./storeMode.mjs";
 
 export function createAttendancePayrollRepository(options = {}) {
-  const mode =
-    options.mode ?? process.env.ERP_ATTENDANCE_PAYROLL_STORE ?? process.env.ERP_V1_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_ATTENDANCE_PAYROLL_STORE", "ERP_V1_STORE"],
+    runtimeMode: options.runtimeMode,
+  });
   if (mode === "postgres") return createPostgresAttendancePayrollRepository(options);
   if (mode === "local") return createLocalAttendancePayrollRepository();
   throw new Error(`Unsupported attendance/payroll repository mode: ${mode}`);

@@ -40,6 +40,7 @@ import {
   resolveRawMaterialProductionTaskMatch,
 } from "./rawMaterialInboundRecordService.mjs";
 import { createRawMaterialCostMarginBuilder } from "./rawMaterialCostMarginBuilderService.mjs";
+import { resolveStoreMode } from "./storeMode.mjs";
 import {
   normalizeRawMaterialCostAllocationConfirmations,
   normalizeRawMaterialCostAllocationDrafts,
@@ -73,11 +74,11 @@ const rawMaterialCostMarginBuilder = createRawMaterialCostMarginBuilder({
   buildGoodsSpec: buildRawMaterialProductionTaskGoodsSpec,
 });
 export function createRawMaterialInboundRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_RAW_MATERIAL_INBOUND_STORE ??
-    process.env.ERP_RAW_MATERIAL_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_RAW_MATERIAL_INBOUND_STORE", "ERP_RAW_MATERIAL_STORE"],
+    runtimeMode: options.runtimeMode,
+  });
   if (mode === "local") {
     return createLocalRawMaterialInboundRepository({
       storageRoot: options.storageRoot,

@@ -3,9 +3,14 @@ import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 import { normalizeInventoryIntents } from "./inventoryIntentDomain.mjs";
+import { resolveStoreMode } from "./storeMode.mjs";
 
 export function createOrderDraftRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_ORDER_DRAFT_STORE ?? process.env.ERP_ORDER_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_ORDER_DRAFT_STORE", "ERP_ORDER_STORE"],
+    runtimeMode: options.runtimeMode,
+  });
   if (mode === "postgres") {
     return createPostgresOrderDraftRepository({
       databaseUrl: options.databaseUrl ?? process.env.ERP_ORDER_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,

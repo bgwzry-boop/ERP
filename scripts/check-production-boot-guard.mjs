@@ -4,6 +4,12 @@ import { createApiServer } from "../server/apiServer.mjs";
 import { assertProductionBootAllowed } from "../server/productionBootGuard.mjs";
 import { loadSeedWorkspace } from "../server/seedData.mjs";
 import { applyV1PersistenceProfileOptions } from "../server/v1PersistenceProfile.mjs";
+import { resolveStoreMode } from "../server/storeMode.mjs";
+import { createOrderDraftRepository } from "../server/orderDraftRepository.mjs";
+import { createFulfillmentActionTransactionRepository } from "../server/fulfillmentActionTransactionRepository.mjs";
+import { createRawMaterialInboundRepository } from "../server/rawMaterialInboundRepository.mjs";
+import { createProductionPackingTransactionRepository } from "../server/productionPackingTransactionRepository.mjs";
+import { createAttendancePayrollRepository } from "../server/attendancePayrollRepository.mjs";
 
 const production = { isProduction: true };
 const demo = { isProduction: false };
@@ -60,5 +66,25 @@ const profile = applyV1PersistenceProfileOptions({
 }, {});
 assert.equal(profile.options.attachmentRepositoryOptions.mode, "postgres");
 assert.equal(profile.options.attachmentObjectStorageOptions.mode, "object_storage");
+
+assert.equal(resolveStoreMode({ env: {}, runtimeMode: "demo" }), "local");
+assert.equal(resolveStoreMode({ env: {}, runtimeMode: "production" }), "postgres");
+assert.equal(resolveStoreMode({ env: { ERP_ORDER_STORE: "postgres" }, envKeys: ["ERP_ORDER_STORE"], runtimeMode: "production" }), "postgres");
+assert.throws(
+  () => resolveStoreMode({ env: { ERP_ORDER_STORE: "local" }, envKeys: ["ERP_ORDER_STORE"], runtimeMode: "production" }),
+  (error) => error?.code === "ERP_PRODUCTION_STORE_MODE_REFUSED",
+);
+for (const createRepository of [
+  createOrderDraftRepository,
+  createFulfillmentActionTransactionRepository,
+  createRawMaterialInboundRepository,
+  createProductionPackingTransactionRepository,
+  createAttendancePayrollRepository,
+]) {
+  assert.throws(
+    () => createRepository({ mode: "local", runtimeMode: "production" }),
+    (error) => error?.code === "ERP_PRODUCTION_STORE_MODE_REFUSED",
+  );
+}
 
 console.log("Production boot guard check passed: local persistence and fixtures fail closed; production seeds stay empty.");

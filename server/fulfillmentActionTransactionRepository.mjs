@@ -7,6 +7,7 @@ import {
   resolveRepositoryIdempotencyKey,
 } from "./idempotency.mjs";
 import { normalizePrintJobRecord, printJobJsonExpression } from "./printJobRepository.mjs";
+import { resolveStoreMode } from "./storeMode.mjs";
 import {
   buildBusinessDecisionAttachmentLinksCte,
   buildInsertBusinessDecisionCte,
@@ -15,11 +16,11 @@ import {
 } from "./businessDecisionEvidenceRepository.mjs";
 
 export function createFulfillmentActionTransactionRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_FULFILLMENT_ACTION_TRANSACTION_STORE ??
-    process.env.ERP_FULFILLMENT_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_FULFILLMENT_ACTION_TRANSACTION_STORE", "ERP_FULFILLMENT_STORE"],
+    runtimeMode: options.runtimeMode,
+  });
   if (mode === "postgres") {
     return createPostgresFulfillmentActionTransactionRepository({
       databaseUrl:
