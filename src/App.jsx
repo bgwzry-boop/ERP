@@ -5,7 +5,6 @@ import {
   EntryPage,
   InventoryPage,
   OrderPoolPage,
-  ProductionPackingPage,
   RawMaterialScannerPage,
   StatementPage,
   TodoPage,
@@ -1254,39 +1253,37 @@ export function App() {
               helpers: pageHelpers,
               firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
             },
+            packing: {
+              authState,
+              currentUser,
+              orderLines,
+              fulfillments,
+              inventoryRecords,
+              productionPacking,
+              focusTarget: productionPackingFocus,
+              sourceDetailState: productionPackingDetailState,
+              printerDeviceQa,
+              printJobQueue,
+              printDriverConfig,
+              printDriverReadiness,
+              printDriverCupsDiagnostics,
+              onAction: handleProductionPackingAction,
+              onRefreshProduction: () => refreshProductionPackingTaskLists({ showToast: false }),
+              onRefreshPrintDriverConfig: refreshPrintDriverDiagnostics,
+              onRefreshPrintDriverReadiness: () => refreshPrintDriverReadiness({ showToast: true }),
+              onRefreshPrinterDeviceQa: () => refreshPrinterDeviceQa({ showToast: true }),
+              onSelectPrinterDeviceQaDevice: selectPrinterDeviceQaDevice,
+              onChangePrinterDeviceQaField: changePrinterDeviceQaField,
+              onChangePrinterDeviceQaCheck: changePrinterDeviceQaCheck,
+              onChangePrinterDeviceQaEvidenceField: changePrinterDeviceQaEvidenceField,
+              onSavePrinterDeviceMode: savePrinterDeviceMode,
+              onSavePrinterDeviceQa: savePrinterDeviceQaRecord,
+              onRefreshPrintJobs: refreshPrintJobs,
+              onDispatchPrintJob: dispatchPrintJobQueueItem,
+              onRetryPrintJob: retryPrintJobQueueItem,
+              helpers: pageHelpers,
+            },
           })}
-          {renderedPage === "packing" && (
-            <ProductionPackingPage
-              authState={authState}
-              currentUser={currentUser}
-              orderLines={orderLines}
-              fulfillments={fulfillments}
-              inventoryRecords={inventoryRecords}
-              productionPacking={productionPacking}
-              focusTarget={productionPackingFocus}
-              sourceDetailState={productionPackingDetailState}
-              printerDeviceQa={printerDeviceQa}
-              printJobQueue={printJobQueue}
-              printDriverConfig={printDriverConfig}
-              printDriverReadiness={printDriverReadiness}
-              printDriverCupsDiagnostics={printDriverCupsDiagnostics}
-              onAction={handleProductionPackingAction}
-              onRefreshProduction={() => refreshProductionPackingTaskLists({ showToast: false })}
-              onRefreshPrintDriverConfig={refreshPrintDriverDiagnostics}
-              onRefreshPrintDriverReadiness={() => refreshPrintDriverReadiness({ showToast: true })}
-              onRefreshPrinterDeviceQa={() => refreshPrinterDeviceQa({ showToast: true })}
-              onSelectPrinterDeviceQaDevice={selectPrinterDeviceQaDevice}
-              onChangePrinterDeviceQaField={changePrinterDeviceQaField}
-              onChangePrinterDeviceQaCheck={changePrinterDeviceQaCheck}
-              onChangePrinterDeviceQaEvidenceField={changePrinterDeviceQaEvidenceField}
-              onSavePrinterDeviceMode={savePrinterDeviceMode}
-              onSavePrinterDeviceQa={savePrinterDeviceQaRecord}
-              onRefreshPrintJobs={refreshPrintJobs}
-              onDispatchPrintJob={dispatchPrintJobQueueItem}
-              onRetryPrintJob={retryPrintJobQueueItem}
-              helpers={pageHelpers}
-            />
-          )}
           {renderedPage === "workshopMobile" && (
             <WorkshopMobilePage
               orderLines={orderLines}
