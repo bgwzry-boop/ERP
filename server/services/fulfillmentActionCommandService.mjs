@@ -1,6 +1,11 @@
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 import { createDeliveryEvidencePolicyService } from "./deliveryEvidencePolicyService.mjs";
 import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
+import {
+  createFulfillmentActionOrchestrator,
+  resolveQuantityVarianceFulfillmentStatus,
+  resolveWarehouseExecutionFulfillmentStatus,
+} from "./fulfillmentActionOrchestrator.mjs";
 
 const deliveryEvidencePolicyService = createDeliveryEvidencePolicyService();
 const inventoryReservationPolicyService = createInventoryReservationPolicyService();
@@ -64,6 +69,27 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     requireFunction(value, name);
   }
 
+  function recordFulfillmentAction(workspace, transaction) {
+    const fulfillmentId = transaction.fulfillment?.fulfillmentId ?? transaction.fulfillment?.id;
+    const current = findFulfillment(workspace, fulfillmentId);
+    const expectedRevision = transaction.idempotencyPayload?.expectedRevision;
+    const possibleReplay = Boolean(transaction.idempotencyKey)
+      && expectedRevision != null
+      && Number(expectedRevision) < Number(current?.revision ?? 1);
+    const orchestrator = createFulfillmentActionOrchestrator(workspace.fulfillmentActionTransactionRepository);
+    return orchestrator.applyAction({
+      ...transaction,
+      current,
+      action: {
+        nextStatus: transaction.fulfillment?.status ?? current?.status,
+        auditAction: transaction.operationLog?.action,
+      },
+      body: possibleReplay
+        ? { ...transaction.idempotencyPayload, expectedRevision: current.revision }
+        : transaction.idempotencyPayload ?? {},
+    });
+  }
+
   return {
     createFulfillmentException,
     resolveFulfillmentQuantityVariance,
@@ -106,7 +132,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       after,
       reason: payload.reason,
     });
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
@@ -232,7 +258,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       createdAt: resolvedAt,
       updatedAt: resolvedAt,
     };
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: {
@@ -313,7 +339,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       after: { fulfillment: after, paperOutboundDocument: nextPaperDocument },
       reason: nextPaperDocument.handoverNote || "paper_outbound_handed_to_warehouse",
     });
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
@@ -459,7 +485,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       after: { fulfillment: after, paperOutboundDocument: paperDocument, warehouseOutboundExecution },
       reason: warehouseOutboundExecution.note || executionResult,
     });
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
@@ -556,7 +582,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       after,
       reason: cleanText(body.remark) || (method === "pickup" ? "客户完成最终自提交接" : "承运方完成拉走交接"),
     });
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: {
@@ -632,7 +658,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       },
       reason,
     });
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
@@ -713,7 +739,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       after,
       reason: issueReason || reason || "delivery_evidence_reviewed",
     });
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
@@ -915,7 +941,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       },
       reason: body.remark ?? "",
     });
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
@@ -1083,7 +1109,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       operatorId,
       completedAt,
     });
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
@@ -1262,7 +1288,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       after,
       reason: reasonText,
     });
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+    const transaction = await recordFulfillmentAction(workspace, {
       workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload: { ...body, operatorId },
@@ -1382,15 +1408,6 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     return new Date(source).toISOString();
   }
 
-  function resolveWarehouseExecutionFulfillmentStatus(result, method) {
-    if (result === "已备货") return "已备货";
-    if (result === "数量不符") return "数量差异待处理";
-    if (result === "无法出库") return "无法出库";
-    if (method === "delivery") return "待司机装车";
-    if (method === "express_ltl") return "待承运方拉走";
-    return "待确认自提交付";
-  }
-
   function buildWarehouseExecutionTodo(workspace, fulfillment, result, actualQty, operatorId) {
     const expectedQty = Number(fulfillment.qty ?? fulfillment.expectedQty ?? 0);
     const isUnable = result === "无法出库";
@@ -1412,17 +1429,6 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
 
 function cleanText(value) {
   return String(value ?? "").trim();
-}
-
-function resolveQuantityVarianceFulfillmentStatus(result) {
-  const statuses = {
-    "按实际数量出库": "差异已确认待重新出库",
-    "补货后再出库": "待补货",
-    "赠送数量": "差异已确认待重新出库",
-    "暂停等待确认": "数量差异待处理",
-    "作废本次出库指令": "已取消",
-  };
-  return statuses[result] ?? "数量差异待处理";
 }
 
   function normalizeRevision(value) {
