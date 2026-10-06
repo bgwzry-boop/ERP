@@ -77,7 +77,6 @@ import { createInventoryIntentTransactionRepository } from "./inventoryIntentTra
 import { createOrderLineVoidTransactionRepository } from "./orderLineVoidTransactionRepository.mjs";
 import { createOrderLineQuantityAdjustmentTransactionRepository } from "./orderLineQuantityAdjustmentTransactionRepository.mjs";
 import { createProductionPackingReadRepository } from "./productionPackingReadRepository.mjs";
-import { createProductionPackingTransactionRepository } from "./productionPackingTransactionRepository.mjs";
 import { createProductionScheduleRecordRepository } from "./productionScheduleRecordRepository.mjs";
 import { createPrintBatchRepository } from "./printBatchRepository.mjs";
 import { createPrintDeviceRepository } from "./printDeviceRepository.mjs";
@@ -245,7 +244,7 @@ export function createApiServer(options = {}) {
   const orderPoolReadRepository =
     effectiveOptions.orderPoolReadRepository ?? createOrderPoolReadRepository(effectiveOptions.orderPoolReadRepositoryOptions);
   const repositories = createRepositories(effectiveOptions);
-  const { fulfillmentActionTransactionRepository } = repositories;
+  const { fulfillmentActionTransactionRepository, productionPackingTransactionRepository } = repositories;
   const driverDeliveryDispatchRepository =
     effectiveOptions.driverDeliveryDispatchRepository ??
     createDriverDeliveryDispatchRepository(effectiveOptions.driverDeliveryDispatchRepositoryOptions);
@@ -270,9 +269,6 @@ export function createApiServer(options = {}) {
   const orderLineQuantityAdjustmentTransactionRepository =
     effectiveOptions.orderLineQuantityAdjustmentTransactionRepository ??
     createOrderLineQuantityAdjustmentTransactionRepository(effectiveOptions.orderLineQuantityAdjustmentTransactionRepositoryOptions);
-  const productionPackingTransactionRepository =
-    effectiveOptions.productionPackingTransactionRepository ??
-    createProductionPackingTransactionRepository(effectiveOptions.productionPackingTransactionRepositoryOptions);
   const productionPackingReadRepository =
     effectiveOptions.productionPackingReadRepository ??
     createProductionPackingReadRepository(effectiveOptions.productionPackingReadRepositoryOptions);

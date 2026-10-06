@@ -1,5 +1,6 @@
 import { createRawMaterialInboundRepository } from "./rawMaterialInboundRepository.mjs";
 import { createFulfillmentActionTransactionRepository } from "./fulfillmentActionTransactionRepository.mjs";
+import { createProductionPackingTransactionRepository } from "./productionPackingTransactionRepository.mjs";
 
 export function createRepositories(effectiveOptions = {}) {
   return {
@@ -9,5 +10,8 @@ export function createRepositories(effectiveOptions = {}) {
     rawMaterialInboundRepository:
       effectiveOptions.rawMaterialInboundRepository ??
       createRawMaterialInboundRepository(effectiveOptions.rawMaterialInboundRepositoryOptions),
+    productionPackingTransactionRepository:
+      effectiveOptions.productionPackingTransactionRepository ??
+      createProductionPackingTransactionRepository(effectiveOptions.productionPackingTransactionRepositoryOptions),
   };
 }
