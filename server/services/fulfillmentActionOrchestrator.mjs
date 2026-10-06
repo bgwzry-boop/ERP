@@ -51,12 +51,6 @@ export function createFulfillmentActionOrchestrator(repository) {
       const decision = decideFulfillmentAction({ current, action, body });
       return repository.recordFulfillmentAction({
         ...transaction,
-        fulfillment: transaction.fulfillment
-          ? { ...transaction.fulfillment, status: decision.nextStatus }
-          : transaction.fulfillment,
-        operationLog: transaction.operationLog
-          ? { ...transaction.operationLog, action: decision.auditAction }
-          : transaction.operationLog,
         decision,
       });
     },
