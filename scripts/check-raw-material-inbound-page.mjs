@@ -284,7 +284,11 @@ assertExcludes(rawMaterialMobileSource, "签单", "phone receiving surface shoul
 assertIncludes(rawMaterialMobileSource, "if (canReviewRawMaterialInbound(selected)) return 2", "pending review should activate the second mobile step");
 assertIncludes(rawMaterialMobileSource, "if (canPrintRawMaterialLabels(selected)) return 3", "pending label print should activate the third mobile step");
 assertIncludes(rawMaterialPageSource, "printerDeviceQa={printerDeviceQa}", "raw-material mobile printing should receive dynamic printer state");
-assertIncludes(appSource, "printerDeviceQa={printerDeviceQa}", "App should pass dynamic printer state into raw-material receiving");
+assert.match(
+  appSource,
+  /rawMaterial:\s*\{[\s\S]*?printerDeviceQa,[\s\S]*?firstReleaseMode:/,
+  "App should pass dynamic printer state into the registered raw-material receiving page",
+);
 assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
 assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
 assertIncludes(rawMaterialPageSource, "lineReviews", "page should submit every OCR line review with the header review");
