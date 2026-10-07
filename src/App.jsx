@@ -6,7 +6,6 @@ import {
   OrderPoolPage,
   RawMaterialScannerPage,
   StatementPage,
-  TodoPage,
   DriverMobilePage,
   WarehouseMobilePage,
   WorkshopMobilePage,
@@ -1155,7 +1154,6 @@ export function App() {
               <OfficeMobilePage onNavigate={setActivePage} />
             </Suspense>
           )}
-          {renderedPage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
           {renderedPage === "entry" && (
             <EntryPage
               entryText={entryText}
@@ -1192,6 +1190,18 @@ export function App() {
             />
           )}
           {renderRegisteredPage(renderedPage, {
+            todos: {
+              todos,
+              todoMeta,
+              printBatchRecords,
+              selectedTodoId,
+              onSelect: setSelectedTodoId,
+              view: todoView,
+              setView: setTodoView,
+              onAction: handleTodo,
+              onRepairReference: repairTodoReference,
+              helpers: pageHelpers,
+            },
             payroll: { authState, currentUser, permissionContext },
             inventory: {
               inventoryRecords,
