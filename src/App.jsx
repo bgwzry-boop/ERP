@@ -1190,9 +1190,7 @@ export function App() {
           )}
           {renderRegisteredPage(renderedPage, {
             statements: {
-              authState,
-              currentUser,
-              statements,
+              authState, currentUser, statements,
               readMeta: statementReadMeta,
               orderLines,
               selectedId: selectedStatementId,
@@ -1202,9 +1200,7 @@ export function App() {
               helpers: pageHelpers,
             },
             todos: {
-              todos,
-              todoMeta,
-              printBatchRecords,
+              todos, todoMeta, printBatchRecords,
               selectedTodoId,
               onSelect: setSelectedTodoId,
               view: todoView,
