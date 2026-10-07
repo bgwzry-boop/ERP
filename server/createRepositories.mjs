@@ -2,6 +2,7 @@ import { createRawMaterialInboundRepository } from "./rawMaterialInboundReposito
 import { createFulfillmentActionTransactionRepository } from "./fulfillmentActionTransactionRepository.mjs";
 import { createProductionPackingTransactionRepository } from "./productionPackingTransactionRepository.mjs";
 import { createOrderDraftRepository } from "./orderDraftRepository.mjs";
+import { createAttendancePayrollRepository } from "./attendancePayrollRepository.mjs";
 
 export function createRepositories(effectiveOptions = {}) {
   return {
@@ -17,5 +18,8 @@ export function createRepositories(effectiveOptions = {}) {
     orderDraftRepository:
       effectiveOptions.orderDraftRepository ??
       createOrderDraftRepository(effectiveOptions.orderDraftRepositoryOptions),
+    attendancePayrollRepository:
+      effectiveOptions.attendancePayrollRepository ??
+      createAttendancePayrollRepository(effectiveOptions.attendancePayrollRepositoryOptions),
   };
 }

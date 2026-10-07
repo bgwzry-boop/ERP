@@ -89,7 +89,6 @@ import { createRepositories } from "./createRepositories.mjs";
 import { createRawMaterialSupplierStatementReviewRepository } from "./rawMaterialSupplierStatementReviewRepository.mjs";
 import { createRawMaterialPurchaseRepository } from "./rawMaterialPurchaseRepository.mjs";
 import { createMaintenanceTaskRepository } from "./maintenanceTaskRepository.mjs";
-import { createAttendancePayrollRepository } from "./attendancePayrollRepository.mjs";
 import { createConfiguredAttendanceProvider } from "./attendanceProvider.mjs";
 import { createRuntimeIdentityRepository } from "./runtimeIdentityRepository.mjs";
 import { createBusinessDecisionEvidenceRepository } from "./businessDecisionEvidenceRepository.mjs";
@@ -302,9 +301,7 @@ export function createApiServer(options = {}) {
   const maintenanceTaskRepository =
     effectiveOptions.maintenanceTaskRepository ??
     createMaintenanceTaskRepository(effectiveOptions.maintenanceTaskRepositoryOptions);
-  const attendancePayrollRepository =
-    effectiveOptions.attendancePayrollRepository ??
-    createAttendancePayrollRepository(effectiveOptions.attendancePayrollRepositoryOptions);
+  const { attendancePayrollRepository } = repositories;
   const attendanceProvider =
     effectiveOptions.attendanceProvider ??
     createConfiguredAttendanceProvider(effectiveOptions.attendanceProviderOptions);
