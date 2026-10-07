@@ -386,3 +386,107 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   );
   return { warehouseHeaders };
 }
+
+export async function checkProductionScheduleQueueApi(runtime, {
+  baseUrl, scheduleHeaders, apiScheduleTaskId, apiSchedulePublish, postJson, liveManagerRuntimeUserId,
+}) {
+  const { runPsql, queryJson, sqlLiteral } = runtime;
+  const apiScheduleQueueRevision = Number(
+    runPsql(
+      `SELECT revision FROM production_schedule_records
+       WHERE production_task_id = '${apiScheduleTaskId}' AND schedule_status = 'active';`,
+      { capture: true },
+    ).trim(),
+  );
+  const apiScheduleResequenceBody = {
+    machineId: "BAG-LIVE-01",
+    orderedProductionTaskIds: [apiScheduleTaskId],
+    expectedRevision: apiScheduleQueueRevision,
+    affectedRevisions: [{ productionTaskId: apiScheduleTaskId, revision: apiScheduleQueueRevision }],
+    businessDecisionTargetId: apiScheduleTaskId,
+    directDecisionContent: { summary: "负责人确认调整排产顺序" },
+    operatorId: "U-SPOOFED",
+    updatedAt: "2026-07-02T12:50:00.000Z",
+    remark: "postgres live schedule resequence",
+    idempotencyKey: "production-schedule-resequence-live-001",
+  };
+  const apiScheduleResequence = await postJson(
+    baseUrl,
+    "/api/production-schedules/machine-queue/resequence",
+    apiScheduleResequenceBody,
+    { headers: scheduleHeaders },
+  );
+  const replayedApiScheduleResequence = await postJson(
+    baseUrl,
+    "/api/production-schedules/machine-queue/resequence",
+    apiScheduleResequenceBody,
+    { headers: scheduleHeaders },
+  );
+  postgresAssertions.assertReplayedApiScheduleResequence({ replayedApiScheduleResequence, apiScheduleResequence, liveManagerRuntimeUserId });
+
+  const apiScheduleMoveTaskRevision = Number(
+    runPsql(
+      `SELECT revision FROM production_tasks WHERE id = '${apiScheduleTaskId}';`,
+      { capture: true },
+    ).trim(),
+  );
+  const apiScheduleMoveBody = {
+    productionTaskId: apiScheduleTaskId,
+    targetMachineId: "BAG-LIVE-02",
+    targetQueueSeq: 2,
+    expectedRevision: apiScheduleMoveTaskRevision,
+    directDecisionContent: { summary: "负责人确认调整生产机台" },
+    operatorId: "U-SPOOFED",
+    updatedAt: "2026-07-02T12:55:00.000Z",
+    remark: "postgres live schedule move",
+    idempotencyKey: "production-schedule-move-live-001",
+  };
+  const apiScheduleMove = await postJson(
+    baseUrl,
+    "/api/production-schedules/machine-queue/move",
+    apiScheduleMoveBody,
+    { headers: scheduleHeaders },
+  );
+  const replayedApiScheduleMove = await postJson(
+    baseUrl,
+    "/api/production-schedules/machine-queue/move",
+    apiScheduleMoveBody,
+    { headers: scheduleHeaders },
+  );
+  assert.equal(replayedApiScheduleMove.operationLogId, apiScheduleMove.operationLogId);
+  assert.equal(replayedApiScheduleMove.sourceMachineId, "BAG-LIVE-01");
+  assert.equal(replayedApiScheduleMove.targetMachineId, "BAG-LIVE-02");
+  assert.equal(replayedApiScheduleMove.targetQueueSeq, apiScheduleMove.targetQueueSeq);
+  assert.equal(replayedApiScheduleMove.updatedBy, liveManagerRuntimeUserId);
+  assert.equal(
+    Number(
+      runPsql(
+        `SELECT COUNT(*) FROM production_schedule_records WHERE production_task_id = '${apiScheduleTaskId}';`,
+        { capture: true },
+      ).trim(),
+    ),
+    2,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        "SELECT COUNT(*) FROM operation_idempotency_keys WHERE scope IN ('production.schedule.publish', 'production.schedule.resequence', 'production.schedule.move') AND idempotency_key LIKE '%live-001';",
+        { capture: true },
+      ).trim(),
+    ),
+    3,
+  );
+  assert.equal(
+    Number(
+      runPsql(
+        `SELECT COUNT(*) FROM operation_logs WHERE id IN (${[
+          apiSchedulePublish.operationLogId,
+          apiScheduleResequence.operationLogId,
+          apiScheduleMove.operationLogId,
+        ].map(sqlLiteral).join(", ")});`,
+        { capture: true },
+      ).trim(),
+    ),
+    3,
+  );
+}
