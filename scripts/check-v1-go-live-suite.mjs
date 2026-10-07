@@ -9,6 +9,7 @@ import {
   getTestServerBaseUrl,
   listenTestServer as listen,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const suiteScript = join(process.cwd(), "scripts", "run-v1-go-live-suite.mjs");
 const tempRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-go-live-suite");
@@ -1010,7 +1011,7 @@ assert.match(readFileSync(join(csvOutputRoot, "field-evidence-intake", "intake-s
 assert.doesNotMatch(csvRun.stdout + csvRun.stderr + csvSuiteSummary, /办公室负责人|总负责人/);
 assertNoSensitiveOutput(csvRun.stdout + csvRun.stderr + csvSuiteSummary);
 
-const server = createApiServer({ allowLocalFixture: true });
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true }));
 try {
   await listen(server);
   const baseUrl = `${getTestServerBaseUrl(server)}/api`;

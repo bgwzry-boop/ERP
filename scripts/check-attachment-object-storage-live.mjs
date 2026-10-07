@@ -4,6 +4,7 @@ import { createServer } from "node:http";
 import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "attachment-object-storage-live");
 const bucketName = "erp-v1-attachment-live-check";
@@ -19,7 +20,7 @@ const objectStorageServer = createFakeS3CompatibleServer({ bucketName });
 try {
   await listen(objectStorageServer.server);
   const endpoint = `http://127.0.0.1:${objectStorageServer.server.address().port}`;
-  const apiServer = createApiServer({ allowLocalFixture: true,
+  const apiServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     attachmentRepositoryOptions: { storageRoot },
     attachmentAccessAuditRepositoryOptions: { storageRoot },
     attachmentObjectStorageOptions: {
@@ -33,7 +34,7 @@ try {
       keyPrefix,
       forcePathStyle: true,
     },
-  });
+  }));
 
   try {
     await listen(apiServer);

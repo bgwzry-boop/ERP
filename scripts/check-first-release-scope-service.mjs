@@ -14,6 +14,7 @@ import {
   listenTestServer,
   requestJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "first-release-scope");
 rmSync(checkStorageRoot, { recursive: true, force: true });
@@ -168,12 +169,12 @@ function evaluate(pathname, method = "POST") {
 }
 
 async function checkApiBoundary() {
-  const server = createApiServer({ allowLocalFixture: true,
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     firstReleaseScope: "raw_material",
     runtimeMode: "test",
     runtimeStorageRoot: join(checkStorageRoot, "api"),
     applyProductionEnvFile: false,
-  });
+  }));
   await listenTestServer(server);
   const baseUrl = getTestServerBaseUrl(server);
   const officeHeaders = { "x-erp-user-id": "U-OFFICE-A" };
@@ -294,14 +295,14 @@ async function checkApiBoundary() {
 }
 
 async function checkAuthenticationPrecedence() {
-  const server = createApiServer({ allowLocalFixture: true,
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     firstReleaseScope: "raw_material",
     runtimeMode: "test",
     runtimeStorageRoot: join(checkStorageRoot, "strict-api"),
     strictAuth: true,
     authSecret: "first-release-auth-precedence-secret",
     applyProductionEnvFile: false,
-  });
+  }));
   await listenTestServer(server);
   try {
     const response = await requestJson(getTestServerBaseUrl(server), "/api/order-drafts/recognize", {

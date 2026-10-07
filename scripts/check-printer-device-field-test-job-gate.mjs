@@ -10,13 +10,14 @@ import {
   listenTestServer,
   postJson as postSharedJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = mkdtempSync(join(tmpdir(), "erp-printer-qa-gate-"));
-const server = createApiServer({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   printDeviceRepositoryOptions: { storageRoot },
   printJobRepositoryOptions: { storageRoot },
   printerDeviceFieldTestRepositoryOptions: { storageRoot },
-});
+}));
 await server.ready;
 await listenTestServer(server);
 

@@ -25,6 +25,7 @@ import {
   listenTestServer,
   postJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "runtime-identity");
 rmSync(storageRoot, { recursive: true, force: true });
@@ -213,7 +214,7 @@ let restartedServer = null;
 let revokedCheckServer = null;
 
 try {
-  server = createApiServer({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
+  server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } }));
   await listenTestServer(server);
   const baseUrl = getTestServerBaseUrl(server);
   const health = await getJson(baseUrl, "/api/health");
@@ -249,7 +250,7 @@ try {
   await closeTestServer(server);
   server = null;
 
-  restartedServer = createApiServer({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
+  restartedServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } }));
   await listenTestServer(restartedServer);
   const restartedBaseUrl = getTestServerBaseUrl(restartedServer);
 
@@ -351,7 +352,7 @@ try {
   await closeTestServer(restartedServer);
   restartedServer = null;
 
-  revokedCheckServer = createApiServer({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
+  revokedCheckServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } }));
   await listenTestServer(revokedCheckServer);
   const revokedCheckBaseUrl = getTestServerBaseUrl(revokedCheckServer);
   const revokedSessionAfterRestart = await getJson(revokedCheckBaseUrl, "/api/auth/me", {

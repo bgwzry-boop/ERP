@@ -10,14 +10,15 @@ import {
   listenTestServer,
   requestJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const pressureResult = runReminderPressureCheck();
 const concurrentRepository = createConcurrentTodoRepository();
-const server = createApiServer({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   runtimeMode: "test",
   applyProductionEnvFile: false,
   todoActionRepository: concurrentRepository,
-});
+}));
 await server.ready;
 await listenTestServer(server);
 

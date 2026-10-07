@@ -37,6 +37,7 @@ import {
   updateOfficeMasterDataEmployeeAssignment,
   updateOfficeMasterDataMachine,
 } from "../src/services/officeMasterDataImportApiClient.js";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "master-data-import-api");
 rmSync(checkStorageRoot, { recursive: true, force: true });
@@ -82,7 +83,7 @@ const readyDraft = createMasterDataImportReviewDraft({
   createdAt: generatedAt,
 });
 
-let server = createApiServer({ allowLocalFixture: true });
+let server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true }));
 let restartedServer = null;
 
 try {
@@ -1146,7 +1147,7 @@ try {
   await closeServer(server);
   server = null;
 
-  restartedServer = createApiServer({ allowLocalFixture: true });
+  restartedServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true }));
   await listen(restartedServer);
   const restartedBaseUrl = getTestServerBaseUrl(restartedServer);
   const restartedList = await getJson(

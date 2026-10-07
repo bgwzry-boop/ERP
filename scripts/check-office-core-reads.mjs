@@ -131,6 +131,7 @@ for (const actionName of ["refreshTodos", "refreshOrderPool", "refreshInventoryR
 assert.equal(formalOptions.every((options) => options?.serverRequired === true), true);
 
 const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const pageRegistrySource = readFileSync(new URL("../src/app/pageRegistry.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
 const sharedUiSource = readFileSync(new URL("../src/shared/ui/operational.jsx", import.meta.url), "utf8");
 const shellStylesSource = readFileSync(new URL("../src/styles/shell.css", import.meta.url), "utf8");
@@ -139,7 +140,8 @@ for (const apiName of ["listOfficeTodos", "listOfficeOrderLines", "listOfficeInv
 }
 assert.match(workspaceSource, /useOfficeCoreReads/);
 assert.match(workspaceSource, /\.\.\.coreReads/);
-assert.match(appSource, /renderedPage === "fulfillment"/);
+assert.match(appSource, /renderRegisteredPage\(renderedPage/);
+assert.match(pageRegistrySource, /fulfillment:\s*\(props\)\s*=>\s*createElement\(FulfillmentPage/);
 assert.match(appSource, /<WorkspaceNotice>/);
 assert.match(appSource, /<WorkspacePageHeader/);
 assert.equal(appSource.indexOf("<WorkspaceNotice>") < appSource.indexOf("<WorkspacePageHeader"), true);

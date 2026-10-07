@@ -512,7 +512,7 @@ function statement(id, customerId, status, receivable, received, variance, perio
 }
 
 function rawMaterialInbound(input) {
-  return { ...input };
+  return { ...input, revision: input.revision ?? 1 };
 }
 
 function rawMaterialRoll(id, supplierRollNo, weightKg, labelStatus, inventoryStatus, location, labelVerifiedAt = "") {

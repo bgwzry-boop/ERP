@@ -3,19 +3,12 @@ import { MenuFoldOutlined } from "@ant-design/icons";
 import bagwinSymbolUrl from "./assets/brand/BAGWIN_symbol_color.svg";
 import {
   EntryPage,
-  FulfillmentPage,
-  InventoryPage,
   OrderPoolPage,
-  ProductionPackingPage,
   RawMaterialScannerPage,
-  StatementPage,
-  TodoPage,
-  DriverMobilePage,
-  WarehouseMobilePage,
   WorkshopMobilePage,
 } from "./pages/office/index.jsx";
 import { RAW_MATERIAL_FIRST_RELEASE_ENABLED } from "./config/rawMaterialFirstRelease.js";
-import { renderPageFromRegistry } from "./app/pageRegistry.js";
+import { renderRegisteredPage } from "./app/pageRegistry.js";
 import {
   allNavigationItems,
   desktopRequiredMobilePage,
@@ -134,7 +127,6 @@ const DecisionMobilePage = lazy(() => import("./features/decisions/DecisionMobil
 const MaintenanceMobilePage = lazy(() => import("./features/maintenance/MaintenanceMobilePage.jsx").then((module) => ({ default: module.MaintenanceMobilePage })));
 const DesktopRequiredMobilePage = lazy(() => import("./features/mobile/DesktopRequiredMobilePage.jsx").then((module) => ({ default: module.DesktopRequiredMobilePage })));
 const MasterDataMaintenancePage = lazy(() => import("./features/master-data/MasterDataMaintenancePage.jsx").then((module) => ({ default: module.MasterDataMaintenancePage })));
-const PayrollAttendancePage = lazy(() => import("./features/payroll/PayrollAttendancePage.jsx").then((module) => ({ default: module.PayrollAttendancePage })));
 const EmployeeAttendanceMobilePage = lazy(() => import("./features/payroll/EmployeeAttendanceMobilePage.jsx").then((module) => ({ default: module.EmployeeAttendanceMobilePage })));
 
 const officeScenarioData = loadOfficeWorkspace();
@@ -1159,7 +1151,6 @@ export function App() {
               <OfficeMobilePage onNavigate={setActivePage} />
             </Suspense>
           )}
-          {renderedPage === "todos" && <TodoPage todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
           {renderedPage === "entry" && (
             <EntryPage
               entryText={entryText}
@@ -1195,78 +1186,134 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {renderedPage === "inventory" && (
-            <InventoryPage
-              inventoryRecords={inventoryRecords}
-              inventoryMeta={inventoryMeta}
-              inventoryLedgerEntries={inventoryLedgerState.items}
-              inventoryLedgerMeta={inventoryLedgerState}
-              inventoryLedgerFilters={inventoryLedgerFilters}
-              setInventoryLedgerFilters={setInventoryLedgerFilters}
-              inventoryCorrectionDetailState={inventoryCorrectionDetailState}
-              inventoryCorrectionQueueState={inventoryCorrectionQueueState} inventoryIntentState={inventoryIntentState}
-              selectedStockId={selectedStockId}
-              setSelectedStockId={setSelectedStockId}
-              setToast={setToast}
-              onCreateCorrectionDraft={handleInventoryCorrectionDraft}
-              onLinkCorrectionAttachment={handleInventoryCorrectionAttachment}
-              onConfirmCorrectionDraft={handleInventoryCorrectionConfirm}
-              onOpenCorrectionDraft={openInventoryCorrectionDetail}
-              onRefreshCorrectionQueue={refreshInventoryCorrectionQueueAction}
-              onRefreshInventoryLedger={refreshInventoryLedgerAction}
-              onRefreshInventoryIntents={refreshInventoryIntents} onCreateTemporaryHold={createTemporaryInventoryHold}
-              onReleaseTemporaryHold={releaseTemporaryInventoryHold} onExtendTemporaryHold={extendTemporaryInventoryHold} onConvertTemporaryHoldToOrder={async ({ hold, intent, candidate }) => { const result = await prepareOrderDraftFromTemporaryHold({ hold, intent, candidate }); if (!result?.blocked) setActivePage("entry"); return result; }}
-              onLocateInventoryLedgerSource={focusInventoryLedgerSource}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "fulfillment" && (
-            <FulfillmentPage
-              authState={authState}
-              currentUser={currentUser}
-              tab={fulfillmentTab}
-              setTab={setFulfillmentTab}
-              fulfillments={fulfillments}
-              orderLines={orderLines}
-              selectedId={selectedFulfillmentId}
-              setSelectedId={setSelectedFulfillmentId}
-              onAction={updateFulfillment}
-              onRefresh={() => refreshFulfillments({ showToast: true })}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "packing" && (
-            <ProductionPackingPage
-              authState={authState}
-              currentUser={currentUser}
-              orderLines={orderLines}
-              fulfillments={fulfillments}
-              inventoryRecords={inventoryRecords}
-              productionPacking={productionPacking}
-              focusTarget={productionPackingFocus}
-              sourceDetailState={productionPackingDetailState}
-              printerDeviceQa={printerDeviceQa}
-              printJobQueue={printJobQueue}
-              printDriverConfig={printDriverConfig}
-              printDriverReadiness={printDriverReadiness}
-              printDriverCupsDiagnostics={printDriverCupsDiagnostics}
-              onAction={handleProductionPackingAction}
-              onRefreshProduction={() => refreshProductionPackingTaskLists({ showToast: false })}
-              onRefreshPrintDriverConfig={refreshPrintDriverDiagnostics}
-              onRefreshPrintDriverReadiness={() => refreshPrintDriverReadiness({ showToast: true })}
-              onRefreshPrinterDeviceQa={() => refreshPrinterDeviceQa({ showToast: true })}
-              onSelectPrinterDeviceQaDevice={selectPrinterDeviceQaDevice}
-              onChangePrinterDeviceQaField={changePrinterDeviceQaField}
-              onChangePrinterDeviceQaCheck={changePrinterDeviceQaCheck}
-              onChangePrinterDeviceQaEvidenceField={changePrinterDeviceQaEvidenceField}
-              onSavePrinterDeviceMode={savePrinterDeviceMode}
-              onSavePrinterDeviceQa={savePrinterDeviceQaRecord}
-              onRefreshPrintJobs={refreshPrintJobs}
-              onDispatchPrintJob={dispatchPrintJobQueueItem}
-              onRetryPrintJob={retryPrintJobQueueItem}
-              helpers={pageHelpers}
-            />
-          )}
+          {renderRegisteredPage(renderedPage, {
+            statements: {
+              authState, currentUser, statements,
+              readMeta: statementReadMeta,
+              orderLines,
+              selectedId: selectedStatementId,
+              setSelectedId: setSelectedStatementId,
+              onAction: statementAction,
+              onRefresh: () => refreshStatementDetail({ statementId: selectedStatementId, showToast: false }),
+              helpers: pageHelpers,
+            },
+            todos: {
+              todos, todoMeta, printBatchRecords,
+              selectedTodoId,
+              onSelect: setSelectedTodoId,
+              view: todoView,
+              setView: setTodoView,
+              onAction: handleTodo,
+              onRepairReference: repairTodoReference,
+              helpers: pageHelpers,
+            },
+            driverMobile: {
+              tasks: driverDeliveryTasks, selectedTaskId: selectedDriverTaskId,
+              setSelectedTaskId: setSelectedDriverTaskId, meta: driverDeliveryMeta,
+              onAction: handleDriverDeliveryAction, helpers: pageHelpers,
+            },
+            warehouseMobile: {
+              fulfillments, orderLines, selectedId: selectedFulfillmentId,
+              setSelectedId: setSelectedFulfillmentId, onAction: updateFulfillment,
+              helpers: pageHelpers,
+            },
+            payroll: { authState, currentUser, permissionContext },
+            inventory: {
+              inventoryRecords,
+              inventoryMeta,
+              inventoryLedgerEntries: inventoryLedgerState.items,
+              inventoryLedgerMeta: inventoryLedgerState,
+              inventoryLedgerFilters,
+              setInventoryLedgerFilters,
+              inventoryCorrectionDetailState,
+              inventoryCorrectionQueueState,
+              inventoryIntentState,
+              selectedStockId,
+              setSelectedStockId,
+              setToast,
+              onCreateCorrectionDraft: handleInventoryCorrectionDraft,
+              onLinkCorrectionAttachment: handleInventoryCorrectionAttachment,
+              onConfirmCorrectionDraft: handleInventoryCorrectionConfirm,
+              onOpenCorrectionDraft: openInventoryCorrectionDetail,
+              onRefreshCorrectionQueue: refreshInventoryCorrectionQueueAction,
+              onRefreshInventoryLedger: refreshInventoryLedgerAction,
+              onRefreshInventoryIntents: refreshInventoryIntents,
+              onCreateTemporaryHold: createTemporaryInventoryHold,
+              onReleaseTemporaryHold: releaseTemporaryInventoryHold,
+              onExtendTemporaryHold: extendTemporaryInventoryHold,
+              onConvertTemporaryHoldToOrder: async ({ hold, intent, candidate }) => {
+                const result = await prepareOrderDraftFromTemporaryHold({ hold, intent, candidate });
+                if (!result?.blocked) setActivePage("entry");
+                return result;
+              },
+              onLocateInventoryLedgerSource: focusInventoryLedgerSource,
+              helpers: pageHelpers,
+            },
+            fulfillment: {
+              authState,
+              currentUser,
+              tab: fulfillmentTab,
+              setTab: setFulfillmentTab,
+              fulfillments,
+              orderLines,
+              selectedId: selectedFulfillmentId,
+              setSelectedId: setSelectedFulfillmentId,
+              onAction: updateFulfillment,
+              onRefresh: () => refreshFulfillments({ showToast: true }),
+              helpers: pageHelpers,
+            },
+            rawMaterial: {
+              authState,
+              currentUser,
+              inbounds: rawMaterialInbounds,
+              meta: rawMaterialInboundMeta,
+              productionTasks: productionPacking.productionTasks,
+              statementReviews: rawMaterialSupplierStatementReviews,
+              statementReviewMeta: rawMaterialSupplierStatementReviewMeta,
+              selectedId: selectedRawMaterialInboundId,
+              setSelectedId: setSelectedRawMaterialInboundId,
+              onAction: updateRawMaterialInbound,
+              onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote,
+              onStatementReviewDraftCreate: saveRawMaterialSupplierStatementReviewDraft,
+              onStatementReviewConfirm: confirmRawMaterialSupplierStatementReviewDraft,
+              onStatementConfirm: confirmRawMaterialSupplierStatement,
+              onPayableDraftGenerate: generateRawMaterialSupplierPayableDraft,
+              onPaymentConfirm: confirmRawMaterialSupplierPayment,
+              printerDeviceQa,
+              helpers: pageHelpers,
+              firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
+            },
+            packing: {
+              authState,
+              currentUser,
+              orderLines,
+              fulfillments,
+              inventoryRecords,
+              productionPacking,
+              focusTarget: productionPackingFocus,
+              sourceDetailState: productionPackingDetailState,
+              printerDeviceQa,
+              printJobQueue,
+              printDriverConfig,
+              printDriverReadiness,
+              printDriverCupsDiagnostics,
+              onAction: handleProductionPackingAction,
+              onRefreshProduction: () => refreshProductionPackingTaskLists({ showToast: false }),
+              onRefreshPrintDriverConfig: refreshPrintDriverDiagnostics,
+              onRefreshPrintDriverReadiness: () => refreshPrintDriverReadiness({ showToast: true }),
+              onRefreshPrinterDeviceQa: () => refreshPrinterDeviceQa({ showToast: true }),
+              onSelectPrinterDeviceQaDevice: selectPrinterDeviceQaDevice,
+              onChangePrinterDeviceQaField: changePrinterDeviceQaField,
+              onChangePrinterDeviceQaCheck: changePrinterDeviceQaCheck,
+              onChangePrinterDeviceQaEvidenceField: changePrinterDeviceQaEvidenceField,
+              onSavePrinterDeviceMode: savePrinterDeviceMode,
+              onSavePrinterDeviceQa: savePrinterDeviceQaRecord,
+              onRefreshPrintJobs: refreshPrintJobs,
+              onDispatchPrintJob: dispatchPrintJobQueueItem,
+              onRetryPrintJob: retryPrintJobQueueItem,
+              helpers: pageHelpers,
+            },
+          })}
           {renderedPage === "workshopMobile" && (
             <WorkshopMobilePage
               orderLines={orderLines}
@@ -1274,26 +1321,6 @@ export function App() {
               productionPacking={productionPacking}
               onAction={handleProductionPackingAction}
               onNavigate={setActivePage}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "driverMobile" && (
-            <DriverMobilePage
-              tasks={driverDeliveryTasks}
-              selectedTaskId={selectedDriverTaskId}
-              setSelectedTaskId={setSelectedDriverTaskId}
-              meta={driverDeliveryMeta}
-              onAction={handleDriverDeliveryAction}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "warehouseMobile" && (
-            <WarehouseMobilePage
-              fulfillments={fulfillments}
-              orderLines={orderLines}
-              selectedId={selectedFulfillmentId}
-              setSelectedId={setSelectedFulfillmentId}
-              onAction={updateFulfillment}
               helpers={pageHelpers}
             />
           )}
@@ -1316,41 +1343,6 @@ export function App() {
               <MaintenanceMobilePage authState={authState} currentUser={currentUser} />
             </Suspense>
           )}
-          {renderedPage === "statements" && (
-            <StatementPage
-              authState={authState}
-              currentUser={currentUser}
-              statements={statements}
-              readMeta={statementReadMeta}
-              orderLines={orderLines}
-              selectedId={selectedStatementId}
-              setSelectedId={setSelectedStatementId}
-              onAction={statementAction}
-              onRefresh={() => refreshStatementDetail({ statementId: selectedStatementId, showToast: false })}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderPageFromRegistry(renderedPage, {
-            authState,
-            currentUser,
-            inbounds: rawMaterialInbounds,
-            meta: rawMaterialInboundMeta,
-            productionTasks: productionPacking.productionTasks,
-            statementReviews: rawMaterialSupplierStatementReviews,
-            statementReviewMeta: rawMaterialSupplierStatementReviewMeta,
-            selectedId: selectedRawMaterialInboundId,
-            setSelectedId: setSelectedRawMaterialInboundId,
-            onAction: updateRawMaterialInbound,
-            onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote,
-            onStatementReviewDraftCreate: saveRawMaterialSupplierStatementReviewDraft,
-            onStatementReviewConfirm: confirmRawMaterialSupplierStatementReviewDraft,
-            onStatementConfirm: confirmRawMaterialSupplierStatement,
-            onPayableDraftGenerate: generateRawMaterialSupplierPayableDraft,
-            onPaymentConfirm: confirmRawMaterialSupplierPayment,
-            printerDeviceQa,
-            helpers: pageHelpers,
-            firstReleaseMode: RAW_MATERIAL_FIRST_RELEASE_ENABLED,
-          })}
           {renderedPage === "rawMaterialScanner" && (
             <RawMaterialScannerPage
               inbounds={rawMaterialInbounds}
@@ -1376,11 +1368,6 @@ export function App() {
               onBatchEnableEmployeeAccounts={enableMasterDataEmployeeAccounts} onOpenImportTemplate={openMasterDataTemplatePanel}
               helpers={pageHelpers}
             /></Suspense>
-          )}
-          {renderedPage === "payroll" && (
-            <Suspense fallback={<DataState title="工资核算工作台加载中" />}>
-              <PayrollAttendancePage authState={authState} currentUser={currentUser} permissionContext={permissionContext} />
-            </Suspense>
           )}
           {renderedPage === "v1Status" && (
             <Suspense fallback={<DataState title="上线状态加载中" />}>

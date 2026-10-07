@@ -40,12 +40,26 @@ export function createLocalFulfillmentActionTransactionRepository() {
   return {
     kind: "local_memory",
 
-    recordFulfillmentAction(input) {
+    recordFulfillmentAction(requestedInput) {
+      const input = consumeFulfillmentActionDecision(requestedInput);
       if (input.quantityVarianceResolution || input.decisionRecord) {
         return commitLocalFulfillmentDecision(input);
       }
       return commitLocalFulfillmentAction(input);
     },
+  };
+}
+
+function consumeFulfillmentActionDecision(input) {
+  if (!input.decision) return input;
+  return {
+    ...input,
+    fulfillment: input.fulfillment
+      ? { ...input.fulfillment, status: input.decision.nextStatus }
+      : input.fulfillment,
+    operationLog: input.operationLog
+      ? { ...input.operationLog, action: input.decision.auditAction }
+      : input.operationLog,
   };
 }
 
@@ -211,7 +225,8 @@ function fulfillmentConflict(currentRevision) {
 export function createPostgresFulfillmentActionTransactionRepository(options = {}) {
   const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
-  const recordFulfillmentAction = async (input) => {
+  const recordFulfillmentAction = async (requestedInput) => {
+    const input = consumeFulfillmentActionDecision(requestedInput);
     const query = buildRecordFulfillmentActionTransactionQuery(input);
     const fulfillmentId = input.fulfillment?.fulfillmentId ?? input.fulfillment?.id ?? "";
     const idempotencyRequest = buildPostgresIdempotencyRequest({

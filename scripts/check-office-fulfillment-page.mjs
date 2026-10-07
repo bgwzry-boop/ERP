@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const fulfillmentPageSource = readFileSync(new URL("../src/features/fulfillment/FulfillmentPage.jsx", import.meta.url), "utf8");
+const pageRegistrySource = readFileSync(new URL("../src/app/pageRegistry.js", import.meta.url), "utf8");
+const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
 
 assert.match(fulfillmentPageSource, /export function FulfillmentPage/);
@@ -26,5 +28,8 @@ for (const label of ["确认数量差异处理", "纸单数量 / 实际数量", 
 assert.match(fulfillmentPageSource, /formatBusinessDecisionChannelAndTime/);
 assert.match(officePageSource, /export \{ FulfillmentPage \} from "\.\.\/\.\.\/features\/fulfillment\/FulfillmentPage\.jsx";/);
 assert.doesNotMatch(officePageSource, /function FulfillmentPage/);
+assert.match(pageRegistrySource, /fulfillment: \(props\) => createElement\(FulfillmentPage, props\.fulfillment\)/);
+assert.match(appSource, /renderRegisteredPage\(renderedPage/);
+assert.doesNotMatch(appSource, /<FulfillmentPage/);
 
 console.log("Office fulfillment page check passed: the feature is isolated and delivery-evidence review remains intact.");

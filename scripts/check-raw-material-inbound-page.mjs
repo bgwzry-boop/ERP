@@ -50,8 +50,8 @@ assertIncludes(fixturesSource, "供应商单号未提供", "fixtures should cove
 assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expose the raw-material page");
 assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");
 assertIncludes(navigationSource, 'if (defaultRole === "office") return "rawMaterials";', "office phones should enter the existing raw-material mobile flow instead of a compressed PC table");
-assertIncludes(appSource, "renderPageFromRegistry(renderedPage", "App should render the registered raw-material inbound page");
-assertIncludes(pageRegistrySource, "rawMaterials: RawMaterialInboundPage", "the page registry should own the raw-material route");
+assertIncludes(appSource, "renderRegisteredPage(renderedPage", "App should render the registered raw-material inbound page");
+assertIncludes(pageRegistrySource, "rawMaterials: (props) => createElement(RawMaterialInboundPage, props.rawMaterial)", "the page registry should own the raw-material route");
 assertIncludes(appSource, "mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage", "App should preserve one business route with viewport-specific workbenches");
 assertIncludes(appSource, "onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote", "desktop and phone raw-material entry should share the formal server OCR action");
 assertIncludes(appSource, "createOfficeRawMaterialActions", "App should compose the raw-material action controller");
@@ -284,7 +284,11 @@ assertExcludes(rawMaterialMobileSource, "签单", "phone receiving surface shoul
 assertIncludes(rawMaterialMobileSource, "if (canReviewRawMaterialInbound(selected)) return 2", "pending review should activate the second mobile step");
 assertIncludes(rawMaterialMobileSource, "if (canPrintRawMaterialLabels(selected)) return 3", "pending label print should activate the third mobile step");
 assertIncludes(rawMaterialPageSource, "printerDeviceQa={printerDeviceQa}", "raw-material mobile printing should receive dynamic printer state");
-assertIncludes(appSource, "printerDeviceQa={printerDeviceQa}", "App should pass dynamic printer state into raw-material receiving");
+assert.match(
+  appSource,
+  /rawMaterial:\s*\{[\s\S]*?printerDeviceQa,[\s\S]*?firstReleaseMode:/,
+  "App should pass dynamic printer state into the registered raw-material receiving page",
+);
 assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
 assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
 assertIncludes(rawMaterialPageSource, "lineReviews", "page should submit every OCR line review with the header review");

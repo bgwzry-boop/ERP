@@ -1,3 +1,5 @@
+import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
+
 export function createFulfillmentPrintCommandService({
   buildFulfillmentActionRecord,
   buildFulfillmentPrintTemplate,
@@ -147,9 +149,16 @@ export function createFulfillmentPrintCommandService({
         "Production printing requires one atomic fulfillment and print-job transaction.",
       );
     }
+    const orchestrator = createFulfillmentActionOrchestrator(workspace.fulfillmentActionTransactionRepository);
+    const actionInput = {
+      ...transactionInput,
+      current: before,
+      action: { nextStatus: fulfillment.status, auditAction: operationLog.action },
+      body: printableBody,
+    };
     if (canPersistPrintAtomically) {
-      const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentPrint({
-        ...transactionInput,
+      const transaction = await orchestrator.applyPrint({
+        ...actionInput,
         printJob,
         printJobOperationLog,
       });
@@ -170,7 +179,7 @@ export function createFulfillmentPrintCommandService({
       };
     }
 
-    const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction(transactionInput);
+    const transaction = await orchestrator.applyAction(actionInput);
     const savedPrintRecord = transaction.printRecord ?? printRecord;
     const printJobTransaction = await workspace.printJobRepository.createPrintJob({
       workspace,
@@ -293,14 +302,20 @@ export function createFulfillmentPrintCommandService({
     });
 
     if (fulfillment) {
-      const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+      const nextActionRecord = buildFulfillmentActionRecord(workspace, fulfillmentAfterPaperVoid, {
+        operatorId,
+        actualQty: fulfillment.actualQty ?? fulfillment.qty,
+      });
+      const transaction = await createFulfillmentActionOrchestrator(
+        workspace.fulfillmentActionTransactionRepository,
+      ).applyAction({
+        current: fulfillment,
+        action: { nextStatus: nextActionRecord.status, auditAction: operationLog.action },
+        body,
         workspace,
         idempotencyKey: body.idempotencyKey,
         idempotencyPayload: { ...body, operatorId },
-        fulfillment: buildFulfillmentActionRecord(workspace, fulfillmentAfterPaperVoid, {
-          operatorId,
-          actualQty: fulfillment.actualQty ?? fulfillment.qty,
-        }),
+        fulfillment: nextActionRecord,
         printRecord: after,
         paperOutboundDocument: nextPaperOutboundDocument,
         packages: releasedPackages,
