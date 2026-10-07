@@ -65,7 +65,6 @@ import { createStatementSendTransactionRepository } from "./statementSendTransac
 import { createStatementExportRepository } from "./statementExportRepository.mjs";
 import { createStatementExportObjectStorage } from "./statementExportObjectStorage.mjs";
 import { createCoreWorkspaceReadRepository } from "./coreWorkspaceReadRepository.mjs";
-import { createOrderDraftRepository } from "./orderDraftRepository.mjs";
 import { createOrderConfirmationTransactionRepository } from "./orderConfirmationTransactionRepository.mjs";
 import { createOrderPoolReadRepository } from "./orderPoolReadRepository.mjs";
 import { createDriverDeliveryDispatchRepository } from "./driverDeliveryDispatchRepository.mjs";
@@ -236,15 +235,13 @@ export function createApiServer(options = {}) {
     createProductionFinishedGoodsPhotoTransactionRepository(
       effectiveOptions.productionFinishedGoodsPhotoTransactionRepositoryOptions,
     );
-  const orderDraftRepository =
-    effectiveOptions.orderDraftRepository ?? createOrderDraftRepository(effectiveOptions.orderDraftRepositoryOptions);
   const orderConfirmationTransactionRepository =
     effectiveOptions.orderConfirmationTransactionRepository ??
     createOrderConfirmationTransactionRepository(effectiveOptions.orderConfirmationTransactionRepositoryOptions);
   const orderPoolReadRepository =
     effectiveOptions.orderPoolReadRepository ?? createOrderPoolReadRepository(effectiveOptions.orderPoolReadRepositoryOptions);
   const repositories = createRepositories(effectiveOptions);
-  const { fulfillmentActionTransactionRepository, productionPackingTransactionRepository } = repositories;
+  const { fulfillmentActionTransactionRepository, productionPackingTransactionRepository, orderDraftRepository } = repositories;
   const driverDeliveryDispatchRepository =
     effectiveOptions.driverDeliveryDispatchRepository ??
     createDriverDeliveryDispatchRepository(effectiveOptions.driverDeliveryDispatchRepositoryOptions);
