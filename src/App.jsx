@@ -3,7 +3,6 @@ import { MenuFoldOutlined } from "@ant-design/icons";
 import bagwinSymbolUrl from "./assets/brand/BAGWIN_symbol_color.svg";
 import {
   EntryPage,
-  InventoryPage,
   OrderPoolPage,
   RawMaterialScannerPage,
   StatementPage,
@@ -1193,32 +1192,38 @@ export function App() {
               helpers={pageHelpers}
             />
           )}
-          {renderedPage === "inventory" && (
-            <InventoryPage
-              inventoryRecords={inventoryRecords}
-              inventoryMeta={inventoryMeta}
-              inventoryLedgerEntries={inventoryLedgerState.items}
-              inventoryLedgerMeta={inventoryLedgerState}
-              inventoryLedgerFilters={inventoryLedgerFilters}
-              setInventoryLedgerFilters={setInventoryLedgerFilters}
-              inventoryCorrectionDetailState={inventoryCorrectionDetailState}
-              inventoryCorrectionQueueState={inventoryCorrectionQueueState} inventoryIntentState={inventoryIntentState}
-              selectedStockId={selectedStockId}
-              setSelectedStockId={setSelectedStockId}
-              setToast={setToast}
-              onCreateCorrectionDraft={handleInventoryCorrectionDraft}
-              onLinkCorrectionAttachment={handleInventoryCorrectionAttachment}
-              onConfirmCorrectionDraft={handleInventoryCorrectionConfirm}
-              onOpenCorrectionDraft={openInventoryCorrectionDetail}
-              onRefreshCorrectionQueue={refreshInventoryCorrectionQueueAction}
-              onRefreshInventoryLedger={refreshInventoryLedgerAction}
-              onRefreshInventoryIntents={refreshInventoryIntents} onCreateTemporaryHold={createTemporaryInventoryHold}
-              onReleaseTemporaryHold={releaseTemporaryInventoryHold} onExtendTemporaryHold={extendTemporaryInventoryHold} onConvertTemporaryHoldToOrder={async ({ hold, intent, candidate }) => { const result = await prepareOrderDraftFromTemporaryHold({ hold, intent, candidate }); if (!result?.blocked) setActivePage("entry"); return result; }}
-              onLocateInventoryLedgerSource={focusInventoryLedgerSource}
-              helpers={pageHelpers}
-            />
-          )}
           {renderRegisteredPage(renderedPage, {
+            inventory: {
+              inventoryRecords,
+              inventoryMeta,
+              inventoryLedgerEntries: inventoryLedgerState.items,
+              inventoryLedgerMeta: inventoryLedgerState,
+              inventoryLedgerFilters,
+              setInventoryLedgerFilters,
+              inventoryCorrectionDetailState,
+              inventoryCorrectionQueueState,
+              inventoryIntentState,
+              selectedStockId,
+              setSelectedStockId,
+              setToast,
+              onCreateCorrectionDraft: handleInventoryCorrectionDraft,
+              onLinkCorrectionAttachment: handleInventoryCorrectionAttachment,
+              onConfirmCorrectionDraft: handleInventoryCorrectionConfirm,
+              onOpenCorrectionDraft: openInventoryCorrectionDetail,
+              onRefreshCorrectionQueue: refreshInventoryCorrectionQueueAction,
+              onRefreshInventoryLedger: refreshInventoryLedgerAction,
+              onRefreshInventoryIntents: refreshInventoryIntents,
+              onCreateTemporaryHold: createTemporaryInventoryHold,
+              onReleaseTemporaryHold: releaseTemporaryInventoryHold,
+              onExtendTemporaryHold: extendTemporaryInventoryHold,
+              onConvertTemporaryHoldToOrder: async ({ hold, intent, candidate }) => {
+                const result = await prepareOrderDraftFromTemporaryHold({ hold, intent, candidate });
+                if (!result?.blocked) setActivePage("entry");
+                return result;
+              },
+              onLocateInventoryLedgerSource: focusInventoryLedgerSource,
+              helpers: pageHelpers,
+            },
             fulfillment: {
               authState,
               currentUser,
