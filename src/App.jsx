@@ -5,7 +5,6 @@ import {
   EntryPage,
   OrderPoolPage,
   RawMaterialScannerPage,
-  StatementPage,
   DriverMobilePage,
   WarehouseMobilePage,
   WorkshopMobilePage,
@@ -1190,6 +1189,18 @@ export function App() {
             />
           )}
           {renderRegisteredPage(renderedPage, {
+            statements: {
+              authState,
+              currentUser,
+              statements,
+              readMeta: statementReadMeta,
+              orderLines,
+              selectedId: selectedStatementId,
+              setSelectedId: setSelectedStatementId,
+              onAction: statementAction,
+              onRefresh: () => refreshStatementDetail({ statementId: selectedStatementId, showToast: false }),
+              helpers: pageHelpers,
+            },
             todos: {
               todos,
               todoMeta,
@@ -1347,20 +1358,6 @@ export function App() {
             <Suspense fallback={<DataState title="设备机修工作台加载中" />}>
               <MaintenanceMobilePage authState={authState} currentUser={currentUser} />
             </Suspense>
-          )}
-          {renderedPage === "statements" && (
-            <StatementPage
-              authState={authState}
-              currentUser={currentUser}
-              statements={statements}
-              readMeta={statementReadMeta}
-              orderLines={orderLines}
-              selectedId={selectedStatementId}
-              setSelectedId={setSelectedStatementId}
-              onAction={statementAction}
-              onRefresh={() => refreshStatementDetail({ statementId: selectedStatementId, showToast: false })}
-              helpers={pageHelpers}
-            />
           )}
           {renderedPage === "rawMaterialScanner" && (
             <RawMaterialScannerPage
