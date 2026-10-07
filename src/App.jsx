@@ -5,7 +5,6 @@ import {
   EntryPage,
   OrderPoolPage,
   RawMaterialScannerPage,
-  WarehouseMobilePage,
   WorkshopMobilePage,
 } from "./pages/office/index.jsx";
 import { RAW_MATERIAL_FIRST_RELEASE_ENABLED } from "./config/rawMaterialFirstRelease.js";
@@ -1213,6 +1212,11 @@ export function App() {
               setSelectedTaskId: setSelectedDriverTaskId, meta: driverDeliveryMeta,
               onAction: handleDriverDeliveryAction, helpers: pageHelpers,
             },
+            warehouseMobile: {
+              fulfillments, orderLines, selectedId: selectedFulfillmentId,
+              setSelectedId: setSelectedFulfillmentId, onAction: updateFulfillment,
+              helpers: pageHelpers,
+            },
             payroll: { authState, currentUser, permissionContext },
             inventory: {
               inventoryRecords,
@@ -1317,16 +1321,6 @@ export function App() {
               productionPacking={productionPacking}
               onAction={handleProductionPackingAction}
               onNavigate={setActivePage}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "warehouseMobile" && (
-            <WarehouseMobilePage
-              fulfillments={fulfillments}
-              orderLines={orderLines}
-              selectedId={selectedFulfillmentId}
-              setSelectedId={setSelectedFulfillmentId}
-              onAction={updateFulfillment}
               helpers={pageHelpers}
             />
           )}
