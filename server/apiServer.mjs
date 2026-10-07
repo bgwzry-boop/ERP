@@ -59,7 +59,6 @@ import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
 import { createProductionFinishedGoodsPhotoTransactionRepository } from "./productionFinishedGoodsPhotoTransactionRepository.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
-import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
 import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
 import { createStatementSendTransactionRepository } from "./statementSendTransactionRepository.mjs";
 import { createStatementExportRepository } from "./statementExportRepository.mjs";
@@ -207,9 +206,6 @@ export function createApiServer(options = {}) {
     effectiveOptions.attachmentObjectStorage ?? createAttachmentObjectStorage(effectiveOptions.attachmentObjectStorageOptions);
   const paymentRecordRepository =
     effectiveOptions.paymentRecordRepository ?? createPaymentRecordRepository(effectiveOptions.paymentRecordRepositoryOptions);
-  const statementPaymentTransactionRepository =
-    effectiveOptions.statementPaymentTransactionRepository ??
-    createStatementPaymentTransactionRepository(effectiveOptions.statementPaymentTransactionRepositoryOptions);
   const statementSettlementTransactionRepository =
     effectiveOptions.statementSettlementTransactionRepository ??
     createStatementSettlementTransactionRepository(effectiveOptions.statementSettlementTransactionRepositoryOptions);
@@ -241,6 +237,7 @@ export function createApiServer(options = {}) {
     effectiveOptions.orderPoolReadRepository ?? createOrderPoolReadRepository(effectiveOptions.orderPoolReadRepositoryOptions);
   const repositories = createRepositories(effectiveOptions);
   const { fulfillmentActionTransactionRepository, productionPackingTransactionRepository, orderDraftRepository } = repositories;
+  const { statementPaymentTransactionRepository } = repositories;
   const driverDeliveryDispatchRepository =
     effectiveOptions.driverDeliveryDispatchRepository ??
     createDriverDeliveryDispatchRepository(effectiveOptions.driverDeliveryDispatchRepositoryOptions);
