@@ -43,16 +43,19 @@ export function resolveQuantityVarianceFulfillmentStatus(result) {
 }
 
 export function createFulfillmentActionOrchestrator(repository) {
-  if (typeof repository?.recordFulfillmentAction !== "function") {
-    throw new TypeError("repository.recordFulfillmentAction must be a function");
+  if (typeof repository?.recordFulfillmentAction !== "function"
+    && typeof repository?.recordFulfillmentPrint !== "function") {
+    throw new TypeError("repository must record fulfillment actions or prints");
+  }
+  function apply(method, { current, action, body, ...transaction }) {
+    if (typeof repository[method] !== "function") {
+      throw new TypeError(`repository.${method} must be a function`);
+    }
+    const decision = decideFulfillmentAction({ current, action, body });
+    return repository[method]({ ...transaction, decision });
   }
   return {
-    applyAction({ current, action, body, ...transaction }) {
-      const decision = decideFulfillmentAction({ current, action, body });
-      return repository.recordFulfillmentAction({
-        ...transaction,
-        decision,
-      });
-    },
+    applyAction(input) { return apply("recordFulfillmentAction", input); },
+    applyPrint(input) { return apply("recordFulfillmentPrint", input); },
   };
 }
