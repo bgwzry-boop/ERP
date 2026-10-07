@@ -1,5 +1,5 @@
 import { createElement, lazy, Suspense } from "react";
-import { RawMaterialInboundPage, StatementPage, TodoPage } from "../pages/office/index.jsx";
+import { DriverMobilePage, RawMaterialInboundPage, StatementPage, TodoPage } from "../pages/office/index.jsx";
 import { FulfillmentPage } from "../features/fulfillment/FulfillmentPage.jsx";
 import { ProductionPackingPage } from "../features/production/ProductionPackingPage.jsx";
 import { InventoryPage } from "../features/inventory/InventoryPage.jsx";
@@ -10,6 +10,7 @@ const PayrollAttendancePage = lazy(() => import("../features/payroll/PayrollAtte
 export const pageRegistry = Object.freeze({
   todos: (props) => createElement(TodoPage, props.todos),
   statements: (props) => createElement(StatementPage, props.statements),
+  driverMobile: (props) => createElement(DriverMobilePage, props.driverMobile),
   rawMaterials: (props) => createElement(RawMaterialInboundPage, props.rawMaterial),
   fulfillment: (props) => createElement(FulfillmentPage, props.fulfillment),
   packing: (props) => createElement(ProductionPackingPage, props.packing),

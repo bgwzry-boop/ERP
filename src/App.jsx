@@ -5,7 +5,6 @@ import {
   EntryPage,
   OrderPoolPage,
   RawMaterialScannerPage,
-  DriverMobilePage,
   WarehouseMobilePage,
   WorkshopMobilePage,
 } from "./pages/office/index.jsx";
@@ -1209,6 +1208,11 @@ export function App() {
               onRepairReference: repairTodoReference,
               helpers: pageHelpers,
             },
+            driverMobile: {
+              tasks: driverDeliveryTasks, selectedTaskId: selectedDriverTaskId,
+              setSelectedTaskId, meta: driverDeliveryMeta,
+              onAction: handleDriverDeliveryAction, helpers: pageHelpers,
+            },
             payroll: { authState, currentUser, permissionContext },
             inventory: {
               inventoryRecords,
@@ -1313,16 +1317,6 @@ export function App() {
               productionPacking={productionPacking}
               onAction={handleProductionPackingAction}
               onNavigate={setActivePage}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "driverMobile" && (
-            <DriverMobilePage
-              tasks={driverDeliveryTasks}
-              selectedTaskId={selectedDriverTaskId}
-              setSelectedTaskId={setSelectedDriverTaskId}
-              meta={driverDeliveryMeta}
-              onAction={handleDriverDeliveryAction}
               helpers={pageHelpers}
             />
           )}
