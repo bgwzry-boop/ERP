@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { assertMigrationApplied, assertMigratedSchema, postgresAssertions } from "./postgres-live/assertions.mjs";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -212,13 +213,23 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
     );
   }
 
+  const appliedMigrationIds = new Set(
+    runPsql("SELECT id FROM schema_migrations ORDER BY id;", { capture: true })
+      .trim()
+      .split("\n")
+      .filter(Boolean),
+  );
+  for (const migration of migrations) {
+    assertMigrationApplied(migration.filename, appliedMigrationIds.has(migration.id));
+  }
+
   const tableCount = Number(
     runPsql(
       "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_type = 'BASE TABLE';",
       { capture: true },
     ).trim(),
   );
-  assert.ok(tableCount >= 52, `expected migrated PostgreSQL database to have at least 52 tables, got ${tableCount}`);
+  assertMigratedSchema(tableCount);
 }
 
 function seedRequiredBusinessRows() {
@@ -400,11 +411,7 @@ async function checkPostgresRepositories() {
   const runtimeIdentityState = await runtimeIdentityRepository.loadState();
   const persistedRuntimeUser = runtimeIdentityState.users.find((user) => user.userId === liveRuntimeUserId);
   assert(persistedRuntimeUser, "runtime employee should persist in PostgreSQL users");
-  assert.deepEqual(persistedRuntimeUser.roles, ["technical_operations"]);
-  assert.equal(persistedRuntimeUser.loginEnabled, true);
-  assert.notEqual(persistedRuntimeUser.passwordHash, liveRuntimePassword);
-  assert.match(persistedRuntimeUser.passwordHash, /^runtime-password-v2\./);
-  assert.equal(persistedRuntimeUser.passwordExpiresAt, "2026-10-10T00:00:00.000Z");
+  postgresAssertions.assertPersistedRuntimeUser({ persistedRuntimeUser, liveRuntimePassword });
   const persistedRuntimeReadiness = buildRuntimeEmployeeAccountReadiness({
     users: runtimeIdentityState.users,
     nowMs: Date.parse("2026-07-13T00:00:00.000Z"),
@@ -502,16 +509,7 @@ async function checkPostgresRepositories() {
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE id = 'LOG-MD-LIVE-IMPORT-001';", { capture: true }).trim()), 1);
 
   const restartedMasterDataSnapshot = await coreWorkspaceReadRepository.loadState();
-  assert.equal(restartedMasterDataSnapshot.customerNotes.find((item) => item.id === "CN-MD-LIVE-001")?.content, "主数据导入备注");
-  assert.equal(restartedMasterDataSnapshot.colorAliases.find((item) => item.id === "CALIAS-MD-LIVE-001")?.standardColorId, "SC-MD-LIVE-001");
-  assert.equal(restartedMasterDataSnapshot.sizeSpecs.find((item) => item.id === "SIZE-MD-LIVE-001")?.displayName, "30*38*10");
-  assert.equal(restartedMasterDataSnapshot.finishedGoodsStyles.find((item) => item.id === "STYLE-MD-LIVE-001")?.name, "空白袋");
-  assert.equal(restartedMasterDataSnapshot.priceTables.find((item) => item.id === "PT-MD-LIVE-001")?.name, "主数据导入价格表");
-  assert.equal(restartedMasterDataSnapshot.priceTableItems.find((item) => item.id === "PTI-MD-LIVE-001")?.bagPrice, 0.34);
-  assert.equal(restartedMasterDataSnapshot.machines.find((item) => item.id === "MACH-MD-LIVE-001")?.name, "主数据导入制袋机");
-  assert.equal(restartedMasterDataSnapshot.employees.find((item) => item.id === "EMP-MD-LIVE-001")?.profileStatus, "pending_admin_review");
-  assert.equal(restartedMasterDataSnapshot.employeeMachineAssignments.find((item) => item.id === "EMA-MD-LIVE-001")?.machineId, "MACH-MD-LIVE-001");
-  assert.equal(restartedMasterDataSnapshot.machineCapacityBaselines.find((item) => item.id === "MCB-MD-LIVE-001")?.dailyCapacityQty, 12000);
+  postgresAssertions.assertRestartedMasterDataSnapshot({ restartedMasterDataSnapshot });
 
   const masterDataReviewWorkspace = { operationLogs: [] };
   const masterDataReviewDraft = buildLiveMasterDataImportReviewDraft();
@@ -1215,11 +1213,7 @@ ON CONFLICT (id) DO UPDATE SET
       pageSize: 5,
     },
   });
-  assert.equal(releaseLedgerRead.total, 1);
-  assert.equal(releaseLedgerRead.items[0].ledgerId, "LEDGER-LIVE-RELEASE-001");
-  assert.equal(releaseLedgerRead.items[0].changeType, "释放占用");
-  assert.equal(releaseLedgerRead.items[0].qtyChange, -15);
-  assert.equal(releaseLedgerRead.items[0].colorName, "红色");
+  postgresAssertions.assertReleaseLedgerRead({ releaseLedgerRead });
 
   const voidMutationSnapshot = queryJson(
     `SELECT json_build_object(
@@ -1971,11 +1965,7 @@ ON CONFLICT (id) DO UPDATE SET
       action: "complete_packing_task",
     }),
   });
-  assert.equal(packingCompletion.packingTask.status, "已完成");
-  assert.equal(packingCompletion.packages.length, 2);
-  assert.equal(packingCompletion.inventoryLedgerEntries[0].qtyChange, 0);
-  assert.equal(packingCompletion.todo.refType, "order_line");
-  assert.equal(packingCompletion.todoEvent.eventType, "todo_source:packing_completed");
+  postgresAssertions.assertPackingCompletion({ packingCompletion });
   const productionInventoryAfterPacking = queryJson(
     "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = 'INV-LIVE-PROD-001';",
   );
@@ -2065,11 +2055,7 @@ ON CONFLICT (id) DO UPDATE SET
     idempotencyPayload: { todoId: fulfillmentRepairCompletedTodo.id, reason: "PostgreSQL live fulfillment repair" },
   };
   const fulfillmentRepair = await todoFulfillmentRepairRepository.repairMissingFulfillment(fulfillmentRepairInput);
-  assert.equal(fulfillmentRepair.todo.handled, true);
-  assert.equal(fulfillmentRepair.labelTodo.refId, fulfillmentRepairRecord.fulfillmentId);
-  assert.equal(fulfillmentRepair.fulfillment.actualQty, 80);
-  assert.equal(fulfillmentRepair.packages.length, 2);
-  assert.ok(fulfillmentRepair.packages.every((record) => record.fulfillmentId === fulfillmentRepairRecord.fulfillmentId));
+  postgresAssertions.assertFulfillmentRepair({ fulfillmentRepair, fulfillmentRepairRecord });
   const fulfillmentRepairReplay = await todoFulfillmentRepairRepository.repairMissingFulfillment(fulfillmentRepairInput);
   assert.equal(fulfillmentRepairReplay.operationLogId, fulfillmentRepair.operationLogId);
   assert.equal(Number(runPsql("SELECT COUNT(*) FROM fulfillment_records WHERE order_line_id = 'OL-LIVE-PROD-001';", { capture: true }).trim()), 1);
@@ -2079,19 +2065,11 @@ ON CONFLICT (id) DO UPDATE SET
   const coldStartProductionDetail = await productionPackingReadRepository.getProductionTaskDetail({
     productionTaskId: "PT-LIVE-PROD-001",
   });
-  assert.equal(coldStartProductionDetail.productionTask.taskStatus, "已完成");
-  assert.equal(coldStartProductionDetail.latestReport.machineCount, 8888);
-  assert.equal(coldStartProductionDetail.latestReport.machineCountAffectsInventory, false);
-  assert.equal(coldStartProductionDetail.inventoryLedgerEntries.length, 2);
-  assert.equal(coldStartProductionDetail.reservations[0].qty, 80);
+  postgresAssertions.assertColdStartProductionDetail({ coldStartProductionDetail });
   const coldStartPackingDetail = await productionPackingReadRepository.getPackingTaskDetail({
     packingTaskId: "PKT-LIVE-PROD-001",
   });
-  assert.equal(coldStartPackingDetail.packingTask.status, "已完成");
-  assert.equal(coldStartPackingDetail.packages.length, 2);
-  assert.equal(coldStartPackingDetail.fulfillment.fulfillmentId, "F-REPAIR-OL-LIVE-PROD-001");
-  assert.equal(coldStartPackingDetail.inventoryLedgerEntries[0].sourceType, "packing_complete");
-  assert.equal(coldStartPackingDetail.inventoryDeducted, false);
+  postgresAssertions.assertColdStartPackingDetail({ coldStartPackingDetail });
 
   const fulfillmentActionWorkspace = {
     fulfillments: [buildFulfillmentActionRecord({ fulfillmentId: "F001", status: "待出库" })],
@@ -2266,9 +2244,7 @@ ON CONFLICT (id) DO UPDATE SET
       createdAt: "2026-07-02T10:15:00.000Z",
     },
   });
-  assert.equal(deliveryEvidenceAction.fulfillment.watermarkedPhotoAttachmentId, "ATT-LIVE-DELIVERY-WM-001");
-  assert.equal(deliveryEvidenceAction.fulfillment.deliveryEvidenceReviewStatus, "需重拍");
-  assert.equal(deliveryEvidenceAction.todo.id, "T-LIVE-DELIVERY-EVIDENCE-RETAKE-001");
+  postgresAssertions.assertDeliveryEvidenceAction({ deliveryEvidenceAction });
   const persistedDeliveryEvidence = queryJson(
     `SELECT json_build_object(
       'watermarkedPhotoAttached', watermarked_photo_attached,
@@ -2868,52 +2844,13 @@ async function checkApiWithPostgresRepositories() {
   const printDriverHeaders = { "x-erp-user-id": "U-PRINT-DRIVER-A" };
 
   const health = await getJson(baseUrl, "/api/health", { headers });
-  assert.equal(health.seed.orderPoolReadRepository, "postgres");
-  assert.equal(health.seed.driverDeliveryDispatchRepository, "postgres");
-  assert.equal(health.seed.driverDeviceFieldTestRepository, "postgres");
-  assert.equal(health.seed.driverDeliveryTaskReadRepository, "postgres");
-  assert.equal(health.seed.inventoryLedgerReadRepository, "postgres");
-  assert.equal(health.seed.inventoryIntentTransactionRepository, "postgres");
-  assert.equal(health.seed.productionPackingTransactionRepository, "postgres");
-  assert.equal(health.seed.productionPackingReadRepository, "postgres");
-  assert.equal(health.seed.productionScheduleRecordRepository, "postgres");
-  assert.equal(health.seed.printBatchRepository, "postgres");
-  assert.equal(health.seed.todoActionRepository, "postgres");
-  assert.equal(health.seed.inventoryCorrectionTransactionRepository, "postgres");
-  assert.equal(health.seed.productionFinishedGoodsPhotoTransactionRepository, "postgres");
-  assert.equal(health.seed.printDeviceRepository, "postgres");
-  assert.equal(health.seed.printJobRepository, "postgres");
-  assert.equal(health.seed.printerDeviceFieldTestRepository, "postgres");
-  assert.equal(health.seed.masterDataImportReviewRepository, "postgres");
-  assert.equal(health.seed.masterDataImportTransactionRepository, "postgres");
-  assert.equal(health.seed.runtimeIdentityRepository, "postgres");
-  assert.equal(health.seed.v1PersistenceProfile.repositoryProfile, "postgres");
-  assert.equal(
-    health.seed.v1PersistenceProfile.postgresRepositoryDefaultsApplied +
-      health.seed.v1PersistenceProfile.postgresRepositoryDefaultsSkipped,
-    v1PersistencePostgresRepositoryOptionKeys.length,
-  );
-  assert.equal(health.seed.orderDraftRepository, "postgres");
-  assert.equal(health.seed.v1PersistenceProfile.unsupportedRepositoryCount, 0);
-  assert.equal(health.seed.v1PersistenceProfile.connectionStringExposed, false);
-  assert.equal(health.seed.statementExportObjectStorage, "local_fs");
-  assert.equal(health.seed.printDriverAdapter, "guarded_adapter");
+  postgresAssertions.assertHealth({ health, v1PersistencePostgresRepositoryOptionKeys });
   const restartedPendingEmployeeReviews = await getJson(
     baseUrl,
     "/api/master-data/employee-account-reviews?employeeId=EMP-MD-LIVE-001",
     { headers: { "x-erp-user-id": "U-MANAGER-A" } },
   );
-  assert.equal(restartedPendingEmployeeReviews.total, 1);
-  assert.equal(restartedPendingEmployeeReviews.items[0].name, "主数据导入员工");
-  assert.equal(restartedPendingEmployeeReviews.items[0].status, "pending_admin_review");
-  assert.equal(restartedPendingEmployeeReviews.items[0].defaultMachineId, "MACH-MD-LIVE-001");
-  assert.equal(restartedPendingEmployeeReviews.readiness.requiredRoleCount, 8);
-  assert.equal(restartedPendingEmployeeReviews.readiness.roles.length, 8);
-  assert.equal(restartedPendingEmployeeReviews.readiness.ready, false);
-  assert.equal(
-    JSON.stringify(restartedPendingEmployeeReviews.readiness).includes(restartedPendingEmployeeReviews.items[0].loginName),
-    false,
-  );
+  postgresAssertions.assertRestartedPendingEmployeeReviews({ restartedPendingEmployeeReviews });
   const generalWorkerAssignment = await postJson(
     baseUrl,
     "/api/master-data/employee-account-reviews/EMP-MD-LIVE-001/assignment",
@@ -2932,9 +2869,7 @@ async function checkApiWithPostgresRepositories() {
     { assignmentMode: "fixed_machine", workshop: "1号车间", machineId: "BAG-03", reason: "PostgreSQL固定机台验证" },
     { headers: { "x-erp-user-id": "U-MANAGER-A" } },
   );
-  assert.equal(fixedMachineAssignment.employeeAccountReview.assignmentMode, "fixed_machine");
-  assert.equal(fixedMachineAssignment.employeeAccountReview.defaultMachineId, "BAG-03");
-  assert.equal(fixedMachineAssignment.employeeAccountReview.assignmentUpdatedBy, "U-MANAGER-A");
+  postgresAssertions.assertFixedMachineAssignment({ fixedMachineAssignment });
   assert(fixedMachineAssignment.employeeAccountReview.assignmentUpdatedAt);
   assert.equal(fixedMachineAssignment.employeeAccountReview.assignmentNote, "PostgreSQL固定机台验证");
   assert.equal(
@@ -3120,9 +3055,7 @@ async function checkApiWithPostgresRepositories() {
     apiScheduleResequenceBody,
     { headers: scheduleHeaders },
   );
-  assert.equal(replayedApiScheduleResequence.operationLogId, apiScheduleResequence.operationLogId);
-  assert.equal(replayedApiScheduleResequence.updatedAt, apiScheduleResequence.updatedAt);
-  assert.equal(replayedApiScheduleResequence.updatedBy, liveManagerRuntimeUserId);
+  postgresAssertions.assertReplayedApiScheduleResequence({ replayedApiScheduleResequence, apiScheduleResequence, liveManagerRuntimeUserId });
 
   const apiScheduleMoveTaskRevision = Number(
     runPsql(
@@ -3203,10 +3136,7 @@ async function checkApiWithPostgresRepositories() {
     todoActionBody,
     { headers },
   );
-  assert.equal(todoAction.todo.handled, true);
-  assert.equal(todoAction.todo.handledBy, "U-OFFICE-A");
-  assert.equal(todoAction.todo.notifiedBy, "U-OFFICE-A");
-  assert.equal(todoAction.todo.notificationStatus, "已通知客户");
+  postgresAssertions.assertTodoAction({ todoAction });
   const replayedTodoAction = await postJson(
     baseUrl,
     "/api/todos/T-LIVE-IDEMPOTENCY-001/handle",
@@ -3241,10 +3171,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(todoReferenceRepair.todo.referenceStatus, "valid");
-  assert.equal(todoReferenceRepair.todo.refId, "ORD-0629-001-01");
-  assert.equal(todoReferenceRepair.todo.referenceRepair.beforeRefId, "T-LIVE-IDEMPOTENCY-002");
-  assert.ok(todoReferenceRepair.operationLogId);
+  postgresAssertions.assertTodoReferenceRepair({ todoReferenceRepair });
   const persistedTodoReference = queryJson(
     "SELECT json_build_object('refType', ref_type, 'refId', ref_id) AS result FROM todos WHERE id = 'T-LIVE-IDEMPOTENCY-002';",
   );
@@ -3260,9 +3187,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(customerPendingAction.todo.handled, false);
-  assert.equal(customerPendingAction.todo.status, "open");
-  assert.equal(customerPendingAction.todo.reminder, "等待客户回复");
+  postgresAssertions.assertCustomerPendingAction({ customerPendingAction });
   const persistedCustomerPending = queryJson(
     `SELECT json_build_object(
       'status', todo_record.status,
@@ -3278,40 +3203,27 @@ async function checkApiWithPostgresRepositories() {
     FROM todos AS todo_record
     WHERE todo_record.id = 'T-LIVE-IDEMPOTENCY-002';`,
   );
-  assert.equal(persistedCustomerPending.status, "未处理");
-  assert.equal(persistedCustomerPending.reminder, "等待客户回复");
-  assert.equal(persistedCustomerPending.handledBy, null);
+  postgresAssertions.assertPersistedCustomerPending({ persistedCustomerPending });
   const startupOperationLogs = await getJson(baseUrl, "/api/operation-logs?limit=200", { headers });
   assert.equal(
     startupOperationLogs.total,
     Number(runPsql("SELECT COUNT(*) FROM operation_logs;", { capture: true }).trim()),
   );
   const printDriverConfig = await getJson(baseUrl, "/api/print-driver/config", { headers });
-  assert.equal(printDriverConfig.printDriverAdapter.kind, "guarded_adapter");
-  assert.equal(printDriverConfig.printDriverAdapter.systemPrinterCommandConfigured, false);
-  assert.equal(printDriverConfig.printDriverAdapter.systemPrinterCommandArgsConfigured, true);
-  assert.equal(printDriverConfig.printDriverAdapter.systemPrinterCommandTimeoutMs, 5000);
-  assert.equal(printDriverConfig.printDriverAdapter.realDispatchAvailable, false);
+  postgresAssertions.assertPrintDriverConfig({ printDriverConfig });
 
   const databaseOnlyOrderLines = await getJson(
     baseUrl,
     "/api/order-lines?keyword=OL-LIVE-CONFIRM-001&includeHistory=true&pageSize=5",
     { headers },
   );
-  assert.equal(databaseOnlyOrderLines.total, 1);
-  assert.equal(databaseOnlyOrderLines.items[0].id, "OL-LIVE-CONFIRM-001");
-  assert.equal(databaseOnlyOrderLines.items[0].orderNo, "ORD-LIVE-CONFIRM-001");
-  assert.equal(databaseOnlyOrderLines.items[0].customerName, "Postgres 仓储测试客户");
+  postgresAssertions.assertDatabaseOnlyOrderLines({ databaseOnlyOrderLines });
   const databaseInventoryLedgers = await getJson(
     baseUrl,
     "/api/inventory/ledger-entries?inventoryItemId=INV-LIVE-CONFIRM-001&sourceType=order_confirm&sourceId=OL-LIVE-CONFIRM-001&pageSize=5",
     { headers },
   );
-  assert.equal(databaseInventoryLedgers.total, 1);
-  assert.equal(databaseInventoryLedgers.items[0].ledgerId, "LEDGER-LIVE-CONFIRM-001");
-  assert.equal(databaseInventoryLedgers.items[0].changeType, "订单占用");
-  assert.equal(databaseInventoryLedgers.items[0].qtyChange, 25);
-  assert.equal(databaseInventoryLedgers.items[0].colorName, "红色");
+  postgresAssertions.assertDatabaseInventoryLedgers({ databaseInventoryLedgers });
 
   const correctionCreateBody = {
     inventoryItemId: "INV-LIVE-CORRECTION-001",
@@ -3327,9 +3239,7 @@ async function checkApiWithPostgresRepositories() {
   const createdCorrection = await postJson(baseUrl, "/api/inventory/correction-drafts", correctionCreateBody, {
     headers: correctionWarehouseHeaders,
   });
-  assert.equal(createdCorrection.inventoryItemId, "INV-LIVE-CORRECTION-001");
-  assert.equal(createdCorrection.qtyBefore.onHand, 600);
-  assert.equal(createdCorrection.requestedQtyAfter.onHand, 585);
+  postgresAssertions.assertCreatedCorrection({ createdCorrection });
   const replayedCorrectionCreate = await postJson(baseUrl, "/api/inventory/correction-drafts", correctionCreateBody, {
     headers: correctionWarehouseHeaders,
   });
@@ -3377,9 +3287,7 @@ async function checkApiWithPostgresRepositories() {
     correctionAttachmentLinkBody,
     { headers: correctionWarehouseHeaders },
   );
-  assert.deepEqual(linkedCorrectionAttachment.attachmentIds, [correctionAttachment.attachmentId]);
-  assert.equal(linkedCorrectionAttachment.revision, 2);
-  assert.ok(linkedCorrectionAttachment.operationLogId);
+  postgresAssertions.assertLinkedCorrectionAttachment({ linkedCorrectionAttachment, correctionAttachment });
   const replayedCorrectionAttachmentLink = await postJson(
     baseUrl,
     `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}/attachments`,
@@ -3405,11 +3313,7 @@ async function checkApiWithPostgresRepositories() {
     correctionConfirmBody,
     { headers: correctionManagerHeaders },
   );
-  assert.equal(confirmedCorrection.qtyBefore.onHand, 600);
-  assert.equal(confirmedCorrection.qtyAfter.onHand, 585);
-  assert.equal(confirmedCorrection.ledger.qtyChange, -15);
-  assert.equal(confirmedCorrection.ledger.operatorId, "U-MANAGER-A");
-  assert.equal(confirmedCorrection.todo.handledBy, "U-MANAGER-A");
+  postgresAssertions.assertConfirmedCorrection({ confirmedCorrection });
   const replayedCorrectionConfirm = await postJson(
     baseUrl,
     `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}/confirm`,
@@ -3504,9 +3408,7 @@ async function checkApiWithPostgresRepositories() {
     photoUploadBody,
     { headers: workshopHeaders },
   );
-  assert.equal(uploadedPhoto.finishedGoodsPhoto.status, "待确认");
-  assert.equal(uploadedPhoto.finishedGoodsPhoto.uploadedBy, "U-WORKSHOP-A");
-  assert.equal(uploadedPhoto.finishedGoodsPhoto.fileName, photoAttachment.fileName);
+  postgresAssertions.assertUploadedPhoto({ uploadedPhoto, photoAttachment });
   const replayedPhotoUpload = await postJson(
     baseUrl,
     "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo",
@@ -3528,9 +3430,7 @@ async function checkApiWithPostgresRepositories() {
     photoReviewBody,
     { headers },
   );
-  assert.equal(reviewedPhoto.finishedGoodsPhoto.status, "已接受");
-  assert.equal(reviewedPhoto.finishedGoodsPhoto.reviewedBy, "U-OFFICE-A");
-  assert.equal(reviewedPhoto.todo.type, "待通知客户");
+  postgresAssertions.assertReviewedPhoto({ reviewedPhoto });
   const replayedPhotoReview = await postJson(
     baseUrl,
     "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo-review",
@@ -3569,14 +3469,7 @@ async function checkApiWithPostgresRepositories() {
   );
   assert.equal(databaseDriverTasks.items.some((item) => item.fulfillmentId === "F002"), true);
   const databaseDriverTaskDetail = await getJson(baseUrl, "/api/driver/delivery-tasks/F002", { headers: driverHeaders });
-  assert.equal(databaseDriverTaskDetail.task.status, "已完成");
-  assert.equal(databaseDriverTaskDetail.task.routeDate, "2026-07-02");
-  assert.equal(databaseDriverTaskDetail.task.routeNo, "虎门线-A");
-  assert.equal(databaseDriverTaskDetail.task.routeSequence, 2);
-  assert.equal(databaseDriverTaskDetail.task.watermarkedPhotoAttachmentId, "ATT-LIVE-DELIVERY-WM-001");
-  assert.equal(databaseDriverTaskDetail.task.deliveryEvidenceReviewStatus, "需重拍");
-  assert.equal(databaseDriverTaskDetail.task.packageChecklist[0].packageId, "PKG-LIVE-F002-1");
-  assert.equal(databaseDriverTaskDetail.task.packageChecklist[0].quantityText, "400个");
+  postgresAssertions.assertDatabaseDriverTaskDetail({ databaseDriverTaskDetail });
 
   const driverExceptionOccurredAt = "2026-07-02T09:40:00.000Z";
   const apiDriverException = await postJson(
@@ -3593,32 +3486,16 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers: driverHeaders },
   );
-  assert.equal(apiDriverException.status, "送货异常");
-  assert.equal(apiDriverException.todoType, "送货异常待处理");
-  assert.equal(apiDriverException.task.status, "送货异常");
-  assert.equal(apiDriverException.task.exceptionReasonCode, "customer_unavailable");
-  assert.equal(apiDriverException.task.exceptionReason, "客户不在");
-  assert.equal(new Date(apiDriverException.task.exceptionOccurredAt).toISOString(), driverExceptionOccurredAt);
-  assert.ok(apiDriverException.todoId);
-  assert.ok(apiDriverException.operationLogId);
+  postgresAssertions.assertApiDriverException({ apiDriverException, driverExceptionOccurredAt });
   const persistedDriverException = queryJson(
     "SELECT json_build_object('status', f.status, 'actualQty', f.actual_qty, 'reasonCode', e.reason_code, 'reason', e.reason, 'actualQtyException', e.actual_qty, 'todoId', e.todo_id, 'occurredAt', e.occurred_at) AS result FROM fulfillment_records AS f JOIN fulfillment_exceptions AS e ON e.fulfillment_id = f.id WHERE f.id = 'F006' ORDER BY e.created_at DESC, e.id DESC LIMIT 1;",
   );
-  assert.equal(persistedDriverException.status, "送货异常");
-  assert.equal(persistedDriverException.actualQty, 0);
-  assert.equal(persistedDriverException.reasonCode, "customer_unavailable");
-  assert.equal(persistedDriverException.reason, "客户不在");
-  assert.equal(persistedDriverException.actualQtyException, 0);
-  assert.equal(persistedDriverException.todoId, apiDriverException.todoId);
-  assert.equal(new Date(persistedDriverException.occurredAt).toISOString(), driverExceptionOccurredAt);
+  postgresAssertions.assertPersistedDriverException({ persistedDriverException, apiDriverException, driverExceptionOccurredAt });
   const coldStartAfterDriverException = await createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
     fulfillmentId: "F006",
     operatorId: "U-DRIVER-A",
   });
-  assert.equal(coldStartAfterDriverException.status, "送货异常");
-  assert.equal(coldStartAfterDriverException.exceptionReasonCode, "customer_unavailable");
-  assert.equal(coldStartAfterDriverException.exceptionReason, "客户不在");
-  assert.equal(new Date(coldStartAfterDriverException.exceptionOccurredAt).toISOString(), driverExceptionOccurredAt);
+  postgresAssertions.assertColdStartAfterDriverException({ coldStartAfterDriverException, driverExceptionOccurredAt });
 
   const driverPaperReady = await getJson(baseUrl, "/api/fulfillments/F008", { headers });
   const driverPaperDocument = driverPaperReady.paperOutboundDocument;
@@ -3681,28 +3558,16 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers: driverHeaders },
   );
-  assert.equal(apiDriverLoad.status, "配送中");
-  assert.equal(new Date(apiDriverLoad.task.loadedAt).toISOString(), driverLoadAt);
-  assert.equal(apiDriverLoad.task.loadedBy, "U-DRIVER-A");
-  assert.equal(apiDriverLoad.task.driverRemark, driverLoadRemark);
-  assert.equal(apiDriverLoad.task.routeSequence, 3);
-  assert.equal(apiDriverLoad.task.packageChecklist.length, 6);
-  assert.ok(apiDriverLoad.operationLogId);
+  postgresAssertions.assertApiDriverLoad({ apiDriverLoad, driverLoadAt, driverLoadRemark });
   const persistedDriverLoad = queryJson(
     "SELECT json_build_object('status', status, 'loadedAt', loaded_at, 'loadedBy', loaded_by, 'driverRemark', driver_remark) AS result FROM fulfillment_records WHERE id = 'F008';",
   );
-  assert.equal(persistedDriverLoad.status, "配送中");
-  assert.equal(new Date(persistedDriverLoad.loadedAt).toISOString(), driverLoadAt);
-  assert.equal(persistedDriverLoad.loadedBy, "U-DRIVER-A");
-  assert.equal(persistedDriverLoad.driverRemark, driverLoadRemark);
+  postgresAssertions.assertPersistedDriverLoad({ persistedDriverLoad, driverLoadAt, driverLoadRemark });
   const coldStartAfterDriverLoad = await createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
     fulfillmentId: "F008",
     operatorId: "U-DRIVER-A",
   });
-  assert.equal(coldStartAfterDriverLoad.status, "配送中");
-  assert.equal(new Date(coldStartAfterDriverLoad.loadedAt).toISOString(), driverLoadAt);
-  assert.equal(coldStartAfterDriverLoad.loadedBy, "U-DRIVER-A");
-  assert.equal(coldStartAfterDriverLoad.driverRemark, driverLoadRemark);
+  postgresAssertions.assertColdStartAfterDriverLoad({ coldStartAfterDriverLoad, driverLoadAt, driverLoadRemark });
 
   const driverCompletedAt = "2026-07-02T10:20:00.000Z";
   const driverCompleteRemark = "postgres live driver complete check";
@@ -3774,36 +3639,16 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers: driverHeaders },
   );
-  assert.equal(apiDriverComplete.status, "已完成");
-  assert.equal(apiDriverComplete.task.status, "已完成");
-  assert.equal(new Date(apiDriverComplete.task.loadedAt).toISOString(), driverLoadAt);
-  assert.equal(apiDriverComplete.task.receiverName, "客户仓管");
-  assert.equal(apiDriverComplete.task.paperNoteStatus, "已交回");
-  assert.equal(apiDriverComplete.task.watermarkedPhotoAttachmentId, driverWatermarkAttachment.attachmentId);
-  assert.equal(apiDriverComplete.task.signaturePhotoAttachmentId, driverSignatureAttachment.attachmentId);
-  assert.equal(apiDriverComplete.inventoryDeductionMode, "already_physical_outbound");
-  assert.ok(apiDriverComplete.operationLogId);
+  postgresAssertions.assertApiDriverComplete({ apiDriverComplete, driverLoadAt, driverWatermarkAttachment, driverSignatureAttachment });
   const persistedDriverComplete = queryJson(
     "SELECT json_build_object('status', status, 'loadedAt', loaded_at, 'loadedBy', loaded_by, 'driverRemark', driver_remark, 'receiverName', receiver_name, 'paperNoteStatus', paper_note_status, 'watermarkId', watermark_id) AS result FROM fulfillment_records WHERE id = 'F008';",
   );
-  assert.equal(persistedDriverComplete.status, "已交付");
-  assert.equal(new Date(persistedDriverComplete.loadedAt).toISOString(), driverLoadAt);
-  assert.equal(persistedDriverComplete.loadedBy, "U-DRIVER-A");
-  assert.equal(persistedDriverComplete.driverRemark, driverCompleteRemark);
-  assert.equal(persistedDriverComplete.receiverName, "客户仓管");
-  assert.equal(persistedDriverComplete.paperNoteStatus, "已交回");
-  assert.equal(persistedDriverComplete.watermarkId, "WM-LIVE-DRIVER-F008");
+  postgresAssertions.assertPersistedDriverComplete({ persistedDriverComplete, driverLoadAt, driverCompleteRemark });
   const coldStartAfterDriverComplete = await createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
     fulfillmentId: "F008",
     operatorId: "U-DRIVER-A",
   });
-  assert.equal(coldStartAfterDriverComplete.status, "已完成");
-  assert.equal(new Date(coldStartAfterDriverComplete.loadedAt).toISOString(), driverLoadAt);
-  assert.equal(coldStartAfterDriverComplete.loadedBy, "U-DRIVER-A");
-  assert.equal(coldStartAfterDriverComplete.driverRemark, driverCompleteRemark);
-  assert.equal(coldStartAfterDriverComplete.receiverName, "客户仓管");
-  assert.equal(coldStartAfterDriverComplete.paperNoteStatus, "已交回");
-  assert.equal(coldStartAfterDriverComplete.watermarkedPhotoAttachmentId, driverWatermarkAttachment.attachmentId);
+  postgresAssertions.assertColdStartAfterDriverComplete({ coldStartAfterDriverComplete, driverLoadAt, driverCompleteRemark, driverWatermarkAttachment });
 
   const apiDeliveryEvidenceRetake = await postJson(
     baseUrl,
@@ -3817,11 +3662,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(apiDeliveryEvidenceRetake.reviewStatus, "需重拍");
-  assert.equal(apiDeliveryEvidenceRetake.todoType, "照片待重拍");
-  assert.equal(apiDeliveryEvidenceRetake.task.deliveryEvidenceReviewStatus, "需重拍");
-  assert.ok(apiDeliveryEvidenceRetake.todoId);
-  assert.ok(apiDeliveryEvidenceRetake.operationLogId);
+  postgresAssertions.assertApiDeliveryEvidenceRetake({ apiDeliveryEvidenceRetake });
   assertPostgresOperationLogOperator(queryJson, apiDeliveryEvidenceRetake.operationLogId);
 
   const driverRetakeSubmittedAt = "2026-07-02T10:45:00.000Z";
@@ -3868,15 +3709,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers: driverHeaders },
   );
-  assert.equal(apiDriverEvidenceResubmission.status, "已完成");
-  assert.equal(apiDriverEvidenceResubmission.evidenceResubmission, true);
-  assert.equal(apiDriverEvidenceResubmission.retakeTodoId, apiDeliveryEvidenceRetake.todoId);
-  assert.equal(apiDriverEvidenceResubmission.inventoryDeductionMode, "skipped_delivery_evidence_resubmission");
-  assert.equal(apiDriverEvidenceResubmission.inventoryLedgerIds.length, 0);
-  assert.equal(apiDriverEvidenceResubmission.task.deliveryEvidenceReviewStatus, "待复核");
-  assert.equal(apiDriverEvidenceResubmission.task.deliveryEvidenceIssueReason, "");
-  assert.equal(apiDriverEvidenceResubmission.task.watermarkedPhotoAttachmentId, driverRetakeAttachment.attachmentId);
-  assert.ok(apiDriverEvidenceResubmission.operationLogId);
+  postgresAssertions.assertApiDriverEvidenceResubmission({ apiDriverEvidenceResubmission, apiDeliveryEvidenceRetake, driverRetakeAttachment });
   const persistedDriverEvidenceResubmission = queryJson(
     `SELECT json_build_object(
       'status', f.status,
@@ -3894,24 +3727,12 @@ async function checkApiWithPostgresRepositories() {
     LEFT JOIN todos AS t ON t.id = ${sqlLiteral(apiDeliveryEvidenceRetake.todoId)}
     WHERE f.id = 'F008';`,
   );
-  assert.equal(persistedDriverEvidenceResubmission.status, "已交付");
-  assert.equal(persistedDriverEvidenceResubmission.watermarkedPhotoAttachmentId, driverRetakeAttachment.attachmentId);
-  assert.equal(persistedDriverEvidenceResubmission.watermarkId, "WM-LIVE-DRIVER-F008-RETAKE");
-  assert.equal(persistedDriverEvidenceResubmission.reviewStatus, "待复核");
-  assert.equal(persistedDriverEvidenceResubmission.reviewedAt, null);
-  assert.equal(persistedDriverEvidenceResubmission.issueReason, "");
-  assert.equal(persistedDriverEvidenceResubmission.todoStatus, "已处理");
-  assert.equal(persistedDriverEvidenceResubmission.todoHandledBy, "U-DRIVER-A");
-  assert.equal(new Date(persistedDriverEvidenceResubmission.todoHandledAt).toISOString(), driverRetakeSubmittedAt);
-  assert.equal(persistedDriverEvidenceResubmission.todoHandlingResult, "司机已补拍送达水印照片，待办公室复核");
+  postgresAssertions.assertPersistedDriverEvidenceResubmission({ persistedDriverEvidenceResubmission, driverRetakeAttachment, driverRetakeSubmittedAt });
   const coldStartAfterDriverEvidenceResubmission = await createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
     fulfillmentId: "F008",
     operatorId: "U-DRIVER-A",
   });
-  assert.equal(coldStartAfterDriverEvidenceResubmission.status, "已完成");
-  assert.equal(coldStartAfterDriverEvidenceResubmission.deliveryEvidenceReviewStatus, "待复核");
-  assert.equal(coldStartAfterDriverEvidenceResubmission.deliveryEvidenceIssueReason, "");
-  assert.equal(coldStartAfterDriverEvidenceResubmission.watermarkedPhotoAttachmentId, driverRetakeAttachment.attachmentId);
+  postgresAssertions.assertColdStartAfterDriverEvidenceResubmission({ coldStartAfterDriverEvidenceResubmission, driverRetakeAttachment });
 
   const apiDeviceFieldTest = await postJson(
     baseUrl,
@@ -3976,12 +3797,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(databaseOnlyOrderLines.items[0].amount, 273);
 
   const databaseOnlyOrderLineDetail = await getJson(baseUrl, "/api/order-lines/OL-LIVE-CONFIRM-001", { headers });
-  assert.equal(databaseOnlyOrderLineDetail.orderLine.id, "OL-LIVE-CONFIRM-001");
-  assert.equal(databaseOnlyOrderLineDetail.originalOrder.orderId, "ORD-LIVE-CONFIRM-001");
-  assert.equal(databaseOnlyOrderLineDetail.priceSnapshot.orderLineId, "OL-LIVE-CONFIRM-001");
-  assert.ok(databaseOnlyOrderLineDetail.inventory.length >= 1);
-  assert.ok(databaseOnlyOrderLineDetail.fulfillment.length >= 1);
-  assert.ok(Array.isArray(databaseOnlyOrderLineDetail.operationLogs));
+  postgresAssertions.assertDatabaseOnlyOrderLineDetail({ databaseOnlyOrderLineDetail });
 
   const attachmentUploadBody = {
     ownerType: "statement",
@@ -3996,13 +3812,7 @@ async function checkApiWithPostgresRepositories() {
       "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyMDAiIGhlaWdodD0iMTIwIj48dGV4dCB4PSIxMCIgeT0iNjAiPlBvc3RncmVzIExpdmU8L3RleHQ+PC9zdmc+",
   };
   const created = await postJson(baseUrl, "/api/attachments", attachmentUploadBody, { headers });
-  assert.equal(created.ownerId, "ST-LIVE-API-001");
-  assert.equal(created.storageProvider, "local_fs");
-  assert.equal(created.storageKeyStored, true);
-  assert.equal(Object.hasOwn(created, "storageKey"), false);
-  assert.equal(Object.hasOwn(created, "thumbnailStorageKey"), false);
-  assert.equal(created.deduplicated, false);
-  assert.ok(created.operationLogId);
+  postgresAssertions.assertCreated({ created });
 
   const duplicateCreated = await postJson(
     baseUrl,
@@ -4010,20 +3820,14 @@ async function checkApiWithPostgresRepositories() {
     { ...attachmentUploadBody, fileName: "payment-proof-postgres-live-copy.svg" },
     { headers },
   );
-  assert.equal(duplicateCreated.attachmentId, created.attachmentId);
-  assert.equal(duplicateCreated.duplicateOfAttachmentId, created.attachmentId);
-  assert.equal(duplicateCreated.deduplicated, true);
-  assert.notEqual(duplicateCreated.operationLogId, created.operationLogId);
+  postgresAssertions.assertDuplicateCreated({ duplicateCreated, created });
 
   const listed = await getJson(
     baseUrl,
     "/api/attachments?ownerType=statement&ownerId=ST-LIVE-API-001&purpose=payment_screenshot&fileType=image",
     { headers },
   );
-  assert.equal(listed.total, 1);
-  assert.equal(listed.items[0].attachmentId, created.attachmentId);
-  assert.equal(listed.items[0].storageKeyStored, true);
-  assert.equal(Object.hasOwn(listed.items[0], "storageKey"), false);
+  postgresAssertions.assertListed({ listed, created });
 
   const contentResponse = await fetch(`${baseUrl}/api/attachments/${created.attachmentId}/content`, { headers });
   assert.equal(contentResponse.status, 200);
@@ -4033,22 +3837,12 @@ async function checkApiWithPostgresRepositories() {
   const accessUrl = await getJson(baseUrl, `/api/attachments/${created.attachmentId}/access-url?ttlSeconds=120`, {
     headers,
   });
-  assert.equal(accessUrl.attachmentId, created.attachmentId);
-  assert.equal(accessUrl.storageProvider, "local_fs");
-  assert.equal(accessUrl.storageKeyStored, true);
-  assert.equal(Object.hasOwn(accessUrl, "storageKey"), false);
-  assert.ok(accessUrl.operationLogId);
+  postgresAssertions.assertAccessUrl({ accessUrl, created });
 
   const accessLogs = await getJson(baseUrl, `/api/attachments/${created.attachmentId}/access-logs?limit=10`, {
     headers,
   });
-  assert.equal(accessLogs.total, 2);
-  assert.deepEqual(
-    accessLogs.items.map((item) => item.action).sort(),
-    ["attachment_access_url_created", "attachment_content_read"],
-  );
-  assert.equal(accessLogs.items.every((item) => item.storageKeyStored === true), true);
-  assert.equal(accessLogs.items.some((item) => Object.hasOwn(item, "storageKey")), false);
+  postgresAssertions.assertAccessLogs({ accessLogs });
 
   const queueCorpus = orderConversationCorpus[0];
   const queueRequest = {
@@ -4057,13 +3851,7 @@ async function checkApiWithPostgresRepositories() {
     idempotencyKey: "order-draft-queue-postgres-live-001",
   };
   const queuedDrafts = await postJson(baseUrl, "/api/order-draft-queues/recognize", queueRequest, { headers });
-  assert.equal(queuedDrafts.queueBatch.summary.queueItemCount, 5);
-  assert.equal(queuedDrafts.queueBatch.summary.orderDraftCount, 2);
-  assert.equal(queuedDrafts.queueBatch.summary.intentDraftCount, 3);
-  assert.deepEqual(
-    queuedDrafts.drafts.filter((item) => item.kind === "order_draft").map((item) => item.lines.length),
-    [2, 2],
-  );
+  postgresAssertions.assertQueuedDrafts({ queuedDrafts });
   const reviewLine = queuedDrafts.drafts
     .flatMap((item) => item.lines)
     .find((line) => line.recognitionEvidence?.fieldReviews?.some((review) => review.field === "size"));
@@ -4096,9 +3884,7 @@ async function checkApiWithPostgresRepositories() {
     `/api/order-drafts?queueOnly=true&queueBatchId=${encodeURIComponent(queuedDrafts.queueBatch.batchId)}&pageSize=20`,
     { headers },
   );
-  assert.equal(queuedDraftList.total, 5);
-  assert.equal(queuedDraftList.summary.orderDraftCount, 2);
-  assert.equal(queuedDraftList.summary.intentDraftCount, 3);
+  postgresAssertions.assertQueuedDraftList({ queuedDraftList });
 
   const queuedOrderDrafts = queuedDrafts.drafts.filter((item) => item.kind === "order_draft");
   const crossDraftTarget = queuedOrderDrafts[0];
@@ -4311,9 +4097,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(temporaryHold.intent.intentStatus, "临时留货-生效");
-  assert.equal(temporaryHold.hold.reservedQty, 5);
-  assert.equal(temporaryHold.hold.sourceIntentId, holdIntent.intentId);
+  postgresAssertions.assertTemporaryHold({ temporaryHold, holdIntent });
   const reservedAfterHold = Number(
     runPsql("SELECT reserved_qty FROM inventory_items WHERE id = 'INV-LIVE-CONFIRM-001';", { capture: true }).trim(),
   );
@@ -4514,17 +4298,12 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.ok(confirmedOrder.orderId);
-  assert.equal(confirmedOrder.orderLines.length, 1);
-  assert.equal(confirmedOrder.reservations.length, 1);
-  assert.equal(confirmedOrder.fulfillmentTasks.length, 1);
+  postgresAssertions.assertConfirmedOrder({ confirmedOrder });
   assertPostgresOperationLogOperator(queryJson, confirmedOrder.operationLogIds[0]);
   const coldOrderDraftRepository = createPostgresOrderDraftRepository({ queryJson });
   const coldOrderDraftState = await coldOrderDraftRepository.loadState();
   const coldConfirmedDraft = coldOrderDraftState.orderDrafts.find((draft) => draft.id === "DRAFT-LIVE-ORDER-001");
-  assert.equal(coldConfirmedDraft.status, "已生成正式订单");
-  assert.equal(coldConfirmedDraft.revision, 2);
-  assert.equal(coldConfirmedDraft.lines.length, 1);
+  postgresAssertions.assertColdConfirmedDraft({ coldConfirmedDraft });
   const staleConfirmedDraftSave = await patchJson(
     baseUrl,
     "/api/order-drafts/DRAFT-LIVE-ORDER-001",
@@ -4803,11 +4582,7 @@ async function checkApiWithPostgresRepositories() {
     "/api/master-data/employee-account-reviews?employeeId=EMP-MD-LIVE-001",
     { headers: { "x-erp-user-id": "U-MANAGER-A" } },
   );
-  assert.equal(restartedAssignedEmployeeReview.total, 1);
-  assert.equal(restartedAssignedEmployeeReview.items[0].assignmentMode, "fixed_machine");
-  assert.equal(restartedAssignedEmployeeReview.items[0].defaultWorkshop, "1号车间");
-  assert.equal(restartedAssignedEmployeeReview.items[0].defaultMachineId, "BAG-03");
-  assert.equal(restartedAssignedEmployeeReview.items[0].assignmentUpdatedBy, "U-MANAGER-A");
+  postgresAssertions.assertRestartedAssignedEmployeeReview({ restartedAssignedEmployeeReview });
   assert(restartedAssignedEmployeeReview.items[0].assignmentUpdatedAt);
   assert.equal(restartedAssignedEmployeeReview.items[0].assignmentNote, "PostgreSQL固定机台验证");
   const restartedHoldIntents = await getJson(
@@ -5119,16 +4894,7 @@ async function checkApiWithPostgresRepositories() {
     apiProductionReportBody,
     { headers },
   );
-  assert.equal(apiProductionReport.status, "已完成");
-  assert.equal(apiProductionReport.orderLineStatus, "待打包");
-  assert.equal(apiProductionReport.qualifiedQty, 1000);
-  assert.equal(apiProductionReport.machineCount, 1888);
-  assert.equal(apiProductionReport.machineCountAffectsInventory, false);
-  assert.equal(apiProductionReport.capacityCalibrationCreated, true);
-  assert.equal(apiProductionReport.capacityCalibration.sourceKind, "production_report");
-  assert.equal(apiProductionReport.capacityCalibration.dailyCapacityQty, 1000);
-  assert.equal(apiProductionReport.inventoryLedgerIds.length, 2);
-  assert.ok(apiProductionReport.packingTaskId);
+  postgresAssertions.assertApiProduction({ apiProductionReport });
   const apiProductionInventoryAfterReport = queryJson(
     "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';",
   );
@@ -5194,12 +4960,7 @@ async function checkApiWithPostgresRepositories() {
     apiPackingCompleteBody,
     { headers: warehouseHeaders },
   );
-  assert.equal(apiPackingComplete.status, "已完成");
-  assert.equal(apiPackingComplete.actualPackedQty, 1000);
-  assert.equal(apiPackingComplete.packageIds.length, 3);
-  assert.equal(apiPackingComplete.orderLineStatus, "待打印标签");
-  assert.equal(apiPackingComplete.inventoryDeducted, false);
-  assert.equal(apiPackingComplete.inventoryLedgerIds.length, 1);
+  postgresAssertions.assertApiPackingComplete({ apiPackingComplete });
   const apiProductionInventoryAfterPacking = queryJson(
     "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';",
   );
@@ -5245,18 +5006,11 @@ async function checkApiWithPostgresRepositories() {
   const apiProductionDetail = await getJson(baseUrl, `/api/production-tasks/${apiProductionReport.productionTaskId}`, {
     headers,
   });
-  assert.equal(apiProductionDetail.productionTaskId, apiProductionReport.productionTaskId);
-  assert.equal(apiProductionDetail.latestReport.machineCount, 1888);
-  assert.equal(apiProductionDetail.latestReport.machineCountAffectsInventory, false);
-  assert.equal(apiProductionDetail.inventoryLedgerEntries.length, 2);
-  assert.equal(apiProductionDetail.packingTask.packingTaskId, apiProductionReport.packingTaskId);
+  postgresAssertions.assertApiProduction2({ apiProductionDetail, apiProductionReport });
   const apiPackingDetail = await getJson(baseUrl, `/api/packing-tasks/${apiProductionReport.packingTaskId}`, {
     headers: warehouseHeaders,
   });
-  assert.equal(apiPackingDetail.packingTask.status, "已完成");
-  assert.equal(apiPackingDetail.packages.length, 3);
-  assert.equal(apiPackingDetail.inventoryLedgerEntries.length, 1);
-  assert.equal(apiPackingDetail.inventoryDeducted, false);
+  postgresAssertions.assertApiPackingDetail({ apiPackingDetail });
   const apiProductionList = await getJson(
     baseUrl,
     `/api/production-tasks?status=${encodeURIComponent("已完成")}&keyword=${encodeURIComponent("美的")}&pageSize=5`,
@@ -5373,10 +5127,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(apiTrustedPrintRequest.printRecord.status, "submitted");
-  assert.equal(apiTrustedPrintRequest.printJob.jobStatus, "queued");
-  assert.equal(apiTrustedPrintRequest.nextStatus, apiTrustedPrintInitialStatus);
-  assert.equal(apiTrustedPrintRequest.physicalPrintConfirmed, false);
+  postgresAssertions.assertApiTrustedPrintInitial({ apiTrustedPrintRequest, apiTrustedPrintInitialStatus });
   assertPostgresOperationLogOperator(queryJson, apiTrustedPrintRequest.operationLogId);
   assert.equal(
     queryJson(
@@ -5451,9 +5202,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(apiDispatchedPrintJob.printJob.jobStatus, "failed");
-  assert.equal(apiDispatchedPrintJob.dispatchResult.errorCode, "SYSTEM_PRINTER_ADAPTER_NOT_CONFIGURED");
-  assert.ok(apiDispatchedPrintJob.operationLogId);
+  postgresAssertions.assertApiDispatchedPrintJob({ apiDispatchedPrintJob });
   assertPostgresOperationLogOperator(queryJson, apiDispatchedPrintJob.operationLogId);
   const apiFailedPrintJob = await postJson(
     baseUrl,
@@ -5467,9 +5216,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(apiFailedPrintJob.printJob.jobStatus, "failed");
-  assert.equal(apiFailedPrintJob.printJob.errorCode, "LIVE_API_DRIVER_TIMEOUT");
-  assert.ok(apiFailedPrintJob.operationLogId);
+  postgresAssertions.assertApiFailedPrintJob({ apiFailedPrintJob });
   assertPostgresOperationLogOperator(queryJson, apiFailedPrintJob.operationLogId);
   const apiRetryPrintJob = await postJson(
     baseUrl,
@@ -5480,10 +5227,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(apiRetryPrintJob.sourcePrintJob.printJobId, "PJ-LIVE-API-001");
-  assert.equal(apiRetryPrintJob.printJob.sourcePrintJobId, "PJ-LIVE-API-001");
-  assert.equal(apiRetryPrintJob.printJob.attemptNo, 2);
-  assert.equal(apiRetryPrintJob.printJob.jobStatus, "queued");
+  postgresAssertions.assertApiRetryPrintJob({ apiRetryPrintJob });
   assertPostgresOperationLogOperator(queryJson, apiRetryPrintJob.operationLogId);
 
   const apiPollingPrintJob = {
@@ -5590,11 +5334,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers: printDriverHeaders },
   );
-  assert.equal(apiDriverStatusPrintJob.printJob.jobStatus, "printed");
-  assert.equal(apiDriverStatusPrintJob.printJob.finishedAt, "2026-07-02T10:32:00.000Z");
-  assert.equal(apiDriverStatusPrintJob.driverStatusEvent.driverStatus, "completed");
-  assert.equal(apiDriverStatusPrintJob.driverStatusEvent.operatorId, "U-PRINT-DRIVER-A");
-  assert.ok(apiDriverStatusPrintJob.operationLogId);
+  postgresAssertions.assertApiDriverStatusPrintJob({ apiDriverStatusPrintJob });
   const apiDriverStatusOperationLog = queryJson(
     `SELECT json_build_object('operatorId', operator_id, 'action', action) AS result FROM operation_logs WHERE id = ${sqlLiteral(apiDriverStatusPrintJob.operationLogId)};`,
   );
@@ -5630,11 +5370,7 @@ async function checkApiWithPostgresRepositories() {
     apiPrintBatchBody,
     { headers },
   );
-  assert.equal(apiPrintBatch.printBatchRecord.printBatchId, "PB-LIVE-API-001");
-  assert.equal(apiPrintBatch.printBatchRecord.pendingPackageIds[0], "PKG-LIVE-API-PRINT-003");
-  assert.equal(apiPrintBatch.printBatchRecord.operatorId, "U-OFFICE-A");
-  assert.equal(apiPrintBatch.printBatchRecord.operatorName, "办公室A");
-  assert.ok(apiPrintBatch.operationLogId);
+  postgresAssertions.assertApiPrintBatch({ apiPrintBatch });
   const replayedApiPrintBatch = await postJson(baseUrl, "/api/print-batches", apiPrintBatchBody, { headers });
   assert.equal(replayedApiPrintBatch.operationLogId, apiPrintBatch.operationLogId);
   assert.equal(
@@ -5707,13 +5443,7 @@ async function checkApiWithPostgresRepositories() {
     voidRequestBody,
     { headers: voidHeaders },
   );
-  assert.equal(apiVoidedOrderLine.status, "已关闭");
-  assert.equal(apiVoidedOrderLine.releasedReservations[0].status, "released");
-  assert.equal(apiVoidedOrderLine.releasedReservations[0].qty, 0);
-  assert.ok(apiVoidedOrderLine.canceledFulfillmentIds.includes(voidCandidateOrder.fulfillmentTasks[0].fulfillmentId));
-  assert.equal(apiVoidedOrderLine.inventoryLedgerIds.length, 1);
-  assert.ok(apiVoidedOrderLine.orderLineChangeRecordId);
-  assert.ok(apiVoidedOrderLine.operationLogId);
+  postgresAssertions.assertApiVoidedOrderLine({ apiVoidedOrderLine, voidCandidateOrder });
   const replayedApiVoidedOrderLine = await postJson(
     baseUrl,
     `/api/order-lines/${voidCandidateOrder.orderLines[0].id}/void`,
@@ -5835,17 +5565,7 @@ async function checkApiWithPostgresRepositories() {
     decreaseRequestBody,
     { headers: decreaseHeaders },
   );
-  assert.equal(apiDecreasedOrderLine.previousQty, 10);
-  assert.equal(apiDecreasedOrderLine.newQty, 6);
-  assert.equal(apiDecreasedOrderLine.qtyDelta, -4);
-  assert.equal(apiDecreasedOrderLine.priceSnapshot.chargeableQty, 6);
-  assert.equal(apiDecreasedOrderLine.priceSnapshot.finalAmount, 2.04);
-  assert.equal(apiDecreasedOrderLine.adjustedReservations[0].qty, 6);
-  assert.equal(apiDecreasedOrderLine.adjustedReservations[0].status, "active");
-  assert.ok(apiDecreasedOrderLine.adjustedFulfillmentIds.includes(quantityCandidateOrder.fulfillmentTasks[0].fulfillmentId));
-  assert.equal(apiDecreasedOrderLine.inventoryLedgerIds.length, 1);
-  assert.ok(apiDecreasedOrderLine.orderLineChangeRecordId);
-  assert.ok(apiDecreasedOrderLine.operationLogId);
+  postgresAssertions.assertApiDecreasedOrderLine({ apiDecreasedOrderLine, quantityCandidateOrder });
   const replayedApiDecreasedOrderLine = await postJson(
     baseUrl,
     `/api/order-lines/${quantityCandidateOrder.orderLines[0].id}/quantity-adjustment`,
@@ -5906,14 +5626,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers: { ...headers, "idempotency-key": "live-order-line-qty-increase-001" } },
   );
-  assert.equal(apiIncreasedOrderLine.previousQty, 6);
-  assert.equal(apiIncreasedOrderLine.newQty, 8);
-  assert.equal(apiIncreasedOrderLine.qtyDelta, 2);
-  assert.equal(apiIncreasedOrderLine.priceSnapshot.chargeableQty, 8);
-  assert.equal(apiIncreasedOrderLine.priceSnapshot.finalAmount, 2.72);
-  assert.equal(apiIncreasedOrderLine.adjustedReservations[0].qty, 8);
-  assert.equal(apiIncreasedOrderLine.adjustedReservations[0].status, "active");
-  assert.equal(apiIncreasedOrderLine.inventoryLedgerIds.length, 1);
+  postgresAssertions.assertApiIncreasedOrderLine({ apiIncreasedOrderLine });
   assertPostgresOperationLogOperator(queryJson, apiIncreasedOrderLine.operationLogId);
   assert.equal(
     queryJson(
@@ -5961,11 +5674,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(apiCancelledFulfillment.status, "已取消");
-  assert.equal(apiCancelledFulfillment.releasedReservations[0].qty, 0);
-  assert.equal(apiCancelledFulfillment.releasedReservations[0].status, "released");
-  assert.equal(apiCancelledFulfillment.inventoryLedgerIds.length, 1);
-  assert.ok(apiCancelledFulfillment.operationLogId);
+  postgresAssertions.assertApiCancelledFulfillment({ apiCancelledFulfillment });
   assertPostgresOperationLogOperator(queryJson, apiCancelledFulfillment.operationLogId);
   assert.equal(
     queryJson(
@@ -6077,11 +5786,7 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(exportedWorkbook.contentType, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
   assertStatementXlsxWorkbook(exportedWorkbook.bytes, { templateVersion: "p0-statement-xlsx-v1" });
   const exportList = await getJson(baseUrl, "/api/statements/ST-0629-001/exports", { headers });
-  assert.ok(exportList.total >= 1);
-  assert.equal(exportList.items[0].downloadToken, preview.downloadToken);
-  assert.equal(exportList.items[0].storageProvider, "local_fs");
-  assert.equal(exportList.items[0].storageKeyStored, true);
-  assert.equal(exportList.items[0].content, undefined);
+  postgresAssertions.assertExportList({ exportList, preview });
 
   const statementSendExpectedRevision = Number(
     queryJson("SELECT json_build_object('revision', revision) AS result FROM statements WHERE id = 'ST-0629-001';").revision,
@@ -6108,10 +5813,7 @@ async function checkApiWithPostgresRepositories() {
     statementSendBody,
     { headers: statementSendHeaders },
   );
-  assert.equal(replayedMarkedSent.sendRecordId, markedSent.sendRecordId);
-  assert.equal(replayedMarkedSent.operationLogId, markedSent.operationLogId);
-  assert.equal(markedSent.status, "已发送");
-  assert.ok(markedSent.sendRecordId);
+  postgresAssertions.assertReplayedMarkedSent({ replayedMarkedSent, markedSent });
   const sentStatement = queryJson(
     "SELECT json_build_object('status', status, 'lastSentAt', last_sent_at) AS result FROM statements WHERE id = 'ST-0629-001';",
   );
@@ -6283,10 +5985,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers },
   );
-  assert.equal(payment.payment.statementId, "ST-0629-001");
-  assert.equal(payment.payment.customerId, "C001");
-  assert.equal(payment.payment.attachmentIds[0], statementPaymentAttachment.attachmentId);
-  assert.equal(payment.statementStatus, "收款待确认");
+  postgresAssertions.assertPayment({ payment, statementPaymentAttachment });
 
   const paymentCount = Number(
     runPsql("SELECT COUNT(*) FROM payment_records WHERE statement_id = 'ST-0629-001' AND amount = 273;", {
@@ -6325,9 +6024,7 @@ async function checkApiWithPostgresRepositories() {
     },
     { headers: scheduleHeaders },
   );
-  assert.equal(variance.statementStatus, "有欠款");
-  assert.equal(variance.debtAmount, 28000);
-  assert.equal(variance.varianceRecord.statementId, "ST-0629-002");
+  postgresAssertions.assertVariance({ variance });
   const varianceStatement = queryJson(
     "SELECT json_build_object('status', status, 'variance', variance_amount) AS result FROM statements WHERE id = 'ST-0629-002';",
   );
@@ -6432,29 +6129,16 @@ async function checkApiWithPostgresRepositories() {
   assert.equal(restartedHealth.seed.statements, Number(runPsql("SELECT COUNT(*) FROM statements;", { capture: true }).trim()));
   const restartedHandledTodos = await getJson(baseUrl, "/api/todos?status=handled&pageSize=200", { headers });
   const restartedTodoAction = restartedHandledTodos.items.find((item) => item.todoId === "T-LIVE-IDEMPOTENCY-001");
-  assert.equal(restartedTodoAction?.handledBy, "U-OFFICE-A");
-  assert.equal(restartedTodoAction?.notifiedBy, "U-OFFICE-A");
-  assert.equal(restartedTodoAction?.notificationStatus, "已通知客户");
-  assert.equal(restartedTodoAction?.notificationCopyText, "PostgreSQL 待办持久化验证");
+  postgresAssertions.assertRestartedTodoAction({ restartedTodoAction });
   const restartedOpenTodos = await getJson(baseUrl, "/api/todos?status=open&pageSize=200", { headers });
   const restartedCustomerPending = restartedOpenTodos.items.find((item) => item.todoId === "T-LIVE-IDEMPOTENCY-002");
-  assert.equal(restartedCustomerPending?.handled, false);
-  assert.equal(restartedCustomerPending?.reminder, "等待客户回复");
-  assert.equal(restartedCustomerPending?.lastAction, "客户待确认");
-  assert.equal(restartedCustomerPending?.refId, "ORD-0629-001-01");
-  assert.equal(restartedCustomerPending?.referenceStatus, "valid");
-  assert.equal(restartedCustomerPending?.referenceRepair?.beforeRefId, "T-LIVE-IDEMPOTENCY-002");
+  postgresAssertions.assertRestartedCustomerPending({ restartedCustomerPending });
   const restartedCorrectionDetail = await getJson(
     baseUrl,
     `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}`,
     { headers },
   );
-  assert.equal(restartedCorrectionDetail.status, "已确认生效");
-  assert.equal(restartedCorrectionDetail.qtyBefore.onHand, 600);
-  assert.equal(restartedCorrectionDetail.requestedQtyAfter.onHand, 585);
-  assert.equal(restartedCorrectionDetail.ledger.ledgerId, confirmedCorrection.ledger.ledgerId);
-  assert.equal(restartedCorrectionDetail.operatorId, "U-WAREHOUSE-A");
-  assert.equal(restartedCorrectionDetail.confirmedBy, "U-MANAGER-A");
+  postgresAssertions.assertRestartedCorrectionDetail({ restartedCorrectionDetail, confirmedCorrection });
   const restartedCorrectionReplay = await postJson(
     baseUrl,
     `/api/inventory/correction-drafts/${createdCorrection.correctionDraftId}/confirm`,
@@ -6558,9 +6242,7 @@ WHERE id = '${formalConcurrentTodoId}';
 `);
   assert.equal(formalConcurrentPersisted.status, "已处理");
   assert([liveOfficeRuntimeUserId, liveManagerRuntimeUserId].includes(formalConcurrentPersisted.handledBy));
-  assert.equal(Number(formalConcurrentPersisted.eventCount), 1);
-  assert.equal(Number(formalConcurrentPersisted.logCount), 1);
-  assert.equal(Number(formalConcurrentPersisted.idempotencyCount), 1);
+  postgresAssertions.assertFormalConcurrentPersisted({ formalConcurrentPersisted });
 }
 
 function createTodoReadBarrierRepository(repository, todoId) {
