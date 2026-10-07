@@ -1210,7 +1210,7 @@ export function App() {
             },
             driverMobile: {
               tasks: driverDeliveryTasks, selectedTaskId: selectedDriverTaskId,
-              setSelectedTaskId, meta: driverDeliveryMeta,
+              setSelectedTaskId: setSelectedDriverTaskId, meta: driverDeliveryMeta,
               onAction: handleDriverDeliveryAction, helpers: pageHelpers,
             },
             payroll: { authState, currentUser, permissionContext },
