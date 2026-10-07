@@ -4,6 +4,7 @@ import { createProductionPackingTransactionRepository } from "./productionPackin
 import { createOrderDraftRepository } from "./orderDraftRepository.mjs";
 import { createAttendancePayrollRepository } from "./attendancePayrollRepository.mjs";
 import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
+import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
 
 export function createRepositories(effectiveOptions = {}) {
   return {
@@ -25,5 +26,8 @@ export function createRepositories(effectiveOptions = {}) {
     statementPaymentTransactionRepository:
       effectiveOptions.statementPaymentTransactionRepository ??
       createStatementPaymentTransactionRepository(effectiveOptions.statementPaymentTransactionRepositoryOptions),
+    statementSettlementTransactionRepository:
+      effectiveOptions.statementSettlementTransactionRepository ??
+      createStatementSettlementTransactionRepository(effectiveOptions.statementSettlementTransactionRepositoryOptions),
   };
 }
