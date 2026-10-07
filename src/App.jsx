@@ -131,7 +131,6 @@ const DecisionMobilePage = lazy(() => import("./features/decisions/DecisionMobil
 const MaintenanceMobilePage = lazy(() => import("./features/maintenance/MaintenanceMobilePage.jsx").then((module) => ({ default: module.MaintenanceMobilePage })));
 const DesktopRequiredMobilePage = lazy(() => import("./features/mobile/DesktopRequiredMobilePage.jsx").then((module) => ({ default: module.DesktopRequiredMobilePage })));
 const MasterDataMaintenancePage = lazy(() => import("./features/master-data/MasterDataMaintenancePage.jsx").then((module) => ({ default: module.MasterDataMaintenancePage })));
-const PayrollAttendancePage = lazy(() => import("./features/payroll/PayrollAttendancePage.jsx").then((module) => ({ default: module.PayrollAttendancePage })));
 const EmployeeAttendanceMobilePage = lazy(() => import("./features/payroll/EmployeeAttendanceMobilePage.jsx").then((module) => ({ default: module.EmployeeAttendanceMobilePage })));
 
 const officeScenarioData = loadOfficeWorkspace();
@@ -1193,6 +1192,7 @@ export function App() {
             />
           )}
           {renderRegisteredPage(renderedPage, {
+            payroll: { authState, currentUser, permissionContext },
             inventory: {
               inventoryRecords,
               inventoryMeta,
@@ -1377,11 +1377,6 @@ export function App() {
               onBatchEnableEmployeeAccounts={enableMasterDataEmployeeAccounts} onOpenImportTemplate={openMasterDataTemplatePanel}
               helpers={pageHelpers}
             /></Suspense>
-          )}
-          {renderedPage === "payroll" && (
-            <Suspense fallback={<DataState title="工资核算工作台加载中" />}>
-              <PayrollAttendancePage authState={authState} currentUser={currentUser} permissionContext={permissionContext} />
-            </Suspense>
           )}
           {renderedPage === "v1Status" && (
             <Suspense fallback={<DataState title="上线状态加载中" />}>
