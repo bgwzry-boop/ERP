@@ -71,8 +71,13 @@ assert.throws(
 );
 
 const allowedRoutes = [
+  "/api/master-data/raw-material-supplier-colors",
   "/api/raw-material-inbounds/recognize-delivery-note",
   "/api/raw-material-inbounds/RMI-1/review",
+  "/api/raw-material-inbounds/RMI-1/reparse-ocr",
+  "/api/raw-material-inbounds/RMI-1/reparse_ocr",
+  "/api/raw-material-inbounds/RMI-1/void-draft",
+  "/api/raw-material-inbounds/RMI-1/void_draft",
   "/api/raw-material-inbounds/RMI-1/print-labels",
   "/api/raw-material-inbounds/RMI-1/print_labels",
   "/api/raw-material-inbounds/RMI-1/attach-confirm",
@@ -119,6 +124,8 @@ assert.equal(evaluateFirstReleaseWrite({
 }).allowed, false, "unrelated binary attachments must remain blocked during first release");
 
 const blockedRoutes = [
+  "/api/master-data/import-confirmation-plans",
+  "/api/master-data/raw-material-supplier-colors/unknown",
   "/api/order-drafts/recognize",
   "/api/production-tasks/PT-1/complete",
   "/api/raw-material-purchase-requests",
@@ -138,6 +145,7 @@ for (const pathname of blockedRoutes) {
   assert.equal(evaluate(pathname).allowed, false, `first-release write should block ${pathname}`);
 }
 assert.equal(evaluate("/api/raw-material-inbounds/RMI-1/review", "PATCH").allowed, false);
+assert.equal(evaluate("/api/master-data/raw-material-supplier-colors", "PATCH").allowed, false);
 
 assert.deepEqual(buildFirstReleaseBlockedResponse(RAW_MATERIAL_FIRST_RELEASE_SCOPE), {
   code: "FIRST_RELEASE_SCOPE_BLOCKED",
@@ -147,6 +155,7 @@ assert.deepEqual(buildFirstReleaseBlockedResponse(RAW_MATERIAL_FIRST_RELEASE_SCO
 });
 
 await checkApiBoundary();
+await checkReceiptMaintenanceApi();
 await checkAuthenticationPrecedence();
 
 rmSync(checkStorageRoot, { recursive: true, force: true });
@@ -286,6 +295,74 @@ async function checkApiBoundary() {
   }
 }
 
+async function checkReceiptMaintenanceApi() {
+  const server = createApiServer(withLocalRepositoryFixture({
+    firstReleaseScope: "raw_material",
+    runtimeMode: "test",
+    runtimeStorageRoot: join(checkStorageRoot, "receipt-maintenance"),
+    applyProductionEnvFile: false,
+  }));
+  await listenTestServer(server);
+  const baseUrl = getTestServerBaseUrl(server);
+  const managerHeaders = { "x-erp-user-id": "U-MANAGER-A", "content-type": "application/json" };
+  const mappingBody = {
+    supplierName: "首发测试供应商",
+    supplierColor: "票面黑",
+    factoryColor: "黑色",
+    reason: "首发颜色规则回归夹具",
+    operatorId: "U-SPOOFED",
+  };
+  try {
+    const deniedMapping = await requestJson(baseUrl, "/api/master-data/raw-material-supplier-colors", {
+      method: "POST",
+      headers: { "x-erp-user-id": "U-DRIVER-A", "content-type": "application/json" },
+      body: JSON.stringify(mappingBody),
+      expectedStatus: 403,
+    });
+    assert.equal(deniedMapping.body.requiredPermission, "master_data.raw_material_color.manage");
+
+    const savedMapping = await requestJson(baseUrl, "/api/master-data/raw-material-supplier-colors", {
+      method: "POST", headers: managerHeaders, body: JSON.stringify(mappingBody), expectedStatus: 200,
+    });
+    assert.equal(savedMapping.body.mapping.factoryColor, "黑色");
+    assert.ok(savedMapping.body.operationLogId, "first-release mapping still requires an audited write");
+    const mappings = await requestJson(baseUrl, "/api/master-data/raw-material-supplier-colors", {
+      headers: managerHeaders, expectedStatus: 200,
+    });
+    assert.ok(mappings.body.items.some((item) => item.id === savedMapping.body.mapping.id));
+
+    const reparse = await requestJson(baseUrl, "/api/raw-material-inbounds/RMI-260704-001/reparse-ocr", {
+      method: "POST", headers: managerHeaders,
+      body: JSON.stringify({ expectedRevision: 1, documentDirectionHint: "supplier_return", supplierNameHint: "首发测试供应商" }),
+      expectedStatus: 409,
+    });
+    assert.equal(reparse.body.code, "RAW_MATERIAL_OCR_REPARSE_NOT_AVAILABLE",
+      "the original no-table fixture must reach the reparse preparation guard instead of the scope gate");
+
+    const missingRevision = await requestJson(baseUrl, "/api/raw-material-inbounds/RMI-0704-001/void-draft", {
+      method: "POST", headers: managerHeaders, body: JSON.stringify({ reason: "首发作废回归夹具" }), expectedStatus: 422,
+    });
+    assert.equal(missingRevision.body.code, "EXPECTED_REVISION_REQUIRED");
+    const staleRevision = await requestJson(baseUrl, "/api/raw-material-inbounds/RMI-0704-001/void-draft", {
+      method: "POST", headers: managerHeaders, body: JSON.stringify({ expectedRevision: 2, reason: "首发作废回归夹具" }), expectedStatus: 409,
+    });
+    assert.equal(staleRevision.body.code, "BUSINESS_WRITE_CONFLICT");
+    const voided = await requestJson(baseUrl, "/api/raw-material-inbounds/RMI-0704-001/void-draft", {
+      method: "POST", headers: managerHeaders, body: JSON.stringify({ expectedRevision: 1, reason: "首发作废回归夹具" }), expectedStatus: 200,
+    });
+    assert.equal(voided.body.inbound.status, "已作废");
+    assert.equal(voided.body.inbound.voidedByUserId, "U-MANAGER-A");
+    assert.ok(voided.body.operationLogId);
+    const inbounds = await requestJson(baseUrl, "/api/raw-material-inbounds?pageSize=200", {
+      headers: managerHeaders, expectedStatus: 200,
+    });
+    assert.equal(inbounds.body.items.some((item) => item.id === "RMI-0704-001"), false,
+      "voided drafts must remain outside the operational inbound view");
+  } finally {
+    await closeTestServer(server, { forceAfterMs: 2_000 });
+  }
+}
+
 async function checkAuthenticationPrecedence() {
   const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     firstReleaseScope: "raw_material",
@@ -297,13 +374,20 @@ async function checkAuthenticationPrecedence() {
   }));
   await listenTestServer(server);
   try {
-    const response = await requestJson(getTestServerBaseUrl(server), "/api/order-drafts/recognize", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: '{"sourceText":"body-must-not-be-read"',
-      expectedStatus: 401,
-    });
-    assert.equal(response.body.code, "AUTH_SESSION_REQUIRED");
+    for (const pathname of [
+      "/api/order-drafts/recognize",
+      "/api/master-data/raw-material-supplier-colors",
+      "/api/raw-material-inbounds/RMI-1/void-draft",
+      "/api/raw-material-inbounds/RMI-1/reparse-ocr",
+    ]) {
+      const response = await requestJson(getTestServerBaseUrl(server), pathname, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: '{"sourceText":"body-must-not-be-read"',
+        expectedStatus: 401,
+      });
+      assert.equal(response.body.code, "AUTH_SESSION_REQUIRED");
+    }
   } finally {
     await closeTestServer(server, { forceAfterMs: 2_000 });
   }
