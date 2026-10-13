@@ -13,7 +13,12 @@ import {
 } from "./driverDeviceFieldTestClient.js";
 import { normalizeDriverNativeCapabilityDiagnostics } from "./driverNativeCapabilityClient.js";
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
-import { requestOfficeApi as requestDriverApi } from "./officeApiClientCore.js";
+import {
+  buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
+  readOfficeApiJson as readJson,
+  requestOfficeApi as requestDriverApi,
+  toOfficeApiError as toApiError,
+} from "./officeApiClientCore.js";
 
 const driverExceptionReasonCodeByLabel = {
   装车少货: "load_shortage",
@@ -1017,33 +1022,6 @@ function getDriverOrderTail(line = {}, orderLineId = "") {
 
 function toArray(value) {
   return Array.isArray(value) ? value : [];
-}
-
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function toApiError(json, status, fallbackMessage) {
-  return {
-    code: json?.code ?? `HTTP_${status}`,
-    message: json?.message ?? fallbackMessage,
-    requiredPermission: json?.requiredPermission,
-  };
-}
-
-function buildServerRequiredWriteError(code, error) {
-  return {
-    source: "api_error",
-    blocked: true,
-    error: {
-      code,
-      message: `生产模式要求后端事务，未执行本地降级：${error?.message ?? String(error)}`,
-    },
-  };
 }
 
 function cleanText(value) {

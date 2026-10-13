@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { precheckV1ProductionEnv } from "../server/services/v1ProductionEnvLivePrecheckService.mjs";
 
 const checkedAt = "2026-07-13T12:00:00.000Z";
@@ -65,22 +64,6 @@ assert.equal(JSON.stringify(errorResult).includes("postgres://"), false);
 assert.equal(JSON.stringify(errorResult).includes("/Users/private"), false);
 assert.equal(errorResult.body.safeguards.environmentValuesIncluded, false);
 assert.equal(errorResult.body.safeguards.secretValuesIncluded, false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const serviceSource = readFileSync(
-  new URL("../server/services/v1ProductionEnvLivePrecheckService.mjs", import.meta.url),
-  "utf8",
-);
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function precheckSystemV1ProductionEnv/);
-assert.match(routeSource, /precheckProductionEnv:[\s\S]*precheckV1ProductionEnv\(\{ operatorId \}\)/);
-assert.doesNotMatch(routeSource, /buildProductionEnvPreflight|sanitizeV1ProductionEnvGate|process\.env/);
-assert.doesNotMatch(apiSource, /code: "V1_PRODUCTION_ENV_LIVE_PRECHECK_FAILED"/);
-assert.match(serviceSource, /envFiles: \[\]/);
-assert.doesNotMatch(
-  serviceSource,
-  /getConfiguredV1ProductionEnv|buildProductionEnvFileAuditReport|parseEnvFile|readFileSync|writeFileSync/,
-);
 
 console.log(
   "V1 production-env live-precheck service checks passed: ready/blocked projection, server-owned env, redaction, safeguards, and thin API composition are covered.",

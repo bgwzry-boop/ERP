@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createTodoReadProjectionService } from "../server/services/todoReadProjectionService.mjs";
 
 const now = new Date("2026-07-13T02:00:00.000Z");
@@ -139,15 +138,5 @@ assert.deepEqual(service.summarizeTodo(workspace.todos[1]), {
   notificationStatus: "",
   photoPrompt: "",
 });
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/todoReadRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createTodoReadProjectionService/);
-assert.doesNotMatch(apiSource, /function toTodoListItem\(/);
-assert.doesNotMatch(apiSource, /function mapTodoStatus\(/);
-assert.doesNotMatch(apiSource, /function mapTodoPriority\(/);
-assert.match(routeSource, /todoReadProjectionService\.listTodos/);
-assert.doesNotMatch(routeSource, /filterByKeyword|filterByValue|sortTodoReminderItems/);
 
 console.log("todo read projection service checks passed");

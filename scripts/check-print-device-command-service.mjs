@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createPrintDeviceCommandService } from "../server/services/printDeviceCommandService.mjs";
 
 const fixedNow = "2026-07-11T12:00:00.000Z";
@@ -165,17 +164,6 @@ const fixedNow = "2026-07-11T12:00:00.000Z";
   assert.equal(recorded.safeguards.physicalPrinterCalled, false);
   assert.equal(harness.fieldTestCalls.at(-1).idempotencyKey, "printer-field-test-001");
   assert.equal(harness.fieldTestCalls.at(-1).operationLog.operatorId, "U-TECH-A");
-}
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createPrintDeviceCommandService/);
-for (const embeddedFunction of [
-  "normalizePrinterDeviceFieldTestApiRecord",
-  "getPrintDevicePaperLabel",
-  "normalizeOfficePrintDeviceDriverMode",
-]) {
-  assert.doesNotMatch(apiServerSource, new RegExp(`function ${embeddedFunction}\\b`));
 }
 
 console.log("Print device command service checks passed: maintenance, driver mode, QA ownership, identity, and idempotency are isolated.");

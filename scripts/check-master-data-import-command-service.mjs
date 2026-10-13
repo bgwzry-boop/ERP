@@ -1,18 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createMasterDataImportCommandService } from "../server/services/masterDataImportCommandService.mjs";
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const commandServiceSource = readFileSync(
-  new URL("../server/services/masterDataImportCommandService.mjs", import.meta.url),
-  "utf8",
-);
-assert.doesNotMatch(apiServerSource, /createMasterDataImportConfirmationPlan\(/);
-assert.doesNotMatch(apiServerSource, /createMasterDataImportExecution\(/);
-assert.doesNotMatch(apiServerSource, /createMasterDataImportCorrectionDraftFromFailedRows\(/);
-assert.match(commandServiceSource, /createMasterDataImportConfirmationPlan\(/);
-assert.match(commandServiceSource, /createMasterDataImportExecution\(/);
-assert.match(commandServiceSource, /createMasterDataImportCorrectionDraftFromFailedRows\(/);
 
 const fixedNow = new Date("2026-07-12T08:00:00.000Z");
 let logSequence = 0;

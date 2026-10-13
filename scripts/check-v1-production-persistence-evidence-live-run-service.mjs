@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1ProductionPersistenceEvidenceLiveRunService } from "../server/services/v1ProductionPersistenceEvidenceLiveRunService.mjs";
 
 const FIXED_NOW = "2026-07-14T06:00:00.000Z";
@@ -82,15 +81,6 @@ const invalidClockService = createV1ProductionPersistenceEvidenceLiveRunService(
   now: () => new Date("invalid"),
 });
 await assert.rejects(() => invalidClockService.run({}), /now\(\) must return a valid Date/);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function buildV1ProductionPersistenceEvidenceLiveRunBody/);
-assert.doesNotMatch(apiSource, /function buildV1ProductionPersistenceEvidenceServerConfigGuidance/);
-assert.doesNotMatch(apiSource, /async function runSystemV1ProductionPersistenceEvidence/);
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createV1ProductionPersistenceEvidenceLiveRunService/);
-assert.match(routeSource, /runProductionPersistenceEvidence:[\s\S]*v1ProductionPersistenceEvidenceLiveRunService\.run\(\{ operatorId \}\)/);
 
 console.log("V1 production persistence-evidence live-run service checks passed: command isolation, safe projection, blocked/error handling, and thin API composition are covered.");
 

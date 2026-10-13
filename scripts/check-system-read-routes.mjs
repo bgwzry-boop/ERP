@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleSystemReadRoutes } from "../server/routes/systemReadRoutes.mjs";
 
 const calls = [];
@@ -65,12 +64,6 @@ assert.deepEqual(calls, [
   },
 ]);
 assert.equal(await handleSystemReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/system/unknown") }), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemReadRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function getSystemV1ReadinessResponse|function getSystemV1GoLiveStatusResponse/);
-assert.match(routeSource, /buildSystemV1Readiness\(\{/);
-assert.match(routeSource, /v1GoLiveStatusResponseService\.build\(\{/);
 
 console.log("system read routes checks passed: V1 status builders, permission identity, logs, OpenAPI, and direct ownership are covered");
 

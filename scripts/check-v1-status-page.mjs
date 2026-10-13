@@ -1,11 +1,16 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { buildV1StatusRouteContract } from "../src/app/buildV1StatusRouteContract.js";
 import { createV1StatusBlockerActionBuilders } from "../src/features/v1-status/createV1StatusBlockerActionBuilders.js";
 import { createV1StatusFieldRoleActionBuilders } from "../src/features/v1-status/createV1StatusFieldRoleActionBuilders.js";
 import { createV1StatusPhaseActionBuilders } from "../src/features/v1-status/createV1StatusPhaseActionBuilders.js";
+import {
+  createV1FieldEvidenceAttachmentInput,
+  createV1FieldEvidenceAttachmentListInput,
+  createV1SignoffBoundaryAttachmentInput,
+  createV1SignoffBoundaryAttachmentListInput,
+} from "../src/services/officeAttachmentInputs.js";
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const v1StatusActionsSource = readFileSync(new URL("../src/app/createOfficeV1StatusActions.js", import.meta.url), "utf8");
 const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
 const v1StatusReadSource = readFileSync(new URL("../src/app/useOfficeV1StatusReads.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
@@ -51,100 +56,74 @@ const clientProductionTemplateNormalizersSource = readFileSync(new URL("../src/s
 const clientReleaseNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusReleaseNormalizers.js", import.meta.url), "utf8");
 const clientRuntimeNormalizersSource = readFileSync(new URL("../src/services/officeV1GoLiveStatusRuntimeNormalizers.js", import.meta.url), "utf8");
 const clientSource = [clientEntrySource, clientActionsSource, clientFieldEvidenceNormalizersSource, clientNormalizerUtilsSource, clientProductionEnvNormalizersSource, clientProductionFirstStageNormalizersSource, clientProductionTemplateNormalizersSource, clientReleaseNormalizersSource, clientRuntimeNormalizersSource].join("\n");
-const attachmentClientSource = readFileSync(new URL("../src/services/officeAttachmentApiClient.js", import.meta.url), "utf8");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const v1StatusBaseStyleSource = readFileSync(new URL("../src/styles/features/v1-status-base.css", import.meta.url), "utf8");
 const v1StatusWorkbenchStyleSource = readFileSync(new URL("../src/styles/features/v1-status.css", import.meta.url), "utf8");
 const featureStyleSource = `${v1StatusBaseStyleSource}\n${v1StatusWorkbenchStyleSource}`;
 
+const routeState = { goLiveStatus: { status: "review" } };
+const routeActionController = { actionSetters: {}, currentUserId: "U-MANAGEMENT" };
+const employeeImportCalls = [];
+const routeContract = buildV1StatusRouteContract({
+  canOpenMasterData: true,
+  openMasterDataTemplatePanel: (tab) => employeeImportCalls.push(["template", tab]),
+  setActivePage: (page) => employeeImportCalls.push(["page", page]),
+  setMasterDataMaintenanceTab: (tab) => employeeImportCalls.push(["tab", tab]),
+  v1StatusActionController: routeActionController,
+  v1StatusRouteState: routeState,
+});
+assert.equal(routeContract.actionController, routeActionController, "V1 route should receive its action-controller dependencies by identity");
+assert.equal(routeContract.state, routeState, "V1 route should receive grouped status state by identity");
+routeContract.onOpenEmployeeImport();
+assert.deepEqual(employeeImportCalls, [
+  ["tab", "员工机台"],
+  ["page", "masterData"],
+  ["template", "员工机台"],
+], "authorized D49 employee import should focus and open the employee-machine intake");
+assert.equal(
+  buildV1StatusRouteContract({ canOpenMasterData: false }).onOpenEmployeeImport,
+  undefined,
+  "D49 employee import must remain unavailable without master-data navigation permission",
+);
+
 assertIncludes(navigationSource, 'key: "v1Status"', "navigation should expose V1 status page");
 assertIncludes(navigationSource, 'label: "上线状态"', "navigation should label V1 status page");
 assertIncludes(navigationSource, 'permissionPrefixes: ["system.v1_"]', "V1 status navigation should require system permissions");
 assertExcludes(officePageSource, "V1StatusPage", "office barrel should not statically import the V1 status page");
 assertExcludes(officePageSource, "function V1StatusPage", "office pages should no longer define the V1 status page");
-assertIncludes(appSource, 'lazy(() =>', "App should lazy-load the V1 status page");
-assertIncludes(appSource, 'import("./features/v1-status/V1StatusPage.jsx")', "App should import the V1 status feature dynamically");
-assertIncludes(appSource, "<Suspense", "App should expose a loading boundary for V1 status");
-assertIncludes(appSource, "<V1StatusPage", "App should render V1 status page");
 assertIncludes(v1StatusReadSource, "当前仍以发布门禁、现场证据和签字作为完成标准", "refresh toast should keep V1 completion boundary explicit");
 assertIncludes(v1StatusReadSource, "getOfficeV1GoLiveStatus", "V1 read hook should refresh go-live status from API artifacts");
-assertExcludes(appSource, "getOfficeV1GoLiveStatus", "App should no longer call the V1 status read client directly");
-assertIncludes(appSource, "createOfficeV1StatusActions", "App should compose the V1 status action controller");
-assertExcludes(appSource, "officeV1GoLiveStatusApiClient", "App should not call the V1 status action client directly");
-assertIncludes(v1StatusActionsSource, "generateOfficeV1FieldEvidenceDraftManifest", "V1 action controller should generate field evidence draft manifest through API");
-assertIncludes(v1StatusActionsSource, "validateOfficeV1FieldEvidenceDraftManifest", "V1 action controller should validate field evidence draft manifest through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionEnv", "V1 action controller should precheck current production env through API");
-assertIncludes(v1StatusActionsSource, "runOfficeV1ProductionEnvSetup", "V1 action controller should run production env setup through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionEnvIntake", "V1 action controller should precheck production env real-value intake through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionEnvFileAudit", "V1 action controller should precheck current production env file audit through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionEnvFilePreview", "V1 action controller should precheck server env file application through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ProductionGoLive", "V1 action controller should precheck current production go-live through API");
-assertIncludes(v1StatusActionsSource, "runOfficeV1ProductionPersistenceEvidence", "V1 action controller should run production persistence evidence through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1AttachmentRetention", "V1 action controller should precheck current attachment retention through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1DriverReadiness", "V1 action controller should precheck current driver V1 readiness through API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1RuntimeReadiness", "V1 action controller should precheck current runtime readiness through API");
-assertIncludes(v1StatusActionsSource, "getOfficePrintDriverSpoolDiagnostics", "V1 action controller should precheck print spool diagnostics through print driver API");
-assertIncludes(v1StatusActionsSource, "precheckOfficeV1ReleaseCandidateRefresh", "V1 action controller should precheck release candidate refresh through API");
-assertIncludes(v1StatusActionsSource, "refreshOfficeV1ReleaseCandidate", "V1 action controller should refresh release candidate through API");
 assertIncludes(workspaceSource, "v1GoLiveStatusState", "workspace should keep V1 go-live status refresh state");
 assertIncludes(workspaceSource, "lastSuccessfulAt", "workspace should retain the timestamp of the latest successful V1 status snapshot");
 assertIncludes(workspaceSource, "lastAttemptedAt", "workspace should retain the timestamp of the latest V1 status refresh attempt");
 assertIncludes(v1StatusReadSource, "当前不展示固定门禁数据", "V1 read hook should not claim static gates when the status API is unavailable");
-assertIncludes(appSource, "v1FieldEvidenceDraftAction", "App should keep field evidence draft generation state");
-assertIncludes(appSource, "v1FieldEvidenceValidationAction", "App should keep field evidence draft validation state");
-assertIncludes(appSource, "v1FieldEvidenceAttachmentAction", "App should keep field evidence attachment upload state");
-assertIncludes(appSource, "v1FieldEvidenceAttachmentListAction", "App should keep field evidence attachment list state");
-assertIncludes(appSource, "v1SignoffBoundaryAttachmentAction", "App should keep signoff/boundary attachment upload state");
-assertIncludes(appSource, "v1SignoffBoundaryAttachmentListAction", "App should keep signoff/boundary attachment list state");
-assertIncludes(appSource, "uploadV1FieldEvidenceAttachment", "App should upload backend V1 field evidence attachments");
-assertIncludes(appSource, "listV1FieldEvidenceAttachments", "App should list backend V1 field evidence attachments");
-assertIncludes(appSource, "uploadV1SignoffBoundaryAttachment", "App should upload backend V1 signoff/boundary attachments");
-assertIncludes(appSource, "listV1SignoffBoundaryAttachments", "App should list backend V1 signoff/boundary attachments");
-assertIncludes(v1StatusActionsSource, "createV1FieldEvidenceAttachmentInput", "V1 action controller should build field evidence attachment inputs");
-assertIncludes(v1StatusActionsSource, "createV1FieldEvidenceAttachmentListInput", "V1 action controller should build field evidence attachment list inputs");
-assertIncludes(v1StatusActionsSource, "createV1SignoffBoundaryAttachmentInput", "V1 action controller should build signoff/boundary attachment inputs");
-assertIncludes(v1StatusActionsSource, "createV1SignoffBoundaryAttachmentListInput", "V1 action controller should build signoff/boundary attachment list inputs");
-assertIncludes(appSource, "v1ProductionEnvPrecheckAction", "App should keep production env precheck state");
-assertIncludes(appSource, "v1ProductionEnvSetupAction", "App should keep production env setup action state");
-assertIncludes(appSource, "v1ProductionEnvIntakePrecheckAction", "App should keep production env intake precheck state");
-assertIncludes(appSource, "v1ProductionEnvFileAuditPrecheckAction", "App should keep production env file audit precheck state");
-assertIncludes(appSource, "v1ProductionEnvFilePreviewPrecheckAction", "App should keep production env file application precheck state");
-assertIncludes(appSource, "v1ProductionGoLivePrecheckAction", "App should keep production go-live precheck state");
-assertIncludes(appSource, "v1ProductionPersistenceEvidenceAction", "App should keep production persistence evidence state");
-assertIncludes(appSource, "v1AttachmentRetentionPrecheckAction", "App should keep attachment retention precheck state");
-assertIncludes(appSource, "v1PrintSpoolPrecheckAction", "App should keep print spool diagnostics precheck state");
-assertIncludes(appSource, "v1PrintCupsPrecheckAction", "App should keep print CUPS diagnostics precheck state");
-assertIncludes(appSource, "v1PrintReadinessPrecheckAction", "App should keep print V1 readiness precheck state");
-assertIncludes(appSource, "v1DriverReadinessPrecheckAction", "App should keep driver V1 readiness precheck state");
-assertIncludes(appSource, "v1RuntimeReadinessPrecheckAction", "App should keep runtime readiness precheck state");
-assertIncludes(appSource, "v1ReleaseCandidateRefreshPrecheckAction", "App should keep release candidate refresh precheck state");
-assertIncludes(appSource, "v1ReleaseCandidateRefreshAction", "App should keep release candidate refresh action state");
-assertIncludes(appSource, "goLiveStatus={v1GoLiveStatusState.statusData}", "V1 status page should receive API data");
-assertIncludes(appSource, "onGenerateFieldEvidenceDraft={generateV1FieldEvidenceDraftManifest}", "V1 status page should receive draft generation action");
-assertIncludes(appSource, "onValidateFieldEvidenceDraft={validateV1FieldEvidenceDraftManifest}", "V1 status page should receive draft validation action");
-assertIncludes(appSource, "onUploadFieldEvidenceAttachment={uploadV1FieldEvidenceAttachment}", "V1 status page should receive field evidence attachment upload action");
-assertIncludes(appSource, "onListFieldEvidenceAttachments={listV1FieldEvidenceAttachments}", "V1 status page should receive field evidence attachment list action");
-assertIncludes(appSource, "onUploadSignoffBoundaryAttachment={uploadV1SignoffBoundaryAttachment}", "V1 status page should receive signoff/boundary attachment upload action");
-assertIncludes(appSource, "onListSignoffBoundaryAttachments={listV1SignoffBoundaryAttachments}", "V1 status page should receive signoff/boundary attachment list action");
-assertIncludes(appSource, "onPrecheckProductionEnv={precheckV1ProductionEnv}", "V1 status page should receive production env precheck action");
-assertIncludes(appSource, "onRunProductionEnvSetup={runV1ProductionEnvSetup}", "V1 status page should receive production env setup action");
-assertIncludes(appSource, "productionEnvSetupAction={v1ProductionEnvSetupAction}", "V1 status page should receive production env setup state");
-assertIncludes(appSource, "onPrecheckProductionEnvIntake={precheckV1ProductionEnvIntake}", "V1 status page should receive production env intake precheck action");
-assertIncludes(appSource, "onPrecheckProductionEnvFileAudit={precheckV1ProductionEnvFileAudit}", "V1 status page should receive production env file audit precheck action");
-assertIncludes(appSource, "onPrecheckProductionEnvFilePreview={precheckV1ProductionEnvFilePreview}", "V1 status page should receive production env file application precheck action");
-assertIncludes(appSource, "onPrecheckProductionGoLive={precheckV1ProductionGoLive}", "V1 status page should receive production go-live precheck action");
-assertIncludes(appSource, "productionPersistenceEvidenceAction={v1ProductionPersistenceEvidenceAction}", "V1 status page should receive production persistence evidence state");
-assertIncludes(appSource, "onRunProductionPersistenceEvidence={runV1ProductionPersistenceEvidence}", "V1 status page should receive production persistence evidence action");
-assertIncludes(appSource, "onPrecheckRuntimeReadiness={precheckV1RuntimeReadiness}", "V1 status page should receive runtime readiness precheck action");
-assertIncludes(appSource, "onPrecheckV1AttachmentRetention={precheckV1AttachmentRetention}", "V1 status page should receive attachment retention precheck action");
-assertIncludes(appSource, "onPrecheckV1PrintSpool={precheckV1PrintSpool}", "V1 status page should receive print spool diagnostics precheck action");
-assertIncludes(appSource, "onPrecheckV1PrintCups={precheckV1PrintCups}", "V1 status page should receive print CUPS diagnostics precheck action");
-assertIncludes(appSource, "onPrecheckV1PrintReadiness={precheckV1PrintReadiness}", "V1 status page should receive print V1 readiness precheck action");
-assertIncludes(appSource, "onPrecheckV1DriverReadiness={precheckV1DriverReadiness}", "V1 status page should receive driver V1 readiness precheck action");
-assertIncludes(appSource, "onPrecheckReleaseCandidateRefresh={precheckV1ReleaseCandidateRefresh}", "V1 status page should receive refresh precheck action");
-assertIncludes(appSource, "onRefreshReleaseCandidate={refreshV1ReleaseCandidate}", "V1 status page should receive controlled refresh action");
-
+assertIncludes(workspaceSource, "const v1StatusRouteState", "workspace should group V1 route state at its ownership boundary");
+for (const stateName of [
+  "v1FieldEvidenceDraftAction",
+  "v1FieldEvidenceValidationAction",
+  "v1FieldEvidenceAttachmentAction",
+  "v1FieldEvidenceAttachmentListAction",
+  "v1SignoffBoundaryAttachmentAction",
+  "v1SignoffBoundaryAttachmentListAction",
+  "v1ProductionEnvPrecheckAction",
+  "v1ProductionEnvSetupAction",
+  "v1ProductionEnvIntakePrecheckAction",
+  "v1ProductionEnvFileAuditPrecheckAction",
+  "v1ProductionEnvFilePreviewPrecheckAction",
+  "v1ProductionGoLivePrecheckAction",
+  "v1ProductionPersistenceEvidenceAction",
+  "v1AttachmentRetentionPrecheckAction",
+  "v1PrintSpoolPrecheckAction",
+  "v1PrintCupsPrecheckAction",
+  "v1PrintReadinessPrecheckAction",
+  "v1DriverReadinessPrecheckAction",
+  "v1RuntimeReadinessPrecheckAction",
+  "v1ReleaseCandidateRefreshPrecheckAction",
+  "v1ReleaseCandidateRefreshAction",
+]) {
+  assertIncludes(workspaceSource, stateName, `workspace should retain V1 state ${stateName}`);
+}
 assertIncludes(v1StatusPageSource, "export function V1StatusPage", "office pages should export V1StatusPage");
 assertIncludes(v1StatusPageEntrySource, 'from "./V1StatusOverview.jsx"', "V1 status page should compose the extracted overview");
 assertIncludes(v1StatusPageEntrySource, 'from "./v1StatusPresentation.js"', "V1 status page should consume the extracted presentation model");
@@ -342,9 +321,6 @@ assertIncludes(v1StatusD49ReadinessSource, "VIEW_KEYS.environment", "D49 project
 assertExcludes(v1StatusD49ReadinessSource, ".slice(", "D49 projection must not silently truncate role or environment blockers");
 assertIncludes(v1StatusD49ReadinessSource, "打开员工导入", "D49 projection should provide a direct formal employee import action");
 assertIncludes(v1StatusD49ReadinessSource, "onOpenEmployeeImport ?", "D49 employee import action should remain permission-scoped by its caller");
-assertIncludes(appSource, 'isNavigationPageVisible("masterData", permissionContext) ? () =>', "App should expose D49 employee import only when master-data navigation is authorized");
-assertIncludes(appSource, 'setMasterDataMaintenanceTab("员工机台")', "D49 employee import should focus the employee-machine workspace");
-assertIncludes(appSource, 'openMasterDataTemplatePanel("员工机台")', "D49 employee import should open the employee-machine import template");
 assertIncludes(v1StatusProductionFirstStageSource, "export function V1StatusProductionFirstStage", "V1 production first-stage execution should have a dedicated component");
 assertIncludes(v1StatusProductionFirstStageSource, "<V1StatusProductionFirstStageReadiness", "V1 production first-stage coordinator should compose readiness results");
 assertIncludes(v1StatusProductionFirstStageSource, "<V1StatusProductionFirstStageActionResults", "V1 production first-stage coordinator should compose action results");
@@ -364,13 +340,7 @@ assertIncludes(v1StatusPageEntrySource, "v1StatusWorkspaceSections", "V1 status 
 assertIncludes(v1StatusPageEntrySource, "v1-status-section-${workspaceSection}", "V1 status page should expose only the selected business section");
 assertIncludes(featureStyleSource, ".page-grid.two-col.v1-status-workbench", "V1 status feature styles should own the responsive split");
 assertIncludes(featureStyleSource, ".v1-status-page .v1-workspace-panel", "V1 status feature styles should hide inactive workflow sections");
-assertIncludes(mainSource, 'import "./styles/features/v1-status-base.css";', "main should import the V1 base feature styles");
-assertIncludes(mainSource, 'import "./styles/features/v1-status.css";', "main should import the V1 workbench overrides");
-assert.equal(
-  mainSource.indexOf('import "./styles/features/v1-status-base.css";') < mainSource.indexOf('import "./styles/features/v1-status.css";'),
-  true,
-  "V1 base styles should load before workbench overrides",
-);
+assert.equal(mainSource.includes('import "./styles/features/v1-status-base.css";'), false, "V1 styles should not load with the initial shell");
 assertExcludes(sharedStyleSource, ".v1-status-page", "shared styles should not retain the V1 status page base");
 assertExcludes(sharedStyleSource, ".v1-section-title-row", "shared styles should not retain V1 section title rules");
 assertExcludes(sharedStyleSource, ".v1-field-stage-row", "shared styles should not retain V1 mobile field-stage rules");
@@ -997,12 +967,19 @@ assertIncludes(clientActionsSource, "blockedWhenNotReady", "V1 status actions sh
 assertExcludes(clientEntrySource, "requestOfficeApi", "V1 status normalizer client should not issue HTTP requests directly");
 assertIncludes(clientSource, "/system/v1-field-evidence-intake/stage-row", "client should call field evidence staging API");
 assertIncludes(clientSource, "/system/v1-field-evidence-intake/validate-draft-manifest", "client should call field evidence draft validation API");
-assertIncludes(attachmentClientSource, "createV1FieldEvidenceAttachmentInput", "attachment client should build V1 field evidence upload input");
-assertIncludes(attachmentClientSource, "createV1FieldEvidenceAttachmentListInput", "attachment client should build V1 field evidence list input");
-assertIncludes(attachmentClientSource, "v1_field_evidence", "attachment client should link uploads to V1 field evidence");
-assertIncludes(attachmentClientSource, "createV1SignoffBoundaryAttachmentInput", "attachment client should build V1 signoff/boundary upload input");
-assertIncludes(attachmentClientSource, "createV1SignoffBoundaryAttachmentListInput", "attachment client should build V1 signoff/boundary list input");
-assertIncludes(attachmentClientSource, "v1_signoff_boundary", "attachment client should link uploads to V1 signoff/boundary rows");
+const evidenceItem = { groupKey: "printing", key: "physical-output", groupLabel: "打印", label: "真实出纸" };
+const evidenceAttachmentInput = createV1FieldEvidenceAttachmentInput({ evidenceItem, operatorId: "ERP-0001" });
+const evidenceAttachmentListInput = createV1FieldEvidenceAttachmentListInput({ evidenceItem, operatorId: "ERP-0001" });
+assert.equal(evidenceAttachmentInput.ownerType, "v1_field_evidence", "field evidence uploads should use the V1 evidence owner type");
+assert.equal(evidenceAttachmentInput.ownerId, "printing:physical-output", "field evidence uploads should bind the exact evidence row");
+assert.equal(evidenceAttachmentListInput.purpose, "v1_field_evidence", "field evidence reads should use the V1 evidence purpose");
+
+const signoffItem = { type: "owner_signoff", key: "management", label: "管理负责人签字" };
+const signoffAttachmentInput = createV1SignoffBoundaryAttachmentInput({ signoffItem, operatorId: "ERP-0001" });
+const signoffAttachmentListInput = createV1SignoffBoundaryAttachmentListInput({ signoffItem, operatorId: "ERP-0001" });
+assert.equal(signoffAttachmentInput.ownerType, "v1_signoff_boundary", "signoff uploads should use the V1 signoff owner type");
+assert.equal(signoffAttachmentInput.ownerId, "owner_signoff:management", "signoff uploads should bind the exact signoff row");
+assert.equal(signoffAttachmentListInput.purpose, "v1_signoff_boundary", "signoff reads should use the V1 signoff purpose");
 assertIncludes(featureStyleSource, ".v1-field-attachment-list", "styles should render reusable field evidence attachment list");
 assertIncludes(clientSource, "/system/v1-production-env/live-precheck", "client should call current production env precheck API");
 assertIncludes(clientSource, "/system/v1-production-env-intake/live-precheck", "client should call production env intake live precheck API");

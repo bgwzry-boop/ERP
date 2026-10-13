@@ -1,9 +1,9 @@
 import { useCallback } from "react";
-import { listDriverDeliveryTasks } from "../services/driverMobileApiClient.js";
+import { listDriverDeliveryTasks } from "../services/driverMobileLazyApi.js";
 import {
   listOfficeRawMaterialInbounds,
   listOfficeRawMaterialSupplierStatementReviews,
-} from "../services/officeRawMaterialApiClient.js";
+} from "../services/officeRawMaterialLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 
 function formatSyncTime() {

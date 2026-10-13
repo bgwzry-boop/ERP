@@ -2,10 +2,13 @@ import assert from "node:assert/strict";
 import {
   buildOfficeApiHeaders,
   buildOfficeServerRequiredWriteError,
+  DEFAULT_OFFICE_API_TIMEOUT_MS,
+  isOfficeApiRequestAbort,
   readOfficeApiJson,
   requestOfficeApi,
   toOfficeApiError,
 } from "../src/services/officeApiClientCore.js";
+import { createLazyApiClient } from "../src/services/createLazyApiClient.js";
 
 const bearerHeaders = buildOfficeApiHeaders(
   { session: { accessToken: "session-core-check" } },
@@ -38,6 +41,7 @@ assert.equal(calls[0].init.method, "POST");
 assert.equal(calls[0].init.headers.authorization, "Bearer session-core-check");
 assert.equal(calls[0].init.headers["idempotency-key"], "idem-client-core-001");
 assert.equal(calls[0].init.body, JSON.stringify({ remark: "O'Reilly" }));
+assert.ok(calls[0].init.signal instanceof AbortSignal);
 
 await requestOfficeApi("/health", {
   apiBaseUrl: "http://127.0.0.1:8787/api",
@@ -51,6 +55,7 @@ assert.equal(calls[1].init.headers["idempotency-key"], undefined);
 
 assert.deepEqual(await readOfficeApiJson({ json: async () => ({ ok: true }) }), { ok: true });
 assert.equal(await readOfficeApiJson({ json: async () => Promise.reject(new Error("invalid json")) }), null);
+assert.deepEqual(await readOfficeApiJson({ json: async () => Promise.reject(new Error("invalid json")) }, {}), {});
 assert.deepEqual(toOfficeApiError(null, 403, "禁止"), {
   code: "HTTP_403",
   message: "禁止",
@@ -59,6 +64,23 @@ assert.deepEqual(toOfficeApiError(null, 403, "禁止"), {
   status: 403,
 });
 assert.equal(toOfficeApiError({ code: "BUSINESS_WRITE_CONFLICT", currentRevision: 7 }, 409, "冲突").currentRevision, 7);
+assert.deepEqual(
+  toOfficeApiError({ error: { code: "NESTED_API_ERROR", message: "嵌套错误", details: { currentRevision: 8 } } }, 409, "冲突"),
+  {
+    code: "NESTED_API_ERROR",
+    message: "嵌套错误",
+    requiredPermission: undefined,
+    currentRevision: 8,
+    status: 409,
+    details: { currentRevision: 8 },
+  },
+);
+assert.equal(
+  toOfficeApiError({ message: "database constraint leaked" }, 500, "服务失败", {
+    sanitizeMessage: () => "服务失败",
+  }).message,
+  "服务失败",
+);
 assert.deepEqual(buildOfficeServerRequiredWriteError("WRITE_UNAVAILABLE", new Error("offline"), { item: null }), {
   source: "api_error",
   blocked: true,
@@ -68,5 +90,51 @@ assert.deepEqual(buildOfficeServerRequiredWriteError("WRITE_UNAVAILABLE", new Er
     message: "生产模式要求后端事务，未执行本地降级：offline",
   },
 });
+
+const timeoutError = await requestOfficeApi("/timeout", {
+  apiBaseUrl: "http://127.0.0.1:8787/api",
+  timeoutMs: 5,
+  fetchImpl: (_url, init) => new Promise((_, reject) => {
+    init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+  }),
+}).then(
+  () => null,
+  (error) => error,
+);
+assert.equal(timeoutError?.code, "REQUEST_TIMEOUT");
+assert.equal(isOfficeApiRequestAbort(timeoutError), true);
+
+const abortController = new AbortController();
+const abortedRequest = requestOfficeApi("/cancel", {
+  apiBaseUrl: "http://127.0.0.1:8787/api",
+  signal: abortController.signal,
+  timeoutMs: DEFAULT_OFFICE_API_TIMEOUT_MS,
+  fetchImpl: (_url, init) => new Promise((_, reject) => {
+    init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+  }),
+});
+abortController.abort();
+const abortError = await abortedRequest.then(
+  () => null,
+  (error) => error,
+);
+assert.equal(abortError?.code, "REQUEST_ABORTED");
+assert.equal(isOfficeApiRequestAbort(abortError), true);
+
+let lazyLoadCount = 0;
+const lazyApiCall = createLazyApiClient(async () => {
+  lazyLoadCount += 1;
+  return {
+    first: async (value) => `first:${value}`,
+    second: async (left, right) => left + right,
+  };
+});
+const lazyFirst = lazyApiCall("first");
+const lazySecond = lazyApiCall("second");
+assert.equal(await lazyFirst("ok"), "first:ok");
+assert.equal(await lazySecond(2, 3), 5);
+assert.equal(await lazyFirst("again"), "first:again");
+assert.equal(lazyLoadCount, 1);
+await assert.rejects(() => lazyApiCall("missing")(), /Lazy API export is not callable: missing/);
 
 console.log("office API client core checks passed");

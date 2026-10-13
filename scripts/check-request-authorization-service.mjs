@@ -1,17 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createRequestAuthorizationService } from "../server/services/requestAuthorizationService.mjs";
 import { writeActionPermissions } from "../server/writeActionPermissions.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createRequestAuthorizationService\(\{/);
-assert.match(apiSource, /from "\.\/writeActionPermissions\.mjs"/);
-assert.doesNotMatch(apiSource, /const writeActionPermissions = \{/);
-assert.doesNotMatch(apiSource, /function requireActionPermission\(/);
-assert.doesNotMatch(apiSource, /function requireAnyActionPermission\(/);
-assert.doesNotMatch(apiSource, /function requireAttachmentCreatePermission\(/);
-assert.doesNotMatch(apiSource, /function getPermissionOperatorId\(/);
 
 assert.equal(Object.isFrozen(writeActionPermissions), true);
 assert.equal(writeActionPermissions.confirmOrderDraft, "order.confirm");

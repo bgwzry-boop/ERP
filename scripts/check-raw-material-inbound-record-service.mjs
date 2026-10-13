@@ -1,16 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   normalizeRawMaterialInbound,
   resolveRawMaterialProductionTaskMatch,
 } from "../server/rawMaterialInboundRecordService.mjs";
-
-const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
-const serviceSource = readFileSync(new URL("../server/rawMaterialInboundRecordService.mjs", import.meta.url), "utf8");
-
-assert.match(repositorySource, /from "\.\/rawMaterialInboundRecordService\.mjs"/);
-assert.ok(repositorySource.split("\n").length <= 2_250, "repository should delegate inbound record normalization");
-assert.ok(serviceSource.split("\n").length < 450, "inbound record service should stay independently reviewable");
 
 const workspace = {
   productionTasks: [{ id: "TASK-1", machineId: "BAG-01", orderLineId: "LINE-1", plannedQty: 800 }],

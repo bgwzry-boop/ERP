@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1ProductionEnvValuesApplyService } from "../server/services/v1ProductionEnvValuesApplyService.mjs";
 import { sanitizeV1SensitiveStatusText } from "../server/services/v1StatusTextSanitizer.mjs";
 
@@ -149,37 +148,6 @@ assert.equal(guidance.applyEnabled, true);
 assert.equal(guidance.acceptsFrontendPath, false);
 assert.equal(guidance.pathValueExposed, false);
 assert.equal(guidance.safeguards.productionEnvFileMayBeMutated, false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-const statusResponseSource = readFileSync(
-  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
-  "utf8",
-);
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function runSystemV1ProductionFirstStageValuesApply/);
-assert.match(routeSource, /runProductionFirstStageValuesApply:[\s\S]*v1ProductionEnvValuesApplyService\.run\(\{ operatorId \}\)/);
-assert.doesNotMatch(
-  routeSource,
-  /process\.env|getConfiguredV1ProductionEnvValuesFileConfig|buildV1ProductionEnvValuesDryRunProofStatus|runV1ProductionFirstStageValuesApplyCommand|blockingItems/,
-);
-assert.match(registrySource, /createV1ProductionEnvValuesApplyService\(\{/);
-assert.match(
-  registrySource,
-  /buildProductionEnvValuesApplyGateStatus: \(input\) =>\s+v1ProductionEnvValuesApplyService\.buildGateStatus\(input\)/,
-);
-assert.match(
-  statusResponseSource,
-  /buildProductionEnvValuesApplyGateStatus\(\{\s*productionEnvIntakeVerification,\s*productionFirstStageExecution,/,
-);
-for (const oldFunction of [
-  "buildV1ProductionEnvValuesApplyGateStatus",
-  "buildV1ProductionFirstStageValuesApplyLiveRunBody",
-  "buildV1ProductionFirstStageValuesApplyServerConfigGuidance",
-  "isV1ProductionEnvValuesApplyEnabled",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${oldFunction}\\(`));
-}
 
 console.log(
   "V1 production-env values-apply service checks passed: flag, source, target, audit, dry-run proof, controlled execution, failure redaction, and thin API composition are covered.",

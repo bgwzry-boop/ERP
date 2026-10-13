@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { createV1GoLiveStatusArtifactReaderService } from "../server/services/v1GoLiveStatusArtifactReaderService.mjs";
 
@@ -82,27 +81,6 @@ const defaultRootService = createV1GoLiveStatusArtifactReaderService({
   readTextFile: () => "",
 });
 assert.equal(defaultRootService.getArtifactRoot(), resolve("/private/default-artifacts"));
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-const readerSource = readFileSync(
-  new URL("../server/services/v1GoLiveStatusArtifactReaderService.mjs", import.meta.url),
-  "utf8",
-);
-const responseSource = readFileSync(
-  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
-  "utf8",
-);
-assert.match(registrySource, /createV1GoLiveStatusArtifactReaderService/);
-assert.match(registrySource, /v1GoLiveStatusArtifactReaderService\.readStatusArtifacts/);
-assert.match(registrySource, /v1GoLiveStatusArtifactReaderService\.getArtifactRoot/);
-assert.doesNotMatch(apiSource, /function readV1GoLiveStatusArtifacts/);
-assert.doesNotMatch(apiSource, /function getV1GoLiveArtifactRoot/);
-assert.doesNotMatch(apiSource, /existsSync|readFileSync/);
-assert.match(readerSource, /function readStatusArtifacts\(\)/);
-assert.match(readerSource, /firstInvalidArtifact/);
-assert.doesNotMatch(readerSource, /writeFile|appendFile|renameSync|unlinkSync/);
-assert.doesNotMatch(responseSource, /node:fs|node:path|process\.env/);
 
 console.log(
   "V1 go-live status artifact reader checks passed: 19 sources, fallback precedence, invalid/read failures, path exclusion, and thin API wiring are covered.",

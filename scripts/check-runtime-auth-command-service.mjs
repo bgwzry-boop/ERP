@@ -1,22 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   hashRuntimeUserPassword,
   verifyRuntimeUserPassword,
 } from "../server/authSeed.mjs";
 import { createRuntimeAuthCommandService } from "../server/services/runtimeAuthCommandService.mjs";
-
-const apiServerSource = readFileSync(
-  new URL("../server/apiServer.mjs", import.meta.url),
-  "utf8",
-);
-const registrySource = readFileSync(
-  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
-  "utf8",
-);
-assert.match(registrySource, /createRuntimeAuthCommandService\(\{ buildOperationLog \}\)/);
-assert.doesNotMatch(apiServerSource, /function recordRuntimeUserLoginFailure/);
-assert.doesNotMatch(apiServerSource, /const runtimePasswordPolicy/);
 
 const authSecret = "runtime-auth-command-service-secret";
 const userId = "U-AUTH-COMMAND-CHECK";

@@ -69,15 +69,15 @@ const reviewedLines = applyRawMaterialOcrLineReviews({
 });
 assert.equal(reviewedLines[0].reviewStatus, "人工接受");
 assert.equal(reviewedLines[1].reviewStatus, "人工接受");
-assert.equal(reviewedLines[1].recognizedValues.spec, "78*5");
-assert.equal(reviewedLines[1].values.spec, "78*5");
+assert.equal(reviewedLines[1].recognizedValues.spec, "65*5");
+assert.equal(reviewedLines[1].values.spec, "65*5");
 assert.deepEqual(
   [reviewedLines[1].values.gramWeightGsm, reviewedLines[1].values.widthCm, reviewedLines[1].values.lengthM],
-  [78, 5, 0],
+  [65, 5, 0],
 );
 assert.equal(reviewedLines[1].recognizedValues.materialCategory, "提手条");
 assert.equal(reviewedLines[1].recognizedValues.supplierColor, "天兰");
-assert.equal(reviewedLines[1].recognizedValues.gramWeightGsm, 78, "天兰条 applies the fixed handle-strip GSM");
+assert.equal(reviewedLines[1].recognizedValues.gramWeightGsm, 65, "天兰条 applies the default handle-strip GSM");
 assert.equal(reviewedLines[1].recognizedValues.widthCm, 5, "天兰条 applies the fixed handle-strip width");
 assert.equal(reviewedLines[1].recognizedValues.lengthM, 0, "天兰条 keeps an omitted meter length absent without blocking review");
 assert.equal(reviewedLines[1].values.materialCategory, "提手条");
@@ -101,7 +101,7 @@ assert.deepEqual(rolls.map((roll) => roll.weightKg), [50, 53.5, 50]);
 assert.equal(rolls.every((roll) => roll.inventoryStatus === "不可用"), true);
 assert.equal(rolls[0].id, "RM-OCR-1-01");
 assert.equal(rolls[2].ocrLineId, "OCR-T1-R3");
-assert.equal(rolls[2].specDisplay, "78克 × 5cm");
+assert.equal(rolls[2].specDisplay, "65克 × 5cm");
 assert.equal(rolls[2].materialCategory, "提手条");
 
 const falsePositiveLine = {
@@ -255,8 +255,8 @@ const stripWithoutMeters = applyRawMaterialOcrLineReviews({
     : entry),
 });
 const stripWithoutMetersLine = stripWithoutMeters.find((line) => line.lineId === "OCR-T1-R3");
-assert.equal(stripWithoutMetersLine.values.spec, "78*5");
-assert.equal(stripWithoutMetersLine.values.gramWeightGsm, 78);
+assert.equal(stripWithoutMetersLine.values.spec, "65*5");
+assert.equal(stripWithoutMetersLine.values.gramWeightGsm, 65);
 assert.equal(stripWithoutMetersLine.values.widthCm, 5);
 assert.equal(stripWithoutMetersLine.values.lengthM, 0);
 assert.equal(stripWithoutMetersLine.values.specNeedsReview, false);
@@ -267,7 +267,7 @@ const stripWithBlankSpec = applyRawMaterialOcrLineReviews({
     : entry),
 });
 const stripWithBlankSpecLine = stripWithBlankSpec.find((line) => line.lineId === "OCR-T1-R3");
-assert.equal(stripWithBlankSpecLine.values.spec, "78*5", "a confirmed strip identity carries the fixed GSM/width even if the supplier leaves specification blank");
+assert.equal(stripWithBlankSpecLine.values.spec, "65*5", "a confirmed strip identity carries the default GSM/width when the supplier leaves specification blank");
 assert.equal(stripWithBlankSpecLine.values.lengthM, 0, "missing strip meters stay absent and do not block review");
 assert.throws(
   () => applyRawMaterialOcrLineReviews({

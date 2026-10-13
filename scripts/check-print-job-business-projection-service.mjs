@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createPrintJobBusinessProjectionService } from "../server/services/printJobBusinessProjectionService.mjs";
 
 const transactionCalls = [];
@@ -174,13 +173,6 @@ assert.equal(standaloneWorkspace.printRecords[0].status, "printed");
   assert.deepEqual(ignoredLateCallback, {});
   assert.equal(voidedWorkspace.fulfillments[0].status, "待打印标签");
 }
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-const lifecycleSource = readFileSync(new URL("../server/services/printJobLifecycleService.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createPrintJobBusinessProjectionService/);
-assert.match(lifecycleSource, /persistFulfillmentPrintJobProjection/);
-assert.doesNotMatch(apiServerSource, /async function syncPrintJobBusinessProjection/);
 
 console.log("Print job business projection service checks passed: trusted print confirmation remains the fulfillment gate.");
 

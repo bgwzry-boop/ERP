@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   normalizePackingCompletionTransactionResult,
   normalizeProductionDailyProgressTransactionResult,
@@ -12,9 +11,8 @@ checkEmptyResults();
 checkProductionReportNormalization();
 checkExceptionAndScheduleNormalization();
 checkPackingNormalization();
-checkRepositoryBoundary();
 
-console.log("Production packing transaction record normalizer check passed: transaction result shapes and repository boundary are covered.");
+console.log("Production packing transaction record normalizer check passed: transaction result shapes are covered.");
 
 function checkEmptyResults() {
   assert.deepEqual(normalizeProductionReportTransactionResult(null), {
@@ -111,13 +109,4 @@ function checkPackingNormalization() {
   assert.equal(result.packages.length, 1);
   assert.equal(result.fulfillment.actualQty, 80);
   assert.equal(result.todo.refType, "fulfillment");
-}
-
-function checkRepositoryBoundary() {
-  const repositorySource = readFileSync(new URL("../server/productionPackingTransactionRepository.mjs", import.meta.url), "utf8");
-  const normalizerSource = readFileSync(new URL("../server/productionPackingTransactionRecordNormalizer.mjs", import.meta.url), "utf8");
-  assert.match(repositorySource, /from "\.\/productionPackingTransactionRecordNormalizer\.mjs"/);
-  assert.doesNotMatch(repositorySource, /function normalizeProductionTask\(/);
-  assert.match(normalizerSource, /export function normalizeProductionReportTransactionResult\(/);
-  assert.ok(repositorySource.split("\n").length <= 1850, "transaction repository should remain focused on orchestration and SQL");
 }

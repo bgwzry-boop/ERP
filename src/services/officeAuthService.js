@@ -7,6 +7,10 @@ import {
   getRuntimeAuthInvalidation,
   notifyRuntimeAuthInvalidationForResponse,
 } from "./runtimeAuthInvalidation.js";
+import {
+  createOfficeRequestAbort,
+  createOfficeRequestAbortError,
+} from "./officeRequestAbort.js";
 
 export const seedAuthStorageKey = "erp.authSession.v1";
 const legacySeedAuthStorageKey = "erp.seedAuthSession.v1";
@@ -542,16 +546,25 @@ async function requestAuthApi(path, options = {}) {
     "content-type": "application/json",
     ...(options.headers ?? {}),
   };
-  const response = await fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, {
-    method: options.method ?? "GET",
-    headers,
-    body: options.body ? JSON.stringify(options.body) : undefined,
-  });
-  await notifyRuntimeAuthInvalidationForResponse(response, {
-    authState: options.authState,
-    session: options.session,
-  });
-  return response;
+  const requestAbort = createOfficeRequestAbort({ signal: options.signal, timeoutMs: options.timeoutMs });
+  try {
+    const response = await fetchImpl(`${getAuthApiBaseUrl(options)}${path}`, {
+      method: options.method ?? "GET",
+      headers,
+      body: options.body ? JSON.stringify(options.body) : undefined,
+      signal: requestAbort.signal,
+    });
+    await notifyRuntimeAuthInvalidationForResponse(response, {
+      authState: options.authState,
+      session: options.session,
+    });
+    return response;
+  } catch (error) {
+    if (requestAbort.signal.aborted) throw createOfficeRequestAbortError(requestAbort.reason, error);
+    throw error;
+  } finally {
+    requestAbort.dispose();
+  }
 }
 
 async function readJson(response) {

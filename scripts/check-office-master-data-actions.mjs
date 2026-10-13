@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { buildMasterDataRouteContract } from "../src/app/buildMasterDataRouteContract.js";
 import { createOfficeMasterDataActions } from "../src/app/createOfficeMasterDataActions.js";
 import { createOfficeMasterDataReadActions } from "../src/app/useOfficeMasterDataReads.js";
 
@@ -115,7 +115,13 @@ const readyPlan = {
   assert.equal(cancelledCalls, 0, "identity confirmation must require the final explicit confirmation dialog");
 }
 
-function createHarness({ allowLocalFallback = false, api = {}, confirmResult = true } = {}) {
+function createHarness({
+  allowLocalFallback = false,
+  api = {},
+  confirmResult = true,
+  refreshEmployeeReviews,
+  refreshV1Status,
+} = {}) {
   let confirmationPlans = [];
   let executions = [];
   let reviewDrafts = [];
@@ -141,10 +147,12 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
     now: () => new Date("2026-07-12T09:00:00.000Z"),
     refreshMasterDataEmployeeAccountReviews: async () => {
       employeeRefreshCount += 1;
+      return refreshEmployeeReviews?.();
     },
     refreshMasterDataImportReviewDrafts: async () => {},
     refreshV1GoLiveStatus: async () => {
       v1StatusRefreshCount += 1;
+      return refreshV1Status?.();
     },
     setLastIssuedEmployeeCredential: (value) => {
       issuedCredential = typeof value === "function" ? value(issuedCredential) : value;
@@ -509,6 +517,33 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
 }
 
 {
+  const harness = createHarness({
+    refreshEmployeeReviews: async () => {
+      throw new Error("employee projection temporarily unavailable");
+    },
+    refreshV1Status: async () => ({ source: "api" }),
+    api: {
+      createOfficeMasterDataMachine: async (input) => ({
+        source: "api",
+        machine: { ...input, updatedAt: "2026-07-12T09:00:00.000Z" },
+      }),
+    },
+  });
+  const saved = await harness.controller.saveMasterDataMachine({
+    isNew: true,
+    machineId: "BAG-11",
+    name: "11号制袋机",
+    machineType: "bag_making",
+    workshop: "4号车间",
+    status: "active",
+    reason: "验证刷新隔离",
+  });
+  assert.equal(saved.machineId, "BAG-11", "a committed machine write must survive one failed read-model refresh");
+  assert.equal(harness.getEmployeeRefreshCount(), 1);
+  assert.equal(harness.getV1StatusRefreshCount(), 1, "independent refreshes must both be attempted");
+}
+
+{
   let revokeCalls = 0;
   const harness = createHarness({
     confirmResult: false,
@@ -552,23 +587,36 @@ function createHarness({ allowLocalFallback = false, api = {}, confirmResult = t
   assert.equal(harness.getV1StatusRefreshCount(), 1);
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const actionsSource = readFileSync(new URL("../src/app/createOfficeMasterDataActions.js", import.meta.url), "utf8");
-const serverSource = readFileSync(new URL("../server/services/masterDataImportCommandService.mjs", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeMasterDataActions\(\{/);
-assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
-for (const functionName of [
-  "commitMasterDataImportExecutionFromPlan",
-  "createMasterDataImportConfirmationPlanFromDraft",
-  "confirmMasterDataEmployeeIdentity",
-  "enableMasterDataEmployeeAccount",
-  "enableMasterDataEmployeeAccounts",
-  "issueMasterDataEmployeeAccountPassword",
-]) {
-  assert.doesNotMatch(appSource, new RegExp(`(?:async )?function ${functionName}\\(`));
-}
-assert.doesNotMatch(serverSource, /cleanText\(body\.officialWriterKind\)/);
-assert.match(actionsSource, /Promise\.allSettled\(\[/, "successful employee writes should settle read-model refreshes independently");
-assert.match(appSource, /onSaveMachine=\{saveMasterDataMachine\}/);
+const routeRuntime = {
+  authState: { authenticated: true },
+  currentUser: { userId: "U-MANAGER-A" },
+  customers: [{ id: "C-1" }],
+  masterDataEmployeeAccountReadiness: { ready: false },
+  masterDataEmployeeAccountReviews: [{ employeeId: "EMP-1" }],
+  masterDataEmployeeAssignmentOptions: { machines: [] },
+  pageHelpers: { money: (value) => value },
+  masterDataImportExecutions: [{ executionId: "MDE-1" }],
+  masterDataImportReviewDrafts: [{ draftId: "MDR-1" }],
+  inventoryRecords: [{ id: "INV-1" }],
+  masterDataMaintenanceDrafts: [{ draftId: "MDD-1" }],
+  orderLines: [{ id: "OL-1" }],
+  selectedMasterDataId: "EMP-1",
+  masterDataMaintenanceTab: "员工机台",
+  statements: [{ id: "ST-1" }],
+  enableMasterDataEmployeeAccounts: () => "batch-enable",
+  openMasterDataTemplatePanel: () => "open-template",
+  saveMasterDataMaintenanceDraft: () => "save-draft",
+  saveMasterDataMachine: () => "save-machine",
+  updateMasterDataEmployeeAssignment: () => "update-assignment",
+  updateMasterDataEmployeeProfile: () => "update-profile",
+  setSelectedMasterDataId: () => "select-record",
+  setMasterDataMaintenanceTab: () => "select-tab",
+};
+const routeContract = buildMasterDataRouteContract(routeRuntime);
+assert.equal(routeContract.state.employeeAccountReviews, routeRuntime.masterDataEmployeeAccountReviews);
+assert.equal(routeContract.state.selectedId, "EMP-1");
+assert.equal(routeContract.actions.onSaveMachine, routeRuntime.saveMasterDataMachine);
+assert.equal(routeContract.actions.onBatchEnableEmployeeAccounts, routeRuntime.enableMasterDataEmployeeAccounts);
+assert.equal(routeContract.actions.setSelectedTab, routeRuntime.setMasterDataMaintenanceTab);
 
 console.log("Office master-data actions check passed: imports and employee accounts are isolated, formal writes fail closed, and the server owns writer selection.");

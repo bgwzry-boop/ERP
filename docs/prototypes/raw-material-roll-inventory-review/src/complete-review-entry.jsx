@@ -8,7 +8,9 @@ import "../../../../src/styles/semantic-tags.css";
 const identityGuard = establishLocalPreviewIdentity("bagwin-complete-review-4174");
 
 if (identityGuard) {
-  const expectedViewportFamily = detectCompleteReviewRuntimeFamily(window);
+  const phoneViewportQuery = window.matchMedia("(max-width: 767px)");
+  const handsetRuntime = detectCompleteReviewRuntimeFamily(window) === "mobile";
+  const expectedViewportFamily = handsetRuntime && phoneViewportQuery.matches ? "mobile" : "desktop";
   const currentUrl = new URL(window.location.href);
   const declaredViewportFamily = currentUrl.searchParams.get("erpViewport");
 
@@ -42,6 +44,20 @@ if (identityGuard) {
       });
       document.body.append(badge);
     }
+    let viewportFamilyReloadTimer = null;
+    const reloadForViewportFamily = (event) => {
+      window.clearTimeout(viewportFamilyReloadTimer);
+      viewportFamilyReloadTimer = window.setTimeout(() => {
+        const nextUrl = new URL(window.location.href);
+        nextUrl.searchParams.set("erpViewport", handsetRuntime && event.matches ? "mobile" : "desktop");
+        window.location.replace(nextUrl.toString());
+      }, 120);
+    };
+    phoneViewportQuery.addEventListener("change", reloadForViewportFamily);
+    window.addEventListener("pagehide", () => {
+      window.clearTimeout(viewportFamilyReloadTimer);
+      phoneViewportQuery.removeEventListener("change", reloadForViewportFamily);
+    }, { once: true });
     async function bootstrap() {
       document.documentElement.dataset.erpRuntimeFamily = expectedViewportFamily;
       if (expectedViewportFamily === "mobile") {

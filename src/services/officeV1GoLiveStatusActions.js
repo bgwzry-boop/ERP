@@ -1,4 +1,8 @@
-import { requestOfficeApi } from "./officeApiClientCore.js";
+import {
+  readOfficeApiJson as readJson,
+  requestOfficeApi,
+  toOfficeApiError as toApiError,
+} from "./officeApiClientCore.js";
 
 export function createOfficeV1GoLiveStatusActions(normalizers = {}) {
   const actions = {
@@ -178,7 +182,7 @@ function createStatusReadAction(normalize) {
         method: "GET",
         operatorId,
       });
-      const json = await readJson(response);
+    const json = await readJson(response, {});
       if (!response.ok) {
         return {
           source: "api_error",
@@ -217,7 +221,7 @@ function createPostAction({
         operatorId,
         body: body(input),
       });
-      const json = await readJson(response);
+    const json = await readJson(response, {});
       const result = normalize(json);
       if (!response.ok) {
         return {
@@ -248,28 +252,6 @@ function requireNormalizer(normalize, label) {
   if (typeof normalize !== "function") throw new TypeError(`Missing V1 normalizer: ${label}`);
 }
 
-function toApiError(json, status, fallbackMessage) {
-  const error = json?.error ?? json ?? {};
-  return {
-    code: cleanText(error.code) || `HTTP_${status}`,
-    message: cleanText(error.message) || fallbackMessage,
-    requiredPermission: cleanText(error.requiredPermission),
-    status,
-  };
-}
-
 function toUnavailableError(code, error) {
   return { code, message: error?.message ?? String(error) };
-}
-
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return {};
-  }
-}
-
-function cleanText(value) {
-  return String(value ?? "").trim();
 }

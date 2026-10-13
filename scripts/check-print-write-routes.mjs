@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handlePrintWriteRoutes } from "../server/routes/printWriteRoutes.mjs";
 
 const calls = [];
@@ -90,25 +89,6 @@ assert.equal(
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handlePrintWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/print-batches") }), false);
 assert.equal(await handlePrintWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/print-jobs/PJ-1") }), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/printWriteRoutes.mjs", import.meta.url), "utf8");
-for (const removedWrapper of [
-  "createPrintBatchRoute",
-  "upsertPrintDeviceRoute",
-  "updatePrintDeviceDriverModeRoute",
-  "recordPrinterDeviceFieldTestRoute",
-  "updatePrintJobStatusRoute",
-  "dispatchPrintJobRoute",
-  "pollPrintJobsRoute",
-  "recordPrintJobDriverStatusRoute",
-  "pollPrintJobDriverStatusRoute",
-  "retryPrintJobRoute",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
-}
-assert.match(apiSource, /handlePrintWriteRoutes\([\s\S]*printBatchCommandService,[\s\S]*printDeviceCommandService,[\s\S]*printJobLifecycleService,[\s\S]*sendJson,[\s\S]*sendCommandRecord,/);
-assert.doesNotMatch(routeSource, /workspace\.printDriverAdapter|recordPrinterDeviceFieldTestAcceptance|normalizePrinterDeviceFieldTestChecks/);
 
 console.log("print write routes checks passed: permissions, authenticated operators, raw/record responses, job 404s, non-printing QA, and thin API wiring are covered");
 

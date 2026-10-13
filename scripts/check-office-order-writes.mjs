@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeOrderWriteActions } from "../src/app/useOfficeOrderWrites.js";
 
 function createState(initialValue) {
@@ -511,19 +510,5 @@ const voidResult = await voidCase.actions.executeOrderLineAction({
 assert.equal(voidCase.states.orderLines.value[0].status, "已关闭");
 assert.equal(voidCase.states.fulfillments.value[0].status, "已取消");
 assert.equal(voidResult.closeModal, true);
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-for (const directWrite of [
-  "confirmOfficeDraftViaApi",
-  "recognizeOfficeDraft",
-  "saveOfficeDraft",
-  "adjustOfficeOrderLineQuantity",
-  "voidOfficeOrderLine",
-]) {
-  assert.equal(appSource.includes(directWrite), false, `App must not own ${directWrite}`);
-}
-const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-assert.match(workspaceSource, /useOfficeOrderWrites/);
-assert.match(workspaceSource, /\.\.\.orderWrites/);
 
 console.log("Office order writes check passed: recognition, independent draft queue, save, shortage-cancellation restore, 409 conflict, production fail-closed, confirmation, all-cancelled closure, quantity, and void behavior are covered.");

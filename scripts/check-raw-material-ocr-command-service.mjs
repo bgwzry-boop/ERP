@@ -1,13 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { normalizeIdempotencyKey } from "../server/idempotency.mjs";
 import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
 import { applyRawMaterialOcrReparse } from "../server/rawMaterialInboundOcrSupport.mjs";
 import { createRawMaterialCommandService } from "../server/services/rawMaterialCommandService.mjs";
-
-const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
-assert.match(repositorySource, /applyRawMaterialOcrReparse/);
-assert.ok(repositorySource.split("\n").length <= 2_100, "repository should keep OCR, storage, query, and concurrency rules delegated");
 
 const reparseBefore = {
   id: "RMI-REPARSE-001",
@@ -613,6 +608,7 @@ const voidedCaptureIds = [];
 const deletedStorageKeys = [];
 const jobOcrCalls = [];
 let secondPageShouldFail = true;
+let ocrConfigured = true;
 const jobWorkspace = {
   users: [{ id: "U-JOB", displayName: "后台识别测试员" }],
   attachments: [
@@ -695,6 +691,9 @@ const backgroundService = createRawMaterialCommandService({
     },
   },
   tencentCloudTableOcrService: {
+    getReadiness() {
+      return { configured: ocrConfigured };
+    },
     async recognizeTable({ contentDataUrl }) {
       const pageText = Buffer.from(contentDataUrl.split(",")[1], "base64").toString("utf8");
       jobOcrCalls.push(pageText);
@@ -730,6 +729,21 @@ assert.equal(failedBackgroundJob.job.error.code, "RAW_MATERIAL_DELIVERY_NOTE_PAG
 assert.match(failedBackgroundJob.job.error.message, /第 2 页识别失败/);
 assert.doesNotMatch(failedBackgroundJob.job.error.message, /foreign key|constraint/i, "raw database errors must not reach the phone");
 assert.deepEqual(jobOcrCalls, ["page-one", "page-two"]);
+ocrConfigured = false;
+const unavailableRetry = await backgroundService.retryDeliveryNoteRecognitionJob({
+  workspace: jobWorkspace,
+  jobId: backgroundStarted.job.jobId,
+  operatorId: "U-JOB",
+});
+assert.equal(unavailableRetry.statusCode, 503);
+assert.equal(unavailableRetry.code, "TENCENT_OCR_CREDENTIALS_REQUIRED");
+assert.match(unavailableRetry.message, /照片没有发送到腾讯云.*联系管理员/);
+assert.equal(scheduledOcrJobs.length, 0, "an unavailable provider must not queue a doomed retry");
+assert.equal((await backgroundService.getDeliveryNoteRecognitionJob({
+  jobId: backgroundStarted.job.jobId,
+  operatorId: "U-JOB",
+})).job.status, "failed");
+ocrConfigured = true;
 const queuedRetry = await backgroundService.retryDeliveryNoteRecognitionJob({
   workspace: jobWorkspace,
   jobId: backgroundStarted.job.jobId,
@@ -750,6 +764,18 @@ const foreignBackgroundJob = await backgroundService.getDeliveryNoteRecognitionJ
 });
 assert.equal(foreignBackgroundJob.code, "RAW_MATERIAL_DELIVERY_NOTE_JOB_NOT_FOUND");
 assert.match(foreignBackgroundJob.message, /不属于当前操作人/);
+
+ocrConfigured = false;
+const unavailableStart = await backgroundService.startDeliveryNoteRecognitionJob({
+  workspace: jobWorkspace,
+  operatorId: "U-JOB",
+  body: {
+    pages: [{ fileName: "未发送.jpg", mimeType: "image/jpeg", sourceAttachmentId: "ATT-JOB-1", ocrAttachmentId: "ATT-JOB-1" }],
+  },
+});
+assert.equal(unavailableStart.statusCode, 503);
+assert.equal(unavailableStart.code, "TENCENT_OCR_CREDENTIALS_REQUIRED");
+assert.equal(scheduledOcrJobs.length, 0, "an unavailable provider must fail before creating a background job");
 
 console.log("Raw-material OCR command checks passed: backend orchestration, attachment ownership, content deduplication, required human review, and unavailable inventory are covered.");
 

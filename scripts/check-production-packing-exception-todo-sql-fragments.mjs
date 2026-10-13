@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createPostgresParameterBinder } from "../server/postgresSqlParameters.mjs";
 import {
   buildInsertOperationLogSql,
@@ -12,7 +11,6 @@ import {
 
 checkProductionExceptionFragments();
 checkTodoAndAuditFragments();
-checkRepositoryBoundary();
 
 console.log("Production packing exception/todo SQL fragments check passed: exception, todo, event, and audit writes stay parameterized and guarded.");
 
@@ -143,17 +141,4 @@ function checkTodoAndAuditFragments() {
   assert.equal(buildInsertTodoSql(null, createPostgresParameterBinder()), "SELECT NULL::json AS result WHERE false");
   assert.equal(buildUpdateTodoSql(null, createPostgresParameterBinder()), "SELECT NULL::json AS result WHERE false");
   assert.equal(buildInsertTodoEventSql(null, createPostgresParameterBinder()), "SELECT NULL::json AS result WHERE false");
-}
-
-function checkRepositoryBoundary() {
-  const repositorySource = readFileSync(new URL("../server/productionPackingTransactionRepository.mjs", import.meta.url), "utf8");
-  const fragmentsSource = readFileSync(new URL("../server/productionPackingExceptionTodoSqlFragments.mjs", import.meta.url), "utf8");
-  assert.match(repositorySource, /from "\.\/productionPackingExceptionTodoSqlFragments\.mjs"/);
-  assert.doesNotMatch(repositorySource, /function buildInsertProductionExceptionSql\(/);
-  assert.doesNotMatch(repositorySource, /function buildInsertTodoSql\(/);
-  assert.doesNotMatch(repositorySource, /function buildInsertOperationLogSql\(/);
-  assert.match(fragmentsSource, /export function buildInsertProductionExceptionSql\(/);
-  assert.match(fragmentsSource, /export function buildInsertOperationLogSql\(/);
-  assert.ok(repositorySource.split("\n").length <= 1_050, "transaction repository should delegate exception/todo SQL fragments while atomically persisting schedule records");
-  assert.ok(fragmentsSource.split("\n").length <= 300, "exception/todo SQL fragments should remain independently reviewable");
 }

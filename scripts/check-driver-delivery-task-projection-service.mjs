@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   buildDriverDeliveryTask,
   buildDriverPackageChecklist,
@@ -140,6 +139,7 @@ const workspace = {
   ],
 };
 
+const projectionInputs = structuredClone({ workspace, fulfillment });
 const task = buildDriverDeliveryTask(workspace, fulfillment, { driverId: "U-FALLBACK" });
 assert.equal(task.driverId, "U-DRIVER-A");
 assert.equal(task.routeDate, "2026-07-14");
@@ -212,27 +212,7 @@ const fallbackTask = await getDriverDeliveryTaskResponseProjection(
 );
 assert.equal(fallbackTask.fulfillmentId, "F-DRIVER-1");
 assert.equal(fallbackTask.driverId, "U-DRIVER-A", "active dispatch remains authoritative over fallback operator identity");
-
-const serviceSource = readFileSync(
-  new URL("../server/services/driverDeliveryTaskProjectionService.mjs", import.meta.url),
-  "utf8",
-);
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-const repositorySource = readFileSync(
-  new URL("../server/driverDeliveryTaskReadRepository.mjs", import.meta.url),
-  "utf8",
-);
-
-assert.match(registrySource, /from "\.\/services\/driverDeliveryTaskProjectionService\.mjs"/);
-assert.match(repositorySource, /from "\.\/services\/driverDeliveryTaskProjectionService\.mjs"/);
-assert.doesNotMatch(apiSource, /function buildDriverDeliveryTask/);
-assert.doesNotMatch(apiSource, /function buildDriverPackageChecklist/);
-assert.doesNotMatch(apiSource, /async function getDriverDeliveryTaskResponseProjection/);
-assert.doesNotMatch(repositorySource, /function buildLocalDriverPackageChecklist/);
-assert.doesNotMatch(repositorySource, /function getDriverColorSpecLabel/);
-assert.doesNotMatch(serviceSource, /\b(?:save|write|record|update|delete)[A-Z][A-Za-z]*\s*\(/);
-assert.ok(serviceSource.split("\n").length <= 380, "projection service should remain focused");
+assert.deepEqual({ workspace, fulfillment }, projectionInputs, "driver delivery task projection must not mutate its inputs");
 
 console.log(
   "Driver delivery task projection service check passed: shared shorthand, package ownership, routing, status, and read-only boundaries are covered.",

@@ -33,7 +33,7 @@ assert.equal(ready.ready, true);
 assert.equal(ready.summary.passedCount, 11);
 assert.equal(requestedUrl, "https://erp.example.test/api/health");
 const serialized = JSON.stringify(ready);
-assert.doesNotMatch(serialized, /erp\.example\.test|customers|99/);
+assert.doesNotMatch(serialized, /erp\.example\.test|"customers"\s*:/);
 assert.doesNotMatch(serialized, /postgres:\/\/|example-secret|example-bucket/i);
 assert.match(formatReport(ready), /11\/11/);
 

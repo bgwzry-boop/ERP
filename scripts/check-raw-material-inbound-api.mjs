@@ -22,6 +22,17 @@ const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "ra
 const repositoryStorageRoot = join(checkStorageRoot, "repository");
 const apiStorageRoot = join(checkStorageRoot, "api");
 const seededReviewInbound = initialRawMaterialInbounds.find((item) => item.id === "RMI-0704-001");
+const seededHandleStripInbound = initialRawMaterialInbounds.find((item) => item.id === "RMI-0704-003");
+assert.equal(seededHandleStripInbound?.productName, "提手条", "internal raw-material identity should use the canonical handle-strip name");
+assert.equal(seededHandleStripInbound?.spec, "65克*5宽", "handle-strip raw material should use its authoritative default GSM and width");
+assert.equal(seededHandleStripInbound?.gramWeightGsm, 65, "handle-strip raw material should retain the canonical default GSM value");
+assert.equal(seededHandleStripInbound?.widthCm, 5, "handle-strip raw material should retain the canonical width value");
+assert.equal(seededHandleStripInbound?.materialCategory, "提手条", "handle-strip raw material should retain the canonical category");
+assert.doesNotMatch(
+  `${seededHandleStripInbound?.productName} ${seededHandleStripInbound?.spec}`,
+  /加长提/,
+  "finished-bag handle length must not leak into normalized raw-material identity",
+);
 const seededOcrReviewPayload = {
   reviewFields: {
     ...Object.fromEntries((seededReviewInbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value])),

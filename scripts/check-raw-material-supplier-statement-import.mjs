@@ -95,6 +95,7 @@ async function checkBeichenStatementImport() {
   assert.equal(result.summary.rowCount, 2, "Beichen detail and return segment should become two normalized rows");
   assert.equal(result.summary.returnRowCount, 1, "Beichen shifted return segment should be recognized");
   assert.equal(result.summary.matchedRowCount, 2, "Beichen rows should match by document no or batch no");
+  assert.equal(result.rows[0].productName, "黑色加长提手", "supplier wording should remain intact as reconciliation evidence");
   assert.equal(result.rows[0].matchedRollId, "RM-240704-003-01", "Beichen batch no should match roll label");
   assert.equal(result.rows[1].lineType, "return", "Beichen return row should keep return type");
   assert.equal(result.rows[1].amount, -180, "positive printed return magnitude should normalize to negative direction");

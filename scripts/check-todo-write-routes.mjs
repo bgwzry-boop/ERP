@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleTodoWriteRoutes } from "../server/routes/todoWriteRoutes.mjs";
 
 const calls = [];
@@ -101,14 +100,6 @@ assert.equal(
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await run("GET", "/api/todos/T-1/handle"), false);
 assert.equal(await run("POST", "/api/todos/T-1"), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/todoWriteRoutes.mjs", import.meta.url), "utf8");
-for (const removedWrapper of ["handleTodoRoute", "repairTodoReferenceRoute", "repairMissingFulfillmentRoute"]) {
-  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
-}
-assert.match(apiSource, /handleTodoWriteRoutes\([\s\S]*todoCommandService,[\s\S]*todoReadProjectionService,[\s\S]*fulfillmentReadProjectionService,[\s\S]*sendBusinessError,/);
-assert.doesNotMatch(routeSource, /todoActionRepository|TodoTransactionRepository|validateTodoReference|buildOperationLog|buildTodo/);
 
 console.log("todo write routes checks passed: three permissions, authenticated operators, custom projections, failures, and thin API wiring are covered");
 

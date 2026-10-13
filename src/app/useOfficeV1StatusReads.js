@@ -1,5 +1,5 @@
 import { useCallback } from "react";
-import { getOfficeV1GoLiveStatus } from "../services/officeV1GoLiveStatusApiClient.js";
+import { getOfficeV1GoLiveStatus } from "../services/officeV1StatusLazyApi.js";
 
 const defaultApi = { getOfficeV1GoLiveStatus };
 

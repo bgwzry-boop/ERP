@@ -68,7 +68,13 @@ export function establishLocalPreviewIdentity(expectedAppId, options = {}) {
     if (stopped || checking || refreshing || document.visibilityState === "hidden") return;
     checking = true;
     try {
-      const response = await fetch(`/?erpIdentityCheck=${Date.now()}`, {
+      // Preserve the explicit root-workbench marker while polling. A bare `/`
+      // navigation intentionally redirects to the 4174 review app, so using it
+      // here would make the identity guard compare the wrong document and
+      // repeatedly reload the internal workbench.
+      const originUrl = new URL(window.location.href);
+      originUrl.searchParams.set("erpIdentityCheck", String(Date.now()));
+      const response = await fetch(`${originUrl.pathname}${originUrl.search}`, {
         cache: "no-store",
         credentials: "same-origin",
         headers: {

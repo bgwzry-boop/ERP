@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import fs from "node:fs";
 import { createOfficeRawMaterialActions } from "../src/app/createOfficeRawMaterialActions.js";
+import { createRawMaterialInboundAutoRefresh } from "../src/app/useRawMaterialInboundAutoRefresh.js";
 import {
   applyRawMaterialInboundLocalAction,
   buildRawMaterialInboundToastText,
@@ -239,12 +239,14 @@ assert.equal(
     },
   });
   const result = await harness.actions.updateRawMaterialInbound("复核送货单", "RMI-1", {
+    expectedRevision: 7,
     note: "已核对",
     lineReviews: [{ lineId: "OCR-1", values: { spec: "90g*1.6米" } }],
   });
   assert.equal(result, committedInbound);
   assert.equal(receivedInput.operatorId, "U-WAREHOUSE-A");
   assert.equal(receivedInput.operatorName, "库房A");
+  assert.equal(receivedInput.expectedRevision, 7, "chained writes must use the revision returned by the prior action");
   assert.equal(receivedInput.note, "已核对");
   assert.deepEqual(receivedInput.lineReviews, [{ lineId: "OCR-1", values: { spec: "90g*1.6米" } }]);
   assert.equal(harness.rawMaterialInbounds[0], committedInbound);
@@ -322,19 +324,76 @@ for (const [actionName, apiName, guardAction] of supplierActionCases) {
   assert.match(harness.toast, /仍不写库存、不生成应付、不确认付款/);
 }
 
-const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const controllerSource = fs.readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
-const autoRefreshSource = fs.readFileSync(new URL("../src/app/useRawMaterialInboundAutoRefresh.js", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeRawMaterialActions\(\{/);
-assert.match(appSource, /const runtimeServerRequired = isOfficeSharedDataServerRequired\(\)/);
-assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
-assert.match(appSource, /useRawMaterialInboundAutoRefresh\(\{/);
-assert.match(autoRefreshSource, /windowRef\.addEventListener\("focus", syncRawMaterialInbounds\)/);
-assert.match(autoRefreshSource, /windowRef\.setInterval\(syncRawMaterialInbounds, intervalMs\)/);
-assert.doesNotMatch(appSource, /function applyRawMaterialInboundLocalAction/);
-assert.doesNotMatch(appSource, /updateOfficeRawMaterialInboundAction/);
-assert.ok(appSource.split("\n").length < 4_000, "App.jsx should meet the B6.5 intermediate ceiling");
-assert.match(controllerSource, /if \(!allowLocalFallback\)/);
-assert.match(controllerSource, /生产\/正式后端模式禁止本地降级/);
+{
+  const windowListeners = new Map();
+  const documentListeners = new Map();
+  const clearedTimers = [];
+  const inboundCalls = [];
+  const supplierCalls = [];
+  let intervalCallback = null;
+  const windowRef = {
+    addEventListener: (type, callback) => windowListeners.set(type, callback),
+    clearInterval: (timerId) => clearedTimers.push(timerId),
+    removeEventListener: (type, callback) => {
+      if (windowListeners.get(type) === callback) windowListeners.delete(type);
+    },
+    setInterval: (callback, intervalMs) => {
+      intervalCallback = callback;
+      assert.equal(intervalMs, 12_000);
+      return 17;
+    },
+  };
+  const documentRef = {
+    visibilityState: "visible",
+    addEventListener: (type, callback) => documentListeners.set(type, callback),
+    removeEventListener: (type, callback) => {
+      if (documentListeners.get(type) === callback) documentListeners.delete(type);
+    },
+  };
+  const dispose = createRawMaterialInboundAutoRefresh({
+    activePage: "rawMaterials",
+    documentRef,
+    intervalMs: 12_000,
+    refreshRawMaterialInbounds: async (options) => inboundCalls.push(options),
+    refreshRawMaterialSupplierStatementReviews: async (options) => supplierCalls.push(options),
+    windowRef,
+  });
+  assert.deepEqual(inboundCalls, [{ showToast: false }]);
+  assert.deepEqual(supplierCalls, [{ showToast: false }]);
+  assert.equal(typeof windowListeners.get("focus"), "function");
+  assert.equal(typeof documentListeners.get("visibilitychange"), "function");
+  assert.equal(typeof intervalCallback, "function");
 
-console.log("Office raw-material action checks passed: local traceability, API wiring, permissions, and formal-mode fail-closed behavior are isolated.");
+  await Promise.resolve();
+  windowListeners.get("focus")();
+  await Promise.resolve();
+  assert.equal(inboundCalls.length, 2);
+  documentRef.visibilityState = "hidden";
+  documentListeners.get("visibilitychange")();
+  assert.equal(inboundCalls.length, 2);
+  documentRef.visibilityState = "visible";
+  documentListeners.get("visibilitychange")();
+  await Promise.resolve();
+  assert.equal(inboundCalls.length, 3);
+  intervalCallback();
+  await Promise.resolve();
+  assert.equal(inboundCalls.length, 4);
+
+  dispose();
+  assert.deepEqual(clearedTimers, [17]);
+  assert.equal(windowListeners.has("focus"), false);
+  assert.equal(documentListeners.has("visibilitychange"), false);
+}
+
+{
+  let refreshCount = 0;
+  const dispose = createRawMaterialInboundAutoRefresh({
+    activePage: "orders",
+    refreshRawMaterialInbounds: async () => { refreshCount += 1; },
+    refreshRawMaterialSupplierStatementReviews: async () => { refreshCount += 1; },
+  });
+  assert.equal(dispose, undefined);
+  assert.equal(refreshCount, 0);
+}
+
+console.log("Office raw-material action checks passed: local traceability, permissions, formal-mode fail-closed behavior, and visible-page refresh scheduling are covered.");

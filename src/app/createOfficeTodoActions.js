@@ -2,8 +2,8 @@ import {
   handleOfficeTodoAction as handleOfficeTodoActionDefault,
   repairOfficeTodoFulfillment as repairOfficeTodoFulfillmentDefault,
   repairOfficeTodoReference as repairOfficeTodoReferenceDefault,
-} from "../services/officeTodoApiClient.js";
-import { createOfficeTodo } from "../services/officeMockService.js";
+} from "../services/officeTodoLazyApi.js";
+import { createOfficeTodo } from "../services/officeLocalActions.js";
 import {
   getBatchPrintPackageRows,
   getBatchPrintStats,

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createRuntimeAuthActions } from "../src/app/createRuntimeAuthActions.js";
+import { startRuntimeAuthInvalidationMonitor } from "../src/app/useRuntimeSessionExpiry.js";
 import { requestOfficeApi } from "../src/services/officeApiClientCore.js";
 import { seedAuthStorageKey } from "../src/services/officeAuthService.js";
 import {
@@ -37,6 +37,21 @@ assert.equal(
   null,
   "a generic missing-session response must not clear an otherwise active workspace",
 );
+
+let monitorSubscriber = null;
+let monitorUnsubscribed = false;
+const monitorInvalidations = [];
+const disposeInvalidationMonitor = startRuntimeAuthInvalidationMonitor({
+  onInvalidate: (invalidation) => monitorInvalidations.push(invalidation),
+  subscribe: (subscriber) => {
+    monitorSubscriber = subscriber;
+    return () => { monitorUnsubscribed = true; };
+  },
+});
+monitorSubscriber({ reason: "runtime_session_revoked" });
+assert.deepEqual(monitorInvalidations, [{ reason: "runtime_session_revoked" }]);
+disposeInvalidationMonitor();
+assert.equal(monitorUnsubscribed, true, "the root invalidation monitor must release its subscription");
 
 const originalWindow = globalThis.window;
 const originalCustomEvent = globalThis.CustomEvent;
@@ -107,11 +122,6 @@ try {
   if (originalCustomEvent === undefined) delete globalThis.CustomEvent;
   else globalThis.CustomEvent = originalCustomEvent;
 }
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const authServiceSource = readFileSync(new URL("../src/services/officeAuthService.js", import.meta.url), "utf8");
-assert.match(appSource, /useRuntimeAuthInvalidation\(\{ enabled: formalLoginRequired, onInvalidate: invalidateRuntimeUserSession \}\)/);
-assert.match(authServiceSource, /notifyRuntimeAuthInvalidationForResponse\(response/);
 
 console.log("Runtime auth invalidation checks passed: authoritative 401 revocation/disable handling clears the formal browser workspace without treating ordinary denials as logout.");
 

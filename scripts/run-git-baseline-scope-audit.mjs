@@ -16,7 +16,7 @@ const GROUPS = Object.freeze([
   {
     key: "engineering_tooling",
     label: "测试编排与发布审计工具",
-    owns: (path) => path === ".gitignore" || path === "package.json" || path === "package-lock.json" || path === "vite.config.mjs" || path.startsWith("deploy/") || TOOLING_PATH_PATTERN.test(path),
+    owns: (path) => path === ".gitignore" || path === "package.json" || path === "package-lock.json" || path === "vite.config.mjs" || PLAYWRIGHT_CONFIG_PATTERN.test(path) || path.startsWith("deploy/") || TOOLING_PATH_PATTERN.test(path),
   },
   {
     key: "runtime_domain",
@@ -34,6 +34,7 @@ const GROUPS = Object.freeze([
     owns: (path) =>
       path.startsWith("scripts/") ||
       path.startsWith("e2e/") ||
+      path.startsWith("review-e2e/") ||
       path.startsWith("qa/"),
   },
 ]);
@@ -79,6 +80,7 @@ const ROOT_DOCUMENTS = new Set([
   "design-qa.md",
 ]);
 const TOOLING_PATH_PATTERN = /^scripts\/(?:check-check-group-runner|check-current-project-docs|check-group-manifest|run-check-group|check-git-baseline-scope-audit|run-git-baseline-scope-audit)\.mjs$/;
+const PLAYWRIGHT_CONFIG_PATTERN = /^playwright(?:\.[^/]+)?\.config\.mjs$/;
 const FORBIDDEN_PATH_PATTERN = /^(?:\.erp-local-storage|dist|node_modules|screenshots)(?:\/|$)/;
 const SENSITIVE_FILE_PATTERN = /(?:^|\/)(?:\.env(?:\..*)?|[^/]+\.(?:pem|key|p12|pfx|jks|keystore))$/i;
 const ALLOWED_ENV_EXAMPLE_PATTERN = /(?:\.example|\.template)(?:\.[^/]*)?$/i;

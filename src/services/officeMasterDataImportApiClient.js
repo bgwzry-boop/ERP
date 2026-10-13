@@ -3,6 +3,7 @@ import {
   buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
   readOfficeApiJson as readJson,
   requestOfficeApi as requestMasterDataImportApi,
+  toOfficeApiError as toApiError,
 } from "./officeApiClientCore.js";
 import { createMasterDataImportConfirmationPlan } from "../domain/masterDataImportConfirmationPlan.js";
 import { createMasterDataImportExecution } from "../domain/masterDataImportExecution.js";
@@ -1473,14 +1474,6 @@ function normalizePermissionCatalog(value) {
   };
 }
 
-function toApiError(json, status, fallbackMessage) {
-  return {
-    code: cleanText(json?.code) || `HTTP_${status}`,
-    message: cleanText(json?.message) || fallbackMessage,
-    requiredPermission: cleanText(json?.requiredPermission),
-    status,
-  };
-}
 
 function getFileNameFromContentDisposition(contentDisposition = "") {
   const encodedMatch = String(contentDisposition).match(/filename\*=UTF-8''([^;]+)/i);

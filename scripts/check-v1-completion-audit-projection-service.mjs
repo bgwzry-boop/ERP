@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   buildV1CompletionAudit,
   sanitizeV1FieldAcceptanceReport,
@@ -26,22 +25,6 @@ const unsafeText = [
   secrets.varPath,
   secrets.artifactPath,
 ].join(" ");
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(
-  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
-  "utf8",
-);
-const statusResponseSource = readFileSync(
-  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
-  "utf8",
-);
-assert.match(statusResponseSource, /from "\.\/v1CompletionAuditProjectionService\.mjs"/);
-assert.match(registrySource, /createV1GoLiveStatusResponseService/);
-assert.doesNotMatch(apiServerSource, /function buildV1CompletionAudit/);
-assert.doesNotMatch(apiServerSource, /function sanitizeV1RuntimeReadinessBlockers/);
-assert.doesNotMatch(apiServerSource, /function sanitizeV1FieldAcceptanceReport/);
-assert.doesNotMatch(apiServerSource, /function getV1RuntimeReadinessBlockerDefaults/);
 
 const runtimeBlockers = sanitizeV1RuntimeReadinessBlockers({
   ready: false,

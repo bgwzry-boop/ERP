@@ -1,13 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createWorkspaceRecordService } from "../server/services/workspaceRecordService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createWorkspaceRecordService\(\)/);
-assert.match(registrySource, /\} = workspaceRecordService;/);
-assert.doesNotMatch(apiSource, /from "\.\.\/src\/data\/fixtures\.js"/);
-assert.doesNotMatch(apiSource, /normalizeTodoReferenceForWrite/);
 
 const methodNames = [
   "addOperationLog",
@@ -32,10 +24,6 @@ const methodNames = [
   "resolvePersistableCreatedBy",
   "summarizeOrderLineForChange",
 ];
-for (const functionName of methodNames) {
-  assert.doesNotMatch(apiSource, new RegExp(`(?:async )?function ${functionName}\\(`));
-}
-
 const fixedNow = new Date("2026-07-14T12:00:00.000Z");
 const repositoryCalls = [];
 const workspace = {

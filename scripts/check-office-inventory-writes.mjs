@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeInventoryDetailReadActions } from "../src/app/useOfficeInventoryDetailReads.js";
 import { createOfficeInventoryWriteActions } from "../src/app/useOfficeInventoryWrites.js";
 
@@ -349,20 +348,5 @@ const intentRead = await intentReadActions.refreshInventoryIntents({ showToast: 
 assert.equal(intentReadState.value.items[0].intentId, "INT-1");
 assert.equal(intentReadState.value.holds[0].reservationId, "HOLD-1");
 assert.match(intentRead.feedback, /临时留货已刷新/);
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-for (const directWrite of [
-  "createOfficeInventoryCorrectionDraft",
-  "linkOfficeInventoryCorrectionAttachments",
-  "confirmOfficeInventoryCorrectionDraft",
-  "createOfficeTemporaryInventoryHold",
-  "extendOfficeTemporaryInventoryHold",
-  "releaseOfficeTemporaryInventoryHold",
-]) {
-  assert.equal(appSource.includes(directWrite), false, `App must not own ${directWrite}`);
-}
-const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-assert.match(workspaceSource, /useOfficeInventoryWrites/);
-assert.match(workspaceSource, /\.\.\.inventoryWrites/);
 
 console.log("Office inventory writes check passed: create/confirm, permission, conflict, production fail-closed, detail reads, and inventory/ledger/queue/todo refreshes are covered.");

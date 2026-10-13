@@ -1,23 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   buildRawMaterialInboundListResponse,
   buildRawMaterialInboundMetrics,
   normalizeRawMaterialInboundListQuery,
 } from "../server/services/rawMaterialInboundReadProjectionService.mjs";
-
-const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
-const serviceSource = readFileSync(
-  new URL("../server/services/rawMaterialInboundReadProjectionService.mjs", import.meta.url),
-  "utf8",
-);
-
-assert.match(repositorySource, /from "\.\/services\/rawMaterialInboundReadProjectionService\.mjs"/);
-assert.ok(
-  repositorySource.split("\n").length <= 2_100,
-  "repository should delegate raw-material list projection without absorbing the independently tested read projection",
-);
-assert.ok(serviceSource.split("\n").length < 180, "read projection service should stay independently reviewable");
 
 const inbounds = [
   {

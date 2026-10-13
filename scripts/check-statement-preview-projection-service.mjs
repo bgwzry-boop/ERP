@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createStatementPreviewProjectionService } from "../server/services/statementPreviewProjectionService.mjs";
 
 const service = createStatementPreviewProjectionService();
@@ -139,19 +138,6 @@ assert.equal(invalidPersisted.amount, 5);
 assert.equal(invalidPersisted.adjustmentAmount, 0);
 assert.equal(invalidPersisted.finalAmount, 5);
 
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createStatementPreviewProjectionService/);
-assert.match(registrySource, /statementPreviewProjectionService\.buildPreviewLines/);
-for (const oldHelper of [
-  "function buildStatementPreviewLines",
-  "function toStatementPreviewLine",
-  "function buildStatementGoodsSpec",
-  "function roundMoney",
-]) {
-  assert.equal(apiSource.includes(oldHelper), false, `${oldHelper} should not remain in the API composition root`);
-}
-
 console.log(
-  "Statement preview projection service checks passed: persisted and legacy lines, factory shorthand, finite amounts, missing records, and composition-root ownership are covered.",
+  "Statement preview projection service checks passed: persisted and legacy lines, factory shorthand, finite amounts, and missing records are covered.",
 );

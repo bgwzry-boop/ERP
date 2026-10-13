@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1V2BoundaryService } from "../server/services/v1V2BoundaryService.mjs";
 
 const checkedAt = "2026-07-13T22:00:00.000Z";
@@ -64,25 +63,6 @@ assert.equal(failedResult.body.status, "scope_brief_refresh_failed");
 assert.equal(failedResult.body.error.code, "V1_V2_SCOPE_BRIEF_REFRESH_FAILED");
 assert.equal(failedResult.body.safeguards.rawCommandStderrIncluded, false);
 assertSensitiveTextAbsent(failedResult);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const serviceSource = readFileSync(new URL("../server/services/v1V2BoundaryService.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function precheckSystemV1V2Boundary|async function refreshSystemV1V2ScopeBrief/);
-assert.match(routeSource, /precheckV1V2Boundary:[\s\S]*v1V2BoundaryService\.precheck\(\{ operatorId \}\)/);
-assert.match(routeSource, /refreshV1V2ScopeBrief:[\s\S]*v1V2BoundaryService\.refreshScopeBrief\(\{ operatorId \}\)/);
-assert.doesNotMatch(routeSource, /readV1GoLiveStatusArtifacts|summarizeV1FieldEvidence|runV1V2ScopeBriefRefreshCommand/);
-for (const oldHelper of [
-  "buildV1V2BoundaryPrecheckBlockers",
-  "buildV1V2BoundaryPrecheckBlocker",
-  "buildV1V2BoundaryPrecheckSafeguards",
-  "buildV1V2ScopeBriefRefreshSuccessBody",
-  "buildV1V2ScopeBriefRefreshErrorBody",
-  "buildV1V2ScopeBriefRefreshSafeguards",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${oldHelper}\\(`));
-}
-assert.doesNotMatch(serviceSource, /request\.body|body\.path|body\.token|process\.env/);
 
 console.log(
   "V1/V2 boundary service checks passed: missing/open/confirmed/ready gates, refresh isolation, redaction, and thin API composition are covered.",

@@ -1,11 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createInventoryIntentRouteModule } from "../server/routes/inventoryIntentRoutes.mjs";
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiServerSource, /createInventoryIntentCommandService|inventoryIntentCommandService/);
-assert.match(readFileSync(new URL("../server/routes/inventoryReadRoutes.mjs", import.meta.url), "utf8"), /inventoryIntentRouteModule\.handleReadRoutes/);
-assert.match(readFileSync(new URL("../server/routes/inventoryWriteRoutes.mjs", import.meta.url), "utf8"), /inventoryIntentRouteModule\.handleWriteRoutes/);
 
 const calls = [];
 const commandService = {

@@ -1,7 +1,7 @@
 import {
   MASTER_DATA_IMPORT_TEMPLATE_VERSION,
   getMasterDataImportWorksheetSpecs,
-} from "./masterDataImportTemplate.js";
+} from "./masterDataImportTemplateCatalog.js";
 import {
   getV1RuntimeEmployeeRoleInputLabels,
   normalizeV1RuntimeEmployeeRoleKey,

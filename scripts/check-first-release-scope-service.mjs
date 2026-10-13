@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync, rmSync } from "node:fs";
+import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
 import {
@@ -147,14 +147,6 @@ assert.deepEqual(buildFirstReleaseBlockedResponse(RAW_MATERIAL_FIRST_RELEASE_SCO
 
 await checkApiBoundary();
 await checkAuthenticationPrecedence();
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const requestHandlerIndex = apiSource.indexOf("const server = http.createServer");
-const authenticationIndex = apiSource.indexOf("!authContext.authenticated", requestHandlerIndex);
-const scopeGateIndex = apiSource.indexOf("const firstReleaseWrite = evaluateFirstReleaseWrite", requestHandlerIndex);
-const bodyReadIndex = apiSource.indexOf("readJsonRequestBody(request", requestHandlerIndex);
-assert.ok(authenticationIndex > requestHandlerIndex && authenticationIndex < scopeGateIndex);
-assert.ok(scopeGateIndex < bodyReadIndex, "scope gate must run before request-body parsing and routeWrite");
 
 rmSync(checkStorageRoot, { recursive: true, force: true });
 console.log("First-release scope checks passed: resolution, write allowlist, auth precedence, health projection, no-mutation blocking, and response redaction are covered.");

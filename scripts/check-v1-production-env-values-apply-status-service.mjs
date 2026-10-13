@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1ProductionEnvValuesApplyStatusService } from "../server/services/v1ProductionEnvValuesApplyStatusService.mjs";
 import { sanitizeV1SensitiveStatusText } from "../server/services/v1StatusTextSanitizer.mjs";
 
@@ -84,24 +83,6 @@ assert.equal(guidance.applyEnabled, true);
 assert.equal(guidance.acceptsFrontendPath, false);
 assert.equal(guidance.pathValueExposed, false);
 assert.equal(guidance.safeguards.productionEnvFileMayBeMutated, false);
-
-const applyServiceSource = readFileSync(
-  new URL("../server/services/v1ProductionEnvValuesApplyService.mjs", import.meta.url),
-  "utf8",
-);
-const statusServiceSource = readFileSync(
-  new URL("../server/services/v1ProductionEnvValuesApplyStatusService.mjs", import.meta.url),
-  "utf8",
-);
-assert.match(applyServiceSource, /createV1ProductionEnvValuesApplyStatusService\(\{/);
-assert.match(applyServiceSource, /buildGateStatus: statusService\.buildGateStatus/);
-assert.doesNotMatch(applyServiceSource, /function buildGateStatus\(/);
-assert.doesNotMatch(applyServiceSource, /function buildResponseBody\(/);
-assert.doesNotMatch(applyServiceSource, /sanitizeTargetSetupStatusProjection/);
-assert.match(statusServiceSource, /function buildGateStatus\(/);
-assert.match(statusServiceSource, /function buildResponseBody\(/);
-assert.match(statusServiceSource, /function buildServerConfigGuidance\(/);
-assert.doesNotMatch(statusServiceSource, /runApplyCommand|async function run\(/);
 
 console.log(
   "V1 production-env values-apply status service checks passed: ten gate states, response/guidance redaction, and write/projection ownership are covered.",

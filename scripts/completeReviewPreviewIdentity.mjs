@@ -44,7 +44,7 @@ export async function assertCompleteReviewStaticIdentity() {
     [reviewEntry.includes('本地修改稿 · 未部署'), "local review must visibly distinguish itself from a deployed release"],
     [reviewEntry.includes('declaredViewportFamily !== expectedViewportFamily'), "stale viewport-family URL markers must be corrected before rendering"],
     [reviewEntry.includes('detectCompleteReviewRuntimeFamily(window)'), "complete review routing must use real runtime-family detection"],
-    [!reviewEntry.includes('matchMedia("(max-width: 767px)")'), "desktop review routing must never be selected by width alone"],
+    [reviewEntry.includes('handsetRuntime && phoneViewportQuery.matches'), "phone review selection must combine real handset identity with viewport width"],
     [reviewLegacyEntry.includes('import "./complete-review-entry.jsx"'), "the legacy shared module URL must recover into the namespaced review bootstrap"],
   ];
   const failed = checks.filter(([passed]) => !passed).map(([, message]) => message);

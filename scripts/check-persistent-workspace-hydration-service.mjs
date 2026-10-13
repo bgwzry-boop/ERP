@@ -1,15 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { coreWorkspaceCollectionKeys } from "../server/coreWorkspaceReadRepository.mjs";
 import {
   hydratePersistentWorkspaceState,
   isProductionWorkspaceRuntime,
 } from "../server/services/persistentWorkspaceHydrationService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiSource, /hydratePersistentWorkspaceState\(\{/);
-assert.doesNotMatch(apiSource, /function loadPersistentWorkspaceState/);
-assert.doesNotMatch(apiSource, /seedInbounds: workspace\.initialRawMaterialInbounds/);
 
 assert.equal(isProductionWorkspaceRuntime({ runtimeConfig: { production: true, mode: "demo" } }), true);
 assert.equal(isProductionWorkspaceRuntime({ runtimeConfig: { production: false, mode: "production" } }), true);

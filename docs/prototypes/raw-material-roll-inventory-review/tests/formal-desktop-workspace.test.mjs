@@ -4,6 +4,8 @@ import test from "node:test";
 import { buildEmployeeProfile, formatEmployeeAge, formatEmployeeTenure } from "../src/employee-profile.js";
 import { detectCompleteReviewRuntimeFamily } from "../src/review-runtime-family.js";
 import { assertCompleteReviewStaticIdentity } from "../../../../scripts/completeReviewPreviewIdentity.mjs";
+import { resolveOfficeWorkbenchNavigation } from "../../../../src/app/useOfficeWorkbenchNavigation.js";
+import { getRolePermissionSet } from "../../../../shared/auth/roleCatalog.js";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
@@ -31,8 +33,12 @@ test("4174 mobile review uses a signed passwordless preview session", async () =
   assert.match(mobileEntrySource, /<App signedPreviewUserId="U-MANAGER-A" \/>/, "mobile review should explicitly request the fixed signed preview identity");
   assert.match(appSource, /stagingAuthBypass:\s*true/, "the signed preview identity should bypass only the visible password boundary");
   assert.match(appSource, /createInitialAuthState\(signedPreviewAuthOptions \?\? undefined\)/, "the initial mobile state should use the same preview auth contract");
-  assert.match(appSource, /signedPreviewMobilePage[\s\S]*isNavigationPageVisible\("rawMaterials", permissionContext\)[\s\S]*\? "rawMaterials"/, "the fixed preview identity should enter the formal raw-material phone route even though its desktop role is management");
-  assert.match(appSource, /fixedPreviewMode=\{Boolean\(signedPreviewAuthOptions\)\}/, "the fixed preview identity should not expose the demo role switcher");
+  assert.equal(resolveOfficeWorkbenchNavigation({
+    activePage: "todos", mobileViewport: true, signedPreviewMode: true,
+    permissionContext: { ...getRolePermissionSet(["management"]), user: { defaultRole: "management", userId: "U-MANAGER-A" } },
+  }).renderedPage, "rawMaterials", "the fixed management preview should enter the formal raw-material phone route");
+  const shellSource = await readSource("../../../../src/app/OfficeWorkbenchShell.jsx");
+  assert.match(shellSource, /fixedPreviewMode=\{signedPreviewMode\}/, "the fixed preview identity should not expose the demo role switcher");
   assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
 });
 
@@ -62,7 +68,9 @@ test("4174 keeps desktop browsers on the accepted shell regardless of narrow win
   assert.match(entrySource, /declaredViewportFamily !== expectedViewportFamily/, "a stale viewport marker should be corrected before either shell renders");
   assert.match(entrySource, /dataset\.erpRuntimeFamily = expectedViewportFamily/, "the mounted review should expose its runtime-family assertion for verification");
   assert.match(entrySource, /本地修改稿 · 未部署/, "the local review must never masquerade as a deployed release");
-  assert.doesNotMatch(entrySource, /matchMedia\("\(max-width: 767px\)"\)/, "viewport width alone must never select the historical formal shell");
+  assert.match(entrySource, /handsetRuntime && phoneViewportQuery\.matches/, "only a real handset at phone width may enter the formal phone shell");
+  assert.match(entrySource, /phoneViewportQuery\.addEventListener\("change", reloadForViewportFamily\)/, "crossing viewport families must reload the canonical entry");
+  assert.match(entrySource, /handsetRuntime && event\.matches \? "mobile" : "desktop"/, "a widened phone must return to the complete desktop shell");
   assert.match(runtimeFamilySource, /userAgentData\?\.mobile/, "modern browser client hints should be the primary runtime-family signal");
   assert.match(runtimeFamilySource, /Android\.\+Mobile\|iPhone/, "real handset user agents should retain the approved formal phone flow");
 });

@@ -351,7 +351,7 @@ for (const label of ["卷标只写本卷重量", "不写整单总重", "一张�
 }
 assert(!appSource.includes('field("count", "卷数"'), "异常行编辑不应出现卷数输入；一张卡固定一卷");
 assert(!appSource.includes("compactCount") && !appSource.includes("roll.count"), "逐卷卡不应显示冗余的 1 卷或读取行级卷数");
-for (const label of ["系统归类", "提手条", "固定 78克 / 5cm宽", "依据：", "78克 · 5cm宽"]) {
+for (const label of ["系统归类", "提手条", "默认 65克 / 固定 5cm宽", "依据：", "65克 · 5cm宽"]) {
   assert(appSource.includes(label), `条类缺项说明缺少 ${label}`);
 }
 assert(!appSource.includes("规格没看清"), "图谱不应再把厂家未写完整规格误称为 OCR 没看清");

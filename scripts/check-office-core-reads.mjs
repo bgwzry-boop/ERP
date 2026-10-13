@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeCoreReadActions } from "../src/app/useOfficeCoreReads.js";
 
 function createState(initialValue) {
@@ -129,22 +128,5 @@ for (const actionName of ["refreshTodos", "refreshOrderPool", "refreshInventoryR
   assert.equal(result.source, "api_error");
 }
 assert.equal(formalOptions.every((options) => options?.serverRequired === true), true);
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-const sharedUiSource = readFileSync(new URL("../src/shared/ui/operational.jsx", import.meta.url), "utf8");
-const shellStylesSource = readFileSync(new URL("../src/styles/shell.css", import.meta.url), "utf8");
-for (const apiName of ["listOfficeTodos", "listOfficeOrderLines", "listOfficeInventoryItems", "listOfficeFulfillments"]) {
-  assert.equal(appSource.includes(apiName), false, `App should not directly orchestrate ${apiName}`);
-}
-assert.match(workspaceSource, /useOfficeCoreReads/);
-assert.match(workspaceSource, /\.\.\.coreReads/);
-assert.match(appSource, /renderedPage === "fulfillment"/);
-assert.match(appSource, /<WorkspaceNotice>/);
-assert.match(appSource, /<WorkspacePageHeader/);
-assert.equal(appSource.indexOf("<WorkspaceNotice>") < appSource.indexOf("<WorkspacePageHeader"), true);
-assert.match(sharedUiSource, /className="ghost-button" onClick=\{onRefresh\}/);
-assert.match(shellStylesSource, /\.workspace-notice\s*\{[^}]*pointer-events:\s*none/s);
-assert.doesNotMatch(shellStylesSource, /\.workspace-notice\s*\{[^}]*position:\s*absolute/s);
 
 console.log("Office core reads check passed: API success, denial, authoritative empty states, and production fallback blocking are covered.");

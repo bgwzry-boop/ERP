@@ -1,8 +1,8 @@
 import { useCallback } from "react";
-import { listOfficeOrderLines } from "../services/officeOrderPoolApiClient.js";
-import { listOfficeTodos } from "../services/officeTodoApiClient.js";
-import { listOfficeInventoryItems } from "../services/officeInventoryApiClient.js";
-import { listOfficeFulfillments } from "../services/officeFulfillmentApiClient.js";
+import { listOfficeOrderLines } from "../services/officeOrderPoolLazyApi.js";
+import { listOfficeTodos } from "../services/officeTodoLazyApi.js";
+import { listOfficeInventoryItems } from "../services/officeInventoryLazyApi.js";
+import { listOfficeFulfillments } from "../services/officeFulfillmentLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 import { sortTodos } from "../domain/officeRules.js";
 

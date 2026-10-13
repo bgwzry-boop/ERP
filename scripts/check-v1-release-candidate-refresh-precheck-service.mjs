@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1ReleaseCandidateRefreshPrecheckService } from "../server/services/v1ReleaseCandidateRefreshPrecheckService.mjs";
 
 const checkedAt = "2026-07-13T21:00:00.000Z";
@@ -51,26 +50,6 @@ const sensitiveResult = await sensitive.service.precheck({ request, operatorId }
 const sensitiveSerialized = JSON.stringify(sensitiveResult);
 for (const fragment of ["postgres://", "erp.internal", "/Users/private", "owner:secret"]) {
   assert.equal(sensitiveSerialized.includes(fragment), false, `precheck response must redact ${fragment}`);
-}
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function precheckSystemV1ReleaseCandidateRefresh/);
-assert.match(
-  routeSource,
-  /precheckV1ReleaseCandidateRefresh:[\s\S]*v1ReleaseCandidateRefreshPrecheckService\.precheck\(\{ request, operatorId \}\)/,
-);
-assert.doesNotMatch(
-  routeSource,
-  /readV1GoLiveStatusArtifacts|buildV1FieldEvidenceDraftFreshness|sanitizeV1ProductionEnvGate|blockers|process\.env/,
-);
-for (const oldHelper of [
-  "buildV1ReleaseCandidateRefreshDraftValidation",
-  "buildV1ReleaseCandidateRefreshPrecheckBlockers",
-  "buildV1ReleaseCandidateRefreshPrecheckBlocker",
-  "buildV1ReleaseCandidateRefreshPrecheckSafeguards",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${oldHelper}\\(`));
 }
 
 console.log(

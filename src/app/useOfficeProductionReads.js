@@ -3,7 +3,7 @@ import {
   listOfficePackingTasks,
   listOfficeProductionMachineQueue,
   listOfficeProductionTasks,
-} from "../services/officeProductionPackingApiClient.js";
+} from "../services/officeProductionPackingLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 import {
   buildProductionTaskListQueryForPage,
