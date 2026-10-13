@@ -26,7 +26,7 @@ The original histories were backed up as a complete Git bundle before integratio
 ## Validation
 
 - Passed: Linux Node 24 code checks 147/147, raw-material API/page checks, complete-review unit checks 39/39, root/review builds and MinIO round trips.
-- Passed: PostgreSQL 16 live checks, core browser scenarios 10/10 and complete-review browser scenarios 2/2. Remote CI is pending after push.
+- Passed: PostgreSQL 16 live checks, core browser scenarios 10/10 and complete-review browser scenarios 2/2. Both remote CI runs passed for integration commit `5bd2f87`; the current head is tracked by [PR #3 checks](https://github.com/bgwzry-boop/ERP/pull/3/checks).
 - Root and all four preview package locks report zero audit findings. No forced major-version upgrade was used.
 - Local 4174 uses an explicit test fixture and displays `本地修改稿 · 未部署`; review:check verifies app identity, navigation, shell and API health before delivery.
 - A macOS 160-read concurrency failure also reproduced on the untouched original local baseline. The unchanged Linux Node 24 test passed all 160 reads and the two-session write/conflict assertions; no request count or assertion was reduced. This is lab evidence, not production capacity acceptance.
@@ -34,6 +34,8 @@ The original histories were backed up as a complete Git bundle before integratio
 ## Field And Release Boundaries
 
 The owner confirmed on 2026-10-13 that the label printer is not ready. Physical output, attachment, scanning and the real delivery-note/issue/supplier-reconciliation loop remain pending. Payroll and whole-ERP acceptance remain separate from the approved raw-material-first scope.
+
+The exact first-release entries for supplier-colour maintenance, OCR reparse and draft voiding were repaired without changing operation permissions or transaction guards. The [raw-material handoff](docs/development/raw-material-first-release-handoff-2026-07-18.zh-CN.md) now lists actual inputs and field evidence. A read-only Staging observation confirms PostgreSQL/object storage and release identity; the served full-ERP report still uses an August 29 artifact, so its counters are not a newly refreshed first-release acceptance.
 
 Historical figures of 97-98% code, 80-83% readiness, 0/4 release gates, 0/40 field evidence and 0/6 signoffs are prior-report values, not a fresh 2026-10-13 acceptance. Code integration does not advance them. Existing PostgreSQL/COS resources are known from prior checks; restore validation, target configuration and onsite evidence require a current read-only reassessment.
 
