@@ -7,13 +7,14 @@ const apiPort = String(process.env.ERP_E2E_API_PORT ?? "18787");
 
 await rm(storageRoot, { recursive: true, force: true });
 
-const child = spawn(process.execPath, ["server/apiServer.mjs", "--mode", "test"], {
+const child = spawn(process.execPath, ["server/apiServer.mjs", "--mode", "test", "--local-fixture"], {
   cwd: process.cwd(),
   env: {
     ...process.env,
     NODE_ENV: "test",
     ERP_API_PORT: apiPort,
     ERP_RUNTIME_MODE: "test",
+    ERP_STAGING_PREVIEW_USER_ID: "",
     ERP_RUNTIME_STORAGE_ROOT: storageRoot,
     ERP_PRINT_DRIVER_DRY_RUN: "true",
     ERP_E2E_WAREHOUSE_EMPLOYEE_ID: "E2E-WAREHOUSE-001",

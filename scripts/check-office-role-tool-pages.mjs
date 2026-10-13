@@ -3,12 +3,18 @@ import { readFileSync } from "node:fs";
 
 const rawMaterialPageSource = [
   readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/useInboundPageState.js", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundReceivingSections.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundSupportingSections.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierStatementReview.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundWorkflow.js", import.meta.url), "utf8"),
 ].join("\n");
-const rawMaterialWorkbenchSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundWorkbench.jsx", import.meta.url), "utf8");
+const rawMaterialWorkbenchSource = [
+  "../src/features/raw-materials/RawMaterialInboundWorkbench.jsx",
+  "../src/features/raw-materials/InboundFilters.jsx",
+  "../src/features/raw-materials/InboundTable.jsx",
+].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const masterDataPageSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenancePage.jsx", import.meta.url), "utf8");
 const masterDataWorkbenchSource = readFileSync(new URL("../src/features/master-data/MasterDataMaintenanceWorkbench.jsx", import.meta.url), "utf8");
 const masterDataListStateSource = readFileSync(new URL("../src/domain/masterDataMaintenanceListState.js", import.meta.url), "utf8");

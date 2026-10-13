@@ -1,10 +1,16 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
 import { normalizeInventoryIntent } from "./inventoryIntentDomain.mjs";
 
 export function createInventoryIntentTransactionRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_INVENTORY_INTENT_STORE ?? process.env.ERP_ORDER_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_INVENTORY_INTENT_STORE", "ERP_ORDER_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") return createPostgresInventoryIntentTransactionRepository(options);
   if (mode === "local") return createLocalInventoryIntentTransactionRepository();
   throw new Error(`Unsupported inventory intent transaction repository mode: ${mode}`);

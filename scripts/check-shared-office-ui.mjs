@@ -11,6 +11,8 @@ const appSource = [
   read("src/App.jsx"),
   read("src/app/OfficeWorkbenchShell.jsx"),
   read("src/app/OfficeWorkspacePages.jsx"),
+  read("src/app/workspacePageComponents.jsx"),
+  read("src/app/pageRegistry.js"),
   read("src/app/useOfficeActivePageEffects.js"),
 ].join("\n");
 const appShellViewsSource = read("src/app/AppShellViews.jsx");

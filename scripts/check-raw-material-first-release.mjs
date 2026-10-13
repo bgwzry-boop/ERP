@@ -6,7 +6,7 @@ import {
   getRawMaterialScanOutboundBlocker,
   normalizeRawMaterialScanCode,
 } from "../src/domain/rawMaterialScanOutbound.js";
-import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
+import { applyRawMaterialInboundAction } from "../server/services/rawMaterialInboundCommandService.mjs";
 import {
   assertControlledReleaseBuildEnv,
   assertRawMaterialFirstReleaseBuildEnv,
@@ -146,7 +146,7 @@ assert.deepEqual(releaseMetaTags[0].attrs, { name: "erp-release-target", content
 
 const scannerPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialScannerPage.jsx", import.meta.url), "utf8");
 const labelSheetSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx", import.meta.url), "utf8");
-const inboundPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
+const inboundPageSource = readFileSync(new URL("../src/features/raw-materials/useInboundPageState.js", import.meta.url), "utf8");
 const frontendBuildEnv = readFileSync(new URL("../deploy/production/frontend-build.env.example", import.meta.url), "utf8");
 const backendServiceEnv = readFileSync(new URL("../deploy/production/erp-service.env.example", import.meta.url), "utf8");
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));

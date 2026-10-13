@@ -18,9 +18,20 @@ jobs:
           node-version: 24
           cache: npm
       - run: npm ci
+      - run: sudo apt-get update && sudo apt-get install -y ruby
+      - run: npx playwright install --with-deps chromium
+      - run: npm ci --prefix docs/prototypes/raw-material-roll-inventory-review
       - run: npm test
+      - run: npm run test:raw-material
       - run: npm audit --audit-level=high
+      - name: Audit preview package locks
+        run: |
+          for project in docs/prototypes/*; do
+            if [ -f "$project/package-lock.json" ]; then
+              npm audit --audit-level=high --prefix "$project"
+            fi
+          done
+      - run: npm run build --prefix docs/prototypes/raw-material-roll-inventory-review
+      - run: node --test docs/prototypes/raw-material-roll-inventory-review/tests/*.test.mjs
       - run: npm run db:postgres-live:check
       - run: npm run object-storage:minio-live:check
-      - run: npx playwright install --with-deps chromium
-      - run: npm run e2e:core

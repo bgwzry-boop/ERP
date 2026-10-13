@@ -345,7 +345,7 @@ function ReceiptStage({ row }) {
 }
 
 function ReceiptRollList({ onRollAction, row }) {
-  const unitLabel = isPieceCountedInbound(row) ? "件" : "卷";
+  const unitLabel = buildReceiptRowPresentation(row).countUnit;
   return <section className="receipt-roll-section"><div className="receipt-section-heading"><h3>逐{unitLabel}状态</h3><span>{row.rolls.filter((roll) => roll.inventoryStatus === "可用").length} / {row.rolls.length} {unitLabel}已入库</span></div><div className="receipt-roll-list">{row.rolls.map((roll) => {
     const canVerify = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用";
     const canVoid = roll.labelStatus === "标签或实物不符/待确认";
@@ -482,7 +482,6 @@ export function App({ permissionContext = defaultPermissionContext }) {
   const [colorMappingOpen, setColorMappingOpen] = useState(false);
   const activeView = visibleViews.includes(view) ? view : getDefaultWorkspaceView(permissionContext);
   const activeNavId = viewNavMap[activeView] || "";
-  const visibleNavGroups = useMemo(() => getVisiblePcNavGroups(resolvedPermissionContext), [resolvedPermissionContext]);
   const isRawMaterialView = visibleRawMaterialViews.includes(activeView);
   const canManageSupplierColors = hasEffectivePermission(
     resolvedPermissionContext,

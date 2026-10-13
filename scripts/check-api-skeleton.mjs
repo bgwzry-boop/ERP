@@ -1,5 +1,6 @@
+import { checkAuthSkeleton } from "./api-skeleton/auth.mjs";
 import { createApiServer } from "../server/apiServer.mjs";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { assertStatementXlsxWorkbook } from "./xlsxTestUtils.mjs";
@@ -13,6 +14,7 @@ import {
   patchJson,
   postJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "api-skeleton");
 const printCommandBridgeScript = join(process.cwd(), "scripts", "print-command-bridge.mjs");
@@ -21,6 +23,8 @@ rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 process.env.ERP_E2E_BUSINESS_DECISION_FIXTURES = "true";
 process.env.ERP_E2E_WAREHOUSE_EMPLOYEE_ID = "E2E-WAREHOUSE-001";
+process.env.ERP_STAGING_TEST_LOGIN = `staging-check-${process.pid}`;
+process.env.ERP_STAGING_TEST_PASSWORD = randomBytes(24).toString("base64url");
 delete process.env.ERP_PRINT_DRIVER_DRY_RUN;
 delete process.env.ERP_SYSTEM_PRINTER_ENABLED;
 delete process.env.ERP_SYSTEM_PRINTER_ADAPTER;
@@ -29,7 +33,7 @@ delete process.env.ERP_SYSTEM_PRINTER_COMMAND_ARGS_JSON;
 delete process.env.ERP_SYSTEM_PRINTER_COMMAND_TIMEOUT_MS;
 delete process.env.ERP_SYSTEM_PRINTER_ALLOWLIST;
 
-let server = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
+let server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false }));
 let restartedServer = null;
 
 try {
@@ -62,7 +66,7 @@ try {
         json.seed?.productionEnvFileApplication?.status === "not_configured" &&
         json.seed?.productionEnvFileApplication?.applied === false &&
         json.seed?.productionEnvFileApplication?.safeguards?.envValuesIncluded === false &&
-        json.seed?.v1PersistenceProfile?.repositoryProfile === "disabled" &&
+        json.seed?.v1PersistenceProfile?.repositoryProfile === "local" &&
         json.seed?.v1PersistenceProfile?.connectionStringExposed === false,
     ],
     ["/api/openapi/status", (json) => json.valid === true && json.pathCount >= 29],
@@ -77,7 +81,7 @@ try {
         json.runtimeEmployeeAccountReadiness?.requiredRoleCount === 8 &&
         json.runtimeEmployeeAccountReadiness?.coveredRoleCount === 0 &&
         json.localPersistenceAcceptance?.accepted === false &&
-        json.persistenceProfile?.repositoryProfile === "disabled" &&
+        json.persistenceProfile?.repositoryProfile === "local" &&
         json.persistenceProfile?.connectionStringExposed === false &&
         json.repositories?.some(
           (repository) =>
@@ -383,69 +387,7 @@ try {
     throw new Error("/api/permissions/effective did not honor the action-permission override header");
   }
 
-  const anonymousMe = await getJson(baseUrl, "/api/auth/me", { expectedStatus: 401 });
-  if (anonymousMe.code !== "AUTH_SESSION_REQUIRED") {
-    throw new Error("/api/auth/me did not require a signed seed session token");
-  }
-
-  const failedLogin = await postJson(
-    baseUrl,
-    "/api/auth/login",
-    { loginName: "finance.a", password: "wrong-password" },
-    { expectedStatus: 401 },
-  );
-  if (failedLogin.code !== "AUTHENTICATION_FAILED") {
-    throw new Error("/api/auth/login did not reject an invalid seed password");
-  }
-
-  const financeLogin = await postJson(baseUrl, "/api/auth/login", {
-    loginName: "finance.a",
-    password: "finance123",
-  });
-  if (
-    financeLogin.session?.tokenType !== "Bearer" ||
-    !financeLogin.session?.accessToken?.startsWith("seed-session.") ||
-    financeLogin.permissions?.user?.userId !== "U-FINANCE-A"
-  ) {
-    throw new Error("/api/auth/login returned an unexpected seed session payload");
-  }
-
-  const prototypeLogin = await postJson(baseUrl, "/api/auth/prototype-login", { userId: "U-FINANCE-A" });
-  if (
-    prototypeLogin.session?.tokenType !== "Bearer" ||
-    !prototypeLogin.session?.accessToken?.startsWith("seed-session.") ||
-    prototypeLogin.permissions?.user?.userId !== "U-FINANCE-A"
-  ) {
-    throw new Error("/api/auth/prototype-login returned an unexpected local prototype session payload");
-  }
-
-  const financeMe = await getJson(baseUrl, "/api/auth/me", {
-    headers: { authorization: `Bearer ${financeLogin.session.accessToken}` },
-  });
-  if (
-    financeMe.authenticated !== true ||
-    financeMe.session?.userId !== "U-FINANCE-A" ||
-    !financeMe.permissions?.actionPermissions?.includes("statement.payment.record")
-  ) {
-    throw new Error("/api/auth/me did not return the logged-in finance seed context");
-  }
-
-  const logout = await postJson(
-    baseUrl,
-    "/api/auth/logout",
-    {},
-    { headers: { authorization: `Bearer ${financeLogin.session.accessToken}` } },
-  );
-  if (logout.loggedOut !== true || logout.sessionUserId !== "U-FINANCE-A" || logout.tokenRevoked !== true) {
-    throw new Error("/api/auth/logout returned an unexpected payload");
-  }
-  const financeMeAfterLogout = await getJson(baseUrl, "/api/auth/me", {
-    headers: { authorization: `Bearer ${financeLogin.session.accessToken}` },
-    expectedStatus: 401,
-  });
-  if (financeMeAfterLogout.code !== "AUTH_TOKEN_REVOKED") {
-    throw new Error("/api/auth/logout did not revoke the current seed session token");
-  }
+  await checkAuthSkeleton({ baseUrl, getJson, postJson });
 
   const warehouseContext = await getJson(baseUrl, "/api/permissions/effective", {
     headers: { "x-erp-user-id": "U-WAREHOUSE-A" },
@@ -4609,7 +4551,7 @@ try {
 
   await close(server);
   server = null;
-  restartedServer = createApiServer({ runtimeMode: "test", applyProductionEnvFile: false });
+  restartedServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false }));
   await listen(restartedServer);
   const restartedBaseUrl = `http://127.0.0.1:${restartedServer.address().port}`;
   const restartedPaymentAttachmentContent = await getText(
@@ -4685,6 +4627,8 @@ try {
   await close(restartedServer);
   delete process.env.ERP_E2E_BUSINESS_DECISION_FIXTURES;
   delete process.env.ERP_E2E_WAREHOUSE_EMPLOYEE_ID;
+  delete process.env.ERP_STAGING_TEST_LOGIN;
+  delete process.env.ERP_STAGING_TEST_PASSWORD;
 }
 
 async function assertOperationLogOperator(

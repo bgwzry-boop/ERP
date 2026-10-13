@@ -59,16 +59,10 @@ import { createTodoActionRepository } from "./todoActionRepository.mjs";
 import { createInventoryCorrectionTransactionRepository } from "./inventoryCorrectionTransactionRepository.mjs";
 import { createProductionFinishedGoodsPhotoTransactionRepository } from "./productionFinishedGoodsPhotoTransactionRepository.mjs";
 import { createPaymentRecordRepository } from "./paymentRecordRepository.mjs";
-import { createStatementPaymentTransactionRepository } from "./statementPaymentTransactionRepository.mjs";
-import { createStatementSettlementTransactionRepository } from "./statementSettlementTransactionRepository.mjs";
-import { createStatementSendTransactionRepository } from "./statementSendTransactionRepository.mjs";
-import { createStatementExportRepository } from "./statementExportRepository.mjs";
 import { createStatementExportObjectStorage } from "./statementExportObjectStorage.mjs";
 import { createCoreWorkspaceReadRepository } from "./coreWorkspaceReadRepository.mjs";
-import { createOrderDraftRepository } from "./orderDraftRepository.mjs";
 import { createOrderConfirmationTransactionRepository } from "./orderConfirmationTransactionRepository.mjs";
 import { createOrderPoolReadRepository } from "./orderPoolReadRepository.mjs";
-import { createFulfillmentActionTransactionRepository } from "./fulfillmentActionTransactionRepository.mjs";
 import { createDriverDeliveryDispatchRepository } from "./driverDeliveryDispatchRepository.mjs";
 import { createDriverDeviceFieldTestRepository } from "./driverDeviceFieldTestRepository.mjs";
 import { createDriverDeliveryTaskReadRepository } from "./driverDeliveryTaskReadRepository.mjs";
@@ -78,7 +72,6 @@ import { createInventoryIntentTransactionRepository } from "./inventoryIntentTra
 import { createOrderLineVoidTransactionRepository } from "./orderLineVoidTransactionRepository.mjs";
 import { createOrderLineQuantityAdjustmentTransactionRepository } from "./orderLineQuantityAdjustmentTransactionRepository.mjs";
 import { createProductionPackingReadRepository } from "./productionPackingReadRepository.mjs";
-import { createProductionPackingTransactionRepository } from "./productionPackingTransactionRepository.mjs";
 import { createProductionScheduleRecordRepository } from "./productionScheduleRecordRepository.mjs";
 import { createPrintBatchRepository } from "./printBatchRepository.mjs";
 import { createPrintDeviceRepository } from "./printDeviceRepository.mjs";
@@ -88,11 +81,10 @@ import { createPrinterDeviceFieldTestRepository } from "./printerDeviceFieldTest
 import { createMasterDataImportReviewRepository } from "./masterDataImportReviewRepository.mjs";
 import { createMasterDataImportTransactionRepository } from "./masterDataImportTransactionRepository.mjs";
 import { createMasterDataMachineConfigurationRepository } from "./masterDataMachineConfigurationRepository.mjs";
-import { createRawMaterialInboundRepository } from "./rawMaterialInboundRepository.mjs";
+import { createRepositories } from "./createRepositories.mjs";
 import { createRawMaterialSupplierStatementReviewRepository } from "./rawMaterialSupplierStatementReviewRepository.mjs";
 import { createRawMaterialPurchaseRepository } from "./rawMaterialPurchaseRepository.mjs";
 import { createMaintenanceTaskRepository } from "./maintenanceTaskRepository.mjs";
-import { createAttendancePayrollRepository } from "./attendancePayrollRepository.mjs";
 import { createConfiguredAttendanceProvider } from "./attendanceProvider.mjs";
 import { createRuntimeIdentityRepository } from "./runtimeIdentityRepository.mjs";
 import { createBusinessDecisionEvidenceRepository } from "./businessDecisionEvidenceRepository.mjs";
@@ -101,6 +93,7 @@ import { createBusinessDecisionEvidenceDraftRepository } from "./businessDecisio
 import {
   applyV1PersistenceProfileOptions,
   assertV1ProductionPersistenceRuntime,
+  v1PersistencePostgresRepositoryOptionKeys,
 } from "./v1PersistenceProfile.mjs";
 import {
   applyRuntimeConfigOptions,
@@ -109,7 +102,8 @@ import {
   resolveRuntimeConfig,
 } from "./runtimeConfig.mjs";
 import { loadV1ProductionEnvFilesIntoProcess } from "./productionEnvFileLoader.mjs";
-import { getSeedUsers } from "./authSeed.mjs";
+import { assertProductionBootAllowed } from "./productionBootGuard.mjs";
+import { assertStagingTestCredentials, getSeedUsers } from "./authSeed.mjs";
 import { readJsonRequestBody } from "./httpJsonBody.mjs";
 import {
   isProductionBusinessWritePath,
@@ -171,6 +165,8 @@ export function createApiServer(options = {}) {
       ? loadV1ProductionEnvFilesIntoProcess({ env: {}, targetEnv: {}, throwOnBlocked: false })
       : loadV1ProductionEnvFilesIntoProcess());
   const runtimeConfig = resolveRuntimeConfig(options);
+  assertProductionBootAllowed({ options, runtimeConfig });
+  assertStagingTestCredentials();
   const runtimeOptions = applyRuntimeConfigOptions(options, runtimeConfig);
   const v1PersistenceProfile = applyV1PersistenceProfileOptions(runtimeOptions);
   const effectiveOptions = v1PersistenceProfile.options;
@@ -210,17 +206,6 @@ export function createApiServer(options = {}) {
     effectiveOptions.attachmentObjectStorage ?? createAttachmentObjectStorage(effectiveOptions.attachmentObjectStorageOptions);
   const paymentRecordRepository =
     effectiveOptions.paymentRecordRepository ?? createPaymentRecordRepository(effectiveOptions.paymentRecordRepositoryOptions);
-  const statementPaymentTransactionRepository =
-    effectiveOptions.statementPaymentTransactionRepository ??
-    createStatementPaymentTransactionRepository(effectiveOptions.statementPaymentTransactionRepositoryOptions);
-  const statementSettlementTransactionRepository =
-    effectiveOptions.statementSettlementTransactionRepository ??
-    createStatementSettlementTransactionRepository(effectiveOptions.statementSettlementTransactionRepositoryOptions);
-  const statementSendTransactionRepository =
-    effectiveOptions.statementSendTransactionRepository ??
-    createStatementSendTransactionRepository(effectiveOptions.statementSendTransactionRepositoryOptions);
-  const statementExportRepository =
-    effectiveOptions.statementExportRepository ?? createStatementExportRepository(effectiveOptions.statementExportRepositoryOptions);
   const statementExportObjectStorage =
     effectiveOptions.statementExportObjectStorage ??
     createStatementExportObjectStorage(effectiveOptions.statementExportObjectStorageOptions);
@@ -237,16 +222,14 @@ export function createApiServer(options = {}) {
     createProductionFinishedGoodsPhotoTransactionRepository(
       effectiveOptions.productionFinishedGoodsPhotoTransactionRepositoryOptions,
     );
-  const orderDraftRepository =
-    effectiveOptions.orderDraftRepository ?? createOrderDraftRepository(effectiveOptions.orderDraftRepositoryOptions);
   const orderConfirmationTransactionRepository =
     effectiveOptions.orderConfirmationTransactionRepository ??
     createOrderConfirmationTransactionRepository(effectiveOptions.orderConfirmationTransactionRepositoryOptions);
   const orderPoolReadRepository =
     effectiveOptions.orderPoolReadRepository ?? createOrderPoolReadRepository(effectiveOptions.orderPoolReadRepositoryOptions);
-  const fulfillmentActionTransactionRepository =
-    effectiveOptions.fulfillmentActionTransactionRepository ??
-    createFulfillmentActionTransactionRepository(effectiveOptions.fulfillmentActionTransactionRepositoryOptions);
+  const repositories = createRepositories(effectiveOptions);
+  const { fulfillmentActionTransactionRepository, productionPackingTransactionRepository, orderDraftRepository } = repositories;
+  const { statementPaymentTransactionRepository, statementSettlementTransactionRepository, statementSendTransactionRepository, statementExportRepository } = repositories;
   const driverDeliveryDispatchRepository =
     effectiveOptions.driverDeliveryDispatchRepository ??
     createDriverDeliveryDispatchRepository(effectiveOptions.driverDeliveryDispatchRepositoryOptions);
@@ -271,9 +254,6 @@ export function createApiServer(options = {}) {
   const orderLineQuantityAdjustmentTransactionRepository =
     effectiveOptions.orderLineQuantityAdjustmentTransactionRepository ??
     createOrderLineQuantityAdjustmentTransactionRepository(effectiveOptions.orderLineQuantityAdjustmentTransactionRepositoryOptions);
-  const productionPackingTransactionRepository =
-    effectiveOptions.productionPackingTransactionRepository ??
-    createProductionPackingTransactionRepository(effectiveOptions.productionPackingTransactionRepositoryOptions);
   const productionPackingReadRepository =
     effectiveOptions.productionPackingReadRepository ??
     createProductionPackingReadRepository(effectiveOptions.productionPackingReadRepositoryOptions);
@@ -298,9 +278,7 @@ export function createApiServer(options = {}) {
   const masterDataMachineConfigurationRepository =
     effectiveOptions.masterDataMachineConfigurationRepository ??
     createMasterDataMachineConfigurationRepository(effectiveOptions.masterDataMachineConfigurationRepositoryOptions);
-  const rawMaterialInboundRepository =
-    effectiveOptions.rawMaterialInboundRepository ??
-    createRawMaterialInboundRepository(effectiveOptions.rawMaterialInboundRepositoryOptions);
+  const { rawMaterialInboundRepository } = repositories;
   const rawMaterialSupplierStatementReviewRepository =
     effectiveOptions.rawMaterialSupplierStatementReviewRepository ??
     createRawMaterialSupplierStatementReviewRepository(
@@ -312,9 +290,7 @@ export function createApiServer(options = {}) {
   const maintenanceTaskRepository =
     effectiveOptions.maintenanceTaskRepository ??
     createMaintenanceTaskRepository(effectiveOptions.maintenanceTaskRepositoryOptions);
-  const attendancePayrollRepository =
-    effectiveOptions.attendancePayrollRepository ??
-    createAttendancePayrollRepository(effectiveOptions.attendancePayrollRepositoryOptions);
+  const { attendancePayrollRepository } = repositories;
   const attendanceProvider =
     effectiveOptions.attendanceProvider ??
     createConfiguredAttendanceProvider(effectiveOptions.attendanceProviderOptions);
@@ -1447,8 +1423,21 @@ const {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   try {
-    const runtimeMode = parseRuntimeModeArg(process.argv.slice(2));
-    const server = createApiServer(runtimeMode ? { runtimeMode } : {});
+    const startupArgs = process.argv.slice(2);
+    const allowLocalFixture = startupArgs.includes("--local-fixture");
+    const runtimeMode = parseRuntimeModeArg(startupArgs.filter((arg) => arg !== "--local-fixture"));
+    if (allowLocalFixture && runtimeMode !== "test") {
+      throw new Error("--local-fixture is only available with --mode test.");
+    }
+    const fixtureRepositoryOptions = allowLocalFixture
+      ? Object.fromEntries(v1PersistencePostgresRepositoryOptionKeys.map((key) => [key, { mode: "local", allowLocalFixture: true }]))
+      : {};
+    const server = createApiServer({
+      ...(runtimeMode ? { runtimeMode } : {}),
+      allowLocalFixture,
+      ...(allowLocalFixture ? { v1PersistenceRepositoryMode: "local" } : {}),
+      ...fixtureRepositoryOptions,
+    });
     await server.ready;
     const port = Number(process.env.ERP_API_PORT ?? 8787);
     const shutdownController = createGracefulShutdownController({
@@ -1465,7 +1454,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
       console.log(`ERP API (${runtimeMode || "auto"}) listening on http://127.0.0.1:${port}`);
     });
   } catch (error) {
-    console.error(`ERP API startup failed: ${error.message}`);
+    console.error(`ERP API startup failed (${error?.code || "unknown"}): ${error.message}`);
     process.exitCode = 1;
   }
 }

@@ -5,6 +5,8 @@ const appSource = [
   readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/pageRegistry.js", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/workspacePageComponents.jsx", import.meta.url), "utf8"),
 ].join("\n");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const pageSource = readFileSync(new URL("../src/features/payroll/PayrollAttendancePage.jsx", import.meta.url), "utf8");
@@ -15,8 +17,8 @@ const reviewMobileEntrySource = readFileSync(new URL("../docs/prototypes/raw-mat
 const adjustmentEvidencePreviewSource = readFileSync(new URL("../qa/payroll-adjustment-evidence-preview.html", import.meta.url), "utf8");
 const payrollCatalogSource = readFileSync(new URL("../shared/payrollPositionCatalog.js", import.meta.url), "utf8");
 
-assert.match(appSource, /renderedPage === "payroll"/);
-assert.match(appSource, /<PayrollAttendancePage[\s\S]*authState=\{authState\}/);
+assert.match(appSource, /payroll: \(props\) => createElement\(PageLoader/);
+assert.match(appSource, /payroll: \{[\s\S]*authState: authState/);
 assert.match(appSource, /renderedPage === "attendanceMobile"/);
 assert.match(appSource, /<EmployeeAttendanceMobilePage[\s\S]*authState=\{authState\}/);
 assert.match(navigationSource, /key: "payroll"[\s\S]*permissionPrefixes: \["payroll\."\]/);

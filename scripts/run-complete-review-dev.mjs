@@ -13,7 +13,7 @@ const apiEnv = buildCompleteReviewApiEnv({ rootDir });
 const frontendEnv = buildCompleteReviewFrontendEnv();
 
 const children = [
-  spawn(process.execPath, [apiEntry, "--mode", "demo"], { cwd: rootDir, stdio: "inherit", env: apiEnv }),
+  spawn(process.execPath, [apiEntry, "--mode", "test", "--local-fixture"], { cwd: rootDir, stdio: "inherit", env: apiEnv }),
   spawn(process.execPath, [viteBin, "--host", "127.0.0.1", "--port", "4174", "--strictPort"], {
     cwd: reviewDir,
     stdio: "inherit",

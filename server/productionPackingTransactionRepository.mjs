@@ -60,13 +60,15 @@ import {
   buildSupersedeBusinessDecisionCte,
   normalizeDecisionRecord,
 } from "./businessDecisionEvidenceRepository.mjs";
+import { resolveStoreMode } from "./storeMode.mjs";
 
 export function createProductionPackingTransactionRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_PRODUCTION_PACKING_TRANSACTION_STORE ??
-    process.env.ERP_PRODUCTION_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_PRODUCTION_PACKING_TRANSACTION_STORE", "ERP_PRODUCTION_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresProductionPackingTransactionRepository({
       ...options,

@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -19,7 +20,12 @@ const committedWorkspaceKeys = Object.freeze([
 ]);
 
 export function createBusinessDecisionEvidenceRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_BUSINESS_DECISION_STORE ?? process.env.ERP_V1_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_BUSINESS_DECISION_STORE", "ERP_V1_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") return createPostgresBusinessDecisionEvidenceRepository(options);
   if (mode === "local") return createLocalBusinessDecisionEvidenceRepository();
   throw new Error(`Unsupported business decision evidence repository mode: ${mode}`);

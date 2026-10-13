@@ -25,6 +25,9 @@ export function buildApiSecurityPolicy(options = {}, env = process.env) {
     runtimeMode: runtimeMode || "demo",
     strictAuth,
     authSecret,
+    fixedPreviewUserId: runtimeMode === "test"
+      ? String(options.fixedPreviewUserId ?? env.ERP_STAGING_PREVIEW_USER_ID ?? "U-MANAGER-A").trim()
+      : "",
     // Strict mode never accepts prototype identity sources, even if a caller passes
     // a permissive option while constructing the server.
     allowSeedUsers: !strictAuth && options.allowSeedUsers !== false,
@@ -45,6 +48,7 @@ export function getWorkspaceSecurityPolicy(workspace = {}) {
       runtimeMode: "demo",
       strictAuth: false,
       authSecret: "",
+      fixedPreviewUserId: "",
       allowSeedUsers: true,
       allowLegacyIdentityHeaders: true,
       allowActionPermissionOverride: true,

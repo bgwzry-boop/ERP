@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import {
@@ -7,11 +8,12 @@ import {
 } from "./idempotency.mjs";
 
 export function createOrderLineVoidTransactionRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_ORDER_LINE_VOID_TRANSACTION_STORE ??
-    process.env.ERP_ORDER_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_ORDER_LINE_VOID_TRANSACTION_STORE", "ERP_ORDER_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresOrderLineVoidTransactionRepository({
       databaseUrl: options.databaseUrl ?? process.env.ERP_ORDER_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,

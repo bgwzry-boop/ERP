@@ -6,7 +6,7 @@ const workspace = {
   users: [{ id: "U-RAW", displayName: "郝蒙蒙" }],
   operationLogs: [{ id: "LOG-1", stale: true }, { id: "LOG-OLD" }],
   rawMaterialInboundRepository: {
-    async recordRawMaterialInboundAction(input) {
+    async applyInboundAction(input) {
       calls.push({ method: "recordInbound", input });
       return {
         inbound: { id: input.inboundId, status: input.action },
@@ -141,7 +141,7 @@ const paymentInput = calls.find((call) => call.method === "confirmPayment").inpu
 assert.equal(paymentInput.paymentMethod, "银行转账");
 assert.equal(paymentInput.paymentReferenceNo, "BANK-1");
 
-workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction = async () => {
+workspace.rawMaterialInboundRepository.applyInboundAction = async () => {
   throw Object.assign(new Error("missing inbound"), { statusCode: 404 });
 };
 assert.deepEqual(
@@ -154,7 +154,7 @@ assert.deepEqual(
   },
 );
 
-workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction = async () => {
+workspace.rawMaterialInboundRepository.applyInboundAction = async () => {
   throw Object.assign(new Error("repository failed"), { statusCode: "invalid", code: "" });
 };
 assert.deepEqual(

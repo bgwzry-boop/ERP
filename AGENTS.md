@@ -1,5 +1,7 @@
 # Prototype Instructions
 
+Do not change the GitHub repository's visibility based on a completed review or an earlier temporary-public arrangement. Change visibility only when the owner explicitly requests that change at the time.
+
 Run the local server yourself and open the preview in the in-app browser. Do not give the user server-start instructions when you can run it.
 
 All ERP environments have one controlled deployment line independent of Codex conversations. A task may edit only its own branch/worktree; it must never deploy from the shared dirty working tree or treat an in-app preview as a release. Review Sites, staging, and Tencent production deployments must each use a clean, fully pushed, immutable 40-character Git commit and a verified `erp-controlled-release-lock-v1` for the exact target. The same lock identity must be embedded in the frontend and API, and deployment is complete only after the target reports the same commit, target, version, and lock digest. Only an explicit integration/release task may assemble changes from several conversations and promote them; ordinary modification tasks do not deploy, repoint production, or create a second “current version”.
@@ -328,6 +330,6 @@ Requirements refinement cadence:
 
 Codex handoff documents:
 
-- Read `00_项目入口.md`, `01_当前状态与下一步.md`, and `02_问题或报错日志.md` before broader project searches.
+- Read `00_项目入口.md`, `01_当前状态与下一步.md`, and `DECISIONS.md` before broader project searches. The [archived issue log](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/02_问题或报错日志.md) is available for historical context.
 - Update `01_当前状态与下一步.md` when project state changes.
-- Update `02_问题或报错日志.md` when an error, verification issue, or repeated risk appears.
+- Record new errors, verification issues, and repeated risks in `01_当前状态与下一步.md`; the archived issue log is read-only.

@@ -38,18 +38,25 @@ const officePageEntrySource = readFileSync(new URL("../src/pages/office/index.js
 const rawMaterialInboundPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
 const rawMaterialPageSource = [
   rawMaterialInboundPageSource,
+  readFileSync(new URL("../src/features/raw-materials/useInboundPageState.js", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundReceivingSections.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundSupportingSections.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundOcrDraft.js", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierStatementReview.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundWorkflow.js", import.meta.url), "utf8"),
 ].join("\n");
-const rawMaterialWorkbenchSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundWorkbench.jsx", import.meta.url), "utf8");
+const inboundDetailSource = readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8");
+const rawMaterialWorkbenchSource = [
+  "../src/features/raw-materials/RawMaterialInboundWorkbench.jsx",
+  "../src/features/raw-materials/InboundFilters.jsx",
+  "../src/features/raw-materials/InboundTable.jsx",
+].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const rawMaterialRouteSource = readFileSync(new URL("../src/app/routes/RawMaterialRoute.jsx", import.meta.url), "utf8");
 const rawMaterialMobileSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileReceiving.jsx", import.meta.url), "utf8");
 const rawMaterialMobileOcrReviewSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileOcrReview.jsx", import.meta.url), "utf8");
 const rawMaterialPurchaseSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialPurchasePanel.jsx", import.meta.url), "utf8");
-const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}\n${rawMaterialWorkbenchSource}\n${rawMaterialMobileSource}\n${rawMaterialMobileOcrReviewSource}`;
+const officePageSource = `${officePageEntrySource}\n${rawMaterialPageSource}\n${inboundDetailSource}\n${rawMaterialWorkbenchSource}\n${rawMaterialMobileSource}\n${rawMaterialMobileOcrReviewSource}`;
 const rawMaterialListStateSource = readFileSync(new URL("../src/domain/rawMaterialInboundListState.js", import.meta.url), "utf8");
 const permissionSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
@@ -270,8 +277,8 @@ assertIncludes(rawMaterialLocalActionsSource, "供应商未提供单号", "raw-m
 assertIncludes(officePageSource, "export function RawMaterialInboundPage", "office pages should export RawMaterialInboundPage");
 assertIncludes(rawMaterialWorkbenchSource, "RawMaterialInboundListPane", "raw-material list composition should live outside the main page");
 assertIncludes(rawMaterialWorkbenchSource, "RawMaterialDetailOverview", "raw-material fixed detail facts should live outside the main page");
-assertIncludes(rawMaterialInboundPageSource, "RawMaterialInboundReceivingSections", "raw-material receiving actions should live outside the main page");
-assertIncludes(rawMaterialInboundPageSource, "RawMaterialInboundSupportingSections", "raw-material cost, traceability and statement sections should live outside the main page");
+assertIncludes(inboundDetailSource, "RawMaterialInboundReceivingSections", "raw-material receiving actions should live outside the main page");
+assertIncludes(inboundDetailSource, "RawMaterialInboundSupportingSections", "raw-material cost, traceability and statement sections should live outside the main page");
 assert.ok(rawMaterialInboundPageSource.split("\n").length <= 900, "raw-material main page should remain a compact composition layer");
 assertIncludes(rawMaterialWorkbenchSource, "raw-material-view-tabs", "raw-material views should expose count-bearing tabs");
 assertIncludes(rawMaterialWorkbenchSource, "buildRawMaterialInboundViewItems(inbounds)", "raw-material view counts should use the tested list-state projection");
@@ -492,7 +499,11 @@ assertExcludes(rawMaterialMobileSource, "签单", "phone receiving surface shoul
 assertIncludes(rawMaterialMobileSource, "if (canReviewRawMaterialInbound(selected)) return 2", "pending review should activate the second mobile step");
 assertIncludes(rawMaterialMobileSource, "if (canPrintRawMaterialLabels(selected)) return 3", "pending label print should activate the third mobile step");
 assertIncludes(rawMaterialPageSource, "printerDeviceQa={printerDeviceQa}", "raw-material mobile printing should receive dynamic printer state");
-assertIncludes(appSource, "printerDeviceQa={printerDeviceQa}", "App should pass dynamic printer state into raw-material receiving");
+assert.match(
+  appSource,
+  /rawMaterial:\s*\{\s*view: "inbound",\s*firstReleaseMode: firstReleaseMode,[\s\S]*?printerDeviceQa,/,
+  "App should pass dynamic printer state into the registered raw-material receiving page",
+);
 assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
 assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
 assertIncludes(rawMaterialPageSource, "分卷重量 kg", "page should allow exact per-roll weights to be reviewed");

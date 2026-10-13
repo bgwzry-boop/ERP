@@ -13,6 +13,8 @@ const todoSource = read("src/features/todos/TodoPage.jsx");
 const appSource = [
   read("src/App.jsx"),
   read("src/app/OfficeWorkspacePages.jsx"),
+  read("src/app/workspacePageComponents.jsx"),
+  read("src/app/pageRegistry.js"),
   read("src/app/useOfficeActivePageEffects.js"),
 ].join("\n");
 const mainSource = read("src/main.jsx");

@@ -1,12 +1,14 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 
 export function createInventoryLedgerReadRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_INVENTORY_LEDGER_READ_STORE ??
-    process.env.ERP_INVENTORY_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_INVENTORY_LEDGER_READ_STORE", "ERP_INVENTORY_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresInventoryLedgerReadRepository({
       databaseUrl:

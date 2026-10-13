@@ -27,6 +27,7 @@ import {
   listenTestServer,
   postJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "runtime-identity");
 rmSync(storageRoot, { recursive: true, force: true });
@@ -60,7 +61,7 @@ assert.equal(verifyRuntimeUserPassword({ userId, passwordHash: temporaryPassword
 assert.equal(verifyRuntimeUserPassword({ userId, passwordHash: temporaryPasswordHash }, "wrong-password", { authSecret }), false);
 assert.equal(isRuntimeUserPasswordHashUpgradeRequired(expiredLegacyPasswordHash), true);
 
-const repository = createRuntimeIdentityRepository({ storageRoot });
+const repository = createRuntimeIdentityRepository({ storageRoot, mode: "local", allowLocalFixture: true });
 assert.equal(repository.kind, "local_json");
 repository.saveState({
   workspace: {
@@ -215,7 +216,7 @@ let restartedServer = null;
 let revokedCheckServer = null;
 
 try {
-  server = createApiServer({ authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
+  server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } }));
   await listenTestServer(server);
   const baseUrl = getTestServerBaseUrl(server);
   const health = await getJson(baseUrl, "/api/health");
@@ -251,7 +252,7 @@ try {
   await closeTestServer(server);
   server = null;
 
-  restartedServer = createApiServer({ authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
+  restartedServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } }));
   await listenTestServer(restartedServer);
   const restartedBaseUrl = getTestServerBaseUrl(restartedServer);
 
@@ -319,7 +320,7 @@ try {
   assert.equal(expiredLogin.permissions.passwordChangeRequired, true);
   assert.equal(expiredLogin.permissions.user.passwordStatus, "password_expired");
   assert.equal(expiredLogin.permissions.actionPermissions.length, 0);
-  const migratedExpiredUser = createRuntimeIdentityRepository({ storageRoot })
+  const migratedExpiredUser = createRuntimeIdentityRepository({ storageRoot, mode: "local", allowLocalFixture: true })
     .loadState()
     .users.find((item) => item.userId === expiredUserId);
   assert.equal(isRuntimeUserPasswordHashCurrent(migratedExpiredUser), true);
@@ -353,7 +354,7 @@ try {
   await closeTestServer(restartedServer);
   restartedServer = null;
 
-  revokedCheckServer = createApiServer({ authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
+  revokedCheckServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } }));
   await listenTestServer(revokedCheckServer);
   const revokedCheckBaseUrl = getTestServerBaseUrl(revokedCheckServer);
   const revokedSessionAfterRestart = await getJson(revokedCheckBaseUrl, "/api/auth/me", {
@@ -362,7 +363,7 @@ try {
   });
   assert.equal(revokedSessionAfterRestart.code, "AUTH_TOKEN_REVOKED");
 
-  const reloaded = createRuntimeIdentityRepository({ storageRoot }).loadState();
+  const reloaded = createRuntimeIdentityRepository({ storageRoot, mode: "local", allowLocalFixture: true }).loadState();
   const persistedUser = reloaded.users.find((item) => item.userId === userId);
   assert(persistedUser, "runtime user should reload from local identity store");
   assert.equal(persistedUser.passwordStatus, "active");

@@ -560,12 +560,17 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
         ?? existingReturnRecords.find((record) => record.rollId === roll.id);
       const returnedWeightKg = Number(roll.leftoverWeightKg) || Number(returnRecord?.leftoverWeightKg) || 0;
       const returnedQuantity = Number(roll.leftoverQuantity) || Number(returnRecord?.leftoverQuantity) || (returnedWeightKg > 0 ? 0 : 1);
-      const reviewedWeightKg = returnedWeightKg > 0
-        ? (Number.isFinite(requestedReviewedWeightKg) && requestedReviewedWeightKg > 0 ? requestedReviewedWeightKg : returnedWeightKg)
-        : 0;
-      const reviewedQuantity = returnedWeightKg > 0
+      const reviewedWeightKg = Number.isFinite(requestedReviewedWeightKg) && requestedReviewedWeightKg > 0
+        ? requestedReviewedWeightKg
+        : returnedWeightKg;
+      const reviewedQuantity = reviewedWeightKg > 0
         ? 0
         : (Number.isFinite(requestedReviewedQuantity) && requestedReviewedQuantity > 0 ? requestedReviewedQuantity : returnedQuantity);
+      if (!(reviewedWeightKg > 0)) {
+        throw Object.assign(new Error("余料缺少复核后的真实重量，不能转回可用库存。"), {
+          statusCode: 422, code: "RAW_MATERIAL_LEFTOVER_REVIEW_WEIGHT_REQUIRED",
+        });
+      }
       if (returnedWeightKg > 0 && reviewedWeightKg - returnedWeightKg > 0.001) {
         throw Object.assign(new Error("Reviewed leftover weight cannot exceed returned leftover weight in V1"), {
           statusCode: 422,

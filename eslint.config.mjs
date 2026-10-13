@@ -3,10 +3,10 @@ import globals from "globals";
 
 export default [
   {
-    ignores: ["dist/**", "node_modules/**", ".erp-local-storage/**", "docs/**"],
+    ignores: ["dist/**", "node_modules/**", ".erp-local-storage/**"],
   },
   {
-    files: ["src/**/*.{js,jsx}", "server/**/*.mjs", "scripts/**/*.mjs", "vite.config.mjs"],
+    files: ["src/**/*.{js,jsx}", "server/**/*.mjs", "scripts/**/*.mjs", "vite.config.mjs", "docs/prototypes/raw-material-roll-inventory-review/src/**/*.{js,jsx}", "docs/prototypes/raw-material-roll-inventory-review/vite.config.mjs"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

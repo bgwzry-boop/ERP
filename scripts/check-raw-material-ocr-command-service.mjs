@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { normalizeIdempotencyKey } from "../server/idempotency.mjs";
-import { applyRawMaterialInboundAction } from "../server/rawMaterialInboundRepository.mjs";
+import { applyRawMaterialInboundAction } from "../server/services/rawMaterialInboundCommandService.mjs";
 import { applyRawMaterialOcrReparse } from "../server/rawMaterialInboundOcrSupport.mjs";
 import { createRawMaterialCommandService } from "../server/services/rawMaterialCommandService.mjs";
 
@@ -68,7 +68,7 @@ const workspace = {
       workspace.rawMaterialInbounds.unshift(input.inbound);
       return { inbound: input.inbound, operationLog: input.operationLog, deduplicated: false };
     },
-    async recordRawMaterialInboundAction(input) {
+    async applyInboundAction(input) {
       normalizeIdempotencyKey(input.idempotencyKey);
       reparseCalls += 1;
       lastReparseIdempotencyKey = input.idempotencyKey;

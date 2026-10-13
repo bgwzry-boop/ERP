@@ -5,13 +5,14 @@ import {
   getTestServerBaseUrl,
   listenTestServer as listen,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 let releasePaymentState;
 let paymentStateLoadStarted = false;
 const paymentStateLoaded = new Promise((resolve) => {
   releasePaymentState = resolve;
 });
-const server = createApiServer({
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   paymentRecordRepository: {
     kind: "async_startup_fixture",
     async loadState() {
@@ -20,7 +21,7 @@ const server = createApiServer({
       return { paymentRecords: [] };
     },
   },
-});
+}));
 
 await delay(0);
 assert.equal(paymentStateLoadStarted, true, "API startup should begin loading persistent state before serving requests");
@@ -48,7 +49,7 @@ try {
   await close(server);
 }
 
-const authoritativeEmptyDraftServer = createApiServer({
+const authoritativeEmptyDraftServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   runtimeMode: "test",
   orderDraftRepository: {
     kind: "postgres",
@@ -56,7 +57,7 @@ const authoritativeEmptyDraftServer = createApiServer({
       return { orderDrafts: [] };
     },
   },
-});
+}));
 
 try {
   await listen(authoritativeEmptyDraftServer);

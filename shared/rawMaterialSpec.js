@@ -45,7 +45,7 @@ export function parseRawMaterialSpec(value) {
   const stripDefaultsApply = incompleteCategory === RAW_MATERIAL_HANDLE_CATEGORY;
   const empty = {
     specRaw,
-    gramWeightGsm: stripDefaultsApply ? RAW_MATERIAL_STANDARD_HANDLE_GSM : explicitWidthCm,
+    gramWeightGsm: stripDefaultsApply ? RAW_MATERIAL_STANDARD_HANDLE_GSM : 0,
     widthCm: stripDefaultsApply ? RAW_MATERIAL_HANDLE_WIDTH_CM : explicitWidthCm,
     lengthM: 0,
     specDisplay: stripDefaultsApply

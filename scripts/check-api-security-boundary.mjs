@@ -10,6 +10,7 @@ import {
   listenTestServer as listen,
   requestJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "api-security-boundary");
 const authSecret = "api-security-boundary-test-secret";
@@ -49,7 +50,7 @@ process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 rmSync(checkStorageRoot, { recursive: true, force: true });
 
 assert.throws(
-  () => createApiServer({ strictAuth: true, authSecret: "", applyProductionEnvFile: false }),
+  () => createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, strictAuth: true, authSecret: "", applyProductionEnvFile: false })),
   /ERP_AUTH_SECRET/,
   "strict mode must refuse to start without an authentication secret",
 );
@@ -58,7 +59,7 @@ let strictRuntimeServer = null;
 let strictServer = null;
 
 try {
-  strictRuntimeServer = createApiServer({
+  strictRuntimeServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     strictAuth: true,
     authSecret,
     allowSeedUsers: true,
@@ -69,7 +70,7 @@ try {
     maxJsonBodyBytes: 256,
     runtimeIdentityRepository,
     applyProductionEnvFile: false,
-  });
+  }));
   await listen(strictRuntimeServer);
   const baseUrl = serverUrl(strictRuntimeServer);
   const runtimeOfficeSession = createRuntimeSession("U-RUNTIME-OFFICE", { authSecret, sessionVersion: 1 });
@@ -179,18 +180,18 @@ try {
   assert.equal(tooLarge.status, 413);
   assert.equal(tooLarge.body.code, "REQUEST_BODY_TOO_LARGE");
 
-  strictServer = createApiServer({
+  strictServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     strictAuth: true,
     authSecret,
     corsAllowedOrigins: ["https://erp.example.test"],
     applyProductionEnvFile: false,
-  });
+  }));
   await listen(strictServer);
   const strictBaseUrl = serverUrl(strictServer);
   const seedLogin = await requestJson(strictBaseUrl, "/api/auth/login", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ userId: "U-OFFICE-A", password: "office123" }),
+    body: JSON.stringify({ userId: "U-OFFICE-A", password: "invalid-seed-credential" }),
   });
   assert.equal(seedLogin.status, 403);
   assert.equal(seedLogin.body.code, "AUTH_SEED_LOGIN_DISABLED");

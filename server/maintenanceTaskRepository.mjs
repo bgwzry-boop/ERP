@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -9,7 +10,12 @@ import {
 } from "./idempotency.mjs";
 
 export function createMaintenanceTaskRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_MAINTENANCE_STORE ?? process.env.ERP_V1_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_MAINTENANCE_STORE", "ERP_V1_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") return createPostgresMaintenanceTaskRepository(options);
   if (mode === "local") return createLocalMaintenanceTaskRepository();
   throw new Error(`Unsupported maintenance task repository mode: ${mode}`);

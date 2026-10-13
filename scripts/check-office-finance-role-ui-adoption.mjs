@@ -20,12 +20,18 @@ const productionSource = [
 const productionPresentationSource = read("src/features/production/productionPackingPresentation.js");
 const rawMaterialSource = [
   read("src/features/raw-materials/RawMaterialInboundPage.jsx"),
+  read("src/features/raw-materials/useInboundPageState.js"),
+  read("src/features/raw-materials/InboundDetail.jsx"),
   read("src/features/raw-materials/RawMaterialInboundReceivingSections.jsx"),
   read("src/features/raw-materials/RawMaterialInboundSupportingSections.jsx"),
   read("src/features/raw-materials/RawMaterialSupplierStatementReview.jsx"),
   read("src/features/raw-materials/rawMaterialInboundWorkflow.js"),
 ].join("\n");
-const rawMaterialWorkbenchSource = read("src/features/raw-materials/RawMaterialInboundWorkbench.jsx");
+const rawMaterialWorkbenchSource = [
+  read("src/features/raw-materials/RawMaterialInboundWorkbench.jsx"),
+  read("src/features/raw-materials/InboundFilters.jsx"),
+  read("src/features/raw-materials/InboundTable.jsx"),
+].join("\n");
 const masterDataSource = read("src/features/master-data/MasterDataMaintenancePage.jsx");
 const masterDataWorkbenchSource = read("src/features/master-data/MasterDataMaintenanceWorkbench.jsx");
 const workshopSource = read("src/features/workshop/WorkshopMobilePage.jsx");
@@ -41,6 +47,8 @@ const driverSource = [
 const appSource = [
   read("src/App.jsx"),
   read("src/app/OfficeWorkspacePages.jsx"),
+  read("src/app/workspacePageComponents.jsx"),
+  read("src/app/pageRegistry.js"),
   read("src/app/useOfficeActivePageEffects.js"),
 ].join("\n");
 const mainSource = read("src/main.jsx");

@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
@@ -12,7 +13,12 @@ import {
 export const businessDecisionAuthorizationStoreKey = "metadata/business-decision-authorizations.json";
 
 export function createBusinessDecisionAuthorizationRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_BUSINESS_DECISION_STORE ?? process.env.ERP_V1_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_BUSINESS_DECISION_STORE", "ERP_V1_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") return createPostgresBusinessDecisionAuthorizationRepository(options);
   if (mode === "local") return createLocalBusinessDecisionAuthorizationRepository(options);
   throw new Error(`Unsupported business decision authorization repository mode: ${mode}`);

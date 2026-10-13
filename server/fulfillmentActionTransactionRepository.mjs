@@ -7,6 +7,7 @@ import {
   resolveRepositoryIdempotencyKey,
 } from "./idempotency.mjs";
 import { normalizePrintJobRecord, printJobJsonExpression } from "./printJobRepository.mjs";
+import { resolveStoreMode } from "./storeMode.mjs";
 import {
   buildBusinessDecisionAttachmentLinksCte,
   buildInsertBusinessDecisionCte,
@@ -15,11 +16,12 @@ import {
 } from "./businessDecisionEvidenceRepository.mjs";
 
 export function createFulfillmentActionTransactionRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_FULFILLMENT_ACTION_TRANSACTION_STORE ??
-    process.env.ERP_FULFILLMENT_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_FULFILLMENT_ACTION_TRANSACTION_STORE", "ERP_FULFILLMENT_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresFulfillmentActionTransactionRepository({
       databaseUrl:
@@ -38,12 +40,26 @@ export function createLocalFulfillmentActionTransactionRepository() {
   return {
     kind: "local_memory",
 
-    recordFulfillmentAction(input) {
+    recordFulfillmentAction(requestedInput) {
+      const input = consumeFulfillmentActionDecision(requestedInput);
       if (input.quantityVarianceResolution || input.decisionRecord) {
         return commitLocalFulfillmentDecision(input);
       }
       return commitLocalFulfillmentAction(input);
     },
+  };
+}
+
+function consumeFulfillmentActionDecision(input) {
+  if (!input.decision) return input;
+  return {
+    ...input,
+    fulfillment: input.fulfillment
+      ? { ...input.fulfillment, status: input.decision.nextStatus }
+      : input.fulfillment,
+    operationLog: input.operationLog
+      ? { ...input.operationLog, action: input.decision.auditAction }
+      : input.operationLog,
   };
 }
 
@@ -209,7 +225,8 @@ function fulfillmentConflict(currentRevision) {
 export function createPostgresFulfillmentActionTransactionRepository(options = {}) {
   const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
 
-  const recordFulfillmentAction = async (input) => {
+  const recordFulfillmentAction = async (requestedInput) => {
+    const input = consumeFulfillmentActionDecision(requestedInput);
     const query = buildRecordFulfillmentActionTransactionQuery(input);
     const fulfillmentId = input.fulfillment?.fulfillmentId ?? input.fulfillment?.id ?? "";
     const idempotencyRequest = buildPostgresIdempotencyRequest({

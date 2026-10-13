@@ -35,6 +35,8 @@ const classified = buildGitBaselineScopeReport({
     { status: "??", path: "e2e/v1-d49-layout.spec.mjs" },
     { status: "??", path: "review-e2e/complete-review-receipt.spec.mjs" },
     { status: " M", path: "deploy/production/erp-service.env.example" },
+    { status: " M", path: ".github/workflows/ci.yml" },
+    { status: " M", path: "eslint.config.mjs" },
   ],
   remoteCount: 0,
   branch: "codex/audit",
@@ -42,8 +44,8 @@ const classified = buildGitBaselineScopeReport({
 });
 assert.equal(classified.scopeSafe, true);
 assert.equal(classified.releaseReady, false);
-assert.equal(classified.summary.changedFileCount, 13);
-assert.equal(classified.summary.classifiedCount, 13);
+assert.equal(classified.summary.changedFileCount, 15);
+assert.equal(classified.summary.classifiedCount, 15);
 assert.equal(classified.summary.unclassifiedCount, 0);
 assert.deepEqual(classified.blockers, ["controlled_git_remote_missing", "worktree_not_clean"]);
 assert.equal(classified.stagingReview.readOnly, true);
@@ -54,7 +56,7 @@ assert.deepEqual(
 );
 assert.equal(classified.stagingReview.batches.find((batch) => batch.key === "verification")?.count, 3);
 assert.equal(classified.groups.find((group) => group.key === "verification")?.count, 3);
-assert.equal(classified.groups.find((group) => group.key === "engineering_tooling")?.count, 6);
+assert.equal(classified.groups.find((group) => group.key === "engineering_tooling")?.count, 8);
 assert.equal(
   classified.groups
     .filter((group) => !["verification", "engineering_tooling"].includes(group.key))

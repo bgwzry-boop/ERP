@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
@@ -9,11 +10,12 @@ import {
 } from "./businessDecisionEvidenceRepository.mjs";
 
 export function createStatementSettlementTransactionRepository(options = {}) {
-  const mode =
-    options.mode ??
-    process.env.ERP_STATEMENT_SETTLEMENT_TRANSACTION_STORE ??
-    process.env.ERP_STATEMENT_STORE ??
-    "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_STATEMENT_SETTLEMENT_TRANSACTION_STORE", "ERP_STATEMENT_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") {
     return createPostgresStatementSettlementTransactionRepository({
       databaseUrl:

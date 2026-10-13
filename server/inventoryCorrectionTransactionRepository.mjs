@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -9,7 +10,12 @@ import {
 } from "./idempotency.mjs";
 
 export function createInventoryCorrectionTransactionRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_INVENTORY_CORRECTION_STORE ?? process.env.ERP_INVENTORY_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_INVENTORY_CORRECTION_STORE", "ERP_INVENTORY_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") return createPostgresInventoryCorrectionTransactionRepository(options);
   if (mode === "local") return createLocalInventoryCorrectionTransactionRepository();
   throw new Error(`Unsupported inventory correction transaction repository mode: ${mode}`);

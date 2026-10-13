@@ -1,3 +1,5 @@
+import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
+
 export function createPrintJobBusinessProjectionService({
   buildFulfillmentActionRecord,
   buildOperationLog,
@@ -47,7 +49,7 @@ export function createPrintJobBusinessProjectionService({
         return { handled: false };
       }
 
-      const transaction = await transactionRepository.recordFulfillmentPrint({
+      const transaction = await applyFulfillmentProjection(workspace, plan, "applyPrint", {
         workspace,
         idempotencyKey,
         idempotencyPayload: {
@@ -101,7 +103,7 @@ export function createPrintJobBusinessProjectionService({
         workspace.printRecords = upsertByKey(workspace.printRecords ?? [], plan.printRecord, "printRecordId");
         return { printRecord: plan.printRecord, physicalPrintConfirmed: plan.physicalPrintConfirmed };
       }
-      const transaction = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+      const transaction = await applyFulfillmentProjection(workspace, plan, "applyAction", {
         workspace,
         idempotencyKey: idempotencyKey ? `${idempotencyKey}:business-projection` : "",
         idempotencyPayload: {
@@ -129,6 +131,19 @@ export function createPrintJobBusinessProjectionService({
       };
     },
   };
+}
+
+function applyFulfillmentProjection(workspace, plan, method, transactionInput) {
+  const orchestrator = createFulfillmentActionOrchestrator(workspace.fulfillmentActionTransactionRepository);
+  return orchestrator[method]({
+    ...transactionInput,
+    current: plan.fulfillment,
+    action: {
+      nextStatus: transactionInput.fulfillment.status,
+      auditAction: plan.operationLog.action,
+    },
+    body: transactionInput.idempotencyPayload,
+  });
 }
 
 function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, reason, buildOperationLog }) {

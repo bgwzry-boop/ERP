@@ -18,6 +18,7 @@ test("receipt rows expose the six facts required for desktop scanning", () => {
     supplierName: "宁晋县隆胜无纺布有限公司",
     ticketText: "XS-2026-07-04-104",
     arrivalTime: "2026-07-04 10:35",
+    countUnit: "卷",
     countLabel: "9卷",
     totalWeightLabel: "853.8kg",
     reviewStatus: "已识别待复核",
@@ -30,6 +31,7 @@ test("receipt rows stay truthful when ticket, time or weight is unconfirmed", ()
   const presentation = buildReceiptRowPresentation({ materialCategory: "提手条", unit: "件", rollCount: 4, totalWeightKg: 0, status: "部分贴标" });
   assert.equal(presentation.ticketText, "供应商未提供单号");
   assert.equal(presentation.arrivalTime, "时间待确认");
+  assert.equal(presentation.countUnit, "件");
   assert.equal(presentation.countLabel, "4件");
   assert.equal(presentation.totalWeightLabel, "待确认");
   assert.equal(formatReceiptArrivalTime("2026/07/04 09:20"), "2026-07-04 09:20");

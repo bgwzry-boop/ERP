@@ -1,43 +1,34 @@
-import { lazy, Suspense } from "react";
+import { PageLoader, RawMaterialRoute, EntryPage, OrderPoolPage, WorkshopMobilePage, MasterDataRoute, V1StatusRoute, OfficeMobilePage, DecisionMobilePage, MaintenanceMobilePage, DesktopRequiredMobilePage, EmployeeAttendanceMobilePage } from "./workspacePageComponents.jsx";
+import { renderRegisteredPage } from "./pageRegistry.js";
+import { Suspense } from "react";
 import { DataState } from "../shared/ui/operational.jsx";
 import { buildMasterDataRouteContract } from "./buildMasterDataRouteContract.js";
 import { buildStatementRouteContract } from "./buildStatementRouteContract.js";
 import { buildV1StatusRouteContract } from "./buildV1StatusRouteContract.js";
 
-function lazyNamedPage(loadModule, exportName, loadStyles = []) {
-  return lazy(async () => {
-    const [module] = await Promise.all([loadModule(), ...loadStyles.map((loadStyle) => loadStyle())]);
-    return { default: module[exportName] };
-  });
-}
 
-function PageLoader({ component: Component, fallback, ...props }) {
-  return (
-    <Suspense fallback={<DataState title={fallback} />}>
-      <Component {...props} />
-    </Suspense>
-  );
-}
 
-const TodoPage = lazyNamedPage(() => import("../features/todos/TodoPage.jsx"), "TodoPage", [() => import("../styles/features/todos.css")]);
-const EntryPage = lazyNamedPage(() => import("../features/orders/EntryPage.jsx"), "EntryPage", [() => import("../styles/features/orders-entry.css")]);
-const OrderPoolPage = lazyNamedPage(() => import("../features/orders/OrderPoolPage.jsx"), "OrderPoolPage", [() => import("../styles/features/orders-pool.css")]);
-const InventoryPage = lazyNamedPage(() => import("../features/inventory/InventoryPage.jsx"), "InventoryPage", [() => import("../styles/features/inventory.css")]);
-const FulfillmentPage = lazyNamedPage(() => import("../features/fulfillment/FulfillmentPage.jsx"), "FulfillmentPage", [() => import("../styles/features/fulfillment.css")]);
-const ProductionPackingPage = lazyNamedPage(() => import("../features/production/ProductionPackingPage.jsx"), "ProductionPackingPage", [() => import("../styles/features/production-print.css"), () => import("../styles/features/print-documents.css")]);
-const WorkshopMobilePage = lazyNamedPage(() => import("../features/workshop/WorkshopMobilePage.jsx"), "WorkshopMobilePage", [() => import("../styles/features/mobile-roles.css"), () => import("../styles/features/production-print.css")]);
-const DriverMobilePage = lazyNamedPage(() => import("../features/driver/DriverMobilePage.jsx"), "DriverMobilePage", [() => import("../styles/features/mobile-roles.css"), () => import("../styles/features/driver.css")]);
-const WarehouseMobilePage = lazyNamedPage(() => import("../features/warehouse/WarehouseMobilePage.jsx"), "WarehouseMobilePage", [() => import("../styles/features/mobile-roles.css"), () => import("../styles/features/warehouse.css")]);
-const StatementRoute = lazyNamedPage(() => import("./routes/StatementRoute.jsx"), "StatementRoute");
-const RawMaterialRoute = lazyNamedPage(() => import("./routes/RawMaterialRoute.jsx"), "RawMaterialRoute");
-const MasterDataRoute = lazyNamedPage(() => import("./routes/MasterDataRoute.jsx"), "MasterDataRoute");
-const V1StatusRoute = lazyNamedPage(() => import("./routes/V1StatusRoute.jsx"), "V1StatusRoute");
-const OfficeMobilePage = lazyNamedPage(() => import("../features/office-mobile/OfficeMobilePage.jsx"), "OfficeMobilePage", [() => import("../styles/features/mobile-roles.css")]);
-const DecisionMobilePage = lazyNamedPage(() => import("../features/decisions/DecisionMobilePage.jsx"), "DecisionMobilePage", [() => import("../styles/features/mobile-roles.css"), () => import("../styles/features/role-tools.css")]);
-const MaintenanceMobilePage = lazyNamedPage(() => import("../features/maintenance/MaintenanceMobilePage.jsx"), "MaintenanceMobilePage", [() => import("../styles/features/mobile-roles.css"), () => import("../styles/features/role-tools.css")]);
-const DesktopRequiredMobilePage = lazyNamedPage(() => import("../features/mobile/DesktopRequiredMobilePage.jsx"), "DesktopRequiredMobilePage", [() => import("../styles/features/mobile-roles.css")]);
-const PayrollAttendancePage = lazyNamedPage(() => import("../features/payroll/PayrollAttendancePage.jsx"), "PayrollAttendancePage", [() => import("../styles/features/payroll-attendance.css")]);
-const EmployeeAttendanceMobilePage = lazyNamedPage(() => import("../features/payroll/EmployeeAttendanceMobilePage.jsx"), "EmployeeAttendanceMobilePage", [() => import("../styles/features/payroll-attendance.css")]);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 export function OfficeWorkspacePages({ renderedPage, runtime }) {
   const masterDataRouteContract = buildMasterDataRouteContract(runtime);
@@ -178,7 +169,160 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
               <OfficeMobilePage onNavigate={setActivePage} />
             </Suspense>
           )}
-          {renderedPage === "todos" && <PageLoader component={TodoPage} fallback="待办加载中" todos={todos} todoMeta={todoMeta} printBatchRecords={printBatchRecords} selectedTodoId={selectedTodoId} onSelect={setSelectedTodoId} view={todoView} setView={setTodoView} onAction={handleTodo} onRepairReference={repairTodoReference} helpers={pageHelpers} />}
+          {renderRegisteredPage(renderedPage, {
+            todos: {
+              todos: todos,
+              todoMeta: todoMeta,
+              printBatchRecords: printBatchRecords,
+              selectedTodoId: selectedTodoId,
+              onSelect: setSelectedTodoId,
+              view: todoView,
+              setView: setTodoView,
+              onAction: handleTodo,
+              onRepairReference: repairTodoReference,
+              helpers: pageHelpers,
+            },
+            inventory: {
+              inventoryRecords: inventoryRecords,
+              inventoryMeta: inventoryMeta,
+              inventoryLedgerEntries: inventoryLedgerState.items,
+              inventoryLedgerMeta: inventoryLedgerState,
+              inventoryLedgerFilters: inventoryLedgerFilters,
+              setInventoryLedgerFilters: setInventoryLedgerFilters,
+              inventoryCorrectionDetailState: inventoryCorrectionDetailState,
+              inventoryCorrectionQueueState: inventoryCorrectionQueueState,
+              inventoryIntentState: inventoryIntentState,
+              selectedStockId: selectedStockId,
+              setSelectedStockId: setSelectedStockId,
+              setToast: setToast,
+              onCreateCorrectionDraft: handleInventoryCorrectionDraft,
+              onLinkCorrectionAttachment: handleInventoryCorrectionAttachment,
+              onConfirmCorrectionDraft: handleInventoryCorrectionConfirm,
+              onOpenCorrectionDraft: openInventoryCorrectionDetail,
+              onRefreshCorrectionQueue: refreshInventoryCorrectionQueueAction,
+              onRefreshInventoryLedger: refreshInventoryLedgerAction,
+              onRefreshInventoryIntents: refreshInventoryIntents,
+              onCreateTemporaryHold: createTemporaryInventoryHold,
+              onReleaseTemporaryHold: releaseTemporaryInventoryHold,
+              onExtendTemporaryHold: extendTemporaryInventoryHold,
+              onConvertTemporaryHoldToOrder: async ({
+  hold,
+  intent,
+  candidate
+}) => {
+  const result = await prepareOrderDraftFromTemporaryHold({
+    hold,
+    intent,
+    candidate
+  });
+  if (!result?.blocked) setActivePage("entry");
+  return result;
+},
+              onLocateInventoryLedgerSource: focusInventoryLedgerSource,
+              helpers: pageHelpers,
+            },
+            fulfillment: {
+              authState: authState,
+              currentUser: currentUser,
+              tab: fulfillmentTab,
+              setTab: setFulfillmentTab,
+              fulfillments: fulfillments,
+              orderLines: orderLines,
+              selectedId: selectedFulfillmentId,
+              setSelectedId: setSelectedFulfillmentId,
+              onAction: updateFulfillment,
+              onRefresh: () => refreshFulfillments({
+  showToast: true
+}),
+              helpers: pageHelpers,
+            },
+            packing: {
+              authState: authState,
+              currentUser: currentUser,
+              orderLines: orderLines,
+              fulfillments: fulfillments,
+              inventoryRecords: inventoryRecords,
+              productionPacking: productionPacking,
+              focusTarget: productionPackingFocus,
+              sourceDetailState: productionPackingDetailState,
+              printerDeviceQa: printerDeviceQa,
+              printJobQueue: printJobQueue,
+              printDriverConfig: printDriverConfig,
+              printDriverReadiness: printDriverReadiness,
+              printDriverCupsDiagnostics: printDriverCupsDiagnostics,
+              onAction: handleProductionPackingAction,
+              onRefreshProduction: () => refreshProductionPackingTaskLists({
+  showToast: false
+}),
+              onRefreshPrintDriverConfig: refreshPrintDriverDiagnostics,
+              onRefreshPrintDriverReadiness: () => refreshPrintDriverReadiness({
+  showToast: true
+}),
+              onRefreshPrinterDeviceQa: () => refreshPrinterDeviceQa({
+  showToast: true
+}),
+              onSelectPrinterDeviceQaDevice: selectPrinterDeviceQaDevice,
+              onChangePrinterDeviceQaField: changePrinterDeviceQaField,
+              onChangePrinterDeviceQaCheck: changePrinterDeviceQaCheck,
+              onChangePrinterDeviceQaEvidenceField: changePrinterDeviceQaEvidenceField,
+              onSavePrinterDeviceMode: savePrinterDeviceMode,
+              onSavePrinterDeviceQa: savePrinterDeviceQaRecord,
+              onRefreshPrintJobs: refreshPrintJobs,
+              onDispatchPrintJob: dispatchPrintJobQueueItem,
+              onRetryPrintJob: retryPrintJobQueueItem,
+              helpers: pageHelpers,
+            },
+            driverMobile: {
+              tasks: driverDeliveryTasks,
+              selectedTaskId: selectedDriverTaskId,
+              setSelectedTaskId: setSelectedDriverTaskId,
+              meta: driverDeliveryMeta,
+              onAction: handleDriverDeliveryAction,
+              helpers: pageHelpers,
+            },
+            warehouseMobile: {
+              fulfillments: fulfillments,
+              orderLines: orderLines,
+              selectedId: selectedFulfillmentId,
+              setSelectedId: setSelectedFulfillmentId,
+              onAction: updateFulfillment,
+              helpers: pageHelpers,
+            },
+            statements: {
+              ...statementRouteContract,
+            },
+            rawMaterial: {
+              view: "inbound",
+              firstReleaseMode: firstReleaseMode,
+              state: {
+  authState,
+  currentUser,
+  helpers: pageHelpers,
+  inbounds: rawMaterialInbounds,
+  meta: rawMaterialInboundMeta,
+  printerDeviceQa,
+  productionTasks: productionPacking.productionTasks,
+  selectedId: selectedRawMaterialInboundId,
+  statementReviewMeta: rawMaterialSupplierStatementReviewMeta,
+  statementReviews: rawMaterialSupplierStatementReviews
+},
+              actions: {
+  onAction: updateRawMaterialInbound,
+  onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote,
+  onPayableDraftGenerate: generateRawMaterialSupplierPayableDraft,
+  onPaymentConfirm: confirmRawMaterialSupplierPayment,
+  onStatementConfirm: confirmRawMaterialSupplierStatement,
+  onStatementReviewConfirm: confirmRawMaterialSupplierStatementReviewDraft,
+  onStatementReviewDraftCreate: saveRawMaterialSupplierStatementReviewDraft,
+  setSelectedId: setSelectedRawMaterialInboundId
+},
+            },
+            payroll: {
+              authState: authState,
+              currentUser: currentUser,
+              permissionContext: permissionContext,
+            },
+          })}
           {renderedPage === "entry" && (
             <PageLoader component={EntryPage} fallback="订单录入加载中"
               entryText={entryText}
@@ -214,78 +358,9 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
               helpers={pageHelpers}
             />
           )}
-          {renderedPage === "inventory" && (
-            <PageLoader component={InventoryPage} fallback="成品库存加载中"
-              inventoryRecords={inventoryRecords}
-              inventoryMeta={inventoryMeta}
-              inventoryLedgerEntries={inventoryLedgerState.items}
-              inventoryLedgerMeta={inventoryLedgerState}
-              inventoryLedgerFilters={inventoryLedgerFilters}
-              setInventoryLedgerFilters={setInventoryLedgerFilters}
-              inventoryCorrectionDetailState={inventoryCorrectionDetailState}
-              inventoryCorrectionQueueState={inventoryCorrectionQueueState} inventoryIntentState={inventoryIntentState}
-              selectedStockId={selectedStockId}
-              setSelectedStockId={setSelectedStockId}
-              setToast={setToast}
-              onCreateCorrectionDraft={handleInventoryCorrectionDraft}
-              onLinkCorrectionAttachment={handleInventoryCorrectionAttachment}
-              onConfirmCorrectionDraft={handleInventoryCorrectionConfirm}
-              onOpenCorrectionDraft={openInventoryCorrectionDetail}
-              onRefreshCorrectionQueue={refreshInventoryCorrectionQueueAction}
-              onRefreshInventoryLedger={refreshInventoryLedgerAction}
-              onRefreshInventoryIntents={refreshInventoryIntents} onCreateTemporaryHold={createTemporaryInventoryHold}
-              onReleaseTemporaryHold={releaseTemporaryInventoryHold} onExtendTemporaryHold={extendTemporaryInventoryHold} onConvertTemporaryHoldToOrder={async ({ hold, intent, candidate }) => { const result = await prepareOrderDraftFromTemporaryHold({ hold, intent, candidate }); if (!result?.blocked) setActivePage("entry"); return result; }}
-              onLocateInventoryLedgerSource={focusInventoryLedgerSource}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "fulfillment" && (
-            <PageLoader component={FulfillmentPage} fallback="出库工作台加载中"
-              authState={authState}
-              currentUser={currentUser}
-              tab={fulfillmentTab}
-              setTab={setFulfillmentTab}
-              fulfillments={fulfillments}
-              orderLines={orderLines}
-              selectedId={selectedFulfillmentId}
-              setSelectedId={setSelectedFulfillmentId}
-              onAction={updateFulfillment}
-              onRefresh={() => refreshFulfillments({ showToast: true })}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "packing" && (
-            <PageLoader component={ProductionPackingPage} fallback="生产打包加载中"
-              authState={authState}
-              currentUser={currentUser}
-              orderLines={orderLines}
-              fulfillments={fulfillments}
-              inventoryRecords={inventoryRecords}
-              productionPacking={productionPacking}
-              focusTarget={productionPackingFocus}
-              sourceDetailState={productionPackingDetailState}
-              printerDeviceQa={printerDeviceQa}
-              printJobQueue={printJobQueue}
-              printDriverConfig={printDriverConfig}
-              printDriverReadiness={printDriverReadiness}
-              printDriverCupsDiagnostics={printDriverCupsDiagnostics}
-              onAction={handleProductionPackingAction}
-              onRefreshProduction={() => refreshProductionPackingTaskLists({ showToast: false })}
-              onRefreshPrintDriverConfig={refreshPrintDriverDiagnostics}
-              onRefreshPrintDriverReadiness={() => refreshPrintDriverReadiness({ showToast: true })}
-              onRefreshPrinterDeviceQa={() => refreshPrinterDeviceQa({ showToast: true })}
-              onSelectPrinterDeviceQaDevice={selectPrinterDeviceQaDevice}
-              onChangePrinterDeviceQaField={changePrinterDeviceQaField}
-              onChangePrinterDeviceQaCheck={changePrinterDeviceQaCheck}
-              onChangePrinterDeviceQaEvidenceField={changePrinterDeviceQaEvidenceField}
-              onSavePrinterDeviceMode={savePrinterDeviceMode}
-              onSavePrinterDeviceQa={savePrinterDeviceQaRecord}
-              onRefreshPrintJobs={refreshPrintJobs}
-              onDispatchPrintJob={dispatchPrintJobQueueItem}
-              onRetryPrintJob={retryPrintJobQueueItem}
-              helpers={pageHelpers}
-            />
-          )}
+
+
+
           {renderedPage === "workshopMobile" && (
             <PageLoader component={WorkshopMobilePage} fallback="车间工作台加载中"
               orderLines={orderLines}
@@ -296,26 +371,8 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
               helpers={pageHelpers}
             />
           )}
-          {renderedPage === "driverMobile" && (
-            <PageLoader component={DriverMobilePage} fallback="司机工作台加载中"
-              tasks={driverDeliveryTasks}
-              selectedTaskId={selectedDriverTaskId}
-              setSelectedTaskId={setSelectedDriverTaskId}
-              meta={driverDeliveryMeta}
-              onAction={handleDriverDeliveryAction}
-              helpers={pageHelpers}
-            />
-          )}
-          {renderedPage === "warehouseMobile" && (
-            <PageLoader component={WarehouseMobilePage} fallback="库房工作台加载中"
-              fulfillments={fulfillments}
-              orderLines={orderLines}
-              selectedId={selectedFulfillmentId}
-              setSelectedId={setSelectedFulfillmentId}
-              onAction={updateFulfillment}
-              helpers={pageHelpers}
-            />
-          )}
+
+
           {renderedPage === "decisionMobile" && (
             <Suspense fallback={<DataState title="经营决策工作台加载中" />}>
               <DecisionMobilePage
@@ -335,36 +392,8 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
               <MaintenanceMobilePage authState={authState} currentUser={currentUser} />
             </Suspense>
           )}
-          {renderedPage === "statements" && (
-            <PageLoader component={StatementRoute} fallback="对账工作台加载中" {...statementRouteContract} />
-          )}
-          {renderedPage === "rawMaterials" && (
-            <PageLoader component={RawMaterialRoute} fallback="原材料工作台加载中" view="inbound"
-              firstReleaseMode={firstReleaseMode}
-              state={{
-                authState,
-                currentUser,
-                helpers: pageHelpers,
-                inbounds: rawMaterialInbounds,
-                meta: rawMaterialInboundMeta,
-                printerDeviceQa,
-                productionTasks: productionPacking.productionTasks,
-                selectedId: selectedRawMaterialInboundId,
-                statementReviewMeta: rawMaterialSupplierStatementReviewMeta,
-                statementReviews: rawMaterialSupplierStatementReviews,
-              }}
-              actions={{
-                onAction: updateRawMaterialInbound,
-                onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote,
-                onPayableDraftGenerate: generateRawMaterialSupplierPayableDraft,
-                onPaymentConfirm: confirmRawMaterialSupplierPayment,
-                onStatementConfirm: confirmRawMaterialSupplierStatement,
-                onStatementReviewConfirm: confirmRawMaterialSupplierStatementReviewDraft,
-                onStatementReviewDraftCreate: saveRawMaterialSupplierStatementReviewDraft,
-                setSelectedId: setSelectedRawMaterialInboundId,
-              }}
-            />
-          )}
+
+
           {renderedPage === "rawMaterialScanner" && (
             <PageLoader component={RawMaterialRoute} fallback="原材料扫码加载中" view="scanner"
               state={{ helpers: pageHelpers, inbounds: rawMaterialInbounds, productionState: productionPacking }}
@@ -376,11 +405,7 @@ export function OfficeWorkspacePages({ renderedPage, runtime }) {
               {...masterDataRouteContract}
             /></Suspense>
           )}
-          {renderedPage === "payroll" && (
-            <Suspense fallback={<DataState title="工资核算工作台加载中" />}>
-              <PayrollAttendancePage authState={authState} currentUser={currentUser} permissionContext={permissionContext} />
-            </Suspense>
-          )}
+
           {renderedPage === "v1Status" && (
             <Suspense fallback={<DataState title="上线状态加载中" />}>
               <V1StatusRoute {...v1StatusRouteContract} />

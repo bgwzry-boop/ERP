@@ -46,6 +46,7 @@ export function buildReceiptRowPresentation(row = {}) {
     supplierName: cleanText(row.supplier ?? row.supplierName) || "送货单位待确认",
     ticketText: cleanText(row.deliveryNoteNo) || "供应商未提供单号",
     arrivalTime: formatReceiptArrivalTime(row.receivedAt),
+    countUnit,
     countLabel: `${countValue}${countUnit}`,
     totalWeightLabel: Number.isFinite(totalWeightKg) && totalWeightKg !== 0
       ? `${totalWeightKg.toLocaleString("zh-CN", { minimumFractionDigits: 1, maximumFractionDigits: 1 })}kg`

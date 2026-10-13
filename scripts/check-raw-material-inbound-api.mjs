@@ -8,8 +8,9 @@ import {
   createPostgresRawMaterialInboundRepository,
   buildListRawMaterialInboundPayloadsQuery,
   buildListRawMaterialInboundPayloadsSql,
-  applyRawMaterialInboundAction,
 } from "../server/rawMaterialInboundRepository.mjs";
+import { applyRawMaterialInboundAction } from "../server/services/rawMaterialInboundCommandService.mjs";
+import { createRawMaterialInboundOrchestrator } from "../server/services/rawMaterialInboundOrchestrator.mjs";
 import {
   closeTestServer,
   getJson,
@@ -17,6 +18,7 @@ import {
   listenTestServer,
   requestJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "raw-material-inbound-api");
 const repositoryStorageRoot = join(checkStorageRoot, "repository");
@@ -56,6 +58,7 @@ console.log("raw-material inbound API check passed");
 
 async function checkRepository() {
   const repository = createLocalRawMaterialInboundRepository({ storageRoot: repositoryStorageRoot });
+  const action = createRawMaterialInboundOrchestrator(repository);
   const state = repository.loadState({ seedInbounds: initialRawMaterialInbounds });
   const workspace = {
     rawMaterialInbounds: state.rawMaterialInbounds,
@@ -96,7 +99,7 @@ async function checkRepository() {
   assert.equal(list.items[0].id, "RMI-0704-001", "repository list should find the supplier delivery note");
   assert.equal(list.items[0].deliveryNoteNo, "", "raw-material supplier delivery-note number may be missing");
 
-  const review = repository.recordRawMaterialInboundAction({
+  const review = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "review",
@@ -108,7 +111,7 @@ async function checkRepository() {
   assert.equal(review.inbound.rolls[0].labelStatus, "待打印标签", "review should not mark roll labels as printed");
   assert.equal(review.inbound.rolls[0].inventoryStatus, "不可用", "review must not make raw material available");
 
-  const printed = repository.recordRawMaterialInboundAction({
+  const printed = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "print-labels",
@@ -120,7 +123,7 @@ async function checkRepository() {
   assert.equal(printed.inbound.rolls[0].labelStatus, "已打印待贴标", "printing should mark labels as printed");
   assert.equal(printed.inbound.rolls[0].inventoryStatus, "不可用", "printed labels must not create usable inventory");
 
-  const attached = repository.recordRawMaterialInboundAction({
+  const attached = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "attach-confirm",
@@ -134,7 +137,7 @@ async function checkRepository() {
   assert.equal(attached.inbound.rolls[0].labelVerification.result, "匹配", "attach confirmation should persist the physical label check");
   assert.equal(attached.inbound.rolls[0].labelVerification.verifiedByUserId, "U-WAREHOUSE-A", "the authenticated operator should be recorded");
 
-  const issued = repository.recordRawMaterialInboundAction({
+  const issued = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "issue-to-machine",
@@ -164,7 +167,7 @@ async function checkRepository() {
   assert.equal(issued.inbound.rawMaterialIssueRecords[0].productionTaskMatchStatus, "已匹配", "issue record should mark matched production task");
   assert.equal(issued.inbound.rawMaterialIssueRecords[0].productionTaskOrderLineId, "OL-RMI-001", "issue record should keep matched order line");
 
-  const consumed = repository.recordRawMaterialInboundAction({
+  const consumed = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "confirm-consumption",
@@ -192,7 +195,7 @@ async function checkRepository() {
   assert.equal(consumed.inbound.rawMaterialIssueRecords[0].remainingMachineSideWeightKg, 20, "issue record should keep machine-side remaining weight separately");
   assert.equal(consumed.inbound.rawMaterialConsumptionRecords[0].remainingMachineSideWeightKg, 20, "consumption record should keep remaining machine-side weight");
 
-  const costDraft = repository.recordRawMaterialInboundAction({
+  const costDraft = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "generate-cost-draft",
@@ -216,7 +219,7 @@ async function checkRepository() {
   assert.equal(costDraft.inbound.rawMaterialIssueRecords[0].costAllocationDraftId, costDraft.inbound.rawMaterialCostAllocationDrafts[0].costAllocationDraftId, "issue record should link cost draft");
   assert.equal(costDraft.inbound.rawMaterialConsumptionRecords[0].costAllocationDraftId, costDraft.inbound.rawMaterialCostAllocationDrafts[0].costAllocationDraftId, "consumption record should link cost draft");
 
-  const costConfirmation = repository.recordRawMaterialInboundAction({
+  const costConfirmation = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "confirm-cost-draft",
@@ -241,7 +244,7 @@ async function checkRepository() {
     "consumption record should link cost confirmation",
   );
 
-  const lossCalibration = repository.recordRawMaterialInboundAction({
+  const lossCalibration = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "calibrate-loss",
@@ -276,7 +279,7 @@ async function checkRepository() {
   assert.equal(lossCalibration.inbound.costAllocationStatus, "损耗已校准待毛利确认", "inbound should expose loss-calibrated state");
   assert.equal(lossCalibration.inbound.costAllocationReviewStatus, "已校准/待毛利确认", "inbound should wait for margin confirmation after loss calibration");
 
-  const marginSnapshot = repository.recordRawMaterialInboundAction({
+  const marginSnapshot = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "generate-margin-snapshot",
@@ -299,7 +302,7 @@ async function checkRepository() {
   assert.equal(marginSnapshot.inbound.rawMaterialConsumptionRecords[0].marginSnapshotId, marginSnapshot.inbound.rawMaterialOrderMarginSnapshots[0].marginSnapshotId, "consumption record should link margin snapshot");
   assert.equal(marginSnapshot.inbound.costAllocationStatus, "毛利快照待复核", "inbound should expose margin snapshot review state");
 
-  const marginReview = repository.recordRawMaterialInboundAction({
+  const marginReview = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "review-margin-snapshot",
@@ -333,7 +336,7 @@ async function checkRepository() {
     }],
   };
   workspace.rawMaterialInbounds.push(invalidLegacyHandle);
-  assert.throws(() => repository.recordRawMaterialInboundAction({
+  assert.throws(() => action.applyAction({
     workspace,
     inboundId: invalidLegacyHandle.id,
     action: "issue-to-machine",
@@ -348,7 +351,7 @@ async function checkRepository() {
     },
   }), (error) => error?.code === "RAW_MATERIAL_ISSUE_WEIGHT_REQUIRED", "a legacy zero-weight handle must fail closed before machine-side issue");
   workspace.rawMaterialInbounds.pop();
-  const returned = repository.recordRawMaterialInboundAction({
+  const returned = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "return-leftover",
@@ -365,7 +368,7 @@ async function checkRepository() {
   assert.equal(returned.inbound.rolls[1].inventoryStatus, "余料待复核", "returned leftover should not become available inventory");
   assert.match(returned.inbound.rawMaterialLeftoverReturnRecords[0].leftoverReturnRecordId, /^RMI-RET-/, "leftover return should create a traceable record");
 
-  const reviewedLeftover = repository.recordRawMaterialInboundAction({
+  const reviewedLeftover = action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "review-leftover",
@@ -767,6 +770,7 @@ async function checkPostgresRepositoryBoundary() {
     },
   });
 
+  const action = createRawMaterialInboundOrchestrator(repository);
   const state = await repository.loadState();
   assert.equal(state.rawMaterialInbounds[0].id, "RMI-0704-001", "postgres loadState should normalize payload rows");
   assert.match(calls[0].text, /FROM raw_material_inbounds/, "postgres loadState should query raw_material_inbounds");
@@ -783,7 +787,7 @@ async function checkPostgresRepositoryBoundary() {
   }).values, ["已作废", "已打印待贴标", "%O'Brien%"]);
 
   const workspace = { rawMaterialInbounds: [repositoryInbound] };
-  const saved = await repository.recordRawMaterialInboundAction({
+  const saved = await action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "review",
@@ -824,9 +828,9 @@ async function checkApi() {
     lineStatus: "制袋中",
   };
   initialOrderLines.push(testOrderLine);
-  const server = createApiServer({
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     rawMaterialInboundRepositoryOptions: { storageRoot: apiStorageRoot },
-  });
+  }));
   await listenTestServer(server);
   const baseUrl = `${getTestServerBaseUrl(server)}/api`;
 
@@ -1313,9 +1317,9 @@ async function checkApi() {
 
     await closeTestServer(server);
 
-    const restartedServer = createApiServer({
+    const restartedServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
       rawMaterialInboundRepositoryOptions: { storageRoot: apiStorageRoot },
-    });
+    }));
     await listenTestServer(restartedServer);
     try {
       const restartedBaseUrl = `${getTestServerBaseUrl(restartedServer)}/api`;

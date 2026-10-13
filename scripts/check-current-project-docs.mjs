@@ -15,25 +15,16 @@ const currentDocs = {
   roadmap: read("ROADMAP.md"),
   decisions: read("DECISIONS.md"),
 };
-const archives = {
-  chineseStatus: read("docs/history/status/01_当前状态与下一步-through-v8.80.md"),
-  projectStatus: read("docs/history/status/PROJECT_STATUS-through-v8.80.md"),
-  roadmap: read("docs/history/status/ROADMAP-through-v8.80.md"),
-  decisions: read("docs/history/status/DECISIONS-through-v8.80.md"),
-};
-const currentSnapshots = {
-  chineseStatus: read("docs/history/status/01_当前状态与下一步-through-2026-08-12.md"),
-  projectStatus: read("docs/history/status/PROJECT_STATUS-through-2026-08-12.md"),
-  decisions: read("docs/history/status/DECISIONS-through-2026-08-12.md"),
-};
 const entrySource = read("00_项目入口.md");
 const rectificationPlan = read("docs/development/rectification-plan-2026-07-12.zh-CN.md");
 const currentVersion = "V8.306";
 const currentVersionPattern = new RegExp(currentVersion.replace(".", "\\."));
+const archiveCommit = "84d88b4838469e31b47e37bb90fda23036149404";
+const archiveUrlPrefix = `https://github.com/bgwzry-boop/ERP/blob/${archiveCommit}/docs/history/status/`;
 
 for (const [name, source] of Object.entries(currentDocs)) {
   assert.match(source, currentVersionPattern, `${name} should expose the current version`);
-  assert.match(source, /docs\/history\/status\//, `${name} should link its history archive`);
+  assert.ok(source.includes(archiveUrlPrefix), `${name} should link its fixed historical commit`);
 }
 for (const source of [currentDocs.chineseStatus, currentDocs.projectStatus, currentDocs.decisions]) {
   assert.match(source, /through-2026-08-12\.md/, "compressed current docs should link the full 2026-08-12 snapshot");
@@ -45,9 +36,16 @@ assert.ok(lineCount(currentDocs.roadmap) <= 90, "Roadmap should stay concise");
 assert.ok(lineCount(currentDocs.decisions) <= 130, "Active decisions should stay concise");
 
 for (const source of [currentDocs.chineseStatus, currentDocs.projectStatus]) {
-  for (const truth of ["97-98%", "80-83%", "0/4", "1/5", "7/11", "0/40", "0/6", "58"]) {
-    assert.equal(source.includes(truth), true, `current status should include ${truth}`);
-  }
+  assert.match(source, /2026-10-13/, "current status must identify its verification date");
+  for (const baseline of [
+    "7888e5efa5a559c0d128b3d512b9f12fee4ffa99",
+    "54ca593827e7028994b4f1bc91982377f3e3f609",
+    "c86f0144666b02b0d1bee3ef7b9fe8d320fa239d",
+    "f0657285ee2159059915126c2bfc8699ee59887b",
+    "codex/full-baseline-integration-20261013",
+  ]) assert.ok(source.includes(baseline), "current status must distinguish exact source and deployment baselines");
+  assert.match(source, /本地修改稿 · 未部署/, "local preview must not be represented as a release");
+  assert.match(source, /标签机未准备|label printer is not ready/, "printer readiness must retain the owner's actual answer");
 }
 for (const phase of ["D49", "D50", "D51", "D52", "D53"]) {
   assert.equal(currentDocs.roadmap.includes(phase), true, `roadmap should include ${phase}`);
@@ -55,25 +53,11 @@ for (const phase of ["D49", "D50", "D51", "D52", "D53"]) {
 assert.match(currentDocs.decisions, /D49 -> D50 -> D51 -> D52 -> D53/);
 assert.match(currentDocs.decisions, /Status documents keep only current truth and links/);
 
-assert.ok(lineCount(archives.chineseStatus) >= 1_600, "Chinese status archive should preserve the prior log");
-assert.ok(lineCount(archives.projectStatus) >= 1_600, "Project status archive should preserve the prior log");
-assert.ok(lineCount(archives.roadmap) >= 570, "Roadmap archive should preserve the prior log");
-assert.ok(lineCount(archives.decisions) >= 2_490, "Decision archive should preserve the prior log");
-for (const source of Object.values(archives)) {
-  assert.match(source, /V8\.80/, "each archive should include the V8.80 boundary");
-}
-assert.ok(lineCount(currentSnapshots.chineseStatus) >= 120, "2026-08-12 Chinese status snapshot should preserve the prior current file");
-assert.ok(lineCount(currentSnapshots.projectStatus) >= 120, "2026-08-12 project-status snapshot should preserve the prior current file");
-assert.ok(lineCount(currentSnapshots.decisions) >= 180, "2026-08-12 decision snapshot should preserve the prior current file");
-for (const source of Object.values(currentSnapshots)) {
-  assert.match(source, currentVersionPattern, "each 2026-08-12 snapshot should preserve the current-version boundary");
-}
-
 assert.match(entrySource, new RegExp(`当前 ${currentVersionPattern.source} 可执行整改方案`));
-assert.match(entrySource, /docs\/history\/status/);
+assert.match(entrySource, /github\.com\/bgwzry-boop\/ERP\/blob\/84d88b4/);
 assert.match(rectificationPlan, new RegExp(`当前版本：${currentVersionPattern.source}`));
 assert.match(rectificationPlan, /发布门禁.*`0\/4`/);
 assert.match(rectificationPlan, /现场证据.*`0\/34`/);
 assert.match(rectificationPlan, /负责人签字.*`0\/6`/);
 
-console.log(`Current project docs check passed: concise current files and complete V8.80 archives are consistent (${Object.values(currentDocs).reduce((sum, source) => sum + lineCount(source), 0)} current lines).`);
+console.log(`Current project docs check passed: concise current files link to the fixed historical commit (${Object.values(currentDocs).reduce((sum, source) => sum + lineCount(source), 0)} current lines).`);

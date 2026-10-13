@@ -1,3 +1,5 @@
+import { createRawMaterialInboundOrchestrator } from "../services/rawMaterialInboundOrchestrator.mjs";
+
 export async function handleRawMaterialWriteRoutes({
   method,
   url,
@@ -60,13 +62,16 @@ export async function handleRawMaterialWriteRoutes({
       return true;
     }
     if (!requireActionPermission(response, permissionContext, permission)) return true;
-    const result = await rawMaterialCommandService.recordInboundAction({
+    const input = {
       workspace,
       inboundId,
       actionSlug,
       body,
       operatorId: getPermissionOperatorId(permissionContext, authContext, "U-OFFICE-A"),
-    });
+    };
+    const result = ["reparse-ocr", "reparse_ocr"].includes(actionSlug)
+      ? await rawMaterialCommandService.recordInboundAction(input)
+      : await createRawMaterialInboundOrchestrator(workspace.rawMaterialInboundRepository).recordInboundAction(input);
     sendCommandResult({ response, result, sendJson, sendBusinessError });
     return true;
   }

@@ -1,3 +1,5 @@
+import { resolveStoreMode } from "./storeMode.mjs";
+
 const postgresRepositoryOptionKeys = [
   "attachmentRepositoryOptions",
   "attachmentAccessAuditRepositoryOptions",
@@ -118,7 +120,9 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
       env.ERP_V1_OBJECT_STORAGE_PROFILE,
   );
   const productionEnforced = runtimeMode === "production";
-  const repositoryMode = productionEnforced ? "postgres" : configuredRepositoryMode;
+  const repositoryMode = productionEnforced
+    ? "postgres"
+    : configuredRepositoryMode || "postgres";
   const fileStorageMode = productionEnforced ? "object_storage" : configuredFileStorageMode;
   const databaseUrl =
     profile.databaseUrl ?? options.v1PersistenceDatabaseUrl ?? env.ERP_V1_DATABASE_URL ?? env.DATABASE_URL ?? env.PGURL;
@@ -140,13 +144,29 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
     for (const optionKey of postgresRepositoryOptionKeys) {
       const repositoryObjectKey = repositoryObjectKeysByOptionKey[optionKey];
       if (effectiveOptions[repositoryObjectKey]) {
+        if (
+          productionEnforced &&
+          String(effectiveOptions[repositoryObjectKey].kind ?? "").trim() !== "postgres"
+        ) {
+          throw productionPersistenceError("Production runtime requires PostgreSQL repositories.", {
+            invalidRepositories: [repositoryObjectKey],
+          });
+        }
         skippedRepositoryOptionKeys.push(optionKey);
         continue;
       }
       const current = normalizeObject(effectiveOptions[optionKey]);
-      if (current.mode !== undefined) {
+      if (current.mode !== undefined && !productionEnforced) {
+        resolveStoreMode({
+          explicitMode: current.mode,
+          env: {},
+          runtimeMode,
+          allowLocalFixture: options.allowLocalFixture,
+        });
         skippedRepositoryOptionKeys.push(optionKey);
-        effectiveOptions[optionKey] = current;
+        effectiveOptions[optionKey] = options.allowLocalFixture === true
+          ? { ...current, allowLocalFixture: true }
+          : current;
         continue;
       }
       effectiveOptions[optionKey] = {
@@ -159,15 +179,41 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
     }
   }
 
+  if (repositoryMode === "local") {
+    if (options.allowLocalFixture !== true) {
+      const error = new Error("Local persistence is only allowed for an explicit test fixture.");
+      error.code = "ERP_LOCAL_STORE_FIXTURE_REQUIRED";
+      throw error;
+    }
+    for (const optionKey of postgresRepositoryOptionKeys) {
+      const repositoryObjectKey = repositoryObjectKeysByOptionKey[optionKey];
+      if (effectiveOptions[repositoryObjectKey]) continue;
+      const current = normalizeObject(effectiveOptions[optionKey]);
+      effectiveOptions[optionKey] = {
+        ...current,
+        mode: current.mode ?? "postgres",
+        allowLocalFixture: true,
+      };
+    }
+  }
+
   if (fileStorageMode === "object_storage") {
     for (const optionKey of objectStorageOptionKeys) {
       const storageObjectKey = storageObjectKeysByOptionKey[optionKey];
       if (effectiveOptions[storageObjectKey]) {
+        if (
+          productionEnforced &&
+          String(effectiveOptions[storageObjectKey].kind ?? "").trim() !== "object_storage"
+        ) {
+          throw productionPersistenceError("Production runtime requires object storage.", {
+            invalidFileStorages: [storageObjectKey],
+          });
+        }
         skippedObjectStorageOptionKeys.push(optionKey);
         continue;
       }
       const current = normalizeObject(effectiveOptions[optionKey]);
-      if (current.mode !== undefined) {
+      if (current.mode !== undefined && !productionEnforced) {
         skippedObjectStorageOptionKeys.push(optionKey);
         effectiveOptions[optionKey] = current;
         continue;
@@ -262,7 +308,7 @@ function normalizeObject(value) {
 
 function normalizeMode(value) {
   const mode = String(value ?? "").trim();
-  if (!mode || mode === "none" || mode === "off" || mode === "disabled" || mode === "local") return "";
+  if (!mode || mode === "none" || mode === "off" || mode === "disabled") return "";
   return mode;
 }
 

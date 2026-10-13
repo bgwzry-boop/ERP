@@ -51,6 +51,11 @@ export function enforceCompleteReviewPortPlugin() {
   };
 }
 
+export function isCompleteReviewSourceChange(changedPath) {
+  const normalizedPath = String(changedPath).replaceAll("\\", "/");
+  return !/(?:^|\/)(?:node_modules|\.erp-local-storage|dist|\.git)(?:\/|$)/u.test(normalizedPath);
+}
+
 export function disableCompleteReviewBootstrapCachingPlugin(options = {}) {
   const provenance = options.provenance ?? createLocalReviewProvenance();
   const bootstrapPaths = new Set([
@@ -72,7 +77,7 @@ export function disableCompleteReviewBootstrapCachingPlugin(options = {}) {
     configureServer(server) {
       let refreshTimer = null;
       server.watcher.on("all", (_event, changedPath) => {
-        if (String(changedPath).includes("/node_modules/")) return;
+        if (!isCompleteReviewSourceChange(changedPath)) return;
         clearTimeout(refreshTimer);
         refreshTimer = setTimeout(() => provenance.advance(), 40);
       });

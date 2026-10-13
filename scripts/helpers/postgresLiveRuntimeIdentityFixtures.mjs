@@ -1,4 +1,4 @@
-import { hashRuntimeUserPassword } from "../../server/authSeed.mjs";
+import { getRuntimePasswordExpiresAt, hashRuntimeUserPassword } from "../../server/authSeed.mjs";
 
 export function buildLiveRuntimeUser({
   userId,
@@ -15,6 +15,9 @@ export function buildLiveRuntimeUser({
     throw new Error("A PostgreSQL live runtime-auth secret is required for a runtime user fixture.");
   }
 
+  const passwordChangedAt = new Date().toISOString();
+  const passwordExpiresAt = getRuntimePasswordExpiresAt({ passwordChangedAt, passwordStatus: "active" });
+
   return {
     userId,
     loginName,
@@ -29,9 +32,9 @@ export function buildLiveRuntimeUser({
     passwordHash: hashRuntimeUserPassword(password, { userId, authSecret: resolvedAuthSecret }),
     passwordStatus: "active",
     mustChangePassword: false,
-    passwordChangedAt: "2026-07-12T00:00:00.000Z",
-    passwordExpiresAt: "2026-10-10T00:00:00.000Z",
+    passwordChangedAt,
+    passwordExpiresAt,
     sessionVersion: 1,
-    updatedAt: "2026-07-12T00:00:00.000Z",
+    updatedAt: passwordChangedAt,
   };
 }

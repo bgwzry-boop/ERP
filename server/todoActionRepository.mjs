@@ -1,3 +1,4 @@
+import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
@@ -10,7 +11,12 @@ import {
 } from "./idempotency.mjs";
 
 export function createTodoActionRepository(options = {}) {
-  const mode = options.mode ?? process.env.ERP_TODO_ACTION_STORE ?? process.env.ERP_CORE_WORKSPACE_STORE ?? "local";
+  const mode = resolveStoreMode({
+    explicitMode: options.mode,
+    envKeys: ["ERP_TODO_ACTION_STORE", "ERP_CORE_WORKSPACE_STORE"],
+    runtimeMode: options.runtimeMode,
+    allowLocalFixture: options.allowLocalFixture,
+  });
   if (mode === "postgres") return createPostgresTodoActionRepository(options);
   if (mode === "local") return createLocalTodoActionRepository();
   throw new Error(`Unsupported todo action repository mode: ${mode}`);

@@ -115,16 +115,26 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
 
   const reviewedFactoryColors = ["本白", "本白", "本白", "枣红", "大红", "大红", "大红", "大红", "大红"];
   for (let index = 0; index < 9; index += 1) {
-    await lineSummaries.nth(index).getByRole("button").click();
+    await lineSummaries.nth(index).locator(".line-edit").click();
     if (index === 0) {
-      await expect(review.getByRole("combobox", { name: "第 1 卷厂内标准色", exact: true })).toHaveValue("");
+      await expect(review.getByRole("region", { name: "厂家颜色自动换算" })).toContainText("未匹配");
       await expect(review.getByRole("textbox", { name: "第 1 卷规格 / 宽幅", exact: true })).toHaveValue("78克*70宽*2000米");
       await expect(review.getByRole("spinbutton", { name: "第 1 卷本卷重量 kg", exact: true })).toHaveValue("109.9");
     }
     if (index === 6) {
       await expect(review.getByRole("textbox", { name: "第 7 卷规格 / 宽幅", exact: true })).toHaveValue("65*5");
     }
-    await review.getByRole("combobox", { name: `第 ${index + 1} 卷厂内标准色`, exact: true }).selectOption(reviewedFactoryColors[index]);
+    const mapping = review.getByRole("region", { name: "厂家颜色自动换算" });
+    const createRule = mapping.getByRole("button", { name: "建立一次规则，以后自动", exact: true });
+    if (await createRule.isVisible()) {
+      await createRule.click();
+      const dialog = page.getByRole("dialog", { name: "厂家颜色资料", exact: true });
+      await expect(dialog.getByLabel("供应商", { exact: true })).toHaveValue("腾胜无纺布");
+      await dialog.getByRole("combobox", { name: /^厂内标准色/ }).fill(reviewedFactoryColors[index]);
+      await dialog.getByRole("button", { name: "保存规则", exact: true }).click();
+      await expect(dialog).toHaveCount(0);
+    }
+    await expect(mapping).toContainText(reviewedFactoryColors[index]);
     await review.getByRole("button", { name: "这卷正确", exact: true }).click();
   }
   const submitReview = review.getByRole("button", { name: "确认送货单（9/9）", exact: true });
@@ -137,7 +147,7 @@ test("原材料 OCR 核对页首屏概览全部卷料并按行展开编辑", asy
     )),
     submitReview.click(),
   ]);
-  expect(reviewResponse.ok()).toBe(true);
+  expect(reviewResponse.ok(), `${reviewResponse.request().postData()}\n${await reviewResponse.text()}`).toBe(true);
 
   await expect(review).toHaveCount(0);
   await expect(page.getByRole("heading", { name: "录原材料", exact: true })).toBeVisible();

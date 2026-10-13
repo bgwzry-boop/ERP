@@ -16,7 +16,7 @@ const GROUPS = Object.freeze([
   {
     key: "engineering_tooling",
     label: "测试编排与发布审计工具",
-    owns: (path) => path === ".gitignore" || path === "package.json" || path === "package-lock.json" || path === "vite.config.mjs" || PLAYWRIGHT_CONFIG_PATTERN.test(path) || path.startsWith("deploy/") || TOOLING_PATH_PATTERN.test(path),
+    owns: (path) => path === ".gitignore" || path === "package.json" || path === "package-lock.json" || path === "vite.config.mjs" || path === "eslint.config.mjs" || PLAYWRIGHT_CONFIG_PATTERN.test(path) || /^\.github\/workflows\/[^/]+\.(?:yml|yaml)$/.test(path) || path.startsWith("deploy/") || TOOLING_PATH_PATTERN.test(path),
   },
   {
     key: "runtime_domain",
@@ -70,6 +70,7 @@ const STAGING_REVIEW_BATCHES = Object.freeze([
 const ROOT_DOCUMENTS = new Set([
   "00_项目入口.md",
   "01_当前状态与下一步.md",
+  // Keep the former path classifiable while its archival deletion is under review.
   "02_问题或报错日志.md",
   "AGENTS.md",
   "DECISIONS.md",

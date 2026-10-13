@@ -14,6 +14,7 @@ import {
   listenTestServer,
   requestJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "first-release-scope");
 rmSync(checkStorageRoot, { recursive: true, force: true });
@@ -160,12 +161,12 @@ function evaluate(pathname, method = "POST") {
 }
 
 async function checkApiBoundary() {
-  const server = createApiServer({
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     firstReleaseScope: "raw_material",
     runtimeMode: "test",
     runtimeStorageRoot: join(checkStorageRoot, "api"),
     applyProductionEnvFile: false,
-  });
+  }));
   await listenTestServer(server);
   const baseUrl = getTestServerBaseUrl(server);
   const officeHeaders = { "x-erp-user-id": "U-OFFICE-A" };
@@ -216,10 +217,17 @@ async function checkApiBoundary() {
     const prototypeLogin = await requestJson(baseUrl, "/api/auth/prototype-login", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ userId: "U-OFFICE-A" }),
+      body: JSON.stringify({ userId: "U-MANAGER-A" }),
       expectedStatus: 200,
     });
-    assert.equal(prototypeLogin.body.permissions.user.userId, "U-OFFICE-A");
+    assert.equal(prototypeLogin.body.permissions.user.userId, "U-MANAGER-A");
+    const alternatePreviewLogin = await requestJson(baseUrl, "/api/auth/prototype-login", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ userId: "U-OFFICE-A" }),
+      expectedStatus: 403,
+    });
+    assert.equal(alternatePreviewLogin.body.code, "AUTH_PREVIEW_IDENTITY_FIXED");
 
     const ocrValidation = await requestJson(baseUrl, "/api/raw-material-inbounds/recognize-delivery-note", {
       method: "POST",
@@ -279,14 +287,14 @@ async function checkApiBoundary() {
 }
 
 async function checkAuthenticationPrecedence() {
-  const server = createApiServer({
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     firstReleaseScope: "raw_material",
     runtimeMode: "test",
     runtimeStorageRoot: join(checkStorageRoot, "strict-api"),
     strictAuth: true,
     authSecret: "first-release-auth-precedence-secret",
     applyProductionEnvFile: false,
-  });
+  }));
   await listenTestServer(server);
   try {
     const response = await requestJson(getTestServerBaseUrl(server), "/api/order-drafts/recognize", {

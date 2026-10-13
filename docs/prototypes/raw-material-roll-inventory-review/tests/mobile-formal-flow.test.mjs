@@ -10,7 +10,11 @@ test("phone viewport reuses the formal ERP mobile raw-material flow", async () =
     readSource("../src/FormalMobileEntry.jsx"),
     readSource("../../../../src/app/OfficeWorkspacePages.jsx"),
     readSource("../../../../src/app/navigation.js"),
-    readSource("../../../../src/features/raw-materials/RawMaterialInboundPage.jsx"),
+    Promise.all([
+      readSource("../../../../src/features/raw-materials/RawMaterialInboundPage.jsx"),
+      readSource("../../../../src/features/raw-materials/InboundDetail.jsx"),
+      readSource("../../../../src/features/raw-materials/useInboundPageState.js"),
+    ]).then((sources) => sources.join("\n")),
   ]);
 
   assert.match(mainSource, /detectCompleteReviewRuntimeFamily\(window\)/, "phone entry should use real handset detection instead of desktop window width");

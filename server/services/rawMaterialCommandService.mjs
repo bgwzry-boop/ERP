@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
+import { createRawMaterialInboundOrchestrator } from "./rawMaterialInboundOrchestrator.mjs";
 
 export function createRawMaterialCommandService(dependencies = {}) {
   const {
@@ -373,7 +374,7 @@ export function createRawMaterialCommandService(dependencies = {}) {
           return reparsed;
         }
         const serverNow = toIsoTimestamp(now());
-        const result = await workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction({
+        const result = await createRawMaterialInboundOrchestrator(workspace.rawMaterialInboundRepository, { now }).applyAction({
           workspace,
           inboundId,
           action: actionSlug,
@@ -1014,7 +1015,7 @@ async function reparseStaleOcrDraft({
     documentDirectionHint: normalizedDirectionHint,
     supplierNameHint: normalizedSupplierNameHint,
   };
-  const saved = await workspace.rawMaterialInboundRepository.recordRawMaterialInboundAction({
+  const saved = await createRawMaterialInboundOrchestrator(workspace.rawMaterialInboundRepository).applyAction({
     workspace,
     inboundId: existingInbound.id,
     action: "reparse_ocr",
