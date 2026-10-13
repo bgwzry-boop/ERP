@@ -15,6 +15,7 @@ import {
 } from "./rawMaterialTraceabilityRecordNormalizer.mjs";
 import { normalizeRawMaterialOcrMetadata } from "./rawMaterialInboundOcrSupport.mjs";
 import { calculateRawMaterialOrderRequirement } from "../shared/rawMaterialInventorySupport.js";
+import { resolveRawMaterialUsage } from "../shared/rawMaterialSpec.js";
 
 export function resolveRawMaterialProductionTaskMatch(input = {}) {
   const workspace = input.workspace ?? {};
@@ -68,13 +69,19 @@ export function resolveRawMaterialProductionTaskMatch(input = {}) {
   const taskBagColorKey = normalizeRawMaterialColorKey(taskBagColor);
   const goodsSpec = buildRawMaterialProductionTaskGoodsSpec(productionTask, orderLine);
   const materialWidthCm = Number(inbound.widthCm) || 0;
+  const { materialCategory } = resolveRawMaterialUsage({
+    widthCm: materialWidthCm,
+    texts: [inbound.materialCategory, materialType, productName],
+  });
+  const isBagBodyMaterial = materialCategory === "布料" || (!materialCategory && isRawMaterialBagBodyMaterial(materialType, productName));
+  const isHandleMaterial = materialCategory === "提手条" || (!materialCategory && isRawMaterialHandleMaterial(materialType, productName));
   const orderRequirement = calculateRawMaterialOrderRequirement({
     ...orderLine,
     plannedQty: productionTask.plannedQty ?? productionTask.planned_qty ?? productionTask.qty,
   });
 
   if (
-    isRawMaterialBagBodyMaterial(materialType, productName) &&
+    isBagBodyMaterial &&
     materialWidthCm > 0 &&
     orderRequirement.requiredWidthCm > 0 &&
     materialWidthCm !== orderRequirement.requiredWidthCm
@@ -86,7 +93,7 @@ export function resolveRawMaterialProductionTaskMatch(input = {}) {
   }
 
   if (
-    isRawMaterialBagBodyMaterial(materialType, productName) &&
+    isBagBodyMaterial &&
     materialColorKey &&
     taskBagColorKey &&
     materialColorKey !== taskBagColorKey
@@ -97,7 +104,7 @@ export function resolveRawMaterialProductionTaskMatch(input = {}) {
     );
   }
 
-  if (isRawMaterialHandleMaterial(materialType, productName)) {
+  if (isHandleMaterial) {
     return {
       status: "需复核",
       reason: "生产任务已关联；提手颜色和提手类型仍需按现场实物或订单备注人工复核。",

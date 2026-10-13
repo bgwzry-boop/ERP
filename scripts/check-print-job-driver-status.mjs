@@ -8,16 +8,17 @@ import {
   listenTestServer,
   postJson as postSharedJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "print-job-driver-status");
 rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 
-const server = createApiServer({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   printDriverAdapterOptions: {
     dryRunEnabled: true,
   },
-});
+}));
 await server.ready;
 await listenTestServer(server);
 

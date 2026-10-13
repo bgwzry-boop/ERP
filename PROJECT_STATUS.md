@@ -1,65 +1,47 @@
 # Project Status
 
-Last updated: 2026-08-12 — current baseline remains `V8.306` plus verified attendance/payroll and Deli-gateway hardening.
+Updated: 2026-10-13. This is a code-integration candidate, not a newly deployed release. V8.306 remains a historical product label.
 
-## Current Verdict
+## Verified Baselines
 
-The accepted desktop/mobile review surfaces now use the formal employee, payroll and self-attendance implementation. The local API is still demo and the ERP is not a release candidate or approved production system.
+| Baseline | Immutable commit | Current state |
+| --- | --- | --- |
+| Remote default | `7888e5efa5a559c0d128b3d512b9f12fee4ffa99` | Unchanged |
+| Draft PR #2 | `54ca593827e7028994b4f1bc91982377f3e3f609` | Open draft, 48 commits above default |
+| Original local line | `c86f0144666b02b0d1bee3ef7b9fe8d320fa239d` | 64 local-only commits versus 12 remote-only commits |
+| Deployed Staging / staging-current | `f0657285ee2159059915126c2bfc8699ee59887b` | Frontend and API release identities match |
+| Integration candidate | `codex/full-baseline-integration-20261013` | Own worktree based on deployed Staging; awaiting draft review |
 
-| Dimension | Current truth |
-| --- | ---: |
-| P0 prototype / core code | `97-98%` |
-| V1 readiness | `80-83%` |
-| Release gates | `0/4` |
-| Production go-live stages | `1/5` |
-| Runtime readiness | `5/11` |
-| Field evidence | `0/40` |
-| Owner signoff | `0/6` |
-| Remaining onsite tasks | `59` |
+The original histories were backed up as a complete Git bundle before integration. Neither the shared original worktree nor the PR #2 worktree was modified. Archive tags preserve historical branches; no branch was deleted.
 
-The generated [go-live suite](/Users/xu/Documents/ERP/.erp-local-storage/v1-go-live-suite/latest.zh-CN.md) is authoritative for release numbers. Local tests and prototypes never override it.
+## Preserved Contracts
 
-## Implemented
+- Production fails closed for local stores, seeds, E2E switches and missing authentication secrets. Demo defaults to PostgreSQL. Local persistence requires an explicit test fixture.
+- Signed review sessions and real-handset routing retain operator attribution. Formal production retains normal authentication.
+- Raw-material receipt evidence, source page attribution, supplier returns, voided-draft isolation, the maintained 35-colour catalog and audited supplier-colour mappings remain authoritative.
+- Fabric defaults to 78gsm; handle strips default to 65gsm and 5cm, with explicit valid source values preserved. Zero-weight rolls cannot become available or be issued; leftover review requires positive weight.
+- Lazy pages and styles remain deferred. The inbound layout, state controller and detail component share one current implementation; repository construction, command orchestration and existing transaction boundaries are retained.
+- SQL locking, idempotency, paper documents, stock and audit writes were not replaced by simplified transactions. Previously deployed migration files retain their checksum compatibility.
 
-- Local preview identity is now explicit and fail-closed: the complete review app owns `bagwin-complete-review-4174 @ 4174`, the root workbench is fixed to `5173`, both Vite configs reject cross-port launches, one canonical launcher starts the review/API pair, and live verification checks app identity, full navigation and API health. Development documents reload when the server identity behind their origin changes.
-- The accepted `4174` desktop mounts the formal `PayrollAttendancePage`; employee detail uses the formal profile/account commands, and phone bootstrap reuses `EmployeeAttendanceMobilePage`. Review fixtures and invented wage/punch values are no longer reachable from business routes.
-- Employee identity, attendance mapping and payroll remain keyed by stable ERP employee number. Names are display fields only. Departed employees retain audit/history and are excluded from active onboarding.
-- Formal payroll covers provider precheck/import, attendance review, closed-natural-month draft generation, audited adjustments, accountant review, management lock, immutable export, payment confirmation and employee history. Missing evidence blocks the run rather than producing zero-hour lines.
-- Payroll policy must persist as draft before publication. Published policy, run identity/state evidence, reviewed payroll lines and export audit are immutable through service/repository/database guards in migrations `0039–0041`.
-- The official Deli D5FN gateway implements E+ `CHECKIN / checkin_query`, official signing, bounded pagination, `ext_id` mapping, Shanghai work dates, persistent `next_id`, immutable minimal punch cache and separate Bearer auth. Migration `0042` stores cursor/cache atomically; `check_data` is never forwarded or persisted.
-- The Deli production preflight is non-mutating and redacted. systemd `ExecStartPre` blocks placeholders, weak/reused identities, non-official upstreams, unsafe bounds, non-PostgreSQL cache, public Node binding, route drift, symlinked env files and group/other-readable secrets.
-- D49 still fails closed on incomplete employee payroll/attendance setup, but the wage source is no longer missing. The owner-provided `26年工资 (2).xlsx` has been re-read: 28 employee sheets plus `汇总`, 144 populated payroll-period rows, nine currently repeated hourly job/rate combinations, one separate `送货司机 180元/天` daily-wage mode, retained early-period rate exceptions, and a monthly seniority schedule starting at `满1年 30元` then `+15元/年`. The accepted target remains position-based wage authority: each active employee still needs profile dates, a stable payroll-position link and a real attendance identity; the extracted rate/mode values still need an effective-dated draft/publish workflow before they become formal policy.
-- Database/OpenAPI truth is `45 migrations / 100 tables / 206 paths / 469 schemas`. The immutable departure operation timestamp is now separate from the explicit final work date used by attendance and payroll, so a delayed HR entry cannot extend the employment interval. Payroll-line adjustments can now persist up to five authenticated business-owned evidence attachments; owner, payroll run, uploader, file content/type/size and employee identity are validated before the IDs enter audit history. Payroll run, line, adjustment response and employee history are no longer loose untyped objects in OpenAPI. PostgreSQL 16 evidence covers these boundaries, attendance import, payroll concurrency/immutability, export audit, Deli cursor/dedupe/redaction and restore requirements.
-- The production deployment manifest is `21/21`, including Node 24, API/health units, graceful shutdown, nginx/static/API wiring, Miniapp integration workers, controlled release/recovery and the Deli gateway startup preflight.
+## Validation
 
-## Hard Blockers
+- Passed: Linux Node 24 code checks 147/147, raw-material API/page checks, complete-review unit checks 39/39, root/review builds and MinIO round trips.
+- Passed: PostgreSQL 16 live checks, core browser scenarios 10/10 and complete-review browser scenarios 2/2. Both remote CI runs passed for integration commit `5bd2f87`; the current head is tracked by [PR #3 checks](https://github.com/bgwzry-boop/ERP/pull/3/checks).
+- Root and all four preview package locks report zero audit findings. No forced major-version upgrade was used.
+- Local 4174 uses an explicit test fixture and displays `本地修改稿 · 未部署`; review:check verifies app identity, navigation, shell and API health before delivery.
+- A macOS 160-read concurrency failure also reproduced on the untouched original local baseline. The unchanged Linux Node 24 test passed all 160 reads and the two-session write/conflict assertions; no request count or assertion was reduced. This is lab evidence, not production capacity acceptance.
 
-1. D49: the owner will provide birth/hire and related personnel data later. The wage workbook and its job/rate composition are available, but active employee-to-payroll-position links, exact policy effective dates and finance publication are not complete. One account is deliberately enabled for functional testing; 28 active accounts stay pending, while two departed accounts remain disabled.
-2. Attendance live: the current punch machine is not assumed to support direct API access. The provider stays disabled for the pilot and formal payroll remains blocked. If a replacement device/provider is chosen, its authorization, adapter, person mapping, HTTPS deployment and first small-window read-only precheck become required; the existing Deli path is not forced.
-3. Payroll business: the controlled rule-confirmation workbook still has `0/25` required rules filled; no owner-approved effective policy exists, and no real punches, closed-month coverage, payroll run, formal export or payment have been executed.
-4. D50: production PostgreSQL, an independent restore-validation database, attachment/export object storage, real production environment values, migrations `0039–0045`, runtime smoke and backup/restore evidence are absent. The existing Tencent server is staging and cannot be relabelled as production without the controlled release contract.
-5. D51–D52: label/dot-matrix printers, CUPS, scanners, physical output and driver real-device/full-order acceptance are absent.
-6. D53: field evidence remains `0/40`, owner signoff `0/6`, with V1/V2 boundary, controlled release commit, deployment and rollback still pending. The six added evidence items make a real attendance/payroll closeout mandatory rather than optional.
+## Field And Release Boundaries
 
-## Remaining Code Work
+The owner confirmed on 2026-10-13 that the label printer is not ready. Physical output, attachment, scanning and the real delivery-note/issue/supplier-reconciliation loop remain pending. Payroll and whole-ERP acceptance remain separate from the approved raw-material-first scope.
 
-- Keep any attendance gateway and ERP provider as separate identities and deployments; add no production secret or employee value to Git, browser storage, logs or chat.
-- Import missing employee profile dates and attendance mappings only after the owner supplies them and the controlled workbook passes strict offline review and explicit confirmation. Reuse the already supplied wage workbook for payroll-position/rate drafts instead of asking for the same wage data again; extend the formal policy/run contract with an explicit daily-wage mode before importing the `送货司机 180元/天` standard.
-- Preserve fail-closed payroll rules while completing production integration and acceptance; do not replace real attendance with review fixtures.
-- Connect the approved payroll-adjustment evidence design to the formal page, then make evidence mandatory for amount-changing adjustments; the additive database/API contract already accepts validated evidence without breaking the current page.
-- Continue only justified maintenance and release-gate fixes. AI anomaly/radar work remains V2 and does not replace D49–D53.
+The exact first-release entries for supplier-colour maintenance, OCR reparse and draft voiding were repaired without changing operation permissions or transaction guards. The [raw-material handoff](docs/development/raw-material-first-release-handoff-2026-07-18.zh-CN.md) now lists actual inputs and field evidence. A read-only Staging observation confirms PostgreSQL/object storage and release identity; the served full-ERP report still uses an August 29 artifact, so its counters are not a newly refreshed first-release acceptance.
 
-## Latest Verification
+Historical figures of 97-98% code, 80-83% readiness, 0/4 release gates, 0/40 field evidence and 0/6 signoffs are prior-report values, not a fresh 2026-10-13 acceptance. Code integration does not advance them. Existing PostgreSQL/COS resources are known from prior checks; restore validation, target configuration and onsite evidence require a current read-only reassessment.
 
-- The complete core gate passes `117/117`. The current controlled D49 workbook was rechecked with `29` active rows and full `8/8` role coverage, but strict payroll/attendance completeness remains `0/29`; this separates usable employee/role intake from missing profile, wage and Deli mapping data. Payroll/attendance is recalibrated to `93% code / 28% live`; release evidence is `40` items in `7` groups, including the first real attendance/payroll closeout, with zero completed evidence.
-- The prior status-document length failure is closed: current files are concise, full 2026-08-12 snapshots and V8.80 archives remain linked, and the original thresholds were not weakened.
-- No live Deli request, real attendance/payroll write, production migration, physical print, deployment, release refresh or gate increase was performed.
-
-## Immediate Next Step
-
-Complete the position-based payroll contract from the already supplied wage workbook and keep the one-account pilot isolated. When the owner supplies the remaining personnel dates and selects an API-capable attendance source, complete controlled employee/position/provider mappings and the first read-only real sync before any formal attendance import or payroll draft. Production infrastructure continues only through the dedicated controlled deployment task.
+No default-branch merge, deployment, staging-current update, real payroll write or visibility change occurred in this integration task. A later dedicated release must use a clean pushed full commit and the exact controlled lock, then verify matching frontend/API commit, target, version and digest.
 
 ## History
 
-- [Complete status snapshot through 2026-08-12](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/PROJECT_STATUS-through-2026-08-12.md)
+- [Full snapshot through 2026-08-12](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/PROJECT_STATUS-through-2026-08-12.md)
 - [Historical log through V8.80](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/PROJECT_STATUS-through-v8.80.md)

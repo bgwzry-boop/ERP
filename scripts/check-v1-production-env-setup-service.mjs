@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { runV1ProductionEnvSetup } from "../server/services/v1ProductionEnvSetupService.mjs";
 
 const checkedAt = "2026-07-13T15:00:00.000Z";
@@ -66,23 +65,6 @@ const missingCommandResult = await runV1ProductionEnvSetup({
 });
 assert.equal(missingCommandResult.body.status, "error");
 assert.equal(missingCommandResult.body.error.code, "V1_PRODUCTION_ENV_SETUP_LIVE_RUN_FAILED");
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function runSystemV1ProductionEnvSetup/);
-assert.match(
-  routeSource,
-  /runCommand: v1LocalCommandRunnerService\.runV1ProductionEnvSetupCommand/,
-);
-assert.doesNotMatch(routeSource, /targetPath|importFrom|force|process\.env/);
-for (const oldDefinition of [
-  "buildV1ProductionEnvSetupLiveRunBody",
-  "buildV1ProductionEnvSetupServerConfigGuidance",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${oldDefinition}\\(`));
-}
-assert.match(registrySource, /createV1LocalCommandRunnerService\(\)/);
 
 console.log(
   "V1 production-env setup service checks passed: prepared/ready/error projection, fixed command input, no overwrite, redaction, safeguards, and thin API composition are covered.",

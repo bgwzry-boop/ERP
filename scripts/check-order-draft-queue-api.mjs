@@ -9,8 +9,9 @@ import {
   listenTestServer,
   postJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
-const server = createApiServer({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false });
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", applyProductionEnvFile: false }));
 await server.ready;
 await listenTestServer(server);
 

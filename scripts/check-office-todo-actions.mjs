@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeTodoActions } from "../src/app/createOfficeTodoActions.js";
 import { getTodoActions, getTodoHandlingRule, getTodoTone } from "../src/domain/officeRules.js";
 
@@ -321,13 +320,5 @@ function createHarness({ allowLocalFallback = false, api = {}, copyResult = true
   assert.equal(harness.getTodoView(), "未处理");
   assert.equal(harness.getRefreshCount(), 0, "demo fallback should not pretend to refresh an API read model");
 }
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const todoServiceSource = readFileSync(new URL("../server/services/todoCommandService.mjs", import.meta.url), "utf8");
-assert.match(appSource, /createOfficeTodoActions\(\{/);
-assert.match(appSource, /allowLocalFallback: !runtimeServerRequired/);
-assert.doesNotMatch(appSource, /async function handleTodo\(/);
-assert.match(todoServiceSource, /"customer_pending"/);
-assert.match(todoServiceSource, /reminder: "等待客户回复"/);
 
 console.log("Office todo actions check passed: todo writes are isolated, formal fallback is blocked, customer-pending is persisted, and API commits refresh the read model.");

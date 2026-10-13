@@ -1,7 +1,12 @@
 import { useCallback } from "react";
-import { getOfficePrintDriverConfig, getOfficePrintDriverCupsDiagnostics, getOfficePrintDriverV1Readiness } from "../services/officePrintDriverConfigApiClient.js";
-import { listOfficePrintJobs } from "../services/officePrintJobApiClient.js";
-import { listOfficePrintDevices, listOfficePrinterDeviceFieldTests } from "../services/officePrinterDeviceApiClient.js";
+import {
+  getOfficePrintDriverConfig,
+  getOfficePrintDriverCupsDiagnostics,
+  getOfficePrintDriverV1Readiness,
+  listOfficePrintDevices,
+  listOfficePrinterDeviceFieldTests,
+  listOfficePrintJobs,
+} from "../services/officePrintLazyApi.js";
 import { isOfficeApiServerRequired } from "../services/officeAuthService.js";
 import {
   createPrinterDeviceFieldTestChecks,

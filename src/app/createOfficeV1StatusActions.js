@@ -1,16 +1,15 @@
 import {
-  createOfficeAttachment,
   createV1FieldEvidenceAttachmentInput,
   createV1FieldEvidenceAttachmentListInput,
   createV1SignoffBoundaryAttachmentInput,
   createV1SignoffBoundaryAttachmentListInput,
-  listOfficeAttachments,
-} from "../services/officeAttachmentApiClient.js";
+} from "../services/officeAttachmentInputs.js";
+import { createOfficeAttachment, listOfficeAttachments } from "../services/officeAttachmentLazyApi.js";
 import {
   getOfficePrintDriverCupsDiagnostics,
   getOfficePrintDriverSpoolDiagnostics,
   getOfficePrintDriverV1Readiness,
-} from "../services/officePrintDriverConfigApiClient.js";
+} from "../services/officePrintLazyApi.js";
 import {
   applyOfficeV1ProductionFirstStageValues,
   generateOfficeV1FieldEvidenceDraftManifest,
@@ -33,7 +32,7 @@ import {
   runOfficeV1ProductionPersistenceEvidence,
   stageOfficeV1FieldEvidenceIntakeRow,
   validateOfficeV1FieldEvidenceDraftManifest,
-} from "../services/officeV1GoLiveStatusApiClient.js";
+} from "../services/officeV1StatusLazyApi.js";
 
 const defaultApi = {
   applyOfficeV1ProductionFirstStageValues,
@@ -466,6 +465,37 @@ export function createOfficeV1StatusActions({
     successMessage: (refresh) => `刷新候选：${refresh.statusLabel || "刷新完成"}；${refresh.summary?.releaseGateLabel || refresh.summary?.label || "发布候选"}，阻塞 ${refresh.summary?.blockerLabel || "0 项"}，候选 ${refresh.summary?.releaseCandidateRefreshed ? "已刷新" : "未刷新"}。`,
   });
 
+  const pageActions = {
+    onApplyProductionFirstStageValues: applyV1ProductionFirstStageValues,
+    onGenerateFieldEvidenceDraft: generateV1FieldEvidenceDraftManifest,
+    onListFieldEvidenceAttachments: listV1FieldEvidenceAttachments,
+    onListSignoffBoundaryAttachments: listV1SignoffBoundaryAttachments,
+    onPrecheckProductionEnv: precheckV1ProductionEnv,
+    onPrecheckProductionEnvFileAudit: precheckV1ProductionEnvFileAudit,
+    onPrecheckProductionEnvFilePreview: precheckV1ProductionEnvFilePreview,
+    onPrecheckProductionEnvIntake: precheckV1ProductionEnvIntake,
+    onPrecheckProductionFirstStageValuesDryRun: precheckV1ProductionFirstStageValuesDryRun,
+    onPrecheckProductionGoLive: precheckV1ProductionGoLive,
+    onPrecheckReleaseCandidateRefresh: precheckV1ReleaseCandidateRefresh,
+    onPrecheckRuntimeReadiness: precheckV1RuntimeReadiness,
+    onPrecheckV1AttachmentRetention: precheckV1AttachmentRetention,
+    onPrecheckV1DriverReadiness: precheckV1DriverReadiness,
+    onPrecheckV1Persistence: precheckV1Persistence,
+    onPrecheckV1PrintCups: precheckV1PrintCups,
+    onPrecheckV1PrintReadiness: precheckV1PrintReadiness,
+    onPrecheckV1PrintSpool: precheckV1PrintSpool,
+    onPrecheckV1V2Boundary: precheckV1V2Boundary,
+    onRefreshReleaseCandidate: refreshV1ReleaseCandidate,
+    onRefreshV1V2ScopeBrief: refreshV1V2ScopeBrief,
+    onRunProductionEnvSetup: runV1ProductionEnvSetup,
+    onRunProductionFirstStageExecution: runV1ProductionFirstStageExecution,
+    onRunProductionPersistenceEvidence: runV1ProductionPersistenceEvidence,
+    onStageFieldEvidenceRow: stageV1FieldEvidenceIntakeRow,
+    onUploadFieldEvidenceAttachment: uploadV1FieldEvidenceAttachment,
+    onUploadSignoffBoundaryAttachment: uploadV1SignoffBoundaryAttachment,
+    onValidateFieldEvidenceDraft: validateV1FieldEvidenceDraftManifest,
+  };
+
   return {
     applyV1ProductionFirstStageValues,
     generateV1FieldEvidenceDraftManifest,
@@ -492,6 +522,7 @@ export function createOfficeV1StatusActions({
     runV1ProductionFirstStageExecution,
     runV1ProductionPersistenceEvidence,
     stageV1FieldEvidenceIntakeRow,
+    pageActions,
     uploadV1FieldEvidenceAttachment,
     uploadV1SignoffBoundaryAttachment,
     validateV1FieldEvidenceDraftManifest,

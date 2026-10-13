@@ -15,6 +15,7 @@ import {
   v1RuntimeEmployeeRoleKeys,
 } from "../shared/auth/roleCatalog.js";
 import { buildMasterDataImportTemplateWorkbook } from "../src/domain/masterDataImportTemplate.js";
+import { findPayrollPosition } from "../shared/payrollPositionCatalog.js";
 
 const DEFAULT_DRAFT_PATH = join(
   ".erp-local-storage",
@@ -109,9 +110,11 @@ function normalizeEmployees(rows) {
       additionalRoleInputs,
     ]);
     const employeeNumber = normalizeEmployeeNumber(row?.employeeNumber);
+    const payrollPositionKey = cleanText(row?.payrollPositionKey, 64).toUpperCase();
     if (!employeeName) throw new Error("employee_name_missing");
     if (!roleKey) throw new Error("employee_role_invalid");
     if (employeeNumber && !isValidEmployeeNumber(employeeNumber)) throw new Error("employee_number_invalid");
+    if (payrollPositionKey && !findPayrollPosition(payrollPositionKey)) throw new Error("employee_payroll_position_invalid");
     if (employeeNumber) {
       const numberKey = normalizeEmployeeNumberKey(employeeNumber);
       if (employeeNumberKeys.has(numberKey)) throw new Error("employee_number_duplicate");
@@ -128,6 +131,7 @@ function normalizeEmployees(rows) {
         .map((candidate) => roleCatalog[candidate].displayName),
       defaultWorkshop: cleanText(row?.defaultWorkshop, 80),
       defaultMachine: cleanText(row?.defaultMachine, 80),
+      payrollPositionKey,
     };
   });
 }
@@ -142,6 +146,7 @@ function projectEmployeeRow(employee) {
     附加角色: employee.additionalRoleLabels.join("、"),
     默认车间: employee.defaultWorkshop,
     默认机台: employee.defaultMachine,
+    工资岗位键: employee.payrollPositionKey,
     基础时薪: "",
     "岗位补贴/小时": "",
     生效日期: "",
@@ -308,6 +313,7 @@ function errorMessage(code) {
     draft_row_count_invalid: "受控员工草稿行数为空或超过上限。",
     employee_name_missing: "受控员工草稿存在姓名缺失行。",
     employee_role_invalid: "受控员工草稿存在未知岗位。",
+    employee_payroll_position_invalid: "受控员工草稿存在未知工资岗位键。",
     employee_number_invalid: "受控员工草稿存在格式不合规的员工编号。",
     employee_number_duplicate: "受控员工草稿存在重复员工编号。",
     excluded_employee_number_duplicate: "同一个排除员工编号被重复提交。",

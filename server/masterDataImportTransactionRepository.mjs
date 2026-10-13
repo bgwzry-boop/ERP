@@ -385,6 +385,9 @@ function prepareImportedEmployeeProfiles(currentRecords = [], incomingRecords = 
       ...record,
       birthDate: presence.birthDate === true ? record.birthDate : cleanText(existing.birthDate),
       hireDate: presence.hireDate === true ? record.hireDate : cleanText(existing.hireDate),
+      payrollPositionKey: presence.payrollPositionKey === true
+        ? cleanText(record.payrollPositionKey)
+        : cleanText(existing.payrollPositionKey),
       baseHourlyWage: presence.baseHourlyWage === true
         ? record.baseHourlyWage
         : toFiniteNumber(existing.baseHourlyWage),
@@ -692,6 +695,7 @@ function normalizeRecord(recordType, record = {}) {
       defaultMachineId: cleanText(record.defaultMachineId),
       birthDate: cleanText(record.birthDate),
       hireDate: cleanText(record.hireDate),
+      payrollPositionKey: cleanText(record.payrollPositionKey),
       baseHourlyWage: toFiniteNumber(record.baseHourlyWage),
       positionAllowanceHourly: toFiniteNumber(record.positionAllowanceHourly),
       wageEffectiveFrom: cleanText(record.wageEffectiveFrom),
@@ -903,7 +907,7 @@ function buildInsertRecordsSql(recordType, records, operatorId, parameters) {
     ]);
   }
   if (recordType === "employees") {
-    return buildInsertSql("employees", ["id", "biz_no", "user_id", "name", "role_name", "default_workshop", "default_machine_id", "birth_date", "hire_date", "base_hourly_wage", "position_allowance_hourly", "wage_effective_from", "attendance_provider", "attendance_external_id", "attendance_mapping_updated_by", "attendance_mapping_updated_at", "account_enabled", "profile_status", "requested_enabled", "remark", "created_by"], records, (record) => [
+    return buildInsertSql("employees", ["id", "biz_no", "user_id", "name", "role_name", "default_workshop", "default_machine_id", "birth_date", "hire_date", "payroll_position_key", "base_hourly_wage", "position_allowance_hourly", "wage_effective_from", "attendance_provider", "attendance_external_id", "attendance_mapping_updated_by", "attendance_mapping_updated_at", "account_enabled", "profile_status", "requested_enabled", "remark", "created_by"], records, (record) => [
       sqlLiteral(record.id),
       sqlLiteral(record.bizNo),
       sqlNullableLiteral(record.userId),
@@ -913,6 +917,7 @@ function buildInsertRecordsSql(recordType, records, operatorId, parameters) {
       sqlNullableLiteral(record.defaultMachineId),
       sqlNullableDate(record.birthDate),
       sqlNullableDate(record.hireDate),
+      sqlLiteral(record.payrollPositionKey),
       sqlNumber(record.baseHourlyWage),
       sqlNumber(record.positionAllowanceHourly),
       sqlNullableDate(record.wageEffectiveFrom),

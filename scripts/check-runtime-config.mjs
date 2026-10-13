@@ -15,6 +15,7 @@ import {
   v1PersistencePostgresRepositoryOptionKeys,
 } from "../server/v1PersistenceProfile.mjs";
 import { resetDemoRuntimeData } from "./reset-erp-runtime-data.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageBase = join(process.cwd(), ".erp-local-storage", "checks", "runtime-config");
 rmSync(storageBase, { recursive: true, force: true });
@@ -65,12 +66,12 @@ assert.throws(
 
 assert.throws(
   () =>
-    createApiServer({ allowLocalFixture: true,
+    createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
       runtimeMode: "production",
       firstReleaseScope: "raw_material",
       applyProductionEnvFile: false,
       authSecret: "runtime-config-check-secret",
-    }),
+    })),
   (error) => error?.code === "ERP_PRODUCTION_PERSISTENCE_REQUIRED" && /PostgreSQL/.test(error.message),
 );
 
@@ -84,7 +85,7 @@ const objectStorageOptions = {
 };
 assert.throws(
   () =>
-    createApiServer({ allowLocalFixture: true,
+    createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
       runtimeMode: "production",
       firstReleaseScope: "raw_material",
       applyProductionEnvFile: false,
@@ -95,14 +96,14 @@ assert.throws(
         objectStorageOptions,
       },
       attachmentRepositoryOptions: { mode: "local" },
-    }),
+    })),
   (error) =>
     error?.code === "ERP_PRODUCTION_BOOT_REFUSED" &&
     error?.details?.optionKeys?.includes("attachmentRepositoryOptions.mode"),
 );
 
 assert.throws(
-  () => createApiServer({ allowLocalFixture: true,
+  () => createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     runtimeMode: "production",
     applyProductionEnvFile: false,
     authSecret: "runtime-config-check-secret",
@@ -111,12 +112,12 @@ assert.throws(
       queryJson: async () => [],
       objectStorageOptions,
     },
-  }),
+  })),
   (error) => error?.code === "FIRST_RELEASE_SCOPE_REQUIRED",
   "a production API with valid persistence wiring must still refuse startup without the first-release scope",
 );
 
-const productionServer = createApiServer({ allowLocalFixture: true,
+const productionServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   runtimeMode: "production",
   firstReleaseScope: "raw_material",
   applyProductionEnvFile: false,
@@ -147,7 +148,7 @@ const productionServer = createApiServer({ allowLocalFixture: true,
       revokedSeedSessions: [],
     }),
   },
-});
+}));
 await productionServer.ready;
 await listen(productionServer);
 try {

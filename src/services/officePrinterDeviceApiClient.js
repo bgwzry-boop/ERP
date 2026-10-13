@@ -6,7 +6,12 @@ import {
   normalizePrinterDeviceFieldTestChecks,
 } from "./printerDeviceFieldTestClient.js";
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
-import { requestOfficeApi as requestPrinterDeviceApi } from "./officeApiClientCore.js";
+import {
+  buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
+  readOfficeApiJson as readJson,
+  requestOfficeApi as requestPrinterDeviceApi,
+  toOfficeApiError as toApiError,
+} from "./officeApiClientCore.js";
 
 export async function listOfficePrintDevices(input = {}, options = {}) {
   const { authState, query = {}, operatorId, localPrintDevices = [] } = input;
@@ -478,33 +483,6 @@ function invalidPrinterDeviceInput(code, message) {
     source: "api_error",
     blocked: true,
     error: { code, message },
-  };
-}
-
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function toApiError(json, status, fallbackMessage) {
-  return {
-    code: json?.code ?? `HTTP_${status}`,
-    message: json?.message ?? fallbackMessage,
-    requiredPermission: json?.requiredPermission,
-  };
-}
-
-function buildServerRequiredWriteError(code, error) {
-  return {
-    source: "api_error",
-    blocked: true,
-    error: {
-      code,
-      message: `生产模式要求后端事务，未执行本地降级：${error?.message ?? String(error)}`,
-    },
   };
 }
 

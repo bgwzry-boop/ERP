@@ -9,15 +9,17 @@
     "preview": "vite preview",
     "test:navigation": "node --test tests/navigation-permissions.test.mjs",
     "test:mobile": "node --test tests/mobile-formal-flow.test.mjs",
-    "test:formal-desktop": "node --test tests/formal-desktop-workspace.test.mjs",
+    "test:formal-desktop": "node --test tests/formal-desktop-workspace.test.mjs tests/receipt-presentation.test.mjs",
     "test:roll-inventory": "node --test tests/roll-inventory-presentation.test.mjs",
     "test:sites": "node --test tests/sites-worker.test.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
-    "@vitejs/plugin-react": "5.0.4",
     "react": "19.2.0",
-    "react-dom": "19.2.0",
-    "vite": "6.4.2"
+    "react-dom": "19.2.0"
+  },
+  "devDependencies": {
+    "vite": "6.4.4",
+    "@vitejs/plugin-react": "5.0.4"
   }
 }

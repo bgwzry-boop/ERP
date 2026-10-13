@@ -66,6 +66,37 @@ assert(previewBootstrap.authenticated === true, "staging preview must bootstrap 
 assert(previewBootstrapCalls[0]?.url === `${apiBaseUrl}/auth/prototype-login`, "staging preview called the wrong session bootstrap endpoint");
 assert(previewBootstrapCalls[0]?.body.userId === "U-MANAGER-A", "staging preview bootstrapped the wrong user");
 assert(readStoredSeedSession(previewBootstrapStorage)?.accessToken === "seed-session.staging-preview-check", "staging preview did not retain its signed seed session");
+const wrongPreviewIdentityStorage = createMemoryStorage();
+wrongPreviewIdentityStorage.setItem(seedAuthStorageKey, JSON.stringify({
+  accessToken: "seed-session.office-a-from-old-preview",
+  sessionType: "seed",
+  userId: "U-OFFICE-A",
+}));
+const wrongPreviewIdentityCalls = [];
+const correctedPreviewIdentity = await initializeSeedAuth({
+  runtimeMode: "test",
+  stagingAuthBypass: true,
+  defaultUserId: "U-MANAGER-A",
+  apiBaseUrl,
+  storage: wrongPreviewIdentityStorage,
+  fetchImpl: async (url, init) => {
+    wrongPreviewIdentityCalls.push(url);
+    assert(url === `${apiBaseUrl}/auth/prototype-login`, "fixed preview identity must not restore another user's old session");
+    assert(JSON.parse(init.body).userId === "U-MANAGER-A", "fixed preview identity recovered as the wrong user");
+    return createJsonResponse(200, {
+      session: {
+        accessToken: "seed-session.staging-preview-identity-corrected",
+        tokenType: "Bearer",
+        sessionType: "seed",
+        userId: "U-MANAGER-A",
+      },
+      permissions: fullFeatureStagingPreview.permissions,
+    });
+  },
+});
+assert(wrongPreviewIdentityCalls.length === 1, "fixed preview identity should replace a mismatched stored session in one request");
+assert(correctedPreviewIdentity.authenticated === true && correctedPreviewIdentity.session.userId === "U-MANAGER-A", "fixed preview identity was not restored as management");
+assert(readStoredSeedSession(wrongPreviewIdentityStorage)?.userId === "U-MANAGER-A", "fixed preview identity did not replace the mismatched stored session");
 const stalePreviewStorage = createMemoryStorage();
 stalePreviewStorage.setItem(seedAuthStorageKey, JSON.stringify({
   accessToken: "erp-runtime-session-v1.stale-preview-session",
@@ -97,7 +128,7 @@ const recoveredPreview = await initializeSeedAuth({
     });
   },
 });
-assert(stalePreviewRequestCount === 2, "staging preview must replace one stale session through the backend");
+assert(stalePreviewRequestCount === 1, "staging preview must replace a stale mismatched identity without first restoring it");
 assert(recoveredPreview.authenticated === true && recoveredPreview.session.userId === "U-MANAGER-A", "staging preview did not recover from a stale session");
 assert(readStoredSeedSession(stalePreviewStorage)?.accessToken === "seed-session.staging-preview-recovered", "staging preview did not replace the stale token");
 const productionInitialState = createInitialAuthState({ runtimeMode: "production" });
@@ -203,6 +234,34 @@ assert(
   !requiresRuntimePasswordChange({ ...runtimeLogin, session: { ...runtimeLogin.session, sessionType: "seed" } }),
   "seed sessions must not enter the formal-account password-change state",
 );
+
+const timedOutRuntimeLogin = await loginRuntimeUser(
+  { loginName: "employee.001", password: "formal-password-001" },
+  {
+    apiBaseUrl,
+    runtimeMode: "production",
+    timeoutMs: 5,
+    fetchImpl: createAbortAwarePendingFetch(),
+  },
+);
+assert(timedOutRuntimeLogin.authenticated === false, "a timed-out formal login must remain unauthenticated");
+assert(timedOutRuntimeLogin.error?.code === "REQUEST_TIMEOUT", "a timed-out formal login must expose REQUEST_TIMEOUT");
+
+const authAbortController = new AbortController();
+const abortedRuntimeLoginPromise = loginRuntimeUser(
+  { loginName: "employee.001", password: "formal-password-001" },
+  {
+    apiBaseUrl,
+    runtimeMode: "production",
+    signal: authAbortController.signal,
+    fetchImpl: createAbortAwarePendingFetch(),
+  },
+);
+authAbortController.abort();
+const abortedRuntimeLogin = await abortedRuntimeLoginPromise;
+assert(abortedRuntimeLogin.authenticated === false, "a cancelled formal login must remain unauthenticated");
+assert(abortedRuntimeLogin.error?.code === "REQUEST_ABORTED", "a cancelled formal login must expose REQUEST_ABORTED");
+
 const expiredPresentation = getRuntimePasswordChangePresentation({ passwordStatus: "password_expired" });
 assert(expiredPresentation.title === "密码已过期", "expired runtime users should receive the password-expiry title");
 assert(expiredPresentation.currentPasswordLabel === "当前密码", "expired runtime users should not be prompted for a temporary password");
@@ -517,6 +576,12 @@ function createJsonResponse(status, body) {
       return body;
     },
   };
+}
+
+function createAbortAwarePendingFetch() {
+  return async (_url, init) => new Promise((_, reject) => {
+    init.signal.addEventListener("abort", () => reject(init.signal.reason), { once: true });
+  });
 }
 
 function createMemoryStorage() {

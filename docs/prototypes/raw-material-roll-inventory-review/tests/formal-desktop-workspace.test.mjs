@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 import { buildEmployeeProfile, formatEmployeeAge, formatEmployeeTenure } from "../src/employee-profile.js";
+import { detectCompleteReviewRuntimeFamily } from "../src/review-runtime-family.js";
 import { assertCompleteReviewStaticIdentity } from "../../../../scripts/completeReviewPreviewIdentity.mjs";
+import { resolveOfficeWorkbenchNavigation } from "../../../../src/app/useOfficeWorkbenchNavigation.js";
+import { getRolePermissionSet } from "../../../../shared/auth/roleCatalog.js";
 
 const readSource = (relativePath) => readFile(new URL(relativePath, import.meta.url), "utf8");
 
@@ -11,6 +14,92 @@ test("4174 has one immutable local preview identity", async () => {
   assert.equal(identity.appId, "bagwin-complete-review-4174");
   assert.equal(identity.port, 4174);
   assert.equal(identity.rootWorkbenchPort, 5173);
+});
+
+test("bare root workbench navigation cannot masquerade as the 4174 review", async () => {
+  const rootViteSource = await readFile(new URL("../../../../vite.config.mjs", import.meta.url), "utf8");
+  assert.match(rootViteSource, /ERP_INTERNAL_WORKBENCH_EXPLICIT_ACCESS_REQUIRED/);
+  assert.match(rootViteSource, /searchParams\.get\("internalWorkbench"\) === "1"/);
+  assert.match(rootViteSource, /http:\/\/127\.0\.0\.1:4174\/\?source=review-guard/);
+});
+
+test("4174 mobile review uses a signed passwordless preview session", async () => {
+  const [mobileEntrySource, appSource, authInitializationSource] = await Promise.all([
+    readSource("../src/FormalMobileEntry.jsx"),
+    readSource("../../../../src/App.jsx"),
+    readSource("../../../../src/app/useRuntimeAuthInitialization.js"),
+  ]);
+
+  assert.match(mobileEntrySource, /<App signedPreviewUserId="U-MANAGER-A" \/>/, "mobile review should explicitly request the fixed signed preview identity");
+  assert.match(appSource, /stagingAuthBypass:\s*true/, "the signed preview identity should bypass only the visible password boundary");
+  assert.match(appSource, /createInitialAuthState\(signedPreviewAuthOptions \?\? undefined\)/, "the initial mobile state should use the same preview auth contract");
+  assert.equal(resolveOfficeWorkbenchNavigation({
+    activePage: "todos", mobileViewport: true, signedPreviewMode: true,
+    permissionContext: { ...getRolePermissionSet(["management"]), user: { defaultRole: "management", userId: "U-MANAGER-A" } },
+  }).renderedPage, "rawMaterials", "the fixed management preview should enter the formal raw-material phone route");
+  const shellSource = await readSource("../../../../src/app/OfficeWorkbenchShell.jsx");
+  assert.match(shellSource, /fixedPreviewMode=\{signedPreviewMode\}/, "the fixed preview identity should not expose the demo role switcher");
+  assert.match(authInitializationSource, /initializeSeedAuth\(\{ \.\.\.\(authOptions \?\? \{\}\), serverRequired \}\)/, "mobile startup should exchange the preview identity for a backend-signed session");
+});
+
+test("4174 desktop account identity is read-only instead of a fake dropdown", async () => {
+  const appSource = await readSource("../src/App.jsx");
+
+  assert.match(appSource, /aria-label=\{`当前账号：\$\{account\.displayName\}/, "the desktop shell should name the signed current account explicitly");
+  assert.match(appSource, /className="account" role="status"/, "the desktop account identity should be announced as read-only status");
+  assert.doesNotMatch(appSource, /<button className="account"/, "an account menu that does not exist must not be presented as a button");
+});
+
+test("staging preview refuses restored sessions from a different identity", async () => {
+  const authServiceSource = await readSource("../../../../src/services/officeAuthService.js");
+
+  assert.match(authServiceSource, /String\(storedSession\.userId \?\? ""\)\.trim\(\) !== stagingPreviewUserId/, "preview startup should reject an old session for another user");
+  assert.match(authServiceSource, /json\?\.session\?\.userId \?\? json\?\.permissions\?\.user\?\.userId/, "preview startup should verify the restored server identity too");
+  assert.match(authServiceSource, /return loginSeedUser\(stagingPreviewUserId, options\)/, "preview startup should replace mismatched sessions with its fixed signed identity");
+});
+
+test("4174 keeps desktop browsers on the accepted shell regardless of narrow window width", async () => {
+  const [entrySource, runtimeFamilySource] = await Promise.all([
+    readSource("../src/complete-review-entry.jsx"),
+    readSource("../src/review-runtime-family.js"),
+  ]);
+
+  assert.match(entrySource, /detectCompleteReviewRuntimeFamily\(window\)/, "the review entry should detect the real runtime family instead of treating a narrow desktop window as a phone");
+  assert.match(entrySource, /declaredViewportFamily !== expectedViewportFamily/, "a stale viewport marker should be corrected before either shell renders");
+  assert.match(entrySource, /dataset\.erpRuntimeFamily = expectedViewportFamily/, "the mounted review should expose its runtime-family assertion for verification");
+  assert.match(entrySource, /本地修改稿 · 未部署/, "the local review must never masquerade as a deployed release");
+  assert.match(entrySource, /handsetRuntime && phoneViewportQuery\.matches/, "only a real handset at phone width may enter the formal phone shell");
+  assert.match(entrySource, /phoneViewportQuery\.addEventListener\("change", reloadForViewportFamily\)/, "crossing viewport families must reload the canonical entry");
+  assert.match(entrySource, /handsetRuntime && event\.matches \? "mobile" : "desktop"/, "a widened phone must return to the complete desktop shell");
+  assert.match(runtimeFamilySource, /userAgentData\?\.mobile/, "modern browser client hints should be the primary runtime-family signal");
+  assert.match(runtimeFamilySource, /Android\.\+Mobile\|iPhone/, "real handset user agents should retain the approved formal phone flow");
+});
+
+test("runtime family distinguishes office desktops from real handsets without viewport width", () => {
+  assert.equal(detectCompleteReviewRuntimeFamily({
+    navigator: {
+      userAgentData: { mobile: false },
+      userAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0",
+    },
+  }), "desktop");
+  assert.equal(detectCompleteReviewRuntimeFamily({
+    navigator: {
+      userAgentData: { mobile: true },
+      userAgent: "Mozilla/5.0 (Linux; Android 16; Pixel 9) Chrome/140.0 Mobile",
+    },
+  }), "mobile");
+  assert.equal(detectCompleteReviewRuntimeFamily({
+    navigator: {
+      userAgent: "Mozilla/5.0 (iPhone; CPU iPhone OS 19_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148",
+    },
+  }), "mobile");
+  assert.equal(detectCompleteReviewRuntimeFamily({
+    navigator: {
+      userAgent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 Chrome/140.0",
+      platform: "MacIntel",
+      maxTouchPoints: 0,
+    },
+  }), "desktop");
 });
 
 test("desktop workbenches consume formal APIs without fixture fallbacks", async () => {
@@ -46,6 +135,32 @@ test("desktop workbenches consume formal APIs without fixture fallbacks", async 
   assert.match(appSource, /sourceRolls\[0\]\?\.id \|\| ""/, "roll selection must not dereference an undefined legacy fixture");
   assert.doesNotMatch(appSource, /sourceRolls = rolls/, "roll inventory must not reference the removed fixture variable");
   assert.match(appSource, /selectedRoll \? <><dl>/, "the source rail must render an explicit empty state before formal rolls arrive");
+  assert.match(appSource, /formatInventoryRollAmount\(roll\)/, "confirmed inventory amounts should use the shared weight formatter");
+  assert.match(appSource, /"待补重量"/, "a missing weight must stay explicit instead of becoming an invented piece amount");
+});
+
+test("outbound delivery and supplier month-end share the complete review list-detail shell", async () => {
+  const [appSource, workspacesSource, stylesSource] = await Promise.all([
+    readSource("../src/App.jsx"),
+    readSource("../src/BusinessWorkspaces.jsx"),
+    readSource("../src/business-workspaces.css"),
+  ]);
+
+  assert.doesNotMatch(appSource, /function StatementWorkspace/, "supplier month-end must not retain its older standalone list shell");
+  assert.match(appSource, /!isRawMaterialView \? <BusinessWorkspace/, "all non-raw-material pages should route through the same complete review workbench surface");
+  assert.match(workspacesSource, /navId === "outbound-delivery"\) return <FulfillmentWorkspace/, "outbound delivery should use its current-shell workspace");
+  assert.match(workspacesSource, /navId === "supplier-month-end"\) return <SupplierSettlementWorkspace/, "supplier month-end should use its current-shell workspace");
+  assert.match(workspacesSource, /className="business-workbench fulfillment-workbench"/, "outbound delivery should reuse the standard list-detail anatomy");
+  assert.match(workspacesSource, /className="business-workbench supplier-settlement-workbench"/, "supplier month-end should reuse the standard list-detail anatomy");
+  for (const label of ["订货数量", "已发数量", "本次发货", "剩余未发", "历史欠款", "本单应收", "累计待收"]) {
+    assert.ok(workspacesSource.includes(label), `outbound detail should retain ${label}`);
+  }
+  for (const label of ["对账确认", "生成应付", "付款登记", "付款确认"]) {
+    assert.ok(workspacesSource.includes(label), `supplier settlement should retain ${label}`);
+  }
+  assert.match(workspacesSource, /本地评审只读样例/, "the filled settlement chain should be explicitly non-writing in the local review");
+  assert.match(stylesSource, /\.fulfillment-progress-facts/, "outbound progress facts should be styled inside the selected detail rail");
+  assert.match(stylesSource, /\.supplier-settlement-flow/, "supplier settlement stages should be styled inside the selected detail rail");
 });
 
 test("supplier statement identifiers use collision-resistant entropy", async () => {
@@ -159,5 +274,5 @@ test("4174 phone bootstrap includes the formal employee attendance styles", asyn
   const mobileEntrySource = await readSource("../src/FormalMobileEntry.jsx");
 
   assert.match(mobileEntrySource, /import "\.\.\/\.\.\/\.\.\/\.\.\/src\/styles\/features\/payroll-attendance\.css"/, "the 4174 mobile bootstrap must load the same formal attendance styles as the main application");
-  assert.match(mobileEntrySource, /return <App \/>/, "the 4174 phone entry must reuse the formal application instead of mounting a prototype phone page");
+  assert.match(mobileEntrySource, /return <App signedPreviewUserId="U-MANAGER-A" \/>/, "the 4174 phone entry must reuse the formal application with the signed review identity instead of mounting a prototype phone page");
 });

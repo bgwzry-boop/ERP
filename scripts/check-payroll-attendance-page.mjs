@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/pageRegistry.js", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/workspacePageComponents.jsx", import.meta.url), "utf8"),
+].join("\n");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const pageSource = readFileSync(new URL("../src/features/payroll/PayrollAttendancePage.jsx", import.meta.url), "utf8");
 const mobileSource = readFileSync(new URL("../src/features/payroll/EmployeeAttendanceMobilePage.jsx", import.meta.url), "utf8");
@@ -9,9 +15,10 @@ const clientSource = readFileSync(new URL("../src/services/officeAttendancePayro
 const openApiSource = readFileSync(new URL("../docs/development/erp-api-openapi-draft.yaml", import.meta.url), "utf8");
 const reviewMobileEntrySource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/FormalMobileEntry.jsx", import.meta.url), "utf8");
 const adjustmentEvidencePreviewSource = readFileSync(new URL("../qa/payroll-adjustment-evidence-preview.html", import.meta.url), "utf8");
+const payrollCatalogSource = readFileSync(new URL("../shared/payrollPositionCatalog.js", import.meta.url), "utf8");
 
-assert.match(appSource, /renderedPage === "payroll"/);
-assert.match(appSource, /<PayrollAttendancePage[\s\S]*authState=\{authState\}/);
+assert.match(appSource, /payroll: \(props\) => createElement\(PageLoader/);
+assert.match(appSource, /payroll: \{[\s\S]*authState: authState/);
 assert.match(appSource, /renderedPage === "attendanceMobile"/);
 assert.match(appSource, /<EmployeeAttendanceMobilePage[\s\S]*authState=\{authState\}/);
 assert.match(navigationSource, /key: "payroll"[\s\S]*permissionPrefixes: \["payroll\."\]/);
@@ -66,11 +73,13 @@ assert.match(pageSource, /金额变化时必填/);
 assert.match(pageSource, /accept="image\/\*,\.pdf,application\/pdf"/);
 assert.match(pageSource, /岗位工资标准/);
 assert.match(pageSource, /已读取《26年工资 \(2\)\.xlsx》的岗位与薪资构成/);
-assert.match(pageSource, /制袋机-理袋女工[\s\S]*?baseRate: 10[\s\S]*?allowanceRate: 5/);
-assert.match(pageSource, /送货司机[\s\S]*?mode: "daily"[\s\S]*?baseRate: 180/);
+assert.match(pageSource, /PAYROLL_POSITION_CATALOG/);
+assert.match(pageSource, /positionRates: payrollPositionPolicyRates\(\)/);
+assert.match(payrollCatalogSource, /制袋机-理袋女工[\s\S]*?baseHourlyWage: 10[\s\S]*?positionAllowanceHourly: 5/);
+assert.match(payrollCatalogSource, /送货司机[\s\S]*?mode: "daily"[\s\S]*?dailyWage: 180/);
 assert.match(pageSource, /工资＝日薪 × 出勤天数＋综合绩效＋工龄奖/);
-assert.match(pageSource, /years: 1, amount: 30/);
-assert.match(pageSource, /years: 8, amount: 135/);
+assert.match(payrollCatalogSource, /minYears: 1, monthlyAmount: 30/);
+assert.match(payrollCatalogSource, /minYears: 8, monthlyAmount: 135/);
 assert.match(openApiSource, /operationId: getPayrollRun[\s\S]*?#\/components\/schemas\/PayrollRunDetailResponse/);
 assert.match(openApiSource, /operationId: getEmployeePayrollHistory[\s\S]*?#\/components\/schemas\/PayrollHistoryResponse/);
 assert.match(openApiSource, /operationId: adjustPayrollDraftLine[\s\S]*?#\/components\/schemas\/PayrollLineAdjustmentResponse/);
@@ -86,6 +95,6 @@ assert.doesNotMatch(mobileSource, /getOfficeEmployeeAttendance/);
 assert.match(mobileSource, /state\.error && !data \? <section className="attendance-mobile-blocked"/);
 assert.match(mobileSource, /系统没有返回员工、打卡、工时或工资数据/);
 assert.match(reviewMobileEntrySource, /src\/styles\/features\/payroll-attendance\.css/);
-assert.match(reviewMobileEntrySource, /return <App \/>/);
+assert.match(reviewMobileEntrySource, /return <App signedPreviewUserId="U-MANAGER-A" \/>/);
 
 console.log("Payroll and attendance formal-page checks passed.");

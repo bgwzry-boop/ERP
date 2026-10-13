@@ -10,8 +10,10 @@ import {
   verifyRuntimeUserPassword,
 } from "../server/authSeed.mjs";
 import {
+  buildEnsureSeedUserReferencesQuery,
   buildLoadRuntimeIdentityStateQuery,
   buildLoadRuntimeIdentityStateSql,
+  buildRuntimeUserJsonExpression,
   buildSaveRuntimeIdentityStateQuery,
   buildSaveRuntimeIdentityStateSql,
   createRuntimeIdentityRepository,
@@ -25,6 +27,7 @@ import {
   listenTestServer,
   postJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "runtime-identity");
 rmSync(storageRoot, { recursive: true, force: true });
@@ -213,7 +216,7 @@ let restartedServer = null;
 let revokedCheckServer = null;
 
 try {
-  server = createApiServer({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
+  server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } }));
   await listenTestServer(server);
   const baseUrl = getTestServerBaseUrl(server);
   const health = await getJson(baseUrl, "/api/health");
@@ -249,7 +252,7 @@ try {
   await closeTestServer(server);
   server = null;
 
-  restartedServer = createApiServer({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
+  restartedServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } }));
   await listenTestServer(restartedServer);
   const restartedBaseUrl = getTestServerBaseUrl(restartedServer);
 
@@ -351,7 +354,7 @@ try {
   await closeTestServer(restartedServer);
   restartedServer = null;
 
-  revokedCheckServer = createApiServer({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } });
+  revokedCheckServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, authSecret, runtimeIdentityRepositoryOptions: { storageRoot } }));
   await listenTestServer(revokedCheckServer);
   const revokedCheckBaseUrl = getTestServerBaseUrl(revokedCheckServer);
   const revokedSessionAfterRestart = await getJson(revokedCheckBaseUrl, "/api/auth/me", {
@@ -430,6 +433,22 @@ try {
   assert(loadSql.includes("master_data_employee_identity_confirmation"));
   assert(loadSql.includes("employees.departed_at"));
   assert(loadSql.includes("employees.departure_reason"));
+  const runtimeUserJsonExpression = buildRuntimeUserJsonExpression("users");
+  const runtimeUserJsonChunks = runtimeUserJsonExpression.split(" || ");
+  assert.equal(runtimeUserJsonChunks.length, 2);
+  assert.equal(
+    runtimeUserJsonChunks.reduce(
+      (count, chunk) => count + [...chunk.matchAll(/^\s*'[^']+',/gm)].length,
+      0,
+    ),
+    52,
+  );
+  for (const chunk of runtimeUserJsonChunks) {
+    assert(
+      [...chunk.matchAll(/^\s*'[^']+',/gm)].length <= 50,
+      "PostgreSQL JSON object fragments must stay within the 100-function-argument limit",
+    );
+  }
   const loadQuery = buildLoadRuntimeIdentityStateQuery();
   assert.equal(loadQuery.text, loadSql);
   assert.deepEqual(loadQuery.values, []);
@@ -441,6 +460,7 @@ try {
       profileStatus: "merged_duplicate",
       requestedEnabled: false,
       remark: "已合并至 EMP-RUNTIME-CANONICAL-CHECK",
+      payrollPositionKey: "PAY-OFFICE",
       updatedAt: issuedAt,
     },
   ];
@@ -452,6 +472,7 @@ try {
   assert(saveSql.includes("UPDATE employees"));
   assert(saveSql.includes("employee_assignment_updates"));
   assert(saveSql.includes("employee_identity_updates"));
+  assert(saveSql.includes("payroll_position_key = employee_identity_updates.payroll_position_key"));
   assert(saveSql.includes("updated_employee_identities"));
   assert(saveSql.includes("departed_at = employee_identity_updates.departed_at"));
   assert(saveSql.includes("departure_effective_date = employee_identity_updates.departure_effective_date"));
@@ -467,7 +488,7 @@ try {
   assert.notEqual(registrationStatusIndex, -1);
   assert.equal(saveQuery.values[registrationStatusIndex + 1], "");
 
-  const seedReferenceQuery = buildSaveRuntimeIdentityStateQuery({
+const seedReferenceQuery = buildSaveRuntimeIdentityStateQuery({
     users: [{
       userId: "U-OFFICE-B",
       loginName: "office.b",
@@ -481,6 +502,20 @@ try {
     seedReferenceQuery.values.includes("not_applicable"),
     "PostgreSQL seed references must receive a non-null, non-login password status",
   );
+
+  const insertOnlySeedReferenceQuery = buildEnsureSeedUserReferencesQuery([{
+    userId: "U-OFFICE-B",
+    loginName: "office.b",
+    displayName: "办公室B",
+    source: "master_data_import_review",
+    loginEnabled: true,
+    passwordHash: "must-not-be-persisted",
+  }]);
+  assert.match(insertOnlySeedReferenceQuery.text, /ON CONFLICT \(id\) DO NOTHING/);
+  assert.doesNotMatch(insertOnlySeedReferenceQuery.text, /DO UPDATE/);
+  assert(insertOnlySeedReferenceQuery.values.includes("seed"));
+  assert(insertOnlySeedReferenceQuery.values.includes("not_applicable"));
+  assert.equal(insertOnlySeedReferenceQuery.values.includes("must-not-be-persisted"), false);
 
 const postgresCalls = [];
 const postgresLoadState = {
@@ -519,6 +554,11 @@ const postgresSaved = await postgresRepository.saveState({
   },
   identityEmployeeUpdates,
 });
+const seedReferencesEnsured = await postgresRepository.ensureSeedUserReferences([{
+  userId: "U-OFFICE-B",
+  loginName: "office.b",
+  displayName: "办公室B",
+}]);
 assert.equal(postgresRepository.kind, "postgres");
 assert.equal(postgresState.users.length, reloaded.users.length);
 assert.equal(postgresState.employeeAccounts[0].assignmentUpdatedBy, "U-MANAGER-A");
@@ -530,8 +570,10 @@ assert.equal(postgresSaved.savedOperationLogCount, reloaded.operationLogs.length
 assert.equal(postgresSaved.updatedEmployeeCount, 1);
 assert.equal(postgresSaved.updatedEmployeeAssignmentCount, 1);
 assert.equal(postgresSaved.updatedEmployeeIdentityCount, identityEmployeeUpdates.length);
+assert.equal(seedReferencesEnsured.insertedCount, 0);
 assert.equal(postgresCalls[0].kind, "query");
 assert.equal(postgresCalls[1].kind, "transaction");
+assert.equal(postgresCalls[2].kind, "transaction");
 assert.match(postgresCalls[1].text, /^\s*WITH saved_users AS/);
 assert.match(postgresCalls[1].text, /saved_revoked_sessions AS/);
 assert.match(postgresCalls[1].text, /updated_employees AS/);
@@ -541,6 +583,8 @@ assert.match(postgresCalls[1].text, /saved_operation_logs AS/);
 assert.match(postgresCalls[1].text, /AS result;\s*$/);
 assert.doesNotMatch(postgresCalls[1].text, /\bBEGIN\b|\bCOMMIT\b/);
 assert.ok(postgresCalls[1].values.length > 30);
+assert.match(postgresCalls[2].text, /ON CONFLICT \(id\) DO NOTHING/);
+assert.doesNotMatch(postgresCalls[2].text, /DO UPDATE/);
 } finally {
   await closeTestServer(server);
   await closeTestServer(restartedServer);

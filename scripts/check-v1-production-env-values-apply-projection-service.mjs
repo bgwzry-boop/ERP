@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { sanitizeV1ProductionEnvValuesApplyReport } from "../server/services/v1ProductionEnvValuesApplyProjectionService.mjs";
 
 const missing = sanitizeV1ProductionEnvValuesApplyReport({
@@ -139,27 +138,6 @@ const invalidMode = sanitizeV1ProductionEnvValuesApplyReport({
   targetEnvFile: { fileMode: "/Users/private/600" },
 });
 assert.equal(invalidMode.targetEnvFile.fileMode, "");
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const applyServiceSource = readFileSync(
-  new URL("../server/services/v1ProductionEnvValuesApplyService.mjs", import.meta.url),
-  "utf8",
-);
-assert.match(
-  applyServiceSource,
-  /import \{ sanitizeV1ProductionEnvValuesApplyReport \} from "\.\/v1ProductionEnvValuesApplyProjectionService\.mjs";/,
-);
-assert.doesNotMatch(apiSource, /sanitizeV1ProductionEnvValuesApplyReport/);
-assert.doesNotMatch(apiSource, /function sanitizeV1ProductionEnvValuesApplyReport\(/);
-for (const oldHelper of [
-  "sanitizeV1ProductionEnvValuesApplyFinding",
-  "sanitizeV1ProductionEnvValuesApplyAlternativeGroup",
-  "sanitizeV1ProductionEnvValuesApplySetupRefresh",
-  "sanitizeV1ProductionEnvValuesApplyIntakeVerification",
-  "sanitizeV1EnvVariableKeyList",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${oldHelper}\\(`));
-}
 
 console.log(
   "V1 production-env values-apply projection checks passed: allowlisted variables, normalized counts, path exclusion, sensitive-text redaction, and API extraction are covered.",

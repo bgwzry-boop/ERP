@@ -7,26 +7,52 @@ import {
   shouldRotateRawMaterialSourcePreview,
   tightenRawMaterialOcrSourceRowBounds,
 } from "../shared/rawMaterialOcrSourceCrop.js";
+import { resolveOfficeWorkbenchNavigation } from "../src/app/useOfficeWorkbenchNavigation.js";
+import { updateOfficeRawMaterialPurchaseRequestStatus } from "../src/services/officeRawMaterialApiClient.js";
+import { getRolePermissionSet } from "../shared/auth/roleCatalog.js";
+import {
+  assertRawMaterialDeliveryNotePageCapacity,
+  buildRawMaterialOcrReviewAction,
+  getRawMaterialOcrReviewSaveFailureMessage,
+  inferDeliveryNoteMimeType,
+  isSupportedDeliveryNoteFile,
+  prepareRawMaterialCapturePages,
+  resolveRawMaterialAttachStage,
+  resolveRawMaterialOcrReviewCompletion,
+} from "../src/features/raw-materials/rawMaterialInboundPageActions.js";
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const pageRegistrySource = readFileSync(new URL("../src/app/pageRegistry.js", import.meta.url), "utf8");
+const appSource = [
+  readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/OfficeWorkspacePages.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/app/useOfficeActivePageEffects.js", import.meta.url), "utf8"),
+].join("\n");
+const completeReviewAppSource = readFileSync(new URL("../docs/prototypes/raw-material-roll-inventory-review/src/App.jsx", import.meta.url), "utf8");
+const rawMaterialSupplierProfilesSource = readFileSync(new URL("../shared/rawMaterialSupplierProfiles.js", import.meta.url), "utf8");
+const rawMaterialSupplierColorMappingDialogSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx", import.meta.url), "utf8");
 const rawMaterialControllerSource = readFileSync(new URL("../src/app/createOfficeRawMaterialActions.js", import.meta.url), "utf8");
-const rawMaterialApiClientSource = readFileSync(new URL("../src/services/officeRawMaterialApiClient.js", import.meta.url), "utf8");
 const rawMaterialLocalActionsSource = readFileSync(new URL("../src/domain/rawMaterialInboundLocalActions.js", import.meta.url), "utf8");
 const navigationSource = readFileSync(new URL("../src/app/navigation.js", import.meta.url), "utf8");
 const fixturesSource = readFileSync(new URL("../src/data/fixtures.js", import.meta.url), "utf8");
 const roleToolReadsSource = readFileSync(new URL("../src/app/useOfficeRoleToolReads.js", import.meta.url), "utf8");
 const officePageEntrySource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const inboundDetailSource = readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8");
+const rawMaterialInboundPageSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8");
 const rawMaterialPageSource = [
-  "../src/features/raw-materials/RawMaterialInboundPage.jsx",
-  "../src/features/raw-materials/useInboundPageState.js",
-].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n") + `\n${inboundDetailSource}`;
+  rawMaterialInboundPageSource,
+  readFileSync(new URL("../src/features/raw-materials/useInboundPageState.js", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundReceivingSections.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundSupportingSections.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundOcrDraft.js", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierStatementReview.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundWorkflow.js", import.meta.url), "utf8"),
+].join("\n");
+const inboundDetailSource = readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8");
 const rawMaterialWorkbenchSource = [
   "../src/features/raw-materials/RawMaterialInboundWorkbench.jsx",
   "../src/features/raw-materials/InboundFilters.jsx",
   "../src/features/raw-materials/InboundTable.jsx",
 ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
+const rawMaterialRouteSource = readFileSync(new URL("../src/app/routes/RawMaterialRoute.jsx", import.meta.url), "utf8");
 const rawMaterialMobileSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileReceiving.jsx", import.meta.url), "utf8");
 const rawMaterialMobileOcrReviewSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialMobileOcrReview.jsx", import.meta.url), "utf8");
 const rawMaterialPurchaseSource = readFileSync(new URL("../src/features/raw-materials/RawMaterialPurchasePanel.jsx", import.meta.url), "utf8");
@@ -35,27 +61,195 @@ const rawMaterialListStateSource = readFileSync(new URL("../src/domain/rawMateri
 const permissionSource = readFileSync(new URL("../src/auth/seedPermissions.js", import.meta.url), "utf8");
 const sharedStyleSource = readFileSync(new URL("../src/styles/shared.css", import.meta.url), "utf8");
 const roleToolStyleSource = readFileSync(new URL("../src/styles/features/role-tools.css", import.meta.url), "utf8");
-const rawMaterialStyleSource = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
+const rawMaterialFoundationStyleSource = readFileSync(new URL("../src/styles/features/raw-material-foundation.css", import.meta.url), "utf8");
+const rawMaterialRollInventoryStyleSource = readFileSync(new URL("../src/styles/features/raw-material-roll-inventory.css", import.meta.url), "utf8");
+const rawMaterialBaseStyleSource = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
+const rawMaterialMobileStyleSource = readFileSync(new URL("../src/styles/features/raw-material-mobile.css", import.meta.url), "utf8");
+const rawMaterialMobileAtlasStyleSource = readFileSync(new URL("../src/styles/features/raw-material-mobile-atlas.css", import.meta.url), "utf8");
+const rawMaterialPrintStyleSource = readFileSync(new URL("../src/styles/features/raw-material-print.css", import.meta.url), "utf8");
+const rawMaterialStyleSource = [
+  rawMaterialFoundationStyleSource,
+  rawMaterialRollInventoryStyleSource,
+  rawMaterialBaseStyleSource,
+  rawMaterialMobileStyleSource,
+  rawMaterialMobileAtlasStyleSource,
+  rawMaterialPrintStyleSource,
+  readFileSync(new URL("../src/styles/features/raw-material-color-mapping.css", import.meta.url), "utf8"),
+].join("\n");
 const mainSource = readFileSync(new URL("../src/main.jsx", import.meta.url), "utf8");
 const styleSource = `${roleToolStyleSource}\n${rawMaterialStyleSource}`;
+
+let purchaseStatusRequest;
+const purchaseStatusResult = await updateOfficeRawMaterialPurchaseRequestStatus({
+  operatorId: "U-MANAGER-A",
+  requestId: "RMP-001",
+  expectedRevision: 7,
+  idempotencyKey: "purchase-status-001",
+  status: "approved",
+  reason: "负责人已批准",
+}, {
+  apiBaseUrl: "http://erp.test/api",
+  fetchImpl: async (url, init) => {
+    purchaseStatusRequest = { url, init };
+    return new Response(JSON.stringify({ purchaseRequest: { requestId: "RMP-001", status: "approved" } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  },
+});
+assert.equal(purchaseStatusResult.source, "api");
+assert.equal(purchaseStatusRequest.url, "http://erp.test/api/raw-material-purchase-requests/RMP-001/status");
+assert.equal(purchaseStatusRequest.init.method, "POST");
+assert.equal(purchaseStatusRequest.init.headers["idempotency-key"], "purchase-status-001");
+assert.deepEqual(JSON.parse(purchaseStatusRequest.init.body), {
+  expectedRevision: 7,
+  idempotencyKey: "purchase-status-001",
+  status: "approved",
+  reason: "负责人已批准",
+});
+
+assert.doesNotThrow(() => assertRawMaterialDeliveryNotePageCapacity(3, 1));
+assert.throws(
+  () => assertRawMaterialDeliveryNotePageCapacity(3, 2),
+  /同一张送货单最多添加 4 页/,
+  "mobile and desktop delivery-note selection should share the same four-page limit",
+);
+assert.equal(inferDeliveryNoteMimeType("送货单.PDF"), "application/pdf");
+assert.equal(inferDeliveryNoteMimeType("photo.jpeg"), "image/jpeg");
+assert.equal(isSupportedDeliveryNoteFile("image/bmp"), true);
+assert.equal(isSupportedDeliveryNoteFile("text/plain"), false);
+
+const captureProgress = [];
+const capturePages = await prepareRawMaterialCapturePages({
+  files: [{ name: "送货单.pdf", type: "" }],
+  existingPages: [{ captureId: "RMCAP-EXISTING" }],
+  prepareFilePages: async (_file, options) => {
+    assert.equal(options.mimeType, "application/pdf");
+    return [1, 2].map((pdfPageNumber) => ({
+      mimeType: "image/jpeg",
+      fileSize: 100 + pdfPageNumber,
+      contentDataUrl: `data:ocr-${pdfPageNumber}`,
+      sourceMimeType: "application/pdf",
+      sourceFileSize: 999,
+      sourceContentDataUrl: "data:source-pdf",
+      sourceFile: { name: "送货单.pdf" },
+      normalized: true,
+      pdfPageNumber,
+    }));
+  },
+  onProgress: (message) => captureProgress.push(message),
+});
+assert.equal(captureProgress[0], "正在准备第 2 页预览…");
+assert.deepEqual(capturePages.map((page) => page.captureId), ["RMCAP-EXISTING", "RMCAP-EXISTING"]);
+assert.deepEqual(capturePages.map((page) => page.pdfPageNumber), [1, 2]);
+assert.deepEqual(capturePages.map((page) => page.fileName), ["送货单.pdf", "送货单.pdf"]);
+assert.equal(capturePages[0].sourceContentDataUrl, "data:source-pdf");
+await assert.rejects(
+  prepareRawMaterialCapturePages({
+    files: Array.from({ length: 5 }, (_, index) => ({ name: `${index + 1}.jpg`, type: "image/jpeg" })),
+    prepareFilePages: async () => [],
+  }),
+  /同一张送货单最多添加 4 页/,
+  "desktop capture must reject excess files instead of silently truncating them",
+);
+await assert.rejects(
+  prepareRawMaterialCapturePages({
+    files: [{ name: "说明.txt", type: "text/plain" }],
+    prepareFilePages: async () => [],
+  }),
+  /只支持 PNG、JPG、JPEG、BMP 图片或 PDF/,
+);
+
+const reviewSelected = {
+  id: "RMI-001",
+  documentDirection: "supplier_delivery",
+  ocrLines: [
+    { lineId: "LINE-1", value: "OCR-1" },
+    { lineId: "LINE-2", value: "OCR-2" },
+  ],
+};
+const reviewAction = buildRawMaterialOcrReviewAction({
+  selected: reviewSelected,
+  reviewFields: { supplierName: "测试供应商" },
+  lineReviewDraft: { "LINE-1": { color: "大红" } },
+  excludedRolls: [
+    { lineId: "LINE-2", lineRollIndex: 1, reason: "误识别" },
+    { lineId: "LINE-2", lineRollIndex: 3, reason: "误识别" },
+  ],
+  buildLineReviewDraft: (line) => ({ fallback: line.value }),
+});
+assert.equal(reviewAction.action, "复核送货单");
+assert.equal(reviewAction.inboundId, "RMI-001");
+assert.equal(reviewAction.isSupplierReturn, false);
+assert.deepEqual(reviewAction.payload.lineReviews[0].values, { color: "大红" });
+assert.deepEqual(reviewAction.payload.lineReviews[1], {
+  lineId: "LINE-2",
+  values: { fallback: "OCR-2" },
+  excludedRollIndices: [1, 3],
+  exclusionReason: "误识别",
+});
+assert.match(reviewAction.payload.note, /待补标/);
+const returnReviewAction = buildRawMaterialOcrReviewAction({
+  selected: { ...reviewSelected, documentDirection: "supplier_return" },
+  reviewFields: {},
+  lineReviewDraft: {},
+  buildLineReviewDraft: () => ({}),
+});
+assert.equal(returnReviewAction.isSupplierReturn, true);
+assert.match(returnReviewAction.payload.reason, /原始退货单/);
+assert.match(returnReviewAction.payload.note, /不生成入库卷码、标签或可用库存/);
+assert.match(getRawMaterialOcrReviewSaveFailureMessage(true), /退货单没有保存到服务器/);
+assert.deepEqual(
+  resolveRawMaterialOcrReviewCompletion({ isSupplierReturn: true, completedInbound: {} }),
+  { stage: "return-complete", message: null },
+);
+assert.deepEqual(
+  resolveRawMaterialOcrReviewCompletion({ isSupplierReturn: false, completedInbound: { status: "已入库待补打标签" } }),
+  { stage: "label-deferred", message: null },
+);
+const printCompletion = resolveRawMaterialOcrReviewCompletion({ isSupplierReturn: false, completedInbound: { status: "已复核待打印标签" } });
+assert.equal(printCompletion.stage, "print");
+assert.match(printCompletion.message.body, /不要把未贴标卷料当作可用库存/);
+assert.equal(resolveRawMaterialAttachStage({ rolls: [{ labelStatus: "已打印待贴标" }] }), null);
+assert.equal(resolveRawMaterialAttachStage({ rolls: [{ labelStatus: "标签或实物不符/待确认" }] }), "receive-partial");
+assert.equal(resolveRawMaterialAttachStage({ rolls: [{ inventoryStatus: "可用" }] }), "receive-complete");
 
 assertIncludes(fixturesSource, "initialRawMaterialInbounds", "fixtures should seed raw-material inbound records");
 assertIncludes(fixturesSource, "已识别待复核", "fixtures should include OCR review state");
 assertIncludes(fixturesSource, "已打印待贴标", "fixtures should include printed-but-not-attached state");
-assertIncludes(fixturesSource, "已贴标/可用库存", "fixtures should include attached and usable state");
 assertIncludes(fixturesSource, "白侯模板月结时需拆重1-重5", "fixtures should preserve supplier statement matching notes");
 assertIncludes(fixturesSource, "北陈月结 Excel 用批号强匹配", "fixtures should preserve batch matching notes");
 assertIncludes(fixturesSource, "供应商单号未提供", "fixtures should cover suppliers without delivery-note numbers");
+assertIncludes(fixturesSource, '0, "待补真实重量", "不可用", "提手区待称重"', "zero-weight handle samples must remain unavailable until their real weight is recorded");
+assertExcludes(fixturesSource, '0, "已贴标/可用库存", "可用", "提手区-A1"', "zero-weight handle samples must never seed available inventory");
+assertIncludes(completeReviewAppSource, ': "待补重量"', "the inventory review must name a missing weight instead of inventing a piece amount");
+assertIncludes(rawMaterialMobileOcrReviewSource, 'return "重量待补"', "the mobile OCR summary must not present a missing total as zero kilograms");
+assertIncludes(rawMaterialSupplierProfilesSource, 'captureName: "振恒"', "the maintained return-supplier choices must include Zhenheng without relying on recent inbounds");
+assertIncludes(rawMaterialPageSource, "listRawMaterialCaptureSupplierOptions", "return capture supplier choices should come from maintained supplier profiles");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, "returnFocusRef", "the supplier-color dialog should restore focus to its opener when it closes");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, "window.requestAnimationFrame", "the supplier-color dialog should move initial focus after it mounts");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, 'event.key === "Escape"', "the supplier-color dialog should close from the Escape key");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, 'event.key !== "Tab"', "the supplier-color dialog should trap keyboard focus while open");
+assertIncludes(rawMaterialSupplierColorMappingDialogSource, 'aria-labelledby="raw-material-color-mapping-title"', "the supplier-color dialog should expose its visible title as its accessible name");
 
 assertIncludes(navigationSource, 'key: "rawMaterials"', "navigation should expose the raw-material page");
 assertIncludes(navigationSource, 'label: "原材料"', "navigation should label the raw-material page");
 assertIncludes(navigationSource, 'if (defaultRole === "office") return "rawMaterials";', "office phones should enter the existing raw-material mobile flow instead of a compressed PC table");
-assertIncludes(appSource, "renderPageFromRegistry(renderedPage", "App should render the registered raw-material inbound page");
-assertIncludes(pageRegistrySource, "rawMaterials: RawMaterialInboundPage", "the page registry should own the raw-material route");
-assertIncludes(appSource, "mobileViewport ? getMobileViewportPage(activePage, permissionContext) : activePage", "App should preserve one business route with viewport-specific workbenches");
-assertIncludes(appSource, "onDeliveryNoteRecognize: recognizeRawMaterialDeliveryNote", "desktop and phone raw-material entry should share the formal server OCR action");
-assertIncludes(appSource, "createOfficeRawMaterialActions", "App should compose the raw-material action controller");
-assertExcludes(appSource, "updateOfficeRawMaterialInboundAction", "App should not call the raw-material write client directly");
+assertIncludes(rawMaterialRouteSource, "<RawMaterialInboundPage", "raw-material route should render the inbound page");
+const officePermissionContext = {
+  ...getRolePermissionSet(["office"]),
+  user: { defaultRole: "office", userId: "U-OFFICE-A" },
+};
+assert.equal(
+  resolveOfficeWorkbenchNavigation({
+    activePage: "orders",
+    mobileViewport: true,
+    permissionContext: officePermissionContext,
+  }).renderedPage,
+  "rawMaterials",
+  "office phones should reuse the raw-material business route",
+);
+assertIncludes(rawMaterialRouteSource, "onDeliveryNoteRecognize={actions.onDeliveryNoteRecognize}", "desktop and phone raw-material entry should share the formal server OCR action through the route adapter");
 assertIncludes(roleToolReadsSource, "listOfficeRawMaterialInbounds", "role-tool reads should refresh raw-material inbounds through API client");
 assertIncludes(roleToolReadsSource, "listOfficeRawMaterialSupplierStatementReviews", "role-tool reads should refresh supplier statement review drafts through API client");
 assertIncludes(rawMaterialControllerSource, "updateOfficeRawMaterialInboundAction", "raw-material controller should submit actions through API client");
@@ -66,7 +260,6 @@ assertIncludes(rawMaterialControllerSource, "confirmOfficeRawMaterialSupplierSta
 assertIncludes(rawMaterialControllerSource, "generateOfficeRawMaterialSupplierPayableDraft", "raw-material controller should generate supplier payable drafts through API client");
 assertIncludes(rawMaterialControllerSource, "confirmOfficeRawMaterialSupplierPayment", "raw-material controller should confirm supplier payments through API client");
 assertIncludes(rawMaterialControllerSource, "生产/正式后端模式禁止本地降级", "production raw-material actions should fail closed when the API is unavailable");
-assertIncludes(rawMaterialApiClientSource, "body: { expectedRevision, idempotencyKey, status, reason", "purchase status writes should send the frozen version and idempotency key together");
 assertIncludes(rawMaterialLocalActionsSource, "打印只是待贴标状态，不能直接作为可用库存", "print action must not imply available inventory");
 assertIncludes(rawMaterialLocalActionsSource, "贴标确认必须逐卷/逐件进行", "attach action should be required before availability");
 assertIncludes(rawMaterialLocalActionsSource, "机边领料", "raw-material projection should support machine-side issue actions");
@@ -84,6 +277,9 @@ assertIncludes(rawMaterialLocalActionsSource, "供应商未提供单号", "raw-m
 assertIncludes(officePageSource, "export function RawMaterialInboundPage", "office pages should export RawMaterialInboundPage");
 assertIncludes(rawMaterialWorkbenchSource, "RawMaterialInboundListPane", "raw-material list composition should live outside the main page");
 assertIncludes(rawMaterialWorkbenchSource, "RawMaterialDetailOverview", "raw-material fixed detail facts should live outside the main page");
+assertIncludes(inboundDetailSource, "RawMaterialInboundReceivingSections", "raw-material receiving actions should live outside the main page");
+assertIncludes(inboundDetailSource, "RawMaterialInboundSupportingSections", "raw-material cost, traceability and statement sections should live outside the main page");
+assert.ok(rawMaterialInboundPageSource.split("\n").length <= 900, "raw-material main page should remain a compact composition layer");
 assertIncludes(rawMaterialWorkbenchSource, "raw-material-view-tabs", "raw-material views should expose count-bearing tabs");
 assertIncludes(rawMaterialWorkbenchSource, "buildRawMaterialInboundViewItems(inbounds)", "raw-material view counts should use the tested list-state projection");
 assertIncludes(rawMaterialPageSource, "raw-material-detail-scroll", "raw-material detail actions should scroll independently");
@@ -95,14 +291,13 @@ assertIncludes(rawMaterialPageSource, "识别成功：", "successful mobile OCR 
 assertIncludes(rawMaterialPageSource, 'setActiveTab("入库单")', "successful OCR should return to the inbound list view");
 assertIncludes(rawMaterialPageSource, 'setSelectedId(inbound.id)', "successful OCR should select the generated draft");
 assertIncludes(rawMaterialPageSource, "setMobileDetailOpen(true)", "successful mobile OCR should open the focused verification view automatically");
-assertIncludes(rawMaterialPageSource, "const updatedInbound = await submitInboundAction(onAction, selected, \"复核送货单\"", "mobile OCR review should await the authoritative review result");
 assertIncludes(rawMaterialPageSource, "if (!updatedInbound?.id) {", "failed mobile OCR review should remain on the review page");
 assertIncludes(rawMaterialPageSource, "setOcrReviewSubmitError", "failed mobile OCR review should explain that the server did not save it");
 assertIncludes(rawMaterialPageSource, "meta.error || ocrReviewSubmitError", "mobile OCR review should show the backend validation reason instead of masking it with a generic save failure");
 assertIncludes(rawMaterialPageSource, "setMobileDetailOpen(false)", "successful mobile OCR review should return to the receiving flow");
 assertIncludes(rawMaterialPageSource, "mobileOcrReviewOpen ? \"is-mobile-detail-open\"", "mobile detail mode should remain scoped to an active OCR review");
 assertIncludes(rawMaterialPageSource, "RawMaterialMobileOcrReview", "raw-material page should mount the focused mobile OCR review flow");
-assertIncludes(rawMaterialPageSource, "prepareRawMaterialDeliveryNoteFile", "mobile capture should preserve the source image while preparing the OCR derivative");
+assertIncludes(rawMaterialPageSource, "prepareRawMaterialDeliveryNotePages", "mobile capture should split PDF pages while preserving per-page source images and OCR derivatives");
 assertExcludes(rawMaterialPageSource, "1500", "the shared business page must not restore the review prototype's blanket 1500-meter filler");
 assertIncludes(rawMaterialMobileSource, "录原材料", "phone layout should expose the approved field-task title");
 assertIncludes(rawMaterialMobileSource, "拍单", "phone layout should expose the photo step");
@@ -135,8 +330,25 @@ assertIncludes(rawMaterialMobileOcrReviewSource, "核对送货单", "mobile OCR 
 assertIncludes(rawMaterialMobileOcrReviewSource, "核对退货单", "supplier returns should reuse the approved mobile review anatomy with return-specific copy");
 assertIncludes(rawMaterialMobileOcrReviewSource, "documentDirection", "mobile OCR review should project and validate rows with the server-authoritative document direction");
 assertIncludes(rawMaterialMobileOcrReviewSource, "原单未写规格", "supplier returns should keep absent specifications visible without inventing or blocking them");
+assertIncludes(rawMaterialMobileOcrReviewSource, "改为退货单核对", "an old OCR draft with strong return evidence should offer an explicit direction correction");
+assertIncludes(rawMaterialMobileOcrReviewSource, "黑白布", "Hongshang black-white return fabric should retain its pricing category");
+assertIncludes(rawMaterialMobileOcrReviewSource, "彩布", "Hongshang colour return fabric should retain its distinct pricing category");
+assertIncludes(rawMaterialMobileOcrReviewSource, "先补：", "a disabled confirmation button should name the exact missing document fields");
+assertIncludes(rawMaterialPageSource, 'onAction?.("纠正为供应商退货"', "direction correction should use the audited backend reparse action");
 assertIncludes(rawMaterialMobileOcrReviewSource, "Math.abs(Number(roll.weightKg))", "supplier return rows should accept and preserve signed non-zero weights");
-assertIncludes(rawMaterialPageSource, 'setMobileStage(isSupplierReturn ? "return-complete" : "print")', "reviewed supplier returns must terminate before printing and inventory");
+assertIncludes(rawMaterialMobileOcrReviewSource, "建立一次规则，以后自动", "unmapped supplier colors should route to one-time audited maintenance instead of repeated manual choice");
+assertIncludes(rawMaterialMobileOcrReviewSource, "无需再选择", "supplier-specific color rules should be visibly automatic on phone review");
+assertExcludes(rawMaterialMobileOcrReviewSource, "<select", "phone OCR color review must not reopen the fixed full-screen standard-color picker");
+assertIncludes(rawMaterialMobileOcrReviewSource, "放弃这张，重新拍", "leaving mobile OCR review should offer an explicit audited discard path");
+assertIncludes(rawMaterialMobileOcrReviewSource, "保留草稿，返回首页", "leaving mobile OCR review should preserve a deliberate keep-draft path");
+assertIncludes(rawMaterialPageSource, "handleDiscardMobileOcrDraft", "the mobile OCR discard decision should be handled by the raw-material page controller");
+assertIncludes(rawMaterialPageSource, 'onAction?.("作废误录草稿"', "mobile OCR discard should reuse the audited void-draft command");
+assertIncludes(rawMaterialPageSource, 'voidedInbound.status !== "已作废"', "mobile OCR discard should only leave review after the server confirms the voided state");
+assertIncludes(rawMaterialMobileSource, 'item.status !== "已作废"', "voided OCR drafts should stay out of mobile unfinished and recent lists");
+assertIncludes(rawMaterialListStateSource, 'item?.status !== "已作废"', "voided OCR drafts should stay out of normal desktop list, search, metrics and reconciliation views");
+assertIncludes(rawMaterialPageSource, "applySavedSupplierColorMapping", "saving a supplier color rule should immediately return the factory color to the active OCR draft");
+assert.equal(resolveRawMaterialOcrReviewCompletion({ isSupplierReturn: false, completedInbound: { status: "已入库待补打标签" } }).stage, "label-deferred", "reviewed delivery notes should preserve pending label completion through the extracted completion decision");
+assert.equal(resolveRawMaterialOcrReviewCompletion({ isSupplierReturn: true, completedInbound: {} }).stage, "return-complete", "reviewed supplier returns must terminate before printing and inventory");
 assertIncludes(rawMaterialMobileSource, "退货单已复核", "the mobile receiving flow should expose a terminal reviewed-return result");
 assertIncludes(rawMaterialMobileSource, "不生成进货卷码、标签和库存；作为负数厂家对账依据", "the terminal return state should separate no-inbound effects from negative supplier reconciliation");
 assertIncludes(rawMaterialMobileOcrReviewSource, "放大查看", "mobile OCR review should keep the real delivery note as the evidence anchor");
@@ -164,10 +376,13 @@ assertIncludes(rawMaterialMobileOcrReviewSource, "getOcrPageMeta(selected, sourc
 assertIncludes(rawMaterialMobileOcrReviewSource, "sourceAttachmentIds", "multi-page source evidence should retain every ordered source attachment");
 assertIncludes(rawMaterialMobileSource, "没有第二页，开始识别", "the ordinary one-page path should stay explicit while allowing a rare second page");
 assertIncludes(rawMaterialMobileSource, "还有第二页", "the mobile capture flow should allow another page without forcing it on every receipt");
-assertIncludes(rawMaterialMobileSource, "送货单逐页预览", "captured pages should expose immediate ordered thumbnail previews");
-assertIncludes(rawMaterialMobileSource, "查看送货单第", "each captured page should open a readable full preview before OCR");
-assertIncludes(rawMaterialMobileSource, "删除送货单第", "each captured page should be removable before OCR");
-assertIncludes(rawMaterialMobileSource, "请确认同一张单的页面没有遗漏", "multi-page capture should explicitly prevent partial-note recognition");
+assertIncludes(rawMaterialMobileSource, "raw-material-mobile-capture-previews", "captured delivery or return pages should expose immediate ordered thumbnail previews");
+assertIncludes(rawMaterialMobileSource, "查看${isSupplierReturn ? \"退货单\" : \"送货单\"}第", "each captured page should open a readable full preview before OCR");
+assertIncludes(rawMaterialMobileSource, "删除${isSupplierReturn ? \"退货单\" : \"送货单\"}第", "each captured page should be removable before OCR");
+assertIncludes(rawMaterialMobileSource, "页面没有遗漏", "multi-page capture should explicitly prevent partial-note recognition");
+assertIncludes(rawMaterialMobileSource, "供应商退货", "the operator must explicitly choose the supplier-return direction before capture");
+assertIncludes(rawMaterialMobileSource, "暂不打印，保存为待补标", "printing may be deferred without falsely marking labels as printed");
+assertIncludes(rawMaterialMobileOcrReviewSource, "厂内标准色", "inventory color should require an explicit canonical factory-color confirmation");
 assertIncludes(rawMaterialPageSource, "handleDeliveryNotePageRemove", "the capture flow should remove only the selected page without clearing the receipt");
 assertIncludes(rawMaterialMobileOcrReviewSource, "orientRawMaterialOcrSourceBounds", "row evidence bounds should rotate into the same coordinate space as the oriented delivery note");
 assertIncludes(rawMaterialMobileOcrReviewSource, 'preserveAspectRatio="none"', "source evidence should map the oriented image into the OCR coordinate space without off-screen percentage offsets");
@@ -284,10 +499,13 @@ assertExcludes(rawMaterialMobileSource, "签单", "phone receiving surface shoul
 assertIncludes(rawMaterialMobileSource, "if (canReviewRawMaterialInbound(selected)) return 2", "pending review should activate the second mobile step");
 assertIncludes(rawMaterialMobileSource, "if (canPrintRawMaterialLabels(selected)) return 3", "pending label print should activate the third mobile step");
 assertIncludes(rawMaterialPageSource, "printerDeviceQa={printerDeviceQa}", "raw-material mobile printing should receive dynamic printer state");
-assertIncludes(appSource, "printerDeviceQa={printerDeviceQa}", "App should pass dynamic printer state into raw-material receiving");
+assert.match(
+  appSource,
+  /rawMaterial:\s*\{\s*view: "inbound",\s*firstReleaseMode: firstReleaseMode,[\s\S]*?printerDeviceQa,/,
+  "App should pass dynamic printer state into the registered raw-material receiving page",
+);
 assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
 assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
-assertIncludes(rawMaterialPageSource, "lineReviews", "page should submit every OCR line review with the header review");
 assertIncludes(rawMaterialPageSource, "分卷重量 kg", "page should allow exact per-roll weights to be reviewed");
 assertIncludes(officePageSource, "识别不会直接入库", "page should keep OCR separate from inventory availability");
 assertIncludes(officePageSource, "打印标签只是待贴标", "page should keep print separate from attach confirmation");
@@ -355,12 +573,35 @@ assertIncludes(styleSource, ".raw-material-roll-row", "styles should cover roll 
 assertIncludes(styleSource, ".supplier-statement-preview", "styles should cover supplier statement import preview");
 assertIncludes(styleSource, ".supplier-statement-review-list", "styles should cover supplier statement review list");
 assertIncludes(styleSource, ".supplier-statement-review-actions", "styles should cover supplier statement review actions");
-assertIncludes(mainSource, 'import "./styles/features/raw-material.css";', "main should import raw-material feature styles");
-assert.equal(
-  mainSource.indexOf('import "./styles/features/role-tools.css";') < mainSource.indexOf('import "./styles/features/raw-material.css";'),
-  true,
-  "raw-material overlays should load after the role-tool workbench layer",
-);
+assert.equal(mainSource.includes('import "./styles/features/raw-material.css";'), false, "raw-material styles should not load with the initial shell");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-foundation.css";', "raw-material route should load shared workbench styles first");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-roll-inventory.css";', "raw-material route should load desktop roll-inventory styles with the workbench");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material.css";', "raw-material route should load receiving styles with the workbench");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-mobile.css";', "raw-material route should load mobile workflow styles with the workbench");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-mobile-atlas.css";', "raw-material route should load approved mobile atlas styles after base mobile styles");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-print.css";', "raw-material route should load roll-label print styles with the workbench");
+assertIncludes(rawMaterialRouteSource, 'import "../../styles/features/raw-material-color-mapping.css";', "raw-material route should load supplier color maintenance styles with the workbench");
+const rawMaterialRouteStyleImports = [
+  "raw-material-foundation.css",
+  "raw-material-roll-inventory.css",
+  "raw-material.css",
+  "raw-material-mobile.css",
+  "raw-material-mobile-atlas.css",
+  "raw-material-print.css",
+  "raw-material-color-mapping.css",
+];
+for (let index = 1; index < rawMaterialRouteStyleImports.length; index += 1) {
+  assert.ok(
+    rawMaterialRouteSource.indexOf(rawMaterialRouteStyleImports[index - 1]) < rawMaterialRouteSource.indexOf(rawMaterialRouteStyleImports[index]),
+    `${rawMaterialRouteStyleImports[index]} should preserve the original raw-material cascade order`,
+  );
+}
+assert.ok(rawMaterialFoundationStyleSource.split("\n").length <= 50, "raw-material foundation styles should stay below 50 lines");
+assert.ok(rawMaterialBaseStyleSource.split("\n").length <= 1650, "raw-material receiving styles should stay below 1650 lines");
+assert.ok(rawMaterialRollInventoryStyleSource.split("\n").length <= 750, "raw-material roll-inventory styles should stay below 750 lines");
+assert.ok(rawMaterialMobileStyleSource.split("\n").length <= 2700, "raw-material mobile compatibility styles should stay below 2700 lines");
+assert.ok(rawMaterialMobileAtlasStyleSource.split("\n").length <= 1500, "raw-material approved mobile atlas should stay below 1500 lines");
+assert.ok(rawMaterialPrintStyleSource.split("\n").length <= 150, "raw-material label print styles should stay below 150 lines");
 for (const selector of [
   ".raw-material-roll-row",
   ".raw-material-view-tabs",
@@ -375,6 +616,18 @@ for (const selector of [
 ]) {
   assertIncludes(rawMaterialStyleSource, selector, `raw-material styles should own ${selector}`);
   assert.equal(sharedStyleSource.includes(selector), false, `shared styles should not retain ${selector}`);
+}
+assertIncludes(rawMaterialFoundationStyleSource, ".raw-material-workbench {", "raw-material foundation should own the shared workbench layout");
+assert.equal(/^\.raw-material-workbench \{/m.test(rawMaterialBaseStyleSource), false, "raw-material receiving styles should not retain the top-level workbench layout");
+for (const selector of [
+  ".raw-material-roll-inventory",
+  ".raw-material-roll-ledger",
+  ".raw-material-roll-filters",
+  ".raw-material-distribution-panel",
+  ".raw-material-trace-panel",
+]) {
+  assertIncludes(rawMaterialRollInventoryStyleSource, selector, `roll-inventory styles should own ${selector}`);
+  assert.equal(rawMaterialBaseStyleSource.includes(selector), false, `raw-material base styles should not retain ${selector}`);
 }
 
 console.log("raw-material inbound page check passed");

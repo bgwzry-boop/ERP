@@ -51,6 +51,10 @@ export function createLocalRuntimeIdentityRepository(options = {}) {
         savedEmployeeAccountCount: state.employeeAccounts.length,
       };
     },
+
+    ensureSeedUserReferences() {
+      return { insertedCount: 0 };
+    },
   };
 }
 
@@ -86,6 +90,13 @@ export function createPostgresRuntimeIdentityRepository(options = {}) {
         updatedEmployeeAssignmentCount: Number(saved.updatedEmployeeAssignmentCount) || 0,
         updatedEmployeeIdentityCount: Number(saved.updatedEmployeeIdentityCount) || 0,
       };
+    },
+
+    async ensureSeedUserReferences(users = []) {
+      const query = buildEnsureSeedUserReferencesQuery(users);
+      if (query.values.length === 0) return { insertedCount: 0 };
+      const saved = (await transactionJson(query.text, query.values)) ?? {};
+      return { insertedCount: Number(saved.insertedCount) || 0 };
     },
   };
 }
@@ -173,9 +184,9 @@ SELECT json_build_object(
   'users', COALESCE((
     SELECT json_agg(record ORDER BY record->>'updatedAt' DESC, record->>'userId')
     FROM (
-      SELECT ${runtimeUserJsonExpression("users")} AS record
+      SELECT ${buildRuntimeUserJsonExpression("users")} AS record
       FROM users
-      WHERE source IN ('master_data_import_review', 'phone_self_registration')
+      WHERE source IN ('master_data_import_review', 'phone_self_registration', 'subaccount_admin_created')
       ORDER BY updated_at DESC, id
     ) runtime_users
   ), '[]'::json),
@@ -191,6 +202,7 @@ SELECT json_build_object(
       'defaultMachineId', employees.default_machine_id,
       'birthDate', COALESCE(employees.birth_date::TEXT, ''),
       'hireDate', COALESCE(employees.hire_date::TEXT, ''),
+      'payrollPositionKey', employees.payroll_position_key,
       'baseHourlyWage', employees.base_hourly_wage,
       'positionAllowanceHourly', employees.position_allowance_hourly,
       'wageEffectiveFrom', COALESCE(employees.wage_effective_from::TEXT, ''),
@@ -253,7 +265,10 @@ SELECT json_build_object(
       'master_data_employee_profile',
       'master_data_employee_identity_confirmation',
       'phone_self_registration',
-      'personnel_phone_registration_assignment'
+      'personnel_phone_registration_assignment',
+      'master_data_subaccount',
+      'master_data_subaccount_permission',
+      'master_data_subaccount_password'
     )
   ), '[]'::json)
 ) AS result;
@@ -313,7 +328,7 @@ updated_employee_assignments AS (
 ),
 employee_identity_updates (
   id, name, account_enabled, profile_status, requested_enabled, remark,
-  birth_date, hire_date, base_hourly_wage, position_allowance_hourly, wage_effective_from,
+  birth_date, hire_date, payroll_position_key, base_hourly_wage, position_allowance_hourly, wage_effective_from,
   attendance_provider, attendance_external_id, attendance_mapping_updated_by,
   attendance_mapping_updated_at, departed_at, departure_effective_date, departed_by, departure_reason, updated_at
 ) AS (
@@ -321,7 +336,7 @@ employee_identity_updates (
     ? `VALUES\n${employeeIdentityRows.join(",\n")}`
     : `SELECT
         NULL::TEXT, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT, NULL::BOOLEAN, NULL::TEXT,
-        NULL::DATE, NULL::DATE, NULL::NUMERIC, NULL::NUMERIC, NULL::DATE,
+        NULL::DATE, NULL::DATE, NULL::TEXT, NULL::NUMERIC, NULL::NUMERIC, NULL::DATE,
         NULL::TEXT, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ,
         NULL::TIMESTAMPTZ, NULL::DATE, NULL::TEXT, NULL::TEXT, NULL::TIMESTAMPTZ
       WHERE FALSE`}
@@ -336,6 +351,7 @@ updated_employee_identities AS (
     remark = employee_identity_updates.remark,
     birth_date = employee_identity_updates.birth_date,
     hire_date = employee_identity_updates.hire_date,
+    payroll_position_key = employee_identity_updates.payroll_position_key,
     base_hourly_wage = employee_identity_updates.base_hourly_wage,
     position_allowance_hourly = employee_identity_updates.position_allowance_hourly,
     wage_effective_from = employee_identity_updates.wage_effective_from,
@@ -377,6 +393,33 @@ SELECT json_build_object(
   'updatedEmployeeAssignmentCount', (SELECT COUNT(*) FROM updated_employee_assignments),
   'updatedEmployeeIdentityCount', (SELECT COUNT(*) FROM updated_employee_identities),
   'savedOperationLogCount', (SELECT COUNT(*) FROM saved_operation_logs)
+) AS result;
+`,
+    values: parameters.values,
+  };
+}
+
+export function buildEnsureSeedUserReferencesQuery(users = []) {
+  const parameters = createPostgresParameterBinder();
+  const rows = normalizeRuntimeUsers(users)
+    .map((user) => runtimeUserSqlRow({
+      ...user,
+      source: "seed",
+      employeeId: "",
+      loginEnabled: false,
+      passwordHash: "",
+      passwordStatus: "not_applicable",
+      mustChangePassword: false,
+    }, parameters))
+    .filter(Boolean);
+  if (rows.length === 0) return { text: "", values: [] };
+  return {
+    text: `
+WITH inserted_seed_users AS (
+  ${buildInsertRuntimeUsersIfMissingSql(rows)}
+)
+SELECT json_build_object(
+  'insertedCount', (SELECT COUNT(*) FROM inserted_seed_users)
 ) AS result;
 `,
     values: parameters.values,
@@ -445,6 +488,45 @@ ON CONFLICT (id) DO UPDATE SET
   assigned_by = EXCLUDED.assigned_by,
   metadata_json = EXCLUDED.metadata_json,
   updated_at = EXCLUDED.updated_at
+RETURNING id
+`;
+}
+
+function buildInsertRuntimeUsersIfMissingSql(rows) {
+  return `
+INSERT INTO users (
+  id,
+  login_name,
+  display_name,
+  department,
+  enabled,
+  source,
+  employee_id,
+  default_machine_id,
+  login_enabled,
+  password_hash,
+  password_status,
+  must_change_password,
+  password_issued_by,
+  password_issued_at,
+  password_changed_by,
+  password_changed_at,
+  password_revoked_by,
+  password_revoked_at,
+  session_valid_after,
+  session_version,
+  phone_e164,
+  phone_verified_at,
+  registration_status,
+  registration_source,
+  assigned_at,
+  assigned_by,
+  metadata_json,
+  updated_at
+)
+VALUES
+${rows.join(",\n")}
+ON CONFLICT (id) DO NOTHING
 RETURNING id
 `;
 }
@@ -551,6 +633,18 @@ function runtimeUserSqlRow(user, parameters) {
     accountReviewNote: safeUser.accountReviewNote,
     authMethods: safeUser.authMethods,
     invitationReferenceHash: safeUser.invitationReferenceHash,
+    accountType: safeUser.accountType,
+    accountStatus: safeUser.accountStatus,
+    permissionAllowlist: safeUser.permissionAllowlist,
+    permissionDenylist: safeUser.permissionDenylist,
+    permissionRevision: safeUser.permissionRevision,
+    permissionsUpdatedBy: safeUser.permissionsUpdatedBy,
+    permissionsUpdatedAt: safeUser.permissionsUpdatedAt,
+    accountCreatedBy: safeUser.accountCreatedBy,
+    accountCreatedAt: safeUser.accountCreatedAt,
+    accountStatusUpdatedBy: safeUser.accountStatusUpdatedBy,
+    accountStatusUpdatedAt: safeUser.accountStatusUpdatedAt,
+    accountStatusReason: safeUser.accountStatusReason,
   };
   return `(
     ${parameters.text(safeUser.userId)},
@@ -660,6 +754,7 @@ function normalizeRuntimeIdentityEmployeeUpdates(records = []) {
       remark: cleanText(record?.remark),
       birthDate: normalizeIsoDate(record?.birthDate ?? record?.birth_date),
       hireDate: normalizeIsoDate(record?.hireDate ?? record?.hire_date),
+      payrollPositionKey: cleanText(record?.payrollPositionKey ?? record?.payroll_position_key),
       baseHourlyWage: nonNegativeNumber(record?.baseHourlyWage ?? record?.base_hourly_wage),
       positionAllowanceHourly: nonNegativeNumber(
         record?.positionAllowanceHourly ?? record?.position_allowance_hourly,
@@ -698,6 +793,7 @@ function runtimeEmployeeIdentitySqlRow(record, parameters) {
     ${parameters.nullableText(record.remark)},
     ${parameters.nullableText(record.birthDate)}::date,
     ${parameters.nullableText(record.hireDate)}::date,
+    ${parameters.text(record.payrollPositionKey)},
     ${parameters.number(record.baseHourlyWage)},
     ${parameters.number(record.positionAllowanceHourly)},
     ${parameters.nullableText(record.wageEffectiveFrom)}::date,
@@ -713,8 +809,8 @@ function runtimeEmployeeIdentitySqlRow(record, parameters) {
   )`;
 }
 
-function runtimeUserJsonExpression(alias) {
-  return `json_build_object(
+export function buildRuntimeUserJsonExpression(alias) {
+  return `(jsonb_build_object(
     'id', ${alias}.id,
     'userId', ${alias}.id,
     'loginName', ${alias}.login_name,
@@ -741,7 +837,8 @@ function runtimeUserJsonExpression(alias) {
     'phoneE164', COALESCE(${alias}.phone_e164, ''),
     'phoneVerifiedAt', COALESCE(${alias}.phone_verified_at::TEXT, ''),
     'registrationStatus', COALESCE(${alias}.registration_status, 'legacy_account'),
-    'registrationSource', COALESCE(${alias}.registration_source, ''),
+    'registrationSource', COALESCE(${alias}.registration_source, '')
+  ) || jsonb_build_object(
     'assignedAt', COALESCE(${alias}.assigned_at::TEXT, ''),
     'assignedBy', COALESCE(${alias}.assigned_by, ''),
     'authMethods', COALESCE(${alias}.metadata_json->'authMethods', '[]'::jsonb),
@@ -754,8 +851,20 @@ function runtimeUserJsonExpression(alias) {
     'accountReviewedBy', COALESCE(${alias}.metadata_json->>'accountReviewedBy', ''),
     'accountReviewedAt', COALESCE(${alias}.metadata_json->>'accountReviewedAt', ''),
     'accountReviewNote', COALESCE(${alias}.metadata_json->>'accountReviewNote', ''),
+    'accountType', COALESCE(${alias}.metadata_json->>'accountType', ''),
+    'accountStatus', COALESCE(${alias}.metadata_json->>'accountStatus', ''),
+    'permissionAllowlist', COALESCE(${alias}.metadata_json->'permissionAllowlist', '[]'::jsonb),
+    'permissionDenylist', COALESCE(${alias}.metadata_json->'permissionDenylist', '[]'::jsonb),
+    'permissionRevision', COALESCE(NULLIF(${alias}.metadata_json->>'permissionRevision', '')::INTEGER, 0),
+    'permissionsUpdatedBy', COALESCE(${alias}.metadata_json->>'permissionsUpdatedBy', ''),
+    'permissionsUpdatedAt', COALESCE(${alias}.metadata_json->>'permissionsUpdatedAt', ''),
+    'accountCreatedBy', COALESCE(${alias}.metadata_json->>'accountCreatedBy', ''),
+    'accountCreatedAt', COALESCE(${alias}.metadata_json->>'accountCreatedAt', ''),
+    'accountStatusUpdatedBy', COALESCE(${alias}.metadata_json->>'accountStatusUpdatedBy', ''),
+    'accountStatusUpdatedAt', COALESCE(${alias}.metadata_json->>'accountStatusUpdatedAt', ''),
+    'accountStatusReason', COALESCE(${alias}.metadata_json->>'accountStatusReason', ''),
     'updatedAt', COALESCE(${alias}.updated_at::TEXT, '')
-  )`;
+  ))`;
 }
 
 function runtimeIdentityOperationLogJsonExpression(alias) {
@@ -870,6 +979,7 @@ function normalizeRuntimeIdentityEmployeeAccount(record = {}) {
     defaultMachineId: cleanText(record.defaultMachineId ?? record.default_machine_id),
     birthDate: normalizeIsoDate(record.birthDate ?? record.birth_date),
     hireDate: normalizeIsoDate(record.hireDate ?? record.hire_date),
+    payrollPositionKey: cleanText(record.payrollPositionKey ?? record.payroll_position_key),
     baseHourlyWage: nonNegativeNumber(record.baseHourlyWage ?? record.base_hourly_wage),
     positionAllowanceHourly: nonNegativeNumber(
       record.positionAllowanceHourly ?? record.position_allowance_hourly,
@@ -980,6 +1090,22 @@ function normalizeRuntimeUser(user = {}) {
     accountReviewedBy: cleanText(user.accountReviewedBy),
     accountReviewedAt: cleanText(user.accountReviewedAt),
     accountReviewNote: cleanText(user.accountReviewNote),
+    accountType: cleanText(user.accountType),
+    accountStatus: cleanText(user.accountStatus),
+    permissionAllowlist: Array.isArray(user.permissionAllowlist)
+      ? user.permissionAllowlist.map((permission) => cleanText(permission)).filter(Boolean)
+      : [],
+    permissionDenylist: Array.isArray(user.permissionDenylist)
+      ? user.permissionDenylist.map((permission) => cleanText(permission)).filter(Boolean)
+      : [],
+    permissionRevision: Math.max(0, Number(user.permissionRevision) || 0),
+    permissionsUpdatedBy: cleanText(user.permissionsUpdatedBy),
+    permissionsUpdatedAt: cleanText(user.permissionsUpdatedAt),
+    accountCreatedBy: cleanText(user.accountCreatedBy),
+    accountCreatedAt: cleanText(user.accountCreatedAt),
+    accountStatusUpdatedBy: cleanText(user.accountStatusUpdatedBy),
+    accountStatusUpdatedAt: cleanText(user.accountStatusUpdatedAt),
+    accountStatusReason: cleanText(user.accountStatusReason),
     updatedAt: cleanText(user.updatedAt) || new Date().toISOString(),
   };
 }
@@ -1009,6 +1135,9 @@ function normalizeRuntimeIdentityOperationLog(record = {}) {
       "master_data_employee_identity_confirmation",
       "phone_self_registration",
       "personnel_phone_registration_assignment",
+      "master_data_subaccount",
+      "master_data_subaccount_permission",
+      "master_data_subaccount_password",
     ].includes(
       targetType,
     )

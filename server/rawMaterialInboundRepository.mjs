@@ -74,25 +74,19 @@ export function createRawMaterialInboundRepository(options = {}) {
   }
   throw new Error(`Unsupported raw material inbound repository mode: ${mode}`);
 }
-
 export function createLocalRawMaterialInboundRepository(options = {}) {
   const store = createRawMaterialInboundLocalStore({ storageRoot: options.storageRoot });
-
   return {
     kind: "local_json",
-
     loadState({ seedInbounds = [] } = {}) {
       return store.load({ seedInbounds });
     },
-
     listRawMaterialInbounds({ workspace, query } = {}) {
       return buildRawMaterialInboundListResponse(workspace?.rawMaterialInbounds, query);
     },
-
     getRawMaterialInbound({ workspace, inboundId }) {
       return findRawMaterialInbound(workspace, inboundId);
     },
-
     createRawMaterialInboundDraft({ workspace, inbound, operationLog }) {
       const safeInbound = normalizeRawMaterialInbound(inbound);
       if (!safeInbound?.id) throw Object.assign(new Error("Raw material inbound id is required"), { statusCode: 422 });
@@ -130,7 +124,6 @@ export function createLocalRawMaterialInboundRepository(options = {}) {
     },
   };
 }
-
 export function createPostgresRawMaterialInboundRepository(options = {}) {
   const databaseUrl = options.databaseUrl;
   const postgresClient = options.postgresClient ?? (options.queryJson ? null : createPostgresPoolClient({ databaseUrl }));
@@ -141,27 +134,22 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
     ...options,
     postgresClient,
   });
-
   return {
     kind: "postgres",
-
     async loadState() {
       const builtQuery = buildListRawMaterialInboundPayloadsQuery({});
       return {
         rawMaterialInbounds: normalizeRawMaterialInbounds(await queryJson(builtQuery.text, builtQuery.values)),
       };
     },
-
     async listRawMaterialInbounds({ query } = {}) {
       const builtQuery = buildListRawMaterialInboundPayloadsQuery({ query });
       return buildRawMaterialInboundListResponse(await queryJson(builtQuery.text, builtQuery.values), query);
     },
-
     async getRawMaterialInbound({ inboundId }) {
       const builtQuery = buildFindRawMaterialInboundPayloadQuery(inboundId);
       return normalizeRawMaterialInbound(await queryJson(builtQuery.text, builtQuery.values));
     },
-
     async createRawMaterialInboundDraft(input = {}) {
       const safeInbound = normalizeRawMaterialInbound(input.inbound);
       if (!safeInbound?.id) throw Object.assign(new Error("Raw material inbound id is required"), { statusCode: 422 });

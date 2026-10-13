@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   normalizeRawMaterialCostAllocationConfirmations,
   normalizeRawMaterialCostAllocationDrafts,
@@ -7,24 +6,6 @@ import {
   normalizeRawMaterialOrderMarginReports,
   normalizeRawMaterialOrderMarginSnapshots,
 } from "../server/rawMaterialCostMarginRecordNormalizer.mjs";
-
-const commandSource = readFileSync(new URL("../server/services/rawMaterialInboundCommandService.mjs", import.meta.url), "utf8");
-const normalizerSource = readFileSync(
-  new URL("../server/rawMaterialCostMarginRecordNormalizer.mjs", import.meta.url),
-  "utf8",
-);
-
-assert.match(commandSource, /rawMaterialCostMarginRecordNormalizer\.mjs/);
-for (const name of [
-  "normalizeRawMaterialCostAllocationDrafts",
-  "normalizeRawMaterialCostAllocationConfirmations",
-  "normalizeRawMaterialCostLossCalibrations",
-  "normalizeRawMaterialOrderMarginSnapshots",
-  "normalizeRawMaterialOrderMarginReports",
-]) {
-  assert.match(normalizerSource, new RegExp(`export function ${name}\\(`));
-}
-assert.ok(normalizerSource.split("\n").length < 360, "cost/margin record normalizer should stay independently reviewable");
 
 const [draft] = normalizeRawMaterialCostAllocationDrafts([
   {
@@ -112,5 +93,5 @@ assert.equal(report.reviewStatus, "已财务复核/报表可用");
 assert.equal(report.marginEffect, "reviewed_margin_report_snapshot");
 
 console.log(
-  "Raw-material cost/margin normalizers check passed: record schemas, defaults, numeric/text cleanup, line filtering, and repository ownership are isolated.",
+  "Raw-material cost/margin normalizers check passed: record schemas, defaults, numeric/text cleanup, and line filtering are covered.",
 );

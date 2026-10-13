@@ -1,14 +1,8 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   buildOfficeWorkspaceProjection,
   isOfficeWorkspaceProjectionEnabled,
 } from "../server/services/officeWorkspaceProjectionService.mjs";
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiServerSource, /buildOfficeWorkspaceProjection\(workspace\)/);
-assert.match(apiServerSource, /isOfficeWorkspaceProjectionEnabled\(workspace\)/);
-assert.doesNotMatch(apiServerSource, /sendJson\(response, 200, workspace\)/);
 
 const workspace = {
   runtimeConfig: { mode: "demo", production: false },

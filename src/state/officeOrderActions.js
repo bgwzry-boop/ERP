@@ -1,4 +1,4 @@
-import { makeFulfillment, makeOrderLine } from "../data/fixtures.js";
+import { makeFulfillment, makeOrderLine } from "./officeRecordFactories.js";
 import { enrichDraftRow } from "../lib/orderParser.js";
 import {
   findCustomerByName,

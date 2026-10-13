@@ -1,22 +1,25 @@
-import {
-  applyRawMaterialCostMarginLocalAction,
-  buildRawMaterialCostMarginToastText,
-} from "./rawMaterialCostMarginLocalActions.js";
+import { applyRawMaterialCostMarginLocalAction, buildRawMaterialCostMarginToastText } from "./rawMaterialCostMarginLocalActions.js";
 import { roundLocalRawMaterialWeight } from "./rawMaterialLocalActionMath.js";
-import {
-  applyRawMaterialOcrLineReviews,
-  buildRawMaterialOcrReviewedRolls,
-  validateRawMaterialOcrLineReviewSummary,
-} from "../../shared/rawMaterialOcrLineReview.js";
+import { applyRawMaterialOcrLineReviews, buildRawMaterialOcrReviewedRolls, validateRawMaterialOcrLineReviewSummary } from "../../shared/rawMaterialOcrLineReview.js";
 import { applyLocalRawMaterialInboundLabelAction } from "./rawMaterialInboundLocalLabelActions.js";
+import { applyRawMaterialInboundLocalDraftAction } from "./rawMaterialInboundLocalDraftActions.js";
 
 export function buildRawMaterialInboundToastText(action, target, options = {}) {
   const reference = formatRawMaterialInboundReference(target);
   if (action === "复核送货单") {
     return `已复核 ${reference}，下一步打印一卷一标；OCR 仍只作为预填证据。`;
   }
+  if (action === "作废误录草稿") {
+    return `已作废误录草稿 ${reference}；原图和操作记录继续保留，不形成库存。`;
+  }
+  if (action === "纠正为供应商退货") {
+    return `已把 ${reference} 按供应商退货单重新解析；缺少规格不阻断，不生成卷码、标签或库存。`;
+  }
   if (action === "打印卷标") {
     return `已打印 ${reference} 的卷标；打印只是待贴标状态，不能直接作为可用库存。`;
+  }
+  if (action === "暂缓打印卷标") {
+    return `已保存 ${reference} 的逐卷卷码；现场暂不打印，全部卷料进入待补标区且不计入可用库存。`;
   }
   if (action === "作废卷标") {
     return options.rollId
@@ -91,6 +94,11 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
   let updatedItem = null;
   const nextItems = items.map((item) => {
     if (item.id !== inboundId) return item;
+    const draftAction = applyRawMaterialInboundLocalDraftAction(item, input);
+    if (draftAction.handled) {
+      updatedItem = draftAction.updatedItem;
+      return updatedItem ?? item;
+    }
     if (action === "复核送货单") {
       if (item.ocrProvider === "tencent_cloud_table_v3") {
         const reviewValues = buildLocalOcrReviewValues(item, options.reviewFields);
@@ -99,13 +107,23 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
           lineReviews: options.lineReviews,
           operatorName,
           now,
+          documentDirection: item.documentDirection || "supplier_delivery",
+          standardColors: options.standardColors,
         });
-        validateRawMaterialOcrLineReviewSummary({ lines: reviewedLines, reviewValues });
+        validateRawMaterialOcrLineReviewSummary({
+          lines: reviewedLines,
+          reviewValues,
+          documentDirection: item.documentDirection || "supplier_delivery",
+          amountReferenceOnly: item.documentPriceReferenceOnly === true,
+        });
+        const isSupplierReturn = item.documentDirection === "supplier_return";
         updatedItem = {
           ...item,
           ...reviewValues,
-          status: "已复核待打印标签",
-          ocrStatus: `人工复核已通过，${reviewedLines.length} 行明细已确认`,
+          status: isSupplierReturn ? "退货单已复核" : "已复核待打印标签",
+          ocrStatus: isSupplierReturn
+            ? `退货人工复核已通过，${reviewedLines.length} 行明细作为负数对账依据`
+            : `人工复核已通过，${reviewedLines.length} 行明细已确认`,
           ocrReviewFields: (item.ocrReviewFields ?? []).map((field) => {
             const value = Object.hasOwn(reviewValues, field.key) ? reviewValues[field.key] : field.value;
             return {
@@ -119,11 +137,14 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
           ocrLines: reviewedLines,
           reviewedBy: operatorName,
           reviewedAt: now,
-          nextStep: "打印系统卷标；标签贴到实物后仍需逐卷人工核对才算可用原料。",
+          nextStep: isSupplierReturn
+            ? "退货复核已留档；不生成卷码、标签或库存。"
+            : "打印系统卷标；标签贴到实物后仍需逐卷人工核对才算可用原料。",
           rolls: buildRawMaterialOcrReviewedRolls({
             inboundId: item.id,
             existingRolls: item.rolls,
             lines: reviewedLines,
+            documentDirection: item.documentDirection || "supplier_delivery",
           }),
         };
         return updatedItem;

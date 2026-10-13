@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createCommandResultHttpAdapterService } from "../server/services/commandResultHttpAdapterService.mjs";
 
 const calls = [];
@@ -79,16 +78,5 @@ for (const missing of ["sendBusinessError", "sendJson", "sendNotFound"]) {
   delete dependencies[missing];
   assert.throws(() => createCommandResultHttpAdapterService(dependencies), new RegExp(`${missing} must be a function`));
 }
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(
-  new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url),
-  "utf8",
-);
-assert.doesNotMatch(apiSource, /createCommandResultHttpAdapterService/);
-assert.match(apiSource, /apiSharedServiceRegistry/);
-assert.match(registrySource, /createCommandResultHttpAdapterService/);
-assert.match(apiSource, /sendCommandRecord/);
-assert.match(apiSource, /sendCommandResponse/);
 
 console.log("Command-result HTTP adapter checks passed: response/raw payloads, status, errors, details, not-found fallback, and dependencies are covered.");

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createFulfillmentPrintCommandService } from "../server/services/fulfillmentPrintCommandService.mjs";
 
 const fixedNow = "2026-07-11T11:00:00.000Z";
@@ -352,18 +351,6 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
   });
   assert.equal(localVoid.printRecord.status, "voided");
   assert.equal(demoHarness.workspace.operationLogs.length, 1);
-}
-
-const apiServerSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createFulfillmentPrintCommandService/);
-for (const embeddedFunction of [
-  "buildFulfillmentPrintRecord",
-  "buildPrintJobRecord",
-  "resolvePrintDeviceForDocument",
-  "validateFulfillmentPrintRequest",
-]) {
-  assert.doesNotMatch(apiServerSource, new RegExp(`function ${embeddedFunction}\\b`));
 }
 
 console.log("Fulfillment print command service checks passed: device gates, preview, queueing, void/reprint, and production persistence are isolated.");

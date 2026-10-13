@@ -53,6 +53,7 @@ import {
 } from "./services/inventoryCorrectionReadProjectionService.mjs";
 import { createInventoryReservationReleaseCommandService } from "./services/inventoryReservationReleaseCommandService.mjs";
 import { createMasterDataEmployeeAccountCommandService } from "./services/masterDataEmployeeAccountCommandService.mjs";
+import { createMasterDataSubaccountCommandService } from "./services/masterDataSubaccountCommandService.mjs";
 import { createMasterDataImportCommandService } from "./services/masterDataImportCommandService.mjs";
 import { createMasterDataMachineCommandService } from "./services/masterDataMachineCommandService.mjs";
 import { createMaintenanceTaskCommandService } from "./services/maintenanceTaskCommandService.mjs";
@@ -75,6 +76,7 @@ import { createProductionTaskProjectionService } from "./services/productionTask
 import { createRawMaterialCommandService } from "./services/rawMaterialCommandService.mjs";
 import { createRawMaterialPurchaseCommandService } from "./services/rawMaterialPurchaseCommandService.mjs";
 import { createRawMaterialOcrParserService } from "./services/rawMaterialOcrParserService.mjs";
+import { createRawMaterialSupplierColorMappingService } from "./services/rawMaterialSupplierColorMappingService.mjs";
 import { createRequestAuthorizationService } from "./services/requestAuthorizationService.mjs";
 import { createRuntimeAuthCommandService } from "./services/runtimeAuthCommandService.mjs";
 import { createStatementCommunicationCommandService } from "./services/statementCommunicationCommandService.mjs";
@@ -390,6 +392,7 @@ export function createApiSharedServiceRegistry() {
     tencentCloudTableOcrService,
   });
   const rawMaterialPurchaseCommandService = createRawMaterialPurchaseCommandService({ rawMaterialCommandService });
+  const rawMaterialSupplierColorMappingService = createRawMaterialSupplierColorMappingService({ buildOperationLog });
   const orderLineMutationCommandService = createOrderLineMutationCommandService({
     buildOperationLog,
     findInventoryItem,
@@ -424,6 +427,7 @@ export function createApiSharedServiceRegistry() {
   const masterDataEmployeeAccountCommandService = createMasterDataEmployeeAccountCommandService({
     buildOperationLog,
   });
+  const masterDataSubaccountCommandService = createMasterDataSubaccountCommandService({ buildOperationLog });
   const masterDataMachineCommandService = createMasterDataMachineCommandService({ buildOperationLog });
   const runtimeAuthCommandService = createRuntimeAuthCommandService({ buildOperationLog });
   const phoneIdentityCommandService = createPhoneIdentityCommandService({ buildOperationLog });
@@ -495,6 +499,7 @@ export function createApiSharedServiceRegistry() {
     inventoryCorrectionReadProjectionService,
     inventoryReservationReleaseCommandService,
     masterDataEmployeeAccountCommandService,
+    masterDataSubaccountCommandService,
     masterDataImportCommandService,
     masterDataMachineCommandService,
     maintenanceTaskCommandService,
@@ -516,6 +521,7 @@ export function createApiSharedServiceRegistry() {
     rawMaterialCommandService,
     rawMaterialPurchaseCommandService,
     rawMaterialOcrParserService,
+    rawMaterialSupplierColorMappingService,
     requireActionPermission,
     requireAnyActionPermission,
     requireAttachmentCreatePermission,

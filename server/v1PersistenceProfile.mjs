@@ -122,7 +122,7 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
   const productionEnforced = runtimeMode === "production";
   const repositoryMode = productionEnforced
     ? "postgres"
-    : configuredRepositoryMode || (options.allowLocalFixture === true ? "local" : "postgres");
+    : configuredRepositoryMode || "postgres";
   const fileStorageMode = productionEnforced ? "object_storage" : configuredFileStorageMode;
   const databaseUrl =
     profile.databaseUrl ?? options.v1PersistenceDatabaseUrl ?? env.ERP_V1_DATABASE_URL ?? env.DATABASE_URL ?? env.PGURL;
@@ -191,7 +191,7 @@ export function applyV1PersistenceProfileOptions(options = {}, env = process.env
       const current = normalizeObject(effectiveOptions[optionKey]);
       effectiveOptions[optionKey] = {
         ...current,
-        mode: current.mode ?? "local",
+        mode: current.mode ?? "postgres",
         allowLocalFixture: true,
       };
     }

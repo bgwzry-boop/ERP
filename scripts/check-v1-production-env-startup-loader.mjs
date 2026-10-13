@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createApiServer } from "../server/apiServer.mjs";
 import { loadV1ProductionEnvFilesIntoProcess } from "../server/productionEnvFileLoader.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-production-env-startup-loader");
 const safeEnvPath = join(storageRoot, "secure-startup.env");
@@ -135,7 +136,7 @@ try {
   delete process.env.ERP_V1_PRODUCTION_ENV_FILE_AUDIT_PATHS;
   process.env.ERP_V1_PRODUCTION_ENV_FILE = safeEnvPath;
   delete process.env.ERP_V1_ENV_FILE;
-  const server = createApiServer({ allowLocalFixture: true });
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true }));
   try {
     await listen(server);
     const { port } = server.address();

@@ -15,6 +15,7 @@ const lines = [
       productName: "无纺布卷料",
       materialType: "无纺布",
       supplierColor: "白色",
+      factoryColor: "本白",
       spec: "90g*1.6米",
       rollCount: 2,
       totalWeightKg: 103.5,
@@ -32,6 +33,7 @@ const lines = [
       productName: "无纺布卷料",
       materialType: "无纺布",
       supplierColor: "天兰条",
+      factoryColor: "天兰",
       spec: "",
       rollCount: 1,
       totalWeightKg: 50,
@@ -67,21 +69,22 @@ const reviewedLines = applyRawMaterialOcrLineReviews({
 });
 assert.equal(reviewedLines[0].reviewStatus, "人工接受");
 assert.equal(reviewedLines[1].reviewStatus, "人工接受");
-assert.equal(reviewedLines[1].recognizedValues.spec, "78*5");
-assert.equal(reviewedLines[1].values.spec, "78*5");
+assert.equal(reviewedLines[1].recognizedValues.spec, "65*5");
+assert.equal(reviewedLines[1].values.spec, "65*5");
 assert.deepEqual(
   [reviewedLines[1].values.gramWeightGsm, reviewedLines[1].values.widthCm, reviewedLines[1].values.lengthM],
-  [78, 5, 0],
+  [65, 5, 0],
 );
 assert.equal(reviewedLines[1].recognizedValues.materialCategory, "提手条");
 assert.equal(reviewedLines[1].recognizedValues.supplierColor, "天兰");
-assert.equal(reviewedLines[1].recognizedValues.gramWeightGsm, 78, "天兰条 applies the fixed handle-strip GSM");
+assert.equal(reviewedLines[1].recognizedValues.gramWeightGsm, 65, "天兰条 applies the default handle-strip GSM");
 assert.equal(reviewedLines[1].recognizedValues.widthCm, 5, "天兰条 applies the fixed handle-strip width");
 assert.equal(reviewedLines[1].recognizedValues.lengthM, 0, "天兰条 keeps an omitted meter length absent without blocking review");
 assert.equal(reviewedLines[1].values.materialCategory, "提手条");
 assert.equal(reviewedLines[1].values.materialType, "提手");
 assert.equal(reviewedLines[1].values.productName, "提手条");
 assert.equal(reviewedLines[1].values.supplierColor, "天兰");
+assert.equal(reviewedLines[1].values.factoryColor, "天兰");
 assert.equal(reviewedLines[1].reviewedFields.find((field) => field.key === "spec").reviewStatus, "人工接受");
 
 validateRawMaterialOcrLineReviewSummary({
@@ -98,16 +101,17 @@ assert.deepEqual(rolls.map((roll) => roll.weightKg), [50, 53.5, 50]);
 assert.equal(rolls.every((roll) => roll.inventoryStatus === "不可用"), true);
 assert.equal(rolls[0].id, "RM-OCR-1-01");
 assert.equal(rolls[2].ocrLineId, "OCR-T1-R3");
-assert.equal(rolls[2].specDisplay, "78克 × 5cm");
+assert.equal(rolls[2].specDisplay, "65克 × 5cm");
 assert.equal(rolls[2].materialCategory, "提手条");
 
 const falsePositiveLine = {
   lineId: "OCR-T1-FOOTER",
   sourceText: "426928.4",
   values: {
-    productName: "",
-    materialType: "",
-    supplierColor: "",
+      productName: "",
+      materialType: "",
+      supplierColor: "",
+      factoryColor: "",
     spec: "426928.4",
     rollCount: 0,
     totalWeightKg: 0,
@@ -200,6 +204,50 @@ assert.throws(
   () => applyRawMaterialOcrLineReviews({ lines, lineReviews: [lineReviews[0]] }),
   (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_REQUIRED",
 );
+assert.throws(
+  () => applyRawMaterialOcrLineReviews({
+    lines,
+    lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
+      ? { ...entry, values: { ...entry.values, factoryColor: "待确认" } }
+      : entry),
+  }),
+  (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_REQUIRED_FIELDS_MISSING",
+  "each physical material line requires a human-confirmed canonical factory color",
+);
+
+const reviewedWithMaintainedFactoryColor = applyRawMaterialOcrLineReviews({
+  lines,
+  lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
+    ? { ...entry, values: { ...entry.values, factoryColor: "湖蓝" } }
+    : entry),
+  standardColors: [{ id: "SC-LAKE-BLUE", name: "湖蓝", enabled: true }],
+});
+assert.equal(
+  reviewedWithMaintainedFactoryColor.find((line) => line.lineId === "OCR-T1-R3")?.values.factoryColor,
+  "湖蓝",
+  "an audited factory-standard color outside the seed suggestions should remain valid during OCR review",
+);
+
+assert.throws(
+  () => applyRawMaterialOcrLineReviews({
+    lines,
+    lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
+      ? { ...entry, values: { ...entry.values, unitPrice: 0 } }
+      : entry),
+  }),
+  (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_UNIT_PRICE_REQUIRED",
+  "unit price must be positive",
+);
+assert.throws(
+  () => applyRawMaterialOcrLineReviews({
+    lines,
+    lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
+      ? { ...entry, values: { ...entry.values, amount: 499 } }
+      : entry),
+  }),
+  (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_CALCULATION_MISMATCH",
+  "weight multiplied by unit price must reconcile to the row amount",
+);
 const stripWithoutMeters = applyRawMaterialOcrLineReviews({
   lines,
   lineReviews: lineReviews.map((entry) => entry.lineId === "OCR-T1-R3"
@@ -207,8 +255,8 @@ const stripWithoutMeters = applyRawMaterialOcrLineReviews({
     : entry),
 });
 const stripWithoutMetersLine = stripWithoutMeters.find((line) => line.lineId === "OCR-T1-R3");
-assert.equal(stripWithoutMetersLine.values.spec, "78*5");
-assert.equal(stripWithoutMetersLine.values.gramWeightGsm, 78);
+assert.equal(stripWithoutMetersLine.values.spec, "65*5");
+assert.equal(stripWithoutMetersLine.values.gramWeightGsm, 65);
 assert.equal(stripWithoutMetersLine.values.widthCm, 5);
 assert.equal(stripWithoutMetersLine.values.lengthM, 0);
 assert.equal(stripWithoutMetersLine.values.specNeedsReview, false);
@@ -219,7 +267,7 @@ const stripWithBlankSpec = applyRawMaterialOcrLineReviews({
     : entry),
 });
 const stripWithBlankSpecLine = stripWithBlankSpec.find((line) => line.lineId === "OCR-T1-R3");
-assert.equal(stripWithBlankSpecLine.values.spec, "78*5", "a confirmed strip identity carries the fixed GSM/width even if the supplier leaves specification blank");
+assert.equal(stripWithBlankSpecLine.values.spec, "65*5", "a confirmed strip identity carries the default GSM/width when the supplier leaves specification blank");
 assert.equal(stripWithBlankSpecLine.values.lengthM, 0, "missing strip meters stay absent and do not block review");
 assert.throws(
   () => applyRawMaterialOcrLineReviews({
@@ -259,7 +307,8 @@ const returnLines = [{
   values: {
     productName: "退带色布",
     materialType: "无纺布",
-    supplierColor: "",
+    supplierColor: "带色",
+    returnMaterialCategory: "彩布",
     spec: "",
     rollCount: 2,
     totalWeightKg: -28.4,
@@ -284,6 +333,7 @@ const reviewedReturnLines = applyRawMaterialOcrLineReviews({
   now: "2026-08-03T12:00:00.000Z",
 });
 assert.equal(reviewedReturnLines[0].values.spec, "", "a supplier return without a printed specification must not be forced to invent one");
+assert.equal(reviewedReturnLines[0].values.returnMaterialCategory, "彩布", "the return pricing category must survive review even when specification is blank");
 assert.equal(reviewedReturnLines[0].values.totalWeightKg, -28.4);
 assert.deepEqual(reviewedReturnLines[0].values.rollWeightsKg, [-4.2, -24.2]);
 validateRawMaterialOcrLineReviewSummary({
@@ -305,6 +355,18 @@ assert.deepEqual(
   }),
   [],
   "a reviewed return must never create inbound roll or label candidates",
+);
+assert.throws(
+  () => applyRawMaterialOcrLineReviews({
+    lines: returnLines,
+    lineReviews: returnLines.map((line) => ({
+      lineId: line.lineId,
+      values: { ...line.values, returnMaterialCategory: "" },
+    })),
+    documentDirection: "supplier_return",
+  }),
+  (error) => error.code === "RAW_MATERIAL_OCR_REVIEW_LINE_REQUIRED_FIELDS_MISSING" && /黑白布\/彩布/u.test(error.message),
+  "a fabric return with an unknown black-white/colour price category must remain blocked",
 );
 
 console.log("Raw-material OCR line-review checks passed: all lines are explicit, original values are preserved, summaries reconcile, and rolls stay unavailable.");

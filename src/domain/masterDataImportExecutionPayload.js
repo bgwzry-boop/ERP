@@ -9,8 +9,9 @@ import {
   normalizeEmployeeNumberKey,
 } from "../../shared/auth/employeeIdentity.js";
 import { resolveImportedMasterDataMachineId } from "../../shared/masterDataMachineIdentity.js";
+import { findPayrollPosition } from "../../shared/payrollPositionCatalog.js";
 
-export const MASTER_DATA_IMPORT_EXECUTION_PAYLOAD_VERSION = "p0-master-data-import-execution-payload-v2";
+export const MASTER_DATA_IMPORT_EXECUTION_PAYLOAD_VERSION = "p0-master-data-import-execution-payload-v3";
 
 const supportedSheetKeys = new Set(["customers", "product_specs", "price_tables", "inventory_items", "employees_machines"]);
 
@@ -328,6 +329,7 @@ function mapEmployeeMachineRow(row) {
   const birthDate = cleanText(row.values["出生日期"]);
   const hireDate = cleanText(row.values["入职日期"]);
   const wageEffectiveFrom = cleanText(row.values["生效日期"]);
+  const payrollPositionKey = cleanText(row.values["工资岗位键"]).toUpperCase();
   const attendanceProvider = cleanText(row.values["考勤来源"]).toLowerCase();
   const attendanceExternalId = cleanText(row.values["考勤人员编号"]);
   const defaultWorkshop = cleanText(row.values["默认车间"]);
@@ -340,6 +342,9 @@ function mapEmployeeMachineRow(row) {
   }
   if (birthDate && hireDate && birthDate >= hireDate) return { failedReason: "入职日期必须晚于出生日期。" };
   if (hireDate && wageEffectiveFrom && wageEffectiveFrom < hireDate) return { failedReason: "工资生效日期不能早于入职日期。" };
+  if (payrollPositionKey && !findPayrollPosition(payrollPositionKey)) {
+    return { failedReason: "工资岗位键不在已确认的岗位工资目录中。" };
+  }
   if (Boolean(attendanceProvider) !== Boolean(attendanceExternalId)) {
     return { failedReason: "考勤来源和考勤人员编号必须同时填写，或同时留空。" };
   }
@@ -384,6 +389,7 @@ function mapEmployeeMachineRow(row) {
     defaultMachineId: machineId,
     birthDate,
     hireDate,
+    payrollPositionKey,
     baseHourlyWage: baseHourlyWage.value,
     positionAllowanceHourly: positionAllowanceHourly.value,
     wageEffectiveFrom: effectiveFrom,
@@ -394,6 +400,7 @@ function mapEmployeeMachineRow(row) {
     profileFieldPresence: {
       birthDate: Boolean(birthDate),
       hireDate: Boolean(hireDate),
+      payrollPositionKey: Boolean(payrollPositionKey),
       baseHourlyWage: cleanText(row.values["基础时薪"]) !== "",
       positionAllowanceHourly: cleanText(row.values["岗位补贴/小时"]) !== "",
       wageEffectiveFrom: Boolean(wageEffectiveFrom),

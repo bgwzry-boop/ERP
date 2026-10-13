@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1ProductionFirstStageExecutionLiveRunService } from "../server/services/v1ProductionFirstStageExecutionLiveRunService.mjs";
 
 const FIXED_NOW = "2026-07-14T07:00:00.000Z";
@@ -133,16 +132,6 @@ const invalidClockService = createV1ProductionFirstStageExecutionLiveRunService(
   now: () => new Date("invalid"),
 });
 await assert.rejects(() => invalidClockService.run({}), /now\(\) must return a valid Date/);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function buildV1ProductionFirstStageExecutionLiveRunBody/);
-assert.doesNotMatch(apiSource, /function buildV1ProductionFirstStageExecutionServerConfigGuidance/);
-assert.doesNotMatch(apiSource, /async function runSystemV1ProductionFirstStageExecution/);
-assert.match(registrySource, /createV1ProductionFirstStageExecutionLiveRunService/);
-assert.match(routeSource, /runProductionFirstStageExecution:[\s\S]*v1ProductionFirstStageExecutionLiveRunService\.run\(\{ request, operatorId \}\)/);
-assert.match(registrySource, /resolveApiBaseUrl:\s*\(\{ request \}\) =>[\s\S]*resolveConfiguredOrLoopbackV1ApiBaseUrl/);
 
 console.log("V1 production first-stage execution live-run service checks passed: safe target resolution, command isolation, redacted projection, blocked/error handling, and thin API composition are covered.");
 

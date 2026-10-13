@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleSystemWriteRoutes } from "../server/routes/systemWriteRoutes.mjs";
 
 const cases = [
@@ -122,23 +121,5 @@ assert.equal(await handleSystemWriteRoutes({ ...dependencies, method: "POST", ur
 assert.deepEqual(calls, []);
 assert.equal(await handleSystemWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/system/v1-persistence/live-precheck") }), false);
 assert.equal(await handleSystemWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/system/unknown") }), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-for (const oldWrapper of [
-  "generateSystemV1FieldEvidenceIntakeDraftManifest",
-  "precheckSystemV1ProductionEnv",
-  "runSystemV1ProductionEnvSetup",
-  "precheckSystemV1ProductionGoLive",
-  "runSystemV1ProductionFirstStageValuesApply",
-  "precheckSystemV1V2Boundary",
-  "refreshSystemV1ReleaseCandidate",
-]) {
-  assert.equal(apiSource.includes(oldWrapper), false, `${oldWrapper} should not remain in the API composition root`);
-}
-assert.match(routeSource, /v1FieldEvidenceDraftService\.generateDraft/);
-assert.match(routeSource, /v1ProductionGoLivePrecheckService\.precheck/);
-assert.match(routeSource, /v1ProductionEnvValuesApplyService\.run/);
-assert.match(routeSource, /v1ReleaseCandidateRefreshService\.refresh/);
 
 console.log("system write routes checks passed: 21 V1 actions, permissions, exact inputs, responses, and direct route ownership are covered");

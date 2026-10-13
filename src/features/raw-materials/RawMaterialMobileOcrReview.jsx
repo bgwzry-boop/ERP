@@ -13,6 +13,7 @@ import { downloadOfficeAttachmentContent } from "../../services/officeAttachment
 import { RAW_MATERIAL_OCR_NORMALIZED_MAX_EDGE } from "../../services/rawMaterialDeliveryNoteImageClient.js";
 import demoDeliveryNoteUrl from "../../assets/raw-material-delivery-note-sample.jpg";
 import { attachmentUploadLimits } from "../../../shared/attachmentUploadPolicy.js";
+import { getFactoryStandardColorSwatch } from "../../../shared/factoryStandardColors.js";
 import {
   formatRawMaterialMobileSpec,
 } from "../../../shared/rawMaterialSpec.js";
@@ -20,6 +21,14 @@ import {
   hasReviewableRawMaterialSpec,
   projectRawMaterialOcrPhysicalRollReviewRows,
 } from "../../../shared/rawMaterialOcrLineReview.js";
+import {
+  normalizeRawMaterialSupplierColor,
+} from "../../../shared/rawMaterialFactoryColors.js";
+import {
+  hasStrongRawMaterialSupplierReturnEvidence,
+  isRawMaterialSupplierReturnFabric,
+  RAW_MATERIAL_SUPPLIER_RETURN_CATEGORIES,
+} from "../../../shared/rawMaterialSupplierReturn.js";
 import {
   normalizeRawMaterialOcrAngle,
   orientRawMaterialOcrSourceBounds,
@@ -45,7 +54,6 @@ const DEMO_SOURCE_INBOUND_IDS = new Set(["RMI-260704-001", "RMI-0704-001"]);
 const EMPTY_SOURCE_PREVIEW_URLS = [];
 
 const PRIMARY_ROLL_FIELDS = [
-  ["supplierColor", "颜色", "text", "例如：本白"],
   ["spec", "规格 / 宽幅", "text", "例如：78×70×2000"],
   ["weightKg", "本卷重量 kg", "number", "0"],
 ];
@@ -63,12 +71,22 @@ const SOURCE_LINE_FIELDS = [
 
 export function RawMaterialMobileOcrReview({
   authState,
+  colorMappingDisabled = false,
+  colorMappingDisabledReason = "",
+  discardDisabled = false,
+  discardDisabledReason = "",
+  discarding = false,
+  directionCorrectionDisabled = false,
+  directionCorrecting = false,
   disabled = false,
   documentDraft = {},
   lineDrafts = {},
   onBack,
   onDocumentFieldChange,
   onLineFieldChange,
+  onOpenColorMapping,
+  onCorrectDirection,
+  onDiscard,
   onSubmit,
   operatorId,
   selected,
@@ -83,6 +101,9 @@ export function RawMaterialMobileOcrReview({
   const [reviewedRollIds, setReviewedRollIds] = useState([]);
   const [excludedRolls, setExcludedRolls] = useState([]);
   const [pendingExclusion, setPendingExclusion] = useState(null);
+  const [exitDecisionOpen, setExitDecisionOpen] = useState(false);
+  const [exitError, setExitError] = useState("");
+  const [directionCorrectionError, setDirectionCorrectionError] = useState("");
   const documentDetailsRef = useRef(null);
   const demoSourcePreviewUrl = DEMO_SOURCE_INBOUND_IDS.has(selected?.id) ? demoDeliveryNoteUrl : "";
   const [sourcePreviews, setSourcePreviews] = useState([]);
@@ -97,6 +118,9 @@ export function RawMaterialMobileOcrReview({
     setReviewedRollIds([]);
     setExcludedRolls([]);
     setPendingExclusion(null);
+    setExitDecisionOpen(false);
+    setExitError("");
+    setDirectionCorrectionError("");
     setSourcePreviewOpen(false);
     setActiveSourcePageIndex(0);
   }, [selected?.id]);
@@ -184,14 +208,70 @@ export function RawMaterialMobileOcrReview({
     return total + (Number.isFinite(weight) && Math.abs(weight) > 0 ? weight : 0);
   }, 0), [activeReviewRolls, lineDrafts, lines]);
 
+  function requestExit() {
+    setExitError("");
+    setExitDecisionOpen(true);
+  }
+
+  async function discardCurrentDraft() {
+    if (discardDisabled || discarding) return;
+    setExitError("");
+    const result = typeof onDiscard === "function"
+      ? await onDiscard()
+      : { ok: false, message: "当前页面不能放弃这张草稿，请返回后联系管理员处理。" };
+    if (result?.ok) {
+      setExitDecisionOpen(false);
+      return;
+    }
+    setExitError(result?.message || "放弃草稿失败，请重试。当前草稿仍保留，不会误删。");
+  }
+
+  async function correctToSupplierReturn() {
+    if (directionCorrectionDisabled || directionCorrecting) return;
+    setDirectionCorrectionError("");
+    try {
+      const result = await onCorrectDirection?.();
+      if (!result?.id || result.documentDirection !== "supplier_return") {
+        setDirectionCorrectionError("后台没有确认改为退货单。当前草稿仍按原方向保留，请重试。");
+      }
+    } catch (error) {
+      setDirectionCorrectionError(error?.message || "退货方向纠正失败，请检查网络后重试。");
+    }
+  }
+
+  const exitDecision = exitDecisionOpen ? (
+    <DraftExitDecision
+      discardDisabled={discardDisabled}
+      discardDisabledReason={discardDisabledReason}
+      discarding={discarding}
+      error={exitError}
+      onContinue={() => setExitDecisionOpen(false)}
+      onDiscard={discardCurrentDraft}
+      onKeep={() => {
+        setExitDecisionOpen(false);
+        onBack?.();
+      }}
+    />
+  ) : null;
+  const directionCorrection = hasStrongRawMaterialSupplierReturnEvidence(selected) ? (
+    <SupplierReturnDirectionCorrection
+      disabled={directionCorrectionDisabled}
+      error={directionCorrectionError}
+      loading={directionCorrecting}
+      onCorrect={correctToSupplierReturn}
+    />
+  ) : null;
+
   if (!lines.length) {
     return (
       <section className="raw-material-mobile-ocr-review" aria-label={isSupplierReturn ? "退货逐件核对" : "全部卷料核对"}>
-        <MobileReviewHeader isSupplierReturn={isSupplierReturn} onBack={onBack} />
+        <MobileReviewHeader isSupplierReturn={isSupplierReturn} onBack={requestExit} />
+        {directionCorrection}
         <div className="raw-material-mobile-review-empty" role="alert">
           <strong>没有可核对的{isSupplierReturn ? "退货" : "卷料"}明细</strong>
           <span>请返回重新拍摄完整{isSupplierReturn ? "退货单" : "送货单"}，当前草稿不能确认。</span>
         </div>
+        {exitDecision}
       </section>
     );
   }
@@ -272,8 +352,9 @@ export function RawMaterialMobileOcrReview({
 
   return (
     <section aria-busy={submitting} className="raw-material-mobile-ocr-review" aria-label={isSupplierReturn ? "退货逐件核对" : "全部卷料核对"}>
-      <MobileReviewHeader isSupplierReturn={isSupplierReturn} onBack={onBack} />
+      <MobileReviewHeader isSupplierReturn={isSupplierReturn} onBack={requestExit} />
       <MobileReviewProgress isSupplierReturn={isSupplierReturn} />
+      {directionCorrection}
 
       <section className="raw-material-mobile-delivery-note" aria-label={isSupplierReturn ? "原退货单" : "原送货单"}>
         <header>
@@ -331,7 +412,9 @@ export function RawMaterialMobileOcrReview({
             const blockers = getMobileOcrRollBlockers(roll, { documentDirection });
             const reviewed = reviewedRollIds.includes(roll.reviewId);
             const expanded = expandedLineId === roll.reviewId;
-            const color = String(roll.supplierColor || "").trim();
+            const supplierColor = String(roll.supplierColor || "").trim();
+            const color = String((isSupplierReturn ? supplierColor : roll.factoryColor) || "").trim();
+            const returnMaterialCategory = String(roll.lineDraft.returnMaterialCategory || "").trim();
             const spec = String(roll.spec || "").trim();
             const specReady = hasReviewableRawMaterialSpec(spec);
             const recognizedSpecValues = roll.line?.values ?? {};
@@ -339,6 +422,9 @@ export function RawMaterialMobileOcrReview({
             const specDisplay = specReady
               ? formatRawMaterialMobileSpec(spec)
               : recognizedSpecDisplay || formatRawMaterialMobileSpec(spec) || (isSupplierReturn ? "原单未写规格" : "规格没看清");
+            const returnPriceDisplay = Number(roll.lineDraft.unitPrice) > 0
+              ? `${Number(roll.lineDraft.unitPrice)} 元/kg`
+              : "单价待补";
             const weight = Number(roll.weightKg);
             const statusLabel = reviewed ? "已确认" : blockers.length ? getRollBlockerStatus(blockers) : "待确认";
             const actionLabel = expanded ? "收起" : reviewed ? "修改" : blockers.length ? "补全" : "修改";
@@ -361,8 +447,8 @@ export function RawMaterialMobileOcrReview({
 
                 <div className="raw-material-mobile-review-line-summary">
                   <span className="raw-material-mobile-review-color" style={{ "--roll-color": getRollColor(color) }} aria-hidden="true" />
-                  <span className="line-color">{color || "颜色待补"}</span>
-                  <span className={`line-spec ${!specReady && !isSupplierReturn ? "has-blocker" : ""}`}>{specDisplay}</span>
+                  <span className="line-color">{isSupplierReturn ? returnMaterialCategory || color || "退货类别待补" : color || "颜色待补"}</span>
+                  <span className={`line-spec ${!specReady && !isSupplierReturn ? "has-blocker" : ""}`}>{isSupplierReturn ? `${specDisplay} · ${returnPriceDisplay}` : specDisplay}</span>
                   <span className="line-weight">{Math.abs(weight) > 0 ? formatWeight(weight, true) : `本${isSupplierReturn ? "件" : "卷"}重量待补`}</span>
                   <em className={`line-status ${reviewed ? "is-reviewed" : blockers.length ? "has-blocker" : ""}`}>
                     {reviewed ? <CheckCircleFilled aria-hidden="true" /> : null}{statusLabel}
@@ -385,6 +471,26 @@ export function RawMaterialMobileOcrReview({
                 {expanded ? (
                   <section className="raw-material-mobile-review-line-editor" aria-label={`第 ${index + 1} 卷编辑`}>
                     <div className="raw-material-mobile-review-key-fields">
+                      {!isSupplierReturn ? (
+                        <FactoryColorResolution
+                          disabled={colorMappingDisabled}
+                          disabledReason={colorMappingDisabledReason}
+                          factoryColor={roll.factoryColor}
+                          line={roll.line}
+                          lineId={roll.lineId}
+                          onOpenMapping={onOpenColorMapping}
+                          supplierColor={supplierColor}
+                        />
+                      ) : null}
+                      {isSupplierReturn && isRawMaterialSupplierReturnFabric({
+                        ...roll.lineDraft,
+                        sourceText: roll.line?.sourceText,
+                      }) ? (
+                        <SupplierReturnMaterialCategory
+                          onChange={(value) => updateLineField(roll.lineId, "returnMaterialCategory", value)}
+                          value={returnMaterialCategory}
+                        />
+                      ) : null}
                       {PRIMARY_ROLL_FIELDS.map(([key, label, type, placeholder]) => (
                         <label key={key}>
                           <span>{label}</span>
@@ -445,7 +551,7 @@ export function RawMaterialMobileOcrReview({
       <details className={`raw-material-mobile-review-document ${documentBlockers.length ? "has-blocker" : ""}`} ref={documentDetailsRef}>
         <summary>
           单据信息
-          <span>{documentBlockers.length ? `需补 ${documentBlockers.length} 项` : "供应商、单号、金额等"}</span>
+          <span>{documentBlockers.length ? `需补：${formatDocumentBlockerLabels(documentBlockers)}` : "供应商、单号、金额等"}</span>
         </summary>
         <div>
           {(selected.ocrReviewFields ?? []).map((field) => (
@@ -470,6 +576,8 @@ export function RawMaterialMobileOcrReview({
         <button disabled={disabled || submitting || !canSubmit} onClick={() => onSubmit?.({ excludedRolls })} type="button">
           {submitting
             ? "正在提交…"
+            : documentBlockers.length
+              ? `先补：${formatDocumentBlockerLabels(documentBlockers)}`
             : canSubmit
               ? isSupplierReturn
                 ? `确认退货单（${reviewedCount}/${activeReviewRolls.length}）`
@@ -479,6 +587,8 @@ export function RawMaterialMobileOcrReview({
       </footer>
 
       {submitError ? <p className="raw-material-mobile-review-submit-error" role="alert">{submitError}</p> : null}
+
+      {exitDecision}
 
       {pendingExclusion ? (
         <div className="raw-material-mobile-exclusion-backdrop" role="dialog" aria-modal="true" aria-labelledby="raw-material-exclusion-title">
@@ -573,6 +683,73 @@ function MobileReviewHeader({ isSupplierReturn = false, onBack }) {
   );
 }
 
+function SupplierReturnDirectionCorrection({ disabled = false, error = "", loading = false, onCorrect }) {
+  return (
+    <section className="raw-material-mobile-return-correction" aria-label="退货单方向纠正">
+      <div>
+        <strong>这张单像供应商退货单</strong>
+        <span>退货允许不写规格；重量和金额按负数对账，不进入打印、贴标或入库。</span>
+      </div>
+      <button disabled={disabled || loading} onClick={onCorrect} type="button">
+        {loading ? "正在改为退货单…" : "改为退货单核对"}
+      </button>
+      {error ? <p role="alert">{error}</p> : null}
+    </section>
+  );
+}
+
+function SupplierReturnMaterialCategory({ onChange, value = "" }) {
+  return (
+    <fieldset className="raw-material-mobile-return-category">
+      <legend>退货布料类别</legend>
+      <div>
+        {RAW_MATERIAL_SUPPLIER_RETURN_CATEGORIES.map((category) => (
+          <button
+            aria-pressed={value === category}
+            className={value === category ? "is-active" : ""}
+            key={category}
+            onClick={() => onChange?.(category)}
+            type="button"
+          >{category}</button>
+        ))}
+      </div>
+      <small>宏尚的黑白布和彩布单价不同；按票面文字确认，规格可以留空。</small>
+    </fieldset>
+  );
+}
+
+function DraftExitDecision({
+  discardDisabled = false,
+  discardDisabledReason = "",
+  discarding = false,
+  error = "",
+  onContinue,
+  onDiscard,
+  onKeep,
+}) {
+  return (
+    <div className="raw-material-mobile-exclusion-backdrop raw-material-mobile-draft-exit-backdrop" role="dialog" aria-modal="true" aria-labelledby="raw-material-draft-exit-title">
+      <section>
+        <h2 id="raw-material-draft-exit-title">要换一张单据吗？</h2>
+        <p>当前识别结果还没核对。若颜色或明细识别不对，放弃后它不会再出现在正常入库列表。</p>
+        <small>原图和作废记录仍保留用于审计；不会形成库存、应付或供应商对账。</small>
+        {error ? <p className="raw-material-mobile-draft-exit-error" role="alert">{error}</p> : null}
+        <div>
+          <button
+            className="confirm"
+            disabled={discardDisabled || discarding}
+            onClick={onDiscard}
+            title={discardDisabled ? discardDisabledReason : "放弃当前识别草稿并返回拍单首页"}
+            type="button"
+          >{discarding ? "正在放弃…" : "放弃这张，重新拍"}</button>
+          <button disabled={discarding} onClick={onContinue} type="button">继续核对</button>
+          <button className="keep" disabled={discarding} onClick={onKeep} type="button">保留草稿，返回首页</button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function MobileReviewProgress({ isSupplierReturn = false }) {
   const steps = isSupplierReturn ? RETURN_REVIEW_STEPS : REVIEW_STEPS;
   return (
@@ -664,6 +841,8 @@ function normalizeRollWeightsInput(value, count) {
 
 function getRollColor(value) {
   const color = String(value || "").trim();
+  const factorySwatch = getFactoryStandardColorSwatch(color);
+  if (factorySwatch) return factorySwatch;
   if (/本白|米白|白/u.test(color)) return "var(--erp-roll-white)";
   if (/枣红/u.test(color)) return "var(--erp-roll-wine)";
   if (/大红|红/u.test(color)) return "var(--erp-roll-red)";
@@ -676,7 +855,7 @@ function getRollColor(value) {
 
 function formatWeight(value, withSpace = false) {
   const number = Number(value);
-  if (!Number.isFinite(number)) return "0kg";
+  if (!Number.isFinite(number) || Math.abs(number) < 0.0005) return "重量待补";
   return `${Number(number.toFixed(3))}${withSpace ? " " : ""}kg`;
 }
 
@@ -697,14 +876,113 @@ function getRollBlockerStatus(blockers = []) {
   return "待补资料";
 }
 
+function FactoryColorResolution({
+  disabled = false,
+  disabledReason = "",
+  factoryColor = "",
+  line = {},
+  lineId = "",
+  onOpenMapping,
+  supplierColor = "",
+}) {
+  const resolution = line.factoryColorResolution ?? {};
+  const state = getFactoryColorResolutionState({ factoryColor, resolution, supplierColor });
+  return (
+    <section className={`raw-material-mobile-factory-color is-${state.tone}`} aria-label="厂家颜色自动换算">
+      <div className="raw-material-mobile-factory-color-route">
+        <span><small>厂家票面</small><strong>{state.sourceColor}</strong></span>
+        <b aria-hidden="true">→</b>
+        <span><small>厂内入库</small><strong>{state.factoryColor || "未匹配"}</strong></span>
+      </div>
+      <p>
+        {state.automatic ? <CheckCircleFilled aria-hidden="true" /> : null}
+        <span>{state.message}</span>
+      </p>
+      {state.allowRuleMaintenance && typeof onOpenMapping === "function" ? (
+        <button
+          disabled={disabled}
+          onClick={() => onOpenMapping({ lineId, supplierColor: state.sourceColor })}
+          title={disabled ? disabledReason : state.action}
+          type="button"
+        >
+          {state.action}
+        </button>
+      ) : null}
+    </section>
+  );
+}
+
+function getFactoryColorResolutionState({ factoryColor = "", resolution = {}, supplierColor = "" } = {}) {
+  const resolvedFactoryColor = String(factoryColor || resolution.factoryColor || "").trim();
+  const sourceColor = normalizeRawMaterialSupplierColor(supplierColor || resolution.supplierColor) || "未识别";
+  if (resolution.status === "supplier_rule" && resolvedFactoryColor) {
+    return {
+      action: "映射不对，修改规则",
+      allowRuleMaintenance: true,
+      automatic: true,
+      factoryColor: resolvedFactoryColor,
+      message: "已按这家厂的颜色规则自动换算，无需再选择。",
+      sourceColor,
+      tone: "automatic",
+    };
+  }
+  if (["global_rule", "legacy_global_fallback", "canonical_exact"].includes(resolution.status) && resolvedFactoryColor) {
+    return {
+      action: "这家叫法不同，建立规则",
+      allowRuleMaintenance: true,
+      automatic: true,
+      factoryColor: resolvedFactoryColor,
+      message: resolution.status === "canonical_exact"
+        ? "票面名称与厂内标准色一致，已自动带入。"
+        : "已按通用颜色规则自动带入；若这家厂叫法不同，只需建立一次专属规则。",
+      sourceColor,
+      tone: "automatic",
+    };
+  }
+  if (resolvedFactoryColor) {
+    return {
+      action: "修改厂家颜色规则",
+      allowRuleMaintenance: true,
+      automatic: true,
+      factoryColor: resolvedFactoryColor,
+      message: "厂家专属规则已补全，本单已带回；以后识别同一叫法会自动换算。",
+      sourceColor,
+      tone: "automatic",
+    };
+  }
+  if (resolution.status === "ambiguous") {
+    return {
+      action: "解决冲突并保存规则",
+      allowRuleMaintenance: true,
+      automatic: false,
+      factoryColor: "",
+      message: "这家厂的颜色规则存在冲突，先确认一次正确标准色，不能猜测入库。",
+      sourceColor,
+      tone: "blocked",
+    };
+  }
+  return {
+    action: "建立一次规则，以后自动",
+    allowRuleMaintenance: true,
+    automatic: false,
+    factoryColor: "",
+    message: "首次遇到这家厂的颜色叫法。维护一次对应关系，本单立即带回，以后无需手选。",
+    sourceColor,
+    tone: "unmapped",
+  };
+}
+
 export function getMobileOcrRollBlockers(roll = {}, { documentDirection = "supplier_delivery" } = {}) {
   const blockers = [];
   const line = roll.lineDraft ?? roll;
   const isSupplierReturn = documentDirection === "supplier_return";
   const rollMaterial = String(line.unit ?? "").trim() === "kg" || /布|卷/u.test(`${line.materialType ?? ""}${line.productName ?? ""}`);
-  if (!isSupplierReturn && rollMaterial && !String(roll.supplierColor ?? line.supplierColor ?? "").trim()) blockers.push("颜色");
+  if (!isSupplierReturn && rollMaterial && !String(roll.factoryColor ?? line.factoryColor ?? "").trim()) blockers.push("厂内标准色");
   if (!isSupplierReturn && !hasReviewableRawMaterialSpec(roll.spec ?? line.spec)) blockers.push("规格 / 宽幅");
+  if (isSupplierReturn && isRawMaterialSupplierReturnFabric({ ...line, sourceText: roll.line?.sourceText }) && !String(line.returnMaterialCategory ?? "").trim()) blockers.push("退货布料类别");
   if (rollMaterial && !(Math.abs(Number(roll.weightKg)) > 0)) blockers.push("本卷重量");
+  if (!(Number(line.unitPrice) > 0)) blockers.push("单价");
+  if (!(Math.abs(Number(line.amount)) > 0)) blockers.push("金额");
   if (!String(line.productName || line.materialType || "").trim()) blockers.push("品名 / 材料");
   if (!String(line.unit ?? "").trim()) blockers.push("单位");
   return blockers;
@@ -714,6 +992,7 @@ export function getMobileOcrLineBlockers(line = {}, options = {}) {
   return getMobileOcrRollBlockers({
     lineDraft: line,
     supplierColor: line.supplierColor,
+    factoryColor: line.factoryColor,
     spec: line.spec,
     weightKg: Number(line.rollCount) === 1 ? line.totalWeightKg : "",
   }, options);
@@ -726,6 +1005,12 @@ function getMobileOcrDocumentBlockers(fields = [], draft = {}) {
     if (field.key === "rollCount") return !Number.isInteger(Number(value)) || Number(value) <= 0;
     return !String(value ?? "").trim();
   });
+}
+
+function formatDocumentBlockerLabels(blockers = []) {
+  const labels = blockers.map((field) => String(field?.label || field?.key || "必填项").trim()).filter(Boolean);
+  if (labels.length <= 2) return labels.join("、");
+  return `${labels.slice(0, 2).join("、")}等 ${labels.length} 项`;
 }
 
 function isNumericDocumentField(key) {

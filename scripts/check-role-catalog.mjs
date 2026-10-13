@@ -13,6 +13,7 @@ import {
   v1RuntimeEmployeeRoleKeys,
 } from "../shared/auth/roleCatalog.js";
 import { getSeedPermissionContext, seedUserOptions } from "../src/auth/seedPermissions.js";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "role-catalog");
 rmSync(storageRoot, { recursive: true, force: true });
@@ -118,7 +119,7 @@ for (const [roleKey, definition] of Object.entries(roleCatalog)) {
   assert.equal(new Set(definition.actionPermissions).size, definition.actionPermissions.length, `${roleKey} has duplicate action permissions`);
 }
 
-const server = createApiServer({ allowLocalFixture: true, runtimeMode: "test", runtimeStorageBaseDir: storageRoot });
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "test", runtimeStorageBaseDir: storageRoot }));
 await server.ready;
 await listen(server);
 try {

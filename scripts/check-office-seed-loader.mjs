@@ -15,6 +15,7 @@ import {
   getTestServerBaseUrl,
   listenTestServer as listen,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const defaultWorkspace = loadOfficeSeedWorkspace();
 assert.equal(defaultWorkspace.seedDataset?.source, "synthetic");
@@ -42,11 +43,11 @@ try {
   assert.notEqual(realWorkspace.customers, validPayload.workspace.customers);
   assert.equal(loadSeedWorkspace({ source: "real_sample", realSampleSeedFile: privateFile, runtimeMode: "test" }).seedDataset?.source, "real_sample");
 
-  const server = createApiServer({ allowLocalFixture: true,
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     runtimeMode: "test",
     seedSource: "real_sample",
     realSampleSeedFile: privateFile,
-  });
+  }));
   try {
     await listen(server);
     await server.ready;

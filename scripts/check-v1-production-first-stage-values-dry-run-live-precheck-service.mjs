@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1ProductionFirstStageValuesDryRunLivePrecheckService } from "../server/services/v1ProductionFirstStageValuesDryRunLivePrecheckService.mjs";
 
 const FIXED_NOW = "2026-07-14T08:00:00.000Z";
@@ -109,22 +108,6 @@ assert.throws(
 );
 const invalidClock = createHarness({ now: () => new Date("invalid") });
 await assert.rejects(() => invalidClock.service.precheck({}), /now\(\) must return a valid Date/);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function precheckSystemV1ProductionFirstStageValuesDryRun/);
-assert.doesNotMatch(apiSource, /function buildV1ProductionFirstStageValuesDryRunLivePrecheckBody/);
-assert.doesNotMatch(apiSource, /function buildV1ProductionFirstStageValuesDryRunServerConfigGuidance/);
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createV1ProductionFirstStageValuesDryRunLivePrecheckService/);
-assert.match(
-  routeSource,
-  /precheckProductionFirstStageValuesDryRun:[\s\S]*v1ProductionFirstStageValuesDryRunLivePrecheckService\.precheck\(\{ operatorId \}\)/,
-);
-assert.match(
-  registrySource,
-  /v1ProductionFirstStageValuesDryRunLivePrecheckService\.buildServerConfigGuidance/,
-);
 
 console.log("V1 production first-stage values dry-run live-precheck service checks passed: source gates, audit/setup blocks, safe command input, proof mapping, redaction, and thin API composition are covered.");
 

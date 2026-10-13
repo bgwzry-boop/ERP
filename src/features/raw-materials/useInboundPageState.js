@@ -1,29 +1,17 @@
 import { submitInboundAction } from "./submitInbound.js";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import {
-  buildOcrLineReviewDraft,
-  createRawMaterialDeliveryNoteCaptureId,
-  findRawMaterialProductionTaskCandidate,
-  inferDeliveryNoteMimeType,
-  isSupportedDeliveryNoteFile,
-  scrollRawMaterialMobileToTop,
-} from "./InboundDetail.jsx";
 import { precheckRawMaterialSupplierStatementWorkbook } from "../../domain/rawMaterialSupplierStatementImport.js";
-import { prepareRawMaterialDeliveryNoteFile } from "../../services/rawMaterialDeliveryNoteImageClient.js";
+import { prepareRawMaterialDeliveryNotePages } from "../../services/rawMaterialDeliveryNoteImageClient.js";
 import { buildRawMaterialStockLookup, evaluateRawMaterialOrderSupport } from "../../../shared/rawMaterialInventorySupport.js";
-import {
-  buildRawMaterialInboundMetrics,
-  canPrintRawMaterialLabels,
-  canReviewRawMaterialInbound,
-  filterRawMaterialInboundsByKeyword,
-  filterRawMaterialInboundsByTab,
-  formatSupplierPayableAmount,
-} from "../../domain/rawMaterialInboundListState.js";
-import {
-  RAW_MATERIAL_INBOUND_TABS,
-  selectRawMaterialInboundMetrics,
-} from "./RawMaterialInboundWorkbench.jsx";
+import { normalizeRawMaterialSupplierColor } from "../../../shared/rawMaterialFactoryColors.js";
+import { buildRawMaterialInboundMetrics, canPrintRawMaterialLabels, canReviewRawMaterialInbound, filterRawMaterialInboundsByKeyword, filterRawMaterialInboundsByTab, formatSupplierPayableAmount } from "../../domain/rawMaterialInboundListState.js";
+import { RAW_MATERIAL_INBOUND_TABS, selectRawMaterialInboundMetrics } from "./RawMaterialInboundWorkbench.jsx";
+import { listRawMaterialCaptureSupplierOptions } from "../../../shared/rawMaterialSupplierProfiles.js";
+import { buildOcrLineReviewDraft } from "./rawMaterialInboundOcrDraft.js";
+import { findRawMaterialProductionTaskCandidate } from "./rawMaterialInboundWorkflow.js";
+import { assertRawMaterialDeliveryNotePageCapacity, buildRawMaterialOcrReviewAction, getRawMaterialOcrReviewSaveFailureMessage, prepareRawMaterialCapturePages, resolveRawMaterialAttachStage, resolveRawMaterialOcrReviewCompletion } from "./rawMaterialInboundPageActions.js";
+
 
 export function useInboundPageState({
   authState,
@@ -58,12 +46,16 @@ export function useInboundPageState({
   const [deliveryNoteOcrProgress, setDeliveryNoteOcrProgress] = useState("");
   const [deliveryNoteOcrResult, setDeliveryNoteOcrResult] = useState("");
   const [deliveryNoteCapturePages, setDeliveryNoteCapturePages] = useState([]);
+  const [deliveryNoteDirectionHint, setDeliveryNoteDirectionHint] = useState("supplier_delivery");
+  const [deliveryNoteSupplierHint, setDeliveryNoteSupplierHint] = useState("");
   const [deliveryNotePreviewByInboundId, setDeliveryNotePreviewByInboundId] = useState({});
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
   const [mobileStage, setMobileStage] = useState("home");
   const [mobileMessage, setMobileMessage] = useState(null);
   const [mobileRecordSnapshot, setMobileRecordSnapshot] = useState(null);
   const [ocrReviewSubmitting, setOcrReviewSubmitting] = useState(false);
+  const [ocrDraftDiscarding, setOcrDraftDiscarding] = useState(false);
+  const [ocrDirectionCorrecting, setOcrDirectionCorrecting] = useState(false);
   const [ocrReviewSubmitError, setOcrReviewSubmitError] = useState("");
   const [ocrReviewDraft, setOcrReviewDraft] = useState({});
   const [ocrLineReviewDraft, setOcrLineReviewDraft] = useState({});
@@ -71,6 +63,21 @@ export function useInboundPageState({
   const [issueSelection, setIssueSelection] = useState(null);
   const [printSheetInbound, setPrintSheetInbound] = useState(null);
   const [desktopView, setDesktopView] = useState("卷料库存");
+  const [colorMappingOpen, setColorMappingOpen] = useState(false);
+  const [colorMappingContext, setColorMappingContext] = useState(null);
+  const deliveryNoteOcrAbortRef = useRef(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      deliveryNoteOcrAbortRef.current?.abort();
+    };
+  }, []);
+  const deliveryNoteSupplierOptions = Array.from(new Set(
+    [...listRawMaterialCaptureSupplierOptions(), ...inbounds.map((item) => String(item?.supplierName || "").trim()).filter(Boolean)],
+  )).sort((left, right) => left.localeCompare(right, "zh-CN"));
   const records = filterRawMaterialInboundsByTab(inbounds, activeTab);
   const visibleRecords = filterRawMaterialInboundsByKeyword(records, keyword);
   const selected = visibleRecords.find((item) => item.id === selectedId) ?? visibleRecords[0] ?? null;
@@ -86,6 +93,7 @@ export function useInboundPageState({
   const costState = getUiActionState("rawMaterial", "查看成本");
   const canViewCost = !costState.disabled;
   const reviewState = getUiActionState("rawMaterial", "复核送货单");
+  const voidDraftState = getUiActionState("rawMaterial", "作废误录草稿");
   const printState = getUiActionState("rawMaterial", "打印卷标");
   const attachState = getUiActionState("rawMaterial", "确认贴标入库");
   const issueState = getUiActionState("rawMaterial", "机边领料");
@@ -100,6 +108,7 @@ export function useInboundPageState({
   const marginReviewState = getUiActionState("rawMaterial", "复核毛利快照");
   const payableState = getUiActionState("rawMaterial", "生成应付");
   const paymentState = getUiActionState("rawMaterial", "确认付款");
+  const colorMappingState = getUiActionState("rawMaterial", "维护厂家颜色");
   const metrics = selectRawMaterialInboundMetrics(buildRawMaterialInboundMetrics(inbounds), activeTab);
   const mobileOcrReviewActive = selected?.ocrProvider === "tencent_cloud_table_v3" && canReviewRawMaterialInbound(selected);
   const mobileOcrReviewOpen = mobileDetailOpen && mobileOcrReviewActive;
@@ -111,8 +120,38 @@ export function useInboundPageState({
       Object.fromEntries((inbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value ?? field.recognizedValue ?? ""])),
     );
     setOcrLineReviewDraft(
-      Object.fromEntries((inbound?.ocrLines ?? []).map((line) => [line.lineId, buildOcrLineReviewDraft(line)])),
+      Object.fromEntries((inbound?.ocrLines ?? []).map((line) => [line.lineId, buildOcrLineReviewDraft(line, inbound.documentDirection)])),
     );
+  }
+
+  function openSupplierColorMapping(context = null) {
+    setColorMappingContext(context);
+    setColorMappingOpen(true);
+  }
+
+  function closeSupplierColorMapping() {
+    setColorMappingOpen(false);
+    setColorMappingContext(null);
+  }
+
+  function applySavedSupplierColorMapping(mapping = {}) {
+    const factoryColor = String(mapping.factoryColor || "").trim();
+    const supplierColor = normalizeRawMaterialSupplierColor(colorMappingContext?.supplierColor);
+    if (!factoryColor || !supplierColor) {
+      closeSupplierColorMapping();
+      return;
+    }
+    setOcrLineReviewDraft((current) => Object.fromEntries(Object.entries(current).map(([lineId, draft]) => [
+      lineId,
+      normalizeRawMaterialSupplierColor(draft?.supplierColor) === supplierColor
+        ? { ...draft, factoryColor }
+        : draft,
+    ])));
+    setOcrReviewDraft((current) => ({
+      ...current,
+      factoryColor: String(current.factoryColor || "").trim() || factoryColor,
+    }));
+    closeSupplierColorMapping();
   }
 
   function handleSelectInbound(inboundId) {
@@ -147,6 +186,64 @@ export function useInboundPageState({
     scrollRawMaterialMobileToTop();
   }
 
+  async function handleDiscardMobileOcrDraft() {
+    if (!selected?.id || selected.status !== "已识别待复核") {
+      return { ok: false, message: "当前草稿状态已经变化，请返回首页刷新后再处理。" };
+    }
+    if (voidDraftState.disabled) {
+      return { ok: false, message: voidDraftState.title || "当前账号无权放弃这张识别草稿。" };
+    }
+    setOcrDraftDiscarding(true);
+    try {
+      const voidedInbound = await onAction?.("作废误录草稿", selected.id, {
+        reason: "手机拍单核对时发现颜色或明细识别不正确，放弃当前草稿并重新拍摄下一张单据。",
+      });
+      if (!voidedInbound?.id || voidedInbound.status !== "已作废") {
+        return { ok: false, message: "后台没有确认放弃这张草稿。请重试；当前草稿仍保留，不会误删。" };
+      }
+      setMobileRecordSnapshot(null);
+      setMobileDetailOpen(false);
+      setMobileStage("home");
+      setMobileMessage({
+        tone: "success",
+        title: "上一张已放弃",
+        body: "它不会再出现在正常收货列表；原图和作废记录仅用于审计。现在可以拍下一张单据。",
+      });
+      setOcrReviewDraft({});
+      setOcrLineReviewDraft({});
+      scrollRawMaterialMobileToTop();
+      return { ok: true };
+    } catch (error) {
+      return { ok: false, message: error?.message || "放弃草稿失败，请检查网络后重试。" };
+    } finally {
+      setOcrDraftDiscarding(false);
+    }
+  }
+
+  async function handleCorrectMobileOcrToSupplierReturn() {
+    if (!selected?.id || selected.status !== "已识别待复核") return null;
+    if (reviewState.disabled) return null;
+    setOcrDirectionCorrecting(true);
+    setOcrReviewSubmitError("");
+    try {
+      const supplierName = String(selected.supplierName || "").trim();
+      const correctedInbound = await onAction?.("纠正为供应商退货", selected.id, {
+        documentDirectionHint: "supplier_return",
+        supplierNameHint: /待确认|未知/u.test(supplierName) ? "" : supplierName,
+        reason: "核对原图发现该 OCR 草稿实际为供应商退货单，使用已保存的 OCR 表格按退货方向重新解析。",
+      });
+      if (!correctedInbound?.id || correctedInbound.documentDirection !== "supplier_return") return null;
+      setMobileRecordSnapshot(correctedInbound);
+      prepareOcrReviewDraft(correctedInbound);
+      setMobileStage("review");
+      setMobileDetailOpen(true);
+      scrollRawMaterialMobileToTop();
+      return correctedInbound;
+    } finally {
+      setOcrDirectionCorrecting(false);
+    }
+  }
+
   async function handleDeliveryNotePageSelect(event) {
     const files = Array.from(event.target.files ?? []);
     event.target.value = "";
@@ -154,32 +251,20 @@ export function useInboundPageState({
     setDeliveryNoteOcrError("");
     setDeliveryNoteOcrProgress("");
     setDeliveryNoteOcrResult("");
-    if (deliveryNoteCapturePages.length + files.length > 4) {
-      setDeliveryNoteOcrError("同一张送货单最多添加 4 页，请删除多余页面后重试。");
+    try {
+      assertRawMaterialDeliveryNotePageCapacity(deliveryNoteCapturePages.length, files.length);
+    } catch (error) {
+      setDeliveryNoteOcrError(error.message);
       return;
     }
     setDeliveryNoteOcrLoading(true);
     try {
-      const captureId = deliveryNoteCapturePages[0]?.captureId || createRawMaterialDeliveryNoteCaptureId();
-      const preparedPages = [];
-      for (const [fileIndex, file] of files.entries()) {
-        setDeliveryNoteOcrProgress(`正在准备第 ${deliveryNoteCapturePages.length + fileIndex + 1} 页预览…`);
-        const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
-        if (!isSupportedDeliveryNoteFile(mimeType)) throw new Error("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
-        const prepared = await prepareRawMaterialDeliveryNoteFile(file, { mimeType });
-        preparedPages.push({
-          fileName: file.name,
-          mimeType: prepared.mimeType,
-          fileSize: prepared.fileSize,
-          contentDataUrl: prepared.contentDataUrl,
-          sourceMimeType: prepared.sourceMimeType,
-          sourceFileSize: prepared.sourceFileSize,
-          sourceContentDataUrl: prepared.sourceContentDataUrl,
-          sourceFile: prepared.sourceFile,
-          captureId,
-          sourceNormalizedForOcr: prepared.normalized,
-        });
-      }
+      const preparedPages = await prepareRawMaterialCapturePages({
+        files,
+        existingPages: deliveryNoteCapturePages,
+        prepareFilePages: prepareRawMaterialDeliveryNotePages,
+        onProgress: setDeliveryNoteOcrProgress,
+      });
       setDeliveryNoteCapturePages((current) => [...current, ...preparedPages]);
     } catch (error) {
       setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
@@ -191,6 +276,13 @@ export function useInboundPageState({
 
   async function handleDeliveryNoteRecognize(preparedPages = deliveryNoteCapturePages) {
     if (!preparedPages.length) return;
+    if (deliveryNoteDirectionHint === "supplier_return" && !deliveryNoteSupplierHint) {
+      setDeliveryNoteOcrError("退货单请先选择退给哪一家供应商，再开始识别。");
+      return;
+    }
+    deliveryNoteOcrAbortRef.current?.abort();
+    const controller = new AbortController();
+    deliveryNoteOcrAbortRef.current = controller;
     setDeliveryNoteOcrError("");
     setDeliveryNoteOcrProgress(`正在保存第 1/${preparedPages.length} 页原图…`);
     setDeliveryNoteOcrResult("");
@@ -199,9 +291,17 @@ export function useInboundPageState({
       const firstPage = preparedPages[0];
       const inbound = await onDeliveryNoteRecognize?.({
         ...firstPage,
+        documentDirectionHint: deliveryNoteDirectionHint,
+        supplierNameHint: deliveryNoteSupplierHint,
         pages: preparedPages,
-        onProgress: (progress) => setDeliveryNoteOcrProgress(progress?.message || "正在识别送货单…"),
+        signal: controller.signal,
+        onProgress: (progress) => {
+          if (!controller.signal.aborted && mountedRef.current) {
+            setDeliveryNoteOcrProgress(progress?.message || "正在识别送货单…");
+          }
+        },
       });
+      if (controller.signal.aborted || !mountedRef.current) return;
       if (!inbound?.id) {
         setDeliveryNoteOcrError("后台没有生成识别草稿，请查看页面提示后重试。");
         return;
@@ -215,6 +315,8 @@ export function useInboundPageState({
         [inbound.id]: preparedPages.map((page) => page.sourceContentDataUrl || page.contentDataUrl),
       }));
       setDeliveryNoteCapturePages([]);
+      setDeliveryNoteDirectionHint("supplier_delivery");
+      setDeliveryNoteSupplierHint("");
       setMobileRecordSnapshot(inbound);
       prepareOcrReviewDraft(inbound);
       setMobileStage("review");
@@ -223,14 +325,21 @@ export function useInboundPageState({
       scrollRawMaterialMobileToTop();
       setDeliveryNoteOcrResult(`识别成功：${inbound.id} · ${inbound.ocrStatus || "等待人工复核"}`);
     } catch (error) {
-      setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
+      if (!controller.signal.aborted && mountedRef.current) {
+        setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
+      }
     } finally {
-      setDeliveryNoteOcrProgress("");
-      setDeliveryNoteOcrLoading(false);
+      if (deliveryNoteOcrAbortRef.current === controller && mountedRef.current) {
+        deliveryNoteOcrAbortRef.current = null;
+        setDeliveryNoteOcrProgress("");
+        setDeliveryNoteOcrLoading(false);
+      }
     }
   }
 
   function handleDeliveryNotePagesClear() {
+    deliveryNoteOcrAbortRef.current?.abort();
+    deliveryNoteOcrAbortRef.current = null;
     setDeliveryNoteCapturePages([]);
     setDeliveryNoteOcrError("");
     setDeliveryNoteOcrProgress("");
@@ -251,25 +360,10 @@ export function useInboundPageState({
     setDeliveryNoteOcrLoading(true);
     setDeliveryNoteOcrError("");
     try {
-      const captureId = createRawMaterialDeliveryNoteCaptureId();
-      const preparedPages = [];
-      for (const file of files.slice(0, 4)) {
-        const mimeType = file.type || inferDeliveryNoteMimeType(file.name);
-        if (!isSupportedDeliveryNoteFile(mimeType)) throw new Error("只支持 PNG、JPG、JPEG、BMP 图片或 PDF。");
-        const prepared = await prepareRawMaterialDeliveryNoteFile(file, { mimeType });
-        preparedPages.push({
-          fileName: file.name,
-          mimeType: prepared.mimeType,
-          fileSize: prepared.fileSize,
-          contentDataUrl: prepared.contentDataUrl,
-          sourceMimeType: prepared.sourceMimeType,
-          sourceFileSize: prepared.sourceFileSize,
-          sourceContentDataUrl: prepared.sourceContentDataUrl,
-          sourceFile: prepared.sourceFile,
-          captureId,
-          sourceNormalizedForOcr: prepared.normalized,
-        });
-      }
+      const preparedPages = await prepareRawMaterialCapturePages({
+        files,
+        prepareFilePages: prepareRawMaterialDeliveryNotePages,
+      });
       await handleDeliveryNoteRecognize(preparedPages);
     } catch (error) {
       setDeliveryNoteOcrError(error?.message || "送货单文件读取失败，请重新选择。");
@@ -282,39 +376,34 @@ export function useInboundPageState({
     setOcrReviewSubmitError("");
     setOcrReviewSubmitting(true);
     try {
-      const exclusionsByLineId = new Map();
-      for (const exclusion of excludedRolls) {
-        const current = exclusionsByLineId.get(exclusion.lineId) ?? [];
-        current.push(exclusion);
-        exclusionsByLineId.set(exclusion.lineId, current);
-      }
-      const isSupplierReturn = selected.documentDirection === "supplier_return";
-      const updatedInbound = await submitInboundAction(onAction, selected, "复核送货单", {
+      const reviewAction = buildRawMaterialOcrReviewAction({
+        selected,
         reviewFields: ocrReviewDraft,
-        lineReviews: (selected.ocrLines ?? []).map((line) => {
-          const exclusions = exclusionsByLineId.get(line.lineId) ?? [];
-          return {
-            lineId: line.lineId,
-            values: ocrLineReviewDraft[line.lineId] ?? buildOcrLineReviewDraft(line),
-            excludedRollIndices: exclusions.map((entry) => entry.lineRollIndex),
-            exclusionReason: exclusions[0]?.reason ?? "",
-          };
-        }),
-        reason: `办公室对照原始${isSupplierReturn ? "退货单" : "送货单"}人工核对并确认腾讯云 OCR 字段。`,
-        note: isSupplierReturn
-          ? "退货 OCR 字段已人工复核；不生成入库卷码、标签或可用库存，金额作为负数厂家对账依据。"
-          : "OCR 字段已人工复核；仍需打印、实物贴标和逐卷人工核对后才能形成可用库存。",
+        lineReviewDraft: ocrLineReviewDraft,
+        excludedRolls,
+        buildLineReviewDraft: buildOcrLineReviewDraft,
       });
+      const { isSupplierReturn } = reviewAction;
+      const updatedInbound = await submitInboundAction(onAction, selected, reviewAction.action, reviewAction.payload);
       if (!updatedInbound?.id) {
-        setOcrReviewSubmitError(`${isSupplierReturn ? "退货单" : "送货单"}没有保存到服务器。当前填写内容仍保留，请稍后重试；如果持续失败，请联系管理员，不要重复拍单。`);
+        setOcrReviewSubmitError(getRawMaterialOcrReviewSaveFailureMessage(isSupplierReturn));
         return;
       }
-      setMobileRecordSnapshot(updatedInbound);
-      setMobileStage(isSupplierReturn ? "return-complete" : "print");
-      setMobileMessage(null);
+      let completedInbound = updatedInbound;
+      if (!isSupplierReturn) {
+        const deferredInbound = await onAction?.("暂缓打印卷标", updatedInbound.id, {
+          expectedRevision: updatedInbound.revision,
+          reason: "当前试运行阶段略过现场打印；逐卷卷码已经生成，先保存到原料待补标区。",
+        });
+        if (deferredInbound?.id) completedInbound = deferredInbound;
+      }
+      const completion = resolveRawMaterialOcrReviewCompletion({ isSupplierReturn, completedInbound });
+      setMobileRecordSnapshot(completedInbound);
+      setMobileStage(completion.stage);
+      setMobileMessage(completion.message);
       setMobileDetailOpen(false);
       scrollRawMaterialMobileToTop();
-      return updatedInbound;
+      return completedInbound;
     } finally {
       setOcrReviewSubmitting(false);
     }
@@ -341,7 +430,7 @@ export function useInboundPageState({
       scrollRawMaterialMobileToTop();
       return null;
     }
-    const result = await submitInboundAction(onAction, activeInbound, "打印卷标");
+    const result = await onAction?.("打印卷标", activeInbound.id);
     setPrintSheetInbound(null);
     if (!result?.id) {
       setMobileMessage({
@@ -360,6 +449,27 @@ export function useInboundPageState({
     return result;
   }
 
+  async function handleDeferLabels() {
+    const activeInbound = mobileSelected ?? selected;
+    if (!activeInbound || activeInbound.status !== "已复核待打印标签" || printState.disabled || !canPrintRawMaterialLabels(activeInbound)) return null;
+    const result = await onAction?.("暂缓打印卷标", activeInbound.id, {
+      reason: "现场打印设备暂不可用；逐卷卷码已经生成，先保存到原料待补标区。",
+    });
+    if (!result?.id) {
+      setMobileMessage({
+        tone: "danger",
+        title: "待补标状态没有保存",
+        body: "当前单据仍停留在打印步骤，请不要把未贴标卷料当作可用库存。",
+      });
+      return null;
+    }
+    setMobileRecordSnapshot(result);
+    setMobileMessage(null);
+    setMobileStage("label-deferred");
+    scrollRawMaterialMobileToTop();
+    return result;
+  }
+
   async function handleReprintLabel(roll) {
     if (!selected || !roll || printState.disabled) return null;
     flushSync(() => setPrintSheetInbound({ ...selected, rolls: [roll] }));
@@ -373,7 +483,7 @@ export function useInboundPageState({
       setPrintSheetInbound(null);
       return null;
     }
-    const result = await submitInboundAction(onAction, selected, "重打卷标", { rollId: roll.id, reason: "异常卷重新打印标签。" });
+    const result = await onAction?.("重打卷标", selected.id, { rollId: roll.id, reason: "异常卷重新打印标签。" });
     if (result) setPrintSheetInbound(null);
     return result ?? null;
   }
@@ -381,15 +491,12 @@ export function useInboundPageState({
   async function handleMobileAttach(options) {
     const activeInbound = mobileSelected ?? selected;
     if (!activeInbound?.id) return null;
-    const result = await submitInboundAction(onAction, activeInbound, "确认贴标入库", options);
+    const result = await onAction?.("确认贴标入库", activeInbound.id, options);
     if (!result?.id) return null;
     setMobileRecordSnapshot(result);
-    const rolls = result.rolls ?? [];
-    const pendingCount = rolls.filter((roll) => roll.labelStatus === "已打印待贴标").length;
-    const mismatchCount = rolls.filter((roll) => roll.labelStatus === "标签或实物不符/待确认").length;
-    const availableCount = rolls.filter((roll) => roll.inventoryStatus === "可用").length;
-    if (pendingCount === 0 && rolls.length > 0) {
-      setMobileStage(mismatchCount > 0 ? "receive-partial" : availableCount === rolls.length ? "receive-complete" : "attach");
+    const nextStage = resolveRawMaterialAttachStage(result);
+    if (nextStage) {
+      setMobileStage(nextStage);
       scrollRawMaterialMobileToTop();
     }
     return result;
@@ -500,90 +607,114 @@ export function useInboundPageState({
   }
 
   return {
-    activeTab,
-    attachState,
     authState,
-    canViewCost,
-    changeTab,
-    consumptionState,
-    costConfirmState,
-    costDraftState,
     currentUser,
-    deliveryNoteCapturePages,
-    deliveryNoteOcrError,
+    onAction,
+    inbounds,
+    meta,
+    productionTasks,
+    statementReviews,
+    statementReviewMeta,
+    printerDeviceQa,
+    firstReleaseMode,
+    money,
+    activeTab,
+    detailTab,
+    setDetailTab,
+    keyword,
+    setKeyword,
+    statementImport,
+    statementImportLoading,
+    statementReviewSaving,
     deliveryNoteOcrLoading,
+    deliveryNoteOcrError,
     deliveryNoteOcrProgress,
     deliveryNoteOcrResult,
+    deliveryNoteCapturePages,
+    deliveryNoteDirectionHint,
+    setDeliveryNoteDirectionHint,
+    deliveryNoteSupplierHint,
+    setDeliveryNoteSupplierHint,
     deliveryNotePreviewByInboundId,
-    desktopView,
-    detailTab,
-    exceptionState,
-    firstReleaseMode,
-    handleConfirmSupplierPayment,
-    handleConfirmSupplierStatement,
-    handleConfirmSupplierStatementReview,
-    handleDeliveryNotePageRemove,
-    handleDeliveryNotePageSelect,
-    handleDeliveryNotePagesClear,
-    handleDeliveryNoteRecognize,
-    handleDesktopDeliveryNoteRecognize,
-    handleGenerateSupplierPayableDraft,
-    handleMobileAttach,
-    handleMobileStageChange,
-    handleOcrReviewConfirm,
-    handleOpenRollSource,
-    handlePrintLabels,
-    handleReprintLabel,
-    handleSaveSupplierStatementReviewDraft,
-    handleSelectInbound,
-    handleSupplierStatementImport,
-    inbounds,
-    issueSelection,
-    issueState,
-    keyword,
-    labelVerification,
-    leftoverReviewState,
-    leftoverState,
-    lossCalibrationState,
-    marginReviewState,
-    marginSnapshotState,
-    meta,
-    metrics,
+    mobileStage,
     mobileMessage,
+    ocrReviewSubmitting,
+    ocrDraftDiscarding,
+    ocrDirectionCorrecting,
+    ocrReviewSubmitError,
+    ocrReviewDraft,
+    setOcrReviewDraft,
+    ocrLineReviewDraft,
+    setOcrLineReviewDraft,
+    labelVerification,
+    setLabelVerification,
+    issueSelection,
+    setIssueSelection,
+    printSheetInbound,
+    desktopView,
+    setDesktopView,
+    colorMappingOpen,
+    colorMappingContext,
+    deliveryNoteSupplierOptions,
+    records,
+    visibleRecords,
+    selected,
+    selectedStock,
+    selectedTaskCandidate,
+    selectedOrderSupport,
+    canViewCost,
+    reviewState,
+    voidDraftState,
+    printState,
+    attachState,
+    issueState,
+    consumptionState,
+    leftoverState,
+    leftoverReviewState,
+    exceptionState,
+    costDraftState,
+    costConfirmState,
+    lossCalibrationState,
+    marginSnapshotState,
+    marginReviewState,
+    payableState,
+    paymentState,
+    colorMappingState,
+    metrics,
     mobileOcrReviewActive,
     mobileOcrReviewOpen,
     mobileSelected,
-    mobileStage,
-    money,
-    ocrLineReviewDraft,
-    ocrReviewDraft,
-    ocrReviewSubmitError,
-    ocrReviewSubmitting,
-    onAction,
-    payableState,
-    paymentState,
-    printSheetInbound,
-    printState,
-    printerDeviceQa,
-    productionTasks,
-    records,
-    reviewState,
-    selected,
-    selectedOrderSupport,
-    selectedStock,
-    selectedTaskCandidate,
-    setDesktopView,
-    setDetailTab,
-    setIssueSelection,
-    setKeyword,
-    setLabelVerification,
-    setOcrLineReviewDraft,
-    setOcrReviewDraft,
-    statementImport,
-    statementImportLoading,
-    statementReviewMeta,
-    statementReviewSaving,
-    statementReviews,
-    visibleRecords
+    openSupplierColorMapping,
+    closeSupplierColorMapping,
+    applySavedSupplierColorMapping,
+    handleSelectInbound,
+    handleOpenRollSource,
+    handleMobileStageChange,
+    handleDiscardMobileOcrDraft,
+    handleCorrectMobileOcrToSupplierReturn,
+    handleDeliveryNotePageSelect,
+    handleDeliveryNoteRecognize,
+    handleDeliveryNotePagesClear,
+    handleDeliveryNotePageRemove,
+    handleDesktopDeliveryNoteRecognize,
+    handleOcrReviewConfirm,
+    handlePrintLabels,
+    handleDeferLabels,
+    handleReprintLabel,
+    handleMobileAttach,
+    changeTab,
+    handleSupplierStatementImport,
+    handleSaveSupplierStatementReviewDraft,
+    handleConfirmSupplierStatementReview,
+    handleConfirmSupplierStatement,
+    handleGenerateSupplierPayableDraft,
+    handleConfirmSupplierPayment
   };
+}
+
+function scrollRawMaterialMobileToTop() {
+  requestAnimationFrame(() => {
+    document.querySelector(".app-shell-mobile-role .content")?.scrollTo({ top: 0, behavior: "auto" });
+    window.scrollTo({ top: 0, behavior: "auto" });
+  });
 }

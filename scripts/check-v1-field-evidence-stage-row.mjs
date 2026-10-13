@@ -18,6 +18,7 @@ import {
   listOfficeAttachments,
 } from "../src/services/officeAttachmentApiClient.js";
 import { stageOfficeV1FieldEvidenceIntakeRow } from "../src/services/officeV1GoLiveStatusApiClient.js";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const originalArtifactRoot = process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT;
 const artifactRoot = mkdtempSync(join(tmpdir(), "erp-v1-field-stage-"));
@@ -44,11 +45,11 @@ writeFileSync(
 );
 
 process.env.ERP_V1_GO_LIVE_ARTIFACT_ROOT = artifactRoot;
-const server = createApiServer({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   attachmentRepositoryOptions: { storageRoot: join(artifactRoot, "attachment-metadata") },
   attachmentAccessAuditRepositoryOptions: { storageRoot: join(artifactRoot, "attachment-metadata") },
   attachmentObjectStorageOptions: { storageRoot: join(artifactRoot, "attachment-objects") },
-});
+}));
 
 try {
   await listenTestServer(server);

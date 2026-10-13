@@ -145,10 +145,10 @@ export function createOfficePageRefreshActions({
         "打包/标签任务池、打印上线门禁、驱动诊断、设备验收和打印作业池已刷新。",
       );
     }
-    if (activePage === "workshopMobile") {
+    if (["workshopMobile", "rawMaterialScanner"].includes(activePage)) {
       return runSingle(
         () => refreshProductionPackingTaskLists({ showToast: true }),
-        "车间生产任务已刷新。",
+        activePage === "rawMaterialScanner" ? "今日领料任务已刷新。" : "车间生产任务已刷新。",
       );
     }
     if (activePage === "entry") {

@@ -18,6 +18,7 @@ import {
   buildPassedPrinterDeviceFieldTest as buildPassedPrinterDeviceFieldTestFixture,
   seedPrintedPrintReadinessJobs,
 } from "./helpers/printReadinessTestFixture.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "v1-release-candidate");
 const spoolRoot = join(storageRoot, "spool");
@@ -99,7 +100,7 @@ const productionEnv = {
   ERP_V1_FIELD_ACCEPTANCE_API_BASE_URL: "http://127.0.0.1:8787/api",
 };
 
-const server = createApiServer({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   attachmentRepositoryOptions: { storageRoot },
   attachmentAccessAuditRepositoryOptions: { storageRoot },
   attachmentObjectStorageOptions: { storageRoot },
@@ -130,7 +131,7 @@ const server = createApiServer({ allowLocalFixture: true,
     commandBridgeSpoolDir: spoolRoot,
     allowedPrinterNames: ["PRN-LABEL-A", "PRN-DOT-A", "标签机A", "针式打印机A"],
   },
-});
+}));
 
 try {
   await listenTestServer(server);

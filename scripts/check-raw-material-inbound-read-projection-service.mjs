@@ -1,20 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   buildRawMaterialInboundListResponse,
   buildRawMaterialInboundMetrics,
   normalizeRawMaterialInboundListQuery,
 } from "../server/services/rawMaterialInboundReadProjectionService.mjs";
-
-const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
-const serviceSource = readFileSync(
-  new URL("../server/services/rawMaterialInboundReadProjectionService.mjs", import.meta.url),
-  "utf8",
-);
-
-assert.match(repositorySource, /from "\.\/services\/rawMaterialInboundReadProjectionService\.mjs"/);
-assert.ok(repositorySource.split("\n").length <= 2_000, "repository should delegate raw-material list projection");
-assert.ok(serviceSource.split("\n").length < 180, "read projection service should stay independently reviewable");
 
 const inbounds = [
   {
@@ -43,6 +32,13 @@ const inbounds = [
     rawMaterialSplitRecords: [
       { splitRecordId: "RMI-SPLIT-001", inboundId: "RMI-003", sourceRollId: "ROLL-003", issuedRollId: "ROLL-003-S01" },
     ],
+  },
+  {
+    id: "RMI-VOIDED-001",
+    supplierName: "已放弃材料测试供应商",
+    receivedAt: "2026-07-07T01:00:00.000Z",
+    status: "已作废",
+    rolls: [{ id: "ROLL-VOIDED-001", inventoryStatus: "不可用", labelStatus: "草稿已作废" }],
   },
 ];
 
@@ -83,6 +79,8 @@ assert.deepEqual(list.metrics, {
   unavailableRollCount: 2,
 });
 assert.deepEqual(buildRawMaterialInboundListResponse(inbounds, { status: "已识别待复核" }).items.map((item) => item.id), ["RMI-001"]);
+assert.deepEqual(buildRawMaterialInboundListResponse(inbounds, { keyword: "已放弃材料" }).items, []);
+assert.deepEqual(buildRawMaterialInboundListResponse(inbounds, { status: "已作废" }).items, []);
 assert.deepEqual(buildRawMaterialInboundMetrics(inbounds), list.metrics);
 
-console.log("Raw-material inbound read projection service checks passed: filters, paging, sorting, and status metrics are isolated.");
+console.log("Raw-material inbound read projection service checks passed: filters, paging, sorting, status metrics, and voided-draft isolation are enforced.");

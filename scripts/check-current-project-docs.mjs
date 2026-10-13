@@ -36,9 +36,16 @@ assert.ok(lineCount(currentDocs.roadmap) <= 90, "Roadmap should stay concise");
 assert.ok(lineCount(currentDocs.decisions) <= 130, "Active decisions should stay concise");
 
 for (const source of [currentDocs.chineseStatus, currentDocs.projectStatus]) {
-  for (const truth of ["97-98%", "80-83%", "0/4", "1/5", "5/11", "0/40", "0/6", "59"]) {
-    assert.equal(source.includes(truth), true, `current status should include ${truth}`);
-  }
+  assert.match(source, /2026-10-13/, "current status must identify its verification date");
+  for (const baseline of [
+    "7888e5efa5a559c0d128b3d512b9f12fee4ffa99",
+    "54ca593827e7028994b4f1bc91982377f3e3f609",
+    "c86f0144666b02b0d1bee3ef7b9fe8d320fa239d",
+    "f0657285ee2159059915126c2bfc8699ee59887b",
+    "codex/full-baseline-integration-20261013",
+  ]) assert.ok(source.includes(baseline), "current status must distinguish exact source and deployment baselines");
+  assert.match(source, /本地修改稿 · 未部署/, "local preview must not be represented as a release");
+  assert.match(source, /标签机未准备|label printer is not ready/, "printer readiness must retain the owner's actual answer");
 }
 for (const phase of ["D49", "D50", "D51", "D52", "D53"]) {
   assert.equal(currentDocs.roadmap.includes(phase), true, `roadmap should include ${phase}`);

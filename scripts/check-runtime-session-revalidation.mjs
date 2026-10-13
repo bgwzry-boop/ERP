@@ -1,11 +1,13 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   revalidateRuntimeUserSession,
   readStoredSeedSession,
   seedAuthStorageKey,
 } from "../src/services/officeAuthService.js";
-import { shouldRevalidateRuntimeSession } from "../src/app/useRuntimeSessionExpiry.js";
+import {
+  shouldRevalidateRuntimeSession,
+  startRuntimeSessionRevalidationMonitor,
+} from "../src/app/useRuntimeSessionExpiry.js";
 import { createRuntimeAuthActions } from "../src/app/createRuntimeAuthActions.js";
 
 const runtimeAuthState = {
@@ -27,6 +29,48 @@ const permissions = {
 assert.equal(shouldRevalidateRuntimeSession(runtimeAuthState, "visible"), true, "visible formal runtime sessions must be revalidated");
 assert.equal(shouldRevalidateRuntimeSession(runtimeAuthState, "hidden"), false, "hidden tabs must not poll the formal session");
 assert.equal(shouldRevalidateRuntimeSession({ authenticated: true, session: { sessionType: "seed" } }, "visible"), false, "seed sessions must stay outside runtime revalidation");
+
+const browserEvents = createEventTarget();
+const documentEvents = createEventTarget({ visibilityState: "visible" });
+let intervalCallback = null;
+let clearedIntervalId = null;
+let releaseFirstRevalidation;
+const firstRevalidation = new Promise((resolve) => { releaseFirstRevalidation = resolve; });
+let monitorRevalidationCount = 0;
+const disposeRevalidationMonitor = startRuntimeSessionRevalidationMonitor({
+  authState: runtimeAuthState,
+  onRevalidate: async () => {
+    monitorRevalidationCount += 1;
+    if (monitorRevalidationCount === 1) await firstRevalidation;
+  },
+  browser: browserEvents,
+  documentRef: documentEvents,
+  intervalMs: 1234,
+  setIntervalImpl: (callback, intervalMs) => {
+    assert.equal(intervalMs, 1234, "the monitor must use its configured revalidation interval");
+    intervalCallback = callback;
+    return "runtime-revalidation-interval";
+  },
+  clearIntervalImpl: (intervalId) => { clearedIntervalId = intervalId; },
+});
+browserEvents.dispatch("focus");
+documentEvents.dispatch("visibilitychange");
+intervalCallback();
+assert.equal(monitorRevalidationCount, 1, "focus, visibility, and interval events must share one in-flight revalidation");
+releaseFirstRevalidation();
+await Promise.resolve();
+await Promise.resolve();
+browserEvents.dispatch("focus");
+await Promise.resolve();
+assert.equal(monitorRevalidationCount, 2, "the monitor must allow a later revalidation after the first request settles");
+documentEvents.visibilityState = "hidden";
+intervalCallback();
+await Promise.resolve();
+assert.equal(monitorRevalidationCount, 2, "hidden tabs must not revalidate on the interval");
+disposeRevalidationMonitor();
+assert.equal(clearedIntervalId, "runtime-revalidation-interval");
+assert.equal(browserEvents.listenerCount("focus"), 0, "disposing the monitor must remove the focus listener");
+assert.equal(documentEvents.listenerCount("visibilitychange"), 0, "disposing the monitor must remove the visibility listener");
 
 const storage = createMemoryStorage();
 const validResult = await revalidateRuntimeUserSession({
@@ -198,14 +242,6 @@ try {
   else globalThis.window = originalWindow;
 }
 
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const hookSource = readFileSync(new URL("../src/app/useRuntimeSessionExpiry.js", import.meta.url), "utf8");
-assert.match(appSource, /useRuntimeSessionRevalidation\(\{ authState, enabled: formalLoginRequired, onRevalidate: revalidateRuntimeUserSession \}\)/);
-assert.match(hookSource, /documentRef\.addEventListener\("visibilitychange", handleVisibilityChange\)/);
-assert.match(hookSource, /browser\.addEventListener\("focus", handleFocus\)/);
-assert.match(hookSource, /setInterval\(\(\) =>/);
-assert.match(hookSource, /clearInterval\(intervalId\)/);
-
 console.log("Runtime session revalidation checks passed: current-session refresh, visible-tab scheduling, invalidation handoff, and transient-network retention are covered.");
 
 function createActionDependencies({ state, revalidateRuntimeSession, runtimePasswordChange }) {
@@ -250,6 +286,27 @@ function createMemoryStorage() {
     },
     removeItem(key) {
       values.delete(key);
+    },
+  };
+}
+
+function createEventTarget(initial = {}) {
+  const listeners = new Map();
+  return {
+    ...initial,
+    addEventListener(type, listener) {
+      const group = listeners.get(type) ?? new Set();
+      group.add(listener);
+      listeners.set(type, group);
+    },
+    dispatch(type) {
+      for (const listener of listeners.get(type) ?? []) listener();
+    },
+    listenerCount(type) {
+      return listeners.get(type)?.size ?? 0;
+    },
+    removeEventListener(type, listener) {
+      listeners.get(type)?.delete(listener);
     },
   };
 }

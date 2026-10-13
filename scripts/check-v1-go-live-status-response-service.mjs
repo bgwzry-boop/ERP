@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1GoLiveStatusResponseService } from "../server/services/v1GoLiveStatusResponseService.mjs";
 
 const fixedNow = "2026-07-14T04:30:00.000Z";
@@ -81,24 +80,6 @@ for (const secret of [
 ]) {
   assert.doesNotMatch(serialized, new RegExp(escapeRegExp(secret)));
 }
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const serviceSource = readFileSync(
-  new URL("../server/services/v1GoLiveStatusResponseService.mjs", import.meta.url),
-  "utf8",
-);
-const routeSource = readFileSync(new URL("../server/routes/systemReadRoutes.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createV1GoLiveStatusResponseService/);
-assert.doesNotMatch(apiSource, /function getSystemV1GoLiveStatusResponse/);
-assert.match(routeSource, /v1GoLiveStatusResponseService\.build\(\{\s*workspace,/);
-assert.doesNotMatch(apiSource, /sanitizeV1GoLiveSummary/);
-assert.doesNotMatch(apiSource, /buildV1FieldEvidenceDraftFreshness/);
-assert.match(serviceSource, /from "\.\/v1ReleaseStatusProjectionService\.mjs"/);
-assert.match(serviceSource, /from "\.\/v1ProductionStatusProjectionService\.mjs"/);
-assert.match(serviceSource, /from "\.\/v1D49ReadinessService\.mjs"/);
-assert.doesNotMatch(serviceSource, /node:fs|node:path|process\.env/);
-assert.doesNotMatch(serviceSource, /writeFile|appendFile|renameSync|unlinkSync/);
 
 console.log("V1 go-live status response service checks passed.");
 

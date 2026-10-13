@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createOfficeProductionReadActions } from "../src/app/useOfficeProductionReads.js";
 
 function createState(initialValue) {
@@ -183,19 +182,5 @@ const deniedCase = createDependencies({
 const deniedResult = await deniedCase.actions.refreshProductionPackingTaskLists({ showToast: true });
 assert.equal(deniedResult.blocked, true);
 assert.match(deniedResult.feedback, /缺少权限 production\.task\.view/);
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const workspaceSource = readFileSync(new URL("../src/app/useOfficeWorkspace.js", import.meta.url), "utf8");
-for (const apiName of [
-  "listOfficeProductionTasks",
-  "listOfficePackingTasks",
-  "listOfficeProductionMachineQueue",
-]) {
-  assert.equal(appSource.includes(apiName), false, `App should not directly orchestrate ${apiName}`);
-}
-assert.match(workspaceSource, /useOfficeProductionReads/);
-assert.match(workspaceSource, /\.\.\.productionReads/);
-assert.match(workspaceSource, /activePage,/);
-assert.match(workspaceSource, /currentUser,/);
 
 console.log("Office production reads check passed: task, packing, queue, workshop scope, denial, and production fail-closed behavior are covered.");

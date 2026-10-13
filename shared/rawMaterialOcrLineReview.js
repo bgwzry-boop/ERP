@@ -1,9 +1,13 @@
 import { enrichRawMaterialSpecValues } from "./rawMaterialSpec.js";
+import { isRawMaterialFactoryColor } from "./rawMaterialFactoryColors.js";
+import { isRawMaterialSupplierReturnFabric } from "./rawMaterialSupplierReturn.js";
 
 export const RAW_MATERIAL_OCR_LINE_REVIEW_KEYS = [
   "productName",
   "materialType",
   "supplierColor",
+  "returnMaterialCategory",
+  "factoryColor",
   "spec",
   "rollCount",
   "totalWeightKg",
@@ -40,6 +44,7 @@ export function projectRawMaterialOcrPhysicalRollReviewRows({ lines = [], lineDr
         lineRollIndex,
         lineRollCount,
         supplierColor: cleanText(lineDraft.supplierColor),
+        factoryColor: cleanText(lineDraft.factoryColor),
         spec: cleanText(lineDraft.spec),
         weightKg: exactWeight || singleRollWeight || "",
         weightStatus: Math.abs(exactWeight) > 0 ? "逐卷重量" : Math.abs(singleRollWeight) > 0 ? "单卷行重量" : "本卷重量待补",
@@ -48,7 +53,7 @@ export function projectRawMaterialOcrPhysicalRollReviewRows({ lines = [], lineDr
   });
 }
 
-const textKeys = new Set(["productName", "materialType", "supplierColor", "spec", "unit", "supplierRollNo"]);
+const textKeys = new Set(["productName", "materialType", "supplierColor", "returnMaterialCategory", "factoryColor", "spec", "unit", "supplierRollNo"]);
 const numericKeys = new Set(["rollCount", "totalWeightKg", "unitPrice", "amount"]);
 
 export function applyRawMaterialOcrLineReviews({
@@ -58,6 +63,7 @@ export function applyRawMaterialOcrLineReviews({
   operatorName = "",
   now = "",
   documentDirection = "supplier_delivery",
+  standardColors = [],
 } = {}) {
   const sourceLines = Array.isArray(lines) ? lines : [];
   if (sourceLines.length === 0) {
@@ -97,7 +103,7 @@ export function applyRawMaterialOcrLineReviews({
         `OCR 明细行 ${lineId || "待确认"} 排除误识别卷时必须填写原因。`,
       );
     }
-    validateLineValues(values, lineId, { excludedRollIndices, projectedRollCount, documentDirection });
+    validateLineValues(values, lineId, { excludedRollIndices, projectedRollCount, documentDirection, standardColors });
     const reviewedFields = RAW_MATERIAL_OCR_LINE_REVIEW_KEYS.map((key) => ({
       key,
       recognizedValue: recognizedValues[key],
@@ -220,6 +226,7 @@ export function buildRawMaterialOcrReviewedRolls({
       productName: cleanText(line?.values?.productName),
       materialType: cleanText(line?.values?.materialType),
       supplierColor: cleanText(line?.values?.supplierColor),
+      factoryColor: cleanText(line?.values?.factoryColor),
       spec: cleanText(line?.values?.spec),
       specRaw: cleanText(line?.values?.specRaw || line?.values?.spec),
       specDisplay: cleanText(line?.values?.specDisplay || line?.values?.spec),
@@ -280,19 +287,37 @@ function validateLineValues(values, lineId, {
   excludedRollIndices = [],
   projectedRollCount = 0,
   documentDirection = "supplier_delivery",
+  standardColors = [],
 } = {}) {
   const excluded = new Set(excludedRollIndices);
   const activeRollIndices = Array.from({ length: projectedRollCount }, (_, index) => index).filter((index) => !excluded.has(index));
   if (activeRollIndices.length === 0) return;
   const missing = [];
   if (!cleanText(values.productName) && !cleanText(values.materialType)) missing.push("材料/品名");
+  if (documentDirection !== "supplier_return" && !isRawMaterialFactoryColor(values.factoryColor, standardColors)) missing.push("厂内标准色（需人工确认）");
   if (documentDirection !== "supplier_return" && !hasReviewableRawMaterialSpec(values.spec)) missing.push("规格");
+  if (documentDirection === "supplier_return" && isRawMaterialSupplierReturnFabric(values) && !cleanText(values.returnMaterialCategory)) missing.push("退货布料类别（黑白布/彩布）");
   if (!cleanText(values.unit)) missing.push("单位");
   if (!positiveInteger(values.rollCount, 0) || positiveInteger(values.rollCount, 0) > 500) missing.push("卷/件数（1-500）");
   if (missing.length) {
     throw reviewError(
       "RAW_MATERIAL_OCR_REVIEW_LINE_REQUIRED_FIELDS_MISSING",
       `OCR 明细行 ${lineId || "待确认"} 缺少：${missing.join("、")}。`,
+    );
+  }
+  const unitPrice = Math.abs(Number(values.unitPrice) || 0);
+  const amount = Math.abs(Number(values.amount) || 0);
+  const totalWeightKg = Math.abs(Number(values.totalWeightKg) || 0);
+  if (!(unitPrice > 0)) {
+    throw reviewError(
+      "RAW_MATERIAL_OCR_REVIEW_LINE_UNIT_PRICE_REQUIRED",
+      `OCR 明细行 ${lineId || "待确认"} 的单价必须大于 0。`,
+    );
+  }
+  if (!(amount > 0)) {
+    throw reviewError(
+      "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_REQUIRED",
+      `OCR 明细行 ${lineId || "待确认"} 的金额必须大于 0。`,
     );
   }
   const rollCount = positiveInteger(values.rollCount, 0);
@@ -306,6 +331,18 @@ function validateLineValues(values, lineId, {
     throw reviewError(
       "RAW_MATERIAL_OCR_REVIEW_LINE_WEIGHT_COUNT_MISMATCH",
       `OCR 明细行 ${lineId || "待确认"} 必须逐卷填写 ${rollCount} 个分卷重量，不能用行总重平均代替。`,
+    );
+  }
+  if (!(totalWeightKg > 0)) {
+    throw reviewError(
+      "RAW_MATERIAL_OCR_REVIEW_LINE_TOTAL_WEIGHT_REQUIRED",
+      `OCR 明细行 ${lineId || "待确认"} 的重量必须大于 0。`,
+    );
+  }
+  if (!approximatelyEqualMoney(amount, roundNumber(totalWeightKg * unitPrice, 2))) {
+    throw reviewError(
+      "RAW_MATERIAL_OCR_REVIEW_LINE_AMOUNT_CALCULATION_MISMATCH",
+      `OCR 明细行 ${lineId || "待确认"} 的重量 × 单价与行金额不一致。`,
     );
   }
   if (values.rollWeightsKg.length && activeRollIndices.length) {
@@ -407,6 +444,13 @@ function approximatelyEqual(left, right) {
   const b = Number(right);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
   return Math.abs(a - b) <= Math.max(0.05, Math.abs(b) * 0.02);
+}
+
+function approximatelyEqualMoney(left, right) {
+  const a = Number(left);
+  const b = Number(right);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) <= 0.05;
 }
 
 function areValuesEqual(left, right) {

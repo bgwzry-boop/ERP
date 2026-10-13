@@ -11,6 +11,7 @@ import {
   listenTestServer,
   postJson,
 } from "./apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./localRepositoryFixture.mjs";
 
 export async function checkPositivePrintDriverReadiness({
   storageRoot,
@@ -29,7 +30,7 @@ export async function checkPositivePrintDriverReadiness({
     rmSync(readinessStorageRoot, { recursive: true, force: true });
     mkdirSync(readinessSpoolDir, { recursive: true });
     seedPrintedPrintReadinessJobs({ storageRoot: readinessStorageRoot, idPrefix: "PJ-READY" });
-    server = createApiServer({ allowLocalFixture: true,
+    server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
       printDeviceRepositoryOptions: { storageRoot: readinessStorageRoot },
       printJobRepositoryOptions: { storageRoot: readinessStorageRoot },
       printerDeviceFieldTestRepositoryOptions: { storageRoot: readinessStorageRoot },
@@ -49,7 +50,7 @@ export async function checkPositivePrintDriverReadiness({
         commandBridgeSpoolDir: readinessSpoolDir,
         allowedPrinterNames: ["PRN-LABEL-A", "PRN-DOT-A", "标签机A", "针式打印机A"],
       },
-    });
+    }));
     await listenTestServer(server);
     const baseUrl = getTestServerBaseUrl(server);
     const labelDevices = await getJson(baseUrl, "/api/print-devices?documentType=express_ltl_label");

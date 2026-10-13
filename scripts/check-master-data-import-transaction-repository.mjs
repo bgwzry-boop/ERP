@@ -117,6 +117,7 @@ async function checkLocalEmployeeProfileReimportPreservesAccountLifecycle() {
           ...employee,
           birthDate: "",
           hireDate: "",
+          payrollPositionKey: "",
           baseHourlyWage: 0,
           positionAllowanceHourly: 0,
           wageEffectiveFrom: "",
@@ -136,6 +137,7 @@ async function checkLocalEmployeeProfileReimportPreservesAccountLifecycle() {
       requestedEnabled: true,
       birthDate: "1980-04-05",
       hireDate: "2019-06-07",
+      payrollPositionKey: "PAY-OFFICE",
       baseHourlyWage: 18,
       positionAllowanceHourly: 3,
       wageEffectiveFrom: "2025-01-01",
@@ -155,6 +157,7 @@ async function checkLocalEmployeeProfileReimportPreservesAccountLifecycle() {
   assert.equal(employee.profileStatus, "account_enabled");
   assert.equal(employee.birthDate, "1980-04-05");
   assert.equal(employee.hireDate, "2019-06-07");
+  assert.equal(employee.payrollPositionKey, "PAY-OFFICE");
   assert.equal(employee.baseHourlyWage, 18);
   assert.equal(employee.attendanceExternalId, "D5FN-EXISTING");
 }
@@ -382,6 +385,7 @@ async function checkPostgresSqlBoundary() {
   assert.match(builtQuery.text, /INSERT INTO inventory_ledger_entries/);
   assert.match(builtQuery.text, /INSERT INTO employees/);
   assert.match(builtQuery.text, /birth_date/);
+  assert.match(builtQuery.text, /payroll_position_key/);
   assert.match(builtQuery.text, /attendance_provider/);
   assert.doesNotMatch(builtQuery.text, /account_enabled = EXCLUDED\.account_enabled/);
   assert.doesNotMatch(builtQuery.text, /profile_status = EXCLUDED\.profile_status/);

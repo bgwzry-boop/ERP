@@ -1,5 +1,10 @@
 import { isOfficeApiServerRequired } from "./officeAuthService.js";
-import { requestOfficeApi as requestOrderPoolApi } from "./officeApiClientCore.js";
+import {
+  buildOfficeServerRequiredWriteError as buildServerRequiredWriteError,
+  readOfficeApiJson as readJson,
+  requestOfficeApi as requestOrderPoolApi,
+  toOfficeApiError as toApiError,
+} from "./officeApiClientCore.js";
 import { getFulfillmentMethodLabel, getFulfillmentMethodValue } from "../shared/labels.js";
 
 const defaultOrderPoolPageSize = 200;
@@ -560,14 +565,6 @@ function mapVoidOrderLineResponse(value, fallback) {
   };
 }
 
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
 function mapPrintSideToLocal(value, printFlag) {
   if (!printFlag) return "";
   const normalized = cleanText(value);
@@ -689,25 +686,6 @@ function mapFinanceStateToApi(value) {
 function setQueryParam(params, key, value, predicate) {
   const normalized = cleanText(value);
   if (normalized && predicate(normalized)) params.set(key, normalized);
-}
-
-function toApiError(json, status, fallbackMessage) {
-  return {
-    code: json?.code ?? `HTTP_${status}`,
-    message: json?.message ?? fallbackMessage,
-    requiredPermission: json?.requiredPermission,
-  };
-}
-
-function buildServerRequiredWriteError(code, error) {
-  return {
-    source: "api_error",
-    blocked: true,
-    error: {
-      code,
-      message: `生产模式要求后端事务，未执行本地降级：${error?.message ?? String(error)}`,
-    },
-  };
 }
 
 function toStringArray(value) {

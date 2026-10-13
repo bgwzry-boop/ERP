@@ -27,31 +27,51 @@ export function getRuntimeSessionExpiryDecision(authState = {}, nowMs = Date.now
 export function useRuntimeSessionExpiry({ authState, enabled, onExpire }) {
   useEffect(() => {
     if (enabled !== true || typeof onExpire !== "function") return undefined;
-
-    let timeoutId = null;
-    const scheduleNextCheck = () => {
-      const decision = getRuntimeSessionExpiryDecision(authState);
-      if (decision.kind === "expire") {
-        onExpire(decision);
-        return;
-      }
-      if (decision.kind === "schedule") {
-        timeoutId = setTimeout(scheduleNextCheck, decision.delayMs);
-      }
-    };
-
-    scheduleNextCheck();
-    return () => {
-      if (timeoutId !== null) clearTimeout(timeoutId);
-    };
+    return startRuntimeSessionExpiryMonitor({ authState, onExpire });
   }, [authState, enabled, onExpire]);
+}
+
+export function startRuntimeSessionExpiryMonitor({
+  authState,
+  onExpire,
+  now = Date.now,
+  setTimeoutImpl = setTimeout,
+  clearTimeoutImpl = clearTimeout,
+} = {}) {
+  if (typeof onExpire !== "function") return undefined;
+  let disposed = false;
+  let timeoutId = null;
+  const scheduleNextCheck = () => {
+    if (disposed) return;
+    const decision = getRuntimeSessionExpiryDecision(authState, now());
+    if (decision.kind === "expire") {
+      onExpire(decision);
+      return;
+    }
+    if (decision.kind === "schedule") {
+      timeoutId = setTimeoutImpl(scheduleNextCheck, decision.delayMs);
+    }
+  };
+  scheduleNextCheck();
+  return () => {
+    disposed = true;
+    if (timeoutId !== null) clearTimeoutImpl(timeoutId);
+  };
 }
 
 export function useRuntimeAuthInvalidation({ enabled, onInvalidate }) {
   useEffect(() => {
     if (enabled !== true || typeof onInvalidate !== "function") return undefined;
-    return subscribeRuntimeAuthInvalidation(onInvalidate);
+    return startRuntimeAuthInvalidationMonitor({ onInvalidate });
   }, [enabled, onInvalidate]);
+}
+
+export function startRuntimeAuthInvalidationMonitor({
+  onInvalidate,
+  subscribe = subscribeRuntimeAuthInvalidation,
+} = {}) {
+  if (typeof onInvalidate !== "function" || typeof subscribe !== "function") return undefined;
+  return subscribe(onInvalidate);
 }
 
 export function shouldRevalidateRuntimeSession(authState = {}, visibilityState = "visible") {
@@ -65,39 +85,53 @@ export function shouldRevalidateRuntimeSession(authState = {}, visibilityState =
 export function useRuntimeSessionRevalidation({ authState, enabled, onRevalidate }) {
   useEffect(() => {
     if (enabled !== true || typeof onRevalidate !== "function") return undefined;
-    const browser = globalThis.window;
-    const documentRef = globalThis.document;
-    if (!browser?.addEventListener || !documentRef?.addEventListener) return undefined;
-
-    let disposed = false;
-    let inFlight = false;
-    const revalidate = async () => {
-      if (disposed || inFlight || !shouldRevalidateRuntimeSession(authState, documentRef.visibilityState)) return;
-      inFlight = true;
-      try {
-        await onRevalidate();
-      } finally {
-        inFlight = false;
-      }
-    };
-    const handleVisibilityChange = () => {
-      void revalidate();
-    };
-    const handleFocus = () => {
-      void revalidate();
-    };
-    const intervalId = setInterval(() => {
-      void revalidate();
-    }, runtimeSessionRevalidationIntervalMs);
-    documentRef.addEventListener("visibilitychange", handleVisibilityChange);
-    browser.addEventListener("focus", handleFocus);
-    return () => {
-      disposed = true;
-      clearInterval(intervalId);
-      documentRef.removeEventListener("visibilitychange", handleVisibilityChange);
-      browser.removeEventListener("focus", handleFocus);
-    };
+    return startRuntimeSessionRevalidationMonitor({ authState, onRevalidate });
   }, [authState, enabled, onRevalidate]);
+}
+
+export function startRuntimeSessionRevalidationMonitor({
+  authState,
+  onRevalidate,
+  browser = globalThis.window,
+  documentRef = globalThis.document,
+  intervalMs = runtimeSessionRevalidationIntervalMs,
+  setIntervalImpl = setInterval,
+  clearIntervalImpl = clearInterval,
+} = {}) {
+  if (
+    typeof onRevalidate !== "function"
+    || !browser?.addEventListener
+    || !documentRef?.addEventListener
+  ) return undefined;
+
+  let disposed = false;
+  let inFlight = false;
+  const revalidate = async () => {
+    if (disposed || inFlight || !shouldRevalidateRuntimeSession(authState, documentRef.visibilityState)) return;
+    inFlight = true;
+    try {
+      await onRevalidate();
+    } finally {
+      inFlight = false;
+    }
+  };
+  const handleVisibilityChange = () => {
+    void revalidate();
+  };
+  const handleFocus = () => {
+    void revalidate();
+  };
+  const intervalId = setIntervalImpl(() => {
+    void revalidate();
+  }, intervalMs);
+  documentRef.addEventListener("visibilitychange", handleVisibilityChange);
+  browser.addEventListener("focus", handleFocus);
+  return () => {
+    disposed = true;
+    clearIntervalImpl(intervalId);
+    documentRef.removeEventListener("visibilitychange", handleVisibilityChange);
+    browser.removeEventListener("focus", handleFocus);
+  };
 }
 
 function createExpiryDecision(reason, code) {

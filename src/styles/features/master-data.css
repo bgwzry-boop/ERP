@@ -1452,6 +1452,73 @@
   line-height: 1.6;
 }
 
+.employee-payroll-suggestion {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  margin: 0 0 12px;
+  border: 1px solid var(--erp-border);
+  border-radius: 10px;
+  background: var(--erp-neutral-bg);
+  padding: 11px 12px;
+}
+
+.employee-payroll-suggestion.is-suggested {
+  border-color: color-mix(in srgb, var(--erp-success) 32%, var(--erp-border));
+  background: color-mix(in srgb, var(--erp-success) 7%, var(--erp-surface));
+}
+
+.employee-payroll-suggestion.is-unmatched,
+.employee-payroll-suggestion.is-ambiguous {
+  border-color: color-mix(in srgb, var(--erp-warning) 40%, var(--erp-border));
+  background: color-mix(in srgb, var(--erp-warning) 8%, var(--erp-surface));
+}
+
+.employee-payroll-suggestion > div {
+  min-width: 0;
+}
+
+.employee-payroll-suggestion-label {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--erp-text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+}
+
+.employee-payroll-suggestion strong {
+  display: block;
+  color: var(--erp-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.employee-payroll-suggestion p {
+  margin: 3px 0 0;
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.employee-payroll-suggestion-action {
+  flex: 0 0 auto;
+  min-height: 34px;
+  border: 1px solid color-mix(in srgb, var(--erp-success) 48%, var(--erp-border));
+  border-radius: 8px;
+  background: var(--erp-surface);
+  color: var(--erp-success);
+  padding: 0 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.employee-payroll-suggestion-action:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
 .employee-profile-form {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
@@ -2058,7 +2125,450 @@
   line-height: 16px;
 }
 
+.subaccount-permission-workbench {
+  display: grid;
+  grid-column: 1 / -1;
+  min-height: 0;
+  overflow: hidden;
+  grid-template-columns: minmax(320px, 0.72fr) minmax(560px, 1.28fr);
+  border: 1px solid var(--erp-border-subtle);
+  border-radius: 12px;
+  background: var(--erp-surface);
+}
+
+.subaccount-list-pane,
+.subaccount-editor-pane {
+  min-width: 0;
+  min-height: 0;
+}
+
+.subaccount-list-pane {
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface-subtle);
+}
+
+.subaccount-list-heading,
+.subaccount-editor-heading {
+  display: flex;
+  min-height: 72px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface);
+  padding: 12px 14px;
+}
+
+.subaccount-list-heading h2,
+.subaccount-editor-heading h2,
+.subaccount-section-heading h3 {
+  margin: 0;
+  color: var(--erp-text-strong);
+}
+
+.subaccount-list-heading h2,
+.subaccount-editor-heading h2 {
+  font-size: var(--erp-text-lg);
+}
+
+.subaccount-list-heading p,
+.subaccount-editor-heading p,
+.subaccount-section-heading p {
+  margin: 3px 0 0;
+  color: var(--erp-text-muted);
+  font-size: var(--erp-text-xxs);
+  line-height: 1.45;
+}
+
+.subaccount-search {
+  display: grid;
+  gap: 4px;
+}
+
+.subaccount-search {
+  border-bottom: 1px solid var(--erp-border-subtle);
+  padding: 10px 12px;
+}
+
+.subaccount-search > span,
+.subaccount-form-grid label > span {
+  color: var(--erp-text-muted);
+  font-size: var(--erp-text-xxs);
+  font-weight: 700;
+}
+
+.subaccount-search input,
+.subaccount-form-grid input,
+.subaccount-form-grid select,
+.subaccount-reason-section textarea {
+  min-width: 0;
+  min-height: 34px;
+  border: 1px solid var(--erp-border);
+  border-radius: 6px;
+  background: var(--erp-surface);
+  color: var(--erp-text);
+  font: inherit;
+  font-size: var(--erp-text-xs);
+}
+
+.subaccount-search input,
+.subaccount-form-grid input,
+.subaccount-form-grid select {
+  padding: 0 9px;
+}
+
+.subaccount-list-summary {
+  display: flex;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  padding: 6px 12px;
+  color: var(--erp-text-muted);
+  font-size: var(--erp-text-xxs);
+}
+
+.subaccount-list-scroll,
+.subaccount-editor-scroll {
+  min-height: 0;
+  overflow: auto;
+}
+
+.subaccount-list-scroll {
+  flex: 1;
+}
+
+.subaccount-list-row {
+  display: grid;
+  width: 100%;
+  min-height: 70px;
+  align-items: center;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  border: 0;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  border-radius: 0;
+  background: transparent;
+  padding: 9px 12px;
+  color: var(--erp-text);
+  text-align: left;
+}
+
+.subaccount-list-row:hover {
+  background: var(--erp-surface-hover);
+}
+
+.subaccount-list-row.is-selected {
+  background: var(--erp-surface-selected);
+  box-shadow: inset 3px 0 0 var(--erp-accent);
+}
+
+.subaccount-row-main,
+.subaccount-row-meta {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.subaccount-row-main strong,
+.subaccount-row-main small,
+.subaccount-row-meta small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subaccount-row-main strong {
+  font-size: var(--erp-text-sm);
+}
+
+.subaccount-row-main small,
+.subaccount-row-meta small {
+  color: var(--erp-text-muted);
+  font-size: var(--erp-text-xxs);
+}
+
+.subaccount-row-meta {
+  max-width: 124px;
+  align-items: flex-end;
+  text-align: right;
+}
+
+.subaccount-editor-pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--erp-surface);
+}
+
+.subaccount-editor-scroll {
+  flex: 1;
+}
+
+.subaccount-form-section {
+  display: grid;
+  grid-template-columns: minmax(176px, 0.36fr) minmax(0, 1fr);
+  gap: 20px;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  padding: 18px 16px;
+}
+
+.subaccount-section-heading h3 {
+  font-size: var(--erp-text-sm);
+}
+
+.subaccount-form-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.subaccount-form-grid label {
+  display: grid;
+  min-width: 0;
+  gap: 4px;
+}
+
+.subaccount-form-grid label:last-child {
+  grid-column: 1 / -1;
+}
+
+.subaccount-form-grid input:disabled,
+.subaccount-form-grid select:disabled,
+.subaccount-reason-section textarea:disabled {
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-faint);
+}
+
+.subaccount-role-grid {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.subaccount-role-grid label {
+  position: relative;
+  display: grid;
+  min-width: 0;
+  min-height: 112px;
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  border: 1px solid var(--erp-border);
+  border-radius: 10px;
+  background: var(--erp-surface);
+  padding: 12px;
+  cursor: pointer;
+  transition: border-color 120ms var(--erp-ease-out), background-color 120ms var(--erp-ease-out);
+}
+
+.subaccount-role-grid label:hover {
+  border-color: var(--erp-accent-border);
+  background: var(--erp-surface-hover);
+}
+
+.subaccount-role-grid label.is-selected {
+  border-color: var(--erp-accent-border);
+  background: var(--erp-accent-soft);
+}
+
+.subaccount-role-grid input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+}
+
+.subaccount-role-grid label:has(input:focus-visible) {
+  outline: 2px solid var(--erp-focus);
+  outline-offset: 2px;
+}
+
+.subaccount-role-grid label:has(input:disabled) {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.subaccount-position-picker,
+.subaccount-position-copy {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+}
+
+.subaccount-position-picker {
+  gap: 16px;
+}
+
+.subaccount-position-copy {
+  gap: 4px;
+}
+
+.subaccount-position-copy strong {
+  color: var(--erp-text);
+  font-size: var(--erp-text-sm);
+  line-height: 20px;
+}
+
+.subaccount-position-copy > small {
+  color: var(--erp-text-muted);
+  font-size: var(--erp-text-xxs);
+  line-height: 17px;
+}
+
+.subaccount-position-summary {
+  display: flex;
+  min-height: 52px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  padding-bottom: 12px;
+}
+
+.subaccount-position-summary > span:first-child {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.subaccount-position-summary strong {
+  color: var(--erp-text);
+  font-size: var(--erp-text-sm);
+}
+
+.subaccount-position-summary.has-selection strong {
+  color: var(--erp-accent-strong);
+}
+
+.subaccount-position-summary small {
+  color: var(--erp-text-muted);
+  font-size: var(--erp-text-xxs);
+}
+
+.subaccount-selected-positions,
+.subaccount-position-scopes {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.subaccount-selected-positions {
+  justify-content: flex-end;
+}
+
+.subaccount-selected-positions em,
+.subaccount-position-scopes em {
+  border-radius: 999px;
+  background: var(--erp-neutral-bg);
+  color: var(--erp-text-muted);
+  font-size: 10px;
+  font-style: normal;
+  line-height: 18px;
+  padding: 0 6px;
+}
+
+.subaccount-selected-positions em {
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
+  font-weight: 700;
+}
+
+.subaccount-position-group h4 {
+  margin: 0 0 7px;
+  color: var(--erp-text-muted);
+  font-size: var(--erp-text-xxs);
+}
+
+.subaccount-position-scopes {
+  margin-top: 3px;
+}
+
+.subaccount-position-choice {
+  color: var(--erp-text-faint);
+  font-size: var(--erp-text-xxs);
+  font-weight: 700;
+  line-height: 20px;
+}
+
+.subaccount-role-grid label.is-selected .subaccount-position-choice {
+  color: var(--erp-accent-strong);
+}
+
+.subaccount-special-permission-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--erp-warning-border);
+  border-radius: 8px;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
+  padding: 9px 10px;
+  font-size: var(--erp-text-xxs);
+}
+
+.subaccount-special-permission-note span {
+  text-align: right;
+}
+
+.subaccount-reason-section textarea {
+  width: 100%;
+  min-height: 70px;
+  padding: 8px 9px;
+  resize: vertical;
+}
+
+.subaccount-feedback {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  padding: 9px 14px;
+  font-size: var(--erp-text-xs);
+}
+
+.subaccount-feedback.is-error {
+  background: var(--erp-danger-bg);
+  color: var(--erp-danger);
+}
+
+.subaccount-feedback.is-credential {
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
+}
+
+.subaccount-feedback code {
+  color: inherit;
+  font-size: var(--erp-text-sm);
+  font-weight: 800;
+}
+
+.subaccount-editor-actions {
+  display: flex;
+  min-height: 58px;
+  align-items: center;
+  gap: 7px;
+  border-top: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface);
+  padding: 9px 14px;
+}
+
+.subaccount-editor-actions > span {
+  margin-left: auto;
+  color: var(--erp-text-muted);
+  font-size: var(--erp-text-xxs);
+}
+
 @media (max-width: 1240px) {
+  .subaccount-permission-workbench {
+    grid-template-columns: minmax(290px, 0.64fr) minmax(480px, 1.36fr);
+  }
+
   .master-data-workbench {
     grid-template-columns: minmax(430px, 1fr) 360px !important;
   }
@@ -2109,6 +2619,21 @@
     overflow: visible;
   }
 
+  .subaccount-permission-workbench {
+    grid-template-columns: minmax(0, 1fr);
+    overflow: visible;
+  }
+
+  .subaccount-list-pane {
+    max-height: 420px;
+    border-right: 0;
+    border-bottom: 1px solid var(--erp-border-subtle);
+  }
+
+  .subaccount-editor-pane {
+    min-height: 720px;
+  }
+
   .master-data-detail-pane,
   .master-data-detail-scroll {
     overflow: visible;
@@ -2116,6 +2641,55 @@
 }
 
 @media (max-width: 720px) {
+  .employee-master-secondary-nav {
+    overflow-x: auto;
+  }
+
+  .employee-master-secondary-nav button {
+    flex: 0 0 auto;
+  }
+
+  .subaccount-form-section {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .subaccount-form-grid,
+  .subaccount-role-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .subaccount-position-summary,
+  .subaccount-special-permission-note {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .subaccount-selected-positions {
+    justify-content: flex-start;
+  }
+
+  .subaccount-special-permission-note span {
+    text-align: left;
+  }
+
+  .subaccount-form-grid label:last-child {
+    grid-column: auto;
+  }
+
+  .subaccount-editor-actions {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .subaccount-editor-actions > span {
+    margin-left: 0;
+  }
+
+  .subaccount-feedback {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .master-data-view-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2173,6 +2747,15 @@
 
   .employee-profile-form .employee-profile-reason {
     grid-column: auto;
+  }
+
+  .employee-payroll-suggestion {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .employee-payroll-suggestion-action {
+    width: 100%;
   }
 
   .employee-assignment-mode .segmented button {

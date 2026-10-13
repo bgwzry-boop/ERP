@@ -1,5 +1,8 @@
 import assert from "node:assert/strict";
-import { prepareRawMaterialDeliveryNoteFile } from "../src/services/rawMaterialDeliveryNoteImageClient.js";
+import {
+  prepareRawMaterialDeliveryNoteFile,
+  prepareRawMaterialDeliveryNotePages,
+} from "../src/services/rawMaterialDeliveryNoteImageClient.js";
 
 const smallPhoto = {
   name: "delivery-note.jpg",
@@ -16,16 +19,30 @@ await assert.rejects(
   prepareRawMaterialDeliveryNoteFile({ ...smallPhoto, size: 30 * 1024 * 1024 + 1 }),
   (error) => error.code === "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_TOO_LARGE",
 );
-await assert.rejects(
-  prepareRawMaterialDeliveryNoteFile({
-    ...smallPhoto,
-    name: "delivery-note.pdf",
-    type: "application/pdf",
-    size: 5 * 1024 * 1024,
-    contentDataUrl: "data:application/pdf;base64,JVBERi0=",
-  }),
-  (error) => error.code === "RAW_MATERIAL_DELIVERY_NOTE_PDF_TOO_LARGE",
-);
+const pdfPages = await prepareRawMaterialDeliveryNotePages({
+  ...smallPhoto,
+  name: "delivery-note.pdf",
+  type: "application/pdf",
+  size: 5 * 1024 * 1024,
+}, {
+  File: class TestFile {
+    constructor(parts, name, { type }) {
+      this.name = name;
+      this.type = type;
+      this.size = parts[0].size;
+      this.contentDataUrl = parts[0].contentDataUrl;
+    }
+  },
+  renderPdfPages: async () => [
+    { size: 1000, contentDataUrl: "data:image/jpeg;base64,cGFnZTE=" },
+    { size: 1200, contentDataUrl: "data:image/jpeg;base64,cGFnZTI=" },
+  ],
+});
+assert.equal(pdfPages.length, 2);
+assert.equal(pdfPages[0].pdfPageNumber, 1);
+assert.equal(pdfPages[1].pdfPageNumber, 2);
+assert.equal(pdfPages[0].sourceFile.name, "delivery-note-第1页.jpg");
+assert.equal(pdfPages[1].sourceFile.name, "delivery-note-第2页.jpg");
 
 const largePhoto = {
   ...smallPhoto,

@@ -2,10 +2,14 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
 const rawMaterialPageSource = [
-  "../src/features/raw-materials/RawMaterialInboundPage.jsx",
-  "../src/features/raw-materials/useInboundPageState.js",
-  "../src/features/raw-materials/InboundDetail.jsx",
-].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundPage.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/useInboundPageState.js", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundReceivingSections.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundSupportingSections.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierStatementReview.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundWorkflow.js", import.meta.url), "utf8"),
+].join("\n");
 const rawMaterialWorkbenchSource = [
   "../src/features/raw-materials/RawMaterialInboundWorkbench.jsx",
   "../src/features/raw-materials/InboundFilters.jsx",
@@ -16,7 +20,15 @@ const masterDataWorkbenchSource = readFileSync(new URL("../src/features/master-d
 const masterDataListStateSource = readFileSync(new URL("../src/domain/masterDataMaintenanceListState.js", import.meta.url), "utf8");
 const masterDataRecordSource = readFileSync(new URL("../src/domain/masterDataMaintenanceRecords.js", import.meta.url), "utf8");
 const officePageSource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const rawMaterialStylesSource = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
+const rawMaterialStylesSource = [
+  readFileSync(new URL("../src/styles/features/raw-material-foundation.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-roll-inventory.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-mobile.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-mobile-atlas.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-print.css", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/styles/features/raw-material-color-mapping.css", import.meta.url), "utf8"),
+].join("\n");
 const masterDataStylesSource = readFileSync(new URL("../src/styles/features/master-data.css", import.meta.url), "utf8");
 
 assert.match(rawMaterialPageSource, /export function RawMaterialInboundPage/);

@@ -1,13 +1,16 @@
 # Decisions
 
-Current decision baseline: `V8.306` plus the verified employee/payroll/Deli changes recorded below. Detailed UI and workflow invariants remain in `AGENTS.md`; the complete pre-compression decision set is preserved in [the 2026-08-12 snapshot](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/DECISIONS-through-2026-08-12.md).
+Current decision baseline: 2026-10-13 integration review; V8.306 is a historical product label. Durable workflow invariants remain in AGENTS.md; the prior decision set is preserved in [the 2026-08-12 snapshot](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/DECISIONS-through-2026-08-12.md).
 
 ## Release Truth
 
-- Code/prototype readiness remains `97-98%`; V1 production readiness remains `80-83%`. Release truth is `0/4` gates, `1/5` production stages, `5/11` runtime gates, `0/40` field evidence, `0/6` signoff and `59` onsite tasks.
-- A review URL, local demo, passing unit test, generated report or deployment template is never production evidence. Only the generated go-live suite and accepted field records may change release truth.
-- The current execution order is exactly `D49 -> D50 -> D51 -> D52 -> D53`; later work never substitutes for an earlier incomplete gate.
-- The raw-material-first release boundary remains authoritative until a separately approved release changes it. Completed wider ERP work may remain available in staging/review without becoming the production V1 write scope.
+- Default `7888e5e`, draft PR #2 `54ca593`, original local `c86f014` and deployed Staging `f065728` are separate verified baselines. Integration occurs only in `codex/full-baseline-integration-20261013` after a complete history backup.
+- Old percentage/gate counts describe old reports. Passing code, API, database or browser tests never creates field evidence or signoffs.
+- The owner confirmed the label printer is not ready on 2026-10-13. Build code first; physical printing, attachment and scan-back remain pending.
+- The full ERP release order remains `D49 -> D50 -> D51 -> D52 -> D53`; formal payroll acceptance is separate from raw-material-first rollout.
+- Keep draft review, default integration and deployment as separate actions. No default merge or deployment is authorized by ordinary code validation; repository visibility and historical branches remain unchanged.
+- Demo defaults to PostgreSQL; local stores are explicit test fixtures only. The local 4174 runner uses `--mode test --local-fixture` and visibly reports an unreleased preview.
+- Preserve the deployed supplier-return, colour-mapping, voiding, zero-weight and identity contracts while retaining the local 65gsm handle default and PR #2 orchestration. Do not reintroduce duplicate controllers or simplify transactional SQL.
 
 ## Employee, Attendance And Payroll
 
@@ -43,6 +46,8 @@ Current decision baseline: `V8.306` plus the verified employee/payroll/Deli chan
 
 ## Product, Order And Inventory
 
+- A mobile raw-material OCR draft is not abandoned merely because the operator navigates back. The review page must offer explicit discard, continue-review and keep-draft choices. Discard is an audited server-confirmed void, never a client deletion; voided drafts retain source images and operator/time/reason evidence but are excluded from operational inbound, unfinished, search, metrics and supplier-reconciliation views and create no inventory, payable or reconciliation effect.
+- A still-pending raw-material OCR draft with strong return evidence may be explicitly corrected from delivery to supplier return by reparsing its persisted OCR table under the audited server command, without another cloud OCR call. Return specification may remain blank; Hongshang/Baihou fabric returns retain the price-affecting `黑白布 / 彩布 / 废布` category and stay blocked only when that category, unit price, amount or other return facts are unresolved.
 - ERP is the sole authority for price editing/review/publication. The Miniapp activates only a complete validated version and submitted orders retain immutable price/version snapshots.
 - Miniapp and ERP keep separate databases. Server-to-server intake is HMAC/idempotent, creates only an intake envelope/review draft/evidence/todo, and office confirmation alone creates formal orders and downstream effects.
 - Custom sizes remain order-only: produce and deliver the ordered quantity, create no common-goods master row and retain no finished-goods stock.

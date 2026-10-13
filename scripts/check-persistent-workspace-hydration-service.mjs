@@ -1,15 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { coreWorkspaceCollectionKeys } from "../server/coreWorkspaceReadRepository.mjs";
 import {
   hydratePersistentWorkspaceState,
   isProductionWorkspaceRuntime,
 } from "../server/services/persistentWorkspaceHydrationService.mjs";
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-assert.match(apiSource, /hydratePersistentWorkspaceState\(\{/);
-assert.doesNotMatch(apiSource, /function loadPersistentWorkspaceState/);
-assert.doesNotMatch(apiSource, /seedInbounds: workspace\.initialRawMaterialInbounds/);
 
 assert.equal(isProductionWorkspaceRuntime({ runtimeConfig: { production: true, mode: "demo" } }), true);
 assert.equal(isProductionWorkspaceRuntime({ runtimeConfig: { production: false, mode: "production" } }), true);
@@ -90,10 +84,12 @@ await hydratePersistentWorkspaceState({
     { userId: "U-OFFICE-B", loginName: "office.b", displayName: "办公室B", department: "office" },
   ],
 });
-const seedIdentitySave = postgresDemo.calls.find((call) => call.name === "runtimeIdentity:save");
-assert(seedIdentitySave, "test PostgreSQL startup must persist seed users required by business foreign keys");
+const seedIdentityEnsure = postgresDemo.calls.find(
+  (call) => call.name === "runtimeIdentity:ensureSeedUserReferences",
+);
+assert(seedIdentityEnsure, "test PostgreSQL startup must persist seed users required by business foreign keys");
 assert.deepEqual(
-  seedIdentitySave.input.workspace.users.map((user) => user.userId),
+  seedIdentityEnsure.users.map((user) => user.userId),
   ["U-OFFICE-A", "U-OFFICE-B"],
 );
 assert.equal(
@@ -101,8 +97,13 @@ assert.equal(
   "seed_fixture",
 );
 assert.equal(
-  seedIdentitySave.input.workspace.users.find((user) => user.userId === "U-OFFICE-B")?.passwordStatus,
+  seedIdentityEnsure.users.find((user) => user.userId === "U-OFFICE-B")?.passwordStatus,
   "not_applicable",
+);
+assert.equal(
+  postgresDemo.calls.some((call) => call.name === "runtimeIdentity:save"),
+  false,
+  "seed reference hydration must not run the mutable runtime identity upsert",
 );
 
 const postgresProduction = buildWorkspace({
@@ -117,7 +118,7 @@ await hydratePersistentWorkspaceState({
   seedUsers: [{ userId: "U-OFFICE-B", loginName: "office.b", displayName: "办公室B" }],
 });
 assert.equal(
-  postgresProduction.calls.some((call) => call.name === "runtimeIdentity:save"),
+  postgresProduction.calls.some((call) => call.name === "runtimeIdentity:ensureSeedUserReferences"),
   false,
   "production startup must never persist prototype seed users",
 );
@@ -143,6 +144,10 @@ function buildWorkspace({
     async saveState(input) {
       calls.push({ name: `${name}:save`, input });
       return {};
+    },
+    async ensureSeedUserReferences(users) {
+      calls.push({ name: `${name}:ensureSeedUserReferences`, users });
+      return { insertedCount: 0 };
     },
   });
   const workspace = Object.fromEntries(

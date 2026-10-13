@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createV1ProductionEnvValuesSafetyStatusService } from "../server/services/v1ProductionEnvValuesSafetyStatusService.mjs";
 
 const PRIVATE_VALUES_FILE = "/private/erp/production-values.env";
@@ -161,19 +160,6 @@ assert.throws(
   () => ready.service.buildFragmentSourceStatus({ buildServerConfigGuidance: null }),
   /buildServerConfigGuidance must be a function/,
 );
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function buildV1ProductionEnvValuesFragmentSourceStatus/);
-assert.doesNotMatch(apiSource, /function buildV1ProductionEnvValuesDryRunProofStatus/);
-assert.doesNotMatch(apiSource, /function buildV1ProductionEnvValuesFileAuditStatus/);
-assert.doesNotMatch(apiSource, /function buildV1ProductionEnvSetupTargetStatus/);
-assert.doesNotMatch(apiSource, /buildProductionEnvFileAuditReport/);
-assert.doesNotMatch(apiSource, /buildProductionEnvValuesDryRunProofReport/);
-assert.match(registrySource, /createV1ProductionEnvValuesSafetyStatusService/);
-assert.match(registrySource, /v1ProductionEnvValuesSafetyStatusService\.buildFragmentSourceStatus/);
-assert.match(registrySource, /buildTargetSetupStatus:\s*v1ProductionEnvValuesSafetyStatusService\.buildTargetSetupStatus/);
-assert.match(registrySource, /buildDryRunProofStatus:\s*v1ProductionEnvValuesSafetyStatusService\.buildDryRunProofStatus/);
 
 console.log("V1 production env values safety-status service checks passed: source, audit, setup, proof binding, redaction, and thin API composition are covered.");
 

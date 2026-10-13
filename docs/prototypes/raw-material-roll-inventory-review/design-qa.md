@@ -49,6 +49,50 @@
 
 Final result: `passed`.
 
+## Outbound delivery and supplier month-end shell unification — 2026-08-24
+
+### Visual truth and captures
+
+- Current-shell sources:
+  - `/Users/xu/.codex/worktrees/a0f7/ERP/docs/prototypes/raw-material-roll-inventory-review/qa/raw-material-pc-roll-ledger-2026-08-07-1280x720.png`
+  - `/Users/xu/.codex/worktrees/a0f7/ERP/docs/prototypes/raw-material-roll-inventory-review/qa/raw-material-pc-receiving-boundary-2026-08-07-1280x720.png`
+- Business-content sources:
+  - `/Users/xu/.codex/worktrees/a0f7/ERP/docs/prototypes/erp-semantic-tag-migration-preview/qa/legacy-borrowing-fulfillment-1280x720.png`
+  - `/Users/xu/.codex/worktrees/a0f7/ERP/docs/prototypes/erp-semantic-tag-migration-preview/qa/legacy-borrowing-supplier-settlement-1280x720.png`
+- Implementation captures:
+  - `/Users/xu/.codex/worktrees/a0f7/ERP/docs/prototypes/raw-material-roll-inventory-review/qa/ui-unification-outbound-1280x720.png`
+  - `/Users/xu/.codex/worktrees/a0f7/ERP/docs/prototypes/raw-material-roll-inventory-review/qa/ui-unification-supplier-settlement-1280x720.png`
+- Routes: `#outbound-delivery` and `#supplier-month-end` on the verified `4174` complete review app.
+- Viewport and normalization: `1280 × 720` CSS px, browser `devicePixelRatio = 2`; source and implementation files are both normalized to `1280 × 720` pixels, so comparisons use a one-image-pixel to one-CSS-pixel frame.
+- States: populated first-row-selected outbound workbench; formal supplier-month-end empty state because the demo API returned no supplier statement review records.
+
+### Findings
+
+- No actionable P0/P1/P2 differences remain.
+- Fonts and typography: passed. Both pages inherit the current complete-review font stack, weights and compact table hierarchy; the selected outbound product wraps within the fixed detail heading without clipping.
+- Spacing and layout rhythm: passed. Both pages use the current full-height dense list plus `352px` fixed detail rail, `8px` workbench gap, existing panel radius/border/shadow and the same filter/header/table rhythm as the approved shell.
+- Colors and tokens: passed. Selection, status, current-quantity emphasis, empty state and semantic notices reuse existing `4174` tokens; no old prototype palette or new gradient was introduced.
+- Image and asset fidelity: passed. The current approved BAGWIN sidebar asset and Ant Design icon set remain unchanged; these workbenches require no additional raster assets.
+- Copy and content: passed. Outbound retains `订货数量 / 已发数量 / 本次发货 / 剩余未发` and the read-only receivable context. Supplier month-end retains `对账确认 → 生成应付 → 付款登记 → 付款确认` while clearly stating that the review surface does not perform finance writes.
+- Focused comparison was not needed for the outbound page because the complete `1280 × 720` capture keeps all four quantity facts and three receivable facts legible. The supplier stage component could not be visually captured in a populated state without creating demo business data; its labels, step order and route ownership are covered by the targeted source test. This is a residual data-fixture test gap, not a visible mismatch in the formal empty state.
+
+### Interaction and runtime evidence
+
+- Left navigation opened both routes and retained the current shell.
+- Outbound search filtered nine rows to the single `红叶电商` record; reset restored nine rows and one selected row.
+- The selected outbound detail updated to the filtered record.
+- Supplier month-end displayed the formal empty state and kept its primary detail action disabled.
+- Browser console error check returned no application errors.
+- `node --test docs/prototypes/raw-material-roll-inventory-review/tests/formal-desktop-workspace.test.mjs`: 15/15 passed.
+- `npm run review:check`: passed with app identity, navigation and API health verified.
+- Impeccable detector: passed with no findings.
+
+### Comparison history
+
+- Pass 1: the current-shell source, old business-content source and rendered implementation were reviewed together at the same `1280 × 720` frame. No P0/P1/P2 issue was found, so no visual-fix iteration was required.
+
+Final result: `passed`.
+
 ## Production-task specification/colour split — 2026-08-09
 
 - Route and viewport: `#production-tasks`, `1488 × 919`.

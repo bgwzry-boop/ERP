@@ -653,6 +653,14 @@ textarea,
     padding: 0;
   }
 
+  .app-shell:not(.app-shell-mobile-role) .brand-logo-horizontal {
+    display: none;
+  }
+
+  .app-shell:not(.app-shell-mobile-role) .brand-logo-symbol {
+    display: block;
+  }
+
   .app-shell:not(.app-shell-mobile-role) .brand > div:last-child,
   .app-shell:not(.app-shell-mobile-role) .nav-item > span:not(.anticon),
   .app-shell:not(.app-shell-mobile-role) .nav-group-trigger > span:not(.anticon),

@@ -1,7 +1,63 @@
 import { attachmentUploadLimits } from "../../shared/attachmentUploadPolicy.js";
 
 export const RAW_MATERIAL_OCR_NORMALIZED_MAX_EDGE = 3200;
+export const RAW_MATERIAL_DELIVERY_NOTE_MAX_PAGES = 4;
 const JPEG_QUALITIES = [0.9, 0.82, 0.74, 0.66];
+
+export async function prepareRawMaterialDeliveryNotePages(file, options = {}) {
+  const sourceMimeType = String(file?.type ?? options.mimeType ?? "").trim().toLowerCase();
+  if (sourceMimeType !== "application/pdf") {
+    return [await prepareRawMaterialDeliveryNoteFile(file, options)];
+  }
+
+  if (!file) throw uploadError("RAW_MATERIAL_DELIVERY_NOTE_REQUIRED", "请选择送货单照片或 PDF。");
+  const sourceSize = Number(file.size ?? 0);
+  if (!Number.isFinite(sourceSize) || sourceSize <= 0) {
+    throw uploadError("RAW_MATERIAL_DELIVERY_NOTE_EMPTY", "送货单文件为空，请重新选择。");
+  }
+  if (sourceSize > attachmentUploadLimits.rawMaterialOcrSourceBytes) {
+    throw uploadError(
+      "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_TOO_LARGE",
+      "送货单 PDF 不能超过 30MB，请重新选择。",
+    );
+  }
+
+  const renderedPages = typeof options.renderPdfPages === "function"
+    ? await options.renderPdfPages(file, { maxPages: RAW_MATERIAL_DELIVERY_NOTE_MAX_PAGES })
+    : await renderPdfToImages(file, options);
+  if (!Array.isArray(renderedPages) || !renderedPages.length) {
+    throw uploadError("RAW_MATERIAL_DELIVERY_NOTE_PDF_EMPTY", "PDF 中没有可识别页面，请重新选择。");
+  }
+  if (renderedPages.length > RAW_MATERIAL_DELIVERY_NOTE_MAX_PAGES) {
+    throw uploadError(
+      "RAW_MATERIAL_DELIVERY_NOTE_PAGE_LIMIT_EXCEEDED",
+      `同一张送货单最多支持 ${RAW_MATERIAL_DELIVERY_NOTE_MAX_PAGES} 页，请拆分后再录入。`,
+    );
+  }
+
+  const baseName = String(file.name || "送货单.pdf").replace(/\.pdf$/iu, "") || "送货单";
+  const pages = [];
+  for (const [sourcePageIndex, renderedPage] of renderedPages.entries()) {
+    const pageFile = toNamedImageFile(
+      renderedPage,
+      `${baseName}-第${sourcePageIndex + 1}页.jpg`,
+      options,
+    );
+    const prepared = await prepareRawMaterialDeliveryNoteFile(pageFile, {
+      ...options,
+      mimeType: "image/jpeg",
+    });
+    pages.push({
+      ...prepared,
+      documentSourceFile: sourcePageIndex === 0 ? file : null,
+      documentSourceFileName: file.name || "送货单.pdf",
+      documentSourceFileSize: sourceSize,
+      documentSourceMimeType: sourceMimeType,
+      pdfPageNumber: sourcePageIndex + 1,
+    });
+  }
+  return pages;
+}
 
 export async function prepareRawMaterialDeliveryNoteFile(file, options = {}) {
   if (!file) throw uploadError("RAW_MATERIAL_DELIVERY_NOTE_REQUIRED", "请选择送货单照片或 PDF。");
@@ -94,6 +150,57 @@ async function normalizeImageForOcr(file, options) {
   } finally {
     image.close?.();
   }
+}
+
+async function renderPdfToImages(file, options) {
+  const pdfjs = await import("pdfjs-dist/build/pdf.mjs");
+  try {
+    const workerAsset = await import("pdfjs-dist/build/pdf.worker.min.mjs?url");
+    if (workerAsset?.default) pdfjs.GlobalWorkerOptions.workerSrc = workerAsset.default;
+  } catch {
+    // Node-based checks use PDF.js' fake worker; Vite supplies the browser URL.
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const documentTask = pdfjs.getDocument({ data: bytes });
+  const document = await documentTask.promise;
+  try {
+    if (document.numPages > RAW_MATERIAL_DELIVERY_NOTE_MAX_PAGES) {
+      throw uploadError(
+        "RAW_MATERIAL_DELIVERY_NOTE_PAGE_LIMIT_EXCEEDED",
+        `该 PDF 有 ${document.numPages} 页，同一张送货单最多支持 ${RAW_MATERIAL_DELIVERY_NOTE_MAX_PAGES} 页。`,
+      );
+    }
+    const images = [];
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber);
+      const initial = page.getViewport({ scale: 1 });
+      const scale = Math.min(3, RAW_MATERIAL_OCR_NORMALIZED_MAX_EDGE / Math.max(initial.width, initial.height));
+      const viewport = page.getViewport({ scale: Math.max(1, scale) });
+      const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height), options);
+      const context = canvas.getContext?.("2d", { alpha: false });
+      if (!context) throw uploadError("RAW_MATERIAL_DELIVERY_NOTE_CANVAS_UNAVAILABLE", "当前浏览器无法处理 PDF 页面。");
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({ canvasContext: context, viewport, canvas }).promise;
+      images.push(await canvasToBlob(canvas, "image/jpeg", 0.9));
+      page.cleanup?.();
+    }
+    return images;
+  } finally {
+    await document.destroy?.();
+  }
+}
+
+function toNamedImageFile(blob, fileName, options) {
+  const FileImpl = options.File ?? globalThis.File;
+  if (typeof FileImpl === "function") return new FileImpl([blob], fileName, { type: "image/jpeg" });
+  return {
+    ...blob,
+    name: fileName,
+    type: "image/jpeg",
+    size: Number(blob?.size) || 0,
+    contentDataUrl: blob?.contentDataUrl,
+  };
 }
 
 async function loadImageSource(file, options) {

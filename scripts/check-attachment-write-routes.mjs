@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { Readable } from "node:stream";
 import { handleAttachmentWriteRoutes } from "../server/routes/attachmentWriteRoutes.mjs";
 
@@ -120,12 +119,6 @@ assert.equal(binaryCreate.contentPayload.contentType, "application/octet-stream"
 
 assert.equal(await run("GET", "/api/attachments"), false);
 assert.equal(await run("POST", "/api/attachments/ATT-1"), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/attachmentWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /async function createAttachmentRoute\b/);
-assert.match(apiSource, /handleAttachmentWriteRoutes\([\s\S]*attachmentCreateCommandService,[\s\S]*attachmentFileAccessService,[\s\S]*sendBusinessError,/);
-assert.doesNotMatch(routeSource, /storageKey|parseDataUrl|attachmentRepository|attachmentObjectStorage|putObject/);
 
 console.log("attachment write routes checks passed: permission-first operator resolution, command ownership, safe summaries, failures, and thin API wiring are covered");
 

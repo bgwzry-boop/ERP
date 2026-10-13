@@ -8,17 +8,18 @@ import {
   listenTestServer,
   requestJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "phone-identity-api");
 rmSync(storageRoot, { recursive: true, force: true });
 
 assert.throws(
-  () => createApiServer({ allowLocalFixture: true,
+  () => createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     runtimeMode: "test",
     phoneRegistrationEnabled: true,
     authSecret: "phone-identity-api-missing-sender-secret",
     applyProductionEnvFile: false,
-  }),
+  })),
   /phoneVerificationSender/,
   "the phone identity flag must fail startup when no real verification sender is configured",
 );
@@ -33,11 +34,11 @@ console.log(
 );
 
 async function checkDisabledBoundary() {
-  const server = createApiServer({ allowLocalFixture: true,
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     runtimeMode: "test",
     applyProductionEnvFile: false,
     runtimeIdentityRepositoryOptions: { storageRoot: join(storageRoot, "disabled") },
-  });
+  }));
   await listenTestServer(server);
   try {
     const response = await requestJson(getTestServerBaseUrl(server), "/api/auth/phone-registration/request-code", {
@@ -53,13 +54,13 @@ async function checkDisabledBoundary() {
 }
 
 async function checkStrictDisabledBoundary() {
-  const server = createApiServer({ allowLocalFixture: true,
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     runtimeMode: "test",
     strictAuth: true,
     authSecret: "phone-identity-api-strict-secret",
     applyProductionEnvFile: false,
     runtimeIdentityRepositoryOptions: { storageRoot: join(storageRoot, "strict-disabled") },
-  });
+  }));
   await listenTestServer(server);
   try {
     const response = await requestJson(getTestServerBaseUrl(server), "/api/auth/phone-registration/request-code", {
@@ -76,7 +77,7 @@ async function checkStrictDisabledBoundary() {
 
 async function checkPhoneIdentityFlow() {
   const sentMessages = [];
-  const server = createApiServer({ allowLocalFixture: true,
+  const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
     runtimeMode: "test",
     firstReleaseScope: "raw_material",
     phoneRegistrationEnabled: true,
@@ -108,7 +109,7 @@ async function checkPhoneIdentityFlow() {
         };
       },
     },
-  });
+  }));
   await listenTestServer(server);
   const baseUrl = getTestServerBaseUrl(server);
   const jsonHeaders = { "content-type": "application/json" };

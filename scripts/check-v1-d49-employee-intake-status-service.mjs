@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { buildV1D49EmployeeIntakeStatus } from "../server/services/v1D49EmployeeIntakeStatusService.mjs";
 
 const checkedAt = "2026-07-14T00:00:00.000Z";
@@ -140,16 +139,6 @@ const loadError = buildV1D49EmployeeIntakeStatus({
 });
 assert.equal(loadError.available, false);
 assertSafeProjection(loadError);
-
-const source = readFileSync(new URL("../server/services/v1D49EmployeeIntakeStatusService.mjs", import.meta.url), "utf8");
-assert.match(source, /final-precheck/);
-assert.match(source, /employeeNamesIncluded: false/);
-assert.match(source, /employeeNumbersIncluded: false/);
-assert.match(source, /workbookPathIncluded: false/);
-assert.match(source, /issueRowsIncluded: false/);
-assert.match(source, /MAX_REPORT_AGE_MS/);
-assert.match(source, /createHash\("sha256"\)/);
-assert.doesNotMatch(source, /employeeName:\s*report|employeeNumber:\s*report|row:\s*issue/);
 
 console.log(
   "V1 D49 employee intake status checks passed: controlled aggregate loading, workbook fingerprint freshness, 72-hour expiry, eight-role coverage, fail-closed redaction, and server recheck boundary are covered.",

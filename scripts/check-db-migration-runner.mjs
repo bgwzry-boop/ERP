@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { parseArgs, redactMigrationText, runDbMigrations } from "./run-db-migrations.mjs";
+import { loadMigrationFiles } from "./dbMigrationUtils.mjs";
+import {
+  isAcceptedAppliedMigrationChecksum,
+  parseArgs,
+  redactMigrationText,
+  runDbMigrations,
+} from "./run-db-migrations.mjs";
 
 const storageRoot = join(process.cwd(), ".erp-local-storage", "checks", "db-migration-runner");
 rmSync(storageRoot, { recursive: true, force: true });
@@ -38,6 +44,53 @@ const dryRunResult = runDbMigrations({
 assert.equal(dryRunResult.mode, "dry-run");
 assert.equal(dryRunCalls.length, 0);
 assert.ok(dryRunLogs.some((line) => line.includes("Dry-run only")));
+
+const canonicalMiniappIntakeChecksum = "423c48ebede1b1bf54a1e308c132fde00fd2268b62d342f70d3430ac3ea213ad";
+const byteEquivalentLegacyChecksum = "d9333a508b2f6867cc913246cd0fbdde1e4de214fa2eda49f927043a6b3fd5d6";
+const canonicalMiniappIntakeMigration = loadMigrationFiles().find(
+  (migration) => migration.id === "0030_miniapp_order_intake",
+);
+const canonicalMiniappArtworkTransferChecksum = "9d48beae57346bdc7e643419502cf0dd2596d20a9a4394cb293cb3242b5caf6b";
+const byteEquivalentLegacyArtworkTransferChecksum =
+  "fe934e65e551e908f45751b545e09135e3de0df7bb93bf429e78a6e13bfd72e3";
+const canonicalMiniappArtworkTransferMigration = loadMigrationFiles().find(
+  (migration) => migration.id === "0035_miniapp_artwork_transfer",
+);
+assert.equal(canonicalMiniappIntakeMigration?.checksum, canonicalMiniappIntakeChecksum);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(canonicalMiniappIntakeMigration, byteEquivalentLegacyChecksum),
+  true,
+);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(canonicalMiniappIntakeMigration, "unknown"),
+  false,
+);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(
+    { ...canonicalMiniappIntakeMigration, id: "0031_attachment_upload_limits" },
+    byteEquivalentLegacyChecksum,
+  ),
+  false,
+);
+assert.equal(canonicalMiniappArtworkTransferMigration?.checksum, canonicalMiniappArtworkTransferChecksum);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(
+    canonicalMiniappArtworkTransferMigration,
+    byteEquivalentLegacyArtworkTransferChecksum,
+  ),
+  true,
+);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(canonicalMiniappArtworkTransferMigration, "unknown"),
+  false,
+);
+assert.equal(
+  isAcceptedAppliedMigrationChecksum(
+    { ...canonicalMiniappArtworkTransferMigration, id: "0036_price_release_delivery" },
+    byteEquivalentLegacyArtworkTransferChecksum,
+  ),
+  false,
+);
 
 const applyCalls = [];
 const applyLogs = [];

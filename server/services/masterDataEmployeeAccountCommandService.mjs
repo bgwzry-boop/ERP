@@ -21,6 +21,7 @@ import {
 } from "./runtimeIdentityWorkspace.mjs";
 import { normalizeMasterDataMachines } from "../masterDataMachineConfigurationRepository.mjs";
 import { resolveConfiguredMasterDataMachine } from "../../shared/masterDataMachineIdentity.js";
+import { findPayrollPosition } from "../../shared/payrollPositionCatalog.js";
 
 const employeeAssignmentModes = new Set(["fixed_machine", "general_worker", "unassigned"]);
 
@@ -53,6 +54,14 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
     if (birthDate.error) return birthDate.error;
     const hireDate = normalizeOptionalIsoDate(body.hireDate, "hireDate");
     if (hireDate.error) return hireDate.error;
+    const payrollPositionKey = cleanText(body.payrollPositionKey).toUpperCase();
+    if (payrollPositionKey && !findPayrollPosition(payrollPositionKey)) {
+      return businessError(
+        400,
+        "MASTER_DATA_EMPLOYEE_PAYROLL_POSITION_INVALID",
+        "工资岗位键不在已确认的岗位工资目录中。",
+      );
+    }
     const wageEffectiveFrom = normalizeOptionalIsoDate(
       body.wageEffectiveFrom,
       "wageEffectiveFrom",
@@ -122,6 +131,7 @@ export function createMasterDataEmployeeAccountCommandService(dependencies = {})
       ...before,
       birthDate: birthDate.value,
       hireDate: hireDate.value,
+      payrollPositionKey,
       baseHourlyWage: baseHourlyWage.value,
       positionAllowanceHourly: positionAllowanceHourly.value,
       wageEffectiveFrom: wageEffectiveFrom.value,
@@ -1147,6 +1157,7 @@ export function toMasterDataEmployeeAccountReview(employee = {}, users = [], mac
     age: calculateCompletedYears(employee.birthDate),
     hireDate: cleanText(employee.hireDate),
     seniorityYears: calculateCompletedYears(employee.hireDate),
+    payrollPositionKey: cleanText(employee.payrollPositionKey),
     baseHourlyWage: nonNegativeNumber(employee.baseHourlyWage),
     positionAllowanceHourly: nonNegativeNumber(employee.positionAllowanceHourly),
     wageEffectiveFrom: cleanText(employee.wageEffectiveFrom),
@@ -1567,6 +1578,7 @@ function employeeProfileAuditSnapshot(employee = {}) {
     employeeId: cleanText(employee.id),
     birthDate: cleanText(employee.birthDate),
     hireDate: cleanText(employee.hireDate),
+    payrollPositionKey: cleanText(employee.payrollPositionKey),
     baseHourlyWage: nonNegativeNumber(employee.baseHourlyWage),
     positionAllowanceHourly: nonNegativeNumber(employee.positionAllowanceHourly),
     wageEffectiveFrom: cleanText(employee.wageEffectiveFrom),

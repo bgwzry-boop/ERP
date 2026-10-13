@@ -177,9 +177,10 @@ session token 撤销表（历史表名仍为 `seed_session_revocations`），同
 | `role_name` | 岗位 / 角色名称 |
 | `default_workshop` | 默认车间 |
 | `default_machine_id` | 默认机台 |
-| `base_hourly_wage` | 每小时基础工资 |
-| `position_allowance_hourly` | 每小时岗位补贴 |
-| `wage_effective_from` | 工资信息生效日期 |
+| `payroll_position_key` | 稳定工资岗位键；正式费率与小时/日薪方式由生效的版本化工资政策统一维护 |
+| `base_hourly_wage` | 历史兼容字段，不作为正式工资权威 |
+| `position_allowance_hourly` | 历史兼容字段，不作为正式工资权威 |
+| `wage_effective_from` | 历史兼容工资信息生效日期 |
 | `account_enabled` | 登录账号是否已启用，导入默认 false |
 | `profile_status` | `pending_admin_review`、`active`、`inactive` 等 |
 | `requested_enabled` | 模板里填写的启用意图，供管理员复核 |

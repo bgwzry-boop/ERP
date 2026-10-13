@@ -1,13 +1,30 @@
-import { requestOfficeApi as requestRawMaterialApi } from "./officeApiClientCore.js";
+import {
+  isOfficeApiRequestAbort,
+  readOfficeApiJson as readJson,
+  requestOfficeApi as requestRawMaterialApi,
+  toOfficeApiTransportError,
+} from "./officeApiClientCore.js";
 import { uploadOfficeAttachmentFile } from "./officeAttachmentApiClient.js";
+import { normalizeRawMaterialInbound } from "./officeRawMaterialInboundNormalizer.js";
 import { attachmentUploadLimits } from "../../shared/attachmentUploadPolicy.js";
+import { toRawMaterialInboundActionSlug } from "../../shared/rawMaterialInboundActionSlugs.js";
+import { cleanText, toNumber, toRawMaterialApiError } from "./officeRawMaterialApiSupport.js";
+
+export {
+  confirmOfficeRawMaterialSupplierPayment,
+  confirmOfficeRawMaterialSupplierStatement,
+  confirmOfficeRawMaterialSupplierStatementReview,
+  createOfficeRawMaterialSupplierStatementReviewDraft,
+  generateOfficeRawMaterialSupplierPayableDraft,
+  listOfficeRawMaterialSupplierStatementReviews,
+} from "./officeRawMaterialSupplierStatementApiClient.js";
 
 export async function listOfficeRawMaterialPurchaseRequests(input = {}, options = {}) {
   const { authState, operatorId } = input;
   try {
     const response = await requestRawMaterialApi("/raw-material-purchase-requests", { ...options, authState, operatorId });
     const json = await readJson(response);
-    if (!response.ok) return { source: "api_error", blocked: true, items: [], error: toApiError(json, response.status, "采购请求读取失败。") };
+    if (!response.ok) return { source: "api_error", blocked: true, items: [], error: toRawMaterialApiError(json, response.status, "采购请求读取失败。") };
     return { source: "api", items: Array.isArray(json?.items) ? json.items : [], total: Number(json?.total ?? 0) };
   } catch (error) {
     return { source: "api_error", blocked: true, items: [], error: { code: "RAW_MATERIAL_PURCHASE_LIST_UNAVAILABLE", message: error?.message ?? String(error) } };
@@ -40,7 +57,7 @@ async function writePurchaseRequest(path, options, fallbackMessage) {
   try {
     const response = await requestRawMaterialApi(path, { ...options, method: "POST" });
     const json = await readJson(response);
-    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, fallbackMessage) };
+    if (!response.ok) return { source: "api_error", blocked: true, error: toRawMaterialApiError(json, response.status, fallbackMessage) };
     return { source: "api", purchaseRequest: json?.purchaseRequest, businessDecision: json?.businessDecision, operationLogId: json?.operationLogId, replayed: json?.replayed === true };
   } catch (error) {
     return { source: "api_error", blocked: true, error: { code: "RAW_MATERIAL_PURCHASE_WRITE_UNAVAILABLE", message: error?.message ?? String(error) } };
@@ -69,7 +86,7 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
         pageSize,
         total: 0,
         metrics: buildRawMaterialInboundMetrics(localInbounds),
-        error: toApiError(json, response.status, "原材料入库列表 API 返回错误。"),
+        error: toRawMaterialApiError(json, response.status, "原材料入库列表 API 返回错误。"),
       };
     }
 
@@ -102,7 +119,8 @@ export async function listOfficeRawMaterialInbounds(input = {}, options = {}) {
 }
 
 export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options = {}) {
-  const { authState, operatorId, useNewModel, pages, onProgress } = input;
+  const { authState, operatorId, useNewModel, pages, onProgress, duplicateConfirmationToken, ocrJobId, documentDirectionHint, signal, supplierNameHint } = input;
+  const requestOptions = { ...options, signal: signal ?? options.signal };
   const normalizedPages = (Array.isArray(pages) ? pages : [])
     .map(normalizeDeliveryNotePagePayload)
     .filter((page) => page.contentDataUrl);
@@ -118,55 +136,79 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       },
     };
   }
-  const requestSizeError = validateDeliveryNoteOcrRequestSize({
-    operatorId,
-    useNewModel: useNewModel === true,
-    pages: deliveryNotePages,
-  });
-  if (requestSizeError) {
-    return { source: "client_validation", blocked: true, error: requestSizeError };
-  }
   try {
-    const uploadedPages = await uploadDeliveryNoteSourcePages({
-      authState,
-      operatorId,
-      pages: deliveryNotePages,
-      options,
-      onProgress,
-    });
-    if (uploadedPages.error) {
-      return { source: uploadedPages.source, blocked: true, error: uploadedPages.error };
+    let jobId = cleanText(ocrJobId);
+    if (!jobId) {
+      const pageSizeError = validateDeliveryNoteOcrPagePayloads(deliveryNotePages);
+      if (pageSizeError) return { source: "client_validation", blocked: true, error: pageSizeError };
+      const uploadedPages = await uploadDeliveryNoteSourcePages({
+        authState,
+        operatorId,
+        pages: deliveryNotePages,
+        options: requestOptions,
+        onProgress,
+      });
+      if (uploadedPages.error) {
+        return { source: uploadedPages.source, blocked: true, error: uploadedPages.error };
+      }
+      const requestBody = buildDeliveryNoteOcrRequestBody({
+        documentDirectionHint,
+        operatorId,
+        supplierNameHint,
+        useNewModel: useNewModel === true,
+        pages: uploadedPages.pages,
+      });
+      const requestSizeError = validateDeliveryNoteOcrRequestSize({
+        documentDirectionHint,
+        operatorId,
+        supplierNameHint,
+        useNewModel: useNewModel === true,
+        pages: uploadedPages.pages,
+      });
+      if (requestSizeError) return { source: "client_validation", blocked: true, error: requestSizeError };
+      const startResponse = await requestRawMaterialApi("/raw-material-inbounds/ocr-jobs", {
+        ...requestOptions,
+        authState,
+        operatorId,
+        method: "POST",
+        body: requestBody,
+      });
+      const startJson = await readJson(startResponse);
+      if (!startResponse.ok) {
+        return { source: "api_error", blocked: true, error: toDeliveryNoteOcrApiError(startJson, startResponse.status) };
+      }
+      jobId = cleanText(startJson?.job?.jobId);
+      if (!jobId) throw new Error("后台没有返回送货单识别任务编号。");
+    } else {
+      const retryResponse = await requestRawMaterialApi(`/raw-material-inbounds/ocr-jobs/${encodeURIComponent(jobId)}/retry`, {
+        ...requestOptions,
+        authState,
+        operatorId,
+        method: "POST",
+        body: { duplicateConfirmationToken: cleanText(duplicateConfirmationToken) },
+      });
+      const retryJson = await readJson(retryResponse);
+      if (!retryResponse.ok) {
+        return { source: "api_error", blocked: true, error: toDeliveryNoteOcrApiError(retryJson, retryResponse.status) };
+      }
     }
-    const requestBody = buildDeliveryNoteOcrRequestBody({
-      operatorId,
-      useNewModel: useNewModel === true,
-      pages: uploadedPages.pages,
-    });
-    notifyDeliveryNoteProgress(onProgress, {
-      phase: "recognizing",
-      current: deliveryNotePages.length,
-      total: deliveryNotePages.length,
-      message: `原图已保存，正在识别 ${deliveryNotePages.length} 页送货单…`,
-    });
-    const response = await requestRawMaterialApi("/raw-material-inbounds/recognize-delivery-note", {
-      ...options,
-      authState,
-      operatorId,
-      method: "POST",
-      body: requestBody,
-    });
-    const json = await readJson(response);
-    if (!response.ok) {
+    const job = await pollDeliveryNoteOcrJob({ authState, jobId, operatorId, onProgress, options: requestOptions });
+    if (job.error) {
       return {
         source: "api_error",
         blocked: true,
-        error: toDeliveryNoteOcrApiError(json, response.status),
+        error: {
+          ...job.error,
+          details: { ...(job.error.details ?? {}), jobId },
+        },
       };
     }
+    const json = job.result;
+    if (!json?.inbound?.id) throw new Error("后台识别任务没有生成入库草稿。");
     notifyDeliveryNoteProgress(onProgress, {
       phase: "complete",
-      current: deliveryNotePages.length,
-      total: deliveryNotePages.length,
+      current: job.pageCount,
+      total: job.pageCount,
       message: "识别完成，正在打开核对页面…",
     });
     return {
@@ -176,17 +218,79 @@ export async function recognizeOfficeRawMaterialDeliveryNote(input = {}, options
       attachmentIds: (Array.isArray(json?.attachmentIds) ? json.attachmentIds : []).map(cleanText).filter(Boolean),
       deduplicated: json?.deduplicated === true,
       operationLogId: cleanText(json?.operationLogId),
+      ocrJobId: jobId,
     };
   } catch (error) {
+    if (isOfficeApiRequestAbort(error)) {
+      return {
+        source: "cancelled",
+        blocked: true,
+        cancelled: true,
+        error: toOfficeApiTransportError(error, "送货单识别已取消。"),
+      };
+    }
     return {
       source: "api_error",
       blocked: true,
       error: {
         code: "RAW_MATERIAL_DELIVERY_NOTE_OCR_API_UNAVAILABLE",
         message: toDeliveryNoteNetworkErrorMessage(error, deliveryNotePages.length),
+        details: cleanText(ocrJobId) ? { jobId: cleanText(ocrJobId) } : undefined,
       },
     };
   }
+}
+
+async function pollDeliveryNoteOcrJob({ authState, jobId, operatorId, onProgress, options }) {
+  const maximumPolls = Number(options.deliveryNoteJobMaximumPolls) || 300;
+  for (let pollIndex = 0; pollIndex < maximumPolls; pollIndex += 1) {
+    const response = await requestRawMaterialApi(`/raw-material-inbounds/ocr-jobs/${encodeURIComponent(jobId)}/status`, {
+      ...options,
+      authState,
+      operatorId,
+      method: "POST",
+      body: {},
+    });
+    const json = await readJson(response);
+    if (!response.ok) throw Object.assign(new Error(toDeliveryNoteOcrApiError(json, response.status).message), { status: response.status });
+    const job = json?.job ?? {};
+    notifyDeliveryNoteProgress(onProgress, {
+      phase: job.status,
+      current: Number(job.currentPage) || 0,
+      total: Number(job.pageCount) || 0,
+      message: cleanText(job.message) || (job.status === "completed"
+        ? "识别完成，正在打开核对页面…"
+        : job.status === "queued"
+          ? "送货单已进入后台识别队列…"
+          : "正在后台识别送货单…"),
+    });
+    if (["completed", "failed", "needs_confirmation"].includes(job.status)) return job;
+    await waitForDeliveryNoteJob(options.deliveryNoteJobPollIntervalMs ?? 500, options);
+  }
+  throw new Error("送货单后台识别等待超时，请直接重试，不需要重新上传。");
+}
+
+function waitForDeliveryNoteJob(milliseconds, options = {}) {
+  if (typeof options.waitForDeliveryNoteJob === "function") return options.waitForDeliveryNoteJob(milliseconds);
+  return new Promise((resolve, reject) => {
+    const signal = options.signal;
+    let timeoutId = null;
+    const cancel = () => {
+      clearTimeout(timeoutId);
+      const error = new Error("请求已取消。");
+      error.code = "REQUEST_ABORTED";
+      reject(error);
+    };
+    if (signal?.aborted) {
+      cancel();
+      return;
+    }
+    timeoutId = setTimeout(() => {
+      signal?.removeEventListener("abort", cancel);
+      resolve();
+    }, Math.max(0, Number(milliseconds) || 0));
+    signal?.addEventListener("abort", cancel, { once: true });
+  });
 }
 
 export async function updateOfficeRawMaterialInboundAction(input = {}, options = {}) {
@@ -227,9 +331,11 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
     location,
     verificationNote,
     note,
+    documentDirectionHint,
+    supplierNameHint,
   } = input;
   const safeInboundId = cleanText(inboundId);
-  const actionSlug = toRawMaterialActionSlug(action);
+  const actionSlug = toRawMaterialInboundActionSlug(action);
   if (!safeInboundId || !actionSlug) {
     return {
       source: "api_error",
@@ -283,6 +389,8 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
           location,
           verificationNote,
           note,
+          documentDirectionHint,
+          supplierNameHint,
         },
       },
     );
@@ -291,7 +399,7 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
       return {
         source: "api_error",
         blocked: true,
-        error: toApiError(json, response.status, "原材料入库动作 API 返回错误。"),
+        error: toRawMaterialApiError(json, response.status, "原材料入库动作 API 返回错误。"),
       };
     }
 
@@ -312,326 +420,6 @@ export async function updateOfficeRawMaterialInboundAction(input = {}, options =
   }
 }
 
-export async function listOfficeRawMaterialSupplierStatementReviews(input = {}, options = {}) {
-  const { authState, operatorId, page = 1, pageSize = 20, filters = {} } = input;
-
-  try {
-    const response = await requestRawMaterialApi(
-      `/raw-material-supplier-statement-reviews${buildSupplierStatementReviewQuery({ page, pageSize, filters })}`,
-      {
-        ...options,
-        authState,
-        operatorId,
-      },
-    );
-    const json = await readJson(response);
-    if (!response.ok) {
-      return {
-        source: "api_error",
-        blocked: true,
-        items: [],
-        page,
-        pageSize,
-        total: 0,
-        metrics: {},
-        error: toApiError(json, response.status, "供应商月结复核草稿 API 返回错误。"),
-      };
-    }
-    const items = Array.isArray(json?.items) ? json.items.map(normalizeSupplierStatementReview).filter((item) => item.reviewId) : [];
-    return {
-      source: "api",
-      items,
-      page: toNumber(json?.page, page),
-      pageSize: toNumber(json?.pageSize, pageSize),
-      total: toNumber(json?.total, items.length),
-      metrics: json?.metrics ?? {},
-    };
-  } catch (error) {
-    return {
-      source: "api_error",
-      blocked: true,
-      items: [],
-      page,
-      pageSize,
-      total: 0,
-      metrics: {},
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_STATEMENT_REVIEW_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
-      },
-    };
-  }
-}
-
-export async function createOfficeRawMaterialSupplierStatementReviewDraft(input = {}, options = {}) {
-  const { authState, operatorId, statementResult, supplierName, fileName, note } = input;
-  if (!statementResult || typeof statementResult !== "object") {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_STATEMENT_REVIEW_INVALID",
-        message: "缺少供应商月结预检结果。",
-      },
-    };
-  }
-
-  try {
-    const response = await requestRawMaterialApi("/raw-material-supplier-statement-reviews", {
-      ...options,
-      authState,
-      operatorId,
-      method: "POST",
-      body: {
-        operatorId,
-        supplierName,
-        fileName,
-        note,
-        statementResult,
-      },
-    });
-    const json = await readJson(response);
-    if (!response.ok) {
-      return {
-        source: "api_error",
-        blocked: true,
-        error: toApiError(json, response.status, "保存供应商月结复核草稿失败。"),
-      };
-    }
-    return {
-      source: "api",
-      review: normalizeSupplierStatementReview(json?.review),
-      operationLogId: cleanText(json?.operationLogId),
-    };
-  } catch (error) {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_STATEMENT_REVIEW_CREATE_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
-      },
-    };
-  }
-}
-
-export async function confirmOfficeRawMaterialSupplierStatementReview(input = {}, options = {}) {
-  const { authState, operatorId, reviewId, decision, adjustments, note } = input;
-  const safeReviewId = cleanText(reviewId);
-  if (!safeReviewId) {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_STATEMENT_REVIEW_ID_REQUIRED",
-        message: "缺少供应商月结复核草稿号。",
-      },
-    };
-  }
-  try {
-    const response = await requestRawMaterialApi(
-      `/raw-material-supplier-statement-reviews/${encodeURIComponent(safeReviewId)}/confirm-review`,
-      {
-        ...options,
-        authState,
-        operatorId,
-        method: "POST",
-        body: {
-          operatorId,
-          decision,
-          adjustments,
-          note,
-        },
-      },
-    );
-    const json = await readJson(response);
-    if (!response.ok) {
-      return {
-        source: "api_error",
-        blocked: true,
-        error: toApiError(json, response.status, "确认供应商月结复核草稿失败。"),
-      };
-    }
-    return {
-      source: "api",
-      review: normalizeSupplierStatementReview(json?.review),
-      operationLogId: cleanText(json?.operationLogId),
-    };
-  } catch (error) {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_STATEMENT_REVIEW_CONFIRM_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
-      },
-    };
-  }
-}
-
-export async function confirmOfficeRawMaterialSupplierStatement(input = {}, options = {}) {
-  const { authState, operatorId, reviewId, note } = input;
-  const safeReviewId = cleanText(reviewId);
-  if (!safeReviewId) {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_STATEMENT_ID_REQUIRED",
-        message: "缺少供应商月结复核草稿号。",
-      },
-    };
-  }
-  try {
-    const response = await requestRawMaterialApi(
-      `/raw-material-supplier-statement-reviews/${encodeURIComponent(safeReviewId)}/confirm-statement`,
-      {
-        ...options,
-        authState,
-        operatorId,
-        method: "POST",
-        body: {
-          operatorId,
-          note,
-        },
-      },
-    );
-    const json = await readJson(response);
-    if (!response.ok) {
-      return {
-        source: "api_error",
-        blocked: true,
-        error: toApiError(json, response.status, "确认供应商月结对账失败。"),
-      };
-    }
-    return {
-      source: "api",
-      review: normalizeSupplierStatementReview(json?.review),
-      operationLogId: cleanText(json?.operationLogId),
-    };
-  } catch (error) {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_STATEMENT_CONFIRM_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
-      },
-    };
-  }
-}
-
-export async function generateOfficeRawMaterialSupplierPayableDraft(input = {}, options = {}) {
-  const { authState, operatorId, reviewId, note } = input;
-  const safeReviewId = cleanText(reviewId);
-  if (!safeReviewId) {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_PAYABLE_REVIEW_ID_REQUIRED",
-        message: "缺少供应商月结复核草稿号。",
-      },
-    };
-  }
-  try {
-    const response = await requestRawMaterialApi(
-      `/raw-material-supplier-statement-reviews/${encodeURIComponent(safeReviewId)}/generate-payable`,
-      {
-        ...options,
-        authState,
-        operatorId,
-        method: "POST",
-        body: {
-          operatorId,
-          note,
-        },
-      },
-    );
-    const json = await readJson(response);
-    if (!response.ok) {
-      return {
-        source: "api_error",
-        blocked: true,
-        error: toApiError(json, response.status, "生成供应商应付草稿失败。"),
-      };
-    }
-    return {
-      source: "api",
-      review: normalizeSupplierStatementReview(json?.review),
-      payableDraft: normalizeSupplierPayableDraft(json?.payableDraft ?? json?.review?.supplierPayableDraft),
-      operationLogId: cleanText(json?.operationLogId),
-    };
-  } catch (error) {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_PAYABLE_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
-      },
-    };
-  }
-}
-
-export async function confirmOfficeRawMaterialSupplierPayment(input = {}, options = {}) {
-  const { authState, operatorId, reviewId, paidAmount, paymentMethod, paymentAccount, paymentReferenceNo, paymentVoucherNo, paidAt, note } = input;
-  const safeReviewId = cleanText(reviewId);
-  if (!safeReviewId) {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_PAYMENT_REVIEW_ID_REQUIRED",
-        message: "缺少供应商月结复核草稿号。",
-      },
-    };
-  }
-  try {
-    const response = await requestRawMaterialApi(
-      `/raw-material-supplier-statement-reviews/${encodeURIComponent(safeReviewId)}/confirm-payment`,
-      {
-        ...options,
-        authState,
-        operatorId,
-        method: "POST",
-        body: {
-          operatorId,
-          paidAmount,
-          paymentMethod,
-          paymentAccount,
-          paymentReferenceNo,
-          paymentVoucherNo,
-          paidAt,
-          note,
-        },
-      },
-    );
-    const json = await readJson(response);
-    if (!response.ok) {
-      return {
-        source: "api_error",
-        blocked: true,
-        error: toApiError(json, response.status, "确认供应商付款失败。"),
-      };
-    }
-    return {
-      source: "api",
-      review: normalizeSupplierStatementReview(json?.review),
-      paymentRecord: normalizeSupplierPaymentRecord(json?.paymentRecord ?? json?.review?.supplierPaymentRecord),
-      operationLogId: cleanText(json?.operationLogId),
-    };
-  } catch (error) {
-    return {
-      source: "api_error",
-      blocked: true,
-      error: {
-        code: "RAW_MATERIAL_SUPPLIER_PAYMENT_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
-      },
-    };
-  }
-}
 
 function buildRawMaterialInboundQuery({ page, pageSize, filters = {} }) {
   const params = new URLSearchParams();
@@ -639,18 +427,6 @@ function buildRawMaterialInboundQuery({ page, pageSize, filters = {} }) {
   params.set("pageSize", String(pageSize));
   if (filters.keyword) params.set("keyword", cleanText(filters.keyword));
   if (filters.status && filters.status !== "全部") params.set("status", cleanText(filters.status));
-  const query = params.toString();
-  return query ? `?${query}` : "";
-}
-
-function buildSupplierStatementReviewQuery({ page, pageSize, filters = {} }) {
-  const params = new URLSearchParams();
-  params.set("page", String(page));
-  params.set("pageSize", String(pageSize));
-  if (filters.keyword) params.set("keyword", cleanText(filters.keyword));
-  if (filters.status && filters.status !== "全部") params.set("status", cleanText(filters.status));
-  if (filters.reviewStatus && filters.reviewStatus !== "全部") params.set("reviewStatus", cleanText(filters.reviewStatus));
-  if (filters.supplierName) params.set("supplierName", cleanText(filters.supplierName));
   const query = params.toString();
   return query ? `?${query}` : "";
 }
@@ -681,553 +457,6 @@ function filterLocalRawMaterialInbounds(inbounds = [], filters = {}) {
   return items;
 }
 
-function normalizeRawMaterialInbound(input = {}) {
-  const item = { ...(input ?? {}) };
-  item.id = cleanText(item.id);
-  item.supplierName = cleanText(item.supplierName);
-  item.deliveryNoteNo = cleanText(item.deliveryNoteNo);
-  item.status = cleanText(item.status);
-  item.source = cleanText(item.source);
-  item.ocrProvider = cleanText(item.ocrProvider);
-  item.ocrAction = cleanText(item.ocrAction);
-  item.ocrRequestId = cleanText(item.ocrRequestId);
-  item.ocrStatus = cleanText(item.ocrStatus);
-  item.ocrAngle = Number(item.ocrAngle) || 0;
-  item.ocrImageWidth = Math.max(0, Number(item.ocrImageWidth) || 0);
-  item.ocrImageHeight = Math.max(0, Number(item.ocrImageHeight) || 0);
-  item.ocrPageCount = Math.max(1, toNumber(item.ocrPageCount, 1));
-  item.ocrPages = normalizeOcrPages(item.ocrPages, item.ocrPageCount, item.ocrImageWidth, item.ocrImageHeight, item.ocrAngle);
-  item.ocrSourceDigest = cleanText(item.ocrSourceDigest);
-  item.ocrRecognizedAt = cleanText(item.ocrRecognizedAt);
-  item.ocrRawText = cleanText(item.ocrRawText);
-  item.sourceAttachmentId = cleanText(item.sourceAttachmentId);
-  item.sourceAttachmentIds = normalizeTextList(item.sourceAttachmentIds, item.sourceAttachmentId);
-  item.sourceFileName = cleanText(item.sourceFileName);
-  item.sourceFileNames = normalizeTextList(item.sourceFileNames, item.sourceFileName);
-  item.sourceMimeType = cleanText(item.sourceMimeType);
-  item.sourceMimeTypes = normalizeTextList(item.sourceMimeTypes, item.sourceMimeType);
-  item.ocrReviewFields = (Array.isArray(item.ocrReviewFields) ? item.ocrReviewFields : []).map((field) => ({
-    ...field,
-    key: cleanText(field?.key),
-    label: cleanText(field?.label),
-    recognizedValue: field?.recognizedValue ?? "",
-    value: field?.value ?? "",
-    confidence: toNumber(field?.confidence, 0),
-    reviewStatus: cleanText(field?.reviewStatus),
-    required: field?.required === true,
-  })).filter((field) => field.key);
-  item.ocrLines = (Array.isArray(item.ocrLines) ? item.ocrLines : []).map((line) => {
-    const values = line?.values && typeof line.values === "object" ? { ...line.values } : {};
-    const recognizedValues = line?.recognizedValues && typeof line.recognizedValues === "object" ? { ...line.recognizedValues } : {};
-    return {
-      ...line,
-      lineId: cleanText(line?.lineId),
-      sourcePageIndex: Math.max(0, toNumber(line?.sourcePageIndex, 0)),
-      sourceText: cleanText(line?.sourceText),
-      reviewStatus: cleanText(line?.reviewStatus),
-      values,
-      recognizedValues: Object.keys(recognizedValues).length ? recognizedValues : { ...values },
-      confidences: line?.confidences && typeof line.confidences === "object" ? { ...line.confidences } : {},
-      reviewedFields: (Array.isArray(line?.reviewedFields) ? line.reviewedFields : []).map((field) => ({
-        ...field,
-        key: cleanText(field?.key),
-        recognizedValue: field?.recognizedValue ?? "",
-        value: field?.value ?? "",
-        reviewStatus: cleanText(field?.reviewStatus),
-      })).filter((field) => field.key),
-      reviewedBy: cleanText(line?.reviewedBy),
-      reviewedByUserId: cleanText(line?.reviewedByUserId),
-      reviewedAt: cleanText(line?.reviewedAt),
-      reviewDisposition: cleanText(line?.reviewDisposition) || "included",
-      reviewProjectedRollCount: Math.max(0, Math.trunc(Number(line?.reviewProjectedRollCount) || 0)),
-      excludedRollIndices: (Array.isArray(line?.excludedRollIndices) ? line.excludedRollIndices : [])
-        .map(Number)
-        .filter((value) => Number.isInteger(value) && value >= 0),
-      exclusionReason: cleanText(line?.exclusionReason),
-      excludedBy: cleanText(line?.excludedBy),
-      excludedByUserId: cleanText(line?.excludedByUserId),
-      excludedAt: cleanText(line?.excludedAt),
-    };
-  }).filter((line) => line.lineId);
-  item.issueStatus = cleanText(item.issueStatus);
-  item.machineId = cleanText(item.machineId);
-  item.productionTaskId = cleanText(item.productionTaskId);
-  item.productionTaskMatchStatus = cleanText(item.productionTaskMatchStatus);
-  item.productionTaskMatchReason = cleanText(item.productionTaskMatchReason);
-  item.productionTaskOrderLineId = cleanText(item.productionTaskOrderLineId);
-  item.productionTaskMachineId = cleanText(item.productionTaskMachineId);
-  item.productionTaskGoodsSpec = cleanText(item.productionTaskGoodsSpec);
-  item.costAllocationStatus = cleanText(item.costAllocationStatus);
-  item.costAllocationDraftedBy = cleanText(item.costAllocationDraftedBy);
-  item.costAllocationDraftedByUserId = cleanText(item.costAllocationDraftedByUserId);
-  item.costAllocationDraftedAt = cleanText(item.costAllocationDraftedAt);
-  item.costAllocationDraftCount = toNumber(item.costAllocationDraftCount, 0);
-  item.costAllocationDraftAmount = toNumber(item.costAllocationDraftAmount, 0);
-  item.costAllocationReviewStatus = cleanText(item.costAllocationReviewStatus);
-  item.costAllocationConfirmedBy = cleanText(item.costAllocationConfirmedBy);
-  item.costAllocationConfirmedByUserId = cleanText(item.costAllocationConfirmedByUserId);
-  item.costAllocationConfirmedAt = cleanText(item.costAllocationConfirmedAt);
-  item.costAllocationConfirmedCount = toNumber(item.costAllocationConfirmedCount, 0);
-  item.costAllocationConfirmedAmount = toNumber(item.costAllocationConfirmedAmount, 0);
-  item.costAllocationConfirmationId = cleanText(item.costAllocationConfirmationId);
-  item.lossCalibrationStatus = cleanText(item.lossCalibrationStatus);
-  item.lossCalibratedBy = cleanText(item.lossCalibratedBy);
-  item.lossCalibratedByUserId = cleanText(item.lossCalibratedByUserId);
-  item.lossCalibratedAt = cleanText(item.lossCalibratedAt);
-  item.lossCalibrationCount = toNumber(item.lossCalibrationCount, 0);
-  item.lossCalibrationId = cleanText(item.lossCalibrationId);
-  item.lossCalibrationRatePercent = toNumber(item.lossCalibrationRatePercent, 0);
-  item.lossCalibrationActualOutputQuantity = toNumber(item.lossCalibrationActualOutputQuantity, 0);
-  item.lossCalibrationExpectedOutputQuantity = toNumber(item.lossCalibrationExpectedOutputQuantity, 0);
-  item.lossCalibrationAmount = toNumber(item.lossCalibrationAmount, 0);
-  item.rawMaterialCostAllocationWarnings = Array.isArray(item.rawMaterialCostAllocationWarnings)
-    ? item.rawMaterialCostAllocationWarnings.map(cleanText).filter(Boolean)
-    : [];
-  item.marginSnapshotStatus = cleanText(item.marginSnapshotStatus);
-  item.marginSnapshotCount = toNumber(item.marginSnapshotCount, 0);
-  item.marginSnapshotId = cleanText(item.marginSnapshotId);
-  item.marginSnapshotTotalSalesAmount = toNumber(item.marginSnapshotTotalSalesAmount, 0);
-  item.marginSnapshotMaterialCostAmount = toNumber(item.marginSnapshotMaterialCostAmount, 0);
-  item.marginSnapshotGrossProfitAmount = toNumber(item.marginSnapshotGrossProfitAmount, 0);
-  item.marginSnapshotGrossMarginRatePercent = toNumber(item.marginSnapshotGrossMarginRatePercent, 0);
-  item.marginSnapshotGeneratedBy = cleanText(item.marginSnapshotGeneratedBy);
-  item.marginSnapshotGeneratedAt = cleanText(item.marginSnapshotGeneratedAt);
-  item.marginReportStatus = cleanText(item.marginReportStatus);
-  item.marginReportCount = toNumber(item.marginReportCount, 0);
-  item.marginReportId = cleanText(item.marginReportId);
-  item.marginReportTotalSalesAmount = toNumber(item.marginReportTotalSalesAmount, 0);
-  item.marginReportMaterialCostAmount = toNumber(item.marginReportMaterialCostAmount, 0);
-  item.marginReportGrossProfitAmount = toNumber(item.marginReportGrossProfitAmount, 0);
-  item.marginReportGrossMarginRatePercent = toNumber(item.marginReportGrossMarginRatePercent, 0);
-  item.marginReviewedBy = cleanText(item.marginReviewedBy);
-  item.marginReviewedAt = cleanText(item.marginReviewedAt);
-  item.rolls = (Array.isArray(item.rolls) ? item.rolls : []).map((roll) => ({
-    ...roll,
-    id: cleanText(roll.id),
-    supplierRollNo: cleanText(roll.supplierRollNo),
-    weightKg: Number(roll.weightKg) || 0,
-    originalWeightKg: toNumber(roll.originalWeightKg, 0),
-    labelStatus: cleanText(roll.labelStatus),
-    inventoryStatus: cleanText(roll.inventoryStatus),
-    signedNoteStatus: cleanText(roll.signedNoteStatus),
-    parentRollId: cleanText(roll.parentRollId),
-    sourceRollId: cleanText(roll.sourceRollId),
-    splitRecordId: cleanText(roll.splitRecordId),
-    splitStatus: cleanText(roll.splitStatus),
-    splitAt: cleanText(roll.splitAt),
-    splitBy: cleanText(roll.splitBy),
-    splitIssuedWeightKg: toNumber(roll.splitIssuedWeightKg, 0),
-    splitRemainingWeightKg: toNumber(roll.splitRemainingWeightKg, 0),
-    issueRecordId: cleanText(roll.issueRecordId),
-    issuedAt: cleanText(roll.issuedAt),
-    issuedBy: cleanText(roll.issuedBy),
-    issuedByUserId: cleanText(roll.issuedByUserId),
-    machineId: cleanText(roll.machineId),
-    productionTaskId: cleanText(roll.productionTaskId),
-    productionTaskMatchStatus: cleanText(roll.productionTaskMatchStatus),
-    productionTaskMatchReason: cleanText(roll.productionTaskMatchReason),
-    productionTaskOrderLineId: cleanText(roll.productionTaskOrderLineId),
-    productionTaskMachineId: cleanText(roll.productionTaskMachineId),
-    productionTaskGoodsSpec: cleanText(roll.productionTaskGoodsSpec),
-    issuePurpose: cleanText(roll.issuePurpose),
-    consumptionStatus: cleanText(roll.consumptionStatus),
-    consumptionRecordId: cleanText(roll.consumptionRecordId),
-    consumedAt: cleanText(roll.consumedAt),
-    consumedBy: cleanText(roll.consumedBy),
-    lastConsumedWeightKg: toNumber(roll.lastConsumedWeightKg, 0),
-    remainingMachineSideWeightKg: toNumber(roll.remainingMachineSideWeightKg, 0),
-    leftoverReturnRecordId: cleanText(roll.leftoverReturnRecordId),
-    leftoverWeightKg: toNumber(roll.leftoverWeightKg, 0),
-    leftoverQuantity: toNumber(roll.leftoverQuantity, 0),
-    returnedAt: cleanText(roll.returnedAt),
-    returnedBy: cleanText(roll.returnedBy),
-    leftoverReviewRecordId: cleanText(roll.leftoverReviewRecordId),
-    leftoverReviewedWeightKg: toNumber(roll.leftoverReviewedWeightKg, 0),
-    leftoverReviewedQuantity: toNumber(roll.leftoverReviewedQuantity, 0),
-    leftoverReviewedAt: cleanText(roll.leftoverReviewedAt),
-    leftoverReviewedBy: cleanText(roll.leftoverReviewedBy),
-  }));
-  item.rawMaterialIssueRecords = Array.isArray(item.rawMaterialIssueRecords)
-    ? item.rawMaterialIssueRecords.map((record) => ({
-        ...record,
-        issueRecordId: cleanText(record.issueRecordId ?? record.id),
-        rollId: cleanText(record.rollId),
-        sourceRollId: cleanText(record.sourceRollId),
-        splitRecordId: cleanText(record.splitRecordId),
-        machineId: cleanText(record.machineId),
-        productionTaskId: cleanText(record.productionTaskId),
-        productionTaskMatchStatus: cleanText(record.productionTaskMatchStatus),
-        productionTaskMatchReason: cleanText(record.productionTaskMatchReason),
-        productionTaskOrderLineId: cleanText(record.productionTaskOrderLineId),
-        productionTaskMachineId: cleanText(record.productionTaskMachineId),
-        productionTaskGoodsSpec: cleanText(record.productionTaskGoodsSpec),
-        issuePurpose: cleanText(record.issuePurpose),
-        consumptionStatus: cleanText(record.consumptionStatus),
-        issuedAt: cleanText(record.issuedAt),
-        issuedBy: cleanText(record.issuedBy),
-        issuedWeightKg: toNumber(record.issuedWeightKg, 0),
-        issuedQuantity: toNumber(record.issuedQuantity, 0),
-        sourceWeightKg: toNumber(record.sourceWeightKg, 0),
-        remainingWeightKg: toNumber(record.remainingWeightKg, 0),
-        remainingMachineSideWeightKg: toNumber(record.remainingMachineSideWeightKg, 0),
-        issueMode: cleanText(record.issueMode),
-        consumptionRecordId: cleanText(record.consumptionRecordId),
-        consumedWeightKg: toNumber(record.consumedWeightKg, 0),
-        leftoverReturnRecordId: cleanText(record.leftoverReturnRecordId),
-        leftoverReviewRecordId: cleanText(record.leftoverReviewRecordId),
-        consumedAt: cleanText(record.consumedAt),
-        returnedAt: cleanText(record.returnedAt),
-        leftoverReviewedAt: cleanText(record.leftoverReviewedAt),
-        costAllocationStatus: cleanText(record.costAllocationStatus),
-        costAllocationDraftId: cleanText(record.costAllocationDraftId),
-        allocatedCostAmount: toNumber(record.allocatedCostAmount, 0),
-        allocatedWeightKg: toNumber(record.allocatedWeightKg, 0),
-        allocatedQuantity: toNumber(record.allocatedQuantity, 0),
-        costConfirmationId: cleanText(record.costConfirmationId),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
-        costConfirmedAt: cleanText(record.costConfirmedAt),
-        costConfirmedBy: cleanText(record.costConfirmedBy),
-        lossCalibrationId: cleanText(record.lossCalibrationId),
-        lossRatePercent: toNumber(record.lossRatePercent, 0),
-        lossCalibratedAt: cleanText(record.lossCalibratedAt),
-        lossCalibratedBy: cleanText(record.lossCalibratedBy),
-        marginSnapshotId: cleanText(record.marginSnapshotId),
-        marginReportId: cleanText(record.marginReportId),
-        marginReviewedAt: cleanText(record.marginReviewedAt),
-        marginReviewedBy: cleanText(record.marginReviewedBy),
-      })).filter((record) => record.issueRecordId)
-    : [];
-  item.rawMaterialConsumptionRecords = Array.isArray(item.rawMaterialConsumptionRecords)
-    ? item.rawMaterialConsumptionRecords.map((record) => ({
-        ...record,
-        consumptionRecordId: cleanText(record.consumptionRecordId ?? record.id),
-        issueRecordId: cleanText(record.issueRecordId),
-        rollId: cleanText(record.rollId),
-        machineId: cleanText(record.machineId),
-        productionTaskId: cleanText(record.productionTaskId),
-        consumptionStatus: cleanText(record.consumptionStatus),
-        consumedWeightKg: toNumber(record.consumedWeightKg, 0),
-        consumedQuantity: toNumber(record.consumedQuantity, 0),
-        consumedFromWeightKg: toNumber(record.consumedFromWeightKg, 0),
-        remainingMachineSideWeightKg: toNumber(record.remainingMachineSideWeightKg, 0),
-        partialConsumption: Boolean(record.partialConsumption),
-        unit: cleanText(record.unit),
-        confirmedAt: cleanText(record.confirmedAt),
-        confirmedBy: cleanText(record.confirmedBy),
-        costAllocationStatus: cleanText(record.costAllocationStatus),
-        costAllocationDraftId: cleanText(record.costAllocationDraftId),
-        allocatedCostAmount: toNumber(record.allocatedCostAmount, 0),
-        allocatedWeightKg: toNumber(record.allocatedWeightKg, 0),
-        allocatedQuantity: toNumber(record.allocatedQuantity, 0),
-        costConfirmationId: cleanText(record.costConfirmationId),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
-        costConfirmedAt: cleanText(record.costConfirmedAt),
-        costConfirmedBy: cleanText(record.costConfirmedBy),
-        lossCalibrationId: cleanText(record.lossCalibrationId),
-        lossRatePercent: toNumber(record.lossRatePercent, 0),
-        lossCalibratedAt: cleanText(record.lossCalibratedAt),
-        lossCalibratedBy: cleanText(record.lossCalibratedBy),
-        marginSnapshotId: cleanText(record.marginSnapshotId),
-        marginReportId: cleanText(record.marginReportId),
-        marginReviewedAt: cleanText(record.marginReviewedAt),
-        marginReviewedBy: cleanText(record.marginReviewedBy),
-      })).filter((record) => record.consumptionRecordId)
-    : [];
-  item.rawMaterialLeftoverReturnRecords = Array.isArray(item.rawMaterialLeftoverReturnRecords)
-    ? item.rawMaterialLeftoverReturnRecords.map((record) => ({
-        ...record,
-        leftoverReturnRecordId: cleanText(record.leftoverReturnRecordId ?? record.id),
-        issueRecordId: cleanText(record.issueRecordId),
-        rollId: cleanText(record.rollId),
-        machineId: cleanText(record.machineId),
-        productionTaskId: cleanText(record.productionTaskId),
-        consumptionStatus: cleanText(record.consumptionStatus),
-        issuedWeightKg: toNumber(record.issuedWeightKg, 0),
-        machineSideWeightKg: toNumber(record.machineSideWeightKg, 0),
-        leftoverWeightKg: toNumber(record.leftoverWeightKg, 0),
-        leftoverQuantity: toNumber(record.leftoverQuantity, 0),
-        unit: cleanText(record.unit),
-        returnLocation: cleanText(record.returnLocation),
-        returnedAt: cleanText(record.returnedAt),
-        returnedBy: cleanText(record.returnedBy),
-        leftoverReviewRecordId: cleanText(record.leftoverReviewRecordId),
-        reviewStatus: cleanText(record.reviewStatus),
-        reviewedAt: cleanText(record.reviewedAt),
-        reviewedBy: cleanText(record.reviewedBy),
-      })).filter((record) => record.leftoverReturnRecordId)
-    : [];
-  item.rawMaterialLeftoverReviewRecords = Array.isArray(item.rawMaterialLeftoverReviewRecords)
-    ? item.rawMaterialLeftoverReviewRecords.map((record) => ({
-        ...record,
-        leftoverReviewRecordId: cleanText(record.leftoverReviewRecordId ?? record.id),
-        leftoverReturnRecordId: cleanText(record.leftoverReturnRecordId),
-        issueRecordId: cleanText(record.issueRecordId),
-        rollId: cleanText(record.rollId),
-        reviewStatus: cleanText(record.reviewStatus),
-        returnedWeightKg: toNumber(record.returnedWeightKg, 0),
-        returnedQuantity: toNumber(record.returnedQuantity, 0),
-        reviewedWeightKg: toNumber(record.reviewedWeightKg, 0),
-        reviewedQuantity: toNumber(record.reviewedQuantity, 0),
-        unit: cleanText(record.unit),
-        reviewLocation: cleanText(record.reviewLocation),
-        reviewedAt: cleanText(record.reviewedAt),
-        reviewedBy: cleanText(record.reviewedBy),
-      })).filter((record) => record.leftoverReviewRecordId)
-    : [];
-  item.rawMaterialSplitRecords = Array.isArray(item.rawMaterialSplitRecords)
-    ? item.rawMaterialSplitRecords.map((record) => ({
-        ...record,
-        splitRecordId: cleanText(record.splitRecordId ?? record.id),
-        sourceRollId: cleanText(record.sourceRollId),
-        issuedRollId: cleanText(record.issuedRollId),
-        splitMode: cleanText(record.splitMode),
-        sourceWeightKg: toNumber(record.sourceWeightKg, 0),
-        issuedWeightKg: toNumber(record.issuedWeightKg, 0),
-        remainingWeightKg: toNumber(record.remainingWeightKg, 0),
-        unit: cleanText(record.unit),
-        machineId: cleanText(record.machineId),
-        productionTaskId: cleanText(record.productionTaskId),
-        productionTaskMatchStatus: cleanText(record.productionTaskMatchStatus),
-        productionTaskMatchReason: cleanText(record.productionTaskMatchReason),
-        productionTaskOrderLineId: cleanText(record.productionTaskOrderLineId),
-        productionTaskMachineId: cleanText(record.productionTaskMachineId),
-        productionTaskGoodsSpec: cleanText(record.productionTaskGoodsSpec),
-        splitAt: cleanText(record.splitAt),
-        splitBy: cleanText(record.splitBy),
-      })).filter((record) => record.splitRecordId)
-    : [];
-  item.rawMaterialCostAllocationDrafts = Array.isArray(item.rawMaterialCostAllocationDrafts)
-    ? item.rawMaterialCostAllocationDrafts.map((record) => ({
-        ...record,
-        costAllocationDraftId: cleanText(record.costAllocationDraftId ?? record.id),
-        inboundId: cleanText(record.inboundId),
-        consumptionRecordId: cleanText(record.consumptionRecordId),
-        issueRecordId: cleanText(record.issueRecordId),
-        rollId: cleanText(record.rollId),
-        sourceRollId: cleanText(record.sourceRollId),
-        splitRecordId: cleanText(record.splitRecordId),
-        materialType: cleanText(record.materialType),
-        productName: cleanText(record.productName),
-        spec: cleanText(record.spec),
-        factoryColor: cleanText(record.factoryColor),
-        unit: cleanText(record.unit),
-        unitPrice: toNumber(record.unitPrice, 0),
-        allocatedWeightKg: toNumber(record.allocatedWeightKg, 0),
-        allocatedQuantity: toNumber(record.allocatedQuantity, 0),
-        allocatedCostAmount: toNumber(record.allocatedCostAmount, 0),
-        productionTaskId: cleanText(record.productionTaskId),
-        orderLineId: cleanText(record.orderLineId),
-        productionTaskMachineId: cleanText(record.productionTaskMachineId),
-        productionTaskGoodsSpec: cleanText(record.productionTaskGoodsSpec),
-        allocationBasis: cleanText(record.allocationBasis),
-        allocationStatus: cleanText(record.allocationStatus),
-        costEffect: cleanText(record.costEffect),
-        marginEffect: cleanText(record.marginEffect),
-        lossCalibrationStatus: cleanText(record.lossCalibrationStatus),
-        generatedBy: cleanText(record.generatedBy),
-        generatedByUserId: cleanText(record.generatedByUserId),
-        generatedAt: cleanText(record.generatedAt),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
-        confirmedBy: cleanText(record.confirmedBy),
-        confirmedByUserId: cleanText(record.confirmedByUserId),
-        confirmedAt: cleanText(record.confirmedAt),
-        costConfirmationId: cleanText(record.costConfirmationId),
-        reviewNote: cleanText(record.reviewNote),
-        lossCalibrationId: cleanText(record.lossCalibrationId),
-        lossRatePercent: toNumber(record.lossRatePercent, 0),
-        calibratedCostAmount: toNumber(record.calibratedCostAmount, 0),
-        calibratedBy: cleanText(record.calibratedBy),
-        calibratedAt: cleanText(record.calibratedAt),
-        marginSnapshotId: cleanText(record.marginSnapshotId),
-        marginSnapshotStatus: cleanText(record.marginSnapshotStatus),
-        marginSnapshotGeneratedBy: cleanText(record.marginSnapshotGeneratedBy),
-        marginSnapshotGeneratedAt: cleanText(record.marginSnapshotGeneratedAt),
-        marginReportId: cleanText(record.marginReportId),
-        marginReviewStatus: cleanText(record.marginReviewStatus),
-        marginReviewedBy: cleanText(record.marginReviewedBy),
-        marginReviewedAt: cleanText(record.marginReviewedAt),
-        note: cleanText(record.note),
-      })).filter((record) => record.costAllocationDraftId)
-    : [];
-  item.rawMaterialCostAllocationConfirmations = Array.isArray(item.rawMaterialCostAllocationConfirmations)
-    ? item.rawMaterialCostAllocationConfirmations.map((record) => ({
-        ...record,
-        costConfirmationId: cleanText(record.costConfirmationId ?? record.id),
-        inboundId: cleanText(record.inboundId),
-        supplierName: cleanText(record.supplierName),
-        deliveryNoteNo: cleanText(record.deliveryNoteNo),
-        costAllocationDraftIds: Array.isArray(record.costAllocationDraftIds) ? record.costAllocationDraftIds.map(cleanText).filter(Boolean) : [],
-        consumptionRecordIds: Array.isArray(record.consumptionRecordIds) ? record.consumptionRecordIds.map(cleanText).filter(Boolean) : [],
-        issueRecordIds: Array.isArray(record.issueRecordIds) ? record.issueRecordIds.map(cleanText).filter(Boolean) : [],
-        productionTaskIds: Array.isArray(record.productionTaskIds) ? record.productionTaskIds.map(cleanText).filter(Boolean) : [],
-        orderLineIds: Array.isArray(record.orderLineIds) ? record.orderLineIds.map(cleanText).filter(Boolean) : [],
-        confirmedCount: toNumber(record.confirmedCount, 0),
-        confirmedWeightKg: toNumber(record.confirmedWeightKg, 0),
-        confirmedQuantity: toNumber(record.confirmedQuantity, 0),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
-        reviewStatus: cleanText(record.reviewStatus),
-        costEffect: cleanText(record.costEffect),
-        marginEffect: cleanText(record.marginEffect),
-        lossCalibrationStatus: cleanText(record.lossCalibrationStatus),
-        lossCalibrationId: cleanText(record.lossCalibrationId),
-        lossRatePercent: toNumber(record.lossRatePercent, 0),
-        calibratedBy: cleanText(record.calibratedBy),
-        calibratedAt: cleanText(record.calibratedAt),
-        marginSnapshotId: cleanText(record.marginSnapshotId),
-        marginSnapshotStatus: cleanText(record.marginSnapshotStatus),
-        marginSnapshotGeneratedBy: cleanText(record.marginSnapshotGeneratedBy),
-        marginSnapshotGeneratedAt: cleanText(record.marginSnapshotGeneratedAt),
-        marginReportId: cleanText(record.marginReportId),
-        marginReviewStatus: cleanText(record.marginReviewStatus),
-        marginReviewedBy: cleanText(record.marginReviewedBy),
-        marginReviewedAt: cleanText(record.marginReviewedAt),
-        confirmedBy: cleanText(record.confirmedBy),
-        confirmedByUserId: cleanText(record.confirmedByUserId),
-        confirmedAt: cleanText(record.confirmedAt),
-        note: cleanText(record.note),
-      })).filter((record) => record.costConfirmationId)
-    : [];
-  item.rawMaterialCostLossCalibrations = Array.isArray(item.rawMaterialCostLossCalibrations)
-    ? item.rawMaterialCostLossCalibrations.map((record) => ({
-        ...record,
-        lossCalibrationId: cleanText(record.lossCalibrationId ?? record.id),
-        inboundId: cleanText(record.inboundId),
-        supplierName: cleanText(record.supplierName),
-        deliveryNoteNo: cleanText(record.deliveryNoteNo),
-        costConfirmationId: cleanText(record.costConfirmationId),
-        costConfirmationIds: Array.isArray(record.costConfirmationIds) ? record.costConfirmationIds.map(cleanText).filter(Boolean) : [],
-        costAllocationDraftIds: Array.isArray(record.costAllocationDraftIds) ? record.costAllocationDraftIds.map(cleanText).filter(Boolean) : [],
-        consumptionRecordIds: Array.isArray(record.consumptionRecordIds) ? record.consumptionRecordIds.map(cleanText).filter(Boolean) : [],
-        issueRecordIds: Array.isArray(record.issueRecordIds) ? record.issueRecordIds.map(cleanText).filter(Boolean) : [],
-        productionTaskIds: Array.isArray(record.productionTaskIds) ? record.productionTaskIds.map(cleanText).filter(Boolean) : [],
-        orderLineIds: Array.isArray(record.orderLineIds) ? record.orderLineIds.map(cleanText).filter(Boolean) : [],
-        confirmedCount: toNumber(record.confirmedCount, 0),
-        confirmedWeightKg: toNumber(record.confirmedWeightKg, 0),
-        confirmedQuantity: toNumber(record.confirmedQuantity, 0),
-        confirmedCostAmount: toNumber(record.confirmedCostAmount, 0),
-        expectedOutputQuantity: toNumber(record.expectedOutputQuantity, 0),
-        actualQualifiedOutputQuantity: toNumber(record.actualQualifiedOutputQuantity, 0),
-        lossQuantity: toNumber(record.lossQuantity, 0),
-        lossRatePercent: toNumber(record.lossRatePercent, 0),
-        calibrationBasis: cleanText(record.calibrationBasis),
-        calibrationStatus: cleanText(record.calibrationStatus),
-        costEffect: cleanText(record.costEffect),
-        marginEffect: cleanText(record.marginEffect),
-        marginSnapshotId: cleanText(record.marginSnapshotId),
-        marginSnapshotStatus: cleanText(record.marginSnapshotStatus),
-        marginSnapshotGeneratedBy: cleanText(record.marginSnapshotGeneratedBy),
-        marginSnapshotGeneratedAt: cleanText(record.marginSnapshotGeneratedAt),
-        marginReportId: cleanText(record.marginReportId),
-        marginReviewStatus: cleanText(record.marginReviewStatus),
-        marginReviewedBy: cleanText(record.marginReviewedBy),
-        marginReviewedAt: cleanText(record.marginReviewedAt),
-        calibratedBy: cleanText(record.calibratedBy),
-        calibratedAt: cleanText(record.calibratedAt),
-        note: cleanText(record.note),
-      })).filter((record) => record.lossCalibrationId)
-    : [];
-  item.rawMaterialOrderMarginSnapshots = Array.isArray(item.rawMaterialOrderMarginSnapshots)
-    ? item.rawMaterialOrderMarginSnapshots.map((record) => ({
-        ...record,
-        marginSnapshotId: cleanText(record.marginSnapshotId ?? record.id),
-        inboundId: cleanText(record.inboundId),
-        supplierName: cleanText(record.supplierName),
-        deliveryNoteNo: cleanText(record.deliveryNoteNo),
-        lossCalibrationIds: Array.isArray(record.lossCalibrationIds) ? record.lossCalibrationIds.map(cleanText).filter(Boolean) : [],
-        costConfirmationIds: Array.isArray(record.costConfirmationIds) ? record.costConfirmationIds.map(cleanText).filter(Boolean) : [],
-        costAllocationDraftIds: Array.isArray(record.costAllocationDraftIds) ? record.costAllocationDraftIds.map(cleanText).filter(Boolean) : [],
-        consumptionRecordIds: Array.isArray(record.consumptionRecordIds) ? record.consumptionRecordIds.map(cleanText).filter(Boolean) : [],
-        issueRecordIds: Array.isArray(record.issueRecordIds) ? record.issueRecordIds.map(cleanText).filter(Boolean) : [],
-        productionTaskIds: Array.isArray(record.productionTaskIds) ? record.productionTaskIds.map(cleanText).filter(Boolean) : [],
-        orderLineIds: Array.isArray(record.orderLineIds) ? record.orderLineIds.map(cleanText).filter(Boolean) : [],
-        lineItems: Array.isArray(record.lineItems)
-          ? record.lineItems.map((line) => ({
-              ...line,
-              orderLineId: cleanText(line.orderLineId),
-              orderNo: cleanText(line.orderNo),
-              customerId: cleanText(line.customerId),
-              customerName: cleanText(line.customerName),
-              productName: cleanText(line.productName),
-              goodsSpec: cleanText(line.goodsSpec),
-              quantity: toNumber(line.quantity, 0),
-              salesAmount: toNumber(line.salesAmount, 0),
-              materialCostAmount: toNumber(line.materialCostAmount, 0),
-              grossProfitAmount: toNumber(line.grossProfitAmount, 0),
-              grossMarginRatePercent: toNumber(line.grossMarginRatePercent, 0),
-              marginStatus: cleanText(line.marginStatus),
-              marginSnapshotId: cleanText(line.marginSnapshotId),
-              costAllocationDraftIds: Array.isArray(line.costAllocationDraftIds) ? line.costAllocationDraftIds.map(cleanText).filter(Boolean) : [],
-              productionTaskIds: Array.isArray(line.productionTaskIds) ? line.productionTaskIds.map(cleanText).filter(Boolean) : [],
-            })).filter((line) => line.orderLineId)
-          : [],
-        totalSalesAmount: toNumber(record.totalSalesAmount, 0),
-        totalMaterialCostAmount: toNumber(record.totalMaterialCostAmount, 0),
-        grossProfitAmount: toNumber(record.grossProfitAmount, 0),
-        grossMarginRatePercent: toNumber(record.grossMarginRatePercent, 0),
-        reviewStatus: cleanText(record.reviewStatus),
-        reportStatus: cleanText(record.reportStatus),
-        costEffect: cleanText(record.costEffect),
-        marginEffect: cleanText(record.marginEffect),
-        marginReportId: cleanText(record.marginReportId),
-        generatedBy: cleanText(record.generatedBy),
-        generatedAt: cleanText(record.generatedAt),
-        reviewedBy: cleanText(record.reviewedBy),
-        reviewedAt: cleanText(record.reviewedAt),
-        note: cleanText(record.note),
-        warnings: Array.isArray(record.warnings) ? record.warnings.map(cleanText).filter(Boolean) : [],
-      })).filter((record) => record.marginSnapshotId)
-    : [];
-  item.rawMaterialOrderMarginReports = Array.isArray(item.rawMaterialOrderMarginReports)
-    ? item.rawMaterialOrderMarginReports.map((record) => ({
-        ...record,
-        marginReportId: cleanText(record.marginReportId ?? record.id),
-        inboundId: cleanText(record.inboundId),
-        supplierName: cleanText(record.supplierName),
-        deliveryNoteNo: cleanText(record.deliveryNoteNo),
-        marginSnapshotIds: Array.isArray(record.marginSnapshotIds) ? record.marginSnapshotIds.map(cleanText).filter(Boolean) : [],
-        lossCalibrationIds: Array.isArray(record.lossCalibrationIds) ? record.lossCalibrationIds.map(cleanText).filter(Boolean) : [],
-        costConfirmationIds: Array.isArray(record.costConfirmationIds) ? record.costConfirmationIds.map(cleanText).filter(Boolean) : [],
-        costAllocationDraftIds: Array.isArray(record.costAllocationDraftIds) ? record.costAllocationDraftIds.map(cleanText).filter(Boolean) : [],
-        consumptionRecordIds: Array.isArray(record.consumptionRecordIds) ? record.consumptionRecordIds.map(cleanText).filter(Boolean) : [],
-        issueRecordIds: Array.isArray(record.issueRecordIds) ? record.issueRecordIds.map(cleanText).filter(Boolean) : [],
-        productionTaskIds: Array.isArray(record.productionTaskIds) ? record.productionTaskIds.map(cleanText).filter(Boolean) : [],
-        orderLineIds: Array.isArray(record.orderLineIds) ? record.orderLineIds.map(cleanText).filter(Boolean) : [],
-        lineItems: Array.isArray(record.lineItems)
-          ? record.lineItems.map((line) => ({
-              ...line,
-              marginSnapshotId: cleanText(line.marginSnapshotId),
-              orderLineId: cleanText(line.orderLineId),
-              orderNo: cleanText(line.orderNo),
-              customerId: cleanText(line.customerId),
-              customerName: cleanText(line.customerName),
-              productName: cleanText(line.productName),
-              goodsSpec: cleanText(line.goodsSpec),
-              quantity: toNumber(line.quantity, 0),
-              salesAmount: toNumber(line.salesAmount, 0),
-              materialCostAmount: toNumber(line.materialCostAmount, 0),
-              grossProfitAmount: toNumber(line.grossProfitAmount, 0),
-              grossMarginRatePercent: toNumber(line.grossMarginRatePercent, 0),
-              marginStatus: cleanText(line.marginStatus),
-              costAllocationDraftIds: Array.isArray(line.costAllocationDraftIds) ? line.costAllocationDraftIds.map(cleanText).filter(Boolean) : [],
-              productionTaskIds: Array.isArray(line.productionTaskIds) ? line.productionTaskIds.map(cleanText).filter(Boolean) : [],
-            })).filter((line) => line.orderLineId)
-          : [],
-        totalSalesAmount: toNumber(record.totalSalesAmount, 0),
-        totalMaterialCostAmount: toNumber(record.totalMaterialCostAmount, 0),
-        grossProfitAmount: toNumber(record.grossProfitAmount, 0),
-        grossMarginRatePercent: toNumber(record.grossMarginRatePercent, 0),
-        reviewStatus: cleanText(record.reviewStatus),
-        reportStatus: cleanText(record.reportStatus),
-        costEffect: cleanText(record.costEffect),
-        marginEffect: cleanText(record.marginEffect),
-        reviewedBy: cleanText(record.reviewedBy),
-        reviewedAt: cleanText(record.reviewedAt),
-        note: cleanText(record.note),
-        warnings: Array.isArray(record.warnings) ? record.warnings.map(cleanText).filter(Boolean) : [],
-      })).filter((record) => record.marginReportId)
-    : [];
-  return item;
-}
 
 function normalizeDeliveryNotePagePayload(input = {}) {
   return {
@@ -1240,6 +469,7 @@ function normalizeDeliveryNotePagePayload(input = {}) {
     sourceContentDataUrl: cleanText(input.sourceContentDataUrl),
     sourceFile: input.sourceFile ?? null,
     sourceAttachmentId: cleanText(input.sourceAttachmentId),
+    ocrAttachmentId: cleanText(input.ocrAttachmentId),
     captureId: cleanText(input.captureId),
     sourceNormalizedForOcr: input.sourceNormalizedForOcr === true,
     pdfPageNumber: Number(input.pdfPageNumber) || undefined,
@@ -1252,50 +482,141 @@ async function uploadDeliveryNoteSourcePages({ authState, operatorId, pages, opt
   const captureOwnerId = buildDeliveryNoteCaptureOwnerId(captureId, operatorId);
   const uploadedPages = [];
   for (const [sourcePageIndex, page] of pages.entries()) {
-    if (page.sourceAttachmentId) {
-      uploadedPages.push(page);
-      continue;
-    }
-    if (!page.sourceFile) {
-      uploadedPages.push(page);
-      continue;
-    }
-    notifyDeliveryNoteProgress(onProgress, {
-      phase: "uploading",
-      current: sourcePageIndex + 1,
-      total: pages.length,
-      message: `正在保存第 ${sourcePageIndex + 1}/${pages.length} 页原图…`,
-    });
-    const result = await uploadOfficeAttachmentFile({
-      authState,
-      uploadedBy: operatorId,
-      file: page.sourceFile,
-      ownerType: "raw_material_inbound_capture",
-      ownerId: captureOwnerId,
-      purpose: "raw_material_delivery_note",
-      contentRef: `raw-material-capture:${captureOwnerId}:page:${sourcePageIndex + 1}`,
-      remark: `原材料送货单待识别原图第 ${sourcePageIndex + 1}/${pages.length} 页。`,
-      metadata: {
-        captureId,
-        captureOwnerId,
-        capturedBy: operatorId,
-        sourcePageIndex,
-        pageNumber: sourcePageIndex + 1,
-        pageCount: pages.length,
-      },
-    }, options);
-    if (result.blocked || !result.attachment?.attachmentId) {
-      return {
-        source: result.source || "api_error",
-        error: result.error || {
-          code: "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_UPLOAD_FAILED",
-          message: `送货单第 ${sourcePageIndex + 1} 页原图没有保存成功，请重试。`,
+    let uploadedPage = { ...page };
+    const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString();
+    if (!uploadedPage.sourceAttachmentId) {
+      notifyDeliveryNoteProgress(onProgress, {
+        phase: "uploading",
+        current: sourcePageIndex + 1,
+        total: pages.length,
+        message: `正在保存第 ${sourcePageIndex + 1}/${pages.length} 页原图…`,
+      });
+      const sourceFile = uploadedPage.sourceFile || dataUrlToUploadFile(
+        uploadedPage.contentDataUrl,
+        uploadedPage.fileName || `送货单-第${sourcePageIndex + 1}页.jpg`,
+        uploadedPage.mimeType,
+      );
+      const sourceResult = await uploadOfficeAttachmentFile({
+        authState,
+        uploadedBy: operatorId,
+        file: sourceFile,
+        ownerType: "raw_material_inbound_capture",
+        ownerId: captureOwnerId,
+        purpose: "raw_material_delivery_note",
+        contentRef: `raw-material-capture:${captureOwnerId}:page:${sourcePageIndex + 1}:source`,
+        remark: `原材料送货单待识别原图第 ${sourcePageIndex + 1}/${pages.length} 页。`,
+        metadata: {
+          captureId,
+          captureOwnerId,
+          captureKind: "source_original",
+          lifecycleState: "temporary_until_linked",
+          expiresAt,
+          capturedBy: operatorId,
+          sourcePageIndex,
+          pageNumber: sourcePageIndex + 1,
+          pageCount: pages.length,
         },
-      };
+      }, options);
+      if (sourceResult.blocked || !sourceResult.attachment?.attachmentId) {
+        return buildDeliveryNoteUploadFailure(sourceResult, sourcePageIndex, pages.length, "原图");
+      }
+      uploadedPage = { ...uploadedPage, sourceAttachmentId: sourceResult.attachment.attachmentId };
     }
-    uploadedPages.push({ ...page, sourceAttachmentId: result.attachment.attachmentId });
+
+    if (!uploadedPage.ocrAttachmentId) {
+      if (uploadedPage.sourceNormalizedForOcr !== true) {
+        uploadedPage.ocrAttachmentId = uploadedPage.sourceAttachmentId;
+      } else {
+        notifyDeliveryNoteProgress(onProgress, {
+          phase: "uploading_ocr_copy",
+          current: sourcePageIndex + 1,
+          total: pages.length,
+          message: `正在准备第 ${sourcePageIndex + 1}/${pages.length} 页识别副本…`,
+        });
+        const ocrFile = dataUrlToUploadFile(
+          uploadedPage.contentDataUrl,
+          replaceDeliveryNoteExtension(uploadedPage.fileName, `送货单-第${sourcePageIndex + 1}页-OCR.jpg`),
+          uploadedPage.mimeType || "image/jpeg",
+        );
+        const ocrResult = await uploadOfficeAttachmentFile({
+          authState,
+          uploadedBy: operatorId,
+          file: ocrFile,
+          ownerType: "raw_material_inbound_capture",
+          ownerId: captureOwnerId,
+          purpose: "raw_material_delivery_note",
+          contentRef: `raw-material-capture:${captureOwnerId}:page:${sourcePageIndex + 1}:ocr-copy`,
+          remark: `原材料送货单第 ${sourcePageIndex + 1}/${pages.length} 页 OCR 临时副本。`,
+          metadata: {
+            captureId,
+            captureOwnerId,
+            captureKind: "ocr_copy",
+            lifecycleState: "temporary",
+            expiresAt,
+            capturedBy: operatorId,
+            sourcePageIndex,
+            pageNumber: sourcePageIndex + 1,
+            pageCount: pages.length,
+          },
+        }, options);
+        if (ocrResult.blocked || !ocrResult.attachment?.attachmentId) {
+          return buildDeliveryNoteUploadFailure(ocrResult, sourcePageIndex, pages.length, "识别副本");
+        }
+        uploadedPage.ocrAttachmentId = ocrResult.attachment.attachmentId;
+      }
+    }
+    uploadedPages.push({ ...uploadedPage, contentDataUrl: "", sourceContentDataUrl: "" });
   }
   return { source: "api", pages: uploadedPages };
+}
+
+function buildDeliveryNoteUploadFailure(result, sourcePageIndex, pageCount, label) {
+  if (result?.error?.status === 413 || result?.error?.code === "REQUEST_BODY_TOO_LARGE") {
+    return {
+      source: result.source || "api_error",
+      error: {
+        code: "RAW_MATERIAL_DELIVERY_NOTE_REQUEST_TOO_LARGE",
+        message: `送货单第 ${sourcePageIndex + 1} 页过大，系统没有生成草稿，请重新拍摄这一页。`,
+      },
+    };
+  }
+  if (/UNAVAILABLE$/u.test(cleanText(result?.error?.code)) || /load failed|failed to fetch|network/iu.test(cleanText(result?.error?.message))) {
+    return {
+      source: result.source || "api_error",
+      error: {
+        code: "RAW_MATERIAL_DELIVERY_NOTE_OCR_API_UNAVAILABLE",
+        message: `${pageCount > 1 ? `${pageCount} 页送货单` : "送货单"}上传时连接中断。已选页面仍保留，请检查网络后直接重新识别，不用重拍。`,
+      },
+    };
+  }
+  return {
+    source: result.source || "api_error",
+    error: result.error || {
+      code: "RAW_MATERIAL_DELIVERY_NOTE_SOURCE_UPLOAD_FAILED",
+      message: `送货单第 ${sourcePageIndex + 1} 页${label}没有保存成功，请重试。`,
+    },
+  };
+}
+
+function dataUrlToUploadFile(contentDataUrl, fileName, mimeType) {
+  const match = cleanText(contentDataUrl).match(/^data:([^;,]+)?(?:;base64)?,(.*)$/su);
+  if (!match) throw new Error("送货单识别副本无效，请重新拍摄。");
+  const type = cleanText(match[1]) || cleanText(mimeType) || "image/jpeg";
+  const isBase64 = cleanText(contentDataUrl).slice(0, cleanText(contentDataUrl).indexOf(",")).includes(";base64");
+  const binary = isBase64 ? globalThis.atob(match[2]) : decodeURIComponent(match[2]);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  const safeName = replaceDeliveryNoteExtension(fileName, "送货单-OCR.jpg");
+  if (typeof globalThis.File === "function") return new globalThis.File([bytes], safeName, { type });
+  const blob = new Blob([bytes], { type });
+  Object.defineProperty(blob, "name", { value: safeName });
+  return blob;
+}
+
+function replaceDeliveryNoteExtension(fileName, fallback) {
+  const value = cleanText(fileName);
+  if (!value) return fallback;
+  return /\.[a-z0-9]+$/iu.test(value) ? value.replace(/\.[a-z0-9]+$/iu, "-OCR.jpg") : `${value}-OCR.jpg`;
 }
 
 function buildDeliveryNoteCaptureOwnerId(captureId, operatorId) {
@@ -1317,24 +638,30 @@ function toDeliveryNoteNetworkErrorMessage(error, pageCount) {
   return original || "送货单识别服务暂时无法连接。已选页面仍保留，请稍后直接重新识别。";
 }
 
-function buildDeliveryNoteOcrRequestBody({ operatorId, useNewModel, pages }) {
+function buildDeliveryNoteOcrRequestBody({ documentDirectionHint, operatorId, supplierNameHint, useNewModel, pages }) {
   return {
+    documentDirectionHint: normalizeDocumentDirectionHint(documentDirectionHint),
     operatorId,
+    supplierNameHint: cleanText(supplierNameHint),
     useNewModel,
     pages: pages.map((page) => ({
       fileName: page.fileName,
       mimeType: page.mimeType,
       fileSize: page.fileSize,
-      contentDataUrl: page.contentDataUrl,
       sourceMimeType: page.sourceMimeType,
       sourceFileSize: page.sourceFileSize,
-      sourceContentDataUrl: page.sourceAttachmentId ? "" : page.sourceContentDataUrl,
       sourceAttachmentId: page.sourceAttachmentId,
+      ocrAttachmentId: page.ocrAttachmentId || page.sourceAttachmentId,
       sourceNormalizedForOcr: page.sourceNormalizedForOcr,
       pdfPageNumber: page.pdfPageNumber,
       useNewModel: page.useNewModel,
     })),
   };
+}
+
+function normalizeDocumentDirectionHint(value) {
+  const direction = cleanText(value);
+  return ["supplier_delivery", "supplier_return"].includes(direction) ? direction : "supplier_delivery";
 }
 
 function validateDeliveryNoteOcrRequestSize(input) {
@@ -1347,6 +674,22 @@ function validateDeliveryNoteOcrRequestSize(input) {
   };
 }
 
+function validateDeliveryNoteOcrPagePayloads(pages) {
+  for (const [sourcePageIndex, page] of pages.entries()) {
+    const encoded = cleanText(page.contentDataUrl);
+    const commaIndex = encoded.indexOf(",");
+    const encodedLength = commaIndex >= 0 ? encoded.length - commaIndex - 1 : 0;
+    const approximateBytes = Math.floor(encodedLength * 0.75);
+    if (!encoded || approximateBytes > attachmentUploadLimits.rawMaterialOcrRequestPageBytes) {
+      return {
+        code: "RAW_MATERIAL_DELIVERY_NOTE_REQUEST_TOO_LARGE",
+        message: `送货单第 ${sourcePageIndex + 1} 页处理后仍然过大，请删除这一页后重新拍摄。`,
+      };
+    }
+  }
+  return null;
+}
+
 function toDeliveryNoteOcrApiError(json, status) {
   if (status === 413 || json?.code === "REQUEST_BODY_TOO_LARGE") {
     return {
@@ -1355,7 +698,7 @@ function toDeliveryNoteOcrApiError(json, status) {
       message: "送货单照片数据仍然过大，系统没有生成草稿。请清空后重新拍摄，原图会单独保存。",
     };
   }
-  return toApiError(json, status, "原材料送货单 OCR 识别失败。");
+  return toRawMaterialApiError(json, status, "原材料送货单 OCR 识别失败。");
 }
 
 function createDeliveryNoteCaptureId() {
@@ -1364,101 +707,6 @@ function createDeliveryNoteCaptureId() {
   return `RMCAP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-function normalizeOcrPages(pages, pageCount, imageWidth, imageHeight, angle) {
-  const source = Array.isArray(pages) ? pages : [];
-  return Array.from({ length: Math.max(pageCount, source.length) }, (_, sourcePageIndex) => ({
-    sourcePageIndex,
-    pageNumber: sourcePageIndex + 1,
-    angle: Number(source[sourcePageIndex]?.angle ?? angle) || 0,
-    imageWidth: Math.max(0, Number(source[sourcePageIndex]?.imageWidth ?? imageWidth) || 0),
-    imageHeight: Math.max(0, Number(source[sourcePageIndex]?.imageHeight ?? imageHeight) || 0),
-    requestId: cleanText(source[sourcePageIndex]?.requestId),
-  }));
-}
-
-function normalizeTextList(values, fallback) {
-  const normalized = (Array.isArray(values) ? values : []).map(cleanText).filter(Boolean);
-  if (normalized.length) return normalized;
-  const safeFallback = cleanText(fallback);
-  return safeFallback ? [safeFallback] : [];
-}
-
-function normalizeSupplierStatementReview(input = {}) {
-  const item = { ...(input ?? {}) };
-  item.reviewId = cleanText(item.reviewId ?? item.id);
-  item.id = item.reviewId;
-  item.supplierName = cleanText(item.supplierName);
-  item.fileName = cleanText(item.fileName);
-  item.status = cleanText(item.status);
-  item.reviewStatus = cleanText(item.reviewStatus);
-  item.summaryText = cleanText(item.summaryText);
-  item.summary = item.summary && typeof item.summary === "object" ? item.summary : {};
-  item.adapter = item.adapter && typeof item.adapter === "object" ? item.adapter : {};
-  item.rows = Array.isArray(item.rows) ? item.rows : [];
-  item.adjustments = Array.isArray(item.adjustments) ? item.adjustments : [];
-  item.issues = Array.isArray(item.issues) ? item.issues : [];
-  item.matchedInboundIds = Array.isArray(item.matchedInboundIds) ? item.matchedInboundIds : [];
-  item.statementStatus = cleanText(item.statementStatus);
-  item.statementConfirmationId = cleanText(item.statementConfirmationId);
-  item.statementConfirmedAt = cleanText(item.statementConfirmedAt);
-  item.statementConfirmedBy = cleanText(item.statementConfirmedBy);
-  item.paymentStatus = cleanText(item.paymentStatus);
-  item.supplierPayableId = cleanText(item.supplierPayableId);
-  item.payableStatus = cleanText(item.payableStatus);
-  item.supplierPayableDraft = normalizeSupplierPayableDraft(item.supplierPayableDraft);
-  item.supplierPayableGeneratedAt = cleanText(item.supplierPayableGeneratedAt);
-  item.supplierPayableGeneratedBy = cleanText(item.supplierPayableGeneratedBy);
-  item.supplierPaymentConfirmationId = cleanText(item.supplierPaymentConfirmationId);
-  item.supplierPaymentRecord = normalizeSupplierPaymentRecord(item.supplierPaymentRecord);
-  item.supplierPaymentConfirmedAt = cleanText(item.supplierPaymentConfirmedAt);
-  item.supplierPaymentConfirmedBy = cleanText(item.supplierPaymentConfirmedBy);
-  return item;
-}
-
-function normalizeSupplierPayableDraft(input = {}) {
-  if (!input || typeof input !== "object") return null;
-  const supplierPayableId = cleanText(input.supplierPayableId ?? input.payableId);
-  if (!supplierPayableId) return null;
-  return {
-    ...input,
-    supplierPayableId,
-    payableId: supplierPayableId,
-    status: cleanText(input.status),
-    currency: cleanText(input.currency) || "CNY",
-    lineSubtotal: toNumber(input.lineSubtotal, 0),
-    currentAdjustmentSubtotal: toNumber(input.currentAdjustmentSubtotal, 0),
-    payableAmount: toNumber(input.payableAmount, 0),
-    currentAdjustments: Array.isArray(input.currentAdjustments) ? input.currentAdjustments : [],
-    referenceAdjustments: Array.isArray(input.referenceAdjustments) ? input.referenceAdjustments : [],
-    nextStep: cleanText(input.nextStep),
-    generatedAt: cleanText(input.generatedAt),
-    generatedBy: cleanText(input.generatedBy),
-    note: cleanText(input.note),
-  };
-}
-
-function normalizeSupplierPaymentRecord(input = {}) {
-  if (!input || typeof input !== "object") return null;
-  const supplierPaymentConfirmationId = cleanText(input.supplierPaymentConfirmationId ?? input.paymentConfirmationId);
-  if (!supplierPaymentConfirmationId) return null;
-  return {
-    ...input,
-    supplierPaymentConfirmationId,
-    paymentConfirmationId: supplierPaymentConfirmationId,
-    supplierPayableId: cleanText(input.supplierPayableId),
-    status: cleanText(input.status) || "已确认付款",
-    currency: cleanText(input.currency) || "CNY",
-    paidAmount: toNumber(input.paidAmount ?? input.amount, 0),
-    paymentMethod: cleanText(input.paymentMethod),
-    paymentAccount: cleanText(input.paymentAccount),
-    paymentReferenceNo: cleanText(input.paymentReferenceNo),
-    paymentVoucherNo: cleanText(input.paymentVoucherNo),
-    paidAt: cleanText(input.paidAt),
-    confirmedAt: cleanText(input.confirmedAt),
-    confirmedBy: cleanText(input.confirmedBy),
-    note: cleanText(input.note),
-  };
-}
 
 function buildRawMaterialInboundMetrics(inbounds = []) {
   const items = (Array.isArray(inbounds) ? inbounds : []).map(normalizeRawMaterialInbound).filter((item) => item.id);
@@ -1495,52 +743,4 @@ function buildRawMaterialInboundMetrics(inbounds = []) {
     ),
     exceptionCount: items.filter((item) => item.status.includes("异常")).length,
   };
-}
-
-function toRawMaterialActionSlug(action) {
-  const value = cleanText(action);
-  if (value === "复核送货单" || value === "review") return "review";
-  if (value === "打印卷标" || value === "print_labels" || value === "print-labels") return "print-labels";
-  if (value === "确认贴标入库" || value === "attach_confirm" || value === "attach-confirm") return "attach-confirm";
-  if (value === "作废卷标" || value === "void_label" || value === "void-label") return "void-label";
-  if (value === "重打卷标" || value === "reprint_label" || value === "reprint-label") return "reprint-label";
-  if (value === "供应商退货暂存" || value === "stage_supplier_return" || value === "stage-supplier-return") return "stage-supplier-return";
-  if (value === "确认退厂" || value === "confirm_supplier_return_shipment" || value === "confirm-supplier-return-shipment") return "confirm-supplier-return-shipment";
-  if (value === "机边领料" || value === "扫码出库" || value === "issue_to_machine" || value === "issue-to-machine") return "issue-to-machine";
-  if (value === "确认消耗" || value === "confirm_consumption" || value === "confirm-consumption") return "confirm-consumption";
-  if (value === "余料退回" || value === "return_leftover" || value === "return-leftover") return "return-leftover";
-  if (value === "复核余料可用" || value === "review_leftover" || value === "review-leftover") return "review-leftover";
-  if (value === "生成成本草稿" || value === "generate_cost_draft" || value === "generate-cost-draft") return "generate-cost-draft";
-  if (value === "确认成本草稿" || value === "confirm_cost_draft" || value === "confirm-cost-draft") return "confirm-cost-draft";
-  if (value === "校准损耗" || value === "损耗校准" || value === "calibrate_loss" || value === "calibrate-loss") return "calibrate-loss";
-  if (value === "生成毛利快照" || value === "毛利快照" || value === "generate_margin_snapshot" || value === "generate-margin-snapshot") return "generate-margin-snapshot";
-  if (value === "复核毛利快照" || value === "确认毛利快照" || value === "毛利报表" || value === "review_margin_snapshot" || value === "review-margin-snapshot") return "review-margin-snapshot";
-  if (value === "标记异常" || value === "exception") return "exception";
-  return "";
-}
-
-async function readJson(response) {
-  try {
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function toApiError(json, status, fallbackMessage) {
-  return {
-    status,
-    code: json?.code ?? `HTTP_${status}`,
-    message: json?.message ?? fallbackMessage,
-    requiredPermission: json?.requiredPermission,
-  };
-}
-
-function toNumber(value, fallback) {
-  const next = Number(value);
-  return Number.isFinite(next) ? next : fallback;
-}
-
-function cleanText(value) {
-  return String(value ?? "").trim();
 }

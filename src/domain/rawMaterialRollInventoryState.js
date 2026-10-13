@@ -1,4 +1,8 @@
-import { formatRawMaterialMobileSpec, parseRawMaterialSpec } from "../../shared/rawMaterialSpec.js";
+import {
+  formatRawMaterialMobileSpec,
+  parseRawMaterialSpec,
+  resolveRawMaterialUsage,
+} from "../../shared/rawMaterialSpec.js";
 
 export const RAW_MATERIAL_ROLL_LEDGER_STATUSES = Object.freeze([
   "可用",
@@ -31,6 +35,7 @@ export function filterRawMaterialRollLedger(rolls = [], filters = {}) {
       roll.color,
       roll.specDisplay,
       roll.widthLabel,
+      roll.materialUsage,
       roll.supplierName,
       roll.inboundId,
       roll.deliveryNoteNo,
@@ -101,8 +106,16 @@ function buildRollRecord(inbound = {}, roll = {}) {
   const widthCm = positiveNumber(roll.widthCm) || positiveNumber(inbound.widthCm) || positiveNumber(parsedSpec.widthCm);
   const isPiece = cleanText(roll.unit || inbound.unit) === "件";
   const materialType = cleanText(roll.materialType || inbound.materialType);
-  const isHandle = materialType.includes("提手") || parsedSpec.materialCategory === "提手条";
+  const { materialCategory, materialUsage } = resolveRawMaterialUsage({
+    widthCm,
+    texts: [materialType, parsedSpec.materialCategory],
+  });
+  const isHandle = materialCategory === "提手条";
   const currentWeightKg = positiveNumber(roll.remainingMachineSideWeightKg) || positiveNumber(roll.weightKg);
+  const recordedStatus = cleanText(roll.inventoryStatus);
+  const status = recordedStatus === "可用" && !(currentWeightKg > 0)
+    ? "待补真实重量"
+    : recordedStatus;
   return {
     id: cleanText(roll.id),
     inboundId: cleanText(inbound.id),
@@ -115,10 +128,12 @@ function buildRollRecord(inbound = {}, roll = {}) {
     specRaw,
     specDisplay: formatRawMaterialMobileSpec(specRaw) || "规格待补",
     widthCm,
-    widthLabel: widthCm > 0 ? `${formatNumber(widthCm)}cm${isHandle ? " 提手条" : ""}` : isHandle ? "提手" : "宽幅待补",
+    widthLabel: widthCm > 0 ? `${formatNumber(widthCm)}cm${isHandle ? " 把条" : ""}` : isHandle ? "把条" : "宽幅待补",
+    materialCategory,
+    materialUsage: materialUsage || "用途待确认",
     currentWeightKg,
     location: cleanText(roll.location || inbound.location) || "库位待确认",
-    status: cleanText(roll.inventoryStatus),
+    status,
     labelStatus: cleanText(roll.labelStatus),
     unitLabel: isPiece ? "件" : "卷",
     ocrLineId: cleanText(roll.ocrLineId),

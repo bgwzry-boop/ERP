@@ -12,12 +12,19 @@ import {
   OperationalPanel,
   StatusPill,
 } from "../../shared/ui/operational.jsx";
-
-const ENTRY_STEPS = [
-  { id: 1, title: "第一步：粘贴原文" },
-  { id: 2, title: "第二步：校对明细" },
-  { id: 3, title: "第三步：库存与确认" },
-];
+import {
+  ENTRY_STEPS,
+  buildValidationIssues,
+  getArtworkDisplayValue,
+  getCancellationLinkState,
+  getConfidenceScore,
+  getEntryDraftRowDomId,
+  getQueueKindLabel,
+  getUnitPrice,
+  isCancelledDraftRow,
+  toFiniteNumber,
+  withCurrentColor,
+} from "./entryPageModel.js";
 
 export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus, selectedDraftId, setSelectedDraftId, onRecognize, onQueueRecognize, onQueueRefresh, onQueueOpen, onQueueCancellationLink, onDraftFieldChange, onArtworkUpload, onDraftCommand, onRestoreCancelledLine, onAction, helpers }) {
   const [splitPreview, setSplitPreview] = useState(null);
@@ -125,9 +132,7 @@ export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus
             <div className="entry-queue-list" role="list">
               {draftQueue.items.map((item) => {
                 const isOrderDraft = item.kind === "order_draft";
-                const cancellationIntent = item.inventoryIntents?.find((intent) => intent.intentType === "shortage_cancellation");
-                const cancellationCustomerId = cancellationIntent?.customerId || item.draft?.customerId;
-                const canLinkCancellation = item.kind === "cancellation_review" && cancellationIntent && cancellationCustomerId && selected?.customerId === cancellationCustomerId && !selectedCancelled;
+                const { cancellationIntent, canLink: canLinkCancellation } = getCancellationLinkState(item, selected);
                 return (
                   <article
                     role="listitem"
@@ -447,21 +452,6 @@ export function EntryPage({ entryText, onEntryTextChange, draftRows, draftStatus
   );
 }
 
-function getArtworkDisplayValue(row = {}) {
-  if (row.print !== "是") return "非印刷不需要";
-  const attachment = row.artworkAttachment;
-  if (!attachment?.fileName) return row.artworkStatus ?? "待上传";
-  const size = Number(attachment.fileSize);
-  const sizeLabel = Number.isFinite(size) && size > 0 ? ` · ${formatFileSize(size)}` : "";
-  return `${attachment.fileName}${sizeLabel} · 已上传`;
-}
-
-function formatFileSize(bytes) {
-  if (bytes >= 1024 * 1024) return `${Math.round((bytes / 1024 / 1024) * 10) / 10}MB`;
-  if (bytes >= 1024) return `${Math.round((bytes / 1024) * 10) / 10}KB`;
-  return `${bytes}B`;
-}
-
 function ReviewMetric({ icon, label, value, tone }) {
   return (
     <div className={`entry-review-metric ${tone}`} role="listitem">
@@ -480,35 +470,6 @@ function Fact({ label, value, tone = "", badge = false, action = null, wide = fa
   );
 }
 
-function buildValidationIssues({ draftRows, missingRows, inventoryIssueRows, reviewRows, getDraftMissingFields }) {
-  const issues = [];
-  const add = (row, label, tone, kind) => {
-    const rowIndex = draftRows.indexOf(row);
-    const id = `${kind}-${row.id}`;
-    if (!issues.some((item) => item.id === id)) issues.push({ id, row, rowIndex, label, tone });
-  };
-  missingRows.forEach((row) => add(row, `缺 ${getDraftMissingFields(row).join("、")}`, "danger", "missing"));
-  inventoryIssueRows.forEach((row) => add(row, `库存${String(row.inventory).replace(/^库存/, "")}`, row.inventory?.startsWith("缺货") ? "danger" : "warning", "inventory"));
-  reviewRows.forEach((row) => {
-    const label = row.print === "是" && !["已上传", "已有稿件"].includes(row.artworkStatus) ? "印刷稿件待上传" : "识别内容待确认";
-    add(row, label, "warning", "review");
-  });
-  return issues;
-}
-
-function getConfidenceScore(confidence) {
-  if (confidence === "high") return "0.96";
-  if (confidence === "medium") return "0.92";
-  return "0.68";
-}
-
-function getUnitPrice(row) {
-  const qty = toFiniteNumber(row.qty);
-  const amount = toFiniteNumber(row.amount);
-  if (!qty) return "¥0.00";
-  return `¥${(amount / qty).toFixed(2)}`;
-}
-
 function EntrySelect({ ariaLabel, value, onChange, children, disabled = false }) {
   return (
     <span className="entry-select-control">
@@ -516,33 +477,6 @@ function EntrySelect({ ariaLabel, value, onChange, children, disabled = false })
       <DownOutlined className="entry-select-arrow" aria-hidden="true" />
     </span>
   );
-}
-
-function toFiniteNumber(value) {
-  const number = Number(value);
-  return Number.isFinite(number) ? number : 0;
-}
-
-function getQueueKindLabel(kind) {
-  return {
-    inventory_inquiry: "库存询问",
-    temporary_hold: "临时留货",
-    duplicate_review: "重复候选",
-    cancellation_review: "取消复核",
-    intent_review: "意图复核",
-  }[kind] ?? "复核上下文";
-}
-
-function isCancelledDraftRow(row) {
-  return Boolean(row) && (row.excludedFromConfirmation === true || row.cancellationStatus === "库存不足取消");
-}
-
-function withCurrentColor(colors, currentColor) {
-  return [...new Set([currentColor, ...colors].filter(Boolean))];
-}
-
-function getEntryDraftRowDomId(rowIndex) {
-  return `entry-draft-row-${rowIndex + 1}`;
 }
 
 function EntryDraftTable({ rows, selectedId, onSelect, onChange, helpers }) {

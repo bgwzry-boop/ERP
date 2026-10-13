@@ -9,6 +9,7 @@ import {
   listenTestServer,
   postJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "print-job-office-queue");
 rmSync(checkStorageRoot, { recursive: true, force: true });
@@ -21,7 +22,7 @@ delete process.env.ERP_SYSTEM_PRINTER_COMMAND_ARGS_JSON;
 delete process.env.ERP_SYSTEM_PRINTER_COMMAND_TIMEOUT_MS;
 delete process.env.ERP_SYSTEM_PRINTER_ALLOWLIST;
 
-const server = createApiServer({ allowLocalFixture: true });
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true }));
 
 try {
   await listenTestServer(server);
@@ -73,7 +74,7 @@ try {
     "queued list should include the new retry job",
   );
 
-  const restartedServer = createApiServer({ allowLocalFixture: true });
+  const restartedServer = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true }));
   await listenTestServer(restartedServer);
   const restartBaseUrl = getTestServerBaseUrl(restartedServer);
   try {

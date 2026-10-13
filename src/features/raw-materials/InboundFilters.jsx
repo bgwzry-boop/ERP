@@ -4,6 +4,7 @@ import { buildRawMaterialInboundViewItems } from "../../domain/rawMaterialInboun
 
 const FIRST_RELEASE_VIEW_LABELS = Object.freeze({
   入库单: "入库核对",
+  退货单: "退货记录",
   待贴标: "待贴标",
   机边领料: "扫码出库",
   供应商对账: "月结对账",

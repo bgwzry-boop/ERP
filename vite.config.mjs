@@ -69,6 +69,27 @@ export function rejectCompleteReviewPortInRootAppPlugin() {
   };
 }
 
+export function requireExplicitRootWorkbenchPreviewAccessPlugin() {
+  return {
+    name: "erp-require-explicit-root-workbench-preview-access",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+        const acceptsHtml = String(request.headers.accept || "").includes("text/html");
+        const isNavigation = acceptsHtml && requestUrl.pathname === "/";
+        const explicitInternalAccess = requestUrl.searchParams.get("internalWorkbench") === "1";
+        if (!isNavigation || explicitInternalAccess) return next();
+
+        response.statusCode = 307;
+        response.setHeader("cache-control", "no-store");
+        response.setHeader("location", "http://127.0.0.1:4174/?source=review-guard");
+        response.setHeader("x-erp-preview-guard", "ERP_INTERNAL_WORKBENCH_EXPLICIT_ACCESS_REQUIRED");
+        response.end();
+      });
+    },
+  };
+}
+
 export default defineConfig(({ mode }) => {
   const buildEnv = { ...loadEnv(mode, process.cwd(), ""), ...process.env };
   assertRawMaterialFirstReleaseBuildEnv(buildEnv);
@@ -76,20 +97,12 @@ export default defineConfig(({ mode }) => {
 
   return {
     build: {
+      manifest: true,
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (!id.includes("node_modules")) {
-              if (id.includes("/src/features/v1-status/")) return "erp-v1-status";
-              if (id.includes("/src/pages/")) return "erp-pages";
-              if (id.includes("/src/shared/") || id.includes("/shared/")) return "erp-shared";
-              if (id.includes("/src/services/officeV1GoLiveStatus")) return "erp-v1-runtime";
-              if (id.includes("/src/services/")) return "erp-runtime";
-              if (id.includes("/src/domain/")) return "erp-domain";
-              if (id.includes("/src/data/")) return "erp-data";
-              if (id.includes("/src/state/")) return "erp-runtime";
-              return undefined;
-            }
+            if (!id.includes("node_modules")) return undefined;
+            if (id.includes("/pdfjs-dist/")) return "pdfjs";
             if (id.includes("/react/") || id.includes("/react-dom/") || id.includes("/scheduler/")) return "react-vendor";
             if (id.includes("@ant-design/icons") || id.includes("@ant-design/icons-svg")) return "antd-icons";
             return "vendor";
@@ -105,6 +118,11 @@ export default defineConfig(({ mode }) => {
         clientFiles: ["./src/main.jsx"],
       },
     },
-    plugins: [react(), controlledReleaseHtmlPlugin(buildEnv), rejectCompleteReviewPortInRootAppPlugin()],
+    plugins: [
+      react(),
+      controlledReleaseHtmlPlugin(buildEnv),
+      rejectCompleteReviewPortInRootAppPlugin(),
+      requireExplicitRootWorkbenchPreviewAccessPlugin(),
+    ],
   };
 });

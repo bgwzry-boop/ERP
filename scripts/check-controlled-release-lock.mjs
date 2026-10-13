@@ -6,6 +6,7 @@ import {
   verifyControlledReleaseLock,
 } from "./controlled-release-lock-lib.mjs";
 import { buildControlledReleasePostdeployReport } from "./run-controlled-release-postdeploy-check.mjs";
+import { appendStagingCurrentRefCheck } from "./run-controlled-release-postdeploy-check.mjs";
 import { normalizeReleaseIdentity, releaseIdentityFromEnvironment } from "../shared/releaseIdentity.js";
 
 const commit = "1234567890abcdef1234567890abcdef12345678";
@@ -84,6 +85,25 @@ const postdeploy = await buildControlledReleasePostdeployReport({
 assert.equal(postdeploy.ready, true);
 assert.equal(postdeploy.summary.passedCount, 6);
 assert.doesNotMatch(JSON.stringify(postdeploy), /erp\.example\.test|must-not-leak/);
+
+const stagingPostdeployBase = {
+  ...postdeploy,
+  release: { ...postdeploy.release, target: "staging" },
+};
+const stagingPostdeployReady = appendStagingCurrentRefCheck(stagingPostdeployBase, {
+  target: "staging",
+  expectedCommit: commit,
+  currentRefCommit: commit,
+});
+assert.equal(stagingPostdeployReady.ready, true);
+assert.equal(stagingPostdeployReady.checks.at(-1)?.key, "staging-current-ref");
+const stagingPostdeployBlocked = appendStagingCurrentRefCheck(stagingPostdeployBase, {
+  target: "staging",
+  expectedCommit: commit,
+  currentRefCommit: "abcdef1234567890abcdef1234567890abcdef12",
+});
+assert.equal(stagingPostdeployBlocked.ready, false);
+assert.equal(stagingPostdeployBlocked.checks.at(-1)?.status, "blocked");
 
 const dirty = buildControlledReleaseLockReport({
   target: "staging",

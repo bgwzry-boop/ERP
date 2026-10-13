@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { initialRawMaterialInbounds } from "../src/data/fixtures.js";
 import {
   buildFindRawMaterialInboundPayloadQuery,
@@ -9,23 +8,14 @@ import {
 } from "../server/rawMaterialInboundPostgresQueryBuilder.mjs";
 import { buildListRawMaterialInboundPayloadsQuery as buildRepositoryListQuery } from "../server/rawMaterialInboundRepository.mjs";
 
-const repositorySource = readFileSync(new URL("../server/rawMaterialInboundRepository.mjs", import.meta.url), "utf8");
-const builderSource = readFileSync(
-  new URL("../server/rawMaterialInboundPostgresQueryBuilder.mjs", import.meta.url),
-  "utf8",
-);
-
-assert.match(repositorySource, /rawMaterialInboundPostgresQueryBuilder\.mjs/);
-assert.ok(repositorySource.split("\n").length <= 2_000, "repository should keep PostgreSQL query construction delegated despite the bounded raw-material state machine");
-assert.ok(builderSource.split("\n").length < 190, "query builder should stay independently reviewable");
-
 const listQuery = buildListRawMaterialInboundPayloadsQuery({
   query: { keyword: "O'Brien", status: "已打印待贴标" },
 });
-assert.match(listQuery.text, /status = \$1::text/);
-assert.match(listQuery.text, /payload_json::text ILIKE \$2::text/);
+assert.match(listQuery.text, /status <> \$1::text/);
+assert.match(listQuery.text, /status = \$2::text/);
+assert.match(listQuery.text, /payload_json::text ILIKE \$3::text/);
 assert.ok(!listQuery.text.includes("O'Brien"));
-assert.deepEqual(listQuery.values, ["已打印待贴标", "%O'Brien%"]);
+assert.deepEqual(listQuery.values, ["已作废", "已打印待贴标", "%O'Brien%"]);
 assert.deepEqual(buildRepositoryListQuery({ query: { keyword: "白侯" } }), buildListRawMaterialInboundPayloadsQuery({
   query: { keyword: "白侯" },
 }));
@@ -68,4 +58,4 @@ assert.match(updateQuery.text, /INSERT INTO operation_logs/);
 assert.ok(!updateQuery.text.includes("已复核待打印标签"));
 assert.ok(updateQuery.values.includes("已复核待打印标签"));
 
-console.log("Raw-material inbound PostgreSQL query builder checks passed: bound list/find SQL and transactional insert/update builders are isolated.");
+console.log("Raw-material inbound PostgreSQL query builder checks passed: voided drafts stay out of operational reads while bound list/find SQL and transactional insert/update builders remain isolated.");

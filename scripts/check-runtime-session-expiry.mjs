@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createRuntimeAuthActions } from "../src/app/createRuntimeAuthActions.js";
-import { getRuntimeSessionExpiryDecision } from "../src/app/useRuntimeSessionExpiry.js";
+import {
+  getRuntimeSessionExpiryDecision,
+  startRuntimeSessionExpiryMonitor,
+} from "../src/app/useRuntimeSessionExpiry.js";
 import { seedAuthStorageKey } from "../src/services/officeAuthService.js";
 
 const nowMs = Date.parse("2026-07-15T00:00:00.000Z");
@@ -22,6 +24,41 @@ assert.equal(
   getRuntimeSessionExpiryDecision({ authenticated: true, session: { sessionType: "runtime", expiresAt: "" } }, nowMs).error.code,
   "AUTH_SESSION_EXPIRY_INVALID",
 );
+
+let scheduledTimeout = null;
+let clearedTimeoutId = null;
+let monitorNowMs = nowMs;
+const monitorExpirations = [];
+const disposeExpiryMonitor = startRuntimeSessionExpiryMonitor({
+  authState: {
+    authenticated: true,
+    session: { sessionType: "runtime", expiresAt: "2026-07-15T00:00:01.250Z" },
+  },
+  onExpire: (decision) => monitorExpirations.push(decision),
+  now: () => monitorNowMs,
+  setTimeoutImpl: (callback, delayMs) => {
+    scheduledTimeout = { callback, delayMs, id: "runtime-expiry-timer" };
+    return scheduledTimeout.id;
+  },
+  clearTimeoutImpl: (timeoutId) => { clearedTimeoutId = timeoutId; },
+});
+assert.equal(scheduledTimeout.delayMs, 1250, "the expiry monitor must schedule the exact remaining session lifetime");
+monitorNowMs = Date.parse("2026-07-15T00:00:01.250Z");
+scheduledTimeout.callback();
+assert.equal(monitorExpirations.length, 1, "the scheduled check must expire the session once its deadline arrives");
+assert.equal(monitorExpirations[0].error.code, "AUTH_TOKEN_EXPIRED");
+disposeExpiryMonitor();
+assert.equal(clearedTimeoutId, "runtime-expiry-timer", "disposing the monitor must clear its outstanding browser timer");
+
+const invalidExpiryDecisions = [];
+const disposeInvalidExpiryMonitor = startRuntimeSessionExpiryMonitor({
+  authState: { authenticated: true, session: { sessionType: "runtime", expiresAt: "" } },
+  onExpire: (decision) => invalidExpiryDecisions.push(decision),
+  now: () => nowMs,
+  setTimeoutImpl: () => assert.fail("an invalid expiry must fail closed without scheduling a timer"),
+});
+assert.equal(invalidExpiryDecisions[0].error.code, "AUTH_SESSION_EXPIRY_INVALID");
+disposeInvalidExpiryMonitor();
 
 const originalWindow = globalThis.window;
 const sessionStorage = createMemoryStorage();
@@ -61,12 +98,6 @@ try {
   if (originalWindow === undefined) delete globalThis.window;
   else globalThis.window = originalWindow;
 }
-
-const appSource = readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
-const hookSource = readFileSync(new URL("../src/app/useRuntimeSessionExpiry.js", import.meta.url), "utf8");
-assert.match(appSource, /useRuntimeSessionExpiry\(\{ authState, enabled: formalLoginRequired, onExpire: expireRuntimeUserSession \}\)/);
-assert.match(hookSource, /setTimeout\(scheduleNextCheck, decision\.delayMs\)/);
-assert.match(hookSource, /clearTimeout\(timeoutId\)/);
 
 console.log("Runtime session expiry checks passed: active-session scheduling, fail-closed expiry, tab cleanup, and workspace exit are covered.");
 

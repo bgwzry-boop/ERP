@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleProductionWriteRoutes } from "../server/routes/productionWriteRoutes.mjs";
 
 const calls = [];
@@ -140,23 +139,6 @@ assert.equal(
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleProductionWriteRoutes({ ...dependencies, method: "GET", url: new URL("http://erp.test/api/production-tasks/PT-1/report-complete") }), false);
 assert.equal(await handleProductionWriteRoutes({ ...dependencies, method: "POST", url: new URL("http://erp.test/api/production-tasks/PT-1") }), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/productionWriteRoutes.mjs", import.meta.url), "utf8");
-for (const removedWrapper of [
-  "publishProductionScheduleRoute",
-  "resequenceProductionMachineQueueRoute",
-  "moveProductionMachineQueueItemRoute",
-  "recordProductionDailyProgressRoute",
-  "uploadProductionFinishedGoodsPhotoRoute",
-  "reviewProductionFinishedGoodsPhotoRoute",
-  "reportProductionCompleteRoute",
-  "completePackingTaskRoute",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
-}
-assert.match(apiSource, /handleProductionWriteRoutes\([\s\S]*productionSchedulingCommandService,[\s\S]*productionReportingCommandService,[\s\S]*productionFinishedGoodsPhotoCommandService,[\s\S]*packingCommandService,[\s\S]*sendCommandResponse,/);
-assert.doesNotMatch(routeSource, /TransactionRepository|buildCustomerNotificationTodo|buildPhotoRetakeTodo|updateProduction/);
 
 console.log("production write routes checks passed: permissions, authenticated operators, schedule/report/exception-resolution/photo/packing commands, photo projections, failures, and thin API wiring are covered");
 

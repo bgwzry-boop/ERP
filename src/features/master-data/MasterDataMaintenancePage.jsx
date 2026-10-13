@@ -25,6 +25,11 @@ import {
   MasterDataMaintenanceListPane,
 } from "./MasterDataMaintenanceWorkbench.jsx";
 import { BusinessDecisionAuthorizationWorkbench } from "./BusinessDecisionAuthorizationWorkbench.jsx";
+import { SubaccountPermissionWorkbench } from "./SubaccountPermissionWorkbench.jsx";
+import {
+  PAYROLL_POSITION_CATALOG,
+  suggestPayrollPosition,
+} from "../../../shared/payrollPositionCatalog.js";
 
 const MASTER_DATA_DETAIL_TABS = ["维护", "关联草稿", "复核规则"];
 const EMPLOYEE_MACHINE_DETAIL_TABS = ["维护", "机台配置", "关联草稿", "复核规则"];
@@ -154,7 +159,9 @@ export function MasterDataMaintenancePage({
   ];
   const detailTabs = activeTab === "员工机台" ? EMPLOYEE_MACHINE_DETAIL_TABS : MASTER_DATA_DETAIL_TABS;
   const canManageBusinessDecisionAuthorization = authState?.permissions?.actionPermissions?.includes("business_decision.authorization.manage") === true;
+  const canManageSubaccounts = authState?.permissions?.actionPermissions?.includes("permission.manage") === true;
   const showBusinessDecisionAuthorization = activeTab === "员工机台" && employeeWorkbench === "业务决定授权" && canManageBusinessDecisionAuthorization;
+  const showSubaccountPermissions = activeTab === "员工机台" && employeeWorkbench === "岗位分配" && canManageSubaccounts;
 
   useEffect(() => {
     if (!selected) return;
@@ -241,13 +248,15 @@ export function MasterDataMaintenancePage({
     <section className="page-grid split-detail operational-split-workbench master-data-maintenance-page master-data-workbench">
       {activeTab === "员工机台" ? (
         <nav className="employee-master-secondary-nav" aria-label="员工与机台二级工作台">
-          {["正式员工", "账号准备", ...(canManageBusinessDecisionAuthorization ? ["业务决定授权"] : []), "演示数据"].map((item) => (
+          {["正式员工", "账号准备", ...(canManageSubaccounts ? ["岗位分配"] : []), ...(canManageBusinessDecisionAuthorization ? ["业务决定授权"] : []), "演示数据"].map((item) => (
             <button key={item} className={employeeWorkbench === item ? "is-active" : ""} onClick={() => changeEmployeeWorkbench(item)}>{item}</button>
           ))}
         </nav>
       ) : null}
       {showBusinessDecisionAuthorization ? (
         <BusinessDecisionAuthorizationWorkbench authState={authState} currentUser={currentUser} employeeAccountReviews={employeeAccountReviews} />
+      ) : showSubaccountPermissions ? (
+        <SubaccountPermissionWorkbench authState={authState} currentUser={currentUser} employeeAccountReviews={employeeAccountReviews} />
       ) : (
         <>
       <MasterDataMaintenanceListPane
@@ -396,6 +405,19 @@ export function MasterDataMaintenancePage({
 export function EmployeeProfileEditor({ review, actionState, onSave }) {
   const [draft, setDraft] = useState(() => employeeProfileDraft(review));
   const [saving, setSaving] = useState(false);
+  const payrollSuggestion = suggestPayrollPosition({
+    payrollPositionKey: review?.payrollPositionKey,
+    roleName: review?.roleName,
+    defaultWorkshop: review?.defaultWorkshop,
+    defaultMachineId: review?.defaultMachineId,
+    configuredMachineLabel: review?.configuredMachineLabel,
+    baseHourlyWage: review?.baseHourlyWage,
+    positionAllowanceHourly: review?.positionAllowanceHourly,
+  });
+  const payrollSuggestionPositions = payrollSuggestion.candidates
+    .map((key) => PAYROLL_POSITION_CATALOG.find((position) => position.key === key))
+    .filter(Boolean);
+  const primaryPayrollSuggestion = payrollSuggestion.status === "suggested" ? payrollSuggestionPositions[0] : null;
 
   useEffect(() => {
     setDraft(employeeProfileDraft(review));
@@ -423,8 +445,25 @@ export function EmployeeProfileEditor({ review, actionState, onSave }) {
     <section className="employee-profile-editor" aria-label="员工档案与考勤身份">
       <h3>员工档案</h3>
       <p className="employee-profile-editor-intro">
-        员工编号是工资、打卡和历史记录的唯一身份。考勤机人员编号只作为外部映射，不按姓名自动匹配。
+        员工编号是工资、打卡和历史记录的唯一身份。员工只绑定工资岗位，岗位费率由版本化计薪规则统一维护；考勤人员编号不按姓名自动匹配。
       </p>
+      <div className={`employee-payroll-suggestion is-${payrollSuggestion.status}`}>
+        <div>
+          <span className="employee-payroll-suggestion-label">系统工资岗位候选</span>
+          <strong>{getPayrollSuggestionTitle(payrollSuggestion, payrollSuggestionPositions)}</strong>
+          <p>{getPayrollSuggestionDetail(payrollSuggestion)}</p>
+        </div>
+        {primaryPayrollSuggestion ? (
+          <button
+            type="button"
+            className="employee-payroll-suggestion-action"
+            disabled={draft.payrollPositionKey === primaryPayrollSuggestion.key}
+            onClick={() => update("payrollPositionKey", primaryPayrollSuggestion.key)}
+          >
+            {draft.payrollPositionKey === primaryPayrollSuggestion.key ? "已填入，待保存" : "采用该候选"}
+          </button>
+        ) : null}
+      </div>
       <div className="detail-form employee-profile-form">
         <label>
           <span>出生日期</span>
@@ -435,16 +474,11 @@ export function EmployeeProfileEditor({ review, actionState, onSave }) {
           <input type="date" value={draft.hireDate} onChange={(event) => update("hireDate", event.target.value)} />
         </label>
         <label>
-          <span>基础时薪</span>
-          <input type="number" min="0" step="0.01" value={draft.baseHourlyWage} onChange={(event) => update("baseHourlyWage", event.target.value)} />
-        </label>
-        <label>
-          <span>岗位补贴 / 小时</span>
-          <input type="number" min="0" step="0.01" value={draft.positionAllowanceHourly} onChange={(event) => update("positionAllowanceHourly", event.target.value)} />
-        </label>
-        <label>
-          <span>工资生效日期</span>
-          <input type="date" value={draft.wageEffectiveFrom} onChange={(event) => update("wageEffectiveFrom", event.target.value)} />
+          <span>工资岗位</span>
+          <select value={draft.payrollPositionKey} onChange={(event) => update("payrollPositionKey", event.target.value)}>
+            <option value="">待负责人复核</option>
+            {PAYROLL_POSITION_CATALOG.map((position) => <option key={position.key} value={position.key}>{position.name} · {position.key}</option>)}
+          </select>
         </label>
         <label>
           <span>考勤来源</span>
@@ -481,10 +515,25 @@ export function EmployeeProfileEditor({ review, actionState, onSave }) {
   );
 }
 
+function getPayrollSuggestionTitle(suggestion, positions) {
+  if (suggestion.status === "confirmed") return positions[0] ? `${positions[0].name} · ${positions[0].key}` : "正式岗位已绑定";
+  if (suggestion.status === "suggested") return positions[0] ? `${positions[0].name} · ${positions[0].key}` : "候选岗位待复核";
+  if (suggestion.status === "ambiguous") return positions.length ? positions.map((position) => position.name).join(" / ") : "存在多个候选";
+  return "无法自动判断，请负责人选择";
+}
+
+function getPayrollSuggestionDetail(suggestion) {
+  if (suggestion.status === "confirmed") return "该岗位键已保存在员工档案；更改仍需填写维护原因并正式保存。";
+  if (suggestion.status === "ambiguous") return `${suggestion.reasons.join("；") || "现有岗位、车间、机台或旧工资字段不足以唯一确定。"} 系统不会自动选择。`;
+  if (suggestion.status === "suggested") return `${suggestion.reasons.join("；")}。采用后只填入当前表单，仍需负责人保存。`;
+  return "现有岗位、车间、机台和旧工资字段不足以唯一确定；系统不按员工姓名猜测。";
+}
+
 function employeeProfileDraft(review = {}) {
   return {
     birthDate: review.birthDate || "",
     hireDate: review.hireDate || "",
+    payrollPositionKey: review.payrollPositionKey || "",
     baseHourlyWage: String(review.baseHourlyWage ?? 0),
     positionAllowanceHourly: String(review.positionAllowanceHourly ?? 0),
     wageEffectiveFrom: review.wageEffectiveFrom || "",

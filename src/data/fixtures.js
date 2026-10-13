@@ -135,7 +135,7 @@ const mobileRawMaterialReviewRows = [
   { code: "41", color: "枣红", spec: "78*80*1500", weightKg: 83.9, unitPrice: 9.5, amount: 797.05 },
   { code: "01", color: "大红", spec: "70*78*2000", weightKg: 83.6, unitPrice: 9.5, amount: 794.2 },
   { code: "01", color: "大红", spec: "70*78*2000", weightKg: 83.4, unitPrice: 9.5, amount: 792.3 },
-  { code: "17", color: "大红", spec: "条", weightKg: 74, unitPrice: 9.7, amount: 717.8, reviewPrefillSpec: "78克*5宽" },
+  { code: "17", color: "大红", spec: "条", weightKg: 74, unitPrice: 9.7, amount: 717.8, reviewPrefillSpec: "65克*5宽" },
   { code: "19", color: "大红", spec: "76*78*1500", weightKg: 91.9, unitPrice: 9.5, amount: 873.05 },
   { code: "19", color: "大红", spec: "76*78*1500", weightKg: 92, unitPrice: 9.5, amount: 874 },
 ];
@@ -312,33 +312,87 @@ export const initialRawMaterialInbounds = [
     deliveryNoteNo: "BC-240704-029",
     receivedAt: "2026-07-04 11:10",
     materialType: "提手",
-    productName: "黑色加长提手",
+    productName: "提手条",
     supplierColor: "黑",
     factoryColor: "黑色",
-    spec: "5cm*加长提",
+    spec: "65克*5宽",
+    specRaw: "65*5",
+    specDisplay: "65克*5宽",
+    gramWeightGsm: 65,
+    widthCm: 5,
+    materialCategory: "提手条",
     unit: "件",
     rollCount: 4,
     totalWeightKg: 0,
     unitPrice: 0.18,
     amount: 720,
-    status: "部分贴标",
+    status: "入库异常/待确认",
     source: "手机拍照 / 人工复核",
     ocrStatus: "已复核",
     photoStatus: "送货单照片已上传",
     signedNoteStatus: "部分单据附件已上传",
-    nextStep: "剩余件数继续逐卷贴标人工核对，未确认部分不能作为可用原料。",
+    nextStep: "4 件提手均缺少真实重量；逐件称重并重新复核前不得进入可用库存。",
     note: "北陈月结 Excel 用批号强匹配，分段表头和退货行需归一化。",
-    location: "提手区",
+    location: "提手区待称重",
     statementStatus: "存在差异",
-    statementSummary: "ERP 已入库 4 件；供应商表有退货分段，待核金额。",
-    statementDifferences: ["批号匹配", "退货行待核", "金额差异待确认"],
+    statementSummary: "ERP 已识别 4 件，但 0kg 记录未形成可用库存；供应商表有退货分段，待核金额。",
+    statementDifferences: ["4 件待补真实重量", "批号匹配", "退货行待核", "金额差异待确认"],
     rolls: [
-      rawMaterialRoll("RM-240704-003-01", "批号BC029-1", 0, "已贴标/可用库存", "可用", "提手区-A1", "2026-07-04 11:32"),
-      rawMaterialRoll("RM-240704-003-02", "批号BC029-2", 0, "已贴标/可用库存", "可用", "提手区-A1", "2026-07-04 11:36"),
-      rawMaterialRoll("RM-240704-003-03", "批号BC029-3", 0, "已打印待贴标", "不可用", "提手区待贴标"),
-      rawMaterialRoll("RM-240704-003-04", "批号BC029-4", 0, "已打印待贴标", "不可用", "提手区待贴标"),
+      rawMaterialRoll("RM-240704-003-01", "批号BC029-1", 0, "待补真实重量", "不可用", "提手区待称重"),
+      rawMaterialRoll("RM-240704-003-02", "批号BC029-2", 0, "待补真实重量", "不可用", "提手区待称重"),
+      rawMaterialRoll("RM-240704-003-03", "批号BC029-3", 0, "待补真实重量", "不可用", "提手区待称重"),
+      rawMaterialRoll("RM-240704-003-04", "批号BC029-4", 0, "待补真实重量", "不可用", "提手区待称重"),
     ],
   }),
+];
+
+export const initialRawMaterialSupplierStatementReviews = [
+  {
+    id: "RMSR-DEMO-202607-RENYI",
+    reviewId: "RMSR-DEMO-202607-RENYI",
+    supplierName: "人意无纺布",
+    fileName: "人意无纺布_2026年7月月结.xlsx",
+    statementPeriod: "2026年07月",
+    status: "已确认付款/已完成",
+    reviewStatus: "statement_confirmed",
+    summary: {
+      rowCount: 18,
+      matchedRowCount: 18,
+      candidateRowCount: 0,
+      unmatchedRowCount: 0,
+      totalWeightKg: 9328.4,
+      totalAmount: 94040,
+    },
+    summaryText: "18 行已全部匹配 ERP 收货事实；对账、应付和付款证据链完整。",
+    statementConfirmationId: "RMSRC-DEMO-202607-RENYI",
+    statementConfirmedAt: "2026-08-03T09:10:00.000Z",
+    supplierPayableId: "RMSP-DEMO-202607-RENYI",
+    supplierPayableDraft: {
+      supplierPayableId: "RMSP-DEMO-202607-RENYI",
+      sourceReviewId: "RMSR-DEMO-202607-RENYI",
+      statementConfirmationId: "RMSRC-DEMO-202607-RENYI",
+      supplierName: "人意无纺布",
+      status: "已复核待付款",
+      payableAmount: 94040,
+      generatedAt: "2026-08-03T09:20:00.000Z",
+    },
+    paymentStatus: "已确认付款",
+    supplierPaymentConfirmationId: "RMSPAY-DEMO-202607-RENYI",
+    supplierPaymentRecord: {
+      supplierPaymentConfirmationId: "RMSPAY-DEMO-202607-RENYI",
+      sourceReviewId: "RMSR-DEMO-202607-RENYI",
+      supplierPayableId: "RMSP-DEMO-202607-RENYI",
+      supplierName: "人意无纺布",
+      paidAmount: 94040,
+      paymentMethod: "银行转账",
+      paymentReferenceNo: "DEMO-READONLY-202607",
+      paidAt: "2026-08-03T10:00:00.000Z",
+      confirmedAt: "2026-08-03T10:05:00.000Z",
+    },
+    demoReadOnly: true,
+    createdAt: "2026-08-03T08:45:00.000Z",
+    updatedAt: "2026-08-03T10:05:00.000Z",
+  },
 ];
 
 export const sampleText = "张三服饰，30*38红500个明天下午自提，30*38黑100个明天下午自提；外卖活动袋40*30黄印黑黄袋红提双面3000个明天送货；35*27白色普通提1500个周五快运；25*32白色加长提1200个后天送货；30*38白色普通提1000个周五快运";
@@ -423,6 +477,7 @@ export function createOfficeScenarioData(scenarioId = defaultOfficeScenarioId) {
     initialFulfillments: cloneFixtureRows(initialFulfillments),
     initialStatements: cloneFixtureRows(initialStatements),
     initialRawMaterialInbounds: cloneFixtureRows(initialRawMaterialInbounds),
+    initialRawMaterialSupplierStatementReviews: cloneFixtureRows(initialRawMaterialSupplierStatementReviews),
     sampleText: scenario.sampleText ?? sampleText,
   };
 }
@@ -512,7 +567,7 @@ function statement(id, customerId, status, receivable, received, variance, perio
 }
 
 function rawMaterialInbound(input) {
-  return { ...input };
+  return { ...input, revision: input.revision ?? 1 };
 }
 
 function rawMaterialRoll(id, supplierRollNo, weightKg, labelStatus, inventoryStatus, location, labelVerifiedAt = "") {

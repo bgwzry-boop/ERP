@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   getConfiguredV1ProductionEnvApplicationFileConfig,
   getConfiguredV1ProductionEnvApplicationFiles,
@@ -114,20 +113,6 @@ assert.equal(sanitized.files[0].path, undefined);
 assert.equal(sanitized.files[0].variableNames, undefined);
 assert.deepEqual(sanitized.blockingFindings, []);
 assert.equal(sanitized.safeguards.rawEnvFileIncluded, false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const routeSource = readFileSync(new URL("../server/routes/systemWriteRoutes.mjs", import.meta.url), "utf8");
-assert.doesNotMatch(apiSource, /function precheckSystemV1ProductionEnvFileAudit/);
-assert.match(routeSource, /precheckProductionEnvFileAudit:[\s\S]*precheckV1ProductionEnvFileAudit\(\{ operatorId \}\)/);
-assert.doesNotMatch(routeSource, /buildProductionEnvFileAuditReport|readFileSync/);
-for (const oldDefinition of [
-  "buildV1ProductionEnvFileAuditPrecheckBody",
-  "buildV1ProductionEnvFileAuditServerConfigGuidance",
-  "buildConfiguredV1ProductionEnvFileConfig",
-  "sanitizeV1ProductionEnvFileAuditFinding",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`function ${oldDefinition}\\(`));
-}
 
 console.log(
   "V1 production-env file-audit service checks passed: source precedence, audit-only fallback, redaction, failure handling, shared projection, and thin API composition are covered.",

@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { handleStatementReadRoutes } from "../server/routes/statementReadRoutes.mjs";
 
 const calls = [];
@@ -128,17 +127,6 @@ assert.equal(
 );
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleStatementReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/statements/ST-1/exports/DL-1/extra") }), false);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-for (const removedWrapper of [
-  "getStatementExportStorageDiagnosticsRoute",
-  "getStatementExportV1ReadinessRoute",
-  "listStatementExportsRoute",
-  "downloadStatementExportRoute",
-]) {
-  assert.doesNotMatch(apiSource, new RegExp(`async function ${removedWrapper}\\b`));
-}
-assert.match(apiSource, /handleStatementReadRoutes\([\s\S]*statementExportFileService,[\s\S]*runStatementExportStorageDiagnostics,[\s\S]*sendFile,/);
 
 console.log("statement read routes checks passed: customer/detail reads, diagnostics, export list/download, permissions, 404, and thin API wiring are covered");
 

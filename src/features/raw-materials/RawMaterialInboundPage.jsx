@@ -1,100 +1,81 @@
-import { useInboundPageState } from "./useInboundPageState.js";
-import { InboundDetail } from "./InboundDetail.jsx";
+import { lazy, Suspense } from "react";
+import { RawMaterialInboundListPane, RawMaterialRollInventoryWorkbench } from "./RawMaterialInboundWorkbench.jsx";
 import { RawMaterialMobileReceiving } from "./RawMaterialMobileReceiving.jsx";
 import { RawMaterialLabelPrintSheet } from "./RawMaterialLabelPrintSheet.jsx";
-import { RawMaterialInboundListPane, RawMaterialRollInventoryWorkbench } from "./RawMaterialInboundWorkbench.jsx";
+const RawMaterialSupplierColorMappingDialog = lazy(() => import("./RawMaterialSupplierColorMappingDialog.jsx").then((module) => ({
+  default: module.RawMaterialSupplierColorMappingDialog,
+})));
+
+import { useInboundPageState } from "./useInboundPageState.js";
+import { InboundDetail } from "./InboundDetail.jsx";
 
 export function RawMaterialInboundPage(props) {
+  const state = useInboundPageState(props);
   const {
-    activeTab,
-    attachState,
     authState,
-    canViewCost,
-    changeTab,
-    consumptionState,
-    costConfirmState,
-    costDraftState,
     currentUser,
-    deliveryNoteCapturePages,
-    deliveryNoteOcrError,
+    inbounds,
+    meta,
+    printerDeviceQa,
+    firstReleaseMode,
+    activeTab,
+    keyword,
+    setKeyword,
     deliveryNoteOcrLoading,
+    deliveryNoteOcrError,
     deliveryNoteOcrProgress,
     deliveryNoteOcrResult,
-    deliveryNotePreviewByInboundId,
-    desktopView,
-    detailTab,
-    exceptionState,
-    firstReleaseMode,
-    handleConfirmSupplierPayment,
-    handleConfirmSupplierStatement,
-    handleConfirmSupplierStatementReview,
-    handleDeliveryNotePageRemove,
-    handleDeliveryNotePageSelect,
-    handleDeliveryNotePagesClear,
-    handleDeliveryNoteRecognize,
-    handleDesktopDeliveryNoteRecognize,
-    handleGenerateSupplierPayableDraft,
-    handleMobileAttach,
-    handleMobileStageChange,
-    handleOcrReviewConfirm,
-    handleOpenRollSource,
-    handlePrintLabels,
-    handleReprintLabel,
-    handleSaveSupplierStatementReviewDraft,
-    handleSelectInbound,
-    handleSupplierStatementImport,
-    inbounds,
-    issueSelection,
-    issueState,
-    keyword,
-    labelVerification,
-    leftoverReviewState,
-    leftoverState,
-    lossCalibrationState,
-    marginReviewState,
-    marginSnapshotState,
-    meta,
-    metrics,
+    deliveryNoteCapturePages,
+    deliveryNoteDirectionHint,
+    setDeliveryNoteDirectionHint,
+    deliveryNoteSupplierHint,
+    setDeliveryNoteSupplierHint,
+    mobileStage,
     mobileMessage,
-    mobileOcrReviewActive,
+    printSheetInbound,
+    desktopView,
+    setDesktopView,
+    colorMappingOpen,
+    colorMappingContext,
+    deliveryNoteSupplierOptions,
+    records,
+    visibleRecords,
+    selected,
+    reviewState,
+    printState,
+    attachState,
+    colorMappingState,
+    metrics,
     mobileOcrReviewOpen,
     mobileSelected,
-    mobileStage,
-    money,
-    ocrLineReviewDraft,
-    ocrReviewDraft,
-    ocrReviewSubmitError,
-    ocrReviewSubmitting,
-    onAction,
-    payableState,
-    paymentState,
-    printSheetInbound,
-    printState,
-    printerDeviceQa,
-    productionTasks,
-    records,
-    reviewState,
-    selected,
-    selectedOrderSupport,
-    selectedStock,
-    selectedTaskCandidate,
-    setDesktopView,
-    setDetailTab,
-    setIssueSelection,
-    setKeyword,
-    setLabelVerification,
-    setOcrLineReviewDraft,
-    setOcrReviewDraft,
-    statementImport,
-    statementImportLoading,
-    statementReviewMeta,
-    statementReviewSaving,
-    statementReviews,
-    visibleRecords
-  } = useInboundPageState(props);
-  return (
-    <section className={`page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench ${desktopView === "卷料库存" ? "is-roll-inventory-view" : "is-receiving-view"} ${mobileOcrReviewOpen ? "is-mobile-detail-open" : ""}`}>
+    openSupplierColorMapping,
+    closeSupplierColorMapping,
+    applySavedSupplierColorMapping,
+    handleSelectInbound,
+    handleOpenRollSource,
+    handleMobileStageChange,
+    handleDeliveryNotePageSelect,
+    handleDeliveryNoteRecognize,
+    handleDeliveryNotePagesClear,
+    handleDeliveryNotePageRemove,
+    handlePrintLabels,
+    handleDeferLabels,
+    handleMobileAttach,
+    changeTab
+  } = state;
+  return (<section className={`page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench ${desktopView === "卷料库存" ? "is-roll-inventory-view" : "is-receiving-view"} ${mobileOcrReviewOpen ? "is-mobile-detail-open" : ""}`}>
       <RawMaterialLabelPrintSheet inbound={printSheetInbound} />
+      {colorMappingOpen ? (
+        <Suspense fallback={null}>
+          <RawMaterialSupplierColorMappingDialog
+            authState={authState}
+            currentUser={currentUser}
+            initialValues={colorMappingContext}
+            onClose={closeSupplierColorMapping}
+            onSaved={colorMappingContext ? applySavedSupplierColorMapping : undefined}
+          />
+        </Suspense>
+      ) : null}
       <RawMaterialMobileReceiving
         attachState={attachState}
         deliveryNoteOcrError={deliveryNoteOcrError}
@@ -104,10 +85,19 @@ export function RawMaterialInboundPage(props) {
         capturedPages={deliveryNoteCapturePages}
         mobileMessage={mobileMessage}
         mobileStage={mobileStage}
+        documentDirectionHint={deliveryNoteDirectionHint}
+        supplierNameHint={deliveryNoteSupplierHint}
+        supplierOptions={deliveryNoteSupplierOptions}
         onAttach={handleMobileAttach}
         onDeliveryNotePageSelect={handleDeliveryNotePageSelect}
         onDeliveryNotePageRemove={handleDeliveryNotePageRemove}
         onDeliveryNotePagesClear={handleDeliveryNotePagesClear}
+        onDocumentDirectionHintChange={(direction) => {
+          setDeliveryNoteDirectionHint(direction);
+          if (direction !== "supplier_return") setDeliveryNoteSupplierHint("");
+        }}
+        onSupplierNameHintChange={setDeliveryNoteSupplierHint}
+        onDeferPrint={handleDeferLabels}
         onDeliveryNoteRecognize={() => handleDeliveryNoteRecognize()}
         onPrint={handlePrintLabels}
         onStageChange={handleMobileStageChange}
@@ -118,8 +108,10 @@ export function RawMaterialInboundPage(props) {
         selected={mobileSelected}
       />
       <RawMaterialRollInventoryWorkbench
+        colorMappingState={colorMappingState}
         inbounds={inbounds}
         meta={meta}
+        onOpenColorMappings={() => openSupplierColorMapping()}
         onOpenReceiving={() => setDesktopView("收货录入")}
         onOpenSource={handleOpenRollSource}
       />
@@ -138,68 +130,6 @@ export function RawMaterialInboundPage(props) {
         firstReleaseMode={firstReleaseMode}
         onOpenInventory={() => setDesktopView("卷料库存")}
       />
-      <InboundDetail {...{
-        attachState,
-        authState,
-        canViewCost,
-        consumptionState,
-        costConfirmState,
-        costDraftState,
-        currentUser,
-        deliveryNoteOcrError,
-        deliveryNoteOcrLoading,
-        deliveryNoteOcrResult,
-        deliveryNotePreviewByInboundId,
-        detailTab,
-        exceptionState,
-        firstReleaseMode,
-        handleConfirmSupplierPayment,
-        handleConfirmSupplierStatement,
-        handleConfirmSupplierStatementReview,
-        handleDesktopDeliveryNoteRecognize,
-        handleGenerateSupplierPayableDraft,
-        handleMobileStageChange,
-        handleOcrReviewConfirm,
-        handlePrintLabels,
-        handleReprintLabel,
-        handleSaveSupplierStatementReviewDraft,
-        handleSupplierStatementImport,
-        issueSelection,
-        issueState,
-        labelVerification,
-        leftoverReviewState,
-        leftoverState,
-        lossCalibrationState,
-        marginReviewState,
-        marginSnapshotState,
-        meta,
-        mobileOcrReviewActive,
-        money,
-        ocrLineReviewDraft,
-        ocrReviewDraft,
-        ocrReviewSubmitError,
-        ocrReviewSubmitting,
-        onAction,
-        payableState,
-        paymentState,
-        printState,
-        productionTasks,
-        reviewState,
-        selected,
-        selectedOrderSupport,
-        selectedStock,
-        selectedTaskCandidate,
-        setDetailTab,
-        setIssueSelection,
-        setLabelVerification,
-        setOcrLineReviewDraft,
-        setOcrReviewDraft,
-        statementImport,
-        statementImportLoading,
-        statementReviewMeta,
-        statementReviewSaving,
-        statementReviews
-      }} />
-    </section>
-  );
+      <InboundDetail state={state} />
+    </section>);
 }

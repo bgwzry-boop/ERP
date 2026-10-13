@@ -9,13 +9,14 @@ import {
   listenTestServer,
   postJson as postSharedJson,
 } from "./helpers/apiIntegrationTestHarness.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "print-job-command-bridge-status-readback");
 const bridgeScript = join(process.cwd(), "scripts", "print-command-bridge.mjs");
 rmSync(checkStorageRoot, { recursive: true, force: true });
 process.env.ERP_LOCAL_STORAGE_DIR = checkStorageRoot;
 
-const server = createApiServer({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
   printDriverAdapterOptions: {
     dryRunEnabled: false,
     systemPrinterEnabled: true,
@@ -35,7 +36,7 @@ const server = createApiServer({ allowLocalFixture: true,
     commandBridgeSpoolDir: join(checkStorageRoot, "print-command-bridge"),
     allowedPrinterNames: ["PRN-COMMAND-STATUS-CHECK", "状态回读标签机"],
   },
-});
+}));
 await server.ready;
 await listenTestServer(server);
 

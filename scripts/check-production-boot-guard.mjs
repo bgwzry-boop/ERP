@@ -10,6 +10,7 @@ import { createFulfillmentActionTransactionRepository } from "../server/fulfillm
 import { createRawMaterialInboundRepository } from "../server/rawMaterialInboundRepository.mjs";
 import { createProductionPackingTransactionRepository } from "../server/productionPackingTransactionRepository.mjs";
 import { createAttendancePayrollRepository } from "../server/attendancePayrollRepository.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
 const production = { isProduction: true };
 const demo = { isProduction: false };
@@ -40,7 +41,7 @@ assertBootRefused({ env: {}, options: { attachmentObjectStorageOptions: { mode: 
 assertBootRefused({ env: {}, options: { attachmentRepository: { kind: "local_json" } } }, "attachmentRepository", "optionKeys");
 
 assert.throws(
-  () => createApiServer({ allowLocalFixture: true, runtimeMode: "production", applyProductionEnvFile: false, scenarioId: "case-1" }),
+  () => createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, runtimeMode: "production", applyProductionEnvFile: false, scenarioId: "case-1" })),
   (error) => error?.code === "ERP_PRODUCTION_SEED_NOT_ALLOWED",
 );
 

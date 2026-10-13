@@ -24,5 +24,5 @@ import "../../../../src/styles/features/v1-status.css";
 import "../../../../src/styles/interface-polish.css";
 
 export function FormalMobileEntry() {
-  return <App />;
+  return <App signedPreviewUserId="U-MANAGER-A" />;
 }

@@ -3,9 +3,12 @@ import {
   hasExplicitRawMaterialStripMarker,
   parseRawMaterialSpec,
 } from "../../shared/rawMaterialSpec.js";
+import { resolveRawMaterialFactoryColor } from "../../shared/rawMaterialFactoryColors.js";
+import { classifyRawMaterialSupplierReturnCategory } from "../../shared/rawMaterialSupplierReturn.js";
+import { RAW_MATERIAL_SUPPLIER_PROFILES } from "../../shared/rawMaterialSupplierProfiles.js";
 
 const headerAliases = {
-  productName: ["品名", "产品名称", "货品名称", "物料名称", "材料名称", "名称"],
+  productName: ["品名", "品名称", "商品名称", "商品全名", "产品名称", "货品名称", "物料名称", "材料名称", "名称"],
   materialType: ["材料", "材质", "物料类型", "类别", "品类"],
   supplierColor: ["颜色", "色号", "供应商颜色"],
   spec: ["规格", "型号"],
@@ -26,32 +29,7 @@ const keyValueAliases = {
   receivedAt: ["送货日期", "单据日期", "日期"],
 };
 
-const supplierOcrProfiles = [
-  {
-    key: "renyi_zhengheng",
-    aliases: ["人意无纺布", "振恒"],
-    documentPriceReferenceOnly: true,
-  },
-  {
-    key: "daxiang_beichen",
-    aliases: ["宁晋县达翔塑料制品", "达翔塑料", "北陈", "河北北陈无纺布"],
-  },
-  {
-    key: "tengsheng",
-    aliases: ["宁晋县腾胜无纺布", "腾胜无纺布", "腾胜"],
-  },
-  {
-    key: "hongshang_baihou",
-    aliases: ["河北宏尚无纺布", "宏尚无纺布", "白候"],
-  },
-  {
-    key: "xinlonghong",
-    aliases: ["新乐市鑫隆宏无纺布", "鑫隆宏无纺布", "鑫隆宏"],
-    provisional: true,
-  },
-];
-
-export const RAW_MATERIAL_OCR_PARSER_VERSION = 15;
+export const RAW_MATERIAL_OCR_PARSER_VERSION = 20;
 
 export const RAW_MATERIAL_DOCUMENT_DIRECTIONS = {
   delivery: "supplier_delivery",
@@ -77,9 +55,15 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
   const allRows = tableRows.flat();
   const allCells = tables.flatMap((table) => table.cells);
   const allText = allCells.map((cell) => cell.text).filter(Boolean).join("\n");
-  const documentDirection = inferDocumentDirection({ allRows, allText });
+  const documentDirectionHint = normalizeDocumentDirectionHint(input.documentDirectionHint);
+  const documentDirection = documentDirectionHint || inferDocumentDirection({ allRows, allText });
   const knownSupplierNames = uniqueText(input.knownSupplierNames);
+  const supplierNameHint = normalizeSupplierName(input.supplierNameHint);
+  const hintedSupplierName = knownSupplierNames.find((name) => (
+    normalizeSupplierName(name) === supplierNameHint
+  ));
   const supplierName = normalizeSupplierName(
+    hintedSupplierName ||
     knownSupplierNames.find((name) => name && allText.includes(name)) ||
     findKeyValue(allRows, keyValueAliases.supplierName).value ||
     inferSupplierName(allText),
@@ -91,10 +75,22 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
   ) || cleanText(input.receivedAt);
   const lineCandidates = tableRows.flatMap((rows, tableIndex) => extractTableLines(rows, tableIndex, tables[tableIndex]));
   const lines = lineCandidates.length ? lineCandidates : [buildFallbackLine(allRows)];
+  const colorResolutionOptions = {
+    colorAliases: input.colorAliases,
+    standardColors: input.standardColors,
+  };
   const validLines = lines
-    .map((line, index) => normalizeLine(line, index, { documentDirection, supplierName }))
+    .map((line, index) => normalizeLine(line, index, {
+      ...colorResolutionOptions,
+      documentDirection,
+      supplierName,
+    }))
     .filter(isReviewableOcrMaterialLine);
-  const firstLine = validLines[0] ?? normalizeLine({}, 0, { documentDirection, supplierName });
+  const firstLine = validLines[0] ?? normalizeLine({}, 0, {
+    ...colorResolutionOptions,
+    documentDirection,
+    supplierName,
+  });
   const calculatedLineWeightKg = roundNumber(sum(validLines.map((line) => line.values.totalWeightKg)), 3);
   const calculatedLineAmount = roundNumber(sum(validLines.map((line) => line.values.amount)), 2);
   const summaryValues = extractSummaryValues(allRows, {
@@ -118,6 +114,7 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
   const materialType = firstLine.values.materialType || inferMaterialTypeFromContext({ allText, lines: validLines });
   const productName = firstLine.values.productName || (materialType === "无纺布" ? "无纺布卷料" : materialType) || "待人工确认原材料";
   const supplierColor = firstLine.values.supplierColor;
+  const factoryColor = firstLine.values.factoryColor;
   const spec = firstLine.values.spec;
   const parsedSpecStructure = parseRawMaterialSpec(spec);
   const specStructure = {
@@ -139,7 +136,7 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     productName,
     spec,
     supplierColor,
-    factoryColor: supplierColor,
+    factoryColor,
     rollCount: recognizedRollCount,
     totalWeightKg,
     unit,
@@ -156,7 +153,7 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     reviewStatus: needsReview(key, value, fieldConfidence[key]) ? "待人工复核" : "待人工接受",
     required: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
       ? ["supplierName", "materialType", "productName", "rollCount", "unit"].includes(key)
-      : ["supplierName", "materialType", "productName", "spec", "rollCount", "unit"].includes(key),
+      : ["supplierName", "materialType", "productName", "spec", "factoryColor", "rollCount", "unit"].includes(key),
   }));
   const recognizedAt = cleanText(input.recognizedAt) || new Date().toISOString();
   const rolls = documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
@@ -167,6 +164,8 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     id: inboundId,
     revision: 1,
     documentDirection,
+    documentDirectionSource: documentDirectionHint ? "operator_capture_selection" : "ocr_inference",
+    supplierNameSource: hintedSupplierName ? "operator_capture_selection" : "ocr_inference",
     documentTypeLabel: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return ? "退货单" : "送货单",
     supplierOcrProfileKey: supplierProfile?.key ?? "generic",
     supplierOcrProfileProvisional: supplierProfile?.provisional === true,
@@ -193,6 +192,10 @@ export function buildRawMaterialInboundDraftFromOcr(input = {}) {
     ocrRawText: allText.slice(0, 30_000),
     ocrReviewFields,
     ocrLines: validLines,
+    factoryColorMappingStatus: cleanText(firstLine.factoryColorResolution?.status) || "unmapped",
+    factoryColorMappingAliasId: cleanText(firstLine.factoryColorResolution?.aliasId),
+    factoryColorMappingSource: cleanText(firstLine.factoryColorResolution?.sourceType),
+    factoryColorMappingSupplierId: cleanText(firstLine.factoryColorResolution?.supplierSourceId),
     ocrDeclaredAmount: declaredAmount,
     ocrCalculatedLineAmount: calculatedLineAmount,
     ocrDeclaredWeightKg: summaryValues.totalWeightKg,
@@ -270,6 +273,7 @@ function extractTableLines(rows, tableIndex, table = {}) {
 
 function detectSequentialLayout(headerRow) {
   const labels = headerRow.map((cell) => normalizeHeader(cell.text));
+  const headerKeys = new Set(headerRow.map((cell) => matchHeaderKey(cell.text)).filter(Boolean));
   if (labels.some((label) => label.includes("规格型号"))
     && labels.some((label) => label.includes("件数"))
     && labels.some((label) => label.includes("数量"))
@@ -288,7 +292,7 @@ function detectSequentialLayout(headerRow) {
   if (hasOneRollCommercialColumns) {
     return "one_weighed_roll_per_row";
   }
-  if (labels.some((label) => label.includes("商品名称")) && labels.some((label) => label.includes("颜色")) && labels.some((label) => label.includes("重量"))) {
+  if (headerKeys.has("productName") && headerKeys.has("supplierColor") && headerKeys.has("totalWeightKg") && !headerKeys.has("spec")) {
     return "variable_roll_weights";
   }
   return "";
@@ -453,6 +457,8 @@ function parseVariableRollWeightLine(cells) {
   }
   let unitPrice = 0;
   let amount = 0;
+  let amountRawAudit = 0;
+  let amountNormalizationReason = "";
   if (remaining.length >= 2) {
     unitPrice = remaining.at(-2);
     amount = remaining.at(-1);
@@ -460,7 +466,25 @@ function parseVariableRollWeightLine(cells) {
   } else if (remaining.length === 1) {
     amount = remaining[0];
   }
+  const expectedLineAmount = roundNumber(rollWeightTotal * unitPrice, 2);
+  if (unitPrice > 0 && amount > 0 && !approximatelyEqual(amount, expectedLineAmount)) {
+    amountRawAudit = amount;
+    amount = 0;
+    amountNormalizationReason = "尾部数值与该行卷重合计×单价不一致，未作为行金额；原始数值保留用于人工复核";
+  }
   const confidenceIndex = Math.min(cells.length - 1, weightStart);
+  const confidences = buildSequentialConfidences(cells, {
+    productName: 0,
+    materialType: 0,
+    supplierColor: rollCountIndex === 2 ? 1 : 0,
+    spec: 0,
+    rollCount: rollCountIndex,
+    totalWeightKg: confidenceIndex,
+    unit: confidenceIndex,
+    unitPrice: Math.max(0, cells.length - 2),
+    amount: Math.max(0, cells.length - 1),
+  });
+  if (amountNormalizationReason) confidences.amount = 0;
   return {
     values: enrichRawMaterialSpecValues({
       productName,
@@ -472,20 +496,12 @@ function parseVariableRollWeightLine(cells) {
       unit: "kg",
       unitPrice,
       amount,
+      amountRawAudit,
+      amountNormalizationReason,
       supplierRollNo: "",
       rollWeightsKg,
     }),
-    confidences: buildSequentialConfidences(cells, {
-      productName: 0,
-      materialType: 0,
-      supplierColor: rollCountIndex === 2 ? 1 : 0,
-      spec: 0,
-      rollCount: rollCountIndex,
-      totalWeightKg: confidenceIndex,
-      unit: confidenceIndex,
-      unitPrice: Math.max(0, cells.length - 2),
-      amount: Math.max(0, cells.length - 1),
-    }),
+    confidences,
   };
 }
 
@@ -496,7 +512,12 @@ function buildSequentialConfidences(cells, indexes) {
 function shouldSkipRecognizedRow(row) {
   const texts = row.map((cell) => cleanText(cell.text)).filter(Boolean);
   const joined = texts.join(" ");
-  if (!texts.length || /^(?:合计|合计:|总计|总计大写|页小计|上期欠款|本单金额|累计欠款)/.test(joined)) return true;
+  const compactLeadingText = cleanText(texts[0]).replace(/[\s：:]+/gu, "");
+  if (
+    !texts.length
+    || /^(?:计|合计|总计|总计大写|金额大写|页小计|(?:上期|期初|本期|累计)?欠款|欠款|本单金额|本单收款|累计欠款|收款账户|开户行|账号)$/u.test(compactLeadingText)
+    || /^(?:计|合计|总计|页小计|(?:上期|期初|本期|累计)?欠款|欠款|本单金额|本单收款|累计欠款)[\s：:]/u.test(joined)
+  ) return true;
   if (texts.length <= 10 && texts.every((text) => /^\d+$/.test(text))) return true;
   return false;
 }
@@ -511,18 +532,15 @@ function extractSummaryValues(rows, {
     const texts = row.map((cell) => cleanText(cell.text)).filter(Boolean);
     if (!texts.length) continue;
     const label = texts[0];
-    const numbers = texts.slice(1).map(parseNumber).filter(isNonZeroNumber);
-    if (/^(?:合计|合计:)/.test(label)) {
+    const summaryTexts = takeSummaryCells(texts.slice(1));
+    const numbers = summaryTexts.map(parseNumber).filter(isNonZeroNumber);
+    if (/^(?:计|合计|合计:)$/.test(label)) {
       const rollCount = Number.isInteger(numbers[0]) && numbers[0] <= 500 ? numbers[0] : 0;
-      if (numbers.length >= 3) candidates.push({
+      const summaryNumbers = rollCount ? numbers.slice(1) : numbers;
+      candidates.push({
         rollCount,
-        totalWeightKg: applyDocumentDirection(numbers.at(-2), documentDirection),
-        amount: applyDocumentDirection(numbers.at(-1), documentDirection),
-      });
-      else if (numbers.length >= 2) candidates.push({
-        rollCount,
-        totalWeightKg: 0,
-        amount: applyDocumentDirection(numbers.at(-1), documentDirection),
+        totalWeightKg: applyDocumentDirection(summaryNumbers.length >= 2 ? summaryNumbers.at(-2) : 0, documentDirection),
+        amount: applyDocumentDirection(summaryNumbers.at(-1) || 0, documentDirection),
       });
     }
     if (/^(?:总计大写|页小计)/.test(label) && numbers.length >= 2) {
@@ -538,6 +556,13 @@ function extractSummaryValues(rows, {
     summaryDistance(left, { calculatedLineAmount, calculatedLineWeightKg })
     - summaryDistance(right, { calculatedLineAmount, calculatedLineWeightKg })
   ))[0];
+}
+
+function takeSummaryCells(texts) {
+  const stopIndex = texts.findIndex((text) => (
+    /^(?:(?:上期|期初|本期|累计)?欠款|欠款|本单金额|本单收款|累计欠款|收款账户|开户行|账号)[：:]?$/u.test(cleanText(text))
+  ));
+  return stopIndex >= 0 ? texts.slice(0, stopIndex) : texts;
 }
 
 function summaryDistance(summary, { calculatedLineAmount = 0, calculatedLineWeightKg = 0 } = {}) {
@@ -563,24 +588,48 @@ function buildFallbackLine(rows) {
 }
 
 function normalizeLine(input = {}, index, {
+  colorAliases = [],
   documentDirection = RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery,
+  standardColors = [],
   supplierName = "",
 } = {}) {
   const values = applySupplierLineAdapter(input.values ?? {}, supplierName);
+  const factoryColorResolution = resolveRawMaterialFactoryColor({
+    colorAliases,
+    standardColors,
+    supplierColor: values.supplierColor,
+    supplierName,
+  });
   const normalizedSpecValues = enrichRawMaterialSpecValues({
     productName: cleanText(values.productName),
     materialType: cleanText(values.materialType),
     supplierColor: cleanText(values.supplierColor),
+    factoryColor: cleanText(values.factoryColor) || factoryColorResolution.factoryColor,
     spec: cleanText(values.spec),
     rollCount: positiveNumber(values.rollCount, 0),
     totalWeightKg: applyDocumentDirection(values.totalWeightKg, documentDirection),
     unit: normalizeUnit(values.unit, values.totalWeightKg),
-    unitPrice: positiveNumber(values.unitPrice, 0),
+    // Supplier table OCR sometimes keeps the visual column separator attached to
+    // the price (for example `-9.3`). Unit prices are always positive business
+    // values; the document direction is carried by weight and amount instead.
+    // Normalising the sign here preserves real return quantities while avoiding
+    // a separator glyph turning a valid price into zero during review.
+    unitPrice: positiveNumber(Math.abs(finiteNumber(values.unitPrice, 0)), 0),
     amount: applyDocumentDirection(values.amount, documentDirection),
+    amountRawAudit: positiveNumber(Math.abs(finiteNumber(values.amountRawAudit, 0)), 0),
+    amountNormalizationReason: cleanText(values.amountNormalizationReason),
     supplierRollNo: cleanText(values.supplierRollNo),
     rollWeightsKg: (Array.isArray(values.rollWeightsKg) ? values.rollWeightsKg : [])
       .map((value) => applyDocumentDirection(value, documentDirection))
       .filter(isNonZeroNumber),
+    returnMaterialCategory: documentDirection === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return
+      ? classifyRawMaterialSupplierReturnCategory({
+          productName: values.productName,
+          materialType: values.materialType,
+          supplierColor: values.supplierColor,
+          sourceText: input.sourceText,
+        })
+      : "",
   });
   if (cleanText(values.specRawAudit)) normalizedSpecValues.specRaw = cleanText(values.specRawAudit);
   if (cleanText(values.specNormalizationReason)) normalizedSpecValues.specNormalizationReason = cleanText(values.specNormalizationReason);
@@ -590,6 +639,7 @@ function normalizeLine(input = {}, index, {
     sourceRowIndex: Math.max(0, Number(input.sourceRowIndex) || 0),
     sourceBounds: normalizeSourceBounds(input.sourceBounds),
     sourceText: cleanText(input.sourceText),
+    factoryColorResolution,
     reviewStatus: "待人工复核",
     values: normalizedSpecValues,
     confidences: Object.fromEntries(
@@ -722,12 +772,18 @@ function findDeliveryNoteNo(rows, allText) {
   const keyed = cleanText(findKeyValue(rows, keyValueAliases.deliveryNoteNo).value);
   if (isPlausibleDeliveryNoteNo(keyed)) return keyed;
   const inferred = cleanText(inferDeliveryNoteNo(allText));
-  return isPlausibleDeliveryNoteNo(inferred) ? inferred : "";
+  if (isPlausibleDeliveryNoteNo(inferred)) return inferred;
+  const standaloneCandidates = rows
+    .flatMap((row) => row.map((cell) => cleanText(cell.text)))
+    .filter((value) => /[A-Z]/iu.test(value) && isPlausibleDeliveryNoteNo(value))
+    .filter((value) => !/^RMI?-OCR-/iu.test(value));
+  return uniqueText(standaloneCandidates).sort((left, right) => right.length - left.length)[0] || "";
 }
 
 function isPlausibleDeliveryNoteNo(value) {
   const text = cleanText(value);
   if (!text || !/\d/u.test(text)) return false;
+  if (/^\d{4}[-/.]\d{1,2}[-/.]\d{1,2}$/u.test(text)) return false;
   if (/^(?:商品全名|商品名称|货物名称|规格型号|颜色|数量|单位|单价|金额|备注)$/u.test(text)) return false;
   return /^[A-Z0-9][A-Z0-9._/-]{3,}$/iu.test(text);
 }
@@ -803,6 +859,13 @@ function normalizeSupplierName(value) {
   return cleanText(value).replace(/(?:销货单|销售单|送货单|退货单|退料单)\s*$/u, "").trim();
 }
 
+function normalizeDocumentDirectionHint(value) {
+  const direction = cleanText(value);
+  if (direction === RAW_MATERIAL_DOCUMENT_DIRECTIONS.delivery) return direction;
+  if (direction === RAW_MATERIAL_DOCUMENT_DIRECTIONS.return) return direction;
+  return "";
+}
+
 function inferDocumentDirection({ allRows = [], allText = "" } = {}) {
   if (/(?:退货单|退料单)/u.test(allText)) return RAW_MATERIAL_DOCUMENT_DIRECTIONS.return;
   const hasNegativeMaterialLine = allRows.some((row) => {
@@ -811,7 +874,7 @@ function inferDocumentDirection({ allRows = [], allText = "" } = {}) {
     const joined = texts.join(" ");
     if (/^(?:合计|总计|上期欠款|本单金额|累计欠款)/u.test(joined)) return false;
     const identity = texts.slice(0, 2).join(" ");
-    const hasMaterialIdentity = /(?:布|条|膜|纸|退带色|梦幻紫|彩色|废布)/u.test(identity) || looksLikeSpec(texts[0]);
+    const hasMaterialIdentity = /(?:布|条|膜|纸|退带色|彩色|废布)/u.test(identity) || looksLikeSpec(texts[0]);
     return hasMaterialIdentity && texts.slice(1).some((text) => parseNumber(text) < 0);
   });
   return hasNegativeMaterialLine
@@ -874,7 +937,7 @@ function applySupplierLineAdapter(values = {}, supplierName = "") {
 function findSupplierOcrProfile(supplierName) {
   const normalizedSupplier = cleanText(supplierName).replace(/\s+/gu, "");
   if (!normalizedSupplier) return null;
-  return supplierOcrProfiles.find((profile) => profile.aliases.some((alias) => normalizedSupplier.includes(alias))) ?? null;
+  return RAW_MATERIAL_SUPPLIER_PROFILES.find((profile) => profile.aliases.some((alias) => normalizedSupplier.includes(alias))) ?? null;
 }
 
 function inferMaterialTypeFromContext({ allText, lines }) {
@@ -921,6 +984,11 @@ function buildOcrRolls({ inboundId, lines }) {
     productName: cleanText(line.values.productName),
     materialType: cleanText(line.values.materialType),
     supplierColor: cleanText(line.values.supplierColor),
+    factoryColor: cleanText(line.values.factoryColor),
+    factoryColorMappingStatus: cleanText(line.factoryColorResolution?.status) || "unmapped",
+    factoryColorMappingAliasId: cleanText(line.factoryColorResolution?.aliasId),
+    factoryColorMappingSource: cleanText(line.factoryColorResolution?.sourceType),
+    factoryColorMappingSupplierId: cleanText(line.factoryColorResolution?.supplierSourceId),
     spec: cleanText(line.values.spec),
     specRaw: cleanText(line.values.specRaw || line.values.spec),
     specDisplay: cleanText(line.values.specDisplay || line.values.spec),

@@ -21,7 +21,7 @@ import {
   getMasterDataImportTemplateDefinitions,
   getMasterDataImportTemplateSets,
   getMasterDataImportTemplateSummary,
-} from "../domain/masterDataImportTemplate.js";
+} from "../domain/masterDataImportTemplateCatalog.js";
 import {
   canCreateMasterDataImportReviewDraft,
   getMasterDataImportReviewDraftSummary,

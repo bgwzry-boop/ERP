@@ -288,6 +288,7 @@ export const requiredTableColumns = {
     "default_machine_id",
     "birth_date",
     "hire_date",
+    "payroll_position_key",
     "base_hourly_wage",
     "position_allowance_hourly",
     "wage_effective_from",

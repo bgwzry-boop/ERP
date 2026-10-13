@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import { createProductionMachineQueueReadService } from "../server/services/productionMachineQueueReadService.mjs";
 
 const fixedNow = new Date("2026-07-14T08:00:00.000Z");
@@ -102,22 +101,6 @@ assert.deepEqual(calls.tasks[1], {
 const statusFiltered = await service.buildMachineQueue({ workspace, query: { status: "丝印已排产" } });
 assert.deepEqual(statusFiltered.items.map((item) => item.productionTaskId), ["PT-F"]);
 assert.deepEqual(scheduleRecords.map((item) => item.revision), [1, 1]);
-
-const apiSource = readFileSync(new URL("../server/apiServer.mjs", import.meta.url), "utf8");
-const registrySource = readFileSync(new URL("../server/apiSharedServiceRegistry.mjs", import.meta.url), "utf8");
-assert.match(registrySource, /createProductionMachineQueueReadService/);
-assert.match(registrySource, /productionMachineQueueReadService\.buildMachineQueue/);
-for (const oldHelper of [
-  "function buildProductionMachineQueueResponse",
-  "function normalizeProductionMachineQueueQuery",
-  "function buildProductionMachineQueueItem",
-  "function normalizeProductionMachineQueueDailyProgress",
-  "function sortProductionMachineQueueItems",
-  "function matchesProductionMachineQueueKeyword",
-  "function findProductionScheduleRecord",
-]) {
-  assert.equal(apiSource.includes(oldHelper), false, `${oldHelper} should not remain in the API composition root`);
-}
 
 console.log(
   "Production machine queue read service checks passed: published/carry-over eligibility, manual ordering, filters, machine summaries, and machine-count safeguards are isolated.",

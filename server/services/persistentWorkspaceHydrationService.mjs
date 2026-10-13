@@ -100,6 +100,7 @@ export async function hydratePersistentWorkspaceState({
 
   const persistedRawMaterialSupplierStatementReviewState = await loadState(
     workspace.rawMaterialSupplierStatementReviewRepository,
+    productionRuntime ? undefined : { seedReviews: toArray(workspace.initialRawMaterialSupplierStatementReviews) },
   );
   workspace.rawMaterialSupplierStatementReviews = toArray(
     persistedRawMaterialSupplierStatementReviewState.rawMaterialSupplierStatementReviews,
@@ -218,19 +219,11 @@ async function ensureNonProductionSeedUserReferences({
 
   if (
     workspace.runtimeIdentityRepository?.kind !== "postgres" ||
-    typeof workspace.runtimeIdentityRepository.saveState !== "function"
+    typeof workspace.runtimeIdentityRepository.ensureSeedUserReferences !== "function"
   ) {
     return;
   }
-  await workspace.runtimeIdentityRepository.saveState({
-    workspace: {
-      users: seedUserReferences,
-      employees: [],
-      operationLogs: [],
-      phoneVerificationChallenges: [],
-      revokedSeedSessions: [],
-    },
-  });
+  await workspace.runtimeIdentityRepository.ensureSeedUserReferences(seedUserReferences);
 }
 
 async function loadState(repository, options) {

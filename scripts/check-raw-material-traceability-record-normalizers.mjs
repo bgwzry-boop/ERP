@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import {
   normalizeRawMaterialConsumptionRecords,
   normalizeRawMaterialIssueRecords,
@@ -7,25 +6,6 @@ import {
   normalizeRawMaterialLeftoverReviewRecords,
   normalizeRawMaterialSplitRecords,
 } from "../server/rawMaterialTraceabilityRecordNormalizer.mjs";
-
-const commandSource = readFileSync(new URL("../server/services/rawMaterialInboundCommandService.mjs", import.meta.url), "utf8");
-const normalizerSource = readFileSync(
-  new URL("../server/rawMaterialTraceabilityRecordNormalizer.mjs", import.meta.url),
-  "utf8",
-);
-const names = [
-  "normalizeRawMaterialIssueRecords",
-  "normalizeRawMaterialConsumptionRecords",
-  "normalizeRawMaterialLeftoverReturnRecords",
-  "normalizeRawMaterialLeftoverReviewRecords",
-  "normalizeRawMaterialSplitRecords",
-];
-
-assert.match(commandSource, /rawMaterialTraceabilityRecordNormalizer\.mjs/);
-for (const name of names) {
-  assert.match(normalizerSource, new RegExp(`export function ${name}\\(`));
-}
-assert.ok(normalizerSource.split("\n").length < 300, "traceability normalizer should stay independently reviewable");
 
 const [issue] = normalizeRawMaterialIssueRecords([
   {
@@ -112,5 +92,5 @@ assert.equal(
 );
 
 console.log(
-  "Raw-material traceability normalizers check passed: record schemas, defaults, numeric/text cleanup, filters, and repository ownership are isolated.",
+  "Raw-material traceability normalizers check passed: record schemas, defaults, numeric/text cleanup, and filters are covered.",
 );

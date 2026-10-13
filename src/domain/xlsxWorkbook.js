@@ -1,5 +1,4 @@
-export const XLSX_CONTENT_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-export const XLSX_FILE_EXTENSION = ".xlsx";
+export { XLSX_CONTENT_TYPE, XLSX_FILE_EXTENSION } from "./xlsxWorkbookContract.js";
 
 export function buildXlsxWorkbookFromWorksheets(input = {}) {
   const worksheets = normalizeWorksheets(input.worksheets);

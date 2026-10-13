@@ -2,6 +2,7 @@
 
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { execFileSync } from "node:child_process";
 import { readControlledReleaseLock, verifyControlledReleaseLock } from "./controlled-release-lock-lib.mjs";
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await runCli();
@@ -15,16 +16,58 @@ async function runCli() {
       expectedCommit: options.expectedCommit,
       expectedTarget: options.expectedTarget,
     });
-    const report = await buildControlledReleasePostdeployReport({
+    let report = await buildControlledReleasePostdeployReport({
       baseUrl: options.baseUrl,
       lockVerification,
       fetchImpl: globalThis.fetch,
+    });
+    report = appendStagingCurrentRefCheck(report, {
+      target: lockVerification.release?.target,
+      expectedCommit: lockVerification.release?.commit,
+      currentRefCommit: readRemoteStagingCurrentCommit(),
     });
     process.stdout.write(options.json ? `${JSON.stringify(report)}\n` : formatReport(report));
     process.exitCode = report.ready ? 0 : 2;
   } catch {
     process.stderr.write("Controlled post-deploy verification failed without exposing the deployment URL or response body.\n");
     process.exitCode = 1;
+  }
+}
+
+export function appendStagingCurrentRefCheck(report, options = {}) {
+  if (options.target !== "staging") return report;
+  const expectedCommit = String(options.expectedCommit || "").trim().toLowerCase();
+  const currentRefCommit = String(options.currentRefCommit || "").trim().toLowerCase();
+  const currentRefCheck = check(
+    "staging-current-ref",
+    "staging-current 唯一基线与部署提交一致",
+    /^[a-f0-9]{40}$/.test(expectedCommit) && currentRefCommit === expectedCommit,
+  );
+  const checks = [...report.checks, currentRefCheck];
+  const ready = checks.every((item) => item.ready);
+  return {
+    ...report,
+    status: ready ? "ready" : "blocked",
+    ready,
+    summary: {
+      passedCount: checks.filter((item) => item.ready).length,
+      totalCount: checks.length,
+      blockingCount: checks.filter((item) => !item.ready).length,
+    },
+    checks,
+  };
+}
+
+function readRemoteStagingCurrentCommit() {
+  try {
+    const output = execFileSync(
+      "git",
+      ["ls-remote", "--heads", "origin", "refs/heads/codex/staging-current"],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
+    ).trim();
+    return String(output.split(/\s+/)[0] || "").toLowerCase();
+  } catch {
+    return "";
   }
 }
 
