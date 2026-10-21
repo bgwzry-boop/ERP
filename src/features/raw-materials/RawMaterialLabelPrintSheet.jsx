@@ -62,7 +62,7 @@ export function RawMaterialQrCode({ quietZone = 4, value }) {
     <svg
       aria-label={`卷码二维码 ${value}`}
       className="raw-material-qr"
-      preserveAspectRatio="xMidYMid meet"
+      preserveAspectRatio="none"
       role="img"
       shapeRendering="crispEdges"
       viewBox={`0 0 ${size} ${size}`}
