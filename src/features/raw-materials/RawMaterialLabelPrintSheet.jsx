@@ -105,19 +105,19 @@ function RawMaterialRollPrintLabel({ inbound, roll }) {
           </tr>
           <tr className="is-spec">
             <th rowSpan="4">产品规格</th>
-            <th>幅宽 cm</th>
+            <th>幅宽cm</th>
             <td className="is-measure">{label.widthText}</td>
           </tr>
           <tr className="is-spec">
-            <th>卷长 m</th>
+            <th>卷长m</th>
             <td className="is-measure">{label.lengthText}</td>
           </tr>
           <tr className="is-spec">
-            <th>克重 g/㎡</th>
+            <th>克重g/㎡</th>
             <td className="is-measure">{label.gramWeightText}</td>
           </tr>
           <tr className="is-spec is-weight-row">
-            <th>重量 kg</th>
+            <th>重量kg</th>
             <td className="is-measure is-weight">{label.weightText}</td>
           </tr>
           <tr className="is-pair">

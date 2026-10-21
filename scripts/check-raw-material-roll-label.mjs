@@ -59,12 +59,13 @@ assert.equal(row(10), "000110111111000100010");
 
 const sheet = readFileSync(new URL("../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx", import.meta.url), "utf8");
 const css = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
-for (const text of ["品名称", "执行标准", "产品规格", "幅宽 cm", "卷长 m", "克重 g/㎡", "重量 kg", "出库时扫描本卷码", "公司名称", "联系方式", "公司地址", "卷料标签", "袋袋赢"]) {
+for (const text of ["品名称", "执行标准", "产品规格", "幅宽cm", "卷长m", "克重g/㎡", "重量kg", "出库时扫描本卷码", "公司名称", "联系方式", "公司地址", "卷料标签", "袋袋赢"]) {
   assert.equal(sheet.includes(text), true, `print sheet should render ${text}`);
 }
 assert.equal(sheet.includes("BAGWIN"), false);
 assert.match(css, /@page roll-label\s*\{[^}]*size:\s*76mm 130mm/s);
-assert.match(css, /\.is-weight\s*\{[^}]*font-size:\s*14pt/s);
+assert.match(css, /\.is-weight\s*\{[^}]*font-size:\s*16pt/s);
+assert.match(css, /\.is-measure\s*\{[^}]*text-align:\s*center/s);
 assert.match(css, /page:\s*roll-label/);
 
 console.log("raw-material roll label checks passed: 76×130mm grid, company facts, and scannable roll-code QR.");

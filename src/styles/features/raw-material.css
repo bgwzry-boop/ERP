@@ -905,7 +905,7 @@
   width: 76mm;
   height: 130mm;
   margin: 0;
-  padding: 1.8mm 2mm 1.4mm;
+  padding: 1.8mm 2mm 1.5mm;
   overflow: hidden;
   page: roll-label;
   background: #fff;
@@ -918,10 +918,10 @@
 
 .raw-material-roll-label-header {
   display: flex;
-  flex: 0 0 8.6mm;
+  flex: 0 0 9.6mm;
   align-items: center;
-  height: 8.6mm;
-  padding: 0 0.2mm 0.5mm;
+  height: 9.6mm;
+  padding: 0 0.3mm 0.6mm;
 }
 
 .raw-material-roll-label-brand {
@@ -933,15 +933,15 @@
 
 .raw-material-roll-label-mark {
   display: block;
-  width: 7.2mm;
-  height: 7.2mm;
+  width: 8mm;
+  height: 8mm;
 }
 
 .raw-material-roll-label-brand strong {
   color: #111;
-  font-size: 13pt;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  font-size: 14pt;
+  font-weight: 800;
+  letter-spacing: 0.02em;
   line-height: 1;
 }
 
@@ -949,102 +949,105 @@
   flex: 1 1 auto;
   margin: 0;
   color: #111;
-  font-size: 16pt;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+  font-size: 17pt;
+  font-weight: 800;
+  letter-spacing: 0.12em;
   line-height: 1;
   text-align: center;
 }
 
 .raw-material-roll-label-grid {
   width: 100%;
-  height: calc(130mm - 1.8mm - 1.4mm - 8.6mm);
+  height: calc(130mm - 1.8mm - 1.5mm - 9.6mm);
   border-collapse: collapse;
   border-spacing: 0;
   table-layout: fixed;
 }
 
-.raw-material-roll-label-col-label { width: 18.5%; }
-.raw-material-roll-label-col-sub { width: 32%; }
-.raw-material-roll-label-col-value { width: 16%; }
-.raw-material-roll-label-col-qr { width: 33.5%; }
+.raw-material-roll-label-col-label { width: 18%; }
+.raw-material-roll-label-col-sub { width: 36%; }
+.raw-material-roll-label-col-value { width: 18%; }
+.raw-material-roll-label-col-qr { width: 28%; }
 
 .raw-material-roll-label-grid th,
 .raw-material-roll-label-grid td {
   box-sizing: border-box;
   margin: 0;
   overflow: hidden;
-  border: 0.22mm solid #111;
-  padding: 0 0.55mm;
+  border: 0.24mm solid #111;
+  padding: 0 0.8mm;
   color: #111;
-  font-weight: 600;
+  font-weight: 700;
   line-height: 1;
   vertical-align: middle;
   white-space: nowrap;
 }
 
 .raw-material-roll-label-grid th {
-  padding-inline: 0.15mm;
-  font-size: 7.5pt;
+  padding-inline: 0.4mm;
+  font-size: 8pt;
   font-weight: 600;
   text-align: center;
 }
 
 .raw-material-roll-label-grid .is-product td {
-  font-size: 12pt;
+  font-size: 13pt;
   font-weight: 700;
   letter-spacing: 0.02em;
+  text-align: left;
 }
 
 .raw-material-roll-label-grid .is-standard td {
-  font-size: 10pt;
-  font-weight: 650;
+  font-size: 10.5pt;
+  font-weight: 700;
   letter-spacing: 0;
+  text-align: left;
 }
 
 .raw-material-roll-label-grid .is-measure {
-  padding-inline: 0.2mm;
-  font-size: 12pt;
-  font-weight: 700;
+  font-size: 13.5pt;
+  font-weight: 800;
   text-align: center;
 }
 
 .raw-material-roll-label-grid .is-weight {
-  font-size: 14pt;
-  font-weight: 700;
+  font-size: 16pt;
+  font-weight: 800;
   letter-spacing: 0;
 }
 
 .raw-material-roll-label-grid .is-pair td {
-  font-size: 10pt;
-  font-weight: 650;
+  font-size: 11pt;
+  font-weight: 700;
+  text-align: left;
 }
 
 .raw-material-roll-label-grid .is-inbound-no,
 .raw-material-roll-label-grid .is-date {
-  padding-inline: 0.4mm;
-  font-size: 8pt;
+  font-size: 8.5pt;
   font-weight: 600;
   letter-spacing: 0;
+  text-align: left;
   white-space: nowrap;
 }
 
 .raw-material-roll-label-grid .is-banner td {
-  font-size: 11.5pt;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: 12pt;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   text-align: center;
 }
 
 .raw-material-roll-label-grid .is-company td {
-  font-size: 9pt;
+  font-size: 9.5pt;
   font-weight: 600;
   letter-spacing: 0;
+  text-align: left;
   white-space: nowrap;
 }
 
 .raw-material-roll-label-grid .is-qr {
-  padding: 0.7mm;
+  padding: 1.2mm;
   line-height: 0;
   text-align: center;
   white-space: normal;
@@ -1077,20 +1080,20 @@
   display: block;
   margin-top: 0.55mm;
   font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", sans-serif;
-  font-size: 10pt;
-  font-weight: 700;
-  letter-spacing: 0.06em;
+  font-size: 10.5pt;
+  font-weight: 800;
+  letter-spacing: 0.08em;
   line-height: 1.1;
   text-align: center;
 }
 
-.raw-material-roll-label-grid tr.is-product { height: 7.6%; }
-.raw-material-roll-label-grid tr.is-standard { height: 4.4%; }
-.raw-material-roll-label-grid tr.is-spec { height: 4.4%; }
-.raw-material-roll-label-grid tr.is-pair { height: 7.4%; }
-.raw-material-roll-label-grid tr.is-banner { height: 7.2%; }
-.raw-material-roll-label-grid tr.is-company { height: 6.6%; }
-.raw-material-roll-label-grid tr.is-barcode { height: 28.6%; }
+.raw-material-roll-label-grid tr.is-product { height: 7.4%; }
+.raw-material-roll-label-grid tr.is-standard { height: 5.6%; }
+.raw-material-roll-label-grid tr.is-spec { height: 5.6%; }
+.raw-material-roll-label-grid tr.is-pair { height: 7.2%; }
+.raw-material-roll-label-grid tr.is-banner { height: 7%; }
+.raw-material-roll-label-grid tr.is-company { height: 6.2%; }
+.raw-material-roll-label-grid tr.is-barcode { height: 24.6%; }
 
 .raw-material-label-print-sheet.is-screen-preview {
   display: flex;

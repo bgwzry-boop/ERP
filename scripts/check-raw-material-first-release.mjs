@@ -154,7 +154,7 @@ for (const contract of ["扫描标签上的卷码", "选择机台", "确认扫�
   assert.equal(scannerPageSource.includes(contract), true, `scanner page should retain ${contract}`);
 }
 assert.match(scannerPageSource, /<select[\s\S]*RAW_MATERIAL_MACHINE_OPTIONS/);
-for (const contract of ["RawMaterialCode39", "RawMaterialQrCode", "出库时扫描本卷码", "幅宽 cm", "卷长 m", "克重 g/㎡", "重量 kg", "卷料标签", "袋袋赢"]) {
+for (const contract of ["RawMaterialCode39", "RawMaterialQrCode", "出库时扫描本卷码", "幅宽cm", "卷长m", "克重g/㎡", "重量kg", "卷料标签", "袋袋赢"]) {
   assert.equal(labelSheetSource.includes(contract), true, `label print sheet should retain ${contract}`);
 }
 assert.equal(labelSheetSource.includes("BAGWIN"), false, "roll label should show the Chinese mark without the English BAGWIN word");
