@@ -9,7 +9,8 @@ const mm = (value) => `${value.toFixed(2)}mm`;
 export const RAW_MATERIAL_ROLL_LABEL_TEMPLATE = Object.freeze({
   pageWidthMm: 76,
   pageHeightMm: 130,
-  artworkHeightMm: 101.33,
+  artworkHeightMm: 101.78,
+  paddingTopMm: 0.45,
   paddingRightMm: 1.63,
   paddingBottomMm: 1.14,
   paddingLeftMm: 1.54,
@@ -27,7 +28,7 @@ const tableHeightMm = sum(template.rowsMm);
 if (Math.abs(template.paddingLeftMm + tableWidthMm + template.paddingRightMm - template.pageWidthMm) > 0.02) {
   throw new Error("Roll label columns do not fill 76mm");
 }
-if (Math.abs(template.headerMm + tableHeightMm + template.paddingBottomMm - template.artworkHeightMm) > 0.02) {
+if (Math.abs(template.paddingTopMm + template.headerMm + tableHeightMm + template.paddingBottomMm - template.artworkHeightMm) > 0.02) {
   throw new Error("Roll label artwork does not match the approved mock height");
 }
 
@@ -48,7 +49,7 @@ export function buildRawMaterialRollLabelCss() {
   width: ${mm(template.pageWidthMm)};
   height: ${mm(template.artworkHeightMm)};
   margin: 0;
-  padding: 0 ${mm(template.paddingRightMm)} ${mm(template.paddingBottomMm)} ${mm(template.paddingLeftMm)};
+  padding: ${mm(template.paddingTopMm)} ${mm(template.paddingRightMm)} ${mm(template.paddingBottomMm)} ${mm(template.paddingLeftMm)};
   overflow: hidden;
   page: roll-label;
   background: #fff;
@@ -219,19 +220,19 @@ export function buildRawMaterialRollLabelCss() {
 
 .raw-material-roll-print-label .raw-material-qr {
   position: absolute;
-  left: 0.35mm;
-  top: 0.70mm;
+  left: 0.90mm;
+  top: 1.30mm;
   display: block;
-  width: ${mm(template.qrMm)};
-  height: 26.90mm;
+  width: 24.80mm;
+  height: 26.30mm;
   fill: #000;
 }
 
 .raw-material-roll-print-label .raw-material-code39 {
   display: block;
-  width: 63.16mm;
+  width: 62.00mm;
   height: ${mm(template.barcodeMm)};
-  margin: 0 0 0 5.09mm;
+  margin: 0 0 0 5.67mm;
   fill: #000;
 }
 

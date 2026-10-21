@@ -9,9 +9,9 @@
   display: flex;
   flex-direction: column;
   width: 76.00mm;
-  height: 101.33mm;
+  height: 101.78mm;
   margin: 0;
-  padding: 0 1.63mm 1.14mm 1.54mm;
+  padding: 0.45mm 1.63mm 1.14mm 1.54mm;
   overflow: hidden;
   page: roll-label;
   background: #fff;
@@ -182,19 +182,19 @@
 
 .raw-material-roll-print-label .raw-material-qr {
   position: absolute;
-  left: 0.35mm;
-  top: 0.70mm;
+  left: 0.90mm;
+  top: 1.30mm;
   display: block;
-  width: 25.40mm;
-  height: 26.90mm;
+  width: 24.80mm;
+  height: 26.30mm;
   fill: #000;
 }
 
 .raw-material-roll-print-label .raw-material-code39 {
   display: block;
-  width: 63.16mm;
+  width: 62.00mm;
   height: 7.39mm;
-  margin: 0 0 0 5.09mm;
+  margin: 0 0 0 5.67mm;
   fill: #000;
 }
 
