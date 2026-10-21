@@ -1,0 +1,183 @@
+/* Generated from src/domain/rawMaterialRollLabelTemplate.js. Do not edit by hand. */
+@page roll-label {
+  size: 76.00mm 130.00mm;
+  margin: 0;
+}
+
+.raw-material-roll-print-label {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  width: 76.00mm;
+  height: 130.00mm;
+  margin: 0;
+  padding: 0 1.63mm 1.47mm 1.54mm;
+  overflow: hidden;
+  page: roll-label;
+  background: #fff;
+  color: #111;
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "Source Han Sans SC", "WenQuanYi Micro Hei", "Droid Sans Fallback", sans-serif;
+  font-synthesis: none;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+.raw-material-roll-label-header {
+  position: relative;
+  display: flex;
+  flex: 0 0 9.14mm;
+  align-items: center;
+  height: 9.14mm;
+  padding: 0 0.4mm;
+}
+
+.raw-material-roll-label-brand {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 1.2mm;
+}
+
+.raw-material-roll-label-mark {
+  display: block;
+  width: 6.40mm;
+  height: 6.40mm;
+}
+
+.raw-material-roll-label-brand strong {
+  color: #111;
+  font-size: 12pt;
+  font-weight: 800;
+  letter-spacing: 0;
+  line-height: 1;
+}
+
+.raw-material-roll-label-header h1 {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  color: #111;
+  font-size: 12pt;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1;
+  text-align: center;
+}
+
+.raw-material-roll-label-grid {
+  width: 72.83mm;
+  height: 119.39mm;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: fixed;
+}
+
+.raw-material-roll-label-col-a { width: 14.38mm; }
+.raw-material-roll-label-col-b { width: 11.04mm; }
+.raw-material-roll-label-col-c { width: 11.08mm; }
+.raw-material-roll-label-col-d { width: 10.29mm; }
+.raw-material-roll-label-col-e { width: 26.04mm; }
+
+.raw-material-roll-label-grid th,
+.raw-material-roll-label-grid td {
+  box-sizing: border-box;
+  margin: 0;
+  overflow: hidden;
+  border: 0.25mm solid #111;
+  padding: 0 0.4mm;
+  color: #111;
+  font-weight: 700;
+  line-height: 1;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
+.raw-material-roll-label-grid th {
+  padding-inline: 0.2mm;
+  font-size: 7.5pt;
+  font-weight: 600;
+  text-align: center;
+}
+
+.raw-material-roll-label-grid .is-product td,
+.raw-material-roll-label-grid .is-standard td,
+.raw-material-roll-label-grid .is-pair td,
+.raw-material-roll-label-grid .is-company td {
+  padding-left: 1.80mm;
+  font-size: 8pt;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-align: left;
+}
+
+.raw-material-roll-label-grid .is-measure {
+  padding-left: 3.00mm;
+  font-size: 10pt;
+  font-weight: 800;
+  letter-spacing: 0;
+  text-align: left;
+}
+
+.raw-material-roll-label-grid .is-banner td {
+  font-size: 10pt;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-align: center;
+}
+
+.raw-material-roll-label-grid .is-qr {
+  padding: 0.70mm 0.70mm 0;
+  line-height: 0;
+  text-align: center;
+  vertical-align: top;
+  white-space: normal;
+}
+
+.raw-material-roll-label-grid .is-barcode {
+  padding: 1.60mm 2.20mm 1.10mm;
+  text-align: center;
+  white-space: normal;
+}
+
+.raw-material-roll-print-label .raw-material-qr {
+  display: block;
+  width: 24.00mm;
+  height: 24.00mm;
+  margin: 0 auto;
+  fill: #000;
+}
+
+.raw-material-roll-print-label .raw-material-code39 {
+  display: block;
+  width: 100%;
+  height: 9.20mm;
+  fill: #000;
+}
+
+.raw-material-roll-print-label .raw-material-roll-code-text {
+  display: block;
+  margin-top: 0.80mm;
+  font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", sans-serif;
+  font-size: 8pt;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-align: center;
+}
+
+.raw-material-roll-label-grid tr:nth-child(1) { height: 7.84mm; }
+.raw-material-roll-label-grid tr:nth-child(2) { height: 8.41mm; }
+.raw-material-roll-label-grid tr:nth-child(3) { height: 8.74mm; }
+.raw-material-roll-label-grid tr:nth-child(4) { height: 8.80mm; }
+.raw-material-roll-label-grid tr:nth-child(5) { height: 8.69mm; }
+.raw-material-roll-label-grid tr:nth-child(6) { height: 8.80mm; }
+.raw-material-roll-label-grid tr:nth-child(7) { height: 8.35mm; }
+.raw-material-roll-label-grid tr:nth-child(8) { height: 8.35mm; }
+.raw-material-roll-label-grid tr:nth-child(9) { height: 7.79mm; }
+.raw-material-roll-label-grid tr:nth-child(10) { height: 8.58mm; }
+.raw-material-roll-label-grid tr:nth-child(11) { height: 8.40mm; }
+.raw-material-roll-label-grid tr:nth-child(12) { height: 8.41mm; }
+.raw-material-roll-label-grid tr:nth-child(13) { height: 18.23mm; }

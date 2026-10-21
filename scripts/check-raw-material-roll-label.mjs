@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { buildRawMaterialQrMatrix } from "../src/domain/rawMaterialLabelQr.js";
+import { buildRawMaterialRollLabelCss } from "../src/domain/rawMaterialRollLabelTemplate.js";
 import {
   RAW_MATERIAL_ROLL_LABEL_COMPANY,
   RAW_MATERIAL_ROLL_LABEL_EXECUTION_STANDARD,
@@ -58,14 +59,21 @@ assert.equal(row(0), "111111100000001111111");
 assert.equal(row(10), "000110111111000100010");
 
 const sheet = readFileSync(new URL("../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx", import.meta.url), "utf8");
-const css = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
+const cssPath = new URL("../src/styles/features/raw-material-roll-label.css", import.meta.url);
+const css = readFileSync(cssPath, "utf8");
+assert.equal(css, buildRawMaterialRollLabelCss(), "label CSS must stay equal to the locked template");
 for (const text of ["品名称", "执行标准", "产品规格", "幅宽cm", "卷长m", "克重g/㎡", "重量kg", "出库时扫描本卷码", "公司名称", "联系方式", "公司地址", "卷料标签", "袋袋赢"]) {
   assert.equal(sheet.includes(text), true, `print sheet should render ${text}`);
 }
 assert.equal(sheet.includes("BAGWIN"), false);
-assert.match(css, /@page roll-label\s*\{[^}]*size:\s*76mm 130mm/s);
-assert.match(css, /\.is-weight\s*\{[^}]*font-size:\s*16pt/s);
-assert.match(css, /\.is-measure\s*\{[^}]*text-align:\s*center/s);
+assert.equal(sheet.includes('colSpan="4"'), true);
+assert.equal(sheet.includes('colSpan="5"'), true);
+assert.match(css, /@page roll-label\s*\{[^}]*size:\s*76\.00mm 130\.00mm/s);
+assert.match(css, /\.is-measure\s*\{[^}]*font-size:\s*10pt/s);
+assert.match(css, /\.is-measure\s*\{[^}]*text-align:\s*left/s);
+assert.match(css, /width:\s*24\.00mm;\s*height:\s*24\.00mm/);
+assert.equal(css.includes("font-size: 16pt"), false);
 assert.match(css, /page:\s*roll-label/);
+assert.match(readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8"), /@import "\.\/raw-material-roll-label\.css"/);
 
-console.log("raw-material roll label checks passed: 76×130mm grid, company facts, and scannable roll-code QR.");
+console.log("raw-material roll label checks passed: locked 76×130mm template, company facts, and scannable roll-code QR.");

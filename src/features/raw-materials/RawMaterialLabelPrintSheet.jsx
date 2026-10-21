@@ -39,10 +39,10 @@ export function RawMaterialCode39({ quietZone = 0, value }) {
   );
 }
 
-export function RawMaterialQrCode({ value }) {
+export function RawMaterialQrCode({ quietZone = 4, value }) {
   const qr = buildRawMaterialQrMatrix(value);
   if (!qr) return null;
-  const quiet = 4;
+  const quiet = Math.max(0, Number(quietZone) || 0);
   const size = qr.size + quiet * 2;
   const rects = [];
   qr.modules.forEach((row, y) => {
@@ -86,69 +86,70 @@ function RawMaterialRollPrintLabel({ inbound, roll }) {
       </header>
       <table className="raw-material-roll-label-grid">
         <colgroup>
-          <col className="raw-material-roll-label-col-label" />
-          <col className="raw-material-roll-label-col-sub" />
-          <col className="raw-material-roll-label-col-value" />
-          <col className="raw-material-roll-label-col-qr" />
+          <col className="raw-material-roll-label-col-a" />
+          <col className="raw-material-roll-label-col-b" />
+          <col className="raw-material-roll-label-col-c" />
+          <col className="raw-material-roll-label-col-d" />
+          <col className="raw-material-roll-label-col-e" />
         </colgroup>
         <tbody>
           <tr className="is-product">
             <th>品名称</th>
-            <td colSpan="3">{label.productName}</td>
+            <td colSpan="4">{label.productName}</td>
           </tr>
           <tr className="is-standard">
             <th>执行标准</th>
-            <td colSpan="2">{label.executionStandard}</td>
+            <td colSpan="3">{label.executionStandard}</td>
             <td className="is-qr" rowSpan="5">
-              <RawMaterialQrCode value={label.rollCode} />
+              <RawMaterialQrCode quietZone={2} value={label.rollCode} />
             </td>
           </tr>
           <tr className="is-spec">
             <th rowSpan="4">产品规格</th>
             <th>幅宽cm</th>
-            <td className="is-measure">{label.widthText}</td>
+            <td className="is-measure" colSpan="2">{label.widthText}</td>
           </tr>
           <tr className="is-spec">
             <th>卷长m</th>
-            <td className="is-measure">{label.lengthText}</td>
+            <td className="is-measure" colSpan="2">{label.lengthText}</td>
           </tr>
           <tr className="is-spec">
             <th>克重g/㎡</th>
-            <td className="is-measure">{label.gramWeightText}</td>
+            <td className="is-measure" colSpan="2">{label.gramWeightText}</td>
           </tr>
-          <tr className="is-spec is-weight-row">
+          <tr className="is-spec">
             <th>重量kg</th>
-            <td className="is-measure is-weight">{label.weightText}</td>
+            <td className="is-measure" colSpan="2">{label.weightText}</td>
           </tr>
           <tr className="is-pair">
             <th>颜色</th>
-            <td>{label.color}</td>
+            <td colSpan="2">{label.color}</td>
             <th>供应商</th>
             <td>{label.supplierName}</td>
           </tr>
           <tr className="is-pair">
             <th>入库单</th>
-            <td className="is-inbound-no">{label.inboundNo}</td>
+            <td className="is-inbound-no" colSpan="2">{label.inboundNo}</td>
             <th>日期</th>
             <td className="is-date">{label.date}</td>
           </tr>
           <tr className="is-banner">
-            <td colSpan="4">出库时扫描本卷码</td>
+            <td colSpan="5">出库时扫描本卷码</td>
           </tr>
           <tr className="is-company">
             <th>公司名称</th>
-            <td colSpan="3">{label.companyName}</td>
+            <td colSpan="4">{label.companyName}</td>
           </tr>
           <tr className="is-company">
             <th>联系方式</th>
-            <td colSpan="3">{label.companyPhone}</td>
+            <td colSpan="4">{label.companyPhone}</td>
           </tr>
           <tr className="is-company">
             <th>公司地址</th>
-            <td colSpan="3">{label.companyAddress}</td>
+            <td colSpan="4">{label.companyAddress}</td>
           </tr>
           <tr className="is-barcode">
-            <td colSpan="4">
+            <td colSpan="5">
               <RawMaterialCode39 quietZone={12} value={label.rollCode} />
               <b className="raw-material-roll-code-text">{label.rollCode || "卷码待补"}</b>
             </td>
