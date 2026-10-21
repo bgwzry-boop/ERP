@@ -1,7 +1,7 @@
-// Frozen geometry of the approved 卷料标签 mock.
-// The mock is scaled evenly onto a 76mm width (px * 76/864). Rows are not
-// stretched to fill the 130mm stock, so type, QR, and barcode stay the mock size.
-// Only per-roll text, the QR, and the Code 39 may change.
+// Frozen 卷料标签 geometry. The outer frame is the approved mock scaled evenly
+// to 76mm wide on 76×130mm stock. Three black sizes only: 11pt title / spec
+// numbers / outbound hint, 7.5pt values, 7pt labels. Only per-roll text, the
+// QR, and the Code 39 may change.
 
 const sum = (values) => values.reduce((total, value) => total + value, 0);
 const mm = (value) => `${value.toFixed(2)}mm`;
@@ -9,15 +9,15 @@ const mm = (value) => `${value.toFixed(2)}mm`;
 export const RAW_MATERIAL_ROLL_LABEL_TEMPLATE = Object.freeze({
   pageWidthMm: 76,
   pageHeightMm: 130,
-  artworkHeightMm: 101.33,
+  artworkHeightMm: 103.49,
   paddingRightMm: 1.63,
   paddingBottomMm: 1.14,
   paddingLeftMm: 1.54,
   headerMm: 7.13,
   columnsMm: Object.freeze([14.38, 10.99, 11.13, 10.29, 26.04]),
-  rowsMm: Object.freeze([6.11, 6.55, 6.82, 6.86, 6.77, 6.86, 6.47, 6.51, 6.16, 6.64, 6.55, 6.51, 14.25]),
+  rowsMm: Object.freeze([6.11, 6.55, 6.83, 6.83, 6.83, 6.83, 6.47, 6.51, 6.16, 6.64, 6.55, 6.51, 16.40]),
   qrMm: 25.4,
-  barcodeMm: 7.39,
+  barcodeMm: 12,
 });
 
 const template = RAW_MATERIAL_ROLL_LABEL_TEMPLATE;
@@ -29,6 +29,12 @@ if (Math.abs(template.paddingLeftMm + tableWidthMm + template.paddingRightMm - t
 }
 if (Math.abs(template.headerMm + tableHeightMm + template.paddingBottomMm - template.artworkHeightMm) > 0.02) {
   throw new Error("Roll label artwork does not match the approved mock height");
+}
+if (new Set(template.rowsMm.slice(2, 6)).size !== 1) {
+  throw new Error("The four spec rows must share one height");
+}
+if (template.barcodeMm < 12) {
+  throw new Error("Code 39 bar height must be at least 12mm");
 }
 
 const rowRule = (index) => `.raw-material-roll-label-grid tr:nth-child(${index + 1}) { height: ${mm(template.rowsMm[index])}; }`;
@@ -87,7 +93,7 @@ export function buildRawMaterialRollLabelCss() {
   margin-top: 0.50mm;
   font-size: 11pt;
   font-weight: 800;
-  letter-spacing: -0.08em;
+  letter-spacing: 0;
   line-height: 1;
 }
 
@@ -99,12 +105,11 @@ export function buildRawMaterialRollLabelCss() {
   justify-content: center;
   margin: 0;
   color: #111;
-  font-size: 11.5pt;
+  font-size: 11pt;
   font-weight: 800;
-  letter-spacing: 0.12em;
+  letter-spacing: 0.06em;
   line-height: 1;
   text-align: center;
-  transform: translate(0.40mm, -0.40mm);
 }
 
 .raw-material-roll-label-grid {
@@ -136,41 +141,21 @@ export function buildRawMaterialRollLabelCss() {
 }
 
 .raw-material-roll-label-grid th {
-  padding-inline: 0.2mm;
-  font-size: 7.5pt;
-  font-weight: 600;
-  text-align: center;
-}
-
-.raw-material-roll-label-grid .is-spec th:not([rowspan]),
-.raw-material-roll-label-grid .is-pair th,
-.raw-material-roll-label-grid .is-company th {
+  padding-left: 0.65mm;
+  padding-right: 0.30mm;
   font-size: 7pt;
-}
-
-.raw-material-roll-label-grid .is-spec th:not([rowspan]) {
-  letter-spacing: -0.06em;
-}
-
-.raw-material-roll-label-grid .is-spec th[rowspan] {
-  transform: translateY(-0.55mm);
+  font-weight: 600;
+  text-align: left;
 }
 
 .raw-material-roll-label-grid .is-product td,
 .raw-material-roll-label-grid .is-standard td,
-.raw-material-roll-label-grid .is-pair td {
+.raw-material-roll-label-grid .is-pair td,
+.raw-material-roll-label-grid .is-company td {
   padding-left: 1.65mm;
   font-size: 7.5pt;
   font-weight: 700;
   letter-spacing: 0;
-  text-align: left;
-}
-
-.raw-material-roll-label-grid .is-company td {
-  padding-left: 1.65mm;
-  font-size: 7pt;
-  font-weight: 700;
-  letter-spacing: -0.02em;
   text-align: left;
 }
 
@@ -179,27 +164,18 @@ export function buildRawMaterialRollLabelCss() {
 }
 
 .raw-material-roll-label-grid .is-measure {
-  padding-left: 2.90mm;
-  font-size: 9pt;
+  padding-right: 1.50mm;
+  padding-left: 0.40mm;
+  font-size: 11pt;
   font-weight: 800;
   letter-spacing: 0;
-  text-align: left;
-}
-
-.raw-material-roll-label-grid .is-pair td.is-inbound-no,
-.raw-material-roll-label-grid .is-pair td.is-date {
-  font-size: 7pt;
-  font-weight: 700;
-}
-
-.raw-material-roll-label-grid .is-pair td.is-inbound-no {
-  letter-spacing: -0.04em;
+  text-align: right;
 }
 
 .raw-material-roll-label-grid .is-banner td {
-  font-size: 9.5pt;
+  font-size: 11pt;
   font-weight: 800;
-  letter-spacing: 0.03em;
+  letter-spacing: 0.04em;
   text-align: center;
 }
 
@@ -212,37 +188,36 @@ export function buildRawMaterialRollLabelCss() {
 }
 
 .raw-material-roll-label-grid .is-barcode {
-  padding: 1.85mm 0 0.40mm;
+  padding: 0.45mm 0 0.35mm;
   text-align: center;
   white-space: normal;
 }
 
 .raw-material-roll-print-label .raw-material-qr {
   position: absolute;
-  left: 0.35mm;
-  top: 0.70mm;
+  top: 0.40mm;
+  right: 0.32mm;
   display: block;
   width: ${mm(template.qrMm)};
-  height: 26.90mm;
+  height: ${mm(template.qrMm)};
   fill: #000;
 }
 
 .raw-material-roll-print-label .raw-material-code39 {
   display: block;
-  width: 63.16mm;
+  width: 100%;
   height: ${mm(template.barcodeMm)};
-  margin: 0 0 0 5.09mm;
+  margin: 0;
   fill: #000;
 }
 
 .raw-material-roll-print-label .raw-material-roll-code-text {
   display: block;
-  margin-top: 0.50mm;
+  margin-top: 0.80mm;
   font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans SC", "WenQuanYi Micro Hei", sans-serif;
-  font-size: 7.4pt;
+  font-size: 7.5pt;
   font-weight: 700;
   letter-spacing: 0;
-  transform: translateX(0.50mm);
   line-height: 1;
   text-align: center;
 }
