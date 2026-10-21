@@ -187,10 +187,7 @@ export function RawMaterialPurchasePanel({ authState, currentUser }) {
   return (
     <details className="raw-material-purchase-disclosure">
       <summary>
-        <span>
-          <strong>采购请求与经营决定</strong>
-          <small>收货处理优先；需要新增或跟进采购请求时再展开。</small>
-        </span>
+        <span>采购请求</span>
         <b>{items.length} 条</b>
       </summary>
       <section className="raw-material-purchase-panel">

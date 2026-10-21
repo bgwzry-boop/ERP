@@ -133,14 +133,10 @@ export function InboundDetail({
           </Suspense>
         ) : null}
         <div className="raw-material-ocr-upload-bar">
-          <div className="raw-material-ocr-copy" title="供应商原始单号有则录、没有就留空">
-            <strong>送货员把送货单交到办公室</strong>
-            <span>扫描或上传。OCR 仅预填，识别不会直接入库。</span>
-          </div>
           <div className="raw-material-ocr-upload-actions">
             <label
               className={`button-like raw-material-file-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
-              title={reviewState.title || "扫描或上传图片、PDF。相册 / PDF 也可以。"}
+              title={reviewState.title || "扫描或上传图片、PDF。相册 / PDF 也可以。OCR 仅预填，识别不会直接入库。供应商原始单号有则录、没有就留空"}
             >
               {deliveryNoteOcrLoading ? "正在识别…" : "扫描或上传"}
               <input
@@ -170,10 +166,9 @@ export function InboundDetail({
           {deliveryNoteOcrResult ? <span className="raw-material-ocr-success" role="status">{deliveryNoteOcrResult}</span> : null}
           {deliveryNoteOcrError ? <span className="raw-material-ocr-error" role="alert">{deliveryNoteOcrError}</span> : null}
         </div>
-        {firstReleaseMode ? null : <RawMaterialPurchasePanel authState={authState} currentUser={currentUser} />}
         {selected ? (
           <>
-            <RawMaterialDetailOverview selected={selected} />
+            {detailTab === "入库标签" ? null : <RawMaterialDetailOverview selected={selected} />}
             <div className="operational-detail-tabs raw-material-detail-tabs">
               <Segmented ariaLabel="原材料详情视图" value={detailTab} onChange={setDetailTab} items={firstReleaseMode ? RAW_MATERIAL_FIRST_RELEASE_DETAIL_TABS : RAW_MATERIAL_DETAIL_TABS} />
             </div>
@@ -195,6 +190,8 @@ export function InboundDetail({
                   reviewState={reviewState}
                   submitting={ocrReviewSubmitting}
                 />
+                <details className="office-receive-more">
+                  <summary>单据</summary>
                 <InfoGrid
                   rows={[
                     ["原料", `${selected.productName || selected.materialType} / ${selected.materialType}`],
@@ -211,11 +208,12 @@ export function InboundDetail({
                     ["单据附件", formatRawMaterialOptionalAttachment(selected.signedNoteStatus)],
                   ]}
                 />
+                </details>
               </section>
               <section className="detail-section raw-material-roll-section" hidden={!(["入库标签", "领料成本", "扫码出库"].includes(detailTab))}>
-              <h3>{detailTab === "入库标签" ? "卷/件标签" : firstReleaseMode ? "按卷扫码出库" : "卷/件领料与消耗"}</h3>
+              <h3 hidden={detailTab === "入库标签" && !(selected.rolls ?? []).some(isOfficeExceptionRoll)}>{detailTab === "入库标签" ? "对不上的卷" : firstReleaseMode ? "按卷扫码出库" : "卷/件领料与消耗"}</h3>
               <div className="raw-material-roll-list">
-                {(selected.rolls ?? []).map((roll) => {
+                {(selected.rolls ?? []).filter((roll) => detailTab !== "入库标签" || isOfficeExceptionRoll(roll)).map((roll) => {
                   const canAttachRoll = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用" && !officeInboundUsesCountGate(selected);
                   const canIssueRoll = canIssueRawMaterialRoll(roll);
                   const canPartialIssueRoll = canIssueRoll && Number(roll.weightKg || 0) > 0;
@@ -554,6 +552,7 @@ export function InboundDetail({
         ) : (
           <DataState title="暂无原材料入库单" detail="调整视图或搜索条件后重试。" compact />
         )}
+        {firstReleaseMode ? null : <RawMaterialPurchasePanel authState={authState} currentUser={currentUser} />}
       </DetailPane>
   );
 }
@@ -940,6 +939,11 @@ function buildRawMaterialMarginReviewOptions() {
   return {
     note: "V1 毛利快照财务复核第一版；生成内部毛利报表，不自动写客户对账或收款结算。",
   };
+}
+
+function isOfficeExceptionRoll(roll = {}) {
+  const status = String(roll.labelStatus || "");
+  return status.includes("不符") || status.includes("作废") || status.includes("待重打");
 }
 
 function getRawMaterialRollTone(roll = {}) {

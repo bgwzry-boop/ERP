@@ -11,6 +11,10 @@
   grid-template-columns: minmax(0, 1fr) !important;
 }
 
+.raw-material-workbench.is-receiving-view {
+  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.4fr) !important;
+}
+
 .raw-material-workbench.is-roll-inventory-view > .raw-material-list-panel,
 .raw-material-workbench.is-roll-inventory-view > .raw-material-detail-pane,
 .raw-material-workbench.is-receiving-view > .raw-material-roll-inventory {
@@ -1214,11 +1218,12 @@
 }
 
 .raw-material-ocr-upload-bar {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  border-bottom: 1px solid var(--erp-accent-border);
-  background: var(--erp-surface-subtle);
+  justify-content: flex-end;
+  border-bottom: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface);
   gap: 8px;
   padding: 8px 10px;
 }
@@ -1517,6 +1522,10 @@
 
 .raw-material-detail-scroll > .detail-section:first-child {
   border-top: 0;
+}
+
+.raw-material-detail-scroll > .detail-section:has(.office-inbound-flow) {
+  padding: 0;
 }
 
 .raw-material-roll-list {
@@ -5964,8 +5973,17 @@
 
 .office-inbound-flow {
   display: grid;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 0;
+  margin: 0;
+}
+
+.office-inbound-flow.raw-material-ocr-review-panel {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  margin: 0;
+  padding: 0;
+  gap: 0;
 }
 
 .office-inbound-steps {
@@ -6031,7 +6049,7 @@
 }
 
 .office-inbound-block {
-  margin: 0;
+  margin: 8px 12px;
   border: 1px solid var(--erp-warning-border);
   border-radius: 8px;
   background: var(--erp-warning-bg);
@@ -6040,26 +6058,59 @@
 }
 
 .office-inbound-actions {
+  position: sticky;
+  z-index: 2;
+  bottom: 0;
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 8px;
+  border-top: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface);
+  padding: 8px 10px;
+}
+
+.office-inbound-done {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.office-receive-more {
+  border-top: 1px solid var(--erp-border-subtle);
+  margin: 0;
+}
+
+.office-receive-more summary {
+  min-height: 36px;
+  color: var(--erp-text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.office-receive-more .info-grid {
+  margin: 0 10px 10px;
+}
+
+.raw-material-detail-scroll > .raw-material-roll-section:not(:has(.raw-material-roll-row, form)) {
+  display: none;
 }
 
 .office-roll-table {
   display: grid;
-  border: 1px solid var(--erp-border);
-  border-radius: 8px;
-  overflow: hidden;
+  border: 0;
+  border-radius: 0;
 }
 
 .office-roll-head,
 .office-roll-row {
   display: grid;
-  grid-template-columns: 72px minmax(88px, 1.3fr) 76px 84px auto;
+  grid-template-columns: 72px minmax(120px, 1.4fr) minmax(96px, 0.8fr) minmax(120px, 0.8fr) auto;
   align-items: center;
-  gap: 8px;
-  min-height: 40px;
-  padding: 6px 10px;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 12px;
 }
 
 .office-roll-head {
@@ -6079,9 +6130,9 @@
 .office-roll-fact {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   color: var(--erp-text);
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 700;
 }
 
@@ -6110,11 +6161,16 @@
 }
 
 .office-stick-count {
-  display: grid;
-  width: min(220px, 100%);
-  gap: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
   font-weight: 700;
+}
+
+.office-stick-count em {
+  color: var(--erp-text-muted);
+  font-style: normal;
 }
 
 .office-stick-count input {
