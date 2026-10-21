@@ -1237,13 +1237,13 @@
 
 .raw-material-ocr-upload-bar strong {
   color: var(--erp-accent-strong);
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .raw-material-ocr-upload-bar span {
   color: var(--erp-text-muted);
-  font-size: 10px;
-  line-height: 15px;
+  font-size: 13px;
+  line-height: 1.4;
 }
 
 .raw-material-ocr-upload-bar .button-like {
@@ -1266,7 +1266,7 @@
   opacity: 0.55;
 }
 
-.raw-material-ocr-upload-bar .raw-material-file-button {
+.raw-material-ocr-upload-bar .raw-material-camera-button {
   border-color: var(--erp-accent-border);
   background: var(--erp-surface);
   color: var(--erp-accent-strong);
