@@ -9,8 +9,8 @@ const mm = (value) => `${value.toFixed(2)}mm`;
 export const RAW_MATERIAL_ROLL_LABEL_TEMPLATE = Object.freeze({
   pageWidthMm: 76,
   pageHeightMm: 130,
-  artworkHeightMm: 101.78,
-  paddingTopMm: 0.45,
+  artworkHeightMm: 101.33,
+  paddingTopMm: 0,
   paddingRightMm: 1.63,
   paddingBottomMm: 1.14,
   paddingLeftMm: 1.54,
@@ -220,19 +220,19 @@ export function buildRawMaterialRollLabelCss() {
 
 .raw-material-roll-print-label .raw-material-qr {
   position: absolute;
-  left: 0.90mm;
-  top: 1.30mm;
+  left: 0.38mm;
+  top: 0.47mm;
   display: block;
-  width: 24.80mm;
-  height: 26.30mm;
+  width: 25.61mm;
+  height: 26.90mm;
   fill: #000;
 }
 
 .raw-material-roll-print-label .raw-material-code39 {
   display: block;
-  width: 62.00mm;
+  width: 63.14mm;
   height: ${mm(template.barcodeMm)};
-  margin: 0 0 0 5.67mm;
+  margin: 0 0 0 5.01mm;
   fill: #000;
 }
 
