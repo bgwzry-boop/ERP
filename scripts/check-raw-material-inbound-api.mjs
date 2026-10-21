@@ -118,7 +118,7 @@ async function checkRepository() {
   assert.equal(attached.inbound.rolls[0].labelVerification.result, "匹配", "attach confirmation should persist the physical label check");
   assert.equal(attached.inbound.rolls[0].labelVerification.verifiedByUserId, "U-WAREHOUSE-A", "the authenticated operator should be recorded");
 
-  const issued = action.applyAction({
+  assert.throws(() => action.applyAction({
     workspace,
     inboundId: "RMI-0704-001",
     action: "issue-to-machine",
@@ -130,21 +130,33 @@ async function checkRepository() {
       issuedWeightKg: 50,
       machineId: "制袋机-01",
       productionTaskId: "PT-RMI-001",
+      now: "2026-07-04T01:14:00.000Z",
+    },
+  }), (error) => error.code === "RAW_MATERIAL_PARTIAL_ISSUE_DISABLED", "partial issue must stay closed");
+  const issued = action.applyAction({
+    workspace,
+    inboundId: "RMI-0704-001",
+    action: "issue-to-machine",
+    operatorId: "U-WAREHOUSE-A",
+    operatorName: "库房出库A",
+    body: {
+      expectedRevision: 4,
+      rollId: "RM-240704-001-01",
+      machineId: "制袋机-01",
+      productionTaskId: "PT-RMI-001",
       now: "2026-07-04T01:15:00.000Z",
     },
   });
   assert.equal(issued.inbound.status, "部分领料/机边", "single issued roll should mark inbound as partially issued");
-  assert.equal(issued.inbound.rolls[0].inventoryStatus, "可用", "source roll remainder should stay available after split issue");
-  assert.equal(issued.inbound.rolls[0].weightKg, 55.4, "source roll should keep remaining split weight");
-  assert.equal(issued.inbound.rolls[1].id, "RM-240704-001-01-S01", "split issue should create a machine-side split roll");
-  assert.equal(issued.inbound.rolls[1].inventoryStatus, "机边领用", "split roll should move to machine-side inventory state");
-  assert.equal(issued.inbound.rolls[1].weightKg, 50, "split roll should keep issued weight");
-  assert.equal(issued.inbound.rolls[1].consumptionStatus, "待生产消耗确认", "issued split roll should wait for consumption confirmation");
+  assert.equal(issued.inbound.rolls[0].inventoryStatus, "机边领用", "whole-roll issue should leave available stock");
+  assert.equal(issued.inbound.rolls[0].weightKg, 105.4, "whole-roll issue should keep the full roll weight");
+  assert.equal(issued.inbound.rolls.length, 2, "whole-roll issue must not create a split child roll");
+  assert.equal(issued.inbound.rolls[0].consumptionStatus, "待生产消耗确认", "issued roll should wait for consumption confirmation");
   assert.match(issued.inbound.rawMaterialIssueRecords[0].issueRecordId, /^RMI-ISS-/, "issue should create a traceable issue record");
-  assert.match(issued.inbound.rawMaterialSplitRecords[0].splitRecordId, /^RMI-SPLIT-/, "partial issue should create a split record");
-  assert.equal(issued.inbound.rawMaterialIssueRecords[0].sourceRollId, "RM-240704-001-01", "issue record should link the source roll");
-  assert.equal(issued.inbound.rawMaterialIssueRecords[0].remainingWeightKg, 55.4, "issue record should keep source-roll remaining weight");
-  assert.equal(issued.inbound.rawMaterialIssueRecords[0].machineId, "制袋机-01", "issue record should keep machine side target");
+  assert.equal(issued.inbound.rawMaterialSplitRecords.length, 0, "whole-roll issue must not create a split record");
+  assert.equal(issued.inbound.rawMaterialIssueRecords[0].remainingWeightKg, 0, "whole-roll issue should not keep an available remainder");
+  assert.equal(issued.inbound.rawMaterialIssueRecords[0].machineId, "1号机", "issue record should keep the canonical machine label");
+  assert.equal(issued.inbound.rolls[0].machineId, "1号机", "issued roll should stay on the selected machine");
   assert.equal(issued.inbound.rawMaterialIssueRecords[0].productionTaskMatchStatus, "已匹配", "issue record should mark matched production task");
   assert.equal(issued.inbound.rawMaterialIssueRecords[0].productionTaskOrderLineId, "OL-RMI-001", "issue record should keep matched order line");
 
@@ -156,7 +168,7 @@ async function checkRepository() {
     operatorName: "库房出库A",
     body: {
       expectedRevision: 5,
-      rollId: "RM-240704-001-01-S01",
+      rollId: "RM-240704-001-01",
       consumedWeightKg: 30,
       machineId: "制袋机-01",
       productionTaskId: "PT-RMI-001",
@@ -164,17 +176,17 @@ async function checkRepository() {
     },
   });
   assert.equal(consumed.inbound.status, "部分消耗确认", "single consumed roll should mark inbound as partially consumed");
-  assert.equal(consumed.inbound.rolls[1].inventoryStatus, "机边领用", "partial consumed split roll should remain machine-side");
-  assert.equal(consumed.inbound.rolls[1].weightKg, 20, "partial consumption should keep remaining machine-side weight");
+  assert.equal(consumed.inbound.rolls[0].inventoryStatus, "机边领用", "leftover after partial consumption should remain machine-side");
+  assert.equal(consumed.inbound.rolls[0].weightKg, 75.4, "partial consumption should keep remaining machine-side weight");
   assert.match(consumed.inbound.rawMaterialConsumptionRecords[0].consumptionRecordId, /^RMI-CONS-/, "consumption should create a traceable record");
   assert.equal(
     consumed.inbound.rawMaterialIssueRecords[0].consumptionStatus,
     "部分消耗/机边",
     "issue record should reflect partial consumption confirmation",
   );
-  assert.equal(consumed.inbound.rawMaterialIssueRecords[0].remainingWeightKg, 55.4, "partial consumption should not overwrite source-roll remaining weight");
-  assert.equal(consumed.inbound.rawMaterialIssueRecords[0].remainingMachineSideWeightKg, 20, "issue record should keep machine-side remaining weight separately");
-  assert.equal(consumed.inbound.rawMaterialConsumptionRecords[0].remainingMachineSideWeightKg, 20, "consumption record should keep remaining machine-side weight");
+  assert.equal(consumed.inbound.rawMaterialIssueRecords[0].remainingWeightKg, 0, "whole-roll issue should not restore an available remainder");
+  assert.equal(consumed.inbound.rawMaterialIssueRecords[0].remainingMachineSideWeightKg, 75.4, "issue record should keep machine-side remaining weight separately");
+  assert.equal(consumed.inbound.rawMaterialConsumptionRecords[0].remainingMachineSideWeightKg, 75.4, "consumption record should keep remaining machine-side weight");
 
   const costDraft = action.applyAction({
     workspace,
@@ -320,7 +332,7 @@ async function checkRepository() {
     },
   });
   assert.equal(handleIssued.inbound.rolls[0].inventoryStatus, "机边领用", "available handle piece should move to machine-side state");
-  const returned = action.applyAction({
+  assert.throws(() => action.applyAction({
     workspace,
     inboundId: "RMI-0704-003",
     action: "return-leftover",
@@ -332,33 +344,22 @@ async function checkRepository() {
       returnLocation: "余料区",
       now: "2026-07-04T01:35:00.000Z",
     },
-  });
-  assert.equal(returned.inbound.status, "余料待复核", "returned leftover should move inbound to pending leftover review");
-  assert.equal(returned.inbound.rolls[0].inventoryStatus, "余料待复核", "returned leftover should not become available inventory");
-  assert.match(returned.inbound.rawMaterialLeftoverReturnRecords[0].leftoverReturnRecordId, /^RMI-RET-/, "leftover return should create a traceable record");
+  }), (error) => error.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED", "leftover return to available must stay closed");
+  assert.equal(handleIssued.inbound.rolls[0].inventoryStatus, "机边领用", "rejected leftover return must leave the roll machine-side");
 
-  const reviewedLeftover = action.applyAction({
+  assert.throws(() => action.applyAction({
     workspace,
     inboundId: "RMI-0704-003",
     action: "review-leftover",
     operatorId: "U-WAREHOUSE-A",
     operatorName: "库房出库A",
     body: {
-      expectedRevision: 3,
+      expectedRevision: 2,
       rollId: "RM-240704-003-01",
       reviewLocation: "原料库-余料可用区",
       now: "2026-07-04T01:40:00.000Z",
     },
-  });
-  assert.equal(reviewedLeftover.inbound.status, "部分余料复核", "reviewed leftover should keep inbound partial when other rolls are not available");
-  assert.equal(reviewedLeftover.inbound.rolls[0].inventoryStatus, "可用", "reviewed leftover should become available raw-material inventory");
-  assert.equal(reviewedLeftover.inbound.rolls[0].consumptionStatus, "余料已复核/可用", "reviewed leftover roll should keep review status");
-  assert.match(reviewedLeftover.inbound.rawMaterialLeftoverReviewRecords[0].leftoverReviewRecordId, /^RMI-LREV-/, "leftover review should create a traceable review record");
-  assert.equal(
-    reviewedLeftover.inbound.rawMaterialLeftoverReturnRecords[0].reviewStatus,
-    "复核通过/可用",
-    "leftover return record should keep the review result",
-  );
+  }), (error) => error.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED", "leftover review must not restore available inventory");
 
   const reloaded = createLocalRawMaterialInboundRepository({ storageRoot: repositoryStorageRoot }).loadState();
   assert.equal(
@@ -368,13 +369,13 @@ async function checkRepository() {
   );
   assert.equal(
     reloaded.rawMaterialInbounds.find((item) => item.id === "RMI-0704-001")?.rolls[0].inventoryStatus,
-    "可用",
-    "repository should persist split source roll available status",
+    "机边领用",
+    "repository should persist whole-roll machine-side status",
   );
   assert.equal(
-    reloaded.rawMaterialInbounds.find((item) => item.id === "RMI-0704-001")?.rolls[1].weightKg,
-    20,
-    "repository should persist partial consumption remaining machine-side weight",
+    reloaded.rawMaterialInbounds.find((item) => item.id === "RMI-0704-001")?.rolls[0].weightKg,
+    75.4,
+    "repository should persist remaining machine-side weight",
   );
   assert.equal(
     reloaded.rawMaterialInbounds.find((item) => item.id === "RMI-0704-001")?.rawMaterialCostAllocationDrafts?.[0]?.allocatedCostAmount,
@@ -408,8 +409,8 @@ async function checkRepository() {
   );
   assert.equal(
     reloaded.rawMaterialInbounds.find((item) => item.id === "RMI-0704-003")?.rolls[0].inventoryStatus,
-    "可用",
-    "repository should persist reviewed leftover available status",
+    "机边领用",
+    "repository should keep rejected leftover rolls machine-side",
   );
 }
 
@@ -807,14 +808,23 @@ async function checkApi() {
         now: "2026-07-04T02:12:00.000Z",
       },
     });
-    assert.equal(splitIssue.status, 200, "split-roll issue should be allowed after selecting a matching production task and machine");
-    assert.equal(splitIssue.json.inbound.status, "部分领料/机边", "single issued roll should keep inbound partially issued");
-    assert.equal(splitIssue.json.inbound.rolls[0].inventoryStatus, "可用", "split source roll should stay available inventory");
-    assert.equal(splitIssue.json.inbound.rolls[0].weightKg, 55.4, "split source roll should keep remaining weight");
-    assert.equal(splitIssue.json.inbound.rolls[1].id, "RM-240704-001-01-S01", "split route should create a child machine-side roll");
-    assert.equal(splitIssue.json.inbound.rolls[1].inventoryStatus, "机边领用", "split child roll should be machine-side");
-    assert.equal(splitIssue.json.inbound.rawMaterialIssueRecords[0].productionTaskMatchStatus, "已匹配", "issue must persist the selected production task match");
-    assert.match(splitIssue.json.inbound.rawMaterialSplitRecords[0].splitRecordId, /^RMI-SPLIT-/, "split route should create RMI-SPLIT record");
+    assert.equal(splitIssue.status, 409, "partial issue must be rejected");
+    assert.equal(splitIssue.json.code, "RAW_MATERIAL_PARTIAL_ISSUE_DISABLED", "partial issue should return a stable code");
+    const wholeIssue = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/issue-to-machine`, {
+      userId: "U-WAREHOUSE-A",
+      body: {
+        rollId: "RM-240704-001-01",
+        machineId: testMachineId,
+        productionTaskId: testProductionTaskId,
+        now: "2026-07-04T02:12:30.000Z",
+      },
+    });
+    assert.equal(wholeIssue.status, 200, "whole-roll issue should be allowed after selecting a matching production task and machine");
+    assert.equal(wholeIssue.json.inbound.status, "部分领料/机边", "single issued roll should keep inbound partially issued");
+    assert.equal(wholeIssue.json.inbound.rolls[0].inventoryStatus, "机边领用", "whole-roll issue should leave available stock");
+    assert.equal(wholeIssue.json.inbound.rolls[0].weightKg, 105.4, "whole-roll issue should keep the full roll weight");
+    assert.equal(wholeIssue.json.inbound.rawMaterialIssueRecords[0].productionTaskMatchStatus, "已匹配", "issue must persist the selected production task match");
+    assert.equal(wholeIssue.json.inbound.rawMaterialSplitRecords.length, 0, "whole-roll issue must not create a split record");
 
     const attachedWhite = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-002/attach-confirm`, {
       userId: "U-WAREHOUSE-A",
@@ -825,7 +835,7 @@ async function checkApi() {
       userId: "U-WAREHOUSE-A",
       body: {
         rollId: "RM-240704-002-01",
-        machineId: "PRINT-01",
+        machineId: "2号机",
         productionTaskId: "PT-ORD-0629-003-01",
       },
     });
@@ -839,8 +849,7 @@ async function checkApi() {
       userId: "U-WAREHOUSE-A",
       body: {
         rollId: "RM-240704-002-01",
-        machineId: "BAG-01",
-        issuedWeightKg: 50,
+        machineId: "1号机",
         productionTaskId: "PT-ORD-0629-003-01",
         now: "2026-07-04T02:14:00.000Z",
       },
@@ -857,7 +866,7 @@ async function checkApi() {
     const matchedConsumed = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-002/confirm-consumption`, {
       userId: "U-WAREHOUSE-A",
       body: {
-        rollId: "RM-240704-002-01-S01",
+        rollId: "RM-240704-002-01",
         consumedWeightKg: 20,
         machineId: "BAG-01",
         productionTaskId: "PT-ORD-0629-003-01",
@@ -881,7 +890,7 @@ async function checkApi() {
     const consumed = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-001/confirm-consumption`, {
       userId: "U-WAREHOUSE-A",
       body: {
-        rollId: "RM-240704-001-01-S01",
+        rollId: "RM-240704-001-01",
         consumedWeightKg: 30,
         machineId: "制袋机-01",
         productionTaskId: testProductionTaskId,
@@ -890,12 +899,12 @@ async function checkApi() {
     });
     assert.equal(consumed.status, 200, "warehouse user should be allowed to confirm raw-material consumption");
     assert.equal(consumed.json.inbound.status, "部分消耗确认", "consumption route should update inbound status");
-    assert.equal(consumed.json.inbound.rolls[1].inventoryStatus, "机边领用", "partial consumption route should keep split roll machine-side");
-    assert.equal(consumed.json.inbound.rolls[1].weightKg, 20, "partial consumption route should keep remaining machine-side weight");
+    assert.equal(consumed.json.inbound.rolls[0].inventoryStatus, "机边领用", "partial consumption route should keep the roll machine-side");
+    assert.equal(consumed.json.inbound.rolls[0].weightKg, 75.4, "partial consumption route should keep remaining machine-side weight");
     assert.match(consumed.json.inbound.rawMaterialConsumptionRecords[0].consumptionRecordId, /^RMI-CONS-/, "consumption route should create RMI-CONS record");
-    assert.equal(consumed.json.inbound.rawMaterialIssueRecords[0].remainingWeightKg, 55.4, "API should preserve source-roll remaining weight");
-    assert.equal(consumed.json.inbound.rawMaterialIssueRecords[0].remainingMachineSideWeightKg, 20, "API should expose machine-side remaining weight separately");
-    assert.equal(consumed.json.inbound.rawMaterialConsumptionRecords[0].remainingMachineSideWeightKg, 20, "consumption route should store remaining machine-side weight");
+    assert.equal(consumed.json.inbound.rawMaterialIssueRecords[0].remainingWeightKg, 0, "API whole-roll issue should not keep an available remainder");
+    assert.equal(consumed.json.inbound.rawMaterialIssueRecords[0].remainingMachineSideWeightKg, 75.4, "API should expose machine-side remaining weight separately");
+    assert.equal(consumed.json.inbound.rawMaterialConsumptionRecords[0].remainingMachineSideWeightKg, 75.4, "consumption route should store remaining machine-side weight");
     assert.equal(
       consumed.json.inbound.nextStep.includes("成本分摊"),
       true,
@@ -1147,10 +1156,9 @@ async function checkApi() {
         now: "2026-07-04T02:35:00.000Z",
       },
     });
-    assert.equal(returned.status, 200, "warehouse user should be allowed to return machine-side leftovers");
-    assert.equal(returned.json.inbound.status, "余料待复核", "leftover route should move inbound to pending review");
-    assert.equal(returned.json.inbound.rolls[0].inventoryStatus, "余料待复核", "leftover route must not restore available inventory");
-    assert.match(returned.json.inbound.rawMaterialLeftoverReturnRecords[0].leftoverReturnRecordId, /^RMI-RET-/, "leftover route should create RMI-RET record");
+    assert.equal(returned.status, 409, "leftover return to available stock must be rejected");
+    assert.equal(returned.json.code, "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED", "leftover return should return a stable code");
+    assert.equal(handleIssued.json.inbound.rolls[0].inventoryStatus, "机边领用", "rejected leftover return must leave the roll machine-side");
 
     const deniedLeftoverReview = await postJson(`${baseUrl}/raw-material-inbounds/RMI-0704-003/review-leftover`, {
       userId: "U-OFFICE-A",
@@ -1171,10 +1179,8 @@ async function checkApi() {
         now: "2026-07-04T02:40:00.000Z",
       },
     });
-    assert.equal(reviewedLeftover.status, 200, "warehouse user should be allowed to review leftovers back to available");
-    assert.equal(reviewedLeftover.json.inbound.status, "部分余料复核", "leftover review route should keep inbound partial when other rolls are not available");
-    assert.equal(reviewedLeftover.json.inbound.rolls[0].inventoryStatus, "可用", "leftover review route should restore available inventory after review");
-    assert.match(reviewedLeftover.json.inbound.rawMaterialLeftoverReviewRecords[0].leftoverReviewRecordId, /^RMI-LREV-/, "leftover review route should create RMI-LREV record");
+    assert.equal(reviewedLeftover.status, 409, "leftover review must not restore available inventory");
+    assert.equal(reviewedLeftover.json.code, "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED", "leftover review should return a stable code");
 
     await closeTestServer(server);
 
@@ -1188,13 +1194,13 @@ async function checkApi() {
       assert.equal(persisted.inbound.status, "部分消耗确认", "API should reload persisted raw-material inbound status");
       assert.equal(
         persisted.inbound.rolls[0].inventoryStatus,
-        "可用",
-        "API should reload persisted split source roll status",
+        "机边领用",
+        "API should reload persisted whole-roll machine-side status",
       );
       assert.equal(
-        persisted.inbound.rolls[1].weightKg,
-        20,
-        "API should reload persisted partial consumption remaining machine-side weight",
+        persisted.inbound.rolls[0].weightKg,
+        75.4,
+        "API should reload persisted remaining machine-side weight",
       );
       const persistedCostDraft = await getJson(restartedBaseUrl, "raw-material-inbounds/RMI-0704-002");
       assert.equal(
@@ -1230,8 +1236,8 @@ async function checkApi() {
       const persistedLeftover = await getJson(restartedBaseUrl, "raw-material-inbounds/RMI-0704-003");
       assert.equal(
         persistedLeftover.inbound.rolls[0].inventoryStatus,
-        "可用",
-        "API should reload persisted reviewed leftover status",
+        "机边领用",
+        "API should keep rejected leftover rolls machine-side",
       );
     } finally {
       await closeTestServer(restartedServer);

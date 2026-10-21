@@ -35,6 +35,7 @@ export function RawMaterialInboundPage(props) {
     handleDesktopDeliveryNoteRecognize,
     handleGenerateSupplierPayableDraft,
     handleMobileAttach,
+    handleMobileOneClickInbound,
     handleMobileStageChange,
     handleOcrReviewConfirm,
     handleOpenRollSource,
@@ -105,6 +106,7 @@ export function RawMaterialInboundPage(props) {
         mobileMessage={mobileMessage}
         mobileStage={mobileStage}
         onAttach={handleMobileAttach}
+        onOneClickInbound={handleMobileOneClickInbound}
         onDeliveryNotePageSelect={handleDeliveryNotePageSelect}
         onDeliveryNotePageRemove={handleDeliveryNotePageRemove}
         onDeliveryNotePagesClear={handleDeliveryNotePagesClear}

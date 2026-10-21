@@ -118,6 +118,8 @@ function getRawMaterialInboundActionPermission(actionSlug, writeActionPermission
     print_labels: writeActionPermissions.printRawMaterialInboundLabels,
     "attach-confirm": writeActionPermissions.confirmRawMaterialInboundAttachment,
     attach_confirm: writeActionPermissions.confirmRawMaterialInboundAttachment,
+    "one-click-inbound": writeActionPermissions.confirmRawMaterialInboundAttachment,
+    one_click_inbound: writeActionPermissions.confirmRawMaterialInboundAttachment,
     "void-label": writeActionPermissions.printRawMaterialInboundLabels,
     void_label: writeActionPermissions.printRawMaterialInboundLabels,
     "reprint-label": writeActionPermissions.printRawMaterialInboundLabels,

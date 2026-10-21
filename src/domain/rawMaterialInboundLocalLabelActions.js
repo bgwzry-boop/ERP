@@ -1,3 +1,5 @@
+import { evaluateRawMaterialOneClickInbound, isPendingStickConfirmRoll } from "./rawMaterialWholeRollPolicy.js";
+
 export function applyLocalRawMaterialInboundLabelAction(item = {}, input = {}) {
   const { action, now, operatorName, options = {} } = input;
   if (action === "打印卷标") {
@@ -56,6 +58,47 @@ export function applyLocalRawMaterialInboundLabelAction(item = {}, input = {}) {
         : status === "已贴标/可用库存"
           ? "可领料；后续进入供应商月结对账。"
           : "继续逐卷核对剩余卷/件。",
+      rolls: nextRolls,
+    };
+  }
+
+  if (action === "本单已贴齐/一键入库") {
+    const gate = evaluateRawMaterialOneClickInbound(item);
+    if (!gate.allowed) {
+      throw Object.assign(new Error(gate.blocker), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_ONE_CLICK_INBOUND_BLOCKED",
+        details: {
+          rollCount: gate.rollCount,
+          printedLabelCount: gate.printedLabelCount,
+          pendingStickConfirmCount: gate.pendingStickConfirmCount,
+        },
+      });
+    }
+    const nextRolls = (item.rolls ?? []).map((roll) => {
+      if (!isPendingStickConfirmRoll(roll)) return roll;
+      const verification = buildLocalLabelVerification(item, roll, {
+        ...options,
+        location: options.location || "原料库-可用区",
+        verificationNote: options.verificationNote || "办公室确认本单已贴齐，一键入库。",
+      }, "matched", operatorName, now);
+      return {
+        ...roll,
+        labelStatus: "已贴标/可用库存",
+        inventoryStatus: "可用",
+        labelVerification: verification,
+        labelVerifiedAt: now,
+        labelVerifiedBy: operatorName,
+        location: verification.location,
+      };
+    });
+    const availableCount = nextRolls.filter((roll) => roll.inventoryStatus === "可用").length;
+    return {
+      ...item,
+      status: buildLocalInboundLabelStatus(nextRolls, availableCount, 0),
+      confirmedBy: operatorName,
+      confirmedAt: now,
+      nextStep: "整单已贴齐并进入可用库存。异常卷不在本次入库范围内。",
       rolls: nextRolls,
     };
   }

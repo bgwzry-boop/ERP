@@ -104,6 +104,27 @@ assert.equal(
 }
 
 {
+  assert.throws(() => applyRawMaterialInboundLocalAction([baseInbound], {
+    action: "机边领料",
+    inboundId: "RMI-1",
+    now: "2026-07-12T08:00:00.000Z",
+    operatorName: "车间A",
+    options: {
+      rollId: "ROLL-1",
+      machineId: "1号机",
+      productionTaskId: "PT-LOCAL-001",
+      issuedWeightKg: 30,
+      partialIssue: true,
+    },
+  }), (error) => error.code === "RAW_MATERIAL_PARTIAL_ISSUE_DISABLED", "partial issue must stay closed");
+  assert.throws(() => applyRawMaterialInboundLocalAction([baseInbound], {
+    action: "扫码出库",
+    inboundId: "RMI-1",
+    now: "2026-07-12T08:00:00.000Z",
+    operatorName: "车间A",
+    options: { rollId: "ROLL-1", machineId: "丝印机-01" },
+  }), (error) => error.code === "RAW_MATERIAL_ISSUE_MACHINE_NOT_ALLOWED", "outbound machines are limited to 1号机 through 9号机");
+
   const issued = applyRawMaterialInboundLocalAction([baseInbound], {
     action: "机边领料",
     inboundId: "RMI-1",
@@ -113,16 +134,14 @@ assert.equal(
       rollId: "ROLL-1",
       machineId: "BAG-01",
       productionTaskId: "PT-LOCAL-001",
-      issuedWeightKg: 30,
-      partialIssue: true,
     },
   }).updatedItem;
-  assert.equal(issued.rolls.length, 2);
-  assert.equal(issued.rolls.find((roll) => roll.id === "ROLL-1").weightKg, 70);
-  const machineRoll = issued.rolls.find((roll) => roll.parentRollId === "ROLL-1");
-  assert.equal(machineRoll.weightKg, 30);
-  assert.equal(machineRoll.inventoryStatus, "机边领用");
-  assert.equal(issued.rawMaterialSplitRecords.length, 1);
+  assert.equal(issued.rolls.length, 1, "whole-roll issue must not split the source roll");
+  assert.equal(issued.rolls[0].id, "ROLL-1");
+  assert.equal(issued.rolls[0].weightKg, 100);
+  assert.equal(issued.rolls[0].inventoryStatus, "机边领用");
+  assert.equal(issued.rolls[0].machineId, "1号机");
+  assert.equal(issued.rawMaterialSplitRecords.length, 0);
   assert.equal(issued.rawMaterialIssueRecords[0].consumptionStatus, "待生产消耗确认");
   assert.equal(issued.qualifiedOutputQuantity, undefined, "machine issue must not create qualified output");
 
@@ -131,31 +150,27 @@ assert.equal(
     inboundId: "RMI-1",
     now: "2026-07-12T09:00:00.000Z",
     operatorName: "车间A",
-    options: { rollId: machineRoll.id, consumedWeightKg: 10, partialConsumption: true },
+    options: { rollId: "ROLL-1", consumedWeightKg: 10, partialConsumption: true },
   }).updatedItem;
-  assert.equal(partiallyConsumed.rolls.find((roll) => roll.id === machineRoll.id).weightKg, 20);
-  assert.equal(partiallyConsumed.rolls.find((roll) => roll.id === machineRoll.id).inventoryStatus, "机边领用");
-  assert.equal(partiallyConsumed.rawMaterialConsumptionRecords[0].remainingMachineSideWeightKg, 20);
+  assert.equal(partiallyConsumed.rolls[0].weightKg, 90);
+  assert.equal(partiallyConsumed.rolls[0].inventoryStatus, "机边领用");
+  assert.equal(partiallyConsumed.rawMaterialConsumptionRecords[0].remainingMachineSideWeightKg, 90);
 
-  const returned = applyRawMaterialInboundLocalAction([partiallyConsumed], {
+  assert.throws(() => applyRawMaterialInboundLocalAction([partiallyConsumed], {
     action: "余料退回",
     inboundId: "RMI-1",
     now: "2026-07-12T10:00:00.000Z",
     operatorName: "车间A",
-    options: { rollId: machineRoll.id, leftoverWeightKg: 20, returnLocation: "余料区" },
-  }).updatedItem;
-  assert.equal(returned.rolls.find((roll) => roll.id === machineRoll.id).inventoryStatus, "余料待复核");
-
-  const availableAgain = applyRawMaterialInboundLocalAction([returned], {
+    options: { rollId: "ROLL-1", leftoverWeightKg: 90, returnLocation: "余料区" },
+  }), (error) => error.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED", "leftover return must not restore available stock");
+  assert.throws(() => applyRawMaterialInboundLocalAction([partiallyConsumed], {
     action: "复核余料可用",
     inboundId: "RMI-1",
     now: "2026-07-12T11:00:00.000Z",
     operatorName: "库房A",
-    options: { rollId: machineRoll.id, reviewedWeightKg: 19.5, reviewLocation: "原料库-余料可用区" },
-  }).updatedItem;
-  assert.equal(availableAgain.rolls.find((roll) => roll.id === machineRoll.id).inventoryStatus, "可用");
-  assert.equal(availableAgain.rolls.find((roll) => roll.id === machineRoll.id).weightKg, 19.5);
-  assert.equal(availableAgain.rawMaterialLeftoverReviewRecords.length, 1);
+    options: { rollId: "ROLL-1", reviewedWeightKg: 90, reviewLocation: "原料库-余料可用区" },
+  }), (error) => error.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED", "leftover review must not restore available stock");
+  assert.equal(partiallyConsumed.rolls[0].inventoryStatus, "机边领用");
 }
 
 {

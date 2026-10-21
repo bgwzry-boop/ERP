@@ -1,6 +1,6 @@
-export const RAW_MATERIAL_MACHINE_OPTIONS = Object.freeze([
-  "1号机", "2号机", "3号机", "4号机", "5号机", "6号机", "7号机", "8号机", "9号机", "丝印区", "临时领用区",
-]);
+import { RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS } from "./rawMaterialWholeRollPolicy.js";
+
+export const RAW_MATERIAL_MACHINE_OPTIONS = RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS;
 
 export function normalizeRawMaterialScanCode(value) {
   return String(value ?? "")
