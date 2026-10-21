@@ -5962,7 +5962,188 @@
   }
 }
 
+.office-inbound-flow {
+  display: grid;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.office-inbound-steps {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.office-inbound-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  border-radius: 999px;
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  padding: 0 10px 0 4px;
+}
+
+.office-inbound-steps li span {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--erp-border);
+  color: var(--erp-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.office-inbound-steps li[aria-current="step"] {
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
+  font-weight: 700;
+}
+
+.office-inbound-steps li[aria-current="step"] span {
+  background: var(--erp-accent-strong);
+  color: var(--erp-accent-contrast, #fff);
+}
+
+.office-inbound-lead {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  color: var(--erp-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.office-inbound-lead strong {
+  font-size: 15px;
+}
+
+.office-inbound-lead span,
+.office-inbound-block {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+}
+
+.office-inbound-block {
+  margin: 0;
+  border: 1px solid var(--erp-warning-border);
+  border-radius: 8px;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
+  padding: 8px 10px;
+}
+
+.office-inbound-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.office-roll-table {
+  display: grid;
+  border: 1px solid var(--erp-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.office-roll-head,
+.office-roll-row {
+  display: grid;
+  grid-template-columns: 72px minmax(88px, 1.3fr) 76px 84px auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 6px 10px;
+}
+
+.office-roll-head {
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text-muted);
+  font-size: 12px;
+}
+
+.office-roll-row {
+  border-top: 1px solid var(--erp-border);
+}
+
+.office-roll-row.is-blocked {
+  background: var(--erp-warning-bg);
+}
+
+.office-roll-fact {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--erp-text);
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.office-roll-editor {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+  padding-top: 4px;
+}
+
+.office-roll-editor label {
+  display: grid;
+  gap: 4px;
+  color: var(--erp-text-muted);
+  font-size: 12px;
+}
+
+.office-roll-editor input {
+  min-height: 32px;
+  border: 1px solid var(--erp-border);
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+.office-stick-count {
+  display: grid;
+  width: min(220px, 100%);
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.office-stick-count input {
+  min-height: 40px;
+  border: 1px solid var(--erp-border);
+  border-radius: 8px;
+  font-size: 22px;
+  font-weight: 700;
+  padding: 0 10px;
+}
+
+.office-inbound-exception {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+}
+
+.office-inbound-exception div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
 @media print {
+  @page office-roll-label {
+    size: 76mm 130mm;
+    margin: 2mm;
+  }
+
   body.raw-material-label-printing * {
     visibility: hidden !important;
   }
@@ -5982,15 +6163,37 @@
 
   body.raw-material-label-printing .raw-material-roll-print-label {
     display: grid;
+    align-content: start;
     box-sizing: border-box;
-    width: 92mm;
-    min-height: 58mm;
+    width: 72mm;
+    min-height: 126mm;
     break-after: page;
-    border: 0.35mm solid var(--erp-print-ink);
+    border: 0;
     color: var(--erp-print-ink);
-    gap: 1.5mm;
-    padding: 3mm;
+    gap: 2mm;
+    padding: 1mm 0 0;
+    page: office-roll-label;
     page-break-after: always;
+  }
+
+  body.raw-material-label-printing .raw-material-label-supplier {
+    margin: 0;
+    font-size: 11pt;
+    font-weight: 700;
+  }
+
+  body.raw-material-label-printing .raw-material-label-weight {
+    margin: 0;
+    font-size: 28pt;
+    font-weight: 700;
+    line-height: 1;
+  }
+
+  body.raw-material-label-printing .raw-material-label-match {
+    margin: 0;
+    font-size: 16pt;
+    font-weight: 700;
+    line-height: 1.2;
   }
 
   body.raw-material-label-printing .raw-material-roll-print-label:last-child {

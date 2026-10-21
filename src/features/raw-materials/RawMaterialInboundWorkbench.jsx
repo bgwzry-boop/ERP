@@ -352,7 +352,7 @@ function getRawMaterialRollStatusKey(status) {
   return "unknown";
 }
 
-function getRawMaterialColorValue(color) {
+export function getRawMaterialColorValue(color) {
   const map = {
     本白: "#f8f8f2",
     白色: "#f8f8f2",

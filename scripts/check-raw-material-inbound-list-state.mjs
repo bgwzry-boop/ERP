@@ -59,9 +59,9 @@ assert.equal(canReviewRawMaterialInbound(inbounds[1]), true);
 assert.equal(getRawMaterialInboundTone("已消耗确认"), "success");
 assert.equal(getSupplierStatementReviewTone("存在差异"), "danger");
 assert.equal(getRawMaterialInboundSourceLabel({ source: "api", lastSyncedAt: "10:30" }), "后端 API 已同步 · 10:30");
-assert.equal(getRawMaterialNextActionLabel({ status: "已识别待复核" }), "核对送货单");
-assert.equal(getRawMaterialNextActionLabel({ status: "已打印待贴标" }), "贴标并核对");
-assert.equal(getRawMaterialNextActionLabel({ status: "部分贴标" }), "继续贴标");
+assert.equal(getRawMaterialNextActionLabel({ status: "已识别待复核" }), "核对颜色、宽幅、公斤");
+assert.equal(getRawMaterialNextActionLabel({ status: "已打印待贴标" }), "回办公室确认入库");
+assert.equal(getRawMaterialNextActionLabel({ status: "部分贴标" }), "核对已贴张数");
 assert.equal(formatRawMaterialDeliveryNoteNo({ id: "RMI-1" }), "供应商未提供单号 / RMI-1");
 assert.equal(formatSupplierPayableAmount(1234.5), "¥1,234.50");
 

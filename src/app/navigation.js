@@ -22,7 +22,7 @@ export const secondaryNavigationItems = Object.freeze([
     key: "rawMaterials",
     label: "原材料",
     icon: "upload",
-    description: "送货单 OCR 复核、一卷一标、逐卷实物核对、库存与供应商账务。",
+    description: "办公室扫描送货单、核对颜色宽幅公斤、打印卷标，回办公室核对张数后入库。",
     allowedRoleKeys: ["office", "management", "finance"],
     permissionPrefixes: ["raw_material."],
   },
