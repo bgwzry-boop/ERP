@@ -1,4 +1,5 @@
 import { resolveRawMaterialProductionTaskMatch } from "./rawMaterialInboundRecordService.mjs";
+import { assertWholeRollIssue } from "../src/domain/rawMaterialWholeRollPolicy.js";
 import {
   normalizeRawMaterialConsumptionRecords,
   normalizeRawMaterialIssueRecords,
@@ -18,6 +19,12 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
   const action = cleanText(input.action);
   if (!RAW_MATERIAL_TRACEABILITY_ACTIONS.has(action)) return null;
   const before = input.before ?? {};
+  if (action === "return_leftover" || action === "review_leftover") {
+    throw Object.assign(new Error("机边余料不能退回可用库存，剩余重量继续保留在机边。"), {
+      statusCode: 409,
+      code: "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED",
+    });
+  }
   const workspace = input.workspace ?? {};
   const operatorId = cleanText(input.operatorId);
   const operatorName = cleanText(input.operatorName ?? operatorId);
@@ -25,7 +32,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
   let after = before;
   if (action === "issue_to_machine") {
     const rollId = cleanText(input.body?.rollId);
-    const machineId = cleanText(input.body?.machineId);
+    let machineId = cleanText(input.body?.machineId);
     const productionTaskId = cleanText(input.body?.productionTaskId);
     if (!rollId) {
       throw Object.assign(new Error("机边领料必须选择已确认可用的单卷/件。"), {
@@ -39,6 +46,13 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
       });
     }
     const selectedRoll = (before.rolls ?? []).find((roll) => roll.id === rollId);
+    const wholeRoll = assertWholeRollIssue({
+      machineId,
+      requestedWeightKg: input.body?.issuedWeightKg ?? input.body?.weightKg,
+      fullWeightKg: selectedRoll?.weightKg,
+    });
+    if (!wholeRoll.ok) throw Object.assign(new Error(wholeRoll.message), { statusCode: wholeRoll.statusCode, code: wholeRoll.code });
+    machineId = wholeRoll.machineLabel;
     if (selectedRoll?.inventoryStatus === "可用"
       && String(selectedRoll.labelStatus || "").includes("已贴标")
       && !(Number(selectedRoll.weightKg) > 0)) {

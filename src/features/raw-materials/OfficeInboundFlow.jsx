@@ -4,7 +4,6 @@ import { submitInboundAction } from "./submitInbound.js";
 import { getRawMaterialColorValue } from "./RawMaterialInboundWorkbench.jsx";
 import {
   applyOfficeRollCorrection,
-  buildOfficeMatchedAttachPayload,
   buildOfficeReviewRows,
   evaluateOfficeInboundCompletion,
   listOfficePrintableRolls,
@@ -49,12 +48,10 @@ export function OfficeInboundFlow({
     if (!decision.allowed || attachState?.disabled || completing) return;
     setCompleting(true);
     try {
-      let current = inbound;
-      for (const roll of decision.pending) {
-        const saved = await submitInboundAction(onAction, current, "确认贴标入库", buildOfficeMatchedAttachPayload(current, roll));
-        if (!saved?.id) return;
-        current = saved;
-      }
+      await submitInboundAction(onAction, inbound, "本单已贴齐/一键入库", {
+        location: "原料库-可用区",
+        verificationNote: "办公室核对已贴张数与卷数一致，本单已贴齐。",
+      });
     } finally {
       setCompleting(false);
     }

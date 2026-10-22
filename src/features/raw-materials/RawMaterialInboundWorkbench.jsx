@@ -30,6 +30,7 @@ import {
   getRawMaterialRollFilterOptions,
   summarizeRawMaterialRollLedger,
 } from "../../domain/rawMaterialRollInventoryState.js";
+import { DEFAULT_RAW_MATERIAL_ROLL_INVENTORY_STATUS } from "../../domain/rawMaterialWholeRollPolicy.js";
 
 export const RAW_MATERIAL_INBOUND_TABS = RAW_MATERIAL_INBOUND_VIEW_KEYS;
 export const RAW_MATERIAL_DETAIL_TABS = ["入库标签", "领料成本", "供应商账", "记录"];
@@ -103,9 +104,8 @@ export function RawMaterialRollInventoryWorkbench({
 }) {
   const rolls = useMemo(() => buildRawMaterialRollLedger(inbounds), [inbounds]);
   const summary = useMemo(() => summarizeRawMaterialRollLedger(rolls), [rolls]);
-  const options = useMemo(() => getRawMaterialRollFilterOptions(rolls), [rolls]);
   const [keyword, setKeyword] = useState("");
-  const [status, setStatus] = useState("全部状态");
+  const [status, setStatus] = useState(DEFAULT_RAW_MATERIAL_ROLL_INVENTORY_STATUS);
   const [width, setWidth] = useState("全部宽幅");
   const [color, setColor] = useState("全部颜色");
   const [location, setLocation] = useState("全部库位");
@@ -113,6 +113,11 @@ export function RawMaterialRollInventoryWorkbench({
   const [selectedRollId, setSelectedRollId] = useState("");
   const [page, setPage] = useState(1);
   const pageSize = 20;
+  const statusRolls = useMemo(
+    () => (status === "全部状态" ? rolls : rolls.filter((roll) => roll.status === status)),
+    [rolls, status],
+  );
+  const options = useMemo(() => getRawMaterialRollFilterOptions(statusRolls), [statusRolls]);
   const filteredRolls = useMemo(() => filterRawMaterialRollLedger(rolls, {
     keyword,
     status,
@@ -132,7 +137,7 @@ export function RawMaterialRollInventoryWorkbench({
   const selectedRoll = pageRolls.find((roll) => roll.id === selectedRollId) || pageRolls[0] || bucketRolls[0] || null;
   const hasFilters = Boolean(
     keyword.trim()
-    || status !== "全部状态"
+    || status !== DEFAULT_RAW_MATERIAL_ROLL_INVENTORY_STATUS
     || width !== "全部宽幅"
     || color !== "全部颜色"
     || location !== "全部库位"
@@ -147,7 +152,7 @@ export function RawMaterialRollInventoryWorkbench({
 
   function resetFilters() {
     setKeyword("");
-    setStatus("全部状态");
+    setStatus(DEFAULT_RAW_MATERIAL_ROLL_INVENTORY_STATUS);
     setWidth("全部宽幅");
     setColor("全部颜色");
     setLocation("全部库位");

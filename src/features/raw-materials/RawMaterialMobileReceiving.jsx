@@ -18,6 +18,7 @@ import {
 import { formatRawMaterialWeight } from "./RawMaterialInboundWorkbench.jsx";
 import { RawMaterialCode39 } from "./RawMaterialLabelPrintSheet.jsx";
 import { formatRawMaterialMobileSpec } from "../../../shared/rawMaterialSpec.js";
+import { evaluateRawMaterialOneClickInbound } from "../../domain/rawMaterialWholeRollPolicy.js";
 
 export const RAW_MATERIAL_RECEIVING_STEPS = [
   ["拍单", CameraOutlined],
@@ -43,6 +44,7 @@ export function RawMaterialMobileReceiving({
   mobileMessage,
   mobileStage = "home",
   onAttach,
+  onOneClickInbound,
   onDeliveryNoteRecognize,
   onDeliveryNotePageSelect,
   onDeliveryNotePageRemove,
@@ -203,7 +205,7 @@ export function RawMaterialMobileReceiving({
             badge={`${countResolvedRolls(selected)}/${selected?.rolls?.length || 0}`}
             title="逐卷贴标"
           />
-          <MobileLabelVerification attachState={attachState} onAttach={onAttach} selected={selected} />
+          <MobileLabelVerification attachState={attachState} onAttach={onAttach} onOneClickInbound={onOneClickInbound} selected={selected} />
         </section>
       ) : null}
 
@@ -580,13 +582,14 @@ function MobilePrintResult({ message, onHome, onNext, printerDeviceQa, selected,
   );
 }
 
-function MobileLabelVerification({ attachState, onAttach, selected }) {
+function MobileLabelVerification({ attachState, onAttach, onOneClickInbound, selected }) {
   const [location, setLocation] = useState("原料库-待上架区");
   const [mismatchRollId, setMismatchRollId] = useState("");
   const [mismatchDrafts, setMismatchDrafts] = useState({});
   const [submittingRollId, setSubmittingRollId] = useState("");
   const rolls = selected?.rolls ?? [];
   const pendingRolls = rolls.filter((roll) => roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用");
+  const oneClickGate = evaluateRawMaterialOneClickInbound(selected);
 
   async function submitRoll(roll, matchResult, draft = {}) {
     if (!roll || attachState.disabled || submittingRollId) return;
@@ -629,20 +632,13 @@ function MobileLabelVerification({ attachState, onAttach, selected }) {
   }
 
   async function submitAllPending() {
-    if (attachState.disabled || submittingRollId || pendingRolls.length === 0) return;
+    if (attachState.disabled || submittingRollId || !oneClickGate.allowed) return;
     setSubmittingRollId("__all__");
     try {
-      for (const roll of pendingRolls) {
-        await onAttach?.({
-          rollId: roll.id,
-          matchResult: "matched",
-          checkedWeightKg: roll.weightKg ?? "",
-          checkedColor: roll.factoryColor ?? roll.supplierColor ?? selected?.factoryColor ?? selected?.supplierColor ?? "",
-          checkedSpec: roll.spec ?? selected?.spec ?? "",
-          location,
-          verificationNote: "办公室一键确认本单已逐卷贴标。",
-        });
-      }
+      await onOneClickInbound?.({
+        location,
+        verificationNote: "办公室确认本单已贴齐，一键入库。",
+      });
     } finally {
       setSubmittingRollId("");
     }
@@ -663,12 +659,14 @@ function MobileLabelVerification({ attachState, onAttach, selected }) {
       </label>
       <button
         className="raw-material-mobile-attach-all"
-        disabled={attachState.disabled || Boolean(submittingRollId) || pendingRolls.length === 0}
+        disabled={attachState.disabled || Boolean(submittingRollId) || !oneClickGate.allowed}
         onClick={submitAllPending}
+        title={oneClickGate.blocker}
         type="button"
       >
-        <CheckCircleOutlined aria-hidden="true" /> {submittingRollId === "__all__" ? "正在确认…" : `一键确认 ${pendingRolls.length} 卷已贴`}
+        <CheckCircleOutlined aria-hidden="true" /> {submittingRollId === "__all__" ? "正在入库…" : "本单已贴齐/一键入库"}
       </button>
+      {oneClickGate.blocker ? <p className="raw-material-mobile-error" role="status">{oneClickGate.blocker}</p> : null}
       <div className="raw-material-mobile-roll-list">
         {rolls.map((roll, index) => {
           const completed = roll.inventoryStatus === "可用";

@@ -61,6 +61,7 @@ export function RawMaterialInboundPage(props) {
     handlePrintLabels,
     handleDeferLabels,
     handleMobileAttach,
+    handleMobileOneClickInbound,
     changeTab
   } = state;
   return (<section className={`page-grid split-detail operational-split-workbench raw-material-inbound-page raw-material-workbench ${desktopView === "卷料库存" ? "is-roll-inventory-view" : "is-receiving-view"} ${mobileOcrReviewOpen ? "is-mobile-detail-open" : ""}`}>
@@ -89,6 +90,7 @@ export function RawMaterialInboundPage(props) {
         supplierNameHint={deliveryNoteSupplierHint}
         supplierOptions={deliveryNoteSupplierOptions}
         onAttach={handleMobileAttach}
+        onOneClickInbound={handleMobileOneClickInbound}
         onDeliveryNotePageSelect={handleDeliveryNotePageSelect}
         onDeliveryNotePageRemove={handleDeliveryNotePageRemove}
         onDeliveryNotePagesClear={handleDeliveryNotePagesClear}

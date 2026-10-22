@@ -63,6 +63,9 @@ Current decision baseline: 2026-10-13 integration review; V8.306 is a historical
 - Physical-print trust requires accepted device QA, actual printed job/readback and field evidence. Preview, queued, manual-review or free-text status never opens D51.
 - Driver completion requires ERP-owned package scan/navigation/photo/location evidence bound to the authoritative task and assigned driver. Device QA alone never completes delivery.
 - Raw-material inbound remains delivery-note OCR plus line review, physical roll count, one label per roll and one-to-one reconciliation before roll availability. Ambiguous rows remain isolated; no example or fabricated value may make stock available.
+- Roy’s whole-roll rule is authoritative for raw-material stock. Each physical roll is the stock unit. The roll inventory defaults to available yard stock (`可用`); colour plus width filters show the available count and drill into those rolls. Machine-side and unconfirmed rolls stay out of that default view.
+- Raw material is whole-roll in and whole-roll out. Partial issue, split-roll outbound, leftover return, and leftover review back to available stock are disabled. Outbound is scan, choose `1号机` through `9号机`, then confirm; available stock decreases by one roll and the roll becomes `机边领用`, including any leftover that remains on the machine.
+- After labels are printed and physically applied, office uses `本单已贴齐/一键入库`. It is blocked unless the printed label count, roll count, and pending stick-confirm roll count are equal and no exception roll remains. Matching rolls become available; exception rolls stay out.
 
 ## Runtime And Security
 

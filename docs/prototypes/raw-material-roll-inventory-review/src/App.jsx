@@ -250,7 +250,7 @@ function DistributionRail({ activeBucket, distributionGroups, machineSideCount, 
 
 function RollInventory({ onOpenSource, sourceRolls = [] }) {
   const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("全部状态");
+  const [status, setStatus] = useState("可用");
   const [width, setWidth] = useState("全部宽幅");
   const [color, setColor] = useState("全部颜色");
   const [location, setLocation] = useState("全部库位");
@@ -278,7 +278,7 @@ function RollInventory({ onOpenSource, sourceRolls = [] }) {
     return sortInventoryRollsByWidth(matching);
   }, [activeBucket, filteredRolls]);
 
-  const inventorySummary = useMemo(() => summarizeInventory(filteredRolls), [filteredRolls]);
+  const inventorySummary = useMemo(() => summarizeInventory(sourceRolls), [sourceRolls]);
 
   const distributionGroups = useMemo(() => buildDistribution(filteredRolls), [filteredRolls]);
   const widthOptions = useMemo(() => buildInventoryWidthOptions(sourceRolls), [sourceRolls]);
@@ -290,8 +290,8 @@ function RollInventory({ onOpenSource, sourceRolls = [] }) {
   const selectedRoll = visibleRolls.find((roll) => roll.id === selectedId) || visibleRolls[0] || matchingRolls[0] || sourceRolls[0];
   const setFilter = (setter) => (value) => { setter(value); setPage(1); setActiveBucket(""); };
   const setBucket = (value) => { setActiveBucket(value); setPage(1); };
-  const resetFilters = () => { setQuery(""); setStatus("全部状态"); setWidth("全部宽幅"); setColor("全部颜色"); setLocation("全部库位"); setActiveBucket(""); setPage(1); };
-  const hasActiveFilters = Boolean(query.trim() || status !== "全部状态" || width !== "全部宽幅" || color !== "全部颜色" || location !== "全部库位" || activeBucket);
+  const resetFilters = () => { setQuery(""); setStatus("可用"); setWidth("全部宽幅"); setColor("全部颜色"); setLocation("全部库位"); setActiveBucket(""); setPage(1); };
+  const hasActiveFilters = Boolean(query.trim() || status !== "可用" || width !== "全部宽幅" || color !== "全部颜色" || location !== "全部库位" || activeBucket);
 
   return <div className="inventory-workbench">
     <section className={`ledger-panel${hasActiveFilters ? " has-filter-feedback" : ""}`}>

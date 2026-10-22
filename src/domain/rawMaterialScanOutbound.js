@@ -1,6 +1,6 @@
-export const RAW_MATERIAL_MACHINE_OPTIONS = Object.freeze([
-  "1号机", "2号机", "3号机", "4号机", "5号机", "6号机", "7号机", "8号机", "9号机", "丝印区", "临时领用区",
-]);
+import { RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS } from "./rawMaterialWholeRollPolicy.js";
+
+export const RAW_MATERIAL_MACHINE_OPTIONS = RAW_MATERIAL_WHOLE_ROLL_MACHINE_LABELS;
 
 export function normalizeRawMaterialScanCode(value) {
   return String(value ?? "")
@@ -31,5 +31,6 @@ export function getRawMaterialScanOutboundBlocker(match) {
     return `这卷当前为“${match.roll.inventoryStatus || "不可用"}”，必须完成贴标核对并进入可用库存后才能出库。`;
   }
   if (!String(match.roll.labelStatus || "").includes("已贴标")) return "这卷尚未完成贴标核对，不能扫码出库。";
+  if (!(Number(match.roll.weightKg) > 0)) return "这卷缺少真实重量，不能扫码出库。";
   return "";
 }

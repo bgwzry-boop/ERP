@@ -100,6 +100,7 @@ const uiActionPermissions = {
     作废卷标: { permissionKey: "raw_material.label.print", permissionType: "action" },
     重打卷标: { permissionKey: "raw_material.label.print", permissionType: "action" },
     确认贴标入库: { permissionKey: "raw_material.label.attach_confirm", permissionType: "action" },
+    "本单已贴齐/一键入库": { permissionKey: "raw_material.label.attach_confirm", permissionType: "action" },
     机边领料: { permissionKey: "raw_material.issue.create", permissionType: "action" },
     扫码出库: { permissionKey: "raw_material.issue.create", permissionType: "action" },
     确认消耗: { permissionKey: "raw_material.consumption.confirm", permissionType: "action" },

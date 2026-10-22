@@ -3,6 +3,7 @@ import { roundLocalRawMaterialWeight } from "./rawMaterialLocalActionMath.js";
 import { applyRawMaterialOcrLineReviews, buildRawMaterialOcrReviewedRolls, validateRawMaterialOcrLineReviewSummary } from "../../shared/rawMaterialOcrLineReview.js";
 import { applyLocalRawMaterialInboundLabelAction } from "./rawMaterialInboundLocalLabelActions.js";
 import { applyRawMaterialInboundLocalDraftAction } from "./rawMaterialInboundLocalDraftActions.js";
+import { assertWholeRollIssue } from "./rawMaterialWholeRollPolicy.js";
 
 export function buildRawMaterialInboundToastText(action, target, options = {}) {
   const reference = formatRawMaterialInboundReference(target);
@@ -36,15 +37,18 @@ export function buildRawMaterialInboundToastText(action, target, options = {}) {
       ? `已记录 ${options.rollId} 的标签与实物人工核对结果。`
       : `贴标确认必须逐卷/逐件进行，不能批量将整单原材料变为可用。`;
   }
+  if (action === "本单已贴齐/一键入库") {
+    return `已确认 ${reference} 整单贴齐，待贴标卷进入可用库存；异常卷不入库。`;
+  }
   if (action === "机边领料" || action === "扫码出库") {
     const machine = options.machineId || "机边待分配";
     if (!options.rollId || !options.machineId) {
       return "扫码出库必须选择一卷/一件已确认可用原料和领用机台。";
     }
     if (options.partialIssue) {
-      return `已记录 ${options.rollId} 拆卷领料 ${options.issuedWeightKg}kg 到 ${machine}；剩余重量保留可用，仍不做成本分摊。`;
+      return "原材料只支持整卷出库，不能拆卷或部分领料。";
     }
-    return `已记录 ${options.rollId} 整卷/整件机边领料到 ${machine}；等待生产报工确认消耗。`;
+    return `已记录 ${options.rollId} 整卷出库到 ${machine}，可用库存减少 1 卷，状态为机边。`;
   }
   if (action === "确认消耗") {
     if (options.partialConsumption) {
@@ -54,17 +58,8 @@ export function buildRawMaterialInboundToastText(action, target, options = {}) {
       ? `已确认 ${options.rollId} 整卷/整件原材料消耗；不按机台计数生成成品或成本分摊。`
       : `已确认 ${reference} 的机边原材料消耗；后续成本分摊和损耗校准仍需单独流程。`;
   }
-  if (action === "余料退回") {
-    const location = options.returnLocation || "余料区";
-    return options.rollId
-      ? `已记录 ${options.rollId} 余料退回到 ${location}，先进入待复核，不自动变可用库存。`
-      : `已记录 ${reference} 机边余料退回到 ${location}，等待重新称重和复核。`;
-  }
-  if (action === "复核余料可用") {
-    const location = options.reviewLocation || "原料库-余料可用区";
-    return options.rollId
-      ? `已复核 ${options.rollId} 余料并转回 ${location} 可用库存；成本分摊仍需单独流程。`
-      : `已复核 ${reference} 的余料并转回可用库存；不自动生成成本或毛利。`;
+  if (action === "余料退回" || action === "复核余料可用") {
+    return "机边余料不能退回可用库存。出到 1号机至 9号机后保持机边状态。";
   }
   const costMarginText = buildRawMaterialCostMarginToastText(action, reference, options);
   if (costMarginText) return costMarginText;
@@ -175,12 +170,24 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
     }
     if (action === "机边领料" || action === "扫码出库") {
       const rollId = options.rollId ?? "";
-      const machineId = options.machineId || "";
+      let machineId = options.machineId || "";
       const productionTaskId = options.productionTaskId || "";
       const issuePurpose = options.issuePurpose || "生产领料";
       if (!rollId || !machineId) return item;
       const targetRolls = (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "可用" && roll.id === rollId);
       if (!targetRolls.length) return item;
+      const wholeRollIssue = assertWholeRollIssue({
+        machineId,
+        requestedWeightKg: options.issuedWeightKg,
+        fullWeightKg: targetRolls[0]?.weightKg,
+      });
+      if (!wholeRollIssue.ok) {
+        throw Object.assign(new Error(wholeRollIssue.message), {
+          statusCode: wholeRollIssue.statusCode,
+          code: wholeRollIssue.code,
+        });
+      }
+      machineId = wholeRollIssue.machineLabel;
       const issueRecordPrefix = `RMI-ISS-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
       const splitRecordPrefix = `RMI-SPLIT-LOCAL-${Date.now().toString(36).toUpperCase()}`;
       const issuedSourceRollIds = new Set(targetRolls.map((roll) => roll.id));
@@ -188,7 +195,13 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
       const issueRecords = targetRolls.map((roll, index) => {
         const fullWeightKg = Number(roll.weightKg) || 0;
         const requestedWeightKg = Number(options.issuedWeightKg);
-        const isPartialIssue = rollId === roll.id && fullWeightKg > 0 && requestedWeightKg > 0 && fullWeightKg - requestedWeightKg > 0.001;
+        const isPartialIssue = false;
+        if (rollId === roll.id && fullWeightKg > 0 && requestedWeightKg > 0 && fullWeightKg - requestedWeightKg > 0.001) {
+          throw Object.assign(new Error("原材料只支持整卷出库，不能拆卷或部分领料。"), {
+            statusCode: 409,
+            code: "RAW_MATERIAL_PARTIAL_ISSUE_DISABLED",
+          });
+        }
         const issuedRollId = isPartialIssue ? buildLocalRawMaterialSplitRollId(item.rolls, roll.id) : roll.id;
         const issuedWeightKg = isPartialIssue ? roundLocalRawMaterialWeight(requestedWeightKg) : fullWeightKg;
         const remainingWeightKg = isPartialIssue ? roundLocalRawMaterialWeight(fullWeightKg - requestedWeightKg) : 0;
@@ -414,6 +427,10 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
       return updatedItem;
     }
     if (action === "余料退回") {
+      throw Object.assign(new Error("机边余料不能退回可用库存。出到 1号机至 9号机后保持机边状态，不计入可用库存。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED",
+      });
       const rollId = options.rollId ?? "";
       const returnLocation = options.returnLocation || "余料区";
       const targetRolls = (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "机边领用" && (!rollId || roll.id === rollId));
@@ -491,6 +508,10 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
       return updatedItem;
     }
     if (action === "复核余料可用") {
+      throw Object.assign(new Error("机边余料不能退回可用库存。出到 1号机至 9号机后保持机边状态，不计入可用库存。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED",
+      });
       const rollId = options.rollId ?? "";
       const reviewLocation = options.reviewLocation || "原料库-余料可用区";
       const targetRolls = (item.rolls ?? []).filter((roll) => roll.inventoryStatus === "余料待复核" && (!rollId || roll.id === rollId));

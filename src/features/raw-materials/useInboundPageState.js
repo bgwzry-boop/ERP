@@ -503,6 +503,20 @@ export function useInboundPageState({
     return result;
   }
 
+  async function handleMobileOneClickInbound(options = {}) {
+    const activeInbound = mobileSelected ?? selected;
+    if (!activeInbound?.id) return null;
+    const result = await submitInboundAction(onAction, activeInbound, "本单已贴齐/一键入库", options);
+    if (!result?.id) return null;
+    setMobileRecordSnapshot(result);
+    const rolls = result.rolls ?? [];
+    const mismatchCount = rolls.filter((roll) => roll.labelStatus === "标签或实物不符/待确认").length;
+    const availableCount = rolls.filter((roll) => roll.inventoryStatus === "可用").length;
+    setMobileStage(mismatchCount > 0 || availableCount !== rolls.length ? "receive-partial" : "receive-complete");
+    scrollRawMaterialMobileToTop();
+    return result;
+  }
+
   function changeTab(tab) {
     setActiveTab(tab);
     setKeyword("");
@@ -703,6 +717,7 @@ export function useInboundPageState({
     handleDeferLabels,
     handleReprintLabel,
     handleMobileAttach,
+    handleMobileOneClickInbound,
     changeTab,
     handleSupplierStatementImport,
     handleSaveSupplierStatementReviewDraft,

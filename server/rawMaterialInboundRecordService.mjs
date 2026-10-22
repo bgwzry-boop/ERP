@@ -144,7 +144,9 @@ export function findRawMaterialCustomer(workspace = {}, customerId = "") {
 export function normalizeRawMaterialMachineId(value) {
   const text = cleanText(value).toUpperCase();
   if (!text) return "";
-  if (text === "制袋机-01" || text === "制袋-01" || text === "1号制袋机") return "BAG-01";
+  const numbered = text.match(/^(?:([1-9])号机|制袋机-0([1-9])|制袋-0([1-9])|BAG-0([1-9]))$/);
+  if (numbered) return `BAG-0${numbered.slice(1).find(Boolean)}`;
+  if (text === "1号制袋机") return "BAG-01";
   if (text === "丝印机-01" || text === "丝印-01" || text === "1号丝印机") return "PRINT-01";
   return text;
 }
