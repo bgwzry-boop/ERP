@@ -74,6 +74,7 @@ Current decision baseline: `V8.306` plus the verified employee/payroll/Deli chan
 - Page headings contain the title and real page-local controls only. Repeated subtitles, duplicate facts, decorative KPI strips and universal dashboard templates remain removed.
 - Long phone states scroll within their frame; blocking/error/confirmation/result states remain reachable and role boundaries remain explicit.
 - Detailed active presentation and workflow decisions live in `AGENTS.md`; this file records the current cross-domain authority and release decisions rather than duplicating the full UI specification.
+- Office desktop is the primary raw-material inbound surface: scan or upload the delivery note, review color / width / kilograms, print one 76×130mm label per roll, then complete inbound in one click only when the stuck-label count equals the roll count. The default receiving view is the roll ledger, without step narration or a second document grid. Existing review, print and per-roll attach commands remain the server contract.
 
 ## Engineering
 

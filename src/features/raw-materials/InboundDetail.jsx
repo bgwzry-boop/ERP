@@ -4,9 +4,7 @@ import { DataState, DetailPane, InfoGrid, Segmented, StatusPill, Timeline } from
 import {
   canConfirmRawMaterialConsumptionRoll,
   canIssueRawMaterialRoll,
-  canPrintRawMaterialLabels,
   canReturnRawMaterialLeftoverRoll,
-  canReviewRawMaterialInbound,
   canReviewRawMaterialLeftoverRoll,
   formatRawMaterialDeliveryNoteNo,
   formatSupplierPayableAmount,
@@ -16,6 +14,8 @@ import {
 } from "../../domain/rawMaterialInboundListState.js";
 import { formatRawMaterialWeight, RAW_MATERIAL_DETAIL_TABS, RawMaterialDetailOverview } from "./RawMaterialInboundWorkbench.jsx";
 import { RawMaterialPurchasePanel } from "./RawMaterialPurchasePanel.jsx";
+import { OfficeInboundFlow } from "./OfficeInboundFlow.jsx";
+import { officeInboundUsesCountGate } from "../../domain/officeRawMaterialInboundFlow.js";
 
 const RawMaterialMobileOcrReview = lazy(() => import("./RawMaterialMobileOcrReview.jsx").then((module) => ({
   default: module.RawMaterialMobileOcrReview,
@@ -133,30 +133,12 @@ export function InboundDetail({
           </Suspense>
         ) : null}
         <div className="raw-material-ocr-upload-bar">
-          <div className="raw-material-ocr-copy" title="供应商原始单号有则录、没有就留空">
-            <strong>识别送货单</strong>
-            <span>OCR 仅预填；识别不会直接入库</span>
-          </div>
           <div className="raw-material-ocr-upload-actions">
             <label
-              className={`button-like raw-material-camera-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
-              title={reviewState.title || "调用手机后置摄像头拍摄送货单，原图最大 30MB，系统自动处理后识别"}
-            >
-              {deliveryNoteOcrLoading ? "正在识别…" : "直接拍照"}
-              <input
-                accept="image/jpeg,image/png,image/bmp"
-                capture="environment"
-                disabled={reviewState.disabled || deliveryNoteOcrLoading}
-                hidden
-                onChange={handleDesktopDeliveryNoteRecognize}
-                type="file"
-              />
-            </label>
-            <label
               className={`button-like raw-material-file-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
-              title={reviewState.title || "图片原图最大 30MB 并自动处理；PDF 暂限 7.5MB"}
+              title={reviewState.title || "扫描或上传图片、PDF。相册 / PDF 也可以。OCR 仅预填，识别不会直接入库。供应商原始单号有则录、没有就留空"}
             >
-              {deliveryNoteOcrLoading ? "处理中…" : "相册 / PDF"}
+              {deliveryNoteOcrLoading ? "正在识别…" : "扫描或上传"}
               <input
                 accept="image/png,image/jpeg,image/bmp,application/pdf"
                 disabled={reviewState.disabled || deliveryNoteOcrLoading}
@@ -166,125 +148,50 @@ export function InboundDetail({
                 type="file"
               />
             </label>
+            <label
+              className={`button-like raw-material-camera-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
+              title={reviewState.title || "调用手机后置摄像头拍摄送货单，原图最大 30MB，系统自动处理后识别"}
+            >
+              {deliveryNoteOcrLoading ? "处理中…" : "直接拍照"}
+              <input
+                accept="image/jpeg,image/png,image/bmp"
+                capture="environment"
+                disabled={reviewState.disabled || deliveryNoteOcrLoading}
+                hidden
+                onChange={handleDesktopDeliveryNoteRecognize}
+                type="file"
+              />
+            </label>
           </div>
           {deliveryNoteOcrResult ? <span className="raw-material-ocr-success" role="status">{deliveryNoteOcrResult}</span> : null}
           {deliveryNoteOcrError ? <span className="raw-material-ocr-error" role="alert">{deliveryNoteOcrError}</span> : null}
         </div>
-        {firstReleaseMode ? null : <RawMaterialPurchasePanel authState={authState} currentUser={currentUser} />}
         {selected ? (
           <>
-            <RawMaterialDetailOverview selected={selected} />
+            {detailTab === "入库标签" ? null : <RawMaterialDetailOverview selected={selected} />}
             <div className="operational-detail-tabs raw-material-detail-tabs">
               <Segmented ariaLabel="原材料详情视图" value={detailTab} onChange={setDetailTab} items={firstReleaseMode ? RAW_MATERIAL_FIRST_RELEASE_DETAIL_TABS : RAW_MATERIAL_DETAIL_TABS} />
             </div>
             <div className="raw-material-detail-scroll">
               <section className="detail-section operational-detail-section-first" hidden={detailTab !== "入库标签"}>
-                <h3>入库动作</h3>
-                {selected.ocrProvider === "tencent_cloud_table_v3" && canReviewRawMaterialInbound(selected) ? (
-                  <div className="raw-material-ocr-review-panel">
-                    <div className="raw-material-ocr-review-heading">
-                      <div>
-                        <strong>腾讯云 OCR 人工复核</strong>
-                        <span>原图附件 {selected.sourceAttachmentId || "已保存"} · 请求 {selected.ocrRequestId || "待记录"}</span>
-                      </div>
-                      <span>{selected.ocrStatus}</span>
-                    </div>
-                    <div className="raw-material-ocr-review-grid">
-                      {(selected.ocrReviewFields ?? []).map((field) => (
-                        <label key={field.key}>
-                          <span>{field.label}{field.required ? " *" : ""}</span>
-                          <input
-                            aria-label={`${field.label} OCR 复核值`}
-                            inputMode={isNumericOcrField(field.key) ? "decimal" : undefined}
-                            min={field.key === "rollCount" ? "1" : undefined}
-                            onChange={(event) => setOcrReviewDraft((current) => ({
-                              ...current,
-                              [field.key]: isNumericOcrField(field.key) ? event.target.value : event.target.value,
-                            }))}
-                            step={field.key === "rollCount" ? "1" : isNumericOcrField(field.key) ? "0.001" : undefined}
-                            type={isNumericOcrField(field.key) ? "number" : "text"}
-                            value={ocrReviewDraft[field.key] ?? ""}
-                          />
-                          <small>
-                            识别值：{String(field.recognizedValue || "未识别")} · 可信度 {Math.round(Number(field.confidence) || 0)}% · {field.reviewStatus || "待人工复核"}
-                          </small>
-                        </label>
-                      ))}
-                    </div>
-                    {(selected.ocrLines ?? []).length ? (
-                      <div className="raw-material-ocr-lines" aria-label="OCR 逐行复核">
-                        {(selected.ocrLines ?? []).map((line, index) => {
-                          const lineDraft = ocrLineReviewDraft[line.lineId] ?? buildOcrLineReviewDraft(line);
-                          const recognizedValues = line.recognizedValues ?? line.values ?? {};
-                          return (
-                            <div className="raw-material-ocr-line-review" key={line.lineId}>
-                              <div className="raw-material-ocr-line-heading">
-                                <strong>第 {index + 1} 行</strong>
-                                <span>{line.sourceText || Object.values(recognizedValues).filter(Boolean).join(" | ") || "该行未识别到有效文字"}</span>
-                                <em>{line.reviewStatus || "待人工复核"}</em>
-                              </div>
-                              <div className="raw-material-ocr-line-grid">
-                                {OCR_LINE_REVIEW_FIELDS.map(([key, label]) => (
-                                  <label key={key}>
-                                    <span>{label}</span>
-                                    <input
-                                      aria-label={`OCR 明细 ${line.lineId} ${label}`}
-                                      inputMode={isNumericOcrLineField(key) ? "decimal" : undefined}
-                                      min={key === "rollCount" ? "1" : undefined}
-                                      onChange={(event) => setOcrLineReviewDraft((current) => ({
-                                        ...current,
-                                        [line.lineId]: {
-                                          ...(current[line.lineId] ?? buildOcrLineReviewDraft(line)),
-                                          [key]: event.target.value,
-                                        },
-                                      }))}
-                                      step={key === "rollCount" ? "1" : isNumericOcrLineField(key) ? "0.001" : undefined}
-                                      type={isNumericOcrLineField(key) ? "number" : "text"}
-                                      value={lineDraft[key] ?? ""}
-                                    />
-                                    <small>识别值：{formatOcrLineRecognizedValue(recognizedValues[key])} · {Math.round(Number(line.confidences?.[key]) || 0)}%</small>
-                                  </label>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    ) : null}
-                    <button
-                      className="primary-action"
-                      disabled={reviewState.disabled}
-                      onClick={handleOcrReviewConfirm}
-                      type="button"
-                    >
-                      确认人工复核
-                    </button>
-                  </div>
-                ) : null}
-                <div className="action-row raw-material-actions">
-                  <button
-                    className="primary-action"
-                    disabled={reviewState.disabled || !canReviewRawMaterialInbound(selected)}
-                    title={reviewState.title || (!canReviewRawMaterialInbound(selected) ? "当前状态无需复核" : "")}
-                    onClick={selected.ocrProvider === "tencent_cloud_table_v3" ? handleOcrReviewConfirm : () => submitInboundAction(onAction, selected, "复核送货单")}
-                  >
-                    复核送货单
-                  </button>
-                  <button
-                    disabled={printState.disabled || !canPrintRawMaterialLabels(selected)}
-                    title={printState.title || (!canPrintRawMaterialLabels(selected) ? "先完成送货单复核" : "打印标签只是待贴标，贴到实物并核对后才入库")}
-                    onClick={handlePrintLabels}
-                  >
-                    打印一卷一标
-                  </button>
-                  <button
-                    disabled={exceptionState.disabled || selected.status === "入库异常/待确认"}
-                    title={exceptionState.title || ""}
-                    onClick={() => submitInboundAction(onAction, selected, "标记异常", { reason: "页面手工标记异常。" })}
-                  >
-                    标记异常
-                  </button>
-                </div>
+                <OfficeInboundFlow
+                  attachState={attachState}
+                  documentDraft={ocrReviewDraft}
+                  exceptionState={exceptionState}
+                  inbound={selected}
+                  lineDrafts={ocrLineReviewDraft}
+                  onAction={onAction}
+                  onDocumentDraftChange={setOcrReviewDraft}
+                  onLineDraftsChange={setOcrLineReviewDraft}
+                  onPrint={handlePrintLabels}
+                  onReview={selected.ocrProvider === "tencent_cloud_table_v3" ? handleOcrReviewConfirm : () => submitInboundAction(onAction, selected, "复核送货单")}
+                  onVerifyRoll={(roll) => setLabelVerification(buildRawMaterialLabelVerificationDraft(selected, roll))}
+                  printState={printState}
+                  reviewState={reviewState}
+                  submitting={ocrReviewSubmitting}
+                />
+                <details className="office-receive-more">
+                  <summary>单据</summary>
                 <InfoGrid
                   rows={[
                     ["原料", `${selected.productName || selected.materialType} / ${selected.materialType}`],
@@ -301,12 +208,13 @@ export function InboundDetail({
                     ["单据附件", formatRawMaterialOptionalAttachment(selected.signedNoteStatus)],
                   ]}
                 />
+                </details>
               </section>
               <section className="detail-section raw-material-roll-section" hidden={!(["入库标签", "领料成本", "扫码出库"].includes(detailTab))}>
-              <h3>{detailTab === "入库标签" ? "卷/件标签" : firstReleaseMode ? "按卷扫码出库" : "卷/件领料与消耗"}</h3>
+              <h3 hidden={detailTab === "入库标签" && !(selected.rolls ?? []).some(isOfficeExceptionRoll)}>{detailTab === "入库标签" ? "对不上的卷" : firstReleaseMode ? "按卷扫码出库" : "卷/件领料与消耗"}</h3>
               <div className="raw-material-roll-list">
-                {(selected.rolls ?? []).map((roll) => {
-                  const canAttachRoll = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用";
+                {(selected.rolls ?? []).filter((roll) => detailTab !== "入库标签" || isOfficeExceptionRoll(roll)).map((roll) => {
+                  const canAttachRoll = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用" && !officeInboundUsesCountGate(selected);
                   const canIssueRoll = canIssueRawMaterialRoll(roll);
                   const canPartialIssueRoll = canIssueRoll && Number(roll.weightKg || 0) > 0;
                   const canConfirmConsumption = canConfirmRawMaterialConsumptionRoll(roll);
@@ -644,6 +552,7 @@ export function InboundDetail({
         ) : (
           <DataState title="暂无原材料入库单" detail="调整视图或搜索条件后重试。" compact />
         )}
+        {firstReleaseMode ? null : <RawMaterialPurchasePanel authState={authState} currentUser={currentUser} />}
       </DetailPane>
   );
 }
@@ -1032,6 +941,11 @@ function buildRawMaterialMarginReviewOptions() {
   };
 }
 
+function isOfficeExceptionRoll(roll = {}) {
+  const status = String(roll.labelStatus || "");
+  return status.includes("不符") || status.includes("作废") || status.includes("待重打");
+}
+
 function getRawMaterialRollTone(roll = {}) {
   if (roll.inventoryStatus === "可用") return "success";
   if (roll.inventoryStatus === "机边领用") return "warning";
@@ -1281,14 +1195,6 @@ export function createRawMaterialDeliveryNoteCaptureId() {
   return `RMCAP-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
 }
 
-function isNumericOcrField(key) {
-  return ["rollCount", "totalWeightKg", "unitPrice", "amount"].includes(key);
-}
-
-function isNumericOcrLineField(key) {
-  return ["rollCount", "totalWeightKg", "unitPrice", "amount"].includes(key);
-}
-
 export function buildOcrLineReviewDraft(line = {}) {
   const values = line.values ?? {};
   return Object.fromEntries(OCR_LINE_REVIEW_FIELDS.map(([key]) => [
@@ -1302,9 +1208,4 @@ export function scrollRawMaterialMobileToTop() {
     document.querySelector(".app-shell-mobile-role .content")?.scrollTo({ top: 0, behavior: "auto" });
     window.scrollTo({ top: 0, behavior: "auto" });
   });
-}
-
-function formatOcrLineRecognizedValue(value) {
-  if (Array.isArray(value)) return value.length ? value.join(", ") : "未识别";
-  return String(value ?? "").trim() || "未识别";
 }

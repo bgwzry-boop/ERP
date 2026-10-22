@@ -93,10 +93,10 @@ export function getRawMaterialInboundSourceLabel(meta = {}) {
 
 export function getRawMaterialNextActionLabel(item = {}) {
   const status = String(item.status || "");
-  if (["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(status)) return "核对送货单";
+  if (["已拍照待识别", "已识别待复核", "待补充/待确认"].includes(status)) return "核对颜色、宽幅、公斤";
   if (status === "已复核待打印标签") return "打印卷标";
-  if (status === "已打印待贴标") return "贴标并核对";
-  if (status === "部分贴标") return "继续贴标";
+  if (status === "已打印待贴标") return "回办公室确认入库";
+  if (status === "部分贴标") return "核对已贴张数";
   if (status.includes("余料待复核")) return "复核余料";
   if (status.includes("消耗确认")) return "查看消耗记录";
   if (status.includes("领料/机边")) return "确认消耗或退料";

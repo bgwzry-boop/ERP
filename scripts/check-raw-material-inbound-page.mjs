@@ -17,7 +17,10 @@ const navigationSource = readFileSync(new URL("../src/app/navigation.js", import
 const fixturesSource = readFileSync(new URL("../src/data/fixtures.js", import.meta.url), "utf8");
 const roleToolReadsSource = readFileSync(new URL("../src/app/useOfficeRoleToolReads.js", import.meta.url), "utf8");
 const officePageEntrySource = readFileSync(new URL("../src/pages/office/index.jsx", import.meta.url), "utf8");
-const inboundDetailSource = readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8");
+const inboundDetailSource = [
+  "../src/features/raw-materials/InboundDetail.jsx",
+  "../src/features/raw-materials/OfficeInboundFlow.jsx",
+].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
 const rawMaterialPageSource = [
   "../src/features/raw-materials/RawMaterialInboundPage.jsx",
   "../src/features/raw-materials/useInboundPageState.js",
@@ -285,8 +288,10 @@ assertIncludes(rawMaterialMobileSource, "if (canReviewRawMaterialInbound(selecte
 assertIncludes(rawMaterialMobileSource, "if (canPrintRawMaterialLabels(selected)) return 3", "pending label print should activate the third mobile step");
 assertIncludes(rawMaterialPageSource, "printerDeviceQa={printerDeviceQa}", "raw-material mobile printing should receive dynamic printer state");
 assertIncludes(appSource, "printerDeviceQa={printerDeviceQa}", "App should pass dynamic printer state into raw-material receiving");
-assertIncludes(officePageSource, "确认人工复核", "page should require explicit review of OCR fields");
-assertIncludes(rawMaterialPageSource, "OCR 逐行复核", "page should expose editable OCR line reviews");
+assertIncludes(officePageSource, "这批都对，去打印", "desktop review should batch-confirm correct rolls and go straight to printing");
+assertIncludes(officePageSource, "核对每一卷的颜色、宽幅、公斤", "desktop review should highlight color, width and kilograms");
+assertIncludes(officePageSource, "已贴张数", "desktop inbound completion should ask for the stuck label count");
+assertIncludes(officePageSource, "76×130", "desktop printing should name the 76×130 waybill paper");
 assertIncludes(rawMaterialPageSource, "lineReviews", "page should submit every OCR line review with the header review");
 assertIncludes(rawMaterialPageSource, "分卷重量 kg", "page should allow exact per-roll weights to be reviewed");
 assertIncludes(officePageSource, "识别不会直接入库", "page should keep OCR separate from inventory availability");
