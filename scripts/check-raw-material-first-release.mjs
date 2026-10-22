@@ -165,6 +165,6 @@ assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_E
 assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_ERP_STAGING_AUTH_BYPASS=true/);
 assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_ERP_STAGING_PREVIEW_USER_ID=U-MANAGER-A/);
 assert.match(backendServiceEnv, /^ERP_FIRST_RELEASE_SCOPE=raw_material$/m);
-assert.match(inboundPageSource, /系统不会标记为已打印/);
+assert.match(inboundPageSource, /系统不会记成已打印/);
 
 console.log("raw-material first-release checks passed: label barcode, standalone scan outbound, traceability, and rollout flag are covered.");
