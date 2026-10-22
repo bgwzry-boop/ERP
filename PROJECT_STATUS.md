@@ -1,19 +1,18 @@
 # Project Status
 
-Updated: 2026-10-22. Staging, the repository default entry and the owner's main checkout now share one verified commit. V8.306 remains a historical product label, not a deployed release identity.
+Updated: 2026-10-22. Staging, the repository default entry and the owner's main checkout must be proven consistent by the executable gate. V8.306 remains a historical product label, not a deployed release identity.
 
 ## Current Verified Release
 
 | Surface | Verified identity |
 | --- | --- |
 | Repository default / canonical remote branch | `codex/staging-current` |
-| Deployed commit | `955bb6055e1cff44a3b212f21754e7a8dc908c42` |
-| Staging frontend and `/api/health` | Target `staging`; version `staging-20261022-raw-material-r1`; matching commit and lock digest |
-| Lock digest | `a511759603149771950b90fc9d770e2ad546754cb661d75d5d80e4fcdb35d8d2` |
-| Main checkout | `/Users/xu/Documents/ERP`, clean on `codex/staging-current` at the same commit when checked |
+| Current commit, version and lock | Read live with `npm run release:check`; never maintain a permanent latest SHA by hand |
+| Staging frontend and `/api/health` | Target `staging`; commit, version and lock digest must match |
+| Main checkout | `/Users/xu/Documents/ERP`, must stay clean on `codex/staging-current` at the verified commit |
 | Local 4174 | `本地修改稿 · 未部署`, app ID `bagwin-complete-review-4174`; never a server release |
 
-This is a timestamped observation, not a permanently current SHA declaration. Future releases must read live frontend/API identities and remote refs again. A cache-busting query does not prove the response's identity. The [controlled release rules](docs/development/controlled-release-governance.zh-CN.md) govern every conversation and target.
+Current values come from live frontend/API identities and remote refs, not this document. The pre-governance observation on 2026-10-22 was `955bb6055e1cff44a3b212f21754e7a8dc908c42`, version `staging-20261022-raw-material-r1`, lock `a511759603149771950b90fc9d770e2ad546754cb661d75d5d80e4fcdb35d8d2`; preserve it as history only. A cache-busting query does not prove the response's identity. The [controlled release rules](docs/development/controlled-release-governance.zh-CN.md) govern every conversation and target.
 
 ## Completed Historical Audit
 
@@ -28,6 +27,7 @@ The owner continues using the original main directory. Historical branches, arch
 - New work fetches and starts from `origin/codex/staging-current`. Existing tasks reconcile differences before integration. Ordinary modification tasks do not deploy or move the canonical branch.
 - Preparation checks the clean, pushed immutable candidate and exact target lock. Completion requires matching live frontend/API identities, repository default entry, canonical branch and owner main checkout; an unreadable or mismatched surface blocks a completion claim.
 - Only a verified target permits a non-force canonical advance. Dirty, divergent or differently assigned owner worktrees are preserved and reported, never reset or overwritten to manufacture agreement.
+- The first tooling transport stopped before switching: its helper passed a full connection URI through PGDATABASE, which the installed client rejected. The helper now uses separate libpq environment fields; read-only verification found 47 matching migration records, zero pending and zero checksum mismatches. The old service/data were preserved and the failed candidate retained.
 - New verification issues belong in `01_当前状态与下一步.md`; `02_问题或报错日志.md` remains the historical 2026-10-13 integration record.
 
 ## Preserved Contracts And Validation
@@ -35,7 +35,7 @@ The owner continues using the original main directory. Historical branches, arch
 - Production fails closed for local stores, seeds, E2E switches and missing authentication secrets. Local persistence requires an explicit test fixture; signed review sessions retain operator attribution and formal production retains normal authentication.
 - Office receipt entry and the phone flow retain source-page evidence, supplier returns, voided-draft isolation, the maintained factory-colour catalog, audited supplier mappings and one label per physical roll. Shared repositories, orchestration and transaction boundaries remain intact.
 - Fabric defaults to 78gsm; handle strips default to 65gsm and 5cm. Zero-weight rolls cannot become available or be issued. Lazy pages/styles and shared inbound controllers remain preserved.
-- Verified at current `955bb605`: code checks 147/147, complete-review unit checks 39/39, core browser scenarios 10/10, review browser scenarios 3/3, root/review builds and local complete-review identity. These results do not automatically validate newly added release-governance code.
+- Verified before governance at `955bb605`: code checks 147/147, complete-review unit checks 39/39, core browser scenarios 10/10, review browser scenarios 3/3, root/review builds and local complete-review identity. These results do not automatically validate newly added release-governance code.
 
 ## Field And Release Boundaries
 

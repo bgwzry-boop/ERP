@@ -83,7 +83,7 @@ npm run controlled-release:finalize -- \
   --main-dir <original-project-path>
 ```
 
-重复执行不会强推、重置或删除修改。异常中断若残留 `.git/erp-release-finalize.lock`，先确认发布进程已退出再清理锁目录，禁止并行发布绕过锁。不得为了合并 PR 提前移动 canonical；先在候选分支完成代码审查和验证，服务器实际运行候选并验明后，交给 finalize 前移。
+重复执行不会强推、重置或删除修改。异常中断若残留 `.git/erp-release-finalize.lock` 或 `.git/erp-controlled-deploy.lock`，先确认发布进程已退出再清理锁目录，禁止并行发布绕过锁。不得为了合并 PR 提前移动 canonical；先在候选分支完成代码审查和验证，服务器实际运行候选并验明后，交给 finalize 前移。
 
 ## 自动复核与完成标准
 

@@ -39,8 +39,9 @@ for (const source of [currentDocs.chineseStatus, currentDocs.projectStatus]) {
   assert.match(source, /(?:更新：|Updated:) \d{4}-\d{2}-\d{2}/, "current status must date its observations without freezing an obsolete date");
   const currentRelease = source.split(/## (?:当前唯一版本|Current Verified Release)/)[1]?.split("\n## ")[0] ?? "";
   assert.match(currentRelease, /codex\/staging-current/, "current status must identify the one canonical branch");
-  assert.match(currentRelease, /`[a-f0-9]{40}`/, "current release must record a complete immutable commit");
-  assert.match(currentRelease, /`[a-f0-9]{64}`/, "current release must record its release-lock digest");
+  assert.match(currentRelease, /npm run release:check/, "current identity must be read live rather than maintained as a stale handwritten SHA");
+  assert.match(source, /`[a-f0-9]{40}`/, "historical release evidence retains full commits");
+  assert.match(source, /`[a-f0-9]{64}`/, "historical release evidence retains full lock digests");
   assert.match(currentRelease, /\/api\/health/, "current release must include API identity evidence");
   assert.match(currentRelease, /bagwin-complete-review-4174/, "local review must carry its application identity");
   assert.doesNotMatch(currentRelease, /codex\/(?:p0-office-hardening|full-baseline-integration-20261013)/, "historical task branches must not return as the current version");
