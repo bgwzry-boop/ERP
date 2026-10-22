@@ -351,3 +351,13 @@ button.receipt-row:hover, button.statement-row:hover, button.receipt-row.selecte
    min-height: 0;
    border: 0;
  }
+.formal-receiving-workspace .raw-material-detail-scroll { overflow: auto; }
+.formal-receiving-workspace .office-roll-table { min-width: 0; }
+.formal-receiving-workspace .office-roll-head,
+.formal-receiving-workspace .office-roll-row {
+  grid-template-columns: 42px minmax(64px, 1fr) 52px 66px 62px;
+  gap: 5px;
+  padding: 8px;
+}
+.formal-receiving-workspace .office-roll-fact { min-width: 0; gap: 4px; font-size: 12px; }
+.formal-receiving-workspace .office-roll-row > button { min-width: 0; padding: 5px 3px; font-size: 11px; }

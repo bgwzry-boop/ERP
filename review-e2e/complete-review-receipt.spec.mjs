@@ -36,6 +36,8 @@ test("4174 收货录入按业务字段扫描并显示把条宽幅", async ({ pag
   await expect(facts.nth(1).locator("dd")).toHaveText("5cm");
   await expect(page.locator(".formal-receiving-workspace")).toContainText("公斤待补");
   await expect(page.locator(".office-roll-table .office-roll-row")).toHaveCount(4);
+  const tableFits = await page.locator(".office-roll-table").evaluate((table) => table.scrollWidth <= table.clientWidth + 1);
+  expect(tableFits).toBe(true);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 });
 
