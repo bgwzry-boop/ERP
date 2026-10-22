@@ -1,0 +1,8 @@
+{
+  "schemaVersion": "erp-release-policy-v1",
+  "repository": "bgwzry-boop/ERP",
+  "remote": "origin",
+  "canonicalBranch": "codex/staging-current",
+  "stagingUrl": "https://erp-staging.luxingpack.com/",
+  "previewAppId": "bagwin-complete-review-4174"
+}

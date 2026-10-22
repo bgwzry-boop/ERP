@@ -8,17 +8,23 @@ import {
   inspectControlledGitState,
 } from "./controlled-release-lock-lib.mjs";
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) runCli();
+import { checkCandidateRelease } from "./release-line-lib.mjs";
 
-function runCli() {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await runCli();
+
+async function runCli() {
   try {
     const options = parseArgs(process.argv.slice(2));
-    const report = buildControlledReleaseLockReport({
+    let report = buildControlledReleaseLockReport({
       expectedCommit: options.expectedCommit,
       target: options.target,
       version: options.version,
       gitState: inspectControlledGitState(options.rootDir),
     });
+    if (report.ready) {
+      const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: report.lock.branch, target: options.target });
+      report = { ...report, ready: line.ready, status: line.status, checks: [...report.checks, ...line.checks], summary: { passedCount: report.summary.passedCount + line.summary.passedCount, totalCount: report.summary.totalCount + line.summary.totalCount, blockingCount: line.summary.blockingCount }, lock: line.ready ? report.lock : null };
+    }
     if (report.ready && options.write) {
       mkdirSync(dirname(options.output), { recursive: true });
       writeFileSync(options.output, `${JSON.stringify(report.lock, null, 2)}\n`, "utf8");

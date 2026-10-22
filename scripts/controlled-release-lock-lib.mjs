@@ -8,7 +8,7 @@ export const controlledReleaseLockSchema = "erp-controlled-release-lock-v1";
 
 export function inspectControlledGitState(rootDir = process.cwd()) {
   const cwd = resolve(rootDir);
-  const run = (...args) => spawnSync("git", args, { cwd, encoding: "utf8" });
+  const run = (...args) => spawnSync("git", args, { cwd, encoding: "utf8", timeout: 10000 });
   const repository = run("rev-parse", "--is-inside-work-tree");
   if (repository.status !== 0 || repository.stdout.trim() !== "true") {
     return { repository: false, clean: false, commit: "", branch: "", upstream: "", upstreamCommit: "", remoteCount: 0 };
@@ -20,7 +20,7 @@ export function inspectControlledGitState(rootDir = process.cwd()) {
   const remotes = value("remote").split(/\r?\n/).filter(Boolean);
   return {
     repository: true,
-    clean: value("status", "--porcelain=v1") === "",
+    clean: (() => { const status = run("status", "--porcelain=v1"); return status.status === 0 && status.stdout.trim() === ""; })(),
     commit: value("rev-parse", "HEAD").toLowerCase(),
     branch: value("symbolic-ref", "--quiet", "--short", "HEAD"),
     upstream: value("rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}"),

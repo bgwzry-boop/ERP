@@ -8,17 +8,24 @@ import {
   verifyControlledReleaseLock,
 } from "./controlled-release-lock-lib.mjs";
 
-if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) runCli();
+import { checkCandidateRelease } from "./release-line-lib.mjs";
 
-function runCli() {
+if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await runCli();
+
+async function runCli() {
   try {
     const options = parseArgs(process.argv.slice(2));
-    const report = verifyControlledReleaseLock({
-      lock: readControlledReleaseLock(options.lock),
+    const lock = readControlledReleaseLock(options.lock);
+    let report = verifyControlledReleaseLock({
+      lock,
       expectedCommit: options.expectedCommit,
       expectedTarget: options.expectedTarget,
-      gitState: options.rootDir ? inspectControlledGitState(options.rootDir) : undefined,
+      gitState: inspectControlledGitState(options.rootDir),
     });
+    if (report.ready) {
+      const line = await checkCandidateRelease({ rootDir: options.rootDir, candidateCommit: options.expectedCommit, candidateBranch: lock.branch, target: options.expectedTarget });
+      report = { ...report, ready: line.ready, status: line.status, checks: [...report.checks, ...line.checks], summary: { passedCount: report.summary.passedCount + line.summary.passedCount, totalCount: report.summary.totalCount + line.summary.totalCount, blockingCount: line.summary.blockingCount } };
+    }
     process.stdout.write(options.json ? `${JSON.stringify(report)}\n` : formatReport(report));
     process.exitCode = report.ready ? 0 : 2;
   } catch {
@@ -28,7 +35,7 @@ function runCli() {
 }
 
 function parseArgs(args) {
-  const options = { lock: "", expectedCommit: "", expectedTarget: "", rootDir: "", json: false };
+  const options = { lock: "", expectedCommit: "", expectedTarget: "", rootDir: process.cwd(), json: false };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
     if (["--lock", "--expected-commit", "--expected-target", "--root-dir"].includes(arg)) {

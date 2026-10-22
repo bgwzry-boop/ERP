@@ -18,8 +18,9 @@
 6. Environment secrets：
    - `ERP_V1_PRODUCTION_ENV_FILE_B64`：已审计、未跟踪、权限 `0600` 的 production env 文件完整内容做 base64 后的值。
    - `ERP_V1_FIELD_EVIDENCE_MANIFEST_B64`：当前已填写现场证据 manifest 完整 JSON 做 base64 后的值。
+   - `ERP_CONTROLLED_RELEASE_LOCK_B64`：本次 `tencent-production` 目标的完整 `erp-controlled-release-lock-v1` JSON 做 base64 后的值；必须与输入提交、生产前端和 API 使用同一把锁。
 
-不要把解码后的 env、manifest、token、连接串、bucket 密钥或真实签字内容写入 GitHub variables、workflow inputs、仓库文件或命令参数。工作流只把两份 secret 解码到 `$RUNNER_TEMP/erp-v1-production-release-input/<run-id>/`，不纳入 artifact，结束时无条件删除。
+不要把解码后的 env、manifest、token、连接串、bucket 密钥或真实签字内容写入 GitHub variables、workflow inputs、仓库文件或命令参数。工作流只把三份 secret 解码到 `$RUNNER_TEMP/erp-v1-production-release-input/<run-id>/`，不纳入 artifact，结束时无条件删除。每次发布必须更新本次受控锁，不能沿用上一次锁来验证新提交。
 
 ## 触发输入
 
@@ -32,16 +33,21 @@
 1. 不可变 commit、手工确认、生产 API HTTPS、正式验收账号和干净 checkout。
 2. `npm ci`、全量测试、全依赖 high 级漏洞审计和 OpenAPI。
 3. 临时 PostgreSQL 迁移 / 实库回归、真实 MinIO 双 bucket 回归、核心 Playwright E2E。
-4. production env 文件安全审计与生产变量预检。
-5. 现场证据 manifest：至少 `34/34`，负责人签字至少 `6/6`，V1/V2 边界已确认，证据引用无疑似敏感值。
-6. 真实生产 API release candidate：`4/4`，运行时 readiness 与现场验收报告均 ready。
-7. go-live suite 可宣布 V1 完成，所有生成步骤 ready。
-8. 最终生成 `erp-v1-production-release-attestation-v1`，记录 commit 和三份输入报告 SHA-256，不复制证据编号、签字人或环境真实值。
+4. 受控锁、干净固定 checkout、远端默认分支 `codex/staging-current`、线上 staging 基线、候选远端分支及祖先关系；随后核对生产前端与 `/api/health` 的目标、完整提交、版本和锁摘要。此步骤不修改任何远端分支，不要求 CI 运行本地 `4174`。
+5. production env 文件安全审计与生产变量预检。
+6. 现场证据 manifest：至少 `40/40`，负责人签字至少 `6/6`，V1/V2 边界已确认，证据引用无疑似敏感值。
+7. 真实生产 API release candidate：`4/4`，运行时 readiness 与现场验收报告均 ready。
+8. go-live suite 可宣布 V1 完成，所有生成步骤 ready。
+9. 最终生成 `erp-v1-production-release-attestation-v1`，记录 commit 和三份输入报告 SHA-256，不复制证据编号、签字人或环境真实值。
 
 任一步失败都会让 workflow 失败。禁止添加 `continue-on-error`、`--allow-blocked-exit-zero`，也禁止把普通自动化 fixture 当作生产现场证据。
 
 ## 放行产物
 
-workflow artifact `v1-production-release-gate-<run-id>` 默认保留 30 天，包含脱敏 release candidate、go-live suite 和最终 attestation。artifact 不包含 production env 原文、现场 manifest 原文、证据编号或签字人。
+workflow artifact `v1-production-release-gate-<run-id>` 默认保留 30 天，包含脱敏 `controlled-release.json`、release candidate、go-live suite 和最终 attestation。artifact 不包含 production env 原文、现场 manifest 原文、受控锁原文、证据编号或签字人。
 
 工作流通过表示具备进入负责人最终 go/no-go 复核的技术条件，不自动执行部署、数据库迁移写入、打印、司机送达或扩大使用范围。最终仍按批准的灰度窗口执行小范围真实订单。
+
+## 新主机恢复入口
+
+`scripts/run-v1-production-remote-recovery.mjs` 在验证发布锁、全新 clone 和固定提交后，安装依赖之前，自动执行同一个 `check-release-line.mjs --scope repository` 门禁。恢复允许固定提交的 detached checkout，但候选分支必须来自已验证锁并且仍在远端指向该提交；旧默认分支、候选未推送、线上基线不一致或检查请求失败都会阻断恢复构建。恢复报告 ready 只表示新目录准备完成，切换服务后仍需按[受控发布规则](./controlled-release-governance.zh-CN.md)运行部署后核对；生产放行工作流必须看到本次提交已真实运行，不能用准备完成代替部署成功。

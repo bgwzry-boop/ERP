@@ -297,7 +297,11 @@
     "test:boot": "node scripts/check-production-boot-guard.mjs",
     "test:api": "npm run api:check",
     "test:security": "npm run api-security:check",
-    "preflight:prod": "npm run test:boot && node scripts/run-v1-production-env-preflight.mjs"
+    "preflight:prod": "npm run test:boot && node scripts/run-v1-production-env-preflight.mjs",
+    "release:check": "node scripts/check-release-line.mjs",
+    "release:line:check": "node --test scripts/check-release-line.test.mjs",
+    "controlled-release:finalize": "node scripts/run-controlled-release-finalize.mjs",
+    "controlled-release:deploy": "node scripts/run-controlled-deploy.mjs"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",

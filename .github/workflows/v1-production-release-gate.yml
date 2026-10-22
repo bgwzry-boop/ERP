@@ -39,7 +39,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           ref: ${{ inputs.commit }}
-          fetch-depth: 1
+          fetch-depth: 0
           clean: true
           persist-credentials: false
 
@@ -86,6 +86,7 @@ jobs:
         env:
           PRODUCTION_ENV_FILE_B64: ${{ secrets.ERP_V1_PRODUCTION_ENV_FILE_B64 }}
           FIELD_EVIDENCE_MANIFEST_B64: ${{ secrets.ERP_V1_FIELD_EVIDENCE_MANIFEST_B64 }}
+          CONTROLLED_RELEASE_LOCK_B64: ${{ secrets.ERP_CONTROLLED_RELEASE_LOCK_B64 }}
         run: |
           set -euo pipefail
           umask 077
@@ -94,17 +95,48 @@ jobs:
           mkdir -p "$input_dir" "$report_root"
           [[ -n "$PRODUCTION_ENV_FILE_B64" ]]
           [[ -n "$FIELD_EVIDENCE_MANIFEST_B64" ]]
+          [[ -n "$CONTROLLED_RELEASE_LOCK_B64" ]]
           printf '%s' "$PRODUCTION_ENV_FILE_B64" | base64 --decode > "$input_dir/production.env"
           printf '%s' "$FIELD_EVIDENCE_MANIFEST_B64" | base64 --decode > "$input_dir/field-evidence.json"
-          chmod 600 "$input_dir/production.env" "$input_dir/field-evidence.json"
+          printf '%s' "$CONTROLLED_RELEASE_LOCK_B64" | base64 --decode > "$input_dir/controlled-release.lock.json"
+          chmod 600 "$input_dir/production.env" "$input_dir/field-evidence.json" "$input_dir/controlled-release.lock.json"
           [[ -s "$input_dir/production.env" ]]
           [[ -s "$input_dir/field-evidence.json" ]]
+          [[ -s "$input_dir/controlled-release.lock.json" ]]
           {
             echo "V1_GATE_INPUT_DIR=$input_dir"
             echo "V1_PRODUCTION_ENV_FILE=$input_dir/production.env"
             echo "V1_FIELD_EVIDENCE_MANIFEST=$input_dir/field-evidence.json"
+            echo "V1_CONTROLLED_RELEASE_LOCK=$input_dir/controlled-release.lock.json"
             echo "V1_RELEASE_REPORT_ROOT=$report_root"
           } >> "$GITHUB_ENV"
+
+      - name: Verify controlled source and deployed production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run controlled-release:verify -- \
+            --lock "$V1_CONTROLLED_RELEASE_LOCK" \
+            --expected-target tencent-production \
+            --expected-commit "$RELEASE_COMMIT" \
+            --root-dir "$GITHUB_WORKSPACE" \
+            --json > /dev/null
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          import { execFileSync } from 'node:child_process';
+          const lock = JSON.parse(readFileSync(process.env.V1_CONTROLLED_RELEASE_LOCK, 'utf8'));
+          execFileSync(process.execPath, [
+            'scripts/check-release-line.mjs', '--scope', 'repository',
+            '--candidate', process.env.RELEASE_COMMIT,
+            '--candidate-branch', lock.branch, '--target', 'tencent-production',
+          ], { stdio: 'inherit' });
+          NODE
+          node scripts/run-controlled-release-postdeploy-check.mjs \
+            --base-url "${PRODUCTION_API_BASE_URL%/api}" \
+            --lock "$V1_CONTROLLED_RELEASE_LOCK" \
+            --expected-target tencent-production \
+            --expected-commit "$RELEASE_COMMIT" \
+            --json > "$V1_RELEASE_REPORT_ROOT/controlled-release.json"
 
       - name: Validate signed field evidence
         shell: bash

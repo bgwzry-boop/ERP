@@ -17,6 +17,7 @@ try {
     targetDir,
     envFile: join(root, "secure-production.env"),
     envAudit: { ready: true, summary: { blockingCount: 0 } },
+    candidateBranch: "codex/production-candidate",
     releaseLockVerification: {
       ready: true,
       release: {
@@ -45,14 +46,15 @@ try {
     },
   });
   assert.equal(ready.ready, true);
-  assert.equal(ready.summary.passedCount, 10);
-  assert.equal(calls.length, 8);
+  assert.equal(ready.summary.passedCount, 11);
+  assert.equal(calls.length, 9);
   assert.deepEqual(ready.stages.map((item) => item.key), [
     "release-lock",
     "env-audit",
     "clone",
     "checkout",
     "commit",
+    "release-line",
     "install",
     "build",
     "migration-plan",
@@ -61,7 +63,11 @@ try {
   ]);
   const serialized = JSON.stringify(ready);
   assert.doesNotMatch(serialized, /example\.invalid|fresh-clone|secure-production\.env/);
-  assert.match(formatReport(ready), /10\/10/);
+  assert.match(formatReport(ready), /11\/11/);
+  assert.deepEqual(calls.find((item) => item.args[0] === "scripts/check-release-line.mjs")?.args, [
+    "scripts/check-release-line.mjs", "--scope", "repository", "--candidate", expectedCommit,
+    "--candidate-branch", "codex/production-candidate", "--target", "tencent-production",
+  ]);
   assert.ok(calls.some((item) => item.command === "npm" && item.args.includes("--ignore-scripts")));
   assert.deepEqual(
     calls.find((item) => item.command === "npm" && item.args.join(" ") === "run build")?.buildEnv,
@@ -85,6 +91,7 @@ try {
     targetDir: failedTarget,
     envFile: join(root, "secure-production.env"),
     envAudit: { ready: true },
+    candidateBranch: "codex/production-candidate",
     releaseLockVerification: {
       ready: true,
       release: { target: "tencent-production", commit: expectedCommit },
@@ -96,8 +103,47 @@ try {
   });
   assert.equal(failed.ready, false);
   assert.equal(failed.stages.find((item) => item.key === "clone")?.status, "blocked");
-  assert.equal(failed.summary.skippedCount, 7);
+  assert.equal(failed.summary.skippedCount, 8);
   assert.doesNotMatch(JSON.stringify(failed), /secret-url|example\.invalid/);
+
+  const gateCalls = [];
+  const blockedLine = buildProductionRemoteRecoveryReport({
+    repositoryUrl: "ssh://git@example.invalid/factory/erp.git",
+    expectedCommit,
+    targetDir: join(root, "blocked-line"),
+    envFile: join(root, "secure-production.env"),
+    envAudit: { ready: true },
+    candidateBranch: "codex/production-candidate",
+    releaseLockVerification: {
+      ready: true,
+      release: { target: "tencent-production", commit: expectedCommit },
+    },
+    commandRunner(command, args) {
+      gateCalls.push({ command, args });
+      if (args[0] === "scripts/check-release-line.mjs") return { status: 2, stderr: "private-response" };
+      return { status: 0, stdout: args.at(-1) === "HEAD" ? `${expectedCommit}\n` : "" };
+    },
+  });
+  assert.equal(blockedLine.ready, false);
+  assert.equal(blockedLine.stages.find((item) => item.key === "release-line")?.status, "blocked");
+  assert.equal(blockedLine.summary.skippedCount, 5);
+  assert.equal(gateCalls.some((item) => item.command === "npm"), false, "a mismatched release line must block dependency installation and build");
+  assert.doesNotMatch(JSON.stringify(blockedLine), /private-response|example\.invalid/);
+
+  const missingBranch = buildProductionRemoteRecoveryReport({
+    repositoryUrl: "ssh://git@example.invalid/factory/erp.git",
+    expectedCommit,
+    targetDir: join(root, "missing-branch"),
+    envFile: join(root, "secure-production.env"),
+    envAudit: { ready: true },
+    releaseLockVerification: {
+      ready: true,
+      release: { target: "tencent-production", commit: expectedCommit },
+    },
+    commandRunner() { throw new Error("A missing locked candidate branch must stop before clone."); },
+  });
+  assert.equal(missingBranch.ready, false);
+  assert.equal(missingBranch.stages[0].status, "blocked");
 
   assert.throws(
     () => buildProductionRemoteRecoveryReport({

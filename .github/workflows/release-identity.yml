@@ -1,0 +1,38 @@
+name: Release Identity
+
+on:
+  push:
+    branches: [codex/staging-current]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-identity
+  cancel-in-progress: false
+
+jobs:
+  verify-staging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Verify default branch, canonical commit and served frontend/API
+        env:
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          mkdir -p .erp-local-storage/releases
+          node scripts/check-release-line.mjs --scope repository --expected-commit "$RELEASE_COMMIT" --json > .erp-local-storage/releases/identity.json
+      - name: Retain version verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-identity-${{ github.sha }}
+          path: .erp-local-storage/releases/identity.json
+          retention-days: 30

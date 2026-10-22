@@ -156,6 +156,7 @@ export const CHECK_GROUPS = Object.freeze({
     "runtime-identity:check",
     "build",
     "controlled-release:check",
+    "release:line:check",
     "v1-production-deployment-manifest:check",
     "v1-production-release-gate:check",
   ]),

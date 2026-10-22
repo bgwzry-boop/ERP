@@ -36,14 +36,16 @@ assert.ok(lineCount(currentDocs.roadmap) <= 90, "Roadmap should stay concise");
 assert.ok(lineCount(currentDocs.decisions) <= 130, "Active decisions should stay concise");
 
 for (const source of [currentDocs.chineseStatus, currentDocs.projectStatus]) {
-  assert.match(source, /2026-10-13/, "current status must identify its verification date");
-  for (const baseline of [
-    "7888e5efa5a559c0d128b3d512b9f12fee4ffa99",
-    "54ca593827e7028994b4f1bc91982377f3e3f609",
-    "c86f0144666b02b0d1bee3ef7b9fe8d320fa239d",
-    "f0657285ee2159059915126c2bfc8699ee59887b",
-    "codex/full-baseline-integration-20261013",
-  ]) assert.ok(source.includes(baseline), "current status must distinguish exact source and deployment baselines");
+  assert.match(source, /(?:更新：|Updated:) \d{4}-\d{2}-\d{2}/, "current status must date its observations without freezing an obsolete date");
+  const currentRelease = source.split(/## (?:当前唯一版本|Current Verified Release)/)[1]?.split("\n## ")[0] ?? "";
+  assert.match(currentRelease, /codex\/staging-current/, "current status must identify the one canonical branch");
+  assert.match(currentRelease, /`[a-f0-9]{40}`/, "current release must record a complete immutable commit");
+  assert.match(currentRelease, /`[a-f0-9]{64}`/, "current release must record its release-lock digest");
+  assert.match(currentRelease, /\/api\/health/, "current release must include API identity evidence");
+  assert.match(currentRelease, /bagwin-complete-review-4174/, "local review must carry its application identity");
+  assert.doesNotMatch(currentRelease, /codex\/(?:p0-office-hardening|full-baseline-integration-20261013)/, "historical task branches must not return as the current version");
+  assert.match(source, /controlled-release-governance\.zh-CN\.md/, "all current status documents must link the executable release contract");
+  assert.match(source, /历史基线|Historical Sources Only/, "historical baselines must be explicitly separated from current identity");
   assert.match(source, /本地修改稿 · 未部署/, "local preview must not be represented as a release");
   assert.match(source, /标签机未准备|label printer is not ready/, "printer readiness must retain the owner's actual answer");
 }

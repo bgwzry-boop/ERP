@@ -2,7 +2,7 @@
 
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { execFileSync } from "node:child_process";
+import { inspectRemoteRepository, evaluateRepository, fetchReleaseIdentity, checkLiveIdentity, reportFromChecks, check, inspectMainWorkspace, releasePolicy } from "./release-line-lib.mjs";
 import { readControlledReleaseLock, verifyControlledReleaseLock } from "./controlled-release-lock-lib.mjs";
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) await runCli();
@@ -10,6 +10,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
 async function runCli() {
   try {
     const options = parseArgs(process.argv.slice(2));
+    const base = new URL(options.baseUrl);
+    if (base.protocol !== "https:" || base.username || base.password ||
+      (options.expectedTarget === "staging" && (base.origin !== new URL(releasePolicy.stagingUrl).origin || base.pathname !== "/"))) throw new Error("Unexpected deployment origin.");
     const lock = readControlledReleaseLock(options.lock);
     const lockVerification = verifyControlledReleaseLock({
       lock,
@@ -24,8 +27,12 @@ async function runCli() {
     report = appendStagingCurrentRefCheck(report, {
       target: lockVerification.release?.target,
       expectedCommit: lockVerification.release?.commit,
-      currentRefCommit: readRemoteStagingCurrentCommit(),
+      currentRefCommit: inspectRemoteRepository(options.rootDir).canonicalCommit,
     });
+    const repository = evaluateRepository({ remote: inspectRemoteRepository(options.rootDir) });
+    report = reportFromChecks(report.scope, [...report.checks, ...repository.checks,
+      ...(options.mainDir ? inspectMainWorkspace(options.rootDir, options.mainDir, repository.canonicalCommit).report.checks : []),
+    ], report);
     process.stdout.write(options.json ? `${JSON.stringify(report)}\n` : formatReport(report));
     process.exitCode = report.ready ? 0 : 2;
   } catch {
@@ -58,67 +65,12 @@ export function appendStagingCurrentRefCheck(report, options = {}) {
   };
 }
 
-function readRemoteStagingCurrentCommit() {
-  try {
-    const output = execFileSync(
-      "git",
-      ["ls-remote", "--heads", "origin", "refs/heads/codex/staging-current"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] },
-    ).trim();
-    return String(output.split(/\s+/)[0] || "").toLowerCase();
-  } catch {
-    return "";
-  }
-}
-
 export async function buildControlledReleasePostdeployReport(options = {}) {
   const release = options.lockVerification?.release ?? {};
   const lockReady = options.lockVerification?.ready === true;
-  const requireApi = options.requireApi ?? release.target !== "review-site";
-  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
-  const baseUrl = new URL(options.baseUrl);
-  const pageUrl = new URL(baseUrl);
-  pageUrl.pathname = pageUrl.pathname.replace(/\/+$/, "") || "/";
-  pageUrl.search = "";
-  pageUrl.hash = "";
-  const healthUrl = new URL(baseUrl);
-  healthUrl.pathname = `${healthUrl.pathname.replace(/\/+$/, "")}/api/health`.replace(/\/api\/api\/health$/, "/api/health");
-  healthUrl.search = "";
-  healthUrl.hash = "";
-  let html = "";
-  let health = null;
-  let pageOk = false;
-  let healthOk = false;
-  try {
-    const [pageResponse, healthResponse] = await Promise.all([
-      fetchImpl(pageUrl, { headers: { accept: "text/html" } }),
-      fetchImpl(healthUrl, { headers: { accept: "application/json" } }),
-    ]);
-    pageOk = pageResponse.ok;
-    healthOk = healthResponse.ok;
-    html = pageOk ? await pageResponse.text() : "";
-    health = healthOk ? await healthResponse.json() : null;
-  } catch {
-    html = "";
-    health = null;
-  }
-  const meta = (name) => readMeta(html, name);
-  const checks = [
-    check("release-lock", "发布锁有效", lockReady),
-    check("page", "页面可访问", pageOk),
-    check("page-target", "页面目标一致", meta("erp-release-target") === release.target),
-    check("page-version", "页面版本一致", meta("erp-release-version") === release.version),
-    check("page-commit", "页面提交一致", meta("erp-release-commit") === release.commit),
-    check("page-lock", "页面发布锁一致", meta("erp-release-lock") === release.digest),
-    ...(requireApi ? [
-      check("api", "API health 可访问", healthOk && health?.status === "ok"),
-      check("api-release", "API 发布身份完整", health?.release?.ready === true),
-      check("api-target", "API 目标一致", health?.release?.target === release.target),
-      check("api-version", "API 版本一致", health?.release?.version === release.version),
-      check("api-commit", "API 提交一致", health?.release?.commit === release.commit),
-      check("api-lock", "API 发布锁一致", health?.release?.lockDigest === release.digest),
-    ] : []),
-  ];
+  const requireApi = release.target !== "review-site";
+  const observed = await fetchReleaseIdentity(options.baseUrl, { requireApi, fetchImpl: options.fetchImpl });
+  const checks = [check("release-lock", "发布锁有效", lockReady), ...checkLiveIdentity(observed, release, { requireApi })];
   const ready = checks.every((item) => item.ready);
   return {
     scope: "controlled_release_postdeploy",
@@ -135,24 +87,14 @@ export async function buildControlledReleasePostdeployReport(options = {}) {
   };
 }
 
-function readMeta(html, name) {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const match = String(html).match(new RegExp(`<meta\\s+name=["']${escaped}["']\\s+content=["']([^"']*)["']`, "i"));
-  return match?.[1] ?? "";
-}
-
-function check(key, label, ready) {
-  return { key, label, ready: ready === true, status: ready === true ? "passed" : "blocked" };
-}
-
 function parseArgs(args) {
-  const options = { baseUrl: "", lock: "", expectedCommit: "", expectedTarget: "", json: false };
+  const options = { baseUrl: "", lock: "", expectedCommit: "", expectedTarget: "", json: false, rootDir: process.cwd(), mainDir: "" };
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (["--base-url", "--lock", "--expected-commit", "--expected-target"].includes(arg)) {
+    if (["--base-url", "--lock", "--expected-commit", "--expected-target", "--root-dir", "--main-dir"].includes(arg)) {
       const value = args[index + 1];
       if (!value || value.startsWith("--")) throw new Error(`${arg} requires a value.`);
-      const key = { "--base-url": "baseUrl", "--lock": "lock", "--expected-commit": "expectedCommit", "--expected-target": "expectedTarget" }[arg];
+      const key = { "--base-url": "baseUrl", "--lock": "lock", "--expected-commit": "expectedCommit", "--expected-target": "expectedTarget", "--root-dir": "rootDir", "--main-dir": "mainDir" }[arg];
       options[key] = key === "lock" ? resolve(value) : value;
       index += 1;
       continue;

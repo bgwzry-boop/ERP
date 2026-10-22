@@ -1,14 +1,19 @@
 # Decisions
 
-Current decision baseline: 2026-10-13 integration review; V8.306 is a historical product label. Durable workflow invariants remain in AGENTS.md; the prior decision set is preserved in [the 2026-08-12 snapshot](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/DECISIONS-through-2026-08-12.md).
+Current decision baseline: 2026-10-22 version unification; V8.306 is a historical product label. Durable workflow invariants remain in AGENTS.md; the prior decision set is preserved in [the 2026-08-12 snapshot](https://github.com/bgwzry-boop/ERP/blob/84d88b4838469e31b47e37bb90fda23036149404/docs/history/status/DECISIONS-through-2026-08-12.md).
 
 ## Release Truth
 
-- Default `7888e5e`, draft PR #2 `54ca593`, original local `c86f014` and deployed Staging `f065728` are separate verified baselines. Integration occurs only in `codex/full-baseline-integration-20261013` after a complete history backup.
+- `codex/staging-current` is both the GitHub default entry and the only canonical Staging baseline. Its full commit must match the actual frontend and `/api/health`; no conversation-specific branch or old directory is a second current version. The owner's main directory stays `/Users/xu/Documents/ERP`, on this branch when used as the current baseline.
+- New modifications fetch the canonical baseline and use their own branch/worktree. Only an explicit integration/release task combines work and promotes a clean, fully pushed immutable 40-character commit under one exact target lock.
+- Release completion checks the live frontend/API target, version, commit and lock digest, the remote canonical/default branch, and the owner's main checkout. Missing evidence, network failure or mismatch blocks completion. A canonical ref advances only after target identity verification, never by force; dirty/divergent worktrees are preserved and reported instead of being reset.
+- Local `4174` always says `本地修改稿 · 未部署`, with its actual base commit and dirty state. A successful release is delivered through the verified server URL with a fresh commit query; local preview and a page colour are not release evidence.
+- The 2026-10-13 default `7888e5e`, PR #2 `54ca593`, original local `c86f014` and Staging `f065728` are historical inputs. The 64 original local commits are already ancestors of deployed `955bb605` through merge `0c743f5`; preserve the bundle/tags and do not replay them as missing work. Current identity is measured again for each release rather than inferred from this snapshot.
+- [Controlled release governance](docs/development/controlled-release-governance.zh-CN.md) is the executable workflow contract shared by all chats. Documented rules and automatic gates must change together; code validation alone never proves that a new gate or business change has been deployed.
 - Old percentage/gate counts describe old reports. Passing code, API, database or browser tests never creates field evidence or signoffs.
 - The owner confirmed the label printer is not ready on 2026-10-13. Build code first; physical printing, attachment and scan-back remain pending.
 - The full ERP release order remains `D49 -> D50 -> D51 -> D52 -> D53`; formal payroll acceptance is separate from raw-material-first rollout.
-- Keep draft review, default integration and deployment as separate actions. No default merge or deployment is authorized by ordinary code validation; repository visibility and historical branches remain unchanged.
+- Keep draft review, integration and deployment as separate actions. Ordinary code validation does not authorize deployment. Change repository visibility only when the owner explicitly requests that change at the time; historical branches remain traceability evidence.
 - Demo defaults to PostgreSQL; local stores are explicit test fixtures only. The local 4174 runner uses `--mode test --local-fixture` and visibly reports an unreleased preview.
 - Preserve the deployed supplier-return, colour-mapping, voiding, zero-weight and identity contracts while retaining the local 65gsm handle default and PR #2 orchestration. Do not reintroduce duplicate controllers or simplify transactional SQL.
 

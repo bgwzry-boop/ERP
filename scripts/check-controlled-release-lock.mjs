@@ -55,7 +55,7 @@ const postdeploy = await buildControlledReleasePostdeployReport({
   baseUrl: "https://erp.example.test/",
   lockVerification: verified,
   fetchImpl: async (url) => {
-    if (String(url).endsWith("/api/health")) {
+    if (new URL(url).pathname.endsWith("/api/health")) {
       return {
         ok: true,
         json: async () => ({
@@ -85,6 +85,96 @@ const postdeploy = await buildControlledReleasePostdeployReport({
 assert.equal(postdeploy.ready, true);
 assert.equal(postdeploy.summary.passedCount, 6);
 assert.doesNotMatch(JSON.stringify(postdeploy), /erp\.example\.test|must-not-leak/);
+
+const stagingLock = buildControlledReleaseLockReport({
+  target: "staging",
+  expectedCommit: commit,
+  version: "staging-r2",
+  gitState: cleanGitState,
+});
+const stagingVerification = verifyControlledReleaseLock({
+  lock: stagingLock.lock,
+  expectedCommit: commit,
+  expectedTarget: "staging",
+});
+const otherCommit = "abcdef1234567890abcdef1234567890abcdef12";
+const capturedRequests = [];
+function responseFor(release, url, overrides = {}) {
+  if (new URL(url).pathname.endsWith("/api/health")) {
+    return {
+      ok: true,
+      json: async () => ({
+        status: "ok",
+        release: { ready: true, ...release, lockDigest: release.digest, ...overrides },
+        secret: "must-not-leak",
+      }),
+    };
+  }
+  return {
+    ok: true,
+    text: async () => ["target", "version", "commit", "lock"].map((key) =>
+      `<meta name="erp-release-${key}" content="${key === "lock" ? release.digest : release[key]}">`,
+    ).join("\n"),
+  };
+}
+const stagingReady = await buildControlledReleasePostdeployReport({
+  baseUrl: "https://erp.example.test/?old=cache#material-receiving",
+  lockVerification: stagingVerification,
+  fetchImpl: async (url, options) => {
+    capturedRequests.push({ url: new URL(url), options });
+    return responseFor(stagingVerification.release, url);
+  },
+});
+assert.equal(stagingReady.ready, true, "matching frontend and API pass the target identity check");
+assert.equal(capturedRequests.length, 2);
+for (const { url, options } of capturedRequests) {
+  assert.notEqual(url.search, "", "every live identity request must bust caches");
+  assert.equal(url.searchParams.has("old"), false, "caller query cannot select an old response");
+  assert.equal(url.hash, "");
+  assert.equal(options.cache, "no-store");
+  assert.match(new Headers(options.headers).get("cache-control"), /no-cache|no-store/);
+  assert.ok(options.signal instanceof AbortSignal, "live identity requests need a bounded timeout");
+}
+for (const overrides of [
+  { commit: otherCommit },
+  { target: "tencent-production" },
+  { version: "staging-old" },
+  { lockDigest: "0".repeat(64) },
+  { ready: false },
+]) {
+  const mismatch = await buildControlledReleasePostdeployReport({
+    baseUrl: "https://erp.example.test/",
+    lockVerification: stagingVerification,
+    fetchImpl: async (url) => responseFor(stagingVerification.release, url, overrides),
+  });
+  assert.equal(mismatch.ready, false, `API disagreement must block: ${JSON.stringify(overrides)}`);
+  assert.doesNotMatch(JSON.stringify(mismatch), /must-not-leak|erp\.example/);
+}
+const staleFrontend = await buildControlledReleasePostdeployReport({
+  baseUrl: "https://erp.example.test/",
+  lockVerification: stagingVerification,
+  fetchImpl: async (url) => responseFor({ ...stagingVerification.release, commit: otherCommit }, url, { commit }),
+});
+assert.equal(staleFrontend.ready, false, "a current API must not hide a stale frontend");
+const networkFailure = await buildControlledReleasePostdeployReport({
+  baseUrl: "https://erp.example.test/",
+  lockVerification: stagingVerification,
+  fetchImpl: async () => { throw new Error("must-not-leak private network detail"); },
+});
+assert.equal(networkFailure.ready, false, "unreadable live state must fail closed");
+assert.doesNotMatch(JSON.stringify(networkFailure), /must-not-leak|private network/);
+let staticRequests = 0;
+const staticOnly = await buildControlledReleasePostdeployReport({
+  baseUrl: "https://erp.example.test/",
+  lockVerification: verified,
+  fetchImpl: async (url) => {
+    staticRequests += 1;
+    assert.equal(new URL(url).pathname.includes("api/health"), false, "static review targets must not depend on API availability");
+    return responseFor(verified.release, url);
+  },
+});
+assert.equal(staticOnly.ready, true);
+assert.equal(staticRequests, 1);
 
 const stagingPostdeployBase = {
   ...postdeploy,

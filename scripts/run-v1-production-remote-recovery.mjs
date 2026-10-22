@@ -18,8 +18,9 @@ function runCli() {
   try {
     const options = parseArgs(process.argv.slice(2));
     const envAudit = buildProductionEnvFileAuditReport({ envFiles: [options.envFile] });
+    const releaseLock = readControlledReleaseLock(options.releaseLock);
     const releaseLockVerification = verifyControlledReleaseLock({
-      lock: readControlledReleaseLock(options.releaseLock),
+      lock: releaseLock,
       expectedCommit: options.expectedCommit,
       expectedTarget: "tencent-production",
     });
@@ -30,6 +31,7 @@ function runCli() {
       envFile: options.envFile,
       envAudit,
       releaseLockVerification,
+      candidateBranch: releaseLock.branch,
       timeoutMs: options.timeoutMs,
     });
     const output = options.write
@@ -147,7 +149,7 @@ function helpText() {
     "  --no-write                   Do not write evidence files.",
     "  --json                       Print JSON.",
     "",
-    "Stages: release lock, env audit, clone, detached checkout, commit verification, npm ci, build, migration plan, deployment manifest, production runtime smoke.",
+    "Stages: release lock, env audit, clone, detached checkout, commit verification, release-line gate, npm ci, build, migration plan, deployment manifest, production runtime smoke.",
   ].join("\n");
 }
 
@@ -163,12 +165,14 @@ export function buildProductionRemoteRecoveryReport(options = {}) {
   const timeoutMs = positiveInteger(options.timeoutMs ?? 15 * 60 * 1_000, "timeoutMs");
   const envAudit = options.envAudit ?? { ready: false, summary: {} };
   const releaseLockVerification = options.releaseLockVerification ?? { ready: false, release: {} };
+  const candidateBranch = String(options.candidateBranch ?? "").trim();
   const stages = [];
   let stopped = false;
 
   const releaseLockReady = releaseLockVerification.ready === true &&
     releaseLockVerification.release?.target === "tencent-production" &&
-    releaseLockVerification.release?.commit === expectedCommit;
+    releaseLockVerification.release?.commit === expectedCommit &&
+    Boolean(candidateBranch);
   stages.push(stage("release-lock", "受控发布锁", releaseLockReady));
   stopped = !releaseLockReady;
 
@@ -199,6 +203,13 @@ export function buildProductionRemoteRecoveryReport(options = {}) {
     stages[stages.length - 1] = stage("commit", "候选提交一致性", false);
     stopped = true;
   }
+  run("release-line", "仓库默认入口、已推送候选与线上基线", process.execPath, [
+    "scripts/check-release-line.mjs",
+    "--scope", "repository",
+    "--candidate", expectedCommit,
+    "--candidate-branch", candidateBranch,
+    "--target", "tencent-production",
+  ], { cwd: targetDir });
   run("install", "锁文件依赖安装", "npm", ["ci", "--ignore-scripts", "--no-audit", "--no-fund"], { cwd: targetDir });
   run("build", "生产前端构建", "npm", ["run", "build"], {
     cwd: targetDir,
@@ -234,7 +245,7 @@ export function buildProductionRemoteRecoveryReport(options = {}) {
 
   const passedCount = stages.filter((item) => item.status === "passed").length;
   const blockingCount = stages.filter((item) => item.status === "blocked").length;
-  const ready = stages.length === 10 && passedCount === stages.length;
+  const ready = stages.length === 11 && passedCount === stages.length;
   return {
     scope: "v1_production_remote_recovery",
     status: ready ? "ready" : "blocked",
