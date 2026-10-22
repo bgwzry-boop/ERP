@@ -70,7 +70,7 @@ npm run controlled-release:deploy -- \
 部署包装器自动调用 `controlled-release:finalize`：
 
 1. 核对候选锁与干净工作树、实时远端，确认主目录可安全快进。
-2. 无缓存读取固定 staging 入口和 API；目标、完整提交、版本、锁摘要及健康必须全部吻合。
+2. 无缓存读取固定 staging 入口和 API；目标、完整提交、版本、锁摘要及健康必须全部吻合。首页还必须是 `bagwin-complete-review-4174` 完整评审应用，不能用同提交的旧工作台冒充。
 3. 再次读取远端，防止核对期间其他发布移动基线；只允许非强制推送 canonical 到已验明提交。
 4. 只对同仓库、正确分支、干净主目录做快进同步；同步本地 origin/HEAD。
 5. 再核对一次本次锁、仓库默认入口、canonical 与主目录；保存 `finalization.json` 并给出带准确提交的 staging 地址。

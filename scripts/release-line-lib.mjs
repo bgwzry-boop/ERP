@@ -108,6 +108,7 @@ export function readMeta(html, name) {
 }
 export function checkLiveIdentity(observed, expected, { requireApi = true } = {}) {
   const checks = [check("page", "页面可访问", observed.pageOk)];
+  if (expected.target === "staging") checks.push(check("page-app-id", "Staging 入口为完整 ERP 评审应用", readMeta(observed.html, "erp-app-id") === releasePolicy.previewAppId));
   for (const [key, label] of [["target", "目标"], ["version", "版本"], ["commit", "提交"], ["digest", "发布锁"]]) {
     checks.push(check(`page-${key === "digest" ? "lock" : key}`, `页面${label}一致`, Boolean(expected[key]) && observed.release[key] === expected[key]));
   }

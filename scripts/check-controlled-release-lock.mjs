@@ -112,7 +112,7 @@ function responseFor(release, url, overrides = {}) {
   }
   return {
     ok: true,
-    text: async () => ["target", "version", "commit", "lock"].map((key) =>
+    text: async () => (release.target === "staging" ? '<meta name="erp-app-id" content="bagwin-complete-review-4174">\n' : "") + ["target", "version", "commit", "lock"].map((key) =>
       `<meta name="erp-release-${key}" content="${key === "lock" ? release.digest : release[key]}">`,
     ).join("\n"),
   };
@@ -156,6 +156,30 @@ const staleFrontend = await buildControlledReleasePostdeployReport({
   fetchImpl: async (url) => responseFor({ ...stagingVerification.release, commit: otherCommit }, url, { commit }),
 });
 assert.equal(staleFrontend.ready, false, "a current API must not hide a stale frontend");
+for (const appId of ["", "bagwin-legacy-workbench"]) {
+  const wrongApp = await buildControlledReleasePostdeployReport({
+    baseUrl: "https://erp.example.test/",
+    lockVerification: stagingVerification,
+    fetchImpl: async (url) => {
+      const response = responseFor(stagingVerification.release, url);
+      if (!new URL(url).pathname.endsWith("/api/health")) {
+        const html = await response.text();
+        response.text = async () => html.replace('<meta name="erp-app-id" content="bagwin-complete-review-4174">', appId ? `<meta name="erp-app-id" content="${appId}">` : "");
+      }
+      return response;
+    },
+  });
+  assert.equal(wrongApp.ready, false, "same release metadata cannot make a legacy or unidentified frontend valid staging");
+  assert.equal(wrongApp.checks.find((item) => item.key === "page-app-id")?.ready, false);
+}
+const cannotSkipStagingApi = await buildControlledReleasePostdeployReport({
+  baseUrl: "https://erp.example.test/",
+  lockVerification: stagingVerification,
+  requireApi: false,
+  fetchImpl: async (url) => responseFor(stagingVerification.release, url, { commit: otherCommit }),
+});
+assert.equal(cannotSkipStagingApi.ready, false, "a caller cannot opt staging out of its mandatory API identity check");
+assert.equal(cannotSkipStagingApi.safeguards.apiRequired, true);
 const networkFailure = await buildControlledReleasePostdeployReport({
   baseUrl: "https://erp.example.test/",
   lockVerification: stagingVerification,

@@ -116,7 +116,7 @@ function liveFixture(url, overrides = {}) {
     ok: true,
     json: async () => ({ status: "ok", release: { ready: true, ...release, lockDigest: release.digest, ...overrides } }),
   };
-  return { ok: true, text: async () => Object.entries({ target: release.target, version: release.version, commit: release.commit, lock: release.digest }).map(([key, value]) => `<meta name="erp-release-${key}" content="${value}">`).join("") };
+  return { ok: true, text: async () => '<meta name="erp-app-id" content="bagwin-complete-review-4174">' + Object.entries({ target: release.target, version: release.version, commit: release.commit, lock: release.digest }).map(([key, value]) => `<meta name="erp-release-${key}" content="${value}">`).join("") };
 }
 
 test("live staging baseline requires frontend, API and canonical to agree", async () => {
@@ -124,6 +124,21 @@ test("live staging baseline requires frontend, API and canonical to agree", asyn
   assert.equal((await checkStagingBaseline({ ...remote, canonicalCommit: candidate }, { fetchImpl: async (url) => liveFixture(url) })).ready, false);
   assert.equal((await checkStagingBaseline(remote, { fetchImpl: async (url) => liveFixture(url, { lockDigest: "b".repeat(64) }) })).ready, false);
   assert.equal((await checkStagingBaseline(remote, { fetchImpl: async () => { throw new Error("unreachable"); } })).ready, false);
+});
+
+test("matching staging release metadata cannot disguise the wrong frontend application", async () => {
+  for (const appId of ["", "legacy-root-workbench"]) {
+    const report = await checkStagingBaseline(remote, { fetchImpl: async (url) => {
+      const response = liveFixture(url);
+      if (response.text) {
+        const html = await response.text();
+        response.text = async () => html.replace('<meta name="erp-app-id" content="bagwin-complete-review-4174">', appId ? `<meta name="erp-app-id" content="${appId}">` : "");
+      }
+      return response;
+    } });
+    assert.equal(report.ready, false);
+    assert.equal(report.checks.find((item) => item.key === "page-app-id")?.ready, false);
+  }
 });
 
 function finalizationFixture({ current = baseline, fail, race = false, targetAfterReady = true, throws = false } = {}) {
