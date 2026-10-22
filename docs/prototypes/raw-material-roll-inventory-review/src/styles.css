@@ -337,3 +337,17 @@ button.receipt-row:hover, button.statement-row:hover, button.receipt-row.selecte
   .filter-row { grid-template-columns: minmax(240px,1fr) 124px 100px 112px 100px; gap: 7px; }
   .roll-row { grid-template-columns: 122px 92px 146px 90px 110px 85px minmax(120px,1fr); }
 }
+ .formal-receiving-workspace {
+   display: flex;
+   flex-direction: column;
+   min-width: 0;
+   min-height: 0;
+   height: 100%;
+   overflow: hidden;
+ }
+ .formal-receiving-workspace > .raw-material-detail-pane {
+   display: flex !important;
+   flex: 1;
+   min-height: 0;
+   border: 0;
+ }

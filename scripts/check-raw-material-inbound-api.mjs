@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import { initialOrderLines, initialRawMaterialInbounds } from "../src/data/fixtures.js";
-import { createApiServer } from "../server/apiServer.mjs";
+import { createApiServer as createApiServerBase } from "../server/apiServer.mjs";
+import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 import {
   createLocalRawMaterialInboundRepository,
   createPostgresRawMaterialInboundRepository,
@@ -23,13 +24,23 @@ const checkStorageRoot = join(process.cwd(), ".erp-local-storage", "checks", "ra
 const repositoryStorageRoot = join(checkStorageRoot, "repository");
 const apiStorageRoot = join(checkStorageRoot, "api");
 const seededReviewInbound = initialRawMaterialInbounds.find((item) => item.id === "RMI-0704-001");
+const handleFixture = initialRawMaterialInbounds.find((item) => item.id === "RMI-0704-003");
+Object.assign(handleFixture, {
+  status: "已贴标/可用库存",
+  totalWeightKg: 80,
+  rolls: handleFixture.rolls.map((roll) => ({ ...roll, weightKg: 80, inventoryStatus: "可用", labelStatus: "已贴标/可用库存" })),
+});
+function createApiServer(options) {
+  return createApiServerBase(withLocalRepositoryFixture(options));
+}
 const seededOcrReviewPayload = {
-  reviewFields: Object.fromEntries((seededReviewInbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value])),
-  lineReviews: (seededReviewInbound?.ocrLines ?? []).map((line) => ({ lineId: line.lineId, values: line.values })),
+  reviewFields: { ...Object.fromEntries((seededReviewInbound?.ocrReviewFields ?? []).map((field) => [field.key, field.value])), factoryColor: "大红" },
+  lineReviews: (seededReviewInbound?.ocrLines ?? []).map((line) => ({ lineId: line.lineId, values: { ...line.values, factoryColor: "大红" } })),
 };
 rmSync(checkStorageRoot, { recursive: true, force: true });
 
 await checkRepository();
+checkDeferredLabelFlow();
 checkPerRollLabelGate();
 checkSupplierReturnPhysicalFlow();
 await checkPostgresRepositoryBoundary();
@@ -414,7 +425,111 @@ async function checkRepository() {
   );
 }
 
+function checkDeferredLabelFlow() {
+  const inbound = {
+    id: "RMI-DEFER-001",
+    revision: 1,
+    documentDirection: "supplier_delivery",
+    supplierName: "测试供应商",
+    status: "已复核待打印标签",
+    rolls: [
+      { id: "RM-DEFER-001-01", weightKg: 101.2, labelStatus: "待打印标签", inventoryStatus: "不可用", location: "原料待检区" },
+      { id: "RM-DEFER-001-02", weightKg: 102.3, labelStatus: "待打印标签", inventoryStatus: "不可用", location: "原料待检区" },
+    ],
+  };
+  const deferred = applyRawMaterialInboundAction({
+    inbounds: [inbound],
+    inboundId: inbound.id,
+    action: "defer-labels",
+    body: { expectedRevision: 1, reason: "现场暂无可用打印机" },
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    serverNow: "2026-08-16T02:00:00.000Z",
+  }).inbound;
+  assert.equal(deferred.status, "已入库待补打标签", "deferred printing must remain visibly pending rather than being marked printed");
+  assert.equal(new Set(deferred.rolls.map((roll) => roll.id)).size, 2, "every physical roll must retain one unique canonical roll code");
+  assert.equal(deferred.rolls.every((roll) => roll.labelStatus === "标签待补打"), true);
+  assert.equal(deferred.rolls.every((roll) => roll.inventoryStatus === "待补标"), true, "unprinted rolls must not enter available inventory");
+  assert.equal(deferred.rolls.every((roll) => roll.location === "原料待补标区"), true);
+
+  const printed = applyRawMaterialInboundAction({
+    inbounds: [deferred],
+    inboundId: inbound.id,
+    action: "print-labels",
+    body: { expectedRevision: deferred.revision },
+    operatorId: "U-OFFICE-A",
+    operatorName: "办公室A",
+    serverNow: "2026-08-16T02:05:00.000Z",
+  }).inbound;
+  assert.equal(printed.status, "已打印待贴标");
+  assert.equal(printed.rolls.every((roll) => roll.labelStatus === "已打印待贴标"), true);
+  assert.equal(printed.rolls.every((roll) => roll.inventoryStatus === "不可用"), true);
+  assert.equal(printed.rolls.every((roll) => roll.location === "原料待检区"), true);
+}
+
 function checkPerRollLabelGate() {
+  const missingWeightInbound = {
+    id: "RMI-PER-ROLL-ZERO-WEIGHT",
+    revision: 1,
+    supplierName: "测试供应商",
+    factoryColor: "黑色",
+    spec: "5cm 提手条",
+    unit: "件",
+    status: "已打印待贴标",
+    rolls: [{
+      id: "RMI-PER-ROLL-ZERO-WEIGHT-1",
+      weightKg: 0,
+      labelVersion: 1,
+      labelStatus: "已打印待贴标",
+      inventoryStatus: "不可用",
+      location: "提手区待称重",
+    }],
+  };
+  assert.throws(
+    () => applyRawMaterialInboundAction({
+      workspace: { rawMaterialInbounds: [missingWeightInbound] },
+      inboundId: missingWeightInbound.id,
+      action: "attach_confirm",
+      body: { expectedRevision: 1, rollId: missingWeightInbound.rolls[0].id, matchResult: "matched" },
+      operatorId: "U-OFFICE-A",
+      operatorName: "办公室A",
+    }),
+    (error) => error?.code === "RAW_MATERIAL_ATTACH_WEIGHT_REQUIRED",
+    "a zero-weight handle must remain unavailable until the real checked weight is supplied",
+  );
+  const zeroWeightLeftover = {
+    ...missingWeightInbound,
+    id: "RMI-LEFTOVER-ZERO-WEIGHT",
+    status: "余料待复核",
+    rolls: [{
+      ...missingWeightInbound.rolls[0],
+      id: "RMI-LEFTOVER-ZERO-WEIGHT-1",
+      labelStatus: "待复核",
+      inventoryStatus: "余料待复核",
+      leftoverQuantity: 1,
+    }],
+  };
+  assert.throws(
+    () => applyRawMaterialInboundAction({
+      workspace: { rawMaterialInbounds: [zeroWeightLeftover] },
+      inboundId: zeroWeightLeftover.id,
+      action: "review_leftover",
+      body: { expectedRevision: 1, rollId: zeroWeightLeftover.rolls[0].id },
+      operatorId: "U-WAREHOUSE-A",
+      operatorName: "库房出库A",
+    }),
+    (error) => error?.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED",
+    "zero-weight leftovers must never return to available stock",
+  );
+  assert.throws(() => applyRawMaterialInboundAction({
+    workspace: { rawMaterialInbounds: [zeroWeightLeftover] },
+    inboundId: zeroWeightLeftover.id,
+    action: "review_leftover",
+    body: { expectedRevision: 1, rollId: zeroWeightLeftover.rolls[0].id, reviewedWeightKg: 8.4 },
+    operatorId: "U-WAREHOUSE-A",
+    operatorName: "库房出库A",
+  }), (error) => error?.code === "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED", "even reweighed leftovers remain outside available inventory");
+
   const inbound = {
     id: "RMI-PER-ROLL-001",
     supplierName: "测试供应商",
@@ -642,12 +757,13 @@ async function checkPostgresRepositoryBoundary() {
   const filteredSql = buildListRawMaterialInboundPayloadsSql({
     query: { keyword: "O'Brien", status: "已打印待贴标" },
   });
-  assert.match(filteredSql, /payload_json::text ILIKE \$2::text/, "postgres list SQL should bind keyword");
-  assert.match(filteredSql, /status = \$1::text/, "postgres list SQL should bind status");
+  assert.match(filteredSql, /status <> \$1::text/, "postgres list SQL should exclude voided drafts");
+  assert.match(filteredSql, /payload_json::text ILIKE \$3::text/, "postgres list SQL should bind keyword");
+  assert.match(filteredSql, /status = \$2::text/, "postgres list SQL should bind status");
   assert.ok(!filteredSql.includes("O'Brien"));
   assert.deepEqual(buildListRawMaterialInboundPayloadsQuery({
     query: { keyword: "O'Brien", status: "已打印待贴标" },
-  }).values, ["已打印待贴标", "%O'Brien%"]);
+  }).values, ["已作废", "已打印待贴标", "%O'Brien%"]);
 
   const workspace = { rawMaterialInbounds: [repositoryInbound] };
   const saved = await action.applyAction({

@@ -27,6 +27,7 @@ const reviewInbound = {
         productName: "无纺布卷料",
         materialType: "无纺布",
         supplierColor: "本白",
+        factoryColor: "本白",
         spec: "78*70*2000",
         rollCount: 1,
         totalWeightKg: 109.9,
@@ -40,6 +41,7 @@ const reviewInbound = {
         productName: "无纺布卷料",
         materialType: "无纺布",
         supplierColor: "大红",
+        factoryColor: "大红",
         spec: "78*80*1500",
         rollCount: 1,
         totalWeightKg: 90.1,
@@ -77,7 +79,8 @@ const corrected = applyOfficeRollCorrection({
   row: rows[1],
   correction: { color: "枣红", widthCm: 85, weightKg: 91.2 },
 });
-assert.equal(corrected.lineDrafts.L2.supplierColor, "枣红");
+assert.equal(corrected.lineDrafts.L2.factoryColor, "枣红");
+assert.equal(corrected.lineDrafts.L2.supplierColor, "大红", "factory color correction must preserve supplier evidence");
 assert.equal(corrected.lineDrafts.L2.spec, "78*85*1500");
 assert.equal(corrected.lineDrafts.L2.rollWeightsKg, "91.2");
 assert.equal(corrected.lineDrafts.L2.totalWeightKg, "91.2");
@@ -123,11 +126,11 @@ const pageSource = [
   "../src/features/raw-materials/InboundDetail.jsx",
   "../src/features/raw-materials/RawMaterialLabelPrintSheet.jsx",
 ].map((path) => readFileSync(new URL(path, import.meta.url), "utf8")).join("\n");
-const printCss = readFileSync(new URL("../src/styles/features/raw-material.css", import.meta.url), "utf8");
+const printCss = readFileSync(new URL("../src/styles/features/raw-material-roll-label.css", import.meta.url), "utf8");
 for (const text of ["扫描或上传", "核对每一卷的颜色、宽幅、公斤", "这批都对，去打印", "改这一卷", "已贴张数", "确认入库", "76×130"]) {
   assert.ok(pageSource.includes(text), `office inbound screen should say ${text}`);
 }
-assert.ok(printCss.includes("76mm 130mm"), "label print page should use 76×130 waybill paper");
+assert.match(printCss, /size:\s*76(?:\.00)?mm 130(?:\.00)?mm/, "label print page should use 76×130 waybill paper");
 assert.equal(pageSource.includes("原材料卷标"), false, "the printed label should not repeat a generic label heading");
 
 console.log("office raw-material inbound flow check passed");

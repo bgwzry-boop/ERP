@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import "../../styles/features/office-inbound-flow.css";
 import { submitInboundAction } from "./submitInbound.js";
 import { getRawMaterialColorValue } from "./RawMaterialInboundWorkbench.jsx";
+import { FACTORY_STANDARD_COLORS } from "../../../shared/factoryStandardColors.js";
 import {
   applyOfficeRollCorrection,
   buildOfficeReviewRows,
@@ -204,7 +205,7 @@ function RollEditor({ onCancel, onSave, row }) {
         onSave({ color, widthCm, weightKg });
       }}
     >
-      <label>颜色<input onChange={(event) => setColor(event.target.value)} value={color} /></label>
+      <label>厂内颜色<select required onChange={(event) => setColor(event.target.value)} value={color}><option value="">请选择</option>{FACTORY_STANDARD_COLORS.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
       <label>宽幅 cm<input inputMode="decimal" min="0" onChange={(event) => setWidthCm(event.target.value)} step="0.1" type="number" value={widthCm} /></label>
       <label>公斤<input aria-label="本卷公斤" inputMode="decimal" min="0" onChange={(event) => setWeightKg(event.target.value)} step="0.001" type="number" value={weightKg} /></label>
       <div>

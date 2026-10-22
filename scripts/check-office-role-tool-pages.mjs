@@ -37,7 +37,7 @@ for (const contract of ["复核送货单", "打印卷标", "确认贴标入库",
 }
 assert.match(rawMaterialPageSource, /precheckRawMaterialSupplierStatementWorkbook/);
 assert.match(rawMaterialPageSource, /canIssueRawMaterialRoll/);
-assert.match(rawMaterialPageSource, /canReviewRawMaterialLeftoverRoll/);
+assert.doesNotMatch(rawMaterialPageSource, /canReviewRawMaterialLeftoverRoll/);
 assert.match(rawMaterialPageSource, /RAW_MATERIAL_DETAIL_TABS/);
 assert.match(rawMaterialPageSource, /selectRawMaterialInboundMetrics/);
 assert.match(rawMaterialPageSource, /raw-material-detail-scroll/);

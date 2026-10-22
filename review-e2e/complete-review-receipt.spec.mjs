@@ -34,8 +34,8 @@ test("4174 收货录入按业务字段扫描并显示把条宽幅", async ({ pag
   await expect(facts.nth(0).locator("dd")).toHaveText("把条");
   await expect(facts.nth(1).locator("dt")).toHaveText("宽幅");
   await expect(facts.nth(1).locator("dd")).toHaveText("5cm");
-  await expect(page.locator(".receipt-detail")).toContainText("待补真实重量");
-  await expect(page.locator(".receipt-roll-section h3")).toHaveText("逐件状态");
+  await expect(page.locator(".formal-receiving-workspace")).toContainText("公斤待补");
+  await expect(page.locator(".office-roll-table .office-roll-row")).toHaveCount(4);
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
 });
 
@@ -62,4 +62,13 @@ test("4174 卷料库存按宽幅和克重显示把条默认规格", async ({ pag
   await expect(handleStripRow.locator(".roll-spec-cell > small")).toHaveText("65克");
   await expect(handleStripRow.locator(".roll-spec-cell")).not.toContainText("78克");
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBe(0);
+});
+
+test("714px 电脑收货详情仍使用办公室流程而不是手机核对页", async ({ page }) => {
+  await page.setViewportSize({ width: 714, height: 900 });
+  await page.goto("/?erpReviewCheck=narrow-receiving#material-receiving");
+  await expect(page.locator("html")).toHaveAttribute("data-erp-runtime-family", "desktop");
+  await expect(page.locator(".formal-receiving-workspace .office-inbound-flow")).toBeVisible();
+  await expect(page.locator(".formal-receiving-workspace .raw-material-mobile-ocr-review")).toHaveCount(0);
+  await expect(page.locator(".receipt-row.head > span")).toHaveCount(6);
 });

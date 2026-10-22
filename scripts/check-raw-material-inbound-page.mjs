@@ -283,9 +283,9 @@ assertIncludes(rawMaterialWorkbenchSource, "raw-material-view-tabs", "raw-materi
 assertIncludes(rawMaterialWorkbenchSource, "buildRawMaterialInboundViewItems(inbounds)", "raw-material view counts should use the tested list-state projection");
 assertIncludes(rawMaterialPageSource, "raw-material-detail-scroll", "raw-material detail actions should scroll independently");
 assertIncludes(officePageSource, "OCR 仅预填", "page should clearly label OCR as prefill only");
-assertIncludes(officePageSource, "直接拍照", "page should expose a direct mobile-camera OCR entry");
+assertIncludes(officePageSource, "手机拍照（备用）", "desktop should retain the mobile-camera backup entry");
 assertIncludes(rawMaterialPageSource, 'capture="environment"', "direct photo input should request the rear camera");
-assertIncludes(officePageSource, "相册 / PDF", "page should retain gallery and PDF upload beside direct capture");
+assertIncludes(officePageSource, "扫描 / 上传送货单", "desktop should expose office scan and upload as its primary entry");
 assertIncludes(rawMaterialPageSource, "识别成功：", "successful mobile OCR should expose an inline draft result");
 assertIncludes(rawMaterialPageSource, 'setActiveTab("入库单")', "successful OCR should return to the inbound list view");
 assertIncludes(rawMaterialPageSource, 'setSelectedId(inbound.id)', "successful OCR should select the generated draft");
@@ -535,7 +535,7 @@ assertIncludes(officePageSource, "机边领料 / 消耗", "page should show raw-
 assertExcludes(officePageSource, "全部机边领料", "page must not allow one action to issue every available roll");
 assertIncludes(officePageSource, "本单已贴齐/一键入库", "page should expose one-click inbound after labels are printed");
 assertIncludes(officePageSource, "确认整卷出库到机边", "page should issue only the whole roll");
-assertExcludes(officePageSource, "buildRawMaterialPartialIssueOptions", "page must not build a partial-issue action");
+assertExcludes(readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundReceivingSections.jsx", import.meta.url), "utf8"), "buildRawMaterialPartialIssueOptions", "receiving UI must not build a partial-issue action");
 assertIncludes(officePageSource, "部分消耗", "page may record machine-side consumption without returning stock");
 assertIncludes(officePageSource, "buildRawMaterialPartialConsumptionOptions", "page should build machine-side partial consumption options");
 assertIncludes(officePageSource, "canIssueRawMaterialRoll", "page should guard single-roll issue action by available inventory");

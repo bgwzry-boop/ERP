@@ -32,6 +32,7 @@ export function useInboundPageState({
   onPaymentConfirm,
   printerDeviceQa = {},
   firstReleaseMode = false,
+  initialDesktopView = "卷料库存",
   helpers = {},
 }) {
   const { getUiActionState = () => ({ disabled: false, title: "" }), money = (value) => `¥${value}` } = helpers;
@@ -62,7 +63,7 @@ export function useInboundPageState({
   const [labelVerification, setLabelVerification] = useState(null);
   const [issueSelection, setIssueSelection] = useState(null);
   const [printSheetInbound, setPrintSheetInbound] = useState(null);
-  const [desktopView, setDesktopView] = useState("卷料库存");
+  const [desktopView, setDesktopView] = useState(initialDesktopView);
   const [colorMappingOpen, setColorMappingOpen] = useState(false);
   const [colorMappingContext, setColorMappingContext] = useState(null);
   const deliveryNoteOcrAbortRef = useRef(null);
@@ -113,6 +114,10 @@ export function useInboundPageState({
   const mobileOcrReviewActive = selected?.ocrProvider === "tencent_cloud_table_v3" && canReviewRawMaterialInbound(selected);
   const mobileOcrReviewOpen = mobileDetailOpen && mobileOcrReviewActive;
   const mobileSelected = mobileRecordSnapshot?.id === selected?.id ? mobileRecordSnapshot : selected;
+
+  useEffect(() => {
+    if (selected?.id) prepareOcrReviewDraft(selected);
+  }, [selected?.id]);
 
   function prepareOcrReviewDraft(inbound) {
     setOcrReviewSubmitError("");

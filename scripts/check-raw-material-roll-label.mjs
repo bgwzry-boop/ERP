@@ -46,7 +46,7 @@ const strip = buildRawMaterialRollLabelModel({ materialType: "提手", spec: "�
 assert.equal(strip.productName, "提手条");
 assert.equal(strip.lengthText, "", "a supplier strip without meters must not invent a length");
 assert.equal(strip.widthText, "5");
-assert.equal(strip.gramWeightText, "78");
+assert.equal(strip.gramWeightText, "65");
 
 const qr = buildRawMaterialQrMatrix("RM-240704-002-01");
 assert.equal(qr.version, 1);

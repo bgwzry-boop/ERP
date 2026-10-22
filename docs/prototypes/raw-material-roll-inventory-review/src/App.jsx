@@ -52,6 +52,7 @@ import {
   sortInventoryRollsByWidth,
 } from "./roll-inventory-presentation.js";
 import { useFormalDesktopWorkspace } from "./useFormalDesktopWorkspace.js";
+import { FormalReceivingWorkspace } from "./FormalReceivingWorkspace.jsx";
 
 function buildInventoryRolls(inbounds = []) {
   return inbounds.flatMap((inbound) => (inbound.rolls || []).map((roll) => {
@@ -449,7 +450,7 @@ function ReceiptWorkspace({ focusId, formal, onOpenInventory, onOpenReceive, rec
         }) : <div className="receipt-empty-state"><CheckCircleFilled /><strong>{notice ? "本阶段处理完成" : `${activeTab}暂无单据`}</strong><span>{notice || "切换其他状态继续查看。"}</span></div>}
       </div>
     </section>
-    <ReceiptDetail activeTab={activeTab} notice={notice} onOpenInventory={onOpenInventory} onPrimaryAction={handlePrimaryAction} onRollAction={handleRollAction} row={selected} />
+    {formal?.authState ? <FormalReceivingWorkspace formal={formal} selectedId={selected?.id || ""} setSelectedId={setSelectedId} /> : <ReceiptDetail activeTab={activeTab} notice={notice} onOpenInventory={onOpenInventory} onPrimaryAction={handlePrimaryAction} onRollAction={handleRollAction} row={selected} />}
   </div><ReceiptFlowDialog flow={flow} onClose={() => setFlow(null)} onConfirm={confirmFlow} row={selected} /></>;
 }
 

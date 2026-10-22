@@ -115,6 +115,36 @@ export function useFormalDesktopWorkspace() {
   }, []);
 
   useEffect(() => {
+    let pending = false;
+    let stopped = false;
+    const refresh = async () => {
+      if (pending || document.visibilityState === "hidden" || !authStateRef.current?.authenticated) return;
+      pending = true;
+      try {
+        const result = await readDefinitions.rawMaterialInbounds(authStateRef.current);
+        if (stopped) return;
+        setData((current) => ({ ...current, rawMaterialInbounds: normalizeItems(result) }));
+        setMeta((current) => {
+          const errors = { ...current.errors };
+          const error = resultError(result, "原材料");
+          if (error) errors.rawMaterialInbounds = error;
+          else delete errors.rawMaterialInbounds;
+          return { ...current, errors };
+        });
+      } finally { pending = false; }
+    };
+    const timer = window.setInterval(refresh, 15_000);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", refresh);
+    return () => {
+      stopped = true;
+      window.clearInterval(timer);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", refresh);
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
     void initializeSeedAuth(authOptions).then((nextAuthState) => {
       if (!active) return;

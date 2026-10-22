@@ -51,12 +51,12 @@ test("原材料手机四步流程图标一致且逐卷贴标支持无序确认",
   }
 
   await page.getByText(/其他 \d+ 单/, { exact: true }).click();
-  const pendingLabels = page.getByRole("button", { name: /继续贴标/ }).first();
+  const pendingLabels = page.getByRole("button", { name: /继续贴标|回办公室确认入库/ }).first();
   await expect(pendingLabels).toBeEnabled();
   await pendingLabels.click();
 
   const labelVerification = page.getByRole("region", { name: "逐卷无序贴标" });
-  await expect(labelVerification.getByRole("button", { name: /一键确认 \d+ 卷已贴/ })).toBeVisible();
+  await expect(labelVerification.getByRole("button", { name: /本单已贴齐|一键入库/ })).toBeVisible();
   const confirmRoll = labelVerification.getByRole("button", { name: "确认已贴", exact: true }).first();
   const mismatchRoll = labelVerification.getByRole("button", { name: "标签/实物不符", exact: true }).first();
   await expect(confirmRoll).toBeVisible();

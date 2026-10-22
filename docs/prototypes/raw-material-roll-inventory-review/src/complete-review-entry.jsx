@@ -1,11 +1,13 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { establishLocalPreviewIdentity } from "../../../../src/config/localPreviewIdentity.js";
+import { exposeReleaseIdentity } from "../../../../src/config/releaseIdentity.js";
 import { detectCompleteReviewRuntimeFamily } from "./review-runtime-family.js";
 import "../../../../src/styles/tokens.css";
 import "../../../../src/styles/semantic-tags.css";
 
 const identityGuard = establishLocalPreviewIdentity("bagwin-complete-review-4174");
+exposeReleaseIdentity();
 
 if (identityGuard) {
   const phoneViewportQuery = window.matchMedia("(max-width: 767px)");

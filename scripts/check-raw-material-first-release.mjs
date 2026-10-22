@@ -150,12 +150,11 @@ const inboundPageSource = readFileSync(new URL("../src/features/raw-materials/us
 const frontendBuildEnv = readFileSync(new URL("../deploy/production/frontend-build.env.example", import.meta.url), "utf8");
 const backendServiceEnv = readFileSync(new URL("../deploy/production/erp-service.env.example", import.meta.url), "utf8");
 const packageJson = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-for (const contract of ["今日领料任务", "先选择要送料的任务", "扫描布卷标签", "为这个任务领料", "确认领到", "临时领料"]) {
+for (const contract of ["扫描标签上的卷码", "选择机台", "确认扫码出库", "暂不关联订单", "不需要再手抄"]) {
   assert.equal(scannerPageSource.includes(contract), true, `scanner page should retain ${contract}`);
 }
-assert.match(scannerPageSource, /productionTaskId[\s\S]*machineId[\s\S]*按生产任务领料/);
-assert.match(scannerPageSource, /temporaryIssue[\s\S]*<select[\s\S]*RAW_MATERIAL_MACHINE_OPTIONS/);
-for (const contract of ["RawMaterialCode39", "出库时扫描本卷码", "宽幅", "重量"]) {
+assert.match(scannerPageSource, /<select[\s\S]*RAW_MATERIAL_MACHINE_OPTIONS/);
+for (const contract of ["RawMaterialCode39", "RawMaterialQrCode", "出库时扫描本卷码", "幅宽cm", "卷长m", "克重g/㎡", "重量kg", "卷料标签", "袋袋赢"]) {
   assert.equal(labelSheetSource.includes(contract), true, `label print sheet should retain ${contract}`);
 }
 assert.equal(labelSheetSource.includes("BAGWIN"), false, "roll label should show the Chinese mark without the English BAGWIN word");
@@ -166,6 +165,6 @@ assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_E
 assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_ERP_STAGING_AUTH_BYPASS=true/);
 assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_ERP_STAGING_PREVIEW_USER_ID=U-MANAGER-A/);
 assert.match(backendServiceEnv, /^ERP_FIRST_RELEASE_SCOPE=raw_material$/m);
-assert.match(inboundPageSource, /系统不会标记为已打印/);
+assert.match(inboundPageSource, /系统不会记成已打印/);
 
 console.log("raw-material first-release checks passed: label barcode, standalone scan outbound, traceability, and rollout flag are covered.");

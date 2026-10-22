@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { controlledReleaseHtmlPlugin } from "../../../vite.config.mjs";
 import { createHash } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -149,6 +150,7 @@ export default defineConfig(({ command }) => ({
     },
   },
   plugins: [
+    controlledReleaseHtmlPlugin(process.env),
     ...(command === "serve" ? [disableCompleteReviewBootstrapCachingPlugin()] : []),
     react(),
     enforceCompleteReviewPortPlugin(),

@@ -588,7 +588,6 @@ function MobileLabelVerification({ attachState, onAttach, onOneClickInbound, sel
   const [mismatchDrafts, setMismatchDrafts] = useState({});
   const [submittingRollId, setSubmittingRollId] = useState("");
   const rolls = selected?.rolls ?? [];
-  const pendingRolls = rolls.filter((roll) => roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用");
   const oneClickGate = evaluateRawMaterialOneClickInbound(selected);
 
   async function submitRoll(roll, matchResult, draft = {}) {

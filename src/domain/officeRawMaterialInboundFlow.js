@@ -5,7 +5,7 @@ import {
 import { projectRawMaterialOcrPhysicalRollReviewRows } from "../../shared/rawMaterialOcrLineReview.js";
 import {
   RAW_MATERIAL_HANDLE_WIDTH_CM,
-  RAW_MATERIAL_STANDARD_FABRIC_GSM,
+  RAW_MATERIAL_STANDARD_HANDLE_GSM,
   formatRawMaterialMobileSpec,
   parseRawMaterialSpec,
 } from "../../shared/rawMaterialSpec.js";
@@ -141,7 +141,7 @@ export function applyOfficeRollCorrection({ lineDrafts = {}, documentDraft = {},
   const count = positiveCount(row.lineRollCount);
   const stored = lineDrafts[lineId];
   const current = { ...(stored && Object.keys(stored).length ? stored : draftFromLineValues(row.line?.values)) };
-  if (correction.color != null) current.supplierColor = clean(correction.color);
+  if (correction.color != null) current.factoryColor = clean(correction.color);
   if (correction.widthCm != null && clean(correction.widthCm)) {
     current.spec = replaceWidthInSpec(current.spec || row.spec, correction.widthCm);
   }
@@ -167,7 +167,7 @@ export function replaceWidthInSpec(spec, widthCm) {
     return `${formatPlainNumber(parsed.gramWeightGsm)}*${formatPlainNumber(width)}*${formatPlainNumber(parsed.lengthM)}`;
   }
   if (width === RAW_MATERIAL_HANDLE_WIDTH_CM) {
-    const gram = RAW_MATERIAL_STANDARD_FABRIC_GSM;
+    const gram = parsed.gramWeightGsm || RAW_MATERIAL_STANDARD_HANDLE_GSM;
     return parsed.lengthM > 0
       ? `${gram}*${RAW_MATERIAL_HANDLE_WIDTH_CM}*${formatPlainNumber(parsed.lengthM)}`
       : `${gram}*${RAW_MATERIAL_HANDLE_WIDTH_CM}`;
@@ -178,7 +178,7 @@ export function replaceWidthInSpec(spec, widthCm) {
 function toOfficeReviewRow(row, inbound) {
   const parsed = parseRawMaterialSpec(row.spec);
   const widthCm = parsed.widthCm || Number(row.widthCm) || Number(inbound.widthCm) || 0;
-  const color = clean(row.supplierColor) || clean(inbound.factoryColor) || clean(inbound.supplierColor);
+  const color = clean(row.lineDraft?.factoryColor) || clean(row.line?.values?.factoryColor) || clean(row.factoryColor) || clean(inbound.factoryColor);
   const facts = { color, widthCm, weightKg: row.weightKg, specLabel: formatRawMaterialMobileSpec(row.spec) || clean(row.spec) };
   return {
     ...row,
@@ -192,6 +192,7 @@ function draftFromLineValues(values = {}) {
     productName: values.productName ?? "",
     materialType: values.materialType ?? "",
     supplierColor: values.supplierColor ?? "",
+    factoryColor: values.factoryColor ?? "",
     spec: values.spec ?? "",
     rollCount: values.rollCount ?? "",
     totalWeightKg: values.totalWeightKg ?? "",
