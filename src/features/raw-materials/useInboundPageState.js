@@ -419,7 +419,8 @@ export function useInboundPageState({
     } finally {
       document.body.classList.remove("raw-material-label-printing");
     }
-    if (!window.confirm(`请确认 ${activeInbound.rolls?.filter((roll) => roll.inventoryStatus !== "可用").length || 0} 张卷标已从打印机正常输出。\n如果取消或打印失败，请点“取消”，系统不会标记为已打印。`)) {
+    const labelCount = activeInbound.rolls?.filter((roll) => roll.inventoryStatus !== "可用").length || 0;
+    if (!window.confirm(`请看打印机：${labelCount} 张 76×130 面单都出来了吗？\n没出来就点取消，系统不会记成已打印。`)) {
       setPrintSheetInbound(null);
       setMobileMessage({
         tone: "warning",

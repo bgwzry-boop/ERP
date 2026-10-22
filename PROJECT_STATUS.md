@@ -1,5 +1,7 @@
 # Project Status
 
+2026-10-22: staging release integration is in progress on an isolated branch, preserving the verified 2026-10-13 baseline and adding the three October raw-material changes. Publication evidence will be recorded after server validation.
+
 Updated: 2026-10-13. This is a code-integration candidate, not a newly deployed release. V8.306 remains a historical product label.
 
 ## Verified Baselines

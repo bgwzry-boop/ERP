@@ -129,7 +129,7 @@ export function InboundDetail({ state }) {
         ) : null}
         <div className="raw-material-ocr-upload-bar">
           <div className="raw-material-ocr-copy" title="供应商原始单号有则录、没有就留空">
-            <strong>识别送货单</strong>
+            <strong>扫描或上传送货单</strong>
             <span>OCR 仅预填；识别不会直接入库</span>
           </div>
           <div className="raw-material-ocr-upload-actions">
@@ -137,7 +137,7 @@ export function InboundDetail({ state }) {
               className={`button-like raw-material-camera-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
               title={reviewState.title || "调用手机后置摄像头拍摄送货单，原图最大 30MB，系统自动处理后识别"}
             >
-              {deliveryNoteOcrLoading ? "正在识别…" : "直接拍照"}
+              {deliveryNoteOcrLoading ? "正在识别…" : "手机拍照（备用）"}
               <input
                 accept="image/jpeg,image/png,image/bmp"
                 capture="environment"
@@ -151,7 +151,7 @@ export function InboundDetail({ state }) {
               className={`button-like raw-material-file-button ${reviewState.disabled || deliveryNoteOcrLoading ? "is-disabled" : ""}`}
               title={reviewState.title || "图片原图最大 30MB 并自动处理；PDF 暂限 7.5MB"}
             >
-              {deliveryNoteOcrLoading ? "处理中…" : "相册 / PDF"}
+              {deliveryNoteOcrLoading ? "处理中…" : "扫描 / 上传送货单"}
               <input
                 accept="image/png,image/jpeg,image/bmp,application/pdf"
                 disabled={reviewState.disabled || deliveryNoteOcrLoading}

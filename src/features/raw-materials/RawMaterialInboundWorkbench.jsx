@@ -366,7 +366,7 @@ function getRawMaterialRollStatusKey(status) {
   return "unknown";
 }
 
-function getRawMaterialColorValue(color) {
+export function getRawMaterialColorValue(color) {
   return getFactoryStandardColorSwatch(color, "#9aa6b2");
 }
 

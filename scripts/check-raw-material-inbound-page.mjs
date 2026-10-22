@@ -41,6 +41,7 @@ const rawMaterialPageSource = [
   readFileSync(new URL("../src/features/raw-materials/useInboundPageState.js", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/InboundDetail.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundReceivingSections.jsx", import.meta.url), "utf8"),
+  readFileSync(new URL("../src/features/raw-materials/OfficeInboundFlow.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialInboundSupportingSections.jsx", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/rawMaterialInboundOcrDraft.js", import.meta.url), "utf8"),
   readFileSync(new URL("../src/features/raw-materials/RawMaterialSupplierStatementReview.jsx", import.meta.url), "utf8"),

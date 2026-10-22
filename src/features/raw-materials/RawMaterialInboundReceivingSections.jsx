@@ -1,4 +1,7 @@
 import { InfoGrid, StatusPill } from "../../shared/ui/operational.jsx";
+import { OfficeInboundFlow } from "./OfficeInboundFlow.jsx";
+import { officeInboundUsesCountGate } from "../../domain/officeRawMaterialInboundFlow.js";
+import { submitInboundAction } from "./submitInbound.js";
 import {
   canConfirmRawMaterialConsumptionRoll,
   canIssueRawMaterialRoll,
@@ -76,6 +79,23 @@ export function RawMaterialInboundReceivingSections({
   return (
     <>
 <section className="detail-section operational-detail-section-first" hidden={detailTab !== "入库标签"}>
+  <OfficeInboundFlow
+    attachState={attachState}
+    documentDraft={ocrReviewDraft}
+    exceptionState={exceptionState}
+    inbound={selected}
+    lineDrafts={ocrLineReviewDraft}
+    onAction={onAction}
+    onDocumentDraftChange={setOcrReviewDraft}
+    onLineDraftsChange={setOcrLineReviewDraft}
+    onPrint={handlePrintLabels}
+    onReview={selected.ocrProvider === "tencent_cloud_table_v3" ? handleOcrReviewConfirm : () => submitInboundAction(onAction, selected, "复核送货单")}
+    onVerifyRoll={(roll) => setLabelVerification(buildRawMaterialLabelVerificationDraft(selected, roll))}
+    printState={printState}
+    reviewState={reviewState}
+  />
+  <details className="office-receive-more">
+  <summary>单据与 OCR 原文</summary>
   <h3>入库动作</h3>
   {selected.ocrProvider === "tencent_cloud_table_v3" && canReviewRawMaterialInbound(selected) ? (
     <div className="raw-material-ocr-review-panel">
@@ -210,12 +230,13 @@ export function RawMaterialInboundReceivingSections({
       ["单据附件", formatRawMaterialOptionalAttachment(selected.signedNoteStatus)],
     ]}
   />
+  </details>
 </section>
 <section className="detail-section raw-material-roll-section" hidden={!(["入库标签", "领料成本", "扫码出库"].includes(detailTab))}>
 <h3>{detailTab === "入库标签" ? "卷/件标签" : firstReleaseMode ? "按卷扫码出库" : "卷/件领料与消耗"}</h3>
 <div className="raw-material-roll-list">
-  {(selected.rolls ?? []).map((roll) => {
-    const canAttachRoll = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用";
+  {(selected.rolls ?? []).filter((roll) => detailTab !== "入库标签" || /不符|作废|重打/.test(roll.labelStatus || "")).map((roll) => {
+    const canAttachRoll = roll.labelStatus === "已打印待贴标" && roll.inventoryStatus !== "可用" && !officeInboundUsesCountGate(selected);
     const canIssueRoll = canIssueRawMaterialRoll(roll);
     const canPartialIssueRoll = canIssueRoll && Number(roll.weightKg || 0) > 0;
     const canConfirmConsumption = canConfirmRawMaterialConsumptionRoll(roll);

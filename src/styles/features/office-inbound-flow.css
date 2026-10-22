@@ -1,0 +1,230 @@
+.office-inbound-flow {
+  display: grid;
+  gap: 0;
+  margin: 0;
+}
+
+.raw-material-workbench.is-receiving-view {
+  grid-template-columns: minmax(280px, 0.72fr) minmax(0, 1.4fr) !important;
+}
+
+.raw-material-detail-scroll > .detail-section:has(.office-inbound-flow) {
+  padding: 0;
+}
+
+.office-inbound-flow.raw-material-ocr-review-panel {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  margin: 0;
+  padding: 0;
+  gap: 0;
+}
+
+.office-inbound-steps {
+  display: flex;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.office-inbound-steps li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  border-radius: 999px;
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text-muted);
+  font-size: 12px;
+  padding: 0 10px 0 4px;
+}
+
+.office-inbound-steps li span {
+  display: grid;
+  width: 20px;
+  height: 20px;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--erp-border);
+  color: var(--erp-text);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.office-inbound-steps li[aria-current="step"] {
+  background: var(--erp-accent-soft);
+  color: var(--erp-accent-strong);
+  font-weight: 700;
+}
+
+.office-inbound-steps li[aria-current="step"] span {
+  background: var(--erp-accent-strong);
+  color: var(--erp-accent-contrast, #fff);
+}
+
+.office-inbound-lead {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  color: var(--erp-text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.office-inbound-lead strong {
+  font-size: 15px;
+}
+
+.office-inbound-lead span,
+.office-inbound-block {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+}
+
+.office-inbound-block {
+  margin: 8px 12px;
+  border: 1px solid var(--erp-warning-border);
+  border-radius: 8px;
+  background: var(--erp-warning-bg);
+  color: var(--erp-warning);
+  padding: 8px 10px;
+}
+
+.office-inbound-actions {
+  position: sticky;
+  z-index: 2;
+  bottom: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-top: 1px solid var(--erp-border-subtle);
+  background: var(--erp-surface);
+  padding: 8px 10px;
+}
+
+.office-inbound-done {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.office-receive-more {
+  border-top: 1px solid var(--erp-border-subtle);
+  margin: 0;
+}
+
+.office-receive-more summary {
+  min-height: 36px;
+  color: var(--erp-text-muted);
+  cursor: pointer;
+  font-size: 13px;
+  padding: 8px 10px;
+}
+
+.office-receive-more .info-grid {
+  margin: 0 10px 10px;
+}
+
+.raw-material-detail-scroll > .raw-material-roll-section:not(:has(.raw-material-roll-row, form)) {
+  display: none;
+}
+
+.office-roll-table {
+  display: grid;
+  border: 0;
+  border-radius: 0;
+}
+
+.office-roll-head,
+.office-roll-row {
+  display: grid;
+  grid-template-columns: 72px minmax(120px, 1.4fr) minmax(96px, 0.8fr) minmax(120px, 0.8fr) auto;
+  align-items: center;
+  gap: 12px;
+  min-height: 44px;
+  padding: 8px 12px;
+}
+
+.office-roll-head {
+  background: var(--erp-surface-subtle);
+  color: var(--erp-text-muted);
+  font-size: 12px;
+}
+
+.office-roll-row {
+  border-top: 1px solid var(--erp-border);
+}
+
+.office-roll-row.is-blocked {
+  background: var(--erp-warning-bg);
+}
+
+.office-roll-fact {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--erp-text);
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.office-roll-editor {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  gap: 8px;
+  align-items: end;
+  padding-top: 4px;
+}
+
+.office-roll-editor label {
+  display: grid;
+  gap: 4px;
+  color: var(--erp-text-muted);
+  font-size: 12px;
+}
+
+.office-roll-editor input {
+  min-height: 32px;
+  border: 1px solid var(--erp-border);
+  border-radius: 6px;
+  padding: 0 8px;
+  font-size: 14px;
+}
+
+.office-stick-count {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.office-stick-count em {
+  color: var(--erp-text-muted);
+  font-style: normal;
+}
+
+.office-stick-count input {
+  min-height: 40px;
+  border: 1px solid var(--erp-border);
+  border-radius: 8px;
+  font-size: 22px;
+  font-weight: 700;
+  padding: 0 10px;
+}
+
+.office-inbound-exception {
+  color: var(--erp-text-muted);
+  font-size: 13px;
+}
+
+.office-inbound-exception div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
