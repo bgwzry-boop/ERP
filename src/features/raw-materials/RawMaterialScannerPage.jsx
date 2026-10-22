@@ -62,9 +62,8 @@ export function RawMaterialScannerPage({ inbounds = [], onAction, helpers = {} }
         machineId,
         productionTaskId: "",
         issuePurpose: "生产领料（首发阶段暂不关联订单）",
-        issuedWeightKg: match.roll.weightKg || undefined,
         issuedQuantity: match.roll.weightKg ? undefined : 1,
-        note: note || `杂工扫描卷码 ${match.roll.id}，领到 ${machineId}；首发阶段不关联订单或生产任务。`,
+        note: note || `杂工扫描卷码 ${match.roll.id}，整卷领到 ${machineId}；首发阶段不关联订单或生产任务。`,
       });
       if (!result) return;
       setFeedback({
@@ -136,13 +135,13 @@ export function RawMaterialScannerPage({ inbounds = [], onAction, helpers = {} }
           </dl>
           {blocker ? <p className="raw-material-scan-feedback danger">{blocker}</p> : (
             <>
-              <label className="raw-material-machine-field">推到哪台机 / 哪个区域
+              <label className="raw-material-machine-field">推到哪台机
                 <select
-                  aria-label="推到哪台机 / 哪个区域"
+                  aria-label="推到哪台机"
                   onChange={(event) => setMachineId(event.target.value)}
                   value={machineId}
                 >
-                  <option value="">请选择机台或区域</option>
+                  <option value="">请选择 1号机 到 9号机</option>
                   {RAW_MATERIAL_MACHINE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </label>
@@ -151,7 +150,7 @@ export function RawMaterialScannerPage({ inbounds = [], onAction, helpers = {} }
               </label>
               <div className="raw-material-scan-confirmation">
                 <strong>确认后会发生什么</strong>
-                <span>该卷从“可用库存”转为“机边领用”，并记录领料人、时间、机台、颜色、规格、宽幅和重量；暂不关联订单。</span>
+                <span>确认后可用库存减少 1 卷，这卷整卷改为机边，不再计入可用库存；不拆卷。</span>
               </div>
               <button
                 className="raw-material-scan-submit"

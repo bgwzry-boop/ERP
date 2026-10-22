@@ -25,6 +25,12 @@ import {
   normalizeRawMaterialLeftoverReviewRecords,
   normalizeRawMaterialSplitRecords,
 } from "../rawMaterialTraceabilityRecordNormalizer.mjs";
+import {
+  assertWholeRollIssue,
+  evaluateRawMaterialOneClickInbound,
+  isPendingStickConfirmRoll,
+  resolveRawMaterialWholeRollMachine,
+} from "../../src/domain/rawMaterialWholeRollPolicy.js";
 
 const rawMaterialCostMarginBuilder = createRawMaterialCostMarginBuilder({
   findProductionTask: findRawMaterialProductionTask,
@@ -202,6 +208,65 @@ export function applyRawMaterialInboundAction(input = {}) {
     };
   }
 
+  if (action === "one_click_inbound") {
+    const gate = evaluateRawMaterialOneClickInbound(before);
+    if (!gate.allowed) {
+      throw Object.assign(new Error(gate.blocker), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_ONE_CLICK_INBOUND_BLOCKED",
+        details: {
+          rollCount: gate.rollCount,
+          printedLabelCount: gate.printedLabelCount,
+          pendingStickConfirmCount: gate.pendingStickConfirmCount,
+          exceptionCount: gate.exceptionCount,
+        },
+      });
+    }
+    const nextRolls = (before.rolls ?? []).map((roll) => {
+      if (!isPendingStickConfirmRoll(roll)) return roll;
+      const verification = buildRawMaterialLabelVerification({
+        inbound: before,
+        roll,
+        body: {
+          ...input.body,
+          location: cleanText(input.body?.location) || "原料库-可用区",
+          verificationNote: cleanText(input.body?.verificationNote ?? input.body?.note) || "办公室确认本单已贴齐，一键入库。",
+        },
+        matchResult: "matched",
+        operatorId,
+        operatorName,
+        now,
+      });
+      return {
+        ...roll,
+        labelStatus: "已贴标/可用库存",
+        inventoryStatus: "可用",
+        labelVerification: verification,
+        labelVerifiedAt: now,
+        labelVerifiedBy: operatorName,
+        labelVerifiedByUserId: operatorId,
+        location: verification.location,
+      };
+    });
+    const availableCount = nextRolls.filter((roll) => roll.inventoryStatus === "可用").length;
+    after = {
+      ...before,
+      status: buildRawMaterialInboundLabelStatus({ nextRolls, availableCount, mismatchCount: 0 }),
+      confirmedBy: operatorName,
+      confirmedByUserId: operatorId,
+      confirmedAt: now,
+      labelVerificationSummary: {
+        availableRollCount: availableCount,
+        mismatchRollCount: 0,
+        lastVerifiedRollId: "",
+        lastMatchResult: "matched",
+        oneClickInbound: true,
+      },
+      nextStep: "整单已贴齐并进入可用库存。异常卷不在本次入库范围内。",
+      rolls: nextRolls,
+    };
+  }
+
   if (action === "void_label" || action === "reprint_label") {
     const rollId = cleanText(input.body?.rollId);
     if (!rollId) {
@@ -265,7 +330,7 @@ export function applyRawMaterialInboundAction(input = {}) {
 
   if (action === "issue_to_machine") {
     const rollId = cleanText(input.body?.rollId);
-    const machineId = cleanText(input.body?.machineId);
+    let machineId = cleanText(input.body?.machineId);
     const productionTaskId = cleanText(input.body?.productionTaskId);
     if (!rollId) {
       throw Object.assign(new Error("机边领料必须选择已确认可用的单卷/件。"), {
@@ -276,6 +341,12 @@ export function applyRawMaterialInboundAction(input = {}) {
     if (!machineId) {
       throw Object.assign(new Error("扫码出库必须填写领用机台或区域。"), {
         statusCode: 422, code: "RAW_MATERIAL_ISSUE_MACHINE_REQUIRED",
+      });
+    }
+    if (!resolveRawMaterialWholeRollMachine(machineId)) {
+      throw Object.assign(new Error("出库只能选择 1号机 到 9号机。出库后整卷转为机边，不计入可用库存。"), {
+        statusCode: 422,
+        code: "RAW_MATERIAL_ISSUE_MACHINE_NOT_ALLOWED",
       });
     }
     const productionTaskMatch = resolveRawMaterialProductionTaskMatch({
@@ -299,6 +370,18 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_ISSUE_REQUIRES_AVAILABLE_ROLL",
       });
     }
+    const wholeRollIssue = assertWholeRollIssue({
+      machineId,
+      requestedWeightKg,
+      fullWeightKg: targetAvailableRolls[0]?.weightKg,
+    });
+    if (!wholeRollIssue.ok) {
+      throw Object.assign(new Error(wholeRollIssue.message), {
+        statusCode: wholeRollIssue.statusCode,
+        code: wholeRollIssue.code,
+      });
+    }
+    machineId = wholeRollIssue.machineLabel;
     if (!rollId && (Number.isFinite(requestedWeightKg) || Number.isFinite(requestedQuantity))) {
       throw Object.assign(new Error("Measured raw-material issue requires a single rollId"), {
         statusCode: 422,
@@ -653,6 +736,10 @@ export function applyRawMaterialInboundAction(input = {}) {
   }
 
   if (action === "return_leftover") {
+    throw Object.assign(new Error("机边余料不能退回可用库存。出到 1号机至 9号机后保持机边状态，不计入可用库存。"), {
+      statusCode: 409,
+      code: "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED",
+    });
     const rollId = cleanText(input.body?.rollId);
     const machineSideRolls = (before.rolls ?? []).filter((roll) => roll.inventoryStatus === "机边领用");
     const targetMachineSideRolls = rollId ? machineSideRolls.filter((roll) => roll.id === rollId) : machineSideRolls;
@@ -767,6 +854,10 @@ export function applyRawMaterialInboundAction(input = {}) {
   }
 
   if (action === "review_leftover") {
+    throw Object.assign(new Error("机边余料不能退回可用库存。出到 1号机至 9号机后保持机边状态，不计入可用库存。"), {
+      statusCode: 409,
+      code: "RAW_MATERIAL_LEFTOVER_RETURN_TO_AVAILABLE_DISABLED",
+    });
     const rollId = cleanText(input.body?.rollId);
     const pendingLeftoverRolls = (before.rolls ?? []).filter((roll) => roll.inventoryStatus === "余料待复核");
     const targetLeftoverRolls = rollId ? pendingLeftoverRolls.filter((roll) => roll.id === rollId) : pendingLeftoverRolls;
@@ -1623,6 +1714,9 @@ function normalizeAction(action) {
     ["确认贴标入库", "attach_confirm"],
     ["attach_confirm", "attach_confirm"],
     ["attach-confirm", "attach_confirm"],
+    ["本单已贴齐/一键入库", "one_click_inbound"],
+    ["one_click_inbound", "one_click_inbound"],
+    ["one-click-inbound", "one_click_inbound"],
     ["作废卷标", "void_label"],
     ["void_label", "void_label"],
     ["void-label", "void_label"],
@@ -1668,6 +1762,7 @@ function getRawMaterialActionReason(action) {
   if (action === "review") return "人工复核原材料送货单、OCR 字段和实物原标签";
   if (action === "print_labels") return "打印一卷一标，等待逐卷贴标和人工核对";
   if (action === "attach_confirm") return "逐卷人工核对标签、实物重量、颜色、规格和库位";
+  if (action === "one_click_inbound") return "打印标签数、卷数和待贴标卷数一致后，整单贴齐并进入可用库存；异常卷不入库";
   if (action === "void_label") return "单独作废异常卷/件的旧标签，不影响其他已确认卷/件";
   if (action === "reprint_label") return "单独重打异常卷/件标签，等待重新贴标和人工核对";
   if (action === "stage_supplier_return") return "扫描已有库存卷码并关联已复核退货单，转入供应商退货暂存区";
