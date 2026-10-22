@@ -154,9 +154,11 @@ for (const contract of ["扫描标签上的卷码", "选择机台", "确认扫�
   assert.equal(scannerPageSource.includes(contract), true, `scanner page should retain ${contract}`);
 }
 assert.match(scannerPageSource, /<select[\s\S]*RAW_MATERIAL_MACHINE_OPTIONS/);
-for (const contract of ["RawMaterialCode39", "出库时扫描本卷码", "宽幅", "重量"]) {
+for (const contract of ["RawMaterialCode39", "RawMaterialQrCode", "出库时扫描本卷码", "幅宽cm", "卷长m", "克重g/㎡", "重量kg", "卷料标签", "袋袋赢"]) {
   assert.equal(labelSheetSource.includes(contract), true, `label print sheet should retain ${contract}`);
 }
+assert.equal(labelSheetSource.includes("BAGWIN"), false, "roll label should show the Chinese mark without the English BAGWIN word");
+assert.equal(labelSheetSource.includes("原材料卷标"), false, "roll label should not use the generic 原材料卷标 heading");
 assert.match(frontendBuildEnv, /VITE_RAW_MATERIAL_FIRST_RELEASE=true/);
 assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_RAW_MATERIAL_FIRST_RELEASE=true/);
 assert.match(packageJson.scripts?.["build:staging:first-release"] ?? "", /VITE_ERP_API_BASE_URL=\/api/);

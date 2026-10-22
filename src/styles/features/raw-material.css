@@ -1,3 +1,4 @@
+@import "./raw-material-roll-label.css";
 /* Hallmark · genre: modern-minimal · tone: calm field utility · anchor: forest 140 · macrostructure: Guided Task (resume-first, continuous ledger) · theme: studied-DNA (下单小程序 + approved OCR review) · nav: N9 edge-aligned minimal · footer: Ft2 fixed task action · contrast: pass (40–41) · slop: pass (42–49) · mobile: pass (34, 49–57) */
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4 */
 
@@ -895,6 +896,15 @@
 
 .raw-material-label-print-sheet {
   display: none;
+}
+
+.raw-material-label-print-sheet.is-screen-preview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8mm;
+  align-items: flex-start;
+  padding: 8mm;
+  background: #eceff3;
 }
 
 .topbar-release-scope {
@@ -6213,22 +6223,14 @@
     position: absolute;
     inset: 0 auto auto 0;
     display: block !important;
-    width: 100%;
-    background: var(--erp-print-paper);
+    width: auto;
+    margin: 0;
+    padding: 0;
+    background: #fff;
   }
 
   body.raw-material-label-printing .raw-material-roll-print-label {
-    display: grid;
-    align-content: start;
-    box-sizing: border-box;
-    width: 72mm;
-    min-height: 126mm;
     break-after: page;
-    border: 0;
-    color: var(--erp-print-ink);
-    gap: 2mm;
-    padding: 1mm 0 0;
-    page: office-roll-label;
     page-break-after: always;
   }
 
@@ -6255,72 +6257,5 @@
   body.raw-material-label-printing .raw-material-roll-print-label:last-child {
     break-after: auto;
     page-break-after: auto;
-  }
-
-  body.raw-material-label-printing .raw-material-roll-print-label header,
-  body.raw-material-label-printing .raw-material-roll-print-label footer {
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: 3mm;
-  }
-
-  body.raw-material-label-printing .raw-material-roll-print-label header strong {
-    font-size: 17pt;
-  }
-
-  body.raw-material-label-printing .raw-material-roll-print-label header span,
-  body.raw-material-label-printing .raw-material-roll-print-label footer span,
-  body.raw-material-label-printing .raw-material-roll-print-label footer strong {
-    font-size: 8pt;
-  }
-
-  body.raw-material-label-printing .raw-material-code39 {
-    display: block;
-    width: 100%;
-    height: 15mm;
-    fill: var(--erp-print-ink);
-  }
-
-  body.raw-material-label-printing .raw-material-roll-code-text {
-    font-family: var(--erp-font-mono);
-    font-size: 10pt;
-    letter-spacing: 0.6mm;
-    text-align: center;
-  }
-
-  body.raw-material-label-printing .raw-material-roll-print-label dl {
-    display: grid;
-    grid-template-columns: repeat(3, minmax(0, 1fr));
-    margin: 0;
-    border: 0.25mm solid var(--erp-print-ink);
-  }
-
-  body.raw-material-label-printing .raw-material-roll-print-label dl > div {
-    display: grid;
-    border-right: 0.25mm solid var(--erp-print-ink);
-    border-bottom: 0.25mm solid var(--erp-print-ink);
-    padding: 1.2mm;
-  }
-
-  body.raw-material-label-printing .raw-material-roll-print-label dl > div:nth-child(3n) {
-    border-right: 0;
-  }
-
-  body.raw-material-label-printing .raw-material-roll-print-label dl > div:nth-last-child(-n + 3) {
-    border-bottom: 0;
-  }
-
-  body.raw-material-label-printing .raw-material-roll-print-label dt {
-    font-size: 7pt;
-  }
-
-  body.raw-material-label-printing .raw-material-roll-print-label dd {
-    overflow: hidden;
-    margin: 0;
-    font-size: 9pt;
-    font-weight: 700;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 }
