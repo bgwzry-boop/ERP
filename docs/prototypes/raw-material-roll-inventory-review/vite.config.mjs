@@ -13,6 +13,7 @@ function readGitValue(args, fallback = "") {
     return execFileSync("git", args, {
       cwd: repositoryRoot,
       encoding: "utf8",
+      timeout: 3000,
       stdio: ["ignore", "pipe", "ignore"],
     }).trim();
   } catch {
@@ -20,21 +21,37 @@ function readGitValue(args, fallback = "") {
   }
 }
 
-function createLocalReviewProvenance() {
-  const baseCommit = readGitValue(["rev-parse", "HEAD"], "unknown").toLowerCase();
-  const worktreeStatus = readGitValue(["status", "--porcelain=v1", "--untracked-files=all"]);
-  const dirty = Boolean(worktreeStatus);
+export function createLocalReviewProvenance(options = {}) {
+  const readGit = options.readGit ?? readGitValue;
+  const now = options.now ?? Date.now;
+  const refreshMs = options.refreshMs ?? 500;
+  let baseCommit = "unknown";
+  let worktreeStatus = "unknown";
+  let refreshedAt = -Infinity;
   let revision = 0;
-  const state = () => createHash("sha256")
-    .update(`${baseCommit}\0${worktreeStatus}\0${process.pid}\0${revision}`)
-    .digest("hex");
+  const refresh = () => {
+    const timestamp = now();
+    if (timestamp - refreshedAt < refreshMs) return;
+    try {
+      const commit = readGit(["rev-parse", "HEAD"], "unknown").toLowerCase();
+      baseCommit = /^[a-f0-9]{40}$/.test(commit) ? commit : "unknown";
+      worktreeStatus = readGit(["status", "--porcelain=v1", "--untracked-files=all"], "unknown");
+    } catch {
+      baseCommit = "unknown";
+      worktreeStatus = "unknown";
+    }
+    refreshedAt = now();
+  };
   return {
-    baseCommit,
-    dirty,
-    state,
-    advance() {
-      revision += 1;
+    get baseCommit() { refresh(); return baseCommit; },
+    get dirty() { refresh(); return baseCommit === "unknown" || Boolean(worktreeStatus); },
+    state() {
+      refresh();
+      return createHash("sha256")
+        .update(`${baseCommit}\0${worktreeStatus}\0${process.pid}\0${revision}`)
+        .digest("hex");
     },
+    advance() { revision += 1; refreshedAt = -Infinity; },
   };
 }
 

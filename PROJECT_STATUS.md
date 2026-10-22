@@ -1,6 +1,6 @@
 # Project Status
 
-Updated: 2026-10-22. Staging, the repository default entry and the owner's main checkout must be proven consistent by the executable gate. V8.306 remains a historical product label, not a deployed release identity.
+Updated: 2026-10-23. Staging, the repository default entry and the owner's main checkout must be proven consistent by the executable gate. V8.306 remains a historical product label, not a deployed release identity.
 
 ## Current Verified Release
 
@@ -24,6 +24,7 @@ The owner continues using the original main directory. Historical branches, arch
 
 - The isolated `codex/release-version-governance-20261022` candidate implements shared rules, `release:check`, `controlled-release:deploy / finalize`, gates in prepare/verify/build/postdeploy and production recovery, plus GitHub checks on every canonical push. Promotion is determined by live `release:check` and the release finalization evidence, not a self-referential SHA in this file.
 - Regression coverage includes identity mismatch, unreachable remotes, unpublished candidates, dirty main worktrees, concurrency and retry ordering. Reports contain version facts rather than business data.
+- Local review provenance refreshes its Git commit and dirty state while the server remains running, so a main-checkout fast-forward cannot leave a stale startup identity. Failed Git reads remain explicitly unknown/dirty; regression coverage verifies updates and recovery without restart.
 - New work fetches and starts from `origin/codex/staging-current`. Existing tasks reconcile differences before integration. Ordinary modification tasks do not deploy or move the canonical branch.
 - Preparation checks the clean, pushed immutable candidate and exact target lock. Completion requires matching live frontend/API identities, repository default entry, canonical branch and owner main checkout; an unreadable or mismatched surface blocks a completion claim.
 - Only a verified target permits a non-force canonical advance. Dirty, divergent or differently assigned owner worktrees are preserved and reported, never reset or overwritten to manufacture agreement.

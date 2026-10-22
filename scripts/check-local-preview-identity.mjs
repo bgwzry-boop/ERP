@@ -3,6 +3,10 @@ import {
   buildFreshReleaseUrl,
   establishLocalPreviewIdentity,
 } from "../src/config/localPreviewIdentity.js";
+import {
+  createLocalReviewProvenance,
+  disableCompleteReviewBootstrapCachingPlugin,
+} from "../docs/prototypes/raw-material-roll-inventory-review/vite.config.mjs";
 
 function createEventTarget() {
   const listeners = new Map();
@@ -154,4 +158,84 @@ try {
   globalThis.fetch = originalFetch;
 }
 
-console.log("Preview identity guard check passed: BFCache, controlled releases and local source-state changes all force a fresh canonical document.");
+let clock = 1_000;
+let gitHead = oldCommit;
+let gitStatus = "";
+let failingCommand = "";
+let reads = 0;
+const provenance = createLocalReviewProvenance({
+  now: () => clock,
+  refreshMs: 500,
+  readGit(args, fallback) {
+    reads += 1;
+    if (args[0] === failingCommand) return fallback;
+    return args[0] === "rev-parse" ? gitHead : gitStatus;
+  },
+});
+assert.equal(provenance.baseCommit, oldCommit);
+assert.equal(provenance.dirty, false);
+const initialState = provenance.state();
+assert.match(initialState, /^[a-f0-9]{64}$/);
+const initialReads = reads;
+provenance.state();
+assert.equal(reads, initialReads, "multiple identity fields in the same response share the short Git snapshot");
+
+gitHead = newCommit;
+clock += 499;
+assert.equal(provenance.baseCommit, oldCommit, "the bounded cache may serve the preceding snapshot before expiry");
+clock += 1;
+assert.equal(provenance.baseCommit, newCommit, "a running preview must observe a main-worktree fast-forward without restart");
+assert.equal(provenance.dirty, false);
+const advancedCommitState = provenance.state();
+assert.notEqual(advancedCommitState, initialState, "changing HEAD must invalidate the browser's whole-document identity");
+
+gitStatus = " M src/App.jsx";
+clock += 500;
+assert.equal(provenance.dirty, true, "uncommitted edits after server startup must appear in the preview identity");
+const dirtyState = provenance.state();
+assert.notEqual(dirtyState, advancedCommitState);
+gitStatus = "";
+clock += 500;
+assert.equal(provenance.dirty, false, "committing or clearing local changes must update the same running identity");
+assert.equal(provenance.state(), advancedCommitState, "unchanged commit and clean source produce the same identity without watcher events");
+provenance.advance();
+assert.notEqual(provenance.state(), advancedCommitState, "content watcher events still invalidate state immediately");
+
+const plugin = disableCompleteReviewBootstrapCachingPlugin({ provenance });
+let middleware;
+plugin.configureServer({
+  watcher: { on() {} },
+  middlewares: { use(callback) { middleware = callback; } },
+});
+gitHead = oldCommit;
+gitStatus = "?? new-local-file.txt";
+clock += 500;
+const metadata = Object.fromEntries(plugin.transformIndexHtml().map((tag) => [tag.attrs.name, tag.attrs.content]));
+assert.equal(metadata["erp-preview-base-commit"], oldCommit, "fresh HTML must carry current Git facts rather than captured startup values");
+assert.equal(metadata["erp-preview-dirty"], "true");
+const headers = new Map();
+let continued = false;
+const response = { setHeader(name, value) { headers.set(name, value); }, writeHead() {} };
+middleware({ url: "/?erpRelease=old#roll-inventory" }, response, () => { continued = true; });
+response.writeHead(200);
+assert.equal(continued, true);
+assert.equal(headers.get("x-erp-preview-base-commit"), metadata["erp-preview-base-commit"]);
+assert.equal(headers.get("x-erp-preview-dirty"), metadata["erp-preview-dirty"]);
+assert.equal(headers.get("x-erp-preview-state"), metadata["erp-preview-state"]);
+assert.match(headers.get("cache-control"), /no-store/);
+
+gitStatus = "";
+failingCommand = "status";
+clock += 500;
+assert.equal(provenance.baseCommit, oldCommit);
+assert.equal(provenance.dirty, true, "failed git status cannot be reported as a clean worktree");
+failingCommand = "rev-parse";
+clock += 500;
+assert.equal(provenance.baseCommit, "unknown", "unreadable HEAD must not retain the preceding known commit");
+assert.equal(provenance.dirty, true, "unknown source identity must fail closed even when status is empty");
+failingCommand = "";
+clock += 500;
+assert.equal(provenance.baseCommit, oldCommit);
+assert.equal(provenance.dirty, false, "a later successful read can recover without restarting the server");
+
+console.log("Preview identity guard check passed: BFCache, controlled releases, live Git provenance and local source-state changes all force a fresh canonical document.");
