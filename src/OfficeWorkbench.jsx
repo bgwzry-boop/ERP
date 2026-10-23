@@ -330,7 +330,7 @@ function OfficeWorkbenchRuntime({
   });
 
   useOfficeActivePageEffects({
-    activePage,
+    activePage: renderedPage,
     authState,
     canUsePrintDiagnostics,
     currentUserId,
@@ -367,7 +367,7 @@ function OfficeWorkbenchRuntime({
 
   const { refreshActivePage } = createOfficePageRefreshActions({
     activeMetaLabel: activeMeta.label,
-    activePage,
+    activePage: renderedPage,
     allowLocalFallback: !runtimeServerRequired,
     canUsePrintDiagnostics,
     refreshDriverDeliveryTasks,

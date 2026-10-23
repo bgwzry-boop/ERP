@@ -15,6 +15,8 @@ const reasonCodeByLabel = {
   其他: "other",
 };
 
+export const inventoryCorrectionReasonOptions = Object.freeze(Object.keys(reasonCodeByLabel));
+
 const reasonLabelByCode = {
   cycle_count: "盘点差异",
   outbound_found_mismatch: "找不到货/出库差异",
@@ -399,6 +401,7 @@ export async function confirmOfficeInventoryCorrectionDraft(input = {}, options 
       `/inventory/correction-drafts/${encodeURIComponent(safeCorrectionDraftId)}/confirm`,
       {
         ...options,
+        idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
         authState,
         method: "POST",
         operatorId,
@@ -462,6 +465,7 @@ export async function linkOfficeInventoryCorrectionAttachments(input = {}, optio
       `/inventory/correction-drafts/${encodeURIComponent(safeCorrectionDraftId)}/attachments`,
       {
         ...options,
+        idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
         authState,
         method: "POST",
         operatorId,
@@ -515,6 +519,7 @@ export async function createOfficeInventoryCorrectionDraft(input, options = {}) 
   try {
     const response = await requestInventoryApi("/inventory/correction-drafts", {
       ...options,
+        idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
       authState,
       method: "POST",
       operatorId,

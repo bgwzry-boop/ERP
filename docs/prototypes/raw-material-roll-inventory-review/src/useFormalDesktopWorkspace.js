@@ -1,3 +1,4 @@
+import { readCompleteCollection, createReadGenerationGuard } from "./read-complete-collection.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { initializeSeedAuth } from "../../../../src/services/officeAuthService.js";
 import { listOfficeTodos } from "../../../../src/services/officeTodoApiClient.js";
@@ -54,21 +55,22 @@ const emptyData = Object.freeze({
 });
 
 const readDefinitions = Object.freeze({
-  todos: (authState) => listOfficeTodos({ authState, operatorId, status: "all", pageSize: 200, localTodos: [] }, readOptions),
-  orderDrafts: (authState) => listOfficeDraftQueue({ authState, operatorId, pageSize: 100, inventories: [] }, readOptions),
-  orderLines: (authState) => listOfficeOrderLines({ authState, operatorId, pageSize: 200, includeHistory: false, localOrderLines: [] }, readOptions),
-  inventoryItems: (authState) => listOfficeInventoryItems({ authState, operatorId, pageSize: 200, localInventoryRecords: [] }, readOptions),
-  fulfillments: (authState) => listOfficeFulfillments({ authState, operatorId, pageSize: 200, localFulfillments: [] }, readOptions),
-  statements: (authState) => listOfficeStatementCustomers({ authState, operatorId, pageSize: 200, localStatements: [] }, readOptions),
-  rawMaterialInbounds: (authState) => listOfficeRawMaterialInbounds({ authState, operatorId, pageSize: 200, localInbounds: [] }, readOptions),
-  supplierStatementReviews: (authState) => listOfficeRawMaterialSupplierStatementReviews({ authState, operatorId, pageSize: 100 }, readOptions),
-  productionTasks: (authState) => listOfficeProductionTasks({ authState, operatorId, query: { pageSize: 200 } }, readOptions),
-  packingTasks: (authState) => listOfficePackingTasks({ authState, operatorId, query: { pageSize: 200 } }, readOptions),
-  printJobs: (authState) => listOfficePrintJobs({ authState, operatorId, query: { pageSize: 200 }, localPrintJobs: [] }, readOptions),
-  printDevices: (authState) => listOfficePrintDevices({ authState, operatorId, query: { pageSize: 200 }, localPrintDevices: [] }, readOptions),
-  employeeAccountReviews: (authState) => listOfficeMasterDataEmployeeAccountReviews({ authState, operatorId, pageSize: 200, localReviews: [] }, readOptions),
-  machines: (authState) => listOfficeMasterDataMachines({ authState, operatorId, pageSize: 200 }, readOptions),
+  todos: (authState, params = {}) => listOfficeTodos({ authState, operatorId, status: "all", pageSize: 50, ...params, ...(params.filters || {}), localTodos: [] }, readOptions),
+  orderDrafts: (authState, params = {}) => listOfficeDraftQueue({ authState, operatorId, pageSize: 50, ...params, inventories: [] }, readOptions),
+  orderLines: (authState, params = {}) => listOfficeOrderLines({ authState, operatorId, pageSize: 50, includeHistory: false, ...params, localOrderLines: [] }, readOptions),
+  inventoryItems: (authState, params = {}) => listOfficeInventoryItems({ authState, operatorId, pageSize: 50, ...params, localInventoryRecords: [] }, readOptions),
+  fulfillments: (authState, params = {}) => listOfficeFulfillments({ authState, operatorId, pageSize: 50, ...params, localFulfillments: [] }, readOptions),
+  statements: (authState, params = {}) => listOfficeStatementCustomers({ authState, operatorId, pageSize: 50, ...params, localStatements: [] }, readOptions),
+  rawMaterialInbounds: (authState, params = {}) => listOfficeRawMaterialInbounds({ authState, operatorId, pageSize: 50, ...params, localInbounds: [] }, readOptions),
+  supplierStatementReviews: (authState, params = {}) => listOfficeRawMaterialSupplierStatementReviews({ authState, operatorId, pageSize: 50, ...params }, readOptions),
+  productionTasks: (authState, params = {}) => listOfficeProductionTasks({ authState, operatorId, query: { pageSize: 50, ...params, ...(params.filters || {}) } }, readOptions),
+  packingTasks: (authState, params = {}) => listOfficePackingTasks({ authState, operatorId, query: { pageSize: 50, ...params, ...(params.filters || {}) } }, readOptions),
+  printJobs: (authState, params = {}) => listOfficePrintJobs({ authState, operatorId, query: { pageSize: 50, ...params, ...(params.filters || {}) }, localPrintJobs: [] }, readOptions),
+  printDevices: (authState, params = {}) => listOfficePrintDevices({ authState, operatorId, query: { pageSize: 50, ...params, ...(params.filters || {}) }, localPrintDevices: [] }, readOptions),
+  employeeAccountReviews: (authState, params = {}) => listOfficeMasterDataEmployeeAccountReviews({ authState, operatorId, pageSize: 50, ...params, localReviews: [] }, readOptions),
+  machines: (authState, params = {}) => listOfficeMasterDataMachines({ authState, operatorId, pageSize: 50, ...params }, readOptions),
 });
+
 
 function resultError(result, label) {
   if (result?.source === "api") return "";
@@ -90,59 +92,59 @@ export function useFormalDesktopWorkspace() {
   const [data, setData] = useState(emptyData);
   const [meta, setMeta] = useState({ loading: true, errors: {}, lastSyncedAt: "" });
 
+  const live = useRef(false);
+  const readGuard = useRef(createReadGenerationGuard());
+  const refreshVersion = useRef(0);
+  useEffect(() => { live.current = true; return () => { live.current = false; }; }, []);
+
+  const readCollection = useCallback(async (key, session = authStateRef.current) => {
+    const generation = readGuard.current.begin(key);
+    const result = await readCompleteCollection(params => readDefinitions[key](session, params));
+    if (!live.current || !readGuard.current.current(key, generation)
+      || session?.session?.accessToken !== authStateRef.current?.session?.accessToken) return { source: "superseded" };
+    setData(current => ({ ...current, [key]: normalizeItems(result) }));
+    setMeta(current => {
+      const errors = { ...current.errors };
+      const error = resultError(result, key);
+      if (error) errors[key] = error; else delete errors[key];
+      return { ...current, errors };
+    });
+    return result;
+  }, []);
+
   const refreshAll = useCallback(async (nextAuthState = authStateRef.current) => {
+    const version = ++refreshVersion.current;
     if (!nextAuthState?.authenticated || !nextAuthState?.session?.accessToken) {
       setData(emptyData);
       setMeta({ loading: false, errors: { auth: "正式接口身份验证未通过。" }, lastSyncedAt: "" });
       return { source: "api_error", blocked: true };
     }
-    setMeta((current) => ({ ...current, loading: true, errors: {} }));
-    const entries = await Promise.all(Object.entries(readDefinitions).map(async ([key, read]) => [key, await read(nextAuthState)]));
-    const nextData = {};
-    const errors = {};
-    for (const [key, result] of entries) {
-      nextData[key] = normalizeItems(result);
-      const error = resultError(result, key);
-      if (error) errors[key] = error;
-    }
-    setData({ ...emptyData, ...nextData });
-    setMeta({
-      loading: false,
-      errors,
-      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }),
-    });
+    setMeta(current => ({ ...current, loading: true }));
+    const entries = await Promise.all(Object.keys(readDefinitions).map(async key => [key, await readCollection(key, nextAuthState)]));
+    if (!live.current || version !== refreshVersion.current) return { source: "superseded" };
+    const errors = Object.fromEntries(entries.filter(([, value]) => value.source !== "superseded" && resultError(value, "列表")).map(([key, value]) => [key, resultError(value, key)]));
+    setMeta(current => ({ ...current, loading: false,
+      lastSyncedAt: new Date().toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" }) }));
     return { source: Object.keys(errors).length ? "api_partial" : "api", errors };
-  }, []);
+  }, [readCollection]);
 
   useEffect(() => {
     let pending = false;
-    let stopped = false;
     const refresh = async () => {
       if (pending || document.visibilityState === "hidden" || !authStateRef.current?.authenticated) return;
       pending = true;
-      try {
-        const result = await readDefinitions.rawMaterialInbounds(authStateRef.current);
-        if (stopped) return;
-        setData((current) => ({ ...current, rawMaterialInbounds: normalizeItems(result) }));
-        setMeta((current) => {
-          const errors = { ...current.errors };
-          const error = resultError(result, "原材料");
-          if (error) errors.rawMaterialInbounds = error;
-          else delete errors.rawMaterialInbounds;
-          return { ...current, errors };
-        });
-      } finally { pending = false; }
+      try { await readCollection("rawMaterialInbounds"); }
+      finally { pending = false; }
     };
     const timer = window.setInterval(refresh, 15_000);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", refresh);
     return () => {
-      stopped = true;
       window.clearInterval(timer);
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", refresh);
     };
-  }, []);
+  }, [readCollection]);
 
   useEffect(() => {
     let active = true;
@@ -168,6 +170,7 @@ export function useFormalDesktopWorkspace() {
       ...options,
     }, readOptions);
     if (result.source === "api" && result.inbound?.id) {
+      readGuard.current.begin("rawMaterialInbounds");
       setData((current) => ({
         ...current,
         rawMaterialInbounds: current.rawMaterialInbounds.map((item) => item.id === inboundId ? result.inbound : item),
@@ -193,6 +196,7 @@ export function useFormalDesktopWorkspace() {
       useNewModel: false,
     }, readOptions);
     if (result.source === "api" && result.inbound?.id) {
+      readGuard.current.begin("rawMaterialInbounds");
       setData((current) => ({
         ...current,
         rawMaterialInbounds: [result.inbound, ...current.rawMaterialInbounds.filter((item) => item.id !== result.inbound.id)],

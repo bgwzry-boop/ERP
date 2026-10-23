@@ -19,7 +19,7 @@ export function resolveOfficeWorkbenchNavigation({
 }) {
   const defaultNavigationPage = getDefaultNavigationPage(permissionContext);
   const requestedPage = mobileViewport
-    ? signedPreviewMode && isNavigationPageVisible("rawMaterials", permissionContext)
+    ? signedPreviewMode && activePage === "todos" && isNavigationPageVisible("rawMaterials", permissionContext)
       ? "rawMaterials" : getMobileViewportPage(activePage, permissionContext)
     : activePage;
   const renderedPage = requestedPage === desktopRequiredMobilePage.key

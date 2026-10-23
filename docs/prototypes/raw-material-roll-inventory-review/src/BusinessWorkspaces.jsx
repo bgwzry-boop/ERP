@@ -1,3 +1,6 @@
+import { ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
+import { FinishedInventoryLedger } from "./FinishedInventoryLedger.jsx";
+import { FinishedInventoryCorrectionCreate } from "./FinishedInventoryCorrectionCreate.jsx";
 import { useMemo, useState } from "react";
 import {
   CheckCircleOutlined,
@@ -127,6 +130,8 @@ function buildProductionRows(tasks = [], orderLines = [], customerNames = new Ma
     };
     return {
       id: task.productionTaskId,
+      sourceTask: task,
+      sourceOrderLine: line,
       detailEyebrow: customerName(line, customerNames),
       detailTitle: line.product,
   cells: [
@@ -492,7 +497,7 @@ function buildWorkspaceConfigs(formal) {
   };
 };
 
-function GenericWorkspace({ config, onNavigate }) {
+function GenericWorkspace({ config, onNavigate, detailExtra }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("全部状态");
   const [mode, setMode] = useState(config.modes?.[0] || "全部");
@@ -557,9 +562,10 @@ function GenericWorkspace({ config, onNavigate }) {
           ? selected.detailSections.map((section) => <section className="business-detail-section" key={section.title}><h3>{section.title}</h3><dl className="business-facts">{section.facts.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{String(value || "—")}</dd></div>)}</dl></section>)
           : <><h3>业务事实</h3><dl className="business-facts">{selected.details.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{String(value || "—")}</dd></div>)}</dl></>)
           : <div className="business-empty"><FileTextOutlined /><strong>暂无记录</strong></div>}
+        {detailExtra?.(selected)}
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </div>
-      <footer><button className="primary" disabled={!selected} onClick={runPrimary} type="button">{config.primaryAction}</button>{config.profileMaintenance ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => { setProfileError(""); setProfileOpen(true); }} type="button">维护员工档案</button> : config.showSourceEvidence === false ? null : <button className="secondary-button" onClick={() => setNotice(`来源：${config.source}`)} type="button">查看数据来源</button>}{config.accountPreparation ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => setAccountOpen(true)} type="button">准备员工账号</button> : null}</footer>
+      <footer>{detailExtra ? null : <button className="primary" disabled={!selected} onClick={runPrimary} type="button">{config.primaryAction}</button>}{config.profileMaintenance ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => { setProfileError(""); setProfileOpen(true); }} type="button">维护员工档案</button> : config.showSourceEvidence === false ? null : <button className="secondary-button" onClick={() => setNotice(`来源：${config.source}`)} type="button">查看数据来源</button>}{config.accountPreparation ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => setAccountOpen(true)} type="button">准备员工账号</button> : null}</footer>
     </aside>
   </div>{profileOpen && selected?.employeeReview ? <div className="dialog-backdrop employee-profile-dialog-backdrop" onMouseDown={() => setProfileOpen(false)} role="presentation"><section aria-labelledby="employee-profile-dialog-title" aria-modal="true" className="receive-dialog employee-profile-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>正式员工资料</span><h2 id="employee-profile-dialog-title">维护 {selected.employeeReview.name}</h2></div><button aria-label="关闭" onClick={() => setProfileOpen(false)} type="button">×</button></header><div className="employee-profile-dialog-body"><EmployeeProfileEditor actionState={{ disabled: false, title: "" }} onSave={saveEmployeeProfile} review={selected.employeeReview} />{profileError ? <p className="employee-profile-dialog-error" role="alert">{profileError}</p> : null}</div></section></div> : null}{accountOpen && selected?.employeeReview ? <EmployeeAccountPreparationDialog onClose={() => setAccountOpen(false)} onConfirmIdentity={config.onConfirmEmployeeIdentity} onEnableAccount={config.onEnableEmployeeAccount} onIssuePassword={config.onIssueEmployeePassword} review={selected.employeeReview} /> : null}</>;
 }
@@ -773,12 +779,14 @@ function FinishedGoodsInventoryWorkspace({ category, formal, onNavigate, title }
   const categoryRecords = useMemo(() => finishedGoodsInventoryRecords.filter((record) => record.category === category), [category, finishedGoodsInventoryRecords]);
   const [selectedId, setSelectedId] = useState(categoryRecords[0]?.id || "");
   const [notice, setNotice] = useState("");
+  const [operationsOpen, setOperationsOpen] = useState(false);
   const rows = useMemo(() => filterFinishedGoods(finishedGoodsInventoryRecords, category, goodsType, query), [category, goodsType, query]);
   const selected = rows.find((row) => row.id === selectedId) || rows[0] || null;
   const selectedException = getFinishedInventoryException(selected);
   const reset = () => { setGoodsType("全部类型"); setQuery(""); setSelectedId(categoryRecords[0]?.id || ""); setNotice(""); };
   const selectType = (value) => { setGoodsType(value); setSelectedId(""); setNotice(""); };
 
+  const authoritativeItem = formal.data.inventoryItems.find(item => item.id === selected?.id || item.inventoryItemId === selected?.id);
   return <div className="business-workbench finished-goods-workbench">
     <section className="business-list-panel">
       <header className="business-panel-heading"><h2>{title}</h2><WorkbenchHeadingActions countLabel={`${rows.length} / ${categoryRecords.length} 条`} onRefresh={formal.actions.refreshAll} /></header>
@@ -791,8 +799,11 @@ function FinishedGoodsInventoryWorkspace({ category, formal, onNavigate, title }
     </section>
     <aside className="business-detail-panel finished-goods-detail finished-inventory-detail">
       <header>{selected ? <div className="finished-inventory-detail-meta"><SemanticOrderTag kind="business" value={selected.goodsType} /><span className="finished-inventory-trust"><CheckCircleOutlined />{selected.trust}</span></div> : null}<h2 className="finished-inventory-detail-title">{selected ? <><strong>{selected.size}</strong><span>·</span><FactoryColorLabel color={selected.color} /></> : "暂无库存项"}</h2>{selectedException ? <StateText>{selectedException}</StateText> : null}</header>
-      <div className="business-detail-scroll">{selected ? <><dl className="business-facts finished-inventory-context-facts"><div><dt>实际库位</dt><dd>{selected.zone}</dd></div><div><dt>提手</dt><dd>{selected.handle}</dd></div>{selected.pattern !== "—" ? <div><dt>现货图案</dt><dd>{selected.pattern}</dd></div> : null}</dl><section className="finished-inventory-stock-section"><h3>库存结构</h3><InventoryAllocation stock={selected} variant="detail" /></section></> : <div className="business-empty"><FileTextOutlined /><strong>暂无成品库存</strong></div>}{notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}</div>
-      <footer><button className="primary" disabled={!selected} onClick={() => setNotice("库存数量与结构来自正式库存接口；完整流水请在库存来源功能中继续查看。") } type="button">查看库存来源</button><button className="secondary-button" onClick={() => onNavigate("general-prices")} type="button">查看成品资料</button></footer>
+      <div className="business-detail-scroll">{selected ? <><dl className="business-facts finished-inventory-context-facts"><div><dt>实际库位</dt><dd>{selected.zone}</dd></div><div><dt>提手</dt><dd>{selected.handle}</dd></div>{selected.pattern !== "—" ? <div><dt>现货图案</dt><dd>{selected.pattern}</dd></div> : null}</dl><section className="finished-inventory-stock-section"><h3>库存结构</h3><InventoryAllocation stock={selected} variant="detail" /></section>{operationsOpen && authoritativeItem ? <>
+        <FinishedInventoryLedger key={`${selected.id}:${formal.meta.lastSyncedAt}`} authState={formal.authState} inventoryItemId={selected.id} />
+        <FinishedInventoryCorrectionCreate item={authoritativeItem} authState={formal.authState} onConfirmed={formal.actions.refreshAll} />
+      </> : null}</> : <div className="business-empty"><FileTextOutlined /><strong>暂无成品库存</strong></div>}{notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}</div>
+      <footer><button className="primary" disabled={!selected} onClick={() => setOperationsOpen(value => !value)} type="button">{operationsOpen ? "收起流水与盘点" : "库存流水与盘点"}</button><button className="secondary-button" onClick={() => onNavigate("general-prices")} type="button">查看成品资料</button></footer>
     </aside>
   </div>;
 }
@@ -980,7 +991,8 @@ export function BusinessWorkspace({ formal, navId, onNavigate }) {
   const configs = buildWorkspaceConfigs(formal);
   const config = configs[navId];
   if (!config) return <div className="business-missing"><WarningOutlined /><strong>当前 PC 代码没有这个独立页面</strong><span>{navId}</span></div>;
-  return <GenericWorkspace config={{ ...config, onRefresh: formal.actions.refreshAll }} onNavigate={onNavigate} />;
+  return <GenericWorkspace key={navId} config={{ ...config, onRefresh: formal.actions.refreshAll }} onNavigate={onNavigate}
+    detailExtra={navId === "production-tasks" ? selected => <ProductionScheduleControls key={`${selected?.id || "empty"}:${selected?.sourceTask?.productionTask?.revision || 0}`} selected={selected} formal={formal} onSaved={formal.actions.refreshAll} /> : null} />;
 }
 
 export { completedBusinessWorkspaceIds };

@@ -301,7 +301,8 @@
     "release:check": "node scripts/check-release-line.mjs",
     "release:line:check": "node --test scripts/check-release-line.test.mjs",
     "controlled-release:finalize": "node scripts/run-controlled-release-finalize.mjs",
-    "controlled-release:deploy": "node scripts/run-controlled-deploy.mjs"
+    "controlled-release:deploy": "node scripts/run-controlled-deploy.mjs",
+    "review:p1:check": "node --test docs/prototypes/raw-material-roll-inventory-review/tests/complete-collection.test.mjs && npm run test:formal-desktop --prefix docs/prototypes/raw-material-roll-inventory-review"
   },
   "dependencies": {
     "@ant-design/icons": "^6.2.5",

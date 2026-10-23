@@ -104,6 +104,14 @@ assert.equal(getMobileViewportPage("packing", contextFor("workshop")), "workshop
 assert.equal(getMobileViewportPage("rawMaterialScanner", contextFor("packing")), "rawMaterialScanner");
 assert.equal(getMobileViewportPage("attendanceMobile", contextFor("packing")), "attendanceMobile");
 
+for (const role of ["management", "office", "finance"]) {
+  assert.equal(resolveOfficeWorkbenchNavigation({ activePage: "attendanceMobile", mobileViewport: true,
+    signedPreviewMode: true, permissionContext: contextFor(role) }).renderedPage, "attendanceMobile",
+  "signed preview must allow an explicit attendance destination");
+}
+assert.equal(resolveOfficeWorkbenchNavigation({ activePage: "todos", mobileViewport: true,
+  signedPreviewMode: true, permissionContext: contextFor("management") }).renderedPage, "rawMaterials");
+
 assert.deepEqual(
   resolveOfficeWorkbenchNavigation({
     activePage: "todos",
