@@ -6,11 +6,47 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   const apiProductionInventoryBefore = queryJson(
     "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';",
   );
-  runPsql(
-    `INSERT INTO machines (id, biz_no, name, machine_type, workshop, status, enabled, created_by)
-     VALUES ('BAG-03', 'BAG-03', 'API live 制袋机', 'bag_making', '1号车间', 'active', true, 'U-OFFICE-A')
-     ON CONFLICT (id) DO NOTHING;`,
-  );
+  // The imported order describes a printed bag already in production, but it
+  // does not create a production task. Model its actual upstream plan and use
+  // the HTTP handoff to create the downstream task; reports may not invent one.
+  const screenTaskId = "PT-LIVE-API-ORD003-SCREEN";
+  runPsql(`INSERT INTO production_tasks (id, biz_no, order_line_id, task_type, planned_qty, task_status, created_by)
+    VALUES ('${screenTaskId}', '${screenTaskId}', 'ORD-0629-003-01', '丝印', 1000, '待排产', 'U-OFFICE-A');`);
+  const managerLogin = await postJson(baseUrl, "/api/auth/login", {
+    loginName: runtime.liveManagerRuntimeLoginName, password: runtime.liveManagerRuntimePassword,
+  });
+  const planningHeaders = { authorization: `Bearer ${managerLogin.session.accessToken}` };
+  // Register the isolated screen machine through the real configuration command
+  // so both persistent machine authority and the running scheduling workspace agree.
+  await postJson(baseUrl, "/api/master-data/machines", {
+    machineId: "PRINT-LIVE-API-003", name: "API live 丝印机", machineType: "screen_printing",
+    workshop: "丝印车间", status: "active", reason: "隔离 PostgreSQL 生产工序交接验收",
+    idempotencyKey: "production-api-screen-machine-live-001",
+  }, { headers: planningHeaders });
+  async function publishTask(taskId, processType, machineId, idempotencyKey) {
+    const before = await getJson(baseUrl, `/api/production-tasks/${encodeURIComponent(taskId)}`, { headers });
+    assert.equal(before.productionTask.taskType, processType);
+    assert.equal(before.productionTask.status ?? before.productionTask.taskStatus, "待排产");
+    return postJson(baseUrl, `/api/production-tasks/${encodeURIComponent(taskId)}/publish-schedule`, {
+      productionTaskId: taskId, orderLineId: "ORD-0629-003-01", processType, machineId, plannedQty: 1000,
+      expectedRevision: before.productionTask.revision, idempotencyKey,
+      directDecisionContent: { summary: `负责人核对本单${processType}计划与当前机台` },
+    }, { headers: planningHeaders });
+  }
+  await publishTask(screenTaskId, "丝印", "PRINT-LIVE-API-003", "production-api-screen-plan-live-001");
+  const screenCompleted = await postJson(baseUrl, `/api/production-tasks/${screenTaskId}/report-complete`, {
+    productionTaskId: screenTaskId, orderLineId: "ORD-0629-003-01", processType: "丝印", machineId: "PRINT-LIVE-API-003",
+    qualifiedQty: 1000, exceptionQty: 0, machineCount: 1000, idempotencyKey: "production-api-screen-handoff-live-001",
+  }, { headers });
+  assert.equal(screenCompleted.status, "已完成");
+  assert.equal(screenCompleted.packingTaskId, "", "丝印工序不能生成打包任务");
+  assert.deepEqual(screenCompleted.inventoryLedgerIds, [], "丝印交接不能生成成品库存");
+  assert.deepEqual(queryJson("SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';"), apiProductionInventoryBefore);
+  const productionTaskId = screenCompleted.downstreamProductionTaskId;
+  assert.ok(productionTaskId, "丝印完工必须建立明确的下游制袋任务");
+  assert.notEqual(productionTaskId, screenTaskId);
+  const bagPublished = await publishTask(productionTaskId, "制袋", "BAG-03", "production-api-bag-plan-live-001");
+  assert.equal(bagPublished.machineId, "BAG-03");
   const apiDailyProgressBody = {
     orderLineId: "ORD-0629-003-01",
     dailyQualifiedQty: 400,
@@ -24,13 +60,13 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   };
   const apiDailyProgress = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-ORD-0629-003-01/daily-progress",
+    `/api/production-tasks/${productionTaskId}/daily-progress`,
     apiDailyProgressBody,
     { headers },
   );
   const replayedApiDailyProgress = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-ORD-0629-003-01/daily-progress",
+    `/api/production-tasks/${productionTaskId}/daily-progress`,
     apiDailyProgressBody,
     { headers },
   );
@@ -41,7 +77,7 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   assert.equal(
     Number(
       runPsql(
-        "SELECT COUNT(*) FROM workshop_reports WHERE production_task_id = 'PT-ORD-0629-003-01' AND evidence_json->>'reportKind' = 'daily_progress';",
+        `SELECT COUNT(*) FROM workshop_reports WHERE production_task_id = ${sqlLiteral(productionTaskId)} AND evidence_json->>'reportKind' = 'daily_progress';`,
         { capture: true },
       ).trim(),
     ),
@@ -81,13 +117,13 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   };
   const apiProductionException = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-ORD-0629-003-01/exception",
+    `/api/production-tasks/${productionTaskId}/exception`,
     apiProductionExceptionBody,
     { headers },
   );
   const replayedApiProductionException = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-ORD-0629-003-01/exception",
+    `/api/production-tasks/${productionTaskId}/exception`,
     apiProductionExceptionBody,
     { headers },
   );
@@ -104,7 +140,7 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   assert.equal(
     Number(
       runPsql(
-        "SELECT COUNT(*) FROM production_exception_records WHERE production_task_id = 'PT-ORD-0629-003-01' AND exception_type = '机器问题';",
+        `SELECT COUNT(*) FROM production_exception_records WHERE production_task_id = ${sqlLiteral(productionTaskId)} AND exception_type = '机器问题';`,
         { capture: true },
       ).trim(),
     ),
@@ -115,7 +151,7 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   );
   assert.equal(apiProductionExceptionTodo.type, "生产异常");
   assert.equal(apiProductionExceptionTodo.refType, "production_task");
-  assert.equal(apiProductionExceptionTodo.refId, "PT-ORD-0629-003-01");
+  assert.equal(apiProductionExceptionTodo.refId, productionTaskId);
   assert.deepEqual(
     queryJson(
       "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';",
@@ -164,13 +200,13 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   const apiProductionExceptionResolutionHeaders = { ...headers, "idempotency-key": "production-exception-resolution-live-001" };
   const apiProductionExceptionResolution = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-ORD-0629-003-01/exception-resolution",
+    `/api/production-tasks/${productionTaskId}/exception-resolution`,
     apiProductionExceptionResolutionBody,
     { headers: apiProductionExceptionResolutionHeaders },
   );
   const replayedApiProductionExceptionResolution = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-ORD-0629-003-01/exception-resolution",
+    `/api/production-tasks/${productionTaskId}/exception-resolution`,
     apiProductionExceptionResolutionBody,
     { headers: apiProductionExceptionResolutionHeaders },
   );
@@ -237,7 +273,7 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   };
   const apiProductionReport = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-ORD-0629-003-01/report-complete",
+    `/api/production-tasks/${productionTaskId}/report-complete`,
     apiProductionReportBody,
     { headers },
   );
@@ -249,7 +285,7 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
   assert.equal(Number(apiProductionInventoryAfterReport.reserved), Number(apiProductionInventoryBefore.reserved) + 1000);
   const replayedApiProductionReport = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-ORD-0629-003-01/report-complete",
+    `/api/production-tasks/${productionTaskId}/report-complete`,
     apiProductionReportBody,
     { headers },
   );
@@ -294,6 +330,7 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
     orderLineId: "ORD-0629-003-01",
     actualPackedQty: 1000,
     packageCount: 3,
+    packages: [{ packedQty: 334 }, { packedQty: 333 }, { packedQty: 333 }],
     labelsPrinted: false,
     inventoryItemId: "30*38*10-白色-普通提-空白袋-待快运区",
     operatorId: "U-SPOOFED",
@@ -354,10 +391,43 @@ export async function checkProductionApi(runtime, { baseUrl, headers, postJson, 
     headers,
   });
   postgresAssertions.assertApiProduction2({ apiProductionDetail, apiProductionReport });
-  const apiPackingDetail = await getJson(baseUrl, `/api/packing-tasks/${apiProductionReport.packingTaskId}`, {
+  const apiPackingWorkerDetail = await getJson(baseUrl, `/api/packing-tasks/${apiProductionReport.packingTaskId}`, {
     headers: warehouseHeaders,
   });
+  assert.equal(apiPackingWorkerDetail.packingTask.status, "已完成");
+  assert.equal(apiPackingWorkerDetail.packages.length, 3);
+  assert.equal(apiPackingWorkerDetail.inventoryDeducted, false);
+  assert.equal(apiPackingWorkerDetail.inventoryLedgerEntries, undefined, "打包岗位不能读取全厂库存流水");
+  const apiPackingDetail = await getJson(baseUrl, `/api/packing-tasks/${apiProductionReport.packingTaskId}`, { headers });
   postgresAssertions.assertApiPackingDetail({ apiPackingDetail });
+  const physicalPackages = queryJson(`SELECT json_agg(json_build_object(
+    'id', id, 'sequence', package_seq, 'count', package_count, 'quantity', packed_qty
+  ) ORDER BY package_seq) AS result FROM packages WHERE order_line_id='ORD-0629-003-01' AND status<>'已作废';`);
+  assert.deepEqual(physicalPackages.map((item) => item.sequence), [1, 2, 3]);
+  assert.deepEqual(physicalPackages.map((item) => item.count), [3, 3, 3]);
+  assert.deepEqual(physicalPackages.map((item) => item.quantity), [334, 333, 333], "保存打包人实际确认的每包数量，不能均分估算");
+  assert.deepEqual(new Set(physicalPackages.map((item) => item.id)), new Set(apiPackingComplete.packageIds));
+  // This legacy imported order has no delivery record. Packing must surface the
+  // missing record and preserve the real packages until the office repairs it.
+  assert.equal(apiPackingComplete.fulfillmentId, "");
+  assert.equal(queryJson(`SELECT json_build_object('type',type) AS result FROM todos WHERE id=${sqlLiteral(apiPackingComplete.todoId)};`).type, "出库交付待补建");
+  const repairBody = { reason: "办公室核对旧订单、已完成打包与三包实物后补建快运交付", idempotencyKey: "production-api-fulfillment-repair-live-001" };
+  const repaired = await postJson(baseUrl, `/api/todos/${apiPackingComplete.todoId}/fulfillment-repair`, repairBody, { headers });
+  assert.equal(repaired.todo.status, "handled");
+  assert.equal(repaired.labelTodo.type, "待打印标签");
+  assert.equal(repaired.fulfillment.status, "待打印标签");
+  assert.equal(repaired.fulfillment.actualQty, 1000);
+  assert.deepEqual(new Set(repaired.packageIds), new Set(apiPackingComplete.packageIds));
+  const repairedId = repaired.fulfillment.fulfillmentId;
+  assert.ok(repairedId);
+  const boundPackages = queryJson(`SELECT json_agg(json_build_object('id',id,'fulfillmentId',fulfillment_id,'quantity',packed_qty) ORDER BY package_seq) AS result FROM packages WHERE order_line_id='ORD-0629-003-01' AND status<>'已作废';`);
+  assert.ok(boundPackages.every((item) => item.fulfillmentId === repairedId));
+  assert.deepEqual(boundPackages.map((item) => item.quantity), [334, 333, 333]);
+  const repairReplay = await postJson(baseUrl, `/api/todos/${apiPackingComplete.todoId}/fulfillment-repair`, repairBody, { headers });
+  assert.equal(repairReplay.fulfillment.fulfillmentId, repairedId);
+  assert.equal(repairReplay.operationLogId, repaired.operationLogId);
+  assert.equal(Number(runPsql("SELECT count(*) FROM fulfillment_records WHERE order_line_id='ORD-0629-003-01';", { capture: true }).trim()), 1);
+  assert.deepEqual(queryJson("SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-白色-普通提-空白袋-待快运区';"), apiProductionInventoryAfterReport);
   const apiProductionList = await getJson(
     baseUrl,
     `/api/production-tasks?status=${encodeURIComponent("已完成")}&keyword=${encodeURIComponent("美的")}&pageSize=5`,
@@ -470,7 +540,7 @@ export async function checkProductionScheduleQueueApi(runtime, {
   assert.equal(
     Number(
       runPsql(
-        "SELECT COUNT(*) FROM operation_idempotency_keys WHERE scope IN ('production.schedule.publish', 'production.schedule.resequence', 'production.schedule.move') AND idempotency_key LIKE '%live-001';",
+        "SELECT COUNT(*) FROM operation_idempotency_keys WHERE scope IN ('production.schedule.publish', 'production.schedule.resequence', 'production.schedule.move') AND idempotency_key IN ('production-schedule-publish-live-001', 'production-schedule-resequence-live-001', 'production-schedule-move-live-001');",
         { capture: true },
       ).trim(),
     ),
