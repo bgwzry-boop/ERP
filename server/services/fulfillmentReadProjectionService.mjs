@@ -94,6 +94,8 @@ function projectFulfillment(workspace, value) {
   const status = cleanText(item.status) || "待处理";
   return {
     fulfillmentId,
+    loadedAt:cleanText(item.loadedAt ?? item.loaded_at),
+    deliveryExceptions:list(workspace.fulfillmentExceptions).filter(exception=>cleanText(exception.fulfillmentId)===fulfillmentId && exception.exceptionType === "delivery_exception").map(exception=>({exceptionId:cleanText(exception.exceptionId ?? exception.id),status:cleanText(exception.status),reasonCode:cleanText(exception.reasonCode),reason:cleanText(exception.reason),expectedQty:exception.expectedQty ?? null,actualQty:exception.actualQty ?? null,occurredAt:cleanText(exception.occurredAt),reportedBy:cleanText(exception.reportedBy)})),
     shipmentProgress: buildFulfillmentShipmentProgress(workspace, item, orderLine),
     customerId,
     orderLineId,

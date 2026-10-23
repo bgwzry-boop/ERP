@@ -1,3 +1,4 @@
+import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
 import {
   getLineColorSpecLabel,
   getLinePrintSide,
@@ -19,14 +20,6 @@ import {
   requestOfficeApi as requestDriverApi,
   toOfficeApiError as toApiError,
 } from "./officeApiClientCore.js";
-
-const driverExceptionReasonCodeByLabel = {
-  装车少货: "load_shortage",
-  地址不清: "address_unclear",
-  客户不在: "customer_unavailable",
-  拒收: "customer_rejected",
-  其他: "other",
-};
 
 export async function listDriverDeliveryTasks(input = {}, options = {}) {
   const { authState, driverId, localFulfillments = [], orderLines = [], customers = [], status = "全部", operatorId } = input;
@@ -328,13 +321,14 @@ export async function reportDriverDeliveryException(input = {}, options = {}) {
     task,
     fulfillmentId = task?.fulfillmentId,
     operatorId,
-    reason = "其他",
+    reason = "",
     actualQty = task?.qty ?? task?.expectedQty ?? 0,
     remark = "",
   } = input;
   const safeFulfillmentId = cleanText(fulfillmentId);
   if (!safeFulfillmentId) return invalidDriverInput("DRIVER_DELIVERY_TASK_REQUIRED", "送货任务不能为空。");
   const reasonCode = mapDriverDeliveryExceptionReason(reason);
+  if(!reasonCode)return invalidDriverInput("DRIVER_EXCEPTION_REASON_REQUIRED","请选择实际的送货异常原因。");
   const occurredAt = new Date().toISOString();
 
   try {
@@ -566,7 +560,7 @@ export function mapDriverDeliveryStatus(value) {
 }
 
 export function mapDriverDeliveryExceptionReason(reason) {
-  return driverExceptionReasonCodeByLabel[reason] ?? "other";
+  return findDriverDeliveryExceptionReason(reason)?.code ?? "";
 }
 
 export function getDriverTaskMetrics(items = []) {

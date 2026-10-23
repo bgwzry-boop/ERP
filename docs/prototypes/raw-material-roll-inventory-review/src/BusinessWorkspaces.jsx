@@ -4,6 +4,7 @@ import {refreshAfterProductionPhotoReview} from "./production-review-refresh.js"
 import {resolveTodoWorkspaceLink} from "./todo-workspace-link.js";
 import { TodoReminderForm } from "../../../../src/features/todos/TodoReminderForm.jsx";
 import { ProductionPhotoReview } from "./ProductionPhotoReview.jsx";
+import { DriverExceptionResolutionPanel } from "../../../../src/features/fulfillment/DriverExceptionResolutionPanel.jsx";
 import { ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
 import { StatementDetailDialog } from "./StatementDetailDialog.jsx";
 import { PrintJobDetailDialog } from "./PrintJobDetailDialog.jsx";
@@ -637,6 +638,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
         <section className="business-detail-section"><h3>交付事实</h3><dl className="business-facts"><div><dt>交付方式</dt><dd>{selected.method}</dd></div><div><dt>包装</dt><dd>{selected.packageLabel}</dd></div><div><dt>要求时间</dt><dd>{selected.latestNeededAt}</dd></div><div><dt>出库库位</dt><dd>{selected.zone}</dd></div></dl></section>
         <section className="business-detail-section"><h3>对账关联</h3><div className="business-boundary"><InfoCircleOutlined /><div><strong>金额以正式对账记录为准</strong><p>分批出货、赠送数量和差异处理都会影响计费，本页不按数量估算应收或欠款。</p></div></div>{formal.permissionContext?.actionPermissions?.includes("statement.preview") ? <button type="button" onClick={() => onNavigate?.("customer-statements")}>打开对账收款</button> : <p>请由财务或办公室核对正式账单。</p>}</section>
         {selected.method === "送货" ? <DeliveryEvidenceReviewPanel authState={formal.authState} fulfillmentId={selected.id} onReviewed={(message) => { setNotice(message); void formal.actions.refreshAll(); }} /> : null}
+        {selected.status === "送货异常" ? <DriverExceptionResolutionPanel authState={{...formal.authState,permissions:formal.permissionContext}} fulfillmentId={selected.id} onResolved={()=>void formal.actions.refreshAll()} /> : null}
         <DesktopFulfillmentOperations fulfillment={formal.data.fulfillments.find(item => (item.id || item.fulfillmentId) === selected.id)} formal={formal} />
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </> : <div className="business-empty"><FileTextOutlined /><strong>暂无交付任务</strong></div>}</div>

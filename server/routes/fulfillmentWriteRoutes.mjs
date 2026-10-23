@@ -16,7 +16,7 @@ export async function handleFulfillmentWriteRoutes({
 }) {
   if (method !== "POST") return false;
 
-  const fulfillmentActionMatch = url.pathname.match(/^\/api\/fulfillments\/([^/]+)\/(exception|quantity-variance-resolution|dispatch|print|paper-handoff|warehouse-execution|prepared|complete|pickup-confirm|cancel|delivery-evidence-review)$/);
+  const fulfillmentActionMatch = url.pathname.match(/^\/api\/fulfillments\/([^/]+)\/(exception|delivery-exception-resolution|quantity-variance-resolution|dispatch|print|paper-handoff|warehouse-execution|prepared|complete|pickup-confirm|cancel|delivery-evidence-review)$/);
   if (fulfillmentActionMatch) {
     const fulfillmentId = decodeURIComponent(fulfillmentActionMatch[1]);
     const action = fulfillmentActionMatch[2];
@@ -25,6 +25,7 @@ export async function handleFulfillmentWriteRoutes({
         permission: writeActionPermissions.createFulfillmentException,
         run: (operatorId) => fulfillmentActionCommandService.createFulfillmentException({ workspace, fulfillmentId, body, operatorId }),
       },
+      "delivery-exception-resolution": {permission:writeActionPermissions.resolveDriverDeliveryException,run:(operatorId)=>fulfillmentActionCommandService.resolveDriverDeliveryException({workspace,fulfillmentId,body,operatorId})},
       "quantity-variance-resolution": {
         permission: writeActionPermissions.resolveFulfillmentQuantityVariance,
         run: (operatorId) => fulfillmentActionCommandService.resolveFulfillmentQuantityVariance({

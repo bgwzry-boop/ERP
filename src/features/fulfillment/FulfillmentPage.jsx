@@ -1,3 +1,4 @@
+import { DriverExceptionResolutionPanel } from "./DriverExceptionResolutionPanel.jsx";
 import { useEffect, useRef, useState } from "react";
 import {
   CarOutlined,
@@ -363,6 +364,7 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
             <Segmented ariaLabel="交付详情视图" value={detailTab} onChange={setDetailTab} items={FULFILLMENT_DETAIL_TABS} />
           </div>
           <div hidden={detailTab !== "任务处理"}>
+            {selected.status === "送货异常" ? <DriverExceptionResolutionPanel authState={authState} fulfillmentId={selected.id} /> : null}
             <FulfillmentDetailSection title="任务信息">
               <FulfillmentDetailFacts
                 rows={[

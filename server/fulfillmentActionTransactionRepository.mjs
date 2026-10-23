@@ -74,6 +74,11 @@ export function createLocalFulfillmentActionTransactionRepository() {
       return resolvePrintVoidReplay(existing, { printRecordId, body, operatorId });
     },
 
+    findDriverExceptionResolutionReplay({workspace,body,operatorId}) {
+      const key=normalizeIdempotencyKey(body.idempotencyKey);
+      const existing=(workspace?.operationIdempotencyRecords ?? []).find(item=>item.scope === "fulfillment.resolve_driver_delivery_exception" && item.idempotencyKey === key);
+      return resolveDriverResolutionReplay(existing,body,operatorId);
+    },
     recordFulfillmentAction(requestedInput) {
       const input = consumeFulfillmentActionDecision(requestedInput);
       if (input.quantityVarianceResolution || input.decisionRecord) {
@@ -141,10 +146,12 @@ function commitLocalFulfillmentAction(input) {
       }
     }
   }
+  assertDriverResolutionInput(input);
   const stagedWorkspace = stageLocalFulfillmentWorkspace(workspace);
   assertLocalFulfillmentOperationalBounds(input);
   assertLocalPrintPricingSnapshot(input);
-  const fulfillment = commitLocalFulfillmentRevision(stagedWorkspace, input.fulfillment);
+  const beforeDriverResolution = input.operationLog?.action === "resolve_driver_delivery_exception" ? (workspace.fulfillments ?? []).find(item=>(item.id ?? item.fulfillmentId)===(input.fulfillment.id ?? input.fulfillment.fulfillmentId)) : null;
+  const fulfillment = commitLocalFulfillmentRevision(stagedWorkspace, beforeDriverResolution ? {...beforeDriverResolution,status:input.fulfillment.status,driverStatus:input.fulfillment.status,exceptionReason:input.fulfillment.exceptionReason,exceptionReasonCode:input.fulfillment.exceptionReasonCode,exceptionOccurredAt:input.fulfillment.exceptionOccurredAt} : input.fulfillment);
   const transaction = normalizeFulfillmentActionTransactionResult({
     fulfillment,
     printRecord: input.printRecord ?? null,
@@ -380,6 +387,15 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       mergeFulfillmentPrintCurrentState(workspace, current);
       return saved;
     },
+    async findDriverExceptionResolutionReplay({body,operatorId}) {
+      const key=normalizeIdempotencyKey(body.idempotencyKey);if(!key)return null;
+      const existing=await queryJson("SELECT json_build_object('requestHash',request_hash,'response',response_json) AS result FROM operation_idempotency_keys WHERE scope='fulfillment.resolve_driver_delivery_exception' AND idempotency_key=$1",[key]);
+      return resolveDriverResolutionReplay(existing,body,operatorId);
+    },
+    async findPrintReplay(input) {
+      const saved = await readPostgresIdempotencyReplay({ queryJson, scope: "fulfillment.print_fulfillment", idempotencyKey: input.idempotencyKey, payload: input.idempotencyPayload });
+      return saved ? normalizeFulfillmentActionTransactionResult(saved) : null;
+    },
     recordFulfillmentAction,
     recordFulfillmentPrint: recordFulfillmentAction,
   };
@@ -432,6 +448,7 @@ export function buildRecordFulfillmentActionTransactionSql(input) {
 }
 
 export function buildRecordFulfillmentActionTransactionQuery(input) {
+  assertDriverResolutionInput(input);
   const parameters = createPostgresParameterBinder();
   return {
     text: buildRecordFulfillmentActionTransactionText(input, parameters),
@@ -468,6 +485,18 @@ WITH locked_fulfillment AS MATERIALIZED (
   SELECT id, revision, order_line_id, status, actual_qty, expected_qty, physical_outbound_at, loaded_at, final_delivery_at, delivered_at, watermarked_photo_attachment_id, signature_photo_attachment_id
   FROM fulfillment_records
   WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
+  FOR UPDATE
+),
+locked_driver_exceptions AS MATERIALIZED (
+  SELECT id, status FROM fulfillment_exceptions
+  WHERE fulfillment_id = ${parameters.text(fulfillment.fulfillmentId)} AND exception_type = 'delivery_exception'
+    AND ${operationLog.action === 'resolve_driver_delivery_exception' ? 'TRUE' : 'FALSE'}
+  ORDER BY id FOR UPDATE
+),
+locked_driver_exception_todo AS MATERIALIZED (
+  SELECT id, type, ref_id, status, handled_by, handled_at, handling_result FROM todos
+  WHERE id = ${parameters.text(input.driverExceptionTodoBefore?.id)}
+    AND ${operationLog.action === 'resolve_driver_delivery_exception' ? 'TRUE' : 'FALSE'}
   FOR UPDATE
 ),
 locked_print_job AS MATERIALIZED (
@@ -517,6 +546,7 @@ fulfillment_write_guard AS MATERIALIZED (
       AND (SELECT order_line_id FROM locked_fulfillment) = ${parameters.text(fulfillment.orderLineId)}
       AND (${input.deliveryEvidenceSnapshot ? `EXISTS (SELECT 1 FROM locked_fulfillment WHERE revision = ${parameters.integer(input.deliveryEvidenceSnapshot.revision)} AND COALESCE(watermarked_photo_attachment_id,'') = ${parameters.text(input.deliveryEvidenceSnapshot.watermarkedPhotoAttachmentId)} AND COALESCE(signature_photo_attachment_id,'') = ${parameters.text(input.deliveryEvidenceSnapshot.signaturePhotoAttachmentId)})` : 'TRUE'})
       AND (${fulfillmentOperationalBoundsSql(operationLog.action,fulfillment,parameters)})
+      AND (${operationLog.action === "resolve_driver_delivery_exception" ? `${buildDriverExceptionTodoGuardSql(input,parameters)} AND EXISTS (SELECT 1 FROM locked_driver_exceptions WHERE id=${parameters.text(fulfillmentException?.exceptionId)} AND status=${parameters.text(input.driverExceptionBefore?.status)} AND status NOT IN ('已解决','已作废')) AND ${parameters.text(fulfillment.status)} = (SELECT CASE WHEN (SELECT count(*) FROM locked_driver_exceptions WHERE status NOT IN ('已解决','已作废'))>1 THEN '送货异常' WHEN loaded_at IS NOT NULL THEN '配送中' ELSE '待送货' END FROM locked_fulfillment) AND NOT EXISTS (SELECT 1 FROM operation_logs WHERE id=${parameters.text(operationLog.id)})` : 'TRUE'})
       AND (${buildFulfillmentBillingSnapshotGuard(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot, parameters)}),
     'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
   ) ${operationLog.action === "driver_confirm_loaded" ? `AND erp_require_driver_packages(${parameters.text(fulfillment.fulfillmentId)}, ${parameters.text(fulfillment.orderLineId)}, ${parameters.textArray(operationLog.after?.checkedPackageIds ?? [])})` : ""} AS ok
@@ -554,7 +584,9 @@ inventory_write_guard AS MATERIALIZED (
 updated_fulfillment AS (
   UPDATE fulfillment_records
   SET
-    biz_no = ${parameters.text(fulfillment.bizNo)},
+    ${operationLog.action === 'resolve_driver_delivery_exception'
+      ? `status = ${parameters.text(fulfillment.status)},`
+      : `    biz_no = ${parameters.text(fulfillment.bizNo)},
     customer_snapshot = ${parameters.json(fulfillment.customerSnapshot)},
     method = ${parameters.text(fulfillment.method)},
     expected_qty = ${parameters.integer(fulfillment.expectedQty)},
@@ -602,6 +634,7 @@ updated_fulfillment AS (
     delivery_evidence_issue_reason = ${parameters.text(fulfillment.deliveryEvidenceIssueReason)},
     delivery_evidence_review_remark = ${parameters.text(fulfillment.deliveryEvidenceReviewRemark)},
     delivery_evidence_review_updated_at = ${parameters.nullableTimestamp(fulfillment.deliveryEvidenceReviewUpdatedAt)},
+`}
     revision = fulfillment_records.revision + 1,
     updated_at = now()
   FROM locked_fulfillment AS locked, fulfillment_write_guard AS guard
@@ -653,10 +686,18 @@ print_job_write_guard AS MATERIALIZED (
   ) AS ok
 ),
 inserted_todo AS (
-  ${buildInsertTodoSql(todo, parameters)}
+  ${operationLog.action === 'resolve_driver_delivery_exception'
+    ? `UPDATE todos SET status = ${parameters.text(todo.status)}, handled_by = ${parameters.nullableText(todo.handledBy)}, handled_at = ${parameters.nullableTimestamp(todo.handledAt)}, handling_result = ${parameters.nullableText(todo.handlingResult)}, updated_at = now()
+       WHERE id = ${parameters.text(todo.id)} AND EXISTS (SELECT 1 FROM updated_fulfillment)
+       RETURNING ${todoJsonExpression('todos')} AS result`
+    : buildInsertTodoSql(todo, parameters)}
 ),
 inserted_fulfillment_exception AS (
-  ${buildInsertFulfillmentExceptionSql(fulfillmentException, parameters)}
+  ${operationLog.action === 'resolve_driver_delivery_exception'
+    ? `UPDATE fulfillment_exceptions SET status = '已解决', updated_at = now()
+       WHERE id = ${parameters.text(fulfillmentException?.exceptionId)} AND EXISTS (SELECT 1 FROM updated_fulfillment)
+       RETURNING ${fulfillmentExceptionJsonExpression('fulfillment_exceptions')} AS result`
+    : buildInsertFulfillmentExceptionSql(fulfillmentException, parameters)}
 ),
 updated_inventory_reservations AS (
   ${buildUpdateInventoryReservationsSql(inventoryReservations)}
@@ -2513,6 +2554,7 @@ function assertLocalPrintPricingSnapshot(input) {
 
 function fulfillmentOperationalBoundsSql(action,fulfillment,parameters) {
  const base="SELECT 1 FROM locked_fulfillment WHERE ";
+ if(action === "resolve_driver_delivery_exception")return "EXISTS ("+base+"status='送货异常' AND final_delivery_at IS NULL AND delivered_at IS NULL AND COALESCE(actual_qty,expected_qty)="+parameters.integer(fulfillment.actualQty)+" AND expected_qty="+parameters.integer(fulfillment.expectedQty)+")";
  if (["cancel_fulfillment","record_warehouse_outbound_execution","resolve_fulfillment_quantity_variance"].includes(action)) return "EXISTS ("+base+"physical_outbound_at IS NULL AND loaded_at IS NULL AND final_delivery_at IS NULL AND status NOT IN ('已交付','已完成','已取消'))";
  if(action==="driver_resubmit_delivery_evidence") return "EXISTS ("+base+"COALESCE(actual_qty,expected_qty) = "+parameters.integer(fulfillment.actualQty)+" AND (delivered_at IS NULL OR delivered_at = "+parameters.nullableTimestamp(fulfillment.deliveredAt)+") AND (final_delivery_at IS NULL OR final_delivery_at = "+parameters.nullableTimestamp(fulfillment.finalDeliveryAt)+"))";
  if (["driver_complete_delivery","driver_resubmit_delivery_evidence","driver_report_delivery_exception"].includes(action)) return "EXISTS ("+base+"COALESCE(actual_qty,expected_qty) = "+parameters.integer(fulfillment.actualQty)+")";
@@ -2523,8 +2565,45 @@ function assertLocalFulfillmentOperationalBounds(input) {
  const current=(input.workspace.fulfillments??[]).find(row=>(row.fulfillmentId??row.id)===id);
  if(!current || (current.orderLineId??current.lineId)!==(next.orderLineId??next.lineId)) throw fulfillmentConflict(next.revision);
  const action=input.operationLog?.action;
+  if (action === "resolve_driver_delivery_exception") {
+    const priorTodo = input.driverExceptionTodoBefore;
+    const currentTodo = (input.workspace.todos ?? []).find((item) => item.id === priorTodo?.id);
+    if (!currentTodo || JSON.stringify(driverTodoSnapshot(currentTodo)) !== JSON.stringify(driverTodoSnapshot(priorTodo))) throw fulfillmentConflict(current.revision);
+    const beforeException = input.driverExceptionBefore;
+    const exception = (input.workspace.fulfillmentExceptions ?? []).find((item) => (item.exceptionId ?? item.id) === (beforeException?.exceptionId ?? beforeException?.id));
+    if (!exception || exception.fulfillmentId !== (next.fulfillmentId ?? next.id) || exception.exceptionType !== "delivery_exception" || exception.status !== beforeException.status || ["已解决", "已作废"].includes(exception.status) || current.status !== "送货异常" || current.deliveredAt || current.finalDeliveryAt || Number(next.actualQty) !== Number(current.actualQty ?? current.expectedQty ?? current.qty) || Number(next.expectedQty) !== Number(current.expectedQty ?? current.qty)) throw fulfillmentConflict(current.revision);
+    const remaining = input.workspace.fulfillmentExceptions.filter((item) => item !== exception && item.fulfillmentId === exception.fulfillmentId && item.exceptionType === "delivery_exception" && !["已解决", "已作废"].includes(item.status));
+    const expectedStatus = remaining.length ? "送货异常" : current.loadedAt ? "配送中" : "待送货";
+    if (next.status !== expectedStatus) throw fulfillmentConflict(current.revision);
+  }
+
  if(input.deliveryEvidenceSnapshot && !matchesDeliveryEvidenceSnapshot(input.deliveryEvidenceSnapshot,current)) throw fulfillmentConflict(current.revision);
  if(action==="driver_resubmit_delivery_evidence" && ["deliveredAt","finalDeliveryAt"].some(key=>current[key]&&Date.parse(current[key])!==Date.parse(next[key]))) throw fulfillmentConflict(current.revision);
  if(["cancel_fulfillment","record_warehouse_outbound_execution","resolve_fulfillment_quantity_variance"].includes(action) && (current.physicalOutboundAt||current.loadedAt||current.finalDeliveryAt||["已交付","已完成","已取消"].includes(current.status))) throw fulfillmentConflict(current.revision);
  if(["driver_complete_delivery","driver_resubmit_delivery_evidence","driver_report_delivery_exception"].includes(action) && Number(next.actualQty)!==Number(current.actualQty??current.expectedQty??current.qty)) throw fulfillmentConflict(current.revision);
+}
+
+function resolveDriverResolutionReplay(existing, body, operatorId) {
+  if (!existing) return null;
+  if (existing.requestHash !== buildIdempotencyRequestHash({ ...body, operatorId })) {
+    const error = new Error("同一提交标识不能用于不同的异常处理内容。");
+    error.statusCode = 409; error.code = "IDEMPOTENCY_KEY_REUSED"; throw error;
+  }
+  return { ...cloneJson(existing.response), replayed: true };
+}
+
+function driverTodoSnapshot(value) {
+  const todo = normalizeTodoForPersistence(value);
+  return todo && [todo.id, todo.type, todo.refId, todo.status, todo.handledBy, todo.handledAt ? new Date(todo.handledAt).toISOString() : "", todo.handlingResult];
+}
+function buildDriverExceptionTodoGuardSql(input, parameters) {
+  const todo = normalizeTodoForPersistence(input.driverExceptionTodoBefore);
+  if (!todo) return 'FALSE';
+  return `EXISTS (SELECT 1 FROM locked_driver_exception_todo WHERE id = ${parameters.text(todo.id)} AND type = ${parameters.text(todo.type)} AND ref_id = ${parameters.text(todo.refId)} AND status = ${parameters.text(todo.status)} AND handled_by IS NOT DISTINCT FROM ${parameters.nullableText(todo.handledBy)} AND handled_at IS NOT DISTINCT FROM ${parameters.nullableTimestamp(todo.handledAt)} AND handling_result IS NOT DISTINCT FROM ${parameters.nullableText(todo.handlingResult)})`;
+}
+
+function assertDriverResolutionInput(input) {
+ if(input.operationLog?.action !== "resolve_driver_delivery_exception")return;
+ if(!input.driverExceptionTodoBefore || input.driverExceptionTodoBefore.id !== input.todo?.id || input.driverExceptionBefore?.todoId !== input.todo?.id || !input.driverExceptionBefore || (input.driverExceptionBefore.exceptionId ?? input.driverExceptionBefore.id)!==(input.fulfillmentException?.exceptionId ?? input.fulfillmentException?.id) || input.driverExceptionBefore.fulfillmentId !== (input.fulfillment?.fulfillmentId ?? input.fulfillment?.id) || input.driverExceptionBefore.exceptionType !== "delivery_exception" || ["已解决","已作废"].includes(input.driverExceptionBefore.status) || input.fulfillmentException?.status !== "已解决" || [input.inventoryReservations,input.inventoryAdjustments,input.inventoryLedgerEntries,input.packages].some(items=>items?.length) || input.statementCandidate || input.paperOutboundDocument || input.warehouseOutboundExecution || input.printRecord || input.printJob)throw new Error("Driver exception resolution must preserve inventory, accounting, packages and outbound evidence.");
+ if((input.workspace?.operationLogs ?? []).some(log=>log.id===input.operationLog.id))throw fulfillmentConflict(input.fulfillment.revision);
 }

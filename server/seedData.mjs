@@ -1,3 +1,4 @@
+import {getStatementFinancialSummary} from "../src/domain/officeRules.js";
 import { loadOfficeSeedWorkspace } from "./seeds/officeSeedLoader.mjs";
 import { getEffectivePermissionsForRuntimeUser, getEffectivePermissionsForUser } from "./authSeed.mjs";
 
@@ -18,15 +19,17 @@ export function getEffectivePermissions(userId, options = {}) {
 
 export function getStatementCustomers(workspace) {
   return workspace.statements.map((statement) => {
-    const customer = findCustomer(workspace, statement.customerId);
+    const customer = workspace.customers.find(row=>row.id===statement.customerId);
     return {
-      customerId: customer.id,
-      customerName: customer.name,
-      settlementCycle: customer.cycle,
+      customerId: statement.customerId,
+      customerName: customer?.name || "客户资料缺失",
+      settlementCycle: customer?.cycle || "",
+      ...getStatementFinancialSummary(statement,workspace.customers),
       currentReceivable: statement.receivable,
-      debtAmount: customer.debt,
+      debtAmount: customer ? customer.debtAmountSnapshot ?? customer.debt : null,
+      varianceAmount: statement.variance ?? null,
       paymentPending: statement.status.includes("收款"),
-      lastStatementAt: customer.lastStatement,
+      lastStatementAt: customer?.lastStatement || "",
       status: mapStatementCustomerStatus(statement),
       statementId: statement.id,
       revision: Math.max(1, Number(statement.revision ?? 1) || 1),

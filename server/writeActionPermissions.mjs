@@ -23,6 +23,7 @@ export const writeActionPermissions = Object.freeze({
   viewDriverDeliveryTasks: "delivery.view",
   confirmDriverDeliveryLoaded: "delivery.load_confirm",
   completeDriverDelivery: "delivery.complete",
+  resolveDriverDeliveryException: "delivery.exception.resolve",
   createDriverDeliveryException: "delivery.exception.create",
   recordDriverDeviceFieldTest: "delivery.device_qa.record",
   publishProductionSchedule: "production.schedule.publish",

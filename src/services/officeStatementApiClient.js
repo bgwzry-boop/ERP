@@ -93,11 +93,15 @@ export async function getOfficeStatementDetail(input = {}, options = {}) {
         error: toApiError(json, response.status, "对账单详情 API 返回错误。"),
       };
     }
-    return { source: "api", detail: normalizeStatementDetail(json, localStatement) };
+    const source=json?.statement && typeof json.statement === "object" ? json.statement : json;
+    const ids=[source?.id,source?.statementId,source?.statement_id,...(source!==json?[json.id,json.statementId,json.statement_id]:[])].filter(value=>value!==undefined && value!==null);
+    if(!ids.length || ids.some(value=>typeof value!=="string" || value.trim()!==safeStatementId))return {source:"api_error",blocked:true,detail:null,error:{code:"STATEMENT_DETAIL_ID_MISMATCH",message:"返回账单编号与当前账单不一致，请重新读取。"}};
+    return { source: "api", detail: normalizeStatementDetail(json) };
   } catch (error) {
     return {
-      source: "local_fallback",
-      detail: localStatement ? normalizeStatementDetail(localStatement, localStatement) : null,
+      source: options.serverRequired ? "api_error" : "local_fallback",
+      blocked: options.serverRequired === true,
+      detail: options.serverRequired ? null : localStatement ? normalizeStatementDetail(localStatement, localStatement) : null,
       error: { code: "STATEMENT_DETAIL_API_UNAVAILABLE", message: error?.message ?? String(error) },
     };
   }

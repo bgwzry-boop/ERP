@@ -7,7 +7,8 @@ export function normalizeStatementCustomerSummary(item) {
     customerName: String(item.customerName ?? item.customer_name ?? "").trim(),
     settlementCycle: String(item.settlementCycle ?? item.settlement_cycle ?? "").trim(),
     currentReceivable: Number(item.currentReceivable ?? item.current_receivable ?? 0),
-    debtAmount: Number(item.debtAmount ?? item.debt_amount ?? 0),
+    debtAmount: optionalFinancialAmount(item.debtAmount ?? item.debt_amount),
+    varianceAmount: optionalFinancialAmount(item.varianceAmount ?? item.variance_amount),
     overdueAmount: Number(item.overdueAmount ?? item.overdue_amount ?? 0),
     paymentPending: item.paymentPending === true || item.payment_pending === true,
     lastStatementAt: String(item.lastStatementAt ?? item.last_statement_at ?? "").trim(),
@@ -24,7 +25,8 @@ export function mapLocalStatementCustomerSummary(statement) {
     customerName: statement.customerName,
     settlementCycle: statement.settlementCycle,
     currentReceivable: statement.receivable,
-    debtAmount: statement.variance ?? statement.debtAmount ?? 0,
+    debtAmount: statement.debtAmount ?? null,
+    varianceAmount: statement.variance,
     paymentPending: String(statement.status ?? "").includes("收款"),
     lastStatementAt: statement.lastStatementAt,
     status: mapLocalStatementStatus(statement.status),
@@ -62,7 +64,7 @@ export function mapStatementCustomerSummaryToLocal(item, localStatement = null) 
     settlementCycle: summary.settlementCycle,
     status: mapStatementSummaryStatus(summary.status),
     receivable: summary.currentReceivable,
-    variance: summary.debtAmount,
+    variance: summary.varianceAmount,
     debtAmount: summary.debtAmount,
     paymentPending: summary.paymentPending,
     lastStatementAt: summary.lastStatementAt,
@@ -108,3 +110,5 @@ export function normalizeStatementDetail(value, localStatement = null) {
     operationLogs: Array.isArray(wrapper.operationLogs) ? wrapper.operationLogs : localStatement?.operationLogs ?? [],
   };
 }
+
+function optionalFinancialAmount(value) { if(value===null || value===undefined || value==="" || !["number","string"].includes(typeof value))return null;const amount=Number(value);return Number.isFinite(amount) ? amount : null; }

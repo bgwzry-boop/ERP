@@ -240,7 +240,7 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
   });
   await harness.actions.handleDriverDeliveryAction("提交送达", {
     fulfillmentId: "F-DRIVER-1",
-    actualQty: 998,
+    actualQty: 1000,
     receiverName: "客户仓管",
     paperNoteStatus: "已交回",
     watermarkLocationLabel: "客户仓库门口",
@@ -255,7 +255,7 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
   assert.equal(completeInput.signaturePhotoAttachmentId, "ATT-SIGN-1");
   assert.equal(completeInput.watermarkCapturedAt, "2026-07-12T08:00:00.000Z");
   assert.equal(harness.fulfillments[0].status, "已交付");
-  assert.equal(harness.fulfillments[0].actualQty, 998);
+  assert.equal(harness.fulfillments[0].actualQty, 1000);
   assert.equal(harness.fulfillments[0].deliveryEvidenceReviewStatus, "待复核");
   assert.equal(harness.fulfillments[0].deliveryEvidenceAttachmentFiles.length, 2);
   assert.equal(harness.tasks[0].status, "已完成");
@@ -316,3 +316,7 @@ function createHarness({ allowLocalFallback = false, api = {}, guard = true, ini
 }
 
 console.log("Office driver delivery action checks passed: device QA, package loading, delivery confirmation, evidence completion, exceptions, and formal-mode fail-closed behavior are isolated.");
+
+{let writes=0;const h=createHarness({api:{createOfficeAttachment:async()=>{writes++;return {source:"api"};}}});
+ const wrong=await h.actions.handleDriverDeliveryAction("提交送达",{fulfillmentId:"MISSING",deliveryCompletionConfirmed:true});assert.equal(wrong.error.code,"DRIVER_TASK_NOT_FOUND");
+ const mismatch=await h.actions.handleDriverDeliveryAction("提交送达",{fulfillmentId:"F-DRIVER-1",actualQty:998,deliveryCompletionConfirmed:true,watermarkedPhotoFile:{name:"x.png"}});assert.equal(mismatch.error.code,"DRIVER_DELIVERY_QUANTITY_MISMATCH");assert.equal(writes,0);}

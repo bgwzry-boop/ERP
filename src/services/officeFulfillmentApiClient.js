@@ -795,3 +795,20 @@ export async function getOfficeFulfillmentOperatorCandidates(input = {}, options
     return buildServerRequiredWriteError("FULFILLMENT_OPERATOR_CANDIDATES_UNAVAILABLE", error);
   }
 }
+
+export async function readOfficeDeliveryExceptionContext({ authState, fulfillmentId }, options = {}) {
+  try {
+    const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillmentId)}`, { ...options, authState, method: "GET" });
+    const value = await readJson(response);
+    return response.ok && (value?.fulfillmentId ?? value?.id) === fulfillmentId ? { item: value, blocked: false } : { blocked: true, error: toApiError(value, response.status) };
+  } catch (error) { return { blocked: true, error: { message: error.message || "异常资料读取失败，请重试。" } }; }
+}
+
+export async function resolveOfficeDriverDeliveryException({ authState, fulfillmentId, ...body }, options = {}) {
+  try {
+    const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillmentId)}/delivery-exception-resolution`, { ...options, authState, method: "POST", idempotencyKey: body.idempotencyKey, body: { ...body, fulfillmentId } });
+    const value = await readJson(response);
+    if(response.ok && (value.fulfillmentId!==fulfillmentId || !value.operationLogId || !["配送中","待送货","送货异常"].includes(value.status)))return {blocked:true,error:{code:"DRIVER_EXCEPTION_RESOLUTION_UNCONFIRMED",message:"未收到完整处理回执，请重试原请求。"}};
+    return response.ok ? { ...value, source:"api", blocked: false } : { blocked: true, error: toApiError(value, response.status) };
+  } catch (error) { return { blocked: true, error: { message: error.message || "提交失败，请保留原内容重试。" } }; }
+}

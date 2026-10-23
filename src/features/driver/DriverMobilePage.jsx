@@ -1,3 +1,4 @@
+import { findDriverDeliveryExceptionReason } from "../../../shared/driverDeliveryExceptionReasons.js";
 import { useEffect, useRef, useState } from "react";
 import {
   AppstoreOutlined,
@@ -112,7 +113,7 @@ export function DriverMobilePage({ tasks = [], selectedTaskId, setSelectedTaskId
   const watermarkLocationStatus = currentInput.watermarkLocationStatus ?? "";
   const deliveryPhotoCameraActive = currentInput.deliveryPhotoCameraActive === true;
   const deliveryPhotoCameraStatus = currentInput.deliveryPhotoCameraStatus ?? "";
-  const exceptionReason = currentInput.exceptionReason ?? "装车少货";
+  const exceptionReason = findDriverDeliveryExceptionReason(currentInput.exceptionReason)?.label ?? "";
   const remark = currentInput.remark ?? "";
   const actualQty = currentInput.actualQty ?? selectedTask?.qty ?? 0;
   const checkedPackageIds = currentInput.checkedPackageIds ?? selectedTask?.packageChecklist?.filter((item) => item.checked === true).map((item) => item.packageId) ?? [];

@@ -1,3 +1,4 @@
+import { driverDeliveryExceptionReasons } from "../../../shared/driverDeliveryExceptionReasons.js";
 import { InfoGrid } from "../../shared/ui/operational.jsx";
 import { getDriverRouteStopLabel } from "../../services/driverMobileApiClient.js";
 import { formatDriverDateTime, formatDriverRouteNeighbor } from "./driverMobilePresentation.js";
@@ -84,17 +85,14 @@ export function DriverRouteStage({
           <label>
             <span>原因</span>
             <select value={exceptionReason} onChange={(event) => onExceptionReasonChange(event.target.value)}>
-              <option>装车少货</option>
-              <option>地址不清</option>
-              <option>客户不在</option>
-              <option>拒收</option>
-              <option>其他</option>
+              <option value="" disabled>请选择异常原因</option>
+              {driverDeliveryExceptionReasons.map(({code,label})=><option key={code} value={label}>{label}</option>)}
             </select>
           </label>
         </div>
         <div className="action-row mobile-role-stage-actions">
-          <button disabled={exceptionState.disabled || task.status === "已完成"} title={exceptionState.title} onClick={() => onSubmit(exceptionAction)}>
-            {exceptionAction}
+          <button disabled={!exceptionReason || exceptionState.disabled || ["已完成","送货异常"].includes(task.status)} title={exceptionState.title} onClick={() => onSubmit(exceptionAction)}>
+            {task.status === "送货异常" ? "等待办公室处理" : exceptionReason ? exceptionAction : "先选择异常原因"}
           </button>
         </div>
       </section>

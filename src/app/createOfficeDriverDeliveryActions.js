@@ -114,11 +114,13 @@ export function createOfficeDriverDeliveryActions({
 
   async function handleDriverDeliveryAction(action, payload = {}) {
     if (!guardUiAction("driverMobile", action)) return;
-    const task = driverDeliveryTasks.find((item) => item.fulfillmentId === payload.fulfillmentId) ?? payload.task ?? driverDeliveryTasks[0];
+    const requestedTaskId=payload.fulfillmentId ?? payload.task?.fulfillmentId;
+    const hasRequestedTask=Object.hasOwn(payload,"fulfillmentId") || Object.hasOwn(payload,"task");
+    const task=hasRequestedTask ? driverDeliveryTasks.find(item=>item.fulfillmentId===requestedTaskId) : driverDeliveryTasks[0];
     const fulfillment = fulfillments.find((item) => item.id === (task?.fulfillmentId ?? payload.fulfillmentId));
     if (!task || !fulfillment) {
-      setToast("未找到司机送货任务，无法继续。");
-      return;
+      const message="未找到指定司机送货任务，请刷新后重试。";setToast(message);
+      return {source:"ui_error",blocked:true,error:{code:"DRIVER_TASK_NOT_FOUND",message}};
     }
 
     if (action === "保存验收") {
@@ -228,6 +230,10 @@ export function createOfficeDriverDeliveryActions({
           },
         };
       }
+      const requestedQty=payload.actualQty === undefined ? task.qty : payload.actualQty;
+      if(!["number","string"].includes(typeof requestedQty) || !Number.isSafeInteger(Number(requestedQty)) || Number(requestedQty)<=0 || Number(requestedQty)!==Number(task.qty)) {
+        const message="实际数量必须是与已登记实出一致的正整数；有差异请先报告送货异常。";setToast(message);return {source:"ui_error",blocked:true,error:{code:"DRIVER_DELIVERY_QUANTITY_MISMATCH",message}};
+      }
       let watermarkedPhotoAttachmentId = payload.watermarkedPhotoAttachmentId || "";
       let signaturePhotoAttachmentId = payload.signaturePhotoAttachmentId || "";
       let watermarkedPhotoAttachment = null;
@@ -277,7 +283,7 @@ export function createOfficeDriverDeliveryActions({
               ? `后端拒绝上传送货水印照片：缺少权限 ${attachmentResult.error.requiredPermission}。`
               : `后端拒绝上传送货水印照片：${attachmentResult.error?.message ?? "未知错误"}`,
           );
-          return;
+          return attachmentResult;
         }
         watermarkedPhotoAttachment = attachmentResult.attachment ?? null;
         watermarkedPhotoAttachmentId = watermarkedPhotoAttachment?.attachmentId || "";
@@ -315,7 +321,7 @@ export function createOfficeDriverDeliveryActions({
               ? `后端拒绝上传签收照片：缺少权限 ${attachmentResult.error.requiredPermission}。`
               : `后端拒绝上传签收照片：${attachmentResult.error?.message ?? "未知错误"}`,
           );
-          return;
+          return attachmentResult;
         }
         signaturePhotoAttachment = attachmentResult.attachment ?? null;
         signaturePhotoAttachmentId = signaturePhotoAttachment?.attachmentId || "";
@@ -345,7 +351,7 @@ export function createOfficeDriverDeliveryActions({
             ? `后端拒绝完成送货：缺少权限 ${apiResult.error.requiredPermission}。`
             : `后端拒绝完成送货：${apiResult.error?.message ?? "未知错误"}`,
         );
-        return;
+        return apiResult;
       }
       const completedAt = now();
       const deliveryEvidenceAttachments = [watermarkedPhotoAttachment, signaturePhotoAttachment].filter(Boolean);
@@ -408,7 +414,7 @@ export function createOfficeDriverDeliveryActions({
           : "，水印照片已记录";
       setToast(`已通过${sourceLabel}提交送达凭证${evidenceLabel}；送达证据等待办公室复核。`);
       if (apiResult.source === "api") void refreshDriverDeliveryTasks({ showToast: false });
-      return;
+      return {...apiResult,blocked:false};
     }
 
     if (action === "装车异常" || action === "送货异常") {

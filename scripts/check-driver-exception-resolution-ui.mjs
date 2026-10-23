@@ -1,0 +1,44 @@
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+import { createRequire } from 'node:module';
+import { mkdtemp,writeFile,rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+const queue=[]; const names=['readOfficeDeliveryExceptionContext','resolveOfficeDriverDeliveryException'];
+globalThis.__driverResolutionApi=Object.fromEntries(names.map(name=>[name,input=>new Promise(resolve=>queue.push({name,input,resolve}))]));
+globalThis.IS_REACT_ACT_ENVIRONMENT=true;
+const dir=await mkdtemp(join(tmpdir(),'erp-driver-resolution-ui-')); let tree;
+try {
+ const result=await build({stdin:{contents:`import React from 'react'; import {create,act} from 'react-test-renderer'; import {DriverExceptionResolutionPanel} from './src/features/fulfillment/DriverExceptionResolutionPanel.jsx'; export {create,act}; export const element=props=><DriverExceptionResolutionPanel {...props}/>;`,resolveDir:process.cwd(),loader:'jsx'},bundle:true,platform:'node',format:'cjs',jsx:'automatic',write:false,logLevel:'silent',plugins:[{name:'isolated-api',setup(b){
+ b.onResolve({filter:/^(react(?:\/.*)?|react-test-renderer)$/},args=>({path:createRequire(import.meta.url).resolve(args.path),external:true}));
+ b.onLoad({filter:/officeFulfillmentApiClient\.js$/},()=>({contents:names.map(name=>`export const ${name}=input=>globalThis.__driverResolutionApi.${name}(input);`).join('\n')}));
+ b.onLoad({filter:/\.css$/},()=>({contents:'',loader:'js'}));
+ }}]});
+ const file=join(dir,'test.cjs');await writeFile(file,result.outputFiles[0].text);const {create,act,element}=createRequire(import.meta.url)(file);
+ const auth=()=>({session:{accessToken:'office-session'},permissions:{actionPermissions:['delivery.exception.resolve']}});
+ let props={fulfillmentId:'F1',authState:auth()};
+ const take=name=>{const i=queue.findIndex(x=>x.name===name);assert.ok(i>=0,`request ${name}`);return queue.splice(i,1)[0]};
+ const hosts=predicate=>tree.root.findAll(n=>typeof n.type==='string'&&predicate(n));
+ const text=n=>typeof n==='string'?n:(n.children||[]).map(text).join('');
+ const button=label=>hosts(n=>n.type==='button'&&text(n)===label)[0];
+ const record=id=>({fulfillmentId:id,revision:2,customerName:'客户',goodsSpec:'测试袋',actualQty:100,loadedAt:'2026-09-05T00:00:00Z',deliveryExceptions:[{exceptionId:'E-'+id,status:'待办公室处理',reason:'客户不在',expectedQty:100,actualQty:0}]});
+ const settle=async(request,value)=>act(async()=>request.resolve(value));
+ await act(async()=>{tree=create(element(props),{createNodeMock:n=>n.type==='dialog'?{showModal(){},close(){}}:null})});
+ const old=take(names[0]);props={...props,fulfillmentId:'F2'};await act(async()=>tree.update(element(props)));
+ await settle(take(names[0]),{blocked:false,item:record('F2')});await settle(old,{blocked:false,item:record('F1')});
+ assert.match(JSON.stringify(tree.toJSON()),/E-F2/);assert.doesNotMatch(JSON.stringify(tree.toJSON()),/E-F1/);
+ assert.equal(button('核对并确认处理').props.disabled,true);
+ await act(async()=>hosts(n=>n.type==='textarea')[0].props.onChange({target:{value:'已核实客户可以收货'}}));
+ await act(async()=>hosts(n=>n.type==='input'&&n.props.type==='checkbox')[0].props.onChange({target:{checked:true}}));
+ await act(async()=>button('核对并确认处理').props.onClick());assert.equal(queue.length,0,'confirmation alone must not write');
+ props={...props,authState:auth()};await act(async()=>tree.update(element(props)));
+ assert.ok(button('确认处理'),'ordinary parent render must retain frozen confirmation');
+ await act(async()=>{void button('确认处理').props.onClick();});const write=take(names[1]);assert.equal(write.input.fulfillmentId,'F2');assert.equal(write.input.exceptionId,'E-F2');
+ await settle(write,{blocked:true,error:{message:'网络失败'}});assert.match(JSON.stringify(tree.toJSON()),/网络失败/);
+ await act(async()=>{void button('确认处理').props.onClick();});const retry=take(names[1]);assert.deepEqual(retry.input,write.input,'retry freezes version and request identity');
+ await settle(retry,{blocked:true,error:{message:'权限已变更'}});
+ props={...props,authState:{session:{accessToken:'office-session'},permissions:{actionPermissions:[]}}};await act(async()=>tree.update(element(props)));
+ assert.equal(button('确认处理'),undefined,'permission revocation dismisses pending write');
+ await act(async()=>tree.unmount());tree=null;
+ console.log('Driver resolution React behavior passed: stale task read rejection, explicit confirmation, parent render preservation, failed retry identity and revoked permission. Native dialog focus/layout remain browser acceptance.');
+}finally{tree?.unmount();delete globalThis.__driverResolutionApi;delete globalThis.IS_REACT_ACT_ENVIRONMENT;await rm(dir,{recursive:true,force:true});}

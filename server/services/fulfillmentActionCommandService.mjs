@@ -1,3 +1,5 @@
+import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
+import { prepareDriverDeliveryExceptionResolution } from "./driverDeliveryExceptionResolutionPolicy.mjs";
 import { findDeliveryEvidenceRetakeTodo } from "./deliveryEvidenceRetakeTodo.mjs";
 import { matchesDeliveryEvidenceSnapshot } from "../../shared/deliveryEvidenceSnapshot.js";
 import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
@@ -108,6 +110,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     confirmDriverDeliveryLoaded,
     completeDriverDelivery,
     reportDriverDeliveryException,
+    resolveDriverDeliveryException,
     validateDriverTaskAccess,
     buildExceptionRecord,
     buildInventoryMovements,
@@ -1299,6 +1302,28 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
         };
   }
 
+  async function resolveDriverDeliveryException({ workspace, fulfillmentId, body = {}, operatorId }) {
+    if (body.fulfillmentId && body.fulfillmentId !== fulfillmentId) return businessError(422, "VALIDATION_ERROR", "任务编号与请求路径不一致。");
+    body = { ...body, fulfillmentId };
+    if (!cleanText(body.idempotencyKey)) return businessError(400, "IDEMPOTENCY_KEY_REQUIRED", "处理异常必须提供提交标识。");
+    const replay = await workspace.fulfillmentActionTransactionRepository.findDriverExceptionResolutionReplay?.({ workspace, body, operatorId });
+    if (replay) return success({ fulfillmentId, status: replay.fulfillment?.status, operationLogId: replay.operationLogId, replayed: true });
+    const prepared = prepareDriverDeliveryExceptionResolution({ workspace, fulfillmentId, body, operatorId, now: now() });
+    if (prepared.error) return prepared;
+    const { before, after, exception, updatedException, currentTodo, todo, reason, remainingCount } = prepared;
+    const operationLog = buildOperationLog(workspace, {
+      targetType: "fulfillment", targetId: fulfillmentId, action: "resolve_driver_delivery_exception", operatorId,
+      before: { fulfillment: before, exception, todo: currentTodo },
+      after: { fulfillment: after, exception: updatedException, todo, quantityVerified: true }, reason,
+    });
+    const result = await workspace.fulfillmentActionTransactionRepository.recordFulfillmentAction({
+      workspace, idempotencyKey: body.idempotencyKey, idempotencyPayload: { ...body, operatorId },
+      fulfillment: buildFulfillmentActionRecord(workspace, after, { operatorId, confirmedBy: before.confirmedBy ?? "", createdBy: before.createdBy ?? "", actualQty: before.actualQty ?? before.expectedQty ?? before.qty }),
+      fulfillmentException: updatedException, driverExceptionBefore: exception, driverExceptionTodoBefore: currentTodo, todo, operationLog,
+    });
+    return success({ fulfillmentId, status: result.fulfillment?.status ?? after.status, remainingCount, operationLogId: result.operationLogId });
+  }
+
   async function reportDriverDeliveryException({ workspace, fulfillmentId, body = {}, operatorId }) {
     const access = validateDriverTaskAccess(workspace, fulfillmentId, operatorId);
     if (access.errorResult) return access.errorResult;
@@ -1315,8 +1340,10 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     }
     const observedQty=Number(body.actualQty ?? before.actualQty ?? before.qty ?? 0);
     if(!Number.isSafeInteger(observedQty)||observedQty<0) return businessError(422,"DRIVER_EXCEPTION_QUANTITY_INVALID","异常实见数量必须为非负整数。");
-    const reasonText = String(body.reasonText ?? body.reasonCode ?? body.reason ?? "other").trim() || "other";
-    const reasonCode = String(body.reasonCode ?? "other").trim() || "other";
+    const selectedReason=findDriverDeliveryExceptionReason(body.reasonCode);
+    if(!selectedReason)return businessError(422,"DRIVER_EXCEPTION_REASON_REQUIRED","请选择实际的送货异常原因。");
+    const reasonCode=selectedReason.code;
+    const reasonText=selectedReason.label;
     const exceptionOccurredAt = body.occurredAt ?? nowIso(now);
     const after = {
       ...before,

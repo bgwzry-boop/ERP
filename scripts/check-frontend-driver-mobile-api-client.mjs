@@ -133,7 +133,7 @@ assert(mapDriverDeliveryStatus("已交付") === "已完成", "completed delivery
 assert(mapDriverDeliveryStatus("数量不符") === "送货异常", "exception delivery status was not mapped");
 assert(mapDriverDeliveryExceptionReason("装车少货") === "load_shortage", "load-shortage reason was not mapped");
 assert(mapDriverDeliveryExceptionReason("客户不在") === "customer_unavailable", "customer-unavailable reason was not mapped");
-assert(mapDriverDeliveryExceptionReason("未知") === "other", "unknown exception reason should map to other");
+assert(mapDriverDeliveryExceptionReason("未知") === "", "unknown exception reason requires explicit selection");
 
 const watermarkImageLines = buildDeliveryWatermarkImageLines({
   watermarkOperatorName: "司机A",

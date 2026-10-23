@@ -306,7 +306,7 @@ LEFT JOIN LATERAL (
 LEFT JOIN LATERAL (
   SELECT reason_code, reason, occurred_at
   FROM fulfillment_exceptions
-  WHERE fulfillment_id = fulfillment.id
+  WHERE fulfillment_id = fulfillment.id AND status NOT IN ('已解决', '已作废')
   ORDER BY created_at DESC, id DESC
   LIMIT 1
 ) AS latest_exception ON true
@@ -320,7 +320,7 @@ JOIN LATERAL (
     planned_departure_at,
     assigned_at
   FROM driver_delivery_dispatches
-  WHERE fulfillment_id = fulfillment.id
+  WHERE fulfillment_id = fulfillment.id AND status NOT IN ('已解决', '已作废')
     AND driver_id = ${driverId}
     AND dispatch_status NOT IN ('已取消', 'canceled', 'voided')
   ORDER BY route_date ASC NULLS LAST, stop_sequence ASC NULLS LAST, assigned_at DESC NULLS LAST, created_at DESC, id DESC
@@ -500,6 +500,7 @@ export function normalizeDriverDeliveryTaskListResponse(value) {
 }
 
 export function normalizeDriverDeliveryTask(value = {}) {
+  if(!value || typeof value !== "object" || Array.isArray(value))return null;
   const fulfillmentId = cleanText(value.fulfillmentId ?? value.id);
   if (!fulfillmentId) return null;
   const line = {
