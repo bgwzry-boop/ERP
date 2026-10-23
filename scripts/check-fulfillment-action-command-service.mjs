@@ -614,6 +614,9 @@ async function checkDriverCompletionAndRetake() {
   assert.equal(retake.response.inventoryDeductionMode, "skipped_delivery_evidence_resubmission");
   assert.deepEqual(calls.at(-1).inventoryLedgerEntries, []);
   assert.equal(calls.at(-1).todo.handledBy, "U-DRIVER-A");
+  assert.equal(calls.at(-1).todo.handledAt,fixedNow.toISOString(),"Retake processing is recorded now, never at the original delivery time");
+  assert.equal(calls.at(-1).fulfillment.deliveredAt,"2026-07-11T13:00:00.000Z","Retake keeps the original delivery fact");
+  assert.equal(calls.at(-1).fulfillment.deliveryEvidenceReviewUpdatedAt,fixedNow.toISOString());
 }
 
 async function checkDriverException() {

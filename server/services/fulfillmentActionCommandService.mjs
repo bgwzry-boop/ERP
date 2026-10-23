@@ -1085,6 +1085,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       : updateFulfillmentsForAction(workspace.fulfillments, fulfillmentId, "完成送货");
     const baseAfter = fulfillments.find((item) => item.id === fulfillmentId) ?? before;
     const completedAt = isDeliveryEvidenceRetake ? (before.deliveredAt ?? before.finalDeliveryAt ?? before.completedAt) : normalizeTimestamp(body.completedAt, nowIso(now));
+    const evidenceRecordedAt=isDeliveryEvidenceRetake ? nowIso(now) : completedAt;
     const authoritativeQty=Number(before.actualQty ?? before.qty ?? before.expectedQty ?? 0);
     const suppliedQty=body.actualQty;
     const actualQty=suppliedQty==null || suppliedQty==="" ? authoritativeQty : Number(suppliedQty);
@@ -1138,7 +1139,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       deliveryEvidenceReviewedByUserId: "",
       deliveryEvidenceIssueReason: "",
       deliveryEvidenceReviewRemark: isDeliveryEvidenceRetake ? "司机已补拍，待办公室复核" : "",
-      deliveryEvidenceReviewUpdatedAt: completedAt,
+      deliveryEvidenceReviewUpdatedAt: evidenceRecordedAt,
       completedAt: isDeliveryEvidenceRetake
         ? baseAfter.completedAt ?? baseAfter.deliveredAt ?? completedAt
         : completedAt,
@@ -1150,7 +1151,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       driverRemark: body.remark ?? baseAfter.driverRemark ?? "",
     };
     const resolvedRetakeTodo = isDeliveryEvidenceRetake
-      ? buildResolvedDeliveryEvidenceRetakeTodo(workspace, before, operatorId, completedAt)
+      ? buildResolvedDeliveryEvidenceRetakeTodo(workspace, before, operatorId, evidenceRecordedAt)
       : null;
     const operationLog = buildOperationLog(workspace, {
       targetType: "fulfillment",
