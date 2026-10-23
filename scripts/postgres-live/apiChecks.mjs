@@ -137,7 +137,10 @@ export async function checkApiWithPostgresRepositories(runtime) {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
       dispatchPrintJob(input) {
-        if (input.printJob?.printDeviceId !== "PRN-LIVE-PAPER-001") {
+        const isPaperFixture = input.printJob?.printDeviceId === "PRN-LIVE-PAPER-001";
+        const isPackedLabelFixture = input.printJob?.printDeviceId === "PRN-LIVE-API-001"
+          && input.printJob.metadata?.route === "fulfillment_print";
+        if (!isPaperFixture && !isPackedLabelFixture) {
           return guardedPrintDriverAdapter.dispatchPrintJob(input);
         }
         // Explicit isolated device fixture: tests the persisted dispatch/receipt binding,

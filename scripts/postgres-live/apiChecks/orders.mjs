@@ -578,5 +578,26 @@ export async function checkOrderApi({
     ),
     1326,
   );
-  return { convertedHoldOrder, confirmedOrder };
+  // A partially released reservation no longer covers the original ten-bag
+  // instruction. Close that independent release scenario; never "prove" ten
+  // bags outbound by deducting only the six still reserved.
+  const releasedOrderCancellation = await postJson(baseUrl, `/api/fulfillments/${confirmedOrder.fulfillmentTasks[0].fulfillmentId}/cancel`, {
+    reason: "office_correction", idempotencyKey: "release-scenario-close-live-001",
+  }, { headers });
+  assert.equal(releasedOrderCancellation.status, "已取消");
+  assert.equal(Number(runPsql("SELECT reserved_qty FROM inventory_items WHERE id = '30*38*10-红色-普通提-空白袋-A区-30*38';", { capture: true }).trim()), 1320);
+  const outboundDraftId = "DRAFT-LIVE-OUTBOUND-001";
+  const outboundDraft = await postJson(baseUrl, "/api/order-drafts/recognize", {
+    draftId: outboundDraftId, sourceText: "张三服饰 30*38红10个 明天自提",
+  }, { headers });
+  const outboundOrder = await postJson(baseUrl, `/api/order-drafts/${outboundDraftId}/confirm`, {
+    draftId: outboundDraftId, sourceText: "张三服饰 30*38红10个 明天自提", customerId: "C001",
+    confirmMode: "confirm_now", clientRevision: outboundDraft.draft.clientRevision,
+    lines: [{ draftLineId: `${outboundDraftId}-01`, customerId: "C001", customer: "张三服饰", productName: "空白袋",
+      size: "30*38*10", bagColor: "红色", handleType: "普通提", style: "空白袋", qty: 10,
+      fulfillmentMethod: "自提", latestNeededAt: "明天", printFlag: false }],
+  }, { headers });
+  postgresAssertions.assertConfirmedOrder({ confirmedOrder: outboundOrder });
+  assert.equal(Number(outboundOrder.reservations[0].reservedQty ?? outboundOrder.reservations[0].qty), 10);
+  return { convertedHoldOrder, confirmedOrder: outboundOrder };
 }

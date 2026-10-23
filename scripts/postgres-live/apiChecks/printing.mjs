@@ -54,14 +54,15 @@ export async function checkPrintApi(runtime, { baseUrl, headers, warehouseHeader
     { headers },
   );
   assert.equal(apiLivePrintDeviceMode.driverMode, "system_printer");
-  const apiPrintCandidateFulfillments = await getJson(baseUrl, "/api/fulfillments?pageSize=50", { headers });
-  const apiTrustedPrintFulfillment = apiPrintCandidateFulfillments.items.find((item) => {
-    const count = queryJson(
-      `SELECT json_build_object('count', COUNT(*)) AS result FROM print_records WHERE target_type = 'fulfillment' AND target_id = ${sqlLiteral(item.fulfillmentId)};`,
-    ).count;
-    return Number(count) === 0 && item.status !== "已交付";
-  });
-  assert.ok(apiTrustedPrintFulfillment?.fulfillmentId, "postgres live needs one unprinted fulfillment");
+  // The preceding production scenario creates and physically confirms exactly
+  // three real packages. Do not choose an arbitrary unprinted/virtual delivery.
+  const packedFulfillment = queryJson(`SELECT json_build_object('fulfillmentId',f.id) AS result
+    FROM fulfillment_records f WHERE f.order_line_id='ORD-0629-003-01'
+    AND f.status NOT IN ('已交付','已取消')
+    AND (SELECT count(*) FROM packages p WHERE p.fulfillment_id=f.id AND p.status<>'已作废')=3
+    ORDER BY f.created_at DESC LIMIT 1`);
+  assert.ok(packedFulfillment?.fulfillmentId, "postgres live needs the real three-package production fulfillment");
+  const apiTrustedPrintFulfillment = await getJson(baseUrl, `/api/fulfillments/${packedFulfillment.fulfillmentId}`, { headers });
   const apiTrustedPrintInitialStatus = apiTrustedPrintFulfillment.status;
   const apiTrustedPrintMethod =
     apiTrustedPrintFulfillment.method === "express" || apiTrustedPrintFulfillment.method === "快递快运"
@@ -101,6 +102,10 @@ export async function checkPrintApi(runtime, { baseUrl, headers, warehouseHeader
     ).status,
     "submitted",
   );
+  const apiTrustedPrintDispatch = await postJson(baseUrl, `/api/print-jobs/${apiTrustedPrintRequest.printJob.printJobId}/dispatch`, {
+    reason: "隔离PG实包标签派发测试", idempotencyKey: "packed-label-dispatch-live-001",
+  }, { headers });
+  assert.equal(apiTrustedPrintDispatch.printJob.jobStatus, "sent");
   const apiTrustedPrintCallback = await postJson(
     baseUrl,
     `/api/print-jobs/${apiTrustedPrintRequest.printJob.printJobId}/driver-status`,
@@ -109,6 +114,7 @@ export async function checkPrintApi(runtime, { baseUrl, headers, warehouseHeader
       adapterName: "postgres-live-driver",
       eventSource: "driver_callback",
       driverStatus: "completed",
+      externalJobId: apiTrustedPrintDispatch.dispatchResult.externalJobId,
       eventAt: "2026-07-02T10:29:00.000Z",
       operatorId: "PRINT-DRIVER-FREEFORM",
     },

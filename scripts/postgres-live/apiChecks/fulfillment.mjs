@@ -58,6 +58,7 @@ export async function checkFulfillmentApi({
   assert.equal(finalPaperHandoff.paperOutboundDocument.status, "已交库房");
   const finalBeforeWarehouseExecution = await getJson(baseUrl, `/api/fulfillments/${finalFulfillmentId}`, { headers });
   const finalHandedPaperDocument = finalBeforeWarehouseExecution.paperOutboundDocument;
+  const stockBeforeOutbound = queryJson("SELECT json_build_object('onHand',on_hand_qty,'reserved',reserved_qty) AS result FROM inventory_items WHERE id='30*38*10-红色-普通提-空白袋-A区-30*38'");
   const finalWarehouseExecution = await postJson(
     baseUrl,
     `/api/fulfillments/${finalFulfillmentId}/warehouse-execution`,
@@ -118,7 +119,9 @@ export async function checkFulfillmentApi({
   const inventoryAfterFulfillment = queryJson(
     "SELECT json_build_object('onHand', on_hand_qty, 'reserved', reserved_qty) AS result FROM inventory_items WHERE id = '30*38*10-红色-普通提-空白袋-A区-30*38';",
   );
-  assert.equal(Number(inventoryAfterFulfillment.onHand), 2474);
+  assert.equal(Number(inventoryAfterFulfillment.onHand), Number(stockBeforeOutbound.onHand) - 10);
+  assert.equal(Number(inventoryAfterFulfillment.reserved), Number(stockBeforeOutbound.reserved) - 10);
+  assert.equal(Number(inventoryAfterFulfillment.onHand), 2470);
   assert.equal(Number(inventoryAfterFulfillment.reserved), 1320);
   assert.equal(
     queryJson(
