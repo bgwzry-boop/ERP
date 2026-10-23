@@ -1,3 +1,7 @@
+import { mkdtempSync } from "node:fs";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
+import { createLocalRuntimeIdentityRepository } from "../../server/runtimeIdentityRepository.mjs";
 import { v1PersistencePostgresRepositoryOptionKeys } from "../../server/v1PersistenceProfile.mjs";
 
 export function withLocalRepositoryFixture(options = {}) {
@@ -21,6 +25,23 @@ export function withLocalRepositoryFixture(options = {}) {
       ...repositoryOptions,
       mode: repositoryOptions.mode ?? "local",
       allowLocalFixture: true,
+    };
+  }
+  if (options.activeDriverFixture === true) {
+    if (options.runtimeIdentityRepository) throw new Error("activeDriverFixture requires its own isolated identity repository");
+    const repository = createLocalRuntimeIdentityRepository({ ...options.runtimeIdentityRepositoryOptions, storageRoot: options.runtimeIdentityRepositoryOptions?.storageRoot ?? mkdtempSync(join(tmpdir(), "erp-active-driver-fixture-")) });
+    fixtureOptions.runtimeIdentityRepository = {
+      ...repository,
+      loadState() {
+        const state = repository.loadState();
+        const employeeId = "FIXTURE-DRIVER-001";
+        if ((state.employeeAccounts ?? []).some(employee => employee.id === employeeId)) return state;
+        return {
+          ...state,
+          users: [...(state.users ?? []).filter(user => (user.userId ?? user.id) !== "U-DRIVER-A"), { userId: "U-DRIVER-A", loginName: "driver.a", displayName: "合成在岗司机", defaultRole: "driver", roles: ["driver"], enabled: true, loginEnabled: true, employeeId, identityKind: "seed_fixture", source: "seed", passwordStatus: "active", mustChangePassword: false }],
+          employeeAccounts: [...(state.employeeAccounts ?? []), { id: employeeId, bizNo: employeeId, name: "合成在岗司机", userId: "U-DRIVER-A", roleName: "司机", profileStatus: "active", source: "isolated_test_fixture" }],
+        };
+      },
     };
   }
   return fixtureOptions;

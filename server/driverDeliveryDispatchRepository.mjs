@@ -1,3 +1,4 @@
+import { findAvailableFulfillmentDriver } from "./services/fulfillmentOperatorCandidatesService.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -36,6 +37,11 @@ export function createLocalDriverDeliveryDispatchRepository() {
     upsertDriverDeliveryDispatch(input) {
       const dispatch = normalizeDriverDeliveryDispatchRecord(input.dispatch);
       if (!dispatch) throw new Error("Invalid driver delivery dispatch record");
+      if (!findAvailableFulfillmentDriver(input.workspace, dispatch.driverId)) {
+        const error = new Error("ERP_DRIVER_NOT_AVAILABLE");
+        error.code = "FULFILLMENT_DRIVER_NOT_AVAILABLE";
+        throw error;
+      }
       applyDriverDeliveryDispatchWorkspaceMutation({
         workspace: input.workspace,
         dispatch,
@@ -138,7 +144,27 @@ export function buildUpsertDriverDeliveryDispatchTransactionQuery(input = {}) {
   return {
     text: `
 BEGIN;
-WITH locked_dispatch AS MATERIALIZED (
+WITH locked_driver AS MATERIALIZED (
+  SELECT id, employee_id, enabled, login_enabled, metadata_json
+  FROM users WHERE id = ${parameters.text(dispatch.driverId)} FOR SHARE
+),
+locked_driver_employees AS MATERIALIZED (
+  SELECT e.id, e.user_id, e.profile_status, e.departed_at
+  FROM employees e JOIN locked_driver u ON e.user_id = u.id OR e.id = u.employee_id
+  FOR SHARE OF e
+),
+driver_eligibility_guard AS MATERIALIZED (
+  SELECT erp_require(
+    (SELECT count(*) FROM locked_driver WHERE enabled AND login_enabled AND jsonb_typeof(metadata_json->'roles') = 'array' AND metadata_json->'roles' ? 'driver') = 1
+    AND (SELECT count(*) FROM locked_driver_employees) = 1
+    AND EXISTS (SELECT 1 FROM locked_driver u JOIN locked_driver_employees e
+      ON (e.user_id IS NULL OR e.user_id = '' OR e.user_id = u.id)
+      AND (u.employee_id IS NULL OR u.employee_id = '' OR u.employee_id = e.id)
+      WHERE e.departed_at IS NULL AND lower(e.profile_status) NOT IN ('departed','left','retired','inactive_employee','merged_duplicate')),
+    'ERP_DRIVER_NOT_AVAILABLE_CONFLICT'
+  ) AS ok
+),
+locked_dispatch AS MATERIALIZED (
   SELECT id, revision
   FROM driver_delivery_dispatches
   WHERE id = ${parameters.text(dispatch.dispatchId)}
@@ -178,8 +204,9 @@ upserted_dispatch AS (
     1,
     ${parameters.timestamp(dispatch.createdAt)},
     ${parameters.timestamp(dispatch.updatedAt)}
-  WHERE ${parameters.integer(expectedRevision)} = 0
-    OR EXISTS (SELECT 1 FROM locked_dispatch WHERE revision = ${parameters.integer(expectedRevision)})
+  WHERE (${parameters.integer(expectedRevision)} = 0
+    OR EXISTS (SELECT 1 FROM locked_dispatch WHERE revision = ${parameters.integer(expectedRevision)}))
+    AND (SELECT ok FROM driver_eligibility_guard)
   ON CONFLICT (id) DO UPDATE SET
     biz_no = EXCLUDED.biz_no,
     fulfillment_id = EXCLUDED.fulfillment_id,

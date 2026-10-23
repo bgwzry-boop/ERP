@@ -1,3 +1,4 @@
+import { findAvailableFulfillmentDriver } from "./fulfillmentOperatorCandidatesService.mjs";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 import { createDeliveryEvidencePolicyService } from "./deliveryEvidencePolicyService.mjs";
 import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
@@ -787,6 +788,9 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
 
     const driverId = String(body.driverId ?? body.assignedDriverId ?? "").trim();
     if (!driverId) return businessError(422, "VALIDATION_ERROR", "driverId is required.");
+    if (!findAvailableFulfillmentDriver(workspace, driverId)) {
+      return businessError(409, "FULFILLMENT_DRIVER_NOT_AVAILABLE", "所选司机须是在岗员工，并绑定当前已启用且允许登录的司机账号，请刷新后重新选择。");
+    }
 
     const routeDate = normalizeDateInput(body.routeDate ?? body.deliveryDate);
     if (!routeDate) return businessError(422, "VALIDATION_ERROR", "routeDate must be a valid YYYY-MM-DD date.");

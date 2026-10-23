@@ -948,7 +948,7 @@ write_guard AS MATERIALIZED (
     'ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT'
   )
   AND erp_require(${orderLineCondition}, 'ERP_ORDER_LINE_CONCURRENCY_CONFLICT')
-  ${validateMachine ? `AND erp_require(EXISTS (SELECT 1 FROM machines WHERE id = ${parameters.text(productionTask.machineId)} AND enabled = true AND status = 'active' AND machine_type = ${parameters.text(productionTask.taskType === "制袋" ? "bag_making" : productionTask.taskType === "丝印" ? "screen_printing" : "unsupported")} FOR SHARE), 'PRODUCTION_MACHINE_NOT_AVAILABLE')` : ""}
+  ${validateMachine ? `AND erp_require(EXISTS (SELECT 1 FROM machines WHERE id = ${parameters.text(productionTask.machineId)} AND enabled = true AND status = 'active' AND machine_type = ${parameters.text(productionTask.taskType === "制袋" ? "bag_making" : productionTask.taskType === "丝印" ? "screen_printing" : "unsupported")} FOR SHARE), 'ERP_PRODUCTION_MACHINE_NOT_AVAILABLE_CONFLICT')` : ""}
   ${inventoryConditions ? `AND ${inventoryConditions}` : ""} AS ok
 ),`;
 }

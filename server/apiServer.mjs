@@ -1298,8 +1298,10 @@ function applyIsolatedE2eIdentityFixtures(workspace, runtimeConfig) {
 
   if (String(process.env.ERP_E2E_BUSINESS_DECISION_FIXTURES ?? "") === "true") {
     const managerEmployeeId = "E2E-MANAGER-001";
+    const driverEmployeeId = "E2E-DRIVER-001";
     const decisionMakerIds = ["E2E-DM-MOTHER", "E2E-DM-AUNT"];
     fixtureEmployees.push(
+      { id: driverEmployeeId, bizNo: driverEmployeeId, name: "E2E 在岗司机", roleName: "司机", profileStatus: "active", userId: "U-DRIVER-A", source: "isolated_e2e_fixture" },
       {
         id: managerEmployeeId,
         bizNo: managerEmployeeId,
@@ -1339,6 +1341,7 @@ function applyIsolatedE2eIdentityFixtures(workspace, runtimeConfig) {
         passwordStatus: "active",
         mustChangePassword: false,
         ...(user.userId === "U-MANAGER-A" ? { employeeId: managerEmployeeId } : {}),
+        ...(user.userId === "U-DRIVER-A" ? { employeeId: driverEmployeeId } : {}),
       });
     }
     workspace.users = [...usersById.values()];

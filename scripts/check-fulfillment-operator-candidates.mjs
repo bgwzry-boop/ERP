@@ -28,6 +28,14 @@ try {
  for (const user of ['U-DRIVER-A','U-FINANCE-A']) { const result=await read(user);assert.equal(result.status,403);assert.equal(result.body.drivers,undefined);assert.equal(result.body.warehouseExecutors,undefined); }
  for (const user of ['U-OFFICE-A','U-WAREHOUSE-A']) assert.equal((await read(user,'/api/master-data/employee-account-reviews')).status,403);
  assert.deepEqual(Object.keys(office.body.drivers[0]).sort(),['name','userId']);assert.deepEqual(Object.keys(warehouseResponse.body.warehouseExecutors[0]).sort(),['employeeId','name']);
+ async function dispatch(driverId) {
+  const response=await fetch(base+'/api/fulfillments/F002/dispatch',{method:'POST',headers:{'content-type':'application/json','x-erp-user-id':'U-OFFICE-A'},body:JSON.stringify({driverId,routeDate:'2026-10-23',routeNo:'隔离测试线',routeSequence:1})});
+  return {status:response.status,body:await response.json()};
+ }
+ for (const driverId of ['U-CAND-2','U-CAND-3','U-CAND-4','UNKNOWN']) {
+  const result=await dispatch(driverId);assert.equal(result.status,409,JSON.stringify(result));assert.equal(result.body.code,'FULFILLMENT_DRIVER_NOT_AVAILABLE');
+ }
+ const dispatched=await dispatch('U-CAND-1');assert.equal(dispatched.status,200,JSON.stringify(dispatched));assert.equal(dispatched.body.dispatch.driverId,'U-CAND-1');assert.ok(dispatched.body.operationLogId);
  console.log('Fulfillment candidates HTTP checks passed: office and warehouse own actions work without account-review permission; finance/driver denied; departed/disabled/non-driver accounts filtered; minimal fields only.');
 } finally {await closeTestServer(server);}
 
@@ -42,7 +50,13 @@ try {
   const response=await fetch(base+'/api/fulfillments/operator-candidates',{headers:{authorization:`Bearer ${session.accessToken}`}});
   assert.equal(response.status,status);
   const json=await response.json();
-  if (role==='office') assert.deepEqual(json.drivers,[{userId:'U-CAND-1',name:'在岗司机'}]);
+  if (role==='office') {
+   assert.deepEqual(json.drivers,[{userId:'U-CAND-1',name:'在岗司机'}]);
+   for (const [driverId,expectedStatus] of [['U-CAND-2',409],['U-CAND-1',200]]) {
+    const write=await fetch(base+'/api/fulfillments/F002/dispatch',{method:'POST',headers:{authorization:`Bearer ${session.accessToken}`,'content-type':'application/json'},body:JSON.stringify({driverId,routeDate:'2026-10-23',routeNo:'正式会话隔离验证',routeSequence:2})});
+    assert.equal(write.status,expectedStatus,await write.text());
+   }
+  }
   if (role==='warehouse') assert.equal(Object.hasOwn(json,'drivers'),false);
  }
  assert.equal((await fetch(base+'/api/fulfillments/operator-candidates',{headers:{'x-erp-user-id':'U-OFFICE-A'}})).status,401);

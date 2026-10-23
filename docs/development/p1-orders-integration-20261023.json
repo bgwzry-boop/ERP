@@ -189,6 +189,26 @@
       "缺包裹ID、他单ID、缺审计回执客户端拒绝",
       "OpenAPI 207 paths验证通过"
     ],
-    "pending": "派车写入端当前司机资格校验按主任务授权在下一提交补齐"
+    "pending": "已在本次派车写入收尾补齐，待主任务整树验证与部署。"
+  },
+  "driverWriteCloseout": {
+    "changes": [
+      "候选与派车命令共用在岗员工、唯一一致绑定、启用且可登录的实际司机账号校验；local repository再次验证",
+      "PostgreSQL事务锁定当前用户及绑定员工，资格失效时派单和审计全回滚；并发停用先提交则派车拒绝",
+      "机台/司机事务资格冲突使用标准ERP_*_CONFLICT，返回409可刷新重试",
+      "普通seed账号登录规则不变；隔离E2E及两份司机专项显式绑定有效合成司机"
+    ],
+    "verification": [
+      "HTTP：办公室正常司机派车200；停用/离职/非司机/不存在账号409，严格签名runtime会话同样通过",
+      "真实PostgreSQL：禁用/禁止登录/无司机角色/离职逐一阻断，审计和派单零写入；repository错误409；并发停用时派车等待后拒绝；正常司机成功",
+      "fulfillment-action-command-service、driver-delivery-dispatch-repository、fulfillment-operator-candidates、production-packing-transaction-repository通过",
+      "使用主集成d61bc8e3内已更正的真实包裹司机专项临时副本，在本树服务上验证driver-device-field-test-acceptance-gate和v1-driver-real-device-execution通过",
+      "变更文件ESLint和git diff --check通过"
+    ],
+    "boundaries": [
+      "未部署，主任务整合后需重跑整树检查",
+      "最新集成API skeleton临时副本运行至附件访问权限断言失败；本树不含finance权限修复，派车业务段此前均完成，不宣称此副本全量通过",
+      "最新司机浏览器用例临时副本仅在本树旧DriverDeliveryStage的file→text受控输入警告失败；根任务已独立修正该label key，未重复修改其文件，不宣称本树司机E2E通过"
+    ]
   }
 }

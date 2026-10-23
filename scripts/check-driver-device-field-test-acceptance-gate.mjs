@@ -10,7 +10,7 @@ import {
 } from "./helpers/apiIntegrationTestHarness.mjs";
 import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs";
 
-const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true }));
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, activeDriverFixture: true }));
 const headers = {
   "content-type": "application/json",
   "x-erp-user-id": "U-DRIVER-A",

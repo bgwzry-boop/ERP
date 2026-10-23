@@ -9,6 +9,8 @@ import {
 } from "../server/driverDeliveryDispatchRepository.mjs";
 
 const workspace = {
+  employees: [{id:"E-DRIVER",name:"合成司机",userId:"U-DRIVER-A",profileStatus:"active"}],
+  users: [{userId:"U-DRIVER-A",employeeId:"E-DRIVER",roles:["driver"],enabled:true,loginEnabled:true}],
   driverDeliveryDispatches: [],
   operationLogs: [],
 };
@@ -64,6 +66,11 @@ await localRepository.upsertDriverDeliveryDispatch({
 assert.equal(workspace.driverDeliveryDispatches.length, 1, "same dispatch id should be updated, not duplicated");
 assert.equal(workspace.driverDeliveryDispatches[0].routeSequence, 4);
 assert.equal(workspace.operationLogs.length, 2);
+
+workspace.users[0].enabled = false;
+assert.throws(() => localRepository.upsertDriverDeliveryDispatch({workspace,dispatch,operationLog}), {code:"FULFILLMENT_DRIVER_NOT_AVAILABLE"});
+assert.equal(workspace.operationLogs.length,2);
+workspace.users[0].enabled = true;
 
 const normalized = normalizeDriverDeliveryDispatchRecord({
   id: "DDIS-PG-001",

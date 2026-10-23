@@ -39,7 +39,7 @@ mkdirSync(storageRoot, { recursive: true });
 writeJson(completeManifestPath, buildDriverManifest({ completeDriverGroup: true }));
 writeJson(incompleteManifestPath, buildDriverManifest({ completeDriverGroup: false, sensitiveEvidenceRef: true }));
 
-const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
+const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true, activeDriverFixture: true,
   driverDeviceFieldTestRepositoryOptions: { storageRoot: apiStorageRoot },
 }));
 

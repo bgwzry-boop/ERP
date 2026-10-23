@@ -1,3 +1,4 @@
+import { buildUpsertDriverDeliveryDispatchTransactionQuery, createPostgresDriverDeliveryDispatchRepository } from "../../server/driverDeliveryDispatchRepository.mjs";
 import { buildPublishProductionScheduleTransactionQuery, createPostgresProductionPackingTransactionRepository } from "../../server/productionPackingTransactionRepository.mjs";
 import assert from 'node:assert/strict';
 import { createApiSharedServiceRegistry } from '../../server/apiSharedServiceRegistry.mjs';
@@ -111,6 +112,44 @@ export async function checkP1OrderConfirmationLive({ databaseUrl, pool, bagwinSe
   workspace.orderLines.push(stockLine);workspace.fulfillments.push({...workspace.fulfillments[0],id:'F-P1-STOCK',fulfillmentId:'F-P1-STOCK',orderLineId:'OL-P1-STOCK',lineId:'OL-P1-STOCK',status:'待出库',revision:1});
   const stockResult=await packing.completePackingTask({workspace,packingTaskId:'PKT-F-F-P1-STOCK',operatorId:'U-MINIAPP-PRICE-CREATOR',body:{fulfillmentId:'F-P1-STOCK',actualPackedQty:500,packages:[{packedQty:250},{packedQty:250}],idempotencyKey:'p1-live-stock-packing'}});
   assert.ok(stockResult.response,JSON.stringify(stockResult));assert.equal((await pool.query("SELECT count(*)::int n FROM packages WHERE fulfillment_id='F-P1-STOCK'")).rows[0].n,2);
+
+  // Explicit isolated identity intake. The write itself uses the real PostgreSQL dispatch transaction.
+  await pool.query("INSERT INTO users(id,login_name,display_name,enabled,login_enabled,employee_id,metadata_json) VALUES ('P1-DRIVER','p1.driver','隔离在岗司机',true,true,'P1-DRIVER-EMP','{\"roles\":[\"driver\"]}')");
+  await pool.query("INSERT INTO employees(id,biz_no,user_id,name,profile_status) VALUES ('P1-DRIVER-EMP','P1-DRIVER-EMP','P1-DRIVER','隔离在岗司机','active')");
+  const dispatchInput={
+    dispatch:{dispatchId:'P1-DISPATCH',fulfillmentId,driverId:'P1-DRIVER',routeDate:'2026-10-23',routeNo:'隔离线路',routeSequence:1,dispatchStatus:'已派单',assignedBy:'U-MINIAPP-PRICE-CREATOR',assignedAt:timestamp,createdAt:timestamp,updatedAt:timestamp},
+    operationLog:{id:'LOG-P1-DISPATCH',targetType:'fulfillment',targetId:fulfillmentId,action:'update_driver_dispatch',operatorId:'U-MINIAPP-PRICE-CREATOR',occurredAt:timestamp,createdAt:timestamp},
+  };
+  const dispatchQuery=buildUpsertDriverDeliveryDispatchTransactionQuery(dispatchInput);
+  const dispatchRepository=createPostgresDriverDeliveryDispatchRepository({databaseUrl});
+  const executeDispatch=()=>pool.query(dispatchQuery.text.replace(/^BEGIN;\s*/, '').replace(/\s*COMMIT;$/, ''),dispatchQuery.values);
+  for (const [invalidate,restore] of [
+    ["UPDATE users SET enabled=false WHERE id='P1-DRIVER'","UPDATE users SET enabled=true WHERE id='P1-DRIVER'"],
+    ["UPDATE users SET login_enabled=false WHERE id='P1-DRIVER'","UPDATE users SET login_enabled=true WHERE id='P1-DRIVER'"],
+    ["UPDATE users SET metadata_json='{}' WHERE id='P1-DRIVER'","UPDATE users SET metadata_json='{\"roles\":[\"driver\"]}' WHERE id='P1-DRIVER'"],
+    ["UPDATE employees SET departed_at=now() WHERE id='P1-DRIVER-EMP'","UPDATE employees SET departed_at=NULL WHERE id='P1-DRIVER-EMP'"],
+  ]) {
+    await pool.query(invalidate);await assert.rejects(executeDispatch(),/ERP_DRIVER_NOT_AVAILABLE/);
+    await assert.rejects(dispatchRepository.upsertDriverDeliveryDispatch({...dispatchInput,workspace,idempotencyKey:'p1-driver-invalid'}),{code:'BUSINESS_WRITE_CONFLICT',statusCode:409});
+    assert.equal((await pool.query("SELECT count(*)::int n FROM driver_delivery_dispatches WHERE id='P1-DISPATCH'")).rows[0].n,0);
+    assert.equal((await pool.query("SELECT count(*)::int n FROM operation_logs WHERE id='LOG-P1-DISPATCH'")).rows[0].n,0);
+    await pool.query(restore);
+  }
+  const suspension = await pool.connect();
+  try {
+    await suspension.query('BEGIN');
+    await suspension.query("UPDATE users SET enabled=false WHERE id='P1-DRIVER'");
+    let finished=false;
+    const pending=executeDispatch().then(value=>{finished=true;return {value};},error=>{finished=true;return {error};});
+    await new Promise(resolve=>setTimeout(resolve,50));
+    assert.equal(finished,false,'dispatch must wait for an in-flight account suspension');
+    await suspension.query('COMMIT');
+    const blocked=await pending;assert.match(blocked.error?.message??'',/ERP_DRIVER_NOT_AVAILABLE_CONFLICT/);
+  } finally {await suspension.query('ROLLBACK');suspension.release();}
+  await pool.query("UPDATE users SET enabled=true WHERE id='P1-DRIVER'");
+  const dispatchResult=(await executeDispatch()).rows[0].result;
+  assert.equal(dispatchResult.dispatch.driverId,'P1-DRIVER');assert.equal(dispatchResult.operationLogId,'LOG-P1-DISPATCH');
+  console.log('P1 PostgreSQL dispatch: disabled/login-disabled/non-driver/departed identities rejected atomically; valid active driver saves once.');
 
   await assert.rejects(pool.query("UPDATE fulfillment_records SET signature_status='signed' WHERE id=$1",[fulfillmentId]),/fulfillment_signature_state_check/);
   await assert.rejects(pool.query("UPDATE fulfillment_records SET signature_status='unsigned' WHERE id=$1",[fulfillmentId]),/fulfillment_signature_state_check/);
