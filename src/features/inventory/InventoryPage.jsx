@@ -1,3 +1,5 @@
+import { inventoryCorrectionReasonOptions } from "../../domain/inventoryCorrectionReasons.js";
+import { resolveTemporaryHoldCandidate, toShanghaiExpiryIso, formatInventoryLedgerTime } from "../../domain/inventoryHoldPresentation.js";
 import { useState } from "react";
 import { SearchOutlined } from "@ant-design/icons";
 import {
@@ -737,7 +739,7 @@ export function InventoryPage({
             <label>
               <span>差异原因</span>
               <select value={correctionReason} onChange={(event) => setCorrectionReason(event.target.value)}>
-                {["盘点差异", "找不到货", "包装/标签问题", "车间报数需复核", "待处理转报废", "其他"].map((item) => <option key={item}>{item}</option>)}
+                {inventoryCorrectionReasonOptions.map((item) => <option key={item}>{item}</option>)}
               </select>
             </label>
             <label>
@@ -1040,34 +1042,9 @@ function formatHoldCandidate(candidate) {
   ].filter(Boolean).join(" / ");
 }
 
-function toShanghaiExpiryIso(value) {
-  const normalized = String(value ?? "").trim();
-  if (!/^20\d{2}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(normalized)) return "";
-  const parsed = new Date(`${normalized}:00+08:00`);
-  return Number.isNaN(parsed.getTime()) ? "" : parsed.toISOString();
-}
-
 function formatHoldInventoryItem(item) {
   if (!item) return "库存项待确认";
   return [item.size, item.color, item.handle || item.handleType, item.style, item.zone].filter(Boolean).join(" / ");
-}
-
-function resolveTemporaryHoldCandidate(hold) {
-  if (hold?.metadata?.candidate) return hold.metadata.candidate;
-  const candidates = hold?.intent?.candidate?.parsedCandidates;
-  const index = Number(hold?.metadata?.candidateIndex ?? 0);
-  return Array.isArray(candidates) ? candidates[index] ?? candidates[0] : null;
-}
-
-function formatInventoryLedgerTime(value) {
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "时间待确认";
-  return date.toLocaleString("zh-CN", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function formatInventoryCorrectionTime(value) {
