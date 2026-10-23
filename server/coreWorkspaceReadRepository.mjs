@@ -33,6 +33,7 @@ export const coreWorkspaceCollectionKeys = Object.freeze([
   "paperOutboundDocuments",
   "warehouseOutboundExecutions",
   "fulfillmentExceptions",
+  "fulfillmentQuantityVarianceResolutions",
   "packages",
   "printRecords",
   "statements",
@@ -77,6 +78,7 @@ const sourceTables = Object.freeze({
   paperOutboundDocuments: "paper_outbound_documents",
   warehouseOutboundExecutions: "warehouse_outbound_executions",
   fulfillmentExceptions: "fulfillment_exceptions",
+  fulfillmentQuantityVarianceResolutions: "fulfillment_quantity_variance_resolutions",
   packages: "packages",
   printRecords: "print_records",
   statements: "statements",
@@ -215,6 +217,7 @@ export function normalizeCoreWorkspaceState(value) {
     paperOutboundDocuments: rows.paperOutboundDocuments.map(toPaperOutboundDocument),
     warehouseOutboundExecutions: rows.warehouseOutboundExecutions.map(toWarehouseOutboundExecution),
     fulfillmentExceptions: rows.fulfillmentExceptions.map(toFulfillmentException),
+    fulfillmentQuantityVarianceResolutions: rows.fulfillmentQuantityVarianceResolutions.map(row=>({...camelizeRecord(row),id:clean(row.id),quantityVarianceResolutionId:clean(row.id)})),
     packages: rows.packages.map(toPackage),
     printRecords: rows.printRecords.map(toPrintRecord),
     statements: rows.statements.map((row) =>

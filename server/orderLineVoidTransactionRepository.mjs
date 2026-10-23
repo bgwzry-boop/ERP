@@ -1,4 +1,6 @@
+import { createLocalWorkspaceReceiptStore } from "./localWorkspaceReceiptStore.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
+import { assertOrderMutationDeliveryNotExecuted, orderDeliveryNotExecutedSql } from "./orderMutationDeliveryGuard.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import {
@@ -28,14 +30,18 @@ export function createOrderLineVoidTransactionRepository(options = {}) {
 }
 
 export function createLocalOrderLineVoidTransactionRepository() {
+  const receipts = createLocalWorkspaceReceiptStore();
   return {
     kind: "local_memory",
 
-    findIdempotentReplay() {
-      return null;
+    findIdempotentReplay(input) {
+      return receipts.read(input);
     },
 
     voidOrderLine(input) {
+      const replay = receipts.read(input);
+      if (replay) return replay;
+      assertOrderMutationDeliveryNotExecuted(input);
       const transaction = normalizeOrderLineVoidTransactionResult({
         orderLine: input.orderLine,
         fulfillmentRecords: input.fulfillmentRecords,
@@ -54,6 +60,7 @@ export function createLocalOrderLineVoidTransactionRepository() {
         orderLineChangeRecord: input.orderLineChangeRecord,
         operationLog: input.operationLog,
       });
+      receipts.save(input, transaction);
       return transaction;
     },
   };
@@ -159,6 +166,12 @@ WITH locked_order_line AS MATERIALIZED (
   WHERE id = ${parameters.text(orderLine.orderLineId)}
   FOR UPDATE
 ),
+locked_order_delivery_facts AS MATERIALIZED (
+  SELECT fulfillment.* FROM fulfillment_records AS fulfillment
+  WHERE fulfillment.order_line_id = ${parameters.text(orderLine.orderLineId)}
+  ORDER BY fulfillment.id
+  FOR UPDATE OF fulfillment
+),
 fulfillment_updates AS MATERIALIZED (
   ${buildFulfillmentUpdatesSql(fulfillmentRecords, parameters)}
 ),
@@ -191,6 +204,11 @@ locked_inventory_items AS MATERIALIZED (
 ),
 write_guard AS MATERIALIZED (
   SELECT
+    erp_require(NOT EXISTS (
+      SELECT 1 FROM locked_order_delivery_facts AS delivery
+      WHERE NOT (${orderDeliveryNotExecutedSql("delivery")})
+    ), 'ERP_ORDER_DELIVERY_ALREADY_EXECUTED')
+    AND
     erp_require(
       EXISTS (SELECT 1 FROM locked_order_line WHERE revision = ${parameters.integer(expectedOrderLineRevision)}),
       'ERP_ORDER_LINE_CONCURRENCY_CONFLICT'

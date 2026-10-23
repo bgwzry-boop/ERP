@@ -121,6 +121,8 @@ export function mapApiFulfillmentToLocal(value = {}) {
     deliveryEvidenceReviewedBy: cleanText(value.deliveryEvidenceReviewedBy),
     deliveryEvidenceReviewedByUserId: cleanText(value.deliveryEvidenceReviewedByUserId),
     deliveryEvidenceIssueReason: cleanText(value.deliveryEvidenceIssueReason),
+    dispatchId: cleanText(value.dispatchId ?? value.dispatch_id),
+    dispatchRevision: toNumber(value.dispatchRevision ?? value.dispatch_revision,0),
     driverId: cleanText(value.driverId ?? value.driver_id),
     routeDate: cleanText(value.routeDate ?? value.route_date),
     routeNo: cleanText(value.routeNo ?? value.routeBatchNo ?? value.route_batch_no),

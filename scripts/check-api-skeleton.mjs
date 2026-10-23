@@ -2898,11 +2898,14 @@ try {
     throw new Error("/api/fulfillments/{fulfillmentId}/dispatch did not deny a warehouse seed user");
   }
 
+  const dispatchEditSnapshot = await getJson(baseUrl, `/api/fulfillments/${driverPendingTask.fulfillmentId}`);
   const officeDispatch = await postJson(
     baseUrl,
     `/api/fulfillments/${driverPendingTask.fulfillmentId}/dispatch`,
     {
       fulfillmentId: driverPendingTask.fulfillmentId,
+      dispatchId: dispatchEditSnapshot.dispatchId,
+      expectedRevision: dispatchEditSnapshot.dispatchRevision,
       driverId: "U-DRIVER-A",
       routeDate: "2026-07-02",
       routeNo: "虎门线-A",

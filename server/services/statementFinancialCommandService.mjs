@@ -117,6 +117,9 @@ export function createStatementFinancialCommandService(dependencies = {}) {
   async function handleVariance({ workspace, statementId, body = {}, operatorId, actionPermissions = [] }) {
     const statement = findStatement(workspace, statementId);
     if (!statement) return notFound("STATEMENT_NOT_FOUND");
+    const settlementPayload={...body,statementId,attachmentIds:uniqueTextList(body.attachmentIds),operatorId};
+    const replay=await workspace.statementSettlementTransactionRepository.findSettlementReplay?.({workspace,scope:"statement.variance.handle",idempotencyKey:body.idempotencyKey,idempotencyPayload:settlementPayload});
+    if(replay) return success(buildSettlementReplayResponse(statementId,replay,"handleVariance",businessDecisionEvidenceService,mapStatementApiStatus));
     const periodBlocker = getStatementPaymentBlocker(statement);
     if (periodBlocker) return businessError(409, "STATEMENT_PAYMENT_PERIOD_CLOSED", periodBlocker);
     const attachmentValidation = validatePaymentAttachments({ workspace, statementId, body, maxAttachments: 1 });
@@ -179,7 +182,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     const transaction = await workspace.statementSettlementTransactionRepository.handleStatementVariance({
       workspace,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, attachmentIds: attachmentValidation.attachmentIds, operatorId },
+      idempotencyPayload: { ...body, statementId, attachmentIds: attachmentValidation.attachmentIds, operatorId },
       statements: nextStatements,
       statement: nextStatement,
       varianceRecord,
@@ -203,6 +206,9 @@ export function createStatementFinancialCommandService(dependencies = {}) {
   async function writeOffStatement({ workspace, statementId, body = {}, operatorId, actionPermissions = [] }) {
     const statement = findStatement(workspace, statementId);
     if (!statement) return notFound("STATEMENT_NOT_FOUND");
+    const settlementPayload={...body,operatorId};
+    const replay=await workspace.statementSettlementTransactionRepository.findSettlementReplay?.({workspace,scope:"statement.write_off",idempotencyKey:body.idempotencyKey,idempotencyPayload:settlementPayload});
+    if(replay) return success(buildSettlementReplayResponse(statementId,replay,"writeOffStatement",businessDecisionEvidenceService,mapStatementApiStatus));
     const periodBlocker = getStatementPaymentBlocker(statement);
     if (periodBlocker) return businessError(409, "STATEMENT_PAYMENT_PERIOD_CLOSED", periodBlocker);
     const expectedRevision = requireExpectedRevision(body.expectedRevision);
@@ -266,7 +272,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     const transaction = await workspace.statementSettlementTransactionRepository.writeOffStatement({
       workspace,
       idempotencyKey: body.idempotencyKey,
-      idempotencyPayload: { ...body, operatorId },
+      idempotencyPayload: { ...body, statementId, operatorId },
       statements: nextStatements,
       statement: nextStatement,
       operationLog,
@@ -392,4 +398,8 @@ function businessError(statusCode, code, message) {
 
 function paymentResponse(transaction) {
   return success({ payment: transaction.payment, statementStatus: statementPolicyService.mapStatementApiStatus(transaction.statement.status), statementRevision: transaction.statement.revision, varianceAmount: transaction.statement.variance, todoId: transaction.todo?.id, operationLogId: transaction.operationLogId });
+}
+
+function buildSettlementReplayResponse(statementId,r,kind,evidence,mapStatus) {
+ const s=r.statement;return {statementId,status:mapStatus(s.status),statementStatus:mapStatus(s.status),statementRevision:s.revision,receivable:s.receivable,received:s.received,variance:s.variance,varianceRecord:r.varianceRecord,writeOffRecord:r.writeOffRecord,debtAmount:String(s.status).includes('欠款')?s.variance:0,todoId:r.todo?.id,operationLogId:r.operationLogId,businessDecision:evidence.toProjection(r.businessDecision)};
 }

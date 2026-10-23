@@ -2,7 +2,7 @@ import { closedStatementPaymentStatuses, getStatementPaymentBlocker } from "../s
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
-import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey, readPostgresIdempotencyReplay, normalizeIdempotencyKey, buildIdempotencyRequestHash, buildIdempotencyConflictError } from "./idempotency.mjs";
 import {
   buildBusinessDecisionAttachmentLinksCte,
   buildInsertBusinessDecisionCte,
@@ -34,8 +34,11 @@ export function createStatementSettlementTransactionRepository(options = {}) {
 export function createLocalStatementSettlementTransactionRepository() {
   return {
     kind: "local_memory",
+    findSettlementReplay: findLocalSettlementReplay,
 
     handleStatementVariance(input) {
+      const replay=findLocalSettlementReplay({...input,scope:input.writeOffRecord ? "statement.write_off" : "statement.variance.handle"});
+      if(replay) return replay;
       const statement = buildLocalSavedStatement(input);
       const transaction = normalizeVarianceTransactionResult({
         statement,
@@ -51,7 +54,7 @@ export function createLocalStatementSettlementTransactionRepository() {
           applySettlementWorkspaceMutation({
             ...input,
             workspace: stagedWorkspace,
-            statements: replaceStatement(input.statements, statement),
+            statements: undefined,
             statement,
             operationLog: null,
           });
@@ -86,10 +89,14 @@ export function createLocalStatementSettlementTransactionRepository() {
 }
 
 export function createPostgresStatementSettlementTransactionRepository(options = {}) {
-  const { idempotentTransactionJson } = createPostgresTransactionExecutor(options);
+  const { idempotentTransactionJson, queryJson } = createPostgresTransactionExecutor(options);
 
   return {
     kind: "postgres",
+    async findSettlementReplay({scope,idempotencyKey,idempotencyPayload}) {
+      const saved=await readPostgresIdempotencyReplay({queryJson,scope,idempotencyKey,payload:idempotencyPayload});
+      return saved ? scope==="statement.variance.handle" ? normalizeVarianceTransactionResult(saved) : normalizeWriteOffTransactionResult(saved) : null;
+    },
 
     async handleStatementVariance(input) {
       const query = buildHandleStatementVarianceTransactionQuery(input);
@@ -190,6 +197,9 @@ WITH locked_statement AS MATERIALIZED (
     AND status NOT IN (${closedStatementPaymentStatuses.map(status => parameters.text(status)).join(", ")})
   FOR UPDATE
 ),
+locked_variance_payment AS MATERIALIZED (
+ SELECT p.id FROM payment_records p WHERE p.id=${parameters.text(varianceRecord.paymentRecordId)} AND p.statement_id=${parameters.text(statement.id)} AND p.customer_id=(SELECT customer_id FROM statements WHERE id=${parameters.text(statement.id)}) AND p.status IN ('recorded','confirmed') AND p.amount>0 FOR SHARE
+),
 updated_statement AS (
   UPDATE statements
   SET
@@ -235,16 +245,8 @@ inserted_variance AS (
     now(),
     now()
   )
-  ON CONFLICT (id) DO UPDATE SET
-    statement_id = EXCLUDED.statement_id,
-    payment_record_id = EXCLUDED.payment_record_id,
-    variance_amount = EXCLUDED.variance_amount,
-    handling_result = EXCLUDED.handling_result,
-    reason = EXCLUDED.reason,
-    status = EXCLUDED.status,
-    attachment_id = EXCLUDED.attachment_id,
-    updated_at = now()
-  RETURNING ${varianceRecordJsonExpression("variance_records")} AS result
+  ON CONFLICT (id) DO NOTHING
+RETURNING ${varianceRecordJsonExpression("variance_records")} AS result
 ),
 inserted_todo AS (
   ${insertedTodoCte}
@@ -259,7 +261,9 @@ SELECT json_build_object(
   'todo', (SELECT result FROM inserted_todo LIMIT 1),
   'businessDecision', (SELECT result FROM inserted_business_decision),
   'operationLogId', (SELECT id FROM inserted_operation_log),
-  'writeGuard', (SELECT ok FROM statement_write_guard)
+  'writeGuard', (SELECT ok FROM statement_write_guard),
+  'paymentGuard', erp_require(${varianceRecord.paymentRecordId ? '(SELECT count(*) FROM locked_variance_payment)=1' : 'TRUE'}, 'ERP_STATEMENT_VARIANCE_PAYMENT_CONFLICT'),
+  'identityGuard', erp_require((SELECT COUNT(*) FROM inserted_operation_log)=1 AND (SELECT COUNT(*) FROM inserted_business_decision)=1 AND (SELECT COUNT(*) FROM inserted_variance)=1 AND ${todo ? '(SELECT COUNT(*) FROM inserted_todo)=1' : 'TRUE'}, 'ERP_STATEMENT_SETTLEMENT_IDENTITY_CONFLICT')
 ) AS result;
 COMMIT;
 `.trim();
@@ -341,7 +345,8 @@ SELECT json_build_object(
   'writeOffRecord', (SELECT result FROM inserted_statement_write_off),
   'businessDecision', (SELECT result FROM inserted_business_decision),
   'operationLogId', (SELECT id FROM inserted_operation_log),
-  'writeGuard', (SELECT ok FROM statement_write_guard)
+  'writeGuard', (SELECT ok FROM statement_write_guard),
+  'identityGuard', erp_require((SELECT count(*) FROM inserted_statement_write_off)=1 AND (SELECT count(*) FROM inserted_operation_log)=1 AND (SELECT count(*) FROM inserted_business_decision)=1, 'ERP_STATEMENT_SETTLEMENT_IDENTITY_CONFLICT')
 ) AS result;
 COMMIT;
 `.trim();
@@ -377,16 +382,7 @@ function buildInsertTodoSql(todo, parameters) {
   now(),
   now()
 )
-ON CONFLICT (id) DO UPDATE SET
-  type = EXCLUDED.type,
-  ref_type = EXCLUDED.ref_type,
-  ref_id = EXCLUDED.ref_id,
-  priority = EXCLUDED.priority,
-  status = EXCLUDED.status,
-  summary = EXCLUDED.summary,
-  due_at = EXCLUDED.due_at,
-  remind_at = EXCLUDED.remind_at,
-  updated_at = now()
+ON CONFLICT (id) DO NOTHING
 RETURNING ${todoJsonExpression("todos")} AS result`;
 }
 
@@ -416,15 +412,7 @@ function buildInsertOperationLogSql(operationLog, parameters) {
   ${parameters.timestamp(operationLog.occurredAt)},
   ${parameters.timestamp(operationLog.createdAt)}
 )
-ON CONFLICT (id) DO UPDATE SET
-  target_type = EXCLUDED.target_type,
-  target_id = EXCLUDED.target_id,
-  action = EXCLUDED.action,
-  before_json = EXCLUDED.before_json,
-  after_json = EXCLUDED.after_json,
-  reason = EXCLUDED.reason,
-  operator_id = EXCLUDED.operator_id,
-  page_key = EXCLUDED.page_key
+ON CONFLICT (id) DO NOTHING
 RETURNING id`;
 }
 
@@ -451,6 +439,9 @@ function commitLocalSettlementDecision({ input, scope, transaction, apply }) {
         error.details = { currentRevision: Number(current?.revision ?? 0) };
         throw error;
       }
+      const collisions=[['varianceRecords',input.varianceRecord?.varianceRecordId??input.varianceRecord?.id],['statementWriteOffRecords',input.writeOffRecord?.id],['todos',input.todo?.id],['operationLogs',input.operationLog?.id]];
+      if(collisions.some(([key,id])=>id&&(stagedWorkspace[key]??[]).some(row=>(row.id??row.varianceRecordId??row.statementWriteOffRecordId)===id))) throw Object.assign(new Error("结算记录编号已存在，未覆盖历史证据。"),{code:"STATEMENT_SETTLEMENT_IDENTITY_CONFLICT",statusCode:409});
+      if(input.varianceRecord?.paymentRecordId && !(stagedWorkspace.paymentRecords??[]).some(row=>(row.id??row.paymentRecordId)===input.varianceRecord.paymentRecordId && row.statementId===input.statement.id && row.customerId===current.customerId && ['recorded','confirmed'].includes(row.status) && Number(row.amount)>0)) throw Object.assign(new Error("付款记录不属于当前账单。"),{code:"STATEMENT_VARIANCE_PAYMENT_CONFLICT",statusCode:409});
       apply(stagedWorkspace);
       return {
         commitKeys: ["statements", "varianceRecords", "todos", "statementWriteOffRecords"],
@@ -533,9 +524,7 @@ export function normalizeWriteOffTransactionResult(value) {
 }
 
 function applySettlementWorkspaceMutation({ workspace, statements, statement, varianceRecord, writeOffRecord, todo, operationLog }) {
-  if (Array.isArray(statements)) {
-    workspace.statements = statements.map((item) => (item.id === statement?.id ? { ...item, ...statement } : item));
-  } else if (statement?.id) {
+  if (statement?.id) {
     workspace.statements = workspace.statements.map((item) => (item.id === statement.id ? { ...item, ...statement } : item));
   }
   const normalizedVariance = normalizeVarianceRecord(varianceRecord);
@@ -754,4 +743,11 @@ function mapTodoPriorityForSql(value) {
     普通: "normal",
   };
   return map[value] ?? (String(value ?? "normal").trim() || "normal");
+}
+
+function findLocalSettlementReplay({workspace,scope,idempotencyKey,idempotencyPayload}) {
+ const key=normalizeIdempotencyKey(idempotencyKey);if(!key)return null;
+ const saved=(workspace?.operationIdempotencyRecords??[]).find(row=>row.scope===scope&&row.idempotencyKey===key);if(!saved)return null;
+ if(saved.requestHash!==buildIdempotencyRequestHash(idempotencyPayload))throw buildIdempotencyConflictError();
+ const r=structuredClone(saved.response);return {...r.businessResult,businessDecision:r.businessDecision};
 }

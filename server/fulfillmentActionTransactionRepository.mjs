@@ -103,6 +103,7 @@ function commitLocalFulfillmentAction(input) {
   }
 
   const stagedWorkspace = stageLocalFulfillmentWorkspace(workspace);
+  assertLocalFulfillmentOperationalBounds(input);
   assertLocalPrintPricingSnapshot(input);
   const fulfillment = commitLocalFulfillmentRevision(stagedWorkspace, input.fulfillment);
   const transaction = normalizeFulfillmentActionTransactionResult({
@@ -242,7 +243,7 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       targetId: fulfillmentId,
       resourceLocks: [
         `fulfillment:${fulfillmentId}`,
-        ...(input.printBillingSnapshot ? [`order-line:${input.printBillingSnapshot.orderLineId}`] : []),
+        ...((input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot) ? [`order-line:${(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot).orderLineId}`] : []),
         ...(input.paperOutboundDocument?.paperOutboundDocumentId ?? input.paperOutboundDocument?.id
           ? [`paper-outbound:${input.paperOutboundDocument.paperOutboundDocumentId ?? input.paperOutboundDocument.id}`]
           : []),
@@ -380,7 +381,7 @@ function buildRecordFulfillmentActionTransactionText(input, parameters) {
   return `
 BEGIN;
 WITH locked_fulfillment AS MATERIALIZED (
-  SELECT id, revision
+  SELECT id, revision, order_line_id, status, actual_qty, expected_qty, physical_outbound_at, loaded_at, final_delivery_at, delivered_at
   FROM fulfillment_records
   WHERE id = ${parameters.text(fulfillment.fulfillmentId)}
   FOR UPDATE
@@ -429,7 +430,9 @@ locked_inventory_items AS MATERIALIZED (
 fulfillment_write_guard AS MATERIALIZED (
   SELECT erp_require(
     (SELECT COUNT(*) FROM locked_fulfillment WHERE revision = ${parameters.integer(fulfillment.revision)}) = 1
-      AND (${buildFulfillmentBillingSnapshotGuard(input.printBillingSnapshot, parameters)}),
+      AND (SELECT order_line_id FROM locked_fulfillment) = ${parameters.text(fulfillment.orderLineId)}
+      AND (${fulfillmentOperationalBoundsSql(operationLog.action,fulfillment,parameters)})
+      AND (${buildFulfillmentBillingSnapshotGuard(input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot, parameters)}),
     'ERP_FULFILLMENT_CONCURRENCY_CONFLICT'
   ) ${operationLog.action === "driver_confirm_loaded" ? `AND erp_require_driver_packages(${parameters.text(fulfillment.fulfillmentId)}, ${parameters.text(fulfillment.orderLineId)}, ${parameters.textArray(operationLog.after?.checkedPackageIds ?? [])})` : ""} AS ok
 ),
@@ -1987,7 +1990,7 @@ function buildUpsertStatementSql(statement, statementLine, parameters) {
   if (!statement) return "SELECT NULL::text AS id, NULL::json AS result WHERE false";
   const receivableIncrement = statementLine
     ? `CASE WHEN EXISTS (
-      SELECT 1 FROM statement_lines WHERE order_line_id = ${parameters.text(statementLine.orderLineId)}
+      SELECT 1 FROM statement_lines WHERE fulfillment_id = ${parameters.text(statementLine.fulfillmentId)} OR id = ${parameters.text(statementLine.id)}
     ) THEN 0 ELSE ${parameters.number(statementLine.finalAmount)} END`
     : "0";
   return `INSERT INTO statements (
@@ -2053,7 +2056,7 @@ SELECT
   ${parameters.timestamp(statementLine.createdAt)}
 FROM upserted_statement
 WHERE NOT EXISTS (
-  SELECT 1 FROM statement_lines WHERE order_line_id = ${parameters.text(statementLine.orderLineId)}
+  SELECT 1 FROM statement_lines WHERE fulfillment_id = ${parameters.text(statementLine.fulfillmentId)} OR id = ${parameters.text(statementLine.id)}
 )
 RETURNING ${statementLineJsonExpression("statement_lines")} AS result`;
 }
@@ -2405,10 +2408,27 @@ function toFiniteNumber(value, fallback = 0) {
 }
 
 function assertLocalPrintPricingSnapshot(input) {
-  const snapshot = input.printBillingSnapshot;
+  const snapshot = input.statementCandidate?.billingSnapshot ?? input.printBillingSnapshot;
   if (snapshot && (snapshot.orderLineId !== (input.fulfillment?.orderLineId ?? input.fulfillment?.lineId) || JSON.stringify(captureFulfillmentBillingSnapshot(input.workspace, snapshot.orderLineId)) !== JSON.stringify(snapshot))) throw fulfillmentConflict(input.fulfillment?.revision);
   if (input.legacyPrintOrderPrice) {
     const line = (input.workspace.orderLines ?? []).find(row => (row.id ?? row.orderLineId) === input.legacyPrintOrderPrice.id);
     if (JSON.stringify(captureLegacyPrintOrderPrice(line)) !== JSON.stringify(input.legacyPrintOrderPrice)) throw fulfillmentConflict(input.fulfillment?.revision);
   }
+}
+
+function fulfillmentOperationalBoundsSql(action,fulfillment,parameters) {
+ const base="SELECT 1 FROM locked_fulfillment WHERE ";
+ if (["cancel_fulfillment","record_warehouse_outbound_execution","resolve_fulfillment_quantity_variance"].includes(action)) return "EXISTS ("+base+"physical_outbound_at IS NULL AND loaded_at IS NULL AND final_delivery_at IS NULL AND status NOT IN ('已交付','已完成','已取消'))";
+ if(action==="driver_resubmit_delivery_evidence") return "EXISTS ("+base+"COALESCE(actual_qty,expected_qty) = "+parameters.integer(fulfillment.actualQty)+" AND (delivered_at IS NULL OR delivered_at = "+parameters.nullableTimestamp(fulfillment.deliveredAt)+") AND (final_delivery_at IS NULL OR final_delivery_at = "+parameters.nullableTimestamp(fulfillment.finalDeliveryAt)+"))";
+ if (["driver_complete_delivery","driver_resubmit_delivery_evidence","driver_report_delivery_exception"].includes(action)) return "EXISTS ("+base+"COALESCE(actual_qty,expected_qty) = "+parameters.integer(fulfillment.actualQty)+")";
+ return "TRUE";
+}
+function assertLocalFulfillmentOperationalBounds(input) {
+ const next=input.fulfillment??{},id=next.fulfillmentId??next.id;
+ const current=(input.workspace.fulfillments??[]).find(row=>(row.fulfillmentId??row.id)===id);
+ if(!current || (current.orderLineId??current.lineId)!==(next.orderLineId??next.lineId)) throw fulfillmentConflict(next.revision);
+ const action=input.operationLog?.action;
+ if(action==="driver_resubmit_delivery_evidence" && ["deliveredAt","finalDeliveryAt"].some(key=>current[key]&&Date.parse(current[key])!==Date.parse(next[key]))) throw fulfillmentConflict(current.revision);
+ if(["cancel_fulfillment","record_warehouse_outbound_execution","resolve_fulfillment_quantity_variance"].includes(action) && (current.physicalOutboundAt||current.loadedAt||current.finalDeliveryAt||["已交付","已完成","已取消"].includes(current.status))) throw fulfillmentConflict(current.revision);
+ if(["driver_complete_delivery","driver_resubmit_delivery_evidence","driver_report_delivery_exception"].includes(action) && Number(next.actualQty)!==Number(current.actualQty??current.expectedQty??current.qty)) throw fulfillmentConflict(current.revision);
 }

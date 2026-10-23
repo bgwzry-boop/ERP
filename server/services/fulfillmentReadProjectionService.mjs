@@ -146,6 +146,8 @@ function projectFulfillment(workspace, value) {
     deliveryEvidenceIssueReason: cleanText(
       item.deliveryEvidenceIssueReason ?? item.delivery_evidence_issue_reason,
     ),
+    dispatchId: cleanText(dispatch.dispatchId ?? dispatch.id),
+    dispatchRevision: nonNegativeInteger(dispatch.revision,0),
     driverId: cleanText(dispatch.driverId ?? dispatch.driver_id ?? item.driverId ?? item.driver_id),
     routeDate: cleanText(dispatch.routeDate ?? dispatch.route_date ?? item.routeDate ?? item.route_date),
     routeNo: cleanText(

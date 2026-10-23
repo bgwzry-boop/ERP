@@ -42,6 +42,7 @@ const service = createOrderLineMutationCommandService({
   now: () => new Date("2026-07-11T12:00:00.000Z"),
 });
 
+await checkExecutedFulfillmentProtection();
 await checkVoidCommand();
 await checkQuantityAdjustmentCommand();
 await checkReplayBeforeTerminalStateValidation();
@@ -323,4 +324,80 @@ function buildWorkspace() {
       },
     },
   };
+}
+
+for (const newQty of [6.9, '6.9', Number.MAX_SAFE_INTEGER + 1, -1, Infinity]) {
+ const workspace=buildWorkspace(), before=JSON.stringify(workspace), count=calls.quantity.length;
+ const result=await service.adjustOrderLineQuantity({workspace,orderLineId:'OL-001',body:{newQty},operatorId:'U-OFFICE-A'});
+ assert.equal(result.statusCode,422,`Must reject invalid requested quantity ${newQty} without rounding`);
+ assert.equal(calls.quantity.length,count);
+ assert.equal(JSON.stringify(workspace),before);
+}
+console.log('PASS invalid quantity adjustments are rejected before finance/inventory persistence.');
+
+{
+ await service.voidOrderLine({workspace:buildWorkspace(),orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{voidedAt:'1999-01-01T00:00:00Z'}});
+ const voidInput=calls.void.at(-1);
+ assert.equal(voidInput.orderLine.voidedAt,'2026-07-11T12:00:00.000Z');
+ assert.equal(voidInput.orderLineChangeRecord.createdAt,'2026-07-11T12:00:00.000Z');
+ await service.adjustOrderLineQuantity({workspace:buildWorkspace(),orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{newQty:6,adjustedAt:'2099-01-01T00:00:00Z'}});
+ const quantityInput=calls.quantity.at(-1);
+ assert.equal(quantityInput.orderLineChangeRecord.createdAt,'2026-07-11T12:00:00.000Z');
+ assert.equal(quantityInput.priceSnapshots[0].createdAt,'2026-07-11T12:00:00.000Z');
+}
+console.log('PASS order void/quantity adjustment audit timestamps use server clock despite client-supplied dates.');
+
+{
+ const workspace=buildWorkspace();
+ Object.assign(workspace.priceSnapshots[0],{bagPrice:0.1234,printPrice:0.0567,chargeableQty:10,finalAmount:1.80,amount:1.80});
+ const result=await service.adjustOrderLineQuantity({workspace,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{newQty:6}});
+ assert.equal(result.response.priceSnapshot.bagPrice,0.1234);
+ assert.equal(result.response.priceSnapshot.printPrice,0.0567);
+ assert.equal(result.response.priceSnapshot.finalAmount,1.08);
+}
+console.log('PASS four-decimal locked component rates survive quantity change while total rounds to cents.');
+
+for (const values of [{bagPrice:-0.1},{printPrice:-0.1},{finalAmount:NaN},{otherFee:Infinity},{chargeableQty:0},{finalAmount:1e12}]) {
+ const workspace=buildWorkspace();Object.assign(workspace.priceSnapshots[0],values);
+ const count=calls.quantity.length;
+ const result=await service.adjustOrderLineQuantity({workspace,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{newQty:6}});
+ assert.equal(result.code,'ORDER_LINE_PRICE_INVALID',JSON.stringify(values));
+ assert.equal(calls.quantity.length,count);
+}
+
+for (const reverse of [false,true]) {
+ const workspace=buildWorkspace();
+ workspace.priceSnapshots.push({...workspace.priceSnapshots[0],id:'PS-OTHER',priceSnapshotId:'PS-OTHER',snapshotType:'quantity_adjustment',versionNo:7,bagPrice:0.5,finalAmount:5});
+ if(reverse)workspace.priceSnapshots.reverse();
+ const count=calls.quantity.length;
+ const result=await service.adjustOrderLineQuantity({workspace,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{newQty:6}});
+ assert.equal(result.code,'ORDER_LINE_PRICE_SOURCE_AMBIGUOUS');assert.equal(calls.quantity.length,count);
+}
+
+for (const collection of ['fulfillments','statementLines']) {
+ const workspace=buildWorkspace();workspace[collection].push({...workspace[collection][0],id:'SECOND-SPLIT'});
+ const count=calls.quantity.length;
+ const result=await service.adjustOrderLineQuantity({workspace,orderLineId:'OL-001',operatorId:'U-OFFICE-A',body:{newQty:6}});
+ assert.equal(result.code,'ORDER_LINE_SPLIT_ALLOCATION_REQUIRED');assert.equal(calls.quantity.length,count);
+}
+
+async function checkExecutedFulfillmentProtection() {
+  for (const facts of [
+    {status: '配送中'}, {status: '已出库'}, {status: '已拉走'}, {status: '已完成'},
+    {status: '待出库', physicalOutboundAt: '2026-09-11T00:00:00Z'},
+    {status: '待出库', loadedAt: '2026-09-11T00:00:00Z'},
+    {status: '待出库', finalDeliveryAt: '2026-09-11T00:00:00Z'},
+    {status: '待出库', deliveredAt: '2026-09-11T00:00:00Z'},
+  ]) {
+    const workspace = buildWorkspace();
+    Object.assign(workspace.fulfillments[0], facts);
+    const before = JSON.stringify(workspace);
+    const writes = calls.void.length + calls.quantity.length;
+    const cancelled = await service.voidOrderLine({workspace, orderLineId: 'OL-001', operatorId:'U-OFFICE-A', body:{idempotencyKey:'blocked-void'}});
+    assert.equal(cancelled.code, 'ORDER_LINE_NOT_VOIDABLE', JSON.stringify(facts));
+    const adjusted = await service.adjustOrderLineQuantity({workspace, orderLineId:'OL-001', operatorId:'U-OFFICE-A', body:{newQty:6,idempotencyKey:'blocked-quantity'}});
+    assert.equal(adjusted.code, 'ORDER_LINE_QUANTITY_NOT_ADJUSTABLE', JSON.stringify(facts));
+    assert.equal(calls.void.length + calls.quantity.length, writes);
+    assert.equal(JSON.stringify(workspace), before);
+  }
 }

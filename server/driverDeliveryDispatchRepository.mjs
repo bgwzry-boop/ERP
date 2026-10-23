@@ -3,7 +3,7 @@ import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
-import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey } from "./idempotency.mjs";
+import { buildPostgresIdempotencyRequest, resolveRepositoryIdempotencyKey, readPostgresIdempotencyReplay, buildIdempotencyRequestHash, buildIdempotencyConflictError } from "./idempotency.mjs";
 
 export function createDriverDeliveryDispatchRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -27,8 +27,18 @@ export function createDriverDeliveryDispatchRepository(options = {}) {
 }
 
 export function createLocalDriverDeliveryDispatchRepository() {
+  const receipts = new WeakMap();
+  const keyFor = (id, key) => JSON.stringify([id, key]);
+  function findDispatchReplay({workspace, dispatchId, idempotencyKey, payload}) {
+    if (!workspace || !dispatchId || !idempotencyKey) return null;
+    const receipt = receipts.get(workspace)?.get(keyFor(dispatchId, idempotencyKey));
+    if (!receipt) return null;
+    if (receipt.hash !== buildIdempotencyRequestHash(payload)) throw buildIdempotencyConflictError();
+    return structuredClone(receipt.result);
+  }
   return {
     kind: "local_memory",
+    findDispatchReplay,
 
     loadState() {
       return { driverDeliveryDispatches: [] };
@@ -37,20 +47,43 @@ export function createLocalDriverDeliveryDispatchRepository() {
     upsertDriverDeliveryDispatch(input) {
       const dispatch = normalizeDriverDeliveryDispatchRecord(input.dispatch);
       if (!dispatch) throw new Error("Invalid driver delivery dispatch record");
-      if (!findAvailableFulfillmentDriver(input.workspace, dispatch.driverId)) {
-        const error = new Error("ERP_DRIVER_NOT_AVAILABLE");
-        error.code = "FULFILLMENT_DRIVER_NOT_AVAILABLE";
-        throw error;
+      const payload = input.idempotencyPayload ?? {dispatch: input.dispatch, action: input.operationLog?.action};
+      const replay = findDispatchReplay({workspace: input.workspace, dispatchId: dispatch.dispatchId,
+        idempotencyKey: input.idempotencyKey, payload});
+      if (replay) return replay;
+
+      if (!findAvailableFulfillmentDriver(input.workspace, dispatch.driverId)) throw Object.assign(new Error("ERP_DRIVER_NOT_AVAILABLE"),{code:"FULFILLMENT_DRIVER_NOT_AVAILABLE",statusCode:409});
+      const fulfillment = (input.workspace.fulfillments ?? []).find(row =>
+        (row.fulfillmentId ?? row.id) === dispatch.fulfillmentId);
+      if (!fulfillment || fulfillment.finalDeliveryAt || fulfillment.final_delivery_at ||
+        ["已交付", "已完成", "已取消"].includes(fulfillment.status)) {
+        throw Object.assign(new Error("送货记录不存在、已完成或已取消，不能修改派车安排。"),
+          {code: "FULFILLMENT_DISPATCH_CLOSED", statusCode: 409});
       }
+      const expectedRevision = input.dispatch?.revision ?? 0;
+      const current = (input.workspace.driverDeliveryDispatches ?? []).find(row =>
+        (row.dispatchId ?? row.id) === dispatch.dispatchId);
+      if (!Number.isSafeInteger(expectedRevision) || expectedRevision < 0 ||
+        (current ? Number(current.revision ?? 0) !== expectedRevision ||
+          (current.fulfillmentId ?? current.fulfillment_id) !== dispatch.fulfillmentId : expectedRevision !== 0)) {
+        throw Object.assign(new Error("派车安排已变化，请刷新后核对再保存。"),
+          {code: "DRIVER_DISPATCH_REVISION_CONFLICT", statusCode: 409});
+      }
+      dispatch.revision = expectedRevision + 1;
+
       applyDriverDeliveryDispatchWorkspaceMutation({
         workspace: input.workspace,
         dispatch,
         operationLog: input.operationLog,
       });
-      return {
-        dispatch,
-        operationLogId: input.operationLog?.id ?? "",
-      };
+      const result = { dispatch, operationLogId: input.operationLog?.id ?? "" };
+      if (input.idempotencyKey) {
+        if (!receipts.has(input.workspace)) receipts.set(input.workspace, new Map());
+        receipts.get(input.workspace).set(keyFor(dispatch.dispatchId, input.idempotencyKey), {
+          hash: buildIdempotencyRequestHash(payload), result: structuredClone(result),
+        });
+      }
+      return result;
     },
   };
 }
@@ -68,6 +101,12 @@ export function createPostgresDriverDeliveryDispatchRepository(options = {}) {
 
   return {
     kind: "postgres",
+
+    async findDispatchReplay({dispatchId,idempotencyKey,payload}) {
+      if (!dispatchId || !idempotencyKey) return null;
+      const result=await readPostgresIdempotencyReplay({queryJson,scope:`driver.dispatch.upsert.${dispatchId}`,idempotencyKey,payload});
+      return result ? normalizeDriverDeliveryDispatchTransactionResult(result) : null;
+    },
 
     async loadState() {
       const builtQuery = buildListDriverDeliveryDispatchesQuery();
@@ -164,6 +203,10 @@ driver_eligibility_guard AS MATERIALIZED (
     'ERP_DRIVER_NOT_AVAILABLE_CONFLICT'
   ) AS ok
 ),
+locked_fulfillment AS MATERIALIZED (
+  SELECT id,status,final_delivery_at FROM fulfillment_records
+  WHERE id = ${parameters.text(dispatch.fulfillmentId)} FOR UPDATE
+),
 locked_dispatch AS MATERIALIZED (
   SELECT id, revision
   FROM driver_delivery_dispatches
@@ -204,7 +247,7 @@ upserted_dispatch AS (
     1,
     ${parameters.timestamp(dispatch.createdAt)},
     ${parameters.timestamp(dispatch.updatedAt)}
-  WHERE (${parameters.integer(expectedRevision)} = 0
+  WHERE EXISTS (SELECT 1 FROM locked_fulfillment WHERE final_delivery_at IS NULL AND status NOT IN ('已交付','已完成','已取消')) AND (${parameters.integer(expectedRevision)} = 0
     OR EXISTS (SELECT 1 FROM locked_dispatch WHERE revision = ${parameters.integer(expectedRevision)}))
     AND (SELECT ok FROM driver_eligibility_guard)
   ON CONFLICT (id) DO UPDATE SET
@@ -319,6 +362,8 @@ export function normalizeDriverDeliveryDispatchRecord(value = {}) {
 function applyDriverDeliveryDispatchWorkspaceMutation(input) {
   const workspace = input.workspace;
   if (!workspace) return;
+  const previous=(workspace.driverDeliveryDispatches??[]).find(row=>(row.dispatchId??row.id)===(input.dispatch?.dispatchId??input.dispatch?.id));
+  if(previous && Number(previous.revision)>Number(input.dispatch?.revision)) return;
   workspace.driverDeliveryDispatches = upsertById(
     workspace.driverDeliveryDispatches ?? [],
     input.dispatch,

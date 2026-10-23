@@ -333,6 +333,9 @@ export function createOfficeFulfillmentWriteActions({
         authState,
         fulfillment,
         operatorId: currentUserId,
+        dispatchId: payload.dispatchId,
+        expectedRevision: payload.expectedRevision,
+        idempotencyKey: payload.idempotencyKey,
         driverId: payload.driverId,
         routeDate: payload.routeDate,
         routeNo: payload.routeNo,
@@ -359,6 +362,8 @@ export function createOfficeFulfillmentWriteActions({
       item.id === fulfillment.id
         ? {
             ...item,
+            dispatchId: dispatch.dispatchId ?? dispatch.id,
+            dispatchRevision: dispatch.revision,
             driverId: dispatch.driverId,
             routeDate: dispatch.routeDate,
             routeNo: dispatch.routeNo ?? dispatch.routeBatchNo,

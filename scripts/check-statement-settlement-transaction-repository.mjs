@@ -22,6 +22,7 @@ async function checkLocalStatementSettlementTransactionRepository() {
   const after = buildStatement({ status: "有欠款", received: 80000, variance: 28000 });
   const workspace = {
     statements: [before],
+    paymentRecords: [{paymentRecordId:"PAY-TXN-001",statementId:before.id,customerId:before.customerId,status:"recorded",amount:80000}],
     varianceRecords: [],
     todos: [],
     operationLogs: [],

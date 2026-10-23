@@ -1,0 +1,13 @@
+import assert from 'node:assert/strict';
+import { resolveFulfillmentBillingQuantity as billing } from '../server/services/fulfillmentBillingQuantityService.mjs';
+import { normalizeCoreWorkspaceState,buildCoreWorkspaceSnapshotQuery,coreWorkspaceCollectionKeys } from '../server/coreWorkspaceReadRepository.mjs';
+const record={id:'R1',fulfillment_id:'F1',resolution_result:'赠送数量',expected_qty:1000,actual_qty:1005,business_decision_id:'D1',created_at:'2026-09-06T00:00:00Z'};
+const state=normalizeCoreWorkspaceState({fulfillmentQuantityVarianceResolutions:[record]});
+const input={workspace:state,fulfillment:{id:'F1'},actualQty:1005};
+assert.deepEqual(billing(input),{deliveredQty:1005,chargeableQty:1000,freeQty:5});
+assert.throws(()=>billing({...input,actualQty:1006}),{code:'FULFILLMENT_GIFT_QUANTITY_CONFLICT'});
+assert.throws(()=>billing({...input,workspace:{fulfillmentQuantityVarianceResolutions:[{...state.fulfillmentQuantityVarianceResolutions[0],businessDecisionId:''}]}}),{code:'FULFILLMENT_GIFT_QUANTITY_CONFLICT'});
+assert.deepEqual(billing({...input,fulfillment:{id:'OTHER'}}),{deliveredQty:1005,chargeableQty:1005,freeQty:0});
+assert.ok(coreWorkspaceCollectionKeys.includes('fulfillmentQuantityVarianceResolutions'));
+assert.match(buildCoreWorkspaceSnapshotQuery().text,/fulfillment_quantity_variance_resolutions/);
+console.log('Fulfillment billing quantities passed: persisted gift decision hydration, free/chargeable separation, mismatched quantity blocked, decision and fulfillment binding.');

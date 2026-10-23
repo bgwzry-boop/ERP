@@ -1,3 +1,6 @@
+import { allocateFulfillmentAmount } from "../../shared/fulfillmentAmountAllocation.mjs";
+import { captureFulfillmentBillingSnapshot, selectFulfillmentPriceSnapshot } from "./fulfillmentBillingSnapshotService.mjs";
+import { resolveFulfillmentBillingQuantity } from "./fulfillmentBillingQuantityService.mjs";
 import { findAvailableFulfillmentDriver } from "./fulfillmentOperatorCandidatesService.mjs";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
 import { createDeliveryEvidencePolicyService } from "./deliveryEvidencePolicyService.mjs";
@@ -389,10 +392,14 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     if (!executedAt) return businessError(422, "WAREHOUSE_EXECUTED_AT_INVALID", "executedAt must be a valid timestamp.");
 
     const expectedQty = Math.max(0, Number(before.qty ?? before.expectedQty ?? 0));
+    if (["实物已出库", "数量不符"].includes(executionResult) && (
+      !["number", "string"].includes(typeof body.actualQty) ||
+      (typeof body.actualQty === "string" && !body.actualQty.trim())
+    )) return businessError(422, "WAREHOUSE_ACTUAL_QTY_REQUIRED", "请填写本次实际清点数量，不能以计划数量代替。");
     const suppliedActualQty = body.actualQty === undefined || body.actualQty === null || body.actualQty === ""
       ? null
       : Number(body.actualQty);
-    if (suppliedActualQty !== null && (!Number.isFinite(suppliedActualQty) || suppliedActualQty < 0)) {
+    if (suppliedActualQty !== null && (!Number.isSafeInteger(suppliedActualQty) || suppliedActualQty < 0)) {
       return businessError(422, "WAREHOUSE_ACTUAL_QTY_INVALID", "actualQty must be a non-negative number when provided.");
     }
     const actualQty = executionResult === "无法出库" ? 0 : Math.trunc(suppliedActualQty ?? expectedQty);
@@ -622,6 +629,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
   async function cancelFulfillment({ workspace, fulfillmentId, body = {}, operatorId }) {
     const before = findFulfillment(workspace, fulfillmentId);
     if (!before) return notFound("FULFILLMENT_NOT_FOUND");
+    if (before.physicalOutboundAt || before.finalDeliveryAt || before.loadedAt) return businessError(409,"FULFILLMENT_PHYSICAL_OUTBOUND_ALREADY_RECORDED","已有实物出库记录，不能按未出库取消，请核对退回或交付异常。");
     if (body.fulfillmentId && body.fulfillmentId !== fulfillmentId) {
       return businessError(422, "VALIDATION_ERROR", "fulfillmentId in path and body must match");
     }
@@ -788,19 +796,22 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
 
     const driverId = String(body.driverId ?? body.assignedDriverId ?? "").trim();
     if (!driverId) return businessError(422, "VALIDATION_ERROR", "driverId is required.");
-    if (!findAvailableFulfillmentDriver(workspace, driverId)) {
-      return businessError(409, "FULFILLMENT_DRIVER_NOT_AVAILABLE", "所选司机须是在岗员工，并绑定当前已启用且允许登录的司机账号，请刷新后重新选择。");
-    }
 
     const routeDate = normalizeDateInput(body.routeDate ?? body.deliveryDate);
-    if (!routeDate) return businessError(422, "VALIDATION_ERROR", "routeDate must be a valid YYYY-MM-DD date.");
+    const requestedRouteDate = String(body.routeDate ?? body.deliveryDate ?? "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(requestedRouteDate) || !routeDate ||
+      new Date(`${routeDate}T00:00:00.000Z`).toISOString().slice(0, 10) !== requestedRouteDate) {
+      return businessError(422, "VALIDATION_ERROR", "routeDate must be a valid YYYY-MM-DD date.");
+    }
 
     const routeNo = String(body.routeNo ?? body.routeBatchNo ?? body.route_batch_no ?? "").trim();
     if (!routeNo) return businessError(422, "VALIDATION_ERROR", "routeNo is required.");
 
-    const routeSequence = Math.trunc(Number(body.routeSequence ?? body.stopSequence ?? body.stop_sequence));
-    if (!Number.isFinite(routeSequence) || routeSequence <= 0) {
-      return businessError(422, "VALIDATION_ERROR", "routeSequence must be greater than 0.");
+    const rawRouteSequence = body.routeSequence ?? body.stopSequence ?? body.stop_sequence;
+    const routeSequence = Number(rawRouteSequence);
+    if (!["number", "string"].includes(typeof rawRouteSequence) ||
+      !Number.isInteger(routeSequence) || routeSequence <= 0 || routeSequence > 2147483647) {
+      return businessError(422, "VALIDATION_ERROR", "routeSequence must be a positive integer no greater than 2147483647.");
     }
 
     const plannedDepartureAt = normalizeOptionalTimestampInput(body.plannedDepartureAt ?? body.departureAt);
@@ -815,6 +826,33 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     const existingDispatch = findActiveDriverDeliveryDispatch(workspace, fulfillmentId);
     const existingDispatchId = String(existingDispatch.dispatchId ?? existingDispatch.id ?? "").trim();
     const requestedDispatchId = String(body.dispatchId ?? body.id ?? "").trim();
+    const replayIds = requestedDispatchId ? [requestedDispatchId] : [...new Set([
+      existingDispatchId,
+      ...(workspace.driverDeliveryDispatches ?? []).filter(row =>
+        (row.fulfillmentId ?? row.fulfillment_id) === fulfillmentId).map(row => row.dispatchId ?? row.id),
+    ].filter(Boolean))];
+    let replay = null;
+    if (body.idempotencyKey) for (const dispatchId of replayIds) {
+      replay = await workspace.driverDeliveryDispatchRepository.findDispatchReplay?.({
+        workspace, dispatchId, idempotencyKey: body.idempotencyKey, payload: { ...body, operatorId },
+      });
+      if (replay) break;
+    }
+    if (replay?.dispatch) {
+      if (replay.dispatch.fulfillmentId !== fulfillmentId) {
+        return businessError(409, "DRIVER_DISPATCH_ID_CONFLICT", "派车凭据不属于当前交付记录。");
+      }
+      return success({ fulfillmentId, dispatch: replay.dispatch, operationLogId: replay.operationLogId,
+        task: await workspace.driverDeliveryTaskReadRepository.getDriverDeliveryTask({workspace,
+          fulfillmentId, operatorId: replay.dispatch.driverId}) });
+    }
+
+    if (!findAvailableFulfillmentDriver(workspace, driverId)) return businessError(409,"FULFILLMENT_DRIVER_NOT_AVAILABLE","所选司机须为在岗员工，并有启用且允许登录的司机账号。");
+
+    if (beforeFulfillment.finalDeliveryAt || ["已交付", "已完成", "已取消"].includes(beforeFulfillment.status)) {
+      return businessError(409, "FULFILLMENT_DISPATCH_CLOSED", "送货记录已完成或已取消，不能再修改派车安排。");
+    }
+
     if (existingDispatchId && requestedDispatchId && requestedDispatchId !== existingDispatchId) {
       return businessError(
         409,
@@ -823,7 +861,15 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       );
     }
 
-    const assignedAt = normalizeTimestamp(body.assignedAt, nowIso(now));
+    const expectedDispatchRevision = body.expectedRevision;
+    if (!Number.isSafeInteger(expectedDispatchRevision) || expectedDispatchRevision < 0 ||
+      (existingDispatchId ? requestedDispatchId !== existingDispatchId || expectedDispatchRevision !== Number(existingDispatch.revision)
+        : expectedDispatchRevision !== 0 || Boolean(requestedDispatchId))) {
+      return businessError(409, "DRIVER_DISPATCH_REVISION_CONFLICT",
+        "派车安排已变化或缺少编辑版本，请刷新后核对再保存。");
+    }
+
+    const assignedAt = nowIso(now);
     const dispatchId =
       existingDispatchId ||
       requestedDispatchId ||
@@ -844,7 +890,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       assignedBy: operatorId,
       assignedAt,
       remark: String(body.remark ?? "").trim(),
-      revision: Math.max(0, Number(existingDispatch.revision ?? 0)),
+      revision: expectedDispatchRevision,
       createdAt: existingDispatch.createdAt ?? existingDispatch.created_at ?? assignedAt,
       updatedAt: assignedAt,
     };
@@ -1023,8 +1069,11 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       ? workspace.fulfillments
       : updateFulfillmentsForAction(workspace.fulfillments, fulfillmentId, "完成送货");
     const baseAfter = fulfillments.find((item) => item.id === fulfillmentId) ?? before;
-    const completedAt = normalizeTimestamp(body.completedAt, nowIso(now));
-    const actualQty = Math.max(0, Number(body.actualQty ?? baseAfter.actualQty ?? baseAfter.qty ?? 0));
+    const completedAt = isDeliveryEvidenceRetake ? (before.deliveredAt ?? before.finalDeliveryAt ?? before.completedAt) : normalizeTimestamp(body.completedAt, nowIso(now));
+    const authoritativeQty=Number(before.actualQty ?? before.qty ?? before.expectedQty ?? 0);
+    const suppliedQty=body.actualQty;
+    const actualQty=suppliedQty==null || suppliedQty==="" ? authoritativeQty : Number(suppliedQty);
+    if((suppliedQty!=null && !["number","string"].includes(typeof suppliedQty)) || !Number.isSafeInteger(actualQty) || actualQty<=0 || actualQty!==authoritativeQty) return businessError(409,"DRIVER_DELIVERY_QUANTITY_MISMATCH","送达或补拍不能更改已出库数量，请提交数量异常由办公室核对。");
     const watermarkCapturedAt = normalizeTimestamp(
       evidenceValidation.watermarkMetadata.watermarkCapturedAt ??
         body.watermarkCapturedAt ??
@@ -1115,7 +1164,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
     if (inventoryMovements.error) {
       return businessError(409, inventoryMovements.error.code, inventoryMovements.error.message);
     }
-    const statementCandidate = buildFulfillmentStatementCandidate({
+    const statementCandidate = isDeliveryEvidenceRetake ? null : buildFulfillmentStatementCandidate({
       workspace,
       fulfillment: after,
       orderLine: findOrderLine(workspace, after.orderLineId ?? after.lineId),
@@ -1252,6 +1301,8 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
         "Completed or cancelled delivery tasks cannot report delivery exceptions.",
       );
     }
+    const observedQty=Number(body.actualQty ?? before.actualQty ?? before.qty ?? 0);
+    if(!Number.isSafeInteger(observedQty)||observedQty<0) return businessError(422,"DRIVER_EXCEPTION_QUANTITY_INVALID","异常实见数量必须为非负整数。");
     const reasonText = String(body.reasonText ?? body.reasonCode ?? body.reason ?? "other").trim() || "other";
     const reasonCode = String(body.reasonCode ?? "other").trim() || "other";
     const exceptionOccurredAt = body.occurredAt ?? nowIso(now);
@@ -1263,7 +1314,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       exceptionReasonCode: reasonCode,
       exceptionReason: reasonText,
       exceptionOccurredAt,
-      actualQty: Math.max(0, Number(body.actualQty ?? before.actualQty ?? before.qty ?? 0)),
+      actualQty: before.actualQty ?? before.qty ?? 0,
     };
     const orderLine = findOrderLine(workspace, after.lineId ?? after.orderLineId) ?? {};
     const todo = buildTodo(workspace, {
@@ -1284,7 +1335,7 @@ export function createFulfillmentActionCommandService(dependencies = {}) {
       {
         exceptionType: "delivery_exception",
         expectedQty: before.qty,
-        actualQty: after.actualQty,
+        actualQty: observedQty,
         reasonCode,
         reason: reasonText,
         occurredAt: exceptionOccurredAt,
@@ -1714,6 +1765,8 @@ function cleanText(value) {
     if (!fulfillment || !dispatch) return fulfillment;
     return {
       ...fulfillment,
+      dispatchId: dispatch.dispatchId ?? dispatch.id,
+      dispatchRevision: dispatch.revision,
       driverId: dispatch.driverId ?? "",
       routeDate: dispatch.routeDate ?? "",
       routeNo: dispatch.routeNo ?? dispatch.routeBatchNo ?? "",
@@ -1784,6 +1837,14 @@ function cleanText(value) {
   }
 }
 
+function statementContainsDeliveryDate(statement, date) {
+  const parts = String(statement.period ?? "").split(" 至 ");
+  const start = String(statement.periodStart ?? statement.period_start ?? parts[0] ?? "");
+  const end = String(statement.periodEnd ?? statement.period_end ?? parts[1] ?? "");
+  return /^\d{4}-\d{2}-\d{2}$/.test(start) && /^\d{4}-\d{2}-\d{2}$/.test(end) &&
+    normalizeDateInput(start) === start && normalizeDateInput(end) === end && start <= date && date <= end;
+}
+
 function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine, actualQty, operatorId, completedAt }) {
   if (!orderLine || !fulfillment) return null;
   const orderLineId = String(orderLine.id ?? orderLine.orderLineId ?? fulfillment.lineId ?? fulfillment.orderLineId ?? "").trim();
@@ -1791,18 +1852,35 @@ function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine,
   if (!orderLineId || !customerId) return null;
 
   const statements = Array.isArray(workspace.statements) ? workspace.statements : [];
-  const alreadyLinked = statements.find((statement) => (statement.lineIds ?? []).includes(orderLineId));
-  if (alreadyLinked) {
-    return { statement: alreadyLinked, statementLine: null, alreadyLinked: true };
+  const fulfillmentId = String(fulfillment.id ?? fulfillment.fulfillmentId ?? "").trim();
+  const existingStatementLine = (workspace.statementLines ?? []).find((line) => String(line.fulfillmentId ?? line.fulfillment_id ?? "") === fulfillmentId);
+  if (existingStatementLine) {
+    const alreadyLinked = statements.find((statement) => statement.id === (existingStatementLine.statementId ?? existingStatementLine.statement_id));
+    if (alreadyLinked) return { statement: alreadyLinked, statementLine: null, alreadyLinked: true };
+    throw Object.assign(new Error("交付已存在对账明细，但关联对账单缺失，请先核对历史记录。"), { code: "FULFILLMENT_STATEMENT_HISTORY_INCOMPLETE", statusCode: 409 });
+  }
+  const historicalLinks = (workspace.statementLines ?? []).filter((line) => (line.orderLineId ?? line.order_line_id) === orderLineId);
+  if (historicalLinks.some((line) => !(line.fulfillmentId ?? line.fulfillment_id)) || (statements.some((statement) => (statement.lineIds ?? []).includes(orderLineId)) && !historicalLinks.length)) {
+    throw Object.assign(new Error("历史对账明细缺少交付关联，不能自动判断本次是否已入账，请先核对。"), { code: "FULFILLMENT_STATEMENT_HISTORY_INCOMPLETE", statusCode: 409 });
   }
 
-  const eligibleStatement = statements.find((statement) =>
+  const completedDate = normalizeDateInput(completedAt);
+  if (!completedDate) throw Object.assign(new Error("交付日期无效，不能自动归入今天的账期。"), {code:"FULFILLMENT_BILLING_DATE_INVALID",statusCode:409});
+  const eligibleStatements = statements.filter((statement) =>
     statement.customerId === customerId &&
+    statementContainsDeliveryDate(statement, completedDate) &&
     statement.sent !== true &&
     ["待生成", "待发送", "本期待对账"].includes(String(statement.status ?? "").trim()),
   );
-  const completedDate = normalizeDateInput(completedAt) || new Date().toISOString().slice(0, 10);
-  const amount = calculateDeliveredAmount(orderLine, actualQty);
+  if (eligibleStatements.length > 1) throw Object.assign(new Error("该客户有多个重叠的待入账账期，请先核对账单归属，本次未自动入账。"), {code:"FULFILLMENT_STATEMENT_PERIOD_AMBIGUOUS",statusCode:409});
+  const eligibleStatement = eligibleStatements[0];
+
+  const billing = resolveFulfillmentBillingQuantity({ workspace, fulfillment, actualQty });
+  const billingSnapshot = captureFulfillmentBillingSnapshot(workspace, orderLineId);
+  const price = selectFulfillmentPriceSnapshot(billingSnapshot);
+  if (!price && workspace.fulfillmentActionTransactionRepository?.kind === "postgres") throw Object.assign(new Error("缺少正式订单价格快照，不能生成交付入账。"), { code: "FULFILLMENT_PRICE_SNAPSHOT_REQUIRED", statusCode: 409 });
+  const allocation = allocateFulfillmentAmount({ totalAmount: price?.finalAmount ?? orderLine.amount ?? orderLine.finalAmount, totalChargeableQty: price?.chargeableQty ?? orderLine.qty ?? orderLine.originalQty, chargeableQty: billing.chargeableQty, priorLines: historicalLinks });
+  const amount = allocation.amount;
   const statementId = eligibleStatement?.id ?? createStatementCandidateId(statements, customerId, completedDate);
   const statement = eligibleStatement
     ? {
@@ -1827,29 +1905,19 @@ function buildFulfillmentStatementCandidate({ workspace, fulfillment, orderLine,
       };
   return {
     statement,
+    billingSnapshot,
     statementLine: {
       id: `STL-${String(fulfillment.id ?? fulfillment.fulfillmentId).replace(/[^a-z0-9-]+/gi, "-")}`,
       statementId,
       orderLineId,
       fulfillmentId: String(fulfillment.id ?? fulfillment.fulfillmentId ?? "").trim(),
-      deliveredQty: Math.max(0, Math.trunc(Number(actualQty ?? fulfillment.qty ?? 0))),
-      chargeableQty: Math.max(0, Math.trunc(Number(actualQty ?? fulfillment.qty ?? 0))),
-      freeQty: 0,
+      ...billing,
       amount,
       adjustmentAmount: 0,
       finalAmount: amount,
       createdAt: completedAt,
     },
   };
-}
-
-function calculateDeliveredAmount(orderLine, actualQty) {
-  const orderedQty = Number(orderLine.qty ?? orderLine.originalQty ?? 0);
-  const deliveredQty = Number(actualQty ?? orderedQty);
-  const orderAmount = Number(orderLine.amount ?? orderLine.finalAmount ?? 0);
-  if (!Number.isFinite(orderAmount) || orderAmount <= 0) return 0;
-  if (!Number.isFinite(orderedQty) || orderedQty <= 0 || !Number.isFinite(deliveredQty)) return roundMoney(orderAmount);
-  return roundMoney(orderAmount * Math.max(0, deliveredQty) / orderedQty);
 }
 
 function createStatementCandidateId(statements, customerId, completedDate) {
@@ -1917,9 +1985,12 @@ function normalizeOptionalTimestampInput(value) {
 function normalizeDateInput(value) {
   const text = String(value ?? "").trim();
   if (!text) return "";
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text) && Number.isFinite(Date.parse(`${text}T00:00:00.000Z`))) return text;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
+    const date = new Date(text + "T00:00:00Z");
+    return Number.isFinite(date.getTime()) && date.toISOString().slice(0,10) === text ? text : "";
+  }
   if (!Number.isFinite(Date.parse(text))) return "";
-  return new Date(text).toISOString().slice(0, 10);
+  return new Intl.DateTimeFormat("en-CA", {timeZone:"Asia/Shanghai",year:"numeric",month:"2-digit",day:"2-digit"}).format(new Date(text));
 }
 
 function normalizeDeliveryWatermarkMetadata(value) {

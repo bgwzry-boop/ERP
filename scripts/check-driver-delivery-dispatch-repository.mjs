@@ -11,6 +11,7 @@ import {
 const workspace = {
   employees: [{id:"E-DRIVER",name:"合成司机",userId:"U-DRIVER-A",profileStatus:"active"}],
   users: [{userId:"U-DRIVER-A",employeeId:"E-DRIVER",roles:["driver"],enabled:true,loginEnabled:true}],
+  fulfillments: [{id:"F010",status:"待出库"}],
   driverDeliveryDispatches: [],
   operationLogs: [],
 };
@@ -54,6 +55,7 @@ await localRepository.upsertDriverDeliveryDispatch({
   workspace,
   dispatch: {
     ...dispatch,
+    revision: 1,
     routeSequence: 4,
     stopSequence: 4,
     remark: "改为第 4 站",

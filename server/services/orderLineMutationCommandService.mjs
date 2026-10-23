@@ -1,4 +1,5 @@
 import { createInventoryReservationPolicyService } from "./inventoryReservationPolicyService.mjs";
+import { hasExecutedDelivery } from "../orderMutationDeliveryGuard.mjs";
 
 const inventoryReservationPolicyService = createInventoryReservationPolicyService();
 
@@ -39,8 +40,9 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       return businessError(422, "VALIDATION_ERROR", "orderLineId in path and body must match");
     }
 
-    const idempotencyPayload = { ...body, operatorId };
+    const idempotencyPayload = { ...body, orderLineId, operatorId };
     const replay = await workspace.orderLineVoidTransactionRepository.findIdempotentReplay?.({
+      workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload,
     });
@@ -54,7 +56,7 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
     }
 
     const reason = mapOrderLineVoidReason(body.reason ?? "order_cancelled", body.reasonText);
-    const voidedAt = body.voidedAt ?? nowIso(now);
+    const voidedAt = nowIso(now);
     const afterOrderLine = {
       ...before,
       orderLineId: before.orderLineId ?? before.id,
@@ -140,8 +142,9 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       return businessError(422, "VALIDATION_ERROR", "orderLineId in path and body must match");
     }
 
-    const idempotencyPayload = { ...body, operatorId };
+    const idempotencyPayload = { ...body, orderLineId, operatorId };
     const replay = await workspace.orderLineQuantityAdjustmentTransactionRepository.findIdempotentReplay?.({
+      workspace,
       idempotencyKey: body.idempotencyKey,
       idempotencyPayload,
     });
@@ -155,9 +158,9 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
     }
 
     const previousQty = getOrderLineOriginalQty(before);
-    const newQty = Math.trunc(Number(body.newQty ?? body.qty ?? body.originalQty));
-    if (!Number.isFinite(newQty) || newQty <= 0) {
-      return businessError(422, "VALIDATION_ERROR", "newQty must be a positive integer.");
+    const newQty = Number(body.newQty ?? body.qty ?? body.originalQty);
+    if (!Number.isSafeInteger(newQty) || newQty <= 0) {
+      return businessError(422, "VALIDATION_ERROR", "新数量须为大于零的有效整数，不能自动取整。");
     }
     if (newQty === previousQty) {
       return businessError(
@@ -167,7 +170,14 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       );
     }
 
-    const adjustedAt = body.adjustedAt ?? nowIso(now);
+    const activeFulfillments = (workspace.fulfillments ?? []).filter(item =>
+      (item.lineId ?? item.orderLineId) === orderLineId && !/已交付|已取消/.test(String(item.status ?? "")));
+    const linkedStatementLines = (workspace.statementLines ?? []).filter(item =>
+      (item.orderLineId ?? item.order_line_id) === orderLineId);
+    if (activeFulfillments.length > 1 || linkedStatementLines.length > 1) {
+      return businessError(409, "ORDER_LINE_SPLIT_ALLOCATION_REQUIRED", "该订单已关联多批交付或多条账单，需先明确各批数量与金额分配，不能直接整单改量。");
+    }
+    const adjustedAt = nowIso(now);
     const reason = mapOrderLineQuantityAdjustmentReason(body.reason ?? "customer_change", body.reasonText);
     const qtyDelta = newQty - previousQty;
     const financialChange = buildFinancialChange(workspace, {
@@ -179,6 +189,7 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
       reason,
       adjustedAt,
     });
+    if (financialChange.error) return financialChange;
     const afterOrderLine = {
       ...before,
       orderLineId: before.orderLineId ?? before.id,
@@ -333,12 +344,18 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
 
   function buildFinancialChange(workspace, input) {
     const latestSnapshot = findLatestPriceSnapshot(workspace, input.orderLineId);
+    if (latestSnapshot?.ambiguous) return businessError(409, "ORDER_LINE_PRICE_SOURCE_AMBIGUOUS", "最新价格记录存在无法判定先后的不同来源，请先复核价格依据，未修改数量或账单。");
     const currentAmount = Number(
       latestSnapshot?.finalAmount ?? latestSnapshot?.amount ?? input.orderLine.amount ?? 0,
     );
     const currentChargeableQty = Number(latestSnapshot?.chargeableQty ?? input.previousQty ?? 0);
     const otherFee = Number(latestSnapshot?.otherFee ?? 0);
     const adjustmentAmount = Number(latestSnapshot?.adjustmentAmount ?? 0);
+    const invalidPrice = () => businessError(409, "ORDER_LINE_PRICE_INVALID", "原订单价格或改量金额无效，请先复核价格依据，未修改数量或账单。");
+    if (!Number.isSafeInteger(currentChargeableQty) || currentChargeableQty <= 0 ||
+      ![currentAmount, otherFee, adjustmentAmount].every(value => Number.isFinite(value) && Math.abs(value) < 1e12) ||
+      currentAmount < 0 || otherFee < 0 ||
+      ![latestSnapshot?.bagPrice ?? 0, latestSnapshot?.printPrice ?? 0].every(value => Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) < 1e10)) return invalidPrice();
     const variableAmount = currentAmount - otherFee - adjustmentAmount;
     const derivedUnitPrice = currentChargeableQty > 0 ? variableAmount / currentChargeableQty : 0;
     const snapshotComponentUnitPrice =
@@ -346,19 +363,21 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
     const keepSnapshotComponents =
       latestSnapshot &&
       snapshotComponentUnitPrice > 0 &&
-      Math.abs(snapshotComponentUnitPrice - derivedUnitPrice) < 0.0001;
+      roundMoney(snapshotComponentUnitPrice * currentChargeableQty + otherFee + adjustmentAmount) === roundMoney(currentAmount);
     const bagPrice = keepSnapshotComponents ? Number(latestSnapshot.bagPrice ?? 0) : derivedUnitPrice;
     const printPrice = keepSnapshotComponents ? Number(latestSnapshot.printPrice ?? 0) : 0;
     const lineAmount = roundMoney((bagPrice + printPrice) * input.newQty);
     const finalAmount = roundMoney(lineAmount + otherFee + adjustmentAmount);
+    if (![bagPrice, printPrice].every(value => Number.isFinite(value) && value >= 0 && value < 1e10) ||
+      ![lineAmount, finalAmount].every(value => Number.isFinite(value) && value >= 0 && value < 1e12)) return invalidPrice();
     const versionNo = getNextQuantityAdjustmentPriceVersion(workspace, input.orderLineId);
     const priceSnapshot = {
       priceSnapshotId: nextPlainId("PS", `${input.orderLineId}-QTY-${versionNo}`),
       orderLineId: input.orderLineId,
       snapshotType: "quantity_adjustment",
       versionNo,
-      bagPrice: roundMoney(bagPrice),
-      printPrice: roundMoney(printPrice),
+      bagPrice: Math.round(bagPrice * 10000) / 10000,
+      printPrice: Math.round(printPrice * 10000) / 10000,
       otherFee,
       adjustmentAmount,
       chargeableQty: input.newQty,
@@ -596,7 +615,7 @@ function isVoidableOrderLine(orderLine, workspace) {
   const orderLineId = orderLine.id ?? orderLine.orderLineId;
   return !(workspace.fulfillments ?? [])
     .filter((fulfillment) => (fulfillment.lineId ?? fulfillment.orderLineId) === orderLineId)
-    .some((fulfillment) => String(fulfillment.status ?? "").includes("已交付"));
+    .some((fulfillment) => hasExecutedDelivery(fulfillment) || String(fulfillment.status ?? "").includes("已交付"));
 }
 
 function getOrderLineOriginalQty(orderLine) {
@@ -605,14 +624,21 @@ function getOrderLineOriginalQty(orderLine) {
 }
 
 function findLatestPriceSnapshot(workspace, orderLineId) {
-  return [...(workspace.priceSnapshots ?? [])]
+  const sorted = [...(workspace.priceSnapshots ?? [])]
     .filter((snapshot) => (snapshot.orderLineId ?? snapshot.order_line_id) === orderLineId)
     .sort((left, right) => {
       const leftCreated = Date.parse(left.createdAt ?? left.created_at ?? "") || 0;
       const rightCreated = Date.parse(right.createdAt ?? right.created_at ?? "") || 0;
       if (rightCreated !== leftCreated) return rightCreated - leftCreated;
       return Number(right.versionNo ?? right.version_no ?? 0) - Number(left.versionNo ?? left.version_no ?? 0);
-    })[0] ?? null;
+    });
+  const latest = sorted[0];
+  if (!latest) return null;
+  const latestTime = Date.parse(latest.createdAt ?? latest.created_at ?? "") || 0;
+  const latestType = latest.snapshotType ?? latest.snapshot_type;
+  if (sorted.some(snapshot => (Date.parse(snapshot.createdAt ?? snapshot.created_at ?? "") || 0) === latestTime &&
+    (snapshot.snapshotType ?? snapshot.snapshot_type) !== latestType)) return { ambiguous: true };
+  return latest;
 }
 
 function getNextQuantityAdjustmentPriceVersion(workspace, orderLineId) {

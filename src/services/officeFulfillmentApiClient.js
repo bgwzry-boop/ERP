@@ -575,6 +575,8 @@ export async function updateOfficeFulfillmentDispatch(input, options = {}) {
       body: {
         fulfillmentId: fulfillment.id,
         idempotencyKey: input.idempotencyKey,
+        dispatchId: input.dispatchId ?? fulfillment.dispatchId ?? "",
+        expectedRevision: input.expectedRevision ?? fulfillment.dispatchRevision ?? 0,
         driverId,
         routeDate,
         routeNo,
@@ -606,7 +608,7 @@ export async function updateOfficeFulfillmentDispatch(input, options = {}) {
       return buildServerRequiredWriteError("FULFILLMENT_DISPATCH_API_UNAVAILABLE", error);
     }
     return {
-      source: "local_fallback",
+      source: "api_error", blocked: true,
       error: {
         code: "FULFILLMENT_DISPATCH_API_UNAVAILABLE",
         message: error?.message ?? String(error),

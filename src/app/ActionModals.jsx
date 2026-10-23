@@ -283,6 +283,7 @@ export function ActionModal({
   const [dispatchPlannedDepartureAt, setDispatchPlannedDepartureAt] = useState(
     toDatetimeLocalInputValue(fulfillment?.plannedDepartureAt, dispatchDefaultRouteDate),
   );
+  const [dispatchEditorIdentity] = useState(()=>({dispatchId:fulfillment?.dispatchId ?? "",expectedRevision:fulfillment?.dispatchRevision ?? 0}));
   const [dispatchRemark, setDispatchRemark] = useState(fulfillment?.dispatchRemark || "");
   const initialWarehouseResult = modal.initialWarehouseResult || "已备货";
   const [paperHandoffNote, setPaperHandoffNote] = useState("");
@@ -426,6 +427,7 @@ export function ActionModal({
     }
     if (modal.type === "dispatch") {
       onConfirm({
+        ...dispatchEditorIdentity,
         driverId: dispatchDriverId,
         routeDate: dispatchRouteDate,
         routeNo: dispatchRouteNo,

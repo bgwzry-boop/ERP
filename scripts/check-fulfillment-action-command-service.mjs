@@ -414,6 +414,8 @@ async function checkDispatchCommand() {
     fulfillmentId: "FUL-001",
     body: {
       driverId: "U-DRIVER-A",
+      dispatchId: workspace.driverDeliveryDispatches[0].dispatchId ?? workspace.driverDeliveryDispatches[0].id,
+      expectedRevision: 3,
       routeDate: "2026-07-12",
       routeNo: "虎门线-A",
       routeSequence: 2,
