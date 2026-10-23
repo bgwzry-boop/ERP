@@ -119,6 +119,7 @@ const service = createFulfillmentActionCommandService({
 await checkLegacyDirectFulfillmentActionsAreBlocked();
 await checkPaperHandoffAndWarehouseQuantityMismatch();
 await checkWarehousePhysicalOutboundAndDriverFinalDelivery();
+await checkWarehouseInventoryConservation();
 await checkPickupAndExpressPhysicalOutboundFinalDelivery();
 await checkExceptionCreation();
 await checkCancellationRelease();
@@ -317,6 +318,40 @@ async function checkPickupAndExpressPhysicalOutboundFinalDelivery() {
     assert.equal(finalDelivery.response.inventoryDeductionMode, "already_deducted_at_physical_outbound");
     assert.deepEqual(calls.at(-1).inventoryLedgerEntries ?? [], []);
     assert.equal(calls.at(-1).fulfillment.finalDeliveryStatus, "已交付");
+  }
+}
+
+async function checkWarehouseInventoryConservation() {
+  for (const reservedQty of [6, 0]) {
+    const workspace = buildPaperReadyWorkspace({ qty: 10 });
+    workspace.inventoryReservations = reservedQty ? [{ ...workspace.inventoryReservations[0], reservedQty }] : [];
+    workspace.inventories[0].reserved = reservedQty;
+    await handoffCurrentPaperDocument(workspace);
+    const before = structuredClone({ fulfillment: workspace.fulfillments[0], inventory: workspace.inventories, reservations: workspace.inventoryReservations });
+    const callCount = calls.length;
+    const result = await service.recordWarehouseOutboundExecution({
+      workspace, fulfillmentId: "FUL-001", operatorId: "U-OFFICE-A",
+      body: warehouseExecutionBody(workspace, { result: "实物已出库", actualQty: 10 }),
+    });
+    assert.equal(result.code, "ERP_FULFILLMENT_INVENTORY_CONSERVATION_CONFLICT");
+    assert.equal(result.statusCode, 409);
+    assert.equal(calls.length, callCount, "No physical-outbound transaction may persist an under-deducted stock fulfillment");
+    assert.deepEqual({ fulfillment: workspace.fulfillments[0], inventory: workspace.inventories, reservations: workspace.inventoryReservations }, before);
+  }
+  for (const orderType of ["特殊尺寸", "外加工印刷"]) {
+    const workspace = buildPaperReadyWorkspace({ qty: 10 });
+    workspace.orderLines[0].orderType = orderType;
+    workspace.inventoryReservations = [];
+    workspace.inventories = [];
+    await handoffCurrentPaperDocument(workspace);
+    const result = await service.recordWarehouseOutboundExecution({
+      workspace, fulfillmentId: "FUL-001", operatorId: "U-OFFICE-A",
+      body: warehouseExecutionBody(workspace, { result: "实物已出库", actualQty: 10 }),
+    });
+    assert.equal(result.response.status, "待确认自提交付");
+    assert.equal(result.response.inventoryDeductionMode, "production_direct");
+    assert.equal(calls.at(-1).inventoryLedgerEntries.length, 0);
+    assert.equal(calls.at(-1).inventoryAdjustments.length, 0);
   }
 }
 

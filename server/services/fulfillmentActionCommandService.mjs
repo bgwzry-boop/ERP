@@ -1,4 +1,5 @@
 import { findDriverDeliveryExceptionReason } from "../../shared/driverDeliveryExceptionReasons.js";
+import { normalizeOrderType } from "../../shared/orderRouting.js";
 import { prepareDriverDeliveryExceptionResolution } from "./driverDeliveryExceptionResolutionPolicy.mjs";
 import { findDeliveryEvidenceRetakeTodo } from "./deliveryEvidenceRetakeTodo.mjs";
 import { matchesDeliveryEvidenceSnapshot } from "../../shared/deliveryEvidenceSnapshot.js";
@@ -1568,12 +1569,19 @@ function cleanText(value) {
       (reservation) => reservation.orderLineId === orderLineId && isReleasableInventoryReservation(reservation),
     );
     if (activeReservations.length === 0) {
+      const orderType = normalizeOrderType(findOrderLine(workspace, orderLineId)?.orderType);
+      if (["custom_special", "external_print"].includes(orderType)) return emptyInventoryMovements("production_direct");
       return input.allowUnreservedInventoryDeduction
         ? buildUnreservedLegacyInventoryMovements(workspace, fulfillment, input)
-        : emptyInventoryMovements("skipped_no_reservation");
+        : inventoryMovementError("ERP_FULFILLMENT_INVENTORY_CONSERVATION_CONFLICT", "本次出库缺少有效成品库存占用，请先核对订单与库存后再出库。");
     }
 
     let remainingActualQty = Math.max(0, Number(input.actualQty ?? fulfillment.actualQty ?? fulfillment.qty ?? 0));
+    const reservedQuantities = activeReservations.map((reservation) => Number(reservation.reservedQty ?? reservation.qty));
+    const reservedQuantity = reservedQuantities.reduce((total, qty) => total + qty, 0);
+    if (!reservedQuantities.every((qty) => Number.isSafeInteger(qty) && qty > 0) || !Number.isSafeInteger(reservedQuantity) || reservedQuantity < remainingActualQty) {
+      return inventoryMovementError("ERP_FULFILLMENT_INVENTORY_CONSERVATION_CONFLICT", "本次实出数量超过订单有效库存占用，不能少扣库存后标记已出库。");
+    }
     const inventoryReservations = [];
     const inventoryLedgerEntries = [];
     const inventoryAdjustments = [];
