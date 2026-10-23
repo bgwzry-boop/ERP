@@ -1,6 +1,23 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readCompleteCollection, createReadGenerationGuard } from '../src/read-complete-collection.js';
+import { eligibleProductionMachines, isSelectedProductionMachineAllowed } from '../src/production-machine-options.js';
+import { buildDefaultMasterDataMachines } from '../../../../server/masterDataMachineConfigurationRepository.mjs';
+
+test('production choices use authoritative machine types and reject a stale or disabled selection', () => {
+  const machines = buildDefaultMasterDataMachines();
+  const bagMachines = eligibleProductionMachines(machines, '制袋');
+  const printMachines = eligibleProductionMachines(machines, '丝印');
+  assert.equal(bagMachines.length, 9);
+  assert.equal(printMachines.length, 4);
+  const bagId = bagMachines[0].machineId;
+  assert.equal(isSelectedProductionMachineAllowed(bagMachines, bagId), true);
+  assert.equal(isSelectedProductionMachineAllowed(printMachines, bagId), false);
+  const disabled = machines.map(machine => machine.machineId === bagId ? { ...machine, enabled: false } : machine);
+  assert.equal(isSelectedProductionMachineAllowed(eligibleProductionMachines(disabled, '制袋'), bagId), false);
+  assert.equal(isSelectedProductionMachineAllowed(bagMachines, 'missing-machine'), false);
+  assert.deepEqual(eligibleProductionMachines(machines, '未知工序'), []);
+});
 
 test('desktop search receives records after the first 200, including a short last page', async () => {
   const source = Array.from({length: 451}, (_, index) => ({id: `row-${index}`, name: index === 450 ? '最后一条特殊订单' : '订单'}));

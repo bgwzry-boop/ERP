@@ -1,4 +1,6 @@
 import { ProductionScheduleControls } from "./ProductionScheduleControls.jsx";
+import { StatementDetailDialog } from "./StatementDetailDialog.jsx";
+import { PrintJobDetailDialog } from "./PrintJobDetailDialog.jsx";
 import { FinishedInventoryLedger } from "./FinishedInventoryLedger.jsx";
 import { FinishedInventoryCorrectionCreate } from "./FinishedInventoryCorrectionCreate.jsx";
 import { useMemo, useState } from "react";
@@ -199,6 +201,7 @@ function buildPrintRows(printJobs = [], printDevices = []) {
   }));
   const jobRows = printJobs.map((job) => ({
     id: job.printJobId,
+    printJobId: job.printJobId,
     cells: ["打印作业", job.documentType || "打印任务", job.jobStatus || "待确认", job.printDeviceSnapshot?.name || job.printDeviceId || "设备待确认", job.jobStatus || "待确认"],
     status: job.jobStatus || "待确认",
     modes: ["全部", "打印作业"],
@@ -335,6 +338,7 @@ function statementStatusLabel(status) {
 function buildStatementRows(items = []) {
   return items.map((statement) => ({
   id: statement.statementId || statement.id,
+  statementId: statement.statementId || statement.id,
   cells: [
     `${customerName(statement)} · ${statement.settlementCycle || "账期待确认"}`,
     money(statement.currentReceivable),
@@ -517,8 +521,9 @@ function GenericWorkspace({ config, onNavigate, detailExtra }) {
   const gridTemplateColumns = config.gridTemplateColumns || `minmax(170px, 1.45fr) repeat(${Math.max(0, config.columns.length - 1)}, minmax(92px, 1fr))`;
 
   function runPrimary() {
-    if (selected?.target) onNavigate(selected.target);
-    else setNotice("当前记录已从服务器读取；可继续进入对应业务页面处理。 ");
+    if (config.onPrimary) config.onPrimary(selected);
+    else if (selected?.target) onNavigate(selected.target);
+    else setNotice("当前页面仅展示这条记录，尚未接入后续操作。");
   }
 
   function reset() {
@@ -565,9 +570,25 @@ function GenericWorkspace({ config, onNavigate, detailExtra }) {
         {detailExtra?.(selected)}
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </div>
-      <footer>{detailExtra ? null : <button className="primary" disabled={!selected} onClick={runPrimary} type="button">{config.primaryAction}</button>}{config.profileMaintenance ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => { setProfileError(""); setProfileOpen(true); }} type="button">维护员工档案</button> : config.showSourceEvidence === false ? null : <button className="secondary-button" onClick={() => setNotice(`来源：${config.source}`)} type="button">查看数据来源</button>}{config.accountPreparation ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => setAccountOpen(true)} type="button">准备员工账号</button> : null}</footer>
+      <footer>{detailExtra ? null : <button className="primary" disabled={!selected || (config.canRunPrimary && !config.canRunPrimary(selected))} onClick={runPrimary} type="button">{config.primaryAction}</button>}{config.profileMaintenance ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => { setProfileError(""); setProfileOpen(true); }} type="button">维护员工档案</button> : config.showSourceEvidence === false ? null : <button className="secondary-button" onClick={() => setNotice(`来源：${config.source}`)} type="button">查看数据来源</button>}{config.accountPreparation ? <button className="secondary-button" disabled={!selected?.employeeReview} onClick={() => setAccountOpen(true)} type="button">准备员工账号</button> : null}</footer>
     </aside>
   </div>{profileOpen && selected?.employeeReview ? <div className="dialog-backdrop employee-profile-dialog-backdrop" onMouseDown={() => setProfileOpen(false)} role="presentation"><section aria-labelledby="employee-profile-dialog-title" aria-modal="true" className="receive-dialog employee-profile-dialog" onMouseDown={(event) => event.stopPropagation()} role="dialog"><header><div><span>正式员工资料</span><h2 id="employee-profile-dialog-title">维护 {selected.employeeReview.name}</h2></div><button aria-label="关闭" onClick={() => setProfileOpen(false)} type="button">×</button></header><div className="employee-profile-dialog-body"><EmployeeProfileEditor actionState={{ disabled: false, title: "" }} onSave={saveEmployeeProfile} review={selected.employeeReview} />{profileError ? <p className="employee-profile-dialog-error" role="alert">{profileError}</p> : null}</div></section></div> : null}{accountOpen && selected?.employeeReview ? <EmployeeAccountPreparationDialog onClose={() => setAccountOpen(false)} onConfirmIdentity={config.onConfirmEmployeeIdentity} onEnableAccount={config.onEnableEmployeeAccount} onIssuePassword={config.onIssueEmployeePassword} review={selected.employeeReview} /> : null}</>;
+}
+
+function FinanceOperationsWorkspace({ formal, navId, onNavigate }) {
+  const [openedId, setOpenedId] = useState("");
+  const isStatement = navId === "customer-statements";
+  const identity = row => isStatement ? row?.statementId : row?.printJobId;
+  const config = {
+    ...buildWorkspaceConfigs(formal)[navId],
+    showSourceEvidence: false,
+    primaryAction: isStatement ? "查看对账明细与收款" : "查看打印作业详情",
+    canRunPrimary: row => Boolean(identity(row)),
+    onPrimary: row => setOpenedId(identity(row) || ""),
+    onRefresh: formal.actions.refreshAll,
+  };
+  const Dialog = isStatement ? StatementDetailDialog : PrintJobDetailDialog;
+  return <><GenericWorkspace config={config} onNavigate={onNavigate} />{openedId ? <Dialog statementId={isStatement ? openedId : undefined} printJobId={isStatement ? undefined : openedId} authState={formal.authState} onClose={() => setOpenedId("")} onUpdated={() => formal.actions.refreshAll()} /> : null}</>;
 }
 
 function PeopleMachinesWorkspace({ formal, onNavigate }) {
@@ -780,7 +801,7 @@ function FinishedGoodsInventoryWorkspace({ category, formal, onNavigate, title }
   const [selectedId, setSelectedId] = useState(categoryRecords[0]?.id || "");
   const [notice, setNotice] = useState("");
   const [operationsOpen, setOperationsOpen] = useState(false);
-  const rows = useMemo(() => filterFinishedGoods(finishedGoodsInventoryRecords, category, goodsType, query), [category, goodsType, query]);
+  const rows = useMemo(() => filterFinishedGoods(finishedGoodsInventoryRecords, category, goodsType, query), [finishedGoodsInventoryRecords, category, goodsType, query]);
   const selected = rows.find((row) => row.id === selectedId) || rows[0] || null;
   const selectedException = getFinishedInventoryException(selected);
   const reset = () => { setGoodsType("全部类型"); setQuery(""); setSelectedId(categoryRecords[0]?.id || ""); setNotice(""); };
@@ -978,6 +999,7 @@ function OrderEntryWorkspace({ formal, onNavigate }) {
 }
 
 export function BusinessWorkspace({ formal, navId, onNavigate }) {
+  if (["customer-statements", "print-devices"].includes(navId)) return <FinanceOperationsWorkspace key={navId} formal={formal} navId={navId} onNavigate={onNavigate} />;
   if (navId === "shared-todos") return <TodoWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-entry") return <OrderEntryWorkspace formal={formal} onNavigate={onNavigate} />;
   if (navId === "order-pool") return <OrderPoolWorkspace formal={formal} onNavigate={onNavigate} />;

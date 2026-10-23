@@ -7,7 +7,7 @@ export function FinishedInventoryCorrectionEvidence({draft,authState,onUpdated})
  const pending=useRef(false),live=useRef(false),attempt=useRef(null);
  useEffect(()=>{live.current=true;return()=>{live.current=false;};},[]);
  const permissions=authState?.permissions?.actionPermissions || [];
- const allowed=permissions.includes('attachment.inventory_correction.create') || permissions.includes('attachment.create');
+ const allowed=permissions.includes('inventory.correction.create') && (permissions.includes('attachment.inventory_correction.create') || permissions.includes('attachment.create'));
  async function save(event){event.preventDefault();if(!allowed||pending.current||(!file&&!attempt.current))return;pending.current=true;setBusy(true);setNotice("");
  try {
   if(!attempt.current){

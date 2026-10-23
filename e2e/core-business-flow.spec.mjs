@@ -223,6 +223,13 @@ test("司机送达写入必须经过可访问确认并可返回修改", async ({
   const detailTabs = page.getByRole("tablist", { name: "司机任务详情" });
   await detailTabs.getByRole("tab", { name: "送达", exact: true }).click();
   const submit = page.getByRole("button", { name: "提交送达", exact: true });
+  await expect(submit).toBeDisabled();
+  await page.getByLabel("纸质联状态", { exact: true }).selectOption("客户留存");
+  await page.getByLabel("客户签字情况", { exact: true }).selectOption("signed");
+  await expect(submit).toBeDisabled();
+  await page.getByLabel("客户签字情况", { exact: true }).selectOption("unsigned");
+  await expect(submit).toBeDisabled();
+  await page.getByLabel("未签字原因（必填）", { exact: true }).fill("客户不在场，由门岗代收，未签字");
   await expect(submit).toBeEnabled();
   await submit.click();
 

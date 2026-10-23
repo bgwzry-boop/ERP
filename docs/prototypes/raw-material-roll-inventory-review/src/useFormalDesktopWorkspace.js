@@ -1,3 +1,4 @@
+import { mergeRawMaterialCurrentInbound } from "../../../../shared/rawMaterialCurrentInbound.js";
 import { readCompleteCollection, createReadGenerationGuard } from "./read-complete-collection.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { initializeSeedAuth } from "../../../../src/services/officeAuthService.js";
@@ -112,7 +113,8 @@ export function useFormalDesktopWorkspace() {
     return result;
   }, []);
 
-  const refreshAll = useCallback(async (nextAuthState = authStateRef.current) => {
+  const refreshAll = useCallback(async (requestedAuthState) => {
+    const nextAuthState = requestedAuthState?.authenticated ? requestedAuthState : authStateRef.current;
     const version = ++refreshVersion.current;
     if (!nextAuthState?.authenticated || !nextAuthState?.session?.accessToken) {
       setData(emptyData);
@@ -173,7 +175,7 @@ export function useFormalDesktopWorkspace() {
       readGuard.current.begin("rawMaterialInbounds");
       setData((current) => ({
         ...current,
-        rawMaterialInbounds: current.rawMaterialInbounds.map((item) => item.id === inboundId ? result.inbound : item),
+        rawMaterialInbounds: mergeRawMaterialCurrentInbound(current.rawMaterialInbounds, result.inbound),
       }));
     }
     return result;
@@ -199,7 +201,7 @@ export function useFormalDesktopWorkspace() {
       readGuard.current.begin("rawMaterialInbounds");
       setData((current) => ({
         ...current,
-        rawMaterialInbounds: [result.inbound, ...current.rawMaterialInbounds.filter((item) => item.id !== result.inbound.id)],
+        rawMaterialInbounds: mergeRawMaterialCurrentInbound(current.rawMaterialInbounds, result.inbound),
       }));
     }
     return result;

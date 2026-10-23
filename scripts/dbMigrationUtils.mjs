@@ -12,6 +12,7 @@ export const requiredTables = [
   "role_permissions",
   "user_permission_grants",
   "seed_session_revocations",
+  "runtime_identity_revision",
   "customers",
   "customer_contacts",
   "customer_addresses",

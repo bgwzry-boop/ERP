@@ -1,9 +1,10 @@
 -- Serialize identity snapshots across API processes; stale writes must roll back.
-CREATE TABLE runtime_identity_revision (
+CREATE TABLE IF NOT EXISTS runtime_identity_revision (
   singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
   revision BIGINT NOT NULL DEFAULT 0 CHECK (revision >= 0)
 );
-INSERT INTO runtime_identity_revision(singleton, revision) VALUES (TRUE, 0);
+INSERT INTO runtime_identity_revision(singleton, revision) VALUES (TRUE, 0)
+ON CONFLICT (singleton) DO NOTHING;
 
 CREATE FUNCTION erp_claim_runtime_identity_revision(expected_revision BIGINT)
 RETURNS BIGINT LANGUAGE plpgsql AS $$

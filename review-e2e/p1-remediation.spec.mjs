@@ -43,6 +43,41 @@ test('待排产任务显示机台、数量、依据和发布入口',async({page}
   await expect(panel.getByRole('button',{name:'确认并发布排产'})).toBeEnabled();
 });
 
+test('电脑对账入口打开选中账单的实际明细并能返回', async ({page}) => {
+  const ids=[];
+  page.on('request',request=>{const path=new URL(request.url()).pathname;if(/^\/api\/statements\/[^/]+$/.test(path)&&!path.endsWith('/customers'))ids.push(path);});
+  await page.goto('/?erpReviewCheck=p1-finance#customer-statements');
+  const row=page.getByRole('table',{name:'对账收款列表'}).getByRole('row').nth(1);
+  await expect(row).toBeVisible();
+  await row.click();
+  await page.getByRole('button',{name:'查看对账明细与收款',exact:true}).click();
+  const dialog=page.getByRole('dialog');
+  await expect(dialog.getByRole('heading',{name:'对账明细',exact:true})).toBeVisible();
+  await expect(dialog.getByLabel('本期累计实收（元）')).toBeVisible();
+  expect(ids.length).toBeGreaterThan(0);
+  await dialog.getByRole('button',{name:'返回列表',exact:true}).click();
+  await expect(dialog).toHaveCount(0);
+});
+
+test('电脑打印作业入口打开所选作业，设备行不能冒充作业', async ({page}) => {
+  const job={printJobId:'PJ-P1-ENTRY',targetId:'F-P1-ENTRY',documentType:'delivery_note',jobStatus:'sent',driverMode:'system_printer',printDeviceId:'PRN-P1',payload:{printTemplate:{fields:{customerName:'打印入口合成客户',quantity:100}}}};
+  await page.route('**/api/print-jobs**',async route=>{
+    const url=new URL(route.request().url());
+    if(route.request().method()!=='GET')throw new Error('入口检查不得写入打印作业');
+    await route.fulfill({json:url.pathname.endsWith('/PJ-P1-ENTRY')?{printJob:job}:{items:[job],total:1,page:1,pageSize:200}});
+  });
+  await page.goto('/?erpReviewCheck=p1-print#print-devices');
+  await expect(page.getByRole('button',{name:'查看打印作业详情',exact:true})).toBeDisabled();
+  await page.getByRole('tab',{name:'打印作业',exact:true}).click();
+  await page.getByRole('button',{name:'查看打印作业详情',exact:true}).click();
+  const dialog=page.getByRole('dialog',{name:'打印作业详情'});
+  await expect(dialog).toContainText('打印入口合成客户');
+  await expect(dialog).toContainText('不能手动标成已打印');
+  await expect(dialog.getByRole('button',{name:'确认派发',exact:true})).toHaveCount(0);
+  await dialog.getByRole('button',{name:'返回列表',exact:true}).click();
+  await expect(dialog).toHaveCount(0);
+});
+
 test.describe('手机正式页面驱动加载',()=>{
   test.use({viewport:devices['iPhone 13'].viewport, userAgent:devices['iPhone 13'].userAgent, isMobile:true, hasTouch:true, deviceScaleFactor:3});
   test('默认收货读取原料；我的考勤可进入并返回收货',async({page})=>{

@@ -42,7 +42,7 @@
     {
       "id": "FIN-P1-02",
       "result": "持久层身份版本compare-and-commit，拒绝跨进程旧快照；命令只写变化用户/挑战/撤销/审计和实际变化的机台安排；认证冲突重读并重做安全判断，单工作区排队降低冲突。员工/子账号/手机身份写入共用提交边界；API在授权前检查数据库身份版本。",
-      "migration": "0053_runtime_identity_revision.sql",
+      "migration": "0050_runtime_identity_revision.sql",
       "boundary": "这是全身份版本冲突保护而非新增业务行级授权；管理员冲突返回409刷新重试。"
     },
     {
@@ -89,7 +89,7 @@
       "scripts/check-api-security-boundary.mjs"
     ],
     "postgresEvidence": "一次性Docker PostgreSQL16容器，随机本机端口；6个独立repository/工作区并发错误登录累计5次并锁定，第6次被锁定拒绝；旧快照写409且不覆盖新密码，旧登录不能恢复停用；未来客户端时钟无效。测试停止并删除自己的容器，不接触既有5432业务库。",
-    "migrationVerification": "子树预留0053而0048–0052由其他组负责，现有迁移工具要求连续编号。验证时仅把本次新未提交SQL临时命名0048应用，验证后恢复0053。没有修改迁移门禁。主集成必须按最终连续编号重新跑数据库迁移与此测试。",
+    "migrationVerification": "主集成最终采用连续0050，保留必需表runtime_identity_revision。db:check验证50迁移101表；真实PostgreSQL三组P1检查通过，覆盖该迁移及账号CAS。新建表按既有解析规则使用IF NOT EXISTS，未绕过门禁。",
     "strictHttpEvidence": "真实签名运行时账号+strictAuth API，司机读对账/打印403；办公室合法对账/打印200但看不到工资附件且内容/URL/历史403；财务可列工资依据。测试持久化为明确本地替身，不称正式生产资源。",
     "existingFailure": {
       "script": "scripts/check-print-job-driver-status.mjs",
