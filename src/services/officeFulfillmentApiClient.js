@@ -67,6 +67,22 @@ export async function listOfficeFulfillments(input = {}, options = {}) {
   }
 }
 
+// Detail reads remain server-authoritative, including photo identity and revision.
+export async function getOfficeFulfillment(input = {}, options = {}) {
+  const fulfillmentId = cleanText(input.fulfillmentId);
+  if (!fulfillmentId) return { source: "ui_error", blocked: true, fulfillment: null, error: { code: "FULFILLMENT_ID_REQUIRED", message: "请选择需要查看的出库记录。" } };
+  try {
+    const response = await requestFulfillmentApi(`/fulfillments/${encodeURIComponent(fulfillmentId)}`, { ...options, authState: input.authState, operatorId: input.operatorId });
+    const json = await readJson(response);
+    if (!response.ok) return { source: "api_error", blocked: true, fulfillment: null, error: toApiError(json, response.status, "读取出库记录失败，请重试。") };
+    const fulfillment = mapApiFulfillmentToLocal(json);
+    if (fulfillment?.id !== fulfillmentId) return { source: "api_error", blocked: true, fulfillment: null, error: { code: "FULFILLMENT_DETAIL_IDENTITY_MISMATCH", message: "返回的出库记录不一致，请重新读取。" } };
+    return { source: "api", fulfillment: { ...json, ...fulfillment } };
+  } catch (error) {
+    return { source: "api_error", blocked: true, fulfillment: null, error: { code: "FULFILLMENT_DETAIL_UNAVAILABLE", message: error?.message || "读取出库记录失败，请重试。" } };
+  }
+}
+
 export async function printOfficeFulfillment(input, options = {}) {
   const { authState, fulfillment, action = "打印预览", operatorId, printAction } = input;
   const resolvedPrintAction = cleanText(printAction) || getFulfillmentPrintAction(action);

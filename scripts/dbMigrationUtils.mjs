@@ -649,7 +649,7 @@ export const requiredTableColumns = {
     "revision",
   ],
   inventory_items: ["id", "inventory_key", "on_hand_qty", "reserved_qty", "updated_at", "revision"],
-  statements: ["id", "customer_id", "receivable_amount", "received_amount", "variance_amount", "updated_at", "revision"],
+  statements: ["id", "customer_id", "receivable_amount", "received_amount", "variance_amount", "variance_handling", "variance_handled_at", "updated_at", "revision"],
   raw_material_inbounds: ["id", "status", "payload_json", "updated_at", "revision"],
   driver_device_field_tests: [
     "id",

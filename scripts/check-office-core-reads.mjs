@@ -30,7 +30,7 @@ function createDependencies(api, options = {}) {
   };
   const dependencies = {
     api,
-    authState: { authenticated: true },
+    authState: { authenticated: true, permissions: { actionPermissions: ["todo.read", "order.read", "inventory.read", "fulfillment.read"] } },
     currentUserId: "U-OFFICE-A",
     serverRequired: options.serverRequired ?? (() => false),
     todosRef: { current: [{ id: "TODO-LOCAL" }] },
