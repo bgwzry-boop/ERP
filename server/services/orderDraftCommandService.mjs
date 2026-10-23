@@ -1115,7 +1115,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
         handle: line.handleType ?? line.handle ?? "普通提",
         style: line.style ?? "空白袋",
         print: printFlag ? "是" : "否",
-        qty: Number(line.qty ?? 0),
+        qty: ["number", "string"].includes(typeof line.qty) ? Number(line.qty) : 0,
         fulfillment: line.fulfillmentMethod ?? line.fulfillment ?? "待确认",
         latest: line.latestNeededAt ?? line.latest ?? "待确认",
         printColor: line.printColor ?? (printFlag ? "待确认" : "非印刷"),

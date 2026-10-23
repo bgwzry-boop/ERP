@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import {createPostgresCoreWorkspaceReadRepository} from '../server/coreWorkspaceReadRepository.mjs';
 import {spawnSync} from 'node:child_process';import pg from 'pg';
 import {loadMigrationFiles,validateMigrationSet} from './dbMigrationUtils.mjs';
 import {postgresLiveBusinessSeedSql} from './helpers/postgresLiveBusinessSeed.mjs';
@@ -32,8 +33,19 @@ try {
  assert.equal(saved.statement.status,'已核销');assert.deepEqual(await repo.findSettlementReplay({...original,scope:'statement.write_off'}),saved);
  await open();
  for(const kind of ['record','log','decision']){const input=await make('COLLISION-'+kind);if(kind==='record')input.writeOffRecord.id=original.writeOffRecord.id;if(kind==='log')input.operationLog.id=original.operationLog.id;if(kind==='decision')input.decisionRecord.id=original.decisionRecord.id;const before=await snapshot();await assert.rejects(repo.writeOffStatement(input),e=>e.statusCode===409);assert.deepEqual(await snapshot(),before);}
- const base=await make('VAR-BASE',true);await repo.handleStatementVariance(base);
+ const base=await make('VAR-BASE',true);const savedVariance=await repo.handleStatementVariance(base);
+ const cold=async()=>(await createPostgresCoreWorkspaceReadRepository({postgresClient:client}).loadState()).statements.find(row=>row.id===statementId);
+ assert.equal(savedVariance.statement.varianceHandling,'未收差额转欠款');assert.ok(savedVariance.statement.varianceHandledAt);assert.equal((await cold()).varianceHandling,'未收差额转欠款');
+ await pool.query('UPDATE statements SET last_sent_at=now(),revision=revision+1 WHERE id=$1',[statementId]);assert.equal((await cold()).varianceHandling,'未收差额转欠款');
  for(const kind of ['record','todo','log','decision']){const input=await make('VAR-COLLISION-'+kind,true);if(kind==='record')input.varianceRecord.varianceRecordId=base.varianceRecord.varianceRecordId;if(kind==='todo')input.todo.id=base.todo.id;if(kind==='log')input.operationLog.id=base.operationLog.id;if(kind==='decision')input.decisionRecord.id=base.decisionRecord.id;const before=await snapshot();await assert.rejects(repo.handleStatementVariance(input),e=>e.statusCode===409);assert.deepEqual(await snapshot(),before);}
  const invalid=await make('FOREIGN-PAYMENT',true);invalid.varianceRecord.paymentRecordId='PAY-NOT-OWNED';const before=await snapshot();await assert.rejects(repo.handleStatementVariance(invalid),e=>e.statusCode===409);assert.deepEqual(await snapshot(),before);
+ for(const field of ['received_amount','receivable_amount','variance_amount']) {
+  await pool.query("UPDATE statements SET received_amount=200,receivable_amount=273,variance_amount=73,status='差额待确认',variance_handling='',variance_handled_at=NULL WHERE id=$1",[statementId]);
+  const input=await make('INVALIDATE-'+field,true);await repo.handleStatementVariance(input);const original=(await pool.query(`SELECT ${field} AS amount FROM statements WHERE id=$1`,[statementId])).rows[0].amount;
+  await pool.query(`UPDATE statements SET ${field}=${field}+1,revision=revision+1 WHERE id=$1`,[statementId]);assert.equal((await cold()).varianceHandling,'');assert.equal((await cold()).varianceHandledAt,'');
+  await pool.query(`UPDATE statements SET ${field}=$2,revision=revision+1 WHERE id=$1`,[statementId,original]);await repo.handleStatementVariance(input);assert.equal((await cold()).varianceHandling,'','Old receipt must not revive invalidated approval');
+ }
+ await assert.rejects(pool.query("UPDATE statements SET variance_handling='unknown',variance_handled_at=now() WHERE id=$1",[statementId]),e=>e.code==='23514');
+ console.log('PASS cold variance PostgreSQL: explicit outcome survives cold reads and communication; every amount change invalidates it, reverted amounts and original replay cannot revive it.');
  console.log('PASS settlement PostgreSQL: seven record/todo/log/decision collisions roll back every table, foreign payment rejected, closed original request replays unchanged.');
 } finally {await pool?.end();docker(['rm','-f',name]);}

@@ -134,7 +134,7 @@ export function getDraftMissingFields(row) {
   if (!row.customerId) missing.push("客户");
   if (!row.size || row.size === "待确认") missing.push("尺寸");
   if (!row.color || row.color === "待确认") missing.push("颜色");
-  if (!Number(row.qty)) missing.push("数量");
+  if (!["number", "string"].includes(typeof row.qty) || String(row.qty).trim() === "" || !Number.isSafeInteger(Number(row.qty)) || Number(row.qty) <= 0) missing.push("有效正整数数量");
   if (getPendingDraftFieldReviews(row).length) missing.push("识别字段待确认");
 
   if (isCustomPrintDraft(row)) {
@@ -445,18 +445,16 @@ export function getOrderFinanceState(row, statements, customers) {
   return "未入账";
 }
 
-export function getStatementBlockingAmount(statement, customers) {
-  if (!statement) return 0;
-  const customer = findStatementCustomer(customers, statement.customerId);
-  const currentGap = Math.max(0, Number(statement.receivable || 0) - Number(statement.received || 0));
+export function getStatementBlockingAmount(statement) {
+  if (!statement || hasSettledStatementBalance(statement)) return 0;
+  const currentGap = Math.max(0, Math.round(Number(statement.receivable || 0) * 100) - Math.round(Number(statement.received || 0) * 100)) / 100;
   const hasPaymentProgress =
     Number(statement.received || 0) > 0 ||
     statement.status.includes("收款") ||
     statement.status.includes("差额") ||
     statement.status.includes("欠款") ||
     Boolean(statement.varianceHandling);
-  const priorDebt = statement.status.includes("欠款") || statement.status.includes("差额") ? Number(customer?.debt || 0) : 0;
-  return Math.max(Number(statement.variance || 0), hasPaymentProgress ? currentGap : 0, priorDebt);
+  return Math.max(Number(statement.variance || 0), hasPaymentProgress ? currentGap : 0);
 }
 
 export function getStatementDisplayDebt(statement, customers) {
@@ -478,14 +476,16 @@ export function getStatementFinancialSummary(statement, customers) {
   const customer = findStatementCustomer(customers, statement.customerId);
   const currentReceivable = nonNegativeFinancialAmount(statement.receivable);
   const currentReceived = nonNegativeFinancialAmount(statement.received);
-  const currentUnpaid = Math.max(0, currentReceivable - currentReceived);
-  const historicalDebt = nonNegativeFinancialAmount(customer?.debtAmountSnapshot ?? customer?.debt);
+  const currentUnpaid = hasSettledStatementBalance(statement)
+    ? 0
+    : Math.max(0, Math.round(currentReceivable * 100) - Math.round(currentReceived * 100)) / 100;
+  const historicalDebt = customer ? nonNegativeFinancialAmount(customer.debtAmountSnapshot ?? customer.debt) : null;
   return {
     currentReceivable,
     currentReceived,
     currentUnpaid,
     historicalDebt,
-    cumulativeDebt: currentUnpaid + historicalDebt,
+    cumulativeDebt: historicalDebt === null ? null : (Math.round(currentUnpaid * 100) + Math.round(historicalDebt * 100)) / 100,
   };
 }
 
@@ -497,6 +497,12 @@ export function getStatementBucket(statement, customers) {
   if (statement.status.includes("差额") || statement.status.includes("欠款") || blockingAmount > 0) return "欠款/差额";
   if (statement.status.includes("待生成") || statement.status.includes("待发送") || statement.status.includes("已发送")) return "本期待对账";
   return "本期待对账";
+}
+
+function hasSettledStatementBalance(statement) {
+  return ['已核销', '已结清'].includes(statement?.status)
+    && statement.variance !== null && statement.variance !== undefined && statement.variance !== ''
+    && Number(statement.variance) === 0;
 }
 
 function nonNegativeFinancialAmount(value) {

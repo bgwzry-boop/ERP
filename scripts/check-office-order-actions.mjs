@@ -134,3 +134,15 @@ assert.equal(reviewedRows[0].fieldReviews[0].confirmationMethod, "accepted");
 assert.equal(reviewedRows[0].dimensionEvidence.requiresConfirmation, false);
 
 console.log("Office order action checks passed.");
+
+const quantityBase = {customerId:"C001", customer:"张三服饰",product:"空白袋",orderType:"stock_blank",size:"30*38*10",color:"红色",handle:"普通提",style:"空白袋",print:"否",fulfillment:"自提",latest:"明天"};
+const sharedStock = {id:"stock-shared",size:"30*38*10",color:"红色",handle:"普通提",style:"空白袋",state:"仓库已清点",inStock:100,reserved:0,locked:0,pending:0,estimated:false};
+for (const qty of [-1, 0, 0.5, true, [], {}, "", Number.MAX_SAFE_INTEGER+1]) {
+ const invalid=confirmDraftOrder({draftRows:[{...quantityBase,id:"invalid",qty}],inventoryRecords:[sharedStock],orderLines:[],fulfillments:[]});
+ assert.equal(invalid.blocked,true,`Reject invalid quantity ${JSON.stringify(qty)}`);assert.ok(invalid.checkedRows);
+}
+const aggregate = confirmDraftOrder({draftRows:[{...quantityBase,id:"shared-1",qty:"60"},{...quantityBase,id:"shared-2",qty:"60"}],inventoryRecords:[sharedStock],orderLines:[],fulfillments:[]});
+assert.equal(aggregate.blocked,false,"Shortage standard goods still become an order for manual production scheduling");
+assert.deepEqual(aggregate.newLines.map(line=>line.status),["待排产","待排产"]);
+assert.ok(aggregate.checkedRows.every(line=>line.inventory.includes("同规格合计 120")));
+console.log("Office order quantities: invalid values block formal order; shared-stock aggregate shortage preserves production routing.");

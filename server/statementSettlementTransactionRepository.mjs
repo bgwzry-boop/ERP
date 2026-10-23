@@ -1,3 +1,4 @@
+import {resolveStatementVarianceHandling} from "../shared/statementVarianceCatalog.js";
 import { closedStatementPaymentStatuses, getStatementPaymentBlocker } from "../shared/statementPaymentPolicy.js";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -186,6 +187,8 @@ function buildHandleStatementVarianceTransactionText(input, parameters) {
   if (!statement || !varianceRecord || !operationLog || !decisionRecord) {
     throw new Error("Statement, variance record, business decision, and operation log are required for statement variance transaction");
   }
+  const handling=resolveStatementVarianceHandling(varianceRecord.handlingResult,varianceRecord.reason);
+  if(!handling) throw new TypeError("Statement variance handling must use the canonical catalog");
   const insertedTodoCte = todo ? buildInsertTodoSql(todo, parameters) : "SELECT NULL::json AS result WHERE false";
   const decisionCtes = buildStatementDecisionCtes(decisionRecord, input.attachmentLinks, parameters);
   return `
@@ -204,6 +207,8 @@ updated_statement AS (
   UPDATE statements
   SET
     status = ${parameters.text(statement.status)},
+    variance_handling = ${parameters.text(handling.label)},
+    variance_handled_at = now(),
     received_amount = ${parameters.number(statement.received)},
     variance_amount = ${parameters.number(statement.variance)},
     receivable_amount = ${parameters.number(statement.receivable)},
@@ -574,6 +579,8 @@ function normalizeStatementForApi(statement) {
     id,
     customerId: String(statement.customerId ?? statement.customer_id ?? "").trim(),
     status: String(statement.status ?? "").trim(),
+    varianceHandling: String(statement.varianceHandling ?? statement.variance_handling ?? ""),
+    varianceHandledAt: statement.varianceHandledAt ?? statement.variance_handled_at ?? "",
     receivable: Number(statement.receivable ?? statement.receivableAmount ?? statement.receivable_amount ?? 0),
     received: Number(statement.received ?? statement.receivedAmount ?? statement.received_amount ?? 0),
     variance: Number(statement.variance ?? statement.varianceAmount ?? statement.variance_amount ?? 0),
@@ -678,6 +685,8 @@ function statementJsonExpression(alias) {
     'id', ${alias}.id,
     'customerId', ${alias}.customer_id,
     'status', ${alias}.status,
+    'varianceHandling', ${alias}.variance_handling,
+    'varianceHandledAt', ${alias}.variance_handled_at,
     'receivable', ${alias}.receivable_amount,
     'received', ${alias}.received_amount,
     'variance', ${alias}.variance_amount,

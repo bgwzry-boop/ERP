@@ -1,3 +1,4 @@
+import {resolveStatementVarianceHandling} from "../../shared/statementVarianceCatalog.js";
 import { createHash, randomUUID } from "node:crypto";
 import { getStatementPaymentBlocker } from "../../shared/statementPaymentPolicy.js";
 import { validateBusinessAttachment } from "./businessAttachmentValidationService.mjs";
@@ -126,7 +127,9 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     const attachmentValidation = validatePaymentAttachments({ workspace, statementId, body, maxAttachments: 1 });
     if (attachmentValidation.error) return attachmentValidation;
 
-    const reason = mapVarianceHandlingResult(body.handlingResult, body.reason);
+    const handling=resolveStatementVarianceHandling(body.handlingResult,body.reason);
+    if(!handling) return businessError(422,"STATEMENT_VARIANCE_HANDLING_INVALID","请选择明确的差额处理结果，备注不能代替结果。");
+    const reason=handling.label;
     const expectedRevision = requireExpectedRevision(body.expectedRevision);
     if (expectedRevision.error) return expectedRevision.error;
     const amounts = validateSettlementAmounts(statement);
@@ -145,6 +148,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     const nextStatement = {
       ...result.statements.find((item) => item.id === statementId),
       revision: expectedRevision.value,
+      varianceHandledAt: now(),
     };
     const nextStatements = result.statements.map((item) => item.id === statementId ? nextStatement : item);
     const todo = result.todoInput ? buildTodo(workspace, result.todoInput) : null;
@@ -153,7 +157,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
       statementId,
       paymentRecordId: body.paymentRecordId ?? "",
       amount: varianceAmount,
-      handlingResult: body.handlingResult ?? reason,
+      handlingResult: handling.value,
       reason,
       status: "recorded",
       attachmentId: attachmentValidation.attachmentIds[0] ?? "",
@@ -258,6 +262,7 @@ export function createStatementFinancialCommandService(dependencies = {}) {
     });
     if (decision.error) return decision;
     operationLog.after = { ...operationLog.after, businessDecisionId: decision.record.id };
+    const settlementKind = blockingAmount===0 ? "exact_payment" : statement.varianceHandling==="未收差额转欠款" ? "carry_to_debt" : "approved_allowance";
     const writeOffRecordId = nextId("SWO", workspace.statementWriteOffRecords ?? []);
     const writeOffRecord = {
       id: writeOffRecordId,
@@ -266,8 +271,8 @@ export function createStatementFinancialCommandService(dependencies = {}) {
       receivableSnapshot: Number(statement.receivable ?? 0),
       receivedSnapshot: Number(statement.received ?? 0),
       varianceSnapshot: blockingAmount,
-      writeOffAmount: blockingAmount,
-      handlingResult: "授权抹零并核销",
+      writeOffAmount: settlementKind === "approved_allowance" ? blockingAmount : 0,
+      handlingResult: {exact_payment:"足额收款核销",carry_to_debt:"本期确认并转欠款",approved_allowance:"授权抹零并核销"}[settlementKind],
       businessDecisionId: decision.record.id,
       recordedBy: operatorId,
       revision: 1,

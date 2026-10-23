@@ -200,7 +200,8 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     const expectedRevision = requireExpectedRevision(body.expectedRevision);
     if (expectedRevision.error) return expectedRevision.error;
 
-    const receiptStatus = normalizeStatementSendReceiptStatus(body.receiptStatus ?? "read");
+    const receiptStatus = normalizeStatementSendReceiptStatus(body.receiptStatus);
+    if(!receiptStatus) return businessError(400,"STATEMENT_RECEIPT_STATUS_INVALID","请选择有效回执状态，未知或空白不能登记为已读。");
     const receiptAt = body.receiptAt ?? now();
     const receiptNote = body.remark ?? "";
     const after = {

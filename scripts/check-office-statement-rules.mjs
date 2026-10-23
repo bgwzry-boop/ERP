@@ -27,8 +27,8 @@ assert.deepEqual(
     currentReceivable: 100,
     currentReceived: 20,
     currentUnpaid: 80,
-    historicalDebt: 0,
-    cumulativeDebt: 80,
+    historicalDebt: null,
+    cumulativeDebt: null,
   },
 );
 
@@ -66,3 +66,5 @@ assert.deepEqual(
 );
 
 console.log("Office statement rules check passed: current-period and historical debt amounts remain separate.");
+
+assert.equal(getStatementFinancialSummary({customerId:"C-CURRENT",receivable:100,received:80,status:"已核销",variance:0},customers).currentUnpaid,0);

@@ -43,11 +43,11 @@ export function confirmDraftOrder({ draftRows, inventoryRecords, orderLines, ful
     const stock = findStockForDraft(row, inventoryRecords);
     if (!stock) continue;
     const group = demandByStock.get(stock) ?? { rows: [], qty: 0 };
-    group.rows.push(row); group.qty += row.qty; demandByStock.set(stock, group);
+    group.rows.push(row); group.qty += Number(row.qty); demandByStock.set(stock, group);
   }
   for (const [stock, { rows, qty }] of demandByStock) {
     const available = stock.inStock - stock.reserved - stock.locked - stock.pending;
-    if (qty > available) for (const row of rows) row.inventory = `缺货：同规格合计 ${qty} 个，可用 ${Math.max(0, available)} 个，转生产排产`;
+    if (!Number.isSafeInteger(qty) || qty > available) for (const row of rows) row.inventory = `缺货：同规格合计 ${qty} 个，可用 ${Math.max(0, available)} 个，转生产排产`;
   }
   const blockingRows = getDraftBlockingRows(checkedRows);
   if (blockingRows.length) {

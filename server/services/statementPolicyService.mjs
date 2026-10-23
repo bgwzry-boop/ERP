@@ -24,7 +24,7 @@ function mapVarianceHandlingResult(value, fallback) {
 }
 
 function normalizeStatementSendReceiptStatus(value) {
-  const status = String(value ?? "").trim();
+  const status = typeof value === "string" ? value.trim() : "";
   if (["delivered", "read", "confirmed", "no_response"].includes(status)) return status;
-  return "read";
+  return "";
 }

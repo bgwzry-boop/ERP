@@ -949,6 +949,8 @@ function toStatement(row, lineRows) {
     period: [periodStart, periodEnd].filter(Boolean).join(" 至 "),
     status,
     receivable: number(row.receivable_amount),
+    varianceHandling: clean(row.variance_handling),
+    varianceHandledAt: timestamp(row.variance_handled_at),
     receivableAmount: number(row.receivable_amount),
     received: number(row.received_amount),
     receivedAmount: number(row.received_amount),
