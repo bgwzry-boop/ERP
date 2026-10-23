@@ -86,12 +86,11 @@
       "commit": "155cdd4d4432c54d17fdd0b5d283e06659b0be0f",
       "currentEvidence": [
         "src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx：CAS失败保留输入，刷新读取不清当前编辑；换session失效",
-        "scripts/check-supplier-color-dialog.mjs：真实React、mockAPI的读取失败/保存失败/刷新恢复/重复提交/权限撤销通过"
+        "scripts/check-supplier-color-dialog.mjs：真实React、mockAPI的读取失败/保存失败/刷新恢复/重复提交/权限撤销通过",
+        "scripts/check-canonical-colour-conflict.mjs：真实当前4174完整review入口，mapping GET/POST拦截为合成409；1440与800宽度，确认app-id/local-unreleased/40位base commit。"
       ],
-      "validation": "PG服务与真实组件分项通过，但旧canonical color conflict专用脚本尚未在父实际4174联跑。",
-      "remainingScope": [
-        "由父在当前4174来源确认后执行canonical冲突恢复联查，不能把mock组件或PG专项等同该浏览器完整链。"
-      ]
+      "validation": "2026-10-23按父重启48fac7e532007cde44ff474577931f5485347540后的当前4174，实际UI验证冲突后原因保持、expectedMapping原快照/供应商身份准确、刷新看到新规则、重新选中最新值、关闭恢复触发按钮焦点。截图已核800；拦截映射API，不写真实业务。",
+      "remainingScope": []
     }
   ],
   "records": [
@@ -6691,10 +6690,22 @@
       "check-raw-material-roll-read.mjs",
       "check-raw-material-inbound-read-projection-service.mjs",
       "check-legacy-materials-postgres-r2.mjs",
-      "check-legacy-supplier-credit-postgres-r2.mjs"
+      "check-legacy-supplier-credit-postgres-r2.mjs",
+      "check-supplier-color-dialog.mjs",
+      "check-raw-material-action-session.mjs",
+      "check-office-inventory-writes.mjs",
+      "check-first-release-scope-service.mjs",
+      "check-supplier-color-storage-partition.mjs"
     ],
     "newFinding": "first-release重复测试暴露local颜色快照未消费runtimeStorageRoot；不同API数据根会共读全局颜色文件。已在自己工作树d6c5b8d85eb642e87139b388d089e7ee2a04fe28最小修复，未删除/修改根遗留业务文件。",
-    "newFindingValidation": "自己的check-supplier-color-storage-partition.mjs实际双API分区/独立审计/重启恢复和global目录未写通过；signed HTTP --stale-edit与master-data-import-transaction专项再过。父拣选后须重跑first-release组。",
-    "pending155": "等待父重启当前4174 API后，按旧check-canonical-colour-conflict.mjs拦截映射维护请求，只做合成409/刷新恢复交互，不触碰真实业务写。"
+    "newFindingValidation": "自己的check-supplier-color-storage-partition.mjs实际双API分区/独立审计/重启恢复和global目录未写通过；signed HTTP --stale-edit与master-data-import-transaction专项再过。父拣选后须重跑first-release组。 父拣选后根first-release-scope与storage-partition再运行通过。",
+    "previewIdentityVerified": {
+      "appId": "bagwin-complete-review-4174",
+      "kind": "local-unreleased",
+      "baseCommit": "48fac7e532007cde44ff474577931f5485347540",
+      "dirty": true,
+      "visibleBadge": "本地修改稿 · 未部署 · 48fac7e5 + 未提交改动"
+    },
+    "completed155": "scripts/check-canonical-colour-conflict.mjs按真实当前4174的1440/800桌面+紧凑宽度验证；供应商规则GET/POST完全合成拦截，无业务写入。"
   }
 }
