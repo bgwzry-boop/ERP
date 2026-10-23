@@ -931,6 +931,7 @@ function toPrintRecord(row) {
     ...camelizeRecord(row),
     id: clean(row.id),
     printRecordId: clean(row.id),
+    packageSnapshot: Array.isArray(row.package_snapshot_json) ? row.package_snapshot_json : [],
     revision: integer(row.revision, 1),
   };
 }

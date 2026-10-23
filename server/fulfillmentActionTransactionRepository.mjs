@@ -1,15 +1,18 @@
 import {buildPrintTodoCompletionCtes,completeLocalPrintTodos,mergePrintTodoCompletion,printTodoCompletionResultSql} from "./fulfillmentPrintTodoCompletion.mjs";
 import {buildGetTodoActionStateQuery,normalizeTodoLookupResult} from "./todoActionRepository.mjs";
 import { matchesDeliveryEvidenceSnapshot } from "../shared/deliveryEvidenceSnapshot.js";
+import { buildPrintTodoRecoveryCtes, recoverLocalPrintTodo, printTodoRecoveryResultSql } from "./fulfillmentPrintTodoRecovery.mjs";
+import { isFulfillmentPrintAction, readFulfillmentPrintCurrentState, mergeFulfillmentPrintCurrentState } from "./fulfillmentPrintCurrentState.mjs";
+import { assertFulfillmentPrintReplay } from "./fulfillmentPrintRequest.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { captureLegacyPrintOrderPrice } from "./services/fulfillmentPrintPricingService.mjs";
 import { captureFulfillmentBillingSnapshot, buildFulfillmentBillingSnapshotGuard } from "./services/fulfillmentBillingSnapshotService.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import {
   buildIdempotencyRequestHash,
+  buildIdempotencyConflictError,
   buildPostgresIdempotencyRequest,
   normalizeIdempotencyKey,
-  readPostgresIdempotencyReplay,
   resolveRepositoryIdempotencyKey,
 } from "./idempotency.mjs";
 import { normalizePrintJobRecord, printJobJsonExpression } from "./printJobRepository.mjs";
@@ -45,6 +48,31 @@ export function createFulfillmentActionTransactionRepository(options = {}) {
 export function createLocalFulfillmentActionTransactionRepository() {
   return {
     kind: "local_memory",
+    findFulfillmentPrintReplay({ workspace, ...request }) {
+      const key = normalizeIdempotencyKey(request.body.idempotencyKey);
+      if (!key) return null;
+      const existing = (workspace.operationIdempotencyRecords ?? []).find(record =>
+        record.scope === "fulfillment.print_fulfillment" && record.idempotencyKey === key);
+      if (!existing) return null;
+      const saved = normalizeFulfillmentActionTransactionResult(cloneJson(existing.response));
+      if (!saved.printJob) {
+        const log = (workspace.operationLogs ?? []).find(record => record.id === `${saved.operationLogId}-PRINT-JOB`
+          && record.action === "create_print_job" && record.targetType === "print_job");
+        if (log?.after) {
+          saved.printJob = normalizePrintJobRecord({ ...log.after, operationLogId: log.id });
+          saved.printJobOperationLogId = log.id;
+        }
+      }
+      assertFulfillmentPrintReplay(existing, saved, request);
+      return { ...saved, replayed: true };
+    },
+    findPrintVoidReplay({ workspace, printRecordId, body, operatorId }) {
+      const key = normalizeIdempotencyKey(body.idempotencyKey);
+      if (!key) return null;
+      const existing = (workspace.operationIdempotencyRecords ?? []).find(record =>
+        record.scope === "fulfillment.void_print_record" && record.idempotencyKey === key);
+      return resolvePrintVoidReplay(existing, { printRecordId, body, operatorId });
+    },
 
     recordFulfillmentAction(requestedInput) {
       const input = consumeFulfillmentActionDecision(requestedInput);
@@ -106,6 +134,13 @@ function commitLocalFulfillmentAction(input) {
     return { ...cloneJson(existing.response), replayed: true };
   }
 
+  if (isFulfillmentPrintAction(input.operationLog?.action)) {
+    for (const log of [input.operationLog, input.printJobOperationLog].filter(Boolean)) {
+      if ((workspace.operationLogs ?? []).some(existing => existing.id === log.id)) {
+        throw new Error("Print audit identity already exists");
+      }
+    }
+  }
   const stagedWorkspace = stageLocalFulfillmentWorkspace(workspace);
   assertLocalFulfillmentOperationalBounds(input);
   assertLocalPrintPricingSnapshot(input);
@@ -146,6 +181,7 @@ function commitLocalFulfillmentAction(input) {
   });
   const response = { ...transaction, replayed: false };
   response.completedPrintTodos = completeLocalPrintTodos(input, stagedWorkspace);
+  response.recoveredPrintTodos = recoverLocalPrintTodo(input, stagedWorkspace);
   if (idempotencyKey) {
     stagedWorkspace.operationIdempotencyRecords.unshift({
       scope,
@@ -270,6 +306,12 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
     if (!saved.fulfillment) {
       throw new Error("PostgreSQL fulfillment action transaction returned an invalid result");
     }
+    if (isFulfillmentPrintAction(input.operationLog?.action)) {
+      if (saved.fulfillment.fulfillmentId !== fulfillmentId) throw new Error("Print receipt belongs to another fulfillment");
+      const current = await readFulfillmentPrintCurrentState(queryJson, saved);
+      mergeFulfillmentPrintCurrentState(input.workspace, current);
+      return saved;
+    }
     applyFulfillmentActionWorkspaceMutation({
       workspace: input.workspace,
       fulfillment: { ...input.fulfillment, ...saved.fulfillment },
@@ -306,12 +348,6 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
       printJobOperationLog:
         saved.printJobOperationLogId === input.printJobOperationLog?.id ? input.printJobOperationLog : null,
     });
-    if (saved.completedPrintTodos.length) {
-      const currentTodos = await Promise.all(saved.completedPrintTodos.map(async receipt => {
-        const q = buildGetTodoActionStateQuery(receipt.todo.id); return normalizeTodoLookupResult(await queryJson(q.text,q.values));
-      }));
-      mergePrintTodoCompletion(input.workspace,saved.completedPrintTodos,currentTodos);
-    }
     applyFulfillmentDecisionWorkspaceMutation(
       input.workspace,
       saved.businessDecision,
@@ -323,13 +359,50 @@ export function createPostgresFulfillmentActionTransactionRepository(options = {
 
   return {
     kind: "postgres",
-    async findPrintReplay(input) {
-      const saved = await readPostgresIdempotencyReplay({ queryJson, scope: "fulfillment.print_fulfillment", idempotencyKey: input.idempotencyKey, payload: input.idempotencyPayload });
-      return saved ? normalizeFulfillmentActionTransactionResult(saved) : null;
+    async findFulfillmentPrintReplay({ workspace, ...request }) {
+      const key = normalizeIdempotencyKey(request.body.idempotencyKey);
+      if (!key) return null;
+      const existing = await queryJson("SELECT json_build_object('requestHash', request_hash, 'response', response_json) AS result FROM operation_idempotency_keys WHERE scope = 'fulfillment.print_fulfillment' AND idempotency_key = $1", [key]);
+      if (!existing) return null;
+      const saved = normalizeFulfillmentActionTransactionResult(cloneJson(existing.response));
+      assertFulfillmentPrintReplay(existing, saved, request);
+      const current = await readFulfillmentPrintCurrentState(queryJson, saved);
+      mergeFulfillmentPrintCurrentState(workspace, current);
+      return { ...saved, replayed: true };
+    },
+    async findPrintVoidReplay({ workspace, printRecordId, body, operatorId }) {
+      const key = normalizeIdempotencyKey(body.idempotencyKey);
+      if (!key) return null;
+      const existing = await queryJson("SELECT json_build_object('requestHash', request_hash, 'response', response_json) AS result FROM operation_idempotency_keys WHERE scope = 'fulfillment.void_print_record' AND idempotency_key = $1", [key]);
+      const saved = resolvePrintVoidReplay(existing, { printRecordId, body, operatorId });
+      if (!saved) return null;
+      const current = await readFulfillmentPrintCurrentState(queryJson, saved);
+      mergeFulfillmentPrintCurrentState(workspace, current);
+      return saved;
     },
     recordFulfillmentAction,
     recordFulfillmentPrint: recordFulfillmentAction,
   };
+}
+
+function resolvePrintVoidReplay(existing, { printRecordId, body, operatorId }) {
+  if (!existing) return null;
+  // Old receipts predate explicit target hashing. Their immutable result must
+  // still bind this exact record; neither a different operator nor body may pass.
+  const hashes = [
+    buildIdempotencyRequestHash({ ...body, operatorId, printRecordId }),
+    buildIdempotencyRequestHash({ ...body, operatorId }),
+  ];
+  if (!hashes.includes(existing.requestHash)) throw buildIdempotencyConflictError();
+  const saved = normalizeFulfillmentActionTransactionResult(cloneJson(existing.response));
+  if (saved.printRecord?.printRecordId !== printRecordId
+    || saved.printRecord.status !== "voided"
+    || saved.printRecord.targetType !== "fulfillment"
+    || !saved.fulfillment?.fulfillmentId
+    || saved.printRecord.targetId !== saved.fulfillment.fulfillmentId) {
+    throw buildIdempotencyConflictError();
+  }
+  return { ...saved, replayed: true };
 }
 
 function buildFulfillmentActionIdempotencyPayload(input = {}) {
@@ -542,12 +615,13 @@ updated_packages AS (
   ${buildUpdatePackagesSql(packages)}
 ),
 inserted_print_job_operation_log AS (
-  ${buildInsertOperationLogSql(printJobOperationLog, parameters)}
+  ${buildInsertOperationLogSql(printJobOperationLog, parameters, isFulfillmentPrintAction(operationLog.action))}
 ),
 written_print_job AS (
   ${buildWritePrintJobSql(printJob, printJobWriteMode, parameters)}
 ),
 ${buildPrintTodoCompletionCtes(input, parameters)},
+${buildPrintTodoRecoveryCtes(input, parameters)},
 written_paper_outbound_document AS (
   ${buildWritePaperOutboundDocumentSql(paperOutboundDocument, parameters)}
 ),
@@ -600,7 +674,7 @@ inserted_statement_line AS (
   ${buildInsertStatementLineSql(statementCandidate?.statementLine, parameters)}
 ),
 inserted_operation_log AS (
-  ${buildInsertOperationLogSql(operationLog, parameters)}
+  ${buildInsertOperationLogSql(operationLog, parameters, isFulfillmentPrintAction(operationLog.action))}
 ),
 ${decisionCtes}
 SELECT json_build_object(
@@ -612,6 +686,8 @@ SELECT json_build_object(
   'packages', (SELECT COALESCE(json_agg(result ORDER BY result->>'packageId'), '[]'::json) FROM updated_packages),
   'completedPrintTodos', ${printTodoCompletionResultSql},
   'printTodoSourceGuard', (SELECT ok FROM print_todo_source_guard),
+  'recoveredPrintTodos', ${printTodoRecoveryResultSql},
+  'printTodoRecoveryGuard', (SELECT ok FROM print_todo_recovery_guard),
   'fulfillmentException', (SELECT result FROM inserted_fulfillment_exception),
   'inventoryReservations', (SELECT COALESCE(json_agg(result ORDER BY result->>'reservationId'), '[]'::json) FROM updated_inventory_reservations),
   'inventoryItems', (SELECT COALESCE(json_agg(result ORDER BY result->>'inventoryItemId'), '[]'::json) FROM updated_inventory_items),
@@ -656,6 +732,7 @@ export function normalizeFulfillmentActionTransactionResult(value) {
       warehouseOutboundExecution: null,
       packages: [],
       completedPrintTodos: [],
+      recoveredPrintTodos: [],
       fulfillmentException: null,
       inventoryReservations: [],
       inventoryItems: [],
@@ -681,6 +758,7 @@ export function normalizeFulfillmentActionTransactionResult(value) {
       : null,
     packages: normalizePackages(value.packages ?? []),
     completedPrintTodos: Array.isArray(value.completedPrintTodos) ? value.completedPrintTodos : [],
+    recoveredPrintTodos: Array.isArray(value.recoveredPrintTodos) ? value.recoveredPrintTodos : [],
     fulfillmentException: value.fulfillmentException ? normalizeFulfillmentException(value.fulfillmentException) : null,
     inventoryReservations: normalizeInventoryReservations(value.inventoryReservations ?? value.inventory_reservations ?? []),
     inventoryItems: normalizeInventoryItems(value.inventoryItems ?? value.inventory_items ?? []),
@@ -2078,7 +2156,7 @@ WHERE NOT EXISTS (
 RETURNING ${statementLineJsonExpression("statement_lines")} AS result`;
 }
 
-function buildInsertOperationLogSql(operationLog, parameters) {
+function buildInsertOperationLogSql(operationLog, parameters, immutable = false) {
   if (!operationLog) return "SELECT NULL::text AS id WHERE false";
   return `INSERT INTO operation_logs (
   id,
@@ -2105,7 +2183,7 @@ function buildInsertOperationLogSql(operationLog, parameters) {
   ${parameters.timestamp(operationLog.occurredAt)},
   ${parameters.timestamp(operationLog.createdAt)}
 )
-ON CONFLICT (id) DO UPDATE SET
+${immutable ? "" : `ON CONFLICT (id) DO UPDATE SET
   target_type = EXCLUDED.target_type,
   target_id = EXCLUDED.target_id,
   action = EXCLUDED.action,
@@ -2113,7 +2191,7 @@ ON CONFLICT (id) DO UPDATE SET
   after_json = EXCLUDED.after_json,
   reason = EXCLUDED.reason,
   operator_id = EXCLUDED.operator_id,
-  page_key = EXCLUDED.page_key
+  page_key = EXCLUDED.page_key`}
 RETURNING id`;
 }
 

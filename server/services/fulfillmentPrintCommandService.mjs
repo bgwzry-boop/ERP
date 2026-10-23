@@ -1,3 +1,4 @@
+import { buildFulfillmentPrintRequest } from "../fulfillmentPrintRequest.mjs";
 import { createFulfillmentActionOrchestrator } from "./fulfillmentActionOrchestrator.mjs";
 import { resolveFulfillmentPrintPricing } from "./fulfillmentPrintPricingService.mjs";
 
@@ -22,17 +23,20 @@ export function createFulfillmentPrintCommandService({
   }
 
   async function printFulfillment({ workspace, fulfillmentId, body = {}, operatorId }) {
+    const replay = await workspace.fulfillmentActionTransactionRepository?.findFulfillmentPrintReplay?.({
+      workspace, fulfillmentId, body, operatorId,
+    });
+    if (replay) {
+      if (workspace.fulfillmentActionTransactionRepository.kind !== "postgres") {
+        const currentJob = (workspace.printJobs ?? []).find(job => job.printJobId === replay.printJob.printJobId);
+        if (!currentJob) throw new Error("Current print job is unavailable for replay");
+        await workspace.printJobRepository.createPrintJob({ workspace, printJob: currentJob });
+      }
+      return printCommandResponse(replay, body);
+    }
     const before = findFulfillment(workspace, fulfillmentId);
     if (!before) return notFound();
-    const idempotencyPayload = { ...body, fulfillmentId, operatorId };
-    const replay = await workspace.fulfillmentActionTransactionRepository?.findPrintReplay?.({ idempotencyKey: body.idempotencyKey, idempotencyPayload });
-    if (replay) return {
-      fulfillmentId, printRecord: replay.printRecord, paperOutboundDocument: replay.paperOutboundDocument,
-      printTemplate: replay.printJob?.payload?.printTemplate, printJob: replay.printJob,
-      printJobId: replay.printJob?.printJobId, nextStatus: before.status, operationLogId: replay.operationLogId,
-      printJobOperationLogId: replay.printJobOperationLogId, physicalPrintConfirmed: replay.printJob?.jobStatus === "printed",
-      replayed: true,
-    };
+    const idempotencyPayload = buildFulfillmentPrintRequest({ fulfillmentId, body, operatorId });
 
     const normalizedPrintBody = {
       ...body,
@@ -125,6 +129,7 @@ export function createFulfillmentPrintCommandService({
       before: null,
       after: printJob,
     });
+    printJob.operationLogId = printJobOperationLog.id;
     const fulfillment = buildFulfillmentActionRecord(workspace, {
       ...before,
       ...(paperOutboundDocument
@@ -146,6 +151,8 @@ export function createFulfillmentPrintCommandService({
       printRecord,
       paperOutboundDocument,
       operationLog,
+      printJob,
+      printJobOperationLog,
       printBillingSnapshot: pricingResult?.billingSnapshot,
       legacyPrintOrderPrice: pricingResult?.legacyOrderPrice,
     };
@@ -172,53 +179,38 @@ export function createFulfillmentPrintCommandService({
         printJob,
         printJobOperationLog,
       });
-      const savedPrintRecord = transaction.printRecord ?? printRecord;
-      const savedPrintJob = transaction.printJob ?? printJob;
-      return {
-        fulfillmentId,
-        printRecord: savedPrintRecord,
-        paperOutboundDocument: transaction.paperOutboundDocument ?? paperOutboundDocument,
-        printTemplate: savedPrintJob.payload?.printTemplate ?? printTemplate,
-        printJob: savedPrintJob,
-        printJobId: savedPrintJob.printJobId,
-        nextStatus: before.status,
-        operationLogId: transaction.operationLogId,
-        printJobOperationLogId: transaction.printJobOperationLogId,
-        physicalPrintConfirmed: savedPrintJob.jobStatus === "printed",
-        ignoredClientPackageIds: Array.isArray(body.packageIds) && body.packageIds.length > 0,
-      };
+      return printCommandResponse(transaction, body);
     }
 
     const transaction = await orchestrator.applyAction(actionInput);
-    const savedPrintRecord = transaction.printRecord ?? printRecord;
+    const originalJob = transaction.printJob ?? printJob;
+    const currentJob = (workspace.printJobs ?? []).find(job => job.printJobId === originalJob.printJobId) ?? originalJob;
     const printJobTransaction = await workspace.printJobRepository.createPrintJob({
       workspace,
-      printJob,
-      operationLog: printJobOperationLog,
+      printJob: currentJob,
+      operationLog: !currentJob.operationLogId || currentJob.operationLogId === printJobOperationLog.id ? printJobOperationLog : undefined,
       idempotencyKey: printableBody.idempotencyKey,
-      idempotencyPayload: {
-        ...printableBody,
-        packageIds: packageSnapshot.map((item) => item.packageId),
-        operatorId,
-      },
+      idempotencyPayload,
     });
-    const savedPrintJob = printJobTransaction.printJob ?? printJob;
-    return {
-      fulfillmentId,
-      printRecord: savedPrintRecord,
-      paperOutboundDocument: transaction.paperOutboundDocument ?? paperOutboundDocument,
-      printTemplate,
-      printJob: savedPrintJob,
-      printJobId: savedPrintJob.printJobId,
-      nextStatus: before.status,
-      operationLogId: transaction.operationLogId,
-      printJobOperationLogId: printJobTransaction.operationLogId,
-      physicalPrintConfirmed: savedPrintJob.jobStatus === "printed",
-      ignoredClientPackageIds: Array.isArray(body.packageIds) && body.packageIds.length > 0,
-    };
+    return printCommandResponse({
+      ...transaction,
+      printRecord: transaction.printRecord ?? printRecord,
+      printJob: transaction.printJob ?? printJobTransaction.printJob ?? printJob,
+      printJobOperationLogId: transaction.printJobOperationLogId || printJobOperationLog.id,
+    }, body);
   }
 
   async function voidPrintRecord({ workspace, printRecordId, body = {}, operatorId }) {
+    const replay = await workspace.fulfillmentActionTransactionRepository?.findPrintVoidReplay?.({
+      workspace, printRecordId, body, operatorId,
+    });
+    if (replay) return {
+      printRecord: replay.printRecord,
+      paperOutboundDocument: replay.paperOutboundDocument,
+      packages: replay.packages,
+      nextStatus: replay.fulfillment.status,
+      operationLogId: replay.operationLogId,
+    };
     const before = findPrintRecord(workspace, printRecordId);
     if (!before) return notFound();
     if (before.status === "voided") {
@@ -228,7 +220,7 @@ export function createFulfillmentPrintCommandService({
       return businessError(409, "PRINT_RECORD_NOT_VOIDABLE", "Only printed or reprinted records can be voided.");
     }
 
-    const voidedAt = body.voidedAt ?? nowIso(now);
+    const voidedAt = nowIso(now);
     const after = {
       ...before,
       status: "voided",
@@ -271,14 +263,15 @@ export function createFulfillmentPrintCommandService({
         );
       }
     }
-    const releasedPackages = fulfillment
-      ? listPackagesLinkedToPrintRecord(workspace, fulfillment, printRecordId).map((item) => ({
+    const linkedPackagesBefore = fulfillment
+      ? listPackagesLinkedToPrintRecord(workspace, fulfillment, printRecordId).map((item) => structuredClone(item))
+      : [];
+    const releasedPackages = linkedPackagesBefore.map((item) => ({
           ...item,
           labelPrintRecordId: "",
           status: "待打印标签",
           revision: normalizeRevision(item.revision) + 1,
-        }))
-      : [];
+        }));
     const nextFulfillment = fulfillment
       ? buildFulfillmentAfterPrintVoid(workspace, { fulfillment, printRecordId, releasedPackages })
       : null;
@@ -304,7 +297,7 @@ export function createFulfillmentPrintCommandService({
       targetId: printRecordId,
       action: "void_print_record",
       operatorId,
-      before: fulfillment ? { printRecord: before, fulfillment, packages: releasedPackages.map(stripPackageAfter) } : before,
+      before: fulfillment ? { printRecord: before, fulfillment, packages: linkedPackagesBefore } : before,
       after: fulfillmentAfterPaperVoid
         ? { printRecord: after, paperOutboundDocument: nextPaperOutboundDocument, fulfillment: fulfillmentAfterPaperVoid, packages: releasedPackages }
         : after,
@@ -324,11 +317,14 @@ export function createFulfillmentPrintCommandService({
         body,
         workspace,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { ...body, operatorId },
+        idempotencyPayload: { ...body, operatorId, printRecordId },
         fulfillment: nextActionRecord,
         printRecord: after,
         paperOutboundDocument: nextPaperOutboundDocument,
         packages: releasedPackages,
+        labelPrintInvalidation: resolvePrintRecordDocumentType(before) === "express_ltl_label" && releasedPackages.length > 0
+          && fulfillmentAfterPaperVoid.status === "待打印标签"
+          ? { fulfillmentId: fulfillment.fulfillmentId ?? fulfillment.id, printRecordId } : null,
         operationLog,
       });
       return {
@@ -353,6 +349,23 @@ export function createFulfillmentPrintCommandService({
   }
 
   return { printFulfillment, voidPrintRecord };
+}
+
+function printCommandResponse(transaction, body) {
+  const printJob = transaction.printJob;
+  return {
+    fulfillmentId: transaction.fulfillment.fulfillmentId,
+    printRecord: transaction.printRecord,
+    paperOutboundDocument: transaction.paperOutboundDocument,
+    printTemplate: printJob.payload.printTemplate,
+    printJob,
+    printJobId: printJob.printJobId,
+    nextStatus: transaction.fulfillment.status,
+    operationLogId: transaction.operationLogId,
+    printJobOperationLogId: transaction.printJobOperationLogId,
+    physicalPrintConfirmed: printJob.jobStatus === "printed",
+    ignoredClientPackageIds: Array.isArray(body.packageIds) && body.packageIds.length > 0,
+  };
 }
 
 function buildFulfillmentPrintRecord({
@@ -525,6 +538,9 @@ function validateFulfillmentPrintRequest(workspace, fulfillmentId, body) {
     if (previous.status !== "voided") {
       return businessError(409, "REPRINT_REQUIRES_VOIDED_RECORD", "The previous print record must be voided before reprinting.");
     }
+    if (activeRecord) {
+      return businessError(409, "ACTIVE_PRINT_RECORD_EXISTS", "已有当前打印记录，请先处理当前标签或单据；历史作废记录不能重复用于重打。");
+    }
     return {};
   }
   return activeRecord
@@ -610,15 +626,6 @@ function normalizeFulfillmentMethod(value) {
     待确认: "pending",
   };
   return methodMap[value] ?? value ?? "pending";
-}
-
-function stripPackageAfter(item) {
-  return {
-    ...item,
-    labelPrintRecordId: normalizeText(item.labelPrintRecordId ?? item.label_print_record_id),
-    status: String(item.status ?? "待打印标签"),
-    revision: normalizeRevision(item.revision),
-  };
 }
 
 function findActivePrintRecordForFulfillment(workspace, fulfillmentId, documentType) {

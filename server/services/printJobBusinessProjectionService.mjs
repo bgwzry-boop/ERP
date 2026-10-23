@@ -119,6 +119,7 @@ export function createPrintJobBusinessProjectionService({
         }),
         printRecord: plan.printRecord,
         packages: plan.nextPackages,
+        labelPrintCompletion: plan.labelPrintCompletion,
         operationLog: plan.operationLog,
       });
 
@@ -161,8 +162,10 @@ function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, 
   if (nextPrintRecordStatus === beforePrintRecord.status && jobStatus !== "printed") return null;
 
   const now = printJob.finishedAt || printJob.updatedAt || new Date().toISOString();
+  const documentType = normalizeText(beforePrintRecord.documentType) || normalizeText(printJob.documentType);
   const printRecord = {
     ...beforePrintRecord,
+    documentType,
     status: nextPrintRecordStatus,
     printedAt: jobStatus === "printed" ? now : beforePrintRecord.printedAt ?? "",
     jobStatus,
@@ -173,8 +176,7 @@ function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, 
     beforePrintRecord.targetType === "fulfillment"
       ? findFulfillment(workspace, beforePrintRecord.targetId)
       : null;
-  const isPackageLabel = normalizeText(beforePrintRecord.documentType ?? printJob.documentType) === "express_ltl_label";
-  printRecord.documentType = normalizeText(beforePrintRecord.documentType ?? printJob.documentType);
+  const isPackageLabel = documentType === "express_ltl_label";
   const labelTrust = fulfillment ? evaluateFulfillmentLabelTrust(workspace, { fulfillment, printRecord, isPackageLabel }) : null;
   const physicalPrintConfirmed =
     jobStatus === "printed" && (!labelTrust?.required || labelTrust.trusted === true);

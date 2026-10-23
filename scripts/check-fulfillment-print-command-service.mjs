@@ -1,3 +1,4 @@
+import { checkFulfillmentPrintServiceReplay } from "./helpers/checkFulfillmentPrintServiceReplay.mjs";
 import assert from "node:assert/strict";
 import { createFulfillmentPrintCommandService } from "../server/services/fulfillmentPrintCommandService.mjs";
 
@@ -353,7 +354,61 @@ const fixedNow = "2026-07-11T11:00:00.000Z";
   assert.equal(demoHarness.workspace.operationLogs.length, 1);
 }
 
-console.log("Fulfillment print command service checks passed: device gates, preview, queueing, void/reprint, and production persistence are isolated.");
+for (const status of ["submitted", "reprint_submitted", "printed", "reprinted"]) {
+  const harness = createHarness({ printRecords: [
+    createPrintRecord({ status: "voided" }),
+    createPrintRecord({ printRecordId: "PR-CURRENT", status }),
+  ] });
+  const before = JSON.stringify(harness.workspace);
+  const result = await harness.service.printFulfillment({
+    workspace: harness.workspace, fulfillmentId: "F-001", operatorId: "U-OFFICE-A",
+    body: { printAction: "reprint", previousPrintRecordId: "PR-OLD", idempotencyKey: `old-void-reprint-${status}` },
+  });
+  assert.equal(result.code, "ACTIVE_PRINT_RECORD_EXISTS", "An old voided label cannot authorize another print while the current label is active");
+  assert.equal(JSON.stringify(harness.workspace), before);
+  assert.equal(harness.fulfillmentCalls.length, 0);
+  assert.equal(harness.printJobCalls.length, 0);
+}
+
+for (const extra of [
+  createPrintRecord({ printRecordId: "PR-PREVIEW", status: "previewed" }),
+  createPrintRecord({ printRecordId: "PR-OTHER", targetId: "F-OTHER", status: "printed" }),
+  createPrintRecord({ printRecordId: "PR-PAPER", documentType: "outbound_note", status: "printed" }),
+]) {
+  const harness = createHarness({ printRecords: [createPrintRecord({ status: "voided" }), extra] });
+  const result = await harness.service.printFulfillment({
+    workspace: harness.workspace, fulfillmentId: "F-001", operatorId: "U-OFFICE-A",
+    body: { printAction: "reprint", previousPrintRecordId: "PR-OLD" },
+  });
+  assert.equal(result.printRecord.status, "reprint_submitted", "Preview, another fulfillment, or paper document must not block this label reprint");
+}
+
+{
+  const original = createPackage({ status: "已打印标签", labelPrintRecordId: "PR-OLD", revision: 5 });
+  const harness = createHarness({ printRecords: [createPrintRecord()], packages: [original] });
+  const result = await harness.service.voidPrintRecord({
+    workspace: harness.workspace, printRecordId: "PR-OLD", operatorId: "U-OFFICE-A",
+    body: { voidedAt: "2000-01-01T00:00:00.000Z", operatorId: "U-SPOOFED", voidReason: "content_changed" },
+  });
+  const input = harness.fulfillmentCalls.at(-1);
+  assert.deepEqual(input.operationLog.before.packages, [original], "Void audit must retain the actual label, status and revision before release");
+  assert.equal(input.operationLog.after.packages[0].labelPrintRecordId, "");
+  assert.equal(input.operationLog.after.packages[0].revision, 6);
+  assert.equal(result.printRecord.voidedAt, fixedNow, "Server time owns void evidence");
+  assert.equal(result.printRecord.voidedBy, "U-OFFICE-A");
+}
+
+{
+  const harness = createHarness({
+    printRecords: [createPrintRecord()],
+    packages: [createPackage({ labelPrintRecordId: "PR-NEW", status: "已打印标签" })],
+  });
+  await harness.service.voidPrintRecord({ workspace: harness.workspace, printRecordId: "PR-OLD", operatorId: "U-OFFICE-A", body: {} });
+  assert.equal(harness.fulfillmentCalls.at(-1).labelPrintInvalidation, null, "Voiding a historical unbound label creates no current reprint todo");
+  assert.equal(harness.fulfillmentCalls.at(-1).packages.length, 0);
+}
+
+console.log("Fulfillment print command service checks passed: device gates, preview, queueing, active-label reprint guard, exact void audit and server time, source recovery selection, and production persistence are isolated.");
 
 function createHarness({
   fulfillments = [createFulfillment()],
@@ -532,3 +587,5 @@ function upsert(rows, record, key) {
   if (index < 0) return [...rows, record];
   return rows.map((item, itemIndex) => (itemIndex === index ? record : item));
 }
+
+await checkFulfillmentPrintServiceReplay();

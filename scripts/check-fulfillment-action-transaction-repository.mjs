@@ -368,7 +368,8 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   const inventoryLedgerEntries = [buildInventoryLedgerEntry()];
   const inventoryAdjustments = [{ inventoryItemId: "INV-F003", onHandQtyChange: -1500, reservedQtyChange: -1500 }];
   const todo = buildTodo({ summary: "O'Brien 快运数量差异待确认" });
-  const operationLog = buildOperationLog({ logId: "LOG-FULFILLMENT-ACTION-SQL-001", action: "print_fulfillment" });
+  // This fixture accounts final handoff; dedicated print-only snapshot fixture below.
+  const operationLog = buildOperationLog({ logId: "LOG-FULFILLMENT-ACTION-SQL-001", action: "confirm_carrier_final_handoff" });
   const statementCandidate = buildStatementCandidate();
   const repository = createPostgresFulfillmentActionTransactionRepository({
     postgresClient: {
@@ -405,7 +406,7 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
     statements: [],
     statementLines: [],
   };
-  const transaction = await repository.recordFulfillmentPrint({
+  const transaction = await repository.recordFulfillmentAction({
     idempotencyKey: "idem-fulfillment-action-001",
     workspace,
     fulfillment,
@@ -446,7 +447,7 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   assert.equal(workspace.statementLines[0].orderLineId, "ORD-0629-010-01");
 
   const { text: sql, values } = calls[0];
-  assert.equal(calls[0].scope, "fulfillment.print_fulfillment");
+  assert.equal(calls[0].scope, "fulfillment.confirm_carrier_final_handoff");
   assert.equal(calls[0].idempotencyKey, "idem-fulfillment-action-001");
   assert.ok(calls[0].resourceLocks.includes("fulfillment:F003"));
   assert.match(sql, /^BEGIN;/);
@@ -563,6 +564,20 @@ async function checkPostgresFulfillmentActionTransactionSqlBoundary() {
   });
   const repository = createPostgresFulfillmentActionTransactionRepository({
     postgresClient: {
+      async queryJson(text) {
+        assert.match(text, /'printState'/);
+        const row = value => Object.fromEntries(Object.entries(value).map(([key, entry]) => [key.replace(/[A-Z]/g, letter => `_${letter.toLowerCase()}`), entry]));
+        return {
+          printState: {
+            fulfillments: [{ ...row(fulfillment), id: fulfillment.fulfillmentId, revision: 2 }],
+            packages: packages.map(value => ({ ...row(value), id: value.packageId })),
+            printRecords: [{ ...row(printRecord), id: printRecord.printRecordId, package_snapshot_json: printRecord.packageSnapshot }],
+            operationLogs: [operationLog, printJobOperationLog].map(value => ({ ...row(value), before_json: value.before, after_json: value.after })),
+          },
+          printJobs: [{ ...row(printJob), id: printJob.printJobId, revision: 2 }],
+          todos: [],
+        };
+      },
       async idempotentTransactionJson(request) {
         calls.push(request);
         return {
