@@ -565,7 +565,7 @@
         "e90fa4215a"
       ],
       "state": "deferred-review-not-proven-current-bug",
-      "reason": "fcd93b83 仅移植跨单退货容量；供应商抵扣、部分交付计价、重复收款、结算并发等不能从本轮 P1 修复外推已完成。"
+      "reason": "本轮另补关闭账期、累计收款、全部付款凭证、付款身份、分批打印与导出保真保护；供应商抵扣及未列出的其他结算链仍待现行版本复现，不能外推全部完成。"
     },
     {
       "area": "岗位行级读取与业务对象归属",
@@ -589,7 +589,7 @@
         "3c259dfd4e"
       ],
       "state": "deferred-review-not-proven-current-bug",
-      "reason": "MAT-01~04 修复不代表标签/实物版本一致、颜色维护并发、全成本校准及排除卷汇总全部覆盖；仍需现行接口复现。"
+      "reason": "本轮另补排除误识别行保留票面原汇总、金额容差及卷码碰撞；标签与实物版本、颜色维护并发和全成本校准仍需逐项复核。"
     },
     {
       "area": "生产后续工序、照片复核、维修和售后待办",
@@ -35517,7 +35517,7 @@
   ],
   "followupSummary": {
     "date": "2026-10-23",
-    "scope": "追加已核对的原料盘点/OCR/扫码及出库事实/司机资格保护；保留92060c76原机械比较快照。",
+    "scope": "追加原料盘点/OCR/扫码、出库事实/司机资格、已结账期/收款凭证/分批打印及对账导出保护；保留原机械比较快照。",
     "sourceRecords": [
       "docs/development/p1-legacy-followup-review-20261023.json",
       "docs/development/p1-remediation-closeout-20261023.json"
