@@ -10,7 +10,7 @@ import {
 export const officeModalTitles = {
   mismatch: "数量不符",
   unable: "无法出库",
-  payment: "登记实收金额",
+  payment: "登记本期累计实收",
   variance: "差额处理结果",
   print: "单据 / 标签预览",
   printVoid: "作废旧单据/标签",
@@ -60,7 +60,7 @@ const supportedPrintModalActions = new Set([
 
 export function getOfficeModalInitialNumberValue(modal, { fulfillment, statement, getStatementBlockingAmount }) {
   if (modal.type === "batchPrintResult") return String(modal.totalLabels ?? 0);
-  if (modal.type === "payment") return String(statement?.received || statement?.receivable || 0);
+  if (modal.type === "payment") return String(statement?.received ?? 0);
   if (modal.type === "variance") return String(getStatementBlockingAmount(statement));
   if (modal.type === "unable") return "0";
   return String(fulfillment?.qty || 0);

@@ -857,7 +857,7 @@ export function ActionModal({
         ) : (
           <div className="form-grid">
             <label>
-              {modal.type === "payment" ? "实收金额" : modal.type === "variance" ? "差额金额" : modal.type === "unable" ? "实际找到数量" : "实际数量"}
+              {modal.type === "payment" ? "本期累计实收金额" : modal.type === "variance" ? "差额金额" : modal.type === "unable" ? "实际找到数量" : "实际数量"}
               <input value={numberValue} readOnly={modal.type === "variance"} onChange={(event) => setNumberValue(event.target.value)} />
             </label>
             <label>
@@ -870,6 +870,7 @@ export function ActionModal({
             </label>
             {modal.type === "payment" && (
               <>
+                <p className="form-note">填写截至本次核对时，这张账单已收到的总金额。此前累计20元、本次核对累计50元时填写50元，不能再相加成70元。</p>
                 <div className="form-check-row">
                   <span>付款凭证</span>
                   <label>

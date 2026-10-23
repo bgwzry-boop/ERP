@@ -68,3 +68,7 @@ assert.deepEqual(
 console.log("Office statement rules check passed: current-period and historical debt amounts remain separate.");
 
 assert.equal(getStatementFinancialSummary({customerId:"C-CURRENT",receivable:100,received:80,status:"已核销",variance:0},customers).currentUnpaid,0);
+
+const {getOfficeModalInitialNumberValue}=await import('../src/state/officeModalActions.js');
+assert.equal(getOfficeModalInitialNumberValue({type:"payment"},{statement:{received:20,receivable:100}}),"20");
+assert.equal(getOfficeModalInitialNumberValue({type:"payment"},{statement:{received:0,receivable:100}}),"0");
