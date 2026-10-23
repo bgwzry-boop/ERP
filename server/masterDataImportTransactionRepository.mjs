@@ -69,12 +69,12 @@ export function createMasterDataImportTransactionRepository(options = {}) {
       postgresClient: options.postgresClient,
     });
   }
-  if (mode === "local" || mode === "local_transaction") return createLocalMasterDataImportTransactionRepository();
+  if (mode === "local" || mode === "local_transaction") return createLocalMasterDataImportTransactionRepository(options);
   throw new Error(`Unsupported master data import transaction repository mode: ${mode}`);
 }
 
-export function createLocalMasterDataImportTransactionRepository() {
-  const colourPath = join(process.env.ERP_LOCAL_STORAGE_DIR ?? join(process.cwd(), ".erp-local-storage"), "metadata", "supplier-colour-mappings.json");
+export function createLocalMasterDataImportTransactionRepository(options = {}) {
+  const colourPath = join(options.storageRoot ?? process.env.ERP_LOCAL_STORAGE_DIR ?? join(process.cwd(), ".erp-local-storage"), "metadata", "supplier-colour-mappings.json");
   return {
     loadSupplierColourState() {
       if (!existsSync(colourPath)) return null;
