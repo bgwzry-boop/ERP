@@ -1,4 +1,5 @@
-import { RawMaterialRecordHistory } from "./RawMaterialRecordHistory.jsx";
+import { lazy, Suspense } from "react";
+const RawMaterialRecordHistory = lazy(() => import("./RawMaterialRecordHistory.jsx").then(module => ({ default: module.RawMaterialRecordHistory })));
 import { InfoGrid, Timeline } from "../../shared/ui/operational.jsx";
 import {
   SupplierStatementImportPreview,
@@ -114,7 +115,7 @@ export function RawMaterialInboundSupportingSections({
             ["毛利报表", formatRawMaterialMarginReportSummary(selected, canViewCost, money)],
           ]}
         />
-        <RawMaterialRecordHistory selected={selected} canViewCost={canViewCost} money={money} />
+        {["领料成本", "扫码出库"].includes(detailTab) ? <Suspense fallback={<p role="status">正在展开操作记录…</p>}><RawMaterialRecordHistory selected={selected} canViewCost={canViewCost} money={money} /></Suspense> : null}
       </section>
       <section className="detail-section operational-detail-section-first" hidden={detailTab !== "供应商账"}>
         <h3>供应商对账</h3>
