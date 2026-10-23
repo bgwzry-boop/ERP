@@ -18,6 +18,13 @@ export async function checkFulfillmentApi({
     },
     { headers },
   );
+  const finalOutboundDispatch = await postJson(
+    baseUrl,
+    `/api/print-jobs/${finalOutboundPrint.printJob.printJobId}/dispatch`,
+    { reason: "隔离PG纸单设备派发测试", idempotencyKey: "final-outbound-print-dispatch-live-001" },
+    { headers },
+  );
+  assert.equal(finalOutboundDispatch.printJob.jobStatus, "sent");
   const finalOutboundPrintCallback = await postJson(
     baseUrl,
     `/api/print-jobs/${finalOutboundPrint.printJob.printJobId}/driver-status`,
@@ -26,6 +33,7 @@ export async function checkFulfillmentApi({
       adapterName: "postgres-live-dot-matrix",
       eventSource: "driver_callback",
       driverStatus: "completed",
+      externalJobId: finalOutboundDispatch.dispatchResult.externalJobId,
       eventAt: "2026-07-02T10:30:00.000Z",
       operatorId: "PRINT-DRIVER",
     },
@@ -192,7 +200,7 @@ export async function checkLegacyFulfillmentApi(runtime, { baseUrl, headers, get
   assert.equal(
     Number(
       runPsql(
-        "SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_type = 'warehouse_physical_outbound_legacy' AND source_id = 'F002';",
+        "SELECT COUNT(*) FROM inventory_ledger_entries WHERE source_type = 'warehouse_physical_outbound_legacy' AND source_id = 'F-LIVE-LEGACY-001';",
         { capture: true },
       ).trim(),
     ),

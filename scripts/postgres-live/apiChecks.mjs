@@ -136,7 +136,20 @@ export async function checkApiWithPostgresRepositories(runtime) {
     printDriverAdapter: {
       kind: guardedPrintDriverAdapter.kind,
       getConfiguration: guardedPrintDriverAdapter.getConfiguration,
-      dispatchPrintJob: guardedPrintDriverAdapter.dispatchPrintJob,
+      dispatchPrintJob(input) {
+        if (input.printJob?.printDeviceId !== "PRN-LIVE-PAPER-001") {
+          return guardedPrintDriverAdapter.dispatchPrintJob(input);
+        }
+        // Explicit isolated device fixture: tests the persisted dispatch/receipt binding,
+        // does not contact a real printer or claim physical printer acceptance.
+        return {
+          adapterStatus: "sent",
+          jobStatus: "sent",
+          externalJobId: `PG-PAPER-${input.printJob.printJobId}`,
+          dispatchedAt: new Date().toISOString(),
+          message: "Isolated PostgreSQL paper-device fixture accepted the job",
+        };
+      },
       pollPrintJobStatus: dryRunPollingAdapter.pollPrintJobStatus,
     },
     attachmentObjectStorageOptions: { storageRoot },
