@@ -34,4 +34,5 @@ jobs:
       - run: npm run build --prefix docs/prototypes/raw-material-roll-inventory-review
       - run: node --test docs/prototypes/raw-material-roll-inventory-review/tests/*.test.mjs
       - run: npm run db:postgres-live:check
+      - run: npm run p1-postgres:check
       - run: npm run object-storage:minio-live:check

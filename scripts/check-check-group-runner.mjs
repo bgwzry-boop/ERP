@@ -17,7 +17,7 @@ assert.equal(pretestScripts.length, 6);
 assert.equal(coreScripts.length, 127);
 assert.equal(testScripts.length, 154);
 assert.equal(batchAScripts.length, 7);
-assert.equal(batchBScripts.length, 18);
+assert.equal(batchBScripts.length, 19);
 assert.equal(pretestScripts[0], "order-parser:check");
 assert.equal(pretestScripts.at(-1), "inventory-intent-api:check");
 assert.equal(coreScripts[0], "check-group-runner:check");

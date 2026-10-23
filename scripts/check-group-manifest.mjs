@@ -193,6 +193,7 @@ export const CHECK_GROUPS = Object.freeze({
     "print-device-repository:check",
     "print-batch-repository:check",
     "driver-delivery-dispatch:check",
+    "p1-postgres:check",
     "db:postgres-live:check",
   ]),
 });

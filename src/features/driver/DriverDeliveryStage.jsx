@@ -130,12 +130,12 @@ export function DriverDeliveryStage({
               <option value="">请选择实际情况</option><option value="signed">客户已签字</option><option value="unsigned">客户未签字</option>
             </select>
           </label>
-          {signatureStatus === "signed" ? <label className="evidence-row">
+          {signatureStatus === "signed" ? <label key="signed-proof" className="evidence-row">
             <span>签字照片（必传）</span>
             <input accept="image/*" capture="environment" type="file" onChange={(event) => onUpdateInput("signaturePhotoFile", event.target.files?.[0] ?? null)} />
             <small>{signaturePhotoFile?.name || (signaturePhotoAttached ? "已记录签字照片" : "请拍摄客户签字的送货单")}</small>
             {photoPreviewUrls.signature ? <div className="photo-proof-preview"><img alt="签字照片预览" src={photoPreviewUrls.signature} /></div> : null}
-          </label> : signatureStatus === "unsigned" ? <label>
+          </label> : signatureStatus === "unsigned" ? <label key="unsigned-reason">
             <span>未签字原因（必填）</span>
             <input value={unsignedReason} onChange={(event) => onUpdateInput("unsignedReason", event.target.value)} placeholder="如客户不在场，由门岗代收" />
           </label> : null}

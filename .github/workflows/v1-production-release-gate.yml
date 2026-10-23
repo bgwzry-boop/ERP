@@ -72,6 +72,7 @@ jobs:
           npm audit --audit-level=high
           npm run api:validate-openapi
           npm run db:postgres-live:check
+          npm run p1-postgres:check
           npm run object-storage:minio-live:check
 
       - name: Run isolated browser release regression
