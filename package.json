@@ -254,7 +254,7 @@
     "order-draft-repository:check": "node scripts/check-order-draft-repository.mjs",
     "order-draft-api:check": "node scripts/check-order-workflow-projection-service.mjs && node scripts/check-order-draft-api.mjs && node scripts/check-order-draft-split-api.mjs && node scripts/check-order-draft-queue-api.mjs && npm run order-draft-command:check",
     "order-pool-read:check": "node scripts/check-order-pool-read-repository.mjs",
-    "fulfillment-action-transaction:check": "node scripts/check-fulfillment-action-transaction-repository.mjs",
+    "fulfillment-action-transaction:check": "node scripts/check-fulfillment-action-transaction-repository.mjs && node scripts/check-fulfillment-pool-replay-cache.mjs",
     "fulfillment-action-command:check": "node scripts/check-fulfillment-action-command-service.mjs",
     "driver-delivery-dispatch:check": "node scripts/check-driver-delivery-dispatch-repository.mjs",
     "driver-device-field-test:check": "node scripts/check-driver-device-field-test-command-service.mjs && node scripts/check-driver-device-field-test-repository.mjs && node scripts/check-driver-device-field-test-acceptance-gate.mjs && node scripts/check-v1-driver-real-device-execution.mjs",
