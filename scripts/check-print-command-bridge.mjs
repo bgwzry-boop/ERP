@@ -1,4 +1,6 @@
 import assert from "node:assert/strict";
+import {buildFulfillmentPrintTemplate} from "../src/domain/printTemplates.js";
+import {buildCommandBridgePayload} from "../server/printDriverCommandBridgeDispatchProjection.mjs";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
@@ -218,6 +220,10 @@ assert.equal(existsSync(adapterSpoolPath), true);
 
 const cupsDirectPayload = {
   ...payload,
+  ...JSON.parse(buildCommandBridgePayload({normalized:payload,printJob:{payload:{printTemplate:buildFulfillmentPrintTemplate({
+    fulfillment:{id:'FUL-SYNTHETIC',method:'自提',qty:405,packages:'2包',lineId:'ORDER-SYNTHETIC'},
+    orderLine:{id:'ORDER-SYNTHETIC',product:'合成袋',qty:1000,amount:360},customer:{name:'合成客户'},
+  })}}})),
   printJobId: "PJ-BRIDGE-CHECK-CUPS-001",
   targetId: "FUL-BRIDGE-CHECK-CUPS-001",
 };
@@ -261,6 +267,12 @@ assert.equal(cupsSentRecord.cups.cupsJobId, "QA_Label_Printer-101");
 assert.equal(cupsSentRecord.cups.stdoutBytes > 0, true);
 assert.match(cupsSentRecord.cups.printFileDigest, /^[0-9a-f]{64}$/);
 assert.equal(existsSync(join(storageRoot, "print-command-bridge", "documents", `${cupsDirectOutput.externalJobId}.txt`)), true);
+
+const paperOutput=readFileSync(join(storageRoot, "print-command-bridge", "documents", `${cupsDirectOutput.externalJobId}.txt`),'utf8');
+assert.match(paperOutput,/客户：合成客户/);
+assert.match(paperOutput,/明细：.*合成袋/);
+assert.match(paperOutput,/本次出库：405个/);
+assert.match(paperOutput,/金额：¥360/);
 
 const cupsStatusResult = runBridge({
   args: ["--storage-root", storageRoot, "--action", "status", "--external-job-id", cupsDirectOutput.externalJobId],

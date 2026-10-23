@@ -10,7 +10,8 @@ import {
 import {
   findRuntimeUserById,
   nextRuntimeSessionVersion,
-  persistRuntimeIdentityState,
+  commitRuntimeIdentityWorkspace,
+  captureRuntimeIdentityBaseline,
   sanitizeRuntimeUserForResponse,
   upsertRuntimeUser,
 } from "./runtimeIdentityWorkspace.mjs";
@@ -409,15 +410,14 @@ function securityAuditSnapshot(user) {
   };
 }
 
-async function persistAndCommit(workspace, staged) {
-  await persistRuntimeIdentityState(staged);
-  workspace.users = staged.users;
-  workspace.operationLogs = staged.operationLogs;
+async function persistAndCommit(workspace, stagedWorkspace, options = {}) {
+  return commitRuntimeIdentityWorkspace(workspace, stagedWorkspace, options);
 }
 
 function stageWorkspace(workspace) {
   return {
     ...workspace,
+    runtimeIdentityBaseline: captureRuntimeIdentityBaseline(workspace),
     users: (workspace.users ?? []).map((user) => ({ ...user })),
     operationLogs: [...(workspace.operationLogs ?? [])],
   };

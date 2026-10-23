@@ -1,3 +1,4 @@
+import { refreshRuntimeIdentityWorkspace } from "./services/runtimeIdentityWorkspace.mjs";
 import http from "node:http";
 import { pathToFileURL } from "node:url";
 import { createGracefulShutdownController } from "./gracefulShutdown.mjs";
@@ -480,6 +481,7 @@ export function createApiServer(options = {}) {
 
     try {
       await workspaceReady;
+      if (workspace.runtimeIdentityRepository?.kind === "postgres") await refreshRuntimeIdentityWorkspace(workspace);
       const authContext = getRequestAuthContext(request, workspace);
       const permissionContext = getRequestPermissionContext(request, authContext, workspace);
       if (securityPolicy.strictAuth && !isCorsRequestAllowed(securityPolicy, response.erpRequestOrigin)) {

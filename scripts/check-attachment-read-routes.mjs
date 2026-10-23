@@ -6,7 +6,7 @@ const workspace = createWorkspace();
 const dependencies = {
   response: {},
   workspace,
-  permissionContext: { actionPermissions: [] },
+  permissionContext: { actionPermissions: ["statement.preview"] },
   authContext: { userId: "U-OFFICE-A" },
   writeActionPermissions: { viewAttachment: "attachment.view" },
   requireActionPermission(response, permissionContext, permission) {
@@ -85,6 +85,39 @@ assert.equal(
 );
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await run("/api/attachments/ATT-1"), false);
+
+for (const suffix of ["access-url", "access-logs", "content"]) {
+  calls.length = 0;
+  await run(`/api/attachments/PAYROLL/${suffix}`);
+  assert.equal(calls.at(-1).code, "ATTACHMENT_OWNER_PERMISSION_DENIED", suffix);
+  assert.equal(calls.some((call) => ["accessUrl", "accessLogs", "content"].includes(call.kind)), false);
+  calls.length = 0;
+  await run(`/api/attachments/PAYROLL/${suffix}`, { permissionContext: { actionPermissions: ["attachment.view", "payroll.preview", "statement.preview"] } });
+  assert.notEqual(calls.at(-1).kind, "error", suffix);
+}
+calls.length = 0;
+await run("/api/attachments", { attachmentFileAccessService: { async listAttachments() { return { items: [
+  { attachmentId: "NORMAL", ownerType: "statement" },
+  { attachmentId: "WAGE", ownerType: "payroll_run" },
+  { attachmentId: "MISCLASSIFIED", ownerType: "other", purpose: "payroll_adjustment_evidence" },
+] }; } } });
+assert.deepEqual(calls.at(-1).result.items.map((item) => item.attachmentId), ["NORMAL"]);
+assert.equal(calls.at(-1).result.total, 1);
+
+calls.length = 0;
+await run("/api/attachments/PAYROLL/content?accessToken=valid&expiresAt=9999999999", {
+  workspace: { ...workspace, attachmentObjectStorage: { validateAccessToken: () => ({ valid: true, present: true }) } },
+});
+assert.equal(calls.at(-1).code, "ATTACHMENT_OWNER_PERMISSION_DENIED");
+assert.equal(calls.some((call) => call.kind === "content"), false);
+
+calls.length = 0;
+await run("/api/attachments", { permissionContext: { actionPermissions: ["attachment.view"] }, attachmentFileAccessService: { async listAttachments() { return { items: [
+  { attachmentId: "RECEIPT", ownerType: "statement" },
+  { attachmentId: "WRONG-OWNER", ownerType: "other", purpose: "payment_screenshot" },
+  { attachmentId: "NORMAL", ownerType: "fulfillment" },
+] }; } } });
+assert.deepEqual(calls.at(-1).result.items.map((item) => item.attachmentId), ["NORMAL"]);
 
 console.log("attachment read routes checks passed: list redaction, diagnostics, readiness, signed/permission content, access audit, 404, and thin API wiring are covered");
 
@@ -199,6 +232,11 @@ async function expectMissingContent() {
 
 function createWorkspace({ valid = false, present = false, message = "" } = {}) {
   return {
+    attachmentRepository: {
+      async findAttachmentById({ attachmentId }) {
+        return attachmentId === "MISSING" ? null : { attachmentId, ownerType: attachmentId === "PAYROLL" ? "payroll_run" : "statement" };
+      },
+    },
     attachmentObjectStorage: {
       validateAccessToken() {
         return { valid, present, message };

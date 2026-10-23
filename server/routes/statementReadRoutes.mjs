@@ -66,6 +66,7 @@ export async function handleStatementReadRoutes({
   }
 
   if (url.pathname === "/api/statements/customers") {
+    if (!requirePreviewPermission()) return true;
     let items = getStatementCustomers(workspace);
     items = filterByKeyword(items, url.searchParams.get("keyword"), ["customerId", "customerName", "statementId"]);
     items = filterByValue(items, url.searchParams.get("status"), "status");
@@ -75,6 +76,7 @@ export async function handleStatementReadRoutes({
 
   const statementMatch = url.pathname.match(/^\/api\/statements\/([^/]+)$/);
   if (!statementMatch) return false;
+  if (!requirePreviewPermission()) return true;
 
   const item = workspace.statements.find((row) => row.id === decodeURIComponent(statementMatch[1]));
   if (item) sendJson(response, 200, item);

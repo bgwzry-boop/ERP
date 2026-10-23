@@ -16,7 +16,9 @@ import { toMasterDataEmployeeAccountReview } from "./masterDataEmployeeAccountCo
 import {
   findRuntimeUserById,
   findRuntimeUserByIdentifiers,
-  persistRuntimeIdentityState,
+  commitRuntimeIdentityWorkspace,
+  captureRuntimeIdentityBaseline,
+  runRuntimeIdentityMutation,
   sanitizeRuntimeUserForResponse,
   upsertRuntimeUser,
 } from "./runtimeIdentityWorkspace.mjs";
@@ -37,11 +39,11 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
   if (typeof now !== "function") throw new TypeError("now must be a function");
 
   return {
-    login,
+    login: (input) => runRuntimeIdentityMutation(input.workspace, () => login(input)),
     prototypeLogin,
-    changePassword,
+    changePassword: (input) => runRuntimeIdentityMutation(input.workspace, () => changePassword(input)),
     getCurrentSession,
-    logout,
+    logout: (input) => runRuntimeIdentityMutation(input.workspace, () => logout(input)),
   };
 
   async function login({ workspace, body = {} }) {
@@ -116,7 +118,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
   }
 
   async function loginRuntimeUser({ workspace, body, runtimeUser, securityPolicy }) {
-    const nowMs = getAuthEventNowMs(body, now);
+    const nowMs = now().getTime();
     const nowIso = new Date(nowMs).toISOString();
     const securityState = getRuntimeUserSecurityState(runtimeUser, { nowMs });
     if (securityState.locked) {
@@ -205,6 +207,11 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       });
     }
 
+    const currentSessionVersion = Number(authContext.session?.sessionVersion ?? authContext.sessionVersion);
+    if (runtimeUser.enabled === false || !runtimeUser.loginEnabled ||
+      (currentSessionVersion > 0 && currentSessionVersion !== Number(runtimeUser.sessionVersion))) {
+      return result(401, { code: "AUTH_SESSION_INVALIDATED", message: "账号状态已更新，请重新登录。" });
+    }
     const currentPassword = String(body.currentPassword ?? body.oldPassword ?? "");
     const newPassword = String(body.newPassword ?? "");
     const authSecret = getWorkspaceSecurityPolicy(stagedWorkspace).authSecret;
@@ -233,7 +240,7 @@ export function createRuntimeAuthCommandService(dependencies = {}) {
       });
     }
 
-    const changedAt = cleanText(body.changedAt) || now().toISOString();
+    const changedAt = now().toISOString();
     const before = {
       userId: runtimeUser.userId ?? runtimeUser.id,
       loginName: runtimeUser.loginName,
@@ -357,11 +364,6 @@ function buildRuntimeAccountLockedError(securityState = {}) {
   };
 }
 
-function getAuthEventNowMs(body, now) {
-  const requestedAt = cleanText(body.attemptedAt ?? body.loginAt ?? body.now);
-  const requestedAtMs = Date.parse(requestedAt);
-  return Number.isFinite(requestedAtMs) ? requestedAtMs : now().getTime();
-}
 
 function recordRuntimeUserLoginFailure(workspace, runtimeUser, { nowMs }) {
   if (!runtimeUser?.loginEnabled) return runtimeUser;
@@ -522,6 +524,7 @@ function syncEmployeePasswordExpired(workspace, user, options) {
 function stageIdentityWorkspace(workspace) {
   return {
     ...workspace,
+    runtimeIdentityBaseline: captureRuntimeIdentityBaseline(workspace),
     users: (workspace.users ?? []).map((item) => ({ ...item })),
     employees: (workspace.employees ?? []).map((item) => ({ ...item })),
     operationLogs: [...(workspace.operationLogs ?? [])],
@@ -530,13 +533,8 @@ function stageIdentityWorkspace(workspace) {
   };
 }
 
-async function persistAndCommitIdentityWorkspace(workspace, stagedWorkspace) {
-  await persistRuntimeIdentityState(stagedWorkspace);
-  workspace.users = stagedWorkspace.users;
-  workspace.employees = stagedWorkspace.employees;
-  workspace.operationLogs = stagedWorkspace.operationLogs;
-  workspace.revokedSeedSessionJtis = stagedWorkspace.revokedSeedSessionJtis;
-  workspace.revokedSeedSessions = stagedWorkspace.revokedSeedSessions;
+async function persistAndCommitIdentityWorkspace(workspace, stagedWorkspace, options = {}) {
+  return commitRuntimeIdentityWorkspace(workspace, stagedWorkspace, options);
 }
 
 function cleanText(value) {

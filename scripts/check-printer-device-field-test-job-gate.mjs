@@ -14,6 +14,7 @@ import { withLocalRepositoryFixture } from "./helpers/localRepositoryFixture.mjs
 
 const storageRoot = mkdtempSync(join(tmpdir(), "erp-printer-qa-gate-"));
 const server = createApiServer(withLocalRepositoryFixture({ allowLocalFixture: true,
+  printDriverAdapterOptions: { dryRunEnabled: true },
   printDeviceRepositoryOptions: { storageRoot },
   printJobRepositoryOptions: { storageRoot },
   printerDeviceFieldTestRepositoryOptions: { storageRoot },
@@ -72,13 +73,23 @@ try {
   );
   assert.equal(queuedJob.code, "PRINTER_DEVICE_FIELD_TEST_PRINT_JOB_NOT_PRINTED");
 
-  const printed = await postJson(baseUrl, `/print-jobs/${encodeURIComponent(printJobId)}/status`, {
+  const forged = await postJson(baseUrl, `/print-jobs/${encodeURIComponent(printJobId)}/status`, {
+    status: "printed", metadata: { lastDispatch: { externalJobId: "FORGED" } },
+  }, 409);
+  assert.equal(forged.code, "PRINT_JOB_DRIVER_CONFIRMATION_REQUIRED");
+  assert.equal((await getJson(baseUrl, `/print-jobs/${encodeURIComponent(printJobId)}`)).printJob.jobStatus, "queued");
+  const dispatched = await postJson(baseUrl, `/print-jobs/${encodeURIComponent(printJobId)}/dispatch`, { reason: "isolated dry-run dispatch" });
+  assert.equal(dispatched.printJob.jobStatus, "sent");
+  const printed = await postSharedJson(baseUrl, `/api/print-jobs/${encodeURIComponent(printJobId)}/driver-status`, {
     status: "printed",
-    externalJobId: printJobId,
-    idempotencyKey: "v8-167-isolated-print-job-status",
-  });
+    externalJobId: dispatched.dispatchResult.externalJobId,
+    eventSource: "dry_run_check",
+    idempotencyKey: "v8-167-isolated-driver-status",
+  }, { headers: { "x-erp-user-id": "U-PRINT-DRIVER-A" } });
   assert.equal(printed.printJob.jobStatus, "printed");
   const beforeQaRevision = printed.printJob.revision;
+  const reopened = await postJson(baseUrl, `/print-jobs/${encodeURIComponent(printJobId)}/status`, { status: "queued" }, 409);
+  assert.equal(reopened.code, "PRINT_JOB_TERMINAL_STATUS_LOCKED");
 
   const accepted = await postJson(baseUrl, "/print-devices/PRN-LABEL-A/field-tests", {
     ...baseRecord,

@@ -43,6 +43,11 @@ assert.equal(payload.printJobId, "PJ-DISPATCH-001");
 assert.equal(payload.payloadSnapshot.copies, 2);
 assert.equal(payload.printDeviceSnapshot.name, "Office Label Printer");
 
+const historicalPayload={printText:'original historical text'};
+const currentPayload={printTemplate:{templateVersion:'p0-pickup_note-dot-matrix-v3',fields:{lineItems:[]}}};
+assert.deepEqual(JSON.parse(buildCommandBridgePayload({normalized,printJob:{payload:currentPayload}})).payloadSnapshot,currentPayload);
+assert.deepEqual(JSON.parse(buildCommandBridgePayload({normalized,printJob:{payloadSnapshot:historicalPayload,payload:currentPayload}})).payloadSnapshot,historicalPayload);
+
 const timeoutResult = normalizeCommandRunnerResult({ error: { code: "ETIMEDOUT" }, stdout: "partial" });
 assert.equal(timeoutResult.errorCode, "SYSTEM_PRINTER_COMMAND_TIMEOUT");
 const exitResult = normalizeCommandRunnerResult({ status: 2, signal: " SIGTERM ", stdout: "out", stderr: "err" });

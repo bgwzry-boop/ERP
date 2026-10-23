@@ -42,8 +42,13 @@ export function createLocalRuntimeIdentityRepository(options = {}) {
 
     saveState({ workspace } = {}) {
       const state = normalizeRuntimeIdentityStateFromWorkspace(workspace);
+      const current = loadPersistentRuntimeIdentityState(storageRoot);
+      if (state.runtimeIdentityRevision !== current.runtimeIdentityRevision) throw runtimeIdentityConflict();
+      state.runtimeIdentityRevision += 1;
       persistPersistentRuntimeIdentityState(storageRoot, state);
+      if (workspace) workspace.runtimeIdentityRevision = state.runtimeIdentityRevision;
       return {
+        runtimeIdentityRevision: state.runtimeIdentityRevision,
         savedUserCount: state.users.length,
         savedPhoneVerificationChallengeCount: state.phoneVerificationChallenges.length,
         revokedSessionCount: state.revokedSeedSessions.length,
@@ -69,16 +74,30 @@ export function createPostgresRuntimeIdentityRepository(options = {}) {
   return {
     kind: "postgres",
 
+    async getRevision() {
+      const result = await queryJson("SELECT json_build_object('revision', revision) FROM runtime_identity_revision WHERE singleton = TRUE;", []);
+      if (!Number.isSafeInteger(Number(result?.revision))) throw new Error("Runtime identity revision is unavailable.");
+      return Number(result.revision);
+    },
+
     async loadState() {
       const query = buildLoadRuntimeIdentityStateQuery();
       return normalizeRuntimeIdentityState(await queryJson(query.text, query.values));
     },
 
-    async saveState({ workspace, identityEmployeeUpdates = [] } = {}) {
+    async saveState({ workspace, identityEmployeeUpdates = [], expectedState } = {}) {
       const state = normalizeRuntimeIdentityStateFromWorkspace(workspace);
-      const query = buildSaveRuntimeIdentityStateQuery(state, { identityEmployeeUpdates });
-      const saved = (await transactionJson(query.text, query.values)) ?? {};
+      const query = buildSaveRuntimeIdentityStateQuery(state, { identityEmployeeUpdates, expectedState });
+      let saved;
+      try {
+        saved = (await transactionJson(query.text, query.values)) ?? {};
+      } catch (error) {
+        if (error?.code === "BUSINESS_WRITE_CONFLICT" || /ERP_RUNTIME_IDENTITY_CONFLICT/.test(String(error?.message))) throw runtimeIdentityConflict();
+        throw error;
+      }
+      if (workspace) workspace.runtimeIdentityRevision = Number(saved.runtimeIdentityRevision ?? state.runtimeIdentityRevision + 1);
       return {
+        runtimeIdentityRevision: Number(saved.runtimeIdentityRevision ?? state.runtimeIdentityRevision + 1),
         savedUserCount: Number(saved.savedUserCount ?? state.users.length) || 0,
         savedPhoneVerificationChallengeCount:
           Number(saved.savedPhoneVerificationChallengeCount ?? state.phoneVerificationChallenges.length) || 0,
@@ -103,6 +122,8 @@ export function createPostgresRuntimeIdentityRepository(options = {}) {
 
 export function mergeRuntimeIdentityStateIntoWorkspace(workspace = {}, state = {}) {
   const normalized = normalizeRuntimeIdentityState(state);
+  if (normalized.runtimeIdentityRevision < (workspace.runtimeIdentityRevision ?? 0)) return workspace;
+  workspace.runtimeIdentityRevision = normalized.runtimeIdentityRevision;
   const existingUsers = Array.isArray(workspace.users) ? workspace.users : [];
   const usersById = new Map(existingUsers.map((user) => [cleanText(user?.userId ?? user?.id), user]).filter(([id]) => id));
   for (const user of normalized.users) {
@@ -159,6 +180,7 @@ export function normalizeRuntimeIdentityStateFromWorkspace(workspace = {}) {
   const operationLogs = normalizeRuntimeIdentityOperationLogs(workspace.operationLogs);
   return {
     schemaVersion: 2,
+    runtimeIdentityRevision: Number(workspace.runtimeIdentityRevision) || 0,
     users,
     phoneVerificationChallenges: normalizePhoneVerificationChallenges(
       workspace.phoneVerificationChallenges,
@@ -181,6 +203,7 @@ export function buildLoadRuntimeIdentityStateQuery() {
   return {
     text: `
 SELECT json_build_object(
+  'runtimeIdentityRevision', (SELECT revision FROM runtime_identity_revision WHERE singleton = TRUE),
   'users', COALESCE((
     SELECT json_agg(record ORDER BY record->>'updatedAt' DESC, record->>'userId')
     FROM (
@@ -283,24 +306,29 @@ export function buildSaveRuntimeIdentityStateSql(state = {}, options = {}) {
 
 export function buildSaveRuntimeIdentityStateQuery(state = {}, options = {}) {
   const normalized = normalizeRuntimeIdentityState(state);
+  const before = options.expectedState ? normalizeRuntimeIdentityState(options.expectedState) : null;
   const parameters = createPostgresParameterBinder();
-  const userRows = normalized.users.map((user) => runtimeUserSqlRow(user, parameters)).filter(Boolean);
-  const phoneVerificationChallengeRows = normalized.phoneVerificationChallenges
+  const expectedRevision = parameters.integer(normalized.runtimeIdentityRevision);
+  const userRows = changedIdentityRecords(normalized.users, before?.users, "userId").map((user) => runtimeUserSqlRow(user, parameters)).filter(Boolean);
+  const phoneVerificationChallengeRows = changedIdentityRecords(normalized.phoneVerificationChallenges, before?.phoneVerificationChallenges, "id")
     .map((record) => phoneVerificationChallengeSqlRow(record, parameters))
     .filter(Boolean);
-  const employeeAssignmentRows = normalized.employeeAccounts
+  const employeeAssignmentRows = changedIdentityRecords(normalized.employeeAccounts, before?.employeeAccounts, "id", (row) => [row.defaultWorkshop, row.defaultMachineId])
     .map((record) => runtimeEmployeeAssignmentSqlRow(record, parameters))
     .filter(Boolean);
   const employeeIdentityRows = normalizeRuntimeIdentityEmployeeUpdates(options.identityEmployeeUpdates)
     .map((record) => runtimeEmployeeIdentitySqlRow(record, parameters))
     .filter(Boolean);
-  const revokedRows = normalized.revokedSeedSessions.map((record) => revokedSeedSessionSqlRow(record, parameters)).filter(Boolean);
-  const operationLogRows = normalized.operationLogs
+  const revokedRows = changedIdentityRecords(normalized.revokedSeedSessions, before?.revokedSeedSessions, "jti").map((record) => revokedSeedSessionSqlRow(record, parameters)).filter(Boolean);
+  const operationLogRows = changedIdentityRecords(normalized.operationLogs, before?.operationLogs, "id")
     .map((record) => runtimeIdentityOperationLogSqlRow(record, parameters))
     .filter(Boolean);
   return {
     text: `
-WITH saved_users AS (
+WITH identity_revision AS MATERIALIZED (
+  SELECT erp_claim_runtime_identity_revision(${expectedRevision}::BIGINT) AS revision
+),
+saved_users AS (
   ${userRows.length > 0 ? buildUpsertRuntimeUsersSql(userRows) : "SELECT NULL::TEXT AS id WHERE FALSE"}
 ),
 saved_revoked_sessions AS (
@@ -386,6 +414,7 @@ saved_operation_logs AS (
   ${operationLogRows.length > 0 ? buildUpsertRuntimeIdentityOperationLogsSql(operationLogRows) : "SELECT NULL::TEXT AS id WHERE FALSE"}
 )
 SELECT json_build_object(
+  'runtimeIdentityRevision', (SELECT revision FROM identity_revision),
   'savedUserCount', (SELECT COUNT(*) FROM saved_users),
   'savedPhoneVerificationChallengeCount', (SELECT COUNT(*) FROM saved_phone_verification_challenges),
   'revokedSessionCount', (SELECT COUNT(*) FROM saved_revoked_sessions),
@@ -458,8 +487,9 @@ INSERT INTO users (
   metadata_json,
   updated_at
 )
-VALUES
+SELECT input.* FROM (VALUES
 ${rows.join(",\n")}
+) AS input CROSS JOIN identity_revision
 ON CONFLICT (id) DO UPDATE SET
   login_name = EXCLUDED.login_name,
   display_name = EXCLUDED.display_name,
@@ -903,6 +933,7 @@ function persistPersistentRuntimeIdentityState(storageRoot, state) {
     `${JSON.stringify(
       {
         schemaVersion: 2,
+        runtimeIdentityRevision: state.runtimeIdentityRevision,
         users: state.users,
         phoneVerificationChallenges: state.phoneVerificationChallenges,
         employeeAccounts: state.employeeAccounts,
@@ -927,6 +958,7 @@ function normalizeRuntimeIdentityState(value = {}) {
   const operationLogs = normalizeRuntimeIdentityOperationLogs(value.operationLogs);
   return {
     schemaVersion: 2,
+    runtimeIdentityRevision: Number(value.runtimeIdentityRevision) || 0,
     users,
     phoneVerificationChallenges: normalizePhoneVerificationChallenges(
       value.phoneVerificationChallenges,
@@ -1249,4 +1281,14 @@ function normalizeIsoDate(value) {
 function nonNegativeNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
+function runtimeIdentityConflict() {
+  return Object.assign(new Error("账号状态已被其他操作更新，请刷新后重试。"), { statusCode: 409, code: "RUNTIME_IDENTITY_CONFLICT" });
+}
+
+function changedIdentityRecords(records, previous, key, projection = (row) => row) {
+  if (!previous) return records;
+  const byId = new Map(previous.map((row) => [row[key], JSON.stringify(projection(row))]));
+  return records.filter((row) => byId.get(row[key]) !== JSON.stringify(projection(row)));
 }

@@ -130,6 +130,12 @@ assert.equal(
 );
 assert.deepEqual(calls, [{ kind: "fieldTestsDenied" }]);
 
+for (const route of ["/api/print-driver/config", "/api/print-batches", "/api/print-devices", "/api/print-jobs", "/api/print-jobs/PJ-1"]) {
+  calls.length = 0;
+  await handlePrintReadRoutes({ ...dependencies, url: new URL(`http://erp.test${route}`), requireActionPermission() { calls.push({ kind: "denied" }); return false; } });
+  assert.deepEqual(calls, [{ kind: "denied" }]);
+}
+
 console.log("print read routes checks passed: driver diagnostics, repository lists, device QA records, 404, and thin API wiring are covered");
 
 async function expectJson(pathname, body) {
@@ -146,6 +152,7 @@ async function expectDriverConfig() {
   calls.length = 0;
   assert.equal(await handlePrintReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/print-driver/config") }), true);
   assert.deepEqual(calls, [
+    { kind: "permission", response: dependencies.response, permissionContext: dependencies.permissionContext, permission: "fulfillment.print" },
     {
       kind: "json",
       response: dependencies.response,

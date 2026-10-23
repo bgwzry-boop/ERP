@@ -25,18 +25,23 @@ export function createPrintJobLifecycleService({
         "Print job status must be queued, sent, printed, failed, or canceled.",
       );
     }
+    if (["sent", "printed"].includes(status)) {
+      return businessError(409, "PRINT_JOB_DRIVER_CONFIRMATION_REQUIRED", "派发和打印完成必须由打印驱动确认，不能手工修改为已发送或已打印。");
+    }
+    const transitionError = getPrintJobDriverStatusTransitionError(before, { status });
+    if (transitionError) return { error: true, ...transitionError };
     const updatedAt = nowIso(now);
     const terminal = ["printed", "failed", "canceled"].includes(status);
     const after = {
       ...before,
       jobStatus: status,
-      sentAt: body.sentAt ?? (status === "sent" ? updatedAt : before.sentAt),
-      finishedAt: body.finishedAt ?? (terminal ? updatedAt : before.finishedAt),
+      sentAt: before.sentAt,
+      finishedAt: terminal ? before.finishedAt || updatedAt : before.finishedAt,
       errorCode: status === "failed" ? normalizeText(body.errorCode ?? before.errorCode) : "",
       errorMessage: status === "failed" ? normalizeText(body.errorMessage ?? before.errorMessage) : "",
       metadata: {
         ...before.metadata,
-        ...(isPlainObject(body.metadata) ? body.metadata : {}),
+        // Driver dispatch/callback metadata is never writable through the office status endpoint.
         statusUpdatedBy: operatorId,
         statusUpdateReason: normalizeText(body.reason),
       },
@@ -350,6 +355,8 @@ function buildRetryPrintJobRecord(workspace, sourcePrintJob, body, operatorId, n
   const createdAt = nowIso(now);
   const attemptNo = Number(sourcePrintJob.attemptNo ?? 1) + 1;
   const jobStatus = sourcePrintJob.driverMode === "preview_only" ? "preview_only" : "queued";
+  const metadata = { ...sourcePrintJob.metadata };
+  for (const key of ["externalJobId", "lastDispatch", "lastDispatchedAt", "lastDispatchAdapterStatus", "lastDriverStatusEvent", "driverStatusEvents"]) delete metadata[key];
   const printJobId =
     body.printJobId ??
     nextPlainId("PJ", `${sourcePrintJob.printJobId}-retry-${attemptNo}-${(workspace.printJobs ?? []).length + 1}`);
@@ -367,7 +374,7 @@ function buildRetryPrintJobRecord(workspace, sourcePrintJob, body, operatorId, n
     errorCode: "",
     errorMessage: "",
     metadata: {
-      ...sourcePrintJob.metadata,
+      ...metadata,
       retryOfPrintJobId: sourcePrintJob.printJobId,
       retryReason: normalizeText(body.retryReason ?? body.reason),
       retryRequestedBy: operatorId,
@@ -422,11 +429,14 @@ function buildPrintJobDriverStatusEvent(body, operatorId, now) {
 }
 
 function getPrintJobDriverStatusTransitionError(printJob, driverStatusEvent) {
-  if (printJob.jobStatus === "preview_only") {
+  if (printJob.jobStatus === "preview_only" || printJob.driverMode === "preview_only") {
     return businessErrorFields(409, "PRINT_JOB_DRIVER_CALLBACK_NOT_EXPECTED", "Preview-only print jobs cannot receive driver callbacks.");
   }
   const expectedExternalJobId = getExpectedPrintJobExternalJobId(printJob);
-  if (expectedExternalJobId && driverStatusEvent.externalJobId && expectedExternalJobId !== driverStatusEvent.externalJobId) {
+  if ((driverStatusEvent.eventSource || ["sent", "printed"].includes(driverStatusEvent.status)) && !expectedExternalJobId) {
+    return businessErrorFields(409, "PRINT_JOB_DISPATCH_REQUIRED", "打印回执必须对应已经派发的设备作业。");
+  }
+  if (expectedExternalJobId && driverStatusEvent.externalJobId !== expectedExternalJobId && (driverStatusEvent.eventSource || ["sent", "printed"].includes(driverStatusEvent.status))) {
     return businessErrorFields(409, "PRINT_JOB_EXTERNAL_ID_MISMATCH", "Driver callback externalJobId does not match the dispatched print job.");
   }
   if (["printed", "failed", "canceled"].includes(printJob.jobStatus) && driverStatusEvent.status !== printJob.jobStatus) {
@@ -491,7 +501,7 @@ function normalizePositiveInteger(value, fallback, max) {
 function getExpectedPrintJobExternalJobId(printJob) {
   const metadata = isPlainObject(printJob.metadata) ? printJob.metadata : {};
   return normalizeText(
-    metadata.externalJobId ?? metadata.lastDriverStatusEvent?.externalJobId ?? metadata.lastDispatch?.externalJobId,
+    metadata.lastDispatch?.externalJobId,
   );
 }
 

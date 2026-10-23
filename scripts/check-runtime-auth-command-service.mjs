@@ -73,9 +73,10 @@ assert.equal(failedChangeWorkspace.employees[0].passwordStatus, "temporary");
 
 const changed = await service.changePassword({
   workspace,
-  body: { currentPassword, newPassword: nextPassword, changedAt: nowIso },
+  body: { currentPassword, newPassword: nextPassword, changedAt: "2050-01-01T00:00:00Z" },
   authContext: runtimeAuthContext(),
 });
+assert.equal(workspace.users[0].passwordChangedAt, nowIso);
 assert.equal(changed.statusCode, 200);
 assert.equal(changed.response.changed, true);
 assert.equal(changed.response.user.passwordHash, undefined);
@@ -160,6 +161,19 @@ const prototypeLogin = service.prototypeLogin({
 });
 assert.equal(prototypeLogin.statusCode, 403);
 assert.equal(prototypeLogin.response.code, "AUTH_SEED_LOGIN_DISABLED");
+
+// Browser clocks cannot override server security decisions, even when valid ISO.
+for (const clockField of ["attemptedAt", "loginAt", "now"]) {
+  const locked = createWorkspace();
+  locked.users[0].lockedUntil = "2026-07-12T02:15:00.000Z";
+  const denied = await service.login({ workspace: locked, body: { loginName, password: currentPassword, [clockField]: "2050-01-01T00:00:00Z" } });
+  assert.equal(denied.statusCode, 423);
+  assert.equal(locked.persistedStates.length, 0);
+}
+const parallel = createWorkspace();
+const attempts = await Promise.all(Array.from({ length: 6 }, () => service.login({ workspace: parallel, body: { loginName, password: "wrong" } })));
+assert.equal(parallel.users[0].failedLoginCount, 5);
+assert.equal(attempts.filter((item) => item.statusCode === 423).length, 2);
 
 function createWorkspace({ failPersistence = false } = {}) {
   const workspace = {

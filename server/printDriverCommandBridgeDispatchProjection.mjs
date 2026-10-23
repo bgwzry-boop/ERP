@@ -44,7 +44,7 @@ export function buildCommandBridgePayload({ printJob, normalized }) {
     documentType: normalized.documentType,
     targetType: normalized.targetType,
     targetId: normalized.targetId,
-    payloadSnapshot: printJob?.payloadSnapshot ?? {},
+    payloadSnapshot: printJob?.payloadSnapshot ?? printJob?.payload ?? {},
     printDeviceSnapshot: printJob?.printDeviceSnapshot ?? {},
   });
 }

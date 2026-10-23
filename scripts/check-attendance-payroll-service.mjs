@@ -558,6 +558,9 @@ const noAttendanceEstimate = service.buildOwnAttendance({
 });
 assert.equal(noAttendanceEstimate.payrollEstimate, null);
 assert.equal(noAttendanceEstimate.estimateStatus, "attendance_not_available");
+assert.ok(service.buildPayrollReadiness({ workspace, month: "2026-08" }).blockingCriteria.some((item) => item.key === "payroll_inputs"));
+await assert.rejects(service.generatePayrollDraft({ workspace, body: { month: "2026-08" }, operatorId: "U-FINANCE-A" }),
+  (error) => error.code === "PAYROLL_DRAFT_BLOCKED");
 workspace.attendancePunches = persistedPunches;
 
 const verifiedImportBatches = workspace.attendanceImportBatches;
@@ -603,6 +606,8 @@ workspace.attendanceImportBatches = [
     rangeEnd: "2026-08-31T16:00:00.000Z",
   },
 ];
+// These are service unit fixtures, not evidence of a real PostgreSQL deployment.
+workspace.attendancePayrollRepository = { ...repository, kind: "postgres" };
 const combinedCoverageWorkbench = service.buildPayrollWorkbench({ workspace, month: "2026-08" });
 assert.equal(combinedCoverageWorkbench.summary.verifiedAttendanceImportCount, 2);
 assert.equal(combinedCoverageWorkbench.summary.attendanceCoverageComplete, true);
@@ -616,6 +621,46 @@ assert.equal(readyWorkbench.summary.payrollPeriodClosed, true);
 assert.equal(readyWorkbench.summary.attendanceCoverageComplete, true);
 assert.equal(readyWorkbench.summary.attendanceCoverageGapCount, 0);
 assert.equal(readyWorkbench.summary.draftReady, true);
+
+// A historical import completed mid-month never proves future days were read.
+workspace.attendanceImportBatches = verifiedImportBatches.map((batch) => ({ ...batch, completedAt: "2026-08-15T00:00:00Z" }));
+assert.equal(service.buildPayrollWorkbench({ workspace, month: "2026-08" }).summary.attendanceCoverageComplete, false);
+await assert.rejects(service.generatePayrollDraft({ workspace, body: { month: "2026-08" }, operatorId: "U-FINANCE-A" }), (error) => error.code === "PAYROLL_ATTENDANCE_COVERAGE_INCOMPLETE");
+workspace.attendanceImportBatches = verifiedImportBatches;
+let futureFetches = 0;
+const midMonthService = createAttendancePayrollService({ now: () => new Date("2026-08-15T00:00:00Z"), attendanceProvider: { key: "deli", fetchPunches: async () => { futureFetches += 1; return sourcePunches; } } });
+await assert.rejects(midMonthService.syncAttendance({ workspace, body: { rangeStart: "2026-07-31T16:00:00Z", rangeEnd: "2026-08-31T16:00:00Z" }, operatorId: "U-FINANCE-A" }), (error) => error.code === "ATTENDANCE_SYNC_FUTURE_RANGE");
+assert.equal(futureFetches, 0);
+
+// Each omitted formal gate must block the command before any persistence call,
+// even if a client labels its request a demo or explicitly claims readiness.
+for (const [criterion, patch] of [
+  ["postgres_repository", { attendancePayrollRepository: repository }],
+  ["employee_profiles", { employees: workspace.employees.map((employee) => employee.id === "ERP-0001" ? { ...employee, birthDate: "" } : employee) }],
+  ["employee_self_accounts", { users: workspace.users.map((user) => ({ ...user, mustChangePassword: true })) }],
+  ["employee_self_accounts", { users: [] }],
+  ["employee_profiles", { employees: workspace.employees.map((employee) => employee.id === "ERP-0001" ? { ...employee, birthDate: "1990-02-31" } : employee) }],
+]) {
+  let writeCount = 0;
+  const testWorkspace = { ...workspace, ...patch };
+  testWorkspace.attendancePayrollRepository = {
+    ...testWorkspace.attendancePayrollRepository,
+    createPayrollRun() { writeCount += 1; throw new Error("blocked command reached persistence"); },
+  };
+  const readiness = service.buildPayrollReadiness({ workspace: testWorkspace, month: "2026-08" });
+  assert.equal(readiness.ready, false);
+  assert.ok(readiness.blockingCriteria.some((item) => item.key === criterion));
+  assert.equal(service.buildPayrollWorkbench({ workspace: testWorkspace, month: "2026-08" }).summary.draftReady, false);
+  await assert.rejects(service.generatePayrollDraft({ workspace: testWorkspace, body: { month: "2026-08", demo: true, ready: true }, operatorId: "U-FINANCE-A" }),
+    (error) => error.code === "PAYROLL_READINESS_BLOCKED" && error.details.readiness.ready === false);
+  assert.equal(writeCount, 0);
+}
+const unconfiguredSourceService = createAttendancePayrollService({ now: () => new Date(fixedNow) });
+assert.equal(unconfiguredSourceService.buildPayrollWorkbench({ workspace, month: "2026-08" }).summary.draftReady, false);
+const runsBeforeSourceCheck = workspace.payrollRuns.length;
+await assert.rejects(unconfiguredSourceService.generatePayrollDraft({ workspace, body: { month: "2026-08" }, operatorId: "U-FINANCE-A" }),
+  (error) => error.code === "PAYROLL_READINESS_BLOCKED" && error.details.readiness.blockingCriteria.some((item) => item.key === "attendance_source"));
+assert.equal(workspace.payrollRuns.length, runsBeforeSourceCheck);
 
 const draft = await service.generatePayrollDraft({ workspace, body: { month: "2026-08" }, operatorId: "U-FINANCE-A" });
 assert.equal(draft.payrollRun.status, "draft");
@@ -847,7 +892,7 @@ const employmentBoundaryPunches = [
   punchedAt,
 }));
 const employmentBoundaryWorkspace = {
-  users: [],
+  users: [{ employeeId: "ERP-FUTURE-HIRE", enabled: true, loginEnabled: true, passwordStatus: "active", mustChangePassword: false }],
   employees: [
     {
       id: "ERP-DEPARTED-IN-AUGUST",
@@ -888,7 +933,7 @@ const employmentBoundaryWorkspace = {
   payrollLines: [],
   payrollLineAdjustments: [],
   payrollExportEvents: [],
-  attendancePayrollRepository: employmentBoundaryRepository,
+  attendancePayrollRepository: { ...employmentBoundaryRepository, kind: "postgres" },
 };
 const employmentBoundaryService = createAttendancePayrollService({
   now: () => new Date(fixedNow),

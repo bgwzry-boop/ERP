@@ -1,0 +1,113 @@
+{
+  "schemaVersion": "p1-finance-integration-v1",
+  "date": "2026-10-23",
+  "baseline": "29de7c2ed38aaa9d678773379c85ac81fcb69d5f",
+  "branch": "codex/p1-finance-20261023",
+  "scope": [
+    "FIN-P1-01",
+    "FIN-P1-02",
+    "FIN-P1-03",
+    "FIN-P1-04",
+    "FIN-P1-05",
+    "PRINT-P1-01",
+    "PRINT-P1-02"
+  ],
+  "oldCommitDecisions": [
+    {
+      "commit": "e567b32a9568dc7a64480a81b753299763201d19",
+      "decision": "选择移植工资共享准入、界面阻断说明和相关测试；未搬入旧seed或对账聚合实现，保留当前岗位/自然月/任职规则。"
+    },
+    {
+      "commit": "26a6acb7f74214302eb6bf4f962de19e39b93ace",
+      "decision": "选择移植工资附件权限，补齐有效签名URL旁路和对账付款凭证领域过滤。"
+    },
+    {
+      "commit": "df6e510e9ce96a5381c260c129f66a0eea7853d9",
+      "decision": "移植办公室状态不得直接sent/printed、终态限制与服务测试；按当前测试启动规则手工适配HTTP检查，并强化回执必须绑定派发ID、重试清除前次派发身份。"
+    },
+    {
+      "commit": "9547ba3ac9422262d20b06a4744b4aa51ce16f01",
+      "decision": "只移植payload合同与命令桥消费嵌套printTemplate及文本输出测试。不整搬旧小程序订单、价格、迁移、视觉布局改版，避免覆盖当前合同；旧样式精确纸面仍不冒充完成。"
+    },
+    {
+      "commit": "codex/comprehensive-optimization-20260905",
+      "decision": "认证文件旧分支无P1修复，且其repository默认local及固定评审身份退化不可覆盖当前基线，采用新修复。"
+    }
+  ],
+  "changes": [
+    {
+      "id": "FIN-P1-01",
+      "result": "登录锁定与改密时间仅来自注入服务器时钟；忽略 attemptedAt/loginAt/now/changedAt。改密再次检查启用与当前会话版本。"
+    },
+    {
+      "id": "FIN-P1-02",
+      "result": "持久层身份版本compare-and-commit，拒绝跨进程旧快照；命令只写变化用户/挑战/撤销/审计和实际变化的机台安排；认证冲突重读并重做安全判断，单工作区排队降低冲突。员工/子账号/手机身份写入共用提交边界；API在授权前检查数据库身份版本。",
+      "migration": "0053_runtime_identity_revision.sql",
+      "boundary": "这是全身份版本冲突保护而非新增业务行级授权；管理员冲突返回409刷新重试。"
+    },
+    {
+      "id": "FIN-P1-03",
+      "result": "客户对账列表/详情与打印作业/批次/设备读取补服务器权限；工资及对账附件列表过滤，内容/访问历史/访问URL按对应领域权限拒绝；API代理签名URL也不能绕工资权限。"
+    },
+    {
+      "id": "FIN-P1-04",
+      "result": "同步拒绝未来rangeEnd，手机/桌面同步请求截至当前；历史整月覆盖同时受完成时间限制，月中导入不能证明未来半月。"
+    },
+    {
+      "id": "FIN-P1-05",
+      "result": "工作台draftReady与正式生成共用buildPayrollReadiness；PostgreSQL、真实来源、档案、岗位政策、本人账号改密、整月有效考勤及复核输入均未齐时阻断；当前一人试点边界保留。"
+    },
+    {
+      "id": "PRINT-P1-01",
+      "result": "命令桥保留正式持久化payload，消费其中printTemplate，客户/明细/数量/价款进入输出。"
+    },
+    {
+      "id": "PRINT-P1-02",
+      "result": "办公室不能改sent/printed或伪造驱动metadata；预览不可进入物理打印投影；回执必须匹配实际派发ID；终态不能回退；重试作业不继承旧设备派发/回执身份。"
+    }
+  ],
+  "validation": {
+    "passed": [
+      "scripts/check-runtime-auth-command-service.mjs",
+      "scripts/check-runtime-identity-repository.mjs",
+      "scripts/check-phone-identity-command-service.mjs",
+      "scripts/check-master-data-subaccount-command-service.mjs",
+      "scripts/check-master-data-employee-account-command-service.mjs",
+      "scripts/check-attendance-payroll-service.mjs",
+      "scripts/check-attachment-read-routes.mjs",
+      "scripts/check-statement-read-routes.mjs",
+      "scripts/check-print-read-routes.mjs",
+      "scripts/check-print-job-lifecycle-service.mjs",
+      "scripts/check-print-job-business-projection-service.mjs",
+      "scripts/check-printer-device-field-test-job-gate.mjs",
+      "scripts/check-print-command-bridge.mjs",
+      "scripts/check-finance-print-read-authorization.mjs",
+      "scripts/check-runtime-identity-concurrency-postgres.mjs",
+      "npm run auth:check",
+      "npm run print-driver-adapter:check",
+      "npm run build",
+      "scripts/check-api-security-boundary.mjs"
+    ],
+    "postgresEvidence": "一次性Docker PostgreSQL16容器，随机本机端口；6个独立repository/工作区并发错误登录累计5次并锁定，第6次被锁定拒绝；旧快照写409且不覆盖新密码，旧登录不能恢复停用；未来客户端时钟无效。测试停止并删除自己的容器，不接触既有5432业务库。",
+    "migrationVerification": "子树预留0053而0048–0052由其他组负责，现有迁移工具要求连续编号。验证时仅把本次新未提交SQL临时命名0048应用，验证后恢复0053。没有修改迁移门禁。主集成必须按最终连续编号重新跑数据库迁移与此测试。",
+    "strictHttpEvidence": "真实签名运行时账号+strictAuth API，司机读对账/打印403；办公室合法对账/打印200但看不到工资附件且内容/URL/历史403；财务可列工资依据。测试持久化为明确本地替身，不称正式生产资源。",
+    "existingFailure": {
+      "script": "scripts/check-print-job-driver-status.mjs",
+      "code": "FULFILLMENT_PACKAGES_REQUIRED_FOR_LABEL_PRINT",
+      "boundary": "同一失败在独立29de基线也重现，发生于F003建标签、回执前；旧测试未建立实包。由集成任务与订单/实包fixture一并核对，不回退实包门槛。"
+    }
+  },
+  "integrationActions": [
+    "把check-finance-print-read-authorization.mjs注册到核心权限/接口检查。",
+    "把check-runtime-identity-concurrency-postgres.mjs注册到资源敏感PostgreSQL批次；不要并行占用业务数据库。",
+    "最终统一迁移连续编号；迁移/恢复必需表清单加入runtime_identity_revision，验证缺失该表不能通过恢复。",
+    "未改共享package.json或检查manifest；由主集成统一注册。",
+    "完成最终整树测试、预览和受控发布另行核对；本子任务没有部署。"
+  ],
+  "notClaimed": [
+    "真实考勤源已接入或全厂工资已验收",
+    "旧软件出库样式已完整复刻",
+    "真实针式/标签打印机已出纸验收",
+    "用户生产数据已修复或线上已发布"
+  ]
+}

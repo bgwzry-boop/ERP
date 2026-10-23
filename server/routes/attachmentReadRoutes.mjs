@@ -16,6 +16,18 @@ export async function handleAttachmentReadRoutes({
   runAttachmentStorageDiagnostics,
   buildAttachmentV1Readiness,
 }) {
+  const mayReadAttachment = (attachment) => {
+    const payroll = attachment?.ownerType === "payroll_run" || attachment?.purpose === "payroll_adjustment_evidence";
+    const statement = attachment?.ownerType === "statement" || attachment?.purpose === "payment_screenshot";
+    const permissions = permissionContext?.actionPermissions ?? [];
+    return (!payroll || permissions.includes("payroll.preview")) && (!statement || permissions.includes("statement.preview"));
+  };
+  const requireOwnerScope = async (attachmentId) => {
+    const attachment = await workspace.attachmentRepository.findAttachmentById({ workspace, attachmentId });
+    if (mayReadAttachment(attachment)) return true;
+    sendBusinessError(response, 403, "ATTACHMENT_OWNER_PERMISSION_DENIED", "查看此凭证需要对应业务的查看权限。");
+    return false;
+  };
   const directRoutes = {
     "/api/attachments": {
       run: async () => {
@@ -29,7 +41,7 @@ export async function handleAttachmentReadRoutes({
             keyword: url.searchParams.get("keyword"),
           },
         });
-        sendJson(response, 200, paginate(result.items, url.searchParams));
+        sendJson(response, 200, paginate(result.items.filter(mayReadAttachment), url.searchParams));
       },
     },
     "/api/attachments/storage-diagnostics": {
@@ -57,6 +69,7 @@ export async function handleAttachmentReadRoutes({
   const accessUrlMatch = url.pathname.match(/^\/api\/attachments\/([^/]+)\/access-url$/);
   if (accessUrlMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.viewAttachment)) return true;
+    if (!await requireOwnerScope(decodeURIComponent(accessUrlMatch[1]))) return true;
     const result = await attachmentFileAccessService.createAccessUrl({
       workspace,
       attachmentId: decodeURIComponent(accessUrlMatch[1]),
@@ -71,6 +84,7 @@ export async function handleAttachmentReadRoutes({
   const accessLogsMatch = url.pathname.match(/^\/api\/attachments\/([^/]+)\/access-logs$/);
   if (accessLogsMatch) {
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.viewAttachment)) return true;
+    if (!await requireOwnerScope(decodeURIComponent(accessLogsMatch[1]))) return true;
     const result = await attachmentFileAccessService.listAccessLogs({
       workspace,
       attachmentId: decodeURIComponent(accessLogsMatch[1]),
@@ -97,6 +111,8 @@ export async function handleAttachmentReadRoutes({
     }
     if (!requireActionPermission(response, permissionContext, writeActionPermissions.viewAttachment)) return true;
   }
+  // A bearer URL never removes the current payroll-domain permission requirement.
+  if (!await requireOwnerScope(attachmentId)) return true;
   const result = await attachmentFileAccessService.getContent({
     workspace,
     attachmentId,

@@ -613,7 +613,8 @@ function buildCupsJobTitle({ bridgeJob, normalized }) {
 }
 
 function buildPrintableText({ normalized }) {
-  const payload = normalized.payloadSnapshot ?? {};
+  const snapshot = normalized.payloadSnapshot ?? {};
+  const payload = snapshot.printTemplate ?? snapshot;
   const explicit = [
     payload.printText,
     payload.renderedText,
@@ -625,6 +626,24 @@ function buildPrintableText({ normalized }) {
     .find(Boolean);
   if (explicit) return ensureTrailingNewline(explicit);
   const fields = payload.fields && typeof payload.fields === "object" ? payload.fields : {};
+  if (Array.isArray(fields.lineItems) && fields.lineItems.length && payload.priceHidden !== true) {
+    const lines = [payload.title || "出库单", `模板版本：${payload.templateVersion || "未提供"}`,
+      `客户：${fields.customerName || ""}`, `制单时间：${fields.documentCreatedAtText || ""}`];
+    for (const item of fields.lineItems) {
+      lines.push(`明细：${item.lineNo || ""} ${item.goodsSummary || ""}`);
+      if (item.sourceOrderNo) lines.push(`源订单：${item.sourceOrderNo}`);
+      if (Number.isSafeInteger(item.orderedQuantity) && item.orderedQuantity > 0) lines.push(`原订购：${item.orderedQuantity} 个`);
+      for (const fact of item.sourceFacts || []) lines.push(`${fact.label}：${fact.value}`);
+      lines.push(`本次出库：${item.quantityText || ""} / ${item.packageText || ""}`,
+        `${fields.unitPriceLabel || "单价"}：${item.unitPriceText || ""} / 金额：${item.amountText || ""}`);
+    }
+    if (fields.chargeableQuantityText) lines.push(`计费数量：${fields.chargeableQuantityText}`);
+    if (fields.freeQuantityText) lines.push(`赠送数量：${fields.freeQuantityText}`);
+    lines.push(`合计数量：${fields.totalQuantityText || fields.quantityText || ""}`,
+      `${fields.amountLabel || "合计金额"}：${fields.totalAmountText || ""}`,
+      `价格说明：${fields.priceStatementText || ""}`, `备注：${fields.note || "无"}`);
+    return ensureTrailingNewline(lines.join("\n"));
+  }
   const lines = [
     "ERP PRINT JOB",
     `Print Job: ${normalized.printJobId}`,

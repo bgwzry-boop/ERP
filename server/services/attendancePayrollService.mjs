@@ -77,6 +77,16 @@ export function createAttendancePayrollService(dependencies = {}) {
   }
 
   function buildPayrollWorkbench({ workspace, month } = {}) {
+    const workbench = buildPayrollInputs({ workspace, month });
+    const formalReadiness = buildPayrollReadiness({ workspace, month: workbench.month });
+    return {
+      ...workbench,
+      formalReadiness,
+      summary: { ...workbench.summary, draftReady: formalReadiness.ready },
+    };
+  }
+
+  function buildPayrollInputs({ workspace, month } = {}) {
     const safeMonth = normalizeMonth(month, now());
     const calculationAsOf = payrollCalculationAsOf(safeMonth, now());
     const activePolicy = findActivePayrollPolicy(workspace, `${safeMonth}-01`);
@@ -137,7 +147,7 @@ export function createAttendancePayrollService(dependencies = {}) {
   }
 
   function buildPayrollReadiness({ workspace, month } = {}) {
-    const workbench = buildPayrollWorkbench({ workspace, month });
+    const workbench = buildPayrollInputs({ workspace, month });
     const activePolicy = findActivePayrollPolicy(workspace, `${workbench.month}-01`);
     const employees = employeesForPayrollMonth(workspace, workbench.month);
     const activeEmployees = (workspace?.employees ?? []).filter(isCurrentPayrollEmployee);
@@ -150,7 +160,7 @@ export function createAttendancePayrollService(dependencies = {}) {
     );
     const attendanceImportCoverage = buildVerifiedAttendanceImportCoverage(workspace, workbench.month, now());
     const profileCompleteCount = employees.filter(
-      (employee) => cleanText(employee.birthDate) && cleanText(employee.hireDate),
+      (employee) => isValidDateOnly(employee.birthDate) && isValidDateOnly(employee.hireDate),
     ).length;
     const payrollPositionCompleteCount = employees.filter(
       (employee) => cleanText(employee.payrollPositionKey),
@@ -193,6 +203,10 @@ export function createAttendancePayrollService(dependencies = {}) {
       }),
       readinessCriterion("attendance_reviews", "本月考勤异常已全部复核", workbench.summary.pendingAttendanceReviewCount === 0, {
         pendingCount: workbench.summary.pendingAttendanceReviewCount,
+      }),
+      readinessCriterion("payroll_inputs", "本月全部员工计薪输入和任职边界已核对", workbench.summary.draftReady, {
+        readyCount: workbench.summary.readyCount,
+        totalCount: employees.length,
       }),
       readinessCriterion("employee_self_accounts", "当前在职员工本人账号已完成启用和改密", activeEmployees.length > 0 && readyAccountEmployeeIds.size === activeEmployees.length, {
         readyCount: readyAccountEmployeeIds.size,
@@ -325,6 +339,9 @@ export function createAttendancePayrollService(dependencies = {}) {
     const rangeEnd = normalizeTimestamp(body.rangeEnd, "rangeEnd");
     if (Date.parse(rangeEnd) <= Date.parse(rangeStart)) {
       throw businessError(400, "ATTENDANCE_SYNC_RANGE_INVALID", "考勤同步结束时间必须晚于开始时间。");
+    }
+    if (Date.parse(rangeEnd) > now().getTime()) {
+      throw businessError(400, "ATTENDANCE_SYNC_FUTURE_RANGE", "考勤同步不能包含尚未发生的时间；请同步截至当前的记录，月末再补齐整月。");
     }
     const providerKey = cleanText(provider.key ?? body.provider).toLowerCase();
     if (!providerKey) {
@@ -497,6 +514,14 @@ export function createAttendancePayrollService(dependencies = {}) {
     if (blockers.length) {
       const error = businessError(409, "PAYROLL_DRAFT_BLOCKED", "存在未完成的员工档案或考勤复核，不能生成工资草稿。");
       error.details = { blockers };
+      throw error;
+    }
+    // The same formal gate owns the read projection and every draft write.
+    // Client preview/demo flags never relax persistence, source or account requirements.
+    const readiness = buildPayrollReadiness({ workspace, month });
+    if (!readiness.ready) {
+      const error = businessError(409, "PAYROLL_READINESS_BLOCKED", "正式工资条件尚未就绪；请完成工资就绪检查中的阻塞项后再生成草稿。");
+      error.details = { readiness };
       throw error;
     }
     const existingRevisions = (workspace.payrollRuns ?? [])
@@ -1383,7 +1408,7 @@ function buildVerifiedAttendanceImportCoverage(workspace, month, asOf) {
   const intervals = verifiedImports
     .map((batch) => ({
       start: Math.max(monthStart, Date.parse(batch.rangeStart)),
-      end: Math.min(monthEnd, Date.parse(batch.rangeEnd)),
+      end: Math.min(monthEnd, Date.parse(batch.rangeEnd), Date.parse(batch.completedAt), asOf.getTime()),
     }))
     .filter((interval) => Number.isFinite(interval.start) && Number.isFinite(interval.end) && interval.end > interval.start)
     .sort((left, right) => left.start - right.start || left.end - right.end);

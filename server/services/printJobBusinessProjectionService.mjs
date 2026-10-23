@@ -148,7 +148,7 @@ function applyFulfillmentProjection(workspace, plan, method, transactionInput) {
 
 function buildPrintJobBusinessProjectionPlan({ workspace, printJob, operatorId, reason, buildOperationLog }) {
   const printRecordId = normalizeText(printJob?.printRecordId);
-  if (!printRecordId || printJob?.jobStatus === "preview_only") return null;
+  if (!printRecordId || printJob?.jobStatus === "preview_only" || printJob?.driverMode === "preview_only") return null;
 
   const beforePrintRecord = findPrintRecord(workspace, printRecordId);
   if (!beforePrintRecord) return null;

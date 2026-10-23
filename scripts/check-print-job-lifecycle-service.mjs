@@ -31,23 +31,41 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
     workspace: harness.workspace,
     printJobId: "PJ-001",
     body: {
-      status: "sent",
+      status: "failed",
+      finishedAt: "1999-01-01T00:00:00Z",
       operatorId: "U-SPOOFED",
       reason: "manual status check",
       idempotencyKey: "status-001",
-      metadata: { source: "direct_check" },
+      metadata: { source: "direct_check", lastDispatch: {externalJobId:"FORGED"}, driverStatusEvents:[{status:"printed"}] },
     },
     operatorId: "U-OFFICE-A",
   });
-  assert.equal(updated.printJob.jobStatus, "sent");
-  assert.equal(updated.printJob.sentAt, fixedNow);
+  assert.equal(updated.printJob.jobStatus, "failed");
+  assert.equal(updated.printJob.finishedAt, fixedNow);
   assert.equal(updated.printJob.metadata.statusUpdatedBy, "U-OFFICE-A");
-  assert.equal(updated.printJob.metadata.source, "direct_check");
+  assert.equal(updated.printJob.metadata.source, undefined);
+  assert.equal(updated.printJob.metadata.lastDispatch, undefined);
+  assert.equal(updated.printJob.metadata.driverStatusEvents, undefined);
   assert.equal(harness.updateCalls.at(-1).idempotencyKey, "status-001");
   assert.equal(harness.updateCalls.at(-1).idempotencyPayload.operatorId, "U-OFFICE-A");
   assert.equal(harness.updateCalls.at(-1).operationLog.operatorId, "U-OFFICE-A");
   assert.equal(harness.updateCalls.at(-1).operationLog.action, "update_print_job_status");
-  assert.equal(harness.projectionCalls.at(-1).printJob.jobStatus, "sent");
+  assert.equal(harness.projectionCalls.at(-1).printJob.jobStatus, "failed");
+}
+
+{
+  for (const status of ["sent", "printed"]) {
+    const harness = createHarness([createPrintJob()]);
+    const rejected = await harness.service.updatePrintJobStatus({workspace:harness.workspace,printJobId:"PJ-001",operatorId:"U-OFFICE-A",body:{status,metadata:{lastDispatch:{externalJobId:"FORGED"},driverStatusEvents:[{status:"printed"}]}}});
+    assert.equal(rejected.code,"PRINT_JOB_DRIVER_CONFIRMATION_REQUIRED");
+    assert.equal(harness.updateCalls.length,0);
+    assert.equal(harness.projectionCalls.length,0);
+  }
+  for (const [before,status] of [["printed","queued"],["printed","failed"],["failed","queued"],["sent","queued"],["canceled","failed"]]) {
+    const harness=createHarness([createPrintJob({jobStatus:before})]);
+    const rejected=await harness.service.updatePrintJobStatus({workspace:harness.workspace,printJobId:"PJ-001",operatorId:"U-OFFICE-A",body:{status}});
+    assert.equal(rejected.error,true);assert.equal(harness.updateCalls.length,0);assert.equal(harness.projectionCalls.length,0);
+  }
 }
 
 {
@@ -165,7 +183,7 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
 }
 
 {
-  const harness = createHarness([createPrintJob({ jobStatus: "failed", attemptNo: 1 })]);
+  const harness = createHarness([createPrintJob({ jobStatus: "failed", attemptNo: 1, metadata: { lastDispatch: { externalJobId: "OLD-ATTEMPT" }, externalJobId: "OLD-ATTEMPT", driverStatusEvents: [{ status: "failed" }] } })]);
   const retried = await harness.service.retryPrintJob({
     workspace: harness.workspace,
     printJobId: "PJ-001",
@@ -176,6 +194,10 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
   assert.equal(retried.printJob.sourcePrintJobId, "PJ-001");
   assert.equal(retried.printJob.attemptNo, 2);
   assert.equal(retried.printJob.jobStatus, "queued");
+  assert.equal(retried.printJob.metadata.lastDispatch, undefined);
+  assert.equal(retried.printJob.metadata.externalJobId, undefined);
+  const oldCallback = await harness.service.recordPrintJobDriverStatus({ workspace: harness.workspace, printJobId: retried.printJob.printJobId, operatorId: "U-PRINT-DRIVER-A", body: { status: "printed", externalJobId: "OLD-ATTEMPT" } });
+  assert.equal(oldCallback.code, "PRINT_JOB_DISPATCH_REQUIRED");
   assert.equal(retried.printJob.metadata.retryReason, "paper replaced");
   assert.equal(harness.createCalls.at(-1).operationLog.action, "retry_print_job");
   assert.equal(harness.createCalls.at(-1).operationLog.operatorId, "U-OFFICE-A");
@@ -233,6 +255,14 @@ const fixedNow = "2026-07-11T10:00:00.000Z";
   assert.equal(printed.physicalPrintConfirmed, true);
   assert.equal(harness.atomicProjectionCalls.length, 1);
   assert.equal(harness.atomicProjectionCalls[0].printJobWriteMode, "update");
+  assert.equal(harness.updateCalls.length, 0);
+  assert.equal(harness.projectionCalls.length, 0);
+}
+
+for (const record of [createPrintJob({ jobStatus: "preview_only", driverMode: "preview_only" }), createPrintJob({ jobStatus: "queued" })]) {
+  const harness = createHarness([record]);
+  const response = await harness.service.recordPrintJobDriverStatus({ workspace: harness.workspace, printJobId: record.printJobId, operatorId: "U-PRINT-DRIVER-A", body: { status: "printed" } });
+  assert.equal(response.error, true);
   assert.equal(harness.updateCalls.length, 0);
   assert.equal(harness.projectionCalls.length, 0);
 }

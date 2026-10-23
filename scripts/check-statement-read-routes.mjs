@@ -128,6 +128,12 @@ assert.equal(
 assert.deepEqual(calls, [{ kind: "denied" }]);
 assert.equal(await handleStatementReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/statements/ST-1/exports/DL-1/extra") }), false);
 
+for (const route of ["/api/statements/customers", "/api/statements/ST-1"]) {
+  calls.length = 0;
+  await handleStatementReadRoutes({ ...dependencies, url: new URL(`http://erp.test${route}`), requireActionPermission() { calls.push({ kind: "denied" }); return false; } });
+  assert.deepEqual(calls, [{ kind: "denied" }]);
+}
+
 console.log("statement read routes checks passed: customer/detail reads, diagnostics, export list/download, permissions, 404, and thin API wiring are covered");
 
 async function expectProtectedRoute(pathname, expectedCalls, needsOperator = false) {

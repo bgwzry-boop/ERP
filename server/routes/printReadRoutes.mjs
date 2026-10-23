@@ -15,6 +15,7 @@ export async function handlePrintReadRoutes({
   printDriverDiagnosticsService,
 }) {
   if (url.pathname === "/api/print-driver/config") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.printFulfillment)) return true;
     sendJson(response, 200, printDriverDiagnosticsService.getConfiguration({ workspace }));
     return true;
   }
@@ -38,6 +39,7 @@ export async function handlePrintReadRoutes({
   }
 
   if (url.pathname === "/api/print-batches") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.printFulfillment)) return true;
     const items = await workspace.printBatchRepository.listPrintBatchRecords({
       workspace,
       filters: {
@@ -50,6 +52,7 @@ export async function handlePrintReadRoutes({
   }
 
   if (url.pathname === "/api/print-devices") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.printFulfillment)) return true;
     const items = await workspace.printDeviceRepository.listPrintDevices({
       workspace,
       filters: {
@@ -63,6 +66,7 @@ export async function handlePrintReadRoutes({
   }
 
   if (url.pathname === "/api/print-jobs") {
+    if (!requireActionPermission(response, permissionContext, writeActionPermissions.printFulfillment)) return true;
     const items = await workspace.printJobRepository.listPrintJobs({
       workspace,
       filters: {
@@ -106,6 +110,7 @@ export async function handlePrintReadRoutes({
 
   const printJobMatch = url.pathname.match(/^\/api\/print-jobs\/([^/]+)$/);
   if (!printJobMatch) return false;
+  if (!requireActionPermission(response, permissionContext, writeActionPermissions.printFulfillment)) return true;
 
   const printJob = await findPrintJob(workspace, decodeURIComponent(printJobMatch[1]));
   if (printJob) sendJson(response, 200, { printJob });

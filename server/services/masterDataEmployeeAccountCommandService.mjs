@@ -15,7 +15,8 @@ import {
   findRuntimeUserByEmployeeId,
   findRuntimeUserById,
   nextRuntimeSessionVersion,
-  persistRuntimeIdentityState,
+  commitRuntimeIdentityWorkspace,
+  captureRuntimeIdentityBaseline,
   sanitizeRuntimeUserForResponse,
   upsertRuntimeUser,
 } from "./runtimeIdentityWorkspace.mjs";
@@ -1482,15 +1483,13 @@ function upsertMasterDataEmployeeUser(workspace, employee, options = {}) {
 }
 
 async function persistAndCommitIdentityWorkspace(workspace, stagedWorkspace, options = {}) {
-  await persistRuntimeIdentityState(stagedWorkspace, options);
-  workspace.employees = stagedWorkspace.employees;
-  workspace.users = stagedWorkspace.users;
-  workspace.operationLogs = stagedWorkspace.operationLogs;
+  return commitRuntimeIdentityWorkspace(workspace, stagedWorkspace, options);
 }
 
 function stageWorkspace(workspace) {
   return {
     ...workspace,
+    runtimeIdentityBaseline: captureRuntimeIdentityBaseline(workspace),
     employees: (workspace.employees ?? []).map((item) => ({ ...item })),
     users: (workspace.users ?? []).map((item) => ({ ...item })),
     operationLogs: [...(workspace.operationLogs ?? [])],

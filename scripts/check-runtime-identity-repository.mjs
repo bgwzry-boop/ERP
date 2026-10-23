@@ -574,7 +574,7 @@ assert.equal(seedReferencesEnsured.insertedCount, 0);
 assert.equal(postgresCalls[0].kind, "query");
 assert.equal(postgresCalls[1].kind, "transaction");
 assert.equal(postgresCalls[2].kind, "transaction");
-assert.match(postgresCalls[1].text, /^\s*WITH saved_users AS/);
+assert.match(postgresCalls[1].text, /^\s*WITH identity_revision AS MATERIALIZED/);
 assert.match(postgresCalls[1].text, /saved_revoked_sessions AS/);
 assert.match(postgresCalls[1].text, /updated_employees AS/);
 assert.match(postgresCalls[1].text, /updated_employee_assignments AS/);

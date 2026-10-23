@@ -10,7 +10,8 @@ import {
   normalizeEmployeeAccountRoleKeys,
 } from "./runtimeEmployeeAccountPolicy.mjs";
 import {
-  persistRuntimeIdentityState,
+  commitRuntimeIdentityWorkspace,
+  captureRuntimeIdentityBaseline,
   sanitizeRuntimeUserForResponse,
   upsertRuntimeUser,
 } from "./runtimeIdentityWorkspace.mjs";
@@ -543,6 +544,7 @@ function maskPhone(value) {
 function stageIdentityWorkspace(workspace = {}) {
   return {
     ...workspace,
+    runtimeIdentityBaseline: captureRuntimeIdentityBaseline(workspace),
     users: runtimeUsers(workspace).map((item) => ({ ...item })),
     employees: (workspace.employees ?? []).map((item) => ({ ...item })),
     operationLogs: [...(workspace.operationLogs ?? [])],
@@ -550,12 +552,8 @@ function stageIdentityWorkspace(workspace = {}) {
   };
 }
 
-async function persistAndCommitIdentityWorkspace(workspace, stagedWorkspace) {
-  await persistRuntimeIdentityState(stagedWorkspace);
-  workspace.users = stagedWorkspace.users;
-  workspace.employees = stagedWorkspace.employees;
-  workspace.operationLogs = stagedWorkspace.operationLogs;
-  workspace.phoneVerificationChallenges = stagedWorkspace.phoneVerificationChallenges;
+async function persistAndCommitIdentityWorkspace(workspace, stagedWorkspace, options = {}) {
+  return commitRuntimeIdentityWorkspace(workspace, stagedWorkspace, options);
 }
 
 function runtimeUsers(workspace) {
