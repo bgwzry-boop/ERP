@@ -16206,11 +16206,21 @@
         "currentEvidence": [
           {
             "path": "server/services/fulfillmentActionCommandService.mjs",
-            "present": true
+            "present": true,
+            "symbol": "createFulfillmentActionCommandService / recordWarehouseOutboundExecution / updateFulfillmentStatus",
+            "observation": "当前合同先交接实物出库单据并核实际数量，再完成自提/快递交付；最终交付不重复扣库存。"
+          },
+          {
+            "path": "server/fulfillmentActionTransactionRepository.mjs",
+            "present": true,
+            "symbol": "createLocalFulfillmentActionTransactionRepository / build transaction queries",
+            "observation": "数量、库存占用和已扣库状态在持久边界保全。"
           }
         ],
         "validation": [
-          "scripts/check-p1-order-delivery-integration.mjs"
+          "scripts/check-fulfillment-action-command-service.mjs",
+          "scripts/check-fulfillment-action-transaction-repository.mjs",
+          "scripts/check-postgres-live.mjs"
         ],
         "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。",
         "legacyPatchSha256": "635e8c86c903795082bf6cbe3a50648537b8e23f4bb1b4f703490964a34de0e6"
@@ -16376,12 +16386,27 @@
         "currentEvidence": [
           {
             "path": "server/routes/productionReadRoutes.mjs",
-            "present": true
+            "present": true,
+            "symbol": "handleProductionReadRoutes",
+            "observation": "车间查询强制本人机台并投影最少字段，不能用浏览器query要求全厂/财务字段。"
+          },
+          {
+            "path": "server/services/businessReadAccessService.mjs",
+            "present": true,
+            "symbol": "getTrustedWorkerMachine / projectWorkerTask / authorizeBusinessRead",
+            "observation": "员工机台绑定与独立read.all作用域由服务端决定。"
+          },
+          {
+            "path": "src/services/officeInventoryApiClient.js",
+            "present": true,
+            "symbol": "listOfficeInventoryLedgerEntries",
+            "observation": "不完整或外来库存项流水明确阻断，不用filter丢坏行假装完整。"
           }
         ],
         "validation": [
-          "scripts/check-office-operational-reads.mjs",
-          "scripts/check-business-read-api.mjs"
+          "scripts/check-business-read-access.mjs",
+          "scripts/check-business-read-api.mjs",
+          "scripts/check-frontend-inventory-api-client.mjs"
         ],
         "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。",
         "legacyPatchSha256": "0454b633ad918e393e9fab20c568971a86c7d1fc0a1a4d6d84c8f7bfba949176"
@@ -16747,7 +16772,7 @@
         "scripts/check-office-evidence-review-page.mjs"
       ],
       "status": "reviewed-scoped-semantics",
-      "note": "对实际办公室复核组件使用现有应用CSS做桌面布局检查；保留完整新业务工作台，不恢复旧版蓝色布局。",
+      "note": "对实际办公室复核组件使用现有应用CSS做桌面布局检查；保留当前已确认的工作台、主题与业务功能，不覆盖成旧整页。",
       "mechanical": {
         "parents": [
           "887084c722e1ead281cfccb35e7a9b87769d2725"
@@ -16779,13 +16804,21 @@
         "kind": "scoped-semantic-review",
         "wholeCommitIntegrated": false,
         "decision": "semantics-transplanted",
-        "reason": "对实际办公室复核组件使用现有应用CSS做桌面布局检查；保留完整新业务工作台，不恢复旧版蓝色布局。",
+        "reason": "对实际办公室复核组件使用现有应用CSS做桌面布局检查；保留当前已确认的工作台、主题与业务功能，不覆盖成旧整页。",
         "domain": "root",
         "report": "docs/development/legacy-remaining-root-review-20261023.json",
         "currentEvidence": [
           {
-            "path": "docs/prototypes/raw-material-roll-inventory-review/src/BusinessWorkspaces.jsx",
-            "present": true
+            "path": "src/features/fulfillment/FulfillmentPage.jsx",
+            "present": true,
+            "symbol": "FulfillmentPage",
+            "observation": "布局专项实际挂载此完整组件，而非BusinessWorkspaces截图替身。"
+          },
+          {
+            "path": "src/features/fulfillment/DeliveryEvidenceReviewPanel.jsx",
+            "present": true,
+            "symbol": "DeliveryEvidenceReviewPanel",
+            "observation": "退回原因、待写互斥及失败保留在实际复核组件。"
           }
         ],
         "validation": [
@@ -19011,7 +19044,15 @@
         "currentEvidence": [
           {
             "path": "docs/prototypes/raw-material-roll-inventory-review/src/FinishedInventoryLedger.jsx",
-            "present": true
+            "present": true,
+            "symbol": "displayLedgerTime / Ledger",
+            "observation": "上海时区显示真实流水时间，ID/数量/来源事实保留。"
+          },
+          {
+            "path": "docs/prototypes/raw-material-roll-inventory-review/src/business-workspaces.css",
+            "present": true,
+            "symbol": ".business-facts dd",
+            "observation": "overflow-wrap:anywhere允许长连续内容换行。"
           }
         ],
         "validation": [
@@ -20578,7 +20619,8 @@
           }
         ],
         "validation": [
-          "scripts/check-attachment-access-audit-identity.mjs"
+          "scripts/check-workspace-record-service.mjs",
+          "scripts/check-attachment-file-access-service.mjs"
         ],
         "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。",
         "legacyPatchSha256": "501d33cb0220ed98cb07076ebef123287d60f5ecaac6458ffd1ea037c7fc18af"
@@ -20609,7 +20651,7 @@
         "server/services/workspaceRecordService.mjs"
       ],
       "status": "reviewed-scoped-semantics",
-      "note": "保留显式序号调用的历史格式，只修无显式序号的LOG/ALOG默认编号；避免破坏既有追溯关系。",
+      "note": "当前buildOperationLog仍保留调用方显式input.id；默认LOG及nextId(LOG/ALOG)使用随机标识，不再由数组长度造审计主键，其他业务编号格式保留。这里的显式ID保留不意味着nextId(LOG, rows)仍用旧顺序号。",
       "mechanical": {
         "parents": [
           "b44252953c39812575a2b9f3145a2176db55f1d4"
@@ -20643,17 +20685,20 @@
         "kind": "scoped-semantic-review",
         "wholeCommitIntegrated": false,
         "decision": "semantics-transplanted",
-        "reason": "保留显式序号调用的历史格式，只修无显式序号的LOG/ALOG默认编号；避免破坏既有追溯关系。",
+        "reason": "当前buildOperationLog仍保留调用方显式input.id；默认LOG及nextId(LOG/ALOG)使用随机标识，不再由数组长度造审计主键，其他业务编号格式保留。这里的显式ID保留不意味着nextId(LOG, rows)仍用旧顺序号。",
         "domain": "root",
         "report": "docs/development/legacy-remaining-root-review-20261023.json",
         "currentEvidence": [
           {
             "path": "server/services/workspaceRecordService.mjs",
-            "present": true
+            "present": true,
+            "symbol": "nextId / buildOperationLog",
+            "observation": "LOG/ALOG默认UUID，buildOperationLog用input.id优先；ATT等其他业务编号保持原格式。"
           }
         ],
         "validation": [
-          "scripts/check-attachment-access-audit-identity.mjs"
+          "scripts/check-workspace-record-service.mjs",
+          "scripts/check-attachment-file-access-service.mjs"
         ],
         "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。",
         "legacyPatchSha256": "8e639eb8228f39c2659679e995c10bea2ac3ba67fbc3584d80bc5b112730e00d"
@@ -20876,12 +20921,16 @@
         "report": "docs/development/legacy-remaining-root-review-20261023.json",
         "currentEvidence": [
           {
-            "path": "server/attachmentRepository.mjs",
-            "present": true
+            "path": "server/attachmentAccessAuditRepository.mjs",
+            "present": true,
+            "symbol": "createPostgresAttachmentAccessAuditRepository.recordAccessLog / buildInsertAttachmentAccessLogQuery",
+            "observation": "访问审计INSERT无ON CONFLICT覆盖，持久结果合法后才发布内存；local冲突与磁盘失败保持原历史。"
           }
         ],
         "validation": [
-          "scripts/check-postgres-live-attachment-repository-scenario.mjs"
+          "scripts/check-attachment-access-audit-identity.mjs",
+          "scripts/check-postgres-live-attachment-repository-scenario.mjs",
+          "scripts/check-postgres-live.mjs"
         ],
         "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。",
         "legacyPatchSha256": "8190cdce145e8cd460b1039fdec6e8855a366a18e9f5642a7fe92340db5b80c8"
@@ -21508,7 +21557,7 @@
         "scripts/check-postgres-live.mjs"
       ],
       "status": "reviewed-scoped-semantics",
-      "note": "厂家色映射多语句事务使用正式池执行接口；真实PostgreSQL同时覆盖默认共享池和锁等待路径。",
+      "note": "厂家色映射多语句事务接正式池执行接口；当前专项在独立真实PostgreSQL中注入显式pg.Pool，覆盖分语句执行与实际锁等待。该专项没有单独证明默认共享池注册/配置分支。",
       "mechanical": {
         "parents": [
           "5fedbefe33627a58b8f79365ca8a65df540c7daf"
@@ -21540,17 +21589,21 @@
         "kind": "scoped-semantic-review",
         "wholeCommitIntegrated": false,
         "decision": "semantics-transplanted",
-        "reason": "厂家色映射多语句事务使用正式池执行接口；真实PostgreSQL同时覆盖默认共享池和锁等待路径。",
+        "reason": "厂家色映射多语句事务接正式池执行接口；当前专项在独立真实PostgreSQL中注入显式pg.Pool，覆盖分语句执行与实际锁等待。该专项没有单独证明默认共享池注册/配置分支。",
         "domain": "root",
         "report": "docs/development/legacy-remaining-root-review-20261023.json",
         "currentEvidence": [
           {
             "path": "server/postgresPoolClient.mjs",
-            "present": true
+            "present": true,
+            "symbol": "transactionStatementsJson",
+            "observation": "单连接BEGIN/分语句参数/COMMIT与失败ROLLBACK。"
           },
           {
             "path": "server/masterDataImportTransactionRepository.mjs",
-            "present": true
+            "present": true,
+            "symbol": "createPostgresMasterDataImportTransactionRepository / buildSupplierColourTransactionGuard",
+            "observation": "锁后比较映射原快照，同事务写入并返回持久别名。"
           }
         ],
         "validation": [
@@ -21703,12 +21756,16 @@
         "report": "docs/development/legacy-remaining-root-review-20261023.json",
         "currentEvidence": [
           {
-            "path": "server/coreWorkspaceReadRepository.mjs",
-            "present": true
+            "path": "server/masterDataImportTransactionRepository.mjs",
+            "present": true,
+            "symbol": "buildMasterDataImportTransactionQuery / normalizePostgresTransactionResult / applyImportExecution",
+            "observation": "从持久color_aliases返回supplierColourAlias，并以真实updatedAt回填workspace。"
           },
           {
             "path": "server/services/rawMaterialSupplierColorMappingService.mjs",
-            "present": true
+            "present": true,
+            "symbol": "saveMapping",
+            "observation": "将事务回填后的持久映射返给客户端供下一次CAS编辑。"
           }
         ],
         "validation": [
@@ -21817,7 +21874,7 @@
         "scripts/check-canonical-colour-conflict.mjs"
       ],
       "status": "reviewed-scoped-semantics",
-      "note": "色映射冲突后重新读取最新映射且保留明确失败提示；桌面窄屏与手机使用当前新布局。",
+      "note": "当前canonical颜色编辑器在1440/800宽度用合成409验证冲突保留原因、刷新最新规则、重新选择后采用新值与关闭焦点恢复；手机390的状态可见/输入大小是另一项独立响应式验证。",
       "mechanical": {
         "parents": [
           "ca923086a0e77f43fdaeee6f55cae06d5a7ac115"
@@ -21850,7 +21907,7 @@
         "kind": "scoped-semantic-review",
         "wholeCommitIntegrated": false,
         "decision": "semantics-transplanted",
-        "reason": "色映射冲突后重新读取最新映射且保留明确失败提示；桌面窄屏与手机使用当前新布局。",
+        "reason": "当前canonical颜色编辑器在1440/800宽度用合成409验证冲突保留原因、刷新最新规则、重新选择后采用新值与关闭焦点恢复；手机390的状态可见/输入大小是另一项独立响应式验证。",
         "domain": "root",
         "report": "docs/development/legacy-remaining-root-review-20261023.json",
         "currentEvidence": [
@@ -21860,6 +21917,7 @@
           }
         ],
         "validation": [
+          "scripts/check-canonical-colour-conflict.mjs",
           "scripts/check-supplier-color-dialog.mjs",
           "scripts/check-supplier-color-responsive.mjs"
         ],
@@ -51488,7 +51546,7 @@
         "domain": "root",
         "path": "docs/development/legacy-remaining-root-review-20261023.json",
         "count": 29,
-        "sha256": "e9a5529bb58d8987c09895a2d290867c559d8de589bb321ed872a9b5d2f5f8ae"
+        "sha256": "5789f8db6cefb578708b56b4012963e89f7c2c71aceb2c090f60761a27ba7153"
       }
     ],
     "sourceStatusCounts": {

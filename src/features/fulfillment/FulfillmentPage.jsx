@@ -1,5 +1,4 @@
-import { DriverExceptionResolutionPanel } from "./DriverExceptionResolutionPanel.jsx";
-import { useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   CarOutlined,
   CheckCircleOutlined,
@@ -47,6 +46,8 @@ import {
   getFulfillmentListProduct,
   getFulfillmentPaperTone,
 } from "./fulfillmentPageModel.js";
+
+const DriverExceptionResolutionPanel = lazy(() => import("./DriverExceptionResolutionPanel.jsx").then(module => ({ default: module.DriverExceptionResolutionPanel })));
 
 export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillments, orderLines, selectedId, setSelectedId, onAction, onRefresh, helpers }) {
   const [priorityMode, setPriorityMode] = useState("关注优先");
@@ -364,7 +365,7 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
             <Segmented ariaLabel="交付详情视图" value={detailTab} onChange={setDetailTab} items={FULFILLMENT_DETAIL_TABS} />
           </div>
           <div hidden={detailTab !== "任务处理"}>
-            {selected.status === "送货异常" ? <DriverExceptionResolutionPanel authState={authState} fulfillmentId={selected.id} /> : null}
+            {selected.status === "送货异常" ? <Suspense fallback={<p role="status">正在读取异常处理入口…</p>}><DriverExceptionResolutionPanel authState={authState} fulfillmentId={selected.id} /></Suspense> : null}
             <FulfillmentDetailSection title="任务信息">
               <FulfillmentDetailFacts
                 rows={[

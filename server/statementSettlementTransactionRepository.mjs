@@ -528,7 +528,7 @@ export function normalizeWriteOffTransactionResult(value) {
   };
 }
 
-function applySettlementWorkspaceMutation({ workspace, statements, statement, varianceRecord, writeOffRecord, todo, operationLog }) {
+function applySettlementWorkspaceMutation({ workspace, statement, varianceRecord, writeOffRecord, todo, operationLog }) {
   if (statement?.id) {
     workspace.statements = workspace.statements.map((item) => (item.id === statement.id ? { ...item, ...statement } : item));
   }

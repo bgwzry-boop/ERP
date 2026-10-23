@@ -459,7 +459,7 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   await expect(page.getByText(createdLine.id, { exact: false })).toBeVisible();
 
   await page.getByRole("button", { name: "登记实收", exact: true }).click();
-  const paymentDialog = page.getByRole("dialog", { name: "登记实收" });
+  const paymentDialog = page.getByRole("dialog", { name: "登记本期累计实收", exact: true });
   await expect(paymentDialog).toBeVisible();
   expect(Number(createdLine.amount)).toBeGreaterThan(0);
   // Payment amount is the maintained cumulative received value. Updating 20 to
@@ -467,14 +467,14 @@ test("订单确认到收款凭证形成可追溯闭环", async ({ page, request 
   const statementBeforePayment = (await apiGet(request, "/statements/customers?page=1&pageSize=200")).items
     .find(item => item.customerId === "C001");
   expect(statementBeforePayment?.statementId).toBeTruthy();
-  await paymentDialog.getByLabel(/^(?:累计)?实收金额$/).fill("20");
+  await paymentDialog.getByLabel("本期累计实收金额", { exact: true }).fill("20");
   await paymentDialog.getByRole("checkbox", { name: "付款截图/附件", exact: true }).uncheck();
   await paymentDialog.getByRole("button", { name: "确认提交", exact: true }).click();
   await waitForApiDetail(request, `/statements/${encodeURIComponent(statementBeforePayment.statementId)}`, detail => Number(detail.received) === 20);
   await page.getByRole("button", { name: "登记实收", exact: true }).click();
   await expect(paymentDialog).toBeVisible();
-  await expect(paymentDialog.getByLabel(/^(?:累计)?实收金额$/)).toHaveValue("20");
-  await paymentDialog.getByLabel(/^(?:累计)?实收金额$/).fill("50");
+  await expect(paymentDialog.getByLabel("本期累计实收金额", { exact: true })).toHaveValue("20");
+  await paymentDialog.getByLabel("本期累计实收金额", { exact: true }).fill("50");
   await paymentDialog.locator('input[type="file"]').setInputFiles({
     name: "e2e-payment-proof.png",
     mimeType: "image/png",

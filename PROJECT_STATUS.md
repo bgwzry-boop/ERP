@@ -14,6 +14,12 @@ Updated: 2026-10-23. Staging, the repository default entry and the owner's main 
 
 Current values come from live frontend/API identities and remote refs, not this document. The pre-governance observation on 2026-10-22 was `955bb6055e1cff44a3b212f21754e7a8dc908c42`, version `staging-20261022-raw-material-r1`, lock `a511759603149771950b90fc9d770e2ad546754cb661d75d5d80e4fcdb35d8d2`; preserve it as history only. A cache-busting query does not prove the response's identity. The [controlled release rules](docs/development/controlled-release-governance.zh-CN.md) govern every conversation and target.
 
+## October 23 Local Legacy Integration
+
+The isolated `codex/p1-integration-20261023` task reviewed the remaining 497 actual legacy diffs while preserving newer contracts. The 611-entry ledger retains the prior 114 decisions. The new records classify 383 scoped adaptations, 30 current-contract replacements, 29 historical validations, 46 unfinished interface/recovery scopes and 9 cross-domain scoped reviews. These are commit-record counts, never whole-patch completion or a bug count.
+
+The [review and remediation report](docs/development/legacy-remaining-review-closeout-20261023.html) contains verified fixes, actual test evidence and remaining work. Canonical order editing, hold actions, financial variance/write-off interfaces and some maintenance/recovery flows remain explicit followups. `git-baseline-scope:check` now verifies exact source coverage, report fingerprints and duplicate/missing records. The old tree's 59 uncommitted entries remain untouched. This task has not deployed or advanced the canonical release line.
+
 ## Completed Historical Audit
 
 The old local head `c86f0144666b02b0d1bee3ef7b9fe8d320fa239d` and all 64 commits are already ancestors of deployed `955bb605`, through integration merge `0c743f57911172d963b8102ca2b673b4b6e6fe99`. They are not 64 outstanding changes. Of 392 changed paths, 284 retain identical content and 108 evolved in later work; no old file was missing. Replaying those commits would risk overwriting newer implementations.

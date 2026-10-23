@@ -107,7 +107,7 @@ export function createPostgresBusinessDecisionEvidenceRepository(options = {}) {
       });
       const result = await idempotentTransactionJson({ ...request, includeReplayMetadata: true });
       const metadata = result && typeof result.replayed === "boolean" && Object.hasOwn(result, "value") ? result : null;
-      const normalized = normalizeDecisionDirectiveResult(metadata ? metadata.value : result, input);
+      const normalized = normalizeDecisionDirectiveResult(metadata ? metadata.value : result);
       if (metadata) normalized.replayed = metadata.replayed;
       if (!normalized.businessDecision || !normalized.todo) {
         throw new Error("PostgreSQL business decision directive returned invalid data");
@@ -443,7 +443,7 @@ function assertNoActiveTerminalDecision(records, decisionRecord) {
   }
 }
 
-function normalizeDecisionDirectiveResult(value, input) {
+function normalizeDecisionDirectiveResult(value) {
   return {
     businessDecision: normalizeDecisionRecord(value?.businessDecision),
     todo: normalizeDecisionTodo(value?.todo),

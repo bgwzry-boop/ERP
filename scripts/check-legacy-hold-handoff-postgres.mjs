@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import {spawnSync} from 'node:child_process';import pg from 'pg';
 import {loadMigrationFiles,validateMigrationSet} from './dbMigrationUtils.mjs';
 import {postgresLiveBusinessSeedSql} from './helpers/postgresLiveBusinessSeed.mjs';
-import {buildStatementDecisionRecord,buildStatementWriteOffRecord,buildOperationLog,buildVarianceRecord,buildTodo} from './helpers/postgresLiveStatementFixtures.mjs';
 import {createPostgresPoolClient} from '../server/postgresPoolClient.mjs';
 import {createPostgresOrderConfirmationTransactionRepository} from '../server/orderConfirmationTransactionRepository.mjs';
 import {createPostgresOrderDraftRepository} from '../server/orderDraftRepository.mjs';

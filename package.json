@@ -10,7 +10,7 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
     "review:dev": "node scripts/run-complete-review-dev.mjs",
-    "review:check": "node scripts/check-complete-review-preview.mjs && node scripts/check-review-viewport-reversal.mjs && node scripts/check-review-viewport-live-readonly.mjs",
+    "review:check": "node scripts/check-complete-review-preview.mjs && node scripts/check-review-viewport-reversal.mjs && node scripts/check-review-viewport-live-readonly.mjs && node scripts/check-canonical-colour-conflict.mjs",
     "review:identity:check": "node scripts/check-complete-review-identity.mjs && node scripts/check-local-preview-identity.mjs",
     "review:ocr-env:check": "node scripts/check-complete-review-ocr-env.mjs",
     "review:staging-current:check": "node scripts/check-staging-current-ref.mjs",
@@ -136,7 +136,7 @@
     "raw-material-roll-inventory-state:check": "node scripts/check-raw-material-roll-inventory-state.mjs",
     "workshop-mobile-api:check": "node scripts/check-workshop-mobile-production-packing.mjs",
     "driver-mobile-api:check": "node scripts/check-driver-delivery-task-projection-service.mjs && node scripts/check-driver-read-routes.mjs && node scripts/check-driver-write-routes.mjs && node scripts/check-frontend-driver-mobile-api-client.mjs",
-    "statement-api:check": "node scripts/check-statement-read-routes.mjs && node scripts/check-statement-preview-projection-service.mjs && node scripts/check-statement-export-file-service.mjs && node scripts/check-statement-write-routes.mjs && node scripts/check-statement-communication-command-service.mjs && node scripts/check-statement-financial-command-service.mjs && node scripts/check-frontend-statement-api-client.mjs",
+    "statement-api:check": "node scripts/check-statement-read-routes.mjs && node scripts/check-statement-preview-projection-service.mjs && node scripts/check-statement-export-file-service.mjs && node scripts/check-statement-write-routes.mjs && node scripts/check-statement-communication-command-service.mjs && node scripts/check-statement-financial-command-service.mjs && node scripts/check-frontend-statement-api-client.mjs && node scripts/check-statement-read-ownership.mjs",
     "attachment-api:check": "node scripts/check-attachment-read-routes.mjs && node scripts/check-attachment-file-access-service.mjs && node scripts/check-attachment-write-routes.mjs && node scripts/check-frontend-attachment-api-client.mjs",
     "payment-repository:check": "node scripts/check-payment-record-repository.mjs",
     "statement-payment-transaction:check": "node scripts/check-statement-payment-transaction-repository.mjs",

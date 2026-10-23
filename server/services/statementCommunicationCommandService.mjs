@@ -17,7 +17,6 @@ export function createStatementCommunicationCommandService(dependencies = {}) {
     mapStatementApiStatus = statementPolicyService.mapStatementApiStatus,
     markStatementSent,
     nextId,
-    nextPlainId,
     normalizeStatementSendReceiptStatus = statementPolicyService.normalizeStatementSendReceiptStatus,
     recordStatementCustomerConfirmation,
     storeStatementExportFile,

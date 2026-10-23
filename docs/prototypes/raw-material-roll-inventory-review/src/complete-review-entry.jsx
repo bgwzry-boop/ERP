@@ -47,7 +47,7 @@ if (identityGuard) {
       document.body.append(badge);
     }
     let viewportFamilyReloadTimer = null;
-    const reloadForViewportFamily = (event) => {
+    const reloadForViewportFamily = () => {
       window.clearTimeout(viewportFamilyReloadTimer);
       const currentFamily = handsetRuntime && phoneViewportQuery.matches ? "mobile" : "desktop";
       if (currentFamily === expectedViewportFamily) return;
