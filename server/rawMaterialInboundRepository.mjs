@@ -1,3 +1,4 @@
+import { mergeRawMaterialCurrentInbound } from "../shared/rawMaterialCurrentInbound.js";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
 import {
@@ -134,6 +135,15 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
     ...options,
     postgresClient,
   });
+  async function retainCurrentOnReplay(input, replay) {
+    const savedReplay = normalizeRawMaterialInboundActionResult(replay);
+    if (savedReplay.inbound) {
+      const currentQuery = buildFindRawMaterialInboundPayloadQuery(savedReplay.inbound.id);
+      const currentInbound = normalizeRawMaterialInbound(await queryJson(currentQuery.text, currentQuery.values));
+      input.workspace.rawMaterialInbounds = mergeRawMaterialCurrentInbound(input.workspace.rawMaterialInbounds, currentInbound);
+    }
+    return { ...savedReplay, replayed: true };
+  }
   return {
     kind: "postgres",
     async loadState() {
@@ -176,10 +186,7 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
         ),
       );
       const savedInbound = saved.inbound ?? safeInbound;
-      input.workspace.rawMaterialInbounds = [
-        savedInbound,
-        ...normalizeRawMaterialInbounds(input.workspace.rawMaterialInbounds).filter((item) => item.id !== savedInbound.id),
-      ];
+      input.workspace.rawMaterialInbounds = mergeRawMaterialCurrentInbound(input.workspace.rawMaterialInbounds, savedInbound);
       return {
         inbound: savedInbound,
         operationLog: saved.operationLogId === operationLog?.id ? operationLog : null,
@@ -196,25 +203,59 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
         idempotencyKey: input.idempotencyKey,
         payload: input.idempotencyPayload ?? input.body ?? {},
       });
-      if (replay) {
-        const savedReplay = normalizeRawMaterialInboundActionResult(replay);
-        if (savedReplay.inbound) {
-          input.workspace.rawMaterialInbounds = normalizeRawMaterialInbounds(input.workspace.rawMaterialInbounds).map((item) =>
-            item.id === savedReplay.inbound.id ? savedReplay.inbound : item,
-          );
-        }
-        return { ...savedReplay, replayed: true };
+      if (replay) return retainCurrentOnReplay(input, replay);
+      // Each process may hold an older workspace. Refresh only the command target
+      // (and shared return source) before deciding; SQL still compares revisions at commit.
+      const refreshIds = [input.inboundId];
+      if (["stage_supplier_return", "stage-supplier-return", "供应商退货暂存"].includes(cleanText(input.action))
+        && cleanText(input.body?.sourceReturnInboundId)) refreshIds.push(cleanText(input.body.sourceReturnInboundId));
+      for (const inboundId of new Set(refreshIds)) {
+        const query = buildFindRawMaterialInboundPayloadQuery(inboundId);
+        const currentInbound = normalizeRawMaterialInbound(await queryJson(query.text, query.values));
+        if (!currentInbound) throw Object.assign(new Error(`Raw material inbound not found: ${inboundId}`), { statusCode: 404 });
+        input.workspace.rawMaterialInbounds = mergeRawMaterialCurrentInbound(input.workspace.rawMaterialInbounds, currentInbound);
       }
-      const result = requireInboundDecision(input)({
-        workspace: input.workspace,
-        inbounds: input.workspace?.rawMaterialInbounds,
-      });
+      let result;
+      try {
+        result = requireInboundDecision(input)({
+          workspace: input.workspace,
+          inbounds: input.workspace?.rawMaterialInbounds,
+        });
+      } catch (error) {
+        // The first identical request may have committed after our initial replay
+        // lookup but before the authoritative target read. Preserve exact retries.
+        if (error.code === "BUSINESS_WRITE_CONFLICT" && input.idempotencyKey) {
+          const concurrentReplay = await readPostgresIdempotencyReplay({
+            queryJson, scope, idempotencyKey: input.idempotencyKey,
+            payload: input.idempotencyPayload ?? input.body ?? {},
+          });
+          if (concurrentReplay) return retainCurrentOnReplay(input, concurrentReplay);
+        }
+        throw error;
+      }
       if (!result.inbound) {
         throw Object.assign(new Error(`Raw material inbound not found: ${input.inboundId}`), { statusCode: 404 });
       }
+      const sourceReturnInboundId = result.operationLog?.action === "stage_supplier_return"
+        ? cleanText(input.body?.sourceReturnInboundId) : "";
+      if (sourceReturnInboundId && !options.idempotentTransactionJson && !postgresClient?.idempotentTransactionJson) {
+        throw Object.assign(new Error("供应商退货必须通过具有共享事务锁的数据库执行器。"), {
+          statusCode: 503, code: "RAW_MATERIAL_SUPPLIER_RETURN_ATOMIC_EXECUTOR_REQUIRED",
+        });
+      }
+      const sourceReturn = sourceReturnInboundId
+        ? normalizeRawMaterialInbounds(input.workspace?.rawMaterialInbounds).find((item) => item.id === sourceReturnInboundId) : null;
+      const returnRecord = sourceReturnInboundId ? (result.inbound.rawMaterialSupplierReturnRecords ?? []).find((record) =>
+        record.rollId === cleanText(input.body?.rollId) && record.sourceReturnInboundId === sourceReturnInboundId) : null;
+      const supplierReturnConstraint = sourceReturnInboundId ? {
+        sourceReturnInboundId,
+        sourceRevision: sourceReturn?.revision ?? 0,
+        weightKg: Math.abs(Number(returnRecord?.weightKg) || 0),
+      } : null;
       const builtQuery = buildUpsertRawMaterialInboundPayloadTransactionQuery(
         { ...result.inbound, revision: result.expectedRevision },
         result.operationLog,
+        { supplierReturnConstraint },
       );
       const saved = normalizeRawMaterialInboundActionResult(
         await idempotentTransactionJson(
@@ -225,15 +266,13 @@ export function createPostgresRawMaterialInboundRepository(options = {}) {
             operatorId: input.operatorId,
             targetType: "raw_material_inbound",
             targetId: input.inboundId,
-            resourceLocks: [`raw-material:${input.inboundId}`],
+            resourceLocks: [`raw-material:${input.inboundId}`, ...(sourceReturnInboundId ? [`raw-material:${sourceReturnInboundId}`] : [])],
             query: builtQuery,
           }),
         ),
       );
       const savedInbound = saved.inbound ?? result.inbound;
-      input.workspace.rawMaterialInbounds = result.inbounds.map((item) =>
-        item.id === savedInbound.id ? savedInbound : item,
-      );
+      input.workspace.rawMaterialInbounds = mergeRawMaterialCurrentInbound(input.workspace.rawMaterialInbounds, savedInbound);
       return {
         inbound: savedInbound,
         operationLog: saved.operationLogId === result.operationLog?.id ? result.operationLog : null,
@@ -248,4 +287,8 @@ function requireInboundDecision(input) {
     throw new TypeError("Raw material inbound action requires a service decision.");
   }
   return input.decide;
+}
+
+function cleanText(value) {
+  return String(value ?? "").trim();
 }

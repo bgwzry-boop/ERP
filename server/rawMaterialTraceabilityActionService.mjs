@@ -1,3 +1,5 @@
+import { rawMaterialRecordIdentitySuffix } from "../shared/rawMaterialRecordIdentity.js";
+import { rawMaterialRollFacts } from "../shared/rawMaterialRollFacts.js";
 import { resolveRawMaterialProductionTaskMatch } from "./rawMaterialInboundRecordService.mjs";
 import { assertWholeRollIssue } from "../src/domain/rawMaterialWholeRollPolicy.js";
 import {
@@ -62,7 +64,12 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
     }
     const productionTaskMatch = resolveRawMaterialProductionTaskMatch({
       workspace,
-      inbound: before,
+      inbound: {
+        ...before,
+        ...rawMaterialRollFacts(before, selectedRoll),
+        materialCategory: selectedRoll?.materialCategory || (selectedRoll?.ocrLineId ? "" : before.materialCategory),
+        widthCm: Number(selectedRoll?.widthCm) > 0 ? Number(selectedRoll.widthCm) : selectedRoll?.ocrLineId ? 0 : before.widthCm,
+      },
       machineId,
       productionTaskId,
     });
@@ -102,8 +109,8 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
         code: "RAW_MATERIAL_PARTIAL_QUANTITY_ISSUE_NOT_SUPPORTED",
       });
     }
-    const issueRecordId = `RMI-ISS-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
-    const splitRecordId = `RMI-SPLIT-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
+    const issueRecordId = `RMI-ISS-${now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`;
+    const splitRecordId = `RMI-SPLIT-${now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`;
     const issuedSourceRollIds = new Set(targetAvailableRolls.map((roll) => roll.id));
     const splitRecords = [];
     const issueRecords = targetAvailableRolls.map((roll, rollIndex) => {
@@ -125,10 +132,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
           sourceRollId: roll.id,
           issuedRollId,
           supplierRollNo: roll.supplierRollNo,
-          materialType: before.materialType,
-          productName: before.productName,
-          spec: before.spec,
-          factoryColor: before.factoryColor,
+          ...rawMaterialRollFacts(before, roll),
           sourceWeightKg: fullWeightKg,
           issuedWeightKg,
           remainingWeightKg,
@@ -154,10 +158,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
         sourceRollId: isPartialWeightIssue ? roll.id : "",
         splitRecordId: currentSplitRecordId,
         supplierRollNo: roll.supplierRollNo,
-        materialType: before.materialType,
-        productName: before.productName,
-        spec: before.spec,
-        factoryColor: before.factoryColor,
+        ...rawMaterialRollFacts(before, roll),
         issuedWeightKg,
         issuedQuantity: fullWeightKg > 0 ? 0 : 1,
         sourceWeightKg: fullWeightKg,
@@ -316,7 +317,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
         });
       }
     }
-    const consumptionRecordId = `RMI-CONS-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
+    const consumptionRecordId = `RMI-CONS-${now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`;
     const consumedRollIds = new Set(targetMachineSideRolls.map((roll) => roll.id));
     const consumptionRecords = targetMachineSideRolls.map((roll, rollIndex) => {
       const issueRecord = existingIssueRecords.find((record) => record.rollId === roll.id);
@@ -340,10 +341,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
         issueRecordId: roll.issueRecordId || issueRecord?.issueRecordId || "",
         rollId: roll.id,
         supplierRollNo: roll.supplierRollNo,
-        materialType: before.materialType,
-        productName: before.productName,
-        spec: before.spec,
-        factoryColor: before.factoryColor,
+        ...rawMaterialRollFacts(before, roll),
         consumedWeightKg,
         consumedQuantity,
         consumedFromWeightKg: machineSideWeightKg,
@@ -450,7 +448,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
       });
     }
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
-    const returnRecordId = `RMI-RET-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
+    const returnRecordId = `RMI-RET-${now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`;
     const returnedRollIds = new Set(targetMachineSideRolls.map((roll) => roll.id));
     const returnLocation = cleanText(input.body?.returnLocation) || "余料区";
     const returnRecords = targetMachineSideRolls.map((roll, rollIndex) => {
@@ -475,10 +473,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
         issueRecordId: roll.issueRecordId || issueRecord?.issueRecordId || "",
         rollId: roll.id,
         supplierRollNo: roll.supplierRollNo,
-        materialType: before.materialType,
-        productName: before.productName,
-        spec: before.spec,
-        factoryColor: before.factoryColor,
+        ...rawMaterialRollFacts(before, roll),
         issuedWeightKg,
         machineSideWeightKg,
         leftoverWeightKg,
@@ -565,7 +560,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
     }
     const existingIssueRecords = normalizeRawMaterialIssueRecords(before.rawMaterialIssueRecords);
     const existingReturnRecords = normalizeRawMaterialLeftoverReturnRecords(before.rawMaterialLeftoverReturnRecords);
-    const reviewRecordId = `RMI-LREV-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
+    const reviewRecordId = `RMI-LREV-${now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`;
     const reviewedRollIds = new Set(targetLeftoverRolls.map((roll) => roll.id));
     const reviewLocation = cleanText(input.body?.reviewLocation ?? input.body?.returnLocation) || "原料库-余料可用区";
     const reviewRecords = targetLeftoverRolls.map((roll, rollIndex) => {
@@ -604,10 +599,7 @@ export function applyRawMaterialTraceabilityAction(input = {}) {
         issueRecordId: roll.issueRecordId || issueRecord?.issueRecordId || returnRecord?.issueRecordId || "",
         rollId: roll.id,
         supplierRollNo: roll.supplierRollNo,
-        materialType: before.materialType,
-        productName: before.productName,
-        spec: before.spec,
-        factoryColor: before.factoryColor,
+        ...rawMaterialRollFacts(before, roll),
         returnedWeightKg,
         returnedQuantity,
         reviewedWeightKg,
@@ -706,7 +698,7 @@ function buildRawMaterialSplitRollId(rolls = [], sourceRollId = "") {
     const candidate = `${safeSourceRollId}-S${String(index).padStart(2, "0")}`;
     if (!existingIds.has(candidate)) return candidate;
   }
-  return `${safeSourceRollId}-S${Date.now().toString(36).toUpperCase()}`;
+  return `${safeSourceRollId}-S${rawMaterialRecordIdentitySuffix()}`;
 }
 
 function roundWeight(value) {

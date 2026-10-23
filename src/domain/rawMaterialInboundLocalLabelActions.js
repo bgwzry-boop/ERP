@@ -52,7 +52,7 @@ export function applyLocalRawMaterialInboundLabelAction(item = {}, input = {}) {
     const matchResult = normalizeLocalLabelMatchResult(options.matchResult);
     if (!rollId || !matchResult) return item;
     const nextRolls = (item.rolls ?? []).map((roll) => {
-      if (roll.id !== rollId || roll.inventoryStatus === "可用" || roll.labelStatus !== "已打印待贴标") return roll;
+      if (roll.id !== rollId || !isPendingStickConfirmRoll(roll)) return roll;
       const verification = buildLocalLabelVerification(item, roll, options, matchResult, operatorName, now);
       if (matchResult === "mismatched") {
         return {
@@ -135,7 +135,7 @@ export function applyLocalRawMaterialInboundLabelAction(item = {}, input = {}) {
     const rollId = options.rollId ?? "";
     if (!rollId) return item;
     const targetRoll = (item.rolls ?? []).find((roll) => roll.id === rollId);
-    if (!targetRoll || targetRoll.inventoryStatus === "可用") return item;
+    if (!targetRoll || !["不可用", "待贴标", "待确认"].includes(targetRoll.inventoryStatus)) return item;
     if (action === "作废卷标" && targetRoll.labelStatus !== "标签或实物不符/待确认") return item;
     if (action === "重打卷标" && targetRoll.labelStatus !== "标签已作废/待重打") return item;
     const nextRolls = (item.rolls ?? []).map((roll) => {

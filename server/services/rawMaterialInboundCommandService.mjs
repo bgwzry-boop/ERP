@@ -1,3 +1,4 @@
+import { rawMaterialRecordIdentitySuffix } from "../../shared/rawMaterialRecordIdentity.js";
 import { rawMaterialWriteConflict } from "../rawMaterialInboundConcurrency.mjs";
 import { applyRawMaterialOcrReparse, applyRawMaterialOcrReview } from "../rawMaterialInboundOcrSupport.mjs";
 import { applyConfirmRawMaterialSupplierReturnShipment, applyStageRawMaterialSupplierReturn } from "./rawMaterialSupplierReturnInventoryService.mjs";
@@ -160,16 +161,9 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_ROLL_ALREADY_AVAILABLE",
       });
     }
-    if (action === "void_label" && targetRoll.labelStatus !== "标签或实物不符/待确认") {
-      throw Object.assign(new Error("只有标签或实物不符的异常卷/件可以作废当前标签。"), {
-        statusCode: 409,
-        code: "RAW_MATERIAL_LABEL_VOID_REQUIRES_MISMATCH",
-      });
-    }
-    if (action === "reprint_label" && targetRoll.labelStatus !== "标签已作废/待重打") {
-      throw Object.assign(new Error("请先作废当前异常标签，再重打该卷/件标签。"), {
-        statusCode: 409,
-        code: "RAW_MATERIAL_LABEL_REPRINT_REQUIRES_VOIDED_LABEL",
+    if (!["不可用", "待贴标"].includes(targetRoll.inventoryStatus)) {
+      throw Object.assign(new Error("只有待贴标的卷料可以确认入库，不能恢复机边或退厂卷料。"), {
+        statusCode: 409, code: "RAW_MATERIAL_ATTACH_INVENTORY_STATE_BLOCKED",
       });
     }
     if (targetRoll.labelStatus !== "已打印待贴标") {
@@ -332,6 +326,24 @@ export function applyRawMaterialInboundAction(input = {}) {
         code: "RAW_MATERIAL_AVAILABLE_ROLL_LABEL_CHANGE_BLOCKED",
       });
     }
+    if (!["不可用", "待贴标", "待确认"].includes(targetRoll.inventoryStatus)) {
+      throw Object.assign(new Error("机边、已消耗或退厂中的卷料不能通过标签操作恢复库存。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_ROLL_LABEL_STATE_BLOCKED",
+      });
+    }
+    if (action === "void_label" && targetRoll.labelStatus !== "标签或实物不符/待确认") {
+      throw Object.assign(new Error("只有标签或实物不符的异常卷/件可以作废当前标签。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_LABEL_VOID_REQUIRES_MISMATCH",
+      });
+    }
+    if (action === "reprint_label" && targetRoll.labelStatus !== "标签已作废/待重打") {
+      throw Object.assign(new Error("请先作废当前异常标签，再重打该卷/件标签。"), {
+        statusCode: 409,
+        code: "RAW_MATERIAL_LABEL_REPRINT_REQUIRES_VOIDED_LABEL",
+      });
+    }
     const nextRolls = (before.rolls ?? []).map((roll) => {
       if (roll.id !== rollId) return roll;
       if (action === "void_label") {
@@ -411,7 +423,7 @@ export function applyRawMaterialInboundAction(input = {}) {
     updatedAt: now,
   };
   const operationLog = {
-    id: `RMI-LOG-${Date.now().toString(36).toUpperCase()}`,
+    id: `RMI-LOG-${rawMaterialRecordIdentitySuffix()}`,
     targetType: "raw_material_inbound",
     targetId: inboundId,
     action,

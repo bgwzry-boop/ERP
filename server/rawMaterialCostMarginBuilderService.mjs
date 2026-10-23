@@ -1,3 +1,7 @@
+import { rawMaterialRollFacts } from "../shared/rawMaterialRollFacts.js";
+import { resolveRawMaterialCostPrice } from "../shared/rawMaterialCostPrice.js";
+import { resolveRawMaterialCostUnit, formatRawMaterialAllocationBasis } from "../shared/rawMaterialCostUnit.js";
+import { rawMaterialConsumptionCostBasis } from "../shared/rawMaterialConsumptionCostBasis.js";
 import {
   normalizeRawMaterialCostAllocationConfirmations,
   normalizeRawMaterialCostAllocationDrafts,
@@ -22,17 +26,8 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
       const consumptionRecords = normalizeRawMaterialConsumptionRecords(input.consumptionRecords);
       const existingCostDrafts = normalizeRawMaterialCostAllocationDrafts(input.existingCostDrafts);
       const existingConsumptionIds = new Set(existingCostDrafts.map((record) => record.consumptionRecordId).filter(Boolean));
-      const unitPrice = Number(inbound.unitPrice ?? inbound.unit_price ?? 0) || 0;
       const warnings = [];
       const skipped = [];
-      if (!unitPrice) {
-        return {
-          drafts: [],
-          warnings,
-          blockedCode: "RAW_MATERIAL_COST_DRAFT_REQUIRES_UNIT_PRICE",
-          blockedReason: "Raw-material unit price is required before generating a cost allocation draft",
-        };
-      }
       const baseId = `RMCA-${input.now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
       const drafts = [];
       for (const record of consumptionRecords) {
@@ -59,15 +54,15 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
         const orderLineId = cleanText(issueRecord.productionTaskOrderLineId);
         const productionTask = findProductionTask(input.workspace, productionTaskId);
         const orderLine = findOrderLine(input.workspace, orderLineId);
-        const allocatedWeightKg = roundWeight(record.consumedWeightKg || 0);
-        const allocatedQuantity = allocatedWeightKg > 0 ? 0 : Number(record.consumedQuantity || 0) || 1;
-        if (allocatedWeightKg <= 0 && allocatedQuantity <= 0) {
-          skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "缺少已消耗重量或件数" });
+        const unitPrice = resolveRawMaterialCostPrice(inbound, record);
+        const unit = resolveRawMaterialCostUnit(inbound, record);
+        const basis = rawMaterialConsumptionCostBasis(record, unitPrice, unit);
+        if (!basis) {
+          skipped.push({ consumptionRecordId: record.consumptionRecordId, reason: "该卷缺少有效单价、计价单位或消耗实测数量" });
           continue;
         }
-        const allocatedCostAmount = roundMoney((allocatedWeightKg > 0 ? allocatedWeightKg : allocatedQuantity) * unitPrice);
+        const { allocatedWeightKg, allocatedQuantity, allocatedCostAmount } = basis;
         const goodsSpec = cleanText(issueRecord.productionTaskGoodsSpec) || buildGoodsSpec(productionTask ?? {}, orderLine ?? {});
-        const unit = record.unit || inbound.unit || (allocatedWeightKg > 0 ? "kg" : "件");
         const draftIndex = drafts.length + 1;
         drafts.push({
           costAllocationDraftId: `${baseId}-${String(draftIndex).padStart(2, "0")}`,
@@ -79,10 +74,7 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
           splitRecordId: issueRecord.splitRecordId,
           supplierName: inbound.supplierName,
           deliveryNoteNo: inbound.deliveryNoteNo,
-          materialType: inbound.materialType,
-          productName: inbound.productName,
-          spec: inbound.spec,
-          factoryColor: inbound.factoryColor,
+          ...rawMaterialRollFacts(inbound, (inbound.rolls ?? []).find((roll) => roll.id === record.rollId)),
           unit,
           unitPrice,
           allocatedWeightKg,
@@ -92,10 +84,7 @@ export function createRawMaterialCostMarginBuilder(options = {}) {
           orderLineId,
           productionTaskMachineId: cleanText(issueRecord.productionTaskMachineId || issueRecord.machineId),
           productionTaskGoodsSpec: goodsSpec,
-          allocationBasis:
-            allocatedWeightKg > 0
-              ? `${allocatedWeightKg}kg * ${unitPrice}元/kg`
-              : `${allocatedQuantity}${unit} * ${unitPrice}元/${unit}`,
+          allocationBasis: formatRawMaterialAllocationBasis(basis, unitPrice, unit),
           allocationStatus: "草稿/待成本复核",
           costEffect: "draft_only",
           marginEffect: "none",

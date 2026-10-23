@@ -1,3 +1,4 @@
+import { buildSupplierReturnTransactionGuard } from "./rawMaterialSupplierReturnTransactionGuard.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { buildRawMaterialInboundOcrInsertTransactionQuery } from "./rawMaterialInboundOcrSupport.mjs";
 import { normalizeOperationLog, normalizeRawMaterialInbound } from "./rawMaterialInboundRecordService.mjs";
@@ -63,7 +64,7 @@ export function buildInsertRawMaterialInboundDraftTransactionQuery(inbound, oper
   return buildRawMaterialInboundOcrInsertTransactionQuery(safeInbound, normalizeOperationLog(operationLog));
 }
 
-export function buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, operationLog = null) {
+export function buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, operationLog = null, { supplierReturnConstraint } = {}) {
   const safeInbound = normalizeRawMaterialInbound(inbound);
   if (!safeInbound?.id) throw new Error("raw material inbound id is required");
   const safeOperationLog = normalizeOperationLog(operationLog);
@@ -71,6 +72,7 @@ export function buildUpsertRawMaterialInboundPayloadTransactionQuery(inbound, op
   const nextInbound = { ...safeInbound, revision: expectedRevision + 1 };
   const parameters = createPostgresParameterBinder();
   const operationLogSql = safeOperationLog ? buildInsertOperationLogSql(safeOperationLog, parameters) : "";
+  const supplierReturnGuard = buildSupplierReturnTransactionGuard(parameters, supplierReturnConstraint);
   return {
     text: `
 BEGIN;
@@ -80,6 +82,7 @@ WITH locked_inbound AS MATERIALIZED (
   WHERE id = ${parameters.text(safeInbound.id)}
   FOR UPDATE
 ),
+${supplierReturnGuard}
 updated_inbound AS (
   UPDATE raw_material_inbounds
   SET
@@ -92,6 +95,7 @@ updated_inbound AS (
   FROM locked_inbound AS locked
   WHERE raw_material_inbounds.id = locked.id
     AND locked.revision = ${parameters.integer(expectedRevision)}
+    ${supplierReturnConstraint ? "AND (SELECT ok FROM supplier_return_guard)" : ""}
   RETURNING raw_material_inbounds.payload_json
     || jsonb_build_object('revision', raw_material_inbounds.revision) AS result
 ),

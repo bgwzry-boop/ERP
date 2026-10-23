@@ -1,3 +1,4 @@
+import { rawMaterialRecordIdentitySuffix } from "../../shared/rawMaterialRecordIdentity.js";
 import { suppliersAreEquivalent } from "./rawMaterialSupplierReturnReconciliationService.mjs";
 
 export function applyStageRawMaterialSupplierReturn(input = {}) {
@@ -36,7 +37,7 @@ export function applyStageRawMaterialSupplierReturn(input = {}) {
     sourceReturn,
     targetRoll,
   });
-  const supplierReturnRecordId = `RMSRET-${now.slice(0, 10).replaceAll("-", "")}-${Date.now().toString(36).toUpperCase()}`;
+  const supplierReturnRecordId = `RMSRET-${now.slice(0, 10).replaceAll("-", "")}-${rawMaterialRecordIdentitySuffix()}`;
   const holdingLocation = cleanText(body.location) || "供应商退货暂存区";
   const supplierReturnRecord = normalizeRawMaterialSupplierReturnRecords([{
     supplierReturnRecordId,

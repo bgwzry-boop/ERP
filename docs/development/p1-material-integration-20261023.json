@@ -1,0 +1,84 @@
+{
+  "schema": "erp-p1-integration-evidence-v1",
+  "date": "2026-10-23",
+  "baseCommit": "29de7c2ed38aaa9d678773379c85ac81fcb69d5f",
+  "branch": "codex/p1-material-20261023",
+  "status": "implemented_and_locally_verified_not_deployed",
+  "databaseMigrations": [],
+  "fixes": [
+    {
+      "id": "MAT-01",
+      "problem": "重打/贴标可能将机边、已消耗或退厂卷料恢复为可用库存。",
+      "change": "标签作废/重打先校验真实库存状态和前置标签状态；贴标与整单确认只接纳待贴标库存，机边/退厂状态不能通过标签动作恢复。",
+      "files": ["server/services/rawMaterialInboundCommandService.mjs", "src/domain/rawMaterialInboundLocalLabelActions.js", "src/domain/rawMaterialWholeRollPolicy.js"],
+      "validation": ["拒绝机边、消耗和退厂状态的作废/重打/贴标。", "合法不符→作废→重打→贴标仍通过。", "已批准待补标临时入库与整卷策略未取消。"]
+    },
+    {
+      "id": "MAT-02",
+      "problem": "并发收货动作回写捕获的整表覆盖他单；历史回执或过期前端响应回滚新状态。",
+      "change": "服务端与前端复用单目标按 revision 合并；PostgreSQL 决策前从权威数据库刷新目标和退货来源；历史回执仍返回原结果但缓存取当前数据库；重试首次查不到回执、原请求随后提交的竞态重新读取回执。",
+      "files": ["shared/rawMaterialCurrentInbound.js", "server/rawMaterialInboundRepository.mjs", "src/app/createOfficeRawMaterialActions.js"],
+      "validation": ["故意延迟 A 返回至 B 完成后，两单 revision 均保留。", "revision 2 旧回执不覆盖 revision 3；旧进程缓存按客户端 revision 3 正常继续到 revision 4。", "同幂等键请求在初次回执查询与命令决策间发生提交，仍返回原成功。", "前端动作与 OCR 旧响应均不覆盖新 revision。"],
+      "boundary": "跨实例写入仍由数据库 revision 和事务保证；该修复不承诺全系统所有长驻读取缓存自动实时推送。"
+    },
+    {
+      "id": "MAT-03",
+      "problem": "混合收货单按表头规格、颜色和价格进行领用、追溯或成本计算，选中卷事实失真。",
+      "change": "领用匹配、领用/消耗记录、成本草稿取所选卷的事实；OCR 行只能补该卷非颜色字段；计价按该卷单价和单位，吨价换算千克；缺少有效 OCR 卷价格、单位或消耗数量时拒绝生成该笔草稿。",
+      "files": ["shared/rawMaterialRollFacts.js", "shared/rawMaterialCostPrice.js", "shared/rawMaterialCostUnit.js", "shared/rawMaterialNumbers.js", "shared/rawMaterialConsumptionCostBasis.js", "server/rawMaterialTraceabilityActionService.mjs", "server/rawMaterialCostMarginBuilderService.mjs", "src/domain/rawMaterialInboundLocalActions.js", "src/domain/rawMaterialCostMarginLocalActions.js"],
+      "validation": ["表头白色但所选卷红色：红任务可领、白任务被挡，记录保留红色和该卷规格。", "混价和吨价消耗按所选卷计算，缺价不借用别卷或表头。", "整卷领用、不拆卷、允许部分消耗、禁用余料恢复保持现行合同。"],
+      "boundary": "旧通用色族匹配的进一步收紧属于独立 P2，本次只消除错误来源；成本仍为待复核草稿，不自动计入正式毛利。"
+    },
+    {
+      "id": "MAT-04",
+      "problem": "不同收货单同时使用同一张厂家退货依据，可各自通过旧缓存检查而累计超过数量/重量。",
+      "change": "退货来源与目标收货单共用数据库事务锁；同一事务内按当前数据库跨收货单累计未取消退货记录并校验来源 revision、状态、方向、数量/重量上限；没有原子事务执行器时失败闭锁。",
+      "files": ["server/rawMaterialSupplierReturnTransactionGuard.mjs", "server/rawMaterialInboundPostgresQueryBuilder.mjs", "server/rawMaterialInboundRepository.mjs"],
+      "validation": ["真实 PostgreSQL 两个独立仓储实例竞争 1 卷限额，恰好 1 个成功。", "两个各 60 kg 的请求竞争 100 kg 限额，恰好 1 个成功。", "失败请求不改卷、不涨 revision、不写退货记录或操作日志。"],
+      "boundary": "沿用既有重量容差 max(0.5kg,1%)；标签和实物的一致性仍需仓库现场核实。"
+    },
+    {
+      "id": "INV-01",
+      "problem": "并发或重试释放同一笔成品占用，可能重复扣减库存总占用并影响其他订单。",
+      "change": "数据库同时锁定占用和库存，比较前值、状态、归属及总量守恒；操作和流水仅新增；同键准确重放，不二次修改缓存；数量必须正安全整数，异常聚合数据拒绝静默截零。",
+      "files": ["server/inventoryReservationReleaseTransactionRepository.mjs", "server/services/inventoryReservationReleaseCommandService.mjs"],
+      "validation": ["两个独立实例释放同一笔 100，恰好一次成功，另一笔 100 占用完整保留且仅一条流水。", "同键并发释放 50 的数据库和共享缓存均只减 50，原响应相同；后续再释放后重放旧键不改变当前余额。", "同键不同载荷拒绝；无原子执行器拒绝；本地路径也比较当前前值。"],
+      "boundary": "保留现有生产环境 storeMode 失败闭锁。未顺带重写成品所有缓存刷新策略。"
+    }
+  ],
+  "supportingChange": {
+    "files": ["shared/rawMaterialRecordIdentity.js", "server/services/rawMaterialSupplierReturnInventoryService.mjs"],
+    "purpose": "原料操作/领用/消耗/退货记录改用加密随机 UUID 后缀，避免并行同毫秒 ID 冲突；既有卷码和历史标识不变。",
+    "validation": "冻结 Date.now 的两个动作产生不同记录和审计 ID。"
+  },
+  "oldCommitSelection": [
+    {"commit": "aa5c2a31aebf761e0dc2ff723300177eb14a7e00", "selected": "标签前置校验迁入当前拆分服务，未覆盖新收货模块。"},
+    {"commit": "5517b07e1ca989c8ee5a72b99e5c8b23aaad0642", "selected": "目标合并/旧回执保护；追加数据库新鲜读取与重试竞态修复。"},
+    {"commit": "fcd93b83896253b042cb155776b05bd902cf9f3c", "selected": "仅跨单退货事务防线；供应商对账内容由财务任务负责。"},
+    {"commit": "b503c8f365008f9688839ac0df38ce77a8f99d76", "selected": "仅逐卷事实；旧分卷和恢复余料的测试/实现不引入。"},
+    {"commit": "95a49b27353fea82e197f86f0930b0fa4a076b08", "selected": "逐卷价格；收紧为 OCR 缺价不能借表头价。"},
+    {"commit": "54980c7ec13ad1a4a06185bdeb376957bcfe0eee", "selected": "单位归一和吨价换算；不替换当前成本确认链。"},
+    {"commit": "e9206bae17f9dd82b715cde1a68941e23e5175ef", "selected": "仅必要原料记录 ID 防碰撞。"},
+    {"commit": "2b48572d57b5ec9f39761bbb61c9433bd86a5690", "selected": "成品占用释放前值/守恒保护；保留当前生产 storeMode。"},
+    {"commit": "9b85cda82544e4064cef3725a026e074fbc309e5", "selected": "释放原子幂等；补旧代码遗漏的同键缓存重复扣减防线。"},
+    {"commit": "ac8f3ef189c87fe83caf66f1e6f651d0f4385435", "selected": "原子执行器失败闭锁与回归覆盖。"}
+  ],
+  "preservedCurrentFeatures": ["多页 OCR 与原图逐页留存/sourcePageIndex", "供应商颜色映射与人工核对", "整卷领料策略、机台范围及不拆卷规则", "已批准 OCR 逐卷核对后临时入库/待补标例外", "供应商退货暂存与实物出厂确认分离", "当前生产持久化失败闭锁", "既有物理卷码和追溯关系"],
+  "verification": [
+    {"command": "npm run raw-material-inbound-api:check", "result": "passed", "coverage": "当前 24 个登记脚本"},
+    {"command": "npm run inventory-api:check", "result": "passed", "coverage": "当前 7 个登记脚本"},
+    {"command": "node scripts/check-office-raw-material-actions.mjs", "result": "passed"},
+    {"command": "node scripts/check-inventory-reservation-release-transaction-repository.mjs", "result": "passed"},
+    {"command": "node scripts/check-p1-material-inventory-regressions.mjs", "result": "passed"},
+    {"command": "node scripts/check-p1-material-inventory-postgres.mjs", "result": "passed", "environment": "独立临时 postgres:16-alpine 容器；当前 migrations/seed；连接池 6；真实仓储与服务调用；结束删除容器", "notUsed": "无业务数据库连接、无线上写入、无进程内锁冒充数据库并发保证"},
+    {"command": "npm run build", "result": "passed", "coverage": "Vite 生产编译与前端包体预算"},
+    {"command": "git diff --check", "result": "passed"}
+  ],
+  "testRegistrationForIntegrator": [
+    "将 scripts/check-p1-material-inventory-regressions.mjs 加入原料业务回归组。",
+    "将 scripts/check-p1-material-inventory-postgres.mjs 加入真实 PostgreSQL 资源敏感批次；它自建自销容器，不需要业务 DB 环境变量。",
+    "确认 scripts/check-office-raw-material-actions.mjs 和 scripts/check-inventory-reservation-release-transaction-repository.mjs 继续纳入完整检查。",
+    "本分支按分工不改 package.json 或共享 test manifest，由整合任务统一登记。"
+  ],
+  "remainingAcceptance": ["整合其他 P1 后再运行完整项目注册检查。", "未部署；只有受控整合/发布任务可推送候选并发布。", "真实手机扫码、打印贴标、仓库退货实物核对仍需现场验收；本次自动化不代表现场完成。"]
+}

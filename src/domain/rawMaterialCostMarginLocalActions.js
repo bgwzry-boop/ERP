@@ -1,3 +1,7 @@
+import { rawMaterialRollFacts } from "../../shared/rawMaterialRollFacts.js";
+import { resolveRawMaterialCostPrice } from "../../shared/rawMaterialCostPrice.js";
+import { resolveRawMaterialCostUnit, formatRawMaterialAllocationBasis } from "../../shared/rawMaterialCostUnit.js";
+import { rawMaterialConsumptionCostBasis } from "../../shared/rawMaterialConsumptionCostBasis.js";
 import { roundLocalRawMaterialMoney, roundLocalRawMaterialWeight } from "./rawMaterialLocalActionMath.js";
 
 export function buildRawMaterialCostMarginToastText(action, reference, options = {}) {
@@ -25,7 +29,6 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
   const { action, customers = [], options = {}, now, operatorName, orderLines = [] } = input;
   let updatedItem = null;
   if (action === "生成成本草稿") {
-    const unitPrice = Number(item.unitPrice || 0);
     const existingDrafts = item.rawMaterialCostAllocationDrafts ?? [];
     const existingConsumptionIds = new Set(existingDrafts.map((record) => record.consumptionRecordId).filter(Boolean));
     const draftPrefix = `RMCA-LOCAL-${Date.now().toString(36).toUpperCase()}`;
@@ -33,16 +36,16 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
     let localDraftIndex = existingDrafts.length;
     const drafts = (item.rawMaterialConsumptionRecords ?? []).flatMap((record) => {
       if (existingConsumptionIds.has(record.consumptionRecordId)) return [];
+      const unitPrice = resolveRawMaterialCostPrice(item, record);
+      const unit = resolveRawMaterialCostUnit(item, record);
+      const basis = rawMaterialConsumptionCostBasis(record, unitPrice, unit);
       const issueRecord = (item.rawMaterialIssueRecords ?? []).find((issue) => issue.issueRecordId === record.issueRecordId)
         || (item.rawMaterialIssueRecords ?? []).find((issue) => issue.rollId === record.rollId);
-      if (!issueRecord || issueRecord.productionTaskMatchStatus !== "已匹配" || !issueRecord.productionTaskId || !unitPrice) {
+      if (!issueRecord || issueRecord.productionTaskMatchStatus !== "已匹配" || !issueRecord.productionTaskId || !basis) {
         warnings.push(`${record.consumptionRecordId || "消耗记录"}：未匹配生产任务或缺少单价，未生成成本草稿`);
         return [];
       }
-      const allocatedWeightKg = roundLocalRawMaterialWeight(record.consumedWeightKg || 0);
-      const allocatedQuantity = allocatedWeightKg > 0 ? 0 : Number(record.consumedQuantity || 0) || 1;
-      const unit = record.unit || item.unit || (allocatedWeightKg > 0 ? "kg" : "件");
-      const amount = roundLocalRawMaterialMoney((allocatedWeightKg > 0 ? allocatedWeightKg : allocatedQuantity) * unitPrice);
+      const { allocatedWeightKg, allocatedQuantity, allocatedCostAmount: amount } = basis;
       localDraftIndex += 1;
       return [{
         costAllocationDraftId: `${draftPrefix}-${String(localDraftIndex).padStart(2, "0")}`,
@@ -54,10 +57,7 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
         splitRecordId: issueRecord.splitRecordId || "",
         supplierName: item.supplierName,
         deliveryNoteNo: item.deliveryNoteNo,
-        materialType: item.materialType,
-        productName: item.productName,
-        spec: item.spec,
-        factoryColor: item.factoryColor,
+        ...rawMaterialRollFacts(item, (item.rolls ?? []).find((roll) => roll.id === record.rollId)),
         unit,
         unitPrice,
         allocatedWeightKg,
@@ -67,7 +67,7 @@ export function applyRawMaterialCostMarginLocalAction(item, input = {}) {
         orderLineId: issueRecord.productionTaskOrderLineId || "",
         productionTaskMachineId: issueRecord.productionTaskMachineId || issueRecord.machineId || "",
         productionTaskGoodsSpec: issueRecord.productionTaskGoodsSpec || "",
-        allocationBasis: allocatedWeightKg > 0 ? `${allocatedWeightKg}kg * ${unitPrice}元/kg` : `${allocatedQuantity}${unit} * ${unitPrice}元/${unit}`,
+        allocationBasis: formatRawMaterialAllocationBasis(basis, unitPrice, unit),
         allocationStatus: "草稿/待成本复核",
         costEffect: "draft_only",
         marginEffect: "none",

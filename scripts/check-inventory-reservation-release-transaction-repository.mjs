@@ -43,6 +43,7 @@ async function checkInventoryReservationReleaseCommandService() {
     workspace,
     reservationId: "RSV-F003-001",
     body: {
+      idempotencyKey: "release-test-partial",
       releaseQty: 500,
       reason: "qty_changed",
       relatedActionId: "OLCR-001",
@@ -59,6 +60,12 @@ async function checkInventoryReservationReleaseCommandService() {
   assert.equal(workspace.inventoryLedgers[0].operatorId, "U-OFFICE-A");
   assert.equal(workspace.operationLogs[0].operatorId, "U-OFFICE-A");
 
+  const replay = await service.releaseReservation({workspace, reservationId: "RSV-F003-001", operatorId: "U-OFFICE-A", body: {idempotencyKey: "release-test-partial", releaseQty: 500, reason: "qty_changed", relatedActionId: "OLCR-001"}});
+  assert.deepEqual(replay, partial);
+  assert.equal(workspace.inventories[0].reserved, 1000);
+  assert.equal(workspace.inventoryLedgers.length, 1);
+  await assert.rejects(service.releaseReservation({workspace, reservationId: "RSV-F003-001", operatorId: "U-OFFICE-A", body: {idempotencyKey: "release-test-partial", releaseQty: 600}}), {code: "IDEMPOTENCY_KEY_REUSED"});
+
   const full = await service.releaseReservation({
     workspace,
     reservationId: "RSV-F003-001",
@@ -68,6 +75,11 @@ async function checkInventoryReservationReleaseCommandService() {
   assert.equal(full.response.status, "released");
   assert.equal(full.response.qty, 0);
   assert.equal(workspace.inventories[0].reserved, 0);
+  const historicalReplay = await service.releaseReservation({workspace, reservationId: "RSV-F003-001", operatorId: "U-OFFICE-A", body: {idempotencyKey: "release-test-partial", releaseQty: 500, reason: "qty_changed", relatedActionId: "OLCR-001"}});
+  assert.deepEqual(historicalReplay, partial);
+  assert.equal(workspace.inventories[0].reserved, 0, "Historical receipt must not restore an older balance");
+  assert.equal(workspace.inventoryLedgers.length, 2);
+
 
   assert.equal(
     (await service.releaseReservation({ workspace, reservationId: "MISSING", operatorId: "U-OFFICE-A" })).code,
@@ -98,6 +110,17 @@ async function checkInventoryReservationReleaseCommandService() {
     ).code,
     "INVENTORY_RELEASE_QTY_EXCEEDS_RESERVED",
   );
+  for (const releaseQty of [0.5, 100.9, Number.MAX_SAFE_INTEGER + 1]) {
+    const snapshot = JSON.stringify(validationWorkspace);
+    const invalid = await service.releaseReservation({ workspace: validationWorkspace, reservationId: "RSV-F003-001", body: { releaseQty }, operatorId: "U-OFFICE-A" });
+    assert.equal(invalid.code, "VALIDATION_ERROR");
+    assert.equal(JSON.stringify(validationWorkspace), snapshot);
+  }
+  validationWorkspace.inventories[0].reserved = 100;
+  const inconsistent = await service.releaseReservation({ workspace: validationWorkspace, reservationId: "RSV-F003-001", body: { releaseQty: 50 }, operatorId: "U-OFFICE-A" });
+  assert.equal(inconsistent.code, "INVENTORY_RESERVED_QUANTITY_CONFLICT");
+  assert.equal(validationWorkspace.inventories[0].reserved, 100);
+  assert.equal(validationWorkspace.inventoryReservations[0].reservedQty, 1500);
   validationWorkspace.inventoryReservations[0].reservationType = "临时留货";
   assert.equal(
     (
@@ -135,6 +158,9 @@ async function checkLocalInventoryReservationReleaseTransactionRepository() {
   assert.equal(workspace.inventories[0].reserved, 1000);
   assert.equal(workspace.inventoryLedgers.length, 1);
   assert.equal(workspace.operationLogs.length, 1);
+  const snapshot = JSON.stringify(workspace);
+  assert.throws(() => repository.releaseReservation({ workspace, reservation, inventoryAdjustment: { inventoryItemId: "INV-F003", reservedQtyChange: -500 }, inventoryLedgerEntry: { ...ledgerEntry, ledgerId: "LEDGER-STALE" }, operationLog: { ...operationLog, id: "LOG-STALE" } }), { code: "ERP_INVENTORY_RESERVATION_RELEASE_CONFLICT" });
+  assert.equal(JSON.stringify(workspace), snapshot);
 }
 
 async function checkPostgresInventoryReservationReleaseTransactionSqlBoundary() {
@@ -177,7 +203,7 @@ async function checkPostgresInventoryReservationReleaseTransactionSqlBoundary() 
   const call = calls[0];
   assert.match(call.text, /^BEGIN;/);
   assert.match(call.text, /UPDATE inventory_reservations/);
-  assert.match(call.text, /reserved_qty = \$1::integer/);
+  assert.match(call.text, /reserved_qty = \$\d+::integer/);
   assert.match(call.text, /UPDATE inventory_items AS item/);
   assert.match(call.text, /INSERT INTO inventory_ledger_entries/);
   assert.match(call.text, /INSERT INTO operation_logs/);
@@ -259,4 +285,11 @@ function buildOperationLog(overrides = {}) {
     createdAt: "2026-07-02T10:45:00.000Z",
     ...overrides,
   };
+}
+
+{
+  let calls = 0;
+  const unsafe = createPostgresInventoryReservationReleaseTransactionRepository({queryJson: async () => {calls++; return null;}});
+  await assert.rejects(unsafe.releaseReservation({idempotencyKey: "test-atomic-required"}), {code: "INVENTORY_RELEASE_IDEMPOTENCY_UNAVAILABLE"});
+  assert.equal(calls, 0, "A non-atomic executor must not receive a keyed write");
 }

@@ -1,3 +1,4 @@
+import { rawMaterialRollFacts } from "../../shared/rawMaterialRollFacts.js";
 import { applyRawMaterialCostMarginLocalAction, buildRawMaterialCostMarginToastText } from "./rawMaterialCostMarginLocalActions.js";
 import { roundLocalRawMaterialWeight } from "./rawMaterialLocalActionMath.js";
 import { applyRawMaterialOcrLineReviews, buildRawMaterialOcrReviewedRolls, validateRawMaterialOcrLineReviewSummary } from "../../shared/rawMaterialOcrLineReview.js";
@@ -213,10 +214,7 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
             sourceRollId: roll.id,
             issuedRollId,
             supplierRollNo: roll.supplierRollNo,
-            materialType: item.materialType,
-            productName: item.productName,
-            spec: item.spec,
-            factoryColor: item.factoryColor,
+            ...rawMaterialRollFacts(item, roll),
             sourceWeightKg: fullWeightKg,
             issuedWeightKg,
             remainingWeightKg,
@@ -236,10 +234,7 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
           sourceRollId: isPartialIssue ? roll.id : "",
           splitRecordId,
           supplierRollNo: roll.supplierRollNo,
-          materialType: item.materialType,
-          productName: item.productName,
-          spec: item.spec,
-          factoryColor: item.factoryColor,
+          ...rawMaterialRollFacts(item, roll),
           issuedWeightKg,
           issuedQuantity: fullWeightKg > 0 ? 0 : 1,
           sourceWeightKg: fullWeightKg,
@@ -348,10 +343,7 @@ export function applyRawMaterialInboundLocalAction(items, input = {}) {
           issueRecordId: roll.issueRecordId || issueRecord?.issueRecordId || "",
           rollId: roll.id,
           supplierRollNo: roll.supplierRollNo,
-          materialType: item.materialType,
-          productName: item.productName,
-          spec: item.spec,
-          factoryColor: item.factoryColor,
+          ...rawMaterialRollFacts(item, roll),
           consumedWeightKg,
           consumedQuantity: consumedWeightKg > 0 ? 0 : 1,
           consumedFromWeightKg: machineSideWeightKg,

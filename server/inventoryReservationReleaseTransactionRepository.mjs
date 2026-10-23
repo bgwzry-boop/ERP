@@ -1,6 +1,16 @@
 import { resolveStoreMode } from "./storeMode.mjs";
+import {
+  buildPostgresIdempotencyRequest,
+  resolveRepositoryIdempotencyKey,
+  readPostgresIdempotencyReplay,
+  buildIdempotencyRequestHash,
+  buildIdempotencyConflictError,
+  normalizeIdempotencyKey,
+} from "./idempotency.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
 import { createPostgresTransactionExecutor } from "./postgresTransactionExecutor.mjs";
+
+const releaseScope = "inventory.reservation.release";
 
 export function createInventoryReservationReleaseTransactionRepository(options = {}) {
   const mode = resolveStoreMode({
@@ -14,6 +24,7 @@ export function createInventoryReservationReleaseTransactionRepository(options =
       databaseUrl: options.databaseUrl ?? process.env.ERP_INVENTORY_DATABASE_URL ?? process.env.DATABASE_URL ?? process.env.PGURL,
       queryJson: options.queryJson,
       transactionJson: options.transactionJson,
+      idempotentTransactionJson: options.idempotentTransactionJson,
       postgresClient: options.postgresClient,
     });
   }
@@ -22,10 +33,22 @@ export function createInventoryReservationReleaseTransactionRepository(options =
 }
 
 export function createLocalInventoryReservationReleaseTransactionRepository() {
+  const receipts = new Map();
+  function readReplay({ idempotencyKey: suppliedKey, idempotencyPayload }) {
+    const idempotencyKey = normalizeIdempotencyKey(suppliedKey);
+    if (!idempotencyKey || !receipts.has(idempotencyKey)) return null;
+    const saved = receipts.get(idempotencyKey);
+    if (saved.hash !== buildIdempotencyRequestHash(idempotencyPayload)) throw buildIdempotencyConflictError();
+    return structuredClone(saved.result);
+  }
   return {
+    readReplay,
     kind: "local_memory",
 
     releaseReservation(input) {
+      const replay = readReplay(input);
+      if (replay) return replay;
+      assertReleaseInput(input, true);
       const transaction = normalizeInventoryReservationReleaseTransactionResult({
         reservation: input.reservation,
         inventoryLedgerEntry: input.inventoryLedgerEntry,
@@ -38,25 +61,54 @@ export function createLocalInventoryReservationReleaseTransactionRepository() {
         inventoryLedgerEntry: transaction.inventoryLedgerEntry,
         operationLog: input.operationLog,
       });
+      const idempotencyKey = normalizeIdempotencyKey(input.idempotencyKey);
+      if (idempotencyKey) receipts.set(idempotencyKey, {
+        hash: buildIdempotencyRequestHash(input.idempotencyPayload),
+        result: structuredClone(transaction),
+      });
       return transaction;
     },
   };
 }
 
 export function createPostgresInventoryReservationReleaseTransactionRepository(options = {}) {
-  const { transactionJson } = createPostgresTransactionExecutor(options);
+  const { queryJson, idempotentTransactionJson } = createPostgresTransactionExecutor(options);
+  function assertIdempotentExecutor(input) {
+    if (input.idempotencyKey && (options.queryJson || options.transactionJson) && !options.idempotentTransactionJson && !options.postgresClient?.idempotentTransactionJson) {
+      const error = new Error("Reservation release requires an atomic idempotent transaction executor.");
+      error.code = "INVENTORY_RELEASE_IDEMPOTENCY_UNAVAILABLE";
+      error.statusCode = 503;
+      throw error;
+    }
+  }
 
   return {
     kind: "postgres",
+    readReplay(input) {
+      assertIdempotentExecutor(input);
+      return readPostgresIdempotencyReplay({queryJson, scope: releaseScope, idempotencyKey: input.idempotencyKey, payload: input.idempotencyPayload});
+    },
 
     async releaseReservation(input) {
+      assertIdempotentExecutor(input);
       const query = buildReleaseInventoryReservationTransactionQuery(input);
       const saved = normalizeInventoryReservationReleaseTransactionResult(
-        await transactionJson(query.text, query.values),
+        await idempotentTransactionJson(buildPostgresIdempotencyRequest({
+          scope: releaseScope,
+          idempotencyKey: resolveRepositoryIdempotencyKey(input.idempotencyKey, input.operationLog?.id),
+          payload: input.idempotencyPayload ?? {reservation: input.reservation, inventoryAdjustment: input.inventoryAdjustment, operatorId: input.operationLog?.operatorId},
+          operatorId: input.operationLog?.operatorId,
+          targetType: "inventory_reservation", targetId: input.reservation?.reservationId,
+          resourceLocks: [`inventory-reservation:${input.reservation?.reservationId}`, `inventory:${input.reservation?.inventoryItemId}`], query,
+        })),
       );
       if (!saved.reservation) {
         throw new Error("PostgreSQL inventory reservation release transaction returned an invalid result");
       }
+      // A concurrent identical request can replay inside the transaction after the
+      // initial replay lookup. Its receipt must not apply the same cache delta twice.
+      if (saved.operationLogId !== input.operationLog?.id
+        || (input.workspace?.operationLogs ?? []).some((row) => row.id === saved.operationLogId)) return saved;
       applyInventoryReservationReleaseWorkspaceMutation({
         workspace: input.workspace,
         reservation: saved.reservation,
@@ -74,6 +126,7 @@ export function buildReleaseInventoryReservationTransactionSql(input) {
 }
 
 export function buildReleaseInventoryReservationTransactionQuery(input) {
+  assertReleaseInput(input);
   const parameters = createPostgresParameterBinder();
   return {
     text: buildReleaseInventoryReservationTransactionText(input, parameters),
@@ -92,21 +145,37 @@ function buildReleaseInventoryReservationTransactionText(input, parameters) {
 
   return `
 BEGIN;
-WITH updated_inventory_reservation AS (
+WITH locked_reservation AS MATERIALIZED (
+  SELECT * FROM inventory_reservations WHERE id = ${parameters.text(reservation.reservationId)} FOR UPDATE
+), locked_inventory AS MATERIALIZED (
+  SELECT * FROM inventory_items WHERE id = ${parameters.text(inventoryAdjustment.inventoryItemId)} FOR UPDATE
+), release_guard AS MATERIALIZED (
+  SELECT erp_require(COALESCE((SELECT
+    r.order_line_id = ${parameters.text(reservation.orderLineId)}
+    AND r.inventory_item_id = ${parameters.text(reservation.inventoryItemId)}
+    AND r.reserved_qty = ${parameters.integer(reservation.reservedQty - inventoryAdjustment.reservedQtyChange)}
+    AND r.status IN ('生效', 'active', 'reserved', '部分释放', 'partially_released')
+    AND r.reservation_type <> '临时留货'
+    AND i.reserved_qty = ${parameters.integer(inventoryLedgerEntry.qtyBefore)}
+    AND i.reserved_qty >= r.reserved_qty
+    FROM locked_reservation r CROSS JOIN locked_inventory i), false), 'ERP_INVENTORY_RESERVATION_RELEASE_CONFLICT') AS ok
+), updated_inventory_reservation AS (
   UPDATE inventory_reservations
   SET
     reserved_qty = ${parameters.integer(reservation.reservedQty)},
     status = ${parameters.text(reservation.status)},
     updated_at = now()
-  WHERE id = ${parameters.text(reservation.reservationId)}
+  FROM release_guard
+  WHERE id = ${parameters.text(reservation.reservationId)} AND release_guard.ok
   RETURNING ${inventoryReservationJsonExpression("inventory_reservations")} AS result
 ),
 updated_inventory_item AS (
   UPDATE inventory_items AS item
   SET
-    reserved_qty = GREATEST(0, item.reserved_qty + ${parameters.integer(inventoryAdjustment.reservedQtyChange)}),
+    reserved_qty = item.reserved_qty + ${parameters.integer(inventoryAdjustment.reservedQtyChange)},
     updated_at = now()
-  WHERE item.id = ${parameters.text(inventoryAdjustment.inventoryItemId)}
+  FROM release_guard
+  WHERE item.id = ${parameters.text(inventoryAdjustment.inventoryItemId)} AND release_guard.ok
   RETURNING json_build_object(
     'inventoryItemId', item.id,
     'reservedQty', item.reserved_qty
@@ -144,16 +213,6 @@ inserted_inventory_ledger_entry AS (
     ${parameters.nullableText(inventoryLedgerEntry.reason)},
     ${parameters.nullableText(inventoryLedgerEntry.remark)}
   )
-  ON CONFLICT (id) DO UPDATE SET
-    inventory_item_id = EXCLUDED.inventory_item_id,
-    change_type = EXCLUDED.change_type,
-    qty_before = EXCLUDED.qty_before,
-    qty_change = EXCLUDED.qty_change,
-    qty_after = EXCLUDED.qty_after,
-    source_type = EXCLUDED.source_type,
-    source_id = EXCLUDED.source_id,
-    reason = EXCLUDED.reason,
-    remark = EXCLUDED.remark
   RETURNING ${inventoryLedgerJsonExpression("inventory_ledger_entries")} AS result
 ),
 inserted_operation_log AS (
@@ -182,22 +241,13 @@ inserted_operation_log AS (
     ${parameters.timestamp(operationLog.occurredAt)},
     ${parameters.timestamp(operationLog.createdAt)}
   )
-  ON CONFLICT (id) DO UPDATE SET
-    target_type = EXCLUDED.target_type,
-    target_id = EXCLUDED.target_id,
-    action = EXCLUDED.action,
-    before_json = EXCLUDED.before_json,
-    after_json = EXCLUDED.after_json,
-    reason = EXCLUDED.reason,
-    operator_id = EXCLUDED.operator_id,
-    page_key = EXCLUDED.page_key
   RETURNING id
 )
 SELECT json_build_object(
   'reservation', (SELECT result FROM updated_inventory_reservation),
   'inventoryLedgerEntry', (SELECT result FROM inserted_inventory_ledger_entry),
   'operationLogId', (SELECT id FROM inserted_operation_log)
-) AS result;
+) AS result FROM release_guard WHERE release_guard.ok;
 COMMIT;
 `.trim();
 }
@@ -385,4 +435,21 @@ function inventoryLedgerJsonExpression(alias) {
 function toFiniteInteger(value) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.trunc(number) : 0;
+}
+
+function assertReleaseInput(input, checkWorkspace = false) {
+  const reservation = input.reservation;
+  const adjustment = input.inventoryAdjustment;
+  const ledger = input.inventoryLedgerEntry;
+  const remaining = Number(reservation?.reservedQty);
+  const change = Number(adjustment?.reservedQtyChange);
+  const prior = remaining - change;
+  const totalBefore = Number(ledger?.qtyBefore);
+  const fail = () => { throw Object.assign(new Error("库存占用释放数据已变化或数量不一致，请刷新核对。"), { code: "ERP_INVENTORY_RESERVATION_RELEASE_CONFLICT", statusCode: 409 }); };
+  if (![remaining, change, prior, totalBefore, Number(ledger?.qtyAfter)].every(Number.isSafeInteger) || remaining < 0 || change >= 0 || totalBefore < prior || ledger.qtyChange !== change || ledger.qtyAfter !== totalBefore + change || adjustment.inventoryItemId !== reservation.inventoryItemId || ledger.inventoryItemId !== reservation.inventoryItemId || reservation.status !== (remaining > 0 ? "部分释放" : "已释放")) fail();
+  if (!checkWorkspace) return;
+  const current = (input.workspace?.inventoryReservations ?? []).find((row) => (row.reservationId ?? row.id) === (reservation.reservationId ?? reservation.id));
+  const inventory = (input.workspace?.inventories ?? []).find((row) => row.id === reservation.inventoryItemId);
+  if (!current || !inventory || current.orderLineId !== reservation.orderLineId || current.inventoryItemId !== reservation.inventoryItemId || Number(current.reservedQty ?? current.qty) !== prior || !["生效", "active", "reserved", "部分释放", "partially_released"].includes(current.status) || current.reservationType === "临时留货" || Number(inventory.reserved) !== totalBefore) fail();
+  if ((input.workspace.inventoryLedgers ?? []).some((row) => (row.ledgerId ?? row.id) === (ledger.ledgerId ?? ledger.id)) || (input.workspace.operationLogs ?? []).some((row) => row.id === input.operationLog?.id)) fail();
 }

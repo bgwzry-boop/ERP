@@ -21,7 +21,7 @@ export function resolveRawMaterialWholeRollMachine(machineId) {
 }
 
 export function isPendingStickConfirmRoll(roll = {}) {
-  return String(roll.labelStatus || "") === "已打印待贴标" && String(roll.inventoryStatus || "") !== "可用";
+  return String(roll.labelStatus || "") === "已打印待贴标" && ["不可用", "待贴标"].includes(String(roll.inventoryStatus || ""));
 }
 
 export function isPrintedRawMaterialLabel(roll = {}) {

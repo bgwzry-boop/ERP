@@ -412,3 +412,21 @@ for (const [actionName, apiName, guardAction] of supplierActionCases) {
 }
 
 console.log("Office raw-material action checks passed: local traceability, permissions, formal-mode fail-closed behavior, and visible-page refresh scheduling are covered.");
+
+{
+  let revision = 3;
+  const harness = createHarness({
+    allowLocalFallback: false,
+    api: {
+      updateOfficeRawMaterialInboundAction: async () => ({ source: "api", inbound: { ...baseInbound, revision, status: revision === 3 ? "已贴标入库/可用" : "已打印待贴标" } }),
+      recognizeOfficeRawMaterialDeliveryNote: async () => ({ source: "api", inbound: { ...baseInbound, revision: 1, status: "已识别待复核" } }),
+    },
+  });
+  await harness.actions.updateRawMaterialInbound("确认贴标", "RMI-1", { rollId: "ROLL-1" });
+  assert.equal(harness.rawMaterialInbounds[0].revision, 3);
+  revision = 2;
+  await harness.actions.updateRawMaterialInbound("打印卷标", "RMI-1");
+  assert.equal(harness.rawMaterialInbounds[0].revision, 3, "An old action receipt cannot replace current UI state");
+  await harness.actions.recognizeRawMaterialDeliveryNote({ fileName: "same-delivery-note.jpg" });
+  assert.equal(harness.rawMaterialInbounds[0].revision, 3, "OCR deduplication returning an old receipt cannot roll back UI state");
+}

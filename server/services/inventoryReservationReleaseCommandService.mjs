@@ -23,11 +23,14 @@ export function createInventoryReservationReleaseCommandService(dependencies = {
   return { releaseReservation };
 
   async function releaseReservation({ workspace, reservationId, body = {}, operatorId }) {
-    const before = findInventoryReservation(workspace, reservationId);
-    if (!before) return notFound("INVENTORY_RESERVATION_NOT_FOUND");
     if (body.reservationId && body.reservationId !== reservationId) {
       return businessError(422, "VALIDATION_ERROR", "reservationId in path and body must match");
     }
+    const idempotencyPayload = {reservationId, operatorId, releaseQty: body.releaseQty ?? null, reason: body.reason ?? null, relatedActionId: body.relatedActionId ?? null};
+    const replay = await workspace.inventoryReservationReleaseTransactionRepository.readReplay?.({idempotencyKey: body.idempotencyKey, idempotencyPayload});
+    if (replay) return releaseResponse(replay);
+    const before = findInventoryReservation(workspace, reservationId);
+    if (!before) return notFound("INVENTORY_RESERVATION_NOT_FOUND");
     if (before.reservationType === "临时留货") {
       return businessError(
         409,
@@ -46,10 +49,10 @@ export function createInventoryReservationReleaseCommandService(dependencies = {
     const inventoryItem = findInventoryItem(workspace, before.inventoryItemId);
     if (!inventoryItem) return notFound("INVENTORY_ITEM_NOT_FOUND");
 
-    const currentReservedQty = Math.max(0, Number(before.reservedQty ?? before.qty ?? 0));
-    const requestedReleaseQty = Math.trunc(Number(body.releaseQty ?? currentReservedQty));
-    if (!Number.isFinite(requestedReleaseQty) || requestedReleaseQty <= 0) {
-      return businessError(422, "VALIDATION_ERROR", "releaseQty must be greater than 0.");
+    const currentReservedQty = Number(before.reservedQty ?? before.qty ?? 0);
+    const requestedReleaseQty = Number(body.releaseQty ?? currentReservedQty);
+    if (!Number.isSafeInteger(requestedReleaseQty) || requestedReleaseQty <= 0) {
+      return businessError(422, "VALIDATION_ERROR", "releaseQty must be a positive safe integer.");
     }
     if (requestedReleaseQty > currentReservedQty) {
       return businessError(
@@ -59,6 +62,10 @@ export function createInventoryReservationReleaseCommandService(dependencies = {
       );
     }
 
+    const totalReservedQty = Number(inventoryItem.reserved ?? 0);
+    if (!Number.isSafeInteger(currentReservedQty) || currentReservedQty <= 0 || !Number.isSafeInteger(totalReservedQty) || totalReservedQty < currentReservedQty) {
+      return businessError(409, "INVENTORY_RESERVED_QUANTITY_CONFLICT", "库存总占用与本笔占用不一致，请先核对，不能静默扣减。");
+    }
     const releasedQty = requestedReleaseQty;
     const remainingReservedQty = Math.max(0, currentReservedQty - releasedQty);
     const status = remainingReservedQty > 0 ? "部分释放" : "已释放";
@@ -69,7 +76,7 @@ export function createInventoryReservationReleaseCommandService(dependencies = {
       status,
     };
     const reservedBefore = Number(inventoryItem.reserved ?? 0);
-    const reservedAfter = Math.max(0, reservedBefore - releasedQty);
+    const reservedAfter = reservedBefore - releasedQty;
     const ledger = {
       ledgerId: nextPlainId(
         "LEDGER",
@@ -98,6 +105,8 @@ export function createInventoryReservationReleaseCommandService(dependencies = {
     });
     const transaction = await workspace.inventoryReservationReleaseTransactionRepository.releaseReservation({
       workspace,
+      idempotencyKey: body.idempotencyKey,
+      idempotencyPayload,
       reservation: after,
       inventoryAdjustment: {
         inventoryItemId: before.inventoryItemId,
@@ -107,16 +116,7 @@ export function createInventoryReservationReleaseCommandService(dependencies = {
       operationLog,
     });
 
-    return success({
-      reservationId,
-      orderLineId: after.orderLineId,
-      inventoryItemId: after.inventoryItemId,
-      qty: Number(transaction.reservation?.reservedQty ?? remainingReservedQty),
-      releasedQty,
-      status: mapApiStatus(transaction.reservation?.status ?? status),
-      ledgerId: transaction.inventoryLedgerEntry?.ledgerId ?? ledger.ledgerId,
-      operationLogId: transaction.operationLogId,
-    });
+    return releaseResponse(transaction);
   }
 }
 
@@ -155,4 +155,11 @@ function businessError(statusCode, code, message) {
 
 function requireFunction(value, name) {
   if (typeof value !== "function") throw new TypeError(`${name} must be a function`);
+}
+
+function releaseResponse(transaction) {
+  const record = transaction.reservation;
+  return success({reservationId: record.reservationId ?? record.id, orderLineId: record.orderLineId, inventoryItemId: record.inventoryItemId,
+    qty: Number(record.reservedQty), releasedQty: -Number(transaction.inventoryLedgerEntry.qtyChange), status: mapApiStatus(record.status),
+    ledgerId: transaction.inventoryLedgerEntry.ledgerId ?? transaction.inventoryLedgerEntry.id, operationLogId: transaction.operationLogId});
 }

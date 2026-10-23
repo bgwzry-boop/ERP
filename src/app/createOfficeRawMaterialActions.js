@@ -1,3 +1,4 @@
+import { mergeRawMaterialCurrentInbound } from "../../shared/rawMaterialCurrentInbound.js";
 import {
   confirmOfficeRawMaterialSupplierPayment,
   confirmOfficeRawMaterialSupplierStatement,
@@ -109,10 +110,7 @@ export function createOfficeRawMaterialActions({
         code: result.error?.code || "RAW_MATERIAL_DELIVERY_NOTE_OCR_FAILED",
       });
     }
-    setRawMaterialInbounds((current) => [
-      result.inbound,
-      ...current.filter((item) => item.id !== result.inbound.id),
-    ]);
+    setRawMaterialInbounds((current) => mergeRawMaterialCurrentInbound(current, result.inbound));
     setRawMaterialInboundMeta((current) => ({
       ...current,
       source: "api",
@@ -190,7 +188,7 @@ export function createOfficeRawMaterialActions({
 
     if (!result.blocked && result.inbound?.id) {
       setRawMaterialInbounds((current) =>
-        current.map((item) => (item.id === inboundId ? result.inbound : item)),
+        mergeRawMaterialCurrentInbound(current, result.inbound),
       );
       setRawMaterialInboundMeta((current) => ({
         ...current,
