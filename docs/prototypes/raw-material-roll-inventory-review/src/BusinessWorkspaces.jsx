@@ -1,3 +1,4 @@
+import { DeliveryEvidenceReviewPanel } from "../../../../src/features/fulfillment/DeliveryEvidenceReviewPanel.jsx";
 import {getOfficeProductionTaskDetail} from "../../../../src/services/officeProductionPackingLazyApi.js";
 import {refreshAfterProductionPhotoReview} from "./production-review-refresh.js";
 import {resolveTodoWorkspaceLink} from "./todo-workspace-link.js";
@@ -635,6 +636,7 @@ function FulfillmentWorkspace({ formal, onNavigate }) {
         <section className="business-detail-section"><h3>交付数量</h3><dl className="fulfillment-progress-facts"><div><dt>订货数量</dt><dd>{quantityText(selected.orderedQty)}</dd></div><div><dt>累计实出</dt><dd>{quantityText(selected.shippedBeforeQty)}</dd></div><div className="current"><dt>{selected.currentQtyLabel}</dt><dd>{quantityText(selected.currentQty)}</dd></div><div><dt>剩余未实出</dt><dd>{quantityText(selected.remainingQty)}</dd></div></dl></section>
         <section className="business-detail-section"><h3>交付事实</h3><dl className="business-facts"><div><dt>交付方式</dt><dd>{selected.method}</dd></div><div><dt>包装</dt><dd>{selected.packageLabel}</dd></div><div><dt>要求时间</dt><dd>{selected.latestNeededAt}</dd></div><div><dt>出库库位</dt><dd>{selected.zone}</dd></div></dl></section>
         <section className="business-detail-section"><h3>对账关联</h3><div className="business-boundary"><InfoCircleOutlined /><div><strong>金额以正式对账记录为准</strong><p>分批出货、赠送数量和差异处理都会影响计费，本页不按数量估算应收或欠款。</p></div></div>{formal.permissionContext?.actionPermissions?.includes("statement.preview") ? <button type="button" onClick={() => onNavigate?.("customer-statements")}>打开对账收款</button> : <p>请由财务或办公室核对正式账单。</p>}</section>
+        {selected.method === "送货" ? <DeliveryEvidenceReviewPanel authState={formal.authState} fulfillmentId={selected.id} onReviewed={(message) => { setNotice(message); void formal.actions.refreshAll(); }} /> : null}
         <DesktopFulfillmentOperations fulfillment={formal.data.fulfillments.find(item => (item.id || item.fulfillmentId) === selected.id)} formal={formal} />
         {notice ? <div className="business-notice"><CheckCircleOutlined />{notice}</div> : null}
       </> : <div className="business-empty"><FileTextOutlined /><strong>暂无交付任务</strong></div>}</div>

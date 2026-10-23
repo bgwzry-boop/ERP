@@ -52,6 +52,22 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
   const [detailTab, setDetailTab] = useState("任务处理");
   const [fulfillmentView, setFulfillmentView] = useState("全部");
   const [query, setQuery] = useState("");
+  const [retakeReasons, setRetakeReasons] = useState({});
+  const [evidenceWrites, setEvidenceWrites] = useState({});
+  const evidencePendingRef = useRef(new Set());
+  async function submitEvidenceReview(action, fulfillmentId) {
+    if (evidencePendingRef.current.has(fulfillmentId)) return;
+    evidencePendingRef.current.add(fulfillmentId);
+    setEvidenceWrites(current => ({ ...current, [fulfillmentId]: { pending: true, error: "" } }));
+    try {
+      const result = await onAction(action, fulfillmentId, { reason: retakeReasons[fulfillmentId]?.trim() || "" });
+      setEvidenceWrites(current => ({ ...current, [fulfillmentId]: { pending: false, error: result?.blocked === false ? "" : result?.feedback || result?.error?.message || "提交未完成，请核对后重试。" } }));
+    } catch (error) {
+      setEvidenceWrites(current => ({ ...current, [fulfillmentId]: { pending: false, error: error?.message || "提交失败，请重试。" } }));
+    } finally {
+      evidencePendingRef.current.delete(fulfillmentId);
+    }
+  }
   const [varianceDraft, setVarianceDraft] = useState({
     resolutionResult: "",
     reason: "",
@@ -543,22 +559,37 @@ export function FulfillmentPage({ authState, currentUser, tab, setTab, fulfillme
                     ["复核记录", selected.deliveryEvidenceReviewedAt ? `${selected.deliveryEvidenceReviewedBy || "未知账号"} / ${selected.deliveryEvidenceReviewedAt}` : selected.deliveryEvidenceIssueReason || "未复核"],
                   ]}
                 />
+                <div className="detail-form">
+                  <label>
+                    <span>退回重拍原因</span>
+                    <textarea
+                      disabled={evidenceWrites[selected.id]?.pending}
+                      rows={3}
+                      maxLength={500}
+                      value={retakeReasons[selected.id] ?? ""}
+                      onChange={event => setRetakeReasons(current => ({ ...current, [selected.id]: event.target.value }))}
+                      placeholder="说明需要补拍什么，例如：袋子数量看不清，请补拍整批货物。"
+                    />
+                  </label>
+                </div>
                 <div className="action-row">
                   <button
                     className="primary-action"
-                    disabled={evidenceReviewState.disabled || !selected.watermarkedPhotoAttachmentId || evidenceReviewStatus === "已复核"}
+                    disabled={evidenceWrites[selected.id]?.pending || evidenceReviewState.disabled || !selected.watermarkedPhotoAttachmentId || evidenceReviewStatus === "已复核"}
                     title={evidenceReviewState.title || (!selected.watermarkedPhotoAttachmentId ? "缺少水印照片，不能复核通过" : evidenceReviewStatus === "已复核" ? "送达证据已复核" : "")}
-                    onClick={() => onAction("证据复核通过", selected.id)}
+                    onClick={() => submitEvidenceReview("证据复核通过", selected.id)}
                   >
                     <CheckCircleOutlined /> 证据复核通过
                   </button>
+
                   <button
-                    disabled={evidenceRejectState.disabled || !selected.watermarkedPhotoAttachmentId}
-                    title={evidenceRejectState.title || (!selected.watermarkedPhotoAttachmentId ? "缺少水印照片，不能退回重拍" : "")}
-                    onClick={() => onAction("退回重拍", selected.id)}
+                    disabled={evidenceWrites[selected.id]?.pending || evidenceRejectState.disabled || !selected.watermarkedPhotoAttachmentId || !retakeReasons[selected.id]?.trim()}
+                    title={evidenceRejectState.title || (!selected.watermarkedPhotoAttachmentId ? "缺少水印照片，不能退回重拍" : !retakeReasons[selected.id]?.trim() ? "请填写具体重拍原因" : "")}
+                    onClick={() => submitEvidenceReview("退回重拍", selected.id)}
                   >
-                    <WarningOutlined /> 退回重拍
+                    <WarningOutlined /> {evidenceWrites[selected.id]?.pending ? "提交中…" : "退回重拍"}
                   </button>
+                  {evidenceWrites[selected.id]?.error ? <p role="alert">{evidenceWrites[selected.id].error}</p> : null}
                 </div>
               </section>
             )}

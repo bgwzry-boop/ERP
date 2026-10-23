@@ -126,10 +126,10 @@ export function createOfficeFulfillmentActions({
     if (action === "证据复核通过") {
       const result = await reviewFulfillmentDeliveryEvidence({ action, fulfillment: selected });
       if (result?.feedback) setToast(result.feedback);
-      return;
+      return result;
     }
     if (action === "退回重拍") {
-      const reason = actionPayload.reason || "水印/定位/照片清晰度需补充";
+      const reason = String(actionPayload.reason ?? "").trim();
       const result = await reviewFulfillmentDeliveryEvidence({
         action,
         fulfillment: selected,
@@ -137,7 +137,7 @@ export function createOfficeFulfillmentActions({
         customerName: findCustomer(selected.customerId)?.name ?? selected.customerId,
       });
       if (result?.feedback) setToast(result.feedback);
-      return;
+      return result;
     }
     if (action === "打开订单") {
       focusOrderLine(selected.lineId, "出库 / 交付");

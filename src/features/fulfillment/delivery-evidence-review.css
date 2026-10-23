@@ -1,0 +1,16 @@
+.delivery-review-panel { display: grid; gap: var(--erp-space-2, 8px); }
+.delivery-review-panel label { display: grid; gap: var(--erp-space-1, 4px); }
+.delivery-review-panel textarea { width: 100%; min-width: 0; box-sizing: border-box; font: inherit; resize: vertical; }
+.delivery-review-panel p { overflow-wrap: anywhere; }
+.delivery-review-actions { display: flex; flex-wrap: wrap; gap: var(--erp-space-2, 8px); }
+.delivery-review-panel figure { margin: 0; }
+.delivery-review-panel img { display: block; max-width: 100%; height: auto; }
+.delivery-review-panel { padding-block: var(--erp-space-3, 12px); border-top: 1px solid var(--line, var(--erp-border)); font-size: 13px; line-height: 1.5; color: var(--ink, var(--erp-text)); }
+.delivery-review-panel h3, .delivery-review-panel p { margin: 0; }
+.delivery-review-panel h3 { font-size: 14px; }
+.delivery-review-panel textarea { border: 1px solid var(--line-strong, var(--erp-border)); border-radius: var(--erp-radius-md, 6px); padding: var(--erp-space-2, 8px); background: var(--surface, var(--erp-surface)); color: inherit; }
+.delivery-review-panel button { min-height: 36px; border: 1px solid var(--line-strong, var(--erp-border)); border-radius: var(--erp-radius-md, 6px); padding: var(--erp-space-1, 4px) var(--erp-space-3, 12px); background: var(--surface, var(--erp-surface)); color: inherit; font: inherit; cursor: pointer; }
+.delivery-review-panel button:hover:not(:disabled) { border-color: var(--blue, var(--erp-accent)); color: var(--blue, var(--erp-accent)); }
+.delivery-review-panel button:disabled { cursor: not-allowed; color: var(--ink-soft, var(--erp-text-muted)); background: var(--erp-surface-subtle); }
+.delivery-review-panel button:focus-visible, .delivery-review-panel textarea:focus-visible { outline: 2px solid var(--blue, var(--erp-focus)); outline-offset: 2px; }
+.delivery-review-panel [role="alert"] { color: var(--erp-danger); }
