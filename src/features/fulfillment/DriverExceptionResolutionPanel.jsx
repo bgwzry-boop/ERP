@@ -20,6 +20,8 @@ function ResolutionForm({ authState, fulfillmentId, onResolved }) {
   const [notice, setNotice] = useState("");
   const alive = useRef(true);
   const dialog = useRef(null);
+  const confirmationTrigger = useRef(null);
+  const dialogWasOpen = useRef(false);
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
   useEffect(() => {
     let active = true;
@@ -33,7 +35,16 @@ function ResolutionForm({ authState, fulfillmentId, onResolved }) {
     });
     return () => { active = false; };
   }, [fulfillmentId, revision, allowed]);
-  useEffect(() => { if (confirmation) dialog.current?.showModal(); else dialog.current?.close(); }, [confirmation]);
+  useEffect(() => {
+    if (confirmation) {
+      dialog.current?.showModal();
+      dialogWasOpen.current = true;
+    } else if (dialogWasOpen.current) {
+      dialog.current?.close();
+      dialogWasOpen.current = false;
+      confirmationTrigger.current?.focus?.();
+    }
+  }, [confirmation]);
   const pending = (record?.deliveryExceptions || []).filter((item) => !["已解决", "已作废"].includes(item.status));
   const selected = pending.find((item) => item.exceptionId === exceptionId);
   const nextStatus = pending.length > 1 ? "仍待处理其他异常" : record?.loadedAt ? "继续配送" : "重新核对装车";
@@ -62,7 +73,7 @@ function ResolutionForm({ authState, fulfillmentId, onResolved }) {
       <p>原应出 {selected.expectedQty ?? "待核实"}；司机实见 {selected.actualQty ?? "待核实"}；已登记实出 {record.actualQty ?? "待核实"}。</p>
       <label>处理说明<textarea value={reason} maxLength={500} disabled={Boolean(confirmation)} onChange={(event) => setReason(event.target.value)} placeholder="记录与司机、客户或库房核实的结果" /></label>
       <label className="driver-exception-resolution-check"><input type="checkbox" checked={quantityVerified} disabled={Boolean(confirmation)} onChange={(event) => setQuantityVerified(event.target.checked)} />已核对原出库数量、包裹与单据，可以按原数量继续执行</label>
-      <button type="button" disabled={!allowed || loading || Boolean(confirmation) || !quantityVerified || reason.trim().length < 2} onClick={() => setConfirmation({
+      <button ref={confirmationTrigger} type="button" disabled={!allowed || loading || Boolean(confirmation) || !quantityVerified || reason.trim().length < 2} onClick={() => setConfirmation({
         customer: record.customerName, goods: record.goodsSpec, exception: selected.reason, nextStatus,
         quantity: record.actualQty, expectedQty: selected.expectedQty, observedQty: selected.actualQty,
         payload: { expectedRevision: record.revision, exceptionId, reason: reason.trim(), quantityVerified: true, confirmed: true, idempotencyKey: `driver-resolution-${crypto.randomUUID()}` },

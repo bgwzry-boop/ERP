@@ -89,7 +89,8 @@ for (const width of [1440, 800]) {
     await page.keyboard.press("Escape");
     await expect(dialog).not.toBeVisible();
     await expect(trigger).toBeEnabled();
-    const escapeRestoredTrigger = await trigger.evaluate(node => node === document.activeElement);
+    await expect(trigger).toBeFocused();
+    const escapeRestoredTrigger = true;
     expect(writes).toHaveLength(0);
     await expect(panel.getByRole("textbox", { name: "处理说明", exact: true })).toHaveValue(reason);
     await trigger.click();
