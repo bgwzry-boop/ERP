@@ -43,7 +43,7 @@ export function createProductionReportingCommandService({
         return businessError(409, "PRODUCTION_TASK_EXCEPTION_PAUSED", "Paused production tasks require an explicit follow-up decision before daily progress.");
       }
 
-      const bindingError = validateTaskBinding(beforeTask, body);
+      const bindingError = validateTaskBinding(beforeTask, body) ?? validateRecordBindings(workspace,beforeTask,body);
       if (bindingError) return bindingError;
       const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
       if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
@@ -157,7 +157,7 @@ export function createProductionReportingCommandService({
         orderLine: beforeOrderLine,
         operationLog,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { ...body, operatorId },
+        idempotencyPayload: { ...body, productionTaskId, operatorId },
       });
       const savedEvidence = transaction.workshopReport.evidence ?? {};
 
@@ -197,7 +197,7 @@ export function createProductionReportingCommandService({
         return businessError(409, "PRODUCTION_TASK_VOIDED", "Voided production tasks cannot report a new exception.");
       }
 
-      const bindingError = validateTaskBinding(beforeTask, body);
+      const bindingError = validateTaskBinding(beforeTask, body) ?? validateRecordBindings(workspace,beforeTask,body);
       if (bindingError) return bindingError;
       const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
       if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
@@ -319,7 +319,7 @@ export function createProductionReportingCommandService({
         todoEvent,
         operationLog,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { ...body, operatorId },
+        idempotencyPayload: { ...body, productionTaskId, operatorId },
       });
 
       return success({
@@ -475,7 +475,7 @@ export function createProductionReportingCommandService({
         todoEvent,
         operationLog,
         idempotencyKey: body.idempotencyKey,
-        idempotencyPayload: { ...body, operatorId },
+        idempotencyPayload: { ...body, productionTaskId, operatorId },
       });
 
       return success({
@@ -506,7 +506,7 @@ export function createProductionReportingCommandService({
       if (body.productionTaskId && body.productionTaskId !== productionTaskId) {
         return businessError(422, "VALIDATION_ERROR", "productionTaskId in path and body must match");
       }
-      const idempotencyPayload = { ...body, operatorId };
+      const idempotencyPayload = { ...body, productionTaskId, operatorId };
       if (body.idempotencyKey) {
         const replay = await workspace.productionPackingTransactionRepository.findProductionReportIdempotentReplay?.({
           idempotencyKey: body.idempotencyKey,
@@ -520,7 +520,7 @@ export function createProductionReportingCommandService({
       if (isProductionTaskExceptionPaused(beforeTask.taskStatus ?? beforeTask.status)) {
         return businessError(409, "PRODUCTION_TASK_EXCEPTION_PAUSED", "Paused production tasks require an explicit follow-up decision before completion reporting.");
       }
-      const bindingError = validateTaskBinding(beforeTask, body);
+      const bindingError = validateTaskBinding(beforeTask, body) ?? validateRecordBindings(workspace,beforeTask,body);
       if (bindingError) return bindingError;
       const orderLineId = beforeTask.orderLineId ?? beforeTask.lineId;
       if (body.orderLineId && body.orderLineId !== orderLineId) return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "生产任务不能改报到其他订单明细。");
@@ -1051,6 +1051,23 @@ function requireFunction(value, name) {
 function validateTaskBinding(task, body) {
   if (body.orderLineId != null && body.orderLineId !== (task.orderLineId ?? task.lineId) || body.processType != null && body.processType !== task.taskType || body.machineId != null && task.machineId && body.machineId !== task.machineId) {
     return businessError(409, "PRODUCTION_TASK_BINDING_MISMATCH", "既有生产任务的订单、工序和机台归属不能通过报工请求修改。");
+  }
+  return null;
+}
+
+function validateRecordBindings(workspace, task, body) {
+  const taskId = task.productionTaskId ?? task.id;
+  const lineId = task.orderLineId ?? task.lineId;
+  const records = [[workspace.workshopReports, body.reportId, "reportId", true], [workspace.productionExceptions, body.productionExceptionId, "productionExceptionId", true], [workspace.packingTasks, body.packingTaskId, "packingTaskId", false], [workspace.inventoryReservations, body.reservationId, "reservationId", false]];
+  for (const [rows, requestedId, key, taskBound] of records) {
+    if (!requestedId) continue;
+    const existing = (rows ?? []).find(row => (row[key] ?? row.id) === requestedId);
+    if (existing && ((existing.orderLineId ?? existing.lineId) !== lineId || taskBound && existing.productionTaskId !== taskId || key === "reservationId" && body.inventoryItemId && existing.inventoryItemId !== body.inventoryItemId)) {
+      return businessError(409, "PRODUCTION_RECORD_BINDING_MISMATCH", "报工、异常、打包或库存占用编号已属于其他业务记录。");
+    }
+  }
+  for (const id of [body.inboundLedgerId, body.reserveLedgerId].filter(Boolean)) {
+    if ((workspace.inventoryLedgers ?? []).some(row => (row.ledgerId ?? row.id) === id)) return businessError(409, "PRODUCTION_LEDGER_ALREADY_EXISTS", "库存流水编号已使用，请刷新后重试。");
   }
   return null;
 }

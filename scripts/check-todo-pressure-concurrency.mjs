@@ -46,7 +46,8 @@ try {
   assert.equal(concurrentRepository.metrics.recordAttempts, 2);
   assert.equal(concurrentRepository.metrics.successfulWrites, 1);
 
-  const readOperators = ["U-OFFICE-A", "U-WAREHOUSE-A", "U-FINANCE-A", "U-MANAGER-A"];
+  await requestJson(baseUrl, "/api/todos?status=all", {expectedStatus:403,headers:{"x-erp-user-id":"U-WAREHOUSE-A"}});
+  const readOperators = ["U-OFFICE-A", "U-FINANCE-A", "U-MANAGER-A"];
   const readRequests = Array.from({ length: 160 }, (_, index) => {
     const operatorId = readOperators[index % readOperators.length];
     return () => requestJson(baseUrl, "/api/todos?status=all&page=1&pageSize=8", {

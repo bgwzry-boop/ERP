@@ -62,7 +62,15 @@ export function createOfficeCoreReadActions({
   setFulfillmentMeta,
   setSelectedFulfillmentId,
 }) {
+  function excludeUnauthorizedRead(permission, showToast) {
+    const permissions = authState?.permissions?.actionPermissions;
+    if (Array.isArray(permissions) ? permissions.includes(permission) : !serverRequired()) return null;
+    return { source: "excluded", excluded: true, blocked: showToast, ...(showToast ? { feedback: "当前岗位无权读取此列表。" } : {}) };
+  }
+
   async function refreshTodos({ showToast = false } = {}) {
+    const excluded = excludeUnauthorizedRead("todo.read", showToast);
+    if (excluded) return excluded;
     setTodoMeta((current) => ({ ...current, loading: true, error: "" }));
     const result = normalizeReadResultForRuntime(
       await api.listOfficeTodos({
@@ -103,6 +111,8 @@ export function createOfficeCoreReadActions({
   }
 
   async function refreshOrderPool({ showToast = false } = {}) {
+    const excluded = excludeUnauthorizedRead("order.read", showToast);
+    if (excluded) return excluded;
     setOrderPoolMeta((current) => ({ ...current, loading: true, error: "" }));
     const result = normalizeReadResultForRuntime(
       await api.listOfficeOrderLines({
@@ -144,6 +154,8 @@ export function createOfficeCoreReadActions({
   }
 
   async function refreshInventoryRecords({ showToast = false } = {}) {
+    const excluded = excludeUnauthorizedRead("inventory.read", showToast);
+    if (excluded) return excluded;
     setInventoryMeta((current) => ({ ...current, loading: true, error: "" }));
     const result = normalizeReadResultForRuntime(
       await api.listOfficeInventoryItems({
@@ -191,6 +203,8 @@ export function createOfficeCoreReadActions({
   }
 
   async function refreshFulfillments({ showToast = false } = {}) {
+    const excluded = excludeUnauthorizedRead("fulfillment.read", showToast);
+    if (excluded) return excluded;
     setFulfillmentMeta((current) => ({ ...current, loading: true, error: "" }));
     const result = normalizeReadResultForRuntime(
       await api.listOfficeFulfillments({

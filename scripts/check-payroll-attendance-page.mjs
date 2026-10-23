@@ -21,7 +21,7 @@ assert.match(appSource, /payroll: \(props\) => createElement\(PageLoader/);
 assert.match(appSource, /payroll: \{[\s\S]*authState: authState/);
 assert.match(appSource, /renderedPage === "attendanceMobile"/);
 assert.match(appSource, /<EmployeeAttendanceMobilePage[\s\S]*authState=\{authState\}/);
-assert.match(navigationSource, /key: "payroll"[\s\S]*permissionPrefixes: \["payroll\."\]/);
+assert.match(navigationSource, /key: "payroll"[\s\S]*permissionKeys: \["payroll.preview"\]/);
 assert.match(navigationSource, /key: "attendanceMobile"[\s\S]*permissionKeys: \["attendance\.self\.read"\]/);
 
 assert.match(clientSource, /export function precheckOfficeAttendanceSync/);

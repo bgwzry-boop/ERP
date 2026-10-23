@@ -456,3 +456,15 @@ function formatPrintJobTimeLabel(value) {
   if (Number.isNaN(date.getTime())) return value;
   return date.toLocaleString("zh-CN", { month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
 }
+
+function getPrintJobDocumentLabel(documentType) {
+  const normalized = String(documentType ?? "").trim();
+  const labels = {
+    express_ltl_label: "包裹标签",
+    package_label: "包裹标签",
+    pickup_note: "自提单",
+    delivery_note: "送货单",
+    outbound_note: "出库单",
+  };
+  return (labels[normalized] ?? normalized) || "单据待补";
+}

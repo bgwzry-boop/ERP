@@ -878,14 +878,9 @@ function todoMatchesView(todo, view) {
   return true;
 }
 
-function todoTarget(todo) {
-  if (todo.refType === "statement") return "customer-statements";
-  if (todo.refType === "fulfillment") return "outbound-delivery";
-  if (todo.refType === "order_draft") return "order-entry";
-  return "order-pool";
-}
 
-function TodoWorkspace({ formal, onNavigate }) {
+
+export function TodoWorkspace({ formal, onNavigate }) {
   const sortedTodos = useMemo(() => sortTodos(formal.data.todos), [formal.data.todos]);
   const [view, setView] = useState("未处理");
   const [query, setQuery] = useState("");

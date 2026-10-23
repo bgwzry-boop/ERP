@@ -132,6 +132,8 @@ export function createLocalProductionPackingTransactionRepository() {
       const replay = readLocalProductionTransactionReplay(dailyResults, input, "production.daily_progress.record");
       if (replay) return replay;
       assertNewWorkshopReport(input);
+      const currentTask = (input.workspace?.productionTasks ?? []).find(t => (t.productionTaskId ?? t.id) === input.productionTask?.productionTaskId);
+      if (!currentTask || ["已完成","异常暂停","数量差异待处理","已作废"].includes(currentTask.taskStatus ?? currentTask.status) || currentTask.orderLineId !== input.productionTask.orderLineId || currentTask.taskType !== input.productionTask.taskType) throw contractError("ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT");
       const transaction = normalizeProductionDailyProgressTransactionResult({
         productionTask: input.productionTask,
         workshopReport: input.workshopReport,
@@ -1117,6 +1119,8 @@ function assertPackingBindings(input) {
 
 function assertProductionStage(input) {
   const task = input.productionTask;
+  const existing = (input.workspace?.productionTasks ?? []).find(t => (t.productionTaskId ?? t.id) === task?.productionTaskId);
+  if (existing && (["已完成","异常暂停","数量差异待处理","已作废"].includes(existing.taskStatus ?? existing.status) || existing.taskType !== task.taskType)) throw contractError("ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT");
   const lineId = task?.orderLineId;
   if (input.workshopReport?.processType !== task?.taskType || input.workshopReport?.orderLineId !== lineId || (input.orderLine && (input.orderLine.orderLineId ?? input.orderLine.id) !== lineId)) throw contractError("PRODUCTION_TASK_BINDING_MISMATCH");
   if (task?.taskType === "丝印" && ((input.inventoryAdjustments ?? []).length || (input.inventoryReservations ?? []).length || (input.inventoryLedgerEntries ?? []).length || input.packingTask || !input.downstreamProductionTask)) throw contractError("PRODUCTION_PROCESS_EFFECT_MISMATCH");

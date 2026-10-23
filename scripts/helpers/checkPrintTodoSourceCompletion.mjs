@@ -1,10 +1,8 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { buildIdempotencyRequestHash } from "../../server/idempotency.mjs";
 import { seedRepairFixture } from "./checkTodoFulfillmentRepairReplay.mjs";
 import { createPostgresFulfillmentActionTransactionRepository, createLocalFulfillmentActionTransactionRepository } from "../../server/fulfillmentActionTransactionRepository.mjs";
 import { createPrintJobBusinessProjectionService } from "../../server/services/printJobBusinessProjectionService.mjs";
-import { createFulfillmentPrintCommandService } from "../../server/services/fulfillmentPrintCommandService.mjs";
 
 export async function checkPrintTodoSourceCompletion({pool,postgresClient,repo,service,clock}) {
   const fixture=await seedRepairFixture(pool,repo,clock,"PRINT-SOURCE");

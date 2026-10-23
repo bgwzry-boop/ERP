@@ -233,7 +233,7 @@ function checkLocalWorkspaceMutation() {
   });
   assert.equal(replayedResolutionTransaction.operationLogId, resolutionTransaction.operationLogId);
 
-  repository.recordProductionReport({
+  assert.throws(() => repository.recordProductionReport({
     workspace,
     productionTask: buildProductionTask({ taskStatus: "已完成" }),
     workshopReport: buildWorkshopReport({ reportId: "WR-PROD-002", machineCount: 12888 }),
@@ -244,9 +244,9 @@ function checkLocalWorkspaceMutation() {
     inventoryAdjustments: [{ inventoryItemId: "INV-PROD-001", onHandQtyChange: 20, reservedQtyChange: 20 }],
     inventoryLedgerEntries: [buildLedger({ ledgerId: "LEDGER-WR-PROD-002", qtyBefore: 180, qtyChange: 20, qtyAfter: 200 })],
     operationLog: buildOperationLog({ id: "LOG-PROD-002", action: "complete_production_report" }),
-  });
+  }), {code:"ERP_PRODUCTION_TASK_CONCURRENCY_CONFLICT"});
   assert.equal(workspace.machineCapacityBaselines.length, 1);
-  assert.equal(workspace.machineCapacityBaselines[0].dailyCapacityQty, 100);
+  assert.equal(workspace.machineCapacityBaselines[0].dailyCapacityQty, 80);
 
   const beforePackingInventory = { ...workspace.inventories[0] };
   const packingTransaction = repository.completePackingTask({
@@ -284,7 +284,7 @@ function checkLocalWorkspaceMutation() {
   assert.equal(workspace.inventories[0].reserved, beforePackingInventory.reserved);
   assert.equal(workspace.packages.length, 2);
   assert.equal(workspace.fulfillments[0].actualQty, 80);
-  assert.equal(workspace.inventoryLedgers.length, 4);
+  assert.equal(workspace.inventoryLedgers.length, 3);
   assert.equal(workspace.todos[0].refId, "FUL-PROD-001");
   assert.equal(workspace.todoEvents[0].todoId, "T-PACK-PROD-001");
 }

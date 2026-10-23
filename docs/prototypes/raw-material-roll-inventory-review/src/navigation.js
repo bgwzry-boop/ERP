@@ -21,7 +21,7 @@ export const pcNavGroups = [
     label: "工作台",
     icon: "home",
     items: [
-      { id: "shared-todos", label: "公共待办", allowedRoleKeys: ["office", "management"], permissionKeys: ["todo.handle"], count: 8 },
+      { id: "shared-todos", label: "公共待办", allowedRoleKeys: ["office", "management"], permissionKeys: ["todo.read"], count: 8 },
     ],
   },
   {
@@ -47,10 +47,10 @@ export const pcNavGroups = [
     label: "生产交付",
     icon: "production",
     items: [
-      { id: "production-tasks", label: "生产任务", allowedRoleKeys: ["office", "management"], permissionKeys: ["production.schedule.publish"] },
-      { id: "packing-labels", label: "打包/标签", allowedRoleKeys: ["office", "management"], permissionKeys: ["packing.complete"] },
-      { id: "print-devices", label: "打印与设备", allowedRoleKeys: ["office", "management"], permissionKeys: ["fulfillment.print"] },
-      { id: "outbound-delivery", label: "出库交付", allowedRoleKeys: ["office", "management"], permissionKeys: ["fulfillment.dispatch.update", "fulfillment.complete"] },
+      { id: "production-tasks", label: "生产任务", allowedRoleKeys: ["office", "management"], permissionKeys: ["production.read"] },
+      { id: "packing-labels", label: "打包/标签", allowedRoleKeys: ["office", "management"], permissionKeys: ["packing.read"] },
+      { id: "print-devices", label: "打印与设备", allowedRoleKeys: ["office", "management"], permissionKeys: ["print.read"] },
+      { id: "outbound-delivery", label: "出库交付", allowedRoleKeys: ["office", "management"], permissionKeys: ["fulfillment.read"] },
     ],
   },
   {
@@ -69,7 +69,7 @@ export const pcNavGroups = [
     items: [
       { id: "customer-statements", label: "对账收款", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["statement.preview"] },
       { id: "supplier-month-end", label: "供应商月结", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["statement.preview", "raw_material.supplier_payable.create"] },
-      { id: "payroll-attendance", label: "工资核算", allowedRoleKeys: ["office", "management", "finance"], permissionKeys: ["statement.preview"] },
+      { id: "payroll-attendance", label: "工资核算", allowedRoleKeys: ["management", "finance"], permissionKeys: ["payroll.preview"] },
     ],
   },
   {

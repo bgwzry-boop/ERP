@@ -295,9 +295,7 @@ function findOrderLine(workspace, id) {
   return (workspace.orderLines ?? []).find((item) => item.id === id || item.orderLineId === id) ?? null;
 }
 
-function findFulfillmentByOrderLineId(workspace, orderLineId) {
-  return (workspace.fulfillments ?? []).find((item) => (item.orderLineId ?? item.lineId) === orderLineId) ?? null;
-}
+
 
 function success(response) {
   return { response };
