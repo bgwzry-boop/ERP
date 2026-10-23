@@ -215,7 +215,7 @@ export const postgresAssertions = Object.freeze({
   },
   assertPersistedDriverException({ persistedDriverException, apiDriverException, driverExceptionOccurredAt }) {
   assert.equal(persistedDriverException.status, "送货异常");
-    assert.equal(persistedDriverException.actualQty, 0);
+    assert.equal(persistedDriverException.actualQty, 2000, "Driver observation never overwrites the previously registered outbound quantity");
     assert.equal(persistedDriverException.reasonCode, "customer_unavailable");
     assert.equal(persistedDriverException.reason, "客户不在");
     assert.equal(persistedDriverException.actualQtyException, 0);
@@ -296,7 +296,7 @@ export const postgresAssertions = Object.freeze({
     assert.equal(apiDriverEvidenceResubmission.task.watermarkedPhotoAttachmentId, driverRetakeAttachment.attachmentId);
     assert.ok(apiDriverEvidenceResubmission.operationLogId);
   },
-  assertPersistedDriverEvidenceResubmission({ persistedDriverEvidenceResubmission, driverRetakeAttachment, driverRetakeSubmittedAt }) {
+  assertPersistedDriverEvidenceResubmission({ persistedDriverEvidenceResubmission, driverRetakeAttachment, retakeRequestStartedAt, driverCompletedAt }) {
   assert.equal(persistedDriverEvidenceResubmission.status, "已交付");
     assert.equal(persistedDriverEvidenceResubmission.watermarkedPhotoAttachmentId, driverRetakeAttachment.attachmentId);
     assert.equal(persistedDriverEvidenceResubmission.watermarkId, "WM-LIVE-DRIVER-F008-RETAKE");
@@ -305,7 +305,9 @@ export const postgresAssertions = Object.freeze({
     assert.equal(persistedDriverEvidenceResubmission.issueReason, "");
     assert.equal(persistedDriverEvidenceResubmission.todoStatus, "已处理");
     assert.equal(persistedDriverEvidenceResubmission.todoHandledBy, "U-DRIVER-A");
-    assert.equal(new Date(persistedDriverEvidenceResubmission.todoHandledAt).toISOString(), driverRetakeSubmittedAt);
+    assert.ok(Date.parse(persistedDriverEvidenceResubmission.todoHandledAt)>=retakeRequestStartedAt && Date.parse(persistedDriverEvidenceResubmission.todoHandledAt)<=Date.now(),"Retake todo closes at server processing time");
+    assert.equal(new Date(persistedDriverEvidenceResubmission.deliveredAt).toISOString(),driverCompletedAt);
+    assert.equal(new Date(persistedDriverEvidenceResubmission.finalDeliveryAt).toISOString(),driverCompletedAt);
     assert.equal(persistedDriverEvidenceResubmission.todoHandlingResult, "司机已补拍送达水印照片，待办公室复核");
   },
   assertColdStartAfterDriverEvidenceResubmission({ coldStartAfterDriverEvidenceResubmission, driverRetakeAttachment }) {

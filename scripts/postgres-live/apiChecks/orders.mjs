@@ -495,7 +495,7 @@ export async function checkOrderApi({
     },
     { headers, expectedStatus: 409 },
   );
-  assert.equal(staleConfirmedDraftSave.code, "BUSINESS_WRITE_CONFLICT");
+  assert.equal(staleConfirmedDraftSave.code, "ORDER_DRAFT_ALREADY_CONFIRMED");
   assert.equal((await coldOrderDraftRepository.getOrderDraft({ draftId: "DRAFT-LIVE-ORDER-001" })).revision, 2);
   assert.equal(
     queryJson(
@@ -562,6 +562,7 @@ export async function checkOrderApi({
       reason: "manual_release",
       operatorId: "U-OFFICE-A",
       relatedActionId: confirmedOrder.orderLines[0].id,
+      idempotencyKey: "inventory-reservation-release-live-001",
     },
     { headers },
   );

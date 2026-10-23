@@ -31,7 +31,7 @@ import { createPostgresRuntimeIdentityRepository } from "../../server/runtimeIde
 import { createPostgresAttendancePayrollRepository } from "../../server/attendancePayrollRepository.mjs";
 import { createPostgresDeliAttendanceGatewayRepository } from "../../server/deliAttendanceGatewayRepository.mjs";
 import { buildRuntimeEmployeeAccountReadiness } from "../../server/services/runtimeEmployeeAccountReadiness.mjs";
-import { buildOperationLog, buildPaymentRecord, buildSendRecord, buildStatement, buildStatementDecisionRecord, buildStatementExportFile, buildStatementExportLines, buildStatementWriteOffRecord, buildTodo, buildVarianceRecord } from "../helpers/postgresLiveStatementFixtures.mjs";
+import { buildOperationLog, buildPaymentRecord, buildSendRecord, buildStatement, buildStatementDecisionRecord, buildStatementExportFile, buildStatementWriteOffRecord, buildTodo, buildVarianceRecord } from "../helpers/postgresLiveStatementFixtures.mjs";
 import { checkPostgresLiveAttachmentRepositoryScenario } from "../helpers/postgresLiveAttachmentRepositoryScenario.mjs";
 import { buildMachineCapacityBaselineRecord, buildPackageRecord, buildPackingTaskRecord, buildProductionInventoryLedgerRecord, buildProductionOperationLog, buildProductionOrderLineRecord, buildProductionReservationRecord, buildProductionScheduleDecisionRecord, buildProductionScheduleOperationLog, buildProductionScheduleRecord, buildProductionTaskRecord, buildWorkshopReportRecord } from "../helpers/postgresLiveProductionFixtures.mjs";
 import { buildPrintBatchOperationLog, buildPrintBatchRecord, buildPrintDeviceOperationLog, buildPrintDeviceRecord, buildPrintJobOperationLog, buildPrintJobRecord } from "../helpers/postgresLivePrintFixtures.mjs";
@@ -459,12 +459,16 @@ export async function checkPostgresRepositories(runtime) {
       operationLogId: "LOG-LIVE-WRITE-TXN-001",
       amount: 73,
     }),
-    writeOffRecord: buildStatementWriteOffRecord({
-      writeOffId: "SWO-LIVE-WRITEOFF-001",
-      statementId: "ST-LIVE-VAR-001",
-      businessDecisionId: "BD-LIVE-WRITEOFF-001",
-      operationLogId: "LOG-LIVE-WRITE-TXN-001",
-    }),
+    writeOffRecord: {
+      ...buildStatementWriteOffRecord({
+        writeOffId: "SWO-LIVE-WRITEOFF-001",
+        statementId: "ST-LIVE-VAR-001",
+        businessDecisionId: "BD-LIVE-WRITEOFF-001",
+        operationLogId: "LOG-LIVE-WRITE-TXN-001",
+      }),
+      writeOffAmount: 0,
+      handlingResult: "本期确认并转欠款",
+    },
   });
   assert.equal(writeOffTransaction.statement.status, "已确认欠款");
   assert.equal(queryJson("SELECT json_build_object('status', status, 'variance', variance_amount) AS result FROM statements WHERE id = 'ST-LIVE-VAR-001';").status, "已确认欠款");
@@ -1466,6 +1470,9 @@ ON CONFLICT (id) DO UPDATE SET
        ('BAG-LIVE-02', 'BAG-LIVE-02', 'Postgres live 备用制袋机', 'bag_making', '1号车间', 'active', true, 'U-OFFICE-A')
      ON CONFLICT (id) DO NOTHING;`,
   );
+  // A report completes a real scheduled task; it must not create its own production authority.
+  runPsql(`INSERT INTO production_tasks (id,biz_no,order_line_id,task_type,machine_id,planned_qty,task_status,created_by)
+    VALUES ('PT-LIVE-PROD-001','PT-LIVE-PROD-001','OL-LIVE-PROD-001','制袋','BAG-LIVE-01',80,'制袋中','U-OFFICE-A');`);
   const productionWorkspace = {
     productionTasks: [],
     workshopReports: [],
@@ -2170,17 +2177,18 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(driverDeliveryTaskDetail.packageChecklist[0].quantityText, "400个");
   assert.equal(driverDeliveryTaskDetail.packageChecklist[0].status, "已打印");
 
-  const statementExportWorkspace = { statementExportFiles: [], statementLines: [], operationLogs: [] };
+  // Export reads an already-accounted delivery; exporting never creates a billing line.
+  runPsql(`INSERT INTO statement_lines(id,statement_id,order_line_id,fulfillment_id,delivered_qty,chargeable_qty,free_qty,amount,adjustment_amount,final_amount)
+    VALUES('ST-LIVE-REPO-001-001','ST-LIVE-REPO-001','OL-LIVE-EXPORT-LINE-001','F-LIVE-EXPORT-001',273,273,0,273,0,273);`);
+  const exportSourceState=await coreWorkspaceReadRepository.loadState();
+  const statementExportWorkspace={statementExportFiles:[],statements:exportSourceState.statements.filter(row=>row.id === "ST-LIVE-REPO-001"),statementLines:exportSourceState.statementLines.filter(row=>row.statementId === "ST-LIVE-REPO-001"),operationLogs:[]};
+  const exportSourceLines=structuredClone(statementExportWorkspace.statementLines);
   const exportFile = buildStatementExportFile({
     statementId: "ST-LIVE-REPO-001",
     downloadToken: "DL-LIVE-EXPORT-001",
     operationLogId: "LOG-LIVE-EXPORT-001",
   });
-  const exportStatementLines = buildStatementExportLines({
-    statementId: "ST-LIVE-REPO-001",
-    orderLineId: "OL-LIVE-EXPORT-LINE-001",
-    fulfillmentId: "F-LIVE-EXPORT-001",
-  });
+  const exportStatementLines = exportSourceLines;
   const exportTransaction = await exportRepository.createExportFile({
     workspace: statementExportWorkspace,
     exportFile,
@@ -2196,6 +2204,7 @@ ON CONFLICT (id) DO UPDATE SET
   assert.equal(exportTransaction.statementLines.length, 1);
   assert.equal(statementExportWorkspace.statementExportFiles.length, 1);
   assert.equal(statementExportWorkspace.statementLines.length, 1);
+  assert.deepEqual(statementExportWorkspace.statementLines,exportSourceLines,"Export preserves immutable accounted quantities and amounts");
   assert.equal(
     queryJson("SELECT json_build_object('downloadToken', download_token, 'contentLength', length(content_text)) AS result FROM statement_export_files WHERE id = 'DL-LIVE-EXPORT-001';").downloadToken,
     "DL-LIVE-EXPORT-001",

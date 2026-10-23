@@ -142,7 +142,7 @@ export async function checkInventoryApi({
       fileName: "postgres-live-finished-goods-wrong-owner.png",
       contentRef: "p0://postgres-live/production/PT-LIVE-PROD-OTHER/finished-goods.png",
       mimeType: "image/png",
-      contentDataUrl: "data:image/png;base64,cG9zdGdyZXMtbGl2ZS13cm9uZy1vd25lcg==",
+      contentDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
       uploadedBy: "U-SPOOFED",
       idempotencyKey: "production-photo-wrong-owner-live-001",
     },
@@ -150,9 +150,9 @@ export async function checkInventoryApi({
   );
   const blockedWrongOwnerPhoto = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo",
+    "/api/production-tasks/PT-LIVE-PHOTO-001/finished-goods-photo",
     {
-      productionTaskId: "PT-LIVE-PROD-001",
+      productionTaskId: "PT-LIVE-PHOTO-001",
       orderLineId: "OL-LIVE-PROD-001",
       attachmentId: wrongOwnerPhotoAttachment.attachmentId,
       idempotencyKey: "production-photo-wrong-owner-upload-live-001",
@@ -165,11 +165,11 @@ export async function checkInventoryApi({
     "/api/attachments",
     {
       ownerType: "production_task",
-      ownerId: "PT-LIVE-PROD-001",
+      ownerId: "PT-LIVE-PHOTO-001",
       fileType: "image",
       purpose: "finished_goods_photo",
       fileName: "postgres-live-finished-goods.png",
-      contentRef: "p0://postgres-live/production/PT-LIVE-PROD-001/finished-goods.png",
+      contentRef: "p0://postgres-live/production/PT-LIVE-PHOTO-001/finished-goods.png",
       mimeType: "image/png",
       fileSize: 68,
       contentDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
@@ -181,7 +181,7 @@ export async function checkInventoryApi({
   );
   assert.equal(photoAttachment.uploadedBy, "U-WORKSHOP-A");
   const photoUploadBody = {
-    productionTaskId: "PT-LIVE-PROD-001",
+    productionTaskId: "PT-LIVE-PHOTO-001",
     orderLineId: "OL-LIVE-PROD-001",
     attachmentId: photoAttachment.attachmentId,
     fileName: "spoofed-postgres-live-finished-goods.png",
@@ -190,48 +190,51 @@ export async function checkInventoryApi({
   };
   const uploadedPhoto = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo",
+    "/api/production-tasks/PT-LIVE-PHOTO-001/finished-goods-photo",
     photoUploadBody,
     { headers: workshopHeaders },
   );
   postgresAssertions.assertUploadedPhoto({ uploadedPhoto, photoAttachment });
   const replayedPhotoUpload = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo",
+    "/api/production-tasks/PT-LIVE-PHOTO-001/finished-goods-photo",
     photoUploadBody,
     { headers: workshopHeaders },
   );
   assert.equal(replayedPhotoUpload.operationLogId, uploadedPhoto.operationLogId);
+  const photoBeforeReview = await getJson(baseUrl,"/api/production-tasks/PT-LIVE-PHOTO-001",{headers});
   const photoReviewBody = {
-    productionTaskId: "PT-LIVE-PROD-001",
+    expectedRevision:photoBeforeReview.productionTask.revision,
+    productionTaskId: "PT-LIVE-PHOTO-001",
     orderLineId: "OL-LIVE-PROD-001",
     reviewStatus: "已接受",
+    expectedAttachmentId:photoAttachment.attachmentId,
     reason: "PostgreSQL live accepted",
     operatorId: "U-SPOOFED",
     idempotencyKey: "production-photo-review-live-001",
   };
   const reviewedPhoto = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo-review",
+    "/api/production-tasks/PT-LIVE-PHOTO-001/finished-goods-photo-review",
     photoReviewBody,
     { headers },
   );
   postgresAssertions.assertReviewedPhoto({ reviewedPhoto });
   const replayedPhotoReview = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo-review",
+    "/api/production-tasks/PT-LIVE-PHOTO-001/finished-goods-photo-review",
     photoReviewBody,
     { headers },
   );
   assert.equal(replayedPhotoReview.operationLogId, reviewedPhoto.operationLogId);
   const persistedPhoto = queryJson(
-    "SELECT json_build_object('photo', finished_goods_photo, 'revision', revision) AS result FROM production_tasks WHERE id = 'PT-LIVE-PROD-001';",
+    "SELECT json_build_object('photo', finished_goods_photo, 'revision', revision) AS result FROM production_tasks WHERE id = 'PT-LIVE-PHOTO-001';",
   );
   assert.equal(persistedPhoto.photo.status, "已接受");
   assert.equal(persistedPhoto.photo.uploadedBy, "U-WORKSHOP-A");
   assert.equal(persistedPhoto.photo.reviewedBy, "U-OFFICE-A");
   assert.equal(
-    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE target_id = 'PT-LIVE-PROD-001' AND action IN ('upload_finished_goods_photo', 'accept_finished_goods_photo');", { capture: true }).trim()),
+    Number(runPsql("SELECT COUNT(*) FROM operation_logs WHERE target_id = 'PT-LIVE-PHOTO-001' AND action IN ('upload_finished_goods_photo', 'accept_finished_goods_photo');", { capture: true }).trim()),
     2,
   );
   assert.equal(

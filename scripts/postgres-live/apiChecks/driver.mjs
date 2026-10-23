@@ -1,3 +1,4 @@
+import {deliveryEvidenceSnapshot} from "../../../shared/deliveryEvidenceSnapshot.js";
 import assert from "node:assert/strict";
 import { postgresAssertions } from "../assertions.mjs";
 import { createPostgresDriverDeliveryTaskReadRepository } from "../../../server/driverDeliveryTaskReadRepository.mjs";
@@ -124,7 +125,7 @@ export async function checkDriverApi(runtime, { baseUrl, headers, driverHeaders,
       fileName: "driver-watermark-f008.png",
       mimeType: "image/png",
       contentRef: "p0://postgres-live/driver/F008/watermark",
-      contentDataUrl: "data:image/png;base64,cG9zdGdyZXMtbGl2ZS13YXRlcm1hcms=",
+      contentDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
       uploadedBy: "U-SPOOFED",
       idempotencyKey: "driver-watermark-f008-live-001",
       metadata: {
@@ -150,7 +151,7 @@ export async function checkDriverApi(runtime, { baseUrl, headers, driverHeaders,
       fileName: "driver-signature-f008.png",
       mimeType: "image/png",
       contentRef: "p0://postgres-live/driver/F008/signature",
-      contentDataUrl: "data:image/png;base64,cG9zdGdyZXMtbGl2ZS1zaWduYXR1cmU=",
+      contentDataUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/p9sAAAAASUVORK5CYII=",
       uploadedBy: "U-SPOOFED",
       idempotencyKey: "driver-signature-f008-live-001",
     },
@@ -172,6 +173,7 @@ export async function checkDriverApi(runtime, { baseUrl, headers, driverHeaders,
       watermarkAddress: "厚街客户仓",
       watermarkOperatorId: "U-DRIVER-A",
       watermarkOperatorName: "司机A",
+      signatureStatus:"signed",
       signaturePhotoAttached: true,
       signaturePhotoAttachmentId: driverSignatureAttachment.attachmentId,
       receiverName: "客户仓管",
@@ -192,12 +194,14 @@ export async function checkDriverApi(runtime, { baseUrl, headers, driverHeaders,
   });
   postgresAssertions.assertColdStartAfterDriverComplete({ coldStartAfterDriverComplete, driverLoadAt, driverCompleteRemark, driverWatermarkAttachment });
 
+  const evidenceBeforeRetake=await getJson(baseUrl,"/api/fulfillments/F008",{headers});
   const apiDeliveryEvidenceRetake = await postJson(
     baseUrl,
     "/api/fulfillments/F008/delivery-evidence-review",
     {
       fulfillmentId: "F008",
       reviewStatus: "retake_required",
+      expectedEvidence:deliveryEvidenceSnapshot(evidenceBeforeRetake),
       operatorId: "U-SPOOFED",
       reviewerName: "办公室A",
       reason: "水印定位不清晰",
@@ -233,12 +237,16 @@ export async function checkDriverApi(runtime, { baseUrl, headers, driverHeaders,
     },
     { headers: driverHeaders },
   );
+  const retakeRequestStartedAt=Date.now();
   const apiDriverEvidenceResubmission = await postJson(
     baseUrl,
     "/api/driver/delivery-tasks/F008/complete",
     {
       fulfillmentId: "F008",
       operatorId: "U-DRIVER-A",
+      signatureStatus:"signed",
+      signaturePhotoAttachmentId:driverSignatureAttachment.attachmentId,
+      paperNoteStatus:"已交回",
       watermarkedPhotoAttachmentId: driverRetakeAttachment.attachmentId,
       watermarkId: "WM-LIVE-DRIVER-F008-RETAKE",
       watermarkText: "李四电商 / 厚街客户仓 / 补拍水印 WM-LIVE-DRIVER-F008-RETAKE",
@@ -255,6 +263,8 @@ export async function checkDriverApi(runtime, { baseUrl, headers, driverHeaders,
   const persistedDriverEvidenceResubmission = queryJson(
     `SELECT json_build_object(
       'status', f.status,
+      'deliveredAt',f.delivered_at,
+      'finalDeliveryAt',f.final_delivery_at,
       'watermarkedPhotoAttachmentId', f.watermarked_photo_attachment_id,
       'watermarkId', f.watermark_id,
       'reviewStatus', f.delivery_evidence_review_status,
@@ -269,7 +279,7 @@ export async function checkDriverApi(runtime, { baseUrl, headers, driverHeaders,
     LEFT JOIN todos AS t ON t.id = ${sqlLiteral(apiDeliveryEvidenceRetake.todoId)}
     WHERE f.id = 'F008';`,
   );
-  postgresAssertions.assertPersistedDriverEvidenceResubmission({ persistedDriverEvidenceResubmission, driverRetakeAttachment, driverRetakeSubmittedAt });
+  postgresAssertions.assertPersistedDriverEvidenceResubmission({ persistedDriverEvidenceResubmission, driverRetakeAttachment, retakeRequestStartedAt, driverCompletedAt });
   const coldStartAfterDriverEvidenceResubmission = await createPostgresDriverDeliveryTaskReadRepository({ queryJson }).getDriverDeliveryTask({
     fulfillmentId: "F008",
     operatorId: "U-DRIVER-A",

@@ -135,11 +135,11 @@ export async function checkFulfillmentApi({
 
 export async function checkLegacyFulfillmentApi(runtime, { baseUrl, headers, getJson, postJson, assertPostgresOperationLogOperator }) {
   const { queryJson, runPsql } = runtime;
-  const legacyPaperReady = await getJson(baseUrl, "/api/fulfillments/F002", { headers });
+  const legacyPaperReady = await getJson(baseUrl, "/api/fulfillments/F-LIVE-LEGACY-001", { headers });
   const legacyPaperDocument = legacyPaperReady.paperOutboundDocument;
   const legacyPaperHandoff = await postJson(
     baseUrl,
-    "/api/fulfillments/F002/paper-handoff",
+    "/api/fulfillments/F-LIVE-LEGACY-001/paper-handoff",
     {
       expectedRevision: legacyPaperReady.revision,
       paperOutboundDocumentId: legacyPaperDocument.paperOutboundDocumentId,
@@ -151,11 +151,11 @@ export async function checkLegacyFulfillmentApi(runtime, { baseUrl, headers, get
     { headers },
   );
   assert.equal(legacyPaperHandoff.paperOutboundDocument.status, "已交库房");
-  const legacyBeforeWarehouseExecution = await getJson(baseUrl, "/api/fulfillments/F002", { headers });
+  const legacyBeforeWarehouseExecution = await getJson(baseUrl, "/api/fulfillments/F-LIVE-LEGACY-001", { headers });
   const legacyHandedPaperDocument = legacyBeforeWarehouseExecution.paperOutboundDocument;
   const legacyWarehouseExecution = await postJson(
     baseUrl,
-    "/api/fulfillments/F002/warehouse-execution",
+    "/api/fulfillments/F-LIVE-LEGACY-001/warehouse-execution",
     {
       expectedRevision: legacyBeforeWarehouseExecution.revision,
       paperOutboundDocumentId: legacyHandedPaperDocument.paperOutboundDocumentId,
@@ -183,7 +183,7 @@ export async function checkLegacyFulfillmentApi(runtime, { baseUrl, headers, get
   assert.equal(
     Number(
       runPsql(
-        "SELECT COUNT(*) FROM inventory_reservations WHERE order_line_id = 'ORD-0629-002-01';",
+        "SELECT COUNT(*) FROM inventory_reservations WHERE order_line_id = 'OL-LIVE-LEGACY-001';",
         { capture: true },
       ).trim(),
     ),

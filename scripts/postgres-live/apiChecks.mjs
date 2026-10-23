@@ -25,6 +25,7 @@ import { createPostgresPrintBatchRepository } from "../../server/printBatchRepos
 import { createPostgresPrintJobRepository } from "../../server/printJobRepository.mjs";
 import { createPostgresTodoActionRepository } from "../../server/todoActionRepository.mjs";
 import { createPostgresInventoryCorrectionTransactionRepository } from "../../server/inventoryCorrectionTransactionRepository.mjs";
+import { createPostgresInventoryReservationReleaseTransactionRepository } from "../../server/inventoryReservationReleaseTransactionRepository.mjs";
 import { createPostgresProductionFinishedGoodsPhotoTransactionRepository } from "../../server/productionFinishedGoodsPhotoTransactionRepository.mjs";
 import { createPrintDriverAdapter } from "../../server/printDriverAdapter.mjs";
 import { v1PersistencePostgresRepositoryOptionKeys } from "../../server/v1PersistenceProfile.mjs";
@@ -65,6 +66,9 @@ export async function checkApiWithPostgresRepositories(runtime) {
   const inventoryCorrectionTransactionRepository = createPostgresInventoryCorrectionTransactionRepository({
     postgresClient: apiPostgresClient,
   });
+  const inventoryReservationReleaseTransactionRepository = createPostgresInventoryReservationReleaseTransactionRepository({
+    postgresClient: apiPostgresClient,
+  });
   const productionFinishedGoodsPhotoTransactionRepository = createPostgresProductionFinishedGoodsPhotoTransactionRepository({
     postgresClient: apiPostgresClient,
   });
@@ -95,6 +99,18 @@ export async function checkApiWithPostgresRepositories(runtime) {
       '待排产', '', 'U-OFFICE-A'
     ) ON CONFLICT (id) DO NOTHING;`,
   );
+  // Synthetic F008 has a formal price authority before any final-delivery accounting.
+  runPsql(`INSERT INTO price_snapshots(id,order_line_id,snapshot_type,version_no,bag_price,print_price,chargeable_qty,final_amount,override_reason,created_by)
+    SELECT 'PS-LIVE-DRIVER-F008','ORD-0629-022-01','order_confirm',1,1,0,3000,3000,'合成送货验收订单锁价','U-OFFICE-A'
+    WHERE NOT EXISTS(SELECT 1 FROM price_snapshots WHERE order_line_id='ORD-0629-022-01');`);
+  // The photo scenario uses a separate active, published task on the seed worker's real machine.
+  // Never reopen the report-completed task merely to satisfy a later API fixture.
+  runPsql(`INSERT INTO machines(id,biz_no,name,machine_type,workshop,status,enabled,created_by)
+    VALUES('BAG-01','BAG-01','照片权限测试已分配制袋机','bag_making','制袋车间','active',true,'U-OFFICE-A') ON CONFLICT(id) DO NOTHING;
+    INSERT INTO production_tasks(id,biz_no,order_line_id,task_type,machine_id,planned_qty,task_status,published_schedule_id,created_by)
+    VALUES('PT-LIVE-PHOTO-001','PT-LIVE-PHOTO-001','OL-LIVE-PROD-001','制袋','BAG-01',80,'制袋中','PS-LIVE-PHOTO-001','U-OFFICE-A');
+    INSERT INTO production_schedule_records(id,biz_no,production_task_id,order_line_id,machine_id,published_schedule_id,queue_seq,schedule_status,source_kind,sequence_updated_by,sequence_updated_at)
+    VALUES('SQR-LIVE-PHOTO-001','SQR-LIVE-PHOTO-001','PT-LIVE-PHOTO-001','OL-LIVE-PROD-001','BAG-01','PS-LIVE-PHOTO-001',1,'active','schedule_publish','U-OFFICE-A',now());`);
   const guardedPrintDriverAdapter = createPrintDriverAdapter({ dryRunEnabled: false, systemPrinterEnabled: false });
   const dryRunPollingAdapter = createPrintDriverAdapter({ dryRunEnabled: true, systemPrinterEnabled: false });
   const apiServerOptions = {
@@ -109,6 +125,7 @@ export async function checkApiWithPostgresRepositories(runtime) {
     printBatchRepository,
     todoActionRepository,
     inventoryCorrectionTransactionRepository,
+    inventoryReservationReleaseTransactionRepository,
     productionFinishedGoodsPhotoTransactionRepository,
     productionPackingTransactionRepository,
     productionScheduleRecordRepository,
@@ -281,11 +298,16 @@ export async function checkApiWithPostgresRepositories(runtime) {
     postJson, getJson, queryJson, runPsql, sqlLiteral, assertPostgresOperationLogOperator,
   });
 
+  const executedF002BeforeLegacy=queryJson("SELECT to_jsonb(f) AS result FROM fulfillment_records f WHERE id='F002'");
   runPsql(
-    `INSERT INTO print_records (
+    `INSERT INTO order_lines(id,biz_no,order_id,customer_id,product_name,order_type,size,bag_color,handle_type,style,original_qty,fulfillment_method,line_status,created_by)
+      SELECT 'OL-LIVE-LEGACY-001','OL-LIVE-LEGACY-001',order_id,customer_id,product_name,order_type,size,bag_color,handle_type,style,1200,'送货','已备货','U-OFFICE-A' FROM order_lines WHERE id='ORD-0629-002-01';
+      INSERT INTO fulfillment_records(id,biz_no,order_line_id,customer_id,customer_snapshot,method,expected_qty,actual_qty,status,created_by)
+      SELECT 'F-LIVE-LEGACY-001','F-LIVE-LEGACY-001','OL-LIVE-LEGACY-001',customer_id,customer_snapshot,'送货',1200,1200,'已备货','U-OFFICE-A' FROM fulfillment_records WHERE id='F002';
+      INSERT INTO print_records (
        id, biz_no, target_type, target_id, template_id, print_action, status, printed_by, printed_at
      ) VALUES (
-       'PR-LIVE-F002-LEGACY-001', 'PR-LIVE-F002-LEGACY-001', 'fulfillment', 'F002',
+       'PR-LIVE-F002-LEGACY-001', 'PR-LIVE-F002-LEGACY-001', 'fulfillment', 'F-LIVE-LEGACY-001',
        'tpl-p0-fulfillment', 'first_print', 'printed', 'U-OFFICE-A', '2026-07-02T11:30:00.000Z'
      ) ON CONFLICT (id) DO NOTHING;
 
@@ -293,7 +315,7 @@ export async function checkApiWithPostgresRepositories(runtime) {
        id, fulfillment_id, print_record_id, document_type, document_version,
        status, printed_by, printed_at, revision
      ) VALUES (
-       'POD-LIVE-F002-LEGACY-001', 'F002', 'PR-LIVE-F002-LEGACY-001', 'delivery_note', 99,
+       'POD-LIVE-F002-LEGACY-001', 'F-LIVE-LEGACY-001', 'PR-LIVE-F002-LEGACY-001', 'delivery_note', 99,
        '已打印', 'U-OFFICE-A', '2026-07-02T11:30:00.000Z', 1
      ) ON CONFLICT (id) DO NOTHING;
 
@@ -309,7 +331,7 @@ export async function checkApiWithPostgresRepositories(runtime) {
          final_delivery_at = NULL,
          legacy_state_review_required = false,
          updated_at = now()
-     WHERE id = 'F002';`,
+     WHERE id = 'F-LIVE-LEGACY-001';`,
   );
   await closeServer(runtime.server);
   runtime.server = null;
@@ -332,6 +354,7 @@ export async function checkApiWithPostgresRepositories(runtime) {
   assert.equal(restartedHoldIntents.items[0].intentStatus, "已转订单");
   assert.equal(restartedHoldIntents.items[0].relatedOrderLineId, convertedHoldOrder.orderLines[0].id);
   await checkLegacyFulfillmentApi(runtime, { baseUrl, headers, getJson, postJson, assertPostgresOperationLogOperator });
+  assert.deepEqual(queryJson("SELECT to_jsonb(f) AS result FROM fulfillment_records f WHERE id='F002'"),executedF002BeforeLegacy,"Independent legacy fixture never reopens or rewrites an executed delivery");
 
   const { warehouseHeaders } = await checkProductionApi(runtime, { baseUrl, headers, postJson, getJson });
 
@@ -378,12 +401,12 @@ export async function checkApiWithPostgresRepositories(runtime) {
     { headers: correctionManagerHeaders },
   );
   assert.equal(restartedCorrectionReplay.operationLogId, confirmedCorrection.operationLogId);
-  const restartedPhotoTask = await getJson(baseUrl, "/api/production-tasks/PT-LIVE-PROD-001", { headers });
+  const restartedPhotoTask = await getJson(baseUrl, "/api/production-tasks/PT-LIVE-PHOTO-001", { headers });
   assert.equal(restartedPhotoTask.finishedGoodsPhoto.status, "已接受");
   assert.equal(restartedPhotoTask.finishedGoodsPhoto.attachmentId, photoAttachment.attachmentId);
   const restartedPhotoReviewReplay = await postJson(
     baseUrl,
-    "/api/production-tasks/PT-LIVE-PROD-001/finished-goods-photo-review",
+    "/api/production-tasks/PT-LIVE-PHOTO-001/finished-goods-photo-review",
     photoReviewBody,
     { headers },
   );
