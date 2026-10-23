@@ -94,7 +94,13 @@ export function normalizeStatementDetail(value, localStatement = null) {
     received: Number(source.received ?? localStatement?.received ?? 0),
     variance: Number(source.variance ?? localStatement?.variance ?? 0),
     lineIds,
-    statementLines: lines.length ? lines : localStatement?.statementLines ?? [],
+    statementLines: lines,
+    lineSource: String(wrapper.lineSource ?? ""),
+    sendRecords: Array.isArray(wrapper.sendRecords) ? wrapper.sendRecords : [],
+    confirmationRecords: Array.isArray(wrapper.confirmationRecords) ? wrapper.confirmationRecords : [],
+    writeOffRecords: Array.isArray(wrapper.writeOffRecords) ? wrapper.writeOffRecords : [],
+    attachments: Array.isArray(wrapper.attachments) ? wrapper.attachments : [],
+    evidenceWarnings: wrapper.evidenceWarnings ?? {},
     payments: Array.isArray(wrapper.payments) ? wrapper.payments : localStatement?.payments ?? [],
     varianceRecords: Array.isArray(wrapper.varianceRecords)
       ? wrapper.varianceRecords

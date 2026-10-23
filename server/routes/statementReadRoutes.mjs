@@ -1,3 +1,5 @@
+import { buildStatementDetail } from "../services/statementDetailProjectionService.mjs";
+
 export async function handleStatementReadRoutes({
   url,
   response,
@@ -79,7 +81,12 @@ export async function handleStatementReadRoutes({
   if (!requirePreviewPermission()) return true;
 
   const item = workspace.statements.find((row) => row.id === decodeURIComponent(statementMatch[1]));
-  if (item) sendJson(response, 200, item);
+  if (item) {
+    const writeOffRecords = await workspace.statementSettlementTransactionRepository?.listStatementWriteOffs?.({ workspace, statementId: item.id }) ?? workspace.statementWriteOffRecords ?? [];
+    sendJson(response, 200, buildStatementDetail({ ...workspace, statementWriteOffRecords: writeOffRecords }, item, {
+      includeAttachments: permissionContext?.actionPermissions?.includes("attachment.view") === true,
+    }));
+  }
   else sendNotFound(response, "STATEMENT_NOT_FOUND");
   return true;
 }

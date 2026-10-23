@@ -1,0 +1,64 @@
+{
+  "schemaVersion": "finance-print-ui-integration-v1",
+  "date": "2026-10-23",
+  "baseFinanceCommit": "125c19c11bbc4a33075ad845d37e63b43b46bded",
+  "components": [
+    {
+      "import": "import { StatementDetailDialog } from \"./StatementDetailDialog.jsx\";",
+      "props": {
+        "statementId": "selected.statement.id 或真实 statementId，必填",
+        "authState": "当前签名登录态，必填",
+        "onClose": "关闭弹窗",
+        "onUpdated": "保存后刷新正式客户对账列表；可返回 Promise"
+      },
+      "wiring": "点击所选客户真实账单的“查看对账明细”挂载，禁止用演示行ID或只取客户ID。组件按ID/会话/权限键重建，不复用前客户编辑缓存。"
+    },
+    {
+      "import": "import { PrintJobDetailDialog } from \"./PrintJobDetailDialog.jsx\";",
+      "props": {
+        "printJobId": "selected.printJob.printJobId 或真实打印作业ID，必填",
+        "authState": "当前签名登录态，必填",
+        "onClose": "关闭弹窗",
+        "onUpdated": "接收最新 printJob 并刷新打印作业列表；可返回 Promise"
+      },
+      "wiring": "只挂在打印作业选中行，设备/上线门禁/诊断行不可误用。失败重试建立新作业并留在新作业详情，另行确认派发。"
+    }
+  ],
+  "implemented": [
+    "只读详情投影保留原顶层合同，按账单及客户过滤付款、发送与客户确认；附件还受attachment.view限制且不暴露直链。",
+    "关联订单参考行与已保存对账明细分开标明来源。",
+    "真实累计实收保存、实际发送登记、客户实际回复登记；附件上传/选择/下载和服务器对账Excel下载。",
+    "明确当前后台为累计实收合同，每次保存显示原累计、变更额和剩余未收；历史记录不得再次相加。",
+    "固定审核请求和幂等键，网络重试保留相同金额/时间/版本；身份或账单切换取消旧请求；保存后重读服务器。",
+    "打印作业详情显示业务/设备/模板/客户/规格/数量，按权限派发或新建重试；不提供手工打印完成入口，预览与物理出纸分开说明。",
+    "原生modal焦点约束、Escape/关闭、忙碌状态阻止重复提交和退出；复用现行界面字体和配色tokens。"
+  ],
+  "oldSourceDecision": "选择沿用旧分支StatementDetailDialog的分离组件/签名会话边界与ReviewDialog，以及只读详情投影；未复制旧分支单笔累加、业务裁决/核销扩展和整页视觉变化。",
+  "checksPassed": [
+    "check-finance-dialog-contracts.mjs",
+    "check-finance-dialog-interactions.mjs (Playwright真实浏览器、合成API，不写业务库)",
+    "check-statement-read-routes.mjs",
+    "check-frontend-statement-api-client.mjs",
+    "check-frontend-print-job-api-client.mjs",
+    "check-finance-print-read-authorization.mjs",
+    "Impeccable机械检查0项",
+    "git diff --check"
+  ],
+  "parentIntegrationActions": [
+    "BusinessWorkspaces.jsx由root接入两个命名导出及对应选中ID/authState；本提交未修改该文件。",
+    "共享package/check manifest由root注册两个新检查。",
+    "完整4174桌面壳接线后仍需正式预览及对应列表刷新验收，子组件浏览器检查不替代整页验收。"
+  ],
+  "boundaries": [
+    "未部署；未写线上数据。",
+    "保留既有累计实收口径，没有把付款改为单笔累加。",
+    "本组接通明细、累计实收、实际发送、客户确认和打印作业；高级差额处理/授权核销仍按已有服务审批合同，不在本次弹窗新增免审批入口。",
+    "原软件出库纸面完整复刻与真实打印机出纸、裁切、扫码验收仍独立进行。"
+  ],
+  "integrationTreeP1Recheck": {
+    "tree": "/Users/xu/.codex/worktrees/p1-integration-20261023/ERP",
+    "headObserved": "ff67d0eb",
+    "result": "全部7项核心文件与125一致；最终0050迁移门禁修正后真实PostgreSQL CAS复跑通过；8项认证/工资/权限/打印专项通过。",
+    "initialFailureResolvedByParent": "必需表提取器只识别CREATE TABLE IF NOT EXISTS；父任务统一0050写法并保留必需表验证。"
+  }
+}

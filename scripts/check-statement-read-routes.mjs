@@ -105,7 +105,12 @@ assert.equal(
   await handleStatementReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/statements/ST-1") }),
   true,
 );
-assert.deepEqual(calls.pop(), { kind: "json", response: dependencies.response, status: 200, body: workspace.statements[0] });
+const detailCall = calls.pop();
+assert.equal(detailCall.status, 200);
+assert.equal(detailCall.body.id, "ST-1");
+assert.equal(detailCall.body.statement.id, "ST-1");
+assert.deepEqual(detailCall.body.payments, []);
+assert.deepEqual(detailCall.body.lines, []);
 
 assert.equal(
   await handleStatementReadRoutes({ ...dependencies, url: new URL("http://erp.test/api/statements/MISSING") }),

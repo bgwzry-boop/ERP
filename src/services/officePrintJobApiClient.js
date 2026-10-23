@@ -47,6 +47,23 @@ export async function listOfficePrintJobs(input = {}, options = {}) {
   }
 }
 
+export async function getOfficePrintJob(input = {}, options = {}) {
+  const printJobId = cleanText(input.printJobId);
+  if (!printJobId) return invalidPrintJobInput("PRINT_JOB_REQUIRED", "请选择打印作业。");
+  try {
+    const response = await requestPrintJobApi(`/print-jobs/${encodeURIComponent(printJobId)}`, {
+      ...options, authState: input.authState, operatorId: input.operatorId, method: "GET",
+    });
+    const json = await readJson(response, {});
+    if (!response.ok) return { source: "api_error", blocked: true, error: toApiError(json, response.status, "读取打印作业失败。") };
+    const printJob = normalizePrintJob(json.printJob);
+    if (printJob?.printJobId !== printJobId) return invalidPrintJobInput("PRINT_JOB_ID_MISMATCH", "返回的打印作业不匹配，请刷新后重试。");
+    return { source: "api", printJob };
+  } catch (error) {
+    return invalidPrintJobInput("PRINT_JOB_READ_UNAVAILABLE", error?.message || "读取打印作业失败。");
+  }
+}
+
 export async function dispatchOfficePrintJob(input = {}, options = {}) {
   const { authState, printJobId, operatorId, reason = "办公室手动派发打印作业" } = input;
   const safePrintJobId = cleanText(printJobId);
@@ -167,6 +184,8 @@ function normalizePrintJob(value = {}) {
     templateId: cleanText(value.templateId),
     printDeviceId: cleanText(value.printDeviceId),
     printDeviceSnapshot,
+    payload: isPlainObject(value.payload) ? value.payload : {},
+    payloadSnapshot: isPlainObject(value.payloadSnapshot) ? value.payloadSnapshot : null,
     printDeviceName: cleanText(value.printDeviceName ?? printDeviceSnapshot.name),
     driverMode: cleanText(value.driverMode ?? printDeviceSnapshot?.settings?.driverMode),
     jobStatus: cleanText(value.jobStatus ?? value.status),
