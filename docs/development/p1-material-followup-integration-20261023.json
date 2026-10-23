@@ -27,8 +27,17 @@
       "oldCommits": ["2b5e57f3bff5", "3c259dfd4ec5"],
       "validation": ["npm run raw-material-inbound-api:check：24项通过。", "OCR逐行和完整command回归：101/0对明细100均阻断，准确100成功。", "check-raw-material-exclusion-summary：执行实际组件回调，删除/撤销均保留票面总重/金额；真实server review阻断差异，显式改正后保留原声明和排除人。"],
       "boundaries": ["保留已批准的documentPriceReferenceOnly供应商参考总价例外；没有取消当前逐卷核对后临时入库/待补标规则。", "原始图像、逐页sourcePageIndex、厂家颜色映射、逐卷价格和当前整卷策略不变。"]
+    },
+    {
+      "id": "MAT-FOLLOWUP-02",
+      "problem": "扫码按收货单顺序first-match，A卷厂家号等于B卷正式码时误选A卷；相同厂家号对应多卷时也静默选第一卷。",
+      "reproduction": "RECEIPT-A/RM-A的supplierRollNo=RM-B，RECEIPT-B有正式RM-B，原查找扫描RM-B返回RM-A。",
+      "change": "全体候选先精确查系统正式卷码，唯一时优先返回；仅无正式命中时查厂家码，且必须唯一。多义正式/厂家码均阻断并在扫码页提示改扫唯一系统标签或库房人工核对；唯一厂家码回填正式码以固定后续动作对象。",
+      "oldCommits": ["1149e8721b12"],
+      "validation": ["check-raw-material-scan-identity：正式码与厂家码碰撞、列表反转、同单/跨单厂家码重复、正式码重复、唯一别名、已领用正式卷均覆盖。", "check-raw-material-first-release：现有整卷扫码出库与标签首发回归通过。", "npm run build：构建及前端分包预算检查通过。"],
+      "boundaries": ["仍要求显示卷事实并人工确认机台，仍禁止不可用或未贴标卷扫码出库；不新增扫码平台、不更改既有物理卷码、不恢复分卷/余料规则。"]
     }
   ],
-  "registration": ["请整合者将 scripts/check-p1-inventory-correction-postgres.mjs 接到资源敏感 PostgreSQL 检查组；本分支未改公共manifest/package。", "将 scripts/check-raw-material-exclusion-summary.mjs 加入原料回归组；金额回归已补入当前两个登记脚本。"],
+  "registration": ["请整合者将 scripts/check-p1-inventory-correction-postgres.mjs 接到资源敏感 PostgreSQL 检查组；本分支未改公共manifest/package。", "将 scripts/check-raw-material-exclusion-summary.mjs 与 scripts/check-raw-material-scan-identity.mjs 加入原料回归组；金额回归已补入当前两个登记脚本。"],
   "preservation": "主工作树、旧目录59个未提交文件、拒绝恢复的余料/分卷规则均未改动。"
 }

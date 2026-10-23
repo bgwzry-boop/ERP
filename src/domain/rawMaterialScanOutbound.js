@@ -12,16 +12,19 @@ export function normalizeRawMaterialScanCode(value) {
 }
 
 export function findRawMaterialRollByScan(inbounds = [], scanCode = "") {
+  return resolveRawMaterialRollScan(inbounds, scanCode).match;
+}
+
+export function resolveRawMaterialRollScan(inbounds = [], scanCode = "") {
   const normalizedCode = normalizeRawMaterialScanCode(scanCode);
-  if (!normalizedCode) return null;
-  for (const inbound of Array.isArray(inbounds) ? inbounds : []) {
-    const roll = (inbound.rolls ?? []).find((candidate) => (
-      normalizeRawMaterialScanCode(candidate.id) === normalizedCode ||
-      normalizeRawMaterialScanCode(candidate.supplierRollNo) === normalizedCode
-    ));
-    if (roll) return { inbound, roll, scanCode: normalizedCode };
-  }
-  return null;
+  if (!normalizedCode) return { match: null, ambiguous: false };
+  const candidates = (Array.isArray(inbounds) ? inbounds : []).flatMap(inbound =>
+    (inbound.rolls ?? []).map(roll => ({ inbound, roll, scanCode: normalizeRawMaterialScanCode(roll.id) })),
+  );
+  const canonical = candidates.filter(item => item.scanCode === normalizedCode);
+  const matches = canonical.length ? canonical
+    : candidates.filter(item => normalizeRawMaterialScanCode(item.roll.supplierRollNo) === normalizedCode);
+  return { match: matches.length === 1 ? matches[0] : null, ambiguous: matches.length > 1 };
 }
 
 export function getRawMaterialScanOutboundBlocker(match) {

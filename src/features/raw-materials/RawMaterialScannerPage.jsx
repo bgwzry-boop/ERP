@@ -8,7 +8,7 @@ import {
 } from "@ant-design/icons";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  findRawMaterialRollByScan,
+  resolveRawMaterialRollScan,
   getRawMaterialScanOutboundBlocker,
   RAW_MATERIAL_MACHINE_OPTIONS,
 } from "../../domain/rawMaterialScanOutbound.js";
@@ -31,7 +31,8 @@ export function RawMaterialScannerPage({ inbounds = [], onAction, helpers = {} }
   const [feedback, setFeedback] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const [mobileView, setMobileView] = useState("current");
-  const match = useMemo(() => findRawMaterialRollByScan(inbounds, matchedCode), [inbounds, matchedCode]);
+  const scanResolution = useMemo(() => resolveRawMaterialRollScan(inbounds, matchedCode), [inbounds, matchedCode]);
+  const match = scanResolution.match;
   const blocker = matchedCode ? getRawMaterialScanOutboundBlocker(match) : "";
   const availableRolls = useMemo(() => inbounds.flatMap((inbound) => (
     (inbound.rolls ?? []).map((roll) => ({ inbound, roll, scanCode: roll.id }))
@@ -43,7 +44,7 @@ export function RawMaterialScannerPage({ inbounds = [], onAction, helpers = {} }
 
   function handleScanSubmit(event) {
     event.preventDefault();
-    const found = findRawMaterialRollByScan(inbounds, scanCode);
+    const found = resolveRawMaterialRollScan(inbounds, scanCode).match;
     setFeedback(null);
     if (!found) {
       setMatchedCode(scanCode);
@@ -118,7 +119,9 @@ export function RawMaterialScannerPage({ inbounds = [], onAction, helpers = {} }
         <small>支持扫码枪 / PDA 回车提交；也可以手工输入卷号。</small>
       </form>
 
-      {matchedCode && !match ? <p className="raw-material-scan-feedback danger">没有找到卷码“{matchedCode}”，请检查标签后重试。</p> : null}
+      {matchedCode && !match ? <p className="raw-material-scan-feedback danger">{scanResolution.ambiguous
+        ? `卷码“${matchedCode}”对应多卷，请改扫唯一系统卷标或由库房人工核对；核对前不能领料。`
+        : `没有找到卷码“${matchedCode}”，请检查标签后重试。`}</p> : null}
       {match ? (
         <section className="raw-material-scan-result">
           <div className="raw-material-scan-result-head">
