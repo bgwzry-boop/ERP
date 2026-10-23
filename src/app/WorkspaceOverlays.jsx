@@ -47,6 +47,7 @@ export function WorkspaceOverlays({
     <>
       {modal && (
         <ActionModal
+          key={modal.type === "dispatch" ? `${modal.sessionOwner || ""}:${modal.type}:${modal.fulfillmentId}` : "business-modal"}
           modal={modal}
           fulfillments={fulfillments}
           statements={statements}
@@ -57,7 +58,7 @@ export function WorkspaceOverlays({
           onConfirm={confirmModal}
         />
       )}
-      {orderActionModal && <OrderLineActionModal modal={orderActionModal} onClose={closeOrderActionModal} onConfirm={confirmOrderLineAction} />}
+      {orderActionModal && <OrderLineActionModal key={`${orderActionModal.type}:${orderActionModal.orderLineId || ""}`} modal={orderActionModal} onClose={closeOrderActionModal} onConfirm={confirmOrderLineAction} />}
       {attachmentViewer && <AttachmentViewerModal attachment={attachmentViewer} onClose={closeAttachmentViewer} onDownload={downloadViewedAttachment} />}
       {masterDataTemplatePanel && (
         <MasterDataImportTemplateModal

@@ -353,10 +353,7 @@ const fallbackAdjust = await adjustOfficeOrderLineQuantity(
     },
   },
 );
-assert.equal(fallbackAdjust.source, "local_fallback");
-assert.equal(fallbackAdjust.previousQty, 1500);
-assert.equal(fallbackAdjust.newQty, 1300);
-assert.equal(fallbackAdjust.qtyDelta, -200);
+assert.equal(fallbackAdjust.source,"api_error");assert.equal(fallbackAdjust.blocked,true);assert.equal(fallbackAdjust.newQty,undefined);
 
 const fallbackVoid = await voidOfficeOrderLine(
   {
@@ -371,9 +368,7 @@ const fallbackVoid = await voidOfficeOrderLine(
     },
   },
 );
-assert.equal(fallbackVoid.source, "local_fallback");
-assert.equal(fallbackVoid.orderLineId, "ORD-0630-001-01");
-assert.equal(fallbackVoid.status, "已关闭");
+assert.equal(fallbackVoid.source,"api_error");assert.equal(fallbackVoid.blocked,true);assert.equal(fallbackVoid.status,undefined);
 
 const strictFallbackAdjust = await adjustOfficeOrderLineQuantity(
   {
@@ -457,3 +452,8 @@ function createJsonResponse(status, json) {
     },
   };
 }
+
+const fractionalAdjustment=await adjustOfficeOrderLineQuantity({authState,orderLine:mappedLine,newQty:1.5},{fetchImpl:async()=>{throw new Error("must not send invalid quantity");}});
+assert.equal(fractionalAdjustment.error.code,"ORDER_LINE_QUANTITY_INPUT_INVALID");
+const malformedQuantityReceipt=await adjustOfficeOrderLineQuantity({authState,orderLine:mappedLine,newQty:1200},{fetchImpl:async()=>createJsonResponse(200,{orderLineId:"OTHER",newQty:1200})});
+assert.equal(malformedQuantityReceipt.error.code,"ORDER_LINE_QUANTITY_ADJUST_UNCONFIRMED");

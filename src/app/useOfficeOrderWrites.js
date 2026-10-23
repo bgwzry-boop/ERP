@@ -1,4 +1,4 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import {
   confirmOfficeDraftViaApi,
   confirmOfficeDraftSplit,
@@ -106,6 +106,7 @@ export function createOfficeOrderWriteActions({
   refreshOrderPool,
   refreshTodos,
   serverRequired = isOfficeApiServerRequired,
+  mutationSession = {active:true},
   setDraftApiMeta,
   setDraftRows,
   setDraftStatus,
@@ -652,6 +653,7 @@ export function createOfficeOrderWriteActions({
   }
 
   async function executeOrderLineAction({ action, orderLine, payload }) {
+    if(!mutationSession.active)return {blocked:true,stale:true};
     if (!orderLine) return withFeedback(null, "未找到对应订单明细，无法提交动作。");
     if (action !== "quantity" && action !== "void") {
       return withFeedback(
@@ -665,12 +667,14 @@ export function createOfficeOrderWriteActions({
         await orderApi.adjustOfficeOrderLineQuantity({
           authState,
           orderLine,
+          idempotencyKey: actionPayload.idempotencyKey,
           newQty: actionPayload.newQty,
           reason: actionPayload.reason,
           operatorId: currentUserId,
         }),
         { label: "订单改量", serverRequired },
       );
+      if(!mutationSession.active)return {blocked:true,stale:true};
       if (apiResult.blocked) {
         return withFeedback(apiResult, formatBlockedFeedback("后端拒绝订单改量", apiResult));
       }
@@ -688,11 +692,13 @@ export function createOfficeOrderWriteActions({
       await orderApi.voidOfficeOrderLine({
         authState,
         orderLine,
+        idempotencyKey: actionPayload.idempotencyKey,
         reason: actionPayload.reason,
         operatorId: currentUserId,
       }),
       { label: "订单作废", serverRequired },
     );
+    if(!mutationSession.active)return {blocked:true,stale:true};
     if (apiResult.blocked) {
       return withFeedback(apiResult, formatBlockedFeedback("后端拒绝作废订单", apiResult));
     }
@@ -723,10 +729,16 @@ export function createOfficeOrderWriteActions({
 }
 
 export function useOfficeOrderWrites(options) {
-  const actions = createOfficeOrderWriteActions(options);
+  const sessionRef=useRef(null);
+  const owner=`${options.currentUserId ?? ""}:${options.authState?.session?.accessToken ?? ""}`;
+  if(sessionRef.current?.owner !== owner){if(sessionRef.current)sessionRef.current.active=false;sessionRef.current={owner,active:true};}
+  const mutationSession=sessionRef.current;
+  useEffect(()=>{mutationSession.active=true;return ()=>{mutationSession.active=false;};},[mutationSession]);
+  const actions = createOfficeOrderWriteActions({...options,mutationSession});
   const dependencies = [
     options.authState,
     options.currentUserId,
+    mutationSession,
     options.customers,
     options.draftApiMeta,
     options.draftRows,

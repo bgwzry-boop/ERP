@@ -20,7 +20,15 @@ export function buildDriverDeliveryTask(workspace = {}, fulfillment, options = {
   const qty = Math.max(0, Number(fulfillment.actualQty ?? fulfillment.qty ?? orderLine.qty ?? 0));
   const packageChecklist = buildDriverPackageChecklist(workspace, { fulfillment, orderLineId });
   const packageCount = packageChecklist.length;
-  const address = firstText(customer.address, fulfillment.address) || "地址待补";
+  const customerSnapshot = fulfillment.customerSnapshot ?? {};
+  const hasCapturedContact = Boolean(firstText(customerSnapshot.contactName, customerSnapshot.contact,
+    customerSnapshot.contactPhone, customerSnapshot.phone, customerSnapshot.address));
+  const contactSource = hasCapturedContact ? customerSnapshot : {
+    contactName: firstText(customer.contact, fulfillment.contactName),
+    contactPhone: firstText(customer.phone, fulfillment.contactPhone),
+    address: firstText(customer.address, fulfillment.address),
+  };
+  const address = firstText(contactSource.address) || "地址待补";
 
   return {
     driverTaskId: fulfillmentId,
@@ -29,9 +37,9 @@ export function buildDriverDeliveryTask(workspace = {}, fulfillment, options = {
     orderLineId,
     orderTail: getDriverOrderTail(orderLine, orderLineId),
     customerId,
-    customerName: cleanText(customer.name) || "客户待确认",
-    contactName: firstText(customer.contact, fulfillment.contactName) || "联系人待确认",
-    contactPhone: firstText(customer.phone, fulfillment.contactPhone) || "电话待确认",
+    customerName: firstText(customerSnapshot.customerName, customerSnapshot.name, customer.name) || "客户待确认",
+    contactName: firstText(contactSource.contactName, contactSource.contact) || "联系人待确认",
+    contactPhone: firstText(contactSource.contactPhone, contactSource.phone) || "电话待确认",
     address,
     addressArea: inferDriverAddressArea(address),
     deliveryNoteNo:

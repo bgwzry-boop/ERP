@@ -216,3 +216,6 @@ assert.deepEqual({ workspace, fulfillment }, projectionInputs, "driver delivery 
 console.log(
   "Driver delivery task projection service check passed: shared shorthand, package ownership, routing, status, and read-only boundaries are covered.",
 );
+
+const partialContact = buildDriverDeliveryTask(workspace, {...fulfillment, customerSnapshot:{customerName:"快照客户",contactName:"快照收货人"}});
+assert.equal(partialContact.customerName,"快照客户");assert.equal(partialContact.contactName,"快照收货人");assert.equal(partialContact.contactPhone,"电话待确认");assert.equal(partialContact.address,"地址待补");

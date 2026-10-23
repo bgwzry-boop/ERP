@@ -312,6 +312,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
   }
 
   async function saveOrderDraft({ workspace, draftId, body = {}, operatorId }) {
+    if(hasInvalidDraftQuantity(body.lines,{allowUnknown:true}))return businessError(422,"ORDER_DRAFT_QUANTITY_INVALID","数量须为大于零的整数；尚未确认时可留空，不能自动取整保存。");
     const lines = normalizeDraftRows(body.lines ?? [], workspace, body);
     if (!lines.length) {
       return businessError(422, "VALIDATION_ERROR", "lines must contain at least one draft line");
@@ -598,6 +599,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
           details: { draftId, clientRevision: rejected.draft.revision ?? rejected.draft.clientRevision, operationLogId: rejected.operationLogId } };
       }
     }
+    if(hasInvalidDraftQuantity(body.lines))return businessError(422,"ORDER_DRAFT_QUANTITY_INVALID","正式订单数量须为大于零的整数，不能自动取整。");
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     lines = mergeDraftFieldReviewEvidence(lines, previous.lines ?? [], operatorId, nowIso(now));
@@ -834,6 +836,7 @@ export function createOrderDraftCommandService(dependencies = {}) {
       });
       if (replay?.commandResponse) return success(replay.commandResponse);
     }
+    if(hasInvalidDraftQuantity(body.lines))return businessError(422,"ORDER_DRAFT_QUANTITY_INVALID","正式订单数量须为大于零的整数，不能自动取整。");
     const previous = await workspace.orderDraftRepository.getOrderDraft({ workspace, draftId });
     if (!previous) return notFound("ORDER_DRAFT_NOT_FOUND");
     if (Number(previous.revision ?? previous.clientRevision) !== expectedRevision) {
@@ -1672,4 +1675,12 @@ function businessError(statusCode, code, message) {
 
 function requireFunction(value, name) {
   if (typeof value !== "function") throw new TypeError(`${name} must be a function`);
+}
+
+function hasInvalidDraftQuantity(lines,{allowUnknown=false}={}) {
+ return Array.isArray(lines) && lines.some(line=>{
+  const raw=line?.qty;
+  if(allowUnknown && (raw===undefined || raw===null || raw==="" || raw===0))return false;
+  return !["number","string"].includes(typeof raw) || !Number.isSafeInteger(Number(raw)) || Number(raw)<=0 || Number(raw)>2147483647;
+ });
 }

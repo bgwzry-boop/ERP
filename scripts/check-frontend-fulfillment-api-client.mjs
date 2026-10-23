@@ -559,6 +559,7 @@ const dispatchResult = await updateOfficeFulfillmentDispatch(
         fulfillmentId: deliveryFulfillment.id,
         dispatch: {
           dispatchId: "DDIS-F008",
+          revision: 1,
           fulfillmentId: deliveryFulfillment.id,
           driverId: "U-DRIVER-A",
           routeDate: "2026-07-02",
@@ -955,3 +956,6 @@ function assert(condition, message) {
     throw new Error(message);
   }
 }
+
+const unconfirmedDispatch=await updateOfficeFulfillmentDispatch({authState,fulfillment:deliveryFulfillment,driverId:"U-DRIVER-A"},{fetchImpl:async()=>createJsonResponse(200,{fulfillmentId:"OTHER",dispatch:{dispatchId:"DD-OTHER",fulfillmentId:"OTHER",revision:1},operationLogId:"LOG-OTHER"})});
+assert(unconfirmedDispatch.blocked && unconfirmedDispatch.error.code === "FULFILLMENT_DISPATCH_SAVE_UNCONFIRMED","wrong target dispatch receipt must be blocked");

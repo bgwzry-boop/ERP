@@ -99,20 +99,24 @@ export function createOfficeInteractionActions({
   async function confirmOrderLineAction(payload) {
     const activeModal = getOrderActionModal();
     if (!activeModal) return null;
-    const orderLine = orderLines.find((item) => item.id === activeModal.orderLineId) ?? activeModal.orderLine;
+    const requiredPermission=activeModal.type === "quantity" ? "order.quantity.adjust" : activeModal.type === "void" ? "order.void" : "";
+    if(!requiredPermission || !permissionContext?.actionPermissions?.includes(requiredPermission))return notifyResult({blocked:true,error:{code:"ORDER_LINE_ACTION_FORBIDDEN",requiredPermission},feedback:"当前账号没有此订单操作权限。"});
+    const orderLine=orderLines.find(item=>item.id===activeModal.orderLineId);
+    if(!orderLine)return notifyResult({blocked:true,feedback:"当前列表已无此订单，请刷新后重新选择。"});
     const result = await executeOrderLineAction({
       action: activeModal.type,
       orderLine,
       payload,
     });
+    if(getOrderActionModal() !== activeModal)return {blocked:true,stale:true};
     if (result?.closeModal) closeOrderActionModal();
     return notifyResult(result);
   }
 
   async function confirmModal(payload) {
     const activeModal = getModal();
-    closeModal();
     if (!activeModal) return null;
+    if (activeModal.type !== "dispatch") closeModal();
 
     if (activeModal.type === "batchPrintResult") {
       return notifyResult(await confirmBatchPrintResult({ modal: activeModal, payload }));
@@ -120,11 +124,12 @@ export function createOfficeInteractionActions({
 
     if (activeModal.type === "dispatch") {
       const selected = fulfillments.find((item) => item.id === activeModal.fulfillmentId);
-      if (!selected) {
-        notify("未找到对应送货记录，无法编辑派单。");
-        return null;
-      }
-      return notifyResult(await saveFulfillmentDispatch({ fulfillment: selected, payload }));
+      if (!permissionContext?.actionPermissions?.includes("fulfillment.dispatch.update")) return {blocked:true,feedback:"当前账号没有派单权限，请联系管理员。"};
+      if (!selected) return notifyResult({blocked:true,feedback:"未找到对应送货记录，无法编辑派单。请刷新后重试。"});
+      const result=await saveFulfillmentDispatch({fulfillment:selected,payload});
+      if(getModal() !== activeModal) return {blocked:true,stale:true};
+      if(result?.source === "api" && !result.blocked)closeModal();
+      return notifyResult(result);
     }
 
     if (activeModal.type === "paperHandoff") {
@@ -391,7 +396,9 @@ export function createOfficeInteractionActions({
 export function useOfficeInteractionController(options) {
   const [toast, setToastState] = useState(options.initialToast ?? "");
   const [modal, setModal] = useState(null);
+  const modalRef=useRef(null);
   const [orderActionModal, setOrderActionModal] = useState(null);
+  const orderActionModalRef=useRef(null);
   const [attachmentViewer, setAttachmentViewer] = useState(null);
   const attachmentRequestRef = useRef(0);
   const attachmentOwnerRef = useRef(null);
@@ -409,10 +416,12 @@ export function useOfficeInteractionController(options) {
     const feedback = cleanFeedback(message);
     if (feedback) setToastState(feedback);
   };
-  const openModal = (nextModal) => setModal(nextModal ?? null);
-  const closeModal = () => setModal(null);
-  const openOrderActionModal = (nextModal) => setOrderActionModal(nextModal ?? null);
-  const closeOrderActionModal = () => setOrderActionModal(null);
+  const openModal = (nextModal) => {modalRef.current=nextModal?.type === "dispatch" ? {...nextModal,sessionOwner:options.currentUserId} : nextModal ?? null;setModal(modalRef.current);};
+  const closeModal = () => {modalRef.current=null;setModal(null);};
+  useEffect(()=>{if(modalRef.current?.type === "dispatch"){modalRef.current=null;setModal(null);}},[options.currentUserId,options.authState?.session?.accessToken]);
+  const openOrderActionModal=(nextModal)=>{orderActionModalRef.current=nextModal ?? null;setOrderActionModal(orderActionModalRef.current);};
+  const closeOrderActionModal=()=>{orderActionModalRef.current=null;setOrderActionModal(null);};
+  useEffect(()=>{orderActionModalRef.current=null;setOrderActionModal(null);},[options.currentUserId,options.authState?.session?.accessToken]);
   const openAttachmentViewer = (attachment) => setAttachmentViewer(attachment ?? null);
   const closeAttachmentViewer = () => { attachmentRequestRef.current += 1; setAttachmentViewer(null); };
   const openMasterDataTemplatePanel = (panel) => setMasterDataTemplatePanel(panel ?? null);
@@ -422,8 +431,8 @@ export function useOfficeInteractionController(options) {
     ...options,
     closeModal,
     closeOrderActionModal,
-    getModal: () => modal,
-    getOrderActionModal: () => orderActionModal,
+    getModal: () => modalRef.current,
+    getOrderActionModal: () => orderActionModalRef.current,
     setToast,
   });
 

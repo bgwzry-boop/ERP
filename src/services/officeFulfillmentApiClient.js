@@ -597,6 +597,9 @@ export async function updateOfficeFulfillmentDispatch(input, options = {}) {
       };
     }
 
+    const savedDispatchId=json.dispatch?.dispatchId ?? json.dispatch?.id;
+    const requestedId=input.dispatchId ?? fulfillment.dispatchId ?? "";
+    if(json.fulfillmentId !== fulfillment.id || json.dispatch?.fulfillmentId !== fulfillment.id || !savedDispatchId || (requestedId && savedDispatchId !== requestedId) || !Number.isSafeInteger(json.dispatch?.revision) || json.dispatch.revision <= 0 || !json.operationLogId) return {source:"api_error",blocked:true,error:{code:"FULFILLMENT_DISPATCH_SAVE_UNCONFIRMED",message:"未收到完整派车保存凭据，请保留原内容重试，或刷新核对。"}};
     return {
       source: "api",
       fulfillmentId: json.fulfillmentId,

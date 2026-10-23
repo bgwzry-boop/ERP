@@ -123,3 +123,6 @@ function collectObjectKeys(value, keys = []) {
   }
   return keys;
 }
+
+const capturedContactTemplate=buildFulfillmentPrintTemplate({fulfillment:{...fulfillment,customerSnapshot:{customerName:"旧客户",contactName:"旧收货人"}},orderLine,customer});
+assert.equal(capturedContactTemplate.fields.customerName,"旧客户");assert.equal(capturedContactTemplate.fields.contactName,"旧收货人");assert.equal(capturedContactTemplate.fields.phoneTail,"");assert.equal(capturedContactTemplate.fields.address,"");

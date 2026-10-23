@@ -136,7 +136,8 @@ export function createWorkspaceRecordService({ now = () => new Date() } = {}) {
       bizNo: fulfillment.bizNo ?? fulfillment.id,
       orderLineId,
       customerId,
-      customerSnapshot: buildCustomerSnapshot(workspace, customerId),
+      customerSnapshot: fulfillment.customerSnapshot && typeof fulfillment.customerSnapshot === "object" && !Array.isArray(fulfillment.customerSnapshot) && Object.keys(fulfillment.customerSnapshot).length
+        ? structuredClone(fulfillment.customerSnapshot) : buildCustomerSnapshot(workspace, customerId),
       method: fulfillment.method,
       expectedQty: Number(fulfillment.expectedQty ?? fulfillment.qty ?? orderLine.qty ?? 0),
       actualQty: actualQty === null || actualQty === "" ? null : Number(actualQty ?? 0),

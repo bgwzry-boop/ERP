@@ -1,3 +1,4 @@
+import { getOfficeFulfillmentOperatorCandidates } from "../services/officeFulfillmentLazyApi.js";
 import { isInlineImageAttachment } from "./attachmentViewUtils.js";
 import { downloadOfficeAttachmentContent as downloadOfficeAttachmentContentDefault } from "../services/officeAttachmentLazyApi.js";
 import { isFulfillmentPrintActionLabel } from "../services/officeFulfillmentSelectors.js";
@@ -46,10 +47,10 @@ export function createOfficeFulfillmentActions({
 
   async function updateFulfillment(action, fulfillmentId = selectedFulfillmentId, actionPayload = {}) {
     if (!guardUiAction("fulfillment", action)) return;
-    const selected = fulfillments.find((item) => item.id === fulfillmentId) ?? fulfillments[0];
+    const selected = fulfillments.find((item) => item.id === fulfillmentId);
     if (!selected) {
-      setToast("当前没有可操作的出库 / 交付记录。");
-      return;
+      const feedback="当前出库 / 交付记录已不存在或不在列表中，请刷新后重新选择。";
+      setToast(feedback);return {blocked:true,feedback};
     }
     const targetFulfillmentId = selected.id;
     if (action === "查看水印照片" || action === "查看签收照片") {
@@ -183,7 +184,7 @@ export function createOfficeFulfillmentActions({
         setToast("编辑派单只用于送货交付记录。");
         return;
       }
-      openModal({ type: "dispatch", fulfillmentId: targetFulfillmentId });
+      openModal({ type: "dispatch", fulfillmentId: targetFulfillmentId, loadDrivers:(signal)=>getOfficeFulfillmentOperatorCandidates({authState,operatorId:currentUserId},{...apiOptions,signal}) });
       return;
     }
     if (action === "处理数量差异") {

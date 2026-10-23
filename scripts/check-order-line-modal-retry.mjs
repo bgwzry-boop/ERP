@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import {build} from 'esbuild';
+import {chromium} from 'playwright';
+const built=await build({stdin:{resolveDir:process.cwd(),loader:'jsx',contents:`import React from 'react';import{createRoot}from'react-dom/client';import{OrderLineActionModal}from'./src/app/ActionModals.jsx';window.calls=[];const root=createRoot(document.getElementById('app'));window.render=(type='quantity')=>root.render(<OrderLineActionModal key={type} modal={{type,orderLine:{id:'OL',qty:10}}} onClose={()=>{}} onConfirm={payload=>{window.calls.push(payload);return new Promise(resolve=>window.finish=resolve)}}/>);window.render();`},bundle:true,write:false,jsx:'automatic'});
+const browser=await chromium.launch();try{
+ const page=await browser.newPage();await page.setContent('<div id="app"></div>');await page.addScriptTag({content:built.outputFiles[0].text});
+ await page.getByText('新数量与当前数量相同，无需提交。',{exact:true}).waitFor();
+ await page.getByRole('spinbutton').fill('6.5');
+ await page.getByText('请填写大于零的整数数量。',{exact:true}).waitFor();
+ assert.equal(await page.getByRole('button',{name:'确认改量'}).isDisabled(),true);
+ await page.getByRole('spinbutton').fill('6');
+ await page.getByRole('button',{name:'确认改量'}).evaluate(b=>{b.click();b.click()});
+ assert.equal(await page.evaluate(()=>window.calls.length),1);
+ assert.equal(await page.getByRole('spinbutton').isDisabled(),true);
+ await page.evaluate(()=>window.finish({blocked:true,error:{code:'ORDER_LINE_QUANTITY_ADJUST_UNCONFIRMED'}}));
+ await page.getByRole('button',{name:'用原内容重试'}).click();
+ assert.deepEqual(await page.evaluate(()=>window.calls[0]),await page.evaluate(()=>window.calls[1]));
+ await page.evaluate(()=>window.finish({blocked:true,error:{code:'ORDER_LINE_QUANTITY_INPUT_INVALID',status:422},feedback:'数量不符合要求'}));
+ await page.getByRole('alert').filter({hasText:'数量不符合要求'}).waitFor();
+ await page.getByRole('spinbutton').fill('7');
+ await page.getByRole('button',{name:'确认改量'}).click();
+ assert.notEqual(await page.evaluate(()=>window.calls[2].idempotencyKey),await page.evaluate(()=>window.calls[1].idempotencyKey));
+ await page.evaluate(()=>{window.finish({source:'api'});window.render('void')});
+ await page.getByRole('button',{name:'确认作废'}).evaluate(b=>{b.click();b.click()});
+ assert.equal(await page.evaluate(()=>window.calls.length),4);
+ await page.evaluate(()=>window.finish({blocked:true,error:{code:'ORDER_LINE_VOID_API_UNAVAILABLE'}}));
+ await page.getByRole('button',{name:'用原内容重试'}).click();
+ assert.deepEqual(await page.evaluate(()=>window.calls[3]),await page.evaluate(()=>window.calls[4]));
+ console.log('PASS order mutation modal: integer input, duplicate click, frozen exact retry, corrected request identity and void retry. Callback mocked.');
+}finally{await browser.close()}

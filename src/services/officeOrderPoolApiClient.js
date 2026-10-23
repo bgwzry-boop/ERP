@@ -127,14 +127,14 @@ export async function getOfficeOrderLineDetail(input = {}, options = {}) {
 export async function adjustOfficeOrderLineQuantity(input = {}, options = {}) {
   const { authState, orderLine, orderLineId = orderLine?.id, newQty, reason = "customer_change", reasonText = "", operatorId } = input;
   const safeOrderLineId = cleanText(orderLineId);
-  const safeNewQty = Math.trunc(Number(newQty ?? 0));
-  if (!safeOrderLineId || !Number.isFinite(safeNewQty) || safeNewQty <= 0) {
+  const safeNewQty = Number(newQty ?? 0);
+  if (!safeOrderLineId || !["number","string"].includes(typeof newQty) || !Number.isSafeInteger(safeNewQty) || safeNewQty <= 0) {
     return {
       source: "api_error",
       blocked: true,
       error: {
         code: "ORDER_LINE_QUANTITY_INPUT_INVALID",
-        message: "订单明细 ID 和新数量不能为空。",
+        message: "请选择订单明细，并填写大于零的整数数量。",
       },
     };
   }
@@ -143,15 +143,16 @@ export async function adjustOfficeOrderLineQuantity(input = {}, options = {}) {
     const response = await requestOrderPoolApi(`/order-lines/${encodeURIComponent(safeOrderLineId)}/quantity-adjustment`, {
       ...options,
       authState,
+      idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
       method: "POST",
       operatorId,
       body: {
+        idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
         orderLineId: safeOrderLineId,
         newQty: safeNewQty,
         reason: mapQuantityAdjustmentReasonToApi(reason),
         reasonText: reasonText || mapQuantityAdjustmentReasonText(reason),
         operatorId,
-        adjustedAt: new Date().toISOString(),
       },
     });
     const json = await readJson(response);
@@ -164,26 +165,16 @@ export async function adjustOfficeOrderLineQuantity(input = {}, options = {}) {
       };
     }
 
+    const receipt = mapQuantityAdjustmentResponse(json, { orderLineId: "", newQty: NaN });
+    if (receipt.orderLineId !== safeOrderLineId || receipt.newQty !== safeNewQty || !receipt.operationLogId || !receipt.priceSnapshot || !Number.isFinite(receipt.finalAmount)) {
+      return buildServerRequiredWriteError("ORDER_LINE_QUANTITY_ADJUST_UNCONFIRMED", new Error("改量回执不完整或与当前订单不一致，请刷新核对服务器结果。"));
+    }
     return {
       source: "api",
       ...mapQuantityAdjustmentResponse(json, { orderLineId: safeOrderLineId, newQty: safeNewQty }),
     };
   } catch (error) {
-    if (isOfficeApiServerRequired(options)) {
-      return buildServerRequiredWriteError("ORDER_LINE_QUANTITY_ADJUST_API_UNAVAILABLE", error);
-    }
-    return {
-      source: "local_fallback",
-      error: {
-        code: "ORDER_LINE_QUANTITY_ADJUST_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
-      },
-      ...mapQuantityAdjustmentResponse(null, {
-        orderLineId: safeOrderLineId,
-        previousQty: orderLine?.qty,
-        newQty: safeNewQty,
-      }),
-    };
+    return buildServerRequiredWriteError("ORDER_LINE_QUANTITY_ADJUST_API_UNAVAILABLE", error);
   }
 }
 
@@ -205,14 +196,15 @@ export async function voidOfficeOrderLine(input = {}, options = {}) {
     const response = await requestOrderPoolApi(`/order-lines/${encodeURIComponent(safeOrderLineId)}/void`, {
       ...options,
       authState,
+      idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
       method: "POST",
       operatorId,
       body: {
+        idempotencyKey: input.idempotencyKey ?? options.idempotencyKey,
         orderLineId: safeOrderLineId,
         reason: mapVoidReasonToApi(reason),
         reasonText: reasonText || mapVoidReasonText(reason),
         operatorId,
-        voidedAt: new Date().toISOString(),
       },
     });
     const json = await readJson(response);
@@ -225,22 +217,15 @@ export async function voidOfficeOrderLine(input = {}, options = {}) {
       };
     }
 
+    if (cleanText(json?.orderLineId ?? json?.order_line_id) !== safeOrderLineId || cleanText(json?.status) !== "已关闭" || !cleanText(json?.operationLogId ?? json?.operation_log_id)) {
+      return buildServerRequiredWriteError("ORDER_LINE_VOID_UNCONFIRMED", new Error("作废回执不完整或与当前订单不一致，请刷新核对服务器结果。"));
+    }
     return {
       source: "api",
       ...mapVoidOrderLineResponse(json, { orderLineId: safeOrderLineId }),
     };
   } catch (error) {
-    if (isOfficeApiServerRequired(options)) {
-      return buildServerRequiredWriteError("ORDER_LINE_VOID_API_UNAVAILABLE", error);
-    }
-    return {
-      source: "local_fallback",
-      error: {
-        code: "ORDER_LINE_VOID_API_UNAVAILABLE",
-        message: error?.message ?? String(error),
-      },
-      ...mapVoidOrderLineResponse(null, { orderLineId: safeOrderLineId }),
-    };
+    return buildServerRequiredWriteError("ORDER_LINE_VOID_API_UNAVAILABLE", error);
   }
 }
 

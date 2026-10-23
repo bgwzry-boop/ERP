@@ -158,8 +158,9 @@ export function createOrderLineMutationCommandService(dependencies = {}) {
     }
 
     const previousQty = getOrderLineOriginalQty(before);
-    const newQty = Number(body.newQty ?? body.qty ?? body.originalQty);
-    if (!Number.isSafeInteger(newQty) || newQty <= 0) {
+    const requestedQty=body.newQty ?? body.qty ?? body.originalQty;
+    const newQty=Number(requestedQty);
+    if (!["number","string"].includes(typeof requestedQty) || !Number.isSafeInteger(newQty) || newQty <= 0) {
       return businessError(422, "VALIDATION_ERROR", "新数量须为大于零的有效整数，不能自动取整。");
     }
     if (newQty === previousQty) {

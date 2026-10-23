@@ -9,6 +9,10 @@ export function buildFulfillmentPrintTemplate(input = {}) {
   const fulfillment = input.fulfillment ?? {};
   const orderLine = input.orderLine ?? null;
   const customer = input.customer ?? {};
+  const snapshot = fulfillment.customerSnapshot ?? {};
+  const hasCapturedContact = Boolean(firstContactText(snapshot.contactName, snapshot.contact,
+    snapshot.contactPhone, snapshot.phone, snapshot.address));
+  const contactSource = hasCapturedContact ? snapshot : customer;
   const printRecord = input.printRecord ?? {};
   const method = fulfillment.method ?? orderLine?.fulfillment ?? "出库";
   const documentType = input.documentType ?? printRecord.documentType ?? getDocumentType(method);
@@ -63,10 +67,10 @@ export function buildFulfillmentPrintTemplate(input = {}) {
       printBatchNo: batchNo,
       fulfillmentId,
       orderLineNo,
-      customerName: customer.name ?? "",
-      contactName: customer.contact ?? "",
-      phoneTail: getPhoneTail(customer.phone),
-      address: customer.address ?? "",
+      customerName: firstContactText(snapshot.customerName, snapshot.name, customer.name),
+      contactName: firstContactText(contactSource.contactName, contactSource.contact),
+      phoneTail: getPhoneTail(firstContactText(contactSource.contactPhone, contactSource.phone)),
+      address: firstContactText(contactSource.address),
       fulfillmentMethod: method,
       goodsSummary,
       quantity,
@@ -228,3 +232,5 @@ function formatMoney(value) {
     maximumFractionDigits: 2,
   })}`;
 }
+
+function firstContactText(...values) { return values.map(value => String(value ?? "").trim()).find(Boolean) ?? ""; }

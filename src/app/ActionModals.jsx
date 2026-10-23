@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { createOfficeIdempotencyKey } from "../services/officeApiClientCore.js";
+import { useEffect, useRef, useState } from "react";
 import {
   batchPrintResultOptions,
   getOfficeModalInitialNumberValue,
@@ -20,12 +21,9 @@ import {
 
 const orderQuantityReasonOptions = ["客户改量", "识别数量修正", "库存复核后改量", "办公室修正数量", "管理批准改量", "其他原因改量"];
 const orderVoidReasonOptions = ["客户取消订单", "重复订单作废", "识别错误作废", "库存不足取消", "管理拒绝接单", "订单改量作废重建", "客户拒绝等待取消", "其他原因作废"];
-const driverDispatchOptions = [
-  { driverId: "U-DRIVER-A", name: "司机A" },
-];
 const evidenceAttachmentAccept = "image/*,application/pdf,.pdf,.doc,.docx,.xls,.xlsx,.csv,.txt";
 
-export function OrderLineActionModal({ modal, onClose, onConfirm }) {
+export function OrderLineActionModal({ modal, onClose, onConfirm, inline = false }) {
   const line = modal.orderLine ?? {};
   const isQuantityAction = modal.type === "quantity";
   const currentQty = Number(line.qty ?? line.originalQty ?? 0);
@@ -34,27 +32,53 @@ export function OrderLineActionModal({ modal, onClose, onConfirm }) {
   const [newQty, setNewQty] = useState(String(currentQty || ""));
   const [reason, setReason] = useState(isQuantityAction ? orderQuantityReasonOptions[0] : orderVoidReasonOptions[0]);
   const nextQty = Number(newQty);
-  const confirmDisabled = isQuantityAction && (!Number.isFinite(nextQty) || nextQty <= 0 || nextQty === currentQty);
+  const confirmDisabled = isQuantityAction && (!Number.isSafeInteger(nextQty) || nextQty <= 0 || nextQty === currentQty);
+  const quantityHint = !Number.isSafeInteger(nextQty) || nextQty <= 0 ? "请填写大于零的整数数量。" : nextQty === currentQty ? "新数量与当前数量相同，无需提交。" : "";
   const title = isQuantityAction ? "调整正式单数量" : "作废正式单";
   const confirmLabel = isQuantityAction ? "确认改量" : "确认作废";
 
-  function confirm() {
-    if (confirmDisabled) return;
-    onConfirm({
-      newQty: nextQty,
-      reason,
-    });
+  const pending = useRef(false);
+  const request = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const [uncertain, setUncertain] = useState(false);
+  const [error, setError] = useState("");
+  async function confirm() {
+    if (pending.current || confirmDisabled) return;
+    pending.current = true;
+    setBusy(true);
+    setError("");
+    request.current ??= { newQty: nextQty, reason, idempotencyKey: createOfficeIdempotencyKey() };
+    try {
+      const result = await onConfirm(request.current);
+      if (result?.source === "api" && !result.blocked) {
+        setUncertain(false);
+        request.current = null;
+      } else {
+        const code = String(result?.error?.code || "");
+        const status = Number(result?.error?.status || 0);
+        const unknown = !result || /UNAVAILABLE|UNCONFIRMED|IDEMPOTENCY_KEY_REUSED/.test(code) || status >= 500 || status === 408 || status === 429;
+        setUncertain(unknown);
+        if (!unknown) request.current = null;
+        setError(result?.feedback || result?.error?.message || "提交结果未确认，请用原内容重试。");
+      }
+    } catch {
+      setUncertain(true);
+      setError("未收到服务器确认，请用原内容重试。");
+    } finally {
+      pending.current = false;
+      setBusy(false);
+    }
   }
 
   return (
-    <div className="modal-backdrop" role="presentation">
-      <section className="modal" role="dialog" aria-modal="true" aria-label={title}>
+    <div className={inline ? "order-inline-editor" : "modal-backdrop"} role={inline ? undefined : "presentation"}>
+      <section className={inline ? "order-inline-form" : "modal"} role={inline ? undefined : "dialog"} aria-modal={inline ? undefined : true} aria-label={title}>
         <div className="modal-title">
           <div>
             <span>正式订单动作</span>
             <h2>{title}</h2>
           </div>
-          <button className="icon-button" onClick={onClose}>×</button>
+          <button className="icon-button" aria-label="关闭订单操作" disabled={busy} onClick={onClose}>×</button>
         </div>
         <div className="form-grid">
           <label>
@@ -72,21 +96,24 @@ export function OrderLineActionModal({ modal, onClose, onConfirm }) {
           {isQuantityAction && (
             <label>
               新数量
-              <input type="number" min="1" step="1" value={newQty} onChange={(event) => setNewQty(event.target.value)} />
+              <input aria-label="新数量" type="number" min="1" step="1" disabled={busy || uncertain} aria-invalid={!Number.isSafeInteger(nextQty) || nextQty <= 0} value={newQty} onChange={(event) => setNewQty(event.target.value)} />
+              {quantityHint ? <span>{quantityHint}</span> : null}
             </label>
           )}
           <label>
             原因
-            <select value={reason} onChange={(event) => setReason(event.target.value)}>
+            <select disabled={busy || uncertain} value={reason} onChange={(event) => setReason(event.target.value)}>
               {(isQuantityAction ? orderQuantityReasonOptions : orderVoidReasonOptions).map((item) => (
                 <option key={item}>{item}</option>
               ))}
             </select>
           </label>
         </div>
+        {error ? <p role="alert">{error}</p> : null}
+        {uncertain ? <p>已保留本次提交内容。关闭后请先刷新核对订单，再决定是否修改。</p> : null}
         <div className="modal-actions">
-          <button onClick={onClose}>取消</button>
-          <button className="primary-action" disabled={confirmDisabled} onClick={confirm}>{confirmLabel}</button>
+          <button disabled={busy} onClick={onClose}>取消</button>
+          <button className="primary-action" disabled={busy || confirmDisabled} onClick={confirm}>{busy ? "提交中…" : uncertain ? "用原内容重试" : confirmLabel}</button>
         </div>
       </section>
     </div>
@@ -276,14 +303,36 @@ export function ActionModal({
   const batchPrintPackages = modal.type === "batchPrintResult" ? modal.printPackages ?? [] : [];
   const [selectedPrintedPackageIds, setSelectedPrintedPackageIds] = useState(() => batchPrintPackages.map((item) => item.packageId));
   const dispatchDefaultRouteDate = toDateInputValue(fulfillment?.routeDate) || new Date().toISOString().slice(0, 10);
-  const [dispatchDriverId, setDispatchDriverId] = useState(fulfillment?.driverId || "U-DRIVER-A");
+  const [dispatchDriverId, setDispatchDriverId] = useState(fulfillment?.driverId || "");
   const [dispatchRouteDate, setDispatchRouteDate] = useState(dispatchDefaultRouteDate);
   const [dispatchRouteNo, setDispatchRouteNo] = useState(fulfillment?.routeNo || fulfillment?.routeBatchNo || "虎门线-A");
   const [dispatchRouteSequence, setDispatchRouteSequence] = useState(String(fulfillment?.routeSequence || fulfillment?.stopSequence || 1));
   const [dispatchPlannedDepartureAt, setDispatchPlannedDepartureAt] = useState(
     toDatetimeLocalInputValue(fulfillment?.plannedDepartureAt, dispatchDefaultRouteDate),
   );
-  const [dispatchEditorIdentity] = useState(()=>({dispatchId:fulfillment?.dispatchId ?? "",expectedRevision:fulfillment?.dispatchRevision ?? 0}));
+  const [dispatchEditorIdentity] = useState(()=>({dispatchId:fulfillment?.dispatchId ?? "",expectedRevision:fulfillment?.dispatchRevision ?? 0,idempotencyKey:createOfficeIdempotencyKey()}));
+  const dispatchBusy = useRef(false);
+  const dispatchAlive = useRef(true);
+  const [dispatchSubmitting, setDispatchSubmitting] = useState(false);
+  const [dispatchError, setDispatchError] = useState("");
+  const [dispatchRequest, setDispatchRequest] = useState(null);
+  const [driverRoster, setDriverRoster] = useState({loading:true,items:[],error:""});
+  const [driverRosterAttempt, setDriverRosterAttempt] = useState(0);
+  useEffect(()=>{dispatchAlive.current=true;return()=>{dispatchAlive.current=false;};},[]);
+  useEffect(()=>{
+    if(modal.type!=="dispatch") return;
+    const controller=new AbortController();
+    setDriverRoster({loading:true,items:[],error:""});
+    Promise.resolve().then(()=>modal.loadDrivers?.(controller.signal)).then(result=>{
+      if(controller.signal.aborted) return;
+      const items=result?.drivers;
+      const ids=new Set();
+      if(result?.source!=="api" || result.blocked || !Array.isArray(items) || items.some(item=>!item || typeof item.userId!=="string" || !item.userId || typeof item.name!=="string" || !item.name || ids.has(item.userId) || !ids.add(item.userId))) setDriverRoster({loading:false,items:[],error:result?.error?.message || "司机名单读取失败，请重试。"});
+      else setDriverRoster({loading:false,items,error:""});
+    }).catch(()=>{if(!controller.signal.aborted)setDriverRoster({loading:false,items:[],error:"司机名单读取失败，请重试。"});});
+    return ()=>controller.abort();
+  },[modal.type,modal.loadDrivers,driverRosterAttempt]);
+  const dispatchDriverAvailable=driverRoster.items.some(item=>item.userId===dispatchDriverId);
   const [dispatchRemark, setDispatchRemark] = useState(fulfillment?.dispatchRemark || "");
   const initialWarehouseResult = modal.initialWarehouseResult || "已备货";
   const [paperHandoffNote, setPaperHandoffNote] = useState("");
@@ -378,7 +427,7 @@ export function ActionModal({
     });
   }
 
-  function confirm() {
+  async function confirm() {
     if (modal.type === "paperHandoff") {
       onConfirm({ note: paperHandoffNote });
       return;
@@ -426,15 +475,17 @@ export function ActionModal({
       return;
     }
     if (modal.type === "dispatch") {
-      onConfirm({
-        ...dispatchEditorIdentity,
-        driverId: dispatchDriverId,
-        routeDate: dispatchRouteDate,
-        routeNo: dispatchRouteNo,
-        routeSequence: Number(dispatchRouteSequence),
-        plannedDepartureAt: dispatchPlannedDepartureAt,
-        remark: dispatchRemark,
-      });
+      if(dispatchBusy.current || (!dispatchRequest && (driverRoster.loading || !dispatchDriverAvailable))) return;
+      const request=dispatchRequest ?? {...dispatchEditorIdentity,driverId:dispatchDriverId,routeDate:dispatchRouteDate,routeNo:dispatchRouteNo,routeSequence:Number(dispatchRouteSequence),plannedDepartureAt:dispatchPlannedDepartureAt,remark:dispatchRemark};
+      dispatchBusy.current=true;setDispatchSubmitting(true);setDispatchError("");setDispatchRequest(request);
+      try {
+        const result=await onConfirm(request);
+        if(dispatchAlive.current && (result?.blocked || result?.source!=="api")) {
+          setDispatchError(result?.feedback || result?.error?.message || "尚未确认派车保存成功，请核对后重试。");
+          if(!["FULFILLMENT_DISPATCH_API_UNAVAILABLE","FULFILLMENT_DISPATCH_SAVE_UNCONFIRMED"].includes(result?.error?.code))setDispatchRequest(null);
+        }
+      } catch { if(dispatchAlive.current)setDispatchError("未能确认保存结果，已保留原内容，请重试。"); }
+      finally {dispatchBusy.current=false;if(dispatchAlive.current)setDispatchSubmitting(false);}
       return;
     }
     const printedPackageIds =
@@ -472,7 +523,7 @@ export function ActionModal({
             <span>业务操作</span>
             <h2>{officeModalTitles[modal.type]}</h2>
           </div>
-          <button className="icon-button" onClick={onClose}>×</button>
+          <button className="icon-button" aria-label="关闭业务操作" disabled={dispatchSubmitting} onClick={onClose}>×</button>
         </div>
         {modal.type === "print" ? (
           <PrintTemplatePreview template={printTemplate} fulfillment={fulfillment} />
@@ -498,32 +549,37 @@ export function ActionModal({
           <div className="form-grid">
             <label>
               司机
-              <select value={dispatchDriverId} onChange={(event) => setDispatchDriverId(event.target.value)}>
-                {driverDispatchOptions.map((item) => (
-                  <option key={item.driverId} value={item.driverId}>{item.name}</option>
+              <select aria-label="司机" disabled={Boolean(dispatchRequest) || driverRoster.loading || Boolean(driverRoster.error)} value={dispatchDriverId} onChange={(event) => setDispatchDriverId(event.target.value)}>
+                <option value="">请选择司机</option>
+                {dispatchDriverId && !dispatchDriverAvailable ? <option value={dispatchDriverId} disabled>原司机不在当前名单，请重新选择</option> : null}
+                {driverRoster.items.map((item) => (
+                  <option key={item.userId} value={item.userId}>{item.name}</option>
                 ))}
               </select>
             </label>
             <label>
               路线日期
-              <input type="date" value={dispatchRouteDate} onChange={(event) => setDispatchRouteDate(event.target.value)} />
+              <input disabled={Boolean(dispatchRequest)} type="date" value={dispatchRouteDate} onChange={(event) => setDispatchRouteDate(event.target.value)} />
             </label>
             <label>
               路线趟号
-              <input value={dispatchRouteNo} onChange={(event) => setDispatchRouteNo(event.target.value)} />
+              <input disabled={Boolean(dispatchRequest)} value={dispatchRouteNo} onChange={(event) => setDispatchRouteNo(event.target.value)} />
             </label>
             <label>
               站序
-              <input type="number" min="1" value={dispatchRouteSequence} onChange={(event) => setDispatchRouteSequence(event.target.value)} />
+              <input disabled={Boolean(dispatchRequest)} type="number" min="1" value={dispatchRouteSequence} onChange={(event) => setDispatchRouteSequence(event.target.value)} />
             </label>
             <label>
               计划发车
-              <input type="datetime-local" value={dispatchPlannedDepartureAt} onChange={(event) => setDispatchPlannedDepartureAt(event.target.value)} />
+              <input disabled={Boolean(dispatchRequest)} type="datetime-local" value={dispatchPlannedDepartureAt} onChange={(event) => setDispatchPlannedDepartureAt(event.target.value)} />
             </label>
             <label>
               备注
-              <input value={dispatchRemark} placeholder="如：先送客户仓、等包裹标签" onChange={(event) => setDispatchRemark(event.target.value)} />
+              <input disabled={Boolean(dispatchRequest)} value={dispatchRemark} placeholder="如：先送客户仓、等包裹标签" onChange={(event) => setDispatchRemark(event.target.value)} />
             </label>
+            {driverRoster.loading ? <p role="status">正在读取司机名单…</p> : driverRoster.error ? <p role="alert">{driverRoster.error} <button type="button" onClick={()=>setDriverRosterAttempt(value=>value+1)}>重试读取司机</button></p> : !driverRoster.items.length ? <p role="status">暂无可选司机，请联系管理员核对司机账号。<button type="button" onClick={()=>setDriverRosterAttempt(value=>value+1)}>刷新司机名单</button></p> : null}
+            {dispatchError ? <p role="alert">{dispatchError}</p> : null}
+            {dispatchRequest ? <p>保存结果待核对，重试会使用原内容。修改前请先刷新核对。</p> : null}
             <div className="form-note">
               保存后司机端任务按路线日期、趟号和站序排序；装车和送达仍由司机端单独确认。
             </div>
@@ -796,8 +852,8 @@ export function ActionModal({
           </div>
         )}
         <div className="modal-actions">
-          <button onClick={warehouseReviewOpen && modal.type === "warehouseExecution" ? () => setWarehouseReviewOpen(false) : onClose}>{warehouseReviewOpen && modal.type === "warehouseExecution" ? "返回修改" : "取消"}</button>
-          <button className="primary-action" onClick={confirm}>{modal.type === "warehouseExecution" ? warehouseReviewOpen ? "确认回录" : "下一步确认" : modal.type === "paperHandoff" ? "确认交库房" : modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : modal.type === "mismatch" ? "提交数量差异" : modal.type === "unable" ? "提交无法出库" : "确认提交"}</button>
+          <button disabled={dispatchSubmitting} onClick={warehouseReviewOpen && modal.type === "warehouseExecution" ? () => setWarehouseReviewOpen(false) : onClose}>{warehouseReviewOpen && modal.type === "warehouseExecution" ? "返回修改" : "取消"}</button>
+          <button className="primary-action" disabled={dispatchSubmitting || (modal.type === "dispatch" && !dispatchRequest && (driverRoster.loading || !dispatchDriverAvailable))} onClick={confirm}>{modal.type === "warehouseExecution" ? warehouseReviewOpen ? "确认回录" : "下一步确认" : modal.type === "paperHandoff" ? "确认交库房" : modal.type === "statementPreview" ? "确认预览" : modal.type === "printVoid" ? "确认作废" : modal.type === "batchPrintResult" ? "确认结果" : modal.type === "dispatch" ? dispatchSubmitting ? "保存中…" : dispatchRequest ? "用原内容重试" : "保存派单" : modal.type === "customerConfirmation" ? "登记确认" : modal.type === "mismatch" ? "提交数量差异" : modal.type === "unable" ? "提交无法出库" : "确认提交"}</button>
         </div>
       </section>
     </div>

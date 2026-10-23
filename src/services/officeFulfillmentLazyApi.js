@@ -15,3 +15,5 @@ export const resolveOfficeFulfillmentQuantityVariance = lazyApiCall("resolveOffi
 export const reviewOfficeDeliveryEvidence = lazyApiCall("reviewOfficeDeliveryEvidence");
 export const updateOfficeFulfillmentDispatch = lazyApiCall("updateOfficeFulfillmentDispatch");
 export const voidOfficePrintRecord = lazyApiCall("voidOfficePrintRecord");
+
+export const getOfficeFulfillmentOperatorCandidates = lazyApiCall("getOfficeFulfillmentOperatorCandidates");

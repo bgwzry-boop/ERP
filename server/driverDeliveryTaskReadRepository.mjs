@@ -179,6 +179,9 @@ LIMIT 1;
 }
 
 function driverDeliveryTaskProjectionSql(driverId) {
+  const capturedContact = ['contactName', 'contact', 'contactPhone', 'phone', 'address']
+    .map(key => `NULLIF(BTRIM(fulfillment.customer_snapshot->>'${key}'), '')`).join(', ');
+  const contactField = (keys, fallback) => `CASE WHEN COALESCE(${capturedContact}) IS NOT NULL THEN COALESCE(${keys.map(key => `NULLIF(BTRIM(fulfillment.customer_snapshot->>'${key}'), '')`).join(', ')}) ELSE ${fallback} END`;
   return `
 SELECT
   fulfillment.id AS fulfillment_id,
@@ -189,9 +192,9 @@ SELECT
   original_order.biz_no AS order_no,
   fulfillment.customer_id,
   COALESCE(NULLIF(fulfillment.customer_snapshot->>'customerName', ''), NULLIF(fulfillment.customer_snapshot->>'name', ''), customer.name, '客户待确认') AS customer_name,
-  COALESCE(NULLIF(fulfillment.customer_snapshot->>'contactName', ''), NULLIF(fulfillment.customer_snapshot->>'contact', ''), contact.contact_name, '联系人待确认') AS contact_name,
-  COALESCE(NULLIF(fulfillment.customer_snapshot->>'contactPhone', ''), NULLIF(fulfillment.customer_snapshot->>'phone', ''), contact.phone, '电话待确认') AS contact_phone,
-  COALESCE(NULLIF(fulfillment.customer_snapshot->>'address', ''), address.address, '地址待补') AS address,
+  COALESCE(${contactField(["contactName", "contact"], "contact.contact_name")}, '联系人待确认') AS contact_name,
+  COALESCE(${contactField(["contactPhone", "phone"], "contact.phone")}, '电话待确认') AS contact_phone,
+  COALESCE(${contactField(["address"], "address.address")}, '地址待补') AS address,
   line.product_name,
   line.order_type,
   line.size,
