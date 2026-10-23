@@ -1,3 +1,4 @@
+import { decisionStatementSnapshot } from "./services/businessDecisionStatementSnapshot.mjs";
 import { resolveStoreMode } from "./storeMode.mjs";
 import { createPostgresPoolClient } from "./postgresPoolClient.mjs";
 import { createPostgresParameterBinder } from "./postgresSqlParameters.mjs";
@@ -50,6 +51,10 @@ export function createLocalBusinessDecisionEvidenceRepository() {
       return commitLocalDecisionBundle({
         ...input,
         applyBusinessMutation(stagedWorkspace) {
+          if(input.decisionRecord?.businessType === "statement") {
+            const current=(stagedWorkspace.statements??[]).find(row=>cleanText(row.id??row.statementId)===input.decisionRecord.businessId);
+            if(!input.financialSnapshot || JSON.stringify(decisionStatementSnapshot(current))!==JSON.stringify(input.financialSnapshot)) throw businessError(409,"BUSINESS_DECISION_FINANCIAL_SNAPSHOT_CONFLICT","账单已变化，请刷新后重新确认。");
+          }
           assertNoActiveTerminalDecision(stagedWorkspace.businessDecisionRecords, input.decisionRecord);
           stagedWorkspace.todos = upsertById(stagedWorkspace.todos, input.todo);
           return { commitKeys: ["todos"], result: { todo: cloneJson(input.todo) } };
@@ -96,6 +101,7 @@ export function createPostgresBusinessDecisionEvidenceRepository(options = {}) {
         resourceLocks: [
           `business-decision:${input.decisionRecord?.businessType ?? ""}:${input.decisionRecord?.businessId ?? ""}:${input.decisionRecord?.decisionScope ?? ""}`,
           `todo:${input.todo?.id ?? ""}`,
+          ...(input.decisionRecord?.businessType === "statement" ? [`statement:${input.decisionRecord.businessId}`] : []),
         ],
         query,
       }));
@@ -117,10 +123,25 @@ export function buildWriteDecisionDirectiveTransactionQuery(input = {}) {
     throw new Error("Decision record, office todo, and operation log are required");
   }
   const parameters = createPostgresParameterBinder();
+  const financial = decisionRecord.businessType === "statement";
+  if (financial && (!input.financialSnapshot || input.financialSnapshot.id !== decisionRecord.businessId)) {
+    throw businessError(409, "BUSINESS_DECISION_FINANCIAL_SNAPSHOT_CONFLICT", "财务决定缺少绑定的对账快照。");
+  }
+  const financialGuard = financial ? `locked_statement AS MATERIALIZED (
+  SELECT id, revision, status, receivable_amount, received_amount, variance_amount
+  FROM statements WHERE id = ${parameters.text(decisionRecord.businessId)} FOR UPDATE
+), financial_snapshot_guard AS MATERIALIZED (
+  SELECT erp_require(EXISTS (
+    SELECT 1 FROM locked_statement WHERE jsonb_build_object(
+      'id', id, 'revision', revision, 'status', status,
+      'receivable', receivable_amount, 'received', received_amount, 'variance', variance_amount
+    ) = ${parameters.json(input.financialSnapshot)}
+  ), 'ERP_BUSINESS_DECISION_FINANCIAL_SNAPSHOT_CONFLICT') AS ok
+),` : "";
   return {
     text: `
 BEGIN;
-WITH locked_active_decision AS MATERIALIZED (
+WITH ${financialGuard} locked_active_decision AS MATERIALIZED (
   SELECT id
   FROM business_decision_records
   WHERE business_type = ${parameters.text(decisionRecord.businessType)}
@@ -134,6 +155,7 @@ business_write_guard AS MATERIALIZED (
     NOT EXISTS (SELECT 1 FROM locked_active_decision),
     'ERP_BUSINESS_DECISION_ALREADY_TERMINAL'
   ) AS ok
+  ${financial ? 'FROM financial_snapshot_guard' : ''}
 ),
 inserted_business_decision AS (
   ${buildInsertBusinessDecisionCte(decisionRecord, parameters)}
@@ -420,9 +442,9 @@ function assertNoActiveTerminalDecision(records, decisionRecord) {
 
 function normalizeDecisionDirectiveResult(value, input) {
   return {
-    businessDecision: normalizeDecisionRecord(value?.businessDecision) ?? normalizeDecisionRecord(input.decisionRecord),
-    todo: normalizeDecisionTodo(value?.todo) ?? normalizeDecisionTodo(input.todo),
-    operationLogId: cleanText(value?.operationLogId || input.operationLog?.id),
+    businessDecision: normalizeDecisionRecord(value?.businessDecision),
+    todo: normalizeDecisionTodo(value?.todo),
+    operationLogId: cleanText(value?.operationLogId),
     replayed: value?.replayed === true,
   };
 }
