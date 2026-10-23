@@ -78,7 +78,7 @@
     "office-statement-actions:check": "node scripts/check-office-statement-actions.mjs",
     "office-master-data-actions:check": "node scripts/check-office-master-data-actions.mjs",
     "office-todo-actions:check": "node scripts/check-office-todo-actions.mjs",
-    "office-fulfillment-actions:check": "node scripts/check-office-fulfillment-actions.mjs",
+    "office-fulfillment-actions:check": "node scripts/check-office-fulfillment-actions.mjs && node scripts/check-print-command-modal.mjs && node scripts/check-print-command-modal-layout.mjs",
     "office-inventory-actions:check": "node scripts/check-office-inventory-actions.mjs",
     "office-order-controller:check": "node scripts/check-office-order-controller.mjs",
     "office-page-refresh-actions:check": "node scripts/check-office-page-refresh-actions.mjs",

@@ -28,7 +28,7 @@ assert.equal(statementPolicy.mapStatementApiStatus(undefined), undefined);
 for (const status of ["delivered", "read", "confirmed", "no_response"]) {
   assert.equal(statementPolicy.normalizeStatementSendReceiptStatus(` ${status} `), status);
 }
-assert.equal(statementPolicy.normalizeStatementSendReceiptStatus("unknown"), "read");
+assert.equal(statementPolicy.normalizeStatementSendReceiptStatus("unknown"), "");
 assert.equal(statementPolicy.mapVarianceHandlingResult("carry_to_debt"), "未收差额转欠款");
 assert.equal(statementPolicy.mapVarianceHandlingResult("approved_allowance"), "抹零/减免已审批");
 assert.equal(statementPolicy.mapVarianceHandlingResult("bill_needs_recalc"), "账单有误待重算");

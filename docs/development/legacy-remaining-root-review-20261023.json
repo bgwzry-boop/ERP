@@ -1,0 +1,1203 @@
+{
+  "schema": "erp-legacy-semantic-review-v1",
+  "date": "2026-10-23",
+  "domain": "root-governance-and-cross-domain-attachments",
+  "base": "2af7a9aa42a85c3c4124a5bac4c9c6926ca0043d",
+  "legacyHead": "1ed23b2b86314feff63cb62d8c7deb9375552345",
+  "scope": "29条主分组+订单分组转交的20条附件逐实际差异复核。supplementalRecords只作跨领域证据，不重复计入497总数。",
+  "summary": {
+    "reviewed": 29,
+    "supplementalReviewed": 20,
+    "wholeCommitsIntegrated": 0
+  },
+  "records": [
+    {
+      "commit": "f53043e2704eaf81f290d34d0da59e66820e2b42",
+      "subject": "fix(miniapp): retire legacy public ERP BFF launcher",
+      "decision": "semantics-transplanted",
+      "reason": "旧ERP公开小程序BFF启动入口仍可开启，已在数据库与监听之前拒绝正式运行；保留内部测试桥接，遵循外部BFF单一入口规则。",
+      "currentEvidence": [
+        {
+          "path": "server/miniapp/miniappInternalRuntimePolicy.mjs",
+          "present": true
+        },
+        {
+          "path": "server/miniapp/startMiniappApiServer.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-miniapp-runtime-config.mjs",
+        "scripts/check-miniapp-bff.mjs"
+      ],
+      "legacyPatchSha256": "00412b20cf1d782949efccd4b6dac9beab4f585b4117dfe3485ae42fff16bfc3",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "ad7a0b87d0f57b580435d1e80aab632c4b8e0fe5",
+      "subject": "fix(miniapp): lock intake before reading transaction snapshot",
+      "decision": "semantics-transplanted",
+      "reason": "业务资源锁必须在事务语句快照之前取得；保留现有参数化执行和幂等契约，用真实PostgreSQL等待锁验证。",
+      "currentEvidence": [
+        {
+          "path": "server/postgresPoolClient.mjs",
+          "present": true
+        },
+        {
+          "path": "server/miniapp/miniappPostgresRepository.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-miniapp-postgres-live.mjs"
+      ],
+      "legacyPatchSha256": "19f72dcd817e84bf77dda2a4b0469dabb64bd3b8d61848068e4d17c63d59fbeb",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "31a6fd568d1483030e319e9be310889f5f739085",
+      "subject": "docs: preserve audit evidence and truthful optimization coverage",
+      "decision": "historical-evidence-retained",
+      "reason": "旧审计文档与截图继续保存在来源Git中；新台账明确范围、未部署和验收边界，不把旧覆盖率当当前业务正确证据。",
+      "currentEvidence": [
+        {
+          "path": "docs/development/p1-legacy-integration-ledger-20261023.json",
+          "present": true
+        }
+      ],
+      "validation": [],
+      "legacyPatchSha256": "8a294d7dfaab19a917f0b91da5b6c8abb3a083a7be8dcbea6a9e9c193afcc500",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "1bdb0a8722018a743f3b9191ae7fd5a3596d10ee",
+      "subject": "fix: bind decision directives to valid business targets and financial facts",
+      "decision": "semantics-transplanted",
+      "reason": "批示只能绑定允许的业务对象；财务事实由服务端真实账单计算，不能由浏览器伪造。采用当前共享范围契约及行锁后快照校验。",
+      "currentEvidence": [
+        {
+          "path": "shared/businessDecisionCatalog.js",
+          "present": true
+        },
+        {
+          "path": "server/services/businessDecisionDirectiveCommandService.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-business-decision-financial-postgres.mjs"
+      ],
+      "legacyPatchSha256": "c01e0e08eeddb1e2a1229730355bd579b76da91a94b7616c368f5c4a59cfa9a0",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "5fdbf1c62bcf94440cab92cb572f2c0b9808bf71",
+      "subject": "fix: distinguish historical completion estimates from verified readiness",
+      "decision": "semantics-transplanted",
+      "reason": "历史完成估计不能显示为已验收；未知进度明确待核查，真实运行就绪度按服务端条件显示。",
+      "currentEvidence": [
+        {
+          "path": "src/features/v1-status/v1StatusPresentation.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-v1-status-page.mjs"
+      ],
+      "legacyPatchSha256": "4e45cc3b33853d430635fc1614b494e85a44c0de24e06bd3496426200fec4b3a",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "65fb43c406c34c072e603ba62734937b36d88224",
+      "subject": "fix(ui): isolate delegated evidence uploads and preserve retry identity",
+      "decision": "semantics-transplanted",
+      "reason": "批示上传按对象与会话隔离，保持失败草稿、文件、删除及提交原请求身份；只能上传真实二进制证据，提交前必须有已保存的证据。",
+      "currentEvidence": [
+        {
+          "path": "src/components/DelegatedBusinessDecisionFields.jsx",
+          "present": true
+        },
+        {
+          "path": "src/components/useDecisionEvidenceGate.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-delegated-decision-evidence-ui.mjs"
+      ],
+      "legacyPatchSha256": "9f642640fe59395b20919e91a7ac9deb0ae3d96284b9ba9f202bd9c194ff8692",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "7f53b438bde72fd5762649c4737c6d6475b7543a",
+      "subject": "test(delivery): verify office review draft isolation and failure recovery",
+      "decision": "semantics-transplanted",
+      "reason": "送达证据复核按出库单与会话隔离草稿；失败保留原因，异步旧回包不能覆盖新单，复核绑定实际照片和版本。",
+      "currentEvidence": [
+        {
+          "path": "src/features/fulfillment/DeliveryEvidenceReviewPanel.jsx",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-delivery-evidence-review-panel.mjs"
+      ],
+      "legacyPatchSha256": "453e89c87cf89025030df923e50b083f4e95523b1497886ee568f9a37e694855",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "c95df7fcb98b91869738a135e93e850646401811",
+      "subject": "test(delivery): exercise missing-price gate and persisted priced completion",
+      "decision": "current-contract-retained",
+      "reason": "未知有效价格不得计账；使用现有实际交付量与赠送量分摊契约，缺价拒绝不留库存/账务半成品，补齐真实价格再合法完成。",
+      "currentEvidence": [
+        {
+          "path": "server/services/fulfillmentBillingSnapshotService.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-finance-closeout-postgres.mjs",
+        "scripts/check-fulfillment-gift-billing-postgres.mjs"
+      ],
+      "legacyPatchSha256": "c834595f3f90919fdd5dc9d7f75db8121bb924a9fa680eaaba5aa634231412bc",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "933c6b8a90716a23903240c2ade755d7c0924205",
+      "subject": "test(pickup): separate insufficient reservation and full delivery scenarios",
+      "decision": "current-contract-retained",
+      "reason": "自提与快递必须区分库存不足失败和已具足量占用后的合法执行，遵循当前实物出库单据契约，不能恢复旧的无单直接扣库。",
+      "currentEvidence": [],
+      "validation": [
+        "scripts/check-p1-order-delivery-integration.mjs"
+      ],
+      "legacyPatchSha256": "635e8c86c903795082bf6cbe3a50648537b8e23f4bb1b4f703490964a34de0e6",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "a21a73ae1518085e649a239b48fda5d1821e989b",
+      "subject": "test(packing): verify worker redaction and office ledger visibility",
+      "decision": "current-contract-retained",
+      "reason": "工人只读取本人机台生产资料且不可见办公室财务字段；办公室台账使用绑定库存行的真实流水，不接纳外来或未绑定行。",
+      "currentEvidence": [
+        {
+          "path": "server/routes/productionReadRoutes.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-office-operational-reads.mjs",
+        "scripts/check-business-read-api.mjs"
+      ],
+      "legacyPatchSha256": "0454b633ad918e393e9fab20c568971a86c7d1fc0a1a4d6d84c8f7bfba949176",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "df35fa87eb2483e2805d3af8842ef3b02267e774",
+      "subject": "test(ui): inspect delivery evidence review with application styles",
+      "decision": "semantics-transplanted",
+      "reason": "对实际办公室复核组件使用现有应用CSS做桌面布局检查；保留完整新业务工作台，不恢复旧版蓝色布局。",
+      "currentEvidence": [
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/BusinessWorkspaces.jsx",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-office-evidence-review-page.mjs"
+      ],
+      "legacyPatchSha256": "9a6a9d194f4467abd2b17674036eece8355ea5c78c79c5bc7370ed1ff7a471f9",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "cb513be5898d92b2532c11786a8641f4157f5567",
+      "subject": "test(ui): cover narrow delivery review and long errors",
+      "decision": "semantics-transplanted",
+      "reason": "实际复核组件在1440/1024/800宽度及长失败文字下可读可操作，原请求处理中按钮锁定。",
+      "currentEvidence": [
+        {
+          "path": "src/features/fulfillment/delivery-evidence-review.css",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-office-evidence-review-page.mjs"
+      ],
+      "legacyPatchSha256": "9ddbb929c114e9b9ec060e5406b1d4328c7dc2357912a3ad4cf3da4e5ae54b91",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "338990319bbb288397f8128b635b3d1f7733dfc5",
+      "subject": "test(delivery): verify signed evidence review over real HTTP",
+      "decision": "semantics-transplanted",
+      "reason": "使用后端签名会话和隔离HTTP服务验证照片内容读取、操作者与时钟归属；伪造身份、旧照片版本拒绝。",
+      "currentEvidence": [
+        {
+          "path": "src/services/officeFulfillmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-delivery-evidence-live-api.mjs"
+      ],
+      "legacyPatchSha256": "d1aebe965ea4f4cd74cbcef779ef8c6f7e1776aa3d7651456ed324964dea1a13",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "0f9aad1b1613cc612f8aa978998ee2291fa3a5a8",
+      "subject": "test(delivery): exercise real panel against signed HTTP API",
+      "decision": "semantics-transplanted",
+      "reason": "真实React复核面板调用真实客户端和签名HTTP，验证图片成功解码、退回原因持久化和回读；不是生产现场验收。",
+      "currentEvidence": [
+        {
+          "path": "src/features/fulfillment/useFulfillmentDetail.js",
+          "present": true
+        },
+        {
+          "path": "src/features/fulfillment/DeliveryEvidenceReviewPanel.jsx",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-delivery-evidence-live-api.mjs"
+      ],
+      "legacyPatchSha256": "3d987fefe3be2432b3b02fe081609f288af7e9b2bf4bb50ab4986117d0b14ae0",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "c08dc3678611efbd29a8afc9af487f15726b2192",
+      "subject": "fix(ui): improve ledger long-text layout and factory time display",
+      "decision": "current-contract-retained",
+      "reason": "台账长文字与上海工厂时间规则已在前批存在；保留现有库存结构、色块和实物流水，不重复覆盖。",
+      "currentEvidence": [
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/FinishedInventoryLedger.jsx",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-office-todo-inventory-pages.mjs"
+      ],
+      "legacyPatchSha256": "e77d376a0cbc3de739fd2606fefc45d44e983d6fb291f44b7ef4c8316a3f313d",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "b44252953c39812575a2b9f3145a2176db55f1d4",
+      "subject": "fix: generate unique default operation audit identifiers",
+      "decision": "semantics-transplanted",
+      "reason": "默认操作审计编号改为独立随机标识，不再由数组长度推算，避免并行操作碰撞。",
+      "currentEvidence": [
+        {
+          "path": "server/services/workspaceRecordService.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs"
+      ],
+      "legacyPatchSha256": "501d33cb0220ed98cb07076ebef123287d60f5ecaac6458ffd1ea037c7fc18af",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "09a8105e90c0c1285b4b728188e960b56ae2acad",
+      "subject": "fix: protect explicit audit sequence callers from collisions",
+      "decision": "semantics-transplanted",
+      "reason": "保留显式序号调用的历史格式，只修无显式序号的LOG/ALOG默认编号；避免破坏既有追溯关系。",
+      "currentEvidence": [
+        {
+          "path": "server/services/workspaceRecordService.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs"
+      ],
+      "legacyPatchSha256": "8e639eb8228f39c2659679e995c10bea2ac3ba67fbc3584d80bc5b112730e00d",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "cdea1985e05dc84993d4b2d3a526267035fb2fc2",
+      "subject": "test: verify PostgreSQL access audit collisions preserve history",
+      "decision": "semantics-transplanted",
+      "reason": "访问审计主键冲突必须拒绝且保留原行；不能ON CONFLICT覆盖旧历史，只有持久化成功才发布工作区审计。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-postgres-live-attachment-repository-scenario.mjs"
+      ],
+      "legacyPatchSha256": "8190cdce145e8cd460b1039fdec6e8855a366a18e9f5642a7fe92340db5b80c8",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "d2e26c464686f141045338e65e44a4e04e69446c",
+      "subject": "test: expose pooled master-data transaction execution failure",
+      "decision": "semantics-transplanted",
+      "reason": "厂家色映射多语句事务使用正式池执行接口；真实PostgreSQL同时覆盖默认共享池和锁等待路径。",
+      "currentEvidence": [
+        {
+          "path": "server/postgresPoolClient.mjs",
+          "present": true
+        },
+        {
+          "path": "server/masterDataImportTransactionRepository.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-legacy-materials-postgres-r2.mjs"
+      ],
+      "legacyPatchSha256": "f67f6b612c9d67601f9ac61c26f30a03497ed9dd0540e4e2101d1059162a4fab",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "dd0f800e18a1de8f01237780579d53a0d8c4afa9",
+      "subject": "fix: return persisted colour mapping timestamps for subsequent edits",
+      "decision": "semantics-transplanted",
+      "reason": "厂家映射编辑返回数据库实际时间而非请求猜测时间，下一次编辑仍以真实持久版本为准。",
+      "currentEvidence": [
+        {
+          "path": "server/coreWorkspaceReadRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "server/services/rawMaterialSupplierColorMappingService.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-legacy-materials-postgres-r2.mjs"
+      ],
+      "legacyPatchSha256": "022aa38746781e05ff370ca44cdbaa8c96c1cb7c92023a9ac64b20f0f78335ea",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "ca923086a0e77f43fdaeee6f55cae06d5a7ac115",
+      "subject": "test: verify cold colour edit snapshots preserve database precision",
+      "decision": "semantics-transplanted",
+      "reason": "冷读必须保留数据库微秒时间快照，连续编辑与过期编辑分别成功/冲突，避免精度损失误判。",
+      "currentEvidence": [
+        {
+          "path": "server/coreWorkspaceReadRepository.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-legacy-materials-postgres-r2.mjs"
+      ],
+      "legacyPatchSha256": "c5c153b71171952c4a865d1c89fce16912ca760499fcbafc280d47efc83baf99",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "155cdd4d4432c54d17fdd0b5d283e06659b0be0f",
+      "subject": "test: verify canonical colour conflict recovery across desktop widths",
+      "decision": "semantics-transplanted",
+      "reason": "色映射冲突后重新读取最新映射且保留明确失败提示；桌面窄屏与手机使用当前新布局。",
+      "currentEvidence": [
+        {
+          "path": "src/features/raw-materials/RawMaterialSupplierColorMappingDialog.jsx",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-supplier-color-dialog.mjs",
+        "scripts/check-supplier-color-responsive.mjs"
+      ],
+      "legacyPatchSha256": "167fab443dd6c5b74a81118c6e97533e1186b2fb30ba45cf3be2d9346c7bb8eb",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "d3f111ce0925eb918b86cbc87d85acbc61978daf",
+      "subject": "docs: reconcile current audit coverage without upgrading review claims",
+      "decision": "historical-evidence-retained",
+      "reason": "旧路径清点脚本不搬入作为当前业务验收；本次按冻结497清单逐项留补丁摘要、当前证据和决定，历史机械快照仍保留。",
+      "currentEvidence": [
+        {
+          "path": "docs/development/p1-legacy-integration-ledger-20261023.json",
+          "present": true
+        }
+      ],
+      "validation": [],
+      "legacyPatchSha256": "f73442eeb1d21b8059d653fa09a22248e74d8920ed644eae5d65fa2568692d67",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "9e344111b4fa5268c38a777e269c1ae79bcfce1d",
+      "subject": "fix(review): cancel stale viewport family reload on reversal",
+      "decision": "semantics-transplanted",
+      "reason": "真实手机跨视口族才重载；宽度迅速反转时取消过时重载，使用最后URL而非旧事件地址。",
+      "currentEvidence": [
+        {
+          "path": "docs/prototypes/raw-material-roll-inventory-review/src/complete-review-entry.jsx",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-review-viewport-reversal.mjs"
+      ],
+      "legacyPatchSha256": "db57d82a6b9061c5aa03d761eb2d2903a931f4e81bdb55a7673304e470f52bf0",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "feede8f5848aef3535ac3238cbf9ef793e61884f",
+      "subject": "test(review): require rendered mobile and desktop shells in preview gate",
+      "decision": "semantics-transplanted",
+      "reason": "预览检查验证真实渲染的手机/桌面外壳和应用身份；不能仅以HTTP200或宽度代替设备家族。",
+      "currentEvidence": [
+        {
+          "path": "scripts/check-complete-review-preview.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-review-viewport-live-readonly.mjs"
+      ],
+      "legacyPatchSha256": "11bdbc15b6d2a068bcbcb0ed2dd9dc805e025d0f6435bc206939f713d75825f2",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "a7d4029ddf4989958faa05582a5f1f824c903683",
+      "subject": "fix: require actual packed quantities and map delivery audit coverage",
+      "decision": "semantics-transplanted",
+      "reason": "打包必须明确填写实物数量，拒绝空值、字符串、零、负数、小数；不能以计划量代替，保留当前独立实包及精确批次。",
+      "currentEvidence": [
+        {
+          "path": "server/services/packingCommandService.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-production-packing-integrity-postgres.mjs"
+      ],
+      "legacyPatchSha256": "6bfc10564ad38016bb19a6a95589721ab838a99baf2ae4fa3a2e48412c57be6d",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "a37f30c636d3569df8f991abca8ccb514f30d32d",
+      "subject": "fix: preserve price delivery retry budget while awaiting activation",
+      "decision": "semantics-transplanted",
+      "reason": "等待价格激活属于正常等待，不消耗真实失败重试次数，不抹掉先前失败；重复和过时激活不能绕开预算。",
+      "currentEvidence": [
+        {
+          "path": "server/miniapp/erpPriceReleaseDeliveryRepository.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-price-activation-wait-postgres.mjs"
+      ],
+      "legacyPatchSha256": "75ce19f5e84b16dd7fe4b4f988aa935d2bb3e9758a7f773be1088bbcc62b33d4",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "dcd13f67db6682d7288b1e85f7cb038bb5fc7d65",
+      "subject": "test: persist isolated price activation wait regression",
+      "decision": "semantics-transplanted",
+      "reason": "以隔离PostgreSQL验证连续25次正常等待、旧回执/重复激活及真实失败耗尽；明确测试范围不是完整外部BFF。",
+      "currentEvidence": [
+        {
+          "path": "scripts/check-price-activation-wait-postgres.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-price-activation-wait-postgres.mjs"
+      ],
+      "legacyPatchSha256": "d27474dbf2ce163580354c28025ddfd3b266bf20c3edff1085c792aa5afffd47",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "e261f7730c9009781322457656d32696d73ab180",
+      "subject": "fix: keep miniapp delivery workers alive while idle",
+      "decision": "semantics-transplanted",
+      "reason": "投递worker空闲或首次失败后仍常驻，SIGTERM可退出；使用实际worker循环与隔离数据替身，未调用正式外部投递。",
+      "currentEvidence": [
+        {
+          "path": "server/miniapp/startErpPriceReleaseDeliveryWorker.mjs",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-miniapp-worker-liveness.mjs"
+      ],
+      "legacyPatchSha256": "80b2b2d32908c8f6bc7aa0b0c94f2120e3c3f4e239112d3461cf0a5c95c9fbd7",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    }
+  ],
+  "supplementalRecords": [
+    {
+      "commit": "b9350f4222f37916a7176c52e0346beed1e6b3bd",
+      "subject": "feat: expose statement evidence history with authenticated downloads",
+      "decision": "current-contract-retained",
+      "reason": "对账单保留真实证据与处理历史；采用当前只读权限和分类差异处理，旧权限平铺界面不回退。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "e1ad6c9138aa7202a117bdf4a71a70daafa66159d10738023f9343cd1e30ca35",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "7497bd420ad129c7d14f9ade0275b6b23bbe37d0",
+      "subject": "fix: assign independent attachment access audit identities",
+      "decision": "semantics-transplanted",
+      "reason": "附件访问审计ALOG使用独立随机标识，保护既有审计序号格式。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "27ee99f7a7fd0287df42b5c06d5f5722faadac9aac9240c806687dcb9058f595",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "50cb542b3139130fab69fe6f0a68dc45027d4566",
+      "subject": "fix: reject attachment access audit overwrites",
+      "decision": "semantics-transplanted",
+      "reason": "审计主键写入不可覆盖，碰撞失败不产生伪成功。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "51ac21e4859e242f5e883898db2e05c02bdcee15ade6d2ee7563f0a731907710",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "f7a8ef8d1f6f0fee4a3b5399ce67d1e2c6b37059",
+      "subject": "fix: publish local access audit only after persistence succeeds",
+      "decision": "semantics-transplanted",
+      "reason": "本地文件原子保存成功后才发布内存审计历史，失败保持原状态。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "78abe90dc0fdfb443590944cb7665911b8cad685212d2f3b21209ef7d3755eb3",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "d86cd94a907873458454b456adfe60944ea65ccd",
+      "subject": "fix: publish attachment operation evidence after audit success",
+      "decision": "semantics-transplanted",
+      "reason": "照片读取的访问操作审计也必须先成功持久化，不能先向工作区报成功。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "e62139df62a99aabdc15032b3200b02541bc2deeba56ac2ef32b4db657df9161",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "83ecd26e6556bebb13f64e0f150b03625dca1775",
+      "subject": "fix: reject corrupt attachment audit history during startup",
+      "decision": "semantics-transplanted",
+      "reason": "损坏的审计文件显式报错，不初始化为空后覆盖。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "35b02fc46588242c5639b19e2fe960bed1b3619825ada29084a7c0044840544a",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "a92c0c8e290c3a16923906456bccd0bc053ab336",
+      "subject": "fix: preserve attachment audit history on invalid writes",
+      "decision": "semantics-transplanted",
+      "reason": "非法审计写入拒绝且保留原历史，不把错误记录过滤掉再覆盖全表。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "7df007effa2e3251dda0cc21873c0e5a5c26f19966b6826a771d83f055853375",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "be093f25f9016033e1b3b4a81388983ef01dca2c",
+      "subject": "fix: reject incomplete attachment audit list results",
+      "decision": "semantics-transplanted",
+      "reason": "审计列表核对附件归属、唯一ID、总量与合法时间，错误不假装空列表。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "98f07049bcc26a92faa0aea978be5d6e1a1ef249ef1160fb8a8745a99d64f2e9",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "e0ce7beeb3b6dcc29a43848a8c5a45e7c8a8597d",
+      "subject": "fix: order local attachment audit reads by occurrence time",
+      "decision": "semantics-transplanted",
+      "reason": "本地审计列表按真实时间稳定排序。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "067550d9d8181bf50be275606c2550dc3425c6477fbf62b8db6f20bb55961f75",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "2066f5e5e8bc5d2e9726ffb4a8da526dc13512a1",
+      "subject": "fix: report unavailable attachment audit history explicitly",
+      "decision": "semantics-transplanted",
+      "reason": "访问历史读取不可用明确失败，不能伪造零记录。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "d62ae1217c3947c6fff10c0aa13b5a2e10a93a4813403e06d8319021ff2edafa",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "6543fd63e3ad75dd9c1e7c300f52a22d520a5a96",
+      "subject": "fix: preserve attachment preview when audit loading fails",
+      "decision": "semantics-transplanted",
+      "reason": "访问历史失败保留已核验的图片预览，并允许明确重试。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "444a6cdd9ff1c93f3782e17e2824b5a71738439415936c5076de99a51e01b81c",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "2e0f68234659332199311d7242887433d907681c",
+      "subject": "fix: discard superseded attachment preview reads",
+      "decision": "semantics-transplanted",
+      "reason": "附件查看器用当前选择与会话标识隔离晚响应，旧单回包不替换新单。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "e71f0f11ca7b1a998b3c4d677c861e0ce88f6f2f9ed069b20728a431774c3e2b",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "861b8530027e8b21d671ce06f15846fcf18c1934",
+      "subject": "test: cover finance attachment preview stale responses",
+      "decision": "semantics-transplanted",
+      "reason": "验证付款/客户切换时旧证据回包不能串单，保留当前累计实收口径。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "e53acc2615d3beb45980d98f3d82dd122a3da4f85d261f1047aaede25da0391e",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "3397970bc2a90de61b69e62ea6b738b6b01a0996",
+      "subject": "fix: release attachment sync keys after failed reads",
+      "decision": "semantics-transplanted",
+      "reason": "重试与重新同步使用请求序列，失效旧请求不清除新错误/新预览。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "4337d4d7e0aec9b34a19eb4a507c4cf363e75d5e91297c7fedf5d77e2245e584",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "256350c63e912b581d123e3d0dee6bfd4c2dafd1",
+      "subject": "fix: isolate superseded attachment synchronization reads",
+      "decision": "semantics-transplanted",
+      "reason": "同步请求有稳定会话与请求序列，回包仅能更新发起它的范围。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "e4e108e5352c49d433c6014203dc80bfc5a351dfdef7adfb15af652822cdfdac",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "4fa8d1e7f6687ae41f10a6e8da09e3cc2e2b09ef",
+      "subject": "fix: reset attachment synchronization markers per session",
+      "decision": "semantics-transplanted",
+      "reason": "换账号后证据状态重建，失效旧响应与旧对象URL。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "2b550c0d6856335cbaf0bcd4ddee22b4fedc222e479bdec5696278cd7f783434",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "9f1c6f0749ae32ceab13c21c97ac0a00b8ec6a11",
+      "subject": "fix: require current authorization for cached attachment opens",
+      "decision": "semantics-transplanted",
+      "reason": "缓存图片再次打开也先核对当前认证，避免会话过期绕过服务器。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "057a07348888352e70f300e1259ab1fae108d95e4d892fdaaab65f9334a1acc4",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "8950b14e387c687e4ddb7103c0c00215be86ede1",
+      "subject": "test: verify browser payment amount and attachment linkage",
+      "decision": "semantics-transplanted",
+      "reason": "真实浏览器验证付款金额及附件链接；保留当前实收金额累计更新契约。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "03f5c7fb11c7b949bbe0b4d3885c7e0d85b1355996bf8a29d4e8a44397d84045",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "d3c3f90f570e50242b9c79c5813636d57fee9b1c",
+      "subject": "test: verify payment proof viewer audit failure recovery",
+      "decision": "semantics-transplanted",
+      "reason": "真实浏览器验证访问审计失败有文字提示、保留图片且可重试。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "970c555886034e8ddedad3543371f1854d52fc86870e019a5dd6f89932c67715",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    },
+    {
+      "commit": "ed5696bfe3d6875b05af469da90bf1a579b86e6c",
+      "subject": "test: verify late payment attachment response after account switch",
+      "decision": "semantics-transplanted",
+      "reason": "真实浏览器验证换账号后晚到照片不能显示到新会话。",
+      "currentEvidence": [
+        {
+          "path": "server/attachmentRepository.mjs",
+          "present": true
+        },
+        {
+          "path": "src/app/createOfficeAttachmentActions.js",
+          "present": true
+        },
+        {
+          "path": "server/services/attachmentFileAccessService.mjs",
+          "present": true
+        },
+        {
+          "path": "src/services/officeAttachmentApiClient.js",
+          "present": true
+        }
+      ],
+      "validation": [
+        "scripts/check-attachment-access-audit-identity.mjs",
+        "scripts/check-office-attachment-actions.mjs",
+        "e2e/core-business-flow.spec.mjs"
+      ],
+      "legacyPatchSha256": "7f24b385f29c9af0ad9551e09d20963c87c7bfbc7f9947a2bff59ca7d301d45b",
+      "wholeCommitIntegrated": false,
+      "remainingScope": "仅采纳本条说明的现行规则与防线，历史文档/脚本仍在原Git保留；不声明旧整提交或完整旧视觉全部搬运。"
+    }
+  ],
+  "validationBoundary": "本次本地独立任务树整合；专项、数据库和真实浏览器测试结果由最终closeout记录，线上版本未改变。"
+}
